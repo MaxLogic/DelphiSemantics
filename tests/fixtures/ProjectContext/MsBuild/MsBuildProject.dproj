@@ -13,6 +13,51 @@
     <DCC_UnitScopeNames>Project.Scope;$(DCC_UnitScopeNames)</DCC_UnitScopeNames>
     <DCC_UnitAlias>Project.Legacy=Project.Modern;$(DCC_UnitAlias)</DCC_UnitAlias>
   </PropertyGroup>
+  <PropertyGroup Condition="'Debug'=='Debug'">
+    <DCC_Define>LITERAL_COMPARISON_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup Condition="'Debug'=='Debug'or'Release'=='Debug'">
+    <DCC_Define>COMPACT_OR_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup Condition="'Debug' != 'Release'">
+    <DCC_Define>NOT_EQUAL_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup Condition="'Debug'=='Debug' and Exists('Imported.props')">
+    <DCC_Define>EXISTS_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup Condition="'Debug'=='Debug' and !Exists('Missing.props')">
+    <DCC_Define>NOT_EXISTS_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup Condition="'bin'!='' and !HasTrailingSlash('bin')">
+    <DCC_Define>NOT_TRAILING_SLASH_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup Condition="'bin\'!='' and HasTrailingSlash('bin\')">
+    <DCC_Define>TRAILING_SLASH_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup Condition="'C:\Build Output'!='' and !HasTrailingSlash(C:\Build Output)">
+    <DCC_Define>UNQUOTED_HAS_TRAILING_SLASH_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup Condition="'Debug'=='Release' or ('No'=='Yes' or 'Debug'=='Debug')">
+    <DCC_Define>PARENTHESIZED_OR_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup>
+    <EnableImportedProps>true</EnableImportedProps>
+    <LANGDIR>''</LANGDIR>
+    <PreBuildEvent>echo before$(PreBuildEvent)</PreBuildEvent>
+  </PropertyGroup>
+  <Import Project="Imported.props" Condition="'$(EnableImportedProps)'=='true' And Exists('Imported.props')"/>
+  <PropertyGroup Condition="'$(ImportedOrderFlag)'=='true'">
+    <DCC_Define>IMPORT_ORDER_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ImportedOverride>project</ImportedOverride>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(ImportedOverride)'=='project'">
+    <DCC_Define>POST_IMPORT_OVERRIDE_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(LANGDIR)' != ''">
+    <DCC_Define>LANGDIR_SHOULD_NOT_APPLY;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
   <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Base)'=='true')">
     <DCC_Define>INACTIVE_AND_DEFINE;$(DCC_Define)</DCC_Define>
   </PropertyGroup>

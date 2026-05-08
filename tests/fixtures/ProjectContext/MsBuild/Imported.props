@@ -1,0 +1,7 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ImportedOrderFlag>true</ImportedOrderFlag>
+    <ImportedOverride>imported</ImportedOverride>
+    <DCC_Define>IMPORTED_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+</Project>

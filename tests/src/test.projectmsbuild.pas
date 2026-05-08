@@ -19,6 +19,12 @@ type
     [Test]
     procedure DebugContextAppliesOptsetAndNormalizesPaths;
     [Test]
+    procedure MigratedDakConditionCasesApplyExpectedProperties;
+    [Test]
+    procedure MigratedDakImportAndSelfReferenceCasesApplyExpectedProperties;
+    [Test]
+    procedure MigratedDakInvalidConditionCasesProduceDiagnostics;
+    [Test]
     procedure OptionsSelectActiveConfigurationAndPlatform;
     [Test]
     procedure UnresolvedMacrosProduceDiagnostics;
@@ -89,6 +95,17 @@ begin
   Result := False;
 end;
 
+function HasAnyInvalidConditionDiagnostic(const aResult: TDelphiSemanticContextResult): Boolean;
+var
+  lDiagnostic: TDelphiSemanticDiagnostic;
+begin
+  for lDiagnostic in aResult.Diagnostics do
+    if SameText(lDiagnostic.Code, 'INVALID_MSBUILD_CONDITION') then
+      Exit(True);
+
+  Result := False;
+end;
+
 function TProjectMsBuildTests.HasUnresolvedMacro(const aItems: TArray<string>): Boolean;
 var
   lItem: string;
@@ -122,6 +139,49 @@ begin
   Assert.IsTrue(ContainsText(lResult.Project.UnitAliases, 'Optset.Legacy=Optset.Modern'), 'Optset alias');
   Assert.IsTrue(ContainsPath(lResult.Project.ReferenceDirectories, TPath.Combine(lProjectDir, 'Source')), 'Source reference');
   Assert.IsTrue(ContainsPath(lResult.Project.ReferenceDirectories, FixturePath('ProjectContext\Shared')), 'Shared reference');
+end;
+
+procedure TProjectMsBuildTests.MigratedDakConditionCasesApplyExpectedProperties;
+var
+  lResult: TDelphiSemanticContextResult;
+begin
+  lResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'));
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'LITERAL_COMPARISON_DEFINE'));
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'COMPACT_OR_DEFINE'));
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'NOT_EQUAL_DEFINE'));
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'EXISTS_DEFINE'));
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'NOT_EXISTS_DEFINE'));
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'NOT_TRAILING_SLASH_DEFINE'));
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'TRAILING_SLASH_DEFINE'));
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'UNQUOTED_HAS_TRAILING_SLASH_DEFINE'));
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'PARENTHESIZED_OR_DEFINE'));
+end;
+
+procedure TProjectMsBuildTests.MigratedDakImportAndSelfReferenceCasesApplyExpectedProperties;
+var
+  lResult: TDelphiSemanticContextResult;
+begin
+  lResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'));
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'IMPORTED_DEFINE'));
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'IMPORT_ORDER_DEFINE'));
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'POST_IMPORT_OVERRIDE_DEFINE'));
+  Assert.IsFalse(ContainsText(lResult.Project.Defines, 'LANGDIR_SHOULD_NOT_APPLY'));
+  Assert.AreEqual('echo before', lResult.Project.PropertyValue('PreBuildEvent'));
+  Assert.AreEqual('project', lResult.Project.PropertyValue('ImportedOverride'));
+end;
+
+procedure TProjectMsBuildTests.MigratedDakInvalidConditionCasesProduceDiagnostics;
+var
+  lResult: TDelphiSemanticContextResult;
+begin
+  lResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\InvalidConditionProject.dproj'));
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(HasAnyInvalidConditionDiagnostic(lResult));
 end;
 
 procedure TProjectMsBuildTests.OptionsSelectActiveConfigurationAndPlatform;
