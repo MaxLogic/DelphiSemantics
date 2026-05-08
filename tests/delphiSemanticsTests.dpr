@@ -10,7 +10,8 @@ uses
   Test.Preprocess in 'src\test.preprocess.pas',
   Test.ProjectContext in 'src\test.projectcontext.pas',
   Test.ProjectMsBuild in 'src\test.projectmsbuild.pas',
-  Test.Smoke in 'src\test.smoke.pas';
+  Test.Smoke in 'src\test.smoke.pas',
+  Test.UnitModel in 'src\test.unitmodel.pas';
 
 var
   lRunner: ITestRunner;

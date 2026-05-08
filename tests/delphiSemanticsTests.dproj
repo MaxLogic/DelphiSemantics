@@ -57,8 +57,11 @@
     <DCCReference Include="src\test.projectmsbuild.pas"/>
     <DCCReference Include="src\test.preprocess.pas"/>
     <DCCReference Include="src\test.smoke.pas"/>
+    <DCCReference Include="src\test.unitmodel.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Model.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Preprocess.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.ProjectContext.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Source.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Version.pas"/>
   </ItemGroup>
   <ItemGroup>

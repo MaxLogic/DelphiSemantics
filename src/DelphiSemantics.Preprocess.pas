@@ -5,6 +5,7 @@ interface
 type
   TDelphiSemanticPreprocessOptions = record
     SourceFileName: string;
+    SourceText: string;
     Defines: TArray<string>;
     SearchPaths: TArray<string>;
   end;
@@ -420,7 +421,14 @@ function ProcessDirective(const aDirective, aFileName: string; const aLine: Inte
   const aOptions: TDelphiSemanticPreprocessOptions; const aDefines: TDefineMap;
   const aStack: TList<TPreprocessFrame>; const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>;
   const aOutput: TStringBuilder; const aRegions: TList<TDelphiSemanticSourceRegion>;
-  const aIncludes: TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>): Boolean; forward;
+  const aIncludes: TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>;
+  var aOutputLineWritten: Boolean): Boolean; forward;
+
+function IsRootSourceFile(const aFileName: string;
+  const aOptions: TDelphiSemanticPreprocessOptions): Boolean;
+begin
+  Result := SameText(TPath.GetFullPath(aOptions.SourceFileName), aFileName);
+end;
 
 procedure ProcessSourceFile(const aFileName: string; const aOptions: TDelphiSemanticPreprocessOptions;
   const aDefines: TDefineMap; const aStack: TList<TPreprocessFrame>;
@@ -431,6 +439,7 @@ var
   i: Integer;
   lDirective: string;
   lLines: TStringList;
+  lOutputLineWritten: Boolean;
   lText: string;
 begin
   if not TFile.Exists(aFileName) then
@@ -449,7 +458,10 @@ begin
     Exit;
   end;
 
-  lText := TFile.ReadAllText(aFileName, TEncoding.UTF8);
+  if IsRootSourceFile(aFileName, aOptions) and (aOptions.SourceText <> '') then
+    lText := aOptions.SourceText
+  else
+    lText := TFile.ReadAllText(aFileName, TEncoding.UTF8);
   lLines := TStringList.Create;
   try
     aIncludeStack.Add(aFileName);
@@ -458,14 +470,19 @@ begin
     begin
       if TryExtractDirective(lLines[i], lDirective) then
       begin
+        lOutputLineWritten := False;
         if not ProcessDirective(lDirective, aFileName, i + 1, aOptions, aDefines, aStack,
-          aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack) then
+          aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, lOutputLineWritten) then
           aSuccess := False;
+        if not lOutputLineWritten then
+          aOutput.AppendLine('');
       end else
       begin
         AddRegion(aRegions, aFileName, i + 1, CurrentActive(aStack));
         if CurrentActive(aStack) then
-          aOutput.AppendLine(lLines[i]);
+          aOutput.AppendLine(lLines[i])
+        else
+          aOutput.AppendLine('');
       end;
     end;
   finally
@@ -479,16 +496,19 @@ function ProcessDirective(const aDirective, aFileName: string; const aLine: Inte
   const aOptions: TDelphiSemanticPreprocessOptions; const aDefines: TDefineMap;
   const aStack: TList<TPreprocessFrame>; const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>;
   const aOutput: TStringBuilder; const aRegions: TList<TDelphiSemanticSourceRegion>;
-  const aIncludes: TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>): Boolean;
+  const aIncludes: TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>;
+  var aOutputLineWritten: Boolean): Boolean;
 var
   lActive: Boolean;
   lInclude: TDelphiSemanticIncludeFile;
   lIncludeFileName: string;
   lIncludeName: string;
+  lIncludeOutput: TStringBuilder;
   lSuccess: Boolean;
   lText: string;
 begin
   Result := True;
+  aOutputLineWritten := False;
   lText := aDirective.Trim;
 
   if StartsText('IFDEF ', lText) then
@@ -596,8 +616,15 @@ begin
     lInclude.ContentHash := CalculateTextHash(TFile.ReadAllText(lIncludeFileName, TEncoding.UTF8));
     aIncludes.Add(lInclude);
     lSuccess := True;
-    ProcessSourceFile(lIncludeFileName, aOptions, aDefines, aStack, aDiagnostics, aOutput,
-      aRegions, aIncludes, aIncludeStack, lSuccess);
+    lIncludeOutput := TStringBuilder.Create;
+    try
+      ProcessSourceFile(lIncludeFileName, aOptions, aDefines, aStack, aDiagnostics,
+        lIncludeOutput, aRegions, aIncludes, aIncludeStack, lSuccess);
+      aOutput.Append(lIncludeOutput.ToString);
+      aOutputLineWritten := True;
+    finally
+      lIncludeOutput.Free;
+    end;
     Exit(lSuccess);
   end;
 
