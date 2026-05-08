@@ -1,0 +1,4 @@
+program BasicProject;
+
+begin
+end.

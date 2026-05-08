@@ -1,0 +1,8 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{97B88016-F7D5-4A0F-A784-013A102E04EA}</ProjectGuid>
+    <MainSource>BasicProject.dpr</MainSource>
+    <Config Condition="'$(Config)'==''">Release</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+  </PropertyGroup>
+</Project>
