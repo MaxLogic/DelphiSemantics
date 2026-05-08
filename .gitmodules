@@ -1,0 +1,8 @@
+[submodule "lib/DelphiAST"]
+	path = lib/DelphiAST
+	url = https://github.com/RomanYankovsky/DelphiAST.git
+	branch = master
+[submodule "lib/MaxLogicFoundation"]
+	path = lib/MaxLogicFoundation
+	url = https://github.com/MaxLogic/MaxLogicFoundation.git
+	branch = main
