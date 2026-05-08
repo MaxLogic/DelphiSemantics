@@ -25,9 +25,15 @@ type
       aName: string; const aLine: Integer): Boolean;
     function HasMember(const aModel: TDelphiSemanticUnitModel; const aOwnerName, aName, aKind,
       aTypeName: string): Boolean;
+    function FindDeclaration(const aModel: TDelphiSemanticUnitModel; const aName, aKind,
+      aSection: string; out aDeclaration: TDelphiSemanticDeclaration): Boolean;
+    function FindMember(const aModel: TDelphiSemanticUnitModel; const aOwnerName, aName, aKind:
+      string; out aMember: TDelphiSemanticMember): Boolean;
     function HasReference(const aModel: TDelphiSemanticUnitModel; const aName: string): Boolean;
     function HasReferenceOnLine(const aModel: TDelphiSemanticUnitModel; const aName: string;
       const aLine: Integer): Boolean;
+    function FindRoutine(const aModel: TDelphiSemanticUnitModel; const aName, aSection: string;
+      out aRoutine: TDelphiSemanticRoutine): Boolean;
     function HasRoutine(const aModel: TDelphiSemanticUnitModel; const aName, aSection: string):
       Boolean;
     function HasRoutineOnLine(const aModel: TDelphiSemanticUnitModel; const aName: string;
@@ -48,6 +54,14 @@ type
     procedure ExtractsMembersRoutinesLocalsAndReferences;
     [Test]
     procedure ExtractsUnprefixedConstVarAndTypedConstDeclarations;
+    [Test]
+    procedure MigratedSymbolMapExtractsUnitNameAndUsesSections;
+    [Test]
+    procedure MigratedSymbolMapExtractsNamespacedUnitName;
+    [Test]
+    procedure MigratedSymbolMapExtractsTopLevelDeclarationsAndEnumValues;
+    [Test]
+    procedure MigratedSymbolMapExtractsMembersPropertiesAndMetadata;
     [Test]
     procedure PreprocessingRemovesInactiveDeclarations;
     [Test]
@@ -179,6 +193,40 @@ begin
   Result := False;
 end;
 
+function TUnitModelTests.FindDeclaration(const aModel: TDelphiSemanticUnitModel;
+  const aName, aKind, aSection: string; out aDeclaration: TDelphiSemanticDeclaration): Boolean;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+begin
+  for lDeclaration in aModel.Declarations do
+    if SameText(lDeclaration.Name, aName) and SameText(lDeclaration.Kind, aKind) and
+      SameText(lDeclaration.SectionKind, aSection) then
+    begin
+      aDeclaration := lDeclaration;
+      Exit(True);
+    end;
+
+  aDeclaration := Default(TDelphiSemanticDeclaration);
+  Result := False;
+end;
+
+function TUnitModelTests.FindMember(const aModel: TDelphiSemanticUnitModel;
+  const aOwnerName, aName, aKind: string; out aMember: TDelphiSemanticMember): Boolean;
+var
+  lMember: TDelphiSemanticMember;
+begin
+  for lMember in aModel.Members do
+    if SameText(lMember.OwnerName, aOwnerName) and SameText(lMember.Name, aName) and
+      SameText(lMember.Kind, aKind) then
+    begin
+      aMember := lMember;
+      Exit(True);
+    end;
+
+  aMember := Default(TDelphiSemanticMember);
+  Result := False;
+end;
+
 function TUnitModelTests.HasReference(const aModel: TDelphiSemanticUnitModel;
   const aName: string): Boolean;
 var
@@ -200,6 +248,22 @@ begin
     if SameText(lReference.Name, aName) and (lReference.Line = aLine) then
       Exit(True);
 
+  Result := False;
+end;
+
+function TUnitModelTests.FindRoutine(const aModel: TDelphiSemanticUnitModel;
+  const aName, aSection: string; out aRoutine: TDelphiSemanticRoutine): Boolean;
+var
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  for lRoutine in aModel.Routines do
+    if SameText(lRoutine.Name, aName) and SameText(lRoutine.SectionKind, aSection) then
+    begin
+      aRoutine := lRoutine;
+      Exit(True);
+    end;
+
+  aRoutine := Default(TDelphiSemanticRoutine);
   Result := False;
 end;
 
@@ -400,9 +464,184 @@ begin
 
   Assert.IsTrue(lModel.Success);
   Assert.IsTrue(HasDeclaration(lModel, 'PlainSemanticConst', 'const', 'interface'));
-  Assert.IsTrue(HasDeclaration(lModel, 'TypedSemanticConst', 'const', 'interface'));
+  Assert.IsTrue(HasDeclaration(lModel, 'TypedSemanticConst', 'typed-const', 'interface'));
   Assert.IsFalse(HasDeclaration(lModel, 'PlainSemanticConst', 'type-alias', 'interface'));
   Assert.IsTrue(HasDeclaration(lModel, 'SemanticGlobal', 'var', 'interface'));
+end;
+
+procedure TUnitModelTests.MigratedSymbolMapExtractsUnitNameAndUsesSections;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('UnitModel', 'SymbolMapUnit.pas');
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('SymbolMapUnit', lModel.UnitName);
+  Assert.AreEqual(lOptions.SourceFileName, lModel.FileName);
+  Assert.AreEqual('utf-8', lModel.EncodingName);
+  Assert.AreEqual(2, Length(lModel.InterfaceUses));
+  Assert.AreEqual('System.SysUtils', lModel.InterfaceUses[0]);
+  Assert.AreEqual('Winapi.Windows', lModel.InterfaceUses[1]);
+  Assert.AreEqual(2, Length(lModel.ImplementationUses));
+  Assert.AreEqual('System.Classes', lModel.ImplementationUses[0]);
+  Assert.AreEqual('System.Generics.Collections', lModel.ImplementationUses[1]);
+end;
+
+procedure TUnitModelTests.MigratedSymbolMapExtractsNamespacedUnitName;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'symbol-map-namespaced-unit.pas');
+  TFile.WriteAllText(lPath, 'unit Foo.Bar;' + sLineBreak + 'interface' + sLineBreak +
+    'uses System.SysUtils;' + sLineBreak + 'implementation' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('Foo.Bar', lModel.UnitName);
+  Assert.AreEqual('System.SysUtils', lModel.InterfaceUses[0]);
+end;
+
+procedure TUnitModelTests.MigratedSymbolMapExtractsTopLevelDeclarationsAndEnumValues;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('UnitModel', 'SymbolMapDeclarations.pas');
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('SymbolMapDeclarations', lModel.UnitName);
+  Assert.IsTrue(FindDeclaration(lModel, 'TDeclarationEnum', 'type', 'interface', lDeclaration));
+  Assert.AreEqual('enum', lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'deOne', 'enum-value', 'interface', lDeclaration));
+  Assert.AreEqual('TDeclarationEnum', lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'deTwo', 'enum-value', 'interface', lDeclaration));
+  Assert.AreEqual('TDeclarationEnum', lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'TDeclarationAlias', 'type-alias', 'interface',
+    lDeclaration));
+  Assert.AreEqual('string', lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'TDeclarationRecord', 'type', 'interface',
+    lDeclaration));
+  Assert.AreEqual('record', lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'TDeclarationClass', 'type', 'interface',
+    lDeclaration));
+  Assert.AreEqual('class', lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'cDeclarationConst', 'const', 'interface',
+    lDeclaration));
+  Assert.IsTrue(FindDeclaration(lModel, 'cDeclarationTyped', 'typed-const', 'interface',
+    lDeclaration));
+  Assert.AreEqual('Integer', lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'GDeclarationGlobal', 'var', 'interface',
+    lDeclaration));
+  Assert.AreEqual('Integer', lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'DeclarationProcedure', 'routine', 'interface',
+    lDeclaration));
+  Assert.IsTrue(FindRoutine(lModel, 'DeclarationProcedure', 'interface', lRoutine));
+  Assert.IsTrue(Pos('const aName: string', lRoutine.Signature) > 0);
+  Assert.IsTrue(FindDeclaration(lModel, 'DeclarationFunction', 'routine', 'interface',
+    lDeclaration));
+  Assert.AreEqual('Integer', lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'DeclarationMultiParam', 'routine', 'interface',
+    lDeclaration));
+  Assert.AreEqual('Boolean', lDeclaration.TypeName);
+  Assert.IsTrue(FindRoutine(lModel, 'DeclarationMultiParam', 'interface', lRoutine));
+  Assert.IsTrue(Pos('const aName: string; const aValue: Integer', lRoutine.Signature) > 0);
+  Assert.IsTrue(FindDeclaration(lModel, 'ImplementationOnlyProcedure', 'routine',
+    'implementation', lDeclaration));
+  Assert.IsTrue(FindDeclaration(lModel, 'cImplementationConst', 'const', 'implementation',
+    lDeclaration));
+  Assert.IsTrue(FindDeclaration(lModel, 'GImplementationGlobal', 'var', 'implementation',
+    lDeclaration));
+  Assert.IsFalse(HasDeclaration(lModel, 'cLocalConst', 'const', 'implementation'));
+  Assert.IsFalse(HasDeclaration(lModel, 'TLocalType', 'type-alias', 'implementation'));
+  Assert.IsFalse(HasDeclaration(lModel, 'lLocalValue', 'var', 'implementation'));
+end;
+
+procedure TUnitModelTests.MigratedSymbolMapExtractsMembersPropertiesAndMetadata;
+var
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('UnitModel', 'SymbolMapMembers.pas');
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('SymbolMapMembers', lModel.UnitName);
+  Assert.AreEqual(22, Length(lModel.Members));
+  Assert.IsTrue(FindMember(lModel, 'TMemberRecord', 'RecordField', 'field', lMember));
+  Assert.AreEqual('Integer', lMember.TypeName);
+  Assert.AreEqual(7, lMember.Line);
+  Assert.AreEqual(5, lMember.Column);
+  Assert.IsTrue(FindMember(lModel, 'TMemberRecord', 'Reset', 'method', lMember));
+  Assert.AreEqual(8, lMember.Line);
+  Assert.AreEqual(15, lMember.Column);
+  Assert.IsTrue(FindMember(lModel, 'TMemberRecord', 'DisplayName', 'property', lMember));
+  Assert.AreEqual(9, lMember.Line);
+  Assert.AreEqual(14, lMember.Column);
+  Assert.IsTrue(FindMember(lModel, 'TMemberClass', 'FName', 'field', lMember));
+  Assert.AreEqual('private', lMember.Visibility);
+  Assert.IsTrue(FindMember(lModel, 'TMemberClass', 'FItems', 'field', lMember));
+  Assert.IsTrue(FindMember(lModel, 'TMemberClass', 'FEnabled', 'field', lMember));
+  Assert.IsTrue(FindMember(lModel, 'TMemberClass', 'GetItem', 'method', lMember));
+  Assert.IsTrue(FindMember(lModel, 'TMemberClass', 'GetNamedItem', 'method', lMember));
+  Assert.IsTrue(FindMember(lModel, 'TMemberClass', 'ClassField', 'field', lMember));
+  Assert.AreEqual('public', lMember.Visibility);
+  Assert.IsTrue(FindMember(lModel, 'TMemberClass', 'Run', 'method', lMember));
+  Assert.IsTrue(Pos('const aName: string', lMember.Signature) > 0);
+  Assert.AreEqual(21, lMember.Line);
+  Assert.AreEqual(15, lMember.Column);
+  Assert.IsTrue(FindMember(lModel, 'TMemberClass', 'Count', 'method', lMember));
+  Assert.IsTrue(FindMember(lModel, 'TMemberClass', 'Name', 'property', lMember));
+  Assert.AreEqual('string', lMember.TypeName);
+  Assert.IsFalse(lMember.IsIndexed);
+  Assert.IsTrue(FindMember(lModel, 'TMemberClass', 'Enabled', 'property', lMember));
+  Assert.IsFalse(lMember.IsDefault);
+  Assert.IsTrue(FindMember(lModel, 'TMemberClass', 'Items', 'property', lMember));
+  Assert.IsTrue(lMember.IsIndexed);
+  Assert.IsTrue(lMember.IsDefault);
+  Assert.IsTrue(FindMember(lModel, 'TMemberClass', 'MultiItems', 'property', lMember));
+  Assert.AreEqual('string', lMember.TypeName);
+  Assert.IsTrue(lMember.IsIndexed);
+  Assert.IsFalse(lMember.IsDefault);
+  Assert.IsTrue(FindMember(lModel, 'TDefaultVisibilityClass', 'DefaultField', 'field',
+    lMember));
+  Assert.AreEqual('public', lMember.Visibility);
+  Assert.IsTrue(FindMember(lModel, 'TDefaultVisibilityClass', 'DefaultProperty', 'property',
+    lMember));
+  Assert.IsTrue(FindMember(lModel, 'IMemberInterface', 'Touch', 'method', lMember));
+  Assert.AreEqual('public', lMember.Visibility);
+  Assert.AreEqual(35, lMember.Line);
+  Assert.AreEqual(15, lMember.Column);
+  Assert.IsTrue(FindMember(lModel, 'IMemberInterface', 'GetCaption', 'method', lMember));
+  Assert.IsTrue(FindMember(lModel, 'IMemberInterface', 'Caption', 'property', lMember));
+  Assert.IsTrue(FindMember(lModel, 'TMemberRecordHelper', 'Normalize', 'method', lMember));
+  Assert.AreEqual(41, lMember.Line);
+  Assert.AreEqual(15, lMember.Column);
+  Assert.IsTrue(FindMember(lModel, 'TMemberRecordHelper', 'HelperValue', 'property',
+    lMember));
+  Assert.AreEqual(42, lMember.Line);
+  Assert.AreEqual(14, lMember.Column);
 end;
 
 procedure TUnitModelTests.PreprocessingRemovesInactiveDeclarations;
