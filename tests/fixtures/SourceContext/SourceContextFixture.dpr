@@ -1,0 +1,4 @@
+program SourceContextFixture;
+
+begin
+end.

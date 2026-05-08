@@ -1,0 +1,9 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <MainSource>SourceContextFixture.dpr</MainSource>
+    <DCC_UnitSearchPath>lib</DCC_UnitSearchPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <DCCReference Include="ProjectRelativeUnit.pas"/>
+  </ItemGroup>
+</Project>

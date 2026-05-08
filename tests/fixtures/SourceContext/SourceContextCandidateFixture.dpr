@@ -1,0 +1,4 @@
+program SourceContextCandidateFixture;
+
+begin
+end.
