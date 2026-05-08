@@ -7,6 +7,7 @@ uses
   System.SysUtils,
   DUnitX.Loggers.Console,
   DUnitX.TestFramework,
+  Test.Cache in 'src\test.cache.pas',
   Test.Preprocess in 'src\test.preprocess.pas',
   Test.ProjectContext in 'src\test.projectcontext.pas',
   Test.ProjectMsBuild in 'src\test.projectmsbuild.pas',
