@@ -1,0 +1,37 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{C4777739-C6A7-47AF-8D4A-0C7D541CC69F}</ProjectGuid>
+    <MainSource>MsBuildProject.dpr</MainSource>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <Platform Condition="'$(Platform)'==''">Win32</Platform>
+    <ProjectName>MsBuildProject</ProjectName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Debug'">
+    <CfgDependentOn>Base.optset</CfgDependentOn>
+    <DCC_Define>PROJECT_DEBUG;$(DCC_Define)</DCC_Define>
+    <DCC_UnitSearchPath>Source;$(PROJECTDIR)Generated;$(MissingMacro)\Broken;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+    <DCC_UnitScopeNames>Project.Scope;$(DCC_UnitScopeNames)</DCC_UnitScopeNames>
+    <DCC_UnitAlias>Project.Legacy=Project.Modern;$(DCC_UnitAlias)</DCC_UnitAlias>
+  </PropertyGroup>
+  <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Base)'=='true')">
+    <DCC_Define>INACTIVE_AND_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Config)'=='Debug')">
+    <DCC_Define>ACTIVE_AND_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup Condition="('$(Config)'=='Debug') and ('$(Platform)'=='Win32')">
+    <DCC_Define>ACTIVE_SPLIT_PAREN_DEFINE;$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Release'">
+    <DCC_Define>PROJECT_RELEASE</DCC_Define>
+  </PropertyGroup>
+  <ItemGroup>
+    <DCCReference Include="Source\MainUnit.pas"/>
+    <DCCReference Include="..\Shared\SharedUnit.pas"/>
+    <DCCReference Include="Inactive\InactiveUnit.pas" Condition="'$(Config)'=='Release'"/>
+    <DCCReference Include="$(MissingReferenceDir)\MacroUnit.pas"/>
+  </ItemGroup>
+  <ItemGroup Condition="'$(Config)'=='Release'">
+    <DCCReference Include="InactiveGroup\InactiveGroupUnit.pas"/>
+  </ItemGroup>
+</Project>

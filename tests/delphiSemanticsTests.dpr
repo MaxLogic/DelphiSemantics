@@ -8,6 +8,7 @@ uses
   DUnitX.Loggers.Console,
   DUnitX.TestFramework,
   Test.ProjectContext in 'src\test.projectcontext.pas',
+  Test.ProjectMsBuild in 'src\test.projectmsbuild.pas',
   Test.Smoke in 'src\test.smoke.pas';
 
 var

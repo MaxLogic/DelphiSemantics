@@ -1,0 +1,8 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <DCC_Define>OPTSET_DEFINE;$(DCC_Define)</DCC_Define>
+    <DCC_UnitSearchPath>OptsetUnits;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+    <DCC_UnitScopeNames>Optset.Scope;$(DCC_UnitScopeNames)</DCC_UnitScopeNames>
+    <DCC_UnitAlias>Optset.Legacy=Optset.Modern;$(DCC_UnitAlias)</DCC_UnitAlias>
+  </PropertyGroup>
+</Project>

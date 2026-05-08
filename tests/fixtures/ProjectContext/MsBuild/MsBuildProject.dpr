@@ -1,0 +1,4 @@
+program MsBuildProject;
+
+begin
+end.
