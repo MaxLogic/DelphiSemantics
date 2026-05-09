@@ -8,8 +8,10 @@ uses
 type
   TDelphiSemanticResolveContext = record
     RoutineName: string;
+    ParentRoutineNames: TArray<string>;
     CurrentTypeName: string;
     SectionKind: string;
+    ConformanceLevel: Integer;
   end;
 
   TDelphiSemanticResolveResult = record
@@ -31,6 +33,9 @@ type
   public
     class function ResolveMember(const aModel: TDelphiSemanticUnitModel;
       const aOwnerName, aName: string): TDelphiSemanticResolveResult; static;
+    class function ResolveMemberAtLevel(const aModel: TDelphiSemanticUnitModel;
+      const aOwnerName, aName: string; const aConformanceLevel: Integer):
+      TDelphiSemanticResolveResult; static;
     class function ResolveName(const aModel: TDelphiSemanticUnitModel;
       const aContext: TDelphiSemanticResolveContext; const aName: string):
       TDelphiSemanticResolveResult; static;
@@ -44,6 +49,14 @@ uses
 function IsVisibleSection(const aContextSection, aSymbolSection: string): Boolean;
 begin
   Result := SameText(aSymbolSection, 'interface') or SameText(aContextSection, 'implementation');
+end;
+
+function EffectiveConformanceLevel(const aContext: TDelphiSemanticResolveContext): Integer;
+begin
+  if aContext.ConformanceLevel > 0 then
+    Result := aContext.ConformanceLevel
+  else
+    Result := 1;
 end;
 
 function ResolvedResult(const aName, aKind, aTypeName, aOwnerName, aSectionKind: string;
@@ -98,6 +111,118 @@ begin
   Result.Reason := aReason;
 end;
 
+function NormalizeTypeReference(const aTypeName: string): string;
+var
+  lLower: string;
+  lPos: Integer;
+begin
+  Result := aTypeName.Trim;
+  lLower := LowerCase(Result);
+  lPos := Pos(' of ', lLower);
+  if (Pos('array', lLower) = 1) and (lPos > 0) then
+    Result := Copy(Result, lPos + 4, MaxInt).Trim;
+end;
+
+function TryFindTypeAlias(const aModel: TDelphiSemanticUnitModel; const aName: string;
+  out aTypeName: string): Boolean;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+begin
+  for lDeclaration in aModel.Declarations do
+    if SameText(lDeclaration.Name, aName) and SameText(lDeclaration.Kind, 'type-alias') then
+    begin
+      aTypeName := lDeclaration.TypeName;
+      Exit(True);
+    end;
+
+  aTypeName := '';
+  Result := False;
+end;
+
+function ResolveTypeAlias(const aModel: TDelphiSemanticUnitModel; const aTypeName: string): string;
+var
+  i: Integer;
+  lCurrent: string;
+  lNext: string;
+begin
+  lCurrent := aTypeName.Trim;
+  for i := 1 to 16 do
+    if TryFindTypeAlias(aModel, lCurrent, lNext) then
+      lCurrent := lNext.Trim
+    else
+      Break;
+
+  Result := lCurrent;
+end;
+
+function TryFindDefaultIndexedProperty(const aModel: TDelphiSemanticUnitModel;
+  const aOwnerName: string; out aMember: TDelphiSemanticMember): Boolean;
+var
+  lMember: TDelphiSemanticMember;
+begin
+  for lMember in aModel.Members do
+    if SameText(lMember.OwnerName, aOwnerName) and lMember.IsIndexed and lMember.IsDefault then
+    begin
+      aMember := lMember;
+      Exit(True);
+    end;
+
+  aMember := Default(TDelphiSemanticMember);
+  Result := False;
+end;
+
+function TryApplySelectorPostfix(const aModel: TDelphiSemanticUnitModel; const aTypeName: string;
+  const aIndexed, aDereferenced: Boolean; out aResultTypeName: string): Boolean;
+var
+  lLower: string;
+  lMember: TDelphiSemanticMember;
+  lTypeName: string;
+begin
+  lTypeName := ResolveTypeAlias(aModel, aTypeName);
+  if aDereferenced then
+  begin
+    if (lTypeName <> '') and (lTypeName[1] = '^') then
+      lTypeName := Copy(lTypeName, 2, MaxInt).Trim
+    else
+    begin
+      aResultTypeName := '';
+      Exit(False);
+    end;
+  end;
+
+  if aIndexed then
+  begin
+    lLower := LowerCase(lTypeName);
+    if Pos('array', lLower) = 1 then
+      lTypeName := NormalizeTypeReference(lTypeName)
+    else if TryFindDefaultIndexedProperty(aModel, lTypeName, lMember) then
+      lTypeName := lMember.TypeName
+    else
+    begin
+      aResultTypeName := '';
+      Exit(False);
+    end;
+  end;
+
+  aResultTypeName := ResolveTypeAlias(aModel, lTypeName);
+  Result := True;
+end;
+
+function ParseSelectorToken(const aToken: string; out aName: string; out aIndexed,
+  aDereferenced: Boolean): Boolean;
+var
+  lBracketPos: Integer;
+begin
+  aName := aToken.Trim;
+  aIndexed := Pos('[', aName) > 0;
+  aDereferenced := Pos('^', aName) > 0;
+  lBracketPos := Pos('[', aName);
+  if lBracketPos > 0 then
+    aName := Copy(aName, 1, lBracketPos - 1).Trim;
+  aName := StringReplace(aName, '^', '', [rfReplaceAll]).Trim;
+  Result := aName <> '';
+end;
+
 function TryUnsupportedSelector(const aName: string;
   out aResult: TDelphiSemanticResolveResult): Boolean;
 begin
@@ -127,16 +252,16 @@ begin
 end;
 
 function TryResolveLocal(const aModel: TDelphiSemanticUnitModel;
-  const aContext: TDelphiSemanticResolveContext; const aName: string;
+  const aRoutineName, aName, aSectionKind: string;
   out aResult: TDelphiSemanticResolveResult): Boolean;
 var
   lLocal: TDelphiSemanticLocal;
 begin
   for lLocal in aModel.Locals do
-    if SameText(lLocal.RoutineName, aContext.RoutineName) and SameText(lLocal.Name, aName) then
+    if SameText(lLocal.RoutineName, aRoutineName) and SameText(lLocal.Name, aName) then
     begin
       aResult := ResolvedResult(lLocal.Name, 'local', lLocal.TypeName, lLocal.RoutineName,
-        aContext.SectionKind, lLocal.Line, lLocal.Column);
+        aSectionKind, lLocal.Line, lLocal.Column);
       Exit(True);
     end;
 
@@ -144,16 +269,34 @@ begin
   Result := False;
 end;
 
-function TryResolveParameter(const aModel: TDelphiSemanticUnitModel;
+function TryResolveLexicalLocal(const aModel: TDelphiSemanticUnitModel;
   const aContext: TDelphiSemanticResolveContext; const aName: string;
+  out aResult: TDelphiSemanticResolveResult): Boolean;
+var
+  lRoutineName: string;
+begin
+  if TryResolveLocal(aModel, aContext.RoutineName, aName, aContext.SectionKind, aResult) then
+    Exit(True);
+
+  if EffectiveConformanceLevel(aContext) >= 2 then
+    for lRoutineName in aContext.ParentRoutineNames do
+      if TryResolveLocal(aModel, lRoutineName, aName, aContext.SectionKind, aResult) then
+        Exit(True);
+
+  aResult := Default(TDelphiSemanticResolveResult);
+  Result := False;
+end;
+
+function TryResolveParameter(const aModel: TDelphiSemanticUnitModel; const aRoutineName,
+  aSectionKind, aName: string;
   out aResult: TDelphiSemanticResolveResult): Boolean;
 var
   lParameter: TDelphiSemanticParameter;
   lRoutine: TDelphiSemanticRoutine;
 begin
   for lRoutine in aModel.Routines do
-    if SameText(lRoutine.Name, aContext.RoutineName) and
-      IsVisibleSection(aContext.SectionKind, lRoutine.SectionKind) then
+    if SameText(lRoutine.Name, aRoutineName) and IsVisibleSection(aSectionKind,
+      lRoutine.SectionKind) then
       for lParameter in lRoutine.Parameters do
         if SameText(lParameter.Name, aName) then
         begin
@@ -161,6 +304,44 @@ begin
             lRoutine.Name, lRoutine.SectionKind, lRoutine.Line, lRoutine.Column);
           Exit(True);
         end;
+
+  aResult := Default(TDelphiSemanticResolveResult);
+  Result := False;
+end;
+
+function TryResolveLexicalParameter(const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext; const aName: string;
+  out aResult: TDelphiSemanticResolveResult): Boolean;
+var
+  lRoutineName: string;
+begin
+  if TryResolveParameter(aModel, aContext.RoutineName, aContext.SectionKind, aName,
+    aResult) then
+    Exit(True);
+
+  if EffectiveConformanceLevel(aContext) >= 2 then
+    for lRoutineName in aContext.ParentRoutineNames do
+      if TryResolveParameter(aModel, lRoutineName, aContext.SectionKind, aName, aResult) then
+        Exit(True);
+
+  aResult := Default(TDelphiSemanticResolveResult);
+  Result := False;
+end;
+
+function TryResolveParentRoutineSymbol(const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext; const aName: string;
+  out aResult: TDelphiSemanticResolveResult): Boolean;
+var
+  lRoutineName: string;
+begin
+  if EffectiveConformanceLevel(aContext) >= 2 then
+    for lRoutineName in aContext.ParentRoutineNames do
+    begin
+      if TryResolveLocal(aModel, lRoutineName, aName, aContext.SectionKind, aResult) then
+        Exit(True);
+      if TryResolveParameter(aModel, lRoutineName, aContext.SectionKind, aName, aResult) then
+        Exit(True);
+    end;
 
   aResult := Default(TDelphiSemanticResolveResult);
   Result := False;
@@ -214,11 +395,90 @@ begin
   end;
 
   aResult := TDelphiSemanticResolver.ResolveMember(aModel, aContext.CurrentTypeName, aName);
+  if EffectiveConformanceLevel(aContext) >= 2 then
+    aResult := TDelphiSemanticResolver.ResolveMemberAtLevel(aModel, aContext.CurrentTypeName,
+      aName, EffectiveConformanceLevel(aContext));
   Result := aResult.Found or (aResult.Status = 'ambiguous') or (aResult.Status = 'unsupported');
+end;
+
+function TryResolveLevel2Selector(const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext; const aSelector: string;
+  out aResult: TDelphiSemanticResolveResult): Boolean;
+var
+  i: Integer;
+  lCurrentTypeName: string;
+  lDereferenced: Boolean;
+  lIndexed: Boolean;
+  lMemberName: string;
+  lPart: string;
+  lParts: TArray<string>;
+  lResolvedTypeName: string;
+begin
+  aResult := Default(TDelphiSemanticResolveResult);
+  if (EffectiveConformanceLevel(aContext) < 2) or
+    ((Pos('.', aSelector) = 0) and (Pos('[', aSelector) = 0) and (Pos('^', aSelector) = 0)) then
+    Exit(False);
+
+  lParts := aSelector.Split(['.']);
+  if Length(lParts) = 0 then
+    Exit(False);
+
+  if not ParseSelectorToken(lParts[0], lMemberName, lIndexed, lDereferenced) then
+    Exit(False);
+
+  aResult := TDelphiSemanticResolver.ResolveName(aModel, aContext, lMemberName);
+  if not aResult.Found then
+    Exit(True);
+
+  if not TryApplySelectorPostfix(aModel, aResult.TypeName, lIndexed, lDereferenced,
+    lCurrentTypeName) then
+  begin
+    aResult := UnresolvedResult(aSelector, 'SELECTOR_TYPE_NOT_RESOLVED',
+      'The selector receiver type could not be resolved.');
+    Exit(True);
+  end;
+  aResult.TypeName := lCurrentTypeName;
+
+  for i := 1 to High(lParts) do
+  begin
+    lPart := lParts[i];
+    if not ParseSelectorToken(lPart, lMemberName, lIndexed, lDereferenced) then
+    begin
+      aResult := UnresolvedResult(aSelector, 'SELECTOR_TOKEN_NOT_RESOLVED',
+        'The selector token could not be resolved.');
+      Exit(True);
+    end;
+
+    aResult := TDelphiSemanticResolver.ResolveMemberAtLevel(aModel, lCurrentTypeName, lMemberName,
+      EffectiveConformanceLevel(aContext));
+    if not aResult.Found then
+      Exit(True);
+
+    if lIndexed and SameText(aResult.Kind, 'property') then
+      lResolvedTypeName := ResolveTypeAlias(aModel, aResult.TypeName)
+    else if not TryApplySelectorPostfix(aModel, aResult.TypeName, lIndexed, lDereferenced,
+      lResolvedTypeName) then
+    begin
+      aResult := UnresolvedResult(aSelector, 'SELECTOR_TYPE_NOT_RESOLVED',
+        'The selector receiver type could not be resolved.');
+      Exit(True);
+    end;
+    lCurrentTypeName := lResolvedTypeName;
+    aResult.TypeName := lCurrentTypeName;
+  end;
+
+  Result := True;
 end;
 
 class function TDelphiSemanticResolver.ResolveMember(const aModel: TDelphiSemanticUnitModel;
   const aOwnerName, aName: string): TDelphiSemanticResolveResult;
+begin
+  Result := ResolveMemberAtLevel(aModel, aOwnerName, aName, 1);
+end;
+
+class function TDelphiSemanticResolver.ResolveMemberAtLevel(const aModel: TDelphiSemanticUnitModel;
+  const aOwnerName, aName: string; const aConformanceLevel: Integer):
+  TDelphiSemanticResolveResult;
 var
   lCount: Integer;
   lMember: TDelphiSemanticMember;
@@ -228,12 +488,14 @@ begin
 
   lCount := 0;
   for lMember in aModel.Members do
-    if SameText(lMember.OwnerName, aOwnerName) and SameText(lMember.Name, aName) then
+    if (SameText(lMember.OwnerName, aOwnerName) or ((aConformanceLevel >= 2) and
+      SameText(lMember.OwnerName, ResolveTypeAlias(aModel, aOwnerName)))) and
+      SameText(lMember.Name, aName) then
     begin
-      if lMember.IsIndexed then
+      if (aConformanceLevel < 2) and lMember.IsIndexed then
         Exit(UnsupportedResult(aName, 'INDEXED_PROPERTY_UNSUPPORTED',
           'Indexed property member resolution is not part of Level 1.'));
-      if lMember.IsDefault then
+      if (aConformanceLevel < 2) and lMember.IsDefault then
         Exit(UnsupportedResult(aName, 'DEFAULT_PROPERTY_UNSUPPORTED',
           'Default property member resolution is not part of Level 1.'));
       Inc(lCount);
@@ -256,16 +518,22 @@ class function TDelphiSemanticResolver.ResolveName(const aModel: TDelphiSemantic
   const aContext: TDelphiSemanticResolveContext; const aName: string):
   TDelphiSemanticResolveResult;
 begin
+  if TryResolveLevel2Selector(aModel, aContext, aName, Result) then
+    Exit;
+
   if TryUnsupportedSelector(aName, Result) then
     Exit;
 
-  if TryResolveLocal(aModel, aContext, aName, Result) then
+  if TryResolveLocal(aModel, aContext.RoutineName, aName, aContext.SectionKind, Result) then
     Exit;
 
-  if TryResolveParameter(aModel, aContext, aName, Result) then
+  if TryResolveParameter(aModel, aContext.RoutineName, aContext.SectionKind, aName, Result) then
     Exit;
 
   if TryResolveCurrentMember(aModel, aContext, aName, Result) then
+    Exit;
+
+  if TryResolveParentRoutineSymbol(aModel, aContext, aName, Result) then
     Exit;
 
   if TryResolveUnitDeclaration(aModel, aContext, aName, Result) then

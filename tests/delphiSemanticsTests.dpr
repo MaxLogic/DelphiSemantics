@@ -12,6 +12,7 @@ uses
   Test.ProjectContext in 'src\test.projectcontext.pas',
   Test.ProjectMsBuild in 'src\test.projectmsbuild.pas',
   Test.ResolverLevel1 in 'src\test.resolverlevel1.pas',
+  Test.ResolverLevel2 in 'src\test.resolverlevel2.pas',
   Test.SourceContext in 'src\test.sourcecontext.pas',
   Test.Smoke in 'src\test.smoke.pas',
   Test.UnitModel in 'src\test.unitmodel.pas';

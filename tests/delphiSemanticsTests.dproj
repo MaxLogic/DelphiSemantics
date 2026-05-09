@@ -58,6 +58,7 @@
     <DCCReference Include="src\test.projectmsbuild.pas"/>
     <DCCReference Include="src\test.preprocess.pas"/>
     <DCCReference Include="src\test.resolverlevel1.pas"/>
+    <DCCReference Include="src\test.resolverlevel2.pas"/>
     <DCCReference Include="src\test.sourcecontext.pas"/>
     <DCCReference Include="src\test.smoke.pas"/>
     <DCCReference Include="src\test.unitmodel.pas"/>
