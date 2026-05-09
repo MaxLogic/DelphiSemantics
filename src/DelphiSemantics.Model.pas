@@ -21,6 +21,8 @@ type
     Name: string;
     Kind: string;
     TypeName: string;
+    BaseTypeName: string;
+    HelperTargetName: string;
     SectionKind: string;
     Line: Integer;
     Column: Integer;
@@ -271,13 +273,16 @@ begin
 end;
 
 procedure AddDeclaration(const aDeclarations: TList<TDelphiSemanticDeclaration>;
-  const aName, aKind, aTypeName, aSection, aText: string; const aOffset: Integer);
+  const aName, aKind, aTypeName, aSection, aText: string; const aOffset: Integer;
+  const aBaseTypeName: string = ''; const aHelperTargetName: string = '');
 var
   lDeclaration: TDelphiSemanticDeclaration;
 begin
   lDeclaration.Name := aName;
   lDeclaration.Kind := aKind;
   lDeclaration.TypeName := aTypeName;
+  lDeclaration.BaseTypeName := aBaseTypeName;
+  lDeclaration.HelperTargetName := aHelperTargetName;
   lDeclaration.SectionKind := aSection;
   lDeclaration.Line := LineOfOffset(aText, aOffset);
   lDeclaration.Column := ColumnOfOffset(aText, aOffset);
@@ -373,6 +378,30 @@ begin
     Result := 'interface';
 end;
 
+function ExtractBaseTypeName(const aTypeText: string): string;
+var
+  lMatch: TMatch;
+begin
+  lMatch := TRegEx.Match(aTypeText, '\b(?:class|interface)\s*\(\s*([A-Za-z_][A-Za-z0-9_\.]*)',
+    [roIgnoreCase]);
+  if lMatch.Success then
+    Result := lMatch.Groups[1].Value
+  else
+    Result := '';
+end;
+
+function ExtractHelperTargetName(const aTypeText: string): string;
+var
+  lMatch: TMatch;
+begin
+  lMatch := TRegEx.Match(aTypeText,
+    '\b(?:class|record)\s+helper\s+for\s+([A-Za-z_][A-Za-z0-9_\.]*)', [roIgnoreCase]);
+  if lMatch.Success then
+    Result := lMatch.Groups[1].Value
+  else
+    Result := '';
+end;
+
 procedure ExtractEnumValues(const aText: string; const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aOwnerName, aEnumText, aSection: string; const aOffset: Integer);
 var
@@ -403,6 +432,7 @@ var
   lOffset: Integer;
   lSection: string;
   lTypeName: string;
+  lTypeText: string;
   lTypeDepth: Integer;
 begin
   lLines := TStringList.Create;
@@ -449,13 +479,14 @@ begin
           if lMatch.Success then
           begin
             lName := lMatch.Groups[1].Value;
-            lTypeName := NormalizeTypeName(lMatch.Groups[2].Value);
+            lTypeText := lMatch.Groups[2].Value;
+            lTypeName := NormalizeTypeName(lTypeText);
             lSection := SectionForOffset(aText, lOffset + 1);
             if not SameText(lName, 'Result') then
             begin
               if MatchText(lTypeName, ['enum', 'class', 'interface', 'record']) then
                 AddDeclaration(aDeclarations, lName, 'type', lTypeName, lSection, aText,
-                  lOffset + 1)
+                  lOffset + 1, ExtractBaseTypeName(lTypeText), ExtractHelperTargetName(lTypeText))
               else
                 AddDeclaration(aDeclarations, lName, 'type-alias', lTypeName, lSection, aText,
                   lOffset + 1);
@@ -631,8 +662,8 @@ var
   lMatch: TMatch;
 begin
   lMatch := TRegEx.Match(aText,
-    '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(class|record(?:\s+helper\s+for\s+' +
-    '[A-Za-z_][A-Za-z0-9_]*)?|interface)\b(.*?)^\s*end\s*;',
+    '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*((?:class|interface)(?:\s*\([^)]+\))?|' +
+    '(?:class|record)\s+helper\s+for\s+[A-Za-z_][A-Za-z0-9_]*|record)\b(.*?)^\s*end\s*;',
     [roIgnoreCase, roMultiLine, roSingleLine]);
   while lMatch.Success do
   begin

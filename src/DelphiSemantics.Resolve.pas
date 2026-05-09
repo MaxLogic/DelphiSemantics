@@ -12,6 +12,7 @@ type
     CurrentTypeName: string;
     SectionKind: string;
     ConformanceLevel: Integer;
+    IndexedUnitModels: TArray<TDelphiSemanticUnitModel>;
   end;
 
   TDelphiSemanticResolveResult = record
@@ -136,6 +137,22 @@ begin
     end;
 
   aTypeName := '';
+  Result := False;
+end;
+
+function TryFindTypeDeclaration(const aModel: TDelphiSemanticUnitModel; const aName: string;
+  out aDeclaration: TDelphiSemanticDeclaration): Boolean;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+begin
+  for lDeclaration in aModel.Declarations do
+    if SameText(lDeclaration.Name, aName) and SameText(lDeclaration.Kind, 'type') then
+    begin
+      aDeclaration := lDeclaration;
+      Exit(True);
+    end;
+
+  aDeclaration := Default(TDelphiSemanticDeclaration);
   Result := False;
 end;
 
@@ -384,6 +401,73 @@ begin
   Result := False;
 end;
 
+function TryResolveIndexedUnitDeclaration(const aContext: TDelphiSemanticResolveContext;
+  const aName: string; out aResult: TDelphiSemanticResolveResult): Boolean;
+var
+  lCount: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  if EffectiveConformanceLevel(aContext) < 3 then
+  begin
+    aResult := Default(TDelphiSemanticResolveResult);
+    Exit(False);
+  end;
+
+  lCount := 0;
+  for lModel in aContext.IndexedUnitModels do
+    for lDeclaration in lModel.Declarations do
+      if SameText(lDeclaration.Name, aName) and SameText(lDeclaration.SectionKind, 'interface') then
+      begin
+        Inc(lCount);
+        aResult := ResolvedResult(lDeclaration.Name, lDeclaration.Kind, lDeclaration.TypeName,
+          lModel.UnitName, lDeclaration.SectionKind, lDeclaration.Line, lDeclaration.Column);
+      end;
+
+  if lCount > 1 then
+    aResult := AmbiguousResult(aName, 'MULTIPLE_INDEXED_DECLARATIONS',
+      'Multiple indexed source declarations named "' + aName + '" were found.');
+
+  if lCount > 0 then
+    Exit(True);
+
+  aResult := Default(TDelphiSemanticResolveResult);
+  Result := False;
+end;
+
+function TryResolveIntrinsic(const aContext: TDelphiSemanticResolveContext; const aName: string;
+  out aResult: TDelphiSemanticResolveResult): Boolean;
+begin
+  if EffectiveConformanceLevel(aContext) < 3 then
+  begin
+    aResult := Default(TDelphiSemanticResolveResult);
+    Exit(False);
+  end;
+
+  if SameText(aName, 'Length') then
+  begin
+    aResult := ResolvedResult(aName, 'intrinsic-routine', 'Integer', 'compiler', 'intrinsic',
+      0, 0);
+    Exit(True);
+  end;
+
+  if SameText(aName, 'Assigned') then
+  begin
+    aResult := ResolvedResult(aName, 'intrinsic-routine', 'Boolean', 'compiler', 'intrinsic',
+      0, 0);
+    Exit(True);
+  end;
+
+  if SameText(aName, 'TObject') then
+  begin
+    aResult := ResolvedResult(aName, 'intrinsic-type', 'class', 'rtl', 'intrinsic', 0, 0);
+    Exit(True);
+  end;
+
+  aResult := Default(TDelphiSemanticResolveResult);
+  Result := False;
+end;
+
 function TryResolveCurrentMember(const aModel: TDelphiSemanticUnitModel;
   const aContext: TDelphiSemanticResolveContext; const aName: string;
   out aResult: TDelphiSemanticResolveResult): Boolean;
@@ -480,6 +564,7 @@ class function TDelphiSemanticResolver.ResolveMemberAtLevel(const aModel: TDelph
   const aOwnerName, aName: string; const aConformanceLevel: Integer):
   TDelphiSemanticResolveResult;
 var
+  lDeclaration: TDelphiSemanticDeclaration;
   lCount: Integer;
   lMember: TDelphiSemanticMember;
 begin
@@ -510,6 +595,33 @@ begin
   if lCount > 0 then
     Exit;
 
+  if (aConformanceLevel >= 3) and TryFindTypeDeclaration(aModel, aOwnerName, lDeclaration) and
+    (lDeclaration.BaseTypeName <> '') then
+  begin
+    Result := ResolveMemberAtLevel(aModel, lDeclaration.BaseTypeName, aName, aConformanceLevel);
+    if Result.Found or (Result.Status = 'ambiguous') then
+      Exit;
+  end;
+
+  if aConformanceLevel >= 3 then
+  begin
+    lCount := 0;
+    for lDeclaration in aModel.Declarations do
+      if SameText(lDeclaration.HelperTargetName, aOwnerName) then
+        for lMember in aModel.Members do
+          if SameText(lMember.OwnerName, lDeclaration.Name) and SameText(lMember.Name, aName) then
+          begin
+            Inc(lCount);
+            Result := ResolvedResult(lMember.Name, lMember.Kind, lMember.TypeName,
+              lMember.OwnerName, '', lMember.Line, lMember.Column);
+          end;
+    if lCount > 1 then
+      Exit(AmbiguousResult(aName, 'MULTIPLE_HELPER_MEMBER_CANDIDATES',
+        'Multiple helper members named "' + aName + '" were found on ' + aOwnerName + '.'));
+    if lCount > 0 then
+      Exit;
+  end;
+
   Result := UnresolvedResult(aName, 'MEMBER_NOT_FOUND',
     'No direct member named "' + aName + '" was found on ' + aOwnerName + '.');
 end;
@@ -537,6 +649,12 @@ begin
     Exit;
 
   if TryResolveUnitDeclaration(aModel, aContext, aName, Result) then
+    Exit;
+
+  if TryResolveIndexedUnitDeclaration(aContext, aName, Result) then
+    Exit;
+
+  if TryResolveIntrinsic(aContext, aName, Result) then
     Exit;
 
   Result := UnresolvedResult(aName, 'NAME_NOT_FOUND', 'No visible symbol named "' + aName +

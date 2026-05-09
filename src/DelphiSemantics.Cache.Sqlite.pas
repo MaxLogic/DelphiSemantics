@@ -31,7 +31,7 @@ uses
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def;
 
 const
-  cSqliteSchemaVersion = '1';
+  cSqliteSchemaVersion = '2';
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -91,6 +91,8 @@ begin
   Result.AddPair('Name', aDeclaration.Name);
   Result.AddPair('Kind', aDeclaration.Kind);
   Result.AddPair('TypeName', aDeclaration.TypeName);
+  Result.AddPair('BaseTypeName', aDeclaration.BaseTypeName);
+  Result.AddPair('HelperTargetName', aDeclaration.HelperTargetName);
   Result.AddPair('SectionKind', aDeclaration.SectionKind);
   Result.AddPair('Line', TJSONNumber.Create(aDeclaration.Line));
   Result.AddPair('Column', TJSONNumber.Create(aDeclaration.Column));
@@ -101,6 +103,8 @@ begin
   Result.Name := JsonString(aObject, 'Name');
   Result.Kind := JsonString(aObject, 'Kind');
   Result.TypeName := JsonString(aObject, 'TypeName');
+  Result.BaseTypeName := JsonString(aObject, 'BaseTypeName');
+  Result.HelperTargetName := JsonString(aObject, 'HelperTargetName');
   Result.SectionKind := JsonString(aObject, 'SectionKind');
   Result.Line := JsonInt(aObject, 'Line');
   Result.Column := JsonInt(aObject, 'Column');

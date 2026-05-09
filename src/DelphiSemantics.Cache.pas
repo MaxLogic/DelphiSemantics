@@ -73,7 +73,7 @@ uses
   DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.Version;
 
 const
-  cCacheSchemaVersion = '1';
+  cCacheSchemaVersion = '2';
   cDefaultParserVersion = 'DelphiSemantics.Model.Parser.1';
 
 function StableHash(const aText: string): string;

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Level 3 semantic resolver support for helpers, inheritance, compiler/RTL intrinsics, and indexed source units.
 - Level 2 semantic resolver support for aliases, arrays, pointers, indexed/default properties, nested scopes, and ambiguity.
 - Level 1 semantic resolver for lexical symbols, unit declarations, direct members, and explicit unsupported outcomes.
 - Optional SQLite-backed semantic unit-model cache with persistent reuse and deterministic rebuild diagnostics.
