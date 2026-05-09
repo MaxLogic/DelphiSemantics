@@ -54,6 +54,7 @@
       <MainSource>MainSource</MainSource>
     </DelphiCompile>
     <DCCReference Include="src\test.cache.pas"/>
+    <DCCReference Include="src\test.lspboundary.pas"/>
     <DCCReference Include="src\test.projectcontext.pas"/>
     <DCCReference Include="src\test.projectmsbuild.pas"/>
     <DCCReference Include="src\test.preprocess.pas"/>
@@ -65,6 +66,7 @@
     <DCCReference Include="src\test.unitmodel.pas"/>
     <DCCReference Include="src\test.withbinder.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Cache.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Lsp.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Model.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Preprocess.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.ProjectContext.pas"/>

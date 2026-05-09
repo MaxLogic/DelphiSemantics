@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Optional LSP enrichment boundary with explicit opt-in and provenance for `lsp` and `semantic-model` results.
 - Semantic with-binder API for selector type binding and member/lexical/external/ambiguous/unresolved/unsupported reference classification.
 - Level 3 semantic resolver support for helpers, inheritance, compiler/RTL intrinsics, and indexed source units.
 - Level 2 semantic resolver support for aliases, arrays, pointers, indexed/default properties, nested scopes, and ambiguity.
