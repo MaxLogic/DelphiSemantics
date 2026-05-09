@@ -32,6 +32,14 @@ type
     procedure ResolvesSourcePositionAndReportsCacheStatus;
     [Test]
     procedure CacheStatusExposesProfileKeyAndCacheFileName;
+    [Test]
+    procedure SearchMatchesSubstringsAndReturnsRanges;
+    [Test]
+    procedure TokenReferencesExposeMetadata;
+    [Test]
+    procedure VisibleUnitScopesIncludeProjectAndRtlModels;
+    [Test]
+    procedure IndexedProjectUnitsKeepSourceKindAndRoutineSearch;
   end;
 
 implementation
@@ -155,6 +163,57 @@ begin
   Assert.AreEqual(FixturePath('SymbolQueryUnit.pas'), lReferences[0].FileName);
 end;
 
+procedure TSymbolQueryTests.SearchMatchesSubstringsAndReturnsRanges;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lFoundProjectType: Boolean;
+  lFoundRtlType: Boolean;
+  lResult: TDelphiSemanticSymbolQueryResult;
+  lResults: TArray<TDelphiSemanticSymbolQueryResult>;
+begin
+  lFoundProjectType := False;
+  lFoundRtlType := False;
+  lContext := LoadContext;
+
+  lResults := TDelphiSemanticSymbolQuery.Search(lContext, 'Fixture', 10);
+
+  for lResult in lResults do
+  begin
+    if SameText(lResult.Name, 'TSymbolMapFixture') then
+    begin
+      lFoundProjectType := True;
+      Assert.AreEqual('SymbolQueryUnit', lResult.UnitName);
+      Assert.IsTrue(lResult.EndLine >= lResult.Line);
+      Assert.IsTrue(lResult.EndColumn >= lResult.Column);
+    end else if SameText(lResult.Name, 'TSystemFixture') then
+    begin
+      lFoundRtlType := True;
+      Assert.AreEqual('rtl-source', lResult.SourceKind);
+      Assert.AreEqual('SymbolQueryRtlUnit', lResult.UnitName);
+    end;
+  end;
+
+  Assert.IsTrue(lFoundProjectType);
+  Assert.IsTrue(lFoundRtlType);
+end;
+
+procedure TSymbolQueryTests.TokenReferencesExposeMetadata;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lReferences: TArray<TDelphiSemanticSymbolReferenceResult>;
+begin
+  lContext := LoadContext;
+
+  lReferences := TDelphiSemanticSymbolQuery.FindTokenReferences(lContext,
+    'TSymbolMapFixture', 1);
+
+  Assert.AreEqual(1, Length(lReferences));
+  Assert.AreEqual('SymbolQueryUnit', lReferences[0].UnitName);
+  Assert.AreEqual('token', lReferences[0].Role);
+  Assert.AreEqual('implementation', lReferences[0].SectionKind);
+  Assert.IsTrue(lReferences[0].EndColumn >= lReferences[0].Column);
+end;
+
 procedure TSymbolQueryTests.LimitsTokenReferenceResults;
 var
   lContext: TDelphiSemanticSymbolQueryContext;
@@ -242,6 +301,76 @@ begin
 
   Assert.AreEqual('', lStatus.CacheFileName);
   Assert.AreEqual('Delphi-12-SymbolQuery', lStatus.CompilerProfileKey);
+end;
+
+procedure TSymbolQueryTests.VisibleUnitScopesIncludeProjectAndRtlModels;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lFoundProject: Boolean;
+  lFoundRtl: Boolean;
+  lScope: TDelphiSemanticVisibleUnitScope;
+  lScopes: TArray<TDelphiSemanticVisibleUnitScope>;
+begin
+  lFoundProject := False;
+  lFoundRtl := False;
+  lContext := LoadContext;
+
+  lScopes := TDelphiSemanticSymbolQuery.GetVisibleUnitScopes(lContext);
+
+  for lScope in lScopes do
+  begin
+    if SameText(lScope.UnitName, 'SymbolQueryUnit') then
+    begin
+      lFoundProject := True;
+      Assert.AreEqual('project-source', lScope.SourceKind);
+    end else if SameText(lScope.UnitName, 'SymbolQueryRtlUnit') then
+    begin
+      lFoundRtl := True;
+      Assert.AreEqual('rtl-source', lScope.SourceKind);
+    end;
+  end;
+
+  Assert.IsTrue(lFoundProject);
+  Assert.IsTrue(lFoundRtl);
+end;
+
+procedure TSymbolQueryTests.IndexedProjectUnitsKeepSourceKindAndRoutineSearch;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lFoundScope: Boolean;
+  lResult: TDelphiSemanticSymbolQueryResult;
+  lResults: TArray<TDelphiSemanticSymbolQueryResult>;
+  lScope: TDelphiSemanticVisibleUnitScope;
+  lSibling: TDelphiSemanticUnitModel;
+begin
+  lContext := LoadContext;
+  lSibling := Default(TDelphiSemanticUnitModel);
+  lSibling.UnitName := 'SymbolQuerySiblingUnit';
+  lSibling.FileName := FixturePath('SymbolQuerySiblingUnit.pas');
+  SetLength(lSibling.Routines, 1);
+  lSibling.Routines[0].Name := 'SiblingRoutine';
+  lSibling.Routines[0].Signature := 'procedure SiblingRoutine';
+  lSibling.Routines[0].Line := 7;
+  lSibling.Routines[0].Column := 3;
+  lContext.IndexedUnitModels := [lSibling, lContext.IndexedUnitModels[0]];
+  lContext.IndexedUnitSourceKinds := ['project-source', 'rtl-source'];
+
+  lFoundScope := False;
+  for lScope in TDelphiSemanticSymbolQuery.GetVisibleUnitScopes(lContext) do
+    if SameText(lScope.UnitName, 'SymbolQuerySiblingUnit') then
+    begin
+      lFoundScope := True;
+      Assert.AreEqual('project-source', lScope.SourceKind);
+    end;
+
+  lResults := TDelphiSemanticSymbolQuery.Search(lContext, 'SiblingRoutine', 10);
+
+  Assert.IsTrue(lFoundScope);
+  Assert.AreEqual(1, Length(lResults));
+  lResult := lResults[0];
+  Assert.AreEqual('routine', lResult.Kind);
+  Assert.AreEqual('project-source', lResult.SourceKind);
+  Assert.AreEqual('procedure SiblingRoutine', lResult.Signature);
 end;
 
 initialization

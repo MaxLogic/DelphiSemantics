@@ -9,6 +9,7 @@ type
   TDelphiSemanticSymbolQueryContext = record
     UnitModel: TDelphiSemanticUnitModel;
     IndexedUnitModels: TArray<TDelphiSemanticUnitModel>;
+    IndexedUnitSourceKinds: TArray<string>;
     CompilerProfile: TDelphiSemanticCompilerProfile;
     CacheMetrics: TDelphiSemanticCacheMetrics;
   end;
@@ -20,22 +21,37 @@ type
     Kind: string;
     TypeName: string;
     OwnerName: string;
+    UnitName: string;
     Description: string;
     SourceKind: string;
     Confidence: string;
     Provenance: string;
+    Signature: string;
     FileName: string;
     Line: Integer;
     Column: Integer;
+    EndLine: Integer;
+    EndColumn: Integer;
   end;
 
   TDelphiSemanticSymbolReferenceResult = record
     Name: string;
+    UnitName: string;
     SourceKind: string;
     Confidence: string;
+    Role: string;
+    SectionKind: string;
     FileName: string;
     Line: Integer;
     Column: Integer;
+    EndLine: Integer;
+    EndColumn: Integer;
+  end;
+
+  TDelphiSemanticVisibleUnitScope = record
+    UnitName: string;
+    FileName: string;
+    SourceKind: string;
   end;
 
   TDelphiSemanticSymbolQueryCacheStatus = record
@@ -64,6 +80,8 @@ type
       static;
     class function GetCacheStatus(const aContext: TDelphiSemanticSymbolQueryContext):
       TDelphiSemanticSymbolQueryCacheStatus; static;
+    class function GetVisibleUnitScopes(const aContext: TDelphiSemanticSymbolQueryContext):
+      TArray<TDelphiSemanticVisibleUnitScope>; static;
     class function Search(const aContext: TDelphiSemanticSymbolQueryContext; const aName: string;
       const aLimit: Integer): TArray<TDelphiSemanticSymbolQueryResult>; static;
   end;
@@ -71,7 +89,7 @@ type
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.IOUtils, System.SysUtils,
+  System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
   DelphiSemantics.Source;
 
 function MakeNotFound(const aName: string): TDelphiSemanticSymbolQueryResult;
@@ -102,6 +120,7 @@ begin
   Result.Kind := aDeclaration.Kind;
   Result.TypeName := aDeclaration.TypeName;
   Result.OwnerName := aModel.UnitName;
+  Result.UnitName := aModel.UnitName;
   Result.Description := MakeDescription(aDeclaration.Name, aDeclaration.TypeName);
   Result.SourceKind := aSourceKind;
   Result.Confidence := 'declaration-name-match';
@@ -109,6 +128,8 @@ begin
   Result.FileName := aModel.FileName;
   Result.Line := aDeclaration.Line;
   Result.Column := aDeclaration.Column;
+  Result.EndLine := aDeclaration.Line;
+  Result.EndColumn := aDeclaration.Column + Length(aDeclaration.Name) - 1;
 end;
 
 function MemberResult(const aModel: TDelphiSemanticUnitModel; const aMember: TDelphiSemanticMember;
@@ -121,13 +142,17 @@ begin
   Result.Kind := aMember.Kind;
   Result.TypeName := aMember.TypeName;
   Result.OwnerName := aMember.OwnerName;
+  Result.UnitName := aModel.UnitName;
   Result.Description := MakeDescription(aMember.Name, aMember.TypeName);
   Result.SourceKind := aSourceKind;
   Result.Confidence := 'member-name-match';
   Result.Provenance := 'semantic-model';
+  Result.Signature := aMember.Signature;
   Result.FileName := aModel.FileName;
   Result.Line := aMember.Line;
   Result.Column := aMember.Column;
+  Result.EndLine := aMember.Line;
+  Result.EndColumn := aMember.Column + Length(aMember.Name) - 1;
 end;
 
 function RoutineResult(const aModel: TDelphiSemanticUnitModel;
@@ -141,13 +166,17 @@ begin
   Result.Kind := 'routine';
   Result.TypeName := aRoutine.ReturnType;
   Result.OwnerName := aRoutine.OwnerName;
+  Result.UnitName := aModel.UnitName;
   Result.Description := MakeDescription(aRoutine.Name, aRoutine.ReturnType);
   Result.SourceKind := aSourceKind;
   Result.Confidence := 'routine-name-match';
   Result.Provenance := 'semantic-model';
+  Result.Signature := aRoutine.Signature;
   Result.FileName := aModel.FileName;
   Result.Line := aRoutine.Line;
   Result.Column := aRoutine.Column;
+  Result.EndLine := aRoutine.Line;
+  Result.EndColumn := aRoutine.Column + Length(aRoutine.Name) - 1;
 end;
 
 function IntrinsicResult(const aSymbol: TDelphiSemanticIntrinsicSymbol):
@@ -160,10 +189,12 @@ begin
   Result.Kind := aSymbol.Kind;
   Result.TypeName := aSymbol.TypeName;
   Result.OwnerName := aSymbol.OwnerName;
+  Result.UnitName := aSymbol.OwnerName;
   Result.Description := MakeDescription(aSymbol.Name, aSymbol.TypeName);
   Result.SourceKind := 'compiler-profile';
   Result.Confidence := 'intrinsic-name-match';
   Result.Provenance := 'semantic-model';
+  Result.Signature := aSymbol.Signature;
 end;
 
 function IsIdentifierChar(const aChar: Char): Boolean;
@@ -258,10 +289,26 @@ begin
   end;
 end;
 
+function NameMatchesQuery(const aName, aQuery: string; const aAllowSubstring: Boolean): Boolean;
+begin
+  Result := SameText(aName, aQuery) or (aAllowSubstring and ContainsText(aName, aQuery));
+end;
+
+function IndexedSourceKind(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aIndex: Integer): string;
+begin
+  if (aIndex >= 0) and (aIndex < Length(aContext.IndexedUnitSourceKinds)) and
+    (aContext.IndexedUnitSourceKinds[aIndex] <> '') then
+    Exit(aContext.IndexedUnitSourceKinds[aIndex]);
+
+  Result := 'rtl-source';
+end;
+
 function TryFindModelForFile(const aContext: TDelphiSemanticSymbolQueryContext;
   const aFileName: string; out aModel: TDelphiSemanticUnitModel; out aSourceKind: string):
   Boolean;
 var
+  i: Integer;
   lModel: TDelphiSemanticUnitModel;
 begin
   if SameFileName(aContext.UnitModel.FileName, aFileName) then
@@ -271,13 +318,16 @@ begin
     Exit(True);
   end;
 
-  for lModel in aContext.IndexedUnitModels do
+  for i := 0 to High(aContext.IndexedUnitModels) do
+  begin
+    lModel := aContext.IndexedUnitModels[i];
     if SameFileName(lModel.FileName, aFileName) then
     begin
       aModel := lModel;
-      aSourceKind := 'rtl-source';
+      aSourceKind := IndexedSourceKind(aContext, i);
       Exit(True);
     end;
+  end;
 
   aModel := Default(TDelphiSemanticUnitModel);
   aSourceKind := '';
@@ -370,6 +420,7 @@ class function TDelphiSemanticSymbolQuery.FindDefinitionByName(
   const aContext: TDelphiSemanticSymbolQueryContext; const aName: string):
   TDelphiSemanticSymbolQueryResult;
 var
+  i: Integer;
   lIntrinsic: TDelphiSemanticIntrinsicSymbol;
   lModel: TDelphiSemanticUnitModel;
 begin
@@ -377,9 +428,10 @@ begin
   if Result.Found then
     Exit;
 
-  for lModel in aContext.IndexedUnitModels do
+  for i := 0 to High(aContext.IndexedUnitModels) do
   begin
-    Result := FindDefinitionInModel(lModel, 'rtl-source', aName);
+    lModel := aContext.IndexedUnitModels[i];
+    Result := FindDefinitionInModel(lModel, IndexedSourceKind(aContext, i), aName);
     if Result.Found then
       Exit;
   end;
@@ -395,23 +447,42 @@ class function TDelphiSemanticSymbolQuery.FindTokenReferences(
   const aContext: TDelphiSemanticSymbolQueryContext; const aName: string; const aLimit: Integer):
   TArray<TDelphiSemanticSymbolReferenceResult>;
 var
-  lReference: TDelphiSemanticReference;
+  i: Integer;
+  lModel: TDelphiSemanticUnitModel;
   lResult: TDelphiSemanticSymbolReferenceResult;
   lResults: TList<TDelphiSemanticSymbolReferenceResult>;
-begin
-  lResults := TList<TDelphiSemanticSymbolReferenceResult>.Create;
-  try
-    for lReference in aContext.UnitModel.References do
+
+  procedure AddModelReferences(const aModel: TDelphiSemanticUnitModel; const aSourceKind: string);
+  var
+    lReference: TDelphiSemanticReference;
+  begin
+    for lReference in aModel.References do
       if SameText(lReference.Name, aName) and ((aLimit <= 0) or (lResults.Count < aLimit)) then
       begin
         lResult.Name := lReference.Name;
-        lResult.SourceKind := 'project-source';
+        lResult.UnitName := aModel.UnitName;
+        lResult.SourceKind := aSourceKind;
         lResult.Confidence := 'token-name-match';
-        lResult.FileName := aContext.UnitModel.FileName;
+        lResult.Role := 'token';
+        lResult.SectionKind := 'implementation';
+        lResult.FileName := aModel.FileName;
         lResult.Line := lReference.Line;
         lResult.Column := lReference.Column;
+        lResult.EndLine := lReference.Line;
+        lResult.EndColumn := lReference.Column + Length(lReference.Name) - 1;
         lResults.Add(lResult);
       end;
+  end;
+
+begin
+  lResults := TList<TDelphiSemanticSymbolReferenceResult>.Create;
+  try
+    AddModelReferences(aContext.UnitModel, 'project-source');
+    for i := 0 to High(aContext.IndexedUnitModels) do
+    begin
+      lModel := aContext.IndexedUnitModels[i];
+      AddModelReferences(lModel, IndexedSourceKind(aContext, i));
+    end;
     Result := lResults.ToArray;
   finally
     lResults.Free;
@@ -432,35 +503,115 @@ begin
   Result.RtlSourceUnitCount := Length(aContext.CompilerProfile.RtlSourceUnitModels);
 end;
 
+class function TDelphiSemanticSymbolQuery.GetVisibleUnitScopes(
+  const aContext: TDelphiSemanticSymbolQueryContext): TArray<TDelphiSemanticVisibleUnitScope>;
+var
+  i: Integer;
+  lIndex: Integer;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  SetLength(Result, 1 + Length(aContext.IndexedUnitModels));
+  Result[0].UnitName := aContext.UnitModel.UnitName;
+  Result[0].FileName := aContext.UnitModel.FileName;
+  Result[0].SourceKind := 'project-source';
+  lIndex := 1;
+  for i := 0 to High(aContext.IndexedUnitModels) do
+  begin
+    lModel := aContext.IndexedUnitModels[i];
+    Result[lIndex].UnitName := lModel.UnitName;
+    Result[lIndex].FileName := lModel.FileName;
+    Result[lIndex].SourceKind := IndexedSourceKind(aContext, i);
+    Inc(lIndex);
+  end;
+end;
+
 class function TDelphiSemanticSymbolQuery.Search(
   const aContext: TDelphiSemanticSymbolQueryContext; const aName: string; const aLimit: Integer):
   TArray<TDelphiSemanticSymbolQueryResult>;
 var
+  i: Integer;
   lDeclaration: TDelphiSemanticDeclaration;
   lIntrinsic: TDelphiSemanticIntrinsicSymbol;
   lMember: TDelphiSemanticMember;
   lModel: TDelphiSemanticUnitModel;
+  lRoutine: TDelphiSemanticRoutine;
+  lUseSubstring: Boolean;
   lResults: TList<TDelphiSemanticSymbolQueryResult>;
+
+  function HasExactVisibleMatch: Boolean;
+  var
+    lExactDeclaration: TDelphiSemanticDeclaration;
+    lExactIntrinsic: TDelphiSemanticIntrinsicSymbol;
+    lExactMember: TDelphiSemanticMember;
+    lExactModel: TDelphiSemanticUnitModel;
+    lExactRoutine: TDelphiSemanticRoutine;
+  begin
+    for lExactDeclaration in aContext.UnitModel.Declarations do
+      if SameText(lExactDeclaration.Name, aName) then
+        Exit(True);
+    for lExactMember in aContext.UnitModel.Members do
+      if SameText(lExactMember.Name, aName) then
+        Exit(True);
+    for lExactRoutine in aContext.UnitModel.Routines do
+      if SameText(lExactRoutine.Name, aName) then
+        Exit(True);
+    for lExactModel in aContext.IndexedUnitModels do
+    begin
+      for lExactMember in lExactModel.Members do
+        if SameText(lExactMember.Name, aName) then
+          Exit(True);
+      for lExactRoutine in lExactModel.Routines do
+        if SameText(lExactRoutine.Name, aName) then
+          Exit(True);
+      for lExactDeclaration in lExactModel.Declarations do
+        if SameText(lExactDeclaration.Name, aName) then
+          Exit(True);
+    end;
+    for lExactIntrinsic in aContext.CompilerProfile.IntrinsicSymbols do
+      if SameText(lExactIntrinsic.Name, aName) then
+        Exit(True);
+    Result := False;
+  end;
 begin
+  lUseSubstring := not HasExactVisibleMatch;
   lResults := TList<TDelphiSemanticSymbolQueryResult>.Create;
   try
     for lDeclaration in aContext.UnitModel.Declarations do
-      if SameText(lDeclaration.Name, aName) then
+      if NameMatchesQuery(lDeclaration.Name, aName, lUseSubstring) then
         AddResult(lResults, DeclarationResult(aContext.UnitModel, lDeclaration, 'project-source'),
           aLimit);
 
     for lMember in aContext.UnitModel.Members do
-      if SameText(lMember.Name, aName) then
+      if NameMatchesQuery(lMember.Name, aName, lUseSubstring) then
         AddResult(lResults, MemberResult(aContext.UnitModel, lMember, 'project-source'),
           aLimit);
 
-    for lModel in aContext.IndexedUnitModels do
+    for lRoutine in aContext.UnitModel.Routines do
+      if NameMatchesQuery(lRoutine.Name, aName, lUseSubstring) then
+        AddResult(lResults, RoutineResult(aContext.UnitModel, lRoutine, 'project-source'),
+          aLimit);
+
+    for i := 0 to High(aContext.IndexedUnitModels) do
+    begin
+      lModel := aContext.IndexedUnitModels[i];
+      for lMember in lModel.Members do
+        if NameMatchesQuery(lMember.Name, aName, lUseSubstring) then
+          AddResult(lResults, MemberResult(lModel, lMember, IndexedSourceKind(aContext, i)),
+            aLimit);
+
+      for lRoutine in lModel.Routines do
+        if NameMatchesQuery(lRoutine.Name, aName, lUseSubstring) then
+          AddResult(lResults, RoutineResult(lModel, lRoutine, IndexedSourceKind(aContext, i)),
+            aLimit);
+
       for lDeclaration in lModel.Declarations do
-        if SameText(lDeclaration.Name, aName) then
-          AddResult(lResults, DeclarationResult(lModel, lDeclaration, 'rtl-source'), aLimit);
+        if NameMatchesQuery(lDeclaration.Name, aName, lUseSubstring) then
+          AddResult(lResults, DeclarationResult(lModel, lDeclaration, IndexedSourceKind(aContext,
+            i)), aLimit);
+    end;
 
     for lIntrinsic in aContext.CompilerProfile.IntrinsicSymbols do
-      if SameText(lIntrinsic.Name, aName) then
+      if NameMatchesQuery(lIntrinsic.Name, aName, lUseSubstring) then
         AddResult(lResults, IntrinsicResult(lIntrinsic), aLimit);
 
     Result := lResults.ToArray;
