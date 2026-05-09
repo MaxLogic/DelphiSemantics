@@ -531,6 +531,8 @@ var
   lLine: string;
   lLines: TStringList;
   lMatch: TMatch;
+  lName: string;
+  lNameOffset: Integer;
   lOffset: Integer;
   lSection: string;
 begin
@@ -566,6 +568,8 @@ begin
           lBlockKind := 'const'
         else if SameText(lLine, 'var') then
           lBlockKind := 'var'
+        else if SameText(lLine, 'threadvar') then
+          lBlockKind := 'threadvar'
         else if SameText(lLine, 'type') then
           lBlockKind := ''
         else if lBlockKind = 'const' then
@@ -582,15 +586,23 @@ begin
             AddDeclaration(aDeclarations, lMatch.Groups[1].Value, lDeclarationKind,
               MatchGroupValue(lMatch, 2).Trim, lSection, aText, lOffset + 1);
           end;
-        end else if lBlockKind = 'var' then
+        end else if MatchText(lBlockKind, ['var', 'threadvar']) then
         begin
-          lMatch := TRegEx.Match(lLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^;]+);',
+          lMatch := TRegEx.Match(lLine,
+            '^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:\s*([^;]+);',
             [roIgnoreCase]);
           if lMatch.Success then
           begin
             lSection := SectionForOffset(aText, lOffset + 1);
-            AddDeclaration(aDeclarations, lMatch.Groups[1].Value, 'var',
-              lMatch.Groups[2].Value.Trim, lSection, aText, lOffset + 1);
+            for lName in lMatch.Groups[1].Value.Split([',']) do
+              if lName.Trim <> '' then
+              begin
+                lNameOffset := Pos(LowerCase(lName.Trim), LowerCase(lLines[i]));
+                if lNameOffset <= 0 then
+                  lNameOffset := 1;
+                AddDeclaration(aDeclarations, lName.Trim, lBlockKind,
+                  lMatch.Groups[2].Value.Trim, lSection, aText, lOffset + lNameOffset);
+              end;
           end;
         end;
       end;
@@ -607,10 +619,13 @@ var
   lDefaultProperty: Boolean;
   lFieldMatch: TMatch;
   i: Integer;
+  lInClassVarSection: Boolean;
   lIndexedProperty: Boolean;
   lLine: string;
   lLines: TStringList;
   lMethodMatch: TMatch;
+  lName: string;
+  lNameOffset: Integer;
   lOffset: Integer;
   lPropertyMatch: TMatch;
   lVisibility: string;
@@ -619,6 +634,7 @@ begin
   try
     lLines.Text := aBody;
     lOffset := aBodyOffset;
+    lInClassVarSection := False;
     lVisibility := 'public';
     for i := 0 to Pred(lLines.Count) do
     begin
@@ -626,7 +642,11 @@ begin
       if MatchText(lLine, ['private', 'protected', 'public', 'published', 'strict private',
         'strict protected']) then
       begin
+        lInClassVarSection := False;
         lVisibility := lLine;
+      end else if SameText(lLine, 'class var') then
+      begin
+        lInClassVarSection := True;
       end else if lLine <> '' then
       begin
         lPropertyMatch := TRegEx.Match(lLine,
@@ -634,6 +654,7 @@ begin
           [roIgnoreCase]);
         if lPropertyMatch.Success then
         begin
+          lInClassVarSection := False;
           lIndexedProperty := MatchGroupValue(lPropertyMatch, 2).Trim <> '';
           lDefaultProperty := TRegEx.IsMatch(lLine, ';\s*default\s*;', [roIgnoreCase]) or
             TRegEx.IsMatch(lLine, ';\s*default\s*$', [roIgnoreCase]);
@@ -648,17 +669,33 @@ begin
             [roIgnoreCase]);
           if lMethodMatch.Success then
           begin
+            lInClassVarSection := False;
             AddMember(aMembers, aOwnerName, lMethodMatch.Groups[2].Value, 'method',
               MatchGroupValue(lMethodMatch, 4).Trim, lVisibility, MatchGroupValue(lMethodMatch, 3),
               aText, False, False, lOffset + 1);
           end else
           begin
-            lFieldMatch := TRegEx.Match(lLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^;]+);',
+            lFieldMatch := TRegEx.Match(lLine,
+              '^(class\s+var\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:\s*([^;]+);',
               [roIgnoreCase]);
             if lFieldMatch.Success then
-              AddMember(aMembers, aOwnerName, lFieldMatch.Groups[1].Value, 'field',
-                lFieldMatch.Groups[2].Value.Trim, lVisibility, '', aText, False, False,
-                lOffset + 1);
+            begin
+              for lName in lFieldMatch.Groups[2].Value.Split([',']) do
+                if lName.Trim <> '' then
+                begin
+                  lNameOffset := Pos(LowerCase(lName.Trim), LowerCase(lLines[i]));
+                  if lNameOffset <= 0 then
+                    lNameOffset := 1;
+                  if lInClassVarSection or (MatchGroupValue(lFieldMatch, 1).Trim <> '') then
+                    AddMember(aMembers, aOwnerName, lName.Trim, 'class-var',
+                      lFieldMatch.Groups[3].Value.Trim, lVisibility, '', aText, False, False,
+                      lOffset + lNameOffset)
+                  else
+                    AddMember(aMembers, aOwnerName, lName.Trim, 'field',
+                      lFieldMatch.Groups[3].Value.Trim, lVisibility, '', aText, False, False,
+                      lOffset + lNameOffset);
+                end;
+            end;
           end;
         end;
       end;
