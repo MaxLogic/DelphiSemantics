@@ -24,6 +24,8 @@ type
       aClassification: string): string;
     function ReasonOf(const aBinding: TDelphiSemanticWithBinding; const aName,
       aClassification: string): string;
+    function HasInventorySymbol(const aInventory: TDelphiSemanticRemoveWithInventory;
+      const aName, aSymbolClass, aRoutineName: string): Boolean;
   public
     [Test]
     procedure ResolvesSelectorTypesAndClassifiesBodyIdentifiers;
@@ -53,6 +55,8 @@ type
     procedure SkipReasonsCoverExternalAndUnresolvedBranches;
     [Test]
     procedure CastExpressionRolesRemainUnsupported;
+    [Test]
+    procedure InventoryExposesFileAwareSymbolsAndBindings;
   end;
 
 implementation
@@ -147,6 +151,19 @@ begin
       Exit(lReference.ReasonCode);
 
   Result := '';
+end;
+
+function TWithBinderTests.HasInventorySymbol(const aInventory: TDelphiSemanticRemoveWithInventory;
+  const aName, aSymbolClass, aRoutineName: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  for lSymbol in aInventory.Symbols do
+    if SameText(lSymbol.Name, aName) and SameText(lSymbol.SymbolClass, aSymbolClass) and
+      SameText(lSymbol.RoutineName, aRoutineName) then
+      Exit(True);
+
+  Result := False;
 end;
 
 procedure TWithBinderTests.ResolvesSelectorTypesAndClassifiesBodyIdentifiers;
@@ -251,8 +268,11 @@ end;
 procedure TWithBinderTests.NestedWithStatementsUseOuterReceiverStack;
 var
   lBindings: TArray<TDelphiSemanticWithBinding>;
+  lFoundOuterAfterInnerRange: Boolean;
   lModel: TDelphiSemanticUnitModel;
+  lReference: TDelphiSemanticBoundReference;
 begin
+  lFoundOuterAfterInnerRange := False;
   lModel := LoadModel;
 
   lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
@@ -260,6 +280,12 @@ begin
   Assert.AreEqual(1, Length(lBindings[3].Selectors));
   Assert.AreEqual('TFirstRecord', lBindings[3].Selectors[0].TypeName);
   Assert.IsFalse(HasAnyReference(lBindings[3], 'SecondOnly'));
+  for lReference in lBindings[3].References do
+    if SameText(lReference.Name, 'FirstOnly') and SameText(lReference.Classification, 'member') and
+      (lReference.Line = 57) and (lReference.Column = 5) and (lReference.EndLine = 57) and
+      (lReference.EndColumn = 13) then
+      lFoundOuterAfterInnerRange := True;
+  Assert.IsTrue(lFoundOuterAfterInnerRange, 'Expected outer reference after inner with to keep range.');
   Assert.AreEqual(2, Length(lBindings[4].Selectors));
   Assert.AreEqual('TFirstRecord', lBindings[4].Selectors[0].TypeName);
   Assert.AreEqual('TSecondRecord', lBindings[4].Selectors[1].TypeName);
@@ -310,9 +336,9 @@ begin
 
   Assert.AreEqual('skipped', lBinding.Status);
   Assert.AreEqual('UNSUPPORTED_REFERENCE', lBinding.SkipReason);
-  Assert.AreEqual(4, lBinding.MemberReferenceCount);
+  Assert.AreEqual(5, lBinding.MemberReferenceCount);
   Assert.AreEqual(2, lBinding.LexicalReferenceCount);
-  Assert.AreEqual(2, lBinding.ExternalReferenceCount);
+  Assert.AreEqual(3, lBinding.ExternalReferenceCount);
   Assert.AreEqual(1, lBinding.IntrinsicReferenceCount);
   Assert.AreEqual(3, lBinding.UnsupportedReferenceCount);
   Assert.AreEqual(1, lBinding.UnresolvedReferenceCount);
@@ -356,7 +382,7 @@ begin
   lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
   lBinding := lBindings[7];
 
-  Assert.AreEqual(5, CountReferences(lBinding, 'FirstOnly'));
+  Assert.AreEqual(6, CountReferences(lBinding, 'FirstOnly'));
   Assert.IsFalse(HasAnyReference(lBinding, '13'));
   Assert.IsFalse(HasAnyReference(lBinding, '10'));
 end;
@@ -410,6 +436,65 @@ begin
   Assert.IsTrue(HasReference(lBinding, 'TFirstRecord', 'unsupported'));
   Assert.AreEqual('none', LookupSourceOf(lBinding, 'TFirstRecord', 'unsupported'));
   Assert.AreEqual('CALL_SELECTOR_UNSUPPORTED', ReasonOf(lBinding, 'TFirstRecord', 'unsupported'));
+end;
+
+procedure TWithBinderTests.InventoryExposesFileAwareSymbolsAndBindings;
+var
+  lFoundCallArgumentRange: Boolean;
+  lFoundFirstOnlyRange: Boolean;
+  lFoundRepeatedCallArgumentRange: Boolean;
+  lInventory: TDelphiSemanticRemoveWithInventory;
+  lModel: TDelphiSemanticUnitModel;
+  lRangeDetails: string;
+  lReference: TDelphiSemanticBoundReference;
+begin
+  lFoundCallArgumentRange := False;
+  lFoundFirstOnlyRange := False;
+  lFoundRepeatedCallArgumentRange := False;
+  lRangeDetails := '';
+  lModel := LoadModel;
+
+  lInventory := TDelphiSemanticWithBinder.BuildInventory(lModel);
+
+  Assert.AreEqual(lModel.FileName, lInventory.FileName);
+  Assert.AreEqual('WithBinderUnit', lInventory.UnitName);
+  Assert.IsTrue(HasInventorySymbol(lInventory, 'WithBinderUnit', 'unit', ''));
+  Assert.IsTrue(HasInventorySymbol(lInventory, 'TFirstRecord', 'declaration', ''));
+  Assert.IsTrue(HasInventorySymbol(lInventory, 'FirstOnly', 'member', ''));
+  Assert.IsTrue(HasInventorySymbol(lInventory, 'RunWithBinder', 'routine', ''));
+  Assert.IsTrue(HasInventorySymbol(lInventory, 'aParamValue', 'parameter', 'RunWithBinder'));
+  Assert.IsTrue(HasInventorySymbol(lInventory, 'lFirst', 'local', 'RunWithBinder'));
+  Assert.IsTrue(Length(lInventory.Bindings) > 0, 'Expected with bindings.');
+  Assert.AreEqual(lModel.FileName, lInventory.Bindings[0].FileName);
+  Assert.AreEqual('WithBinderUnit', lInventory.Bindings[0].UnitName);
+  Assert.AreEqual('RunWithBinder', lInventory.Bindings[0].RoutineName);
+  Assert.AreEqual(1, Length(lInventory.Bindings[0].Selectors));
+  Assert.AreEqual('lFirst', lInventory.Bindings[0].Selectors[0].SelectorText);
+  for lReference in lInventory.Bindings[0].References do
+    if SameText(lReference.Name, 'FirstOnly') and SameText(lReference.Classification, 'member') and
+      (lReference.Line = 32) and (lReference.Column = 5) and (lReference.EndLine = 32) and
+      (lReference.EndColumn = 13) then
+      lFoundFirstOnlyRange := True;
+  Assert.IsTrue(lFoundFirstOnlyRange, 'Expected exact source range for FirstOnly member reference.');
+  for lReference in lInventory.Bindings[7].References do
+  begin
+    if SameText(lReference.Name, 'FirstOnly') then
+      lRangeDetails := lRangeDetails + Format('%s:%d:%d-%d:%d ',
+        [lReference.Classification, lReference.Line, lReference.Column, lReference.EndLine,
+        lReference.EndColumn]);
+    if SameText(lReference.Name, 'FirstOnly') and SameText(lReference.Classification, 'member') and
+      (lReference.Line = 99) and (lReference.Column = 23) and (lReference.EndLine = 99) and
+      (lReference.EndColumn = 31) then
+      lFoundCallArgumentRange := True;
+    if SameText(lReference.Name, 'FirstOnly') and SameText(lReference.Classification, 'member') and
+      (lReference.Line = 100) and (lReference.Column = 23) and (lReference.EndLine = 100) and
+      (lReference.EndColumn = 31) then
+      lFoundRepeatedCallArgumentRange := True;
+  end;
+  Assert.IsTrue(lFoundCallArgumentRange, 'Expected exact source range for FirstOnly call argument. Actual: ' +
+    lRangeDetails);
+  Assert.IsTrue(lFoundRepeatedCallArgumentRange,
+    'Expected exact source range for repeated FirstOnly call argument. Actual: ' + lRangeDetails);
 end;
 
 initialization

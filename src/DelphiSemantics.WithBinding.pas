@@ -21,9 +21,32 @@ type
     Kind: string;
     TypeName: string;
     ReasonCode: string;
+    Line: Integer;
+    Column: Integer;
+    EndLine: Integer;
+    EndColumn: Integer;
+  end;
+
+  TDelphiSemanticInventorySymbol = record
+    Name: string;
+    SymbolClass: string;
+    Kind: string;
+    TypeName: string;
+    OwnerName: string;
+    RoutineName: string;
+    UnitName: string;
+    FileName: string;
+    SectionKind: string;
+    Line: Integer;
+    Column: Integer;
+    IsDefault: Boolean;
+    IsIndexed: Boolean;
   end;
 
   TDelphiSemanticWithBinding = record
+    FileName: string;
+    UnitName: string;
+    RoutineName: string;
     Line: Integer;
     Column: Integer;
     EndLine: Integer;
@@ -46,10 +69,19 @@ type
     References: TArray<TDelphiSemanticBoundReference>;
   end;
 
+  TDelphiSemanticRemoveWithInventory = record
+    FileName: string;
+    UnitName: string;
+    Symbols: TArray<TDelphiSemanticInventorySymbol>;
+    Bindings: TArray<TDelphiSemanticWithBinding>;
+  end;
+
   TDelphiSemanticWithBinder = record
   public
     class function BindModel(const aModel: TDelphiSemanticUnitModel):
       TArray<TDelphiSemanticWithBinding>; static;
+    class function BuildInventory(const aModel: TDelphiSemanticUnitModel):
+      TDelphiSemanticRemoveWithInventory; static;
   end;
 
 implementation
@@ -83,13 +115,76 @@ begin
 end;
 
 function SanitizeBodyText(const aText: string): string;
+  procedure BlankAt(const aIndex: Integer);
+  begin
+    if not CharInSet(Result[aIndex], [#10, #13]) then
+      Result[aIndex] := ' ';
+  end;
+
 var
-  lText: string;
+  i: Integer;
 begin
-  lText := TRegEx.Replace(aText, '''(?:''''|[^''])*''', ' ', [roSingleLine]);
-  lText := TRegEx.Replace(lText, '\(\*.*?\*\)', ' ', [roSingleLine]);
-  lText := TRegEx.Replace(lText, '\{.*?\}', ' ', [roSingleLine]);
-  Result := TRegEx.Replace(lText, '//[^\r\n]*', ' ', [roMultiLine]);
+  Result := aText;
+  i := 1;
+  while i <= Length(Result) do
+  begin
+    if aText[i] = '''' then
+    begin
+      BlankAt(i);
+      Inc(i);
+      while i <= Length(Result) do
+      begin
+        BlankAt(i);
+        if aText[i] = '''' then
+        begin
+          if (i < Length(aText)) and (aText[i + 1] = '''') then
+          begin
+            Inc(i);
+            BlankAt(i);
+          end else
+            Break;
+        end;
+        Inc(i);
+      end;
+    end else if (aText[i] = '/') and (i < Length(aText)) and (aText[i + 1] = '/') then
+    begin
+      while (i <= Length(Result)) and not CharInSet(Result[i], [#10, #13]) do
+      begin
+        BlankAt(i);
+        Inc(i);
+      end;
+      Continue;
+    end else if aText[i] = '{' then
+    begin
+      BlankAt(i);
+      Inc(i);
+      while i <= Length(Result) do
+      begin
+        BlankAt(i);
+        if aText[i] = '}' then
+          Break;
+        Inc(i);
+      end;
+    end else if (aText[i] = '(') and (i < Length(aText)) and (aText[i + 1] = '*') then
+    begin
+      BlankAt(i);
+      Inc(i);
+      BlankAt(i);
+      Inc(i);
+      while i <= Length(Result) do
+      begin
+        BlankAt(i);
+        if (aText[i] = '*') and (i < Length(aText)) and (aText[i + 1] = ')') then
+        begin
+          Inc(i);
+          BlankAt(i);
+          Break;
+        end;
+        Inc(i);
+      end;
+    end;
+    Inc(i);
+  end;
 end;
 
 function ExtractWithBodyText(const aStatement: TDelphiSemanticWithStatement;
@@ -98,6 +193,17 @@ function ExtractWithBodyText(const aStatement: TDelphiSemanticWithStatement;
 var
   i: Integer;
   lMatch: TMatch;
+
+  function BlankTextPreservingLines(const aText: string): string;
+  var
+    j: Integer;
+  begin
+    Result := aText;
+    for j := 1 to Length(Result) do
+      if not CharInSet(Result[j], [#10, #13]) then
+        Result[j] := ' ';
+  end;
+
 begin
   lMatch := TRegEx.Match(aStatement.Text, '\bdo\b(.*)$', [roIgnoreCase, roSingleLine]);
   if lMatch.Success then
@@ -106,7 +212,8 @@ begin
     Result := aStatement.Text;
   for i := Succ(aStatementIndex) to High(aAllStatements) do
     if Pos(aAllStatements[i].Text, Result) > 0 then
-      Result := StringReplace(Result, aAllStatements[i].Text, ' ', []);
+      Result := StringReplace(Result, aAllStatements[i].Text,
+        BlankTextPreservingLines(aAllStatements[i].Text), []);
   Result := SanitizeBodyText(Result);
 end;
 
@@ -261,6 +368,66 @@ begin
   Result.ReasonCode := aResult.ReasonCode;
 end;
 
+function LineOfOffset(const aText: string; const aOffset: Integer): Integer;
+var
+  i: Integer;
+  lOffset: Integer;
+begin
+  Result := 1;
+  lOffset := EnsureRange(aOffset, 1, Length(aText));
+  for i := 1 to lOffset do
+    if aText[i] = #10 then
+      Inc(Result);
+end;
+
+function ColumnOfOffset(const aText: string; const aOffset: Integer): Integer;
+var
+  i: Integer;
+  lColumn: Integer;
+  lOffset: Integer;
+begin
+  lColumn := 1;
+  lOffset := EnsureRange(aOffset, 1, Length(aText));
+  for i := 1 to lOffset - 1 do
+  begin
+    if aText[i] = #10 then
+      lColumn := 1
+    else
+      Inc(lColumn);
+  end;
+  Result := lColumn;
+end;
+
+procedure ApplyBodyRange(var aReference: TDelphiSemanticBoundReference;
+  const aStatement: TDelphiSemanticWithStatement; const aStartOffset, aLength: Integer);
+var
+  lEndColumn: Integer;
+  lEndLine: Integer;
+  lEndOffset: Integer;
+  lStartColumn: Integer;
+  lStartLine: Integer;
+begin
+  if (aStartOffset <= 0) or (aLength <= 0) or (aStatement.BodyText = '') then
+    Exit;
+
+  lEndOffset := aStartOffset + aLength - 1;
+  lStartLine := LineOfOffset(aStatement.BodyText, aStartOffset);
+  lStartColumn := ColumnOfOffset(aStatement.BodyText, aStartOffset);
+  lEndLine := LineOfOffset(aStatement.BodyText, lEndOffset);
+  lEndColumn := ColumnOfOffset(aStatement.BodyText, lEndOffset);
+
+  aReference.Line := aStatement.BodyLine + lStartLine - 1;
+  if lStartLine = 1 then
+    aReference.Column := aStatement.BodyColumn + lStartColumn - 1
+  else
+    aReference.Column := lStartColumn;
+  aReference.EndLine := aStatement.BodyLine + lEndLine - 1;
+  if lEndLine = 1 then
+    aReference.EndColumn := aStatement.BodyColumn + lEndColumn - 1
+  else
+    aReference.EndColumn := lEndColumn;
+end;
+
 function MakeSyntheticResolveResult(const aName, aKind, aTypeName, aOwnerName,
   aReasonCode: string): TDelphiSemanticResolveResult;
 begin
@@ -339,6 +506,13 @@ procedure AddReference(const aReferences: TList<TDelphiSemanticBoundReference>;
   const aReference: TDelphiSemanticBoundReference);
 begin
   aReferences.Add(aReference);
+end;
+
+procedure AddInventorySymbol(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
+  const aSymbol: TDelphiSemanticInventorySymbol);
+begin
+  if aSymbol.Name <> '' then
+    aSymbols.Add(aSymbol);
 end;
 
 function BindReference(const aModel: TDelphiSemanticUnitModel;
@@ -489,14 +663,20 @@ end;
 procedure AddArgumentReferences(const aReferences: TList<TDelphiSemanticBoundReference>;
   const aModel: TDelphiSemanticUnitModel; const aRoutineName: string;
   const aParentRoutineNames: TArray<string>;
-  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>; const aToken: string);
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aStatement: TDelphiSemanticWithStatement; const aToken: string;
+  const aTokenStartOffset: Integer);
 var
   lArgumentMatch: TMatch;
+  lArgumentStartOffset: Integer;
   lArguments: string;
+  lParenPos: Integer;
+  lReference: TDelphiSemanticBoundReference;
 begin
   if not TryExtractCallArguments(aToken, lArguments) then
     Exit;
 
+  lParenPos := Pos('(', aToken);
   lArguments := SanitizeBodyText(lArguments);
   lArgumentMatch := TRegEx.Match(lArguments,
     '\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?(?:\[[^\]]+\])?',
@@ -505,8 +685,13 @@ begin
   begin
     if not IsBinderKeyword(lArgumentMatch.Value) and
       not IsSelectorName(aSelectors, lArgumentMatch.Value) then
-      AddReference(aReferences, BindReference(aModel, aRoutineName, aParentRoutineNames,
-        aSelectors, lArgumentMatch.Value));
+    begin
+      lReference := BindReference(aModel, aRoutineName, aParentRoutineNames, aSelectors,
+        lArgumentMatch.Value);
+      lArgumentStartOffset := aTokenStartOffset + lParenPos + lArgumentMatch.Index - 1;
+      ApplyBodyRange(lReference, aStatement, lArgumentStartOffset, Length(lArgumentMatch.Value));
+      AddReference(aReferences, lReference);
+    end;
     lArgumentMatch := lArgumentMatch.NextMatch;
   end;
 end;
@@ -522,6 +707,7 @@ function BindReferences(const aModel: TDelphiSemanticUnitModel;
 var
   lBodyText: string;
   lMatch: TMatch;
+  lReference: TDelphiSemanticBoundReference;
   lReferences: TList<TDelphiSemanticBoundReference>;
 begin
   lReferences := TList<TDelphiSemanticBoundReference>.Create;
@@ -534,10 +720,12 @@ begin
     begin
       if not IsBinderKeyword(lMatch.Value) and not IsSelectorName(aSelectors, lMatch.Value) then
       begin
-        AddReference(lReferences, BindReference(aModel, aRoutineName, aParentRoutineNames,
-          aSelectors, lMatch.Value));
+        lReference := BindReference(aModel, aRoutineName, aParentRoutineNames, aSelectors,
+          lMatch.Value);
+        ApplyBodyRange(lReference, aStatement, lMatch.Index, Length(lMatch.Value));
+        AddReference(lReferences, lReference);
         AddArgumentReferences(lReferences, aModel, aRoutineName, aParentRoutineNames,
-          aSelectors, lMatch.Value);
+          aSelectors, aStatement, lMatch.Value, lMatch.Index);
       end;
       lMatch := lMatch.NextMatch;
     end;
@@ -595,6 +783,8 @@ begin
     begin
       lStatement := aModel.WithStatements[i];
       lBinding := Default(TDelphiSemanticWithBinding);
+      lBinding.FileName := aModel.FileName;
+      lBinding.UnitName := aModel.UnitName;
       lBinding.Line := lStatement.Line;
       lBinding.Column := lStatement.Column;
       lBinding.EndLine := lStatement.EndLine;
@@ -605,6 +795,7 @@ begin
       lBinding.BodyEndColumn := lStatement.BodyEndColumn;
       lBinding.SelectorText := lStatement.SelectorText;
       lRoutineName := FindRoutineNameForLine(aModel, lStatement.Line);
+      lBinding.RoutineName := lRoutineName;
       lParentRoutineNames := ParentRoutineNamesForLine(aModel, lRoutineName, lStatement.Line);
       lBinding.Selectors := CombinedSelectors(aModel, aModel.WithStatements, i, lRoutineName,
         lParentRoutineNames);
@@ -617,6 +808,118 @@ begin
   finally
     lBindings.Free;
   end;
+end;
+
+class function TDelphiSemanticWithBinder.BuildInventory(
+  const aModel: TDelphiSemanticUnitModel): TDelphiSemanticRemoveWithInventory;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lLocal: TDelphiSemanticLocal;
+  lMember: TDelphiSemanticMember;
+  lParameter: TDelphiSemanticParameter;
+  lRoutine: TDelphiSemanticRoutine;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbols: TList<TDelphiSemanticInventorySymbol>;
+begin
+  Result := Default(TDelphiSemanticRemoveWithInventory);
+  Result.FileName := aModel.FileName;
+  Result.UnitName := aModel.UnitName;
+
+  lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
+  try
+    lSymbol := Default(TDelphiSemanticInventorySymbol);
+    lSymbol.Name := aModel.UnitName;
+    lSymbol.SymbolClass := 'unit';
+    lSymbol.Kind := 'unit';
+    lSymbol.UnitName := aModel.UnitName;
+    lSymbol.FileName := aModel.FileName;
+    lSymbol.Line := 1;
+    lSymbol.Column := 1;
+    AddInventorySymbol(lSymbols, lSymbol);
+
+    for lDeclaration in aModel.Declarations do
+    begin
+      lSymbol := Default(TDelphiSemanticInventorySymbol);
+      lSymbol.Name := lDeclaration.Name;
+      lSymbol.SymbolClass := 'declaration';
+      lSymbol.Kind := lDeclaration.Kind;
+      lSymbol.TypeName := lDeclaration.TypeName;
+      lSymbol.OwnerName := aModel.UnitName;
+      lSymbol.UnitName := aModel.UnitName;
+      lSymbol.FileName := aModel.FileName;
+      lSymbol.SectionKind := lDeclaration.SectionKind;
+      lSymbol.Line := lDeclaration.Line;
+      lSymbol.Column := lDeclaration.Column;
+      AddInventorySymbol(lSymbols, lSymbol);
+    end;
+
+    for lMember in aModel.Members do
+    begin
+      lSymbol := Default(TDelphiSemanticInventorySymbol);
+      lSymbol.Name := lMember.Name;
+      lSymbol.SymbolClass := 'member';
+      lSymbol.Kind := lMember.Kind;
+      lSymbol.TypeName := lMember.TypeName;
+      lSymbol.OwnerName := lMember.OwnerName;
+      lSymbol.UnitName := aModel.UnitName;
+      lSymbol.FileName := aModel.FileName;
+      lSymbol.Line := lMember.Line;
+      lSymbol.Column := lMember.Column;
+      lSymbol.IsDefault := lMember.IsDefault;
+      lSymbol.IsIndexed := lMember.IsIndexed;
+      AddInventorySymbol(lSymbols, lSymbol);
+    end;
+
+    for lRoutine in aModel.Routines do
+    begin
+      lSymbol := Default(TDelphiSemanticInventorySymbol);
+      lSymbol.Name := lRoutine.Name;
+      lSymbol.SymbolClass := 'routine';
+      lSymbol.Kind := 'routine';
+      lSymbol.TypeName := lRoutine.ReturnType;
+      lSymbol.OwnerName := lRoutine.OwnerName;
+      lSymbol.UnitName := aModel.UnitName;
+      lSymbol.FileName := aModel.FileName;
+      lSymbol.SectionKind := lRoutine.SectionKind;
+      lSymbol.Line := lRoutine.Line;
+      lSymbol.Column := lRoutine.Column;
+      AddInventorySymbol(lSymbols, lSymbol);
+
+      for lParameter in lRoutine.Parameters do
+      begin
+        lSymbol := Default(TDelphiSemanticInventorySymbol);
+        lSymbol.Name := lParameter.Name;
+        lSymbol.SymbolClass := 'parameter';
+        lSymbol.Kind := 'parameter';
+        lSymbol.TypeName := lParameter.TypeName;
+        lSymbol.RoutineName := lParameter.RoutineName;
+        lSymbol.UnitName := aModel.UnitName;
+        lSymbol.FileName := aModel.FileName;
+        AddInventorySymbol(lSymbols, lSymbol);
+      end;
+    end;
+
+    for lLocal in aModel.Locals do
+    begin
+      lSymbol := Default(TDelphiSemanticInventorySymbol);
+      lSymbol.Name := lLocal.Name;
+      lSymbol.SymbolClass := 'local';
+      lSymbol.Kind := lLocal.Kind;
+      lSymbol.TypeName := lLocal.TypeName;
+      lSymbol.RoutineName := lLocal.RoutineName;
+      lSymbol.UnitName := aModel.UnitName;
+      lSymbol.FileName := aModel.FileName;
+      lSymbol.Line := lLocal.Line;
+      lSymbol.Column := lLocal.Column;
+      AddInventorySymbol(lSymbols, lSymbol);
+    end;
+
+    Result.Symbols := lSymbols.ToArray;
+  finally
+    lSymbols.Free;
+  end;
+
+  Result.Bindings := BindModel(aModel);
 end;
 
 end.

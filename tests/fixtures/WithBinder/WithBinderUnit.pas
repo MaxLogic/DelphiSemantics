@@ -54,6 +54,7 @@ begin
     begin
       FirstOnly := SecondOnly;
     end;
+    FirstOnly := 12;
   end;
 end;
 
@@ -95,6 +96,7 @@ begin
     FirstOnly(0);
     lText := 'FirstOnly'#13#10;
     Length(lText);
+    KnownExternalCall(FirstOnly);
     KnownExternalCall(FirstOnly);
     UnknownExternalCall(FirstOnly);
     TFirstRecord(FirstOnly);
