@@ -31,7 +31,7 @@ uses
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def;
 
 const
-  cSqliteSchemaVersion = '3';
+  cSqliteSchemaVersion = '4';
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -362,7 +362,15 @@ begin
   Result.AddPair('Column', TJSONNumber.Create(aStatement.Column));
   Result.AddPair('EndLine', TJSONNumber.Create(aStatement.EndLine));
   Result.AddPair('EndColumn', TJSONNumber.Create(aStatement.EndColumn));
+  Result.AddPair('BodyLine', TJSONNumber.Create(aStatement.BodyLine));
+  Result.AddPair('BodyColumn', TJSONNumber.Create(aStatement.BodyColumn));
+  Result.AddPair('BodyEndLine', TJSONNumber.Create(aStatement.BodyEndLine));
+  Result.AddPair('BodyEndColumn', TJSONNumber.Create(aStatement.BodyEndColumn));
   Result.AddPair('SelectorText', aStatement.SelectorText);
+  Result.AddPair('SelectorCount', TJSONNumber.Create(aStatement.SelectorCount));
+  Result.AddPair('NestingDepth', TJSONNumber.Create(aStatement.NestingDepth));
+  Result.AddPair('HasScopedDeclaration', TJSONBool.Create(aStatement.HasScopedDeclaration));
+  Result.AddPair('BodyText', aStatement.BodyText);
   Result.AddPair('Text', aStatement.Text);
 end;
 
@@ -372,7 +380,15 @@ begin
   Result.Column := JsonInt(aObject, 'Column');
   Result.EndLine := JsonInt(aObject, 'EndLine');
   Result.EndColumn := JsonInt(aObject, 'EndColumn');
+  Result.BodyLine := JsonInt(aObject, 'BodyLine');
+  Result.BodyColumn := JsonInt(aObject, 'BodyColumn');
+  Result.BodyEndLine := JsonInt(aObject, 'BodyEndLine');
+  Result.BodyEndColumn := JsonInt(aObject, 'BodyEndColumn');
   Result.SelectorText := JsonString(aObject, 'SelectorText');
+  Result.SelectorCount := JsonInt(aObject, 'SelectorCount');
+  Result.NestingDepth := JsonInt(aObject, 'NestingDepth');
+  Result.HasScopedDeclaration := JsonBool(aObject, 'HasScopedDeclaration');
+  Result.BodyText := JsonString(aObject, 'BodyText');
   Result.Text := JsonString(aObject, 'Text');
 end;
 

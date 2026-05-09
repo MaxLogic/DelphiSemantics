@@ -78,7 +78,7 @@ uses
   DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.Version;
 
 const
-  cCacheSchemaVersion = '2';
+  cCacheSchemaVersion = '3';
   cDefaultCompilerProfileName = 'default';
   cDefaultParserVersion = 'DelphiSemantics.Model.Parser.1';
 

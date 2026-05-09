@@ -79,7 +79,15 @@ type
     Column: Integer;
     EndLine: Integer;
     EndColumn: Integer;
+    BodyLine: Integer;
+    BodyColumn: Integer;
+    BodyEndLine: Integer;
+    BodyEndColumn: Integer;
     SelectorText: string;
+    SelectorCount: Integer;
+    NestingDepth: Integer;
+    HasScopedDeclaration: Boolean;
+    BodyText: string;
     Text: string;
   end;
 
@@ -1033,22 +1041,41 @@ end;
 
 procedure ExtractWithStatements(const aText: string; const aItems: TList<TDelphiSemanticWithStatement>);
 var
+  i: Integer;
+  lBodyStartOffset: Integer;
   lCleanText: string;
   lEndOffset: Integer;
   lItem: TDelphiSemanticWithStatement;
   lMatch: TMatch;
+  lSelectorParts: TArray<string>;
 begin
   lCleanText := SanitizeCodeText(aText);
   lMatch := TRegEx.Match(lCleanText, '\bwith\b\s+(.*?)\s+\bdo\b', [roIgnoreCase, roSingleLine]);
   while lMatch.Success do
   begin
-    lEndOffset := FindWithStatementEndOffset(aText, lMatch.Index + lMatch.Length + 1);
-    lItem.Line := LineOfOffset(aText, lMatch.Index + 1);
-    lItem.Column := ColumnOfOffset(aText, lMatch.Index + 1);
+    lItem := Default(TDelphiSemanticWithStatement);
+    lBodyStartOffset := lMatch.Index + lMatch.Length;
+    lEndOffset := FindWithStatementEndOffset(aText, lBodyStartOffset);
+    lItem.Line := LineOfOffset(aText, lMatch.Index);
+    lItem.Column := ColumnOfOffset(aText, lMatch.Index);
     lItem.EndLine := LineOfOffset(aText, lEndOffset);
     lItem.EndColumn := ColumnOfOffset(aText, lEndOffset);
+    lItem.BodyLine := LineOfOffset(aText, lBodyStartOffset);
+    lItem.BodyColumn := ColumnOfOffset(aText, lBodyStartOffset);
+    lItem.BodyEndLine := lItem.EndLine;
+    lItem.BodyEndColumn := lItem.EndColumn;
     lItem.SelectorText := lMatch.Groups[1].Value.Trim;
-    lItem.Text := Copy(aText, lMatch.Index + 1, lEndOffset - lMatch.Index);
+    lSelectorParts := lItem.SelectorText.Split([',']);
+    lItem.SelectorCount := Length(lSelectorParts);
+    lItem.NestingDepth := 0;
+    for i := 0 to Pred(aItems.Count) do
+      if (aItems[i].Line <= lItem.Line) and (aItems[i].EndLine >= lItem.Line) and
+        (aItems[i].NestingDepth >= lItem.NestingDepth) then
+        lItem.NestingDepth := aItems[i].NestingDepth + 1;
+    lItem.BodyText := Copy(aText, lBodyStartOffset, lEndOffset - lBodyStartOffset + 1);
+    lItem.HasScopedDeclaration := TRegEx.IsMatch(lItem.BodyText,
+      '^\s*(?:var|const|type)\b', [roIgnoreCase, roMultiLine]);
+    lItem.Text := Copy(aText, lMatch.Index, lEndOffset - lMatch.Index + 1);
     aItems.Add(lItem);
     lMatch := lMatch.NextMatch;
   end;
