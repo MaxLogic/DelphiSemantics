@@ -18,6 +18,12 @@ type
       Boolean;
     function ReceiverOf(const aBinding: TDelphiSemanticWithBinding; const aName,
       aClassification: string): string;
+    function CountReferences(const aBinding: TDelphiSemanticWithBinding; const aName: string):
+      Integer;
+    function LookupSourceOf(const aBinding: TDelphiSemanticWithBinding; const aName,
+      aClassification: string): string;
+    function ReasonOf(const aBinding: TDelphiSemanticWithBinding; const aName,
+      aClassification: string): string;
   public
     [Test]
     procedure ResolvesSelectorTypesAndClassifiesBodyIdentifiers;
@@ -33,6 +39,18 @@ type
     procedure NestedRoutineWithUsesParentRoutineScope;
     [Test]
     procedure SiblingRoutineLocalsDoNotLeakIntoNestedWith;
+    [Test]
+    procedure PlanningMetadataCountsLookupSourcesAndReasons;
+    [Test]
+    procedure ScopedDeclarationsMarkBindingSkipped;
+    [Test]
+    procedure ControlCharacterLiteralsAreIgnored;
+    [Test]
+    procedure SafeBindingsArePlannedDirectReferences;
+    [Test]
+    procedure SkipReasonsCoverExternalAndUnresolvedBranches;
+    [Test]
+    procedure CastExpressionRolesRemainUnsupported;
   end;
 
 implementation
@@ -94,6 +112,41 @@ begin
   Result := '';
 end;
 
+function TWithBinderTests.CountReferences(const aBinding: TDelphiSemanticWithBinding;
+  const aName: string): Integer;
+var
+  lReference: TDelphiSemanticBoundReference;
+begin
+  Result := 0;
+  for lReference in aBinding.References do
+    if SameText(lReference.Name, aName) then
+      Inc(Result);
+end;
+
+function TWithBinderTests.LookupSourceOf(const aBinding: TDelphiSemanticWithBinding; const aName,
+  aClassification: string): string;
+var
+  lReference: TDelphiSemanticBoundReference;
+begin
+  for lReference in aBinding.References do
+    if SameText(lReference.Name, aName) and SameText(lReference.Classification, aClassification) then
+      Exit(lReference.LookupSource);
+
+  Result := '';
+end;
+
+function TWithBinderTests.ReasonOf(const aBinding: TDelphiSemanticWithBinding; const aName,
+  aClassification: string): string;
+var
+  lReference: TDelphiSemanticBoundReference;
+begin
+  for lReference in aBinding.References do
+    if SameText(lReference.Name, aName) and SameText(lReference.Classification, aClassification) then
+      Exit(lReference.ReasonCode);
+
+  Result := '';
+end;
+
 procedure TWithBinderTests.ResolvesSelectorTypesAndClassifiesBodyIdentifiers;
 var
   lBindings: TArray<TDelphiSemanticWithBinding>;
@@ -103,7 +156,7 @@ begin
 
   lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
 
-  Assert.AreEqual(7, Length(lBindings));
+  Assert.AreEqual(10, Length(lBindings));
   Assert.AreEqual(1, Length(lBindings[0].Selectors));
   Assert.AreEqual('lFirst', lBindings[0].Selectors[0].SelectorText);
   Assert.AreEqual('resolved', lBindings[0].Selectors[0].Status);
@@ -218,6 +271,121 @@ begin
   Assert.AreEqual('lSiblingReceiver', lBindings[6].Selectors[0].SelectorText);
   Assert.AreEqual('unresolved', lBindings[6].Selectors[0].Status);
   Assert.IsTrue(HasReference(lBindings[6], 'FirstOnly', 'external'));
+end;
+
+procedure TWithBinderTests.PlanningMetadataCountsLookupSourcesAndReasons;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := LoadModel;
+
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  lBinding := lBindings[7];
+
+  Assert.AreEqual('skipped', lBinding.Status);
+  Assert.AreEqual('UNSUPPORTED_REFERENCE', lBinding.SkipReason);
+  Assert.AreEqual(4, lBinding.MemberReferenceCount);
+  Assert.AreEqual(2, lBinding.LexicalReferenceCount);
+  Assert.AreEqual(2, lBinding.ExternalReferenceCount);
+  Assert.AreEqual(1, lBinding.IntrinsicReferenceCount);
+  Assert.AreEqual(3, lBinding.UnsupportedReferenceCount);
+  Assert.AreEqual(1, lBinding.UnresolvedReferenceCount);
+  Assert.AreEqual('receiver', LookupSourceOf(lBinding, 'FirstOnly', 'member'));
+  Assert.AreEqual('lexical', LookupSourceOf(lBinding, 'lText', 'lexical'));
+  Assert.AreEqual(2, CountReferences(lBinding, 'lText'));
+  Assert.AreEqual('intrinsic', LookupSourceOf(lBinding, 'Length', 'intrinsic'));
+  Assert.AreEqual('external', LookupSourceOf(lBinding, 'KnownExternalCall', 'external'));
+  Assert.AreEqual('EXTERNAL_ROUTINE_CALL', ReasonOf(lBinding, 'KnownExternalCall', 'external'));
+  Assert.AreEqual('UNKNOWN_ROUTINE_CALL', ReasonOf(lBinding, 'UnknownExternalCall', 'external'));
+  Assert.AreEqual('CALL_SELECTOR_UNSUPPORTED', ReasonOf(lBinding, 'FirstOnly', 'unsupported'));
+  Assert.AreEqual('INDEXED_SELECTOR_UNSUPPORTED', ReasonOf(lBinding, 'FirstOnly[0]', 'unsupported'));
+  Assert.AreEqual('CALL_SELECTOR_UNSUPPORTED', ReasonOf(lBinding, 'TFirstRecord', 'unsupported'));
+  Assert.AreEqual('NAME_NOT_FOUND', ReasonOf(lBinding, 'MissingPlanValue', 'unresolved'));
+end;
+
+procedure TWithBinderTests.ScopedDeclarationsMarkBindingSkipped;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := LoadModel;
+
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  lBinding := lBindings[8];
+
+  Assert.IsTrue(lBinding.HasScopedDeclaration);
+  Assert.AreEqual('skipped', lBinding.Status);
+  Assert.AreEqual('SCOPED_DECLARATION', lBinding.SkipReason);
+end;
+
+procedure TWithBinderTests.ControlCharacterLiteralsAreIgnored;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := LoadModel;
+
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  lBinding := lBindings[7];
+
+  Assert.AreEqual(5, CountReferences(lBinding, 'FirstOnly'));
+  Assert.IsFalse(HasAnyReference(lBinding, '13'));
+  Assert.IsFalse(HasAnyReference(lBinding, '10'));
+end;
+
+procedure TWithBinderTests.SafeBindingsArePlannedDirectReferences;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := LoadModel;
+
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  lBinding := lBindings[1];
+
+  Assert.AreEqual('planned', lBinding.Status);
+  Assert.AreEqual('', lBinding.SkipReason);
+  Assert.AreEqual(3, lBinding.MemberReferenceCount);
+  Assert.AreEqual(0, lBinding.UnsupportedReferenceCount);
+  Assert.AreEqual(0, lBinding.UnresolvedReferenceCount);
+  Assert.AreEqual(0, lBinding.ExternalReferenceCount);
+end;
+
+procedure TWithBinderTests.SkipReasonsCoverExternalAndUnresolvedBranches;
+var
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := LoadModel;
+
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+
+  Assert.AreEqual('skipped', lBindings[6].Status);
+  Assert.AreEqual('EXTERNAL_REFERENCE', lBindings[6].SkipReason);
+  Assert.AreEqual('skipped', lBindings[9].Status);
+  Assert.AreEqual('UNRESOLVED_REFERENCE', lBindings[9].SkipReason);
+  Assert.IsTrue(HasReference(lBindings[9], 'MissingOnly', 'unresolved'));
+end;
+
+procedure TWithBinderTests.CastExpressionRolesRemainUnsupported;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := LoadModel;
+
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  lBinding := lBindings[7];
+
+  Assert.IsTrue(HasReference(lBinding, 'TFirstRecord', 'unsupported'));
+  Assert.AreEqual('none', LookupSourceOf(lBinding, 'TFirstRecord', 'unsupported'));
+  Assert.AreEqual('CALL_SELECTOR_UNSUPPORTED', ReasonOf(lBinding, 'TFirstRecord', 'unsupported'));
 end;
 
 initialization

@@ -15,6 +15,8 @@ type
 
 procedure RunWithBinder(const aParamValue: Integer);
 
+procedure KnownExternalCall(const aValue: Integer); external;
+
 procedure RunNestedBinder;
 
 implementation
@@ -79,6 +81,39 @@ var
 
 begin
   InnerWithScope;
+end;
+
+procedure RunPlanningBinder;
+var
+  lFirst: TFirstRecord;
+  lText: string;
+begin
+  with lFirst do
+  begin
+    FirstOnly := 1;
+    FirstOnly[0] := 2;
+    FirstOnly(0);
+    lText := 'FirstOnly'#13#10;
+    Length(lText);
+    KnownExternalCall(FirstOnly);
+    UnknownExternalCall(FirstOnly);
+    TFirstRecord(FirstOnly);
+    MissingPlanValue := 3;
+  end;
+
+  with lFirst do
+  begin
+    var lScoped: Integer;
+    lScoped := FirstOnly;
+  end;
+end;
+
+procedure RunUnresolvedPlanningBinder;
+var
+  lFirst: TFirstRecord;
+begin
+  with lFirst do
+    MissingOnly := 1;
 end;
 
 end.

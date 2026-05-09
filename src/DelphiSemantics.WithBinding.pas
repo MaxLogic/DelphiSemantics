@@ -16,6 +16,7 @@ type
   TDelphiSemanticBoundReference = record
     Name: string;
     Classification: string;
+    LookupSource: string;
     ReceiverTypeName: string;
     Kind: string;
     TypeName: string;
@@ -25,6 +26,15 @@ type
   TDelphiSemanticWithBinding = record
     Line: Integer;
     Column: Integer;
+    Status: string;
+    SkipReason: string;
+    HasScopedDeclaration: Boolean;
+    MemberReferenceCount: Integer;
+    LexicalReferenceCount: Integer;
+    ExternalReferenceCount: Integer;
+    IntrinsicReferenceCount: Integer;
+    UnsupportedReferenceCount: Integer;
+    UnresolvedReferenceCount: Integer;
     Selectors: TArray<TDelphiSemanticWithSelectorBinding>;
     References: TArray<TDelphiSemanticBoundReference>;
   end;
@@ -38,8 +48,8 @@ type
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.IOUtils, System.RegularExpressions,
-  System.Math, System.StrUtils, System.SysUtils;
+  System.Classes, System.Generics.Collections, System.IOUtils, System.Math,
+  System.RegularExpressions, System.StrUtils, System.SysUtils;
 
 type
   TRoutineFrame = record
@@ -218,15 +228,73 @@ begin
   Result.TypeName := lResult.TypeName;
 end;
 
+function LookupSourceForClassification(const aClassification: string): string;
+begin
+  if SameText(aClassification, 'member') then
+    Result := 'receiver'
+  else if SameText(aClassification, 'lexical') then
+    Result := 'lexical'
+  else if SameText(aClassification, 'intrinsic') then
+    Result := 'intrinsic'
+  else if SameText(aClassification, 'external') then
+    Result := 'external'
+  else
+    Result := 'none';
+end;
+
 function MakeBoundReference(const aName, aClassification: string;
   const aResult: TDelphiSemanticResolveResult): TDelphiSemanticBoundReference;
 begin
   Result.Name := aName;
   Result.Classification := aClassification;
+  Result.LookupSource := LookupSourceForClassification(aClassification);
   Result.ReceiverTypeName := aResult.OwnerName;
   Result.Kind := aResult.Kind;
   Result.TypeName := aResult.TypeName;
   Result.ReasonCode := aResult.ReasonCode;
+end;
+
+function MakeSyntheticResolveResult(const aName, aKind, aTypeName, aOwnerName,
+  aReasonCode: string): TDelphiSemanticResolveResult;
+begin
+  Result := Default(TDelphiSemanticResolveResult);
+  Result.Found := aKind <> '';
+  Result.Authoritative := Result.Found;
+  if Result.Found then
+    Result.Status := 'resolved'
+  else
+    Result.Status := 'unresolved';
+  Result.Name := aName;
+  Result.Kind := aKind;
+  Result.TypeName := aTypeName;
+  Result.OwnerName := aOwnerName;
+  Result.ReasonCode := aReasonCode;
+end;
+
+function TryExtractCallName(const aName: string; out aCallName: string): Boolean;
+var
+  lParenPos: Integer;
+begin
+  lParenPos := Pos('(', aName);
+  Result := lParenPos > 1;
+  if Result then
+    aCallName := Copy(aName, 1, lParenPos - 1).Trim
+  else
+    aCallName := '';
+end;
+
+function TryExtractCallArguments(const aName: string; out aArguments: string): Boolean;
+var
+  lClosePos: Integer;
+  lParenPos: Integer;
+begin
+  lParenPos := Pos('(', aName);
+  lClosePos := LastDelimiter(')', aName);
+  Result := (lParenPos > 1) and (lClosePos > lParenPos);
+  if Result then
+    aArguments := Copy(aName, lParenPos + 1, lClosePos - lParenPos - 1)
+  else
+    aArguments := '';
 end;
 
 function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
@@ -271,10 +339,42 @@ function BindReference(const aModel: TDelphiSemanticUnitModel;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>; const aName: string):
   TDelphiSemanticBoundReference;
 var
+  lCallName: string;
   lContext: TDelphiSemanticResolveContext;
   lResult: TDelphiSemanticResolveResult;
 begin
-  if (Pos('.', aName) > 0) or (Pos('[', aName) > 0) or (Pos('(', aName) > 0) then
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.RoutineName := aRoutineName;
+  lContext.ParentRoutineNames := aParentRoutineNames;
+  lContext.SectionKind := 'implementation';
+  lContext.ConformanceLevel := 3;
+
+  if TryExtractCallName(aName, lCallName) then
+  begin
+    if TryResolveReceiverMember(aModel, aSelectors, lCallName, lResult) then
+      if SameText(lResult.Kind, 'method') then
+        Exit(MakeBoundReference(lCallName, 'member', lResult))
+      else
+        Exit(MakeBoundReference(lCallName, 'unsupported',
+          MakeSyntheticResolveResult(lCallName, lResult.Kind, lResult.TypeName,
+          lResult.OwnerName, 'CALL_SELECTOR_UNSUPPORTED')));
+
+    lResult := TDelphiSemanticResolver.ResolveName(aModel, lContext, lCallName);
+    if lResult.Found and SameText(lResult.Kind, 'intrinsic-routine') then
+      Exit(MakeBoundReference(lCallName, 'intrinsic', lResult));
+    if lResult.Found and SameText(lResult.Kind, 'routine') then
+      Exit(MakeBoundReference(lCallName, 'external',
+        MakeSyntheticResolveResult(lCallName, 'routine', lResult.TypeName, lResult.OwnerName,
+        'EXTERNAL_ROUTINE_CALL')));
+    if lResult.Found then
+      Exit(MakeBoundReference(lCallName, 'unsupported',
+        MakeSyntheticResolveResult(lCallName, lResult.Kind, lResult.TypeName, lResult.OwnerName,
+        'CALL_SELECTOR_UNSUPPORTED')));
+    Exit(MakeBoundReference(lCallName, 'external',
+      MakeSyntheticResolveResult(lCallName, 'routine', '', '', 'UNKNOWN_ROUTINE_CALL')));
+  end;
+
+  if (Pos('.', aName) > 0) or (Pos('[', aName) > 0) then
     Exit(MakeBoundReference(aName, 'unsupported',
       TDelphiSemanticResolver.ResolveName(aModel, Default(TDelphiSemanticResolveContext), aName)));
 
@@ -287,11 +387,6 @@ begin
     Exit(MakeBoundReference(aName, 'member', lResult));
   end;
 
-  lContext := Default(TDelphiSemanticResolveContext);
-  lContext.RoutineName := aRoutineName;
-  lContext.ParentRoutineNames := aParentRoutineNames;
-  lContext.SectionKind := 'implementation';
-  lContext.ConformanceLevel := 3;
   lResult := TDelphiSemanticResolver.ResolveName(aModel, lContext, aName);
   if lResult.Found then
     Exit(MakeBoundReference(aName, 'lexical', lResult));
@@ -300,6 +395,55 @@ begin
     Exit(MakeBoundReference(aName, 'external', lResult));
 
   Result := MakeBoundReference(aName, 'unresolved', lResult);
+end;
+
+procedure CountBindingReference(var aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference);
+begin
+  if SameText(aReference.Classification, 'member') then
+    Inc(aBinding.MemberReferenceCount)
+  else if SameText(aReference.Classification, 'lexical') then
+    Inc(aBinding.LexicalReferenceCount)
+  else if SameText(aReference.Classification, 'external') then
+    Inc(aBinding.ExternalReferenceCount)
+  else if SameText(aReference.Classification, 'intrinsic') then
+    Inc(aBinding.IntrinsicReferenceCount)
+  else if SameText(aReference.Classification, 'unsupported') then
+    Inc(aBinding.UnsupportedReferenceCount)
+  else if SameText(aReference.Classification, 'unresolved') then
+    Inc(aBinding.UnresolvedReferenceCount);
+end;
+
+procedure FinalizeBinding(var aBinding: TDelphiSemanticWithBinding;
+  const aStatement: TDelphiSemanticWithStatement);
+var
+  lReference: TDelphiSemanticBoundReference;
+begin
+  aBinding.HasScopedDeclaration := aStatement.HasScopedDeclaration;
+  for lReference in aBinding.References do
+    CountBindingReference(aBinding, lReference);
+
+  if aBinding.HasScopedDeclaration then
+  begin
+    aBinding.Status := 'skipped';
+    aBinding.SkipReason := 'SCOPED_DECLARATION';
+  end else if aBinding.UnsupportedReferenceCount > 0 then
+  begin
+    aBinding.Status := 'skipped';
+    aBinding.SkipReason := 'UNSUPPORTED_REFERENCE';
+  end else if aBinding.UnresolvedReferenceCount > 0 then
+  begin
+    aBinding.Status := 'skipped';
+    aBinding.SkipReason := 'UNRESOLVED_REFERENCE';
+  end else if aBinding.ExternalReferenceCount > 0 then
+  begin
+    aBinding.Status := 'skipped';
+    aBinding.SkipReason := 'EXTERNAL_REFERENCE';
+  end else
+  begin
+    aBinding.Status := 'planned';
+    aBinding.SkipReason := '';
+  end;
 end;
 
 function SplitSelectors(const aSelectorText: string): TArray<string>;
@@ -335,6 +479,31 @@ begin
   end;
 end;
 
+procedure AddArgumentReferences(const aReferences: TList<TDelphiSemanticBoundReference>;
+  const aModel: TDelphiSemanticUnitModel; const aRoutineName: string;
+  const aParentRoutineNames: TArray<string>;
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>; const aToken: string);
+var
+  lArgumentMatch: TMatch;
+  lArguments: string;
+begin
+  if not TryExtractCallArguments(aToken, lArguments) then
+    Exit;
+
+  lArguments := SanitizeBodyText(lArguments);
+  lArgumentMatch := TRegEx.Match(lArguments,
+    '\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?(?:\[[^\]]+\])?',
+    [roIgnoreCase]);
+  while lArgumentMatch.Success do
+  begin
+    if not IsBinderKeyword(lArgumentMatch.Value) and
+      not IsSelectorName(aSelectors, lArgumentMatch.Value) then
+      AddReference(aReferences, BindReference(aModel, aRoutineName, aParentRoutineNames,
+        aSelectors, lArgumentMatch.Value));
+    lArgumentMatch := lArgumentMatch.NextMatch;
+  end;
+end;
+
 function BindReferences(const aModel: TDelphiSemanticUnitModel;
   const aStatement: TDelphiSemanticWithStatement;
   const aAllStatements: TArray<TDelphiSemanticWithStatement>;
@@ -357,8 +526,12 @@ begin
     while lMatch.Success do
     begin
       if not IsBinderKeyword(lMatch.Value) and not IsSelectorName(aSelectors, lMatch.Value) then
+      begin
         AddReference(lReferences, BindReference(aModel, aRoutineName, aParentRoutineNames,
           aSelectors, lMatch.Value));
+        AddArgumentReferences(lReferences, aModel, aRoutineName, aParentRoutineNames,
+          aSelectors, lMatch.Value);
+      end;
       lMatch := lMatch.NextMatch;
     end;
     Result := lReferences.ToArray;
@@ -423,6 +596,7 @@ begin
         lParentRoutineNames);
       lBinding.References := BindReferences(aModel, lStatement, aModel.WithStatements, i,
         lRoutineName, lParentRoutineNames, lBinding.Selectors);
+      FinalizeBinding(lBinding, lStatement);
       lBindings.Add(lBinding);
     end;
     Result := lBindings.ToArray;
