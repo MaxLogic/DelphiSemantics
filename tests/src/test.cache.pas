@@ -43,6 +43,12 @@ type
     procedure ParserVersionChangeInvalidatesCachedUnitModel;
     [Test]
     procedure ModelVersionChangeInvalidatesCachedUnitModel;
+    [Test]
+    procedure CacheAccessResultReportsPerCallHitAndIdentity;
+    [Test]
+    procedure SymbolMapCompatibleIdentityReusesSharedSourceAcrossProjects;
+    [Test]
+    procedure CompilerProfileExposesDakIntrinsicSeedFacts;
   end;
 
 implementation
@@ -166,6 +172,38 @@ begin
   end;
 end;
 
+procedure TCacheTests.CacheAccessResultReportsPerCallHitAndIdentity;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lFirst: TDelphiSemanticUnitCacheAccessResult;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lSecond: TDelphiSemanticUnitCacheAccessResult;
+begin
+  lPath := TempPath('AccessResultUnit.pas');
+  TFile.WriteAllText(lPath, 'unit AccessResultUnit;' + sLineBreak + 'interface' +
+    sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lFirst := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+    lSecond := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+
+    Assert.IsFalse(lFirst.CacheHit);
+    Assert.IsTrue(lSecond.CacheHit);
+    Assert.AreEqual('AccessResultUnit', lSecond.Model.UnitName);
+    Assert.IsNotEmpty(lSecond.Identity.UnitCacheKey);
+    Assert.IsNotEmpty(lSecond.Identity.FileHash);
+    Assert.IsNotEmpty(lSecond.Identity.ContextHash);
+  finally
+    lCache.Free;
+  end;
+end;
+
 procedure TCacheTests.SourceChangeInvalidatesCachedUnitModel;
 var
   lCache: TDelphiSemanticUnitCache;
@@ -201,6 +239,44 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+procedure TCacheTests.CompilerProfileExposesDakIntrinsicSeedFacts;
+var
+  lFoundString: Boolean;
+  lFoundSystem: Boolean;
+  lFoundTypeInfo: Boolean;
+  lIntrinsic: TDelphiSemanticIntrinsicSymbol;
+  lProfile: TDelphiSemanticCompilerProfile;
+begin
+  lFoundString := False;
+  lFoundSystem := False;
+  lFoundTypeInfo := False;
+
+  lProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTarget('Delphi-12-Win32-Debug',
+    '23.0', 'Win32', 'C:\rtl\source');
+
+  Assert.AreEqual('Delphi-12-Win32-Debug', lProfile.Name);
+  Assert.AreEqual('23.0', lProfile.DelphiVersion);
+  Assert.AreEqual('Win32', lProfile.Platform);
+  Assert.AreEqual('delphi-intrinsics-v1', lProfile.IntrinsicSeedVersion);
+  Assert.IsNotEmpty(lProfile.ProfileKey);
+  Assert.IsTrue(Length(lProfile.IntrinsicSymbols) >= 47);
+
+  for lIntrinsic in lProfile.IntrinsicSymbols do
+  begin
+    if SameText(lIntrinsic.Name, 'string') and SameText(lIntrinsic.Kind, 'intrinsic-type') then
+      lFoundString := True
+    else if SameText(lIntrinsic.Name, 'System') and SameText(lIntrinsic.Kind, 'intrinsic-unit') then
+      lFoundSystem := True
+    else if SameText(lIntrinsic.Name, 'TypeInfo') and SameText(lIntrinsic.Signature,
+      'function TypeInfo(TypeIdentifier): Pointer') then
+      lFoundTypeInfo := True;
+  end;
+
+  Assert.IsTrue(lFoundString);
+  Assert.IsTrue(lFoundSystem);
+  Assert.IsTrue(lFoundTypeInfo);
 end;
 
 procedure TCacheTests.SemanticContextChangeInvalidatesCachedUnitModel;
@@ -340,6 +416,45 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+procedure TCacheTests.SymbolMapCompatibleIdentityReusesSharedSourceAcrossProjects;
+var
+  lContextA: TDelphiSemanticCacheIdentityContext;
+  lContextB: TDelphiSemanticCacheIdentityContext;
+  lFirst: TDelphiSemanticUnitCacheIdentity;
+  lPathA: string;
+  lPathB: string;
+  lSecond: TDelphiSemanticUnitCacheIdentity;
+begin
+  lPathA := TempPath('SharedProjectA\SharedUnit.pas');
+  lPathB := TempPath('SharedProjectB\SharedUnit.pas');
+  TFile.WriteAllText(lPathA, 'unit SharedUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lPathB));
+  TFile.Copy(lPathA, lPathB, True);
+
+  lContextA := Default(TDelphiSemanticCacheIdentityContext);
+  lContextA.DelphiVersion := '23.0';
+  lContextA.Platform := 'Win32';
+  lContextA.Defines := ['DEBUG', 'TRACE'];
+  lContextA.UnitScopes := ['System', 'Vcl'];
+  lContextA.UnitAliases := ['WinTypes=Windows'];
+  lContextB := lContextA;
+  lContextB.Defines := ['TRACE', 'DEBUG'];
+
+  lFirst := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lPathA, lContextA);
+  lSecond := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lPathB, lContextB);
+
+  Assert.AreEqual(lFirst.FileHash, lSecond.FileHash);
+  Assert.AreEqual(lFirst.ContextHash, lSecond.ContextHash);
+  Assert.AreEqual(lFirst.UnitCacheKey, lSecond.UnitCacheKey);
+
+  lContextB.Defines := ['RELEASE'];
+  lSecond := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lPathB, lContextB);
+
+  Assert.AreNotEqual(lFirst.ContextHash, lSecond.ContextHash);
+  Assert.AreNotEqual(lFirst.UnitCacheKey, lSecond.UnitCacheKey);
 end;
 
 procedure TCacheTests.CompilerProfileChangeInvalidatesCachedUnitModel;
