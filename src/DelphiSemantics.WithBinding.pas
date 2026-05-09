@@ -26,6 +26,13 @@ type
   TDelphiSemanticWithBinding = record
     Line: Integer;
     Column: Integer;
+    EndLine: Integer;
+    EndColumn: Integer;
+    BodyLine: Integer;
+    BodyColumn: Integer;
+    BodyEndLine: Integer;
+    BodyEndColumn: Integer;
+    SelectorText: string;
     Status: string;
     SkipReason: string;
     HasScopedDeclaration: Boolean;
@@ -590,6 +597,13 @@ begin
       lBinding := Default(TDelphiSemanticWithBinding);
       lBinding.Line := lStatement.Line;
       lBinding.Column := lStatement.Column;
+      lBinding.EndLine := lStatement.EndLine;
+      lBinding.EndColumn := lStatement.EndColumn;
+      lBinding.BodyLine := lStatement.BodyLine;
+      lBinding.BodyColumn := lStatement.BodyColumn;
+      lBinding.BodyEndLine := lStatement.BodyEndLine;
+      lBinding.BodyEndColumn := lStatement.BodyEndColumn;
+      lBinding.SelectorText := lStatement.SelectorText;
       lRoutineName := FindRoutineNameForLine(aModel, lStatement.Line);
       lParentRoutineNames := ParentRoutineNamesForLine(aModel, lRoutineName, lStatement.Line);
       lBinding.Selectors := CombinedSelectors(aModel, aModel.WithStatements, i, lRoutineName,

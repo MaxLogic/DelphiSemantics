@@ -28,6 +28,8 @@ type
     [Test]
     procedure ResolvesSelectorTypesAndClassifiesBodyIdentifiers;
     [Test]
+    procedure BindingsExposeSourceRangesForDakPlanner;
+    [Test]
     procedure MultipleSelectorsPreferInnermostReceiver;
     [Test]
     procedure AmbiguousReceiverMembersClassifyAsAmbiguous;
@@ -170,6 +172,28 @@ begin
   Assert.IsFalse(HasAnyReference(lBindings[0], 'PhantomMember'));
   Assert.IsFalse(HasAnyReference(lBindings[0], 'BracePhantom'));
   Assert.IsFalse(HasAnyReference(lBindings[0], 'ParenPhantom'));
+end;
+
+procedure TWithBinderTests.BindingsExposeSourceRangesForDakPlanner;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := LoadModel;
+
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  lBinding := lBindings[0];
+
+  Assert.AreEqual(lModel.WithStatements[0].Line, lBinding.Line);
+  Assert.AreEqual(lModel.WithStatements[0].Column, lBinding.Column);
+  Assert.AreEqual(lModel.WithStatements[0].EndLine, lBinding.EndLine);
+  Assert.AreEqual(lModel.WithStatements[0].EndColumn, lBinding.EndColumn);
+  Assert.AreEqual(lModel.WithStatements[0].BodyLine, lBinding.BodyLine);
+  Assert.AreEqual(lModel.WithStatements[0].BodyColumn, lBinding.BodyColumn);
+  Assert.AreEqual(lModel.WithStatements[0].BodyEndLine, lBinding.BodyEndLine);
+  Assert.AreEqual(lModel.WithStatements[0].BodyEndColumn, lBinding.BodyEndColumn);
+  Assert.AreEqual(lModel.WithStatements[0].SelectorText, lBinding.SelectorText);
 end;
 
 procedure TWithBinderTests.MultipleSelectorsPreferInnermostReceiver;
