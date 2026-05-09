@@ -70,8 +70,12 @@ type
 
   TDelphiSemanticReference = record
     Name: string;
+    Role: string;
+    SectionKind: string;
     Line: Integer;
     Column: Integer;
+    EndLine: Integer;
+    EndColumn: Integer;
   end;
 
   TDelphiSemanticWithStatement = record

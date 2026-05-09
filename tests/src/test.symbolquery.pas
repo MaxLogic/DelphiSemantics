@@ -99,6 +99,14 @@ begin
   Assert.IsTrue(lResult.Found);
   Assert.AreEqual('TSymbolMapFixture', lResult.Name);
   Assert.AreEqual('type', lResult.Kind);
+
+  lResult := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext,
+    FixturePath('SymbolQueryUnit.pas'), 1, 1);
+
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('SymbolQueryUnit', lResult.Name);
+  Assert.AreEqual('unit', lResult.Kind);
+  Assert.AreEqual('project-source', lResult.SourceKind);
 end;
 
 procedure TSymbolQueryTests.SearchesProjectMembersRtlSourceAndIntrinsics;
@@ -199,19 +207,35 @@ end;
 
 procedure TSymbolQueryTests.TokenReferencesExposeMetadata;
 var
+  i: Integer;
   lContext: TDelphiSemanticSymbolQueryContext;
   lReferences: TArray<TDelphiSemanticSymbolReferenceResult>;
+  lReferenceIndex: Integer;
 begin
   lContext := LoadContext;
+  lReferenceIndex := -1;
+  for i := 0 to High(lContext.UnitModel.References) do
+    if SameText(lContext.UnitModel.References[i].Name, 'TSymbolMapFixture') then
+    begin
+      lReferenceIndex := i;
+      Break;
+    end;
+  Assert.IsTrue(lReferenceIndex >= 0, 'Expected fixture reference.');
+  lContext.UnitModel.References[lReferenceIndex].Role := 'type-reference';
+  lContext.UnitModel.References[lReferenceIndex].SectionKind := 'interface';
+  lContext.UnitModel.References[lReferenceIndex].EndLine :=
+    lContext.UnitModel.References[lReferenceIndex].Line;
+  lContext.UnitModel.References[lReferenceIndex].EndColumn :=
+    lContext.UnitModel.References[lReferenceIndex].Column + 18;
 
   lReferences := TDelphiSemanticSymbolQuery.FindTokenReferences(lContext,
     'TSymbolMapFixture', 1);
 
   Assert.AreEqual(1, Length(lReferences));
   Assert.AreEqual('SymbolQueryUnit', lReferences[0].UnitName);
-  Assert.AreEqual('token', lReferences[0].Role);
-  Assert.AreEqual('implementation', lReferences[0].SectionKind);
-  Assert.IsTrue(lReferences[0].EndColumn >= lReferences[0].Column);
+  Assert.AreEqual('type-reference', lReferences[0].Role);
+  Assert.AreEqual('interface', lReferences[0].SectionKind);
+  Assert.AreEqual(lContext.UnitModel.References[lReferenceIndex].EndColumn, lReferences[0].EndColumn);
 end;
 
 procedure TSymbolQueryTests.LimitsTokenReferenceResults;
@@ -347,6 +371,22 @@ begin
   lSibling := Default(TDelphiSemanticUnitModel);
   lSibling.UnitName := 'SymbolQuerySiblingUnit';
   lSibling.FileName := FixturePath('SymbolQuerySiblingUnit.pas');
+  SetLength(lSibling.Declarations, 2);
+  lSibling.Declarations[0].Name := 'SiblingExact';
+  lSibling.Declarations[0].Kind := 'type';
+  lSibling.Declarations[0].Line := 3;
+  lSibling.Declarations[0].Column := 3;
+  lSibling.Declarations[1].Name := 'SiblingExactExtended';
+  lSibling.Declarations[1].Kind := 'type';
+  lSibling.Declarations[1].Line := 4;
+  lSibling.Declarations[1].Column := 3;
+  SetLength(lSibling.Members, 1);
+  lSibling.Members[0].OwnerName := 'TSiblingOwner';
+  lSibling.Members[0].Name := 'SiblingName';
+  lSibling.Members[0].Kind := 'property';
+  lSibling.Members[0].TypeName := 'string';
+  lSibling.Members[0].Line := 5;
+  lSibling.Members[0].Column := 5;
   SetLength(lSibling.Routines, 1);
   lSibling.Routines[0].Name := 'SiblingRoutine';
   lSibling.Routines[0].Signature := 'procedure SiblingRoutine';
@@ -371,6 +411,17 @@ begin
   Assert.AreEqual('routine', lResult.Kind);
   Assert.AreEqual('project-source', lResult.SourceKind);
   Assert.AreEqual('procedure SiblingRoutine', lResult.Signature);
+
+  lResult := TDelphiSemanticSymbolQuery.DescribeOwnedMember(lContext, 'TSiblingOwner',
+    'SiblingName');
+
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('property', lResult.Kind);
+  Assert.AreEqual('project-source', lResult.SourceKind);
+
+  lResults := TDelphiSemanticSymbolQuery.SearchAllMatches(lContext, 'SiblingExact', 10);
+
+  Assert.AreEqual(2, Length(lResults));
 end;
 
 initialization
