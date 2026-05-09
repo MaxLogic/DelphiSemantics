@@ -18,6 +18,8 @@ type
     [Test]
     procedure DefaultOptionsUseInMemoryCache;
     [Test]
+    procedure InMemoryMetricsExposeEmptyCacheFileName;
+    [Test]
     procedure RepeatedUnchangedUnitHitsInMemoryCache;
     [Test]
     procedure CacheHitReturnsIndependentUnitModelCopy;
@@ -81,6 +83,21 @@ begin
     Assert.AreEqual('in-memory', lCache.Metrics.CacheKind);
     Assert.AreEqual(0, lCache.Metrics.CacheHits);
     Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.InMemoryMetricsExposeEmptyCacheFileName;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lOptions: TDelphiSemanticCacheOptions;
+begin
+  lOptions := Default(TDelphiSemanticCacheOptions);
+
+  lCache := TDelphiSemanticUnitCache.Create(lOptions);
+  try
+    Assert.AreEqual('', lCache.Metrics.CacheFileName);
   finally
     lCache.Free;
   end;

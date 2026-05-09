@@ -15,6 +15,7 @@ type
   end;
 
   TDelphiSemanticCacheMetrics = record
+    CacheFileName: string;
     CacheKind: string;
     CacheHits: Integer;
     CacheMisses: Integer;
@@ -209,6 +210,7 @@ begin
   fEntries := TCacheDictionary.Create;
   fDiagnostics := TList<TDelphiSemanticCacheDiagnostic>.Create;
   fMetrics.CacheKind := 'in-memory';
+  fMetrics.CacheFileName := aOptions.SqliteCacheFileName;
   fCompilerProfileName := aOptions.CompilerProfileName;
   if fCompilerProfileName = '' then
     fCompilerProfileName := cDefaultCompilerProfileName;

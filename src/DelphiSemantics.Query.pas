@@ -39,11 +39,13 @@ type
   end;
 
   TDelphiSemanticSymbolQueryCacheStatus = record
+    CacheFileName: string;
     CacheKind: string;
     CacheHits: Integer;
     CacheMisses: Integer;
     Invalidations: Integer;
     CompilerProfileName: string;
+    CompilerProfileKey: string;
     IntrinsicCount: Integer;
     RtlSourceUnitCount: Integer;
   end;
@@ -419,11 +421,13 @@ end;
 class function TDelphiSemanticSymbolQuery.GetCacheStatus(
   const aContext: TDelphiSemanticSymbolQueryContext): TDelphiSemanticSymbolQueryCacheStatus;
 begin
+  Result.CacheFileName := aContext.CacheMetrics.CacheFileName;
   Result.CacheKind := aContext.CacheMetrics.CacheKind;
   Result.CacheHits := aContext.CacheMetrics.CacheHits;
   Result.CacheMisses := aContext.CacheMetrics.CacheMisses;
   Result.Invalidations := aContext.CacheMetrics.Invalidations;
   Result.CompilerProfileName := aContext.CompilerProfile.Name;
+  Result.CompilerProfileKey := aContext.CompilerProfile.ProfileKey;
   Result.IntrinsicCount := Length(aContext.CompilerProfile.IntrinsicSymbols);
   Result.RtlSourceUnitCount := Length(aContext.CompilerProfile.RtlSourceUnitModels);
 end;

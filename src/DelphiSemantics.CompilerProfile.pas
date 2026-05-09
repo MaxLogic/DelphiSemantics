@@ -15,6 +15,7 @@ type
 
   TDelphiSemanticCompilerProfile = record
     Name: string;
+    ProfileKey: string;
     IntrinsicSymbols: TArray<TDelphiSemanticIntrinsicSymbol>;
     RtlSourceUnitModels: TArray<TDelphiSemanticUnitModel>;
   end;
@@ -45,6 +46,7 @@ begin
   Result.Name := aCompilerProfileName;
   if Result.Name = '' then
     Result.Name := 'default';
+  Result.ProfileKey := Result.Name;
   Result.IntrinsicSymbols := [
     MakeIntrinsic('Length', 'intrinsic-routine', 'Integer', 'compiler'),
     MakeIntrinsic('Assigned', 'intrinsic-routine', 'Boolean', 'compiler'),

@@ -24,6 +24,8 @@ type
     [Test]
     procedure NonEmptySqliteFileNameCreatesPersistentCacheFile;
     [Test]
+    procedure SqliteMetricsExposeCacheFileName;
+    [Test]
     procedure SecondCacheInstanceReusesStoredUnitModel;
     [Test]
     procedure SourceChangeInvalidatesPersistentEntry;
@@ -149,6 +151,24 @@ begin
     Assert.AreEqual('sqlite', lCache.Metrics.CacheKind);
     Assert.IsTrue(TFile.Exists(lCacheOptions.SqliteCacheFileName));
     Assert.IsTrue(HasDeclaration(lModel, 'TSqliteCreateType'));
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.SqliteMetricsExposeCacheFileName;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('metrics-cache.sqlite3');
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    Assert.AreEqual(lCacheOptions.SqliteCacheFileName, lCache.Metrics.CacheFileName);
   finally
     lCache.Free;
   end;

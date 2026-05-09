@@ -30,6 +30,8 @@ type
     procedure ResolvesCoreSymbolKindsWithoutShellingOut;
     [Test]
     procedure ResolvesSourcePositionAndReportsCacheStatus;
+    [Test]
+    procedure CacheStatusExposesProfileKeyAndCacheFileName;
   end;
 
 implementation
@@ -227,6 +229,19 @@ begin
   Assert.AreEqual('Delphi-12-SymbolQuery', lStatus.CompilerProfileName);
   Assert.AreEqual(3, lStatus.IntrinsicCount);
   Assert.AreEqual(1, lStatus.RtlSourceUnitCount);
+end;
+
+procedure TSymbolQueryTests.CacheStatusExposesProfileKeyAndCacheFileName;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lStatus: TDelphiSemanticSymbolQueryCacheStatus;
+begin
+  lContext := LoadContext;
+
+  lStatus := TDelphiSemanticSymbolQuery.GetCacheStatus(lContext);
+
+  Assert.AreEqual('', lStatus.CacheFileName);
+  Assert.AreEqual('Delphi-12-SymbolQuery', lStatus.CompilerProfileKey);
 end;
 
 initialization
