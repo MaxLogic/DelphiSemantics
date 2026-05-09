@@ -15,6 +15,7 @@ type
     function ContainsText(const aItems: TArray<string>; const aExpectedText: string): Boolean;
     function HasDiagnostic(const aResult: TDelphiSemanticContextResult; const aCode: string): Boolean;
     function HasUnresolvedMacro(const aItems: TArray<string>): Boolean;
+    function PathIndex(const aItems: TArray<string>; const aExpectedPath: string): Integer;
   public
     [Test]
     procedure DebugContextAppliesOptsetAndNormalizesPaths;
@@ -42,6 +43,10 @@ type
     procedure InactiveItemGroupReferenceDirectoriesAreSkipped;
     [Test]
     procedure UnresolvedReferenceMacrosDoNotCreateDirectories;
+    [Test]
+    procedure OptionsExposeDelphiVersionAndEnvironmentProperties;
+    [Test]
+    procedure SourceLookupPathsMergeReferencesBeforeSearchPaths;
   end;
 
 implementation
@@ -115,6 +120,20 @@ begin
       Exit(True);
 
   Result := False;
+end;
+
+function TProjectMsBuildTests.PathIndex(const aItems: TArray<string>;
+  const aExpectedPath: string): Integer;
+var
+  i: Integer;
+  lExpectedPath: string;
+begin
+  lExpectedPath := ExcludeTrailingPathDelimiter(TPath.GetFullPath(aExpectedPath));
+  for i := 0 to High(aItems) do
+    if SameText(ExcludeTrailingPathDelimiter(TPath.GetFullPath(aItems[i])), lExpectedPath) then
+      Exit(i);
+
+  Result := -1;
 end;
 
 procedure TProjectMsBuildTests.DebugContextAppliesOptsetAndNormalizesPaths;
@@ -288,6 +307,49 @@ begin
 
   Assert.IsTrue(lResult.Success);
   Assert.IsFalse(ContainsPath(lResult.Project.ReferenceDirectories, '\'));
+end;
+
+procedure TProjectMsBuildTests.OptionsExposeDelphiVersionAndEnvironmentProperties;
+var
+  lEnv: TDelphiSemanticProperty;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win32';
+  lOptions.DelphiVersion := '23.0';
+  lEnv.Name := 'ExternalDefine';
+  lEnv.Value := 'ENVIRONMENT_DEFINE';
+  lOptions.EnvironmentVariables := [lEnv];
+
+  lResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'),
+    lOptions);
+
+  Assert.IsTrue(lResult.Success);
+  Assert.AreEqual('23.0', lResult.Project.PropertyValue('DelphiVersion'));
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'ENVIRONMENT_DEFINE'));
+end;
+
+procedure TProjectMsBuildTests.SourceLookupPathsMergeReferencesBeforeSearchPaths;
+var
+  lProjectDir: string;
+  lReferenceIndex: Integer;
+  lResult: TDelphiSemanticContextResult;
+  lSearchIndex: Integer;
+begin
+  lProjectDir := FixturePath('ProjectContext\MsBuild');
+  lResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'));
+
+  Assert.IsTrue(lResult.Success);
+  lReferenceIndex := PathIndex(lResult.Project.SourceLookupPaths,
+    TPath.Combine(lProjectDir, 'Source'));
+  lSearchIndex := PathIndex(lResult.Project.SourceLookupPaths,
+    TPath.Combine(lProjectDir, 'Generated'));
+  Assert.IsTrue(lReferenceIndex >= 0, 'Expected reference directory in source lookup paths.');
+  Assert.IsTrue(lSearchIndex >= 0, 'Expected DCC search path in source lookup paths.');
+  Assert.IsTrue(lReferenceIndex < lSearchIndex,
+    'Expected DCCReference directories before DCC_UnitSearchPath entries.');
 end;
 
 initialization

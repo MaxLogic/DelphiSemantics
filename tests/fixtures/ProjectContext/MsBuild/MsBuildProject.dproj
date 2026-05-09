@@ -70,6 +70,9 @@
   <PropertyGroup Condition="'$(Config)'=='Release'">
     <DCC_Define>PROJECT_RELEASE</DCC_Define>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(ExternalDefine)'!=''">
+    <DCC_Define>$(ExternalDefine);$(DCC_Define)</DCC_Define>
+  </PropertyGroup>
   <ItemGroup>
     <DCCReference Include="Source\MainUnit.pas"/>
     <DCCReference Include="..\Shared\SharedUnit.pas"/>

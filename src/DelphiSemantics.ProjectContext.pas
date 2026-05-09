@@ -5,10 +5,21 @@ interface
 type
   TDelphiSemanticDiagnosticSeverity = (dsInfo, dsWarning, dsError);
 
+  TDelphiSemanticProperty = record
+    Name: string;
+    Value: string;
+  end;
+
   TDelphiSemanticOptions = record
+    ProjectPath: string;
     Configuration: string;
     Platform: string;
+    DelphiVersion: string;
+    RsVarsPath: string;
+    EnvOptionsPath: string;
+    EnvironmentVariables: TArray<TDelphiSemanticProperty>;
     SqliteCacheFileName: string;
+    UseLspEnrichment: Boolean;
   end;
 
   TDelphiSemanticDiagnostic = record
@@ -18,11 +29,6 @@ type
     Line: Integer;
     Column: Integer;
     Severity: TDelphiSemanticDiagnosticSeverity;
-  end;
-
-  TDelphiSemanticProperty = record
-    Name: string;
-    Value: string;
   end;
 
   TDelphiSemanticProjectInfo = record
@@ -39,6 +45,7 @@ type
     ReferenceDirectories: TArray<string>;
     Properties: TArray<TDelphiSemanticProperty>;
     function PropertyValue(const aName: string): string;
+    function SourceLookupPaths: TArray<string>;
   end;
 
   TDelphiSemanticContextResult = record
@@ -577,6 +584,23 @@ begin
     AddUniquePath(aItems, aBaseDirectory, lPart);
 end;
 
+function TDelphiSemanticProjectInfo.SourceLookupPaths: TArray<string>;
+var
+  lItem: string;
+  lItems: TList<string>;
+begin
+  lItems := TList<string>.Create;
+  try
+    for lItem in ReferenceDirectories do
+      AddUniquePath(lItems, ProjectDirectory, lItem);
+    for lItem in SearchPaths do
+      AddUniquePath(lItems, ProjectDirectory, lItem);
+    Result := lItems.ToArray;
+  finally
+    lItems.Free;
+  end;
+end;
+
 procedure ApplyPropertyFile(const aFileName, aBaseDirectory: string; const aProperties: TPropertyMap;
   const aDiagnostics: TList<TDelphiSemanticDiagnostic>); forward;
 
@@ -793,14 +817,28 @@ end;
 function CreateInitialProperties(const aProjectFileName, aText: string;
   const aOptions: TDelphiSemanticOptions): TPropertyMap;
 var
+  lEnvironmentProperty: TDelphiSemanticProperty;
   lProjectDirectory: string;
+  lProjectFile: string;
+  lProjectName: string;
 begin
   Result := TPropertyMap.Create;
   lProjectDirectory := TPath.GetDirectoryName(aProjectFileName);
+  lProjectFile := TPath.GetFileName(aProjectFileName);
+  lProjectName := TPath.GetFileNameWithoutExtension(aProjectFileName);
   SetPropertyValue(Result, 'MSBuildProjectDirectory', lProjectDirectory);
   SetPropertyValue(Result, 'ProjectDir', IncludeTrailingPathDelimiter(lProjectDirectory));
+  SetPropertyValue(Result, 'PROJECTDIR', IncludeTrailingPathDelimiter(lProjectDirectory));
+  SetPropertyValue(Result, 'ProjectName', lProjectName);
+  SetPropertyValue(Result, 'MSBuildProjectName', lProjectName);
+  SetPropertyValue(Result, 'MSBuildProjectFullPath', aProjectFileName);
+  SetPropertyValue(Result, 'MSBuildProjectFile', lProjectFile);
   SetPropertyValue(Result, 'Config', aOptions.Configuration);
   SetPropertyValue(Result, 'Platform', aOptions.Platform);
+  SetPropertyValue(Result, 'DelphiVersion', aOptions.DelphiVersion);
+  for lEnvironmentProperty in aOptions.EnvironmentVariables do
+    if not Result.ContainsKey(PropertyKey(lEnvironmentProperty.Name)) then
+      SetPropertyValue(Result, lEnvironmentProperty.Name, lEnvironmentProperty.Value);
   if GetPropertyValue(Result, 'Config') = '' then
     SetPropertyValue(Result, 'Config', ExtractXmlElementText(aText, 'Config'));
   if GetPropertyValue(Result, 'Platform') = '' then
