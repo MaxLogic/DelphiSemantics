@@ -52,6 +52,8 @@ type
     [Test]
     procedure PublicConditionEvaluationMatchesDakFunctionCases;
     [Test]
+    procedure PublicConditionEvaluationKeepsDakBooleanLiteralCases;
+    [Test]
     procedure DakNamespaceAndPluralAliasesFeedSemanticLists;
   end;
 
@@ -391,6 +393,29 @@ begin
     FixturePath('ProjectContext\MsBuild'), lProperties, nil, lResult, lError, lDiagnostics), lError);
   Assert.IsTrue(lResult);
   Assert.AreEqual(0, Length(lDiagnostics));
+end;
+
+procedure TProjectMsBuildTests.PublicConditionEvaluationKeepsDakBooleanLiteralCases;
+var
+  lDiagnostics: TArray<TDelphiSemanticDiagnostic>;
+  lError: string;
+  lResult: Boolean;
+begin
+  Assert.IsTrue(TDelphiSemanticMsBuild.TryEvaluateCondition('true',
+    FixturePath('ProjectContext\MsBuild'), nil, nil, lResult, lError, lDiagnostics), lError);
+  Assert.IsTrue(lResult);
+
+  Assert.IsTrue(TDelphiSemanticMsBuild.TryEvaluateCondition('!(''Debug''==''Release'')',
+    FixturePath('ProjectContext\MsBuild'), nil, nil, lResult, lError, lDiagnostics), lError);
+  Assert.IsTrue(lResult);
+
+  Assert.IsTrue(TDelphiSemanticMsBuild.TryEvaluateCondition('!true or true',
+    FixturePath('ProjectContext\MsBuild'), nil, nil, lResult, lError, lDiagnostics), lError);
+  Assert.IsTrue(lResult, 'Expected unary ! to bind tighter than or.');
+
+  Assert.IsTrue(TDelphiSemanticMsBuild.TryEvaluateCondition('!false and false',
+    FixturePath('ProjectContext\MsBuild'), nil, nil, lResult, lError, lDiagnostics), lError);
+  Assert.IsFalse(lResult, 'Expected unary ! to bind tighter than and.');
 end;
 
 procedure TProjectMsBuildTests.DakNamespaceAndPluralAliasesFeedSemanticLists;

@@ -586,6 +586,18 @@ var
 begin
   lText := StripOuterParentheses(aCondition);
 
+  if SameText(lText, 'true') then
+  begin
+    aActive := True;
+    Exit(True);
+  end;
+
+  if SameText(lText, 'false') then
+  begin
+    aActive := False;
+    Exit(True);
+  end;
+
   if TrySplitTopLevelCondition(lText, 'or', lLeft, lRight) then
   begin
     if not TryEvaluateConditionExpression(lLeft, aFileName, aBaseDirectory, aProperties,
@@ -623,6 +635,15 @@ begin
       Exit(False);
 
     aActive := lRightActive;
+    Exit(True);
+  end;
+
+  if StartsText('!', lText) and (not StartsText('!=', lText)) then
+  begin
+    if not TryEvaluateConditionExpression(Copy(lText, 2, MaxInt), aFileName, aBaseDirectory,
+      aProperties, aDiagnostics, aActive) then
+      Exit(False);
+    aActive := not aActive;
     Exit(True);
   end;
 
