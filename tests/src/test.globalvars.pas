@@ -166,6 +166,8 @@ begin
   Assert.IsTrue(HasDeclaration(lAnalysis, 'sCache', 'classvar'));
   Assert.IsTrue(HasDeclaration(lAnalysis, 'sOtherCache', 'classvar'));
   Assert.IsTrue(HasDeclaration(lAnalysis, 'GUnusedValue', 'var'));
+  Assert.AreEqual(3, DeclarationColumn(lAnalysis, 'GCounter', 'var'));
+  Assert.AreEqual(7, DeclarationColumn(lAnalysis, 'sCache', 'classvar'));
   Assert.IsTrue(DeclarationColumn(lAnalysis, 'GSecondCounter', 'var') >
     DeclarationColumn(lAnalysis, 'GCounter', 'var'));
   Assert.IsTrue(DeclarationColumn(lAnalysis, 'sOtherCache', 'classvar') >

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- DAK GlobalVars now consumes the DelphiSemantics global analysis API and rebuilds legacy cache schema entries through the new analyzer.
 - Global variable semantic analysis API for reusable declarations, usages, ambiguity reporting, access classification, local shadowing, and semantic filters.
 - DAK semantic consumers now use DelphiSemantics adapters for remove-with bindings, SymbolMap extraction, dependency graphs, and global-vars declaration extraction.
 - Remove-with inventory now exposes DAK planner-compatible symbol facts and source-owner expansion for DAK migration.

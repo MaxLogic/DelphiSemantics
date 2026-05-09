@@ -1141,12 +1141,12 @@ begin
     lBestColumn := 0;
     lBestDistance := MaxInt;
     lBestLine := 0;
-    lMatch := TRegEx.Match(aSourceText, '^\s*' + TRegEx.Escape(lDeclaration.Name) + '\b',
+    lMatch := TRegEx.Match(aSourceText, '^(\s*)' + TRegEx.Escape(lDeclaration.Name) + '\b',
       [roIgnoreCase, roMultiLine]);
     while lMatch.Success do
     begin
-      lCandidateLine := LineOfOffset(aSourceText, lMatch.Index + 1);
-      lCandidateColumn := ColumnOfOffset(aSourceText, lMatch.Index + 1);
+      lCandidateLine := LineOfOffset(aSourceText, lMatch.Index + Length(lMatch.Groups[1].Value));
+      lCandidateColumn := ColumnOfOffset(aSourceText, lMatch.Index + Length(lMatch.Groups[1].Value));
       lCandidateDistance := Abs(lCandidateLine - lDeclaration.Line);
       if lCandidateDistance < lBestDistance then
       begin
