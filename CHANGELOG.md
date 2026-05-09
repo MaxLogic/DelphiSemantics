@@ -4,6 +4,7 @@
 
 ### Added
 - DAK semantic consumers now use DelphiSemantics adapters for remove-with bindings, SymbolMap extraction, dependency graphs, and global-vars declaration extraction.
+- Remove-with inventory now exposes DAK planner-compatible symbol facts and source-owner expansion for DAK migration.
 - DAK project/test integration reference to DelphiSemantics with a compile-time wrapper proof.
 - LSP boundary helpers for lifecycle state, URI/path normalization, location links, hover payloads, position conversion, hierarchical symbol flattening/filtering, explicit error results, and LSP provenance.
 - Dependency graph API with project/external/unresolved nodes, interface/implementation edges, cycle components, hotspot ranking, and exact focus neighborhoods.

@@ -26,6 +26,9 @@ type
       aClassification: string): string;
     function HasInventorySymbol(const aInventory: TDelphiSemanticRemoveWithInventory;
       const aName, aSymbolClass, aRoutineName: string): Boolean;
+    function TryFindInventorySymbol(const aInventory: TDelphiSemanticRemoveWithInventory;
+      const aName, aSymbolClass, aOwnerName: string; out aSymbol:
+      TDelphiSemanticInventorySymbol): Boolean;
   public
     [Test]
     procedure ResolvesSelectorTypesAndClassifiesBodyIdentifiers;
@@ -57,6 +60,8 @@ type
     procedure CastExpressionRolesRemainUnsupported;
     [Test]
     procedure InventoryExposesFileAwareSymbolsAndBindings;
+    [Test]
+    procedure InventoryExposesDakPlannerSourceModelFacts;
   end;
 
 implementation
@@ -163,6 +168,26 @@ begin
       SameText(lSymbol.RoutineName, aRoutineName) then
       Exit(True);
 
+  Result := False;
+end;
+
+function TWithBinderTests.TryFindInventorySymbol(const aInventory: TDelphiSemanticRemoveWithInventory;
+  const aName, aSymbolClass, aOwnerName: string; out aSymbol:
+  TDelphiSemanticInventorySymbol): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  for lSymbol in aInventory.Symbols do
+  begin
+    if SameText(lSymbol.Name, aName) and SameText(lSymbol.SymbolClass, aSymbolClass) and
+      SameText(lSymbol.OwnerName, aOwnerName) then
+    begin
+      aSymbol := lSymbol;
+      Exit(True);
+    end;
+  end;
+
+  aSymbol := Default(TDelphiSemanticInventorySymbol);
   Result := False;
 end;
 
@@ -495,6 +520,76 @@ begin
     lRangeDetails);
   Assert.IsTrue(lFoundRepeatedCallArgumentRange,
     'Expected exact source range for repeated FirstOnly call argument. Actual: ' + lRangeDetails);
+end;
+
+procedure TWithBinderTests.InventoryExposesDakPlannerSourceModelFacts;
+var
+  lInventory: TDelphiSemanticRemoveWithInventory;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lProjectedBaseName: Boolean;
+  lScanSymbol: TDelphiSemanticInventorySymbol;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lProjectedBaseName := False;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('SourceModelGoldenUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+
+  lInventory := TDelphiSemanticWithBinder.BuildInventory(lModel);
+  lInventory.Symbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lInventory.Symbols);
+
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'TGoldenVariant', 'type-member', '', lSymbol));
+  Assert.AreEqual('record', lSymbol.TypeCategory);
+  Assert.IsTrue(lSymbol.EndLine > lSymbol.Line, 'Expected declaration end range.');
+
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'Mode', 'field', 'TGoldenVariant', lSymbol));
+  Assert.AreEqual('Integer', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'MultiA', 'field', 'TGoldenVariant', lSymbol));
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'MultiB', 'field', 'TGoldenVariant', lSymbol));
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'RealValue', 'field', 'TGoldenVariant', lSymbol));
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'ExtraReal', 'field', 'TGoldenVariant', lSymbol));
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'HasReal', 'field', 'TGoldenVariant', lSymbol));
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'TextValue', 'field', 'TGoldenVariant', lSymbol));
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'Offset', 'field', 'TGoldenVariant', lSymbol));
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'Size', 'field', 'TGoldenVariant', lSymbol));
+  Assert.IsFalse(TryFindInventorySymbol(lInventory, 'cGoldenVariantReal', 'field',
+    'TGoldenVariant', lSymbol));
+
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'PGoldenRecord', 'type-member', '', lSymbol));
+  Assert.AreEqual('^TGoldenRecord', lSymbol.TypeName);
+  Assert.AreEqual('TGoldenRecord', lSymbol.RelatedTypeName);
+
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'Items', 'property', 'TGoldenDefaultList',
+    lSymbol));
+  Assert.IsTrue(lSymbol.IsDefault);
+  Assert.IsTrue(lSymbol.IsIndexed);
+  Assert.AreEqual(1, lSymbol.IndexParameterCount);
+  Assert.AreEqual('PGoldenRecord', lSymbol.TypeName);
+
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'lRecords', 'local', '', lSymbol));
+  Assert.AreEqual('TArray<TGoldenRecord>', lSymbol.TypeName);
+  Assert.AreEqual('TGoldenScope.Run', lSymbol.RoutineName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'lStaticRecordPtrs', 'local', '', lSymbol));
+  Assert.AreEqual('array[1..2]ofPGoldenRecord', StringReplace(lSymbol.TypeName, ' ', '',
+    [rfReplaceAll]));
+
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'BaseName', 'field', 'TGoldenClass', lSymbol));
+  Assert.AreEqual('TGoldenBase', lSymbol.SourceOwnerType);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'HelperTouch', 'method', 'TGoldenRecord',
+    lSymbol));
+  Assert.AreEqual('TGoldenRecordHelper', lSymbol.SourceOwnerType);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'Touch', 'method', 'TGoldenClass', lSymbol));
+  Assert.IsTrue(lSymbol.IsOverride);
+  for lScanSymbol in lInventory.Symbols do
+    if SameText(lScanSymbol.Name, 'BaseName') and
+      SameText(lScanSymbol.SymbolClass, 'current-class-member') and
+      SameText(lScanSymbol.OwnerName, 'TGoldenClass') and
+      SameText(lScanSymbol.RoutineName, 'TGoldenClass.Touch') then
+      lProjectedBaseName := True;
+  Assert.IsTrue(lProjectedBaseName);
 end;
 
 initialization
