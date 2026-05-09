@@ -1,0 +1,93 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{D4355A96-8A65-4C2C-9F8B-2B09F2E5E7B1}</ProjectGuid>
+    <MainSource>delphiSemanticsSqliteTests.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <ProjectName Condition="'$(ProjectName)'==''">delphiSemanticsSqliteTests</ProjectName>
+    <TargetedPlatforms>1</TargetedPlatforms>
+    <AppType>Console</AppType>
+    <FrameworkType>None</FrameworkType>
+    <ProjectVersion>20.5</ProjectVersion>
+    <Platform Condition="'$(Platform)'==''">Win32</Platform>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
+    <Base>true</Base>
+  </PropertyGroup>
+  <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Base)'=='true') or '$(Base_Win32)'!=''">
+    <Base_Win32>true</Base_Win32>
+    <CfgParent>Base</CfgParent>
+    <Base>true</Base>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''">
+    <Cfg_1>true</Cfg_1>
+    <CfgParent>Base</CfgParent>
+    <Base>true</Base>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_2)'!=''">
+    <Cfg_2>true</Cfg_2>
+    <CfgParent>Base</CfgParent>
+    <Base>true</Base>
+    <DCC_RangeChecking>true</DCC_RangeChecking>
+    <DCC_IntegerOverflowCheck>true</DCC_IntegerOverflowCheck>
+  </PropertyGroup>
+  <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win32)'!=''">
+    <Cfg_2_Win32>true</Cfg_2_Win32>
+    <CfgParent>Cfg_2</CfgParent>
+    <Cfg_2>true</Cfg_2>
+    <Base>true</Base>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Base)'!=''">
+    <DCC_ImageBase>00400000</DCC_ImageBase>
+    <SanitizedProjectName>delphiSemanticsSqliteTests</SanitizedProjectName>
+    <VerInfo_Locale>1045</VerInfo_Locale>
+    <DCC_Namespace>Winapi;System;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
+    <DCC_ExeOutput>bin</DCC_ExeOutput>
+    <DCC_DcuOutput Condition="'$(DCC_DcuOutput)'==''">bin</DCC_DcuOutput>
+    <DCC_UnitSearchPath>src;..\src;..\lib\DelphiAST\Source;..\lib\DelphiAST\Source\SimpleParser;..\lib\MaxLogicFoundation;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)">
+      <MainSource>MainSource</MainSource>
+    </DelphiCompile>
+    <DCCReference Include="src\test.cachesqlite.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Cache.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Cache.Sqlite.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Model.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Preprocess.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Source.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Version.pas"/>
+  </ItemGroup>
+  <ItemGroup>
+    <BuildConfiguration Include="Base">
+      <Key>Base</Key>
+      <CfgParent/>
+    </BuildConfiguration>
+    <BuildConfiguration Include="Release">
+      <Key>Cfg_1</Key>
+      <CfgParent>Base</CfgParent>
+    </BuildConfiguration>
+    <BuildConfiguration Include="Debug">
+      <Key>Cfg_2</Key>
+      <CfgParent>Base</CfgParent>
+    </BuildConfiguration>
+  </ItemGroup>
+  <ProjectExtensions>
+    <Borland.Personality>Delphi.Personality.12</Borland.Personality>
+    <Borland.ProjectType/>
+    <BorlandProject>
+      <Delphi.Personality>
+        <Source>
+          <Source Name="MainSource">delphiSemanticsSqliteTests.dpr</Source>
+        </Source>
+      </Delphi.Personality>
+      <Platforms>
+        <Platform value="Win32">True</Platform>
+        <Platform value="Win64">False</Platform>
+      </Platforms>
+    </BorlandProject>
+    <ProjectFileVersion>12</ProjectFileVersion>
+  </ProjectExtensions>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
+  <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
+</Project>

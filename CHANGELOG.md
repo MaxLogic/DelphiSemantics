@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Optional SQLite-backed semantic unit-model cache with persistent reuse and deterministic rebuild diagnostics.
 - In-memory semantic unit-model cache with hit/miss/invalidation metrics and source/context/include/version cache keys.
 - DAK SymbolMap unit-model fixture coverage, including member signatures, indexed/default properties, visibility, and identifier metadata.
 - Source-context lookup and diagnostic candidate extraction migrated from DAK.
