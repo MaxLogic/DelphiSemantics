@@ -1,0 +1,277 @@
+unit Test.DependencyGraph;
+
+interface
+
+uses
+  DUnitX.TestFramework,
+  DelphiSemantics.Graph, DelphiSemantics.Model;
+
+type
+  [TestFixture]
+  TDependencyGraphTests = class
+  private
+    function FixturePath(const aFileName: string): string;
+    function LoadModel(const aFileName: string): TDelphiSemanticUnitModel;
+    function LoadModels(const aFileNames: array of string): TArray<TDelphiSemanticUnitModel>;
+    function BuildGraph(const aFileNames: array of string): TDelphiSemanticDependencyGraph;
+    function FindNode(const aGraph: TDelphiSemanticDependencyGraph; const aUnitName: string;
+      out aNode: TDelphiSemanticDependencyNode): Boolean;
+    function FindEdge(const aGraph: TDelphiSemanticDependencyGraph; const aSourceUnit,
+      aTargetUnit, aSectionKind: string; out aEdge: TDelphiSemanticDependencyEdge): Boolean;
+    function FindComponentWithUnit(const aGraph: TDelphiSemanticDependencyGraph;
+      const aUnitName: string; out aComponent: TDelphiSemanticDependencyCycleComponent): Boolean;
+    function HasHotspotEdgeUnit(const aGraph: TDelphiSemanticDependencyGraph;
+      const aUnitName: string): Boolean;
+    function HasHotspotUnit(const aGraph: TDelphiSemanticDependencyGraph;
+      const aUnitName: string): Boolean;
+    function HasUnit(const aUnits: TArray<string>; const aUnitName: string): Boolean;
+    function PathEquals(const aPath: TArray<string>; const aExpected: array of string): Boolean;
+  public
+    [Test]
+    procedure BuildsProjectExternalAndUnresolvedNodes;
+    [Test]
+    procedure ReportsCycleComponentsAndRealTraversalPaths;
+    [Test]
+    procedure FocusNeighborhoodUsesExactUnitName;
+    [Test]
+    procedure RanksHotspotsAndPrefersImplementationEdges;
+    [Test]
+    procedure MergesInterconnectedCyclesIntoOneComponent;
+  end;
+
+implementation
+
+uses
+  System.IOUtils, System.SysUtils,
+  maxLogic.IOUtils;
+
+function TDependencyGraphTests.FixturePath(const aFileName: string): string;
+begin
+  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
+    'DependencyGraph', aFileName]));
+end;
+
+function TDependencyGraphTests.LoadModel(const aFileName: string): TDelphiSemanticUnitModel;
+var
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath(aFileName);
+  lOptions.ProjectContextApplied := True;
+  Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(Result.Success, aFileName);
+end;
+
+function TDependencyGraphTests.LoadModels(const aFileNames: array of string):
+  TArray<TDelphiSemanticUnitModel>;
+var
+  i: Integer;
+begin
+  SetLength(Result, Length(aFileNames));
+  for i := 0 to High(aFileNames) do
+    Result[i] := LoadModel(aFileNames[i]);
+end;
+
+function TDependencyGraphTests.BuildGraph(const aFileNames: array of string):
+  TDelphiSemanticDependencyGraph;
+var
+  lOptions: TDelphiSemanticDependencyGraphOptions;
+begin
+  lOptions := Default(TDelphiSemanticDependencyGraphOptions);
+  lOptions.SearchPaths := [FixturePath('External')];
+  Result := TDelphiSemanticDependencyGraphBuilder.Build(LoadModels(aFileNames), lOptions);
+end;
+
+function TDependencyGraphTests.FindNode(const aGraph: TDelphiSemanticDependencyGraph;
+  const aUnitName: string; out aNode: TDelphiSemanticDependencyNode): Boolean;
+var
+  lNode: TDelphiSemanticDependencyNode;
+begin
+  for lNode in aGraph.Nodes do
+    if SameText(lNode.UnitName, aUnitName) then
+    begin
+      aNode := lNode;
+      Exit(True);
+    end;
+
+  aNode := Default(TDelphiSemanticDependencyNode);
+  Result := False;
+end;
+
+function TDependencyGraphTests.FindEdge(const aGraph: TDelphiSemanticDependencyGraph;
+  const aSourceUnit, aTargetUnit, aSectionKind: string;
+  out aEdge: TDelphiSemanticDependencyEdge): Boolean;
+var
+  lEdge: TDelphiSemanticDependencyEdge;
+begin
+  for lEdge in aGraph.Edges do
+    if SameText(lEdge.SourceUnit, aSourceUnit) and SameText(lEdge.TargetUnit, aTargetUnit) and
+      SameText(lEdge.SectionKind, aSectionKind) then
+    begin
+      aEdge := lEdge;
+      Exit(True);
+    end;
+
+  aEdge := Default(TDelphiSemanticDependencyEdge);
+  Result := False;
+end;
+
+function TDependencyGraphTests.HasUnit(const aUnits: TArray<string>;
+  const aUnitName: string): Boolean;
+var
+  lUnit: string;
+begin
+  for lUnit in aUnits do
+    if SameText(lUnit, aUnitName) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function TDependencyGraphTests.FindComponentWithUnit(const aGraph: TDelphiSemanticDependencyGraph;
+  const aUnitName: string; out aComponent: TDelphiSemanticDependencyCycleComponent): Boolean;
+var
+  lComponent: TDelphiSemanticDependencyCycleComponent;
+begin
+  for lComponent in aGraph.CycleComponents do
+    if HasUnit(lComponent.Units, aUnitName) then
+    begin
+      aComponent := lComponent;
+      Exit(True);
+    end;
+
+  aComponent := Default(TDelphiSemanticDependencyCycleComponent);
+  Result := False;
+end;
+
+function TDependencyGraphTests.HasHotspotEdgeUnit(const aGraph: TDelphiSemanticDependencyGraph;
+  const aUnitName: string): Boolean;
+var
+  lHotspot: TDelphiSemanticDependencyEdgeHotspot;
+begin
+  for lHotspot in aGraph.EdgeHotspots do
+    if SameText(lHotspot.SourceUnit, aUnitName) or SameText(lHotspot.TargetUnit, aUnitName) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function TDependencyGraphTests.HasHotspotUnit(const aGraph: TDelphiSemanticDependencyGraph;
+  const aUnitName: string): Boolean;
+var
+  lHotspot: TDelphiSemanticDependencyUnitHotspot;
+begin
+  for lHotspot in aGraph.UnitHotspots do
+    if SameText(lHotspot.UnitName, aUnitName) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function TDependencyGraphTests.PathEquals(const aPath: TArray<string>;
+  const aExpected: array of string): Boolean;
+var
+  i: Integer;
+begin
+  if Length(aPath) <> Length(aExpected) then
+    Exit(False);
+
+  for i := 0 to High(aExpected) do
+    if not SameText(aPath[i], aExpected[i]) then
+      Exit(False);
+
+  Result := True;
+end;
+
+procedure TDependencyGraphTests.BuildsProjectExternalAndUnresolvedNodes;
+var
+  lEdge: TDelphiSemanticDependencyEdge;
+  lGraph: TDelphiSemanticDependencyGraph;
+  lNode: TDelphiSemanticDependencyNode;
+begin
+  lGraph := BuildGraph(['GraphRoot.pas', 'GraphA.pas']);
+
+  Assert.IsTrue(FindNode(lGraph, 'GraphRoot', lNode));
+  Assert.AreEqual('project', lNode.Status);
+  Assert.IsTrue(FindNode(lGraph, 'ExternalLib', lNode));
+  Assert.AreEqual('external', lNode.Status);
+  Assert.IsTrue(lNode.IsExternal);
+  Assert.IsTrue(FindNode(lGraph, 'MissingGraphUnit', lNode));
+  Assert.AreEqual('unresolved', lNode.Status);
+  Assert.IsTrue(lNode.IsUnresolved);
+  Assert.IsTrue(HasUnit(lGraph.UnresolvedUnits, 'MissingGraphUnit'));
+  Assert.IsTrue(FindEdge(lGraph, 'GraphRoot', 'GraphA', 'interface', lEdge));
+  Assert.AreEqual('project', lEdge.TargetStatus);
+  Assert.IsTrue(FindEdge(lGraph, 'GraphRoot', 'ExternalLib', 'interface', lEdge));
+  Assert.AreEqual('external', lEdge.TargetStatus);
+end;
+
+procedure TDependencyGraphTests.ReportsCycleComponentsAndRealTraversalPaths;
+var
+  lComponent: TDelphiSemanticDependencyCycleComponent;
+  lGraph: TDelphiSemanticDependencyGraph;
+begin
+  lGraph := BuildGraph(['CycleA.pas', 'CycleB.pas', 'CycleConsumer.pas', 'PathCycleA.pas',
+    'PathCycleB.pas', 'PathCycleC.pas']);
+
+  Assert.IsTrue(Length(lGraph.CycleComponents) >= 2);
+  Assert.IsTrue(HasUnit(lGraph.CycleComponents[0].Units, 'CycleA') or
+    HasUnit(lGraph.CycleComponents[1].Units, 'CycleA'));
+  Assert.IsTrue(FindComponentWithUnit(lGraph, 'PathCycleA', lComponent));
+  Assert.IsTrue(PathEquals(lComponent.Path, ['PathCycleA', 'PathCycleB', 'PathCycleC',
+    'PathCycleA']));
+  Assert.IsFalse(HasHotspotUnit(lGraph, 'MissingCycleUnit'));
+  Assert.IsFalse(HasHotspotEdgeUnit(lGraph, 'MissingCycleUnit'));
+end;
+
+procedure TDependencyGraphTests.FocusNeighborhoodUsesExactUnitName;
+var
+  lFocused: TArray<string>;
+  lGraph: TDelphiSemanticDependencyGraph;
+begin
+  lGraph := BuildGraph(['CycleA.pas', 'CycleB.pas', 'CycleConsumer.pas']);
+
+  lFocused := TDelphiSemanticDependencyGraphQuery.FocusNeighborhood(lGraph, 'CycleA');
+
+  Assert.IsTrue(HasUnit(lFocused, 'CycleA'));
+  Assert.IsTrue(HasUnit(lFocused, 'CycleB'));
+  Assert.IsTrue(HasUnit(lFocused, 'CycleConsumer'));
+  Assert.AreEqual(3, Length(lFocused));
+  lFocused := TDelphiSemanticDependencyGraphQuery.FocusNeighborhood(lGraph, 'Cycle');
+  Assert.AreEqual(0, Length(lFocused));
+end;
+
+procedure TDependencyGraphTests.RanksHotspotsAndPrefersImplementationEdges;
+var
+  lGraph: TDelphiSemanticDependencyGraph;
+begin
+  lGraph := BuildGraph(['CycleA.pas', 'CycleB.pas']);
+
+  Assert.IsTrue(Length(lGraph.EdgeHotspots) >= 2);
+  Assert.AreEqual('CycleB', lGraph.EdgeHotspots[0].SourceUnit);
+  Assert.AreEqual('CycleA', lGraph.EdgeHotspots[0].TargetUnit);
+  Assert.AreEqual('implementation', lGraph.EdgeHotspots[0].SectionKind);
+  Assert.AreEqual('CycleA', lGraph.EdgeHotspots[1].SourceUnit);
+  Assert.AreEqual('CycleB', lGraph.EdgeHotspots[1].TargetUnit);
+  Assert.AreEqual('interface', lGraph.EdgeHotspots[1].SectionKind);
+end;
+
+procedure TDependencyGraphTests.MergesInterconnectedCyclesIntoOneComponent;
+var
+  lComponent: TDelphiSemanticDependencyCycleComponent;
+  lGraph: TDelphiSemanticDependencyGraph;
+begin
+  lGraph := BuildGraph(['BridgeA.pas', 'BridgeC.pas', 'BridgeD.pas', 'BridgeB.pas']);
+
+  Assert.AreEqual(1, Length(lGraph.CycleComponents));
+  lComponent := lGraph.CycleComponents[0];
+  Assert.IsTrue(HasUnit(lComponent.Units, 'BridgeA'));
+  Assert.IsTrue(HasUnit(lComponent.Units, 'BridgeB'));
+  Assert.IsTrue(HasUnit(lComponent.Units, 'BridgeC'));
+  Assert.IsTrue(HasUnit(lComponent.Units, 'BridgeD'));
+end;
+
+initialization
+  TDUnitX.RegisterTestFixture(TDependencyGraphTests);
+
+end.

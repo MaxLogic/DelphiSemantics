@@ -8,6 +8,7 @@ uses
   DUnitX.Loggers.Console,
   DUnitX.TestFramework,
   Test.Cache in 'src\test.cache.pas',
+  Test.DependencyGraph in 'src\test.dependencygraph.pas',
   Test.LspBoundary in 'src\test.lspboundary.pas',
   Test.Preprocess in 'src\test.preprocess.pas',
   Test.ProjectContext in 'src\test.projectcontext.pas',
