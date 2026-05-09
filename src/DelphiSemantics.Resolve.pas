@@ -3,7 +3,7 @@ unit DelphiSemantics.Resolve;
 interface
 
 uses
-  DelphiSemantics.Model;
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Model;
 
 type
   TDelphiSemanticResolveContext = record
@@ -12,6 +12,7 @@ type
     CurrentTypeName: string;
     SectionKind: string;
     ConformanceLevel: Integer;
+    IntrinsicSymbols: TArray<TDelphiSemanticIntrinsicSymbol>;
     IndexedUnitModels: TArray<TDelphiSemanticUnitModel>;
   end;
 
@@ -437,12 +438,22 @@ end;
 
 function TryResolveIntrinsic(const aContext: TDelphiSemanticResolveContext; const aName: string;
   out aResult: TDelphiSemanticResolveResult): Boolean;
+var
+  lSymbol: TDelphiSemanticIntrinsicSymbol;
 begin
   if EffectiveConformanceLevel(aContext) < 3 then
   begin
     aResult := Default(TDelphiSemanticResolveResult);
     Exit(False);
   end;
+
+  for lSymbol in aContext.IntrinsicSymbols do
+    if SameText(lSymbol.Name, aName) then
+    begin
+      aResult := ResolvedResult(lSymbol.Name, lSymbol.Kind, lSymbol.TypeName,
+        lSymbol.OwnerName, 'intrinsic', 0, 0);
+      Exit(True);
+    end;
 
   if SameText(aName, 'Length') then
   begin

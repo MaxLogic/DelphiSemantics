@@ -31,7 +31,7 @@ uses
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def;
 
 const
-  cSqliteSchemaVersion = '2';
+  cSqliteSchemaVersion = '3';
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -528,8 +528,8 @@ begin
         Exit;
       end;
       lConnection.ExecSQL('create table if not exists unit_models (' +
-        'cache_key text primary key not null, identity_key text not null, model_json text not null, ' +
-        'stored_at_utc text not null)');
+        'cache_key text primary key not null, identity_key text not null, ' +
+        'compiler_profile_name text not null, model_json text not null, stored_at_utc text not null)');
       lConnection.ExecSQL('create index if not exists idx_unit_models_identity on ' +
         'unit_models(identity_key)');
       lConnection.ExecSQL('insert or replace into meta(key_name, value_text) values ' +
@@ -627,8 +627,8 @@ begin
     TFDConnection(lConnectionObject).ExecSQL('insert or replace into meta(key_name, value_text) values ' +
       '(''schema_version'', ?)', [cSqliteSchemaVersion]);
     TFDConnection(lConnectionObject).ExecSQL('create table if not exists unit_models (' +
-      'cache_key text primary key not null, identity_key text not null, model_json text not null, ' +
-      'stored_at_utc text not null)');
+      'cache_key text primary key not null, identity_key text not null, ' +
+      'compiler_profile_name text not null, model_json text not null, stored_at_utc text not null)');
     TFDConnection(lConnectionObject).ExecSQL('delete from unit_models');
     TFDConnection(lConnectionObject).ExecSQL('create index if not exists idx_unit_models_identity on ' +
       'unit_models(identity_key)');
@@ -640,9 +640,36 @@ end;
 
 procedure TDelphiSemanticSqliteUnitCache.RecordPersistentInvalidation(const aIdentity,
   aKey: string);
+var
+  lConnectionObject: TObject;
+  lConnection: TFDConnection;
+  lDriverLinkObject: TObject;
+  lError: string;
+  lProfile: Variant;
 begin
-  AddDiagnostic('SQLITE_CACHE_STALE_ENTRY_REBUILT',
-    'SQLite cache entry was stale for source identity: ' + aIdentity, fCacheFileName);
+  if not OpenConnection(lConnectionObject, lDriverLinkObject, lError) then
+  begin
+    AddDiagnostic('SQLITE_CACHE_STALE_ENTRY_REBUILT',
+      'SQLite cache entry was stale for source identity: ' + aIdentity, fCacheFileName);
+    Exit;
+  end;
+  try
+    lConnection := TFDConnection(lConnectionObject);
+    lProfile := lConnection.ExecSQLScalar(
+      'select compiler_profile_name from unit_models where identity_key = ? limit 1',
+      [aIdentity]);
+    if (not VarIsNull(lProfile)) and (not SameText(VarToStr(lProfile),
+      CompilerProfileName)) then
+      AddDiagnostic('SQLITE_CACHE_STALE_PROFILE_REBUILT',
+        'SQLite cache entry was rebuilt for compiler profile: ' + CompilerProfileName,
+        fCacheFileName)
+    else
+      AddDiagnostic('SQLITE_CACHE_STALE_ENTRY_REBUILT',
+        'SQLite cache entry was stale for source identity: ' + aIdentity, fCacheFileName);
+  finally
+    lConnectionObject.Free;
+    lDriverLinkObject.Free;
+  end;
 end;
 
 procedure TDelphiSemanticSqliteUnitCache.StorePersistentEntry(const aIdentity, aKey: string;
@@ -660,8 +687,9 @@ begin
   end;
   try
     lConnection := TFDConnection(lConnectionObject);
-    lConnection.ExecSQL('insert or replace into unit_models(cache_key, identity_key, model_json, ' +
-      'stored_at_utc) values (?, ?, ?, ?)', [aKey, aIdentity, ModelToJson(aModel),
+    lConnection.ExecSQL('insert or replace into unit_models(cache_key, identity_key, ' +
+      'compiler_profile_name, model_json, stored_at_utc) values (?, ?, ?, ?, ?)',
+      [aKey, aIdentity, CompilerProfileName, ModelToJson(aModel),
       FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"', Now)]);
   finally
     lConnectionObject.Free;

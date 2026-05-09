@@ -26,9 +26,17 @@ type
     [Test]
     procedure SemanticContextChangeInvalidatesCachedUnitModel;
     [Test]
+    procedure EquivalentDefineOrderReusesCachedUnitModel;
+    [Test]
     procedure SearchPathOrderChangeInvalidatesCachedUnitModel;
     [Test]
     procedure IncludeChangeInvalidatesCachedUnitModel;
+    [Test]
+    procedure CompilerProfileChangeInvalidatesCachedUnitModel;
+    [Test]
+    procedure CompilerProfileSeedsIntrinsicRows;
+    [Test]
+    procedure CompilerProfileLoadsCachedRtlSourceModels;
     [Test]
     procedure ParserVersionChangeInvalidatesCachedUnitModel;
     [Test]
@@ -39,7 +47,8 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve;
 
 function TCacheTests.HasDeclaration(const aModel: TDelphiSemanticUnitModel;
   const aName: string): Boolean;
@@ -212,6 +221,35 @@ begin
   end;
 end;
 
+procedure TCacheTests.EquivalentDefineOrderReusesCachedUnitModel;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := TempPath('EquivalentDefinesUnit.pas');
+  TFile.WriteAllText(lPath, 'unit EquivalentDefinesUnit;' + sLineBreak + 'interface' +
+    sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+  lModelOptions.Defines := ['PROFILE_A', 'PROFILE_B'];
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+    lModelOptions.Defines := ['PROFILE_B', 'PROFILE_A'];
+    lCache.GetOrExtractUnitModel(lModelOptions);
+
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    Assert.AreEqual(0, lCache.Metrics.Invalidations);
+  finally
+    lCache.Free;
+  end;
+end;
+
 procedure TCacheTests.SearchPathOrderChangeInvalidatesCachedUnitModel;
 var
   lCache: TDelphiSemanticUnitCache;
@@ -282,6 +320,102 @@ begin
     Assert.IsFalse(HasDeclaration(lModel, 'TFirstIncludeType'));
     Assert.AreEqual(2, lCache.Metrics.CacheMisses);
     Assert.AreEqual(1, lCache.Metrics.Invalidations);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.CompilerProfileChangeInvalidatesCachedUnitModel;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := TempPath('CompilerProfileUnit.pas');
+  TFile.WriteAllText(lPath, 'unit CompilerProfileUnit;' + sLineBreak + 'interface' +
+    sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.CompilerProfileName := 'Delphi-12-Win32-Debug';
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+    lCache.CompilerProfileName := 'Delphi-12-Win64-Release';
+    lCache.GetOrExtractUnitModel(lModelOptions);
+
+    Assert.AreEqual(2, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(1, lCache.Metrics.Invalidations);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.CompilerProfileSeedsIntrinsicRows;
+var
+  lContext: TDelphiSemanticResolveContext;
+  lModel: TDelphiSemanticUnitModel;
+  lProfile: TDelphiSemanticCompilerProfile;
+  lResult: TDelphiSemanticResolveResult;
+begin
+  lProfile := TDelphiSemanticCompilerProfileBuilder.DefaultProfile('Delphi-12-Win32-Debug');
+  lModel := Default(TDelphiSemanticUnitModel);
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.ConformanceLevel := 3;
+  lContext.IntrinsicSymbols := lProfile.IntrinsicSymbols;
+
+  Assert.AreEqual('Delphi-12-Win32-Debug', lProfile.Name);
+  Assert.AreEqual(3, Length(lProfile.IntrinsicSymbols));
+
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'Length');
+
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('intrinsic-routine', lResult.Kind);
+  Assert.AreEqual('compiler', lResult.OwnerName);
+
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'TObject');
+
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('intrinsic-type', lResult.Kind);
+  Assert.AreEqual('rtl', lResult.OwnerName);
+end;
+
+procedure TCacheTests.CompilerProfileLoadsCachedRtlSourceModels;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lContext: TDelphiSemanticResolveContext;
+  lPath: string;
+  lProfile: TDelphiSemanticCompilerProfile;
+  lResult: TDelphiSemanticResolveResult;
+  lSourceModel: TDelphiSemanticUnitModel;
+begin
+  lPath := TempPath('CachedRtlSourceUnit.pas');
+  TFile.WriteAllText(lPath, 'unit CachedRtlSourceUnit;' + sLineBreak + 'interface' +
+    sLineBreak + 'type' + sLineBreak + '  TCachedRtlIndexedType = class end;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.CompilerProfileName := 'Delphi-12-RTL-Source';
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lProfile := TDelphiSemanticCompilerProfileBuilder.FromCachedSources(lCache, [lPath]);
+    lSourceModel := Default(TDelphiSemanticUnitModel);
+    lContext := Default(TDelphiSemanticResolveContext);
+    lContext.ConformanceLevel := 3;
+    lContext.IntrinsicSymbols := lProfile.IntrinsicSymbols;
+    lContext.IndexedUnitModels := lProfile.RtlSourceUnitModels;
+
+    lResult := TDelphiSemanticResolver.ResolveName(lSourceModel, lContext,
+      'TCachedRtlIndexedType');
+
+    Assert.AreEqual('Delphi-12-RTL-Source', lProfile.Name);
+    Assert.AreEqual(1, Length(lProfile.RtlSourceUnitModels));
+    Assert.IsTrue(lResult.Found);
+    Assert.AreEqual('CachedRtlSourceUnit', lResult.OwnerName);
+    Assert.AreEqual('type', lResult.Kind);
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
   finally
     lCache.Free;
   end;

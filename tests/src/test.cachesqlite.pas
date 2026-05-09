@@ -28,6 +28,10 @@ type
     [Test]
     procedure SourceChangeInvalidatesPersistentEntry;
     [Test]
+    procedure EquivalentDefineOrderReusesStoredUnitModel;
+    [Test]
+    procedure CompilerProfileChangeInvalidatesPersistentEntry;
+    [Test]
     procedure CorruptCacheFileRebuildsWithDiagnostic;
     [Test]
     procedure CorruptStoredEntryRebuildsWithDiagnostic;
@@ -218,6 +222,83 @@ begin
     Assert.AreEqual(1, lCache.Metrics.CacheMisses);
     Assert.AreEqual(1, lCache.Metrics.Invalidations);
     Assert.IsTrue(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_STALE_ENTRY_REBUILT'));
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.EquivalentDefineOrderReusesStoredUnitModel;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('equivalent-context-cache.sqlite3');
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := WriteUnitFile('SqliteEquivalentContextUnit',
+    'TSqliteEquivalentContextType');
+  lModelOptions.ProjectContextApplied := True;
+  lModelOptions.Defines := ['PROFILE_A', 'PROFILE_B'];
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+
+  lModelOptions.Defines := ['PROFILE_B', 'PROFILE_A'];
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+
+    Assert.IsTrue(HasDeclaration(lModel, 'TSqliteEquivalentContextType'));
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(0, lCache.Metrics.Invalidations);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.CompilerProfileChangeInvalidatesPersistentEntry;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('compiler-profile-cache.sqlite3');
+  lCacheOptions.CompilerProfileName := 'Delphi-12-Win32-Debug';
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := WriteUnitFile('SqliteCompilerProfileUnit',
+    'TSqliteCompilerProfileType');
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+
+  lCacheOptions.CompilerProfileName := 'Delphi-12-Win64-Release';
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+
+    Assert.IsTrue(HasDeclaration(lModel, 'TSqliteCompilerProfileType'));
+    Assert.AreEqual(0, lCache.Metrics.CacheHits);
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(1, lCache.Metrics.Invalidations);
+    Assert.IsTrue(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_STALE_PROFILE_REBUILT'));
   finally
     lCache.Free;
   end;

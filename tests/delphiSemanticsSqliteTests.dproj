@@ -53,6 +53,7 @@
     <DCCReference Include="src\test.cachesqlite.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Cache.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Cache.Sqlite.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.CompilerProfile.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Model.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Preprocess.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Source.pas"/>

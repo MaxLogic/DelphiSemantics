@@ -9,6 +9,7 @@ uses
 type
   TDelphiSemanticCacheOptions = record
     SqliteCacheFileName: string;
+    CompilerProfileName: string;
     ParserVersion: string;
     ModelVersion: string;
   end;
@@ -38,8 +39,10 @@ type
     fEntries: TCacheDictionary;
     fDiagnostics: TList<TDelphiSemanticCacheDiagnostic>;
     fMetrics: TDelphiSemanticCacheMetrics;
+    fCompilerProfileName: string;
     fParserVersion: string;
     fModelVersion: string;
+    function GetCompilerProfileName: string;
     function GetDiagnostics: TArray<TDelphiSemanticCacheDiagnostic>;
     function GetMetrics: TDelphiSemanticCacheMetrics;
     function GetModelVersion: string;
@@ -53,6 +56,7 @@ type
       const aModel: TDelphiSemanticUnitModel); virtual;
     function TryLoadPersistentEntry(const aIdentity, aKey: string;
       out aModel: TDelphiSemanticUnitModel): Boolean; virtual;
+    procedure SetCompilerProfileName(const aValue: string);
     procedure SetModelVersion(const aValue: string);
     procedure SetParserVersion(const aValue: string);
   public
@@ -62,6 +66,7 @@ type
       TDelphiSemanticUnitModel;
     property Diagnostics: TArray<TDelphiSemanticCacheDiagnostic> read GetDiagnostics;
     property Metrics: TDelphiSemanticCacheMetrics read GetMetrics;
+    property CompilerProfileName: string read GetCompilerProfileName write SetCompilerProfileName;
     property ModelVersion: string read GetModelVersion write SetModelVersion;
     property ParserVersion: string read GetParserVersion write SetParserVersion;
   end;
@@ -74,6 +79,7 @@ uses
 
 const
   cCacheSchemaVersion = '2';
+  cDefaultCompilerProfileName = 'default';
   cDefaultParserVersion = 'DelphiSemantics.Model.Parser.1';
 
 function StableHash(const aText: string): string;
@@ -155,8 +161,8 @@ begin
   Result := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
 end;
 
-function BuildCacheKey(const aOptions: TDelphiSemanticModelOptions; const aParserVersion,
-  aModelVersion: string): string;
+function BuildCacheKey(const aOptions: TDelphiSemanticModelOptions; const aCompilerProfileName,
+  aParserVersion, aModelVersion: string): string;
 var
   lPreprocessResult: TDelphiSemanticPreprocessResult;
   lSourceResult: TDelphiSemanticSourceLoadResult;
@@ -178,6 +184,7 @@ begin
   Result := StableHash(
     'schema=' + cCacheSchemaVersion + sLineBreak +
     'library=' + DelphiSemanticsVersionText + sLineBreak +
+    'compilerProfile=' + aCompilerProfileName + sLineBreak +
     'parser=' + aParserVersion + sLineBreak +
     'model=' + aModelVersion + sLineBreak +
     'file=' + UpperCase(lSourceFileName) + sLineBreak +
@@ -202,6 +209,9 @@ begin
   fEntries := TCacheDictionary.Create;
   fDiagnostics := TList<TDelphiSemanticCacheDiagnostic>.Create;
   fMetrics.CacheKind := 'in-memory';
+  fCompilerProfileName := aOptions.CompilerProfileName;
+  if fCompilerProfileName = '' then
+    fCompilerProfileName := cDefaultCompilerProfileName;
   fParserVersion := aOptions.ParserVersion;
   if fParserVersion = '' then
     fParserVersion := cDefaultParserVersion;
@@ -215,6 +225,11 @@ begin
   fDiagnostics.Free;
   fEntries.Free;
   inherited;
+end;
+
+function TDelphiSemanticUnitCache.GetCompilerProfileName: string;
+begin
+  Result := fCompilerProfileName;
 end;
 
 function TDelphiSemanticUnitCache.GetDiagnostics: TArray<TDelphiSemanticCacheDiagnostic>;
@@ -256,7 +271,7 @@ var
   lKey: string;
 begin
   lIdentity := UpperCase(TPath.GetFullPath(aOptions.SourceFileName));
-  lKey := BuildCacheKey(aOptions, fParserVersion, fModelVersion);
+  lKey := BuildCacheKey(aOptions, fCompilerProfileName, fParserVersion, fModelVersion);
   lDictionary := fEntries;
   if lDictionary.TryGetValue(lIdentity, lEntry) then
   begin
@@ -289,6 +304,13 @@ begin
   lEntry.Model := CloneUnitModel(Result);
   lDictionary.AddOrSetValue(lIdentity, lEntry);
   StorePersistentEntry(lIdentity, lKey, Result);
+end;
+
+procedure TDelphiSemanticUnitCache.SetCompilerProfileName(const aValue: string);
+begin
+  fCompilerProfileName := aValue;
+  if fCompilerProfileName = '' then
+    fCompilerProfileName := cDefaultCompilerProfileName;
 end;
 
 procedure TDelphiSemanticUnitCache.SetModelVersion(const aValue: string);
