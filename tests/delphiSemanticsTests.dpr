@@ -16,7 +16,8 @@ uses
   Test.ResolverLevel3 in 'src\test.resolverlevel3.pas',
   Test.SourceContext in 'src\test.sourcecontext.pas',
   Test.Smoke in 'src\test.smoke.pas',
-  Test.UnitModel in 'src\test.unitmodel.pas';
+  Test.UnitModel in 'src\test.unitmodel.pas',
+  Test.WithBinder in 'src\test.withbinder.pas';
 
 var
   lRunner: ITestRunner;

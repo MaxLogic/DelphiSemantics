@@ -63,6 +63,7 @@
     <DCCReference Include="src\test.sourcecontext.pas"/>
     <DCCReference Include="src\test.smoke.pas"/>
     <DCCReference Include="src\test.unitmodel.pas"/>
+    <DCCReference Include="src\test.withbinder.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Cache.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Model.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Preprocess.pas"/>
@@ -71,6 +72,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Source.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.SourceContext.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Version.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.WithBinding.pas"/>
   </ItemGroup>
   <ItemGroup>
     <BuildConfiguration Include="Base">
