@@ -11,7 +11,9 @@
     <DCC_Define>PROJECT_DEBUG;$(DCC_Define)</DCC_Define>
     <DCC_UnitSearchPath>Source;$(PROJECTDIR)Generated;$(MissingMacro)\Broken;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
     <DCC_UnitScopeNames>Project.Scope;$(DCC_UnitScopeNames)</DCC_UnitScopeNames>
+    <DCC_Namespace>Namespace.Scope;$(DCC_Namespace)</DCC_Namespace>
     <DCC_UnitAlias>Project.Legacy=Project.Modern;$(DCC_UnitAlias)</DCC_UnitAlias>
+    <DCC_UnitAliases>Project.PluralLegacy=Project.PluralModern;$(DCC_UnitAliases)</DCC_UnitAliases>
   </PropertyGroup>
   <PropertyGroup Condition="'Debug'=='Debug'">
     <DCC_Define>LITERAL_COMPARISON_DEFINE;$(DCC_Define)</DCC_Define>

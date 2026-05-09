@@ -47,6 +47,12 @@ type
     procedure OptionsExposeDelphiVersionAndEnvironmentProperties;
     [Test]
     procedure SourceLookupPathsMergeReferencesBeforeSearchPaths;
+    [Test]
+    procedure PublicMacroExpansionRecursesAndReportsUnknowns;
+    [Test]
+    procedure PublicConditionEvaluationMatchesDakFunctionCases;
+    [Test]
+    procedure DakNamespaceAndPluralAliasesFeedSemanticLists;
   end;
 
 implementation
@@ -350,6 +356,54 @@ begin
   Assert.IsTrue(lSearchIndex >= 0, 'Expected DCC search path in source lookup paths.');
   Assert.IsTrue(lReferenceIndex < lSearchIndex,
     'Expected DCCReference directories before DCC_UnitSearchPath entries.');
+end;
+
+procedure TProjectMsBuildTests.PublicMacroExpansionRecursesAndReportsUnknowns;
+var
+  lDiagnostics: TArray<TDelphiSemanticDiagnostic>;
+  lProperties: TArray<TDelphiSemanticProperty>;
+begin
+  SetLength(lProperties, 2);
+  lProperties[0].Name := 'OuterValue';
+  lProperties[0].Value := 'prefix-$(InnerValue)';
+  lProperties[1].Name := 'InnerValue';
+  lProperties[1].Value := 'expanded';
+
+  Assert.AreEqual('prefix-expanded|$(MissingValue)', TDelphiSemanticMsBuild.ExpandMacros(
+    '$(OuterValue)|$(MissingValue)', lProperties, nil, False, lDiagnostics));
+  Assert.AreEqual(1, Length(lDiagnostics));
+  Assert.AreEqual('UNRESOLVED_MSBUILD_MACRO', lDiagnostics[0].Code);
+end;
+
+procedure TProjectMsBuildTests.PublicConditionEvaluationMatchesDakFunctionCases;
+var
+  lDiagnostics: TArray<TDelphiSemanticDiagnostic>;
+  lError: string;
+  lProperties: TArray<TDelphiSemanticProperty>;
+  lResult: Boolean;
+begin
+  SetLength(lProperties, 1);
+  lProperties[0].Name := 'Config';
+  lProperties[0].Value := 'Debug';
+
+  Assert.IsTrue(TDelphiSemanticMsBuild.TryEvaluateCondition(
+    '''$(Config)''==''Debug'' and !HasTrailingSlash(C:\Build Output)',
+    FixturePath('ProjectContext\MsBuild'), lProperties, nil, lResult, lError, lDiagnostics), lError);
+  Assert.IsTrue(lResult);
+  Assert.AreEqual(0, Length(lDiagnostics));
+end;
+
+procedure TProjectMsBuildTests.DakNamespaceAndPluralAliasesFeedSemanticLists;
+var
+  lResult: TDelphiSemanticContextResult;
+begin
+  lResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'));
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(ContainsText(lResult.Project.UnitScopeNames, 'Namespace.Scope'),
+    'Expected DCC_Namespace to feed semantic unit scopes.');
+  Assert.IsTrue(ContainsText(lResult.Project.UnitAliases, 'Project.PluralLegacy=Project.PluralModern'),
+    'Expected DCC_UnitAliases to feed semantic aliases.');
 end;
 
 initialization

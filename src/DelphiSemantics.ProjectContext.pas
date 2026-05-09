@@ -60,6 +60,15 @@ type
     class function Load(const aFileName: string; const aOptions: TDelphiSemanticOptions): TDelphiSemanticContextResult; overload; static;
   end;
 
+  TDelphiSemanticMsBuild = record
+  public
+    class function ExpandMacros(const aValue: string; const aProperties, aEnvironment: TArray<TDelphiSemanticProperty>;
+      const aUnknownAsEmpty: Boolean; out aDiagnostics: TArray<TDelphiSemanticDiagnostic>): string; static;
+    class function TryEvaluateCondition(const aCondition, aBaseDirectory: string;
+      const aProperties, aEnvironment: TArray<TDelphiSemanticProperty>; out aResult: Boolean; out aError: string;
+      out aDiagnostics: TArray<TDelphiSemanticDiagnostic>): Boolean; static;
+  end;
+
 implementation
 
 uses
@@ -134,12 +143,207 @@ begin
   Result := UpperCase(aName);
 end;
 
+function PropertyArrayToMap(const aProperties: TArray<TDelphiSemanticProperty>): TPropertyMap;
+var
+  lProperty: TDelphiSemanticProperty;
+begin
+  Result := TPropertyMap.Create;
+  for lProperty in aProperties do
+    Result.AddOrSetValue(PropertyKey(lProperty.Name), lProperty.Value);
+end;
+
 function TryGetPropertyValue(const aProperties: TPropertyMap; const aName: string;
   out aValue: string): Boolean;
 begin
   Result := aProperties.TryGetValue(PropertyKey(aName), aValue);
   if not Result then
     aValue := '';
+end;
+
+function TryGetMacroValue(const aProperties, aEnvironment: TPropertyMap; const aName: string;
+  out aValue: string): Boolean;
+begin
+  if (aProperties <> nil) and aProperties.TryGetValue(PropertyKey(aName), aValue) then
+    Exit(True);
+  if (aEnvironment <> nil) and aEnvironment.TryGetValue(PropertyKey(aName), aValue) then
+    Exit(True);
+
+  aValue := System.SysUtils.GetEnvironmentVariable(aName);
+  Result := aValue <> '';
+end;
+
+function MacroStackContains(const aStack: TList<string>; const aName: string): Boolean;
+var
+  lItem: string;
+begin
+  for lItem in aStack do
+    if SameText(lItem, aName) then
+      Exit(True);
+
+  Result := False;
+end;
+
+procedure AddDiagnostic(const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  const aDiagnostic: TDelphiSemanticDiagnostic); forward;
+function TryEvaluateConditionExpression(const aCondition, aFileName, aBaseDirectory: string;
+  const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  out aActive: Boolean): Boolean; forward;
+
+function ExpandMacroText(const aValue: string; const aProperties, aEnvironment: TPropertyMap;
+  const aDiagnostics: TList<TDelphiSemanticDiagnostic>; const aUnknownAsEmpty: Boolean;
+  const aStack: TList<string>): string;
+var
+  lIndex: Integer;
+  lMacroStart: Integer;
+  lMacroValue: string;
+  lName: string;
+  lReplacement: string;
+  lResult: TStringBuilder;
+begin
+  lResult := TStringBuilder.Create;
+  try
+    lIndex := 1;
+    while lIndex <= Length(aValue) do
+    begin
+      if (aValue[lIndex] = '$') and (lIndex < Length(aValue)) and (aValue[lIndex + 1] = '(') then
+      begin
+        lMacroStart := lIndex + 2;
+        Inc(lIndex, 2);
+        while (lIndex <= Length(aValue)) and (aValue[lIndex] <> ')') do
+          Inc(lIndex);
+
+        if lIndex > Length(aValue) then
+        begin
+          lResult.Append('$(');
+          lResult.Append(Copy(aValue, lMacroStart, MaxInt));
+          Break;
+        end;
+
+        lName := Copy(aValue, lMacroStart, lIndex - lMacroStart);
+        if MacroStackContains(aStack, lName) then
+        begin
+          if (aDiagnostics <> nil) and (not aUnknownAsEmpty) then
+            AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('CYCLE_MSBUILD_MACRO',
+              'Cycle in MSBuild macro: $(' + lName + ')', ''));
+          if aUnknownAsEmpty then
+            lReplacement := ''
+          else
+            lReplacement := '$(' + lName + ')';
+        end else if TryGetMacroValue(aProperties, aEnvironment, lName, lMacroValue) then
+        begin
+          aStack.Add(lName);
+          try
+            lReplacement := ExpandMacroText(lMacroValue, aProperties, aEnvironment, aDiagnostics,
+              aUnknownAsEmpty, aStack);
+          finally
+            aStack.Delete(aStack.Count - 1);
+          end;
+        end else
+        begin
+          if (aDiagnostics <> nil) and (not aUnknownAsEmpty) then
+            AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('UNRESOLVED_MSBUILD_MACRO',
+              'Unresolved MSBuild macro: $(' + lName + ')', ''));
+          if aUnknownAsEmpty then
+            lReplacement := ''
+          else
+            lReplacement := '$(' + lName + ')';
+        end;
+
+        lResult.Append(lReplacement);
+        Inc(lIndex);
+      end else
+      begin
+        lResult.Append(aValue[lIndex]);
+        Inc(lIndex);
+      end;
+    end;
+
+    Result := lResult.ToString;
+  finally
+    lResult.Free;
+  end;
+end;
+
+class function TDelphiSemanticMsBuild.ExpandMacros(const aValue: string;
+  const aProperties, aEnvironment: TArray<TDelphiSemanticProperty>; const aUnknownAsEmpty: Boolean;
+  out aDiagnostics: TArray<TDelphiSemanticDiagnostic>): string;
+var
+  lDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  lEnvironment: TPropertyMap;
+  lProperties: TPropertyMap;
+  lStack: TList<string>;
+begin
+  lProperties := PropertyArrayToMap(aProperties);
+  try
+    lEnvironment := PropertyArrayToMap(aEnvironment);
+    try
+      lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
+      try
+        lStack := TList<string>.Create;
+        try
+          Result := ExpandMacroText(aValue, lProperties, lEnvironment, lDiagnostics,
+            aUnknownAsEmpty, lStack);
+          aDiagnostics := lDiagnostics.ToArray;
+        finally
+          lStack.Free;
+        end;
+      finally
+        lDiagnostics.Free;
+      end;
+    finally
+      lEnvironment.Free;
+    end;
+  finally
+    lProperties.Free;
+  end;
+end;
+
+class function TDelphiSemanticMsBuild.TryEvaluateCondition(const aCondition, aBaseDirectory: string;
+  const aProperties, aEnvironment: TArray<TDelphiSemanticProperty>; out aResult: Boolean;
+  out aError: string; out aDiagnostics: TArray<TDelphiSemanticDiagnostic>): Boolean;
+var
+  lDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  lEnvironment: TPropertyMap;
+  lExpandedCondition: string;
+  lProperties: TPropertyMap;
+  lStack: TList<string>;
+begin
+  aResult := True;
+  aError := '';
+  lProperties := PropertyArrayToMap(aProperties);
+  try
+    lEnvironment := PropertyArrayToMap(aEnvironment);
+    try
+      lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
+      try
+        lStack := TList<string>.Create;
+        try
+          lExpandedCondition := ExpandMacroText(aCondition, lProperties, lEnvironment,
+            lDiagnostics, True, lStack);
+        finally
+          lStack.Free;
+        end;
+
+        if lExpandedCondition.Trim = '' then
+        begin
+          aDiagnostics := lDiagnostics.ToArray;
+          Exit(True);
+        end;
+
+        Result := TryEvaluateConditionExpression(lExpandedCondition, '', aBaseDirectory,
+          lProperties, lDiagnostics, aResult);
+        if not Result then
+          aError := 'Unsupported or invalid Condition: ' + aCondition;
+        aDiagnostics := lDiagnostics.ToArray;
+      finally
+        lDiagnostics.Free;
+      end;
+    finally
+      lEnvironment.Free;
+    end;
+  finally
+    lProperties.Free;
+  end;
 end;
 
 function GetPropertyValue(const aProperties: TPropertyMap; const aName: string): string;
@@ -775,7 +979,9 @@ begin
     AddDelimitedPaths(lSearchPaths, aProject.ProjectDirectory,
       GetPropertyValue(aProperties, 'DCC_UnitSearchPath'));
     AddDelimitedTexts(lUnitScopeNames, GetPropertyValue(aProperties, 'DCC_UnitScopeNames'));
+    AddDelimitedTexts(lUnitScopeNames, GetPropertyValue(aProperties, 'DCC_Namespace'));
     AddDelimitedTexts(lUnitAliases, GetPropertyValue(aProperties, 'DCC_UnitAlias'));
+    AddDelimitedTexts(lUnitAliases, GetPropertyValue(aProperties, 'DCC_UnitAliases'));
     AddReferenceDirectories(aText, aProject.ProjectFileName, aProject.ProjectDirectory,
       aProperties, aDiagnostics, lReferenceDirectories);
 
