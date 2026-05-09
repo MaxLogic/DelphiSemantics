@@ -38,7 +38,15 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.RegularExpressions, System.StrUtils, System.SysUtils;
+  System.Classes, System.Generics.Collections, System.IOUtils, System.RegularExpressions,
+  System.Math, System.StrUtils, System.SysUtils;
+
+type
+  TRoutineFrame = record
+    Name: string;
+    Begun: Boolean;
+    BlockDepth: Integer;
+  end;
 
 function IsBinderKeyword(const aName: string): Boolean;
 begin
@@ -95,14 +103,112 @@ begin
       Result := lRoutine.Name;
 end;
 
+function ContainsRoutineName(const aNames: TList<string>; const aName: string): Boolean;
+var
+  lName: string;
+begin
+  for lName in aNames do
+    if SameText(lName, aName) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function ParentRoutineNamesForLine(const aModel: TDelphiSemanticUnitModel;
+  const aRoutineName: string; const aLine: Integer): TArray<string>;
+var
+  i: Integer;
+  lFrame: TRoutineFrame;
+  lFrames: TList<TRoutineFrame>;
+  lInImplementation: Boolean;
+  lLine: string;
+  lLines: TStringList;
+  lNames: TList<string>;
+  lRoutineName: string;
+  lMatch: TMatch;
+begin
+  lNames := TList<string>.Create;
+  lFrames := TList<TRoutineFrame>.Create;
+  lLines := TStringList.Create;
+  try
+    if not TFile.Exists(aModel.FileName) then
+      Exit(lNames.ToArray);
+
+    lLines.Text := TFile.ReadAllText(aModel.FileName);
+    lInImplementation := False;
+    for i := 0 to Min(aLine - 2, lLines.Count - 1) do
+    begin
+      lLine := TRegEx.Replace(lLines[i], '''(?:''''|[^''])*''', ' ', [roSingleLine]);
+      lLine := TRegEx.Replace(lLine, '//.*$', ' ', [roIgnoreCase]);
+      if SameText(lLine.Trim, 'implementation') then
+      begin
+        lInImplementation := True;
+        Continue;
+      end;
+
+      if not lInImplementation then
+        Continue;
+
+      lMatch := TRegEx.Match(lLine,
+        '^\s*(?:procedure|function)\s+(?:[A-Za-z_][A-Za-z0-9_]*\.)?' +
+        '([A-Za-z_][A-Za-z0-9_]*)\b', [roIgnoreCase]);
+      if lMatch.Success then
+      begin
+        lFrame := Default(TRoutineFrame);
+        lFrame.Name := lMatch.Groups[1].Value;
+        lFrames.Add(lFrame);
+      end;
+
+      lMatch := TRegEx.Match(lLine, '\b(begin|end)\b', [roIgnoreCase]);
+      while lMatch.Success do
+      begin
+        if lFrames.Count > 0 then
+        begin
+          lFrame := lFrames.Last;
+          if SameText(lMatch.Value, 'begin') then
+          begin
+            lFrame.Begun := True;
+            Inc(lFrame.BlockDepth);
+            lFrames[Pred(lFrames.Count)] := lFrame;
+          end else if lFrame.Begun and (lFrame.BlockDepth > 0) then
+          begin
+            Dec(lFrame.BlockDepth);
+            if lFrame.BlockDepth = 0 then
+              lFrames.Delete(Pred(lFrames.Count))
+            else
+              lFrames[Pred(lFrames.Count)] := lFrame;
+          end;
+        end;
+        lMatch := lMatch.NextMatch;
+      end;
+    end;
+
+    for i := Pred(lFrames.Count) downto 0 do
+    begin
+      lRoutineName := lFrames[i].Name;
+      if not SameText(lRoutineName, aRoutineName) and
+        not ContainsRoutineName(lNames, lRoutineName) then
+        lNames.Add(lRoutineName);
+    end;
+
+    Result := lNames.ToArray;
+  finally
+    lLines.Free;
+    lFrames.Free;
+    lNames.Free;
+  end;
+end;
+
 function MakeSelectorBinding(const aModel: TDelphiSemanticUnitModel; const aRoutineName,
-  aSelectorText: string): TDelphiSemanticWithSelectorBinding;
+  aSelectorText: string; const aParentRoutineNames: TArray<string>):
+  TDelphiSemanticWithSelectorBinding;
 var
   lContext: TDelphiSemanticResolveContext;
   lResult: TDelphiSemanticResolveResult;
 begin
   lContext := Default(TDelphiSemanticResolveContext);
   lContext.RoutineName := aRoutineName;
+  lContext.ParentRoutineNames := aParentRoutineNames;
   lContext.SectionKind := 'implementation';
   lContext.ConformanceLevel := 3;
   lResult := TDelphiSemanticResolver.ResolveName(aModel, lContext, aSelectorText.Trim);
@@ -161,8 +267,8 @@ begin
 end;
 
 function BindReference(const aModel: TDelphiSemanticUnitModel;
-  const aRoutineName: string; const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
-  const aName: string):
+  const aRoutineName: string; const aParentRoutineNames: TArray<string>;
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>; const aName: string):
   TDelphiSemanticBoundReference;
 var
   lContext: TDelphiSemanticResolveContext;
@@ -183,6 +289,7 @@ begin
 
   lContext := Default(TDelphiSemanticResolveContext);
   lContext.RoutineName := aRoutineName;
+  lContext.ParentRoutineNames := aParentRoutineNames;
   lContext.SectionKind := 'implementation';
   lContext.ConformanceLevel := 3;
   lResult := TDelphiSemanticResolver.ResolveName(aModel, lContext, aName);
@@ -212,7 +319,8 @@ begin
 end;
 
 function BindSelectors(const aModel: TDelphiSemanticUnitModel; const aRoutineName,
-  aSelectorText: string): TArray<TDelphiSemanticWithSelectorBinding>;
+  aSelectorText: string; const aParentRoutineNames: TArray<string>):
+  TArray<TDelphiSemanticWithSelectorBinding>;
 var
   lPart: string;
   lSelectors: TList<TDelphiSemanticWithSelectorBinding>;
@@ -220,7 +328,7 @@ begin
   lSelectors := TList<TDelphiSemanticWithSelectorBinding>.Create;
   try
     for lPart in SplitSelectors(aSelectorText) do
-      lSelectors.Add(MakeSelectorBinding(aModel, aRoutineName, lPart));
+      lSelectors.Add(MakeSelectorBinding(aModel, aRoutineName, lPart, aParentRoutineNames));
     Result := lSelectors.ToArray;
   finally
     lSelectors.Free;
@@ -232,6 +340,7 @@ function BindReferences(const aModel: TDelphiSemanticUnitModel;
   const aAllStatements: TArray<TDelphiSemanticWithStatement>;
   const aStatementIndex: Integer;
   const aRoutineName: string;
+  const aParentRoutineNames: TArray<string>;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>):
   TArray<TDelphiSemanticBoundReference>;
 var
@@ -248,7 +357,8 @@ begin
     while lMatch.Success do
     begin
       if not IsBinderKeyword(lMatch.Value) and not IsSelectorName(aSelectors, lMatch.Value) then
-        AddReference(lReferences, BindReference(aModel, aRoutineName, aSelectors, lMatch.Value));
+        AddReference(lReferences, BindReference(aModel, aRoutineName, aParentRoutineNames,
+          aSelectors, lMatch.Value));
       lMatch := lMatch.NextMatch;
     end;
     Result := lReferences.ToArray;
@@ -266,7 +376,8 @@ end;
 
 function CombinedSelectors(const aModel: TDelphiSemanticUnitModel;
   const aStatements: TArray<TDelphiSemanticWithStatement>; const aStatementIndex: Integer;
-  const aRoutineName: string): TArray<TDelphiSemanticWithSelectorBinding>;
+  const aRoutineName: string; const aParentRoutineNames: TArray<string>):
+  TArray<TDelphiSemanticWithSelectorBinding>;
 var
   i: Integer;
   lSelector: TDelphiSemanticWithSelectorBinding;
@@ -276,9 +387,11 @@ begin
   try
     for i := 0 to Pred(aStatementIndex) do
       if StatementContains(aStatements[i], aStatements[aStatementIndex]) then
-        for lSelector in BindSelectors(aModel, aRoutineName, aStatements[i].SelectorText) do
+        for lSelector in BindSelectors(aModel, aRoutineName, aStatements[i].SelectorText,
+          aParentRoutineNames) do
           lSelectors.Add(lSelector);
-    for lSelector in BindSelectors(aModel, aRoutineName, aStatements[aStatementIndex].SelectorText) do
+    for lSelector in BindSelectors(aModel, aRoutineName, aStatements[aStatementIndex].SelectorText,
+      aParentRoutineNames) do
       lSelectors.Add(lSelector);
     Result := lSelectors.ToArray;
   finally
@@ -292,6 +405,7 @@ var
   i: Integer;
   lBinding: TDelphiSemanticWithBinding;
   lBindings: TList<TDelphiSemanticWithBinding>;
+  lParentRoutineNames: TArray<string>;
   lRoutineName: string;
   lStatement: TDelphiSemanticWithStatement;
 begin
@@ -304,9 +418,11 @@ begin
       lBinding.Line := lStatement.Line;
       lBinding.Column := lStatement.Column;
       lRoutineName := FindRoutineNameForLine(aModel, lStatement.Line);
-      lBinding.Selectors := CombinedSelectors(aModel, aModel.WithStatements, i, lRoutineName);
+      lParentRoutineNames := ParentRoutineNamesForLine(aModel, lRoutineName, lStatement.Line);
+      lBinding.Selectors := CombinedSelectors(aModel, aModel.WithStatements, i, lRoutineName,
+        lParentRoutineNames);
       lBinding.References := BindReferences(aModel, lStatement, aModel.WithStatements, i,
-        lRoutineName, lBinding.Selectors);
+        lRoutineName, lParentRoutineNames, lBinding.Selectors);
       lBindings.Add(lBinding);
     end;
     Result := lBindings.ToArray;

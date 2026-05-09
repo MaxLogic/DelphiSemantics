@@ -15,6 +15,8 @@ type
 
 procedure RunWithBinder(const aParamValue: Integer);
 
+procedure RunNestedBinder;
+
 implementation
 
 procedure RunWithBinder(const aParamValue: Integer);
@@ -51,6 +53,32 @@ begin
       FirstOnly := SecondOnly;
     end;
   end;
+end;
+
+procedure RunSiblingBinder;
+var
+  lSiblingReceiver: TFirstRecord;
+begin
+  lSiblingReceiver.FirstOnly := 11;
+end;
+
+procedure RunNestedBinder;
+var
+  lOuterReceiver: TFirstRecord;
+
+  procedure InnerWithScope;
+  var
+    lInnerValue: Integer;
+  begin
+    lInnerValue := 7;
+    with lOuterReceiver do
+      FirstOnly := lInnerValue;
+    with lSiblingReceiver do
+      FirstOnly := 9;
+  end;
+
+begin
+  InnerWithScope;
 end;
 
 end.

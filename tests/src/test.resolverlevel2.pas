@@ -11,6 +11,7 @@ type
   TResolverLevel2Tests = class
   private
     function FixturePath(const aFileName: string): string;
+    function LoadInventoryModel: TDelphiSemanticUnitModel;
     function LoadModel: TDelphiSemanticUnitModel;
   public
     [Test]
@@ -23,6 +24,8 @@ type
     procedure ResolvesIndexedDefaultProperties;
     [Test]
     procedure NestedRoutineScopesSearchParentRoutines;
+    [Test]
+    procedure ResolvesInventoryDeclarationsAndImplementationGlobals;
     [Test]
     procedure DuplicateDirectMembersAreAmbiguous;
   end;
@@ -37,6 +40,17 @@ function TResolverLevel2Tests.FixturePath(const aFileName: string): string;
 begin
   Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
     'Resolver', aFileName]));
+end;
+
+function TResolverLevel2Tests.LoadInventoryModel: TDelphiSemanticUnitModel;
+var
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('InventoryResolverUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(Result.Success);
 end;
 
 function TResolverLevel2Tests.LoadModel: TDelphiSemanticUnitModel;
@@ -226,6 +240,45 @@ begin
   Assert.AreEqual('parameter', lResult.Kind);
   Assert.AreEqual('TIndexedRecord', lResult.TypeName);
   Assert.AreEqual('InnerScope', lResult.OwnerName);
+end;
+
+procedure TResolverLevel2Tests.ResolvesInventoryDeclarationsAndImplementationGlobals;
+var
+  lContext: TDelphiSemanticResolveContext;
+  lModel: TDelphiSemanticUnitModel;
+  lResult: TDelphiSemanticResolveResult;
+begin
+  lModel := LoadInventoryModel;
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.SectionKind := 'implementation';
+  lContext.ConformanceLevel := 2;
+
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'ikSecond');
+
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('enum-value', lResult.Kind);
+  Assert.AreEqual('TInventoryEnum', lResult.TypeName);
+
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'cTypedInventory');
+
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('typed-const', lResult.Kind);
+  Assert.AreEqual('TInventoryEnum', lResult.TypeName);
+
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'gImplementationRecord');
+
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('var', lResult.Kind);
+  Assert.AreEqual('TOverloadHolder', lResult.TypeName);
+
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.SectionKind := 'interface';
+  lContext.ConformanceLevel := 2;
+
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'gImplementationRecord');
+
+  Assert.IsFalse(lResult.Found);
+  Assert.AreEqual('NAME_NOT_FOUND', lResult.ReasonCode);
 end;
 
 procedure TResolverLevel2Tests.DuplicateDirectMembersAreAmbiguous;

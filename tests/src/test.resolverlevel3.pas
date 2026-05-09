@@ -21,6 +21,8 @@ type
     procedure ResolvesCompilerIntrinsicProfiles;
     [Test]
     procedure ResolvesSourceAvailableIndexedUnits;
+    [Test]
+    procedure ResolvesInterfaceAncestorsAndAmbiguousOverloads;
   end;
 
 implementation
@@ -136,6 +138,30 @@ begin
   Assert.IsFalse(lResult.Authoritative);
   Assert.AreEqual('ambiguous', lResult.Status);
   Assert.AreEqual('MULTIPLE_INDEXED_DECLARATIONS', lResult.ReasonCode);
+end;
+
+procedure TResolverLevel3Tests.ResolvesInterfaceAncestorsAndAmbiguousOverloads;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lResult: TDelphiSemanticResolveResult;
+begin
+  lModel := LoadModel('InventoryResolverUnit.pas');
+
+  lResult := TDelphiSemanticResolver.ResolveMemberAtLevel(lModel, 'IInventoryChild',
+    'BaseName', 3);
+
+  Assert.IsTrue(lResult.Found);
+  Assert.IsTrue(lResult.Authoritative);
+  Assert.AreEqual('method', lResult.Kind);
+  Assert.AreEqual('string', lResult.TypeName);
+  Assert.AreEqual('IInventoryBase', lResult.OwnerName);
+
+  lResult := TDelphiSemanticResolver.ResolveMemberAtLevel(lModel, 'TOverloadHolder', 'Pick', 3);
+
+  Assert.IsFalse(lResult.Found);
+  Assert.IsFalse(lResult.Authoritative);
+  Assert.AreEqual('ambiguous', lResult.Status);
+  Assert.AreEqual('MULTIPLE_MEMBER_CANDIDATES', lResult.ReasonCode);
 end;
 
 initialization

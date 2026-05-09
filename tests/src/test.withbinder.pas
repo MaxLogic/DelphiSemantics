@@ -29,6 +29,10 @@ type
     procedure UnresolvedSelectorMarksBodyReferencesExternal;
     [Test]
     procedure NestedWithStatementsUseOuterReceiverStack;
+    [Test]
+    procedure NestedRoutineWithUsesParentRoutineScope;
+    [Test]
+    procedure SiblingRoutineLocalsDoNotLeakIntoNestedWith;
   end;
 
 implementation
@@ -99,7 +103,7 @@ begin
 
   lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
 
-  Assert.AreEqual(5, Length(lBindings));
+  Assert.AreEqual(7, Length(lBindings));
   Assert.AreEqual(1, Length(lBindings[0].Selectors));
   Assert.AreEqual('lFirst', lBindings[0].Selectors[0].SelectorText);
   Assert.AreEqual('resolved', lBindings[0].Selectors[0].Status);
@@ -184,6 +188,36 @@ begin
   Assert.AreEqual('TSecondRecord', lBindings[4].Selectors[1].TypeName);
   Assert.AreEqual('TFirstRecord', ReceiverOf(lBindings[4], 'FirstOnly', 'member'));
   Assert.AreEqual('TSecondRecord', ReceiverOf(lBindings[4], 'SecondOnly', 'member'));
+end;
+
+procedure TWithBinderTests.NestedRoutineWithUsesParentRoutineScope;
+var
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := LoadModel;
+
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+
+  Assert.AreEqual('lOuterReceiver', lBindings[5].Selectors[0].SelectorText);
+  Assert.AreEqual('resolved', lBindings[5].Selectors[0].Status);
+  Assert.AreEqual('TFirstRecord', lBindings[5].Selectors[0].TypeName);
+  Assert.IsTrue(HasReference(lBindings[5], 'FirstOnly', 'member'));
+  Assert.IsTrue(HasReference(lBindings[5], 'lInnerValue', 'lexical'));
+end;
+
+procedure TWithBinderTests.SiblingRoutineLocalsDoNotLeakIntoNestedWith;
+var
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := LoadModel;
+
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+
+  Assert.AreEqual('lSiblingReceiver', lBindings[6].Selectors[0].SelectorText);
+  Assert.AreEqual('unresolved', lBindings[6].Selectors[0].Status);
+  Assert.IsTrue(HasReference(lBindings[6], 'FirstOnly', 'external'));
 end;
 
 initialization
