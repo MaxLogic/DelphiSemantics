@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Symbol query API and DAK SymbolMap query coverage for definition lookup, source-position lookup, member/intrinsic/RTL search, token references, and cache/profile status.
 - Cache/profile migration coverage for compiler-profile cache keys, equivalent-context reuse, intrinsic resolver rows, stale SQLite profile repair, and cached source-available RTL indexing.
 - Optional LSP enrichment boundary with explicit opt-in and provenance for `lsp` and `semantic-model` results.
 - Semantic with-binder API for selector type binding and member/lexical/external/ambiguous/unresolved/unsupported reference classification.
