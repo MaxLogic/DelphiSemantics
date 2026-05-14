@@ -27,6 +27,8 @@ type
     [Test]
     procedure MalformedConditionalStackProducesDiagnostics;
     [Test]
+    procedure ConditionalDirectivesAllowTrailingComments;
+    [Test]
     procedure UnsupportedConditionalElseBranchStaysInactive;
     [Test]
     procedure UnsupportedConditionalDirectiveProducesDiagnostic;
@@ -180,6 +182,23 @@ begin
   Assert.IsFalse(lResult.Success);
   Assert.IsTrue(HasDiagnostic(lResult, 'UNMATCHED_PREPROCESS_DIRECTIVE'));
   Assert.IsTrue(HasDiagnostic(lResult, 'UNTERMINATED_PREPROCESS_CONDITIONAL'));
+end;
+
+procedure TPreprocessTests.ConditionalDirectivesAllowTrailingComments;
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := FixturePath('Preprocess', 'TrailingCommentConditionalUnit.pas');
+  lOptions.Defines := ['ACTIVE_FEATURE'];
+
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(Pos('TActiveTrailingType', lResult.OutputText) > 0);
+  Assert.IsFalse(Pos('TInactiveTrailingType', lResult.OutputText) > 0);
+  Assert.IsTrue(Pos('TElseTrailingType', lResult.OutputText) > 0);
 end;
 
 procedure TPreprocessTests.UnsupportedConditionalElseBranchStaysInactive;

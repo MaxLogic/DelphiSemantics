@@ -40,6 +40,7 @@ type
   end;
 
   PGoldenRecord = ^TGoldenRecord;
+  TGoldenRecordAlias = TGoldenRecord;
 
   TGoldenRecordHelper = record helper for TGoldenRecord
     procedure HelperTouch;
@@ -74,6 +75,16 @@ type
 
 implementation
 
+var
+  {$IFDEF GOLDEN_PROTOCOL}
+  GoldenProtocol: Text;
+  {$ENDIF}
+
+var
+  GoldenSplitGlobal:
+    Integer;
+  GoldenInlineState: (gisRead, gisSkip);
+
 procedure TGoldenBase.Touch;
 begin
 end;
@@ -101,17 +112,51 @@ begin
 end;
 
 class procedure TGoldenScope.Run;
+type
+  TGoldenLocalRecord = record
+    LocalName: string;
+    LocalCount: Integer;
+  end;
 var
+  lAnonymousLocal: packed record
+    LocalFlag: Boolean;
+    LocalText: string;
+  end;
+  lVariantLocal: packed record
+    Len: Byte;
+    case Kind: Integer of
+      1: (AsInteger: Integer);
+      2: (AsText: string)
+  end;
   lDefaultList: TGoldenDefaultList;
+  lLocalRecord: TGoldenLocalRecord;
   lObject: TGoldenClass;
   lRecord: TGoldenRecord;
   lRecordPtr: PGoldenRecord;
   lRecords: TArray<TGoldenRecord>;
   lStaticRecordPtrs: array[1..2] of PGoldenRecord;
   lStaticRecords: array [1 .. 2] of TGoldenRecord;
+
+  procedure IgnoreNestedDeclarationBody;
+  begin
+  end;
+
+type
+  TGoldenLateLocalRecord = record
+    LateName: string;
+  end;
+var
+  lLateLocalRecord: TGoldenLateLocalRecord;
 begin
   lRecord.RecordName := '';
   lRecord.Child.Name := lRecord.RecordName;
+  lLocalRecord.LocalName := lRecord.RecordName;
+  lAnonymousLocal.LocalFlag := lLocalRecord.LocalCount > 0;
+  lAnonymousLocal.LocalText := lLocalRecord.LocalName;
+  lVariantLocal.Len := 1;
+  lVariantLocal.AsInteger := lVariantLocal.Len;
+  lLateLocalRecord.LateName := lAnonymousLocal.LocalText;
+  IgnoreNestedDeclarationBody;
   lRecordPtr := @lRecord;
   SetLength(lRecords, 1);
   lRecords[0] := lRecordPtr^;
@@ -125,6 +170,20 @@ begin
   finally
     lObject.Free;
   end;
+end;
+
+  type
+    TGoldenIndentedState = record
+      StateName: string;
+    end;
+
+  var
+    GoldenIndentedState: TGoldenIndentedState;
+
+procedure UseGoldenIndentedState;
+begin
+  with GoldenIndentedState do
+    StateName := '';
 end;
 
 end.

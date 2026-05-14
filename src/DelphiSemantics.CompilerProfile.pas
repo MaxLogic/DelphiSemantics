@@ -34,12 +34,21 @@ type
       const aSourceFileNames: TArray<string>): TDelphiSemanticCompilerProfile; static;
     class function ProfileForTarget(const aCompilerProfileName, aDelphiVersion, aPlatform,
       aRtlSourceRoot: string): TDelphiSemanticCompilerProfile; static;
+    class function DiscoverRtlSourceFiles(const aRtlSourceRoot: string;
+      const aUnitNames: TArray<string>): TArray<string>; static;
+    class function ProfileForTargetFromRtlSourceRoot(const aCache: TDelphiSemanticUnitCache;
+      const aCompilerProfileName, aDelphiVersion, aPlatform, aRtlSourceRoot: string;
+      const aUnitNames: TArray<string>): TDelphiSemanticCompilerProfile; static;
+    class function ResolveBdsRoot(const aDelphiVersion, aRsVarsPath: string): string; static;
+    class function ResolveRtlSourceRoot(const aDelphiVersion, aRsVarsPath: string): string; static;
   end;
 
 implementation
 
 uses
-  System.Hash, System.StrUtils, System.SysUtils;
+  System.Generics.Collections, System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Win.Registry,
+  Winapi.Windows;
 
 const
   cIntrinsicSeedVersion = 'delphi-intrinsics-v1';
@@ -55,6 +64,20 @@ begin
   Result := Trim(aValue);
   if Result = '' then
     Result := aFallback;
+end;
+
+function NormalizeDelphiVersion(const aValue: string): string;
+begin
+  Result := Trim(aValue);
+  if (Result <> '') and (Pos('.', Result) = 0) then
+    Result := Result + '.0';
+end;
+
+function NormalizeRtlSourceRoot(const aRtlSourceRoot: string): string;
+begin
+  Result := Trim(aRtlSourceRoot);
+  if Result <> '' then
+    Result := TPath.GetFullPath(Result);
 end;
 
 function MakeIntrinsic(const aName, aKind, aTypeName, aOwnerName, aSignature,
@@ -180,6 +203,180 @@ begin
     'compiler intrinsic type');
 end;
 
+function RtlSourceSearchRoots(const aRtlSourceRoot: string): TArray<string>;
+var
+  lRtlRoot: string;
+begin
+  lRtlRoot := TPath.Combine(aRtlSourceRoot, 'rtl');
+  Result := [
+    aRtlSourceRoot,
+    lRtlRoot,
+    TPath.Combine(lRtlRoot, 'sys'),
+    TPath.Combine(lRtlRoot, 'common'),
+    TPath.Combine(lRtlRoot, 'os'),
+    TPath.Combine(lRtlRoot, 'win'),
+    TPath.Combine(aRtlSourceRoot, 'vcl'),
+    TPath.Combine(aRtlSourceRoot, 'fmx')];
+end;
+
+function RtlSourceCandidateFileNames(const aUnitName: string): TArray<string>;
+var
+  lIndex: Integer;
+  lScopes: TArray<string>;
+  lScope: string;
+  lUnitName: string;
+begin
+  lUnitName := Trim(aUnitName);
+  if lUnitName = '' then
+  begin
+    SetLength(Result, 0);
+    Exit;
+  end;
+  if Pos('.', lUnitName) > 0 then
+  begin
+    Result := [lUnitName + '.pas'];
+    Exit;
+  end;
+
+  lScopes := ['System', 'Winapi', 'Vcl', 'FMX'];
+  SetLength(Result, Length(lScopes) + 1);
+  Result[0] := lUnitName + '.pas';
+  lIndex := 1;
+  for lScope in lScopes do
+  begin
+    Result[lIndex] := lScope + '.' + lUnitName + '.pas';
+    Inc(lIndex);
+  end;
+end;
+
+function ContainsPath(const aPaths: TList<string>; const aPath: string): Boolean;
+var
+  i: Integer;
+  lPath: string;
+begin
+  for i := 0 to Pred(aPaths.Count) do
+  begin
+    lPath := aPaths[i];
+    if SameText(lPath, aPath) then
+      Exit(True);
+  end;
+
+  Result := False;
+end;
+
+function TryFindDirectRtlSourceFile(const aSearchRoots, aFileNames: TArray<string>;
+  out aSourceFileName: string): Boolean;
+var
+  lCandidate: string;
+  lFileName: string;
+  lSearchRoot: string;
+begin
+  aSourceFileName := '';
+  for lSearchRoot in aSearchRoots do
+  begin
+    if not TDirectory.Exists(lSearchRoot) then
+      Continue;
+    for lFileName in aFileNames do
+    begin
+      lCandidate := TPath.Combine(lSearchRoot, lFileName);
+      if TFile.Exists(lCandidate) then
+      begin
+        aSourceFileName := TPath.GetFullPath(lCandidate);
+        Exit(True);
+      end;
+    end;
+  end;
+
+  Result := False;
+end;
+
+function TryFindRecursiveRtlSourceFile(const aRtlSourceRoot: string; const aFileNames: TArray<string>;
+  out aSourceFileName: string): Boolean;
+var
+  lFileName: string;
+  lMatches: TArray<string>;
+begin
+  aSourceFileName := '';
+  for lFileName in aFileNames do
+  begin
+    lMatches := TDirectory.GetFiles(aRtlSourceRoot, lFileName, TSearchOption.soAllDirectories);
+    if Length(lMatches) > 0 then
+    begin
+      aSourceFileName := TPath.GetFullPath(lMatches[0]);
+      Exit(True);
+    end;
+  end;
+
+  Result := False;
+end;
+
+function TryFindRtlSourceFile(const aRtlSourceRoot, aUnitName: string;
+  out aSourceFileName: string): Boolean;
+var
+  lFileNames: TArray<string>;
+  lSearchRoots: TArray<string>;
+begin
+  aSourceFileName := '';
+  if not TDirectory.Exists(aRtlSourceRoot) then
+    Exit(False);
+
+  lFileNames := RtlSourceCandidateFileNames(aUnitName);
+  if Length(lFileNames) = 0 then
+    Exit(False);
+
+  lSearchRoots := RtlSourceSearchRoots(aRtlSourceRoot);
+  Result := TryFindDirectRtlSourceFile(lSearchRoots, lFileNames, aSourceFileName);
+  if not Result then
+    Result := TryFindRecursiveRtlSourceFile(aRtlSourceRoot, lFileNames, aSourceFileName);
+end;
+
+function TryReadRegistryBdsRoot(const aDelphiVersion: string; const aViewFlag: Cardinal;
+  out aBdsRoot: string): Boolean;
+var
+  lBaseKey: string;
+  lRegistry: TRegistry;
+begin
+  Result := False;
+  aBdsRoot := '';
+  lBaseKey := 'Software\Embarcadero\BDS\' + aDelphiVersion;
+
+  lRegistry := TRegistry.Create;
+  try
+    lRegistry.Access := KEY_READ or aViewFlag;
+    lRegistry.RootKey := HKEY_CURRENT_USER;
+    if lRegistry.OpenKeyReadOnly(lBaseKey + '\Environment Variables') then
+    begin
+      try
+        if lRegistry.ValueExists('BDS') then
+          aBdsRoot := Trim(lRegistry.ReadString('BDS'));
+      finally
+        lRegistry.CloseKey;
+      end;
+    end;
+
+    if (aBdsRoot = '') and lRegistry.OpenKeyReadOnly(lBaseKey) then
+    begin
+      try
+        if lRegistry.ValueExists('RootDir') then
+          aBdsRoot := Trim(lRegistry.ReadString('RootDir'));
+      finally
+        lRegistry.CloseKey;
+      end;
+    end;
+  finally
+    lRegistry.Free;
+  end;
+
+  Result := aBdsRoot <> '';
+end;
+
+function TryReadBdsRootFromRegistry(const aDelphiVersion: string; out aBdsRoot: string): Boolean;
+begin
+  Result := TryReadRegistryBdsRoot(aDelphiVersion, KEY_WOW64_64KEY, aBdsRoot);
+  if not Result then
+    Result := TryReadRegistryBdsRoot(aDelphiVersion, KEY_WOW64_32KEY, aBdsRoot);
+end;
+
 class function TDelphiSemanticCompilerProfileBuilder.DefaultProfile(
   const aCompilerProfileName: string): TDelphiSemanticCompilerProfile;
 begin
@@ -216,6 +413,56 @@ begin
   end;
 end;
 
+function MakeCompilerProfileDefines(const aValues: array of string): TArray<string>;
+var
+  i: Integer;
+begin
+  SetLength(Result, Length(aValues));
+  for i := 0 to High(aValues) do
+    Result[i] := aValues[i];
+end;
+
+function CompilerProfileDefinesForPlatform(const aPlatform: string): TArray<string>;
+begin
+  if SameText(aPlatform, 'Win32') then
+    Exit(MakeCompilerProfileDefines(['MSWINDOWS', 'WINDOWS', 'WIN32', 'CPUX86']));
+  if SameText(aPlatform, 'Win64') then
+    Exit(MakeCompilerProfileDefines(['MSWINDOWS', 'WINDOWS', 'WIN64', 'CPUX64']));
+  if SameText(aPlatform, 'Linux64') then
+    Exit(MakeCompilerProfileDefines(['POSIX', 'LINUX', 'CPUX64']));
+  if SameText(aPlatform, 'OSX64') then
+    Exit(MakeCompilerProfileDefines(['POSIX', 'MACOS', 'OSX', 'CPUX64']));
+  if SameText(aPlatform, 'OSXARM64') then
+    Exit(MakeCompilerProfileDefines(['POSIX', 'MACOS', 'OSX', 'CPUARM64']));
+  if SameText(aPlatform, 'Android') then
+    Exit(MakeCompilerProfileDefines(['POSIX', 'ANDROID', 'CPUARM']));
+  if SameText(aPlatform, 'Android64') then
+    Exit(MakeCompilerProfileDefines(['POSIX', 'ANDROID', 'CPUARM64']));
+  if SameText(aPlatform, 'iOSDevice64') or SameText(aPlatform, 'iOSSimARM64') then
+    Exit(MakeCompilerProfileDefines(['POSIX', 'MACOS', 'IOS', 'CPUARM64']));
+  SetLength(Result, 0);
+end;
+
+function FromCachedSourcesForPlatform(const aCache: TDelphiSemanticUnitCache;
+  const aCompilerProfileName, aPlatform: string; const aSourceFileNames: TArray<string>):
+  TDelphiSemanticCompilerProfile;
+var
+  i: Integer;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  Result := TDelphiSemanticCompilerProfileBuilder.DefaultProfile(aCompilerProfileName);
+  SetLength(Result.RtlSourceUnitModels, Length(aSourceFileNames));
+  for i := 0 to Pred(Length(aSourceFileNames)) do
+  begin
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := aSourceFileNames[i];
+    lOptions.ProjectContextApplied := True;
+    lOptions.Defines := CompilerProfileDefinesForPlatform(aPlatform);
+    lOptions.SkipBodyAnalysis := True;
+    Result.RtlSourceUnitModels[i] := aCache.GetOrExtractUnitModel(lOptions);
+  end;
+end;
+
 class function TDelphiSemanticCompilerProfileBuilder.ProfileForTarget(
   const aCompilerProfileName, aDelphiVersion, aPlatform, aRtlSourceRoot: string):
   TDelphiSemanticCompilerProfile;
@@ -224,13 +471,92 @@ begin
   Result.Name := NormalizePart(aCompilerProfileName, 'default');
   Result.DelphiVersion := NormalizePart(aDelphiVersion, 'unknown');
   Result.Platform := NormalizePart(aPlatform, 'Win32');
-  Result.RtlSourceRoot := Trim(aRtlSourceRoot);
+  Result.RtlSourceRoot := NormalizeRtlSourceRoot(aRtlSourceRoot);
   Result.IntrinsicSeedVersion := cIntrinsicSeedVersion;
   Result.ProfileKey := StableHash('compiler-profile|' + cProfileSchemaVersion + '|' +
     cIntrinsicSeedVersion + '|' + LowerCase(Result.DelphiVersion) + '|' +
     LowerCase(Result.Platform) + '|' + LowerCase(Result.RtlSourceRoot));
   Result.IntrinsicSymbols := BuildIntrinsicSymbols;
   SetLength(Result.RtlSourceUnitModels, 0);
+end;
+
+class function TDelphiSemanticCompilerProfileBuilder.DiscoverRtlSourceFiles(
+  const aRtlSourceRoot: string; const aUnitNames: TArray<string>): TArray<string>;
+var
+  lList: TList<string>;
+  lRtlSourceRoot: string;
+  lSourceFileName: string;
+  lUnitName: string;
+begin
+  lRtlSourceRoot := NormalizeRtlSourceRoot(aRtlSourceRoot);
+  lList := TList<string>.Create;
+  try
+    if TDirectory.Exists(lRtlSourceRoot) then
+    begin
+      for lUnitName in aUnitNames do
+      begin
+        if TryFindRtlSourceFile(lRtlSourceRoot, lUnitName, lSourceFileName) and
+          (not ContainsPath(lList, lSourceFileName)) then
+          lList.Add(lSourceFileName);
+      end;
+    end;
+
+    Result := lList.ToArray;
+  finally
+    lList.Free;
+  end;
+end;
+
+class function TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceRoot(
+  const aCache: TDelphiSemanticUnitCache; const aCompilerProfileName, aDelphiVersion, aPlatform,
+  aRtlSourceRoot: string; const aUnitNames: TArray<string>): TDelphiSemanticCompilerProfile;
+var
+  lSourceFileNames: TArray<string>;
+begin
+  lSourceFileNames := DiscoverRtlSourceFiles(aRtlSourceRoot, aUnitNames);
+  Result := ProfileForTarget(aCompilerProfileName, aDelphiVersion, aPlatform, aRtlSourceRoot);
+  Result.RtlSourceUnitModels := FromCachedSourcesForPlatform(aCache, aCompilerProfileName, aPlatform,
+    lSourceFileNames).RtlSourceUnitModels;
+end;
+
+class function TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot(const aDelphiVersion,
+  aRsVarsPath: string): string;
+var
+  lDelphiVersion: string;
+  lProgramFilesX86: string;
+begin
+  Result := Trim(aRsVarsPath);
+  if Result <> '' then
+    Exit(TPath.GetFullPath(ExtractFileDir(ExtractFileDir(Result))));
+
+  Result := Trim(GetEnvironmentVariable('BDS'));
+  if Result <> '' then
+    Exit(TPath.GetFullPath(Result));
+
+  lDelphiVersion := NormalizeDelphiVersion(aDelphiVersion);
+  if lDelphiVersion = '' then
+    lDelphiVersion := '23.0';
+  if TryReadBdsRootFromRegistry(lDelphiVersion, Result) then
+    Exit(TPath.GetFullPath(Result));
+
+  lProgramFilesX86 := Trim(GetEnvironmentVariable('ProgramFiles(x86)'));
+  if lProgramFilesX86 = '' then
+    lProgramFilesX86 := 'C:\Program Files (x86)';
+  Result := TPath.Combine(lProgramFilesX86, 'Embarcadero');
+  Result := TPath.Combine(Result, 'Studio');
+  Result := TPath.Combine(Result, lDelphiVersion);
+end;
+
+class function TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(const aDelphiVersion,
+  aRsVarsPath: string): string;
+var
+  lBdsRoot: string;
+begin
+  lBdsRoot := ResolveBdsRoot(aDelphiVersion, aRsVarsPath);
+  if lBdsRoot = '' then
+    Exit('');
+
+  Result := NormalizeRtlSourceRoot(TPath.Combine(lBdsRoot, 'source'));
 end;
 
 end.

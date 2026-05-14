@@ -8,6 +8,7 @@ type
     Defines: TArray<string>;
     SearchPaths: TArray<string>;
     ProjectContextApplied: Boolean;
+    SkipBodyAnalysis: Boolean;
   end;
 
   TDelphiSemanticModelDiagnostic = record
@@ -301,6 +302,42 @@ begin
   aDeclarations.Add(lDeclaration);
 end;
 
+function NormalizeMemberTypeName(const aTypeName: string): string;
+begin
+  Result := Trim(aTypeName);
+  while EndsText(')', Result) and (Pos('(', Result) = 0) do
+    Result := Trim(Copy(Result, 1, Length(Result) - 1));
+end;
+
+function NormalizeVariantMemberLine(const aLine: string): string;
+var
+  lInnerText: string;
+  lOpenPos: Integer;
+  lText: string;
+begin
+  Result := aLine;
+  lText := Trim(aLine);
+  lOpenPos := Pos('(', lText);
+  if (lOpenPos > 1) and (Pos(':', Copy(lText, 1, lOpenPos - 1)) > 0) then
+  begin
+    lInnerText := Copy(lText, lOpenPos + 1, MaxInt);
+    if Pos(':', lInnerText) > 0 then
+      lText := Trim(Copy(lText, lOpenPos, MaxInt));
+  end;
+
+  if StartsText('(', lText) then
+  begin
+    lText := Trim(Copy(lText, 2, MaxInt));
+    if EndsText(');', lText) then
+      Result := Trim(Copy(lText, 1, Length(lText) - 2)) + ';'
+    else if EndsText(')', lText) then
+      Result := Trim(Copy(lText, 1, Length(lText) - 1)) + ';'
+    else
+      Result := lText;
+  end else if EndsText(');', lText) then
+    Result := Trim(Copy(lText, 1, Length(lText) - 2)) + ';';
+end;
+
 procedure AddMember(const aMembers: TList<TDelphiSemanticMember>; const aOwnerName, aName, aKind,
   aTypeName, aVisibility, aSignature, aText: string; const aIsIndexed, aIsDefault: Boolean;
   const aOffset: Integer);
@@ -310,7 +347,7 @@ begin
   lMember.OwnerName := aOwnerName;
   lMember.Name := aName;
   lMember.Kind := aKind;
-  lMember.TypeName := aTypeName;
+  lMember.TypeName := NormalizeMemberTypeName(aTypeName);
   lMember.Visibility := aVisibility;
   lMember.Signature := aSignature;
   lMember.IsIndexed := aIsIndexed;
@@ -520,12 +557,73 @@ begin
   end;
 end;
 
-procedure ExtractConstVarDeclarations(const aText: string;
-  const aDeclarations: TList<TDelphiSemanticDeclaration>);
+function TryAnonymousRecordVarStart(const aLine: string; out aName: string): Boolean;
+var
+  lMatch: TMatch;
+begin
+  lMatch := TRegEx.Match(aLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:packed\s+)?record\b',
+    [roIgnoreCase]);
+  Result := lMatch.Success;
+  if Result then
+    aName := lMatch.Groups[1].Value
+  else
+    aName := '';
+end;
+
+function FindAnonymousRecordEndLine(const aLines: TStringList; const aStartIndex: Integer): Integer;
 var
   i: Integer;
+begin
+  Result := aStartIndex;
+  for i := aStartIndex + 1 to Pred(aLines.Count) do
+  begin
+    if SameText(aLines[i].Trim, 'end;') or SameText(aLines[i].Trim, 'end') then
+      Exit(i);
+  end;
+end;
+
+procedure AddAnonymousRecordMembers(const aText: string; const aLines: TStringList;
+  const aOwnerName: string; const aStartIndex, aEndIndex, aStartOffset: Integer;
+  const aMembers: TList<TDelphiSemanticMember>);
+var
+  i: Integer;
+  lFieldMatch: TMatch;
+  lName: string;
+  lNameOffset: Integer;
+  lOffset: Integer;
+begin
+  lOffset := aStartOffset;
+  for i := aStartIndex to aEndIndex do
+  begin
+    lFieldMatch := TRegEx.Match(aLines[i].Trim,
+      '^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:\s*([^;]+);',
+      [roIgnoreCase]);
+    if lFieldMatch.Success then
+    begin
+      for lName in lFieldMatch.Groups[1].Value.Split([',']) do
+      begin
+        if lName.Trim = '' then
+          Continue;
+        lNameOffset := Pos(LowerCase(lName.Trim), LowerCase(aLines[i]));
+        if lNameOffset <= 0 then
+          lNameOffset := 1;
+        AddMember(aMembers, aOwnerName, lName.Trim, 'field', lFieldMatch.Groups[2].Value.Trim,
+          '', '', aText, False, False, lOffset + lNameOffset);
+      end;
+    end;
+    Inc(lOffset, Length(aLines[i]) + Length(sLineBreak));
+  end;
+end;
+
+procedure ExtractConstVarDeclarations(const aText, aUnitName: string;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>; const aMembers:
+  TList<TDelphiSemanticMember>);
+var
+  i: Integer;
+  j: Integer;
   lBlockKind: string;
   lDeclarationKind: string;
+  lEndLine: Integer;
   lInImplementation: Boolean;
   lInRoutine: Boolean;
   lLine: string;
@@ -535,6 +633,8 @@ var
   lNameOffset: Integer;
   lOffset: Integer;
   lSection: string;
+  lSkipUntilLine: Integer;
+  lSyntheticTypeName: string;
 begin
   lLines := TStringList.Create;
   try
@@ -543,9 +643,15 @@ begin
     lInImplementation := False;
     lInRoutine := False;
     lOffset := 0;
+    lSkipUntilLine := 0;
     for i := 0 to Pred(lLines.Count) do
     begin
       lLine := lLines[i].Trim;
+      if i < lSkipUntilLine then
+      begin
+        Inc(lOffset, Length(lLines[i]) + Length(sLineBreak));
+        Continue;
+      end;
       if SameText(lLine, 'implementation') then
       begin
         lInImplementation := True;
@@ -603,6 +709,26 @@ begin
                 AddDeclaration(aDeclarations, lName.Trim, lBlockKind,
                   lMatch.Groups[2].Value.Trim, lSection, aText, lOffset + lNameOffset);
               end;
+          end else if TryAnonymousRecordVarStart(lLine, lName) then
+          begin
+            lSection := SectionForOffset(aText, lOffset + 1);
+            lNameOffset := Pos(LowerCase(lName), LowerCase(lLines[i]));
+            if lNameOffset <= 0 then
+              lNameOffset := 1;
+            if aUnitName <> '' then
+              lSyntheticTypeName := aUnitName + '.' + lName
+            else
+              lSyntheticTypeName := lName;
+            lEndLine := FindAnonymousRecordEndLine(lLines, i);
+            AddDeclaration(aDeclarations, lSyntheticTypeName, 'type', 'record', lSection,
+              aText, lOffset + lNameOffset);
+            AddDeclaration(aDeclarations, lName, lBlockKind, lSyntheticTypeName, lSection,
+              aText, lOffset + lNameOffset);
+
+            j := lOffset + Length(lLines[i]) + Length(sLineBreak);
+            AddAnonymousRecordMembers(aText, lLines, lSyntheticTypeName, i + 1, lEndLine - 1, j,
+              aMembers);
+            lSkipUntilLine := lEndLine + 1;
           end;
         end;
       end;
@@ -614,6 +740,7 @@ begin
 end;
 
 procedure ExtractMembersFromBody(const aText, aOwnerName, aBody: string; const aBodyOffset: Integer;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>);
 var
   lDefaultProperty: Boolean;
@@ -626,6 +753,10 @@ var
   lMethodMatch: TMatch;
   lName: string;
   lNameOffset: Integer;
+  lNestedBody: string;
+  lNestedBodyOffset: Integer;
+  lNestedOwnerName: string;
+  lNestedRecordMatch: TMatch;
   lOffset: Integer;
   lPropertyMatch: TMatch;
   lVisibility: string;
@@ -635,11 +766,25 @@ begin
     lLines.Text := aBody;
     lOffset := aBodyOffset;
     lInClassVarSection := False;
+    lNestedBody := '';
+    lNestedBodyOffset := 0;
+    lNestedOwnerName := '';
     lVisibility := 'public';
     for i := 0 to Pred(lLines.Count) do
     begin
-      lLine := lLines[i].Trim;
-      if MatchText(lLine, ['private', 'protected', 'public', 'published', 'strict private',
+      lLine := NormalizeVariantMemberLine(lLines[i].Trim);
+      if lNestedOwnerName <> '' then
+      begin
+        if TRegEx.IsMatch(lLine, '^end\s*;', [roIgnoreCase]) then
+        begin
+          ExtractMembersFromBody(aText, lNestedOwnerName, lNestedBody, lNestedBodyOffset,
+            aDeclarations, aMembers);
+          lNestedBody := '';
+          lNestedBodyOffset := 0;
+          lNestedOwnerName := '';
+        end else
+          lNestedBody := lNestedBody + lLines[i] + sLineBreak;
+      end else if MatchText(lLine, ['private', 'protected', 'public', 'published', 'strict private',
         'strict protected']) then
       begin
         lInClassVarSection := False;
@@ -649,64 +794,86 @@ begin
         lInClassVarSection := True;
       end else if lLine <> '' then
       begin
-        lPropertyMatch := TRegEx.Match(lLine,
-          '^property\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\[[^\]]+\])?\s*:\s*([^;]+)',
-          [roIgnoreCase]);
-        if lPropertyMatch.Success then
+        lNestedRecordMatch := TRegEx.Match(lLine,
+          '^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:packed\s+)?record\b', [roIgnoreCase]);
+        if lNestedRecordMatch.Success then
         begin
           lInClassVarSection := False;
-          lIndexedProperty := MatchGroupValue(lPropertyMatch, 2).Trim <> '';
-          lDefaultProperty := TRegEx.IsMatch(lLine, ';\s*default\s*;', [roIgnoreCase]) or
-            TRegEx.IsMatch(lLine, ';\s*default\s*$', [roIgnoreCase]);
-          AddMember(aMembers, aOwnerName, lPropertyMatch.Groups[1].Value, 'property',
-            lPropertyMatch.Groups[3].Value.Trim.Split([' '])[0], lVisibility,
-            MatchGroupValue(lPropertyMatch, 2).Trim, aText, lIndexedProperty, lDefaultProperty,
-            lOffset + 1);
+          lName := lNestedRecordMatch.Groups[1].Value;
+          lNameOffset := Pos(LowerCase(lName), LowerCase(lLines[i]));
+          if lNameOffset <= 0 then
+            lNameOffset := 1;
+          lNestedOwnerName := aOwnerName + '.' + lName;
+          AddDeclaration(aDeclarations, lNestedOwnerName, 'type', 'record',
+            SectionForOffset(aText, lOffset + lNameOffset), aText, lOffset + lNameOffset);
+          AddMember(aMembers, aOwnerName, lName, 'field', lNestedOwnerName, lVisibility, '',
+            aText, False, False, lOffset + lNameOffset);
+          lNestedBodyOffset := lOffset + Length(lLines[i]) + Length(sLineBreak);
         end else
         begin
-          lMethodMatch := TRegEx.Match(lLine,
-            '^(procedure|function)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\([^\r\n]*\))?\s*(?::\s*([^;]+))?',
-            [roIgnoreCase]);
-          if lMethodMatch.Success then
+          lPropertyMatch := TRegEx.Match(lLine,
+          '^property\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\[[^\]]+\])?\s*:\s*([^;]+)',
+          [roIgnoreCase]);
+          if lPropertyMatch.Success then
           begin
             lInClassVarSection := False;
-            AddMember(aMembers, aOwnerName, lMethodMatch.Groups[2].Value, 'method',
-              MatchGroupValue(lMethodMatch, 4).Trim, lVisibility, MatchGroupValue(lMethodMatch, 3),
-              aText, False, False, lOffset + 1);
+            lIndexedProperty := MatchGroupValue(lPropertyMatch, 2).Trim <> '';
+            lDefaultProperty := TRegEx.IsMatch(lLine, ';\s*default\s*;', [roIgnoreCase]) or
+              TRegEx.IsMatch(lLine, ';\s*default\s*$', [roIgnoreCase]);
+            AddMember(aMembers, aOwnerName, lPropertyMatch.Groups[1].Value, 'property',
+              lPropertyMatch.Groups[3].Value.Trim.Split([' '])[0], lVisibility,
+              MatchGroupValue(lPropertyMatch, 2).Trim, aText, lIndexedProperty, lDefaultProperty,
+              lOffset + 1);
           end else
           begin
-            lFieldMatch := TRegEx.Match(lLine,
-              '^(class\s+var\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:\s*([^;]+);',
+            lMethodMatch := TRegEx.Match(lLine,
+              '^(procedure|function)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\([^\r\n]*\))?\s*(?::\s*([^;]+))?',
               [roIgnoreCase]);
-            if lFieldMatch.Success then
+            if lMethodMatch.Success then
             begin
-              for lName in lFieldMatch.Groups[2].Value.Split([',']) do
-                if lName.Trim <> '' then
-                begin
-                  lNameOffset := Pos(LowerCase(lName.Trim), LowerCase(lLines[i]));
-                  if lNameOffset <= 0 then
-                    lNameOffset := 1;
-                  if lInClassVarSection or (MatchGroupValue(lFieldMatch, 1).Trim <> '') then
-                    AddMember(aMembers, aOwnerName, lName.Trim, 'class-var',
-                      lFieldMatch.Groups[3].Value.Trim, lVisibility, '', aText, False, False,
-                      lOffset + lNameOffset)
-                  else
-                    AddMember(aMembers, aOwnerName, lName.Trim, 'field',
-                      lFieldMatch.Groups[3].Value.Trim, lVisibility, '', aText, False, False,
-                      lOffset + lNameOffset);
-                end;
+              lInClassVarSection := False;
+              AddMember(aMembers, aOwnerName, lMethodMatch.Groups[2].Value, 'method',
+                MatchGroupValue(lMethodMatch, 4).Trim, lVisibility, MatchGroupValue(lMethodMatch, 3),
+                aText, False, False, lOffset + 1);
+            end else
+            begin
+              lFieldMatch := TRegEx.Match(lLine,
+                '^(class\s+var\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:\s*([^;]+);',
+                [roIgnoreCase]);
+              if lFieldMatch.Success then
+              begin
+                for lName in lFieldMatch.Groups[2].Value.Split([',']) do
+                  if lName.Trim <> '' then
+                  begin
+                    lNameOffset := Pos(LowerCase(lName.Trim), LowerCase(lLines[i]));
+                    if lNameOffset <= 0 then
+                      lNameOffset := 1;
+                    if lInClassVarSection or (MatchGroupValue(lFieldMatch, 1).Trim <> '') then
+                      AddMember(aMembers, aOwnerName, lName.Trim, 'class-var',
+                        lFieldMatch.Groups[3].Value.Trim, lVisibility, '', aText, False, False,
+                        lOffset + lNameOffset)
+                    else
+                      AddMember(aMembers, aOwnerName, lName.Trim, 'field',
+                        lFieldMatch.Groups[3].Value.Trim, lVisibility, '', aText, False, False,
+                        lOffset + lNameOffset);
+                  end;
+              end;
             end;
           end;
         end;
       end;
       Inc(lOffset, Length(lLines[i]) + Length(sLineBreak));
     end;
+    if lNestedOwnerName <> '' then
+      ExtractMembersFromBody(aText, lNestedOwnerName, lNestedBody, lNestedBodyOffset,
+        aDeclarations, aMembers);
   finally
     lLines.Free;
   end;
 end;
 
-procedure ExtractMembers(const aText: string; const aMembers: TList<TDelphiSemanticMember>);
+procedure ExtractMembers(const aText: string; const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aMembers: TList<TDelphiSemanticMember>);
 var
   lMatch: TMatch;
 begin
@@ -717,7 +884,7 @@ begin
   while lMatch.Success do
   begin
     ExtractMembersFromBody(aText, lMatch.Groups[1].Value, lMatch.Groups[3].Value,
-      lMatch.Groups[3].Index, aMembers);
+      lMatch.Groups[3].Index, aDeclarations, aMembers);
     lMatch := lMatch.NextMatch;
   end;
 end;
@@ -1482,11 +1649,14 @@ begin
 
     ExtractUses(lText, lInterfaceUses, lImplementationUses);
     ExtractTypeDeclarations(lText, lDeclarations);
-    ExtractConstVarDeclarations(lText, lDeclarations);
-    ExtractMembers(lText, lMembers);
+    ExtractConstVarDeclarations(lText, Result.UnitName, lDeclarations, lMembers);
+    ExtractMembers(lText, lDeclarations, lMembers);
     ExtractRoutines(lText, lDeclarations, lRoutines);
-    ExtractRoutineBodies(lText, lLocals, lReferences);
-    ExtractWithStatements(lText, lWithStatements);
+    if not aOptions.SkipBodyAnalysis then
+    begin
+      ExtractRoutineBodies(lText, lLocals, lReferences);
+      ExtractWithStatements(lText, lWithStatements);
+    end;
     ReconcileDeclarationCoordinates(lSourceResult.Source.Text, lDeclarations);
     ReconcileWithStatementCoordinates(lSourceResult.Source.Text, lWithStatements);
     ReconcileReferencesCoordinates(lSourceResult.Source.Text, lReferences);

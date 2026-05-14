@@ -335,20 +335,30 @@ begin
   end;
 end;
 
+function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>; const aName: string;
+  out aResult: TDelphiSemanticResolveResult): Boolean; forward;
+
 function MakeSelectorBinding(const aModel: TDelphiSemanticUnitModel; const aRoutineName,
-  aSelectorText: string; const aParentRoutineNames: TArray<string>):
+  aSelectorText: string; const aParentRoutineNames: TArray<string>;
+  const aPreviousSelectors: TArray<TDelphiSemanticWithSelectorBinding>):
   TDelphiSemanticWithSelectorBinding;
 var
   lContext: TDelphiSemanticResolveContext;
   lResult: TDelphiSemanticResolveResult;
+  lSelectorText: string;
 begin
+  lSelectorText := aSelectorText.Trim;
   lContext := Default(TDelphiSemanticResolveContext);
   lContext.RoutineName := aRoutineName;
   lContext.ParentRoutineNames := aParentRoutineNames;
   lContext.SectionKind := 'implementation';
   lContext.ConformanceLevel := 3;
-  lResult := TDelphiSemanticResolver.ResolveName(aModel, lContext, aSelectorText.Trim);
-  Result.SelectorText := aSelectorText.Trim;
+  if not ((Length(aPreviousSelectors) > 0) and TRegEx.IsMatch(lSelectorText,
+    '^[A-Za-z_][A-Za-z0-9_]*$') and
+    TryResolveReceiverMember(aModel, aPreviousSelectors, lSelectorText, lResult)) then
+    lResult := TDelphiSemanticResolver.ResolveName(aModel, lContext, lSelectorText);
+  Result.SelectorText := lSelectorText;
   Result.Status := lResult.Status;
   Result.ReasonCode := lResult.ReasonCode;
   Result.TypeName := lResult.TypeName;
@@ -581,6 +591,36 @@ begin
   Result := CharInSet(aValue, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
 end;
 
+function InventoryRemoveInlineConditionalBlocks(const aText: string): string;
+var
+  lEndPos: Integer;
+  lStartPos: Integer;
+  lUpper: string;
+begin
+  Result := aText;
+  repeat
+    lUpper := UpperCase(Result);
+    lStartPos := Pos('{$IF', lUpper);
+    if lStartPos = 0 then
+      Break;
+    lEndPos := PosEx('{$ENDIF}', lUpper, lStartPos + 1);
+    if lEndPos = 0 then
+      Break;
+    Delete(Result, lStartPos, lEndPos - lStartPos + Length('{$ENDIF}'));
+  until False;
+
+  repeat
+    lStartPos := Pos('{$', Result);
+    if lStartPos = 0 then
+      Break;
+    lEndPos := PosEx('}', Result, lStartPos + 1);
+    if lEndPos = 0 then
+      Break;
+    Delete(Result, lStartPos, lEndPos - lStartPos + 1);
+  until False;
+  Result := Trim(Result);
+end;
+
 function InventoryIsTopLevelLine(const aLine: string): Boolean;
 begin
   Result := (Trim(aLine) <> '') and (TrimLeft(aLine) = aLine);
@@ -681,6 +721,7 @@ var
   lColonPos: Integer;
   lEqualsPos: Integer;
   lLeft: string;
+  lLine: string;
   lNames: TList<string>;
   lPart: string;
   lParts: TArray<string>;
@@ -691,15 +732,16 @@ begin
   Result := False;
   SetLength(aNames, 0);
   aTypeName := '';
-  lColonPos := Pos(':', aLine);
+  lLine := InventoryRemoveInlineConditionalBlocks(aLine);
+  lColonPos := Pos(':', lLine);
   if lColonPos = 0 then
     Exit;
 
-  lLeft := Trim(Copy(aLine, 1, lColonPos - 1));
+  lLeft := Trim(Copy(lLine, 1, lColonPos - 1));
   if (lLeft = '') or InventoryIsRoutineStart(lLeft) or StartsText('property ', LowerCase(lLeft)) then
     Exit;
 
-  lRight := Trim(Copy(aLine, lColonPos + 1, MaxInt));
+  lRight := Trim(Copy(lLine, lColonPos + 1, MaxInt));
   lEqualsPos := Pos('=', lRight);
   if lEqualsPos > 0 then
     lRight := Trim(Copy(lRight, 1, lEqualsPos - 1));
@@ -1149,7 +1191,7 @@ begin
           Continue;
         end;
       end;
-      if InventoryEndTerminatedBlockOpenCount(lLine) = 0 then
+      if (InventoryTokenCount(lLine, 'begin') = 0) and (InventoryTokenCount(lLine, 'asm') = 0) then
       begin
         Inc(i);
         Continue;
@@ -1242,8 +1284,8 @@ begin
   Result := aStartIndex + 1;
   for i := aStartIndex + 1 to High(aLines) do
   begin
-    lLine := InventoryCleanLine(aLines[i]);
-    if SameText(lLine, 'end;') or SameText(lLine, 'end') then
+    lLine := LowerCase(InventoryCleanLine(aLines[i]));
+    if SameText(lLine, 'end;') or SameText(lLine, 'end') or StartsText('end ', lLine) then
       Exit(i + 1);
   end;
 end;
@@ -1334,6 +1376,27 @@ begin
   AddInventorySymbol(aSymbols, lSymbol);
 end;
 
+procedure AddDakInventoryTypeSymbol(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
+  const aName, aTypeName, aTypeCategory, aUnitName, aFileName: string; const aLineNumber,
+  aEndLine: Integer; const aLineText: string);
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lSymbol := Default(TDelphiSemanticInventorySymbol);
+  lSymbol.Name := aName;
+  lSymbol.SymbolClass := 'type-member';
+  lSymbol.Kind := 'type-member';
+  lSymbol.TypeName := aTypeName;
+  lSymbol.TypeCategory := aTypeCategory;
+  lSymbol.UnitName := aUnitName;
+  lSymbol.FileName := aFileName;
+  lSymbol.Line := aLineNumber;
+  lSymbol.EndLine := aEndLine;
+  lSymbol.Column := InventoryFindColumn(aLineText, aName);
+  lSymbol.EndColumn := lSymbol.Column + Length(aName);
+  AddInventorySymbol(aSymbols, lSymbol);
+end;
+
 procedure AddDakInventorySymbolsFromSource(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
   const aNames: TArray<string>; const aTypeName, aOwnerType, aRoutineName, aUnitName,
   aFileName: string; const aLines: TArray<string>; const aStartIndex, aEndIndex: Integer;
@@ -1395,6 +1458,63 @@ begin
       aFileName, aLineNumber, aLineText, aKind);
 end;
 
+function InventoryTryAnonymousRecordLocalStart(const aLine: string; out aName,
+  aTypeCategory: string): Boolean;
+var
+  lColonPos: Integer;
+  lRest: string;
+begin
+  Result := False;
+  aName := '';
+  aTypeCategory := '';
+  lColonPos := Pos(':', aLine);
+  if lColonPos = 0 then
+    Exit;
+
+  aName := Trim(Copy(aLine, 1, lColonPos - 1));
+  lRest := LowerCase(Trim(Copy(aLine, lColonPos + 1, MaxInt)));
+  if StartsText('packed record', lRest) or StartsText('record', lRest) then
+    aTypeCategory := 'record'
+  else
+    Exit;
+
+  Result := aName <> '';
+end;
+
+procedure AddDakInventoryRecordFieldsFromLine(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
+  const aLines: TArray<string>; const aLineIndex: Integer; const aOwnerType, aUnitName,
+  aFileName: string);
+var
+  lDeclaration: string;
+  lDeclarationParts: TArray<string>;
+  lLine: string;
+  lMemberName: string;
+  lNames: TArray<string>;
+  lRawDeclaration: string;
+  lTypeName: string;
+begin
+  lLine := InventoryVariantFieldDeclarationLine(InventoryCleanLine(aLines[aLineIndex]));
+  if lLine = '' then
+    Exit;
+  if InventoryTryVariantTagDeclaration(lLine, lMemberName, lTypeName) then
+  begin
+    AddDakInventorySymbol(aSymbols, lMemberName, lTypeName, aOwnerType, '', aUnitName,
+      aFileName, aLineIndex + 1, aLines[aLineIndex], 'field');
+    Exit;
+  end;
+
+  lDeclarationParts := lLine.Split([';']);
+  for lRawDeclaration in lDeclarationParts do
+  begin
+    lDeclaration := Trim(lRawDeclaration);
+    if lDeclaration = '' then
+      Continue;
+    if InventoryTryDeclaration(lDeclaration + ';', lNames, lTypeName) then
+      AddDakTypedSymbols(aSymbols, lNames, lTypeName, aOwnerType, '', aUnitName, aFileName,
+        aLineIndex + 1, aLines[aLineIndex], 'field');
+  end;
+end;
+
 procedure ParseDakInventoryParams(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
   const aLines: TArray<string>; const aStartIndex: Integer; const aSignature, aRoutineName,
   aUnitName, aFileName: string);
@@ -1438,41 +1558,112 @@ procedure ParseDakInventoryLocals(const aSymbols: TList<TDelphiSemanticInventory
   aFileName: string);
 var
   i: Integer;
+  j: Integer;
+  lAnonymousEndLine: Integer;
   lConstName: string;
+  lCurrentType: string;
   lDeclaration: string;
   lDeclarationLine: Integer;
+  lEnumMatch: TMatch;
+  lEnumNames: TArray<string>;
+  lInType: Boolean;
   lInConst: Boolean;
   lInVar: Boolean;
   lLine: string;
   lNames: TArray<string>;
+  lRawTypeName: string;
+  lSkipUntilLine: Integer;
+  lTypeCategory: string;
+  lTypeText: string;
   lTypeName: string;
 begin
+  lCurrentType := '';
   lDeclaration := '';
   lDeclarationLine := 0;
   lInConst := False;
+  lInType := False;
   lInVar := False;
+  lSkipUntilLine := 0;
   for i := aStartLine to High(aLines) do
   begin
+    if i < lSkipUntilLine then
+      Continue;
     lLine := InventoryCleanLine(aLines[i]);
     if SameText(lLine, 'const') then
     begin
+      lCurrentType := '';
       lInConst := True;
+      lInType := False;
       lInVar := False;
+      lDeclaration := '';
+      Continue;
+    end;
+    if SameText(lLine, 'type') then
+    begin
+      lCurrentType := '';
+      lInConst := False;
+      lInType := True;
+      lInVar := False;
+      lDeclaration := '';
       Continue;
     end;
     if SameText(lLine, 'var') then
     begin
+      lCurrentType := '';
       lInConst := False;
+      lInType := False;
       lInVar := True;
+      lDeclaration := '';
       Continue;
     end;
     if SameText(lLine, 'begin') then
       Exit;
+    if InventoryIsRoutineStart(lLine) then
+    begin
+      lSkipUntilLine := InventoryFindRoutineEndLine(aLines, i);
+      if lSkipUntilLine = 0 then
+        Exit;
+      Continue;
+    end;
     if StartsText('const ', LowerCase(lLine)) then
     begin
       lInConst := True;
       lInVar := False;
       lLine := Trim(Copy(lLine, Length('const ') + 1, MaxInt));
+    end;
+    if lInType and (lLine <> '') then
+    begin
+      if (lCurrentType <> '') and (SameText(lLine, 'end;') or SameText(lLine, 'end')) then
+      begin
+        lCurrentType := '';
+        Continue;
+      end;
+
+      if lCurrentType = '' then
+      begin
+        lTypeText := InventoryCollectTypeStartText(aLines, i);
+        if InventoryTryTypeStart(lTypeText, lRawTypeName, lTypeCategory) then
+        begin
+          lCurrentType := InventorySimpleTypeName(lRawTypeName);
+          AddDakInventoryTypeSymbol(aSymbols, lCurrentType, '', lTypeCategory, aUnitName,
+            aFileName, i + 1, InventoryFindTypeEndLine(aLines, i), aLines[i]);
+          if InventoryTryEnumValues(lTypeText, lEnumNames) then
+            AddDakTypedSymbols(aSymbols, lEnumNames, lCurrentType, '', aRoutineName, aUnitName,
+              aFileName, i + 1, aLines[i], 'constant');
+        end else if InventoryTryTypeAlias(lTypeText, lCurrentType, lTypeName) then
+        begin
+          AddDakInventorySymbol(aSymbols, lCurrentType, lTypeName, '', '', aUnitName,
+            aFileName, i + 1, aLines[i], 'type-member');
+          if InventoryTryEnumValues(lTypeText, lEnumNames) then
+            AddDakTypedSymbols(aSymbols, lEnumNames, lCurrentType, '', aRoutineName, aUnitName,
+              aFileName, i + 1, aLines[i], 'constant');
+        end;
+        Continue;
+      end;
+
+      AddDakInventoryRecordFieldsFromLine(aSymbols, aLines, i, lCurrentType, aUnitName,
+        aFileName);
+      Continue;
     end;
     if lInConst and (lLine <> '') and InventoryTryConstDeclaration(lLine, lConstName, lTypeName) then
     begin
@@ -1482,6 +1673,22 @@ begin
     end;
     if lInVar and (lLine <> '') then
     begin
+      if InventoryTryAnonymousRecordLocalStart(lLine, lConstName, lTypeCategory) then
+      begin
+        lTypeName := aRoutineName + '.' + lConstName;
+        lAnonymousEndLine := InventoryFindTypeEndLine(aLines, i);
+        AddDakInventoryTypeSymbol(aSymbols, lTypeName, '', lTypeCategory, aUnitName,
+          aFileName, i + 1, lAnonymousEndLine, aLines[i]);
+        AddDakInventorySymbol(aSymbols, lConstName, lTypeName, '', aRoutineName, aUnitName,
+          aFileName, i + 1, aLines[i], 'local');
+        for j := i + 1 to lAnonymousEndLine - 2 do
+          AddDakInventoryRecordFieldsFromLine(aSymbols, aLines, j, lTypeName, aUnitName,
+            aFileName);
+        lSkipUntilLine := lAnonymousEndLine;
+        lDeclaration := '';
+        lDeclarationLine := 0;
+        Continue;
+      end;
       if lDeclaration = '' then
         lDeclarationLine := i + 1;
       if lDeclaration <> '' then
@@ -1490,8 +1697,15 @@ begin
       if Pos(';', lLine) > 0 then
       begin
         if InventoryTryDeclaration(lDeclaration, lNames, lTypeName) then
+        begin
           AddDakInventorySymbolsFromSource(aSymbols, lNames, lTypeName, '', aRoutineName,
             aUnitName, aFileName, aLines, lDeclarationLine - 1, i, 'local');
+          lEnumMatch := TRegEx.Match(lDeclaration, ':\s*\(([^)]*)\)');
+          if lEnumMatch.Success and
+            InventoryTryEnumValues('TAnonymousEnum = (' + lEnumMatch.Groups[1].Value + ')', lEnumNames) then
+            AddDakTypedSymbols(aSymbols, lEnumNames, lTypeName, '', aRoutineName, aUnitName,
+              aFileName, lDeclarationLine, aLines[lDeclarationLine - 1], 'constant');
+        end;
         lDeclaration := '';
         lDeclarationLine := 0;
       end;
@@ -1503,6 +1717,8 @@ procedure ParseDakInventoryTypeMembers(const aSymbols: TList<TDelphiSemanticInve
   const aLines: TArray<string>; const aUnitName, aFileName: string);
 var
   i: Integer;
+  j: Integer;
+  lAnonymousEndLine: Integer;
   lCollectedEndLine: Integer;
   lConditionalDepth: Integer;
   lConstName: string;
@@ -1511,6 +1727,7 @@ var
   lDeclaration: string;
   lDeclarationAdded: Boolean;
   lDeclarationParts: TArray<string>;
+  lEnumMatch: TMatch;
   lEnumNames: TArray<string>;
   lInClassVar: Boolean;
   lInConst: Boolean;
@@ -1582,14 +1799,15 @@ begin
       Continue;
     end;
 
-    if lTopLevelLine and SameText(lLine, 'type') then
+    if (lCurrentType = '') and SameText(lLine, 'type') then
     begin
       lConditionalDepth := 0;
       lInTypeSection := True;
       Continue;
     end;
-    if lTopLevelLine and (SameText(lLine, 'implementation') or SameText(lLine, 'const') or
-      SameText(lLine, 'var') or SameText(lLine, 'threadvar') or InventoryIsRoutineStart(lLine)) then
+    if SameText(lLine, 'implementation') or ((lCurrentType = '') and
+      (SameText(lLine, 'const') or SameText(lLine, 'var') or SameText(lLine, 'threadvar') or
+      InventoryIsRoutineStart(lLine))) then
     begin
       lCurrentType := '';
       lCurrentTypeUnsupportedReason := '';
@@ -1636,12 +1854,9 @@ begin
       begin
         AddDakInventorySymbol(aSymbols, lMemberName, lTypeName, '', '', aUnitName, aFileName,
           i + 1, aLines[i], 'type-member');
-        if StartsText('^', lTypeName) then
-        begin
-          lSymbol := aSymbols[Pred(aSymbols.Count)];
-          lSymbol.RelatedTypeName := InventorySimpleTypeName(lTypeName);
-          aSymbols[Pred(aSymbols.Count)] := lSymbol;
-        end;
+        lSymbol := aSymbols[Pred(aSymbols.Count)];
+        lSymbol.RelatedTypeName := InventorySimpleTypeName(lTypeName);
+        aSymbols[Pred(aSymbols.Count)] := lSymbol;
         if InventoryTryEnumValues(lTypeText, lEnumNames) then
           AddDakTypedSymbols(aSymbols, lEnumNames, lMemberName, '', '', aUnitName, aFileName,
             i + 1, aLines[i], 'constant');
@@ -1671,6 +1886,20 @@ begin
     end;
     if lCurrentTypeUnsupportedReason <> '' then
       Continue;
+    if InventoryTryAnonymousRecordLocalStart(lLine, lMemberName, lTypeCategory) then
+    begin
+      lTypeName := lCurrentType + '.' + lMemberName;
+      lAnonymousEndLine := InventoryFindTypeEndLine(aLines, i);
+      AddDakInventoryTypeSymbol(aSymbols, lTypeName, '', lTypeCategory, aUnitName,
+        aFileName, i + 1, lAnonymousEndLine, aLines[i]);
+      AddDakInventorySymbol(aSymbols, lMemberName, lTypeName, lCurrentType, '', aUnitName,
+        aFileName, i + 1, aLines[i], 'field');
+      for j := i + 1 to lAnonymousEndLine - 2 do
+        AddDakInventoryRecordFieldsFromLine(aSymbols, aLines, j, lTypeName, aUnitName,
+          aFileName);
+      lSkipUntilLine := lAnonymousEndLine;
+      Continue;
+    end;
     lLine := InventoryVariantFieldDeclarationLine(lLine);
     lLower := LowerCase(lLine);
     if InventoryTryVariantTagDeclaration(lLine, lMemberName, lTypeName) then
@@ -1786,7 +2015,13 @@ procedure ParseDakInventoryUnitGlobals(const aSymbols: TList<TDelphiSemanticInve
   const aLines: TArray<string>; const aUnitName, aFileName: string);
 var
   i: Integer;
+  j: Integer;
+  lAnonymousEndLine: Integer;
   lConstName: string;
+  lDeclaration: string;
+  lDeclarationLine: Integer;
+  lEnumMatch: TMatch;
+  lEnumNames: TArray<string>;
   lInConst: Boolean;
   lInType: Boolean;
   lInVar: Boolean;
@@ -1795,8 +2030,11 @@ var
   lRawLine: string;
   lRoutineEndLine: Integer;
   lTopLevelLine: Boolean;
+  lTypeCategory: string;
   lTypeName: string;
 begin
+  lDeclaration := '';
+  lDeclarationLine := 0;
   lInConst := False;
   lInType := False;
   lInVar := False;
@@ -1810,35 +2048,46 @@ begin
         Continue;
       lTopLevelLine := InventoryIsTopLevelLine(lRawLine);
 
-      if lTopLevelLine and SameText(lLine, 'implementation') then
+      if SameText(lLine, 'implementation') then
       begin
+        lDeclaration := '';
+        lDeclarationLine := 0;
         lInType := False;
         lInVar := False;
         lInConst := False;
         Continue;
       end;
 
-      if lTopLevelLine and SameText(lLine, 'type') then
+      if SameText(lLine, 'type') then
       begin
+        lDeclaration := '';
+        lDeclarationLine := 0;
         lInType := True;
         lInVar := False;
         lInConst := False;
         Continue;
       end;
-      if lTopLevelLine and (SameText(lLine, 'var') or SameText(lLine, 'threadvar')) then
+      if SameText(lLine, 'var') or SameText(lLine, 'threadvar') then
       begin
+        lDeclaration := '';
+        lDeclarationLine := 0;
         lInType := False;
         lInVar := True;
         lInConst := False;
         Continue;
       end;
-      if lTopLevelLine and SameText(lLine, 'const') then
+      if SameText(lLine, 'const') then
       begin
+        lDeclaration := '';
+        lDeclarationLine := 0;
         lInType := False;
         lInConst := True;
         lInVar := False;
         Continue;
       end;
+
+      if InventoryIsConditionalDirectiveLine(lLine) then
+        Continue;
 
       if lInType then
         Continue;
@@ -1853,10 +2102,46 @@ begin
         Continue;
       end;
 
-      if lInVar and InventoryTryDeclaration(lLine, lNames, lTypeName) then
-        AddDakTypedSymbols(aSymbols, lNames, lTypeName, '', '', aUnitName, aFileName, i + 1,
-          aLines[i], 'unit-global')
-      else if lInConst and InventoryTryConstDeclaration(lLine, lConstName, lTypeName) then
+      if lInVar and (lLine <> '') then
+      begin
+        if (lDeclaration = '') and InventoryTryAnonymousRecordLocalStart(lLine, lConstName,
+          lTypeCategory) then
+        begin
+          lTypeName := aUnitName + '.' + lConstName;
+          lAnonymousEndLine := InventoryFindTypeEndLine(aLines, i);
+          AddDakInventoryTypeSymbol(aSymbols, lTypeName, '', lTypeCategory, aUnitName,
+            aFileName, i + 1, lAnonymousEndLine, aLines[i]);
+          AddDakInventorySymbol(aSymbols, lConstName, lTypeName, '', '', aUnitName, aFileName,
+            i + 1, aLines[i], 'unit-global');
+          for j := i + 1 to lAnonymousEndLine - 2 do
+            AddDakInventoryRecordFieldsFromLine(aSymbols, aLines, j, lTypeName, aUnitName,
+              aFileName);
+          i := lAnonymousEndLine - 1;
+          Continue;
+        end;
+
+        if lDeclaration = '' then
+          lDeclarationLine := i + 1;
+        if lDeclaration <> '' then
+          lDeclaration := lDeclaration + ' ';
+        lDeclaration := lDeclaration + lLine;
+        if Pos(';', lLine) > 0 then
+        begin
+          if InventoryTryDeclaration(lDeclaration, lNames, lTypeName) then
+          begin
+            AddDakTypedSymbols(aSymbols, lNames, lTypeName, '', '', aUnitName, aFileName,
+              lDeclarationLine, aLines[lDeclarationLine - 1], 'unit-global');
+            lEnumMatch := TRegEx.Match(lDeclaration, ':\s*\(([^)]*)\)');
+            if lEnumMatch.Success and
+              InventoryTryEnumValues('TAnonymousEnum = (' + lEnumMatch.Groups[1].Value + ')',
+              lEnumNames) then
+              AddDakTypedSymbols(aSymbols, lEnumNames, lTypeName, '', '', aUnitName,
+                aFileName, lDeclarationLine, aLines[lDeclarationLine - 1], 'constant');
+          end;
+          lDeclaration := '';
+          lDeclarationLine := 0;
+        end;
+      end else if lInConst and InventoryTryConstDeclaration(lLine, lConstName, lTypeName) then
         AddDakInventorySymbol(aSymbols, lConstName, lTypeName, '', '', aUnitName, aFileName,
           i + 1, aLines[i], 'constant');
     finally
@@ -2311,7 +2596,8 @@ begin
   lSelectors := TList<TDelphiSemanticWithSelectorBinding>.Create;
   try
     for lPart in SplitSelectors(aSelectorText) do
-      lSelectors.Add(MakeSelectorBinding(aModel, aRoutineName, lPart, aParentRoutineNames));
+      lSelectors.Add(MakeSelectorBinding(aModel, aRoutineName, lPart, aParentRoutineNames,
+        lSelectors.ToArray));
     Result := lSelectors.ToArray;
   finally
     lSelectors.Free;
@@ -2526,6 +2812,8 @@ begin
       lSymbol.OwnerName := aModel.UnitName;
       lSymbol.OwnerType := aModel.UnitName;
       lSymbol.RelatedTypeName := lDeclaration.BaseTypeName;
+      if SameText(lDeclaration.Kind, 'type-alias') then
+        lSymbol.RelatedTypeName := lDeclaration.TypeName;
       lSymbol.IsHelper := lDeclaration.HelperTargetName <> '';
       if lSymbol.IsHelper then
         lSymbol.RelatedTypeName := lDeclaration.HelperTargetName;

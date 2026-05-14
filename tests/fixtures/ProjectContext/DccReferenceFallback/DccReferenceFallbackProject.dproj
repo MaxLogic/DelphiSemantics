@@ -1,0 +1,13 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{09F23820-FB6D-4A2B-8FB2-27D1713A67A0}</ProjectGuid>
+    <MainSource>DccReferenceFallbackProject.dpr</MainSource>
+    <ProjectName>DccReferenceFallbackProject</ProjectName>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <Platform Condition="'$(Platform)'==''">Win32</Platform>
+    <DCC_UnitSearchPath>RealLib</DCC_UnitSearchPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <DCCReference Include="OldLocation\Fallback.Unit.pas"/>
+  </ItemGroup>
+</Project>

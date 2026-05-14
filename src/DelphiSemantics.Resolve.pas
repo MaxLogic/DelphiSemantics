@@ -189,37 +189,66 @@ begin
   Result := False;
 end;
 
-function TryApplySelectorPostfix(const aModel: TDelphiSemanticUnitModel; const aTypeName: string;
-  const aIndexed, aDereferenced: Boolean; out aResultTypeName: string): Boolean;
+function TryApplyDereferencePostfix(const aModel: TDelphiSemanticUnitModel; var aTypeName: string):
+  Boolean;
+begin
+  aTypeName := ResolveTypeAlias(aModel, aTypeName);
+  if (aTypeName <> '') and (aTypeName[1] = '^') then
+  begin
+    aTypeName := Copy(aTypeName, 2, MaxInt).Trim;
+    Exit(True);
+  end;
+
+  Result := False;
+end;
+
+function TryApplyIndexPostfix(const aModel: TDelphiSemanticUnitModel; var aTypeName: string):
+  Boolean;
 var
   lLower: string;
   lMember: TDelphiSemanticMember;
+begin
+  aTypeName := ResolveTypeAlias(aModel, aTypeName);
+  lLower := LowerCase(aTypeName);
+  if Pos('array', lLower) = 1 then
+  begin
+    aTypeName := NormalizeTypeReference(aTypeName);
+    Exit(True);
+  end;
+
+  if TryFindDefaultIndexedProperty(aModel, aTypeName, lMember) then
+  begin
+    aTypeName := lMember.TypeName;
+    Exit(True);
+  end;
+
+  Result := False;
+end;
+
+function TryApplySelectorPostfix(const aModel: TDelphiSemanticUnitModel; const aTypeName: string;
+  const aIndexed, aDereferenced, aIndexBeforeDereference: Boolean;
+  out aResultTypeName: string): Boolean;
+var
   lTypeName: string;
 begin
   lTypeName := ResolveTypeAlias(aModel, aTypeName);
-  if aDereferenced then
+  if aIndexed and aDereferenced and not aIndexBeforeDereference then
   begin
-    if (lTypeName <> '') and (lTypeName[1] = '^') then
-      lTypeName := Copy(lTypeName, 2, MaxInt).Trim
-    else
-    begin
-      aResultTypeName := '';
+    if not TryApplyDereferencePostfix(aModel, lTypeName) then
       Exit(False);
-    end;
+    if not TryApplyIndexPostfix(aModel, lTypeName) then
+      Exit(False);
   end;
-
-  if aIndexed then
+  if aIndexed and (not aDereferenced or aIndexBeforeDereference) then
   begin
-    lLower := LowerCase(lTypeName);
-    if Pos('array', lLower) = 1 then
-      lTypeName := NormalizeTypeReference(lTypeName)
-    else if TryFindDefaultIndexedProperty(aModel, lTypeName, lMember) then
-      lTypeName := lMember.TypeName
-    else
-    begin
-      aResultTypeName := '';
+    if not TryApplyIndexPostfix(aModel, lTypeName) then
       Exit(False);
-    end;
+    if aDereferenced and not TryApplyDereferencePostfix(aModel, lTypeName) then
+      Exit(False);
+  end else if aDereferenced then
+  begin
+    if not TryApplyDereferencePostfix(aModel, lTypeName) then
+      Exit(False);
   end;
 
   aResultTypeName := ResolveTypeAlias(aModel, lTypeName);
@@ -227,14 +256,18 @@ begin
 end;
 
 function ParseSelectorToken(const aToken: string; out aName: string; out aIndexed,
-  aDereferenced: Boolean): Boolean;
+  aDereferenced, aIndexBeforeDereference: Boolean): Boolean;
 var
   lBracketPos: Integer;
+  lDereferencePos: Integer;
 begin
   aName := aToken.Trim;
-  aIndexed := Pos('[', aName) > 0;
-  aDereferenced := Pos('^', aName) > 0;
   lBracketPos := Pos('[', aName);
+  lDereferencePos := Pos('^', aName);
+  aIndexed := lBracketPos > 0;
+  aDereferenced := lDereferencePos > 0;
+  aIndexBeforeDereference := aIndexed and ((lDereferencePos = 0) or
+    (lBracketPos < lDereferencePos));
   if lBracketPos > 0 then
     aName := Copy(aName, 1, lBracketPos - 1).Trim;
   aName := StringReplace(aName, '^', '', [rfReplaceAll]).Trim;
@@ -503,6 +536,7 @@ var
   i: Integer;
   lCurrentTypeName: string;
   lDereferenced: Boolean;
+  lIndexBeforeDereference: Boolean;
   lIndexed: Boolean;
   lMemberName: string;
   lPart: string;
@@ -518,7 +552,8 @@ begin
   if Length(lParts) = 0 then
     Exit(False);
 
-  if not ParseSelectorToken(lParts[0], lMemberName, lIndexed, lDereferenced) then
+  if not ParseSelectorToken(lParts[0], lMemberName, lIndexed, lDereferenced,
+    lIndexBeforeDereference) then
     Exit(False);
 
   aResult := TDelphiSemanticResolver.ResolveName(aModel, aContext, lMemberName);
@@ -526,7 +561,7 @@ begin
     Exit(True);
 
   if not TryApplySelectorPostfix(aModel, aResult.TypeName, lIndexed, lDereferenced,
-    lCurrentTypeName) then
+    lIndexBeforeDereference, lCurrentTypeName) then
   begin
     aResult := UnresolvedResult(aSelector, 'SELECTOR_TYPE_NOT_RESOLVED',
       'The selector receiver type could not be resolved.');
@@ -537,7 +572,8 @@ begin
   for i := 1 to High(lParts) do
   begin
     lPart := lParts[i];
-    if not ParseSelectorToken(lPart, lMemberName, lIndexed, lDereferenced) then
+    if not ParseSelectorToken(lPart, lMemberName, lIndexed, lDereferenced,
+      lIndexBeforeDereference) then
     begin
       aResult := UnresolvedResult(aSelector, 'SELECTOR_TOKEN_NOT_RESOLVED',
         'The selector token could not be resolved.');
@@ -550,9 +586,16 @@ begin
       Exit(True);
 
     if lIndexed and SameText(aResult.Kind, 'property') then
-      lResolvedTypeName := ResolveTypeAlias(aModel, aResult.TypeName)
-    else if not TryApplySelectorPostfix(aModel, aResult.TypeName, lIndexed, lDereferenced,
-      lResolvedTypeName) then
+    begin
+      lResolvedTypeName := ResolveTypeAlias(aModel, aResult.TypeName);
+      if lDereferenced and not TryApplyDereferencePostfix(aModel, lResolvedTypeName) then
+      begin
+        aResult := UnresolvedResult(aSelector, 'SELECTOR_TYPE_NOT_RESOLVED',
+          'The selector receiver type could not be resolved.');
+        Exit(True);
+      end;
+    end else if not TryApplySelectorPostfix(aModel, aResult.TypeName, lIndexed, lDereferenced,
+      lIndexBeforeDereference, lResolvedTypeName) then
     begin
       aResult := UnresolvedResult(aSelector, 'SELECTOR_TYPE_NOT_RESOLVED',
         'The selector receiver type could not be resolved.');

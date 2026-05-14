@@ -53,6 +53,8 @@ type
     [Test]
     procedure ExtractsMembersRoutinesLocalsAndReferences;
     [Test]
+    procedure ExtractsAnonymousNestedRecordMembers;
+    [Test]
     procedure ExtractsUnprefixedConstVarAndTypedConstDeclarations;
     [Test]
     procedure MigratedSymbolMapExtractsUnitNameAndUsesSections;
@@ -449,6 +451,25 @@ begin
   Assert.IsTrue(HasReference(lModel, 'Value'));
   Assert.IsTrue(HasReference(lModel, 'Length'));
   Assert.IsTrue(HasReference(lModel, 'SemanticGlobal'));
+end;
+
+procedure TUnitModelTests.ExtractsAnonymousNestedRecordMembers;
+var
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('UnitModel', 'NestedAnonymousRecordUnit.pas');
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindMember(lModel, 'DBF_File', 'Struktur', 'field', lMember));
+  Assert.AreEqual('DBF_File.Struktur', lMember.TypeName);
+  Assert.IsTrue(HasMember(lModel, 'DBF_File.Struktur', 'Version', 'field', 'Byte'));
+  Assert.IsTrue(HasMember(lModel, 'DBF_File.Struktur', 'RecSize', 'field', 'Integer'));
 end;
 
 procedure TUnitModelTests.ExtractsUnprefixedConstVarAndTypedConstDeclarations;

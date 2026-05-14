@@ -930,9 +930,51 @@ begin
   ApplyPropertyText(lText, aFileName, aBaseDirectory, aProperties, aDiagnostics);
 end;
 
+function TryResolveDccReferenceDirectory(const aProjectDirectory, aInclude: string;
+  const aSearchPaths: TList<string>; out aDirectory: string): Boolean;
+var
+  lCandidate: string;
+  lFileName: string;
+  lIncludeFileName: string;
+  lSearchPath: string;
+begin
+  aDirectory := '';
+  if aInclude.Trim = '' then
+    Exit(False);
+
+  try
+    lIncludeFileName := NormalizeProjectPath(aProjectDirectory, aInclude);
+    lFileName := TPath.GetFileName(aInclude);
+  except
+    Exit(False);
+  end;
+
+  if TFile.Exists(lIncludeFileName) then
+  begin
+    aDirectory := ExtractFilePath(lIncludeFileName);
+    Exit(True);
+  end;
+
+  if lFileName <> '' then
+  begin
+    for lSearchPath in aSearchPaths do
+    begin
+      lCandidate := TPath.Combine(lSearchPath, lFileName);
+      if TFile.Exists(lCandidate) then
+      begin
+        aDirectory := lSearchPath;
+        Exit(True);
+      end;
+    end;
+  end;
+
+  aDirectory := ExtractFilePath(aInclude);
+  Result := aDirectory <> '';
+end;
+
 procedure AddReferenceDirectories(const aText, aProjectFileName, aProjectDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
-  const aItems: TList<string>);
+  const aSearchPaths, aItems: TList<string>);
 var
   lCondition: string;
   lDirectory: string;
@@ -967,8 +1009,8 @@ begin
           end;
 
           lInclude := ExpandProperties(lInclude, aProjectFileName, aProperties, aDiagnostics);
-          lDirectory := ExtractFilePath(lInclude);
-          if lDirectory = '' then
+          if not TryResolveDccReferenceDirectory(aProjectDirectory, lInclude, aSearchPaths,
+            lDirectory) then
             AddUniquePath(aItems, aProjectDirectory, '.')
           else
             AddUniquePath(aItems, aProjectDirectory, lDirectory);
@@ -1004,7 +1046,7 @@ begin
     AddDelimitedTexts(lUnitAliases, GetPropertyValue(aProperties, 'DCC_UnitAlias'));
     AddDelimitedTexts(lUnitAliases, GetPropertyValue(aProperties, 'DCC_UnitAliases'));
     AddReferenceDirectories(aText, aProject.ProjectFileName, aProject.ProjectDirectory,
-      aProperties, aDiagnostics, lReferenceDirectories);
+      aProperties, aDiagnostics, lSearchPaths, lReferenceDirectories);
 
     aProject.Defines := lDefines.ToArray;
     aProject.SearchPaths := lSearchPaths.ToArray;

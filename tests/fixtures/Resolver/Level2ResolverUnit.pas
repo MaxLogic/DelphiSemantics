@@ -18,6 +18,13 @@ type
     property Items[const aIndex: Integer]: TBaseRecord read GetItem; default;
   end;
 
+  TIndexedPointerRecord = record
+  private
+    function GetItem(const aIndex: Integer): TPointerRecord;
+  public
+    property Items[const aIndex: Integer]: TPointerRecord read GetItem; default;
+  end;
+
 procedure OuterScope(const OuterParam: TBaseRecord);
 
 implementation
@@ -27,6 +34,11 @@ begin
   Result.Value := aIndex;
 end;
 
+function TIndexedPointerRecord.GetItem(const aIndex: Integer): TPointerRecord;
+begin
+  Result := nil;
+end;
+
 procedure OuterScope(const OuterParam: TBaseRecord);
 var
   OuterValue: TBaseRecord;
@@ -34,6 +46,7 @@ var
   ArrayValue: TRecordArray;
   PointerValue: TPointerRecord;
   IndexedValue: TIndexedRecord;
+  IndexedPointerValue: TIndexedPointerRecord;
 
   procedure InnerScope(const Shadowed: TIndexedRecord);
   var
@@ -45,6 +58,7 @@ var
     InnerValue.Value := PointerValue^.Value;
     InnerValue.Value := IndexedValue.Items[0].Value;
     InnerValue.Value := IndexedValue[0].Value;
+    InnerValue.Value := IndexedPointerValue[0]^.Value;
   end;
 
 begin

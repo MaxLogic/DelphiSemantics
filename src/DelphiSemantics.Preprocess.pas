@@ -572,7 +572,7 @@ begin
     Exit(True);
   end;
 
-  if SameText(lText, 'ELSE') then
+  if SameText(lText, 'ELSE') or StartsText('ELSE ', lText) then
   begin
     if aStack.Count = 0 then
     begin
@@ -585,7 +585,8 @@ begin
     Exit(True);
   end;
 
-  if SameText(lText, 'ENDIF') or SameText(lText, 'IFEND') then
+  if SameText(lText, 'ENDIF') or StartsText('ENDIF ', lText) or SameText(lText, 'IFEND') or
+    StartsText('IFEND ', lText) then
   begin
     if aStack.Count = 0 then
     begin

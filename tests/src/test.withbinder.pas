@@ -62,12 +62,18 @@ type
     procedure InventoryExposesFileAwareSymbolsAndBindings;
     [Test]
     procedure InventoryExposesDakPlannerSourceModelFacts;
+    [Test]
+    procedure AnonymousNestedRecordSelectorsUseSyntheticOwner;
+    [Test]
+    procedure GlobalAnonymousRecordSelectorUsesSyntheticOwner;
+    [Test]
+    procedure DefaultIndexedPropertyPointerSelectorDereferencesToRecord;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   maxLogic.IOUtils;
 
 function TWithBinderTests.FixturePath(const aFileName: string): string;
@@ -527,6 +533,7 @@ var
   lInventory: TDelphiSemanticRemoveWithInventory;
   lModel: TDelphiSemanticUnitModel;
   lOptions: TDelphiSemanticModelOptions;
+  lIndentedDetails: string;
   lProjectedBaseName: Boolean;
   lScanSymbol: TDelphiSemanticInventorySymbol;
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -557,10 +564,23 @@ begin
   Assert.IsTrue(TryFindInventorySymbol(lInventory, 'Size', 'field', 'TGoldenVariant', lSymbol));
   Assert.IsFalse(TryFindInventorySymbol(lInventory, 'cGoldenVariantReal', 'field',
     'TGoldenVariant', lSymbol));
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'GoldenSplitGlobal', 'unit-global', '',
+    lSymbol), 'Expected split unit-global declaration.');
+  Assert.AreEqual('Integer', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'gisSkip', 'constant', '', lSymbol),
+    'Expected unit-global anonymous enum value.');
+  Assert.AreEqual('(gisRead, gisSkip)', lSymbol.TypeName);
 
   Assert.IsTrue(TryFindInventorySymbol(lInventory, 'PGoldenRecord', 'type-member', '', lSymbol));
   Assert.AreEqual('^TGoldenRecord', lSymbol.TypeName);
   Assert.AreEqual('TGoldenRecord', lSymbol.RelatedTypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'TGoldenRecordAlias', 'type-member', '',
+    lSymbol));
+  Assert.AreEqual('TGoldenRecord', lSymbol.TypeName);
+  Assert.AreEqual('TGoldenRecord', lSymbol.RelatedTypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'RecordName', 'field', 'TGoldenRecordAlias',
+    lSymbol));
+  Assert.AreEqual('TGoldenRecord', lSymbol.SourceOwnerType);
 
   Assert.IsTrue(TryFindInventorySymbol(lInventory, 'Items', 'property', 'TGoldenDefaultList',
     lSymbol));
@@ -575,6 +595,72 @@ begin
   Assert.IsTrue(TryFindInventorySymbol(lInventory, 'lStaticRecordPtrs', 'local', '', lSymbol));
   Assert.AreEqual('array[1..2]ofPGoldenRecord', StringReplace(lSymbol.TypeName, ' ', '',
     [rfReplaceAll]));
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'TGoldenLocalRecord', 'type-member', '',
+    lSymbol));
+  Assert.AreEqual('record', lSymbol.TypeCategory);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'LocalName', 'field', 'TGoldenLocalRecord',
+    lSymbol));
+  Assert.AreEqual('string', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'LocalCount', 'field', 'TGoldenLocalRecord',
+    lSymbol));
+  Assert.AreEqual('Integer', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'lLocalRecord', 'local', '', lSymbol));
+  Assert.AreEqual('TGoldenLocalRecord', lSymbol.TypeName);
+  Assert.AreEqual('TGoldenScope.Run', lSymbol.RoutineName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'TGoldenScope.Run.lAnonymousLocal',
+    'type-member', '', lSymbol));
+  Assert.AreEqual('record', lSymbol.TypeCategory);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'LocalFlag', 'field',
+    'TGoldenScope.Run.lAnonymousLocal', lSymbol));
+  Assert.AreEqual('Boolean', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'LocalText', 'field',
+    'TGoldenScope.Run.lAnonymousLocal', lSymbol));
+  Assert.AreEqual('string', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'lAnonymousLocal', 'local', '', lSymbol));
+  Assert.AreEqual('TGoldenScope.Run.lAnonymousLocal', lSymbol.TypeName);
+  Assert.AreEqual('TGoldenScope.Run', lSymbol.RoutineName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'TGoldenScope.Run.lVariantLocal',
+    'type-member', '', lSymbol));
+  Assert.AreEqual('record', lSymbol.TypeCategory);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'Len', 'field',
+    'TGoldenScope.Run.lVariantLocal', lSymbol));
+  Assert.AreEqual('Byte', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'Kind', 'field',
+    'TGoldenScope.Run.lVariantLocal', lSymbol));
+  Assert.AreEqual('Integer', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'AsInteger', 'field',
+    'TGoldenScope.Run.lVariantLocal', lSymbol));
+  Assert.AreEqual('Integer', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'AsText', 'field',
+    'TGoldenScope.Run.lVariantLocal', lSymbol));
+  Assert.AreEqual('string', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'lVariantLocal', 'local', '', lSymbol));
+  Assert.AreEqual('TGoldenScope.Run.lVariantLocal', lSymbol.TypeName);
+  Assert.AreEqual('TGoldenScope.Run', lSymbol.RoutineName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'TGoldenLateLocalRecord', 'type-member', '',
+    lSymbol));
+  Assert.AreEqual('record', lSymbol.TypeCategory);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'LateName', 'field', 'TGoldenLateLocalRecord',
+    lSymbol));
+  Assert.AreEqual('string', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'lLateLocalRecord', 'local', '', lSymbol));
+  Assert.AreEqual('TGoldenLateLocalRecord', lSymbol.TypeName);
+  lIndentedDetails := '';
+  for lScanSymbol in lInventory.Symbols do
+    if ContainsText(lScanSymbol.Name, 'GoldenIndented') or ContainsText(lScanSymbol.TypeName,
+      'GoldenIndented') then
+      lIndentedDetails := lIndentedDetails + lScanSymbol.Name + ':' + lScanSymbol.SymbolClass + ':' +
+        lScanSymbol.TypeName + ':' + lScanSymbol.OwnerType + '; ';
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'TGoldenIndentedState', 'type-member', '',
+    lSymbol), 'Expected indented implementation type. Symbols=' + lIndentedDetails);
+  Assert.AreEqual('record', lSymbol.TypeCategory);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'StateName', 'field',
+    'TGoldenIndentedState', lSymbol), 'Expected indented implementation type field. Symbols=' +
+    lIndentedDetails);
+  Assert.AreEqual('string', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'GoldenIndentedState', 'unit-global', '',
+    lSymbol), 'Expected indented implementation var. Symbols=' + lIndentedDetails);
+  Assert.AreEqual('TGoldenIndentedState', lSymbol.TypeName);
 
   Assert.IsTrue(TryFindInventorySymbol(lInventory, 'BaseName', 'field', 'TGoldenClass', lSymbol));
   Assert.AreEqual('TGoldenBase', lSymbol.SourceOwnerType);
@@ -590,6 +676,90 @@ begin
       SameText(lScanSymbol.RoutineName, 'TGoldenClass.Touch') then
       lProjectedBaseName := True;
   Assert.IsTrue(lProjectedBaseName);
+end;
+
+procedure TWithBinderTests.AnonymousNestedRecordSelectorsUseSyntheticOwner;
+var
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lInventory: TDelphiSemanticRemoveWithInventory;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('NestedAnonymousWithUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+
+  lInventory := TDelphiSemanticWithBinder.BuildInventory(lModel);
+  lInventory.Symbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lInventory.Symbols);
+  Assert.IsFalse(TryFindInventorySymbol(lInventory, 'Version', 'field', 'DBF_File', lSymbol),
+    'Expected nested anonymous fields not to be flattened onto the outer record.');
+  Assert.IsFalse(TryFindInventorySymbol(lInventory, 'RecSize', 'field', 'DBF_File', lSymbol),
+    'Expected nested anonymous fields not to be flattened onto the outer record.');
+
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+
+  Assert.AreEqual(1, Length(lBindings));
+  Assert.AreEqual('DBF_File', lBindings[0].Selectors[0].TypeName);
+  Assert.AreEqual('DBF_File.Struktur', lBindings[0].Selectors[1].TypeName);
+  Assert.IsTrue(HasReference(lBindings[0], 'Version', 'member'));
+  Assert.AreEqual('DBF_File.Struktur', ReceiverOf(lBindings[0], 'Version', 'member'));
+  Assert.IsTrue(HasReference(lBindings[0], 'RecSize', 'member'));
+end;
+
+procedure TWithBinderTests.GlobalAnonymousRecordSelectorUsesSyntheticOwner;
+var
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lInventory: TDelphiSemanticRemoveWithInventory;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('GlobalAnonymousWithUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+
+  lInventory := TDelphiSemanticWithBinder.BuildInventory(lModel);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'ModuleError', 'unit-global', '',
+    lSymbol));
+  Assert.AreEqual('GlobalAnonymousWithUnit.ModuleError', lSymbol.TypeName);
+  Assert.IsTrue(TryFindInventorySymbol(lInventory, 'LineNo', 'field',
+    'GlobalAnonymousWithUnit.ModuleError', lSymbol));
+
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+
+  Assert.AreEqual(1, Length(lBindings));
+  Assert.AreEqual('ModuleError', lBindings[0].Selectors[0].SelectorText);
+  Assert.AreEqual('GlobalAnonymousWithUnit.ModuleError', lBindings[0].Selectors[0].TypeName);
+  Assert.IsTrue(HasReference(lBindings[0], 'fc', 'member'));
+  Assert.IsTrue(HasReference(lBindings[0], 'LineNo', 'member'));
+  Assert.IsTrue(HasReference(lBindings[0], 'ErrorChar', 'member'));
+  Assert.AreEqual('GlobalAnonymousWithUnit.ModuleError', ReceiverOf(lBindings[0], 'fc', 'member'));
+end;
+
+procedure TWithBinderTests.DefaultIndexedPropertyPointerSelectorDereferencesToRecord;
+var
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('DefaultPointerWithUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+
+  Assert.AreEqual(1, Length(lBindings));
+  Assert.AreEqual('lList[0]^', lBindings[0].Selectors[0].SelectorText);
+  Assert.AreEqual('TDefaultRecord', lBindings[0].Selectors[0].TypeName);
+  Assert.IsTrue(HasReference(lBindings[0], 'Value', 'member'));
+  Assert.AreEqual('TDefaultRecord', ReceiverOf(lBindings[0], 'Value', 'member'));
 end;
 
 initialization

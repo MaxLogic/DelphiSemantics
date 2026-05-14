@@ -308,7 +308,8 @@ begin
   Result := StableHash(
     'defines=' + SortedArrayText(aOptions.Defines) + sLineBreak +
     'searchPaths=' + OrderedArrayText(aOptions.SearchPaths) + sLineBreak +
-    'projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True));
+    'projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) + sLineBreak +
+    'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True));
 end;
 
 function CloneUnitModel(const aModel: TDelphiSemanticUnitModel): TDelphiSemanticUnitModel;

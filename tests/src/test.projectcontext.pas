@@ -9,12 +9,15 @@ type
   [TestFixture]
   TProjectContextTests = class
   private
+    function ContainsPath(const aItems: TArray<string>; const aExpectedPath: string): Boolean;
     function FixturePath(const aRelativePath: string): string;
   public
     [Test]
     procedure DprojResolvesBasicMetadata;
     [Test]
     procedure DprResolvesThroughSiblingDproj;
+    [Test]
+    procedure StaleDccReferenceResolvesThroughSearchPath;
     [Test]
     procedure MissingProjectReturnsDeterministicDiagnostic;
   end;
@@ -25,6 +28,20 @@ uses
   System.IOUtils,
   System.SysUtils,
   DelphiSemantics.ProjectContext;
+
+function TProjectContextTests.ContainsPath(const aItems: TArray<string>;
+  const aExpectedPath: string): Boolean;
+var
+  lExpectedPath: string;
+  lItem: string;
+begin
+  lExpectedPath := ExcludeTrailingPathDelimiter(TPath.GetFullPath(aExpectedPath));
+  for lItem in aItems do
+    if SameText(ExcludeTrailingPathDelimiter(TPath.GetFullPath(lItem)), lExpectedPath) then
+      Exit(True);
+
+  Result := False;
+end;
 
 function TProjectContextTests.FixturePath(const aRelativePath: string): string;
 begin
@@ -45,6 +62,22 @@ begin
   Assert.AreEqual('Win64', lResult.Project.Platform);
   Assert.AreEqual(FixturePath('ProjectContext\Basic\BasicProject.dproj'), lResult.Project.ProjectFileName);
   Assert.AreEqual(FixturePath('ProjectContext\Basic\BasicProject.dpr'), lResult.Project.MainSourceFileName);
+end;
+
+procedure TProjectContextTests.StaleDccReferenceResolvesThroughSearchPath;
+var
+  lProjectDir: string;
+  lResult: TDelphiSemanticContextResult;
+begin
+  lProjectDir := FixturePath('ProjectContext\DccReferenceFallback');
+  lResult := TDelphiSemanticProject.Load(TPath.Combine(lProjectDir,
+    'DccReferenceFallbackProject.dproj'));
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(ContainsPath(lResult.Project.ReferenceDirectories,
+    TPath.Combine(lProjectDir, 'RealLib')), 'Expected fallback unit directory from search path.');
+  Assert.IsFalse(ContainsPath(lResult.Project.ReferenceDirectories,
+    TPath.Combine(lProjectDir, 'OldLocation')), 'Stale DCCReference directory must not be retained.');
 end;
 
 procedure TProjectContextTests.DprResolvesThroughSiblingDproj;

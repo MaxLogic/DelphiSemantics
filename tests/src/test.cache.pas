@@ -40,6 +40,10 @@ type
     [Test]
     procedure CompilerProfileLoadsCachedRtlSourceModels;
     [Test]
+    procedure CompilerProfileDiscoversScopedRtlUnitsFromSourceRoot;
+    [Test]
+    procedure CompilerProfileResolvesRtlSourceRootFromRsVars;
+    [Test]
     procedure ParserVersionChangeInvalidatesCachedUnitModel;
     [Test]
     procedure ModelVersionChangeInvalidatesCachedUnitModel;
@@ -551,6 +555,87 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+procedure TCacheTests.CompilerProfileDiscoversScopedRtlUnitsFromSourceRoot;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lCommonRoot: string;
+  lContext: TDelphiSemanticResolveContext;
+  lProfile: TDelphiSemanticCompilerProfile;
+  lResult: TDelphiSemanticResolveResult;
+  lRtlRoot: string;
+  lSourceModel: TDelphiSemanticUnitModel;
+begin
+  lRtlRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
+    'fake-delphi-source']));
+  lCommonRoot := CombinePath([lRtlRoot, 'rtl', 'common']);
+  TDirectory.CreateDirectory(lCommonRoot);
+  TFile.WriteAllText(TPath.Combine(lCommonRoot, 'System.Math.pas'),
+    'unit System.Math;' + sLineBreak + 'interface' + sLineBreak +
+    'function Min(const A, B: Integer): Integer;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lCommonRoot, 'System.SysUtils.pas'),
+    'unit System.SysUtils;' + sLineBreak + 'interface' + sLineBreak +
+    '{$IFDEF MSWINDOWS}' + sLineBreak + 'type' + sLineBreak +
+    '  TSearchRec = record' + sLineBreak + '    Attr: Integer;' + sLineBreak +
+    '  end;' + sLineBreak + '{$ENDIF}' + sLineBreak + 'type' + sLineBreak +
+    '  Exception = class end;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lCommonRoot, 'Winapi.Windows.pas'),
+    'unit Winapi.Windows;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  THandle = NativeUInt;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.CompilerProfileName := 'Delphi-12-RTL-Discovery';
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceRoot(lCache,
+      'Delphi-12-RTL-Discovery', '23.0', 'Win32', lRtlRoot, ['Math', 'SysUtils', 'Windows',
+      'Classes']);
+    lSourceModel := Default(TDelphiSemanticUnitModel);
+    lContext := Default(TDelphiSemanticResolveContext);
+    lContext.ConformanceLevel := 3;
+    lContext.IntrinsicSymbols := lProfile.IntrinsicSymbols;
+    lContext.IndexedUnitModels := lProfile.RtlSourceUnitModels;
+
+    lResult := TDelphiSemanticResolver.ResolveName(lSourceModel, lContext, 'Min');
+
+    Assert.AreEqual('Delphi-12-RTL-Discovery', lProfile.Name);
+    Assert.AreEqual(lRtlRoot, lProfile.RtlSourceRoot);
+    Assert.AreEqual(3, Length(lProfile.RtlSourceUnitModels));
+    Assert.IsTrue(HasDeclaration(lProfile.RtlSourceUnitModels[1], 'TSearchRec'),
+      'Expected Win32 RTL profile extraction to enable MSWINDOWS declarations.');
+    Assert.IsTrue(lResult.Found);
+    Assert.AreEqual('System.Math', lResult.OwnerName);
+    Assert.AreEqual('routine', lResult.Kind);
+    Assert.AreEqual(3, lCache.Metrics.CacheMisses);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.CompilerProfileResolvesRtlSourceRootFromRsVars;
+var
+  lBdsRoot: string;
+  lResolvedRoot: string;
+  lRsVarsPath: string;
+  lSourceRoot: string;
+begin
+  lBdsRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
+    'fake-bds']));
+  lRsVarsPath := CombinePath([lBdsRoot, 'bin', 'rsvars.bat']);
+  lSourceRoot := TPath.Combine(lBdsRoot, 'source');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lRsVarsPath));
+  TDirectory.CreateDirectory(lSourceRoot);
+  TFile.WriteAllText(lRsVarsPath, '@echo off' + sLineBreak, TEncoding.ASCII);
+
+  lResolvedRoot := TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot('23.0',
+    lRsVarsPath);
+
+  Assert.AreEqual(lSourceRoot, lResolvedRoot);
 end;
 
 procedure TCacheTests.ModelVersionChangeInvalidatesCachedUnitModel;

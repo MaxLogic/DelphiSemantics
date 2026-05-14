@@ -186,6 +186,14 @@ begin
   Assert.IsTrue(lResult.Found, 'IndexedValue[0] found: ' + lResult.Status + '/' +
     lResult.ReasonCode);
   Assert.AreEqual('TBaseRecord', lResult.TypeName);
+
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext,
+    'IndexedPointerValue[0]^.Value');
+
+  Assert.IsTrue(lResult.Found, 'IndexedPointerValue[0]^.Value found: ' + lResult.Status + '/' +
+    lResult.ReasonCode);
+  Assert.AreEqual('field', lResult.Kind);
+  Assert.AreEqual('Integer', lResult.TypeName);
 end;
 
 procedure TResolverLevel2Tests.ResolvesIndexedDefaultProperties;
