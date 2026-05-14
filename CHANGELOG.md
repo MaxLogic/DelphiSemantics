@@ -28,3 +28,7 @@
 - DAK SymbolMap unit-model fixture coverage, including member signatures, indexed/default properties, visibility, and identifier metadata.
 - Source-context lookup and diagnostic candidate extraction migrated from DAK.
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
+
+### Changed
+- Semantic cache identity now includes source timestamps in addition to content hashes, and
+  the public API selects the SQLite cache when `SqliteCacheFileName` is configured.

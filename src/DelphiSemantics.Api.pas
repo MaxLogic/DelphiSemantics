@@ -64,6 +64,9 @@ type
 
 implementation
 
+uses
+  DelphiSemantics.Cache.Sqlite;
+
 function ProjectOptionsFromApiOptions(const aOptions: TDelphiSemanticApiOptions):
   TDelphiSemanticOptions;
 begin
@@ -115,7 +118,10 @@ var
   lModelOptions: TDelphiSemanticModelOptions;
   lSourceFileName: string;
 begin
-  lCache := TDelphiSemanticUnitCache.Create(aOptions.Cache);
+  if aOptions.Cache.SqliteCacheFileName <> '' then
+    lCache := TDelphiSemanticSqliteUnitCache.Create(aOptions.Cache)
+  else
+    lCache := TDelphiSemanticUnitCache.Create(aOptions.Cache);
   try
     lSourceFileName := aOptions.SourceFileName;
     if (lSourceFileName = '') and (aOptions.ProjectFileName <> '') then

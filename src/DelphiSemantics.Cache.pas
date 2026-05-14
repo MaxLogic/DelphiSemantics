@@ -41,6 +41,7 @@ type
   TDelphiSemanticUnitCacheIdentity = record
     UnitCacheKey: string;
     FileHash: string;
+    FileTimestampUtc: string;
     ContextHash: string;
     IncludeGraphHash: string;
     ParserVersion: string;
@@ -157,6 +158,14 @@ function HashFileIfExists(const aFileName: string): string;
 begin
   if TFile.Exists(aFileName) then
     Result := HashBytes(TFile.ReadAllBytes(aFileName))
+  else
+    Result := '';
+end;
+
+function FileTimestampIfExists(const aFileName: string): string;
+begin
+  if TFile.Exists(aFileName) then
+    Result := FormatDateTime('yyyymmddhhnnsszzz', TFile.GetLastWriteTimeUtc(aFileName))
   else
     Result := '';
 end;
@@ -298,9 +307,11 @@ begin
   Result.IncludeGraphHash := EffectiveIdentityValue(aContext.IncludeGraphHash,
     cDefaultIdentityIncludeGraphHash);
   Result.FileHash := HashFileIfExists(aSourceFileName);
+  Result.FileTimestampUtc := FileTimestampIfExists(aSourceFileName);
   Result.ContextHash := BuildContextHash(aContext);
   Result.UnitCacheKey := StableHash('unit|' + Result.SchemaVersion + '|' + Result.ParserVersion +
-    '|' + Result.FileHash + '|' + Result.IncludeGraphHash + '|' + Result.ContextHash);
+    '|' + Result.FileHash + '|' + Result.FileTimestampUtc + '|' + Result.IncludeGraphHash + '|' +
+    Result.ContextHash);
 end;
 
 function BuildSemanticContextHash(const aOptions: TDelphiSemanticModelOptions): string;
@@ -371,6 +382,7 @@ begin
     'model=' + aModelVersion + sLineBreak +
     'file=' + UpperCase(lSourceFileName) + sLineBreak +
     'source=' + lSourceHash + sLineBreak +
+    'timestamp=' + FileTimestampIfExists(lSourceFileName) + sLineBreak +
     'include=' + lPreprocessResult.IncludeGraphHash + sLineBreak +
     'context=' + BuildSemanticContextHash(aOptions));
 end;
@@ -395,6 +407,7 @@ begin
   Result.ParserVersion := aParserVersion;
   Result.IncludeGraphHash := lPreprocessResult.IncludeGraphHash;
   Result.FileHash := HashFileIfExists(lSourceFileName);
+  Result.FileTimestampUtc := FileTimestampIfExists(lSourceFileName);
   Result.ContextHash := BuildSemanticContextHash(aOptions);
   Result.UnitCacheKey := BuildCacheKey(aOptions, aCompilerProfileName, aParserVersion,
     aModelVersion);

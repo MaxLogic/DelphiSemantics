@@ -26,6 +26,8 @@ type
     [Test]
     procedure SourceChangeInvalidatesCachedUnitModel;
     [Test]
+    procedure SourceTimestampChangeInvalidatesCachedUnitModel;
+    [Test]
     procedure SemanticContextChangeInvalidatesCachedUnitModel;
     [Test]
     procedure EquivalentDefineOrderReusesCachedUnitModel;
@@ -238,6 +240,34 @@ begin
 
     Assert.IsTrue(HasDeclaration(lModel, 'TSecondCacheType'));
     Assert.IsFalse(HasDeclaration(lModel, 'TFirstCacheType'));
+    Assert.AreEqual(2, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(1, lCache.Metrics.Invalidations);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.SourceTimestampChangeInvalidatesCachedUnitModel;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := TempPath('SourceTimestampChangeUnit.pas');
+  TFile.WriteAllText(lPath, 'unit SourceTimestampChangeUnit;' + sLineBreak + 'interface' +
+    sLineBreak + 'type' + sLineBreak + '  TTimestampCacheType = class end;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+    TFile.SetLastWriteTimeUtc(lPath, TFile.GetLastWriteTimeUtc(lPath) + EncodeTime(0, 0, 5, 0));
+    lCache.GetOrExtractUnitModel(lModelOptions);
+
     Assert.AreEqual(2, lCache.Metrics.CacheMisses);
     Assert.AreEqual(1, lCache.Metrics.Invalidations);
   finally

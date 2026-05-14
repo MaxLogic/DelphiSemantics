@@ -30,6 +30,10 @@ type
     [Test]
     procedure SourceChangeInvalidatesPersistentEntry;
     [Test]
+    procedure SourceTimestampChangeInvalidatesPersistentEntry;
+    [Test]
+    procedure ApiBuildUnitIndexUsesSqliteCacheWhenFileNameConfigured;
+    [Test]
     procedure EquivalentDefineOrderReusesStoredUnitModel;
     [Test]
     procedure CompilerProfileChangeInvalidatesPersistentEntry;
@@ -46,6 +50,7 @@ implementation
 uses
   System.IOUtils, System.SysUtils,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
+  DelphiSemantics.Api,
   maxLogic.IOUtils;
 
 function TCacheSqliteTests.HasCacheDiagnostic(const aCache: TDelphiSemanticSqliteUnitCache;
@@ -245,6 +250,62 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+procedure TCacheSqliteTests.SourceTimestampChangeInvalidatesPersistentEntry;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('timestamp-change-cache.sqlite3');
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := WriteUnitFile('SqliteTimestampUnit', 'TSqliteTimestampType');
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+
+  TFile.SetLastWriteTimeUtc(lModelOptions.SourceFileName,
+    TFile.GetLastWriteTimeUtc(lModelOptions.SourceFileName) + EncodeTime(0, 0, 5, 0));
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+
+    Assert.AreEqual(0, lCache.Metrics.CacheHits);
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(1, lCache.Metrics.Invalidations);
+    Assert.IsTrue(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_STALE_ENTRY_REBUILT'));
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.ApiBuildUnitIndexUsesSqliteCacheWhenFileNameConfigured;
+var
+  lIndex: TDelphiSemanticUnitIndex;
+  lOptions: TDelphiSemanticApiOptions;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.SourceFileName := WriteUnitFile('SqliteApiUnit', 'TSqliteApiType');
+  lOptions.ProjectContextApplied := True;
+  lOptions.Cache.SqliteCacheFileName := TempPath('api-cache.sqlite3');
+  if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
+    TFile.Delete(lOptions.Cache.SqliteCacheFileName);
+
+  lIndex := TDelphiSemanticApi.BuildUnitIndex(lOptions);
+
+  Assert.IsTrue(lIndex.Success);
+  Assert.AreEqual('sqlite', lIndex.CacheMetrics.CacheKind);
+  Assert.AreEqual(lOptions.Cache.SqliteCacheFileName, lIndex.CacheMetrics.CacheFileName);
+  Assert.IsTrue(TFile.Exists(lOptions.Cache.SqliteCacheFileName));
 end;
 
 procedure TCacheSqliteTests.EquivalentDefineOrderReusesStoredUnitModel;
