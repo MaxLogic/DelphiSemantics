@@ -27,7 +27,7 @@ type
 implementation
 
 uses
-  System.JSON, System.SysUtils, System.Variants,
+  System.Generics.Collections, System.JSON, System.SysUtils, System.Variants,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def;
 
 const

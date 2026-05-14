@@ -336,7 +336,6 @@ var
   lBaseKey: string;
   lRegistry: TRegistry;
 begin
-  Result := False;
   aBdsRoot := '';
   lBaseKey := 'Software\Embarcadero\BDS\' + aDelphiVersion;
 
@@ -367,7 +366,7 @@ begin
     lRegistry.Free;
   end;
 
-  Result := aBdsRoot <> '';
+  Exit(aBdsRoot <> '');
 end;
 
 function TryReadBdsRootFromRegistry(const aDelphiVersion: string; out aBdsRoot: string): Boolean;

@@ -1165,7 +1165,6 @@ var
   lCommentMode: Integer;
   lToken: string;
 begin
-  Result := aBodyStartOffset;
   if (aBodyStartOffset < 1) or (aBodyStartOffset > Length(aText)) then
     Exit(Length(aText));
 
@@ -1244,7 +1243,7 @@ begin
     Inc(i);
   end;
 
-  Result := Length(aText);
+  Exit(Length(aText));
 end;
 
 procedure ExtractWithStatements(const aText: string; const aItems: TList<TDelphiSemanticWithStatement>);

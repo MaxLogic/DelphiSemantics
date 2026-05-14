@@ -86,15 +86,19 @@ begin
 end;
 
 function CalculateTextHash(const aText: string): string;
+const
+  cFnv32Mask: UInt64 = $FFFFFFFF;
+  cFnvOffsetBasis: UInt64 = 2166136261;
+  cFnvPrime: UInt64 = 16777619;
 var
   i: Integer;
   lHash: UInt64;
 begin
-  lHash := 2166136261;
+  lHash := cFnvOffsetBasis;
   for i := 1 to Length(aText) do
   begin
     lHash := lHash xor Ord(aText[i]);
-    lHash := (lHash * 16777619) mod $100000000;
+    lHash := (lHash * cFnvPrime) and cFnv32Mask;
   end;
   Result := IntToHex(Int64(lHash), 8);
 end;
@@ -507,7 +511,6 @@ var
   lSuccess: Boolean;
   lText: string;
 begin
-  Result := True;
   aOutputLineWritten := False;
   lText := aDirective.Trim;
 
@@ -639,7 +642,7 @@ begin
 
   AddDiagnostic(aDiagnostics, 'UNSUPPORTED_PREPROCESS_DIRECTIVE',
     'Unsupported preprocessing directive: ' + aDirective, aFileName, aLine);
-  Result := False;
+  Exit(False);
 end;
 
 function CreateDefineMap(const aDefines: TArray<string>): TDefineMap;

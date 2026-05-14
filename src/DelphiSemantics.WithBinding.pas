@@ -1747,7 +1747,6 @@ var
   lRelatedTypeName: string;
   lSkipUntilLine: Integer;
   lSymbol: TDelphiSemanticInventorySymbol;
-  lTopLevelLine: Boolean;
   lTypeCategory: string;
   lTypeIsHelper: Boolean;
   lTypeName: string;
@@ -1770,7 +1769,6 @@ begin
     lLower := LowerCase(lLine);
     if lLine = '' then
       Continue;
-    lTopLevelLine := InventoryIsTopLevelLine(lRawLine);
 
     if InventoryIsConditionalDirectiveLine(lLine) then
     begin
@@ -2029,7 +2027,6 @@ var
   lNames: TArray<string>;
   lRawLine: string;
   lRoutineEndLine: Integer;
-  lTopLevelLine: Boolean;
   lTypeCategory: string;
   lTypeName: string;
 begin
@@ -2046,7 +2043,6 @@ begin
       lLine := InventoryCleanLine(lRawLine);
       if lLine = '' then
         Continue;
-      lTopLevelLine := InventoryIsTopLevelLine(lRawLine);
 
       if SameText(lLine, 'implementation') then
       begin
