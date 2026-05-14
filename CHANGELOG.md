@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Stable `DelphiSemantics.Api` facade for project-context loading, cache-backed unit indexing,
+  with-binding inventory, cache metrics, and DAK integration.
 - DAK obsolete GlobalVars and RemoveWith parser snapshots are backed up under `_obselete` and excluded from normal compilation.
 - DAK GlobalVars now consumes the DelphiSemantics global analysis API and rebuilds legacy cache schema entries through the new analyzer.
 - Global variable semantic analysis API for reusable declarations, usages, ambiguity reporting, access classification, local shadowing, and semantic filters.

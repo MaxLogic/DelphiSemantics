@@ -7,6 +7,7 @@ uses
   System.SysUtils,
   DUnitX.Loggers.Console,
   DUnitX.TestFramework,
+  Test.Api in 'src\test.api.pas',
   Test.Cache in 'src\test.cache.pas',
   Test.DependencyGraph in 'src\test.dependencygraph.pas',
   Test.GlobalVars in 'src\test.globalvars.pas',

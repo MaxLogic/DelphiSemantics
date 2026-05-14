@@ -53,6 +53,7 @@
     <DelphiCompile Include="$(MainSource)">
       <MainSource>MainSource</MainSource>
     </DelphiCompile>
+    <DCCReference Include="src\test.api.pas"/>
     <DCCReference Include="src\test.cache.pas"/>
     <DCCReference Include="src\test.dependencygraph.pas"/>
     <DCCReference Include="src\test.globalvars.pas"/>
@@ -69,6 +70,7 @@
     <DCCReference Include="src\test.unitmodel.pas"/>
     <DCCReference Include="src\test.withdiscovery.pas"/>
     <DCCReference Include="src\test.withbinder.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Api.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Cache.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.CompilerProfile.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Graph.pas"/>
