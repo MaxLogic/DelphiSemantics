@@ -18,3 +18,9 @@ definition search, and reference search.
 - `lib/MaxLogicFoundation` - shared utility submodule.
 - `src/` - semantic index and resolver implementation.
 - `tests/` - focused regression and fixture tests.
+
+## Smoke Tests
+
+- [maxTdb remove-with smoke](docs/smoke-tests.md#maxtdb-remove-with-smoke)
+  documents the clone-based DAK verification command. It must never run apply
+  mode against the original read-only fixture.
