@@ -4,13 +4,14 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Cache,
-  DelphiSemantics.Model;
+  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Model;
 
 type
   [TestFixture]
   TCacheTests = class
   private
+    procedure AssertIndexedProfileNameKind(const aProfile: TDelphiSemanticCompilerProfile;
+      const aName, aKind: string);
     function HasDeclaration(const aModel: TDelphiSemanticUnitModel; const aName: string):
       Boolean;
     function TempPath(const aName: string): string;
@@ -44,6 +45,8 @@ type
     [Test]
     procedure CompilerProfileDiscoversScopedRtlUnitsFromSourceRoot;
     [Test]
+    procedure CompilerProfileRtlSourceRootBuildsFastInterfaceModels;
+    [Test]
     procedure CompilerProfileResolvesRtlSourceRootFromRsVars;
     [Test]
     procedure ParserVersionChangeInvalidatesCachedUnitModel;
@@ -62,7 +65,26 @@ implementation
 uses
   System.IOUtils, System.SysUtils,
   maxLogic.IOUtils,
-  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve;
+  DelphiSemantics.Resolve;
+
+procedure TCacheTests.AssertIndexedProfileNameKind(
+  const aProfile: TDelphiSemanticCompilerProfile; const aName, aKind: string);
+var
+  lContext: TDelphiSemanticResolveContext;
+  lResult: TDelphiSemanticResolveResult;
+  lSourceModel: TDelphiSemanticUnitModel;
+begin
+  lSourceModel := Default(TDelphiSemanticUnitModel);
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.ConformanceLevel := 3;
+  lContext.IntrinsicSymbols := aProfile.IntrinsicSymbols;
+  lContext.IndexedUnitModels := aProfile.RtlSourceUnitModels;
+
+  lResult := TDelphiSemanticResolver.ResolveName(lSourceModel, lContext, aName);
+
+  Assert.IsTrue(lResult.Found, 'Expected "' + aName + '" to resolve.');
+  Assert.AreEqual(aKind, lResult.Kind);
+end;
 
 function TCacheTests.HasDeclaration(const aModel: TDelphiSemanticUnitModel;
   const aName: string): Boolean;
@@ -641,7 +663,79 @@ begin
     Assert.IsTrue(lResult.Found);
     Assert.AreEqual('System.Math', lResult.OwnerName);
     Assert.AreEqual('routine', lResult.Kind);
-    Assert.AreEqual(3, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.CompilerProfileRtlSourceRootBuildsFastInterfaceModels;
+var
+  i: Integer;
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lCommonRoot: string;
+  lContext: TDelphiSemanticResolveContext;
+  lProfile: TDelphiSemanticCompilerProfile;
+  lResult: TDelphiSemanticResolveResult;
+  lRtlRoot: string;
+  lSource: string;
+  lSourceModel: TDelphiSemanticUnitModel;
+begin
+  lRtlRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
+    'fake-fast-delphi-source']));
+  lCommonRoot := CombinePath([lRtlRoot, 'rtl', 'common']);
+  TDirectory.CreateDirectory(lCommonRoot);
+
+  lSource := 'unit System.FastRtl;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TFastRtlRecord = record' + sLineBreak +
+    '    Value: Integer;' + sLineBreak + '  end;' + sLineBreak +
+    '  TFastRtlEnum = (freOne, freTwo);' + sLineBreak +
+    '  TFastRtlMultilineEnum = (' + sLineBreak + '    fmOne,' + sLineBreak +
+    '    fmTwo' + sLineBreak + '  );' + sLineBreak +
+    '  TFastRtlForward = class;' + sLineBreak +
+    'const' + sLineBreak + '  FastRtlConst = 42;' + sLineBreak +
+    '  FastRtlTypedConst: Integer = 7;' + sLineBreak +
+    'resourcestring' + sLineBreak + '  rsFastRtlMessage = ''message'';' + sLineBreak +
+    'var' + sLineBreak + '  FastRtlGlobal: Integer;' + sLineBreak +
+    'threadvar' + sLineBreak + '  FastRtlThreadGlobal: Integer;' + sLineBreak +
+    'function FastMin(const A, B: Integer): Integer;' + sLineBreak +
+    'implementation' + sLineBreak;
+  for i := 1 to 5000 do
+    lSource := lSource + 'this is intentionally not parsed as Delphi implementation body' +
+      sLineBreak;
+  lSource := lSource + 'end.';
+  TFile.WriteAllText(TPath.Combine(lCommonRoot, 'System.FastRtl.pas'), lSource, TEncoding.UTF8);
+
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.CompilerProfileName := 'Delphi-12-Fast-RTL';
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceRoot(lCache,
+      'Delphi-12-Fast-RTL', '23.0', 'Win32', lRtlRoot, ['FastRtl']);
+    lSourceModel := Default(TDelphiSemanticUnitModel);
+    lContext := Default(TDelphiSemanticResolveContext);
+    lContext.ConformanceLevel := 3;
+    lContext.IntrinsicSymbols := lProfile.IntrinsicSymbols;
+    lContext.IndexedUnitModels := lProfile.RtlSourceUnitModels;
+
+    lResult := TDelphiSemanticResolver.ResolveName(lSourceModel, lContext, 'FastMin');
+
+    Assert.AreEqual(1, Length(lProfile.RtlSourceUnitModels));
+    Assert.IsTrue(HasDeclaration(lProfile.RtlSourceUnitModels[0], 'TFastRtlRecord'),
+      'Expected the fast RTL profile to keep interface record declarations.');
+    AssertIndexedProfileNameKind(lProfile, 'freOne', 'enum-value');
+    AssertIndexedProfileNameKind(lProfile, 'fmOne', 'enum-value');
+    AssertIndexedProfileNameKind(lProfile, 'FastRtlConst', 'const');
+    AssertIndexedProfileNameKind(lProfile, 'FastRtlTypedConst', 'typed-const');
+    AssertIndexedProfileNameKind(lProfile, 'rsFastRtlMessage', 'resourcestring');
+    AssertIndexedProfileNameKind(lProfile, 'FastRtlGlobal', 'var');
+    AssertIndexedProfileNameKind(lProfile, 'FastRtlThreadGlobal', 'threadvar');
+    Assert.IsTrue(lResult.Found, 'Expected the fast RTL profile to keep interface routines.');
+    Assert.AreEqual('System.FastRtl', lResult.OwnerName);
+    Assert.AreEqual('routine', lResult.Kind);
+    Assert.AreEqual(0, lCache.Metrics.CacheMisses,
+      'RTL source-root profiles must avoid the full parser/cache path.');
   finally
     lCache.Free;
   end;

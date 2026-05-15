@@ -30,5 +30,8 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- RTL source-root compiler profiles now use a fast DelphiSemantics-owned interface extractor
+  that preserves routines, types, members, enum values, constants, variables, and resourcestrings
+  without invoking the full unit-model cache/parser path.
 - Semantic cache identity now includes source timestamps in addition to content hashes, and
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
