@@ -7,6 +7,12 @@ Set-Location F:\projects\MaxLogic\DelphiSemantics
 .\scripts\run-migration-gate.ps1
 ```
 
+Or use the repo-root Windows wrapper:
+
+```bat
+run-migration-gate.bat --skip-build
+```
+
 The gate runs, in order:
 
 1. DelphiSemantics test build.
@@ -21,6 +27,8 @@ Do not parallelize the DelphiAIKit remove-with test invocation by splitting
 DUnitX filters across multiple `DelphiAIKit.Tests.exe` processes. The DAK test
 harness uses shared output/temp locations, and parallel filter runs have caused
 runtime `217` failures and file-lock errors.
+If a future proof intentionally runs DAK RemoveWith filters in parallel, set a
+unique `DAK_TEST_OUTPUT_ROOT` for each `DelphiAIKit.Tests.exe` process first.
 
 The maxTdb smoke never edits the original fixture. It copies
 `F:\projects\MaxLogic\DelphiAiKit\tests\fixtures\test-projects\maxTdb` to
@@ -29,3 +37,10 @@ The maxTdb smoke never edits the original fixture. It copies
 
 Use `-SkipBuild` only when the projects have already been rebuilt and we want a
 faster local verification pass.
+
+Wrapper options:
+
+- `--skip-build` maps to `-SkipBuild`.
+- `--dak-root <path>` maps to `-DakRoot`.
+- `--work-root <path>` maps to `-WorkRoot`.
+- `--delphi-semantics-root <path>` maps to `-DelphiSemanticsRoot`.

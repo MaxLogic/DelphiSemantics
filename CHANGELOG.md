@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Repo-root `run-migration-gate.bat` wrapper for the DelphiSemantics/DAK/maxTdb migration gate,
+  with documented sequential DAK RemoveWith execution and `DAK_TEST_OUTPUT_ROOT` isolation guidance.
 - Migration gate script and documentation for the DelphiSemantics suite, DAK remove-with suite,
   and cloned maxTdb apply smoke.
 - Stable `DelphiSemantics.Api` facade for project-context loading, cache-backed unit indexing,
@@ -32,6 +34,11 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- DAK RemoveWith now rewrites safe scoped-declaration `with` bodies while preserving inline locals,
+  exception variables, and generic type names; cloned maxTdb apply now verifies at 505 removals with
+  zero `scoped-declaration-in-with-body` and zero `symbol-not-found` skips.
+- DAK RemoveWith tests can isolate process temp/output roots with `DAK_TEST_OUTPUT_ROOT` for explicit
+  parallel-filter proof runs while the migration gate remains sequential by default.
 - RTL source-root compiler profiles now use a fast DelphiSemantics-owned interface extractor
   that preserves routines, types, members, enum values, constants, variables, and resourcestrings
   without invoking the full unit-model cache/parser path.

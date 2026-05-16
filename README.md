@@ -26,3 +26,4 @@ definition search, and reference search.
   mode against the original read-only fixture.
 - [migration gate](docs/migration-gate.md) runs DelphiSemantics tests, DAK
   remove-with tests, and the cloned maxTdb smoke in the migration proof order.
+  Use `run-migration-gate.bat --skip-build` for the repo-root Windows wrapper.
