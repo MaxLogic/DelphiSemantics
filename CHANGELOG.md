@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Migration gate script and documentation for the DelphiSemantics suite, DAK remove-with suite,
+  and cloned maxTdb apply smoke.
 - Stable `DelphiSemantics.Api` facade for project-context loading, cache-backed unit indexing,
   with-binding inventory, cache metrics, and DAK integration.
 - DAK obsolete GlobalVars and RemoveWith parser snapshots are backed up under `_obselete` and excluded from normal compilation.
