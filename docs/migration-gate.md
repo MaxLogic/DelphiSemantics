@@ -17,6 +17,11 @@ The gate runs, in order:
 5. DelphiAIKit CLI build.
 6. A cloned maxTdb smoke using `remove-with --mode apply`.
 
+Do not parallelize the DelphiAIKit remove-with test invocation by splitting
+DUnitX filters across multiple `DelphiAIKit.Tests.exe` processes. The DAK test
+harness uses shared output/temp locations, and parallel filter runs have caused
+runtime `217` failures and file-lock errors.
+
 The maxTdb smoke never edits the original fixture. It copies
 `F:\projects\MaxLogic\DelphiAiKit\tests\fixtures\test-projects\maxTdb` to
 `%TEMP%\delphi-semantics-migration-gate\maxTdb` and writes the JSON report to

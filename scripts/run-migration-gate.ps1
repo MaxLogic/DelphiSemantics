@@ -164,6 +164,8 @@ if (-not $SkipBuild) {
     -Arguments @('/C', 'build-delphi.bat', 'tests\DelphiAIKit.Tests.dproj', '-config', 'Debug', '-platform', 'Win32', '-target', 'Rebuild')))
 }
 
+# Keep this as one sequential DUnitX process. Parallel DAK RemoveWith filters
+# contend for shared test output/temp files and have caused runtime 217 failures.
 $lResults.Add((Invoke-GateStep `
   -Name 'Run DAK remove-with tests' `
   -WorkingDirectory $DakRoot `
