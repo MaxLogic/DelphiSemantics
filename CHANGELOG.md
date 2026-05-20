@@ -34,6 +34,8 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Migration gate now reports dominant runtime phases explicitly, uses a sequential DAK RemoveWith gate
+  profile to avoid duplicate maxTdb/proprietary coverage, and hard-blocks unsafe parallel DAK shards.
 - DAK RemoveWith now rewrites safe scoped-declaration `with` bodies while preserving inline locals,
   exception variables, and generic type names; cloned maxTdb apply now verifies at 505 removals with
   zero `scoped-declaration-in-with-body` and zero `symbol-not-found` skips.

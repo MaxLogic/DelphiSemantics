@@ -29,6 +29,20 @@ if /I "%~1"=="--work-root" (
   shift
   goto :parse
 )
+if /I "%~1"=="--dak-test-shards" (
+  if "%~2"=="" goto :missing_value
+  set "PS_ARGS=%PS_ARGS% -DakTestShards %~2"
+  shift
+  shift
+  goto :parse
+)
+if /I "%~1"=="--dak-test-profile" (
+  if "%~2"=="" goto :missing_value
+  set "PS_ARGS=%PS_ARGS% -DakTestProfile %~2"
+  shift
+  shift
+  goto :parse
+)
 if /I "%~1"=="--delphi-semantics-root" (
   if "%~2"=="" goto :missing_value
   set "PS_ARGS=%PS_ARGS% -DelphiSemanticsRoot ""%~2"""
@@ -57,13 +71,18 @@ echo Options:
 echo   --skip-build                 Skip project rebuilds. Maps to PowerShell -SkipBuild.
 echo   --dak-root ^<path^>            DAK checkout root. Maps to -DakRoot.
 echo   --work-root ^<path^>           Gate clone/report root. Maps to -WorkRoot.
+echo   --dak-test-shards ^<count^>     DAK RemoveWith DUnitX shard count. Only 1 is safe.
+echo   --dak-test-profile ^<Gate^|Full^>
+echo                                DAK RemoveWith test profile. Default is Gate.
 echo   --delphi-semantics-root ^<path^>
 echo                                DelphiSemantics checkout root. Maps to -DelphiSemanticsRoot.
 echo   --help                       Show this help.
 echo.
-echo DAK RemoveWith tests run sequentially by default. Do not split DUnitX
-echo RemoveWith filters across parallel DelphiAIKit.Tests.exe processes unless
-echo each process has isolated output via DAK_TEST_OUTPUT_ROOT.
+echo DAK RemoveWith tests run sequentially. Do not split DUnitX filters across
+echo parallel DelphiAIKit.Tests.exe processes; even isolated DAK_TEST_OUTPUT_ROOT
+echo runs have exposed additional shared-state/codepage failures. The Gate
+echo profile skips the long proprietary fixture because cloned maxTdb smoke
+echo verifies that path separately. Use --dak-test-profile Full for all fixtures.
 exit /b 0
 
 :help_error

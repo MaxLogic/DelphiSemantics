@@ -18,17 +18,27 @@ The gate runs, in order:
 1. DelphiSemantics test build.
 2. DelphiSemantics DUnitX suite: `tests\bin\delphiSemanticsTests.exe`.
 3. DelphiAIKit test build.
-4. DelphiAIKit remove-with suite:
-   `tests\DelphiAIKit.Tests.exe --hidebanner --consolemode:quiet -r:Test.RemoveWith`.
+4. DelphiAIKit remove-with gate profile, discovered from `TRemoveWith*Tests`
+   fixtures and run sequentially.
 5. DelphiAIKit CLI build.
 6. A cloned maxTdb smoke using `remove-with --mode apply`.
 
-Do not parallelize the DelphiAIKit remove-with test invocation by splitting
-DUnitX filters across multiple `DelphiAIKit.Tests.exe` processes. The DAK test
-harness uses shared output/temp locations, and parallel filter runs have caused
-runtime `217` failures and file-lock errors.
-If a future proof intentionally runs DAK RemoveWith filters in parallel, set a
-unique `DAK_TEST_OUTPUT_ROOT` for each `DelphiAIKit.Tests.exe` process first.
+The final summary prints per-phase seconds and a sorted
+`Dominant migration gate phases` table so the current bottleneck is explicit.
+
+The default DAK RemoveWith proof uses the `Gate` profile to reduce wall-clock
+time while keeping DUnitX execution sequential. The profile excludes
+`TRemoveWithProprietaryProjectTests` because the cloned maxTdb smoke covers that
+path immediately afterward. Use `--dak-test-profile Full` to include every DAK
+RemoveWith fixture in the gate.
+
+Do not manually parallelize the DelphiAIKit remove-with test invocation by
+splitting DUnitX filters across multiple `DelphiAIKit.Tests.exe` processes.
+Earlier parallel runs caused runtime `217` failures and file-lock errors with
+shared outputs, and later attempts still failed even when each process received
+an isolated `DAK_TEST_OUTPUT_ROOT`. The failures point to additional shared
+state or non-interactive codepage sensitivity, so sequential execution is the
+safe default.
 
 The maxTdb smoke never edits the original fixture. It copies
 `F:\projects\MaxLogic\DelphiAiKit\tests\fixtures\test-projects\maxTdb` to
@@ -43,4 +53,6 @@ Wrapper options:
 - `--skip-build` maps to `-SkipBuild`.
 - `--dak-root <path>` maps to `-DakRoot`.
 - `--work-root <path>` maps to `-WorkRoot`.
+- `--dak-test-shards <count>` maps to `-DakTestShards`. Only `1` is currently safe.
+- `--dak-test-profile <Gate|Full>` maps to `-DakTestProfile`. The default is `Gate`.
 - `--delphi-semantics-root <path>` maps to `-DelphiSemanticsRoot`.

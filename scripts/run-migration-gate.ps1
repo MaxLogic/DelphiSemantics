@@ -3,6 +3,8 @@ param(
   [string]$DelphiSemanticsRoot = '',
   [string]$DakRoot = 'F:\projects\MaxLogic\DelphiAiKit',
   [string]$WorkRoot = (Join-Path $env:TEMP 'delphi-semantics-migration-gate'),
+  [ValidateRange(1, 16)][int]$DakTestShards = 1,
+  [ValidateSet('Gate', 'Full')][string]$DakTestProfile = 'Gate',
   [switch]$SkipBuild
 )
 
@@ -96,6 +98,65 @@ function Assert-ExistingFile {
   }
 }
 
+function Get-DakRemoveWithTestFilters {
+  param([Parameter(Mandatory = $true)][string]$DakRoot)
+
+  $lTestUnit = Join-Path $DakRoot 'tests\units\test.removewith.pas'
+  Assert-ExistingFile $lTestUnit
+
+  $lMatches = Select-String `
+    -LiteralPath $lTestUnit `
+    -Pattern '^\s*(TRemoveWith[A-Za-z0-9_]+Tests)\s*=\s*class\b'
+
+  $lFilters = @($lMatches | ForEach-Object {
+    'Test.RemoveWith.{0}' -f $_.Matches[0].Groups[1].Value
+  })
+
+  if ($lFilters.Count -eq 0) {
+    throw "No DAK RemoveWith DUnitX fixtures discovered in $lTestUnit"
+  }
+
+  return $lFilters
+}
+
+function Invoke-DakRemoveWithTests {
+  param(
+    [Parameter(Mandatory = $true)][string]$DakRoot,
+    [Parameter(Mandatory = $true)][string]$WorkRoot,
+    [Parameter(Mandatory = $true)][int]$ShardCount,
+    [Parameter(Mandatory = $true)][string]$Profile
+  )
+
+  $lFilters = @(Get-DakRemoveWithTestFilters -DakRoot $DakRoot)
+
+  if ($ShardCount -ne 1) {
+    throw 'Parallel DAK RemoveWith shards are disabled. Isolated DAK_TEST_OUTPUT_ROOT was not sufficient; previous parallel runs failed through additional shared state/codepage sensitivity. Use -DakTestShards 1.'
+  }
+
+  if ($Profile -eq 'Gate') {
+    $lFilters = @($lFilters | Where-Object { $_ -ne 'Test.RemoveWith.TRemoveWithProprietaryProjectTests' })
+  }
+
+  if ($lFilters.Count -eq 0) {
+    throw "DAK RemoveWith test profile '$Profile' selected no fixtures"
+  }
+
+  Write-Host "   DAK_TEST_OUTPUT_ROOT: <default DAK test root>"
+  Write-Host "   DAK test profile: $Profile"
+  Write-Host "   DAK test fixtures: $($lFilters.Count)"
+  if ($Profile -eq 'Gate') {
+    Write-Host "   policy: gate profile is sequential and excludes TRemoveWithProprietaryProjectTests because cloned maxTdb smoke verifies the proprietary path."
+  } else {
+    Write-Host "   policy: full profile is sequential and covers every RemoveWith fixture."
+  }
+
+  return Invoke-GateStep `
+    -Name 'Run DAK remove-with tests' `
+    -WorkingDirectory $DakRoot `
+    -FilePath 'tests\DelphiAIKit.Tests.exe' `
+    -Arguments @('--hidebanner', '--consolemode:quiet', "-r:$($lFilters -join ',')")
+}
+
 function Get-NormalizedDirectoryPath {
   param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -127,6 +188,10 @@ function Assert-NoFixtureCollision {
 Assert-ExistingFile (Join-Path $DelphiSemanticsRoot 'tests\delphiSemanticsTests.dproj')
 Assert-ExistingFile (Join-Path $DakRoot 'tests\DelphiAIKit.Tests.dproj')
 Assert-ExistingFile (Join-Path $DakRoot 'projects\DelphiAIKit.dproj')
+
+if ($DakTestShards -ne 1) {
+  throw 'Parallel DAK RemoveWith shards are disabled. Isolated DAK_TEST_OUTPUT_ROOT was not sufficient; previous parallel runs failed through additional shared state/codepage sensitivity. Use -DakTestShards 1.'
+}
 
 $lFixture = Join-Path $DakRoot 'tests\fixtures\test-projects\maxTdb'
 $lClone = Join-Path $WorkRoot 'maxTdb'
@@ -164,13 +229,11 @@ if (-not $SkipBuild) {
     -Arguments @('/C', 'build-delphi.bat', 'tests\DelphiAIKit.Tests.dproj', '-config', 'Debug', '-platform', 'Win32', '-target', 'Rebuild')))
 }
 
-# Keep this as one sequential DUnitX process. Parallel DAK RemoveWith filters
-# contend for shared test output/temp files and have caused runtime 217 failures.
-$lResults.Add((Invoke-GateStep `
-  -Name 'Run DAK remove-with tests' `
-  -WorkingDirectory $DakRoot `
-  -FilePath 'tests\DelphiAIKit.Tests.exe' `
-  -Arguments @('--hidebanner', '--consolemode:quiet', '-r:Test.RemoveWith')))
+$lResults.Add((Invoke-DakRemoveWithTests `
+  -DakRoot $DakRoot `
+  -WorkRoot $WorkRoot `
+  -ShardCount $DakTestShards `
+  -Profile $DakTestProfile))
 
 if (-not $SkipBuild) {
   $lResults.Add((Invoke-GateStep `
@@ -223,6 +286,18 @@ $lSkipBuckets = @($lJson.skipped | Group-Object reason | Sort-Object Count -Desc
 Write-Host ''
 Write-Host '== Migration gate summary'
 $lResults | Format-Table -AutoSize | Out-String | Write-Host
+
+$lTotalSeconds = ($lResults | Measure-Object -Property Seconds -Sum).Sum
+$lDominantPhases = @($lResults | Sort-Object Seconds -Descending | Select-Object -First 3 | ForEach-Object {
+  [pscustomobject]@{
+    Name = $_.Name
+    Seconds = $_.Seconds
+    Percent = if ($lTotalSeconds -gt 0) { [Math]::Round(($_.Seconds / $lTotalSeconds) * 100, 1) } else { 0 }
+  }
+})
+
+Write-Host '== Dominant migration gate phases'
+$lDominantPhases | Format-Table -AutoSize | Out-String | Write-Host
 
 [pscustomobject]@{
   Status = $lStatus
