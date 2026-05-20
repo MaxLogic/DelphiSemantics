@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Project symbol/reference index API with per-snapshot symbol IDs plus conservative
+  resolved, ambiguous, and unresolved reference diagnostics.
 - Repo-root `run-migration-gate.bat` wrapper for the DelphiSemantics/DAK/maxTdb migration gate,
   with documented sequential DAK RemoveWith execution and `DAK_TEST_OUTPUT_ROOT` isolation guidance.
 - Migration gate script and documentation for the DelphiSemantics suite, DAK remove-with suite,

@@ -3,7 +3,8 @@ unit DelphiSemantics.Api;
 interface
 
 uses
-  DelphiSemantics.Cache, DelphiSemantics.Model, DelphiSemantics.ProjectContext,
+  DelphiSemantics.Cache, DelphiSemantics.Index, DelphiSemantics.Model,
+  DelphiSemantics.ProjectContext, DelphiSemantics.Query, DelphiSemantics.Symbols,
   DelphiSemantics.WithBinding;
 
 type
@@ -16,7 +17,15 @@ type
   TDelphiSemanticCacheOptions = DelphiSemantics.Cache.TDelphiSemanticCacheOptions;
   TDelphiSemanticCacheMetrics = DelphiSemantics.Cache.TDelphiSemanticCacheMetrics;
   TDelphiSemanticCacheDiagnostic = DelphiSemantics.Cache.TDelphiSemanticCacheDiagnostic;
+  TDelphiSemanticProjectSymbolIndex =
+    DelphiSemantics.Index.TDelphiSemanticProjectSymbolIndex;
   TDelphiSemanticUnitModel = DelphiSemantics.Model.TDelphiSemanticUnitModel;
+  TDelphiSemanticSymbolQueryContext =
+    DelphiSemantics.Query.TDelphiSemanticSymbolQueryContext;
+  TDelphiSemanticSymbolId = DelphiSemantics.Symbols.TDelphiSemanticSymbolId;
+  TDelphiSemanticIndexedSymbol = DelphiSemantics.Symbols.TDelphiSemanticIndexedSymbol;
+  TDelphiSemanticIndexedReference =
+    DelphiSemantics.Symbols.TDelphiSemanticIndexedReference;
   TDelphiSemanticInventorySymbol = DelphiSemantics.WithBinding.TDelphiSemanticInventorySymbol;
   TDelphiSemanticWithBinding = DelphiSemantics.WithBinding.TDelphiSemanticWithBinding;
   TDelphiSemanticRemoveWithInventory =
@@ -60,6 +69,8 @@ type
       const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticContextResult; static;
     class function BuildUnitIndex(const aOptions: TDelphiSemanticApiOptions):
       TDelphiSemanticUnitIndex; static;
+    class function BuildProjectSymbolIndex(const aContext: TDelphiSemanticSymbolQueryContext):
+      TDelphiSemanticProjectSymbolIndex; static;
   end;
 
 implementation
@@ -140,6 +151,12 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+class function TDelphiSemanticApi.BuildProjectSymbolIndex(
+  const aContext: TDelphiSemanticSymbolQueryContext): TDelphiSemanticProjectSymbolIndex;
+begin
+  Result := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
 end;
 
 end.

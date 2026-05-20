@@ -76,6 +76,7 @@
     <DCCReference Include="..\src\DelphiSemantics.CompilerProfile.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Graph.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.GlobalVars.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Index.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Lsp.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Model.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Preprocess.pas"/>
@@ -84,6 +85,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Resolve.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Source.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.SourceContext.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Symbols.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Version.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.WithBinding.pas"/>
   </ItemGroup>

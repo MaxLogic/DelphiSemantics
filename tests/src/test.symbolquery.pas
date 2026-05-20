@@ -4,10 +4,13 @@ interface
 
 uses
   DUnitX.TestFramework,
+  DelphiSemantics.Api,
   DelphiSemantics.Cache,
   DelphiSemantics.CompilerProfile,
+  DelphiSemantics.Index,
   DelphiSemantics.Model,
-  DelphiSemantics.Query;
+  DelphiSemantics.Query,
+  DelphiSemantics.Symbols;
 
 type
   [TestFixture]
@@ -40,12 +43,14 @@ type
     procedure VisibleUnitScopesIncludeProjectAndRtlModels;
     [Test]
     procedure IndexedProjectUnitsKeepSourceKindAndRoutineSearch;
+    [Test]
+    procedure BuildsProjectSymbolIndexWithResolvedAmbiguousAndUnresolvedReferences;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.Classes, System.IOUtils, System.SysUtils,
   maxLogic.IOUtils;
 
 function TSymbolQueryTests.FixturePath(const aFileName: string): string;
@@ -422,6 +427,143 @@ begin
   lResults := TDelphiSemanticSymbolQuery.SearchAllMatches(lContext, 'SiblingExact', 10);
 
   Assert.AreEqual(2, Length(lResults));
+end;
+
+procedure TSymbolQueryTests.BuildsProjectSymbolIndexWithResolvedAmbiguousAndUnresolvedReferences;
+var
+  lAmbiguous: TDelphiSemanticUnitModel;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lHidden: TDelphiSemanticUnitModel;
+  lIndex: TDelphiSemanticProjectSymbolIndex;
+  lReference: TDelphiSemanticIndexedReference;
+  lResolvedFixture: Boolean;
+  lResolvedLowerCase: Boolean;
+  lSawAmbiguous: Boolean;
+  lSawHidden: Boolean;
+  lSawImplementationOnly: Boolean;
+  lSawUnresolved: Boolean;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+  lSymbolIds: TStringList;
+begin
+  lContext := LoadContext;
+  lAmbiguous := Default(TDelphiSemanticUnitModel);
+  lAmbiguous.UnitName := 'AmbiguousSymbolUnit';
+  lAmbiguous.FileName := FixturePath('AmbiguousSymbolUnit.pas');
+  SetLength(lAmbiguous.Declarations, 2);
+  lAmbiguous.Declarations[0].Name := 'GlobalQueryValue';
+  lAmbiguous.Declarations[0].Kind := 'var';
+  lAmbiguous.Declarations[0].SectionKind := 'interface';
+  lAmbiguous.Declarations[0].Line := 3;
+  lAmbiguous.Declarations[0].Column := 3;
+  lAmbiguous.Declarations[1].Name := 'ImplementationOnlyValue';
+  lAmbiguous.Declarations[1].Kind := 'var';
+  lAmbiguous.Declarations[1].SectionKind := 'implementation';
+  lAmbiguous.Declarations[1].Line := 4;
+  lAmbiguous.Declarations[1].Column := 3;
+  lHidden := Default(TDelphiSemanticUnitModel);
+  lHidden.UnitName := 'HiddenSymbolUnit';
+  lHidden.FileName := FixturePath('HiddenSymbolUnit.pas');
+  SetLength(lHidden.Declarations, 1);
+  lHidden.Declarations[0].Name := 'HiddenUniqueValue';
+  lHidden.Declarations[0].Kind := 'var';
+  lHidden.Declarations[0].SectionKind := 'interface';
+  lHidden.Declarations[0].Line := 4;
+  lHidden.Declarations[0].Column := 3;
+  lContext.IndexedUnitModels := lContext.IndexedUnitModels + [lAmbiguous, lHidden];
+  lContext.IndexedUnitSourceKinds := lContext.IndexedUnitSourceKinds +
+    ['project-source', 'project-source'];
+  lContext.UnitModel.ImplementationUses := lContext.UnitModel.ImplementationUses +
+    ['AmbiguousSymbolUnit'];
+  SetLength(lContext.UnitModel.References, Length(lContext.UnitModel.References) + 3);
+  lContext.UnitModel.References[High(lContext.UnitModel.References) - 1].Name := 'globalqueryvalue';
+  lContext.UnitModel.References[High(lContext.UnitModel.References) - 1].Line := 99;
+  lContext.UnitModel.References[High(lContext.UnitModel.References) - 1].Column := 3;
+  lContext.UnitModel.References[High(lContext.UnitModel.References)].Name :=
+    'HiddenUniqueValue';
+  lContext.UnitModel.References[High(lContext.UnitModel.References)].Line := 100;
+  lContext.UnitModel.References[High(lContext.UnitModel.References)].Column := 3;
+  lContext.UnitModel.References[High(lContext.UnitModel.References) - 2].Name := 'DoesNotExist';
+  lContext.UnitModel.References[High(lContext.UnitModel.References) - 2].Line := 101;
+  lContext.UnitModel.References[High(lContext.UnitModel.References) - 2].Column := 3;
+  lContext.UnitModel.References[High(lContext.UnitModel.References) - 2].SectionKind :=
+    'implementation';
+  SetLength(lContext.UnitModel.References, Length(lContext.UnitModel.References) + 1);
+  lContext.UnitModel.References[High(lContext.UnitModel.References)].Name :=
+    'ImplementationOnlyValue';
+  lContext.UnitModel.References[High(lContext.UnitModel.References)].Line := 102;
+  lContext.UnitModel.References[High(lContext.UnitModel.References)].Column := 3;
+  lContext.UnitModel.References[High(lContext.UnitModel.References)].SectionKind :=
+    'implementation';
+  SetLength(lContext.UnitModel.References, Length(lContext.UnitModel.References) + 1);
+  lContext.UnitModel.References[High(lContext.UnitModel.References)].Name := 'Name';
+  lContext.UnitModel.References[High(lContext.UnitModel.References)].Line := 103;
+  lContext.UnitModel.References[High(lContext.UnitModel.References)].Column := 3;
+  lContext.UnitModel.References[High(lContext.UnitModel.References)].SectionKind :=
+    'implementation';
+  lIndex := TDelphiSemanticApi.BuildProjectSymbolIndex(lContext);
+
+  lSymbolIds := TStringList.Create;
+  try
+    lSymbolIds.Sorted := True;
+    lSymbolIds.Duplicates := dupError;
+    for lSymbol in lIndex.Symbols do
+    begin
+      Assert.AreNotEqual('', lSymbol.Id.Value);
+      lSymbolIds.Add(lSymbol.Id.Value);
+    end;
+  finally
+    lSymbolIds.Free;
+  end;
+
+  lResolvedFixture := False;
+  lResolvedLowerCase := False;
+  lSawAmbiguous := False;
+  lSawHidden := False;
+  lSawImplementationOnly := False;
+  lSawUnresolved := False;
+  for lReference in lIndex.References do
+  begin
+    if lReference.Name = 'globalqueryvalue' then
+    begin
+      lResolvedLowerCase := lReference.Status = 'ambiguous';
+      Assert.AreEqual('case-insensitive-name-match', lReference.Confidence);
+    end else if SameText(lReference.Name, 'TSymbolMapFixture') and
+      (lReference.Status = 'resolved') then
+    begin
+      lResolvedFixture := True;
+      Assert.AreNotEqual('', lReference.SymbolId.Value);
+    end else if SameText(lReference.Name, 'GlobalQueryValue') then
+    begin
+      if lReference.Status = 'ambiguous' then
+        lSawAmbiguous := True;
+    end else if lReference.Name = 'DoesNotExist' then
+    begin
+      lSawUnresolved := lReference.Status = 'unresolved';
+      Assert.AreEqual('no-candidates', lReference.Confidence);
+    end else if lReference.Name = 'HiddenUniqueValue' then
+    begin
+      lSawHidden := True;
+      Assert.AreEqual('unresolved', lReference.Status);
+      Assert.AreEqual('no-candidates', lReference.Confidence);
+    end else if lReference.Name = 'Name' then
+    begin
+      Assert.AreEqual('unresolved', lReference.Status);
+      Assert.AreEqual('no-candidates', lReference.Confidence);
+    end else if lReference.Name = 'ImplementationOnlyValue' then
+    begin
+      lSawImplementationOnly := True;
+      Assert.AreEqual('unresolved', lReference.Status);
+      Assert.AreEqual('no-candidates', lReference.Confidence);
+    end;
+  end;
+
+  Assert.IsTrue(lResolvedFixture, 'Expected a resolved TSymbolMapFixture reference.');
+  Assert.IsTrue(lSawAmbiguous, 'Expected an ambiguous GlobalQueryValue reference.');
+  Assert.IsTrue(lSawHidden, 'Expected hidden unit reference to stay unresolved.');
+  Assert.IsTrue(lSawImplementationOnly,
+    'Expected implementation-only cross-unit reference to stay unresolved.');
+  Assert.IsTrue(lResolvedLowerCase, 'Expected lower-case reference to match case-insensitively.');
+  Assert.IsTrue(lSawUnresolved, 'Expected unresolved reference diagnostic.');
 end;
 
 initialization
