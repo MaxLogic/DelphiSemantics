@@ -615,6 +615,7 @@ var
   lCacheOptions: TDelphiSemanticCacheOptions;
   lCommonRoot: string;
   lContext: TDelphiSemanticResolveContext;
+  lMemberResult: TDelphiSemanticResolveResult;
   lProfile: TDelphiSemanticCompilerProfile;
   lResult: TDelphiSemanticResolveResult;
   lRtlRoot: string;
@@ -663,7 +664,8 @@ begin
     Assert.IsTrue(lResult.Found);
     Assert.AreEqual('System.Math', lResult.OwnerName);
     Assert.AreEqual('routine', lResult.Kind);
-    Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(3, lCache.Metrics.CacheMisses,
+      'Expected each discovered RTL source model to be written through the cache on first use.');
   finally
     lCache.Free;
   end;
@@ -676,6 +678,7 @@ var
   lCacheOptions: TDelphiSemanticCacheOptions;
   lCommonRoot: string;
   lContext: TDelphiSemanticResolveContext;
+  lMemberResult: TDelphiSemanticResolveResult;
   lProfile: TDelphiSemanticCompilerProfile;
   lResult: TDelphiSemanticResolveResult;
   lRtlRoot: string;
@@ -690,6 +693,10 @@ begin
   lSource := 'unit System.FastRtl;' + sLineBreak + 'interface' + sLineBreak +
     'type' + sLineBreak + '  TFastRtlRecord = record' + sLineBreak +
     '    Value: Integer;' + sLineBreak + '  end;' + sLineBreak +
+    '  _SECURITY_ATTRIBUTES = record' + sLineBreak + '    nLength: DWORD;' + sLineBreak +
+    '    lpSecurityDescriptor: Pointer;' + sLineBreak + '    bInheritHandle: BOOL;' +
+    sLineBreak + '  end;' + sLineBreak +
+    '  TSecurityAttributes = _SECURITY_ATTRIBUTES;' + sLineBreak +
     '  TFastRtlEnum = (freOne, freTwo);' + sLineBreak +
     '  TFastRtlMultilineEnum = (' + sLineBreak + '    fmOne,' + sLineBreak +
     '    fmTwo' + sLineBreak + '  );' + sLineBreak +
@@ -720,6 +727,8 @@ begin
     lContext.IndexedUnitModels := lProfile.RtlSourceUnitModels;
 
     lResult := TDelphiSemanticResolver.ResolveName(lSourceModel, lContext, 'FastMin');
+    lMemberResult := TDelphiSemanticResolver.ResolveMemberAtLevel(lProfile.RtlSourceUnitModels[0],
+      'TSecurityAttributes', 'nLength', 3);
 
     Assert.AreEqual(1, Length(lProfile.RtlSourceUnitModels));
     Assert.IsTrue(HasDeclaration(lProfile.RtlSourceUnitModels[0], 'TFastRtlRecord'),
@@ -734,8 +743,10 @@ begin
     Assert.IsTrue(lResult.Found, 'Expected the fast RTL profile to keep interface routines.');
     Assert.AreEqual('System.FastRtl', lResult.OwnerName);
     Assert.AreEqual('routine', lResult.Kind);
-    Assert.AreEqual(0, lCache.Metrics.CacheMisses,
-      'RTL source-root profiles must avoid the full parser/cache path.');
+    Assert.IsTrue(lMemberResult.Found, 'Expected RTL alias members to resolve through the aliased record type.');
+    Assert.AreEqual('_SECURITY_ATTRIBUTES', lMemberResult.OwnerName);
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses,
+      'RTL source-root profiles must cache fast interface models without using the full parser path.');
   finally
     lCache.Free;
   end;

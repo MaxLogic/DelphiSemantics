@@ -38,6 +38,10 @@ type
     [Test]
     procedure CompilerProfileChangeInvalidatesPersistentEntry;
     [Test]
+    procedure StoredRowsKeepSharedCompilerContextKeys;
+    [Test]
+    procedure RtlSourceRootProfilesReuseSharedSqliteCache;
+    [Test]
     procedure CorruptCacheFileRebuildsWithDiagnostic;
     [Test]
     procedure CorruptStoredEntryRebuildsWithDiagnostic;
@@ -48,9 +52,9 @@ type
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.SysUtils, System.Variants,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
-  DelphiSemantics.Api,
+  DelphiSemantics.Api, DelphiSemantics.CompilerProfile,
   maxLogic.IOUtils;
 
 function TCacheSqliteTests.HasCacheDiagnostic(const aCache: TDelphiSemanticSqliteUnitCache;
@@ -380,6 +384,111 @@ begin
     Assert.AreEqual(1, lCache.Metrics.CacheMisses);
     Assert.AreEqual(1, lCache.Metrics.Invalidations);
     Assert.IsTrue(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_STALE_PROFILE_REBUILT'));
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.StoredRowsKeepSharedCompilerContextKeys;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+  lFileName: string;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('shared-context-keys-cache.sqlite3');
+  lCacheOptions.DelphiVersion := '23.0';
+  lCacheOptions.Configuration := 'Debug';
+  lCacheOptions.Platform := 'Win32';
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := WriteUnitFile('SqliteSharedContextUnit', 'TSqliteSharedContextType');
+  lModelOptions.ProjectContextApplied := True;
+  lFileName := TPath.GetFullPath(lModelOptions.SourceFileName);
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := lCacheOptions.SqliteCacheFileName;
+    lConnection.Connected := True;
+
+    Assert.AreEqual(lFileName, VarToStr(lConnection.ExecSQLScalar(
+      'select source_file_name from unit_models limit 1')), 'Expected source filename in SQLite cache row.');
+    Assert.IsTrue(VarToStr(lConnection.ExecSQLScalar(
+      'select file_hash from unit_models limit 1')) <> '', 'Expected source file hash in SQLite cache row.');
+    Assert.AreEqual('23.0', VarToStr(lConnection.ExecSQLScalar(
+      'select delphi_version from unit_models limit 1')), 'Expected Delphi version in SQLite cache row.');
+    Assert.AreEqual('Debug', VarToStr(lConnection.ExecSQLScalar(
+      'select configuration from unit_models limit 1')), 'Expected configuration in SQLite cache row.');
+    Assert.AreEqual('Win32', VarToStr(lConnection.ExecSQLScalar(
+      'select platform from unit_models limit 1')), 'Expected platform in SQLite cache row.');
+  finally
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.RtlSourceRootProfilesReuseSharedSqliteCache;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lCommonRoot: string;
+  lProfile: TDelphiSemanticCompilerProfile;
+  lRtlRoot: string;
+begin
+  lRtlRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+    'cache-sqlite-temp', 'fake-shared-rtl-source']));
+  lCommonRoot := CombinePath([lRtlRoot, 'rtl', 'common']);
+  TDirectory.CreateDirectory(lCommonRoot);
+  TFile.WriteAllText(TPath.Combine(lCommonRoot, 'System.SharedRtl.pas'),
+    'unit System.SharedRtl;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TSharedRtlRecord = record' + sLineBreak +
+    '    Value: Integer;' + sLineBreak + '  end;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('shared-rtl-source-cache.sqlite3');
+  lCacheOptions.CompilerProfileName := 'Delphi-12-Win32-Debug-RTL';
+  lCacheOptions.DelphiVersion := '23.0';
+  lCacheOptions.Configuration := 'Debug';
+  lCacheOptions.Platform := 'Win32';
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceRoot(lCache,
+      lCacheOptions.CompilerProfileName, '23.0', 'Win32', lRtlRoot, ['SharedRtl']);
+
+    Assert.AreEqual(1, Length(lProfile.RtlSourceUnitModels));
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(0, lCache.Metrics.CacheHits);
+  finally
+    lCache.Free;
+  end;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceRoot(lCache,
+      lCacheOptions.CompilerProfileName, '23.0', 'Win32', lRtlRoot, ['SharedRtl']);
+
+    Assert.AreEqual(1, Length(lProfile.RtlSourceUnitModels));
+    Assert.IsTrue(HasDeclaration(lProfile.RtlSourceUnitModels[0], 'TSharedRtlRecord'));
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    Assert.AreEqual(0, lCache.Metrics.CacheMisses);
   finally
     lCache.Free;
   end;

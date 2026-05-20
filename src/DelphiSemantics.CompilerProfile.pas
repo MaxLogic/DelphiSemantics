@@ -913,15 +913,29 @@ begin
   end;
 end;
 
-function FromRtlSourceRootForPlatform(const aCompilerProfileName, aPlatform: string;
+function FromRtlSourceRootForPlatform(const aCache: TDelphiSemanticUnitCache;
+  const aCompilerProfileName, aPlatform: string;
   const aSourceFileNames: TArray<string>): TDelphiSemanticCompilerProfile;
 var
   i: Integer;
+  lOptions: TDelphiSemanticModelOptions;
 begin
   Result := TDelphiSemanticCompilerProfileBuilder.DefaultProfile(aCompilerProfileName);
   SetLength(Result.RtlSourceUnitModels, Length(aSourceFileNames));
   for i := 0 to Pred(Length(aSourceFileNames)) do
-    Result.RtlSourceUnitModels[i] := BuildRtlSourceUnitModel(aSourceFileNames[i], aPlatform);
+  begin
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := aSourceFileNames[i];
+    lOptions.Defines := CompilerProfileDefinesForPlatform(aPlatform);
+    lOptions.SearchPaths := [TPath.GetDirectoryName(aSourceFileNames[i])];
+    lOptions.ProjectContextApplied := True;
+    lOptions.SkipBodyAnalysis := True;
+    Result.RtlSourceUnitModels[i] := aCache.GetOrBuildUnitModelWithStatus(lOptions,
+      function(const aBuildOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel
+      begin
+        Result := BuildRtlSourceUnitModel(aBuildOptions.SourceFileName, aPlatform);
+      end).Model;
+  end;
 end;
 
 class function TDelphiSemanticCompilerProfileBuilder.ProfileForTarget(
@@ -976,7 +990,7 @@ var
 begin
   lSourceFileNames := DiscoverRtlSourceFiles(aRtlSourceRoot, aUnitNames);
   Result := ProfileForTarget(aCompilerProfileName, aDelphiVersion, aPlatform, aRtlSourceRoot);
-  Result.RtlSourceUnitModels := FromRtlSourceRootForPlatform(aCompilerProfileName, aPlatform,
+  Result.RtlSourceUnitModels := FromRtlSourceRootForPlatform(aCache, aCompilerProfileName, aPlatform,
     lSourceFileNames).RtlSourceUnitModels;
 end;
 

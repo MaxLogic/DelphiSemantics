@@ -17,6 +17,7 @@ type
     function PersistentEntryExistsForIdentity(const aIdentity: string): Boolean; override;
     procedure RecordPersistentInvalidation(const aIdentity, aKey: string); override;
     procedure StorePersistentEntry(const aIdentity, aKey: string;
+      const aCacheIdentity: TDelphiSemanticUnitCacheIdentity;
       const aModel: TDelphiSemanticUnitModel); override;
     function TryLoadPersistentEntry(const aIdentity, aKey: string;
       out aModel: TDelphiSemanticUnitModel): Boolean; override;
@@ -31,7 +32,7 @@ uses
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def;
 
 const
-  cSqliteSchemaVersion = '4';
+  cSqliteSchemaVersion = '5';
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -545,7 +546,9 @@ begin
       end;
       lConnection.ExecSQL('create table if not exists unit_models (' +
         'cache_key text primary key not null, identity_key text not null, ' +
-        'compiler_profile_name text not null, model_json text not null, stored_at_utc text not null)');
+        'source_file_name text not null, file_hash text not null, delphi_version text not null, ' +
+        'configuration text not null, platform text not null, compiler_profile_name text not null, ' +
+        'model_json text not null, stored_at_utc text not null)');
       lConnection.ExecSQL('create index if not exists idx_unit_models_identity on ' +
         'unit_models(identity_key)');
       lConnection.ExecSQL('insert or replace into meta(key_name, value_text) values ' +
@@ -644,7 +647,9 @@ begin
       '(''schema_version'', ?)', [cSqliteSchemaVersion]);
     TFDConnection(lConnectionObject).ExecSQL('create table if not exists unit_models (' +
       'cache_key text primary key not null, identity_key text not null, ' +
-      'compiler_profile_name text not null, model_json text not null, stored_at_utc text not null)');
+      'source_file_name text not null, file_hash text not null, delphi_version text not null, ' +
+      'configuration text not null, platform text not null, compiler_profile_name text not null, ' +
+      'model_json text not null, stored_at_utc text not null)');
     TFDConnection(lConnectionObject).ExecSQL('delete from unit_models');
     TFDConnection(lConnectionObject).ExecSQL('create index if not exists idx_unit_models_identity on ' +
       'unit_models(identity_key)');
@@ -689,6 +694,7 @@ begin
 end;
 
 procedure TDelphiSemanticSqliteUnitCache.StorePersistentEntry(const aIdentity, aKey: string;
+  const aCacheIdentity: TDelphiSemanticUnitCacheIdentity;
   const aModel: TDelphiSemanticUnitModel);
 var
   lConnectionObject: TObject;
@@ -704,8 +710,10 @@ begin
   try
     lConnection := TFDConnection(lConnectionObject);
     lConnection.ExecSQL('insert or replace into unit_models(cache_key, identity_key, ' +
-      'compiler_profile_name, model_json, stored_at_utc) values (?, ?, ?, ?, ?)',
-      [aKey, aIdentity, CompilerProfileName, ModelToJson(aModel),
+      'source_file_name, file_hash, delphi_version, configuration, platform, compiler_profile_name, ' +
+      'model_json, stored_at_utc) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [aKey, aIdentity, aModel.FileName, aCacheIdentity.FileHash, DelphiVersion, Configuration, Platform,
+      CompilerProfileName, ModelToJson(aModel),
       FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"', Now)]);
   finally
     lConnectionObject.Free;

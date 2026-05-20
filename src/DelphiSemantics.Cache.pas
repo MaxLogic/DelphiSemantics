@@ -10,6 +10,9 @@ type
   TDelphiSemanticCacheOptions = record
     SqliteCacheFileName: string;
     CompilerProfileName: string;
+    DelphiVersion: string;
+    Configuration: string;
+    Platform: string;
     ParserVersion: string;
     ModelVersion: string;
   end;
@@ -68,6 +71,9 @@ type
     CacheHit: Boolean;
   end;
 
+  TDelphiSemanticUnitModelBuilder = reference to function(
+    const aOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel;
+
   TDelphiSemanticCacheIdentityBuilder = record
   public
     class function BuildContextHash(const aContext: TDelphiSemanticCacheIdentityContext):
@@ -92,7 +98,10 @@ type
     fDiagnostics: TList<TDelphiSemanticCacheDiagnostic>;
     fMetrics: TDelphiSemanticCacheMetrics;
     fCompilerProfileName: string;
+    fConfiguration: string;
+    fDelphiVersion: string;
     fParserVersion: string;
+    fPlatform: string;
     fModelVersion: string;
     function GetCompilerProfileName: string;
     function GetDiagnostics: TArray<TDelphiSemanticCacheDiagnostic>;
@@ -105,6 +114,7 @@ type
     function PersistentEntryExistsForIdentity(const aIdentity: string): Boolean; virtual;
     procedure SetCacheKind(const aValue: string);
     procedure StorePersistentEntry(const aIdentity, aKey: string;
+      const aCacheIdentity: TDelphiSemanticUnitCacheIdentity;
       const aModel: TDelphiSemanticUnitModel); virtual;
     function TryLoadPersistentEntry(const aIdentity, aKey: string;
       out aModel: TDelphiSemanticUnitModel): Boolean; virtual;
@@ -118,11 +128,16 @@ type
       TDelphiSemanticUnitModel;
     function GetOrExtractUnitModelWithStatus(const aOptions: TDelphiSemanticModelOptions):
       TDelphiSemanticUnitCacheAccessResult;
+    function GetOrBuildUnitModelWithStatus(const aOptions: TDelphiSemanticModelOptions;
+      const aBuilder: TDelphiSemanticUnitModelBuilder): TDelphiSemanticUnitCacheAccessResult;
     property Diagnostics: TArray<TDelphiSemanticCacheDiagnostic> read GetDiagnostics;
     property Metrics: TDelphiSemanticCacheMetrics read GetMetrics;
     property CompilerProfileName: string read GetCompilerProfileName write SetCompilerProfileName;
+    property Configuration: string read fConfiguration;
+    property DelphiVersion: string read fDelphiVersion;
     property ModelVersion: string read GetModelVersion write SetModelVersion;
     property ParserVersion: string read GetParserVersion write SetParserVersion;
+    property Platform: string read fPlatform;
   end;
 
 implementation
@@ -433,6 +448,9 @@ begin
   fCompilerProfileName := aOptions.CompilerProfileName;
   if fCompilerProfileName = '' then
     fCompilerProfileName := cDefaultCompilerProfileName;
+  fDelphiVersion := aOptions.DelphiVersion;
+  fConfiguration := aOptions.Configuration;
+  fPlatform := aOptions.Platform;
   fParserVersion := aOptions.ParserVersion;
   if fParserVersion = '' then
     fParserVersion := cDefaultParserVersion;
@@ -491,6 +509,17 @@ end;
 
 function TDelphiSemanticUnitCache.GetOrExtractUnitModelWithStatus(
   const aOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitCacheAccessResult;
+begin
+  Result := GetOrBuildUnitModelWithStatus(aOptions,
+    function(const aBuildOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel
+    begin
+      Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(aBuildOptions);
+    end);
+end;
+
+function TDelphiSemanticUnitCache.GetOrBuildUnitModelWithStatus(
+  const aOptions: TDelphiSemanticModelOptions;
+  const aBuilder: TDelphiSemanticUnitModelBuilder): TDelphiSemanticUnitCacheAccessResult;
 var
   lDictionary: TCacheDictionary;
   lEntry: TCacheEntry;
@@ -533,11 +562,11 @@ begin
   end;
 
   Inc(fMetrics.CacheMisses);
-  Result.Model := TDelphiSemanticUnitModelExtractor.ExtractFromFile(aOptions);
+  Result.Model := aBuilder(aOptions);
   lEntry.Key := lKey;
   lEntry.Model := CloneUnitModel(Result.Model);
   lDictionary.AddOrSetValue(lIdentity, lEntry);
-  StorePersistentEntry(lIdentity, lKey, Result.Model);
+  StorePersistentEntry(lIdentity, lKey, Result.Identity, Result.Model);
 end;
 
 procedure TDelphiSemanticUnitCache.SetCompilerProfileName(const aValue: string);
@@ -563,6 +592,7 @@ begin
 end;
 
 procedure TDelphiSemanticUnitCache.StorePersistentEntry(const aIdentity, aKey: string;
+  const aCacheIdentity: TDelphiSemanticUnitCacheIdentity;
   const aModel: TDelphiSemanticUnitModel);
 begin
 end;
