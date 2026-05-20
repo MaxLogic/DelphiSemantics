@@ -5,7 +5,7 @@ interface
 uses
   DelphiSemantics.Cache, DelphiSemantics.Index, DelphiSemantics.Model,
   DelphiSemantics.ProjectContext, DelphiSemantics.Query, DelphiSemantics.Symbols,
-  DelphiSemantics.WithBinding;
+  DelphiSemantics.Usage, DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticDiagnosticSeverity =
@@ -26,6 +26,8 @@ type
   TDelphiSemanticIndexedSymbol = DelphiSemantics.Symbols.TDelphiSemanticIndexedSymbol;
   TDelphiSemanticIndexedReference =
     DelphiSemantics.Symbols.TDelphiSemanticIndexedReference;
+  TDelphiSemanticUsage = DelphiSemantics.Usage.TDelphiSemanticUsage;
+  TDelphiSemanticUsageResult = DelphiSemantics.Usage.TDelphiSemanticUsageResult;
   TDelphiSemanticInventorySymbol = DelphiSemantics.WithBinding.TDelphiSemanticInventorySymbol;
   TDelphiSemanticWithBinding = DelphiSemantics.WithBinding.TDelphiSemanticWithBinding;
   TDelphiSemanticRemoveWithInventory =
@@ -71,6 +73,11 @@ type
       TDelphiSemanticUnitIndex; static;
     class function BuildProjectSymbolIndex(const aContext: TDelphiSemanticSymbolQueryContext):
       TDelphiSemanticProjectSymbolIndex; static;
+    class function FindUsagesByName(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aName: string): TDelphiSemanticUsageResult; static;
+    class function FindUsagesAtPosition(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aFileName: string; const aLine, aColumn: Integer): TDelphiSemanticUsageResult;
+      static;
   end;
 
 implementation
@@ -157,6 +164,21 @@ class function TDelphiSemanticApi.BuildProjectSymbolIndex(
   const aContext: TDelphiSemanticSymbolQueryContext): TDelphiSemanticProjectSymbolIndex;
 begin
   Result := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
+end;
+
+class function TDelphiSemanticApi.FindUsagesByName(
+  const aContext: TDelphiSemanticSymbolQueryContext; const aName: string):
+  TDelphiSemanticUsageResult;
+begin
+  Result := TDelphiSemanticUsageFinder.FindUsagesByName(aContext, aName);
+end;
+
+class function TDelphiSemanticApi.FindUsagesAtPosition(
+  const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string; const aLine,
+  aColumn: Integer): TDelphiSemanticUsageResult;
+begin
+  Result := TDelphiSemanticUsageFinder.FindUsagesAtPosition(aContext, aFileName, aLine,
+    aColumn);
 end;
 
 end.

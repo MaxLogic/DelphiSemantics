@@ -21,6 +21,7 @@ uses
   Test.SourceContext in 'src\test.sourcecontext.pas',
   Test.Smoke in 'src\test.smoke.pas',
   Test.SymbolQuery in 'src\test.symbolquery.pas',
+  Test.Usage in 'src\test.usage.pas',
   Test.UnitModel in 'src\test.unitmodel.pas',
   Test.WithDiscovery in 'src\test.withdiscovery.pas',
   Test.WithBinder in 'src\test.withbinder.pas';

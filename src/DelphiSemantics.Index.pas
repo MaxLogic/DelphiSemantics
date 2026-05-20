@@ -202,6 +202,9 @@ begin
     lIndexedReference.UnitName := aModel.UnitName;
     lIndexedReference.SourceKind := aSourceKind;
     lIndexedReference.FileName := aModel.FileName;
+    lIndexedReference.SectionKind := lReference.SectionKind;
+    if lIndexedReference.SectionKind = '' then
+      lIndexedReference.SectionKind := 'implementation';
     lIndexedReference.Line := lReference.Line;
     lIndexedReference.Column := lReference.Column;
     lIndexedReference.EndLine := lReference.EndLine;

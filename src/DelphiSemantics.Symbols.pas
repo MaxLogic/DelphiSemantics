@@ -27,6 +27,7 @@ type
     CandidateSymbolIds: TArray<TDelphiSemanticSymbolId>;
     Confidence: string;
     UnitName: string;
+    SectionKind: string;
     SourceKind: string;
     FileName: string;
     Line: Integer;
