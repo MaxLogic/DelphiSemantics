@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Optional semantic search facade with syntax-only match labeling, resolved
+  symbol filtering, and declaration kind/owner/scope/unit filters.
 - Dead-code removal edit planner with profile-gated dry-run text edits and
   blockers for audit mode or unsupported deletion shapes.
 - Conservative dead-code report API with audit safety profile, blocked-risk

@@ -5,8 +5,8 @@ interface
 uses
   DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.Index, DelphiSemantics.Model,
   DelphiSemantics.ProjectContext, DelphiSemantics.Query,
-  DelphiSemantics.Refactor, DelphiSemantics.Symbols, DelphiSemantics.Usage,
-  DelphiSemantics.WithBinding;
+  DelphiSemantics.Refactor, DelphiSemantics.Search, DelphiSemantics.Symbols,
+  DelphiSemantics.Usage, DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticDiagnosticSeverity =
@@ -38,6 +38,9 @@ type
     DelphiSemantics.Refactor.TDelphiSemanticDeadCodeRemovalBlocker;
   TDelphiSemanticDeadCodeRemovalPlan =
     DelphiSemantics.Refactor.TDelphiSemanticDeadCodeRemovalPlan;
+  TDelphiSemanticSearchQuery = DelphiSemantics.Search.TDelphiSemanticSearchQuery;
+  TDelphiSemanticSearchMatch = DelphiSemantics.Search.TDelphiSemanticSearchMatch;
+  TDelphiSemanticSearchResult = DelphiSemantics.Search.TDelphiSemanticSearchResult;
   TDelphiSemanticInventorySymbol = DelphiSemantics.WithBinding.TDelphiSemanticInventorySymbol;
   TDelphiSemanticWithBinding = DelphiSemantics.WithBinding.TDelphiSemanticWithBinding;
   TDelphiSemanticRemoveWithInventory =
@@ -94,6 +97,8 @@ type
       const aProfile: string): TDelphiSemanticDeadCodeReport; static;
     class function PlanDeadCodeRemoval(const aContext: TDelphiSemanticSymbolQueryContext;
       const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; static;
+    class function Search(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aQuery: TDelphiSemanticSearchQuery): TDelphiSemanticSearchResult; static;
   end;
 
 implementation
@@ -215,6 +220,12 @@ class function TDelphiSemanticApi.PlanDeadCodeRemoval(
   TDelphiSemanticDeadCodeRemovalPlan;
 begin
   Result := TDelphiSemanticRenamePlanner.PlanDeadCodeRemoval(aContext, aProfile);
+end;
+
+class function TDelphiSemanticApi.Search(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aQuery: TDelphiSemanticSearchQuery): TDelphiSemanticSearchResult;
+begin
+  Result := TDelphiSemanticSearch.Search(aContext, aQuery);
 end;
 
 end.
