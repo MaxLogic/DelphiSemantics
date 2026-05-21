@@ -25,12 +25,22 @@ uses
 type
   TDelphiSemanticSymbolList = TList<TDelphiSemanticIndexedSymbol>;
 
-function MakeSymbolId(const aModel: TDelphiSemanticUnitModel; const aKind, aOwnerName,
-  aName: string; const aLine, aColumn, aOrdinal: Integer): TDelphiSemanticSymbolId;
+function NormalizeSignatureForSymbolId(const aSignature: string): string;
 begin
-  Result.Value := LowerCase(aModel.UnitName) + ':' + LowerCase(aKind) + ':' +
-    LowerCase(aOwnerName) + ':' + LowerCase(aName) + ':' + IntToStr(aLine) + ':' +
-    IntToStr(aColumn) + ':' + IntToStr(aOrdinal);
+  Result := LowerCase(StringReplace(aSignature.Trim, ' ', '', [rfReplaceAll]));
+end;
+
+function MakeSymbolId(const aModel: TDelphiSemanticUnitModel; const aKind, aOwnerName,
+  aName, aSignature: string; const aLine, aColumn, aOrdinal: Integer): TDelphiSemanticSymbolId;
+begin
+  if SameText(aKind, 'routine') then
+    Result.Value := LowerCase(aModel.UnitName) + ':' + LowerCase(aKind) + ':' +
+      LowerCase(aOwnerName) + ':' + LowerCase(aName) + ':' +
+      NormalizeSignatureForSymbolId(aSignature)
+  else
+    Result.Value := LowerCase(aModel.UnitName) + ':' + LowerCase(aKind) + ':' +
+      LowerCase(aOwnerName) + ':' + LowerCase(aName) + ':' + IntToStr(aLine) + ':' +
+      IntToStr(aColumn) + ':' + IntToStr(aOrdinal);
 end;
 
 function IndexedSourceKind(const aContext: TDelphiSemanticSymbolQueryContext;
@@ -45,7 +55,7 @@ end;
 
 procedure AddSymbol(const aSymbols: TDelphiSemanticSymbolList;
   const aModel: TDelphiSemanticUnitModel; const aSourceKind, aKind, aOwnerName, aName: string;
-  const aSectionKind, aVisibility: string; const aLine, aColumn: Integer);
+  const aSectionKind, aVisibility, aSignature: string; const aLine, aColumn: Integer);
 var
   lSymbol: TDelphiSemanticIndexedSymbol;
 begin
@@ -53,7 +63,7 @@ begin
     Exit;
 
   lSymbol := Default(TDelphiSemanticIndexedSymbol);
-  lSymbol.Id := MakeSymbolId(aModel, aKind, aOwnerName, aName, aLine, aColumn,
+  lSymbol.Id := MakeSymbolId(aModel, aKind, aOwnerName, aName, aSignature, aLine, aColumn,
     aSymbols.Count);
   lSymbol.Name := aName;
   lSymbol.Kind := aKind;
@@ -76,23 +86,36 @@ var
   lMember: TDelphiSemanticMember;
   lRoutine: TDelphiSemanticRoutine;
 begin
-  AddSymbol(aSymbols, aModel, aSourceKind, 'unit', '', aModel.UnitName, 'interface', '', 1, 1);
+  AddSymbol(aSymbols, aModel, aSourceKind, 'unit', '', aModel.UnitName, 'interface', '', '', 1, 1);
 
   for lDeclaration in aModel.Declarations do
-    AddSymbol(aSymbols, aModel, aSourceKind, lDeclaration.Kind, '', lDeclaration.Name,
-      lDeclaration.SectionKind, '', lDeclaration.Line, lDeclaration.Column);
+    if not SameText(lDeclaration.Kind, 'routine') then
+      AddSymbol(aSymbols, aModel, aSourceKind, lDeclaration.Kind, '', lDeclaration.Name,
+        lDeclaration.SectionKind, '', '', lDeclaration.Line, lDeclaration.Column);
 
   for lRoutine in aModel.Routines do
     AddSymbol(aSymbols, aModel, aSourceKind, 'routine', lRoutine.OwnerName, lRoutine.Name,
-      lRoutine.SectionKind, '', lRoutine.Line, lRoutine.Column);
+      lRoutine.SectionKind, '', lRoutine.Signature, lRoutine.Line, lRoutine.Column);
 
   for lMember in aModel.Members do
     AddSymbol(aSymbols, aModel, aSourceKind, lMember.Kind, lMember.OwnerName, lMember.Name,
-      '', lMember.Visibility, lMember.Line, lMember.Column);
+      '', lMember.Visibility, lMember.Signature, lMember.Line, lMember.Column);
 
   for lLocal in aModel.Locals do
     AddSymbol(aSymbols, aModel, aSourceKind, lLocal.Kind, lLocal.RoutineName, lLocal.Name,
-      '', '', lLocal.Line, lLocal.Column);
+      '', '', '', lLocal.Line, lLocal.Column);
+end;
+
+function SymbolIdInList(const aIds: TList<TDelphiSemanticSymbolId>;
+  const aId: TDelphiSemanticSymbolId): Boolean;
+var
+  lId: TDelphiSemanticSymbolId;
+begin
+  for lId in aIds do
+    if lId.Value = aId.Value then
+      Exit(True);
+
+  Result := False;
 end;
 
 function ReferenceConfidence(const aReferenceName: string;
@@ -171,7 +194,8 @@ begin
     for lSymbol in aSymbols do
       if SameText(lSymbol.Name, aReference.Name) and SymbolIsVisibleFromReference(aModel,
         aReference, lSymbol) then
-        lCandidateIds.Add(lSymbol.Id);
+        if not SymbolIdInList(lCandidateIds, lSymbol.Id) then
+          lCandidateIds.Add(lSymbol.Id);
 
     aIndexedReference.CandidateSymbolIds := lCandidateIds.ToArray;
     aIndexedReference.Confidence := ReferenceConfidence(aReference.Name, lCandidateIds,

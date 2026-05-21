@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Rename planner regressions for project-scoped routine identity, position-based
+  routine header rename, same-unit declaration-side type references, and real
+  maxTdb dogfood blockers.
 - Agent guidance for DAK project-scoped semantic refactoring, including
   `find-usages`, dry-run `rename`, and dead-code review safety rules.
 - Optional semantic search facade with syntax-only match labeling, resolved
@@ -62,6 +65,9 @@
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
 
 ### Fixed
+- Rename planning now coalesces Delphi routine declarations and implementations,
+  targets routine identifiers from header positions, indexes declaration-side
+  type references, and de-duplicates identical edit ranges before apply.
 - Preprocessing now tolerates legacy compiler directives used by maxTdb,
   including multiline conditional close braces, inline conditional pairs,
   compiler switches, resource directives, and region markers.

@@ -126,6 +126,66 @@ uses
   System.StrUtils, System.SysUtils,
   DelphiSemantics.Preprocess, DelphiSemantics.Source;
 
+var
+  GLineCacheText: string = '';
+  GLineCacheLength: Integer = -1;
+  GLineCacheStarts: TArray<Integer>;
+
+procedure EnsureLineCache(const aText: string);
+var
+  i: Integer;
+  lCount: Integer;
+begin
+  if (Pointer(aText) = Pointer(GLineCacheText)) and (Length(aText) = GLineCacheLength) then
+    Exit;
+
+  GLineCacheLength := Length(aText);
+  GLineCacheText := aText;
+  SetLength(GLineCacheStarts, 1);
+  GLineCacheStarts[0] := 1;
+  lCount := 1;
+  for i := 1 to Length(aText) do
+  begin
+    if aText[i] = #10 then
+    begin
+      SetLength(GLineCacheStarts, lCount + 1);
+      GLineCacheStarts[lCount] := i + 1;
+      Inc(lCount);
+    end;
+  end;
+end;
+
+function LineIndexOfOffset(const aText: string; const aOffset: Integer): Integer;
+var
+  lHigh: Integer;
+  lLow: Integer;
+  lMid: Integer;
+  lOffset: Integer;
+begin
+  EnsureLineCache(aText);
+  lOffset := aOffset;
+  if lOffset < 1 then
+    lOffset := 1;
+  if lOffset > Length(aText) then
+    lOffset := Length(aText);
+  if (lOffset > 0) and (lOffset <= Length(aText)) and (aText[lOffset] = #10) then
+    Inc(lOffset);
+
+  lLow := 0;
+  lHigh := High(GLineCacheStarts);
+  Result := 0;
+  while lLow <= lHigh do
+  begin
+    lMid := (lLow + lHigh) div 2;
+    if GLineCacheStarts[lMid] <= lOffset then
+    begin
+      Result := lMid;
+      lLow := lMid + 1;
+    end else
+      lHigh := lMid - 1;
+  end;
+end;
+
 procedure AddDiagnostic(const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   const aCode, aMessage, aFileName: string; const aLine: Integer);
 var
@@ -158,26 +218,18 @@ begin
 end;
 
 function LineOfOffset(const aText: string; const aOffset: Integer): Integer;
-var
-  i: Integer;
 begin
-  Result := 1;
-  for i := 1 to aOffset do
-    if aText[i] = #10 then
-      Inc(Result);
+  Result := LineIndexOfOffset(aText, aOffset) + 1;
 end;
 
 function ColumnOfOffset(const aText: string; const aOffset: Integer): Integer;
 var
-  i: Integer;
+  lIndex: Integer;
 begin
-  Result := 1;
-  i := aOffset;
-  while (i > 1) and not CharInSet(aText[i - 1], [#10, #13]) do
-  begin
-    Inc(Result);
-    Dec(i);
-  end;
+  lIndex := LineIndexOfOffset(aText, aOffset);
+  Result := aOffset - GLineCacheStarts[lIndex] + 1;
+  if Result < 1 then
+    Result := 1;
 end;
 
 function SectionForOffset(const aText: string; const aOffset: Integer): string;
@@ -197,6 +249,14 @@ begin
     Result := aMatch.Groups[aIndex].Value
   else
     Result := '';
+end;
+
+function MatchGroupIndex(const aMatch: TMatch; const aIndex: Integer): Integer;
+begin
+  if aIndex < aMatch.Groups.Count then
+    Result := aMatch.Groups[aIndex].Index
+  else
+    Result := 0;
 end;
 
 function QualifiedRoutineName(const aOwnerName, aRoutineName: string): string;
@@ -387,10 +447,64 @@ var
 begin
   lReference.Name := aName;
   lReference.RoutineName := aRoutineName;
+  lReference.Role := 'reference';
+  lReference.SectionKind := SectionForOffset(aText, aOffset);
   lReference.Line := LineOfOffset(aText, aOffset);
   lReference.Column := ColumnOfOffset(aText, aOffset);
+  lReference.EndLine := lReference.Line;
+  lReference.EndColumn := lReference.Column + Length(aName) - 1;
   aReferences.Add(lReference);
 end;
+
+function IsTypeReferenceToken(const aName: string): Boolean;
+begin
+  Result := (aName <> '') and not MatchText(aName, ['array', 'class', 'const', 'file',
+    'function', 'interface', 'of', 'packed', 'procedure', 'record', 'set', 'string', 'type',
+    'var', 'Integer', 'Cardinal', 'Boolean', 'Byte', 'Char', 'Double', 'Extended', 'Int64',
+    'LongInt', 'Pointer', 'Single', 'SmallInt', 'WideChar', 'Word']);
+end;
+
+procedure AddTypeReferences(const aReferences: TList<TDelphiSemanticReference>;
+  const aRoutineName, aTypeText, aText: string; const aTypeTextOffset: Integer);
+var
+  lMatch: TMatch;
+  lReference: TDelphiSemanticReference;
+begin
+  if aTypeText.Trim = '' then
+    Exit;
+
+  lMatch := TRegEx.Match(aTypeText, '\b[A-Za-z_][A-Za-z0-9_]*\b', [roIgnoreCase]);
+  while lMatch.Success do
+  begin
+    if IsTypeReferenceToken(lMatch.Value) then
+    begin
+      lReference := Default(TDelphiSemanticReference);
+      lReference.Name := lMatch.Value;
+      lReference.RoutineName := aRoutineName;
+      lReference.Role := 'type-reference';
+      lReference.SectionKind := SectionForOffset(aText, aTypeTextOffset + lMatch.Index - 1);
+      lReference.Line := LineOfOffset(aText, aTypeTextOffset + lMatch.Index - 1);
+      lReference.Column := ColumnOfOffset(aText, aTypeTextOffset + lMatch.Index - 1);
+      lReference.EndLine := lReference.Line;
+      lReference.EndColumn := lReference.Column + Length(lReference.Name) - 1;
+      aReferences.Add(lReference);
+    end;
+    lMatch := lMatch.NextMatch;
+  end;
+end;
+
+function TextOffsetInLine(const aLine, aText: string; const aLineOffset: Integer): Integer;
+var
+  lOffset: Integer;
+begin
+  lOffset := Pos(aText, aLine);
+  if lOffset <= 0 then
+    lOffset := 1;
+  Result := aLineOffset + lOffset - 1;
+end;
+
+procedure AddParameterTypeReferences(const aReferences: TList<TDelphiSemanticReference>;
+  const aRoutineName, aParameterText, aText: string; const aParameterTextOffset: Integer); forward;
 
 procedure AddUses(const aList: TList<string>; const aUsesText: string);
 var
@@ -478,7 +592,8 @@ begin
 end;
 
 procedure ExtractTypeDeclarations(const aText: string;
-  const aDeclarations: TList<TDelphiSemanticDeclaration>);
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aReferences: TList<TDelphiSemanticReference>);
 var
   i: Integer;
   lBlockKind: string;
@@ -539,6 +654,8 @@ begin
           begin
             lName := lMatch.Groups[1].Value;
             lTypeText := lMatch.Groups[2].Value;
+            AddTypeReferences(aReferences, '', lTypeText, aText, TextOffsetInLine(lLines[i],
+              lTypeText, lOffset));
             lTypeName := NormalizeTypeName(lTypeText);
             lSection := SectionForOffset(aText, lOffset + 1);
             if not SameText(lName, 'Result') then
@@ -594,7 +711,8 @@ end;
 
 procedure AddAnonymousRecordMembers(const aText: string; const aLines: TStringList;
   const aOwnerName: string; const aStartIndex, aEndIndex, aStartOffset: Integer;
-  const aMembers: TList<TDelphiSemanticMember>);
+  const aMembers: TList<TDelphiSemanticMember>;
+  const aReferences: TList<TDelphiSemanticReference>);
 var
   i: Integer;
   lFieldMatch: TMatch;
@@ -620,6 +738,8 @@ begin
         AddMember(aMembers, aOwnerName, lName.Trim, 'field', lFieldMatch.Groups[2].Value.Trim,
           '', '', aText, False, False, lOffset + lNameOffset);
       end;
+      AddTypeReferences(aReferences, '', lFieldMatch.Groups[2].Value.Trim, aText,
+        TextOffsetInLine(aLines[i], lFieldMatch.Groups[2].Value.Trim, lOffset));
     end;
     Inc(lOffset, Length(aLines[i]) + Length(sLineBreak));
   end;
@@ -627,7 +747,7 @@ end;
 
 procedure ExtractConstVarDeclarations(const aText, aUnitName: string;
   const aDeclarations: TList<TDelphiSemanticDeclaration>; const aMembers:
-  TList<TDelphiSemanticMember>);
+  TList<TDelphiSemanticMember>; const aReferences: TList<TDelphiSemanticReference>);
 var
   i: Integer;
   j: Integer;
@@ -701,6 +821,8 @@ begin
               lDeclarationKind := 'const';
             AddDeclaration(aDeclarations, lMatch.Groups[1].Value, lDeclarationKind,
               MatchGroupValue(lMatch, 2).Trim, lSection, aText, lOffset + 1);
+            AddTypeReferences(aReferences, '', MatchGroupValue(lMatch, 2).Trim, aText,
+              TextOffsetInLine(lLines[i], MatchGroupValue(lMatch, 2).Trim, lOffset));
           end;
         end else if MatchText(lBlockKind, ['var', 'threadvar']) then
         begin
@@ -719,6 +841,8 @@ begin
                 AddDeclaration(aDeclarations, lName.Trim, lBlockKind,
                   lMatch.Groups[2].Value.Trim, lSection, aText, lOffset + lNameOffset);
               end;
+            AddTypeReferences(aReferences, '', lMatch.Groups[2].Value.Trim, aText,
+              TextOffsetInLine(lLines[i], lMatch.Groups[2].Value.Trim, lOffset));
           end else if TryAnonymousRecordVarStart(lLine, lName) then
           begin
             lSection := SectionForOffset(aText, lOffset + 1);
@@ -737,7 +861,7 @@ begin
 
             j := lOffset + Length(lLines[i]) + Length(sLineBreak);
             AddAnonymousRecordMembers(aText, lLines, lSyntheticTypeName, i + 1, lEndLine - 1, j,
-              aMembers);
+              aMembers, aReferences);
             lSkipUntilLine := lEndLine + 1;
           end;
         end;
@@ -751,7 +875,8 @@ end;
 
 procedure ExtractMembersFromBody(const aText, aOwnerName, aBody: string; const aBodyOffset: Integer;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
-  const aMembers: TList<TDelphiSemanticMember>);
+  const aMembers: TList<TDelphiSemanticMember>;
+  const aReferences: TList<TDelphiSemanticReference>);
 var
   lDefaultProperty: Boolean;
   lFieldMatch: TMatch;
@@ -788,7 +913,7 @@ begin
         if TRegEx.IsMatch(lLine, '^end\s*;', [roIgnoreCase]) then
         begin
           ExtractMembersFromBody(aText, lNestedOwnerName, lNestedBody, lNestedBodyOffset,
-            aDeclarations, aMembers);
+            aDeclarations, aMembers, aReferences);
           lNestedBody := '';
           lNestedBodyOffset := 0;
           lNestedOwnerName := '';
@@ -834,10 +959,14 @@ begin
               lPropertyMatch.Groups[3].Value.Trim.Split([' '])[0], lVisibility,
               MatchGroupValue(lPropertyMatch, 2).Trim, aText, lIndexedProperty, lDefaultProperty,
               lOffset + 1);
+            AddParameterTypeReferences(aReferences, '', MatchGroupValue(lPropertyMatch, 2),
+              aText, TextOffsetInLine(lLines[i], MatchGroupValue(lPropertyMatch, 2), lOffset));
+            AddTypeReferences(aReferences, '', lPropertyMatch.Groups[3].Value.Trim, aText,
+              TextOffsetInLine(lLines[i], lPropertyMatch.Groups[3].Value.Trim, lOffset));
           end else
           begin
             lMethodMatch := TRegEx.Match(lLine,
-              '^(procedure|function)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\([^\r\n]*\))?\s*(?::\s*([^;]+))?',
+              '^(?:class\s+)?(procedure|function)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\([^\r\n]*\))?\s*(?::\s*([^;]+))?',
               [roIgnoreCase]);
             if lMethodMatch.Success then
             begin
@@ -845,6 +974,10 @@ begin
               AddMember(aMembers, aOwnerName, lMethodMatch.Groups[2].Value, 'method',
                 MatchGroupValue(lMethodMatch, 4).Trim, lVisibility, MatchGroupValue(lMethodMatch, 3),
                 aText, False, False, lOffset + 1);
+              AddParameterTypeReferences(aReferences, '', MatchGroupValue(lMethodMatch, 3),
+                aText, TextOffsetInLine(lLines[i], MatchGroupValue(lMethodMatch, 3), lOffset));
+              AddTypeReferences(aReferences, '', MatchGroupValue(lMethodMatch, 4).Trim, aText,
+                lOffset + MatchGroupIndex(lMethodMatch, 4) - 1);
             end else
             begin
               lFieldMatch := TRegEx.Match(lLine,
@@ -867,6 +1000,8 @@ begin
                         lFieldMatch.Groups[3].Value.Trim, lVisibility, '', aText, False, False,
                         lOffset + lNameOffset);
                   end;
+                AddTypeReferences(aReferences, '', lFieldMatch.Groups[3].Value.Trim, aText,
+                  TextOffsetInLine(lLines[i], lFieldMatch.Groups[3].Value.Trim, lOffset));
               end;
             end;
           end;
@@ -876,14 +1011,15 @@ begin
     end;
     if lNestedOwnerName <> '' then
       ExtractMembersFromBody(aText, lNestedOwnerName, lNestedBody, lNestedBodyOffset,
-        aDeclarations, aMembers);
+        aDeclarations, aMembers, aReferences);
   finally
     lLines.Free;
   end;
 end;
 
 procedure ExtractMembers(const aText: string; const aDeclarations: TList<TDelphiSemanticDeclaration>;
-  const aMembers: TList<TDelphiSemanticMember>);
+  const aMembers: TList<TDelphiSemanticMember>;
+  const aReferences: TList<TDelphiSemanticReference>);
 var
   lMatch: TMatch;
 begin
@@ -894,7 +1030,7 @@ begin
   while lMatch.Success do
   begin
     ExtractMembersFromBody(aText, lMatch.Groups[1].Value, lMatch.Groups[3].Value,
-      lMatch.Groups[3].Index, aDeclarations, aMembers);
+      lMatch.Groups[3].Index, aDeclarations, aMembers, aReferences);
     lMatch := lMatch.NextMatch;
   end;
 end;
@@ -948,8 +1084,39 @@ begin
   end;
 end;
 
+procedure AddParameterTypeReferences(const aReferences: TList<TDelphiSemanticReference>;
+  const aRoutineName, aParameterText, aText: string; const aParameterTextOffset: Integer);
+var
+  lMatch: TMatch;
+  lParameterText: string;
+  lParameterTextOffset: Integer;
+begin
+  if aParameterText.Trim = '' then
+    Exit;
+
+  lParameterText := Trim(aParameterText);
+  lParameterTextOffset := aParameterTextOffset + Pos(lParameterText, aParameterText) - 1;
+  if (lParameterText <> '') and CharInSet(lParameterText[1], ['(', '[']) then
+  begin
+    Delete(lParameterText, 1, 1);
+    Inc(lParameterTextOffset);
+  end;
+  if (lParameterText <> '') and CharInSet(lParameterText[Length(lParameterText)], [')', ']']) then
+    Delete(lParameterText, Length(lParameterText), 1);
+
+  lMatch := TRegEx.Match(lParameterText,
+    '(?:(?:const|var|out)\s+)?[A-Za-z_][A-Za-z0-9_,\s]*\s*:\s*([^;\)\r\n]+)',
+    [roIgnoreCase]);
+  while lMatch.Success do
+  begin
+    AddTypeReferences(aReferences, aRoutineName, lMatch.Groups[1].Value.Trim, aText,
+      lParameterTextOffset + lMatch.Groups[1].Index - 1);
+    lMatch := lMatch.NextMatch;
+  end;
+end;
+
 procedure AddRoutine(const aRoutines: TList<TDelphiSemanticRoutine>; const aName, aOwnerName,
-  aSection, aSignature, aReturnType, aText: string; const aOffset: Integer);
+  aSection, aSignature, aReturnType, aText: string; const aNameOffset: Integer);
 var
   lRoutine: TDelphiSemanticRoutine;
 begin
@@ -958,8 +1125,8 @@ begin
   lRoutine.SectionKind := aSection;
   lRoutine.Signature := aSignature;
   lRoutine.ReturnType := aReturnType.Trim;
-  lRoutine.Line := LineOfOffset(aText, aOffset);
-  lRoutine.Column := ColumnOfOffset(aText, aOffset);
+  lRoutine.Line := LineOfOffset(aText, aNameOffset);
+  lRoutine.Column := ColumnOfOffset(aText, aNameOffset);
   lRoutine.Parameters := ParseParameters(aName, aSignature);
   aRoutines.Add(lRoutine);
 end;
@@ -1022,9 +1189,11 @@ begin
 end;
 
 procedure ExtractRoutines(const aText: string; const aDeclarations: TList<TDelphiSemanticDeclaration>;
-  const aRoutines: TList<TDelphiSemanticRoutine>);
+  const aRoutines: TList<TDelphiSemanticRoutine>;
+  const aReferences: TList<TDelphiSemanticReference>);
 var
   lMatch: TMatch;
+  lNameOffset: Integer;
   lOwnerName: string;
   lPrefix: string;
   lRoutineName: string;
@@ -1047,18 +1216,24 @@ begin
     lOwnerName := lPrefix.Trim;
     if EndsText('.', lOwnerName) then
       lOwnerName := Copy(lOwnerName, 1, Length(lOwnerName) - 1);
+    lNameOffset := lMatch.Index + Pos(lRoutineName, lMatch.Value) - 1;
     lSection := SectionForOffset(aText, lMatch.Index + 1);
     AddRoutine(aRoutines, lRoutineName, lOwnerName, lSection, MatchGroupValue(lMatch, 4),
-      MatchGroupValue(lMatch, 5), aText, lMatch.Index + 1);
+      MatchGroupValue(lMatch, 5), aText, lNameOffset);
+    AddParameterTypeReferences(aReferences, QualifiedRoutineName(lOwnerName, lRoutineName),
+      MatchGroupValue(lMatch, 4), aText, MatchGroupIndex(lMatch, 4));
+    AddTypeReferences(aReferences, QualifiedRoutineName(lOwnerName, lRoutineName),
+      MatchGroupValue(lMatch, 5).Trim, aText, MatchGroupIndex(lMatch, 5));
     if lOwnerName = '' then
       AddDeclaration(aDeclarations, lRoutineName, 'routine', MatchGroupValue(lMatch, 5).Trim,
-        lSection, aText, lMatch.Index + 1);
+        lSection, aText, lNameOffset);
     lMatch := lMatch.NextMatch;
   end;
 end;
 
 procedure ExtractLocalsFromRoutine(const aText, aRoutineName, aRoutineText: string;
-  const aRoutineOffset: Integer; const aLocals: TList<TDelphiSemanticLocal>);
+  const aRoutineOffset: Integer; const aLocals: TList<TDelphiSemanticLocal>;
+  const aReferences: TList<TDelphiSemanticReference>);
 var
   i: Integer;
   lInVarSection: Boolean;
@@ -1084,8 +1259,12 @@ begin
         lLocalMatch := TRegEx.Match(lLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^;]+);',
           [roIgnoreCase]);
         if lLocalMatch.Success then
+        begin
           AddLocal(aLocals, aRoutineName, lLocalMatch.Groups[1].Value, 'var',
             lLocalMatch.Groups[2].Value.Trim, aText, lOffset + 1);
+          AddTypeReferences(aReferences, aRoutineName, lLocalMatch.Groups[2].Value.Trim, aText,
+            TextOffsetInLine(lLines[i], lLocalMatch.Groups[2].Value.Trim, lOffset));
+        end;
       end;
       Inc(lOffset, Length(lLines[i]) + Length(sLineBreak));
     end;
@@ -1154,7 +1333,8 @@ begin
         lEndOffset := Length(aText);
 
       lRoutineText := Copy(aText, lStarts[i] + 1, lEndOffset - lStarts[i]);
-      ExtractLocalsFromRoutine(aText, lNames[i], lRoutineText, lStarts[i], aLocals);
+      ExtractLocalsFromRoutine(aText, lNames[i], lRoutineText, lStarts[i], aLocals,
+        aReferences);
       lBodyBegin := Pos('begin', LowerCase(lRoutineText));
       if lBodyBegin > 0 then
       begin
@@ -1411,7 +1591,8 @@ begin
     begin
       lCandidateLine := LineOfOffset(lCleanText, lMatch.Index + 1);
       lCandidateColumn := ColumnOfOffset(lCleanText, lMatch.Index + 1);
-      lCandidateDistance := Abs(lCandidateLine - lReference.Line);
+      lCandidateDistance := Abs(lCandidateLine - lReference.Line) * 10000 +
+        Abs(lCandidateColumn - lReference.Column);
       if lCandidateDistance < lBestDistance then
       begin
         lBestDistance := lCandidateDistance;
@@ -1424,6 +1605,8 @@ begin
     begin
       lReference.Line := lBestLine;
       lReference.Column := lBestColumn;
+      lReference.EndLine := lBestLine;
+      lReference.EndColumn := lBestColumn + Length(lReference.Name) - 1;
       aReferences[i] := lReference;
     end;
   end;
@@ -1485,6 +1668,7 @@ var
   lCandidateColumn: Integer;
   lCandidateDistance: Integer;
   lCandidateLine: Integer;
+  lCandidateOffset: Integer;
   lCleanText: string;
   lMatch: TMatch;
   lRoutine: TDelphiSemanticRoutine;
@@ -1500,8 +1684,9 @@ begin
       TRegEx.Escape(lRoutine.Name) + '\b', [roIgnoreCase, roMultiLine]);
     while lMatch.Success do
     begin
-      lCandidateLine := LineOfOffset(lCleanText, lMatch.Index + 1);
-      lCandidateColumn := ColumnOfOffset(lCleanText, lMatch.Index + 1);
+      lCandidateOffset := lMatch.Index + Pos(lRoutine.Name, lMatch.Value) - 1;
+      lCandidateLine := LineOfOffset(lCleanText, lCandidateOffset);
+      lCandidateColumn := ColumnOfOffset(lCleanText, lCandidateOffset);
       lCandidateDistance := Abs(lCandidateLine - lRoutine.Line);
       if lCandidateDistance < lBestDistance then
       begin
@@ -1658,10 +1843,10 @@ begin
       Result.UnitName := lMatch.Groups[1].Value;
 
     ExtractUses(lText, lInterfaceUses, lImplementationUses);
-    ExtractTypeDeclarations(lText, lDeclarations);
-    ExtractConstVarDeclarations(lText, Result.UnitName, lDeclarations, lMembers);
-    ExtractMembers(lText, lDeclarations, lMembers);
-    ExtractRoutines(lText, lDeclarations, lRoutines);
+    ExtractTypeDeclarations(lText, lDeclarations, lReferences);
+    ExtractConstVarDeclarations(lText, Result.UnitName, lDeclarations, lMembers, lReferences);
+    ExtractMembers(lText, lDeclarations, lMembers, lReferences);
+    ExtractRoutines(lText, lDeclarations, lRoutines, lReferences);
     if not aOptions.SkipBodyAnalysis then
     begin
       ExtractRoutineBodies(lText, lLocals, lReferences);

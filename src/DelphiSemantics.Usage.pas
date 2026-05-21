@@ -74,6 +74,18 @@ begin
     SameText(aSymbol.Kind, 'routine')) and SameText(aSymbol.Name, aName);
 end;
 
+function SymbolIdInList(const aIds: TList<TDelphiSemanticSymbolId>;
+  const aId: TDelphiSemanticSymbolId): Boolean;
+var
+  lId: TDelphiSemanticSymbolId;
+begin
+  for lId in aIds do
+    if lId.Value = aId.Value then
+      Exit(True);
+
+  Result := False;
+end;
+
 function MakeUsage(const aReference: TDelphiSemanticIndexedReference): TDelphiSemanticUsage;
 begin
   Result := Default(TDelphiSemanticUsage);
@@ -108,12 +120,15 @@ end;
 function BuildResultForSymbol(const aIndex: TDelphiSemanticProjectSymbolIndex;
   const aSymbol: TDelphiSemanticIndexedSymbol): TDelphiSemanticUsageResult;
 var
+  lSymbol: TDelphiSemanticIndexedSymbol;
   lReference: TDelphiSemanticIndexedReference;
   lUsages: TList<TDelphiSemanticUsage>;
 begin
   lUsages := TList<TDelphiSemanticUsage>.Create;
   try
-    lUsages.Add(MakeDeclarationUsage(aSymbol));
+    for lSymbol in aIndex.Symbols do
+      if lSymbol.Id.Value = aSymbol.Id.Value then
+        lUsages.Add(MakeDeclarationUsage(lSymbol));
     for lReference in aIndex.References do
       if (lReference.Status = 'resolved') and (lReference.SymbolId.Value = aSymbol.Id.Value) then
         lUsages.Add(MakeUsage(lReference));
@@ -132,15 +147,23 @@ function ResolveSymbolByName(const aIndex: TDelphiSemanticProjectSymbolIndex; co
 var
   lCount: Integer;
   lSymbol: TDelphiSemanticIndexedSymbol;
+  lSymbolIds: TList<TDelphiSemanticSymbolId>;
 begin
   lCount := 0;
   aDiagnostic := '';
-  for lSymbol in aIndex.Symbols do
-    if SymbolMatchesName(lSymbol, aName) then
-    begin
-      Inc(lCount);
-      aSymbol := lSymbol;
-    end;
+  lSymbolIds := TList<TDelphiSemanticSymbolId>.Create;
+  try
+    for lSymbol in aIndex.Symbols do
+      if SymbolMatchesName(lSymbol, aName) and not SymbolIdInList(lSymbolIds, lSymbol.Id) then
+      begin
+        Inc(lCount);
+        lSymbolIds.Add(lSymbol.Id);
+        if lCount = 1 then
+          aSymbol := lSymbol;
+      end;
+  finally
+    lSymbolIds.Free;
+  end;
 
   if lCount = 1 then
     Exit('resolved');

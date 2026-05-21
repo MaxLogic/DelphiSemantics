@@ -332,13 +332,6 @@ begin
       if not IsProjectSymbol(lSymbol) or not IsCandidateKind(lSymbol) then
         Continue;
 
-      lReferenceCount := CountResolvedReferences(lIndex, lSymbol);
-      if (lReferenceCount = 0) and not HasAmbiguousReference(lIndex, lSymbol) and
-        not HasUnresolvedReferenceByName(lIndex, lSymbol) then
-        lReferenceCount := CountSameUnitNameReferences(lIndex, lSymbol);
-      if lReferenceCount > 0 then
-        Continue;
-
       lBlockers := TList<string>.Create;
       try
         if SameText(lSymbol.Visibility, 'published') then
@@ -353,6 +346,13 @@ begin
           AddBlocker(lBlockers, 'ambiguous-reference');
         if HasUnresolvedReferenceByName(lIndex, lSymbol) then
           AddBlocker(lBlockers, 'unresolved-reference');
+
+      lReferenceCount := CountResolvedReferences(lIndex, lSymbol);
+      if (lReferenceCount = 0) and not HasAmbiguousReference(lIndex, lSymbol) and
+        not HasUnresolvedReferenceByName(lIndex, lSymbol) then
+        lReferenceCount := CountSameUnitNameReferences(lIndex, lSymbol);
+        if (lReferenceCount > 0) and (lBlockers.Count = 0) then
+        Continue;
 
         if lBlockers.Count > 0 then
           lCandidate := MakeCandidate(lSymbol, 'blocked', 'dynamic-or-unresolved-risk',

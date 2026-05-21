@@ -42,6 +42,9 @@ type
   public
     class function PlanRename(const aContext: TDelphiSemanticSymbolQueryContext;
       const aName, aNewName: string): TDelphiSemanticRenamePlan; static;
+    class function PlanRenameAtPosition(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aFileName: string; const aLine, aColumn: Integer; const aNewName: string):
+      TDelphiSemanticRenamePlan; static;
     class function PlanDeadCodeRemoval(const aContext: TDelphiSemanticSymbolQueryContext;
       const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; static;
   end;
@@ -106,6 +109,19 @@ begin
   Result.EndLine := aUsage.EndLine;
   Result.EndColumn := aUsage.EndColumn;
   Result.NewText := aNewName;
+end;
+
+function EditAlreadyPlanned(const aEdits: TList<TDelphiSemanticTextEdit>;
+  const aEdit: TDelphiSemanticTextEdit): Boolean;
+var
+  lEdit: TDelphiSemanticTextEdit;
+begin
+  for lEdit in aEdits do
+    if SameText(lEdit.FileName, aEdit.FileName) and (lEdit.StartLine = aEdit.StartLine) and
+      (lEdit.StartColumn = aEdit.StartColumn) and (lEdit.EndLine = aEdit.EndLine) and
+      (lEdit.EndColumn = aEdit.EndColumn) then
+      Exit(True);
+  Result := False;
 end;
 
 function MakeRemovalBlocker(const aCandidate: TDelphiSemanticDeadCodeCandidate;
@@ -365,30 +381,20 @@ begin
   Result := False;
 end;
 
-class function TDelphiSemanticRenamePlanner.PlanRename(
-  const aContext: TDelphiSemanticSymbolQueryContext; const aName, aNewName: string):
+function BuildRenamePlanFromUsages(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aUsageResult: TDelphiSemanticUsageResult; const aNewName: string):
   TDelphiSemanticRenamePlan;
 var
   lEdit: TDelphiSemanticTextEdit;
   lEdits: TList<TDelphiSemanticTextEdit>;
-  lIndex: TDelphiSemanticProjectSymbolIndex;
   lUsage: TDelphiSemanticUsage;
-  lUsageResult: TDelphiSemanticUsageResult;
 begin
-  if not IsIdentifierText(aNewName) then
-    Exit(MakeBlockedPlan('New name is not a valid Delphi identifier.'));
-
-  lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
-  if HasNameCollision(lIndex, aName, aNewName) then
-    Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".'));
-
-  lUsageResult := TDelphiSemanticUsageFinder.FindUsagesByName(aContext, aName);
-  if lUsageResult.Status <> 'resolved' then
-    Exit(MakeBlockedPlan(lUsageResult.Diagnostic));
+  if aUsageResult.Status <> 'resolved' then
+    Exit(MakeBlockedPlan(aUsageResult.Diagnostic));
 
   lEdits := TList<TDelphiSemanticTextEdit>.Create;
   try
-    for lUsage in lUsageResult.Usages do
+    for lUsage in aUsageResult.Usages do
     begin
       if not IsProjectUsage(lUsage) then
         Exit(MakeBlockedPlan('Rename contains non-project usage in "' + lUsage.FileName + '".'));
@@ -399,7 +405,8 @@ begin
         ((lUsage.EndLine = lUsage.Line) and (lUsage.EndColumn < lUsage.Column)) then
         Exit(MakeBlockedPlan('Rename range is missing for usage "' + lUsage.Name + '".'));
       lEdit := MakeEdit(lUsage, aNewName);
-      lEdits.Add(lEdit);
+      if not EditAlreadyPlanned(lEdits, lEdit) then
+        lEdits.Add(lEdit);
     end;
 
     Result := Default(TDelphiSemanticRenamePlan);
@@ -408,6 +415,46 @@ begin
   finally
     lEdits.Free;
   end;
+end;
+
+class function TDelphiSemanticRenamePlanner.PlanRename(
+  const aContext: TDelphiSemanticSymbolQueryContext; const aName, aNewName: string):
+  TDelphiSemanticRenamePlan;
+var
+  lIndex: TDelphiSemanticProjectSymbolIndex;
+  lUsageResult: TDelphiSemanticUsageResult;
+begin
+  if not IsIdentifierText(aNewName) then
+    Exit(MakeBlockedPlan('New name is not a valid Delphi identifier.'));
+
+  lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
+  if HasNameCollision(lIndex, aName, aNewName) then
+    Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".'));
+
+  lUsageResult := TDelphiSemanticUsageFinder.FindUsagesByName(aContext, aName);
+  Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
+end;
+
+class function TDelphiSemanticRenamePlanner.PlanRenameAtPosition(
+  const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string; const aLine,
+  aColumn: Integer; const aNewName: string): TDelphiSemanticRenamePlan;
+var
+  lIndex: TDelphiSemanticProjectSymbolIndex;
+  lUsageResult: TDelphiSemanticUsageResult;
+begin
+  if not IsIdentifierText(aNewName) then
+    Exit(MakeBlockedPlan('New name is not a valid Delphi identifier.'));
+
+  lUsageResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(aContext, aFileName, aLine,
+    aColumn);
+  if lUsageResult.Status <> 'resolved' then
+    Exit(MakeBlockedPlan(lUsageResult.Diagnostic));
+
+  lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
+  if HasNameCollision(lIndex, lUsageResult.Symbol.Name, aNewName) then
+    Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".'));
+
+  Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
 end;
 
 class function TDelphiSemanticRenamePlanner.PlanDeadCodeRemoval(

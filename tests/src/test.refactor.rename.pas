@@ -18,7 +18,10 @@ type
     function FixturePath(const aFileName: string): string;
     function LoadContext: TDelphiSemanticSymbolQueryContext;
     function RenameFixturePath(const aFileName: string): string;
+    function RenameUnblockFixturePath(const aFileName: string): string;
     function LoadRenameContext: TDelphiSemanticSymbolQueryContext;
+    function LoadRenameRoutineContext: TDelphiSemanticSymbolQueryContext;
+    function LoadRenameTypeContext: TDelphiSemanticSymbolQueryContext;
   public
     [Test]
     procedure PlansProjectWideRenameForUnambiguousSymbol;
@@ -34,6 +37,14 @@ type
     procedure BlocksReservedWordRename;
     [Test]
     procedure ApiFacadePlansRename;
+    [Test]
+    procedure PlansRoutineRenameAcrossDeclarationImplementationAndCall;
+    [Test]
+    procedure PlansRoutineRenameFromHeaderPosition;
+    [Test]
+    procedure ApiFacadePlansRenameFromHeaderPosition;
+    [Test]
+    procedure PlansTypeRenameForDeclarationSideReferences;
   end;
 
 implementation
@@ -48,10 +59,39 @@ begin
     'SymbolQuery', aFileName]));
 end;
 
+function TRenamePlannerTests.LoadRenameTypeContext: TDelphiSemanticSymbolQueryContext;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.CompilerProfileName := 'Delphi-12-Rename-Type-Unblock-v3';
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := RenameUnblockFixturePath('RenameTypeUnit.pas');
+    lModelOptions.ProjectContextApplied := True;
+    Result.UnitModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Result.CompilerProfile := Default(TDelphiSemanticCompilerProfile);
+    Result.IndexedUnitModels := [];
+    Result.IndexedUnitSourceKinds := [];
+    Result.CacheMetrics := lCache.Metrics;
+  finally
+    lCache.Free;
+  end;
+end;
+
 function TRenamePlannerTests.RenameFixturePath(const aFileName: string): string;
 begin
   Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
     'Rename', aFileName]));
+end;
+
+function TRenamePlannerTests.RenameUnblockFixturePath(const aFileName: string): string;
+begin
+  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
+    'RenameUnblock', aFileName]));
 end;
 
 function TRenamePlannerTests.LoadContext: TDelphiSemanticSymbolQueryContext;
@@ -72,6 +112,30 @@ begin
     Result.CompilerProfile := TDelphiSemanticCompilerProfileBuilder.FromCachedSources(lCache,
       [FixturePath('SymbolQueryRtlUnit.pas')]);
     Result.IndexedUnitModels := Result.CompilerProfile.RtlSourceUnitModels;
+    Result.CacheMetrics := lCache.Metrics;
+  finally
+    lCache.Free;
+  end;
+end;
+
+function TRenamePlannerTests.LoadRenameRoutineContext: TDelphiSemanticSymbolQueryContext;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.CompilerProfileName := 'Delphi-12-Rename-Routine-Unblock-v3';
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := RenameUnblockFixturePath('RenameRoutineUnit.pas');
+    lModelOptions.ProjectContextApplied := True;
+    Result.UnitModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Result.CompilerProfile := TDelphiSemanticCompilerProfileBuilder.FromCachedSources(lCache,
+      [RenameUnblockFixturePath('RenameRoutineConsumerUnit.pas')]);
+    Result.IndexedUnitModels := Result.CompilerProfile.RtlSourceUnitModels;
+    Result.IndexedUnitSourceKinds := ['project-source'];
     Result.CacheMetrics := lCache.Metrics;
   finally
     lCache.Free;
@@ -265,6 +329,202 @@ begin
 
   Assert.AreEqual('planned', lPlan.Status);
   Assert.AreEqual(3, Length(lPlan.Edits));
+end;
+
+procedure TRenamePlannerTests.PlansRoutineRenameAcrossDeclarationImplementationAndCall;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lEdit: TDelphiSemanticTextEdit;
+  lFoundCall: Boolean;
+  lFoundDeclaration: Boolean;
+  lFoundImplementation: Boolean;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lFoundCall := False;
+  lFoundDeclaration := False;
+  lFoundImplementation := False;
+  lContext := LoadRenameRoutineContext;
+
+  lPlan := TDelphiSemanticRenamePlanner.PlanRename(lContext, 'RoutineTarget',
+    'RenamedRoutineTarget');
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(3, Length(lPlan.Edits));
+  for lEdit in lPlan.Edits do
+  begin
+    Assert.AreEqual('RenamedRoutineTarget', lEdit.NewText);
+    if ContainsText(lEdit.FileName, 'RenameRoutineUnit.pas') and (lEdit.StartLine = 8) then
+    begin
+      Assert.AreEqual(10, lEdit.StartColumn, 'Expected interface header edit at routine identifier.');
+      lFoundDeclaration := True
+    end
+    else if ContainsText(lEdit.FileName, 'RenameRoutineUnit.pas') and (lEdit.StartLine = 12) then
+    begin
+      Assert.AreEqual(10, lEdit.StartColumn, 'Expected implementation header edit at routine identifier.');
+      lFoundImplementation := True
+    end
+    else if ContainsText(lEdit.FileName, 'RenameRoutineConsumerUnit.pas') and
+      (lEdit.StartLine = 12) then
+      lFoundCall := True
+    else
+      Assert.Fail('Unexpected edit: ' + lEdit.FileName + ':' + IntToStr(lEdit.StartLine));
+  end;
+
+  Assert.IsTrue(lFoundDeclaration, 'Expected routine interface declaration edit.');
+  Assert.IsTrue(lFoundImplementation, 'Expected routine implementation header edit.');
+  Assert.IsTrue(lFoundCall, 'Expected cross-unit routine call edit.');
+end;
+
+procedure TRenamePlannerTests.PlansRoutineRenameFromHeaderPosition;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lEdit: TDelphiSemanticTextEdit;
+  lFoundImplementation: Boolean;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lFoundImplementation := False;
+  lContext := LoadRenameRoutineContext;
+
+  lPlan := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext,
+    RenameUnblockFixturePath('RenameRoutineUnit.pas'), 12, 10, 'RenamedRoutineTarget');
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(3, Length(lPlan.Edits));
+  for lEdit in lPlan.Edits do
+    if ContainsText(lEdit.FileName, 'RenameRoutineUnit.pas') and (lEdit.StartLine = 12) then
+      lFoundImplementation := True;
+  Assert.IsTrue(lFoundImplementation, 'Expected implementation header edit from header position.');
+end;
+
+procedure TRenamePlannerTests.ApiFacadePlansRenameFromHeaderPosition;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lPlan: DelphiSemantics.Api.TDelphiSemanticRenamePlan;
+begin
+  lContext := LoadRenameRoutineContext;
+
+  lPlan := TDelphiSemanticApi.PlanRenameAtPosition(lContext,
+    RenameUnblockFixturePath('RenameRoutineUnit.pas'), 8, 10, 'RenamedRoutineTarget');
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(3, Length(lPlan.Edits));
+end;
+
+procedure TRenamePlannerTests.PlansTypeRenameForDeclarationSideReferences;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lEdit: TDelphiSemanticTextEdit;
+  lLine16Count: Integer;
+  lLine17Count: Integer;
+  lLine21Count: Integer;
+  lLine23Count: Integer;
+  lLine27Count: Integer;
+  lLine29Count: Integer;
+  lLine6Count: Integer;
+  lLine9Count: Integer;
+  lLine10Count: Integer;
+  lLine11Count: Integer;
+  lLine13Count: Integer;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lLine6Count := 0;
+  lLine9Count := 0;
+  lLine10Count := 0;
+  lLine11Count := 0;
+  lLine13Count := 0;
+  lLine16Count := 0;
+  lLine17Count := 0;
+  lLine21Count := 0;
+  lLine23Count := 0;
+  lLine27Count := 0;
+  lLine29Count := 0;
+  lContext := LoadRenameTypeContext;
+
+  lPlan := TDelphiSemanticRenamePlanner.PlanRename(lContext, 'TSharedType',
+    'TRenamedSharedType');
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(15, Length(lPlan.Edits));
+  for lEdit in lPlan.Edits do
+  begin
+    Assert.AreEqual('TRenamedSharedType', lEdit.NewText);
+    Assert.IsTrue(ContainsText(lEdit.FileName, 'RenameTypeUnit.pas'));
+    case lEdit.StartLine of
+      6:
+      begin
+        Assert.AreEqual(3, lEdit.StartColumn);
+        Inc(lLine6Count);
+      end;
+      9:
+      begin
+        Assert.AreEqual(19, lEdit.StartColumn);
+        Inc(lLine9Count);
+      end;
+      10:
+      begin
+        Assert.AreEqual(19, lEdit.StartColumn);
+        Inc(lLine10Count);
+      end;
+      11:
+      begin
+        Assert.AreEqual(28, lEdit.StartColumn);
+        Inc(lLine11Count);
+      end;
+      13:
+      begin
+        Assert.AreEqual(12, lEdit.StartColumn);
+        Inc(lLine13Count);
+      end;
+      16:
+      begin
+        Assert.IsTrue((lEdit.StartColumn = 39) or (lEdit.StartColumn = 53),
+          'Expected distinct class method parameter/return columns.');
+        Inc(lLine16Count);
+      end;
+      17:
+      begin
+        Assert.IsTrue((lEdit.StartColumn = 29) or (lEdit.StartColumn = 43),
+          'Expected distinct indexed property parameter/type columns.');
+        Inc(lLine17Count);
+      end;
+      21:
+      begin
+        Assert.AreEqual(18, lEdit.StartColumn);
+        Inc(lLine21Count);
+      end;
+      23:
+      begin
+        Assert.IsTrue((lEdit.StartColumn = 30) or (lEdit.StartColumn = 44),
+          'Expected distinct interface parameter/return columns.');
+        Inc(lLine23Count);
+      end;
+      27:
+      begin
+        Assert.IsTrue((lEdit.StartColumn = 30) or (lEdit.StartColumn = 44),
+          'Expected distinct implementation parameter/return columns.');
+        Inc(lLine27Count);
+      end;
+      29:
+      begin
+        Assert.AreEqual(12, lEdit.StartColumn);
+        Inc(lLine29Count);
+      end;
+    else
+      Assert.Fail('Unexpected type rename edit line: ' + IntToStr(lEdit.StartLine));
+    end;
+  end;
+
+  Assert.AreEqual(1, lLine6Count, 'Expected type declaration edit.');
+  Assert.AreEqual(1, lLine9Count, 'Expected pointer alias type reference edit.');
+  Assert.AreEqual(1, lLine10Count, 'Expected plain alias type reference edit.');
+  Assert.AreEqual(1, lLine11Count, 'Expected array alias type reference edit.');
+  Assert.AreEqual(1, lLine13Count, 'Expected record field type reference edit.');
+  Assert.AreEqual(2, lLine16Count, 'Expected class method parameter and return type edits.');
+  Assert.AreEqual(2, lLine17Count, 'Expected indexed property parameter and value type edits.');
+  Assert.AreEqual(1, lLine21Count, 'Expected global variable type reference edit.');
+  Assert.AreEqual(2, lLine23Count, 'Expected interface parameter and return type edits.');
+  Assert.AreEqual(2, lLine27Count, 'Expected implementation parameter and return type edits.');
+  Assert.AreEqual(1, lLine29Count, 'Expected local variable type reference edit.');
 end;
 
 initialization

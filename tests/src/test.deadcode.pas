@@ -59,6 +59,16 @@ begin
   Result := '';
 end;
 
+function DescribeCandidates(const aReport: TDelphiSemanticDeadCodeReport): string;
+var
+  lCandidate: TDelphiSemanticDeadCodeCandidate;
+begin
+  Result := '';
+  for lCandidate in aReport.Candidates do
+    Result := Result + lCandidate.Name + '=' + lCandidate.Status + '/' + IntToStr(
+      lCandidate.ReferenceCount) + '; ';
+end;
+
 function TDeadCodeTests.FixturePath(const aFileName: string): string;
 begin
   Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
@@ -106,13 +116,14 @@ begin
   Assert.AreEqual('definitely-unused', CandidateStatus(lReport, 'StaticUnusedValue'));
   Assert.AreEqual('maybe-unused', CandidateStatus(lReport, 'MaybeDynamicHook'));
   Assert.AreEqual('externally-visible', CandidateStatus(lReport, 'TExternallyVisibleType'));
-  Assert.AreEqual('blocked', CandidateStatus(lReport, 'Button1Click'));
-  Assert.AreEqual('blocked', CandidateStatus(lReport, 'ExportedHook'));
-  Assert.AreEqual('blocked', CandidateStatus(lReport, 'InitializedHook'));
-  Assert.AreEqual('blocked', CandidateStatus(lReport, 'MessageHandler'));
-  Assert.AreEqual('blocked', CandidateStatus(lReport, 'AmbiguousGlobal'));
-  Assert.AreEqual('blocked', CandidateStatus(lReport, 'MissingExternalSymbol'));
-  Assert.AreEqual('blocked', CandidateStatus(lReport, 'ExternalOnlySymbol'));
+  Assert.AreEqual('blocked', CandidateStatus(lReport, 'Button1Click'), 'Button1Click');
+  Assert.AreEqual('blocked', CandidateStatus(lReport, 'ExportedHook'), 'ExportedHook ' +
+    DescribeCandidates(lReport));
+  Assert.AreEqual('blocked', CandidateStatus(lReport, 'InitializedHook'), 'InitializedHook');
+  Assert.AreEqual('blocked', CandidateStatus(lReport, 'MessageHandler'), 'MessageHandler');
+  Assert.AreEqual('blocked', CandidateStatus(lReport, 'AmbiguousGlobal'), 'AmbiguousGlobal');
+  Assert.AreEqual('blocked', CandidateStatus(lReport, 'MissingExternalSymbol'), 'MissingExternalSymbol');
+  Assert.AreEqual('blocked', CandidateStatus(lReport, 'ExternalOnlySymbol'), 'ExternalOnlySymbol');
   Assert.AreEqual('', CandidateStatus(lReport, 'UsedGlobalValue'));
   Assert.IsTrue(CandidateHasBlocker(lReport, 'Button1Click', 'published-or-dfm-handler'));
   Assert.IsTrue(CandidateHasBlocker(lReport, 'ExportedHook', 'exported-symbol'));
