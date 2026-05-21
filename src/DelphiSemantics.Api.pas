@@ -34,6 +34,10 @@ type
   TDelphiSemanticDeadCodeReport = DelphiSemantics.DeadCode.TDelphiSemanticDeadCodeReport;
   TDelphiSemanticTextEdit = DelphiSemantics.Refactor.TDelphiSemanticTextEdit;
   TDelphiSemanticRenamePlan = DelphiSemantics.Refactor.TDelphiSemanticRenamePlan;
+  TDelphiSemanticDeadCodeRemovalBlocker =
+    DelphiSemantics.Refactor.TDelphiSemanticDeadCodeRemovalBlocker;
+  TDelphiSemanticDeadCodeRemovalPlan =
+    DelphiSemantics.Refactor.TDelphiSemanticDeadCodeRemovalPlan;
   TDelphiSemanticInventorySymbol = DelphiSemantics.WithBinding.TDelphiSemanticInventorySymbol;
   TDelphiSemanticWithBinding = DelphiSemantics.WithBinding.TDelphiSemanticWithBinding;
   TDelphiSemanticRemoveWithInventory =
@@ -88,6 +92,8 @@ type
       const aName, aNewName: string): TDelphiSemanticRenamePlan; static;
     class function ReportDeadCode(const aContext: TDelphiSemanticSymbolQueryContext;
       const aProfile: string): TDelphiSemanticDeadCodeReport; static;
+    class function PlanDeadCodeRemoval(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; static;
   end;
 
 implementation
@@ -202,6 +208,13 @@ class function TDelphiSemanticApi.ReportDeadCode(
   TDelphiSemanticDeadCodeReport;
 begin
   Result := TDelphiSemanticDeadCodeReporter.Report(aContext, aProfile);
+end;
+
+class function TDelphiSemanticApi.PlanDeadCodeRemoval(
+  const aContext: TDelphiSemanticSymbolQueryContext; const aProfile: string):
+  TDelphiSemanticDeadCodeRemovalPlan;
+begin
+  Result := TDelphiSemanticRenamePlanner.PlanDeadCodeRemoval(aContext, aProfile);
 end;
 
 end.

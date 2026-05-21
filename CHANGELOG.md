@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Dead-code removal edit planner with profile-gated dry-run text edits and
+  blockers for audit mode or unsupported deletion shapes.
 - Conservative dead-code report API with audit safety profile, blocked-risk
   diagnostics, and tests for dynamic Delphi risk shapes.
 - Project rename edit planner API with dry-run edit ranges, API facade support,

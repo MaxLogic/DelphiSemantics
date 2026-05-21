@@ -292,9 +292,18 @@ begin
   Result := SameText(aSymbol.SectionKind, 'interface') or SameText(aSymbol.Visibility, 'public');
 end;
 
-function DefinitelyUnusedEligible(const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
+function DefinitelyUnusedEligible(const aSymbol: TDelphiSemanticIndexedSymbol;
+  const aProfile: string): Boolean;
 begin
-  Result := IsDataSymbol(aSymbol) or
+  Result := IsDataSymbol(aSymbol) or SameText(aSymbol.Visibility, 'private') or
+    SameText(aSymbol.Visibility, 'strict private') or
+    (SameText(aProfile, 'legacy-static') and SameText(aSymbol.Kind, 'routine') and
+    SameText(aSymbol.SectionKind, 'implementation') and (aSymbol.OwnerName = ''));
+end;
+
+function MaybeUnusedEligible(const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
+begin
+  Result :=
     SameText(aSymbol.Visibility, 'private') or SameText(aSymbol.Visibility, 'strict private');
 end;
 
@@ -351,7 +360,10 @@ begin
         else if ExternallyVisible(lSymbol) then
           lCandidate := MakeCandidate(lSymbol, 'externally-visible', 'public-api-surface',
             lProfile, lReferenceCount, [])
-        else if DefinitelyUnusedEligible(lSymbol) then
+        else if DefinitelyUnusedEligible(lSymbol, lProfile) then
+          lCandidate := MakeCandidate(lSymbol, 'definitely-unused', 'no-resolved-references',
+            lProfile, lReferenceCount, [])
+        else if MaybeUnusedEligible(lSymbol) then
           lCandidate := MakeCandidate(lSymbol, 'definitely-unused', 'no-resolved-references',
             lProfile, lReferenceCount, [])
         else

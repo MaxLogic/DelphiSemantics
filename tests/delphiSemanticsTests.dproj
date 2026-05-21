@@ -63,6 +63,7 @@
     <DCCReference Include="src\test.projectmsbuild.pas"/>
     <DCCReference Include="src\test.preprocess.pas"/>
     <DCCReference Include="src\test.refactor.rename.pas"/>
+    <DCCReference Include="src\test.refactor.removedeadcode.pas"/>
     <DCCReference Include="src\test.resolverlevel1.pas"/>
     <DCCReference Include="src\test.resolverlevel2.pas"/>
     <DCCReference Include="src\test.resolverlevel3.pas"/>

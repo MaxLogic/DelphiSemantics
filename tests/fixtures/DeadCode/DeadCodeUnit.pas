@@ -26,6 +26,21 @@ uses
 
 var
   StaticUnusedValue: Integer;
+  CommaUnusedValue, CommaUsedValue: Integer;
+
+var
+  LoneVarValue: Integer;
+
+var
+  CommentLoneValue: Integer;
+  // retained comment
+
+var
+  ClassBoundaryValue: Integer;
+
+class procedure TDeadCodeFixture.ClassBoundary(aValue: Integer);
+begin
+end;
 
 procedure TDeadCodeFixture.PrivateUnused;
 begin
@@ -41,6 +56,13 @@ end;
 
 procedure MaybeDynamicHook;
 begin
+end;
+
+procedure ComplexLegacyHook;
+begin
+  if True then
+  begin
+  end;
 end;
 
 procedure ExportedHook;
@@ -61,6 +83,7 @@ begin
   AmbiguousGlobal := 2;
   MissingExternalSymbol := 3;
   ExternalOnlySymbol := 4;
+  CommaUsedValue := 5;
 end;
 
 exports
