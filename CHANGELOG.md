@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Agent guidance for DAK project-scoped semantic refactoring, including
+  `find-usages`, dry-run `rename`, and dead-code review safety rules.
 - Optional semantic search facade with syntax-only match labeling, resolved
   symbol filtering, and declaration kind/owner/scope/unit filters.
 - Dead-code removal edit planner with profile-gated dry-run text edits and

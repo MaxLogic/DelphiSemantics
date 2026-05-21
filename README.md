@@ -21,6 +21,25 @@ especially around RTTI, DFM event handlers, exports, message methods,
 initialization/finalization hooks, registration calls, package boundaries, and
 external callers.
 
+## Semantic Refactoring
+
+Use DAK for project-scoped semantic refactoring commands. Start with dry-run
+commands and review the report before allowing any source rewrite.
+
+```powershell
+Set-Location F:\projects\MaxLogic\DelphiAiKit
+bin\DelphiAIKit.exe find-usages --project F:\path\to\App.dproj --symbol TFoo
+bin\DelphiAIKit.exe rename --project F:\path\to\App.dproj --symbol TFoo --new-name TBetterFoo --format json
+```
+
+`rename` defaults to dry-run. Use `--apply` only after the edit plan is reviewed
+and only on a writable project or temp clone. Dead-code findings remain review
+evidence: do not treat `definitely-unused` as automatic deletion approval, and
+do not add removal apply mode without explicit maintainer approval.
+
+Agent workflow guidance lives in
+[`docs/semantic-refactoring-agents.md`](docs/semantic-refactoring-agents.md).
+
 ## Layout
 
 - `lib/DelphiAST` - parser submodule.
