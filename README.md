@@ -12,6 +12,15 @@ definition search, and reference search.
 - Resolve identifiers across routine, type, helper, and project scopes.
 - Expose a stable semantic API that multiple tools can reuse.
 
+## Dead-Code Reports
+
+Dead-code findings are review evidence, not proof that deleting code is always
+behavior-preserving. Treat `definitely-unused`, `maybe-unused`,
+`externally-visible`, and `blocked` results as an inspection report first,
+especially around RTTI, DFM event handlers, exports, message methods,
+initialization/finalization hooks, registration calls, package boundaries, and
+external callers.
+
 ## Layout
 
 - `lib/DelphiAST` - parser submodule.

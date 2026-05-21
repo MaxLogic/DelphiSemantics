@@ -45,7 +45,7 @@ end;
 
 procedure AddSymbol(const aSymbols: TDelphiSemanticSymbolList;
   const aModel: TDelphiSemanticUnitModel; const aSourceKind, aKind, aOwnerName, aName: string;
-  const aSectionKind: string; const aLine, aColumn: Integer);
+  const aSectionKind, aVisibility: string; const aLine, aColumn: Integer);
 var
   lSymbol: TDelphiSemanticIndexedSymbol;
 begin
@@ -61,6 +61,7 @@ begin
   lSymbol.UnitName := aModel.UnitName;
   lSymbol.SectionKind := aSectionKind;
   lSymbol.SourceKind := aSourceKind;
+  lSymbol.Visibility := aVisibility;
   lSymbol.FileName := aModel.FileName;
   lSymbol.Line := aLine;
   lSymbol.Column := aColumn;
@@ -75,23 +76,23 @@ var
   lMember: TDelphiSemanticMember;
   lRoutine: TDelphiSemanticRoutine;
 begin
-  AddSymbol(aSymbols, aModel, aSourceKind, 'unit', '', aModel.UnitName, 'interface', 1, 1);
+  AddSymbol(aSymbols, aModel, aSourceKind, 'unit', '', aModel.UnitName, 'interface', '', 1, 1);
 
   for lDeclaration in aModel.Declarations do
     AddSymbol(aSymbols, aModel, aSourceKind, lDeclaration.Kind, '', lDeclaration.Name,
-      lDeclaration.SectionKind, lDeclaration.Line, lDeclaration.Column);
+      lDeclaration.SectionKind, '', lDeclaration.Line, lDeclaration.Column);
 
   for lRoutine in aModel.Routines do
     AddSymbol(aSymbols, aModel, aSourceKind, 'routine', lRoutine.OwnerName, lRoutine.Name,
-      lRoutine.SectionKind, lRoutine.Line, lRoutine.Column);
+      lRoutine.SectionKind, '', lRoutine.Line, lRoutine.Column);
 
   for lMember in aModel.Members do
     AddSymbol(aSymbols, aModel, aSourceKind, lMember.Kind, lMember.OwnerName, lMember.Name,
-      '', lMember.Line, lMember.Column);
+      '', lMember.Visibility, lMember.Line, lMember.Column);
 
   for lLocal in aModel.Locals do
     AddSymbol(aSymbols, aModel, aSourceKind, lLocal.Kind, lLocal.RoutineName, lLocal.Name,
-      '', lLocal.Line, lLocal.Column);
+      '', '', lLocal.Line, lLocal.Column);
 end;
 
 function ReferenceConfidence(const aReferenceName: string;

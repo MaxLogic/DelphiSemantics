@@ -15,6 +15,7 @@ type
     UnitName: string;
     SectionKind: string;
     SourceKind: string;
+    Visibility: string;
     FileName: string;
     Line: Integer;
     Column: Integer;

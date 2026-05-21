@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Conservative dead-code report API with audit safety profile, blocked-risk
+  diagnostics, and tests for dynamic Delphi risk shapes.
 - Project rename edit planner API with dry-run edit ranges, API facade support,
   project-source guarding, collision blocking, and cross-unit case-insensitive coverage.
 - Project symbol/reference index API with per-snapshot symbol IDs plus conservative

@@ -3,9 +3,10 @@ unit DelphiSemantics.Api;
 interface
 
 uses
-  DelphiSemantics.Cache, DelphiSemantics.Index, DelphiSemantics.Model,
-  DelphiSemantics.ProjectContext, DelphiSemantics.Query, DelphiSemantics.Refactor,
-  DelphiSemantics.Symbols, DelphiSemantics.Usage, DelphiSemantics.WithBinding;
+  DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.Index, DelphiSemantics.Model,
+  DelphiSemantics.ProjectContext, DelphiSemantics.Query,
+  DelphiSemantics.Refactor, DelphiSemantics.Symbols, DelphiSemantics.Usage,
+  DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticDiagnosticSeverity =
@@ -28,6 +29,9 @@ type
     DelphiSemantics.Symbols.TDelphiSemanticIndexedReference;
   TDelphiSemanticUsage = DelphiSemantics.Usage.TDelphiSemanticUsage;
   TDelphiSemanticUsageResult = DelphiSemantics.Usage.TDelphiSemanticUsageResult;
+  TDelphiSemanticDeadCodeCandidate =
+    DelphiSemantics.DeadCode.TDelphiSemanticDeadCodeCandidate;
+  TDelphiSemanticDeadCodeReport = DelphiSemantics.DeadCode.TDelphiSemanticDeadCodeReport;
   TDelphiSemanticTextEdit = DelphiSemantics.Refactor.TDelphiSemanticTextEdit;
   TDelphiSemanticRenamePlan = DelphiSemantics.Refactor.TDelphiSemanticRenamePlan;
   TDelphiSemanticInventorySymbol = DelphiSemantics.WithBinding.TDelphiSemanticInventorySymbol;
@@ -82,6 +86,8 @@ type
       static;
     class function PlanRename(const aContext: TDelphiSemanticSymbolQueryContext;
       const aName, aNewName: string): TDelphiSemanticRenamePlan; static;
+    class function ReportDeadCode(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aProfile: string): TDelphiSemanticDeadCodeReport; static;
   end;
 
 implementation
@@ -189,6 +195,13 @@ class function TDelphiSemanticApi.PlanRename(const aContext: TDelphiSemanticSymb
   const aName, aNewName: string): TDelphiSemanticRenamePlan;
 begin
   Result := TDelphiSemanticRenamePlanner.PlanRename(aContext, aName, aNewName);
+end;
+
+class function TDelphiSemanticApi.ReportDeadCode(
+  const aContext: TDelphiSemanticSymbolQueryContext; const aProfile: string):
+  TDelphiSemanticDeadCodeReport;
+begin
+  Result := TDelphiSemanticDeadCodeReporter.Report(aContext, aProfile);
 end;
 
 end.

@@ -10,6 +10,7 @@ uses
   Test.Api in 'src\test.api.pas',
   Test.Cache in 'src\test.cache.pas',
   Test.DependencyGraph in 'src\test.dependencygraph.pas',
+  Test.DeadCode in 'src\test.deadcode.pas',
   Test.GlobalVars in 'src\test.globalvars.pas',
   Test.LspBoundary in 'src\test.lspboundary.pas',
   Test.Preprocess in 'src\test.preprocess.pas',
