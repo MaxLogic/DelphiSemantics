@@ -111,11 +111,24 @@ begin
   Result := aStack[Pred(aStack.Count)].Active;
 end;
 
-function TryExtractDirective(const aLine: string; out aDirective: string): Boolean;
+function IsConditionalDirectiveText(const aDirective: string): Boolean;
+var
+  lText: string;
+begin
+  lText := aDirective.Trim;
+  Result := StartsText('IFDEF ', lText) or StartsText('IFNDEF ', lText) or
+    StartsText('IF ', lText) or StartsText('ELSEIF ', lText) or SameText(lText, 'ELSE') or
+    StartsText('ELSE ', lText) or SameText(lText, 'ENDIF') or StartsText('ENDIF ', lText) or
+    SameText(lText, 'IFEND') or StartsText('IFEND ', lText);
+end;
+
+function TryExtractDirective(const aLine: string; out aDirective: string;
+  out aNeedsCloseBrace: Boolean): Boolean;
 var
   lStart: Integer;
   lStop: Integer;
 begin
+  aNeedsCloseBrace := False;
   lStart := Pos('{$', aLine);
   if lStart > 0 then
   begin
@@ -123,6 +136,12 @@ begin
     if lStop > lStart then
     begin
       aDirective := Copy(aLine, lStart + 2, lStop - lStart - 2).Trim;
+      Exit(True);
+    end;
+    aDirective := Copy(aLine, lStart + 2, MaxInt).Trim;
+    if IsConditionalDirectiveText(aDirective) then
+    begin
+      aNeedsCloseBrace := True;
       Exit(True);
     end;
   end;
@@ -356,6 +375,22 @@ begin
   Result := lText;
 end;
 
+function IsCompilerSwitchDirective(const aDirective: string): Boolean;
+var
+  lText: string;
+begin
+  lText := aDirective.Trim;
+  Result := ((Length(lText) = 2) and CharInSet(UpCase(lText[1]), ['A'..'Z']) and
+    CharInSet(lText[2], ['+', '-'])) or StartsText('APPTYPE ', lText) or
+    StartsText('LEGACYIFEND ', lText) or StartsText('M ', lText) or StartsText('MESSAGE ', lText) or
+    StartsText('ENDREGION', lText) or StartsText('MINENUMSIZE ', lText) or StartsText('MODE ', lText) or
+    StartsText('POINTERMATH ', lText) or StartsText('R ', lText) or StartsText('REGION', lText) or
+    StartsText('RESOURCE ', lText) or StartsText('RANGECHECKS ', lText) or StartsText('RTTI ', lText) or
+    StartsText('SCOPEDENUMS ', lText) or StartsText('SETPEFLAGS ', lText) or
+    StartsText('STRONGLINKTYPES ', lText) or StartsText('WARN ', lText) or
+    StartsText('WARNINGS ', lText) or StartsText('WEAKLINKRTTI ', lText);
+end;
+
 procedure PushConditionalFrame(const aStack: TList<TPreprocessFrame>;
   const aActive: Boolean);
 var
@@ -442,8 +477,13 @@ procedure ProcessSourceFile(const aFileName: string; const aOptions: TDelphiSema
 var
   i: Integer;
   lDirective: string;
+  lDirectiveStart: Integer;
+  lDirectiveStop: Integer;
+  lExtraOutputLineWritten: Boolean;
   lLines: TStringList;
   lOutputLineWritten: Boolean;
+  lPendingDirectiveCloseBrace: Boolean;
+  lSearchStart: Integer;
   lText: string;
 begin
   if not TFile.Exists(aFileName) then
@@ -470,14 +510,43 @@ begin
   try
     aIncludeStack.Add(aFileName);
     lLines.Text := lText;
+    lPendingDirectiveCloseBrace := False;
     for i := 0 to Pred(lLines.Count) do
     begin
-      if TryExtractDirective(lLines[i], lDirective) then
+      if lPendingDirectiveCloseBrace and (lLines[i].Trim = '}') then
+      begin
+        lPendingDirectiveCloseBrace := False;
+        aOutput.AppendLine('');
+        Continue;
+      end;
+
+      if TryExtractDirective(lLines[i], lDirective, lPendingDirectiveCloseBrace) then
       begin
         lOutputLineWritten := False;
         if not ProcessDirective(lDirective, aFileName, i + 1, aOptions, aDefines, aStack,
           aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, lOutputLineWritten) then
           aSuccess := False;
+        lDirectiveStart := Pos('{$', lLines[i]);
+        lDirectiveStop := PosEx('}', lLines[i], lDirectiveStart + 2);
+        if lDirectiveStop > lDirectiveStart then
+        begin
+          lSearchStart := lDirectiveStop + 1;
+          lDirectiveStart := PosEx('{$', lLines[i], lSearchStart);
+          while lDirectiveStart > 0 do
+          begin
+            lDirectiveStop := PosEx('}', lLines[i], lDirectiveStart + 2);
+            if lDirectiveStop <= lDirectiveStart then
+              Break;
+            lDirective := Copy(lLines[i], lDirectiveStart + 2,
+              lDirectiveStop - lDirectiveStart - 2).Trim;
+            lExtraOutputLineWritten := False;
+            if not ProcessDirective(lDirective, aFileName, i + 1, aOptions, aDefines, aStack,
+              aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, lExtraOutputLineWritten) then
+              aSuccess := False;
+            lSearchStart := lDirectiveStop + 1;
+            lDirectiveStart := PosEx('{$', lLines[i], lSearchStart);
+          end;
+        end;
         if not lOutputLineWritten then
           aOutput.AppendLine('');
       end else
@@ -639,6 +708,9 @@ begin
     PushUnsupportedConditionalFrame(aStack);
     Exit(False);
   end;
+
+  if IsCompilerSwitchDirective(lText) then
+    Exit(True);
 
   AddDiagnostic(aDiagnostics, 'UNSUPPORTED_PREPROCESS_DIRECTIVE',
     'Unsupported preprocessing directive: ' + aDirective, aFileName, aLine);

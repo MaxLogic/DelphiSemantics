@@ -60,3 +60,8 @@
   without invoking the full unit-model cache/parser path.
 - Semantic cache identity now includes source timestamps in addition to content hashes, and
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
+
+### Fixed
+- Preprocessing now tolerates legacy compiler directives used by maxTdb,
+  including multiline conditional close braces, inline conditional pairs,
+  compiler switches, resource directives, and region markers.

@@ -29,6 +29,12 @@ type
     [Test]
     procedure ConditionalDirectivesAllowTrailingComments;
     [Test]
+    procedure ConditionalDirectivesAllowLegacyMultilineCloseBrace;
+    [Test]
+    procedure CompilerSwitchDirectivesDoNotFailPreprocessing;
+    [Test]
+    procedure InlineConditionalDirectivesCloseOnSameLine;
+    [Test]
     procedure UnsupportedConditionalElseBranchStaysInactive;
     [Test]
     procedure UnsupportedConditionalDirectiveProducesDiagnostic;
@@ -199,6 +205,51 @@ begin
   Assert.IsTrue(Pos('TActiveTrailingType', lResult.OutputText) > 0);
   Assert.IsFalse(Pos('TInactiveTrailingType', lResult.OutputText) > 0);
   Assert.IsTrue(Pos('TElseTrailingType', lResult.OutputText) > 0);
+end;
+
+procedure TPreprocessTests.ConditionalDirectivesAllowLegacyMultilineCloseBrace;
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := FixturePath('Preprocess', 'LegacyMultilineCloseBraceUnit.pas');
+
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(Pos('TAfterLegacyCloseBrace', lResult.OutputText) > 0);
+  Assert.IsFalse(HasDiagnostic(lResult, 'UNTERMINATED_PREPROCESS_CONDITIONAL'));
+end;
+
+procedure TPreprocessTests.CompilerSwitchDirectivesDoNotFailPreprocessing;
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := FixturePath('Preprocess', 'CompilerSwitchUnit.pas');
+
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(Pos('TAfterCompilerSwitch', lResult.OutputText) > 0);
+  Assert.IsFalse(HasDiagnostic(lResult, 'UNSUPPORTED_PREPROCESS_DIRECTIVE'));
+end;
+
+procedure TPreprocessTests.InlineConditionalDirectivesCloseOnSameLine;
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := FixturePath('Preprocess', 'InlineConditionalUnit.pas');
+
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(Pos('TAfterInlineConditional', lResult.OutputText) > 0);
+  Assert.IsFalse(HasDiagnostic(lResult, 'UNTERMINATED_PREPROCESS_CONDITIONAL'));
 end;
 
 procedure TPreprocessTests.UnsupportedConditionalElseBranchStaysInactive;
