@@ -199,6 +199,7 @@ begin
   begin
     lIndexedReference := Default(TDelphiSemanticIndexedReference);
     lIndexedReference.Name := lReference.Name;
+    lIndexedReference.RoutineName := lReference.RoutineName;
     lIndexedReference.UnitName := aModel.UnitName;
     lIndexedReference.SourceKind := aSourceKind;
     lIndexedReference.FileName := aModel.FileName;

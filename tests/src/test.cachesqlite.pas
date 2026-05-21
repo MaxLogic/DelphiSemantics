@@ -28,6 +28,8 @@ type
     [Test]
     procedure SecondCacheInstanceReusesStoredUnitModel;
     [Test]
+    procedure SecondCacheInstancePreservesReferenceRoutineName;
+    [Test]
     procedure SourceChangeInvalidatesPersistentEntry;
     [Test]
     procedure SourceTimestampChangeInvalidatesPersistentEntry;
@@ -213,6 +215,48 @@ begin
     Assert.IsTrue(HasDeclaration(lModel, 'TSqliteReuseType'));
     Assert.AreEqual(1, lCache.Metrics.CacheHits);
     Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.SecondCacheInstancePreservesReferenceRoutineName;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('reference-routine-cache.sqlite3');
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+
+  lPath := TempPath('SqliteReferenceRoutineUnit.pas');
+  TFile.WriteAllText(lPath, 'unit SqliteReferenceRoutineUnit;' + sLineBreak + 'interface' +
+    sLineBreak + 'var' + sLineBreak + '  GlobalValue: Integer;' + sLineBreak +
+    'implementation' + sLineBreak + 'procedure UseGlobal;' + sLineBreak + 'begin' +
+    sLineBreak + '  GlobalValue := 1;' + sLineBreak + 'end;' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+
+    Assert.IsTrue(Length(lModel.References) > 0);
+    Assert.AreEqual('UseGlobal', lModel.References[0].RoutineName);
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
   finally
     lCache.Free;
   end;

@@ -71,6 +71,7 @@ type
 
   TDelphiSemanticReference = record
     Name: string;
+    RoutineName: string;
     Role: string;
     SectionKind: string;
     Line: Integer;
@@ -196,6 +197,14 @@ begin
     Result := aMatch.Groups[aIndex].Value
   else
     Result := '';
+end;
+
+function QualifiedRoutineName(const aOwnerName, aRoutineName: string): string;
+begin
+  if aOwnerName = '' then
+    Exit(aRoutineName);
+
+  Result := aOwnerName + '.' + aRoutineName;
 end;
 
 function SanitizeCodeText(const aText: string): string;
@@ -371,12 +380,13 @@ begin
   aLocals.Add(lLocal);
 end;
 
-procedure AddReference(const aReferences: TList<TDelphiSemanticReference>; const aName,
-  aText: string; const aOffset: Integer);
+procedure AddReference(const aReferences: TList<TDelphiSemanticReference>; const aRoutineName,
+  aName, aText: string; const aOffset: Integer);
 var
   lReference: TDelphiSemanticReference;
 begin
   lReference.Name := aName;
+  lReference.RoutineName := aRoutineName;
   lReference.Line := LineOfOffset(aText, aOffset);
   lReference.Column := ColumnOfOffset(aText, aOffset);
   aReferences.Add(lReference);
@@ -1092,7 +1102,7 @@ begin
 end;
 
 procedure ExtractReferencesFromBody(const aText, aBody: string; const aBodyOffset: Integer;
-  const aReferences: TList<TDelphiSemanticReference>);
+  const aRoutineName: string; const aReferences: TList<TDelphiSemanticReference>);
 var
   lCleanBody: string;
   lMatch: TMatch;
@@ -1102,7 +1112,7 @@ begin
   while lMatch.Success do
   begin
     if not IsReferenceKeyword(lMatch.Value) then
-      AddReference(aReferences, lMatch.Value, aText, aBodyOffset + lMatch.Index + 1);
+      AddReference(aReferences, aRoutineName, lMatch.Value, aText, aBodyOffset + lMatch.Index + 1);
     lMatch := lMatch.NextMatch;
   end;
 end;
@@ -1125,12 +1135,13 @@ begin
     lNames := TList<string>.Create;
     lStarts := TList<Integer>.Create;
     lMatch := TRegEx.Match(aText,
-      '^\s*(?:procedure|function)\s+(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)' +
-      '[^;]*;',
+      '^\s*(?:procedure|function)\s+((?:[A-Za-z_][A-Za-z0-9_]*\.)?)([A-Za-z_][A-Za-z0-9_]*)' +
+      '[^;\r\n]*;',
       [roIgnoreCase, roMultiLine]);
     while lMatch.Success do
     begin
-      lNames.Add(lMatch.Groups[1].Value);
+      lNames.Add(QualifiedRoutineName(MatchGroupValue(lMatch, 1).Trim.TrimRight(['.']),
+        MatchGroupValue(lMatch, 2)));
       lStarts.Add(lMatch.Index);
       lMatch := lMatch.NextMatch;
     end;
@@ -1149,7 +1160,7 @@ begin
       begin
         lBodyOffset := lStarts[i] + lBodyBegin - 1;
         ExtractReferencesFromBody(aText, Copy(lRoutineText, lBodyBegin, MaxInt), lBodyOffset,
-          aReferences);
+          lNames[i], aReferences);
       end;
     end;
   finally

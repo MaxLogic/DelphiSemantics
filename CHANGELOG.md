@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Project rename edit planner API with dry-run edit ranges, API facade support,
+  project-source guarding, collision blocking, and cross-unit case-insensitive coverage.
 - Project symbol/reference index API with per-snapshot symbol IDs plus conservative
   resolved, ambiguous, and unresolved reference diagnostics.
 - Project find-usages API for source-position and symbol-name queries, including

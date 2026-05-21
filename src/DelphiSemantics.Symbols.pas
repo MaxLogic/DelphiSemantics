@@ -22,6 +22,7 @@ type
 
   TDelphiSemanticIndexedReference = record
     Name: string;
+    RoutineName: string;
     Status: string;
     SymbolId: TDelphiSemanticSymbolId;
     CandidateSymbolIds: TArray<TDelphiSemanticSymbolId>;

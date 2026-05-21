@@ -15,6 +15,7 @@ uses
   Test.Preprocess in 'src\test.preprocess.pas',
   Test.ProjectContext in 'src\test.projectcontext.pas',
   Test.ProjectMsBuild in 'src\test.projectmsbuild.pas',
+  Test.Refactor.Rename in 'src\test.refactor.rename.pas',
   Test.ResolverLevel1 in 'src\test.resolverlevel1.pas',
   Test.ResolverLevel2 in 'src\test.resolverlevel2.pas',
   Test.ResolverLevel3 in 'src\test.resolverlevel3.pas',

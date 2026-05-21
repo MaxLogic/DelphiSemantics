@@ -147,7 +147,7 @@ uses
   DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.Version;
 
 const
-  cCacheSchemaVersion = '3';
+  cCacheSchemaVersion = '4';
   cDefaultCompilerProfileName = 'default';
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';

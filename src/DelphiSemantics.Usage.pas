@@ -8,6 +8,7 @@ uses
 type
   TDelphiSemanticUsage = record
     Name: string;
+    RoutineName: string;
     Role: string;
     SectionKind: string;
     SourceKind: string;
@@ -77,6 +78,7 @@ function MakeUsage(const aReference: TDelphiSemanticIndexedReference): TDelphiSe
 begin
   Result := Default(TDelphiSemanticUsage);
   Result.Name := aReference.Name;
+  Result.RoutineName := aReference.RoutineName;
   Result.Role := 'reference';
   Result.SectionKind := aReference.SectionKind;
   Result.SourceKind := aReference.SourceKind;

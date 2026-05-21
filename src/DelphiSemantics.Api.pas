@@ -4,8 +4,8 @@ interface
 
 uses
   DelphiSemantics.Cache, DelphiSemantics.Index, DelphiSemantics.Model,
-  DelphiSemantics.ProjectContext, DelphiSemantics.Query, DelphiSemantics.Symbols,
-  DelphiSemantics.Usage, DelphiSemantics.WithBinding;
+  DelphiSemantics.ProjectContext, DelphiSemantics.Query, DelphiSemantics.Refactor,
+  DelphiSemantics.Symbols, DelphiSemantics.Usage, DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticDiagnosticSeverity =
@@ -28,6 +28,8 @@ type
     DelphiSemantics.Symbols.TDelphiSemanticIndexedReference;
   TDelphiSemanticUsage = DelphiSemantics.Usage.TDelphiSemanticUsage;
   TDelphiSemanticUsageResult = DelphiSemantics.Usage.TDelphiSemanticUsageResult;
+  TDelphiSemanticTextEdit = DelphiSemantics.Refactor.TDelphiSemanticTextEdit;
+  TDelphiSemanticRenamePlan = DelphiSemantics.Refactor.TDelphiSemanticRenamePlan;
   TDelphiSemanticInventorySymbol = DelphiSemantics.WithBinding.TDelphiSemanticInventorySymbol;
   TDelphiSemanticWithBinding = DelphiSemantics.WithBinding.TDelphiSemanticWithBinding;
   TDelphiSemanticRemoveWithInventory =
@@ -78,6 +80,8 @@ type
     class function FindUsagesAtPosition(const aContext: TDelphiSemanticSymbolQueryContext;
       const aFileName: string; const aLine, aColumn: Integer): TDelphiSemanticUsageResult;
       static;
+    class function PlanRename(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aName, aNewName: string): TDelphiSemanticRenamePlan; static;
   end;
 
 implementation
@@ -179,6 +183,12 @@ class function TDelphiSemanticApi.FindUsagesAtPosition(
 begin
   Result := TDelphiSemanticUsageFinder.FindUsagesAtPosition(aContext, aFileName, aLine,
     aColumn);
+end;
+
+class function TDelphiSemanticApi.PlanRename(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aName, aNewName: string): TDelphiSemanticRenamePlan;
+begin
+  Result := TDelphiSemanticRenamePlanner.PlanRename(aContext, aName, aNewName);
 end;
 
 end.

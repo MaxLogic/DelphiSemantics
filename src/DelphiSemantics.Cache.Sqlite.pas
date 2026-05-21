@@ -322,6 +322,7 @@ function ReferenceToJson(const aReference: TDelphiSemanticReference): TJSONObjec
 begin
   Result := TJSONObject.Create;
   Result.AddPair('Name', aReference.Name);
+  Result.AddPair('RoutineName', aReference.RoutineName);
   Result.AddPair('Line', TJSONNumber.Create(aReference.Line));
   Result.AddPair('Column', TJSONNumber.Create(aReference.Column));
 end;
@@ -329,6 +330,7 @@ end;
 function JsonToReference(const aObject: TJSONObject): TDelphiSemanticReference;
 begin
   Result.Name := JsonString(aObject, 'Name');
+  Result.RoutineName := JsonString(aObject, 'RoutineName');
   Result.Line := JsonInt(aObject, 'Line');
   Result.Column := JsonInt(aObject, 'Column');
 end;
