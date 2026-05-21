@@ -13,6 +13,12 @@ focused tests and internal implementation.
   through the project-context implementation.
 - `TDelphiSemanticApi.BuildUnitIndex` builds or loads one cache-backed unit
   model and returns with-binding and remove-with inventory DTOs.
+- `TDelphiSemanticApi.FindUsagesByName` and
+  `TDelphiSemanticApi.FindUsagesAtPosition` return project-scoped usage DTOs
+  from a caller-supplied symbol query context.
+- `TDelphiSemanticApi.PlanRename` returns dry-run text edits for a
+  project-scoped rename; callers own file transactions, backups, rollback,
+  and user-facing apply policy.
 - `TDelphiSemanticUnitIndex` returns DTO records only: model, bindings,
   inventory, cache metrics, and cache diagnostics.
 
@@ -25,6 +31,7 @@ caller wants persistent SQLite-backed reuse.
 ## Boundary
 
 DelphiSemantics owns project metadata, source loading, preprocessing, cache
-identity, semantic unit models, symbol queries, resolver behavior, and
-with-binding classification. DAK keeps CLI orchestration, planning, source
-rewrite, apply, rollback, verification, and user-facing telemetry.
+identity, semantic unit models, symbol queries, usage resolution, rename edit
+planning, resolver behavior, and with-binding classification. DAK keeps CLI
+orchestration, source rewrite, apply, rollback, verification, and user-facing
+telemetry.
