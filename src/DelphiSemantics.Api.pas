@@ -96,6 +96,9 @@ type
     class function PlanRenameAtPosition(const aContext: TDelphiSemanticSymbolQueryContext;
       const aFileName: string; const aLine, aColumn: Integer; const aNewName: string):
       TDelphiSemanticRenamePlan; static;
+    class function PlanFunctionResultRefactorAtPosition(
+      const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string;
+      const aLine, aColumn: Integer): TDelphiSemanticRenamePlan; static;
     class function ReportDeadCode(const aContext: TDelphiSemanticSymbolQueryContext;
       const aProfile: string): TDelphiSemanticDeadCodeReport; static;
     class function PlanDeadCodeRemoval(const aContext: TDelphiSemanticSymbolQueryContext;
@@ -217,6 +220,14 @@ class function TDelphiSemanticApi.PlanRenameAtPosition(
 begin
   Result := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(aContext, aFileName, aLine,
     aColumn, aNewName);
+end;
+
+class function TDelphiSemanticApi.PlanFunctionResultRefactorAtPosition(
+  const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string; const aLine,
+  aColumn: Integer): TDelphiSemanticRenamePlan;
+begin
+  Result := TDelphiSemanticRenamePlanner.PlanFunctionResultRefactorAtPosition(aContext,
+    aFileName, aLine, aColumn);
 end;
 
 class function TDelphiSemanticApi.ReportDeadCode(

@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Function-result refactor planner API for converting Delphi legacy
+  `FunctionName := Value` result-variable idioms to `Result`, with guards for
+  calls, qualifiers, comments, strings, nested routines, and `with` bodies.
 - Rename planner regressions for project-scoped routine identity, position-based
   routine header rename, same-unit declaration-side type references, and real
   maxTdb dogfood blockers.

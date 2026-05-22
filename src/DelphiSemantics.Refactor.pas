@@ -45,6 +45,9 @@ type
     class function PlanRenameAtPosition(const aContext: TDelphiSemanticSymbolQueryContext;
       const aFileName: string; const aLine, aColumn: Integer; const aNewName: string):
       TDelphiSemanticRenamePlan; static;
+    class function PlanFunctionResultRefactorAtPosition(
+      const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string;
+      const aLine, aColumn: Integer): TDelphiSemanticRenamePlan; static;
     class function PlanDeadCodeRemoval(const aContext: TDelphiSemanticSymbolQueryContext;
       const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; static;
   end;
@@ -363,6 +366,392 @@ begin
   Result := False;
 end;
 
+function TryFindModelByFile(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aFileName: string; out aModel: TDelphiSemanticUnitModel): Boolean;
+var
+  lModel: TDelphiSemanticUnitModel;
+begin
+  if SameFileName(aContext.UnitModel.FileName, aFileName) then
+  begin
+    aModel := aContext.UnitModel;
+    Exit(True);
+  end;
+
+  for lModel in aContext.IndexedUnitModels do
+    if SameFileName(lModel.FileName, aFileName) then
+    begin
+      aModel := lModel;
+      Exit(True);
+    end;
+
+  aModel := Default(TDelphiSemanticUnitModel);
+  Result := False;
+end;
+
+function UnqualifiedName(const aName: string): string;
+var
+  lDotPos: Integer;
+begin
+  lDotPos := LastDelimiter('.', aName);
+  if lDotPos > 0 then
+    Result := Copy(aName, lDotPos + 1, MaxInt)
+  else
+    Result := aName;
+end;
+
+function PreviousNonSpaceChar(const aText: string; const aColumn: Integer): Char;
+var
+  i: Integer;
+begin
+  for i := aColumn - 1 downto 1 do
+    if not CharInSet(aText[i], [#9, ' ']) then
+      Exit(aText[i]);
+
+  Result := #0;
+end;
+
+function NextNonSpaceChar(const aText: string; const aColumn: Integer): Char;
+var
+  i: Integer;
+begin
+  for i := aColumn + 1 to Length(aText) do
+    if not CharInSet(aText[i], [#9, ' ']) then
+      Exit(aText[i]);
+
+  Result := #0;
+end;
+
+function IsIdentifierChar(const c: Char): Boolean;
+begin
+  Result := CharInSet(c, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
+end;
+
+function SanitizeFunctionResultLine(const aLine: string; var aCommentMode: Integer): string;
+var
+  i: Integer;
+  lInString: Boolean;
+  sb: TStringBuilder;
+begin
+  sb := TStringBuilder.Create(Length(aLine));
+  try
+    i := 1;
+    lInString := False;
+    while i <= Length(aLine) do
+    begin
+      if aCommentMode = 1 then
+      begin
+        if aLine[i] = '}' then
+          aCommentMode := 0;
+        sb.Append(' ');
+        Inc(i);
+      end else if aCommentMode = 2 then
+      begin
+        if (aLine[i] = '*') and (i < Length(aLine)) and (aLine[i + 1] = ')') then
+        begin
+          sb.Append(' ');
+          sb.Append(' ');
+          aCommentMode := 0;
+          Inc(i, 2);
+        end else begin
+          sb.Append(' ');
+          Inc(i);
+        end;
+      end else if lInString then
+      begin
+        sb.Append(' ');
+        if aLine[i] = '''' then
+        begin
+          if (i < Length(aLine)) and (aLine[i + 1] = '''') then
+          begin
+            sb.Append(' ');
+            Inc(i, 2);
+          end else begin
+            lInString := False;
+            Inc(i);
+          end;
+        end else
+          Inc(i);
+      end else if (aLine[i] = '/') and (i < Length(aLine)) and (aLine[i + 1] = '/') then
+      begin
+        while i <= Length(aLine) do
+        begin
+          sb.Append(' ');
+          Inc(i);
+        end;
+      end else if aLine[i] = '{' then
+      begin
+        aCommentMode := 1;
+        sb.Append(' ');
+        Inc(i);
+      end else if (aLine[i] = '(') and (i < Length(aLine)) and (aLine[i + 1] = '*') then
+      begin
+        aCommentMode := 2;
+        sb.Append(' ');
+        sb.Append(' ');
+        Inc(i, 2);
+      end else if aLine[i] = '''' then
+      begin
+        lInString := True;
+        sb.Append(' ');
+        Inc(i);
+      end else begin
+        sb.Append(aLine[i]);
+        Inc(i);
+      end;
+    end;
+    Result := sb.ToString;
+  finally
+    sb.Free;
+  end;
+end;
+
+function TryTokenAtPosition(const aLineText: string; const aColumn: Integer; out aToken: string;
+  out aStartColumn, aEndColumn: Integer): Boolean;
+begin
+  aToken := '';
+  aStartColumn := 0;
+  aEndColumn := 0;
+  if (aColumn <= 0) or (aColumn > Length(aLineText)) or
+    not IsIdentifierChar(aLineText[aColumn]) then
+    Exit(False);
+
+  aStartColumn := aColumn;
+  while (aStartColumn > 1) and IsIdentifierChar(aLineText[aStartColumn - 1]) do
+    Dec(aStartColumn);
+  aEndColumn := aColumn;
+  while (aEndColumn < Length(aLineText)) and IsIdentifierChar(aLineText[aEndColumn + 1]) do
+    Inc(aEndColumn);
+
+  aToken := Copy(aLineText, aStartColumn, aEndColumn - aStartColumn + 1);
+  Result := True;
+end;
+
+function SanitizedLineAt(const aLines: TArray<string>; const aLine: Integer): string;
+var
+  i: Integer;
+  lCommentMode: Integer;
+begin
+  Result := '';
+  lCommentMode := 0;
+  for i := 1 to aLine do
+    Result := SanitizeFunctionResultLine(aLines[i - 1], lCommentMode);
+end;
+
+function IsRoutineHeaderLine(const aLineText: string): Boolean;
+var
+  lText: string;
+begin
+  lText := Trim(aLineText);
+  Result := StartsText('function ', lText) or StartsText('procedure ', lText) or
+    StartsText('constructor ', lText) or StartsText('destructor ', lText) or
+    StartsText('class function ', lText) or StartsText('class procedure ', lText) or
+    StartsText('class operator ', lText) or StartsText('operator ', lText);
+end;
+
+function CountTokenOnLine(const aLineText, aToken: string): Integer;
+var
+  lColumn: Integer;
+  lEndColumn: Integer;
+  lStartColumn: Integer;
+  lToken: string;
+begin
+  Result := 0;
+  lColumn := 1;
+  while lColumn <= Length(aLineText) do
+  begin
+    while (lColumn <= Length(aLineText)) and not IsIdentifierChar(aLineText[lColumn]) do
+      Inc(lColumn);
+    if lColumn > Length(aLineText) then
+      Break;
+    lStartColumn := lColumn;
+    lEndColumn := lColumn;
+    while (lEndColumn < Length(aLineText)) and IsIdentifierChar(aLineText[lEndColumn + 1]) do
+      Inc(lEndColumn);
+    lToken := Copy(aLineText, lStartColumn, lEndColumn - lStartColumn + 1);
+    if SameText(lToken, aToken) then
+      Inc(Result);
+    lColumn := lEndColumn + 1;
+  end;
+end;
+
+function HasTokenOnLine(const aLineText, aToken: string): Boolean;
+begin
+  Result := CountTokenOnLine(aLineText, aToken) > 0;
+end;
+
+function TryFindBlockEndLine(const aLines: TArray<string>; const aBeginLine: Integer;
+  out aEndLine: Integer): Boolean;
+var
+  i: Integer;
+  lCommentMode: Integer;
+  lDepth: Integer;
+  lLineText: string;
+begin
+  lDepth := 0;
+  lCommentMode := 0;
+  for i := aBeginLine to Length(aLines) do
+  begin
+    lLineText := SanitizeFunctionResultLine(aLines[i - 1], lCommentMode);
+    Inc(lDepth, CountTokenOnLine(lLineText, 'begin') + CountTokenOnLine(lLineText, 'try') +
+      CountTokenOnLine(lLineText, 'case') + CountTokenOnLine(lLineText, 'asm'));
+    Dec(lDepth, CountTokenOnLine(lLineText, 'end'));
+    if lDepth <= 0 then
+    begin
+      aEndLine := i;
+      Exit(True);
+    end;
+  end;
+
+  aEndLine := 0;
+  Result := False;
+end;
+
+function TryFindRoutineBodySpan(const aLines: TArray<string>; const aRoutine: TDelphiSemanticRoutine;
+  out aBodyStartLine, aEndLine: Integer): Boolean;
+var
+  i: Integer;
+  lBodyStartLine: Integer;
+  lCommentMode: Integer;
+  lLineText: string;
+  lNestedEndLine: Integer;
+  lNestedRoutine: TDelphiSemanticRoutine;
+begin
+  i := aRoutine.Line;
+  lCommentMode := 0;
+  while i <= Length(aLines) do
+  begin
+    lLineText := SanitizeFunctionResultLine(aLines[i - 1], lCommentMode);
+    if (i > aRoutine.Line) and IsRoutineHeaderLine(lLineText) then
+    begin
+      lNestedRoutine := Default(TDelphiSemanticRoutine);
+      lNestedRoutine.Line := i;
+      if TryFindRoutineBodySpan(aLines, lNestedRoutine, lBodyStartLine, lNestedEndLine) then
+      begin
+        i := lNestedEndLine + 1;
+        Continue;
+      end;
+    end;
+
+    if HasTokenOnLine(lLineText, 'begin') then
+    begin
+      aBodyStartLine := i;
+      Result := TryFindBlockEndLine(aLines, i, aEndLine);
+      Exit;
+    end;
+    Inc(i);
+  end;
+
+  aBodyStartLine := 0;
+  aEndLine := 0;
+  Result := False;
+end;
+
+function TryFindEnclosingFunctionBodyRoutine(const aModel: TDelphiSemanticUnitModel;
+  const aLines: TArray<string>; const aLine: Integer; out aRoutine: TDelphiSemanticRoutine;
+  out aBodyStartLine, aEndLine: Integer): Boolean;
+var
+  lBodyStartLine: Integer;
+  lEndLine: Integer;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  Result := False;
+  aRoutine := Default(TDelphiSemanticRoutine);
+  aBodyStartLine := 0;
+  aEndLine := 0;
+  for lRoutine in aModel.Routines do
+  begin
+    if (lRoutine.ReturnType = '') or (lRoutine.Line > aLine) then
+      Continue;
+    if not TryFindRoutineBodySpan(aLines, lRoutine, lBodyStartLine, lEndLine) or
+      (aLine > lEndLine) or (aLine < lBodyStartLine) then
+      Continue;
+    if (not Result) or (lRoutine.Line > aRoutine.Line) then
+    begin
+      aRoutine := lRoutine;
+      aBodyStartLine := lBodyStartLine;
+      aEndLine := lEndLine;
+      Result := True;
+    end;
+  end;
+end;
+
+function IsFunctionResultToken(const aLineText, aRoutineName: string; const aStartColumn,
+  aEndColumn: Integer): Boolean;
+begin
+  Result := SameText(Copy(aLineText, aStartColumn, aEndColumn - aStartColumn + 1),
+    UnqualifiedName(aRoutineName)) and
+    (PreviousNonSpaceChar(aLineText, aStartColumn) <> '.') and
+    (NextNonSpaceChar(aLineText, aEndColumn) <> '(');
+end;
+
+function MakeFunctionResultEditFromRange(const aFileName: string; const aLine, aStartColumn,
+  aEndColumn: Integer): TDelphiSemanticTextEdit;
+begin
+  Result := Default(TDelphiSemanticTextEdit);
+  Result.FileName := aFileName;
+  Result.Role := 'function-result';
+  Result.StartLine := aLine;
+  Result.StartColumn := aStartColumn;
+  Result.EndLine := aLine;
+  Result.EndColumn := aEndColumn;
+  Result.NewText := 'Result';
+end;
+
+function PositionInWithBody(const aModel: TDelphiSemanticUnitModel; const aLine,
+  aColumn: Integer): Boolean;
+var
+  lWithStatement: TDelphiSemanticWithStatement;
+begin
+  for lWithStatement in aModel.WithStatements do
+    if ((aLine > lWithStatement.BodyLine) or
+      ((aLine = lWithStatement.BodyLine) and (aColumn >= lWithStatement.BodyColumn))) and
+      ((aLine < lWithStatement.BodyEndLine) or
+      ((aLine = lWithStatement.BodyEndLine) and (aColumn <= lWithStatement.BodyEndColumn))) then
+      Exit(True);
+
+  Result := False;
+end;
+
+procedure AddFunctionResultEdits(const aFileName: string; const aLines: TArray<string>;
+  const aModel: TDelphiSemanticUnitModel; const aRoutine: TDelphiSemanticRoutine;
+  const aBodyStartLine, aEndLine: Integer; const aEdits: TList<TDelphiSemanticTextEdit>);
+var
+  i: Integer;
+  lCommentMode: Integer;
+  lEndColumn: Integer;
+  lEdit: TDelphiSemanticTextEdit;
+  lLineText: string;
+  lStartColumn: Integer;
+  lToken: string;
+begin
+  lCommentMode := 0;
+  for i := aBodyStartLine to aEndLine do
+  begin
+    lLineText := SanitizeFunctionResultLine(aLines[i - 1], lCommentMode);
+    lStartColumn := 1;
+    while lStartColumn <= Length(lLineText) do
+    begin
+      while (lStartColumn <= Length(lLineText)) and not IsIdentifierChar(lLineText[lStartColumn]) do
+        Inc(lStartColumn);
+      if lStartColumn > Length(lLineText) then
+        Break;
+      lEndColumn := lStartColumn;
+      while (lEndColumn < Length(lLineText)) and IsIdentifierChar(lLineText[lEndColumn + 1]) do
+        Inc(lEndColumn);
+      lToken := Copy(lLineText, lStartColumn, lEndColumn - lStartColumn + 1);
+      if SameText(lToken, UnqualifiedName(aRoutine.Name)) and
+        IsFunctionResultToken(lLineText, aRoutine.Name, lStartColumn, lEndColumn) and
+        not PositionInWithBody(aModel, i, lStartColumn) then
+      begin
+        lEdit := MakeFunctionResultEditFromRange(aFileName, i, lStartColumn, lEndColumn);
+        if not EditAlreadyPlanned(aEdits, lEdit) then
+          aEdits.Add(lEdit);
+      end;
+      lStartColumn := lEndColumn + 1;
+    end;
+  end;
+end;
+
 function IsShadowedByLocal(const aContext: TDelphiSemanticSymbolQueryContext;
   const aUsage: TDelphiSemanticUsage): Boolean;
 var
@@ -455,6 +844,60 @@ begin
     Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".'));
 
   Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
+end;
+
+class function TDelphiSemanticRenamePlanner.PlanFunctionResultRefactorAtPosition(
+  const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string; const aLine,
+  aColumn: Integer): TDelphiSemanticRenamePlan;
+var
+  lBodyStartLine: Integer;
+  lEdits: TList<TDelphiSemanticTextEdit>;
+  lEndColumn: Integer;
+  lEndLine: Integer;
+  lLines: TArray<string>;
+  lModel: TDelphiSemanticUnitModel;
+  lRoutine: TDelphiSemanticRoutine;
+  lSelectedLineText: string;
+  lStartColumn: Integer;
+  lToken: string;
+begin
+  if not TryFindModelByFile(aContext, aFileName, lModel) then
+    Exit(MakeBlockedPlan('No semantic model found for the requested file.'));
+  if (lModel.FileName = '') or not TFile.Exists(lModel.FileName) then
+    Exit(MakeBlockedPlan('Source file is not available for function-result planning.'));
+
+  lLines := TFile.ReadAllLines(lModel.FileName);
+  if (aLine > 0) and (aLine <= Length(lLines)) then
+    lSelectedLineText := SanitizedLineAt(lLines, aLine)
+  else
+    lSelectedLineText := '';
+  if (aLine <= 0) or (aLine > Length(lLines)) or
+    not TryTokenAtPosition(lSelectedLineText, aColumn, lToken, lStartColumn, lEndColumn) then
+    Exit(MakeBlockedPlan('No function-result identifier found at the requested position.'));
+  if not TryFindEnclosingFunctionBodyRoutine(lModel, lLines, aLine, lRoutine, lBodyStartLine,
+    lEndLine) then
+    Exit(MakeBlockedPlan('Selected identifier is not inside a function routine.'));
+  if not SameText(lToken, UnqualifiedName(lRoutine.Name)) then
+    Exit(MakeBlockedPlan('Selected identifier is not the enclosing function result name.'));
+  if PositionInWithBody(lModel, aLine, lStartColumn) then
+    Exit(MakeBlockedPlan('Selected identifier is inside a with-statement body.'));
+  if not IsFunctionResultToken(lSelectedLineText, lRoutine.Name, lStartColumn, lEndColumn) then
+    Exit(MakeBlockedPlan('Selected identifier is not a function-result assignment or read.'));
+
+  lEdits := TList<TDelphiSemanticTextEdit>.Create;
+  try
+    AddFunctionResultEdits(lModel.FileName, lLines, lModel, lRoutine, lBodyStartLine, lEndLine,
+      lEdits);
+
+    if lEdits.Count = 0 then
+      Exit(MakeBlockedPlan('No function-result edits were planned.'));
+
+    Result := Default(TDelphiSemanticRenamePlan);
+    Result.Status := 'planned';
+    Result.Edits := lEdits.ToArray;
+  finally
+    lEdits.Free;
+  end;
 end;
 
 class function TDelphiSemanticRenamePlanner.PlanDeadCodeRemoval(
