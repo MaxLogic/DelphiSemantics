@@ -16,6 +16,7 @@ type
     SectionKind: string;
     SourceKind: string;
     Visibility: string;
+    Signature: string;
     FileName: string;
     Line: Integer;
     Column: Integer;

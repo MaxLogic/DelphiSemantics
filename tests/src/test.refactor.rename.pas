@@ -20,6 +20,7 @@ type
     function RenameFixturePath(const aFileName: string): string;
     function RenameUnblockFixturePath(const aFileName: string): string;
     function LoadRenameContext: TDelphiSemanticSymbolQueryContext;
+    function LoadRenameComplexContext: TDelphiSemanticSymbolQueryContext;
     function LoadRenameRoutineContext: TDelphiSemanticSymbolQueryContext;
     function LoadRenameTypeContext: TDelphiSemanticSymbolQueryContext;
   public
@@ -45,6 +46,14 @@ type
     procedure ApiFacadePlansRenameFromHeaderPosition;
     [Test]
     procedure PlansTypeRenameForDeclarationSideReferences;
+    [Test]
+    procedure PlansClassMethodRenameFromInterfaceHeaderPosition;
+    [Test]
+    procedure PlansClassMethodRenameFromQualifiedCallPosition;
+    [Test]
+    procedure PlansFieldRenameFromBodyReferencePosition;
+    [Test]
+    procedure PlansLocalVariableRenameWithinOwningRoutineOnly;
   end;
 
 implementation
@@ -92,6 +101,29 @@ function TRenamePlannerTests.RenameUnblockFixturePath(const aFileName: string): 
 begin
   Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
     'RenameUnblock', aFileName]));
+end;
+
+function TRenamePlannerTests.LoadRenameComplexContext: TDelphiSemanticSymbolQueryContext;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.CompilerProfileName := 'Delphi-12-Rename-Complex-v2';
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := RenameUnblockFixturePath('RenameComplexUnit.pas');
+    lModelOptions.ProjectContextApplied := True;
+    Result.UnitModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Result.CompilerProfile := Default(TDelphiSemanticCompilerProfile);
+    Result.IndexedUnitModels := [];
+    Result.IndexedUnitSourceKinds := [];
+    Result.CacheMetrics := lCache.Metrics;
+  finally
+    lCache.Free;
+  end;
 end;
 
 function TRenamePlannerTests.LoadContext: TDelphiSemanticSymbolQueryContext;
@@ -525,6 +557,147 @@ begin
   Assert.AreEqual(2, lLine23Count, 'Expected interface parameter and return type edits.');
   Assert.AreEqual(2, lLine27Count, 'Expected implementation parameter and return type edits.');
   Assert.AreEqual(1, lLine29Count, 'Expected local variable type reference edit.');
+end;
+
+procedure TRenamePlannerTests.PlansClassMethodRenameFromInterfaceHeaderPosition;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lEdit: TDelphiSemanticTextEdit;
+  lFoundCall: Boolean;
+  lFoundImplementation: Boolean;
+  lFoundInterface: Boolean;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lFoundCall := False;
+  lFoundImplementation := False;
+  lFoundInterface := False;
+  lContext := LoadRenameComplexContext;
+
+  lPlan := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext,
+    RenameUnblockFixturePath('RenameComplexUnit.pas'), 12, 14, 'RunTask');
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(3, Length(lPlan.Edits));
+  for lEdit in lPlan.Edits do
+  begin
+    Assert.AreEqual('RunTask', lEdit.NewText);
+    Assert.IsTrue(ContainsText(lEdit.FileName, 'RenameComplexUnit.pas'));
+    if lEdit.StartLine = 12 then
+    begin
+      Assert.AreEqual(14, lEdit.StartColumn);
+      lFoundInterface := True
+    end else if lEdit.StartLine = 21 then
+    begin
+      Assert.AreEqual(18, lEdit.StartColumn);
+      lFoundImplementation := True
+    end else if lEdit.StartLine = 43 then
+      lFoundCall := True
+    else
+      Assert.Fail('Unexpected class method rename edit line: ' + IntToStr(lEdit.StartLine));
+  end;
+
+  Assert.IsTrue(lFoundInterface, 'Expected interface method declaration edit.');
+  Assert.IsTrue(lFoundImplementation, 'Expected implementation method header edit.');
+  Assert.IsTrue(lFoundCall, 'Expected qualified instance method call edit.');
+end;
+
+procedure TRenamePlannerTests.PlansClassMethodRenameFromQualifiedCallPosition;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lEdit: TDelphiSemanticTextEdit;
+  lFoundCall: Boolean;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lFoundCall := False;
+  lContext := LoadRenameComplexContext;
+
+  lPlan := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext,
+    RenameUnblockFixturePath('RenameComplexUnit.pas'), 44, 30, 'MakeValue');
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(3, Length(lPlan.Edits));
+  for lEdit in lPlan.Edits do
+  begin
+    Assert.AreEqual('MakeValue', lEdit.NewText);
+    if lEdit.StartLine = 44 then
+      lFoundCall := True;
+  end;
+  Assert.IsTrue(lFoundCall, 'Expected class-qualified method call edit.');
+end;
+
+procedure TRenamePlannerTests.PlansFieldRenameFromBodyReferencePosition;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lEdit: TDelphiSemanticTextEdit;
+  lFoundDeclaration: Boolean;
+  lFoundReference: Boolean;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lFoundDeclaration := False;
+  lFoundReference := False;
+  lContext := LoadRenameComplexContext;
+
+  lPlan := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext,
+    RenameUnblockFixturePath('RenameComplexUnit.pas'), 26, 3, 'fLastValue');
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(2, Length(lPlan.Edits));
+  for lEdit in lPlan.Edits do
+  begin
+    Assert.AreEqual('fLastValue', lEdit.NewText);
+    if lEdit.StartLine = 10 then
+      lFoundDeclaration := True
+    else if lEdit.StartLine = 26 then
+      lFoundReference := True
+    else
+      Assert.Fail('Unexpected field rename edit line: ' + IntToStr(lEdit.StartLine));
+  end;
+
+  Assert.IsTrue(lFoundDeclaration, 'Expected field declaration edit.');
+  Assert.IsTrue(lFoundReference, 'Expected field body reference edit.');
+end;
+
+procedure TRenamePlannerTests.PlansLocalVariableRenameWithinOwningRoutineOnly;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lEdit: TDelphiSemanticTextEdit;
+  lLine23Count: Integer;
+  lLine25Count: Integer;
+  lLine26Count: Integer;
+  lLine27Count: Integer;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lLine23Count := 0;
+  lLine25Count := 0;
+  lLine26Count := 0;
+  lLine27Count := 0;
+  lContext := LoadRenameComplexContext;
+
+  lPlan := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext,
+    RenameUnblockFixturePath('RenameComplexUnit.pas'), 25, 4, 'lTaskCounter');
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(4, Length(lPlan.Edits));
+  for lEdit in lPlan.Edits do
+  begin
+    Assert.AreEqual('lTaskCounter', lEdit.NewText);
+    Assert.IsTrue(ContainsText(lEdit.FileName, 'RenameComplexUnit.pas'));
+    case lEdit.StartLine of
+      23: Inc(lLine23Count);
+      25: Inc(lLine25Count);
+      26: Inc(lLine26Count);
+      27: Inc(lLine27Count);
+      37, 39, 41:
+        Assert.Fail('Rename crossed into the same-named local in UseWorker.');
+    else
+      Assert.Fail('Unexpected local rename edit line: ' + IntToStr(lEdit.StartLine));
+    end;
+  end;
+
+  Assert.AreEqual(1, lLine23Count, 'Expected local declaration edit.');
+  Assert.AreEqual(1, lLine25Count, 'Expected first local assignment edit.');
+  Assert.AreEqual(1, lLine26Count, 'Expected field assignment local edit.');
+  Assert.AreEqual(1, lLine27Count, 'Expected function result local edit.');
 end;
 
 initialization

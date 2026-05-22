@@ -20,7 +20,7 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.SysUtils;
+  System.Generics.Collections, System.StrUtils, System.SysUtils;
 
 type
   TDelphiSemanticSymbolList = TList<TDelphiSemanticIndexedSymbol>;
@@ -72,6 +72,7 @@ begin
   lSymbol.SectionKind := aSectionKind;
   lSymbol.SourceKind := aSourceKind;
   lSymbol.Visibility := aVisibility;
+  lSymbol.Signature := aSignature;
   lSymbol.FileName := aModel.FileName;
   lSymbol.Line := aLine;
   lSymbol.Column := aColumn;
@@ -162,6 +163,19 @@ function SymbolIsVisibleFromReference(const aReferenceModel: TDelphiSemanticUnit
 var
   lSectionKind: string;
 begin
+  if aSymbol.OwnerName <> '' then
+  begin
+    if not SameText(aReferenceModel.UnitName, aSymbol.UnitName) then
+      Exit(False);
+    if SameText(aSymbol.Kind, 'var') then
+      Exit(SameText(aReference.RoutineName, aSymbol.OwnerName));
+    if SameText(aSymbol.Kind, 'method') then
+      Exit(True);
+    if MatchText(aSymbol.Kind, ['field', 'class-var', 'property']) then
+      Exit(StartsText(aSymbol.OwnerName + '.', aReference.RoutineName));
+    Exit(False);
+  end;
+
   if not ((aSymbol.OwnerName = '') and (SameText(aSymbol.Kind, 'unit') or
     SameText(aSymbol.Kind, 'type') or SameText(aSymbol.Kind, 'type-alias') or
     SameText(aSymbol.Kind, 'var') or SameText(aSymbol.Kind, 'const') or
@@ -187,13 +201,26 @@ procedure ResolveReference(const aSymbols: TDelphiSemanticSymbolList;
   var aIndexedReference: TDelphiSemanticIndexedReference);
 var
   lCandidateIds: TList<TDelphiSemanticSymbolId>;
+  lLocalCandidateFound: Boolean;
   lSymbol: TDelphiSemanticIndexedSymbol;
 begin
   lCandidateIds := TList<TDelphiSemanticSymbolId>.Create;
   try
+    lLocalCandidateFound := False;
+    if aReference.RoutineName <> '' then
+      for lSymbol in aSymbols do
+        if SameText(lSymbol.Name, aReference.Name) and SameText(lSymbol.Kind, 'var') and
+          SameText(lSymbol.UnitName, aModel.UnitName) and
+          SameText(lSymbol.OwnerName, aReference.RoutineName) then
+        begin
+          lCandidateIds.Add(lSymbol.Id);
+          lLocalCandidateFound := True;
+          Break;
+        end;
+
     for lSymbol in aSymbols do
-      if SameText(lSymbol.Name, aReference.Name) and SymbolIsVisibleFromReference(aModel,
-        aReference, lSymbol) then
+      if not lLocalCandidateFound and SameText(lSymbol.Name, aReference.Name) and
+        SymbolIsVisibleFromReference(aModel, aReference, lSymbol) then
         if not SymbolIdInList(lCandidateIds, lSymbol.Id) then
           lCandidateIds.Add(lSymbol.Id);
 

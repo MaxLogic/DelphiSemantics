@@ -185,6 +185,28 @@ begin
   Result.EndColumn := aRoutine.Column + Length(aRoutine.Name) - 1;
 end;
 
+function LocalResult(const aModel: TDelphiSemanticUnitModel; const aLocal: TDelphiSemanticLocal;
+  const aSourceKind: string): TDelphiSemanticSymbolQueryResult;
+begin
+  Result := Default(TDelphiSemanticSymbolQueryResult);
+  Result.Found := True;
+  Result.Status := 'resolved';
+  Result.Name := aLocal.Name;
+  Result.Kind := aLocal.Kind;
+  Result.TypeName := aLocal.TypeName;
+  Result.OwnerName := aLocal.RoutineName;
+  Result.UnitName := aModel.UnitName;
+  Result.Description := MakeDescription(aLocal.Name, aLocal.TypeName);
+  Result.SourceKind := aSourceKind;
+  Result.Confidence := 'local-name-match';
+  Result.Provenance := 'semantic-model';
+  Result.FileName := aModel.FileName;
+  Result.Line := aLocal.Line;
+  Result.Column := aLocal.Column;
+  Result.EndLine := aLocal.Line;
+  Result.EndColumn := aLocal.Column + Length(aLocal.Name) - 1;
+end;
+
 function IntrinsicResult(const aSymbol: TDelphiSemanticIntrinsicSymbol):
   TDelphiSemanticSymbolQueryResult;
 begin
@@ -301,6 +323,86 @@ begin
     end;
 
   aTypeName := '';
+  Result := False;
+end;
+
+function TryFindLocalAtPosition(const aModel: TDelphiSemanticUnitModel; const aSourceKind,
+  aName: string; const aLine, aColumn: Integer; out aResult: TDelphiSemanticSymbolQueryResult):
+  Boolean;
+var
+  lLocal: TDelphiSemanticLocal;
+begin
+  for lLocal in aModel.Locals do
+    if SameText(lLocal.Name, aName) and (lLocal.Line = aLine) and (aColumn >= lLocal.Column) and
+      (aColumn <= lLocal.Column + Length(lLocal.Name)) then
+    begin
+      aResult := LocalResult(aModel, lLocal, aSourceKind);
+      Exit(True);
+    end;
+
+  aResult := Default(TDelphiSemanticSymbolQueryResult);
+  Result := False;
+end;
+
+function TryFindLocalReferenceAtPosition(const aModel: TDelphiSemanticUnitModel; const aSourceKind,
+  aName: string; const aLine, aColumn: Integer; out aResult: TDelphiSemanticSymbolQueryResult):
+  Boolean;
+var
+  lLocal: TDelphiSemanticLocal;
+  lReference: TDelphiSemanticReference;
+begin
+  for lReference in aModel.References do
+    if SameText(lReference.Name, aName) and (lReference.RoutineName <> '') and
+      (lReference.Line = aLine) and (aColumn >= lReference.Column) and
+      (aColumn <= lReference.EndColumn + 1) then
+      for lLocal in aModel.Locals do
+        if SameText(lLocal.RoutineName, lReference.RoutineName) and
+          SameText(lLocal.Name, aName) then
+        begin
+          aResult := LocalResult(aModel, lLocal, aSourceKind);
+          Exit(True);
+        end;
+
+  aResult := Default(TDelphiSemanticSymbolQueryResult);
+  Result := False;
+end;
+
+function TryFindMemberAtPosition(const aModel: TDelphiSemanticUnitModel; const aSourceKind,
+  aName: string; const aLine, aColumn: Integer; out aResult: TDelphiSemanticSymbolQueryResult):
+  Boolean;
+var
+  lMember: TDelphiSemanticMember;
+begin
+  for lMember in aModel.Members do
+    if SameText(lMember.Name, aName) and (lMember.Line = aLine) and
+      (aColumn >= lMember.Column) and (aColumn <= lMember.Column + Length(lMember.Name)) then
+    begin
+      aResult := MemberResult(aModel, lMember, aSourceKind);
+      Exit(True);
+    end;
+
+  aResult := Default(TDelphiSemanticSymbolQueryResult);
+  Result := False;
+end;
+
+function TryFindMemberReferenceAtPosition(const aModel: TDelphiSemanticUnitModel;
+  const aSourceKind, aName: string; const aLine, aColumn: Integer;
+  out aResult: TDelphiSemanticSymbolQueryResult): Boolean;
+var
+  lMember: TDelphiSemanticMember;
+  lReference: TDelphiSemanticReference;
+begin
+  for lReference in aModel.References do
+    if SameText(lReference.Name, aName) and (lReference.Line = aLine) and
+      (aColumn >= lReference.Column - 1) and (aColumn <= lReference.EndColumn + 1) then
+      for lMember in aModel.Members do
+        if SameText(lMember.Name, aName) then
+        begin
+          aResult := MemberResult(aModel, lMember, aSourceKind);
+          Exit(True);
+        end;
+
+  aResult := Default(TDelphiSemanticSymbolQueryResult);
   Result := False;
 end;
 
@@ -432,6 +534,18 @@ begin
     if SameText(lToken, 'unit') and TryFindModelForFile(aContext, aFileName, lModel,
       lSourceKind) then
       Exit(UnitResult(lModel, lSourceKind));
+    if TryFindModelForFile(aContext, aFileName, lModel, lSourceKind) and
+      TryFindLocalAtPosition(lModel, lSourceKind, lToken, aLine, aColumn, lResult) then
+      Exit(lResult);
+    if TryFindModelForFile(aContext, aFileName, lModel, lSourceKind) and
+      TryFindLocalReferenceAtPosition(lModel, lSourceKind, lToken, aLine, aColumn, lResult) then
+      Exit(lResult);
+    if TryFindModelForFile(aContext, aFileName, lModel, lSourceKind) and
+      TryFindMemberAtPosition(lModel, lSourceKind, lToken, aLine, aColumn, lResult) then
+      Exit(lResult);
+    if TryFindModelForFile(aContext, aFileName, lModel, lSourceKind) and
+      TryFindMemberReferenceAtPosition(lModel, lSourceKind, lToken, aLine, aColumn, lResult) then
+      Exit(lResult);
     if TryFindModelForFile(aContext, aFileName, lModel, lSourceKind) then
       lResult := FindDefinitionInModel(lModel, lSourceKind, lToken)
     else

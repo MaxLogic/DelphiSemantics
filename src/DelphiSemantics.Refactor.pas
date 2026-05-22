@@ -398,7 +398,7 @@ begin
     begin
       if not IsProjectUsage(lUsage) then
         Exit(MakeBlockedPlan('Rename contains non-project usage in "' + lUsage.FileName + '".'));
-      if IsShadowedByLocal(aContext, lUsage) then
+      if (aUsageResult.Symbol.OwnerName = '') and IsShadowedByLocal(aContext, lUsage) then
         Continue;
       if (lUsage.FileName = '') or (lUsage.Line <= 0) or (lUsage.Column <= 0) or
         (lUsage.EndLine <= 0) or (lUsage.EndColumn <= 0) or

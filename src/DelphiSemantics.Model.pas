@@ -632,7 +632,8 @@ begin
         lInImplementation := False;
         lBlockKind := '';
       end else if (lTypeDepth = 0) and
-        (StartsText('procedure ', lLine) or StartsText('function ', lLine)) then
+        (StartsText('procedure ', lLine) or StartsText('function ', lLine) or
+        StartsText('class procedure ', lLine) or StartsText('class function ', lLine)) then
       begin
         lBlockKind := '';
         if lInImplementation then
@@ -1200,8 +1201,8 @@ var
   lSection: string;
 begin
   lMatch := TRegEx.Match(aText,
-    '^\s*(procedure|function)\s+((?:[A-Za-z_][A-Za-z0-9_]*\.)?)([A-Za-z_][A-Za-z0-9_]*)\s*' +
-    '(\([^\r\n]*\))?\s*(?::\s*([^;\r\n]+))?\s*;',
+    '^\s*(?:class\s+)?(procedure|function)\s+((?:[A-Za-z_][A-Za-z0-9_]*\.)?)' +
+    '([A-Za-z_][A-Za-z0-9_]*)\s*(\([^\r\n]*\))?\s*(?::\s*([^;\r\n]+))?\s*;',
     [roIgnoreCase, roMultiLine]);
   while lMatch.Success do
   begin
@@ -1314,8 +1315,8 @@ begin
     lNames := TList<string>.Create;
     lStarts := TList<Integer>.Create;
     lMatch := TRegEx.Match(aText,
-      '^\s*(?:procedure|function)\s+((?:[A-Za-z_][A-Za-z0-9_]*\.)?)([A-Za-z_][A-Za-z0-9_]*)' +
-      '[^;\r\n]*;',
+      '^\s*(?:class\s+)?(?:procedure|function)\s+((?:[A-Za-z_][A-Za-z0-9_]*\.)?)' +
+      '([A-Za-z_][A-Za-z0-9_]*)[^;\r\n]*;',
       [roIgnoreCase, roMultiLine]);
     while lMatch.Success do
     begin
@@ -1680,7 +1681,8 @@ begin
     lBestColumn := 0;
     lBestDistance := MaxInt;
     lBestLine := 0;
-    lMatch := TRegEx.Match(lCleanText, '^\s*(procedure|function)\s+(?:[A-Za-z_][A-Za-z0-9_]*\.)?' +
+    lMatch := TRegEx.Match(lCleanText,
+      '^\s*(?:class\s+)?(?:procedure|function)\s+(?:[A-Za-z_][A-Za-z0-9_]*\.)?' +
       TRegEx.Escape(lRoutine.Name) + '\b', [roIgnoreCase, roMultiLine]);
     while lMatch.Success do
     begin

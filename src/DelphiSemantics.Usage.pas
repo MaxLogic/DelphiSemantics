@@ -117,6 +117,25 @@ begin
   Result.EndColumn := aSymbol.Column + Length(aSymbol.Name) - 1;
 end;
 
+function SymbolIsMethodPair(const aLeft, aRight: TDelphiSemanticIndexedSymbol): Boolean;
+begin
+  Result := SameText(aLeft.UnitName, aRight.UnitName) and
+    SameText(aLeft.OwnerName, aRight.OwnerName) and SameText(aLeft.Name, aRight.Name) and
+    ((SameText(aLeft.Kind, 'method') and SameText(aRight.Kind, 'routine')) or
+    (SameText(aLeft.Kind, 'routine') and SameText(aRight.Kind, 'method')));
+end;
+
+function ReferenceMatchesSymbol(const aReference: TDelphiSemanticIndexedReference;
+  const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
+begin
+  if (aReference.Status = 'resolved') and (aReference.SymbolId.Value = aSymbol.Id.Value) then
+    Exit(True);
+
+  Result := SameText(aSymbol.Kind, 'var') and (aSymbol.OwnerName <> '') and
+    SameText(aReference.Name, aSymbol.Name) and SameText(aReference.UnitName, aSymbol.UnitName) and
+    SameText(aReference.RoutineName, aSymbol.OwnerName);
+end;
+
 function BuildResultForSymbol(const aIndex: TDelphiSemanticProjectSymbolIndex;
   const aSymbol: TDelphiSemanticIndexedSymbol): TDelphiSemanticUsageResult;
 var
@@ -127,10 +146,10 @@ begin
   lUsages := TList<TDelphiSemanticUsage>.Create;
   try
     for lSymbol in aIndex.Symbols do
-      if lSymbol.Id.Value = aSymbol.Id.Value then
+      if (lSymbol.Id.Value = aSymbol.Id.Value) or SymbolIsMethodPair(lSymbol, aSymbol) then
         lUsages.Add(MakeDeclarationUsage(lSymbol));
     for lReference in aIndex.References do
-      if (lReference.Status = 'resolved') and (lReference.SymbolId.Value = aSymbol.Id.Value) then
+      if ReferenceMatchesSymbol(lReference, aSymbol) then
         lUsages.Add(MakeUsage(lReference));
 
     Result := Default(TDelphiSemanticUsageResult);
@@ -189,7 +208,9 @@ begin
   lCount := 0;
   aDiagnostic := '';
   for lSymbol in aIndex.Symbols do
-    if SameText(lSymbol.Name, aDefinition.Name) and SameText(lSymbol.Kind, aDefinition.Kind) and
+    if SameText(lSymbol.Name, aDefinition.Name) and
+      (SameText(lSymbol.Kind, aDefinition.Kind) or
+      (SameText(lSymbol.Kind, 'routine') and SameText(aDefinition.Kind, 'method'))) and
       SameText(lSymbol.UnitName, aDefinition.UnitName) and (lSymbol.Line = aDefinition.Line) and
       (lSymbol.Column = aDefinition.Column) then
     begin
