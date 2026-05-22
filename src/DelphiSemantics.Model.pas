@@ -551,6 +551,39 @@ begin
     Result := 'interface';
 end;
 
+function StripTrailingDeclarationComment(const aLine: string): string;
+var
+  i: Integer;
+  lInString: Boolean;
+  lText: string;
+begin
+  lText := aLine;
+  lInString := False;
+  i := 1;
+  while i <= Length(lText) do
+  begin
+    if lText[i] = '''' then
+    begin
+      if lInString and (i < Length(lText)) and (lText[i + 1] = '''') then
+        Inc(i)
+      else
+        lInString := not lInString;
+    end else if not lInString then
+    begin
+      if (i < Length(lText)) and (lText[i] = '/') and (lText[i + 1] = '/') then
+        Exit(Copy(lText, 1, i - 1).Trim);
+      if (lText[i] = '{') and not StartsText('{$', Copy(lText, i, MaxInt)) then
+        Exit(Copy(lText, 1, i - 1).Trim);
+      if (i < Length(lText)) and (lText[i] = '(') and (lText[i + 1] = '*') and
+        not StartsText('(*$', Copy(lText, i, MaxInt)) then
+        Exit(Copy(lText, 1, i - 1).Trim);
+    end;
+    Inc(i);
+  end;
+
+  Result := lText.Trim;
+end;
+
 function ExtractBaseTypeName(const aTypeText: string): string;
 var
   lMatch: TMatch;
@@ -603,6 +636,7 @@ var
   lLines: TStringList;
   lMatch: TMatch;
   lName: string;
+  lScopeLine: string;
   lOffset: Integer;
   lSection: string;
   lTypeName: string;
@@ -620,32 +654,34 @@ begin
     for i := 0 to Pred(lLines.Count) do
     begin
       lLine := lLines[i].Trim;
-      if (lTypeDepth > 0) and SameText(lLine, 'end;') then
+      lScopeLine := StripTrailingDeclarationComment(lLine);
+      if (lTypeDepth > 0) and SameText(lScopeLine, 'end;') then
       begin
         Dec(lTypeDepth);
-      end else if SameText(lLine, 'implementation') then
+      end else if SameText(lScopeLine, 'implementation') then
       begin
         lInImplementation := True;
         lBlockKind := '';
-      end else if SameText(lLine, 'interface') then
+      end else if SameText(lScopeLine, 'interface') then
       begin
         lInImplementation := False;
         lBlockKind := '';
       end else if (lTypeDepth = 0) and
-        (StartsText('procedure ', lLine) or StartsText('function ', lLine) or
-        StartsText('class procedure ', lLine) or StartsText('class function ', lLine)) then
+        (StartsText('procedure ', lScopeLine) or StartsText('function ', lScopeLine) or
+        StartsText('class procedure ', lScopeLine) or
+        StartsText('class function ', lScopeLine)) then
       begin
         lBlockKind := '';
         if lInImplementation then
           lInRoutine := True;
-      end else if lInRoutine and SameText(lLine, 'end;') then
+      end else if lInRoutine and SameText(lScopeLine, 'end;') then
       begin
         lInRoutine := False;
       end else if not lInRoutine then
       begin
-        if SameText(lLine, 'type') then
+        if SameText(lScopeLine, 'type') then
           lBlockKind := 'type'
-        else if SameText(lLine, 'const') or SameText(lLine, 'var') then
+        else if SameText(lScopeLine, 'const') or SameText(lScopeLine, 'var') then
           lBlockKind := ''
         else if lBlockKind = 'type' then
         begin
@@ -673,7 +709,7 @@ begin
               ExtractEnumValues(aText, aDeclarations, lName, lMatch.Groups[2].Value, lSection,
                 lOffset + 1)
             else if MatchText(lTypeName, ['class', 'interface', 'record']) and
-              not ContainsText(lLine, ' end') then
+              not ContainsText(lScopeLine, ' end') then
               Inc(lTypeDepth);
           end;
         end;
@@ -1139,6 +1175,7 @@ var
   lLine: string;
   lLines: TStringList;
   lOffset: Integer;
+  lScopeLine: string;
   lTypeDepth: Integer;
   lTypeMatch: TMatch;
   lTypeName: string;
@@ -1152,20 +1189,21 @@ begin
     for i := 0 to Pred(lLines.Count) do
     begin
       lLine := lLines[i].Trim;
+      lScopeLine := StripTrailingDeclarationComment(lLine);
       if (aOffset >= lOffset + 1) and (aOffset <= lOffset + Length(lLines[i]) + 1) then
         Exit(lTypeDepth > 0);
 
-      if (lTypeDepth > 0) and SameText(lLine, 'end;') then
+      if (lTypeDepth > 0) and SameText(lScopeLine, 'end;') then
       begin
         Dec(lTypeDepth);
-      end else if SameText(lLine, 'interface') or SameText(lLine, 'implementation') then
+      end else if SameText(lScopeLine, 'interface') or SameText(lScopeLine, 'implementation') then
       begin
         lBlockKind := '';
         lTypeDepth := 0;
-      end else if SameText(lLine, 'type') then
+      end else if SameText(lScopeLine, 'type') then
       begin
         lBlockKind := 'type';
-      end else if SameText(lLine, 'const') or SameText(lLine, 'var') then
+      end else if SameText(lScopeLine, 'const') or SameText(lScopeLine, 'var') then
       begin
         lBlockKind := '';
       end else if lBlockKind = 'type' then
@@ -1176,7 +1214,7 @@ begin
         begin
           lTypeName := NormalizeTypeName(lTypeMatch.Groups[2].Value);
           if MatchText(lTypeName, ['class', 'interface', 'record']) and
-            not ContainsText(lLine, ' end') then
+            not ContainsText(lScopeLine, ' end') then
             Inc(lTypeDepth);
         end;
       end;

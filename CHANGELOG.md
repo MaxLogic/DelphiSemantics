@@ -65,6 +65,9 @@
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
 
 ### Fixed
+- Rename planning now keeps legacy `end; {comment}` type blocks from hiding later
+  routine declarations, and preserves active units around inline conditional
+  directives in `uses` lines so cross-unit alias references are resolved.
 - Rename planning now coalesces Delphi routine declarations and implementations,
   targets routine identifiers from header positions, indexes declaration-side
   type references, and de-duplicates identical edit ranges before apply.

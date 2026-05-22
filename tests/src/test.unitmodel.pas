@@ -53,6 +53,8 @@ type
     [Test]
     procedure ExtractsMembersRoutinesLocalsAndReferences;
     [Test]
+    procedure ExtractsRoutineAfterSingleLineGuidInterface;
+    [Test]
     procedure ExtractsAnonymousNestedRecordMembers;
     [Test]
     procedure ExtractsUnprefixedConstVarAndTypedConstDeclarations;
@@ -451,6 +453,21 @@ begin
   Assert.IsTrue(HasReference(lModel, 'Value'));
   Assert.IsTrue(HasReference(lModel, 'Length'));
   Assert.IsTrue(HasReference(lModel, 'SemanticGlobal'));
+end;
+
+procedure TUnitModelTests.ExtractsRoutineAfterSingleLineGuidInterface;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('UnitModel', 'GuidInterfaceRoutineUnit.pas');
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(HasDeclaration(lModel, 'IGuidInline', 'type', 'interface'));
+  Assert.IsTrue(HasRoutine(lModel, 'RoutineAfterGuidInterface', 'interface'));
 end;
 
 procedure TUnitModelTests.ExtractsAnonymousNestedRecordMembers;

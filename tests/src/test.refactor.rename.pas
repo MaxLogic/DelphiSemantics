@@ -21,6 +21,8 @@ type
     function RenameUnblockFixturePath(const aFileName: string): string;
     function LoadRenameContext: TDelphiSemanticSymbolQueryContext;
     function LoadRenameComplexContext: TDelphiSemanticSymbolQueryContext;
+    function LoadRenameForwardCommentContext: TDelphiSemanticSymbolQueryContext;
+    function LoadRenameNestedAliasContext: TDelphiSemanticSymbolQueryContext;
     function LoadRenameRoutineContext: TDelphiSemanticSymbolQueryContext;
     function LoadRenameTypeContext: TDelphiSemanticSymbolQueryContext;
   public
@@ -54,6 +56,10 @@ type
     procedure PlansFieldRenameFromBodyReferencePosition;
     [Test]
     procedure PlansLocalVariableRenameWithinOwningRoutineOnly;
+    [Test]
+    procedure PlansForwardRoutineRenameAfterCommentedRecordEndAcrossUnits;
+    [Test]
+    procedure PlansCrossUnitAliasRenameInsideNestedRoutineLocals;
   end;
 
 implementation
@@ -120,6 +126,56 @@ begin
     Result.CompilerProfile := Default(TDelphiSemanticCompilerProfile);
     Result.IndexedUnitModels := [];
     Result.IndexedUnitSourceKinds := [];
+    Result.CacheMetrics := lCache.Metrics;
+  finally
+    lCache.Free;
+  end;
+end;
+
+function TRenamePlannerTests.LoadRenameForwardCommentContext:
+  TDelphiSemanticSymbolQueryContext;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.CompilerProfileName := 'Delphi-12-Rename-Forward-Comment-v1';
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := RenameUnblockFixturePath(
+      'RenameForwardCommentProviderUnit.pas');
+    lModelOptions.ProjectContextApplied := True;
+    Result.UnitModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Result.CompilerProfile := TDelphiSemanticCompilerProfileBuilder.FromCachedSources(lCache,
+      [RenameUnblockFixturePath('RenameForwardCommentConsumerUnit.pas')]);
+    Result.IndexedUnitModels := Result.CompilerProfile.RtlSourceUnitModels;
+    Result.IndexedUnitSourceKinds := ['project-source'];
+    Result.CacheMetrics := lCache.Metrics;
+  finally
+    lCache.Free;
+  end;
+end;
+
+function TRenamePlannerTests.LoadRenameNestedAliasContext: TDelphiSemanticSymbolQueryContext;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.CompilerProfileName := 'Delphi-12-Rename-Nested-Alias-v1';
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := RenameUnblockFixturePath('RenameAliasProviderUnit.pas');
+    lModelOptions.ProjectContextApplied := True;
+    Result.UnitModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Result.CompilerProfile := TDelphiSemanticCompilerProfileBuilder.FromCachedSources(lCache,
+      [RenameUnblockFixturePath('RenameAliasConsumerUnit.pas')]);
+    Result.IndexedUnitModels := Result.CompilerProfile.RtlSourceUnitModels;
+    Result.IndexedUnitSourceKinds := ['project-source'];
     Result.CacheMetrics := lCache.Metrics;
   finally
     lCache.Free;
@@ -698,6 +754,90 @@ begin
   Assert.AreEqual(1, lLine25Count, 'Expected first local assignment edit.');
   Assert.AreEqual(1, lLine26Count, 'Expected field assignment local edit.');
   Assert.AreEqual(1, lLine27Count, 'Expected function result local edit.');
+end;
+
+procedure TRenamePlannerTests.PlansForwardRoutineRenameAfterCommentedRecordEndAcrossUnits;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lEdit: TDelphiSemanticTextEdit;
+  lLine17Count: Integer;
+  lLine21Count: Integer;
+  lLine23Count: Integer;
+  lLine16Count: Integer;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lLine17Count := 0;
+  lLine21Count := 0;
+  lLine23Count := 0;
+  lLine16Count := 0;
+  lContext := LoadRenameForwardCommentContext;
+
+  lPlan := TDelphiSemanticRenamePlanner.PlanRename(lContext,
+    'ForwardAfterCommentedRecord', 'RenamedForwardAfterCommentedRecord');
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(4, Length(lPlan.Edits));
+  for lEdit in lPlan.Edits do
+  begin
+    Assert.AreEqual('RenamedForwardAfterCommentedRecord', lEdit.NewText);
+    if ContainsText(lEdit.FileName, 'RenameForwardCommentProviderUnit.pas') then
+    begin
+      case lEdit.StartLine of
+        17: Inc(lLine17Count);
+        21: Inc(lLine21Count);
+        23: Inc(lLine23Count);
+      else
+        Assert.Fail('Unexpected provider routine edit line: ' + IntToStr(lEdit.StartLine));
+      end;
+    end else if ContainsText(lEdit.FileName, 'RenameForwardCommentConsumerUnit.pas') then
+    begin
+      if lEdit.StartLine = 16 then
+        Inc(lLine16Count)
+      else
+        Assert.Fail('Unexpected consumer routine edit line: ' + IntToStr(lEdit.StartLine));
+    end else
+      Assert.Fail('Unexpected routine edit file: ' + lEdit.FileName);
+  end;
+
+  Assert.AreEqual(1, lLine17Count, 'Expected interface routine declaration edit.');
+  Assert.AreEqual(1, lLine21Count, 'Expected implementation routine header edit.');
+  Assert.AreEqual(1, lLine23Count, 'Expected function-result assignment edit.');
+  Assert.AreEqual(1, lLine16Count, 'Expected cross-unit call edit.');
+end;
+
+procedure TRenamePlannerTests.PlansCrossUnitAliasRenameInsideNestedRoutineLocals;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lEdit: TDelphiSemanticTextEdit;
+  lLine9Count: Integer;
+  lLine16Count: Integer;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lLine9Count := 0;
+  lLine16Count := 0;
+  lContext := LoadRenameNestedAliasContext;
+
+  lPlan := TDelphiSemanticRenamePlanner.PlanRename(lContext, 'TSourceAliasPtr',
+    'TRenamedSourceAliasPtr');
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(2, Length(lPlan.Edits));
+  for lEdit in lPlan.Edits do
+  begin
+    Assert.AreEqual('TRenamedSourceAliasPtr', lEdit.NewText);
+    if ContainsText(lEdit.FileName, 'RenameAliasProviderUnit.pas') and
+      (lEdit.StartLine = 9) then
+      Inc(lLine9Count)
+    else if ContainsText(lEdit.FileName, 'RenameAliasConsumerUnit.pas') and
+      (lEdit.StartLine = 16) then
+      Inc(lLine16Count)
+    else
+      Assert.Fail('Unexpected alias rename edit: ' + lEdit.FileName + ':' +
+        IntToStr(lEdit.StartLine));
+  end;
+
+  Assert.AreEqual(1, lLine9Count, 'Expected alias declaration edit.');
+  Assert.AreEqual(1, lLine16Count, 'Expected nested routine local type reference edit.');
 end;
 
 initialization
