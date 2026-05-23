@@ -46,6 +46,10 @@ type
     [Test]
     procedure BuildsProjectSymbolIndexWithResolvedAmbiguousAndUnresolvedReferences;
     [Test]
+    procedure OverloadedRoutineLocalReferenceStaysUnresolvedWithoutRoutineIdentity;
+    [Test]
+    procedure ProjectSymbolIndexResolvesReferencesWithoutSymbolScans;
+    [Test]
     procedure ProjectSymbolIndexUsesCaseInsensitiveLookupMaps;
   end;
 
@@ -566,6 +570,82 @@ begin
     'Expected implementation-only cross-unit reference to stay unresolved.');
   Assert.IsTrue(lResolvedLowerCase, 'Expected lower-case reference to match case-insensitively.');
   Assert.IsTrue(lSawUnresolved, 'Expected unresolved reference diagnostic.');
+end;
+
+procedure TSymbolQueryTests.OverloadedRoutineLocalReferenceStaysUnresolvedWithoutRoutineIdentity;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lIndex: TDelphiSemanticProjectSymbolIndex;
+  lReference: TDelphiSemanticIndexedReference;
+  lSawSharedLocal: Boolean;
+begin
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel.UnitName := 'OverloadedLocalUnit';
+  lContext.UnitModel.FileName := FixturePath('OverloadedLocalUnit.pas');
+  SetLength(lContext.UnitModel.Declarations, 1);
+  lContext.UnitModel.Declarations[0].Name := 'lShared';
+  lContext.UnitModel.Declarations[0].Kind := 'var';
+  lContext.UnitModel.Declarations[0].TypeName := 'Integer';
+  lContext.UnitModel.Declarations[0].SectionKind := 'interface';
+  lContext.UnitModel.Declarations[0].Line := 5;
+  lContext.UnitModel.Declarations[0].Column := 3;
+  SetLength(lContext.UnitModel.Routines, 2);
+  lContext.UnitModel.Routines[0].Name := 'UseValue';
+  lContext.UnitModel.Routines[0].SectionKind := 'implementation';
+  lContext.UnitModel.Routines[0].Signature := 'procedure UseValue(aValue: Integer)';
+  lContext.UnitModel.Routines[0].Line := 10;
+  lContext.UnitModel.Routines[0].Column := 11;
+  lContext.UnitModel.Routines[1].Name := 'UseValue';
+  lContext.UnitModel.Routines[1].SectionKind := 'implementation';
+  lContext.UnitModel.Routines[1].Signature := 'procedure UseValue(aValue: string)';
+  lContext.UnitModel.Routines[1].Line := 20;
+  lContext.UnitModel.Routines[1].Column := 11;
+  SetLength(lContext.UnitModel.Locals, 2);
+  lContext.UnitModel.Locals[0].RoutineName := 'UseValue';
+  lContext.UnitModel.Locals[0].Name := 'lShared';
+  lContext.UnitModel.Locals[0].Kind := 'var';
+  lContext.UnitModel.Locals[0].TypeName := 'Integer';
+  lContext.UnitModel.Locals[0].Line := 12;
+  lContext.UnitModel.Locals[0].Column := 3;
+  lContext.UnitModel.Locals[1].RoutineName := 'UseValue';
+  lContext.UnitModel.Locals[1].Name := 'lShared';
+  lContext.UnitModel.Locals[1].Kind := 'var';
+  lContext.UnitModel.Locals[1].TypeName := 'Integer';
+  lContext.UnitModel.Locals[1].Line := 22;
+  lContext.UnitModel.Locals[1].Column := 3;
+  SetLength(lContext.UnitModel.References, 1);
+  lContext.UnitModel.References[0].Name := 'lShared';
+  lContext.UnitModel.References[0].RoutineName := 'UseValue';
+  lContext.UnitModel.References[0].SectionKind := 'implementation';
+  lContext.UnitModel.References[0].Line := 24;
+  lContext.UnitModel.References[0].Column := 3;
+
+  lIndex := TDelphiSemanticApi.BuildProjectSymbolIndex(lContext);
+
+  lSawSharedLocal := False;
+  for lReference in lIndex.References do
+    if SameText(lReference.Name, 'lShared') then
+    begin
+      lSawSharedLocal := True;
+      Assert.AreEqual('unresolved', lReference.Status);
+      Assert.AreEqual(0, Length(lReference.CandidateSymbolIds));
+    end;
+
+  Assert.IsTrue(lSawSharedLocal);
+end;
+
+procedure TSymbolQueryTests.ProjectSymbolIndexResolvesReferencesWithoutSymbolScans;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lIndex: TDelphiSemanticProjectSymbolIndex;
+begin
+  lContext := LoadContext;
+  TDelphiSemanticProjectSymbolIndexer.ResetReferenceResolutionSymbolScanCount;
+
+  lIndex := TDelphiSemanticApi.BuildProjectSymbolIndex(lContext);
+
+  Assert.IsTrue(Length(lIndex.References) > 0);
+  Assert.AreEqual(0, TDelphiSemanticProjectSymbolIndexer.ReferenceResolutionSymbolScanCount);
 end;
 
 procedure TSymbolQueryTests.ProjectSymbolIndexUsesCaseInsensitiveLookupMaps;
