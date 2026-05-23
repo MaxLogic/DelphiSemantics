@@ -13,6 +13,14 @@ type
   private
     procedure AssertIndexedProfileNameKind(const aProfile: TDelphiSemanticCompilerProfile;
       const aName, aKind: string);
+    function FindDeclaration(const aModel: TDelphiSemanticUnitModel; const aName: string;
+      out aDeclaration: TDelphiSemanticDeclaration): Boolean;
+    function FindLocal(const aModel: TDelphiSemanticUnitModel; const aRoutineName, aName: string;
+      out aLocal: TDelphiSemanticLocal): Boolean;
+    function FindMember(const aModel: TDelphiSemanticUnitModel; const aOwnerName, aName: string;
+      out aMember: TDelphiSemanticMember): Boolean;
+    function FindRoutine(const aModel: TDelphiSemanticUnitModel; const aName, aOwnerName: string;
+      out aRoutine: TDelphiSemanticRoutine): Boolean;
     function HasDeclaration(const aModel: TDelphiSemanticUnitModel; const aName: string):
       Boolean;
     function TempPath(const aName: string): string;
@@ -58,6 +66,8 @@ type
     [Test]
     procedure SqliteCacheHitRestoresSourceSections;
     [Test]
+    procedure SqliteCacheHitRestoresOriginalRanges;
+    [Test]
     procedure SymbolMapCompatibleIdentityReusesSharedSourceAcrossProjects;
     [Test]
     procedure CompilerProfileExposesDakIntrinsicSeedFacts;
@@ -87,6 +97,70 @@ begin
 
   Assert.IsTrue(lResult.Found, 'Expected "' + aName + '" to resolve.');
   Assert.AreEqual(aKind, lResult.Kind);
+end;
+
+function TCacheTests.FindDeclaration(const aModel: TDelphiSemanticUnitModel; const aName: string;
+  out aDeclaration: TDelphiSemanticDeclaration): Boolean;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+begin
+  for lDeclaration in aModel.Declarations do
+    if SameText(lDeclaration.Name, aName) then
+    begin
+      aDeclaration := lDeclaration;
+      Exit(True);
+    end;
+
+  aDeclaration := Default(TDelphiSemanticDeclaration);
+  Result := False;
+end;
+
+function TCacheTests.FindLocal(const aModel: TDelphiSemanticUnitModel; const aRoutineName,
+  aName: string; out aLocal: TDelphiSemanticLocal): Boolean;
+var
+  lLocal: TDelphiSemanticLocal;
+begin
+  for lLocal in aModel.Locals do
+    if SameText(lLocal.RoutineName, aRoutineName) and SameText(lLocal.Name, aName) then
+    begin
+      aLocal := lLocal;
+      Exit(True);
+    end;
+
+  aLocal := Default(TDelphiSemanticLocal);
+  Result := False;
+end;
+
+function TCacheTests.FindMember(const aModel: TDelphiSemanticUnitModel; const aOwnerName,
+  aName: string; out aMember: TDelphiSemanticMember): Boolean;
+var
+  lMember: TDelphiSemanticMember;
+begin
+  for lMember in aModel.Members do
+    if SameText(lMember.OwnerName, aOwnerName) and SameText(lMember.Name, aName) then
+    begin
+      aMember := lMember;
+      Exit(True);
+    end;
+
+  aMember := Default(TDelphiSemanticMember);
+  Result := False;
+end;
+
+function TCacheTests.FindRoutine(const aModel: TDelphiSemanticUnitModel; const aName,
+  aOwnerName: string; out aRoutine: TDelphiSemanticRoutine): Boolean;
+var
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  for lRoutine in aModel.Routines do
+    if SameText(lRoutine.Name, aName) and SameText(lRoutine.OwnerName, aOwnerName) then
+    begin
+      aRoutine := lRoutine;
+      Exit(True);
+    end;
+
+  aRoutine := Default(TDelphiSemanticRoutine);
+  Result := False;
 end;
 
 function TCacheTests.HasDeclaration(const aModel: TDelphiSemanticUnitModel;
@@ -277,6 +351,63 @@ begin
       lSecond.Model.SourceSections.ImplementationOffset);
     Assert.AreEqual(Pos('initialization', lSource), lSecond.Model.SourceSections.InitializationOffset);
     Assert.AreEqual(Pos('finalization', lSource), lSecond.Model.SourceSections.FinalizationOffset);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.SqliteCacheHitRestoresOriginalRanges;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lLocal: TDelphiSemanticLocal;
+  lMember: TDelphiSemanticMember;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lRoutine: TDelphiSemanticRoutine;
+  lSecond: TDelphiSemanticUnitCacheAccessResult;
+  lSource: string;
+begin
+  lPath := TempPath('OriginalRangesSqliteUnit.pas');
+  lSource := 'unit OriginalRangesSqliteUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TCacheRange = class' + sLineBreak +
+    '  private' + sLineBreak + '    FRange: Integer;' + sLineBreak + '  end;' +
+    sLineBreak + 'implementation' + sLineBreak + 'procedure TCacheRange.Run;' +
+    sLineBreak + 'var' + sLineBreak + '  lRange: Integer;' + sLineBreak + 'begin' +
+    sLineBreak + '  lRange := FRange;' + sLineBreak + 'end;' + sLineBreak + 'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('source-range-cache.sqlite3');
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lSecond := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+
+    Assert.IsTrue(lSecond.CacheHit);
+    Assert.IsTrue(FindDeclaration(lSecond.Model, 'TCacheRange', lDeclaration));
+    Assert.AreEqual('TCacheRange', Copy(lSource, lDeclaration.Offset,
+      lDeclaration.EndOffset - lDeclaration.Offset));
+    Assert.IsTrue(FindMember(lSecond.Model, 'TCacheRange', 'FRange', lMember));
+    Assert.AreEqual('FRange', Copy(lSource, lMember.Offset, lMember.EndOffset -
+      lMember.Offset));
+    Assert.IsTrue(FindRoutine(lSecond.Model, 'Run', 'TCacheRange', lRoutine));
+    Assert.AreEqual('Run', Copy(lSource, lRoutine.Offset, lRoutine.EndOffset -
+      lRoutine.Offset));
+    Assert.IsTrue(FindLocal(lSecond.Model, 'TCacheRange.Run', 'lRange', lLocal));
+    Assert.AreEqual('lRange', Copy(lSource, lLocal.Offset, lLocal.EndOffset -
+      lLocal.Offset));
   finally
     lCache.Free;
   end;

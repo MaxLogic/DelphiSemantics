@@ -27,6 +27,8 @@ type
     SectionKind: string;
     Line: Integer;
     Column: Integer;
+    Offset: Integer;
+    EndOffset: Integer;
   end;
 
   TDelphiSemanticMember = record
@@ -40,6 +42,8 @@ type
     IsDefault: Boolean;
     Line: Integer;
     Column: Integer;
+    Offset: Integer;
+    EndOffset: Integer;
   end;
 
   TDelphiSemanticParameter = record
@@ -57,6 +61,8 @@ type
     ReturnType: string;
     Line: Integer;
     Column: Integer;
+    Offset: Integer;
+    EndOffset: Integer;
     Parameters: TArray<TDelphiSemanticParameter>;
   end;
 
@@ -67,6 +73,8 @@ type
     TypeName: string;
     Line: Integer;
     Column: Integer;
+    Offset: Integer;
+    EndOffset: Integer;
   end;
 
   TDelphiSemanticReference = record
@@ -435,6 +443,8 @@ begin
   lDeclaration.SectionKind := aSection;
   lDeclaration.Line := LineOfOffset(aText, aOffset);
   lDeclaration.Column := ColumnOfOffset(aText, aOffset);
+  lDeclaration.Offset := aOffset;
+  lDeclaration.EndOffset := aOffset + Length(aName);
   aDeclarations.Add(lDeclaration);
 end;
 
@@ -490,6 +500,8 @@ begin
   lMember.IsDefault := aIsDefault;
   lMember.Line := LineOfOffset(aText, aOffset);
   lMember.Column := ColumnOfOffset(aText, aOffset);
+  lMember.Offset := aOffset;
+  lMember.EndOffset := aOffset + Length(aName);
   aMembers.Add(lMember);
 end;
 
@@ -504,6 +516,8 @@ begin
   lLocal.TypeName := aTypeName;
   lLocal.Line := LineOfOffset(aText, aOffset);
   lLocal.Column := ColumnOfOffset(aText, aOffset);
+  lLocal.Offset := aOffset;
+  lLocal.EndOffset := aOffset + Length(aName);
   aLocals.Add(lLocal);
 end;
 
@@ -1231,6 +1245,8 @@ begin
   lRoutine.ReturnType := aReturnType.Trim;
   lRoutine.Line := LineOfOffset(aText, aNameOffset);
   lRoutine.Column := ColumnOfOffset(aText, aNameOffset);
+  lRoutine.Offset := aNameOffset;
+  lRoutine.EndOffset := aNameOffset + Length(aName);
   lRoutine.Parameters := ParseParameters(aName, aSignature);
   aRoutines.Add(lRoutine);
 end;
@@ -1595,6 +1611,7 @@ var
   lCandidateColumn: Integer;
   lCandidateDistance: Integer;
   lCandidateLine: Integer;
+  lCandidateOffset: Integer;
   lDeclaration: TDelphiSemanticDeclaration;
   lMatch: TMatch;
 begin
@@ -1608,14 +1625,17 @@ begin
       [roIgnoreCase, roMultiLine]);
     while lMatch.Success do
     begin
-      lCandidateLine := LineOfOffset(aSourceText, lMatch.Index + Length(lMatch.Groups[1].Value));
-      lCandidateColumn := ColumnOfOffset(aSourceText, lMatch.Index + Length(lMatch.Groups[1].Value));
+      lCandidateOffset := lMatch.Index + Length(lMatch.Groups[1].Value);
+      lCandidateLine := LineOfOffset(aSourceText, lCandidateOffset);
+      lCandidateColumn := ColumnOfOffset(aSourceText, lCandidateOffset);
       lCandidateDistance := Abs(lCandidateLine - lDeclaration.Line);
       if lCandidateDistance < lBestDistance then
       begin
         lBestDistance := lCandidateDistance;
         lBestLine := lCandidateLine;
         lBestColumn := lCandidateColumn;
+        lDeclaration.Offset := lCandidateOffset;
+        lDeclaration.EndOffset := lCandidateOffset + Length(lDeclaration.Name);
       end;
       lMatch := lMatch.NextMatch;
     end;
@@ -1728,6 +1748,7 @@ var
   lCandidateColumn: Integer;
   lCandidateDistance: Integer;
   lCandidateLine: Integer;
+  lCandidateOffset: Integer;
   lCleanText: string;
   lMatch: TMatch;
   lMember: TDelphiSemanticMember;
@@ -1744,14 +1765,17 @@ begin
       TRegEx.Escape(lMember.Name) + '\b', [roIgnoreCase, roMultiLine]);
     while lMatch.Success do
     begin
-      lCandidateLine := LineOfOffset(lCleanText, lMatch.Index + Length(lMatch.Groups[1].Value));
-      lCandidateColumn := ColumnOfOffset(lCleanText, lMatch.Index + Length(lMatch.Groups[1].Value));
+      lCandidateOffset := lMatch.Index + Length(lMatch.Groups[1].Value);
+      lCandidateLine := LineOfOffset(lCleanText, lCandidateOffset);
+      lCandidateColumn := ColumnOfOffset(lCleanText, lCandidateOffset);
       lCandidateDistance := Abs(lCandidateLine - lMember.Line);
       if lCandidateDistance < lBestDistance then
       begin
         lBestDistance := lCandidateDistance;
         lBestLine := lCandidateLine;
         lBestColumn := lCandidateColumn;
+        lMember.Offset := lCandidateOffset;
+        lMember.EndOffset := lCandidateOffset + Length(lMember.Name);
       end;
       lMatch := lMatch.NextMatch;
     end;
@@ -1800,6 +1824,8 @@ begin
         lBestDistance := lCandidateDistance;
         lBestLine := lCandidateLine;
         lBestColumn := lCandidateColumn;
+        lRoutine.Offset := lCandidateOffset;
+        lRoutine.EndOffset := lCandidateOffset + Length(lRoutine.Name);
       end;
       lMatch := lMatch.NextMatch;
     end;
@@ -1822,6 +1848,7 @@ var
   lCandidateColumn: Integer;
   lCandidateDistance: Integer;
   lCandidateLine: Integer;
+  lCandidateOffset: Integer;
   lCleanText: string;
   lLocal: TDelphiSemanticLocal;
   lMatch: TMatch;
@@ -1833,18 +1860,21 @@ begin
     lBestColumn := 0;
     lBestDistance := MaxInt;
     lBestLine := 0;
-    lMatch := TRegEx.Match(lCleanText, '^\s*' + TRegEx.Escape(lLocal.Name) + '\b\s*:',
+    lMatch := TRegEx.Match(lCleanText, '^(\s*)' + TRegEx.Escape(lLocal.Name) + '\b\s*:',
       [roIgnoreCase, roMultiLine]);
     while lMatch.Success do
     begin
-      lCandidateLine := LineOfOffset(lCleanText, lMatch.Index + 1);
-      lCandidateColumn := ColumnOfOffset(lCleanText, lMatch.Index + 1);
+      lCandidateOffset := lMatch.Index + Length(lMatch.Groups[1].Value);
+      lCandidateLine := LineOfOffset(lCleanText, lCandidateOffset);
+      lCandidateColumn := ColumnOfOffset(lCleanText, lCandidateOffset);
       lCandidateDistance := Abs(lCandidateLine - lLocal.Line);
       if lCandidateDistance < lBestDistance then
       begin
         lBestDistance := lCandidateDistance;
         lBestLine := lCandidateLine;
         lBestColumn := lCandidateColumn;
+        lLocal.Offset := lCandidateOffset;
+        lLocal.EndOffset := lCandidateOffset + Length(lLocal.Name);
       end;
       lMatch := lMatch.NextMatch;
     end;

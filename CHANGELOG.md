@@ -57,6 +57,9 @@
 - Unit model extraction now records source section boundaries and uses cached
   section lookup for interface/implementation/initialization/finalization
   classification, including SQLite cache restoration.
+- Unit model declarations, members, routines, and locals now carry
+  original-source `Offset` and exclusive `EndOffset` ranges, including SQLite
+  cache restoration.
 - Project reference resolution now uses dictionary-backed project-index lookups,
   routine-id local scope matching, and ordered visible-scope queries; maxTdb
   warm `rename-dry-run-allfiles` benchmark is down to a 2.849s median.

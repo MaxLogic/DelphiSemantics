@@ -32,7 +32,7 @@ uses
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def;
 
 const
-  cSqliteSchemaVersion = '6';
+  cSqliteSchemaVersion = '7';
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -119,6 +119,8 @@ begin
   Result.AddPair('SectionKind', aDeclaration.SectionKind);
   Result.AddPair('Line', TJSONNumber.Create(aDeclaration.Line));
   Result.AddPair('Column', TJSONNumber.Create(aDeclaration.Column));
+  Result.AddPair('Offset', TJSONNumber.Create(aDeclaration.Offset));
+  Result.AddPair('EndOffset', TJSONNumber.Create(aDeclaration.EndOffset));
 end;
 
 function JsonToDeclaration(const aObject: TJSONObject): TDelphiSemanticDeclaration;
@@ -131,6 +133,8 @@ begin
   Result.SectionKind := JsonString(aObject, 'SectionKind');
   Result.Line := JsonInt(aObject, 'Line');
   Result.Column := JsonInt(aObject, 'Column');
+  Result.Offset := JsonInt(aObject, 'Offset');
+  Result.EndOffset := JsonInt(aObject, 'EndOffset');
 end;
 
 function DeclarationsToJson(const aDeclarations: TArray<TDelphiSemanticDeclaration>): TJSONArray;
@@ -169,6 +173,8 @@ begin
   Result.AddPair('IsDefault', TJSONBool.Create(aMember.IsDefault));
   Result.AddPair('Line', TJSONNumber.Create(aMember.Line));
   Result.AddPair('Column', TJSONNumber.Create(aMember.Column));
+  Result.AddPair('Offset', TJSONNumber.Create(aMember.Offset));
+  Result.AddPair('EndOffset', TJSONNumber.Create(aMember.EndOffset));
 end;
 
 function JsonToMember(const aObject: TJSONObject): TDelphiSemanticMember;
@@ -183,6 +189,8 @@ begin
   Result.IsDefault := JsonBool(aObject, 'IsDefault');
   Result.Line := JsonInt(aObject, 'Line');
   Result.Column := JsonInt(aObject, 'Column');
+  Result.Offset := JsonInt(aObject, 'Offset');
+  Result.EndOffset := JsonInt(aObject, 'EndOffset');
 end;
 
 function MembersToJson(const aMembers: TArray<TDelphiSemanticMember>): TJSONArray;
@@ -258,6 +266,8 @@ begin
   Result.AddPair('ReturnType', aRoutine.ReturnType);
   Result.AddPair('Line', TJSONNumber.Create(aRoutine.Line));
   Result.AddPair('Column', TJSONNumber.Create(aRoutine.Column));
+  Result.AddPair('Offset', TJSONNumber.Create(aRoutine.Offset));
+  Result.AddPair('EndOffset', TJSONNumber.Create(aRoutine.EndOffset));
   Result.AddPair('Parameters', ParametersToJson(aRoutine.Parameters));
 end;
 
@@ -270,6 +280,8 @@ begin
   Result.ReturnType := JsonString(aObject, 'ReturnType');
   Result.Line := JsonInt(aObject, 'Line');
   Result.Column := JsonInt(aObject, 'Column');
+  Result.Offset := JsonInt(aObject, 'Offset');
+  Result.EndOffset := JsonInt(aObject, 'EndOffset');
   Result.Parameters := JsonToParameters(aObject.GetValue('Parameters') as TJSONArray);
 end;
 
@@ -305,6 +317,8 @@ begin
   Result.AddPair('TypeName', aLocal.TypeName);
   Result.AddPair('Line', TJSONNumber.Create(aLocal.Line));
   Result.AddPair('Column', TJSONNumber.Create(aLocal.Column));
+  Result.AddPair('Offset', TJSONNumber.Create(aLocal.Offset));
+  Result.AddPair('EndOffset', TJSONNumber.Create(aLocal.EndOffset));
 end;
 
 function JsonToLocal(const aObject: TJSONObject): TDelphiSemanticLocal;
@@ -315,6 +329,8 @@ begin
   Result.TypeName := JsonString(aObject, 'TypeName');
   Result.Line := JsonInt(aObject, 'Line');
   Result.Column := JsonInt(aObject, 'Column');
+  Result.Offset := JsonInt(aObject, 'Offset');
+  Result.EndOffset := JsonInt(aObject, 'EndOffset');
 end;
 
 function LocalsToJson(const aLocals: TArray<TDelphiSemanticLocal>): TJSONArray;

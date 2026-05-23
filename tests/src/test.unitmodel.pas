@@ -23,6 +23,8 @@ type
       aTypeName: string): Boolean;
     function HasLocalOnLine(const aModel: TDelphiSemanticUnitModel; const aRoutineName,
       aName: string; const aLine: Integer): Boolean;
+    function FindLocal(const aModel: TDelphiSemanticUnitModel; const aRoutineName, aName:
+      string; out aLocal: TDelphiSemanticLocal): Boolean;
     function HasMember(const aModel: TDelphiSemanticUnitModel; const aOwnerName, aName, aKind,
       aTypeName: string): Boolean;
     function FindDeclaration(const aModel: TDelphiSemanticUnitModel; const aName, aKind,
@@ -96,6 +98,8 @@ type
     procedure SourceSectionsHandleUnitsWithoutImplementation;
     [Test]
     procedure SourceSectionsIgnoreCommentsAndStringsWhenFindingImplementation;
+    [Test]
+    procedure ModelCarriesOriginalSourceRangesForDeclarationsRoutinesMembersAndLocals;
     [Test]
     procedure ModelPropagatesSourceAndPreprocessDiagnostics;
     [Test]
@@ -187,6 +191,22 @@ begin
       (lLocal.Line = aLine) then
       Exit(True);
 
+  Result := False;
+end;
+
+function TUnitModelTests.FindLocal(const aModel: TDelphiSemanticUnitModel;
+  const aRoutineName, aName: string; out aLocal: TDelphiSemanticLocal): Boolean;
+var
+  lLocal: TDelphiSemanticLocal;
+begin
+  for lLocal in aModel.Locals do
+    if SameText(lLocal.RoutineName, aRoutineName) and SameText(lLocal.Name, aName) then
+    begin
+      aLocal := lLocal;
+      Exit(True);
+    end;
+
+  aLocal := Default(TDelphiSemanticLocal);
   Result := False;
 end;
 
@@ -1149,6 +1169,148 @@ begin
     lInterfaceDeclaration));
   Assert.IsTrue(FindDeclaration(lModel, 'TAfterImplementation', 'type-alias', 'implementation',
     lInterfaceDeclaration));
+end;
+
+procedure TUnitModelTests.ModelCarriesOriginalSourceRangesForDeclarationsRoutinesMembersAndLocals;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFirstSameNameOffset: Integer;
+  lLocal: TDelphiSemanticLocal;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lRoutine: TDelphiSemanticRoutine;
+  lRoutineCount: Integer;
+  lRoutineItem: TDelphiSemanticRoutine;
+  lSecondSameNameOffset: Integer;
+  lSource: string;
+begin
+  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-original-ranges.pas');
+  lSource :=
+    'unit OriginalRangeUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TRangeFirst = class' + sLineBreak +
+    '  private' + sLineBreak +
+    '    FValue: Integer;' + sLineBreak +
+    '  public' + sLineBreak +
+    '    procedure SameName;' + sLineBreak +
+    '    function Overloaded(const aValue: Integer): Integer; overload;' + sLineBreak +
+    '    function Overloaded(const aText: string): string; overload;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TRangeSecond = class' + sLineBreak +
+    '  public' + sLineBreak +
+    '    procedure SameName;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'procedure TopLevel(const aText: string);' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure TRangeFirst.SameName;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lFirstLocal: Integer;' + sLineBreak +
+    '  procedure NestedWorker;' + sLineBreak +
+    '  var' + sLineBreak +
+    '    lNestedLocal: Integer;' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    lNestedLocal := lFirstLocal;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  NestedWorker;' + sLineBreak +
+    'end;' + sLineBreak +
+    'function TRangeFirst.Overloaded(const aValue: Integer): Integer;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  Result := aValue;' + sLineBreak +
+    'end;' + sLineBreak +
+    'function TRangeFirst.Overloaded(const aText: string): string;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  Result := aText;' + sLineBreak +
+    'end;' + sLineBreak +
+    'procedure TRangeSecond.SameName;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindDeclaration(lModel, 'TRangeFirst', 'type', 'interface', lDeclaration),
+    'TRangeFirst declaration');
+  Assert.AreEqual(Pos('TRangeFirst = class', lSource), lDeclaration.Offset);
+  Assert.AreEqual(lDeclaration.Offset + Length(lDeclaration.Name), lDeclaration.EndOffset);
+  Assert.AreEqual(lDeclaration.Name, Copy(lSource, lDeclaration.Offset,
+    lDeclaration.EndOffset - lDeclaration.Offset));
+  Assert.IsTrue(FindDeclaration(lModel, 'TopLevel', 'routine', 'interface', lDeclaration),
+    'TopLevel declaration');
+  Assert.AreEqual(Pos('TopLevel', lSource), lDeclaration.Offset);
+  Assert.AreEqual(lDeclaration.Offset + Length(lDeclaration.Name), lDeclaration.EndOffset);
+  Assert.AreEqual(lDeclaration.Name, Copy(lSource, lDeclaration.Offset,
+    lDeclaration.EndOffset - lDeclaration.Offset));
+  Assert.IsTrue(FindMember(lModel, 'TRangeFirst', 'FValue', 'field', lMember),
+    'FValue member');
+  Assert.AreEqual(Pos('FValue: Integer', lSource), lMember.Offset);
+  Assert.AreEqual(lMember.Offset + Length(lMember.Name), lMember.EndOffset);
+  Assert.AreEqual(lMember.Name, Copy(lSource, lMember.Offset,
+    lMember.EndOffset - lMember.Offset));
+  Assert.IsTrue(FindMember(lModel, 'TRangeFirst', 'SameName', 'method', lMember),
+    'TRangeFirst.SameName member');
+  Assert.AreEqual(Pos('SameName;', lSource), lMember.Offset);
+  Assert.AreEqual(lMember.Offset + Length(lMember.Name), lMember.EndOffset);
+  Assert.AreEqual(lMember.Name, Copy(lSource, lMember.Offset,
+    lMember.EndOffset - lMember.Offset));
+  Assert.IsTrue(FindRoutine(lModel, 'NestedWorker', 'implementation', lRoutine),
+    'NestedWorker routine');
+  Assert.AreEqual(Pos('NestedWorker;', lSource), lRoutine.Offset);
+  Assert.AreEqual(lRoutine.Offset + Length(lRoutine.Name), lRoutine.EndOffset);
+  Assert.AreEqual(lRoutine.Name, Copy(lSource, lRoutine.Offset,
+    lRoutine.EndOffset - lRoutine.Offset));
+  Assert.IsTrue(FindLocal(lModel, 'TRangeFirst.SameName', 'lFirstLocal', lLocal),
+    'lFirstLocal local');
+  Assert.AreEqual(Pos('lFirstLocal: Integer', lSource), lLocal.Offset);
+  Assert.AreEqual(lLocal.Offset + Length(lLocal.Name), lLocal.EndOffset);
+  Assert.AreEqual(lLocal.Name, Copy(lSource, lLocal.Offset,
+    lLocal.EndOffset - lLocal.Offset));
+  Assert.IsTrue(FindLocal(lModel, 'NestedWorker', 'lNestedLocal', lLocal), 'lNestedLocal local');
+  Assert.AreEqual(Pos('lNestedLocal: Integer', lSource), lLocal.Offset);
+  Assert.AreEqual(lLocal.Offset + Length(lLocal.Name), lLocal.EndOffset);
+  Assert.AreEqual(lLocal.Name, Copy(lSource, lLocal.Offset,
+    lLocal.EndOffset - lLocal.Offset));
+
+  lRoutineCount := 0;
+  lFirstSameNameOffset := Pos('procedure TRangeFirst.SameName;', lSource) +
+    Length('procedure TRangeFirst.');
+  lSecondSameNameOffset := Pos('procedure TRangeSecond.SameName;', lSource) +
+    Length('procedure TRangeSecond.');
+  for lRoutineItem in lModel.Routines do
+    if SameText(lRoutineItem.Name, 'SameName') and SameText(lRoutineItem.SectionKind,
+      'implementation') then
+    begin
+      Inc(lRoutineCount);
+      if SameText(lRoutineItem.OwnerName, 'TRangeFirst') then
+        Assert.AreEqual(lFirstSameNameOffset, lRoutineItem.Offset)
+      else if SameText(lRoutineItem.OwnerName, 'TRangeSecond') then
+        Assert.AreEqual(lSecondSameNameOffset, lRoutineItem.Offset)
+      else
+        Assert.Fail('Unexpected SameName owner: ' + lRoutineItem.OwnerName);
+      Assert.AreEqual(lRoutineItem.Offset + Length(lRoutineItem.Name), lRoutineItem.EndOffset);
+      Assert.AreEqual(lRoutineItem.Name, Copy(lSource, lRoutineItem.Offset,
+        lRoutineItem.EndOffset - lRoutineItem.Offset));
+    end;
+  Assert.AreEqual(2, lRoutineCount);
+  lRoutineCount := 0;
+  for lRoutineItem in lModel.Routines do
+    if SameText(lRoutineItem.Name, 'Overloaded') and SameText(lRoutineItem.OwnerName,
+      'TRangeFirst') and SameText(lRoutineItem.SectionKind, 'implementation') then
+    begin
+      Inc(lRoutineCount);
+      Assert.AreEqual(lRoutineItem.Offset + Length(lRoutineItem.Name), lRoutineItem.EndOffset);
+      Assert.AreEqual(lRoutineItem.Name, Copy(lSource, lRoutineItem.Offset,
+        lRoutineItem.EndOffset - lRoutineItem.Offset));
+    end;
+  Assert.AreEqual(2, lRoutineCount);
 end;
 
 procedure TUnitModelTests.ModelPropagatesSourceAndPreprocessDiagnostics;
