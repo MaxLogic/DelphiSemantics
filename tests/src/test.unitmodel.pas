@@ -108,6 +108,8 @@ type
     [Test]
     procedure ReferencesCarryOriginalSourceRanges;
     [Test]
+    procedure ReferencesCarryOriginalSourceRangesWithoutFallbackForPlainSource;
+    [Test]
     procedure ModelPropagatesSourceAndPreprocessDiagnostics;
     [Test]
     procedure StandaloneExtractionReportsDegradedMode;
@@ -1460,8 +1462,52 @@ begin
     lSource)), 'comment token');
   Assert.IsFalse(HasReferenceAtOffset(lModel, 'TTarget', Pos('TTarget in a string',
     lSource)), 'string token');
-  Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount > 0,
-    'preprocessed source should exercise counted reference reconciliation fallback');
+  Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount <= 17,
+    'preprocessed source should keep reference reconciliation fallback within the documented ceiling');
+end;
+
+procedure TUnitModelTests.ReferencesCarryOriginalSourceRangesWithoutFallbackForPlainSource;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lRoot: string;
+  lSource: string;
+begin
+  lRoot := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-plain-reference-ranges');
+  TDirectory.CreateDirectory(lRoot);
+  lPath := TPath.Combine(lRoot, 'PlainReferenceRangeUnit.pas');
+  lSource :=
+    'unit PlainReferenceRangeUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TTarget = record' + sLineBreak +
+    '    Value: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'var' + sLineBreak +
+    '  GTarget: TTarget;' + sLineBreak +
+    'procedure UseRefs(const aParam: TTarget);' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure UseRefs(const aParam: TTarget);' + sLineBreak +
+    'begin' + sLineBreak +
+    '  GTarget.Value := aParam.Value;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  TDelphiSemanticUnitModelExtractor.ResetReferenceReconciliationFallbackCount;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'TTarget', Pos('GTarget: TTarget', lSource) +
+    Length('GTarget: ')), 'global type reference');
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'GTarget', Pos('GTarget.Value', lSource)),
+    'body global reference');
+  Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount <= 5,
+    'plain source should keep reference reconciliation fallback within the documented ceiling');
 end;
 
 procedure TUnitModelTests.ModelPropagatesSourceAndPreprocessDiagnostics;

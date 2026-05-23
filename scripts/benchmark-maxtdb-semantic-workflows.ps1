@@ -159,6 +159,43 @@ function Read-ResultCount {
   }
 }
 
+function Get-JsonReferenceFallbackCount {
+  param([object]$Json)
+
+  if ($Json.PSObject.Properties.Name -contains 'referenceReconciliationFallbackCount') {
+    return [string]$Json.referenceReconciliationFallbackCount
+  }
+
+  if (($Json.PSObject.Properties.Name -contains 'metrics') -and ($null -ne $Json.metrics) -and
+      ($Json.metrics.PSObject.Properties.Name -contains 'referenceReconciliationFallbackCount')) {
+    return [string]$Json.metrics.referenceReconciliationFallbackCount
+  }
+
+  return ''
+}
+
+function Read-ReferenceFallbackCount {
+  param([string]$Path)
+
+  try {
+    $lText = Get-Content -LiteralPath $Path -Raw
+    if ([string]::IsNullOrWhiteSpace($lText)) {
+      return ''
+    }
+
+    $lJson = $lText | ConvertFrom-Json
+    return Get-JsonReferenceFallbackCount $lJson
+  } catch {
+    return ''
+  }
+}
+
+function Requires-ReferenceFallbackCount {
+  param([object]$Row)
+
+  return @('find-usages', 'rename', 'dead-code-detection') -contains $Row.Feature
+}
+
 function Get-Median {
   param([double[]]$Values)
 
@@ -180,14 +217,15 @@ function ConvertTo-MarkdownTable {
 
   $lCulture = [System.Globalization.CultureInfo]::InvariantCulture
   $lLines = New-Object System.Collections.Generic.List[string]
-  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Min | Max | Result count |')
-  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---:|---:|')
+  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Min | Max | Result count | Reference fallbacks |')
+  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|')
   foreach ($lRow in $Rows) {
     $lCount = if ([string]::IsNullOrWhiteSpace($lRow.ResultCount)) { '' } else { $lRow.ResultCount }
+    $lFallbacks = if ([string]::IsNullOrWhiteSpace($lRow.ReferenceFallbackCount)) { '' } else { $lRow.ReferenceFallbackCount }
     $lMedian = ([double]$lRow.MedianSeconds).ToString('F3', $lCulture)
     $lMin = ([double]$lRow.MinSeconds).ToString('F3', $lCulture)
     $lMax = ([double]$lRow.MaxSeconds).ToString('F3', $lCulture)
-    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lMin, $lMax, $lCount))
+    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lMin, $lMax, $lCount, $lFallbacks))
   }
 
   return ($lLines -join [Environment]::NewLine)
@@ -243,6 +281,7 @@ function New-SummaryRows {
       MinSeconds = [Math]::Round((@($lSeconds | Measure-Object -Minimum).Minimum), 3)
       MaxSeconds = [Math]::Round((@($lSeconds | Measure-Object -Maximum).Maximum), 3)
       ResultCount = $lFirst.ResultCount
+      ReferenceFallbackCount = $lFirst.ReferenceFallbackCount
       Command = $lFirst.Command
     })
   }
@@ -345,6 +384,16 @@ if ($SummarizeOnly) {
     }
     if (($lRow.PSObject.Properties.Name -contains 'Stdout') -and (Test-Path -LiteralPath $lRow.Stdout -PathType Leaf)) {
       $lRow.ResultCount = Read-ResultCount -Path $lRow.Stdout
+      if (-not ($lRow.PSObject.Properties.Name -contains 'ReferenceFallbackCount')) {
+        Add-Member -InputObject $lRow -NotePropertyName ReferenceFallbackCount -NotePropertyValue ''
+      }
+      $lRow.ReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lRow.Stdout
+      if (($lRow.ExitCode -eq 0) -and (Requires-ReferenceFallbackCount -Row $lRow) -and
+          [string]::IsNullOrWhiteSpace($lRow.ReferenceFallbackCount)) {
+        throw "Missing referenceReconciliationFallbackCount in successful benchmark output: $($lRow.Stdout)"
+      }
+    } elseif (-not ($lRow.PSObject.Properties.Name -contains 'ReferenceFallbackCount')) {
+      Add-Member -InputObject $lRow -NotePropertyName ReferenceFallbackCount -NotePropertyValue ''
     }
   }
   $lResultRows = New-SummaryRows -RunRows $lRunRows
@@ -379,6 +428,26 @@ if ($SummarizeOnly) {
     New-Item -ItemType Directory -Force -Path $lCacheDirectory | Out-Null
 
     foreach ($lBenchmark in $lBenchmarks) {
+      if (($lCacheMode -eq 'warm') -and (-not (Test-Path -LiteralPath $lSemanticCacheFile -PathType Leaf))) {
+        $lWarmupId = '{0}-{1}-warmup' -f $lBenchmark.Id, $lCacheMode
+        $lWarmupStdout = Join-Path $lOutputDir ($lWarmupId + '.stdout.json')
+        $lWarmupStderr = Join-Path $lOutputDir ($lWarmupId + '.stderr.txt')
+        $env:DELPHISEMANTICS_BENCHMARK_CACHE_DIR = $lCacheDirectory
+        $env:DELPHISEMANTICS_BENCHMARK_CACHE_MODE = $lCacheMode
+        $lWarmupArguments = @(Get-BenchmarkArguments -Benchmark $lBenchmark -CacheMode $lCacheMode -SemanticCacheFile $lSemanticCacheFile)
+        & $DakExe @($lWarmupArguments) 1> $lWarmupStdout 2> $lWarmupStderr
+        $lWarmupExitCode = $LASTEXITCODE
+        Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_DIR -ErrorAction SilentlyContinue
+        Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_MODE -ErrorAction SilentlyContinue
+        if ($lWarmupExitCode -ne 0) {
+          throw "Warm-cache priming failed for $($lBenchmark.Id). See: $lWarmupStderr"
+        }
+        if ((Requires-ReferenceFallbackCount -Row $lBenchmark) -and
+            [string]::IsNullOrWhiteSpace((Read-ReferenceFallbackCount -Path $lWarmupStdout))) {
+          throw "Warm-cache priming output is missing referenceReconciliationFallbackCount: $lWarmupStdout"
+        }
+      }
+
       for ($i = 1; $i -le $Repeat; $i++) {
         if ($lCacheMode -eq 'cold') {
           Remove-ColdCacheArtifacts -CacheDirectory $lCacheDirectory -OutputDirectory $lOutputDir
@@ -398,6 +467,11 @@ if ($SummarizeOnly) {
         $lStopwatch.Stop()
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_DIR -ErrorAction SilentlyContinue
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_MODE -ErrorAction SilentlyContinue
+        $lReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lStdout
+        if (($lExitCode -eq 0) -and (Requires-ReferenceFallbackCount -Row $lBenchmark) -and
+            [string]::IsNullOrWhiteSpace($lReferenceFallbackCount)) {
+          throw "Missing referenceReconciliationFallbackCount in successful benchmark output: $lStdout"
+        }
 
         $lRow = [pscustomobject]@{
           Id = $lBenchmark.Id
@@ -410,6 +484,7 @@ if ($SummarizeOnly) {
           ExitCode = $lExitCode
           ElapsedSeconds = [Math]::Round($lStopwatch.Elapsed.TotalSeconds, 3)
           ResultCount = Read-ResultCount -Path $lStdout
+          ReferenceFallbackCount = $lReferenceFallbackCount
           Stdout = $lStdout
           Stderr = $lStderr
           Command = ('{0} {1}' -f $DakExe, ($lArguments -join ' '))
@@ -482,3 +557,7 @@ ConvertTo-MarkdownTable -Rows $lResultRows
 Write-Host ''
 Write-Host "Baseline JSON: $lJsonPath"
 Write-Host "Baseline Markdown: $lMarkdownPath"
+
+if (@($lResultRows | Where-Object { $_.ExitCode -ne 0 }).Count -gt 0) {
+  exit 1
+}

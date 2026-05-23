@@ -308,6 +308,24 @@ begin
     Result := 1;
 end;
 
+function OffsetOfLineColumn(const aText: string; const aLine, aColumn: Integer): Integer;
+var
+  lIndex: Integer;
+begin
+  Result := 0;
+  if (aLine <= 0) or (aColumn <= 0) then
+    Exit;
+
+  EnsureLineCache(aText);
+  lIndex := aLine - 1;
+  if (lIndex < 0) or (lIndex > High(GLineCacheStarts)) then
+    Exit;
+
+  Result := GLineCacheStarts[lIndex] + aColumn - 1;
+  if Result > Length(aText) then
+    Result := 0;
+end;
+
 function SectionForOffset(const aText: string; const aOffset: Integer): string;
 begin
   EnsureSectionCache(aText);
@@ -1422,7 +1440,7 @@ begin
   while lMatch.Success do
   begin
     if not IsReferenceKeyword(lMatch.Value) then
-      AddReference(aReferences, aRoutineName, lMatch.Value, aText, aBodyOffset + lMatch.Index + 1);
+      AddReference(aReferences, aRoutineName, lMatch.Value, aText, aBodyOffset + lMatch.Index - 1);
     lMatch := lMatch.NextMatch;
   end;
 end;
@@ -1699,6 +1717,79 @@ begin
   end;
 end;
 
+function BuildOutputToSourceOffsetMap(const aSourceText, aOutputText: string): TArray<Integer>;
+var
+  i: Integer;
+  j: Integer;
+  lOutputLines: TStringList;
+  lOutputOffset: Integer;
+  lOutputLine: string;
+  lSourceLines: TStringList;
+  lSourceOffset: Integer;
+  lSourceLine: string;
+begin
+  SetLength(Result, Length(aOutputText) + 1);
+  lSourceLines := TStringList.Create;
+  lOutputLines := TStringList.Create;
+  try
+    lSourceLines.Text := aSourceText;
+    lOutputLines.Text := aOutputText;
+    lSourceOffset := 1;
+    lOutputOffset := 1;
+    for i := 0 to Pred(lOutputLines.Count) do
+    begin
+      lOutputLine := lOutputLines[i];
+      if i < lSourceLines.Count then
+        lSourceLine := lSourceLines[i]
+      else
+        lSourceLine := '';
+
+      if lOutputLine = lSourceLine then
+        for j := 0 to Length(lOutputLine) - 1 do
+          Result[lOutputOffset + j] := lSourceOffset + j;
+
+      Inc(lSourceOffset, Length(lSourceLine) + Length(sLineBreak));
+      Inc(lOutputOffset, Length(lOutputLine) + Length(sLineBreak));
+    end;
+  finally
+    lOutputLines.Free;
+    lSourceLines.Free;
+  end;
+end;
+
+procedure ApplyReferenceSourceOffsetMap(const aSourceText: string; const aOffsetMap:
+  TArray<Integer>; const aReferences: TList<TDelphiSemanticReference>);
+var
+  i: Integer;
+  lMappedOffset: Integer;
+  lReference: TDelphiSemanticReference;
+begin
+  for i := 0 to Pred(aReferences.Count) do
+  begin
+    lReference := aReferences[i];
+    lMappedOffset := OffsetOfLineColumn(aSourceText, lReference.Line, lReference.Column);
+    if ((lMappedOffset <= 0) or (lMappedOffset + Length(lReference.Name) - 1 >
+      Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
+      Length(lReference.Name)), lReference.Name)) and (Length(aOffsetMap) > 0) and
+      (lReference.Offset > 0) and (lReference.Offset <= High(aOffsetMap)) then
+      lMappedOffset := aOffsetMap[lReference.Offset];
+
+    if (lMappedOffset <= 0) or (lMappedOffset + Length(lReference.Name) - 1 >
+      Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
+      Length(lReference.Name)), lReference.Name) then
+      Continue;
+
+    lReference.Offset := lMappedOffset;
+    lReference.EndOffset := lMappedOffset + Length(lReference.Name);
+    lReference.Line := LineOfOffset(aSourceText, lMappedOffset);
+    lReference.Column := ColumnOfOffset(aSourceText, lMappedOffset);
+    lReference.EndLine := lReference.Line;
+    lReference.EndColumn := lReference.Column + Length(lReference.Name) - 1;
+    lReference.SectionKind := SectionForOffset(aSourceText, lMappedOffset);
+    aReferences[i] := lReference;
+  end;
+end;
+
 procedure ReconcileReferencesCoordinates(const aSourceText: string;
   const aReferences: TList<TDelphiSemanticReference>);
 var
@@ -1970,6 +2061,7 @@ var
   lLocals: TList<TDelphiSemanticLocal>;
   lMatch: TMatch;
   lMembers: TList<TDelphiSemanticMember>;
+  lOffsetMap: TArray<Integer>;
   lPreprocessOptions: TDelphiSemanticPreprocessOptions;
   lPreprocessResult: TDelphiSemanticPreprocessResult;
   lReferences: TList<TDelphiSemanticReference>;
@@ -2045,6 +2137,8 @@ begin
       ExtractRoutineBodies(lText, lLocals, lReferences);
       ExtractWithStatements(lText, lWithStatements);
     end;
+    lOffsetMap := BuildOutputToSourceOffsetMap(lSourceResult.Source.Text, lText);
+    ApplyReferenceSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lReferences);
     ReconcileDeclarationCoordinates(lSourceResult.Source.Text, lDeclarations);
     ReconcileWithStatementCoordinates(lSourceResult.Source.Text, lWithStatements);
     ReconcileReferencesCoordinates(lSourceResult.Source.Text, lReferences);
