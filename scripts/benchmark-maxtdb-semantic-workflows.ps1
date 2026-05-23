@@ -174,6 +174,19 @@ function Get-JsonReferenceFallbackCount {
   return ''
 }
 
+function Get-JsonNumericProperty {
+  param(
+    [object]$Json,
+    [string]$Name
+  )
+
+  if ($Json.PSObject.Properties.Name -contains $Name) {
+    return [string]$Json.$Name
+  }
+
+  return ''
+}
+
 function Read-ReferenceFallbackCount {
   param([string]$Path)
 
@@ -185,6 +198,25 @@ function Read-ReferenceFallbackCount {
 
     $lJson = $lText | ConvertFrom-Json
     return Get-JsonReferenceFallbackCount $lJson
+  } catch {
+    return ''
+  }
+}
+
+function Read-SemanticCacheMetric {
+  param(
+    [string]$Path,
+    [string]$Name
+  )
+
+  try {
+    $lText = Get-Content -LiteralPath $Path -Raw
+    if ([string]::IsNullOrWhiteSpace($lText)) {
+      return ''
+    }
+
+    $lJson = $lText | ConvertFrom-Json
+    return Get-JsonNumericProperty -Json $lJson -Name $Name
   } catch {
     return ''
   }
@@ -217,15 +249,17 @@ function ConvertTo-MarkdownTable {
 
   $lCulture = [System.Globalization.CultureInfo]::InvariantCulture
   $lLines = New-Object System.Collections.Generic.List[string]
-  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Min | Max | Result count | Reference fallbacks |')
-  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|')
+  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Min | Max | Result count | Cache hits | Cache misses | Reference fallbacks |')
+  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|')
   foreach ($lRow in $Rows) {
     $lCount = if ([string]::IsNullOrWhiteSpace($lRow.ResultCount)) { '' } else { $lRow.ResultCount }
+    $lHits = if ([string]::IsNullOrWhiteSpace($lRow.SemanticCacheHits)) { '' } else { $lRow.SemanticCacheHits }
+    $lMisses = if ([string]::IsNullOrWhiteSpace($lRow.SemanticCacheMisses)) { '' } else { $lRow.SemanticCacheMisses }
     $lFallbacks = if ([string]::IsNullOrWhiteSpace($lRow.ReferenceFallbackCount)) { '' } else { $lRow.ReferenceFallbackCount }
     $lMedian = ([double]$lRow.MedianSeconds).ToString('F3', $lCulture)
     $lMin = ([double]$lRow.MinSeconds).ToString('F3', $lCulture)
     $lMax = ([double]$lRow.MaxSeconds).ToString('F3', $lCulture)
-    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lMin, $lMax, $lCount, $lFallbacks))
+    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lMin, $lMax, $lCount, $lHits, $lMisses, $lFallbacks))
   }
 
   return ($lLines -join [Environment]::NewLine)
@@ -281,6 +315,8 @@ function New-SummaryRows {
       MinSeconds = [Math]::Round((@($lSeconds | Measure-Object -Minimum).Minimum), 3)
       MaxSeconds = [Math]::Round((@($lSeconds | Measure-Object -Maximum).Maximum), 3)
       ResultCount = $lFirst.ResultCount
+      SemanticCacheHits = $lFirst.SemanticCacheHits
+      SemanticCacheMisses = $lFirst.SemanticCacheMisses
       ReferenceFallbackCount = $lFirst.ReferenceFallbackCount
       Command = $lFirst.Command
     })
@@ -387,7 +423,15 @@ if ($SummarizeOnly) {
       if (-not ($lRow.PSObject.Properties.Name -contains 'ReferenceFallbackCount')) {
         Add-Member -InputObject $lRow -NotePropertyName ReferenceFallbackCount -NotePropertyValue ''
       }
+      if (-not ($lRow.PSObject.Properties.Name -contains 'SemanticCacheHits')) {
+        Add-Member -InputObject $lRow -NotePropertyName SemanticCacheHits -NotePropertyValue ''
+      }
+      if (-not ($lRow.PSObject.Properties.Name -contains 'SemanticCacheMisses')) {
+        Add-Member -InputObject $lRow -NotePropertyName SemanticCacheMisses -NotePropertyValue ''
+      }
       $lRow.ReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lRow.Stdout
+      $lRow.SemanticCacheHits = Read-SemanticCacheMetric -Path $lRow.Stdout -Name 'semanticCacheHits'
+      $lRow.SemanticCacheMisses = Read-SemanticCacheMetric -Path $lRow.Stdout -Name 'semanticCacheMisses'
       if (($lRow.ExitCode -eq 0) -and (Requires-ReferenceFallbackCount -Row $lRow) -and
           [string]::IsNullOrWhiteSpace($lRow.ReferenceFallbackCount)) {
         throw "Missing referenceReconciliationFallbackCount in successful benchmark output: $($lRow.Stdout)"
@@ -468,6 +512,8 @@ if ($SummarizeOnly) {
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_DIR -ErrorAction SilentlyContinue
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_MODE -ErrorAction SilentlyContinue
         $lReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lStdout
+        $lSemanticCacheHits = Read-SemanticCacheMetric -Path $lStdout -Name 'semanticCacheHits'
+        $lSemanticCacheMisses = Read-SemanticCacheMetric -Path $lStdout -Name 'semanticCacheMisses'
         if (($lExitCode -eq 0) -and (Requires-ReferenceFallbackCount -Row $lBenchmark) -and
             [string]::IsNullOrWhiteSpace($lReferenceFallbackCount)) {
           throw "Missing referenceReconciliationFallbackCount in successful benchmark output: $lStdout"
@@ -484,6 +530,8 @@ if ($SummarizeOnly) {
           ExitCode = $lExitCode
           ElapsedSeconds = [Math]::Round($lStopwatch.Elapsed.TotalSeconds, 3)
           ResultCount = Read-ResultCount -Path $lStdout
+          SemanticCacheHits = $lSemanticCacheHits
+          SemanticCacheMisses = $lSemanticCacheMisses
           ReferenceFallbackCount = $lReferenceFallbackCount
           Stdout = $lStdout
           Stderr = $lStderr

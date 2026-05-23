@@ -47,7 +47,15 @@ type
     FileTimestampUtc: string;
     ContextHash: string;
     IncludeGraphHash: string;
+    DefinesHash: string;
+    SearchPathHash: string;
+    ExtractionOptionsHash: string;
+    CompilerProfileName: string;
+    DelphiVersion: string;
+    Configuration: string;
+    Platform: string;
     ParserVersion: string;
+    ModelVersion: string;
     SchemaVersion: string;
   end;
 
@@ -147,7 +155,7 @@ uses
   DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.Version;
 
 const
-  cCacheSchemaVersion = '6';
+  cCacheSchemaVersion = '7';
   cDefaultCompilerProfileName = 'default';
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
@@ -324,6 +332,12 @@ begin
   Result.FileHash := HashFileIfExists(aSourceFileName);
   Result.FileTimestampUtc := FileTimestampIfExists(aSourceFileName);
   Result.ContextHash := BuildContextHash(aContext);
+  Result.DefinesHash := StableHash(NormalizeIdentityDefines(aContext));
+  Result.SearchPathHash := StableHash(NormalizeIdentityArray(aContext.SearchPaths, False));
+  Result.ExtractionOptionsHash := StableHash('');
+  Result.DelphiVersion := aContext.DelphiVersion;
+  Result.Configuration := aContext.Configuration;
+  Result.Platform := aContext.Platform;
   Result.UnitCacheKey := StableHash('unit|' + Result.SchemaVersion + '|' + Result.ParserVersion +
     '|' + Result.FileHash + '|' + Result.FileTimestampUtc + '|' + Result.IncludeGraphHash + '|' +
     Result.ContextHash);
@@ -334,6 +348,24 @@ begin
   Result := StableHash(
     'defines=' + SortedArrayText(aOptions.Defines) + sLineBreak +
     'searchPaths=' + OrderedArrayText(aOptions.SearchPaths) + sLineBreak +
+    'projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) + sLineBreak +
+    'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True));
+end;
+
+function BuildSemanticDefinesHash(const aOptions: TDelphiSemanticModelOptions): string;
+begin
+  Result := StableHash(SortedArrayText(aOptions.Defines));
+end;
+
+function BuildSemanticSearchPathHash(const aOptions: TDelphiSemanticModelOptions): string;
+begin
+  Result := StableHash(OrderedArrayText(aOptions.SearchPaths));
+end;
+
+function BuildSemanticExtractionOptionsHash(const aOptions: TDelphiSemanticModelOptions):
+  string;
+begin
+  Result := StableHash(
     'projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) + sLineBreak +
     'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True));
 end;
@@ -370,7 +402,7 @@ begin
 end;
 
 function BuildCacheKey(const aOptions: TDelphiSemanticModelOptions; const aCompilerProfileName,
-  aParserVersion, aModelVersion: string): string;
+  aParserVersion, aModelVersion, aDelphiVersion, aConfiguration, aPlatform: string): string;
 var
   lPreprocessResult: TDelphiSemanticPreprocessResult;
   lSourceResult: TDelphiSemanticSourceLoadResult;
@@ -393,6 +425,9 @@ begin
     'schema=' + cCacheSchemaVersion + sLineBreak +
     'library=' + DelphiSemanticsVersionText + sLineBreak +
     'compilerProfile=' + aCompilerProfileName + sLineBreak +
+    'delphi=' + aDelphiVersion + sLineBreak +
+    'configuration=' + aConfiguration + sLineBreak +
+    'platform=' + aPlatform + sLineBreak +
     'parser=' + aParserVersion + sLineBreak +
     'model=' + aModelVersion + sLineBreak +
     'file=' + UpperCase(lSourceFileName) + sLineBreak +
@@ -403,7 +438,8 @@ begin
 end;
 
 function BuildInternalUnitIdentity(const aOptions: TDelphiSemanticModelOptions;
-  const aCompilerProfileName, aParserVersion, aModelVersion: string):
+  const aCompilerProfileName, aParserVersion, aModelVersion, aDelphiVersion, aConfiguration,
+  aPlatform: string):
   TDelphiSemanticUnitCacheIdentity;
 var
   lPreprocessResult: TDelphiSemanticPreprocessResult;
@@ -424,8 +460,16 @@ begin
   Result.FileHash := HashFileIfExists(lSourceFileName);
   Result.FileTimestampUtc := FileTimestampIfExists(lSourceFileName);
   Result.ContextHash := BuildSemanticContextHash(aOptions);
+  Result.DefinesHash := BuildSemanticDefinesHash(aOptions);
+  Result.SearchPathHash := BuildSemanticSearchPathHash(aOptions);
+  Result.ExtractionOptionsHash := BuildSemanticExtractionOptionsHash(aOptions);
+  Result.CompilerProfileName := aCompilerProfileName;
+  Result.DelphiVersion := aDelphiVersion;
+  Result.Configuration := aConfiguration;
+  Result.Platform := aPlatform;
+  Result.ModelVersion := aModelVersion;
   Result.UnitCacheKey := BuildCacheKey(aOptions, aCompilerProfileName, aParserVersion,
-    aModelVersion);
+    aModelVersion, aDelphiVersion, aConfiguration, aPlatform);
 end;
 
 procedure TDelphiSemanticUnitCache.AddDiagnostic(const aCode, aMessage, aFileName: string);
@@ -528,7 +572,7 @@ var
 begin
   Result := Default(TDelphiSemanticUnitCacheAccessResult);
   Result.Identity := BuildInternalUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
-    fModelVersion);
+    fModelVersion, fDelphiVersion, fConfiguration, fPlatform);
   lIdentity := UpperCase(TPath.GetFullPath(aOptions.SourceFileName));
   lKey := Result.Identity.UnitCacheKey;
   lDictionary := fEntries;

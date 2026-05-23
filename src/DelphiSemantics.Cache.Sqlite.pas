@@ -32,7 +32,7 @@ uses
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def;
 
 const
-  cSqliteSchemaVersion = '8';
+  cSqliteSchemaVersion = '9';
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -602,6 +602,9 @@ begin
         'cache_key text primary key not null, identity_key text not null, ' +
         'source_file_name text not null, file_hash text not null, delphi_version text not null, ' +
         'configuration text not null, platform text not null, compiler_profile_name text not null, ' +
+        'schema_version text not null, parser_version text not null, model_version text not null, ' +
+        'include_graph_hash text not null, context_hash text not null, defines_hash text not null, ' +
+        'search_path_hash text not null, extraction_options_hash text not null, ' +
         'model_json text not null, stored_at_utc text not null)');
       lConnection.ExecSQL('create index if not exists idx_unit_models_identity on ' +
         'unit_models(identity_key)');
@@ -703,6 +706,9 @@ begin
       'cache_key text primary key not null, identity_key text not null, ' +
       'source_file_name text not null, file_hash text not null, delphi_version text not null, ' +
       'configuration text not null, platform text not null, compiler_profile_name text not null, ' +
+      'schema_version text not null, parser_version text not null, model_version text not null, ' +
+      'include_graph_hash text not null, context_hash text not null, defines_hash text not null, ' +
+      'search_path_hash text not null, extraction_options_hash text not null, ' +
       'model_json text not null, stored_at_utc text not null)');
     TFDConnection(lConnectionObject).ExecSQL('delete from unit_models');
     TFDConnection(lConnectionObject).ExecSQL('create index if not exists idx_unit_models_identity on ' +
@@ -765,9 +771,14 @@ begin
     lConnection := TFDConnection(lConnectionObject);
     lConnection.ExecSQL('insert or replace into unit_models(cache_key, identity_key, ' +
       'source_file_name, file_hash, delphi_version, configuration, platform, compiler_profile_name, ' +
-      'model_json, stored_at_utc) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'schema_version, parser_version, model_version, include_graph_hash, context_hash, ' +
+      'defines_hash, search_path_hash, extraction_options_hash, model_json, stored_at_utc) ' +
+      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [aKey, aIdentity, aModel.FileName, aCacheIdentity.FileHash, DelphiVersion, Configuration, Platform,
-      CompilerProfileName, ModelToJson(aModel),
+      CompilerProfileName, aCacheIdentity.SchemaVersion, aCacheIdentity.ParserVersion,
+      aCacheIdentity.ModelVersion, aCacheIdentity.IncludeGraphHash, aCacheIdentity.ContextHash,
+      aCacheIdentity.DefinesHash, aCacheIdentity.SearchPathHash,
+      aCacheIdentity.ExtractionOptionsHash, ModelToJson(aModel),
       FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"', Now)]);
   finally
     lConnectionObject.Free;

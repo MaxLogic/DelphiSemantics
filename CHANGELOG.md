@@ -54,6 +54,8 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- SQLite semantic cache identity now includes compiler/toolchain and extraction
+  metadata, while DAK semantic benchmarks report cache hit/miss counts.
 - Semantic workflow benchmarks now expose reference reconciliation fallback
   counts, prime warm-cache runs before timing, and fail semantic workflow rows
   that omit the metric.

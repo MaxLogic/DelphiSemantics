@@ -50,6 +50,8 @@ type
     [Test]
     procedure CompilerProfileChangeInvalidatesCachedUnitModel;
     [Test]
+    procedure ToolchainOptionsChangeInvalidatesSqliteCachedUnitModel;
+    [Test]
     procedure CompilerProfileSeedsIntrinsicRows;
     [Test]
     procedure CompilerProfileLoadsCachedRtlSourceModels;
@@ -325,6 +327,11 @@ begin
     Assert.IsNotEmpty(lSecond.Identity.UnitCacheKey);
     Assert.IsNotEmpty(lSecond.Identity.FileHash);
     Assert.IsNotEmpty(lSecond.Identity.ContextHash);
+    Assert.IsNotEmpty(lSecond.Identity.DefinesHash);
+    Assert.IsNotEmpty(lSecond.Identity.SearchPathHash);
+    Assert.IsNotEmpty(lSecond.Identity.ExtractionOptionsHash);
+    Assert.AreEqual('default', lSecond.Identity.CompilerProfileName);
+    Assert.IsNotEmpty(lSecond.Identity.ModelVersion);
   finally
     lCache.Free;
   end;
@@ -786,6 +793,51 @@ begin
     lCache.GetOrExtractUnitModel(lModelOptions);
 
     Assert.AreEqual(2, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(1, lCache.Metrics.Invalidations);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.ToolchainOptionsChangeInvalidatesSqliteCachedUnitModel;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lFirst: TDelphiSemanticUnitCacheAccessResult;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lSecond: TDelphiSemanticUnitCacheAccessResult;
+begin
+  lPath := TempPath('ToolchainChangeUnit.pas');
+  TFile.WriteAllText(lPath, 'unit ToolchainChangeUnit;' + sLineBreak + 'interface' +
+    sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('toolchain-change-cache.sqlite3');
+  lCacheOptions.CompilerProfileName := 'Delphi-12-Win32-Debug';
+  lCacheOptions.DelphiVersion := '23.0';
+  lCacheOptions.Configuration := 'Debug';
+  lCacheOptions.Platform := 'Win32';
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lFirst := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+
+  lCacheOptions.Configuration := 'Release';
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lSecond := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+
+    Assert.IsFalse(lFirst.CacheHit);
+    Assert.IsFalse(lSecond.CacheHit);
+    Assert.AreNotEqual(lFirst.Identity.UnitCacheKey, lSecond.Identity.UnitCacheKey);
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
     Assert.AreEqual(1, lCache.Metrics.Invalidations);
   finally
     lCache.Free;
