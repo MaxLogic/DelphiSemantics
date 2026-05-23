@@ -13,8 +13,10 @@ type
 
   TDelphiSemanticProjectSymbolIndexer = record
   public
+    class var BuildInvocationCount: Integer;
     class function Build(const aContext: TDelphiSemanticSymbolQueryContext):
       TDelphiSemanticProjectSymbolIndex; static;
+    class procedure ResetBuildInvocationCount; static;
   end;
 
 implementation
@@ -279,6 +281,7 @@ var
   lReferences: TList<TDelphiSemanticIndexedReference>;
   lSymbols: TDelphiSemanticSymbolList;
 begin
+  Inc(BuildInvocationCount);
   lSymbols := TDelphiSemanticSymbolList.Create;
   lReferences := TList<TDelphiSemanticIndexedReference>.Create;
   try
@@ -302,6 +305,11 @@ begin
     lReferences.Free;
     lSymbols.Free;
   end;
+end;
+
+class procedure TDelphiSemanticProjectSymbolIndexer.ResetBuildInvocationCount;
+begin
+  BuildInvocationCount := 0;
 end;
 
 end.

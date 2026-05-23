@@ -3,7 +3,7 @@ unit DelphiSemantics.Usage;
 interface
 
 uses
-  DelphiSemantics.Query, DelphiSemantics.Symbols;
+  DelphiSemantics.Index, DelphiSemantics.Query, DelphiSemantics.Symbols;
 
 type
   TDelphiSemanticUsage = record
@@ -31,16 +31,20 @@ type
   public
     class function FindUsagesAtPosition(const aContext: TDelphiSemanticSymbolQueryContext;
       const aFileName: string; const aLine, aColumn: Integer): TDelphiSemanticUsageResult;
-      static;
+      overload; static;
+    class function FindUsagesAtPosition(const aIndex: TDelphiSemanticProjectSymbolIndex;
+      const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string;
+      const aLine, aColumn: Integer): TDelphiSemanticUsageResult; overload; static;
     class function FindUsagesByName(const aContext: TDelphiSemanticSymbolQueryContext;
-      const aName: string): TDelphiSemanticUsageResult; static;
+      const aName: string): TDelphiSemanticUsageResult; overload; static;
+    class function FindUsagesByName(const aIndex: TDelphiSemanticProjectSymbolIndex;
+      const aName: string): TDelphiSemanticUsageResult; overload; static;
   end;
 
 implementation
 
 uses
-  System.Generics.Collections, System.SysUtils,
-  DelphiSemantics.Index;
+  System.Generics.Collections, System.SysUtils;
 
 function MakeDiagnosticResult(const aStatus, aDiagnostic: string): TDelphiSemanticUsageResult;
 begin
@@ -237,9 +241,19 @@ class function TDelphiSemanticUsageFinder.FindUsagesAtPosition(
   const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string; const aLine,
   aColumn: Integer): TDelphiSemanticUsageResult;
 var
+  lIndex: TDelphiSemanticProjectSymbolIndex;
+begin
+  lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
+  Result := FindUsagesAtPosition(lIndex, aContext, aFileName, aLine, aColumn);
+end;
+
+class function TDelphiSemanticUsageFinder.FindUsagesAtPosition(
+  const aIndex: TDelphiSemanticProjectSymbolIndex; const aContext:
+  TDelphiSemanticSymbolQueryContext; const aFileName: string; const aLine,
+  aColumn: Integer): TDelphiSemanticUsageResult;
+var
   lDefinition: TDelphiSemanticSymbolQueryResult;
   lDiagnostic: string;
-  lIndex: TDelphiSemanticProjectSymbolIndex;
   lStatus: string;
   lSymbol: TDelphiSemanticIndexedSymbol;
 begin
@@ -248,29 +262,36 @@ begin
   if not lDefinition.Found then
     Exit(MakeDiagnosticResult(lDefinition.Status, 'No symbol found at the requested position.'));
 
-  lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
-  lStatus := ResolveSymbolByDefinition(lIndex, lDefinition, lSymbol, lDiagnostic);
+  lStatus := ResolveSymbolByDefinition(aIndex, lDefinition, lSymbol, lDiagnostic);
   if lStatus <> 'resolved' then
     Exit(MakeDiagnosticResult(lStatus, lDiagnostic));
 
-  Result := BuildResultForSymbol(lIndex, lSymbol);
+  Result := BuildResultForSymbol(aIndex, lSymbol);
 end;
 
 class function TDelphiSemanticUsageFinder.FindUsagesByName(
   const aContext: TDelphiSemanticSymbolQueryContext; const aName: string):
   TDelphiSemanticUsageResult;
 var
-  lDiagnostic: string;
   lIndex: TDelphiSemanticProjectSymbolIndex;
+begin
+  lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
+  Result := FindUsagesByName(lIndex, aName);
+end;
+
+class function TDelphiSemanticUsageFinder.FindUsagesByName(
+  const aIndex: TDelphiSemanticProjectSymbolIndex; const aName: string):
+  TDelphiSemanticUsageResult;
+var
+  lDiagnostic: string;
   lStatus: string;
   lSymbol: TDelphiSemanticIndexedSymbol;
 begin
-  lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
-  lStatus := ResolveSymbolByName(lIndex, aName, lSymbol, lDiagnostic);
+  lStatus := ResolveSymbolByName(aIndex, aName, lSymbol, lDiagnostic);
   if lStatus <> 'resolved' then
     Exit(MakeDiagnosticResult(lStatus, lDiagnostic));
 
-  Result := BuildResultForSymbol(lIndex, lSymbol);
+  Result := BuildResultForSymbol(aIndex, lSymbol);
 end;
 
 end.

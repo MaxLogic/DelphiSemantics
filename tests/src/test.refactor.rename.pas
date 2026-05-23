@@ -7,6 +7,7 @@ uses
   DelphiSemantics.Api,
   DelphiSemantics.Cache,
   DelphiSemantics.CompilerProfile,
+  DelphiSemantics.Index,
   DelphiSemantics.Model,
   DelphiSemantics.Query,
   DelphiSemantics.Refactor;
@@ -28,6 +29,8 @@ type
   public
     [Test]
     procedure PlansProjectWideRenameForUnambiguousSymbol;
+    [Test]
+    procedure PlansRenameWithOneProjectIndexBuild;
     [Test]
     procedure BlocksCaseInsensitiveCollision;
     [Test]
@@ -313,6 +316,21 @@ begin
   Assert.AreEqual(1, lLine19Count);
   Assert.AreEqual(0, lLine28Count);
   Assert.AreEqual(1, lConsumerLine12Count);
+end;
+
+procedure TRenamePlannerTests.PlansRenameWithOneProjectIndexBuild;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lContext := LoadContext;
+  TDelphiSemanticProjectSymbolIndexer.ResetBuildInvocationCount;
+
+  lPlan := TDelphiSemanticRenamePlanner.PlanRename(lContext, 'GlobalQueryValue',
+    'RenamedGlobalQueryValue');
+
+  Assert.AreEqual('planned', lPlan.Status);
+  Assert.AreEqual(1, TDelphiSemanticProjectSymbolIndexer.BuildInvocationCount);
 end;
 
 procedure TRenamePlannerTests.BlocksCaseInsensitiveCollision;

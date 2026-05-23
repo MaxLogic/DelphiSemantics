@@ -820,7 +820,7 @@ begin
   if HasNameCollision(lIndex, aName, aNewName) then
     Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".'));
 
-  lUsageResult := TDelphiSemanticUsageFinder.FindUsagesByName(aContext, aName);
+  lUsageResult := TDelphiSemanticUsageFinder.FindUsagesByName(lIndex, aName);
   Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
 end;
 
@@ -834,12 +834,12 @@ begin
   if not IsIdentifierText(aNewName) then
     Exit(MakeBlockedPlan('New name is not a valid Delphi identifier.'));
 
-  lUsageResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(aContext, aFileName, aLine,
-    aColumn);
+  lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
+  lUsageResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lIndex, aContext, aFileName,
+    aLine, aColumn);
   if lUsageResult.Status <> 'resolved' then
     Exit(MakeBlockedPlan(lUsageResult.Diagnostic));
 
-  lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
   if HasNameCollision(lIndex, lUsageResult.Symbol.Name, aNewName) then
     Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".'));
 
