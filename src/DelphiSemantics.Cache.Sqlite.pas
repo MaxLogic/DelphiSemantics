@@ -32,7 +32,7 @@ uses
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def;
 
 const
-  cSqliteSchemaVersion = '5';
+  cSqliteSchemaVersion = '6';
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -61,6 +61,28 @@ begin
     Result := lValue.Value
   else
     Result := '';
+end;
+
+function SourceSectionsToJson(const aSections: TDelphiSemanticSourceSections):
+  TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('InterfaceOffset', TJSONNumber.Create(aSections.InterfaceOffset));
+  Result.AddPair('ImplementationOffset', TJSONNumber.Create(aSections.ImplementationOffset));
+  Result.AddPair('InitializationOffset', TJSONNumber.Create(aSections.InitializationOffset));
+  Result.AddPair('FinalizationOffset', TJSONNumber.Create(aSections.FinalizationOffset));
+end;
+
+function JsonToSourceSections(const aObject: TJSONObject): TDelphiSemanticSourceSections;
+begin
+  Result := Default(TDelphiSemanticSourceSections);
+  if not Assigned(aObject) then
+    Exit;
+
+  Result.InterfaceOffset := JsonInt(aObject, 'InterfaceOffset');
+  Result.ImplementationOffset := JsonInt(aObject, 'ImplementationOffset');
+  Result.InitializationOffset := JsonInt(aObject, 'InitializationOffset');
+  Result.FinalizationOffset := JsonInt(aObject, 'FinalizationOffset');
 end;
 
 function StringArrayToJson(const aValues: TArray<string>): TJSONArray;
@@ -468,6 +490,7 @@ begin
     lObject.AddPair('FileName', aModel.FileName);
     lObject.AddPair('UnitName', aModel.UnitName);
     lObject.AddPair('EncodingName', aModel.EncodingName);
+    lObject.AddPair('SourceSections', SourceSectionsToJson(aModel.SourceSections));
     lObject.AddPair('InterfaceUses', StringArrayToJson(aModel.InterfaceUses));
     lObject.AddPair('ImplementationUses', StringArrayToJson(aModel.ImplementationUses));
     lObject.AddPair('Declarations', DeclarationsToJson(aModel.Declarations));
@@ -498,6 +521,7 @@ begin
     Result.FileName := JsonString(lObject, 'FileName');
     Result.UnitName := JsonString(lObject, 'UnitName');
     Result.EncodingName := JsonString(lObject, 'EncodingName');
+    Result.SourceSections := JsonToSourceSections(lObject.GetValue('SourceSections') as TJSONObject);
     Result.InterfaceUses := JsonToStringArray(lObject.GetValue('InterfaceUses') as TJSONArray);
     Result.ImplementationUses := JsonToStringArray(lObject.GetValue('ImplementationUses') as TJSONArray);
     Result.Declarations := JsonToDeclarations(lObject.GetValue('Declarations') as TJSONArray);

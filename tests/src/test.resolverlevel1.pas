@@ -20,6 +20,8 @@ type
     [Test]
     procedure ResolvesUnitDeclarationsAndDirectMembers;
     [Test]
+    procedure InitializationAndFinalizationSeeImplementationDeclarations;
+    [Test]
     procedure UnitRoutineDeclarationAndImplementationResolveAsOneSymbol;
     [Test]
     procedure IndexedDefaultMembersAreNonAuthoritativeUnsupported;
@@ -123,6 +125,29 @@ begin
   Assert.AreEqual('field', lResult.Kind);
   Assert.AreEqual('Integer', lResult.TypeName);
   Assert.AreEqual('TLevelRecord', lResult.OwnerName);
+end;
+
+procedure TResolverLevel1Tests.InitializationAndFinalizationSeeImplementationDeclarations;
+var
+  lContext: TDelphiSemanticResolveContext;
+  lModel: TDelphiSemanticUnitModel;
+  lResult: TDelphiSemanticResolveResult;
+begin
+  lModel := LoadModel;
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.SectionKind := 'initialization';
+
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'ImplementationOnly');
+
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('var', lResult.Kind);
+
+  lContext.SectionKind := 'finalization';
+
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'ImplementationOnly');
+
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('var', lResult.Kind);
 end;
 
 procedure TResolverLevel1Tests.UnitRoutineDeclarationAndImplementationResolveAsOneSymbol;

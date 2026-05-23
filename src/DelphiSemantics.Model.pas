@@ -97,11 +97,19 @@ type
     Text: string;
   end;
 
+  TDelphiSemanticSourceSections = record
+    InterfaceOffset: Integer;
+    ImplementationOffset: Integer;
+    InitializationOffset: Integer;
+    FinalizationOffset: Integer;
+  end;
+
   TDelphiSemanticUnitModel = record
     Success: Boolean;
     FileName: string;
     UnitName: string;
     EncodingName: string;
+    SourceSections: TDelphiSemanticSourceSections;
     InterfaceUses: TArray<string>;
     ImplementationUses: TArray<string>;
     Declarations: TArray<TDelphiSemanticDeclaration>;
@@ -130,6 +138,61 @@ var
   GLineCacheText: string = '';
   GLineCacheLength: Integer = -1;
   GLineCacheStarts: TArray<Integer>;
+  GSectionCacheText: string = '';
+  GSectionCacheLength: Integer = -1;
+  GSectionCache: TDelphiSemanticSourceSections;
+
+function SanitizeCodeText(const aText: string): string; forward;
+
+function IsIdentifierChar(const aChar: Char): Boolean;
+begin
+  Result := CharInSet(aChar, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
+end;
+
+function FindSectionKeywordOffset(const aLowerText, aKeyword: string): Integer;
+var
+  lAfter: Integer;
+  lOffset: Integer;
+begin
+  lOffset := PosEx(aKeyword, aLowerText, 1);
+  while lOffset > 0 do
+  begin
+    lAfter := lOffset + Length(aKeyword);
+    if ((lOffset = 1) or not IsIdentifierChar(aLowerText[lOffset - 1])) and
+      ((lAfter > Length(aLowerText)) or not IsIdentifierChar(aLowerText[lAfter])) then
+      Exit(lOffset);
+
+    lOffset := PosEx(aKeyword, aLowerText, lAfter);
+  end;
+
+  Result := 0;
+end;
+
+function BuildSourceSections(const aText: string): TDelphiSemanticSourceSections;
+var
+  lLowerText: string;
+  lText: string;
+begin
+  Result := Default(TDelphiSemanticSourceSections);
+  lText := aText;
+  if (lText <> '') and (lText[1] = #$FEFF) then
+    Delete(lText, 1, 1);
+  lLowerText := LowerCase(SanitizeCodeText(lText));
+  Result.InterfaceOffset := FindSectionKeywordOffset(lLowerText, 'interface');
+  Result.ImplementationOffset := FindSectionKeywordOffset(lLowerText, 'implementation');
+  Result.InitializationOffset := FindSectionKeywordOffset(lLowerText, 'initialization');
+  Result.FinalizationOffset := FindSectionKeywordOffset(lLowerText, 'finalization');
+end;
+
+procedure EnsureSectionCache(const aText: string);
+begin
+  if (Pointer(aText) = Pointer(GSectionCacheText)) and (Length(aText) = GSectionCacheLength) then
+    Exit;
+
+  GSectionCacheLength := Length(aText);
+  GSectionCacheText := aText;
+  GSectionCache := BuildSourceSections(aText);
+end;
 
 procedure EnsureLineCache(const aText: string);
 var
@@ -233,14 +296,18 @@ begin
 end;
 
 function SectionForOffset(const aText: string; const aOffset: Integer): string;
-var
-  lImplementationPos: Integer;
 begin
-  lImplementationPos := Pos('implementation', LowerCase(aText));
-  if (lImplementationPos > 0) and (aOffset > lImplementationPos) then
-    Result := 'implementation'
-  else
-    Result := 'interface';
+  EnsureSectionCache(aText);
+  if (GSectionCache.FinalizationOffset > 0) and (aOffset >= GSectionCache.FinalizationOffset) then
+    Exit('finalization');
+  if (GSectionCache.InitializationOffset > 0) and
+    (aOffset >= GSectionCache.InitializationOffset) then
+    Exit('initialization');
+  if (GSectionCache.ImplementationOffset > 0) and
+    (aOffset >= GSectionCache.ImplementationOffset) then
+    Exit('implementation');
+
+  Result := 'interface';
 end;
 
 function MatchGroupValue(const aMatch: TMatch; const aIndex: Integer): string;
@@ -1877,6 +1944,7 @@ begin
 
     Result.FileName := lSourceResult.Source.FileName;
     Result.EncodingName := lSourceResult.Source.EncodingName;
+    Result.SourceSections := BuildSourceSections(lSourceResult.Source.Text);
     lMatch := TRegEx.Match(lText, '^\s*unit\s+([A-Za-z_][A-Za-z0-9_\.]*)\s*;',
       [roIgnoreCase, roMultiLine]);
     if lMatch.Success then

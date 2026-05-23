@@ -91,6 +91,12 @@ type
     [Test]
     procedure ModelKeepsOriginalSourceLineNumbersAfterPreprocessing;
     [Test]
+    procedure SourceSectionsExposeInitializationAndFinalizationBoundaries;
+    [Test]
+    procedure SourceSectionsHandleUnitsWithoutImplementation;
+    [Test]
+    procedure SourceSectionsIgnoreCommentsAndStringsWhenFindingImplementation;
+    [Test]
     procedure ModelPropagatesSourceAndPreprocessDiagnostics;
     [Test]
     procedure StandaloneExtractionReportsDegradedMode;
@@ -99,7 +105,7 @@ type
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   maxLogic.IOUtils;
 
 function TUnitModelTests.FixturePath(const aFolder, aFileName: string): string;
@@ -1047,6 +1053,102 @@ begin
   Assert.AreEqual(7, LineOfDeclaration(lModel, 'TActiveModelType'));
   Assert.AreEqual(LineContaining(TFile.ReadAllText(lOptions.SourceFileName, TEncoding.UTF8),
     'TDuplicateModelType = record'), LineOfDeclaration(lModel, 'TDuplicateModelType'));
+end;
+
+procedure TUnitModelTests.SourceSectionsExposeInitializationAndFinalizationBoundaries;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lSource: string;
+begin
+  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-source-sections.pas');
+  lSource :=
+    'unit SourceSectionsUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'initialization' + sLineBreak +
+    'finalization' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(Pos('interface', lSource), lModel.SourceSections.InterfaceOffset);
+  Assert.AreEqual(Pos('implementation', lSource), lModel.SourceSections.ImplementationOffset);
+  Assert.AreEqual(Pos('initialization', lSource), lModel.SourceSections.InitializationOffset);
+  Assert.AreEqual(Pos('finalization', lSource), lModel.SourceSections.FinalizationOffset);
+end;
+
+procedure TUnitModelTests.SourceSectionsHandleUnitsWithoutImplementation;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lSource: string;
+begin
+  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-no-implementation.pas');
+  lSource :=
+    'unit NoImplementationUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TNoImplementationType = Integer;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(Pos('interface', lSource), lModel.SourceSections.InterfaceOffset);
+  Assert.AreEqual(0, lModel.SourceSections.ImplementationOffset);
+  Assert.AreEqual(0, lModel.SourceSections.InitializationOffset);
+  Assert.AreEqual(0, lModel.SourceSections.FinalizationOffset);
+  Assert.IsTrue(FindDeclaration(lModel, 'TNoImplementationType', 'type-alias', 'interface',
+    lDeclaration));
+end;
+
+procedure TUnitModelTests.SourceSectionsIgnoreCommentsAndStringsWhenFindingImplementation;
+var
+  lInterfaceDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lSource: string;
+begin
+  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-section-keywords.pas');
+  lSource :=
+    'unit SectionKeywordsUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    '// implementation in a comment' + sLineBreak +
+    'const cText = ''implementation in a string'';' + sLineBreak +
+    'type' + sLineBreak +
+    '  TBeforeImplementation = Integer;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'type' + sLineBreak +
+    '  TAfterImplementation = Integer;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(PosEx('implementation' + sLineBreak + 'type', lSource),
+    lModel.SourceSections.ImplementationOffset);
+  Assert.IsTrue(FindDeclaration(lModel, 'TBeforeImplementation', 'type-alias', 'interface',
+    lInterfaceDeclaration));
+  Assert.IsTrue(FindDeclaration(lModel, 'TAfterImplementation', 'type-alias', 'implementation',
+    lInterfaceDeclaration));
 end;
 
 procedure TUnitModelTests.ModelPropagatesSourceAndPreprocessDiagnostics;

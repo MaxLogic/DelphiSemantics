@@ -4,7 +4,8 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Model;
+  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.CompilerProfile,
+  DelphiSemantics.Model;
 
 type
   [TestFixture]
@@ -55,6 +56,8 @@ type
     [Test]
     procedure CacheAccessResultReportsPerCallHitAndIdentity;
     [Test]
+    procedure SqliteCacheHitRestoresSourceSections;
+    [Test]
     procedure SymbolMapCompatibleIdentityReusesSharedSourceAcrossProjects;
     [Test]
     procedure CompilerProfileExposesDakIntrinsicSeedFacts;
@@ -63,7 +66,7 @@ type
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   maxLogic.IOUtils,
   DelphiSemantics.Resolve;
 
@@ -227,6 +230,53 @@ begin
     Assert.IsNotEmpty(lSecond.Identity.UnitCacheKey);
     Assert.IsNotEmpty(lSecond.Identity.FileHash);
     Assert.IsNotEmpty(lSecond.Identity.ContextHash);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.SqliteCacheHitRestoresSourceSections;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lFirst: TDelphiSemanticUnitCacheAccessResult;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lSecond: TDelphiSemanticUnitCacheAccessResult;
+  lSource: string;
+begin
+  lPath := TempPath('SourceSectionsSqliteUnit.pas');
+  lSource := 'unit SourceSectionsSqliteUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'const' + sLineBreak + '  FakeImplementation = ''implementation'';' + sLineBreak +
+    '{ implementation in a comment }' + sLineBreak + 'implementation' + sLineBreak +
+    'initialization' + sLineBreak + 'finalization' + sLineBreak + 'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('source-sections-cache.sqlite3');
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lFirst := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lSecond := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+
+    Assert.IsFalse(lFirst.CacheHit);
+    Assert.IsTrue(lSecond.CacheHit);
+    Assert.AreEqual(Pos('interface', lSource), lSecond.Model.SourceSections.InterfaceOffset);
+    Assert.AreEqual(PosEx('implementation', lSource, Pos('{ implementation', lSource) +
+      Length('{ implementation in a comment }')),
+      lSecond.Model.SourceSections.ImplementationOffset);
+    Assert.AreEqual(Pos('initialization', lSource), lSecond.Model.SourceSections.InitializationOffset);
+    Assert.AreEqual(Pos('finalization', lSource), lSecond.Model.SourceSections.FinalizationOffset);
   finally
     lCache.Free;
   end;

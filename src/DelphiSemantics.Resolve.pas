@@ -46,11 +46,16 @@ type
 implementation
 
 uses
-  System.SysUtils;
+  System.StrUtils, System.SysUtils;
+
+function IsImplementationLikeSection(const aSectionKind: string): Boolean;
+begin
+  Result := MatchText(aSectionKind, ['implementation', 'initialization', 'finalization']);
+end;
 
 function IsVisibleSection(const aContextSection, aSymbolSection: string): Boolean;
 begin
-  Result := SameText(aSymbolSection, 'interface') or SameText(aContextSection, 'implementation');
+  Result := SameText(aSymbolSection, 'interface') or IsImplementationLikeSection(aContextSection);
 end;
 
 function EffectiveConformanceLevel(const aContext: TDelphiSemanticResolveContext): Integer;

@@ -54,6 +54,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Unit model extraction now records source section boundaries and uses cached
+  section lookup for interface/implementation/initialization/finalization
+  classification, including SQLite cache restoration.
 - Project reference resolution now uses dictionary-backed project-index lookups,
   routine-id local scope matching, and ordered visible-scope queries; maxTdb
   warm `rename-dry-run-allfiles` benchmark is down to a 2.849s median.

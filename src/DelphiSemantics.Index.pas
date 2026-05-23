@@ -959,6 +959,11 @@ begin
     SameText(aSymbol.Kind, 'method');
 end;
 
+function SectionCanSeeImplementationSymbols(const aSectionKind: string): Boolean;
+begin
+  Result := MatchText(aSectionKind, ['implementation', 'initialization', 'finalization']);
+end;
+
 function TopLevelSymbolIsVisibleFromReference(const aReferenceModel: TDelphiSemanticUnitModel;
   const aSectionKind: string; const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
 begin
@@ -971,8 +976,8 @@ begin
     Exit(False);
 
   if SameText(aReferenceModel.UnitName, aSymbol.UnitName) then
-    Exit(SameText(aSectionKind, 'implementation') or SameText(aSymbol.SectionKind, 'interface') or
-      SameText(aSymbol.Kind, 'unit'));
+    Exit(SectionCanSeeImplementationSymbols(aSectionKind) or
+      SameText(aSymbol.SectionKind, 'interface') or SameText(aSymbol.Kind, 'unit'));
 
   Result := SameText(aSymbol.SectionKind, 'interface') or SameText(aSymbol.Kind, 'unit');
 end;
