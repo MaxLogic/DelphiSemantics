@@ -7,6 +7,7 @@ param(
   [string[]]$Workflow = @(),
   [string[]]$CacheMode = @('default'),
   [int]$Repeat = 1,
+  [double]$WarmTargetSeconds = 10.0,
   [switch]$List,
   [switch]$SummarizeOnly,
   [switch]$NoBaselineCopy
@@ -249,17 +250,25 @@ function ConvertTo-MarkdownTable {
 
   $lCulture = [System.Globalization.CultureInfo]::InvariantCulture
   $lLines = New-Object System.Collections.Generic.List[string]
-  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Min | Max | Result count | Cache hits | Cache misses | Reference fallbacks |')
-  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|')
+  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Target seconds | Target status | Min | Max | Result count | Cache hits | Cache misses | Reference fallbacks |')
+  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|')
   foreach ($lRow in $Rows) {
     $lCount = if ([string]::IsNullOrWhiteSpace($lRow.ResultCount)) { '' } else { $lRow.ResultCount }
     $lHits = if ([string]::IsNullOrWhiteSpace($lRow.SemanticCacheHits)) { '' } else { $lRow.SemanticCacheHits }
     $lMisses = if ([string]::IsNullOrWhiteSpace($lRow.SemanticCacheMisses)) { '' } else { $lRow.SemanticCacheMisses }
     $lFallbacks = if ([string]::IsNullOrWhiteSpace($lRow.ReferenceFallbackCount)) { '' } else { $lRow.ReferenceFallbackCount }
+    $lTargetSeconds = if (($lRow.PSObject.Properties.Name -contains 'TargetSeconds') -and
+        -not [string]::IsNullOrWhiteSpace($lRow.TargetSeconds)) {
+      ([double]$lRow.TargetSeconds).ToString('F3', $lCulture)
+    } else {
+      ''
+    }
+    $lTargetStatus = if (($lRow.PSObject.Properties.Name -contains 'TargetStatus') -and
+        -not [string]::IsNullOrWhiteSpace($lRow.TargetStatus)) { $lRow.TargetStatus } else { '' }
     $lMedian = ([double]$lRow.MedianSeconds).ToString('F3', $lCulture)
     $lMin = ([double]$lRow.MinSeconds).ToString('F3', $lCulture)
     $lMax = ([double]$lRow.MaxSeconds).ToString('F3', $lCulture)
-    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lMin, $lMax, $lCount, $lHits, $lMisses, $lFallbacks))
+    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} | {14} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lTargetSeconds, $lTargetStatus, $lMin, $lMax, $lCount, $lHits, $lMisses, $lFallbacks))
   }
 
   return ($lLines -join [Environment]::NewLine)
@@ -303,6 +312,19 @@ function New-SummaryRows {
     $lFirst = $lRows[0]
     $lExit = if (@($lRows | Where-Object { $_.ExitCode -ne 0 }).Count -gt 0) { 1 } else { 0 }
     $lStatus = if ($lExit -eq 0) { 'passed' } else { 'failed' }
+    $lMedianSeconds = [Math]::Round((Get-Median -Values $lSeconds), 3)
+    $lTargetSeconds = ''
+    $lTargetStatus = ''
+    if ($lFirst.CacheMode -eq 'warm') {
+      $lTargetSeconds = [Math]::Round($WarmTargetSeconds, 3)
+      if ($lStatus -ne 'passed') {
+        $lTargetStatus = 'not-run'
+      } elseIf ($lMedianSeconds -le $WarmTargetSeconds) {
+        $lTargetStatus = 'met'
+      } else {
+        $lTargetStatus = 'missed'
+      }
+    }
     $lSummaryRows.Add([pscustomobject]@{
       Id = $lFirst.Id
       Feature = $lFirst.Feature
@@ -311,7 +333,9 @@ function New-SummaryRows {
       Runs = $lRows.Count
       Status = $lStatus
       ExitCode = $lExit
-      MedianSeconds = [Math]::Round((Get-Median -Values $lSeconds), 3)
+      MedianSeconds = $lMedianSeconds
+      TargetSeconds = $lTargetSeconds
+      TargetStatus = $lTargetStatus
       MinSeconds = [Math]::Round((@($lSeconds | Measure-Object -Minimum).Minimum), 3)
       MaxSeconds = [Math]::Round((@($lSeconds | Measure-Object -Maximum).Maximum), 3)
       ResultCount = $lFirst.ResultCount
@@ -556,6 +580,7 @@ if ($SummarizeOnly) {
     project = $Project
     repeat = $Repeat
     cacheModes = $lCacheModes
+    warmTargetSeconds = $WarmTargetSeconds
     cacheDirectory = $lCacheDirectory
     machine = $env:COMPUTERNAME
     delphiSemanticsSha = Get-GitSha -Path (Get-Location)
@@ -577,6 +602,8 @@ $lMarkdown = @(
   ('Machine: `{0}`' -f $lSummary.machine)
   ('DelphiSemantics SHA: `{0}`' -f $lSummary.delphiSemanticsSha)
   ('DAK SHA: `{0}`' -f $lSummary.dakSha)
+  ('Warm target: `{0}` seconds' -f ([double]$lSummary.warmTargetSeconds).ToString('F3',
+    [System.Globalization.CultureInfo]::InvariantCulture))
   ('Cache directory: `{0}`' -f $lSummary.cacheDirectory)
   ''
   (ConvertTo-MarkdownTable -Rows $lResultRows)
@@ -608,4 +635,8 @@ Write-Host "Baseline Markdown: $lMarkdownPath"
 
 if (@($lResultRows | Where-Object { $_.ExitCode -ne 0 }).Count -gt 0) {
   exit 1
+}
+
+if (@($lResultRows | Where-Object { $_.TargetStatus -eq 'missed' }).Count -gt 0) {
+  exit 2
 }
