@@ -19,6 +19,8 @@ type
       out aLocal: TDelphiSemanticLocal): Boolean;
     function FindMember(const aModel: TDelphiSemanticUnitModel; const aOwnerName, aName: string;
       out aMember: TDelphiSemanticMember): Boolean;
+    function FindReferenceAtOffset(const aModel: TDelphiSemanticUnitModel; const aName: string;
+      const aOffset: Integer; out aReference: TDelphiSemanticReference): Boolean;
     function FindRoutine(const aModel: TDelphiSemanticUnitModel; const aName, aOwnerName: string;
       out aRoutine: TDelphiSemanticRoutine): Boolean;
     function HasDeclaration(const aModel: TDelphiSemanticUnitModel; const aName: string):
@@ -67,6 +69,8 @@ type
     procedure SqliteCacheHitRestoresSourceSections;
     [Test]
     procedure SqliteCacheHitRestoresOriginalRanges;
+    [Test]
+    procedure SqliteCacheHitRestoresReferenceRanges;
     [Test]
     procedure SymbolMapCompatibleIdentityReusesSharedSourceAcrossProjects;
     [Test]
@@ -144,6 +148,23 @@ begin
     end;
 
   aMember := Default(TDelphiSemanticMember);
+  Result := False;
+end;
+
+function TCacheTests.FindReferenceAtOffset(const aModel: TDelphiSemanticUnitModel;
+  const aName: string; const aOffset: Integer; out aReference: TDelphiSemanticReference):
+  Boolean;
+var
+  lReference: TDelphiSemanticReference;
+begin
+  for lReference in aModel.References do
+    if SameText(lReference.Name, aName) and (lReference.Offset = aOffset) then
+    begin
+      aReference := lReference;
+      Exit(True);
+    end;
+
+  aReference := Default(TDelphiSemanticReference);
   Result := False;
 end;
 
@@ -408,6 +429,55 @@ begin
     Assert.IsTrue(FindLocal(lSecond.Model, 'TCacheRange.Run', 'lRange', lLocal));
     Assert.AreEqual('lRange', Copy(lSource, lLocal.Offset, lLocal.EndOffset -
       lLocal.Offset));
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.SqliteCacheHitRestoresReferenceRanges;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lReference: TDelphiSemanticReference;
+  lSecond: TDelphiSemanticUnitCacheAccessResult;
+  lSource: string;
+begin
+  lPath := TempPath('ReferenceRangesSqliteUnit.pas');
+  lSource := 'unit ReferenceRangesSqliteUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TTarget = record end;' + sLineBreak +
+    '  TAlias = TTarget;' + sLineBreak + 'var' + sLineBreak + '  GRef: TAlias;' +
+    sLineBreak + 'implementation' + sLineBreak + 'procedure Touch;' + sLineBreak +
+    'begin' + sLineBreak + '  GRef := GRef;' + sLineBreak + 'end;' + sLineBreak + 'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('reference-range-cache.sqlite3');
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lSecond := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+
+    Assert.IsTrue(lSecond.CacheHit);
+    Assert.IsTrue(FindReferenceAtOffset(lSecond.Model, 'TTarget',
+      Pos('TAlias = TTarget', lSource) + Length('TAlias = '), lReference));
+    Assert.AreEqual('TTarget', Copy(lSource, lReference.Offset, lReference.EndOffset -
+      lReference.Offset));
+    Assert.IsTrue(FindReferenceAtOffset(lSecond.Model, 'GRef', Pos('GRef :=', lSource),
+      lReference));
+    Assert.AreEqual('GRef', Copy(lSource, lReference.Offset, lReference.EndOffset -
+      lReference.Offset));
   finally
     lCache.Free;
   end;

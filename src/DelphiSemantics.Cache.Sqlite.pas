@@ -32,7 +32,7 @@ uses
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def;
 
 const
-  cSqliteSchemaVersion = '7';
+  cSqliteSchemaVersion = '8';
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -361,16 +361,28 @@ begin
   Result := TJSONObject.Create;
   Result.AddPair('Name', aReference.Name);
   Result.AddPair('RoutineName', aReference.RoutineName);
+  Result.AddPair('Role', aReference.Role);
+  Result.AddPair('SectionKind', aReference.SectionKind);
   Result.AddPair('Line', TJSONNumber.Create(aReference.Line));
   Result.AddPair('Column', TJSONNumber.Create(aReference.Column));
+  Result.AddPair('Offset', TJSONNumber.Create(aReference.Offset));
+  Result.AddPair('EndOffset', TJSONNumber.Create(aReference.EndOffset));
+  Result.AddPair('EndLine', TJSONNumber.Create(aReference.EndLine));
+  Result.AddPair('EndColumn', TJSONNumber.Create(aReference.EndColumn));
 end;
 
 function JsonToReference(const aObject: TJSONObject): TDelphiSemanticReference;
 begin
   Result.Name := JsonString(aObject, 'Name');
   Result.RoutineName := JsonString(aObject, 'RoutineName');
+  Result.Role := JsonString(aObject, 'Role');
+  Result.SectionKind := JsonString(aObject, 'SectionKind');
   Result.Line := JsonInt(aObject, 'Line');
   Result.Column := JsonInt(aObject, 'Column');
+  Result.Offset := JsonInt(aObject, 'Offset');
+  Result.EndOffset := JsonInt(aObject, 'EndOffset');
+  Result.EndLine := JsonInt(aObject, 'EndLine');
+  Result.EndColumn := JsonInt(aObject, 'EndColumn');
 end;
 
 function ReferencesToJson(const aReferences: TArray<TDelphiSemanticReference>): TJSONArray;

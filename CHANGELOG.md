@@ -54,6 +54,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Unit model references now carry original-source `Offset` and exclusive
+  `EndOffset` ranges with counted regex fallback reconciliation and SQLite
+  cache restoration.
 - Unit model extraction now records source section boundaries and uses cached
   section lookup for interface/implementation/initialization/finalization
   classification, including SQLite cache restoration.

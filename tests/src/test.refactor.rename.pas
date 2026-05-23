@@ -563,56 +563,56 @@ begin
       end;
       9:
       begin
-        Assert.AreEqual(19, lEdit.StartColumn);
+        Assert.AreEqual(18, lEdit.StartColumn);
         Inc(lLine9Count);
       end;
       10:
       begin
-        Assert.AreEqual(19, lEdit.StartColumn);
+        Assert.AreEqual(18, lEdit.StartColumn);
         Inc(lLine10Count);
       end;
       11:
       begin
-        Assert.AreEqual(28, lEdit.StartColumn);
+        Assert.AreEqual(27, lEdit.StartColumn);
         Inc(lLine11Count);
       end;
       13:
       begin
-        Assert.AreEqual(12, lEdit.StartColumn);
+        Assert.AreEqual(11, lEdit.StartColumn);
         Inc(lLine13Count);
       end;
       16:
       begin
-        Assert.IsTrue((lEdit.StartColumn = 39) or (lEdit.StartColumn = 53),
+        Assert.IsTrue((lEdit.StartColumn = 38) or (lEdit.StartColumn = 52),
           'Expected distinct class method parameter/return columns.');
         Inc(lLine16Count);
       end;
       17:
       begin
-        Assert.IsTrue((lEdit.StartColumn = 29) or (lEdit.StartColumn = 43),
+        Assert.IsTrue((lEdit.StartColumn = 28) or (lEdit.StartColumn = 42),
           'Expected distinct indexed property parameter/type columns.');
         Inc(lLine17Count);
       end;
       21:
       begin
-        Assert.AreEqual(18, lEdit.StartColumn);
+        Assert.AreEqual(17, lEdit.StartColumn);
         Inc(lLine21Count);
       end;
       23:
       begin
-        Assert.IsTrue((lEdit.StartColumn = 30) or (lEdit.StartColumn = 44),
+        Assert.IsTrue((lEdit.StartColumn = 29) or (lEdit.StartColumn = 43),
           'Expected distinct interface parameter/return columns.');
         Inc(lLine23Count);
       end;
       27:
       begin
-        Assert.IsTrue((lEdit.StartColumn = 30) or (lEdit.StartColumn = 44),
+        Assert.IsTrue((lEdit.StartColumn = 29) or (lEdit.StartColumn = 43),
           'Expected distinct implementation parameter/return columns.');
         Inc(lLine27Count);
       end;
       29:
       begin
-        Assert.AreEqual(12, lEdit.StartColumn);
+        Assert.AreEqual(11, lEdit.StartColumn);
         Inc(lLine29Count);
       end;
     else

@@ -31,9 +31,14 @@ type
       aSection: string; out aDeclaration: TDelphiSemanticDeclaration): Boolean;
     function FindMember(const aModel: TDelphiSemanticUnitModel; const aOwnerName, aName, aKind:
       string; out aMember: TDelphiSemanticMember): Boolean;
+    function ColumnOfSourceOffset(const aSource: string; const aOffset: Integer): Integer;
+    function FindReferenceAtOffset(const aModel: TDelphiSemanticUnitModel; const aName: string;
+      const aOffset: Integer; out aReference: TDelphiSemanticReference): Boolean;
     function HasReference(const aModel: TDelphiSemanticUnitModel; const aName: string): Boolean;
     function HasReferenceOnLine(const aModel: TDelphiSemanticUnitModel; const aName: string;
       const aLine: Integer): Boolean;
+    function HasReferenceAtOffset(const aModel: TDelphiSemanticUnitModel; const aName: string;
+      const aOffset: Integer): Boolean;
     function FindRoutine(const aModel: TDelphiSemanticUnitModel; const aName, aSection: string;
       out aRoutine: TDelphiSemanticRoutine): Boolean;
     function HasRoutine(const aModel: TDelphiSemanticUnitModel; const aName, aSection: string):
@@ -100,6 +105,8 @@ type
     procedure SourceSectionsIgnoreCommentsAndStringsWhenFindingImplementation;
     [Test]
     procedure ModelCarriesOriginalSourceRangesForDeclarationsRoutinesMembersAndLocals;
+    [Test]
+    procedure ReferencesCarryOriginalSourceRanges;
     [Test]
     procedure ModelPropagatesSourceAndPreprocessDiagnostics;
     [Test]
@@ -269,6 +276,36 @@ begin
   Result := False;
 end;
 
+function TUnitModelTests.ColumnOfSourceOffset(const aSource: string;
+  const aOffset: Integer): Integer;
+var
+  i: Integer;
+begin
+  Result := 1;
+  for i := 1 to aOffset - 1 do
+    if aSource[i] = #10 then
+      Result := 1
+    else if aSource[i] <> #13 then
+      Inc(Result);
+end;
+
+function TUnitModelTests.FindReferenceAtOffset(const aModel: TDelphiSemanticUnitModel;
+  const aName: string; const aOffset: Integer; out aReference: TDelphiSemanticReference):
+  Boolean;
+var
+  lReference: TDelphiSemanticReference;
+begin
+  for lReference in aModel.References do
+    if SameText(lReference.Name, aName) and (lReference.Offset = aOffset) then
+    begin
+      aReference := lReference;
+      Exit(True);
+    end;
+
+  aReference := Default(TDelphiSemanticReference);
+  Result := False;
+end;
+
 function TUnitModelTests.HasReferenceOnLine(const aModel: TDelphiSemanticUnitModel;
   const aName: string; const aLine: Integer): Boolean;
 var
@@ -276,6 +313,19 @@ var
 begin
   for lReference in aModel.References do
     if SameText(lReference.Name, aName) and (lReference.Line = aLine) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function TUnitModelTests.HasReferenceAtOffset(const aModel: TDelphiSemanticUnitModel;
+  const aName: string; const aOffset: Integer): Boolean;
+var
+  lReference: TDelphiSemanticReference;
+begin
+  for lReference in aModel.References do
+    if SameText(lReference.Name, aName) and (lReference.Offset = aOffset) and
+      (lReference.EndOffset = aOffset + Length(aName)) then
       Exit(True);
 
   Result := False;
@@ -1311,6 +1361,107 @@ begin
         lRoutineItem.EndOffset - lRoutineItem.Offset));
     end;
   Assert.AreEqual(2, lRoutineCount);
+end;
+
+procedure TUnitModelTests.ReferencesCarryOriginalSourceRanges;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lReference: TDelphiSemanticReference;
+  lReferenceOffset: Integer;
+  lRoot: string;
+  lSource: string;
+begin
+  lRoot := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-reference-ranges');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'ReferenceRanges.inc'),
+    '// include before body references' + sLineBreak, TEncoding.ASCII);
+  lPath := TPath.Combine(lRoot, 'ReferenceRangeUnit.pas');
+  lSource :=
+    'unit ReferenceRangeUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    '{$DEFINE ACTIVE_RANGE}' + sLineBreak +
+    'type' + sLineBreak +
+    '  TTarget = record' + sLineBreak +
+    '    Field: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TAlias = TTarget;' + sLineBreak +
+    '  PTarget = ^TTarget;' + sLineBreak +
+    '  TArray = array of TAlias;' + sLineBreak +
+    '  TContainer = record' + sLineBreak +
+    '    Item: TArray;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TInline = {$IFDEF ACTIVE_RANGE}TAlias{$ENDIF};' + sLineBreak +
+    '{$IFDEF ACTIVE_RANGE}' + sLineBreak +
+    '  TConditional = TAlias;' + sLineBreak +
+    '{$ENDIF}' + sLineBreak +
+    '{$IFNDEF ACTIVE_RANGE}' + sLineBreak +
+    '  TInactive = TAlias;' + sLineBreak +
+    '{$ENDIF}' + sLineBreak +
+    'var' + sLineBreak +
+    '  GTarget: TTarget;' + sLineBreak +
+    'procedure UseRefs(const aParam: TAlias);' + sLineBreak +
+    'implementation' + sLineBreak +
+    '{$I ReferenceRanges.inc}' + sLineBreak +
+    'procedure UseRefs(const aParam: TAlias);' + sLineBreak +
+    'var' + sLineBreak +
+    '  lLocal: TContainer;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  GTarget.Field := lLocal.Item[0].Field;' + sLineBreak +
+    '  aParam.Field := GTarget.Field;' + sLineBreak +
+    '  // TAlias in a comment must not produce a range' + sLineBreak +
+    '  Writeln(''TTarget in a string'');' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+
+  TDelphiSemanticUnitModelExtractor.ResetReferenceReconciliationFallbackCount;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  lReferenceOffset := Pos('TAlias = TTarget', lSource) + Length('TAlias = ');
+  Assert.IsTrue(FindReferenceAtOffset(lModel, 'TTarget', lReferenceOffset, lReference),
+    'alias type reference');
+  Assert.AreEqual('TTarget', Copy(lSource, lReference.Offset, lReference.EndOffset -
+    lReference.Offset));
+  Assert.AreEqual(ColumnOfSourceOffset(lSource, lReferenceOffset), lReference.Column);
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'TTarget', Pos('PTarget = ^TTarget', lSource) +
+    Length('PTarget = ^')), 'pointer type reference');
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'TAlias', Pos('TArray = array of TAlias',
+    lSource) + Length('TArray = array of ')), 'array type reference');
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'TArray', Pos('Item: TArray', lSource) +
+    Length('Item: ')), 'record field type reference');
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'TAlias', Pos('TInline = {$IFDEF ACTIVE_RANGE}TAlias',
+    lSource) + Length('TInline = {$IFDEF ACTIVE_RANGE}')), 'inline directive type reference');
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'TAlias', Pos('TConditional = TAlias',
+    lSource) + Length('TConditional = ')), 'active conditional type reference');
+  Assert.IsFalse(HasReferenceAtOffset(lModel, 'TAlias', Pos('TInactive = TAlias',
+    lSource) + Length('TInactive = ')), 'inactive conditional type reference');
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'TTarget', Pos('GTarget: TTarget', lSource) +
+    Length('GTarget: ')), 'global type reference');
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'TAlias', Pos('aParam: TAlias', lSource) +
+    Length('aParam: ')), 'parameter type reference');
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'TContainer', Pos('lLocal: TContainer', lSource) +
+    Length('lLocal: ')), 'local type reference');
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'GTarget', Pos('GTarget.Field :=', lSource)),
+    'global body reference after include');
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'Field', Pos('Field :=', lSource)),
+    'field body reference');
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'lLocal', Pos('lLocal.Item', lSource)),
+    'local body reference');
+  Assert.IsTrue(HasReferenceAtOffset(lModel, 'aParam', Pos('aParam.Field', lSource)),
+    'parameter body reference');
+  Assert.IsFalse(HasReferenceAtOffset(lModel, 'TAlias', Pos('TAlias in a comment',
+    lSource)), 'comment token');
+  Assert.IsFalse(HasReferenceAtOffset(lModel, 'TTarget', Pos('TTarget in a string',
+    lSource)), 'string token');
+  Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount > 0,
+    'preprocessed source should exercise counted reference reconciliation fallback');
 end;
 
 procedure TUnitModelTests.ModelPropagatesSourceAndPreprocessDiagnostics;

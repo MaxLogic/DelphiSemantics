@@ -84,6 +84,8 @@ type
     SectionKind: string;
     Line: Integer;
     Column: Integer;
+    Offset: Integer;
+    EndOffset: Integer;
     EndLine: Integer;
     EndColumn: Integer;
   end;
@@ -131,6 +133,8 @@ type
 
   TDelphiSemanticUnitModelExtractor = record
   public
+    class function ReferenceReconciliationFallbackCount: Integer; static;
+    class procedure ResetReferenceReconciliationFallbackCount; static;
     class function ExtractFromFile(const aOptions: TDelphiSemanticModelOptions):
       TDelphiSemanticUnitModel; static;
   end;
@@ -146,6 +150,7 @@ var
   GLineCacheText: string = '';
   GLineCacheLength: Integer = -1;
   GLineCacheStarts: TArray<Integer>;
+  GReferenceReconciliationFallbackCount: Integer = 0;
   GSectionCacheText: string = '';
   GSectionCacheLength: Integer = -1;
   GSectionCache: TDelphiSemanticSourceSections;
@@ -532,6 +537,8 @@ begin
   lReference.SectionKind := SectionForOffset(aText, aOffset);
   lReference.Line := LineOfOffset(aText, aOffset);
   lReference.Column := ColumnOfOffset(aText, aOffset);
+  lReference.Offset := aOffset;
+  lReference.EndOffset := aOffset + Length(aName);
   lReference.EndLine := lReference.Line;
   lReference.EndColumn := lReference.Column + Length(aName) - 1;
   aReferences.Add(lReference);
@@ -566,6 +573,8 @@ begin
       lReference.SectionKind := SectionForOffset(aText, aTypeTextOffset + lMatch.Index - 1);
       lReference.Line := LineOfOffset(aText, aTypeTextOffset + lMatch.Index - 1);
       lReference.Column := ColumnOfOffset(aText, aTypeTextOffset + lMatch.Index - 1);
+      lReference.Offset := aTypeTextOffset + lMatch.Index - 1;
+      lReference.EndOffset := lReference.Offset + Length(lReference.Name);
       lReference.EndLine := lReference.Line;
       lReference.EndColumn := lReference.Column + Length(lReference.Name) - 1;
       aReferences.Add(lReference);
@@ -1697,26 +1706,74 @@ var
   lBestColumn: Integer;
   lBestDistance: Integer;
   lBestLine: Integer;
+  lBestOffset: Integer;
   lCandidateColumn: Integer;
   lCandidateDistance: Integer;
   lCandidateLine: Integer;
+  lCandidateOffset: Integer;
   lCleanText: string;
   lMatch: TMatch;
   lReference: TDelphiSemanticReference;
+
+  function SourceTextMatchesReference(const aOffset: Integer;
+    const aReference: TDelphiSemanticReference): Boolean;
+  begin
+    Result := (aOffset >= 1) and (aOffset + Length(aReference.Name) - 1 <=
+      Length(aSourceText)) and SameText(Copy(aSourceText, aOffset, Length(aReference.Name)),
+      aReference.Name);
+  end;
+
+  function SourceRangeMatchesReference(const aOffset: Integer;
+    const aReference: TDelphiSemanticReference): Boolean;
+  begin
+    Result := SourceTextMatchesReference(aOffset, aReference) and
+      (LineOfOffset(aSourceText, aOffset) = aReference.Line) and
+      (ColumnOfOffset(aSourceText, aOffset) = aReference.Column);
+  end;
+
+  function MatchOffset(const aMatch: TMatch; const aReference: TDelphiSemanticReference):
+    Integer;
+  begin
+    Result := aMatch.Index;
+    if not SourceTextMatchesReference(Result, aReference) and
+      SourceTextMatchesReference(Result + 1, aReference) then
+      Inc(Result);
+  end;
+
+  procedure AssignReferenceSourceRange(var aReference: TDelphiSemanticReference;
+    const aOffset: Integer);
+  begin
+    aReference.Line := LineOfOffset(aSourceText, aOffset);
+    aReference.Column := ColumnOfOffset(aSourceText, aOffset);
+    aReference.Offset := aOffset;
+    aReference.EndOffset := aOffset + Length(aReference.Name);
+    aReference.EndLine := aReference.Line;
+    aReference.EndColumn := aReference.Column + Length(aReference.Name) - 1;
+  end;
 begin
   lCleanText := SanitizeCodeText(aSourceText);
   for i := 0 to Pred(aReferences.Count) do
   begin
     lReference := aReferences[i];
+    if SourceRangeMatchesReference(lReference.Offset, lReference) then
+    begin
+      AssignReferenceSourceRange(lReference, lReference.Offset);
+      aReferences[i] := lReference;
+      Continue;
+    end;
+
+    Inc(GReferenceReconciliationFallbackCount);
     lBestColumn := 0;
     lBestDistance := MaxInt;
     lBestLine := 0;
+    lBestOffset := 0;
     lMatch := TRegEx.Match(lCleanText, '\b' + TRegEx.Escape(lReference.Name) + '\b',
       [roIgnoreCase]);
     while lMatch.Success do
     begin
-      lCandidateLine := LineOfOffset(lCleanText, lMatch.Index + 1);
-      lCandidateColumn := ColumnOfOffset(lCleanText, lMatch.Index + 1);
+      lCandidateOffset := MatchOffset(lMatch, lReference);
+      lCandidateLine := LineOfOffset(lCleanText, lCandidateOffset);
+      lCandidateColumn := ColumnOfOffset(lCleanText, lCandidateOffset);
       lCandidateDistance := Abs(lCandidateLine - lReference.Line) * 10000 +
         Abs(lCandidateColumn - lReference.Column);
       if lCandidateDistance < lBestDistance then
@@ -1724,15 +1781,13 @@ begin
         lBestDistance := lCandidateDistance;
         lBestLine := lCandidateLine;
         lBestColumn := lCandidateColumn;
+        lBestOffset := lCandidateOffset;
       end;
       lMatch := lMatch.NextMatch;
     end;
     if lBestLine > 0 then
     begin
-      lReference.Line := lBestLine;
-      lReference.Column := lBestColumn;
-      lReference.EndLine := lBestLine;
-      lReference.EndColumn := lBestColumn + Length(lReference.Name) - 1;
+      AssignReferenceSourceRange(lReference, lBestOffset);
       aReferences[i] := lReference;
     end;
   end;
@@ -2010,6 +2065,17 @@ begin
     lInterfaceUses.Free;
     lDiagnostics.Free;
   end;
+end;
+
+class function TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount:
+  Integer;
+begin
+  Result := GReferenceReconciliationFallbackCount;
+end;
+
+class procedure TDelphiSemanticUnitModelExtractor.ResetReferenceReconciliationFallbackCount;
+begin
+  GReferenceReconciliationFallbackCount := 0;
 end;
 
 end.
