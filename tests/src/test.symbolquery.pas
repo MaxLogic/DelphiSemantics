@@ -45,6 +45,8 @@ type
     procedure IndexedProjectUnitsKeepSourceKindAndRoutineSearch;
     [Test]
     procedure BuildsProjectSymbolIndexWithResolvedAmbiguousAndUnresolvedReferences;
+    [Test]
+    procedure ProjectSymbolIndexUsesCaseInsensitiveLookupMaps;
   end;
 
 implementation
@@ -564,6 +566,95 @@ begin
     'Expected implementation-only cross-unit reference to stay unresolved.');
   Assert.IsTrue(lResolvedLowerCase, 'Expected lower-case reference to match case-insensitively.');
   Assert.IsTrue(lSawUnresolved, 'Expected unresolved reference diagnostic.');
+end;
+
+procedure TSymbolQueryTests.ProjectSymbolIndexUsesCaseInsensitiveLookupMaps;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lIndex: TDelphiSemanticProjectSymbolIndex;
+  lModel: TDelphiSemanticUnitModel;
+  lParameterLocal: TDelphiSemanticLocal;
+  lReference: TDelphiSemanticIndexedReference;
+  lReferences: TArray<TDelphiSemanticIndexedReference>;
+  lScope: TDelphiSemanticUnitModel;
+  lScopes: TArray<TDelphiSemanticUnitModel>;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+  lSymbols: TArray<TDelphiSemanticIndexedSymbol>;
+  lHidden: TDelphiSemanticUnitModel;
+  lFoundReference: Boolean;
+  lFoundRtlScope: Boolean;
+  lSawHiddenScope: Boolean;
+begin
+  lContext := LoadContext;
+  lHidden := Default(TDelphiSemanticUnitModel);
+  lHidden.UnitName := 'HiddenSymbolUnit';
+  lHidden.FileName := FixturePath('HiddenSymbolUnit.pas');
+  lContext.IndexedUnitModels := lContext.IndexedUnitModels + [lHidden];
+  lContext.IndexedUnitSourceKinds := lContext.IndexedUnitSourceKinds + ['project-source'];
+  lContext.UnitModel.ImplementationUses := lContext.UnitModel.ImplementationUses +
+    ['SymbolQueryRtlUnit'];
+  lParameterLocal := Default(TDelphiSemanticLocal);
+  lParameterLocal.RoutineName := 'UseSymbols';
+  lParameterLocal.Name := 'aInjectedParam';
+  lParameterLocal.Kind := 'parameter';
+  lParameterLocal.TypeName := 'Integer';
+  lParameterLocal.Line := 200;
+  lParameterLocal.Column := 7;
+  lContext.UnitModel.Locals := lContext.UnitModel.Locals + [lParameterLocal];
+  lIndex := TDelphiSemanticApi.BuildProjectSymbolIndex(lContext);
+
+  lSymbols := lIndex.FindTopLevelSymbolsByName('globalqueryvalue');
+
+  Assert.AreEqual(1, Length(lSymbols));
+  Assert.AreEqual('GlobalQueryValue', lSymbols[0].Name);
+  Assert.IsTrue(lIndex.FindSymbolById(lSymbols[0].Id, lSymbol));
+  Assert.AreEqual('GlobalQueryValue', lSymbol.Name);
+  lReferences := lIndex.FindReferencesBySymbolId(lSymbol.Id);
+  Assert.IsTrue(Length(lReferences) > 0);
+
+  lSymbols := lIndex.FindSymbolsByName('tsymbolmapfixture');
+  Assert.IsTrue(Length(lSymbols) > 0);
+  Assert.AreEqual('TSymbolMapFixture', lSymbols[0].Name);
+
+  lSymbols := lIndex.FindLocalSymbolsByRoutineAndName('usesymbols', 'lfixture');
+  Assert.AreEqual(1, Length(lSymbols));
+  Assert.AreEqual('UseSymbols', lSymbols[0].OwnerName);
+  Assert.AreEqual('var', lSymbols[0].Kind);
+
+  lSymbols := lIndex.FindLocalSymbolsByRoutineAndName('usesymbols', 'ainjectedparam');
+  Assert.AreEqual(1, Length(lSymbols));
+  Assert.AreEqual('UseSymbols', lSymbols[0].OwnerName);
+  Assert.AreEqual('parameter', lSymbols[0].Kind);
+
+  lSymbols := lIndex.FindMembersByOwnerAndName('tsymbolmapfixture', 'enabled');
+  Assert.AreEqual(1, Length(lSymbols));
+  Assert.AreEqual('TSymbolMapFixture', lSymbols[0].OwnerName);
+  Assert.AreEqual('property', lSymbols[0].Kind);
+
+  lReferences := lIndex.FindReferencesByName('tsymbolmapfixture');
+  lFoundReference := False;
+  for lReference in lReferences do
+    if SameText(lReference.Name, 'TSymbolMapFixture') then
+      lFoundReference := True;
+
+  Assert.IsTrue(lFoundReference);
+  Assert.IsTrue(lIndex.FindUnitModelByName('symbolqueryunit', lModel));
+  Assert.AreEqual('SymbolQueryUnit', lModel.UnitName);
+
+  lFoundRtlScope := False;
+  lSawHiddenScope := False;
+  lScopes := lIndex.FindVisibleUnitScopes('symbolqueryunit', 'implementation');
+  Assert.IsTrue(Length(lScopes) >= 2);
+  Assert.AreEqual('SymbolQueryUnit', lScopes[0].UnitName);
+  for lScope in lScopes do
+  begin
+    if SameText(lScope.UnitName, 'SymbolQueryRtlUnit') then
+      lFoundRtlScope := True;
+    if SameText(lScope.UnitName, 'HiddenSymbolUnit') then
+      lSawHiddenScope := True;
+  end;
+  Assert.IsTrue(lFoundRtlScope);
+  Assert.IsFalse(lSawHiddenScope);
 end;
 
 initialization

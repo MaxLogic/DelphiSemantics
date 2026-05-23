@@ -6,9 +6,46 @@ uses
   DelphiSemantics.Model, DelphiSemantics.Query, DelphiSemantics.Symbols;
 
 type
+  IDelphiSemanticProjectSymbolIndexData = interface
+    ['{64A8F9E0-E098-47D3-9029-A6710E8F16AC}']
+    function FindSymbolById(const aId: TDelphiSemanticSymbolId; out aSymbol:
+      TDelphiSemanticIndexedSymbol): Boolean;
+    function FindSymbolsByName(const aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+    function FindTopLevelSymbolsByName(const aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+    function FindLocalSymbolsByRoutineAndName(const aRoutineName, aName: string):
+      TArray<TDelphiSemanticIndexedSymbol>;
+    function FindMembersByOwnerAndName(const aOwnerName, aName: string):
+      TArray<TDelphiSemanticIndexedSymbol>;
+    function FindReferencesByName(const aName: string): TArray<TDelphiSemanticIndexedReference>;
+    function FindReferencesBySymbolId(const aId: TDelphiSemanticSymbolId):
+      TArray<TDelphiSemanticIndexedReference>;
+    function FindVisibleUnitScopes(const aUnitName, aSectionKind: string):
+      TArray<TDelphiSemanticUnitModel>;
+    function FindUnitModelByName(const aName: string; out aModel:
+      TDelphiSemanticUnitModel): Boolean;
+  end;
+
   TDelphiSemanticProjectSymbolIndex = record
+  private
+    fData: IDelphiSemanticProjectSymbolIndexData;
+  public
     Symbols: TArray<TDelphiSemanticIndexedSymbol>;
     References: TArray<TDelphiSemanticIndexedReference>;
+    function FindSymbolById(const aId: TDelphiSemanticSymbolId; out aSymbol:
+      TDelphiSemanticIndexedSymbol): Boolean;
+    function FindSymbolsByName(const aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+    function FindTopLevelSymbolsByName(const aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+    function FindLocalSymbolsByRoutineAndName(const aRoutineName, aName: string):
+      TArray<TDelphiSemanticIndexedSymbol>;
+    function FindMembersByOwnerAndName(const aOwnerName, aName: string):
+      TArray<TDelphiSemanticIndexedSymbol>;
+    function FindReferencesByName(const aName: string): TArray<TDelphiSemanticIndexedReference>;
+    function FindReferencesBySymbolId(const aId: TDelphiSemanticSymbolId):
+      TArray<TDelphiSemanticIndexedReference>;
+    function FindVisibleUnitScopes(const aUnitName, aSectionKind: string):
+      TArray<TDelphiSemanticUnitModel>;
+    function FindUnitModelByName(const aName: string; out aModel:
+      TDelphiSemanticUnitModel): Boolean;
   end;
 
   TDelphiSemanticProjectSymbolIndexer = record
@@ -22,10 +59,649 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.StrUtils, System.SysUtils;
+  System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
+  MaxLogic.StrUtils;
 
 type
   TDelphiSemanticSymbolList = TList<TDelphiSemanticIndexedSymbol>;
+  TDelphiSemanticIndexedSymbolList = TList<TDelphiSemanticIndexedSymbol>;
+  TDelphiSemanticIndexedReferenceList = TList<TDelphiSemanticIndexedReference>;
+  TDelphiSemanticUnitModelList = TList<TDelphiSemanticUnitModel>;
+
+  TDelphiSemanticOwnerNameKey = record
+    OwnerName: string;
+    Name: string;
+  end;
+
+  TDelphiSemanticUnitSectionKey = record
+    UnitName: string;
+    SectionKind: string;
+  end;
+
+  TDelphiSemanticSymbolOriginKey = record
+    UnitName: string;
+    OwnerName: string;
+    Name: string;
+    Kind: string;
+    Line: Integer;
+    Column: Integer;
+  end;
+
+  TDelphiSemanticOwnerNameKeyComparer = class(TInterfacedObject,
+    IEqualityComparer<TDelphiSemanticOwnerNameKey>)
+  private
+    fStringComparer: IEqualityComparer<string>;
+  public
+    constructor Create;
+    function Equals(const aLeft, aRight: TDelphiSemanticOwnerNameKey): Boolean; reintroduce;
+    function GetHashCode(const aValue: TDelphiSemanticOwnerNameKey): Integer; reintroduce;
+  end;
+
+  TDelphiSemanticUnitSectionKeyComparer = class(TInterfacedObject,
+    IEqualityComparer<TDelphiSemanticUnitSectionKey>)
+  private
+    fStringComparer: IEqualityComparer<string>;
+  public
+    constructor Create;
+    function Equals(const aLeft, aRight: TDelphiSemanticUnitSectionKey): Boolean; reintroduce;
+    function GetHashCode(const aValue: TDelphiSemanticUnitSectionKey): Integer; reintroduce;
+  end;
+
+  TDelphiSemanticSymbolOriginKeyComparer = class(TInterfacedObject,
+    IEqualityComparer<TDelphiSemanticSymbolOriginKey>)
+  private
+    fStringComparer: IEqualityComparer<string>;
+  public
+    constructor Create;
+    function Equals(const aLeft, aRight: TDelphiSemanticSymbolOriginKey): Boolean; reintroduce;
+    function GetHashCode(const aValue: TDelphiSemanticSymbolOriginKey): Integer; reintroduce;
+  end;
+
+  TDelphiSemanticSymbolOriginSet = TDictionary<TDelphiSemanticSymbolOriginKey, Boolean>;
+
+  TDelphiSemanticProjectSymbolIndexData = class(TInterfacedObject,
+    IDelphiSemanticProjectSymbolIndexData)
+  private
+    fMembersByOwnerAndName: TDictionary<TDelphiSemanticOwnerNameKey,
+      TDelphiSemanticIndexedSymbolList>;
+    fReferencesByName: TDictionary<string, TDelphiSemanticIndexedReferenceList>;
+    fReferencesBySymbolId: TDictionary<string, TDelphiSemanticIndexedReferenceList>;
+    fSymbolsById: TDictionary<string, TDelphiSemanticIndexedSymbol>;
+    fSymbolsByName: TDictionary<string, TDelphiSemanticIndexedSymbolList>;
+    fTopLevelSymbolsByName: TDictionary<string, TDelphiSemanticIndexedSymbolList>;
+    fLocalSymbolsByRoutineAndName: TDictionary<TDelphiSemanticOwnerNameKey,
+      TDelphiSemanticIndexedSymbolList>;
+    fUnitModelsByName: TDictionary<string, TDelphiSemanticUnitModel>;
+    fVisibleScopesByUnitAndSection: TDictionary<TDelphiSemanticUnitSectionKey,
+      TDelphiSemanticUnitModelList>;
+    class procedure AddReferenceToMap(const aMap: TDictionary<string,
+      TDelphiSemanticIndexedReferenceList>; const aKey: string;
+      const aReference: TDelphiSemanticIndexedReference); static;
+    class procedure AddLocalOriginKeys(const aMap: TDelphiSemanticSymbolOriginSet;
+      const aModel: TDelphiSemanticUnitModel); static;
+    class procedure AddMemberOriginKeys(const aMap: TDelphiSemanticSymbolOriginSet;
+      const aModel: TDelphiSemanticUnitModel); static;
+    class procedure AddSymbolToCompositeMap(const aMap:
+      TDictionary<TDelphiSemanticOwnerNameKey, TDelphiSemanticIndexedSymbolList>;
+      const aOwnerName, aName: string; const aSymbol: TDelphiSemanticIndexedSymbol); static;
+    procedure AddUsedVisibleScopes(const aUnitName, aSectionKind: string;
+      const aUsedUnitNames: TArray<string>);
+    procedure AddVisibleScopesForModel(const aModel: TDelphiSemanticUnitModel);
+    procedure AddVisibleScope(const aUnitName, aSectionKind: string;
+      const aModel: TDelphiSemanticUnitModel);
+    class procedure AddSymbolToMap(const aMap: TDictionary<string,
+      TDelphiSemanticIndexedSymbolList>; const aKey: string;
+      const aSymbol: TDelphiSemanticIndexedSymbol); static;
+  public
+    constructor Create(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aSymbols: TArray<TDelphiSemanticIndexedSymbol>;
+      const aReferences: TArray<TDelphiSemanticIndexedReference>);
+    destructor Destroy; override;
+    function FindSymbolById(const aId: TDelphiSemanticSymbolId; out aSymbol:
+      TDelphiSemanticIndexedSymbol): Boolean;
+    function FindSymbolsByName(const aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+    function FindTopLevelSymbolsByName(const aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+    function FindLocalSymbolsByRoutineAndName(const aRoutineName, aName: string):
+      TArray<TDelphiSemanticIndexedSymbol>;
+    function FindMembersByOwnerAndName(const aOwnerName, aName: string):
+      TArray<TDelphiSemanticIndexedSymbol>;
+    function FindReferencesByName(const aName: string): TArray<TDelphiSemanticIndexedReference>;
+    function FindReferencesBySymbolId(const aId: TDelphiSemanticSymbolId):
+      TArray<TDelphiSemanticIndexedReference>;
+    function FindVisibleUnitScopes(const aUnitName, aSectionKind: string):
+      TArray<TDelphiSemanticUnitModel>;
+    function FindUnitModelByName(const aName: string; out aModel:
+      TDelphiSemanticUnitModel): Boolean;
+  end;
+
+constructor TDelphiSemanticOwnerNameKeyComparer.Create;
+begin
+  inherited Create;
+  fStringComparer := TFastCaseAwareComparer.OrdinalIgnoreCase;
+end;
+
+function TDelphiSemanticOwnerNameKeyComparer.Equals(
+  const aLeft, aRight: TDelphiSemanticOwnerNameKey): Boolean;
+begin
+  Result := fStringComparer.Equals(aLeft.OwnerName, aRight.OwnerName) and
+    fStringComparer.Equals(aLeft.Name, aRight.Name);
+end;
+
+function TDelphiSemanticOwnerNameKeyComparer.GetHashCode(
+  const aValue: TDelphiSemanticOwnerNameKey): Integer;
+begin
+  Result := fStringComparer.GetHashCode(aValue.OwnerName) xor
+    (fStringComparer.GetHashCode(aValue.Name) shl 1);
+end;
+
+constructor TDelphiSemanticUnitSectionKeyComparer.Create;
+begin
+  inherited Create;
+  fStringComparer := TFastCaseAwareComparer.OrdinalIgnoreCase;
+end;
+
+function TDelphiSemanticUnitSectionKeyComparer.Equals(
+  const aLeft, aRight: TDelphiSemanticUnitSectionKey): Boolean;
+begin
+  Result := fStringComparer.Equals(aLeft.UnitName, aRight.UnitName) and
+    fStringComparer.Equals(aLeft.SectionKind, aRight.SectionKind);
+end;
+
+function TDelphiSemanticUnitSectionKeyComparer.GetHashCode(
+  const aValue: TDelphiSemanticUnitSectionKey): Integer;
+begin
+  Result := fStringComparer.GetHashCode(aValue.UnitName) xor
+    (fStringComparer.GetHashCode(aValue.SectionKind) shl 1);
+end;
+
+constructor TDelphiSemanticSymbolOriginKeyComparer.Create;
+begin
+  inherited Create;
+  fStringComparer := TFastCaseAwareComparer.OrdinalIgnoreCase;
+end;
+
+function TDelphiSemanticSymbolOriginKeyComparer.Equals(
+  const aLeft, aRight: TDelphiSemanticSymbolOriginKey): Boolean;
+begin
+  Result := fStringComparer.Equals(aLeft.UnitName, aRight.UnitName) and
+    fStringComparer.Equals(aLeft.OwnerName, aRight.OwnerName) and
+    fStringComparer.Equals(aLeft.Name, aRight.Name) and
+    fStringComparer.Equals(aLeft.Kind, aRight.Kind) and (aLeft.Line = aRight.Line) and
+    (aLeft.Column = aRight.Column);
+end;
+
+function TDelphiSemanticSymbolOriginKeyComparer.GetHashCode(
+  const aValue: TDelphiSemanticSymbolOriginKey): Integer;
+begin
+  Result := fStringComparer.GetHashCode(aValue.UnitName) xor
+    (fStringComparer.GetHashCode(aValue.OwnerName) shl 1) xor
+    (fStringComparer.GetHashCode(aValue.Name) shl 2) xor
+    (fStringComparer.GetHashCode(aValue.Kind) shl 3) xor
+    (aValue.Line shl 4) xor aValue.Column;
+end;
+
+function TDelphiSemanticProjectSymbolIndex.FindSymbolById(
+  const aId: TDelphiSemanticSymbolId; out aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
+begin
+  if fData = nil then
+  begin
+    aSymbol := Default(TDelphiSemanticIndexedSymbol);
+    Exit(False);
+  end;
+
+  Result := fData.FindSymbolById(aId, aSymbol);
+end;
+
+function TDelphiSemanticProjectSymbolIndex.FindSymbolsByName(
+  const aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+begin
+  if fData = nil then
+    Exit(nil);
+
+  Result := fData.FindSymbolsByName(aName);
+end;
+
+function TDelphiSemanticProjectSymbolIndex.FindTopLevelSymbolsByName(
+  const aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+begin
+  if fData = nil then
+    Exit(nil);
+
+  Result := fData.FindTopLevelSymbolsByName(aName);
+end;
+
+function TDelphiSemanticProjectSymbolIndex.FindLocalSymbolsByRoutineAndName(
+  const aRoutineName, aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+begin
+  if fData = nil then
+    Exit(nil);
+
+  Result := fData.FindLocalSymbolsByRoutineAndName(aRoutineName, aName);
+end;
+
+function TDelphiSemanticProjectSymbolIndex.FindMembersByOwnerAndName(
+  const aOwnerName, aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+begin
+  if fData = nil then
+    Exit(nil);
+
+  Result := fData.FindMembersByOwnerAndName(aOwnerName, aName);
+end;
+
+function TDelphiSemanticProjectSymbolIndex.FindReferencesByName(
+  const aName: string): TArray<TDelphiSemanticIndexedReference>;
+begin
+  if fData = nil then
+    Exit(nil);
+
+  Result := fData.FindReferencesByName(aName);
+end;
+
+function TDelphiSemanticProjectSymbolIndex.FindReferencesBySymbolId(
+  const aId: TDelphiSemanticSymbolId): TArray<TDelphiSemanticIndexedReference>;
+begin
+  if fData = nil then
+    Exit(nil);
+
+  Result := fData.FindReferencesBySymbolId(aId);
+end;
+
+function TDelphiSemanticProjectSymbolIndex.FindVisibleUnitScopes(
+  const aUnitName, aSectionKind: string): TArray<TDelphiSemanticUnitModel>;
+begin
+  if fData = nil then
+    Exit(nil);
+
+  Result := fData.FindVisibleUnitScopes(aUnitName, aSectionKind);
+end;
+
+function TDelphiSemanticProjectSymbolIndex.FindUnitModelByName(
+  const aName: string; out aModel: TDelphiSemanticUnitModel): Boolean;
+begin
+  if fData = nil then
+  begin
+    aModel := Default(TDelphiSemanticUnitModel);
+    Exit(False);
+  end;
+
+  Result := fData.FindUnitModelByName(aName, aModel);
+end;
+
+class procedure TDelphiSemanticProjectSymbolIndexData.AddReferenceToMap(
+  const aMap: TDictionary<string, TDelphiSemanticIndexedReferenceList>; const aKey: string;
+  const aReference: TDelphiSemanticIndexedReference);
+var
+  lList: TDelphiSemanticIndexedReferenceList;
+begin
+  if not aMap.TryGetValue(aKey, lList) then
+  begin
+    lList := TDelphiSemanticIndexedReferenceList.Create;
+    try
+      aMap.Add(aKey, lList);
+    except
+      lList.Free;
+      raise;
+    end;
+  end;
+  lList.Add(aReference);
+end;
+
+class procedure TDelphiSemanticProjectSymbolIndexData.AddLocalOriginKeys(
+  const aMap: TDelphiSemanticSymbolOriginSet; const aModel: TDelphiSemanticUnitModel);
+var
+  lKey: TDelphiSemanticSymbolOriginKey;
+  lLocal: TDelphiSemanticLocal;
+begin
+  for lLocal in aModel.Locals do
+  begin
+    lKey.UnitName := aModel.UnitName;
+    lKey.OwnerName := lLocal.RoutineName;
+    lKey.Name := lLocal.Name;
+    lKey.Kind := lLocal.Kind;
+    lKey.Line := lLocal.Line;
+    lKey.Column := lLocal.Column;
+    aMap.AddOrSetValue(lKey, True);
+  end;
+end;
+
+class procedure TDelphiSemanticProjectSymbolIndexData.AddMemberOriginKeys(
+  const aMap: TDelphiSemanticSymbolOriginSet; const aModel: TDelphiSemanticUnitModel);
+var
+  lKey: TDelphiSemanticSymbolOriginKey;
+  lMember: TDelphiSemanticMember;
+begin
+  for lMember in aModel.Members do
+  begin
+    lKey.UnitName := aModel.UnitName;
+    lKey.OwnerName := lMember.OwnerName;
+    lKey.Name := lMember.Name;
+    lKey.Kind := lMember.Kind;
+    lKey.Line := lMember.Line;
+    lKey.Column := lMember.Column;
+    aMap.AddOrSetValue(lKey, True);
+  end;
+end;
+
+class procedure TDelphiSemanticProjectSymbolIndexData.AddSymbolToCompositeMap(
+  const aMap: TDictionary<TDelphiSemanticOwnerNameKey, TDelphiSemanticIndexedSymbolList>;
+  const aOwnerName, aName: string; const aSymbol: TDelphiSemanticIndexedSymbol);
+var
+  lKey: TDelphiSemanticOwnerNameKey;
+  lList: TDelphiSemanticIndexedSymbolList;
+begin
+  lKey.OwnerName := aOwnerName;
+  lKey.Name := aName;
+  if not aMap.TryGetValue(lKey, lList) then
+  begin
+    lList := TDelphiSemanticIndexedSymbolList.Create;
+    try
+      aMap.Add(lKey, lList);
+    except
+      lList.Free;
+      raise;
+    end;
+  end;
+  lList.Add(aSymbol);
+end;
+
+class procedure TDelphiSemanticProjectSymbolIndexData.AddSymbolToMap(
+  const aMap: TDictionary<string, TDelphiSemanticIndexedSymbolList>; const aKey: string;
+  const aSymbol: TDelphiSemanticIndexedSymbol);
+var
+  lList: TDelphiSemanticIndexedSymbolList;
+begin
+  if not aMap.TryGetValue(aKey, lList) then
+  begin
+    lList := TDelphiSemanticIndexedSymbolList.Create;
+    try
+      aMap.Add(aKey, lList);
+    except
+      lList.Free;
+      raise;
+    end;
+  end;
+  lList.Add(aSymbol);
+end;
+
+procedure TDelphiSemanticProjectSymbolIndexData.AddVisibleScope(
+  const aUnitName, aSectionKind: string; const aModel: TDelphiSemanticUnitModel);
+var
+  lExistingModel: TDelphiSemanticUnitModel;
+  lKey: TDelphiSemanticUnitSectionKey;
+  lList: TDelphiSemanticUnitModelList;
+begin
+  if (aUnitName = '') or (aSectionKind = '') or (aModel.UnitName = '') then
+    Exit;
+
+  lKey.UnitName := aUnitName;
+  lKey.SectionKind := aSectionKind;
+  if not fVisibleScopesByUnitAndSection.TryGetValue(lKey, lList) then
+  begin
+    lList := TDelphiSemanticUnitModelList.Create;
+    try
+      fVisibleScopesByUnitAndSection.Add(lKey, lList);
+    except
+      lList.Free;
+      raise;
+    end;
+  end;
+  for lExistingModel in lList do
+    if SameText(lExistingModel.UnitName, aModel.UnitName) then
+      Exit;
+  lList.Add(aModel);
+end;
+
+procedure TDelphiSemanticProjectSymbolIndexData.AddUsedVisibleScopes(
+  const aUnitName, aSectionKind: string; const aUsedUnitNames: TArray<string>);
+var
+  lModel: TDelphiSemanticUnitModel;
+  lUnitName: string;
+begin
+  for lUnitName in aUsedUnitNames do
+    if fUnitModelsByName.TryGetValue(lUnitName, lModel) then
+      AddVisibleScope(aUnitName, aSectionKind, lModel);
+end;
+
+procedure TDelphiSemanticProjectSymbolIndexData.AddVisibleScopesForModel(
+  const aModel: TDelphiSemanticUnitModel);
+begin
+  AddVisibleScope(aModel.UnitName, 'interface', aModel);
+  AddUsedVisibleScopes(aModel.UnitName, 'interface', aModel.InterfaceUses);
+  AddVisibleScope(aModel.UnitName, 'implementation', aModel);
+  AddUsedVisibleScopes(aModel.UnitName, 'implementation', aModel.InterfaceUses);
+  AddUsedVisibleScopes(aModel.UnitName, 'implementation', aModel.ImplementationUses);
+end;
+
+constructor TDelphiSemanticProjectSymbolIndexData.Create(
+  const aContext: TDelphiSemanticSymbolQueryContext;
+  const aSymbols: TArray<TDelphiSemanticIndexedSymbol>;
+  const aReferences: TArray<TDelphiSemanticIndexedReference>);
+var
+  i: Integer;
+  lCompositeComparer: IEqualityComparer<TDelphiSemanticOwnerNameKey>;
+  lComparer: IEqualityComparer<string>;
+  lLocalOriginKeys: TDelphiSemanticSymbolOriginSet;
+  lMemberOriginKeys: TDelphiSemanticSymbolOriginSet;
+  lModel: TDelphiSemanticUnitModel;
+  lOriginComparer: IEqualityComparer<TDelphiSemanticSymbolOriginKey>;
+  lOriginKey: TDelphiSemanticSymbolOriginKey;
+  lReference: TDelphiSemanticIndexedReference;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+  lVisibleScopeComparer: IEqualityComparer<TDelphiSemanticUnitSectionKey>;
+begin
+  inherited Create;
+  lLocalOriginKeys := nil;
+  lMemberOriginKeys := nil;
+  lComparer := TFastCaseAwareComparer.OrdinalIgnoreCase;
+  lCompositeComparer := TDelphiSemanticOwnerNameKeyComparer.Create;
+  lOriginComparer := TDelphiSemanticSymbolOriginKeyComparer.Create;
+  lVisibleScopeComparer := TDelphiSemanticUnitSectionKeyComparer.Create;
+  fSymbolsById := TDictionary<string, TDelphiSemanticIndexedSymbol>.Create(lComparer);
+  fSymbolsByName := TDictionary<string, TDelphiSemanticIndexedSymbolList>.Create(lComparer);
+  fTopLevelSymbolsByName := TDictionary<string, TDelphiSemanticIndexedSymbolList>.Create(
+    lComparer);
+  fLocalSymbolsByRoutineAndName := TDictionary<TDelphiSemanticOwnerNameKey,
+    TDelphiSemanticIndexedSymbolList>.Create(lCompositeComparer);
+  fMembersByOwnerAndName := TDictionary<TDelphiSemanticOwnerNameKey,
+    TDelphiSemanticIndexedSymbolList>.Create(lCompositeComparer);
+  fReferencesByName := TDictionary<string, TDelphiSemanticIndexedReferenceList>.Create(
+    lComparer);
+  fReferencesBySymbolId := TDictionary<string, TDelphiSemanticIndexedReferenceList>.Create(
+    lComparer);
+  fUnitModelsByName := TDictionary<string, TDelphiSemanticUnitModel>.Create(lComparer);
+  fVisibleScopesByUnitAndSection := TDictionary<TDelphiSemanticUnitSectionKey,
+    TDelphiSemanticUnitModelList>.Create(lVisibleScopeComparer);
+
+  if aContext.UnitModel.UnitName <> '' then
+    fUnitModelsByName.AddOrSetValue(aContext.UnitModel.UnitName, aContext.UnitModel);
+  for i := 0 to High(aContext.IndexedUnitModels) do
+  begin
+    lModel := aContext.IndexedUnitModels[i];
+    if lModel.UnitName <> '' then
+      fUnitModelsByName.AddOrSetValue(lModel.UnitName, lModel);
+  end;
+  AddVisibleScopesForModel(aContext.UnitModel);
+  for i := 0 to High(aContext.IndexedUnitModels) do
+    AddVisibleScopesForModel(aContext.IndexedUnitModels[i]);
+
+  lLocalOriginKeys := TDelphiSemanticSymbolOriginSet.Create(lOriginComparer);
+  try
+    lMemberOriginKeys := TDelphiSemanticSymbolOriginSet.Create(lOriginComparer);
+    AddLocalOriginKeys(lLocalOriginKeys, aContext.UnitModel);
+    AddMemberOriginKeys(lMemberOriginKeys, aContext.UnitModel);
+    for i := 0 to High(aContext.IndexedUnitModels) do
+    begin
+      AddLocalOriginKeys(lLocalOriginKeys, aContext.IndexedUnitModels[i]);
+      AddMemberOriginKeys(lMemberOriginKeys, aContext.IndexedUnitModels[i]);
+    end;
+
+    for lSymbol in aSymbols do
+    begin
+      fSymbolsById.AddOrSetValue(lSymbol.Id.Value, lSymbol);
+      AddSymbolToMap(fSymbolsByName, lSymbol.Name, lSymbol);
+      lOriginKey.UnitName := lSymbol.UnitName;
+      lOriginKey.OwnerName := lSymbol.OwnerName;
+      lOriginKey.Name := lSymbol.Name;
+      lOriginKey.Kind := lSymbol.Kind;
+      lOriginKey.Line := lSymbol.Line;
+      lOriginKey.Column := lSymbol.Column;
+      if lLocalOriginKeys.ContainsKey(lOriginKey) then
+        AddSymbolToCompositeMap(fLocalSymbolsByRoutineAndName, lSymbol.OwnerName, lSymbol.Name,
+          lSymbol)
+      else if lMemberOriginKeys.ContainsKey(lOriginKey) then
+        AddSymbolToCompositeMap(fMembersByOwnerAndName, lSymbol.OwnerName, lSymbol.Name, lSymbol)
+      else if lSymbol.OwnerName = '' then
+        AddSymbolToMap(fTopLevelSymbolsByName, lSymbol.Name, lSymbol);
+    end;
+  finally
+    lMemberOriginKeys.Free;
+    lLocalOriginKeys.Free;
+  end;
+
+  for lReference in aReferences do
+  begin
+    AddReferenceToMap(fReferencesByName, lReference.Name, lReference);
+    if lReference.SymbolId.Value <> '' then
+      AddReferenceToMap(fReferencesBySymbolId, lReference.SymbolId.Value, lReference);
+  end;
+end;
+
+destructor TDelphiSemanticProjectSymbolIndexData.Destroy;
+var
+  lReferenceList: TDelphiSemanticIndexedReferenceList;
+  lSymbolList: TDelphiSemanticIndexedSymbolList;
+  lUnitModelList: TDelphiSemanticUnitModelList;
+begin
+  if fSymbolsByName <> nil then
+    for lSymbolList in fSymbolsByName.Values do
+      lSymbolList.Free;
+  if fTopLevelSymbolsByName <> nil then
+    for lSymbolList in fTopLevelSymbolsByName.Values do
+      lSymbolList.Free;
+  if fLocalSymbolsByRoutineAndName <> nil then
+    for lSymbolList in fLocalSymbolsByRoutineAndName.Values do
+      lSymbolList.Free;
+  if fMembersByOwnerAndName <> nil then
+    for lSymbolList in fMembersByOwnerAndName.Values do
+      lSymbolList.Free;
+  if fReferencesByName <> nil then
+    for lReferenceList in fReferencesByName.Values do
+      lReferenceList.Free;
+  if fReferencesBySymbolId <> nil then
+    for lReferenceList in fReferencesBySymbolId.Values do
+      lReferenceList.Free;
+  if fVisibleScopesByUnitAndSection <> nil then
+    for lUnitModelList in fVisibleScopesByUnitAndSection.Values do
+      lUnitModelList.Free;
+  fVisibleScopesByUnitAndSection.Free;
+  fUnitModelsByName.Free;
+  fReferencesBySymbolId.Free;
+  fReferencesByName.Free;
+  fMembersByOwnerAndName.Free;
+  fLocalSymbolsByRoutineAndName.Free;
+  fTopLevelSymbolsByName.Free;
+  fSymbolsByName.Free;
+  fSymbolsById.Free;
+  inherited Destroy;
+end;
+
+function TDelphiSemanticProjectSymbolIndexData.FindSymbolById(
+  const aId: TDelphiSemanticSymbolId; out aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
+begin
+  Result := fSymbolsById.TryGetValue(aId.Value, aSymbol);
+end;
+
+function TDelphiSemanticProjectSymbolIndexData.FindSymbolsByName(
+  const aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+var
+  lList: TDelphiSemanticIndexedSymbolList;
+begin
+  if fSymbolsByName.TryGetValue(aName, lList) then
+    Exit(lList.ToArray);
+
+  Result := nil;
+end;
+
+function TDelphiSemanticProjectSymbolIndexData.FindTopLevelSymbolsByName(
+  const aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+var
+  lList: TDelphiSemanticIndexedSymbolList;
+begin
+  if fTopLevelSymbolsByName.TryGetValue(aName, lList) then
+    Exit(lList.ToArray);
+
+  Result := nil;
+end;
+
+function TDelphiSemanticProjectSymbolIndexData.FindLocalSymbolsByRoutineAndName(
+  const aRoutineName, aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+var
+  lKey: TDelphiSemanticOwnerNameKey;
+  lList: TDelphiSemanticIndexedSymbolList;
+begin
+  lKey.OwnerName := aRoutineName;
+  lKey.Name := aName;
+  if fLocalSymbolsByRoutineAndName.TryGetValue(lKey, lList) then
+    Exit(lList.ToArray);
+
+  Result := nil;
+end;
+
+function TDelphiSemanticProjectSymbolIndexData.FindMembersByOwnerAndName(
+  const aOwnerName, aName: string): TArray<TDelphiSemanticIndexedSymbol>;
+var
+  lKey: TDelphiSemanticOwnerNameKey;
+  lList: TDelphiSemanticIndexedSymbolList;
+begin
+  lKey.OwnerName := aOwnerName;
+  lKey.Name := aName;
+  if fMembersByOwnerAndName.TryGetValue(lKey, lList) then
+    Exit(lList.ToArray);
+
+  Result := nil;
+end;
+
+function TDelphiSemanticProjectSymbolIndexData.FindReferencesByName(
+  const aName: string): TArray<TDelphiSemanticIndexedReference>;
+var
+  lList: TDelphiSemanticIndexedReferenceList;
+begin
+  if fReferencesByName.TryGetValue(aName, lList) then
+    Exit(lList.ToArray);
+
+  Result := nil;
+end;
+
+function TDelphiSemanticProjectSymbolIndexData.FindReferencesBySymbolId(
+  const aId: TDelphiSemanticSymbolId): TArray<TDelphiSemanticIndexedReference>;
+var
+  lList: TDelphiSemanticIndexedReferenceList;
+begin
+  if fReferencesBySymbolId.TryGetValue(aId.Value, lList) then
+    Exit(lList.ToArray);
+
+  Result := nil;
+end;
+
+function TDelphiSemanticProjectSymbolIndexData.FindVisibleUnitScopes(
+  const aUnitName, aSectionKind: string): TArray<TDelphiSemanticUnitModel>;
+var
+  lKey: TDelphiSemanticUnitSectionKey;
+  lList: TDelphiSemanticUnitModelList;
+begin
+  lKey.UnitName := aUnitName;
+  lKey.SectionKind := aSectionKind;
+  if fVisibleScopesByUnitAndSection.TryGetValue(lKey, lList) then
+    Exit(lList.ToArray);
+
+  Result := nil;
+end;
+
+function TDelphiSemanticProjectSymbolIndexData.FindUnitModelByName(
+  const aName: string; out aModel: TDelphiSemanticUnitModel): Boolean;
+begin
+  Result := fUnitModelsByName.TryGetValue(aName, aModel);
+end;
 
 function NormalizeSignatureForSymbolId(const aSignature: string): string;
 begin
@@ -301,6 +977,8 @@ begin
 
     Result.Symbols := lSymbols.ToArray;
     Result.References := lReferences.ToArray;
+    Result.fData := TDelphiSemanticProjectSymbolIndexData.Create(aContext, Result.Symbols,
+      Result.References);
   finally
     lReferences.Free;
     lSymbols.Free;
