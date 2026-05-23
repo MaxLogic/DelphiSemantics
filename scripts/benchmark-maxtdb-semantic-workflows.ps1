@@ -2,7 +2,10 @@
 param(
   [string]$DakExe = 'F:\projects\MaxLogic\DelphiAiKit\bin\DelphiAIKit.exe',
   [string]$Project = 'F:\projects\MaxLogic\DelphiAiKit\tests\fixtures\test-projects\maxTdb\src\maxtdb.dpr',
+  [Alias('OutDir')]
   [string]$OutputDir = '.dak\benchmarks\maxtdb-semantic',
+  [string[]]$Workflow = @(),
+  [string[]]$CacheMode = @('default'),
   [int]$Repeat = 1,
   [switch]$List,
   [switch]$SummarizeOnly,
@@ -20,6 +23,37 @@ function Resolve-OutputPath {
   }
 
   return Join-Path (Get-Location) $Path
+}
+
+function Split-ArgumentValues {
+  param([string[]]$Values)
+
+  $lResult = New-Object System.Collections.Generic.List[string]
+  foreach ($lValue in $Values) {
+    foreach ($lPart in ([string]$lValue).Split(',')) {
+      $lTrimmed = $lPart.Trim()
+      if ($lTrimmed -ne '') {
+        $lResult.Add($lTrimmed)
+      }
+    }
+  }
+
+  return @($lResult.ToArray())
+}
+
+function Get-GitSha {
+  param([string]$Path)
+
+  try {
+    $lSha = git -C $Path rev-parse HEAD 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      return [string]$lSha
+    }
+  } catch {
+    Write-Verbose "Unable to read git SHA from $Path"
+  }
+
+  return ''
 }
 
 function New-BenchmarkDefinitions {
@@ -125,17 +159,35 @@ function Read-ResultCount {
   }
 }
 
+function Get-Median {
+  param([double[]]$Values)
+
+  if ($Values.Count -eq 0) {
+    return 0
+  }
+
+  $lValues = @($Values | Sort-Object)
+  $lMiddle = [int][Math]::Floor($lValues.Count / 2)
+  if (($lValues.Count % 2) -eq 1) {
+    return $lValues[$lMiddle]
+  }
+
+  return ($lValues[$lMiddle - 1] + $lValues[$lMiddle]) / 2
+}
+
 function ConvertTo-MarkdownTable {
   param([object[]]$Rows)
 
   $lCulture = [System.Globalization.CultureInfo]::InvariantCulture
   $lLines = New-Object System.Collections.Generic.List[string]
-  $lLines.Add('| Feature | Benchmark | Exit | Seconds | Result count |')
-  $lLines.Add('|---|---|---:|---:|---:|')
+  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Min | Max | Result count |')
+  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---:|---:|')
   foreach ($lRow in $Rows) {
     $lCount = if ([string]::IsNullOrWhiteSpace($lRow.ResultCount)) { '' } else { $lRow.ResultCount }
-    $lSeconds = ([double]$lRow.ElapsedSeconds).ToString('F3', $lCulture)
-    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} |' -f $lRow.Feature, $lRow.Id, $lRow.ExitCode, $lSeconds, $lCount))
+    $lMedian = ([double]$lRow.MedianSeconds).ToString('F3', $lCulture)
+    $lMin = ([double]$lRow.MinSeconds).ToString('F3', $lCulture)
+    $lMax = ([double]$lRow.MaxSeconds).ToString('F3', $lCulture)
+    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lMin, $lMax, $lCount))
   }
 
   return ($lLines -join [Environment]::NewLine)
@@ -151,6 +203,70 @@ function Format-BenchmarkTimestamp {
   return [string]$Value
 }
 
+function Remove-ColdCacheArtifacts {
+  param(
+    [string]$CacheDirectory,
+    [string]$OutputDirectory
+  )
+
+  $lCachePath = [System.IO.Path]::GetFullPath($CacheDirectory)
+  $lOutputPath = [System.IO.Path]::GetFullPath($OutputDirectory)
+  if (-not $lCachePath.StartsWith($lOutputPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to remove cache outside benchmark output directory: $CacheDirectory"
+  }
+
+  if (Test-Path -LiteralPath $CacheDirectory) {
+    Remove-Item -LiteralPath $CacheDirectory -Recurse -Force
+  }
+}
+
+function New-SummaryRows {
+  param([object[]]$RunRows)
+
+  $lSummaryRows = New-Object System.Collections.Generic.List[object]
+  $lGroups = $RunRows | Group-Object Id, CacheMode
+  foreach ($lGroup in $lGroups) {
+    $lRows = @($lGroup.Group)
+    $lSeconds = @($lRows | ForEach-Object { [double]$_.ElapsedSeconds })
+    $lFirst = $lRows[0]
+    $lExit = if (@($lRows | Where-Object { $_.ExitCode -ne 0 }).Count -gt 0) { 1 } else { 0 }
+    $lStatus = if ($lExit -eq 0) { 'passed' } else { 'failed' }
+    $lSummaryRows.Add([pscustomobject]@{
+      Id = $lFirst.Id
+      Feature = $lFirst.Feature
+      Description = $lFirst.Description
+      CacheMode = $lFirst.CacheMode
+      Runs = $lRows.Count
+      Status = $lStatus
+      ExitCode = $lExit
+      MedianSeconds = [Math]::Round((Get-Median -Values $lSeconds), 3)
+      MinSeconds = [Math]::Round((@($lSeconds | Measure-Object -Minimum).Minimum), 3)
+      MaxSeconds = [Math]::Round((@($lSeconds | Measure-Object -Maximum).Maximum), 3)
+      ResultCount = $lFirst.ResultCount
+      Command = $lFirst.Command
+    })
+  }
+
+  return @($lSummaryRows.ToArray())
+}
+
+function Get-BenchmarkArguments {
+  param(
+    [object]$Benchmark,
+    [string]$CacheMode,
+    [string]$SemanticCacheFile
+  )
+
+  $lArguments = New-Object System.Collections.Generic.List[string]
+  $lArguments.AddRange([string[]]$Benchmark.Arguments)
+  if ($CacheMode -ne 'default') {
+    $lArguments.Add('--semantic-cache')
+    $lArguments.Add($SemanticCacheFile)
+  }
+
+  return @($lArguments.ToArray())
+}
+
 if ($Repeat -lt 1) {
   throw 'Repeat must be at least 1.'
 }
@@ -163,7 +279,27 @@ if (-not (Test-Path -LiteralPath $Project -PathType Leaf)) {
   throw "Project fixture not found: $Project"
 }
 
+$lWorkflowFilter = @(Split-ArgumentValues -Values $Workflow)
+$lCacheModes = @(Split-ArgumentValues -Values $CacheMode)
+if ($lCacheModes.Count -eq 0) {
+  $lCacheModes = @('default')
+}
+foreach ($lCacheMode in $lCacheModes) {
+  if (@('default', 'cold', 'warm') -notcontains $lCacheMode) {
+    throw "Unknown cache mode: $lCacheMode"
+  }
+}
+
 $lBenchmarks = @(New-BenchmarkDefinitions -ProjectPath $Project)
+if ($lWorkflowFilter.Count -gt 0) {
+  $lKnown = @($lBenchmarks | ForEach-Object { $_.Id })
+  foreach ($lWorkflow in $lWorkflowFilter) {
+    if ($lKnown -notcontains $lWorkflow) {
+      throw "Unknown workflow: $lWorkflow"
+    }
+  }
+  $lBenchmarks = @($lBenchmarks | Where-Object { $lWorkflowFilter -contains $_.Id })
+}
 
 if ($List) {
   $lBenchmarks | ForEach-Object {
@@ -181,6 +317,7 @@ $lOutputDir = Resolve-OutputPath $OutputDir
 New-Item -ItemType Directory -Force -Path $lOutputDir | Out-Null
 $lJsonPath = Join-Path $lOutputDir 'baseline.json'
 $lMarkdownPath = Join-Path $lOutputDir 'baseline.md'
+$lRunRows = @()
 
 if ($SummarizeOnly) {
   if (-not (Test-Path -LiteralPath $lJsonPath -PathType Leaf)) {
@@ -188,12 +325,29 @@ if ($SummarizeOnly) {
   }
 
   $lExistingSummary = Get-Content -LiteralPath $lJsonPath -Raw | ConvertFrom-Json
-  $lResultRows = @($lExistingSummary.results)
-  foreach ($lRow in $lResultRows) {
+  if ($lExistingSummary.PSObject.Properties.Name -contains 'runs') {
+    $lRunRows = @($lExistingSummary.runs)
+  } else {
+    $lRunRows = @($lExistingSummary.results)
+    foreach ($lRow in $lRunRows) {
+      if (-not ($lRow.PSObject.Properties.Name -contains 'CacheMode')) {
+        Add-Member -InputObject $lRow -NotePropertyName CacheMode -NotePropertyValue 'default'
+      }
+      if (-not ($lRow.PSObject.Properties.Name -contains 'CacheDirectory')) {
+        Add-Member -InputObject $lRow -NotePropertyName CacheDirectory -NotePropertyValue ''
+      }
+    }
+  }
+  foreach ($lRow in $lRunRows) {
+    if (-not ($lRow.PSObject.Properties.Name -contains 'Status')) {
+      $lStatus = if (($lRow.PSObject.Properties.Name -contains 'ExitCode') -and ($lRow.ExitCode -eq 0)) { 'passed' } else { 'failed' }
+      Add-Member -InputObject $lRow -NotePropertyName Status -NotePropertyValue $lStatus
+    }
     if (($lRow.PSObject.Properties.Name -contains 'Stdout') -and (Test-Path -LiteralPath $lRow.Stdout -PathType Leaf)) {
       $lRow.ResultCount = Read-ResultCount -Path $lRow.Stdout
     }
   }
+  $lResultRows = New-SummaryRows -RunRows $lRunRows
 
   $lSummary = [ordered]@{
     name = $lExistingSummary.name
@@ -203,10 +357,15 @@ if ($SummarizeOnly) {
     dakExe = $lExistingSummary.dakExe
     project = $lExistingSummary.project
     repeat = $lExistingSummary.repeat
+    cacheModes = if ($lExistingSummary.PSObject.Properties.Name -contains 'cacheModes') { $lExistingSummary.cacheModes } else { @('default') }
+    cacheDirectory = if ($lExistingSummary.PSObject.Properties.Name -contains 'cacheDirectory') { $lExistingSummary.cacheDirectory } else { '' }
+    machine = if ($lExistingSummary.PSObject.Properties.Name -contains 'machine') { $lExistingSummary.machine } else { $env:COMPUTERNAME }
+    delphiSemanticsSha = if ($lExistingSummary.PSObject.Properties.Name -contains 'delphiSemanticsSha') { $lExistingSummary.delphiSemanticsSha } else { Get-GitSha -Path (Get-Location) }
+    dakSha = if ($lExistingSummary.PSObject.Properties.Name -contains 'dakSha') { $lExistingSummary.dakSha } else { Get-GitSha -Path (Split-Path (Split-Path $DakExe -Parent) -Parent) }
     results = $lResultRows
+    runs = $lRunRows
   }
 } else {
-
   $lStartedAt = Get-Date
   $lRows = New-Object System.Collections.Generic.List[object]
   $lRunsJsonlPath = Join-Path $lOutputDir 'runs.jsonl'
@@ -214,36 +373,57 @@ if ($SummarizeOnly) {
     Remove-Item -LiteralPath $lRunsJsonlPath
   }
 
-  foreach ($lBenchmark in $lBenchmarks) {
-    for ($i = 1; $i -le $Repeat; $i++) {
-      $lRunId = if ($Repeat -eq 1) { $lBenchmark.Id } else { '{0}-run{1}' -f $lBenchmark.Id, $i }
-      $lStdout = Join-Path $lOutputDir ($lRunId + '.stdout.json')
-      $lStderr = Join-Path $lOutputDir ($lRunId + '.stderr.txt')
+  $lCacheDirectory = Join-Path $lOutputDir 'semantic-cache'
+  $lSemanticCacheFile = Join-Path $lCacheDirectory 'unit-models.sqlite3'
+  foreach ($lCacheMode in $lCacheModes) {
+    New-Item -ItemType Directory -Force -Path $lCacheDirectory | Out-Null
 
-      $lStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-      & $DakExe @($lBenchmark.Arguments) 1> $lStdout 2> $lStderr
-      $lExitCode = $LASTEXITCODE
-      $lStopwatch.Stop()
+    foreach ($lBenchmark in $lBenchmarks) {
+      for ($i = 1; $i -le $Repeat; $i++) {
+        if ($lCacheMode -eq 'cold') {
+          Remove-ColdCacheArtifacts -CacheDirectory $lCacheDirectory -OutputDirectory $lOutputDir
+          New-Item -ItemType Directory -Force -Path $lCacheDirectory | Out-Null
+        }
 
-      $lRow = [pscustomobject]@{
-        Id = $lBenchmark.Id
-        Run = $i
-        Feature = $lBenchmark.Feature
-        Description = $lBenchmark.Description
-        ExitCode = $lExitCode
-        ElapsedSeconds = [Math]::Round($lStopwatch.Elapsed.TotalSeconds, 3)
-        ResultCount = Read-ResultCount -Path $lStdout
-        Stdout = $lStdout
-        Stderr = $lStderr
-        Command = ('{0} {1}' -f $DakExe, ($lBenchmark.Arguments -join ' '))
+        $lRunId = '{0}-{1}-run{2}' -f $lBenchmark.Id, $lCacheMode, $i
+        $lStdout = Join-Path $lOutputDir ($lRunId + '.stdout.json')
+        $lStderr = Join-Path $lOutputDir ($lRunId + '.stderr.txt')
+
+        $env:DELPHISEMANTICS_BENCHMARK_CACHE_DIR = $lCacheDirectory
+        $env:DELPHISEMANTICS_BENCHMARK_CACHE_MODE = $lCacheMode
+        $lStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $lArguments = @(Get-BenchmarkArguments -Benchmark $lBenchmark -CacheMode $lCacheMode -SemanticCacheFile $lSemanticCacheFile)
+        & $DakExe @($lArguments) 1> $lStdout 2> $lStderr
+        $lExitCode = $LASTEXITCODE
+        $lStopwatch.Stop()
+        Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_DIR -ErrorAction SilentlyContinue
+        Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_MODE -ErrorAction SilentlyContinue
+
+        $lRow = [pscustomobject]@{
+          Id = $lBenchmark.Id
+          Run = $i
+          Feature = $lBenchmark.Feature
+          Description = $lBenchmark.Description
+          CacheMode = $lCacheMode
+          CacheDirectory = $lCacheDirectory
+          Status = if ($lExitCode -eq 0) { 'passed' } else { 'failed' }
+          ExitCode = $lExitCode
+          ElapsedSeconds = [Math]::Round($lStopwatch.Elapsed.TotalSeconds, 3)
+          ResultCount = Read-ResultCount -Path $lStdout
+          Stdout = $lStdout
+          Stderr = $lStderr
+          Command = ('{0} {1}' -f $DakExe, ($lArguments -join ' '))
+        }
+        $lRows.Add($lRow)
+        $lRow | ConvertTo-Json -Depth 5 -Compress | Add-Content -LiteralPath $lRunsJsonlPath -Encoding UTF8
       }
-      $lRows.Add($lRow)
-      $lRow | ConvertTo-Json -Depth 5 -Compress | Add-Content -LiteralPath $lRunsJsonlPath -Encoding UTF8
     }
   }
 
   $lCompletedAt = Get-Date
-  $lResultRows = @($lRows.ToArray())
+  $lRunRows = @($lRows.ToArray())
+  $lResultRows = New-SummaryRows -RunRows $lRunRows
+  $lDakRoot = Split-Path (Split-Path $DakExe -Parent) -Parent
   $lSummary = [ordered]@{
     name = 'maxTdb semantic workflow benchmark'
     startedAt = $lStartedAt.ToString('o')
@@ -252,7 +432,13 @@ if ($SummarizeOnly) {
     dakExe = $DakExe
     project = $Project
     repeat = $Repeat
+    cacheModes = $lCacheModes
+    cacheDirectory = $lCacheDirectory
+    machine = $env:COMPUTERNAME
+    delphiSemanticsSha = Get-GitSha -Path (Get-Location)
+    dakSha = Get-GitSha -Path $lDakRoot
     results = $lResultRows
+    runs = $lRunRows
   }
 }
 
@@ -265,6 +451,10 @@ $lMarkdown = @(
   ('Completed: `{0}`' -f $lSummary.completedAt)
   ('DAK: `{0}`' -f $DakExe)
   ('Project: `{0}`' -f $Project)
+  ('Machine: `{0}`' -f $lSummary.machine)
+  ('DelphiSemantics SHA: `{0}`' -f $lSummary.delphiSemanticsSha)
+  ('DAK SHA: `{0}`' -f $lSummary.dakSha)
+  ('Cache directory: `{0}`' -f $lSummary.cacheDirectory)
   ''
   (ConvertTo-MarkdownTable -Rows $lResultRows)
   ''
@@ -272,11 +462,20 @@ $lMarkdown = @(
 ) -join [Environment]::NewLine
 $lMarkdown | Set-Content -LiteralPath $lMarkdownPath -Encoding UTF8
 
-if (-not $NoBaselineCopy) {
+if ((-not $NoBaselineCopy) -and ($lWorkflowFilter.Count -eq 0) -and ($OutputDir -eq '.dak\benchmarks\maxtdb-semantic')) {
   $lBaselineDir = Join-Path (Get-Location) 'docs\benchmarks'
   New-Item -ItemType Directory -Force -Path $lBaselineDir | Out-Null
   Copy-Item -LiteralPath $lJsonPath -Destination (Join-Path $lBaselineDir 'maxtdb-semantic-baseline.json') -Force
   Copy-Item -LiteralPath $lMarkdownPath -Destination (Join-Path $lBaselineDir 'maxtdb-semantic-baseline.md') -Force
+} elseif (-not $NoBaselineCopy) {
+  $lBaselineDir = Join-Path (Get-Location) 'docs\benchmarks'
+  New-Item -ItemType Directory -Force -Path $lBaselineDir | Out-Null
+  $lResultName = Split-Path $lOutputDir -Leaf
+  if ([string]::IsNullOrWhiteSpace($lResultName)) {
+    $lResultName = 'custom'
+  }
+  Copy-Item -LiteralPath $lJsonPath -Destination (Join-Path $lBaselineDir ('maxtdb-semantic-{0}.json' -f $lResultName)) -Force
+  Copy-Item -LiteralPath $lMarkdownPath -Destination (Join-Path $lBaselineDir ('maxtdb-semantic-{0}.md' -f $lResultName)) -Force
 }
 
 ConvertTo-MarkdownTable -Rows $lResultRows
