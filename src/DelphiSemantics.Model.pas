@@ -135,6 +135,7 @@ type
   public
     class function ReferenceReconciliationFallbackCount: Integer; static;
     class function ReferenceReconciliationNameScanCount: Integer; static;
+    class function ReferenceOccurrenceTableBuildCount: Integer; static;
     class procedure ResetReferenceReconciliationFallbackCount; static;
     class function TypeBlockAnalysisBuildCount: Integer; static;
     class procedure ResetTypeBlockAnalysisBuildCount; static;
@@ -162,6 +163,7 @@ type
   end;
 
   TReferenceCandidateList = TList<TReferenceCoordinateCandidate>;
+  TReferenceOccurrenceIndex = TObjectDictionary<string, TReferenceCandidateList>;
 
 var
   GLineCacheText: string = '';
@@ -169,6 +171,7 @@ var
   GLineCacheStarts: TArray<Integer>;
   GReferenceReconciliationFallbackCount: Integer = 0;
   GReferenceReconciliationNameScanCount: Integer = 0;
+  GReferenceOccurrenceTableBuildCount: Integer = 0;
   GTypeBlockAnalysisBuildCount: Integer = 0;
   GTypeBlockRangesText: string = '';
   GTypeBlockRangesLength: Integer = -1;
@@ -1878,8 +1881,7 @@ var
   lCandidate: TReferenceCoordinateCandidate;
   lCandidates: TReferenceCandidateList;
   lCleanText: string;
-  lNameCandidates: TObjectDictionary<string, TReferenceCandidateList>;
-  lMatch: TMatch;
+  lOccurrenceIndex: TReferenceOccurrenceIndex;
   lReference: TDelphiSemanticReference;
 
   function SourceTextMatchesReference(const aOffset: Integer;
@@ -1890,12 +1892,6 @@ var
       aReference.Name);
   end;
 
-  function SourceTextMatchesName(const aOffset: Integer; const aName: string): Boolean;
-  begin
-    Result := (aOffset >= 1) and (aOffset + Length(aName) - 1 <=
-      Length(aSourceText)) and SameText(Copy(aSourceText, aOffset, Length(aName)), aName);
-  end;
-
   function SourceRangeMatchesReference(const aOffset: Integer;
     const aReference: TDelphiSemanticReference): Boolean;
   begin
@@ -1904,34 +1900,54 @@ var
       (ColumnOfOffset(aSourceText, aOffset) = aReference.Column);
   end;
 
-  function MatchOffset(const aMatch: TMatch; const aName: string): Integer;
+  function BuildReferenceOccurrenceIndex: TReferenceOccurrenceIndex;
+  var
+    i: Integer;
+    lCandidate: TReferenceCoordinateCandidate;
+    lKey: string;
+    lList: TReferenceCandidateList;
+    lName: string;
+    lStartOffset: Integer;
   begin
-    Result := aMatch.Index;
-    if not SourceTextMatchesName(Result, aName) and SourceTextMatchesName(Result + 1, aName) then
-      Inc(Result);
+    Result := TReferenceOccurrenceIndex.Create([doOwnsValues]);
+    Inc(GReferenceOccurrenceTableBuildCount);
+    i := 1;
+    while i <= Length(lCleanText) do
+    begin
+      if CharInSet(lCleanText[i], ['A'..'Z', 'a'..'z', '_']) then
+      begin
+        lStartOffset := i;
+        Inc(i);
+        while (i <= Length(lCleanText)) and IsIdentifierChar(lCleanText[i]) do
+          Inc(i);
+        lName := Copy(lCleanText, lStartOffset, i - lStartOffset);
+        lKey := LowerCase(lName);
+        if not Result.TryGetValue(lKey, lList) then
+        begin
+          lList := TReferenceCandidateList.Create;
+          Result.Add(lKey, lList);
+        end;
+        lCandidate.Offset := lStartOffset;
+        lCandidate.Line := LineOfOffset(lCleanText, lStartOffset);
+        lCandidate.Column := ColumnOfOffset(lCleanText, lStartOffset);
+        lList.Add(lCandidate);
+      end else
+        Inc(i);
+    end;
   end;
 
   function CandidatesForName(const aName: string): TReferenceCandidateList;
   var
     lKey: string;
   begin
+    if lOccurrenceIndex = nil then
+      lOccurrenceIndex := BuildReferenceOccurrenceIndex;
+
     lKey := LowerCase(aName);
-    if lNameCandidates.TryGetValue(lKey, Result) then
+    if lOccurrenceIndex.TryGetValue(lKey, Result) then
       Exit;
 
-    Result := TReferenceCandidateList.Create;
-    lNameCandidates.Add(lKey, Result);
-    Inc(GReferenceReconciliationNameScanCount);
-    lMatch := TRegEx.Match(lCleanText, '\b' + TRegEx.Escape(aName) + '\b',
-      [roIgnoreCase]);
-    while lMatch.Success do
-    begin
-      lCandidate.Offset := MatchOffset(lMatch, aName);
-      lCandidate.Line := LineOfOffset(lCleanText, lCandidate.Offset);
-      lCandidate.Column := ColumnOfOffset(lCleanText, lCandidate.Offset);
-      Result.Add(lCandidate);
-      lMatch := lMatch.NextMatch;
-    end;
+    Result := nil;
   end;
 
   procedure AssignReferenceSourceRange(var aReference: TDelphiSemanticReference;
@@ -1946,7 +1962,7 @@ var
   end;
 begin
   lCleanText := SanitizeCodeText(aSourceText);
-  lNameCandidates := TObjectDictionary<string, TReferenceCandidateList>.Create([doOwnsValues]);
+  lOccurrenceIndex := nil;
   try
     for i := 0 to Pred(aReferences.Count) do
     begin
@@ -1964,21 +1980,22 @@ begin
       lBestLine := 0;
       lBestOffset := 0;
       lCandidates := CandidatesForName(lReference.Name);
-      for lCandidate in lCandidates do
-      begin
-        lCandidateOffset := lCandidate.Offset;
-        lCandidateLine := lCandidate.Line;
-        lCandidateColumn := lCandidate.Column;
-        lCandidateDistance := Abs(lCandidateLine - lReference.Line) * 10000 +
-          Abs(lCandidateColumn - lReference.Column);
-        if lCandidateDistance < lBestDistance then
+      if lCandidates <> nil then
+        for lCandidate in lCandidates do
         begin
-          lBestDistance := lCandidateDistance;
-          lBestLine := lCandidateLine;
-          lBestColumn := lCandidateColumn;
-          lBestOffset := lCandidateOffset;
+          lCandidateOffset := lCandidate.Offset;
+          lCandidateLine := lCandidate.Line;
+          lCandidateColumn := lCandidate.Column;
+          lCandidateDistance := Abs(lCandidateLine - lReference.Line) * 10000 +
+            Abs(lCandidateColumn - lReference.Column);
+          if lCandidateDistance < lBestDistance then
+          begin
+            lBestDistance := lCandidateDistance;
+            lBestLine := lCandidateLine;
+            lBestColumn := lCandidateColumn;
+            lBestOffset := lCandidateOffset;
+          end;
         end;
-      end;
       if lBestLine > 0 then
       begin
         AssignReferenceSourceRange(lReference, lBestOffset);
@@ -1986,7 +2003,7 @@ begin
       end;
     end;
   finally
-    lNameCandidates.Free;
+    lOccurrenceIndex.Free;
   end;
 end;
 
@@ -2278,10 +2295,16 @@ begin
   Result := GReferenceReconciliationNameScanCount;
 end;
 
+class function TDelphiSemanticUnitModelExtractor.ReferenceOccurrenceTableBuildCount: Integer;
+begin
+  Result := GReferenceOccurrenceTableBuildCount;
+end;
+
 class procedure TDelphiSemanticUnitModelExtractor.ResetReferenceReconciliationFallbackCount;
 begin
   GReferenceReconciliationFallbackCount := 0;
   GReferenceReconciliationNameScanCount := 0;
+  GReferenceOccurrenceTableBuildCount := 0;
 end;
 
 class function TDelphiSemanticUnitModelExtractor.TypeBlockAnalysisBuildCount: Integer;

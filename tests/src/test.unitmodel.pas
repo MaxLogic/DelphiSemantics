@@ -117,6 +117,8 @@ type
     procedure TypeBlockAnalysisIsBuiltOncePerExtraction;
     [Test]
     procedure ReferenceReconciliationScansRepeatedNamesOnce;
+    [Test]
+    procedure ReferenceReconciliationBuildsOccurrenceTableOnce;
   end;
 
 implementation
@@ -1586,6 +1588,28 @@ begin
   Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationNameScanCount <
     TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount,
     'repeated fallback names should share one source scan per name');
+end;
+
+procedure TUnitModelTests.ReferenceReconciliationBuildsOccurrenceTableOnce;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('UnitModel', 'ConditionalModelUnit.pas');
+  lOptions.Defines := ['ACTIVE'];
+  lOptions.ProjectContextApplied := True;
+
+  TDelphiSemanticUnitModelExtractor.ResetReferenceReconciliationFallbackCount;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount > 0,
+    'fixture should exercise reference reconciliation fallback');
+  Assert.AreEqual(1, TDelphiSemanticUnitModelExtractor.ReferenceOccurrenceTableBuildCount,
+    'fallback reconciliation should build one token occurrence table per unit');
+  Assert.AreEqual(0, TDelphiSemanticUnitModelExtractor.ReferenceReconciliationNameScanCount,
+    'fallback reconciliation should not regex-scan source once per name');
 end;
 
 initialization

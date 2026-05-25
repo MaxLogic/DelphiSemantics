@@ -54,6 +54,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Cold reference reconciliation now builds one token occurrence table per unit
+  instead of regex-scanning source once per fallback name, reducing maxTdb cold
+  `rename-dry-run-allfiles` median runtime from 18.744s to 11.479s.
 - Cold semantic unit extraction now reuses per-unit line, type-block, and
   reference-name scan data, reducing maxTdb cold `rename-dry-run-allfiles`
   median runtime from 70.012s to 18.744s while preserving warm-cache targets.
