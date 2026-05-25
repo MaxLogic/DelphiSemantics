@@ -54,6 +54,8 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- DAK semantic JSON and maxTdb benchmark rows now include additive
+  `semanticPhaseMetrics` timing and counter data for cold-path optimization.
 - Dead-code reporting now uses per-report in-memory lookup caches, bringing
   maxTdb warm-cache `dead-code-legacy-static` dogfood below the 10-second target.
 - SQLite semantic cache identity now includes compiler/toolchain and extraction

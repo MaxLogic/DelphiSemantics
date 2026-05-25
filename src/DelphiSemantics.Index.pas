@@ -55,6 +55,7 @@ type
   TDelphiSemanticProjectSymbolIndexer = record
   public
     class var BuildInvocationCount: Integer;
+    class var BuildElapsedMilliseconds: Int64;
     class var ReferenceResolutionSymbolScanCount: Integer;
     class function Build(const aContext: TDelphiSemanticSymbolQueryContext):
       TDelphiSemanticProjectSymbolIndex; static;
@@ -65,7 +66,8 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
+  System.Diagnostics, System.Generics.Collections, System.Generics.Defaults, System.StrUtils,
+  System.SysUtils,
   MaxLogic.StrUtils;
 
 type
@@ -1177,9 +1179,11 @@ var
   lModel: TDelphiSemanticUnitModel;
   lMutableData: IDelphiSemanticMutableProjectSymbolIndexData;
   lReferences: TList<TDelphiSemanticIndexedReference>;
+  lStopwatch: TStopwatch;
   lSymbols: TDelphiSemanticSymbolList;
 begin
   Inc(BuildInvocationCount);
+  lStopwatch := TStopwatch.StartNew;
   lSymbols := TDelphiSemanticSymbolList.Create;
   lReferences := TList<TDelphiSemanticIndexedReference>.Create;
   try
@@ -1207,12 +1211,14 @@ begin
   finally
     lReferences.Free;
     lSymbols.Free;
+    Inc(BuildElapsedMilliseconds, lStopwatch.ElapsedMilliseconds);
   end;
 end;
 
 class procedure TDelphiSemanticProjectSymbolIndexer.ResetBuildInvocationCount;
 begin
   BuildInvocationCount := 0;
+  BuildElapsedMilliseconds := 0;
 end;
 
 class procedure TDelphiSemanticProjectSymbolIndexer.ResetReferenceResolutionSymbolScanCount;

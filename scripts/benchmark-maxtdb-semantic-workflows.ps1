@@ -223,6 +223,26 @@ function Read-SemanticCacheMetric {
   }
 }
 
+function Read-SemanticPhaseMetrics {
+  param([string]$Path)
+
+  try {
+    $lText = Get-Content -LiteralPath $Path -Raw
+    if ([string]::IsNullOrWhiteSpace($lText)) {
+      return $null
+    }
+
+    $lJson = $lText | ConvertFrom-Json
+    if ($lJson.PSObject.Properties.Name -contains 'semanticPhaseMetrics') {
+      return $lJson.semanticPhaseMetrics
+    }
+  } catch {
+    return $null
+  }
+
+  return $null
+}
+
 function Requires-ReferenceFallbackCount {
   param([object]$Row)
 
@@ -453,9 +473,13 @@ if ($SummarizeOnly) {
       if (-not ($lRow.PSObject.Properties.Name -contains 'SemanticCacheMisses')) {
         Add-Member -InputObject $lRow -NotePropertyName SemanticCacheMisses -NotePropertyValue ''
       }
+      if (-not ($lRow.PSObject.Properties.Name -contains 'SemanticPhaseMetrics')) {
+        Add-Member -InputObject $lRow -NotePropertyName SemanticPhaseMetrics -NotePropertyValue $null
+      }
       $lRow.ReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lRow.Stdout
       $lRow.SemanticCacheHits = Read-SemanticCacheMetric -Path $lRow.Stdout -Name 'semanticCacheHits'
       $lRow.SemanticCacheMisses = Read-SemanticCacheMetric -Path $lRow.Stdout -Name 'semanticCacheMisses'
+      $lRow.SemanticPhaseMetrics = Read-SemanticPhaseMetrics -Path $lRow.Stdout
       if (($lRow.ExitCode -eq 0) -and (Requires-ReferenceFallbackCount -Row $lRow) -and
           [string]::IsNullOrWhiteSpace($lRow.ReferenceFallbackCount)) {
         throw "Missing referenceReconciliationFallbackCount in successful benchmark output: $($lRow.Stdout)"
@@ -538,6 +562,7 @@ if ($SummarizeOnly) {
         $lReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lStdout
         $lSemanticCacheHits = Read-SemanticCacheMetric -Path $lStdout -Name 'semanticCacheHits'
         $lSemanticCacheMisses = Read-SemanticCacheMetric -Path $lStdout -Name 'semanticCacheMisses'
+        $lSemanticPhaseMetrics = Read-SemanticPhaseMetrics -Path $lStdout
         if (($lExitCode -eq 0) -and (Requires-ReferenceFallbackCount -Row $lBenchmark) -and
             [string]::IsNullOrWhiteSpace($lReferenceFallbackCount)) {
           throw "Missing referenceReconciliationFallbackCount in successful benchmark output: $lStdout"
@@ -557,6 +582,7 @@ if ($SummarizeOnly) {
           SemanticCacheHits = $lSemanticCacheHits
           SemanticCacheMisses = $lSemanticCacheMisses
           ReferenceFallbackCount = $lReferenceFallbackCount
+          SemanticPhaseMetrics = $lSemanticPhaseMetrics
           Stdout = $lStdout
           Stderr = $lStderr
           Command = ('{0} {1}' -f $DakExe, ($lArguments -join ' '))
