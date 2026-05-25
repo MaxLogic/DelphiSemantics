@@ -134,7 +134,10 @@ type
   TDelphiSemanticUnitModelExtractor = record
   public
     class function ReferenceReconciliationFallbackCount: Integer; static;
+    class function ReferenceReconciliationNameScanCount: Integer; static;
     class procedure ResetReferenceReconciliationFallbackCount; static;
+    class function TypeBlockAnalysisBuildCount: Integer; static;
+    class procedure ResetTypeBlockAnalysisBuildCount; static;
     class function ExtractFromFile(const aOptions: TDelphiSemanticModelOptions):
       TDelphiSemanticUnitModel; static;
   end;
@@ -146,11 +149,30 @@ uses
   System.StrUtils, System.SysUtils,
   DelphiSemantics.Preprocess, DelphiSemantics.Source;
 
+type
+  TOffsetRange = record
+    StartOffset: Integer;
+    EndOffset: Integer;
+  end;
+
+  TReferenceCoordinateCandidate = record
+    Offset: Integer;
+    Line: Integer;
+    Column: Integer;
+  end;
+
+  TReferenceCandidateList = TList<TReferenceCoordinateCandidate>;
+
 var
   GLineCacheText: string = '';
   GLineCacheLength: Integer = -1;
   GLineCacheStarts: TArray<Integer>;
   GReferenceReconciliationFallbackCount: Integer = 0;
+  GReferenceReconciliationNameScanCount: Integer = 0;
+  GTypeBlockAnalysisBuildCount: Integer = 0;
+  GTypeBlockRangesText: string = '';
+  GTypeBlockRangesLength: Integer = -1;
+  GTypeBlockRanges: TArray<TOffsetRange>;
   GSectionCacheText: string = '';
   GSectionCacheLength: Integer = -1;
   GSectionCache: TDelphiSemanticSourceSections;
@@ -211,24 +233,27 @@ procedure EnsureLineCache(const aText: string);
 var
   i: Integer;
   lCount: Integer;
+  lIndex: Integer;
 begin
   if (Pointer(aText) = Pointer(GLineCacheText)) and (Length(aText) = GLineCacheLength) then
     Exit;
 
   GLineCacheLength := Length(aText);
   GLineCacheText := aText;
-  SetLength(GLineCacheStarts, 1);
-  GLineCacheStarts[0] := 1;
   lCount := 1;
   for i := 1 to Length(aText) do
-  begin
+    if aText[i] = #10 then
+      Inc(lCount);
+
+  SetLength(GLineCacheStarts, lCount);
+  GLineCacheStarts[0] := 1;
+  lIndex := 1;
+  for i := 1 to Length(aText) do
     if aText[i] = #10 then
     begin
-      SetLength(GLineCacheStarts, lCount + 1);
-      GLineCacheStarts[lCount] := i + 1;
-      Inc(lCount);
+      GLineCacheStarts[lIndex] := i + 1;
+      Inc(lIndex);
     end;
-  end;
 end;
 
 function LineIndexOfOffset(const aText: string; const aOffset: Integer): Integer;
@@ -324,6 +349,88 @@ begin
   Result := GLineCacheStarts[lIndex] + aColumn - 1;
   if Result > Length(aText) then
     Result := 0;
+end;
+
+function NormalizeTypeName(const aTypeName: string): string; forward;
+function StripTrailingDeclarationComment(const aLine: string): string; forward;
+
+function BuildTypeBlockRanges(const aText: string): TArray<TOffsetRange>;
+var
+  i: Integer;
+  lBlockKind: string;
+  lLine: string;
+  lLines: TStringList;
+  lOffset: Integer;
+  lRange: TOffsetRange;
+  lRanges: TList<TOffsetRange>;
+  lScopeLine: string;
+  lTypeDepth: Integer;
+  lTypeMatch: TMatch;
+  lTypeName: string;
+begin
+  lLines := TStringList.Create;
+  lRanges := TList<TOffsetRange>.Create;
+  try
+    lLines.Text := aText;
+    lBlockKind := '';
+    lOffset := 0;
+    lTypeDepth := 0;
+    for i := 0 to Pred(lLines.Count) do
+    begin
+      lLine := lLines[i].Trim;
+      lScopeLine := StripTrailingDeclarationComment(lLine);
+      if lTypeDepth > 0 then
+      begin
+        lRange.StartOffset := lOffset + 1;
+        lRange.EndOffset := lOffset + Length(lLines[i]) + 1;
+        lRanges.Add(lRange);
+      end;
+
+      if (lTypeDepth > 0) and SameText(lScopeLine, 'end;') then
+      begin
+        Dec(lTypeDepth);
+      end else if SameText(lScopeLine, 'interface') or SameText(lScopeLine, 'implementation') then
+      begin
+        lBlockKind := '';
+        lTypeDepth := 0;
+      end else if SameText(lScopeLine, 'type') then
+      begin
+        lBlockKind := 'type';
+      end else if SameText(lScopeLine, 'const') or SameText(lScopeLine, 'var') then
+      begin
+        lBlockKind := '';
+      end else if lBlockKind = 'type' then
+      begin
+        lTypeMatch := TRegEx.Match(lLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\r\n]+)',
+          [roIgnoreCase]);
+        if lTypeMatch.Success then
+        begin
+          lTypeName := NormalizeTypeName(lTypeMatch.Groups[2].Value);
+          if MatchText(lTypeName, ['class', 'interface', 'record']) and
+            not ContainsText(lScopeLine, ' end') then
+            Inc(lTypeDepth);
+        end;
+      end;
+
+      Inc(lOffset, Length(lLines[i]) + Length(sLineBreak));
+    end;
+    Result := lRanges.ToArray;
+  finally
+    lRanges.Free;
+    lLines.Free;
+  end;
+end;
+
+procedure EnsureTypeBlockRanges(const aText: string);
+begin
+  if (Pointer(aText) = Pointer(GTypeBlockRangesText)) and
+    (Length(aText) = GTypeBlockRangesLength) then
+    Exit;
+
+  GTypeBlockRangesLength := Length(aText);
+  GTypeBlockRangesText := aText;
+  GTypeBlockRanges := BuildTypeBlockRanges(aText);
+  Inc(GTypeBlockAnalysisBuildCount);
 end;
 
 function SectionForOffset(const aText: string; const aOffset: Integer): string;
@@ -1280,61 +1387,27 @@ end;
 
 function IsOffsetInsideTypeBlock(const aText: string; const aOffset: Integer): Boolean;
 var
-  i: Integer;
-  lBlockKind: string;
-  lLine: string;
-  lLines: TStringList;
-  lOffset: Integer;
-  lScopeLine: string;
-  lTypeDepth: Integer;
-  lTypeMatch: TMatch;
-  lTypeName: string;
+  lHigh: Integer;
+  lLow: Integer;
+  lMid: Integer;
 begin
-  lLines := TStringList.Create;
-  try
-    lLines.Text := aText;
-    lBlockKind := '';
-    lOffset := 0;
-    lTypeDepth := 0;
-    for i := 0 to Pred(lLines.Count) do
+  EnsureTypeBlockRanges(aText);
+  lLow := 0;
+  lHigh := High(GTypeBlockRanges);
+  while lLow <= lHigh do
+  begin
+    lMid := lLow + (lHigh - lLow) div 2;
+    if aOffset < GTypeBlockRanges[lMid].StartOffset then
     begin
-      lLine := lLines[i].Trim;
-      lScopeLine := StripTrailingDeclarationComment(lLine);
-      if (aOffset >= lOffset + 1) and (aOffset <= lOffset + Length(lLines[i]) + 1) then
-        Exit(lTypeDepth > 0);
-
-      if (lTypeDepth > 0) and SameText(lScopeLine, 'end;') then
-      begin
-        Dec(lTypeDepth);
-      end else if SameText(lScopeLine, 'interface') or SameText(lScopeLine, 'implementation') then
-      begin
-        lBlockKind := '';
-        lTypeDepth := 0;
-      end else if SameText(lScopeLine, 'type') then
-      begin
-        lBlockKind := 'type';
-      end else if SameText(lScopeLine, 'const') or SameText(lScopeLine, 'var') then
-      begin
-        lBlockKind := '';
-      end else if lBlockKind = 'type' then
-      begin
-        lTypeMatch := TRegEx.Match(lLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\r\n]+)',
-          [roIgnoreCase]);
-        if lTypeMatch.Success then
-        begin
-          lTypeName := NormalizeTypeName(lTypeMatch.Groups[2].Value);
-          if MatchText(lTypeName, ['class', 'interface', 'record']) and
-            not ContainsText(lScopeLine, ' end') then
-            Inc(lTypeDepth);
-        end;
-      end;
-
-      Inc(lOffset, Length(lLines[i]) + Length(sLineBreak));
-    end;
-    Result := False;
-  finally
-    lLines.Free;
+      lHigh := lMid - 1;
+    end else if aOffset > GTypeBlockRanges[lMid].EndOffset then
+    begin
+      lLow := lMid + 1;
+    end else
+      Exit(True);
   end;
+
+  Result := False;
 end;
 
 procedure ExtractRoutines(const aText: string; const aDeclarations: TList<TDelphiSemanticDeclaration>;
@@ -1802,7 +1875,10 @@ var
   lCandidateDistance: Integer;
   lCandidateLine: Integer;
   lCandidateOffset: Integer;
+  lCandidate: TReferenceCoordinateCandidate;
+  lCandidates: TReferenceCandidateList;
   lCleanText: string;
+  lNameCandidates: TObjectDictionary<string, TReferenceCandidateList>;
   lMatch: TMatch;
   lReference: TDelphiSemanticReference;
 
@@ -1814,6 +1890,12 @@ var
       aReference.Name);
   end;
 
+  function SourceTextMatchesName(const aOffset: Integer; const aName: string): Boolean;
+  begin
+    Result := (aOffset >= 1) and (aOffset + Length(aName) - 1 <=
+      Length(aSourceText)) and SameText(Copy(aSourceText, aOffset, Length(aName)), aName);
+  end;
+
   function SourceRangeMatchesReference(const aOffset: Integer;
     const aReference: TDelphiSemanticReference): Boolean;
   begin
@@ -1822,13 +1904,34 @@ var
       (ColumnOfOffset(aSourceText, aOffset) = aReference.Column);
   end;
 
-  function MatchOffset(const aMatch: TMatch; const aReference: TDelphiSemanticReference):
-    Integer;
+  function MatchOffset(const aMatch: TMatch; const aName: string): Integer;
   begin
     Result := aMatch.Index;
-    if not SourceTextMatchesReference(Result, aReference) and
-      SourceTextMatchesReference(Result + 1, aReference) then
+    if not SourceTextMatchesName(Result, aName) and SourceTextMatchesName(Result + 1, aName) then
       Inc(Result);
+  end;
+
+  function CandidatesForName(const aName: string): TReferenceCandidateList;
+  var
+    lKey: string;
+  begin
+    lKey := LowerCase(aName);
+    if lNameCandidates.TryGetValue(lKey, Result) then
+      Exit;
+
+    Result := TReferenceCandidateList.Create;
+    lNameCandidates.Add(lKey, Result);
+    Inc(GReferenceReconciliationNameScanCount);
+    lMatch := TRegEx.Match(lCleanText, '\b' + TRegEx.Escape(aName) + '\b',
+      [roIgnoreCase]);
+    while lMatch.Success do
+    begin
+      lCandidate.Offset := MatchOffset(lMatch, aName);
+      lCandidate.Line := LineOfOffset(lCleanText, lCandidate.Offset);
+      lCandidate.Column := ColumnOfOffset(lCleanText, lCandidate.Offset);
+      Result.Add(lCandidate);
+      lMatch := lMatch.NextMatch;
+    end;
   end;
 
   procedure AssignReferenceSourceRange(var aReference: TDelphiSemanticReference;
@@ -1843,44 +1946,47 @@ var
   end;
 begin
   lCleanText := SanitizeCodeText(aSourceText);
-  for i := 0 to Pred(aReferences.Count) do
-  begin
-    lReference := aReferences[i];
-    if SourceRangeMatchesReference(lReference.Offset, lReference) then
+  lNameCandidates := TObjectDictionary<string, TReferenceCandidateList>.Create([doOwnsValues]);
+  try
+    for i := 0 to Pred(aReferences.Count) do
     begin
-      AssignReferenceSourceRange(lReference, lReference.Offset);
-      aReferences[i] := lReference;
-      Continue;
-    end;
-
-    Inc(GReferenceReconciliationFallbackCount);
-    lBestColumn := 0;
-    lBestDistance := MaxInt;
-    lBestLine := 0;
-    lBestOffset := 0;
-    lMatch := TRegEx.Match(lCleanText, '\b' + TRegEx.Escape(lReference.Name) + '\b',
-      [roIgnoreCase]);
-    while lMatch.Success do
-    begin
-      lCandidateOffset := MatchOffset(lMatch, lReference);
-      lCandidateLine := LineOfOffset(lCleanText, lCandidateOffset);
-      lCandidateColumn := ColumnOfOffset(lCleanText, lCandidateOffset);
-      lCandidateDistance := Abs(lCandidateLine - lReference.Line) * 10000 +
-        Abs(lCandidateColumn - lReference.Column);
-      if lCandidateDistance < lBestDistance then
+      lReference := aReferences[i];
+      if SourceRangeMatchesReference(lReference.Offset, lReference) then
       begin
-        lBestDistance := lCandidateDistance;
-        lBestLine := lCandidateLine;
-        lBestColumn := lCandidateColumn;
-        lBestOffset := lCandidateOffset;
+        AssignReferenceSourceRange(lReference, lReference.Offset);
+        aReferences[i] := lReference;
+        Continue;
       end;
-      lMatch := lMatch.NextMatch;
+
+      Inc(GReferenceReconciliationFallbackCount);
+      lBestColumn := 0;
+      lBestDistance := MaxInt;
+      lBestLine := 0;
+      lBestOffset := 0;
+      lCandidates := CandidatesForName(lReference.Name);
+      for lCandidate in lCandidates do
+      begin
+        lCandidateOffset := lCandidate.Offset;
+        lCandidateLine := lCandidate.Line;
+        lCandidateColumn := lCandidate.Column;
+        lCandidateDistance := Abs(lCandidateLine - lReference.Line) * 10000 +
+          Abs(lCandidateColumn - lReference.Column);
+        if lCandidateDistance < lBestDistance then
+        begin
+          lBestDistance := lCandidateDistance;
+          lBestLine := lCandidateLine;
+          lBestColumn := lCandidateColumn;
+          lBestOffset := lCandidateOffset;
+        end;
+      end;
+      if lBestLine > 0 then
+      begin
+        AssignReferenceSourceRange(lReference, lBestOffset);
+        aReferences[i] := lReference;
+      end;
     end;
-    if lBestLine > 0 then
-    begin
-      AssignReferenceSourceRange(lReference, lBestOffset);
-      aReferences[i] := lReference;
-    end;
+  finally
+    lNameCandidates.Free;
   end;
 end;
 
@@ -2167,9 +2273,28 @@ begin
   Result := GReferenceReconciliationFallbackCount;
 end;
 
+class function TDelphiSemanticUnitModelExtractor.ReferenceReconciliationNameScanCount: Integer;
+begin
+  Result := GReferenceReconciliationNameScanCount;
+end;
+
 class procedure TDelphiSemanticUnitModelExtractor.ResetReferenceReconciliationFallbackCount;
 begin
   GReferenceReconciliationFallbackCount := 0;
+  GReferenceReconciliationNameScanCount := 0;
+end;
+
+class function TDelphiSemanticUnitModelExtractor.TypeBlockAnalysisBuildCount: Integer;
+begin
+  Result := GTypeBlockAnalysisBuildCount;
+end;
+
+class procedure TDelphiSemanticUnitModelExtractor.ResetTypeBlockAnalysisBuildCount;
+begin
+  GTypeBlockAnalysisBuildCount := 0;
+  GTypeBlockRangesLength := -1;
+  GTypeBlockRangesText := '';
+  GTypeBlockRanges := nil;
 end;
 
 end.

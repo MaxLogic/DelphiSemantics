@@ -113,6 +113,10 @@ type
     procedure ModelPropagatesSourceAndPreprocessDiagnostics;
     [Test]
     procedure StandaloneExtractionReportsDegradedMode;
+    [Test]
+    procedure TypeBlockAnalysisIsBuiltOncePerExtraction;
+    [Test]
+    procedure ReferenceReconciliationScansRepeatedNamesOnce;
   end;
 
 implementation
@@ -1544,6 +1548,44 @@ begin
 
   Assert.IsTrue(lModel.Success);
   Assert.IsTrue(HasDiagnostic(lModel, 'NO_PROJECT_CONTEXT'));
+end;
+
+procedure TUnitModelTests.TypeBlockAnalysisIsBuiltOncePerExtraction;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('UnitModel', 'SemanticUnit.pas');
+  lOptions.ProjectContextApplied := True;
+
+  TDelphiSemanticUnitModelExtractor.ResetTypeBlockAnalysisBuildCount;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(1, TDelphiSemanticUnitModelExtractor.TypeBlockAnalysisBuildCount,
+    'type-block analysis should be built once per extracted unit');
+end;
+
+procedure TUnitModelTests.ReferenceReconciliationScansRepeatedNamesOnce;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('UnitModel', 'ConditionalModelUnit.pas');
+  lOptions.Defines := ['ACTIVE'];
+  lOptions.ProjectContextApplied := True;
+
+  TDelphiSemanticUnitModelExtractor.ResetReferenceReconciliationFallbackCount;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount > 0,
+    'fixture should exercise reference reconciliation fallback');
+  Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationNameScanCount <
+    TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount,
+    'repeated fallback names should share one source scan per name');
 end;
 
 initialization
