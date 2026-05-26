@@ -243,10 +243,36 @@ function Read-SemanticPhaseMetrics {
   return $null
 }
 
+function Read-PlannerPhaseMetrics {
+  param([string]$Path)
+
+  try {
+    $lText = Get-Content -LiteralPath $Path -Raw
+    if ([string]::IsNullOrWhiteSpace($lText)) {
+      return $null
+    }
+
+    $lJson = $lText | ConvertFrom-Json
+    if ($lJson.PSObject.Properties.Name -contains 'plannerPhaseMetrics') {
+      return $lJson.plannerPhaseMetrics
+    }
+  } catch {
+    return $null
+  }
+
+  return $null
+}
+
 function Requires-ReferenceFallbackCount {
   param([object]$Row)
 
   return @('find-usages', 'rename', 'dead-code-detection') -contains $Row.Feature
+}
+
+function Requires-PlannerPhaseMetrics {
+  param([object]$Row)
+
+  return ($Row.Feature -eq 'with-removal') -and ($Row.Id -eq 'remove-with-plan-all')
 }
 
 function Get-Median {
@@ -362,6 +388,7 @@ function New-SummaryRows {
       SemanticCacheHits = $lFirst.SemanticCacheHits
       SemanticCacheMisses = $lFirst.SemanticCacheMisses
       ReferenceFallbackCount = $lFirst.ReferenceFallbackCount
+      PlannerPhaseMetrics = if ($lFirst.PSObject.Properties.Name -contains 'PlannerPhaseMetrics') { $lFirst.PlannerPhaseMetrics } else { $null }
       Command = $lFirst.Command
     })
   }
@@ -476,13 +503,21 @@ if ($SummarizeOnly) {
       if (-not ($lRow.PSObject.Properties.Name -contains 'SemanticPhaseMetrics')) {
         Add-Member -InputObject $lRow -NotePropertyName SemanticPhaseMetrics -NotePropertyValue $null
       }
+      if (-not ($lRow.PSObject.Properties.Name -contains 'PlannerPhaseMetrics')) {
+        Add-Member -InputObject $lRow -NotePropertyName PlannerPhaseMetrics -NotePropertyValue $null
+      }
       $lRow.ReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lRow.Stdout
       $lRow.SemanticCacheHits = Read-SemanticCacheMetric -Path $lRow.Stdout -Name 'semanticCacheHits'
       $lRow.SemanticCacheMisses = Read-SemanticCacheMetric -Path $lRow.Stdout -Name 'semanticCacheMisses'
       $lRow.SemanticPhaseMetrics = Read-SemanticPhaseMetrics -Path $lRow.Stdout
+      $lRow.PlannerPhaseMetrics = Read-PlannerPhaseMetrics -Path $lRow.Stdout
       if (($lRow.ExitCode -eq 0) -and (Requires-ReferenceFallbackCount -Row $lRow) -and
           [string]::IsNullOrWhiteSpace($lRow.ReferenceFallbackCount)) {
         throw "Missing referenceReconciliationFallbackCount in successful benchmark output: $($lRow.Stdout)"
+      }
+      if (($lRow.ExitCode -eq 0) -and (Requires-PlannerPhaseMetrics -Row $lRow) -and
+          ($null -eq $lRow.PlannerPhaseMetrics)) {
+        throw "Missing plannerPhaseMetrics in successful benchmark output: $($lRow.Stdout)"
       }
     } elseif (-not ($lRow.PSObject.Properties.Name -contains 'ReferenceFallbackCount')) {
       Add-Member -InputObject $lRow -NotePropertyName ReferenceFallbackCount -NotePropertyValue ''
@@ -538,6 +573,10 @@ if ($SummarizeOnly) {
             [string]::IsNullOrWhiteSpace((Read-ReferenceFallbackCount -Path $lWarmupStdout))) {
           throw "Warm-cache priming output is missing referenceReconciliationFallbackCount: $lWarmupStdout"
         }
+        if ((Requires-PlannerPhaseMetrics -Row $lBenchmark) -and
+            ($null -eq (Read-PlannerPhaseMetrics -Path $lWarmupStdout))) {
+          throw "Warm-cache priming output is missing plannerPhaseMetrics: $lWarmupStdout"
+        }
       }
 
       for ($i = 1; $i -le $Repeat; $i++) {
@@ -563,9 +602,14 @@ if ($SummarizeOnly) {
         $lSemanticCacheHits = Read-SemanticCacheMetric -Path $lStdout -Name 'semanticCacheHits'
         $lSemanticCacheMisses = Read-SemanticCacheMetric -Path $lStdout -Name 'semanticCacheMisses'
         $lSemanticPhaseMetrics = Read-SemanticPhaseMetrics -Path $lStdout
+        $lPlannerPhaseMetrics = Read-PlannerPhaseMetrics -Path $lStdout
         if (($lExitCode -eq 0) -and (Requires-ReferenceFallbackCount -Row $lBenchmark) -and
             [string]::IsNullOrWhiteSpace($lReferenceFallbackCount)) {
           throw "Missing referenceReconciliationFallbackCount in successful benchmark output: $lStdout"
+        }
+        if (($lExitCode -eq 0) -and (Requires-PlannerPhaseMetrics -Row $lBenchmark) -and
+            ($null -eq $lPlannerPhaseMetrics)) {
+          throw "Missing plannerPhaseMetrics in successful benchmark output: $lStdout"
         }
 
         $lRow = [pscustomobject]@{
@@ -583,6 +627,7 @@ if ($SummarizeOnly) {
           SemanticCacheMisses = $lSemanticCacheMisses
           ReferenceFallbackCount = $lReferenceFallbackCount
           SemanticPhaseMetrics = $lSemanticPhaseMetrics
+          PlannerPhaseMetrics = $lPlannerPhaseMetrics
           Stdout = $lStdout
           Stderr = $lStderr
           Command = ('{0} {1}' -f $DakExe, ($lArguments -join ' '))
