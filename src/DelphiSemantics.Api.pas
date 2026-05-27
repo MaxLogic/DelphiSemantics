@@ -5,9 +5,10 @@ interface
 uses
   DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.Index, DelphiSemantics.Model,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.Query,
-  DelphiSemantics.Refactor, DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Search,
-  DelphiSemantics.SemanticGraph, DelphiSemantics.Symbols, DelphiSemantics.Usage,
-  DelphiSemantics.WithBinding, DelphiSemantics.WithScan;
+  DelphiSemantics.Refactor, DelphiSemantics.Resolve.TypeResolver,
+  DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Search, DelphiSemantics.SemanticGraph,
+  DelphiSemantics.Symbols, DelphiSemantics.Usage, DelphiSemantics.WithBinding,
+  DelphiSemantics.WithScan;
 
 type
   TDelphiSemanticDiagnosticSeverity =
@@ -95,6 +96,14 @@ type
     DelphiSemantics.SemanticGraph.TDelphiSemanticSemanticGraph;
   TDelphiSemanticSemanticGraphBuilder =
     DelphiSemantics.SemanticGraph.TDelphiSemanticSemanticGraphBuilder;
+  TDelphiSemanticTypeIdentity =
+    DelphiSemantics.Resolve.TypeResolver.TDelphiSemanticTypeIdentity;
+  TDelphiSemanticTypeLookupResult =
+    DelphiSemantics.Resolve.TypeResolver.TDelphiSemanticTypeLookupResult;
+  TDelphiSemanticTypeIdentityIndex =
+    DelphiSemantics.Resolve.TypeResolver.TDelphiSemanticTypeIdentityIndex;
+  TDelphiSemanticTypeResolver =
+    DelphiSemantics.Resolve.TypeResolver.TDelphiSemanticTypeResolver;
 
 const
   dsInfo = DelphiSemantics.ProjectContext.dsInfo;

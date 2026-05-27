@@ -74,8 +74,11 @@ type
     UnderlyingId: TDelphiSemanticGraphTypeId;
     UnitId: TDelphiSemanticUnitGraphId;
     Name: string;
+    Kind: string;
     CanonicalName: string;
     UnderlyingName: string;
+    BaseTypeName: string;
+    SectionKind: string;
     SourceRange: TDelphiSemanticSourceRange;
   end;
 
@@ -450,8 +453,11 @@ begin
       lType.SymbolId := lSymbol.Id;
       lType.UnitId := aUnit.Id;
       lType.Name := lDeclaration.Name;
+      lType.Kind := lDeclaration.Kind;
       lType.CanonicalName := lTypeName;
       lType.UnderlyingName := lTypeName;
+      lType.BaseTypeName := lDeclaration.BaseTypeName;
+      lType.SectionKind := lDeclaration.SectionKind;
       lType.DeclaredId := MakeTypeId(aUnit.Id, 'declared', lDeclaration.Name);
       lType.CanonicalId := MakeTypeId(aUnit.Id, 'canonical', lType.CanonicalName);
       lType.UnderlyingId := MakeTypeId(aUnit.Id, 'underlying', lType.UnderlyingName);

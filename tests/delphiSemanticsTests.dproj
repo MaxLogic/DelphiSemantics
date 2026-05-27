@@ -75,8 +75,9 @@
     <DCCReference Include="src\test.sourcecontext.pas"/>
     <DCCReference Include="src\test.smoke.pas"/>
     <DCCReference Include="src\test.symbolquery.pas"/>
-    <DCCReference Include="src\test.usage.pas"/>
+    <DCCReference Include="src\test.typeresolver.pas"/>
     <DCCReference Include="src\test.unitresolver.pas"/>
+    <DCCReference Include="src\test.usage.pas"/>
     <DCCReference Include="src\test.unitmodel.pas"/>
     <DCCReference Include="src\test.withdiscovery.pas"/>
     <DCCReference Include="src\test.withscan.pas"/>
@@ -97,6 +98,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Query.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Refactor.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Resolve.TypeResolver.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.UnitResolver.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Search.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.SemanticGraph.pas"/>
