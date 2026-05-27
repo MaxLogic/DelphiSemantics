@@ -28,6 +28,7 @@ uses
   Test.Smoke in 'src\test.smoke.pas',
   Test.SymbolQuery in 'src\test.symbolquery.pas',
   Test.Usage in 'src\test.usage.pas',
+  Test.UnitResolver in 'src\test.unitresolver.pas',
   Test.UnitModel in 'src\test.unitmodel.pas',
   Test.WithDiscovery in 'src\test.withdiscovery.pas',
   Test.WithScan in 'src\test.withscan.pas',

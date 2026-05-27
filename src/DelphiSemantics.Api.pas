@@ -5,8 +5,9 @@ interface
 uses
   DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.Index, DelphiSemantics.Model,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.Query,
-  DelphiSemantics.Refactor, DelphiSemantics.Search, DelphiSemantics.Symbols,
-  DelphiSemantics.Usage, DelphiSemantics.WithBinding, DelphiSemantics.WithScan;
+  DelphiSemantics.Refactor, DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Search,
+  DelphiSemantics.Symbols, DelphiSemantics.Usage, DelphiSemantics.WithBinding,
+  DelphiSemantics.WithScan;
 
 type
   TDelphiSemanticDiagnosticSeverity =
@@ -57,6 +58,12 @@ type
   TDelphiSemanticWithScanResult =
     DelphiSemantics.WithScan.TDelphiSemanticWithScanResult;
   TDelphiSemanticWithScanner = DelphiSemantics.WithScan.TDelphiSemanticWithScanner;
+  TDelphiSemanticUnitResolutionCandidate =
+    DelphiSemantics.Resolve.UnitResolver.TDelphiSemanticUnitResolutionCandidate;
+  TDelphiSemanticUnitResolutionResult =
+    DelphiSemantics.Resolve.UnitResolver.TDelphiSemanticUnitResolutionResult;
+  TDelphiSemanticUnitResolver =
+    DelphiSemantics.Resolve.UnitResolver.TDelphiSemanticUnitResolver;
 
 const
   dsInfo = DelphiSemantics.ProjectContext.dsInfo;
