@@ -9,6 +9,7 @@ type
     SearchPaths: TArray<string>;
     ProjectContextApplied: Boolean;
     SkipBodyAnalysis: Boolean;
+    WithStatementsOnly: Boolean;
   end;
 
   TDelphiSemanticModelDiagnostic = record
@@ -2249,6 +2250,15 @@ begin
       [roIgnoreCase, roMultiLine]);
     if lMatch.Success then
       Result.UnitName := lMatch.Groups[1].Value;
+
+    if aOptions.WithStatementsOnly then
+    begin
+      ExtractWithStatements(lText, lWithStatements);
+      ReconcileWithStatementCoordinates(lSourceResult.Source.Text, lWithStatements);
+      AssignModelArrays(Result, lDiagnostics, lInterfaceUses, lImplementationUses, lDeclarations,
+        lMembers, lRoutines, lLocals, lReferences, lWithStatements);
+      Exit;
+    end;
 
     ExtractUses(lText, lInterfaceUses, lImplementationUses);
     ExtractTypeDeclarations(lText, lDeclarations, lReferences);
