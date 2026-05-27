@@ -63,6 +63,12 @@ type
     [Test]
     procedure InventoryExposesDakPlannerSourceModelFacts;
     [Test]
+    procedure InventoryExpansionUsesIndexedOwnMemberLookup;
+    [Test]
+    procedure InventoryExpansionUsesOrdinalIgnoreCaseSymbolKeys;
+    [Test]
+    procedure InventoryExpansionDeduplicatesSymbolsCaseInsensitively;
+    [Test]
     procedure AnonymousNestedRecordSelectorsUseSyntheticOwner;
     [Test]
     procedure GlobalAnonymousRecordSelectorUsesSyntheticOwner;
@@ -676,6 +682,68 @@ begin
       SameText(lScanSymbol.RoutineName, 'TGoldenClass.Touch') then
       lProjectedBaseName := True;
   Assert.IsTrue(lProjectedBaseName);
+end;
+
+procedure TWithBinderTests.InventoryExpansionUsesIndexedOwnMemberLookup;
+var
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+
+  Assert.IsTrue(ContainsText(lSourceText, 'BuildInventoryOwnMemberKeys'),
+    'Inventory expansion must build an indexed own-member lookup for large semantic inventories.');
+  Assert.IsFalse(ContainsText(lSourceText, 'InventoryOwnerHasOwnMember(aSymbols'),
+    'Inventory expansion must not scan every symbol for each related inherited member.');
+end;
+
+procedure TWithBinderTests.InventoryExpansionUsesOrdinalIgnoreCaseSymbolKeys;
+var
+  lKeyFunctionText: string;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lKeyFunctionText := Copy(lSourceText, Pos('function InventorySymbolKey', lSourceText), 900);
+
+  Assert.IsTrue(ContainsText(lSourceText,
+    'lKeys := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);'),
+    'Inventory expansion symbol keys must use the Delphi ordinal-ignore-case comparer.');
+  Assert.IsFalse(ContainsText(lKeyFunctionText, 'UpperCase('),
+    'Inventory expansion must not allocate uppercase copies while building every symbol key.');
+end;
+
+procedure TWithBinderTests.InventoryExpansionDeduplicatesSymbolsCaseInsensitively;
+var
+  lExpandedSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+begin
+  SetLength(lSymbols, 2);
+  lSymbols[0] := Default(TDelphiSemanticInventorySymbol);
+  lSymbols[0].Name := 'LocalName';
+  lSymbols[0].SymbolClass := 'local';
+  lSymbols[0].TypeName := 'TRecord';
+  lSymbols[0].RoutineName := 'TRunner.Run';
+  lSymbols[0].UnitName := 'CaseUnit';
+  lSymbols[0].FileName := 'CaseUnit.pas';
+  lSymbols[0].Line := 10;
+  lSymbols[0].Column := 5;
+
+  lSymbols[1] := lSymbols[0];
+  lSymbols[1].Name := 'localname';
+  lSymbols[1].TypeName := 'trecord';
+  lSymbols[1].RoutineName := 'trunner.run';
+  lSymbols[1].UnitName := 'caseunit';
+  lSymbols[1].FileName := 'caseunit.pas';
+
+  lExpandedSymbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lSymbols);
+
+  Assert.AreEqual(1, Length(lExpandedSymbols),
+    'Inventory expansion must keep duplicate symbol identity case-insensitive.');
 end;
 
 procedure TWithBinderTests.AnonymousNestedRecordSelectorsUseSyntheticOwner;

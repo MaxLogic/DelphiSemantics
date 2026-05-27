@@ -100,7 +100,8 @@ implementation
 
 uses
   System.Classes, System.Generics.Collections, System.IOUtils, System.Math,
-  System.RegularExpressions, System.StrUtils, System.SysUtils;
+  System.RegularExpressions, System.StrUtils, System.SysUtils,
+  MaxLogic.StrUtils;
 
 type
   TRoutineFrame = record
@@ -2264,15 +2265,15 @@ function InventorySymbolKey(const aSymbol: TDelphiSemanticInventorySymbol): stri
 const
   cSeparator = #31;
 begin
-  Result := UpperCase(aSymbol.SymbolClass) + cSeparator + UpperCase(aSymbol.Name) + cSeparator +
-    UpperCase(aSymbol.TypeName) + cSeparator + UpperCase(aSymbol.OwnerType) + cSeparator +
-    UpperCase(aSymbol.SourceOwnerType) + cSeparator + UpperCase(aSymbol.RelatedTypeName) +
-    cSeparator + UpperCase(aSymbol.RoutineName) + cSeparator + UpperCase(aSymbol.UnitName) +
-    cSeparator + UpperCase(aSymbol.FileName) + cSeparator + IntToStr(aSymbol.Line) +
-    cSeparator + IntToStr(aSymbol.Column) + cSeparator + UpperCase(aSymbol.UnsupportedReason) +
+  Result := aSymbol.SymbolClass + cSeparator + aSymbol.Name + cSeparator +
+    aSymbol.TypeName + cSeparator + aSymbol.OwnerType + cSeparator +
+    aSymbol.SourceOwnerType + cSeparator + aSymbol.RelatedTypeName +
+    cSeparator + aSymbol.RoutineName + cSeparator + aSymbol.UnitName +
+    cSeparator + aSymbol.FileName + cSeparator + IntToStr(aSymbol.Line) +
+    cSeparator + IntToStr(aSymbol.Column) + cSeparator + aSymbol.UnsupportedReason +
     cSeparator + IntToStr(Ord(aSymbol.IsHelper)) + cSeparator +
     IntToStr(Ord(aSymbol.IsOverride)) + cSeparator + IntToStr(Ord(aSymbol.IsDefault)) +
-    cSeparator + UpperCase(aSymbol.TypeCategory);
+    cSeparator + aSymbol.TypeCategory;
 end;
 
 function AddExpandedInventorySymbol(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
@@ -2302,18 +2303,27 @@ begin
   Result := True;
 end;
 
-function InventoryOwnerHasOwnMember(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
-  const aOwnerType, aName: string): Boolean;
+function InventoryOwnMemberKey(const aOwnerType, aName: string): string;
+const
+  cSeparator = #31;
+begin
+  Result := aOwnerType + cSeparator + aName;
+end;
+
+function BuildInventoryOwnMemberKeys(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
+  const aSymbolCount: Integer): TDictionary<string, Byte>;
 var
+  i: Integer;
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
-  for lSymbol in aSymbols do
+  Result := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  for i := 0 to aSymbolCount - 1 do
   begin
-    if SameText(lSymbol.OwnerType, aOwnerType) and (lSymbol.SourceOwnerType = '') and
-      SameText(lSymbol.Name, aName) and InventoryIsDirectMemberKind(lSymbol.SymbolClass) then
-      Exit(True);
+    lSymbol := aSymbols[i];
+    if (lSymbol.OwnerType <> '') and (lSymbol.SourceOwnerType = '') and
+      InventoryIsDirectMemberKind(lSymbol.SymbolClass) then
+      Result.AddOrSetValue(InventoryOwnMemberKey(lSymbol.OwnerType, lSymbol.Name), 1);
   end;
-  Result := False;
 end;
 
 procedure AddRelatedInventoryMemberSymbols(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
@@ -2325,6 +2335,7 @@ var
   lMember: TDelphiSemanticInventorySymbol;
   lMembers: TList<TDelphiSemanticInventorySymbol>;
   lMembersByOwner: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+  lOwnMemberKeys: TDictionary<string, Byte>;
   lOwnerKey: string;
   lPair: TPair<string, TList<TDelphiSemanticInventorySymbol>>;
   lSourceOwnerType: string;
@@ -2334,14 +2345,16 @@ begin
   repeat
     lAdded := False;
     lBeforeCount := aSymbols.Count;
-    lMembersByOwner := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create;
+    lMembersByOwner := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+      TFastCaseAwareComparer.OrdinalIgnoreCase);
+    lOwnMemberKeys := BuildInventoryOwnMemberKeys(aSymbols, lBeforeCount);
     try
       for i := 0 to lBeforeCount - 1 do
       begin
         lMember := aSymbols[i];
         if (lMember.RoutineName <> '') or (not InventoryIsDirectMemberKind(lMember.SymbolClass)) then
           Continue;
-        lOwnerKey := UpperCase(lMember.OwnerType);
+        lOwnerKey := lMember.OwnerType;
         if not lMembersByOwner.TryGetValue(lOwnerKey, lMembers) then
         begin
           lMembers := TList<TDelphiSemanticInventorySymbol>.Create;
@@ -2359,11 +2372,11 @@ begin
 
         if lTypeSymbol.IsHelper then
         begin
-          if not lMembersByOwner.TryGetValue(UpperCase(lTypeSymbol.Name), lMembers) then
+          if not lMembersByOwner.TryGetValue(lTypeSymbol.Name, lMembers) then
             Continue;
         end else
         begin
-          if not lMembersByOwner.TryGetValue(UpperCase(lTypeSymbol.RelatedTypeName), lMembers) then
+          if not lMembersByOwner.TryGetValue(lTypeSymbol.RelatedTypeName, lMembers) then
             Continue;
         end;
 
@@ -2385,7 +2398,7 @@ begin
             lSymbol.SourceOwnerType := lSourceOwnerType;
           end;
 
-          if InventoryOwnerHasOwnMember(aSymbols, lSymbol.OwnerType, lSymbol.Name) then
+          if lOwnMemberKeys.ContainsKey(InventoryOwnMemberKey(lSymbol.OwnerType, lSymbol.Name)) then
             Continue;
           lAdded := AddExpandedInventorySymbolWithKeys(aSymbols, aKeys, lSymbol) or lAdded;
         end;
@@ -2393,6 +2406,7 @@ begin
     finally
       for lPair in lMembersByOwner do
         lPair.Value.Free;
+      lOwnMemberKeys.Free;
       lMembersByOwner.Free;
     end;
   until not lAdded;
@@ -2412,7 +2426,8 @@ var
   lSymbolCount: Integer;
 begin
   lSymbolCount := aSymbols.Count;
-  lMembersByOwner := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create;
+  lMembersByOwner := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
   try
     for i := 0 to lSymbolCount - 1 do
     begin
@@ -2420,7 +2435,7 @@ begin
       if (lMember.OwnerType = '') or (lMember.RoutineName <> '') or
         (not InventoryIsDirectMemberKind(lMember.SymbolClass)) then
         Continue;
-      lOwnerKey := UpperCase(lMember.OwnerType);
+      lOwnerKey := lMember.OwnerType;
       if not lMembersByOwner.TryGetValue(lOwnerKey, lMembers) then
       begin
         lMembers := TList<TDelphiSemanticInventorySymbol>.Create;
@@ -2435,7 +2450,7 @@ begin
       if (not SameText(lCurrentMember.SymbolClass, 'current-class-member')) or
         (lCurrentMember.OwnerType = '') or (lCurrentMember.RoutineName = '') then
         Continue;
-      if not lMembersByOwner.TryGetValue(UpperCase(lCurrentMember.OwnerType), lMembers) then
+      if not lMembersByOwner.TryGetValue(lCurrentMember.OwnerType, lMembers) then
         Continue;
 
       for lMember in lMembers do
@@ -2757,7 +2772,7 @@ var
   lSymbol: TDelphiSemanticInventorySymbol;
   lSymbols: TList<TDelphiSemanticInventorySymbol>;
 begin
-  lKeys := TDictionary<string, Byte>.Create;
+  lKeys := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
   try
     for lSymbol in aSymbols do
