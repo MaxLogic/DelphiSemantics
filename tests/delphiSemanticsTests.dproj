@@ -57,6 +57,7 @@
     <DCCReference Include="src\test.cache.pas"/>
     <DCCReference Include="src\test.dependencygraph.pas"/>
     <DCCReference Include="src\test.deadcode.pas"/>
+    <DCCReference Include="src\test.externalsymbols.pas"/>
     <DCCReference Include="src\test.globalvars.pas"/>
     <DCCReference Include="src\test.lspboundary.pas"/>
     <DCCReference Include="src\test.memberresolver.pas"/>
@@ -91,6 +92,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Cache.Sqlite.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.CompilerProfile.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.DeadCode.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.ExternalSymbols.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Graph.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.GlobalVars.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Index.pas"/>

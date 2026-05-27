@@ -3,9 +3,10 @@ unit DelphiSemantics.Api;
 interface
 
 uses
-  DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.Index, DelphiSemantics.Model,
-  DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.Query,
-  DelphiSemantics.Refactor, DelphiSemantics.Resolve.MemberResolver,
+  DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.ExternalSymbols,
+  DelphiSemantics.Index, DelphiSemantics.Model, DelphiSemantics.ProjectContext,
+  DelphiSemantics.ProjectSession, DelphiSemantics.Query, DelphiSemantics.Refactor,
+  DelphiSemantics.Resolve.MemberResolver,
   DelphiSemantics.Resolve.ScopeResolver, DelphiSemantics.Resolve.TypeResolver,
   DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Search, DelphiSemantics.SemanticGraph,
   DelphiSemantics.Symbols, DelphiSemantics.Usage, DelphiSemantics.WithBinding,
@@ -119,6 +120,12 @@ type
     DelphiSemantics.Resolve.ScopeResolver.TDelphiSemanticRoutineScopeIndex;
   TDelphiSemanticScopeResolver =
     DelphiSemantics.Resolve.ScopeResolver.TDelphiSemanticScopeResolver;
+  TDelphiSemanticExternalSymbolMetrics =
+    DelphiSemantics.ExternalSymbols.TDelphiSemanticExternalSymbolMetrics;
+  TDelphiSemanticExternalSymbolResult =
+    DelphiSemantics.ExternalSymbols.TDelphiSemanticExternalSymbolResult;
+  TDelphiSemanticExternalSymbolService =
+    DelphiSemantics.ExternalSymbols.TDelphiSemanticExternalSymbolService;
 
 const
   dsInfo = DelphiSemantics.ProjectContext.dsInfo;

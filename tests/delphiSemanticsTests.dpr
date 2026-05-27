@@ -11,6 +11,7 @@ uses
   Test.Cache in 'src\test.cache.pas',
   Test.DependencyGraph in 'src\test.dependencygraph.pas',
   Test.DeadCode in 'src\test.deadcode.pas',
+  Test.ExternalSymbols in 'src\test.externalsymbols.pas',
   Test.GlobalVars in 'src\test.globalvars.pas',
   Test.LspBoundary in 'src\test.lspboundary.pas',
   Test.MemberResolver in 'src\test.memberresolver.pas',

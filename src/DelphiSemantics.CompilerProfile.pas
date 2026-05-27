@@ -174,6 +174,8 @@ begin
     'compiler intrinsic');
   AddIntrinsic(Result, 'System', 'intrinsic-unit', 'unit', 'compiler', 'unit System',
     'implicitly available unit');
+  AddIntrinsic(Result, 'TObject', 'intrinsic-type', 'class', 'rtl', 'type TObject',
+    'RTL base class');
   AddIntrinsic(Result, 'Trunc', 'intrinsic-routine', 'Integer', 'compiler',
     'function Trunc(X): Integer', 'compiler/RTL intrinsic');
   AddIntrinsic(Result, 'TypeInfo', 'intrinsic-routine', 'Pointer', 'compiler',
@@ -198,6 +200,8 @@ begin
     'compiler intrinsic type');
   AddIntrinsic(Result, 'NativeInt', 'intrinsic-type', 'NativeInt', 'compiler', 'type NativeInt',
     'compiler intrinsic type');
+  AddIntrinsic(Result, 'NativeUInt', 'intrinsic-type', 'NativeUInt', 'compiler',
+    'type NativeUInt', 'compiler intrinsic type');
   AddIntrinsic(Result, 'Pointer', 'intrinsic-type', 'Pointer', 'compiler', 'type Pointer',
     'compiler intrinsic type');
   AddIntrinsic(Result, 'Single', 'intrinsic-type', 'Single', 'compiler', 'type Single',
