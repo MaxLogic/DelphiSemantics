@@ -40,6 +40,7 @@ uses
   Test.Usage in 'src\test.usage.pas',
   Test.UnitModel in 'src\test.unitmodel.pas',
   Test.WithDiscovery in 'src\test.withdiscovery.pas',
+  Test.WithBinding in 'src\test.withbinding.pas',
   Test.WithScan in 'src\test.withscan.pas',
   Test.WithBinder in 'src\test.withbinder.pas';
 

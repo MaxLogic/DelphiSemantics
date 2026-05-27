@@ -38,6 +38,7 @@ type
     Configuration: string;
     Platform: string;
     MainSourceFileName: string;
+    SourceFileNames: TArray<string>;
     Defines: TArray<string>;
     IncludePaths: TArray<string>;
     SearchPaths: TArray<string>;
@@ -976,12 +977,49 @@ begin
   Result := aDirectory <> '';
 end;
 
+function TryResolveDccReferenceFileName(const aProjectDirectory, aInclude: string;
+  const aSearchPaths: TList<string>; out aFileName: string): Boolean;
+var
+  lCandidate: string;
+  lIncludeFileName: string;
+  lSearchPath: string;
+begin
+  aFileName := '';
+  if aInclude.Trim = '' then
+    Exit(False);
+
+  try
+    lIncludeFileName := NormalizeProjectPath(aProjectDirectory, aInclude);
+  except
+    Exit(False);
+  end;
+
+  if TFile.Exists(lIncludeFileName) then
+  begin
+    aFileName := lIncludeFileName;
+    Exit(True);
+  end;
+
+  for lSearchPath in aSearchPaths do
+  begin
+    lCandidate := TPath.Combine(lSearchPath, TPath.GetFileName(aInclude));
+    if TFile.Exists(lCandidate) then
+    begin
+      aFileName := TPath.GetFullPath(lCandidate);
+      Exit(True);
+    end;
+  end;
+
+  Result := False;
+end;
+
 procedure AddReferenceDirectories(const aText, aProjectFileName, aProjectDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
-  const aSearchPaths, aItems: TList<string>);
+  const aSearchPaths, aItems, aSourceFiles: TList<string>);
 var
   lCondition: string;
   lDirectory: string;
+  lFileName: string;
   lGroup: TMatch;
   lGroupBody: string;
   lInclude: string;
@@ -1013,6 +1051,9 @@ begin
           end;
 
           lInclude := ExpandProperties(lInclude, aProjectFileName, aProperties, aDiagnostics);
+          if TryResolveDccReferenceFileName(aProjectDirectory, lInclude, aSearchPaths,
+            lFileName) then
+            AddUniquePath(aSourceFiles, aProjectDirectory, lFileName);
           if not TryResolveDccReferenceDirectory(aProjectDirectory, lInclude, aSearchPaths,
             lDirectory) then
             AddUniquePath(aItems, aProjectDirectory, '.')
@@ -1034,16 +1075,26 @@ var
   lIncludePaths: TList<string>;
   lReferenceDirectories: TList<string>;
   lSearchPaths: TList<string>;
+  lSourceFiles: TList<string>;
   lUnitAliases: TList<string>;
   lUnitScopeNames: TList<string>;
 begin
-  lDefines := TList<string>.Create;
-  lIncludePaths := TList<string>.Create;
-  lReferenceDirectories := TList<string>.Create;
-  lSearchPaths := TList<string>.Create;
-  lUnitAliases := TList<string>.Create;
-  lUnitScopeNames := TList<string>.Create;
+  lDefines := nil;
+  lIncludePaths := nil;
+  lReferenceDirectories := nil;
+  lSearchPaths := nil;
+  lSourceFiles := nil;
+  lUnitAliases := nil;
+  lUnitScopeNames := nil;
   try
+    lDefines := TList<string>.Create;
+    lIncludePaths := TList<string>.Create;
+    lReferenceDirectories := TList<string>.Create;
+    lSearchPaths := TList<string>.Create;
+    lSourceFiles := TList<string>.Create;
+    lUnitAliases := TList<string>.Create;
+    lUnitScopeNames := TList<string>.Create;
+
     AddDelimitedTexts(lDefines, GetPropertyValue(aProperties, 'DCC_Define'));
     AddDelimitedPaths(lIncludePaths, aProject.ProjectDirectory,
       GetPropertyValue(aProperties, 'DCC_IncludePath'));
@@ -1054,7 +1105,7 @@ begin
     AddDelimitedTexts(lUnitAliases, GetPropertyValue(aProperties, 'DCC_UnitAlias'));
     AddDelimitedTexts(lUnitAliases, GetPropertyValue(aProperties, 'DCC_UnitAliases'));
     AddReferenceDirectories(aText, aProject.ProjectFileName, aProject.ProjectDirectory,
-      aProperties, aDiagnostics, lSearchPaths, lReferenceDirectories);
+      aProperties, aDiagnostics, lSearchPaths, lReferenceDirectories, lSourceFiles);
 
     aProject.Defines := lDefines.ToArray;
     aProject.IncludePaths := lIncludePaths.ToArray;
@@ -1062,10 +1113,12 @@ begin
     aProject.UnitScopeNames := lUnitScopeNames.ToArray;
     aProject.UnitAliases := lUnitAliases.ToArray;
     aProject.ReferenceDirectories := lReferenceDirectories.ToArray;
+    aProject.SourceFileNames := lSourceFiles.ToArray;
   finally
     lUnitScopeNames.Free;
     lUnitAliases.Free;
     lSearchPaths.Free;
+    lSourceFiles.Free;
     lReferenceDirectories.Free;
     lIncludePaths.Free;
     lDefines.Free;
@@ -1135,6 +1188,7 @@ begin
     AppendFingerprintItems(lBuilder, 'unitScopes', aProject.UnitScopeNames);
     AppendFingerprintItems(lBuilder, 'unitAliases', aProject.UnitAliases);
     AppendFingerprintItems(lBuilder, 'references', aProject.ReferenceDirectories);
+    AppendFingerprintItems(lBuilder, 'sourceFiles', aProject.SourceFileNames);
     Result := THashSHA2.GetHashString(lBuilder.ToString);
   finally
     lBuilder.Free;

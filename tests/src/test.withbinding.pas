@@ -1,0 +1,120 @@
+unit Test.WithBinding;
+
+interface
+
+uses
+  DUnitX.TestFramework,
+  DelphiSemantics.ProjectSession, DelphiSemantics.WithBinding;
+
+type
+  [TestFixture]
+  TProjectWithBindingTests = class
+  private
+    function FixturePath(const aRelativePath: string): string;
+    function BindingByUnit(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+      const aUnitName: string): TDelphiSemanticWithBinding;
+    function HasBindingForUnit(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+      const aUnitName: string): Boolean;
+    function HasReference(const aBinding: TDelphiSemanticWithBinding; const aName,
+      aClassification: string): Boolean;
+  public
+    [Test]
+    procedure ProjectSessionBuildsProjectLevelWithBindingFacts;
+  end;
+
+implementation
+
+uses
+  System.IOUtils, System.SysUtils,
+  DelphiSemantics.ProjectContext;
+
+function TProjectWithBindingTests.FixturePath(const aRelativePath: string): string;
+begin
+  Result := TPath.GetFullPath(TPath.Combine(
+    TPath.Combine(ExtractFilePath(ParamStr(0)), '..\fixtures'),
+    aRelativePath));
+end;
+
+function TProjectWithBindingTests.BindingByUnit(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aUnitName: string): TDelphiSemanticWithBinding;
+var
+  lBinding: TDelphiSemanticWithBinding;
+begin
+  for lBinding in aFacts.Bindings do
+    if SameText(lBinding.UnitName, aUnitName) then
+      Exit(lBinding);
+
+  Assert.Fail('Missing binding for unit ' + aUnitName);
+  Result := Default(TDelphiSemanticWithBinding);
+end;
+
+function TProjectWithBindingTests.HasReference(const aBinding: TDelphiSemanticWithBinding;
+  const aName, aClassification: string): Boolean;
+var
+  lReference: TDelphiSemanticBoundReference;
+begin
+  for lReference in aBinding.References do
+    if SameText(lReference.Name, aName) and SameText(lReference.Classification,
+      aClassification) then
+      Exit(lReference.SemanticId <> '');
+
+  Result := False;
+end;
+
+function TProjectWithBindingTests.HasBindingForUnit(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts; const aUnitName: string): Boolean;
+var
+  lBinding: TDelphiSemanticWithBinding;
+begin
+  for lBinding in aFacts.Bindings do
+    if SameText(lBinding.UnitName, aUnitName) then
+      Exit(True);
+
+  Result := False;
+end;
+
+procedure TProjectWithBindingTests.ProjectSessionBuildsProjectLevelWithBindingFacts;
+var
+  lProgramBinding: TDelphiSemanticWithBinding;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lUnitBinding: TDelphiSemanticWithBinding;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+
+    Assert.AreEqual(lResult.Session.Project.ContextFingerprint, lFacts.ContextFingerprint);
+    Assert.IsTrue(lFacts.Metrics.SemanticGraphUsed);
+    Assert.IsFalse(lFacts.Metrics.BuildUnitIndexUsed);
+    Assert.AreEqual(2, lFacts.Metrics.UnitCount);
+    Assert.AreEqual(2, lFacts.Metrics.BindingCount);
+    Assert.AreEqual(2, Length(lFacts.Bindings));
+    Assert.IsFalse(HasBindingForUnit(lFacts, 'UnreferencedWithUnit'),
+      'Unreferenced .pas files in the project directory must not be scanned as project units.');
+
+    lProgramBinding := BindingByUnit(lFacts, 'ProjectWithBinding');
+    Assert.IsNotEmpty(lProgramBinding.SemanticId);
+    Assert.AreEqual('with-binding:project-session', lProgramBinding.Provenance);
+    Assert.IsFalse(lProgramBinding.HasScopedDeclaration);
+    Assert.IsTrue(HasReference(lProgramBinding, 'Value', 'member'));
+
+    lUnitBinding := BindingByUnit(lFacts, 'ProjectWithUnit');
+    Assert.IsTrue(HasReference(lUnitBinding, 'Count', 'member'));
+    Assert.IsNotEmpty(lUnitBinding.References[0].SemanticId);
+    Assert.AreNotEqual(lUnitBinding.SemanticId, lUnitBinding.References[0].SemanticId);
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+initialization
+  TDUnitX.RegisterTestFixture(TProjectWithBindingTests);
+
+end.

@@ -85,6 +85,7 @@
     <DCCReference Include="src\test.usage.pas"/>
     <DCCReference Include="src\test.unitmodel.pas"/>
     <DCCReference Include="src\test.withdiscovery.pas"/>
+    <DCCReference Include="src\test.withbinding.pas"/>
     <DCCReference Include="src\test.withscan.pas"/>
     <DCCReference Include="src\test.withbinder.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Api.pas"/>

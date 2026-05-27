@@ -53,6 +53,10 @@ type
   TDelphiSemanticSearchResult = DelphiSemantics.Search.TDelphiSemanticSearchResult;
   TDelphiSemanticInventorySymbol = DelphiSemantics.WithBinding.TDelphiSemanticInventorySymbol;
   TDelphiSemanticWithBinding = DelphiSemantics.WithBinding.TDelphiSemanticWithBinding;
+  TDelphiSemanticProjectWithBindingMetrics =
+    DelphiSemantics.WithBinding.TDelphiSemanticProjectWithBindingMetrics;
+  TDelphiSemanticProjectWithBindingFacts =
+    DelphiSemantics.WithBinding.TDelphiSemanticProjectWithBindingFacts;
   TDelphiSemanticRemoveWithInventory =
     DelphiSemantics.WithBinding.TDelphiSemanticRemoveWithInventory;
   TDelphiSemanticWithBinder = DelphiSemantics.WithBinding.TDelphiSemanticWithBinder;
@@ -164,6 +168,8 @@ type
       const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticContextResult; static;
     class function OpenProjectSession(const aOptions: TDelphiSemanticApiOptions):
       TDelphiSemanticProjectSessionResult; static;
+    class function BuildProjectWithBindingFacts(const aOptions: TDelphiSemanticApiOptions):
+      TDelphiSemanticProjectWithBindingFacts; static;
     class function ScanWithStatements(const aOptions: TDelphiSemanticApiOptions):
       TDelphiSemanticWithScanResult; static;
     class function BuildUnitIndex(const aOptions: TDelphiSemanticApiOptions):
@@ -259,6 +265,22 @@ begin
   if lOptions.ProjectPath = '' then
     lOptions.ProjectPath := aOptions.ProjectFileName;
   Result := DelphiSemantics.ProjectSession.TDelphiSemanticProjectSession.Open(lOptions);
+end;
+
+class function TDelphiSemanticApi.BuildProjectWithBindingFacts(
+  const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticProjectWithBindingFacts;
+var
+  lSession: TDelphiSemanticProjectSessionResult;
+begin
+  lSession := OpenProjectSession(aOptions);
+  try
+    if (not lSession.Success) or (lSession.Session = nil) then
+      Exit(Default(TDelphiSemanticProjectWithBindingFacts));
+
+    Result := lSession.Session.BuildWithBindingFacts;
+  finally
+    lSession.Session.Free;
+  end;
 end;
 
 class function TDelphiSemanticApi.ScanWithStatements(

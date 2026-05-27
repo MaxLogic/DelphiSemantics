@@ -1,0 +1,11 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{B4266273-9F3F-4A6D-9344-AC83D9498220}</ProjectGuid>
+    <MainSource>ProjectWithBinding.dpr</MainSource>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <Platform Condition="'$(Platform)'==''">Win32</Platform>
+  </PropertyGroup>
+  <ItemGroup>
+    <DCCReference Include="ProjectWithUnit.pas"/>
+  </ItemGroup>
+</Project>
