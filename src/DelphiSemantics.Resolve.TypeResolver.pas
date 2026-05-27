@@ -17,6 +17,7 @@ type
     CanonicalName: string;
     UnderlyingName: string;
     BaseTypeName: string;
+    HelperTargetName: string;
     SectionKind: string;
     SourceRange: TDelphiSemanticSourceRange;
   end;
@@ -41,6 +42,8 @@ type
       TArray<TDelphiSemanticTypeIdentity>;
     function FindAncestors(const aIdentity: TDelphiSemanticTypeIdentity):
       TArray<TDelphiSemanticTypeIdentity>;
+    function FindHelpersForTarget(const aTargetTypeName: string):
+      TArray<TDelphiSemanticTypeIdentity>;
     function ResolveQualifiedName(const aName: string): TDelphiSemanticTypeLookupResult;
     function ResolveSimpleName(const aName: string): TDelphiSemanticTypeLookupResult;
     function ResolveVisibleName(const aName, aCurrentUnitName: string;
@@ -59,6 +62,8 @@ type
     function FindByUnderlyingId(const aId: TDelphiSemanticGraphTypeId):
       TArray<TDelphiSemanticTypeIdentity>;
     function FindAncestors(const aIdentity: TDelphiSemanticTypeIdentity):
+      TArray<TDelphiSemanticTypeIdentity>;
+    function FindHelpersForTarget(const aTargetTypeName: string):
       TArray<TDelphiSemanticTypeIdentity>;
     function ResolveQualifiedName(const aName: string): TDelphiSemanticTypeLookupResult;
     function ResolveSimpleName(const aName: string): TDelphiSemanticTypeLookupResult;
@@ -88,6 +93,7 @@ type
     fByCanonicalId: TDictionary<string, TDelphiSemanticTypeIdentityList>;
     fByDeclaredId: TDictionary<string, TDelphiSemanticTypeIdentity>;
     fByQualifiedName: TDictionary<string, TDelphiSemanticTypeIdentity>;
+    fHelpersByTargetName: TDictionary<string, TDelphiSemanticTypeIdentityList>;
     fBySimpleName: TDictionary<string, TDelphiSemanticTypeIdentityList>;
     fByUnderlyingId: TDictionary<string, TDelphiSemanticTypeIdentityList>;
     fUnitNamesById: TDictionary<string, string>;
@@ -101,6 +107,7 @@ type
     class function UnresolvedResult(const aName, aReasonCode, aReason: string):
       TDelphiSemanticTypeLookupResult; static;
     procedure AddIdentity(const aIdentity: TDelphiSemanticTypeIdentity);
+    procedure AddHelperTargetKeys(const aIdentity: TDelphiSemanticTypeIdentity);
     function SameUnitOrInterfaceVisible(const aIdentity: TDelphiSemanticTypeIdentity;
       const aCurrentUnitName, aSectionKind: string): Boolean;
     function TryResolveAliasTarget(const aIdentity: TDelphiSemanticTypeIdentity;
@@ -116,6 +123,8 @@ type
     function FindByUnderlyingId(const aId: TDelphiSemanticGraphTypeId):
       TArray<TDelphiSemanticTypeIdentity>;
     function FindAncestors(const aIdentity: TDelphiSemanticTypeIdentity):
+      TArray<TDelphiSemanticTypeIdentity>;
+    function FindHelpersForTarget(const aTargetTypeName: string):
       TArray<TDelphiSemanticTypeIdentity>;
     function ResolveQualifiedName(const aName: string): TDelphiSemanticTypeLookupResult;
     function ResolveSimpleName(const aName: string): TDelphiSemanticTypeLookupResult;
@@ -196,8 +205,10 @@ constructor TDelphiSemanticTypeIdentityIndexData.Create(
   const aGraph: TDelphiSemanticSemanticGraph);
 var
   lIdentity: TDelphiSemanticTypeIdentity;
+  lIdentities: TArray<TDelphiSemanticTypeIdentity>;
   lType: TDelphiSemanticGraphType;
   lUnit: TDelphiSemanticGraphUnit;
+  i: Integer;
 begin
   inherited Create;
   fByCanonicalId := TDictionary<string, TDelphiSemanticTypeIdentityList>.Create(
@@ -205,6 +216,8 @@ begin
   fByDeclaredId := TDictionary<string, TDelphiSemanticTypeIdentity>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fByQualifiedName := TDictionary<string, TDelphiSemanticTypeIdentity>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fHelpersByTargetName := TDictionary<string, TDelphiSemanticTypeIdentityList>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fBySimpleName := TDictionary<string, TDelphiSemanticTypeIdentityList>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -215,6 +228,8 @@ begin
   for lUnit in aGraph.Units do
     fUnitNamesById.AddOrSetValue(lUnit.Id.Value, lUnit.UnitName);
 
+  SetLength(lIdentities, Length(aGraph.Types));
+  i := 0;
   for lType in aGraph.Types do
   begin
     lIdentity := Default(TDelphiSemanticTypeIdentity);
@@ -228,10 +243,16 @@ begin
     lIdentity.CanonicalName := lType.CanonicalName;
     lIdentity.UnderlyingName := lType.UnderlyingName;
     lIdentity.BaseTypeName := lType.BaseTypeName;
+    lIdentity.HelperTargetName := lType.HelperTargetName;
     lIdentity.SectionKind := lType.SectionKind;
     lIdentity.SourceRange := lType.SourceRange;
     AddIdentity(lIdentity);
+    lIdentities[i] := lIdentity;
+    Inc(i);
   end;
+
+  for lIdentity in lIdentities do
+    AddHelperTargetKeys(lIdentity);
 end;
 
 destructor TDelphiSemanticTypeIdentityIndexData.Destroy;
@@ -248,6 +269,9 @@ begin
   fByUnderlyingId.Free;
   fBySimpleName.Free;
   fByQualifiedName.Free;
+  for lList in fHelpersByTargetName.Values do
+    lList.Free;
+  fHelpersByTargetName.Free;
   fByDeclaredId.Free;
   fByCanonicalId.Free;
   inherited;
@@ -267,6 +291,28 @@ begin
   AddToMap(fByCanonicalId, lIdentity.CanonicalId.Value, lIdentity);
   AddToMap(fBySimpleName, lIdentity.Name, lIdentity);
   AddToMap(fByUnderlyingId, lIdentity.UnderlyingId.Value, lIdentity);
+end;
+
+procedure TDelphiSemanticTypeIdentityIndexData.AddHelperTargetKeys(
+  const aIdentity: TDelphiSemanticTypeIdentity);
+var
+  lTarget: TDelphiSemanticTypeLookupResult;
+begin
+  if aIdentity.HelperTargetName = '' then
+    Exit;
+
+  AddToMap(fHelpersByTargetName, aIdentity.HelperTargetName, aIdentity);
+  lTarget := ResolveQualifiedName(aIdentity.HelperTargetName);
+  if not lTarget.Found then
+    lTarget := ResolveSimpleName(aIdentity.HelperTargetName);
+  if lTarget.Found then
+  begin
+    AddToMap(fHelpersByTargetName, lTarget.Identity.Name, aIdentity);
+    AddToMap(fHelpersByTargetName, lTarget.Identity.UnitName + '.' + lTarget.Identity.Name,
+      aIdentity);
+    AddToMap(fHelpersByTargetName, lTarget.Identity.CanonicalName, aIdentity);
+    AddToMap(fHelpersByTargetName, lTarget.Identity.UnderlyingName, aIdentity);
+  end;
 end;
 
 function TDelphiSemanticTypeIdentityIndexData.FindAncestors(
@@ -329,6 +375,17 @@ var
   lList: TDelphiSemanticTypeIdentityList;
 begin
   if fByUnderlyingId.TryGetValue(aId.Value, lList) then
+    Exit(lList.ToArray);
+
+  Result := nil;
+end;
+
+function TDelphiSemanticTypeIdentityIndexData.FindHelpersForTarget(
+  const aTargetTypeName: string): TArray<TDelphiSemanticTypeIdentity>;
+var
+  lList: TDelphiSemanticTypeIdentityList;
+begin
+  if fHelpersByTargetName.TryGetValue(aTargetTypeName, lList) then
     Exit(lList.ToArray);
 
   Result := nil;
@@ -519,6 +576,15 @@ begin
     Exit(nil);
 
   Result := fData.FindByUnderlyingId(aId);
+end;
+
+function TDelphiSemanticTypeIdentityIndex.FindHelpersForTarget(
+  const aTargetTypeName: string): TArray<TDelphiSemanticTypeIdentity>;
+begin
+  if fData = nil then
+    Exit(nil);
+
+  Result := fData.FindHelpersForTarget(aTargetTypeName);
 end;
 
 function TDelphiSemanticTypeIdentityIndex.ResolveQualifiedName(

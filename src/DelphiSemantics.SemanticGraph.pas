@@ -78,6 +78,7 @@ type
     CanonicalName: string;
     UnderlyingName: string;
     BaseTypeName: string;
+    HelperTargetName: string;
     SectionKind: string;
     SourceRange: TDelphiSemanticSourceRange;
   end;
@@ -461,6 +462,7 @@ begin
       lType.CanonicalName := lTypeName;
       lType.UnderlyingName := lTypeName;
       lType.BaseTypeName := lDeclaration.BaseTypeName;
+      lType.HelperTargetName := lDeclaration.HelperTargetName;
       lType.SectionKind := lDeclaration.SectionKind;
       lType.DeclaredId := MakeTypeId(aUnit.Id, 'declared', lDeclaration.Name);
       lType.CanonicalId := MakeTypeId(aUnit.Id, 'canonical', lType.CanonicalName);
