@@ -223,6 +223,10 @@ begin
   Result.AddPair('Name', aParameter.Name);
   Result.AddPair('TypeName', aParameter.TypeName);
   Result.AddPair('Modifier', aParameter.Modifier);
+  Result.AddPair('Line', TJSONNumber.Create(aParameter.Line));
+  Result.AddPair('Column', TJSONNumber.Create(aParameter.Column));
+  Result.AddPair('Offset', TJSONNumber.Create(aParameter.Offset));
+  Result.AddPair('EndOffset', TJSONNumber.Create(aParameter.EndOffset));
 end;
 
 function JsonToParameter(const aObject: TJSONObject): TDelphiSemanticParameter;
@@ -231,6 +235,10 @@ begin
   Result.Name := JsonString(aObject, 'Name');
   Result.TypeName := JsonString(aObject, 'TypeName');
   Result.Modifier := JsonString(aObject, 'Modifier');
+  Result.Line := JsonInt(aObject, 'Line');
+  Result.Column := JsonInt(aObject, 'Column');
+  Result.Offset := JsonInt(aObject, 'Offset');
+  Result.EndOffset := JsonInt(aObject, 'EndOffset');
 end;
 
 function ParametersToJson(const aParameters: TArray<TDelphiSemanticParameter>): TJSONArray;

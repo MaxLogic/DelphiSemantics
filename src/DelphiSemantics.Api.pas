@@ -69,9 +69,18 @@ type
   TDelphiSemanticUnitGraphId = DelphiSemantics.SemanticGraph.TDelphiSemanticUnitGraphId;
   TDelphiSemanticGraphSymbolId =
     DelphiSemantics.SemanticGraph.TDelphiSemanticGraphSymbolId;
+  TDelphiSemanticGraphTypeId = DelphiSemantics.SemanticGraph.TDelphiSemanticGraphTypeId;
   TDelphiSemanticSourceRange = DelphiSemantics.SemanticGraph.TDelphiSemanticSourceRange;
   TDelphiSemanticGraphUnit = DelphiSemantics.SemanticGraph.TDelphiSemanticGraphUnit;
   TDelphiSemanticGraphSymbol = DelphiSemantics.SemanticGraph.TDelphiSemanticGraphSymbol;
+  TDelphiSemanticGraphDeclaration =
+    DelphiSemantics.SemanticGraph.TDelphiSemanticGraphDeclaration;
+  TDelphiSemanticGraphType = DelphiSemantics.SemanticGraph.TDelphiSemanticGraphType;
+  TDelphiSemanticGraphMember = DelphiSemantics.SemanticGraph.TDelphiSemanticGraphMember;
+  TDelphiSemanticGraphParameter =
+    DelphiSemantics.SemanticGraph.TDelphiSemanticGraphParameter;
+  TDelphiSemanticGraphRoutine = DelphiSemantics.SemanticGraph.TDelphiSemanticGraphRoutine;
+  TDelphiSemanticGraphLocal = DelphiSemantics.SemanticGraph.TDelphiSemanticGraphLocal;
   TDelphiSemanticGraphBuildMetrics =
     DelphiSemantics.SemanticGraph.TDelphiSemanticGraphBuildMetrics;
   TDelphiSemanticSemanticGraph =

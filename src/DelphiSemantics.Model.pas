@@ -52,6 +52,10 @@ type
     Name: string;
     TypeName: string;
     Modifier: string;
+    Line: Integer;
+    Column: Integer;
+    Offset: Integer;
+    EndOffset: Integer;
   end;
 
   TDelphiSemanticRoutine = record
@@ -1292,7 +1296,7 @@ begin
 end;
 
 procedure AddRoutineParameter(const aParameters: TList<TDelphiSemanticParameter>;
-  const aRoutineName, aName, aTypeName, aModifier: string);
+  const aRoutineName, aName, aTypeName, aModifier, aText: string; const aNameOffset: Integer);
 var
   lParameter: TDelphiSemanticParameter;
 begin
@@ -1300,16 +1304,24 @@ begin
   lParameter.Name := aName;
   lParameter.TypeName := aTypeName;
   lParameter.Modifier := aModifier;
+  lParameter.Line := LineOfOffset(aText, aNameOffset);
+  lParameter.Column := ColumnOfOffset(aText, aNameOffset);
+  lParameter.Offset := aNameOffset;
+  lParameter.EndOffset := aNameOffset + Length(aName);
   aParameters.Add(lParameter);
 end;
 
-function ParseParameters(const aRoutineName, aParameterText: string):
+function ParseParameters(const aRoutineName, aParameterText, aText: string;
+  const aSignatureOffset: Integer):
   TArray<TDelphiSemanticParameter>;
 var
   lMatch: TMatch;
   lName: string;
+  lNameOffset: Integer;
   lNames: string;
+  lNamesOffset: Integer;
   lParameter: string;
+  lParameterOffset: Integer;
   lParameters: TList<TDelphiSemanticParameter>;
   lText: string;
 begin
@@ -1319,6 +1331,7 @@ begin
     if (Length(lText) >= 2) and (lText[1] = '(') and (lText[Length(lText)] = ')') then
       lText := Copy(lText, 2, Length(lText) - 2);
 
+    lParameterOffset := aSignatureOffset + Pos(lText, aParameterText) - 1;
     for lParameter in lText.Split([';']) do
     begin
       lMatch := TRegEx.Match(lParameter.Trim,
@@ -1327,11 +1340,16 @@ begin
       if lMatch.Success then
       begin
         lNames := lMatch.Groups[2].Value;
+        lNamesOffset := lParameterOffset + Pos(lNames, lParameter) - 1;
         for lName in lNames.Split([',']) do
           if lName.Trim <> '' then
-            AddRoutineParameter(lParameters, aRoutineName, lName.Trim, lMatch.Groups[3].Value.Trim,
-              lMatch.Groups[1].Value.Trim);
+          begin
+            lNameOffset := lNamesOffset + Pos(lName.Trim, lNames) - 1;
+            AddRoutineParameter(lParameters, aRoutineName, lName.Trim,
+              lMatch.Groups[3].Value.Trim, lMatch.Groups[1].Value.Trim, aText, lNameOffset);
+          end;
       end;
+      Inc(lParameterOffset, Length(lParameter) + 1);
     end;
 
     Result := lParameters.ToArray;
@@ -1372,7 +1390,8 @@ begin
 end;
 
 procedure AddRoutine(const aRoutines: TList<TDelphiSemanticRoutine>; const aName, aOwnerName,
-  aSection, aSignature, aReturnType, aText: string; const aNameOffset: Integer);
+  aSection, aSignature, aReturnType, aText: string; const aNameOffset, aSignatureOffset:
+  Integer);
 var
   lRoutine: TDelphiSemanticRoutine;
 begin
@@ -1385,7 +1404,7 @@ begin
   lRoutine.Column := ColumnOfOffset(aText, aNameOffset);
   lRoutine.Offset := aNameOffset;
   lRoutine.EndOffset := aNameOffset + Length(aName);
-  lRoutine.Parameters := ParseParameters(aName, aSignature);
+  lRoutine.Parameters := ParseParameters(aName, aSignature, aText, aSignatureOffset);
   aRoutines.Add(lRoutine);
 end;
 
@@ -1445,7 +1464,7 @@ begin
     lNameOffset := lMatch.Index + Pos(lRoutineName, lMatch.Value) - 1;
     lSection := SectionForOffset(aText, lMatch.Index + 1);
     AddRoutine(aRoutines, lRoutineName, lOwnerName, lSection, MatchGroupValue(lMatch, 4),
-      MatchGroupValue(lMatch, 5), aText, lNameOffset);
+      MatchGroupValue(lMatch, 5), aText, lNameOffset, MatchGroupIndex(lMatch, 4));
     AddParameterTypeReferences(aReferences, QualifiedRoutineName(lOwnerName, lRoutineName),
       MatchGroupValue(lMatch, 4), aText, MatchGroupIndex(lMatch, 4));
     AddTypeReferences(aReferences, QualifiedRoutineName(lOwnerName, lRoutineName),
