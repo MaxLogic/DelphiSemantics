@@ -31,12 +31,22 @@ type
     Candidates: TArray<TDelphiSemanticMemberIdentity>;
   end;
 
+  TDelphiSemanticMemberLookupContext = record
+    CallerUnitName: string;
+    CurrentTypeName: string;
+    StaticContext: Boolean;
+    InstanceContext: Boolean;
+    ArgumentTypeNames: TArray<string>;
+  end;
+
   IDelphiSemanticMemberIdentityIndexData = interface
     ['{32617718-D2C0-4FB7-B8AF-935F8CC3466B}']
     function ResolveDirectMember(const aOwnerTypeName, aMemberName: string):
       TDelphiSemanticMemberLookupResult;
     function ResolveMember(const aOwnerTypeName, aMemberName: string):
-      TDelphiSemanticMemberLookupResult;
+      TDelphiSemanticMemberLookupResult; overload;
+    function ResolveMember(const aContext: TDelphiSemanticMemberLookupContext;
+      const aOwnerTypeName, aMemberName: string): TDelphiSemanticMemberLookupResult; overload;
   end;
 
   TDelphiSemanticMemberIdentityIndex = record
@@ -46,7 +56,9 @@ type
     function ResolveDirectMember(const aOwnerTypeName, aMemberName: string):
       TDelphiSemanticMemberLookupResult;
     function ResolveMember(const aOwnerTypeName, aMemberName: string):
-      TDelphiSemanticMemberLookupResult;
+      TDelphiSemanticMemberLookupResult; overload;
+    function ResolveMember(const aContext: TDelphiSemanticMemberLookupContext;
+      const aOwnerTypeName, aMemberName: string): TDelphiSemanticMemberLookupResult; overload;
   end;
 
   TDelphiSemanticMemberResolver = record
@@ -59,7 +71,7 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.Generics.Defaults, System.SysUtils,
+  System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils;
 
 type
@@ -99,6 +111,9 @@ type
     class function UnsupportedResult(const aMemberName: string;
       const aCandidates: TArray<TDelphiSemanticMemberIdentity>):
       TDelphiSemanticMemberLookupResult; static;
+    class function StatusResult(const aStatus, aReasonCode, aReason: string;
+      const aCandidates: TArray<TDelphiSemanticMemberIdentity>):
+      TDelphiSemanticMemberLookupResult; static;
     procedure AddMember(const aMember: TDelphiSemanticMemberIdentity);
     procedure AddIdentityOwnerProbes(const aIdentity: TDelphiSemanticTypeIdentity;
       const aOwnerProbes: TList<TDelphiSemanticMemberNameKey>);
@@ -110,6 +125,20 @@ type
       TArray<TDelphiSemanticMemberIdentity>;
     function ExpandedOwnerTypes(const aOwner: TDelphiSemanticTypeIdentity):
       TArray<TDelphiSemanticTypeIdentity>;
+    function FilterCandidatesByArgumentTypes(
+      const aCandidates: TArray<TDelphiSemanticMemberIdentity>;
+      const aArgumentTypeNames: TArray<string>): TArray<TDelphiSemanticMemberIdentity>;
+    function HasExpandedMember(const aOwnerTypeName, aMemberName: string;
+      out aMember: TDelphiSemanticMemberIdentity): Boolean;
+    function LookupCandidates(const aOwnerTypeName, aMemberName: string):
+      TArray<TDelphiSemanticMemberIdentity>;
+    function MemberIsAccessible(const aContext: TDelphiSemanticMemberLookupContext;
+      const aMember: TDelphiSemanticMemberIdentity): Boolean;
+    function TypeDerivesFrom(const aCurrentTypeName, aOwnerTypeName: string): Boolean;
+    function ResolveCandidates(const aContext: TDelphiSemanticMemberLookupContext;
+      const aMemberName, aResolvedStatus: string;
+      const aCandidates: TArray<TDelphiSemanticMemberIdentity>):
+      TDelphiSemanticMemberLookupResult;
     function ResolveOwnerType(const aOwnerTypeName: string; out aIdentity:
       TDelphiSemanticTypeIdentity): Boolean;
   public
@@ -119,7 +148,9 @@ type
     function ResolveDirectMember(const aOwnerTypeName, aMemberName: string):
       TDelphiSemanticMemberLookupResult;
     function ResolveMember(const aOwnerTypeName, aMemberName: string):
-      TDelphiSemanticMemberLookupResult;
+      TDelphiSemanticMemberLookupResult; overload;
+    function ResolveMember(const aContext: TDelphiSemanticMemberLookupContext;
+      const aOwnerTypeName, aMemberName: string): TDelphiSemanticMemberLookupResult; overload;
   end;
 
 constructor TDelphiSemanticMemberNameKeyComparer.Create;
@@ -189,6 +220,19 @@ begin
   Result.ReasonCode := 'INDEXED_DEFAULT_MEMBER_UNSUPPORTED';
   Result.Reason := 'Indexed/default member "' + aMemberName +
     '" requires selector context.';
+  Result.Candidates := Copy(aCandidates);
+end;
+
+class function TDelphiSemanticMemberIdentityIndexData.StatusResult(const aStatus, aReasonCode,
+  aReason: string; const aCandidates: TArray<TDelphiSemanticMemberIdentity>):
+  TDelphiSemanticMemberLookupResult;
+begin
+  Result := Default(TDelphiSemanticMemberLookupResult);
+  Result.Found := False;
+  Result.Ambiguous := SameText(aStatus, 'ambiguous');
+  Result.Status := aStatus;
+  Result.ReasonCode := aReasonCode;
+  Result.Reason := aReason;
   Result.Candidates := Copy(aCandidates);
 end;
 
@@ -396,12 +440,172 @@ begin
   end;
 end;
 
+function TDelphiSemanticMemberIdentityIndexData.FilterCandidatesByArgumentTypes(
+  const aCandidates: TArray<TDelphiSemanticMemberIdentity>;
+  const aArgumentTypeNames: TArray<string>): TArray<TDelphiSemanticMemberIdentity>;
+var
+  lCandidate: TDelphiSemanticMemberIdentity;
+  lMatches: TDelphiSemanticMemberIdentityList;
+  lName: string;
+  lNameList: string;
+  lParameterList: string;
+  lParameterSegment: string;
+  lParameters: TArray<string>;
+  lParameterTypes: TList<string>;
+  s: string;
+begin
+  if Length(aArgumentTypeNames) = 0 then
+    Exit(Copy(aCandidates));
+
+  lMatches := TDelphiSemanticMemberIdentityList.Create;
+  lParameterTypes := TList<string>.Create;
+  try
+    for lCandidate in aCandidates do
+    begin
+      lParameterTypes.Clear;
+      lParameterList := Copy(lCandidate.Signature, Pos('(', lCandidate.Signature) + 1, MaxInt);
+      lParameterList := Copy(lParameterList, 1, Pos(')', lParameterList) - 1);
+      lParameters := lParameterList.Split([';']);
+      for lParameterSegment in lParameters do
+      begin
+        if Pos(':', lParameterSegment) = 0 then
+          Continue;
+        lNameList := Trim(Copy(lParameterSegment, 1, Pos(':', lParameterSegment) - 1));
+        s := Trim(Copy(lParameterSegment, Pos(':', lParameterSegment) + 1, MaxInt));
+        s := StringReplace(s, 'const ', '', [rfIgnoreCase]);
+        s := StringReplace(s, 'var ', '', [rfIgnoreCase]);
+        s := StringReplace(s, 'out ', '', [rfIgnoreCase]);
+        for lName in lNameList.Split([',']) do
+          lParameterTypes.Add(s.Trim);
+      end;
+      if lParameterTypes.Count = Length(aArgumentTypeNames) then
+        if SameText(lParameterTypes[0], aArgumentTypeNames[0]) then
+          lMatches.Add(lCandidate);
+    end;
+    Result := lMatches.ToArray;
+  finally
+    lParameterTypes.Free;
+    lMatches.Free;
+  end;
+end;
+
+function TDelphiSemanticMemberIdentityIndexData.HasExpandedMember(const aOwnerTypeName,
+  aMemberName: string; out aMember: TDelphiSemanticMemberIdentity): Boolean;
+var
+  lCandidates: TArray<TDelphiSemanticMemberIdentity>;
+  lExpandedOwner: TDelphiSemanticTypeIdentity;
+  lOwner: TDelphiSemanticTypeIdentity;
+begin
+  if ResolveOwnerType(aOwnerTypeName, lOwner) then
+    for lExpandedOwner in ExpandedOwnerTypes(lOwner) do
+    begin
+      lCandidates := LookupCandidates(lExpandedOwner.UnitName + '.' + lExpandedOwner.Name,
+        aMemberName);
+      if Length(lCandidates) > 0 then
+      begin
+        aMember := lCandidates[0];
+        Exit(True);
+      end;
+    end;
+
+  aMember := Default(TDelphiSemanticMemberIdentity);
+  Result := False;
+end;
+
+function TDelphiSemanticMemberIdentityIndexData.LookupCandidates(const aOwnerTypeName,
+  aMemberName: string): TArray<TDelphiSemanticMemberIdentity>;
+begin
+  Result := FindCandidates(CandidateOwnerProbes(aOwnerTypeName, aMemberName));
+end;
+
+function TDelphiSemanticMemberIdentityIndexData.MemberIsAccessible(
+  const aContext: TDelphiSemanticMemberLookupContext;
+  const aMember: TDelphiSemanticMemberIdentity): Boolean;
+begin
+  if SameText(aMember.Visibility, 'strict private') then
+    Exit(SameText(aContext.CurrentTypeName, aMember.OwnerName));
+
+  if SameText(aMember.Visibility, 'private') then
+    Exit(SameText(aContext.CallerUnitName, aMember.UnitName) or
+      SameText(aContext.CurrentTypeName, aMember.OwnerName));
+
+  if SameText(aMember.Visibility, 'strict protected') or SameText(aMember.Visibility, 'protected')
+    then
+    Exit(TypeDerivesFrom(aContext.CurrentTypeName, aMember.OwnerName));
+
+  Result := True;
+end;
+
+function TDelphiSemanticMemberIdentityIndexData.TypeDerivesFrom(const aCurrentTypeName,
+  aOwnerTypeName: string): Boolean;
+var
+  lAncestor: TDelphiSemanticTypeIdentity;
+  lCurrent: TDelphiSemanticTypeIdentity;
+begin
+  if SameText(aCurrentTypeName, aOwnerTypeName) then
+    Exit(True);
+
+  if not ResolveOwnerType(aCurrentTypeName, lCurrent) then
+    Exit(False);
+
+  for lAncestor in fTypeIndex.FindAncestors(lCurrent) do
+    if SameText(lAncestor.Name, aOwnerTypeName) or
+      SameText(lAncestor.UnitName + '.' + lAncestor.Name, aOwnerTypeName) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function TDelphiSemanticMemberIdentityIndexData.ResolveCandidates(
+  const aContext: TDelphiSemanticMemberLookupContext; const aMemberName, aResolvedStatus: string;
+  const aCandidates: TArray<TDelphiSemanticMemberIdentity>): TDelphiSemanticMemberLookupResult;
+var
+  lAccessibleCandidates: TDelphiSemanticMemberIdentityList;
+  lCandidate: TDelphiSemanticMemberIdentity;
+  lCandidates: TArray<TDelphiSemanticMemberIdentity>;
+begin
+  lAccessibleCandidates := TDelphiSemanticMemberIdentityList.Create;
+  try
+    for lCandidate in aCandidates do
+      if MemberIsAccessible(aContext, lCandidate) then
+        lAccessibleCandidates.Add(lCandidate);
+
+    if lAccessibleCandidates.Count = 0 then
+      Exit(StatusResult('inaccessible', 'MEMBER_INACCESSIBLE',
+        'The member exists but is not accessible from the caller context.', aCandidates));
+
+    lCandidates := FilterCandidatesByArgumentTypes(lAccessibleCandidates.ToArray,
+      aContext.ArgumentTypeNames);
+  finally
+    lAccessibleCandidates.Free;
+  end;
+
+  if Length(lCandidates) = 0 then
+    Exit(StatusResult('unresolved', 'OVERLOAD_NOT_FOUND',
+      'No overload matches the supplied argument context.', nil));
+
+  if Length(lCandidates) > 1 then
+  begin
+    if SameText(lCandidates[0].Kind, 'method') and (lCandidates[0].Signature <> '') then
+      Exit(StatusResult('overloaded', 'MULTIPLE_OVERLOAD_CANDIDATES',
+        'Multiple overload candidates require argument context.', lCandidates));
+    Exit(AmbiguousResult('', aMemberName, lCandidates));
+  end;
+
+  if lCandidates[0].IsIndexed or lCandidates[0].IsDefault then
+    Exit(UnsupportedResult(aMemberName, lCandidates));
+
+  Result := ResolvedResult(lCandidates[0]);
+  if aResolvedStatus <> '' then
+    Result.Status := aResolvedStatus;
+end;
+
 function TDelphiSemanticMemberIdentityIndexData.ResolveDirectMember(
   const aOwnerTypeName, aMemberName: string): TDelphiSemanticMemberLookupResult;
 var
   lCandidates: TArray<TDelphiSemanticMemberIdentity>;
 begin
-  lCandidates := FindCandidates(CandidateOwnerProbes(aOwnerTypeName, aMemberName));
+  lCandidates := LookupCandidates(aOwnerTypeName, aMemberName);
   if Length(lCandidates) = 0 then
     Exit(UnresolvedResult(aOwnerTypeName, aMemberName));
 
@@ -447,6 +651,43 @@ begin
   Result := lDirect;
 end;
 
+function TDelphiSemanticMemberIdentityIndexData.ResolveMember(
+  const aContext: TDelphiSemanticMemberLookupContext; const aOwnerTypeName,
+  aMemberName: string): TDelphiSemanticMemberLookupResult;
+var
+  lCandidates: TArray<TDelphiSemanticMemberIdentity>;
+  lExpandedOwner: TDelphiSemanticTypeIdentity;
+  lHiddenMember: TDelphiSemanticMemberIdentity;
+  lOwner: TDelphiSemanticTypeIdentity;
+  lStatus: string;
+begin
+  lCandidates := LookupCandidates(aOwnerTypeName, aMemberName);
+  if Length(lCandidates) > 0 then
+  begin
+    if HasExpandedMember(aOwnerTypeName, aMemberName, lHiddenMember) then
+      Exit(StatusResult('hidden', 'MEMBER_HIDES_INHERITED',
+        'A direct member hides an inherited or helper-provided member.', lCandidates));
+    Exit(ResolveCandidates(aContext, aMemberName, '', lCandidates));
+  end;
+
+  if ResolveOwnerType(aOwnerTypeName, lOwner) then
+    for lExpandedOwner in ExpandedOwnerTypes(lOwner) do
+    begin
+      lCandidates := LookupCandidates(lExpandedOwner.UnitName + '.' + lExpandedOwner.Name,
+        aMemberName);
+      if Length(lCandidates) > 0 then
+      begin
+        if lExpandedOwner.HelperTargetName <> '' then
+          lStatus := 'helper'
+        else
+          lStatus := 'inherited';
+        Exit(ResolveCandidates(aContext, aMemberName, lStatus, lCandidates));
+      end;
+    end;
+
+  Result := ResolveMember(aOwnerTypeName, aMemberName);
+end;
+
 function TDelphiSemanticMemberIdentityIndexData.ResolveOwnerType(const aOwnerTypeName: string;
   out aIdentity: TDelphiSemanticTypeIdentity): Boolean;
 var
@@ -463,6 +704,22 @@ begin
 
   aIdentity := Default(TDelphiSemanticTypeIdentity);
   Result := False;
+end;
+
+function TDelphiSemanticMemberIdentityIndex.ResolveMember(
+  const aContext: TDelphiSemanticMemberLookupContext; const aOwnerTypeName,
+  aMemberName: string): TDelphiSemanticMemberLookupResult;
+begin
+  if fData = nil then
+  begin
+    Result := Default(TDelphiSemanticMemberLookupResult);
+    Result.Status := 'unresolved';
+    Result.ReasonCode := 'INDEX_NOT_BUILT';
+    Result.Reason := 'The member identity index has not been built.';
+    Exit;
+  end;
+
+  Result := fData.ResolveMember(aContext, aOwnerTypeName, aMemberName);
 end;
 
 function TDelphiSemanticMemberIdentityIndex.ResolveDirectMember(

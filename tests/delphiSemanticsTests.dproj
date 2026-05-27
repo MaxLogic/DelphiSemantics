@@ -60,6 +60,7 @@
     <DCCReference Include="src\test.globalvars.pas"/>
     <DCCReference Include="src\test.lspboundary.pas"/>
     <DCCReference Include="src\test.memberresolver.pas"/>
+    <DCCReference Include="src\test.memberresolveraccessoverloads.pas"/>
     <DCCReference Include="src\test.memberresolverinheritedhelpers.pas"/>
     <DCCReference Include="src\test.projectcontext.pas"/>
     <DCCReference Include="src\test.projectmsbuild.pas"/>

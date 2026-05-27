@@ -108,6 +108,8 @@ type
     DelphiSemantics.Resolve.MemberResolver.TDelphiSemanticMemberIdentity;
   TDelphiSemanticMemberLookupResult =
     DelphiSemantics.Resolve.MemberResolver.TDelphiSemanticMemberLookupResult;
+  TDelphiSemanticMemberLookupContext =
+    DelphiSemantics.Resolve.MemberResolver.TDelphiSemanticMemberLookupContext;
   TDelphiSemanticMemberIdentityIndex =
     DelphiSemantics.Resolve.MemberResolver.TDelphiSemanticMemberIdentityIndex;
   TDelphiSemanticMemberResolver =
