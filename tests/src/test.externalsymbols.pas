@@ -53,8 +53,13 @@ begin
     Assert.IsTrue(lResult.Found, lResult.Reason);
     Assert.AreEqual('intrinsic-type', lResult.Kind);
     Assert.AreEqual('compiler-intrinsic', lResult.SourceKind);
-    Assert.AreEqual(1, lMetrics.IntrinsicLookupCount);
-    Assert.AreEqual(1, lMetrics.IntrinsicResolvedCount);
+    lResult := lService.ResolveIntrinsic('Random');
+    lMetrics := lService.Metrics;
+    Assert.IsTrue(lResult.Found, lResult.Reason);
+    Assert.AreEqual('intrinsic-routine', lResult.Kind);
+    Assert.AreEqual('compiler-intrinsic', lResult.SourceKind);
+    Assert.AreEqual(2, lMetrics.IntrinsicLookupCount);
+    Assert.AreEqual(2, lMetrics.IntrinsicResolvedCount);
   finally
     lCache.Free;
   end;

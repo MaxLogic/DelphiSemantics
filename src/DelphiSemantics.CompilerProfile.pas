@@ -158,6 +158,8 @@ begin
     'function ParamStr(Index: Integer): string', 'System routine');
   AddIntrinsic(Result, 'Pred', 'intrinsic-routine', '', 'compiler', 'function Pred(X)',
     'compiler intrinsic');
+  AddIntrinsic(Result, 'Random', 'intrinsic-routine', 'Integer', 'compiler',
+    'function Random([Range: Integer]): Integer', 'compiler/RTL intrinsic');
   AddIntrinsic(Result, 'Read', 'intrinsic-routine', '', 'System', 'procedure Read(var V)',
     'System routine');
   AddIntrinsic(Result, 'ReadLn', 'intrinsic-routine', '', 'System', 'procedure ReadLn(var V)',
