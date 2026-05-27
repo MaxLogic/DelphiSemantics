@@ -58,6 +58,10 @@ type
     [Test]
     procedure CompilerProfileDiscoversScopedRtlUnitsFromSourceRoot;
     [Test]
+    procedure CompilerProfileIndexesRecursiveRtlSourceLookup;
+    [Test]
+    procedure CompilerProfileRecursiveRtlSourceLookupPreservesOrder;
+    [Test]
     procedure CompilerProfileRtlSourceRootBuildsFastInterfaceModels;
     [Test]
     procedure CompilerProfileResolvesRtlSourceRootFromRsVars;
@@ -972,6 +976,59 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+procedure TCacheTests.CompilerProfileIndexesRecursiveRtlSourceLookup;
+var
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.CompilerProfile.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+
+  Assert.IsTrue(ContainsText(lSourceText, 'BuildRecursiveRtlSourceFileIndex'),
+    'RTL source discovery must build one recursive filename index instead of walking the tree per unit.');
+  Assert.IsFalse(ContainsText(lSourceText, 'TDirectory.GetFiles(aRtlSourceRoot, lFileName'),
+    'RTL source discovery must not call recursive GetFiles once per candidate filename.');
+end;
+
+procedure TCacheTests.CompilerProfileRecursiveRtlSourceLookupPreservesOrder;
+var
+  lCommonRoot: string;
+  lDeepRoot: string;
+  lFiles: TArray<string>;
+  lRtlRoot: string;
+begin
+  lRtlRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
+    'fake-indexed-rtl-source']));
+  if TDirectory.Exists(lRtlRoot) then
+    TDirectory.Delete(lRtlRoot, True);
+
+  lCommonRoot := CombinePath([lRtlRoot, 'rtl', 'common']);
+  lDeepRoot := CombinePath([lRtlRoot, 'rtl', 'deep']);
+  TDirectory.CreateDirectory(lCommonRoot);
+  TDirectory.CreateDirectory(lDeepRoot);
+
+  TFile.WriteAllText(TPath.Combine(lCommonRoot, 'System.DirectWins.pas'),
+    'unit System.DirectWins; interface implementation end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lDeepRoot, 'System.DirectWins.pas'),
+    'unit System.DirectWins; interface implementation end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lDeepRoot, 'Ambiguous.pas'),
+    'unit Ambiguous; interface implementation end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lDeepRoot, 'System.Ambiguous.pas'),
+    'unit System.Ambiguous; interface implementation end.', TEncoding.UTF8);
+
+  lFiles := TDelphiSemanticCompilerProfileBuilder.DiscoverRtlSourceFiles(lRtlRoot,
+    ['DirectWins', 'Ambiguous', 'Ambiguous', 'System.Ambiguous']);
+
+  Assert.AreEqual(3, Length(lFiles), 'Expected duplicate requests to be deduplicated.');
+  Assert.AreEqual(TPath.GetFullPath(TPath.Combine(lCommonRoot, 'System.DirectWins.pas')),
+    lFiles[0], 'Direct search roots must win before recursive fallback.');
+  Assert.AreEqual(TPath.GetFullPath(TPath.Combine(lDeepRoot, 'Ambiguous.pas')),
+    lFiles[1], 'Unscoped recursive lookup must preserve candidate order before System.*.');
+  Assert.AreEqual(TPath.GetFullPath(TPath.Combine(lDeepRoot, 'System.Ambiguous.pas')),
+    lFiles[2], 'Scoped recursive lookup must resolve the scoped file name.');
 end;
 
 procedure TCacheTests.CompilerProfileRtlSourceRootBuildsFastInterfaceModels;

@@ -50,6 +50,7 @@ uses
   System.RegularExpressions, System.StrUtils, System.SysUtils,
   System.Win.Registry,
   Winapi.Windows,
+  MaxLogic.StrUtils,
   DelphiSemantics.Preprocess, DelphiSemantics.Source;
 
 const
@@ -292,28 +293,43 @@ begin
   Result := False;
 end;
 
-function TryFindRecursiveRtlSourceFile(const aRtlSourceRoot: string; const aFileNames: TArray<string>;
-  out aSourceFileName: string): Boolean;
+function BuildRecursiveRtlSourceFileIndex(const aRtlSourceRoot: string): TDictionary<string, string>;
+var
+  lFile: string;
+  lFileName: string;
+  lFiles: TArray<string>;
+begin
+  Result := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  if not TDirectory.Exists(aRtlSourceRoot) then
+    Exit;
+
+  lFiles := TDirectory.GetFiles(aRtlSourceRoot, '*.pas', TSearchOption.soAllDirectories);
+  for lFile in lFiles do
+  begin
+    lFileName := TPath.GetFileName(lFile);
+    if not Result.ContainsKey(lFileName) then
+      Result.Add(lFileName, TPath.GetFullPath(lFile));
+  end;
+end;
+
+function TryFindRecursiveRtlSourceFile(const aFileIndex: TDictionary<string, string>;
+  const aFileNames: TArray<string>; out aSourceFileName: string): Boolean;
 var
   lFileName: string;
-  lMatches: TArray<string>;
 begin
   aSourceFileName := '';
+  if aFileIndex = nil then
+    Exit(False);
+
   for lFileName in aFileNames do
-  begin
-    lMatches := TDirectory.GetFiles(aRtlSourceRoot, lFileName, TSearchOption.soAllDirectories);
-    if Length(lMatches) > 0 then
-    begin
-      aSourceFileName := TPath.GetFullPath(lMatches[0]);
+    if aFileIndex.TryGetValue(lFileName, aSourceFileName) then
       Exit(True);
-    end;
-  end;
 
   Result := False;
 end;
 
 function TryFindRtlSourceFile(const aRtlSourceRoot, aUnitName: string;
-  out aSourceFileName: string): Boolean;
+  var aRecursiveFileIndex: TDictionary<string, string>; out aSourceFileName: string): Boolean;
 var
   lFileNames: TArray<string>;
   lSearchRoots: TArray<string>;
@@ -329,7 +345,11 @@ begin
   lSearchRoots := RtlSourceSearchRoots(aRtlSourceRoot);
   Result := TryFindDirectRtlSourceFile(lSearchRoots, lFileNames, aSourceFileName);
   if not Result then
-    Result := TryFindRecursiveRtlSourceFile(aRtlSourceRoot, lFileNames, aSourceFileName);
+  begin
+    if aRecursiveFileIndex = nil then
+      aRecursiveFileIndex := BuildRecursiveRtlSourceFileIndex(aRtlSourceRoot);
+    Result := TryFindRecursiveRtlSourceFile(aRecursiveFileIndex, lFileNames, aSourceFileName);
+  end;
 end;
 
 function TryReadRegistryBdsRoot(const aDelphiVersion: string; const aViewFlag: Cardinal;
@@ -959,18 +979,20 @@ class function TDelphiSemanticCompilerProfileBuilder.DiscoverRtlSourceFiles(
   const aRtlSourceRoot: string; const aUnitNames: TArray<string>): TArray<string>;
 var
   lList: TList<string>;
+  lRecursiveFileIndex: TDictionary<string, string>;
   lRtlSourceRoot: string;
   lSourceFileName: string;
   lUnitName: string;
 begin
   lRtlSourceRoot := NormalizeRtlSourceRoot(aRtlSourceRoot);
+  lRecursiveFileIndex := nil;
   lList := TList<string>.Create;
   try
     if TDirectory.Exists(lRtlSourceRoot) then
     begin
       for lUnitName in aUnitNames do
       begin
-        if TryFindRtlSourceFile(lRtlSourceRoot, lUnitName, lSourceFileName) and
+        if TryFindRtlSourceFile(lRtlSourceRoot, lUnitName, lRecursiveFileIndex, lSourceFileName) and
           (not ContainsPath(lList, lSourceFileName)) then
           lList.Add(lSourceFileName);
       end;
@@ -978,6 +1000,7 @@ begin
 
     Result := lList.ToArray;
   finally
+    lRecursiveFileIndex.Free;
     lList.Free;
   end;
 end;
