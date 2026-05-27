@@ -4,7 +4,7 @@ interface
 
 uses
   DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.Index, DelphiSemantics.Model,
-  DelphiSemantics.ProjectContext, DelphiSemantics.Query,
+  DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.Query,
   DelphiSemantics.Refactor, DelphiSemantics.Search, DelphiSemantics.Symbols,
   DelphiSemantics.Usage, DelphiSemantics.WithBinding;
 
@@ -15,6 +15,12 @@ type
   TDelphiSemanticDiagnostic = DelphiSemantics.ProjectContext.TDelphiSemanticDiagnostic;
   TDelphiSemanticProjectInfo = DelphiSemantics.ProjectContext.TDelphiSemanticProjectInfo;
   TDelphiSemanticContextResult = DelphiSemantics.ProjectContext.TDelphiSemanticContextResult;
+  TDelphiSemanticProjectSessionStatus =
+    DelphiSemantics.ProjectSession.TDelphiSemanticProjectSessionStatus;
+  TDelphiSemanticProjectSession =
+    DelphiSemantics.ProjectSession.TDelphiSemanticProjectSession;
+  TDelphiSemanticProjectSessionResult =
+    DelphiSemantics.ProjectSession.TDelphiSemanticProjectSessionResult;
   TDelphiSemanticCacheOptions = DelphiSemantics.Cache.TDelphiSemanticCacheOptions;
   TDelphiSemanticCacheMetrics = DelphiSemantics.Cache.TDelphiSemanticCacheMetrics;
   TDelphiSemanticCacheDiagnostic = DelphiSemantics.Cache.TDelphiSemanticCacheDiagnostic;
@@ -82,6 +88,8 @@ type
   public
     class function LoadProjectContext(const aFileName: string;
       const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticContextResult; static;
+    class function OpenProjectSession(const aOptions: TDelphiSemanticApiOptions):
+      TDelphiSemanticProjectSessionResult; static;
     class function BuildUnitIndex(const aOptions: TDelphiSemanticApiOptions):
       TDelphiSemanticUnitIndex; static;
     class function BuildProjectSymbolIndex(const aContext: TDelphiSemanticSymbolQueryContext):
@@ -154,6 +162,17 @@ var
 begin
   lOptions := ProjectOptionsFromApiOptions(aOptions);
   Result := TDelphiSemanticProject.Load(aFileName, lOptions);
+end;
+
+class function TDelphiSemanticApi.OpenProjectSession(
+  const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticProjectSessionResult;
+var
+  lOptions: TDelphiSemanticOptions;
+begin
+  lOptions := ProjectOptionsFromApiOptions(aOptions);
+  if lOptions.ProjectPath = '' then
+    lOptions.ProjectPath := aOptions.ProjectFileName;
+  Result := DelphiSemantics.ProjectSession.TDelphiSemanticProjectSession.Open(lOptions);
 end;
 
 class function TDelphiSemanticApi.BuildUnitIndex(const aOptions: TDelphiSemanticApiOptions):

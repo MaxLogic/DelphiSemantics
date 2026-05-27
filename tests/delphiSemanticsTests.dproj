@@ -61,6 +61,7 @@
     <DCCReference Include="src\test.lspboundary.pas"/>
     <DCCReference Include="src\test.projectcontext.pas"/>
     <DCCReference Include="src\test.projectmsbuild.pas"/>
+    <DCCReference Include="src\test.projectsession.pas"/>
     <DCCReference Include="src\test.preprocess.pas"/>
     <DCCReference Include="src\test.refactor.rename.pas"/>
     <DCCReference Include="src\test.refactor.removedeadcode.pas"/>
@@ -87,6 +88,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Model.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Preprocess.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.ProjectContext.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.ProjectSession.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Query.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Refactor.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.pas"/>
