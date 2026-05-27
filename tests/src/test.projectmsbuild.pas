@@ -20,6 +20,10 @@ type
     [Test]
     procedure DebugContextAppliesOptsetAndNormalizesPaths;
     [Test]
+    procedure ContextFingerprintChangesWithSemanticInputs;
+    [Test]
+    procedure ContextIncludesIncludePathsCompilerProfileAndFingerprint;
+    [Test]
     procedure MigratedDakConditionCasesApplyExpectedProperties;
     [Test]
     procedure MigratedDakImportAndSelfReferenceCasesApplyExpectedProperties;
@@ -166,6 +170,56 @@ begin
   Assert.IsTrue(ContainsText(lResult.Project.UnitAliases, 'Optset.Legacy=Optset.Modern'), 'Optset alias');
   Assert.IsTrue(ContainsPath(lResult.Project.ReferenceDirectories, TPath.Combine(lProjectDir, 'Source')), 'Source reference');
   Assert.IsTrue(ContainsPath(lResult.Project.ReferenceDirectories, FixturePath('ProjectContext\Shared')), 'Shared reference');
+end;
+
+procedure TProjectMsBuildTests.ContextFingerprintChangesWithSemanticInputs;
+var
+  lDebugOptions: TDelphiSemanticOptions;
+  lDebugResult: TDelphiSemanticContextResult;
+  lReleaseOptions: TDelphiSemanticOptions;
+  lReleaseResult: TDelphiSemanticContextResult;
+begin
+  lDebugOptions := Default(TDelphiSemanticOptions);
+  lDebugOptions.Configuration := 'Debug';
+  lDebugOptions.Platform := 'Win32';
+  lDebugOptions.DelphiVersion := '23.0';
+
+  lReleaseOptions := lDebugOptions;
+  lReleaseOptions.Configuration := 'Release';
+
+  lDebugResult := TDelphiSemanticProject.Load(
+    FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'), lDebugOptions);
+  lReleaseResult := TDelphiSemanticProject.Load(
+    FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'), lReleaseOptions);
+
+  Assert.IsTrue(lDebugResult.Success);
+  Assert.IsTrue(lReleaseResult.Success);
+  Assert.AreNotEqual('', lDebugResult.Project.ContextFingerprint);
+  Assert.AreNotEqual(lDebugResult.Project.ContextFingerprint,
+    lReleaseResult.Project.ContextFingerprint);
+end;
+
+procedure TProjectMsBuildTests.ContextIncludesIncludePathsCompilerProfileAndFingerprint;
+var
+  lOptions: TDelphiSemanticOptions;
+  lProjectDir: string;
+  lResult: TDelphiSemanticContextResult;
+begin
+  lProjectDir := FixturePath('ProjectContext\MsBuild');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win32';
+  lOptions.DelphiVersion := '23.0';
+
+  lResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'),
+    lOptions);
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(ContainsPath(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'Includes')));
+  Assert.IsTrue(ContainsPath(lResult.Project.IncludePaths,
+    TPath.Combine(lProjectDir, 'SharedIncludes')));
+  Assert.AreEqual('Delphi-23.0-Win32-Debug', lResult.Project.CompilerProfileName);
+  Assert.AreNotEqual('', lResult.Project.ContextFingerprint);
 end;
 
 procedure TProjectMsBuildTests.MigratedDakConditionCasesApplyExpectedProperties;

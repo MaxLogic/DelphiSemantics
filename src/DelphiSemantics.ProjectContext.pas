@@ -39,11 +39,14 @@ type
     Platform: string;
     MainSourceFileName: string;
     Defines: TArray<string>;
+    IncludePaths: TArray<string>;
     SearchPaths: TArray<string>;
     UnitScopeNames: TArray<string>;
     UnitAliases: TArray<string>;
     ReferenceDirectories: TArray<string>;
     Properties: TArray<TDelphiSemanticProperty>;
+    CompilerProfileName: string;
+    ContextFingerprint: string;
     function PropertyValue(const aName: string): string;
     function SourceLookupPaths: TArray<string>;
   end;
@@ -73,6 +76,7 @@ implementation
 
 uses
   System.Generics.Collections,
+  System.Hash,
   System.IOUtils,
   System.RegularExpressions,
   System.StrUtils,
@@ -1027,18 +1031,22 @@ procedure PopulateProjectSemanticContext(var aProject: TDelphiSemanticProjectInf
   const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
 var
   lDefines: TList<string>;
+  lIncludePaths: TList<string>;
   lReferenceDirectories: TList<string>;
   lSearchPaths: TList<string>;
   lUnitAliases: TList<string>;
   lUnitScopeNames: TList<string>;
 begin
   lDefines := TList<string>.Create;
+  lIncludePaths := TList<string>.Create;
   lReferenceDirectories := TList<string>.Create;
   lSearchPaths := TList<string>.Create;
   lUnitAliases := TList<string>.Create;
   lUnitScopeNames := TList<string>.Create;
   try
     AddDelimitedTexts(lDefines, GetPropertyValue(aProperties, 'DCC_Define'));
+    AddDelimitedPaths(lIncludePaths, aProject.ProjectDirectory,
+      GetPropertyValue(aProperties, 'DCC_IncludePath'));
     AddDelimitedPaths(lSearchPaths, aProject.ProjectDirectory,
       GetPropertyValue(aProperties, 'DCC_UnitSearchPath'));
     AddDelimitedTexts(lUnitScopeNames, GetPropertyValue(aProperties, 'DCC_UnitScopeNames'));
@@ -1049,6 +1057,7 @@ begin
       aProperties, aDiagnostics, lSearchPaths, lReferenceDirectories);
 
     aProject.Defines := lDefines.ToArray;
+    aProject.IncludePaths := lIncludePaths.ToArray;
     aProject.SearchPaths := lSearchPaths.ToArray;
     aProject.UnitScopeNames := lUnitScopeNames.ToArray;
     aProject.UnitAliases := lUnitAliases.ToArray;
@@ -1058,7 +1067,77 @@ begin
     lUnitAliases.Free;
     lSearchPaths.Free;
     lReferenceDirectories.Free;
+    lIncludePaths.Free;
     lDefines.Free;
+  end;
+end;
+
+function NormalizeFingerprintPart(const aValue, aFallback: string): string;
+begin
+  Result := Trim(aValue);
+  if Result = '' then
+    Result := aFallback;
+end;
+
+function BuildCompilerProfileName(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions): string;
+var
+  lConfiguration: string;
+  lPlatform: string;
+  lVersion: string;
+begin
+  lVersion := NormalizeFingerprintPart(aOptions.DelphiVersion, 'default');
+  lPlatform := NormalizeFingerprintPart(aProject.Platform, 'default');
+  lConfiguration := NormalizeFingerprintPart(aProject.Configuration, 'default');
+  Result := Format('Delphi-%s-%s-%s', [lVersion, lPlatform, lConfiguration]);
+end;
+
+procedure AppendFingerprintItem(const aBuilder: TStringBuilder; const aName, aValue: string);
+begin
+  aBuilder.Append(aName);
+  aBuilder.Append('=');
+  aBuilder.AppendLine(aValue);
+end;
+
+procedure AppendFingerprintItems(const aBuilder: TStringBuilder; const aName: string;
+  const aItems: TArray<string>);
+var
+  lItem: string;
+begin
+  aBuilder.Append(aName);
+  aBuilder.Append('=');
+  for lItem in aItems do
+  begin
+    aBuilder.Append(lItem);
+    aBuilder.Append('|');
+  end;
+  aBuilder.AppendLine;
+end;
+
+function BuildContextFingerprint(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions): string;
+var
+  lBuilder: TStringBuilder;
+begin
+  lBuilder := TStringBuilder.Create;
+  try
+    AppendFingerprintItem(lBuilder, 'project', AnsiLowerCase(aProject.ProjectFileName));
+    AppendFingerprintItem(lBuilder, 'main', AnsiLowerCase(aProject.MainSourceFileName));
+    AppendFingerprintItem(lBuilder, 'configuration', aProject.Configuration);
+    AppendFingerprintItem(lBuilder, 'platform', aProject.Platform);
+    AppendFingerprintItem(lBuilder, 'delphiVersion', aOptions.DelphiVersion);
+    AppendFingerprintItem(lBuilder, 'rsvars', AnsiLowerCase(aOptions.RsVarsPath));
+    AppendFingerprintItem(lBuilder, 'envoptions', AnsiLowerCase(aOptions.EnvOptionsPath));
+    AppendFingerprintItem(lBuilder, 'compilerProfile', aProject.CompilerProfileName);
+    AppendFingerprintItems(lBuilder, 'defines', aProject.Defines);
+    AppendFingerprintItems(lBuilder, 'includePaths', aProject.IncludePaths);
+    AppendFingerprintItems(lBuilder, 'searchPaths', aProject.SearchPaths);
+    AppendFingerprintItems(lBuilder, 'unitScopes', aProject.UnitScopeNames);
+    AppendFingerprintItems(lBuilder, 'unitAliases', aProject.UnitAliases);
+    AppendFingerprintItems(lBuilder, 'references', aProject.ReferenceDirectories);
+    Result := THashSHA2.GetHashString(lBuilder.ToString);
+  finally
+    lBuilder.Free;
   end;
 end;
 
@@ -1187,6 +1266,8 @@ begin
       lProperties, aDiagnostics);
     Result := CreateProjectInfoFromProperties(aProjectFileName, lText, lProperties);
     PopulateProjectSemanticContext(Result, lText, lProperties, aDiagnostics);
+    Result.CompilerProfileName := BuildCompilerProfileName(Result, aOptions);
+    Result.ContextFingerprint := BuildContextFingerprint(Result, aOptions);
   finally
     lProperties.Free;
   end;
