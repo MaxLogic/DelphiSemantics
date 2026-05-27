@@ -26,6 +26,7 @@ uses
   Test.ResolverLevel1 in 'src\test.resolverlevel1.pas',
   Test.ResolverLevel2 in 'src\test.resolverlevel2.pas',
   Test.ResolverLevel3 in 'src\test.resolverlevel3.pas',
+  Test.ScopeResolver in 'src\test.scoperesolver.pas',
   Test.Search in 'src\test.search.pas',
   Test.SemanticGraph in 'src\test.semanticgraph.pas',
   Test.SemanticGraphDeclarations in 'src\test.semanticgraphdeclarations.pas',

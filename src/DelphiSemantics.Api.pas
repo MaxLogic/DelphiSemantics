@@ -6,9 +6,10 @@ uses
   DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.Index, DelphiSemantics.Model,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.Query,
   DelphiSemantics.Refactor, DelphiSemantics.Resolve.MemberResolver,
-  DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Resolve.UnitResolver,
-  DelphiSemantics.Search, DelphiSemantics.SemanticGraph, DelphiSemantics.Symbols,
-  DelphiSemantics.Usage, DelphiSemantics.WithBinding, DelphiSemantics.WithScan;
+  DelphiSemantics.Resolve.ScopeResolver, DelphiSemantics.Resolve.TypeResolver,
+  DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Search, DelphiSemantics.SemanticGraph,
+  DelphiSemantics.Symbols, DelphiSemantics.Usage, DelphiSemantics.WithBinding,
+  DelphiSemantics.WithScan;
 
 type
   TDelphiSemanticDiagnosticSeverity =
@@ -114,6 +115,10 @@ type
     DelphiSemantics.Resolve.MemberResolver.TDelphiSemanticMemberIdentityIndex;
   TDelphiSemanticMemberResolver =
     DelphiSemantics.Resolve.MemberResolver.TDelphiSemanticMemberResolver;
+  TDelphiSemanticRoutineScopeIndex =
+    DelphiSemantics.Resolve.ScopeResolver.TDelphiSemanticRoutineScopeIndex;
+  TDelphiSemanticScopeResolver =
+    DelphiSemantics.Resolve.ScopeResolver.TDelphiSemanticScopeResolver;
 
 const
   dsInfo = DelphiSemantics.ProjectContext.dsInfo;

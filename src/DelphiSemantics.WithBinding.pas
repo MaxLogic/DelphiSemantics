@@ -3,7 +3,7 @@ unit DelphiSemantics.WithBinding;
 interface
 
 uses
-  DelphiSemantics.Model, DelphiSemantics.Resolve;
+  DelphiSemantics.Model, DelphiSemantics.Resolve, DelphiSemantics.Resolve.ScopeResolver;
 
 type
   TDelphiSemanticWithSelectorBinding = record
@@ -102,13 +102,6 @@ uses
   System.Classes, System.Generics.Collections, System.IOUtils, System.Math,
   System.RegularExpressions, System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils;
-
-type
-  TRoutineFrame = record
-    Name: string;
-    Begun: Boolean;
-    BlockDepth: Integer;
-  end;
 
 function IsBinderKeyword(const aName: string): Boolean;
 begin
@@ -228,112 +221,6 @@ begin
       Result := StringReplace(Result, aAllStatements[i].Text,
         BlankTextPreservingLines(aAllStatements[i].Text), []);
   Result := SanitizeBodyText(Result);
-end;
-
-function FindRoutineNameForLine(const aModel: TDelphiSemanticUnitModel; const aLine: Integer): string;
-var
-  lRoutine: TDelphiSemanticRoutine;
-begin
-  Result := '';
-  for lRoutine in aModel.Routines do
-    if (lRoutine.Line <= aLine) and ((Result = '') or (lRoutine.Line > 0)) then
-      Result := lRoutine.Name;
-end;
-
-function ContainsRoutineName(const aNames: TList<string>; const aName: string): Boolean;
-var
-  lName: string;
-begin
-  for lName in aNames do
-    if SameText(lName, aName) then
-      Exit(True);
-
-  Result := False;
-end;
-
-function ParentRoutineNamesForLine(const aModel: TDelphiSemanticUnitModel;
-  const aRoutineName: string; const aLine: Integer): TArray<string>;
-var
-  i: Integer;
-  lFrame: TRoutineFrame;
-  lFrames: TList<TRoutineFrame>;
-  lInImplementation: Boolean;
-  lLine: string;
-  lLines: TStringList;
-  lNames: TList<string>;
-  lRoutineName: string;
-  lMatch: TMatch;
-begin
-  lNames := TList<string>.Create;
-  lFrames := TList<TRoutineFrame>.Create;
-  lLines := TStringList.Create;
-  try
-    if not TFile.Exists(aModel.FileName) then
-      Exit(lNames.ToArray);
-
-    lLines.Text := TFile.ReadAllText(aModel.FileName);
-    lInImplementation := False;
-    for i := 0 to Min(aLine - 2, lLines.Count - 1) do
-    begin
-      lLine := TRegEx.Replace(lLines[i], '''(?:''''|[^''])*''', ' ', [roSingleLine]);
-      lLine := TRegEx.Replace(lLine, '//.*$', ' ', [roIgnoreCase]);
-      if SameText(lLine.Trim, 'implementation') then
-      begin
-        lInImplementation := True;
-        Continue;
-      end;
-
-      if not lInImplementation then
-        Continue;
-
-      lMatch := TRegEx.Match(lLine,
-        '^\s*(?:procedure|function)\s+(?:[A-Za-z_][A-Za-z0-9_]*\.)?' +
-        '([A-Za-z_][A-Za-z0-9_]*)\b', [roIgnoreCase]);
-      if lMatch.Success then
-      begin
-        lFrame := Default(TRoutineFrame);
-        lFrame.Name := lMatch.Groups[1].Value;
-        lFrames.Add(lFrame);
-      end;
-
-      lMatch := TRegEx.Match(lLine, '\b(begin|end)\b', [roIgnoreCase]);
-      while lMatch.Success do
-      begin
-        if lFrames.Count > 0 then
-        begin
-          lFrame := lFrames.Last;
-          if SameText(lMatch.Value, 'begin') then
-          begin
-            lFrame.Begun := True;
-            Inc(lFrame.BlockDepth);
-            lFrames[Pred(lFrames.Count)] := lFrame;
-          end else if lFrame.Begun and (lFrame.BlockDepth > 0) then
-          begin
-            Dec(lFrame.BlockDepth);
-            if lFrame.BlockDepth = 0 then
-              lFrames.Delete(Pred(lFrames.Count))
-            else
-              lFrames[Pred(lFrames.Count)] := lFrame;
-          end;
-        end;
-        lMatch := lMatch.NextMatch;
-      end;
-    end;
-
-    for i := Pred(lFrames.Count) downto 0 do
-    begin
-      lRoutineName := lFrames[i].Name;
-      if not SameText(lRoutineName, aRoutineName) and
-        not ContainsRoutineName(lNames, lRoutineName) then
-        lNames.Add(lRoutineName);
-    end;
-
-    Result := lNames.ToArray;
-  finally
-    lLines.Free;
-    lFrames.Free;
-    lNames.Free;
-  end;
 end;
 
 function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
@@ -2730,10 +2617,12 @@ var
   lBindings: TList<TDelphiSemanticWithBinding>;
   lParentRoutineNames: TArray<string>;
   lRoutineName: string;
+  lScopeIndex: TDelphiSemanticRoutineScopeIndex;
   lStatement: TDelphiSemanticWithStatement;
 begin
   lBindings := TList<TDelphiSemanticWithBinding>.Create;
   try
+    lScopeIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(aModel);
     for i := 0 to High(aModel.WithStatements) do
     begin
       lStatement := aModel.WithStatements[i];
@@ -2749,9 +2638,9 @@ begin
       lBinding.BodyEndLine := lStatement.BodyEndLine;
       lBinding.BodyEndColumn := lStatement.BodyEndColumn;
       lBinding.SelectorText := lStatement.SelectorText;
-      lRoutineName := FindRoutineNameForLine(aModel, lStatement.Line);
+      lRoutineName := lScopeIndex.RoutineNameForLine(lStatement.Line);
       lBinding.RoutineName := lRoutineName;
-      lParentRoutineNames := ParentRoutineNamesForLine(aModel, lRoutineName, lStatement.Line);
+      lParentRoutineNames := lScopeIndex.ParentRoutineNamesForLine(lRoutineName, lStatement.Line);
       lBinding.Selectors := CombinedSelectors(aModel, aModel.WithStatements, i, lRoutineName,
         lParentRoutineNames);
       lBinding.References := BindReferences(aModel, lStatement, aModel.WithStatements, i,
