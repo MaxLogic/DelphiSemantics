@@ -18,6 +18,14 @@ type
     Value: string;
   end;
 
+  TDelphiSemanticGraphReferenceId = record
+    Value: string;
+  end;
+
+  TDelphiSemanticGraphWithStatementId = record
+    Value: string;
+  end;
+
   TDelphiSemanticGraphTypeId = record
     Value: string;
   end;
@@ -111,9 +119,31 @@ type
     SourceRange: TDelphiSemanticSourceRange;
   end;
 
+  TDelphiSemanticGraphReference = record
+    Id: TDelphiSemanticGraphReferenceId;
+    UnitId: TDelphiSemanticUnitGraphId;
+    Name: string;
+    RoutineName: string;
+    Role: string;
+    SectionKind: string;
+    SourceRange: TDelphiSemanticSourceRange;
+  end;
+
+  TDelphiSemanticGraphWithStatement = record
+    Id: TDelphiSemanticGraphWithStatementId;
+    UnitId: TDelphiSemanticUnitGraphId;
+    SelectorText: string;
+    SelectorCount: Integer;
+    NestingDepth: Integer;
+    SourceRange: TDelphiSemanticSourceRange;
+    BodyRange: TDelphiSemanticSourceRange;
+  end;
+
   TDelphiSemanticGraphBuildMetrics = record
     UnitCount: Integer;
     SymbolCount: Integer;
+    ReferenceCount: Integer;
+    WithStatementCount: Integer;
     BuildMilliseconds: Int64;
   end;
 
@@ -125,10 +155,12 @@ type
     fMetrics: TDelphiSemanticGraphBuildMetrics;
     fParameters: TArray<TDelphiSemanticGraphParameter>;
     fProjectId: TDelphiSemanticProjectGraphId;
+    fReferences: TArray<TDelphiSemanticGraphReference>;
     fRoutines: TArray<TDelphiSemanticGraphRoutine>;
     fSymbols: TArray<TDelphiSemanticGraphSymbol>;
     fTypes: TArray<TDelphiSemanticGraphType>;
     fUnits: TArray<TDelphiSemanticGraphUnit>;
+    fWithStatements: TArray<TDelphiSemanticGraphWithStatement>;
   public
     constructor Create(const aProjectId: TDelphiSemanticProjectGraphId;
       const aUnits: TArray<TDelphiSemanticGraphUnit>;
@@ -139,7 +171,19 @@ type
       const aRoutines: TArray<TDelphiSemanticGraphRoutine>;
       const aParameters: TArray<TDelphiSemanticGraphParameter>;
       const aLocals: TArray<TDelphiSemanticGraphLocal>;
-      const aMetrics: TDelphiSemanticGraphBuildMetrics);
+      const aMetrics: TDelphiSemanticGraphBuildMetrics); overload;
+    constructor Create(const aProjectId: TDelphiSemanticProjectGraphId;
+      const aUnits: TArray<TDelphiSemanticGraphUnit>;
+      const aSymbols: TArray<TDelphiSemanticGraphSymbol>;
+      const aDeclarations: TArray<TDelphiSemanticGraphDeclaration>;
+      const aTypes: TArray<TDelphiSemanticGraphType>;
+      const aMembers: TArray<TDelphiSemanticGraphMember>;
+      const aRoutines: TArray<TDelphiSemanticGraphRoutine>;
+      const aParameters: TArray<TDelphiSemanticGraphParameter>;
+      const aLocals: TArray<TDelphiSemanticGraphLocal>;
+      const aReferences: TArray<TDelphiSemanticGraphReference>;
+      const aWithStatements: TArray<TDelphiSemanticGraphWithStatement>;
+      const aMetrics: TDelphiSemanticGraphBuildMetrics); overload;
     function Declarations: TArray<TDelphiSemanticGraphDeclaration>;
     function FindRoutineByName(const aName: string; out aRoutine: TDelphiSemanticGraphRoutine):
       Boolean;
@@ -150,10 +194,12 @@ type
     function Locals: TArray<TDelphiSemanticGraphLocal>;
     function Members: TArray<TDelphiSemanticGraphMember>;
     function Parameters: TArray<TDelphiSemanticGraphParameter>;
+    function References: TArray<TDelphiSemanticGraphReference>;
     function Routines: TArray<TDelphiSemanticGraphRoutine>;
     function Symbols: TArray<TDelphiSemanticGraphSymbol>;
     function Types: TArray<TDelphiSemanticGraphType>;
     function Units: TArray<TDelphiSemanticGraphUnit>;
+    function WithStatements: TArray<TDelphiSemanticGraphWithStatement>;
     property Metrics: TDelphiSemanticGraphBuildMetrics read fMetrics;
     property ProjectId: TDelphiSemanticProjectGraphId read fProjectId;
   end;
@@ -215,6 +261,24 @@ function MakeTypeId(const aUnitId: TDelphiSemanticUnitGraphId; const aRole, aNam
 begin
   Result.Value := StableHash('type|' + aUnitId.Value + '|' + LowerCase(aRole) + '|' +
     LowerCase(aName));
+end;
+
+function MakeReferenceId(const aUnitId: TDelphiSemanticUnitGraphId;
+  const aReference: TDelphiSemanticReference; const aOrdinal: Integer):
+  TDelphiSemanticGraphReferenceId;
+begin
+  Result.Value := StableHash('reference|' + aUnitId.Value + '|' +
+    LowerCase(aReference.Name) + '|' + IntToStr(aReference.Line) + '|' +
+    IntToStr(aReference.Column) + '|' + IntToStr(aOrdinal));
+end;
+
+function MakeWithStatementId(const aUnitId: TDelphiSemanticUnitGraphId;
+  const aWithStatement: TDelphiSemanticWithStatement; const aOrdinal: Integer):
+  TDelphiSemanticGraphWithStatementId;
+begin
+  Result.Value := StableHash('with|' + aUnitId.Value + '|' +
+    LowerCase(aWithStatement.SelectorText) + '|' + IntToStr(aWithStatement.Line) + '|' +
+    IntToStr(aWithStatement.Column) + '|' + IntToStr(aOrdinal));
 end;
 
 function CompleteNameRange(const aRange: TDelphiSemanticSourceRange; const aName: string):
@@ -305,6 +369,42 @@ begin
   Result.Offset := aParameter.Offset;
   Result.EndOffset := aParameter.EndOffset;
   Result := CompleteNameRange(Result, aParameter.Name);
+end;
+
+function ReferenceSourceRange(const aModel: TDelphiSemanticUnitModel;
+  const aReference: TDelphiSemanticReference): TDelphiSemanticSourceRange;
+begin
+  Result := Default(TDelphiSemanticSourceRange);
+  Result.FileName := aModel.FileName;
+  Result.Line := aReference.Line;
+  Result.Column := aReference.Column;
+  Result.EndLine := aReference.EndLine;
+  Result.EndColumn := aReference.EndColumn;
+  Result.Offset := aReference.Offset;
+  Result.EndOffset := aReference.EndOffset;
+  Result := CompleteNameRange(Result, aReference.Name);
+end;
+
+function WithSourceRange(const aModel: TDelphiSemanticUnitModel;
+  const aWithStatement: TDelphiSemanticWithStatement): TDelphiSemanticSourceRange;
+begin
+  Result := Default(TDelphiSemanticSourceRange);
+  Result.FileName := aModel.FileName;
+  Result.Line := aWithStatement.Line;
+  Result.Column := aWithStatement.Column;
+  Result.EndLine := aWithStatement.EndLine;
+  Result.EndColumn := aWithStatement.EndColumn;
+end;
+
+function WithBodyRange(const aModel: TDelphiSemanticUnitModel;
+  const aWithStatement: TDelphiSemanticWithStatement): TDelphiSemanticSourceRange;
+begin
+  Result := Default(TDelphiSemanticSourceRange);
+  Result.FileName := aModel.FileName;
+  Result.Line := aWithStatement.BodyLine;
+  Result.Column := aWithStatement.BodyColumn;
+  Result.EndLine := aWithStatement.BodyEndLine;
+  Result.EndColumn := aWithStatement.BodyEndColumn;
 end;
 
 procedure AddDeclarationSymbols(const aSymbols: TList<TDelphiSemanticGraphSymbol>;
@@ -492,6 +592,55 @@ begin
   end;
 end;
 
+procedure AddReferences(const aReferences: TList<TDelphiSemanticGraphReference>;
+  const aUnit: TDelphiSemanticGraphUnit; const aModel: TDelphiSemanticUnitModel);
+var
+  lReference: TDelphiSemanticReference;
+  lReferenceDto: TDelphiSemanticGraphReference;
+  lUnitOrdinal: Integer;
+begin
+  lUnitOrdinal := 0;
+  for lReference in aModel.References do
+  begin
+    if lReference.Name = '' then
+      Continue;
+
+    lReferenceDto := Default(TDelphiSemanticGraphReference);
+    lReferenceDto.Id := MakeReferenceId(aUnit.Id, lReference, lUnitOrdinal);
+    lReferenceDto.UnitId := aUnit.Id;
+    lReferenceDto.Name := lReference.Name;
+    lReferenceDto.RoutineName := lReference.RoutineName;
+    lReferenceDto.Role := lReference.Role;
+    lReferenceDto.SectionKind := lReference.SectionKind;
+    lReferenceDto.SourceRange := ReferenceSourceRange(aModel, lReference);
+    aReferences.Add(lReferenceDto);
+    Inc(lUnitOrdinal);
+  end;
+end;
+
+procedure AddWithStatements(const aWithStatements: TList<TDelphiSemanticGraphWithStatement>;
+  const aUnit: TDelphiSemanticGraphUnit; const aModel: TDelphiSemanticUnitModel);
+var
+  lWithDto: TDelphiSemanticGraphWithStatement;
+  lWithStatement: TDelphiSemanticWithStatement;
+  lUnitOrdinal: Integer;
+begin
+  lUnitOrdinal := 0;
+  for lWithStatement in aModel.WithStatements do
+  begin
+    lWithDto := Default(TDelphiSemanticGraphWithStatement);
+    lWithDto.Id := MakeWithStatementId(aUnit.Id, lWithStatement, lUnitOrdinal);
+    lWithDto.UnitId := aUnit.Id;
+    lWithDto.SelectorText := lWithStatement.SelectorText;
+    lWithDto.SelectorCount := lWithStatement.SelectorCount;
+    lWithDto.NestingDepth := lWithStatement.NestingDepth;
+    lWithDto.SourceRange := WithSourceRange(aModel, lWithStatement);
+    lWithDto.BodyRange := WithBodyRange(aModel, lWithStatement);
+    aWithStatements.Add(lWithDto);
+    Inc(lUnitOrdinal);
+  end;
+end;
+
 constructor TDelphiSemanticSemanticGraph.Create(
   const aProjectId: TDelphiSemanticProjectGraphId;
   const aUnits: TArray<TDelphiSemanticGraphUnit>;
@@ -504,6 +653,24 @@ constructor TDelphiSemanticSemanticGraph.Create(
   const aLocals: TArray<TDelphiSemanticGraphLocal>;
   const aMetrics: TDelphiSemanticGraphBuildMetrics);
 begin
+  Create(aProjectId, aUnits, aSymbols, aDeclarations, aTypes, aMembers, aRoutines,
+    aParameters, aLocals, nil, nil, aMetrics);
+end;
+
+constructor TDelphiSemanticSemanticGraph.Create(
+  const aProjectId: TDelphiSemanticProjectGraphId;
+  const aUnits: TArray<TDelphiSemanticGraphUnit>;
+  const aSymbols: TArray<TDelphiSemanticGraphSymbol>;
+  const aDeclarations: TArray<TDelphiSemanticGraphDeclaration>;
+  const aTypes: TArray<TDelphiSemanticGraphType>;
+  const aMembers: TArray<TDelphiSemanticGraphMember>;
+  const aRoutines: TArray<TDelphiSemanticGraphRoutine>;
+  const aParameters: TArray<TDelphiSemanticGraphParameter>;
+  const aLocals: TArray<TDelphiSemanticGraphLocal>;
+  const aReferences: TArray<TDelphiSemanticGraphReference>;
+  const aWithStatements: TArray<TDelphiSemanticGraphWithStatement>;
+  const aMetrics: TDelphiSemanticGraphBuildMetrics);
+begin
   inherited Create;
   fProjectId := aProjectId;
   fUnits := Copy(aUnits);
@@ -514,6 +681,8 @@ begin
   fRoutines := Copy(aRoutines);
   fParameters := Copy(aParameters);
   fLocals := Copy(aLocals);
+  fReferences := Copy(aReferences);
+  fWithStatements := Copy(aWithStatements);
   fMetrics := aMetrics;
 end;
 
@@ -585,6 +754,11 @@ begin
   Result := Copy(fParameters);
 end;
 
+function TDelphiSemanticSemanticGraph.References: TArray<TDelphiSemanticGraphReference>;
+begin
+  Result := Copy(fReferences);
+end;
+
 function TDelphiSemanticSemanticGraph.Routines: TArray<TDelphiSemanticGraphRoutine>;
 begin
   Result := Copy(fRoutines);
@@ -605,6 +779,12 @@ begin
   Result := Copy(fUnits);
 end;
 
+function TDelphiSemanticSemanticGraph.WithStatements:
+  TArray<TDelphiSemanticGraphWithStatement>;
+begin
+  Result := Copy(fWithStatements);
+end;
+
 class function TDelphiSemanticSemanticGraphBuilder.Build(
   const aProject: TDelphiSemanticProjectInfo;
   const aUnitModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticSemanticGraph;
@@ -614,6 +794,7 @@ var
   lMembers: TList<TDelphiSemanticGraphMember>;
   lMetrics: TDelphiSemanticGraphBuildMetrics;
   lParameters: TList<TDelphiSemanticGraphParameter>;
+  lReferences: TList<TDelphiSemanticGraphReference>;
   lUnit: TDelphiSemanticGraphUnit;
   lProjectId: TDelphiSemanticProjectGraphId;
   lRoutines: TList<TDelphiSemanticGraphRoutine>;
@@ -621,6 +802,7 @@ var
   lSymbols: TList<TDelphiSemanticGraphSymbol>;
   lTypes: TList<TDelphiSemanticGraphType>;
   lUnits: TList<TDelphiSemanticGraphUnit>;
+  lWithStatements: TList<TDelphiSemanticGraphWithStatement>;
   lModel: TDelphiSemanticUnitModel;
 begin
   lStopwatch := TStopwatch.StartNew;
@@ -630,6 +812,8 @@ begin
   lRoutines := nil;
   lParameters := nil;
   lLocals := nil;
+  lReferences := nil;
+  lWithStatements := nil;
   lSymbols := nil;
   lUnits := TList<TDelphiSemanticGraphUnit>.Create;
   try
@@ -639,6 +823,8 @@ begin
     lRoutines := TList<TDelphiSemanticGraphRoutine>.Create;
     lParameters := TList<TDelphiSemanticGraphParameter>.Create;
     lLocals := TList<TDelphiSemanticGraphLocal>.Create;
+    lReferences := TList<TDelphiSemanticGraphReference>.Create;
+    lWithStatements := TList<TDelphiSemanticGraphWithStatement>.Create;
     lSymbols := TList<TDelphiSemanticGraphSymbol>.Create;
     lProjectId := MakeProjectId(aProject);
     for lModel in aUnitModels do
@@ -650,18 +836,25 @@ begin
         AddMemberSymbols(lSymbols, lMembers, lUnit, lModel);
         AddRoutineSymbols(lSymbols, lRoutines, lParameters, lUnit, lModel);
         AddLocalSymbols(lSymbols, lLocals, lUnit, lModel);
+        AddReferences(lReferences, lUnit, lModel);
+        AddWithStatements(lWithStatements, lUnit, lModel);
       end;
 
     lStopwatch.Stop;
     lMetrics := Default(TDelphiSemanticGraphBuildMetrics);
     lMetrics.UnitCount := lUnits.Count;
     lMetrics.SymbolCount := lSymbols.Count;
+    lMetrics.ReferenceCount := lReferences.Count;
+    lMetrics.WithStatementCount := lWithStatements.Count;
     lMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;
     Result := TDelphiSemanticSemanticGraph.Create(lProjectId, lUnits.ToArray,
       lSymbols.ToArray, lDeclarations.ToArray, lTypes.ToArray, lMembers.ToArray,
-      lRoutines.ToArray, lParameters.ToArray, lLocals.ToArray, lMetrics);
+      lRoutines.ToArray, lParameters.ToArray, lLocals.ToArray, lReferences.ToArray,
+      lWithStatements.ToArray, lMetrics);
   finally
     lSymbols.Free;
+    lWithStatements.Free;
+    lReferences.Free;
     lLocals.Free;
     lParameters.Free;
     lRoutines.Free;

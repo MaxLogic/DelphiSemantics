@@ -26,6 +26,7 @@ uses
   Test.Search in 'src\test.search.pas',
   Test.SemanticGraph in 'src\test.semanticgraph.pas',
   Test.SemanticGraphDeclarations in 'src\test.semanticgraphdeclarations.pas',
+  Test.SemanticGraphReferences in 'src\test.semanticgraphreferences.pas',
   Test.SourceContext in 'src\test.sourcecontext.pas',
   Test.Smoke in 'src\test.smoke.pas',
   Test.SymbolQuery in 'src\test.symbolquery.pas',

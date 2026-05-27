@@ -71,6 +71,7 @@
     <DCCReference Include="src\test.search.pas"/>
     <DCCReference Include="src\test.semanticgraph.pas"/>
     <DCCReference Include="src\test.semanticgraphdeclarations.pas"/>
+    <DCCReference Include="src\test.semanticgraphreferences.pas"/>
     <DCCReference Include="src\test.sourcecontext.pas"/>
     <DCCReference Include="src\test.smoke.pas"/>
     <DCCReference Include="src\test.symbolquery.pas"/>
