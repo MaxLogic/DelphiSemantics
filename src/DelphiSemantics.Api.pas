@@ -6,8 +6,8 @@ uses
   DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.Index, DelphiSemantics.Model,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.Query,
   DelphiSemantics.Refactor, DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Search,
-  DelphiSemantics.Symbols, DelphiSemantics.Usage, DelphiSemantics.WithBinding,
-  DelphiSemantics.WithScan;
+  DelphiSemantics.SemanticGraph, DelphiSemantics.Symbols, DelphiSemantics.Usage,
+  DelphiSemantics.WithBinding, DelphiSemantics.WithScan;
 
 type
   TDelphiSemanticDiagnosticSeverity =
@@ -64,6 +64,20 @@ type
     DelphiSemantics.Resolve.UnitResolver.TDelphiSemanticUnitResolutionResult;
   TDelphiSemanticUnitResolver =
     DelphiSemantics.Resolve.UnitResolver.TDelphiSemanticUnitResolver;
+  TDelphiSemanticProjectGraphId =
+    DelphiSemantics.SemanticGraph.TDelphiSemanticProjectGraphId;
+  TDelphiSemanticUnitGraphId = DelphiSemantics.SemanticGraph.TDelphiSemanticUnitGraphId;
+  TDelphiSemanticGraphSymbolId =
+    DelphiSemantics.SemanticGraph.TDelphiSemanticGraphSymbolId;
+  TDelphiSemanticSourceRange = DelphiSemantics.SemanticGraph.TDelphiSemanticSourceRange;
+  TDelphiSemanticGraphUnit = DelphiSemantics.SemanticGraph.TDelphiSemanticGraphUnit;
+  TDelphiSemanticGraphSymbol = DelphiSemantics.SemanticGraph.TDelphiSemanticGraphSymbol;
+  TDelphiSemanticGraphBuildMetrics =
+    DelphiSemantics.SemanticGraph.TDelphiSemanticGraphBuildMetrics;
+  TDelphiSemanticSemanticGraph =
+    DelphiSemantics.SemanticGraph.TDelphiSemanticSemanticGraph;
+  TDelphiSemanticSemanticGraphBuilder =
+    DelphiSemantics.SemanticGraph.TDelphiSemanticSemanticGraphBuilder;
 
 const
   dsInfo = DelphiSemantics.ProjectContext.dsInfo;

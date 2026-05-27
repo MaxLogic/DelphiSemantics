@@ -3,7 +3,7 @@ unit DelphiSemantics.ProjectSession;
 interface
 
 uses
-  DelphiSemantics.ProjectContext;
+  DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.SemanticGraph;
 
 type
   TDelphiSemanticProjectSession = class;
@@ -21,6 +21,7 @@ type
   TDelphiSemanticProjectSession = class
   private
     fDiagnostics: TArray<TDelphiSemanticDiagnostic>;
+    fLastSemanticGraphBuildMetrics: TDelphiSemanticGraphBuildMetrics;
     fOptions: TDelphiSemanticOptions;
     fProject: TDelphiSemanticProjectInfo;
     fProvenance: string;
@@ -30,9 +31,12 @@ type
       const aProject: TDelphiSemanticProjectInfo;
       const aDiagnostics: TArray<TDelphiSemanticDiagnostic>;
       const aStatus: TDelphiSemanticProjectSessionStatus; const aProvenance: string);
+    function BuildSemanticGraph: TDelphiSemanticSemanticGraph;
     class function Open(const aOptions: TDelphiSemanticOptions):
       TDelphiSemanticProjectSessionResult; static;
     property Diagnostics: TArray<TDelphiSemanticDiagnostic> read fDiagnostics;
+    property LastSemanticGraphBuildMetrics: TDelphiSemanticGraphBuildMetrics
+      read fLastSemanticGraphBuildMetrics;
     property Options: TDelphiSemanticOptions read fOptions;
     property Project: TDelphiSemanticProjectInfo read fProject;
     property Provenance: string read fProvenance;
@@ -86,6 +90,24 @@ begin
   fDiagnostics := Copy(aDiagnostics);
   fStatus := aStatus;
   fProvenance := aProvenance;
+end;
+
+function TDelphiSemanticProjectSession.BuildSemanticGraph: TDelphiSemanticSemanticGraph;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := fProject.MainSourceFileName;
+  lOptions.Defines := fProject.Defines;
+  lOptions.SearchPaths := fProject.SourceLookupPaths;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  if (lModel.Success) and (lModel.UnitName = '') and
+    SameText(lModel.FileName, fProject.MainSourceFileName) then
+    lModel.UnitName := fProject.ProjectName;
+  Result := TDelphiSemanticSemanticGraphBuilder.Build(fProject, [lModel]);
+  fLastSemanticGraphBuildMetrics := Result.Metrics;
 end;
 
 class function TDelphiSemanticProjectSession.Open(const aOptions: TDelphiSemanticOptions):
