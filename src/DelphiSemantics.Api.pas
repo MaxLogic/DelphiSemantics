@@ -5,10 +5,10 @@ interface
 uses
   DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.Index, DelphiSemantics.Model,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.Query,
-  DelphiSemantics.Refactor, DelphiSemantics.Resolve.TypeResolver,
-  DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Search, DelphiSemantics.SemanticGraph,
-  DelphiSemantics.Symbols, DelphiSemantics.Usage, DelphiSemantics.WithBinding,
-  DelphiSemantics.WithScan;
+  DelphiSemantics.Refactor, DelphiSemantics.Resolve.MemberResolver,
+  DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Resolve.UnitResolver,
+  DelphiSemantics.Search, DelphiSemantics.SemanticGraph, DelphiSemantics.Symbols,
+  DelphiSemantics.Usage, DelphiSemantics.WithBinding, DelphiSemantics.WithScan;
 
 type
   TDelphiSemanticDiagnosticSeverity =
@@ -104,6 +104,14 @@ type
     DelphiSemantics.Resolve.TypeResolver.TDelphiSemanticTypeIdentityIndex;
   TDelphiSemanticTypeResolver =
     DelphiSemantics.Resolve.TypeResolver.TDelphiSemanticTypeResolver;
+  TDelphiSemanticMemberIdentity =
+    DelphiSemantics.Resolve.MemberResolver.TDelphiSemanticMemberIdentity;
+  TDelphiSemanticMemberLookupResult =
+    DelphiSemantics.Resolve.MemberResolver.TDelphiSemanticMemberLookupResult;
+  TDelphiSemanticMemberIdentityIndex =
+    DelphiSemantics.Resolve.MemberResolver.TDelphiSemanticMemberIdentityIndex;
+  TDelphiSemanticMemberResolver =
+    DelphiSemantics.Resolve.MemberResolver.TDelphiSemanticMemberResolver;
 
 const
   dsInfo = DelphiSemantics.ProjectContext.dsInfo;

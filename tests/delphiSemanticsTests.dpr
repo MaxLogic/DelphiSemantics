@@ -13,6 +13,7 @@ uses
   Test.DeadCode in 'src\test.deadcode.pas',
   Test.GlobalVars in 'src\test.globalvars.pas',
   Test.LspBoundary in 'src\test.lspboundary.pas',
+  Test.MemberResolver in 'src\test.memberresolver.pas',
   Test.Preprocess in 'src\test.preprocess.pas',
   Test.ProjectContext in 'src\test.projectcontext.pas',
   Test.ProjectMsBuild in 'src\test.projectmsbuild.pas',

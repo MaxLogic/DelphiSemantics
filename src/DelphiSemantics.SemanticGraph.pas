@@ -89,6 +89,10 @@ type
     Name: string;
     Kind: string;
     TypeName: string;
+    Visibility: string;
+    Signature: string;
+    IsIndexed: Boolean;
+    IsDefault: Boolean;
     SourceRange: TDelphiSemanticSourceRange;
   end;
 
@@ -497,6 +501,10 @@ begin
     lMemberDto.Name := lMember.Name;
     lMemberDto.Kind := lMember.Kind;
     lMemberDto.TypeName := lMember.TypeName;
+    lMemberDto.Visibility := lMember.Visibility;
+    lMemberDto.Signature := lMember.Signature;
+    lMemberDto.IsIndexed := lMember.IsIndexed;
+    lMemberDto.IsDefault := lMember.IsDefault;
     lMemberDto.SourceRange := lSymbol.SourceRange;
     aMembers.Add(lMemberDto);
   end;
