@@ -26,6 +26,10 @@ type
     DelphiSemantics.ProjectSession.TDelphiSemanticProjectSession;
   TDelphiSemanticProjectSessionResult =
     DelphiSemantics.ProjectSession.TDelphiSemanticProjectSessionResult;
+  TDelphiSemanticSessionChange =
+    DelphiSemantics.ProjectSession.TDelphiSemanticSessionChange;
+  TDelphiSemanticSessionInvalidationPlan =
+    DelphiSemantics.ProjectSession.TDelphiSemanticSessionInvalidationPlan;
   TDelphiSemanticCacheOptions = DelphiSemantics.Cache.TDelphiSemanticCacheOptions;
   TDelphiSemanticCacheMetrics = DelphiSemantics.Cache.TDelphiSemanticCacheMetrics;
   TDelphiSemanticCacheDiagnostic = DelphiSemantics.Cache.TDelphiSemanticCacheDiagnostic;

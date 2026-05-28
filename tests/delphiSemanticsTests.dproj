@@ -75,6 +75,7 @@
     <DCCReference Include="src\test.resolverlevel3.pas"/>
     <DCCReference Include="src\test.scoperesolver.pas"/>
     <DCCReference Include="src\test.search.pas"/>
+    <DCCReference Include="src\test.semanticinvalidation.pas"/>
     <DCCReference Include="src\test.semanticgraph.pas"/>
     <DCCReference Include="src\test.semanticgraphdeclarations.pas"/>
     <DCCReference Include="src\test.semanticgraphreferences.pas"/>

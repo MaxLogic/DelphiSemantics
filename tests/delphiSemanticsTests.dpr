@@ -30,6 +30,7 @@ uses
   Test.ResolverLevel3 in 'src\test.resolverlevel3.pas',
   Test.ScopeResolver in 'src\test.scoperesolver.pas',
   Test.Search in 'src\test.search.pas',
+  Test.SemanticInvalidation in 'src\test.semanticinvalidation.pas',
   Test.SemanticGraph in 'src\test.semanticgraph.pas',
   Test.SemanticGraphDeclarations in 'src\test.semanticgraphdeclarations.pas',
   Test.SemanticGraphReferences in 'src\test.semanticgraphreferences.pas',
