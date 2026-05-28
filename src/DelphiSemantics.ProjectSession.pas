@@ -65,7 +65,7 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.IOUtils, System.SysUtils,
+  System.Diagnostics, System.Generics.Collections, System.IOUtils, System.SysUtils,
   DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite,
   MaxLogic.StrUtils;
 
@@ -102,48 +102,38 @@ begin
 end;
 
 function ExtractProjectUnitModel(const aProject: TDelphiSemanticProjectInfo;
-  const aFileName: string; const aCache: TDelphiSemanticUnitCache): TDelphiSemanticUnitModel;
+  const aFileName: string; const aCache: TDelphiSemanticUnitCache;
+  const aSkipBodyAnalysis: Boolean):
+  TDelphiSemanticUnitModel; overload;
 var
   lOptions: TDelphiSemanticModelOptions;
 begin
-  if aCache = nil then
-    Exit(ExtractUnitModel(aProject, aFileName));
-
   lOptions := MainModelOptions(aProject);
   lOptions.SourceFileName := aFileName;
+  lOptions.SkipBodyAnalysis := aSkipBodyAnalysis;
+  if aCache = nil then
+    Exit(TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions));
+
   Result := aCache.GetOrExtractUnitModel(lOptions);
 end;
 
-function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions):
-  TArray<TDelphiSemanticUnitModel>;
+function ProjectModelFileNames(const aProject: TDelphiSemanticProjectInfo):
+  TArray<string>;
 var
-  lCache: TDelphiSemanticUnitCache;
-  lCacheOptions: TDelphiSemanticCacheOptions;
   lFileName: string;
-  lModel: TDelphiSemanticUnitModel;
-  lModels: TList<TDelphiSemanticUnitModel>;
+  lFiles: TList<string>;
   lSeen: TDictionary<string, Byte>;
   lSourceFileName: string;
 begin
-  lModels := nil;
-  lSeen := nil;
-  lCache := nil;
+  lFiles := TList<string>.Create;
+  lSeen := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   try
-    if Trim(aOptions.SqliteCacheFileName) <> '' then
+    if aProject.MainSourceFileName <> '' then
     begin
-      lCacheOptions := CacheOptionsFromSessionOptions(aOptions);
-      lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+      lSourceFileName := TPath.GetFullPath(aProject.MainSourceFileName);
+      lSeen.AddOrSetValue(lSourceFileName, 0);
+      lFiles.Add(lSourceFileName);
     end;
-    lModels := TList<TDelphiSemanticUnitModel>.Create;
-    lSeen := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
-    lModel := ExtractProjectUnitModel(aProject, aProject.MainSourceFileName, lCache);
-    if (lModel.Success) and (lModel.UnitName = '') and
-      SameText(lModel.FileName, aProject.MainSourceFileName) then
-      lModel.UnitName := aProject.ProjectName;
-    if lModel.FileName <> '' then
-      lSeen.AddOrSetValue(TPath.GetFullPath(lModel.FileName), 0);
-    lModels.Add(lModel);
 
     for lFileName in aProject.SourceFileNames do
     begin
@@ -151,13 +141,89 @@ begin
       if lSeen.ContainsKey(lSourceFileName) then
         Continue;
       lSeen.Add(lSourceFileName, 0);
-      lModels.Add(ExtractProjectUnitModel(aProject, lSourceFileName, lCache));
+      lFiles.Add(lSourceFileName);
+    end;
+    Result := lFiles.ToArray;
+  finally
+    lSeen.Free;
+    lFiles.Free;
+  end;
+end;
+
+function BodyAnalysisSourceFileSet(const aOptions: TDelphiSemanticOptions):
+  TDictionary<string, Byte>;
+var
+  lFileName: string;
+begin
+  if Length(aOptions.BodyAnalysisSourceFileNames) = 0 then
+    Exit(nil);
+
+  Result := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  for lFileName in aOptions.BodyAnalysisSourceFileNames do
+    if Trim(lFileName) <> '' then
+      Result.AddOrSetValue(TPath.GetFullPath(lFileName), 0);
+end;
+
+function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64):
+  TArray<TDelphiSemanticUnitModel>; overload; forward;
+
+function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions):
+  TArray<TDelphiSemanticUnitModel>; overload;
+var
+  lExtractionMilliseconds: Int64;
+begin
+  Result := ExtractProjectModels(aProject, aOptions, lExtractionMilliseconds);
+end;
+
+function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64):
+  TArray<TDelphiSemanticUnitModel>; overload;
+var
+  lBodyAnalysisSourceFiles: TDictionary<string, Byte>;
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  i: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lModels: TList<TDelphiSemanticUnitModel>;
+  lSkipBodyAnalysis: Boolean;
+  lSourceFileNames: TArray<string>;
+  lStopwatch: TStopwatch;
+begin
+  lBodyAnalysisSourceFiles := nil;
+  lModels := nil;
+  lCache := nil;
+  aExtractionMilliseconds := 0;
+  lStopwatch := TStopwatch.StartNew;
+  try
+    if Trim(aOptions.SqliteCacheFileName) <> '' then
+    begin
+      lCacheOptions := CacheOptionsFromSessionOptions(aOptions);
+      lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+    end;
+
+    lSourceFileNames := ProjectModelFileNames(aProject);
+    lBodyAnalysisSourceFiles := BodyAnalysisSourceFileSet(aOptions);
+    lModels := TList<TDelphiSemanticUnitModel>.Create;
+    for i := 0 to High(lSourceFileNames) do
+    begin
+      lSkipBodyAnalysis := Assigned(lBodyAnalysisSourceFiles) and
+        (not lBodyAnalysisSourceFiles.ContainsKey(lSourceFileNames[i]));
+      lModel := ExtractProjectUnitModel(aProject, lSourceFileNames[i], lCache,
+        lSkipBodyAnalysis);
+      if (i = 0) and (lModel.Success) and (lModel.UnitName = '') and
+        SameText(lModel.FileName, aProject.MainSourceFileName) then
+        lModel.UnitName := aProject.ProjectName;
+      lModels.Add(lModel);
     end;
 
     Result := lModels.ToArray;
   finally
+    lStopwatch.Stop;
+    aExtractionMilliseconds := lStopwatch.ElapsedMilliseconds;
     lCache.Free;
-    lSeen.Free;
+    lBodyAnalysisSourceFiles.Free;
     lModels.Free;
   end;
 end;
@@ -310,9 +376,10 @@ end;
 
 function TDelphiSemanticProjectSession.BuildSemanticGraph: TDelphiSemanticSemanticGraph;
 var
+  lExtractionMilliseconds: Int64;
   lModels: TArray<TDelphiSemanticUnitModel>;
 begin
-  lModels := ExtractProjectModels(fProject, fOptions);
+  lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds);
   Result := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lModels);
   fLastSemanticGraphBuildMetrics := Result.Metrics;
 end;
@@ -321,14 +388,22 @@ function TDelphiSemanticProjectSession.BuildWithBindingFacts:
   TDelphiSemanticProjectWithBindingFacts;
 var
   lGraph: TDelphiSemanticSemanticGraph;
+  lExtractionMilliseconds: Int64;
   lModels: TArray<TDelphiSemanticUnitModel>;
 begin
-  lModels := ExtractProjectModels(fProject, fOptions);
-  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lModels);
+  lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds);
+  if fOptions.SkipWithBindingSemanticGraph then
+    lGraph := nil
+  else
+    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lModels);
   try
-    fLastSemanticGraphBuildMetrics := lGraph.Metrics;
+    if lGraph <> nil then
+      fLastSemanticGraphBuildMetrics := lGraph.Metrics
+    else
+      fLastSemanticGraphBuildMetrics := Default(TDelphiSemanticGraphBuildMetrics);
     Result := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint, lGraph,
       lModels);
+    Result.Metrics.ModelExtractionMilliseconds := lExtractionMilliseconds;
   finally
     lGraph.Free;
   end;

@@ -8,7 +8,7 @@ implementation
 
 function DelphiSemanticsVersionText: string;
 begin
-  Result := '0.1.0';
+  Result := '0.1.1';
 end;
 
 end.

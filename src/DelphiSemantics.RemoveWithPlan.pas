@@ -72,16 +72,24 @@ begin
   Result.EndColumn := aBinding.EndColumn;
 end;
 
-function SourceFileHash(const aFileName: string): string;
+function SourceFileHash(const aFileName: string; const aHashCache:
+  TDictionary<string, string>): string;
 begin
-  if not TFile.Exists(aFileName) then
-    Exit('');
+  if Assigned(aHashCache) and aHashCache.TryGetValue(aFileName, Result) then
+    Exit;
 
-  Result := THashSHA2.GetHashStringFromFile(aFileName);
+  if not TFile.Exists(aFileName) then
+    Result := ''
+  else
+    Result := THashSHA2.GetHashStringFromFile(aFileName);
+
+  if Assigned(aHashCache) then
+    aHashCache.AddOrSetValue(aFileName, Result);
 end;
 
 function SourceTextForRange(const aFileName: string;
-  const aRange: TDelphiSemanticRemoveWithSourceRange): string;
+  const aRange: TDelphiSemanticRemoveWithSourceRange;
+  const aLineCache: TDictionary<string, TArray<string>>): string;
 var
   lBuilder: TStringBuilder;
   lEndColumn: Integer;
@@ -95,7 +103,12 @@ begin
     (not TFile.Exists(aFileName)) then
     Exit;
 
-  lLines := TFile.ReadAllLines(aFileName);
+  if (not Assigned(aLineCache)) or (not aLineCache.TryGetValue(aFileName, lLines)) then
+  begin
+    lLines := TFile.ReadAllLines(aFileName);
+    if Assigned(aLineCache) then
+      aLineCache.AddOrSetValue(aFileName, lLines);
+  end;
   if (aRange.StartLine > Length(lLines)) or (aRange.EndLine > Length(lLines)) then
     Exit;
 
@@ -155,7 +168,8 @@ begin
 end;
 
 procedure AddEdit(var aPlan: TDelphiSemanticRemoveWithPlan;
-  const aBinding: TDelphiSemanticWithBinding);
+  const aBinding: TDelphiSemanticWithBinding; const aHashCache:
+  TDictionary<string, string>; const aLineCache: TDictionary<string, TArray<string>>);
 var
   lEdit: TDelphiSemanticRemoveWithEdit;
   lIndex: Integer;
@@ -165,8 +179,9 @@ begin
   lEdit.FileName := aBinding.FileName;
   lEdit.StatementId := aBinding.SemanticId;
   lEdit.Range := BindingRange(aBinding);
-  lEdit.ExpectedFileHash := SourceFileHash(aBinding.FileName);
-  lEdit.ExpectedSourceText := SourceTextForRange(aBinding.FileName, lEdit.Range);
+  lEdit.ExpectedFileHash := SourceFileHash(aBinding.FileName, aHashCache);
+  lEdit.ExpectedSourceText := SourceTextForRange(aBinding.FileName, lEdit.Range,
+    aLineCache);
   lEdit.ReplacementText := lEdit.ExpectedSourceText;
   lEdit.ApplyMode := 'requires-dak-compatibility-adapter';
   lEdit.SemanticReason := 'semantic-with-binding-candidate';
@@ -209,6 +224,8 @@ class function TDelphiSemanticRemoveWithPlanner.Plan(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
 var
   lBinding: TDelphiSemanticWithBinding;
+  lHashCache: TDictionary<string, string>;
+  lLineCache: TDictionary<string, TArray<string>>;
 begin
   Result := Default(TDelphiSemanticRemoveWithPlan);
   Result.Operation := 'remove-with';
@@ -234,13 +251,20 @@ begin
     Exit;
   end;
 
-  for lBinding in aFacts.Bindings do
-  begin
-    if HasStableSourceRange(lBinding) then
-      AddEdit(Result, lBinding)
-    else
-      AddSkippedStatement(Result, lBinding, 'SOURCE_RANGE_UNAVAILABLE',
-        'stable source file, hash, and source range are required');
+  lHashCache := TDictionary<string, string>.Create;
+  lLineCache := TDictionary<string, TArray<string>>.Create;
+  try
+    for lBinding in aFacts.Bindings do
+    begin
+      if HasStableSourceRange(lBinding) then
+        AddEdit(Result, lBinding, lHashCache, lLineCache)
+      else
+        AddSkippedStatement(Result, lBinding, 'SOURCE_RANGE_UNAVAILABLE',
+          'stable source file, hash, and source range are required');
+    end;
+  finally
+    lLineCache.Free;
+    lHashCache.Free;
   end;
 end;
 

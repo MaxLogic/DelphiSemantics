@@ -96,12 +96,16 @@ type
     UnitCount: Integer;
     WithStatementCount: Integer;
     BindingCount: Integer;
+    ModelExtractionMilliseconds: Int64;
     SemanticGraphBuildMilliseconds: Int64;
+    InventoryBuildMilliseconds: Int64;
+    BindingBuildMilliseconds: Int64;
   end;
 
   TDelphiSemanticProjectWithBindingFacts = record
     ContextFingerprint: string;
     Metrics: TDelphiSemanticProjectWithBindingMetrics;
+    UnitModels: TArray<TDelphiSemanticUnitModel>;
     Symbols: TArray<TDelphiSemanticInventorySymbol>;
     Bindings: TArray<TDelphiSemanticWithBinding>;
   end;
@@ -123,13 +127,179 @@ type
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.Hash, System.IOUtils, System.Math,
+  System.Classes, System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.Math,
   System.RegularExpressions, System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils;
+
+type
+  TWithBindingProjectMemberIndex = class
+  private
+    fByUnitOwnerName: TDictionary<string, TList<TDelphiSemanticResolveResult>>;
+    fUnitNames: TArray<string>;
+    fVisibleUnitsByUnit: TDictionary<string, TArray<string>>;
+    class function Key(const aUnitName, aOwnerName, aName: string): string; static;
+    class function MemberResult(const aMember: TDelphiSemanticMember):
+      TDelphiSemanticResolveResult; static;
+    procedure AddMember(const aUnitName: string; const aMember: TDelphiSemanticMember);
+    procedure AddResult(const aKey: string; const aResult: TDelphiSemanticResolveResult);
+    function TryResolveUnitMember(const aUnitName, aOwnerName, aName: string;
+      out aResult: TDelphiSemanticResolveResult): Boolean;
+  public
+    constructor Create(const aModels: TArray<TDelphiSemanticUnitModel>);
+    destructor Destroy; override;
+    function TryResolveDirectMember(const aCurrentUnitName, aOwnerName, aName: string;
+      out aResult: TDelphiSemanticResolveResult): Boolean;
+  end;
 
 function StableFactId(const aPrefix, aText: string): string;
 begin
   Result := aPrefix + '-' + THashSHA2.GetHashString(aText);
+end;
+
+class function TWithBindingProjectMemberIndex.Key(const aUnitName, aOwnerName,
+  aName: string): string;
+begin
+  Result := aUnitName + #31 + aOwnerName + #31 + aName;
+end;
+
+class function TWithBindingProjectMemberIndex.MemberResult(
+  const aMember: TDelphiSemanticMember): TDelphiSemanticResolveResult;
+begin
+  Result := Default(TDelphiSemanticResolveResult);
+  Result.Found := True;
+  Result.Authoritative := True;
+  Result.Status := 'resolved';
+  Result.Name := aMember.Name;
+  Result.Kind := aMember.Kind;
+  Result.TypeName := aMember.TypeName;
+  Result.OwnerName := aMember.OwnerName;
+  Result.Line := aMember.Line;
+  Result.Column := aMember.Column;
+end;
+
+function CombineUnitUses(const aInterfaceUses, aImplementationUses: TArray<string>):
+  TArray<string>;
+var
+  i: Integer;
+  lIndex: Integer;
+begin
+  SetLength(Result, Length(aInterfaceUses) + Length(aImplementationUses));
+  lIndex := 0;
+  for i := 0 to High(aInterfaceUses) do
+  begin
+    Result[lIndex] := aInterfaceUses[i];
+    Inc(lIndex);
+  end;
+  for i := 0 to High(aImplementationUses) do
+  begin
+    Result[lIndex] := aImplementationUses[i];
+    Inc(lIndex);
+  end;
+end;
+
+constructor TWithBindingProjectMemberIndex.Create(
+  const aModels: TArray<TDelphiSemanticUnitModel>);
+var
+  lIndex: Integer;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  inherited Create;
+  fByUnitOwnerName := TDictionary<string, TList<TDelphiSemanticResolveResult>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fVisibleUnitsByUnit := TDictionary<string, TArray<string>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  SetLength(fUnitNames, Length(aModels));
+  lIndex := 0;
+  for lModel in aModels do
+  begin
+    fUnitNames[lIndex] := lModel.UnitName;
+    Inc(lIndex);
+    for lMember in lModel.Members do
+      AddMember(lModel.UnitName, lMember);
+    fVisibleUnitsByUnit.AddOrSetValue(lModel.UnitName,
+      CombineUnitUses(lModel.InterfaceUses, lModel.ImplementationUses));
+  end;
+end;
+
+destructor TWithBindingProjectMemberIndex.Destroy;
+var
+  lList: TList<TDelphiSemanticResolveResult>;
+begin
+  fVisibleUnitsByUnit.Free;
+  for lList in fByUnitOwnerName.Values do
+    lList.Free;
+  fByUnitOwnerName.Free;
+  inherited;
+end;
+
+procedure TWithBindingProjectMemberIndex.AddMember(const aUnitName: string;
+  const aMember: TDelphiSemanticMember);
+begin
+  AddResult(Key(aUnitName, aMember.OwnerName, aMember.Name), MemberResult(aMember));
+end;
+
+procedure TWithBindingProjectMemberIndex.AddResult(const aKey: string;
+  const aResult: TDelphiSemanticResolveResult);
+var
+  lList: TList<TDelphiSemanticResolveResult>;
+begin
+  if not fByUnitOwnerName.TryGetValue(aKey, lList) then
+  begin
+    lList := TList<TDelphiSemanticResolveResult>.Create;
+    fByUnitOwnerName.Add(aKey, lList);
+  end;
+  lList.Add(aResult);
+end;
+
+function TWithBindingProjectMemberIndex.TryResolveUnitMember(const aUnitName, aOwnerName,
+  aName: string; out aResult: TDelphiSemanticResolveResult): Boolean;
+var
+  lList: TList<TDelphiSemanticResolveResult>;
+begin
+  if not fByUnitOwnerName.TryGetValue(Key(aUnitName, aOwnerName, aName), lList) then
+  begin
+    aResult := Default(TDelphiSemanticResolveResult);
+    Exit(False);
+  end;
+
+  if lList.Count > 1 then
+  begin
+    aResult := Default(TDelphiSemanticResolveResult);
+    aResult.Status := 'ambiguous';
+    aResult.Name := aName;
+    aResult.ReasonCode := 'MULTIPLE_MEMBER_CANDIDATES';
+    aResult.Reason := 'Multiple direct members named "' + aName + '" were found on ' +
+      aOwnerName + '.';
+    Exit(True);
+  end;
+
+  aResult := lList[0];
+  Result := True;
+end;
+
+function TWithBindingProjectMemberIndex.TryResolveDirectMember(const aCurrentUnitName,
+  aOwnerName, aName: string; out aResult: TDelphiSemanticResolveResult): Boolean;
+var
+  lUnitName: string;
+  lVisibleUnits: TArray<string>;
+begin
+  if TryResolveUnitMember(aCurrentUnitName, aOwnerName, aName, aResult) then
+    Exit(True);
+
+  if fVisibleUnitsByUnit.TryGetValue(aCurrentUnitName, lVisibleUnits) then
+    for lUnitName in lVisibleUnits do
+      if (not SameText(lUnitName, aCurrentUnitName)) and
+        TryResolveUnitMember(lUnitName, aOwnerName, aName, aResult) then
+        Exit(True);
+
+  for lUnitName in fUnitNames do
+    if SameText(lUnitName, aOwnerName) and TryResolveUnitMember(lUnitName, aOwnerName,
+      aName, aResult) then
+      Exit(True);
+
+  aResult := Default(TDelphiSemanticResolveResult);
+  Result := False;
 end;
 
 function IsBinderKeyword(const aName: string): Boolean;
@@ -255,12 +425,16 @@ end;
 function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>; const aName: string;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
   out aResult: TDelphiSemanticResolveResult): Boolean; forward;
 
 function MakeSelectorBinding(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName,
   aSelectorText: string; const aParentRoutineNames: TArray<string>;
-  const aPreviousSelectors: TArray<TDelphiSemanticWithSelectorBinding>):
+  const aPreviousSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
   TDelphiSemanticWithSelectorBinding;
 var
   lContext: TDelphiSemanticResolveContext;
@@ -277,7 +451,7 @@ begin
   if not ((Length(aPreviousSelectors) > 0) and TRegEx.IsMatch(lSelectorText,
     '^[A-Za-z_][A-Za-z0-9_]*$') and
     TryResolveReceiverMember(aModel, aProjectModels, aPreviousSelectors, lSelectorText,
-    lResult)) then
+    aProjectMemberIndex, aMemberCache, lResult)) then
     lResult := TDelphiSemanticResolver.ResolveName(aModel, lContext, lSelectorText);
   Result.SelectorText := lSelectorText;
   Result.Status := lResult.Status;
@@ -451,33 +625,77 @@ begin
     aArguments := '';
 end;
 
+function ReceiverMemberCacheKey(const aUnitName: string;
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>; const aName: string): string;
+var
+  lBuilder: TStringBuilder;
+  lSelector: TDelphiSemanticWithSelectorBinding;
+begin
+  lBuilder := TStringBuilder.Create;
+  try
+    lBuilder.Append(aUnitName).Append(#31);
+    for lSelector in aSelectors do
+      lBuilder.Append(lSelector.Status).Append(#30).Append(lSelector.TypeName).Append(#29);
+    lBuilder.Append(#31).Append(aName);
+    Result := lBuilder.ToString;
+  finally
+    lBuilder.Free;
+  end;
+end;
+
 function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>; const aName: string;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
   out aResult: TDelphiSemanticResolveResult): Boolean;
 var
   i: Integer;
+  lKey: string;
   lModel: TDelphiSemanticUnitModel;
 begin
+  lKey := ReceiverMemberCacheKey(aModel.UnitName, aSelectors, aName);
+  if Assigned(aMemberCache) and aMemberCache.TryGetValue(lKey, aResult) then
+    Exit(aResult.Found or SameText(aResult.Status, 'ambiguous') or
+      SameText(aResult.Status, 'unsupported'));
+
   for i := High(aSelectors) downto 0 do
     if SameText(aSelectors[i].Status, 'resolved') then
     begin
+      if Assigned(aProjectMemberIndex) and aProjectMemberIndex.TryResolveDirectMember(
+        aModel.UnitName, aSelectors[i].TypeName, aName, aResult) then
+      begin
+        if Assigned(aMemberCache) then
+          aMemberCache.AddOrSetValue(lKey, aResult);
+        Exit(True);
+      end;
+
       aResult := TDelphiSemanticResolver.ResolveMemberAtLevel(aModel, aSelectors[i].TypeName,
         aName, 3);
       if aResult.Found or SameText(aResult.Status, 'ambiguous') or
         SameText(aResult.Status, 'unsupported') then
+      begin
+        if Assigned(aMemberCache) then
+          aMemberCache.AddOrSetValue(lKey, aResult);
         Exit(True);
+      end;
       for lModel in aProjectModels do
       begin
         aResult := TDelphiSemanticResolver.ResolveMemberAtLevel(lModel, aSelectors[i].TypeName,
           aName, 3);
         if aResult.Found or SameText(aResult.Status, 'ambiguous') or
           SameText(aResult.Status, 'unsupported') then
+        begin
+          if Assigned(aMemberCache) then
+            aMemberCache.AddOrSetValue(lKey, aResult);
           Exit(True);
+        end;
       end;
     end;
 
   aResult := Default(TDelphiSemanticResolveResult);
+  if Assigned(aMemberCache) then
+    aMemberCache.AddOrSetValue(lKey, aResult);
   Result := False;
 end;
 
@@ -1489,6 +1707,7 @@ procedure ParseDakInventoryParams(const aSymbols: TList<TDelphiSemanticInventory
 var
   lClosePos: Integer;
   lEndIndex: Integer;
+  lHadModifier: Boolean;
   lNames: TArray<string>;
   lOpenPos: Integer;
   lPart: string;
@@ -1505,17 +1724,33 @@ begin
   for lPart in lParts do
   begin
     lText := Trim(lPart);
+    lHadModifier := False;
     if StartsText('const ', lText) then
-      Delete(lText, 1, Length('const '))
+    begin
+      Delete(lText, 1, Length('const '));
+      lHadModifier := True;
+    end
     else if StartsText('var ', lText) then
-      Delete(lText, 1, Length('var '))
+    begin
+      Delete(lText, 1, Length('var '));
+      lHadModifier := True;
+    end
     else if StartsText('out ', lText) then
+    begin
       Delete(lText, 1, Length('out '));
+      lHadModifier := True;
+    end;
 
     if InventoryTryDeclaration(lText, lNames, lTypeName) then
     begin
       lEndIndex := aStartIndex + 20;
       AddDakInventorySymbolsFromSource(aSymbols, lNames, lTypeName, '', aRoutineName, aUnitName,
+        aFileName, aLines, aStartIndex, lEndIndex, 'parameter');
+    end else if lHadModifier and (Pos(':', lText) = 0) and (lText <> '') then
+    begin
+      lNames := lText.Split([',']);
+      lEndIndex := aStartIndex + 20;
+      AddDakInventorySymbolsFromSource(aSymbols, lNames, '', '', aRoutineName, aUnitName,
         aFileName, aLines, aStartIndex, lEndIndex, 'parameter');
     end;
   end;
@@ -2118,13 +2353,14 @@ procedure ParseDakInventoryRoutines(const aSymbols: TList<TDelphiSemanticInvento
   const aLines: TArray<string>; const aUnitName, aFileName: string);
 var
   i: Integer;
-  j: Integer;
   lEndLine: Integer;
   lInImplementation: Boolean;
   lInType: Boolean;
   lLine: string;
   lMember: TDelphiSemanticInventorySymbol;
-  lMemberCount: Integer;
+  lMemberCopy: TDelphiSemanticInventorySymbol;
+  lMembers: TList<TDelphiSemanticInventorySymbol>;
+  lMembersByOwner: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
   lOwnerType: string;
   lRawLine: string;
   lRoutineName: string;
@@ -2132,87 +2368,125 @@ var
   lSymbol: TDelphiSemanticInventorySymbol;
   lTopLevelLine: Boolean;
 begin
+  lMembersByOwner := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
   lInImplementation := False;
   lInType := False;
-  for i := 0 to High(aLines) do
-  begin
-    lRawLine := aLines[i];
-    lLine := InventoryCleanLine(lRawLine);
-    if lLine = '' then
-      Continue;
-    lTopLevelLine := InventoryIsTopLevelLine(lRawLine);
-    if lTopLevelLine and SameText(lLine, 'type') then
-    begin
-      lInType := True;
-      Continue;
-    end;
-    if lTopLevelLine and (SameText(lLine, 'const') or SameText(lLine, 'var') or
-      SameText(lLine, 'threadvar') or SameText(lLine, 'implementation')) then
-    begin
-      lInType := False;
-      if SameText(lLine, 'implementation') then
+  try
+    for lMember in aSymbols do
+      if (lMember.RoutineName = '') and InventoryIsDirectMemberKind(lMember.SymbolClass) then
       begin
-        lInImplementation := True;
+        if not lMembersByOwner.TryGetValue(lMember.OwnerType, lMembers) then
+        begin
+          lMembers := TList<TDelphiSemanticInventorySymbol>.Create;
+          lMembersByOwner.Add(lMember.OwnerType, lMembers);
+        end;
+        lMembers.Add(lMember);
+      end;
+
+    for i := 0 to High(aLines) do
+    begin
+      lRawLine := aLines[i];
+      lLine := InventoryCleanLine(lRawLine);
+      if lLine = '' then
+        Continue;
+      lTopLevelLine := InventoryIsTopLevelLine(lRawLine);
+      if lTopLevelLine and SameText(lLine, 'type') then
+      begin
+        lInType := True;
         Continue;
       end;
-    end;
-    if lInImplementation and lTopLevelLine and InventoryIsRoutineStart(lLine) then
-      lInType := False;
-    if lInType then
-      Continue;
-
-    if (not lTopLevelLine) and (not InventoryIsRoutineStart(lLine)) then
-      Continue;
-    lSignature := InventoryCollectDeclarationText(aLines, i, lEndLine);
-    if not InventoryTryRoutineName(lSignature, lRoutineName) then
-      Continue;
-
-    lSymbol := Default(TDelphiSemanticInventorySymbol);
-    lSymbol.Name := lRoutineName;
-    lSymbol.SymbolClass := 'routine';
-    lSymbol.Kind := 'routine';
-    lSymbol.UnitName := aUnitName;
-    lSymbol.FileName := aFileName;
-    lSymbol.Line := i + 1;
-    lSymbol.EndLine := InventoryFindRoutineEndLine(aLines, i);
-    if lSymbol.EndLine = 0 then
-      Continue;
-    lSymbol.Column := InventoryFindColumn(aLines[i], lRoutineName);
-    lSymbol.EndColumn := lSymbol.Column + Length(lRoutineName);
-    AddInventorySymbol(aSymbols, lSymbol);
-    ParseDakInventoryParams(aSymbols, aLines, i, lSignature, lRoutineName, aUnitName, aFileName);
-    ParseDakInventoryLocals(aSymbols, aLines, i + 1, lRoutineName, aUnitName, aFileName);
-
-    if InventoryTryRoutineOwner(lRoutineName, lOwnerType) then
-    begin
-      lMemberCount := aSymbols.Count;
-      for j := 0 to lMemberCount - 1 do
+      if lTopLevelLine and (SameText(lLine, 'const') or SameText(lLine, 'var') or
+        SameText(lLine, 'threadvar') or SameText(lLine, 'implementation')) then
       begin
-        lMember := aSymbols[j];
-        if SameText(lMember.OwnerType, lOwnerType) and (lMember.RoutineName = '') and
-          InventoryIsDirectMemberKind(lMember.SymbolClass) then
+        lInType := False;
+        if SameText(lLine, 'implementation') then
         begin
-          lMember.SymbolClass := 'current-class-member';
-          lMember.Kind := 'current-class-member';
-          lMember.RoutineName := lRoutineName;
-          AddInventorySymbol(aSymbols, lMember);
+          lInImplementation := True;
+          Continue;
+        end;
+      end;
+      if lInImplementation and lTopLevelLine and InventoryIsRoutineStart(lLine) then
+        lInType := False;
+      if lInType then
+        Continue;
+
+      if (not lTopLevelLine) and (not InventoryIsRoutineStart(lLine)) then
+        Continue;
+      lSignature := InventoryCollectDeclarationText(aLines, i, lEndLine);
+      if not InventoryTryRoutineName(lSignature, lRoutineName) then
+        Continue;
+
+      lSymbol := Default(TDelphiSemanticInventorySymbol);
+      lSymbol.Name := lRoutineName;
+      lSymbol.SymbolClass := 'routine';
+      lSymbol.Kind := 'routine';
+      lSymbol.UnitName := aUnitName;
+      lSymbol.FileName := aFileName;
+      lSymbol.Line := i + 1;
+      lSymbol.EndLine := InventoryFindRoutineEndLine(aLines, i);
+      if lSymbol.EndLine = 0 then
+        Continue;
+      lSymbol.Column := InventoryFindColumn(aLines[i], lRoutineName);
+      lSymbol.EndColumn := lSymbol.Column + Length(lRoutineName);
+      AddInventorySymbol(aSymbols, lSymbol);
+      ParseDakInventoryParams(aSymbols, aLines, i, lSignature, lRoutineName, aUnitName,
+        aFileName);
+      ParseDakInventoryLocals(aSymbols, aLines, i + 1, lRoutineName, aUnitName, aFileName);
+
+      if InventoryTryRoutineOwner(lRoutineName, lOwnerType) and
+        lMembersByOwner.TryGetValue(lOwnerType, lMembers) then
+      begin
+        for lMember in lMembers do
+        begin
+          lMemberCopy := lMember;
+          lMemberCopy.SymbolClass := 'current-class-member';
+          lMemberCopy.Kind := 'current-class-member';
+          lMemberCopy.RoutineName := lRoutineName;
+          AddInventorySymbol(aSymbols, lMemberCopy);
         end;
       end;
     end;
+  finally
+    for lMembers in lMembersByOwner.Values do
+      lMembers.Free;
+    lMembersByOwner.Free;
   end;
+end;
+
+function InventorySourceTextLines(const aSourceText: string): TArray<string>;
+var
+  lLines: TStringList;
+  i: Integer;
+begin
+  lLines := TStringList.Create;
+  try
+    lLines.Text := aSourceText;
+    SetLength(Result, lLines.Count);
+    for i := 0 to lLines.Count - 1 do
+      Result[i] := lLines[i];
+  finally
+    lLines.Free;
+  end;
+end;
+
+procedure AddModelSourceCompatibilitySymbols(
+  const aModel: TDelphiSemanticUnitModel; const aSymbols: TList<TDelphiSemanticInventorySymbol>);
+var
+  lLines: TArray<string>;
+begin
+  lLines := InventorySourceTextLines(aModel.SourceText);
+  ParseDakInventoryTypeMembers(aSymbols, lLines, aModel.UnitName, aModel.FileName);
+  ParseDakInventoryUnitGlobals(aSymbols, lLines, aModel.UnitName, aModel.FileName);
+  ParseDakInventoryRoutines(aSymbols, lLines, aModel.UnitName, aModel.FileName);
 end;
 
 procedure AddDakCompatibleInventorySymbols(const aModel: TDelphiSemanticUnitModel;
   const aSymbols: TList<TDelphiSemanticInventorySymbol>);
-var
-  lLines: TArray<string>;
 begin
   AddDakInventorySymbol(aSymbols, aModel.UnitName, '', '', '', aModel.UnitName, aModel.FileName,
     1, aModel.UnitName, 'unit');
-  lLines := InventoryReadSourceLines(aModel.FileName);
-  ParseDakInventoryTypeMembers(aSymbols, lLines, aModel.UnitName, aModel.FileName);
-  ParseDakInventoryUnitGlobals(aSymbols, lLines, aModel.UnitName, aModel.FileName);
-  ParseDakInventoryRoutines(aSymbols, lLines, aModel.UnitName, aModel.FileName);
+  AddModelSourceCompatibilitySymbols(aModel, aSymbols);
 end;
 
 function InventorySameSymbol(const aLeft, aRight: TDelphiSemanticInventorySymbol): Boolean;
@@ -2436,16 +2710,105 @@ begin
   end;
 end;
 
+function BoundReferenceCachePrefix(const aUnitName, aRoutineName: string;
+  const aParentRoutineNames: TArray<string>;
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>): string;
+var
+  lBuilder: TStringBuilder;
+  lParentRoutineName: string;
+  lSelector: TDelphiSemanticWithSelectorBinding;
+begin
+  lBuilder := TStringBuilder.Create;
+  try
+    lBuilder.Append(aUnitName).Append(#31).Append(aRoutineName).Append(#31);
+    for lParentRoutineName in aParentRoutineNames do
+      lBuilder.Append(lParentRoutineName).Append(#30);
+    lBuilder.Append(#31);
+    for lSelector in aSelectors do
+      lBuilder.Append(lSelector.Status).Append(#30).Append(lSelector.TypeName).Append(#29);
+    lBuilder.Append(#31);
+    Result := lBuilder.ToString;
+  finally
+    lBuilder.Free;
+  end;
+end;
+
+function BoundReferenceCacheKey(const aPrefix, aName: string): string;
+begin
+  Result := aPrefix + aName;
+end;
+
+function CacheBoundReference(
+  const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
+  const aKey: string; const aReference: TDelphiSemanticBoundReference):
+  TDelphiSemanticBoundReference;
+begin
+  Result := aReference;
+  if Assigned(aReferenceCache) then
+    aReferenceCache.AddOrSetValue(aKey, Result);
+end;
+
+function ResolveNameCachePrefix(const aUnitName: string; const aContext:
+  TDelphiSemanticResolveContext): string;
+var
+  lBuilder: TStringBuilder;
+  lParentRoutineName: string;
+begin
+  lBuilder := TStringBuilder.Create;
+  try
+    lBuilder.Append(aUnitName).Append(#31).Append(aContext.RoutineName).Append(#31)
+      .Append(aContext.SectionKind).Append(#31).Append(aContext.ConformanceLevel).Append(#31);
+    for lParentRoutineName in aContext.ParentRoutineNames do
+      lBuilder.Append(lParentRoutineName).Append(#30);
+    lBuilder.Append(#31);
+    Result := lBuilder.ToString;
+  finally
+    lBuilder.Free;
+  end;
+end;
+
+function ResolveNameCacheKey(const aPrefix, aName: string): string;
+begin
+  Result := aPrefix + aName;
+end;
+
+function ResolveNameCached(const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext; const aName: string;
+  const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  const aResolveCachePrefix: string):
+  TDelphiSemanticResolveResult;
+var
+  lKey: string;
+begin
+  lKey := ResolveNameCacheKey(aResolveCachePrefix, aName);
+  if Assigned(aResolveCache) and aResolveCache.TryGetValue(lKey, Result) then
+    Exit;
+
+  Result := TDelphiSemanticResolver.ResolveName(aModel, aContext, aName);
+  if Assigned(aResolveCache) then
+    aResolveCache.AddOrSetValue(lKey, Result);
+end;
+
 function BindReference(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
   const aRoutineName: string; const aParentRoutineNames: TArray<string>;
-  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>; const aName: string):
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aReferenceCachePrefix, aResolveCachePrefix, aName: string;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
+  const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
   TDelphiSemanticBoundReference;
 var
   lCallName: string;
   lContext: TDelphiSemanticResolveContext;
+  lKey: string;
   lResult: TDelphiSemanticResolveResult;
 begin
+  lKey := BoundReferenceCacheKey(aReferenceCachePrefix, aName);
+  if Assigned(aReferenceCache) and aReferenceCache.TryGetValue(lKey, Result) then
+    Exit;
+
   lContext := Default(TDelphiSemanticResolveContext);
   lContext.RoutineName := aRoutineName;
   lContext.ParentRoutineNames := aParentRoutineNames;
@@ -2455,50 +2818,67 @@ begin
 
   if TryExtractCallName(aName, lCallName) then
   begin
-    if TryResolveReceiverMember(aModel, aProjectModels, aSelectors, lCallName, lResult) then
+    if TryResolveReceiverMember(aModel, aProjectModels, aSelectors, lCallName,
+      aProjectMemberIndex, aMemberCache, lResult) then
       if SameText(lResult.Kind, 'method') then
-        Exit(MakeBoundReference(lCallName, 'member', lResult))
+        Exit(CacheBoundReference(aReferenceCache, lKey,
+          MakeBoundReference(lCallName, 'member', lResult)))
       else
-        Exit(MakeBoundReference(lCallName, 'unsupported',
+        Exit(CacheBoundReference(aReferenceCache, lKey,
+          MakeBoundReference(lCallName, 'unsupported',
           MakeSyntheticResolveResult(lCallName, lResult.Kind, lResult.TypeName,
-          lResult.OwnerName, 'CALL_SELECTOR_UNSUPPORTED')));
+          lResult.OwnerName, 'CALL_SELECTOR_UNSUPPORTED'))));
 
-    lResult := TDelphiSemanticResolver.ResolveName(aModel, lContext, lCallName);
+    lResult := ResolveNameCached(aModel, lContext, lCallName, aResolveCache,
+      aResolveCachePrefix);
     if lResult.Found and SameText(lResult.Kind, 'intrinsic-routine') then
-      Exit(MakeBoundReference(lCallName, 'intrinsic', lResult));
+      Exit(CacheBoundReference(aReferenceCache, lKey,
+        MakeBoundReference(lCallName, 'intrinsic', lResult)));
     if lResult.Found and SameText(lResult.Kind, 'routine') then
-      Exit(MakeBoundReference(lCallName, 'external',
+      Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(lCallName, 'external',
         MakeSyntheticResolveResult(lCallName, 'routine', lResult.TypeName, lResult.OwnerName,
-        'EXTERNAL_ROUTINE_CALL')));
+        'EXTERNAL_ROUTINE_CALL'))));
     if lResult.Found then
-      Exit(MakeBoundReference(lCallName, 'unsupported',
+      Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(lCallName, 'unsupported',
         MakeSyntheticResolveResult(lCallName, lResult.Kind, lResult.TypeName, lResult.OwnerName,
-        'CALL_SELECTOR_UNSUPPORTED')));
-    Exit(MakeBoundReference(lCallName, 'external',
-      MakeSyntheticResolveResult(lCallName, 'routine', '', '', 'UNKNOWN_ROUTINE_CALL')));
+        'CALL_SELECTOR_UNSUPPORTED'))));
+    Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(lCallName, 'external',
+      MakeSyntheticResolveResult(lCallName, 'routine', '', '', 'UNKNOWN_ROUTINE_CALL'))));
   end;
 
   if (Pos('.', aName) > 0) or (Pos('[', aName) > 0) then
-    Exit(MakeBoundReference(aName, 'unsupported',
-      TDelphiSemanticResolver.ResolveName(aModel, Default(TDelphiSemanticResolveContext), aName)));
+    Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(aName, 'unsupported',
+      ResolveNameCached(aModel, Default(TDelphiSemanticResolveContext), aName, aResolveCache,
+      ResolveNameCachePrefix(aModel.UnitName, Default(TDelphiSemanticResolveContext))))));
 
-  if TryResolveReceiverMember(aModel, aProjectModels, aSelectors, aName, lResult) then
+  if TryResolveReceiverMember(aModel, aProjectModels, aSelectors, aName, aProjectMemberIndex,
+    aMemberCache, lResult) then
   begin
     if SameText(lResult.Status, 'ambiguous') then
-      Exit(MakeBoundReference(aName, 'ambiguous', lResult));
+      Exit(CacheBoundReference(aReferenceCache, lKey,
+        MakeBoundReference(aName, 'ambiguous', lResult)));
     if SameText(lResult.Status, 'unsupported') then
-      Exit(MakeBoundReference(aName, 'unsupported', lResult));
-    Exit(MakeBoundReference(aName, 'member', lResult));
+      Exit(CacheBoundReference(aReferenceCache, lKey,
+        MakeBoundReference(aName, 'unsupported', lResult)));
+    Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(aName, 'member', lResult)));
   end;
 
-  lResult := TDelphiSemanticResolver.ResolveName(aModel, lContext, aName);
+  lResult := ResolveNameCached(aModel, lContext, aName, aResolveCache,
+    aResolveCachePrefix);
   if lResult.Found then
-    Exit(MakeBoundReference(aName, 'lexical', lResult));
+    Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(aName, 'lexical', lResult)));
 
   if AnySelectorUnresolved(aSelectors) then
-    Exit(MakeBoundReference(aName, 'external', lResult));
+  begin
+    Result := MakeBoundReference(aName, 'external', lResult);
+    if Assigned(aReferenceCache) then
+      aReferenceCache.AddOrSetValue(lKey, Result);
+    Exit;
+  end;
 
   Result := MakeBoundReference(aName, 'unresolved', lResult);
+  if Assigned(aReferenceCache) then
+    aReferenceCache.AddOrSetValue(lKey, Result);
 end;
 
 procedure CountBindingReference(var aBinding: TDelphiSemanticWithBinding;
@@ -2577,7 +2957,9 @@ end;
 
 function BindSelectors(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName,
-  aSelectorText: string; const aParentRoutineNames: TArray<string>):
+  aSelectorText: string; const aParentRoutineNames: TArray<string>;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
   TArray<TDelphiSemanticWithSelectorBinding>;
 var
   lPart: string;
@@ -2587,7 +2969,7 @@ begin
   try
     for lPart in SplitSelectors(aSelectorText) do
       lSelectors.Add(MakeSelectorBinding(aModel, aProjectModels, aRoutineName, lPart,
-        aParentRoutineNames, lSelectors.ToArray));
+        aParentRoutineNames, lSelectors.ToArray, aProjectMemberIndex, aMemberCache));
     Result := lSelectors.ToArray;
   finally
     lSelectors.Free;
@@ -2599,8 +2981,13 @@ procedure AddArgumentReferences(const aReferences: TList<TDelphiSemanticBoundRef
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName: string;
   const aParentRoutineNames: TArray<string>;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aReferenceCachePrefix, aResolveCachePrefix: string;
   const aStatement: TDelphiSemanticWithStatement; const aToken: string;
-  const aTokenStartOffset: Integer);
+  const aTokenStartOffset: Integer;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
+  const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>);
 var
   lArgumentMatch: TMatch;
   lArgumentStartOffset: Integer;
@@ -2622,7 +3009,8 @@ begin
       not IsSelectorName(aSelectors, lArgumentMatch.Value) then
     begin
       lReference := BindReference(aModel, aProjectModels, aRoutineName, aParentRoutineNames,
-        aSelectors, lArgumentMatch.Value);
+        aSelectors, aReferenceCachePrefix, aResolveCachePrefix, lArgumentMatch.Value,
+        aProjectMemberIndex, aReferenceCache, aResolveCache, aMemberCache);
       lArgumentStartOffset := aTokenStartOffset + lParenPos + lArgumentMatch.Index - 1;
       ApplyBodyRange(lReference, aStatement, lArgumentStartOffset, Length(lArgumentMatch.Value));
       AddReference(aReferences, lReference);
@@ -2638,16 +3026,32 @@ function BindReferences(const aModel: TDelphiSemanticUnitModel;
   const aStatementIndex: Integer;
   const aRoutineName: string;
   const aParentRoutineNames: TArray<string>;
-  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>):
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
+  const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
   TArray<TDelphiSemanticBoundReference>;
 var
   lBodyText: string;
   lMatch: TMatch;
+  lReferenceCachePrefix: string;
+  lResolveContext: TDelphiSemanticResolveContext;
+  lResolveCachePrefix: string;
   lReference: TDelphiSemanticBoundReference;
   lReferences: TList<TDelphiSemanticBoundReference>;
 begin
   lReferences := TList<TDelphiSemanticBoundReference>.Create;
   try
+    lReferenceCachePrefix := BoundReferenceCachePrefix(aModel.UnitName, aRoutineName,
+      aParentRoutineNames, aSelectors);
+    lResolveContext := Default(TDelphiSemanticResolveContext);
+    lResolveContext.RoutineName := aRoutineName;
+    lResolveContext.ParentRoutineNames := aParentRoutineNames;
+    lResolveContext.SectionKind := 'implementation';
+    lResolveContext.ConformanceLevel := 3;
+    lResolveContext.IndexedUnitModels := aProjectModels;
+    lResolveCachePrefix := ResolveNameCachePrefix(aModel.UnitName, lResolveContext);
     lBodyText := ExtractWithBodyText(aStatement, aAllStatements, aStatementIndex);
     lMatch := TRegEx.Match(lBodyText,
       '\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?(?:\[[^\]]+\]|\([^)]*\))?',
@@ -2657,12 +3061,14 @@ begin
       if not IsBinderKeyword(lMatch.Value) and not IsSelectorName(aSelectors, lMatch.Value) then
       begin
         lReference := BindReference(aModel, aProjectModels, aRoutineName, aParentRoutineNames,
-          aSelectors, lMatch.Value);
+          aSelectors, lReferenceCachePrefix, lResolveCachePrefix, lMatch.Value, aProjectMemberIndex,
+          aReferenceCache, aResolveCache, aMemberCache);
         ApplyBodyRange(lReference, aStatement, lMatch.Index, Length(lMatch.Value));
         AddReference(lReferences, lReference);
         AddArgumentReferences(lReferences, aModel, aProjectModels, aRoutineName,
-          aParentRoutineNames,
-          aSelectors, aStatement, lMatch.Value, lMatch.Index);
+          aParentRoutineNames, aSelectors, lReferenceCachePrefix, lResolveCachePrefix,
+          aStatement, lMatch.Value, lMatch.Index, aProjectMemberIndex, aReferenceCache,
+          aResolveCache, aMemberCache);
       end;
       lMatch := lMatch.NextMatch;
     end;
@@ -2682,7 +3088,9 @@ end;
 function CombinedSelectors(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
   const aStatements: TArray<TDelphiSemanticWithStatement>; const aStatementIndex: Integer;
-  const aRoutineName: string; const aParentRoutineNames: TArray<string>):
+  const aRoutineName: string; const aParentRoutineNames: TArray<string>;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
   TArray<TDelphiSemanticWithSelectorBinding>;
 var
   i: Integer;
@@ -2694,10 +3102,11 @@ begin
     for i := 0 to Pred(aStatementIndex) do
       if StatementContains(aStatements[i], aStatements[aStatementIndex]) then
         for lSelector in BindSelectors(aModel, aProjectModels, aRoutineName,
-          aStatements[i].SelectorText, aParentRoutineNames) do
+          aStatements[i].SelectorText, aParentRoutineNames, aProjectMemberIndex, aMemberCache) do
           lSelectors.Add(lSelector);
     for lSelector in BindSelectors(aModel, aProjectModels, aRoutineName,
-      aStatements[aStatementIndex].SelectorText, aParentRoutineNames) do
+      aStatements[aStatementIndex].SelectorText, aParentRoutineNames, aProjectMemberIndex,
+      aMemberCache) do
       lSelectors.Add(lSelector);
     Result := lSelectors.ToArray;
   finally
@@ -2783,11 +3192,18 @@ var
   i: Integer;
   lBinding: TDelphiSemanticWithBinding;
   lBindings: TList<TDelphiSemanticWithBinding>;
+  lBindingBuildMs: Int64;
+  lInventoryBuildMs: Int64;
   lModel: TDelphiSemanticUnitModel;
+  lMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
   lParentRoutineNames: TArray<string>;
+  lProjectMemberIndex: TWithBindingProjectMemberIndex;
+  lReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
+  lResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
   lRoutineName: string;
   lScopeIndex: TDelphiSemanticRoutineScopeIndex;
   lStatement: TDelphiSemanticWithStatement;
+  lStopwatch: TStopwatch;
   lSymbol: TDelphiSemanticInventorySymbol;
   lSymbols: TList<TDelphiSemanticInventorySymbol>;
 begin
@@ -2795,12 +3211,25 @@ begin
   Result.ContextFingerprint := aContextFingerprint;
   lBindings := TList<TDelphiSemanticWithBinding>.Create;
   lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
+  lBindingBuildMs := 0;
+  lInventoryBuildMs := 0;
+  lReferenceCache := TDictionary<string, TDelphiSemanticBoundReference>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lResolveCache := TDictionary<string, TDelphiSemanticResolveResult>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lMemberCache := TDictionary<string, TDelphiSemanticResolveResult>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lProjectMemberIndex := TWithBindingProjectMemberIndex.Create(aModels);
   try
     for lModel in aModels do
     begin
+      lStopwatch := TStopwatch.StartNew;
       for lSymbol in BuildInventorySymbols(lModel) do
         lSymbols.Add(lSymbol);
+      lStopwatch.Stop;
+      Inc(lInventoryBuildMs, lStopwatch.ElapsedMilliseconds);
       lScopeIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel);
+      lStopwatch := TStopwatch.StartNew;
       for i := 0 to High(lModel.WithStatements) do
       begin
         lStatement := lModel.WithStatements[i];
@@ -2826,19 +3255,25 @@ begin
         lParentRoutineNames := lScopeIndex.ParentRoutineNamesForLine(lRoutineName,
           lStatement.Line);
         lBinding.Selectors := CombinedSelectors(lModel, aModels, lModel.WithStatements, i,
-          lRoutineName, lParentRoutineNames);
+          lRoutineName, lParentRoutineNames, lProjectMemberIndex, lMemberCache);
         lBinding.References := BindReferences(lModel, aModels, lStatement,
-          lModel.WithStatements, i, lRoutineName, lParentRoutineNames, lBinding.Selectors);
+          lModel.WithStatements, i, lRoutineName, lParentRoutineNames, lBinding.Selectors,
+          lProjectMemberIndex, lReferenceCache, lResolveCache, lMemberCache);
         ApplyBindingReferenceIds(lBinding);
         FinalizeBinding(lBinding, lStatement);
         lBindings.Add(lBinding);
       end;
+      lStopwatch.Stop;
+      Inc(lBindingBuildMs, lStopwatch.ElapsedMilliseconds);
     end;
     AddProjectCompatibilitySymbols(lSymbols);
     Result.Symbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lSymbols.ToArray);
+    Result.UnitModels := Copy(aModels);
     Result.Bindings := lBindings.ToArray;
     Result.Metrics.SemanticGraphUsed := aGraph <> nil;
     Result.Metrics.BuildUnitIndexUsed := False;
+    Result.Metrics.InventoryBuildMilliseconds := lInventoryBuildMs;
+    Result.Metrics.BindingBuildMilliseconds := lBindingBuildMs;
     Result.Metrics.UnitCount := Length(aModels);
     if aGraph <> nil then
     begin
@@ -2849,6 +3284,10 @@ begin
       Result.Metrics.WithStatementCount := Length(Result.Bindings);
     Result.Metrics.BindingCount := Length(Result.Bindings);
   finally
+    lProjectMemberIndex.Free;
+    lMemberCache.Free;
+    lResolveCache.Free;
+    lReferenceCache.Free;
     lSymbols.Free;
     lBindings.Free;
   end;
@@ -2973,7 +3412,10 @@ begin
         lSymbol.SymbolClass := 'parameter';
         lSymbol.Kind := 'parameter';
         lSymbol.TypeName := lParameter.TypeName;
-        lSymbol.RoutineName := lParameter.RoutineName;
+        if lRoutine.OwnerName <> '' then
+          lSymbol.RoutineName := lRoutine.OwnerName + '.' + lParameter.RoutineName
+        else
+          lSymbol.RoutineName := lParameter.RoutineName;
         lSymbol.UnitName := aModel.UnitName;
         lSymbol.FileName := aModel.FileName;
         lSymbol.Line := lParameter.Line;

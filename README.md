@@ -37,6 +37,19 @@ and only on a writable project or temp clone. Dead-code findings remain review
 evidence: do not treat `definitely-unused` as automatic deletion approval, and
 do not add removal apply mode without explicit maintainer approval.
 
+### Compile Gate For Refactorings
+
+Semantic refactoring assumes the project starts from parseable, compileable
+source. Broken code can prevent DelphiSemantics from building a complete and
+trustworthy project model.
+
+Any source-changing consumer of DelphiSemantics should compile the project
+before applying edits, refuse apply mode when the baseline compile fails,
+compile again after edits, and roll back the edit transaction if the post-edit
+compile fails. DAK is the current orchestration layer for that gate. Dry-run
+analysis may still be useful for investigation, but it is not an apply-safe
+proof unless the compile gate has passed.
+
 Agent workflow guidance lives in
 [`docs/semantic-refactoring-agents.md`](docs/semantic-refactoring-agents.md).
 

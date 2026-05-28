@@ -1,0 +1,18 @@
+# maxTdb semantic workflow benchmark baseline
+
+Started: `2026-05-28T23:22:56.6707802+02:00`
+Completed: `2026-05-28T23:23:34.3595565+02:00`
+DAK: `F:\projects\MaxLogic\DelphiAiKit\bin\DelphiAIKit.exe`
+Project: `F:\projects\MaxLogic\DelphiAiKit\tests\fixtures\test-projects\maxTdb\src\maxtdb.dpr`
+Machine: `PAWEL3`
+DelphiSemantics SHA: `4235a6a2c4c96c6d9e3738639436d18f48afdf50`
+DAK SHA: `e0b9c58effaeae7a3f6be771c2ae9294800dd85f`
+Warm target: `10.000` seconds
+Cache directory: `F:\projects\MaxLogic\DelphiSemantics\.dak\benchmarks\maxtdb-semantic\semantic-hub-final-cold\semantic-cache`
+
+| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Target seconds | Target status | Min | Max | Result count | Cache hits | Cache misses | Reference fallbacks |
+|---|---|---|---:|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|
+| with-removal | remove-with-plan-all | cold | 1 | passed | 0 | 29.632 |  |  | 29.632 | 29.632 | 215 |  |  |  |
+| with-removal | remove-with-scan-all | cold | 1 | passed | 0 | 0.719 |  |  | 0.719 | 0.719 | 667 |  |  |  |
+
+Notes: all commands are report-only or dry-run; the maxTdb fixture is not modified.

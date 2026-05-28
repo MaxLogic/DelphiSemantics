@@ -123,6 +123,7 @@ type
     Success: Boolean;
     FileName: string;
     UnitName: string;
+    SourceText: string;
     EncodingName: string;
     SourceSections: TDelphiSemanticSourceSections;
     InterfaceUses: TArray<string>;
@@ -1337,6 +1338,10 @@ begin
       lMatch := TRegEx.Match(lParameter.Trim,
         '^(?:(const|var|out)\s+)?([A-Za-z_][A-Za-z0-9_,\s]*)\s*:\s*(.+)$',
         [roIgnoreCase]);
+      if not lMatch.Success then
+        lMatch := TRegEx.Match(lParameter.Trim,
+          '^(?:(const|var|out)\s+)([A-Za-z_][A-Za-z0-9_,\s]*)$',
+          [roIgnoreCase]);
       if lMatch.Success then
       begin
         lNames := lMatch.Groups[2].Value;
@@ -1346,7 +1351,7 @@ begin
           begin
             lNameOffset := lNamesOffset + Pos(lName.Trim, lNames) - 1;
             AddRoutineParameter(lParameters, aRoutineName, lName.Trim,
-              lMatch.Groups[3].Value.Trim, lMatch.Groups[1].Value.Trim, aText, lNameOffset);
+              MatchGroupValue(lMatch, 3).Trim, lMatch.Groups[1].Value.Trim, aText, lNameOffset);
           end;
       end;
       Inc(lParameterOffset, Length(lParameter) + 1);
@@ -1741,6 +1746,16 @@ begin
   for i := 0 to Pred(aDeclarations.Count) do
   begin
     lDeclaration := aDeclarations[i];
+    if (lDeclaration.Offset >= 1) and (lDeclaration.Offset + Length(lDeclaration.Name) - 1 <=
+      Length(aSourceText)) and SameText(Copy(aSourceText, lDeclaration.Offset,
+      Length(lDeclaration.Name)), lDeclaration.Name) then
+    begin
+      lDeclaration.Line := LineOfOffset(aSourceText, lDeclaration.Offset);
+      lDeclaration.Column := ColumnOfOffset(aSourceText, lDeclaration.Offset);
+      aDeclarations[i] := lDeclaration;
+      Continue;
+    end;
+
     lBestColumn := 0;
     lBestDistance := MaxInt;
     lBestLine := 0;
@@ -1883,6 +1898,141 @@ begin
     lReference.EndColumn := lReference.Column + Length(lReference.Name) - 1;
     lReference.SectionKind := SectionForOffset(aSourceText, lMappedOffset);
     aReferences[i] := lReference;
+  end;
+end;
+
+function SourceRangeMatchesRoutine(const aSourceText: string;
+  const aRoutine: TDelphiSemanticRoutine): Boolean;
+begin
+  Result := (aRoutine.Offset >= 1) and (aRoutine.Offset + Length(aRoutine.Name) - 1 <=
+    Length(aSourceText)) and SameText(Copy(aSourceText, aRoutine.Offset,
+    Length(aRoutine.Name)), aRoutine.Name);
+end;
+
+procedure AssignRoutineSourceRange(var aRoutine: TDelphiSemanticRoutine;
+  const aSourceText: string; const aOffset: Integer);
+begin
+  aRoutine.Offset := aOffset;
+  aRoutine.EndOffset := aOffset + Length(aRoutine.Name);
+  aRoutine.Line := LineOfOffset(aSourceText, aOffset);
+  aRoutine.Column := ColumnOfOffset(aSourceText, aOffset);
+end;
+
+procedure ApplyRoutineSourceOffsetMap(const aSourceText: string; const aOffsetMap:
+  TArray<Integer>; const aRoutines: TList<TDelphiSemanticRoutine>);
+var
+  i: Integer;
+  lMappedOffset: Integer;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  for i := 0 to Pred(aRoutines.Count) do
+  begin
+    lRoutine := aRoutines[i];
+    lMappedOffset := OffsetOfLineColumn(aSourceText, lRoutine.Line, lRoutine.Column);
+    if ((lMappedOffset <= 0) or (lMappedOffset + Length(lRoutine.Name) - 1 >
+      Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
+      Length(lRoutine.Name)), lRoutine.Name)) and (Length(aOffsetMap) > 0) and
+      (lRoutine.Offset > 0) and (lRoutine.Offset <= High(aOffsetMap)) then
+      lMappedOffset := aOffsetMap[lRoutine.Offset];
+
+    if (lMappedOffset <= 0) or (lMappedOffset + Length(lRoutine.Name) - 1 >
+      Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
+      Length(lRoutine.Name)), lRoutine.Name) then
+      Continue;
+
+    AssignRoutineSourceRange(lRoutine, aSourceText, lMappedOffset);
+    aRoutines[i] := lRoutine;
+  end;
+end;
+
+procedure ApplyDeclarationSourceOffsetMap(const aSourceText: string; const aOffsetMap:
+  TArray<Integer>; const aDeclarations: TList<TDelphiSemanticDeclaration>);
+var
+  i: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lMappedOffset: Integer;
+begin
+  for i := 0 to Pred(aDeclarations.Count) do
+  begin
+    lDeclaration := aDeclarations[i];
+    lMappedOffset := OffsetOfLineColumn(aSourceText, lDeclaration.Line,
+      lDeclaration.Column);
+    if ((lMappedOffset <= 0) or (lMappedOffset + Length(lDeclaration.Name) - 1 >
+      Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
+      Length(lDeclaration.Name)), lDeclaration.Name)) and (Length(aOffsetMap) > 0) and
+      (lDeclaration.Offset > 0) and (lDeclaration.Offset <= High(aOffsetMap)) then
+      lMappedOffset := aOffsetMap[lDeclaration.Offset];
+
+    if (lMappedOffset <= 0) or (lMappedOffset + Length(lDeclaration.Name) - 1 >
+      Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
+      Length(lDeclaration.Name)), lDeclaration.Name) then
+      Continue;
+
+    lDeclaration.Offset := lMappedOffset;
+    lDeclaration.EndOffset := lMappedOffset + Length(lDeclaration.Name);
+    lDeclaration.Line := LineOfOffset(aSourceText, lMappedOffset);
+    lDeclaration.Column := ColumnOfOffset(aSourceText, lMappedOffset);
+    aDeclarations[i] := lDeclaration;
+  end;
+end;
+
+procedure ApplyMemberSourceOffsetMap(const aSourceText: string; const aOffsetMap:
+  TArray<Integer>; const aMembers: TList<TDelphiSemanticMember>);
+var
+  i: Integer;
+  lMappedOffset: Integer;
+  lMember: TDelphiSemanticMember;
+begin
+  for i := 0 to Pred(aMembers.Count) do
+  begin
+    lMember := aMembers[i];
+    lMappedOffset := OffsetOfLineColumn(aSourceText, lMember.Line, lMember.Column);
+    if ((lMappedOffset <= 0) or (lMappedOffset + Length(lMember.Name) - 1 >
+      Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
+      Length(lMember.Name)), lMember.Name)) and (Length(aOffsetMap) > 0) and
+      (lMember.Offset > 0) and (lMember.Offset <= High(aOffsetMap)) then
+      lMappedOffset := aOffsetMap[lMember.Offset];
+
+    if (lMappedOffset <= 0) or (lMappedOffset + Length(lMember.Name) - 1 >
+      Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
+      Length(lMember.Name)), lMember.Name) then
+      Continue;
+
+    lMember.Offset := lMappedOffset;
+    lMember.EndOffset := lMappedOffset + Length(lMember.Name);
+    lMember.Line := LineOfOffset(aSourceText, lMappedOffset);
+    lMember.Column := ColumnOfOffset(aSourceText, lMappedOffset);
+    aMembers[i] := lMember;
+  end;
+end;
+
+procedure ApplyLocalSourceOffsetMap(const aSourceText: string; const aOffsetMap:
+  TArray<Integer>; const aLocals: TList<TDelphiSemanticLocal>);
+var
+  i: Integer;
+  lLocal: TDelphiSemanticLocal;
+  lMappedOffset: Integer;
+begin
+  for i := 0 to Pred(aLocals.Count) do
+  begin
+    lLocal := aLocals[i];
+    lMappedOffset := OffsetOfLineColumn(aSourceText, lLocal.Line, lLocal.Column);
+    if ((lMappedOffset <= 0) or (lMappedOffset + Length(lLocal.Name) - 1 >
+      Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
+      Length(lLocal.Name)), lLocal.Name)) and (Length(aOffsetMap) > 0) and
+      (lLocal.Offset > 0) and (lLocal.Offset <= High(aOffsetMap)) then
+      lMappedOffset := aOffsetMap[lLocal.Offset];
+
+    if (lMappedOffset <= 0) or (lMappedOffset + Length(lLocal.Name) - 1 >
+      Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
+      Length(lLocal.Name)), lLocal.Name) then
+      Continue;
+
+    lLocal.Offset := lMappedOffset;
+    lLocal.EndOffset := lMappedOffset + Length(lLocal.Name);
+    lLocal.Line := LineOfOffset(aSourceText, lMappedOffset);
+    lLocal.Column := ColumnOfOffset(aSourceText, lMappedOffset);
+    aLocals[i] := lLocal;
   end;
 end;
 
@@ -2042,13 +2192,25 @@ var
   lMatch: TMatch;
   lMember: TDelphiSemanticMember;
 begin
-  lCleanText := SanitizeCodeText(aSourceText);
+  lCleanText := '';
   for i := 0 to Pred(aMembers.Count) do
   begin
     lMember := aMembers[i];
+    if (lMember.Offset >= 1) and (lMember.Offset + Length(lMember.Name) - 1 <=
+      Length(aSourceText)) and SameText(Copy(aSourceText, lMember.Offset,
+      Length(lMember.Name)), lMember.Name) then
+    begin
+      lMember.Line := LineOfOffset(aSourceText, lMember.Offset);
+      lMember.Column := ColumnOfOffset(aSourceText, lMember.Offset);
+      aMembers[i] := lMember;
+      Continue;
+    end;
+
     lBestColumn := 0;
     lBestDistance := MaxInt;
     lBestLine := 0;
+    if lCleanText = '' then
+      lCleanText := SanitizeCodeText(aSourceText);
     lMatch := TRegEx.Match(lCleanText,
       '^(\s*(?:(?:property|procedure|function|constructor|destructor)\s+)?)' +
       TRegEx.Escape(lMember.Name) + '\b', [roIgnoreCase, roMultiLine]);
@@ -2092,13 +2254,22 @@ var
   lMatch: TMatch;
   lRoutine: TDelphiSemanticRoutine;
 begin
-  lCleanText := SanitizeCodeText(aSourceText);
+  lCleanText := '';
   for i := 0 to Pred(aRoutines.Count) do
   begin
     lRoutine := aRoutines[i];
+    if SourceRangeMatchesRoutine(aSourceText, lRoutine) then
+    begin
+      AssignRoutineSourceRange(lRoutine, aSourceText, lRoutine.Offset);
+      aRoutines[i] := lRoutine;
+      Continue;
+    end;
+
     lBestColumn := 0;
     lBestDistance := MaxInt;
     lBestLine := 0;
+    if lCleanText = '' then
+      lCleanText := SanitizeCodeText(aSourceText);
     lMatch := TRegEx.Match(lCleanText,
       '^\s*(?:class\s+)?(?:procedure|function)\s+(?:[A-Za-z_][A-Za-z0-9_]*\.)?' +
       TRegEx.Escape(lRoutine.Name) + '\b', [roIgnoreCase, roMultiLine]);
@@ -2142,13 +2313,25 @@ var
   lLocal: TDelphiSemanticLocal;
   lMatch: TMatch;
 begin
-  lCleanText := SanitizeCodeText(aSourceText);
+  lCleanText := '';
   for i := 0 to Pred(aLocals.Count) do
   begin
     lLocal := aLocals[i];
+    if (lLocal.Offset >= 1) and (lLocal.Offset + Length(lLocal.Name) - 1 <=
+      Length(aSourceText)) and SameText(Copy(aSourceText, lLocal.Offset,
+      Length(lLocal.Name)), lLocal.Name) then
+    begin
+      lLocal.Line := LineOfOffset(aSourceText, lLocal.Offset);
+      lLocal.Column := ColumnOfOffset(aSourceText, lLocal.Offset);
+      aLocals[i] := lLocal;
+      Continue;
+    end;
+
     lBestColumn := 0;
     lBestDistance := MaxInt;
     lBestLine := 0;
+    if lCleanText = '' then
+      lCleanText := SanitizeCodeText(aSourceText);
     lMatch := TRegEx.Match(lCleanText, '^(\s*)' + TRegEx.Escape(lLocal.Name) + '\b\s*:',
       [roIgnoreCase, roMultiLine]);
     while lMatch.Success do
@@ -2236,6 +2419,7 @@ begin
     lSourceResult := TDelphiSemanticSourceLoader.LoadFile(aOptions.SourceFileName);
     Result.Success := lSourceResult.Success;
     Result.FileName := lSourceResult.Source.FileName;
+    Result.SourceText := lSourceResult.Source.Text;
     if not lSourceResult.Success then
     begin
       AddSourceDiagnostics(lDiagnostics, lSourceResult.Diagnostics);
@@ -2291,6 +2475,10 @@ begin
     end;
     lOffsetMap := BuildOutputToSourceOffsetMap(lSourceResult.Source.Text, lText);
     ApplyReferenceSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lReferences);
+    ApplyRoutineSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lRoutines);
+    ApplyDeclarationSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lDeclarations);
+    ApplyMemberSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lMembers);
+    ApplyLocalSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lLocals);
     ReconcileDeclarationCoordinates(lSourceResult.Source.Text, lDeclarations);
     ReconcileWithStatementCoordinates(lSourceResult.Source.Text, lWithStatements);
     ReconcileReferencesCoordinates(lSourceResult.Source.Text, lReferences);

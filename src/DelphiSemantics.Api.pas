@@ -164,11 +164,13 @@ type
     EnvOptionsPath: string;
     EnvironmentVariables: TArray<TDelphiSemanticProperty>;
     AdditionalSourceFileNames: TArray<string>;
+    BodyAnalysisSourceFileNames: TArray<string>;
     Defines: TArray<string>;
     SearchPaths: TArray<string>;
     ProjectContextApplied: Boolean;
     Cache: TDelphiSemanticCacheOptions;
     UseLspEnrichment: Boolean;
+    SkipWithBindingSemanticGraph: Boolean;
   end;
 
   TDelphiSemanticUnitIndex = record
@@ -234,8 +236,10 @@ begin
   Result.EnvOptionsPath := aOptions.EnvOptionsPath;
   Result.EnvironmentVariables := aOptions.EnvironmentVariables;
   Result.AdditionalSourceFileNames := aOptions.AdditionalSourceFileNames;
+  Result.BodyAnalysisSourceFileNames := aOptions.BodyAnalysisSourceFileNames;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;
   Result.UseLspEnrichment := aOptions.UseLspEnrichment;
+  Result.SkipWithBindingSemanticGraph := aOptions.SkipWithBindingSemanticGraph;
 end;
 
 function ModelOptionsFromApiOptions(const aOptions: TDelphiSemanticApiOptions;

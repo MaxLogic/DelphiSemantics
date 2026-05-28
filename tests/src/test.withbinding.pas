@@ -25,13 +25,19 @@ type
     [Test]
     procedure ProjectSessionBuildsProjectLevelWithBindingFacts;
     [Test]
+    procedure ProjectSessionCanSkipGraphForRangeMappedWithBindingFacts;
+    [Test]
     procedure ProjectSessionIncludesExplicitAdditionalSourceFiles;
+    [Test]
+    procedure ProjectSessionLimitsBodyAnalysisToRequestedSourceFiles;
+    [Test]
+    procedure BindingReferenceCacheUsesStatementPrefix;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   DelphiSemantics.ProjectContext;
 
 function TProjectWithBindingTests.FixturePath(const aRelativePath: string): string;
@@ -126,6 +132,7 @@ begin
     Assert.AreEqual(lResult.Session.Project.ContextFingerprint, lFacts.ContextFingerprint);
     Assert.IsTrue(lFacts.Metrics.SemanticGraphUsed);
     Assert.IsFalse(lFacts.Metrics.BuildUnitIndexUsed);
+    Assert.IsTrue(lFacts.Metrics.ModelExtractionMilliseconds >= 0);
     Assert.AreEqual(2, lFacts.Metrics.UnitCount);
     Assert.AreEqual(2, lFacts.Metrics.BindingCount);
     Assert.AreEqual(2, Length(lFacts.Bindings));
@@ -155,6 +162,33 @@ begin
   end;
 end;
 
+procedure TProjectWithBindingTests.ProjectSessionCanSkipGraphForRangeMappedWithBindingFacts;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticOptions;
+  lProgramBinding: TDelphiSemanticWithBinding;
+  lResult: TDelphiSemanticProjectSessionResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lOptions.SkipWithBindingSemanticGraph := True;
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+
+    Assert.IsFalse(lFacts.Metrics.SemanticGraphUsed);
+    Assert.AreEqual(2, lFacts.Metrics.BindingCount);
+    lProgramBinding := BindingByUnit(lFacts, 'ProjectWithBinding');
+    Assert.AreEqual('with-binding:model', lProgramBinding.Provenance);
+    Assert.IsNotEmpty(lProgramBinding.SemanticId);
+    Assert.IsTrue(HasReference(lProgramBinding, 'Value', 'member'));
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
 procedure TProjectWithBindingTests.ProjectSessionIncludesExplicitAdditionalSourceFiles;
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
@@ -178,6 +212,47 @@ begin
   finally
     lResult.Session.Free;
   end;
+end;
+
+procedure TProjectWithBindingTests.ProjectSessionLimitsBodyAnalysisToRequestedSourceFiles;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lOptions.AdditionalSourceFileNames := [
+    FixturePath('ProjectWithBinding\UnreferencedWithUnit.pas')];
+  lOptions.BodyAnalysisSourceFileNames := [
+    FixturePath('ProjectWithBinding\ProjectWithBinding.dpr'),
+    FixturePath('ProjectWithBinding\ProjectWithUnit.pas')];
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+
+    Assert.IsFalse(HasBindingForUnit(lFacts, 'UnreferencedWithUnit'),
+      'Sources outside the body-analysis set must not contribute with bindings.');
+    Assert.IsTrue(HasProjectSymbol(lFacts, 'TUnreferencedRecord', 'declaration'),
+      'Sources outside the body-analysis set must still contribute declarations.');
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectWithBindingTests.BindingReferenceCacheUsesStatementPrefix;
+var
+  lSourceText: string;
+begin
+  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\..\src\DelphiSemantics.WithBinding.pas')), TEncoding.UTF8);
+
+  Assert.IsTrue(ContainsText(lSourceText, 'BoundReferenceCachePrefix'),
+    'binding should build the shared reference-cache key prefix once per statement');
+  Assert.IsTrue(ContainsText(lSourceText, 'ResolveNameCachePrefix'),
+    'binding should build the shared resolver-cache key prefix once per statement');
 end;
 
 initialization

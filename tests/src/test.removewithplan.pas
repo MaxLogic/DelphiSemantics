@@ -15,12 +15,14 @@ type
   public
     [Test]
     procedure PlansDeterministicDryRunDtoWithVerificationAndProvenance;
+    [Test]
+    procedure PlannerCachesSourceTextAndHashesPerFile;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.SysUtils;
+  System.IOUtils, System.StrUtils, System.SysUtils;
 
 function TRemoveWithPlanTests.FixturePath(const aRelativePath: string): string;
 begin
@@ -93,6 +95,19 @@ begin
   Assert.AreEqual('SOURCE_RANGE_UNAVAILABLE', lSkippedPlan.SkippedStatements[0].Reason);
   Assert.AreEqual('stable source file, hash, and source range are required',
     lSkippedPlan.SkippedStatements[0].SafetyReason);
+end;
+
+procedure TRemoveWithPlanTests.PlannerCachesSourceTextAndHashesPerFile;
+var
+  lSourceText: string;
+begin
+  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\..\src\DelphiSemantics.RemoveWithPlan.pas')), TEncoding.UTF8);
+
+  Assert.IsTrue(ContainsText(lSourceText, 'TDictionary<string, TArray<string>>'),
+    'remove-with plan DTO should cache source lines per file while building edits');
+  Assert.IsTrue(ContainsText(lSourceText, 'TDictionary<string, string>'),
+    'remove-with plan DTO should cache source hashes per file while building edits');
 end;
 
 initialization

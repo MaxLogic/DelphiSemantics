@@ -4,8 +4,7 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Model,
-  DelphiSemantics.Source;
+  DelphiSemantics.Model, DelphiSemantics.Source, DelphiSemantics.WithBinding;
 
 type
   [TestFixture]
@@ -59,6 +58,8 @@ type
     procedure ExtractsUnitNameUsesDeclarationsAndWithStatements;
     [Test]
     procedure ExtractsMembersRoutinesLocalsAndReferences;
+    [Test]
+    procedure ExtractsUntypedRoutineParameters;
     [Test]
     procedure ExtractsRoutineAfterSingleLineGuidInterface;
     [Test]
@@ -119,6 +120,8 @@ type
     procedure ReferenceReconciliationScansRepeatedNamesOnce;
     [Test]
     procedure ReferenceReconciliationBuildsOccurrenceTableOnce;
+    [Test]
+    procedure RoutineReconciliationUsesOffsetMapBeforeFallback;
   end;
 
 implementation
@@ -537,6 +540,66 @@ begin
   Assert.IsTrue(HasReference(lModel, 'Value'));
   Assert.IsTrue(HasReference(lModel, 'Length'));
   Assert.IsTrue(HasReference(lModel, 'SemanticGlobal'));
+end;
+
+procedure TUnitModelTests.ExtractsUntypedRoutineParameters;
+var
+  lInventory: TDelphiSemanticRemoveWithInventory;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoutine: TDelphiSemanticRoutine;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbolFound: Boolean;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('UnitModel', 'UntypedParameterUnit.pas');
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindRoutine(lModel, 'Run', 'implementation', lRoutine),
+    'Expected implementation routine.');
+  Assert.AreEqual('TUntypedParameterScope', lRoutine.OwnerName);
+  Assert.AreEqual(2, Length(lRoutine.Parameters));
+  Assert.AreEqual('aValue', lRoutine.Parameters[0].Name);
+  Assert.AreEqual('', lRoutine.Parameters[0].TypeName);
+  Assert.AreEqual('const', lRoutine.Parameters[0].Modifier);
+  Assert.AreEqual('aOther', lRoutine.Parameters[1].Name);
+  Assert.AreEqual('', lRoutine.Parameters[1].TypeName);
+  Assert.AreEqual('var', lRoutine.Parameters[1].Modifier);
+
+  Assert.IsTrue(FindRoutine(lModel, 'RunMixed', 'implementation', lRoutine),
+    'Expected mixed untyped-parameter routine.');
+  Assert.AreEqual(3, Length(lRoutine.Parameters));
+  Assert.AreEqual('aFirst', lRoutine.Parameters[0].Name);
+  Assert.AreEqual('Integer', lRoutine.Parameters[0].TypeName);
+  Assert.AreEqual('aUntyped', lRoutine.Parameters[1].Name);
+  Assert.AreEqual('', lRoutine.Parameters[1].TypeName);
+  Assert.AreEqual('var', lRoutine.Parameters[1].Modifier);
+  Assert.AreEqual('aLast', lRoutine.Parameters[2].Name);
+  Assert.AreEqual('Integer', lRoutine.Parameters[2].TypeName);
+
+  lSymbolFound := False;
+  lInventory := TDelphiSemanticWithBinder.BuildInventory(lModel);
+  for lSymbol in lInventory.Symbols do
+    if SameText(lSymbol.SymbolClass, 'parameter') and SameText(lSymbol.Name, 'aValue') then
+    begin
+      Assert.AreEqual('TUntypedParameterScope.Run', lSymbol.RoutineName);
+      lSymbolFound := True;
+    end;
+  Assert.IsTrue(lSymbolFound, 'Expected inventory parameter symbol.');
+
+  lSymbolFound := False;
+  for lSymbol in lInventory.Symbols do
+    if SameText(lSymbol.SymbolClass, 'parameter') and
+      SameText(lSymbol.Name, 'aInventoryUntyped') then
+    begin
+      Assert.AreEqual('RunInventory', lSymbol.RoutineName);
+      Assert.AreEqual('', lSymbol.TypeName);
+      lSymbolFound := True;
+    end;
+  Assert.IsTrue(lSymbolFound, 'Expected multiline untyped inventory parameter symbol.');
 end;
 
 procedure TUnitModelTests.ExtractsRoutineAfterSingleLineGuidInterface;
@@ -1610,6 +1673,31 @@ begin
     'fallback reconciliation should build one token occurrence table per unit');
   Assert.AreEqual(0, TDelphiSemanticUnitModelExtractor.ReferenceReconciliationNameScanCount,
     'fallback reconciliation should not regex-scan source once per name');
+end;
+
+procedure TUnitModelTests.RoutineReconciliationUsesOffsetMapBeforeFallback;
+var
+  lSourceText: string;
+begin
+  lSourceText := TFile.ReadAllText(TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\..\src\DelphiSemantics.Model.pas'), TEncoding.UTF8);
+
+  Assert.IsTrue(ContainsText(lSourceText,
+    'ApplyRoutineSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lRoutines);'),
+    'routine reconciliation should first map preprocessed offsets back to source offsets');
+  Assert.IsTrue(ContainsText(lSourceText, 'SourceRangeMatchesRoutine'),
+    'routine reconciliation should skip fallback scans when the mapped source range is already exact');
+  Assert.IsTrue(ContainsText(lSourceText,
+    'ApplyDeclarationSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lDeclarations);'),
+    'declaration reconciliation should first map preprocessed offsets back to source offsets');
+  Assert.IsTrue(ContainsText(lSourceText,
+    'ApplyMemberSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lMembers);'),
+    'member reconciliation should first map preprocessed offsets back to source offsets');
+  Assert.IsTrue(ContainsText(lSourceText,
+    'ApplyLocalSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lLocals);'),
+    'local reconciliation should first map preprocessed offsets back to source offsets');
+  Assert.IsTrue(ContainsText(lSourceText, 'if lCleanText = '''' then'),
+    'fallback reconciliation should not sanitize whole source files when mapped ranges are already exact');
 end;
 
 initialization

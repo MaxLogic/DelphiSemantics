@@ -19,8 +19,10 @@ type
     EnvOptionsPath: string;
     EnvironmentVariables: TArray<TDelphiSemanticProperty>;
     AdditionalSourceFileNames: TArray<string>;
+    BodyAnalysisSourceFileNames: TArray<string>;
     SqliteCacheFileName: string;
     UseLspEnrichment: Boolean;
+    SkipWithBindingSemanticGraph: Boolean;
   end;
 
   TDelphiSemanticDiagnostic = record

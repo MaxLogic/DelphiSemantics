@@ -26,9 +26,13 @@ type
     [Test]
     procedure SqliteMetricsExposeCacheFileName;
     [Test]
+    procedure SqliteCacheKeepsOnePersistentConnectionPerInstance;
+    [Test]
     procedure SecondCacheInstanceReusesStoredUnitModel;
     [Test]
     procedure SecondCacheInstancePreservesReferenceRoutineName;
+    [Test]
+    procedure SecondCacheInstancePreservesSourceText;
     [Test]
     procedure SourceChangeInvalidatesPersistentEntry;
     [Test]
@@ -185,6 +189,35 @@ begin
   end;
 end;
 
+procedure TCacheSqliteTests.SqliteCacheKeepsOnePersistentConnectionPerInstance;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lFirstOptions: TDelphiSemanticModelOptions;
+  lSecondOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('single-connection-cache.sqlite3');
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+
+  lFirstOptions := Default(TDelphiSemanticModelOptions);
+  lFirstOptions.SourceFileName := WriteUnitFile('CacheConnectionOneUnit', 'Integer');
+  lSecondOptions := Default(TDelphiSemanticModelOptions);
+  lSecondOptions.SourceFileName := WriteUnitFile('CacheConnectionTwoUnit', 'string');
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lFirstOptions);
+    lCache.GetOrExtractUnitModel(lSecondOptions);
+
+    Assert.AreEqual(1, lCache.Metrics.PersistentConnectionOpenCount,
+      'One SQLite cache instance should reuse its persistent connection.');
+  finally
+    lCache.Free;
+  end;
+end;
+
 procedure TCacheSqliteTests.SecondCacheInstanceReusesStoredUnitModel;
 var
   lCache: TDelphiSemanticSqliteUnitCache;
@@ -256,6 +289,48 @@ begin
 
     Assert.IsTrue(Length(lModel.References) > 0);
     Assert.AreEqual('UseGlobal', lModel.References[0].RoutineName);
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.SecondCacheInstancePreservesSourceText;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lSourceText: string;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('source-text-cache.sqlite3');
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+
+  lPath := TempPath('SqliteSourceTextUnit.pas');
+  lSourceText := 'unit SqliteSourceTextUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TSqliteSourceTextType = record' + sLineBreak +
+    '    Name: string;' + sLineBreak + '  end;' + sLineBreak + 'implementation' +
+    sLineBreak + 'end.';
+  TFile.WriteAllText(lPath, lSourceText, TEncoding.ASCII);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+
+    Assert.AreEqual(lSourceText, lModel.SourceText);
     Assert.AreEqual(1, lCache.Metrics.CacheHits);
   finally
     lCache.Free;

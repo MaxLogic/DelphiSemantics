@@ -20,7 +20,7 @@ uses
 
 procedure TDelphiSemanticsSmokeTests.VersionTextIsAvailable;
 begin
-  Assert.AreEqual('0.1.0', DelphiSemanticsVersionText);
+  Assert.AreEqual('0.1.1', DelphiSemanticsVersionText);
 end;
 
 initialization

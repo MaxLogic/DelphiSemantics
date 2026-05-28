@@ -9,8 +9,12 @@ type
   TDelphiSemanticSqliteUnitCache = class(TDelphiSemanticUnitCache)
   private
     fCacheFileName: string;
+    fConnection: TObject;
+    fDriverLink: TObject;
     function OpenConnection(out aConnection: TObject; out aDriverLink: TObject;
       out aError: string): Boolean;
+    function SharedConnection(out aConnection: TObject; out aError: string): Boolean;
+    procedure CloseSharedConnection;
     procedure RebuildDatabase(const aCode, aMessage: string);
     procedure EnsureDatabase;
   protected
@@ -23,6 +27,7 @@ type
       out aModel: TDelphiSemanticUnitModel): Boolean; override;
   public
     constructor Create(const aOptions: TDelphiSemanticCacheOptions);
+    destructor Destroy; override;
   end;
 
 implementation
@@ -526,6 +531,7 @@ begin
     lObject.AddPair('FileName', aModel.FileName);
     lObject.AddPair('UnitName', aModel.UnitName);
     lObject.AddPair('EncodingName', aModel.EncodingName);
+    lObject.AddPair('SourceText', aModel.SourceText);
     lObject.AddPair('SourceSections', SourceSectionsToJson(aModel.SourceSections));
     lObject.AddPair('InterfaceUses', StringArrayToJson(aModel.InterfaceUses));
     lObject.AddPair('ImplementationUses', StringArrayToJson(aModel.ImplementationUses));
@@ -557,6 +563,7 @@ begin
     Result.FileName := JsonString(lObject, 'FileName');
     Result.UnitName := JsonString(lObject, 'UnitName');
     Result.EncodingName := JsonString(lObject, 'EncodingName');
+    Result.SourceText := JsonString(lObject, 'SourceText');
     Result.SourceSections := JsonToSourceSections(lObject.GetValue('SourceSections') as TJSONObject);
     Result.InterfaceUses := JsonToStringArray(lObject.GetValue('InterfaceUses') as TJSONArray);
     Result.ImplementationUses := JsonToStringArray(lObject.GetValue('ImplementationUses') as TJSONArray);
@@ -578,6 +585,12 @@ begin
   fCacheFileName := aOptions.SqliteCacheFileName;
   SetCacheKind('sqlite');
   EnsureDatabase;
+end;
+
+destructor TDelphiSemanticSqliteUnitCache.Destroy;
+begin
+  CloseSharedConnection;
+  inherited;
 end;
 
 procedure TDelphiSemanticSqliteUnitCache.EnsureDatabase;
@@ -631,6 +644,14 @@ begin
   end;
 end;
 
+procedure TDelphiSemanticSqliteUnitCache.CloseSharedConnection;
+begin
+  fConnection.Free;
+  fConnection := nil;
+  fDriverLink.Free;
+  fDriverLink := nil;
+end;
+
 function TDelphiSemanticSqliteUnitCache.OpenConnection(out aConnection: TObject;
   out aDriverLink: TObject; out aError: string): Boolean;
 var
@@ -667,25 +688,38 @@ begin
   end;
 end;
 
+function TDelphiSemanticSqliteUnitCache.SharedConnection(out aConnection: TObject;
+  out aError: string): Boolean;
+begin
+  aConnection := nil;
+  aError := '';
+  if Assigned(fConnection) then
+  begin
+    aConnection := fConnection;
+    Exit(True);
+  end;
+
+  Result := OpenConnection(fConnection, fDriverLink, aError);
+  if Result then
+  begin
+    aConnection := fConnection;
+    RecordPersistentConnectionOpen;
+  end;
+end;
+
 function TDelphiSemanticSqliteUnitCache.PersistentEntryExistsForIdentity(
   const aIdentity: string): Boolean;
 var
   lConnectionObject: TObject;
   lConnection: TFDConnection;
-  lDriverLinkObject: TObject;
   lError: string;
 begin
   Result := False;
-  if not OpenConnection(lConnectionObject, lDriverLinkObject, lError) then
+  if not SharedConnection(lConnectionObject, lError) then
     Exit;
-  try
-    lConnection := TFDConnection(lConnectionObject);
-    Result := lConnection.ExecSQLScalar(
-      'select count(*) from unit_models where identity_key = ?', [aIdentity]) > 0;
-  finally
-    lConnectionObject.Free;
-    lDriverLinkObject.Free;
-  end;
+  lConnection := TFDConnection(lConnectionObject);
+  Result := lConnection.ExecSQLScalar(
+    'select count(*) from unit_models where identity_key = ?', [aIdentity]) > 0;
 end;
 
 procedure TDelphiSemanticSqliteUnitCache.RebuildDatabase(const aCode, aMessage: string);
@@ -695,6 +729,7 @@ var
   lError: string;
 begin
   AddDiagnostic(aCode, aMessage, fCacheFileName);
+  CloseSharedConnection;
   if FileExists(fCacheFileName) then
     DeleteFile(fCacheFileName);
   if not OpenConnection(lConnectionObject, lDriverLinkObject, lError) then
@@ -732,33 +767,27 @@ procedure TDelphiSemanticSqliteUnitCache.RecordPersistentInvalidation(const aIde
 var
   lConnectionObject: TObject;
   lConnection: TFDConnection;
-  lDriverLinkObject: TObject;
   lError: string;
   lProfile: Variant;
 begin
-  if not OpenConnection(lConnectionObject, lDriverLinkObject, lError) then
+  if not SharedConnection(lConnectionObject, lError) then
   begin
     AddDiagnostic('SQLITE_CACHE_STALE_ENTRY_REBUILT',
       'SQLite cache entry was stale for source identity: ' + aIdentity, fCacheFileName);
     Exit;
   end;
-  try
-    lConnection := TFDConnection(lConnectionObject);
-    lProfile := lConnection.ExecSQLScalar(
-      'select compiler_profile_name from unit_models where identity_key = ? limit 1',
-      [aIdentity]);
-    if (not VarIsNull(lProfile)) and (not SameText(VarToStr(lProfile),
-      CompilerProfileName)) then
-      AddDiagnostic('SQLITE_CACHE_STALE_PROFILE_REBUILT',
-        'SQLite cache entry was rebuilt for compiler profile: ' + CompilerProfileName,
-        fCacheFileName)
-    else
-      AddDiagnostic('SQLITE_CACHE_STALE_ENTRY_REBUILT',
-        'SQLite cache entry was stale for source identity: ' + aIdentity, fCacheFileName);
-  finally
-    lConnectionObject.Free;
-    lDriverLinkObject.Free;
-  end;
+  lConnection := TFDConnection(lConnectionObject);
+  lProfile := lConnection.ExecSQLScalar(
+    'select compiler_profile_name from unit_models where identity_key = ? limit 1',
+    [aIdentity]);
+  if (not VarIsNull(lProfile)) and (not SameText(VarToStr(lProfile),
+    CompilerProfileName)) then
+    AddDiagnostic('SQLITE_CACHE_STALE_PROFILE_REBUILT',
+      'SQLite cache entry was rebuilt for compiler profile: ' + CompilerProfileName,
+      fCacheFileName)
+  else
+    AddDiagnostic('SQLITE_CACHE_STALE_ENTRY_REBUILT',
+      'SQLite cache entry was stale for source identity: ' + aIdentity, fCacheFileName);
 end;
 
 procedure TDelphiSemanticSqliteUnitCache.StorePersistentEntry(const aIdentity, aKey: string;
@@ -767,31 +796,25 @@ procedure TDelphiSemanticSqliteUnitCache.StorePersistentEntry(const aIdentity, a
 var
   lConnectionObject: TObject;
   lConnection: TFDConnection;
-  lDriverLinkObject: TObject;
   lError: string;
 begin
-  if not OpenConnection(lConnectionObject, lDriverLinkObject, lError) then
+  if not SharedConnection(lConnectionObject, lError) then
   begin
     AddDiagnostic('SQLITE_CACHE_OPEN_FAILED', lError, fCacheFileName);
     Exit;
   end;
-  try
-    lConnection := TFDConnection(lConnectionObject);
-    lConnection.ExecSQL('insert or replace into unit_models(cache_key, identity_key, ' +
-      'source_file_name, file_hash, delphi_version, configuration, platform, compiler_profile_name, ' +
-      'schema_version, parser_version, model_version, include_graph_hash, context_hash, ' +
-      'defines_hash, search_path_hash, extraction_options_hash, model_json, stored_at_utc) ' +
-      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [aKey, aIdentity, aModel.FileName, aCacheIdentity.FileHash, DelphiVersion, Configuration, Platform,
-      CompilerProfileName, aCacheIdentity.SchemaVersion, aCacheIdentity.ParserVersion,
-      aCacheIdentity.ModelVersion, aCacheIdentity.IncludeGraphHash, aCacheIdentity.ContextHash,
-      aCacheIdentity.DefinesHash, aCacheIdentity.SearchPathHash,
-      aCacheIdentity.ExtractionOptionsHash, ModelToJson(aModel),
-      FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"', Now)]);
-  finally
-    lConnectionObject.Free;
-    lDriverLinkObject.Free;
-  end;
+  lConnection := TFDConnection(lConnectionObject);
+  lConnection.ExecSQL('insert or replace into unit_models(cache_key, identity_key, ' +
+    'source_file_name, file_hash, delphi_version, configuration, platform, compiler_profile_name, ' +
+    'schema_version, parser_version, model_version, include_graph_hash, context_hash, ' +
+    'defines_hash, search_path_hash, extraction_options_hash, model_json, stored_at_utc) ' +
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [aKey, aIdentity, aModel.FileName, aCacheIdentity.FileHash, DelphiVersion, Configuration, Platform,
+    CompilerProfileName, aCacheIdentity.SchemaVersion, aCacheIdentity.ParserVersion,
+    aCacheIdentity.ModelVersion, aCacheIdentity.IncludeGraphHash, aCacheIdentity.ContextHash,
+    aCacheIdentity.DefinesHash, aCacheIdentity.SearchPathHash,
+    aCacheIdentity.ExtractionOptionsHash, ModelToJson(aModel),
+    FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"', Now)]);
 end;
 
 function TDelphiSemanticSqliteUnitCache.TryLoadPersistentEntry(const aIdentity, aKey: string;
@@ -799,42 +822,36 @@ function TDelphiSemanticSqliteUnitCache.TryLoadPersistentEntry(const aIdentity, 
 var
   lConnectionObject: TObject;
   lConnection: TFDConnection;
-  lDriverLinkObject: TObject;
   lError: string;
   lJson: Variant;
 begin
   aModel := Default(TDelphiSemanticUnitModel);
   Result := False;
-  if not OpenConnection(lConnectionObject, lDriverLinkObject, lError) then
+  if not SharedConnection(lConnectionObject, lError) then
     Exit;
+  lConnection := TFDConnection(lConnectionObject);
+  lJson := lConnection.ExecSQLScalar('select model_json from unit_models where cache_key = ?',
+    [aKey]);
+  if VarIsNull(lJson) then
+    Exit(False);
   try
-    lConnection := TFDConnection(lConnectionObject);
-    lJson := lConnection.ExecSQLScalar('select model_json from unit_models where cache_key = ?',
-      [aKey]);
-    if VarIsNull(lJson) then
-      Exit(False);
-    try
-      aModel := JsonToModel(VarToStr(lJson));
-      Result := aModel.UnitName <> '';
-      if not Result then
-      begin
-        AddDiagnostic('SQLITE_CACHE_ENTRY_REBUILT',
-          'SQLite cache entry was unreadable and will be rebuilt.', fCacheFileName);
-        lConnection.ExecSQL('delete from unit_models where cache_key = ?', [aKey]);
-      end;
-    except
-      on E: Exception do
-      begin
-        AddDiagnostic('SQLITE_CACHE_ENTRY_REBUILT',
-          'SQLite cache entry could not be read and will be rebuilt: ' + E.Message,
-          fCacheFileName);
-        lConnection.ExecSQL('delete from unit_models where cache_key = ?', [aKey]);
-        Result := False;
-      end;
+    aModel := JsonToModel(VarToStr(lJson));
+    Result := aModel.UnitName <> '';
+    if not Result then
+    begin
+      AddDiagnostic('SQLITE_CACHE_ENTRY_REBUILT',
+        'SQLite cache entry was unreadable and will be rebuilt.', fCacheFileName);
+      lConnection.ExecSQL('delete from unit_models where cache_key = ?', [aKey]);
     end;
-  finally
-    lConnectionObject.Free;
-    lDriverLinkObject.Free;
+  except
+    on E: Exception do
+    begin
+      AddDiagnostic('SQLITE_CACHE_ENTRY_REBUILT',
+        'SQLite cache entry could not be read and will be rebuilt: ' + E.Message,
+        fCacheFileName);
+      lConnection.ExecSQL('delete from unit_models where cache_key = ?', [aKey]);
+      Result := False;
+    end;
   end;
 end;
 

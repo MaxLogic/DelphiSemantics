@@ -23,6 +23,7 @@ type
     CacheHits: Integer;
     CacheMisses: Integer;
     Invalidations: Integer;
+    PersistentConnectionOpenCount: Integer;
   end;
 
   TDelphiSemanticCacheIdentityContext = record
@@ -119,6 +120,7 @@ type
   protected
     procedure AddDiagnostic(const aCode, aMessage, aFileName: string);
     procedure RecordPersistentInvalidation(const aIdentity, aKey: string); virtual;
+    procedure RecordPersistentConnectionOpen;
     function PersistentEntryExistsForIdentity(const aIdentity: string): Boolean; virtual;
     procedure SetCacheKind(const aValue: string);
     procedure StorePersistentEntry(const aIdentity, aKey: string;
@@ -160,7 +162,7 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.1';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.2';
 
 function StableHash(const aText: string): string;
 begin
@@ -628,6 +630,11 @@ end;
 procedure TDelphiSemanticUnitCache.SetCacheKind(const aValue: string);
 begin
   fMetrics.CacheKind := aValue;
+end;
+
+procedure TDelphiSemanticUnitCache.RecordPersistentConnectionOpen;
+begin
+  Inc(fMetrics.PersistentConnectionOpenCount);
 end;
 
 procedure TDelphiSemanticUnitCache.SetParserVersion(const aValue: string);
