@@ -6,6 +6,7 @@ uses
   DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.ExternalSymbols,
   DelphiSemantics.Index, DelphiSemantics.Model, DelphiSemantics.ProjectContext,
   DelphiSemantics.ProjectSession, DelphiSemantics.Query, DelphiSemantics.Refactor,
+  DelphiSemantics.RemoveWithPlan,
   DelphiSemantics.Resolve.MemberResolver,
   DelphiSemantics.Resolve.ScopeResolver, DelphiSemantics.Resolve.TypeResolver,
   DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Search, DelphiSemantics.SemanticGraph,
@@ -48,6 +49,18 @@ type
     DelphiSemantics.Refactor.TDelphiSemanticDeadCodeRemovalBlocker;
   TDelphiSemanticDeadCodeRemovalPlan =
     DelphiSemantics.Refactor.TDelphiSemanticDeadCodeRemovalPlan;
+  TDelphiSemanticRemoveWithSourceRange =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSourceRange;
+  TDelphiSemanticRemoveWithVerification =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithVerification;
+  TDelphiSemanticRemoveWithEdit =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithEdit;
+  TDelphiSemanticRemoveWithSkippedStatement =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSkippedStatement;
+  TDelphiSemanticRemoveWithPlan =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlan;
+  TDelphiSemanticRemoveWithPlanner =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanner;
   TDelphiSemanticSearchQuery = DelphiSemantics.Search.TDelphiSemanticSearchQuery;
   TDelphiSemanticSearchMatch = DelphiSemantics.Search.TDelphiSemanticSearchMatch;
   TDelphiSemanticSearchResult = DelphiSemantics.Search.TDelphiSemanticSearchResult;
@@ -194,6 +207,8 @@ type
       const aProfile: string): TDelphiSemanticDeadCodeReport; static;
     class function PlanDeadCodeRemoval(const aContext: TDelphiSemanticSymbolQueryContext;
       const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; static;
+    class function PlanRemoveWith(const aFacts: TDelphiSemanticProjectWithBindingFacts):
+      TDelphiSemanticRemoveWithPlan; static;
     class function Search(const aContext: TDelphiSemanticSymbolQueryContext;
       const aQuery: TDelphiSemanticSearchQuery): TDelphiSemanticSearchResult; static;
   end;
@@ -377,6 +392,12 @@ class function TDelphiSemanticApi.PlanDeadCodeRemoval(
   TDelphiSemanticDeadCodeRemovalPlan;
 begin
   Result := TDelphiSemanticRenamePlanner.PlanDeadCodeRemoval(aContext, aProfile);
+end;
+
+class function TDelphiSemanticApi.PlanRemoveWith(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
+begin
+  Result := TDelphiSemanticRemoveWithPlanner.Plan(aFacts);
 end;
 
 class function TDelphiSemanticApi.Search(const aContext: TDelphiSemanticSymbolQueryContext;

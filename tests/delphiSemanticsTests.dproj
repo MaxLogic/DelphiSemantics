@@ -69,6 +69,7 @@
     <DCCReference Include="src\test.preprocess.pas"/>
     <DCCReference Include="src\test.refactor.rename.pas"/>
     <DCCReference Include="src\test.refactor.removedeadcode.pas"/>
+    <DCCReference Include="src\test.removewithplan.pas"/>
     <DCCReference Include="src\test.resolverlevel1.pas"/>
     <DCCReference Include="src\test.resolverlevel2.pas"/>
     <DCCReference Include="src\test.resolverlevel3.pas"/>
@@ -104,6 +105,7 @@
     <DCCReference Include="..\src\DelphiSemantics.ProjectSession.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Query.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Refactor.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.RemoveWithPlan.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.MemberResolver.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.ScopeResolver.pas"/>
