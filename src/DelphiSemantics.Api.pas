@@ -146,6 +146,7 @@ type
     RsVarsPath: string;
     EnvOptionsPath: string;
     EnvironmentVariables: TArray<TDelphiSemanticProperty>;
+    AdditionalSourceFileNames: TArray<string>;
     Defines: TArray<string>;
     SearchPaths: TArray<string>;
     ProjectContextApplied: Boolean;
@@ -213,6 +214,7 @@ begin
   Result.RsVarsPath := aOptions.RsVarsPath;
   Result.EnvOptionsPath := aOptions.EnvOptionsPath;
   Result.EnvironmentVariables := aOptions.EnvironmentVariables;
+  Result.AdditionalSourceFileNames := aOptions.AdditionalSourceFileNames;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;
   Result.UseLspEnrichment := aOptions.UseLspEnrichment;
 end;

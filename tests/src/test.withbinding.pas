@@ -15,11 +15,17 @@ type
       const aUnitName: string): TDelphiSemanticWithBinding;
     function HasBindingForUnit(const aFacts: TDelphiSemanticProjectWithBindingFacts;
       const aUnitName: string): Boolean;
+    function HasProjectSymbol(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+      const aName, aSymbolClass: string): Boolean;
+    function HasProjectSymbolSource(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+      const aName, aSymbolClass, aSourceKind: string): Boolean;
     function HasReference(const aBinding: TDelphiSemanticWithBinding; const aName,
       aClassification: string): Boolean;
   public
     [Test]
     procedure ProjectSessionBuildsProjectLevelWithBindingFacts;
+    [Test]
+    procedure ProjectSessionIncludesExplicitAdditionalSourceFiles;
   end;
 
 implementation
@@ -74,6 +80,33 @@ begin
   Result := False;
 end;
 
+function TProjectWithBindingTests.HasProjectSymbol(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts; const aName,
+  aSymbolClass: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  for lSymbol in aFacts.Symbols do
+    if SameText(lSymbol.Name, aName) and SameText(lSymbol.SymbolClass, aSymbolClass) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function TProjectWithBindingTests.HasProjectSymbolSource(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts; const aName,
+  aSymbolClass, aSourceKind: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  for lSymbol in aFacts.Symbols do
+    if SameText(lSymbol.Name, aName) and SameText(lSymbol.SymbolClass, aSymbolClass) and
+      SameText(lSymbol.SourceOwnerType, aSourceKind) then
+      Exit(True);
+
+  Result := False;
+end;
+
 procedure TProjectWithBindingTests.ProjectSessionBuildsProjectLevelWithBindingFacts;
 var
   lProgramBinding: TDelphiSemanticWithBinding;
@@ -96,6 +129,14 @@ begin
     Assert.AreEqual(2, lFacts.Metrics.UnitCount);
     Assert.AreEqual(2, lFacts.Metrics.BindingCount);
     Assert.AreEqual(2, Length(lFacts.Bindings));
+    Assert.IsTrue(Length(lFacts.Symbols) > 0,
+      'Expected project facts to carry reusable semantic inventory symbols.');
+    Assert.IsTrue(HasProjectSymbol(lFacts, 'ProjectWithUnit', 'unit'));
+    Assert.IsTrue(HasProjectSymbol(lFacts, 'TProjectWithRecord', 'declaration'));
+    Assert.IsTrue(HasProjectSymbol(lFacts, 'Value', 'member'));
+    Assert.IsTrue(HasProjectSymbolSource(lFacts, 'SizeOf', 'routine', 'compiler-intrinsic'));
+    Assert.IsTrue(HasProjectSymbolSource(lFacts, 'Push', 'routine', 'rtl-source'));
+    Assert.IsTrue(HasProjectSymbolSource(lFacts, 'TSearchRec', 'type-member', 'rtl-source'));
     Assert.IsFalse(HasBindingForUnit(lFacts, 'UnreferencedWithUnit'),
       'Unreferenced .pas files in the project directory must not be scanned as project units.');
 
@@ -109,6 +150,31 @@ begin
     Assert.IsTrue(HasReference(lUnitBinding, 'Count', 'member'));
     Assert.IsNotEmpty(lUnitBinding.References[0].SemanticId);
     Assert.AreNotEqual(lUnitBinding.SemanticId, lUnitBinding.References[0].SemanticId);
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectWithBindingTests.ProjectSessionIncludesExplicitAdditionalSourceFiles;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lOptions.AdditionalSourceFileNames := [
+    FixturePath('ProjectWithBinding\UnreferencedWithUnit.pas')];
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+
+    Assert.IsTrue(HasBindingForUnit(lFacts, 'UnreferencedWithUnit'),
+      'Explicit additional source files must participate in project semantic facts.');
+    Assert.IsTrue(HasProjectSymbol(lFacts, 'TUnreferencedRecord', 'declaration'),
+      'Explicit additional source files must contribute semantic inventory symbols.');
   finally
     lResult.Session.Free;
   end;

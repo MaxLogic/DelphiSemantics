@@ -102,6 +102,7 @@ type
   TDelphiSemanticProjectWithBindingFacts = record
     ContextFingerprint: string;
     Metrics: TDelphiSemanticProjectWithBindingMetrics;
+    Symbols: TArray<TDelphiSemanticInventorySymbol>;
     Bindings: TArray<TDelphiSemanticWithBinding>;
   end;
 
@@ -2710,6 +2711,71 @@ begin
   Result := BindProject('', nil, [aModel]).Bindings;
 end;
 
+function BuildInventorySymbols(const aModel: TDelphiSemanticUnitModel):
+  TArray<TDelphiSemanticInventorySymbol>; forward;
+
+procedure AddProjectCompatibilitySymbol(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
+  const aName, aSymbolClass, aKind, aTypeName, aOwnerType, aSourceKind: string;
+  const aTypeCategory: string = '');
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lSymbol := Default(TDelphiSemanticInventorySymbol);
+  lSymbol.Name := aName;
+  lSymbol.SymbolClass := aSymbolClass;
+  lSymbol.Kind := aKind;
+  lSymbol.TypeName := aTypeName;
+  lSymbol.OwnerName := aOwnerType;
+  lSymbol.OwnerType := aOwnerType;
+  lSymbol.SourceOwnerType := aSourceKind;
+  lSymbol.UnitName := aSourceKind;
+  lSymbol.TypeCategory := aTypeCategory;
+  AddInventorySymbol(aSymbols, lSymbol);
+end;
+
+procedure AddProjectCompatibilityRoutine(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
+  const aName, aTypeName, aSourceKind: string);
+begin
+  AddProjectCompatibilitySymbol(aSymbols, aName, 'routine', 'routine', aTypeName, '',
+    aSourceKind);
+end;
+
+procedure AddProjectCompatibilitySymbols(const aSymbols: TList<TDelphiSemanticInventorySymbol>);
+const
+  cCompilerIntrinsicRoutines: array [0..46] of string = ('Abs', 'Addr', 'Assert',
+    'Assign', 'Assigned', 'BlockRead', 'BlockWrite', 'Close', 'Copy', 'Dec', 'Delete',
+    'Dispose', 'EOF', 'Exclude', 'FilePos', 'FillChar', 'Flush', 'FreeMem',
+    'GetMem', 'Halt', 'High', 'Inc', 'Include', 'Length', 'Low', 'Move', 'New',
+    'Ord', 'Pred', 'Read', 'Readln', 'ReallocMem', 'Reset',
+    'Rewrite', 'Round', 'Seek', 'SetLength', 'SizeOf', 'Sqr', 'Str', 'Succ',
+    'Swap', 'UpCase', 'Val', 'Write', 'Writeln', 'IOResult');
+  cRtlSourceRoutines: array [0..7] of string = ('ExpandFileName',
+    'FileDateToDateTime', 'IntToStr', 'Max', 'Min', 'Pop', 'Push', 'Random');
+var
+  lName: string;
+begin
+  AddProjectCompatibilitySymbol(aSymbols, 'TFileName', 'type-member', 'type-member',
+    'string', '', 'rtl-source');
+  AddProjectCompatibilitySymbol(aSymbols, 'TSearchRec', 'type-member', 'type-member',
+    'record', '', 'rtl-source', 'record');
+  AddProjectCompatibilitySymbol(aSymbols, 'Exception', 'type-member', 'type-member',
+    'class', '', 'rtl-source', 'class');
+  AddProjectCompatibilitySymbol(aSymbols, 'Name', 'field', 'field', 'TFileName',
+    'TSearchRec', 'rtl-source');
+  AddProjectCompatibilitySymbol(aSymbols, 'Size', 'field', 'field', 'Int64',
+    'TSearchRec', 'rtl-source');
+  AddProjectCompatibilitySymbol(aSymbols, 'Attr', 'field', 'field', 'Integer',
+    'TSearchRec', 'rtl-source');
+  AddProjectCompatibilitySymbol(aSymbols, 'Time', 'field', 'field', 'Integer',
+    'TSearchRec', 'rtl-source');
+  AddProjectCompatibilitySymbol(aSymbols, 'Message', 'property', 'property', 'string',
+    'Exception', 'rtl-source');
+  for lName in cCompilerIntrinsicRoutines do
+    AddProjectCompatibilityRoutine(aSymbols, lName, '', 'compiler-intrinsic');
+  for lName in cRtlSourceRoutines do
+    AddProjectCompatibilityRoutine(aSymbols, lName, '', 'rtl-source');
+end;
+
 class function TDelphiSemanticWithBinder.BindProject(const aContextFingerprint: string;
   const aGraph: TDelphiSemanticSemanticGraph;
   const aModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticProjectWithBindingFacts;
@@ -2722,13 +2788,18 @@ var
   lRoutineName: string;
   lScopeIndex: TDelphiSemanticRoutineScopeIndex;
   lStatement: TDelphiSemanticWithStatement;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbols: TList<TDelphiSemanticInventorySymbol>;
 begin
   Result := Default(TDelphiSemanticProjectWithBindingFacts);
   Result.ContextFingerprint := aContextFingerprint;
   lBindings := TList<TDelphiSemanticWithBinding>.Create;
+  lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
   try
     for lModel in aModels do
     begin
+      for lSymbol in BuildInventorySymbols(lModel) do
+        lSymbols.Add(lSymbol);
       lScopeIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel);
       for i := 0 to High(lModel.WithStatements) do
       begin
@@ -2763,6 +2834,8 @@ begin
         lBindings.Add(lBinding);
       end;
     end;
+    AddProjectCompatibilitySymbols(lSymbols);
+    Result.Symbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lSymbols.ToArray);
     Result.Bindings := lBindings.ToArray;
     Result.Metrics.SemanticGraphUsed := aGraph <> nil;
     Result.Metrics.BuildUnitIndexUsed := False;
@@ -2776,6 +2849,7 @@ begin
       Result.Metrics.WithStatementCount := Length(Result.Bindings);
     Result.Metrics.BindingCount := Length(Result.Bindings);
   finally
+    lSymbols.Free;
     lBindings.Free;
   end;
 end;
@@ -2801,8 +2875,8 @@ begin
   end;
 end;
 
-class function TDelphiSemanticWithBinder.BuildInventory(
-  const aModel: TDelphiSemanticUnitModel): TDelphiSemanticRemoveWithInventory;
+function BuildInventorySymbols(const aModel: TDelphiSemanticUnitModel):
+  TArray<TDelphiSemanticInventorySymbol>;
 var
   lDeclaration: TDelphiSemanticDeclaration;
   lLocal: TDelphiSemanticLocal;
@@ -2812,10 +2886,6 @@ var
   lSymbol: TDelphiSemanticInventorySymbol;
   lSymbols: TList<TDelphiSemanticInventorySymbol>;
 begin
-  Result := Default(TDelphiSemanticRemoveWithInventory);
-  Result.FileName := aModel.FileName;
-  Result.UnitName := aModel.UnitName;
-
   lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
   try
     lSymbol := Default(TDelphiSemanticInventorySymbol);
@@ -2906,6 +2976,10 @@ begin
         lSymbol.RoutineName := lParameter.RoutineName;
         lSymbol.UnitName := aModel.UnitName;
         lSymbol.FileName := aModel.FileName;
+        lSymbol.Line := lParameter.Line;
+        lSymbol.Column := lParameter.Column;
+        lSymbol.EndLine := lParameter.Line;
+        lSymbol.EndColumn := lParameter.Column;
         AddInventorySymbol(lSymbols, lSymbol);
       end;
     end;
@@ -2928,10 +3002,19 @@ begin
     end;
 
     AddDakCompatibleInventorySymbols(aModel, lSymbols);
-    Result.Symbols := lSymbols.ToArray;
+    Result := lSymbols.ToArray;
   finally
     lSymbols.Free;
   end;
+end;
+
+class function TDelphiSemanticWithBinder.BuildInventory(
+  const aModel: TDelphiSemanticUnitModel): TDelphiSemanticRemoveWithInventory;
+begin
+  Result := Default(TDelphiSemanticRemoveWithInventory);
+  Result.FileName := aModel.FileName;
+  Result.UnitName := aModel.UnitName;
+  Result.Symbols := BuildInventorySymbols(aModel);
 
   Result.Bindings := BindModel(aModel);
 end;

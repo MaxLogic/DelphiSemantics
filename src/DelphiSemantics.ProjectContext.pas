@@ -18,6 +18,7 @@ type
     RsVarsPath: string;
     EnvOptionsPath: string;
     EnvironmentVariables: TArray<TDelphiSemanticProperty>;
+    AdditionalSourceFileNames: TArray<string>;
     SqliteCacheFileName: string;
     UseLspEnrichment: Boolean;
   end;
@@ -1125,6 +1126,27 @@ begin
   end;
 end;
 
+procedure AddAdditionalSourceFiles(var aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions);
+var
+  lFileName: string;
+  lSourceFiles: TList<string>;
+begin
+  if Length(aOptions.AdditionalSourceFileNames) = 0 then
+    Exit;
+
+  lSourceFiles := TList<string>.Create;
+  try
+    for lFileName in aProject.SourceFileNames do
+      AddUniquePath(lSourceFiles, aProject.ProjectDirectory, lFileName);
+    for lFileName in aOptions.AdditionalSourceFileNames do
+      AddUniquePath(lSourceFiles, aProject.ProjectDirectory, lFileName);
+    aProject.SourceFileNames := lSourceFiles.ToArray;
+  finally
+    lSourceFiles.Free;
+  end;
+end;
+
 function NormalizeFingerprintPart(const aValue, aFallback: string): string;
 begin
   Result := Trim(aValue);
@@ -1320,6 +1342,7 @@ begin
       lProperties, aDiagnostics);
     Result := CreateProjectInfoFromProperties(aProjectFileName, lText, lProperties);
     PopulateProjectSemanticContext(Result, lText, lProperties, aDiagnostics);
+    AddAdditionalSourceFiles(Result, aOptions);
     Result.CompilerProfileName := BuildCompilerProfileName(Result, aOptions);
     Result.ContextFingerprint := BuildContextFingerprint(Result, aOptions);
   finally

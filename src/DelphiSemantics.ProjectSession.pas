@@ -49,6 +49,7 @@ implementation
 
 uses
   System.Generics.Collections, System.IOUtils, System.SysUtils,
+  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite,
   MaxLogic.StrUtils;
 
 function MainModelOptions(const aProject: TDelphiSemanticProjectInfo):
@@ -61,18 +62,6 @@ begin
   Result.ProjectContextApplied := True;
 end;
 
-function ExtractMainModel(const aProject: TDelphiSemanticProjectInfo):
-  TDelphiSemanticUnitModel;
-var
-  lOptions: TDelphiSemanticModelOptions;
-begin
-  lOptions := MainModelOptions(aProject);
-  Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
-  if (Result.Success) and (Result.UnitName = '') and
-    SameText(Result.FileName, aProject.MainSourceFileName) then
-    Result.UnitName := aProject.ProjectName;
-end;
-
 function ExtractUnitModel(const aProject: TDelphiSemanticProjectInfo; const aFileName: string):
   TDelphiSemanticUnitModel;
 var
@@ -83,9 +72,37 @@ begin
   Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
 end;
 
-function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo):
+function CacheOptionsFromSessionOptions(const aOptions: TDelphiSemanticOptions):
+  TDelphiSemanticCacheOptions;
+begin
+  Result := Default(TDelphiSemanticCacheOptions);
+  Result.SqliteCacheFileName := aOptions.SqliteCacheFileName;
+  Result.CompilerProfileName := Format('ProjectSession-%s-%s-%s',
+    [aOptions.DelphiVersion, aOptions.Platform, aOptions.Configuration]);
+  Result.DelphiVersion := aOptions.DelphiVersion;
+  Result.Configuration := aOptions.Configuration;
+  Result.Platform := aOptions.Platform;
+end;
+
+function ExtractProjectUnitModel(const aProject: TDelphiSemanticProjectInfo;
+  const aFileName: string; const aCache: TDelphiSemanticUnitCache): TDelphiSemanticUnitModel;
+var
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  if aCache = nil then
+    Exit(ExtractUnitModel(aProject, aFileName));
+
+  lOptions := MainModelOptions(aProject);
+  lOptions.SourceFileName := aFileName;
+  Result := aCache.GetOrExtractUnitModel(lOptions);
+end;
+
+function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions):
   TArray<TDelphiSemanticUnitModel>;
 var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
   lFileName: string;
   lModel: TDelphiSemanticUnitModel;
   lModels: TList<TDelphiSemanticUnitModel>;
@@ -94,10 +111,19 @@ var
 begin
   lModels := nil;
   lSeen := nil;
+  lCache := nil;
   try
+    if Trim(aOptions.SqliteCacheFileName) <> '' then
+    begin
+      lCacheOptions := CacheOptionsFromSessionOptions(aOptions);
+      lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+    end;
     lModels := TList<TDelphiSemanticUnitModel>.Create;
     lSeen := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
-    lModel := ExtractMainModel(aProject);
+    lModel := ExtractProjectUnitModel(aProject, aProject.MainSourceFileName, lCache);
+    if (lModel.Success) and (lModel.UnitName = '') and
+      SameText(lModel.FileName, aProject.MainSourceFileName) then
+      lModel.UnitName := aProject.ProjectName;
     if lModel.FileName <> '' then
       lSeen.AddOrSetValue(TPath.GetFullPath(lModel.FileName), 0);
     lModels.Add(lModel);
@@ -108,11 +134,12 @@ begin
       if lSeen.ContainsKey(lSourceFileName) then
         Continue;
       lSeen.Add(lSourceFileName, 0);
-      lModels.Add(ExtractUnitModel(aProject, lSourceFileName));
+      lModels.Add(ExtractProjectUnitModel(aProject, lSourceFileName, lCache));
     end;
 
     Result := lModels.ToArray;
   finally
+    lCache.Free;
     lSeen.Free;
     lModels.Free;
   end;
@@ -166,7 +193,7 @@ function TDelphiSemanticProjectSession.BuildSemanticGraph: TDelphiSemanticSemant
 var
   lModels: TArray<TDelphiSemanticUnitModel>;
 begin
-  lModels := ExtractProjectModels(fProject);
+  lModels := ExtractProjectModels(fProject, fOptions);
   Result := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lModels);
   fLastSemanticGraphBuildMetrics := Result.Metrics;
 end;
@@ -177,7 +204,7 @@ var
   lGraph: TDelphiSemanticSemanticGraph;
   lModels: TArray<TDelphiSemanticUnitModel>;
 begin
-  lModels := ExtractProjectModels(fProject);
+  lModels := ExtractProjectModels(fProject, fOptions);
   lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lModels);
   try
     fLastSemanticGraphBuildMetrics := lGraph.Metrics;
