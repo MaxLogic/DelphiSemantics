@@ -19,6 +19,8 @@ type
       const aName, aSymbolClass: string): Boolean;
     function HasProjectSymbolSource(const aFacts: TDelphiSemanticProjectWithBindingFacts;
       const aName, aSymbolClass, aSourceKind: string): Boolean;
+    function HasLookupSymbol(const aSymbols: TArray<TDelphiSemanticInventorySymbol>;
+      const aName, aSymbolClass: string): Boolean;
     function HasReference(const aBinding: TDelphiSemanticWithBinding; const aName,
       aClassification: string): Boolean;
   public
@@ -30,6 +32,10 @@ type
     procedure ProjectSessionIncludesExplicitAdditionalSourceFiles;
     [Test]
     procedure ProjectSessionLimitsBodyAnalysisToRequestedSourceFiles;
+    [Test]
+    procedure ProjectSessionBuildsRemoveWithLookupIndex;
+    [Test]
+    procedure RemoveWithLookupIndexIncludesCompatibilityExternalSymbols;
     [Test]
     procedure BindingReferenceCacheUsesStatementPrefix;
   end;
@@ -113,6 +119,19 @@ begin
   Result := False;
 end;
 
+function TProjectWithBindingTests.HasLookupSymbol(
+  const aSymbols: TArray<TDelphiSemanticInventorySymbol>; const aName,
+  aSymbolClass: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  for lSymbol in aSymbols do
+    if SameText(lSymbol.Name, aName) and SameText(lSymbol.SymbolClass, aSymbolClass) then
+      Exit(True);
+
+  Result := False;
+end;
+
 procedure TProjectWithBindingTests.ProjectSessionBuildsProjectLevelWithBindingFacts;
 var
   lProgramBinding: TDelphiSemanticWithBinding;
@@ -134,8 +153,8 @@ begin
     Assert.IsFalse(lFacts.Metrics.BuildUnitIndexUsed);
     Assert.IsTrue(lFacts.Metrics.ModelExtractionMilliseconds >= 0);
     Assert.AreEqual(2, lFacts.Metrics.UnitCount);
-    Assert.AreEqual(2, lFacts.Metrics.BindingCount);
-    Assert.AreEqual(2, Length(lFacts.Bindings));
+    Assert.AreEqual(3, lFacts.Metrics.BindingCount);
+    Assert.AreEqual(3, Length(lFacts.Bindings));
     Assert.IsTrue(Length(lFacts.Symbols) > 0,
       'Expected project facts to carry reusable semantic inventory symbols.');
     Assert.IsTrue(HasProjectSymbol(lFacts, 'ProjectWithUnit', 'unit'));
@@ -179,7 +198,7 @@ begin
     lFacts := lResult.Session.BuildWithBindingFacts;
 
     Assert.IsFalse(lFacts.Metrics.SemanticGraphUsed);
-    Assert.AreEqual(2, lFacts.Metrics.BindingCount);
+    Assert.AreEqual(3, lFacts.Metrics.BindingCount);
     lProgramBinding := BindingByUnit(lFacts, 'ProjectWithBinding');
     Assert.AreEqual('with-binding:model', lProgramBinding.Provenance);
     Assert.IsNotEmpty(lProgramBinding.SemanticId);
@@ -237,6 +256,151 @@ begin
       'Sources outside the body-analysis set must not contribute with bindings.');
     Assert.IsTrue(HasProjectSymbol(lFacts, 'TUnreferencedRecord', 'declaration'),
       'Sources outside the body-analysis set must still contribute declarations.');
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectWithBindingTests.ProjectSessionBuildsRemoveWithLookupIndex;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lLocalSymbol: TDelphiSemanticInventorySymbol;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+
+    Assert.IsTrue(lFacts.LookupIndex.IsAvailable);
+    Assert.IsTrue(HasLookupSymbol(lFacts.LookupIndex.FindMembersByOwnerAndName(
+      'TProjectWithRecord', 'Value'), 'Value', 'member'));
+    Assert.IsTrue(HasLookupSymbol(lFacts.LookupIndex.FindMembersByOwnerAndName(
+      'tprojectwithrecord', 'value'), 'Value', 'member'));
+    Assert.IsTrue(lFacts.LookupIndex.FindRoutineSymbol('TouchProjectUnitRecord',
+      'aValue', lLocalSymbol));
+    Assert.AreEqual('parameter', lLocalSymbol.SymbolClass);
+    Assert.IsTrue(lFacts.LookupIndex.FindRoutineSymbol('TouchProjectUnitRecord',
+      'lRecord', lLocalSymbol));
+    Assert.AreEqual('local', lLocalSymbol.SymbolClass);
+    Assert.IsTrue(lFacts.LookupIndex.FindRoutineSymbol('TProjectUnitScope.Run',
+      'lScopedRecord', lLocalSymbol));
+    Assert.AreEqual('local', lLocalSymbol.SymbolClass);
+    Assert.IsTrue(lFacts.LookupIndex.FindRoutineSymbol('Run', 'lScopedRecord',
+      lLocalSymbol));
+    Assert.AreEqual('local', lLocalSymbol.SymbolClass);
+    Assert.AreEqual('TProjectWithRecord', lFacts.LookupIndex.PointerTargetType(
+      'PProjectWithRecord'));
+    Assert.AreEqual('TProjectWithRecord', lFacts.LookupIndex.PointerTargetType(
+      'pprojectwithrecord'));
+    Assert.IsTrue(HasLookupSymbol(lFacts.LookupIndex.FindDeclarationOrTypeAliasByName(
+      'TProjectWithRecord'), 'TProjectWithRecord', 'declaration'));
+    Assert.IsTrue(HasLookupSymbol(lFacts.LookupIndex.FindDeclarationOrTypeAliasByName(
+      'tprojectwithrecord'), 'TProjectWithRecord', 'declaration'));
+    Assert.IsTrue(HasLookupSymbol(lFacts.LookupIndex.FindUnitOrGlobalByName(
+      'ProjectWithUnit'), 'ProjectWithUnit', 'unit'));
+    Assert.IsTrue(HasLookupSymbol(lFacts.LookupIndex.FindUnitOrGlobalByName(
+      'projectwithunit'), 'ProjectWithUnit', 'unit'));
+    Assert.IsTrue(lFacts.LookupIndex.Metrics.BuildMilliseconds >= 0);
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectWithBindingTests.RemoveWithLookupIndexIncludesCompatibilityExternalSymbols;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lLocalSymbol: TDelphiSemanticInventorySymbol;
+  lLookupIndex: TDelphiSemanticRemoveWithLookupIndex;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+
+    SetLength(lSymbols, 8);
+    lSymbols[0] := Default(TDelphiSemanticInventorySymbol);
+    lSymbols[0].Name := 'TCompatibilityType';
+    lSymbols[0].SymbolClass := 'external';
+    lSymbols[0].Kind := 'external';
+    lSymbols[0].TypeName := 'TCompatibilityType';
+
+    lSymbols[1] := Default(TDelphiSemanticInventorySymbol);
+    lSymbols[1].Name := 'Compatibility.Unit';
+    lSymbols[1].SymbolClass := 'external';
+    lSymbols[1].Kind := 'external';
+    lSymbols[1].UnitName := 'ProjectWithBinding';
+
+    lSymbols[2] := Default(TDelphiSemanticInventorySymbol);
+    lSymbols[2].Name := 'Compatibility.Unit.Sub';
+    lSymbols[2].SymbolClass := 'unit';
+    lSymbols[2].Kind := 'unit';
+    lSymbols[2].UnitName := 'Compatibility.Unit.Sub';
+
+    lSymbols[3] := Default(TDelphiSemanticInventorySymbol);
+    lSymbols[3].Name := 'PCompatibilityType';
+    lSymbols[3].SymbolClass := 'type-member';
+    lSymbols[3].Kind := 'type-member';
+    lSymbols[3].TypeName := '^TCompatibilityType';
+
+    lSymbols[4] := Default(TDelphiSemanticInventorySymbol);
+    lSymbols[4].Name := 'NestedMember';
+    lSymbols[4].SymbolClass := 'current-class-member';
+    lSymbols[4].Kind := 'current-class-member';
+    lSymbols[4].TypeName := 'TCompatibilityType';
+    lSymbols[4].RoutineName := 'TCompatibilityScope.Run';
+
+    lSymbols[5] := Default(TDelphiSemanticInventorySymbol);
+    lSymbols[5].Name := 'CompatibilityMember';
+    lSymbols[5].SymbolClass := 'field';
+    lSymbols[5].Kind := 'field';
+    lSymbols[5].TypeName := 'Integer';
+    lSymbols[5].OwnerType := 'TCompatibilityType';
+
+    lSymbols[6] := Default(TDelphiSemanticInventorySymbol);
+    lSymbols[6].Name := 'PointerValue';
+    lSymbols[6].SymbolClass := 'member';
+    lSymbols[6].Kind := 'field';
+    lSymbols[6].TypeName := '^TCompatibilityType';
+    lSymbols[6].OwnerType := 'TCompatibilityType';
+
+    lSymbols[7] := Default(TDelphiSemanticInventorySymbol);
+    lSymbols[7].Name := 'ExpandedExternalMember';
+    lSymbols[7].SymbolClass := 'field';
+    lSymbols[7].Kind := 'field';
+    lSymbols[7].TypeName := 'TExpandedExternalType';
+    lSymbols[7].OwnerType := 'TCompatibilityType';
+
+    lSymbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lSymbols);
+    lLookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(lFacts.UnitModels, lSymbols);
+
+    Assert.IsTrue(HasLookupSymbol(lLookupIndex.FindDeclarationOrTypeAliasByName(
+      'tcompatibilitytype'), 'TCompatibilityType', 'external'));
+    Assert.IsTrue(HasLookupSymbol(lLookupIndex.FindDeclarationOrTypeAliasByName(
+      'texpandedexternaltype'), 'TExpandedExternalType', 'external'));
+    Assert.IsTrue(HasLookupSymbol(lLookupIndex.FindUnitOrGlobalByName(
+      'compatibility.unit'), 'Compatibility.Unit', 'external'));
+    Assert.IsTrue(HasLookupSymbol(lLookupIndex.FindUnitOrGlobalByPrefix(
+      'compatibility'), 'Compatibility.Unit', 'external'));
+    Assert.IsTrue(HasLookupSymbol(lLookupIndex.FindUnitOrGlobalByPrefix(
+      'compatibility.unit'), 'Compatibility.Unit.Sub', 'unit'));
+    Assert.IsTrue(HasLookupSymbol(lLookupIndex.FindMembersByOwnerAndName(
+      'TCompatibilityType', 'CompatibilityMember'), 'CompatibilityMember', 'field'));
+    Assert.AreEqual('TCompatibilityType', lLookupIndex.PointerTargetType(
+      'pcompatibilitytype'));
+    Assert.AreEqual('', lLookupIndex.PointerTargetType('PointerValue'));
+    Assert.IsFalse(lLookupIndex.FindRoutineSymbol('Run', 'NestedMember', lLocalSymbol),
+      'Current-class members are member facts, not routine local/parameter facts.');
   finally
     lResult.Session.Free;
   end;

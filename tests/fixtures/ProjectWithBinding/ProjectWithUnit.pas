@@ -6,17 +6,28 @@ type
   TProjectUnitRecord = record
     Count: Integer;
   end;
+  TProjectUnitScope = class
+    procedure Run(const aScopeValue: Integer);
+  end;
 
-procedure TouchProjectUnitRecord;
+procedure TouchProjectUnitRecord(const aValue: Integer);
 
 implementation
 
-procedure TouchProjectUnitRecord;
+procedure TouchProjectUnitRecord(const aValue: Integer);
 var
   lRecord: TProjectUnitRecord;
 begin
   with lRecord do
-    Count := 2;
+    Count := aValue;
+end;
+
+procedure TProjectUnitScope.Run(const aScopeValue: Integer);
+var
+  lScopedRecord: TProjectUnitRecord;
+begin
+  with lScopedRecord do
+    Count := aScopeValue;
 end;
 
 end.

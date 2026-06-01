@@ -720,6 +720,8 @@ end;
 procedure TWithBinderTests.InventoryExpansionDeduplicatesSymbolsCaseInsensitively;
 var
   lExpandedSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lLocalSymbolCount: Integer;
+  lSymbol: TDelphiSemanticInventorySymbol;
   lSymbols: TArray<TDelphiSemanticInventorySymbol>;
 begin
   SetLength(lSymbols, 2);
@@ -742,7 +744,12 @@ begin
 
   lExpandedSymbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lSymbols);
 
-  Assert.AreEqual(1, Length(lExpandedSymbols),
+  lLocalSymbolCount := 0;
+  for lSymbol in lExpandedSymbols do
+    if SameText(lSymbol.Name, 'LocalName') and SameText(lSymbol.SymbolClass, 'local') then
+      Inc(lLocalSymbolCount);
+
+  Assert.AreEqual(1, lLocalSymbolCount,
     'Inventory expansion must keep duplicate symbol identity case-insensitive.');
 end;
 

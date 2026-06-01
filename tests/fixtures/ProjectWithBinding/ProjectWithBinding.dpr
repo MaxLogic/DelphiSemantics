@@ -4,6 +4,7 @@ type
   TProjectWithRecord = record
     Value: Integer;
   end;
+  PProjectWithRecord = ^TProjectWithRecord;
 
 var
   lRecord: TProjectWithRecord;

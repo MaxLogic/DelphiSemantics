@@ -69,6 +69,10 @@ type
   TDelphiSemanticSearchMatch = DelphiSemantics.Search.TDelphiSemanticSearchMatch;
   TDelphiSemanticSearchResult = DelphiSemantics.Search.TDelphiSemanticSearchResult;
   TDelphiSemanticInventorySymbol = DelphiSemantics.WithBinding.TDelphiSemanticInventorySymbol;
+  TDelphiSemanticRemoveWithLookupMetrics =
+    DelphiSemantics.WithBinding.TDelphiSemanticRemoveWithLookupMetrics;
+  TDelphiSemanticRemoveWithLookupIndex =
+    DelphiSemantics.WithBinding.TDelphiSemanticRemoveWithLookupIndex;
   TDelphiSemanticWithBinding = DelphiSemantics.WithBinding.TDelphiSemanticWithBinding;
   TDelphiSemanticProjectWithBindingMetrics =
     DelphiSemantics.WithBinding.TDelphiSemanticProjectWithBindingMetrics;

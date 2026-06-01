@@ -102,9 +102,52 @@ type
     BindingBuildMilliseconds: Int64;
   end;
 
+  TDelphiSemanticRemoveWithLookupMetrics = record
+    BuildMilliseconds: Int64;
+    HitCount: Int64;
+    MissCount: Int64;
+  end;
+
+  IDelphiSemanticRemoveWithLookupIndexData = interface
+    ['{14739A1A-96F8-4F81-B0B9-73AF9DA6BE2F}']
+    function FindMembersByOwnerAndName(const aOwnerName, aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindRoutineSymbol(const aRoutineName, aName: string;
+      out aSymbol: TDelphiSemanticInventorySymbol): Boolean;
+    function PointerTargetType(const aTypeName: string): string;
+    function FindDeclarationOrTypeAliasByName(const aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindUnitOrGlobalByName(const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+    function FindUnitOrGlobalByPrefix(const aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function Metrics: TDelphiSemanticRemoveWithLookupMetrics;
+  end;
+
+  TDelphiSemanticRemoveWithLookupIndex = record
+  private
+    fData: IDelphiSemanticRemoveWithLookupIndexData;
+  public
+    class function Build(const aModels: TArray<TDelphiSemanticUnitModel>;
+      const aSymbols: TArray<TDelphiSemanticInventorySymbol>):
+      TDelphiSemanticRemoveWithLookupIndex; static;
+    function IsAvailable: Boolean;
+    function FindMembersByOwnerAndName(const aOwnerName, aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindRoutineSymbol(const aRoutineName, aName: string;
+      out aSymbol: TDelphiSemanticInventorySymbol): Boolean;
+    function PointerTargetType(const aTypeName: string): string;
+    function FindDeclarationOrTypeAliasByName(const aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindUnitOrGlobalByName(const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+    function FindUnitOrGlobalByPrefix(const aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function Metrics: TDelphiSemanticRemoveWithLookupMetrics;
+  end;
+
   TDelphiSemanticProjectWithBindingFacts = record
     ContextFingerprint: string;
     Metrics: TDelphiSemanticProjectWithBindingMetrics;
+    LookupIndex: TDelphiSemanticRemoveWithLookupIndex;
     UnitModels: TArray<TDelphiSemanticUnitModel>;
     Symbols: TArray<TDelphiSemanticInventorySymbol>;
     Bindings: TArray<TDelphiSemanticWithBinding>;
@@ -132,6 +175,55 @@ uses
   MaxLogic.StrUtils;
 
 type
+  TDelphiSemanticRemoveWithLookupIndexData = class(TInterfacedObject,
+    IDelphiSemanticRemoveWithLookupIndexData)
+  private
+    fDeclarationsByName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+    fMembersByOwnerName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+    fMemberMisses: TDictionary<string, Byte>;
+    fMetrics: TDelphiSemanticRemoveWithLookupMetrics;
+    fPointerTargetByType: TDictionary<string, string>;
+    fPointerTargetMisses: TDictionary<string, Byte>;
+    fRoutineMisses: TDictionary<string, Byte>;
+    fRoutineSymbolsByName: TDictionary<string, TDelphiSemanticInventorySymbol>;
+    fUnitsAndGlobalsByName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+    fUnitsAndGlobalsByPrefix: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+    class function OwnerNameKey(const aOwnerName, aName: string): string; static;
+    class function IsDirectMemberSymbolClass(const aSymbolClass: string): Boolean; static;
+    class procedure AddSymbolToMap(const aMap: TDictionary<string,
+      TList<TDelphiSemanticInventorySymbol>>; const aKey: string;
+      const aSymbol: TDelphiSemanticInventorySymbol); static;
+    class function MemberSymbol(const aModel: TDelphiSemanticUnitModel;
+      const aMember: TDelphiSemanticMember): TDelphiSemanticInventorySymbol; static;
+    class function RoutineNameForModelRoutine(const aRoutine: TDelphiSemanticRoutine): string; static;
+    class function RoutineParameterSymbol(const aModel: TDelphiSemanticUnitModel;
+      const aRoutineName: string; const aParameter: TDelphiSemanticParameter):
+      TDelphiSemanticInventorySymbol; static;
+    class function RoutineLocalSymbol(const aModel: TDelphiSemanticUnitModel;
+      const aLocal: TDelphiSemanticLocal): TDelphiSemanticInventorySymbol; static;
+    procedure AddRoutineSymbol(const aRoutineName: string;
+      const aSymbol: TDelphiSemanticInventorySymbol);
+    procedure CountLookup(const aHit: Boolean);
+    function SymbolsFromMap(const aMap: TDictionary<string,
+      TList<TDelphiSemanticInventorySymbol>>; const aKey: string;
+      const aMisses: TDictionary<string, Byte>): TArray<TDelphiSemanticInventorySymbol>;
+  public
+    constructor Create(const aModels: TArray<TDelphiSemanticUnitModel>;
+      const aSymbols: TArray<TDelphiSemanticInventorySymbol>);
+    destructor Destroy; override;
+    function FindMembersByOwnerAndName(const aOwnerName, aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindRoutineSymbol(const aRoutineName, aName: string;
+      out aSymbol: TDelphiSemanticInventorySymbol): Boolean;
+    function PointerTargetType(const aTypeName: string): string;
+    function FindDeclarationOrTypeAliasByName(const aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindUnitOrGlobalByName(const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+    function FindUnitOrGlobalByPrefix(const aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function Metrics: TDelphiSemanticRemoveWithLookupMetrics;
+  end;
+
   TWithBindingProjectMemberIndex = class
   private
     fByUnitOwnerName: TDictionary<string, TList<TDelphiSemanticResolveResult>>;
@@ -154,6 +246,451 @@ type
 function StableFactId(const aPrefix, aText: string): string;
 begin
   Result := aPrefix + '-' + THashSHA2.GetHashString(aText);
+end;
+
+class function TDelphiSemanticRemoveWithLookupIndexData.OwnerNameKey(
+  const aOwnerName, aName: string): string;
+begin
+  Result := aOwnerName + #31 + aName;
+end;
+
+class function TDelphiSemanticRemoveWithLookupIndexData.IsDirectMemberSymbolClass(
+  const aSymbolClass: string): Boolean;
+begin
+  Result := MatchText(aSymbolClass, ['member', 'field', 'property', 'method',
+    'constant', 'class-var']);
+end;
+
+class procedure TDelphiSemanticRemoveWithLookupIndexData.AddSymbolToMap(
+  const aMap: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+  const aKey: string; const aSymbol: TDelphiSemanticInventorySymbol);
+var
+  lSymbols: TList<TDelphiSemanticInventorySymbol>;
+begin
+  if not aMap.TryGetValue(aKey, lSymbols) then
+  begin
+    lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
+    aMap.Add(aKey, lSymbols);
+  end;
+  lSymbols.Add(aSymbol);
+end;
+
+class function TDelphiSemanticRemoveWithLookupIndexData.MemberSymbol(
+  const aModel: TDelphiSemanticUnitModel;
+  const aMember: TDelphiSemanticMember): TDelphiSemanticInventorySymbol;
+begin
+  Result := Default(TDelphiSemanticInventorySymbol);
+  Result.Name := aMember.Name;
+  Result.SymbolClass := 'member';
+  Result.Kind := aMember.Kind;
+  Result.TypeName := aMember.TypeName;
+  Result.OwnerName := aMember.OwnerName;
+  Result.OwnerType := aMember.OwnerName;
+  Result.UnitName := aModel.UnitName;
+  Result.FileName := aModel.FileName;
+  Result.Line := aMember.Line;
+  Result.Column := aMember.Column;
+  Result.EndLine := aMember.Line;
+  Result.EndColumn := aMember.Column;
+  Result.IsDefault := aMember.IsDefault;
+  Result.IsIndexed := aMember.IsIndexed;
+  if aMember.IsIndexed then
+    Result.IndexParameterCount := 1;
+end;
+
+class function TDelphiSemanticRemoveWithLookupIndexData.RoutineNameForModelRoutine(
+  const aRoutine: TDelphiSemanticRoutine): string;
+begin
+  Result := aRoutine.Name;
+  if aRoutine.OwnerName <> '' then
+    Result := aRoutine.OwnerName + '.' + aRoutine.Name;
+end;
+
+class function TDelphiSemanticRemoveWithLookupIndexData.RoutineParameterSymbol(
+  const aModel: TDelphiSemanticUnitModel; const aRoutineName: string;
+  const aParameter: TDelphiSemanticParameter): TDelphiSemanticInventorySymbol;
+begin
+  Result := Default(TDelphiSemanticInventorySymbol);
+  Result.Name := aParameter.Name;
+  Result.SymbolClass := 'parameter';
+  Result.Kind := 'parameter';
+  Result.TypeName := aParameter.TypeName;
+  Result.RoutineName := aRoutineName;
+  Result.UnitName := aModel.UnitName;
+  Result.FileName := aModel.FileName;
+  Result.Line := aParameter.Line;
+  Result.Column := aParameter.Column;
+  Result.EndLine := aParameter.Line;
+  Result.EndColumn := aParameter.Column;
+end;
+
+class function TDelphiSemanticRemoveWithLookupIndexData.RoutineLocalSymbol(
+  const aModel: TDelphiSemanticUnitModel;
+  const aLocal: TDelphiSemanticLocal): TDelphiSemanticInventorySymbol;
+begin
+  Result := Default(TDelphiSemanticInventorySymbol);
+  Result.Name := aLocal.Name;
+  Result.SymbolClass := 'local';
+  Result.Kind := aLocal.Kind;
+  Result.TypeName := aLocal.TypeName;
+  Result.RoutineName := aLocal.RoutineName;
+  Result.UnitName := aModel.UnitName;
+  Result.FileName := aModel.FileName;
+  Result.Line := aLocal.Line;
+  Result.Column := aLocal.Column;
+  Result.EndLine := aLocal.Line;
+  Result.EndColumn := aLocal.Column;
+end;
+
+procedure TDelphiSemanticRemoveWithLookupIndexData.AddRoutineSymbol(
+  const aRoutineName: string; const aSymbol: TDelphiSemanticInventorySymbol);
+begin
+  fRoutineSymbolsByName.AddOrSetValue(OwnerNameKey(aRoutineName, aSymbol.Name), aSymbol);
+end;
+
+constructor TDelphiSemanticRemoveWithLookupIndexData.Create(
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aSymbols: TArray<TDelphiSemanticInventorySymbol>);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lLocal: TDelphiSemanticLocal;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lNextDot: Integer;
+  lOwnerName: string;
+  lParameter: TDelphiSemanticParameter;
+  lPrefixLength: Integer;
+  lRoutine: TDelphiSemanticRoutine;
+  lRoutineName: string;
+  lSimpleRoutineName: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lTypeName: string;
+begin
+  inherited Create;
+  fDeclarationsByName := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fMembersByOwnerName := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fMemberMisses := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fPointerTargetByType := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fPointerTargetMisses := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fRoutineMisses := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fRoutineSymbolsByName := TDictionary<string, TDelphiSemanticInventorySymbol>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fUnitsAndGlobalsByName := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fUnitsAndGlobalsByPrefix := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+
+  for lModel in aModels do
+  begin
+    for lMember in lModel.Members do
+      AddSymbolToMap(fMembersByOwnerName, OwnerNameKey(lMember.OwnerName, lMember.Name),
+        MemberSymbol(lModel, lMember));
+
+    for lRoutine in lModel.Routines do
+    begin
+      lRoutineName := RoutineNameForModelRoutine(lRoutine);
+      for lParameter in lRoutine.Parameters do
+      begin
+        lSymbol := RoutineParameterSymbol(lModel, lRoutineName, lParameter);
+        AddRoutineSymbol(lRoutine.Name, lSymbol);
+        AddRoutineSymbol(lRoutineName, lSymbol);
+      end;
+    end;
+
+    for lLocal in lModel.Locals do
+    begin
+      lSymbol := RoutineLocalSymbol(lModel, lLocal);
+      AddRoutineSymbol(lLocal.RoutineName, lSymbol);
+      if Pos('.', lLocal.RoutineName) > 0 then
+      begin
+        lSimpleRoutineName := Copy(lLocal.RoutineName,
+          LastDelimiter('.', lLocal.RoutineName) + 1, MaxInt);
+        AddRoutineSymbol(lSimpleRoutineName, lSymbol);
+      end;
+    end;
+
+    for lDeclaration in lModel.Declarations do
+    begin
+      lTypeName := Trim(lDeclaration.TypeName);
+      if StartsText('^', lTypeName) then
+        fPointerTargetByType.AddOrSetValue(lDeclaration.Name,
+          Trim(Copy(lTypeName, 2, MaxInt)));
+    end;
+  end;
+
+  for lSymbol in aSymbols do
+  begin
+    lTypeName := Trim(lSymbol.TypeName);
+    if StartsText('^', lTypeName) and
+      (SameText(lSymbol.SymbolClass, 'declaration') or
+      SameText(lSymbol.SymbolClass, 'type-member') or SameText(lSymbol.Kind, 'type') or
+      SameText(lSymbol.Kind, 'type-alias')) then
+      fPointerTargetByType.AddOrSetValue(lSymbol.Name,
+        Trim(Copy(lTypeName, 2, MaxInt)));
+    if (SameText(lSymbol.SymbolClass, 'local') or
+      SameText(lSymbol.SymbolClass, 'parameter')) and
+      (Trim(lSymbol.RoutineName) <> '') then
+    begin
+      AddRoutineSymbol(lSymbol.RoutineName, lSymbol);
+      if Pos('.', lSymbol.RoutineName) > 0 then
+      begin
+        lSimpleRoutineName := Copy(lSymbol.RoutineName,
+          LastDelimiter('.', lSymbol.RoutineName) + 1, MaxInt);
+        AddRoutineSymbol(lSimpleRoutineName, lSymbol);
+      end;
+    end;
+    if IsDirectMemberSymbolClass(lSymbol.SymbolClass) then
+    begin
+      lOwnerName := Trim(lSymbol.OwnerType);
+      if lOwnerName = '' then
+        lOwnerName := Trim(lSymbol.OwnerName);
+      if lOwnerName <> '' then
+        AddSymbolToMap(fMembersByOwnerName, OwnerNameKey(lOwnerName, lSymbol.Name),
+          lSymbol);
+    end;
+    if SameText(lSymbol.SymbolClass, 'declaration') or
+      SameText(lSymbol.SymbolClass, 'type-member') or
+      (SameText(lSymbol.SymbolClass, 'external') and (Trim(lSymbol.TypeName) <> '')) or
+      SameText(lSymbol.Kind, 'type') or SameText(lSymbol.Kind, 'type-alias') then
+      AddSymbolToMap(fDeclarationsByName, lSymbol.Name, lSymbol);
+    if SameText(lSymbol.SymbolClass, 'unit') or SameText(lSymbol.SymbolClass, 'unit-global') or
+      (SameText(lSymbol.SymbolClass, 'external') and (Trim(lSymbol.TypeName) = '') and
+      (Trim(lSymbol.UnitName) <> '')) then
+    begin
+      AddSymbolToMap(fUnitsAndGlobalsByName, lSymbol.Name, lSymbol);
+      if (SameText(lSymbol.SymbolClass, 'unit') or
+        SameText(lSymbol.SymbolClass, 'external')) and (Pos('.', lSymbol.Name) > 0) then
+      begin
+        lPrefixLength := Pos('.', lSymbol.Name);
+        while lPrefixLength > 0 do
+        begin
+          AddSymbolToMap(fUnitsAndGlobalsByPrefix, Copy(lSymbol.Name, 1,
+            lPrefixLength - 1), lSymbol);
+          lNextDot := Pos('.', Copy(lSymbol.Name, lPrefixLength + 1, MaxInt));
+          if lNextDot = 0 then
+            Break;
+          Inc(lPrefixLength, lNextDot);
+        end;
+      end;
+    end;
+  end;
+end;
+
+destructor TDelphiSemanticRemoveWithLookupIndexData.Destroy;
+var
+  lSymbols: TList<TDelphiSemanticInventorySymbol>;
+begin
+  for lSymbols in fDeclarationsByName.Values do
+    lSymbols.Free;
+  for lSymbols in fMembersByOwnerName.Values do
+    lSymbols.Free;
+  for lSymbols in fUnitsAndGlobalsByName.Values do
+    lSymbols.Free;
+  for lSymbols in fUnitsAndGlobalsByPrefix.Values do
+    lSymbols.Free;
+  fUnitsAndGlobalsByPrefix.Free;
+  fUnitsAndGlobalsByName.Free;
+  fRoutineSymbolsByName.Free;
+  fRoutineMisses.Free;
+  fPointerTargetMisses.Free;
+  fPointerTargetByType.Free;
+  fMemberMisses.Free;
+  fMembersByOwnerName.Free;
+  fDeclarationsByName.Free;
+  inherited;
+end;
+
+procedure TDelphiSemanticRemoveWithLookupIndexData.CountLookup(const aHit: Boolean);
+begin
+  if aHit then
+    Inc(fMetrics.HitCount)
+  else
+    Inc(fMetrics.MissCount);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.SymbolsFromMap(
+  const aMap: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+  const aKey: string; const aMisses: TDictionary<string, Byte>):
+  TArray<TDelphiSemanticInventorySymbol>;
+var
+  lSymbols: TList<TDelphiSemanticInventorySymbol>;
+begin
+  if aMap.TryGetValue(aKey, lSymbols) then
+  begin
+    CountLookup(True);
+    Exit(lSymbols.ToArray);
+  end;
+  if (aMisses <> nil) and aMisses.ContainsKey(aKey) then
+  begin
+    CountLookup(True);
+    Exit(nil);
+  end;
+  if aMisses <> nil then
+    aMisses.AddOrSetValue(aKey, 0);
+  CountLookup(False);
+  Result := nil;
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.FindMembersByOwnerAndName(
+  const aOwnerName, aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := SymbolsFromMap(fMembersByOwnerName, OwnerNameKey(aOwnerName, aName),
+    fMemberMisses);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.FindRoutineSymbol(
+  const aRoutineName, aName: string;
+  out aSymbol: TDelphiSemanticInventorySymbol): Boolean;
+var
+  lKey: string;
+begin
+  lKey := OwnerNameKey(aRoutineName, aName);
+  if fRoutineSymbolsByName.TryGetValue(lKey, aSymbol) then
+  begin
+    CountLookup(True);
+    Exit(True);
+  end;
+  if fRoutineMisses.ContainsKey(lKey) then
+  begin
+    aSymbol := Default(TDelphiSemanticInventorySymbol);
+    CountLookup(True);
+    Exit(False);
+  end;
+  fRoutineMisses.AddOrSetValue(lKey, 0);
+  aSymbol := Default(TDelphiSemanticInventorySymbol);
+  CountLookup(False);
+  Result := False;
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.PointerTargetType(
+  const aTypeName: string): string;
+var
+  lTypeName: string;
+begin
+  Result := '';
+  lTypeName := Trim(aTypeName);
+  if StartsText('^', lTypeName) then
+    Exit(Trim(Copy(lTypeName, 2, MaxInt)));
+
+  if fPointerTargetByType.TryGetValue(lTypeName, Result) then
+  begin
+    CountLookup(True);
+    Exit;
+  end;
+  if fPointerTargetMisses.ContainsKey(lTypeName) then
+  begin
+    CountLookup(True);
+    Exit;
+  end;
+  fPointerTargetMisses.AddOrSetValue(lTypeName, 0);
+  CountLookup(False);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.FindDeclarationOrTypeAliasByName(
+  const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := SymbolsFromMap(fDeclarationsByName, aName, nil);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.FindUnitOrGlobalByName(
+  const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := SymbolsFromMap(fUnitsAndGlobalsByName, aName, nil);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.FindUnitOrGlobalByPrefix(
+  const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := SymbolsFromMap(fUnitsAndGlobalsByPrefix, aName, nil);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.Metrics:
+  TDelphiSemanticRemoveWithLookupMetrics;
+begin
+  Result := fMetrics;
+end;
+
+class function TDelphiSemanticRemoveWithLookupIndex.Build(
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aSymbols: TArray<TDelphiSemanticInventorySymbol>):
+  TDelphiSemanticRemoveWithLookupIndex;
+var
+  lData: TDelphiSemanticRemoveWithLookupIndexData;
+  lStopwatch: TStopwatch;
+begin
+  Result := Default(TDelphiSemanticRemoveWithLookupIndex);
+  lStopwatch := TStopwatch.StartNew;
+  lData := TDelphiSemanticRemoveWithLookupIndexData.Create(aModels, aSymbols);
+  lStopwatch.Stop;
+  lData.fMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;
+  Result.fData := lData;
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.IsAvailable: Boolean;
+begin
+  Result := fData <> nil;
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.FindMembersByOwnerAndName(
+  const aOwnerName, aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  if fData = nil then
+    Exit(nil);
+  Result := fData.FindMembersByOwnerAndName(aOwnerName, aName);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.FindRoutineSymbol(
+  const aRoutineName, aName: string;
+  out aSymbol: TDelphiSemanticInventorySymbol): Boolean;
+begin
+  if fData = nil then
+  begin
+    aSymbol := Default(TDelphiSemanticInventorySymbol);
+    Exit(False);
+  end;
+  Result := fData.FindRoutineSymbol(aRoutineName, aName, aSymbol);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.PointerTargetType(
+  const aTypeName: string): string;
+begin
+  if fData = nil then
+    Exit('');
+  Result := fData.PointerTargetType(aTypeName);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.FindDeclarationOrTypeAliasByName(
+  const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  if fData = nil then
+    Exit(nil);
+  Result := fData.FindDeclarationOrTypeAliasByName(aName);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.FindUnitOrGlobalByName(
+  const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  if fData = nil then
+    Exit(nil);
+  Result := fData.FindUnitOrGlobalByName(aName);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.FindUnitOrGlobalByPrefix(
+  const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  if fData = nil then
+    Exit(nil);
+  Result := fData.FindUnitOrGlobalByPrefix(aName);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.Metrics:
+  TDelphiSemanticRemoveWithLookupMetrics;
+begin
+  if fData = nil then
+    Exit(Default(TDelphiSemanticRemoveWithLookupMetrics));
+  Result := fData.Metrics;
 end;
 
 class function TWithBindingProjectMemberIndex.Key(const aUnitName, aOwnerName,
@@ -899,6 +1436,15 @@ begin
   if lDelimiterPos > 0 then
     lTypeName := Copy(lTypeName, lDelimiterPos + 1, MaxInt);
   Result := lTypeName;
+end;
+
+function InventoryIsBuiltInTypeName(const aTypeName: string): Boolean;
+begin
+  Result := MatchText(aTypeName, ['AnsiString', 'Array', 'Boolean', 'Byte',
+    'Cardinal', 'Char', 'Currency', 'Date', 'DateTime', 'Double', 'Extended',
+    'Integer', 'Int64', 'NativeInt', 'NativeUInt', 'Pointer', 'Real',
+    'ShortInt', 'Single', 'SmallInt', 'String', 'UInt64', 'Variant',
+    'WideChar', 'WideString', 'Word']);
 end;
 
 function InventoryTryDeclaration(const aLine: string; out aNames: TArray<string>;
@@ -2710,6 +3256,66 @@ begin
   end;
 end;
 
+procedure AddExpandedExternalTypeSymbol(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
+  const aKeys, aSourceTypes, aExternalTypes: TDictionary<string, Byte>;
+  const aTypeName: string);
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lTypeName: string;
+begin
+  lTypeName := InventorySimpleTypeName(aTypeName);
+  if (lTypeName = '') or InventoryIsBuiltInTypeName(lTypeName) then
+    Exit;
+  if aSourceTypes.ContainsKey(lTypeName) or aExternalTypes.ContainsKey(lTypeName) then
+    Exit;
+
+  aExternalTypes.Add(lTypeName, 1);
+  lSymbol := Default(TDelphiSemanticInventorySymbol);
+  lSymbol.Name := lTypeName;
+  lSymbol.SymbolClass := 'external';
+  lSymbol.Kind := 'external';
+  lSymbol.TypeName := lTypeName;
+  AddExpandedInventorySymbolWithKeys(aSymbols, aKeys, lSymbol);
+end;
+
+procedure AddExpandedExternalTypeSymbols(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
+  const aKeys: TDictionary<string, Byte>);
+var
+  i: Integer;
+  lExternalTypes: TDictionary<string, Byte>;
+  lSourceTypes: TDictionary<string, Byte>;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbolCount: Integer;
+begin
+  lSourceTypes := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  try
+    lExternalTypes := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+    try
+      for lSymbol in aSymbols do
+      begin
+        if SameText(lSymbol.SymbolClass, 'type-member') then
+          lSourceTypes.AddOrSetValue(lSymbol.Name, 1)
+        else if SameText(lSymbol.SymbolClass, 'external') and (lSymbol.TypeName <> '') then
+          lExternalTypes.AddOrSetValue(lSymbol.Name, 1);
+      end;
+
+      lSymbolCount := aSymbols.Count;
+      for i := 0 to lSymbolCount - 1 do
+      begin
+        lSymbol := aSymbols[i];
+        AddExpandedExternalTypeSymbol(aSymbols, aKeys, lSourceTypes, lExternalTypes,
+          lSymbol.TypeName);
+        AddExpandedExternalTypeSymbol(aSymbols, aKeys, lSourceTypes, lExternalTypes,
+          lSymbol.RelatedTypeName);
+      end;
+    finally
+      lExternalTypes.Free;
+    end;
+  finally
+    lSourceTypes.Free;
+  end;
+end;
+
 function BoundReferenceCachePrefix(const aUnitName, aRoutineName: string;
   const aParentRoutineNames: TArray<string>;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>): string;
@@ -3185,6 +3791,71 @@ begin
     AddProjectCompatibilityRoutine(aSymbols, lName, '', 'rtl-source');
 end;
 
+procedure AddProjectExternalUsesUnits(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
+  const aExistingUnits, aExternalUnits: TDictionary<string, Byte>; const aUnits: TArray<string>;
+  const aSourceUnitName, aFileName: string);
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lUnitKey: string;
+  lUnitName: string;
+  lUsedUnit: string;
+begin
+  for lUsedUnit in aUnits do
+  begin
+    lUnitName := Trim(lUsedUnit);
+    if lUnitName = '' then
+      Continue;
+
+    lUnitKey := aFileName + '|' + lUnitName;
+    if aExistingUnits.ContainsKey(lUnitName) or aExternalUnits.ContainsKey(lUnitKey) then
+      Continue;
+
+    aExternalUnits.Add(lUnitKey, 1);
+    lSymbol := Default(TDelphiSemanticInventorySymbol);
+    lSymbol.Name := lUnitName;
+    lSymbol.SymbolClass := 'external';
+    lSymbol.Kind := 'external';
+    lSymbol.UnitName := aSourceUnitName;
+    lSymbol.FileName := aFileName;
+    AddInventorySymbol(aSymbols, lSymbol);
+  end;
+end;
+
+procedure AddProjectExternalUnitSymbols(const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aSymbols: TList<TDelphiSemanticInventorySymbol>);
+var
+  lExistingUnits: TDictionary<string, Byte>;
+  lExternalUnits: TDictionary<string, Byte>;
+  lModel: TDelphiSemanticUnitModel;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lExistingUnits := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  try
+    lExternalUnits := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+    try
+      for lSymbol in aSymbols do
+      begin
+        if SameText(lSymbol.SymbolClass, 'unit') then
+          lExistingUnits.AddOrSetValue(lSymbol.Name, 1)
+        else if SameText(lSymbol.SymbolClass, 'external') then
+          lExternalUnits.AddOrSetValue(lSymbol.FileName + '|' + lSymbol.Name, 1);
+      end;
+
+      for lModel in aModels do
+      begin
+        AddProjectExternalUsesUnits(aSymbols, lExistingUnits, lExternalUnits,
+          lModel.InterfaceUses, lModel.UnitName, lModel.FileName);
+        AddProjectExternalUsesUnits(aSymbols, lExistingUnits, lExternalUnits,
+          lModel.ImplementationUses, lModel.UnitName, lModel.FileName);
+      end;
+    finally
+      lExternalUnits.Free;
+    end;
+  finally
+    lExistingUnits.Free;
+  end;
+end;
+
 class function TDelphiSemanticWithBinder.BindProject(const aContextFingerprint: string;
   const aGraph: TDelphiSemanticSemanticGraph;
   const aModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticProjectWithBindingFacts;
@@ -3267,8 +3938,11 @@ begin
       Inc(lBindingBuildMs, lStopwatch.ElapsedMilliseconds);
     end;
     AddProjectCompatibilitySymbols(lSymbols);
+    AddProjectExternalUnitSymbols(aModels, lSymbols);
     Result.Symbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lSymbols.ToArray);
     Result.UnitModels := Copy(aModels);
+    Result.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(Result.UnitModels,
+      Result.Symbols);
     Result.Bindings := lBindings.ToArray;
     Result.Metrics.SemanticGraphUsed := aGraph <> nil;
     Result.Metrics.BuildUnitIndexUsed := False;
@@ -3307,6 +3981,7 @@ begin
       AddExpandedInventorySymbolWithKeys(lSymbols, lKeys, lSymbol);
     AddRelatedInventoryMemberSymbols(lSymbols, lKeys);
     AddRelatedInventoryCurrentClassSymbols(lSymbols, lKeys);
+    AddExpandedExternalTypeSymbols(lSymbols, lKeys);
     Result := lSymbols.ToArray;
   finally
     lSymbols.Free;
