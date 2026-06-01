@@ -120,6 +120,9 @@ type
     function FindUnitOrGlobalByName(const aName: string): TArray<TDelphiSemanticInventorySymbol>;
     function FindUnitOrGlobalByPrefix(const aName: string):
       TArray<TDelphiSemanticInventorySymbol>;
+    function FindSymbolsByName(const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+    function FindSymbolsByOwnerType(const aOwnerType: string):
+      TArray<TDelphiSemanticInventorySymbol>;
     function Metrics: TDelphiSemanticRemoveWithLookupMetrics;
   end;
 
@@ -140,6 +143,9 @@ type
       TArray<TDelphiSemanticInventorySymbol>;
     function FindUnitOrGlobalByName(const aName: string): TArray<TDelphiSemanticInventorySymbol>;
     function FindUnitOrGlobalByPrefix(const aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindSymbolsByName(const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+    function FindSymbolsByOwnerType(const aOwnerType: string):
       TArray<TDelphiSemanticInventorySymbol>;
     function Metrics: TDelphiSemanticRemoveWithLookupMetrics;
   end;
@@ -186,6 +192,8 @@ type
     fPointerTargetMisses: TDictionary<string, Byte>;
     fRoutineMisses: TDictionary<string, Byte>;
     fRoutineSymbolsByName: TDictionary<string, TDelphiSemanticInventorySymbol>;
+    fSymbolsByName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+    fSymbolsByOwnerType: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
     fUnitsAndGlobalsByName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
     fUnitsAndGlobalsByPrefix: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
     class function OwnerNameKey(const aOwnerName, aName: string): string; static;
@@ -220,6 +228,9 @@ type
       TArray<TDelphiSemanticInventorySymbol>;
     function FindUnitOrGlobalByName(const aName: string): TArray<TDelphiSemanticInventorySymbol>;
     function FindUnitOrGlobalByPrefix(const aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindSymbolsByName(const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+    function FindSymbolsByOwnerType(const aOwnerType: string):
       TArray<TDelphiSemanticInventorySymbol>;
     function Metrics: TDelphiSemanticRemoveWithLookupMetrics;
   end;
@@ -377,6 +388,10 @@ begin
   fRoutineMisses := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fRoutineSymbolsByName := TDictionary<string, TDelphiSemanticInventorySymbol>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fSymbolsByName := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fSymbolsByOwnerType := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
   fUnitsAndGlobalsByName := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fUnitsAndGlobalsByPrefix := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
@@ -423,6 +438,10 @@ begin
   for lSymbol in aSymbols do
   begin
     lTypeName := Trim(lSymbol.TypeName);
+    if Trim(lSymbol.Name) <> '' then
+      AddSymbolToMap(fSymbolsByName, lSymbol.Name, lSymbol);
+    if Trim(lSymbol.OwnerType) <> '' then
+      AddSymbolToMap(fSymbolsByOwnerType, lSymbol.OwnerType, lSymbol);
     if StartsText('^', lTypeName) and
       (SameText(lSymbol.SymbolClass, 'declaration') or
       SameText(lSymbol.SymbolClass, 'type-member') or SameText(lSymbol.Kind, 'type') or
@@ -486,12 +505,18 @@ begin
     lSymbols.Free;
   for lSymbols in fMembersByOwnerName.Values do
     lSymbols.Free;
+  for lSymbols in fSymbolsByName.Values do
+    lSymbols.Free;
+  for lSymbols in fSymbolsByOwnerType.Values do
+    lSymbols.Free;
   for lSymbols in fUnitsAndGlobalsByName.Values do
     lSymbols.Free;
   for lSymbols in fUnitsAndGlobalsByPrefix.Values do
     lSymbols.Free;
   fUnitsAndGlobalsByPrefix.Free;
   fUnitsAndGlobalsByName.Free;
+  fSymbolsByOwnerType.Free;
+  fSymbolsByName.Free;
   fRoutineSymbolsByName.Free;
   fRoutineMisses.Free;
   fPointerTargetMisses.Free;
@@ -606,6 +631,18 @@ begin
   Result := SymbolsFromMap(fUnitsAndGlobalsByPrefix, aName, nil);
 end;
 
+function TDelphiSemanticRemoveWithLookupIndexData.FindSymbolsByName(
+  const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := SymbolsFromMap(fSymbolsByName, aName, nil);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.FindSymbolsByOwnerType(
+  const aOwnerType: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := SymbolsFromMap(fSymbolsByOwnerType, aOwnerType, nil);
+end;
+
 function TDelphiSemanticRemoveWithLookupIndexData.Metrics:
   TDelphiSemanticRemoveWithLookupMetrics;
 begin
@@ -683,6 +720,22 @@ begin
   if fData = nil then
     Exit(nil);
   Result := fData.FindUnitOrGlobalByPrefix(aName);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.FindSymbolsByName(
+  const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  if fData = nil then
+    Exit(nil);
+  Result := fData.FindSymbolsByName(aName);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.FindSymbolsByOwnerType(
+  const aOwnerType: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  if fData = nil then
+    Exit(nil);
+  Result := fData.FindSymbolsByOwnerType(aOwnerType);
 end;
 
 function TDelphiSemanticRemoveWithLookupIndex.Metrics:

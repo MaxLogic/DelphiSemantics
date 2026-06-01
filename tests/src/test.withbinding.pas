@@ -305,6 +305,10 @@ begin
       'ProjectWithUnit'), 'ProjectWithUnit', 'unit'));
     Assert.IsTrue(HasLookupSymbol(lFacts.LookupIndex.FindUnitOrGlobalByName(
       'projectwithunit'), 'ProjectWithUnit', 'unit'));
+    Assert.IsTrue(HasLookupSymbol(lFacts.LookupIndex.FindSymbolsByName(
+      'ProjectWithUnit'), 'ProjectWithUnit', 'unit'));
+    Assert.IsTrue(HasLookupSymbol(lFacts.LookupIndex.FindSymbolsByOwnerType(
+      'TProjectWithRecord'), 'Value', 'member'));
     Assert.IsTrue(lFacts.LookupIndex.Metrics.BuildMilliseconds >= 0);
   finally
     lResult.Session.Free;
