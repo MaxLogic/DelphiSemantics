@@ -11,7 +11,11 @@ type
   TRemoveWithPlanTests = class
   private
     function FixturePath(const aRelativePath: string): string;
+    function DakFixturePath(const aRelativePath: string): string;
     function BuildPlan: TDelphiSemanticRemoveWithPlan;
+    function BuildPlanForProject(const aProjectPath: string): TDelphiSemanticRemoveWithPlan;
+    function FindFinalStatement(const aPlan: TDelphiSemanticRemoveWithPlan;
+      const aStatementId: string; out aStatement: TDelphiSemanticRemoveWithFinalStatement): Boolean;
   public
     [Test]
     procedure PlansDeterministicDryRunDtoWithVerificationAndProvenance;
@@ -21,6 +25,10 @@ type
     procedure DtoParityHarnessReportsUnexpectedFinalStatements;
     [Test]
     procedure FinalStatementDtoPreservesCandidateFields;
+    [Test]
+    procedure FinalDtoMatchesFocusedRewriteCases;
+    [Test]
+    procedure FinalDtoMatchesNestedRewriteOrdering;
     [Test]
     procedure PlannerCachesSourceTextAndHashesPerFile;
   end;
@@ -36,15 +44,44 @@ begin
     TPath.Combine(ExtractFilePath(ParamStr(0)), '..\fixtures'), aRelativePath));
 end;
 
+function TRemoveWithPlanTests.DakFixturePath(const aRelativePath: string): string;
+begin
+  Result := TPath.GetFullPath(TPath.Combine(TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\..\..\DelphiAiKit\tests\fixtures'), aRelativePath));
+end;
+
 function TRemoveWithPlanTests.BuildPlan: TDelphiSemanticRemoveWithPlan;
+begin
+  Result := BuildPlanForProject(FixturePath('ProjectWithBinding\ProjectWithBinding.dproj'));
+end;
+
+function TRemoveWithPlanTests.BuildPlanForProject(const aProjectPath: string):
+  TDelphiSemanticRemoveWithPlan;
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lOptions: TDelphiSemanticApiOptions;
 begin
   lOptions := Default(TDelphiSemanticApiOptions);
-  lOptions.ProjectFileName := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lOptions.ProjectFileName := aProjectPath;
   lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
   Result := TDelphiSemanticApi.PlanRemoveWith(lFacts);
+end;
+
+function TRemoveWithPlanTests.FindFinalStatement(const aPlan: TDelphiSemanticRemoveWithPlan;
+  const aStatementId: string; out aStatement: TDelphiSemanticRemoveWithFinalStatement): Boolean;
+var
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  Result := False;
+  aStatement := Default(TDelphiSemanticRemoveWithFinalStatement);
+  for lStatement in aPlan.FinalStatements do
+  begin
+    if SameText(lStatement.StatementId, aStatementId) then
+    begin
+      aStatement := lStatement;
+      Exit(True);
+    end;
+  end;
 end;
 
 procedure TRemoveWithPlanTests.PlansDeterministicDryRunDtoWithVerificationAndProvenance;
@@ -112,6 +149,7 @@ var
 begin
   lPlan := BuildPlan;
   Assert.IsTrue(Length(lPlan.Edits) > 0, 'Expected current candidate DTO edits for parity harness input.');
+  lPlan.FinalStatements := nil;
 
   lExpectedEdit := Default(TDelphiSemanticRemoveWithPlanParityEdit);
   lExpectedEdit.Kind := 'replace-statement';
@@ -287,6 +325,93 @@ begin
   Assert.AreEqual(1, lReport.MismatchCount, lReport.SummaryText);
   Assert.AreEqual('unexpected-final-statement', lReport.Mismatches[0].Kind);
   Assert.AreEqual('with-skipped', lReport.Mismatches[0].StatementId);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoMatchesFocusedRewriteCases;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lTempNames: string;
+  lTemp: TDelphiSemanticRemoveWithFinalTempDecision;
+begin
+  lPlan := BuildPlanForProject(DakFixturePath(
+    'RemoveWithPlannerFixture\RemoveWithPlannerFixture.dproj'));
+
+  Assert.AreEqual(7, Length(lPlan.FinalStatements),
+    'Expected focused final DTO to include planned and skipped statements.');
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
+    'Expected record selector statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'lWithPlannerRecordPtr^.Name'),
+    'Expected record member qualification.');
+  Assert.AreEqual(1, Length(lStatement.Temps), 'Expected record pointer temp.');
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('lWithPlannerRecordPtr: ^TPlannerRecord;',
+    lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual(2, Length(lStatement.Edits), 'Expected declaration and replacement edits.');
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-2', lStatement),
+    'Expected object selector statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('reference-temp', lStatement.Temps[0].Strategy);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'lWithPlannerObject.Name'),
+    'Expected object member qualification.');
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lStatement),
+    'Expected property selector statement.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('property-selector', lStatement.Reason);
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-4', lStatement),
+    'Expected call selector statement.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('call-selector', lStatement.Reason);
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-6', lStatement),
+    'Expected case-label controlled statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'lWithPlannerRecordPtr1^.Name'),
+    'Expected second routine record temp to be reserved separately.');
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-7', lStatement),
+    'Expected pointer selector statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(0, Length(lStatement.Temps), 'Expected direct pointer selector without temp.');
+  Assert.AreEqual(1, Length(lStatement.Edits), 'Expected only replacement edit.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'aRecordPtr^.Name'),
+    'Expected direct pointer qualification.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoMatchesNestedRewriteOrdering;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(DakFixturePath(
+    'RemoveWithNestedRewriteFixture\RemoveWithNestedRewriteFixture.dproj'));
+
+  Assert.AreEqual(1, Length(lPlan.FinalStatements),
+    'Expected nested child statement to be folded into the outer final DTO.');
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
+    'Expected outer nested statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(2, Length(lStatement.Temps),
+    'Expected outer DTO to include outer and inner temps in plan order.');
+  Assert.AreEqual('lWithNestedOuter', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithNestedInner', lStatement.Temps[1].TempName);
+  Assert.AreEqual(2, Length(lStatement.Edits),
+    'Expected declaration and outer replacement edits only.');
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithNestedInner.InnerOnly := lWithNestedInner.Shared'),
+    'Expected inner rewrite to be folded into outer replacement.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithNestedOuter.OuterOnly := ''outer-from-inner'''),
+    'Expected inner body to preserve outer receiver qualification.');
 end;
 
 procedure TRemoveWithPlanTests.PlannerCachesSourceTextAndHashesPerFile;
