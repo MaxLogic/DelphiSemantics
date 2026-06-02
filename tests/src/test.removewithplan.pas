@@ -20,6 +20,8 @@ type
     [Test]
     procedure DtoParityHarnessReportsUnexpectedFinalStatements;
     [Test]
+    procedure FinalStatementDtoPreservesCandidateFields;
+    [Test]
     procedure PlannerCachesSourceTextAndHashesPerFile;
   end;
 
@@ -150,11 +152,12 @@ end;
 
 procedure TRemoveWithPlanTests.DtoParityHarnessReportsUnexpectedFinalStatements;
 var
-  lFinalEdit: TDelphiSemanticRemoveWithEdit;
+  lFinalEdit: TDelphiSemanticRemoveWithFinalTextEdit;
+  lFinalStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lReport: TDelphiSemanticRemoveWithPlanParityReport;
 begin
-  lFinalEdit := Default(TDelphiSemanticRemoveWithEdit);
+  lFinalEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
   lFinalEdit.Kind := 'replace-statement';
   lFinalEdit.FileName := FixturePath('ProjectWithBinding\ProjectWithUnit.pas');
   lFinalEdit.StatementId := 'with-extra';
@@ -163,12 +166,18 @@ begin
   lFinalEdit.Range.EndLine := 12;
   lFinalEdit.Range.EndColumn := 8;
   lFinalEdit.ReplacementText := 'lExtra.Value := 1;';
-  lFinalEdit.ApplyMode := 'final-statement-dto';
+
+  lFinalStatement := Default(TDelphiSemanticRemoveWithFinalStatement);
+  lFinalStatement.StatementId := lFinalEdit.StatementId;
+  lFinalStatement.FileName := lFinalEdit.FileName;
+  lFinalStatement.Status := 'planned';
+  lFinalStatement.ReplacementText := lFinalEdit.ReplacementText;
+  lFinalStatement.Edits := [lFinalEdit];
 
   lPlan := Default(TDelphiSemanticRemoveWithPlan);
   lPlan.Operation := 'remove-with';
   lPlan.Status := 'planned';
-  lPlan.Edits := [lFinalEdit];
+  lPlan.FinalStatements := [lFinalStatement];
 
   lReport := TDelphiSemanticRemoveWithPlanParity.Compare(lPlan, []);
 
@@ -184,6 +193,100 @@ begin
     'Expected unexpected edit range in parity report.');
   Assert.IsTrue(ContainsText(lReport.SummaryText, 'excerpt='),
     'Expected unexpected edit replacement excerpt in parity report.');
+end;
+
+procedure TRemoveWithPlanTests.FinalStatementDtoPreservesCandidateFields;
+var
+  lCandidateEditCount: Integer;
+  lExpectedStatement: TDelphiSemanticRemoveWithPlanParityStatement;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lPlannedEdit: TDelphiSemanticRemoveWithFinalTextEdit;
+  lPlannedStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lReport: TDelphiSemanticRemoveWithPlanParityReport;
+  lSkippedStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lTemp: TDelphiSemanticRemoveWithFinalTempDecision;
+begin
+  lPlan := BuildPlan;
+  lCandidateEditCount := Length(lPlan.Edits);
+  Assert.IsTrue(lCandidateEditCount > 0, 'Expected existing candidate edits to remain populated.');
+
+  lTemp := Default(TDelphiSemanticRemoveWithFinalTempDecision);
+  lTemp.SelectorText := 'lRecord';
+  lTemp.QualifierText := 'lWithRecordPtr^';
+  lTemp.Strategy := 'record-pointer-temp';
+  lTemp.ReceiverType := 'TRecord';
+  lTemp.TempName := 'lWithRecordPtr';
+  lTemp.DeclarationText := 'lWithRecordPtr: ^TRecord;';
+  lTemp.InitializationText := 'lWithRecordPtr := @lRecord;';
+  lTemp.Reason := 'addressable-record';
+  lTemp.SemanticId := lPlan.Edits[0].SemanticId;
+
+  lPlannedEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+  lPlannedEdit.Kind := 'replace-statement';
+  lPlannedEdit.FileName := lPlan.Edits[0].FileName;
+  lPlannedEdit.StatementId := lPlan.Edits[0].StatementId;
+  lPlannedEdit.Range := lPlan.Edits[0].Range;
+  lPlannedEdit.Range.StartColumn := 1;
+  lPlannedEdit.ReplacementText := 'lWithRecordPtr^.Value := 1;';
+  lPlannedEdit.SemanticId := lPlan.Edits[0].SemanticId;
+  lPlannedEdit.Verification.ExpectedFileHash := lPlan.Edits[0].ExpectedFileHash;
+  lPlannedEdit.Verification.ExpectedSourceText := lPlan.Edits[0].ExpectedSourceText;
+  lPlannedEdit.Verification.Range := lPlan.Edits[0].Range;
+
+  lPlannedStatement := Default(TDelphiSemanticRemoveWithFinalStatement);
+  lPlannedStatement.StatementId := lPlan.Edits[0].StatementId;
+  lPlannedStatement.FileName := lPlan.Edits[0].FileName;
+  lPlannedStatement.Status := 'planned';
+  lPlannedStatement.Reason := 'dak-ready-final-dto';
+  lPlannedStatement.ReplacementText := lPlannedEdit.ReplacementText;
+  lPlannedStatement.Range := lPlan.Edits[0].Range;
+  lPlannedStatement.SemanticId := lPlan.Edits[0].SemanticId;
+  lPlannedStatement.ReferenceIds := lPlan.Edits[0].ReferenceIds;
+  lPlannedStatement.Verification := lPlannedEdit.Verification;
+  lPlannedStatement.Edits := [lPlannedEdit];
+  lPlannedStatement.Temps := [lTemp];
+
+  lSkippedStatement := Default(TDelphiSemanticRemoveWithFinalStatement);
+  lSkippedStatement.StatementId := 'with-skipped';
+  lSkippedStatement.FileName := lPlan.Edits[0].FileName;
+  lSkippedStatement.Status := 'skipped';
+  lSkippedStatement.Reason := 'selector-type-not-resolved';
+  lSkippedStatement.SafetyReason := 'selector receiver type is unresolved';
+  lSkippedStatement.SemanticId := 'semantic:with-skipped';
+  lSkippedStatement.Verification.ExpectedFileHash := lPlan.Edits[0].ExpectedFileHash;
+
+  lPlan.FinalStatements := [lPlannedStatement, lSkippedStatement];
+
+  Assert.AreEqual(lCandidateEditCount, Length(lPlan.Edits),
+    'Final statement DTO fields must not replace candidate Edits.');
+  Assert.AreEqual('requires-dak-compatibility-adapter', lPlan.Edits[0].ApplyMode,
+    'Existing candidate apply mode must remain backward compatible.');
+  Assert.AreEqual(2, Length(lPlan.FinalStatements));
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status);
+  Assert.AreEqual('skipped', lPlan.FinalStatements[1].Status);
+  Assert.AreEqual('selector-type-not-resolved', lPlan.FinalStatements[1].Reason);
+  Assert.AreEqual('lWithRecordPtr: ^TRecord;', lPlan.FinalStatements[0].Temps[0].DeclarationText);
+  Assert.AreEqual(lPlan.Edits[0].ExpectedFileHash,
+    lPlan.FinalStatements[0].Edits[0].Verification.ExpectedFileHash);
+  Assert.AreEqual(lPlan.Edits[0].ReferenceIds[0], lPlan.FinalStatements[0].ReferenceIds[0]);
+
+  lExpectedStatement := Default(TDelphiSemanticRemoveWithPlanParityStatement);
+  lExpectedStatement.StatementId := lPlannedStatement.StatementId;
+  lExpectedStatement.FileName := lPlannedStatement.FileName;
+  lExpectedStatement.Status := lPlannedStatement.Status;
+  lExpectedStatement.Reason := lPlannedStatement.Reason;
+  lExpectedStatement.ReplacementText := lPlannedStatement.ReplacementText;
+  SetLength(lExpectedStatement.Edits, 1);
+  lExpectedStatement.Edits[0].Kind := lPlannedEdit.Kind;
+  lExpectedStatement.Edits[0].FileName := lPlannedEdit.FileName;
+  lExpectedStatement.Edits[0].StatementId := lPlannedEdit.StatementId;
+  lExpectedStatement.Edits[0].Range := lPlannedEdit.Range;
+  lExpectedStatement.Edits[0].ReplacementText := lPlannedEdit.ReplacementText;
+
+  lReport := TDelphiSemanticRemoveWithPlanParity.Compare(lPlan, [lExpectedStatement]);
+  Assert.AreEqual(1, lReport.MismatchCount, lReport.SummaryText);
+  Assert.AreEqual('unexpected-final-statement', lReport.Mismatches[0].Kind);
+  Assert.AreEqual('with-skipped', lReport.Mismatches[0].StatementId);
 end;
 
 procedure TRemoveWithPlanTests.PlannerCachesSourceTextAndHashesPerFile;

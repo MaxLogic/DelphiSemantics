@@ -41,6 +41,50 @@ type
     SemanticId: string;
   end;
 
+  TDelphiSemanticRemoveWithSourceVerification = record
+    ExpectedFileHash: string;
+    ExpectedSourceText: string;
+    Range: TDelphiSemanticRemoveWithSourceRange;
+  end;
+
+  TDelphiSemanticRemoveWithFinalTempDecision = record
+    SelectorText: string;
+    QualifierText: string;
+    Strategy: string;
+    ReceiverType: string;
+    TempName: string;
+    DeclarationText: string;
+    InitializationText: string;
+    Reason: string;
+    SemanticId: string;
+  end;
+
+  TDelphiSemanticRemoveWithFinalTextEdit = record
+    Kind: string;
+    FileName: string;
+    StatementId: string;
+    Range: TDelphiSemanticRemoveWithSourceRange;
+    ReplacementText: string;
+    SemanticId: string;
+    Verification: TDelphiSemanticRemoveWithSourceVerification;
+  end;
+
+  TDelphiSemanticRemoveWithFinalStatement = record
+    FileName: string;
+    StatementId: string;
+    SemanticId: string;
+    Status: string;
+    Reason: string;
+    SafetyReason: string;
+    UnsupportedIdentifierRole: string;
+    Range: TDelphiSemanticRemoveWithSourceRange;
+    ReplacementText: string;
+    Verification: TDelphiSemanticRemoveWithSourceVerification;
+    Edits: TArray<TDelphiSemanticRemoveWithFinalTextEdit>;
+    Temps: TArray<TDelphiSemanticRemoveWithFinalTempDecision>;
+    ReferenceIds: TArray<string>;
+  end;
+
   TDelphiSemanticRemoveWithPlanParityEdit = record
     Kind: string;
     FileName: string;
@@ -88,6 +132,7 @@ type
     RequiredVerification: TArray<TDelphiSemanticRemoveWithVerification>;
     Edits: TArray<TDelphiSemanticRemoveWithEdit>;
     SkippedStatements: TArray<TDelphiSemanticRemoveWithSkippedStatement>;
+    FinalStatements: TArray<TDelphiSemanticRemoveWithFinalStatement>;
   end;
 
   TDelphiSemanticRemoveWithPlanner = record
@@ -309,28 +354,31 @@ end;
 function FinalStatementsFromPlan(const aPlan: TDelphiSemanticRemoveWithPlan):
   TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
 var
-  lEdit: TDelphiSemanticRemoveWithEdit;
+  i: Integer;
+  lEdit: TDelphiSemanticRemoveWithFinalTextEdit;
   lIndex: Integer;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  SetLength(Result, 0);
-  for lEdit in aPlan.Edits do
+  SetLength(Result, Length(aPlan.FinalStatements));
+  for lIndex := 0 to High(aPlan.FinalStatements) do
   begin
-    if not SameText(lEdit.ApplyMode, 'final-statement-dto') then
-      Continue;
-
-    lIndex := Length(Result);
-    SetLength(Result, lIndex + 1);
-    Result[lIndex].StatementId := lEdit.StatementId;
-    Result[lIndex].FileName := lEdit.FileName;
-    Result[lIndex].Status := 'planned';
-    Result[lIndex].Reason := lEdit.SemanticReason;
-    Result[lIndex].ReplacementText := lEdit.ReplacementText;
-    SetLength(Result[lIndex].Edits, 1);
-    Result[lIndex].Edits[0].Kind := lEdit.Kind;
-    Result[lIndex].Edits[0].FileName := lEdit.FileName;
-    Result[lIndex].Edits[0].StatementId := lEdit.StatementId;
-    Result[lIndex].Edits[0].Range := lEdit.Range;
-    Result[lIndex].Edits[0].ReplacementText := lEdit.ReplacementText;
+    lStatement := aPlan.FinalStatements[lIndex];
+    Result[lIndex].StatementId := lStatement.StatementId;
+    Result[lIndex].FileName := lStatement.FileName;
+    Result[lIndex].Status := lStatement.Status;
+    Result[lIndex].Reason := lStatement.Reason;
+    Result[lIndex].UnsupportedIdentifierRole := lStatement.UnsupportedIdentifierRole;
+    Result[lIndex].ReplacementText := lStatement.ReplacementText;
+    SetLength(Result[lIndex].Edits, Length(lStatement.Edits));
+    for i := 0 to High(lStatement.Edits) do
+    begin
+      lEdit := lStatement.Edits[i];
+      Result[lIndex].Edits[i].Kind := lEdit.Kind;
+      Result[lIndex].Edits[i].FileName := lEdit.FileName;
+      Result[lIndex].Edits[i].StatementId := lEdit.StatementId;
+      Result[lIndex].Edits[i].Range := lEdit.Range;
+      Result[lIndex].Edits[i].ReplacementText := lEdit.ReplacementText;
+    end;
   end;
 end;
 

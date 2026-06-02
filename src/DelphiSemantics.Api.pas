@@ -61,6 +61,14 @@ type
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithEdit;
   TDelphiSemanticRemoveWithSkippedStatement =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSkippedStatement;
+  TDelphiSemanticRemoveWithSourceVerification =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSourceVerification;
+  TDelphiSemanticRemoveWithFinalTempDecision =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithFinalTempDecision;
+  TDelphiSemanticRemoveWithFinalTextEdit =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithFinalTextEdit;
+  TDelphiSemanticRemoveWithFinalStatement =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithFinalStatement;
   TDelphiSemanticRemoveWithPlanParityEdit =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParityEdit;
   TDelphiSemanticRemoveWithPlanParityStatement =
