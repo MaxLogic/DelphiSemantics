@@ -41,6 +41,44 @@ type
     SemanticId: string;
   end;
 
+  TDelphiSemanticRemoveWithPlanParityEdit = record
+    Kind: string;
+    FileName: string;
+    StatementId: string;
+    Range: TDelphiSemanticRemoveWithSourceRange;
+    ReplacementText: string;
+  end;
+
+  TDelphiSemanticRemoveWithPlanParityStatement = record
+    StatementId: string;
+    FileName: string;
+    Status: string;
+    Reason: string;
+    UnsupportedIdentifierRole: string;
+    ReplacementText: string;
+    Edits: TArray<TDelphiSemanticRemoveWithPlanParityEdit>;
+  end;
+
+  TDelphiSemanticRemoveWithPlanParityMismatch = record
+    Kind: string;
+    StatementId: string;
+    FileName: string;
+    ExpectedStatus: string;
+    ActualStatus: string;
+    Reason: string;
+    EditKind: string;
+    EditRange: string;
+    ReplacementTextDigest: string;
+    ReplacementTextExcerpt: string;
+    Message: string;
+  end;
+
+  TDelphiSemanticRemoveWithPlanParityReport = record
+    MismatchCount: Integer;
+    Mismatches: TArray<TDelphiSemanticRemoveWithPlanParityMismatch>;
+    SummaryText: string;
+  end;
+
   TDelphiSemanticRemoveWithPlan = record
     Operation: string;
     Status: string;
@@ -56,6 +94,13 @@ type
   public
     class function Plan(const aFacts: TDelphiSemanticProjectWithBindingFacts):
       TDelphiSemanticRemoveWithPlan; static;
+  end;
+
+  TDelphiSemanticRemoveWithPlanParity = record
+  public
+    class function Compare(const aSemanticPlan: TDelphiSemanticRemoveWithPlan;
+      const aExpectedStatements: TArray<TDelphiSemanticRemoveWithPlanParityStatement>):
+      TDelphiSemanticRemoveWithPlanParityReport; static;
   end;
 
 implementation
@@ -220,6 +265,208 @@ begin
     (aBinding.EndColumn > 0);
 end;
 
+function ParityRangeText(const aRange: TDelphiSemanticRemoveWithSourceRange): string;
+begin
+  Result := Format('%d:%d-%d:%d', [aRange.StartLine, aRange.StartColumn,
+    aRange.EndLine, aRange.EndColumn]);
+end;
+
+function ParityTextDigest(const aText: string): string;
+begin
+  Result := Format('len=%d', [Length(aText)]);
+end;
+
+function ParityTextExcerpt(const aText: string): string;
+begin
+  Result := StringReplace(aText, sLineBreak, '\n', [rfReplaceAll]);
+  Result := StringReplace(Result, #13, '\r', [rfReplaceAll]);
+  Result := StringReplace(Result, #10, '\n', [rfReplaceAll]);
+  if Length(Result) > 96 then
+    Result := Copy(Result, 1, 96) + '...';
+end;
+
+function ParityFullPath(const aFileName: string): string;
+begin
+  Result := Trim(aFileName);
+  if Result = '' then
+    Exit;
+  Result := TPath.GetFullPath(Result);
+end;
+
+function SameParityFile(const aLeft, aRight: string): Boolean;
+begin
+  Result := SameText(ParityFullPath(aLeft), ParityFullPath(aRight));
+end;
+
+function SameParityRange(const aLeft, aRight: TDelphiSemanticRemoveWithSourceRange): Boolean;
+begin
+  Result := (aLeft.StartLine = aRight.StartLine) and
+    (aLeft.StartColumn = aRight.StartColumn) and
+    (aLeft.EndLine = aRight.EndLine) and
+    (aLeft.EndColumn = aRight.EndColumn);
+end;
+
+function FinalStatementsFromPlan(const aPlan: TDelphiSemanticRemoveWithPlan):
+  TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
+var
+  lEdit: TDelphiSemanticRemoveWithEdit;
+  lIndex: Integer;
+begin
+  SetLength(Result, 0);
+  for lEdit in aPlan.Edits do
+  begin
+    if not SameText(lEdit.ApplyMode, 'final-statement-dto') then
+      Continue;
+
+    lIndex := Length(Result);
+    SetLength(Result, lIndex + 1);
+    Result[lIndex].StatementId := lEdit.StatementId;
+    Result[lIndex].FileName := lEdit.FileName;
+    Result[lIndex].Status := 'planned';
+    Result[lIndex].Reason := lEdit.SemanticReason;
+    Result[lIndex].ReplacementText := lEdit.ReplacementText;
+    SetLength(Result[lIndex].Edits, 1);
+    Result[lIndex].Edits[0].Kind := lEdit.Kind;
+    Result[lIndex].Edits[0].FileName := lEdit.FileName;
+    Result[lIndex].Edits[0].StatementId := lEdit.StatementId;
+    Result[lIndex].Edits[0].Range := lEdit.Range;
+    Result[lIndex].Edits[0].ReplacementText := lEdit.ReplacementText;
+  end;
+end;
+
+procedure AddParityMismatch(var aReport: TDelphiSemanticRemoveWithPlanParityReport;
+  const aMismatch: TDelphiSemanticRemoveWithPlanParityMismatch);
+var
+  lIndex: Integer;
+begin
+  lIndex := Length(aReport.Mismatches);
+  SetLength(aReport.Mismatches, lIndex + 1);
+  aReport.Mismatches[lIndex] := aMismatch;
+  aReport.MismatchCount := Length(aReport.Mismatches);
+end;
+
+function FindParityStatement(const aStatements: TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
+  const aExpected: TDelphiSemanticRemoveWithPlanParityStatement;
+  out aActual: TDelphiSemanticRemoveWithPlanParityStatement): Boolean;
+var
+  lStatement: TDelphiSemanticRemoveWithPlanParityStatement;
+begin
+  Result := False;
+  aActual := Default(TDelphiSemanticRemoveWithPlanParityStatement);
+  for lStatement in aStatements do
+  begin
+    if SameText(lStatement.StatementId, aExpected.StatementId) and
+      SameParityFile(lStatement.FileName, aExpected.FileName) then
+    begin
+      aActual := lStatement;
+      Exit(True);
+    end;
+  end;
+end;
+
+procedure AddStatementMismatch(var aReport: TDelphiSemanticRemoveWithPlanParityReport;
+  const aKind: string; const aExpected, aActual: TDelphiSemanticRemoveWithPlanParityStatement);
+var
+  lMismatch: TDelphiSemanticRemoveWithPlanParityMismatch;
+begin
+  lMismatch := Default(TDelphiSemanticRemoveWithPlanParityMismatch);
+  lMismatch.Kind := aKind;
+  lMismatch.StatementId := aExpected.StatementId;
+  lMismatch.FileName := aExpected.FileName;
+  lMismatch.ExpectedStatus := aExpected.Status;
+  lMismatch.ActualStatus := aActual.Status;
+  lMismatch.Reason := aExpected.Reason;
+  lMismatch.ReplacementTextDigest := ParityTextDigest(aExpected.ReplacementText);
+  lMismatch.ReplacementTextExcerpt := ParityTextExcerpt(aExpected.ReplacementText);
+  lMismatch.Message := Format('%s statement=%s file=%s status=%s actualStatus=%s reason=%s replacement=%s excerpt="%s"',
+    [aKind, lMismatch.StatementId, lMismatch.FileName, lMismatch.ExpectedStatus,
+    lMismatch.ActualStatus, lMismatch.Reason, lMismatch.ReplacementTextDigest,
+    lMismatch.ReplacementTextExcerpt]);
+  AddParityMismatch(aReport, lMismatch);
+end;
+
+procedure AddEditMismatch(var aReport: TDelphiSemanticRemoveWithPlanParityReport;
+  const aKind: string; const aExpectedStatement: TDelphiSemanticRemoveWithPlanParityStatement;
+  const aExpectedEdit: TDelphiSemanticRemoveWithPlanParityEdit);
+var
+  lMismatch: TDelphiSemanticRemoveWithPlanParityMismatch;
+begin
+  lMismatch := Default(TDelphiSemanticRemoveWithPlanParityMismatch);
+  lMismatch.Kind := aKind;
+  lMismatch.StatementId := aExpectedStatement.StatementId;
+  lMismatch.FileName := aExpectedEdit.FileName;
+  lMismatch.ExpectedStatus := aExpectedStatement.Status;
+  lMismatch.Reason := aExpectedStatement.Reason;
+  lMismatch.EditKind := aExpectedEdit.Kind;
+  lMismatch.EditRange := ParityRangeText(aExpectedEdit.Range);
+  lMismatch.ReplacementTextDigest := ParityTextDigest(aExpectedEdit.ReplacementText);
+  lMismatch.ReplacementTextExcerpt := ParityTextExcerpt(aExpectedEdit.ReplacementText);
+  lMismatch.Message := Format('%s statement=%s file=%s status=%s reason=%s edit=%s range=%s replacement=%s excerpt="%s"',
+    [aKind, lMismatch.StatementId, lMismatch.FileName, lMismatch.ExpectedStatus,
+    lMismatch.Reason, lMismatch.EditKind, lMismatch.EditRange,
+    lMismatch.ReplacementTextDigest, lMismatch.ReplacementTextExcerpt]);
+  AddParityMismatch(aReport, lMismatch);
+end;
+
+function FindParityEdit(const aEdits: TArray<TDelphiSemanticRemoveWithPlanParityEdit>;
+  const aExpected: TDelphiSemanticRemoveWithPlanParityEdit;
+  out aActual: TDelphiSemanticRemoveWithPlanParityEdit): Boolean;
+var
+  lEdit: TDelphiSemanticRemoveWithPlanParityEdit;
+begin
+  Result := False;
+  aActual := Default(TDelphiSemanticRemoveWithPlanParityEdit);
+  for lEdit in aEdits do
+  begin
+    if SameText(lEdit.Kind, aExpected.Kind) and
+      SameParityFile(lEdit.FileName, aExpected.FileName) and
+      SameParityRange(lEdit.Range, aExpected.Range) then
+    begin
+      aActual := lEdit;
+      Exit(True);
+    end;
+  end;
+end;
+
+procedure CompareParityEdits(var aReport: TDelphiSemanticRemoveWithPlanParityReport;
+  const aExpectedStatement, aActualStatement: TDelphiSemanticRemoveWithPlanParityStatement);
+var
+  lActualEdit: TDelphiSemanticRemoveWithPlanParityEdit;
+  lExpectedEdit: TDelphiSemanticRemoveWithPlanParityEdit;
+begin
+  for lExpectedEdit in aExpectedStatement.Edits do
+  begin
+    if not FindParityEdit(aActualStatement.Edits, lExpectedEdit, lActualEdit) then
+    begin
+      AddEditMismatch(aReport, 'missing-final-edit', aExpectedStatement, lExpectedEdit);
+      Continue;
+    end;
+    if lActualEdit.ReplacementText <> lExpectedEdit.ReplacementText then
+      AddEditMismatch(aReport, 'replacement-text-mismatch', aExpectedStatement, lExpectedEdit);
+  end;
+  for lActualEdit in aActualStatement.Edits do
+  begin
+    if not FindParityEdit(aExpectedStatement.Edits, lActualEdit, lExpectedEdit) then
+      AddEditMismatch(aReport, 'unexpected-final-edit', aActualStatement, lActualEdit);
+  end;
+end;
+
+function BuildParitySummary(const aReport: TDelphiSemanticRemoveWithPlanParityReport): string;
+var
+  lBuilder: TStringBuilder;
+  lMismatch: TDelphiSemanticRemoveWithPlanParityMismatch;
+begin
+  lBuilder := TStringBuilder.Create;
+  try
+    lBuilder.AppendFormat('mismatches=%d', [aReport.MismatchCount]);
+    for lMismatch in aReport.Mismatches do
+      lBuilder.AppendLine.Append(lMismatch.Message);
+    Result := lBuilder.ToString;
+  finally
+    lBuilder.Free;
+  end;
+end;
+
 class function TDelphiSemanticRemoveWithPlanner.Plan(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
 var
@@ -266,6 +513,60 @@ begin
     lLineCache.Free;
     lHashCache.Free;
   end;
+end;
+
+class function TDelphiSemanticRemoveWithPlanParity.Compare(
+  const aSemanticPlan: TDelphiSemanticRemoveWithPlan;
+  const aExpectedStatements: TArray<TDelphiSemanticRemoveWithPlanParityStatement>):
+  TDelphiSemanticRemoveWithPlanParityReport;
+var
+  lActualStatement: TDelphiSemanticRemoveWithPlanParityStatement;
+  lActualStatementIndex: Integer;
+  lExpectedStatement: TDelphiSemanticRemoveWithPlanParityStatement;
+  lExpectedStatementIndex: Integer;
+  lFinalStatements: TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
+  lMatchedActualStatements: TArray<Boolean>;
+begin
+  Result := Default(TDelphiSemanticRemoveWithPlanParityReport);
+  lFinalStatements := FinalStatementsFromPlan(aSemanticPlan);
+  SetLength(lMatchedActualStatements, Length(lFinalStatements));
+  for lExpectedStatementIndex := 0 to High(aExpectedStatements) do
+  begin
+    lExpectedStatement := aExpectedStatements[lExpectedStatementIndex];
+    if not FindParityStatement(lFinalStatements, lExpectedStatement, lActualStatement) then
+    begin
+      AddStatementMismatch(Result, 'missing-final-statement', lExpectedStatement, lActualStatement);
+      if Length(lExpectedStatement.Edits) > 0 then
+        AddEditMismatch(Result, 'missing-final-edit', lExpectedStatement, lExpectedStatement.Edits[0]);
+      Continue;
+    end;
+    if (not SameText(lActualStatement.Status, lExpectedStatement.Status)) or
+      (not SameText(lActualStatement.Reason, lExpectedStatement.Reason)) then
+      AddStatementMismatch(Result, 'statement-status-mismatch', lExpectedStatement, lActualStatement);
+    if lActualStatement.ReplacementText <> lExpectedStatement.ReplacementText then
+      AddStatementMismatch(Result, 'statement-replacement-mismatch', lExpectedStatement, lActualStatement);
+    CompareParityEdits(Result, lExpectedStatement, lActualStatement);
+    for lActualStatementIndex := 0 to High(lFinalStatements) do
+    begin
+      if SameText(lFinalStatements[lActualStatementIndex].StatementId, lActualStatement.StatementId) and
+        SameParityFile(lFinalStatements[lActualStatementIndex].FileName, lActualStatement.FileName) then
+      begin
+        lMatchedActualStatements[lActualStatementIndex] := True;
+        Break;
+      end;
+    end;
+  end;
+  for lActualStatementIndex := 0 to High(lFinalStatements) do
+  begin
+    if lMatchedActualStatements[lActualStatementIndex] then
+      Continue;
+    lActualStatement := lFinalStatements[lActualStatementIndex];
+    AddStatementMismatch(Result, 'unexpected-final-statement', lActualStatement,
+      Default(TDelphiSemanticRemoveWithPlanParityStatement));
+    if Length(lActualStatement.Edits) > 0 then
+      AddEditMismatch(Result, 'unexpected-final-edit', lActualStatement, lActualStatement.Edits[0]);
+  end;
+  Result.SummaryText := BuildParitySummary(Result);
 end;
 
 end.

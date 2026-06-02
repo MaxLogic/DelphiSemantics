@@ -61,10 +61,20 @@ type
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithEdit;
   TDelphiSemanticRemoveWithSkippedStatement =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSkippedStatement;
+  TDelphiSemanticRemoveWithPlanParityEdit =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParityEdit;
+  TDelphiSemanticRemoveWithPlanParityStatement =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParityStatement;
+  TDelphiSemanticRemoveWithPlanParityMismatch =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParityMismatch;
+  TDelphiSemanticRemoveWithPlanParityReport =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParityReport;
   TDelphiSemanticRemoveWithPlan =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlan;
   TDelphiSemanticRemoveWithPlanner =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanner;
+  TDelphiSemanticRemoveWithPlanParity =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParity;
   TDelphiSemanticSearchQuery = DelphiSemantics.Search.TDelphiSemanticSearchQuery;
   TDelphiSemanticSearchMatch = DelphiSemantics.Search.TDelphiSemanticSearchMatch;
   TDelphiSemanticSearchResult = DelphiSemantics.Search.TDelphiSemanticSearchResult;

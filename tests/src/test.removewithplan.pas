@@ -16,6 +16,10 @@ type
     [Test]
     procedure PlansDeterministicDryRunDtoWithVerificationAndProvenance;
     [Test]
+    procedure DtoParityHarnessReportsMissingFinalStatements;
+    [Test]
+    procedure DtoParityHarnessReportsUnexpectedFinalStatements;
+    [Test]
     procedure PlannerCachesSourceTextAndHashesPerFile;
   end;
 
@@ -95,6 +99,91 @@ begin
   Assert.AreEqual('SOURCE_RANGE_UNAVAILABLE', lSkippedPlan.SkippedStatements[0].Reason);
   Assert.AreEqual('stable source file, hash, and source range are required',
     lSkippedPlan.SkippedStatements[0].SafetyReason);
+end;
+
+procedure TRemoveWithPlanTests.DtoParityHarnessReportsMissingFinalStatements;
+var
+  lExpectedEdit: TDelphiSemanticRemoveWithPlanParityEdit;
+  lExpectedStatement: TDelphiSemanticRemoveWithPlanParityStatement;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lReport: TDelphiSemanticRemoveWithPlanParityReport;
+begin
+  lPlan := BuildPlan;
+  Assert.IsTrue(Length(lPlan.Edits) > 0, 'Expected current candidate DTO edits for parity harness input.');
+
+  lExpectedEdit := Default(TDelphiSemanticRemoveWithPlanParityEdit);
+  lExpectedEdit.Kind := 'replace-statement';
+  lExpectedEdit.FileName := lPlan.Edits[0].FileName;
+  lExpectedEdit.StatementId := lPlan.Edits[0].StatementId;
+  lExpectedEdit.Range := lPlan.Edits[0].Range;
+  lExpectedEdit.Range.StartColumn := 1;
+  lExpectedEdit.ReplacementText := 'lRecord.Value := 1;';
+
+  lExpectedStatement := Default(TDelphiSemanticRemoveWithPlanParityStatement);
+  lExpectedStatement.StatementId := lPlan.Edits[0].StatementId;
+  lExpectedStatement.FileName := lPlan.Edits[0].FileName;
+  lExpectedStatement.Status := 'planned';
+  lExpectedStatement.Reason := 'current-dak-plan';
+  lExpectedStatement.ReplacementText := lExpectedEdit.ReplacementText;
+  lExpectedStatement.Edits := [lExpectedEdit];
+
+  lReport := TDelphiSemanticRemoveWithPlanParity.Compare(lPlan, [lExpectedStatement]);
+
+  Assert.AreEqual(2, lReport.MismatchCount, lReport.SummaryText);
+  Assert.AreEqual('missing-final-statement', lReport.Mismatches[0].Kind);
+  Assert.AreEqual(lExpectedStatement.StatementId, lReport.Mismatches[0].StatementId);
+  Assert.IsTrue(ContainsText(lReport.SummaryText, lExpectedStatement.StatementId),
+    'Expected mismatch report to include statement id.');
+  Assert.IsTrue(ContainsText(lReport.SummaryText, ExtractFileName(lExpectedStatement.FileName)),
+    'Expected mismatch report to include file.');
+  Assert.IsTrue(ContainsText(lReport.SummaryText, 'status=planned'),
+    'Expected mismatch report to include status.');
+  Assert.IsTrue(ContainsText(lReport.SummaryText, 'reason=current-dak-plan'),
+    'Expected mismatch report to include reason.');
+  Assert.IsTrue(ContainsText(lReport.SummaryText, 'edit=replace-statement'),
+    'Expected mismatch report to include edit kind.');
+  Assert.IsTrue(ContainsText(lReport.SummaryText, 'range='),
+    'Expected mismatch report to include edit range.');
+  Assert.IsTrue(ContainsText(lReport.SummaryText, 'excerpt='),
+    'Expected mismatch report to include replacement text excerpt.');
+end;
+
+procedure TRemoveWithPlanTests.DtoParityHarnessReportsUnexpectedFinalStatements;
+var
+  lFinalEdit: TDelphiSemanticRemoveWithEdit;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lReport: TDelphiSemanticRemoveWithPlanParityReport;
+begin
+  lFinalEdit := Default(TDelphiSemanticRemoveWithEdit);
+  lFinalEdit.Kind := 'replace-statement';
+  lFinalEdit.FileName := FixturePath('ProjectWithBinding\ProjectWithUnit.pas');
+  lFinalEdit.StatementId := 'with-extra';
+  lFinalEdit.Range.StartLine := 10;
+  lFinalEdit.Range.StartColumn := 1;
+  lFinalEdit.Range.EndLine := 12;
+  lFinalEdit.Range.EndColumn := 8;
+  lFinalEdit.ReplacementText := 'lExtra.Value := 1;';
+  lFinalEdit.ApplyMode := 'final-statement-dto';
+
+  lPlan := Default(TDelphiSemanticRemoveWithPlan);
+  lPlan.Operation := 'remove-with';
+  lPlan.Status := 'planned';
+  lPlan.Edits := [lFinalEdit];
+
+  lReport := TDelphiSemanticRemoveWithPlanParity.Compare(lPlan, []);
+
+  Assert.AreEqual(2, lReport.MismatchCount, lReport.SummaryText);
+  Assert.AreEqual('unexpected-final-statement', lReport.Mismatches[0].Kind);
+  Assert.AreEqual('with-extra', lReport.Mismatches[0].StatementId);
+  Assert.AreEqual('unexpected-final-edit', lReport.Mismatches[1].Kind);
+  Assert.IsTrue(ContainsText(lReport.SummaryText, 'statement=with-extra'),
+    'Expected unexpected statement id in parity report.');
+  Assert.IsTrue(ContainsText(lReport.SummaryText, 'edit=replace-statement'),
+    'Expected unexpected edit kind in parity report.');
+  Assert.IsTrue(ContainsText(lReport.SummaryText, 'range=10:1-12:8'),
+    'Expected unexpected edit range in parity report.');
+  Assert.IsTrue(ContainsText(lReport.SummaryText, 'excerpt='),
+    'Expected unexpected edit replacement excerpt in parity report.');
 end;
 
 procedure TRemoveWithPlanTests.PlannerCachesSourceTextAndHashesPerFile;
