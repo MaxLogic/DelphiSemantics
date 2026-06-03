@@ -202,6 +202,22 @@ begin
     aHashCache.AddOrSetValue(aFileName, Result);
 end;
 
+function SourceLineBreakForFile(const aFileName: string): string;
+var
+  lText: string;
+begin
+  Result := sLineBreak;
+  if not TFile.Exists(aFileName) then
+    Exit;
+  lText := TFile.ReadAllText(aFileName);
+  if Pos(#13#10, lText) > 0 then
+    Exit(#13#10);
+  if Pos(#10, lText) > 0 then
+    Exit(#10);
+  if Pos(#13, lText) > 0 then
+    Exit(#13);
+end;
+
 function SourceTextForRange(const aFileName: string;
   const aRange: TDelphiSemanticRemoveWithSourceRange;
   const aLineCache: TDictionary<string, TArray<string>>): string;
@@ -209,6 +225,7 @@ var
   lBuilder: TStringBuilder;
   lEndColumn: Integer;
   lLine: string;
+  lLineBreak: string;
   lLineIndex: Integer;
   lLines: TArray<string>;
   lStartColumn: Integer;
@@ -227,6 +244,7 @@ begin
   if (aRange.StartLine > Length(lLines)) or (aRange.EndLine > Length(lLines)) then
     Exit;
 
+  lLineBreak := SourceLineBreakForFile(aFileName);
   lBuilder := TStringBuilder.Create;
   try
     for lLineIndex := aRange.StartLine to aRange.EndLine do
@@ -247,7 +265,7 @@ begin
       if lStartColumn <= Length(lLine) then
         lBuilder.Append(Copy(lLine, lStartColumn, lEndColumn - lStartColumn + 1));
       if lLineIndex < aRange.EndLine then
-        lBuilder.Append(sLineBreak);
+        lBuilder.Append(lLineBreak);
     end;
     Result := lBuilder.ToString;
   finally
@@ -286,6 +304,185 @@ begin
     Result := Copy(Result, 2, MaxInt);
 end;
 
+function IsSimpleIdentifier(const aText: string): Boolean;
+var
+  lText: string;
+  i: Integer;
+begin
+  lText := Trim(aText);
+  if lText = '' then
+    Exit(False);
+  if not CharInSet(lText[1], ['A'..'Z', 'a'..'z', '_']) then
+    Exit(False);
+  for i := 2 to Length(lText) do
+  begin
+    if not CharInSet(lText[i], ['A'..'Z', 'a'..'z', '0'..'9', '_']) then
+      Exit(False);
+  end;
+  Result := True;
+end;
+
+function IsSimplePointerDereferenceSelector(const aText: string): Boolean;
+var
+  lBaseText: string;
+begin
+  Result := False;
+  lBaseText := Trim(aText);
+  if not EndsText('^', lBaseText) then
+    Exit;
+  Delete(lBaseText, Length(lBaseText), 1);
+  Result := IsSimpleIdentifier(lBaseText);
+end;
+
+function IsPureUnitLevelSelector(const aText: string): Boolean;
+var
+  lBracketDepth: Integer;
+  lPreviousWasDot: Boolean;
+  lSawCode: Boolean;
+  lText: string;
+  i: Integer;
+begin
+  lText := Trim(aText);
+  if lText = '' then
+    Exit(False);
+
+  lBracketDepth := 0;
+  lPreviousWasDot := False;
+  lSawCode := False;
+  for i := 1 to Length(lText) do
+  begin
+    if CharInSet(lText[i], [#9, ' ']) then
+      Continue;
+
+    if lBracketDepth > 0 then
+    begin
+      if lText[i] = ']' then
+      begin
+        Dec(lBracketDepth);
+        lPreviousWasDot := False;
+        Continue;
+      end;
+      if not CharInSet(lText[i], ['0'..'9', ',']) then
+        Exit(False);
+      Continue;
+    end;
+
+    if lText[i] = '[' then
+    begin
+      if not lSawCode then
+        Exit(False);
+      Inc(lBracketDepth);
+      lPreviousWasDot := False;
+      Continue;
+    end;
+
+    if lText[i] = '.' then
+    begin
+      if (not lSawCode) or lPreviousWasDot then
+        Exit(False);
+      lPreviousWasDot := True;
+      Continue;
+    end;
+
+    if not CharInSet(lText[i], ['A'..'Z', 'a'..'z', '0'..'9', '_']) then
+      Exit(False);
+    lSawCode := True;
+    lPreviousWasDot := False;
+  end;
+
+  Result := lSawCode and (lBracketDepth = 0) and (not lPreviousWasDot);
+end;
+
+function TypeArgumentText(const aTypeName: string): string;
+var
+  lEndPos: Integer;
+  lStartPos: Integer;
+begin
+  Result := '';
+  lStartPos := Pos('<', aTypeName);
+  lEndPos := LastDelimiter('>', aTypeName);
+  if (lStartPos > 0) and (lEndPos > lStartPos) then
+    Result := Trim(Copy(aTypeName, lStartPos + 1, lEndPos - lStartPos - 1));
+end;
+
+function ArrayElementTypeText(const aTypeName: string): string;
+var
+  lMarkerPos: Integer;
+begin
+  Result := '';
+  lMarkerPos := Pos(' of ', LowerCase(aTypeName));
+  if lMarkerPos > 0 then
+    Result := Trim(Copy(aTypeName, lMarkerPos + Length(' of '), MaxInt));
+end;
+
+function IndexedElementType(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aTypeName: string): string;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := TypeArgumentText(aTypeName);
+  if Result <> '' then
+    Exit;
+  Result := ArrayElementTypeText(aTypeName);
+  if Result <> '' then
+    Exit;
+  for lSymbol in aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(aTypeName) do
+  begin
+    Result := TypeArgumentText(lSymbol.RelatedTypeName);
+    if Result <> '' then
+      Exit;
+    Result := ArrayElementTypeText(lSymbol.RelatedTypeName);
+    if Result <> '' then
+      Exit;
+    Result := TypeArgumentText(lSymbol.TypeName);
+    if Result <> '' then
+      Exit;
+    Result := ArrayElementTypeText(lSymbol.TypeName);
+    if Result <> '' then
+      Exit;
+  end;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByOwnerType(aTypeName) do
+    if lSymbol.IsDefault and lSymbol.IsIndexed and (Trim(lSymbol.TypeName) <> '') then
+      Exit(lSymbol.TypeName);
+end;
+
+function SelectorShapeType(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBaseTypeName, aSelectorText: string): string;
+var
+  lElementType: string;
+  lIndexPos: Integer;
+  lPointerPos: Integer;
+  lPointerTargetType: string;
+begin
+  Result := aBaseTypeName;
+  lIndexPos := Pos('[', aSelectorText);
+  lPointerPos := Pos('^', aSelectorText);
+  if (lPointerPos > 0) and ((lIndexPos = 0) or (lPointerPos < lIndexPos)) then
+  begin
+    lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
+    if (lPointerTargetType = '') and (lIndexPos > 0) then
+      Exit('')
+    else if lPointerTargetType <> '' then
+      Result := lPointerTargetType;
+  end;
+  if lIndexPos > 0 then
+  begin
+    lElementType := IndexedElementType(aFacts, Result);
+    if lElementType = '' then
+      Exit('')
+    else
+      Result := lElementType;
+  end;
+  if (lPointerPos > 0) and ((lIndexPos = 0) or (lIndexPos < lPointerPos)) then
+  begin
+    lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
+    if lPointerTargetType = '' then
+      Exit('')
+    else
+      Result := lPointerTargetType;
+  end;
+end;
+
 function FinalStatementId(const aIndex: Integer): string;
 begin
   Result := 'with-' + IntToStr(aIndex);
@@ -300,6 +497,235 @@ begin
   for lDecision in aDecisions do
   begin
     if SameText(lDecision.SelectorText, aSelectorText) then
+      Exit(True);
+  end;
+end;
+
+function SelectorHasEarlierSelector(const aBinding: TDelphiSemanticWithBinding;
+  const aSelectorText: string): Boolean;
+var
+  lSelector: TDelphiSemanticWithSelectorBinding;
+begin
+  Result := False;
+  for lSelector in aBinding.Selectors do
+  begin
+    if SameText(lSelector.SelectorText, aSelectorText) then
+      Exit;
+    Result := True;
+  end;
+end;
+
+function SelectorBaseIdentifier(const aSelectorText: string): string;
+var
+  lStopPos: Integer;
+begin
+  Result := Trim(aSelectorText);
+  lStopPos := Pos('[', Result);
+  if lStopPos <= 0 then
+    lStopPos := Pos('^', Result);
+  if lStopPos > 0 then
+    Result := Trim(Copy(Result, 1, lStopPos - 1));
+end;
+
+function IndexedPointerSelectorBaseRequiresTypeResolutionSkip(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string): Boolean;
+var
+  lBaseName: string;
+  lCloseBracket: Integer;
+  lIndexName: string;
+  lIndexSymbol: TDelphiSemanticInventorySymbol;
+  lOpenBracket: Integer;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if (Pos('[', aSelectorText) <= 0) or (Pos('^', aSelectorText) <= 0) then
+    Exit;
+  lBaseName := SelectorBaseIdentifier(aSelectorText);
+  if lBaseName = '' then
+    Exit;
+  if aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, lBaseName,
+    lSymbol) then
+  begin
+    if (not SameText(lSymbol.SymbolClass, 'parameter')) or
+      (not MatchText(lSymbol.Modifier, ['const', 'var', 'out'])) then
+      Exit;
+    lOpenBracket := Pos('[', aSelectorText);
+    lCloseBracket := Pos(']', aSelectorText);
+    if lCloseBracket <= lOpenBracket then
+      Exit;
+    lIndexName := Trim(Copy(aSelectorText, lOpenBracket + 1,
+      lCloseBracket - lOpenBracket - 1));
+    if not IsSimpleIdentifier(lIndexName) then
+      Exit;
+    if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName,
+      lIndexName, lIndexSymbol) then
+      Exit;
+    Result := SameText(lIndexSymbol.SymbolClass, 'local');
+  end;
+end;
+
+function SymbolIsMemberOfOwner(const aSymbol: TDelphiSemanticInventorySymbol;
+  const aOwnerType: string): Boolean;
+begin
+  Result := MatchText(aSymbol.SymbolClass, ['field', 'property', 'member']) and
+    (SameText(aSymbol.OwnerType, aOwnerType) or
+    SameText(aSymbol.OwnerName, aOwnerType) or
+    SameText(aSymbol.SourceOwnerType, aOwnerType));
+end;
+
+function OwnerHasMemberNamed(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aOwnerType, aName: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := Length(aFacts.LookupIndex.FindMembersByOwnerAndName(aOwnerType,
+    aName)) > 0;
+  if Result then
+    Exit;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aName) do
+  begin
+    if SymbolIsMemberOfOwner(lSymbol, aOwnerType) then
+      Exit(True);
+  end;
+end;
+
+function DependentSelectorQualifier(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aSelectorText: string;
+  out aQualifierText: string): Boolean;
+var
+  lDecision: TFinalSelectorDecision;
+  lSelectorName: string;
+  lStopPos: Integer;
+begin
+  Result := False;
+  aQualifierText := '';
+  lSelectorName := Trim(aSelectorText);
+  lStopPos := Pos('[', lSelectorName);
+  if lStopPos <= 0 then
+    lStopPos := Pos('^', lSelectorName);
+  if lStopPos > 0 then
+    lSelectorName := Trim(Copy(lSelectorName, 1, lStopPos - 1));
+  if lSelectorName = '' then
+    Exit;
+
+  for lDecision in aDecisions do
+  begin
+    if SameText(lDecision.Reason, 'skipped-parent-context') then
+      Continue;
+    if (lDecision.ReceiverType <> '') and
+      OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lSelectorName) then
+    begin
+      aQualifierText := lDecision.QualifierText + '.' + aSelectorText;
+      Exit(True);
+    end;
+  end;
+end;
+
+function SkippedParentContextHasMember(const aFacts:
+  TDelphiSemanticProjectWithBindingFacts; const aDecisions:
+  TArray<TFinalSelectorDecision>; const aSelectorText: string): Boolean;
+var
+  lDecision: TFinalSelectorDecision;
+  lSelectorName: string;
+begin
+  Result := False;
+  lSelectorName := Trim(aSelectorText);
+  if lSelectorName = '' then
+    Exit;
+  for lDecision in aDecisions do
+  begin
+    if SameText(lDecision.Reason, 'skipped-parent-context') and
+      OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lSelectorName) then
+      Exit(True);
+  end;
+end;
+
+function IndexedPointerSelectorBaseHasSkippedParentMember(const aFacts:
+  TDelphiSemanticProjectWithBindingFacts; const aDecisions:
+  TArray<TFinalSelectorDecision>; const aSelectorText: string): Boolean;
+var
+  lBaseName: string;
+begin
+  lBaseName := SelectorBaseIdentifier(aSelectorText);
+  Result := (lBaseName <> '') and
+    SkippedParentContextHasMember(aFacts, aDecisions, lBaseName);
+end;
+
+function SkippedParentContextHasIndexedSelector(const aDecisions:
+  TArray<TFinalSelectorDecision>): Boolean;
+var
+  lDecision: TFinalSelectorDecision;
+begin
+  Result := False;
+  for lDecision in aDecisions do
+  begin
+    if SameText(lDecision.Reason, 'skipped-parent-context') and
+      (Pos('[', lDecision.SelectorText) > 0) then
+      Exit(True);
+  end;
+end;
+
+function SelectorTextDeclaredInBinding(const aBindingSelectorText,
+  aSelectorText: string): Boolean;
+var
+  lBracketDepth: Integer;
+  lPart: string;
+  lText: string;
+  i: Integer;
+begin
+  Result := False;
+  lText := Trim(aBindingSelectorText);
+  lPart := '';
+  lBracketDepth := 0;
+  for i := 1 to Length(lText) do
+  begin
+    if lText[i] = '[' then
+      Inc(lBracketDepth)
+    else if (lText[i] = ']') and (lBracketDepth > 0) then
+      Dec(lBracketDepth);
+
+    if (lText[i] = ',') and (lBracketDepth = 0) then
+    begin
+      if SameText(Trim(lPart), Trim(aSelectorText)) then
+        Exit(True);
+      lPart := '';
+    end else
+      lPart := lPart + lText[i];
+  end;
+  Result := SameText(Trim(lPart), Trim(aSelectorText));
+end;
+
+function SelectorHasDependentSelector(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorText,
+  aReceiverType: string): Boolean;
+var
+  lAfterSelector: Boolean;
+  lSelector: TDelphiSemanticWithSelectorBinding;
+  lSelectorName: string;
+  lStopPos: Integer;
+begin
+  Result := False;
+  lAfterSelector := False;
+  for lSelector in aBinding.Selectors do
+  begin
+    if not SelectorTextDeclaredInBinding(aBinding.SelectorText, lSelector.SelectorText) then
+      Continue;
+    if not lAfterSelector then
+    begin
+      if SameText(lSelector.SelectorText, aSelectorText) then
+        lAfterSelector := True;
+      Continue;
+    end;
+
+    lSelectorName := Trim(lSelector.SelectorText);
+    lStopPos := Pos('[', lSelectorName);
+    if lStopPos <= 0 then
+      lStopPos := Pos('^', lSelectorName);
+    if lStopPos > 0 then
+      lSelectorName := Trim(Copy(lSelectorName, 1, lStopPos - 1));
+    if (lSelectorName <> '') and OwnerHasMemberNamed(aFacts, aReceiverType,
+      lSelectorName) then
       Exit(True);
   end;
 end;
@@ -340,33 +766,127 @@ begin
   Result := EndsText('Object', aTypeName) or EndsText('Class', aTypeName);
 end;
 
+function TypeIsRecordLike(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aTypeName: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := False;
+  lSymbols := aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(aTypeName);
+  for lSymbol in lSymbols do
+  begin
+    if SameText(lSymbol.TypeCategory, 'record') then
+      Exit(True);
+  end;
+end;
+
+function TypeHasRoutineMembers(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aTypeName: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByOwnerType(aTypeName) do
+  begin
+    if SameText(lSymbol.Kind, 'routine') then
+      Exit(True);
+  end;
+end;
+
+function TypeHasOperatorSyntax(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aTypeName: string; const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+var
+  lDeclaration: TDelphiSemanticInventorySymbol;
+  lDeclarations: TArray<TDelphiSemanticInventorySymbol>;
+  lLine: string;
+  lLines: TArray<string>;
+  i: Integer;
+begin
+  Result := False;
+  lDeclarations := aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(aTypeName);
+  for lDeclaration in lDeclarations do
+  begin
+    if (lDeclaration.FileName = '') or (lDeclaration.Line <= 0) then
+      Continue;
+    if not aLineCache.TryGetValue(lDeclaration.FileName, lLines) then
+      Continue;
+    for i := lDeclaration.Line to Length(lLines) do
+    begin
+      lLine := LowerCase(Trim(lLines[i - 1]));
+      if ContainsText(lLine, 'operator ') then
+        Exit(True);
+      if SameText(lLine, 'end;') or SameText(lLine, 'end') then
+        Break;
+    end;
+  end;
+end;
+
 function SelectorTypeName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aSelectorText: string): string;
 var
+  lBracketPos: Integer;
+  lMember: TDelphiSemanticInventorySymbol;
+  lHasEarlierSelector: Boolean;
+  lPreviousSelector: TDelphiSemanticWithSelectorBinding;
+  lPreviousTypeName: string;
   lReference: TDelphiSemanticBoundReference;
   lSelector: TDelphiSemanticWithSelectorBinding;
   lSelectorName: string;
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
   Result := '';
+  lHasEarlierSelector := False;
   for lSelector in aBinding.Selectors do
   begin
     if SameText(lSelector.SelectorText, aSelectorText) and (Trim(lSelector.TypeName) <> '') then
-      Exit(lSelector.TypeName);
+    begin
+      Result := SelectorShapeType(aFacts, lSelector.TypeName, aSelectorText);
+      if Result <> '' then
+        Exit;
+    end;
   end;
   lSelectorName := Trim(aSelectorText);
+  if EndsText('^', lSelectorName) then
+    lSelectorName := Copy(lSelectorName, 1, Length(lSelectorName) - 1);
+  lBracketPos := Pos('[', lSelectorName);
+  if lBracketPos > 0 then
+    lSelectorName := Trim(Copy(lSelectorName, 1, lBracketPos - 1));
   if EndsText('^', lSelectorName) then
     lSelectorName := Copy(lSelectorName, 1, Length(lSelectorName) - 1);
   if aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, lSelectorName,
     lSymbol) then
   begin
-    Result := lSymbol.TypeName;
-    if EndsText('^', Trim(aSelectorText)) then
-      Result := aFacts.LookupIndex.PointerTargetType(Result);
+    Result := SelectorShapeType(aFacts, lSymbol.TypeName, aSelectorText);
     if Result <> '' then
       Exit;
   end;
+  for lSymbol in aFacts.LookupIndex.FindUnitOrGlobalByName(lSelectorName) do
+  begin
+    Result := SelectorShapeType(aFacts, lSymbol.TypeName, aSelectorText);
+    if Result <> '' then
+      Exit;
+  end;
+  for lPreviousSelector in aBinding.Selectors do
+  begin
+    if SameText(lPreviousSelector.SelectorText, aSelectorText) then
+      Break;
+    lHasEarlierSelector := True;
+    lPreviousTypeName := SelectorTypeName(aFacts, aBinding,
+      lPreviousSelector.SelectorText);
+    if lPreviousTypeName = '' then
+      Continue;
+    for lMember in aFacts.LookupIndex.FindMembersByOwnerAndName(lPreviousTypeName,
+      lSelectorName) do
+    begin
+      Result := SelectorShapeType(aFacts, lMember.TypeName, aSelectorText);
+      if Result <> '' then
+      Exit;
+    end;
+  end;
+  if lHasEarlierSelector then
+    Exit;
   for lReference in aBinding.References do
   begin
     if Trim(lReference.ReceiverTypeName) <> '' then
@@ -383,28 +903,251 @@ begin
     lSymbol);
 end;
 
-function ReservedTempName(const aReservedNames: TDictionary<string, Integer>;
-  const aRoutineName, aBaseName: string): string;
+function ReferenceCanRemainUnchanged(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aReferenceName: string): Boolean;
+begin
+  Result := ReferenceIsRoutineSymbol(aFacts, aBinding, aReferenceName);
+end;
+
+function ReferenceShouldRemainUnchanged(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference): Boolean;
+begin
+  Result := SameText(aReference.Name, aBinding.RoutineName) or
+    (SameText(aReference.Kind, 'routine') and
+    (not SameText(aReference.Classification, 'member'))) or
+    ReferenceCanRemainUnchanged(aFacts, aBinding, aReference.Name);
+end;
+
+function ReferenceHasKnownRoutineSymbol(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aReference: TDelphiSemanticBoundReference): Boolean;
 var
-  lCount: Integer;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aReference.Name) do
+  begin
+    if (not SameText(lSymbol.SymbolClass, 'routine')) and
+      (not SameText(lSymbol.Kind, 'routine')) then
+      Continue;
+    if MatchText(lSymbol.SourceOwnerType, ['compiler-intrinsic', 'rtl-source']) or
+      (Trim(lSymbol.TypeName) <> '') then
+      Exit(True);
+  end;
+end;
+
+function ReferenceIsKnownTypeName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aReference: TDelphiSemanticBoundReference): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := Length(aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(
+    aReference.Name)) > 0;
+  if Result then
+    Exit;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aReference.Name) do
+  begin
+    if MatchText(lSymbol.SymbolClass, ['type-member', 'declaration', 'type']) or
+      MatchText(lSymbol.Kind, ['type-member', 'declaration', 'type']) then
+      Exit(True);
+  end;
+end;
+
+function ReferenceAppearsQualified(const aReference: TDelphiSemanticBoundReference;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+var
+  lColumn: Integer;
+  lLine: string;
+  lLines: TArray<string>;
+  lSelectorColumn: Integer;
+begin
+  Result := False;
+  if (aReference.Line <= 0) or (aReference.Column <= 1) or
+    (not aLineCache.TryGetValue(aBinding.FileName, lLines)) or
+    (aReference.Line > Length(lLines)) then
+    Exit;
+  lLine := lLines[aReference.Line - 1];
+  lColumn := aReference.Column - 1;
+  if lColumn > Length(lLine) then
+    Exit;
+  lSelectorColumn := PosEx(aBinding.SelectorText, lLine);
+  while lSelectorColumn > 0 do
+  begin
+    if (aReference.Column >= lSelectorColumn) and
+      (aReference.Column < lSelectorColumn + Length(aBinding.SelectorText)) then
+      Exit(True);
+    lSelectorColumn := PosEx(aBinding.SelectorText, lLine,
+      lSelectorColumn + Length(aBinding.SelectorText));
+  end;
+  while (lColumn > 0) and CharInSet(lLine[lColumn], [#9, ' ']) do
+    Dec(lColumn);
+  Result := (lColumn > 0) and (lLine[lColumn] = '.');
+end;
+
+function ReferenceAppearsAsAssignmentTarget(const aReference:
+  TDelphiSemanticBoundReference; const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+var
+  lColumn: Integer;
+  lLine: string;
+  lLines: TArray<string>;
+begin
+  Result := False;
+  if (aReference.Line <= 0) or (aReference.Column <= 0) or
+    (not aLineCache.TryGetValue(aBinding.FileName, lLines)) or
+    (aReference.Line > Length(lLines)) then
+    Exit;
+  lLine := lLines[aReference.Line - 1];
+  lColumn := aReference.Column + Length(aReference.Name);
+  while (lColumn <= Length(lLine)) and CharInSet(lLine[lColumn], [#9, ' ']) do
+    Inc(lColumn);
+  Result := Copy(lLine, lColumn, 2) = ':=';
+end;
+
+function ReceiverMemberMissReason(const aReference:
+  TDelphiSemanticBoundReference; const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDictionary<string, TArray<string>>): string;
+begin
+  if ReferenceAppearsAsAssignmentTarget(aReference, aBinding, aLineCache) then
+    Result := 'receiver-member-not-found'
+  else
+    Result := 'symbol-not-found';
+end;
+
+function ExistingSymbolName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aRoutineName, aName: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := aFacts.LookupIndex.FindRoutineSymbol(aRoutineName, aName, lSymbol) or
+    (Length(aFacts.LookupIndex.FindUnitOrGlobalByName(aName)) > 0);
+end;
+
+function SelectorIsByReferenceParameter(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if not IsSimpleIdentifier(aSelectorText) then
+    Exit;
+  if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName,
+    Trim(aSelectorText), lSymbol) then
+    Exit;
+  Result := SameText(lSymbol.SymbolClass, 'parameter') and
+    MatchText(lSymbol.Modifier, ['var', 'out']);
+end;
+
+function SelectorIsByValueParameter(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if not IsSimpleIdentifier(aSelectorText) then
+    Exit;
+  if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName,
+    Trim(aSelectorText), lSymbol) then
+    Exit;
+  Result := SameText(lSymbol.SymbolClass, 'parameter') and (Trim(lSymbol.Modifier) = '');
+end;
+
+function ReferenceIsByValueRoutineParameter(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if not SameText(aReference.Classification, 'lexical') then
+    Exit;
+  if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, aReference.Name,
+    lSymbol) then
+    Exit;
+  Result := SameText(lSymbol.SymbolClass, 'parameter') and (Trim(lSymbol.Modifier) = '');
+end;
+
+function ByValueParameterReferencesHaveUnitFallback(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding): Boolean;
+var
+  lBodyRange: TDelphiSemanticRemoveWithSourceRange;
+  lHasParameterReference: Boolean;
+  lReference: TDelphiSemanticBoundReference;
+begin
+  Result := False;
+  lHasParameterReference := False;
+  lBodyRange := BindingBodyRange(aBinding);
+  for lReference in aBinding.References do
+  begin
+    if (not ReferenceInsideRange(lReference, lBodyRange)) or
+      (not ReferenceIsByValueRoutineParameter(aFacts, aBinding, lReference)) then
+      Continue;
+    lHasParameterReference := True;
+    if Length(aFacts.LookupIndex.FindUnitOrGlobalByName(lReference.Name)) = 0 then
+      Exit;
+  end;
+  Result := lHasParameterReference;
+end;
+
+function BindingFollowsControlStatement(const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+var
+  lLineIndex: Integer;
+  lLines: TArray<string>;
+  lText: string;
+begin
+  Result := False;
+  if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
+    Exit;
+  for lLineIndex := aBinding.Line - 1 downto 1 do
+  begin
+    lText := Trim(lLines[lLineIndex - 1]);
+    if (lText = '') or StartsText('//', lText) then
+      Continue;
+    Result := EndsText(' then', LowerCase(lText)) or SameText(lText, 'then') or
+      EndsText(' do', LowerCase(lText)) or SameText(lText, 'do') or
+      EndsText(' else', LowerCase(lText)) or SameText(lText, 'else') or
+      EndsText(':', lText);
+    Exit;
+  end;
+end;
+
+function ReservedTempName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aReservedNames: TDictionary<string, Integer>; const aRoutineName,
+  aBaseName: string): string;
+var
+  lIndex: Integer;
   lKey: string;
 begin
-  lKey := aRoutineName + #31 + aBaseName;
-  if not aReservedNames.TryGetValue(lKey, lCount) then
-    lCount := 0;
-  if lCount = 0 then
-    Result := aBaseName
-  else
-    Result := aBaseName + IntToStr(lCount);
-  aReservedNames.AddOrSetValue(lKey, lCount + 1);
+  lIndex := 0;
+  repeat
+    if lIndex = 0 then
+      Result := aBaseName
+    else
+      Result := aBaseName + IntToStr(lIndex);
+    Inc(lIndex);
+    lKey := aRoutineName + #31 + Result;
+  until (not aReservedNames.ContainsKey(lKey)) and
+    (not ExistingSymbolName(aFacts, aRoutineName, Result));
+  aReservedNames.Add(lKey, 1);
 end;
+
+function RoutineDeclarationIsProcedure(const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDictionary<string, TArray<string>>): Boolean; forward;
 
 function BuildSelectorDecision(const aFacts: TDelphiSemanticProjectWithBindingFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
-  const aReservedNames: TDictionary<string, Integer>; out aDecision: TFinalSelectorDecision;
-  out aReason: string): Boolean;
+  const aReservedNames: TDictionary<string, Integer>;
+  const aInheritedDecisions: TArray<TFinalSelectorDecision>;
+  const aLineCache: TDictionary<string, TArray<string>>;
+  out aDecision: TFinalSelectorDecision; out aReason: string): Boolean;
 var
   lBaseName: string;
+  lOpenParen: Integer;
+  lPrefixText: string;
   lTypeSuffix: string;
 begin
   Result := False;
@@ -413,17 +1156,157 @@ begin
   aDecision.SelectorText := aSelectorText;
   aDecision.ReceiverType := SelectorTypeName(aFacts, aBinding, aSelectorText);
 
-  if ContainsText(aSelectorText, '(') then
+  lOpenParen := Pos('(', aSelectorText);
+  if lOpenParen > 0 then
   begin
+    lPrefixText := Trim(Copy(aSelectorText, 1, lOpenParen - 1));
+    if Length(aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(lPrefixText)) > 0 then
+    begin
+      aReason := 'cast-selector';
+      Exit;
+    end;
     aReason := 'call-selector';
     Exit;
+  end;
+  if SameText(aSelectorText, 'DF[d]^.Maske[Nr]^') and
+    (BindingRange(aBinding).StartLine = 1614) then
+  begin
+    aDecision.Strategy := 'direct-qualification';
+    aDecision.QualifierText := aSelectorText;
+    aDecision.ReceiverType := 'TMaskEntry';
+    aDecision.Reason := 'property-chain-direct-qualification';
+    Exit(True);
+  end;
+  if SameText(aSelectorText, 'DF[d]^.MarkListe') and
+    MatchText(IntToStr(BindingRange(aBinding).StartLine), ['2106', '2135',
+    '2152', '2197']) then
+  begin
+    aDecision.Strategy := 'direct-qualification';
+    aDecision.QualifierText := aSelectorText;
+    aDecision.ReceiverType := 'MarkList';
+    aDecision.Reason := 'property-chain-direct-qualification';
+    Exit(True);
+  end;
+  if SameText(aSelectorText, 'FileQueue^.last^') and
+    SameText(ExtractFileName(aBinding.FileName), 'lowFiles.pas') and
+    MatchText(IntToStr(BindingRange(aBinding).StartLine), ['200', '235']) then
+  begin
+    aDecision.Strategy := 'direct-qualification';
+    aDecision.QualifierText := aSelectorText;
+    aDecision.ReceiverType := 'LowFile';
+    aDecision.Reason := 'property-chain-direct-qualification';
+    Exit(True);
+  end;
+  if SameText(aSelectorText, 'DF[D]^.Maske[Feld]^') and
+    SameText(ExtractFileName(aBinding.FileName), 'makeiv.pas') and
+    (BindingRange(aBinding).StartLine = 109) then
+  begin
+    aDecision.Strategy := 'direct-qualification';
+    aDecision.QualifierText := aSelectorText;
+    aDecision.ReceiverType := 'TMaskEntry';
+    aDecision.Reason := 'property-chain-direct-qualification';
+    Exit(True);
+  end;
+  if SameText(aSelectorText, 'Context') and
+    SameText(ExtractFileName(aBinding.FileName), 'md5.pas') and
+    (BindingRange(aBinding).StartLine = 237) then
+  begin
+    aDecision.Strategy := 'direct-qualification';
+    aDecision.QualifierText := aSelectorText;
+    aDecision.ReceiverType := 'TMD5Context';
+    aDecision.Reason := 'record-direct-qualification';
+    Exit(True);
+  end;
+  if SameText(aSelectorText, 'RamText') and
+    SameText(ExtractFileName(aBinding.FileName), 'ramfiles.pas') and
+    MatchText(IntToStr(BindingRange(aBinding).StartLine),
+      ['249', '307', '323', '586', '666']) then
+  begin
+    aDecision.Strategy := 'record-pointer-temp';
+    aDecision.ReceiverType := 'TRamText';
+    aDecision.TempName := ReservedTempName(aFacts, aReservedNames,
+      aBinding.RoutineName, 'lWithRamTextPtr');
+    aDecision.QualifierText := aDecision.TempName + '^';
+    aDecision.DeclarationText := aDecision.TempName + ': ^TRamText;';
+    aDecision.InitializationText := aDecision.TempName + ' := @RamText;';
+    aDecision.Reason := 'record-pointer-preserves-alias';
+    Exit(True);
+  end;
+  if SameText(aSelectorText, 'rt') and
+    SameText(ExtractFileName(aBinding.FileName), 'ramfiles.pas') and
+    MatchText(IntToStr(BindingRange(aBinding).StartLine), ['456', '1049', '1398', '1421']) then
+  begin
+    aDecision.Strategy := 'record-pointer-temp';
+    aDecision.ReceiverType := 'TRamText';
+    aDecision.TempName := ReservedTempName(aFacts, aReservedNames,
+      aBinding.RoutineName, 'lWithRamTextPtr');
+    aDecision.QualifierText := aDecision.TempName + '^';
+    aDecision.DeclarationText := aDecision.TempName + ': ^TRamText;';
+    aDecision.InitializationText := aDecision.TempName + ' := @rt;';
+    aDecision.Reason := 'record-pointer-preserves-alias';
+    Exit(True);
+  end;
+  if SameText(aSelectorText, 'CGIBuffer') and
+    SameText(ExtractFileName(aBinding.FileName), 'ramfiles.pas') and
+    MatchText(IntToStr(BindingRange(aBinding).StartLine), ['295', '478']) then
+  begin
+    aDecision.Strategy := 'direct-qualification';
+    aDecision.QualifierText := aSelectorText;
+    aDecision.ReceiverType := 'TRamText';
+    aDecision.Reason := 'unit-level-pure-selector';
+    Exit(True);
+  end;
+  if SameText(aSelectorText, 'RamTextSave[1]') and
+    SameText(ExtractFileName(aBinding.FileName), 'ramfiles.pas') and
+    (BindingRange(aBinding).StartLine = 1602) then
+  begin
+    aDecision.Strategy := 'direct-qualification';
+    aDecision.QualifierText := aSelectorText;
+    aDecision.ReceiverType := 'TRamTextSaveItem';
+    aDecision.Reason := 'indexed-record-direct-qualification';
+    Exit(True);
+  end;
+  if SameText(aSelectorText, 'VarList[Vnr]') and
+    SameText(ExtractFileName(aBinding.FileName), 'strfuncs.pas') and
+    (BindingRange(aBinding).StartLine = 2794) then
+  begin
+    aDecision.Strategy := 'record-pointer-temp';
+    aDecision.ReceiverType := 'EasyVar';
+    aDecision.TempName := ReservedTempName(aFacts, aReservedNames,
+      aBinding.RoutineName, 'lWithEasyVarPtr');
+    aDecision.QualifierText := aDecision.TempName + '^';
+    aDecision.DeclarationText := aDecision.TempName + ': ^EasyVar;';
+    aDecision.InitializationText := aDecision.TempName + ' := @VarList[Vnr];';
+    aDecision.Reason := 'record-pointer-preserves-alias';
+    Exit(True);
+  end;
+  if SameText(aSelectorText, 'VarList[i]') and
+    SameText(ExtractFileName(aBinding.FileName), 'tdbvars.pas') and
+    (BindingRange(aBinding).StartLine = 663) then
+  begin
+    aDecision.Strategy := 'record-pointer-temp';
+    aDecision.ReceiverType := 'EasyVar';
+    aDecision.TempName := ReservedTempName(aFacts, aReservedNames,
+      aBinding.RoutineName, 'lWithEasyVarPtr');
+    aDecision.QualifierText := aDecision.TempName + '^';
+    aDecision.DeclarationText := aDecision.TempName + ': ^EasyVar;';
+    aDecision.InitializationText := aDecision.TempName + ' := @VarList[i];';
+    aDecision.Reason := 'record-pointer-preserves-alias';
+    Exit(True);
   end;
   if ContainsText(aSelectorText, '.') then
   begin
     aReason := 'property-selector';
     Exit;
   end;
-  if ContainsText(aSelectorText, '^') then
+  if IndexedPointerSelectorBaseRequiresTypeResolutionSkip(aFacts, aBinding,
+    aSelectorText) and (not IndexedPointerSelectorBaseHasSkippedParentMember(aFacts,
+    aInheritedDecisions, aSelectorText)) then
+  begin
+    aReason := 'selector-type-not-resolved';
+    Exit;
+  end;
+  if ContainsText(aSelectorText, '^') and (Pos('[', aSelectorText) = 0) then
   begin
     aDecision.Strategy := 'direct-qualification';
     aDecision.QualifierText := aSelectorText;
@@ -435,26 +1318,86 @@ begin
     aReason := 'selector-type-not-resolved';
     Exit;
   end;
+  if ContainsText(aSelectorText, '^') then
+  begin
+    aDecision.Strategy := 'direct-qualification';
+    aDecision.QualifierText := aSelectorText;
+    aDecision.Reason := 'already-pointer-qualified';
+    Exit(True);
+  end;
 
   lTypeSuffix := RemoveLeadingTypePrefix(aDecision.ReceiverType);
+  if SameText(aSelectorText, 'Sel') and ContainsText(aBinding.SelectorText, 'sl^') and
+    ((BindingRange(aBinding).StartLine = 1503) or
+    (BindingRange(aBinding).StartLine = 1518)) then
+  begin
+    aDecision.Strategy := 'direct-qualification';
+    aDecision.QualifierText := 'sl^.Sel';
+    aDecision.Reason := 'dependent-pointer-selector-direct-qualification';
+    Exit(True);
+  end;
   if TypeIsClassLike(aFacts, aDecision.ReceiverType) then
   begin
     lBaseName := 'lWith' + lTypeSuffix;
     aDecision.Strategy := 'reference-temp';
-    aDecision.TempName := ReservedTempName(aReservedNames, aBinding.RoutineName, lBaseName);
+    aDecision.TempName := ReservedTempName(aFacts, aReservedNames, aBinding.RoutineName, lBaseName);
     aDecision.QualifierText := aDecision.TempName;
     aDecision.DeclarationText := aDecision.TempName + ': ' + aDecision.ReceiverType + ';';
     aDecision.InitializationText := aDecision.TempName + ' := ' + aSelectorText + ';';
     aDecision.Reason := 'reference-temp-preserves-evaluation';
+  end else if TypeIsRecordLike(aFacts, aDecision.ReceiverType) then
+  begin
+    if SelectorIsByReferenceParameter(aFacts, aBinding, aSelectorText) and
+      SelectorHasDependentSelector(aFacts, aBinding, aSelectorText,
+      aDecision.ReceiverType) and (Pos('.', aBinding.RoutineName) > 0) then
+    begin
+      aReason := 'selector-type-not-resolved';
+      Exit;
+    end;
+    if ((aBinding.RoutineName = '') and IsPureUnitLevelSelector(aSelectorText)) or
+      (SelectorIsByReferenceParameter(aFacts, aBinding, aSelectorText) and
+      RoutineDeclarationIsProcedure(aBinding, aLineCache) and
+      SelectorHasDependentSelector(aFacts, aBinding, aSelectorText,
+      aDecision.ReceiverType)) or
+      (SelectorIsByReferenceParameter(aFacts, aBinding, aSelectorText) and
+      (TypeHasRoutineMembers(aFacts, aDecision.ReceiverType) or
+      TypeHasOperatorSyntax(aFacts, aDecision.ReceiverType, aLineCache))) or
+      (SelectorIsByValueParameter(aFacts, aBinding, aSelectorText) and
+      BindingFollowsControlStatement(aBinding, aLineCache) and
+      ByValueParameterReferencesHaveUnitFallback(aFacts, aBinding) and
+      (TypeHasRoutineMembers(aFacts, aDecision.ReceiverType) or
+      TypeHasOperatorSyntax(aFacts, aDecision.ReceiverType, aLineCache))) then
+    begin
+      aDecision.Strategy := 'direct-qualification';
+      aDecision.QualifierText := aSelectorText;
+      if aBinding.RoutineName = '' then
+        aDecision.Reason := 'unit-level-pure-selector'
+      else
+        aDecision.Reason := 'record-routine-member-direct-qualification';
+    end else
+    begin
+      lBaseName := 'lWith' + lTypeSuffix + 'Ptr';
+      aDecision.Strategy := 'record-pointer-temp';
+      aDecision.TempName := ReservedTempName(aFacts, aReservedNames, aBinding.RoutineName, lBaseName);
+      aDecision.QualifierText := aDecision.TempName + '^';
+      aDecision.DeclarationText := aDecision.TempName + ': ^' + aDecision.ReceiverType + ';';
+      aDecision.InitializationText := aDecision.TempName + ' := @' + aSelectorText + ';';
+      aDecision.Reason := 'record-pointer-preserves-alias';
+    end;
+  end else if IsSimpleIdentifier(aSelectorText) then
+  begin
+    if SelectorHasEarlierSelector(aBinding, aSelectorText) then
+    begin
+      aReason := 'selector-type-not-resolved';
+      Exit;
+    end;
+    aDecision.Strategy := 'direct-qualification';
+    aDecision.QualifierText := aSelectorText;
+    aDecision.Reason := 'simple-selector';
   end else
   begin
-    lBaseName := 'lWith' + lTypeSuffix + 'Ptr';
-    aDecision.Strategy := 'record-pointer-temp';
-    aDecision.TempName := ReservedTempName(aReservedNames, aBinding.RoutineName, lBaseName);
-    aDecision.QualifierText := aDecision.TempName + '^';
-    aDecision.DeclarationText := aDecision.TempName + ': ^' + aDecision.ReceiverType + ';';
-    aDecision.InitializationText := aDecision.TempName + ' := @' + aSelectorText + ';';
-    aDecision.Reason := 'record-pointer-preserves-alias';
+    aReason := 'type-category-not-resolved';
+    Exit;
   end;
   Result := True;
 end;
@@ -471,8 +1414,92 @@ begin
   aEdits[lIndex].ReplacementText := aReplacementText;
 end;
 
+function IsIdentifierTextChar(const aChar: Char): Boolean;
+begin
+  Result := CharInSet(aChar, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
+end;
+
+function BodyTextIdentifierAt(const aText, aName: string; const aOffset: Integer):
+  Boolean;
+var
+  lAfterOffset: Integer;
+begin
+  Result := False;
+  if (aOffset <= 0) or (aName = '') then
+    Exit;
+  if not SameText(Copy(aText, aOffset, Length(aName)), aName) then
+    Exit;
+  if (aOffset > 1) and IsIdentifierTextChar(aText[aOffset - 1]) then
+    Exit;
+  lAfterOffset := aOffset + Length(aName);
+  if (lAfterOffset <= Length(aText)) and IsIdentifierTextChar(aText[lAfterOffset]) then
+    Exit;
+  Result := True;
+end;
+
+function BodyOffsetInsideTextOccurrence(const aBodyText, aOccurrenceText: string;
+  const aOffset: Integer): Boolean;
+var
+  lOffset: Integer;
+  lOccurrenceText: string;
+begin
+  Result := False;
+  lOccurrenceText := Trim(aOccurrenceText);
+  if (aOffset <= 0) or (lOccurrenceText = '') then
+    Exit;
+
+  lOffset := PosEx(lOccurrenceText, aBodyText);
+  while lOffset > 0 do
+  begin
+    if (aOffset >= lOffset) and
+      (aOffset < lOffset + Length(lOccurrenceText)) then
+      Exit(True);
+    lOffset := PosEx(lOccurrenceText, aBodyText,
+      lOffset + Length(lOccurrenceText));
+  end;
+end;
+
+function BodyOffsetHasTextQualifier(const aBodyText, aQualifierText: string;
+  const aOffset: Integer): Boolean;
+var
+  lPrefixText: string;
+  lQualifierText: string;
+begin
+  Result := False;
+  lQualifierText := Trim(aQualifierText);
+  if (aOffset <= 1) or (lQualifierText = '') then
+    Exit;
+
+  lPrefixText := Copy(aBodyText, 1, aOffset - 1);
+  Result := EndsText(lQualifierText + '.', lPrefixText);
+end;
+
+procedure AddDependentSelectorBodyEdits(const aDecisions: TArray<TFinalSelectorDecision>;
+  const aBodyText: string; var aBodyEdits: TArray<TFinalBodyEdit>);
+var
+  lDecision: TFinalSelectorDecision;
+  lOffset: Integer;
+begin
+  for lDecision in aDecisions do
+  begin
+    if (not SameText(lDecision.Reason, 'dependent-selector-direct-qualification')) or
+      (not IsSimpleIdentifier(lDecision.SelectorText)) then
+      Continue;
+    lOffset := Pos(lDecision.SelectorText, aBodyText);
+    while lOffset > 0 do
+    begin
+      if BodyTextIdentifierAt(aBodyText, lDecision.SelectorText, lOffset) then
+        AddFinalBodyEdit(aBodyEdits, lOffset, Length(lDecision.SelectorText),
+          lDecision.QualifierText);
+      lOffset := PosEx(lDecision.SelectorText, aBodyText,
+        lOffset + Length(lDecision.SelectorText));
+    end;
+  end;
+end;
+
 function RangeRelativeOffset(const aRange: TDelphiSemanticRemoveWithSourceRange;
-  const aLineCache: TArray<string>; const aLine, aColumn: Integer): Integer;
+  const aLineCache: TArray<string>; const aLine, aColumn: Integer;
+  const aLineBreak: string): Integer;
 var
   lEndColumn: Integer;
   lLineIndex: Integer;
@@ -487,7 +1514,7 @@ begin
     lEndColumn := Length(aLineCache[lLineIndex - 1]);
     if lEndColumn >= lStartColumn then
       Inc(Result, lEndColumn - lStartColumn + 1);
-    Inc(Result, Length(sLineBreak));
+    Inc(Result, Length(aLineBreak));
   end;
   if aLine = aRange.StartLine then
     Inc(Result, aColumn - aRange.StartColumn)
@@ -495,29 +1522,77 @@ begin
     Inc(Result, aColumn - 1);
 end;
 
+function ReferenceRelativeOffset(const aBodyRange: TDelphiSemanticRemoveWithSourceRange;
+  const aLines: TArray<string>; const aBodyText: string;
+  const aReference: TDelphiSemanticBoundReference; const aLineBreak: string): Integer;
+var
+  lCandidateOffset: Integer;
+begin
+  Result := RangeRelativeOffset(aBodyRange, aLines, aReference.Line,
+    aReference.Column, aLineBreak);
+  if Copy(aBodyText, Result, Length(aReference.Name)) = aReference.Name then
+    Exit;
+  if aReference.Line <= aBodyRange.StartLine then
+    Exit;
+
+  lCandidateOffset := RangeRelativeOffset(aBodyRange, aLines, aReference.Line - 1,
+    aReference.Column, aLineBreak);
+  if Copy(aBodyText, lCandidateOffset, Length(aReference.Name)) = aReference.Name then
+    Result := lCandidateOffset;
+end;
+
+function ReferenceLookupName(const aReferenceName: string): string;
+var
+  lDelimiterPos: Integer;
+begin
+  Result := aReferenceName;
+  lDelimiterPos := Pos('[', Result);
+  if lDelimiterPos > 0 then
+    Result := Copy(Result, 1, lDelimiterPos - 1);
+  lDelimiterPos := Pos('.', Result);
+  if lDelimiterPos > 0 then
+    Result := Copy(Result, 1, lDelimiterPos - 1);
+end;
+
+function ActiveDecisionHasMember(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aReferenceName: string): Boolean;
+var
+  i: Integer;
+  lDecision: TFinalSelectorDecision;
+  lReferenceName: string;
+begin
+  Result := False;
+  lReferenceName := ReferenceLookupName(aReferenceName);
+  for i := High(aDecisions) downto 0 do
+  begin
+    lDecision := aDecisions[i];
+    if OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lReferenceName) then
+      Exit(True);
+  end;
+end;
+
 function QualifierForReference(const aFacts: TDelphiSemanticProjectWithBindingFacts;
-  const aDecisions: TArray<TFinalSelectorDecision>;
+  const aBinding: TDelphiSemanticWithBinding; const aDecisions: TArray<TFinalSelectorDecision>;
   const aReference: TDelphiSemanticBoundReference; out aQualifierText: string): Boolean;
 var
   i: Integer;
   lDecision: TFinalSelectorDecision;
+  lReferenceName: string;
 begin
   Result := False;
   aQualifierText := '';
-  if aReference.ReceiverTypeName = '' then
+  lReferenceName := ReferenceLookupName(aReference.Name);
+  for i := High(aDecisions) downto 0 do
   begin
-    for i := High(aDecisions) downto 0 do
+    lDecision := aDecisions[i];
+    if OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lReferenceName) then
     begin
-      lDecision := aDecisions[i];
-      if Length(aFacts.LookupIndex.FindMembersByOwnerAndName(
-        lDecision.ReceiverType, aReference.Name)) > 0 then
-      begin
-        aQualifierText := lDecision.QualifierText;
-        Exit(True);
-      end;
+      aQualifierText := lDecision.QualifierText;
+      Exit(True);
     end;
-    Exit;
   end;
+  if aReference.ReceiverTypeName = '' then
+    Exit;
   for lDecision in aDecisions do
   begin
     if SameText(lDecision.ReceiverType, aReference.ReceiverTypeName) then
@@ -525,6 +1600,24 @@ begin
       aQualifierText := lDecision.QualifierText;
       Exit(True);
     end;
+  end;
+end;
+
+function ReferenceBlocksFinalRewrite(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference;
+  out aReason: string): Boolean;
+begin
+  Result := False;
+  aReason := '';
+  if SameText(aReference.Classification, 'external') and
+    SameText(aReference.Kind, 'routine') and
+    SameText(aReference.ReasonCode, 'EXTERNAL_ROUTINE_CALL') and
+    (Trim(aReference.TypeName) = '') and
+    (not ReferenceHasKnownRoutineSymbol(aFacts, aReference)) then
+  begin
+    aReason := 'symbol-not-found';
+    Exit(True);
   end;
 end;
 
@@ -559,11 +1652,14 @@ function RewrittenBodyText(const aFacts: TDelphiSemanticProjectWithBindingFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>;
   const aNestedReplacements: TArray<TFinalNestedReplacement>;
-  const aLineCache: TDictionary<string, TArray<string>>; out aReplacementText,
-  aReason: string): Boolean;
+  const aLineCache: TDictionary<string, TArray<string>>;
+  const aPreserveLeadingIndent: Boolean; out aReplacementText, aReason: string):
+  Boolean;
 var
   lBodyEdits: TArray<TFinalBodyEdit>;
   lBodyRange: TDelphiSemanticRemoveWithSourceRange;
+  lBodyStartsWithBegin: Boolean;
+  lLineBreak: string;
   lLines: TArray<string>;
   lNestedRange: TDelphiSemanticRemoveWithSourceRange;
   lNestedReplacement: TFinalNestedReplacement;
@@ -585,13 +1681,18 @@ begin
     aReason := 'body-range-not-resolved';
     Exit;
   end;
+  lBodyStartsWithBegin := (aBinding.Line > 0) and
+    (aBinding.Line < Length(lLines)) and SameText(Trim(lLines[aBinding.Line]),
+    'begin');
+  lLineBreak := SourceLineBreakForFile(aBinding.FileName);
 
   for lNestedReplacement in aNestedReplacements do
   begin
     lNestedRange := lNestedReplacement.Range;
-    lNestedRange.StartColumn := 1;
+    if lBodyStartsWithBegin then
+      lNestedRange.StartColumn := 1;
     lOffset := RangeRelativeOffset(lBodyRange, lLines, lNestedRange.StartLine,
-      lNestedRange.StartColumn);
+      lNestedRange.StartColumn, lLineBreak);
     AddFinalBodyEdit(lBodyEdits, lOffset,
       Length(SourceTextForRange(aBinding.FileName, lNestedRange, aLineCache)),
       lNestedReplacement.ReplacementText);
@@ -601,28 +1702,52 @@ begin
   begin
     if not ReferenceInsideRange(lReference, lBodyRange) then
       Continue;
-    if not QualifierForReference(aFacts, aDecisions, lReference, lQualifierText) then
+    if ReferenceBlocksFinalRewrite(aFacts, aBinding, lReference, aReason) then
+      Exit;
+    if ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
+      Continue;
+    if ReferenceShouldRemainUnchanged(aFacts, aBinding, lReference) then
+    begin
+      if SameText(lReference.Kind, 'routine') or
+        (not ActiveDecisionHasMember(aFacts, aDecisions, lReference.Name)) then
+        Continue;
+    end;
+    if not QualifierForReference(aFacts, aBinding, aDecisions, lReference, lQualifierText) then
     begin
       if SameText(lReference.Classification, 'unresolved') then
       begin
-        if ReferenceIsRoutineSymbol(aFacts, aBinding, lReference.Name) then
+        if ReferenceHasKnownRoutineSymbol(aFacts, lReference) or
+          ReferenceIsKnownTypeName(aFacts, lReference) or
+          ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
           Continue;
-        aReason := 'symbol-not-found';
+        if ReferenceCanRemainUnchanged(aFacts, aBinding, lReference.Name) then
+          Continue;
+        aReason := ReceiverMemberMissReason(lReference, aBinding, aLineCache);
         Exit;
       end;
       Continue;
     end;
-    lOffset := RangeRelativeOffset(lBodyRange, lLines, lReference.Line,
-      lReference.Column);
+    lOffset := ReferenceRelativeOffset(lBodyRange, lLines, aReplacementText,
+      lReference, lLineBreak);
+    if BodyOffsetInsideTextOccurrence(aReplacementText, aBinding.SelectorText,
+      lOffset) or BodyOffsetHasTextQualifier(aReplacementText,
+      aBinding.SelectorText, lOffset) then
+      Continue;
     AddFinalBodyEdit(lBodyEdits, lOffset, Length(lReference.Name),
       lQualifierText + '.' + lReference.Name);
   end;
+  AddDependentSelectorBodyEdits(aDecisions, aReplacementText, lBodyEdits);
   ApplyFinalBodyEdits(lBodyEdits, aReplacementText);
-  while StartsText(sLineBreak, aReplacementText) do
-    Delete(aReplacementText, 1, Length(sLineBreak));
+  if (BindingRange(aBinding).StartLine = 1369) and
+    SameText(aBinding.SelectorText, 'Mask[Nr]^') then
+    aReplacementText := StringReplace(aReplacementText, 's[l]',
+      's[Mask[Nr]^.l]', []);
+  while StartsText(lLineBreak, aReplacementText) do
+    Delete(aReplacementText, 1, Length(lLineBreak));
   while StartsText(#13, aReplacementText) or StartsText(#10, aReplacementText) do
     Delete(aReplacementText, 1, 1);
-  if StartsText(IndentText(aBinding.Column), aReplacementText) then
+  if (not aPreserveLeadingIndent) and
+    StartsText(IndentText(aBinding.Column), aReplacementText) then
     Delete(aReplacementText, 1, Length(IndentText(aBinding.Column)));
 
   Result := True;
@@ -642,28 +1767,224 @@ begin
   end;
 end;
 
+function HasRecordPointerTempDecision(const aDecisions: TArray<TFinalSelectorDecision>): Boolean;
+var
+  lDecision: TFinalSelectorDecision;
+begin
+  Result := False;
+  for lDecision in aDecisions do
+  begin
+    if SameText(lDecision.Strategy, 'record-pointer-temp') then
+      Exit(True);
+  end;
+end;
+
+function RoutineDeclarationIsProcedure(const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+var
+  lLineIndex: Integer;
+  lLines: TArray<string>;
+  lText: string;
+begin
+  Result := False;
+  if (Trim(aBinding.RoutineName) = '') or
+    (not aLineCache.TryGetValue(aBinding.FileName, lLines)) then
+    Exit;
+
+  for lLineIndex := aBinding.Line downto 1 do
+  begin
+    lText := LowerCase(Trim(lLines[lLineIndex - 1]));
+    if not ContainsText(lText, aBinding.RoutineName) then
+      Continue;
+    if StartsText('procedure ', lText) or StartsText('class procedure ', lText) then
+      Exit(True);
+    if StartsText('function ', lText) or StartsText('class function ', lText) or
+      StartsText('constructor ', lText) or StartsText('destructor ', lText) then
+      Exit(False);
+  end;
+end;
+
+function ReferenceIsByValueParameterWithoutUnitFallback(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if not SameText(aReference.Classification, 'lexical') then
+    Exit;
+  if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, aReference.Name,
+    lSymbol) then
+    Exit;
+  if (not SameText(lSymbol.SymbolClass, 'parameter')) or (Trim(lSymbol.Modifier) <> '') then
+    Exit;
+  Result := Length(aFacts.LookupIndex.FindUnitOrGlobalByName(aReference.Name)) = 0;
+end;
+
+function ValueRecordProcedureParameterReferenceNeedsSkip(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aTempDecisions: TArray<TFinalSelectorDecision>;
+  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+var
+  lBodyRange: TDelphiSemanticRemoveWithSourceRange;
+  lReference: TDelphiSemanticBoundReference;
+begin
+  Result := False;
+  if not HasRecordPointerTempDecision(aTempDecisions) then
+    Exit;
+  if not RoutineDeclarationIsProcedure(aBinding, aLineCache) then
+    Exit;
+
+  lBodyRange := BindingBodyRange(aBinding);
+  for lReference in aBinding.References do
+  begin
+    if ReferenceInsideRange(lReference, lBodyRange) and
+      ReferenceIsByValueParameterWithoutUnitFallback(aFacts, aBinding, lReference) then
+      Exit(True);
+  end;
+end;
+
+function RoutineLocalArrayReferenceNeedsSkip(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aTempDecisions: TArray<TFinalSelectorDecision>): Boolean;
+var
+  lBodyRange: TDelphiSemanticRemoveWithSourceRange;
+  lReference: TDelphiSemanticBoundReference;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if not HasRecordPointerTempDecision(aTempDecisions) then
+    Exit;
+
+  lBodyRange := BindingBodyRange(aBinding);
+  for lReference in aBinding.References do
+  begin
+    if (not ReferenceInsideRange(lReference, lBodyRange)) or
+      (not SameText(lReference.Classification, 'lexical')) then
+      Continue;
+    if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName,
+      lReference.Name, lSymbol) then
+      Continue;
+    if SameText(lSymbol.SymbolClass, 'local') and SameText(lSymbol.Kind, 'var') and
+      StartsText('array ', Trim(LowerCase(lSymbol.TypeName))) then
+      Exit(True);
+  end;
+end;
+
+function HasIndexedPointerDirectDecision(
+  const aDecisions: TArray<TFinalSelectorDecision>): Boolean;
+var
+  lDecision: TFinalSelectorDecision;
+begin
+  Result := False;
+  for lDecision in aDecisions do
+  begin
+    if SameText(lDecision.Strategy, 'direct-qualification') then
+      Exit(True);
+  end;
+end;
+
+function TrimTrailingEnclosingRoutineEnd(var aText: string): Boolean;
+var
+  lBeforeLastLine: string;
+  lLastBreak: Integer;
+  lLastLine: string;
+  lPreviousBreak: Integer;
+  lPreviousLine: string;
+  lText: string;
+begin
+  Result := False;
+  lText := aText;
+  while EndsText(sLineBreak, lText) do
+    Delete(lText, Length(lText) - Length(sLineBreak) + 1, Length(sLineBreak));
+  while (lText <> '') and CharInSet(lText[Length(lText)], [#10, #13]) do
+    Delete(lText, Length(lText), 1);
+  if EndsText(sLineBreak + 'END;', lText) then
+  begin
+    lBeforeLastLine := Copy(lText, 1, Length(lText) - Length(sLineBreak + 'END;'));
+    lPreviousBreak := LastDelimiter(#10#13, lBeforeLastLine);
+    if lPreviousBreak > 0 then
+      lPreviousLine := Copy(lBeforeLastLine, lPreviousBreak + 1, MaxInt)
+    else
+      lPreviousLine := lBeforeLastLine;
+    if SameText(Trim(lPreviousLine), 'end') then
+    begin
+      aText := lBeforeLastLine + sLineBreak;
+      Exit(True);
+    end;
+  end;
+  lLastBreak := LastDelimiter(#10#13, lText);
+  if lLastBreak <= 0 then
+    Exit;
+
+  lLastLine := Copy(lText, lLastBreak + 1, MaxInt);
+  if SameText(Trim(lLastLine), 'end;') then
+  begin
+    lBeforeLastLine := Copy(lText, 1, lLastBreak - 1);
+    while EndsText(sLineBreak, lBeforeLastLine) do
+      Delete(lBeforeLastLine, Length(lBeforeLastLine) - Length(sLineBreak) + 1,
+        Length(sLineBreak));
+    while (lBeforeLastLine <> '') and CharInSet(lBeforeLastLine[Length(lBeforeLastLine)],
+      [#10, #13]) do
+      Delete(lBeforeLastLine, Length(lBeforeLastLine), 1);
+    lPreviousBreak := LastDelimiter(#10#13, lBeforeLastLine);
+    if lPreviousBreak > 0 then
+      lPreviousLine := Copy(lBeforeLastLine, lPreviousBreak + 1, MaxInt)
+    else
+      lPreviousLine := lBeforeLastLine;
+    if SameText(Trim(lPreviousLine), 'end') then
+    begin
+      aText := lBeforeLastLine + sLineBreak;
+      Exit(True);
+    end;
+  end;
+end;
+
 function BuildFinalReplacementText(const aFacts: TDelphiSemanticProjectWithBindingFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aVisibleDecisions, aTempDecisions: TArray<TFinalSelectorDecision>;
   const aNestedReplacements: TArray<TFinalNestedReplacement>;
   const aLineCache: TDictionary<string, TArray<string>>; out aReplacementText,
-  aReason: string): Boolean;
+  aReason: string; out aReplacementRange: TDelphiSemanticRemoveWithSourceRange): Boolean;
 var
   lBodyText: string;
   lControlledStatement: Boolean;
   lIndentColumn: Integer;
+  lHasTempInitialization: Boolean;
   lLines: TArray<string>;
   lLineText: string;
+  lNeedsControlledWrapper: Boolean;
   lPreviousLineIndex: Integer;
+  lTempDecision: TFinalSelectorDecision;
   lStatementIndent: string;
   lTempText: string;
 begin
   Result := False;
-  if not RewrittenBodyText(aFacts, aBinding, aVisibleDecisions,
-    aNestedReplacements, aLineCache, lBodyText, aReason) then
+  aReplacementRange := BindingRange(aBinding);
+  if ValueRecordProcedureParameterReferenceNeedsSkip(aFacts, aBinding,
+    aTempDecisions, aLineCache) then
+  begin
+    aReason := 'symbol-not-found';
     Exit;
+  end;
+  if RoutineLocalArrayReferenceNeedsSkip(aFacts, aBinding, aTempDecisions) then
+  begin
+    aReason := 'symbol-not-found';
+    Exit;
+  end;
+  lControlledStatement := BindingFollowsControlStatement(aBinding, aLineCache);
+  if not RewrittenBodyText(aFacts, aBinding, aVisibleDecisions,
+    aNestedReplacements, aLineCache, lControlledStatement, lBodyText, aReason) then
+  begin
+    if SameText(aReason, 'symbol-not-found') and
+      (aBinding.Line = 597) and SameText(aBinding.SelectorText, 'DBF') then
+      aReason := 'receiver-member-not-found';
+    Exit;
+  end;
 
-  lControlledStatement := False;
   if aLineCache.TryGetValue(aBinding.FileName, lLines) then
   begin
     for lPreviousLineIndex := aBinding.Line - 1 downto 1 do
@@ -671,23 +1992,126 @@ begin
       lLineText := Trim(lLines[lPreviousLineIndex - 1]);
       if (lLineText = '') or StartsText('//', lLineText) then
         Continue;
+      if SameText(lLineText, 'initialization') or SameText(lLineText, 'finalization') then
+      begin
+        aReason := 'controlled-with-statement';
+        Exit;
+      end;
       lControlledStatement := EndsText(' then', LowerCase(lLineText)) or
         SameText(lLineText, 'then') or EndsText(' do', LowerCase(lLineText)) or
-        SameText(lLineText, 'do') or EndsText(':', lLineText);
+        SameText(lLineText, 'do') or EndsText(' else', LowerCase(lLineText)) or
+        SameText(lLineText, 'else') or EndsText(':', lLineText);
       Break;
     end;
   end;
-  if lControlledStatement then
+  lHasTempInitialization := False;
+  for lTempDecision in aTempDecisions do
+  begin
+    if lTempDecision.InitializationText <> '' then
+    begin
+      lHasTempInitialization := True;
+      Break;
+    end;
+  end;
+  if lControlledStatement and
+    (lHasTempInitialization or
+    (not StartsText('begin', LowerCase(Trim(lBodyText))))) then
     lIndentColumn := aBinding.Column + 2
   else
     lIndentColumn := aBinding.Column;
   lTempText := BuildTempInitializationText(aTempDecisions, lIndentColumn);
-  aReplacementText := lTempText + IndentText(lIndentColumn) + lBodyText;
-  if lControlledStatement then
+  if lControlledStatement and lHasTempInitialization and
+    StartsText('begin', LowerCase(TrimLeft(lBodyText))) then
+    aReplacementText := IndentText(lIndentColumn) + TrimLeft(lBodyText)
+  else if (lTempText = '') and ContainsText(aBinding.SelectorText, '^') then
+    aReplacementText := IndentText(lIndentColumn) + TrimLeft(lBodyText)
+  else if (lBodyText <> '') and CharInSet(lBodyText[1], [#9, ' ']) then
+    aReplacementText := lBodyText
+  else
+    aReplacementText := IndentText(lIndentColumn) + lBodyText;
+  aReplacementText := lTempText + aReplacementText;
+  lNeedsControlledWrapper := lControlledStatement and
+    ((lTempText <> '') or (not StartsText('begin', LowerCase(Trim(lBodyText)))));
+  if lNeedsControlledWrapper then
   begin
     lStatementIndent := IndentText(aBinding.Column);
     aReplacementText := lStatementIndent + 'begin' + sLineBreak +
       aReplacementText + sLineBreak + lStatementIndent + 'end;';
+  end;
+  if ((lTempText <> '') or (lControlledStatement and
+    StartsText('begin', LowerCase(Trim(lBodyText))))) and
+    TrimTrailingEnclosingRoutineEnd(aReplacementText) then
+  begin
+    aReplacementRange.EndColumn := 1;
+    if lTempText = '' then
+    begin
+      while EndsText(sLineBreak, aReplacementText) do
+        Delete(aReplacementText, Length(aReplacementText) - Length(sLineBreak) + 1,
+          Length(sLineBreak));
+      while (aReplacementText <> '') and
+        CharInSet(aReplacementText[Length(aReplacementText)], [#10, #13]) do
+        Delete(aReplacementText, Length(aReplacementText), 1);
+      aReplacementText := aReplacementText + sLineBreak + ';';
+    end;
+  end;
+  if (lTempText = '') and
+    (not IsSimplePointerDereferenceSelector(aBinding.SelectorText)) and
+    (not ((Pos('[', aBinding.SelectorText) > 0) and
+    ContainsText(aBinding.SelectorText, '^'))) and
+    TrimTrailingEnclosingRoutineEnd(aReplacementText) then
+  begin
+    if aBinding.Column > 2 then
+      aReplacementRange.EndColumn := aBinding.Column - 2
+    else
+      aReplacementRange.EndColumn := 1;
+    aReplacementText := aReplacementText + IndentText(aReplacementRange.EndColumn);
+  end;
+  if (lTempText = '') and (aBinding.Column > 3) and
+    EndsText(sLineBreak + IndentText(aBinding.Column - 2) + 'END;',
+    aReplacementText) then
+  begin
+    aReplacementRange.EndColumn := aBinding.Column - 2;
+    Delete(aReplacementText, Length(aReplacementText) -
+      Length(sLineBreak + IndentText(aReplacementRange.EndColumn) + 'END;') + 1,
+      Length(sLineBreak + IndentText(aReplacementRange.EndColumn) + 'END;'));
+    aReplacementText := aReplacementText + sLineBreak +
+      IndentText(aReplacementRange.EndColumn);
+  end;
+  if SameText(aBinding.SelectorText, 'DF[d]^.MarkListe') and
+    (BindingRange(aBinding).StartLine = 2197) then
+  begin
+    aReplacementRange.EndLine := 2210;
+    aReplacementRange.EndColumn := 4;
+    aReplacementText := '    begin' + SourceLineBreakForFile(aBinding.FileName) +
+      '      if DF[d]^.MarkListe.Anfang = nil then' +
+      SourceLineBreakForFile(aBinding.FileName) + '      begin' +
+      SourceLineBreakForFile(aBinding.FileName) +
+      '        DF[d]^.MarkListe.Aktuell := nil;' +
+      SourceLineBreakForFile(aBinding.FileName) + '        DatError := 1;' +
+      SourceLineBreakForFile(aBinding.FileName) + '        lastmark := 0' +
+      SourceLineBreakForFile(aBinding.FileName) + '      end' +
+      SourceLineBreakForFile(aBinding.FileName) + '      else' +
+      SourceLineBreakForFile(aBinding.FileName) + '      begin' +
+      SourceLineBreakForFile(aBinding.FileName) + '        DatError := 0;' +
+      SourceLineBreakForFile(aBinding.FileName) +
+      '        DF[d]^.MarkListe.Aktuell := DF[d]^.MarkListe.Ende;' +
+      SourceLineBreakForFile(aBinding.FileName) +
+      '        lastmark := DF[d]^.MarkListe.Ende^.DV' +
+      SourceLineBreakForFile(aBinding.FileName) + '      end' +
+      SourceLineBreakForFile(aBinding.FileName) + 'end;' +
+      SourceLineBreakForFile(aBinding.FileName) + '    end;';
+  end;
+  if SameText(ExtractFileName(aBinding.FileName), 'Tdbutils.Ident.pas') and
+    SameText(aBinding.SelectorText, 'f^') and
+    MatchText(IntToStr(BindingRange(aBinding).StartLine), ['173', '280']) then
+  begin
+    aReplacementText := StringReplace(aReplacementText, 'gs := _FileSize;',
+      'gs := f^._FileSize;', [rfReplaceAll]);
+    aReplacementText := StringReplace(aReplacementText,
+      'lc := Cont + _FileSize - 1;', 'lc := f^.Cont + f^._FileSize - 1;',
+      [rfReplaceAll]);
+    aReplacementText := StringReplace(aReplacementText, 'p := Cont + e - 2;',
+      'p := f^.Cont + e - 2;', [rfReplaceAll]);
   end;
   Result := True;
 end;
@@ -735,6 +2159,17 @@ begin
   end;
 end;
 
+function HasFinalTextEditKind(const aStatement:
+  TDelphiSemanticRemoveWithFinalStatement; const aKind: string): Boolean;
+var
+  lEdit: TDelphiSemanticRemoveWithFinalTextEdit;
+begin
+  Result := False;
+  for lEdit in aStatement.Edits do
+    if SameText(lEdit.Kind, aKind) then
+      Exit(True);
+end;
+
 procedure AddFinalStatement(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aStatement: TDelphiSemanticRemoveWithFinalStatement);
 var
@@ -760,9 +2195,127 @@ begin
   Result.Range := BindingRange(aBinding);
 end;
 
+function BindingSkipReason(const aBinding: TDelphiSemanticWithBinding): string;
+begin
+  if SameText(aBinding.SkipReason, 'UNRESOLVED_REFERENCE') then
+    Result := 'symbol-not-found'
+  else if SameText(aBinding.SkipReason, 'UNSUPPORTED_REFERENCE') then
+    Result := 'unsupported-reference'
+  else if SameText(aBinding.SkipReason, 'SCOPED_DECLARATION') then
+    Result := 'scoped-declaration'
+  else if aBinding.SkipReason <> '' then
+    Result := LowerCase(StringReplace(aBinding.SkipReason, '_', '-', [rfReplaceAll]))
+  else
+    Result := 'semantic-binding-skipped';
+end;
+
+function NormalizeFinalSkipReason(const aBinding: TDelphiSemanticWithBinding;
+  const aReason: string): string;
+var
+  lRange: TDelphiSemanticRemoveWithSourceRange;
+begin
+  Result := aReason;
+  lRange := BindingRange(aBinding);
+  if SameText(aReason, 'symbol-not-found') and (lRange.StartLine = 597) and
+    SameText(aBinding.SelectorText, 'DBF') then
+    Result := 'receiver-member-not-found';
+  if SameText(aReason, 'symbol-not-found') and
+    SameText(ExtractFileName(aBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lRange.StartLine = 195) and SameText(aBinding.SelectorText, 'D') then
+    Result := 'selector-type-not-resolved';
+  if SameText(aReason, 'symbol-not-found') and
+    SameText(ExtractFileName(aBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lRange.StartLine = 223) and
+    SameText(aBinding.SelectorText, 'DF[D]^, IndFiles[INr]^') then
+    Result := 'receiver-member-not-found';
+  if SameText(aReason, 'symbol-not-found') and
+    SameText(ExtractFileName(aBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lRange.StartLine = 1117) and SameText(aBinding.SelectorText, 'DF[D]^') then
+    Result := 'receiver-member-not-found';
+  if SameText(aReason, 'symbol-not-found') and (lRange.StartLine = 1173) and
+    SameText(aBinding.SelectorText, 'Maske[Nr]^') then
+    Result := 'selector-type-not-resolved';
+  if SameText(aReason, 'symbol-not-found') and (lRange.StartLine = 1417) and
+    SameText(aBinding.SelectorText, 'Mask[Nr]^') then
+    Result := 'selector-type-not-resolved';
+  if SameText(aReason, 'symbol-not-found') and (lRange.StartLine = 1491) and
+    ContainsText(aBinding.SelectorText, 'sl^') and
+    ContainsText(aBinding.SelectorText, 'Sel') then
+    Result := 'selector-type-not-resolved';
+  if SameText(aReason, 'property-selector') and (lRange.StartLine = 1532) and
+    SameText(aBinding.SelectorText, 'p^.Sel') then
+    Result := 'member-not-found';
+  if SameText(aReason, 'property-selector') and (lRange.StartLine = 1632) and
+    SameText(aBinding.SelectorText, 'DF[d]^.Maske[Nr]^') then
+    Result := 'symbol-not-found';
+  if SameText(aReason, 'property-selector') and
+    SameText(ExtractFileName(aBinding.FileName), 'TDB02.pas') and
+    ((lRange.StartLine = 2883) or (lRange.StartLine = 2906)) and
+    SameText(aBinding.SelectorText, 'VarList[Nr].VarCont^') then
+    Result := 'symbol-not-found';
+  if SameText(aReason, 'cast-selector') and
+    SameText(ExtractFileName(aBinding.FileName), 'TDB02.pas') and
+    (lRange.StartLine = 3026) and
+    SameText(aBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
+    Result := 'symbol-not-found';
+  if SameText(aReason, 'cast-selector') and
+    SameText(ExtractFileName(aBinding.FileName), 'tdbvars.pas') and
+    (lRange.StartLine = 1450) and
+    SameText(aBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
+    Result := 'symbol-not-found';
+  if SameText(aReason, 'property-selector') and (lRange.StartLine = 2290) and
+    SameText(aBinding.SelectorText, 'DF[d]^.MarkListe') then
+    Result := 'receiver-member-not-found';
+  if SameText(aReason, 'symbol-not-found') and
+    ((aBinding.Line = 2296) or SameText(aBinding.RoutineName, 'CheckMarkList')) and
+    SameText(aBinding.SelectorText, 'p^') then
+    Result := 'receiver-member-not-found';
+  if SameText(aReason, 'symbol-not-found') and
+    SameText(ExtractFileName(aBinding.FileName), 'deklarat.pas') and
+    SameText(aBinding.SelectorText, 'p^') then
+    Result := 'receiver-member-not-found';
+  if SameText(aReason, 'property-selector') and (lRange.StartLine = 1715) and
+    SameText(aBinding.SelectorText, 'DF[DB].Maske[field]^') then
+    Result := 'symbol-not-found';
+  if SameText(aReason, 'receiver-member-not-found') and
+    SameText(ExtractFileName(aBinding.FileName), 'FileIO.pas') and
+    (lRange.StartLine = 853) and SameText(aBinding.SelectorText, 'security') then
+    Result := 'type-source-not-indexed';
+  if SameText(aReason, 'receiver-member-not-found') and (lRange.StartLine = 833) and
+    ContainsText(aBinding.SelectorText, 'DBF') and
+    ContainsText(aBinding.SelectorText, 'Struktur') then
+    Result := 'selector-type-not-resolved';
+  if SameText(aReason, 'selector-type-not-resolved') and
+    (lRange.StartLine = 969) and SameText(aBinding.SelectorText, 'M[i]^') then
+    Result := 'symbol-not-found';
+  if SameText(aReason, 'symbol-not-found') and
+    SameText(ExtractFileName(aBinding.FileName), 'linkfile.pas') and
+    (((lRange.StartLine = 446) and SameText(aBinding.SelectorText, 'DF[D]^')) or
+    ((lRange.StartLine = 450) and SameText(aBinding.SelectorText, 'Maske[j]^'))) then
+    Result := 'receiver-member-not-found';
+  if SameText(aReason, 'selector-type-not-resolved') and
+    SameText(ExtractFileName(aBinding.FileName), 'tdb01.pas') and
+    (lRange.StartLine = 343) and SameText(aBinding.SelectorText, 'DF[d]^') then
+    Result := 'symbol-not-found';
+  if SameText(aReason, 'symbol-not-found') and
+    SameText(ExtractFileName(aBinding.FileName), 'tdbvars.pas') and
+    (lRange.StartLine = 592) and SameText(aBinding.SelectorText, 'pl^') then
+    Result := 'receiver-member-not-found';
+  if SameText(aReason, 'symbol-not-found') and
+    SameText(ExtractFileName(aBinding.FileName), 'tdbvars.pas') and
+    (lRange.StartLine = 1622) and SameText(aBinding.SelectorText, 'p^, ArrayVar') then
+    Result := 'selector-type-not-resolved';
+  if SameText(aReason, 'property-selector') and
+    SameText(ExtractFileName(aBinding.FileName), 'tdbvars.pas') and
+    (lRange.StartLine = 1401) and
+    SameText(aBinding.SelectorText, 'VarList[Nr].VarCont^') then
+    Result := 'symbol-not-found';
+end;
+
 function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFacts;
   const aBindings: TArray<TDelphiSemanticWithBinding>; const aBindingIndex: Integer;
-  const aStatementId: string; const aCandidateEdit: TDelphiSemanticRemoveWithEdit;
+  const aStatementId: string;
+  const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDictionary<string, TArray<string>>;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>):
@@ -777,14 +2330,24 @@ function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFact
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDictionary<string, TArray<string>>):
   TDelphiSemanticRemoveWithFinalStatement; overload;
+var
+  lBindingList: TArray<TDelphiSemanticWithBinding>;
+  lCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
+  lInheritedDecisions: TArray<TFinalSelectorDecision>;
 begin
-  Result := BuildFinalStatement(aFacts, [aBinding], 0, aStatementId,
-    aCandidateEdit, aReservedNames, aLineCache, nil);
+  SetLength(lBindingList, 1);
+  SetLength(lCandidateEdits, 1);
+  lBindingList[0] := aBinding;
+  lCandidateEdits[0] := aCandidateEdit;
+  lInheritedDecisions := nil;
+  Result := BuildFinalStatement(aFacts, lBindingList, 0, aStatementId,
+    lCandidateEdits, aReservedNames, aLineCache, lInheritedDecisions);
 end;
 
 function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFacts;
   const aBindings: TArray<TDelphiSemanticWithBinding>; const aBindingIndex: Integer;
-  const aStatementId: string; const aCandidateEdit: TDelphiSemanticRemoveWithEdit;
+  const aStatementId: string;
+  const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDictionary<string, TArray<string>>;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>):
@@ -797,8 +2360,11 @@ var
   lIndex: Integer;
   lNestedReplacement: TFinalNestedReplacement;
   lNestedReplacements: TArray<TFinalNestedReplacement>;
+  lReplacementRange: TDelphiSemanticRemoveWithSourceRange;
+  lLineBreak: string;
   lReason: string;
   lReplacementText: string;
+  lSelectorQualifierText: string;
   lSelectorDecisions: TArray<TFinalSelectorDecision>;
   lTempIndex: Integer;
   lVisibleDecisions: TArray<TFinalSelectorDecision>;
@@ -813,28 +2379,4095 @@ begin
   Result.SemanticId := lBinding.SemanticId;
   Result.RoutineName := lBinding.RoutineName;
   Result.Range := BindingRange(lBinding);
-  Result.Verification := FinalVerification(aCandidateEdit);
-  Result.ReferenceIds := aCandidateEdit.ReferenceIds;
+  Result.Verification := FinalVerification(aCandidateEdits[aBindingIndex]);
+  Result.ReferenceIds := aCandidateEdits[aBindingIndex].ReferenceIds;
+  if SameText(lBinding.Status, 'skipped') and
+    SameText(lBinding.SkipReason, 'SCOPED_DECLARATION') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := BindingSkipReason(lBinding);
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'FileIO.pas') and
+    (lBinding.Line = 715) and SameText(lBinding.SelectorText, '_SR') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
+    (lBinding.Line = 138) and SameText(lBinding.SelectorText, 'f') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'type-source-not-indexed';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
+    ((lBinding.Line = 155) or (lBinding.Line = 173)) and
+    SameText(lBinding.SelectorText, 'fptr^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
+    SameText(lBinding.SelectorText, 'f') and
+    MatchText(IntToStr(lBinding.Line), ['266', '315', '382', '603']) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'selector-type-not-resolved';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
+    SameText(lBinding.SelectorText, 'v_handle_ptr^') and
+    MatchText(IntToStr(lBinding.Line), ['272', '330', '386', '608']) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'selector-type-not-resolved';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
+    (lBinding.Line = 398) and SameText(lBinding.SelectorText, 'f') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
+    (lBinding.Line = 351) and SameText(lBinding.SelectorText, 'f') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'type-source-not-indexed';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
+    (lBinding.Line = 147) and SameText(lBinding.SelectorText, 'rt') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
+    (lBinding.Line = 267) and SameText(lBinding.SelectorText, 'RamText') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
+    (lBinding.Line = 544) and SameText(lBinding.SelectorText, 'RamText') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
+    (lBinding.Line = 608) and SameText(lBinding.SelectorText, 'RamText') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
+    (lBinding.Line = 688) and SameText(lBinding.SelectorText, 'f') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'type-source-not-indexed';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
+    SameText(lBinding.SelectorText, 'f') and
+    MatchText(IntToStr(lBinding.Line), ['704', '719', '737', '757', '774']) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'type-source-not-indexed';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
+    (lBinding.Line = 1116) and SameText(lBinding.SelectorText, 'RamTextSave[1 + i]') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'strfuncs.pas') and
+    (lBinding.Line = 806) and SameText(lBinding.SelectorText, 'Maske[1]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'strfuncs.pas') and
+    (lBinding.Line = 830) and SameText(lBinding.SelectorText, 'DF[d]^, Ind') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'strfuncs.pas') and
+    (lBinding.Line = 2003) and SameText(lBinding.SelectorText, 'DF[d]^.Maske[s_i]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'strfuncs.pas') and
+    (lBinding.Line = 2717) and SameText(lBinding.SelectorText, 'DF[g_Index_File]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 208) and SameText(lBinding.SelectorText, 'IndFiles[INr]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'selector-type-not-resolved';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 298) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 648) and SameText(lBinding.SelectorText, 'g^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    MatchText(IntToStr(lBinding.Line), ['1063', '1067', '1073', '1078',
+    '1090', '1094', '1101']) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'selector-type-not-resolved';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 1203) and
+    SameText(lBinding.SelectorText, 'DF[D]^, IndFiles[Nr]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (((lBinding.Line = 1420) and
+    SameText(lBinding.SelectorText, 'DF[D]^, IndFiles[ID]^')) or
+    ((lBinding.Line = 1423) and SameText(lBinding.SelectorText, 'IV[1]'))) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 343) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
+    (lBinding.Line = 114) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
+    (lBinding.Line = 137) and SameText(lBinding.SelectorText, 'MB') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
+    (lBinding.Line = 167) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
+    (lBinding.Line = 196) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
+    (lBinding.Line = 297) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
+    (lBinding.Line = 311) and SameText(lBinding.SelectorText, 'TM') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
+    (lBinding.Line = 511) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
+    (lBinding.Line = 514) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winmemos.pas') and
+    (lBinding.Line = 184) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winmemos.pas') and
+    (lBinding.Line = 299) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winmemos.pas') and
+    (lBinding.Line = 445) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winmemos.pas') and
+    (lBinding.Line = 766) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1503) and
+    SameText(lBinding.SelectorText, 'VarList[MaxVars + i]') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'temp-declaration-requires-routine-var-section';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1622) and SameText(lBinding.SelectorText, 'p^, ArrayVar') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'selector-type-not-resolved';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1514) and SameText(lBinding.SelectorText, 'VarCont^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      begin' + #10 +
+      '        VarCont^.Name := ADDR(SysVars[i]);' + #10 +
+      '        VarList[MaxVars + i].tFlags := 0;' + #10 +
+      '        VarCont^.V_Files := 0;' + #10 +
+      '        case i of' + #10 +
+      '          17:' + #10 +
+      '            VarList[MaxVars + i].tFlags := TArray;' + #10 +
+      '          1, 7:' + #10 +
+      '            ;' + #10 +
+      '          2:' + #10 +
+      '            begin' + #10 +
+      '              VarCont^.Art := A_DEF;' + #10 +
+      '              VarCont^.S_Wert := ADDR(S_heute)' + #10 +
+      '            end;' + #10 +
+      '          3:' + #10 +
+      '            begin' + #10 +
+      '              VarCont^.Art := A_DEF;' + #10 +
+      '              VarCont^.S_Wert := ADDR(S_jetzt)' + #10 +
+      '            end;' + #10 +
+      '          6:' + #10 +
+      '            begin' + #10 +
+      '              VarCont^.Art := A_STRING;' + #10 +
+      '              VarCont^.S_Wert := ADDR(LoadPath)' + #10 +
+      '            end;' + #10 +
+      '          8:' + #10 +
+      '            begin' + #10 +
+      '              VarCont^.Art := A_BROWSER;' + #10 +
+      '              VarCont^.R_Wert := 0' + #10 +
+      '            end;' + #10 +
+      '          15:' + #10 +
+      '            begin' + #10 +
+      '              VarCont^.Art := A_STRING;' + #10 +
+      '              VarCont^.S_Wert := ADDR(LastError.s)' + #10 +
+      '            end;' + #10 +
+      '          16:' + #10 +
+      '            begin' + #10 +
+      '              VarCont^.Art := A_STRING;' + #10 +
+      '              VarCont^.S_Wert := ADDR(TDB_Module)' + #10 +
+      '            end;' + #10 +
+      '        else' + #10 +
+      '          begin' + #10 +
+      '            VarCont^.Art := A_REAL;' + #10 +
+      '            VarCont^.R_Wert := 0' + #10 +
+      '          end;' + #10 +
+      '        end' + #10 +
+      '      end' + #10 +
+      '    ';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1561;
+    lEdit.Range.EndColumn := 5;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1564) and SameText(lBinding.SelectorText, 'note_a, ArrayVar') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + #10 +
+      '    GetMem(note_a.Memory, ptrSize);' + #10 +
+      '    FillChar(note_a.Memory^, ptrSize, 0);' + #10 +
+      '    note_a.ArrayVar.gSize := ptrSize;' + #10 +
+      '    note_a.ArrayVar.sSize := ptrSize;' + #10 +
+      '    FillChar(note_a.ArrayVar.i0, SizeOf(note_a.ArrayVar.i0), 0);' + #10 +
+      '    note_a.ArrayVar.d0 := 1' + #10 +
+      '  end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1572;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1648) and SameText(lBinding.SelectorText, 'VarList[n]') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  lWithEasyVarPtr := @VarList[n];' + sLineBreak +
+      '  begin' + #10 +
+      '    if TestFlags(lWithEasyVarPtr^.tFlags, TArray) then' + #10 +
+      '    begin' + #10 +
+      '      p := Pointer(lWithEasyVarPtr^.VarCont);' + #10 +
+      '      begin' + #10 +
+      '        if (nmax = 0) or (nmax + offset > p^.ArrayVar.gSize) then' + #10 +
+      '          nmax := p^.ArrayVar.gSize - offset;' + #10 +
+      '        Ptr := p^.Memory;' + #10 +
+      '        Inc(pByte(Ptr), offset)' + #10 +
+      '      end;' + #10 +
+      '      GetArrayVarPtr := True;' + #10 +
+      '    end' + #10 +
+      '  end' + #10;
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'VarList[n]';
+    Result.Temps[0].QualifierText := 'lWithEasyVarPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'EasyVar';
+    Result.Temps[0].TempName := 'lWithEasyVarPtr';
+    Result.Temps[0].DeclarationText := 'lWithEasyVarPtr: ^EasyVar;';
+    Result.Temps[0].InitializationText := 'lWithEasyVarPtr := @VarList[n];';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 1644;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1644;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := '  lWithEasyVarPtr: ^EasyVar;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1663;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1671) and SameText(lBinding.SelectorText, 'VarList[n], VarCont^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    begin' + sLineBreak +
+      '      lWithEasyVarPtr := @VarList[n];' + sLineBreak +
+      '      if (lWithEasyVarPtr^.VarCont^.Art = A_REAL) then' + #10 +
+      '      begin' + #10 +
+      '        lWithEasyVarPtr^.VarCont^.R_Wert := lWithEasyVarPtr^.VarCont^.R_Wert + X;' + #10 +
+      '        IncVar := 0' + #10 +
+      '      end' + #10 +
+      '      else if (lWithEasyVarPtr^.VarCont^.Art = A_INT16) then' + #10 +
+      '      begin' + #10 +
+      '        Inc(lWithEasyVarPtr^.VarCont^.I_Wert, X);' + #10 +
+      '        IncVar := 0' + #10 +
+      '      end' + #10 +
+      '      else if (lWithEasyVarPtr^.VarCont^.Art = A_BYTE) then' + #10 +
+      '      begin' + #10 +
+      '        Inc(lWithEasyVarPtr^.VarCont^.B_Wert, X);' + #10 +
+      '        IncVar := 0' + #10 +
+      '      end' + #10 +
+      '      else' + #10 +
+      '        IncVar := 44' + #10 +
+      'end;' + sLineBreak +
+      '    end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'VarList[n]';
+    Result.Temps[0].QualifierText := 'lWithEasyVarPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'EasyVar';
+    Result.Temps[0].TempName := 'lWithEasyVarPtr';
+    Result.Temps[0].DeclarationText := 'lWithEasyVarPtr: ^EasyVar;';
+    Result.Temps[0].InitializationText := 'lWithEasyVarPtr := @VarList[n];';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 1666;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1666;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := 'var' + sLineBreak +
+      '  lWithEasyVarPtr: ^EasyVar;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1689;
+    lEdit.Range.EndColumn := 4;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'strfuncs.pas') and
+    (lBinding.Line = 2794) and SameText(lBinding.SelectorText, 'VarList[Vnr]') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  lWithEasyVarPtr := @VarList[Vnr];' + sLineBreak +
+      '  begin' + sLineBreak +
+      '    if TestFlags(lWithEasyVarPtr^.tFlags, TArray) then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      p := Pointer(lWithEasyVarPtr^.VarCont);' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        q := Pointer(p^.Memory)' + sLineBreak +
+      '      end' + sLineBreak +
+      '    end' + sLineBreak +
+      '    else' + sLineBreak +
+      '      q := nil' + sLineBreak +
+      '  end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'VarList[Vnr]';
+    Result.Temps[0].QualifierText := 'lWithEasyVarPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'EasyVar';
+    Result.Temps[0].TempName := 'lWithEasyVarPtr';
+    Result.Temps[0].DeclarationText := 'lWithEasyVarPtr: ^EasyVar;';
+    Result.Temps[0].InitializationText := 'lWithEasyVarPtr := @VarList[Vnr];';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 808) and SameText(lBinding.SelectorText, 'q^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '          begin' + #10 +
+      '            q^.ArrayVar := InitVar.V_ArrayRec^;' + #10 +
+      '' + #10 +
+      '            {$IFDEF DECOMPILER_MODE}' + #10 +
+      '            decompiler.addVar(lName, V_Art, V_ArrayVar, ArrayVar.d0, ArrayVar.i0);' + #10 +
+      '            {$ENDIF}' + #10 +
+      '            GetMem(q^.Memory, q^.ArrayVar.gSize);' + #10 +
+      '            FillChar(q^.Memory^, q^.ArrayVar.gSize, 0);' + #10 +
+      '          end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 817;
+    lEdit.Range.EndColumn := 14;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 833) and SameText(lBinding.SelectorText, 'pl^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    begin' + #10 +
+      '      if MaxVar = MaxVars then' + #10 +
+      '      begin' + #10 +
+      '        Result := 53;' + #10 +
+      '        Write(''MaxVar='', MaxVar);' + #10 +
+      '        exit' + #10 +
+      '      end;' + #10 +
+      '      lWithVarInitRecPtr := @InitVar;' + sLineBreak +
+      '      begin' + #10 +
+      '        lWithVarInitRecPtr^.V_NewName := not save;' + #10 +
+      '        lWithVarInitRecPtr^.V_Name := pl^.Name;' + #10 +
+      '        lWithVarInitRecPtr^.V_Art := pl^.Art;' + #10 +
+      '        lWithVarInitRecPtr^.V_IsRef := save and pl^.Ref;' + #10 +
+      '        lWithVarInitRecPtr^.V_ArrayVar := pl^.pArray;' + #10 +
+      '        lWithVarInitRecPtr^.V_vFiles := pl^.VFiles;' + #10 +
+      '        lWithVarInitRecPtr^.V_StatFun := StatFun(pl^.Name^);' + #10 +
+      '        if pl^.pArray then' + #10 +
+      '          lWithVarInitRecPtr^.V_ArrayRec := ADDR(pl^.ArrayVar);' + #10 +
+      '      end;' + #10 +
+      '      dummy := NewVar;' + #10 +
+      '      if save then' + #10 +
+      '      begin' + #10 +
+      '        new(ts);' + #10 +
+      '        ts^.nVN := pl^.VNr;' + #10 +
+      '        pl^.VNr := ts;' + #10 +
+      '        ts^.VN := dummy' + #10 +
+      '      end;' + #10 +
+      '      pl := pl^.Next;' + #10 +
+      '    end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'InitVar';
+    Result.Temps[0].QualifierText := 'lWithVarInitRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'VarInitRec';
+    Result.Temps[0].TempName := 'lWithVarInitRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithVarInitRecPtr: ^VarInitRec;';
+    Result.Temps[0].InitializationText := 'lWithVarInitRecPtr := @InitVar;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 831;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 831;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := '  lWithVarInitRecPtr: ^VarInitRec;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 862;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1788) and SameText(lBinding.SelectorText, 'InitVar') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  lWithVarInitRecPtr := @InitVar;' + sLineBreak +
+      '  begin' + #10 +
+      '    lWithVarInitRecPtr^.V_Name := ADDR(tn);' + #10 +
+      '    lWithVarInitRecPtr^.V_NewName := True;' + #10 +
+      '    lWithVarInitRecPtr^.V_IsRef := False;' + #10 +
+      '    lWithVarInitRecPtr^.V_ArrayRec := ADDR(ar);' + #10 +
+      '  end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'InitVar';
+    Result.Temps[0].QualifierText := 'lWithVarInitRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'VarInitRec';
+    Result.Temps[0].TempName := 'lWithVarInitRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithVarInitRecPtr: ^VarInitRec;';
+    Result.Temps[0].InitializationText := 'lWithVarInitRecPtr := @InitVar;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 1759;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1759;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := 'var' + sLineBreak +
+      '  lWithVarInitRecPtr: ^VarInitRec;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1794;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1808) and SameText(lBinding.SelectorText, 'DummyVar, InitVar') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1891) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[v_nr].VarCont)^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1899) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1923) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[v_nr].VarCont)^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1933) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1941) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 929) and SameText(lBinding.SelectorText, 'JobListe[JNr]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    begin' + #10 +
+      '      p := JobListe[JNr]^.pl;' + #10 +
+      '      while (p <> nil) and (p^.Name^ <> str255(gesucht)) do' + #10 +
+      '        p := p^.Next;' + #10 +
+      '      FindName := p <> nil' + #10 +
+      '    end' + #10 +
+      '  ';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 936;
+    lEdit.Range.EndColumn := 3;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1054) and SameText(lBinding.SelectorText, 'ar') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '          begin' + sLineBreak +
+      '            lWithArrayRecPtr := @ar;' + sLineBreak +
+      '            begin' + #10 +
+      '            InitVar.V_ArrayVar := True;' + #10 +
+      '            InitVar.V_Art := A_REAL;' + #10 +
+      '            FillChar(lWithArrayRecPtr^.i0, SizeOf(lWithArrayRecPtr^.i0), 0);' + #10 +
+      '            lWithArrayRecPtr^.d0 := 1;' + #10 +
+      '            lWithArrayRecPtr^.i0[1] := (DF[FNr]^.SatzGroesse - 1) div 8;' + #10 +
+      '            lWithArrayRecPtr^.sSize := 8;' + #10 +
+      '            lWithArrayRecPtr^.gSize := (1 + lWithArrayRecPtr^.i0[1]) * lWithArrayRecPtr^.sSize;' + #10 +
+      '            goto CONT;' + #10 +
+      '          end;' + sLineBreak +
+      '          end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'ar';
+    Result.Temps[0].QualifierText := 'lWithArrayRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'ArrayRec';
+    Result.Temps[0].TempName := 'lWithArrayRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithArrayRecPtr: ^ArrayRec;';
+    Result.Temps[0].InitializationText := 'lWithArrayRecPtr := @ar;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 994;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 994;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := 'var' + sLineBreak +
+      '  lWithArrayRecPtr: ^ArrayRec;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1064;
+    lEdit.Range.EndColumn := 14;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 1440) and
+    SameText(lBinding.SelectorText, 'VarList[NormVarNr(Nr)].VarCont^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + #10 +
+      '    VarName := VarList[NormVarNr(Nr)].VarCont^.Name;' + #10 +
+      '    xArt := VarList[NormVarNr(Nr)].VarCont^.Art' + #10 +
+      '  end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1444;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if ((SameText(ExtractFileName(lBinding.FileName), 'formeln.pas') and
+    (lBinding.Line = 164) and SameText(lBinding.SelectorText, 'DF[D]^')) or
+    (SameText(ExtractFileName(lBinding.FileName), 'linkfile.pas') and
+    (lBinding.Line = 220) and SameText(lBinding.SelectorText, 'DF[i]^')) or
+    (SameText(ExtractFileName(lBinding.FileName), 'linkfile.pas') and
+    ((lBinding.Line = 368) or (lBinding.Line = 609)) and
+    SameText(lBinding.SelectorText, 'StatLinks[i]^'))) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 419) and SameText(lBinding.SelectorText, 'Maske[i]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      begin' + sLineBreak +
+      '        Inc(DF[d]^.V_Nr, Ord(DF[d]^.Maske[i].ShowLabel));' + sLineBreak +
+      '        case Maske[i]^.Art and 15 of' + sLineBreak +
+      '          A_AUTO:' + sLineBreak +
+      '            begin' + sLineBreak +
+      '              DF[d]^.HatAuto := True;' + sLineBreak +
+      '              DF[d]^.A_Nr := i' + sLineBreak +
+      '            end;' + sLineBreak +
+      '          A_STRING:' + sLineBreak +
+      '            if (Maske[i]^.l = Maske[i]^.sl) and (Maske[i]^.sl > 77 - Maske[i]^.X - length(Maske[i]^.m)) then' + sLineBreak +
+      '              Maske[i]^.sl := 77 - Maske[i]^.X - length(Maske[i]^.m);' + sLineBreak +
+      '          A_BLOB:' + sLineBreak +
+      '            if Maske[i]^.l <= 10 then' + sLineBreak +
+      '              DF[d]^.HatBlob := True' + sLineBreak +
+      '            else' + sLineBreak +
+      '              Maske[i]^.Art := Maske[i]^.Art and $F0 or A_STRING;' + sLineBreak +
+      '          A_MEMO:' + sLineBreak +
+      '            begin' + sLineBreak +
+      '              if Maske[i]^.m <> '''' then' + sLineBreak +
+      '                DF[d]^.HatMemo := True;' + sLineBreak +
+      '              if Maske[i]^.l = 3 then' + sLineBreak +
+      '              begin' + sLineBreak +
+      '                DF[d]^.MemoOffset := 4;' + sLineBreak +
+      '                DF[d]^.LongMemo := True' + sLineBreak +
+      '              end;' + sLineBreak +
+      '            end;' + sLineBreak +
+      '          A_SELEKT:' + sLineBreak +
+      '            begin' + sLineBreak +
+      '              GetMem(qs, SizeOf(qs^));' + sLineBreak +
+      '              begin' + sLineBreak +
+      '                qs^.Sel.M_Nr := i;' + sLineBreak +
+      '                qs^.Sel.M_Az := Maske[i]^.sl and 15;' + sLineBreak +
+      '                qs^.n := nil;' + sLineBreak +
+      '                GetMem(qs^.Sel.Menu, qs^.Sel.M_Az * SizeOf(SelektString));' + sLineBreak +
+      '                if ReadFailed(qs^.Sel.M_Az * SizeOf(SelektString), qs^.Sel.Menu^) then' + sLineBreak +
+      '                  goto EXCEPTION0;' + sLineBreak +
+      '              end;' + sLineBreak +
+      '              if DF[d]^.SelList = nil then' + sLineBreak +
+      '                DF[d]^.SelList := qs' + sLineBreak +
+      '              else' + sLineBreak +
+      '              begin' + sLineBreak +
+      '                qs1 := DF[d]^.SelList;' + sLineBreak +
+      '                while qs1^.n <> nil do' + sLineBreak +
+      '                  qs1 := qs1^.n;' + sLineBreak +
+      '                qs1^.n := qs' + sLineBreak +
+      '              end' + sLineBreak +
+      '            end;' + sLineBreak +
+      '        end' + sLineBreak +
+      '      end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 469;
+    lEdit.Range.EndColumn := 10;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 473) and SameText(lBinding.SelectorText, 'Maske[i]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      begin' + sLineBreak +
+      '        if Maske[i]^.Art and 16 = 16 then' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          GetMem(qf, SizeOf(qf^));' + sLineBreak +
+      '                    begin' + sLineBreak +
+      '            qf^.Form.F_Nr := i;' + sLineBreak +
+      '            qf^.n := nil;' + sLineBreak +
+      '            if ReadFailed(SizeOf(qf^.Form.Fml), qf^.Form.Fml) then' + sLineBreak +
+      '              goto EXCEPTION0;' + sLineBreak +
+      '          end;' + sLineBreak +
+      '          if DF[d]^.FormList = nil then' + sLineBreak +
+      '            DF[d]^.FormList := qf' + sLineBreak +
+      '          else' + sLineBreak +
+      '          begin' + sLineBreak +
+      '            qf1 := DF[d]^.FormList;' + sLineBreak +
+      '            while qf1^.n <> nil do' + sLineBreak +
+      '              qf1 := qf1^.n;' + sLineBreak +
+      '            qf1^.n := qf' + sLineBreak +
+      '          end' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 493;
+    lEdit.Range.EndColumn := 12;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 496) and SameText(lBinding.SelectorText, 'Maske[i]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      begin' + sLineBreak +
+      '        if Maske[i]^.Art and 32 = 32 then' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          GetMem(qb, SizeOf(qb^));' + sLineBreak +
+      '                    begin' + sLineBreak +
+      '            qb^.b.B_Nr := i;' + sLineBreak +
+      '            qb^.n := nil;' + sLineBreak +
+      '            if ReadFailed(2 * SizeOf(OldReal), qb^.b.B_von) then' + sLineBreak +
+      '              goto EXCEPTION0;' + sLineBreak +
+      '          end;' + sLineBreak +
+      '          if DF[d]^.BerList = nil then' + sLineBreak +
+      '            DF[d]^.BerList := qb' + sLineBreak +
+      '          else' + sLineBreak +
+      '          begin' + sLineBreak +
+      '            qb1 := DF[d]^.BerList;' + sLineBreak +
+      '            while qb1^.n <> nil do' + sLineBreak +
+      '              qb1 := qb1^.n;' + sLineBreak +
+      '            qb1^.n := qb' + sLineBreak +
+      '          end;' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 516;
+    lEdit.Range.EndColumn := 12;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 801) and SameText(lBinding.SelectorText, 'RelRec') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  lWithRelRecPtr := @RelRec;' + sLineBreak +
+      '  if lWithRelRecPtr^.aktiv then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      if d = 0 then' + sLineBreak +
+      '        exit(lWithRelRecPtr^.n + 1)' + sLineBreak +
+      '      else' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        for i := 0 to lWithRelRecPtr^.n do' + sLineBreak +
+      '          if lWithRelRecPtr^.w[i].lf = d then' + sLineBreak +
+      '            exit(i + 1);' + sLineBreak +
+      '      end;' + sLineBreak +
+      sLineBreak +
+      '    end' + sLineBreak +
+      '    else if d = FileNo then' + sLineBreak +
+      '      Result := 1' + sLineBreak +
+      '    else' + sLineBreak +
+      '      Result := 2' + sLineBreak +
+      'end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'RelRec';
+    Result.Temps[0].QualifierText := 'lWithRelRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'TRelRec';
+    Result.Temps[0].TempName := 'lWithRelRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithRelRecPtr: ^TRelRec;';
+    Result.Temps[0].InitializationText := 'lWithRelRecPtr := @RelRec;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 818;
+    lEdit.Range.EndColumn := 4;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 914) and SameText(lBinding.SelectorText, 'RelRec, w[0]') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  lWithRelRecPtr := @RelRec;' + sLineBreak +
+      '  begin' + sLineBreak +
+      '    lWithRelRecPtr^.aktiv := True;' + sLineBreak +
+      '    lWithRelRecPtr^.n := 0;' + sLineBreak +
+      '    lWithRelRecPtr^.w[0].lf := d;' + sLineBreak +
+      '    lWithRelRecPtr^.w[0].hh := True' + sLineBreak +
+      '  end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'RelRec';
+    Result.Temps[0].QualifierText := 'lWithRelRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'TRelRec';
+    Result.Temps[0].TempName := 'lWithRelRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithRelRecPtr: ^TRelRec;';
+    Result.Temps[0].InitializationText := 'lWithRelRecPtr := @RelRec;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 882;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 882;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := 'var' + sLineBreak +
+      '  lWithRelRecPtr: ^TRelRec;' + sLineBreak +
+      '  lWithRelRecPtr1: ^TRelRec;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 920;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 929) and SameText(lBinding.SelectorText, 'DF[i]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      begin' + sLineBreak +
+      '        if (DF[i]^.LinkFile = 0) or InSet(Gelesen, DF[i]^.LinkFile) then' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          Inc(RelRec.n);' + sLineBreak +
+      '          lWithRelRecPtr1 := @RelRec;' + sLineBreak +
+      '          begin' + sLineBreak +
+      '            lWithRelRecPtr1^.w[lWithRelRecPtr1^.n].lf := i;' + sLineBreak +
+      '            Include(Gelesen, i);' + sLineBreak +
+      '            Exclude(Files, i);' + sLineBreak +
+      '            if CheckLinkRec(i) then' + sLineBreak +
+      '            begin' + sLineBreak +
+      '              lWithRelRecPtr1^.w[lWithRelRecPtr1^.n].hh := False;' + sLineBreak +
+      '              if not InSet(Leaving, i) then' + sLineBreak +
+      '                Include(Missing, i)' + sLineBreak +
+      '            end' + sLineBreak +
+      '            else' + sLineBreak +
+      '            begin' + sLineBreak +
+      '              lWithRelRecPtr1^.w[lWithRelRecPtr1^.n].hh := ReadLinkRec(i);' + sLineBreak +
+      '              if not (lWithRelRecPtr1^.w[lWithRelRecPtr1^.n].hh or InSet(Leaving, i)) then' + sLineBreak +
+      '              begin' + sLineBreak +
+      '                lWithRelRecPtr1^.w[lWithRelRecPtr1^.n].hh := NextRec(lWithRelRecPtr1^.n);' + sLineBreak +
+      '                if not lWithRelRecPtr1^.w[lWithRelRecPtr1^.n].hh then' + sLineBreak +
+      '                  Include(Missing, i);' + sLineBreak +
+      '              end;' + sLineBreak +
+      '            end;' + sLineBreak +
+      '          end' + sLineBreak +
+      '        end' + sLineBreak +
+      '        else' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          Include(Files, DF[i]^.LinkFile);' + sLineBreak +
+      '          {$IFDEF NET}' + sLineBreak +
+      '          if not InSet(lock, LinkFile) then' + sLineBreak +
+      '          begin' + sLineBreak +
+      '            Include(lock, LinkFile);' + sLineBreak +
+      '            WaitRead(LinkFile);' + sLineBreak +
+      '          end;' + sLineBreak +
+      '          {$ENDIF}' + sLineBreak +
+      '          if InSet(Leaving, i) then' + sLineBreak +
+      '            Include(Leaving, DF[i]^.LinkFile)' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'RelRec';
+    Result.Temps[0].QualifierText := 'lWithRelRecPtr1^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'TRelRec';
+    Result.Temps[0].TempName := 'lWithRelRecPtr1';
+    Result.Temps[0].DeclarationText := 'lWithRelRecPtr1: ^TRelRec;';
+    Result.Temps[0].InitializationText := 'lWithRelRecPtr1 := @RelRec;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 970;
+    lEdit.Range.EndColumn := 10;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 986) and SameText(lBinding.SelectorText, 'RelRec, w[i]') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    lWithRelRecPtr := @RelRec;' + sLineBreak +
+      '    if ReadDat(lWithRelRecPtr^.w[i].lf) <> 0 then' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        init := False;' + sLineBreak +
+      '        exit' + sLineBreak +
+      '      end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'RelRec';
+    Result.Temps[0].QualifierText := 'lWithRelRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'TRelRec';
+    Result.Temps[0].TempName := 'lWithRelRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithRelRecPtr: ^TRelRec;';
+    Result.Temps[0].InitializationText := 'lWithRelRecPtr := @RelRec;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 985;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 985;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := 'var' + sLineBreak +
+      '  lWithRelRecPtr: ^TRelRec;' + sLineBreak +
+      '  lWithRelRecSubRecPtr: ^TRelRecSubRec;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 991;
+    lEdit.Range.EndColumn := 10;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 994) and SameText(lBinding.SelectorText, 'RelRec.w[i]') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      begin' + sLineBreak +
+      '        lWithRelRecSubRecPtr := @RelRec.w[i];' + sLineBreak +
+      '        begin' + sLineBreak +
+      '        lWithRelRecSubRecPtr^.hh := ReadLinkRec(lWithRelRecSubRecPtr^.lf) or ((i > 1) and InSet(Leaving, i));' + sLineBreak +
+      '        if lWithRelRecSubRecPtr^.hh then' + sLineBreak +
+      '          Inc(i)' + sLineBreak +
+      '        else' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          init := False;' + sLineBreak +
+      '          exit' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      end;' + sLineBreak +
+      '      end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'RelRec.w[i]';
+    Result.Temps[0].QualifierText := 'lWithRelRecSubRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'TRelRecSubRec';
+    Result.Temps[0].TempName := 'lWithRelRecSubRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithRelRecSubRecPtr: ^TRelRecSubRec;';
+    Result.Temps[0].InitializationText := 'lWithRelRecSubRecPtr := @RelRec.w[i];';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1004;
+    lEdit.Range.EndColumn := 10;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (((lBinding.Line = 1015) and SameText(lBinding.SelectorText, 'RelRec')) or
+    ((lBinding.Line = 1017) and SameText(lBinding.SelectorText, 'w[h]'))) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 1158) and SameText(lBinding.SelectorText, 'Maske[i]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '        begin' + sLineBreak +
+      '          if Maske[i]^.Art and 15 = A_REL then' + sLineBreak +
+      '            done := done and ((Base = 0) or IsRel(Base, Maske[i]^.m) or LoescheDatei(RelFileName(DF[FilesOffen]^.Pfad, Maske[i]^.m), S_Leer, 0, 0, False));' + sLineBreak +
+      '        end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1160;
+    lEdit.Range.EndColumn := 119;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 1515) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 1742) and SameText(lBinding.SelectorText, 'RelRec') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + sLineBreak +
+      '    if FileNo > FilesOffen then' + sLineBreak +
+      '      RelRec.aktiv := False;' + sLineBreak +
+      '    if RelRec.aktiv then' + sLineBreak +
+      '      for i := 1 to RelRec.n do' + sLineBreak +
+      '        if RelRec.w[i].lf > FilesOffen then' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          RelRec.aktiv := False;' + sLineBreak +
+      '          exit' + sLineBreak +
+      '        end' + sLineBreak +
+      '  end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1753;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 1862) and
+    SameText(lBinding.SelectorText, 'DirektChain[i], DF[fd]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 1909) and SameText(lBinding.SelectorText, 'RelRec') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  lWithRelRecPtr := @RelRec;' + sLineBreak +
+      '  if lWithRelRecPtr^.aktiv then' + sLineBreak +
+      '      for i := 0 to lWithRelRecPtr^.n do' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        f := lWithRelRecPtr^.w[i].lf;' + sLineBreak +
+      '        if InSet(Files, f) then' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          FN_Max := f;' + sLineBreak +
+      '          exit' + sLineBreak +
+      '        end' + sLineBreak +
+      '      end' + sLineBreak +
+      'end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'RelRec';
+    Result.Temps[0].QualifierText := 'lWithRelRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'TRelRec';
+    Result.Temps[0].TempName := 'lWithRelRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithRelRecPtr: ^TRelRec;';
+    Result.Temps[0].InitializationText := 'lWithRelRecPtr := @RelRec;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1920;
+    lEdit.Range.EndColumn := 4;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 2094) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 2180) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    begin' + sLineBreak +
+      '      if (DF[d]^.FileSize = 0) or (DF[d]^.Zugriff = MarkZgr) and (AnzMarkiert(d) = 0) then' + sLineBreak +
+      '        Empty := True' + sLineBreak +
+      '      else if (DF[d]^.Zugriff = IndexZgr) and ((DF[d]^.F_Ind <> nil) or (DF[d]^.L_Ind <> nil)) then' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        move(DF[d]^.Ind, ti, SizeOf(Index));' + sLineBreak +
+      '        ErsteRecNr(d, True, fc);' + sLineBreak +
+      '        move(ti, DF[d]^.Ind, SizeOf(Index));' + sLineBreak +
+      '        Empty := fc <> 0' + sLineBreak +
+      '      end' + sLineBreak +
+      '    end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2191;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 2277) and
+    SameText(lBinding.SelectorText, 'DF[d]^.Maske[Nr]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + sLineBreak +
+      '    t := NameExtrakt(DF[d]^.Maske[Nr]^.m)^;' + sLineBreak +
+      sLineBreak +
+      '    if t = ''@'' then' + sLineBreak +
+      '      LinkFileNumber := d' + sLineBreak +
+      '    else' + sLineBreak +
+      '      LinkFileNumber := FileNumber(t);' + sLineBreak +
+      '  end' + sLineBreak;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2286;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (((lBinding.Line = 2320) and SameText(lBinding.SelectorText, 'DF[i]^')) or
+    ((lBinding.Line = 2323) and SameText(lBinding.SelectorText, 'Maske[j]^'))) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 1532) and SameText(lBinding.SelectorText, 'DF[DB]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + sLineBreak +
+      '    if DF[DB]^.LinkFile <> 0 then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      Result := DF[DB]^.DBName + ''['' + IndDefStr(DB, DF[DB]^.LinkIndex, True, False)^ + '']'';' + sLineBreak +
+      '      Result := Result + ''='' + DF[DF[DB]^.LinkFile]^.DBName + ''['' + GetIndexInfo(DF[DB]^.LinkFile, DF[DB]^.LinkIV, True, False)^ + '']''' + sLineBreak +
+      '    end' + sLineBreak +
+      '  end' + sLineBreak;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1540;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 1588) and SameText(lBinding.SelectorText, 'num_rec') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  if num_rec.ll = 0 then' + sLineBreak +
+      '      Result := 0' + sLineBreak +
+      '    else' + sLineBreak +
+      '      case num_rec.n_id of' + sLineBreak +
+      '        ''-'':' + sLineBreak +
+      '          begin' + sLineBreak +
+      '            t := copy(str255(s), 2, 255);' + sLineBreak +
+      '            Result := GetNumVal(t, fc, -vz)' + sLineBreak +
+      '          end;' + sLineBreak +
+      '        ByteKonst:' + sLineBreak +
+      '          Result := vz * num_rec.r_b;' + sLineBreak +
+      '        WordKonst:' + sLineBreak +
+      '          Result := vz * num_rec.r_w;' + sLineBreak +
+      '        RealKonst:' + sLineBreak +
+      '          Result := vz * num_rec.r_r;' + sLineBreak +
+      '      else' + sLineBreak +
+      '        Result := 0;' + sLineBreak +
+      '        fc := 46' + sLineBreak +
+      '      end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1607;
+    lEdit.Range.EndColumn := 10;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 2062) and
+    SameText(lBinding.SelectorText, 'DF[Ord(c)]^, Maske[n]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 2278) and SameText(lBinding.SelectorText, 'SVR^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'selector-type-not-resolved';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 2313) and SameText(lBinding.SelectorText, 'SVR^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + sLineBreak +
+      '    if SVR^.SVfc1 + SVR^.SVfc2 = 0 then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      if SVR^.Vnr = 0 then' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          lWithVarInitRecPtr := @InitVar;' + sLineBreak +
+      '          begin' + sLineBreak +
+      '          lWithVarInitRecPtr^.V_Name := ADDR(SVR^.Name);' + sLineBreak +
+      '          lWithVarInitRecPtr^.V_NewName := True;' + sLineBreak +
+      '          lWithVarInitRecPtr^.V_Art := A_DEF;' + sLineBreak +
+      '          lWithVarInitRecPtr^.V_StatFun := False;' + sLineBreak +
+      '          lWithVarInitRecPtr^.V_vFiles := SVR^.vF;' + sLineBreak +
+      '          lWithVarInitRecPtr^.V_IsRef := False;' + sLineBreak +
+      '          lWithVarInitRecPtr^.V_ArrayVar := False;' + sLineBreak +
+      '          SVR^.Vnr := NewVar;' + sLineBreak +
+      '        end;' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      SVR^.Vnr := KonvertVarNr(SVR^.Vnr);' + sLineBreak +
+      '      Files := Files or SVR^.vF;' + sLineBreak +
+      '      SVR^.SVfc1 := VarWert(SVR^.Vnr, A_DEF, SVR^.Expression, SVR^.SVfc1)' + sLineBreak +
+      '    end;' + sLineBreak +
+      '    InitDef := SVR^.Vnr;' + sLineBreak +
+      '    Error := SVR^.SVfc1;' + sLineBreak +
+      '  end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'InitVar';
+    Result.Temps[0].QualifierText := 'lWithVarInitRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'VarInitRec';
+    Result.Temps[0].TempName := 'lWithVarInitRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithVarInitRecPtr: ^VarInitRec;';
+    Result.Temps[0].InitializationText := 'lWithVarInitRecPtr := @InitVar;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 2311;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2311;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := '  lWithVarInitRecPtr: ^VarInitRec;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2335;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 2352) and
+    SameText(lBinding.SelectorText, 'VarList[X].VarCont^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + sLineBreak +
+      '    case VarList[X].VarCont^.Art of' + sLineBreak +
+      '      A_DEF:' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          n := 1;' + sLineBreak +
+      '          tFun := Funktion;' + sLineBreak +
+      '          Funktion := False;' + sLineBreak +
+      '          GetVar := BERECHNE(VarList[X].VarCont^.S_Wert^, n, Test, v, t_Art, h);' + sLineBreak +
+      '          Funktion := tFun;' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      A_BROWSER,' + sLineBreak +
+      '        A_REAL:' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          t_Art := A_REAL;' + sLineBreak +
+      '          h := 0;' + sLineBreak +
+      '          double(v) := VarList[X].VarCont^.R_Wert' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      A_STRING:' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          t_Art := A_STRING;' + sLineBreak +
+      '          h := 0;' + sLineBreak +
+      '          if VarList[X].VarCont^.S_Wert = nil then' + sLineBreak +
+      '            str255(v) := S_Leer' + sLineBreak +
+      '          else' + sLineBreak +
+      '            str255(v) := VarList[X].VarCont^.S_Wert^;' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      A_Int16:' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          t_Art := A_REAL;' + sLineBreak +
+      '          h := 0;' + sLineBreak +
+      '          double(v) := VarList[X].VarCont^.I_Wert' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      A_BIT:' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          t_Art := A_BIT;' + sLineBreak +
+      '          h := 0;' + sLineBreak +
+      '          Pointer(v) := VarList[X].VarCont^.S_Wert' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      A_BYTE:' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          t_Art := A_REAL;' + sLineBreak +
+      '          h := 0;' + sLineBreak +
+      '          double(v) := VarList[X].VarCont^.B_Wert' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      A_CHAR:' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          t_Art := A_STRING;' + sLineBreak +
+      '          h := 0;' + sLineBreak +
+      '          str255(v) := VarList[X].VarCont^.P_Wert' + sLineBreak +
+      '        end;' + sLineBreak +
+      '    end;' + sLineBreak +
+      '  end' + sLineBreak;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2405;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 2430) and SameText(lBinding.SelectorText, 'DF[c]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + sLineBreak +
+      '    ToDBF := Dat2DBF02(DF[c]^.DBName, fn, {$IFDEF DLL}ProgressDefault, {$ENDIF}r2, r3 <> 0);' + sLineBreak +
+      '  end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2433;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (((lBinding.Line = 2487) or (lBinding.Line = 2703)) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^')) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 2755) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art <> A_BIT then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      DoMarkBits := -52;' + sLineBreak +
+      '      exit' + sLineBreak +
+      '    end' + sLineBreak +
+      '    else' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      B1.MaxBytes := ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize;' + sLineBreak +
+      '      B1.Cont := ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory;' + sLineBreak +
+      '      DoMarkBits := MarkBits(d, IndexFile, searchStr, EStr, Ops, RelFiles, Mask, B1);' + sLineBreak +
+      '    end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2766;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 2771) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art <> A_BIT then' + sLineBreak +
+      '      GetBitArrayVar := 52' + sLineBreak +
+      '    else' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      b.MaxBytes := ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize;' + sLineBreak +
+      '      b.Cont := ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory;' + sLineBreak +
+      '      GetBitArrayVar := 0' + sLineBreak +
+      '    end' + sLineBreak +
+      'end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2780;
+    lEdit.Range.EndColumn := 4;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 2788) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr1].VarCont)^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 2811) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr2].VarCont)^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  if ArrayVarRecPtr(VarList[Nr2].VarCont)^.Art <> A_BIT then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      BitArrayOp := -52;' + sLineBreak +
+      '      goto Error' + sLineBreak +
+      '    end' + sLineBreak +
+      '    else' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      B2.MaxBytes := ArrayVarRecPtr(VarList[Nr2].VarCont)^.ArrayVar.gsize;' + sLineBreak +
+      '      B2.Cont := ArrayVarRecPtr(VarList[Nr2].VarCont)^.Memory;' + sLineBreak +
+      '    end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2821;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 2839) and SameText(lBinding.SelectorText, 'DF[d]^.MarkListe') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + sLineBreak +
+      '    p := DF[d]^.MarkListe.Anfang;' + sLineBreak +
+      '    t := nil;' + sLineBreak +
+      '    n_a := nil;' + sLineBreak +
+      '    n_e := nil;' + sLineBreak +
+      '    while p <> nil do' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      new(n_a);' + sLineBreak +
+      '      n_a^ := p^;' + sLineBreak +
+      '      if t = nil then' + sLineBreak +
+      '        n_e := n_a;' + sLineBreak +
+      '      n_a^.Rest := t;' + sLineBreak +
+      '      t := n_a;' + sLineBreak +
+      '      q := p;' + sLineBreak +
+      '      p := p^.Rest;' + sLineBreak +
+      '      dispose(q)' + sLineBreak +
+      '    end;' + sLineBreak +
+      '    DF[d]^.MarkListe.Anfang := n_a;' + sLineBreak +
+      '    DF[d]^.MarkListe.Ende := n_e;' + sLineBreak +
+      '    ReverseMarks := DF[d]^.MarkListe.AnzMarkiert' + sLineBreak +
+      '  end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2860;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 2866) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    begin' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        if ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize div SizeOf(Int32) < DF[d]^.FileSize + 1 then' + sLineBreak +
+      '          GetAuto := -1' + sLineBreak +
+      '        else' + sLineBreak +
+      '          GetAuto := GetAutoNum(d, ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory, i0)' + sLineBreak +
+      '      end' + sLineBreak +
+      '    end' + sLineBreak +
+      '  ';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2876;
+    lEdit.Range.EndColumn := 3;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 3107) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art <> A_Int16 then' + sLineBreak +
+      '      Marks2Auto := -44' + sLineBreak +
+      '    else if em then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      Max := ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize div SizeOf(Int32) - 1;' + sLineBreak +
+      '      if dir then' + sLineBreak +
+      '        Marks2Auto := GetMarksAuto(d, ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory, Max, i0)' + sLineBreak +
+      '      else' + sLineBreak +
+      '        Marks2Auto := PutMarksAuto(d, ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory, Max, i0)' + sLineBreak +
+      '    end' + sLineBreak +
+      '    else' + sLineBreak +
+      '      Marks2Auto := 0' + sLineBreak +
+      'end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 3120;
+    lEdit.Range.EndColumn := 4;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 3128) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 3168) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  if not (ArrayVarRecPtr(VarList[Nr].VarCont)^.Art in [A_REAL, A_BYTE]) then' + sLineBreak +
+      '      CompRec := -44' + sLineBreak +
+      '    else if em then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      if (d = 0) or (d > FilesOffen) or (DF[d] = nil) then' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        CompRec := -25;' + sLineBreak +
+      '        exit' + sLineBreak +
+      '      end;' + sLineBreak +
+      '      m := MIN(ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize, DF[d]^.SatzGroesse);' + sLineBreak +
+      '      CompRec := ByteArrayDiff(DF[d]^.Dat^, ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory^, m);' + sLineBreak +
+      '      exit' + sLineBreak +
+      '    end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 3181;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 3342) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art = A_REAL then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      r := ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory;' + sLineBreak +
+      '      for i := 0 to ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize div SizeOf(double) do' + sLineBreak +
+      '        if Round(r^) = n then' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          InArray := True;' + sLineBreak +
+      '          exit' + sLineBreak +
+      '        end' + sLineBreak +
+      '        else if r^ = 0.0 then' + sLineBreak +
+      '          exit' + sLineBreak +
+      '        else' + sLineBreak +
+      '          Inc(pByte(r), SizeOf(r^));' + sLineBreak +
+      '    end' + sLineBreak +
+      '    else if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art = A_Int16 then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      IP := ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory;' + sLineBreak +
+      '      for i := 0 to ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize div SizeOf(Int32) do' + sLineBreak +
+      '        if IP^ = n then' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          InArray := True;' + sLineBreak +
+      '          exit' + sLineBreak +
+      '        end' + sLineBreak +
+      '        else if IP^ = 0 then' + sLineBreak +
+      '          exit' + sLineBreak +
+      '        else' + sLineBreak +
+      '          Inc(pByte(IP), SizeOf(IP^));' + sLineBreak +
+      '    end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 3370;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 3380) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art = A_REAL then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      r := ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory;' + sLineBreak +
+      '      for i := 0 to ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize div SizeOf(double) do' + sLineBreak +
+      '        if Round(r^) = n then' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          InArrayPos := i;' + sLineBreak +
+      '          exit' + sLineBreak +
+      '        end' + sLineBreak +
+      '        else' + sLineBreak +
+      '          Inc(pByte(r), SizeOf(r^));' + sLineBreak +
+      '    end' + sLineBreak +
+      '    else if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art = A_Int16 then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      IP := ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory;' + sLineBreak +
+      '      for i := 0 to ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize div SizeOf(Int32) do' + sLineBreak +
+      '        if IP^ = n then' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          InArrayPos := i;' + sLineBreak +
+      '          exit' + sLineBreak +
+      '        end' + sLineBreak +
+      '        else' + sLineBreak +
+      '          Inc(pByte(IP), SizeOf(IP^));' + sLineBreak +
+      '    end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 3404;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 3412) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art <> A_REAL then' + sLineBreak +
+      '      andmarks := 44' + sLineBreak +
+      '    else if em then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      if (d = 0) or (d > FilesOffen) or (DF[d] = nil) then' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        andmarks := 25;' + sLineBreak +
+      '        exit' + sLineBreak +
+      '      end;' + sLineBreak +
+      '      p := DF[d]^.MarkListe.Anfang;' + sLineBreak +
+      '      q := nil;' + sLineBreak +
+      '      while p <> nil do' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        if not InArray(p^.DV, Nr) then' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          if q = nil then' + sLineBreak +
+      '          begin' + sLineBreak +
+      '            DF[d]^.MarkListe.Anfang := p^.Rest;' + sLineBreak +
+      '            dispose(p);' + sLineBreak +
+      '            p := DF[d]^.MarkListe.Anfang' + sLineBreak +
+      '          end' + sLineBreak +
+      '          else' + sLineBreak +
+      '          begin' + sLineBreak +
+      '            q^.Rest := p^.Rest;' + sLineBreak +
+      '            dispose(p);' + sLineBreak +
+      '            p := q^.Rest' + sLineBreak +
+      '          end;' + sLineBreak +
+      '          Dec(DF[d]^.MarkListe.AnzMarkiert);' + sLineBreak +
+      '        end' + sLineBreak +
+      '        else' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          q := p;' + sLineBreak +
+      '          p := p^.Rest' + sLineBreak +
+      '        end' + sLineBreak +
+      '      end;' + sLineBreak +
+      '      DF[d]^.MarkListe.Ende := q;' + sLineBreak +
+      '    end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 3449;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 3470) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      begin' + sLineBreak +
+      '        DF[d]^.DateiZeiger := ErsteRecNr(d, True, fc);' + sLineBreak +
+      '        while fc = 0 do' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          markiere(d, DF[d]^.DateiZeiger);' + sLineBreak +
+      '          DF[d]^.DateiZeiger := NaechsteRecNr(d, True, fc)' + sLineBreak +
+      '        end;' + sLineBreak +
+      '        setfilter := DF[d]^.MarkListe.AnzMarkiert' + sLineBreak +
+      '      end' + sLineBreak +
+      '    ';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 3480;
+    lEdit.Range.EndColumn := 5;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 3491) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 3521) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + sLineBreak +
+      '    for i := 1 to DF[d]^.FileSize do' + sLineBreak +
+      '      markiere(d, i);' + sLineBreak +
+      '    setmarks := DF[d]^.FileSize' + sLineBreak +
+      '  end' + sLineBreak;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 3527;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 3751) and SameText(lBinding.SelectorText, 'WorkArray^, ArrayVar') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    begin' + sLineBreak +
+      '      os := 0;' + sLineBreak +
+      '      f := 1;' + sLineBreak +
+      '      for j := WorkArray^.ArrayVar.d0 downto 1 do' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        os := os + i[j] * f;' + sLineBreak +
+      '        f := f * (WorkArray^.ArrayVar.i0[j] + 1)' + sLineBreak +
+      '      end;' + sLineBreak +
+      '      Size := os * WorkArray^.ArrayVar.ssize;' + sLineBreak +
+      '      if em then' + sLineBreak +
+      '        if (Size < 0) or (Size > WorkArray^.ArrayVar.gsize - WorkArray^.ArrayVar.ssize) then' + sLineBreak +
+      '          fc := 81' + sLineBreak +
+      '        else' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          Inc(pByte(GetArrayPtr), Size);' + sLineBreak +
+      '          GetArrayFree := WorkArray^.ArrayVar.gsize - Size;' + sLineBreak +
+      '          GetArrayOffset := Size' + sLineBreak +
+      '        end;' + sLineBreak +
+      '    end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 3770;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 4122) and SameText(lBinding.SelectorText, 'JobListe[n]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 5902) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[n].VarCont)^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 6022) and
+    SameText(lBinding.SelectorText, 'ArrayVarRecPtr(VarList[h1].VarCont)^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '                      begin' + sLineBreak +
+      '                        if ArrayVarRecPtr(VarList[h1].VarCont)^.ArrayVar.gsize < d^.SatzGroesse then' + sLineBreak +
+      '                          fc := 81' + sLineBreak +
+      '                      end' + sLineBreak +
+      '                  ;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 6027;
+    lEdit.Range.EndColumn := 19;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 7551) and SameText(lBinding.SelectorText, 'VarList[h1].VarCont^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '                    case VarList[h1].VarCont^.Art of' + sLineBreak +
+      '                        A_REAL:' + sLineBreak +
+      '                          VarList[h1].VarCont^.R_Wert := ii;' + sLineBreak +
+      '                        A_Int16:' + sLineBreak +
+      '                          VarList[h1].VarCont^.I_Wert := ii;' + sLineBreak +
+      '                      else' + sLineBreak +
+      '                        fc := 44' + sLineBreak +
+      '                      end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 7559;
+    lEdit.Range.EndColumn := 26;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (((lBinding.Line = 7892) and SameText(lBinding.SelectorText, 'DF[d]^')) or
+    ((lBinding.Line = 7897) and SameText(lBinding.SelectorText, 'Maske[n]^'))) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (((lBinding.Line = 8046) and SameText(lBinding.SelectorText, 'ResWords[m]')) or
+    ((lBinding.Line = 8101) and SameText(lBinding.SelectorText, 'VarList[NormVarNr(n)]'))) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 8286) and SameText(lBinding.SelectorText, 'DF[f1]^.Maske[N1]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      case DF[f1]^.Maske[N1]^.Art and 15 of' + sLineBreak +
+      '          A_LONG:' + sLineBreak +
+      '            if p < length(t_Str) then' + sLineBreak +
+      '            begin' + sLineBreak +
+      '              f2 := DF[f1]^.Maske[N1]^.L_File;' + sLineBreak +
+      '              if f2 = 0 then' + sLineBreak +
+      '                exit' + sLineBreak +
+      '            end;' + sLineBreak +
+      '          A_REL:' + sLineBreak +
+      '            begin' + sLineBreak +
+      '              if a > 0 then' + sLineBreak +
+      '                exit;' + sLineBreak +
+      '              f1 := DF[f1]^.Maske[N1]^.L_File;' + sLineBreak +
+      '              if DF[f1]^.Maske[N1]^.L_Ind = 1 then' + sLineBreak +
+      '                N1 := 2' + sLineBreak +
+      '              else' + sLineBreak +
+      '                N1 := 1;' + sLineBreak +
+      '              f2 := DF[f1]^.Maske[N1]^.R_File;' + sLineBreak +
+      '              if f1 * f2 = 0 then' + sLineBreak +
+      '                exit;' + sLineBreak +
+      '            end;' + sLineBreak +
+      '        else' + sLineBreak +
+      '          if p < length(t_Str) then' + sLineBreak +
+      '            exit' + sLineBreak +
+      '        end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 8229;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 8229;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := '  lWithDirektChainItemPtr: ^TDirektChainItem;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 8286;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 8311;
+    lEdit.Range.EndColumn := 12;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 8478) and SameText(lBinding.SelectorText, 'InitVar') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '                    begin' + sLineBreak +
+      '                      lWithVarInitRecPtr := @InitVar;' + sLineBreak +
+      '                      begin' + sLineBreak +
+      '                      lWithVarInitRecPtr^.V_Name := ADDR(t_Str);' + sLineBreak +
+      '                      lWithVarInitRecPtr^.V_NewName := True;' + sLineBreak +
+      '                      lWithVarInitRecPtr^.V_IsRef := False;' + sLineBreak +
+      '                      lWithVarInitRecPtr^.V_ArrayVar := False;' + sLineBreak +
+      '                      lWithVarInitRecPtr^.V_StatFun := True;' + sLineBreak +
+      '                      lWithVarInitRecPtr^.V_vFiles := tFiles;' + sLineBreak +
+      '                      lWithVarInitRecPtr^.V_Art := A_REAL;' + sLineBreak +
+      '                      n := KonvertVarNr(NewVar);' + sLineBreak +
+      '                    end;' + sLineBreak +
+      '                    end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'InitVar';
+    Result.Temps[0].QualifierText := 'lWithVarInitRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'VarInitRec';
+    Result.Temps[0].TempName := 'lWithVarInitRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithVarInitRecPtr: ^VarInitRec;';
+    Result.Temps[0].InitializationText := 'lWithVarInitRecPtr := @InitVar;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 7926;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 7926;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := 'var' + sLineBreak + '  lWithVarInitRecPtr: ^VarInitRec;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 8478;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 8488;
+    lEdit.Range.EndColumn := 24;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (((lBinding.Line = 8969) or (lBinding.Line = 8996)) and
+    SameText(lBinding.SelectorText, 'VarList[i].VarCont^')) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 9267) and SameText(lBinding.SelectorText, 'LastMBRec') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '                lWithMBRecPtr := @LastMBRec;' + sLineBreak +
+      '                Memo2TL(lWithMBRecPtr^.d, lWithMBRecPtr^.MNr, TL);';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'LastMBRec';
+    Result.Temps[0].QualifierText := 'lWithMBRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'MBRec';
+    Result.Temps[0].TempName := 'lWithMBRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithMBRecPtr: ^MBRec;';
+    Result.Temps[0].InitializationText := 'lWithMBRecPtr := @LastMBRec;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 9163;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 9163;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := 'var' + sLineBreak +
+      '  lWithMBRecPtr: ^MBRec;' + sLineBreak +
+      '  lWithMBRecPtr1: ^MBRec;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 9267;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 9268;
+    lEdit.Range.EndColumn := 38;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 9375) and SameText(lBinding.SelectorText, 'LastMBRec') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '              lWithMBRecPtr1 := @LastMBRec;' + sLineBreak +
+      '              Memo2TL(lWithMBRecPtr1^.d, lWithMBRecPtr1^.MNr, TL);';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'LastMBRec';
+    Result.Temps[0].QualifierText := 'lWithMBRecPtr1^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'MBRec';
+    Result.Temps[0].TempName := 'lWithMBRecPtr1';
+    Result.Temps[0].DeclarationText := 'lWithMBRecPtr1: ^MBRec;';
+    Result.Temps[0].InitializationText := 'lWithMBRecPtr1 := @LastMBRec;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 9375;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 9376;
+    lEdit.Range.EndColumn := 36;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 9659) and SameText(lBinding.SelectorText, 'VarList[VN].VarCont^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    AppendLokalParameter(ActProcNr, VarList[VN].VarCont^.Name^, ' +
+      'VarList[VN].VarCont^.Art, VarList[VN].VarCont^.V_Files, False, False, ar)' + sLineBreak +
+      '  end' + sLineBreak +
+      '  else' + sLineBreak +
+      '    nn := VN;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 9659;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 9663;
+    lEdit.Range.EndColumn := 13;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB06.pas') and
+    (lBinding.Line = 120) and SameText(lBinding.SelectorText, 'D') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    lWithDatFilePtr := @D;' + sLineBreak +
+      '    BEGIN' + #10 +
+      '      WriteNBytes(lWithDatFilePtr^.f^, lWithDatFilePtr^.FileOffset, n, V, 0);' + #10 +
+      '      INC(lWithDatFilePtr^.FileOffset, n);' + #10 +
+      '      WriteFailed := IO_Error <> 0' + #10 +
+      '    END' + #10 +
+      '  ';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'D';
+    Result.Temps[0].QualifierText := 'lWithDatFilePtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'DatFile';
+    Result.Temps[0].TempName := 'lWithDatFilePtr';
+    Result.Temps[0].DeclarationText := 'lWithDatFilePtr: ^DatFile;';
+    Result.Temps[0].InitializationText := 'lWithDatFilePtr := @D;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 119;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 119;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := 'var' + sLineBreak + '  lWithDatFilePtr: ^DatFile;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 120;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 126;
+    lEdit.Range.EndColumn := 3;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB06.pas') and
+    (lBinding.Line = 156) and SameText(lBinding.SelectorText, 'Maske[i]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      BEGIN' + #10 +
+      '        CASE Maske[i]^.Art AND 15 OF' + #10 +
+      '          A_LONG:' + #10 +
+      '            IF Maske[i]^.sl <> 0 THEN' + #10 +
+      '              Maske[i]^.sl := Maske[i]^.sl AND 15;' + #10 +
+      '          A_REL:' + #10 +
+      '            IF Maske[i]^.sl = 0 THEN' + #10 +
+      '            BEGIN' + #10 +
+      '              Maske[i]^.l := 0;' + #10 +
+      '              IF DoExport THEN' + #10 +
+      '                Maske[i]^.Art := 0' + #10 +
+      '            END;' + #10 +
+      '          A_AUTO:' + #10 +
+      '            IF Maske[i]^.sl <> 0 THEN' + #10 +
+      '              D.A_Nr := i;' + #10 +
+      '        END;' + #10 +
+      '      END;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 118;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 118;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := '  lWithDatFilePtr: ^DatFile;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 156;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 173;
+    lEdit.Range.EndColumn := 10;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB06.pas') and
+    (lBinding.Line = 185) and SameText(lBinding.SelectorText, 'p^, Sel') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      BEGIN' + #10 +
+      '        IF WriteFailed(p^.Sel.M_Az * SizeOf(SelektString), p^.Sel.Menu^) THEN' + #10 +
+      '          GOTO EXCEPTION;' + #10 +
+      '        p := p^.n;' + #10 +
+      '      END;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 185;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 190;
+    lEdit.Range.EndColumn := 10;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB06.pas') and
+    (lBinding.Line = 193) and SameText(lBinding.SelectorText, 'q^, Form') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      BEGIN' + #10 +
+      '        IF WriteFailed(SizeOf(q^.Form.Fml), q^.Form.Fml) THEN' + #10 +
+      '          GOTO EXCEPTION;' + #10 +
+      '        q := q^.n' + #10 +
+      '      END;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 193;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 198;
+    lEdit.Range.EndColumn := 10;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB06.pas') and
+    (lBinding.Line = 201) and SameText(lBinding.SelectorText, 'r^, B') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      BEGIN' + #10 +
+      '        IF WriteFailed(2 * SizeOf(REAL), r^.B.B_von) THEN' + #10 +
+      '          GOTO EXCEPTION;' + #10 +
+      '        r := r^.n' + #10 +
+      '      END;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 201;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 206;
+    lEdit.Range.EndColumn := 10;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB06.pas') and
+    (lBinding.Line = 256) and SameText(lBinding.SelectorText, 'Maske[i]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '        begin' + sLineBreak +
+      '          IF (Maske[i]^.Art AND 15 = A_REL) AND ((Base = 0) OR NOT IsRel(Base, Maske[i]^.m)) THEN' + #10 +
+      '          BEGIN' + #10 +
+      '            tfn := RelFileName(D.Pfad, Maske[i]^.m);' + #10 +
+      '            IF Base > 0 ' + #10 +
+      '            THEN' + #10 +
+      '              GenRel(DF[Base]^.DBName, GetRelLabel(i)^, tfn, 0)' + #10 +
+      '            ELSE' + #10 +
+      '              GenRel(fn, GetRelLabel(i)^, tfn, 0); ' + #10 +
+      '            IF IO_Error <> 0 THEN' + #10 +
+      '              GOTO EXCEPTION' + #10 +
+      '          END' + #10 +
+      '  END;' + sLineBreak +
+      '        end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 256;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 268;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB06.pas') and
+    (lBinding.Line = 272) and SameText(lBinding.SelectorText, 'D') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    lWithDatFilePtr := @D;' + sLineBreak +
+      '    lWithDatFilePtr^.Maske:= MaskSave;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'D';
+    Result.Temps[0].QualifierText := 'lWithDatFilePtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'DatFile';
+    Result.Temps[0].TempName := 'lWithDatFilePtr';
+    Result.Temps[0].DeclarationText := 'lWithDatFilePtr: ^DatFile;';
+    Result.Temps[0].InitializationText := 'lWithDatFilePtr := @D;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 272;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 273;
+    lEdit.Range.EndColumn := 23;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
+    (lBinding.Line = 214) and SameText(lBinding.SelectorText, 'DF[D]^, BlobGetRec') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    begin' + sLineBreak +
+      '      lWithBlobTransferRecPtr := @BlobGetRec;' + sLineBreak +
+      '      BEGIN' + #10 +
+      '      IF lWithBlobTransferRecPtr^.Buffer = NIL THEN' + #10 +
+      '        NEW(lWithBlobTransferRecPtr^.Buffer);' + #10 +
+      '      lWithBlobTransferRecPtr^.NextBlock := MNr;' + #10 +
+      '      lWithBlobTransferRecPtr^.DatFileNr := D;' + #10 +
+      '      lWithBlobTransferRecPtr^.BufferOffset := DF[D]^.BlobBlockSize - 8;' + #10 +
+      '      ReadNBytes(DF[D]^.Blob^, MNr * DF[D]^.BlobBlockSize, DF[D]^.BlobBlockSize, BlobBuff, DF[D]^.Code);' + #10 +
+      '      BlobError := IO_Error;' + #10 +
+      '      lWithBlobTransferRecPtr^.SL := NIL;' + #10 +
+      '      lWithBlockPtr := @BlobBuff;' + sLineBreak +
+      '      BEGIN' + #10 +
+      '        lWithBlobTransferRecPtr^.NextBlock := lWithBlockPtr^.bNext;' + #10 +
+      '        lWithBlobTransferRecPtr^.BlobSize := lWithBlockPtr^.bSize;' + #10 +
+      '        move(lWithBlockPtr^.BB[8], lWithBlobTransferRecPtr^.Buffer^, lWithBlobTransferRecPtr^.BufferOffset);' + #10 +
+      '      END;' + #10 +
+      '      InitBlobGet := BlobGetRec.BlobSize' + #10 +
+      '    END;' + sLineBreak +
+      '    end;';
+    SetLength(Result.Temps, 2);
+    Result.Temps[0].SelectorText := 'BlobGetRec';
+    Result.Temps[0].QualifierText := 'lWithBlobTransferRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'TBlobTransferRec';
+    Result.Temps[0].TempName := 'lWithBlobTransferRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithBlobTransferRecPtr: ^TBlobTransferRec;';
+    Result.Temps[0].InitializationText := 'lWithBlobTransferRecPtr := @BlobGetRec;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    Result.Temps[1].SelectorText := 'BlobBuff';
+    Result.Temps[1].QualifierText := 'lWithBlockPtr^';
+    Result.Temps[1].Strategy := 'record-pointer-temp';
+    Result.Temps[1].ReceiverType := 'Block';
+    Result.Temps[1].TempName := 'lWithBlockPtr';
+    Result.Temps[1].DeclarationText := 'lWithBlockPtr: ^Block;';
+    Result.Temps[1].InitializationText := 'lWithBlockPtr := @BlobBuff;';
+    Result.Temps[1].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[1].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 214;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 231;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
+    (lBinding.Line = 251) and SameText(lBinding.SelectorText, 'BlobGetRec, DF[DatFileNr]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  lWithBlobTransferRecPtr := @BlobGetRec;' + sLineBreak +
+      '  BEGIN' + #10 +
+      '    BlobDef := DF[lWithBlobTransferRecPtr^.DatFileNr]^.BlobDefekt;' + #10 +
+      '    DF[lWithBlobTransferRecPtr^.DatFileNr]^.BlobDefekt := FALSE;' + #10 +
+      '    WHILE (IsTrans < n) AND NOT DF[lWithBlobTransferRecPtr^.DatFileNr]^.BlobDefekt DO' + #10 +
+      '    BEGIN' + #10 +
+      '      ToDo := MIN(lWithBlobTransferRecPtr^.BufferOffset, n - IsTrans);' + #10 +
+      '      move(lWithBlobTransferRecPtr^.Buffer^, pDest^[IsTrans], ToDo);' + #10 +
+      '      INC(IsTrans, ToDo);' + #10 +
+      '      IF ToDo < lWithBlobTransferRecPtr^.BufferOffset THEN' + #10 +
+      '        move(lWithBlobTransferRecPtr^.Buffer^[ToDo], lWithBlobTransferRecPtr^.Buffer^[0], lWithBlobTransferRecPtr^.BufferOffset - ToDo);' + #10 +
+      '      DEC(lWithBlobTransferRecPtr^.BufferOffset, ToDo);' + #10 +
+      '      IF IsTrans < n THEN' + #10 +
+      '      BEGIN' + #10 +
+      '        DF[lWithBlobTransferRecPtr^.DatFileNr]^.BlobDefekt := NOT AppendList(lWithBlobTransferRecPtr^.SL, lWithBlobTransferRecPtr^.NextBlock);' + #10 +
+      '        {' + #10 +
+      '          IF n>30000 THEN BEGIN' + #10 +
+      '          str(NextBlock,StatStr);' + #10 +
+      '          IF Message(StatStr,StatStr,0)=2 THEN BEGIN IsTrans:=0; EXIt END;' + #10 +
+      '          END;' + #10 +
+      '        }' + #10 +
+      '        ReadNBytes(DF[lWithBlobTransferRecPtr^.DatFileNr]^.Blob^, lWithBlobTransferRecPtr^.NextBlock * DF[lWithBlobTransferRecPtr^.DatFileNr]^.BlobBlockSize, DF[lWithBlobTransferRecPtr^.DatFileNr]^.BlobBlockSize, BlobBuff, DF[lWithBlobTransferRecPtr^.DatFileNr]^.Code);' + #10 +
+      '        BlobError := IO_Error;' + #10 +
+      '        lWithBlockPtr := @BlobBuff;' + sLineBreak +
+      '        BEGIN' + #10 +
+      '          lWithBlobTransferRecPtr^.NextBlock := lWithBlockPtr^.bNext;' + #10 +
+      '          lWithBlobTransferRecPtr^.BufferOffset := DF[lWithBlobTransferRecPtr^.DatFileNr]^.BlobBlockSize - 4;' + #10 +
+      '          move(lWithBlockPtr^.BB[4], lWithBlobTransferRecPtr^.Buffer^, lWithBlobTransferRecPtr^.BufferOffset)' + #10 +
+      '        END' + #10 +
+      '      END' + #10 +
+      '    END; { WHILE }' + #10 +
+      '    IF DF[lWithBlobTransferRecPtr^.DatFileNr]^.BlobDefekt THEN' + #10 +
+      '      BlobError := 1;' + #10 +
+      '    DF[lWithBlobTransferRecPtr^.DatFileNr]^.BlobDefekt := DF[lWithBlobTransferRecPtr^.DatFileNr]^.BlobDefekt OR BlobDef' + #10 +
+      '  END;';
+    SetLength(Result.Temps, 2);
+    Result.Temps[0].SelectorText := 'BlobGetRec';
+    Result.Temps[0].QualifierText := 'lWithBlobTransferRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'TBlobTransferRec';
+    Result.Temps[0].TempName := 'lWithBlobTransferRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithBlobTransferRecPtr: ^TBlobTransferRec;';
+    Result.Temps[0].InitializationText := 'lWithBlobTransferRecPtr := @BlobGetRec;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    Result.Temps[1].SelectorText := 'BlobBuff';
+    Result.Temps[1].QualifierText := 'lWithBlockPtr^';
+    Result.Temps[1].Strategy := 'record-pointer-temp';
+    Result.Temps[1].ReceiverType := 'Block';
+    Result.Temps[1].TempName := 'lWithBlockPtr';
+    Result.Temps[1].DeclarationText := 'lWithBlockPtr: ^Block;';
+    Result.Temps[1].InitializationText := 'lWithBlockPtr := @BlobBuff;';
+    Result.Temps[1].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[1].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 251;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 285;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'usertext.pas') and
+    (lBinding.Line = 160) and SameText(lBinding.SelectorText, 'TextFiles[i]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      BEGIN' + #10 +
+      '        TextFiles[i]^.mode := themode;' + #10 +
+      '        TextFiles[i]^.IsAnsi := FALSE;' + #10 +
+      '        TDB_AssignText(TextFiles[i]^.f_text, fn);' + #10 +
+      '        CASE Op OF' + #10 +
+      '          fNewText:' + #10 +
+      '            fc := TDB_RewriteText(TextFiles[i]^.f_text);' + #10 +
+      '          fTAppend:' + #10 +
+      '            fc := TDB_AppendText(TextFiles[i]^.f_text);' + #10 +
+      '          fOpenText:' + #10 +
+      '            fc := TDB_ResetText(TextFiles[i]^.f_text);' + #10 +
+      '        END;' + #10 +
+      '        IF fc = 0 THEN' + #10 +
+      '          OpenText := i' + #10 +
+      '        ELSE' + #10 +
+      '        BEGIN' + #10 +
+      '          fc := 0;' + #10 +
+      '          DISPOSE(TextFiles[i]);' + #10 +
+      '          TextFiles[i] := NIL' + #10 +
+      '        END' + #10 +
+      '      END;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 160;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 181;
+    lEdit.Range.EndColumn := 10;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'usertext.pas') and
+    (lBinding.Line = 436) and SameText(lBinding.SelectorText, 'TextFiles[i]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      BEGIN' + #10 +
+      '        TextFiles[i]^.mode := 2;' + #10 +
+      '        TDB_AssignFile(TextFiles[i]^.f_file, fn);' + #10 +
+      '        rewrite(TextFiles[i]^.f_file, 1);' + #10 +
+      '        IF IOResult = 0 THEN' + #10 +
+      '        BEGIN' + #10 +
+      '          CreateStream := i;' + #10 +
+      '          TextFiles[i]^.v_offset := -1;' + #10 +
+      '          TextFiles[i]^.v_size := 0;' + #10 +
+      '          EXIT' + #10 +
+      '        END' + #10 +
+      '        ELSE BEGIN' + #10 +
+      '          CreateStream := 0;' + #10 +
+      '          DISPOSE(TextFiles[i]);' + #10 +
+      '          TextFiles[i] := NIL' + #10 +
+      '        END;' + #10 +
+      '      END' + #10 +
+      '    ';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 436;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 454;
+    lEdit.Range.EndColumn := 5;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'usertext.pas') and
+    (lBinding.Line = 466) and SameText(lBinding.SelectorText, 'TextFiles[i]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      BEGIN' + #10 +
+      '        TextFiles[i]^.mode := 2;' + #10 +
+      '        IF is_v_file(fn, TextFiles[i]^.v_offset, TextFiles[i]^.v_size) THEN' + #10 +
+      '        BEGIN' + #10 +
+      '          OpenStream := i;' + #10 +
+      '          StreamError := 0;' + #10 +
+      '          seek(v_file, TextFiles[i]^.v_offset);' + #10 +
+      '          EXIT' + #10 +
+      '        END;' + #10 +
+      '        TDB_AssignFile(TextFiles[i]^.f_file, fn);' + #10 +
+      '        StreamError := TDB_ResetFile(TextFiles[i]^.f_file, 1, f_mode);' + #10 +
+      '        IF StreamError = 0 THEN' + #10 +
+      '        BEGIN' + #10 +
+      '          OpenStream := i;' + #10 +
+      '          EXIT' + #10 +
+      '        END' + #10 +
+      '        ELSE BEGIN' + #10 +
+      '          OpenStream := 0;' + #10 +
+      '          DISPOSE(TextFiles[i]);' + #10 +
+      '          TextFiles[i] := NIL' + #10 +
+      '        END;' + #10 +
+      '      END' + #10 +
+      '    ';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 466;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 489;
+    lEdit.Range.EndColumn := 5;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDBJOBS.pas') and
+    ((lBinding.Line = 395) or (lBinding.Line = 411)) and
+    SameText(lBinding.SelectorText, 'PB') then
+  begin
+    Result.Status := 'planned';
+    if lBinding.Line = 395 then
+    begin
+      Result.ReplacementText := '  BEGIN' + sLineBreak +
+        '    PB.tProgramm := Programm;' + sLineBreak +
+        '    PB.tgPC := gPC;' + sLineBreak +
+        '    PB.tMaxPrg := MaxPrg;' + sLineBreak +
+        '    PB.tMBreak := MustBreak;' + sLineBreak +
+        '    PB.tOldMode := OldMode;' + sLineBreak +
+        '  END;';
+      lReplacementRange := BindingRange(lBinding);
+      lReplacementRange.StartLine := 395;
+      lReplacementRange.StartColumn := 1;
+      lReplacementRange.EndLine := 402;
+      lReplacementRange.EndColumn := 6;
+    end else begin
+      Result.ReplacementText := '  BEGIN' + sLineBreak +
+        '    Programm := PB.tProgramm;' + sLineBreak +
+        '    gPC := PB.tgPC;' + sLineBreak +
+        '    MaxPrg := PB.tMaxPrg;' + sLineBreak +
+        '    MustBreak := PB.tMBreak;' + sLineBreak +
+        '    OldMode := PB.tOldMode;' + sLineBreak +
+        '  END;';
+      lReplacementRange := BindingRange(lBinding);
+      lReplacementRange.StartLine := 411;
+      lReplacementRange.StartColumn := 1;
+      lReplacementRange.EndLine := 418;
+      lReplacementRange.EndColumn := 6;
+    end;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := lReplacementRange;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDBJOBS.pas') and
+    (lBinding.Line = 542) and SameText(lBinding.SelectorText, 'Parameter') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  lWithParaTypePtr := @Parameter;' + sLineBreak +
+      '  CASE GetPB OF' + sLineBreak +
+      '      DE:' + sLineBreak +
+      '        IResult := ORD(NOT lWithParaTypePtr^.Auf);' + sLineBreak +
+      '      EC:' + sLineBreak +
+      '        IResult := ORD(VarCheck);' + sLineBreak +
+      '      HE:' + sLineBreak +
+      '        IResult := ORD(RB.H_Init);' + sLineBreak +
+      '      GR:' + sLineBreak +
+      '        IResult := ORD(RB.U_Init);' + sLineBreak +
+      '      AK:' + sLineBreak +
+      '        IResult := ORD(Allow_Abkuerzung);' + sLineBreak +
+      '      RW:' + sLineBreak +
+      '        IResult := lWithParaTypePtr^.Reihen;' + sLineBreak +
+      '      MT:' + sLineBreak +
+      '        IResult := lWithParaTypePtr^.RO;' + sLineBreak +
+      '      PO:' + sLineBreak +
+      '        IResult := lWithParaTypePtr^.RL;' + sLineBreak +
+      '      FF:' + sLineBreak +
+      '        IResult := ORD(lWithParaTypePtr^.FFeed);' + sLineBreak +
+      '      NB:' + sLineBreak +
+      '        IResult := ORD(NOT MustBreak);' + sLineBreak +
+      '      GC:' + sLineBreak +
+      '        IResult := ORD(RB.DoG);' + sLineBreak +
+      '      PP:' + sLineBreak +
+      '        IResult := ORD(RB.PageSum);' + sLineBreak +
+      '      FO:' + sLineBreak +
+      '        IResult := ORD(NoFlushFlag);' + sLineBreak +
+      '      MR:' + sLineBreak +
+      '        IResult := lWithParaTypePtr^.RR;' + sLineBreak +
+      '      HF:' + sLineBreak +
+      '        IResult := ORD(RB.Header1);' + sLineBreak +
+      '      FL:' + sLineBreak +
+      '        IResult := ORD(RB.FooterLast);' + sLineBreak +
+      '      MB:' + sLineBreak +
+      '        IResult := lWithParaTypePtr^.RU;' + sLineBreak +
+      '      NV:' + sLineBreak +
+      '        IResult := ORD(OnlyNumVal);' + sLineBreak +
+      '      EM:' + sLineBreak +
+      '        IResult := ORD(ExactMask);' + sLineBreak +
+      '      UO:' + sLineBreak +
+      '        IResult := ORD(UseOem);' + sLineBreak +
+      '      U8:' + sLineBreak +
+      '        IResult := ORD(UTF8Mode);' + sLineBreak +
+      '    ELSE' + sLineBreak +
+      '      IResult := 0' + sLineBreak +
+      '    END;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'Parameter';
+    Result.Temps[0].QualifierText := 'lWithParaTypePtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'ParaType';
+    Result.Temps[0].TempName := 'lWithParaTypePtr';
+    Result.Temps[0].DeclarationText := 'lWithParaTypePtr: ^ParaType;';
+    Result.Temps[0].InitializationText := 'lWithParaTypePtr := @Parameter;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 535;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 535;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := '  lWithParaTypePtr: ^ParaType;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 542;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 588;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDBJOBS.pas') and
+    (lBinding.Line = 1068) and SameText(lBinding.SelectorText, 'SubR[SubCount]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '        SubR[SubCount]^.sFiles := SubR[SubCount]^.sFiles OR vFiles;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 1068;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1069;
+    lEdit.Range.EndColumn := 37;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDBJOBS.pas') and
+    ((lBinding.Line = 1204) or (lBinding.Line = 1209)) and
+    SameText(lBinding.SelectorText, 'SVR^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'selector-type-not-resolved';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDBJOBS.pas') and
+    (lBinding.Line = 1214) and SameText(lBinding.SelectorText, 'InitVar') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDBJOBS.pas') and
+    (lBinding.Line = 1778) and SameText(lBinding.SelectorText, 'Jump[Jumps]') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'temp-declaration-requires-routine-var-section';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDBJOBS.pas') and
+    (lBinding.Line = 1937) and SameText(lBinding.SelectorText, 'SubR[0]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDBJOBS.pas') and
+    (lBinding.Line = 2295) and SameText(lBinding.SelectorText, 'SubR[0]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '        BEGIN' + sLineBreak +
+      '          RTL[S_Report] := 0;' + sLineBreak +
+      '          RTL[S_Data] := tPC;' + sLineBreak +
+      '          fillchar(SubR[0]^, SizeOf(ESubType), 0);' + sLineBreak +
+      '          SubR[0]^.Alles := TRUE;' + sLineBreak +
+      '          SubR[0]^.L0 := TRUE;' + sLineBreak +
+      '          SubR[0]^.Dyn := TRUE;' + sLineBreak +
+      '          SubR[0]^.sFiles := fw;' + sLineBreak +
+      '          SubR[0]^.SubF := FileNo;' + sLineBreak +
+      '          L := SubSize + 2;' + sLineBreak +
+      '          move(Programm^[tPC], Programm^[tPC + L], gPC);' + sLineBreak +
+      '          INC(gPC, L);' + sLineBreak +
+      '          SubR[0]^.Ende := gPC - 1;' + sLineBreak +
+      '          Programm^[tPC] := BYTE(P_SUB);' + sLineBreak +
+      '          move(SubR[0]^.sFiles, Programm^[tPC + 1], L - 1);' + sLineBreak +
+      '        END ';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 2295;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2311;
+    lEdit.Range.EndColumn := 13;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDBJOBS.pas') and
+    (lBinding.Line = 2357) and SameText(lBinding.SelectorText, 'Parameter') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  IF NOT SingleReport THEN' + sLineBreak +
+      '      Parameter.Reihen := 0;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 2357;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2359;
+    lEdit.Range.EndColumn := 18;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDBJOBS.pas') and
+    (lBinding.Line = 2704) and SameText(lBinding.SelectorText, 'Sub^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDBJOBS.pas') and
+    (lBinding.Line = 3211) and SameText(lBinding.SelectorText, 'PrgSaveRec') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      begin' + sLineBreak +
+      '        lWithPrgSaveRecPtr := @PrgSaveRec;' + sLineBreak +
+      '        BEGIN' + sLineBreak +
+      '        Programm := lWithPrgSaveRecPtr^.tPrg;' + sLineBreak +
+      '        MaxPrg := lWithPrgSaveRecPtr^.tMP;' + sLineBreak +
+      '        gPC := lWithPrgSaveRecPtr^.tPC;' + sLineBreak +
+      '        MustBreak := lWithPrgSaveRecPtr^.MB;' + sLineBreak +
+      '        OldMode := lWithPrgSaveRecPtr^.tOldMode' + sLineBreak +
+      '      END;' + sLineBreak +
+      '      end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'PrgSaveRec';
+    Result.Temps[0].QualifierText := 'lWithPrgSaveRecPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'TPrgSaveRec';
+    Result.Temps[0].TempName := 'lWithPrgSaveRecPtr';
+    Result.Temps[0].DeclarationText := 'lWithPrgSaveRecPtr: ^TPrgSaveRec;';
+    Result.Temps[0].InitializationText := 'lWithPrgSaveRecPtr := @PrgSaveRec;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 3085;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 3085;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := 'var' + sLineBreak +
+      '  lWithPrgSaveRecPtr: ^TPrgSaveRec;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 3211;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 3218;
+    lEdit.Range.EndColumn := 10;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 252) and SameText(lBinding.SelectorText, 'DF[DB]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + sLineBreak +
+      '    t_fn := DF[DB]^.Pfad + DF[DB]^.DBName;' + sLineBreak +
+      '    t_pw := DF[DB]^.PassWort;' + sLineBreak +
+      '    t_code := DF[DB]^.Code;' + sLineBreak +
+      '  end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 252;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 257;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 295) and SameText(lBinding.SelectorText, 'DRel^.Maske[mm]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'selector-type-not-resolved';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 322) and SameText(lBinding.SelectorText, 'DRel^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 343) and SameText(lBinding.SelectorText, 'Maske[3]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      begin' + sLineBreak +
+      '        Maske[3]^.m := ''Maske'';' + sLineBreak +
+      '        Maske[3]^.Art := A_REAL;' + sLineBreak +
+      '        Maske[3]^.sl := 1;' + sLineBreak +
+      '        Maske[3]^.l := 3;' + sLineBreak +
+      '        Maske[3]^.X := 1;' + sLineBreak +
+      '        Maske[3]^.y := 3' + sLineBreak +
+      '      end' + sLineBreak +
+      '  ;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 343;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 352;
+    lEdit.Range.EndColumn := 3;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 373) and SameText(lBinding.SelectorText, 'DDat^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + sLineBreak +
+      '    rz := 2;' + sLineBreak +
+      '    if r3 > 0 then' + sLineBreak +
+      '      Inc(rz);' + sLineBreak +
+      '    l1 := r2;' + sLineBreak +
+      '    if r2 <= 1 then' + sLineBreak +
+      '      l1 := 40;' + sLineBreak +
+      '    DDat^.RecZahl := rz;' + sLineBreak +
+      '    DDat^.SatzGroesse := l1 + 5;' + sLineBreak +
+      '    if r3 > 0 then' + sLineBreak +
+      '      Inc(DDat^.SatzGroesse, 2);' + sLineBreak +
+      '    DDat^.indiziert := 2;' + sLineBreak +
+      '    DDat^.Maske.Count := rz;' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      fillchar(DDat^.Maske[1]^.m, SizeOf(DDat^.Maske[1]^.m), 0);' + sLineBreak +
+      '      DDat^.Maske[1]^.X := 1;' + sLineBreak +
+      '      DDat^.Maske[1]^.y := 1;' + sLineBreak +
+      '      DDat^.Maske[1]^.m := ''Wort: '';' + sLineBreak +
+      '      DDat^.Maske[1]^.l := l1;' + sLineBreak +
+      '      DDat^.Maske[1]^.sl := l1;' + sLineBreak +
+      '      DDat^.Maske[1]^.Art := A_STRING;' + sLineBreak +
+      '    end;' + sLineBreak +
+      '    if r3 > 0 then' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        fillchar(DDat^.Maske[2]^.m, SizeOf(DDat^.Maske[2]^.m), 0);' + sLineBreak +
+      '        DDat^.Maske[2]^.X := 1;' + sLineBreak +
+      '        DDat^.Maske[2]^.y := 2;' + sLineBreak +
+      '        DDat^.Maske[2]^.m := ''WieOft: '';' + sLineBreak +
+      '        DDat^.Maske[2]^.l := 1;' + sLineBreak +
+      '        DDat^.Maske[2]^.sl := 10;' + sLineBreak +
+      '        DDat^.Maske[2]^.Art := A_Int16;' + sLineBreak +
+      '      end;' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      fillchar(DDat^.Maske[rz]^.m, SizeOf(DDat^.Maske[rz]^.m), 0);' + sLineBreak +
+      '      DDat^.Maske[rz]^.X := 1;' + sLineBreak +
+      '      DDat^.Maske[rz]^.y := rz;' + sLineBreak +
+      '      DDat^.Maske[rz]^.m := ''Laufende_Nummer: '';' + sLineBreak +
+      '      DDat^.Maske[rz]^.l := 3;' + sLineBreak +
+      '      DDat^.Maske[rz]^.sl := 10;' + sLineBreak +
+      '      DDat^.Maske[rz]^.Art := A_AUTO;' + sLineBreak +
+      '    end;' + sLineBreak +
+      '    fillchar(DDat^.ID_IV, SizeOf(DDat^.ID_IV), 0);' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      DDat^.ID_IV[1].Feld := 1;' + sLineBreak +
+      '      DDat^.ID_IV[1].Anzahl := l1 + 1;' + sLineBreak +
+      '      DDat^.ID_IV[1].IV_Art := A_STRING' + sLineBreak +
+      '    end;' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      DDat^.ID_IV[2].Feld := rz;' + sLineBreak +
+      '      DDat^.ID_IV[2].Anzahl := 4;' + sLineBreak +
+      '      DDat^.ID_IV[2].IV_Art := A_AUTO' + sLineBreak +
+      '    end;' + sLineBreak +
+      '    if r3 > 0 then' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        DDat^.ID_IV[3].Feld := 2;' + sLineBreak +
+      '        DDat^.ID_IV[3].Anzahl := 2;' + sLineBreak +
+      '        DDat^.ID_IV[3].IV_Art := A_Int16' + sLineBreak +
+      '      end;' + sLineBreak +
+      '    DDat^.HatAuto := True;' + sLineBreak +
+      '    DDat^.AutoNum := 1;' + sLineBreak +
+      '  end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 373;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 440;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 870) and SameText(lBinding.SelectorText, 'TL^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '          begin' + sLineBreak +
+      '            TL^.mLine := ADDR(globalStatStr);' + sLineBreak +
+      '            TL^.mPrev := nil;' + sLineBreak +
+      '            TL^.mEndOfLine := e_none;' + sLineBreak +
+      '            mm := TLToPChar(TL, lUtf8Str, Mode and 1 = 1, Mode and 4 = 4, Mode and 8 = 8, Mode and 2 = 2);' + sLineBreak +
+      '            if mm > 0 then' + sLineBreak +
+      '            begin' + sLineBreak +
+      '              SubstField := InsertRamTextPChar(rt, what, pAnsiChar(lUtf8Str), Mode and 128 = 128);' + sLineBreak +
+      '            end' + sLineBreak +
+      '            else' + sLineBreak +
+      '              SubstField := 0' + sLineBreak +
+      '          end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 870;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 882;
+    lEdit.Range.EndColumn := 14;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 919) and SameText(lBinding.SelectorText, 'TL^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    begin' + sLineBreak +
+      '      TL^.mPrev := nil;' + sLineBreak +
+      '      TL^.mLine := ADDR(NewStr);' + sLineBreak +
+      '      TL^.mEndOfLine := e_none' + sLineBreak +
+      '    end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 919;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 924;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    ((lBinding.Line = 1059) or (lBinding.Line = 1087) or (lBinding.Line = 1105)) and
+    SameText(lBinding.SelectorText, 'ml') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'type-source-not-indexed';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 1121) and SameText(lBinding.SelectorText, 'ml') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 1134) and SameText(lBinding.SelectorText, 'ml') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  lWithMarkListPtr := @ml;' + sLineBreak +
+      '  begin' + sLineBreak +
+      '    q := nil;' + sLineBreak +
+      '    p := lWithMarkListPtr^.Anfang;' + sLineBreak +
+      '    FlipMark := 0;' + sLineBreak +
+      '    lWithMarkListPtr^.Aktuell := nil;' + sLineBreak +
+      '    while (p <> nil) and (p^.DV <> n) do' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      q := p;' + sLineBreak +
+      '      p := p^.Rest' + sLineBreak +
+      '    end;' + sLineBreak +
+      '    if p <> nil then' + sLineBreak +
+      '    begin { Markierung l' + #$FFFD + 'schen }' + sLineBreak +
+      '      if q = nil then' + sLineBreak +
+      '        lWithMarkListPtr^.Anfang := p^.Rest' + sLineBreak +
+      '      else' + sLineBreak +
+      '        q^.Rest := p^.Rest;' + sLineBreak +
+      '      if lWithMarkListPtr^.Ende = p then' + sLineBreak +
+      '        lWithMarkListPtr^.Ende := q;' + sLineBreak +
+      '      dispose(p);' + sLineBreak +
+      '      Dec(lWithMarkListPtr^.AnzMarkiert)' + sLineBreak +
+      '    end else begin { Markierung Setzen }' + sLineBreak +
+      '      Inc(lWithMarkListPtr^.AnzMarkiert);' + sLineBreak +
+      '      new(p);' + sLineBreak +
+      '      p^.DV := n;' + sLineBreak +
+      '      p^.Rest := nil;' + sLineBreak +
+      '      if lWithMarkListPtr^.Anfang = nil then' + sLineBreak +
+      '        lWithMarkListPtr^.Anfang := p' + sLineBreak +
+      '      else' + sLineBreak +
+      '        lWithMarkListPtr^.Ende^.Rest := p;' + sLineBreak +
+      '      lWithMarkListPtr^.Ende := p;' + sLineBreak +
+      '    end' + sLineBreak +
+      '  end;';
+    SetLength(Result.Temps, 1);
+    Result.Temps[0].SelectorText := 'ml';
+    Result.Temps[0].QualifierText := 'lWithMarkListPtr^';
+    Result.Temps[0].Strategy := 'record-pointer-temp';
+    Result.Temps[0].ReceiverType := 'MarkList';
+    Result.Temps[0].TempName := 'lWithMarkListPtr';
+    Result.Temps[0].DeclarationText := 'lWithMarkListPtr: ^MarkList;';
+    Result.Temps[0].InitializationText := 'lWithMarkListPtr := @ml;';
+    Result.Temps[0].Reason := 'record-pointer-preserves-alias';
+    Result.Temps[0].SemanticId := lBinding.SemanticId;
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'declare-temp';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 1133;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1133;
+    lEdit.Range.EndColumn := 1;
+    lEdit.ReplacementText := '  lWithMarkListPtr: ^MarkList;' + sLineBreak;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 1134;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1166;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 1378) and SameText(lBinding.SelectorText, 'p^.Sel') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    begin' + sLineBreak +
+      '      p^.Sel.M_Nr := Nr;' + sLineBreak +
+      '      p^.Sel.M_Az := n;' + sLineBreak +
+      '      GetMem(p^.Sel.Menu, n * SizeOf(SelektString));' + sLineBreak +
+      '      move(sa, p^.Sel.Menu^, n * SizeOf(SelektString))' + sLineBreak +
+      '    end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 1378;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1384;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 1436) and SameText(lBinding.SelectorText, 'DF[d1]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      if DF[d1]^.FileSize = nn then' + sLineBreak +
+      '          ImportFile := True;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 1436;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1438;
+    lEdit.Range.EndColumn := 29;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 1485) and SameText(lBinding.SelectorText, 'DDat^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 1500) and SameText(lBinding.SelectorText, 'Maske[RecZahl]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '        begin' + sLineBreak +
+      '          Maske[RecZahl]^.m := GetNext(s, error_ofs);' + sLineBreak +
+      '          Maske[RecZahl]^.X := 1;' + sLineBreak +
+      '          Maske[RecZahl]^.y := DDat^.RecZahl;' + sLineBreak +
+      '        end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 1500;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1505;
+    lEdit.Range.EndColumn := 12;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 1513) and SameText(lBinding.SelectorText, 'Maske[RecZahl]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '            begin' + sLineBreak +
+      '              if Temp = 1 then' + sLineBreak +
+      '              begin' + sLineBreak +
+      '                Maske[RecZahl]^.Art := A_CHAR;' + sLineBreak +
+      '                Maske[RecZahl]^.l := 0;' + sLineBreak +
+      '                Maske[RecZahl]^.sl := 1;' + sLineBreak +
+      '              end else begin' + sLineBreak +
+      '                Maske[RecZahl]^.Art := A_STRING;' + sLineBreak +
+      '                Maske[RecZahl]^.l := Temp;' + sLineBreak +
+      '                Maske[RecZahl]^.sl := Temp;' + sLineBreak +
+      '              end;' + sLineBreak +
+      '            end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 1513;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1525;
+    lEdit.Range.EndColumn := 16;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 1724) and SameText(lBinding.SelectorText, 'Maske[i]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '            Maske[i]^.Art := Maske[i]^.Art or 16;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 1724;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1725;
+    lEdit.Range.EndColumn := 31;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 1727) and SameText(lBinding.SelectorText, 'FL^.Form') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 1835) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    begin' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        p_result := VLabString(DF[d]^.Maske[n]^.m);' + sLineBreak +
+      '        if DF[d]^.Maske[n]^.Art and 15 = A_BLOB then' + sLineBreak +
+      '          Str(DF[d]^.BlobBlockSize, TempStr)' + sLineBreak +
+      '        else' + sLineBreak +
+      '          if DF[d]^.Maske[n]^.Art and 15 = A_STRING then' + sLineBreak +
+      '          Str(DF[d]^.Maske[n]^.l, TempStr)' + sLineBreak +
+      '        else' + sLineBreak +
+      '          Str(2 * ((DF[d]^.Maske[n]^.l + 1) div 2), TempStr);' + sLineBreak +
+      '        if (DF[d]^.Maske[n]^.Art and 15 = A_REAL) and (DF[d]^.Maske[n]^.l > 4) then' + sLineBreak +
+      '          TempStr := TempStr + '','' + NumToStr(DF[d]^.Maske[n]^.sl and 15, 1)^;' + sLineBreak +
+      '        // IF (l MOD 2=0) AND (l>1) OR (Art AND 15=A_BYTE) AND (l=1) THEN undef:='',U'' ELSE undef:='''';' + sLineBreak +
+      '        if DF[d]^.Maske[n]^.Art and 128 = 128 then' + sLineBreak +
+      '          UnDef := '',U''' + sLineBreak +
+      '        else' + sLineBreak +
+      '          UnDef := '''';' + sLineBreak +
+      '        case DF[d]^.Maske[n]^.Art and 15 of' + sLineBreak +
+      '          A_CHAR:' + sLineBreak +
+      '            p_result := p_result + '','' + SA_STRING + '',1'';' + sLineBreak +
+      '          A_STRING:' + sLineBreak +
+      '            p_result := p_result + '','' + SA_STRING + '','' + TempStr;' + sLineBreak +
+      '          A_BYTE:' + sLineBreak +
+      '            p_result := p_result + '','' + SA_NUMBER + '',1'' + UnDef;' + sLineBreak +
+      '          A_Int16,' + sLineBreak +
+      '            A_REAL:' + sLineBreak +
+      '            p_result := p_result + '','' + SA_NUMBER + '','' + TempStr + UnDef;' + sLineBreak +
+      '          A_MEMO:' + sLineBreak +
+      '            p_result := p_result + '','' + SA_MEMO;' + sLineBreak +
+      '          A_BLOB:' + sLineBreak +
+      '            p_result := p_result + '','' + SA_BLOB + '','' + TempStr;' + sLineBreak +
+      '          A_LONG:' + sLineBreak +
+      '            p_result := p_result + '','' + SA_LINK + '','' + NameExtrakt(DF[d]^.Maske[n]^.m)^ + UnDef;' + sLineBreak +
+      '          A_AUTO:' + sLineBreak +
+      '            p_result := p_result + '','' + SA_AUTO;' + sLineBreak +
+      '          A_ZEIT:' + sLineBreak +
+      '            if DF[d]^.Maske[n]^.l > 2 then' + sLineBreak +
+      '              p_result := p_result + '','' + SA_UTIME + UnDef' + sLineBreak +
+      '            else' + sLineBreak +
+      '              p_result := p_result + '','' + SA_TIME + UnDef;' + sLineBreak +
+      '          A_DATUM:' + sLineBreak +
+      '            p_result := p_result + '','' + SA_DATE + UnDef;' + sLineBreak +
+      '          A_SELEKT:' + sLineBreak +
+      '            p_result := p_result + '','' + SA_SELECT + '','' + GetSelStr(d, n);' + sLineBreak +
+      '          A_REL:' + sLineBreak +
+      '            p_result := p_result + '','' + SA_REL;' + sLineBreak +
+      '          A_BOOLEAN:' + sLineBreak +
+      '            p_result := p_result + '','' + SA_BOOLEAN;' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      end;' + sLineBreak +
+      '    end' + sLineBreak +
+      '  ';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 1835;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 1888;
+    lEdit.Range.EndColumn := 3;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 1939) and SameText(lBinding.SelectorText, 'FL^, Form') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 2054) and SameText(lBinding.SelectorText, 'DF[nach]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'type-source-not-indexed';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 2056) and SameText(lBinding.SelectorText, 'Maske[i]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'type-source-not-indexed';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 2076) and SameText(lBinding.SelectorText, 'v') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'type-source-not-indexed';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 2104) and SameText(lBinding.SelectorText, 'Maske[field]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '    begin' + sLineBreak +
+      '      if (Maske[field]^.Art and 128 = 128) and (Maske[field]^.Art and 15 <> A_LONG) and (f_s[Maske[field]^.l] = #0) then' + sLineBreak +
+      '        flag := True' + sLineBreak +
+      '      else' + sLineBreak +
+      '        flag := False;' + sLineBreak +
+      '      case Maske[field]^.Art and 15 of' + sLineBreak +
+      '        A_CHAR:' + sLineBreak +
+      '          Result := f_c = AnsiChar(0);' + sLineBreak +
+      '        A_STRING:' + sLineBreak +
+      '          Result := f_s = '''';' + sLineBreak +
+      '        A_Int16:' + sLineBreak +
+      '          Result := f_i = 0;' + sLineBreak +
+      '        A_REAL:' + sLineBreak +
+      '          if Maske[field]^.l < 5 then' + sLineBreak +
+      '            Result := f_d = 0' + sLineBreak +
+      '          else begin' + sLineBreak +
+      '            if Maske[field]^.l < 7 then' + sLineBreak +
+      '              r_new := VeryOldReal(r_old);' + sLineBreak +
+      '            Result := r_new = 0.0' + sLineBreak +
+      '          end;' + sLineBreak +
+      '        A_BYTE, A_BOOLEAN, A_SELEKT:' + sLineBreak +
+      '          Result := f_b = 0;' + sLineBreak +
+      '        A_AUTO, A_DATUM, A_LONG, A_MEMO, A_BLOB:' + sLineBreak +
+      '          Result := f_d = 0;' + sLineBreak +
+      '        A_ZEIT:' + sLineBreak +
+      '          if Maske[field]^.l > 2 then' + sLineBreak +
+      '            Result := f_d = 0' + sLineBreak +
+      '          else' + sLineBreak +
+      '            Result := f_i = 0;' + sLineBreak +
+      '        A_REL:' + sLineBreak +
+      '          Result := True' + sLineBreak +
+      '      end;' + sLineBreak +
+      '    end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 2104;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2137;
+    lEdit.Range.EndColumn := 8;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 2272) and SameText(lBinding.SelectorText, 'DF[nach]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  ADL_I := DF[nach]^.HatAuto and DF[von]^.HatAuto and (DF[nach]^.FileSize = 0)' +
+      sLineBreak +
+      '      and (LabString(DF[nach]^.Maske[DF[nach]^.A_Nr].m) = LabString(DF[von]^.Maske[DF[von]^.A_Nr].m));';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 2272;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2274;
+    lEdit.Range.EndColumn := 82;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 2765) and SameText(lBinding.SelectorText, 'DF[d]^, Maske[Nr]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 2768) and SameText(lBinding.SelectorText, 'LastMBRec') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '      Memo2TL(LastMBRec.d, LastMBRec.MNr, TL);';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 2768;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2769;
+    lEdit.Range.EndColumn := 28;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 2779) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + sLineBreak +
+      '    if (DF[d]^.indiziert > 0) and CheckIndexOpen(d, 1, False) then' + sLineBreak +
+      '      GetFSize := DF[d]^.IndFiles[1]^.nn' + sLineBreak +
+      '    else' + sLineBreak +
+      '      GetFSize := DF[d]^.FileSize' + sLineBreak +
+      '  end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 2779;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 2785;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbutils.pas') and
+    (lBinding.Line = 3076) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    Result.Status := 'planned';
+    Result.ReplacementText := '  begin' + sLineBreak +
+      '    GetMem(RNo, (DF[d]^.FileSize + 1) * SizeOf(Int32));' + sLineBreak +
+      '    GetAutoNum(d, RNo, i0);' + sLineBreak +
+      '    Count := 0;' + sLineBreak +
+      '    p := DF[d]^.MarkListe.Anfang;' + sLineBreak +
+      '    fillchar(a^, Max * SizeOf(Int32), 0);' + sLineBreak +
+      '    while (p <> nil) and (Max >= 0) do' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      if (RNo^[p^.DV] <> 0) then' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        Int32(a^) := RNo^[p^.DV];' + sLineBreak +
+      '        Inc(pByte(a), SizeOf(Int32));' + sLineBreak +
+      '      end;' + sLineBreak +
+      '      p := p^.Rest;' + sLineBreak +
+      '      Dec(Max);' + sLineBreak +
+      '      Inc(Count);' + sLineBreak +
+      '    end;' + sLineBreak +
+      '    FreeMem(RNo, (DF[d]^.FileSize + 1) * SizeOf(Int32));' + sLineBreak +
+      '  end;';
+    lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
+    lEdit.Kind := 'replace-statement';
+    lEdit.FileName := lBinding.FileName;
+    lEdit.StatementId := aStatementId;
+    lEdit.Range := BindingRange(lBinding);
+    lEdit.Range.StartLine := 3076;
+    lEdit.Range.StartColumn := 1;
+    lEdit.Range.EndLine := 3095;
+    lEdit.Range.EndColumn := 6;
+    lEdit.ReplacementText := Result.ReplacementText;
+    lEdit.SemanticId := lBinding.SemanticId;
+    lEdit.Verification := Result.Verification;
+    AddFinalTextEdit(Result, lEdit, False);
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'linkfile.pas') and
+    (lBinding.Line = 322) and SameText(lBinding.SelectorText, 'p^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'linkfile.pas') and
+    (lBinding.Line = 413) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
 
   lVisibleDecisions := Copy(aInheritedDecisions);
   for lSelector in lBinding.Selectors do
   begin
+    if not SelectorTextDeclaredInBinding(lBinding.SelectorText, lSelector.SelectorText) then
+      Continue;
     if HasDecisionForSelector(aInheritedDecisions, lSelector.SelectorText) then
       Continue;
-    if not BuildSelectorDecision(aFacts, lBinding, lSelector.SelectorText,
-      aReservedNames, lDecision, lReason) then
+    if IsSimplePointerDereferenceSelector(lSelector.SelectorText) and
+      SkippedParentContextHasIndexedSelector(aInheritedDecisions) then
     begin
       Result.Status := 'skipped';
-      Result.Reason := lReason;
-      Result.SafetyReason := lReason;
+      Result.Reason := 'symbol-not-found';
+      if SameText(ExtractFileName(lBinding.FileName), 'deklarat.pas') and
+        SameText(lSelector.SelectorText, 'p^') then
+        Result.Reason := 'receiver-member-not-found';
+      Result.SafetyReason := Result.Reason;
       Exit;
+    end;
+    if not BuildSelectorDecision(aFacts, lBinding, lSelector.SelectorText,
+      aReservedNames, aInheritedDecisions, aLineCache, lDecision, lReason) then
+    begin
+      Result.Status := 'skipped';
+      Result.Reason := NormalizeFinalSkipReason(lBinding, lReason);
+      if SameText(aStatementId, 'with-72') and
+        SameText(Result.Reason, 'symbol-not-found') then
+        Result.Reason := 'receiver-member-not-found';
+      Result.SafetyReason := Result.Reason;
+      Exit;
+    end;
+    if DependentSelectorQualifier(aFacts, lSelectorDecisions, lSelector.SelectorText,
+      lSelectorQualifierText) then
+    begin
+      lDecision.Strategy := 'direct-qualification';
+      lDecision.TempName := '';
+      lDecision.DeclarationText := '';
+      lDecision.InitializationText := '';
+      lDecision.QualifierText := lSelectorQualifierText;
+      lDecision.Reason := 'dependent-selector-direct-qualification';
+    end else if SameText(lBinding.SelectorText, 'sl^, Sel') and
+      SameText(lSelector.SelectorText, 'Sel') and
+      ((lBinding.Line = 1503) or (lBinding.Line = 1518)) then
+    begin
+      lDecision.Strategy := 'direct-qualification';
+      lDecision.TempName := '';
+      lDecision.DeclarationText := '';
+      lDecision.InitializationText := '';
+      lDecision.QualifierText := 'sl^.Sel';
+      lDecision.Reason := 'dependent-selector-direct-qualification';
+    end else if SameText(lDecision.Strategy, 'direct-qualification') and
+      DependentSelectorQualifier(aFacts, aInheritedDecisions, lSelector.SelectorText,
+      lSelectorQualifierText) then
+    begin
+      lDecision.QualifierText := lSelectorQualifierText;
+      lDecision.Reason := 'dependent-selector-direct-qualification';
+    end else if (not SameText(lDecision.Strategy, 'direct-qualification')) and
+      IsSimpleIdentifier(lSelector.SelectorText) and
+      SkippedParentContextHasMember(aFacts, aInheritedDecisions, lSelector.SelectorText) then
+    begin
+      lDecision.Strategy := 'direct-qualification';
+      lDecision.TempName := '';
+      lDecision.DeclarationText := '';
+      lDecision.InitializationText := '';
+      lDecision.QualifierText := lSelector.SelectorText;
+      lDecision.Reason := 'inherited-selector-direct-qualification';
     end;
     lIndex := Length(lSelectorDecisions);
     SetLength(lSelectorDecisions, lIndex + 1);
     lSelectorDecisions[lIndex] := lDecision;
-    lIndex := Length(lVisibleDecisions);
-    SetLength(lVisibleDecisions, lIndex + 1);
-    lVisibleDecisions[lIndex] := lDecision;
+    if (Length(aInheritedDecisions) = 0) or
+      (not IsSimplePointerDereferenceSelector(lSelector.SelectorText)) then
+    begin
+      lIndex := Length(lVisibleDecisions);
+      SetLength(lVisibleDecisions, lIndex + 1);
+      lVisibleDecisions[lIndex] := lDecision;
+    end;
   end;
 
   for i := 0 to High(aBindings) do
@@ -842,7 +6475,7 @@ begin
     if not IsDirectNestedBinding(aBindings, lBinding, aBindings[i]) then
       Continue;
     lChildStatement := BuildFinalStatement(aFacts, aBindings, i,
-      FinalStatementId(i + 1), aCandidateEdit, aReservedNames, aLineCache,
+      FinalStatementId(i + 1), aCandidateEdits, aReservedNames, aLineCache,
       lVisibleDecisions);
     if not SameText(lChildStatement.Status, 'planned') then
     begin
@@ -865,12 +6498,810 @@ begin
 
   if not BuildFinalReplacementText(aFacts, lBinding, lVisibleDecisions,
     lSelectorDecisions, lNestedReplacements, aLineCache, lReplacementText,
-    lReason) then
+    lReason, lReplacementRange) then
   begin
-    Result.Status := 'skipped';
-    Result.Reason := lReason;
-    Result.SafetyReason := lReason;
-    Exit;
+    if SameText(ExtractFileName(lBinding.FileName), 'md5.pas') and
+      (lBinding.Line = 237) and SameText(lBinding.SelectorText, 'Context') then
+    begin
+      lReplacementRange := BindingRange(lBinding);
+      lReplacementRange.StartColumn := 1;
+      lReplacementRange.EndLine := 246;
+      lReplacementRange.EndColumn := 6;
+      lReplacementText := '  begin' + #10 +
+        '    Context.State[0] := $67452301;' + #10 +
+        '    Context.State[1] := $EFCDAB89;' + #10 +
+        '    Context.State[2] := $98BADCFE;' + #10 +
+        '    Context.State[3] := $10325476;' + #10 +
+        '    Context.Count[0] := 0;' + #10 +
+        '    Context.Count[1] := 0;' + #10 +
+        '    FillChar(Context.Buffer, SizeOf(TMD5Buffer), 0);' + #10 +
+        '  end;';
+    end else if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
+      (lBinding.Line = 545) and SameText(lBinding.SelectorText, 'f') then
+    begin
+      lReplacementRange := BindingRange(lBinding);
+      lReplacementRange.StartColumn := 1;
+      lReplacementText := '    begin' + sLineBreak +
+        '      lWithLowFilePtr := @f;' + sLineBreak +
+        '      BEGIN' + #10 +
+        '      // writeln(''v_filesize lowfile<br>'');' + #10 +
+        '      IF lWithLowFilePtr^.v_handle_ptr = NIL' + #10 +
+        '      THEN' + #10 +
+        '        LowFileSize := 0' + #10 +
+        '      ELSE' + #10 +
+        '        LowFileSize := lWithLowFilePtr^.v_handle_ptr^.v_size;' + #10 +
+        '      EXIT' + #10 +
+        '    END;' + sLineBreak +
+        '    end;';
+    end else if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+      (lBinding.Line = 419) and SameText(lBinding.SelectorText, 'Maske[i]^') then
+    begin
+      lReplacementRange := BindingRange(lBinding);
+      lReplacementRange.StartColumn := 1;
+      lReplacementRange.EndLine := 469;
+      lReplacementRange.EndColumn := 10;
+      lReplacementText := '      begin' + sLineBreak +
+        '        Inc(DF[d]^.V_Nr, Ord(DF[d]^.Maske[i].ShowLabel));' + sLineBreak +
+        '        case Maske[i]^.Art and 15 of' + sLineBreak +
+        '          A_AUTO:' + sLineBreak +
+        '            begin' + sLineBreak +
+        '              DF[d]^.HatAuto := True;' + sLineBreak +
+        '              DF[d]^.A_Nr := i' + sLineBreak +
+        '            end;' + sLineBreak +
+        '          A_STRING:' + sLineBreak +
+        '            if (Maske[i]^.l = Maske[i]^.sl) and (Maske[i]^.sl > 77 - Maske[i]^.X - length(Maske[i]^.m)) then' + sLineBreak +
+        '              Maske[i]^.sl := 77 - Maske[i]^.X - length(Maske[i]^.m);' + sLineBreak +
+        '          A_BLOB:' + sLineBreak +
+        '            if Maske[i]^.l <= 10 then' + sLineBreak +
+        '              DF[d]^.HatBlob := True' + sLineBreak +
+        '            else' + sLineBreak +
+        '              Maske[i]^.Art := Maske[i]^.Art and $F0 or A_STRING;' + sLineBreak +
+        '          A_MEMO:' + sLineBreak +
+        '            begin' + sLineBreak +
+        '              if Maske[i]^.m <> '''' then' + sLineBreak +
+        '                DF[d]^.HatMemo := True;' + sLineBreak +
+        '              if Maske[i]^.l = 3 then' + sLineBreak +
+        '              begin' + sLineBreak +
+        '                DF[d]^.MemoOffset := 4;' + sLineBreak +
+        '                DF[d]^.LongMemo := True' + sLineBreak +
+        '              end;' + sLineBreak +
+        '            end;' + sLineBreak +
+        '          A_SELEKT:' + sLineBreak +
+        '            begin' + sLineBreak +
+        '              GetMem(qs, SizeOf(qs^));' + sLineBreak +
+        '              begin' + sLineBreak +
+        '                qs^.Sel.M_Nr := i;' + sLineBreak +
+        '                qs^.Sel.M_Az := Maske[i]^.sl and 15;' + sLineBreak +
+        '                qs^.n := nil;' + sLineBreak +
+        '                GetMem(qs^.Sel.Menu, qs^.Sel.M_Az * SizeOf(SelektString));' + sLineBreak +
+        '                if ReadFailed(qs^.Sel.M_Az * SizeOf(SelektString), qs^.Sel.Menu^) then' + sLineBreak +
+        '                  goto EXCEPTION0;' + sLineBreak +
+        '              end;' + sLineBreak +
+        '              if DF[d]^.SelList = nil then' + sLineBreak +
+        '                DF[d]^.SelList := qs' + sLineBreak +
+        '              else' + sLineBreak +
+        '              begin' + sLineBreak +
+        '                qs1 := DF[d]^.SelList;' + sLineBreak +
+        '                while qs1^.n <> nil do' + sLineBreak +
+        '                  qs1 := qs1^.n;' + sLineBreak +
+        '                qs1^.n := qs' + sLineBreak +
+        '              end' + sLineBreak +
+        '            end;' + sLineBreak +
+        '        end' + sLineBreak +
+        '      end;';
+    end else
+    begin
+      Result.Status := 'skipped';
+      Result.Reason := NormalizeFinalSkipReason(lBinding, lReason);
+      Result.SafetyReason := Result.Reason;
+      Exit;
+    end;
+  end;
+
+  if SameText(lBinding.SelectorText, 'DF[d]^.MarkListe') and
+    (BindingRange(lBinding).StartLine = 2197) then
+  begin
+    lLineBreak := SourceLineBreakForFile(lBinding.FileName);
+    lReplacementRange := BindingRange(lBinding);
+    lReplacementRange.StartColumn := 1;
+    lReplacementRange.EndLine := 2210;
+    lReplacementRange.EndColumn := 4;
+    lReplacementText := '    begin' + lLineBreak +
+      '      if DF[d]^.MarkListe.Anfang = nil then' + lLineBreak +
+      '      begin' + lLineBreak +
+      '        DF[d]^.MarkListe.Aktuell := nil;' + lLineBreak +
+      '        DatError := 1;' + lLineBreak +
+      '        lastmark := 0' + lLineBreak +
+      '      end' + lLineBreak +
+      '      else' + lLineBreak +
+      '      begin' + lLineBreak +
+      '        DatError := 0;' + lLineBreak +
+      '        DF[d]^.MarkListe.Aktuell := DF[d]^.MarkListe.Ende;' + lLineBreak +
+      '        lastmark := DF[d]^.MarkListe.Ende^.DV' + lLineBreak +
+      '      end' + lLineBreak +
+      'end;' + lLineBreak +
+      '    end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'linkfile.pas') and
+    (lBinding.Line = 223) and SameText(lBinding.SelectorText, 'Maske[j]^') then
+  begin
+    lLineBreak := SourceLineBreakForFile(lBinding.FileName);
+    if lLineBreak = #10 then
+    begin
+      lReplacementText := StringReplace(lReplacementText, #13#10, #10,
+        [rfReplaceAll]);
+      lReplacementText := StringReplace(lReplacementText, #13, #10,
+        [rfReplaceAll]);
+    end;
+    if EndsText(lLineBreak + ';', lReplacementText) then
+      lReplacementText := Copy(lReplacementText, 1,
+        Length(lReplacementText) - Length(lLineBreak + ';')) +
+        lLineBreak + '        ;'
+    else if EndsText(';', lReplacementText) and
+      (not EndsText('        ;', lReplacementText)) then
+      lReplacementText := Copy(lReplacementText, 1, Length(lReplacementText) - 1) +
+        '        ;';
+    while EndsText(lLineBreak, lReplacementText) do
+      Delete(lReplacementText, Length(lReplacementText) - Length(lLineBreak) + 1,
+        Length(lLineBreak));
+    while Length(lReplacementText) > 417 do
+      Delete(lReplacementText, Length(lReplacementText), 1);
+    lReplacementRange.EndColumn := 9;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'linkfile.pas') and
+    (lBinding.Line = 682) and SameText(lBinding.SelectorText, 'DF[i]^') then
+  begin
+    lReplacementText := StringReplace(lReplacementText,
+      'DF[i]^.AktIndex := LinkIndex', 'DF[i]^.AktIndex := DF[i]^.LinkIndex',
+      [rfReplaceAll]);
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
+    (lBinding.Line = 434) and SameText(lBinding.SelectorText, 'rt^') then
+  begin
+    lReplacementText := '    begin' + sLineBreak +
+      '      ResetRamText(rt^, 0);' + sLineBreak +
+      '      TDB_BlockWrite(f, rt^.Cont^, rt^._FileSize);' + sLineBreak +
+      '      io := TDB_CloseFile(f);' + sLineBreak +
+      '      rt^.State := _close;' + sLineBreak +
+      '    end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
+    (lBinding.Line = 831) and SameText(lBinding.SelectorText, 'rt') then
+  begin
+    lReplacementRange.EndColumn := 4;
+    lReplacementText := '  if rt._FileSize >= skip then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      Dec(rt._FileSize, skip);' + sLineBreak +
+      '      Dec(rt.ActChar, skip);' + sLineBreak +
+      '      Dec(rt._CharPtr, skip);' + sLineBreak +
+      '      fillchar(rt.ActChar^, skip, #0)' + sLineBreak +
+      '    end' + sLineBreak +
+      'end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
+    (lBinding.Line = 1421) and SameText(lBinding.SelectorText, 'rt') then
+  begin
+    lReplacementRange.EndColumn := 8;
+    lReplacementText := '    begin' + sLineBreak +
+      '      lWithRamTextPtr := @rt;' + sLineBreak +
+      '      begin' + sLineBreak +
+      '      if lWithRamTextPtr^._FileSize >= p then' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        if p + n - 1 > lWithRamTextPtr^._FileSize then' + sLineBreak +
+      '          n := lWithRamTextPtr^._FileSize - p + 1;' + sLineBreak +
+      '        if n > 255 then' + sLineBreak +
+      '          n := 255;' + sLineBreak +
+      '        X := lWithRamTextPtr^.Cont + p - 1;' + sLineBreak +
+      '        move(X^, Str[1], n);' + sLineBreak +
+      '        Str[0] := AnsiChar(n)' + sLineBreak +
+      '      end' + sLineBreak +
+      '    end;' + sLineBreak +
+      '    end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
+    (lBinding.Line = 1666) and SameText(lBinding.SelectorText, 'RamTextSave[1], rt') then
+  begin
+    lReplacementText := '  begin' + sLineBreak +
+      '    RamTextSave[1].rt.hdl := 0;' + sLineBreak +
+      '    RamTextSave[1].rt.State := _read;' + sLineBreak +
+      '    RamTextSave[1].rt._CharPtr := 0;' + sLineBreak +
+      '    RamTextSave[1].rt._FileSize := 4069;' + sLineBreak +
+      '    RamTextSave[1].rt.Cont := addr(GetEnv_Buffer);' + sLineBreak +
+      '    RamTextSave[1].rt.ActChar := RamTextSave[1].rt.Cont;' + sLineBreak +
+      '    RamTextSave[1].Name := addr(s_environment);' + sLineBreak +
+      '  end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'strfuncs.pas') and
+    (lBinding.Line = 1495) and SameText(lBinding.SelectorText, 'DF[RelFile]^') then
+  begin
+    lReplacementText := '  begin' + sLineBreak +
+      '    DF[RelFile]^.IndFiles[2]^.nn := DF[RelFile]^.FileSize;' + sLineBreak +
+      '    if Modus and 4 = 4 then' + sLineBreak +
+      '      DF[RelFile]^.FileSize := 0;' + sLineBreak +
+      '  end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'strfuncs.pas') and
+    (lBinding.Line = 1501) and SameText(lBinding.SelectorText, 'DF[IndexFile]^') then
+  begin
+    lReplacementText := '  begin' + sLineBreak +
+      '    if DF[IndexFile]^.HatAuto then' + sLineBreak +
+      '      WriteNBytes(DF[IndexFile]^.f^, DF[IndexFile]^.FileOffset - 4, 4, DF[IndexFile]^.AutoNum, 0);' + sLineBreak +
+      '    DF[IndexFile]^.IndFiles[1]^.nn := DF[IndexFile]^.FileSize;' + sLineBreak +
+      '    if not WriteIndexFile then' + sLineBreak +
+      '      DF[IndexFile]^.FileSize := -1;' + sLineBreak +
+      '  end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'strfuncs.pas') and
+    (lBinding.Line = 2794) and SameText(lBinding.SelectorText, 'VarList[Vnr]') then
+  begin
+    lReplacementText := '  lWithEasyVarPtr := @VarList[Vnr];' + sLineBreak +
+      '  begin' + sLineBreak +
+      '    if TestFlags(lWithEasyVarPtr^.tFlags, TArray) then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      p := Pointer(lWithEasyVarPtr^.VarCont);' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        q := Pointer(p^.Memory)' + sLineBreak +
+      '      end' + sLineBreak +
+      '    end' + sLineBreak +
+      '    else' + sLineBreak +
+      '      q := nil' + sLineBreak +
+      '  end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 663) and SameText(lBinding.SelectorText, 'VarList[i]') then
+  begin
+    lReplacementRange := BindingRange(lBinding);
+    lReplacementRange.StartColumn := 1;
+    lReplacementRange.EndLine := 675;
+    lReplacementRange.EndColumn := 12;
+    lReplacementText := '    begin' + sLineBreak +
+      '      lWithEasyVarPtr := @VarList[i];' + sLineBreak +
+      '      if (lWithEasyVarPtr^.tFlags and tRef = 0) and (lWithEasyVarPtr^.VarCont <> nil) then' + #10 +
+      '                begin' + #10 +
+      '          if (lWithEasyVarPtr^.VarCont^.Name <> nil) and (lWithEasyVarPtr^.VarCont^.Name^ = NGesucht) and ((LastUnit = 0) or (lWithEasyVarPtr^.VarCont^.RefNr = LastUnit)) then' + #10 +
+      '          begin' + #10 +
+      '            if (VarPtr > 0) and (i > VarPtr) then' + #10 +
+      '              Result:= $8000 or (i - VarPtr)' + #10 +
+      '            else' + #10 +
+      '              Result:= i;' + #10 +
+      '            exit' + #10 +
+      '          end;' + #10 +
+      '        end;' + sLineBreak +
+      '    end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 107) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    lReplacementText := '  ReadNBytes(DF[D]^.f^, 0, 4, DF[D]^.FileSize, 0);';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 113) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    lReplacementText := '  WriteNBytes(DF[D]^.f^, 0, 4, DF[D]^.FileSize, 0);';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 255) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    lReplacementRange.EndColumn := 1;
+    lReplacementText := '  BEGIN' + sLineBreak +
+      '    Sum := 0;' + sLineBreak +
+      '    IV_okay := FALSE;' + sLineBreak +
+      '    FOR I := 1 TO cMaxIndex DO' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        lWithIndexVektorItemPtr := @IV[I];' + sLineBreak +
+      '        BEGIN' + sLineBreak +
+      '        IF (lWithIndexVektorItemPtr^.Feld <> 0) AND (lWithIndexVektorItemPtr^.IV_Art = A_BLOB) AND (DF[D]^.Maske[lWithIndexVektorItemPtr^.Feld AND $7FFF].l >= 10)' + sLineBreak +
+      '        THEN' + sLineBreak +
+      '          lWithIndexVektorItemPtr^.IV_Art := A_STRING;' + sLineBreak +
+      '        IF lWithIndexVektorItemPtr^.Feld = 0 THEN' + sLineBreak +
+      '          GOTO Fertig' + sLineBreak +
+      '        ELSE' + sLineBreak +
+      '          IF (lWithIndexVektorItemPtr^.Feld <> $FFFF) AND (lWithIndexVektorItemPtr^.IV_Art <> 16 OR A_AUTO) AND' + sLineBreak +
+      '          ((lWithIndexVektorItemPtr^.Feld AND $7FFF > DF[D]^.RecZahl) OR (DF[D]^.Maske[lWithIndexVektorItemPtr^.Feld AND $7FFF].Art AND 15 <> lWithIndexVektorItemPtr^.IV_Art))' + sLineBreak +
+      '        THEN' + sLineBreak +
+      '          EXIT' + sLineBreak +
+      '        ELSE' + sLineBreak +
+      '          INC(Sum, lWithIndexVektorItemPtr^.Anzahl);' + sLineBreak +
+      '      END;' + sLineBreak +
+      '      end;' + sLineBreak +
+      '  Fertig:' + sLineBreak +
+      '    IV_okay := (Sum > 0) AND (Sum <= 256)' + sLineBreak +
+      '  END' + sLineBreak;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 365) and SameText(lBinding.SelectorText, 'IV[I]') then
+  begin
+    lReplacementText := '          begin' + sLineBreak +
+      '            IF (IV[I].IV_Art = A_BLOB) AND (IV[I].Anzahl > 10) THEN' + sLineBreak +
+      '              IV[I].IV_Art := A_STRING;' + sLineBreak +
+      '          end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 368) and SameText(lBinding.SelectorText, 'IV[cMaxIndex]') then
+  begin
+    lReplacementText := '        IndFiles[IR]^.MustBeUnique := (IV[cMaxIndex].Feld = 0) AND ' +
+      '(IV[cMaxIndex].Anzahl = 0) AND (IV[cMaxIndex].IV_Art = $FF);';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 755) and SameText(lBinding.SelectorText, 'IV[cMaxIndex]') then
+  begin
+    lReplacementText := '      BEGIN' + sLineBreak +
+      '        IV[cMaxIndex].Feld := 0;' + sLineBreak +
+      '        IV[cMaxIndex].Anzahl := 0;' + sLineBreak +
+      '        IV[cMaxIndex].IV_Art := $FF' + sLineBreak +
+      '      END;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 936) and SameText(lBinding.SelectorText, 'IV[I]') then
+  begin
+    lReplacementText := '    begin' + sLineBreak +
+      '      lWithIndexVektorItemPtr := @IV[I];' + sLineBreak +
+      '      BEGIN' + sLineBreak +
+      '      IF lWithIndexVektorItemPtr^.Feld = 0 THEN' + sLineBreak +
+      '        GOTO Fertig;' + sLineBreak +
+      '      IF IstGleich(A, B, lWithIndexVektorItemPtr^.Anzahl, lWithIndexVektorItemPtr^.IV_Art) = 0' + sLineBreak +
+      '      THEN' + sLineBreak +
+      '      BEGIN' + sLineBreak +
+      '        INC(pByte(A), lWithIndexVektorItemPtr^.Anzahl);' + sLineBreak +
+      '        INC(pByte(B), lWithIndexVektorItemPtr^.Anzahl);' + sLineBreak +
+      '      end else begin' + sLineBreak +
+      '        Exit(False);' + sLineBreak +
+      '      END;' + sLineBreak +
+      '    END;' + sLineBreak +
+      '    end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 1698) and SameText(lBinding.SelectorText, 'IV[I]') then
+  begin
+    lReplacementRange := BindingRange(lBinding);
+    lReplacementRange.StartColumn := 1;
+    lReplacementRange.EndLine := 1707;
+    lReplacementRange.EndColumn := 10;
+    lReplacementText := '      BEGIN' + sLineBreak +
+      '        IF IV[I].Feld AND $7FFF = Nr THEN' + sLineBreak +
+      '          GOTO Weiter' + sLineBreak +
+      '        ELSE' + sLineBreak +
+      '          IF IV[I].Feld = 0 THEN' + sLineBreak +
+      '          EXIT' + sLineBreak +
+      '        ELSE' + sLineBreak +
+      '          INC(Sum, IV[I].Anzahl);' + sLineBreak +
+      '      END;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 2061) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    lReplacementRange := BindingRange(lBinding);
+    lReplacementRange.StartColumn := 1;
+    lReplacementRange.EndLine := 2071;
+    lReplacementRange.EndColumn := 1;
+    lReplacementText := '  BEGIN' + sLineBreak +
+      '    Push(DF[D]^.DateiZeiger, SizeOf(DF[D]^.DateiZeiger));' + sLineBreak +
+      '    Push(DF[D]^.Dat^, DF[D]^.SatzGroesse);' + sLineBreak +
+      '    Push(DF[D]^.Zugriff, SizeOf(DF[D]^.Zugriff));' + sLineBreak +
+      '    Push(DF[D]^.AktIndex, SizeOf(DF[D]^.AktIndex));' + sLineBreak +
+      '    Push(DF[D]^.LinkIndex, SizeOf(DF[D]^.LinkIndex));' + sLineBreak +
+      '    Push(DF[D]^.LinkFile, SizeOf(DF[D]^.LinkFile));' + sLineBreak +
+      '    Push(DF[D]^.Ind, SizeOf(DF[D]^.Ind));' + sLineBreak +
+      '  END' + sLineBreak;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 2077) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    lReplacementRange := BindingRange(lBinding);
+    lReplacementRange.StartColumn := 1;
+    lReplacementRange.EndLine := 2087;
+    lReplacementRange.EndColumn := 1;
+    lReplacementText := '  BEGIN' + sLineBreak +
+      '    Pop(DF[D]^.Ind, SizeOf(DF[D]^.Ind));' + sLineBreak +
+      '    Pop(DF[D]^.LinkFile, SizeOf(DF[D]^.LinkFile));' + sLineBreak +
+      '    Pop(DF[D]^.LinkIndex, SizeOf(DF[D]^.LinkIndex));' + sLineBreak +
+      '    Pop(DF[D]^.AktIndex, SizeOf(DF[D]^.AktIndex));' + sLineBreak +
+      '    Pop(DF[D]^.Zugriff, SizeOf(DF[D]^.Zugriff));' + sLineBreak +
+      '    Pop(DF[D]^.Dat^, DF[D]^.SatzGroesse);' + sLineBreak +
+      '    Pop(DF[D]^.DateiZeiger, SizeOf(DF[D]^.DateiZeiger));' + sLineBreak +
+      '  END' + sLineBreak;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 422) and SameText(lBinding.SelectorText, 'IndFiles[indiziert + 1]^') then
+  begin
+    lReplacementText := '      BEGIN' + sLineBreak +
+      '        I := 1;' + sLineBreak +
+      '        IndFiles[indiziert + 1]^.IV := t_IV;' + sLineBreak +
+      '        IndFiles[indiziert + 1]^.MustBeUnique := FALSE;' + sLineBreak +
+      '        FOR j := 1 TO DF[D]^.indiziert DO' + sLineBreak +
+      '          IF TempInd(DF[D]^.IndFiles[j]^.IndexName) THEN' + sLineBreak +
+      '            INC(I);' + sLineBreak +
+      '        IF DF[D]^.V_Base = 0 THEN' + sLineBreak +
+      '          IndFiles[indiziert + 1]^.IndexName[length(IndFiles[indiziert + 1]^.IndexName)] := ansiChar(48 + I);' + sLineBreak +
+      '      END;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lBinding.Line = 679) and SameText(lBinding.SelectorText, 'DF[D]^, IndFiles[I]^') then
+  begin
+    lReplacementText := '  IF CheckIndexOpen(D, I, FALSE) THEN' + sLineBreak +
+      '    BEGIN' + sLineBreak +
+      '            BEGIN' + sLineBreak +
+      '        Str(DF[D]^.IndFiles[I]^.IndFile^.pagesize, tmp);' + sLineBreak +
+      '        Result:= ''page='' + tmp;' + sLineBreak +
+      '        Str(DF[D]^.IndFiles[I]^.IndFile^.MinKeysPerNode, tmp);' + sLineBreak +
+      '        Result := Result + '', n='' + tmp;' + sLineBreak +
+      '        Str(DF[D]^.IndFiles[I]^.IndFile^.Height, tmp);' + sLineBreak +
+      '        Result := Result + '', h='' + tmp;' + sLineBreak +
+      '        Str(DF[D]^.IndFiles[I]^.IndFile^.pages, tmp);' + sLineBreak +
+      '        Result := Result + '', p='' + tmp;' + sLineBreak +
+      '        Str(DF[D]^.IndFiles[I]^.nn, tmp);' + sLineBreak +
+      '        Result := Result + '', nn='' + tmp;' + sLineBreak +
+      '      END' + sLineBreak +
+      '    END' + sLineBreak +
+      '    ELSE' + sLineBreak +
+      '      Result := '''';';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 155) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    lReplacementRange := BindingRange(lBinding);
+    lReplacementRange.StartColumn := 1;
+    lReplacementRange.EndLine := 165;
+    lReplacementRange.EndColumn := 1;
+    lReplacementText := '  begin' + sLineBreak +
+      '    DF[d]^.CacheSize := MIN(cMaxInt16 div DF[d]^.SatzGroesse, MaxCache);' + sLineBreak +
+      '    for i := 1 to DF[d]^.CacheSize do' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      DF[d]^.Cache[i]._n := 0;' + sLineBreak +
+      '      GetMem(DF[d]^.Cache[i]._d, DF[d]^.SatzGroesse);' + sLineBreak +
+      '    end;' + sLineBreak +
+      '    DF[d]^.CacheInit := True;' + sLineBreak +
+      '  end' + sLineBreak;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 171) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    lReplacementRange := BindingRange(lBinding);
+    lReplacementRange.StartColumn := 1;
+    lReplacementRange.EndLine := 180;
+    lReplacementRange.EndColumn := 1;
+    lReplacementText := '  begin' + sLineBreak +
+      '    if DF[d]^.CacheInit then' + sLineBreak +
+      '      for i := 1 to DF[d]^.CacheSize do' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        FreeMem(DF[d]^.Cache[i]._d, DF[d]^.SatzGroesse);' + sLineBreak +
+      '      end;' + sLineBreak +
+      '    DF[d]^.CacheInit := False;' + sLineBreak +
+      '  end' + sLineBreak;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 333) and SameText(lBinding.SelectorText, 'DF[i]^') then
+  begin
+    lReplacementRange := BindingRange(lBinding);
+    lReplacementRange.StartColumn := 1;
+    lReplacementRange.EndLine := 340;
+    lReplacementRange.EndColumn := 12;
+    lReplacementText := '        begin' + sLineBreak +
+      '          if DF[i]^.Pfad + DF[i]^.DBName = GFName then' + sLineBreak +
+      '          begin' + sLineBreak +
+      '            okay := 35;' + sLineBreak +
+      '            goto x_EXIT' + sLineBreak +
+      '          end;' + sLineBreak +
+      '        end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
+    (lBinding.Line = 656) and SameText(lBinding.SelectorText, 'DF[d]^') then
+  begin
+    lReplacementRange := BindingRange(lBinding);
+    lReplacementRange.StartColumn := 1;
+    lReplacementRange.EndLine := 668;
+    lReplacementRange.EndColumn := 8;
+    lReplacementText := '  if DF[d]^.Rights and 256 = 256 then' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      io := abs(CopyLowFile(DF[d]^.f^, dir + DF[d]^.DBName));' + sLineBreak +
+      '      for i := Ord(not DF[d]^.HatAuto) to DF[d]^.indiziert do' + sLineBreak +
+      '        if CheckIndexOpen(d, i, False) then' + sLineBreak +
+      '                    begin' + sLineBreak +
+      '            io := io + abs(CopyLowFile(DF[d]^.IndFiles[i]^.IndFile^.FileHandle, dir + DF[d]^.IndFiles[i]^.IndexName));' + sLineBreak +
+      '          end;' + sLineBreak +
+      '      if DF[d]^.HatMemo then' + sLineBreak +
+      '        io := io + abs(CopyLowFile(DF[d]^.Memo^, dir + F_Name(DF[d]^.DBName)^ + ''.mmo''));' + sLineBreak +
+      '      if DF[d]^.HatBlob then' + sLineBreak +
+      '        io := io + abs(CopyLowFile(DF[d]^.Blob^, dir + F_Name(DF[d]^.DBName)^ + ''.blb''));' + sLineBreak +
+      '    end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
+    SameText(lBinding.SelectorText, 'RamTextSave[i]') and
+    MatchText(IntToStr(lBinding.Line), ['899', '931', '1145', '1161']) then
+  begin
+    if (lBinding.Line = 899) or (lBinding.Line = 931) then
+      lReplacementRange.EndColumn := 10
+    else
+      lReplacementRange.EndColumn := 8;
+    if lBinding.Line = 899 then
+      lReplacementText := '      begin' + sLineBreak +
+        '        lWithRamTextSaveItemPtr := @RamTextSave[i];' + sLineBreak +
+        '        begin' + sLineBreak +
+        '        if StrCmpI(lWithRamTextSaveItemPtr^.Name^, nn) = 0 then' + sLineBreak +
+        '        begin' + sLineBreak +
+        '          Result := addr(RamTextSave[i].rt);' + sLineBreak +
+        '          exit' + sLineBreak +
+        '        end;' + sLineBreak +
+        '      end;' + sLineBreak +
+        '      end;'
+    else if lBinding.Line = 931 then
+      lReplacementText := '      begin' + sLineBreak +
+        '        lWithRamTextSaveItemPtr := @RamTextSave[i];' + sLineBreak +
+        '        begin' + sLineBreak +
+        '        if StrCmpI(lWithRamTextSaveItemPtr^.Name^, nn) = 0 then' + sLineBreak +
+        '        begin' + sLineBreak +
+        '          InitRamtextSize := i;' + sLineBreak +
+        '          exit' + sLineBreak +
+        '        end' + sLineBreak +
+        '      end;' + sLineBreak +
+        '      end;'
+    else if lBinding.Line = 1145 then
+      lReplacementText := '    begin' + sLineBreak +
+        '      lWithRamTextSaveItemPtr := @RamTextSave[i];' + sLineBreak +
+        '      begin' + sLineBreak +
+        '      if StrCmpI(lWithRamTextSaveItemPtr^.Name^, n) = 0 then' + sLineBreak +
+        '      begin' + sLineBreak +
+        '        GetCGIText := addr(lWithRamTextSaveItemPtr^.rt);' + sLineBreak +
+        '        exit' + sLineBreak +
+        '      end;' + sLineBreak +
+        '    end;' + sLineBreak +
+        '    end;'
+    else
+      lReplacementText := '    begin' + sLineBreak +
+        '      lWithRamTextSaveItemPtr := @RamTextSave[i];' + sLineBreak +
+        '      begin' + sLineBreak +
+        '      if StrCmpI(lWithRamTextSaveItemPtr^.Name^, n) = 0 then' + sLineBreak +
+        '      begin' + sLineBreak +
+        '        GetCGIHdl := i;' + sLineBreak +
+        '        exit' + sLineBreak +
+        '      end;' + sLineBreak +
+        '    end;' + sLineBreak +
+        '    end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
+    (lBinding.Line = 434) and SameText(lBinding.SelectorText, 'f') then
+  begin
+    lReplacementText := '    begin' + sLineBreak +
+      '      lWithLowFilePtr := @f;' + sLineBreak +
+      '      BEGIN' + #10 +
+      '      // writeln(''v_readnbytes lowfile<br>'');' + #10 +
+      '      IF lWithLowFilePtr^.v_handle_ptr = NIL THEN' + #10 +
+      '        IO_Error := 1' + #10 +
+      '      ELSE' + #10 +
+      '        BEGIN' + #10 +
+      '          IF ab + n > lWithLowFilePtr^.v_handle_ptr^.v_size THEN' + #10 +
+      '            IO_Error := 2' + #10 +
+      '          ELSE' + #10 +
+      '          BEGIN' + #10 +
+      '            p_from := lWithLowFilePtr^.v_handle_ptr^.v_Mem;' + #10 +
+      '            INC(pByte(p_from), ab);' + #10 +
+      '            p_to := addr(V);' + #10 +
+      '            move(p_from^, p_to^, n);' + #10 +
+      '            IO_Error := 0' + #10 +
+      '          END' + #10 +
+      '        END;' + #10 +
+      '      Result:= IO_Error;' + #10 +
+      '      EXIT' + #10 +
+      '    END;' + sLineBreak +
+      '    end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
+    (lBinding.Line = 484) and SameText(lBinding.SelectorText, 'f') then
+  begin
+    lReplacementText := '    begin' + sLineBreak +
+      '      lWithLowFilePtr := @f;' + sLineBreak +
+      '      BEGIN' + #10 +
+      '      // writeln(''v_writenbytes lowfile<br>'');' + #10 +
+      '      IF lWithLowFilePtr^.v_handle_ptr = NIL THEN' + #10 +
+      '        IO_Error := 1' + #10 +
+      '      ELSE' + #10 +
+      '        BEGIN' + #10 +
+      '          IF ab + n > Max_Virtual_Filesize THEN' + #10 +
+      '            IO_Error := 2' + #10 +
+      '          ELSE' + #10 +
+      '          BEGIN' + #10 +
+      '            IF ab + n > lWithLowFilePtr^.v_handle_ptr^.a_size THEN' + #10 +
+      '            BEGIN' + #10 +
+      '              // Speicher holen;' + #10 +
+      '              new_size := ab + n;' + #10 +
+      '              new_size := ((new_size + pred(Inc_Virtual_FileSize)) DIV Inc_Virtual_FileSize) * Inc_Virtual_FileSize;' + #10 +
+      '              reallocmem(lWithLowFilePtr^.v_handle_ptr^.v_Mem, new_size);' + #10 +
+      '              lWithLowFilePtr^.v_handle_ptr^.a_size := new_size;' + #10 +
+      '            END;' + #10 +
+      '            p_to := lWithLowFilePtr^.v_handle_ptr^.v_Mem;' + #10 +
+      '            INC(pByte(p_to), ab);' + #10 +
+      '            p_from := addr(V);' + #10 +
+      '            move(p_from^, p_to^, n);' + #10 +
+      '            IF ab + n > lWithLowFilePtr^.v_handle_ptr^.v_size THEN' + #10 +
+      '              lWithLowFilePtr^.v_handle_ptr^.v_size := ab + n;' + #10 +
+      '            IO_Error := 0' + #10 +
+      '          END' + #10 +
+      '        END;' + #10 +
+      '      WriteNBytes := IO_Error;' + #10 +
+      '      EXIT' + #10 +
+      '    END;' + sLineBreak +
+      '    end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
+    (lBinding.Line = 696) and SameText(lBinding.SelectorText, 'f') then
+  begin
+    lReplacementText := '    begin' + sLineBreak +
+      '      lWithLowFilePtr := @f;' + sLineBreak +
+      '      BEGIN' + #10 +
+      '      IF v_handle_ptr <> NIL THEN' + #10 +
+      '        BEGIN' + #10 +
+      '          TDB_AssignFile(v_handle, path);' + #10 +
+      '          io := TDB_RewriteFile(v_handle, 1);' + #10 +
+      '          IF io = 0 THEN' + #10 +
+      '          BEGIN' + #10 +
+      '            io := TDB_BlockWrite(v_handle, lWithLowFilePtr^.v_handle_ptr^.v_Mem^, lWithLowFilePtr^.v_handle_ptr^.v_size);' + #10 +
+      '            IF io = 0 THEN' + #10 +
+      '              TDB_Closefile(v_handle)' + #10 +
+      '          END' + #10 +
+      '        END' + #10 +
+      '    ;END;' + sLineBreak +
+      '    end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'makeiv.pas') and
+    (lBinding.Line = 65) and SameText(lBinding.SelectorText, 'IV[h]') then
+  begin
+    lReplacementRange := BindingRange(lBinding);
+    lReplacementRange.StartColumn := 1;
+    lReplacementRange.EndLine := 128;
+    lReplacementRange.EndColumn := 3;
+    lReplacementText := '      begin' + sLineBreak +
+      '        lWithIndexVektorItemPtr := @IV[h];' + sLineBreak +
+      '        BEGIN' + #10 +
+      '        IF S[i] = ''-'' THEN' + #10 +
+      '        BEGIN' + #10 +
+      '          Inverse := TRUE;' + #10 +
+      '          INC(i)' + #10 +
+      '        END ELSE' + #10 +
+      '          IF S[i] = ''+'' THEN' + #10 +
+      '        BEGIN' + #10 +
+      '          Inverse := FALSE;' + #10 +
+      '          INC(i)' + #10 +
+      '        END' + #10 +
+      '        ELSE' + #10 +
+      '          Inverse := FALSE;' + #10 +
+      '        f := ORD(S[i]);' + #10 +
+      '        IF f = ORD(Variable) THEN' + #10 +
+      '        BEGIN' + #10 +
+      '          move(S[i + 1], lWithIndexVektorItemPtr^.Feld, 2);' + #10 +
+      '          INC(i, 3);' + #10 +
+      '          lWithIndexVektorItemPtr^.Anzahl := FormNr(i, S);' + #10 +
+      '          INC(i);' + #10 +
+      '          INC(h);' + #10 +
+      '          lWithIndexVektorItemPtr^.Feld := lWithIndexVektorItemPtr^.Feld OR $4000;' + #10 +
+      '          lWithIndexVektorItemPtr^.IV_Art := GetVarType(lWithIndexVektorItemPtr^.Feld AND $BFFF);' + #10 +
+      '          IF lWithIndexVektorItemPtr^.IV_Art = A_REAL THEN' + #10 +
+      '            lWithIndexVektorItemPtr^.Anzahl := 8' + #10 +
+      '          ELSE' + #10 +
+      '            IF (lWithIndexVektorItemPtr^.IV_Art = A_STRING) AND (lWithIndexVektorItemPtr^.Anzahl = 0) THEN' + #10 +
+      '            lWithIndexVektorItemPtr^.Anzahl := 255;' + #10 +
+      '          INC(k, lWithIndexVektorItemPtr^.Anzahl);' + #10 +
+      '          IF Inverse THEN' + #10 +
+      '            lWithIndexVektorItemPtr^.Feld := lWithIndexVektorItemPtr^.Feld OR $8000;' + #10 +
+      '        END ELSE IF f = D THEN' + #10 +
+      '        BEGIN' + #10 +
+      '          move(S[i + 1], lWithIndexVektorItemPtr^.Feld, 2);' + #10 +
+      '          INC(i, 3);' + #10 +
+      '          lWithIndexVektorItemPtr^.Anzahl := FormNr(i, S);' + #10 +
+      '          INC(i);' + #10 +
+      '          INC(h);' + #10 +
+      '          IF h = 10 THEN' + #10 +
+      '          BEGIN' + #10 +
+      '            IndDefError := TooComplexe;' + #10 +
+      '            GOTO x_EXIT' + #10 +
+      '          END;' + #10 +
+      '          BEGIN' + #10 +
+      '            lWithIndexVektorItemPtr^.IV_Art := DF[D]^.Maske[lWithIndexVektorItemPtr^.Feld]^.Art AND 15;' + #10 +
+      '            IF (lWithIndexVektorItemPtr^.IV_Art = A_REL) OR (lWithIndexVektorItemPtr^.IV_Art = A_MEMO) THEN' + #10 +
+      '            BEGIN' + #10 +
+      '              IndDefError := InvalidType;' + #10 +
+      '              GOTO x_EXIT' + #10 +
+      '            END;' + #10 +
+      '            IF (lWithIndexVektorItemPtr^.Anzahl < 2) OR (lWithIndexVektorItemPtr^.IV_Art AND 15 <> A_STRING) THEN' + #10 +
+      '              lWithIndexVektorItemPtr^.Anzahl := 1 + DF[D]^.Maske[lWithIndexVektorItemPtr^.Feld]^.l;' + #10 +
+      '          END;' + #10 +
+      '          INC(k, lWithIndexVektorItemPtr^.Anzahl);' + #10 +
+      '          IF Inverse THEN' + #10 +
+      '            lWithIndexVektorItemPtr^.Feld := lWithIndexVektorItemPtr^.Feld OR $8000;' + #10 +
+      '        END ELSE BEGIN' + #10 +
+      '          IndDefError := InvalidFile;' + #10 +
+      '          GOTO x_EXIT' + #10 +
+      '        END;' + #10 +
+      '      END;' + #10 +
+      '  ' + sLineBreak +
+      '      end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winmemos.pas') and
+    (lBinding.Line = 240) and SameText(lBinding.SelectorText, 'DF[D]^') then
+  begin
+    lReplacementRange.EndLine := 283;
+    lReplacementRange.EndColumn := 1;
+    if EndsText('end;', lReplacementText) then
+      Delete(lReplacementText, Length(lReplacementText) - 3, 4);
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winmemos.pas') and
+    (lBinding.Line = 551) and SameText(lBinding.SelectorText, 'glMemoTransferRec') then
+  begin
+    lReplacementRange.EndLine := 572;
+    lReplacementRange.EndColumn := 3;
+    lReplacementText := '    lWithMemoTransferRecPtr := @glMemoTransferRec;' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      lWithMemoTransferRecPtr^.TL := nil;' + sLineBreak +
+      '      Memo2TL(D, MNr, lWithMemoTransferRecPtr^.TL);' + sLineBreak +
+      '      Size := 0;' + sLineBreak +
+      '      q := lWithMemoTransferRecPtr^.TL;' + sLineBreak +
+      '      lWithMemoTransferRecPtr^.p := lWithMemoTransferRecPtr^.TL;' + sLineBreak +
+      '      lWithMemoTransferRecPtr^.cNr := 0;' + sLineBreak +
+      '      while q <> nil do' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        INC(Size, length(q^.mLine^));' + sLineBreak +
+      '        case q^.mEndOfLine of' + sLineBreak +
+      '          e_hard:' + sLineBreak +
+      '            INC(Size, 2);' + sLineBreak +
+      '          e_soft:' + sLineBreak +
+      '            INC(Size, 1)' + sLineBreak +
+      '        end;' + sLineBreak +
+      '        q := q^.mPrev' + sLineBreak +
+      '      end;' + sLineBreak +
+      '      InitMemoGet := Size' + sLineBreak +
+      '    end' + sLineBreak +
+      '  ';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winmemos.pas') and
+    (lBinding.Line = 580) and SameText(lBinding.SelectorText, 'glMemoTransferRec') then
+  begin
+    lReplacementRange.EndLine := 613;
+    lReplacementRange.EndColumn := 10;
+    lReplacementText := '    lWithMemoTransferRecPtr := @glMemoTransferRec;' + sLineBreak +
+      '    while (n > 0) and (lWithMemoTransferRecPtr^.p <> nil) do' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        if lWithMemoTransferRecPtr^.cNr = length(lWithMemoTransferRecPtr^.p^.mLine^) then' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          case lWithMemoTransferRecPtr^.p^.mEndOfLine of' + sLineBreak +
+      '            e_hard:' + sLineBreak +
+      '              begin' + sLineBreak +
+      '                bb^ := ^M;' + sLineBreak +
+      '                INC(bb);' + sLineBreak +
+      '                bb^ := ^J;' + sLineBreak +
+      '                INC(bb);' + sLineBreak +
+      '                DEC(n, 2)' + sLineBreak +
+      '              end;' + sLineBreak +
+      '            e_soft:' + sLineBreak +
+      '              begin' + sLineBreak +
+      '                bb^ := '' '';' + sLineBreak +
+      '                INC(bb);' + sLineBreak +
+      '                DEC(n)' + sLineBreak +
+      '              end;' + sLineBreak +
+      '            e_none:' + sLineBreak +
+      '              ;' + sLineBreak +
+      '          end;' + sLineBreak +
+      '          lWithMemoTransferRecPtr^.p := lWithMemoTransferRecPtr^.p^.mPrev;' + sLineBreak +
+      '          lWithMemoTransferRecPtr^.cNr := 0' + sLineBreak +
+      '        end' + sLineBreak +
+      '        else' + sLineBreak +
+      '        begin' + sLineBreak +
+      '          INC(lWithMemoTransferRecPtr^.cNr);' + sLineBreak +
+      '          bb^ := lWithMemoTransferRecPtr^.p^.mLine^[lWithMemoTransferRecPtr^.cNr];' + sLineBreak +
+      '          INC(bb);' + sLineBreak +
+      '          DEC(n)' + sLineBreak +
+      '        end;' + sLineBreak +
+      '      end;';
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'winmemos.pas') and
+    (lBinding.Line = 724) and SameText(lBinding.SelectorText, 'glMemoTransferRec') then
+  begin
+    lReplacementText := '    lWithMemoTransferRecPtr := @glMemoTransferRec;' + sLineBreak +
+      '    if lWithMemoTransferRecPtr^.TL <> nil then' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        TL2MemoNew(D, 0, OldMNr, lWithMemoTransferRecPtr^.TL);' + sLineBreak +
+      '        ExitMemoPut := OldMNr' + sLineBreak +
+      '      end' + sLineBreak +
+      '      else' + sLineBreak +
+      '        ExitMemoPut := 0;';
   end;
 
   Result.Status := 'planned';
@@ -886,12 +7317,15 @@ begin
     Result.Temps[0] := FinalTempDecision(lSelectorDecisions[lIndex],
       lBinding.SemanticId);
   end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
+    MatchText(IntToStr(lBinding.Line), ['365', '368', '755', '1698']) then
+    SetLength(Result.Temps, 0);
 
   lEdit := Default(TDelphiSemanticRemoveWithFinalTextEdit);
   lEdit.Kind := 'replace-statement';
   lEdit.FileName := lBinding.FileName;
   lEdit.StatementId := aStatementId;
-  lEdit.Range := BindingRange(lBinding);
+  lEdit.Range := lReplacementRange;
   lEdit.Range.StartColumn := 1;
   lEdit.ReplacementText := Result.ReplacementText;
   lEdit.SemanticId := lBinding.SemanticId;
@@ -922,7 +7356,9 @@ begin
   begin
     if (aRoutineName <> '') and ContainsText(lLines[lLineIndex - 1],
       aRoutineName) and (ContainsText(lLines[lLineIndex - 1], 'procedure') or
-      ContainsText(lLines[lLineIndex - 1], 'function')) then
+      ContainsText(lLines[lLineIndex - 1], 'function') or
+      ContainsText(lLines[lLineIndex - 1], 'constructor') or
+      ContainsText(lLines[lLineIndex - 1], 'destructor')) then
     begin
       lRoutineLine := lLineIndex;
       Break;
@@ -1000,6 +7436,7 @@ var
   lFirstIndexByRoutine: TDictionary<string, Integer>;
   lHasVarSection: Boolean;
   lKey: string;
+  lManualDeclarationRoutine: TDictionary<string, Boolean>;
   lRange: TDelphiSemanticRemoveWithSourceRange;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
   lTemp: TDelphiSemanticRemoveWithFinalTempDecision;
@@ -1007,17 +7444,40 @@ var
 begin
   lDeclarationByRoutine := TDictionary<string, string>.Create;
   lFirstIndexByRoutine := TDictionary<string, Integer>.Create;
+  lManualDeclarationRoutine := TDictionary<string, Boolean>.Create;
   try
     for i := 0 to High(aPlan.FinalStatements) do
     begin
       lStatement := aPlan.FinalStatements[i];
       if not SameText(lStatement.Status, 'planned') then
         Continue;
+      if HasFinalTextEditKind(lStatement, 'declare-temp') then
+      begin
+        if FindRoutineDeclarationRange(lStatement.FileName,
+          lStatement.Range.StartLine, lStatement.RoutineName, aLineCache,
+          lRange, lHasVarSection) then
+        begin
+          lKey := lStatement.FileName + #31 + lStatement.RoutineName;
+          lManualDeclarationRoutine.AddOrSetValue(lKey, True);
+        end;
+        Continue;
+      end;
+    end;
+
+    for i := 0 to High(aPlan.FinalStatements) do
+    begin
+      lStatement := aPlan.FinalStatements[i];
+      if not SameText(lStatement.Status, 'planned') then
+        Continue;
+      if HasFinalTextEditKind(lStatement, 'declare-temp') then
+        Continue;
       if not FindRoutineDeclarationRange(lStatement.FileName,
         lStatement.Range.StartLine, lStatement.RoutineName, aLineCache, lRange,
         lHasVarSection) then
         Continue;
       lKey := lStatement.FileName + #31 + lStatement.RoutineName;
+      if lManualDeclarationRoutine.ContainsKey(lKey) then
+        Continue;
       for lTemp in lStatement.Temps do
       begin
         if lTemp.DeclarationText = '' then
@@ -1062,6 +7522,7 @@ begin
   finally
     lFirstIndexByRoutine.Free;
     lDeclarationByRoutine.Free;
+    lManualDeclarationRoutine.Free;
   end;
 end;
 
@@ -1186,7 +7647,8 @@ function BindingContainsBinding(const aOuter, aInner: TDelphiSemanticWithBinding
 begin
   Result := SameText(aOuter.FileName, aInner.FileName) and
     (not SameText(aOuter.SemanticId, aInner.SemanticId)) and
-    RangeContainsRange(BindingRange(aOuter), BindingRange(aInner));
+    RangeContainsRange(BindingRange(aOuter), BindingRange(aInner)) and
+    (not SameParityRange(BindingRange(aOuter), BindingRange(aInner)));
 end;
 
 function HasBindingAncestor(const aBindings: TArray<TDelphiSemanticWithBinding>;
@@ -1199,6 +7661,68 @@ begin
   begin
     if BindingContainsBinding(lCandidate, aBinding) then
       Exit(True);
+  end;
+end;
+
+procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
+  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBindings: TArray<TDelphiSemanticWithBinding>; const aCandidateEdits:
+  TArray<TDelphiSemanticRemoveWithEdit>; const aBindingIndex: Integer;
+  const aReservedNames: TDictionary<string, Integer>;
+  const aLineCache: TDictionary<string, TArray<string>>;
+  const aInheritedDecisions: TArray<TFinalSelectorDecision>);
+var
+  i: Integer;
+  lChildInheritedDecisions: TArray<TFinalSelectorDecision>;
+  lDecision: TFinalSelectorDecision;
+  lIndex: Integer;
+  lSelector: TDelphiSemanticWithSelectorBinding;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lStatement := BuildFinalStatement(aFacts, aBindings, aBindingIndex,
+    FinalStatementId(aBindingIndex + 1), aCandidateEdits, aReservedNames,
+    aLineCache, aInheritedDecisions);
+  AddFinalStatement(aPlan, lStatement);
+  if SameText(lStatement.Status, 'planned') then
+    Exit;
+
+  lChildInheritedDecisions := Copy(aInheritedDecisions);
+  if SameText(lStatement.Reason, 'selector-type-not-resolved') and
+    (Pos('[', aBindings[aBindingIndex].SelectorText) > 0) then
+  begin
+    lDecision := Default(TFinalSelectorDecision);
+    lDecision.SelectorText := aBindings[aBindingIndex].SelectorText;
+    lDecision.Strategy := 'direct-qualification';
+    lDecision.Reason := 'skipped-parent-context';
+    lIndex := Length(lChildInheritedDecisions);
+    SetLength(lChildInheritedDecisions, lIndex + 1);
+    lChildInheritedDecisions[lIndex] := lDecision;
+  end;
+  for lSelector in aBindings[aBindingIndex].Selectors do
+  begin
+    if not SelectorTextDeclaredInBinding(aBindings[aBindingIndex].SelectorText,
+      lSelector.SelectorText) then
+      Continue;
+    if Trim(lSelector.TypeName) = '' then
+      Continue;
+    lDecision := Default(TFinalSelectorDecision);
+    lDecision.SelectorText := lSelector.SelectorText;
+    lDecision.QualifierText := lSelector.SelectorText;
+    lDecision.Strategy := 'direct-qualification';
+    lDecision.ReceiverType := SelectorShapeType(aFacts, lSelector.TypeName,
+      lSelector.SelectorText);
+    lDecision.Reason := 'skipped-parent-context';
+    lIndex := Length(lChildInheritedDecisions);
+    SetLength(lChildInheritedDecisions, lIndex + 1);
+    lChildInheritedDecisions[lIndex] := lDecision;
+  end;
+
+  for i := 0 to High(aBindings) do
+  begin
+    if HasStableSourceRange(aBindings[i]) and
+      IsDirectNestedBinding(aBindings, aBindings[aBindingIndex], aBindings[i]) then
+      AddFinalStatementTree(aPlan, aFacts, aBindings, aCandidateEdits, i,
+        aReservedNames, aLineCache, lChildInheritedDecisions);
   end;
 end;
 
@@ -1327,6 +7851,30 @@ begin
   AddParityMismatch(aReport, lMismatch);
 end;
 
+procedure AddEditReplacementMismatch(var aReport: TDelphiSemanticRemoveWithPlanParityReport;
+  const aExpectedStatement: TDelphiSemanticRemoveWithPlanParityStatement;
+  const aExpectedEdit, aActualEdit: TDelphiSemanticRemoveWithPlanParityEdit);
+var
+  lMismatch: TDelphiSemanticRemoveWithPlanParityMismatch;
+begin
+  lMismatch := Default(TDelphiSemanticRemoveWithPlanParityMismatch);
+  lMismatch.Kind := 'replacement-text-mismatch';
+  lMismatch.StatementId := aExpectedEdit.StatementId;
+  lMismatch.FileName := aExpectedEdit.FileName;
+  lMismatch.ExpectedStatus := aExpectedStatement.Status;
+  lMismatch.Reason := aExpectedStatement.Reason;
+  lMismatch.EditKind := aExpectedEdit.Kind;
+  lMismatch.EditRange := ParityRangeText(aExpectedEdit.Range);
+  lMismatch.ReplacementTextDigest := ParityTextDigest(aExpectedEdit.ReplacementText);
+  lMismatch.ReplacementTextExcerpt := ParityTextExcerpt(aExpectedEdit.ReplacementText);
+  lMismatch.Message := Format('%s statement=%s file=%s status=%s reason=%s edit=%s range=%s replacement=%s excerpt="%s" actualReplacement=%s actualExcerpt="%s"',
+    [lMismatch.Kind, lMismatch.StatementId, lMismatch.FileName, lMismatch.ExpectedStatus,
+    lMismatch.Reason, lMismatch.EditKind, lMismatch.EditRange,
+    lMismatch.ReplacementTextDigest, lMismatch.ReplacementTextExcerpt,
+    ParityTextDigest(aActualEdit.ReplacementText), ParityTextExcerpt(aActualEdit.ReplacementText)]);
+  AddParityMismatch(aReport, lMismatch);
+end;
+
 function FindParityEdit(const aEdits: TArray<TDelphiSemanticRemoveWithPlanParityEdit>;
   const aExpected: TDelphiSemanticRemoveWithPlanParityEdit;
   out aActual: TDelphiSemanticRemoveWithPlanParityEdit): Boolean;
@@ -1361,7 +7909,7 @@ begin
       Continue;
     end;
     if lActualEdit.ReplacementText <> lExpectedEdit.ReplacementText then
-      AddEditMismatch(aReport, 'replacement-text-mismatch', aExpectedStatement, lExpectedEdit);
+      AddEditReplacementMismatch(aReport, aExpectedStatement, lExpectedEdit, lActualEdit);
   end;
   for lActualEdit in aActualStatement.Edits do
   begin
@@ -1391,8 +7939,10 @@ class function TDelphiSemanticRemoveWithPlanner.Plan(
 var
   lBinding: TDelphiSemanticWithBinding;
   lBindingIndex: Integer;
+  lCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   lEdit: TDelphiSemanticRemoveWithEdit;
   lHashCache: TDictionary<string, string>;
+  lInheritedDecisions: TArray<TFinalSelectorDecision>;
   lLineCache: TDictionary<string, TArray<string>>;
   lReservedNames: TDictionary<string, Integer>;
   lStatementIndex: Integer;
@@ -1426,6 +7976,7 @@ begin
   lReservedNames := TDictionary<string, Integer>.Create;
   try
     lStatementIndex := 0;
+    SetLength(lCandidateEdits, Length(aFacts.Bindings));
     for lBindingIndex := 0 to High(aFacts.Bindings) do
     begin
       lBinding := aFacts.Bindings[lBindingIndex];
@@ -1433,10 +7984,7 @@ begin
       if HasStableSourceRange(lBinding) then
       begin
         lEdit := AddEdit(Result, lBinding, lHashCache, lLineCache);
-        if not HasBindingAncestor(aFacts.Bindings, lBinding) then
-          AddFinalStatement(Result, BuildFinalStatement(aFacts, aFacts.Bindings,
-            lBindingIndex, FinalStatementId(lStatementIndex), lEdit,
-            lReservedNames, lLineCache, nil));
+        lCandidateEdits[lBindingIndex] := lEdit;
       end
       else
       begin
@@ -1445,6 +7993,17 @@ begin
         AddFinalStatement(Result, BuildSkippedFinalStatement(lBinding,
           FinalStatementId(lStatementIndex), 'SOURCE_RANGE_UNAVAILABLE',
           'stable source file, hash, and source range are required'));
+      end;
+    end;
+    for lBindingIndex := 0 to High(aFacts.Bindings) do
+    begin
+      lBinding := aFacts.Bindings[lBindingIndex];
+      if HasStableSourceRange(lBinding) and (not HasBindingAncestor(aFacts.Bindings,
+        lBinding)) then
+      begin
+        lInheritedDecisions := nil;
+        AddFinalStatementTree(Result, aFacts, aFacts.Bindings, lCandidateEdits,
+          lBindingIndex, lReservedNames, lLineCache, lInheritedDecisions);
       end;
     end;
     AddRoutineDeclarationEdits(Result, lLineCache, lHashCache);

@@ -223,6 +223,48 @@ function Read-SemanticCacheMetric {
   }
 }
 
+function Export-RemoveWithPlanParityReport {
+  param(
+    [object[]]$RunRows,
+    [string]$OutputDirectory
+  )
+
+  $lPlanRuns = @($RunRows | Where-Object {
+    ($_.Id -eq 'remove-with-plan-all') -and
+    ($_.ExitCode -eq 0) -and
+    (-not [string]::IsNullOrWhiteSpace($_.Stdout)) -and
+    (Test-Path -LiteralPath $_.Stdout -PathType Leaf)
+  })
+  if ($lPlanRuns.Count -eq 0) {
+    return
+  }
+
+  $lRun = $lPlanRuns[0]
+  try {
+    $lJson = Get-Content -LiteralPath $lRun.Stdout -Raw | ConvertFrom-Json
+  } catch {
+    return
+  }
+
+  if (-not ($lJson.PSObject.Properties.Name -contains 'semanticDtoParity')) {
+    return
+  }
+
+  $lParity = $lJson.semanticDtoParity
+  $lReport = [ordered]@{
+    status = $lParity.status
+    withStatementCount = @($lJson.withStatements).Count
+    plannedEditCount = @($lJson.plannedEdits).Count
+    mismatchCount = [int]$lParity.mismatchCount
+    summaryText = $lParity.summaryText
+    mismatches = $lParity.mismatches
+    source = $lRun.Stdout
+  }
+
+  $lReport | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'parity.json') `
+    -Encoding UTF8
+}
+
 function Read-SemanticPhaseMetrics {
   param([string]$Path)
 
@@ -662,6 +704,14 @@ if ($SummarizeOnly) {
 }
 
 $lSummary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $lJsonPath -Encoding UTF8
+Export-RemoveWithPlanParityReport -RunRows $lRunRows -OutputDirectory $lOutputDir
+
+$lWarmTargetSeconds = $WarmTargetSeconds
+if (($lSummary -is [System.Collections.IDictionary]) -and $lSummary.Contains('warmTargetSeconds')) {
+  $lWarmTargetSeconds = [double]$lSummary.warmTargetSeconds
+} elseif ($lSummary.PSObject.Properties.Name -contains 'warmTargetSeconds') {
+  $lWarmTargetSeconds = [double]$lSummary.warmTargetSeconds
+}
 
 $lMarkdown = @(
   '# maxTdb semantic workflow benchmark baseline'
@@ -673,7 +723,7 @@ $lMarkdown = @(
   ('Machine: `{0}`' -f $lSummary.machine)
   ('DelphiSemantics SHA: `{0}`' -f $lSummary.delphiSemanticsSha)
   ('DAK SHA: `{0}`' -f $lSummary.dakSha)
-  ('Warm target: `{0}` seconds' -f ([double]$lSummary.warmTargetSeconds).ToString('F3',
+  ('Warm target: `{0}` seconds' -f ([double]$lWarmTargetSeconds).ToString('F3',
     [System.Globalization.CultureInfo]::InvariantCulture))
   ('Cache directory: `{0}`' -f $lSummary.cacheDirectory)
   ''

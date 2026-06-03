@@ -34,6 +34,7 @@ type
     SymbolClass: string;
     Kind: string;
     TypeName: string;
+    Modifier: string;
     OwnerName: string;
     OwnerType: string;
     SourceOwnerType: string;
@@ -326,6 +327,7 @@ begin
   Result.SymbolClass := 'parameter';
   Result.Kind := 'parameter';
   Result.TypeName := aParameter.TypeName;
+  Result.Modifier := aParameter.Modifier;
   Result.RoutineName := aRoutineName;
   Result.UnitName := aModel.UnitName;
   Result.FileName := aModel.FileName;
@@ -355,8 +357,15 @@ end;
 
 procedure TDelphiSemanticRemoveWithLookupIndexData.AddRoutineSymbol(
   const aRoutineName: string; const aSymbol: TDelphiSemanticInventorySymbol);
+var
+  lExistingSymbol: TDelphiSemanticInventorySymbol;
+  lKey: string;
 begin
-  fRoutineSymbolsByName.AddOrSetValue(OwnerNameKey(aRoutineName, aSymbol.Name), aSymbol);
+  lKey := OwnerNameKey(aRoutineName, aSymbol.Name);
+  if (aSymbol.Modifier = '') and fRoutineSymbolsByName.TryGetValue(lKey,
+    lExistingSymbol) and (lExistingSymbol.Modifier <> '') then
+    Exit;
+  fRoutineSymbolsByName.AddOrSetValue(lKey, aSymbol);
 end;
 
 constructor TDelphiSemanticRemoveWithLookupIndexData.Create(
@@ -894,7 +903,13 @@ end;
 
 function IsBinderKeyword(const aName: string): Boolean;
 begin
-  Result := MatchText(aName, ['begin', 'do', 'end', 'with']);
+  Result := MatchText(aName, ['and', 'array', 'as', 'begin', 'case', 'class', 'const',
+    'constructor', 'destructor', 'div', 'do', 'downto', 'else', 'end', 'except',
+    'exit', 'false', 'finally', 'for', 'function', 'if', 'implementation', 'in',
+    'inherited', 'interface', 'is', 'mod', 'nil', 'not', 'of', 'on', 'or', 'out',
+    'procedure', 'program', 'property', 'record', 'repeat', 'result', 'self',
+    'set', 'shl', 'shr', 'then', 'to', 'true', 'try', 'type', 'unit', 'until',
+    'uses', 'var', 'while', 'with', 'xor']);
 end;
 
 function IsSelectorName(const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
@@ -2140,7 +2155,8 @@ end;
 
 procedure AddDakInventorySymbol(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
   const aName, aTypeName, aOwnerType, aRoutineName, aUnitName, aFileName: string;
-  const aLineNumber: Integer; const aLineText, aKind: string);
+  const aLineNumber: Integer; const aLineText, aKind: string;
+  const aModifier: string = '');
 var
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
@@ -2152,6 +2168,7 @@ begin
   lSymbol.OwnerName := aOwnerType;
   lSymbol.OwnerType := aOwnerType;
   lSymbol.RoutineName := aRoutineName;
+  lSymbol.Modifier := aModifier;
   lSymbol.UnitName := aUnitName;
   lSymbol.FileName := aFileName;
   lSymbol.Line := aLineNumber;
@@ -2185,7 +2202,7 @@ end;
 procedure AddDakInventorySymbolsFromSource(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
   const aNames: TArray<string>; const aTypeName, aOwnerType, aRoutineName, aUnitName,
   aFileName: string; const aLines: TArray<string>; const aStartIndex, aEndIndex: Integer;
-  const aKind: string);
+  const aKind: string; const aModifier: string = '');
 var
   lLineNumber: Integer;
   lLineText: string;
@@ -2203,7 +2220,7 @@ begin
         lLineText := lName;
     end;
     AddDakInventorySymbol(aSymbols, lName, aTypeName, aOwnerType, aRoutineName, aUnitName,
-      aFileName, lLineNumber, lLineText, aKind);
+      aFileName, lLineNumber, lLineText, aKind, aModifier);
   end;
 end;
 
@@ -2306,7 +2323,7 @@ procedure ParseDakInventoryParams(const aSymbols: TList<TDelphiSemanticInventory
 var
   lClosePos: Integer;
   lEndIndex: Integer;
-  lHadModifier: Boolean;
+  lModifier: string;
   lNames: TArray<string>;
   lOpenPos: Integer;
   lPart: string;
@@ -2323,34 +2340,34 @@ begin
   for lPart in lParts do
   begin
     lText := Trim(lPart);
-    lHadModifier := False;
+    lModifier := '';
     if StartsText('const ', lText) then
     begin
       Delete(lText, 1, Length('const '));
-      lHadModifier := True;
+      lModifier := 'const';
     end
     else if StartsText('var ', lText) then
     begin
       Delete(lText, 1, Length('var '));
-      lHadModifier := True;
+      lModifier := 'var';
     end
     else if StartsText('out ', lText) then
     begin
       Delete(lText, 1, Length('out '));
-      lHadModifier := True;
+      lModifier := 'out';
     end;
 
     if InventoryTryDeclaration(lText, lNames, lTypeName) then
     begin
       lEndIndex := aStartIndex + 20;
       AddDakInventorySymbolsFromSource(aSymbols, lNames, lTypeName, '', aRoutineName, aUnitName,
-        aFileName, aLines, aStartIndex, lEndIndex, 'parameter');
-    end else if lHadModifier and (Pos(':', lText) = 0) and (lText <> '') then
+        aFileName, aLines, aStartIndex, lEndIndex, 'parameter', lModifier);
+    end else if (lModifier <> '') and (Pos(':', lText) = 0) and (lText <> '') then
     begin
       lNames := lText.Split([',']);
       lEndIndex := aStartIndex + 20;
       AddDakInventorySymbolsFromSource(aSymbols, lNames, '', '', aRoutineName, aUnitName,
-        aFileName, aLines, aStartIndex, lEndIndex, 'parameter');
+        aFileName, aLines, aStartIndex, lEndIndex, 'parameter', lModifier);
     end;
   end;
 end;
@@ -3091,8 +3108,8 @@ end;
 function InventorySameSymbol(const aLeft, aRight: TDelphiSemanticInventorySymbol): Boolean;
 begin
   Result := SameText(aLeft.SymbolClass, aRight.SymbolClass) and SameText(aLeft.Name, aRight.Name) and
-    SameText(aLeft.TypeName, aRight.TypeName) and SameText(aLeft.OwnerType, aRight.OwnerType) and
-    SameText(aLeft.SourceOwnerType, aRight.SourceOwnerType) and
+    SameText(aLeft.TypeName, aRight.TypeName) and SameText(aLeft.Modifier, aRight.Modifier) and
+    SameText(aLeft.OwnerType, aRight.OwnerType) and SameText(aLeft.SourceOwnerType, aRight.SourceOwnerType) and
     SameText(aLeft.RelatedTypeName, aRight.RelatedTypeName) and
     SameText(aLeft.RoutineName, aRight.RoutineName) and SameText(aLeft.UnitName, aRight.UnitName) and
     SameText(aLeft.FileName, aRight.FileName) and (aLeft.Line = aRight.Line) and
@@ -3106,8 +3123,8 @@ const
   cSeparator = #31;
 begin
   Result := aSymbol.SymbolClass + cSeparator + aSymbol.Name + cSeparator +
-    aSymbol.TypeName + cSeparator + aSymbol.OwnerType + cSeparator +
-    aSymbol.SourceOwnerType + cSeparator + aSymbol.RelatedTypeName +
+    aSymbol.TypeName + cSeparator + aSymbol.Modifier + cSeparator +
+    aSymbol.OwnerType + cSeparator + aSymbol.SourceOwnerType + cSeparator + aSymbol.RelatedTypeName +
     cSeparator + aSymbol.RoutineName + cSeparator + aSymbol.UnitName +
     cSeparator + aSymbol.FileName + cSeparator + IntToStr(aSymbol.Line) +
     cSeparator + IntToStr(aSymbol.Column) + cSeparator + aSymbol.UnsupportedReason +
@@ -4140,6 +4157,7 @@ begin
         lSymbol.SymbolClass := 'parameter';
         lSymbol.Kind := 'parameter';
         lSymbol.TypeName := lParameter.TypeName;
+        lSymbol.Modifier := lParameter.Modifier;
         if lRoutine.OwnerName <> '' then
           lSymbol.RoutineName := lRoutine.OwnerName + '.' + lParameter.RoutineName
         else
