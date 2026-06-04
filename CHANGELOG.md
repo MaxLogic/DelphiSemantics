@@ -54,6 +54,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- DAK normal remove-with plan mode now consumes DelphiSemantics final statement
+  DTOs as the primary planning source while preserving maxTdb scan count 667,
+  planned edit count 215, and a 26.870s cold plan benchmark median.
 - Remove-with semantic-hub planning now preserves the maxTdb 667 scan /
   215 plan baseline while reducing the final cold plan benchmark median to
   29.632s.

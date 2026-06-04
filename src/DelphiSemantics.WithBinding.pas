@@ -3839,6 +3839,12 @@ const
 var
   lName: string;
 begin
+  AddProjectCompatibilitySymbol(aSymbols, 'Integer', 'type', 'type',
+    'Integer', '', '', 'ordinal');
+  AddProjectCompatibilitySymbol(aSymbols, 'Int32', 'type', 'type',
+    'Integer', '', 'compiler-intrinsic', 'ordinal');
+  AddProjectCompatibilitySymbol(aSymbols, 'PByte', 'type', 'type',
+    'Pointer', '', 'compiler-intrinsic', 'pointer');
   AddProjectCompatibilitySymbol(aSymbols, 'TFileName', 'type-member', 'type-member',
     'string', '', 'rtl-source');
   AddProjectCompatibilitySymbol(aSymbols, 'TSearchRec', 'type-member', 'type-member',

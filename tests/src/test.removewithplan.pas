@@ -16,6 +16,7 @@ type
     function CopyDakFixtureToTemp(const aRelativePath, aTempName: string): string;
     function BuildPlan: TDelphiSemanticRemoveWithPlan;
     function BuildPlanForProject(const aProjectPath: string): TDelphiSemanticRemoveWithPlan;
+    function MaxTdbBodyAnalysisSourceFileNames: TArray<string>;
     function FindFinalStatement(const aPlan: TDelphiSemanticRemoveWithPlan;
       const aStatementId: string; out aStatement: TDelphiSemanticRemoveWithFinalStatement): Boolean;
     function FindFinalStatementAt(const aPlan: TDelphiSemanticRemoveWithPlan;
@@ -32,6 +33,10 @@ type
     procedure FinalStatementDtoPreservesCandidateFields;
     [Test]
     procedure FinalDtoMatchesFocusedRewriteCases;
+    [Test]
+    procedure FinalDtoKeepsResolvedNonMemberReferencesAndBlocksUnknownRoutine;
+    [Test]
+    procedure FinalDtoPreservesDakFixtureSafetySkips;
     [Test]
     procedure FinalDtoMatchesNestedRewriteOrdering;
     [Test]
@@ -247,6 +252,8 @@ type
     [Test]
     procedure FinalDtoMatchesMaxTdbTdb01FlushVTableReplacement;
     [Test]
+    procedure FinalDtoKeepsMaxTdbRelRecPlannedWithBodyAnalysisSubset;
+    [Test]
     procedure FinalDtoMatchesMaxTdbTdb01RelRecPointerTemp;
     [Test]
     procedure FinalDtoMatchesMaxTdbTdb01RelRecNestedSelectorPointerTemp;
@@ -318,6 +325,8 @@ type
     procedure FinalDtoMatchesMaxTdbTdb02SetByteSkipReasons;
     [Test]
     procedure FinalDtoMatchesMaxTdbTdb02FindDirektReplacement;
+    [Test]
+    procedure FinalDtoMatchesMaxTdbDtoPrimaryPlanCountParity;
     [Test]
     procedure FinalDtoMatchesMaxTdbTdb02CheckExpressionInitVarReplacement;
     [Test]
@@ -405,6 +414,8 @@ type
     [Test]
     procedure FinalDtoMatchesMaxTdbTdbUtilsCopyMemoLastMbRecReplacement;
     [Test]
+    procedure FinalDtoMatchesMaxTdbWinMemosPutMemoBlockReplacement;
+    [Test]
     procedure FinalDtoMatchesMaxTdbTdbUtilsGetFSizeReplacement;
     [Test]
     procedure FinalDtoMatchesMaxTdbTdbUtilsGetMarksAutoReplacement;
@@ -438,6 +449,19 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils;
+
+var
+  GMaxTdbPlanCached: Boolean;
+  GMaxTdbProjectPath: string;
+  GMaxTdbPlan: TDelphiSemanticRemoveWithPlan;
+
+function IsMaxTdbProjectPath(const aProjectPath: string): Boolean;
+var
+  lFileName: string;
+begin
+  lFileName := ExtractFileName(aProjectPath);
+  Result := SameText(lFileName, 'maxtdb.dpr') or SameText(lFileName, 'maxtdb.dproj');
+end;
 
 function TRemoveWithPlanTests.FixturePath(const aRelativePath: string): string;
 begin
@@ -479,12 +503,44 @@ function TRemoveWithPlanTests.BuildPlanForProject(const aProjectPath: string):
   TDelphiSemanticRemoveWithPlan;
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lFullProjectPath: string;
   lOptions: TDelphiSemanticApiOptions;
 begin
+  lFullProjectPath := TPath.GetFullPath(aProjectPath);
+  if IsMaxTdbProjectPath(lFullProjectPath) and
+    GMaxTdbPlanCached and SameText(GMaxTdbProjectPath, lFullProjectPath) then
+    Exit(GMaxTdbPlan);
+
   lOptions := Default(TDelphiSemanticApiOptions);
-  lOptions.ProjectFileName := aProjectPath;
+  lOptions.ProjectFileName := lFullProjectPath;
   lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
   Result := TDelphiSemanticApi.PlanRemoveWith(lFacts);
+  if IsMaxTdbProjectPath(lFullProjectPath) then
+  begin
+    GMaxTdbPlan := Result;
+    GMaxTdbProjectPath := lFullProjectPath;
+    GMaxTdbPlanCached := True;
+  end;
+end;
+
+function TRemoveWithPlanTests.MaxTdbBodyAnalysisSourceFileNames: TArray<string>;
+const
+  cFiles: array[0..24] of string = ('append.pas', 'bitarray.pas', 'DBFUTIL.pas',
+    'deklarat.pas', 'EasyWrappers\Easy.TableFunctions.pas', 'FileIO.pas',
+    'formeln.pas', 'linkfile.pas', 'lowFiles.pas', 'makeiv.pas', 'md5.pas',
+    'ramfiles.pas', 'strfuncs.pas', 'TDB00.indexUtils.pas', 'tdb01.pas',
+    'TDB02.pas', 'TDB06.pas', 'tdb7Prime.pas', 'TDBJOBS.pas', 'tdbutils.pas',
+    'Tdbutils.Ident.pas', 'tdbvars.pas', 'usertext.pas', 'winblobs.pas',
+    'winmemos.pas');
+var
+  i: Integer;
+  lSourceDir: string;
+begin
+  lSourceDir := TPath.GetDirectoryName(DakFixturePath(
+    'test-projects\maxTdb\src\maxtdb.dpr'));
+  SetLength(Result, Length(cFiles));
+  for i := Low(cFiles) to High(cFiles) do
+    Result[i] := TPath.Combine(lSourceDir, cFiles[i]);
 end;
 
 function TRemoveWithPlanTests.FindFinalStatement(const aPlan: TDelphiSemanticRemoveWithPlan;
@@ -770,8 +826,6 @@ procedure TRemoveWithPlanTests.FinalDtoMatchesFocusedRewriteCases;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
-  lTempNames: string;
-  lTemp: TDelphiSemanticRemoveWithFinalTempDecision;
 begin
   lPlan := BuildPlanForProject(DakFixturePath(
     'RemoveWithPlannerFixture\RemoveWithPlannerFixture.dproj'));
@@ -838,6 +892,156 @@ begin
   Assert.AreEqual(1, Length(lStatement.Edits), 'Expected only replacement edit.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'aRecordPtr^.Name'),
     'Expected direct pointer qualification.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoKeepsResolvedNonMemberReferencesAndBlocksUnknownRoutine;
+var
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithImplementationGlobalFixture',
+    'dto-primary-implementation-global');
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithImplementationGlobalFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ImplementationGlobalUnit.pas', 33, 3,
+    lStatement), 'Expected implementation-global final statement.');
+  Assert.AreEqual('planned', lStatement.Status,
+    'Expected implementation globals after routines to remain resolvable.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'gCounter + gSplitCounter + cAfterRoutine'),
+    'Expected implementation globals and constants to remain unqualified.');
+
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithNestedRoutineScopeFixture',
+    'dto-primary-nested-routine-scope');
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithNestedRoutineScopeFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'NestedRoutineScopeUnit.pas', 30, 5,
+    lStatement), 'Expected nested-routine final statement.');
+  Assert.AreEqual('planned', lStatement.Status,
+    'Expected outer routine locals captured by nested routine to remain resolvable: ' +
+    lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'State := nrsSaving;'),
+    'Expected outer routine enum variable and value to remain unqualified.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'i0'),
+    'Expected captured outer routine local i0 to remain unqualified: ' +
+    lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'ErrorFlag'),
+    'Expected captured outer routine local ErrorFlag to remain unqualified: ' +
+    lStatement.ReplacementText);
+
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithEnumConstTypeAliasFixture',
+    'dto-primary-enum-const-type-alias');
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithEnumConstTypeAliasFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'EnumConstTypeAliasUnit.pas', 31, 3,
+    lStatement), 'Expected enum/const/type-alias final statement.');
+  Assert.AreEqual('planned', lStatement.Status,
+    'Expected enum constants, typed constants, and type aliases to remain resolvable.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'Ord(P_JZ)'),
+    'Expected enum constants to remain unqualified.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'SizeOf(TAliasInt)'),
+    'Expected type alias use to remain unqualified.');
+
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithIntrinsicSymbolFixture',
+    'dto-primary-intrinsic-symbols');
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithIntrinsicSymbolFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'IntrinsicSymbolUnit.pas', 33, 3,
+    lStatement), 'Expected intrinsic final statement.');
+  Assert.AreEqual('planned', lStatement.Status,
+    'Expected modeled intrinsic routines to remain resolvable: ' +
+    lStatement.Reason);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'IntrinsicSymbolUnit.pas', 81, 3,
+    lStatement), 'Expected untyped intrinsic final statement.');
+  Assert.AreEqual('planned', lStatement.Status,
+    'Expected modeled untyped intrinsic routine to remain resolvable: ' +
+    lStatement.Reason);
+
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithUnresolvedReasonFixture',
+    'dto-primary-unresolved-reason');
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithUnresolvedReasonFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'UnresolvedReasonUnit.pas', 21, 3,
+    lStatement), 'Expected unresolved-routine final statement.');
+  Assert.AreEqual('skipped', lStatement.Status,
+    'Expected truly unknown project routine to block final rewrite.');
+  Assert.AreEqual('symbol-not-found', lStatement.Reason,
+    'Expected true unknown routine to preserve symbol-not-found reason.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPreservesDakFixtureSafetySkips;
+var
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithComplexSourceModelFixture',
+    'dto-primary-complex-source-model');
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithComplexSourceModelFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ComplexSourceModelUnit.pas', 62, 3,
+    lStatement), 'Expected attributed-record final statement.');
+  Assert.AreEqual('skipped', lStatement.Status,
+    'Expected attributed-record source model skip: ' + lStatement.Reason);
+  Assert.AreEqual('unsupported-source-model-attribute', lStatement.Reason);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ComplexSourceModelUnit.pas', 67, 3,
+    lStatement), 'Expected conditional-record final statement.');
+  Assert.AreEqual('skipped', lStatement.Status,
+    'Expected conditional-record source model skip: ' + lStatement.Reason);
+  Assert.AreEqual('unsupported-source-model-conditional-region', lStatement.Reason);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ComplexSourceModelUnit.pas', 79, 3,
+    lStatement), 'Expected generic-record final statement.');
+  Assert.AreEqual('skipped', lStatement.Status,
+    'Expected generic-record source model skip: ' + lStatement.Reason);
+  Assert.AreEqual('unsupported-source-model-generic-declaration', lStatement.Reason);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ComplexSourceModelUnit.pas', 84, 3,
+    lStatement), 'Expected nested-type final statement.');
+  Assert.AreEqual('skipped', lStatement.Status,
+    'Expected nested-type source model skip: ' + lStatement.Reason);
+  Assert.AreEqual('unsupported-source-model-nested-type', lStatement.Reason);
+
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithCorpusSmokeFixture',
+    'dto-primary-corpus-smoke');
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithCorpusSmokeFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'CorpusSmokeMainUnit.pas', 36, 3,
+    lStatement), 'Expected corpus attributed-record final statement.');
+  Assert.AreEqual('skipped', lStatement.Status,
+    'Expected corpus attributed-record source model skip: ' + lStatement.Reason);
+  Assert.AreEqual('unsupported-source-model-attribute', lStatement.Reason);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'CorpusSmokeMainUnit.pas', 41, 3,
+    lStatement), 'Expected corpus conditional-record final statement.');
+  Assert.AreEqual('skipped', lStatement.Status,
+    'Expected corpus conditional-record source model skip: ' + lStatement.Reason);
+  Assert.AreEqual('unsupported-source-model-conditional-region', lStatement.Reason);
+
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithNoEditFixture',
+    'dto-primary-noedit-skips');
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithNoEditFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'NoEditBlockedUnit.pas', 32, 7,
+    lStatement), 'Expected no-edit call-selector final statement.');
+  Assert.AreEqual('skipped', lStatement.Status,
+    'Expected no-edit call-selector skip: ' + lStatement.Reason);
+  Assert.AreEqual('call-selector', lStatement.Reason);
+
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithE2EFixture',
+    'dto-primary-e2e-skips');
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithE2EFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'E2EExternalUnit.pas', 23, 5,
+    lStatement), 'Expected e2e external-source final statement.');
+  Assert.AreEqual('skipped', lStatement.Status,
+    'Expected e2e external-source skip: ' + lStatement.Reason);
+  Assert.AreEqual('type-source-not-indexed', lStatement.Reason);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'E2ESkippedUnit.pas', 43, 5,
+    lStatement), 'Expected e2e controlled property-selector final statement.');
+  Assert.AreEqual('skipped', lStatement.Status,
+    'Expected e2e controlled statement skip: ' + lStatement.Reason);
+  Assert.AreEqual('controlled-with-statement', lStatement.Reason);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesNestedRewriteOrdering;
@@ -3704,6 +3908,25 @@ begin
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
 end;
 
+procedure TRemoveWithPlanTests.FinalDtoKeepsMaxTdbRelRecPlannedWithBodyAnalysisSubset;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
+  lOptions.BodyAnalysisSourceFileNames := MaxTdbBodyAnalysisSourceFileNames;
+
+  lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticApi.PlanRemoveWith(lFacts);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 801, 3, lStatement),
+    'Expected maxTdb tdb01 h_FNr RelRec with statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+end;
+
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01RelRecPointerTemp;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
@@ -5031,6 +5254,90 @@ begin
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
 end;
 
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbDtoPrimaryPlanCountParity;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 942, 5, lStatement),
+    'Expected maxTdb DBFUTIL NewDATFile D^ with statement.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(0, Length(lStatement.Edits));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2411, 5, lStatement),
+    'Expected maxTdb TDB02 DirektAutoNum DF[aDb]^ with statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(2411, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
+  Assert.AreEqual(2425, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(10, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual('    begin' + sLineBreak +
+    '      if DF[aDb]^.HatAuto then' + sLineBreak +
+    '      begin' + sLineBreak +
+    '        {$IFDEF NET}SetFlag(c, F_Auto, True, False);' + sLineBreak +
+    '        {$ENDIF}' + sLineBreak +
+    '        ReadNBytes(DF[aDb]^.f^, DF[aDb]^.FileOffset - 4, 4, DF[aDb]^.AutoNum, 0);' + sLineBreak +
+    '        if aNewValue <> 0 then' + sLineBreak +
+    '        begin' + sLineBreak +
+    '          DF[aDb]^.AutoNum := aNewValue;' + sLineBreak +
+    '          WriteNBytes(DF[aDb]^.f^, DF[aDb]^.FileOffset - 4, 4, DF[aDb]^.AutoNum, 0);' + sLineBreak +
+    '        end;' + sLineBreak +
+    '        Result:= DF[aDb]^.AutoNum;' + sLineBreak +
+    '        {$IFDEF NET}SetFlag(c, F_Auto, False, False);' + sLineBreak +
+    '        {$ENDIF}' + sLineBreak +
+    '      end;' + sLineBreak +
+    '    end;', lStatement.ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 4347, 9, lStatement),
+    'Expected maxTdb TDB02 SetIndOp DF[c]^ with statement.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(0, Length(lStatement.Edits));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8109, 11, lStatement),
+    'Expected maxTdb TDB02 SetByte nested VarCont^ with statement.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(0, Length(lStatement.Edits));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8332, 5, lStatement),
+    'Expected maxTdb TDB02 FindDirekt DirektChain[0] with statement.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(0, Length(lStatement.Edits));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8339, 9, lStatement),
+    'Expected maxTdb TDB02 FindDirekt DirektChain[i] with statement.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(0, Length(lStatement.Edits));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbvars.pas', 592, 5, lStatement),
+    'Expected maxTdb tdbvars PutLokalVar pl^ with statement.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(0, Length(lStatement.Edits));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1587, 11,
+    lStatement), 'Expected maxTdb TDB00.indexUtils Maske[Feld AND $7FFF]^ with statement.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(0, Length(lStatement.Edits));
+end;
+
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02CheckExpressionInitVarReplacement;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
@@ -6354,6 +6661,21 @@ begin
     lStatement.ReplacementText);
   Assert.AreEqual(46, Length(lStatement.ReplacementText));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbWinMemosPutMemoBlockReplacement;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'winmemos.pas', 240, 3, lStatement),
+    'Expected maxTdb winmemos PutMemoBlock DF[D]^ with statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'RW_Op(') and
+    ContainsText(lStatement.ReplacementText, 'WriteNBytes);'),
+    'Expected PutMemoBlock replacement to preserve the overloaded RW_Op helper call.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGetFSizeReplacement;

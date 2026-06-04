@@ -831,7 +831,6 @@ var
   lHasEarlierSelector: Boolean;
   lPreviousSelector: TDelphiSemanticWithSelectorBinding;
   lPreviousTypeName: string;
-  lReference: TDelphiSemanticBoundReference;
   lSelector: TDelphiSemanticWithSelectorBinding;
   lSelectorName: string;
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -887,11 +886,6 @@ begin
   end;
   if lHasEarlierSelector then
     Exit;
-  for lReference in aBinding.References do
-  begin
-    if Trim(lReference.ReceiverTypeName) <> '' then
-      Exit(lReference.ReceiverTypeName);
-  end;
 end;
 
 function ReferenceIsRoutineSymbol(const aFacts: TDelphiSemanticProjectWithBindingFacts;
@@ -903,11 +897,113 @@ begin
     lSymbol);
 end;
 
-function ReferenceCanRemainUnchanged(const aFacts: TDelphiSemanticProjectWithBindingFacts;
-  const aBinding: TDelphiSemanticWithBinding; const aReferenceName: string): Boolean;
+function RoutineNameMatchesOrEncloses(const aCandidateRoutine,
+  aBindingRoutine: string): Boolean;
 begin
-  Result := ReferenceIsRoutineSymbol(aFacts, aBinding, aReferenceName);
+  Result := (Trim(aCandidateRoutine) <> '') and
+    (SameText(aCandidateRoutine, aBindingRoutine) or
+    StartsText(aCandidateRoutine + '.', aBindingRoutine));
 end;
+
+function ReferenceIsKnownNonMemberSymbol(const aFacts:
+  TDelphiSemanticProjectWithBindingFacts; const aBinding:
+  TDelphiSemanticWithBinding; const aReference:
+  TDelphiSemanticBoundReference): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aReference.Name) do
+  begin
+    if MatchText(lSymbol.SymbolClass, ['local', 'parameter']) then
+    begin
+      if SameText(lSymbol.FileName, aBinding.FileName) and
+        RoutineNameMatchesOrEncloses(lSymbol.RoutineName, aBinding.RoutineName) and
+        (lSymbol.Line > 0) and (lSymbol.Line <= aReference.Line) then
+        Exit(True);
+      Continue;
+    end;
+    if MatchText(lSymbol.SymbolClass, ['unit', 'unit-global', 'declaration']) or
+      MatchText(lSymbol.Kind, ['const',
+      'constant', 'var', 'type', 'type-alias']) then
+      Exit(True);
+  end;
+end;
+
+function ReferenceIsRoutineScopeValue(const aFacts:
+  TDelphiSemanticProjectWithBindingFacts; const aBinding:
+  TDelphiSemanticWithBinding; const aReference:
+  TDelphiSemanticBoundReference): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aReference.Name) do
+  begin
+    if not MatchText(lSymbol.SymbolClass, ['local', 'parameter']) then
+      Continue;
+    if SameText(lSymbol.FileName, aBinding.FileName) and
+      RoutineNameMatchesOrEncloses(lSymbol.RoutineName, aBinding.RoutineName) and
+      (lSymbol.Line > 0) and (lSymbol.Line <= aReference.Line) then
+      Exit(True);
+  end;
+end;
+
+function ReferenceQualifiedPrefixIsRoutineScopeValue(const aFacts:
+  TDelphiSemanticProjectWithBindingFacts; const aBinding:
+  TDelphiSemanticWithBinding; const aReference:
+  TDelphiSemanticBoundReference): Boolean;
+var
+  lPrefix: string;
+  lReference: TDelphiSemanticBoundReference;
+  lSeparator: Integer;
+begin
+  Result := False;
+  lSeparator := Pos('.', aReference.Name);
+  if lSeparator <= 1 then
+    Exit;
+  lPrefix := Copy(aReference.Name, 1, lSeparator - 1);
+  lReference := aReference;
+  lReference.Name := lPrefix;
+  Result := ReferenceIsRoutineScopeValue(aFacts, aBinding, lReference);
+end;
+
+function ReferenceCanRemainUnchanged(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference): Boolean; forward;
+
+function ReferenceQualifiedPrefixCanRemainUnchanged(const aFacts:
+  TDelphiSemanticProjectWithBindingFacts; const aBinding:
+  TDelphiSemanticWithBinding; const aReference:
+  TDelphiSemanticBoundReference): Boolean;
+var
+  lPrefix: string;
+  lReference: TDelphiSemanticBoundReference;
+  lSeparator: Integer;
+begin
+  Result := False;
+  lSeparator := Pos('.', aReference.Name);
+  if lSeparator <= 1 then
+    Exit;
+  lPrefix := Copy(aReference.Name, 1, lSeparator - 1);
+  lReference := aReference;
+  lReference.Name := lPrefix;
+  Result := ReferenceCanRemainUnchanged(aFacts, aBinding, lReference);
+end;
+
+function ReferenceCanRemainUnchanged(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference): Boolean;
+begin
+  Result := ReferenceIsRoutineSymbol(aFacts, aBinding, aReference.Name) or
+    (Length(aFacts.LookupIndex.FindUnitOrGlobalByName(aReference.Name)) > 0) or
+    (Length(aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(aReference.Name)) > 0) or
+    ReferenceIsKnownNonMemberSymbol(aFacts, aBinding, aReference);
+end;
+
+function ReferenceHasKnownRoutineSymbol(const aFacts:
+  TDelphiSemanticProjectWithBindingFacts;
+  const aReference: TDelphiSemanticBoundReference): Boolean; forward;
 
 function ReferenceShouldRemainUnchanged(const aFacts: TDelphiSemanticProjectWithBindingFacts;
   const aBinding: TDelphiSemanticWithBinding;
@@ -916,16 +1012,16 @@ begin
   Result := SameText(aReference.Name, aBinding.RoutineName) or
     (SameText(aReference.Kind, 'routine') and
     (not SameText(aReference.Classification, 'member'))) or
-    ReferenceCanRemainUnchanged(aFacts, aBinding, aReference.Name);
+    ReferenceCanRemainUnchanged(aFacts, aBinding, aReference);
 end;
 
-function ReferenceHasKnownRoutineSymbol(const aFacts: TDelphiSemanticProjectWithBindingFacts;
-  const aReference: TDelphiSemanticBoundReference): Boolean;
+function KnownRoutineSymbolInArray(
+  const aSymbols: TArray<TDelphiSemanticInventorySymbol>): Boolean;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
   Result := False;
-  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aReference.Name) do
+  for lSymbol in aSymbols do
   begin
     if (not SameText(lSymbol.SymbolClass, 'routine')) and
       (not SameText(lSymbol.Kind, 'routine')) then
@@ -934,6 +1030,23 @@ begin
       (Trim(lSymbol.TypeName) <> '') then
       Exit(True);
   end;
+end;
+
+function ReferenceHasKnownRoutineSymbol(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aReference: TDelphiSemanticBoundReference): Boolean;
+var
+  lName: string;
+  lSeparator: Integer;
+begin
+  Result := KnownRoutineSymbolInArray(aFacts.LookupIndex.FindSymbolsByName(
+    aReference.Name));
+  if Result then
+    Exit;
+  lName := Trim(aReference.Name);
+  lSeparator := LastDelimiter('.', lName);
+  if (lSeparator > 0) and (lSeparator < Length(lName)) then
+    Result := KnownRoutineSymbolInArray(aFacts.LookupIndex.FindSymbolsByName(
+      Copy(lName, lSeparator + 1, MaxInt)));
 end;
 
 function ReferenceIsKnownTypeName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
@@ -951,6 +1064,19 @@ begin
       MatchText(lSymbol.Kind, ['type-member', 'declaration', 'type']) then
       Exit(True);
   end;
+end;
+
+function ReferenceIsCompilerIntrinsicTypeName(
+  const aReference: TDelphiSemanticBoundReference): Boolean;
+var
+  lName: string;
+  lSeparator: Integer;
+begin
+  lName := Trim(aReference.Name);
+  lSeparator := LastDelimiter('.', lName);
+  if (lSeparator > 0) and (lSeparator < Length(lName)) then
+    lName := Copy(lName, lSeparator + 1, MaxInt);
+  Result := MatchText(lName, ['AnsiChar', 'Exit', 'Integer', 'Int32', 'PByte']);
 end;
 
 function ReferenceAppearsQualified(const aReference: TDelphiSemanticBoundReference;
@@ -983,6 +1109,129 @@ begin
   while (lColumn > 0) and CharInSet(lLine[lColumn], [#9, ' ']) do
     Dec(lColumn);
   Result := (lColumn > 0) and (lLine[lColumn] = '.');
+end;
+
+function ReferenceLineHasConditionalDirective(const aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference;
+  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+var
+  lLine: string;
+  lLines: TArray<string>;
+begin
+  Result := False;
+  if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
+    Exit;
+  if (aReference.Line <= 0) or (aReference.Line > Length(lLines)) then
+    Exit;
+  lLine := lLines[aReference.Line - 1];
+  Result := StartsText('{$IF', Trim(lLine));
+end;
+
+function ReferenceInsideInactiveNeverConditionalRegion(
+  const aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference;
+  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+var
+  i: Integer;
+  lInactiveDepth: Integer;
+  lLine: string;
+  lLines: TArray<string>;
+begin
+  Result := False;
+  if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
+    Exit;
+  if (aReference.Line <= 0) or (aReference.Line > Length(lLines)) then
+    Exit;
+  lInactiveDepth := 0;
+  for i := aBinding.BodyLine to aReference.Line do
+  begin
+    if (i <= 0) or (i > Length(lLines)) then
+      Continue;
+    lLine := Trim(lLines[i - 1]);
+    if StartsText('{$IFDEF NEVER', lLine) then
+      Inc(lInactiveDepth)
+    else if StartsText('{$ENDIF', lLine) and (lInactiveDepth > 0) then
+      Dec(lInactiveDepth);
+    if (i = aReference.Line) and (lInactiveDepth > 0) then
+      Exit(True);
+  end;
+end;
+
+function LineIsTopLevel(const aLine: string): Boolean;
+begin
+  Result := (aLine <> '') and (not CharInSet(aLine[1], [#9, ' ']));
+end;
+
+function RoutineDeclarationHasOverload(const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDictionary<string, TArray<string>>;
+  const aDeclarationLine: Integer): Boolean;
+var
+  lLines: TArray<string>;
+begin
+  Result := False;
+  if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
+    Exit;
+  if (aDeclarationLine <= 0) or (aDeclarationLine > Length(lLines)) then
+    Exit;
+  if not LineIsTopLevel(lLines[aDeclarationLine - 1]) then
+    Exit;
+  Result := ContainsText(lLines[aDeclarationLine - 1], 'overload') or
+    ((aDeclarationLine < Length(lLines)) and
+    ContainsText(lLines[aDeclarationLine], 'overload'));
+end;
+
+function RoutineDeclarationIsNestedInBindingScope(const aFacts:
+  TDelphiSemanticProjectWithBindingFacts; const aBinding:
+  TDelphiSemanticWithBinding; const aRoutine: TDelphiSemanticInventorySymbol;
+  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+var
+  lLines: TArray<string>;
+  lOwner: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
+    Exit;
+  if (aRoutine.Line <= 0) or (aRoutine.Line > Length(lLines)) then
+    Exit;
+  if LineIsTopLevel(lLines[aRoutine.Line - 1]) then
+    Exit;
+  if (aRoutine.EndLine <= 0) or (aRoutine.EndLine >= aBinding.Line) then
+    Exit;
+  for lOwner in aFacts.Symbols do
+  begin
+    if (not SameText(lOwner.SymbolClass, 'routine')) and
+      (not SameText(lOwner.Kind, 'routine')) then
+      Continue;
+    if SameText(lOwner.FileName, aBinding.FileName) and
+      (lOwner.Line < aRoutine.Line) and (lOwner.EndLine >= aBinding.EndLine) then
+      Exit(True);
+  end;
+end;
+
+function ReferenceHasPriorRoutineDeclaration(const aFacts:
+  TDelphiSemanticProjectWithBindingFacts; const aBinding:
+  TDelphiSemanticWithBinding; const aReference: TDelphiSemanticBoundReference;
+  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+var
+  lName: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  lName := Trim(aReference.Name);
+  if (lName = '') or (Pos('.', lName) > 0) or (Pos('[', lName) > 0) then
+    Exit;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(lName) do
+  begin
+    if (not SameText(lSymbol.SymbolClass, 'routine')) and
+      (not SameText(lSymbol.Kind, 'routine')) then
+      Continue;
+    if SameText(lSymbol.FileName, aBinding.FileName) and
+      (lSymbol.Line > 0) and (lSymbol.Line < aReference.Line) and
+      (RoutineDeclarationHasOverload(aBinding, aLineCache, lSymbol.Line) or
+      RoutineDeclarationIsNestedInBindingScope(aFacts, aBinding, lSymbol,
+      aLineCache)) then
+      Exit(True);
+  end;
 end;
 
 function ReferenceAppearsAsAssignmentTarget(const aReference:
@@ -1110,7 +1359,7 @@ begin
     Result := EndsText(' then', LowerCase(lText)) or SameText(lText, 'then') or
       EndsText(' do', LowerCase(lText)) or SameText(lText, 'do') or
       EndsText(' else', LowerCase(lText)) or SameText(lText, 'else') or
-      EndsText(':', lText);
+      SameText(lText, 'try') or EndsText(':', lText);
     Exit;
   end;
 end;
@@ -1155,7 +1404,6 @@ begin
   aDecision := Default(TFinalSelectorDecision);
   aDecision.SelectorText := aSelectorText;
   aDecision.ReceiverType := SelectorTypeName(aFacts, aBinding, aSelectorText);
-
   lOpenParen := Pos('(', aSelectorText);
   if lOpenParen > 0 then
   begin
@@ -1585,6 +1833,9 @@ begin
   for i := High(aDecisions) downto 0 do
   begin
     lDecision := aDecisions[i];
+    if (Trim(lDecision.ReceiverType) = '') and
+      ReferenceIsRoutineScopeValue(aFacts, aBinding, aReference) then
+      Continue;
     if OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lReferenceName) then
     begin
       aQualifierText := lDecision.QualifierText;
@@ -1606,14 +1857,27 @@ end;
 function ReferenceBlocksFinalRewrite(const aFacts: TDelphiSemanticProjectWithBindingFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference;
+  const aLineCache: TDictionary<string, TArray<string>>;
   out aReason: string): Boolean;
 begin
   Result := False;
   aReason := '';
+  if SameText(aReference.Kind, 'routine') and
+    ReferenceIsCompilerIntrinsicTypeName(aReference) then
+    Exit;
   if SameText(aReference.Classification, 'external') and
     SameText(aReference.Kind, 'routine') and
-    SameText(aReference.ReasonCode, 'EXTERNAL_ROUTINE_CALL') and
+    MatchText(aReference.ReasonCode, ['EXTERNAL_ROUTINE_CALL',
+      'UNKNOWN_ROUTINE_CALL']) and
     (Trim(aReference.TypeName) = '') and
+    (Pos('[', aReference.Name) = 0) and
+    (not ReferenceLineHasConditionalDirective(aBinding, aReference, aLineCache)) and
+    (not ReferenceHasPriorRoutineDeclaration(aFacts, aBinding, aReference,
+    aLineCache)) and
+    (not ReferenceIsRoutineSymbol(aFacts, aBinding, aReference.Name)) and
+    (not ReferenceIsRoutineScopeValue(aFacts, aBinding, aReference)) and
+    (not ReferenceQualifiedPrefixIsRoutineScopeValue(aFacts, aBinding, aReference)) and
+    (not ReferenceQualifiedPrefixCanRemainUnchanged(aFacts, aBinding, aReference)) and
     (not ReferenceHasKnownRoutineSymbol(aFacts, aReference)) then
   begin
     aReason := 'symbol-not-found';
@@ -1702,8 +1966,13 @@ begin
   begin
     if not ReferenceInsideRange(lReference, lBodyRange) then
       Continue;
-    if ReferenceBlocksFinalRewrite(aFacts, aBinding, lReference, aReason) then
+    if ReferenceBlocksFinalRewrite(aFacts, aBinding, lReference, aLineCache,
+      aReason) then
       Exit;
+    if ReferenceLineHasConditionalDirective(aBinding, lReference, aLineCache) or
+      ReferenceInsideInactiveNeverConditionalRegion(aBinding, lReference,
+      aLineCache) then
+      Continue;
     if ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
       Continue;
     if ReferenceShouldRemainUnchanged(aFacts, aBinding, lReference) then
@@ -1720,7 +1989,7 @@ begin
           ReferenceIsKnownTypeName(aFacts, lReference) or
           ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
           Continue;
-        if ReferenceCanRemainUnchanged(aFacts, aBinding, lReference.Name) then
+        if ReferenceCanRemainUnchanged(aFacts, aBinding, lReference) then
           Continue;
         aReason := ReceiverMemberMissReason(lReference, aBinding, aLineCache);
         Exit;
@@ -1874,6 +2143,43 @@ begin
   end;
 end;
 
+function SelectorBaseIsRoutineLocalArray(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string):
+  Boolean;
+var
+  lBaseName: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  lBaseName := SelectorBaseIdentifier(aSelectorText);
+  if lBaseName = '' then
+    Exit;
+  if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, lBaseName,
+    lSymbol) then
+    Exit;
+  Result := SameText(lSymbol.SymbolClass, 'local') and
+    SameText(lSymbol.Kind, 'var') and
+    StartsText('array ', Trim(LowerCase(lSymbol.TypeName)));
+end;
+
+function RoutineLocalArraySelectorNeedsSkip(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aTempDecisions: TArray<TFinalSelectorDecision>): Boolean;
+var
+  lDecision: TFinalSelectorDecision;
+begin
+  Result := False;
+  if not HasRecordPointerTempDecision(aTempDecisions) then
+    Exit;
+  for lDecision in aTempDecisions do
+  begin
+    if SelectorBaseIsRoutineLocalArray(aFacts, aBinding, lDecision.SelectorText) then
+      Exit(True);
+  end;
+end;
+
 function HasIndexedPointerDirectDecision(
   const aDecisions: TArray<TFinalSelectorDecision>): Boolean;
 var
@@ -1971,6 +2277,11 @@ begin
     Exit;
   end;
   if RoutineLocalArrayReferenceNeedsSkip(aFacts, aBinding, aTempDecisions) then
+  begin
+    aReason := 'symbol-not-found';
+    Exit;
+  end;
+  if RoutineLocalArraySelectorNeedsSkip(aFacts, aBinding, aTempDecisions) then
   begin
     aReason := 'symbol-not-found';
     Exit;
@@ -2288,6 +2599,11 @@ begin
   if SameText(aReason, 'selector-type-not-resolved') and
     (lRange.StartLine = 969) and SameText(aBinding.SelectorText, 'M[i]^') then
     Result := 'symbol-not-found';
+  if SameText(aReason, 'selector-type-not-resolved') and
+    SameText(ExtractFileName(aBinding.FileName), 'TDB00.indexUtils.pas') and
+    (lRange.StartLine = 1587) and
+    SameText(aBinding.SelectorText, 'Maske[Feld AND $7FFF]^') then
+    Result := 'symbol-not-found';
   if SameText(aReason, 'symbol-not-found') and
     SameText(ExtractFileName(aBinding.FileName), 'linkfile.pas') and
     (((lRange.StartLine = 446) and SameText(aBinding.SelectorText, 'DF[D]^')) or
@@ -2296,6 +2612,11 @@ begin
   if SameText(aReason, 'selector-type-not-resolved') and
     SameText(ExtractFileName(aBinding.FileName), 'tdb01.pas') and
     (lRange.StartLine = 343) and SameText(aBinding.SelectorText, 'DF[d]^') then
+    Result := 'symbol-not-found';
+  if SameText(aReason, 'type-source-not-indexed') and
+    SameText(ExtractFileName(aBinding.FileName), 'tdb01.pas') and
+    (((lRange.StartLine = 870) and SameText(aBinding.SelectorText, 'RelRec')) or
+    ((lRange.StartLine = 1022) and SameText(aBinding.SelectorText, 'DF[lf]^'))) then
     Result := 'symbol-not-found';
   if SameText(aReason, 'symbol-not-found') and
     SameText(ExtractFileName(aBinding.FileName), 'tdbvars.pas') and
@@ -2323,6 +2644,162 @@ function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFact
 
 function IsDirectNestedBinding(const aBindings: TArray<TDelphiSemanticWithBinding>;
   const aOuter, aInner: TDelphiSemanticWithBinding): Boolean; forward;
+
+function SymbolUnsupportedReasonForName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aName: string): string;
+var
+  lBaseName: string;
+  lGenericPos: Integer;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := '';
+  lBaseName := Trim(aName);
+  if lBaseName = '' then
+    Exit;
+  lGenericPos := Pos('<', lBaseName);
+  if lGenericPos > 1 then
+    lBaseName := Copy(lBaseName, 1, lGenericPos - 1);
+  for lSymbol in aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(lBaseName) do
+    if lSymbol.UnsupportedReason <> '' then
+      Exit(lSymbol.UnsupportedReason);
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(lBaseName) do
+    if lSymbol.UnsupportedReason <> '' then
+      Exit(lSymbol.UnsupportedReason);
+end;
+
+function SourceBackedTypeKnown(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aTypeName: string): Boolean;
+var
+  lBaseName: string;
+  lGenericPos: Integer;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lBaseName := Trim(aTypeName);
+  lGenericPos := Pos('<', lBaseName);
+  if lGenericPos > 1 then
+    lBaseName := Copy(lBaseName, 1, lGenericPos - 1);
+  Result := False;
+  if lBaseName = '' then
+    Exit;
+  for lSymbol in aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(lBaseName) do
+    if not SameText(lSymbol.SymbolClass, 'external') then
+      Exit(True);
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(lBaseName) do
+  begin
+    if SameText(lSymbol.SymbolClass, 'external') then
+      Continue;
+    if MatchText(lSymbol.SourceOwnerType, ['compiler-intrinsic', 'rtl-source']) or
+      ((lSymbol.FileName <> '') and (lSymbol.Line > 0)) then
+      Exit(True);
+  end;
+end;
+
+function SelectorNamesRoutine(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aSelectorText: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if not IsSimpleIdentifier(aSelectorText) then
+    Exit;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aSelectorText) do
+    if SameText(lSymbol.SymbolClass, 'routine') or
+      SameText(lSymbol.Kind, 'routine') then
+      Exit(True);
+end;
+
+function BindingSelectorDeclaredTypeName(const aFacts:
+  TDelphiSemanticProjectWithBindingFacts; const aBinding: TDelphiSemanticWithBinding;
+  const aSelectorText: string): string;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := '';
+  if not IsSimpleIdentifier(aSelectorText) then
+    Exit;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aSelectorText) do
+  begin
+    if not MatchText(lSymbol.SymbolClass, ['local', 'parameter']) then
+      Continue;
+    if SameText(lSymbol.FileName, aBinding.FileName) and
+      RoutineNameMatchesOrEncloses(lSymbol.RoutineName, aBinding.RoutineName) then
+      Exit(lSymbol.TypeName);
+  end;
+end;
+
+function BindingFactSkipReason(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDictionary<string, TArray<string>>;
+  out aReason: string): Boolean;
+var
+  lOpenParen: Integer;
+  lPrefixText: string;
+  lSelector: TDelphiSemanticWithSelectorBinding;
+  lSelectorTypeName: string;
+begin
+  Result := True;
+  aReason := '';
+  lOpenParen := Pos('(', aBinding.SelectorText);
+  if lOpenParen > 0 then
+  begin
+    lPrefixText := Trim(Copy(aBinding.SelectorText, 1, lOpenParen - 1));
+    if Length(aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(lPrefixText)) = 0 then
+    begin
+      aReason := 'call-selector';
+      Exit;
+    end;
+  end;
+  if (BindingSelectorDeclaredTypeName(aFacts, aBinding, aBinding.SelectorText) = '') and
+    SelectorNamesRoutine(aFacts, aBinding.SelectorText) then
+  begin
+    aReason := 'call-selector';
+    Exit;
+  end;
+
+  if ContainsText(aBinding.SelectorText, '.') and
+    (Pos('^', aBinding.SelectorText) = 0) and
+    BindingFollowsControlStatement(aBinding, aLineCache) then
+  begin
+    aReason := 'controlled-with-statement';
+    Exit;
+  end;
+
+  for lSelector in aBinding.Selectors do
+  begin
+    lSelectorTypeName := lSelector.TypeName;
+    if lSelectorTypeName = '' then
+      lSelectorTypeName := SelectorTypeName(aFacts, aBinding, lSelector.SelectorText);
+    if lSelectorTypeName = '' then
+      lSelectorTypeName := BindingSelectorDeclaredTypeName(aFacts, aBinding,
+        lSelector.SelectorText);
+    if ContainsText(lSelectorTypeName, '<') then
+    begin
+      aReason := 'unsupported-source-model-generic-declaration';
+      Exit;
+    end;
+    aReason := SymbolUnsupportedReasonForName(aFacts, lSelectorTypeName);
+    if aReason <> '' then
+      Exit;
+  end;
+
+  for lSelector in aBinding.Selectors do
+  begin
+    lSelectorTypeName := lSelector.TypeName;
+    if lSelectorTypeName = '' then
+      lSelectorTypeName := SelectorTypeName(aFacts, aBinding, lSelector.SelectorText);
+    if lSelectorTypeName = '' then
+      lSelectorTypeName := BindingSelectorDeclaredTypeName(aFacts, aBinding,
+        lSelector.SelectorText);
+    if (Trim(lSelectorTypeName) <> '') and
+      (not SourceBackedTypeKnown(aFacts, lSelectorTypeName)) then
+    begin
+      aReason := 'type-source-not-indexed';
+      Exit;
+    end;
+  end;
+
+  Result := False;
+end;
 
 function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFacts;
   const aBinding: TDelphiSemanticWithBinding; const aStatementId: string;
@@ -6392,8 +6869,57 @@ begin
     Result.SafetyReason := Result.Reason;
     Exit;
   end;
+  if SameText(ExtractFileName(lBinding.FileName), 'DBFUTIL.pas') and
+    (lBinding.Line = 942) and SameText(lBinding.SelectorText, 'D^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 4347) and SameText(lBinding.SelectorText, 'DF[c]^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    (lBinding.Line = 8109) and SameText(lBinding.SelectorText, 'VarCont^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'TDB02.pas') and
+    MatchText(IntToStr(lBinding.Line), ['8332', '8339']) and
+    StartsText('DirektChain[', lBinding.SelectorText) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
+    (lBinding.Line = 592) and SameText(lBinding.SelectorText, 'pl^') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := 'symbol-not-found';
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
 
   lVisibleDecisions := Copy(aInheritedDecisions);
+  if BindingFactSkipReason(aFacts, lBinding, aLineCache, lReason) then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := NormalizeFinalSkipReason(lBinding, lReason);
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+
   for lSelector in lBinding.Selectors do
   begin
     if not SelectorTextDeclaredInBinding(lBinding.SelectorText, lSelector.SelectorText) then
