@@ -119,6 +119,12 @@ type
     FinalizationOffset: Integer;
   end;
 
+  TDelphiSemanticUnitModelMetrics = record
+    ReferenceReconciliationFallbackCount: Integer;
+    ReferenceReconciliationNameScanCount: Integer;
+    ReferenceOccurrenceTableBuildCount: Integer;
+  end;
+
   TDelphiSemanticUnitModel = record
     Success: Boolean;
     FileName: string;
@@ -135,14 +141,11 @@ type
     References: TArray<TDelphiSemanticReference>;
     WithStatements: TArray<TDelphiSemanticWithStatement>;
     Diagnostics: TArray<TDelphiSemanticModelDiagnostic>;
+    Metrics: TDelphiSemanticUnitModelMetrics;
   end;
 
   TDelphiSemanticUnitModelExtractor = record
   public
-    class function ReferenceReconciliationFallbackCount: Integer; static;
-    class function ReferenceReconciliationNameScanCount: Integer; static;
-    class function ReferenceOccurrenceTableBuildCount: Integer; static;
-    class procedure ResetReferenceReconciliationFallbackCount; static;
     class function TypeBlockAnalysisBuildCount: Integer; static;
     class procedure ResetTypeBlockAnalysisBuildCount; static;
     class function ExtractFromFile(const aOptions: TDelphiSemanticModelOptions):
@@ -175,9 +178,6 @@ var
   GLineCacheText: string = '';
   GLineCacheLength: Integer = -1;
   GLineCacheStarts: TArray<Integer>;
-  GReferenceReconciliationFallbackCount: Integer = 0;
-  GReferenceReconciliationNameScanCount: Integer = 0;
-  GReferenceOccurrenceTableBuildCount: Integer = 0;
   GTypeBlockAnalysisBuildCount: Integer = 0;
   GTypeBlockRangesText: string = '';
   GTypeBlockRangesLength: Integer = -1;
@@ -2037,7 +2037,8 @@ begin
 end;
 
 procedure ReconcileReferencesCoordinates(const aSourceText: string;
-  const aReferences: TList<TDelphiSemanticReference>);
+  const aReferences: TList<TDelphiSemanticReference>; var aMetrics:
+  TDelphiSemanticUnitModelMetrics);
 var
   i: Integer;
   lBestColumn: Integer;
@@ -2080,7 +2081,7 @@ var
     lStartOffset: Integer;
   begin
     Result := TReferenceOccurrenceIndex.Create([doOwnsValues]);
-    Inc(GReferenceOccurrenceTableBuildCount);
+    Inc(aMetrics.ReferenceOccurrenceTableBuildCount);
     i := 1;
     while i <= Length(lCleanText) do
     begin
@@ -2144,7 +2145,7 @@ begin
         Continue;
       end;
 
-      Inc(GReferenceReconciliationFallbackCount);
+      Inc(aMetrics.ReferenceReconciliationFallbackCount);
       lBestColumn := 0;
       lBestDistance := MaxInt;
       lBestLine := 0;
@@ -2396,6 +2397,7 @@ var
   lText: string;
   lWithStatements: TList<TDelphiSemanticWithStatement>;
 begin
+  Result := Default(TDelphiSemanticUnitModel);
   lDiagnostics := nil;
   lInterfaceUses := nil;
   lImplementationUses := nil;
@@ -2481,7 +2483,7 @@ begin
     ApplyLocalSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lLocals);
     ReconcileDeclarationCoordinates(lSourceResult.Source.Text, lDeclarations);
     ReconcileWithStatementCoordinates(lSourceResult.Source.Text, lWithStatements);
-    ReconcileReferencesCoordinates(lSourceResult.Source.Text, lReferences);
+    ReconcileReferencesCoordinates(lSourceResult.Source.Text, lReferences, Result.Metrics);
     ReconcileMemberCoordinates(lSourceResult.Source.Text, lMembers);
     ReconcileRoutineCoordinates(lSourceResult.Source.Text, lRoutines);
     ReconcileLocalCoordinates(lSourceResult.Source.Text, lLocals);
@@ -2499,29 +2501,6 @@ begin
     lInterfaceUses.Free;
     lDiagnostics.Free;
   end;
-end;
-
-class function TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount:
-  Integer;
-begin
-  Result := GReferenceReconciliationFallbackCount;
-end;
-
-class function TDelphiSemanticUnitModelExtractor.ReferenceReconciliationNameScanCount: Integer;
-begin
-  Result := GReferenceReconciliationNameScanCount;
-end;
-
-class function TDelphiSemanticUnitModelExtractor.ReferenceOccurrenceTableBuildCount: Integer;
-begin
-  Result := GReferenceOccurrenceTableBuildCount;
-end;
-
-class procedure TDelphiSemanticUnitModelExtractor.ResetReferenceReconciliationFallbackCount;
-begin
-  GReferenceReconciliationFallbackCount := 0;
-  GReferenceReconciliationNameScanCount := 0;
-  GReferenceOccurrenceTableBuildCount := 0;
 end;
 
 class function TDelphiSemanticUnitModelExtractor.TypeBlockAnalysisBuildCount: Integer;

@@ -3,7 +3,7 @@ unit DelphiSemantics.Refactor;
 interface
 
 uses
-  DelphiSemantics.DeadCode, DelphiSemantics.Query, DelphiSemantics.Symbols,
+  DelphiSemantics.DeadCode, DelphiSemantics.Index, DelphiSemantics.Query, DelphiSemantics.Symbols,
   DelphiSemantics.Usage;
 
 type
@@ -21,6 +21,7 @@ type
     Status: string;
     Diagnostic: string;
     Edits: TArray<TDelphiSemanticTextEdit>;
+    IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
   end;
 
   TDelphiSemanticDeadCodeRemovalBlocker = record
@@ -56,7 +57,7 @@ implementation
 
 uses
   System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Index, DelphiSemantics.Model;
+  DelphiSemantics.Model;
 
 function MakeBlockedPlan(const aDiagnostic: string): TDelphiSemanticRenamePlan;
 begin
@@ -818,10 +819,15 @@ begin
 
   lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
   if HasNameCollision(lIndex, aName, aNewName) then
-    Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".'));
+  begin
+    Result := MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".');
+    Result.IndexMetrics := lIndex.Metrics;
+    Exit;
+  end;
 
   lUsageResult := TDelphiSemanticUsageFinder.FindUsagesByName(lIndex, aName);
   Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
+  Result.IndexMetrics := lIndex.Metrics;
 end;
 
 class function TDelphiSemanticRenamePlanner.PlanRenameAtPosition(
@@ -838,12 +844,21 @@ begin
   lUsageResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lIndex, aContext, aFileName,
     aLine, aColumn);
   if lUsageResult.Status <> 'resolved' then
-    Exit(MakeBlockedPlan(lUsageResult.Diagnostic));
+  begin
+    Result := MakeBlockedPlan(lUsageResult.Diagnostic);
+    Result.IndexMetrics := lIndex.Metrics;
+    Exit;
+  end;
 
   if HasNameCollision(lIndex, lUsageResult.Symbol.Name, aNewName) then
-    Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".'));
+  begin
+    Result := MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".');
+    Result.IndexMetrics := lIndex.Metrics;
+    Exit;
+  end;
 
   Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
+  Result.IndexMetrics := lIndex.Metrics;
 end;
 
 class function TDelphiSemanticRenamePlanner.PlanFunctionResultRefactorAtPosition(

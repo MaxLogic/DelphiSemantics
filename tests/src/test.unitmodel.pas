@@ -1491,7 +1491,6 @@ begin
   lOptions.SearchPaths := [lRoot];
   lOptions.ProjectContextApplied := True;
 
-  TDelphiSemanticUnitModelExtractor.ResetReferenceReconciliationFallbackCount;
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
 
   Assert.IsTrue(lModel.Success);
@@ -1531,7 +1530,7 @@ begin
     lSource)), 'comment token');
   Assert.IsFalse(HasReferenceAtOffset(lModel, 'TTarget', Pos('TTarget in a string',
     lSource)), 'string token');
-  Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount <= 17,
+  Assert.IsTrue(lModel.Metrics.ReferenceReconciliationFallbackCount <= 17,
     'preprocessed source should keep reference reconciliation fallback within the documented ceiling');
 end;
 
@@ -1567,7 +1566,6 @@ begin
   lOptions.SourceFileName := lPath;
   lOptions.ProjectContextApplied := True;
 
-  TDelphiSemanticUnitModelExtractor.ResetReferenceReconciliationFallbackCount;
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
 
   Assert.IsTrue(lModel.Success);
@@ -1575,7 +1573,7 @@ begin
     Length('GTarget: ')), 'global type reference');
   Assert.IsTrue(HasReferenceAtOffset(lModel, 'GTarget', Pos('GTarget.Value', lSource)),
     'body global reference');
-  Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount <= 5,
+  Assert.IsTrue(lModel.Metrics.ReferenceReconciliationFallbackCount <= 5,
     'plain source should keep reference reconciliation fallback within the documented ceiling');
 end;
 
@@ -1642,14 +1640,13 @@ begin
   lOptions.Defines := ['ACTIVE'];
   lOptions.ProjectContextApplied := True;
 
-  TDelphiSemanticUnitModelExtractor.ResetReferenceReconciliationFallbackCount;
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
 
   Assert.IsTrue(lModel.Success);
-  Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount > 0,
+  Assert.IsTrue(lModel.Metrics.ReferenceReconciliationFallbackCount > 0,
     'fixture should exercise reference reconciliation fallback');
-  Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationNameScanCount <
-    TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount,
+  Assert.IsTrue(lModel.Metrics.ReferenceReconciliationNameScanCount <
+    lModel.Metrics.ReferenceReconciliationFallbackCount,
     'repeated fallback names should share one source scan per name');
 end;
 
@@ -1663,15 +1660,14 @@ begin
   lOptions.Defines := ['ACTIVE'];
   lOptions.ProjectContextApplied := True;
 
-  TDelphiSemanticUnitModelExtractor.ResetReferenceReconciliationFallbackCount;
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
 
   Assert.IsTrue(lModel.Success);
-  Assert.IsTrue(TDelphiSemanticUnitModelExtractor.ReferenceReconciliationFallbackCount > 0,
+  Assert.IsTrue(lModel.Metrics.ReferenceReconciliationFallbackCount > 0,
     'fixture should exercise reference reconciliation fallback');
-  Assert.AreEqual(1, TDelphiSemanticUnitModelExtractor.ReferenceOccurrenceTableBuildCount,
+  Assert.AreEqual(1, lModel.Metrics.ReferenceOccurrenceTableBuildCount,
     'fallback reconciliation should build one token occurrence table per unit');
-  Assert.AreEqual(0, TDelphiSemanticUnitModelExtractor.ReferenceReconciliationNameScanCount,
+  Assert.AreEqual(0, lModel.Metrics.ReferenceReconciliationNameScanCount,
     'fallback reconciliation should not regex-scan source once per name');
 end;
 

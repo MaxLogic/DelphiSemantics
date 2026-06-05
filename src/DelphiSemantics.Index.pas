@@ -27,12 +27,19 @@ type
       TDelphiSemanticUnitModel): Boolean;
   end;
 
+  TDelphiSemanticProjectSymbolIndexMetrics = record
+    BuildInvocationCount: Integer;
+    BuildElapsedMilliseconds: Int64;
+    ReferenceResolutionSymbolScanCount: Integer;
+  end;
+
   TDelphiSemanticProjectSymbolIndex = record
   private
     fData: IDelphiSemanticProjectSymbolIndexData;
   public
     Symbols: TArray<TDelphiSemanticIndexedSymbol>;
     References: TArray<TDelphiSemanticIndexedReference>;
+    Metrics: TDelphiSemanticProjectSymbolIndexMetrics;
     function FindSymbolById(const aId: TDelphiSemanticSymbolId; out aSymbol:
       TDelphiSemanticIndexedSymbol): Boolean;
     function FindSymbolsByName(const aName: string): TArray<TDelphiSemanticIndexedSymbol>;
@@ -54,13 +61,8 @@ type
 
   TDelphiSemanticProjectSymbolIndexer = record
   public
-    class var BuildInvocationCount: Integer;
-    class var BuildElapsedMilliseconds: Int64;
-    class var ReferenceResolutionSymbolScanCount: Integer;
     class function Build(const aContext: TDelphiSemanticSymbolQueryContext):
       TDelphiSemanticProjectSymbolIndex; static;
-    class procedure ResetBuildInvocationCount; static;
-    class procedure ResetReferenceResolutionSymbolScanCount; static;
   end;
 
 implementation
@@ -1182,7 +1184,8 @@ var
   lStopwatch: TStopwatch;
   lSymbols: TDelphiSemanticSymbolList;
 begin
-  Inc(BuildInvocationCount);
+  Result := Default(TDelphiSemanticProjectSymbolIndex);
+  Result.Metrics.BuildInvocationCount := 1;
   lStopwatch := TStopwatch.StartNew;
   lSymbols := TDelphiSemanticSymbolList.Create;
   lReferences := TList<TDelphiSemanticIndexedReference>.Create;
@@ -1211,19 +1214,8 @@ begin
   finally
     lReferences.Free;
     lSymbols.Free;
-    Inc(BuildElapsedMilliseconds, lStopwatch.ElapsedMilliseconds);
+    Result.Metrics.BuildElapsedMilliseconds := lStopwatch.ElapsedMilliseconds;
   end;
-end;
-
-class procedure TDelphiSemanticProjectSymbolIndexer.ResetBuildInvocationCount;
-begin
-  BuildInvocationCount := 0;
-  BuildElapsedMilliseconds := 0;
-end;
-
-class procedure TDelphiSemanticProjectSymbolIndexer.ResetReferenceResolutionSymbolScanCount;
-begin
-  ReferenceResolutionSymbolScanCount := 0;
 end;
 
 end.

@@ -324,13 +324,12 @@ var
   lPlan: TDelphiSemanticRenamePlan;
 begin
   lContext := LoadContext;
-  TDelphiSemanticProjectSymbolIndexer.ResetBuildInvocationCount;
 
   lPlan := TDelphiSemanticRenamePlanner.PlanRename(lContext, 'GlobalQueryValue',
     'RenamedGlobalQueryValue');
 
   Assert.AreEqual('planned', lPlan.Status);
-  Assert.AreEqual(1, TDelphiSemanticProjectSymbolIndexer.BuildInvocationCount);
+  Assert.AreEqual(1, lPlan.IndexMetrics.BuildInvocationCount);
 end;
 
 procedure TRenamePlannerTests.BlocksCaseInsensitiveCollision;

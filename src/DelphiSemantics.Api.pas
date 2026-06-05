@@ -35,6 +35,8 @@ type
   TDelphiSemanticCacheDiagnostic = DelphiSemantics.Cache.TDelphiSemanticCacheDiagnostic;
   TDelphiSemanticProjectSymbolIndex =
     DelphiSemantics.Index.TDelphiSemanticProjectSymbolIndex;
+  TDelphiSemanticProjectSymbolIndexMetrics =
+    DelphiSemantics.Index.TDelphiSemanticProjectSymbolIndexMetrics;
   TDelphiSemanticUnitModel = DelphiSemantics.Model.TDelphiSemanticUnitModel;
   TDelphiSemanticSymbolQueryContext =
     DelphiSemantics.Query.TDelphiSemanticSymbolQueryContext;

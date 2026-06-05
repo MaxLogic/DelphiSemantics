@@ -3,7 +3,7 @@ unit DelphiSemantics.DeadCode;
 interface
 
 uses
-  DelphiSemantics.Query, DelphiSemantics.Symbols;
+  DelphiSemantics.Index, DelphiSemantics.Query, DelphiSemantics.Symbols;
 
 type
   TDelphiSemanticDeadCodeCandidate = record
@@ -25,6 +25,7 @@ type
   TDelphiSemanticDeadCodeReport = record
     Profile: string;
     Candidates: TArray<TDelphiSemanticDeadCodeCandidate>;
+    IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
   end;
 
   TDelphiSemanticDeadCodeReporter = record
@@ -38,8 +39,7 @@ implementation
 uses
   System.Classes, System.Generics.Collections, System.Generics.Defaults,
   System.StrUtils, System.SysUtils,
-  MaxLogic.StrUtils,
-  DelphiSemantics.Index;
+  MaxLogic.StrUtils;
 
 type
   TDeadCodeSourceEntry = record
@@ -619,6 +619,7 @@ begin
     Result := Default(TDelphiSemanticDeadCodeReport);
     Result.Profile := lProfile;
     Result.Candidates := lCandidates.ToArray;
+    Result.IndexMetrics := lIndex.Metrics;
   finally
     lSourceCache.Free;
     lReferenceIndex.Free;

@@ -640,12 +640,11 @@ var
   lIndex: TDelphiSemanticProjectSymbolIndex;
 begin
   lContext := LoadContext;
-  TDelphiSemanticProjectSymbolIndexer.ResetReferenceResolutionSymbolScanCount;
 
   lIndex := TDelphiSemanticApi.BuildProjectSymbolIndex(lContext);
 
   Assert.IsTrue(Length(lIndex.References) > 0);
-  Assert.AreEqual(0, TDelphiSemanticProjectSymbolIndexer.ReferenceResolutionSymbolScanCount);
+  Assert.AreEqual(0, lIndex.Metrics.ReferenceResolutionSymbolScanCount);
 end;
 
 procedure TSymbolQueryTests.ProjectSymbolIndexUsesCaseInsensitiveLookupMaps;

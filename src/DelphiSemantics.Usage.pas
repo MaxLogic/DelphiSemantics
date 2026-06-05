@@ -25,6 +25,7 @@ type
     Diagnostic: string;
     Symbol: TDelphiSemanticIndexedSymbol;
     Usages: TArray<TDelphiSemanticUsage>;
+    IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
   end;
 
   TDelphiSemanticUsageFinder = record
@@ -160,6 +161,7 @@ begin
     Result.Status := 'resolved';
     Result.Symbol := aSymbol;
     Result.Usages := lUsages.ToArray;
+    Result.IndexMetrics := aIndex.Metrics;
   finally
     lUsages.Free;
   end;
@@ -245,6 +247,7 @@ var
 begin
   lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
   Result := FindUsagesAtPosition(lIndex, aContext, aFileName, aLine, aColumn);
+  Result.IndexMetrics := lIndex.Metrics;
 end;
 
 class function TDelphiSemanticUsageFinder.FindUsagesAtPosition(
@@ -260,11 +263,19 @@ begin
   lDefinition := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(aContext, aFileName, aLine,
     aColumn);
   if not lDefinition.Found then
-    Exit(MakeDiagnosticResult(lDefinition.Status, 'No symbol found at the requested position.'));
+  begin
+    Result := MakeDiagnosticResult(lDefinition.Status, 'No symbol found at the requested position.');
+    Result.IndexMetrics := aIndex.Metrics;
+    Exit;
+  end;
 
   lStatus := ResolveSymbolByDefinition(aIndex, lDefinition, lSymbol, lDiagnostic);
   if lStatus <> 'resolved' then
-    Exit(MakeDiagnosticResult(lStatus, lDiagnostic));
+  begin
+    Result := MakeDiagnosticResult(lStatus, lDiagnostic);
+    Result.IndexMetrics := aIndex.Metrics;
+    Exit;
+  end;
 
   Result := BuildResultForSymbol(aIndex, lSymbol);
 end;
@@ -277,6 +288,7 @@ var
 begin
   lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
   Result := FindUsagesByName(lIndex, aName);
+  Result.IndexMetrics := lIndex.Metrics;
 end;
 
 class function TDelphiSemanticUsageFinder.FindUsagesByName(
@@ -289,7 +301,11 @@ var
 begin
   lStatus := ResolveSymbolByName(aIndex, aName, lSymbol, lDiagnostic);
   if lStatus <> 'resolved' then
-    Exit(MakeDiagnosticResult(lStatus, lDiagnostic));
+  begin
+    Result := MakeDiagnosticResult(lStatus, lDiagnostic);
+    Result.IndexMetrics := aIndex.Metrics;
+    Exit;
+  end;
 
   Result := BuildResultForSymbol(aIndex, lSymbol);
 end;
