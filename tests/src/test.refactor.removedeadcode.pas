@@ -126,7 +126,7 @@ begin
 
   Assert.AreEqual('planned', lPlan.Status);
   Assert.AreEqual('audit', lPlan.Profile);
-  Assert.AreEqual(0, Length(lPlan.Edits));
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
   Assert.AreEqual('audit-profile', BlockerReason(lPlan, 'StaticUnusedValue'));
 end;
 

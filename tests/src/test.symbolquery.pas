@@ -129,20 +129,20 @@ begin
 
   lResults := TDelphiSemanticSymbolQuery.Search(lContext, 'Enabled', 10);
 
-  Assert.AreEqual(1, Length(lResults));
+  Assert.AreEqual(1, Integer(Length(lResults)));
   Assert.AreEqual('Enabled', lResults[0].Name);
   Assert.AreEqual('property', lResults[0].Kind);
   Assert.AreEqual('TSymbolMapFixture', lResults[0].OwnerName);
 
   lResults := TDelphiSemanticSymbolQuery.Search(lContext, 'TSystemFixture', 10);
 
-  Assert.AreEqual(1, Length(lResults));
+  Assert.AreEqual(1, Integer(Length(lResults)));
   Assert.AreEqual('rtl-source', lResults[0].SourceKind);
   Assert.AreEqual('SymbolQueryRtlUnit', lResults[0].OwnerName);
 
   lResults := TDelphiSemanticSymbolQuery.Search(lContext, 'Length', 10);
 
-  Assert.AreEqual(1, Length(lResults));
+  Assert.AreEqual(1, Integer(Length(lResults)));
   Assert.AreEqual('intrinsic-routine', lResults[0].Kind);
   Assert.AreEqual('compiler-profile', lResults[0].SourceKind);
 end;
@@ -242,7 +242,7 @@ begin
   lReferences := TDelphiSemanticSymbolQuery.FindTokenReferences(lContext,
     'TSymbolMapFixture', 1);
 
-  Assert.AreEqual(1, Length(lReferences));
+  Assert.AreEqual(1, Integer(Length(lReferences)));
   Assert.AreEqual('SymbolQueryUnit', lReferences[0].UnitName);
   Assert.AreEqual('type-reference', lReferences[0].Role);
   Assert.AreEqual('interface', lReferences[0].SectionKind);
@@ -259,7 +259,7 @@ begin
   lReferences := TDelphiSemanticSymbolQuery.FindTokenReferences(lContext,
     'TSymbolMapFixture', 1);
 
-  Assert.AreEqual(1, Length(lReferences));
+  Assert.AreEqual(1, Integer(Length(lReferences)));
 end;
 
 procedure TSymbolQueryTests.ResolvesCoreSymbolKindsWithoutShellingOut;
@@ -417,7 +417,7 @@ begin
   lResults := TDelphiSemanticSymbolQuery.Search(lContext, 'SiblingRoutine', 10);
 
   Assert.IsTrue(lFoundScope);
-  Assert.AreEqual(1, Length(lResults));
+  Assert.AreEqual(1, Integer(Length(lResults)));
   lResult := lResults[0];
   Assert.AreEqual('routine', lResult.Kind);
   Assert.AreEqual('project-source', lResult.SourceKind);
@@ -432,7 +432,7 @@ begin
 
   lResults := TDelphiSemanticSymbolQuery.SearchAllMatches(lContext, 'SiblingExact', 10);
 
-  Assert.AreEqual(2, Length(lResults));
+  Assert.AreEqual(2, Integer(Length(lResults)));
 end;
 
 procedure TSymbolQueryTests.BuildsProjectSymbolIndexWithResolvedAmbiguousAndUnresolvedReferences;
@@ -628,7 +628,7 @@ begin
     begin
       lSawSharedLocal := True;
       Assert.AreEqual('unresolved', lReference.Status);
-      Assert.AreEqual(0, Length(lReference.CandidateSymbolIds));
+      Assert.AreEqual(0, Integer(Length(lReference.CandidateSymbolIds)));
     end;
 
   Assert.IsTrue(lSawSharedLocal);
@@ -684,7 +684,7 @@ begin
 
   lSymbols := lIndex.FindTopLevelSymbolsByName('globalqueryvalue');
 
-  Assert.AreEqual(1, Length(lSymbols));
+  Assert.AreEqual(1, Integer(Length(lSymbols)));
   Assert.AreEqual('GlobalQueryValue', lSymbols[0].Name);
   Assert.IsTrue(lIndex.FindSymbolById(lSymbols[0].Id, lSymbol));
   Assert.AreEqual('GlobalQueryValue', lSymbol.Name);
@@ -696,17 +696,17 @@ begin
   Assert.AreEqual('TSymbolMapFixture', lSymbols[0].Name);
 
   lSymbols := lIndex.FindLocalSymbolsByRoutineAndName('usesymbols', 'lfixture');
-  Assert.AreEqual(1, Length(lSymbols));
+  Assert.AreEqual(1, Integer(Length(lSymbols)));
   Assert.AreEqual('UseSymbols', lSymbols[0].OwnerName);
   Assert.AreEqual('var', lSymbols[0].Kind);
 
   lSymbols := lIndex.FindLocalSymbolsByRoutineAndName('usesymbols', 'ainjectedparam');
-  Assert.AreEqual(1, Length(lSymbols));
+  Assert.AreEqual(1, Integer(Length(lSymbols)));
   Assert.AreEqual('UseSymbols', lSymbols[0].OwnerName);
   Assert.AreEqual('parameter', lSymbols[0].Kind);
 
   lSymbols := lIndex.FindMembersByOwnerAndName('tsymbolmapfixture', 'enabled');
-  Assert.AreEqual(1, Length(lSymbols));
+  Assert.AreEqual(1, Integer(Length(lSymbols)));
   Assert.AreEqual('TSymbolMapFixture', lSymbols[0].OwnerName);
   Assert.AreEqual('property', lSymbols[0].Kind);
 

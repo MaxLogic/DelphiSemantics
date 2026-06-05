@@ -76,7 +76,7 @@ begin
     FixturePath('FunctionResultUnit.pas'), 23, 3);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(4, Length(lPlan.Edits));
+  Assert.AreEqual(4, Integer(Length(lPlan.Edits)));
 end;
 
 procedure TFunctionResultRefactorTests.PlansFunctionNameResultReplacementInsideEnclosingFunction;
@@ -97,7 +97,7 @@ begin
     FixturePath('FunctionResultUnit.pas'), 23, 3);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(4, Length(lPlan.Edits));
+  Assert.AreEqual(4, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     Assert.AreEqual('Result', lEdit.NewText);
@@ -151,7 +151,7 @@ begin
     FixturePath('FunctionResultUnit.pas'), 45, 3);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(7, Length(lPlan.Edits));
+  Assert.AreEqual(7, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     Assert.AreEqual('Result', lEdit.NewText);
@@ -204,7 +204,7 @@ begin
     FixturePath('FunctionResultUnit.pas'), 39, 3);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(3, Length(lPlan.Edits));
+  Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     Assert.AreEqual('Result', lEdit.NewText);
@@ -247,7 +247,7 @@ begin
     FixturePath('FunctionResultUnit.pas'), 58, 3);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(3, Length(lPlan.Edits));
+  Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     if lEdit.StartLine = 61 then

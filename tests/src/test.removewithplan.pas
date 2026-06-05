@@ -612,12 +612,12 @@ begin
   Assert.IsTrue(Length(lPlan.Edits[0].ReferenceIds) > 0,
     'Expected semantic references to justify the edit.');
   Assert.AreEqual(lPlan.ContextFingerprint, lSecondPlan.ContextFingerprint);
-  Assert.AreEqual(Length(lPlan.Edits), Length(lSecondPlan.Edits));
+  Assert.AreEqual(Integer(Length(lPlan.Edits)), Integer(Length(lSecondPlan.Edits)));
   Assert.AreEqual(lPlan.Edits[0].ExpectedFileHash, lSecondPlan.Edits[0].ExpectedFileHash);
   Assert.AreEqual(lPlan.Edits[0].ExpectedSourceText, lSecondPlan.Edits[0].ExpectedSourceText);
 
   lAfterBytes := TFile.ReadAllBytes(lUnitPath);
-  Assert.AreEqual(Length(lBeforeBytes), Length(lAfterBytes), 'Plan mode must not write source files.');
+  Assert.AreEqual(Integer(Length(lBeforeBytes)), Integer(Length(lAfterBytes)), 'Plan mode must not write source files.');
   for i := 0 to High(lBeforeBytes) do
     Assert.AreEqual(lBeforeBytes[i], lAfterBytes[i], 'Plan mode must preserve source bytes.');
 
@@ -628,8 +628,8 @@ begin
   lSkippedFacts.Bindings[0].Status := 'skipped';
   lSkippedFacts.Bindings[0].SkipReason := 'UNRESOLVED_REFERENCE';
   lSkippedPlan := TDelphiSemanticApi.PlanRemoveWith(lSkippedFacts);
-  Assert.AreEqual(0, Length(lSkippedPlan.Edits));
-  Assert.AreEqual(1, Length(lSkippedPlan.SkippedStatements));
+  Assert.AreEqual(0, Integer(Length(lSkippedPlan.Edits)));
+  Assert.AreEqual(1, Integer(Length(lSkippedPlan.SkippedStatements)));
   Assert.AreEqual('SOURCE_RANGE_UNAVAILABLE', lSkippedPlan.SkippedStatements[0].Reason);
   Assert.AreEqual('stable source file, hash, and source range are required',
     lSkippedPlan.SkippedStatements[0].SafetyReason);
@@ -790,11 +790,11 @@ begin
 
   lPlan.FinalStatements := [lPlannedStatement, lSkippedStatement];
 
-  Assert.AreEqual(lCandidateEditCount, Length(lPlan.Edits),
+  Assert.AreEqual(lCandidateEditCount, Integer(Length(lPlan.Edits)),
     'Final statement DTO fields must not replace candidate Edits.');
   Assert.AreEqual('requires-dak-compatibility-adapter', lPlan.Edits[0].ApplyMode,
     'Existing candidate apply mode must remain backward compatible.');
-  Assert.AreEqual(2, Length(lPlan.FinalStatements));
+  Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements)));
   Assert.AreEqual('planned', lPlan.FinalStatements[0].Status);
   Assert.AreEqual('skipped', lPlan.FinalStatements[1].Status);
   Assert.AreEqual('selector-type-not-resolved', lPlan.FinalStatements[1].Reason);
@@ -830,7 +830,7 @@ begin
   lPlan := BuildPlanForProject(DakFixturePath(
     'RemoveWithPlannerFixture\RemoveWithPlannerFixture.dproj'));
 
-  Assert.AreEqual(7, Length(lPlan.FinalStatements),
+  Assert.AreEqual(7, Integer(Length(lPlan.FinalStatements)),
     'Expected focused final DTO to include planned and skipped statements.');
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
@@ -838,11 +838,11 @@ begin
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'lWithPlannerRecordPtr^.Name'),
     'Expected record member qualification.');
-  Assert.AreEqual(1, Length(lStatement.Temps), 'Expected record pointer temp.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)), 'Expected record pointer temp.');
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithPlannerRecordPtr: ^TPlannerRecord;',
     lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual(2, Length(lStatement.Edits), 'Expected declaration and replacement edits.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)), 'Expected declaration and replacement edits.');
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
 
@@ -888,8 +888,8 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-7', lStatement),
     'Expected pointer selector statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps), 'Expected direct pointer selector without temp.');
-  Assert.AreEqual(1, Length(lStatement.Edits), 'Expected only replacement edit.');
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)), 'Expected direct pointer selector without temp.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)), 'Expected only replacement edit.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'aRecordPtr^.Name'),
     'Expected direct pointer qualification.');
 end;
@@ -1052,16 +1052,16 @@ begin
   lPlan := BuildPlanForProject(DakFixturePath(
     'RemoveWithNestedRewriteFixture\RemoveWithNestedRewriteFixture.dproj'));
 
-  Assert.AreEqual(1, Length(lPlan.FinalStatements),
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)),
     'Expected nested child statement to be folded into the outer final DTO.');
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
     'Expected outer nested statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(2, Length(lStatement.Temps),
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)),
     'Expected outer DTO to include outer and inner temps in plan order.');
   Assert.AreEqual('lWithNestedOuter', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithNestedInner', lStatement.Temps[1].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits),
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)),
     'Expected declaration and outer replacement edits only.');
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
@@ -1233,7 +1233,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'bitarray.pas', 50, 3, lStatement),
     'Expected maxTdb ClearBitArray with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps),
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
     'Expected current DAK parity for BA selector to use direct qualification.');
   Assert.AreEqual('  fillchar(BA.Cont^, BA.MaxBytes, 0)' + sLineBreak + 'END;',
     lStatement.ReplacementText);
@@ -1243,7 +1243,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'bitarray.pas', 57, 3, lStatement),
     'Expected maxTdb NewBitArray with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps),
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
     'Expected current DAK parity for second BA selector to use direct qualification.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'GetMem(BA.Cont, BA.MaxBytes)'),
     'Expected allocation target to use direct BA qualification: ' +
@@ -1260,7 +1260,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'bitarray.pas', 115, 3, lStatement),
     'Expected maxTdb TestBit with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps),
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)),
     'Expected current DAK parity for value record parameter BA to use pointer temp.');
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithBitArrayPtr', lStatement.Temps[0].TempName);
@@ -1290,8 +1290,8 @@ begin
     'Expected maxTdb SetBit with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTruncBitArrayDirectQualification;
@@ -1304,9 +1304,9 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'bitarray.pas', 202, 5, lStatement),
     'Expected maxTdb TruncBitArray with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps),
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
     'Expected current DAK parity for TruncBitArray BA selector to use direct qualification.');
-  Assert.AreEqual(1, Length(lStatement.Edits), 'Expected only replacement edit.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)), 'Expected only replacement edit.');
   Assert.AreEqual('    BEGIN' + sLineBreak +
     '      m := n SHR 3;' + sLineBreak +
     '      v := 8 - (n AND 7);' + sLineBreak +
@@ -1330,9 +1330,9 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'bitarray.pas', 225, 5, lStatement),
     'Expected maxTdb BitArraySum indexed pointer with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps),
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
     'Expected current DAK parity for indexed pointer selector to use direct qualification.');
-  Assert.AreEqual(1, Length(lStatement.Edits), 'Expected only replacement edit.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)), 'Expected only replacement edit.');
   Assert.AreEqual('    BEGIN' + sLineBreak +
     '      FOR i := 0 TO BitArrayListPtr^[c].MaxBytes - 1 DO' + sLineBreak +
     '      BEGIN' + sLineBreak +
@@ -1359,9 +1359,9 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 94, 3, lStatement),
     'Expected maxTdb NormRec outer with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps),
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
     'Expected current DAK parity for DF[D]^ selector to use direct qualification.');
-  Assert.AreEqual(1, Length(lStatement.Edits), 'Expected only replacement edit.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)), 'Expected only replacement edit.');
   Assert.AreEqual('  FOR i := 1 TO MaxRecZahl DO' + sLineBreak +
     '            begin' + sLineBreak +
     '        IF (DF[D]^.Maske[i]^.sl <> 0) THEN' + sLineBreak +
@@ -1379,9 +1379,9 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 214, 3, lStatement),
     'Expected maxTdb DBF structure with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps),
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
     'Expected current DAK parity for DBF, Struktur selectors to use direct qualification.');
-  Assert.AreEqual(1, Length(lStatement.Edits), 'Expected only replacement edit.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)), 'Expected only replacement edit.');
   Assert.AreEqual('  BEGIN' + sLineBreak +
     '    fillchar(DBF.Struktur, SizeOf(DBF.Struktur), 0);' + sLineBreak +
     '    DBF.Struktur.Version := 3;' + sLineBreak +
@@ -1408,9 +1408,9 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 395, 3, lStatement),
     'Expected maxTdb DBF single-line structure with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps),
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
     'Expected current DAK parity for single-line DBF, Struktur selectors to use direct qualification.');
-  Assert.AreEqual(1, Length(lStatement.Edits), 'Expected only replacement edit.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)), 'Expected only replacement edit.');
   Assert.AreEqual(
     '  WriteNBytes(DBF.m_f, Int32(DBF.Struktur.Offset) + (n - 1) * (DBF.Struktur.RecSize), DBF.Struktur.RecSize, DBF.E^, 0);',
     lStatement.ReplacementText);
@@ -1427,8 +1427,8 @@ begin
     'Expected maxTdb CloseDBFMemo with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbNestedInheritedSelectorDirectQualification;
@@ -1441,9 +1441,9 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 450, 5, lStatement),
     'Expected maxTdb OpenDBF_File nested Struktur with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps),
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
     'Expected current DAK parity for nested inherited Struktur selector to use direct qualification.');
-  Assert.AreEqual(1, Length(lStatement.Edits), 'Expected only replacement edit.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)), 'Expected only replacement edit.');
   Assert.AreEqual('    BEGIN' + sLineBreak +
     '      q := NIL;' + sLineBreak +
     '      IF DBF.new_dbf' + sLineBreak +
@@ -1543,8 +1543,8 @@ begin
     'Expected maxTdb ReadDBT DBF with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbReadDbfPointerTemp;
@@ -1557,7 +1557,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 661, 3, lStatement),
     'Expected maxTdb ReadDBF DBF, Struktur with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps),
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)),
     'Expected current DAK parity for ReadDBF DBF selector to use pointer temp.');
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithDBF_FilePtr', lStatement.Temps[0].TempName);
@@ -1580,8 +1580,8 @@ begin
     'Expected maxTdb Convert M[i]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbCopyRecToStringSelectorTypeSkip;
@@ -1595,8 +1595,8 @@ begin
     'Expected maxTdb CopyRecToString Maske[Nr]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbGetDataMaskIndexQualifier;
@@ -1627,8 +1627,8 @@ begin
     'Expected maxTdb PutData Mask[Nr]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbSelektNrToStringSelectorTypeSkip;
@@ -1642,8 +1642,8 @@ begin
     'Expected maxTdb SelektNrToString sl^, Sel with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbSelektLookupDirectQualification;
@@ -1656,7 +1656,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1503, 5, lStatement),
     'Expected maxTdb StringToSelektNr sl^, Sel with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('    begin' + sLineBreak +
     '      for i := 1 to sl^.Sel.M_Az do' + sLineBreak +
     '        if s = SelektStr(sl^.Sel.Menu^[i]) then' + sLineBreak +
@@ -1674,7 +1674,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1518, 5, lStatement),
     'Expected maxTdb Selektlength sl^, Sel with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('    begin' + sLineBreak +
     '      for i := 1 to sl^.Sel.M_Az do' + sLineBreak +
     '        Inc(s, 1 + length(SelektStr(sl^.Sel.Menu^[i])));' + sLineBreak +
@@ -1692,8 +1692,8 @@ begin
     'Expected maxTdb ForgetSelektList p^.Sel with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLabelStringPropertyChainQualification;
@@ -1706,7 +1706,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1614, 3, lStatement),
     'Expected maxTdb LabelString DF[d]^.Maske[Nr]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('  if komplett and (DF[d]^.Maske[Nr]^.Art and 15 = A_LONG) then' + sLineBreak +
     '    begin' + sLineBreak +
     '      lTmpStr := DF[d]^.Maske[Nr]^.m;' + sLineBreak +
@@ -1728,7 +1728,7 @@ begin
     'Expected maxTdb FieldType DF[d]^.Maske[Nr]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbDeleteMarkPropertyChainQualification;
@@ -1741,7 +1741,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 2106, 3, lStatement),
     'Expected maxTdb loeschmark DF[d]^.MarkListe with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('  begin' + sLineBreak +
     '    p := DF[d]^.MarkListe.Anfang;' + sLineBreak +
     '    q := nil;' + sLineBreak +
@@ -1776,7 +1776,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 2197, 5, lStatement),
     'Expected maxTdb lastmark DF[d]^.MarkListe with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('    begin' + sLineBreak +
     '      if DF[d]^.MarkListe.Anfang = nil then' + sLineBreak +
     '      begin' + sLineBreak +
@@ -1809,8 +1809,8 @@ begin
     'Expected maxTdb CheckMarkList DF[d]^.MarkListe with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbCheckMarkListNestedReceiverMemberSkip;
@@ -1824,8 +1824,8 @@ begin
     'Expected maxTdb CheckMarkList nested p^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbEasyTableMaskSymbolSkip;
@@ -1839,8 +1839,8 @@ begin
     'Expected maxTdb Easy.TableFunctions DF[DB].Maske[field]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbFileIoSearchRecordSymbolSkip;
@@ -1854,8 +1854,8 @@ begin
     'Expected maxTdb FileIO _SR with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbFileIoSecurityTypeSourceSkip;
@@ -1869,8 +1869,8 @@ begin
     'Expected maxTdb FileIO security with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('type-source-not-indexed', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbFormelnDataFilePointerReceiverSkip;
@@ -1884,8 +1884,8 @@ begin
     'Expected maxTdb formeln DF[D]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileDataFilePointerReceiverSkip;
@@ -1899,8 +1899,8 @@ begin
     'Expected maxTdb linkfile DF[i]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileNestedMaskReplacement;
@@ -1913,8 +1913,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 223, 13, lStatement),
     'Expected maxTdb linkfile nested Maske[j]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(417, Length(lStatement.ReplacementText));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(417, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual('            BEGIN' + #10 +
     '              IF Maske[j]^.Art AND 15 = A_LONG THEN' + #10 +
     '              BEGIN' + #10 +
@@ -1944,8 +1944,8 @@ begin
     'Expected maxTdb linkfile p^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileStatLinksPointerReceiverSkip;
@@ -1959,8 +1959,8 @@ begin
     'Expected maxTdb linkfile StatLinks[i]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileSetIvDataFilePointerSkip;
@@ -1976,8 +1976,8 @@ begin
     'Expected maxTdb linkfile SetIV DF[D]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   lMatchCount := 0;
   for lMatchedStatement in lPlan.FinalStatements do
   begin
@@ -2001,15 +2001,15 @@ begin
     'Expected maxTdb linkfile CheckIndirekt DF[D]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 450, 13, lStatement),
     'Expected maxTdb linkfile CheckIndirekt Maske[j]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileCheckStatLinksPointerSkip;
@@ -2023,8 +2023,8 @@ begin
     'Expected maxTdb linkfile CheckStatLinks StatLinks[i]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileFinalDirectQualification;
@@ -2038,9 +2038,9 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 682, 9, lStatement),
     'Expected maxTdb linkfile final DF[i]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
-  Assert.AreEqual(177, Length(lStatement.ReplacementText));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(177, Integer(Length(lStatement.ReplacementText)));
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
@@ -2068,8 +2068,8 @@ begin
     'Expected maxTdb lowFiles ResetFile f with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('type-source-not-indexed', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLowFilesQueuePointerSkips;
@@ -2083,15 +2083,15 @@ begin
     'Expected maxTdb lowFiles AppendQueue fptr^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 173, 3, lStatement),
     'Expected maxTdb lowFiles DeleteQueue fptr^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLowFilesFileQueueLastQualification;
@@ -2101,13 +2101,13 @@ procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLowFilesFileQueueLastQualifi
     aEndLine: Integer);
   begin
     Assert.AreEqual('planned', aStatement.Status, aStatement.Reason);
-    Assert.AreEqual(0, Length(aStatement.Temps));
-    Assert.AreEqual(1, Length(aStatement.Edits));
+    Assert.AreEqual(0, Integer(Length(aStatement.Temps)));
+    Assert.AreEqual(1, Integer(Length(aStatement.Edits)));
     Assert.AreEqual('    BEGIN' + #10 +
       '      IO_Error := TDB_Closefile(FileQueue^.last^.handle);' + #10 +
       '      FileQueue^.last^.open := FALSE;' + #10 +
       '    END;', aStatement.ReplacementText);
-    Assert.AreEqual(114, Length(aStatement.ReplacementText));
+    Assert.AreEqual(114, Integer(Length(aStatement.ReplacementText)));
     Assert.AreEqual(aStartLine, aStatement.Edits[0].Range.StartLine);
     Assert.AreEqual(1, aStatement.Edits[0].Range.StartColumn);
     Assert.AreEqual(aEndLine, aStatement.Edits[0].Range.EndLine);
@@ -2141,8 +2141,8 @@ procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLowFilesVirtualFileSkips;
       IntToStr(aLine) + '.');
     Assert.AreEqual('skipped', lStatement.Status);
     Assert.AreEqual(aReason, lStatement.Reason);
-    Assert.AreEqual(0, Length(lStatement.Temps));
-    Assert.AreEqual(0, Length(lStatement.Edits));
+    Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   end;
 
 var
@@ -2170,9 +2170,9 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 434, 5, lStatement),
     'Expected maxTdb lowFiles ReadNBytes f with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('    begin' + sLineBreak +
     '      lWithLowFilePtr := @f;' + sLineBreak +
     '      BEGIN' + #10 +
@@ -2196,7 +2196,7 @@ begin
     '      EXIT' + #10 +
     '    END;' + sLineBreak +
     '    end;', lStatement.ReplacementText);
-  Assert.AreEqual(587, Length(lStatement.ReplacementText));
+  Assert.AreEqual(587, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(432, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(434, lStatement.Edits[1].Range.StartLine);
   Assert.AreEqual(455, lStatement.Edits[1].Range.EndLine);
@@ -2212,9 +2212,9 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 484, 5, lStatement),
     'Expected maxTdb lowFiles WriteNBytes f with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('    begin' + sLineBreak +
     '      lWithLowFilePtr := @f;' + sLineBreak +
     '      BEGIN' + #10 +
@@ -2248,7 +2248,7 @@ begin
     '      EXIT' + #10 +
     '    END;' + sLineBreak +
     '    end;', lStatement.ReplacementText);
-  Assert.AreEqual(1130, Length(lStatement.ReplacementText));
+  Assert.AreEqual(1130, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(482, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(484, lStatement.Edits[1].Range.StartLine);
   Assert.AreEqual(515, lStatement.Edits[1].Range.EndLine);
@@ -2264,7 +2264,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 545, 5, lStatement),
     'Expected maxTdb lowFiles LowFileSize f with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('    begin' + sLineBreak +
     '      lWithLowFilePtr := @f;' + sLineBreak +
@@ -2278,7 +2278,7 @@ begin
     '      EXIT' + #10 +
     '    END;' + sLineBreak +
     '    end;', lStatement.ReplacementText);
-  Assert.AreEqual(280, Length(lStatement.ReplacementText));
+  Assert.AreEqual(280, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(543, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual('var' + sLineBreak + '  lWithLowFilePtr: ^LowFile;' +
     sLineBreak, lStatement.Edits[0].ReplacementText);
@@ -2287,13 +2287,13 @@ begin
     'Expected maxTdb lowFiles CutFile f with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 608, 9, lStatement),
     'Expected maxTdb lowFiles CutFile nested v_handle_ptr^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLowFilesCopyLowFileReplacement;
@@ -2306,9 +2306,9 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 696, 5, lStatement),
     'Expected maxTdb lowFiles CopyLowFile f with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('    begin' + sLineBreak +
     '      lWithLowFilePtr := @f;' + sLineBreak +
     '      BEGIN' + #10 +
@@ -2325,7 +2325,7 @@ begin
     '        END' + #10 +
     '    ;END;' + sLineBreak +
     '    end;', lStatement.ReplacementText);
-  Assert.AreEqual(462, Length(lStatement.ReplacementText));
+  Assert.AreEqual(462, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(693, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(696, lStatement.Edits[1].Range.StartLine);
   Assert.AreEqual(710, lStatement.Edits[1].Range.EndLine);
@@ -2341,10 +2341,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'makeiv.pas', 65, 7, lStatement),
     'Expected maxTdb makeiv IV[h] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
-  Assert.AreEqual(2372, Length(lStatement.ReplacementText));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(2372, Integer(Length(lStatement.ReplacementText)));
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     'lWithIndexVektorItemPtr^.Feld := lWithIndexVektorItemPtr^.Feld OR $4000'),
     lStatement.ReplacementText);
@@ -2372,8 +2372,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'md5.pas', 237, 3, lStatement),
     'Expected maxTdb md5 Context with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('  begin' + #10 +
     '    Context.State[0] := $67452301;' + #10 +
     '    Context.State[1] := $EFCDAB89;' + #10 +
@@ -2383,7 +2383,7 @@ begin
     '    Context.Count[1] := 0;' + #10 +
     '    FillChar(Context.Buffer, SizeOf(TMD5Buffer), 0);' + #10 +
     '  end;', lStatement.ReplacementText);
-  Assert.AreEqual(261, Length(lStatement.ReplacementText));
+  Assert.AreEqual(261, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(237, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(246, lStatement.Edits[0].Range.EndLine);
@@ -2401,8 +2401,8 @@ begin
     'Expected maxTdb ramfiles CheckRamText rt with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbRamFilesRewriteRamTextReplacement;
@@ -2415,10 +2415,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 249, 3, lStatement),
     'Expected maxTdb ramfiles RewriteRamText RamText with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
-  Assert.AreEqual(446, Length(lStatement.ReplacementText));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(446, Integer(Length(lStatement.ReplacementText)));
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     'lWithRamTextPtr := @RamText'), lStatement.ReplacementText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
@@ -2444,8 +2444,8 @@ begin
     'Expected maxTdb ramfiles InitRamText RamText with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbRamFilesCgiBufferDirectQualification;
@@ -2458,8 +2458,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 295, 3, lStatement),
     'Expected maxTdb ramfiles CGIBuffer with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('  begin' + sLineBreak +
     '    if CGIBuffer.Cont <> nil then' + sLineBreak +
     '      FreeMem(CGIBuffer.Cont, CGIBuffer._MaxFileSize);' + sLineBreak +
@@ -2483,10 +2483,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 307, 3, lStatement),
     'Expected maxTdb ramfiles ResetRamText RamText with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('var' + sLineBreak + '  lWithRamTextPtr: ^TRamText;' +
     sLineBreak, lStatement.Edits[0].ReplacementText);
   Assert.AreEqual(306, lStatement.Edits[0].Range.StartLine);
@@ -2516,10 +2516,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 323, 3, lStatement),
     'Expected maxTdb ramfiles AppendRamText RamText with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('var' + sLineBreak + '  lWithRamTextPtr: ^TRamText;' +
     sLineBreak, lStatement.Edits[0].ReplacementText);
   Assert.AreEqual(322, lStatement.Edits[0].Range.StartLine);
@@ -2550,8 +2550,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 434, 5, lStatement),
     'Expected maxTdb ramfiles close rt^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('    begin' + sLineBreak +
     '      ResetRamText(rt^, 0);' + sLineBreak +
     '      TDB_BlockWrite(f, rt^.Cont^, rt^._FileSize);' + sLineBreak +
@@ -2574,10 +2574,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 456, 3, lStatement),
     'Expected maxTdb ramfiles InsertRamTextPChar rt with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('  lWithRamTextPtr: ^TRamText;' + sLineBreak,
     lStatement.Edits[0].ReplacementText);
   Assert.AreEqual(450, lStatement.Edits[0].Range.StartLine);
@@ -2613,8 +2613,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 478, 3, lStatement),
     'Expected maxTdb ramfiles Ramtext_blockwrite CGIBuffer with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('  begin' + sLineBreak +
     '    if CGIBuffer._FileSize + n >= CGIBuffer._MaxFileSize then' + sLineBreak +
     '    begin' + sLineBreak +
@@ -2647,8 +2647,8 @@ begin
     'Expected maxTdb ramfiles ReadRamText RamText with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbRamFilesGetCharPointerTemp;
@@ -2661,10 +2661,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 586, 3, lStatement),
     'Expected maxTdb ramfiles GetCharRamText RamText with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('var' + sLineBreak + '  lWithRamTextPtr: ^TRamText;' +
     sLineBreak, lStatement.Edits[0].ReplacementText);
   Assert.AreEqual(585, lStatement.Edits[0].Range.StartLine);
@@ -2697,8 +2697,8 @@ begin
     'Expected maxTdb ramfiles ReadLnRamText RamText with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbRamFilesEofPointerTemp;
@@ -2711,10 +2711,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 666, 3, lStatement),
     'Expected maxTdb ramfiles EOFRamText RamText with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('var' + sLineBreak + '  lWithRamTextPtr: ^TRamText;' +
     sLineBreak, lStatement.Edits[0].ReplacementText);
   Assert.AreEqual(665, lStatement.Edits[0].Range.StartLine);
@@ -2738,8 +2738,8 @@ begin
     'Expected maxTdb ramfiles ResetRamFile f with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('type-source-not-indexed', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbRamFilesRamFileSkipReasons;
@@ -2755,8 +2755,8 @@ var
       'Expected maxTdb ramfiles RamFile with statement at line ' + IntToStr(aLine) + '.');
     Assert.AreEqual('skipped', lStatement.Status);
     Assert.AreEqual('type-source-not-indexed', lStatement.Reason);
-    Assert.AreEqual(0, Length(lStatement.Temps));
-    Assert.AreEqual(0, Length(lStatement.Edits));
+    Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   end;
 
 begin
@@ -2779,8 +2779,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 831, 3, lStatement),
     'Expected maxTdb ramfiles SkipRamText rt with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('  if rt._FileSize >= skip then' + sLineBreak +
     '    begin' + sLineBreak +
     '      Dec(rt._FileSize, skip);' + sLineBreak +
@@ -2805,8 +2805,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 899, 7, lStatement),
     'Expected maxTdb ramfiles SaveRamText RamTextSave[i] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('      begin' + sLineBreak +
     '        lWithRamTextSaveItemPtr := @RamTextSave[i];' + sLineBreak +
     '        begin' + sLineBreak +
@@ -2824,8 +2824,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 931, 7, lStatement),
     'Expected maxTdb ramfiles InitRamtextSize RamTextSave[i] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('      begin' + sLineBreak +
     '        lWithRamTextSaveItemPtr := @RamTextSave[i];' + sLineBreak +
     '        begin' + sLineBreak +
@@ -2843,8 +2843,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 1145, 5, lStatement),
     'Expected maxTdb ramfiles GetCGIText RamTextSave[i] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('    begin' + sLineBreak +
     '      lWithRamTextSaveItemPtr := @RamTextSave[i];' + sLineBreak +
     '      begin' + sLineBreak +
@@ -2862,8 +2862,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 1161, 5, lStatement),
     'Expected maxTdb ramfiles GetCGIHdl RamTextSave[i] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('    begin' + sLineBreak +
     '      lWithRamTextSaveItemPtr := @RamTextSave[i];' + sLineBreak +
     '      begin' + sLineBreak +
@@ -2889,10 +2889,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 1049, 3, lStatement),
     'Expected maxTdb ramfiles ReadTextRam rt with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('  lWithRamTextPtr: ^TRamText;' + sLineBreak,
     lStatement.Edits[0].ReplacementText);
   Assert.AreEqual(1048, lStatement.Edits[0].Range.StartLine);
@@ -2919,8 +2919,8 @@ begin
     'Expected maxTdb ramfiles RamTextSave[1 + i] with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbRamFilesFindStringPointerTemp;
@@ -2933,11 +2933,11 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 1398, 3, lStatement),
     'Expected maxTdb ramfiles FindString_Ramtext rt with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamTextPtr := @rt;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('  lWithRamTextPtr: ^TRamText;' + sLineBreak,
     lStatement.Edits[0].ReplacementText);
   Assert.AreEqual(1394, lStatement.Edits[0].Range.StartLine);
@@ -2975,11 +2975,11 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 1421, 5, lStatement),
     'Expected maxTdb ramfiles CopyString_Ramtext rt with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamTextPtr := @rt;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('  lWithRamTextPtr: ^TRamText;' + sLineBreak,
     lStatement.Edits[0].ReplacementText);
   Assert.AreEqual(1418, lStatement.Edits[0].Range.StartLine);
@@ -3017,8 +3017,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 1602, 3, lStatement),
     'Expected maxTdb ramfiles p_SetEnvSize RamTextSave[1], rt with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(1602, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(1603, lStatement.Edits[0].Range.EndLine);
@@ -3037,8 +3037,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 1666, 3, lStatement),
     'Expected maxTdb ramfiles InitCGIVars RamTextSave[1], rt with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(1666, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(1675, lStatement.Edits[0].Range.EndLine);
@@ -3066,8 +3066,8 @@ begin
     'Expected maxTdb strfuncs Maske[1]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsAutoEntrySkip;
@@ -3081,8 +3081,8 @@ begin
     'Expected maxTdb strfuncs DF[d]^, Ind with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsRelFileDirectQualification;
@@ -3095,8 +3095,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1495, 3, lStatement),
     'Expected maxTdb strfuncs DF[RelFile]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(1495, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(1500, lStatement.Edits[0].Range.EndLine);
@@ -3119,8 +3119,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1501, 3, lStatement),
     'Expected maxTdb strfuncs DF[IndexFile]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(1501, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(1508, lStatement.Edits[0].Range.EndLine);
@@ -3146,8 +3146,8 @@ begin
     'Expected maxTdb strfuncs DF[d]^.Maske[s_i]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsKeywordIndexFileSkip;
@@ -3161,8 +3161,8 @@ begin
     'Expected maxTdb strfuncs DF[g_Index_File]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsArrayVarPointerTemp;
@@ -3175,11 +3175,11 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 2794, 3, lStatement),
     'Expected maxTdb strfuncs VarList[Vnr] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithEasyVarPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithEasyVarPtr := @VarList[Vnr];', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('  lWithEasyVarPtr: ^EasyVar;' + sLineBreak,
     lStatement.Edits[0].ReplacementText);
   Assert.AreEqual(2786, lStatement.Edits[0].Range.StartLine);
@@ -3215,8 +3215,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 107, 3, lStatement),
     'Expected maxTdb indexUtils DoGetFileSize DF[D]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(107, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(108, lStatement.Edits[0].Range.EndLine);
@@ -3228,8 +3228,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 113, 3, lStatement),
     'Expected maxTdb indexUtils DoPutFileSize DF[D]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(113, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(114, lStatement.Edits[0].Range.EndLine);
@@ -3250,8 +3250,8 @@ begin
     'Expected maxTdb indexUtils NewInd D with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsNewIndNestedSkipReason;
@@ -3265,8 +3265,8 @@ begin
     'Expected maxTdb indexUtils NewInd IndFiles[INr]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsGetIndPathSkipReason;
@@ -3280,8 +3280,8 @@ begin
     'Expected maxTdb indexUtils GetIndPath DF[D]^, IndFiles[INr]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsIvOkayReplacement;
@@ -3294,12 +3294,12 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 255, 3, lStatement),
     'Expected maxTdb indexUtils IV_okay DF[D]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];',
     lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('  lWithIndexVektorItemPtr: ^TIndexVektorItem;' + sLineBreak,
     lStatement.Edits[0].ReplacementText);
   Assert.AreEqual(252, lStatement.Edits[0].Range.StartLine);
@@ -3348,8 +3348,8 @@ begin
     'Expected maxTdb indexUtils RemoveIndex DF[D]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsOpenIndexNestedIvQualification;
@@ -3362,8 +3362,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 365, 11, lStatement),
     'Expected maxTdb indexUtils Oeffne_Index IV[I] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(365, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(367, lStatement.Edits[0].Range.EndLine);
@@ -3377,8 +3377,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 368, 9, lStatement),
     'Expected maxTdb indexUtils Oeffne_Index IV[cMaxIndex] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(368, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(369, lStatement.Edits[0].Range.EndLine);
@@ -3398,8 +3398,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 422, 7, lStatement),
     'Expected maxTdb indexUtils Erzeuge_Index IndFiles[indiziert + 1]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(422, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(432, lStatement.Edits[0].Range.EndLine);
@@ -3428,8 +3428,8 @@ begin
     'Expected maxTdb indexUtils GenIndex g^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsGetTreeParamReplacement;
@@ -3442,8 +3442,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 679, 3, lStatement),
     'Expected maxTdb indexUtils GetTreeParam DF[D]^, IndFiles[I]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(679, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(697, lStatement.Edits[0].Range.EndLine);
@@ -3478,8 +3478,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 755, 7, lStatement),
     'Expected maxTdb indexUtils Oeffne_Index IV[cMaxIndex] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(755, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(760, lStatement.Edits[0].Range.EndLine);
@@ -3502,12 +3502,12 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 936, 5, lStatement),
     'Expected maxTdb indexUtils Gleicher_Index IV[I] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];',
     lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('var' + sLineBreak +
     '  lWithIndexVektorItemPtr: ^TIndexVektorItem;' + sLineBreak,
     lStatement.Edits[0].ReplacementText);
@@ -3548,43 +3548,43 @@ begin
     'Expected maxTdb indexUtils NormIndFiles D with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1067, 7, lStatement),
     'Expected maxTdb indexUtils NormIndFiles Maske[i]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1073, 13, lStatement),
     'Expected maxTdb indexUtils NormIndFiles IndFiles[Ind0]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1078, 15, lStatement),
     'Expected maxTdb indexUtils NormIndFiles IV[1] with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1090, 7, lStatement),
     'Expected maxTdb indexUtils NormIndFiles IndFiles[0]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1094, 9, lStatement),
     'Expected maxTdb indexUtils NormIndFiles auto IV[1] with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1101, 7, lStatement),
     'Expected maxTdb indexUtils NormIndFiles IndFiles[1]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsLoadIndexSkipReason;
@@ -3598,8 +3598,8 @@ begin
     'Expected maxTdb indexUtils LadeIndex DF[D]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsPufferLeerenSkip;
@@ -3613,8 +3613,8 @@ begin
     'Expected maxTdb indexUtils PufferLeeren DF[D]^, IndFiles[Nr]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsIndFormelSkipCluster;
@@ -3628,15 +3628,15 @@ begin
     'Expected maxTdb indexUtils IndFormel DF[D]^, IndFiles[ID]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1423, 7, lStatement),
     'Expected maxTdb indexUtils IndFormel IV[1] with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsCountRecsIvReplacement;
@@ -3649,8 +3649,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1698, 7, lStatement),
     'Expected maxTdb indexUtils CountRecs IV[I] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(1698, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(1707, lStatement.Edits[0].Range.EndLine);
@@ -3677,8 +3677,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 2061, 3, lStatement),
     'Expected maxTdb indexUtils PushFile DF[D]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(2061, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(2071, lStatement.Edits[0].Range.EndLine);
@@ -3697,8 +3697,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 2077, 3, lStatement),
     'Expected maxTdb indexUtils PopFile DF[D]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(2077, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(2087, lStatement.Edits[0].Range.EndLine);
@@ -3725,8 +3725,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 155, 3, lStatement),
     'Expected maxTdb tdb01 InitCache DF[d]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(155, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(165, lStatement.Edits[0].Range.EndLine);
@@ -3753,8 +3753,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 171, 3, lStatement),
     'Expected maxTdb tdb01 ExitCache DF[d]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(171, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(180, lStatement.Edits[0].Range.EndLine);
@@ -3780,8 +3780,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 333, 9, lStatement),
     'Expected maxTdb tdb01 OpenDB DF[i]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(333, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(340, lStatement.Edits[0].Range.EndLine);
@@ -3807,8 +3807,8 @@ begin
     'Expected maxTdb tdb01 OpenDB outer DF[d]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01OpenDbMaskInitializationReplacement;
@@ -3821,8 +3821,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 419, 7, lStatement),
     'Expected maxTdb tdb01 OpenDB Maske[i]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(419, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(469, lStatement.Edits[0].Range.EndLine);
@@ -3848,8 +3848,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 473, 7, lStatement),
     'Expected maxTdb tdb01 OpenDB form-list Maske[i]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(473, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(493, lStatement.Edits[0].Range.EndLine);
@@ -3863,8 +3863,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 496, 7, lStatement),
     'Expected maxTdb tdb01 OpenDB range-list Maske[i]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(496, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(516, lStatement.Edits[0].Range.EndLine);
@@ -3886,8 +3886,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 656, 3, lStatement),
     'Expected maxTdb tdb01 FlushVTable DF[d]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(656, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(668, lStatement.Edits[0].Range.EndLine);
@@ -3937,13 +3937,13 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 801, 3, lStatement),
     'Expected maxTdb tdb01 h_FNr RelRec with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;',
     lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(799, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -3973,13 +3973,13 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 914, 3, lStatement),
     'Expected maxTdb tdb01 LiesSek RelRec, w[0] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;',
     lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(882, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4014,13 +4014,13 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 929, 7, lStatement),
     'Expected maxTdb tdb01 LiesSek DF[i]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr1', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRelRecPtr1 := @RelRec;',
     lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(929, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4051,11 +4051,11 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 986, 5, lStatement),
     'Expected maxTdb tdb01 LiesSek init RelRec, w[i] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(985, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4079,11 +4079,11 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 994, 7, lStatement),
     'Expected maxTdb tdb01 LiesSek init RelRec.w[i] with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('TRelRecSubRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecSubRecPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(994, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4108,15 +4108,15 @@ begin
     'Expected maxTdb tdb01 LiesSek NextRec RelRec with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 1017, 7, lStatement),
     'Expected maxTdb tdb01 LiesSek NextRec w[h] with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01DeleteDbRelationReplacement;
@@ -4129,8 +4129,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 1158, 9, lStatement),
     'Expected maxTdb tdb01 DeleteDB relation Maske[i]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(1158, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4154,8 +4154,8 @@ begin
     'Expected maxTdb tdb01 NaechsteRecNr DF[d]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01TestRelRecReplacement;
@@ -4168,8 +4168,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 1742, 3, lStatement),
     'Expected maxTdb tdb01 TestRelRec RelRec with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(1742, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4200,17 +4200,17 @@ begin
     'Expected maxTdb tdb01 GetChain DirektChain[i], DF[fd]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 1909, 3, lStatement),
     'Expected maxTdb tdb01 FN_Max RelRec with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(1907, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4247,8 +4247,8 @@ begin
     'Expected maxTdb tdb01 AutoLinkNummer DF[d]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01EmptyReplacement;
@@ -4261,8 +4261,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 2180, 5, lStatement),
     'Expected maxTdb tdb01 Empty DF[d]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2180, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4292,8 +4292,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 2277, 3, lStatement),
     'Expected maxTdb tdb01 LinkFileNumber DF[d]^.Maske[Nr]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2277, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4321,15 +4321,15 @@ begin
     'Expected maxTdb tdb01 CheckFiles DF[i]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 2323, 11, lStatement),
     'Expected maxTdb tdb01 CheckFiles Maske[j]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02GetLinkInfoReplacement;
@@ -4342,8 +4342,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 1532, 3, lStatement),
     'Expected maxTdb TDB02 GetLinkInfo DF[DB]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(1532, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4369,8 +4369,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 1588, 3, lStatement),
     'Expected maxTdb TDB02 GetNumVal num_rec with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(1588, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4409,15 +4409,15 @@ begin
     'Expected maxTdb TDB02 _reconvert DF[Ord(c)]^, Maske[n]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2278, 3, lStatement),
     'Expected maxTdb TDB02 SplitVarStr SVR^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02InitDefReplacement;
@@ -4430,14 +4430,14 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2313, 3, lStatement),
     'Expected maxTdb TDB02 InitDef SVR^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('InitVar', lStatement.Temps[0].SelectorText);
   Assert.AreEqual('lWithVarInitRecPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('VarInitRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithVarInitRecPtr: ^VarInitRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithVarInitRecPtr := @InitVar;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(2311, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4487,8 +4487,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2352, 3, lStatement),
     'Expected maxTdb TDB02 GetVar VarList[X].VarCont^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2352, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4559,8 +4559,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2430, 3, lStatement),
     'Expected maxTdb TDB02 ToDBF DF[c]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2430, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4583,15 +4583,15 @@ begin
     'Expected maxTdb TDB02 ExecArray ArrayVarRecPtr with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2703, 3, lStatement),
     'Expected maxTdb TDB02 SortArrayVar_2 ArrayVarRecPtr with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02ArrayVarBitReplacement;
@@ -4604,8 +4604,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2755, 3, lStatement),
     'Expected maxTdb TDB02 DoMarkBits ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2755, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4627,8 +4627,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2771, 3, lStatement),
     'Expected maxTdb TDB02 GetBitArrayVar ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2771, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4657,14 +4657,14 @@ begin
     'Expected maxTdb TDB02 BitArrayOp first ArrayVarRecPtr with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2811, 3, lStatement),
     'Expected maxTdb TDB02 BitArrayOp second ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2811, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4693,8 +4693,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2839, 3, lStatement),
     'Expected maxTdb TDB02 ReverseMarks DF[d]^.MarkListe with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2839, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4734,8 +4734,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2866, 5, lStatement),
     'Expected maxTdb TDB02 GetAuto DF[d]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2866, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4764,22 +4764,22 @@ begin
     'Expected maxTdb TDB02 PutAuto VarList[Nr].VarCont^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2906, 3, lStatement),
     'Expected maxTdb TDB02 GetAuto VarList[Nr].VarCont^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3026, 3, lStatement),
     'Expected maxTdb TDB02 Marks2Auto ArrayVarRecPtr with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02MarksAndCompareArrayVarParity;
@@ -4792,8 +4792,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3107, 3, lStatement),
     'Expected maxTdb TDB02 Marks2Auto ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(3107, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4818,14 +4818,14 @@ begin
     'Expected maxTdb TDB02 Dat2Var ArrayVarRecPtr with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3168, 3, lStatement),
     'Expected maxTdb TDB02 CompRec ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(3168, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4857,8 +4857,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3342, 3, lStatement),
     'Expected maxTdb TDB02 InArray ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(3342, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4897,8 +4897,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3380, 3, lStatement),
     'Expected maxTdb TDB02 InArrayPos ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(3380, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4933,8 +4933,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3412, 3, lStatement),
     'Expected maxTdb TDB02 andmarks ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(3412, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -4990,8 +4990,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3470, 7, lStatement),
     'Expected maxTdb TDB02 setfilter DF[d]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(3470, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -5013,14 +5013,14 @@ begin
     'Expected maxTdb TDB02 NotMarks ArrayVarRecPtr with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3521, 3, lStatement),
     'Expected maxTdb TDB02 setmarks DF[d]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(3521, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -5044,8 +5044,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3751, 5, lStatement),
     'Expected maxTdb TDB02 GetArrayVar WorkArray^, ArrayVar with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(3751, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -5084,8 +5084,8 @@ begin
     'Expected maxTdb TDB02 JobListe[n]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02BitArraySumSkipReason;
@@ -5099,8 +5099,8 @@ begin
     'Expected maxTdb TDB02 BitArraySum ArrayVarRecPtr with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02ArrayVarSizeReplacement;
@@ -5113,8 +5113,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 6022, 23, lStatement),
     'Expected maxTdb TDB02 ArrayVar size with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(6022, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -5138,8 +5138,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 7551, 21, lStatement),
     'Expected maxTdb TDB02 VarList[h1].VarCont^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(7551, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -5167,15 +5167,15 @@ begin
     'Expected maxTdb TDB02 CheckSelStr DF[d]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 7897, 9, lStatement),
     'Expected maxTdb TDB02 CheckSelStr Maske[n]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02SetByteSkipReasons;
@@ -5189,15 +5189,15 @@ begin
     'Expected maxTdb TDB02 SetByte ResWords[m] with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8101, 7, lStatement),
     'Expected maxTdb TDB02 SetByte VarList[NormVarNr(n)] with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02FindDirektReplacement;
@@ -5210,8 +5210,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8286, 7, lStatement),
     'Expected maxTdb TDB02 FindDirekt DF[f1]^.Maske[N1]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
 
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(8229, lStatement.Edits[0].Range.StartLine);
@@ -5265,14 +5265,14 @@ begin
     'Expected maxTdb DBFUTIL NewDATFile D^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2411, 5, lStatement),
     'Expected maxTdb TDB02 DirektAutoNum DF[aDb]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(2411, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(2425, lStatement.Edits[0].Range.EndLine);
@@ -5299,43 +5299,43 @@ begin
     'Expected maxTdb TDB02 SetIndOp DF[c]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8109, 11, lStatement),
     'Expected maxTdb TDB02 SetByte nested VarCont^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8332, 5, lStatement),
     'Expected maxTdb TDB02 FindDirekt DirektChain[0] with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8339, 9, lStatement),
     'Expected maxTdb TDB02 FindDirekt DirektChain[i] with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbvars.pas', 592, 5, lStatement),
     'Expected maxTdb tdbvars PutLokalVar pl^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1587, 11,
     lStatement), 'Expected maxTdb TDB00.indexUtils Maske[Feld AND $7FFF]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02CheckExpressionInitVarReplacement;
@@ -5348,7 +5348,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8478, 21, lStatement),
     'Expected maxTdb TDB02 CheckExpression InitVar with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('InitVar', lStatement.Temps[0].SelectorText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('VarInitRec', lStatement.Temps[0].ReceiverType);
@@ -5357,7 +5357,7 @@ begin
   Assert.AreEqual('lWithVarInitRecPtr := @InitVar;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('lWithVarInitRecPtr^', lStatement.Temps[0].QualifierText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
 
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(7926, lStatement.Edits[0].Range.StartLine);
@@ -5399,15 +5399,15 @@ begin
     'Expected maxTdb TDB02 ClearSummen VarList[i].VarCont^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8996, 7, lStatement),
     'Expected maxTdb TDB02 CheckSummen VarList[i].VarCont^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02MemoLastRecordReplacements;
@@ -5420,13 +5420,13 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 9267, 17, lStatement),
     'Expected maxTdb TDB02 BERECHNE LastMBRec memo with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('LastMBRec', lStatement.Temps[0].SelectorText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('MBRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithMBRecPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithMBRecPtr := @LastMBRec;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(9163, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual('var' + sLineBreak +
@@ -5445,13 +5445,13 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 9375, 15, lStatement),
     'Expected maxTdb TDB02 BERECHNE second LastMBRec memo with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('LastMBRec', lStatement.Temps[0].SelectorText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('MBRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithMBRecPtr1', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithMBRecPtr1 := @LastMBRec;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(9375, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -5473,8 +5473,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 9659, 5, lStatement),
     'Expected maxTdb TDB02 KonvertVarNr VarList[VN].VarCont^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(9659, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -5498,13 +5498,13 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 120, 5, lStatement),
     'Expected maxTdb TDB06 WriteFailed D with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('D', lStatement.Temps[0].SelectorText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(119, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual('var' + sLineBreak +
@@ -5534,8 +5534,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 156, 7, lStatement),
     'Expected maxTdb TDB06 Maske[i]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(118, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -5577,8 +5577,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 185, 7, lStatement),
     'Expected maxTdb TDB06 export SelList with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(185, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(190, lStatement.Edits[0].Range.EndLine);
@@ -5593,8 +5593,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 193, 7, lStatement),
     'Expected maxTdb TDB06 export FormList with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(193, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(198, lStatement.Edits[0].Range.EndLine);
@@ -5609,8 +5609,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 201, 7, lStatement),
     'Expected maxTdb TDB06 export BerList with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(201, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(206, lStatement.Edits[0].Range.EndLine);
@@ -5633,8 +5633,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 256, 9, lStatement),
     'Expected maxTdb TDB06 relation file Maske[i]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(256, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(268, lStatement.Edits[0].Range.EndLine);
@@ -5658,12 +5658,12 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 272, 5, lStatement),
     'Expected maxTdb TDB06 mask restore D with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('D', lStatement.Temps[0].SelectorText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(272, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(273, lStatement.Edits[0].Range.EndLine);
@@ -5683,8 +5683,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 395, 3, lStatement),
     'Expected maxTdb TDBJOBS SavePrg PB with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(395, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(402, lStatement.Edits[0].Range.EndLine);
@@ -5701,8 +5701,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 411, 3, lStatement),
     'Expected maxTdb TDBJOBS RestorePrg PB with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(411, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(418, lStatement.Edits[0].Range.EndLine);
@@ -5727,12 +5727,12 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 542, 3, lStatement),
     'Expected maxTdb TDBJOBS Parameter with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('Parameter', lStatement.Temps[0].SelectorText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('ParaType', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithParaTypePtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(535, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -5804,8 +5804,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1068, 9, lStatement),
     'Expected maxTdb TDBJOBS SubR[SubCount]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(1068, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(1069, lStatement.Edits[0].Range.EndLine);
@@ -5826,15 +5826,15 @@ begin
     'Expected maxTdb TDBJOBS outer SVR^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1209, 11, lStatement),
     'Expected maxTdb TDBJOBS nested SVR^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsInitVarSkipReason;
@@ -5848,8 +5848,8 @@ begin
     'Expected maxTdb TDBJOBS InitVar with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsJumpTempDeclarationSkip;
@@ -5863,8 +5863,8 @@ begin
     'Expected maxTdb TDBJOBS Jump[Jumps] with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('temp-declaration-requires-routine-var-section', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsSubRZeroSkipReason;
@@ -5878,8 +5878,8 @@ begin
     'Expected maxTdb TDBJOBS SubR[0]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsReportSubRReplacement;
@@ -5892,8 +5892,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 2295, 9, lStatement),
     'Expected maxTdb TDBJOBS report SubR[0]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(2295, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(2311, lStatement.Edits[0].Range.EndLine);
@@ -5927,8 +5927,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 2357, 3, lStatement),
     'Expected maxTdb TDBJOBS Parameter with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(2357, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(2359, lStatement.Edits[0].Range.EndLine);
@@ -5949,8 +5949,8 @@ begin
     'Expected maxTdb TDBJOBS Sub^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsPrgSaveRecReplacement;
@@ -5963,7 +5963,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 3211, 7, lStatement),
     'Expected maxTdb TDBJOBS PrgSaveRec with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('PrgSaveRec', lStatement.Temps[0].SelectorText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('TPrgSaveRec', lStatement.Temps[0].ReceiverType);
@@ -5972,7 +5972,7 @@ begin
   Assert.AreEqual('lWithPrgSaveRecPtr: ^TPrgSaveRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithPrgSaveRecPtr := @PrgSaveRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(3085, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6008,8 +6008,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 252, 3, lStatement),
     'Expected maxTdb tdbutils reopendb DF[DB]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(252, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6034,15 +6034,15 @@ begin
     'Expected maxTdb tdbutils DRel^.Maske[mm]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 322, 3, lStatement),
     'Expected maxTdb tdbutils DRel^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGenRelMaskReplacement;
@@ -6055,8 +6055,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 343, 7, lStatement),
     'Expected maxTdb tdbutils GenRel Maske[3]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(343, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6084,14 +6084,14 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 373, 3, lStatement),
     'Expected maxTdb tdbutils GenList DDat^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(373, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(440, lStatement.Edits[0].Range.EndLine);
   Assert.AreEqual(6, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual(1748, Length(lStatement.ReplacementText));
+  Assert.AreEqual(1748, Integer(Length(lStatement.ReplacementText)));
   Assert.IsTrue(Pos('    DDat^.RecZahl := rz;', lStatement.ReplacementText) > 0);
   Assert.IsTrue(Pos('      fillchar(DDat^.Maske[1]^.m, SizeOf(DDat^.Maske[1]^.m), 0);',
     lStatement.ReplacementText) > 0);
@@ -6115,8 +6115,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 870, 11, lStatement),
     'Expected maxTdb tdbutils SubstField TL^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(870, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6147,8 +6147,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 919, 5, lStatement),
     'Expected maxTdb tdbutils SubstString TL^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(919, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6173,22 +6173,22 @@ begin
     'Expected maxTdb tdbutils ResetMark ml with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('type-source-not-indexed', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1087, 3, lStatement),
     'Expected maxTdb tdbutils ReplaceMark ml with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('type-source-not-indexed', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1105, 3, lStatement),
     'Expected maxTdb tdbutils DeleteMarks ml with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('type-source-not-indexed', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsClearMarksSkipReason;
@@ -6202,8 +6202,8 @@ begin
     'Expected maxTdb tdbutils ClearMarks ml with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsFlipMarkReplacement;
@@ -6235,13 +6235,13 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1134, 3, lStatement),
     'Expected maxTdb tdbutils FlipMark ml with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Length(lStatement.Temps));
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('ml', lStatement.Temps[0].SelectorText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('MarkList', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithMarkListPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithMarkListPtr^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual(2, Length(lStatement.Edits));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(1133, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6253,7 +6253,7 @@ begin
   Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
   Assert.AreEqual(1166, lStatement.Edits[1].Range.EndLine);
   Assert.AreEqual(6, lStatement.Edits[1].Range.EndColumn);
-  Assert.AreEqual(885, Length(lStatement.ReplacementText));
+  Assert.AreEqual(885, Integer(Length(lStatement.ReplacementText)));
   Assert.IsTrue(Pos('  lWithMarkListPtr := @ml;', lStatement.ReplacementText) > 0);
   Assert.IsTrue(Pos('    p := lWithMarkListPtr^.Anfang;', lStatement.ReplacementText) > 0);
   Assert.IsTrue(Pos('    lWithMarkListPtr^.Aktuell := nil;', lStatement.ReplacementText) > 0);
@@ -6275,8 +6275,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1378, 5, lStatement),
     'Expected maxTdb tdbutils MakeSelekt p^.Sel with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(1378, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6301,8 +6301,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1436, 7, lStatement),
     'Expected maxTdb tdbutils ImportFile DF[d1]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(1436, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6324,8 +6324,8 @@ begin
     'Expected maxTdb tdbutils GenDS DDat^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsDdatMaskReplacement;
@@ -6338,8 +6338,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1500, 9, lStatement),
     'Expected maxTdb tdbutils GenDS Maske[RecZahl]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(1500, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6363,8 +6363,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1513, 13, lStatement),
     'Expected maxTdb tdbutils GenDS string Maske[RecZahl]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(1513, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6395,8 +6395,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1724, 13, lStatement),
     'Expected maxTdb tdbutils GenDS solve Maske[i]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(1724, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6418,8 +6418,8 @@ begin
     'Expected maxTdb tdbutils GenDS FL^.Form with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGetStructureReplacement;
@@ -6432,8 +6432,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1835, 5, lStatement),
     'Expected maxTdb tdbutils getstructure DF[d]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(1835, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6491,7 +6491,7 @@ begin
     '      end;' + sLineBreak +
     '    end' + sLineBreak +
     '  ', lStatement.ReplacementText);
-  Assert.AreEqual(2078, Length(lStatement.ReplacementText));
+  Assert.AreEqual(2078, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
 end;
 
@@ -6506,8 +6506,8 @@ begin
     'Expected maxTdb tdbutils GenIV FL^, Form with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGenshSkipReason;
@@ -6521,8 +6521,8 @@ begin
     'Expected maxTdb tdbutils GenSH DF[nach]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('type-source-not-indexed', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGenshNestedSkipReasons;
@@ -6536,15 +6536,15 @@ begin
     'Expected maxTdb tdbutils GenSH Maske[i]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('type-source-not-indexed', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2076, 15, lStatement),
     'Expected maxTdb tdbutils GenSH v with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('type-source-not-indexed', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsIsEmptyReplacement;
@@ -6557,8 +6557,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2104, 5, lStatement),
     'Expected maxTdb tdbutils is_empty Maske[field]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2104, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6597,7 +6597,7 @@ begin
     '          Result := True' + sLineBreak +
     '      end;' + sLineBreak +
     '    end;', lStatement.ReplacementText);
-  Assert.AreEqual(976, Length(lStatement.ReplacementText));
+  Assert.AreEqual(976, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
 end;
 
@@ -6611,8 +6611,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2272, 3, lStatement),
     'Expected maxTdb tdbutils TakeOver DF[nach]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2272, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6621,7 +6621,7 @@ begin
   Assert.AreEqual('  ADL_I := DF[nach]^.HatAuto and DF[von]^.HatAuto and (DF[nach]^.FileSize = 0)' + sLineBreak +
     '      and (LabString(DF[nach]^.Maske[DF[nach]^.A_Nr].m) = LabString(DF[von]^.Maske[DF[von]^.A_Nr].m));',
     lStatement.ReplacementText);
-  Assert.AreEqual(182, Length(lStatement.ReplacementText));
+  Assert.AreEqual(182, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
 end;
 
@@ -6636,8 +6636,8 @@ begin
     'Expected maxTdb tdbutils CopyMemoDirekt DF[d]^, Maske[Nr]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsCopyMemoLastMbRecReplacement;
@@ -6650,8 +6650,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2768, 7, lStatement),
     'Expected maxTdb tdbutils CopyMemoDirekt LastMBRec with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2768, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6659,7 +6659,7 @@ begin
   Assert.AreEqual(28, lStatement.Edits[0].Range.EndColumn);
   Assert.AreEqual('      Memo2TL(LastMBRec.d, LastMBRec.MNr, TL);',
     lStatement.ReplacementText);
-  Assert.AreEqual(46, Length(lStatement.ReplacementText));
+  Assert.AreEqual(46, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
 end;
 
@@ -6688,8 +6688,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2779, 3, lStatement),
     'Expected maxTdb tdbutils GetFSize DF[d]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(2779, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6701,7 +6701,7 @@ begin
     '    else' + sLineBreak +
     '      GetFSize := DF[d]^.FileSize' + sLineBreak +
     '  end;', lStatement.ReplacementText);
-  Assert.AreEqual(170, Length(lStatement.ReplacementText));
+  Assert.AreEqual(170, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
 end;
 
@@ -6715,8 +6715,8 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 3076, 3, lStatement),
     'Expected maxTdb tdbutils GetMarksAuto DF[d]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(1, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(3076, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -6741,7 +6741,7 @@ begin
     '    end;' + sLineBreak +
     '    FreeMem(RNo, (DF[d]^.FileSize + 1) * SizeOf(Int32));' + sLineBreak +
     '  end;', lStatement.ReplacementText);
-  Assert.AreEqual(505, Length(lStatement.ReplacementText));
+  Assert.AreEqual(505, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
 end;
 
@@ -6756,8 +6756,8 @@ begin
     'Expected maxTdb CloseDBF DBF with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbDependentSelectorTypeNotResolvedSkip;
@@ -6771,8 +6771,8 @@ begin
     'Expected maxTdb MachMaske DBF, Struktur with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbNestedPointerSymbolNotFoundSkip;
@@ -6791,8 +6791,8 @@ begin
     'Expected maxTdb MachMaske nested p^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Temps));
-  Assert.AreEqual(0, Length(lStatement.Edits));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbSimplePointerStatementIndent;
@@ -6917,7 +6917,7 @@ begin
     'Expected maxTdb CopyRecTemp Maske[i]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status, lStatement.Reason);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits),
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)),
     'Expected unresolved const indexed mask selector to produce no final edits.');
 end;
 
@@ -6932,7 +6932,7 @@ begin
     'Expected maxTdb CopyStringToRec aMask[aNr]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits),
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)),
     'Expected unresolved var indexed mask selector to produce no final edits.');
 end;
 
@@ -6948,7 +6948,7 @@ begin
   Assert.AreEqual('MachMaske', lStatement.RoutineName);
   Assert.AreEqual('skipped', lStatement.Status, lStatement.Reason);
   Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits),
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)),
     'Expected unresolved nested routine indexed mask selector to produce no final edits.');
 end;
 
@@ -6963,7 +6963,7 @@ begin
     'Expected maxTdb Convert M[i]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Length(lStatement.Edits),
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)),
     'Expected Convert indexed mask selector to produce no final edits.');
 end;
 

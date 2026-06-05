@@ -154,7 +154,7 @@ begin
     Assert.IsTrue(lFacts.Metrics.ModelExtractionMilliseconds >= 0);
     Assert.AreEqual(2, lFacts.Metrics.UnitCount);
     Assert.AreEqual(3, lFacts.Metrics.BindingCount);
-    Assert.AreEqual(3, Length(lFacts.Bindings));
+    Assert.AreEqual(3, Integer(Length(lFacts.Bindings)));
     Assert.IsTrue(Length(lFacts.Symbols) > 0,
       'Expected project facts to carry reusable semantic inventory symbols.');
     Assert.IsTrue(HasProjectSymbol(lFacts, 'ProjectWithUnit', 'unit'));

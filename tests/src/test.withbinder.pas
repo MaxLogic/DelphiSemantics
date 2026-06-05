@@ -212,8 +212,8 @@ begin
 
   lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
 
-  Assert.AreEqual(10, Length(lBindings));
-  Assert.AreEqual(1, Length(lBindings[0].Selectors));
+  Assert.AreEqual(10, Integer(Length(lBindings)));
+  Assert.AreEqual(1, Integer(Length(lBindings[0].Selectors)));
   Assert.AreEqual('lFirst', lBindings[0].Selectors[0].SelectorText);
   Assert.AreEqual('resolved', lBindings[0].Selectors[0].Status);
   Assert.AreEqual('TFirstRecord', lBindings[0].Selectors[0].TypeName);
@@ -259,7 +259,7 @@ begin
 
   lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
 
-  Assert.AreEqual(2, Length(lBindings[1].Selectors));
+  Assert.AreEqual(2, Integer(Length(lBindings[1].Selectors)));
   Assert.AreEqual('TFirstRecord', lBindings[1].Selectors[0].TypeName);
   Assert.AreEqual('TSecondRecord', lBindings[1].Selectors[1].TypeName);
   Assert.IsTrue(HasReference(lBindings[1], 'Shared', 'member'));
@@ -314,7 +314,7 @@ begin
 
   lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
 
-  Assert.AreEqual(1, Length(lBindings[3].Selectors));
+  Assert.AreEqual(1, Integer(Length(lBindings[3].Selectors)));
   Assert.AreEqual('TFirstRecord', lBindings[3].Selectors[0].TypeName);
   Assert.IsFalse(HasAnyReference(lBindings[3], 'SecondOnly'));
   for lReference in lBindings[3].References do
@@ -323,7 +323,7 @@ begin
       (lReference.EndColumn = 13) then
       lFoundOuterAfterInnerRange := True;
   Assert.IsTrue(lFoundOuterAfterInnerRange, 'Expected outer reference after inner with to keep range.');
-  Assert.AreEqual(2, Length(lBindings[4].Selectors));
+  Assert.AreEqual(2, Integer(Length(lBindings[4].Selectors)));
   Assert.AreEqual('TFirstRecord', lBindings[4].Selectors[0].TypeName);
   Assert.AreEqual('TSecondRecord', lBindings[4].Selectors[1].TypeName);
   Assert.AreEqual('TFirstRecord', ReceiverOf(lBindings[4], 'FirstOnly', 'member'));
@@ -505,7 +505,7 @@ begin
   Assert.AreEqual(lModel.FileName, lInventory.Bindings[0].FileName);
   Assert.AreEqual('WithBinderUnit', lInventory.Bindings[0].UnitName);
   Assert.AreEqual('RunWithBinder', lInventory.Bindings[0].RoutineName);
-  Assert.AreEqual(1, Length(lInventory.Bindings[0].Selectors));
+  Assert.AreEqual(1, Integer(Length(lInventory.Bindings[0].Selectors)));
   Assert.AreEqual('lFirst', lInventory.Bindings[0].Selectors[0].SelectorText);
   for lReference in lInventory.Bindings[0].References do
     if SameText(lReference.Name, 'FirstOnly') and SameText(lReference.Classification, 'member') and
@@ -776,7 +776,7 @@ begin
 
   lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
 
-  Assert.AreEqual(1, Length(lBindings));
+  Assert.AreEqual(1, Integer(Length(lBindings)));
   Assert.AreEqual('DBF_File', lBindings[0].Selectors[0].TypeName);
   Assert.AreEqual('DBF_File.Struktur', lBindings[0].Selectors[1].TypeName);
   Assert.IsTrue(HasReference(lBindings[0], 'Version', 'member'));
@@ -807,7 +807,7 @@ begin
 
   lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
 
-  Assert.AreEqual(1, Length(lBindings));
+  Assert.AreEqual(1, Integer(Length(lBindings)));
   Assert.AreEqual('ModuleError', lBindings[0].Selectors[0].SelectorText);
   Assert.AreEqual('GlobalAnonymousWithUnit.ModuleError', lBindings[0].Selectors[0].TypeName);
   Assert.IsTrue(HasReference(lBindings[0], 'fc', 'member'));
@@ -830,7 +830,7 @@ begin
 
   lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
 
-  Assert.AreEqual(1, Length(lBindings));
+  Assert.AreEqual(1, Integer(Length(lBindings)));
   Assert.AreEqual('lList[0]^', lBindings[0].Selectors[0].SelectorText);
   Assert.AreEqual('TDefaultRecord', lBindings[0].Selectors[0].TypeName);
   Assert.IsTrue(HasReference(lBindings[0], 'Value', 'member'));

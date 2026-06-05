@@ -119,8 +119,8 @@ begin
   try
     lSecond := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [UnitModel]);
     try
-      Assert.AreEqual(1, Length(lFirst.References));
-      Assert.AreEqual(1, Length(lFirst.WithStatements));
+      Assert.AreEqual(1, Integer(Length(lFirst.References)));
+      Assert.AreEqual(1, Integer(Length(lFirst.WithStatements)));
       Assert.AreEqual(1, lFirst.Metrics.ReferenceCount);
       Assert.AreEqual(1, lFirst.Metrics.WithStatementCount);
       Assert.AreEqual(lFirst.References[0].Id.Value, lSecond.References[0].Id.Value);

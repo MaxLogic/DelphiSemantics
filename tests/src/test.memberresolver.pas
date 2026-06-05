@@ -140,7 +140,7 @@ begin
     Assert.IsFalse(lResult.Found);
     Assert.IsTrue(lResult.Ambiguous);
     Assert.AreEqual('ambiguous', lResult.Status);
-    Assert.AreEqual(2, Length(lResult.Candidates));
+    Assert.AreEqual(2, Integer(Length(lResult.Candidates)));
 
     lResult := lIndex.ResolveDirectMember('TBase', 'Missing');
     Assert.IsFalse(lResult.Found);

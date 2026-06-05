@@ -44,7 +44,7 @@ begin
   Assert.IsTrue(lResult.Success);
   Assert.IsFalse(lResult.ProjectSessionUsed);
   Assert.AreEqual('WithDiscoveryUnit', lResult.UnitName);
-  Assert.AreEqual(5, Length(lResult.WithStatements));
+  Assert.AreEqual(5, Integer(Length(lResult.WithStatements)));
   Assert.AreEqual('lFirst', lResult.WithStatements[0].SelectorText);
   Assert.AreEqual('lFirst, lSecond', lResult.WithStatements[1].SelectorText);
 end;
@@ -62,7 +62,7 @@ begin
 
   Assert.IsTrue(lResult.Success);
   Assert.IsFalse(lResult.ProjectSessionUsed);
-  Assert.AreEqual(5, Length(lResult.WithStatements));
+  Assert.AreEqual(5, Integer(Length(lResult.WithStatements)));
 end;
 
 initialization

@@ -236,9 +236,9 @@ begin
   Assert.IsTrue(HasUnit(lFocused, 'CycleA'));
   Assert.IsTrue(HasUnit(lFocused, 'CycleB'));
   Assert.IsTrue(HasUnit(lFocused, 'CycleConsumer'));
-  Assert.AreEqual(3, Length(lFocused));
+  Assert.AreEqual(3, Integer(Length(lFocused)));
   lFocused := TDelphiSemanticDependencyGraphQuery.FocusNeighborhood(lGraph, 'Cycle');
-  Assert.AreEqual(0, Length(lFocused));
+  Assert.AreEqual(0, Integer(Length(lFocused)));
 end;
 
 procedure TDependencyGraphTests.RanksHotspotsAndPrefersImplementationEdges;
@@ -263,7 +263,7 @@ var
 begin
   lGraph := BuildGraph(['BridgeA.pas', 'BridgeC.pas', 'BridgeD.pas', 'BridgeB.pas']);
 
-  Assert.AreEqual(1, Length(lGraph.CycleComponents));
+  Assert.AreEqual(1, Integer(Length(lGraph.CycleComponents)));
   lComponent := lGraph.CycleComponents[0];
   Assert.IsTrue(HasUnit(lComponent.Units, 'BridgeA'));
   Assert.IsTrue(HasUnit(lComponent.Units, 'BridgeB'));

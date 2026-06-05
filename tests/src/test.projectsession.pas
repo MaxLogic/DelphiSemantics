@@ -69,7 +69,7 @@ begin
     Assert.AreEqual(psInvalidProject, lResult.Status);
     Assert.AreEqual('project-context', lResult.Provenance);
     Assert.IsNull(lResult.Session);
-    Assert.AreEqual(1, Length(lResult.Diagnostics));
+    Assert.AreEqual(1, Integer(Length(lResult.Diagnostics)));
     Assert.AreEqual('PROJECT_FILE_NOT_SPECIFIED', lResult.Diagnostics[0].Code);
     Assert.AreEqual(dsError, lResult.Diagnostics[0].Severity);
   finally
@@ -116,7 +116,7 @@ begin
     Assert.AreEqual(psInvalidProject, lResult.Status);
     Assert.AreEqual('project-context', lResult.Provenance);
     Assert.IsNull(lResult.Session);
-    Assert.AreEqual(1, Length(lResult.Diagnostics));
+    Assert.AreEqual(1, Integer(Length(lResult.Diagnostics)));
     Assert.AreEqual('PROJECT_FILE_NOT_FOUND', lResult.Diagnostics[0].Code);
     Assert.AreEqual(dsError, lResult.Diagnostics[0].Severity);
   finally

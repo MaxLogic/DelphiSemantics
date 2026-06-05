@@ -427,7 +427,7 @@ begin
 
   Assert.AreEqual('prefix-expanded|$(MissingValue)', TDelphiSemanticMsBuild.ExpandMacros(
     '$(OuterValue)|$(MissingValue)', lProperties, nil, False, lDiagnostics));
-  Assert.AreEqual(1, Length(lDiagnostics));
+  Assert.AreEqual(1, Integer(Length(lDiagnostics)));
   Assert.AreEqual('UNRESOLVED_MSBUILD_MACRO', lDiagnostics[0].Code);
 end;
 
@@ -446,7 +446,7 @@ begin
     '''$(Config)''==''Debug'' and !HasTrailingSlash(C:\Build Output)',
     FixturePath('ProjectContext\MsBuild'), lProperties, nil, lResult, lError, lDiagnostics), lError);
   Assert.IsTrue(lResult);
-  Assert.AreEqual(0, Length(lDiagnostics));
+  Assert.AreEqual(0, Integer(Length(lDiagnostics)));
 end;
 
 procedure TProjectMsBuildTests.PublicConditionEvaluationKeepsDakBooleanLiteralCases;

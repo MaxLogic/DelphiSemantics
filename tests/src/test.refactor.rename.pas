@@ -283,7 +283,7 @@ begin
     'RenamedGlobalQueryValue');
 
   Assert.AreEqual('planned', lPlan.Status);
-  Assert.AreEqual(3, Length(lPlan.Edits));
+  Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     Assert.AreEqual('RenamedGlobalQueryValue', lEdit.NewText);
@@ -344,7 +344,7 @@ begin
 
   Assert.AreEqual('blocked', lPlan.Status);
   Assert.IsTrue(ContainsText(lPlan.Diagnostic, 'collision'));
-  Assert.AreEqual(0, Length(lPlan.Edits));
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
 end;
 
 procedure TRenamePlannerTests.BlocksLocalMemberAndUnitCollisions;
@@ -383,7 +383,7 @@ begin
 
   Assert.AreEqual('blocked', lPlan.Status);
   Assert.IsTrue(ContainsText(lPlan.Diagnostic, 'non-project usage'));
-  Assert.AreEqual(0, Length(lPlan.Edits));
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
 end;
 
 procedure TRenamePlannerTests.PlansCaseInsensitiveTargetAndReferencesAcrossUnits;
@@ -400,7 +400,7 @@ begin
     'RenamedGlobalQueryValue');
 
   Assert.AreEqual('planned', lPlan.Status);
-  Assert.AreEqual(3, Length(lPlan.Edits));
+  Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
     if ContainsText(lEdit.FileName, 'RenameConsumerUnit.pas') and
       (lEdit.StartLine = 12) then
@@ -419,7 +419,7 @@ begin
 
   Assert.AreEqual('blocked', lPlan.Status);
   Assert.IsTrue(ContainsText(lPlan.Diagnostic, 'valid Delphi identifier'));
-  Assert.AreEqual(0, Length(lPlan.Edits));
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
 end;
 
 procedure TRenamePlannerTests.ApiFacadePlansRename;
@@ -433,7 +433,7 @@ begin
     'RenamedGlobalQueryValue');
 
   Assert.AreEqual('planned', lPlan.Status);
-  Assert.AreEqual(3, Length(lPlan.Edits));
+  Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
 end;
 
 procedure TRenamePlannerTests.PlansRoutineRenameAcrossDeclarationImplementationAndCall;
@@ -454,7 +454,7 @@ begin
     'RenamedRoutineTarget');
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(3, Length(lPlan.Edits));
+  Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     Assert.AreEqual('RenamedRoutineTarget', lEdit.NewText);
@@ -494,7 +494,7 @@ begin
     RenameUnblockFixturePath('RenameRoutineUnit.pas'), 12, 10, 'RenamedRoutineTarget');
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(3, Length(lPlan.Edits));
+  Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
     if ContainsText(lEdit.FileName, 'RenameRoutineUnit.pas') and (lEdit.StartLine = 12) then
       lFoundImplementation := True;
@@ -512,7 +512,7 @@ begin
     RenameUnblockFixturePath('RenameRoutineUnit.pas'), 8, 10, 'RenamedRoutineTarget');
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(3, Length(lPlan.Edits));
+  Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
 end;
 
 procedure TRenamePlannerTests.PlansTypeRenameForDeclarationSideReferences;
@@ -549,7 +549,7 @@ begin
     'TRenamedSharedType');
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(15, Length(lPlan.Edits));
+  Assert.AreEqual(15, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     Assert.AreEqual('TRenamedSharedType', lEdit.NewText);
@@ -650,7 +650,7 @@ begin
     RenameUnblockFixturePath('RenameComplexUnit.pas'), 12, 14, 'RunTask');
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(3, Length(lPlan.Edits));
+  Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     Assert.AreEqual('RunTask', lEdit.NewText);
@@ -688,7 +688,7 @@ begin
     RenameUnblockFixturePath('RenameComplexUnit.pas'), 44, 30, 'MakeValue');
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(3, Length(lPlan.Edits));
+  Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     Assert.AreEqual('MakeValue', lEdit.NewText);
@@ -714,7 +714,7 @@ begin
     RenameUnblockFixturePath('RenameComplexUnit.pas'), 26, 3, 'fLastValue');
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(2, Length(lPlan.Edits));
+  Assert.AreEqual(2, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     Assert.AreEqual('fLastValue', lEdit.NewText);
@@ -750,7 +750,7 @@ begin
     RenameUnblockFixturePath('RenameComplexUnit.pas'), 25, 4, 'lTaskCounter');
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(4, Length(lPlan.Edits));
+  Assert.AreEqual(4, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     Assert.AreEqual('lTaskCounter', lEdit.NewText);
@@ -793,7 +793,7 @@ begin
     'ForwardAfterCommentedRecord', 'RenamedForwardAfterCommentedRecord');
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(4, Length(lPlan.Edits));
+  Assert.AreEqual(4, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     Assert.AreEqual('RenamedForwardAfterCommentedRecord', lEdit.NewText);
@@ -838,7 +838,7 @@ begin
     'TRenamedSourceAliasPtr');
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.AreEqual(2, Length(lPlan.Edits));
+  Assert.AreEqual(2, Integer(Length(lPlan.Edits)));
   for lEdit in lPlan.Edits do
   begin
     Assert.AreEqual('TRenamedSourceAliasPtr', lEdit.NewText);

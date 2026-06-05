@@ -194,7 +194,7 @@ begin
     lResult := lIndex.ResolveMember(lContext, 'TBase', 'Pick');
     Assert.IsFalse(lResult.Found);
     Assert.AreEqual('overloaded', lResult.Status);
-    Assert.AreEqual(2, Length(lResult.Candidates));
+    Assert.AreEqual(2, Integer(Length(lResult.Candidates)));
 
     lResult := lIndex.ResolveMember(lContext, 'TBase', 'Duplicate');
     Assert.IsFalse(lResult.Found);

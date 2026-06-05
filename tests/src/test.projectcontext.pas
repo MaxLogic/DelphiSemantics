@@ -98,7 +98,7 @@ begin
   lResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\Missing\MissingProject.dproj'));
 
   Assert.IsFalse(lResult.Success);
-  Assert.AreEqual(1, Length(lResult.Diagnostics));
+  Assert.AreEqual(1, Integer(Length(lResult.Diagnostics)));
   Assert.AreEqual('PROJECT_FILE_NOT_FOUND', lResult.Diagnostics[0].Code);
 end;
 

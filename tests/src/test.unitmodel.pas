@@ -501,10 +501,10 @@ begin
   Assert.IsTrue(lModel.Success);
   Assert.AreEqual('SemanticUnit', lModel.UnitName);
   Assert.AreEqual('utf-8', lModel.EncodingName);
-  Assert.AreEqual(2, Length(lModel.InterfaceUses));
+  Assert.AreEqual(2, Integer(Length(lModel.InterfaceUses)));
   Assert.AreEqual('System.SysUtils', lModel.InterfaceUses[0]);
   Assert.AreEqual('Winapi.Windows', lModel.InterfaceUses[1]);
-  Assert.AreEqual(1, Length(lModel.ImplementationUses));
+  Assert.AreEqual(1, Integer(Length(lModel.ImplementationUses)));
   Assert.AreEqual('System.Classes', lModel.ImplementationUses[0]);
   Assert.IsTrue(HasDeclaration(lModel, 'TSemanticEnum', 'type', 'interface'));
   Assert.IsTrue(HasDeclaration(lModel, 'seOne', 'enum-value', 'interface'));
@@ -514,7 +514,7 @@ begin
   Assert.IsTrue(HasDeclaration(lModel, 'cSemanticConst', 'const', 'interface'));
   Assert.IsTrue(HasDeclaration(lModel, 'GSemanticGlobal', 'var', 'interface'));
   Assert.IsTrue(HasDeclaration(lModel, 'SemanticProcedure', 'routine', 'interface'));
-  Assert.AreEqual(1, Length(lModel.WithStatements));
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
   Assert.AreNotEqual(0, lModel.WithStatements[0].Line);
 end;
 
@@ -561,7 +561,7 @@ begin
   Assert.IsTrue(FindRoutine(lModel, 'Run', 'implementation', lRoutine),
     'Expected implementation routine.');
   Assert.AreEqual('TUntypedParameterScope', lRoutine.OwnerName);
-  Assert.AreEqual(2, Length(lRoutine.Parameters));
+  Assert.AreEqual(2, Integer(Length(lRoutine.Parameters)));
   Assert.AreEqual('aValue', lRoutine.Parameters[0].Name);
   Assert.AreEqual('', lRoutine.Parameters[0].TypeName);
   Assert.AreEqual('const', lRoutine.Parameters[0].Modifier);
@@ -571,7 +571,7 @@ begin
 
   Assert.IsTrue(FindRoutine(lModel, 'RunMixed', 'implementation', lRoutine),
     'Expected mixed untyped-parameter routine.');
-  Assert.AreEqual(3, Length(lRoutine.Parameters));
+  Assert.AreEqual(3, Integer(Length(lRoutine.Parameters)));
   Assert.AreEqual('aFirst', lRoutine.Parameters[0].Name);
   Assert.AreEqual('Integer', lRoutine.Parameters[0].TypeName);
   Assert.AreEqual('aUntyped', lRoutine.Parameters[1].Name);
@@ -669,10 +669,10 @@ begin
   Assert.AreEqual('SymbolMapUnit', lModel.UnitName);
   Assert.AreEqual(lOptions.SourceFileName, lModel.FileName);
   Assert.AreEqual('utf-8', lModel.EncodingName);
-  Assert.AreEqual(2, Length(lModel.InterfaceUses));
+  Assert.AreEqual(2, Integer(Length(lModel.InterfaceUses)));
   Assert.AreEqual('System.SysUtils', lModel.InterfaceUses[0]);
   Assert.AreEqual('Winapi.Windows', lModel.InterfaceUses[1]);
-  Assert.AreEqual(2, Length(lModel.ImplementationUses));
+  Assert.AreEqual(2, Integer(Length(lModel.ImplementationUses)));
   Assert.AreEqual('System.Classes', lModel.ImplementationUses[0]);
   Assert.AreEqual('System.Generics.Collections', lModel.ImplementationUses[1]);
 end;
@@ -773,7 +773,7 @@ begin
 
   Assert.IsTrue(lModel.Success);
   Assert.AreEqual('SymbolMapMembers', lModel.UnitName);
-  Assert.AreEqual(22, Length(lModel.Members));
+  Assert.AreEqual(22, Integer(Length(lModel.Members)));
   Assert.IsTrue(FindMember(lModel, 'TMemberRecord', 'RecordField', 'field', lMember));
   Assert.AreEqual('Integer', lMember.TypeName);
   Assert.AreEqual(7, lMember.Line);
@@ -947,7 +947,7 @@ begin
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
 
   Assert.IsTrue(lModel.Success);
-  Assert.AreEqual(1, Length(lModel.WithStatements));
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
   Assert.AreEqual(9, lModel.WithStatements[0].Line);
   Assert.IsTrue(Pos('Value := 1', StatementText(lSource, lModel.WithStatements[0].Line,
     lModel.WithStatements[0].Column, lModel.WithStatements[0].EndLine,
@@ -990,7 +990,7 @@ begin
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
 
   Assert.IsTrue(lModel.Success);
-  Assert.AreEqual(1, Length(lModel.WithStatements));
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
   Assert.IsTrue(lModel.WithStatements[0].EndLine > lModel.WithStatements[0].Line);
   Assert.IsTrue(lModel.WithStatements[0].EndColumn > 0);
   Assert.AreEqual('lRecord', lModel.WithStatements[0].SelectorText);
@@ -1028,7 +1028,7 @@ begin
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
 
   Assert.IsTrue(lModel.Success);
-  Assert.AreEqual(2, Length(lModel.WithStatements));
+  Assert.AreEqual(2, Integer(Length(lModel.WithStatements)));
   Assert.AreEqual(10, lModel.WithStatements[0].Line);
   Assert.AreEqual(11, lModel.WithStatements[1].Line);
 end;
@@ -1173,7 +1173,7 @@ begin
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
 
   Assert.IsTrue(lModel.Success);
-  Assert.AreEqual(1, Length(lModel.WithStatements));
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
   Assert.IsTrue(Pos('Text := ''zero''', lModel.WithStatements[0].Text) > 0);
   Assert.IsTrue(Pos('AfterWith := True', lModel.WithStatements[0].Text) = 0);
 end;

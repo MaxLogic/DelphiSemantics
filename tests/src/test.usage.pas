@@ -122,7 +122,7 @@ begin
 
   Assert.AreEqual('ambiguous', lResult.Status);
   Assert.IsTrue(lResult.Diagnostic <> '');
-  Assert.AreEqual(0, Length(lResult.Usages));
+  Assert.AreEqual(0, Integer(Length(lResult.Usages)));
 end;
 
 initialization

@@ -115,12 +115,12 @@ var
 begin
   lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [UnitModel]);
   try
-    Assert.AreEqual(2, Length(lGraph.Declarations));
-    Assert.AreEqual(2, Length(lGraph.Types));
-    Assert.AreEqual(1, Length(lGraph.Members));
-    Assert.AreEqual(1, Length(lGraph.Routines));
-    Assert.AreEqual(1, Length(lGraph.Parameters));
-    Assert.AreEqual(1, Length(lGraph.Locals));
+    Assert.AreEqual(2, Integer(Length(lGraph.Declarations)));
+    Assert.AreEqual(2, Integer(Length(lGraph.Types)));
+    Assert.AreEqual(1, Integer(Length(lGraph.Members)));
+    Assert.AreEqual(1, Integer(Length(lGraph.Routines)));
+    Assert.AreEqual(1, Integer(Length(lGraph.Parameters)));
+    Assert.AreEqual(1, Integer(Length(lGraph.Locals)));
     Assert.AreEqual(6, lGraph.Metrics.SymbolCount);
   finally
     lGraph.Free;
@@ -169,7 +169,7 @@ begin
 
   lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
   try
-    Assert.AreEqual(2, Length(lGraph.Parameters));
+    Assert.AreEqual(2, Integer(Length(lGraph.Parameters)));
     Assert.AreEqual(3, lGraph.Parameters[0].SourceRange.Line);
     Assert.AreEqual(25, lGraph.Parameters[0].SourceRange.Column);
     Assert.AreEqual(3, lGraph.Parameters[0].SourceRange.EndLine);

@@ -123,14 +123,14 @@ begin
 
     lAncestors := lIndex.FindAncestors(lResult.Identity);
 
-    Assert.AreEqual(1, Length(lAncestors));
+    Assert.AreEqual(1, Integer(Length(lAncestors)));
     Assert.AreEqual('TBase', lAncestors[0].Name);
 
     lResult := lIndex.ResolveQualifiedName('TypeUnitC.TQualifiedAlias');
     Assert.IsTrue(lResult.Found, lResult.Reason);
     lAncestors := lIndex.FindAncestors(lResult.Identity);
 
-    Assert.AreEqual(2, Length(lAncestors));
+    Assert.AreEqual(2, Integer(Length(lAncestors)));
     Assert.AreEqual('TChild', lAncestors[0].Name);
     Assert.AreEqual('TBase', lAncestors[1].Name);
   finally
@@ -180,7 +180,7 @@ begin
     Assert.IsFalse(lResult.Found);
     Assert.IsTrue(lResult.Ambiguous);
     Assert.AreEqual('ambiguous', lResult.Status);
-    Assert.AreEqual(2, Length(lResult.Candidates));
+    Assert.AreEqual(2, Integer(Length(lResult.Candidates)));
   finally
     lGraph.Free;
   end;

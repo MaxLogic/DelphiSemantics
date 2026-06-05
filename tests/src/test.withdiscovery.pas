@@ -65,7 +65,7 @@ var
 begin
   lModel := LoadModel('WithDiscoveryUnit.pas');
 
-  Assert.AreEqual(5, Length(lModel.WithStatements));
+  Assert.AreEqual(5, Integer(Length(lModel.WithStatements)));
   Assert.AreEqual('lFirst', lModel.WithStatements[0].SelectorText);
   Assert.AreEqual(1, lModel.WithStatements[0].SelectorCount);
   Assert.AreEqual(0, lModel.WithStatements[0].NestingDepth);
@@ -111,7 +111,7 @@ begin
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
 
   Assert.IsTrue(lModel.Success);
-  Assert.AreEqual(1, Length(lModel.WithStatements));
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
   Assert.AreEqual(10, lModel.WithStatements[0].Line);
   Assert.AreEqual(3, lModel.WithStatements[0].Column);
 end;
@@ -121,10 +121,10 @@ var
   lModel: TDelphiSemanticUnitModel;
 begin
   lModel := LoadModel('WithDiscoveryUnit.pas');
-  Assert.AreEqual(5, Length(lModel.WithStatements));
+  Assert.AreEqual(5, Integer(Length(lModel.WithStatements)));
 
   lModel := LoadModel('WithDiscoveryUnit.pas', ['INCLUDE_INACTIVE_WITH']);
-  Assert.AreEqual(6, Length(lModel.WithStatements));
+  Assert.AreEqual(6, Integer(Length(lModel.WithStatements)));
   Assert.AreEqual('lSecond', lModel.WithStatements[5].SelectorText);
 end;
 

@@ -189,7 +189,7 @@ begin
 
   lSymbols := TDelphiSemanticLspBoundary.FilterSymbols(lInput, 'Fixture', 2);
 
-  Assert.AreEqual(2, Length(lSymbols));
+  Assert.AreEqual(2, Integer(Length(lSymbols)));
   Assert.AreEqual('TFixtureType', lSymbols[0].Name);
   Assert.AreEqual('TFixtureType.Run', lSymbols[1].Name);
   Assert.AreEqual('lsp', lSymbols[0].Provenance);
@@ -219,19 +219,19 @@ begin
 
     lSymbols := TDelphiSemanticLspBoundary.FlattenSymbolNodes([lRoot], '', 10);
 
-    Assert.AreEqual(2, Length(lSymbols));
+    Assert.AreEqual(2, Integer(Length(lSymbols)));
     Assert.AreEqual('TFixtureType', lSymbols[0].Name);
     Assert.AreEqual('Run', lSymbols[1].Name);
     Assert.AreEqual('TFixtureType', lSymbols[1].ContainerName);
     Assert.AreEqual('lsp', lSymbols[1].Provenance);
     lSymbols := TDelphiSemanticLspBoundary.FlattenSymbolNodes([lRoot], 'Fixture', 10);
-    Assert.AreEqual(1, Length(lSymbols));
+    Assert.AreEqual(1, Integer(Length(lSymbols)));
     Assert.AreEqual('TFixtureType', lSymbols[0].Name);
     lSymbols := TDelphiSemanticLspBoundary.FlattenSymbolNodes([lRoot], 'Run', 10);
-    Assert.AreEqual(1, Length(lSymbols));
+    Assert.AreEqual(1, Integer(Length(lSymbols)));
     Assert.AreEqual('Run', lSymbols[0].Name);
     lSymbols := TDelphiSemanticLspBoundary.FlattenSymbolNodes([], 'Missing', 10);
-    Assert.AreEqual(0, Length(lSymbols));
+    Assert.AreEqual(0, Integer(Length(lSymbols)));
   finally
     lRoot.Free;
   end;

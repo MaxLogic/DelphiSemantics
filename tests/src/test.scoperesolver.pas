@@ -67,7 +67,7 @@ begin
   lIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel);
 
   Assert.AreEqual('InnerScope', lIndex.RoutineNameForLine(55));
-  Assert.AreEqual(1, Length(lIndex.ParentRoutineNamesForLine('InnerScope', 55)));
+  Assert.AreEqual(1, Integer(Length(lIndex.ParentRoutineNamesForLine('InnerScope', 55))));
   Assert.AreEqual('OuterScope', lIndex.ParentRoutineNamesForLine('InnerScope', 55)[0]);
 end;
 
@@ -88,7 +88,7 @@ begin
   lIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel);
 
   Assert.AreEqual('Run', lIndex.RoutineNameForLine(19));
-  Assert.AreEqual(0, Length(lIndex.ParentRoutineNamesForLine('Run', 19)));
+  Assert.AreEqual(0, Integer(Length(lIndex.ParentRoutineNamesForLine('Run', 19))));
 end;
 
 initialization

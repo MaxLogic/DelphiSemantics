@@ -142,7 +142,7 @@ begin
 
   Assert.IsTrue(lFirst.Success);
   Assert.IsTrue(lSecond.Success);
-  Assert.AreEqual(1, Length(lFirst.Includes));
+  Assert.AreEqual(1, Integer(Length(lFirst.Includes)));
   Assert.IsTrue(Pos('TFirstInclude', lFirst.OutputText) > 0);
   Assert.IsTrue(Pos('TSecondInclude', lSecond.OutputText) > 0);
   Assert.AreNotEqual(lFirst.IncludeGraphHash, lSecond.IncludeGraphHash);

@@ -72,7 +72,7 @@ begin
   lResult := TDelphiSemanticApi.Search(LoadContext, lQuery);
 
   Assert.AreEqual('resolved', lResult.Status);
-  Assert.AreEqual(1, Length(lResult.Matches));
+  Assert.AreEqual(1, Integer(Length(lResult.Matches)));
   Assert.AreEqual('SearchRoutine', lResult.Matches[0].Name);
   Assert.AreEqual('syntax-only', lResult.Matches[0].MatchKind);
 
@@ -83,7 +83,7 @@ begin
 
   lResult := TDelphiSemanticApi.Search(LoadContext, lQuery);
 
-  Assert.AreEqual(1, Length(lResult.Matches));
+  Assert.AreEqual(1, Integer(Length(lResult.Matches)));
   Assert.AreEqual('SearchMember', lResult.Matches[0].Name);
   Assert.AreEqual('TSearchOwner', lResult.Matches[0].OwnerName);
 end;
@@ -101,7 +101,7 @@ begin
   lResult := TDelphiSemanticApi.Search(LoadContext, lQuery);
 
   Assert.AreEqual('resolved', lResult.Status);
-  Assert.AreEqual(1, Length(lResult.Matches));
+  Assert.AreEqual(1, Integer(Length(lResult.Matches)));
   Assert.AreEqual('SearchType', lResult.Matches[0].Name);
   Assert.AreEqual('semantic', lResult.Matches[0].MatchKind);
   Assert.IsTrue(lResult.Matches[0].SymbolId.Value <> '');

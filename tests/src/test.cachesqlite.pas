@@ -592,7 +592,7 @@ begin
     lProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceRoot(lCache,
       lCacheOptions.CompilerProfileName, '23.0', 'Win32', lRtlRoot, ['SharedRtl']);
 
-    Assert.AreEqual(1, Length(lProfile.RtlSourceUnitModels));
+    Assert.AreEqual(1, Integer(Length(lProfile.RtlSourceUnitModels)));
     Assert.AreEqual(1, lCache.Metrics.CacheMisses);
     Assert.AreEqual(0, lCache.Metrics.CacheHits);
   finally
@@ -604,7 +604,7 @@ begin
     lProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceRoot(lCache,
       lCacheOptions.CompilerProfileName, '23.0', 'Win32', lRtlRoot, ['SharedRtl']);
 
-    Assert.AreEqual(1, Length(lProfile.RtlSourceUnitModels));
+    Assert.AreEqual(1, Integer(Length(lProfile.RtlSourceUnitModels)));
     Assert.IsTrue(HasDeclaration(lProfile.RtlSourceUnitModels[0], 'TSharedRtlRecord'));
     Assert.AreEqual(1, lCache.Metrics.CacheHits);
     Assert.AreEqual(0, lCache.Metrics.CacheMisses);

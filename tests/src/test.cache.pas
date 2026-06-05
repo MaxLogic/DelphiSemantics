@@ -862,7 +862,7 @@ begin
   lContext.IntrinsicSymbols := lProfile.IntrinsicSymbols;
 
   Assert.AreEqual('Delphi-12-Win32-Debug', lProfile.Name);
-  Assert.AreEqual(3, Length(lProfile.IntrinsicSymbols));
+  Assert.AreEqual(3, Integer(Length(lProfile.IntrinsicSymbols)));
 
   lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'Length');
 
@@ -906,7 +906,7 @@ begin
       'TCachedRtlIndexedType');
 
     Assert.AreEqual('Delphi-12-RTL-Source', lProfile.Name);
-    Assert.AreEqual(1, Length(lProfile.RtlSourceUnitModels));
+    Assert.AreEqual(1, Integer(Length(lProfile.RtlSourceUnitModels)));
     Assert.IsTrue(lResult.Found);
     Assert.AreEqual('CachedRtlSourceUnit', lResult.OwnerName);
     Assert.AreEqual('type', lResult.Kind);
@@ -965,7 +965,7 @@ begin
 
     Assert.AreEqual('Delphi-12-RTL-Discovery', lProfile.Name);
     Assert.AreEqual(lRtlRoot, lProfile.RtlSourceRoot);
-    Assert.AreEqual(3, Length(lProfile.RtlSourceUnitModels));
+    Assert.AreEqual(3, Integer(Length(lProfile.RtlSourceUnitModels)));
     Assert.IsTrue(HasDeclaration(lProfile.RtlSourceUnitModels[1], 'TSearchRec'),
       'Expected Win32 RTL profile extraction to enable MSWINDOWS declarations.');
     Assert.IsTrue(lResult.Found);
@@ -1022,7 +1022,7 @@ begin
   lFiles := TDelphiSemanticCompilerProfileBuilder.DiscoverRtlSourceFiles(lRtlRoot,
     ['DirectWins', 'Ambiguous', 'Ambiguous', 'System.Ambiguous']);
 
-  Assert.AreEqual(3, Length(lFiles), 'Expected duplicate requests to be deduplicated.');
+  Assert.AreEqual(3, Integer(Length(lFiles)), 'Expected duplicate requests to be deduplicated.');
   Assert.AreEqual(TPath.GetFullPath(TPath.Combine(lCommonRoot, 'System.DirectWins.pas')),
     lFiles[0], 'Direct search roots must win before recursive fallback.');
   Assert.AreEqual(TPath.GetFullPath(TPath.Combine(lDeepRoot, 'Ambiguous.pas')),
@@ -1090,7 +1090,7 @@ begin
     lMemberResult := TDelphiSemanticResolver.ResolveMemberAtLevel(lProfile.RtlSourceUnitModels[0],
       'TSecurityAttributes', 'nLength', 3);
 
-    Assert.AreEqual(1, Length(lProfile.RtlSourceUnitModels));
+    Assert.AreEqual(1, Integer(Length(lProfile.RtlSourceUnitModels)));
     Assert.IsTrue(HasDeclaration(lProfile.RtlSourceUnitModels[0], 'TFastRtlRecord'),
       'Expected the fast RTL profile to keep interface record declarations.');
     AssertIndexedProfileNameKind(lProfile, 'freOne', 'enum-value');
