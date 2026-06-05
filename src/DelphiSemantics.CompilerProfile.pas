@@ -36,6 +36,7 @@ type
       aRtlSourceRoot: string): TDelphiSemanticCompilerProfile; static;
     class function DiscoverRtlSourceFiles(const aRtlSourceRoot: string;
       const aUnitNames: TArray<string>): TArray<string>; static;
+    class function DefinesForPlatform(const aPlatform: string): TArray<string>; static;
     class function ProfileForTargetFromRtlSourceRoot(const aCache: TDelphiSemanticUnitCache;
       const aCompilerProfileName, aDelphiVersion, aPlatform, aRtlSourceRoot: string;
       const aUnitNames: TArray<string>): TDelphiSemanticCompilerProfile; static;
@@ -468,6 +469,12 @@ begin
   if SameText(aPlatform, 'iOSDevice64') or SameText(aPlatform, 'iOSSimARM64') then
     Exit(MakeCompilerProfileDefines(['POSIX', 'MACOS', 'IOS', 'CPUARM64']));
   SetLength(Result, 0);
+end;
+
+class function TDelphiSemanticCompilerProfileBuilder.DefinesForPlatform(
+  const aPlatform: string): TArray<string>;
+begin
+  Result := CompilerProfileDefinesForPlatform(aPlatform);
 end;
 
 function StripRtlLineComment(const aLine: string): string;

@@ -84,7 +84,8 @@ uses
   System.IOUtils,
   System.RegularExpressions,
   System.StrUtils,
-  System.SysUtils;
+  System.SysUtils,
+  DelphiSemantics.CompilerProfile;
 
 type
   TPropertyMap = TDictionary<string, string>;
@@ -835,10 +836,11 @@ begin
 end;
 
 procedure ApplyPropertyFile(const aFileName, aBaseDirectory: string; const aProperties: TPropertyMap;
-  const aDiagnostics: TList<TDelphiSemanticDiagnostic>); forward;
+  const aDiagnostics: TList<TDelphiSemanticDiagnostic>; const aLockPlatform: Boolean); forward;
 
 procedure ApplyImport(const aAttributes, aFileName, aBaseDirectory: string;
-  const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
+  const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  const aLockPlatform: Boolean);
 var
   lCondition: string;
   lImportFileName: string;
@@ -853,13 +855,14 @@ begin
     begin
       lImportFileName := NormalizeProjectPath(aBaseDirectory, lProject);
       ApplyPropertyFile(lImportFileName, ExtractFilePath(lImportFileName), aProperties,
-        aDiagnostics);
+        aDiagnostics, aLockPlatform);
     end;
   end;
 end;
 
 procedure ApplyPropertyGroup(const aAttributes, aBody, aFileName, aBaseDirectory: string;
-  const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
+  const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  const aLockPlatform: Boolean);
 var
   lChild: TMatch;
   lCondition: string;
@@ -892,10 +895,12 @@ begin
               Continue;
 
             lOptsetPath := NormalizeProjectPath(aBaseDirectory, lPart.Trim);
-            ApplyPropertyFile(lOptsetPath, ExtractFilePath(lOptsetPath), aProperties, aDiagnostics);
+            ApplyPropertyFile(lOptsetPath, ExtractFilePath(lOptsetPath), aProperties,
+              aDiagnostics, aLockPlatform);
           end;
         end;
-        SetPropertyValue(aProperties, lName, lExpandedValue);
+        if (not aLockPlatform) or (not SameText(lName, 'Platform')) then
+          SetPropertyValue(aProperties, lName, lExpandedValue);
       end;
       lChild := lChild.NextMatch;
     end;
@@ -903,7 +908,8 @@ begin
 end;
 
 procedure ApplyPropertyText(const aText, aFileName, aBaseDirectory: string;
-  const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
+  const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  const aLockPlatform: Boolean);
 var
   lNode: TMatch;
 begin
@@ -914,16 +920,16 @@ begin
   begin
     if SameText(lNode.Groups[1].Value, 'PropertyGroup') then
       ApplyPropertyGroup(lNode.Groups[2].Value, lNode.Groups[3].Value, aFileName,
-        aBaseDirectory, aProperties, aDiagnostics)
+        aBaseDirectory, aProperties, aDiagnostics, aLockPlatform)
     else
       ApplyImport(lNode.Groups[4].Value, aFileName, aBaseDirectory, aProperties,
-        aDiagnostics);
+        aDiagnostics, aLockPlatform);
     lNode := lNode.NextMatch;
   end;
 end;
 
 procedure ApplyPropertyFile(const aFileName, aBaseDirectory: string; const aProperties: TPropertyMap;
-  const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
+  const aDiagnostics: TList<TDelphiSemanticDiagnostic>; const aLockPlatform: Boolean);
 var
   lText: string;
 begin
@@ -935,7 +941,8 @@ begin
   end;
 
   lText := TFile.ReadAllText(aFileName, TEncoding.UTF8);
-  ApplyPropertyText(lText, aFileName, aBaseDirectory, aProperties, aDiagnostics);
+  ApplyPropertyText(lText, aFileName, aBaseDirectory, aProperties, aDiagnostics,
+    aLockPlatform);
 end;
 
 function TryResolveDccReferenceDirectory(const aProjectDirectory, aInclude: string;
@@ -1074,6 +1081,7 @@ procedure PopulateProjectSemanticContext(var aProject: TDelphiSemanticProjectInf
   const aText: string; const aProperties: TPropertyMap;
   const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
 var
+  lDefine: string;
   lDefines: TList<string>;
   lIncludePaths: TList<string>;
   lReferenceDirectories: TList<string>;
@@ -1099,6 +1107,8 @@ begin
     lUnitScopeNames := TList<string>.Create;
 
     AddDelimitedTexts(lDefines, GetPropertyValue(aProperties, 'DCC_Define'));
+    for lDefine in TDelphiSemanticCompilerProfileBuilder.DefinesForPlatform(aProject.Platform) do
+      AddUniqueText(lDefines, lDefine);
     AddDelimitedPaths(lIncludePaths, aProject.ProjectDirectory,
       GetPropertyValue(aProperties, 'DCC_IncludePath'));
     AddDelimitedPaths(lSearchPaths, aProject.ProjectDirectory,
@@ -1341,7 +1351,7 @@ begin
   lProperties := CreateInitialProperties(aProjectFileName, lText, aOptions);
   try
     ApplyPropertyText(lText, aProjectFileName, TPath.GetDirectoryName(aProjectFileName),
-      lProperties, aDiagnostics);
+      lProperties, aDiagnostics, Trim(aOptions.Platform) <> '');
     Result := CreateProjectInfoFromProperties(aProjectFileName, lText, lProperties);
     PopulateProjectSemanticContext(Result, lText, lProperties, aDiagnostics);
     AddAdditionalSourceFiles(Result, aOptions);

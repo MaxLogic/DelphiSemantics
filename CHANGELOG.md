@@ -54,6 +54,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Project-aware parsing now combines evaluated project defines with target
+  compiler/platform built-ins, and DAK project analysis avoids host-process
+  DelphiAST compiler defines when analyzing another target platform.
 - DAK normal remove-with plan mode now consumes DelphiSemantics final statement
   DTOs as the primary planning source while preserving maxTdb scan count 667,
   planned edit count 215, and a 26.870s cold plan benchmark median.

@@ -35,6 +35,8 @@ type
     [Test]
     procedure InlineConditionalDirectivesCloseOnSameLine;
     [Test]
+    procedure Linux64ProjectConditionalsUseTargetDefines;
+    [Test]
     procedure UnsupportedConditionalElseBranchStaysInactive;
     [Test]
     procedure UnsupportedConditionalDirectiveProducesDiagnostic;
@@ -44,7 +46,8 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  DelphiSemantics.ProjectContext;
 
 function TPreprocessTests.FixturePath(const aFolder, aFileName: string): string;
 begin
@@ -250,6 +253,53 @@ begin
   Assert.IsTrue(lResult.Success);
   Assert.IsTrue(Pos('TAfterInlineConditional', lResult.OutputText) > 0);
   Assert.IsFalse(HasDiagnostic(lResult, 'UNTERMINATED_PREPROCESS_CONDITIONAL'));
+end;
+
+procedure TPreprocessTests.Linux64ProjectConditionalsUseTargetDefines;
+var
+  lContextOptions: TDelphiSemanticOptions;
+  lContext: TDelphiSemanticContextResult;
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+begin
+  lContextOptions := Default(TDelphiSemanticOptions);
+  lContextOptions.Configuration := 'Debug';
+  lContextOptions.Platform := 'Linux64';
+  lContextOptions.DelphiVersion := '23.0';
+
+  lContext := TDelphiSemanticProject.Load(
+    TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
+    'ProjectContext', 'MsBuild', 'MsBuildProject.dproj'])), lContextOptions);
+  Assert.IsTrue(lContext.Success);
+
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := FixturePath('Preprocess', 'ConditionalUnit.pas');
+  lOptions.SourceText :=
+    'unit TargetPlatformConditionalUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    '{$IFDEF LINUX}' + sLineBreak +
+    'type TLinuxTargetBranch = class end;' + sLineBreak +
+    '{$ENDIF}' + sLineBreak +
+    '{$IF DEFINED(POSIX) and DEFINED(CPUX64)}' + sLineBreak +
+    'type TPosixCpuX64Branch = class end;' + sLineBreak +
+    '{$ENDIF}' + sLineBreak +
+    '{$IFDEF MSWINDOWS}' + sLineBreak +
+    'type TWindowsHostBranch = class end;' + sLineBreak +
+    '{$ENDIF}' + sLineBreak +
+    '{$IFDEF WIN32}' + sLineBreak +
+    'type TWin32HostBranch = class end;' + sLineBreak +
+    '{$ENDIF}' + sLineBreak +
+    'implementation' + sLineBreak +
+    'end.';
+  lOptions.Defines := lContext.Project.Defines;
+
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(Pos('TLinuxTargetBranch', lResult.OutputText) > 0);
+  Assert.IsTrue(Pos('TPosixCpuX64Branch', lResult.OutputText) > 0);
+  Assert.IsFalse(Pos('TWindowsHostBranch', lResult.OutputText) > 0);
+  Assert.IsFalse(Pos('TWin32HostBranch', lResult.OutputText) > 0);
 end;
 
 procedure TPreprocessTests.UnsupportedConditionalElseBranchStaysInactive;

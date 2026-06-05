@@ -1860,10 +1860,18 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbFileIoSecurityTypeSourceSkip;
 var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj');
+  lOptions.Configuration := 'Release';
+  lOptions.Platform := 'Win32';
+  lOptions.DelphiVersion := '23.0';
+  lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticApi.PlanRemoveWith(lFacts);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'FileIO.pas', 853, 3, lStatement),
     'Expected maxTdb FileIO security with statement.');

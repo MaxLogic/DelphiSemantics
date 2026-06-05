@@ -32,6 +32,10 @@ type
     [Test]
     procedure OptionsSelectActiveConfigurationAndPlatform;
     [Test]
+    procedure TargetPlatformCompilerDefinesUseRequestedPlatform;
+    [Test]
+    procedure ExplicitPlatformOverridesProjectPlatformProperty;
+    [Test]
     procedure UnresolvedMacrosProduceDiagnostics;
     [Test]
     procedure InactiveCompoundConditionsAreSkipped;
@@ -281,6 +285,85 @@ begin
   Assert.AreEqual('Win64', lResult.Project.Platform);
   Assert.IsTrue(ContainsText(lResult.Project.Defines, 'PROJECT_RELEASE'));
   Assert.IsFalse(ContainsText(lResult.Project.Defines, 'PROJECT_DEBUG'));
+end;
+
+procedure TProjectMsBuildTests.TargetPlatformCompilerDefinesUseRequestedPlatform;
+var
+  lLinuxOptions: TDelphiSemanticOptions;
+  lLinuxResult: TDelphiSemanticContextResult;
+  lWin32Options: TDelphiSemanticOptions;
+  lWin32Result: TDelphiSemanticContextResult;
+begin
+  lLinuxOptions := Default(TDelphiSemanticOptions);
+  lLinuxOptions.Configuration := 'Debug';
+  lLinuxOptions.Platform := 'Linux64';
+  lLinuxOptions.DelphiVersion := '23.0';
+
+  lWin32Options := lLinuxOptions;
+  lWin32Options.Platform := 'Win32';
+
+  lLinuxResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'),
+    lLinuxOptions);
+  lWin32Result := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'),
+    lWin32Options);
+
+  Assert.IsTrue(lLinuxResult.Success);
+  Assert.IsTrue(ContainsText(lLinuxResult.Project.Defines, 'PROJECT_DEBUG'), 'PROJECT_DEBUG');
+  Assert.IsTrue(ContainsText(lLinuxResult.Project.Defines, 'LINUX'), 'LINUX');
+  Assert.IsTrue(ContainsText(lLinuxResult.Project.Defines, 'POSIX'), 'POSIX');
+  Assert.IsTrue(ContainsText(lLinuxResult.Project.Defines, 'CPUX64'), 'CPUX64');
+  Assert.IsFalse(ContainsText(lLinuxResult.Project.Defines, 'MSWINDOWS'), 'MSWINDOWS');
+  Assert.IsFalse(ContainsText(lLinuxResult.Project.Defines, 'WIN32'), 'WIN32');
+
+  Assert.IsTrue(lWin32Result.Success);
+  Assert.IsTrue(ContainsText(lWin32Result.Project.Defines, 'MSWINDOWS'), 'MSWINDOWS');
+  Assert.IsTrue(ContainsText(lWin32Result.Project.Defines, 'WIN32'), 'WIN32');
+  Assert.IsTrue(ContainsText(lWin32Result.Project.Defines, 'CPUX86'), 'CPUX86');
+  Assert.IsFalse(ContainsText(lWin32Result.Project.Defines, 'LINUX'), 'LINUX');
+  Assert.IsFalse(ContainsText(lWin32Result.Project.Defines, 'POSIX'), 'POSIX');
+end;
+
+procedure TProjectMsBuildTests.ExplicitPlatformOverridesProjectPlatformProperty;
+var
+  lOptions: TDelphiSemanticOptions;
+  lProjectPath: string;
+  lResult: TDelphiSemanticContextResult;
+  lRoot: string;
+begin
+  lRoot := TPath.Combine(ExtractFilePath(ParamStr(0)), 'project-platform-override');
+  if TDirectory.Exists(lRoot) then
+    TDirectory.Delete(lRoot, True);
+  TDirectory.CreateDirectory(lRoot);
+
+  TFile.WriteAllText(TPath.Combine(lRoot, 'PlatformOverride.dpr'),
+    'program PlatformOverride;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lProjectPath := TPath.Combine(lRoot, 'PlatformOverride.dproj');
+  TFile.WriteAllText(lProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>PlatformOverride.dpr</MainSource>' + sLineBreak +
+    '    <Platform>Win32</Platform>' + sLineBreak +
+    '    <DCC_Define>PROJECT_OVERRIDE</DCC_Define>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '</Project>', TEncoding.UTF8);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Linux64';
+  lOptions.DelphiVersion := '23.0';
+
+  lResult := TDelphiSemanticProject.Load(lProjectPath, lOptions);
+
+  Assert.IsTrue(lResult.Success);
+  Assert.AreEqual('Linux64', lResult.Project.Platform);
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'PROJECT_OVERRIDE'), 'PROJECT_OVERRIDE');
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'LINUX'), 'LINUX');
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'POSIX'), 'POSIX');
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'CPUX64'), 'CPUX64');
+  Assert.IsFalse(ContainsText(lResult.Project.Defines, 'MSWINDOWS'), 'MSWINDOWS');
+  Assert.IsFalse(ContainsText(lResult.Project.Defines, 'WIN32'), 'WIN32');
 end;
 
 procedure TProjectMsBuildTests.UnresolvedMacrosProduceDiagnostics;
