@@ -178,6 +178,15 @@ type
     ReplacementText: string;
   end;
 
+  TFinalBindingIndexArray = TArray<Integer>;
+
+  TFinalBindingChildIndexArray = TArray<TFinalBindingIndexArray>;
+
+  TFinalBindingTree = record
+    RootIndexes: TFinalBindingIndexArray;
+    ChildIndexes: TFinalBindingChildIndexArray;
+  end;
+
 function BindingRange(const aBinding: TDelphiSemanticWithBinding):
   TDelphiSemanticRemoveWithSourceRange;
 begin
@@ -2634,16 +2643,14 @@ begin
 end;
 
 function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFacts;
-  const aBindings: TArray<TDelphiSemanticWithBinding>; const aBindingIndex: Integer;
+  const aBindings: TArray<TDelphiSemanticWithBinding>;
+  const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
   const aStatementId: string;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDictionary<string, TArray<string>>;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>):
   TDelphiSemanticRemoveWithFinalStatement; overload; forward;
-
-function IsDirectNestedBinding(const aBindings: TArray<TDelphiSemanticWithBinding>;
-  const aOuter, aInner: TDelphiSemanticWithBinding): Boolean; forward;
 
 function SymbolUnsupportedReasonForName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
   const aName: string): string;
@@ -2808,21 +2815,26 @@ function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFact
   const aLineCache: TDictionary<string, TArray<string>>):
   TDelphiSemanticRemoveWithFinalStatement; overload;
 var
+  lBindingTree: TFinalBindingTree;
   lBindingList: TArray<TDelphiSemanticWithBinding>;
   lCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   lInheritedDecisions: TArray<TFinalSelectorDecision>;
 begin
   SetLength(lBindingList, 1);
+  SetLength(lBindingTree.RootIndexes, 1);
+  SetLength(lBindingTree.ChildIndexes, 1);
   SetLength(lCandidateEdits, 1);
   lBindingList[0] := aBinding;
+  lBindingTree.RootIndexes[0] := 0;
   lCandidateEdits[0] := aCandidateEdit;
   lInheritedDecisions := nil;
-  Result := BuildFinalStatement(aFacts, lBindingList, 0, aStatementId,
+  Result := BuildFinalStatement(aFacts, lBindingList, lBindingTree, 0, aStatementId,
     lCandidateEdits, aReservedNames, aLineCache, lInheritedDecisions);
 end;
 
 function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFacts;
-  const aBindings: TArray<TDelphiSemanticWithBinding>; const aBindingIndex: Integer;
+  const aBindings: TArray<TDelphiSemanticWithBinding>;
+  const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
   const aStatementId: string;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aReservedNames: TDictionary<string, Integer>;
@@ -2843,10 +2855,11 @@ var
   lReplacementText: string;
   lSelectorQualifierText: string;
   lSelectorDecisions: TArray<TFinalSelectorDecision>;
+  lChildIndex: Integer;
+  i: Integer;
   lTempIndex: Integer;
   lVisibleDecisions: TArray<TFinalSelectorDecision>;
   lBinding: TDelphiSemanticWithBinding;
-  i: Integer;
   lSelector: TDelphiSemanticWithSelectorBinding;
 begin
   lBinding := aBindings[aBindingIndex];
@@ -6996,13 +7009,11 @@ begin
     end;
   end;
 
-  for i := 0 to High(aBindings) do
+  for lChildIndex in aBindingTree.ChildIndexes[aBindingIndex] do
   begin
-    if not IsDirectNestedBinding(aBindings, lBinding, aBindings[i]) then
-      Continue;
-    lChildStatement := BuildFinalStatement(aFacts, aBindings, i,
-      FinalStatementId(i + 1), aCandidateEdits, aReservedNames, aLineCache,
-      lVisibleDecisions);
+    lChildStatement := BuildFinalStatement(aFacts, aBindings, aBindingTree,
+      lChildIndex, FinalStatementId(lChildIndex + 1), aCandidateEdits,
+      aReservedNames, aLineCache, lVisibleDecisions);
     if not SameText(lChildStatement.Status, 'planned') then
     begin
       Result.Status := lChildStatement.Status;
@@ -8177,35 +8188,71 @@ begin
     (not SameParityRange(BindingRange(aOuter), BindingRange(aInner)));
 end;
 
-function HasBindingAncestor(const aBindings: TArray<TDelphiSemanticWithBinding>;
-  const aBinding: TDelphiSemanticWithBinding): Boolean;
+procedure AddFinalBindingIndex(var aIndexes: TFinalBindingIndexArray;
+  const aIndex: Integer);
 var
-  lCandidate: TDelphiSemanticWithBinding;
+  lIndex: Integer;
 begin
-  Result := False;
-  for lCandidate in aBindings do
+  lIndex := Length(aIndexes);
+  SetLength(aIndexes, lIndex + 1);
+  aIndexes[lIndex] := aIndex;
+end;
+
+function DirectParentBindingIndex(const aBindings: TArray<TDelphiSemanticWithBinding>;
+  const aBindingIndex: Integer): Integer;
+var
+  lCandidateIndex: Integer;
+begin
+  Result := -1;
+  for lCandidateIndex := 0 to High(aBindings) do
   begin
-    if BindingContainsBinding(lCandidate, aBinding) then
-      Exit(True);
+    if lCandidateIndex = aBindingIndex then
+      Continue;
+    if not BindingContainsBinding(aBindings[lCandidateIndex],
+      aBindings[aBindingIndex]) then
+      Continue;
+    if (Result < 0) or
+      BindingContainsBinding(aBindings[Result], aBindings[lCandidateIndex]) then
+      Result := lCandidateIndex;
+  end;
+end;
+
+function BuildFinalBindingTree(const aBindings: TArray<TDelphiSemanticWithBinding>):
+  TFinalBindingTree;
+var
+  lBindingIndex: Integer;
+  lParentIndex: Integer;
+begin
+  Result := Default(TFinalBindingTree);
+  SetLength(Result.ChildIndexes, Length(aBindings));
+  for lBindingIndex := 0 to High(aBindings) do
+  begin
+    lParentIndex := DirectParentBindingIndex(aBindings, lBindingIndex);
+    if lParentIndex < 0 then
+      AddFinalBindingIndex(Result.RootIndexes, lBindingIndex)
+    else
+      AddFinalBindingIndex(Result.ChildIndexes[lParentIndex], lBindingIndex);
   end;
 end;
 
 procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aFacts: TDelphiSemanticProjectWithBindingFacts;
-  const aBindings: TArray<TDelphiSemanticWithBinding>; const aCandidateEdits:
-  TArray<TDelphiSemanticRemoveWithEdit>; const aBindingIndex: Integer;
+  const aBindings: TArray<TDelphiSemanticWithBinding>;
+  const aBindingTree: TFinalBindingTree;
+  const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
+  const aBindingIndex: Integer;
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDictionary<string, TArray<string>>;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>);
 var
-  i: Integer;
+  lChildIndex: Integer;
   lChildInheritedDecisions: TArray<TFinalSelectorDecision>;
   lDecision: TFinalSelectorDecision;
   lIndex: Integer;
   lSelector: TDelphiSemanticWithSelectorBinding;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lStatement := BuildFinalStatement(aFacts, aBindings, aBindingIndex,
+  lStatement := BuildFinalStatement(aFacts, aBindings, aBindingTree, aBindingIndex,
     FinalStatementId(aBindingIndex + 1), aCandidateEdits, aReservedNames,
     aLineCache, aInheritedDecisions);
   AddFinalStatement(aPlan, lStatement);
@@ -8243,33 +8290,13 @@ begin
     lChildInheritedDecisions[lIndex] := lDecision;
   end;
 
-  for i := 0 to High(aBindings) do
+  for lChildIndex in aBindingTree.ChildIndexes[aBindingIndex] do
   begin
-    if HasStableSourceRange(aBindings[i]) and
-      IsDirectNestedBinding(aBindings, aBindings[aBindingIndex], aBindings[i]) then
-      AddFinalStatementTree(aPlan, aFacts, aBindings, aCandidateEdits, i,
-        aReservedNames, aLineCache, lChildInheritedDecisions);
+    if HasStableSourceRange(aBindings[lChildIndex]) then
+      AddFinalStatementTree(aPlan, aFacts, aBindings, aBindingTree,
+        aCandidateEdits, lChildIndex, aReservedNames, aLineCache,
+        lChildInheritedDecisions);
   end;
-end;
-
-function IsDirectNestedBinding(const aBindings: TArray<TDelphiSemanticWithBinding>;
-  const aOuter, aInner: TDelphiSemanticWithBinding): Boolean;
-var
-  lCandidate: TDelphiSemanticWithBinding;
-begin
-  Result := False;
-  if not BindingContainsBinding(aOuter, aInner) then
-    Exit;
-  for lCandidate in aBindings do
-  begin
-    if SameText(lCandidate.SemanticId, aOuter.SemanticId) or
-      SameText(lCandidate.SemanticId, aInner.SemanticId) then
-      Continue;
-    if BindingContainsBinding(aOuter, lCandidate) and
-      BindingContainsBinding(lCandidate, aInner) then
-      Exit(False);
-  end;
-  Result := True;
 end;
 
 function FinalStatementsFromPlan(const aPlan: TDelphiSemanticRemoveWithPlan):
@@ -8464,6 +8491,7 @@ class function TDelphiSemanticRemoveWithPlanner.Plan(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
 var
   lBinding: TDelphiSemanticWithBinding;
+  lBindingTree: TFinalBindingTree;
   lBindingIndex: Integer;
   lCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   lEdit: TDelphiSemanticRemoveWithEdit;
@@ -8471,6 +8499,7 @@ var
   lInheritedDecisions: TArray<TFinalSelectorDecision>;
   lLineCache: TDictionary<string, TArray<string>>;
   lReservedNames: TDictionary<string, Integer>;
+  lRootIndex: Integer;
   lStatementIndex: Integer;
 begin
   Result := Default(TDelphiSemanticRemoveWithPlan);
@@ -8521,15 +8550,16 @@ begin
           'stable source file, hash, and source range are required'));
       end;
     end;
-    for lBindingIndex := 0 to High(aFacts.Bindings) do
+    lBindingTree := BuildFinalBindingTree(aFacts.Bindings);
+    for lRootIndex in lBindingTree.RootIndexes do
     begin
-      lBinding := aFacts.Bindings[lBindingIndex];
-      if HasStableSourceRange(lBinding) and (not HasBindingAncestor(aFacts.Bindings,
-        lBinding)) then
+      lBinding := aFacts.Bindings[lRootIndex];
+      if HasStableSourceRange(lBinding) then
       begin
         lInheritedDecisions := nil;
-        AddFinalStatementTree(Result, aFacts, aFacts.Bindings, lCandidateEdits,
-          lBindingIndex, lReservedNames, lLineCache, lInheritedDecisions);
+        AddFinalStatementTree(Result, aFacts, aFacts.Bindings, lBindingTree,
+          lCandidateEdits, lRootIndex, lReservedNames, lLineCache,
+          lInheritedDecisions);
       end;
     end;
     AddRoutineDeclarationEdits(Result, lLineCache, lHashCache);

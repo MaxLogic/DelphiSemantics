@@ -54,9 +54,42 @@ begin
   Result := aFrames.Last.Name;
 end;
 
-function LineStartsEndClosedBlock(const aLine: string): Boolean;
+function IsScopeIdentifierChar(const aChar: Char): Boolean;
 begin
-  Result := TRegEx.IsMatch(aLine, '^\s*(try|case\b.*\bof|asm)\b', [roIgnoreCase]);
+  Result := CharInSet(aChar, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
+end;
+
+function StartsWithScopeWord(const aText, aWord: string): Boolean;
+begin
+  Result := (Length(aText) >= Length(aWord)) and
+    SameText(Copy(aText, 1, Length(aWord)), aWord) and
+    ((Length(aText) = Length(aWord)) or
+    (not IsScopeIdentifierChar(aText[Length(aWord) + 1])));
+end;
+
+function ReadScopeToken(const aLine: string; var aIndex: Integer; out aToken: string):
+  Boolean; forward;
+
+function ContainsScopeWord(const aText, aWord: string): Boolean;
+var
+  lIndex: Integer;
+  lToken: string;
+begin
+  lIndex := 1;
+  while ReadScopeToken(aText, lIndex, lToken) do
+    if SameText(lToken, aWord) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function LineStartsEndClosedBlock(const aLine: string): Boolean;
+var
+  lText: string;
+begin
+  lText := TrimLeft(aLine);
+  Result := StartsWithScopeWord(lText, 'try') or StartsWithScopeWord(lText, 'asm') or
+    (StartsWithScopeWord(lText, 'case') and ContainsScopeWord(lText, 'of'));
 end;
 
 function FrameParentNames(const aFrames: TList<TRoutineFrame>;
@@ -98,10 +131,30 @@ begin
   aFrames.Add(lFrame);
 end;
 
+function ReadScopeToken(const aLine: string; var aIndex: Integer; out aToken: string):
+  Boolean;
+var
+  lStart: Integer;
+begin
+  while (aIndex <= Length(aLine)) and (not IsScopeIdentifierChar(aLine[aIndex])) do
+    Inc(aIndex);
+
+  lStart := aIndex;
+  while (aIndex <= Length(aLine)) and IsScopeIdentifierChar(aLine[aIndex]) do
+    Inc(aIndex);
+
+  Result := lStart <= Length(aLine);
+  if Result then
+    aToken := Copy(aLine, lStart, aIndex - lStart)
+  else
+    aToken := '';
+end;
+
 procedure ApplyBlockTokens(const aLine: string; const aFrames: TList<TRoutineFrame>);
 var
   lFrame: TRoutineFrame;
-  lMatch: TMatch;
+  lIndex: Integer;
+  lToken: string;
 begin
   if LineStartsEndClosedBlock(aLine) and (aFrames.Count > 0) then
   begin
@@ -113,18 +166,18 @@ begin
     end;
   end;
 
-  lMatch := TRegEx.Match(aLine, '\b(begin|end)\b', [roIgnoreCase]);
-  while lMatch.Success do
+  lIndex := 1;
+  while ReadScopeToken(aLine, lIndex, lToken) do
   begin
     if aFrames.Count > 0 then
     begin
       lFrame := aFrames.Last;
-      if SameText(lMatch.Value, 'begin') then
+      if SameText(lToken, 'begin') then
       begin
         lFrame.Begun := True;
         Inc(lFrame.BlockDepth);
         aFrames[Pred(aFrames.Count)] := lFrame;
-      end else if lFrame.Begun and (lFrame.BlockDepth > 0) then
+      end else if SameText(lToken, 'end') and lFrame.Begun and (lFrame.BlockDepth > 0) then
       begin
         Dec(lFrame.BlockDepth);
         if lFrame.BlockDepth = 0 then
@@ -133,14 +186,47 @@ begin
           aFrames[Pred(aFrames.Count)] := lFrame;
       end;
     end;
-    lMatch := lMatch.NextMatch;
   end;
 end;
 
 function CleanSourceLine(const aLine: string): string;
+var
+  i: Integer;
+  lInString: Boolean;
 begin
-  Result := TRegEx.Replace(aLine, '''(?:''''|[^''])*''', ' ', [roSingleLine]);
-  Result := TRegEx.Replace(Result, '//.*$', ' ', [roIgnoreCase]);
+  Result := aLine;
+  lInString := False;
+  i := 1;
+  while i <= Length(Result) do
+  begin
+    if lInString then
+    begin
+      if Result[i] = '''' then
+      begin
+        Result[i] := ' ';
+        if (i < Length(Result)) and (Result[i + 1] = '''') then
+        begin
+          Inc(i);
+          Result[i] := ' ';
+        end else
+          lInString := False;
+      end else
+        Result[i] := ' ';
+    end else if (Result[i] = '/') and (i < Length(Result)) and (Result[i + 1] = '/') then
+    begin
+      while i <= Length(Result) do
+      begin
+        Result[i] := ' ';
+        Inc(i);
+      end;
+      Break;
+    end else if Result[i] = '''' then
+    begin
+      Result[i] := ' ';
+      lInString := True;
+    end;
+    Inc(i);
+  end;
 end;
 
 function TDelphiSemanticRoutineScopeIndex.ParentRoutineNamesForLine(

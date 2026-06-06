@@ -65,6 +65,12 @@ type
     [Test]
     procedure InventoryExpansionUsesIndexedOwnMemberLookup;
     [Test]
+    procedure InventoryExpansionUsesStableRelatedMemberOwnerIndex;
+    [Test]
+    procedure ReferenceScannerPreservesRepresentativeTokenShapes;
+    [Test]
+    procedure ReferenceBindingUsesManualIdentifierScanner;
+    [Test]
     procedure InventoryExpansionUsesOrdinalIgnoreCaseSymbolKeys;
     [Test]
     procedure InventoryExpansionDeduplicatesSymbolsCaseInsensitively;
@@ -697,6 +703,94 @@ begin
     'Inventory expansion must build an indexed own-member lookup for large semantic inventories.');
   Assert.IsFalse(ContainsText(lSourceText, 'InventoryOwnerHasOwnMember(aSymbols'),
     'Inventory expansion must not scan every symbol for each related inherited member.');
+end;
+
+procedure TWithBinderTests.InventoryExpansionUsesStableRelatedMemberOwnerIndex;
+var
+  lExpansionEnd: Integer;
+  lExpansionStart: Integer;
+  lExpansionText: string;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lExpansionStart := Pos('procedure AddRelatedInventoryMemberSymbols', lSourceText);
+  lExpansionEnd := Pos('procedure AddRelatedInventoryCurrentClassSymbols', lSourceText);
+  lExpansionText := Copy(lSourceText, lExpansionStart, lExpansionEnd - lExpansionStart);
+
+  Assert.IsTrue(ContainsText(lSourceText, 'BuildRelatedInventoryMemberRelations'),
+    'Inventory expansion must index inherited/helper owner relations once for propagation.');
+  Assert.IsFalse(ContainsText(lExpansionText, 'repeat'),
+    'Inventory expansion must not rebuild related-member indexes in a repeat loop.');
+end;
+
+procedure TWithBinderTests.ReferenceScannerPreservesRepresentativeTokenShapes;
+var
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+
+  procedure AssertReference(const aBinding: TDelphiSemanticWithBinding; const aName,
+    aClassification: string; const aLine, aColumn, aEndLine, aEndColumn: Integer);
+  var
+    lDetails: string;
+    lReference: TDelphiSemanticBoundReference;
+  begin
+    lDetails := '';
+    for lReference in aBinding.References do
+    begin
+      lDetails := lDetails + Format('%s/%s@%d:%d-%d:%d ', [lReference.Name,
+        lReference.Classification, lReference.Line, lReference.Column,
+        lReference.EndLine, lReference.EndColumn]);
+      if SameText(lReference.Name, aName) and
+        SameText(lReference.Classification, aClassification) and
+        (lReference.Line = aLine) and (lReference.Column = aColumn) and
+        (lReference.EndLine = aEndLine) and (lReference.EndColumn = aEndColumn) then
+        Exit;
+    end;
+    Assert.Fail(Format('Expected %s/%s at %d:%d-%d:%d. Actual: %s',
+      [aName, aClassification, aLine, aColumn, aEndLine, aEndColumn, lDetails]));
+  end;
+
+begin
+  lModel := LoadModel;
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+
+  AssertReference(lBindings[0], 'FirstOnly', 'member', 32, 5, 32, 13);
+  AssertReference(lBindings[0], 'aParamValue', 'lexical', 32, 18, 32, 28);
+  AssertReference(lBindings[0], 'lSecond.SecondOnly', 'unsupported', 34, 5, 34, 22);
+  AssertReference(lBindings[0], 'FirstOnly[0]', 'unsupported', 38, 5, 38, 16);
+  AssertReference(lBindings[7], 'KnownExternalCall', 'external', 99, 5, 99, 32);
+  AssertReference(lBindings[7], 'FirstOnly', 'member', 99, 23, 99, 31);
+end;
+
+procedure TWithBinderTests.ReferenceBindingUsesManualIdentifierScanner;
+var
+  lArgumentScannerText: string;
+  lArgumentStart: Integer;
+  lBindEnd: Integer;
+  lBindStart: Integer;
+  lBindText: string;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+
+  lArgumentStart := Pos('procedure AddArgumentReferences', lSourceText);
+  lBindStart := Pos('function BindReferences', lSourceText);
+  lBindEnd := Pos('function StatementContains', lSourceText);
+  Assert.IsTrue((lArgumentStart > 0) and (lBindStart > lArgumentStart) and
+    (lBindEnd > lBindStart), 'Expected reference binding source sections.');
+
+  lArgumentScannerText := Copy(lSourceText, lArgumentStart, lBindStart - lArgumentStart);
+  lBindText := Copy(lSourceText, lBindStart, lBindEnd - lBindStart);
+  Assert.IsFalse(ContainsText(lArgumentScannerText, 'TRegEx.Match'),
+    'Argument reference binding must use the manual identifier scanner.');
+  Assert.IsFalse(ContainsText(lBindText, 'TRegEx.Match'),
+    'Body reference binding must use the manual identifier scanner.');
 end;
 
 procedure TWithBinderTests.InventoryExpansionUsesOrdinalIgnoreCaseSymbolKeys;

@@ -38,6 +38,8 @@ type
     [Test]
     procedure FinalDtoPreservesDakFixtureSafetySkips;
     [Test]
+    procedure FinalDtoUsesPrecomputedNestedBindingTree;
+    [Test]
     procedure FinalDtoMatchesNestedRewriteOrdering;
     [Test]
     procedure FinalDtoMatchesTempPolicyCollisionRules;
@@ -1042,6 +1044,31 @@ begin
   Assert.AreEqual('skipped', lStatement.Status,
     'Expected e2e controlled statement skip: ' + lStatement.Reason);
   Assert.AreEqual('controlled-with-statement', lStatement.Reason);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoUsesPrecomputedNestedBindingTree;
+var
+  lBuildStatementEnd: Integer;
+  lBuildStatementStart: Integer;
+  lSourceText: string;
+  lTreeStart: Integer;
+begin
+  lSourceText := TFile.ReadAllText(
+    TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\..\src\DelphiSemantics.RemoveWithPlan.pas')));
+
+  lTreeStart := Pos('function BuildFinalBindingTree', lSourceText);
+  Assert.IsTrue(lTreeStart > 0,
+    'Final DTO planning must precompute the direct nested binding tree once.');
+
+  lBuildStatementStart := Pos('function BuildFinalStatement', lSourceText);
+  lBuildStatementEnd := lTreeStart;
+  Assert.IsTrue((lBuildStatementStart > 0) and
+    (lBuildStatementEnd > lBuildStatementStart),
+    'Expected final statement builder source section.');
+  Assert.IsFalse(ContainsText(Copy(lSourceText, lBuildStatementStart,
+    lBuildStatementEnd - lBuildStatementStart), 'IsDirectNestedBinding'),
+    'Final statement construction must consume the precomputed child index, not rescan all bindings.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesNestedRewriteOrdering;

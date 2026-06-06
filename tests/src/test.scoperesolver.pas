@@ -18,12 +18,16 @@ type
     procedure HandlesClassMethodsAndNonBeginBlocks;
     [Test]
     procedure ResolvesNestedRoutineParentChainsFromIndex;
+    [Test]
+    procedure ScopeLineCleanerAvoidsRegexHotPath;
+    [Test]
+    procedure ScopeBlockScannerAvoidsRegexHotPath;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   maxLogic.IOUtils;
 
 function TScopeResolverTests.FixturePath(const aFileName: string): string;
@@ -89,6 +93,60 @@ begin
 
   Assert.AreEqual('Run', lIndex.RoutineNameForLine(19));
   Assert.AreEqual(0, Integer(Length(lIndex.ParentRoutineNamesForLine('Run', 19))));
+end;
+
+procedure TScopeResolverTests.ScopeLineCleanerAvoidsRegexHotPath;
+var
+  lCleanerEnd: Integer;
+  lCleanerStart: Integer;
+  lCleanerText: string;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Resolve.ScopeResolver.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lCleanerStart := Pos('function CleanSourceLine', lSourceText);
+  lCleanerEnd := Pos('function TDelphiSemanticRoutineScopeIndex.ParentRoutineNamesForLine',
+    lSourceText);
+  lCleanerText := Copy(lSourceText, lCleanerStart, lCleanerEnd - lCleanerStart);
+
+  Assert.IsFalse(ContainsText(lCleanerText, 'TRegEx.Replace'),
+    'Scope-index line cleanup must not allocate regex replacements for every source line.');
+  Assert.IsTrue(ContainsText(lCleanerText, 'lInString'),
+    'Scope-index line cleanup must use a simple string/comment scanner.');
+end;
+
+procedure TScopeResolverTests.ScopeBlockScannerAvoidsRegexHotPath;
+var
+  lBlockEnd: Integer;
+  lBlockStart: Integer;
+  lBlockText: string;
+  lClosedBlockEnd: Integer;
+  lClosedBlockStart: Integer;
+  lClosedBlockText: string;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Resolve.ScopeResolver.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lClosedBlockStart := Pos('function LineStartsEndClosedBlock', lSourceText);
+  lClosedBlockEnd := Pos('function FrameParentNames', lSourceText);
+  lClosedBlockText := Copy(lSourceText, lClosedBlockStart, lClosedBlockEnd -
+    lClosedBlockStart);
+  lBlockStart := Pos('procedure ApplyBlockTokens', lSourceText);
+  lBlockEnd := Pos('function CleanSourceLine', lSourceText);
+  lBlockText := Copy(lSourceText, lBlockStart, lBlockEnd - lBlockStart);
+
+  Assert.IsFalse(ContainsText(lClosedBlockText, 'TRegEx'),
+    'Scope closed-block detection must not run regex per source line.');
+  Assert.IsTrue(ContainsText(lClosedBlockText, 'ContainsScopeWord(lText, ''of'')'),
+    'Scope case-block detection must require standalone "of".');
+  Assert.IsFalse(ContainsText(lBlockText, 'TRegEx'),
+    'Scope begin/end token scanning must not run regex per source line.');
+  Assert.IsTrue(ContainsText(lBlockText, 'ReadScopeToken'),
+    'Scope begin/end token scanning must use the simple token reader.');
 end;
 
 initialization

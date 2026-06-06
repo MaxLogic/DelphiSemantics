@@ -54,6 +54,12 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with project fact planning now exposes finer hot-path phase metrics and
+  uses indexed final DTO nesting, indexed related-inventory expansion, faster
+  scope scanning, and regex-free body reference token enumeration. The current
+  maxTdb cold `remove-with-plan-all` median improved from `37.458s` to
+  `32.961s` while preserving scan count `667` and planned edit count `215`;
+  the original T-152 `<= 30.0s` target remains open.
 - Project-aware parsing now combines evaluated project defines with target
   compiler/platform built-ins, and DAK project analysis avoids host-process
   DelphiAST compiler defines when analyzing another target platform.

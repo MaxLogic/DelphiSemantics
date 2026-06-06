@@ -100,7 +100,12 @@ type
     ModelExtractionMilliseconds: Int64;
     SemanticGraphBuildMilliseconds: Int64;
     InventoryBuildMilliseconds: Int64;
+    InventoryExpansionMilliseconds: Int64;
     BindingBuildMilliseconds: Int64;
+    ScopeIndexBuildMilliseconds: Int64;
+    SelectorBindingMilliseconds: Int64;
+    ReferenceBindingMilliseconds: Int64;
+    LookupIndexBuildMilliseconds: Int64;
   end;
 
   TDelphiSemanticRemoveWithLookupMetrics = record
@@ -182,6 +187,12 @@ uses
   MaxLogic.StrUtils;
 
 type
+  TRelatedInventoryMemberRelation = record
+    SourceOwnerType: string;
+    TargetOwnerType: string;
+    IsHelper: Boolean;
+  end;
+
   TDelphiSemanticRemoveWithLookupIndexData = class(TInterfacedObject,
     IDelphiSemanticRemoveWithLookupIndexData)
   private
@@ -3183,90 +3194,171 @@ begin
   end;
 end;
 
+procedure AddRelatedInventoryMemberOwnerIndex(const aMembersByOwner: TDictionary<string,
+  TList<TDelphiSemanticInventorySymbol>>; const aOwnerType: string;
+  const aSymbol: TDelphiSemanticInventorySymbol);
+var
+  lMembers: TList<TDelphiSemanticInventorySymbol>;
+begin
+  if aOwnerType = '' then
+    Exit;
+
+  if not aMembersByOwner.TryGetValue(aOwnerType, lMembers) then
+  begin
+    lMembers := TList<TDelphiSemanticInventorySymbol>.Create;
+    aMembersByOwner.Add(aOwnerType, lMembers);
+  end;
+  lMembers.Add(aSymbol);
+end;
+
+procedure QueueRelatedInventoryOwner(const aPendingOwners: TQueue<string>;
+  const aQueuedOwners: TDictionary<string, Byte>; const aOwnerType: string);
+begin
+  if aOwnerType = '' then
+    Exit;
+  if aQueuedOwners.ContainsKey(aOwnerType) then
+    Exit;
+
+  aQueuedOwners.Add(aOwnerType, 1);
+  aPendingOwners.Enqueue(aOwnerType);
+end;
+
+procedure AddRelatedInventoryMemberRelation(const aRelationsByOwner: TDictionary<string,
+  TList<TRelatedInventoryMemberRelation>>; const aRelation:
+  TRelatedInventoryMemberRelation);
+var
+  lRelations: TList<TRelatedInventoryMemberRelation>;
+begin
+  if (aRelation.SourceOwnerType = '') or (aRelation.TargetOwnerType = '') then
+    Exit;
+
+  if not aRelationsByOwner.TryGetValue(aRelation.SourceOwnerType, lRelations) then
+  begin
+    lRelations := TList<TRelatedInventoryMemberRelation>.Create;
+    aRelationsByOwner.Add(aRelation.SourceOwnerType, lRelations);
+  end;
+  lRelations.Add(aRelation);
+end;
+
+function BuildRelatedInventoryMemberRelations(const aSymbols:
+  TList<TDelphiSemanticInventorySymbol>; const aSymbolCount: Integer): TDictionary<string,
+  TList<TRelatedInventoryMemberRelation>>;
+var
+  i: Integer;
+  lRelation: TRelatedInventoryMemberRelation;
+  lTypeSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := TDictionary<string, TList<TRelatedInventoryMemberRelation>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  for i := 0 to aSymbolCount - 1 do
+  begin
+    lTypeSymbol := aSymbols[i];
+    if (not SameText(lTypeSymbol.SymbolClass, 'type-member')) or
+      (lTypeSymbol.RelatedTypeName = '') or (lTypeSymbol.UnsupportedReason <> '') then
+      Continue;
+
+    lRelation := Default(TRelatedInventoryMemberRelation);
+    lRelation.IsHelper := lTypeSymbol.IsHelper;
+    if lTypeSymbol.IsHelper then
+    begin
+      lRelation.SourceOwnerType := lTypeSymbol.Name;
+      lRelation.TargetOwnerType := lTypeSymbol.RelatedTypeName;
+    end else
+    begin
+      lRelation.SourceOwnerType := lTypeSymbol.RelatedTypeName;
+      lRelation.TargetOwnerType := lTypeSymbol.Name;
+    end;
+    AddRelatedInventoryMemberRelation(Result, lRelation);
+  end;
+end;
+
 procedure AddRelatedInventoryMemberSymbols(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
   const aKeys: TDictionary<string, Byte>);
 var
   i: Integer;
-  lAdded: Boolean;
-  lBeforeCount: Integer;
   lMember: TDelphiSemanticInventorySymbol;
+  lMemberCount: Integer;
+  lMemberPair: TPair<string, TList<TDelphiSemanticInventorySymbol>>;
   lMembers: TList<TDelphiSemanticInventorySymbol>;
   lMembersByOwner: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+  lMemberSourceOwnerType: string;
   lOwnMemberKeys: TDictionary<string, Byte>;
-  lOwnerKey: string;
-  lPair: TPair<string, TList<TDelphiSemanticInventorySymbol>>;
+  lPendingOwners: TQueue<string>;
+  lQueuedOwners: TDictionary<string, Byte>;
+  lRelation: TRelatedInventoryMemberRelation;
+  lRelationPair: TPair<string, TList<TRelatedInventoryMemberRelation>>;
+  lRelations: TList<TRelatedInventoryMemberRelation>;
+  lRelationsByOwner: TDictionary<string, TList<TRelatedInventoryMemberRelation>>;
   lSourceOwnerType: string;
   lSymbol: TDelphiSemanticInventorySymbol;
-  lTypeSymbol: TDelphiSemanticInventorySymbol;
 begin
-  repeat
-    lAdded := False;
-    lBeforeCount := aSymbols.Count;
-    lMembersByOwner := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
-      TFastCaseAwareComparer.OrdinalIgnoreCase);
-    lOwnMemberKeys := BuildInventoryOwnMemberKeys(aSymbols, lBeforeCount);
-    try
-      for i := 0 to lBeforeCount - 1 do
-      begin
-        lMember := aSymbols[i];
-        if (lMember.RoutineName <> '') or (not InventoryIsDirectMemberKind(lMember.SymbolClass)) then
-          Continue;
-        lOwnerKey := lMember.OwnerType;
-        if not lMembersByOwner.TryGetValue(lOwnerKey, lMembers) then
-        begin
-          lMembers := TList<TDelphiSemanticInventorySymbol>.Create;
-          lMembersByOwner.Add(lOwnerKey, lMembers);
-        end;
-        lMembers.Add(lMember);
-      end;
+  lMembersByOwner := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lOwnMemberKeys := BuildInventoryOwnMemberKeys(aSymbols, aSymbols.Count);
+  lPendingOwners := TQueue<string>.Create;
+  lQueuedOwners := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lRelationsByOwner := BuildRelatedInventoryMemberRelations(aSymbols, aSymbols.Count);
+  try
+    for i := 0 to aSymbols.Count - 1 do
+    begin
+      lMember := aSymbols[i];
+      if (lMember.RoutineName <> '') or (not InventoryIsDirectMemberKind(lMember.SymbolClass)) then
+        Continue;
+      AddRelatedInventoryMemberOwnerIndex(lMembersByOwner, lMember.OwnerType, lMember);
+    end;
 
-      for i := 0 to lBeforeCount - 1 do
-      begin
-        lTypeSymbol := aSymbols[i];
-        if (not SameText(lTypeSymbol.SymbolClass, 'type-member')) or
-          (lTypeSymbol.RelatedTypeName = '') or (lTypeSymbol.UnsupportedReason <> '') then
-          Continue;
+    for lRelationPair in lRelationsByOwner do
+      if lMembersByOwner.ContainsKey(lRelationPair.Key) then
+        QueueRelatedInventoryOwner(lPendingOwners, lQueuedOwners, lRelationPair.Key);
 
-        if lTypeSymbol.IsHelper then
-        begin
-          if not lMembersByOwner.TryGetValue(lTypeSymbol.Name, lMembers) then
-            Continue;
-        end else
-        begin
-          if not lMembersByOwner.TryGetValue(lTypeSymbol.RelatedTypeName, lMembers) then
-            Continue;
-        end;
+    while lPendingOwners.Count > 0 do
+    begin
+      lSourceOwnerType := lPendingOwners.Dequeue;
+      lQueuedOwners.Remove(lSourceOwnerType);
+      if not lRelationsByOwner.TryGetValue(lSourceOwnerType, lRelations) then
+        Continue;
+      if not lMembersByOwner.TryGetValue(lSourceOwnerType, lMembers) then
+        Continue;
 
-        for lMember in lMembers do
+      lMemberCount := lMembers.Count;
+      for lRelation in lRelations do
+        for i := 0 to lMemberCount - 1 do
         begin
+          lMember := lMembers[i];
           lSymbol := lMember;
-          if lTypeSymbol.IsHelper then
+          lSymbol.OwnerName := lRelation.TargetOwnerType;
+          lSymbol.OwnerType := lRelation.TargetOwnerType;
+          if lRelation.IsHelper then
+            lSymbol.SourceOwnerType := lRelation.SourceOwnerType
+          else
           begin
-            lSymbol.OwnerName := lTypeSymbol.RelatedTypeName;
-            lSymbol.OwnerType := lTypeSymbol.RelatedTypeName;
-            lSymbol.SourceOwnerType := lTypeSymbol.Name;
-          end else
-          begin
-            lSymbol.OwnerName := lTypeSymbol.Name;
-            lSymbol.OwnerType := lTypeSymbol.Name;
-            lSourceOwnerType := lMember.SourceOwnerType;
-            if lSourceOwnerType = '' then
-              lSourceOwnerType := lMember.OwnerType;
-            lSymbol.SourceOwnerType := lSourceOwnerType;
+            lMemberSourceOwnerType := lMember.SourceOwnerType;
+            if lMemberSourceOwnerType = '' then
+              lMemberSourceOwnerType := lMember.OwnerType;
+            lSymbol.SourceOwnerType := lMemberSourceOwnerType;
           end;
 
-          if lOwnMemberKeys.ContainsKey(InventoryOwnMemberKey(lSymbol.OwnerType, lSymbol.Name)) then
+          if lOwnMemberKeys.ContainsKey(InventoryOwnMemberKey(lSymbol.OwnerType,
+            lSymbol.Name)) then
             Continue;
-          lAdded := AddExpandedInventorySymbolWithKeys(aSymbols, aKeys, lSymbol) or lAdded;
+          if AddExpandedInventorySymbolWithKeys(aSymbols, aKeys, lSymbol) then
+          begin
+            AddRelatedInventoryMemberOwnerIndex(lMembersByOwner, lSymbol.OwnerType, lSymbol);
+            QueueRelatedInventoryOwner(lPendingOwners, lQueuedOwners, lSymbol.OwnerType);
+          end;
         end;
-      end;
-    finally
-      for lPair in lMembersByOwner do
-        lPair.Value.Free;
-      lOwnMemberKeys.Free;
-      lMembersByOwner.Free;
     end;
-  until not lAdded;
+  finally
+    for lRelationPair in lRelationsByOwner do
+      lRelationPair.Value.Free;
+    for lMemberPair in lMembersByOwner do
+      lMemberPair.Value.Free;
+    lRelationsByOwner.Free;
+    lQueuedOwners.Free;
+    lPendingOwners.Free;
+    lOwnMemberKeys.Free;
+    lMembersByOwner.Free;
+  end;
 end;
 
 procedure AddRelatedInventoryCurrentClassSymbols(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
@@ -3652,6 +3744,76 @@ begin
   end;
 end;
 
+function ReferenceIdentifierStart(const aValue: Char): Boolean;
+begin
+  Result := CharInSet(aValue, ['A'..'Z', 'a'..'z', '_']);
+end;
+
+function ReferenceIdentifierChar(const aValue: Char): Boolean;
+begin
+  Result := CharInSet(aValue, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
+end;
+
+function ReadReferenceSuffix(const aText: string; var aIndex: Integer;
+  const aOpenChar, aCloseChar: Char; const aRequireContent: Boolean): Boolean;
+var
+  lCloseIndex: Integer;
+  lOpenIndex: Integer;
+begin
+  Result := False;
+  if (aIndex > Length(aText)) or (aText[aIndex] <> aOpenChar) then
+    Exit;
+
+  lOpenIndex := aIndex;
+  lCloseIndex := lOpenIndex + 1;
+  while (lCloseIndex <= Length(aText)) and (aText[lCloseIndex] <> aCloseChar) do
+    Inc(lCloseIndex);
+  if lCloseIndex > Length(aText) then
+    Exit;
+  if aRequireContent and (lCloseIndex = lOpenIndex + 1) then
+    Exit;
+
+  aIndex := lCloseIndex + 1;
+  Result := True;
+end;
+
+function ReadReferenceToken(const aText: string; var aIndex: Integer;
+  const aAllowCallSuffix: Boolean; out aToken: string; out aTokenStart: Integer):
+  Boolean;
+var
+  lTokenStart: Integer;
+begin
+  aToken := '';
+  aTokenStart := 0;
+  while (aIndex <= Length(aText)) and (not ReferenceIdentifierStart(aText[aIndex])) do
+    Inc(aIndex);
+  if aIndex > Length(aText) then
+    Exit(False);
+
+  lTokenStart := aIndex;
+  Inc(aIndex);
+  while (aIndex <= Length(aText)) and ReferenceIdentifierChar(aText[aIndex]) do
+    Inc(aIndex);
+
+  if (aIndex < Length(aText)) and (aText[aIndex] = '.') and
+    ReferenceIdentifierStart(aText[aIndex + 1]) then
+  begin
+    Inc(aIndex, 2);
+    while (aIndex <= Length(aText)) and ReferenceIdentifierChar(aText[aIndex]) do
+      Inc(aIndex);
+  end;
+
+  if (aIndex <= Length(aText)) and (aText[aIndex] = '[') then
+    ReadReferenceSuffix(aText, aIndex, '[', ']', True)
+  else if aAllowCallSuffix and (aIndex <= Length(aText)) and
+    (aText[aIndex] = '(') then
+    ReadReferenceSuffix(aText, aIndex, '(', ')', False);
+
+  aTokenStart := lTokenStart;
+  aToken := Copy(aText, lTokenStart, aIndex - lTokenStart);
+  Result := True;
+end;
+
 procedure AddArgumentReferences(const aReferences: TList<TDelphiSemanticBoundReference>;
   const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName: string;
@@ -3665,8 +3827,10 @@ procedure AddArgumentReferences(const aReferences: TList<TDelphiSemanticBoundRef
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
   const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>);
 var
-  lArgumentMatch: TMatch;
+  lArgumentIndex: Integer;
   lArgumentStartOffset: Integer;
+  lArgumentToken: string;
+  lArgumentTokenStart: Integer;
   lArguments: string;
   lParenPos: Integer;
   lReference: TDelphiSemanticBoundReference;
@@ -3676,22 +3840,20 @@ begin
 
   lParenPos := Pos('(', aToken);
   lArguments := SanitizeBodyText(lArguments);
-  lArgumentMatch := TRegEx.Match(lArguments,
-    '\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?(?:\[[^\]]+\])?',
-    [roIgnoreCase]);
-  while lArgumentMatch.Success do
+  lArgumentIndex := 1;
+  while ReadReferenceToken(lArguments, lArgumentIndex, False, lArgumentToken,
+    lArgumentTokenStart) do
   begin
-    if not IsBinderKeyword(lArgumentMatch.Value) and
-      not IsSelectorName(aSelectors, lArgumentMatch.Value) then
+    if not IsBinderKeyword(lArgumentToken) and
+      not IsSelectorName(aSelectors, lArgumentToken) then
     begin
       lReference := BindReference(aModel, aProjectModels, aRoutineName, aParentRoutineNames,
-        aSelectors, aReferenceCachePrefix, aResolveCachePrefix, lArgumentMatch.Value,
+        aSelectors, aReferenceCachePrefix, aResolveCachePrefix, lArgumentToken,
         aProjectMemberIndex, aReferenceCache, aResolveCache, aMemberCache);
-      lArgumentStartOffset := aTokenStartOffset + lParenPos + lArgumentMatch.Index - 1;
-      ApplyBodyRange(lReference, aStatement, lArgumentStartOffset, Length(lArgumentMatch.Value));
+      lArgumentStartOffset := aTokenStartOffset + lParenPos + lArgumentTokenStart - 1;
+      ApplyBodyRange(lReference, aStatement, lArgumentStartOffset, Length(lArgumentToken));
       AddReference(aReferences, lReference);
     end;
-    lArgumentMatch := lArgumentMatch.NextMatch;
   end;
 end;
 
@@ -3710,7 +3872,9 @@ function BindReferences(const aModel: TDelphiSemanticUnitModel;
   TArray<TDelphiSemanticBoundReference>;
 var
   lBodyText: string;
-  lMatch: TMatch;
+  lTokenIndex: Integer;
+  lTokenStart: Integer;
+  lToken: string;
   lReferenceCachePrefix: string;
   lResolveContext: TDelphiSemanticResolveContext;
   lResolveCachePrefix: string;
@@ -3729,24 +3893,21 @@ begin
     lResolveContext.IndexedUnitModels := aProjectModels;
     lResolveCachePrefix := ResolveNameCachePrefix(aModel.UnitName, lResolveContext);
     lBodyText := ExtractWithBodyText(aStatement, aAllStatements, aStatementIndex);
-    lMatch := TRegEx.Match(lBodyText,
-      '\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?(?:\[[^\]]+\]|\([^)]*\))?',
-      [roIgnoreCase]);
-    while lMatch.Success do
+    lTokenIndex := 1;
+    while ReadReferenceToken(lBodyText, lTokenIndex, True, lToken, lTokenStart) do
     begin
-      if not IsBinderKeyword(lMatch.Value) and not IsSelectorName(aSelectors, lMatch.Value) then
+      if not IsBinderKeyword(lToken) and not IsSelectorName(aSelectors, lToken) then
       begin
         lReference := BindReference(aModel, aProjectModels, aRoutineName, aParentRoutineNames,
-          aSelectors, lReferenceCachePrefix, lResolveCachePrefix, lMatch.Value, aProjectMemberIndex,
+          aSelectors, lReferenceCachePrefix, lResolveCachePrefix, lToken, aProjectMemberIndex,
           aReferenceCache, aResolveCache, aMemberCache);
-        ApplyBodyRange(lReference, aStatement, lMatch.Index, Length(lMatch.Value));
+        ApplyBodyRange(lReference, aStatement, lTokenStart, Length(lToken));
         AddReference(lReferences, lReference);
         AddArgumentReferences(lReferences, aModel, aProjectModels, aRoutineName,
           aParentRoutineNames, aSelectors, lReferenceCachePrefix, lResolveCachePrefix,
-          aStatement, lMatch.Value, lMatch.Index, aProjectMemberIndex, aReferenceCache,
+          aStatement, lToken, lTokenStart, aProjectMemberIndex, aReferenceCache,
           aResolveCache, aMemberCache);
       end;
-      lMatch := lMatch.NextMatch;
     end;
     Result := lReferences.ToArray;
   finally
@@ -3938,19 +4099,26 @@ class function TDelphiSemanticWithBinder.BindProject(const aContextFingerprint: 
 var
   i: Integer;
   lBinding: TDelphiSemanticWithBinding;
+  lBindingStopwatch: TStopwatch;
   lBindings: TList<TDelphiSemanticWithBinding>;
   lBindingBuildMs: Int64;
+  lInventoryExpansionMs: Int64;
   lInventoryBuildMs: Int64;
+  lLookupIndexBuildMs: Int64;
   lModel: TDelphiSemanticUnitModel;
   lMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
   lParentRoutineNames: TArray<string>;
   lProjectMemberIndex: TWithBindingProjectMemberIndex;
+  lReferenceBindingMs: Int64;
   lReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   lResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
   lRoutineName: string;
+  lScopeIndexBuildMs: Int64;
+  lSelectorBindingMs: Int64;
   lScopeIndex: TDelphiSemanticRoutineScopeIndex;
   lStatement: TDelphiSemanticWithStatement;
   lStopwatch: TStopwatch;
+  lSubphaseStopwatch: TStopwatch;
   lSymbol: TDelphiSemanticInventorySymbol;
   lSymbols: TList<TDelphiSemanticInventorySymbol>;
 begin
@@ -3959,7 +4127,12 @@ begin
   lBindings := TList<TDelphiSemanticWithBinding>.Create;
   lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
   lBindingBuildMs := 0;
+  lInventoryExpansionMs := 0;
   lInventoryBuildMs := 0;
+  lLookupIndexBuildMs := 0;
+  lReferenceBindingMs := 0;
+  lScopeIndexBuildMs := 0;
+  lSelectorBindingMs := 0;
   lReferenceCache := TDictionary<string, TDelphiSemanticBoundReference>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lResolveCache := TDictionary<string, TDelphiSemanticResolveResult>.Create(
@@ -3975,8 +4148,11 @@ begin
         lSymbols.Add(lSymbol);
       lStopwatch.Stop;
       Inc(lInventoryBuildMs, lStopwatch.ElapsedMilliseconds);
-      lScopeIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel);
       lStopwatch := TStopwatch.StartNew;
+      lScopeIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel);
+      lStopwatch.Stop;
+      Inc(lScopeIndexBuildMs, lStopwatch.ElapsedMilliseconds);
+      lBindingStopwatch := TStopwatch.StartNew;
       for i := 0 to High(lModel.WithStatements) do
       begin
         lStatement := lModel.WithStatements[i];
@@ -4001,29 +4177,47 @@ begin
         lBinding.RoutineName := lRoutineName;
         lParentRoutineNames := lScopeIndex.ParentRoutineNamesForLine(lRoutineName,
           lStatement.Line);
+        lSubphaseStopwatch := TStopwatch.StartNew;
         lBinding.Selectors := CombinedSelectors(lModel, aModels, lModel.WithStatements, i,
           lRoutineName, lParentRoutineNames, lProjectMemberIndex, lMemberCache);
+        lSubphaseStopwatch.Stop;
+        Inc(lSelectorBindingMs, lSubphaseStopwatch.ElapsedMilliseconds);
+        lSubphaseStopwatch := TStopwatch.StartNew;
         lBinding.References := BindReferences(lModel, aModels, lStatement,
-          lModel.WithStatements, i, lRoutineName, lParentRoutineNames, lBinding.Selectors,
-          lProjectMemberIndex, lReferenceCache, lResolveCache, lMemberCache);
+          lModel.WithStatements, i, lRoutineName, lParentRoutineNames,
+          lBinding.Selectors, lProjectMemberIndex, lReferenceCache, lResolveCache,
+          lMemberCache);
+        lSubphaseStopwatch.Stop;
+        Inc(lReferenceBindingMs, lSubphaseStopwatch.ElapsedMilliseconds);
         ApplyBindingReferenceIds(lBinding);
         FinalizeBinding(lBinding, lStatement);
         lBindings.Add(lBinding);
       end;
-      lStopwatch.Stop;
-      Inc(lBindingBuildMs, lStopwatch.ElapsedMilliseconds);
+      lBindingStopwatch.Stop;
+      Inc(lBindingBuildMs, lBindingStopwatch.ElapsedMilliseconds);
     end;
     AddProjectCompatibilitySymbols(lSymbols);
     AddProjectExternalUnitSymbols(aModels, lSymbols);
+    lStopwatch := TStopwatch.StartNew;
     Result.Symbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lSymbols.ToArray);
+    lStopwatch.Stop;
+    lInventoryExpansionMs := lStopwatch.ElapsedMilliseconds;
     Result.UnitModels := Copy(aModels);
+    lStopwatch := TStopwatch.StartNew;
     Result.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(Result.UnitModels,
       Result.Symbols);
+    lStopwatch.Stop;
+    lLookupIndexBuildMs := lStopwatch.ElapsedMilliseconds;
     Result.Bindings := lBindings.ToArray;
     Result.Metrics.SemanticGraphUsed := aGraph <> nil;
     Result.Metrics.BuildUnitIndexUsed := False;
     Result.Metrics.InventoryBuildMilliseconds := lInventoryBuildMs;
+    Result.Metrics.InventoryExpansionMilliseconds := lInventoryExpansionMs;
     Result.Metrics.BindingBuildMilliseconds := lBindingBuildMs;
+    Result.Metrics.ScopeIndexBuildMilliseconds := lScopeIndexBuildMs;
+    Result.Metrics.SelectorBindingMilliseconds := lSelectorBindingMs;
+    Result.Metrics.ReferenceBindingMilliseconds := lReferenceBindingMs;
+    Result.Metrics.LookupIndexBuildMilliseconds := lLookupIndexBuildMs;
     Result.Metrics.UnitCount := Length(aModels);
     if aGraph <> nil then
     begin
