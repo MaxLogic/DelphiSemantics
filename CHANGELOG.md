@@ -54,6 +54,10 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with semantic binding now reports routine scope-conflict facts on
+  receiver-member references so DAK can avoid recomputing scope-shadow
+  decisions; the maxTdb cold `remove-with-plan-all` proof preserved scan count
+  `667`, planned edit count `215`, and reduced `fallbackDecisionMs` to `4ms`.
 - Remove-with receiver/member binding now uses an operation-local indexed lookup
   and statement-level receiver cache prefixes, reducing maxTdb cold
   `remove-with-plan-all` median to `21.841s` and

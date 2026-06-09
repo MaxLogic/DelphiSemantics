@@ -43,6 +43,8 @@ type
     [Test]
     procedure IndexedPropertySelectorWithoutDereferenceStaysUnsupported;
     [Test]
+    procedure MemberReferenceReportsRoutineScopeConflict;
+    [Test]
     procedure UnresolvedSelectorMarksBodyReferencesExternal;
     [Test]
     procedure NestedWithStatementsUseOuterReceiverStack;
@@ -407,6 +409,70 @@ begin
     Assert.AreEqual('unsupported', lBindings[0].Selectors[0].Status);
     Assert.AreEqual('PROPERTY_SELECTOR_UNSUPPORTED', lBindings[0].Selectors[0].ReasonCode);
     Assert.AreEqual('', lBindings[0].Selectors[0].TypeName);
+  finally
+    if TFile.Exists(lPath) then
+      TFile.Delete(lPath);
+  end;
+end;
+
+procedure TWithBinderTests.MemberReferenceReportsRoutineScopeConflict;
+var
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lReference: TDelphiSemanticBoundReference;
+  lSource: string;
+begin
+  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)),
+    'withbinder-scope-conflict-regression.pas');
+  lSource :=
+    'unit WithBinderScopeConflictRegression;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TBox = class' + sLineBreak +
+    '  public' + sLineBreak +
+    '    procedure Flush;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TScope = class' + sLineBreak +
+    '  public' + sLineBreak +
+    '    class procedure Run;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'procedure Flush;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Flush;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end;' + sLineBreak +
+    'procedure TBox.Flush;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end;' + sLineBreak +
+    'class procedure TScope.Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lBox: TBox;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with lBox do' + sLineBreak +
+    '    Flush;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  try
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := lPath;
+    lOptions.ProjectContextApplied := True;
+    lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModel.Success);
+
+    lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+
+    Assert.AreEqual(1, Integer(Length(lBindings)));
+    for lReference in lBindings[0].References do
+      if SameText(lReference.Name, 'Flush') and SameText(lReference.Classification, 'member') then
+      begin
+        Assert.AreEqual('routine', lReference.ScopeConflictKind);
+        Assert.AreEqual('Flush', lReference.ScopeConflictName);
+        Exit;
+      end;
+    Assert.Fail('Expected member-bound Flush reference.');
   finally
     if TFile.Exists(lPath) then
       TFile.Delete(lPath);

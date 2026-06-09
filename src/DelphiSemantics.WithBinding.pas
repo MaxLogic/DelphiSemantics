@@ -23,6 +23,8 @@ type
     Kind: string;
     TypeName: string;
     ReasonCode: string;
+    ScopeConflictKind: string;
+    ScopeConflictName: string;
     Line: Integer;
     Column: Integer;
     EndLine: Integer;
@@ -4026,6 +4028,31 @@ begin
     aResolveCache.AddOrSetValue(lKey, Result);
 end;
 
+procedure ApplyScopeConflictFact(const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext;
+  const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  const aResolveCachePrefix: string; var aReference: TDelphiSemanticBoundReference;
+  var aLexicalResolveMs: Int64);
+var
+  lResult: TDelphiSemanticResolveResult;
+  lStopwatch: TStopwatch;
+begin
+  if (not SameText(aReference.Classification, 'member')) or (aReference.Name = '') then
+    Exit;
+
+  lStopwatch := TStopwatch.StartNew;
+  lResult := ResolveNameCached(aModel, aContext, aReference.Name, aResolveCache,
+    aResolveCachePrefix);
+  lStopwatch.Stop;
+  Inc(aLexicalResolveMs, lStopwatch.ElapsedMilliseconds);
+
+  if lResult.Found and SameText(lResult.Kind, 'routine') then
+  begin
+    aReference.ScopeConflictKind := 'routine';
+    aReference.ScopeConflictName := lResult.Name;
+  end;
+end;
+
 function BindReference(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
   const aRoutineName, aCurrentTypeName: string;
@@ -4341,10 +4368,18 @@ var
   lArguments: string;
   lParenPos: Integer;
   lReference: TDelphiSemanticBoundReference;
+  lResolveContext: TDelphiSemanticResolveContext;
 begin
   if not TryExtractCallArguments(aToken, lArguments) then
     Exit;
 
+  lResolveContext := Default(TDelphiSemanticResolveContext);
+  lResolveContext.RoutineName := aRoutineName;
+  lResolveContext.CurrentTypeName := aCurrentTypeName;
+  lResolveContext.ParentRoutineNames := aParentRoutineNames;
+  lResolveContext.SectionKind := 'implementation';
+  lResolveContext.ConformanceLevel := 3;
+  lResolveContext.IndexedUnitModels := aProjectModels;
   lParenPos := Pos('(', aToken);
   lArguments := SanitizeBodyText(lArguments);
   lArgumentIndex := 1;
@@ -4361,6 +4396,8 @@ begin
         aReferenceCacheMisses);
       lArgumentStartOffset := aTokenStartOffset + lParenPos + lArgumentTokenStart - 1;
       ApplyBodyRange(lReference, aStatement, lArgumentStartOffset, Length(lArgumentToken));
+      ApplyScopeConflictFact(aModel, lResolveContext, aResolveCache, aResolveCachePrefix,
+        lReference, aLexicalResolveMs);
       AddReference(aReferences, lReference);
     end;
   end;
@@ -4420,6 +4457,8 @@ begin
           aMemberCache, aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
           aReferenceCacheMisses);
         ApplyBodyRange(lReference, aStatement, lTokenStart, Length(lToken));
+        ApplyScopeConflictFact(aModel, lResolveContext, aResolveCache, lResolveCachePrefix,
+          lReference, aLexicalResolveMs);
         AddReference(lReferences, lReference);
         AddArgumentReferences(lReferences, aModel, aProjectModels, aRoutineName,
           aCurrentTypeName,
