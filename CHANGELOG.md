@@ -54,6 +54,10 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with planning now exposes deeper semantic reference-binding and legacy
+  resolver-report classification metrics, restoring the maxTdb cold
+  `remove-with-plan-all` median to `28.138s` while preserving scan count `667`
+  and planned edit count `215`.
 - Remove-with project fact planning now exposes finer hot-path phase metrics and
   uses indexed final DTO nesting, indexed related-inventory expansion, faster
   scope scanning, and regex-free body reference token enumeration. The current

@@ -105,6 +105,10 @@ type
     ScopeIndexBuildMilliseconds: Int64;
     SelectorBindingMilliseconds: Int64;
     ReferenceBindingMilliseconds: Int64;
+    ReceiverMemberResolveMilliseconds: Int64;
+    LexicalResolveMilliseconds: Int64;
+    ReferenceCacheHitCount: Int64;
+    ReferenceCacheMissCount: Int64;
     LookupIndexBuildMilliseconds: Int64;
   end;
 
@@ -3565,17 +3569,24 @@ function BindReference(const aModel: TDelphiSemanticUnitModel;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  var aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
+  aReferenceCacheMisses: Int64):
   TDelphiSemanticBoundReference;
 var
   lCallName: string;
   lContext: TDelphiSemanticResolveContext;
   lKey: string;
   lResult: TDelphiSemanticResolveResult;
+  lStopwatch: TStopwatch;
 begin
   lKey := BoundReferenceCacheKey(aReferenceCachePrefix, aName);
   if Assigned(aReferenceCache) and aReferenceCache.TryGetValue(lKey, Result) then
+  begin
+    Inc(aReferenceCacheHits);
     Exit;
+  end;
+  Inc(aReferenceCacheMisses);
 
   lContext := Default(TDelphiSemanticResolveContext);
   lContext.RoutineName := aRoutineName;
@@ -3586,8 +3597,12 @@ begin
 
   if TryExtractCallName(aName, lCallName) then
   begin
+    lStopwatch := TStopwatch.StartNew;
     if TryResolveReceiverMember(aModel, aProjectModels, aSelectors, lCallName,
       aProjectMemberIndex, aMemberCache, lResult) then
+    begin
+      lStopwatch.Stop;
+      Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
       if SameText(lResult.Kind, 'method') then
         Exit(CacheBoundReference(aReferenceCache, lKey,
           MakeBoundReference(lCallName, 'member', lResult)))
@@ -3596,9 +3611,15 @@ begin
           MakeBoundReference(lCallName, 'unsupported',
           MakeSyntheticResolveResult(lCallName, lResult.Kind, lResult.TypeName,
           lResult.OwnerName, 'CALL_SELECTOR_UNSUPPORTED'))));
+    end;
+    lStopwatch.Stop;
+    Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
 
+    lStopwatch := TStopwatch.StartNew;
     lResult := ResolveNameCached(aModel, lContext, lCallName, aResolveCache,
       aResolveCachePrefix);
+    lStopwatch.Stop;
+    Inc(aLexicalResolveMs, lStopwatch.ElapsedMilliseconds);
     if lResult.Found and SameText(lResult.Kind, 'intrinsic-routine') then
       Exit(CacheBoundReference(aReferenceCache, lKey,
         MakeBoundReference(lCallName, 'intrinsic', lResult)));
@@ -3615,13 +3636,23 @@ begin
   end;
 
   if (Pos('.', aName) > 0) or (Pos('[', aName) > 0) then
+  begin
+    lStopwatch := TStopwatch.StartNew;
+    lResult := ResolveNameCached(aModel, Default(TDelphiSemanticResolveContext),
+      aName, aResolveCache, ResolveNameCachePrefix(aModel.UnitName,
+      Default(TDelphiSemanticResolveContext)));
+    lStopwatch.Stop;
+    Inc(aLexicalResolveMs, lStopwatch.ElapsedMilliseconds);
     Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(aName, 'unsupported',
-      ResolveNameCached(aModel, Default(TDelphiSemanticResolveContext), aName, aResolveCache,
-      ResolveNameCachePrefix(aModel.UnitName, Default(TDelphiSemanticResolveContext))))));
+      lResult)));
+  end;
 
+  lStopwatch := TStopwatch.StartNew;
   if TryResolveReceiverMember(aModel, aProjectModels, aSelectors, aName, aProjectMemberIndex,
     aMemberCache, lResult) then
   begin
+    lStopwatch.Stop;
+    Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
     if SameText(lResult.Status, 'ambiguous') then
       Exit(CacheBoundReference(aReferenceCache, lKey,
         MakeBoundReference(aName, 'ambiguous', lResult)));
@@ -3630,9 +3661,14 @@ begin
         MakeBoundReference(aName, 'unsupported', lResult)));
     Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(aName, 'member', lResult)));
   end;
+  lStopwatch.Stop;
+  Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
 
+  lStopwatch := TStopwatch.StartNew;
   lResult := ResolveNameCached(aModel, lContext, aName, aResolveCache,
     aResolveCachePrefix);
+  lStopwatch.Stop;
+  Inc(aLexicalResolveMs, lStopwatch.ElapsedMilliseconds);
   if lResult.Found then
     Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(aName, 'lexical', lResult)));
 
@@ -3825,7 +3861,9 @@ procedure AddArgumentReferences(const aReferences: TList<TDelphiSemanticBoundRef
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>);
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  var aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
+  aReferenceCacheMisses: Int64);
 var
   lArgumentIndex: Integer;
   lArgumentStartOffset: Integer;
@@ -3849,7 +3887,9 @@ begin
     begin
       lReference := BindReference(aModel, aProjectModels, aRoutineName, aParentRoutineNames,
         aSelectors, aReferenceCachePrefix, aResolveCachePrefix, lArgumentToken,
-        aProjectMemberIndex, aReferenceCache, aResolveCache, aMemberCache);
+        aProjectMemberIndex, aReferenceCache, aResolveCache, aMemberCache,
+        aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
+        aReferenceCacheMisses);
       lArgumentStartOffset := aTokenStartOffset + lParenPos + lArgumentTokenStart - 1;
       ApplyBodyRange(lReference, aStatement, lArgumentStartOffset, Length(lArgumentToken));
       AddReference(aReferences, lReference);
@@ -3868,7 +3908,9 @@ function BindReferences(const aModel: TDelphiSemanticUnitModel;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  var aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
+  aReferenceCacheMisses: Int64):
   TArray<TDelphiSemanticBoundReference>;
 var
   lBodyText: string;
@@ -3900,13 +3942,15 @@ begin
       begin
         lReference := BindReference(aModel, aProjectModels, aRoutineName, aParentRoutineNames,
           aSelectors, lReferenceCachePrefix, lResolveCachePrefix, lToken, aProjectMemberIndex,
-          aReferenceCache, aResolveCache, aMemberCache);
+          aReferenceCache, aResolveCache, aMemberCache, aReceiverMemberResolveMs,
+          aLexicalResolveMs, aReferenceCacheHits, aReferenceCacheMisses);
         ApplyBodyRange(lReference, aStatement, lTokenStart, Length(lToken));
         AddReference(lReferences, lReference);
         AddArgumentReferences(lReferences, aModel, aProjectModels, aRoutineName,
           aParentRoutineNames, aSelectors, lReferenceCachePrefix, lResolveCachePrefix,
           aStatement, lToken, lTokenStart, aProjectMemberIndex, aReferenceCache,
-          aResolveCache, aMemberCache);
+          aResolveCache, aMemberCache, aReceiverMemberResolveMs, aLexicalResolveMs,
+          aReferenceCacheHits, aReferenceCacheMisses);
       end;
     end;
     Result := lReferences.ToArray;
@@ -4105,12 +4149,16 @@ var
   lInventoryExpansionMs: Int64;
   lInventoryBuildMs: Int64;
   lLookupIndexBuildMs: Int64;
+  lLexicalResolveMs: Int64;
   lModel: TDelphiSemanticUnitModel;
   lMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
   lParentRoutineNames: TArray<string>;
   lProjectMemberIndex: TWithBindingProjectMemberIndex;
+  lReferenceCacheHits: Int64;
+  lReferenceCacheMisses: Int64;
   lReferenceBindingMs: Int64;
   lReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
+  lReceiverMemberResolveMs: Int64;
   lResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
   lRoutineName: string;
   lScopeIndexBuildMs: Int64;
@@ -4129,8 +4177,12 @@ begin
   lBindingBuildMs := 0;
   lInventoryExpansionMs := 0;
   lInventoryBuildMs := 0;
+  lLexicalResolveMs := 0;
   lLookupIndexBuildMs := 0;
+  lReferenceCacheHits := 0;
+  lReferenceCacheMisses := 0;
   lReferenceBindingMs := 0;
+  lReceiverMemberResolveMs := 0;
   lScopeIndexBuildMs := 0;
   lSelectorBindingMs := 0;
   lReferenceCache := TDictionary<string, TDelphiSemanticBoundReference>.Create(
@@ -4186,7 +4238,8 @@ begin
         lBinding.References := BindReferences(lModel, aModels, lStatement,
           lModel.WithStatements, i, lRoutineName, lParentRoutineNames,
           lBinding.Selectors, lProjectMemberIndex, lReferenceCache, lResolveCache,
-          lMemberCache);
+          lMemberCache, lReceiverMemberResolveMs, lLexicalResolveMs,
+          lReferenceCacheHits, lReferenceCacheMisses);
         lSubphaseStopwatch.Stop;
         Inc(lReferenceBindingMs, lSubphaseStopwatch.ElapsedMilliseconds);
         ApplyBindingReferenceIds(lBinding);
@@ -4217,6 +4270,10 @@ begin
     Result.Metrics.ScopeIndexBuildMilliseconds := lScopeIndexBuildMs;
     Result.Metrics.SelectorBindingMilliseconds := lSelectorBindingMs;
     Result.Metrics.ReferenceBindingMilliseconds := lReferenceBindingMs;
+    Result.Metrics.ReceiverMemberResolveMilliseconds := lReceiverMemberResolveMs;
+    Result.Metrics.LexicalResolveMilliseconds := lLexicalResolveMs;
+    Result.Metrics.ReferenceCacheHitCount := lReferenceCacheHits;
+    Result.Metrics.ReferenceCacheMissCount := lReferenceCacheMisses;
     Result.Metrics.LookupIndexBuildMilliseconds := lLookupIndexBuildMs;
     Result.Metrics.UnitCount := Length(aModels);
     if aGraph <> nil then
