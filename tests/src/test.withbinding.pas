@@ -38,13 +38,17 @@ type
     procedure RemoveWithLookupIndexIncludesCompatibilityExternalSymbols;
     [Test]
     procedure BindingReferenceCacheUsesStatementPrefix;
+    [Test]
+    procedure ReceiverMemberBindingUsesSemanticMemberIndex;
+    [Test]
+    procedure ReceiverMemberIndexDoesNotWalkVisibleUnitsPerLookup;
   end;
 
 implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.ProjectContext;
+  DelphiSemantics.ProjectContext, maxLogic.IOUtils;
 
 function TProjectWithBindingTests.FixturePath(const aRelativePath: string): string;
 begin
@@ -421,6 +425,62 @@ begin
     'binding should build the shared reference-cache key prefix once per statement');
   Assert.IsTrue(ContainsText(lSourceText, 'ResolveNameCachePrefix'),
     'binding should build the shared resolver-cache key prefix once per statement');
+  Assert.IsTrue(ContainsText(lSourceText, 'ReceiverMemberCachePrefix'),
+    'binding should build the receiver/member cache key prefix once per statement');
+end;
+
+procedure TProjectWithBindingTests.ReceiverMemberBindingUsesSemanticMemberIndex;
+var
+  lReceiverMemberEnd: Integer;
+  lReceiverMemberStart: Integer;
+  lReceiverMemberText: string;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lReceiverMemberStart := Pos('function ReceiverMemberCacheKey', lSourceText);
+  lReceiverMemberEnd := Pos('function AnySelectorUnresolved', lSourceText);
+  Assert.IsTrue((lReceiverMemberStart > 0) and (lReceiverMemberEnd > lReceiverMemberStart),
+    'Expected receiver-member binding source section.');
+  lReceiverMemberText := Copy(lSourceText, lReceiverMemberStart,
+    lReceiverMemberEnd - lReceiverMemberStart);
+
+  Assert.IsTrue(ContainsText(lSourceText, 'TDelphiSemanticMemberResolver.BuildIndex'),
+    'Receiver/member binding must build an operation-local semantic member index.');
+  Assert.IsFalse(ContainsText(lReceiverMemberText, 'for lModel in aProjectModels do'),
+    'Receiver/member binding must not scan every project model for each unresolved lookup.');
+  Assert.IsFalse(ContainsText(lReceiverMemberText, 'ResolveMemberAtLevel(lModel'),
+    'Receiver/member binding must not use project-model resolver fallback for every miss.');
+end;
+
+procedure TProjectWithBindingTests.ReceiverMemberIndexDoesNotWalkVisibleUnitsPerLookup;
+var
+  lIndexEnd: Integer;
+  lIndexStart: Integer;
+  lIndexText: string;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lIndexStart := Pos('function TWithBindingProjectMemberIndex.TryResolveDirectMember',
+    lSourceText);
+  lIndexEnd := Pos('function IsBinderKeyword', lSourceText);
+  Assert.IsTrue((lIndexStart > 0) and (lIndexEnd > lIndexStart),
+    'Expected receiver-member index lookup source section.');
+  lIndexText := Copy(lSourceText, lIndexStart, lIndexEnd - lIndexStart);
+
+  Assert.IsTrue(ContainsText(lSourceText, 'fDirectMembersByContextOwnerName'),
+    'Receiver/member binding must precompute current/visible-unit owner-name lookup keys.');
+  Assert.IsTrue(ContainsText(lSourceText, 'fSemanticMemberResultsByOwnerName'),
+    'Receiver/member binding must cache semantic member-index results by owner and member name.');
+  Assert.IsFalse(ContainsText(lIndexText, 'for lUnitName in lVisibleUnits do'),
+    'Receiver/member lookup must not walk visible units for each lookup.');
+  Assert.IsFalse(ContainsText(lIndexText, 'for lUnitName in fUnitNames do'),
+    'Receiver/member lookup must not walk all project units for each lookup.');
 end;
 
 initialization

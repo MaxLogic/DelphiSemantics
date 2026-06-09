@@ -54,6 +54,11 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with receiver/member binding now uses an operation-local indexed lookup
+  and statement-level receiver cache prefixes, reducing maxTdb cold
+  `remove-with-plan-all` median to `21.841s` and
+  `semanticReceiverMemberResolveMs` to `1ms` while preserving scan count `667`
+  and planned edit count `215`.
 - Remove-with planning now exposes deeper semantic reference-binding and legacy
   resolver-report classification metrics, restoring the maxTdb cold
   `remove-with-plan-all` median to `28.138s` while preserving scan count `667`
@@ -114,6 +119,13 @@
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
 
 ### Fixed
+- With-binding indexed expressions such as `LTable[Hash(s)]` no longer treat
+  the parenthesized index expression as a routine-call suffix during reference
+  binding.
+- With-binding class methods now use the owning routine type as receiver-member
+  access context, preserving inherited protected member resolution.
+- Remove-with selector binding now keeps unsafe indexed/default property
+  selectors unsupported while preserving indexed array and pointer selectors.
 - Rename planning now keeps legacy `end; {comment}` type blocks from hiding later
   routine declarations, and preserves active units around inline conditional
   directives in `uses` lines so cross-unit alias references are resolved.

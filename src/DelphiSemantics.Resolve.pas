@@ -343,6 +343,14 @@ begin
   Result := False;
 end;
 
+function RoutineNameMatches(const aRoutine: TDelphiSemanticRoutine;
+  const aRoutineName: string): Boolean;
+begin
+  Result := SameText(aRoutine.Name, aRoutineName) or
+    ((aRoutine.OwnerName <> '') and SameText(aRoutine.OwnerName + '.' + aRoutine.Name,
+    aRoutineName));
+end;
+
 function TryResolveParameter(const aModel: TDelphiSemanticUnitModel; const aRoutineName,
   aSectionKind, aName: string;
   out aResult: TDelphiSemanticResolveResult): Boolean;
@@ -351,7 +359,7 @@ var
   lRoutine: TDelphiSemanticRoutine;
 begin
   for lRoutine in aModel.Routines do
-    if SameText(lRoutine.Name, aRoutineName) and IsVisibleSection(aSectionKind,
+    if RoutineNameMatches(lRoutine, aRoutineName) and IsVisibleSection(aSectionKind,
       lRoutine.SectionKind) then
       for lParameter in lRoutine.Parameters do
         if SameText(lParameter.Name, aName) then

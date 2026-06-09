@@ -39,6 +39,10 @@ type
     [Test]
     procedure AmbiguousReceiverMembersClassifyAsAmbiguous;
     [Test]
+    procedure ClassMethodWithBindingUsesOwnedRoutineTypeForInheritedProtectedMembers;
+    [Test]
+    procedure IndexedPropertySelectorWithoutDereferenceStaysUnsupported;
+    [Test]
     procedure UnresolvedSelectorMarksBodyReferencesExternal;
     [Test]
     procedure NestedWithStatementsUseOuterReceiverStack;
@@ -292,6 +296,121 @@ begin
   lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
 
   Assert.IsTrue(HasReference(lBindings[0], 'FirstOnly', 'ambiguous'));
+end;
+
+procedure TWithBinderTests.ClassMethodWithBindingUsesOwnedRoutineTypeForInheritedProtectedMembers;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lSource: string;
+begin
+  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)),
+    'withbinder-current-type-regression.pas');
+  lSource :=
+    'unit WithBinderCurrentTypeRegression;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TBase = class' + sLineBreak +
+    '  protected' + sLineBreak +
+    '    BaseValue: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TChild = class(TBase)' + sLineBreak +
+    '  public' + sLineBreak +
+    '    class procedure Run;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'class procedure TChild.Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lChild: TChild;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with lChild do' + sLineBreak +
+    '    BaseValue := 1;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  try
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := lPath;
+    lOptions.ProjectContextApplied := True;
+    lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModel.Success);
+
+    lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+
+    Assert.AreEqual(1, Integer(Length(lBindings)));
+    lBinding := lBindings[0];
+    Assert.AreEqual('Run', lBinding.RoutineName);
+    Assert.IsTrue(HasReference(lBinding, 'BaseValue', 'member'),
+      'Inherited protected receiver members need the owned routine type as access context.');
+    Assert.AreEqual('TBase', ReceiverOf(lBinding, 'BaseValue', 'member'));
+  finally
+    if TFile.Exists(lPath) then
+      TFile.Delete(lPath);
+  end;
+end;
+
+procedure TWithBinderTests.IndexedPropertySelectorWithoutDereferenceStaysUnsupported;
+var
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lSource: string;
+begin
+  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)),
+    'withbinder-indexed-property-regression.pas');
+  lSource :=
+    'unit WithBinderIndexedPropertyRegression;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TIndexedRecord = record' + sLineBreak +
+    '    Name: string;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TIndexedBox = class' + sLineBreak +
+    '  private' + sLineBreak +
+    '    function GetItem(const aIndex: Integer): TIndexedRecord;' + sLineBreak +
+    '  public' + sLineBreak +
+    '    property Items[const aIndex: Integer]: TIndexedRecord read GetItem; default;' +
+    sLineBreak +
+    '  end;' + sLineBreak +
+    '  TScope = class' + sLineBreak +
+    '  public' + sLineBreak +
+    '    class procedure Run;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'function TIndexedBox.GetItem(const aIndex: Integer): TIndexedRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  Result.Name := '''';' + sLineBreak +
+    'end;' + sLineBreak +
+    'class procedure TScope.Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lBox: TIndexedBox;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with lBox[0] do' + sLineBreak +
+    '    Name := ''indexed property'';' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  try
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := lPath;
+    lOptions.ProjectContextApplied := True;
+    lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModel.Success);
+
+    lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+
+    Assert.AreEqual(1, Integer(Length(lBindings)));
+    Assert.AreEqual('unsupported', lBindings[0].Selectors[0].Status);
+    Assert.AreEqual('PROPERTY_SELECTOR_UNSUPPORTED', lBindings[0].Selectors[0].ReasonCode);
+    Assert.AreEqual('', lBindings[0].Selectors[0].TypeName);
+  finally
+    if TFile.Exists(lPath) then
+      TFile.Delete(lPath);
+  end;
 end;
 
 procedure TWithBinderTests.UnresolvedSelectorMarksBodyReferencesExternal;
