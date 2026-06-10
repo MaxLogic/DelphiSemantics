@@ -9,6 +9,9 @@
   snapshot architecture.
 - Project sessions can now build typed project snapshots from extracted unit
   models and expose snapshot build counts/timing metrics.
+- Project snapshot SQLite cache metrics now expose probe, SQL read,
+  deserialization, index rebuild, parse-avoided estimate, and usefulness
+  telemetry through project/session snapshot build metrics.
 - Function-result refactor planner API for converting Delphi legacy
   `FunctionName := Value` result-variable idioms to `Result`, with guards for
   calls, qualifiers, comments, strings, nested routines, and `with` bodies.

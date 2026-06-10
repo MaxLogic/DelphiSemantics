@@ -14,6 +14,7 @@ type
     ContextHash: string;
     IncludeGraphHash: string;
     SchemaVersion: string;
+    ParseAvoidedEstimateMilliseconds: Int64;
   end;
 
   TDelphiSemanticSnapshotCacheMetrics = record
@@ -21,6 +22,12 @@ type
     CacheMisses: Integer;
     Invalidations: Integer;
     PersistentConnectionOpenCount: Integer;
+    SnapshotCacheProbes: Integer;
+    SnapshotSqlReadMilliseconds: Int64;
+    SnapshotDeserializeMilliseconds: Int64;
+    SnapshotIndexRebuildMilliseconds: Int64;
+    SnapshotParseAvoidedEstimateMilliseconds: Int64;
+    SnapshotCacheUseful: Boolean;
   end;
 
   TDelphiSemanticSnapshotSqliteCache = class
@@ -44,12 +51,14 @@ type
       const aUnit: TUnitSnapshot);
     function LoadUnitHeader(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; out aUnit: TUnitSnapshot; out aStringCount,
-      aSymbolCount, aWithStatementCount, aReferenceCount: Integer): Boolean;
+      aSymbolCount, aWithStatementCount, aReferenceCount: Integer;
+      out aParseAvoidedEstimateMilliseconds: Int64): Boolean;
     procedure LoadWithStatements(const aCacheKey: string; const aConnection: TObject;
       const aUnit: TUnitSnapshot);
     function OpenConnection(out aConnection: TObject; out aDriverLink: TObject;
       out aError: string): Boolean;
     procedure RebuildSnapshotTables(const aConnection: TObject);
+    procedure ResetProbeMetrics;
     function SharedConnection(out aConnection: TObject; out aError: string): Boolean;
     procedure StoreReferences(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aUnit: TUnitSnapshot);
@@ -74,12 +83,12 @@ type
 implementation
 
 uses
-  System.DateUtils, System.SysUtils, System.Variants,
+  System.DateUtils, System.Diagnostics, System.SysUtils, System.Variants,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
   FireDAC.Stan.Def;
 
 const
-  cSnapshotCacheSchemaVersion = '2';
+  cSnapshotCacheSchemaVersion = '3';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
 
 function NewQuery(const aConnection: TFDConnection; const aSql: string): TFDQuery;
@@ -93,6 +102,13 @@ function SnapshotUtcTimestamp: string;
 begin
   Result := FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"',
     TTimeZone.Local.ToUniversalTime(Now));
+end;
+
+function VisibleElapsedMilliseconds(const aStopwatch: TStopwatch): Int64;
+begin
+  Result := aStopwatch.ElapsedMilliseconds;
+  if Result <= 0 then
+    Result := 1;
 end;
 
 procedure ValidateIdentityComplete(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
@@ -269,7 +285,7 @@ begin
       'stored_at_utc text not null, unit_id integer not null, file_name_id integer not null, ' +
       'unit_name_id integer not null, string_count integer not null, ' +
       'symbol_count integer not null, with_statement_count integer not null, ' +
-      'reference_count integer not null)');
+      'reference_count integer not null, parse_avoided_estimate_ms integer not null)');
     lConnection.ExecSQL('create index if not exists idx_snapshot_units_identity on ' +
       'snapshot_units(identity_key)');
     lConnection.ExecSQL('create table if not exists snapshot_strings (' +
@@ -311,12 +327,24 @@ var
   lConnectionObject: TObject;
   lConnection: TFDConnection;
   lError: string;
+  lQuery: TFDQuery;
+  lStopwatch: TStopwatch;
 begin
   if not SharedConnection(lConnectionObject, lError) then
     raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
   lConnection := TFDConnection(lConnectionObject);
-  Result := lConnection.ExecSQLScalar(
-    'select count(*) from snapshot_units where identity_key = ?', [aIdentityKey]) > 0;
+  lQuery := NewQuery(lConnection,
+    'select count(*) as row_count from snapshot_units where identity_key = ?');
+  try
+    lQuery.Params[0].AsString := aIdentityKey;
+    lStopwatch := TStopwatch.StartNew;
+    lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    Result := lQuery.FieldByName('row_count').AsInteger > 0;
+  finally
+    lQuery.Free;
+  end;
 end;
 
 function TDelphiSemanticSnapshotSqliteCache.IdentityMatches(
@@ -324,6 +352,7 @@ function TDelphiSemanticSnapshotSqliteCache.IdentityMatches(
   const aConnection: TObject): Boolean;
 var
   lQuery: TFDQuery;
+  lStopwatch: TStopwatch;
 begin
   Result := False;
   lQuery := NewQuery(TFDConnection(aConnection), 'select source_file_name, file_hash, ' +
@@ -332,7 +361,10 @@ begin
   try
     lQuery.Params[0].AsString := aIdentity.CacheKey;
     lQuery.Params[1].AsString := aIdentity.IdentityKey;
+    lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
     if lQuery.Eof then
       Exit;
 
@@ -353,6 +385,7 @@ var
   lQuery: TFDQuery;
   lReference: TSemanticReferenceFact;
   lReferenceId: TSemanticReferenceId;
+  lStopwatch: TStopwatch;
 begin
   lExpectedId := 1;
   lQuery := NewQuery(TFDConnection(aConnection), 'select reference_id, with_id, ' +
@@ -361,7 +394,11 @@ begin
     'where cache_key = ? order by reference_id');
   try
     lQuery.Params[0].AsString := aCacheKey;
+    lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    lStopwatch := TStopwatch.StartNew;
     while not lQuery.Eof do
     begin
       if TSemanticReferenceId(lQuery.FieldByName('reference_id').AsInteger) <> lExpectedId then
@@ -387,6 +424,7 @@ begin
       Inc(lExpectedId);
       lQuery.Next;
     end;
+    Inc(fMetrics.SnapshotDeserializeMilliseconds, lStopwatch.ElapsedMilliseconds);
   finally
     lQuery.Free;
   end;
@@ -398,13 +436,18 @@ var
   lExpectedId: TSemanticStringId;
   lQuery: TFDQuery;
   lStringId: TSemanticStringId;
+  lStopwatch: TStopwatch;
 begin
   lExpectedId := 1;
   lQuery := NewQuery(TFDConnection(aConnection), 'select string_id, text_value from ' +
     'snapshot_strings where cache_key = ? order by string_id');
   try
     lQuery.Params[0].AsString := aCacheKey;
+    lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    lStopwatch := TStopwatch.StartNew;
     while not lQuery.Eof do
     begin
       if TSemanticStringId(lQuery.FieldByName('string_id').AsInteger) <> lExpectedId then
@@ -416,6 +459,7 @@ begin
       Inc(lExpectedId);
       lQuery.Next;
     end;
+    Inc(fMetrics.SnapshotDeserializeMilliseconds, lStopwatch.ElapsedMilliseconds);
   finally
     lQuery.Free;
   end;
@@ -426,6 +470,7 @@ procedure TDelphiSemanticSnapshotSqliteCache.LoadSymbols(const aCacheKey: string
 var
   lExpectedId: TSemanticSymbolId;
   lQuery: TFDQuery;
+  lStopwatch: TStopwatch;
   lSymbol: TSemanticSymbolFact;
   lSymbolId: TSemanticSymbolId;
 begin
@@ -435,7 +480,11 @@ begin
     'snapshot_symbols where cache_key = ? order by symbol_id');
   try
     lQuery.Params[0].AsString := aCacheKey;
+    lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    lStopwatch := TStopwatch.StartNew;
     while not lQuery.Eof do
     begin
       if TSemanticSymbolId(lQuery.FieldByName('symbol_id').AsInteger) <> lExpectedId then
@@ -458,6 +507,7 @@ begin
       Inc(lExpectedId);
       lQuery.Next;
     end;
+    Inc(fMetrics.SnapshotDeserializeMilliseconds, lStopwatch.ElapsedMilliseconds);
   finally
     lQuery.Free;
   end;
@@ -466,22 +516,28 @@ end;
 function TDelphiSemanticSnapshotSqliteCache.LoadUnitHeader(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
   out aUnit: TUnitSnapshot; out aStringCount, aSymbolCount, aWithStatementCount,
-  aReferenceCount: Integer): Boolean;
+  aReferenceCount: Integer; out aParseAvoidedEstimateMilliseconds: Int64): Boolean;
 var
   lQuery: TFDQuery;
+  lStopwatch: TStopwatch;
 begin
   aUnit := nil;
   aStringCount := 0;
   aSymbolCount := 0;
   aWithStatementCount := 0;
   aReferenceCount := 0;
+  aParseAvoidedEstimateMilliseconds := 0;
   lQuery := NewQuery(TFDConnection(aConnection), 'select unit_id, file_name_id, unit_name_id, ' +
-    'string_count, symbol_count, with_statement_count, reference_count from snapshot_units ' +
-    'where cache_key = ? and identity_key = ?');
+    'string_count, symbol_count, with_statement_count, reference_count, ' +
+    'parse_avoided_estimate_ms from snapshot_units where cache_key = ? and identity_key = ?');
   try
     lQuery.Params[0].AsString := aIdentity.CacheKey;
     lQuery.Params[1].AsString := aIdentity.IdentityKey;
+    lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    lStopwatch := TStopwatch.StartNew;
     Result := not lQuery.Eof;
     if Result then
     begin
@@ -492,7 +548,10 @@ begin
       aSymbolCount := lQuery.FieldByName('symbol_count').AsInteger;
       aWithStatementCount := lQuery.FieldByName('with_statement_count').AsInteger;
       aReferenceCount := lQuery.FieldByName('reference_count').AsInteger;
+      aParseAvoidedEstimateMilliseconds := lQuery.FieldByName(
+        'parse_avoided_estimate_ms').AsLargeInt;
     end;
+    Inc(fMetrics.SnapshotDeserializeMilliseconds, lStopwatch.ElapsedMilliseconds);
   finally
     lQuery.Free;
   end;
@@ -503,6 +562,7 @@ procedure TDelphiSemanticSnapshotSqliteCache.LoadWithStatements(const aCacheKey:
 var
   lExpectedId: TSemanticWithId;
   lQuery: TFDQuery;
+  lStopwatch: TStopwatch;
   lWith: TSemanticWithStatementFact;
   lWithId: TSemanticWithId;
 begin
@@ -513,7 +573,11 @@ begin
     'order by with_id');
   try
     lQuery.Params[0].AsString := aCacheKey;
+    lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    lStopwatch := TStopwatch.StartNew;
     while not lQuery.Eof do
     begin
       if TSemanticWithId(lQuery.FieldByName('with_id').AsInteger) <> lExpectedId then
@@ -534,6 +598,7 @@ begin
       Inc(lExpectedId);
       lQuery.Next;
     end;
+    Inc(fMetrics.SnapshotDeserializeMilliseconds, lStopwatch.ElapsedMilliseconds);
   finally
     lQuery.Free;
   end;
@@ -586,6 +651,15 @@ begin
   lConnection.ExecSQL('drop table if exists snapshot_strings');
   lConnection.ExecSQL('drop table if exists snapshot_units');
   lConnection.ExecSQL('delete from meta where key_name = ?', [cSnapshotSchemaMetaKey]);
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.ResetProbeMetrics;
+begin
+  fMetrics.SnapshotSqlReadMilliseconds := 0;
+  fMetrics.SnapshotDeserializeMilliseconds := 0;
+  fMetrics.SnapshotIndexRebuildMilliseconds := 0;
+  fMetrics.SnapshotParseAvoidedEstimateMilliseconds := 0;
+  fMetrics.SnapshotCacheUseful := False;
 end;
 
 function TDelphiSemanticSnapshotSqliteCache.SharedConnection(out aConnection: TObject;
@@ -707,12 +781,13 @@ begin
   TFDConnection(aConnection).ExecSQL('insert into snapshot_units(cache_key, identity_key, ' +
     'source_file_name, file_hash, context_hash, include_graph_hash, schema_version, ' +
     'stored_at_utc, unit_id, file_name_id, unit_name_id, string_count, symbol_count, ' +
-    'with_statement_count, reference_count) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'with_statement_count, reference_count, parse_avoided_estimate_ms) ' +
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [aIdentity.CacheKey, aIdentity.IdentityKey, aIdentity.SourceFileName, aIdentity.FileHash,
     aIdentity.ContextHash, aIdentity.IncludeGraphHash, aIdentity.SchemaVersion,
     SnapshotUtcTimestamp, Integer(aUnit.UnitId), Integer(aUnit.FileNameId),
     Integer(aUnit.UnitNameId), aStringCount, aUnit.SymbolCount, aUnit.WithStatementCount,
-    aUnit.ReferenceCount]);
+    aUnit.ReferenceCount, aIdentity.ParseAvoidedEstimateMilliseconds]);
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreWithStatements(
@@ -744,6 +819,9 @@ var
   lBuilder: TDelphiProjectSnapshotBuilder;
   lConnectionObject: TObject;
   lError: string;
+  lIndexRebuildStopwatch: TStopwatch;
+  lLoadCostMilliseconds: Int64;
+  lParseAvoidedEstimateMilliseconds: Int64;
   lReferenceCount: Integer;
   lStringCount: Integer;
   lSymbolCount: Integer;
@@ -754,6 +832,8 @@ begin
   aSnapshot := nil;
   lUnit := nil;
   ValidateIdentityComplete(aIdentity, 'load');
+  ResetProbeMetrics;
+  Inc(fMetrics.SnapshotCacheProbes);
   if not SharedConnection(lConnectionObject, lError) then
     raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
 
@@ -773,7 +853,7 @@ begin
     try
       LoadStrings(aIdentity.CacheKey, lConnectionObject, lBuilder.Strings);
       if not LoadUnitHeader(aIdentity, lConnectionObject, lUnit, lStringCount, lSymbolCount,
-        lWithStatementCount, lReferenceCount) then
+        lWithStatementCount, lReferenceCount, lParseAvoidedEstimateMilliseconds) then
         raise Exception.Create('Snapshot unit header disappeared during load.');
       LoadSymbols(aIdentity.CacheKey, lConnectionObject, lUnit);
       LoadWithStatements(aIdentity.CacheKey, lConnectionObject, lUnit);
@@ -783,7 +863,17 @@ begin
       ValidateUnitStringIds(lBuilder.Strings, lUnit);
       lBuilder.AddUnit(lUnit);
       lUnit := nil;
+      lIndexRebuildStopwatch := TStopwatch.StartNew;
       aSnapshot := lBuilder.Build;
+      Inc(fMetrics.SnapshotIndexRebuildMilliseconds,
+        VisibleElapsedMilliseconds(lIndexRebuildStopwatch));
+      fMetrics.SnapshotParseAvoidedEstimateMilliseconds :=
+        lParseAvoidedEstimateMilliseconds;
+      lLoadCostMilliseconds := fMetrics.SnapshotSqlReadMilliseconds +
+        fMetrics.SnapshotDeserializeMilliseconds +
+        fMetrics.SnapshotIndexRebuildMilliseconds;
+      fMetrics.SnapshotCacheUseful := (lParseAvoidedEstimateMilliseconds > 0)
+        and (lParseAvoidedEstimateMilliseconds > lLoadCostMilliseconds);
       Inc(fMetrics.CacheHits);
       Result := True;
     except

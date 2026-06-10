@@ -31,6 +31,12 @@ type
     [Test]
     procedure MalformedLoadIdentityDoesNotDeleteStoredUnit;
     [Test]
+    procedure MetricsReportHitTimingAndUsefulness;
+    [Test]
+    procedure MetricsReportMissTelemetry;
+    [Test]
+    procedure MetricsRequirePositiveParseSavingsForUsefulCache;
+    [Test]
     procedure StoreRejectsAmbiguousIdentityValues;
     [Test]
     procedure SnapshotCacheSourceDoesNotUseJsonRepresentation;
@@ -74,6 +80,12 @@ begin
     Assert.AreEqual(0, lCache.Metrics.CacheHits);
     Assert.AreEqual(1, lCache.Metrics.CacheMisses);
     Assert.AreEqual(1, lCache.Metrics.Invalidations);
+    Assert.AreEqual(1, lCache.Metrics.SnapshotCacheProbes);
+    Assert.IsTrue(lCache.Metrics.SnapshotSqlReadMilliseconds >= 2);
+    Assert.IsTrue(lCache.Metrics.SnapshotDeserializeMilliseconds >= 0);
+    Assert.IsTrue(lCache.Metrics.SnapshotIndexRebuildMilliseconds >= 0);
+    Assert.AreEqual(Int64(0), lCache.Metrics.SnapshotParseAvoidedEstimateMilliseconds);
+    Assert.IsFalse(lCache.Metrics.SnapshotCacheUseful);
   finally
     lCache.Free;
   end;
@@ -88,6 +100,7 @@ begin
   Result.ContextHash := aContextHash;
   Result.IncludeGraphHash := aIncludeGraphHash;
   Result.SchemaVersion := aSchemaVersion;
+  Result.ParseAvoidedEstimateMilliseconds := 60000;
   Result.CacheKey := aName + '|' + aFileHash + '|' + aContextHash + '|' + aIncludeGraphHash +
     '|' + aSchemaVersion;
 end;
@@ -336,6 +349,106 @@ begin
     end;
     Assert.AreEqual(1, lCache.Metrics.CacheHits);
     Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.MetricsReportHitTimingAndUsefulness;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheFileName: string;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lCacheFileName := TempPath('snapshot-hit-metrics.sqlite3');
+  if TFile.Exists(lCacheFileName) then
+    TFile.Delete(lCacheFileName);
+  lIdentity := CreateIdentity('SnapshotHitMetricsUnit', 'file-a', 'context-a', 'include-a',
+    'snapshot-v1');
+  StoreDemoUnit(lCacheFileName, lIdentity);
+
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+  try
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lSnapshot));
+    try
+      Assert.AreEqual(1, lSnapshot.UnitCount);
+    finally
+      lSnapshot.Free;
+    end;
+
+    Assert.AreEqual(1, lCache.Metrics.SnapshotCacheProbes);
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(0, lCache.Metrics.Invalidations);
+    Assert.IsTrue(lCache.Metrics.SnapshotSqlReadMilliseconds > 0);
+    Assert.IsTrue(lCache.Metrics.SnapshotDeserializeMilliseconds >= 0);
+    Assert.IsTrue(lCache.Metrics.SnapshotIndexRebuildMilliseconds >= 0);
+    Assert.AreEqual(Int64(60000), lCache.Metrics.SnapshotParseAvoidedEstimateMilliseconds);
+    Assert.IsTrue(lCache.Metrics.SnapshotCacheUseful);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.MetricsReportMissTelemetry;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheFileName: string;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lCacheFileName := TempPath('snapshot-miss-metrics.sqlite3');
+  if TFile.Exists(lCacheFileName) then
+    TFile.Delete(lCacheFileName);
+  lIdentity := CreateIdentity('SnapshotMissMetricsUnit', 'file-a', 'context-a', 'include-a',
+    'snapshot-v1');
+
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+  try
+    lSnapshot := nil;
+    Assert.IsFalse(lCache.TryLoadUnit(lIdentity, lSnapshot));
+    Assert.IsNull(lSnapshot);
+
+    Assert.AreEqual(1, lCache.Metrics.SnapshotCacheProbes);
+    Assert.AreEqual(0, lCache.Metrics.CacheHits);
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(0, lCache.Metrics.Invalidations);
+    Assert.IsTrue(lCache.Metrics.SnapshotSqlReadMilliseconds > 0);
+    Assert.IsTrue(lCache.Metrics.SnapshotDeserializeMilliseconds >= 0);
+    Assert.IsTrue(lCache.Metrics.SnapshotIndexRebuildMilliseconds >= 0);
+    Assert.AreEqual(Int64(0), lCache.Metrics.SnapshotParseAvoidedEstimateMilliseconds);
+    Assert.IsFalse(lCache.Metrics.SnapshotCacheUseful);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.MetricsRequirePositiveParseSavingsForUsefulCache;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheFileName: string;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lCacheFileName := TempPath('snapshot-usefulness-zero-estimate.sqlite3');
+  if TFile.Exists(lCacheFileName) then
+    TFile.Delete(lCacheFileName);
+  lIdentity := CreateIdentity('SnapshotZeroEstimateUnit', 'file-a', 'context-a', 'include-a',
+    'snapshot-v1');
+  lIdentity.ParseAvoidedEstimateMilliseconds := 0;
+  StoreDemoUnit(lCacheFileName, lIdentity);
+
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+  try
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lSnapshot));
+    try
+      Assert.AreEqual(1, lSnapshot.UnitCount);
+    finally
+      lSnapshot.Free;
+    end;
+    Assert.AreEqual(Int64(0), lCache.Metrics.SnapshotParseAvoidedEstimateMilliseconds);
+    Assert.IsFalse(lCache.Metrics.SnapshotCacheUseful);
   finally
     lCache.Free;
   end;
