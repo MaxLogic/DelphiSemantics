@@ -66,6 +66,7 @@
     </DelphiCompile>
     <DCCReference Include="src\test.api.pas"/>
     <DCCReference Include="src\test.cache.pas"/>
+    <DCCReference Include="src\test.cachesqlite.pas"/>
     <DCCReference Include="src\test.dependencygraph.pas"/>
     <DCCReference Include="src\test.deadcode.pas"/>
     <DCCReference Include="src\test.externalsymbols.pas"/>

@@ -9,6 +9,7 @@ uses
   DUnitX.TestFramework,
   Test.Api in 'src\test.api.pas',
   Test.Cache in 'src\test.cache.pas',
+  Test.CacheSqlite in 'src\test.cachesqlite.pas',
   Test.DependencyGraph in 'src\test.dependencygraph.pas',
   Test.DeadCode in 'src\test.deadcode.pas',
   Test.ExternalSymbols in 'src\test.externalsymbols.pas',

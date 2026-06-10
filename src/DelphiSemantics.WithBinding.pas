@@ -112,6 +112,13 @@ type
     ReferenceCacheHitCount: Int64;
     ReferenceCacheMissCount: Int64;
     LookupIndexBuildMilliseconds: Int64;
+    SemanticCacheHits: Int64;
+    SemanticCacheMisses: Int64;
+    SemanticCacheInvalidations: Int64;
+    SemanticCachePersistentConnectionOpenCount: Int64;
+    ProjectFactsCacheHits: Int64;
+    ProjectFactsCacheMisses: Int64;
+    ProjectFactsCacheInvalidations: Int64;
   end;
 
   TDelphiSemanticRemoveWithLookupMetrics = record
