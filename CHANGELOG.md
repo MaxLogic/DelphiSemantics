@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Snapshot primitive API with a case-aware string pool and `UInt64` member-key
+  helper for the new typed project snapshot architecture.
 - Function-result refactor planner API for converting Delphi legacy
   `FunctionName := Value` result-variable idioms to `Result`, with guards for
   calls, qualifiers, comments, strings, nested routines, and `with` bodies.
