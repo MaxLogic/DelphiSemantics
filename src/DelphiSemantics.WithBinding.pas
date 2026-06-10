@@ -3840,11 +3840,15 @@ var
   lMembersByOwner: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
   lOwnerKey: string;
   lPair: TPair<string, TList<TDelphiSemanticInventorySymbol>>;
+  lProjectedContextKey: string;
+  lProjectedContextKeys: TDictionary<string, Byte>;
   lSymbol: TDelphiSemanticInventorySymbol;
   lSymbolCount: Integer;
 begin
   lSymbolCount := aSymbols.Count;
   lMembersByOwner := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lProjectedContextKeys := TDictionary<string, Byte>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   try
     for i := 0 to lSymbolCount - 1 do
@@ -3853,7 +3857,8 @@ begin
       if (lMember.OwnerType = '') or (lMember.RoutineName <> '') or
         (not InventoryIsDirectMemberKind(lMember.SymbolClass)) then
         Continue;
-      lOwnerKey := lMember.OwnerType;
+      lOwnerKey := lMember.UnitName + #31 + lMember.FileName + #31 +
+        lMember.OwnerType;
       if not lMembersByOwner.TryGetValue(lOwnerKey, lMembers) then
       begin
         lMembers := TList<TDelphiSemanticInventorySymbol>.Create;
@@ -3868,7 +3873,13 @@ begin
       if (not SameText(lCurrentMember.SymbolClass, 'current-class-member')) or
         (lCurrentMember.OwnerType = '') or (lCurrentMember.RoutineName = '') then
         Continue;
-      if not lMembersByOwner.TryGetValue(lCurrentMember.OwnerType, lMembers) then
+      lOwnerKey := lCurrentMember.UnitName + #31 + lCurrentMember.FileName +
+        #31 + lCurrentMember.OwnerType;
+      lProjectedContextKey := lOwnerKey + #31 + lCurrentMember.RoutineName;
+      if lProjectedContextKeys.ContainsKey(lProjectedContextKey) then
+        Continue;
+      lProjectedContextKeys.Add(lProjectedContextKey, 1);
+      if not lMembersByOwner.TryGetValue(lOwnerKey, lMembers) then
         Continue;
 
       for lMember in lMembers do
@@ -3883,6 +3894,7 @@ begin
   finally
     for lPair in lMembersByOwner do
       lPair.Value.Free;
+    lProjectedContextKeys.Free;
     lMembersByOwner.Free;
   end;
 end;

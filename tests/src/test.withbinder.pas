@@ -73,6 +73,10 @@ type
     [Test]
     procedure InventoryExpansionUsesStableRelatedMemberOwnerIndex;
     [Test]
+    procedure InventoryExpansionIndexesCurrentClassProjectionContexts;
+    [Test]
+    procedure InventoryExpansionScopesCurrentClassProjectionByUnit;
+    [Test]
     procedure ReferenceScannerPreservesRepresentativeTokenShapes;
     [Test]
     procedure ReferenceBindingUsesManualIdentifierScanner;
@@ -909,6 +913,130 @@ begin
     'Inventory expansion must index inherited/helper owner relations once for propagation.');
   Assert.IsFalse(ContainsText(lExpansionText, 'repeat'),
     'Inventory expansion must not rebuild related-member indexes in a repeat loop.');
+end;
+
+procedure TWithBinderTests.InventoryExpansionIndexesCurrentClassProjectionContexts;
+var
+  lExpansionEnd: Integer;
+  lExpansionStart: Integer;
+  lExpansionText: string;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lExpansionStart := Pos('procedure AddRelatedInventoryCurrentClassSymbols', lSourceText);
+  lExpansionEnd := Pos('procedure AddExpandedExternalTypeSymbol', lSourceText);
+  Assert.IsTrue((lExpansionStart > 0) and (lExpansionEnd > lExpansionStart),
+    'Expected current-class expansion source section.');
+
+  lExpansionText := Copy(lSourceText, lExpansionStart, lExpansionEnd - lExpansionStart);
+  Assert.IsTrue(ContainsText(lExpansionText, 'lProjectedContextKeys'),
+    'Current-class expansion must project each owner/routine context once.');
+  Assert.IsTrue(ContainsText(lExpansionText,
+    'lOwnerKey := lCurrentMember.UnitName + #31 + lCurrentMember.FileName'),
+    'Current-class owner keys must include unit and file identity.');
+  Assert.IsTrue(ContainsText(lExpansionText,
+    'lProjectedContextKey := lOwnerKey + #31 + lCurrentMember.RoutineName'),
+    'Current-class projection keys must include owner key plus routine identity.');
+end;
+
+procedure TWithBinderTests.InventoryExpansionScopesCurrentClassProjectionByUnit;
+var
+  lExpandedSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+
+  function CountCurrentClassSymbol(const aName, aRoutineName,
+    aUnitName: string): Integer;
+  var
+    lSymbol: TDelphiSemanticInventorySymbol;
+  begin
+    Result := 0;
+    for lSymbol in lExpandedSymbols do
+      if SameText(lSymbol.Name, aName) and
+        SameText(lSymbol.SymbolClass, 'current-class-member') and
+        SameText(lSymbol.RoutineName, aRoutineName) and
+        SameText(lSymbol.UnitName, aUnitName) then
+        Inc(Result);
+  end;
+begin
+  SetLength(lSymbols, 8);
+
+  lSymbols[0] := Default(TDelphiSemanticInventorySymbol);
+  lSymbols[0].Name := 'UnitAOnly';
+  lSymbols[0].SymbolClass := 'field';
+  lSymbols[0].OwnerType := 'TDuplicate';
+  lSymbols[0].UnitName := 'DuplicateA';
+  lSymbols[0].FileName := 'DuplicateA.pas';
+
+  lSymbols[1] := Default(TDelphiSemanticInventorySymbol);
+  lSymbols[1].Name := 'UnitBOnly';
+  lSymbols[1].SymbolClass := 'field';
+  lSymbols[1].OwnerType := 'TDuplicate';
+  lSymbols[1].UnitName := 'DuplicateB';
+  lSymbols[1].FileName := 'DuplicateB.pas';
+
+  lSymbols[2] := Default(TDelphiSemanticInventorySymbol);
+  lSymbols[2].Name := 'ExistingA';
+  lSymbols[2].SymbolClass := 'current-class-member';
+  lSymbols[2].OwnerType := 'TDuplicate';
+  lSymbols[2].RoutineName := 'RunA';
+  lSymbols[2].UnitName := 'DuplicateA';
+  lSymbols[2].FileName := 'DuplicateA.pas';
+
+  lSymbols[3] := Default(TDelphiSemanticInventorySymbol);
+  lSymbols[3].Name := 'ExistingB';
+  lSymbols[3].SymbolClass := 'current-class-member';
+  lSymbols[3].OwnerType := 'TDuplicate';
+  lSymbols[3].RoutineName := 'RunB';
+  lSymbols[3].UnitName := 'DuplicateB';
+  lSymbols[3].FileName := 'DuplicateB.pas';
+
+  lSymbols[4] := Default(TDelphiSemanticInventorySymbol);
+  lSymbols[4].Name := 'UnitCOnly';
+  lSymbols[4].SymbolClass := 'field';
+  lSymbols[4].OwnerType := 'TDuplicate';
+  lSymbols[4].UnitName := 'DuplicateC';
+  lSymbols[4].FileName := 'DuplicateC.pas';
+
+  lSymbols[5] := Default(TDelphiSemanticInventorySymbol);
+  lSymbols[5].Name := 'UnitDOnly';
+  lSymbols[5].SymbolClass := 'field';
+  lSymbols[5].OwnerType := 'TDuplicate';
+  lSymbols[5].UnitName := 'DuplicateD';
+  lSymbols[5].FileName := 'DuplicateD.pas';
+
+  lSymbols[6] := Default(TDelphiSemanticInventorySymbol);
+  lSymbols[6].Name := 'ExistingC';
+  lSymbols[6].SymbolClass := 'current-class-member';
+  lSymbols[6].OwnerType := 'TDuplicate';
+  lSymbols[6].RoutineName := 'RunShared';
+  lSymbols[6].UnitName := 'DuplicateC';
+  lSymbols[6].FileName := 'DuplicateC.pas';
+
+  lSymbols[7] := Default(TDelphiSemanticInventorySymbol);
+  lSymbols[7].Name := 'ExistingD';
+  lSymbols[7].SymbolClass := 'current-class-member';
+  lSymbols[7].OwnerType := 'TDuplicate';
+  lSymbols[7].RoutineName := 'RunShared';
+  lSymbols[7].UnitName := 'DuplicateD';
+  lSymbols[7].FileName := 'DuplicateD.pas';
+
+  lExpandedSymbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lSymbols);
+
+  Assert.AreEqual(1, CountCurrentClassSymbol('UnitAOnly', 'RunA',
+    'DuplicateA'));
+  Assert.AreEqual(1, CountCurrentClassSymbol('UnitBOnly', 'RunB',
+    'DuplicateB'));
+  Assert.AreEqual(0, CountCurrentClassSymbol('UnitAOnly', 'RunB',
+    'DuplicateA'), 'Unit A members must not project into Unit B routines.');
+  Assert.AreEqual(0, CountCurrentClassSymbol('UnitBOnly', 'RunA',
+    'DuplicateB'), 'Unit B members must not project into Unit A routines.');
+  Assert.AreEqual(1, CountCurrentClassSymbol('UnitCOnly', 'RunShared',
+    'DuplicateC'));
+  Assert.AreEqual(1, CountCurrentClassSymbol('UnitDOnly', 'RunShared',
+    'DuplicateD'));
 end;
 
 procedure TWithBinderTests.ReferenceScannerPreservesRepresentativeTokenShapes;

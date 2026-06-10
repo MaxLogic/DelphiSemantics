@@ -54,6 +54,10 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with current-class inventory expansion now deduplicates owner/routine
+  projection contexts, and the semantic report contract benchmark now proves
+  maxTdb cold `remove-with-plan-all` at `9.712s` median with scan count `667`
+  and planned edit count `215`.
 - Remove-with semantic binding now reports routine scope-conflict facts on
   receiver-member references so DAK can avoid recomputing scope-shadow
   decisions; the maxTdb cold `remove-with-plan-all` proof preserved scan count
