@@ -7,6 +7,8 @@
   storage, `UInt64` member-key helper, immutable project snapshot builder, and
   cross-unit file/symbol/member/type/reference indexes for the new typed project
   snapshot architecture.
+- Project sessions can now build typed project snapshots from extracted unit
+  models and expose snapshot build counts/timing metrics.
 - Function-result refactor planner API for converting Delphi legacy
   `FunctionName := Value` result-variable idioms to `Result`, with guards for
   calls, qualifiers, comments, strings, nested routines, and `with` bodies.

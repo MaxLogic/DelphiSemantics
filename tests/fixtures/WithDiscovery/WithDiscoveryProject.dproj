@@ -1,0 +1,11 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{C840D7A4-18AF-4D90-A895-3D4F8E0D1EF4}</ProjectGuid>
+    <MainSource>WithDiscoveryProject.dpr</MainSource>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <Platform Condition="'$(Platform)'==''">Win32</Platform>
+  </PropertyGroup>
+  <ItemGroup>
+    <DCCReference Include="WithDiscoveryUnit.pas"/>
+  </ItemGroup>
+</Project>

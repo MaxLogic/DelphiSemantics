@@ -112,6 +112,8 @@ type
     function ReferenceById(const aId: TSemanticReferenceId): TSemanticReferenceFact;
     function ReferenceIdByWithIndex(const aIndex: Integer): TSemanticReferenceId;
     function SymbolById(const aId: TSemanticSymbolId): TSemanticSymbolFact;
+    function TryFindInnermostWithStatementAtLine(const aLine: Integer;
+      out aWithId: TSemanticWithId): Boolean;
     function TryReferencesForWith(const aWithId: TSemanticWithId; out aLowIndex,
       aHighIndex: Integer): Boolean;
     function TryWithStatementsAtLine(const aLine: Integer; out aLowIndex,
@@ -172,6 +174,8 @@ type
     function TryFindStringId(const aText: string; out aId: TSemanticStringId): Boolean;
     function TryFindUnitByFileName(const aFileName: string;
       out aUnitId: TSemanticUnitId): Boolean;
+    function TryFindUnitById(const aUnitId: TSemanticUnitId; out aUnit: TUnitSnapshot):
+      Boolean;
     function TryReferencesForSymbol(const aSymbolRef: TSemanticSymbolRef; out aLowIndex,
       aHighIndex: Integer): Boolean;
     function TrySymbolsByName(const aNameId: TSemanticStringId; out aLowIndex,
@@ -486,6 +490,52 @@ begin
   Result := fSymbols[Integer(aId) - 1];
 end;
 
+function TUnitSnapshot.TryFindInnermostWithStatementAtLine(const aLine: Integer;
+  out aWithId: TSemanticWithId): Boolean;
+var
+  i: Integer;
+  lBestRange: Integer;
+  lBestStartLine: Integer;
+  lCandidateRange: Integer;
+  lCandidateStartLine: Integer;
+  lCandidateEndLine: Integer;
+  lCandidateWithId: TSemanticWithId;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
+  lWith: TSemanticWithStatementFact;
+begin
+  Result := False;
+  aWithId := 0;
+  if not TryWithStatementsAtLine(aLine, lLowIndex, lHighIndex) then
+    Exit;
+
+  lBestRange := MaxInt;
+  lBestStartLine := 0;
+  for i := lLowIndex to lHighIndex do
+  begin
+    lCandidateWithId := WithIdBySourceLineIndex(i);
+    lWith := WithStatementById(lCandidateWithId);
+    lCandidateStartLine := lWith.BodyStartLine;
+    if lCandidateStartLine <= 0 then
+      lCandidateStartLine := lWith.SelectorStartLine;
+    lCandidateEndLine := lWith.BodyEndLine;
+    if lCandidateEndLine < lCandidateStartLine then
+      lCandidateEndLine := lCandidateStartLine;
+    lCandidateRange := lCandidateEndLine - lCandidateStartLine;
+
+    if (not Result) or (lCandidateRange < lBestRange) or
+      ((lCandidateRange = lBestRange) and (lCandidateStartLine > lBestStartLine)) or
+      ((lCandidateRange = lBestRange) and (lCandidateStartLine = lBestStartLine) and
+      (lCandidateWithId > aWithId)) then
+    begin
+      Result := True;
+      aWithId := lCandidateWithId;
+      lBestRange := lCandidateRange;
+      lBestStartLine := lCandidateStartLine;
+    end;
+  end;
+end;
+
 function TUnitSnapshot.TryReferencesForWith(const aWithId: TSemanticWithId; out aLowIndex,
   aHighIndex: Integer): Boolean;
 begin
@@ -742,6 +792,12 @@ function TDelphiProjectSnapshot.TryFindUnitByFileName(const aFileName: string;
   out aUnitId: TSemanticUnitId): Boolean;
 begin
   Result := fUnitByFileName.TryGetValue(aFileName, aUnitId);
+end;
+
+function TDelphiProjectSnapshot.TryFindUnitById(const aUnitId: TSemanticUnitId;
+  out aUnit: TUnitSnapshot): Boolean;
+begin
+  Result := fUnitsById.TryGetValue(aUnitId, aUnit);
 end;
 
 function TDelphiProjectSnapshot.TryReferencesForSymbol(const aSymbolRef: TSemanticSymbolRef;

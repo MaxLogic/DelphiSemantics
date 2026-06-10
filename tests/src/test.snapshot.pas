@@ -28,6 +28,8 @@ type
     [Test]
     procedure UnitSnapshotFindsWithCandidatesBySourceLine;
     [Test]
+    procedure UnitSnapshotChoosesInnermostWithCandidateForSourceLine;
+    [Test]
     procedure UnitSnapshotReturnsReferencesForWithWithoutReferenceScan;
     [Test]
     procedure UnitSnapshotStoresFactsAsRecords;
@@ -405,6 +407,32 @@ begin
     Assert.IsTrue(lFoundFirst, 'Expected the first with statement to be indexed for line 12.');
     Assert.IsTrue(lFoundSecond, 'Expected the second with statement to be indexed for line 12.');
     Assert.IsFalse(lSnapshot.TryWithStatementsAtLine(9, lLowIndex, lHighIndex));
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.UnitSnapshotChoosesInnermostWithCandidateForSourceLine;
+var
+  lSelectedWithId: TSemanticWithId;
+  lSnapshot: TUnitSnapshot;
+  lWith: TSemanticWithStatementFact;
+  lWithNarrow: TSemanticWithId;
+begin
+  lSnapshot := TUnitSnapshot.Create(7);
+  try
+    lWith := Default(TSemanticWithStatementFact);
+    lWith.BodyStartLine := 10;
+    lWith.BodyEndLine := 12;
+    lWithNarrow := lSnapshot.AddWithStatement(lWith);
+
+    lWith := Default(TSemanticWithStatementFact);
+    lWith.BodyStartLine := 12;
+    lWith.BodyEndLine := 15;
+    lSnapshot.AddWithStatement(lWith);
+
+    Assert.IsTrue(lSnapshot.TryFindInnermostWithStatementAtLine(12, lSelectedWithId));
+    Assert.AreEqual(Integer(lWithNarrow), Integer(lSelectedWithId));
   finally
     lSnapshot.Free;
   end;

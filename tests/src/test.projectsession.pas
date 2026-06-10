@@ -18,6 +18,10 @@ type
     [Test]
     procedure OpensProjectSessionThroughExistingProjectContext;
     [Test]
+    procedure ProjectSessionBuildsSnapshotFromExtractedModels;
+    [Test]
+    procedure ProjectSessionAssociatesNestedWithReferencesWithInnermostSnapshotFact;
+    [Test]
     procedure PersistentProjectFactsCacheReusesUnchangedWithBindingFacts;
     [Test]
     procedure InvalidProjectReturnsStructuredSessionDiagnostic;
@@ -29,8 +33,10 @@ uses
   System.IOUtils,
   System.SysUtils,
   DelphiSemantics.Api,
+  DelphiSemantics.Model,
   DelphiSemantics.ProjectContext,
-  DelphiSemantics.ProjectSession;
+  DelphiSemantics.ProjectSession,
+  DelphiSemantics.Snapshot;
 
 function TProjectSessionTests.FixturePath(const aRelativePath: string): string;
 begin
@@ -99,6 +105,128 @@ begin
     Assert.AreEqual('BasicProject', lResult.Session.Project.ProjectName);
     Assert.AreEqual('Debug', lResult.Session.Project.Configuration);
     Assert.AreEqual('Win32', lResult.Session.Project.Platform);
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionBuildsSnapshotFromExtractedModels;
+var
+  lExpectedReferenceCount: Integer;
+  lExpectedSymbolCount: Integer;
+  lExpectedWithStatementCount: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
+  lMemberNameId: TSemanticStringId;
+  lMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRoutine: TDelphiSemanticRoutine;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSymbolRef: TSemanticSymbolRef;
+  lTypeNameId: TSemanticStringId;
+  lUnitId: TSemanticUnitId;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+
+    lExpectedReferenceCount := 0;
+    lExpectedSymbolCount := 0;
+    lExpectedWithStatementCount := 0;
+    for lModel in lFacts.UnitModels do
+    begin
+      Inc(lExpectedReferenceCount, Length(lModel.References));
+      Inc(lExpectedSymbolCount, Length(lModel.Declarations) + Length(lModel.Members) +
+        Length(lModel.Routines) + Length(lModel.Locals));
+      Inc(lExpectedWithStatementCount, Length(lModel.WithStatements));
+      for lRoutine in lModel.Routines do
+        Inc(lExpectedSymbolCount, Length(lRoutine.Parameters));
+    end;
+
+    lSnapshot := lResult.Session.BuildSnapshot;
+    try
+      lMetrics := lResult.Session.LastSnapshotBuildMetrics;
+      Assert.AreEqual(Length(lFacts.UnitModels), lSnapshot.UnitCount);
+      Assert.AreEqual(lSnapshot.UnitCount, lMetrics.UnitCount);
+      Assert.AreEqual(lExpectedSymbolCount, lMetrics.SymbolCount);
+      Assert.AreEqual(lExpectedReferenceCount, lMetrics.ReferenceCount);
+      Assert.AreEqual(lExpectedWithStatementCount, lMetrics.WithStatementCount);
+      Assert.AreEqual(Length(lFacts.Bindings), lMetrics.WithStatementCount);
+      Assert.IsTrue(lMetrics.BuildMilliseconds >= 0);
+
+      Assert.IsTrue(lSnapshot.TryFindUnitByFileName(
+        FixturePath('ProjectWithBinding\ProjectWithBinding.dpr'), lUnitId));
+      Assert.AreEqual(1, Integer(lUnitId));
+
+      Assert.IsTrue(lSnapshot.TryFindStringId('TProjectWithRecord', lTypeNameId));
+      Assert.IsTrue(lSnapshot.TryTypesByName(lTypeNameId, lLowIndex, lHighIndex));
+      Assert.IsTrue(lSnapshot.TryFindStringId('Value', lMemberNameId));
+      Assert.IsTrue(lSnapshot.TryFindMember(lTypeNameId, lMemberNameId, lSymbolRef));
+      Assert.AreEqual(1, Integer(lSymbolRef.UnitId));
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionAssociatesNestedWithReferencesWithInnermostSnapshotFact;
+var
+  i: Integer;
+  lFoundInnerReference: Boolean;
+  lHighIndex: Integer;
+  lInnerWithId: TSemanticWithId;
+  lLowIndex: Integer;
+  lOptions: TDelphiSemanticOptions;
+  lReference: TSemanticReferenceFact;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+  lUnitId: TSemanticUnitId;
+  lWith: TSemanticWithStatementFact;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('WithDiscovery\WithDiscoveryProject.dproj');
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lSnapshot := lResult.Session.BuildSnapshot;
+    try
+      Assert.IsTrue(lSnapshot.TryFindUnitByFileName(
+        FixturePath('WithDiscovery\WithDiscoveryUnit.pas'), lUnitId));
+      Assert.IsTrue(lSnapshot.TryFindUnitById(lUnitId, lUnit));
+
+      lInnerWithId := 0;
+      for i := 1 to lUnit.WithStatementCount do
+      begin
+        lWith := lUnit.WithStatementById(TSemanticWithId(i));
+        if lWith.SelectorStartLine = 30 then
+          lInnerWithId := lWith.Id;
+      end;
+      Assert.IsTrue(lInnerWithId <> 0, 'Expected nested inner with statement at line 30.');
+      Assert.IsTrue(lUnit.TryReferencesForWith(lInnerWithId, lLowIndex, lHighIndex));
+
+      lFoundInnerReference := False;
+      for i := lLowIndex to lHighIndex do
+      begin
+        lReference := lUnit.ReferenceById(lUnit.ReferenceIdByWithIndex(i));
+        if (lReference.Line = 31) and SameText(lSnapshot.TextOf(lReference.NameId), 'Value') then
+          lFoundInnerReference := True;
+      end;
+      Assert.IsTrue(lFoundInnerReference,
+        'Expected the inner with statement to own its body reference.');
+    finally
+      lSnapshot.Free;
+    end;
   finally
     lResult.Session.Free;
   end;
