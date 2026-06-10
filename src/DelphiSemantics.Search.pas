@@ -46,7 +46,7 @@ implementation
 
 uses
   System.Generics.Collections, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Index;
+  DelphiSemantics.Index, DelphiSemantics.Snapshot;
 
 function MakeBlockedResult(const aDiagnostic: string): TDelphiSemanticSearchResult;
 begin
@@ -94,6 +94,99 @@ begin
   Result.Column := aSymbol.Column;
 end;
 
+function ContextProjectSnapshot(const aContext: TDelphiSemanticSymbolQueryContext):
+  TDelphiProjectSnapshot;
+begin
+  if aContext.ProjectSnapshot = nil then
+    Exit(nil);
+
+  Result := aContext.ProjectSnapshot.Snapshot;
+end;
+
+function SnapshotText(const aSnapshot: TDelphiProjectSnapshot;
+  const aId: TSemanticStringId): string;
+begin
+  if (aSnapshot = nil) or (aId = 0) then
+    Exit('');
+
+  Result := aSnapshot.TextOf(aId);
+end;
+
+function SnapshotSymbolId(const aSymbolRef: TSemanticSymbolRef): TDelphiSemanticSymbolId;
+begin
+  Result.Value := 'snapshot:' + IntToStr(Integer(aSymbolRef.UnitId)) + ':' +
+    IntToStr(Integer(aSymbolRef.SymbolId));
+end;
+
+function SnapshotUnitSymbolId(const aUnit: TUnitSnapshot): TDelphiSemanticSymbolId;
+begin
+  Result.Value := 'snapshot:' + IntToStr(Integer(aUnit.UnitId)) + ':unit';
+end;
+
+function SnapshotSymbolOwnerName(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbol: TSemanticSymbolFact; const aKind: string): string;
+begin
+  if aSymbol.OwnerTypeId <> 0 then
+    Exit(aSnapshot.TextOf(aSymbol.OwnerTypeId));
+  if (aSymbol.RoutineId <> 0) and MatchText(aKind, ['local', 'parameter', 'var']) then
+    Exit(aSnapshot.TextOf(aSymbol.RoutineId));
+
+  Result := '';
+end;
+
+function SnapshotSourceKindForUnit(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot): string;
+var
+  lSymbol: TSemanticSymbolFact;
+begin
+  Result := 'project-snapshot';
+  if aUnit.SymbolCount <= 0 then
+    Exit;
+
+  lSymbol := aUnit.SymbolById(TSemanticSymbolId(1));
+  if SnapshotText(aSnapshot, lSymbol.SourceKindId) <> '' then
+    Result := SnapshotText(aSnapshot, lSymbol.SourceKindId);
+end;
+
+function SnapshotUnitIndexedSymbol(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot): TDelphiSemanticIndexedSymbol;
+begin
+  Result := Default(TDelphiSemanticIndexedSymbol);
+  Result.Id := SnapshotUnitSymbolId(aUnit);
+  Result.Name := SnapshotText(aSnapshot, aUnit.UnitNameId);
+  Result.Kind := 'unit';
+  Result.UnitName := Result.Name;
+  Result.SectionKind := 'interface';
+  Result.SourceKind := SnapshotSourceKindForUnit(aSnapshot, aUnit);
+  Result.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
+  Result.Line := 1;
+  Result.Column := 1;
+end;
+
+function SnapshotIndexedSymbol(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aSymbolRef: TSemanticSymbolRef;
+  const aSymbol: TSemanticSymbolFact): TDelphiSemanticIndexedSymbol;
+var
+  lKind: string;
+begin
+  lKind := SnapshotPublicSymbolKind(SnapshotText(aSnapshot, aSymbol.KindId));
+  Result := Default(TDelphiSemanticIndexedSymbol);
+  Result.Id := SnapshotSymbolId(aSymbolRef);
+  Result.Name := SnapshotText(aSnapshot, aSymbol.NameId);
+  Result.Kind := lKind;
+  Result.OwnerName := SnapshotSymbolOwnerName(aSnapshot, aSymbol, lKind);
+  Result.UnitName := SnapshotText(aSnapshot, aUnit.UnitNameId);
+  Result.SectionKind := SnapshotText(aSnapshot, aSymbol.SectionKindId);
+  Result.SourceKind := SnapshotText(aSnapshot, aSymbol.SourceKindId);
+  if Result.SourceKind = '' then
+    Result.SourceKind := 'project-snapshot';
+  Result.Visibility := SnapshotText(aSnapshot, aSymbol.VisibilityId);
+  Result.Signature := SnapshotText(aSnapshot, aSymbol.SignatureId);
+  Result.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
+  Result.Line := aSymbol.Line;
+  Result.Column := aSymbol.Column;
+end;
+
 function TryResolveSymbolFilter(const aIndex: TDelphiSemanticProjectSymbolIndex;
   const aName: string; out aSymbolId: TDelphiSemanticSymbolId; out aDiagnostic: string):
   Boolean;
@@ -120,6 +213,127 @@ begin
   Result := False;
 end;
 
+function TryResolveSnapshotSymbolFilter(const aSnapshot: TDelphiProjectSnapshot;
+  const aName: string; out aSymbolId: TDelphiSemanticSymbolId; out aDiagnostic: string):
+  Boolean;
+var
+  i: Integer;
+  lMatchCount: Integer;
+  lSymbol: TSemanticSymbolFact;
+  lSymbolRef: TSemanticSymbolRef;
+  lUnit: TUnitSnapshot;
+  lUnitIndex: Integer;
+  lIndexedSymbol: TDelphiSemanticIndexedSymbol;
+begin
+  aSymbolId := Default(TDelphiSemanticSymbolId);
+  aDiagnostic := '';
+  lMatchCount := 0;
+  for lUnitIndex := 0 to aSnapshot.UnitCount - 1 do
+  begin
+    lUnit := aSnapshot.UnitByIndex(lUnitIndex);
+    lIndexedSymbol := SnapshotUnitIndexedSymbol(aSnapshot, lUnit);
+    if SameText(lIndexedSymbol.Name, aName) and SameText(lIndexedSymbol.SourceKind,
+      'project-source') then
+    begin
+      Inc(lMatchCount);
+      aSymbolId := lIndexedSymbol.Id;
+    end;
+
+    for i := 1 to lUnit.SymbolCount do
+    begin
+      lSymbol := lUnit.SymbolById(TSemanticSymbolId(i));
+      lSymbolRef.UnitId := lUnit.UnitId;
+      lSymbolRef.SymbolId := lSymbol.Id;
+      lIndexedSymbol := SnapshotIndexedSymbol(aSnapshot, lUnit, lSymbolRef, lSymbol);
+      if SameText(lIndexedSymbol.Name, aName) and SameText(lIndexedSymbol.SourceKind,
+        'project-source') then
+      begin
+        Inc(lMatchCount);
+        aSymbolId := lIndexedSymbol.Id;
+      end;
+    end;
+  end;
+
+  if lMatchCount = 1 then
+    Exit(True);
+  if lMatchCount = 0 then
+    aDiagnostic := 'resolved-symbol-not-found'
+  else
+    aDiagnostic := 'resolved-symbol-ambiguous';
+  Result := False;
+end;
+
+function SearchSnapshot(const aSnapshot: TDelphiProjectSnapshot;
+  const aQuery: TDelphiSemanticSearchQuery): TDelphiSemanticSearchResult;
+var
+  i: Integer;
+  lDiagnostic: string;
+  lLimit: Integer;
+  lMatchKind: string;
+  lMatches: TList<TDelphiSemanticSearchMatch>;
+  lResolvedSymbolId: TDelphiSemanticSymbolId;
+  lSymbol: TSemanticSymbolFact;
+  lSymbolRef: TSemanticSymbolRef;
+  lUnit: TUnitSnapshot;
+  lUnitIndex: Integer;
+  lIndexedSymbol: TDelphiSemanticIndexedSymbol;
+begin
+  lMatchKind := 'syntax-only';
+  lResolvedSymbolId := Default(TDelphiSemanticSymbolId);
+  if aQuery.ResolvedSymbolName <> '' then
+  begin
+    if not TryResolveSnapshotSymbolFilter(aSnapshot, aQuery.ResolvedSymbolName,
+      lResolvedSymbolId, lDiagnostic) then
+      Exit(MakeBlockedResult(lDiagnostic));
+    lMatchKind := 'semantic';
+  end;
+
+  lLimit := aQuery.Limit;
+  if lLimit <= 0 then
+    lLimit := 50;
+
+  lMatches := TList<TDelphiSemanticSearchMatch>.Create;
+  try
+    for lUnitIndex := 0 to aSnapshot.UnitCount - 1 do
+    begin
+      lUnit := aSnapshot.UnitByIndex(lUnitIndex);
+      lIndexedSymbol := SnapshotUnitIndexedSymbol(aSnapshot, lUnit);
+      if ((aQuery.ResolvedSymbolName = '') or
+        (lIndexedSymbol.Id.Value = lResolvedSymbolId.Value)) and
+        SymbolMatchesFilters(lIndexedSymbol, aQuery) then
+      begin
+        lMatches.Add(MakeMatch(lIndexedSymbol, lMatchKind));
+        if lMatches.Count >= lLimit then
+          Break;
+      end;
+
+      for i := 1 to lUnit.SymbolCount do
+      begin
+        lSymbol := lUnit.SymbolById(TSemanticSymbolId(i));
+        lSymbolRef.UnitId := lUnit.UnitId;
+        lSymbolRef.SymbolId := lSymbol.Id;
+        lIndexedSymbol := SnapshotIndexedSymbol(aSnapshot, lUnit, lSymbolRef, lSymbol);
+        if (aQuery.ResolvedSymbolName <> '') and
+          (lIndexedSymbol.Id.Value <> lResolvedSymbolId.Value) then
+          Continue;
+        if not SymbolMatchesFilters(lIndexedSymbol, aQuery) then
+          Continue;
+        lMatches.Add(MakeMatch(lIndexedSymbol, lMatchKind));
+        if lMatches.Count >= lLimit then
+          Break;
+      end;
+      if lMatches.Count >= lLimit then
+        Break;
+    end;
+
+    Result := Default(TDelphiSemanticSearchResult);
+    Result.Status := 'resolved';
+    Result.Matches := lMatches.ToArray;
+  finally
+    lMatches.Free;
+  end;
+end;
+
 class function TDelphiSemanticSearch.Search(const aContext: TDelphiSemanticSymbolQueryContext;
   const aQuery: TDelphiSemanticSearchQuery): TDelphiSemanticSearchResult;
 var
@@ -129,8 +343,13 @@ var
   lMatchKind: string;
   lMatches: TList<TDelphiSemanticSearchMatch>;
   lResolvedSymbolId: TDelphiSemanticSymbolId;
+  lSnapshot: TDelphiProjectSnapshot;
   lSymbol: TDelphiSemanticIndexedSymbol;
 begin
+  lSnapshot := ContextProjectSnapshot(aContext);
+  if lSnapshot <> nil then
+    Exit(SearchSnapshot(lSnapshot, aQuery));
+
   lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
   lMatchKind := 'syntax-only';
   lResolvedSymbolId := Default(TDelphiSemanticSymbolId);

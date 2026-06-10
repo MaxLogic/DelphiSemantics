@@ -89,13 +89,14 @@ implementation
 uses
   System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils,
   System.JSON, System.SysUtils,
-  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Snapshot.Cache.Sqlite,
+  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Index,
+  DelphiSemantics.Query, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Symbols,
   DelphiSemantics.Version,
   MaxLogic.StrUtils;
 
 const
   cProjectFactsCacheSchemaVersion = 'remove-with-project-facts-v1';
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v1';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v2';
   cSnapshotDeclarationKindAlias = 'alias';
   cSnapshotDeclarationKindTypeAlias = 'type-alias';
   cSnapshotSymbolFlagIsDefault = 1;
@@ -103,6 +104,7 @@ const
   cSnapshotSymbolKindLocal = 'local';
   cSnapshotSymbolKindParameter = 'parameter';
   cSnapshotSymbolKindRoutine = 'routine';
+  cSnapshotSourceKindProject = 'project-source';
   cSnapshotWithFlagHasScopedDeclaration = 1;
 
 function MainModelOptions(const aProject: TDelphiSemanticProjectInfo):
@@ -984,6 +986,136 @@ begin
   aUnit.TryFindInnermostWithStatementAtLine(aLine, Result);
 end;
 
+function SnapshotSymbolMatchKey(const aUnitName, aKind, aOwnerName, aName,
+  aSignature: string; const aLine, aColumn: Integer): string;
+begin
+  Result := aUnitName + #9 + aKind + #9 + aOwnerName + #9 + aName + #9 +
+    aSignature + #9 + IntToStr(aLine) + #9 + IntToStr(aColumn);
+end;
+
+function SnapshotReferenceMatchKey(const aUnitName, aRoutineName, aName: string;
+  const aLine, aColumn: Integer): string;
+begin
+  Result := aUnitName + #9 + aRoutineName + #9 + aName + #9 + IntToStr(aLine) +
+    #9 + IntToStr(aColumn);
+end;
+
+procedure AddSnapshotSymbolOrigin(
+  const aMap: TDictionary<string, TSemanticSymbolRef>;
+  const aUnitName, aKind, aOwnerName, aName, aSignature: string; const aLine,
+  aColumn: Integer; const aUnitId: TSemanticUnitId; var aNextSymbolId: TSemanticSymbolId);
+var
+  lRef: TSemanticSymbolRef;
+begin
+  Inc(aNextSymbolId);
+  if aName = '' then
+    Exit;
+
+  lRef.UnitId := aUnitId;
+  lRef.SymbolId := aNextSymbolId;
+  aMap.AddOrSetValue(SnapshotSymbolMatchKey(aUnitName, aKind, aOwnerName, aName,
+    aSignature, aLine, aColumn), lRef);
+end;
+
+function BuildSnapshotSymbolRefsByOrigin(
+  const aModels: TArray<TDelphiSemanticUnitModel>):
+  TDictionary<string, TSemanticSymbolRef>;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lLocal: TDelphiSemanticLocal;
+  lMember: TDelphiSemanticMember;
+  lParameter: TDelphiSemanticParameter;
+  lRoutine: TDelphiSemanticRoutine;
+  lSymbolId: TSemanticSymbolId;
+  lUnitId: TSemanticUnitId;
+  lUnitModel: TDelphiSemanticUnitModel;
+begin
+  Result := TDictionary<string, TSemanticSymbolRef>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  for lUnitId := 1 to TSemanticUnitId(Length(aModels)) do
+  begin
+    lUnitModel := aModels[Integer(lUnitId) - 1];
+    lSymbolId := 0;
+    for lDeclaration in lUnitModel.Declarations do
+      AddSnapshotSymbolOrigin(Result, lUnitModel.UnitName, lDeclaration.Kind, '',
+        lDeclaration.Name, '', lDeclaration.Line, lDeclaration.Column, lUnitId, lSymbolId);
+    for lMember in lUnitModel.Members do
+      AddSnapshotSymbolOrigin(Result, lUnitModel.UnitName, lMember.Kind, lMember.OwnerName,
+        lMember.Name, lMember.Signature, lMember.Line, lMember.Column, lUnitId, lSymbolId);
+    for lRoutine in lUnitModel.Routines do
+    begin
+      AddSnapshotSymbolOrigin(Result, lUnitModel.UnitName, cSnapshotSymbolKindRoutine,
+        lRoutine.OwnerName, lRoutine.Name, lRoutine.Signature, lRoutine.Line, lRoutine.Column,
+        lUnitId, lSymbolId);
+      for lParameter in lRoutine.Parameters do
+        AddSnapshotSymbolOrigin(Result, lUnitModel.UnitName, cSnapshotSymbolKindParameter,
+          SnapshotRoutineName(lRoutine), lParameter.Name, '', lParameter.Line, lParameter.Column,
+          lUnitId, lSymbolId);
+    end;
+    for lLocal in lUnitModel.Locals do
+      AddSnapshotSymbolOrigin(Result, lUnitModel.UnitName, lLocal.Kind, lLocal.RoutineName,
+        lLocal.Name, '', lLocal.Line, lLocal.Column, lUnitId, lSymbolId);
+  end;
+end;
+
+function BuildProjectSymbolIndexContext(
+  const aModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticSymbolQueryContext;
+var
+  i: Integer;
+begin
+  Result := Default(TDelphiSemanticSymbolQueryContext);
+  if Length(aModels) = 0 then
+    Exit;
+
+  Result.UnitModel := aModels[0];
+  SetLength(Result.IndexedUnitModels, Length(aModels) - 1);
+  SetLength(Result.IndexedUnitSourceKinds, Length(aModels) - 1);
+  for i := 1 to High(aModels) do
+  begin
+    Result.IndexedUnitModels[i - 1] := aModels[i];
+    Result.IndexedUnitSourceKinds[i - 1] := cSnapshotSourceKindProject;
+  end;
+end;
+
+function BuildSnapshotReferenceTargets(
+  const aModels: TArray<TDelphiSemanticUnitModel>):
+  TDictionary<string, TSemanticSymbolRef>;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lIndex: TDelphiSemanticProjectSymbolIndex;
+  lReference: TDelphiSemanticIndexedReference;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+  lSymbolRef: TSemanticSymbolRef;
+  lSymbolRefByLegacyId: TDictionary<string, TSemanticSymbolRef>;
+  lSymbolRefsByOrigin: TDictionary<string, TSemanticSymbolRef>;
+begin
+  Result := TDictionary<string, TSemanticSymbolRef>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lSymbolRefsByOrigin := BuildSnapshotSymbolRefsByOrigin(aModels);
+  lSymbolRefByLegacyId := TDictionary<string, TSemanticSymbolRef>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  try
+    lContext := BuildProjectSymbolIndexContext(aModels);
+    lIndex := TDelphiSemanticProjectSymbolIndexer.Build(lContext);
+
+    for lSymbol in lIndex.Symbols do
+      if lSymbolRefsByOrigin.TryGetValue(SnapshotSymbolMatchKey(lSymbol.UnitName,
+        lSymbol.Kind, lSymbol.OwnerName, lSymbol.Name, lSymbol.Signature, lSymbol.Line,
+        lSymbol.Column), lSymbolRef) then
+        lSymbolRefByLegacyId.AddOrSetValue(lSymbol.Id.Value, lSymbolRef);
+
+    for lReference in lIndex.References do
+      if SameText(lReference.Status, 'resolved') and
+        lSymbolRefByLegacyId.TryGetValue(lReference.SymbolId.Value, lSymbolRef) then
+        Result.AddOrSetValue(SnapshotReferenceMatchKey(lReference.UnitName,
+          lReference.RoutineName, lReference.Name, lReference.Line, lReference.Column),
+          lSymbolRef);
+  finally
+    lSymbolRefByLegacyId.Free;
+    lSymbolRefsByOrigin.Free;
+  end;
+end;
+
 procedure AddSnapshotWithStatement(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aModel: TDelphiSemanticUnitModel;
   const aWith: TDelphiSemanticWithStatement;
@@ -1015,6 +1147,8 @@ begin
   lSymbol.NameId := aStrings.Intern(aDeclaration.Name);
   lSymbol.TypeId := aStrings.Intern(aDeclaration.TypeName);
   lSymbol.KindId := aStrings.Intern(SnapshotDeclarationKind(aDeclaration.Kind));
+  lSymbol.SectionKindId := aStrings.Intern(aDeclaration.SectionKind);
+  lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
   lSymbol.Line := aDeclaration.Line;
   lSymbol.Column := aDeclaration.Column;
   lSymbol.EndLine := aDeclaration.Line;
@@ -1034,6 +1168,9 @@ begin
   lSymbol.OwnerTypeId := aStrings.Intern(aMember.OwnerName);
   lSymbol.TypeId := aStrings.Intern(aMember.TypeName);
   lSymbol.KindId := aStrings.Intern(aMember.Kind);
+  lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
+  lSymbol.VisibilityId := aStrings.Intern(aMember.Visibility);
+  lSymbol.SignatureId := aStrings.Intern(aMember.Signature);
   lSymbol.Line := aMember.Line;
   lSymbol.Column := aMember.Column;
   lSymbol.EndLine := aMember.Line;
@@ -1058,6 +1195,7 @@ begin
   lSymbol.TypeId := aStrings.Intern(aParameter.TypeName);
   lSymbol.RoutineId := aStrings.Intern(aRoutineName);
   lSymbol.KindId := aStrings.Intern(cSnapshotSymbolKindParameter);
+  lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
   lSymbol.Line := aParameter.Line;
   lSymbol.Column := aParameter.Column;
   lSymbol.EndLine := aParameter.Line;
@@ -1081,6 +1219,9 @@ begin
   lSymbol.TypeId := aStrings.Intern(aRoutine.ReturnType);
   lSymbol.RoutineId := aStrings.Intern(lRoutineName);
   lSymbol.KindId := aStrings.Intern(cSnapshotSymbolKindRoutine);
+  lSymbol.SectionKindId := aStrings.Intern(aRoutine.SectionKind);
+  lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
+  lSymbol.SignatureId := aStrings.Intern(aRoutine.Signature);
   lSymbol.Line := aRoutine.Line;
   lSymbol.Column := aRoutine.Column;
   lSymbol.EndLine := aRoutine.Line;
@@ -1107,6 +1248,7 @@ begin
   lSymbol.TypeId := aStrings.Intern(aLocal.TypeName);
   lSymbol.RoutineId := aStrings.Intern(aLocal.RoutineName);
   lSymbol.KindId := aStrings.Intern(lKind);
+  lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
   lSymbol.Line := aLocal.Line;
   lSymbol.Column := aLocal.Column;
   lSymbol.EndLine := aLocal.Line;
@@ -1116,14 +1258,20 @@ begin
 end;
 
 procedure AddSnapshotReference(const aStrings: TSemanticStringPool;
-  const aUnit: TUnitSnapshot; const aReference: TDelphiSemanticReference;
+  const aUnit: TUnitSnapshot; const aUnitName: string;
+  const aReference: TDelphiSemanticReference;
+  const aReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
   var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics);
 var
   lReference: TSemanticReferenceFact;
+  lTarget: TSemanticSymbolRef;
 begin
   lReference := Default(TSemanticReferenceFact);
   lReference.WithId := SnapshotWithIdForLine(aUnit, aReference.Line);
   lReference.NameId := aStrings.Intern(aReference.Name);
+  lReference.RoutineId := aStrings.Intern(aReference.RoutineName);
+  lReference.SectionKindId := aStrings.Intern(aReference.SectionKind);
+  lReference.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
   lReference.ClassificationId := aStrings.Intern(aReference.Role);
   lReference.Line := aReference.Line;
   lReference.Column := aReference.Column;
@@ -1133,12 +1281,20 @@ begin
   lReference.EndColumn := aReference.EndColumn;
   if lReference.EndColumn <= 0 then
     lReference.EndColumn := SnapshotEndColumn(aReference.Column, aReference.Name);
+  if (aReferenceTargets <> nil) and aReferenceTargets.TryGetValue(
+    SnapshotReferenceMatchKey(aUnitName, aReference.RoutineName, aReference.Name,
+    aReference.Line, aReference.Column), lTarget) then
+  begin
+    lReference.TargetUnitId := lTarget.UnitId;
+    lReference.TargetSymbolId := lTarget.SymbolId;
+  end;
   aUnit.AddReference(lReference);
   Inc(aMetrics.ReferenceCount);
 end;
 
 function CreateSnapshotUnitModel(const aBuilder: TDelphiProjectSnapshotBuilder;
   const aModel: TDelphiSemanticUnitModel; const aUnitId: TSemanticUnitId;
+  const aReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
   var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TUnitSnapshot;
 var
   lDeclaration: TDelphiSemanticDeclaration;
@@ -1163,7 +1319,8 @@ begin
     for lLocal in aModel.Locals do
       AddSnapshotLocal(aBuilder.Strings, Result, lLocal, aMetrics);
     for lReference in aModel.References do
-      AddSnapshotReference(aBuilder.Strings, Result, lReference, aMetrics);
+      AddSnapshotReference(aBuilder.Strings, Result, aModel.UnitName, lReference,
+        aReferenceTargets, aMetrics);
 
   except
     Result.Free;
@@ -1173,11 +1330,12 @@ end;
 
 procedure AddSnapshotUnitModel(const aBuilder: TDelphiProjectSnapshotBuilder;
   const aModel: TDelphiSemanticUnitModel; const aUnitId: TSemanticUnitId;
+  const aReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
   var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics);
 var
   lUnit: TUnitSnapshot;
 begin
-  lUnit := CreateSnapshotUnitModel(aBuilder, aModel, aUnitId, aMetrics);
+  lUnit := CreateSnapshotUnitModel(aBuilder, aModel, aUnitId, aReferenceTargets, aMetrics);
   try
     aBuilder.AddUnit(lUnit);
     lUnit := nil;
@@ -1315,24 +1473,31 @@ end;
 
 function BuildSnapshotFromModels(const aModels: TArray<TDelphiSemanticUnitModel>;
   const aRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aResolveReferenceTargets: Boolean;
   var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot; overload;
 var
   i: Integer;
   lBuilder: TDelphiProjectSnapshotBuilder;
+  lReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
   lStopwatch: TStopwatch;
 begin
   aMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  lReferenceTargets := nil;
   lStopwatch := TStopwatch.StartNew;
   try
+    if aResolveReferenceTargets then
+      lReferenceTargets := BuildSnapshotReferenceTargets(aModels);
     for i := 0 to High(aModels) do
-      AddSnapshotUnitModel(lBuilder, aModels[i], TSemanticUnitId(i + 1), aMetrics);
+      AddSnapshotUnitModel(lBuilder, aModels[i], TSemanticUnitId(i + 1), lReferenceTargets,
+        aMetrics);
     lBuilder.SetRemoveWithPlanningFacts(CreateRemoveWithPlanningFacts(
       lBuilder.ExactStrings, aRemoveWithFacts));
     Result := lBuilder.Build;
   finally
     lStopwatch.Stop;
     aMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;
+    lReferenceTargets.Free;
     lBuilder.Free;
   end;
 end;
@@ -1343,7 +1508,7 @@ var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
 begin
   lFacts := Default(TDelphiSemanticProjectWithBindingFacts);
-  Result := BuildSnapshotFromModels(aModels, lFacts, aMetrics);
+  Result := BuildSnapshotFromModels(aModels, lFacts, True, aMetrics);
 end;
 
 procedure StoreSingleUnitSnapshotCacheEntry(const aCacheFileName: string;
@@ -1353,6 +1518,7 @@ var
   lBuilder: TDelphiProjectSnapshotBuilder;
   lCache: TDelphiSemanticSnapshotSqliteCache;
   lMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
   lUnit: TUnitSnapshot;
 begin
   if Trim(aCacheFileName) = '' then
@@ -1362,14 +1528,17 @@ begin
 
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
   lCache := nil;
+  lReferenceTargets := nil;
   lUnit := nil;
   lMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
   try
     lCache := TDelphiSemanticSnapshotSqliteCache.Create(aCacheFileName);
-    lUnit := CreateSnapshotUnitModel(lBuilder, aModel, 1, lMetrics);
+    lReferenceTargets := BuildSnapshotReferenceTargets([aModel]);
+    lUnit := CreateSnapshotUnitModel(lBuilder, aModel, 1, lReferenceTargets, lMetrics);
     lCache.StoreUnit(aIdentity, lBuilder.Strings, lUnit);
   finally
     lUnit.Free;
+    lReferenceTargets.Free;
     lCache.Free;
     lBuilder.Free;
   end;
@@ -1698,7 +1867,7 @@ begin
     lFacts.Metrics.SemanticCachePersistentConnectionOpenCount :=
       lCacheMetrics.PersistentConnectionOpenCount;
 
-    lSnapshot := BuildSnapshotFromModels(lModels, lFacts, fLastSnapshotBuildMetrics);
+    lSnapshot := BuildSnapshotFromModels(lModels, lFacts, False, fLastSnapshotBuildMetrics);
     try
       Result := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
     finally

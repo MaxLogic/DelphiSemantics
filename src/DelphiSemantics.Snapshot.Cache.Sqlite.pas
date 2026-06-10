@@ -88,7 +88,7 @@ uses
   FireDAC.Stan.Def;
 
 const
-  cSnapshotCacheSchemaVersion = '3';
+  cSnapshotCacheSchemaVersion = '4';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
 
 function NewQuery(const aConnection: TFDConnection; const aSql: string): TFDQuery;
@@ -164,6 +164,10 @@ begin
     ValidateStringId(aStrings, lSymbol.TypeId, 'symbol.type_id');
     ValidateStringId(aStrings, lSymbol.RoutineId, 'symbol.routine_id');
     ValidateStringId(aStrings, lSymbol.KindId, 'symbol.kind_id');
+    ValidateStringId(aStrings, lSymbol.SectionKindId, 'symbol.section_kind_id');
+    ValidateStringId(aStrings, lSymbol.SourceKindId, 'symbol.source_kind_id');
+    ValidateStringId(aStrings, lSymbol.VisibilityId, 'symbol.visibility_id');
+    ValidateStringId(aStrings, lSymbol.SignatureId, 'symbol.signature_id');
   end;
 
   for i := 1 to aUnit.WithStatementCount do
@@ -178,6 +182,9 @@ begin
     ValidateStringId(aStrings, lReference.NameId, 'reference.name_id');
     ValidateStringId(aStrings, lReference.ReceiverTypeId, 'reference.receiver_type_id');
     ValidateStringId(aStrings, lReference.TypeId, 'reference.type_id');
+    ValidateStringId(aStrings, lReference.RoutineId, 'reference.routine_id');
+    ValidateStringId(aStrings, lReference.SectionKindId, 'reference.section_kind_id');
+    ValidateStringId(aStrings, lReference.SourceKindId, 'reference.source_kind_id');
     ValidateStringId(aStrings, lReference.ClassificationId, 'reference.classification_id');
     ValidateStringId(aStrings, lReference.LookupSourceId, 'reference.lookup_source_id');
     ValidateStringId(aStrings, lReference.ReasonId, 'reference.reason_id');
@@ -295,6 +302,8 @@ begin
       'cache_key text not null, unit_id integer not null, symbol_id integer not null, ' +
       'name_id integer not null, owner_type_id integer not null, type_id integer not null, ' +
       'routine_id integer not null, kind_id integer not null, flags integer not null, ' +
+      'section_kind_id integer not null, source_kind_id integer not null, ' +
+      'visibility_id integer not null, signature_id integer not null, ' +
       'line integer not null, column integer not null, end_line integer not null, ' +
       'end_column integer not null, primary key(cache_key, unit_id, symbol_id))');
     lConnection.ExecSQL('create table if not exists snapshot_with_statements (' +
@@ -309,6 +318,8 @@ begin
       'with_id integer not null, target_unit_id integer not null, ' +
       'target_symbol_id integer not null, name_id integer not null, ' +
       'receiver_type_id integer not null, type_id integer not null, ' +
+      'routine_id integer not null, section_kind_id integer not null, ' +
+      'source_kind_id integer not null, ' +
       'classification_id integer not null, lookup_source_id integer not null, ' +
       'reason_id integer not null, line integer not null, column integer not null, ' +
       'end_line integer not null, end_column integer not null, ' +
@@ -390,8 +401,8 @@ begin
   lExpectedId := 1;
   lQuery := NewQuery(TFDConnection(aConnection), 'select reference_id, with_id, ' +
     'target_unit_id, target_symbol_id, name_id, receiver_type_id, type_id, classification_id, ' +
-    'lookup_source_id, reason_id, line, column, end_line, end_column from snapshot_references ' +
-    'where cache_key = ? order by reference_id');
+    'routine_id, section_kind_id, source_kind_id, lookup_source_id, reason_id, line, column, ' +
+    'end_line, end_column from snapshot_references where cache_key = ? order by reference_id');
   try
     lQuery.Params[0].AsString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
@@ -412,6 +423,9 @@ begin
       lReference.ReceiverTypeId := TSemanticStringId(lQuery.FieldByName('receiver_type_id').AsInteger);
       lReference.TypeId := TSemanticStringId(lQuery.FieldByName('type_id').AsInteger);
       lReference.ClassificationId := TSemanticStringId(lQuery.FieldByName('classification_id').AsInteger);
+      lReference.RoutineId := TSemanticStringId(lQuery.FieldByName('routine_id').AsInteger);
+      lReference.SectionKindId := TSemanticStringId(lQuery.FieldByName('section_kind_id').AsInteger);
+      lReference.SourceKindId := TSemanticStringId(lQuery.FieldByName('source_kind_id').AsInteger);
       lReference.LookupSourceId := TSemanticStringId(lQuery.FieldByName('lookup_source_id').AsInteger);
       lReference.ReasonId := TSemanticStringId(lQuery.FieldByName('reason_id').AsInteger);
       lReference.Line := lQuery.FieldByName('line').AsInteger;
@@ -476,8 +490,9 @@ var
 begin
   lExpectedId := 1;
   lQuery := NewQuery(TFDConnection(aConnection), 'select symbol_id, name_id, owner_type_id, ' +
-    'type_id, routine_id, kind_id, flags, line, column, end_line, end_column from ' +
-    'snapshot_symbols where cache_key = ? order by symbol_id');
+    'type_id, routine_id, kind_id, section_kind_id, source_kind_id, visibility_id, ' +
+    'signature_id, flags, line, column, end_line, end_column from snapshot_symbols ' +
+    'where cache_key = ? order by symbol_id');
   try
     lQuery.Params[0].AsString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
@@ -496,6 +511,10 @@ begin
       lSymbol.TypeId := TSemanticStringId(lQuery.FieldByName('type_id').AsInteger);
       lSymbol.RoutineId := TSemanticStringId(lQuery.FieldByName('routine_id').AsInteger);
       lSymbol.KindId := TSemanticStringId(lQuery.FieldByName('kind_id').AsInteger);
+      lSymbol.SectionKindId := TSemanticStringId(lQuery.FieldByName('section_kind_id').AsInteger);
+      lSymbol.SourceKindId := TSemanticStringId(lQuery.FieldByName('source_kind_id').AsInteger);
+      lSymbol.VisibilityId := TSemanticStringId(lQuery.FieldByName('visibility_id').AsInteger);
+      lSymbol.SignatureId := TSemanticStringId(lQuery.FieldByName('signature_id').AsInteger);
       lSymbol.Flags := Cardinal(lQuery.FieldByName('flags').AsInteger);
       lSymbol.Line := lQuery.FieldByName('line').AsInteger;
       lSymbol.Column := lQuery.FieldByName('column').AsInteger;
@@ -695,14 +714,17 @@ begin
     lReference := aUnit.ReferenceById(TSemanticReferenceId(i));
     lConnection.ExecSQL('insert into snapshot_references(cache_key, unit_id, reference_id, ' +
       'with_id, target_unit_id, target_symbol_id, name_id, receiver_type_id, type_id, ' +
-      'classification_id, lookup_source_id, reason_id, line, column, end_line, end_column) ' +
-      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'routine_id, section_kind_id, source_kind_id, classification_id, lookup_source_id, ' +
+      'reason_id, line, column, end_line, end_column) ' +
+      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [aIdentity.CacheKey, Integer(aUnit.UnitId), i, Integer(lReference.WithId),
       Integer(lReference.TargetUnitId), Integer(lReference.TargetSymbolId),
       Integer(lReference.NameId), Integer(lReference.ReceiverTypeId),
-      Integer(lReference.TypeId), Integer(lReference.ClassificationId),
-      Integer(lReference.LookupSourceId), Integer(lReference.ReasonId), lReference.Line,
-      lReference.Column, lReference.EndLine, lReference.EndColumn]);
+      Integer(lReference.TypeId), Integer(lReference.RoutineId),
+      Integer(lReference.SectionKindId), Integer(lReference.SourceKindId),
+      Integer(lReference.ClassificationId), Integer(lReference.LookupSourceId),
+      Integer(lReference.ReasonId), lReference.Line, lReference.Column, lReference.EndLine,
+      lReference.EndColumn]);
   end;
 end;
 
@@ -733,11 +755,14 @@ begin
     lSymbol := aUnit.SymbolById(TSemanticSymbolId(i));
     lConnection.ExecSQL('insert into snapshot_symbols(cache_key, unit_id, symbol_id, ' +
       'name_id, owner_type_id, type_id, routine_id, kind_id, flags, line, column, end_line, ' +
-      'end_column) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'end_column, section_kind_id, source_kind_id, visibility_id, signature_id) values ' +
+      '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [aIdentity.CacheKey, Integer(aUnit.UnitId), i, Integer(lSymbol.NameId),
       Integer(lSymbol.OwnerTypeId), Integer(lSymbol.TypeId), Integer(lSymbol.RoutineId),
       Integer(lSymbol.KindId), Integer(lSymbol.Flags), lSymbol.Line, lSymbol.Column,
-      lSymbol.EndLine, lSymbol.EndColumn]);
+      lSymbol.EndLine, lSymbol.EndColumn, Integer(lSymbol.SectionKindId),
+      Integer(lSymbol.SourceKindId), Integer(lSymbol.VisibilityId),
+      Integer(lSymbol.SignatureId)]);
   end;
 end;
 

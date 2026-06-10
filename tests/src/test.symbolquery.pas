@@ -10,6 +10,7 @@ uses
   DelphiSemantics.Index,
   DelphiSemantics.Model,
   DelphiSemantics.Query,
+  DelphiSemantics.Snapshot,
   DelphiSemantics.Symbols;
 
 type
@@ -37,6 +38,8 @@ type
     procedure CacheStatusExposesProfileKeyAndCacheFileName;
     [Test]
     procedure SearchMatchesSubstringsAndReturnsRanges;
+    [Test]
+    procedure SnapshotBackedQueriesUseProjectSnapshotIndexes;
     [Test]
     procedure TokenReferencesExposeMetadata;
     [Test]
@@ -214,6 +217,185 @@ begin
 
   Assert.IsTrue(lFoundProjectType);
   Assert.IsTrue(lFoundRtlType);
+end;
+
+procedure TSymbolQueryTests.SnapshotBackedQueriesUseProjectSnapshotIndexes;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lFileName: string;
+  lFileNameId: TSemanticStringId;
+  lAliasSymbol: TSemanticSymbolFact;
+  lKindId: TSemanticStringId;
+  lLocalSymbol: TSemanticSymbolFact;
+  lLocalSymbolId: TSemanticSymbolId;
+  lNameId: TSemanticStringId;
+  lIndex: TDelphiSemanticProjectSymbolIndex;
+  lProject: TDelphiProjectSnapshot;
+  lReference: TSemanticReferenceFact;
+  lReferences: TArray<TDelphiSemanticSymbolReferenceResult>;
+  lResult: TDelphiSemanticSymbolQueryResult;
+  lResults: TArray<TDelphiSemanticSymbolQueryResult>;
+  lRootPath: string;
+  lRoutineNameId: TSemanticStringId;
+  lScopes: TArray<TDelphiSemanticUnitModel>;
+  lSectionKindId: TSemanticStringId;
+  lSourceKindId: TSemanticStringId;
+  lSiblingUnit: TUnitSnapshot;
+  lSymbol: TSemanticSymbolFact;
+  lUnit: TUnitSnapshot;
+  lUnitNameId: TSemanticStringId;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  lProject := nil;
+  lRootPath := '';
+  try
+    lRootPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
+      'snapshot-query-temp'));
+    if TDirectory.Exists(lRootPath) then
+      TDirectory.Delete(lRootPath, True);
+    TDirectory.CreateDirectory(lRootPath);
+    lFileName := TPath.Combine(lRootPath, 'SnapshotQueryUnit.pas');
+    TFile.WriteAllText(lFileName, 'unit SnapshotQueryUnit;' + sLineBreak +
+      'interface' + sLineBreak + '  SnapshotOnlyValue: Integer;' + sLineBreak +
+      'implementation' + sLineBreak + 'procedure Touch;' + sLineBreak + 'var' +
+      sLineBreak + '  SnapshotOnlyValue: Integer;' + sLineBreak + 'begin' +
+      sLineBreak + '      SnapshotOnlyValue := 1;' + sLineBreak + 'end;' +
+      sLineBreak + 'end.', TEncoding.UTF8);
+
+    lFileNameId := lBuilder.Strings.Intern(lFileName);
+    lUnitNameId := lBuilder.Strings.Intern('SnapshotQueryUnit');
+    lNameId := lBuilder.Strings.Intern('SnapshotOnlyValue');
+    lKindId := lBuilder.Strings.Intern('var');
+    lRoutineNameId := lBuilder.Strings.Intern('Touch');
+    lSectionKindId := lBuilder.Strings.Intern('interface');
+    lSourceKindId := lBuilder.Strings.Intern('snapshot-source');
+
+    lUnit := TUnitSnapshot.Create(1, lFileNameId, lUnitNameId);
+    try
+      lSymbol := Default(TSemanticSymbolFact);
+      lSymbol.NameId := lNameId;
+      lSymbol.KindId := lKindId;
+      lSymbol.SectionKindId := lSectionKindId;
+      lSymbol.SourceKindId := lSourceKindId;
+      lSymbol.Line := 3;
+      lSymbol.Column := 3;
+      lSymbol.EndLine := 3;
+      lSymbol.EndColumn := 19;
+      lUnit.AddSymbol(lSymbol);
+
+      lAliasSymbol := Default(TSemanticSymbolFact);
+      lAliasSymbol.NameId := lBuilder.Strings.Intern('SnapshotAlias');
+      lAliasSymbol.KindId := lBuilder.Strings.Intern('alias');
+      lAliasSymbol.SectionKindId := lSectionKindId;
+      lAliasSymbol.SourceKindId := lSourceKindId;
+      lAliasSymbol.Line := 4;
+      lAliasSymbol.Column := 3;
+      lAliasSymbol.EndLine := 4;
+      lAliasSymbol.EndColumn := 15;
+      lUnit.AddSymbol(lAliasSymbol);
+
+      lLocalSymbol := Default(TSemanticSymbolFact);
+      lLocalSymbol.NameId := lNameId;
+      lLocalSymbol.KindId := lBuilder.Strings.Intern('local');
+      lLocalSymbol.RoutineId := lRoutineNameId;
+      lLocalSymbol.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lLocalSymbol.SourceKindId := lSourceKindId;
+      lLocalSymbol.Line := 7;
+      lLocalSymbol.Column := 3;
+      lLocalSymbol.EndLine := 7;
+      lLocalSymbol.EndColumn := 19;
+      lLocalSymbolId := lUnit.AddSymbol(lLocalSymbol);
+
+      lReference := Default(TSemanticReferenceFact);
+      lReference.NameId := lNameId;
+      lReference.TargetUnitId := lUnit.UnitId;
+      lReference.TargetSymbolId := lLocalSymbolId;
+      lReference.ClassificationId := lBuilder.Strings.Intern('read');
+      lReference.RoutineId := lRoutineNameId;
+      lReference.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lReference.SourceKindId := lSourceKindId;
+      lReference.Line := 9;
+      lReference.Column := 7;
+      lReference.EndLine := 9;
+      lReference.EndColumn := 23;
+      lUnit.AddReference(lReference);
+
+      lBuilder.AddUnit(lUnit);
+      lUnit := nil;
+    finally
+      lUnit.Free;
+    end;
+
+    lSiblingUnit := nil;
+    lSiblingUnit := TUnitSnapshot.Create(2,
+      lBuilder.Strings.Intern(TPath.Combine(lRootPath, 'SnapshotOtherUnit.pas')),
+      lBuilder.Strings.Intern('SnapshotOtherUnit'));
+    try
+      lBuilder.AddUnit(lSiblingUnit);
+      lSiblingUnit := nil;
+    finally
+      lSiblingUnit.Free;
+    end;
+    lProject := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+
+  try
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    lContext.ProjectSnapshot := BorrowProjectSnapshot(lProject);
+
+    lIndex := TDelphiSemanticApi.BuildProjectSymbolIndex(lContext);
+
+    Assert.AreEqual(0, lIndex.Metrics.BuildInvocationCount);
+    Assert.AreEqual(5, Integer(Length(lIndex.Symbols)));
+    Assert.AreEqual(1, Integer(Length(lIndex.References)));
+    lScopes := lIndex.FindVisibleUnitScopes('SnapshotQueryUnit', 'interface');
+    Assert.AreEqual(1, Integer(Length(lScopes)));
+    Assert.AreEqual('SnapshotQueryUnit', lScopes[0].UnitName);
+
+    lResult := TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext,
+      'SnapshotOnlyValue');
+
+    Assert.IsTrue(lResult.Found);
+    Assert.AreEqual('SnapshotOnlyValue', lResult.Name);
+    Assert.AreEqual('var', lResult.Kind);
+    Assert.AreEqual('SnapshotQueryUnit', lResult.UnitName);
+    Assert.AreEqual('interface', lResult.SectionKind);
+    Assert.AreEqual('snapshot-source', lResult.SourceKind);
+    Assert.AreEqual(lFileName, lResult.FileName);
+
+    lResult := TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext, 'SnapshotAlias');
+
+    Assert.IsTrue(lResult.Found);
+    Assert.AreEqual('type-alias', lResult.Kind);
+
+    lResult := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext, lFileName, 9,
+      10);
+
+    Assert.IsTrue(lResult.Found);
+    Assert.AreEqual('SnapshotOnlyValue', lResult.Name);
+    Assert.AreEqual(7, lResult.Line,
+      'Expected snapshot position lookup to follow the reference target, not a global name fallback.');
+
+    lResults := TDelphiSemanticSymbolQuery.SearchAllMatches(lContext, 'SnapshotOnly', 10);
+
+    Assert.AreEqual(1, Integer(Length(lResults)));
+    Assert.AreEqual('SnapshotOnlyValue', lResults[0].Name);
+
+    lReferences := TDelphiSemanticSymbolQuery.FindTokenReferences(lContext,
+      'SnapshotOnlyValue', 10);
+
+    Assert.AreEqual(1, Integer(Length(lReferences)));
+    Assert.AreEqual('SnapshotOnlyValue', lReferences[0].Name);
+    Assert.AreEqual('read', lReferences[0].Role);
+    Assert.AreEqual('snapshot-source', lReferences[0].SourceKind);
+  finally
+    lProject.Free;
+    if (lRootPath <> '') and TDirectory.Exists(lRootPath) then
+      TDirectory.Delete(lRootPath, True);
+  end;
 end;
 
 procedure TSymbolQueryTests.TokenReferencesExposeMetadata;

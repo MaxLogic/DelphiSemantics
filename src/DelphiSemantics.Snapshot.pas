@@ -31,6 +31,10 @@ type
     TypeId: TSemanticStringId;
     RoutineId: TSemanticStringId;
     KindId: TSemanticStringId;
+    SectionKindId: TSemanticStringId;
+    SourceKindId: TSemanticStringId;
+    VisibilityId: TSemanticStringId;
+    SignatureId: TSemanticStringId;
     Flags: Cardinal;
     Line: Integer;
     Column: Integer;
@@ -60,6 +64,9 @@ type
     NameId: TSemanticStringId;
     ReceiverTypeId: TSemanticStringId;
     TypeId: TSemanticStringId;
+    RoutineId: TSemanticStringId;
+    SectionKindId: TSemanticStringId;
+    SourceKindId: TSemanticStringId;
     ClassificationId: TSemanticStringId;
     LookupSourceId: TSemanticStringId;
     ReasonId: TSemanticStringId;
@@ -214,6 +221,11 @@ type
 
   TDelphiProjectSnapshot = class;
 
+  IDelphiProjectSnapshotRef = interface
+    ['{980333F0-4BEE-4689-904C-9E00C487326A}']
+    function Snapshot: TDelphiProjectSnapshot;
+  end;
+
   TDelphiProjectSnapshotBuilder = class
   private
     fExactStrings: TSemanticStringPool;
@@ -237,6 +249,7 @@ type
     fExactStrings: TSemanticStringPool;
     fMemberCandidatesByOwnerAndName: TSortedList<UInt64, TSemanticSymbolRef>;
     fMembersByOwnerAndName: TDictionary<UInt64, TSemanticSymbolRef>;
+    fReferencesByName: TSortedList<TSemanticStringId, TSemanticReferenceRef>;
     fReferencesBySymbol: TSortedList<UInt64, TSemanticReferenceRef>;
     fRemoveWithPlanningFacts: TSemanticRemoveWithPlanningFacts;
     fStrings: TSemanticStringPool;
@@ -258,9 +271,12 @@ type
     function ExactTextOf(const aId: TSemanticStringId): string;
     function HasRemoveWithPlanningFacts: Boolean;
     function MemberRefByOwnerAndNameIndex(const aIndex: Integer): TSemanticSymbolRef;
+    function ReferenceRefByNameIndex(const aIndex: Integer): TSemanticReferenceRef;
     function ReferenceRefBySymbolIndex(const aIndex: Integer): TSemanticReferenceRef;
     function RemoveWithPlanningFacts: TSemanticRemoveWithPlanningFacts;
+    function SymbolRefByNameIndex(const aIndex: Integer): TSemanticSymbolRef;
     function TextOf(const aId: TSemanticStringId): string;
+    function UnitByIndex(const aIndex: Integer): TUnitSnapshot;
     function TryFindMember(const aOwnerTypeId, aNameId: TSemanticStringId;
       out aSymbolRef: TSemanticSymbolRef): Boolean;
     function TryFindMembers(const aOwnerTypeId, aNameId: TSemanticStringId;
@@ -270,8 +286,12 @@ type
       out aUnitId: TSemanticUnitId): Boolean;
     function TryFindUnitById(const aUnitId: TSemanticUnitId; out aUnit: TUnitSnapshot):
       Boolean;
+    function TryReferencesByName(const aNameId: TSemanticStringId; out aLowIndex,
+      aHighIndex: Integer): Boolean;
     function TryReferencesForSymbol(const aSymbolRef: TSemanticSymbolRef; out aLowIndex,
       aHighIndex: Integer): Boolean;
+    function TryReferenceAt(const aFileName: string; const aLine, aColumn: Integer;
+      out aReferenceRef: TSemanticReferenceRef): Boolean;
     function TrySymbolsByName(const aNameId: TSemanticStringId; out aLowIndex,
       aHighIndex: Integer): Boolean;
     function TrySymbolAt(const aFileName: string; const aLine, aColumn: Integer;
@@ -290,11 +310,14 @@ const
   cSemanticRemoveWithBindingFlagHasScopedDeclaration = 1 shl 0;
 
 function MemberKey(const aOwnerTypeId, aNameId: Cardinal): UInt64; inline;
+function BorrowProjectSnapshot(const aSnapshot: TDelphiProjectSnapshot):
+  IDelphiProjectSnapshotRef;
+function SnapshotPublicSymbolKind(const aKind: string): string;
 
 implementation
 
 uses
-  System.SysUtils,
+  System.Generics.Defaults, System.SysUtils,
   MaxLogic.StrUtils;
 
 const
@@ -305,6 +328,15 @@ const
   cSemanticSymbolKindObject = 'object';
   cSemanticSymbolKindRecord = 'record';
   cSemanticSymbolKindType = 'type';
+
+type
+  TBorrowedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
+  private
+    fSnapshot: TDelphiProjectSnapshot;
+  public
+    constructor Create(const aSnapshot: TDelphiProjectSnapshot);
+    function Snapshot: TDelphiProjectSnapshot;
+  end;
 
 function MakeReferenceRef(const aUnitId: TSemanticUnitId;
   const aReferenceId: TSemanticReferenceId): TSemanticReferenceRef; inline;
@@ -325,9 +357,37 @@ begin
   Result := (UInt64(aOwnerTypeId) shl 32) or UInt64(aNameId);
 end;
 
+function SnapshotPublicSymbolKind(const aKind: string): string;
+begin
+  if SameText(aKind, cSemanticSymbolKindAlias) then
+    Exit('type-alias');
+
+  Result := aKind;
+end;
+
 function SymbolRefKey(const aUnitId: TSemanticUnitId; const aSymbolId: TSemanticSymbolId): UInt64; inline;
 begin
   Result := (UInt64(aUnitId) shl 32) or UInt64(aSymbolId);
+end;
+
+constructor TBorrowedProjectSnapshotRef.Create(const aSnapshot: TDelphiProjectSnapshot);
+begin
+  inherited Create;
+  fSnapshot := aSnapshot;
+end;
+
+function TBorrowedProjectSnapshotRef.Snapshot: TDelphiProjectSnapshot;
+begin
+  Result := fSnapshot;
+end;
+
+function BorrowProjectSnapshot(const aSnapshot: TDelphiProjectSnapshot):
+  IDelphiProjectSnapshotRef;
+begin
+  if aSnapshot = nil then
+    Exit(nil);
+
+  Result := TBorrowedProjectSnapshotRef.Create(aSnapshot);
 end;
 
 function SymbolRefKeyOf(const aSymbolRef: TSemanticSymbolRef): UInt64; inline;
@@ -778,6 +838,7 @@ begin
     fUnitByFileName := TDictionary<string, TSemanticUnitId>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
     fMembersByOwnerAndName := TDictionary<UInt64, TSemanticSymbolRef>.Create;
     fMemberCandidatesByOwnerAndName := TSortedList<UInt64, TSemanticSymbolRef>.Create;
+    fReferencesByName := TSortedList<TSemanticStringId, TSemanticReferenceRef>.Create;
     fReferencesBySymbol := TSortedList<UInt64, TSemanticReferenceRef>.Create;
     fSymbolsByFileAndLine := TSortedList<UInt64, TSemanticSymbolRef>.Create;
     fSymbolsByName := TSortedList<TSemanticStringId, TSemanticSymbolRef>.Create;
@@ -794,6 +855,7 @@ begin
     fSymbolsByName.Free;
     fSymbolsByFileAndLine.Free;
     fReferencesBySymbol.Free;
+    fReferencesByName.Free;
     fMemberCandidatesByOwnerAndName.Free;
     fMembersByOwnerAndName.Free;
     fUnitByFileName.Free;
@@ -808,6 +870,7 @@ begin
   fSymbolsByName.Free;
   fSymbolsByFileAndLine.Free;
   fReferencesBySymbol.Free;
+  fReferencesByName.Free;
   fMemberCandidatesByOwnerAndName.Free;
   fMembersByOwnerAndName.Free;
   fUnitByFileName.Free;
@@ -867,14 +930,15 @@ begin
       if (lUnit.FileNameId <> 0) and (lStartLine > 0) then
         for lLine := lStartLine to lEndLine do
         begin
-          fSymbolsByFileAndLine.add(lSymbolRef, SourceLineKey(lUnit.FileNameId, lLine));
+          fSymbolsByFileAndLine.Insert(fSymbolsByFileAndLine.Count, lSymbolRef,
+            SourceLineKey(lUnit.FileNameId, lLine));
         end;
 
       if lSymbol.NameId <> 0 then
       begin
-        fSymbolsByName.add(lSymbolRef, lSymbol.NameId);
+        fSymbolsByName.Insert(fSymbolsByName.Count, lSymbolRef, lSymbol.NameId);
         if SymbolKindIsType(aStrings, lSymbol.KindId) then
-          fTypesByName.add(lSymbolRef, lSymbol.NameId);
+          fTypesByName.Insert(fTypesByName.Count, lSymbolRef, lSymbol.NameId);
       end;
 
       if (lSymbol.OwnerTypeId <> 0) and (lSymbol.NameId <> 0) then
@@ -882,20 +946,32 @@ begin
         lMemberKey := MemberKey(lSymbol.OwnerTypeId, lSymbol.NameId);
         if not fMembersByOwnerAndName.ContainsKey(lMemberKey) then
           fMembersByOwnerAndName.Add(lMemberKey, lSymbolRef);
-        fMemberCandidatesByOwnerAndName.add(lSymbolRef, lMemberKey);
+        fMemberCandidatesByOwnerAndName.Insert(fMemberCandidatesByOwnerAndName.Count,
+          lSymbolRef, lMemberKey);
       end;
     end;
 
     for lReferenceIndex := 1 to lUnit.ReferenceCount do
     begin
       lReference := lUnit.ReferenceById(TSemanticReferenceId(lReferenceIndex));
+      if lReference.NameId <> 0 then
+        fReferencesByName.Insert(fReferencesByName.Count,
+          MakeReferenceRef(lUnit.UnitId, lReference.Id), lReference.NameId);
       if (lReference.TargetUnitId <> 0) and (lReference.TargetSymbolId <> 0) then
       begin
-        fReferencesBySymbol.add(MakeReferenceRef(lUnit.UnitId, lReference.Id),
+        fReferencesBySymbol.Insert(fReferencesBySymbol.Count,
+          MakeReferenceRef(lUnit.UnitId, lReference.Id),
           SymbolRefKey(lReference.TargetUnitId, lReference.TargetSymbolId));
       end;
     end;
   end;
+
+  fMemberCandidatesByOwnerAndName.sort;
+  fReferencesByName.sort;
+  fReferencesBySymbol.sort;
+  fSymbolsByFileAndLine.sort;
+  fSymbolsByName.sort;
+  fTypesByName.sort;
 end;
 
 procedure TDelphiProjectSnapshot.FreezeUnits(const aUnits: TObjectList<TUnitSnapshot>);
@@ -922,6 +998,12 @@ begin
   Result := fMemberCandidatesByOwnerAndName[aIndex];
 end;
 
+function TDelphiProjectSnapshot.ReferenceRefByNameIndex(
+  const aIndex: Integer): TSemanticReferenceRef;
+begin
+  Result := fReferencesByName[aIndex];
+end;
+
 function TDelphiProjectSnapshot.RemoveWithPlanningFacts: TSemanticRemoveWithPlanningFacts;
 begin
   Result := CopyRemoveWithPlanningFacts(fRemoveWithPlanningFacts);
@@ -933,9 +1015,19 @@ begin
   Result := fReferencesBySymbol[aIndex];
 end;
 
+function TDelphiProjectSnapshot.SymbolRefByNameIndex(const aIndex: Integer): TSemanticSymbolRef;
+begin
+  Result := fSymbolsByName[aIndex];
+end;
+
 function TDelphiProjectSnapshot.TextOf(const aId: TSemanticStringId): string;
 begin
   Result := fStrings.TextOf(aId);
+end;
+
+function TDelphiProjectSnapshot.UnitByIndex(const aIndex: Integer): TUnitSnapshot;
+begin
+  Result := fUnits[aIndex];
 end;
 
 function TDelphiProjectSnapshot.TryFindMember(const aOwnerTypeId,
@@ -969,10 +1061,62 @@ begin
   Result := fUnitsById.TryGetValue(aUnitId, aUnit);
 end;
 
+function TDelphiProjectSnapshot.TryReferencesByName(const aNameId: TSemanticStringId;
+  out aLowIndex, aHighIndex: Integer): Boolean;
+begin
+  Result := fReferencesByName.FindMinMaxIndex(aNameId, aLowIndex, aHighIndex);
+end;
+
 function TDelphiProjectSnapshot.TryReferencesForSymbol(const aSymbolRef: TSemanticSymbolRef;
   out aLowIndex, aHighIndex: Integer): Boolean;
 begin
   Result := fReferencesBySymbol.FindMinMaxIndex(SymbolRefKeyOf(aSymbolRef), aLowIndex, aHighIndex);
+end;
+
+function TDelphiProjectSnapshot.TryReferenceAt(const aFileName: string; const aLine,
+  aColumn: Integer; out aReferenceRef: TSemanticReferenceRef): Boolean;
+var
+  i: Integer;
+  lEndColumn: Integer;
+  lEndLine: Integer;
+  lReference: TSemanticReferenceFact;
+  lUnit: TUnitSnapshot;
+  lUnitId: TSemanticUnitId;
+begin
+  Result := False;
+  aReferenceRef := Default(TSemanticReferenceRef);
+  if (aLine <= 0) or (aColumn <= 0) then
+    Exit;
+  if not TryFindUnitByFileName(aFileName, lUnitId) then
+    Exit;
+  if not fUnitsById.TryGetValue(lUnitId, lUnit) then
+    Exit;
+
+  for i := 1 to lUnit.ReferenceCount do
+  begin
+    lReference := lUnit.ReferenceById(TSemanticReferenceId(i));
+    if (lReference.Line <= 0) or (lReference.Column <= 0) then
+      Continue;
+    if aLine < lReference.Line then
+      Continue;
+    if (aLine = lReference.Line) and (aColumn < lReference.Column) then
+      Continue;
+
+    lEndLine := lReference.EndLine;
+    if lEndLine <= 0 then
+      lEndLine := lReference.Line;
+    if aLine > lEndLine then
+      Continue;
+
+    lEndColumn := lReference.EndColumn;
+    if lEndColumn <= 0 then
+      lEndColumn := lReference.Column + Length(fStrings.TextOf(lReference.NameId)) - 1;
+    if (aLine = lEndLine) and (lEndColumn > 0) and (aColumn > lEndColumn) then
+      Continue;
+
+    aReferenceRef := MakeReferenceRef(lUnit.UnitId, lReference.Id);
+    Exit(True);
+  end;
 end;
 
 function TDelphiProjectSnapshot.TrySymbolsByName(const aNameId: TSemanticStringId;

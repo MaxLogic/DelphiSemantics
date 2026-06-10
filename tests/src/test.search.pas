@@ -7,7 +7,8 @@ uses
   DelphiSemantics.Api,
   DelphiSemantics.Model,
   DelphiSemantics.Query,
-  DelphiSemantics.Search;
+  DelphiSemantics.Search,
+  DelphiSemantics.Snapshot;
 
 type
   [TestFixture]
@@ -19,6 +20,8 @@ type
     procedure FiltersSyntaxPatternByKindScopeUnitAndOwner;
     [Test]
     procedure CombinesPatternWithResolvedSymbolFilter;
+    [Test]
+    procedure SnapshotBackedSearchUsesProjectSnapshotIndex;
     [Test]
     procedure BlocksAmbiguousResolvedSymbolFilter;
   end;
@@ -105,6 +108,85 @@ begin
   Assert.AreEqual('SearchType', lResult.Matches[0].Name);
   Assert.AreEqual('semantic', lResult.Matches[0].MatchKind);
   Assert.IsTrue(lResult.Matches[0].SymbolId.Value <> '');
+end;
+
+procedure TSearchTests.SnapshotBackedSearchUsesProjectSnapshotIndex;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lProject: TDelphiProjectSnapshot;
+  lQuery: TDelphiSemanticSearchQuery;
+  lResult: TDelphiSemanticSearchResult;
+  lAliasSymbol: TSemanticSymbolFact;
+  lSymbol: TSemanticSymbolFact;
+  lUnit: TUnitSnapshot;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  lProject := nil;
+  try
+    lUnit := TUnitSnapshot.Create(1, lBuilder.Strings.Intern('SnapshotSearchUnit.pas'),
+      lBuilder.Strings.Intern('SnapshotSearchUnit'));
+    try
+      lSymbol := Default(TSemanticSymbolFact);
+      lSymbol.NameId := lBuilder.Strings.Intern('SnapshotSearchType');
+      lSymbol.KindId := lBuilder.Strings.Intern('type');
+      lSymbol.SectionKindId := lBuilder.Strings.Intern('interface');
+      lSymbol.SourceKindId := lBuilder.Strings.Intern('project-source');
+      lSymbol.Line := 5;
+      lSymbol.Column := 3;
+      lSymbol.EndLine := 5;
+      lSymbol.EndColumn := 20;
+      lUnit.AddSymbol(lSymbol);
+
+      lAliasSymbol := Default(TSemanticSymbolFact);
+      lAliasSymbol.NameId := lBuilder.Strings.Intern('SnapshotSearchAlias');
+      lAliasSymbol.KindId := lBuilder.Strings.Intern('alias');
+      lAliasSymbol.SectionKindId := lBuilder.Strings.Intern('interface');
+      lAliasSymbol.SourceKindId := lBuilder.Strings.Intern('project-source');
+      lAliasSymbol.Line := 6;
+      lAliasSymbol.Column := 3;
+      lAliasSymbol.EndLine := 6;
+      lAliasSymbol.EndColumn := 21;
+      lUnit.AddSymbol(lAliasSymbol);
+
+      lBuilder.AddUnit(lUnit);
+      lUnit := nil;
+    finally
+      lUnit.Free;
+    end;
+    lProject := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+
+  try
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    lContext.ProjectSnapshot := BorrowProjectSnapshot(lProject);
+    lQuery := Default(TDelphiSemanticSearchQuery);
+    lQuery.Pattern := 'SnapshotSearch';
+    lQuery.DeclarationKind := 'type';
+    lQuery.ResolvedSymbolName := 'SnapshotSearchType';
+
+    lResult := TDelphiSemanticApi.Search(lContext, lQuery);
+
+    Assert.AreEqual('resolved', lResult.Status);
+    Assert.AreEqual(1, Integer(Length(lResult.Matches)));
+    Assert.AreEqual('SnapshotSearchType', lResult.Matches[0].Name);
+    Assert.AreEqual('semantic', lResult.Matches[0].MatchKind);
+
+    lQuery := Default(TDelphiSemanticSearchQuery);
+    lQuery.Pattern := 'SnapshotSearchAlias';
+    lQuery.DeclarationKind := 'type-alias';
+
+    lResult := TDelphiSemanticApi.Search(lContext, lQuery);
+
+    Assert.AreEqual('resolved', lResult.Status);
+    Assert.AreEqual(1, Integer(Length(lResult.Matches)));
+    Assert.AreEqual('SnapshotSearchAlias', lResult.Matches[0].Name);
+    Assert.AreEqual('type-alias', lResult.Matches[0].Kind);
+  finally
+    lProject.Free;
+  end;
 end;
 
 procedure TSearchTests.BlocksAmbiguousResolvedSymbolFilter;
