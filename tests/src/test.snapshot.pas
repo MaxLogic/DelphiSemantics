@@ -15,6 +15,14 @@ type
     procedure SnapshotUnitDoesNotUseJsonLiveRepresentation;
     [Test]
     procedure StringPoolInternsStableCaseAwareIds;
+    [Test]
+    procedure UnitSnapshotAssignsStableDenseFactIds;
+    [Test]
+    procedure UnitSnapshotFindsWithCandidatesBySourceLine;
+    [Test]
+    procedure UnitSnapshotReturnsReferencesForWithWithoutReferenceScan;
+    [Test]
+    procedure UnitSnapshotStoresFactsAsRecords;
   end;
 
 implementation
@@ -83,6 +91,165 @@ begin
   finally
     lPool.Free;
   end;
+end;
+
+procedure TSnapshotTests.UnitSnapshotAssignsStableDenseFactIds;
+var
+  lReference: TSemanticReferenceFact;
+  lReferenceId: TSemanticReferenceId;
+  lSnapshot: TUnitSnapshot;
+  lSymbol: TSemanticSymbolFact;
+  lSymbolId: TSemanticSymbolId;
+  lWith: TSemanticWithStatementFact;
+  lWithId: TSemanticWithId;
+begin
+  lSnapshot := TUnitSnapshot.Create(42);
+  try
+    lSymbol := Default(TSemanticSymbolFact);
+    lSymbol.NameId := 10;
+    lSymbolId := lSnapshot.AddSymbol(lSymbol);
+
+    lWith := Default(TSemanticWithStatementFact);
+    lWith.BodyStartLine := 5;
+    lWith.BodyEndLine := 7;
+    lWithId := lSnapshot.AddWithStatement(lWith);
+
+    lReference := Default(TSemanticReferenceFact);
+    lReference.WithId := lWithId;
+    lReference.NameId := 20;
+    lReferenceId := lSnapshot.AddReference(lReference);
+
+    Assert.AreEqual(1, Integer(lSymbolId));
+    Assert.AreEqual(1, Integer(lWithId));
+    Assert.AreEqual(1, Integer(lReferenceId));
+    Assert.AreEqual(42, Integer(lSnapshot.SymbolById(lSymbolId).UnitId));
+    Assert.AreEqual(42, Integer(lSnapshot.WithStatementById(lWithId).UnitId));
+    Assert.AreEqual(42, Integer(lSnapshot.ReferenceById(lReferenceId).UnitId));
+    Assert.AreEqual(1, lSnapshot.SymbolCount);
+    Assert.AreEqual(1, lSnapshot.WithStatementCount);
+    Assert.AreEqual(1, lSnapshot.ReferenceCount);
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.UnitSnapshotFindsWithCandidatesBySourceLine;
+var
+  i: Integer;
+  lFoundFirst: Boolean;
+  lFoundSecond: Boolean;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
+  lSnapshot: TUnitSnapshot;
+  lWith: TSemanticWithStatementFact;
+  lWithFirst: TSemanticWithId;
+  lWithSecond: TSemanticWithId;
+begin
+  lSnapshot := TUnitSnapshot.Create(7);
+  try
+    lWith := Default(TSemanticWithStatementFact);
+    lWith.BodyStartLine := 10;
+    lWith.BodyEndLine := 12;
+    lWithFirst := lSnapshot.AddWithStatement(lWith);
+
+    lWith := Default(TSemanticWithStatementFact);
+    lWith.BodyStartLine := 12;
+    lWith.BodyEndLine := 15;
+    lWithSecond := lSnapshot.AddWithStatement(lWith);
+
+    Assert.IsTrue(lSnapshot.TryWithStatementsAtLine(12, lLowIndex, lHighIndex));
+
+    lFoundFirst := False;
+    lFoundSecond := False;
+    for i := lLowIndex to lHighIndex do
+    begin
+      lFoundFirst := lFoundFirst or (lSnapshot.WithIdBySourceLineIndex(i) = lWithFirst);
+      lFoundSecond := lFoundSecond or (lSnapshot.WithIdBySourceLineIndex(i) = lWithSecond);
+    end;
+
+    Assert.IsTrue(lFoundFirst, 'Expected the first with statement to be indexed for line 12.');
+    Assert.IsTrue(lFoundSecond, 'Expected the second with statement to be indexed for line 12.');
+    Assert.IsFalse(lSnapshot.TryWithStatementsAtLine(9, lLowIndex, lHighIndex));
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.UnitSnapshotReturnsReferencesForWithWithoutReferenceScan;
+var
+  i: Integer;
+  lFoundFirst: Boolean;
+  lFoundSecond: Boolean;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
+  lReference: TSemanticReferenceFact;
+  lReferenceFirst: TSemanticReferenceId;
+  lReferenceSecond: TSemanticReferenceId;
+  lSnapshot: TUnitSnapshot;
+  lWith: TSemanticWithStatementFact;
+  lWithFirst: TSemanticWithId;
+  lWithSecond: TSemanticWithId;
+begin
+  lSnapshot := TUnitSnapshot.Create(7);
+  try
+    lWith := Default(TSemanticWithStatementFact);
+    lWith.BodyStartLine := 1;
+    lWith.BodyEndLine := 1;
+    lWithFirst := lSnapshot.AddWithStatement(lWith);
+
+    lWith := Default(TSemanticWithStatementFact);
+    lWith.BodyStartLine := 2;
+    lWith.BodyEndLine := 2;
+    lWithSecond := lSnapshot.AddWithStatement(lWith);
+
+    lReference := Default(TSemanticReferenceFact);
+    lReference.WithId := lWithSecond;
+    lSnapshot.AddReference(lReference);
+
+    lReference.WithId := lWithFirst;
+    lReference.NameId := 101;
+    lReferenceFirst := lSnapshot.AddReference(lReference);
+
+    lReference.NameId := 102;
+    lReferenceSecond := lSnapshot.AddReference(lReference);
+
+    Assert.IsTrue(lSnapshot.TryReferencesForWith(lWithFirst, lLowIndex, lHighIndex));
+    Assert.AreEqual(2, lHighIndex - lLowIndex + 1);
+
+    lFoundFirst := False;
+    lFoundSecond := False;
+    for i := lLowIndex to lHighIndex do
+    begin
+      lFoundFirst := lFoundFirst or (lSnapshot.ReferenceIdByWithIndex(i) = lReferenceFirst);
+      lFoundSecond := lFoundSecond or (lSnapshot.ReferenceIdByWithIndex(i) = lReferenceSecond);
+    end;
+
+    Assert.IsTrue(lFoundFirst, 'Expected first matching reference ID in the with-index range.');
+    Assert.IsTrue(lFoundSecond, 'Expected second matching reference ID in the with-index range.');
+    Assert.IsTrue(lSnapshot.TryReferencesForWith(lWithSecond, lLowIndex, lHighIndex));
+    Assert.AreEqual(1, lHighIndex - lLowIndex + 1);
+    Assert.IsFalse(lSnapshot.TryReferencesForWith(999, lLowIndex, lHighIndex));
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.UnitSnapshotStoresFactsAsRecords;
+var
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Snapshot.pas']));
+
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+
+  Assert.IsTrue(ContainsText(lSourceText, 'TSemanticSymbolFact = record'));
+  Assert.IsTrue(ContainsText(lSourceText, 'TSemanticWithStatementFact = record'));
+  Assert.IsTrue(ContainsText(lSourceText, 'TSemanticReferenceFact = record'));
+  Assert.IsFalse(ContainsText(lSourceText, 'TSemanticSymbolFact = class'));
+  Assert.IsFalse(ContainsText(lSourceText, 'TSemanticWithStatementFact = class'));
+  Assert.IsFalse(ContainsText(lSourceText, 'TSemanticReferenceFact = class'));
 end;
 
 initialization
