@@ -4,7 +4,9 @@
 
 ### Added
 - Snapshot primitive API with a case-aware string pool, dense unit snapshot fact
-  storage, and `UInt64` member-key helper for the new typed project snapshot architecture.
+  storage, `UInt64` member-key helper, immutable project snapshot builder, and
+  cross-unit file/symbol/member/type/reference indexes for the new typed project
+  snapshot architecture.
 - Function-result refactor planner API for converting Delphi legacy
   `FunctionName := Value` result-variable idioms to `Result`, with guards for
   calls, qualifiers, comments, strings, nested routines, and `with` bodies.

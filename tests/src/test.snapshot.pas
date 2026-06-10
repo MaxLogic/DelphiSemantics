@@ -12,6 +12,14 @@ type
     [Test]
     procedure MemberKeyPacksOwnerAndNameIds;
     [Test]
+    procedure ProjectSnapshotIndexesMembersPositionsAndReferences;
+    [Test]
+    procedure ProjectSnapshotIndexesOnlyExplicitTypeFacts;
+    [Test]
+    procedure ProjectSnapshotFreezesUnitsAndExposesReadOnlyStrings;
+    [Test]
+    procedure ProjectSnapshotUsesPackedMemberKeysAndBuilderBoundary;
+    [Test]
     procedure SnapshotUnitDoesNotUseJsonLiveRepresentation;
     [Test]
     procedure StringPoolInternsStableCaseAwareIds;
@@ -48,6 +56,233 @@ begin
   Assert.AreEqual(lExpected, lFirst);
   Assert.IsTrue(lFirst <> lOtherName, 'Different names must not collide.');
   Assert.IsTrue(lFirst <> lOtherOwner, 'Different owners must not collide.');
+end;
+
+procedure TSnapshotTests.ProjectSnapshotIndexesMembersPositionsAndReferences;
+var
+  i: Integer;
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lFileNameId: TSemanticStringId;
+  lFoundFirstUnit: Boolean;
+  lFoundSecondUnit: Boolean;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
+  lMemberNameId: TSemanticStringId;
+  lMemberRef: TSemanticSymbolRef;
+  lMemberSymbolId: TSemanticSymbolId;
+  lOtherFileNameId: TSemanticStringId;
+  lOtherUnit: TUnitSnapshot;
+  lOtherUnitNameId: TSemanticStringId;
+  lOwnerTypeId: TSemanticStringId;
+  lProject: TDelphiProjectSnapshot;
+  lReference: TSemanticReferenceFact;
+  lReferenceRef: TSemanticReferenceRef;
+  lSymbol: TSemanticSymbolFact;
+  lSymbolRef: TSemanticSymbolRef;
+  lUnit: TUnitSnapshot;
+  lUnitId: TSemanticUnitId;
+  lUnitNameId: TSemanticStringId;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lFileNameId := lBuilder.Strings.Intern('UnitA.pas');
+    lUnitNameId := lBuilder.Strings.Intern('UnitA');
+    lOtherFileNameId := lBuilder.Strings.Intern('UnitB.pas');
+    lOtherUnitNameId := lBuilder.Strings.Intern('UnitB');
+    lOwnerTypeId := lBuilder.Strings.Intern('TWidget');
+    lMemberNameId := lBuilder.Strings.Intern('Value');
+
+    lUnit := TUnitSnapshot.Create(1, lFileNameId, lUnitNameId);
+    lSymbol := Default(TSemanticSymbolFact);
+    lSymbol.OwnerTypeId := lOwnerTypeId;
+    lSymbol.NameId := lMemberNameId;
+    lSymbol.Line := 12;
+    lSymbol.Column := 5;
+    lSymbol.EndLine := 12;
+    lSymbol.EndColumn := 10;
+    lMemberSymbolId := lUnit.AddSymbol(lSymbol);
+
+    lReference := Default(TSemanticReferenceFact);
+    lReference.TargetUnitId := 1;
+    lReference.TargetSymbolId := lMemberSymbolId;
+    lReference.Line := 22;
+    lReference.Column := 7;
+    lReference.EndLine := 22;
+    lReference.EndColumn := 12;
+    lUnit.AddReference(lReference);
+
+    lOtherUnit := TUnitSnapshot.Create(2, lOtherFileNameId, lOtherUnitNameId);
+    lSymbol := Default(TSemanticSymbolFact);
+    lSymbol.OwnerTypeId := lOwnerTypeId;
+    lSymbol.NameId := lMemberNameId;
+    lSymbol.Line := 8;
+    lSymbol.Column := 3;
+    lSymbol.EndLine := 8;
+    lSymbol.EndColumn := 8;
+    lOtherUnit.AddSymbol(lSymbol);
+
+    lBuilder.AddUnit(lUnit);
+    lBuilder.AddUnit(lOtherUnit);
+    lProject := lBuilder.Build;
+    Assert.AreEqual(0, lBuilder.UnitCount, 'Build must transfer unit ownership out of the builder.');
+  finally
+    lBuilder.Free;
+  end;
+  try
+    Assert.AreEqual(2, lProject.UnitCount);
+    Assert.IsTrue(lProject.TryFindUnitByFileName('unita.pas', lUnitId));
+    Assert.AreEqual(1, Integer(lUnitId));
+    Assert.IsTrue(lProject.TryFindUnitByFileName('unitb.pas', lUnitId));
+    Assert.AreEqual(2, Integer(lUnitId));
+    Assert.IsTrue(lProject.TryFindMember(lOwnerTypeId, lMemberNameId, lSymbolRef));
+    Assert.AreEqual(1, Integer(lSymbolRef.UnitId));
+    Assert.AreEqual(Integer(lMemberSymbolId), Integer(lSymbolRef.SymbolId));
+    Assert.IsTrue(lProject.TryFindMembers(lOwnerTypeId, lMemberNameId, lLowIndex, lHighIndex));
+    Assert.AreEqual(2, lHighIndex - lLowIndex + 1);
+    lFoundFirstUnit := False;
+    lFoundSecondUnit := False;
+    for i := lLowIndex to lHighIndex do
+    begin
+      lMemberRef := lProject.MemberRefByOwnerAndNameIndex(i);
+      lFoundFirstUnit := lFoundFirstUnit or (lMemberRef.UnitId = 1);
+      lFoundSecondUnit := lFoundSecondUnit or (lMemberRef.UnitId = 2);
+    end;
+    Assert.IsTrue(lFoundFirstUnit, 'Expected duplicate member candidates to retain the first unit.');
+    Assert.IsTrue(lFoundSecondUnit, 'Expected duplicate member candidates to retain the second unit.');
+    Assert.IsTrue(lProject.TrySymbolAt('UnitA.pas', 12, 8, lSymbolRef));
+    Assert.AreEqual(Integer(lMemberSymbolId), Integer(lSymbolRef.SymbolId));
+    Assert.IsTrue(lProject.TryReferencesForSymbol(lSymbolRef, lLowIndex, lHighIndex));
+    Assert.AreEqual(1, lHighIndex - lLowIndex + 1);
+    lReferenceRef := lProject.ReferenceRefBySymbolIndex(lLowIndex);
+    Assert.AreEqual(1, Integer(lReferenceRef.UnitId));
+    Assert.AreEqual(1, Integer(lReferenceRef.ReferenceId));
+  finally
+    lProject.Free;
+  end;
+end;
+
+procedure TSnapshotTests.ProjectSnapshotIndexesOnlyExplicitTypeFacts;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lFileNameId: TSemanticStringId;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
+  lNameId: TSemanticStringId;
+  lProject: TDelphiProjectSnapshot;
+  lRoutineKindId: TSemanticStringId;
+  lSymbol: TSemanticSymbolFact;
+  lTypeKindId: TSemanticStringId;
+  lTypeSymbolId: TSemanticSymbolId;
+  lTypeRef: TSemanticSymbolRef;
+  lUnit: TUnitSnapshot;
+  lUnitNameId: TSemanticStringId;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lFileNameId := lBuilder.Strings.Intern('UnitA.pas');
+    lUnitNameId := lBuilder.Strings.Intern('UnitA');
+    lNameId := lBuilder.Strings.Intern('SharedName');
+    lRoutineKindId := lBuilder.Strings.Intern('routine');
+    lTypeKindId := lBuilder.Strings.Intern('type');
+
+    lUnit := TUnitSnapshot.Create(1, lFileNameId, lUnitNameId);
+    lSymbol := Default(TSemanticSymbolFact);
+    lSymbol.NameId := lNameId;
+    lSymbol.KindId := lRoutineKindId;
+    lUnit.AddSymbol(lSymbol);
+
+    lSymbol := Default(TSemanticSymbolFact);
+    lSymbol.NameId := lNameId;
+    lSymbol.KindId := lTypeKindId;
+    lTypeSymbolId := lUnit.AddSymbol(lSymbol);
+
+    lBuilder.AddUnit(lUnit);
+    lProject := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+  try
+    Assert.IsTrue(lProject.TryTypesByName(lNameId, lLowIndex, lHighIndex));
+    Assert.AreEqual(1, lHighIndex - lLowIndex + 1);
+    lTypeRef := lProject.TypeRefByNameIndex(lLowIndex);
+    Assert.AreEqual(1, Integer(lTypeRef.UnitId));
+    Assert.AreEqual(Integer(lTypeSymbolId), Integer(lTypeRef.SymbolId));
+  finally
+    lProject.Free;
+  end;
+end;
+
+procedure TSnapshotTests.ProjectSnapshotFreezesUnitsAndExposesReadOnlyStrings;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lFileNameId: TSemanticStringId;
+  lFoundFileNameId: TSemanticStringId;
+  lPool: TSemanticStringPool;
+  lProject: TDelphiProjectSnapshot;
+  lSymbol: TSemanticSymbolFact;
+  lUnit: TUnitSnapshot;
+  lUnitNameId: TSemanticStringId;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lPool := lBuilder.Strings;
+    lFileNameId := lBuilder.Strings.Intern('UnitA.pas');
+    lUnitNameId := lBuilder.Strings.Intern('UnitA');
+    lUnit := TUnitSnapshot.Create(1, lFileNameId, lUnitNameId);
+    lBuilder.AddUnit(lUnit);
+    lProject := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+  try
+    Assert.AreEqual('UnitA.pas', lProject.TextOf(lFileNameId));
+    Assert.IsTrue(lProject.TryFindStringId('unita.pas', lFoundFileNameId));
+    Assert.AreEqual(Integer(lFileNameId), Integer(lFoundFileNameId));
+    Assert.IsFalse(lProject.TryFindStringId('MissingName', lFoundFileNameId));
+
+    lSymbol := Default(TSemanticSymbolFact);
+    Assert.WillRaise(
+      procedure
+      begin
+        lUnit.AddSymbol(lSymbol);
+      end, Exception);
+    Assert.WillRaise(
+      procedure
+      begin
+        lPool.Intern('LateName');
+      end, Exception);
+  finally
+    lProject.Free;
+  end;
+end;
+
+procedure TSnapshotTests.ProjectSnapshotUsesPackedMemberKeysAndBuilderBoundary;
+var
+  lMutableStringPropertyIndex: Integer;
+  lProjectClassEndIndex: Integer;
+  lProjectClassIndex: Integer;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Snapshot.pas']));
+
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+
+  Assert.IsTrue(ContainsText(lSourceText,
+    'fMembersByOwnerAndName: TDictionary<UInt64, TSemanticSymbolRef>'),
+    'Project snapshot member lookup must use packed owner/name keys.');
+  Assert.IsTrue(ContainsText(lSourceText, 'TDelphiProjectSnapshotBuilder'),
+    'Construction should stay in a builder so project snapshots can be consumed as immutable.');
+  lProjectClassIndex := Pos('TDelphiProjectSnapshot = class' + sLineBreak + '  private', lSourceText);
+  lProjectClassEndIndex := PosEx('function MemberKey', lSourceText, lProjectClassIndex);
+  lMutableStringPropertyIndex := PosEx('property Strings: TSemanticStringPool read fStrings',
+    lSourceText, lProjectClassIndex);
+  Assert.IsFalse((lMutableStringPropertyIndex > 0)
+    and (lMutableStringPropertyIndex < lProjectClassEndIndex),
+    'Built snapshots should expose read-only string lookup instead of the mutable string pool.');
+  Assert.IsFalse(ContainsText(lSourceText, 'procedure TDelphiProjectSnapshot.AddUnit'),
+    'Public consumers should not mutate a built project snapshot.');
 end;
 
 procedure TSnapshotTests.SnapshotUnitDoesNotUseJsonLiveRepresentation;
