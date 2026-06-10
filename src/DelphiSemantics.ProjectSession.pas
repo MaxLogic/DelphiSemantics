@@ -237,9 +237,16 @@ var
   lBuilder: TStringBuilder;
   lFileName: string;
   lIdentity: TDelphiSemanticUnitCacheIdentity;
+  lProjectFileNames: TDictionary<string, Byte>;
 begin
-  lBuilder := TStringBuilder.Create;
+  lBuilder := nil;
+  lProjectFileNames := nil;
   try
+    lBuilder := TStringBuilder.Create;
+    lProjectFileNames := TDictionary<string, Byte>.Create(
+      TFastCaseAwareComparer.OrdinalIgnoreCase);
+    for lFileName in ProjectModelFileNames(aProject) do
+      lProjectFileNames.AddOrSetValue(TPath.GetFullPath(lFileName), 0);
     AppendCacheLine(lBuilder, 'schema', cProjectFactsCacheSchemaVersion);
     AppendCacheLine(lBuilder, 'library', DelphiSemanticsVersionText);
     AppendCacheLine(lBuilder, 'context', aProject.ContextFingerprint);
@@ -250,11 +257,11 @@ begin
     AppendCacheLine(lBuilder, 'skipSemanticGraph',
       BoolToStr(aOptions.SkipWithBindingSemanticGraph, True));
     AppendFileFingerprint(lBuilder, aOptions.ProjectPath);
-    for lFileName in ProjectModelFileNames(aProject) do
-      AppendFileFingerprint(lBuilder, lFileName);
     for lFileName in aOptions.BodyAnalysisSourceFileNames do
       if Trim(lFileName) <> '' then
       begin
+        if lProjectFileNames.ContainsKey(TPath.GetFullPath(lFileName)) then
+          Continue;
         AppendCacheLine(lBuilder, 'bodyAnalysisFile',
           UpperCase(TPath.GetFullPath(lFileName)));
         AppendFileFingerprint(lBuilder, lFileName);
@@ -266,6 +273,7 @@ begin
     end;
     Result := THashSHA2.GetHashString(lBuilder.ToString);
   finally
+    lProjectFileNames.Free;
     lBuilder.Free;
   end;
 end;
@@ -315,34 +323,54 @@ begin
     aArray := nil;
 end;
 
+procedure AddJsonStringPair(const aObject: TJSONObject; const aName, aValue: string);
+begin
+  if aValue <> '' then
+    aObject.AddPair(aName, aValue);
+end;
+
+procedure AddJsonIntPair(const aObject: TJSONObject; const aName: string;
+  const aValue: Integer);
+begin
+  if aValue <> 0 then
+    aObject.AddPair(aName, TJSONNumber.Create(aValue));
+end;
+
+procedure AddJsonBoolPair(const aObject: TJSONObject; const aName: string;
+  const aValue: Boolean);
+begin
+  if aValue then
+    aObject.AddPair(aName, TJSONBool.Create(True));
+end;
+
 function InventorySymbolToJson(const aSymbol: TDelphiSemanticInventorySymbol):
   TJSONObject;
 begin
   Result := TJSONObject.Create;
-  Result.AddPair('name', aSymbol.Name);
-  Result.AddPair('symbolClass', aSymbol.SymbolClass);
-  Result.AddPair('kind', aSymbol.Kind);
-  Result.AddPair('typeName', aSymbol.TypeName);
-  Result.AddPair('modifier', aSymbol.Modifier);
-  Result.AddPair('ownerName', aSymbol.OwnerName);
-  Result.AddPair('ownerType', aSymbol.OwnerType);
-  Result.AddPair('sourceOwnerType', aSymbol.SourceOwnerType);
-  Result.AddPair('relatedTypeName', aSymbol.RelatedTypeName);
-  Result.AddPair('routineName', aSymbol.RoutineName);
-  Result.AddPair('unitName', aSymbol.UnitName);
-  Result.AddPair('fileName', aSymbol.FileName);
-  Result.AddPair('sectionKind', aSymbol.SectionKind);
-  Result.AddPair('line', TJSONNumber.Create(aSymbol.Line));
-  Result.AddPair('column', TJSONNumber.Create(aSymbol.Column));
-  Result.AddPair('endLine', TJSONNumber.Create(aSymbol.EndLine));
-  Result.AddPair('endColumn', TJSONNumber.Create(aSymbol.EndColumn));
-  Result.AddPair('unsupportedReason', aSymbol.UnsupportedReason);
-  Result.AddPair('isHelper', TJSONBool.Create(aSymbol.IsHelper));
-  Result.AddPair('isOverride', TJSONBool.Create(aSymbol.IsOverride));
-  Result.AddPair('isDefault', TJSONBool.Create(aSymbol.IsDefault));
-  Result.AddPair('isIndexed', TJSONBool.Create(aSymbol.IsIndexed));
-  Result.AddPair('indexParameterCount', TJSONNumber.Create(aSymbol.IndexParameterCount));
-  Result.AddPair('typeCategory', aSymbol.TypeCategory);
+  AddJsonStringPair(Result, 'name', aSymbol.Name);
+  AddJsonStringPair(Result, 'symbolClass', aSymbol.SymbolClass);
+  AddJsonStringPair(Result, 'kind', aSymbol.Kind);
+  AddJsonStringPair(Result, 'typeName', aSymbol.TypeName);
+  AddJsonStringPair(Result, 'modifier', aSymbol.Modifier);
+  AddJsonStringPair(Result, 'ownerName', aSymbol.OwnerName);
+  AddJsonStringPair(Result, 'ownerType', aSymbol.OwnerType);
+  AddJsonStringPair(Result, 'sourceOwnerType', aSymbol.SourceOwnerType);
+  AddJsonStringPair(Result, 'relatedTypeName', aSymbol.RelatedTypeName);
+  AddJsonStringPair(Result, 'routineName', aSymbol.RoutineName);
+  AddJsonStringPair(Result, 'unitName', aSymbol.UnitName);
+  AddJsonStringPair(Result, 'fileName', aSymbol.FileName);
+  AddJsonStringPair(Result, 'sectionKind', aSymbol.SectionKind);
+  AddJsonIntPair(Result, 'line', aSymbol.Line);
+  AddJsonIntPair(Result, 'column', aSymbol.Column);
+  AddJsonIntPair(Result, 'endLine', aSymbol.EndLine);
+  AddJsonIntPair(Result, 'endColumn', aSymbol.EndColumn);
+  AddJsonStringPair(Result, 'unsupportedReason', aSymbol.UnsupportedReason);
+  AddJsonBoolPair(Result, 'isHelper', aSymbol.IsHelper);
+  AddJsonBoolPair(Result, 'isOverride', aSymbol.IsOverride);
+  AddJsonBoolPair(Result, 'isDefault', aSymbol.IsDefault);
+  AddJsonBoolPair(Result, 'isIndexed', aSymbol.IsIndexed);
+  AddJsonIntPair(Result, 'indexParameterCount', aSymbol.IndexParameterCount);
+  AddJsonStringPair(Result, 'typeCategory', aSymbol.TypeCategory);
 end;
 
 function JsonToInventorySymbol(const aObject: TJSONObject):
@@ -399,10 +427,10 @@ function SelectorBindingToJson(const aSelector: TDelphiSemanticWithSelectorBindi
   TJSONObject;
 begin
   Result := TJSONObject.Create;
-  Result.AddPair('selectorText', aSelector.SelectorText);
-  Result.AddPair('status', aSelector.Status);
-  Result.AddPair('reasonCode', aSelector.ReasonCode);
-  Result.AddPair('typeName', aSelector.TypeName);
+  AddJsonStringPair(Result, 'selectorText', aSelector.SelectorText);
+  AddJsonStringPair(Result, 'status', aSelector.Status);
+  AddJsonStringPair(Result, 'reasonCode', aSelector.ReasonCode);
+  AddJsonStringPair(Result, 'typeName', aSelector.TypeName);
 end;
 
 function JsonToSelectorBinding(const aObject: TJSONObject):
@@ -439,20 +467,20 @@ function BoundReferenceToJson(const aReference: TDelphiSemanticBoundReference):
   TJSONObject;
 begin
   Result := TJSONObject.Create;
-  Result.AddPair('semanticId', aReference.SemanticId);
-  Result.AddPair('name', aReference.Name);
-  Result.AddPair('classification', aReference.Classification);
-  Result.AddPair('lookupSource', aReference.LookupSource);
-  Result.AddPair('receiverTypeName', aReference.ReceiverTypeName);
-  Result.AddPair('kind', aReference.Kind);
-  Result.AddPair('typeName', aReference.TypeName);
-  Result.AddPair('reasonCode', aReference.ReasonCode);
-  Result.AddPair('scopeConflictKind', aReference.ScopeConflictKind);
-  Result.AddPair('scopeConflictName', aReference.ScopeConflictName);
-  Result.AddPair('line', TJSONNumber.Create(aReference.Line));
-  Result.AddPair('column', TJSONNumber.Create(aReference.Column));
-  Result.AddPair('endLine', TJSONNumber.Create(aReference.EndLine));
-  Result.AddPair('endColumn', TJSONNumber.Create(aReference.EndColumn));
+  AddJsonStringPair(Result, 'semanticId', aReference.SemanticId);
+  AddJsonStringPair(Result, 'name', aReference.Name);
+  AddJsonStringPair(Result, 'classification', aReference.Classification);
+  AddJsonStringPair(Result, 'lookupSource', aReference.LookupSource);
+  AddJsonStringPair(Result, 'receiverTypeName', aReference.ReceiverTypeName);
+  AddJsonStringPair(Result, 'kind', aReference.Kind);
+  AddJsonStringPair(Result, 'typeName', aReference.TypeName);
+  AddJsonStringPair(Result, 'reasonCode', aReference.ReasonCode);
+  AddJsonStringPair(Result, 'scopeConflictKind', aReference.ScopeConflictKind);
+  AddJsonStringPair(Result, 'scopeConflictName', aReference.ScopeConflictName);
+  AddJsonIntPair(Result, 'line', aReference.Line);
+  AddJsonIntPair(Result, 'column', aReference.Column);
+  AddJsonIntPair(Result, 'endLine', aReference.EndLine);
+  AddJsonIntPair(Result, 'endColumn', aReference.EndColumn);
 end;
 
 function JsonToBoundReference(const aObject: TJSONObject):
@@ -499,35 +527,29 @@ function WithBindingToJson(const aBinding: TDelphiSemanticWithBinding):
   TJSONObject;
 begin
   Result := TJSONObject.Create;
-  Result.AddPair('semanticId', aBinding.SemanticId);
-  Result.AddPair('provenance', aBinding.Provenance);
-  Result.AddPair('fileName', aBinding.FileName);
-  Result.AddPair('unitName', aBinding.UnitName);
-  Result.AddPair('routineName', aBinding.RoutineName);
-  Result.AddPair('line', TJSONNumber.Create(aBinding.Line));
-  Result.AddPair('column', TJSONNumber.Create(aBinding.Column));
-  Result.AddPair('endLine', TJSONNumber.Create(aBinding.EndLine));
-  Result.AddPair('endColumn', TJSONNumber.Create(aBinding.EndColumn));
-  Result.AddPair('bodyLine', TJSONNumber.Create(aBinding.BodyLine));
-  Result.AddPair('bodyColumn', TJSONNumber.Create(aBinding.BodyColumn));
-  Result.AddPair('bodyEndLine', TJSONNumber.Create(aBinding.BodyEndLine));
-  Result.AddPair('bodyEndColumn', TJSONNumber.Create(aBinding.BodyEndColumn));
-  Result.AddPair('selectorText', aBinding.SelectorText);
-  Result.AddPair('status', aBinding.Status);
-  Result.AddPair('skipReason', aBinding.SkipReason);
-  Result.AddPair('hasScopedDeclaration', TJSONBool.Create(aBinding.HasScopedDeclaration));
-  Result.AddPair('memberReferenceCount',
-    TJSONNumber.Create(aBinding.MemberReferenceCount));
-  Result.AddPair('lexicalReferenceCount',
-    TJSONNumber.Create(aBinding.LexicalReferenceCount));
-  Result.AddPair('externalReferenceCount',
-    TJSONNumber.Create(aBinding.ExternalReferenceCount));
-  Result.AddPair('intrinsicReferenceCount',
-    TJSONNumber.Create(aBinding.IntrinsicReferenceCount));
-  Result.AddPair('unsupportedReferenceCount',
-    TJSONNumber.Create(aBinding.UnsupportedReferenceCount));
-  Result.AddPair('unresolvedReferenceCount',
-    TJSONNumber.Create(aBinding.UnresolvedReferenceCount));
+  AddJsonStringPair(Result, 'semanticId', aBinding.SemanticId);
+  AddJsonStringPair(Result, 'provenance', aBinding.Provenance);
+  AddJsonStringPair(Result, 'fileName', aBinding.FileName);
+  AddJsonStringPair(Result, 'unitName', aBinding.UnitName);
+  AddJsonStringPair(Result, 'routineName', aBinding.RoutineName);
+  AddJsonIntPair(Result, 'line', aBinding.Line);
+  AddJsonIntPair(Result, 'column', aBinding.Column);
+  AddJsonIntPair(Result, 'endLine', aBinding.EndLine);
+  AddJsonIntPair(Result, 'endColumn', aBinding.EndColumn);
+  AddJsonIntPair(Result, 'bodyLine', aBinding.BodyLine);
+  AddJsonIntPair(Result, 'bodyColumn', aBinding.BodyColumn);
+  AddJsonIntPair(Result, 'bodyEndLine', aBinding.BodyEndLine);
+  AddJsonIntPair(Result, 'bodyEndColumn', aBinding.BodyEndColumn);
+  AddJsonStringPair(Result, 'selectorText', aBinding.SelectorText);
+  AddJsonStringPair(Result, 'status', aBinding.Status);
+  AddJsonStringPair(Result, 'skipReason', aBinding.SkipReason);
+  AddJsonBoolPair(Result, 'hasScopedDeclaration', aBinding.HasScopedDeclaration);
+  AddJsonIntPair(Result, 'memberReferenceCount', aBinding.MemberReferenceCount);
+  AddJsonIntPair(Result, 'lexicalReferenceCount', aBinding.LexicalReferenceCount);
+  AddJsonIntPair(Result, 'externalReferenceCount', aBinding.ExternalReferenceCount);
+  AddJsonIntPair(Result, 'intrinsicReferenceCount', aBinding.IntrinsicReferenceCount);
+  AddJsonIntPair(Result, 'unsupportedReferenceCount', aBinding.UnsupportedReferenceCount);
+  AddJsonIntPair(Result, 'unresolvedReferenceCount', aBinding.UnresolvedReferenceCount);
   Result.AddPair('selectors', SelectorBindingsToJson(aBinding.Selectors));
   Result.AddPair('references', BoundReferencesToJson(aBinding.References));
 end;
@@ -589,7 +611,7 @@ begin
   Result.AddPair('schemaVersion', cProjectFactsCacheSchemaVersion);
   Result.AddPair('cacheKey', aCacheKey);
   Result.AddPair('contextFingerprint', aFacts.ContextFingerprint);
-  Result.AddPair('semanticGraphUsed', TJSONBool.Create(aFacts.Metrics.SemanticGraphUsed));
+  AddJsonBoolPair(Result, 'semanticGraphUsed', aFacts.Metrics.SemanticGraphUsed);
   Result.AddPair('symbols', InventorySymbolsToJson(aFacts.Symbols));
   Result.AddPair('bindings', WithBindingsToJson(aFacts.Bindings));
 end;

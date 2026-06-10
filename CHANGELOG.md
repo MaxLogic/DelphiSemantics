@@ -54,6 +54,10 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with project-facts cache sidecars now omit default-valued JSON fields
+  and rely on unit-cache identities for project-source invalidation, bringing
+  the final maxTdb cold `remove-with-plan-all` proof to `9.873s` median with
+  scan count `667` and planned edit count `215`.
 - Remove-with project/session facts now persist beside the semantic cache and
   reuse unchanged facts with source/content/stamp/context invalidation; maxTdb
   warm `remove-with-plan-all` now proves `3.527s` median with scan count `667`
