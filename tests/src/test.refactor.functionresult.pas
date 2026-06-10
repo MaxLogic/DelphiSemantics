@@ -9,7 +9,8 @@ uses
   DelphiSemantics.CompilerProfile,
   DelphiSemantics.Model,
   DelphiSemantics.Query,
-  DelphiSemantics.Refactor;
+  DelphiSemantics.Refactor,
+  DelphiSemantics.Snapshot;
 
 type
   [TestFixture]
@@ -17,6 +18,8 @@ type
   private
     function FixturePath(const aFileName: string): string;
     function LoadContext: TDelphiSemanticSymbolQueryContext;
+    function LoadSnapshotContext(out aSnapshot: TDelphiProjectSnapshot):
+      TDelphiSemanticSymbolQueryContext;
   public
     [Test]
     procedure PlansFunctionNameResultReplacementInsideEnclosingFunction;
@@ -27,13 +30,15 @@ type
     [Test]
     procedure SkipsWithScopedSameTextField;
     [Test]
+    procedure PlansFunctionNameResultReplacementFromSnapshotContext;
+    [Test]
     procedure ApiFacadePlansFunctionNameResultReplacement;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
   maxLogic.IOUtils;
 
 function TFunctionResultRefactorTests.FixturePath(const aFileName: string): string;
@@ -63,6 +68,69 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+function TFunctionResultRefactorTests.LoadSnapshotContext(
+  out aSnapshot: TDelphiProjectSnapshot): TDelphiSemanticSymbolQueryContext;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lRoutine: TDelphiSemanticRoutine;
+  lSymbol: TSemanticSymbolFact;
+  lUnit: TUnitSnapshot;
+  lWith: TSemanticWithStatementFact;
+  lWithStatement: TDelphiSemanticWithStatement;
+begin
+  aSnapshot := nil;
+  lContext := LoadContext;
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lUnit := TUnitSnapshot.Create(1, lBuilder.Strings.Intern(lContext.UnitModel.FileName),
+      lBuilder.Strings.Intern(lContext.UnitModel.UnitName));
+    try
+      for lRoutine in lContext.UnitModel.Routines do
+      begin
+        lSymbol := Default(TSemanticSymbolFact);
+        lSymbol.NameId := lBuilder.Strings.Intern(lRoutine.Name);
+        lSymbol.OwnerTypeId := lBuilder.Strings.Intern(lRoutine.OwnerName);
+        lSymbol.TypeId := lBuilder.Strings.Intern(lRoutine.ReturnType);
+        lSymbol.RoutineId := lBuilder.Strings.Intern(lRoutine.Name);
+        lSymbol.KindId := lBuilder.Strings.Intern('routine');
+        lSymbol.SectionKindId := lBuilder.Strings.Intern(lRoutine.SectionKind);
+        lSymbol.SourceKindId := lBuilder.Strings.Intern('project-source');
+        lSymbol.SignatureId := lBuilder.Strings.Intern(lRoutine.Signature);
+        lSymbol.Line := lRoutine.Line;
+        lSymbol.Column := lRoutine.Column;
+        lSymbol.EndLine := lRoutine.Line;
+        lSymbol.EndColumn := lRoutine.Column + Length(lRoutine.Name) - 1;
+        lUnit.AddSymbol(lSymbol);
+      end;
+
+      for lWithStatement in lContext.UnitModel.WithStatements do
+      begin
+        lWith := Default(TSemanticWithStatementFact);
+        lWith.SelectorStartLine := lWithStatement.Line;
+        lWith.SelectorStartColumn := lWithStatement.Column;
+        lWith.BodyStartLine := lWithStatement.BodyLine;
+        lWith.BodyStartColumn := lWithStatement.BodyColumn;
+        lWith.BodyEndLine := lWithStatement.BodyEndLine;
+        lWith.BodyEndColumn := lWithStatement.BodyEndColumn;
+        lUnit.AddWithStatement(lWith);
+      end;
+
+      lBuilder.AddUnit(lUnit);
+      lUnit := nil;
+    finally
+      lUnit.Free;
+    end;
+
+    aSnapshot := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+
+  Result := Default(TDelphiSemanticSymbolQueryContext);
+  Result.ProjectSnapshot := BorrowProjectSnapshot(aSnapshot);
 end;
 
 procedure TFunctionResultRefactorTests.ApiFacadePlansFunctionNameResultReplacement;
@@ -129,6 +197,29 @@ begin
   Assert.AreEqual(1, lLine23Count, 'Expected first implicit result assignment.');
   Assert.AreEqual(2, lLine25Count, 'Expected assignment and read on the second implicit result line.');
   Assert.AreEqual(1, lLine26Count, 'Expected implicit result read.');
+end;
+
+procedure TFunctionResultRefactorTests.PlansFunctionNameResultReplacementFromSnapshotContext;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRequestedFileName: string;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lSnapshot := nil;
+  lContext := LoadSnapshotContext(lSnapshot);
+  try
+    lRequestedFileName := CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
+      'FunctionResult', 'FunctionResultUnit.pas']);
+    lPlan := TDelphiSemanticRenamePlanner.PlanFunctionResultRefactorAtPosition(lContext,
+      lRequestedFileName, 23, 3);
+
+    Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual(4, Integer(Length(lPlan.Edits)));
+  finally
+    lContext.ProjectSnapshot := nil;
+    lSnapshot.Free;
+  end;
 end;
 
 procedure TFunctionResultRefactorTests.PlansFunctionNameResultReplacementAfterTryFinallyBlock;

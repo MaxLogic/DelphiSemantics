@@ -10,7 +10,8 @@ uses
   DelphiSemantics.Index,
   DelphiSemantics.Model,
   DelphiSemantics.Query,
-  DelphiSemantics.Refactor;
+  DelphiSemantics.Refactor,
+  DelphiSemantics.Snapshot;
 
 type
   [TestFixture]
@@ -31,6 +32,10 @@ type
     procedure PlansProjectWideRenameForUnambiguousSymbol;
     [Test]
     procedure PlansRenameWithOneProjectIndexBuild;
+    [Test]
+    procedure PlansRenameFromSnapshotWithoutProjectIndexBuild;
+    [Test]
+    procedure SkipsRoutineScopedVarShadowFromSnapshotContext;
     [Test]
     procedure BlocksCaseInsensitiveCollision;
     [Test]
@@ -330,6 +335,200 @@ begin
 
   Assert.AreEqual('planned', lPlan.Status);
   Assert.AreEqual(1, lPlan.IndexMetrics.BuildInvocationCount);
+end;
+
+procedure TRenamePlannerTests.PlansRenameFromSnapshotWithoutProjectIndexBuild;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lFileName: string;
+  lNameId: TSemanticStringId;
+  lPlan: TDelphiSemanticRenamePlan;
+  lProject: TDelphiProjectSnapshot;
+  lReference: TSemanticReferenceFact;
+  lRootPath: string;
+  lSymbol: TSemanticSymbolFact;
+  lSymbolId: TSemanticSymbolId;
+  lUnit: TUnitSnapshot;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  lProject := nil;
+  lRootPath := '';
+  try
+    lRootPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
+      'snapshot-rename-temp'));
+    if TDirectory.Exists(lRootPath) then
+      TDirectory.Delete(lRootPath, True);
+    TDirectory.CreateDirectory(lRootPath);
+    lFileName := TPath.Combine(lRootPath, 'SnapshotRenameUnit.pas');
+    TFile.WriteAllText(lFileName, 'unit SnapshotRenameUnit;' + sLineBreak +
+      'interface' + sLineBreak + 'var' + sLineBreak +
+      '  SnapshotRenameValue: Integer;' + sLineBreak + 'implementation' + sLineBreak +
+      'procedure Touch;' + sLineBreak + 'begin' + sLineBreak +
+      '  SnapshotRenameValue := 1;' + sLineBreak + 'end;' + sLineBreak + 'end.',
+      TEncoding.UTF8);
+
+    lNameId := lBuilder.Strings.Intern('SnapshotRenameValue');
+    lUnit := TUnitSnapshot.Create(1, lBuilder.Strings.Intern(lFileName),
+      lBuilder.Strings.Intern('SnapshotRenameUnit'));
+    try
+      lSymbol := Default(TSemanticSymbolFact);
+      lSymbol.NameId := lNameId;
+      lSymbol.KindId := lBuilder.Strings.Intern('var');
+      lSymbol.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lSymbol.SourceKindId := lBuilder.Strings.Intern('project-source');
+      lSymbol.Line := 4;
+      lSymbol.Column := 3;
+      lSymbol.EndLine := 4;
+      lSymbol.EndColumn := 21;
+      lSymbolId := lUnit.AddSymbol(lSymbol);
+
+      lReference := Default(TSemanticReferenceFact);
+      lReference.NameId := lNameId;
+      lReference.TargetUnitId := lUnit.UnitId;
+      lReference.TargetSymbolId := lSymbolId;
+      lReference.RoutineId := lBuilder.Strings.Intern('Touch');
+      lReference.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lReference.SourceKindId := lBuilder.Strings.Intern('project-source');
+      lReference.Line := 8;
+      lReference.Column := 3;
+      lReference.EndLine := 8;
+      lReference.EndColumn := 21;
+      lUnit.AddReference(lReference);
+
+      lBuilder.AddUnit(lUnit);
+      lUnit := nil;
+    finally
+      lUnit.Free;
+    end;
+
+    lProject := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+
+  try
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    lContext.ProjectSnapshot := BorrowProjectSnapshot(lProject);
+
+    lPlan := TDelphiSemanticRenamePlanner.PlanRename(lContext, 'SnapshotRenameValue',
+      'SnapshotRenamedValue');
+
+    Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual(2, Integer(Length(lPlan.Edits)));
+    Assert.AreEqual(0, lPlan.IndexMetrics.BuildInvocationCount);
+  finally
+    lContext.ProjectSnapshot := nil;
+    lProject.Free;
+    if (lRootPath <> '') and TDirectory.Exists(lRootPath) then
+      TDirectory.Delete(lRootPath, True);
+  end;
+end;
+
+procedure TRenamePlannerTests.SkipsRoutineScopedVarShadowFromSnapshotContext;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lFileName: string;
+  lNameId: TSemanticStringId;
+  lPlan: TDelphiSemanticRenamePlan;
+  lProject: TDelphiProjectSnapshot;
+  lReference: TSemanticReferenceFact;
+  lRootPath: string;
+  lRoutineId: TSemanticStringId;
+  lShadow: TSemanticSymbolFact;
+  lSymbol: TSemanticSymbolFact;
+  lSymbolId: TSemanticSymbolId;
+  lUnit: TUnitSnapshot;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  lProject := nil;
+  lRootPath := '';
+  try
+    lRootPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
+      'snapshot-rename-shadow-temp'));
+    if TDirectory.Exists(lRootPath) then
+      TDirectory.Delete(lRootPath, True);
+    TDirectory.CreateDirectory(lRootPath);
+    lFileName := TPath.Combine(lRootPath, 'SnapshotRenameShadowUnit.pas');
+    TFile.WriteAllText(lFileName, 'unit SnapshotRenameShadowUnit;' + sLineBreak +
+      'interface' + sLineBreak + 'var' + sLineBreak +
+      '  SnapshotShadowValue: Integer;' + sLineBreak + 'implementation' + sLineBreak +
+      'procedure Touch;' + sLineBreak + 'var' + sLineBreak +
+      '  SnapshotShadowValue: Integer;' + sLineBreak + 'begin' + sLineBreak +
+      '  SnapshotShadowValue := 1;' + sLineBreak + 'end;' + sLineBreak + 'end.',
+      TEncoding.UTF8);
+
+    lNameId := lBuilder.Strings.Intern('SnapshotShadowValue');
+    lRoutineId := lBuilder.Strings.Intern('Touch');
+    lUnit := TUnitSnapshot.Create(1, lBuilder.Strings.Intern(lFileName),
+      lBuilder.Strings.Intern('SnapshotRenameShadowUnit'));
+    try
+      lSymbol := Default(TSemanticSymbolFact);
+      lSymbol.NameId := lNameId;
+      lSymbol.KindId := lBuilder.Strings.Intern('var');
+      lSymbol.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lSymbol.SourceKindId := lBuilder.Strings.Intern('project-source');
+      lSymbol.Line := 4;
+      lSymbol.Column := 3;
+      lSymbol.EndLine := 4;
+      lSymbol.EndColumn := 21;
+      lSymbolId := lUnit.AddSymbol(lSymbol);
+
+      lShadow := Default(TSemanticSymbolFact);
+      lShadow.NameId := lNameId;
+      lShadow.KindId := lBuilder.Strings.Intern('var');
+      lShadow.RoutineId := lRoutineId;
+      lShadow.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lShadow.SourceKindId := lBuilder.Strings.Intern('project-source');
+      lShadow.Line := 8;
+      lShadow.Column := 3;
+      lShadow.EndLine := 8;
+      lShadow.EndColumn := 21;
+      lUnit.AddSymbol(lShadow);
+
+      lReference := Default(TSemanticReferenceFact);
+      lReference.NameId := lNameId;
+      lReference.TargetUnitId := lUnit.UnitId;
+      lReference.TargetSymbolId := lSymbolId;
+      lReference.RoutineId := lRoutineId;
+      lReference.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lReference.SourceKindId := lBuilder.Strings.Intern('project-source');
+      lReference.Line := 10;
+      lReference.Column := 3;
+      lReference.EndLine := 10;
+      lReference.EndColumn := 21;
+      lUnit.AddReference(lReference);
+
+      lBuilder.AddUnit(lUnit);
+      lUnit := nil;
+    finally
+      lUnit.Free;
+    end;
+
+    lProject := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+
+  try
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    lContext.ProjectSnapshot := BorrowProjectSnapshot(lProject);
+
+    lPlan := TDelphiSemanticRenamePlanner.PlanRename(lContext, 'SnapshotShadowValue',
+      'SnapshotRenamedValue');
+
+    Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual(1, Integer(Length(lPlan.Edits)),
+      'The routine-scoped var should shadow the global inside Touch.');
+    Assert.AreEqual(4, lPlan.Edits[0].StartLine);
+    Assert.AreEqual(0, lPlan.IndexMetrics.BuildInvocationCount);
+  finally
+    lContext.ProjectSnapshot := nil;
+    lProject.Free;
+    if (lRootPath <> '') and TDirectory.Exists(lRootPath) then
+      TDirectory.Delete(lRootPath, True);
+  end;
 end;
 
 procedure TRenamePlannerTests.BlocksCaseInsensitiveCollision;
