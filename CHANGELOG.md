@@ -12,6 +12,9 @@
   snapshot architecture.
 - Project sessions can now build typed project snapshots from extracted unit
   models and expose snapshot build counts/timing metrics.
+- Project snapshot building now has an opt-in worker-local parallel builder with
+  deterministic merge metrics for queue, parse/extract, merge, worker count, and
+  fact count telemetry.
 - Project snapshot SQLite cache metrics now expose probe, SQL read,
   deserialization, index rebuild, parse-avoided estimate, and usefulness
   telemetry through project/session snapshot build metrics.

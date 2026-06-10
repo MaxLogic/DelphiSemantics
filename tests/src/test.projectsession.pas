@@ -3,13 +3,28 @@ unit Test.ProjectSession;
 interface
 
 uses
-  DUnitX.TestFramework;
+  DUnitX.TestFramework,
+  DelphiSemantics.RemoveWithPlan,
+  DelphiSemantics.Snapshot;
 
 type
   [TestFixture]
   TProjectSessionTests = class
   private
     function FixturePath(const aRelativePath: string): string;
+    procedure AssertReferenceFactsEqual(const aExpectedSnapshot,
+      aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
+      aActualUnit: TUnitSnapshot; const aReferenceId: TSemanticReferenceId);
+    procedure AssertSnapshotFactsEqual(const aExpectedSnapshot,
+      aActualSnapshot: TDelphiProjectSnapshot);
+    procedure AssertSymbolFactsEqual(const aExpectedSnapshot,
+      aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
+      aActualUnit: TUnitSnapshot; const aSymbolId: TSemanticSymbolId);
+    procedure AssertWithFactsEqual(const aExpectedSnapshot,
+      aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
+      aActualUnit: TUnitSnapshot; const aWithId: TSemanticWithId);
+    function ParityStatementsFromPlan(const aPlan: TDelphiSemanticRemoveWithPlan):
+      TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
   public
     [Test]
     procedure ApiFacadeOpensProjectSessionFromProjectFileName;
@@ -19,6 +34,10 @@ type
     procedure OpensProjectSessionThroughExistingProjectContext;
     [Test]
     procedure ProjectSessionBuildsSnapshotFromExtractedModels;
+    [Test]
+    procedure ProjectSessionParallelSnapshotBuildMatchesSequentialFacts;
+    [Test]
+    procedure ProjectSessionParallelRemoveWithPlanMatchesSequentialCounts;
     [Test]
     procedure ProjectSessionSnapshotMetricsExposeCacheUsefulnessTelemetry;
     [Test]
@@ -38,14 +57,176 @@ uses
   DelphiSemantics.Api,
   DelphiSemantics.Model,
   DelphiSemantics.ProjectContext,
-  DelphiSemantics.ProjectSession,
-  DelphiSemantics.Snapshot;
+  DelphiSemantics.ProjectSession;
 
 function TProjectSessionTests.FixturePath(const aRelativePath: string): string;
 begin
   Result := TPath.GetFullPath(TPath.Combine(
     TPath.Combine(ExtractFilePath(ParamStr(0)), '..\fixtures'),
     aRelativePath));
+end;
+
+procedure TProjectSessionTests.AssertReferenceFactsEqual(const aExpectedSnapshot,
+  aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
+  aActualUnit: TUnitSnapshot; const aReferenceId: TSemanticReferenceId);
+var
+  lActual: TSemanticReferenceFact;
+  lExpected: TSemanticReferenceFact;
+begin
+  lExpected := aExpectedUnit.ReferenceById(aReferenceId);
+  lActual := aActualUnit.ReferenceById(aReferenceId);
+  Assert.AreEqual(Integer(lExpected.Id), Integer(lActual.Id));
+  Assert.AreEqual(Integer(lExpected.UnitId), Integer(lActual.UnitId));
+  Assert.AreEqual(Integer(lExpected.WithId), Integer(lActual.WithId));
+  Assert.AreEqual(Integer(lExpected.TargetUnitId), Integer(lActual.TargetUnitId));
+  Assert.AreEqual(Integer(lExpected.TargetSymbolId), Integer(lActual.TargetSymbolId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.NameId),
+    aActualSnapshot.TextOf(lActual.NameId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.ReceiverTypeId),
+    aActualSnapshot.TextOf(lActual.ReceiverTypeId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.TypeId),
+    aActualSnapshot.TextOf(lActual.TypeId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.RoutineId),
+    aActualSnapshot.TextOf(lActual.RoutineId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.SectionKindId),
+    aActualSnapshot.TextOf(lActual.SectionKindId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.SourceKindId),
+    aActualSnapshot.TextOf(lActual.SourceKindId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.ClassificationId),
+    aActualSnapshot.TextOf(lActual.ClassificationId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.LookupSourceId),
+    aActualSnapshot.TextOf(lActual.LookupSourceId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.ReasonId),
+    aActualSnapshot.TextOf(lActual.ReasonId));
+  Assert.AreEqual(lExpected.Line, lActual.Line);
+  Assert.AreEqual(lExpected.Column, lActual.Column);
+  Assert.AreEqual(lExpected.EndLine, lActual.EndLine);
+  Assert.AreEqual(lExpected.EndColumn, lActual.EndColumn);
+end;
+
+procedure TProjectSessionTests.AssertSnapshotFactsEqual(const aExpectedSnapshot,
+  aActualSnapshot: TDelphiProjectSnapshot);
+var
+  i: Integer;
+  lActualUnit: TUnitSnapshot;
+  lExpectedUnit: TUnitSnapshot;
+  lReferenceId: TSemanticReferenceId;
+  lSymbolId: TSemanticSymbolId;
+  lWithId: TSemanticWithId;
+begin
+  Assert.AreEqual(aExpectedSnapshot.UnitCount, aActualSnapshot.UnitCount);
+  for i := 0 to aExpectedSnapshot.UnitCount - 1 do
+  begin
+    lExpectedUnit := aExpectedSnapshot.UnitByIndex(i);
+    lActualUnit := aActualSnapshot.UnitByIndex(i);
+    Assert.AreEqual(Integer(lExpectedUnit.UnitId), Integer(lActualUnit.UnitId));
+    Assert.AreEqual(aExpectedSnapshot.TextOf(lExpectedUnit.FileNameId),
+      aActualSnapshot.TextOf(lActualUnit.FileNameId));
+    Assert.AreEqual(aExpectedSnapshot.TextOf(lExpectedUnit.UnitNameId),
+      aActualSnapshot.TextOf(lActualUnit.UnitNameId));
+    Assert.AreEqual(lExpectedUnit.SymbolCount, lActualUnit.SymbolCount);
+    Assert.AreEqual(lExpectedUnit.WithStatementCount, lActualUnit.WithStatementCount);
+    Assert.AreEqual(lExpectedUnit.ReferenceCount, lActualUnit.ReferenceCount);
+
+    for lSymbolId := 1 to TSemanticSymbolId(lExpectedUnit.SymbolCount) do
+      AssertSymbolFactsEqual(aExpectedSnapshot, aActualSnapshot, lExpectedUnit,
+        lActualUnit, lSymbolId);
+    for lWithId := 1 to TSemanticWithId(lExpectedUnit.WithStatementCount) do
+      AssertWithFactsEqual(aExpectedSnapshot, aActualSnapshot, lExpectedUnit,
+        lActualUnit, lWithId);
+    for lReferenceId := 1 to TSemanticReferenceId(lExpectedUnit.ReferenceCount) do
+      AssertReferenceFactsEqual(aExpectedSnapshot, aActualSnapshot, lExpectedUnit,
+        lActualUnit, lReferenceId);
+  end;
+end;
+
+procedure TProjectSessionTests.AssertSymbolFactsEqual(const aExpectedSnapshot,
+  aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
+  aActualUnit: TUnitSnapshot; const aSymbolId: TSemanticSymbolId);
+var
+  lActual: TSemanticSymbolFact;
+  lExpected: TSemanticSymbolFact;
+begin
+  lExpected := aExpectedUnit.SymbolById(aSymbolId);
+  lActual := aActualUnit.SymbolById(aSymbolId);
+  Assert.AreEqual(Integer(lExpected.Id), Integer(lActual.Id));
+  Assert.AreEqual(Integer(lExpected.UnitId), Integer(lActual.UnitId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.NameId),
+    aActualSnapshot.TextOf(lActual.NameId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.OwnerTypeId),
+    aActualSnapshot.TextOf(lActual.OwnerTypeId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.TypeId),
+    aActualSnapshot.TextOf(lActual.TypeId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.RoutineId),
+    aActualSnapshot.TextOf(lActual.RoutineId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.KindId),
+    aActualSnapshot.TextOf(lActual.KindId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.SectionKindId),
+    aActualSnapshot.TextOf(lActual.SectionKindId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.SourceKindId),
+    aActualSnapshot.TextOf(lActual.SourceKindId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.VisibilityId),
+    aActualSnapshot.TextOf(lActual.VisibilityId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.SignatureId),
+    aActualSnapshot.TextOf(lActual.SignatureId));
+  Assert.AreEqual(Int64(lExpected.Flags), Int64(lActual.Flags));
+  Assert.AreEqual(lExpected.Line, lActual.Line);
+  Assert.AreEqual(lExpected.Column, lActual.Column);
+  Assert.AreEqual(lExpected.EndLine, lActual.EndLine);
+  Assert.AreEqual(lExpected.EndColumn, lActual.EndColumn);
+end;
+
+procedure TProjectSessionTests.AssertWithFactsEqual(const aExpectedSnapshot,
+  aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
+  aActualUnit: TUnitSnapshot; const aWithId: TSemanticWithId);
+var
+  lActual: TSemanticWithStatementFact;
+  lExpected: TSemanticWithStatementFact;
+begin
+  lExpected := aExpectedUnit.WithStatementById(aWithId);
+  lActual := aActualUnit.WithStatementById(aWithId);
+  Assert.AreEqual(Integer(lExpected.Id), Integer(lActual.Id));
+  Assert.AreEqual(Integer(lExpected.UnitId), Integer(lActual.UnitId));
+  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.RoutineId),
+    aActualSnapshot.TextOf(lActual.RoutineId));
+  Assert.AreEqual(lExpected.SelectorStartLine, lActual.SelectorStartLine);
+  Assert.AreEqual(lExpected.SelectorStartColumn, lActual.SelectorStartColumn);
+  Assert.AreEqual(lExpected.BodyStartLine, lActual.BodyStartLine);
+  Assert.AreEqual(lExpected.BodyStartColumn, lActual.BodyStartColumn);
+  Assert.AreEqual(lExpected.BodyEndLine, lActual.BodyEndLine);
+  Assert.AreEqual(lExpected.BodyEndColumn, lActual.BodyEndColumn);
+  Assert.AreEqual(Int64(lExpected.Flags), Int64(lActual.Flags));
+end;
+
+function TProjectSessionTests.ParityStatementsFromPlan(
+  const aPlan: TDelphiSemanticRemoveWithPlan):
+  TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
+var
+  i: Integer;
+  j: Integer;
+begin
+  SetLength(Result, Length(aPlan.FinalStatements));
+  for i := 0 to High(aPlan.FinalStatements) do
+  begin
+    Result[i].StatementId := aPlan.FinalStatements[i].StatementId;
+    Result[i].FileName := aPlan.FinalStatements[i].FileName;
+    Result[i].Status := aPlan.FinalStatements[i].Status;
+    Result[i].Reason := aPlan.FinalStatements[i].Reason;
+    Result[i].UnsupportedIdentifierRole :=
+      aPlan.FinalStatements[i].UnsupportedIdentifierRole;
+    Result[i].ReplacementText := aPlan.FinalStatements[i].ReplacementText;
+    SetLength(Result[i].Edits, Length(aPlan.FinalStatements[i].Edits));
+    for j := 0 to High(aPlan.FinalStatements[i].Edits) do
+    begin
+      Result[i].Edits[j].Kind := aPlan.FinalStatements[i].Edits[j].Kind;
+      Result[i].Edits[j].FileName := aPlan.FinalStatements[i].Edits[j].FileName;
+      Result[i].Edits[j].StatementId :=
+        aPlan.FinalStatements[i].Edits[j].StatementId;
+      Result[i].Edits[j].Range := aPlan.FinalStatements[i].Edits[j].Range;
+      Result[i].Edits[j].ReplacementText :=
+        aPlan.FinalStatements[i].Edits[j].ReplacementText;
+    end;
+  end;
 end;
 
 procedure TProjectSessionTests.ApiFacadeOpensProjectSessionFromProjectFileName;
@@ -178,6 +359,121 @@ begin
     end;
   finally
     lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionParallelSnapshotBuildMatchesSequentialFacts;
+var
+  lParallelMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lParallelOptions: TDelphiSemanticOptions;
+  lParallelResult: TDelphiSemanticProjectSessionResult;
+  lParallelSnapshot: TDelphiProjectSnapshot;
+  lSequentialMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lSequentialOptions: TDelphiSemanticOptions;
+  lSequentialResult: TDelphiSemanticProjectSessionResult;
+  lSequentialSnapshot: TDelphiProjectSnapshot;
+begin
+  lSequentialOptions := Default(TDelphiSemanticOptions);
+  lSequentialOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lSequentialOptions.SnapshotBuildWorkerCount := 1;
+
+  lParallelOptions := lSequentialOptions;
+  lParallelOptions.SnapshotBuildWorkerCount := 2;
+
+  lSequentialResult := TDelphiSemanticProjectSession.Open(lSequentialOptions);
+  try
+    Assert.IsTrue(lSequentialResult.Success);
+    lSequentialSnapshot := lSequentialResult.Session.BuildSnapshot;
+    try
+      lSequentialMetrics := lSequentialResult.Session.LastSnapshotBuildMetrics;
+      Assert.AreEqual(1, lSequentialMetrics.SnapshotBuilderWorkerCount);
+
+      lParallelResult := TDelphiSemanticProjectSession.Open(lParallelOptions);
+      try
+        Assert.IsTrue(lParallelResult.Success);
+        lParallelSnapshot := lParallelResult.Session.BuildSnapshot;
+        try
+          lParallelMetrics := lParallelResult.Session.LastSnapshotBuildMetrics;
+          Assert.AreEqual(2, lParallelMetrics.SnapshotBuilderWorkerCount);
+          Assert.IsTrue(lParallelMetrics.SnapshotBuilderQueueMilliseconds >= 0);
+          Assert.IsTrue(lParallelMetrics.SnapshotBuilderParseExtractMilliseconds >= 0);
+          Assert.IsTrue(lParallelMetrics.SnapshotBuilderMergeMilliseconds >= 0);
+          Assert.AreEqual(lParallelMetrics.UnitCount + lParallelMetrics.SymbolCount +
+            lParallelMetrics.ReferenceCount + lParallelMetrics.WithStatementCount,
+            lParallelMetrics.SnapshotBuilderDeterministicFactCount);
+
+          AssertSnapshotFactsEqual(lSequentialSnapshot, lParallelSnapshot);
+          Assert.AreEqual(lSequentialMetrics.UnitCount, lParallelMetrics.UnitCount);
+          Assert.AreEqual(lSequentialMetrics.SymbolCount, lParallelMetrics.SymbolCount);
+          Assert.AreEqual(lSequentialMetrics.ReferenceCount,
+            lParallelMetrics.ReferenceCount);
+          Assert.AreEqual(lSequentialMetrics.WithStatementCount,
+            lParallelMetrics.WithStatementCount);
+        finally
+          lParallelSnapshot.Free;
+        end;
+      finally
+        lParallelResult.Session.Free;
+      end;
+    finally
+      lSequentialSnapshot.Free;
+    end;
+  finally
+    lSequentialResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionParallelRemoveWithPlanMatchesSequentialCounts;
+var
+  lParallelMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lParallelOptions: TDelphiSemanticOptions;
+  lParallelPlan: TDelphiSemanticRemoveWithPlan;
+  lParallelResult: TDelphiSemanticProjectSessionResult;
+  lParityReport: TDelphiSemanticRemoveWithPlanParityReport;
+  lSequentialMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lSequentialOptions: TDelphiSemanticOptions;
+  lSequentialPlan: TDelphiSemanticRemoveWithPlan;
+  lSequentialResult: TDelphiSemanticProjectSessionResult;
+begin
+  lSequentialOptions := Default(TDelphiSemanticOptions);
+  lSequentialOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lSequentialOptions.SnapshotBuildWorkerCount := 1;
+
+  lParallelOptions := lSequentialOptions;
+  lParallelOptions.SnapshotBuildWorkerCount := 2;
+
+  lSequentialResult := TDelphiSemanticProjectSession.Open(lSequentialOptions);
+  try
+    Assert.IsTrue(lSequentialResult.Success);
+    lSequentialPlan := lSequentialResult.Session.PlanRemoveWith;
+    lSequentialMetrics := lSequentialResult.Session.LastSnapshotBuildMetrics;
+    Assert.AreEqual(1, lSequentialMetrics.SnapshotBuilderWorkerCount);
+
+    lParallelResult := TDelphiSemanticProjectSession.Open(lParallelOptions);
+    try
+      Assert.IsTrue(lParallelResult.Success);
+      lParallelPlan := lParallelResult.Session.PlanRemoveWith;
+      lParallelMetrics := lParallelResult.Session.LastSnapshotBuildMetrics;
+
+      Assert.AreEqual(2, lParallelMetrics.SnapshotBuilderWorkerCount);
+      Assert.AreEqual(lSequentialPlan.Operation, lParallelPlan.Operation);
+      Assert.AreEqual(lSequentialPlan.Status, lParallelPlan.Status);
+      Assert.AreEqual(lSequentialPlan.Diagnostic, lParallelPlan.Diagnostic);
+      Assert.AreEqual(Length(lSequentialPlan.Edits), Length(lParallelPlan.Edits));
+      Assert.AreEqual(Length(lSequentialPlan.SkippedStatements),
+        Length(lParallelPlan.SkippedStatements));
+      Assert.AreEqual(Length(lSequentialPlan.FinalStatements),
+        Length(lParallelPlan.FinalStatements));
+      Assert.IsTrue(Length(lParallelPlan.FinalStatements) > 0);
+
+      lParityReport := TDelphiSemanticRemoveWithPlanParity.Compare(lParallelPlan,
+        ParityStatementsFromPlan(lSequentialPlan));
+      Assert.AreEqual(0, lParityReport.MismatchCount, lParityReport.SummaryText);
+    finally
+      lParallelResult.Session.Free;
+    end;
+  finally
+    lSequentialResult.Session.Free;
   end;
 end;
 

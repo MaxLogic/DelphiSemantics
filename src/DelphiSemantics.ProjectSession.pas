@@ -49,6 +49,11 @@ type
     SnapshotIndexRebuildMilliseconds: Int64;
     SnapshotParseAvoidedEstimateMilliseconds: Int64;
     SnapshotCacheUseful: Boolean;
+    SnapshotBuilderWorkerCount: Integer;
+    SnapshotBuilderQueueMilliseconds: Int64;
+    SnapshotBuilderParseExtractMilliseconds: Int64;
+    SnapshotBuilderMergeMilliseconds: Int64;
+    SnapshotBuilderDeterministicFactCount: Integer;
   end;
 
   TDelphiSemanticProjectSession = class
@@ -90,8 +95,8 @@ uses
   System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils,
   System.JSON, System.SysUtils,
   DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Index,
-  DelphiSemantics.Query, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Symbols,
-  DelphiSemantics.Version,
+  DelphiSemantics.Query, DelphiSemantics.Snapshot.Builder,
+  DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Symbols, DelphiSemantics.Version,
   MaxLogic.StrUtils;
 
 const
@@ -1471,44 +1476,48 @@ begin
     Result.Bindings[i] := SnapshotWithBinding(aExactStrings, aFacts.Bindings[i]);
 end;
 
-function BuildSnapshotFromModels(const aModels: TArray<TDelphiSemanticUnitModel>;
-  const aRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
-  const aResolveReferenceTargets: Boolean;
-  var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot; overload;
-var
-  i: Integer;
-  lBuilder: TDelphiProjectSnapshotBuilder;
-  lReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
-  lStopwatch: TStopwatch;
+procedure ApplySnapshotBuilderMetrics(var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  const aBuilderMetrics: TDelphiSnapshotBuilderMetrics);
 begin
-  aMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
-  lBuilder := TDelphiProjectSnapshotBuilder.Create;
-  lReferenceTargets := nil;
-  lStopwatch := TStopwatch.StartNew;
-  try
-    if aResolveReferenceTargets then
-      lReferenceTargets := BuildSnapshotReferenceTargets(aModels);
-    for i := 0 to High(aModels) do
-      AddSnapshotUnitModel(lBuilder, aModels[i], TSemanticUnitId(i + 1), lReferenceTargets,
-        aMetrics);
-    lBuilder.SetRemoveWithPlanningFacts(CreateRemoveWithPlanningFacts(
-      lBuilder.ExactStrings, aRemoveWithFacts));
-    Result := lBuilder.Build;
-  finally
-    lStopwatch.Stop;
-    aMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;
-    lReferenceTargets.Free;
-    lBuilder.Free;
-  end;
+  aMetrics.UnitCount := aBuilderMetrics.UnitCount;
+  aMetrics.SymbolCount := aBuilderMetrics.SymbolCount;
+  aMetrics.ReferenceCount := aBuilderMetrics.ReferenceCount;
+  aMetrics.WithStatementCount := aBuilderMetrics.WithStatementCount;
+  aMetrics.BuildMilliseconds := aBuilderMetrics.BuildMilliseconds;
+  aMetrics.SnapshotBuilderWorkerCount := aBuilderMetrics.WorkerCount;
+  aMetrics.SnapshotBuilderQueueMilliseconds := aBuilderMetrics.QueueMilliseconds;
+  aMetrics.SnapshotBuilderParseExtractMilliseconds :=
+    aBuilderMetrics.ParseExtractMilliseconds;
+  aMetrics.SnapshotBuilderMergeMilliseconds := aBuilderMetrics.MergeMilliseconds;
+  aMetrics.SnapshotBuilderDeterministicFactCount :=
+    aBuilderMetrics.DeterministicFactCount;
 end;
 
 function BuildSnapshotFromModels(const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aResolveReferenceTargets: Boolean; const aWorkerCount: Integer;
+  var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot; overload;
+var
+  lBuilderMetrics: TDelphiSnapshotBuilderMetrics;
+  lOptions: TDelphiSnapshotBuildOptions;
+begin
+  aMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := aResolveReferenceTargets;
+  lOptions.WorkerCount := aWorkerCount;
+  Result := BuildProjectSnapshotFromModels(aModels, aRemoveWithFacts, lOptions,
+    lBuilderMetrics);
+  ApplySnapshotBuilderMetrics(aMetrics, lBuilderMetrics);
+end;
+
+function BuildSnapshotFromModels(const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aWorkerCount: Integer;
   var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot; overload;
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
 begin
   lFacts := Default(TDelphiSemanticProjectWithBindingFacts);
-  Result := BuildSnapshotFromModels(aModels, lFacts, True, aMetrics);
+  Result := BuildSnapshotFromModels(aModels, lFacts, True, aWorkerCount, aMetrics);
 end;
 
 procedure StoreSingleUnitSnapshotCacheEntry(const aCacheFileName: string;
@@ -1758,7 +1767,8 @@ begin
 
   lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds);
   lParseAvoidedEstimateMilliseconds := VisibleMetricMilliseconds(lExtractionMilliseconds);
-  lSnapshot := BuildSnapshotFromModels(lModels, fLastSnapshotBuildMetrics);
+  lSnapshot := BuildSnapshotFromModels(lModels, fOptions.SnapshotBuildWorkerCount,
+    fLastSnapshotBuildMetrics);
   try
     ApplySnapshotCacheMetrics(fLastSnapshotBuildMetrics, lCacheMetrics);
     fLastSnapshotBuildMetrics.SnapshotParseAvoidedEstimateMilliseconds :=
@@ -1867,7 +1877,8 @@ begin
     lFacts.Metrics.SemanticCachePersistentConnectionOpenCount :=
       lCacheMetrics.PersistentConnectionOpenCount;
 
-    lSnapshot := BuildSnapshotFromModels(lModels, lFacts, False, fLastSnapshotBuildMetrics);
+    lSnapshot := BuildSnapshotFromModels(lModels, lFacts, False,
+      fOptions.SnapshotBuildWorkerCount, fLastSnapshotBuildMetrics);
     try
       Result := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
     finally

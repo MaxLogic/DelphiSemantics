@@ -128,6 +128,7 @@
     <DCCReference Include="..\src\DelphiSemantics.SemanticGraph.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Source.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.SourceContext.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Snapshot.Builder.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Symbols.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Usage.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Version.pas"/>

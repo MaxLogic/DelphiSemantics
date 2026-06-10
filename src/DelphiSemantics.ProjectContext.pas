@@ -21,6 +21,7 @@ type
     AdditionalSourceFileNames: TArray<string>;
     BodyAnalysisSourceFileNames: TArray<string>;
     SqliteCacheFileName: string;
+    SnapshotBuildWorkerCount: Integer;
     UseLspEnrichment: Boolean;
     SkipWithBindingSemanticGraph: Boolean;
   end;
