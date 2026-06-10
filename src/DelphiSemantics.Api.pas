@@ -241,6 +241,9 @@ type
       TDelphiSemanticRemoveWithPlan; overload; static;
     class function PlanRemoveWith(const aFacts: TDelphiSemanticProjectWithBindingFacts):
       TDelphiSemanticRemoveWithPlan; overload; static;
+    class function PlanRemoveWithSnapshot(
+      const aFacts: TDelphiSemanticProjectWithBindingFacts):
+      TDelphiSemanticRemoveWithPlan; static;
     class function Search(const aContext: TDelphiSemanticSymbolQueryContext;
       const aQuery: TDelphiSemanticSearchQuery): TDelphiSemanticSearchResult; static;
   end;
@@ -248,7 +251,7 @@ type
 implementation
 
 uses
-  DelphiSemantics.Cache.Sqlite;
+  DelphiSemantics.Cache.Sqlite, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder;
 
 function ProjectOptionsFromApiOptions(const aOptions: TDelphiSemanticApiOptions):
   TDelphiSemanticOptions;
@@ -455,6 +458,24 @@ class function TDelphiSemanticApi.PlanRemoveWith(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
 begin
   Result := TDelphiSemanticRemoveWithPlanner.Plan(aFacts);
+end;
+
+class function TDelphiSemanticApi.PlanRemoveWithSnapshot(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
+var
+  lBuildMetrics: TDelphiSnapshotBuilderMetrics;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := False;
+  lSnapshot := BuildProjectSnapshotFromModels(aFacts.UnitModels, aFacts, lOptions,
+    lBuildMetrics);
+  try
+    Result := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
+  finally
+    lSnapshot.Free;
+  end;
 end;
 
 class function TDelphiSemanticApi.Search(const aContext: TDelphiSemanticSymbolQueryContext;

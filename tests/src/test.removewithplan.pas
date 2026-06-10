@@ -28,6 +28,8 @@ type
     [Test]
     procedure SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;
     [Test]
+    procedure SnapshotPlannerConsumesExistingFactsWithoutProjectSession;
+    [Test]
     procedure SnapshotPlannerPreservesCaseOnlySelectorText;
     [Test]
     procedure SnapshotPlannerMaxTdbPreservesCountsWithoutProjectFactsSidecar;
@@ -819,6 +821,28 @@ begin
   for i := 0 to High(lBeforeBytes) do
     Assert.AreEqual(lBeforeBytes[i], lAfterBytes[i],
       'Snapshot planner must preserve source bytes.');
+end;
+
+procedure TRemoveWithPlanTests.SnapshotPlannerConsumesExistingFactsWithoutProjectSession;
+var
+  lActualPlan: TDelphiSemanticRemoveWithPlan;
+  lExpectedPlan: TDelphiSemanticRemoveWithPlan;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+
+  lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
+  lExpectedPlan := TDelphiSemanticApi.PlanRemoveWith(lFacts);
+  lActualPlan := TDelphiSemanticApi.PlanRemoveWithSnapshot(lFacts);
+
+  Assert.AreEqual('project-snapshot-v1', lActualPlan.BaselineSemanticModelVersion);
+  Assert.AreEqual(lExpectedPlan.Status, lActualPlan.Status, lActualPlan.Diagnostic);
+  Assert.AreEqual(lExpectedPlan.ContextFingerprint, lActualPlan.ContextFingerprint);
+  Assert.AreEqual(ComparableRemoveWithPlanText(lExpectedPlan),
+    ComparableRemoveWithPlanText(lActualPlan),
+    'Snapshot planner from existing facts must match the binding-facts plan.');
 end;
 
 procedure TRemoveWithPlanTests.SnapshotPlannerPreservesCaseOnlySelectorText;
