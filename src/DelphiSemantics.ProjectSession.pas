@@ -3,8 +3,8 @@ unit DelphiSemantics.ProjectSession;
 interface
 
 uses
-  DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.SemanticGraph,
-  DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
+  DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.RemoveWithPlan,
+  DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticProjectSession = class;
@@ -68,6 +68,7 @@ type
     function BuildSemanticGraph: TDelphiSemanticSemanticGraph;
     function BuildSnapshot: TDelphiProjectSnapshot;
     function BuildWithBindingFacts: TDelphiSemanticProjectWithBindingFacts;
+    function PlanRemoveWith: TDelphiSemanticRemoveWithPlan;
     function PlanInvalidation(const aChanges: TArray<TDelphiSemanticSessionChange>):
       TDelphiSemanticSessionInvalidationPlan;
     class function Open(const aOptions: TDelphiSemanticOptions):
@@ -1186,8 +1187,135 @@ begin
   end;
 end;
 
+procedure AddSnapshotFlag(var aFlags: Cardinal; const aFlag: Cardinal;
+  const aEnabled: Boolean);
+begin
+  if aEnabled then
+    aFlags := aFlags or aFlag;
+end;
+
+function SnapshotInventorySymbol(const aExactStrings: TSemanticStringPool;
+  const aSymbol: TDelphiSemanticInventorySymbol): TSemanticRemoveWithInventorySymbolFact;
+begin
+  Result := Default(TSemanticRemoveWithInventorySymbolFact);
+  Result.NameId := aExactStrings.Intern(aSymbol.Name);
+  Result.SymbolClassId := aExactStrings.Intern(aSymbol.SymbolClass);
+  Result.KindId := aExactStrings.Intern(aSymbol.Kind);
+  Result.TypeNameId := aExactStrings.Intern(aSymbol.TypeName);
+  Result.ModifierId := aExactStrings.Intern(aSymbol.Modifier);
+  Result.OwnerNameId := aExactStrings.Intern(aSymbol.OwnerName);
+  Result.OwnerTypeId := aExactStrings.Intern(aSymbol.OwnerType);
+  Result.SourceOwnerTypeId := aExactStrings.Intern(aSymbol.SourceOwnerType);
+  Result.RelatedTypeNameId := aExactStrings.Intern(aSymbol.RelatedTypeName);
+  Result.RoutineNameId := aExactStrings.Intern(aSymbol.RoutineName);
+  Result.UnitNameId := aExactStrings.Intern(aSymbol.UnitName);
+  Result.FileNameId := aExactStrings.Intern(aSymbol.FileName);
+  Result.SectionKindId := aExactStrings.Intern(aSymbol.SectionKind);
+  Result.Line := aSymbol.Line;
+  Result.Column := aSymbol.Column;
+  Result.EndLine := aSymbol.EndLine;
+  Result.EndColumn := aSymbol.EndColumn;
+  Result.UnsupportedReasonId := aExactStrings.Intern(aSymbol.UnsupportedReason);
+  AddSnapshotFlag(Result.Flags, cSemanticRemoveWithSymbolFlagIsHelper,
+    aSymbol.IsHelper);
+  AddSnapshotFlag(Result.Flags, cSemanticRemoveWithSymbolFlagIsOverride,
+    aSymbol.IsOverride);
+  AddSnapshotFlag(Result.Flags, cSemanticRemoveWithSymbolFlagIsDefault,
+    aSymbol.IsDefault);
+  AddSnapshotFlag(Result.Flags, cSemanticRemoveWithSymbolFlagIsIndexed,
+    aSymbol.IsIndexed);
+  Result.IndexParameterCount := aSymbol.IndexParameterCount;
+  Result.TypeCategoryId := aExactStrings.Intern(aSymbol.TypeCategory);
+end;
+
+function SnapshotSelectorBinding(const aExactStrings: TSemanticStringPool;
+  const aSelector: TDelphiSemanticWithSelectorBinding):
+  TSemanticRemoveWithSelectorBindingFact;
+begin
+  Result := Default(TSemanticRemoveWithSelectorBindingFact);
+  Result.SelectorTextId := aExactStrings.Intern(aSelector.SelectorText);
+  Result.StatusId := aExactStrings.Intern(aSelector.Status);
+  Result.ReasonCodeId := aExactStrings.Intern(aSelector.ReasonCode);
+  Result.TypeNameId := aExactStrings.Intern(aSelector.TypeName);
+end;
+
+function SnapshotBoundReference(const aExactStrings: TSemanticStringPool;
+  const aReference: TDelphiSemanticBoundReference):
+  TSemanticRemoveWithBoundReferenceFact;
+begin
+  Result := Default(TSemanticRemoveWithBoundReferenceFact);
+  Result.SemanticIdId := aExactStrings.Intern(aReference.SemanticId);
+  Result.NameId := aExactStrings.Intern(aReference.Name);
+  Result.ClassificationId := aExactStrings.Intern(aReference.Classification);
+  Result.LookupSourceId := aExactStrings.Intern(aReference.LookupSource);
+  Result.ReceiverTypeNameId := aExactStrings.Intern(aReference.ReceiverTypeName);
+  Result.KindId := aExactStrings.Intern(aReference.Kind);
+  Result.TypeNameId := aExactStrings.Intern(aReference.TypeName);
+  Result.ReasonCodeId := aExactStrings.Intern(aReference.ReasonCode);
+  Result.ScopeConflictKindId := aExactStrings.Intern(aReference.ScopeConflictKind);
+  Result.ScopeConflictNameId := aExactStrings.Intern(aReference.ScopeConflictName);
+  Result.Line := aReference.Line;
+  Result.Column := aReference.Column;
+  Result.EndLine := aReference.EndLine;
+  Result.EndColumn := aReference.EndColumn;
+end;
+
+function SnapshotWithBinding(const aExactStrings: TSemanticStringPool;
+  const aBinding: TDelphiSemanticWithBinding): TSemanticRemoveWithBindingFact;
+var
+  i: Integer;
+begin
+  Result := Default(TSemanticRemoveWithBindingFact);
+  Result.SemanticIdId := aExactStrings.Intern(aBinding.SemanticId);
+  Result.ProvenanceId := aExactStrings.Intern(aBinding.Provenance);
+  Result.FileNameId := aExactStrings.Intern(aBinding.FileName);
+  Result.UnitNameId := aExactStrings.Intern(aBinding.UnitName);
+  Result.RoutineNameId := aExactStrings.Intern(aBinding.RoutineName);
+  Result.Line := aBinding.Line;
+  Result.Column := aBinding.Column;
+  Result.EndLine := aBinding.EndLine;
+  Result.EndColumn := aBinding.EndColumn;
+  Result.BodyLine := aBinding.BodyLine;
+  Result.BodyColumn := aBinding.BodyColumn;
+  Result.BodyEndLine := aBinding.BodyEndLine;
+  Result.BodyEndColumn := aBinding.BodyEndColumn;
+  Result.SelectorTextId := aExactStrings.Intern(aBinding.SelectorText);
+  Result.StatusId := aExactStrings.Intern(aBinding.Status);
+  Result.SkipReasonId := aExactStrings.Intern(aBinding.SkipReason);
+  AddSnapshotFlag(Result.Flags, cSemanticRemoveWithBindingFlagHasScopedDeclaration,
+    aBinding.HasScopedDeclaration);
+  Result.MemberReferenceCount := aBinding.MemberReferenceCount;
+  Result.LexicalReferenceCount := aBinding.LexicalReferenceCount;
+  Result.ExternalReferenceCount := aBinding.ExternalReferenceCount;
+  Result.IntrinsicReferenceCount := aBinding.IntrinsicReferenceCount;
+  Result.UnsupportedReferenceCount := aBinding.UnsupportedReferenceCount;
+  Result.UnresolvedReferenceCount := aBinding.UnresolvedReferenceCount;
+  SetLength(Result.Selectors, Length(aBinding.Selectors));
+  for i := 0 to High(aBinding.Selectors) do
+    Result.Selectors[i] := SnapshotSelectorBinding(aExactStrings, aBinding.Selectors[i]);
+  SetLength(Result.References, Length(aBinding.References));
+  for i := 0 to High(aBinding.References) do
+    Result.References[i] := SnapshotBoundReference(aExactStrings, aBinding.References[i]);
+end;
+
+function CreateRemoveWithPlanningFacts(const aExactStrings: TSemanticStringPool;
+  const aFacts: TDelphiSemanticProjectWithBindingFacts): TSemanticRemoveWithPlanningFacts;
+var
+  i: Integer;
+begin
+  Result := Default(TSemanticRemoveWithPlanningFacts);
+  Result.ContextFingerprintId := aExactStrings.Intern(aFacts.ContextFingerprint);
+  SetLength(Result.Symbols, Length(aFacts.Symbols));
+  for i := 0 to High(aFacts.Symbols) do
+    Result.Symbols[i] := SnapshotInventorySymbol(aExactStrings, aFacts.Symbols[i]);
+  SetLength(Result.Bindings, Length(aFacts.Bindings));
+  for i := 0 to High(aFacts.Bindings) do
+    Result.Bindings[i] := SnapshotWithBinding(aExactStrings, aFacts.Bindings[i]);
+end;
+
 function BuildSnapshotFromModels(const aModels: TArray<TDelphiSemanticUnitModel>;
-  var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot;
+  const aRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
+  var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot; overload;
 var
   i: Integer;
   lBuilder: TDelphiProjectSnapshotBuilder;
@@ -1199,12 +1327,23 @@ begin
   try
     for i := 0 to High(aModels) do
       AddSnapshotUnitModel(lBuilder, aModels[i], TSemanticUnitId(i + 1), aMetrics);
+    lBuilder.SetRemoveWithPlanningFacts(CreateRemoveWithPlanningFacts(
+      lBuilder.ExactStrings, aRemoveWithFacts));
     Result := lBuilder.Build;
   finally
     lStopwatch.Stop;
     aMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;
     lBuilder.Free;
   end;
+end;
+
+function BuildSnapshotFromModels(const aModels: TArray<TDelphiSemanticUnitModel>;
+  var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot; overload;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+begin
+  lFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+  Result := BuildSnapshotFromModels(aModels, lFacts, aMetrics);
 end;
 
 procedure StoreSingleUnitSnapshotCacheEntry(const aCacheFileName: string;
@@ -1524,6 +1663,46 @@ begin
       if lProjectFactsCacheInvalidated then
         Result.Metrics.ProjectFactsCacheInvalidations := 1;
       StoreProjectFactsCache(lProjectFactsCacheFileName, lProjectFactsCacheKey, Result);
+    end;
+  finally
+    lGraph.Free;
+  end;
+end;
+
+function TDelphiSemanticProjectSession.PlanRemoveWith: TDelphiSemanticRemoveWithPlan;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lExtractionMilliseconds: Int64;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds, lCacheMetrics);
+  if fOptions.SkipWithBindingSemanticGraph then
+    lGraph := nil
+  else
+    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lModels);
+  try
+    if lGraph <> nil then
+      fLastSemanticGraphBuildMetrics := lGraph.Metrics
+    else
+      fLastSemanticGraphBuildMetrics := Default(TDelphiSemanticGraphBuildMetrics);
+
+    lFacts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint, lGraph,
+      lModels);
+    lFacts.Metrics.ModelExtractionMilliseconds := lExtractionMilliseconds;
+    lFacts.Metrics.SemanticCacheHits := lCacheMetrics.CacheHits;
+    lFacts.Metrics.SemanticCacheMisses := lCacheMetrics.CacheMisses;
+    lFacts.Metrics.SemanticCacheInvalidations := lCacheMetrics.Invalidations;
+    lFacts.Metrics.SemanticCachePersistentConnectionOpenCount :=
+      lCacheMetrics.PersistentConnectionOpenCount;
+
+    lSnapshot := BuildSnapshotFromModels(lModels, lFacts, fLastSnapshotBuildMetrics);
+    try
+      Result := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
+    finally
+      lSnapshot.Free;
     end;
   finally
     lGraph.Free;

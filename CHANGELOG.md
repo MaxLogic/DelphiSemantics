@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Remove-with planning can now run through a DelphiSemantics project-session
+  snapshot API path, preserving current plan DTOs without requiring the legacy
+  JSON project-facts sidecar on that core path.
 - Snapshot primitive API with a case-aware string pool, dense unit snapshot fact
   storage, `UInt64` member-key helper, immutable project snapshot builder, and
   cross-unit file/symbol/member/type/reference indexes for the new typed project

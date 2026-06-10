@@ -237,8 +237,10 @@ type
       const aProfile: string): TDelphiSemanticDeadCodeReport; static;
     class function PlanDeadCodeRemoval(const aContext: TDelphiSemanticSymbolQueryContext;
       const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; static;
+    class function PlanRemoveWith(const aOptions: TDelphiSemanticApiOptions):
+      TDelphiSemanticRemoveWithPlan; overload; static;
     class function PlanRemoveWith(const aFacts: TDelphiSemanticProjectWithBindingFacts):
-      TDelphiSemanticRemoveWithPlan; static;
+      TDelphiSemanticRemoveWithPlan; overload; static;
     class function Search(const aContext: TDelphiSemanticSymbolQueryContext;
       const aQuery: TDelphiSemanticSearchQuery): TDelphiSemanticSearchResult; static;
   end;
@@ -424,6 +426,29 @@ class function TDelphiSemanticApi.PlanDeadCodeRemoval(
   TDelphiSemanticDeadCodeRemovalPlan;
 begin
   Result := TDelphiSemanticRenamePlanner.PlanDeadCodeRemoval(aContext, aProfile);
+end;
+
+class function TDelphiSemanticApi.PlanRemoveWith(
+  const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticRemoveWithPlan;
+var
+  lSession: TDelphiSemanticProjectSessionResult;
+begin
+  lSession := OpenProjectSession(aOptions);
+  try
+    if (not lSession.Success) or (lSession.Session = nil) then
+    begin
+      Result := Default(TDelphiSemanticRemoveWithPlan);
+      Result.Operation := 'remove-with';
+      Result.Status := 'blocked';
+      Result.BaselineSemanticModelVersion := 'project-snapshot-v1';
+      Result.Diagnostic := 'Cannot open project session.';
+      Exit;
+    end;
+
+    Result := lSession.Session.PlanRemoveWith;
+  finally
+    lSession.Session.Free;
+  end;
 end;
 
 class function TDelphiSemanticApi.PlanRemoveWith(

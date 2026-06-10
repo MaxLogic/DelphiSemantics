@@ -26,6 +26,12 @@ type
     [Test]
     procedure PlansDeterministicDryRunDtoWithVerificationAndProvenance;
     [Test]
+    procedure SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;
+    [Test]
+    procedure SnapshotPlannerPreservesCaseOnlySelectorText;
+    [Test]
+    procedure SnapshotPlannerMaxTdbPreservesCountsWithoutProjectFactsSidecar;
+    [Test]
     procedure DtoParityHarnessReportsMissingFinalStatements;
     [Test]
     procedure DtoParityHarnessReportsUnexpectedFinalStatements;
@@ -465,6 +471,128 @@ begin
   Result := SameText(lFileName, 'maxtdb.dpr') or SameText(lFileName, 'maxtdb.dproj');
 end;
 
+function SourceRangeText(const aRange: TDelphiSemanticRemoveWithSourceRange): string;
+begin
+  Result := Format('%d:%d-%d:%d', [aRange.StartLine, aRange.StartColumn,
+    aRange.EndLine, aRange.EndColumn]);
+end;
+
+procedure AppendStringArray(const aBuilder: TStringBuilder; const aName: string;
+  const aValues: TArray<string>);
+var
+  i: Integer;
+begin
+  aBuilder.Append(aName).Append('[').Append(Length(aValues)).Append(']');
+  for i := 0 to High(aValues) do
+    aBuilder.Append('|').Append(aValues[i]);
+  aBuilder.AppendLine;
+end;
+
+procedure AppendSourceVerification(const aBuilder: TStringBuilder;
+  const aName: string; const aVerification: TDelphiSemanticRemoveWithSourceVerification);
+begin
+  aBuilder.Append(aName).Append('=').Append(aVerification.ExpectedFileHash).Append('|')
+    .Append(SourceRangeText(aVerification.Range)).Append('|')
+    .Append(aVerification.ExpectedSourceText).AppendLine;
+end;
+
+function ComparableRemoveWithPlanText(
+  const aPlan: TDelphiSemanticRemoveWithPlan): string;
+var
+  i: Integer;
+  j: Integer;
+  lBuilder: TStringBuilder;
+begin
+  lBuilder := TStringBuilder.Create;
+  try
+    lBuilder.Append('operation=').Append(aPlan.Operation).AppendLine;
+    lBuilder.Append('status=').Append(aPlan.Status).AppendLine;
+    lBuilder.Append('context=').Append(aPlan.ContextFingerprint).AppendLine;
+    lBuilder.Append('diagnostic=').Append(aPlan.Diagnostic).AppendLine;
+    lBuilder.Append('requiredVerification=').Append(Length(aPlan.RequiredVerification))
+      .AppendLine;
+    for i := 0 to High(aPlan.RequiredVerification) do
+      lBuilder.Append('verification|').Append(i).Append('|')
+        .Append(aPlan.RequiredVerification[i].Kind).Append('|')
+        .Append(aPlan.RequiredVerification[i].Description).AppendLine;
+
+    lBuilder.Append('edits=').Append(Length(aPlan.Edits)).AppendLine;
+    for i := 0 to High(aPlan.Edits) do
+    begin
+      lBuilder.Append('edit|').Append(i).Append('|').Append(aPlan.Edits[i].Kind)
+        .Append('|').Append(aPlan.Edits[i].FileName)
+        .Append('|').Append(aPlan.Edits[i].StatementId)
+        .Append('|').Append(aPlan.Edits[i].ExpectedFileHash)
+        .Append('|').Append(SourceRangeText(aPlan.Edits[i].Range))
+        .Append('|').Append(aPlan.Edits[i].ReplacementText)
+        .Append('|').Append(aPlan.Edits[i].ApplyMode)
+        .Append('|').Append(aPlan.Edits[i].SemanticReason)
+        .Append('|').Append(aPlan.Edits[i].SemanticId)
+        .Append('|').Append(aPlan.Edits[i].ExpectedSourceText).AppendLine;
+      AppendStringArray(lBuilder, 'editReferenceIds', aPlan.Edits[i].ReferenceIds);
+    end;
+
+    lBuilder.Append('skipped=').Append(Length(aPlan.SkippedStatements)).AppendLine;
+    for i := 0 to High(aPlan.SkippedStatements) do
+      lBuilder.Append('skip|').Append(i).Append('|')
+        .Append(aPlan.SkippedStatements[i].FileName).Append('|')
+        .Append(aPlan.SkippedStatements[i].StatementId).Append('|')
+        .Append(SourceRangeText(aPlan.SkippedStatements[i].Range)).Append('|')
+        .Append(aPlan.SkippedStatements[i].Reason).Append('|')
+        .Append(aPlan.SkippedStatements[i].SafetyReason).Append('|')
+        .Append(aPlan.SkippedStatements[i].SemanticId).AppendLine;
+
+    lBuilder.Append('finals=').Append(Length(aPlan.FinalStatements)).AppendLine;
+    for i := 0 to High(aPlan.FinalStatements) do
+    begin
+      lBuilder.Append('final|').Append(i).Append('|')
+        .Append(aPlan.FinalStatements[i].FileName).Append('|')
+        .Append(aPlan.FinalStatements[i].StatementId).Append('|')
+        .Append(aPlan.FinalStatements[i].SemanticId).Append('|')
+        .Append(aPlan.FinalStatements[i].RoutineName).Append('|')
+        .Append(aPlan.FinalStatements[i].Status).Append('|')
+        .Append(aPlan.FinalStatements[i].Reason).Append('|')
+        .Append(aPlan.FinalStatements[i].SafetyReason).Append('|')
+        .Append(aPlan.FinalStatements[i].UnsupportedIdentifierRole).Append('|')
+        .Append(SourceRangeText(aPlan.FinalStatements[i].Range)).Append('|')
+        .Append(aPlan.FinalStatements[i].ReplacementText).AppendLine;
+      AppendSourceVerification(lBuilder, 'finalVerification',
+        aPlan.FinalStatements[i].Verification);
+      lBuilder.Append('finalEdits=').Append(Length(aPlan.FinalStatements[i].Edits))
+        .AppendLine;
+      for j := 0 to High(aPlan.FinalStatements[i].Edits) do
+      begin
+        lBuilder.Append('finalEdit|').Append(i).Append('|').Append(j).Append('|')
+          .Append(aPlan.FinalStatements[i].Edits[j].Kind).Append('|')
+          .Append(aPlan.FinalStatements[i].Edits[j].FileName).Append('|')
+          .Append(aPlan.FinalStatements[i].Edits[j].StatementId).Append('|')
+          .Append(SourceRangeText(aPlan.FinalStatements[i].Edits[j].Range)).Append('|')
+          .Append(aPlan.FinalStatements[i].Edits[j].ReplacementText).Append('|')
+          .Append(aPlan.FinalStatements[i].Edits[j].SemanticId).AppendLine;
+        AppendSourceVerification(lBuilder, 'finalEditVerification',
+          aPlan.FinalStatements[i].Edits[j].Verification);
+      end;
+      lBuilder.Append('temps=').Append(Length(aPlan.FinalStatements[i].Temps)).AppendLine;
+      for j := 0 to High(aPlan.FinalStatements[i].Temps) do
+        lBuilder.Append('temp|').Append(i).Append('|').Append(j).Append('|')
+          .Append(aPlan.FinalStatements[i].Temps[j].SelectorText).Append('|')
+          .Append(aPlan.FinalStatements[i].Temps[j].QualifierText).Append('|')
+          .Append(aPlan.FinalStatements[i].Temps[j].Strategy).Append('|')
+          .Append(aPlan.FinalStatements[i].Temps[j].ReceiverType).Append('|')
+          .Append(aPlan.FinalStatements[i].Temps[j].TempName).Append('|')
+          .Append(aPlan.FinalStatements[i].Temps[j].DeclarationText).Append('|')
+          .Append(aPlan.FinalStatements[i].Temps[j].InitializationText).Append('|')
+          .Append(aPlan.FinalStatements[i].Temps[j].Reason).Append('|')
+          .Append(aPlan.FinalStatements[i].Temps[j].SemanticId).AppendLine;
+      AppendStringArray(lBuilder, 'finalReferenceIds',
+        aPlan.FinalStatements[i].ReferenceIds);
+    end;
+    Result := lBuilder.ToString;
+  finally
+    lBuilder.Free;
+  end;
+end;
+
 function TRemoveWithPlanTests.FixturePath(const aRelativePath: string): string;
 begin
   Result := TPath.GetFullPath(TPath.Combine(
@@ -635,6 +763,171 @@ begin
   Assert.AreEqual('SOURCE_RANGE_UNAVAILABLE', lSkippedPlan.SkippedStatements[0].Reason);
   Assert.AreEqual('stable source file, hash, and source range are required',
     lSkippedPlan.SkippedStatements[0].SafetyReason);
+end;
+
+procedure TRemoveWithPlanTests.SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;
+var
+  i: Integer;
+  lActualPlan: TDelphiSemanticRemoveWithPlan;
+  lAfterBytes: TBytes;
+  lBeforeBytes: TBytes;
+  lCacheDir: string;
+  lExpectedFacts: TDelphiSemanticProjectWithBindingFacts;
+  lExpectedOptions: TDelphiSemanticApiOptions;
+  lExpectedPlan: TDelphiSemanticRemoveWithPlan;
+  lOptions: TDelphiSemanticApiOptions;
+  lProjectFactsSidecar: string;
+  lUnitPath: string;
+begin
+  lCacheDir := TempPath('snapshot-planner-cache');
+  if TDirectory.Exists(lCacheDir) then
+    TDirectory.Delete(lCacheDir, True);
+  TDirectory.CreateDirectory(lCacheDir);
+
+  lUnitPath := FixturePath('ProjectWithBinding\ProjectWithUnit.pas');
+  lBeforeBytes := TFile.ReadAllBytes(lUnitPath);
+
+  lExpectedOptions := Default(TDelphiSemanticApiOptions);
+  lExpectedOptions.ProjectFileName := FixturePath(
+    'ProjectWithBinding\ProjectWithBinding.dproj');
+  lExpectedFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lExpectedOptions);
+  lExpectedPlan := TDelphiSemanticApi.PlanRemoveWith(lExpectedFacts);
+
+  lOptions := lExpectedOptions;
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lCacheDir,
+    'semantic-cache.sqlite3');
+  lProjectFactsSidecar := lOptions.Cache.SqliteCacheFileName + '.project-facts.json';
+  TDirectory.CreateDirectory(lProjectFactsSidecar);
+  Assert.IsTrue(TDirectory.Exists(lProjectFactsSidecar));
+
+  lActualPlan := TDelphiSemanticApi.PlanRemoveWith(lOptions);
+
+  Assert.AreEqual('project-snapshot-v1', lActualPlan.BaselineSemanticModelVersion);
+  Assert.AreEqual(lExpectedPlan.Status, lActualPlan.Status, lActualPlan.Diagnostic);
+  Assert.AreEqual(lExpectedPlan.ContextFingerprint, lActualPlan.ContextFingerprint);
+  Assert.AreEqual(ComparableRemoveWithPlanText(lExpectedPlan),
+    ComparableRemoveWithPlanText(lActualPlan),
+    'Snapshot planner DTO must match the binding-facts planner DTO.');
+  Assert.IsTrue(TDirectory.Exists(lProjectFactsSidecar),
+    'Snapshot planner path must leave the poisoned sidecar directory untouched.');
+  Assert.IsFalse(TFile.Exists(lProjectFactsSidecar),
+    'Snapshot planner path must not write the JSON project-facts sidecar.');
+
+  lAfterBytes := TFile.ReadAllBytes(lUnitPath);
+  Assert.AreEqual(Integer(Length(lBeforeBytes)), Integer(Length(lAfterBytes)),
+    'Snapshot planner must not write source files.');
+  for i := 0 to High(lBeforeBytes) do
+    Assert.AreEqual(lBeforeBytes[i], lAfterBytes[i],
+      'Snapshot planner must preserve source bytes.');
+end;
+
+procedure TRemoveWithPlanTests.SnapshotPlannerPreservesCaseOnlySelectorText;
+var
+  lActualPlan: TDelphiSemanticRemoveWithPlan;
+  lCacheDir: string;
+  lExpectedFacts: TDelphiSemanticProjectWithBindingFacts;
+  lExpectedOptions: TDelphiSemanticApiOptions;
+  lExpectedPlan: TDelphiSemanticRemoveWithPlan;
+  lOptions: TDelphiSemanticApiOptions;
+  lProjectPath: string;
+  lRoot: string;
+  lUnitPath: string;
+const
+  cCaseSelectorUnit =
+    'unit ProjectWithUnit;' + sLineBreak +
+    sLineBreak +
+    'interface' + sLineBreak +
+    sLineBreak +
+    'type' + sLineBreak +
+    '  TProjectUnitRecord = record' + sLineBreak +
+    '    Count: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    sLineBreak +
+    'procedure TouchProjectUnitRecord(const aValue: Integer);' + sLineBreak +
+    sLineBreak +
+    'implementation' + sLineBreak +
+    sLineBreak +
+    'procedure TouchProjectUnitRecord(const aValue: Integer);' + sLineBreak +
+    'var' + sLineBreak +
+    '  lRecord: TProjectUnitRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with lRecord do' + sLineBreak +
+    '    Count := aValue;' + sLineBreak +
+    '  with LRecord do' + sLineBreak +
+    '    Count := aValue + 1;' + sLineBreak +
+    'end;' + sLineBreak +
+    sLineBreak +
+    'end.' + sLineBreak;
+begin
+  lRoot := TempPath('snapshot-planner-case-selectors');
+  if TDirectory.Exists(lRoot) then
+    TDirectory.Delete(lRoot, True);
+  TDirectory.Copy(FixturePath('ProjectWithBinding'), lRoot);
+
+  lProjectPath := TPath.Combine(lRoot, 'ProjectWithBinding.dproj');
+  lUnitPath := TPath.Combine(lRoot, 'ProjectWithUnit.pas');
+  TFile.WriteAllText(lUnitPath, cCaseSelectorUnit, TEncoding.UTF8);
+
+  lExpectedOptions := Default(TDelphiSemanticApiOptions);
+  lExpectedOptions.ProjectFileName := lProjectPath;
+  lExpectedFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lExpectedOptions);
+  lExpectedPlan := TDelphiSemanticApi.PlanRemoveWith(lExpectedFacts);
+
+  lCacheDir := TempPath('snapshot-planner-case-selector-cache');
+  if TDirectory.Exists(lCacheDir) then
+    TDirectory.Delete(lCacheDir, True);
+  TDirectory.CreateDirectory(lCacheDir);
+
+  lOptions := lExpectedOptions;
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lCacheDir,
+    'semantic-cache.sqlite3');
+  lActualPlan := TDelphiSemanticApi.PlanRemoveWith(lOptions);
+
+  Assert.AreEqual(ComparableRemoveWithPlanText(lExpectedPlan),
+    ComparableRemoveWithPlanText(lActualPlan),
+    'Snapshot planner must preserve source-exact selector casing.');
+end;
+
+procedure TRemoveWithPlanTests.SnapshotPlannerMaxTdbPreservesCountsWithoutProjectFactsSidecar;
+var
+  lCacheDir: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectFactsSidecar: string;
+  lProjectPath: string;
+begin
+  lProjectPath := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
+  if not TFile.Exists(lProjectPath) then
+  begin
+    Assert.Pass('Optional proprietary maxTdb fixture is absent; no maxTdb snapshot planner check was run.');
+    Exit;
+  end;
+
+  lCacheDir := TempPath('snapshot-planner-maxtdb-cache');
+  if TDirectory.Exists(lCacheDir) then
+    TDirectory.Delete(lCacheDir, True);
+  TDirectory.CreateDirectory(lCacheDir);
+
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := lProjectPath;
+  lOptions.BodyAnalysisSourceFileNames := MaxTdbBodyAnalysisSourceFileNames;
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lCacheDir,
+    'semantic-cache.sqlite3');
+  lProjectFactsSidecar := lOptions.Cache.SqliteCacheFileName + '.project-facts.json';
+  TDirectory.CreateDirectory(lProjectFactsSidecar);
+
+  lPlan := TDelphiSemanticApi.PlanRemoveWith(lOptions);
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual('project-snapshot-v1', lPlan.BaselineSemanticModelVersion);
+  Assert.IsTrue(Length(lPlan.Edits) > 0,
+    'Expected maxTdb snapshot planning to produce semantic candidate edits.');
+  Assert.IsTrue(Length(lPlan.FinalStatements) > 0,
+    'Expected maxTdb snapshot planning to produce final statement DTOs.');
+  Assert.IsTrue(TDirectory.Exists(lProjectFactsSidecar),
+    'Snapshot maxTdb path must leave the poisoned sidecar directory untouched.');
+  Assert.IsFalse(TFile.Exists(lProjectFactsSidecar),
+    'Snapshot maxTdb path must not write the JSON project-facts sidecar.');
 end;
 
 procedure TRemoveWithPlanTests.DtoParityHarnessReportsMissingFinalStatements;

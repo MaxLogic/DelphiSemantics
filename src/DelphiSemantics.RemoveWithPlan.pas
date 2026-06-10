@@ -3,7 +3,7 @@ unit DelphiSemantics.RemoveWithPlan;
 interface
 
 uses
-  DelphiSemantics.WithBinding;
+  DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticRemoveWithSourceRange = record
@@ -139,7 +139,9 @@ type
   TDelphiSemanticRemoveWithPlanner = record
   public
     class function Plan(const aFacts: TDelphiSemanticProjectWithBindingFacts):
-      TDelphiSemanticRemoveWithPlan; static;
+      TDelphiSemanticRemoveWithPlan; overload; static;
+    class function Plan(const aSnapshot: TDelphiProjectSnapshot):
+      TDelphiSemanticRemoveWithPlan; overload; static;
   end;
 
   TDelphiSemanticRemoveWithPlanParity = record
@@ -8568,6 +8570,162 @@ begin
     lLineCache.Free;
     lHashCache.Free;
   end;
+end;
+
+function SnapshotHasFlag(const aFlags, aFlag: Cardinal): Boolean;
+begin
+  Result := (aFlags and aFlag) <> 0;
+end;
+
+function SnapshotInventorySymbol(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbol: TSemanticRemoveWithInventorySymbolFact): TDelphiSemanticInventorySymbol;
+begin
+  Result := Default(TDelphiSemanticInventorySymbol);
+  Result.Name := aSnapshot.ExactTextOf(aSymbol.NameId);
+  Result.SymbolClass := aSnapshot.ExactTextOf(aSymbol.SymbolClassId);
+  Result.Kind := aSnapshot.ExactTextOf(aSymbol.KindId);
+  Result.TypeName := aSnapshot.ExactTextOf(aSymbol.TypeNameId);
+  Result.Modifier := aSnapshot.ExactTextOf(aSymbol.ModifierId);
+  Result.OwnerName := aSnapshot.ExactTextOf(aSymbol.OwnerNameId);
+  Result.OwnerType := aSnapshot.ExactTextOf(aSymbol.OwnerTypeId);
+  Result.SourceOwnerType := aSnapshot.ExactTextOf(aSymbol.SourceOwnerTypeId);
+  Result.RelatedTypeName := aSnapshot.ExactTextOf(aSymbol.RelatedTypeNameId);
+  Result.RoutineName := aSnapshot.ExactTextOf(aSymbol.RoutineNameId);
+  Result.UnitName := aSnapshot.ExactTextOf(aSymbol.UnitNameId);
+  Result.FileName := aSnapshot.ExactTextOf(aSymbol.FileNameId);
+  Result.SectionKind := aSnapshot.ExactTextOf(aSymbol.SectionKindId);
+  Result.Line := aSymbol.Line;
+  Result.Column := aSymbol.Column;
+  Result.EndLine := aSymbol.EndLine;
+  Result.EndColumn := aSymbol.EndColumn;
+  Result.UnsupportedReason := aSnapshot.ExactTextOf(aSymbol.UnsupportedReasonId);
+  Result.IsHelper := SnapshotHasFlag(aSymbol.Flags,
+    cSemanticRemoveWithSymbolFlagIsHelper);
+  Result.IsOverride := SnapshotHasFlag(aSymbol.Flags,
+    cSemanticRemoveWithSymbolFlagIsOverride);
+  Result.IsDefault := SnapshotHasFlag(aSymbol.Flags,
+    cSemanticRemoveWithSymbolFlagIsDefault);
+  Result.IsIndexed := SnapshotHasFlag(aSymbol.Flags,
+    cSemanticRemoveWithSymbolFlagIsIndexed);
+  Result.IndexParameterCount := aSymbol.IndexParameterCount;
+  Result.TypeCategory := aSnapshot.ExactTextOf(aSymbol.TypeCategoryId);
+end;
+
+function SnapshotSelectorBinding(const aSnapshot: TDelphiProjectSnapshot;
+  const aSelector: TSemanticRemoveWithSelectorBindingFact):
+  TDelphiSemanticWithSelectorBinding;
+begin
+  Result := Default(TDelphiSemanticWithSelectorBinding);
+  Result.SelectorText := aSnapshot.ExactTextOf(aSelector.SelectorTextId);
+  Result.Status := aSnapshot.ExactTextOf(aSelector.StatusId);
+  Result.ReasonCode := aSnapshot.ExactTextOf(aSelector.ReasonCodeId);
+  Result.TypeName := aSnapshot.ExactTextOf(aSelector.TypeNameId);
+end;
+
+function SnapshotBoundReference(const aSnapshot: TDelphiProjectSnapshot;
+  const aReference: TSemanticRemoveWithBoundReferenceFact):
+  TDelphiSemanticBoundReference;
+begin
+  Result := Default(TDelphiSemanticBoundReference);
+  Result.SemanticId := aSnapshot.ExactTextOf(aReference.SemanticIdId);
+  Result.Name := aSnapshot.ExactTextOf(aReference.NameId);
+  Result.Classification := aSnapshot.ExactTextOf(aReference.ClassificationId);
+  Result.LookupSource := aSnapshot.ExactTextOf(aReference.LookupSourceId);
+  Result.ReceiverTypeName := aSnapshot.ExactTextOf(aReference.ReceiverTypeNameId);
+  Result.Kind := aSnapshot.ExactTextOf(aReference.KindId);
+  Result.TypeName := aSnapshot.ExactTextOf(aReference.TypeNameId);
+  Result.ReasonCode := aSnapshot.ExactTextOf(aReference.ReasonCodeId);
+  Result.ScopeConflictKind := aSnapshot.ExactTextOf(aReference.ScopeConflictKindId);
+  Result.ScopeConflictName := aSnapshot.ExactTextOf(aReference.ScopeConflictNameId);
+  Result.Line := aReference.Line;
+  Result.Column := aReference.Column;
+  Result.EndLine := aReference.EndLine;
+  Result.EndColumn := aReference.EndColumn;
+end;
+
+function SnapshotWithBinding(const aSnapshot: TDelphiProjectSnapshot;
+  const aBinding: TSemanticRemoveWithBindingFact): TDelphiSemanticWithBinding;
+var
+  i: Integer;
+begin
+  Result := Default(TDelphiSemanticWithBinding);
+  Result.SemanticId := aSnapshot.ExactTextOf(aBinding.SemanticIdId);
+  Result.Provenance := aSnapshot.ExactTextOf(aBinding.ProvenanceId);
+  Result.FileName := aSnapshot.ExactTextOf(aBinding.FileNameId);
+  Result.UnitName := aSnapshot.ExactTextOf(aBinding.UnitNameId);
+  Result.RoutineName := aSnapshot.ExactTextOf(aBinding.RoutineNameId);
+  Result.Line := aBinding.Line;
+  Result.Column := aBinding.Column;
+  Result.EndLine := aBinding.EndLine;
+  Result.EndColumn := aBinding.EndColumn;
+  Result.BodyLine := aBinding.BodyLine;
+  Result.BodyColumn := aBinding.BodyColumn;
+  Result.BodyEndLine := aBinding.BodyEndLine;
+  Result.BodyEndColumn := aBinding.BodyEndColumn;
+  Result.SelectorText := aSnapshot.ExactTextOf(aBinding.SelectorTextId);
+  Result.Status := aSnapshot.ExactTextOf(aBinding.StatusId);
+  Result.SkipReason := aSnapshot.ExactTextOf(aBinding.SkipReasonId);
+  Result.HasScopedDeclaration := SnapshotHasFlag(aBinding.Flags,
+    cSemanticRemoveWithBindingFlagHasScopedDeclaration);
+  Result.MemberReferenceCount := aBinding.MemberReferenceCount;
+  Result.LexicalReferenceCount := aBinding.LexicalReferenceCount;
+  Result.ExternalReferenceCount := aBinding.ExternalReferenceCount;
+  Result.IntrinsicReferenceCount := aBinding.IntrinsicReferenceCount;
+  Result.UnsupportedReferenceCount := aBinding.UnsupportedReferenceCount;
+  Result.UnresolvedReferenceCount := aBinding.UnresolvedReferenceCount;
+  SetLength(Result.Selectors, Length(aBinding.Selectors));
+  for i := 0 to High(aBinding.Selectors) do
+    Result.Selectors[i] := SnapshotSelectorBinding(aSnapshot, aBinding.Selectors[i]);
+  SetLength(Result.References, Length(aBinding.References));
+  for i := 0 to High(aBinding.References) do
+    Result.References[i] := SnapshotBoundReference(aSnapshot, aBinding.References[i]);
+end;
+
+function BindingFactsFromSnapshot(
+  const aSnapshot: TDelphiProjectSnapshot): TDelphiSemanticProjectWithBindingFacts;
+var
+  i: Integer;
+  lPlanningFacts: TSemanticRemoveWithPlanningFacts;
+begin
+  Result := Default(TDelphiSemanticProjectWithBindingFacts);
+  lPlanningFacts := aSnapshot.RemoveWithPlanningFacts;
+  Result.ContextFingerprint := aSnapshot.ExactTextOf(
+    lPlanningFacts.ContextFingerprintId);
+  SetLength(Result.Symbols, Length(lPlanningFacts.Symbols));
+  for i := 0 to High(lPlanningFacts.Symbols) do
+    Result.Symbols[i] := SnapshotInventorySymbol(aSnapshot, lPlanningFacts.Symbols[i]);
+  SetLength(Result.Bindings, Length(lPlanningFacts.Bindings));
+  for i := 0 to High(lPlanningFacts.Bindings) do
+    Result.Bindings[i] := SnapshotWithBinding(aSnapshot, lPlanningFacts.Bindings[i]);
+  Result.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(nil, Result.Symbols);
+  Result.Metrics.UnitCount := aSnapshot.UnitCount;
+  Result.Metrics.WithStatementCount := Length(Result.Bindings);
+  Result.Metrics.BindingCount := Length(Result.Bindings);
+end;
+
+class function TDelphiSemanticRemoveWithPlanner.Plan(
+  const aSnapshot: TDelphiProjectSnapshot): TDelphiSemanticRemoveWithPlan;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+begin
+  Result := Default(TDelphiSemanticRemoveWithPlan);
+  Result.Operation := 'remove-with';
+  Result.Status := 'blocked';
+  Result.BaselineSemanticModelVersion := 'project-snapshot-v1';
+  if aSnapshot = nil then
+  begin
+    Result.Diagnostic := 'Missing project snapshot.';
+    Exit;
+  end;
+  if not aSnapshot.HasRemoveWithPlanningFacts then
+  begin
+    Result.Diagnostic := 'Project snapshot has no remove-with planning facts.';
+    Exit;
+  end;
+
+  lFacts := BindingFactsFromSnapshot(aSnapshot);
+  Result := Plan(lFacts);
+  Result.BaselineSemanticModelVersion := 'project-snapshot-v1';
 end;
 
 class function TDelphiSemanticRemoveWithPlanParity.Compare(
