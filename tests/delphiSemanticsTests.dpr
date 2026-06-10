@@ -38,6 +38,7 @@ uses
   Test.SourceContext in 'src\test.sourcecontext.pas',
   Test.Smoke in 'src\test.smoke.pas',
   Test.Snapshot in 'src\test.snapshot.pas',
+  Test.SnapshotSqlite in 'src\test.snapshotsqlite.pas',
   Test.SymbolQuery in 'src\test.symbolquery.pas',
   Test.TypeResolver in 'src\test.typeresolver.pas',
   Test.UnitResolver in 'src\test.unitresolver.pas',
