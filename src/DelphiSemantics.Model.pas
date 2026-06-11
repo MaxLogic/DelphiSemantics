@@ -157,7 +157,7 @@ implementation
 
 uses
   System.Classes, System.Generics.Collections, System.IOUtils, System.RegularExpressions,
-  System.StrUtils, System.SysUtils,
+  System.StrUtils, System.SyncObjs, System.SysUtils,
   DelphiSemantics.Preprocess, DelphiSemantics.Source;
 
 type
@@ -175,19 +175,40 @@ type
   TReferenceCandidateList = TList<TReferenceCoordinateCandidate>;
   TReferenceOccurrenceIndex = TObjectDictionary<string, TReferenceCandidateList>;
 
+  TDelphiSemanticExtractionContext = class
+  private
+    fLineCacheLength: Integer;
+    fLineCacheStarts: TArray<Integer>;
+    fLineCacheText: string;
+    fSectionCache: TDelphiSemanticSourceSections;
+    fSectionCacheLength: Integer;
+    fSectionCacheText: string;
+    fTypeBlockRanges: TArray<TOffsetRange>;
+    fTypeBlockRangesLength: Integer;
+    fTypeBlockRangesText: string;
+  public
+    constructor Create;
+    function ColumnOfOffset(const aText: string; const aOffset: Integer): Integer;
+    procedure EnsureLineCache(const aText: string);
+    procedure EnsureSectionCache(const aText: string);
+    procedure EnsureTypeBlockRanges(const aText: string);
+    function IsOffsetInsideTypeBlock(const aText: string; const aOffset: Integer): Boolean;
+    function LineIndexOfOffset(const aText: string; const aOffset: Integer): Integer;
+    function LineOfOffset(const aText: string; const aOffset: Integer): Integer;
+    function OffsetOfLineColumn(const aText: string; const aLine, aColumn: Integer): Integer;
+    procedure ResetTypeBlockRanges;
+    function SectionForOffset(const aText: string; const aOffset: Integer): string;
+  end;
+
 var
-  GLineCacheText: string = '';
-  GLineCacheLength: Integer = -1;
-  GLineCacheStarts: TArray<Integer>;
   GTypeBlockAnalysisBuildCount: Integer = 0;
-  GTypeBlockRangesText: string = '';
-  GTypeBlockRangesLength: Integer = -1;
-  GTypeBlockRanges: TArray<TOffsetRange>;
-  GSectionCacheText: string = '';
-  GSectionCacheLength: Integer = -1;
-  GSectionCache: TDelphiSemanticSourceSections;
+
+threadvar
+  GExtractionContext: TDelphiSemanticExtractionContext;
 
 function SanitizeCodeText(const aText: string): string; forward;
+function ActiveExtractionContext: TDelphiSemanticExtractionContext; forward;
+function BuildTypeBlockRanges(const aText: string): TArray<TOffsetRange>; forward;
 
 function IsIdentifierChar(const aChar: Char): Boolean;
 begin
@@ -229,72 +250,9 @@ begin
   Result.FinalizationOffset := FindSectionKeywordOffset(lLowerText, 'finalization');
 end;
 
-procedure EnsureSectionCache(const aText: string);
-begin
-  if (Pointer(aText) = Pointer(GSectionCacheText)) and (Length(aText) = GSectionCacheLength) then
-    Exit;
-
-  GSectionCacheLength := Length(aText);
-  GSectionCacheText := aText;
-  GSectionCache := BuildSourceSections(aText);
-end;
-
-procedure EnsureLineCache(const aText: string);
-var
-  i: Integer;
-  lCount: Integer;
-  lIndex: Integer;
-begin
-  if (Pointer(aText) = Pointer(GLineCacheText)) and (Length(aText) = GLineCacheLength) then
-    Exit;
-
-  GLineCacheLength := Length(aText);
-  GLineCacheText := aText;
-  lCount := 1;
-  for i := 1 to Length(aText) do
-    if aText[i] = #10 then
-      Inc(lCount);
-
-  SetLength(GLineCacheStarts, lCount);
-  GLineCacheStarts[0] := 1;
-  lIndex := 1;
-  for i := 1 to Length(aText) do
-    if aText[i] = #10 then
-    begin
-      GLineCacheStarts[lIndex] := i + 1;
-      Inc(lIndex);
-    end;
-end;
-
 function LineIndexOfOffset(const aText: string; const aOffset: Integer): Integer;
-var
-  lHigh: Integer;
-  lLow: Integer;
-  lMid: Integer;
-  lOffset: Integer;
 begin
-  EnsureLineCache(aText);
-  lOffset := aOffset;
-  if lOffset < 1 then
-    lOffset := 1;
-  if lOffset > Length(aText) then
-    lOffset := Length(aText);
-  if (lOffset > 0) and (lOffset <= Length(aText)) and (aText[lOffset] = #10) then
-    Inc(lOffset);
-
-  lLow := 0;
-  lHigh := High(GLineCacheStarts);
-  Result := 0;
-  while lLow <= lHigh do
-  begin
-    lMid := (lLow + lHigh) div 2;
-    if GLineCacheStarts[lMid] <= lOffset then
-    begin
-      Result := lMid;
-      lLow := lMid + 1;
-    end else
-      lHigh := lMid - 1;
-  end;
+  Result := ActiveExtractionContext.LineIndexOfOffset(aText, aOffset);
 end;
 
 procedure AddDiagnostic(const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
@@ -330,35 +288,17 @@ end;
 
 function LineOfOffset(const aText: string; const aOffset: Integer): Integer;
 begin
-  Result := LineIndexOfOffset(aText, aOffset) + 1;
+  Result := ActiveExtractionContext.LineOfOffset(aText, aOffset);
 end;
 
 function ColumnOfOffset(const aText: string; const aOffset: Integer): Integer;
-var
-  lIndex: Integer;
 begin
-  lIndex := LineIndexOfOffset(aText, aOffset);
-  Result := aOffset - GLineCacheStarts[lIndex] + 1;
-  if Result < 1 then
-    Result := 1;
+  Result := ActiveExtractionContext.ColumnOfOffset(aText, aOffset);
 end;
 
 function OffsetOfLineColumn(const aText: string; const aLine, aColumn: Integer): Integer;
-var
-  lIndex: Integer;
 begin
-  Result := 0;
-  if (aLine <= 0) or (aColumn <= 0) then
-    Exit;
-
-  EnsureLineCache(aText);
-  lIndex := aLine - 1;
-  if (lIndex < 0) or (lIndex > High(GLineCacheStarts)) then
-    Exit;
-
-  Result := GLineCacheStarts[lIndex] + aColumn - 1;
-  if Result > Length(aText) then
-    Result := 0;
+  Result := ActiveExtractionContext.OffsetOfLineColumn(aText, aLine, aColumn);
 end;
 
 function NormalizeTypeName(const aTypeName: string): string; forward;
@@ -431,31 +371,191 @@ begin
   end;
 end;
 
-procedure EnsureTypeBlockRanges(const aText: string);
+function ActiveExtractionContext: TDelphiSemanticExtractionContext;
 begin
-  if (Pointer(aText) = Pointer(GTypeBlockRangesText)) and
-    (Length(aText) = GTypeBlockRangesLength) then
+  if not Assigned(GExtractionContext) then
+    raise EInvalidOperation.Create('Delphi semantic extraction context is not assigned.');
+
+  Result := GExtractionContext;
+end;
+
+constructor TDelphiSemanticExtractionContext.Create;
+begin
+  inherited Create;
+  fLineCacheLength := -1;
+  fSectionCacheLength := -1;
+  fTypeBlockRangesLength := -1;
+end;
+
+procedure TDelphiSemanticExtractionContext.EnsureLineCache(const aText: string);
+var
+  i: Integer;
+  lCount: Integer;
+  lIndex: Integer;
+begin
+  if (Pointer(aText) = Pointer(fLineCacheText)) and (Length(aText) = fLineCacheLength) then
     Exit;
 
-  GTypeBlockRangesLength := Length(aText);
-  GTypeBlockRangesText := aText;
-  GTypeBlockRanges := BuildTypeBlockRanges(aText);
-  Inc(GTypeBlockAnalysisBuildCount);
+  fLineCacheLength := Length(aText);
+  fLineCacheText := aText;
+  lCount := 1;
+  for i := 1 to Length(aText) do
+    if aText[i] = #10 then
+      Inc(lCount);
+
+  SetLength(fLineCacheStarts, lCount);
+  fLineCacheStarts[0] := 1;
+  lIndex := 1;
+  for i := 1 to Length(aText) do
+    if aText[i] = #10 then
+    begin
+      fLineCacheStarts[lIndex] := i + 1;
+      Inc(lIndex);
+    end;
+end;
+
+function TDelphiSemanticExtractionContext.LineIndexOfOffset(const aText: string;
+  const aOffset: Integer): Integer;
+var
+  lHigh: Integer;
+  lLow: Integer;
+  lMid: Integer;
+  lOffset: Integer;
+begin
+  EnsureLineCache(aText);
+  lOffset := aOffset;
+  if lOffset < 1 then
+    lOffset := 1;
+  if lOffset > Length(aText) then
+    lOffset := Length(aText);
+  if (lOffset > 0) and (lOffset <= Length(aText)) and (aText[lOffset] = #10) then
+    Inc(lOffset);
+
+  lLow := 0;
+  lHigh := High(fLineCacheStarts);
+  Result := 0;
+  while lLow <= lHigh do
+  begin
+    lMid := (lLow + lHigh) div 2;
+    if fLineCacheStarts[lMid] <= lOffset then
+    begin
+      Result := lMid;
+      lLow := lMid + 1;
+    end else
+      lHigh := lMid - 1;
+  end;
+end;
+
+function TDelphiSemanticExtractionContext.LineOfOffset(const aText: string;
+  const aOffset: Integer): Integer;
+begin
+  Result := LineIndexOfOffset(aText, aOffset) + 1;
+end;
+
+function TDelphiSemanticExtractionContext.ColumnOfOffset(const aText: string;
+  const aOffset: Integer): Integer;
+var
+  lIndex: Integer;
+begin
+  lIndex := LineIndexOfOffset(aText, aOffset);
+  Result := aOffset - fLineCacheStarts[lIndex] + 1;
+  if Result < 1 then
+    Result := 1;
+end;
+
+function TDelphiSemanticExtractionContext.OffsetOfLineColumn(const aText: string; const aLine,
+  aColumn: Integer): Integer;
+var
+  lIndex: Integer;
+begin
+  Result := 0;
+  if (aLine <= 0) or (aColumn <= 0) then
+    Exit;
+
+  EnsureLineCache(aText);
+  lIndex := aLine - 1;
+  if (lIndex < 0) or (lIndex > High(fLineCacheStarts)) then
+    Exit;
+
+  Result := fLineCacheStarts[lIndex] + aColumn - 1;
+  if Result > Length(aText) then
+    Result := 0;
+end;
+
+procedure TDelphiSemanticExtractionContext.EnsureSectionCache(const aText: string);
+begin
+  if (Pointer(aText) = Pointer(fSectionCacheText)) and (Length(aText) = fSectionCacheLength) then
+    Exit;
+
+  fSectionCacheLength := Length(aText);
+  fSectionCacheText := aText;
+  fSectionCache := BuildSourceSections(aText);
+end;
+
+function TDelphiSemanticExtractionContext.SectionForOffset(const aText: string;
+  const aOffset: Integer): string;
+begin
+  EnsureSectionCache(aText);
+  if (fSectionCache.FinalizationOffset > 0) and (aOffset >= fSectionCache.FinalizationOffset) then
+    Exit('finalization');
+  if (fSectionCache.InitializationOffset > 0) and
+    (aOffset >= fSectionCache.InitializationOffset) then
+    Exit('initialization');
+  if (fSectionCache.ImplementationOffset > 0) and
+    (aOffset >= fSectionCache.ImplementationOffset) then
+    Exit('implementation');
+
+  Result := 'interface';
+end;
+
+procedure TDelphiSemanticExtractionContext.EnsureTypeBlockRanges(const aText: string);
+begin
+  if (Pointer(aText) = Pointer(fTypeBlockRangesText)) and
+    (Length(aText) = fTypeBlockRangesLength) then
+    Exit;
+
+  fTypeBlockRangesLength := Length(aText);
+  fTypeBlockRangesText := aText;
+  fTypeBlockRanges := BuildTypeBlockRanges(aText);
+  TInterlocked.Increment(GTypeBlockAnalysisBuildCount);
+end;
+
+function TDelphiSemanticExtractionContext.IsOffsetInsideTypeBlock(const aText: string;
+  const aOffset: Integer): Boolean;
+var
+  lHigh: Integer;
+  lLow: Integer;
+  lMid: Integer;
+begin
+  EnsureTypeBlockRanges(aText);
+  lLow := 0;
+  lHigh := High(fTypeBlockRanges);
+  while lLow <= lHigh do
+  begin
+    lMid := lLow + (lHigh - lLow) div 2;
+    if aOffset < fTypeBlockRanges[lMid].StartOffset then
+    begin
+      lHigh := lMid - 1;
+    end else if aOffset > fTypeBlockRanges[lMid].EndOffset then
+    begin
+      lLow := lMid + 1;
+    end else
+      Exit(True);
+  end;
+
+  Result := False;
+end;
+
+procedure TDelphiSemanticExtractionContext.ResetTypeBlockRanges;
+begin
+  fTypeBlockRangesLength := -1;
+  fTypeBlockRangesText := '';
+  fTypeBlockRanges := nil;
 end;
 
 function SectionForOffset(const aText: string; const aOffset: Integer): string;
 begin
-  EnsureSectionCache(aText);
-  if (GSectionCache.FinalizationOffset > 0) and (aOffset >= GSectionCache.FinalizationOffset) then
-    Exit('finalization');
-  if (GSectionCache.InitializationOffset > 0) and
-    (aOffset >= GSectionCache.InitializationOffset) then
-    Exit('initialization');
-  if (GSectionCache.ImplementationOffset > 0) and
-    (aOffset >= GSectionCache.ImplementationOffset) then
-    Exit('implementation');
-
-  Result := 'interface';
+  Result := ActiveExtractionContext.SectionForOffset(aText, aOffset);
 end;
 
 function MatchGroupValue(const aMatch: TMatch; const aIndex: Integer): string;
@@ -1421,28 +1521,8 @@ begin
 end;
 
 function IsOffsetInsideTypeBlock(const aText: string; const aOffset: Integer): Boolean;
-var
-  lHigh: Integer;
-  lLow: Integer;
-  lMid: Integer;
 begin
-  EnsureTypeBlockRanges(aText);
-  lLow := 0;
-  lHigh := High(GTypeBlockRanges);
-  while lLow <= lHigh do
-  begin
-    lMid := lLow + (lHigh - lLow) div 2;
-    if aOffset < GTypeBlockRanges[lMid].StartOffset then
-    begin
-      lHigh := lMid - 1;
-    end else if aOffset > GTypeBlockRanges[lMid].EndOffset then
-    begin
-      lLow := lMid + 1;
-    end else
-      Exit(True);
-  end;
-
-  Result := False;
+  Result := ActiveExtractionContext.IsOffsetInsideTypeBlock(aText, aOffset);
 end;
 
 procedure ExtractRoutines(const aText: string; const aDeclarations: TList<TDelphiSemanticDeclaration>;
@@ -2389,6 +2469,7 @@ class function TDelphiSemanticUnitModelExtractor.ExtractFromFile(
   const aOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel;
 var
   lDeclarations: TList<TDelphiSemanticDeclaration>;
+  lExtractionContext: TDelphiSemanticExtractionContext;
   lDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   lImplementationUses: TList<string>;
   lInterfaceUses: TList<string>;
@@ -2403,9 +2484,11 @@ var
   lRoutines: TList<TDelphiSemanticRoutine>;
   lSourceResult: TDelphiSemanticSourceLoadResult;
   lText: string;
+  lPreviousExtractionContext: TDelphiSemanticExtractionContext;
   lWithStatements: TList<TDelphiSemanticWithStatement>;
 begin
   Result := Default(TDelphiSemanticUnitModel);
+  lExtractionContext := nil;
   lDiagnostics := nil;
   lInterfaceUses := nil;
   lImplementationUses := nil;
@@ -2415,6 +2498,9 @@ begin
   lLocals := nil;
   lReferences := nil;
   lWithStatements := nil;
+  lPreviousExtractionContext := GExtractionContext;
+  lExtractionContext := TDelphiSemanticExtractionContext.Create;
+  GExtractionContext := lExtractionContext;
   try
     lDiagnostics := TList<TDelphiSemanticModelDiagnostic>.Create;
     lInterfaceUses := TList<string>.Create;
@@ -2505,6 +2591,8 @@ begin
     AssignModelArrays(Result, lDiagnostics, lInterfaceUses, lImplementationUses, lDeclarations,
       lMembers, lRoutines, lLocals, lReferences, lWithStatements);
   finally
+    GExtractionContext := lPreviousExtractionContext;
+    lExtractionContext.Free;
     lWithStatements.Free;
     lReferences.Free;
     lLocals.Free;
@@ -2519,15 +2607,14 @@ end;
 
 class function TDelphiSemanticUnitModelExtractor.TypeBlockAnalysisBuildCount: Integer;
 begin
-  Result := GTypeBlockAnalysisBuildCount;
+  Result := TInterlocked.CompareExchange(GTypeBlockAnalysisBuildCount, 0, 0);
 end;
 
 class procedure TDelphiSemanticUnitModelExtractor.ResetTypeBlockAnalysisBuildCount;
 begin
-  GTypeBlockAnalysisBuildCount := 0;
-  GTypeBlockRangesLength := -1;
-  GTypeBlockRangesText := '';
-  GTypeBlockRanges := nil;
+  TInterlocked.Exchange(GTypeBlockAnalysisBuildCount, 0);
+  if Assigned(GExtractionContext) then
+    GExtractionContext.ResetTypeBlockRanges;
 end;
 
 end.

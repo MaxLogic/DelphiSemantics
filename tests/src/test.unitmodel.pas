@@ -49,6 +49,10 @@ type
       aEndColumn: Integer): string;
     function LineOfDeclaration(const aModel: TDelphiSemanticUnitModel; const aName: string):
       Integer;
+    procedure AssertExpectedReentrantModel(const aModel: TDelphiSemanticUnitModel;
+      const aUnitName, aTypeName, aRoutineName, aReferenceName: string);
+    procedure ExtractReentrantLoop(const aPath, aUnitName, aTypeName, aRoutineName,
+      aReferenceName: string; out aError: string);
   public
     [Test]
     procedure SourceLoaderUsesAnsiFallbackForInvalidUtf8;
@@ -117,6 +121,8 @@ type
     [Test]
     procedure StandaloneExtractionReportsDegradedMode;
     [Test]
+    procedure UnitModelExtractionIsReentrantForParallelUnits;
+    [Test]
     procedure TypeBlockAnalysisIsBuiltOncePerExtraction;
     [Test]
     procedure ReferenceReconciliationScansRepeatedNamesOnce;
@@ -129,7 +135,7 @@ type
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
   maxLogic.IOUtils;
 
 function TUnitModelTests.FixturePath(const aFolder, aFileName: string): string;
@@ -394,6 +400,47 @@ begin
       Exit(lDeclaration.Line);
 
   Result := 0;
+end;
+
+procedure TUnitModelTests.AssertExpectedReentrantModel(const aModel: TDelphiSemanticUnitModel;
+  const aUnitName, aTypeName, aRoutineName, aReferenceName: string);
+begin
+  Assert.IsTrue(aModel.Success, aUnitName + ' extraction failed');
+  Assert.AreEqual(aUnitName, aModel.UnitName, aUnitName + ' unit name');
+  Assert.IsTrue(HasDeclaration(aModel, aTypeName, 'type', 'interface'), aUnitName + ' type');
+  Assert.IsTrue(HasRoutine(aModel, aRoutineName, 'interface'), aUnitName +
+    ' interface routine');
+  Assert.IsTrue(HasRoutine(aModel, aRoutineName, 'implementation'), aUnitName +
+    ' implementation routine');
+  Assert.IsTrue(HasReference(aModel, aReferenceName), aUnitName + ' reference');
+end;
+
+procedure TUnitModelTests.ExtractReentrantLoop(const aPath, aUnitName, aTypeName, aRoutineName,
+  aReferenceName: string; out aError: string);
+const
+  cIterations = 25;
+var
+  i: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  aError := '';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := aPath;
+  lOptions.ProjectContextApplied := True;
+  for i := 1 to cIterations do
+  begin
+    try
+      lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+      AssertExpectedReentrantModel(lModel, aUnitName, aTypeName, aRoutineName, aReferenceName);
+    except
+      on E: Exception do
+      begin
+        aError := Format('iteration=%d %s: %s', [i, E.ClassName, E.Message]);
+        Exit;
+      end;
+    end;
+  end;
 end;
 
 function TUnitModelTests.LineContaining(const aText, aPattern: string): Integer;
@@ -1634,6 +1681,93 @@ begin
 
   Assert.IsTrue(lModel.Success);
   Assert.IsTrue(HasDiagnostic(lModel, 'NO_PROJECT_CONTEXT'));
+end;
+
+procedure TUnitModelTests.UnitModelExtractionIsReentrantForParallelUnits;
+  function UnitText(const aUnitName, aTypeName, aRoutineName, aReferenceName: string): string;
+  begin
+    Result := 'unit ' + aUnitName + ';' + sLineBreak +
+      'interface' + sLineBreak +
+      'type' + sLineBreak +
+      '  ' + aTypeName + ' = record' + sLineBreak +
+      '    Value: Integer;' + sLineBreak +
+      '  end;' + sLineBreak +
+      'procedure ' + aRoutineName + '(const aValue: ' + aTypeName + ');' + sLineBreak +
+      'implementation' + sLineBreak +
+      'procedure ' + aRoutineName + '(const aValue: ' + aTypeName + ');' + sLineBreak +
+      'var' + sLineBreak +
+      '  ' + aReferenceName + ': ' + aTypeName + ';' + sLineBreak +
+      'begin' + sLineBreak +
+      '  ' + aReferenceName + '.Value := aValue.Value;' + sLineBreak +
+      'end;' + sLineBreak +
+      'end.';
+  end;
+
+var
+  lErrors: array[0..1] of string;
+  lModelSource: string;
+  lPathA: string;
+  lPathB: string;
+  lTempDir: string;
+  lThreadA: TThread;
+  lThreadB: TThread;
+begin
+  lModelSource := TFile.ReadAllText(TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\..\src\DelphiSemantics.Model.pas'), TEncoding.UTF8);
+  Assert.IsFalse(ContainsText(lModelSource, 'GLineCacheText'),
+    'line coordinate cache must be scoped to an extraction, not process-global');
+  Assert.IsFalse(ContainsText(lModelSource, 'GSectionCacheText'),
+    'source section cache must be scoped to an extraction, not process-global');
+  Assert.IsFalse(ContainsText(lModelSource, 'GTypeBlockRangesText'),
+    'type-block range cache must be scoped to an extraction, not process-global');
+
+  lTempDir := TPath.Combine(TPath.GetTempPath, 'DelphiSemanticsReentrantUnitModel_' +
+    TGUID.NewGuid.ToString);
+  TDirectory.CreateDirectory(lTempDir);
+  try
+    lPathA := TPath.Combine(lTempDir, 'ReentrantUnitA.pas');
+    lPathB := TPath.Combine(lTempDir, 'ReentrantUnitB.pas');
+    TFile.WriteAllText(lPathA, UnitText('ReentrantUnitA', 'TReentrantA', 'UseA',
+      'lLocalA'), TEncoding.ASCII);
+    TFile.WriteAllText(lPathB, UnitText('ReentrantUnitB', 'TReentrantB', 'UseB',
+      'lLocalB'), TEncoding.ASCII);
+
+    ExtractReentrantLoop(lPathA, 'ReentrantUnitA', 'TReentrantA', 'UseA', 'lLocalA',
+      lErrors[0]);
+    ExtractReentrantLoop(lPathB, 'ReentrantUnitB', 'TReentrantB', 'UseB', 'lLocalB',
+      lErrors[1]);
+    Assert.AreEqual('', lErrors[0]);
+    Assert.AreEqual('', lErrors[1]);
+
+    lThreadA := TThread.CreateAnonymousThread(
+      procedure
+      begin
+        ExtractReentrantLoop(lPathA, 'ReentrantUnitA', 'TReentrantA', 'UseA', 'lLocalA',
+          lErrors[0]);
+      end);
+    lThreadB := TThread.CreateAnonymousThread(
+      procedure
+      begin
+        ExtractReentrantLoop(lPathB, 'ReentrantUnitB', 'TReentrantB', 'UseB', 'lLocalB',
+          lErrors[1]);
+      end);
+    try
+      lThreadA.FreeOnTerminate := False;
+      lThreadB.FreeOnTerminate := False;
+      lThreadA.Start;
+      lThreadB.Start;
+      lThreadA.WaitFor;
+      lThreadB.WaitFor;
+    finally
+      lThreadB.Free;
+      lThreadA.Free;
+    end;
+
+    Assert.AreEqual('', lErrors[0]);
+    Assert.AreEqual('', lErrors[1]);
+  finally
+    TDirectory.Delete(lTempDir, True);
+  end;
 end;
 
 procedure TUnitModelTests.TypeBlockAnalysisIsBuiltOncePerExtraction;

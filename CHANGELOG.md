@@ -69,6 +69,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Unit model extraction now scopes line, source-section, and type-block caches
+  to each extraction thread, allowing DAK remove-with semantic fact construction
+  to run without a broad global `ProjectSemanticFactsLock`.
 - Project-session snapshot builds now reuse SQLite snapshot cache entries per
   unit for multi-unit projects, merge cached and rebuilt units
   deterministically, expose unit hit/miss/stale/build/merge telemetry, and
