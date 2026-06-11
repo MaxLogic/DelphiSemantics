@@ -50,6 +50,12 @@ type
     [Test]
     procedure FinalDtoMatchesFocusedRewriteCases;
     [Test]
+    procedure FinalDtoMatchesDakBoundRewriteFixture;
+    [Test]
+    procedure FinalDtoDoesNotTreatNestedInlineLocalAsOuterMember;
+    [Test]
+    procedure FinalDtoKeepsOuterInlineLocalVisibleAcrossNestedBlocks;
+    [Test]
     procedure FinalDtoKeepsResolvedNonMemberReferencesAndBlocksUnknownRoutine;
     [Test]
     procedure FinalDtoPreservesDakFixtureSafetySkips;
@@ -1368,6 +1374,215 @@ begin
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)), 'Expected only replacement edit.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'aRecordPtr^.Name'),
     'Expected direct pointer qualification.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoMatchesDakBoundRewriteFixture;
+var
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lPlannedCount: Integer;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithBoundRewriteFixture',
+    'dto-primary-bound-rewrite');
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithBoundRewriteFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'BoundRewriteUnit.pas', 33, 3,
+    lStatement), 'Expected label/typecast statement.');
+  Assert.AreEqual('planned', lStatement.Status,
+    'Expected labels, gotos, and typecasts to remain harmless non-member syntax: ' +
+    lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'goto BoundLabel;'), 'Expected goto target to remain unqualified.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'BoundLabel:'), 'Expected label declaration to remain unqualified.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'TBoundRewriteCast(lCast).Name'),
+    'Expected typecast target to remain unqualified.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    '.Name := TBoundRewriteCast(lCast).Name;'),
+    'Expected receiver member assignment to be qualified.');
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'BoundRewriteUnit.pas', 41, 3,
+    lStatement), 'Expected inline declaration statement.');
+  Assert.AreEqual('planned', lStatement.Status,
+    'Expected local inline declarations to remain unchanged while receiver members are qualified: ' +
+    lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'var Name := ''local'';'), 'Expected inline local declaration to remain local: ' +
+    lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    '.Count := Length(Name);'),
+    'Expected receiver member assignment to be qualified while local Name remains unqualified.');
+
+  lPlannedCount := 0;
+  for lStatement in lPlan.FinalStatements do
+    if SameText(lStatement.Status, 'planned') then
+      Inc(lPlannedCount);
+  Assert.AreEqual(4, lPlannedCount,
+    'Expected label/typecast, declaration-like, and comparison with statements to be planned.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoDoesNotTreatNestedInlineLocalAsOuterMember;
+var
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lDprPath: string;
+  lUnitPath: string;
+begin
+  lFixtureDir := TempPath('dto-inline-local-scope');
+  if TDirectory.Exists(lFixtureDir) then
+    TDirectory.Delete(lFixtureDir, True);
+  TDirectory.CreateDirectory(lFixtureDir);
+  lUnitPath := TPath.Combine(lFixtureDir, 'InlineLocalScopeUnit.pas');
+  TFile.WriteAllText(lUnitPath,
+    'unit InlineLocalScopeUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TInlineLocalRecord = record' + sLineBreak +
+    '    Name: string;' + sLineBreak +
+    '    Count: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'procedure Run(var aRecord: TInlineLocalRecord);' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run(var aRecord: TInlineLocalRecord);' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with aRecord do' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    if Count > 0 then' + sLineBreak +
+    '    begin' + sLineBreak +
+    '      var Name := ''local'';' + sLineBreak +
+    '      Count := Length(Name);' + sLineBreak +
+    '    end;' + sLineBreak +
+    '    Name := IntToStr(Count);' + sLineBreak +
+    '  end;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lDprPath := TPath.Combine(lFixtureDir, 'InlineLocalScopeFixture.dpr');
+  TFile.WriteAllText(lDprPath,
+    'program InlineLocalScopeFixture;' + sLineBreak +
+    '{$APPTYPE CONSOLE}' + sLineBreak +
+    'uses InlineLocalScopeUnit;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lProjectPath := TPath.Combine(lFixtureDir, 'InlineLocalScopeFixture.dproj');
+  TFile.WriteAllText(lProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>InlineLocalScopeFixture.dpr</MainSource>' + sLineBreak +
+    '    <DCC_UnitSearchPath>.;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '  <ItemGroup>' + sLineBreak +
+    '    <DelphiCompile Include="$(MainSource)">' + sLineBreak +
+    '      <MainSource>MainSource</MainSource>' + sLineBreak +
+    '    </DelphiCompile>' + sLineBreak +
+    '    <DCCReference Include="InlineLocalScopeUnit.pas" />' + sLineBreak +
+    '  </ItemGroup>' + sLineBreak +
+    '</Project>', TEncoding.UTF8);
+
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
+    'Expected inline-local scope statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'var Name := ''local'';'), 'Expected nested inline local declaration to remain local.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    '.Count := Length(Name);'),
+    'Expected nested local reference to remain unqualified inside its block.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithInlineLocalRecordPtr^.Name := IntToStr(lWithInlineLocalRecordPtr^.Count);'),
+    'Expected receiver member after the nested local block to stay qualified: ' +
+    lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoKeepsOuterInlineLocalVisibleAcrossNestedBlocks;
+var
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lDprPath: string;
+  lLocalUsePos: Integer;
+  lUnitPath: string;
+begin
+  lFixtureDir := TempPath('dto-inline-local-nested-visibility');
+  if TDirectory.Exists(lFixtureDir) then
+    TDirectory.Delete(lFixtureDir, True);
+  TDirectory.CreateDirectory(lFixtureDir);
+  lUnitPath := TPath.Combine(lFixtureDir, 'InlineLocalNestedVisibilityUnit.pas');
+  TFile.WriteAllText(lUnitPath,
+    'unit InlineLocalNestedVisibilityUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TInlineLocalRecord = record' + sLineBreak +
+    '    Name: string;' + sLineBreak +
+    '    Count: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'procedure Run(var aRecord: TInlineLocalRecord);' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run(var aRecord: TInlineLocalRecord);' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with aRecord do' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    var Name := ''outer'';' + sLineBreak +
+    '    if Count > 0 then' + sLineBreak +
+    '    begin' + sLineBreak +
+    '      Count := Length(Name);' + sLineBreak +
+    '      var Name := ''inner'';' + sLineBreak +
+    '      Count := Count + Length(Name);' + sLineBreak +
+    '    end;' + sLineBreak +
+    '    Count := Count + Length(Name);' + sLineBreak +
+    '  end;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lDprPath := TPath.Combine(lFixtureDir, 'InlineLocalNestedVisibilityFixture.dpr');
+  TFile.WriteAllText(lDprPath,
+    'program InlineLocalNestedVisibilityFixture;' + sLineBreak +
+    '{$APPTYPE CONSOLE}' + sLineBreak +
+    'uses InlineLocalNestedVisibilityUnit;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lProjectPath := TPath.Combine(lFixtureDir, 'InlineLocalNestedVisibilityFixture.dproj');
+  TFile.WriteAllText(lProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>InlineLocalNestedVisibilityFixture.dpr</MainSource>' + sLineBreak +
+    '    <DCC_UnitSearchPath>.;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '  <ItemGroup>' + sLineBreak +
+    '    <DelphiCompile Include="$(MainSource)">' + sLineBreak +
+    '      <MainSource>MainSource</MainSource>' + sLineBreak +
+    '    </DelphiCompile>' + sLineBreak +
+    '    <DCCReference Include="InlineLocalNestedVisibilityUnit.pas" />' + sLineBreak +
+    '  </ItemGroup>' + sLineBreak +
+    '</Project>', TEncoding.UTF8);
+
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
+    'Expected inline-local nested visibility statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithInlineLocalRecordPtr^.Count := Length(Name);'),
+    'Expected outer inline local to remain visible inside nested block: ' +
+    lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithInlineLocalRecordPtr^.Count := lWithInlineLocalRecordPtr^.Count + Length(Name);'),
+    'Expected inner inline local to remain visible inside nested block: ' +
+    lStatement.ReplacementText);
+  lLocalUsePos := Pos(
+    'lWithInlineLocalRecordPtr^.Count := lWithInlineLocalRecordPtr^.Count + Length(Name);',
+    lStatement.ReplacementText);
+  Assert.IsTrue(PosEx(
+    'lWithInlineLocalRecordPtr^.Count := lWithInlineLocalRecordPtr^.Count + Length(Name);',
+    lStatement.ReplacementText, lLocalUsePos + 1) > 0,
+    'Expected outer inline local to be restored after the nested block: ' +
+    lStatement.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoKeepsResolvedNonMemberReferencesAndBlocksUnknownRoutine;

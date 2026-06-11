@@ -1131,6 +1131,91 @@ begin
   end;
 end;
 
+function ReferenceLooksLikeLocalLabel(const aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference;
+  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+var
+  lLine: string;
+  lLines: TArray<string>;
+  lReferenceName: string;
+begin
+  Result := False;
+  lReferenceName := Trim(aReference.Name);
+  if (lReferenceName = '') or (Pos('.', lReferenceName) > 0) or
+    (Pos('(', lReferenceName) > 0) then
+    Exit;
+  if (aReference.Line <= 0) or (not aLineCache.TryGetValue(aBinding.FileName,
+    lLines)) or (aReference.Line > Length(lLines)) then
+    Exit;
+
+  lLine := Trim(lLines[aReference.Line - 1]);
+  Result := (SameText(lReferenceName, 'goto') and
+    StartsText('goto ', LowerCase(lLine))) or
+    SameText(lLine, lReferenceName + ':') or
+    SameText(lLine, 'goto ' + lReferenceName + ';');
+end;
+
+function ReferenceIsInlineLocalDeclaredInBinding(
+  const aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference;
+  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+var
+  lBlockDepth: Integer;
+  lDeclarationName: string;
+  lDeclarationDepths: TList<Integer>;
+  lLine: string;
+  lLineIndex: Integer;
+  lLines: TArray<string>;
+  lLowerLine: string;
+  lStopPos: Integer;
+begin
+  Result := False;
+  if (aReference.Name = '') or (aReference.Line < aBinding.BodyLine) or
+    (aReference.Line > aBinding.BodyEndLine) or
+    (not aLineCache.TryGetValue(aBinding.FileName, lLines)) then
+    Exit;
+
+  lBlockDepth := 0;
+  lDeclarationDepths := TList<Integer>.Create;
+  try
+    for lLineIndex := aBinding.BodyLine to aReference.Line do
+    begin
+      if (lLineIndex <= 0) or (lLineIndex > Length(lLines)) then
+        Continue;
+      lLine := Trim(lLines[lLineIndex - 1]);
+      lLowerLine := LowerCase(lLine);
+      if StartsText('end', lLowerLine) and (lBlockDepth > 0) then
+      begin
+        Dec(lBlockDepth);
+        while (lDeclarationDepths.Count > 0) and
+          (lDeclarationDepths[lDeclarationDepths.Count - 1] > lBlockDepth) do
+          lDeclarationDepths.Delete(lDeclarationDepths.Count - 1);
+      end;
+      if not StartsText('var ', lLowerLine) then
+      begin
+        if SameText(lLine, 'begin') or EndsText(' begin', lLowerLine) then
+          Inc(lBlockDepth);
+        Continue;
+      end;
+      lDeclarationName := Trim(Copy(lLine, Length('var ') + 1, MaxInt));
+      lStopPos := Pos(':=', lDeclarationName);
+      if lStopPos <= 0 then
+        lStopPos := Pos(':', lDeclarationName);
+      if lStopPos <= 0 then
+        lStopPos := Pos(' ', lDeclarationName);
+      if lStopPos > 0 then
+        lDeclarationName := Trim(Copy(lDeclarationName, 1, lStopPos - 1));
+      if SameText(lDeclarationName, aReference.Name) then
+        lDeclarationDepths.Add(lBlockDepth);
+      if SameText(lLine, 'begin') or EndsText(' begin', lLowerLine) then
+        Inc(lBlockDepth);
+    end;
+    Result := lDeclarationDepths.Count > 0;
+  finally
+    lDeclarationDepths.Free;
+  end;
+end;
+
 function ReferenceIsCompilerIntrinsicTypeName(
   const aReference: TDelphiSemanticBoundReference): Boolean;
 var
@@ -1943,6 +2028,7 @@ begin
     (not ReferenceIsRoutineScopeValue(aFacts, aBinding, aReference)) and
     (not ReferenceQualifiedPrefixIsRoutineScopeValue(aFacts, aBinding, aReference)) and
     (not ReferenceQualifiedPrefixCanRemainUnchanged(aFacts, aBinding, aReference)) and
+    (not ReferenceLooksLikeLocalLabel(aBinding, aReference, aLineCache)) and
     (not ReferenceHasKnownRoutineSymbol(aFacts, aReference)) then
   begin
     aReason := 'symbol-not-found';
@@ -2038,6 +2124,9 @@ begin
       ReferenceInsideInactiveNeverConditionalRegion(aBinding, lReference,
       aLineCache) then
       Continue;
+    if ReferenceIsInlineLocalDeclaredInBinding(aBinding, lReference,
+      aLineCache) then
+      Continue;
     if ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
       Continue;
     if ReferenceShouldRemainUnchanged(aFacts, aBinding, lReference) then
@@ -2052,6 +2141,7 @@ begin
       begin
         if ReferenceHasKnownRoutineSymbol(aFacts, lReference) or
           ReferenceIsKnownTypeName(aFacts, lReference) or
+          ReferenceLooksLikeLocalLabel(aBinding, lReference, aLineCache) or
           ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
           Continue;
         if ReferenceCanRemainUnchanged(aFacts, aBinding, lReference) then
@@ -2934,14 +3024,6 @@ begin
   Result.Range := BindingRange(lBinding);
   Result.Verification := FinalVerification(aCandidateEdits[aBindingIndex]);
   Result.ReferenceIds := aCandidateEdits[aBindingIndex].ReferenceIds;
-  if SameText(lBinding.Status, 'skipped') and
-    SameText(lBinding.SkipReason, 'SCOPED_DECLARATION') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := BindingSkipReason(lBinding);
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
   if SameText(ExtractFileName(lBinding.FileName), 'FileIO.pas') and
     (lBinding.Line = 715) and SameText(lBinding.SelectorText, '_SR') then
   begin
