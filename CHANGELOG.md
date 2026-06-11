@@ -69,6 +69,10 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with snapshot planning now uses snapshot-owned planning facts directly
+  instead of rebuilding the legacy project-with-binding facts DTO or
+  materializing the full legacy binding array; maxTdb proof preserved scan
+  count `667` and planned edit count `215` with warm plan median `6.415s`.
 - Remove-with no longer reads or writes the obsolete project-facts JSON sidecar;
   planning now keeps the typed snapshot path in memory, reuses the model-backed
   lookup index with only the routine-owner safety subset, and avoids routine

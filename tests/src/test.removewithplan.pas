@@ -36,6 +36,8 @@ type
     [Test]
     procedure SnapshotPlannerAvoidsWholePlanningFactCopies;
     [Test]
+    procedure SnapshotPlannerDoesNotDelegateToLegacyFactsPlanner;
+    [Test]
     procedure SnapshotPlannerPreservesCaseOnlySelectorText;
     [Test]
     procedure SnapshotPlannerMaxTdbPreservesCountsWithoutProjectFactsSidecar;
@@ -963,6 +965,41 @@ begin
   Assert.IsTrue(ContainsText(lFunctionSource,
     'RoutineOwners'),
     'Planning snapshots should preserve the small routine-owner subset needed for safety.');
+end;
+
+procedure TRemoveWithPlanTests.SnapshotPlannerDoesNotDelegateToLegacyFactsPlanner;
+var
+  lFunctionEnd: Integer;
+  lFunctionSource: string;
+  lFunctionStart: Integer;
+  lPlannerSource: string;
+begin
+  lPlannerSource := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
+    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.RemoveWithPlan.pas')),
+    TEncoding.UTF8);
+  lFunctionStart := PosEx('class function TDelphiSemanticRemoveWithPlanner.Plan(',
+    lPlannerSource, Pos('function BindingFactsFromSnapshot', lPlannerSource));
+  lFunctionEnd := PosEx('class function TDelphiSemanticRemoveWithPlanParity.Compare',
+    lPlannerSource, lFunctionStart);
+  Assert.IsTrue((lFunctionStart > 0) and (lFunctionEnd > lFunctionStart),
+    'Expected snapshot planner implementation section.');
+
+  lFunctionSource := Copy(lPlannerSource, lFunctionStart,
+    lFunctionEnd - lFunctionStart);
+  Assert.IsFalse(ContainsText(lFunctionSource, 'BindingFactsFromSnapshot'),
+    'Snapshot planner must not rebuild legacy binding facts.');
+  Assert.IsFalse(ContainsText(lFunctionSource, 'Plan(lFacts)'),
+    'Snapshot planner must not delegate back to the legacy facts planner.');
+  Assert.IsFalse(ContainsText(lFunctionSource, 'TDelphiSemanticProjectWithBindingFacts'),
+    'Snapshot planner must not rebuild the legacy facts DTO shell.');
+  Assert.IsFalse(ContainsText(lFunctionSource, 'TArray<TDelphiSemanticWithBinding>'),
+    'Snapshot planner must not materialize the legacy binding array.');
+  Assert.IsFalse(ContainsText(lFunctionSource, 'SnapshotWithBinding(aSnapshot'),
+    'Snapshot planner must read bindings through a snapshot-owned binding source.');
+  Assert.IsTrue(ContainsText(lFunctionSource, 'TSnapshotRemoveWithPlanBindingSource'),
+    'Snapshot planner should use a snapshot binding source.');
+  Assert.IsTrue(ContainsText(lFunctionSource, 'PlanFromBindingSource'),
+    'Snapshot planner should call the binding-source planning core.');
 end;
 
 procedure TRemoveWithPlanTests.SnapshotPlannerPreservesCaseOnlySelectorText;

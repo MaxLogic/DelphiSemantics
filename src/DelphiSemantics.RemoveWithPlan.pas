@@ -180,6 +180,42 @@ type
     ReplacementText: string;
   end;
 
+  TRemoveWithPlanFacts = record
+    ContextFingerprint: string;
+    LookupIndex: TDelphiSemanticRemoveWithLookupIndex;
+    Symbols: TArray<TDelphiSemanticInventorySymbol>;
+  end;
+
+  TRemoveWithPlanBindingSource = class abstract
+  public
+    function BindingByIndex(const aIndex: Integer): TDelphiSemanticWithBinding; virtual; abstract;
+    function BindingCount: Integer; virtual; abstract;
+    function BindingContainsBindingByIndex(const aOuterIndex,
+      aInnerIndex: Integer): Boolean; virtual;
+    function BindingHasStableSourceRange(const aIndex: Integer): Boolean; virtual;
+  end;
+
+  TArrayRemoveWithPlanBindingSource = class(TRemoveWithPlanBindingSource)
+  private
+    fBindings: TArray<TDelphiSemanticWithBinding>;
+  public
+    constructor Create(const aBindings: TArray<TDelphiSemanticWithBinding>);
+    function BindingByIndex(const aIndex: Integer): TDelphiSemanticWithBinding; override;
+    function BindingCount: Integer; override;
+  end;
+
+  TSnapshotRemoveWithPlanBindingSource = class(TRemoveWithPlanBindingSource)
+  private
+    fSnapshot: TDelphiProjectSnapshot;
+  public
+    constructor Create(const aSnapshot: TDelphiProjectSnapshot);
+    function BindingByIndex(const aIndex: Integer): TDelphiSemanticWithBinding; override;
+    function BindingCount: Integer; override;
+    function BindingContainsBindingByIndex(const aOuterIndex,
+      aInnerIndex: Integer): Boolean; override;
+    function BindingHasStableSourceRange(const aIndex: Integer): Boolean; override;
+  end;
+
   TFinalBindingIndexArray = TArray<Integer>;
 
   TFinalBindingChildIndexArray = TArray<TFinalBindingIndexArray>;
@@ -188,6 +224,24 @@ type
     RootIndexes: TFinalBindingIndexArray;
     ChildIndexes: TFinalBindingChildIndexArray;
   end;
+
+constructor TArrayRemoveWithPlanBindingSource.Create(
+  const aBindings: TArray<TDelphiSemanticWithBinding>);
+begin
+  inherited Create;
+  fBindings := aBindings;
+end;
+
+function TArrayRemoveWithPlanBindingSource.BindingByIndex(
+  const aIndex: Integer): TDelphiSemanticWithBinding;
+begin
+  Result := fBindings[aIndex];
+end;
+
+function TArrayRemoveWithPlanBindingSource.BindingCount: Integer;
+begin
+  Result := Length(fBindings);
+end;
 
 function BindingRange(const aBinding: TDelphiSemanticWithBinding):
   TDelphiSemanticRemoveWithSourceRange;
@@ -426,7 +480,7 @@ begin
     Result := Trim(Copy(aTypeName, lMarkerPos + Length(' of '), MaxInt));
 end;
 
-function IndexedElementType(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function IndexedElementType(const aFacts: TRemoveWithPlanFacts;
   const aTypeName: string): string;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -457,7 +511,7 @@ begin
       Exit(lSymbol.TypeName);
 end;
 
-function SelectorShapeType(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function SelectorShapeType(const aFacts: TRemoveWithPlanFacts;
   const aBaseTypeName, aSelectorText: string): string;
 var
   lElementType: string;
@@ -539,7 +593,7 @@ begin
 end;
 
 function IndexedPointerSelectorBaseRequiresTypeResolutionSkip(
-  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string): Boolean;
 var
   lBaseName: string;
@@ -585,7 +639,7 @@ begin
     SameText(aSymbol.SourceOwnerType, aOwnerType));
 end;
 
-function OwnerHasMemberNamed(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function OwnerHasMemberNamed(const aFacts: TRemoveWithPlanFacts;
   const aOwnerType, aName: string): Boolean;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -601,7 +655,7 @@ begin
   end;
 end;
 
-function DependentSelectorQualifier(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function DependentSelectorQualifier(const aFacts: TRemoveWithPlanFacts;
   const aDecisions: TArray<TFinalSelectorDecision>; const aSelectorText: string;
   out aQualifierText: string): Boolean;
 var
@@ -634,7 +688,7 @@ begin
 end;
 
 function SkippedParentContextHasMember(const aFacts:
-  TDelphiSemanticProjectWithBindingFacts; const aDecisions:
+  TRemoveWithPlanFacts; const aDecisions:
   TArray<TFinalSelectorDecision>; const aSelectorText: string): Boolean;
 var
   lDecision: TFinalSelectorDecision;
@@ -653,7 +707,7 @@ begin
 end;
 
 function IndexedPointerSelectorBaseHasSkippedParentMember(const aFacts:
-  TDelphiSemanticProjectWithBindingFacts; const aDecisions:
+  TRemoveWithPlanFacts; const aDecisions:
   TArray<TFinalSelectorDecision>; const aSelectorText: string): Boolean;
 var
   lBaseName: string;
@@ -707,7 +761,7 @@ begin
   Result := SameText(Trim(lPart), Trim(aSelectorText));
 end;
 
-function SelectorHasDependentSelector(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function SelectorHasDependentSelector(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText,
   aReceiverType: string): Boolean;
 var
@@ -759,7 +813,7 @@ begin
     ((aReference.Line = aRange.EndLine) and (aReference.Column <= aRange.EndColumn)));
 end;
 
-function TypeIsClassLike(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function TypeIsClassLike(const aFacts: TRemoveWithPlanFacts;
   const aTypeName: string): Boolean;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -777,7 +831,7 @@ begin
   Result := EndsText('Object', aTypeName) or EndsText('Class', aTypeName);
 end;
 
-function TypeIsRecordLike(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function TypeIsRecordLike(const aFacts: TRemoveWithPlanFacts;
   const aTypeName: string): Boolean;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -792,7 +846,7 @@ begin
   end;
 end;
 
-function TypeHasRoutineMembers(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function TypeHasRoutineMembers(const aFacts: TRemoveWithPlanFacts;
   const aTypeName: string): Boolean;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -805,7 +859,7 @@ begin
   end;
 end;
 
-function TypeHasOperatorSyntax(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function TypeHasOperatorSyntax(const aFacts: TRemoveWithPlanFacts;
   const aTypeName: string; const aLineCache: TDictionary<string, TArray<string>>): Boolean;
 var
   lDeclaration: TDelphiSemanticInventorySymbol;
@@ -833,7 +887,7 @@ begin
   end;
 end;
 
-function SelectorTypeName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function SelectorTypeName(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aSelectorText: string): string;
 var
@@ -899,7 +953,7 @@ begin
     Exit;
 end;
 
-function ReferenceIsRoutineSymbol(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function ReferenceIsRoutineSymbol(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aReferenceName: string): Boolean;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -917,7 +971,7 @@ begin
 end;
 
 function ReferenceIsKnownNonMemberSymbol(const aFacts:
-  TDelphiSemanticProjectWithBindingFacts; const aBinding:
+  TRemoveWithPlanFacts; const aBinding:
   TDelphiSemanticWithBinding; const aReference:
   TDelphiSemanticBoundReference): Boolean;
 var
@@ -942,7 +996,7 @@ begin
 end;
 
 function ReferenceIsRoutineScopeValue(const aFacts:
-  TDelphiSemanticProjectWithBindingFacts; const aBinding:
+  TRemoveWithPlanFacts; const aBinding:
   TDelphiSemanticWithBinding; const aReference:
   TDelphiSemanticBoundReference): Boolean;
 var
@@ -961,7 +1015,7 @@ begin
 end;
 
 function ReferenceQualifiedPrefixIsRoutineScopeValue(const aFacts:
-  TDelphiSemanticProjectWithBindingFacts; const aBinding:
+  TRemoveWithPlanFacts; const aBinding:
   TDelphiSemanticWithBinding; const aReference:
   TDelphiSemanticBoundReference): Boolean;
 var
@@ -979,12 +1033,12 @@ begin
   Result := ReferenceIsRoutineScopeValue(aFacts, aBinding, lReference);
 end;
 
-function ReferenceCanRemainUnchanged(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function ReferenceCanRemainUnchanged(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference): Boolean; forward;
 
 function ReferenceQualifiedPrefixCanRemainUnchanged(const aFacts:
-  TDelphiSemanticProjectWithBindingFacts; const aBinding:
+  TRemoveWithPlanFacts; const aBinding:
   TDelphiSemanticWithBinding; const aReference:
   TDelphiSemanticBoundReference): Boolean;
 var
@@ -1002,7 +1056,7 @@ begin
   Result := ReferenceCanRemainUnchanged(aFacts, aBinding, lReference);
 end;
 
-function ReferenceCanRemainUnchanged(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function ReferenceCanRemainUnchanged(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference): Boolean;
 begin
@@ -1013,10 +1067,10 @@ begin
 end;
 
 function ReferenceHasKnownRoutineSymbol(const aFacts:
-  TDelphiSemanticProjectWithBindingFacts;
+  TRemoveWithPlanFacts;
   const aReference: TDelphiSemanticBoundReference): Boolean; forward;
 
-function ReferenceShouldRemainUnchanged(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function ReferenceShouldRemainUnchanged(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference): Boolean;
 begin
@@ -1043,7 +1097,7 @@ begin
   end;
 end;
 
-function ReferenceHasKnownRoutineSymbol(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function ReferenceHasKnownRoutineSymbol(const aFacts: TRemoveWithPlanFacts;
   const aReference: TDelphiSemanticBoundReference): Boolean;
 var
   lName: string;
@@ -1060,7 +1114,7 @@ begin
       Copy(lName, lSeparator + 1, MaxInt)));
 end;
 
-function ReferenceIsKnownTypeName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function ReferenceIsKnownTypeName(const aFacts: TRemoveWithPlanFacts;
   const aReference: TDelphiSemanticBoundReference): Boolean;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -1192,7 +1246,7 @@ begin
 end;
 
 function RoutineDeclarationIsNestedInBindingScope(const aFacts:
-  TDelphiSemanticProjectWithBindingFacts; const aBinding:
+  TRemoveWithPlanFacts; const aBinding:
   TDelphiSemanticWithBinding; const aRoutine: TDelphiSemanticInventorySymbol;
   const aLineCache: TDictionary<string, TArray<string>>): Boolean;
 var
@@ -1220,7 +1274,7 @@ begin
 end;
 
 function ReferenceHasPriorRoutineDeclaration(const aFacts:
-  TDelphiSemanticProjectWithBindingFacts; const aBinding:
+  TRemoveWithPlanFacts; const aBinding:
   TDelphiSemanticWithBinding; const aReference: TDelphiSemanticBoundReference;
   const aLineCache: TDictionary<string, TArray<string>>): Boolean;
 var
@@ -1275,7 +1329,7 @@ begin
     Result := 'symbol-not-found';
 end;
 
-function ExistingSymbolName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function ExistingSymbolName(const aFacts: TRemoveWithPlanFacts;
   const aRoutineName, aName: string): Boolean;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -1284,7 +1338,7 @@ begin
     (Length(aFacts.LookupIndex.FindUnitOrGlobalByName(aName)) > 0);
 end;
 
-function SelectorIsByReferenceParameter(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function SelectorIsByReferenceParameter(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string): Boolean;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -1299,7 +1353,7 @@ begin
     MatchText(lSymbol.Modifier, ['var', 'out']);
 end;
 
-function SelectorIsByValueParameter(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function SelectorIsByValueParameter(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string): Boolean;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -1314,7 +1368,7 @@ begin
 end;
 
 function ReferenceIsByValueRoutineParameter(
-  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference): Boolean;
 var
@@ -1330,7 +1384,7 @@ begin
 end;
 
 function ByValueParameterReferencesHaveUnitFallback(
-  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding): Boolean;
 var
   lBodyRange: TDelphiSemanticRemoveWithSourceRange;
@@ -1375,7 +1429,7 @@ begin
   end;
 end;
 
-function ReservedTempName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function ReservedTempName(const aFacts: TRemoveWithPlanFacts;
   const aReservedNames: TDictionary<string, Integer>; const aRoutineName,
   aBaseName: string): string;
 var
@@ -1398,7 +1452,7 @@ end;
 function RoutineDeclarationIsProcedure(const aBinding: TDelphiSemanticWithBinding;
   const aLineCache: TDictionary<string, TArray<string>>): Boolean; forward;
 
-function BuildSelectorDecision(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function BuildSelectorDecision(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
   const aReservedNames: TDictionary<string, Integer>;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>;
@@ -1813,7 +1867,7 @@ begin
     Result := Copy(Result, 1, lDelimiterPos - 1);
 end;
 
-function ActiveDecisionHasMember(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function ActiveDecisionHasMember(const aFacts: TRemoveWithPlanFacts;
   const aDecisions: TArray<TFinalSelectorDecision>; const aReferenceName: string): Boolean;
 var
   i: Integer;
@@ -1830,7 +1884,7 @@ begin
   end;
 end;
 
-function QualifierForReference(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function QualifierForReference(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aDecisions: TArray<TFinalSelectorDecision>;
   const aReference: TDelphiSemanticBoundReference; out aQualifierText: string): Boolean;
 var
@@ -1865,7 +1919,7 @@ begin
   end;
 end;
 
-function ReferenceBlocksFinalRewrite(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function ReferenceBlocksFinalRewrite(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference;
   const aLineCache: TDictionary<string, TArray<string>>;
@@ -1923,7 +1977,7 @@ begin
   end;
 end;
 
-function RewrittenBodyText(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function RewrittenBodyText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>;
   const aNestedReplacements: TArray<TFinalNestedReplacement>;
@@ -2085,7 +2139,7 @@ begin
 end;
 
 function ReferenceIsByValueParameterWithoutUnitFallback(
-  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference): Boolean;
 var
@@ -2103,7 +2157,7 @@ begin
 end;
 
 function ValueRecordProcedureParameterReferenceNeedsSkip(
-  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aTempDecisions: TArray<TFinalSelectorDecision>;
   const aLineCache: TDictionary<string, TArray<string>>): Boolean;
@@ -2127,7 +2181,7 @@ begin
 end;
 
 function RoutineLocalArrayReferenceNeedsSkip(
-  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aTempDecisions: TArray<TFinalSelectorDecision>): Boolean;
 var
@@ -2155,7 +2209,7 @@ begin
 end;
 
 function SelectorBaseIsRoutineLocalArray(
-  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string):
   Boolean;
 var
@@ -2175,7 +2229,7 @@ begin
 end;
 
 function RoutineLocalArraySelectorNeedsSkip(
-  const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aTempDecisions: TArray<TFinalSelectorDecision>): Boolean;
 var
@@ -2260,7 +2314,7 @@ begin
   end;
 end;
 
-function BuildFinalReplacementText(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function BuildFinalReplacementText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aVisibleDecisions, aTempDecisions: TArray<TFinalSelectorDecision>;
   const aNestedReplacements: TArray<TFinalNestedReplacement>;
@@ -2644,8 +2698,8 @@ begin
     Result := 'symbol-not-found';
 end;
 
-function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFacts;
-  const aBindings: TArray<TDelphiSemanticWithBinding>;
+function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
+  const aBindingSource: TRemoveWithPlanBindingSource;
   const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
   const aStatementId: string;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
@@ -2654,7 +2708,7 @@ function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFact
   const aInheritedDecisions: TArray<TFinalSelectorDecision>):
   TDelphiSemanticRemoveWithFinalStatement; overload; forward;
 
-function SymbolUnsupportedReasonForName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function SymbolUnsupportedReasonForName(const aFacts: TRemoveWithPlanFacts;
   const aName: string): string;
 var
   lBaseName: string;
@@ -2676,7 +2730,7 @@ begin
       Exit(lSymbol.UnsupportedReason);
 end;
 
-function SourceBackedTypeKnown(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function SourceBackedTypeKnown(const aFacts: TRemoveWithPlanFacts;
   const aTypeName: string): Boolean;
 var
   lBaseName: string;
@@ -2703,7 +2757,7 @@ begin
   end;
 end;
 
-function SelectorNamesRoutine(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function SelectorNamesRoutine(const aFacts: TRemoveWithPlanFacts;
   const aSelectorText: string): Boolean;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -2718,7 +2772,7 @@ begin
 end;
 
 function BindingSelectorDeclaredTypeName(const aFacts:
-  TDelphiSemanticProjectWithBindingFacts; const aBinding: TDelphiSemanticWithBinding;
+  TRemoveWithPlanFacts; const aBinding: TDelphiSemanticWithBinding;
   const aSelectorText: string): string;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -2736,7 +2790,7 @@ begin
   end;
 end;
 
-function BindingFactSkipReason(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function BindingFactSkipReason(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aLineCache: TDictionary<string, TArray<string>>;
   out aReason: string): Boolean;
@@ -2810,7 +2864,7 @@ begin
   Result := False;
 end;
 
-function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aStatementId: string;
   const aCandidateEdit: TDelphiSemanticRemoveWithEdit;
   const aReservedNames: TDictionary<string, Integer>;
@@ -2819,6 +2873,7 @@ function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFact
 var
   lBindingTree: TFinalBindingTree;
   lBindingList: TArray<TDelphiSemanticWithBinding>;
+  lBindingSource: TArrayRemoveWithPlanBindingSource;
   lCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   lInheritedDecisions: TArray<TFinalSelectorDecision>;
 begin
@@ -2830,12 +2885,18 @@ begin
   lBindingTree.RootIndexes[0] := 0;
   lCandidateEdits[0] := aCandidateEdit;
   lInheritedDecisions := nil;
-  Result := BuildFinalStatement(aFacts, lBindingList, lBindingTree, 0, aStatementId,
-    lCandidateEdits, aReservedNames, aLineCache, lInheritedDecisions);
+  lBindingSource := TArrayRemoveWithPlanBindingSource.Create(lBindingList);
+  try
+    Result := BuildFinalStatement(aFacts, lBindingSource, lBindingTree, 0,
+      aStatementId, lCandidateEdits, aReservedNames, aLineCache,
+      lInheritedDecisions);
+  finally
+    lBindingSource.Free;
+  end;
 end;
 
-function BuildFinalStatement(const aFacts: TDelphiSemanticProjectWithBindingFacts;
-  const aBindings: TArray<TDelphiSemanticWithBinding>;
+function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
+  const aBindingSource: TRemoveWithPlanBindingSource;
   const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
   const aStatementId: string;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
@@ -2864,7 +2925,7 @@ var
   lBinding: TDelphiSemanticWithBinding;
   lSelector: TDelphiSemanticWithSelectorBinding;
 begin
-  lBinding := aBindings[aBindingIndex];
+  lBinding := aBindingSource.BindingByIndex(aBindingIndex);
   Result := Default(TDelphiSemanticRemoveWithFinalStatement);
   Result.FileName := lBinding.FileName;
   Result.StatementId := aStatementId;
@@ -7013,7 +7074,7 @@ begin
 
   for lChildIndex in aBindingTree.ChildIndexes[aBindingIndex] do
   begin
-    lChildStatement := BuildFinalStatement(aFacts, aBindings, aBindingTree,
+    lChildStatement := BuildFinalStatement(aFacts, aBindingSource, aBindingTree,
       lChildIndex, FinalStatementId(lChildIndex + 1), aCandidateEdits,
       aReservedNames, aLineCache, lVisibleDecisions);
     if not SameText(lChildStatement.Status, 'planned') then
@@ -8190,6 +8251,19 @@ begin
     (not SameParityRange(BindingRange(aOuter), BindingRange(aInner)));
 end;
 
+function TRemoveWithPlanBindingSource.BindingContainsBindingByIndex(
+  const aOuterIndex, aInnerIndex: Integer): Boolean;
+begin
+  Result := BindingContainsBinding(BindingByIndex(aOuterIndex),
+    BindingByIndex(aInnerIndex));
+end;
+
+function TRemoveWithPlanBindingSource.BindingHasStableSourceRange(
+  const aIndex: Integer): Boolean;
+begin
+  Result := HasStableSourceRange(BindingByIndex(aIndex));
+end;
+
 procedure AddFinalBindingIndex(var aIndexes: TFinalBindingIndexArray;
   const aIndex: Integer);
 var
@@ -8200,36 +8274,36 @@ begin
   aIndexes[lIndex] := aIndex;
 end;
 
-function DirectParentBindingIndex(const aBindings: TArray<TDelphiSemanticWithBinding>;
+function DirectParentBindingIndex(const aBindingSource: TRemoveWithPlanBindingSource;
   const aBindingIndex: Integer): Integer;
 var
   lCandidateIndex: Integer;
 begin
   Result := -1;
-  for lCandidateIndex := 0 to High(aBindings) do
+  for lCandidateIndex := 0 to Pred(aBindingSource.BindingCount) do
   begin
     if lCandidateIndex = aBindingIndex then
       Continue;
-    if not BindingContainsBinding(aBindings[lCandidateIndex],
-      aBindings[aBindingIndex]) then
+    if not aBindingSource.BindingContainsBindingByIndex(lCandidateIndex,
+      aBindingIndex) then
       Continue;
     if (Result < 0) or
-      BindingContainsBinding(aBindings[Result], aBindings[lCandidateIndex]) then
+      aBindingSource.BindingContainsBindingByIndex(Result, lCandidateIndex) then
       Result := lCandidateIndex;
   end;
 end;
 
-function BuildFinalBindingTree(const aBindings: TArray<TDelphiSemanticWithBinding>):
+function BuildFinalBindingTree(const aBindingSource: TRemoveWithPlanBindingSource):
   TFinalBindingTree;
 var
   lBindingIndex: Integer;
   lParentIndex: Integer;
 begin
   Result := Default(TFinalBindingTree);
-  SetLength(Result.ChildIndexes, Length(aBindings));
-  for lBindingIndex := 0 to High(aBindings) do
+  SetLength(Result.ChildIndexes, aBindingSource.BindingCount);
+  for lBindingIndex := 0 to Pred(aBindingSource.BindingCount) do
   begin
-    lParentIndex := DirectParentBindingIndex(aBindings, lBindingIndex);
+    lParentIndex := DirectParentBindingIndex(aBindingSource, lBindingIndex);
     if lParentIndex < 0 then
       AddFinalBindingIndex(Result.RootIndexes, lBindingIndex)
     else
@@ -8238,8 +8312,8 @@ begin
 end;
 
 procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
-  const aFacts: TDelphiSemanticProjectWithBindingFacts;
-  const aBindings: TArray<TDelphiSemanticWithBinding>;
+  const aFacts: TRemoveWithPlanFacts;
+  const aBindingSource: TRemoveWithPlanBindingSource;
   const aBindingTree: TFinalBindingTree;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aBindingIndex: Integer;
@@ -8251,31 +8325,33 @@ var
   lChildInheritedDecisions: TArray<TFinalSelectorDecision>;
   lDecision: TFinalSelectorDecision;
   lIndex: Integer;
+  lBinding: TDelphiSemanticWithBinding;
   lSelector: TDelphiSemanticWithSelectorBinding;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lStatement := BuildFinalStatement(aFacts, aBindings, aBindingTree, aBindingIndex,
-    FinalStatementId(aBindingIndex + 1), aCandidateEdits, aReservedNames,
-    aLineCache, aInheritedDecisions);
+  lBinding := aBindingSource.BindingByIndex(aBindingIndex);
+  lStatement := BuildFinalStatement(aFacts, aBindingSource, aBindingTree,
+    aBindingIndex, FinalStatementId(aBindingIndex + 1), aCandidateEdits,
+    aReservedNames, aLineCache, aInheritedDecisions);
   AddFinalStatement(aPlan, lStatement);
   if SameText(lStatement.Status, 'planned') then
     Exit;
 
   lChildInheritedDecisions := Copy(aInheritedDecisions);
   if SameText(lStatement.Reason, 'selector-type-not-resolved') and
-    (Pos('[', aBindings[aBindingIndex].SelectorText) > 0) then
+    (Pos('[', lBinding.SelectorText) > 0) then
   begin
     lDecision := Default(TFinalSelectorDecision);
-    lDecision.SelectorText := aBindings[aBindingIndex].SelectorText;
+    lDecision.SelectorText := lBinding.SelectorText;
     lDecision.Strategy := 'direct-qualification';
     lDecision.Reason := 'skipped-parent-context';
     lIndex := Length(lChildInheritedDecisions);
     SetLength(lChildInheritedDecisions, lIndex + 1);
     lChildInheritedDecisions[lIndex] := lDecision;
   end;
-  for lSelector in aBindings[aBindingIndex].Selectors do
+  for lSelector in lBinding.Selectors do
   begin
-    if not SelectorTextDeclaredInBinding(aBindings[aBindingIndex].SelectorText,
+    if not SelectorTextDeclaredInBinding(lBinding.SelectorText,
       lSelector.SelectorText) then
       Continue;
     if Trim(lSelector.TypeName) = '' then
@@ -8294,8 +8370,8 @@ begin
 
   for lChildIndex in aBindingTree.ChildIndexes[aBindingIndex] do
   begin
-    if HasStableSourceRange(aBindings[lChildIndex]) then
-      AddFinalStatementTree(aPlan, aFacts, aBindings, aBindingTree,
+    if aBindingSource.BindingHasStableSourceRange(lChildIndex) then
+      AddFinalStatementTree(aPlan, aFacts, aBindingSource, aBindingTree,
         aCandidateEdits, lChildIndex, aReservedNames, aLineCache,
         lChildInheritedDecisions);
   end;
@@ -8489,8 +8565,9 @@ begin
   end;
 end;
 
-class function TDelphiSemanticRemoveWithPlanner.Plan(
-  const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
+function PlanFromBindingSource(const aFacts: TRemoveWithPlanFacts;
+  const aBindingSource: TRemoveWithPlanBindingSource;
+  const aModelVersion: string): TDelphiSemanticRemoveWithPlan;
 var
   lBinding: TDelphiSemanticWithBinding;
   lBindingTree: TFinalBindingTree;
@@ -8508,7 +8585,7 @@ begin
   Result.Operation := 'remove-with';
   Result.Status := 'planned';
   Result.ContextFingerprint := aFacts.ContextFingerprint;
-  Result.BaselineSemanticModelVersion := 'project-with-binding-v1';
+  Result.BaselineSemanticModelVersion := aModelVersion;
 
   AddVerification(Result, 'baseline-compile',
     'Compile the project before source-changing apply.');
@@ -8533,12 +8610,12 @@ begin
   lReservedNames := TDictionary<string, Integer>.Create;
   try
     lStatementIndex := 0;
-    SetLength(lCandidateEdits, Length(aFacts.Bindings));
-    for lBindingIndex := 0 to High(aFacts.Bindings) do
+    SetLength(lCandidateEdits, aBindingSource.BindingCount);
+    for lBindingIndex := 0 to Pred(aBindingSource.BindingCount) do
     begin
-      lBinding := aFacts.Bindings[lBindingIndex];
+      lBinding := aBindingSource.BindingByIndex(lBindingIndex);
       Inc(lStatementIndex);
-      if HasStableSourceRange(lBinding) then
+      if aBindingSource.BindingHasStableSourceRange(lBindingIndex) then
       begin
         lEdit := AddEdit(Result, lBinding, lHashCache, lLineCache);
         lCandidateEdits[lBindingIndex] := lEdit;
@@ -8552,14 +8629,14 @@ begin
           'stable source file, hash, and source range are required'));
       end;
     end;
-    lBindingTree := BuildFinalBindingTree(aFacts.Bindings);
+    lBindingTree := BuildFinalBindingTree(aBindingSource);
     for lRootIndex in lBindingTree.RootIndexes do
     begin
-      lBinding := aFacts.Bindings[lRootIndex];
-      if HasStableSourceRange(lBinding) then
+      lBinding := aBindingSource.BindingByIndex(lRootIndex);
+      if aBindingSource.BindingHasStableSourceRange(lRootIndex) then
       begin
         lInheritedDecisions := nil;
-        AddFinalStatementTree(Result, aFacts, aFacts.Bindings, lBindingTree,
+        AddFinalStatementTree(Result, aFacts, aBindingSource, lBindingTree,
           lCandidateEdits, lRootIndex, lReservedNames, lLineCache,
           lInheritedDecisions);
       end;
@@ -8569,6 +8646,25 @@ begin
     lReservedNames.Free;
     lLineCache.Free;
     lHashCache.Free;
+  end;
+end;
+
+class function TDelphiSemanticRemoveWithPlanner.Plan(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
+var
+  lBindingSource: TArrayRemoveWithPlanBindingSource;
+  lPlanFacts: TRemoveWithPlanFacts;
+begin
+  lPlanFacts := Default(TRemoveWithPlanFacts);
+  lPlanFacts.ContextFingerprint := aFacts.ContextFingerprint;
+  lPlanFacts.LookupIndex := aFacts.LookupIndex;
+  lPlanFacts.Symbols := aFacts.Symbols;
+  lBindingSource := TArrayRemoveWithPlanBindingSource.Create(aFacts.Bindings);
+  try
+    Result := PlanFromBindingSource(lPlanFacts, lBindingSource,
+      'project-with-binding-v1');
+  finally
+    lBindingSource.Free;
   end;
 end;
 
@@ -8681,6 +8777,65 @@ begin
     Result.References[i] := SnapshotBoundReference(aSnapshot, aBinding.References[i]);
 end;
 
+constructor TSnapshotRemoveWithPlanBindingSource.Create(
+  const aSnapshot: TDelphiProjectSnapshot);
+begin
+  inherited Create;
+  fSnapshot := aSnapshot;
+end;
+
+function TSnapshotRemoveWithPlanBindingSource.BindingByIndex(
+  const aIndex: Integer): TDelphiSemanticWithBinding;
+begin
+  Result := SnapshotWithBinding(fSnapshot,
+    fSnapshot.RemoveWithPlanningBindingByIndex(aIndex));
+end;
+
+function TSnapshotRemoveWithPlanBindingSource.BindingCount: Integer;
+begin
+  Result := fSnapshot.RemoveWithPlanningBindingCount;
+end;
+
+function RemoveWithBindingFactRange(const aBinding:
+  TSemanticRemoveWithBindingFact): TDelphiSemanticRemoveWithSourceRange;
+begin
+  Result.StartLine := aBinding.Line;
+  Result.StartColumn := aBinding.Column;
+  Result.EndLine := aBinding.EndLine;
+  Result.EndColumn := aBinding.EndColumn;
+end;
+
+function TSnapshotRemoveWithPlanBindingSource.BindingContainsBindingByIndex(
+  const aOuterIndex, aInnerIndex: Integer): Boolean;
+var
+  lInner: TSemanticRemoveWithBindingFact;
+  lOuter: TSemanticRemoveWithBindingFact;
+begin
+  lOuter := fSnapshot.RemoveWithPlanningBindingByIndex(aOuterIndex);
+  lInner := fSnapshot.RemoveWithPlanningBindingByIndex(aInnerIndex);
+  Result := SameText(fSnapshot.ExactTextOf(lOuter.FileNameId),
+    fSnapshot.ExactTextOf(lInner.FileNameId)) and
+    (not SameText(fSnapshot.ExactTextOf(lOuter.SemanticIdId),
+    fSnapshot.ExactTextOf(lInner.SemanticIdId))) and
+    RangeContainsRange(RemoveWithBindingFactRange(lOuter),
+    RemoveWithBindingFactRange(lInner)) and
+    (not SameParityRange(RemoveWithBindingFactRange(lOuter),
+    RemoveWithBindingFactRange(lInner)));
+end;
+
+function TSnapshotRemoveWithPlanBindingSource.BindingHasStableSourceRange(
+  const aIndex: Integer): Boolean;
+var
+  lBinding: TSemanticRemoveWithBindingFact;
+  lFileName: string;
+begin
+  lBinding := fSnapshot.RemoveWithPlanningBindingByIndex(aIndex);
+  lFileName := fSnapshot.ExactTextOf(lBinding.FileNameId);
+  Result := (Trim(lFileName) <> '') and TFile.Exists(lFileName) and
+    (lBinding.Line > 0) and (lBinding.Column > 0) and
+    (lBinding.EndLine >= lBinding.Line) and (lBinding.EndColumn > 0);
+end;
+
 function BindingFactsFromSnapshot(
   const aSnapshot: TDelphiProjectSnapshot): TDelphiSemanticProjectWithBindingFacts;
 var
@@ -8710,7 +8865,10 @@ end;
 class function TDelphiSemanticRemoveWithPlanner.Plan(
   const aSnapshot: TDelphiProjectSnapshot): TDelphiSemanticRemoveWithPlan;
 var
-  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  i: Integer;
+  lBindingSource: TSnapshotRemoveWithPlanBindingSource;
+  lPlanFacts: TRemoveWithPlanFacts;
+  lRoutineOwnerCount: Integer;
 begin
   Result := Default(TDelphiSemanticRemoveWithPlan);
   Result.Operation := 'remove-with';
@@ -8727,9 +8885,23 @@ begin
     Exit;
   end;
 
-  lFacts := BindingFactsFromSnapshot(aSnapshot);
-  Result := Plan(lFacts);
-  Result.BaselineSemanticModelVersion := 'project-snapshot-v1';
+  lPlanFacts := Default(TRemoveWithPlanFacts);
+  lPlanFacts.ContextFingerprint := aSnapshot.ExactTextOf(
+    aSnapshot.RemoveWithPlanningContextFingerprintId);
+  lPlanFacts.LookupIndex := aSnapshot.RemoveWithPlanningLookupIndex;
+  lRoutineOwnerCount := aSnapshot.RemoveWithPlanningRoutineOwnerCount;
+  SetLength(lPlanFacts.Symbols, lRoutineOwnerCount);
+  for i := 0 to High(lPlanFacts.Symbols) do
+    lPlanFacts.Symbols[i] := SnapshotInventorySymbol(aSnapshot,
+      aSnapshot.RemoveWithPlanningRoutineOwnerByIndex(i));
+
+  lBindingSource := TSnapshotRemoveWithPlanBindingSource.Create(aSnapshot);
+  try
+    Result := PlanFromBindingSource(lPlanFacts, lBindingSource,
+      'project-snapshot-v1');
+  finally
+    lBindingSource.Free;
+  end;
 end;
 
 class function TDelphiSemanticRemoveWithPlanParity.Compare(
