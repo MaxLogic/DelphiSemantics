@@ -189,6 +189,7 @@ begin
   Result.EnvironmentVariables := aOptions.EnvironmentVariables;
   Result.AdditionalSourceFileNames := aOptions.AdditionalSourceFileNames;
   Result.BodyAnalysisSourceFileNames := aOptions.BodyAnalysisSourceFileNames;
+  Result.SearchPaths := aOptions.SearchPaths;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;
   Result.UseLspEnrichment := aOptions.UseLspEnrichment;
   Result.SkipWithBindingSemanticGraph := aOptions.SkipWithBindingSemanticGraph;

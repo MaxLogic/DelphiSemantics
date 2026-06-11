@@ -20,6 +20,7 @@ type
     EnvironmentVariables: TArray<TDelphiSemanticProperty>;
     AdditionalSourceFileNames: TArray<string>;
     BodyAnalysisSourceFileNames: TArray<string>;
+    SearchPaths: TArray<string>;
     SqliteCacheFileName: string;
     SnapshotBuildWorkerCount: Integer;
     UseLspEnrichment: Boolean;
@@ -1080,12 +1081,14 @@ end;
 
 procedure PopulateProjectSemanticContext(var aProject: TDelphiSemanticProjectInfo;
   const aText: string; const aProperties: TPropertyMap;
+  const aOptions: TDelphiSemanticOptions;
   const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
 var
   lDefine: string;
   lDefines: TList<string>;
   lIncludePaths: TList<string>;
   lReferenceDirectories: TList<string>;
+  lSearchPath: string;
   lSearchPaths: TList<string>;
   lSourceFiles: TList<string>;
   lUnitAliases: TList<string>;
@@ -1114,6 +1117,9 @@ begin
       GetPropertyValue(aProperties, 'DCC_IncludePath'));
     AddDelimitedPaths(lSearchPaths, aProject.ProjectDirectory,
       GetPropertyValue(aProperties, 'DCC_UnitSearchPath'));
+    for lSearchPath in aOptions.SearchPaths do
+      AddUniquePath(lSearchPaths, aProject.ProjectDirectory,
+        ExpandProperties(lSearchPath, aProject.ProjectFileName, aProperties, aDiagnostics));
     AddDelimitedTexts(lUnitScopeNames, GetPropertyValue(aProperties, 'DCC_UnitScopeNames'));
     AddDelimitedTexts(lUnitScopeNames, GetPropertyValue(aProperties, 'DCC_Namespace'));
     AddDelimitedTexts(lUnitAliases, GetPropertyValue(aProperties, 'DCC_UnitAlias'));
@@ -1354,7 +1360,7 @@ begin
     ApplyPropertyText(lText, aProjectFileName, TPath.GetDirectoryName(aProjectFileName),
       lProperties, aDiagnostics, Trim(aOptions.Platform) <> '');
     Result := CreateProjectInfoFromProperties(aProjectFileName, lText, lProperties);
-    PopulateProjectSemanticContext(Result, lText, lProperties, aDiagnostics);
+    PopulateProjectSemanticContext(Result, lText, lProperties, aOptions, aDiagnostics);
     AddAdditionalSourceFiles(Result, aOptions);
     Result.CompilerProfileName := BuildCompilerProfileName(Result, aOptions);
     Result.ContextFingerprint := BuildContextFingerprint(Result, aOptions);
