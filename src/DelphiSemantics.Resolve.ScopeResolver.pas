@@ -19,7 +19,9 @@ type
   TDelphiSemanticScopeResolver = record
   public
     class function BuildRoutineScopeIndex(const aModel: TDelphiSemanticUnitModel):
-      TDelphiSemanticRoutineScopeIndex; static;
+      TDelphiSemanticRoutineScopeIndex; overload; static;
+    class function BuildRoutineScopeIndex(const aModel: TDelphiSemanticUnitModel;
+      const aLines: TArray<Integer>): TDelphiSemanticRoutineScopeIndex; overload; static;
   end;
 
 implementation
@@ -248,26 +250,64 @@ end;
 
 class function TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(
   const aModel: TDelphiSemanticUnitModel): TDelphiSemanticRoutineScopeIndex;
+begin
+  Result := BuildRoutineScopeIndex(aModel, nil);
+end;
+
+class function TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(
+  const aModel: TDelphiSemanticUnitModel; const aLines: TArray<Integer>):
+  TDelphiSemanticRoutineScopeIndex;
 var
   i: Integer;
+  lCaptureAll: Boolean;
+  lCaptureLines: TArray<Boolean>;
   lFrames: TList<TRoutineFrame>;
   lInImplementation: Boolean;
   lLine: string;
+  lLineNumber: Integer;
   lLines: TStringList;
+  lMaxCaptureLine: Integer;
+  lSourceText: string;
 begin
   Result := Default(TDelphiSemanticRoutineScopeIndex);
   lFrames := TList<TRoutineFrame>.Create;
   lLines := TStringList.Create;
   try
-    if not TFile.Exists(aModel.FileName) then
+    lSourceText := aModel.SourceText;
+    if lSourceText = '' then
+    begin
+      if not TFile.Exists(aModel.FileName) then
+        Exit;
+
+      lSourceText := TFile.ReadAllText(aModel.FileName);
+    end;
+
+    if lSourceText = '' then
       Exit;
 
-    lLines.Text := TFile.ReadAllText(aModel.FileName);
+    lLines.Text := lSourceText;
     SetLength(Result.fRoutineNamesByLine, lLines.Count + 1);
     SetLength(Result.fParentNamesByLine, lLines.Count + 1);
+    lCaptureAll := Length(aLines) = 0;
+    lMaxCaptureLine := 0;
+    if not lCaptureAll then
+    begin
+      SetLength(lCaptureLines, lLines.Count + 1);
+      for lLineNumber in aLines do
+        if (lLineNumber >= 1) and (lLineNumber <= lLines.Count) then
+        begin
+          lCaptureLines[lLineNumber] := True;
+          if lLineNumber > lMaxCaptureLine then
+            lMaxCaptureLine := lLineNumber;
+        end;
+    end;
     lInImplementation := False;
     for i := 0 to lLines.Count - 1 do
     begin
+      if (not lCaptureAll) and (lMaxCaptureLine > 0) and
+        ((i + 1) > lMaxCaptureLine) then
+        Break;
+
       lLine := CleanSourceLine(lLines[i]);
       if SameText(lLine.Trim, 'implementation') then
       begin
@@ -277,9 +317,19 @@ begin
 
       if lInImplementation then
       begin
-        Result.fRoutineNamesByLine[i + 1] := FrameRoutineName(lFrames);
-        Result.fParentNamesByLine[i + 1] := FrameParentNames(lFrames,
-          Result.fRoutineNamesByLine[i + 1]);
+        if lCaptureAll then
+        begin
+          Result.fRoutineNamesByLine[i + 1] := FrameRoutineName(lFrames);
+          if lFrames.Count > 1 then
+            Result.fParentNamesByLine[i + 1] := FrameParentNames(lFrames,
+              Result.fRoutineNamesByLine[i + 1]);
+        end else if lCaptureLines[i + 1] then
+        begin
+          Result.fRoutineNamesByLine[i + 1] := FrameRoutineName(lFrames);
+          if lFrames.Count > 1 then
+            Result.fParentNamesByLine[i + 1] := FrameParentNames(lFrames,
+              Result.fRoutineNamesByLine[i + 1]);
+        end;
         ApplyRoutineDeclaration(lLine, lFrames);
         ApplyBlockTokens(lLine, lFrames);
       end;

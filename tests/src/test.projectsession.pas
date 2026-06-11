@@ -43,7 +43,9 @@ type
     [Test]
     procedure ProjectSessionAssociatesNestedWithReferencesWithInnermostSnapshotFact;
     [Test]
-    procedure PersistentProjectFactsCacheReusesUnchangedWithBindingFacts;
+    procedure BuildWithBindingFactsSkipsReferencesForNonBodyModels;
+    [Test]
+    procedure BuildWithBindingFactsDoesNotWriteProjectFactsJsonSidecar;
     [Test]
     procedure InvalidProjectReturnsStructuredSessionDiagnostic;
   end;
@@ -618,9 +620,8 @@ begin
   end;
 end;
 
-procedure TProjectSessionTests.PersistentProjectFactsCacheReusesUnchangedWithBindingFacts;
+procedure TProjectSessionTests.BuildWithBindingFactsDoesNotWriteProjectFactsJsonSidecar;
 var
-  lBodyAnalysisProbePath: string;
   lCachePath: string;
   lDprPath: string;
   lDprojPath: string;
@@ -630,6 +631,7 @@ var
   lFourthResult: TDelphiSemanticProjectSessionResult;
   lIncludePath: string;
   lOptions: TDelphiSemanticOptions;
+  lProjectFactsSidecar: string;
   lRootPath: string;
   lSecondFacts: TDelphiSemanticProjectWithBindingFacts;
   lSecondResult: TDelphiSemanticProjectSessionResult;
@@ -645,10 +647,10 @@ begin
 
   lDprPath := TPath.Combine(lRootPath, 'ProjectFactsCache.dpr');
   lDprojPath := TPath.Combine(lRootPath, 'ProjectFactsCache.dproj');
-  lBodyAnalysisProbePath := TPath.Combine(lRootPath, 'BodyAnalysisProbe.pas');
   lIncludePath := TPath.Combine(lRootPath, 'ProjectFactsCache.inc');
   lUnitPath := TPath.Combine(lRootPath, 'ProjectFactsCacheUnit.pas');
   lCachePath := CombinePath([lRootPath, '.dak', 'semantic-cache.sqlite3']);
+  lProjectFactsSidecar := lCachePath + '.project-facts.json';
 
   TFile.WriteAllText(lDprPath, 'program ProjectFactsCache;' + sLineBreak +
     'uses ProjectFactsCacheUnit;' + sLineBreak + 'begin' + sLineBreak + 'end.',
@@ -672,17 +674,13 @@ begin
     sLineBreak + 'end;' + sLineBreak + 'end.', TEncoding.UTF8);
   TFile.WriteAllText(lIncludePath, '// include cache probe' + sLineBreak,
     TEncoding.UTF8);
-  TFile.WriteAllText(lBodyAnalysisProbePath, 'unit BodyAnalysisProbe;' +
-    sLineBreak + 'interface' + sLineBreak + 'implementation' + sLineBreak +
-    'end.', TEncoding.UTF8);
 
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := lDprojPath;
   lOptions.SqliteCacheFileName := lCachePath;
   lOptions.SkipWithBindingSemanticGraph := True;
-  SetLength(lOptions.BodyAnalysisSourceFileNames, 2);
+  SetLength(lOptions.BodyAnalysisSourceFileNames, 1);
   lOptions.BodyAnalysisSourceFileNames[0] := lUnitPath;
-  lOptions.BodyAnalysisSourceFileNames[1] := lBodyAnalysisProbePath;
 
   lFirstResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
@@ -692,7 +690,9 @@ begin
     lFirstResult.Session.Free;
   end;
   Assert.AreEqual(Int64(0), lFirstFacts.Metrics.ProjectFactsCacheHits);
-  Assert.IsTrue(lFirstFacts.Metrics.ProjectFactsCacheMisses > 0);
+  Assert.AreEqual(Int64(0), lFirstFacts.Metrics.ProjectFactsCacheMisses);
+  Assert.IsFalse(TFile.Exists(lProjectFactsSidecar),
+    'BuildWithBindingFacts must not write the obsolete project-facts JSON sidecar.');
   Assert.IsTrue(Length(lFirstFacts.Bindings) > 0,
     'Expected fixture to produce with-binding facts.');
 
@@ -703,8 +703,12 @@ begin
   finally
     lSecondResult.Session.Free;
   end;
-  Assert.IsTrue(lSecondFacts.Metrics.ProjectFactsCacheHits > 0,
-    'Expected unchanged project facts to be loaded from the persistent cache.');
+  Assert.IsTrue(lSecondFacts.Metrics.SemanticCacheHits > 0,
+    'Expected unchanged unit models to be loaded from the persistent semantic cache.');
+  Assert.AreEqual(Int64(0), lSecondFacts.Metrics.ProjectFactsCacheHits);
+  Assert.AreEqual(Int64(0), lSecondFacts.Metrics.ProjectFactsCacheMisses);
+  Assert.IsFalse(TFile.Exists(lProjectFactsSidecar),
+    'BuildWithBindingFacts must not reuse the obsolete project-facts JSON sidecar.');
   Assert.AreEqual(Length(lFirstFacts.Bindings), Length(lSecondFacts.Bindings));
   Assert.AreEqual(Length(lFirstFacts.Symbols), Length(lSecondFacts.Symbols));
   Assert.AreEqual(lFirstFacts.Bindings[0].SemanticId,
@@ -721,7 +725,7 @@ begin
   Assert.AreEqual(lFirstFacts.Bindings[0].References[0].Classification,
     lSecondFacts.Bindings[0].References[0].Classification);
 
-  TFile.AppendAllText(lBodyAnalysisProbePath, sLineBreak +
+  TFile.AppendAllText(lUnitPath, sLineBreak +
     '// project facts cache invalidation probe' + sLineBreak, TEncoding.UTF8);
   lThirdResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
@@ -730,10 +734,14 @@ begin
   finally
     lThirdResult.Session.Free;
   end;
-  Assert.IsTrue(lThirdFacts.Metrics.ProjectFactsCacheInvalidations > 0,
-    'Expected changed source to invalidate persistent project facts.');
-  Assert.IsTrue(lThirdFacts.Metrics.ProjectFactsCacheMisses > 0,
-    'Expected changed source to rebuild persistent project facts.');
+  Assert.IsTrue(lThirdFacts.Metrics.SemanticCacheInvalidations > 0,
+    'Expected changed source to invalidate persistent unit models.');
+  Assert.IsTrue(lThirdFacts.Metrics.SemanticCacheMisses > 0,
+    'Expected changed source to rebuild stale unit models.');
+  Assert.AreEqual(Int64(0), lThirdFacts.Metrics.ProjectFactsCacheInvalidations);
+  Assert.AreEqual(Int64(0), lThirdFacts.Metrics.ProjectFactsCacheMisses);
+  Assert.IsFalse(TFile.Exists(lProjectFactsSidecar),
+    'Changed source must not resurrect the obsolete project-facts JSON sidecar.');
 
   TFile.AppendAllText(lIncludePath, sLineBreak +
     '// project facts include invalidation probe' + sLineBreak, TEncoding.UTF8);
@@ -744,10 +752,53 @@ begin
   finally
     lFourthResult.Session.Free;
   end;
-  Assert.IsTrue(lFourthFacts.Metrics.ProjectFactsCacheInvalidations > 0,
-    'Expected changed include to invalidate persistent project facts.');
-  Assert.IsTrue(lFourthFacts.Metrics.ProjectFactsCacheMisses > 0,
-    'Expected changed include to rebuild persistent project facts.');
+  Assert.IsTrue(lFourthFacts.Metrics.SemanticCacheInvalidations > 0,
+    'Expected changed include to invalidate persistent unit models.');
+  Assert.IsTrue(lFourthFacts.Metrics.SemanticCacheMisses > 0,
+    'Expected changed include to rebuild stale unit models.');
+  Assert.AreEqual(Int64(0), lFourthFacts.Metrics.ProjectFactsCacheInvalidations);
+  Assert.AreEqual(Int64(0), lFourthFacts.Metrics.ProjectFactsCacheMisses);
+  Assert.IsFalse(TFile.Exists(lProjectFactsSidecar),
+    'Changed include must not resurrect the obsolete project-facts JSON sidecar.');
+end;
+
+procedure TProjectSessionTests.BuildWithBindingFactsSkipsReferencesForNonBodyModels;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lMainModel: TDelphiSemanticUnitModel;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lUnitPath: string;
+begin
+  lUnitPath := FixturePath('ProjectWithBinding\ProjectWithUnit.pas');
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lOptions.SkipWithBindingSemanticGraph := True;
+  lOptions.BodyAnalysisSourceFileNames := [lUnitPath];
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+  finally
+    lResult.Session.Free;
+  end;
+
+  lMainModel := Default(TDelphiSemanticUnitModel);
+  for lModel in lFacts.UnitModels do
+    if SameText(ExtractFileName(lModel.FileName), 'ProjectWithBinding.dpr') then
+    begin
+      lMainModel := lModel;
+      Break;
+    end;
+
+  Assert.AreEqual('ProjectWithBinding', lMainModel.UnitName);
+  Assert.IsTrue(Length(lMainModel.Declarations) > 0);
+  Assert.AreEqual(0, Integer(Length(lMainModel.WithStatements)));
+  Assert.AreEqual(0, Integer(Length(lMainModel.References)));
+  Assert.IsTrue(Length(lFacts.Bindings) > 0);
 end;
 
 procedure TProjectSessionTests.InvalidProjectReturnsStructuredSessionDiagnostic;

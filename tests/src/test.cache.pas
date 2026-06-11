@@ -42,6 +42,8 @@ type
     [Test]
     procedure SemanticContextChangeInvalidatesCachedUnitModel;
     [Test]
+    procedure ReferenceExtractionOptionInvalidatesCachedUnitModel;
+    [Test]
     procedure EquivalentDefineOrderReusesCachedUnitModel;
     [Test]
     procedure SearchPathOrderChangeInvalidatesCachedUnitModel;
@@ -336,6 +338,50 @@ begin
     Assert.IsNotEmpty(lSecond.Identity.ExtractionOptionsHash);
     Assert.AreEqual('default', lSecond.Identity.CompilerProfileName);
     Assert.IsNotEmpty(lSecond.Identity.ModelVersion);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.ReferenceExtractionOptionInvalidatesCachedUnitModel;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lFull: TDelphiSemanticUnitCacheAccessResult;
+  lFullOptions: TDelphiSemanticModelOptions;
+  lLean: TDelphiSemanticUnitCacheAccessResult;
+  lLeanOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := TempPath('ReferenceExtractionOptionUnit.pas');
+  TFile.WriteAllText(lPath, 'unit ReferenceExtractionOptionUnit;' + sLineBreak +
+    'interface' + sLineBreak + 'type' + sLineBreak +
+    '  TReferenceExtractionBase = record' + sLineBreak + '    Value: Integer;' +
+    sLineBreak + '  end;' + sLineBreak +
+    '  TReferenceExtractionAlias = TReferenceExtractionBase;' + sLineBreak +
+    'implementation' + sLineBreak + 'procedure UseAlias;' + sLineBreak + 'var' +
+    sLineBreak + '  lValue: TReferenceExtractionAlias;' + sLineBreak + 'begin' +
+    sLineBreak + '  lValue.Value := 1;' + sLineBreak + 'end;' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lFullOptions := Default(TDelphiSemanticModelOptions);
+  lFullOptions.SourceFileName := lPath;
+  lFullOptions.ProjectContextApplied := True;
+  lLeanOptions := lFullOptions;
+  lLeanOptions.SkipReferenceExtraction := True;
+
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lFull := lCache.GetOrExtractUnitModelWithStatus(lFullOptions);
+    lLean := lCache.GetOrExtractUnitModelWithStatus(lLeanOptions);
+
+    Assert.IsFalse(lFull.CacheHit);
+    Assert.IsFalse(lLean.CacheHit,
+      'Changing reference extraction must not reuse a full-reference cache entry.');
+    Assert.IsTrue(Length(lFull.Model.References) > 0);
+    Assert.AreEqual(0, Integer(Length(lLean.Model.References)));
+    Assert.AreEqual(2, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(1, lCache.Metrics.Invalidations);
   finally
     lCache.Free;
   end;

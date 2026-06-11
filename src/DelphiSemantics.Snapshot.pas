@@ -4,6 +4,7 @@ interface
 
 uses
   System.Generics.Collections,
+  DelphiSemantics.WithBinding,
   MaxLogic.FastList;
 
 type
@@ -154,6 +155,8 @@ type
 
   TSemanticRemoveWithPlanningFacts = record
     ContextFingerprintId: TSemanticStringId;
+    LookupIndex: TDelphiSemanticRemoveWithLookupIndex;
+    RoutineOwners: TArray<TSemanticRemoveWithInventorySymbolFact>;
     Symbols: TArray<TSemanticRemoveWithInventorySymbolFact>;
     Bindings: TArray<TSemanticRemoveWithBindingFact>;
   end;
@@ -239,6 +242,7 @@ type
     procedure AddUnit(const aUnit: TUnitSnapshot);
     function Build: TDelphiProjectSnapshot;
     procedure SetRemoveWithPlanningFacts(const aFacts: TSemanticRemoveWithPlanningFacts);
+    procedure SetRemoveWithPlanningFactsOwned(var aFacts: TSemanticRemoveWithPlanningFacts);
     property ExactStrings: TSemanticStringPool read fExactStrings;
     property Strings: TSemanticStringPool read fStrings;
     property UnitCount: Integer read GetUnitCount;
@@ -261,7 +265,7 @@ type
     fUnitsById: TDictionary<TSemanticUnitId, TUnitSnapshot>;
     constructor Create(const aStrings, aExactStrings: TSemanticStringPool;
       const aUnits: TObjectList<TUnitSnapshot>;
-      const aRemoveWithPlanningFacts: TSemanticRemoveWithPlanningFacts);
+      var aRemoveWithPlanningFacts: TSemanticRemoveWithPlanningFacts);
     procedure FreezeUnits(const aUnits: TObjectList<TUnitSnapshot>);
     function GetUnitCount: Integer;
     procedure BuildIndexes(const aStrings: TSemanticStringPool;
@@ -273,7 +277,18 @@ type
     function MemberRefByOwnerAndNameIndex(const aIndex: Integer): TSemanticSymbolRef;
     function ReferenceRefByNameIndex(const aIndex: Integer): TSemanticReferenceRef;
     function ReferenceRefBySymbolIndex(const aIndex: Integer): TSemanticReferenceRef;
+    function RemoveWithPlanningBindingByIndex(const aIndex: Integer):
+      TSemanticRemoveWithBindingFact;
+    function RemoveWithPlanningBindingCount: Integer;
+    function RemoveWithPlanningContextFingerprintId: TSemanticStringId;
     function RemoveWithPlanningFacts: TSemanticRemoveWithPlanningFacts;
+    function RemoveWithPlanningLookupIndex: TDelphiSemanticRemoveWithLookupIndex;
+    function RemoveWithPlanningRoutineOwnerByIndex(const aIndex: Integer):
+      TSemanticRemoveWithInventorySymbolFact;
+    function RemoveWithPlanningRoutineOwnerCount: Integer;
+    function RemoveWithPlanningSymbolByIndex(const aIndex: Integer):
+      TSemanticRemoveWithInventorySymbolFact;
+    function RemoveWithPlanningSymbolCount: Integer;
     function SymbolRefByNameIndex(const aIndex: Integer): TSemanticSymbolRef;
     function TextOf(const aId: TSemanticStringId): string;
     function UnitByIndex(const aIndex: Integer): TUnitSnapshot;
@@ -444,6 +459,8 @@ var
 begin
   Result := Default(TSemanticRemoveWithPlanningFacts);
   Result.ContextFingerprintId := aFacts.ContextFingerprintId;
+  Result.LookupIndex := aFacts.LookupIndex;
+  Result.RoutineOwners := Copy(aFacts.RoutineOwners);
   Result.Symbols := Copy(aFacts.Symbols);
   SetLength(Result.Bindings, Length(aFacts.Bindings));
   for i := 0 to High(aFacts.Bindings) do
@@ -818,6 +835,13 @@ begin
   fRemoveWithPlanningFacts := CopyRemoveWithPlanningFacts(aFacts);
 end;
 
+procedure TDelphiProjectSnapshotBuilder.SetRemoveWithPlanningFactsOwned(
+  var aFacts: TSemanticRemoveWithPlanningFacts);
+begin
+  fRemoveWithPlanningFacts := aFacts;
+  aFacts := Default(TSemanticRemoveWithPlanningFacts);
+end;
+
 function TDelphiProjectSnapshotBuilder.GetUnitCount: Integer;
 begin
   if fUnits = nil then
@@ -829,11 +853,12 @@ end;
 constructor TDelphiProjectSnapshot.Create(const aStrings,
   aExactStrings: TSemanticStringPool;
   const aUnits: TObjectList<TUnitSnapshot>;
-  const aRemoveWithPlanningFacts: TSemanticRemoveWithPlanningFacts);
+  var aRemoveWithPlanningFacts: TSemanticRemoveWithPlanningFacts);
 begin
   inherited Create;
   try
-    fRemoveWithPlanningFacts := CopyRemoveWithPlanningFacts(aRemoveWithPlanningFacts);
+    fRemoveWithPlanningFacts := aRemoveWithPlanningFacts;
+    aRemoveWithPlanningFacts := Default(TSemanticRemoveWithPlanningFacts);
     fUnitsById := TDictionary<TSemanticUnitId, TUnitSnapshot>.Create;
     fUnitByFileName := TDictionary<string, TSemanticUnitId>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
     fMembersByOwnerAndName := TDictionary<UInt64, TSemanticSymbolRef>.Create;
@@ -1004,9 +1029,54 @@ begin
   Result := fReferencesByName[aIndex];
 end;
 
+function TDelphiProjectSnapshot.RemoveWithPlanningBindingByIndex(
+  const aIndex: Integer): TSemanticRemoveWithBindingFact;
+begin
+  Result := fRemoveWithPlanningFacts.Bindings[aIndex];
+end;
+
+function TDelphiProjectSnapshot.RemoveWithPlanningBindingCount: Integer;
+begin
+  Result := Length(fRemoveWithPlanningFacts.Bindings);
+end;
+
+function TDelphiProjectSnapshot.RemoveWithPlanningContextFingerprintId:
+  TSemanticStringId;
+begin
+  Result := fRemoveWithPlanningFacts.ContextFingerprintId;
+end;
+
 function TDelphiProjectSnapshot.RemoveWithPlanningFacts: TSemanticRemoveWithPlanningFacts;
 begin
   Result := CopyRemoveWithPlanningFacts(fRemoveWithPlanningFacts);
+end;
+
+function TDelphiProjectSnapshot.RemoveWithPlanningLookupIndex:
+  TDelphiSemanticRemoveWithLookupIndex;
+begin
+  Result := fRemoveWithPlanningFacts.LookupIndex;
+end;
+
+function TDelphiProjectSnapshot.RemoveWithPlanningRoutineOwnerByIndex(
+  const aIndex: Integer): TSemanticRemoveWithInventorySymbolFact;
+begin
+  Result := fRemoveWithPlanningFacts.RoutineOwners[aIndex];
+end;
+
+function TDelphiProjectSnapshot.RemoveWithPlanningRoutineOwnerCount: Integer;
+begin
+  Result := Length(fRemoveWithPlanningFacts.RoutineOwners);
+end;
+
+function TDelphiProjectSnapshot.RemoveWithPlanningSymbolByIndex(
+  const aIndex: Integer): TSemanticRemoveWithInventorySymbolFact;
+begin
+  Result := fRemoveWithPlanningFacts.Symbols[aIndex];
+end;
+
+function TDelphiProjectSnapshot.RemoveWithPlanningSymbolCount: Integer;
+begin
+  Result := Length(fRemoveWithPlanningFacts.Symbols);
 end;
 
 function TDelphiProjectSnapshot.ReferenceRefBySymbolIndex(

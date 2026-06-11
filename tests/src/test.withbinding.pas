@@ -39,6 +39,14 @@ type
     [Test]
     procedure BindingReferenceCacheUsesStatementPrefix;
     [Test]
+    procedure BindingReferencesUsePrecomputedBodyLineStarts;
+    [Test]
+    procedure BindProjectSkipsScopeIndexForUnitsWithoutWithStatements;
+    [Test]
+    procedure BindProjectBuildsScopeIndexOnlyForWithLines;
+    [Test]
+    procedure BindProjectPreallocatesHotFactLists;
+    [Test]
     procedure ReceiverMemberBindingUsesSemanticMemberIndex;
     [Test]
     procedure ReceiverMemberIndexDoesNotWalkVisibleUnitsPerLookup;
@@ -427,6 +435,108 @@ begin
     'binding should build the shared resolver-cache key prefix once per statement');
   Assert.IsTrue(ContainsText(lSourceText, 'ReceiverMemberCachePrefix'),
     'binding should build the receiver/member cache key prefix once per statement');
+end;
+
+procedure TProjectWithBindingTests.BindingReferencesUsePrecomputedBodyLineStarts;
+var
+  lBindEnd: Integer;
+  lBindSource: string;
+  lBindStart: Integer;
+  lSourceText: string;
+begin
+  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\..\src\DelphiSemantics.WithBinding.pas')), TEncoding.UTF8);
+  lBindStart := Pos('function BindReferences(', lSourceText);
+  lBindEnd := Pos('function StatementContains(', lSourceText);
+  Assert.IsTrue((lBindStart > 0) and (lBindEnd > lBindStart),
+    'Expected BindReferences implementation section.');
+
+  lBindSource := Copy(lSourceText, lBindStart, lBindEnd - lBindStart);
+  Assert.IsTrue(ContainsText(lSourceText, 'BuildBodyLineStarts'),
+    'With-binding should build line starts once per body text.');
+  Assert.IsTrue(ContainsText(lBindSource, 'lBodyLineStarts := BuildBodyLineStarts(lBodyText)'),
+    'BindReferences should precompute body line starts once per statement.');
+  Assert.IsTrue(ContainsText(lBindSource,
+    'ApplyBodyRange(lReference, aStatement, lTokenStart, Length(lToken), lBodyLineStarts)'),
+    'Reference body ranges should use the precomputed line-start table.');
+  Assert.IsFalse(ContainsText(lSourceText, 'LineOfOffset(aStatement.BodyText'),
+    'ApplyBodyRange must not rescan the body text for every reference line lookup.');
+end;
+
+procedure TProjectWithBindingTests.BindProjectSkipsScopeIndexForUnitsWithoutWithStatements;
+var
+  lBindProjectEnd: Integer;
+  lBindProjectSource: string;
+  lBindProjectStart: Integer;
+  lScopeIndexPos: Integer;
+  lSourceText: string;
+  lWithGuardPos: Integer;
+begin
+  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\..\src\DelphiSemantics.WithBinding.pas')), TEncoding.UTF8);
+  lBindProjectStart := Pos('class function TDelphiSemanticWithBinder.BindProject',
+    lSourceText);
+  lBindProjectEnd := Pos('class function TDelphiSemanticWithBinder.ExpandInventorySymbols',
+    lSourceText);
+  Assert.IsTrue((lBindProjectStart > 0) and (lBindProjectEnd > lBindProjectStart),
+    'Expected BindProject implementation section.');
+
+  lBindProjectSource := Copy(lSourceText, lBindProjectStart,
+    lBindProjectEnd - lBindProjectStart);
+  lWithGuardPos := Pos('if Length(lModel.WithStatements) = 0 then',
+    lBindProjectSource);
+  lScopeIndexPos := Pos('TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel',
+    lBindProjectSource);
+  Assert.IsTrue((lWithGuardPos > 0) and (lWithGuardPos < lScopeIndexPos),
+    'BindProject should not build a routine scope index for units without with statements.');
+end;
+
+procedure TProjectWithBindingTests.BindProjectBuildsScopeIndexOnlyForWithLines;
+var
+  lBindProjectEnd: Integer;
+  lBindProjectSource: string;
+  lBindProjectStart: Integer;
+  lSourceText: string;
+begin
+  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\..\src\DelphiSemantics.WithBinding.pas')), TEncoding.UTF8);
+  lBindProjectStart := Pos('class function TDelphiSemanticWithBinder.BindProject',
+    lSourceText);
+  lBindProjectEnd := Pos('class function TDelphiSemanticWithBinder.ExpandInventorySymbols',
+    lSourceText);
+  Assert.IsTrue((lBindProjectStart > 0) and (lBindProjectEnd > lBindProjectStart),
+    'Expected BindProject implementation section.');
+
+  lBindProjectSource := Copy(lSourceText, lBindProjectStart,
+    lBindProjectEnd - lBindProjectStart);
+  Assert.IsTrue(ContainsText(lBindProjectSource,
+    'TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel') and
+    ContainsText(lBindProjectSource, 'lWithStatementLines'),
+    'BindProject should build routine-scope line data only for with-statement lines.');
+end;
+
+procedure TProjectWithBindingTests.BindProjectPreallocatesHotFactLists;
+var
+  lBindProjectEnd: Integer;
+  lBindProjectSource: string;
+  lBindProjectStart: Integer;
+  lSourceText: string;
+begin
+  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\..\src\DelphiSemantics.WithBinding.pas')), TEncoding.UTF8);
+  lBindProjectStart := Pos('class function TDelphiSemanticWithBinder.BindProject',
+    lSourceText);
+  lBindProjectEnd := Pos('class function TDelphiSemanticWithBinder.ExpandInventorySymbols',
+    lSourceText);
+  Assert.IsTrue((lBindProjectStart > 0) and (lBindProjectEnd > lBindProjectStart),
+    'Expected BindProject implementation section.');
+
+  lBindProjectSource := Copy(lSourceText, lBindProjectStart,
+    lBindProjectEnd - lBindProjectStart);
+  Assert.IsTrue(ContainsText(lBindProjectSource, 'lBindings.Capacity := lBindingCapacity'),
+    'BindProject should preallocate the binding list from with-statement counts.');
+  Assert.IsTrue(ContainsText(lBindProjectSource, 'lSymbols.Capacity := lSymbolCapacity'),
+    'BindProject should preallocate the inventory symbol list from model symbol counts.');
 end;
 
 procedure TProjectWithBindingTests.ReceiverMemberBindingUsesSemanticMemberIndex;

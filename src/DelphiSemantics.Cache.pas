@@ -351,7 +351,8 @@ begin
     'defines=' + SortedArrayText(aOptions.Defines) + sLineBreak +
     'searchPaths=' + OrderedArrayText(aOptions.SearchPaths) + sLineBreak +
     'projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) + sLineBreak +
-    'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True));
+    'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) + sLineBreak +
+    'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True));
 end;
 
 function BuildSemanticDefinesHash(const aOptions: TDelphiSemanticModelOptions): string;
@@ -369,7 +370,8 @@ function BuildSemanticExtractionOptionsHash(const aOptions: TDelphiSemanticModel
 begin
   Result := StableHash(
     'projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) + sLineBreak +
-    'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True));
+    'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) + sLineBreak +
+    'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True));
 end;
 
 function CloneUnitModel(const aModel: TDelphiSemanticUnitModel): TDelphiSemanticUnitModel;

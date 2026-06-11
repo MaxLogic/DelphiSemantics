@@ -22,6 +22,12 @@ type
     procedure ScopeLineCleanerAvoidsRegexHotPath;
     [Test]
     procedure ScopeBlockScannerAvoidsRegexHotPath;
+    [Test]
+    procedure ScopeIndexAvoidsParentCopiesForTopLevelLines;
+    [Test]
+    procedure ScopeIndexUsesModelSourceTextWhenFileIsUnavailable;
+    [Test]
+    procedure ScopeIndexStopsAfterLastRequestedLine;
   end;
 
 implementation
@@ -147,6 +153,69 @@ begin
     'Scope begin/end token scanning must not run regex per source line.');
   Assert.IsTrue(ContainsText(lBlockText, 'ReadScopeToken'),
     'Scope begin/end token scanning must use the simple token reader.');
+end;
+
+procedure TScopeResolverTests.ScopeIndexAvoidsParentCopiesForTopLevelLines;
+var
+  lBuildEnd: Integer;
+  lBuildStart: Integer;
+  lBuildText: string;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Resolve.ScopeResolver.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lBuildStart := Pos('class function TDelphiSemanticScopeResolver.BuildRoutineScopeIndex',
+    lSourceText);
+  lBuildEnd := PosEx('end.' + sLineBreak, lSourceText, lBuildStart);
+  lBuildText := Copy(lSourceText, lBuildStart, lBuildEnd - lBuildStart);
+
+  Assert.IsTrue(ContainsText(lBuildText, 'if lFrames.Count > 1 then'),
+    'Scope index should allocate parent-name arrays only when a parent routine exists.');
+  Assert.IsTrue(ContainsText(lBuildText, 'FrameParentNames(lFrames'),
+    'Nested routine parent chains must still be materialized.');
+end;
+
+procedure TScopeResolverTests.ScopeIndexUsesModelSourceTextWhenFileIsUnavailable;
+var
+  lIndex: TDelphiSemanticRoutineScopeIndex;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.FileName := TPath.Combine(ExtractFilePath(ParamStr(0)),
+    'missing-scope-source.pas');
+  lModel.SourceText := 'unit SourceBackedScope;' + sLineBreak + 'interface' +
+    sLineBreak + 'implementation' + sLineBreak + 'procedure Run;' + sLineBreak +
+    'begin' + sLineBreak + '  if True then' + sLineBreak + '  begin' + sLineBreak +
+    '    with Self do' + sLineBreak + '      Run;' + sLineBreak + '  end;' +
+    sLineBreak + 'end;' + sLineBreak + 'end.';
+
+  lIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel, [8]);
+
+  Assert.AreEqual('Run', lIndex.RoutineNameForLine(8));
+end;
+
+procedure TScopeResolverTests.ScopeIndexStopsAfterLastRequestedLine;
+var
+  lBuildEnd: Integer;
+  lBuildStart: Integer;
+  lBuildText: string;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Resolve.ScopeResolver.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lBuildStart := Pos('class function TDelphiSemanticScopeResolver.BuildRoutineScopeIndex',
+    lSourceText);
+  lBuildEnd := PosEx('end.' + sLineBreak, lSourceText, lBuildStart);
+  lBuildText := Copy(lSourceText, lBuildStart, lBuildEnd - lBuildStart);
+
+  Assert.IsTrue(ContainsText(lBuildText, 'lMaxCaptureLine'),
+    'Line-limited scope index builds should stop after the highest requested line.');
+  Assert.IsTrue(ContainsText(lBuildText, 'Break'),
+    'Line-limited scope index builds should break instead of scanning the whole file.');
 end;
 
 initialization

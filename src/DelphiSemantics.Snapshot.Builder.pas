@@ -30,6 +30,8 @@ function BuildProjectSnapshotFromModels(
   const aRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
   const aOptions: TDelphiSnapshotBuildOptions;
   out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
+function BuildRemoveWithPlanningSnapshotFromFacts(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiProjectSnapshot;
 
 implementation
 
@@ -607,12 +609,25 @@ function CreateRemoveWithPlanningFacts(const aExactStrings: TSemanticStringPool;
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TSemanticRemoveWithPlanningFacts;
 var
   i: Integer;
+  lRoutineOwners: TList<TSemanticRemoveWithInventorySymbolFact>;
+  lSymbol: TDelphiSemanticInventorySymbol;
 begin
   Result := Default(TSemanticRemoveWithPlanningFacts);
   Result.ContextFingerprintId := aExactStrings.Intern(aFacts.ContextFingerprint);
-  SetLength(Result.Symbols, Length(aFacts.Symbols));
-  for i := 0 to High(aFacts.Symbols) do
-    Result.Symbols[i] := SnapshotInventorySymbol(aExactStrings, aFacts.Symbols[i]);
+  if aFacts.LookupIndex.IsAvailable then
+    Result.LookupIndex := aFacts.LookupIndex
+  else
+    Result.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(
+      aFacts.UnitModels, aFacts.Symbols);
+  lRoutineOwners := TList<TSemanticRemoveWithInventorySymbolFact>.Create;
+  try
+    for lSymbol in aFacts.Symbols do
+      if SameText(lSymbol.SymbolClass, 'routine') or SameText(lSymbol.Kind, 'routine') then
+        lRoutineOwners.Add(SnapshotInventorySymbol(aExactStrings, lSymbol));
+    Result.RoutineOwners := lRoutineOwners.ToArray;
+  finally
+    lRoutineOwners.Free;
+  end;
   SetLength(Result.Bindings, Length(aFacts.Bindings));
   for i := 0 to High(aFacts.Bindings) do
     Result.Bindings[i] := SnapshotWithBinding(aExactStrings, aFacts.Bindings[i]);
@@ -750,6 +765,7 @@ var
   i: Integer;
   lBuilder: TDelphiProjectSnapshotBuilder;
   lMergeStopwatch: TStopwatch;
+  lPlanningFacts: TSemanticRemoveWithPlanningFacts;
   lWorkerStopwatch: TStopwatch;
 begin
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
@@ -770,8 +786,9 @@ begin
 
     lMergeStopwatch := TStopwatch.StartNew;
     try
-      lBuilder.SetRemoveWithPlanningFacts(CreateRemoveWithPlanningFacts(
-        lBuilder.ExactStrings, aRemoveWithFacts));
+      lPlanningFacts := CreateRemoveWithPlanningFacts(lBuilder.ExactStrings,
+        aRemoveWithFacts);
+      lBuilder.SetRemoveWithPlanningFactsOwned(lPlanningFacts);
       aMetrics.DeterministicFactCount := aMetrics.UnitCount + aMetrics.SymbolCount +
         aMetrics.ReferenceCount + aMetrics.WithStatementCount;
       Result := lBuilder.Build;
@@ -987,6 +1004,7 @@ var
   i: Integer;
   lBuilder: TDelphiProjectSnapshotBuilder;
   lMergedUnit: TUnitSnapshot;
+  lPlanningFacts: TSemanticRemoveWithPlanningFacts;
   lStopwatch: TStopwatch;
 begin
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
@@ -1008,8 +1026,9 @@ begin
       Inc(aMetrics.ReferenceCount, aResults[i].ReferenceCount);
       Inc(aMetrics.WithStatementCount, aResults[i].WithStatementCount);
     end;
-    lBuilder.SetRemoveWithPlanningFacts(CreateRemoveWithPlanningFacts(
-      lBuilder.ExactStrings, aRemoveWithFacts));
+    lPlanningFacts := CreateRemoveWithPlanningFacts(lBuilder.ExactStrings,
+      aRemoveWithFacts);
+    lBuilder.SetRemoveWithPlanningFactsOwned(lPlanningFacts);
     aMetrics.DeterministicFactCount := aMetrics.UnitCount + aMetrics.SymbolCount +
       aMetrics.ReferenceCount + aMetrics.WithStatementCount;
     Result := lBuilder.Build;
@@ -1050,6 +1069,23 @@ begin
     aMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;
     FreeUnitBuildResults(lResults);
     lReferenceTargets.Free;
+  end;
+end;
+
+function BuildRemoveWithPlanningSnapshotFromFacts(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiProjectSnapshot;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lPlanningFacts: TSemanticRemoveWithPlanningFacts;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lPlanningFacts := CreateRemoveWithPlanningFacts(lBuilder.ExactStrings,
+      aFacts);
+    lBuilder.SetRemoveWithPlanningFactsOwned(lPlanningFacts);
+    Result := lBuilder.Build;
+  finally
+    lBuilder.Free;
   end;
 end;
 

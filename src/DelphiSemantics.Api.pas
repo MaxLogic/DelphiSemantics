@@ -463,14 +463,9 @@ end;
 class function TDelphiSemanticApi.PlanRemoveWithSnapshot(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
 var
-  lBuildMetrics: TDelphiSnapshotBuilderMetrics;
-  lOptions: TDelphiSnapshotBuildOptions;
   lSnapshot: TDelphiProjectSnapshot;
 begin
-  lOptions := Default(TDelphiSnapshotBuildOptions);
-  lOptions.ResolveReferenceTargets := False;
-  lSnapshot := BuildProjectSnapshotFromModels(aFacts.UnitModels, aFacts, lOptions,
-    lBuildMetrics);
+  lSnapshot := BuildRemoveWithPlanningSnapshotFromFacts(aFacts);
   try
     Result := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
   finally

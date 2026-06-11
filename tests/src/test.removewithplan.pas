@@ -30,6 +30,12 @@ type
     [Test]
     procedure SnapshotPlannerConsumesExistingFactsWithoutProjectSession;
     [Test]
+    procedure SnapshotPlannerRebuildsMissingLookupIndexFromFacts;
+    [Test]
+    procedure SnapshotPlannerUsesPlanningFactsOnlyForExistingFacts;
+    [Test]
+    procedure SnapshotPlannerAvoidsWholePlanningFactCopies;
+    [Test]
     procedure SnapshotPlannerPreservesCaseOnlySelectorText;
     [Test]
     procedure SnapshotPlannerMaxTdbPreservesCountsWithoutProjectFactsSidecar;
@@ -843,6 +849,120 @@ begin
   Assert.AreEqual(ComparableRemoveWithPlanText(lExpectedPlan),
     ComparableRemoveWithPlanText(lActualPlan),
     'Snapshot planner from existing facts must match the binding-facts plan.');
+end;
+
+procedure TRemoveWithPlanTests.SnapshotPlannerRebuildsMissingLookupIndexFromFacts;
+var
+  lActualPlan: TDelphiSemanticRemoveWithPlan;
+  lExpectedPlan: TDelphiSemanticRemoveWithPlan;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+
+  lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
+  lExpectedPlan := TDelphiSemanticApi.PlanRemoveWith(lFacts);
+  lFacts.LookupIndex := Default(TDelphiSemanticRemoveWithLookupIndex);
+  lActualPlan := TDelphiSemanticApi.PlanRemoveWithSnapshot(lFacts);
+
+  Assert.AreEqual(lExpectedPlan.Status, lActualPlan.Status, lActualPlan.Diagnostic);
+  Assert.AreEqual(ComparableRemoveWithPlanText(lExpectedPlan),
+    ComparableRemoveWithPlanText(lActualPlan),
+    'Snapshot planner should rebuild the lookup index when callers provide facts without one.');
+end;
+
+procedure TRemoveWithPlanTests.SnapshotPlannerUsesPlanningFactsOnlyForExistingFacts;
+var
+  lFunctionEnd: Integer;
+  lFunctionSource: string;
+  lFunctionStart: Integer;
+  lSourceText: string;
+begin
+  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
+    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.Api.pas')),
+    TEncoding.UTF8);
+
+  lFunctionStart := Pos('class function TDelphiSemanticApi.PlanRemoveWithSnapshot',
+    lSourceText);
+  lFunctionEnd := PosEx('class function TDelphiSemanticApi.Search',
+    lSourceText, lFunctionStart);
+  Assert.IsTrue((lFunctionStart > 0) and (lFunctionEnd > lFunctionStart),
+    'Expected PlanRemoveWithSnapshot implementation section.');
+
+  lFunctionSource := Copy(lSourceText, lFunctionStart,
+    lFunctionEnd - lFunctionStart);
+  Assert.IsTrue(ContainsText(lFunctionSource,
+    'BuildRemoveWithPlanningSnapshotFromFacts'),
+    'PlanRemoveWithSnapshot(existing facts) should build only snapshot planning facts.');
+  Assert.IsFalse(ContainsText(lFunctionSource, 'BuildProjectSnapshotFromModels'),
+    'PlanRemoveWithSnapshot(existing facts) must not rebuild generic unit snapshot facts.');
+end;
+
+procedure TRemoveWithPlanTests.SnapshotPlannerAvoidsWholePlanningFactCopies;
+var
+  lBuilderSource: string;
+  lFunctionEnd: Integer;
+  lFunctionSource: string;
+  lFunctionStart: Integer;
+  lPlannerSource: string;
+begin
+  lPlannerSource := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
+    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.RemoveWithPlan.pas')),
+    TEncoding.UTF8);
+  lFunctionStart := Pos('function BindingFactsFromSnapshot',
+    lPlannerSource);
+  lFunctionEnd := PosEx('class function TDelphiSemanticRemoveWithPlanner.Plan',
+    lPlannerSource, lFunctionStart);
+  Assert.IsTrue((lFunctionStart > 0) and (lFunctionEnd > lFunctionStart),
+    'Expected BindingFactsFromSnapshot implementation section.');
+
+  lFunctionSource := Copy(lPlannerSource, lFunctionStart,
+    lFunctionEnd - lFunctionStart);
+  Assert.IsFalse(ContainsText(lFunctionSource,
+    'aSnapshot.RemoveWithPlanningFacts'),
+    'Snapshot planner must not copy the complete remove-with planning record.');
+  Assert.IsTrue(ContainsText(lFunctionSource,
+    'RemoveWithPlanningBindingCount'),
+    'Snapshot planner should read immutable planning facts by count/index.');
+  Assert.IsFalse(ContainsText(lFunctionSource,
+    'TDelphiSemanticRemoveWithLookupIndex.Build(nil'),
+    'Snapshot planner must not rebuild a symbol-only lookup index without unit-model facts.');
+  Assert.IsTrue(ContainsText(lFunctionSource,
+    'RemoveWithPlanningLookupIndex'),
+    'Snapshot planner should reuse the model-backed planning lookup index.');
+  Assert.IsFalse(ContainsText(lFunctionSource,
+    'RemoveWithPlanningSymbolByIndex'),
+    'Snapshot planner should not convert planning symbols back into DTO symbols.');
+  Assert.IsTrue(ContainsText(lFunctionSource,
+    'RemoveWithPlanningRoutineOwnerByIndex'),
+    'Snapshot planner should carry only routine-owner symbols needed for nested-routine safety.');
+
+  lBuilderSource := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
+    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.Snapshot.Builder.pas')),
+    TEncoding.UTF8);
+  lFunctionStart := Pos('function BuildRemoveWithPlanningSnapshotFromFacts',
+    lBuilderSource);
+  Assert.IsTrue(lFunctionStart > 0,
+    'Expected BuildRemoveWithPlanningSnapshotFromFacts implementation section.');
+  lFunctionSource := Copy(lBuilderSource, lFunctionStart, MaxInt);
+  Assert.IsTrue(ContainsText(lFunctionSource,
+    'SetRemoveWithPlanningFactsOwned'),
+    'Snapshot builder should transfer freshly-built planning facts without a defensive deep copy.');
+  lFunctionStart := Pos('function CreateRemoveWithPlanningFacts',
+    lBuilderSource);
+  lFunctionEnd := PosEx('function RemapStringId', lBuilderSource,
+    lFunctionStart);
+  Assert.IsTrue((lFunctionStart > 0) and (lFunctionEnd > lFunctionStart),
+    'Expected CreateRemoveWithPlanningFacts implementation section.');
+  lFunctionSource := Copy(lBuilderSource, lFunctionStart,
+    lFunctionEnd - lFunctionStart);
+  Assert.IsFalse(ContainsText(lFunctionSource,
+    'SetLength(Result.Symbols, Length(aFacts.Symbols))'),
+    'Planning snapshots should not convert the complete symbol inventory.');
+  Assert.IsTrue(ContainsText(lFunctionSource,
+    'RoutineOwners'),
+    'Planning snapshots should preserve the small routine-owner subset needed for safety.');
 end;
 
 procedure TRemoveWithPlanTests.SnapshotPlannerPreservesCaseOnlySelectorText;

@@ -1548,38 +1548,72 @@ begin
   Result := aBinding.SemanticId;
 end;
 
-function LineOfOffset(const aText: string; const aOffset: Integer): Integer;
+function BuildBodyLineStarts(const aText: string): TArray<Integer>;
 var
   i: Integer;
-  lOffset: Integer;
+  lIndex: Integer;
+  lLineCount: Integer;
 begin
-  Result := 1;
-  lOffset := EnsureRange(aOffset, 1, Length(aText));
-  for i := 1 to lOffset do
+  lLineCount := 1;
+  for i := 1 to Length(aText) do
     if aText[i] = #10 then
-      Inc(Result);
+      Inc(lLineCount);
+
+  SetLength(Result, lLineCount);
+  Result[0] := 1;
+  lIndex := 1;
+  for i := 1 to Length(aText) do
+    if aText[i] = #10 then
+    begin
+      Result[lIndex] := i + 1;
+      Inc(lIndex);
+    end;
 end;
 
-function ColumnOfOffset(const aText: string; const aOffset: Integer): Integer;
+function BodyLineOfOffset(const aLineStarts: TArray<Integer>;
+  const aOffset: Integer): Integer;
 var
-  i: Integer;
-  lColumn: Integer;
-  lOffset: Integer;
+  lBest: Integer;
+  lHigh: Integer;
+  lLow: Integer;
+  lMid: Integer;
 begin
-  lColumn := 1;
-  lOffset := EnsureRange(aOffset, 1, Length(aText));
-  for i := 1 to lOffset - 1 do
+  if Length(aLineStarts) = 0 then
+    Exit(1);
+
+  lBest := 0;
+  lLow := 0;
+  lHigh := High(aLineStarts);
+  while lLow <= lHigh do
   begin
-    if aText[i] = #10 then
-      lColumn := 1
-    else
-      Inc(lColumn);
+    lMid := (lLow + lHigh) div 2;
+    if aLineStarts[lMid] <= aOffset then
+    begin
+      lBest := lMid;
+      lLow := lMid + 1;
+    end else
+      lHigh := lMid - 1;
   end;
-  Result := lColumn;
+  Result := lBest + 1;
+end;
+
+function BodyColumnOfOffset(const aLineStarts: TArray<Integer>;
+  const aLine, aOffset: Integer): Integer;
+var
+  lIndex: Integer;
+begin
+  lIndex := aLine - 1;
+  if (lIndex >= Low(aLineStarts)) and (lIndex <= High(aLineStarts)) then
+    Result := aOffset - aLineStarts[lIndex] + 1
+  else
+    Result := aOffset;
+  if Result < 1 then
+    Result := 1;
 end;
 
 procedure ApplyBodyRange(var aReference: TDelphiSemanticBoundReference;
-  const aStatement: TDelphiSemanticWithStatement; const aStartOffset, aLength: Integer);
+  const aStatement: TDelphiSemanticWithStatement; const aStartOffset, aLength: Integer;
+  const aBodyLineStarts: TArray<Integer>);
 var
   lEndColumn: Integer;
   lEndLine: Integer;
@@ -1591,10 +1625,10 @@ begin
     Exit;
 
   lEndOffset := aStartOffset + aLength - 1;
-  lStartLine := LineOfOffset(aStatement.BodyText, aStartOffset);
-  lStartColumn := ColumnOfOffset(aStatement.BodyText, aStartOffset);
-  lEndLine := LineOfOffset(aStatement.BodyText, lEndOffset);
-  lEndColumn := ColumnOfOffset(aStatement.BodyText, lEndOffset);
+  lStartLine := BodyLineOfOffset(aBodyLineStarts, aStartOffset);
+  lStartColumn := BodyColumnOfOffset(aBodyLineStarts, lStartLine, aStartOffset);
+  lEndLine := BodyLineOfOffset(aBodyLineStarts, lEndOffset);
+  lEndColumn := BodyColumnOfOffset(aBodyLineStarts, lEndLine, lEndOffset);
 
   aReference.Line := aStatement.BodyLine + lStartLine - 1;
   if lStartLine = 1 then
@@ -4372,7 +4406,7 @@ procedure AddArgumentReferences(const aReferences: TList<TDelphiSemanticBoundRef
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aReferenceCachePrefix, aResolveCachePrefix, aMemberCachePrefix: string;
   const aStatement: TDelphiSemanticWithStatement; const aToken: string;
-  const aTokenStartOffset: Integer;
+  const aTokenStartOffset: Integer; const aBodyLineStarts: TArray<Integer>;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
@@ -4414,7 +4448,8 @@ begin
         aMemberCache, aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
         aReferenceCacheMisses);
       lArgumentStartOffset := aTokenStartOffset + lParenPos + lArgumentTokenStart - 1;
-      ApplyBodyRange(lReference, aStatement, lArgumentStartOffset, Length(lArgumentToken));
+      ApplyBodyRange(lReference, aStatement, lArgumentStartOffset, Length(lArgumentToken),
+        aBodyLineStarts);
       ApplyScopeConflictFact(aModel, lResolveContext, aResolveCache, aResolveCachePrefix,
         lReference, aLexicalResolveMs);
       AddReference(aReferences, lReference);
@@ -4438,6 +4473,7 @@ function BindReferences(const aModel: TDelphiSemanticUnitModel;
   aReferenceCacheMisses: Int64):
   TArray<TDelphiSemanticBoundReference>;
 var
+  lBodyLineStarts: TArray<Integer>;
   lBodyText: string;
   lTokenIndex: Integer;
   lTokenStart: Integer;
@@ -4465,6 +4501,7 @@ begin
     lResolveContext.IndexedUnitModels := aProjectModels;
     lResolveCachePrefix := ResolveNameCachePrefix(aModel.UnitName, lResolveContext);
     lBodyText := ExtractWithBodyText(aStatement, aAllStatements, aStatementIndex);
+    lBodyLineStarts := BuildBodyLineStarts(lBodyText);
     lTokenIndex := 1;
     while ReadReferenceToken(lBodyText, lTokenIndex, True, lToken, lTokenStart) do
     begin
@@ -4475,16 +4512,17 @@ begin
           lMemberCachePrefix, lToken, aProjectMemberIndex, aReferenceCache, aResolveCache,
           aMemberCache, aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
           aReferenceCacheMisses);
-        ApplyBodyRange(lReference, aStatement, lTokenStart, Length(lToken));
+        ApplyBodyRange(lReference, aStatement, lTokenStart, Length(lToken), lBodyLineStarts);
         ApplyScopeConflictFact(aModel, lResolveContext, aResolveCache, lResolveCachePrefix,
           lReference, aLexicalResolveMs);
         AddReference(lReferences, lReference);
         AddArgumentReferences(lReferences, aModel, aProjectModels, aRoutineName,
           aCurrentTypeName,
           aParentRoutineNames, aSelectors, lReferenceCachePrefix, lResolveCachePrefix,
-          lMemberCachePrefix, aStatement, lToken, lTokenStart, aProjectMemberIndex, aReferenceCache,
-          aResolveCache, aMemberCache, aReceiverMemberResolveMs, aLexicalResolveMs,
-          aReferenceCacheHits, aReferenceCacheMisses);
+          lMemberCachePrefix, aStatement, lToken, lTokenStart, lBodyLineStarts,
+          aProjectMemberIndex, aReferenceCache, aResolveCache, aMemberCache,
+          aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
+          aReferenceCacheMisses);
       end;
     end;
     Result := lReferences.ToArray;
@@ -4679,6 +4717,7 @@ class function TDelphiSemanticWithBinder.BindProject(const aContextFingerprint: 
 var
   i: Integer;
   lBinding: TDelphiSemanticWithBinding;
+  lBindingCapacity: Integer;
   lBindingStopwatch: TStopwatch;
   lBindings: TList<TDelphiSemanticWithBinding>;
   lBindingBuildMs: Int64;
@@ -4697,6 +4736,7 @@ var
   lReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   lReceiverMemberResolveMs: Int64;
   lResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  lRoutine: TDelphiSemanticRoutine;
   lRoutineLookupName: string;
   lRoutineName: string;
   lScopeIndexBuildMs: Int64;
@@ -4706,12 +4746,26 @@ var
   lStopwatch: TStopwatch;
   lSubphaseStopwatch: TStopwatch;
   lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbolCapacity: Integer;
   lSymbols: TList<TDelphiSemanticInventorySymbol>;
+  lWithStatementLines: TArray<Integer>;
 begin
   Result := Default(TDelphiSemanticProjectWithBindingFacts);
   Result.ContextFingerprint := aContextFingerprint;
   lBindings := TList<TDelphiSemanticWithBinding>.Create;
   lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
+  lBindingCapacity := 0;
+  lSymbolCapacity := Length(aModels) * 16;
+  for lModel in aModels do
+  begin
+    Inc(lBindingCapacity, Length(lModel.WithStatements));
+    Inc(lSymbolCapacity, 1 + Length(lModel.Declarations) + Length(lModel.Members) +
+      Length(lModel.Routines) + Length(lModel.Locals));
+    for lRoutine in lModel.Routines do
+      Inc(lSymbolCapacity, Length(lRoutine.Parameters));
+  end;
+  lBindings.Capacity := lBindingCapacity;
+  lSymbols.Capacity := lSymbolCapacity;
   lBindingBuildMs := 0;
   lInventoryExpansionMs := 0;
   lInventoryBuildMs := 0;
@@ -4738,8 +4792,14 @@ begin
         lSymbols.Add(lSymbol);
       lStopwatch.Stop;
       Inc(lInventoryBuildMs, lStopwatch.ElapsedMilliseconds);
+      if Length(lModel.WithStatements) = 0 then
+        Continue;
+      SetLength(lWithStatementLines, Length(lModel.WithStatements));
+      for i := 0 to High(lModel.WithStatements) do
+        lWithStatementLines[i] := lModel.WithStatements[i].Line;
       lStopwatch := TStopwatch.StartNew;
-      lScopeIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel);
+      lScopeIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel,
+        lWithStatementLines);
       lStopwatch.Stop;
       Inc(lScopeIndexBuildMs, lStopwatch.ElapsedMilliseconds);
       lBindingStopwatch := TStopwatch.StartNew;
@@ -4868,10 +4928,17 @@ var
   lParameter: TDelphiSemanticParameter;
   lRoutine: TDelphiSemanticRoutine;
   lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbolCapacity: Integer;
   lSymbols: TList<TDelphiSemanticInventorySymbol>;
 begin
   lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
   try
+    lSymbolCapacity := 1 + Length(aModel.Declarations) + Length(aModel.Members) +
+      Length(aModel.Routines) + Length(aModel.Locals);
+    for lRoutine in aModel.Routines do
+      Inc(lSymbolCapacity, Length(lRoutine.Parameters));
+    lSymbols.Capacity := lSymbolCapacity;
+
     lSymbol := Default(TDelphiSemanticInventorySymbol);
     lSymbol.Name := aModel.UnitName;
     lSymbol.SymbolClass := 'unit';

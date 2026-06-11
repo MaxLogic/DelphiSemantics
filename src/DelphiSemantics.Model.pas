@@ -9,6 +9,7 @@ type
     SearchPaths: TArray<string>;
     ProjectContextApplied: Boolean;
     SkipBodyAnalysis: Boolean;
+    SkipReferenceExtraction: Boolean;
     WithStatementsOnly: Boolean;
   end;
 
@@ -665,6 +666,9 @@ procedure AddReference(const aReferences: TList<TDelphiSemanticReference>; const
 var
   lReference: TDelphiSemanticReference;
 begin
+  if not Assigned(aReferences) then
+    Exit;
+
   lReference.Name := aName;
   lReference.RoutineName := aRoutineName;
   lReference.Role := 'reference';
@@ -692,6 +696,9 @@ var
   lMatch: TMatch;
   lReference: TDelphiSemanticReference;
 begin
+  if not Assigned(aReferences) then
+    Exit;
+
   if aTypeText.Trim = '' then
     Exit;
 
@@ -2391,6 +2398,7 @@ var
   lOffsetMap: TArray<Integer>;
   lPreprocessOptions: TDelphiSemanticPreprocessOptions;
   lPreprocessResult: TDelphiSemanticPreprocessResult;
+  lReferenceSink: TList<TDelphiSemanticReference>;
   lReferences: TList<TDelphiSemanticReference>;
   lRoutines: TList<TDelphiSemanticRoutine>;
   lSourceResult: TDelphiSemanticSourceLoadResult;
@@ -2466,24 +2474,30 @@ begin
     end;
 
     ExtractUses(lText, lInterfaceUses, lImplementationUses);
-    ExtractTypeDeclarations(lText, lDeclarations, lReferences);
-    ExtractConstVarDeclarations(lText, Result.UnitName, lDeclarations, lMembers, lReferences);
-    ExtractMembers(lText, lDeclarations, lMembers, lReferences);
-    ExtractRoutines(lText, lDeclarations, lRoutines, lReferences);
+    lReferenceSink := lReferences;
+    if aOptions.SkipReferenceExtraction then
+      lReferenceSink := nil;
+    ExtractTypeDeclarations(lText, lDeclarations, lReferenceSink);
+    ExtractConstVarDeclarations(lText, Result.UnitName, lDeclarations, lMembers,
+      lReferenceSink);
+    ExtractMembers(lText, lDeclarations, lMembers, lReferenceSink);
+    ExtractRoutines(lText, lDeclarations, lRoutines, lReferenceSink);
     if not aOptions.SkipBodyAnalysis then
     begin
-      ExtractRoutineBodies(lText, lLocals, lReferences);
+      ExtractRoutineBodies(lText, lLocals, lReferenceSink);
       ExtractWithStatements(lText, lWithStatements);
     end;
     lOffsetMap := BuildOutputToSourceOffsetMap(lSourceResult.Source.Text, lText);
-    ApplyReferenceSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lReferences);
+    if lReferences.Count > 0 then
+      ApplyReferenceSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lReferences);
     ApplyRoutineSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lRoutines);
     ApplyDeclarationSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lDeclarations);
     ApplyMemberSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lMembers);
     ApplyLocalSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lLocals);
     ReconcileDeclarationCoordinates(lSourceResult.Source.Text, lDeclarations);
     ReconcileWithStatementCoordinates(lSourceResult.Source.Text, lWithStatements);
-    ReconcileReferencesCoordinates(lSourceResult.Source.Text, lReferences, Result.Metrics);
+    if lReferences.Count > 0 then
+      ReconcileReferencesCoordinates(lSourceResult.Source.Text, lReferences, Result.Metrics);
     ReconcileMemberCoordinates(lSourceResult.Source.Text, lMembers);
     ReconcileRoutineCoordinates(lSourceResult.Source.Text, lRoutines);
     ReconcileLocalCoordinates(lSourceResult.Source.Text, lLocals);

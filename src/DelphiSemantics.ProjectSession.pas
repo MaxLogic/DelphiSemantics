@@ -93,14 +93,12 @@ implementation
 
 uses
   System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils,
-  System.JSON, System.SysUtils,
+  System.SysUtils,
   DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Index,
   DelphiSemantics.Query, DelphiSemantics.Snapshot.Builder,
-  DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Symbols, DelphiSemantics.Version,
-  MaxLogic.StrUtils;
+  DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Symbols, MaxLogic.StrUtils;
 
 const
-  cProjectFactsCacheSchemaVersion = 'remove-with-project-facts-v1';
   cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v2';
   cSnapshotDeclarationKindAlias = 'alias';
   cSnapshotDeclarationKindTypeAlias = 'type-alias';
@@ -173,6 +171,7 @@ begin
   lOptions := MainModelOptions(aProject);
   lOptions.SourceFileName := aFileName;
   lOptions.SkipBodyAnalysis := aSkipBodyAnalysis;
+  lOptions.SkipReferenceExtraction := aSkipBodyAnalysis;
   if aCache = nil then
   begin
     Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
@@ -305,520 +304,6 @@ begin
   for lFileName in aOptions.BodyAnalysisSourceFileNames do
     if Trim(lFileName) <> '' then
       Result.AddOrSetValue(TPath.GetFullPath(lFileName), 0);
-end;
-
-function ProjectFactsCacheFileName(const aOptions: TDelphiSemanticOptions): string;
-begin
-  if Trim(aOptions.SqliteCacheFileName) = '' then
-    Exit('');
-
-  Result := aOptions.SqliteCacheFileName + '.project-facts.json';
-end;
-
-procedure AppendCacheLine(const aBuilder: TStringBuilder; const aName,
-  aValue: string);
-begin
-  aBuilder.Append(aName);
-  aBuilder.Append('=');
-  aBuilder.Append(aValue);
-  aBuilder.AppendLine;
-end;
-
-procedure AppendFileFingerprint(const aBuilder: TStringBuilder; const aFileName: string);
-var
-  lFileName: string;
-begin
-  if Trim(aFileName) = '' then
-    Exit;
-
-  lFileName := TPath.GetFullPath(aFileName);
-  AppendCacheLine(aBuilder, 'file', UpperCase(lFileName));
-  if not TFile.Exists(lFileName) then
-  begin
-    AppendCacheLine(aBuilder, 'exists', '0');
-    Exit;
-  end;
-
-  AppendCacheLine(aBuilder, 'exists', '1');
-  AppendCacheLine(aBuilder, 'stamp', IntToStr(FileAge(lFileName)));
-  AppendCacheLine(aBuilder, 'size', IntToStr(TFile.GetSize(lFileName)));
-  AppendCacheLine(aBuilder, 'hash', THashSHA2.GetHashStringFromFile(lFileName));
-end;
-
-function ProjectFactsCacheKey(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions;
-  const aUnitIdentities: TArray<TDelphiSemanticUnitCacheIdentity>): string;
-var
-  lBuilder: TStringBuilder;
-  lFileName: string;
-  lIdentity: TDelphiSemanticUnitCacheIdentity;
-  lProjectFileNames: TDictionary<string, Byte>;
-begin
-  lBuilder := nil;
-  lProjectFileNames := nil;
-  try
-    lBuilder := TStringBuilder.Create;
-    lProjectFileNames := TDictionary<string, Byte>.Create(
-      TFastCaseAwareComparer.OrdinalIgnoreCase);
-    for lFileName in ProjectModelFileNames(aProject) do
-      lProjectFileNames.AddOrSetValue(TPath.GetFullPath(lFileName), 0);
-    AppendCacheLine(lBuilder, 'schema', cProjectFactsCacheSchemaVersion);
-    AppendCacheLine(lBuilder, 'library', DelphiSemanticsVersionText);
-    AppendCacheLine(lBuilder, 'context', aProject.ContextFingerprint);
-    AppendCacheLine(lBuilder, 'project', TPath.GetFullPath(aOptions.ProjectPath));
-    AppendCacheLine(lBuilder, 'delphiVersion', aOptions.DelphiVersion);
-    AppendCacheLine(lBuilder, 'configuration', aOptions.Configuration);
-    AppendCacheLine(lBuilder, 'platform', aOptions.Platform);
-    AppendCacheLine(lBuilder, 'skipSemanticGraph',
-      BoolToStr(aOptions.SkipWithBindingSemanticGraph, True));
-    AppendFileFingerprint(lBuilder, aOptions.ProjectPath);
-    for lFileName in aOptions.BodyAnalysisSourceFileNames do
-      if Trim(lFileName) <> '' then
-      begin
-        if lProjectFileNames.ContainsKey(TPath.GetFullPath(lFileName)) then
-          Continue;
-        AppendCacheLine(lBuilder, 'bodyAnalysisFile',
-          UpperCase(TPath.GetFullPath(lFileName)));
-        AppendFileFingerprint(lBuilder, lFileName);
-      end;
-    for lIdentity in aUnitIdentities do
-    begin
-      AppendCacheLine(lBuilder, 'unitCacheKey', lIdentity.UnitCacheKey);
-      AppendCacheLine(lBuilder, 'includeGraph', lIdentity.IncludeGraphHash);
-    end;
-    Result := THashSHA2.GetHashString(lBuilder.ToString);
-  finally
-    lProjectFileNames.Free;
-    lBuilder.Free;
-  end;
-end;
-
-function JsonString(const aObject: TJSONObject; const aName: string): string;
-var
-  lValue: TJSONValue;
-begin
-  lValue := aObject.GetValue(aName);
-  if lValue = nil then
-    Exit('');
-
-  Result := lValue.Value;
-end;
-
-function JsonInt(const aObject: TJSONObject; const aName: string): Integer;
-begin
-  Result := StrToIntDef(JsonString(aObject, aName), 0);
-end;
-
-function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
-begin
-  Result := SameText(JsonString(aObject, aName), 'true');
-end;
-
-function JsonArray(const aObject: TJSONObject; const aName: string): TJSONArray;
-var
-  lValue: TJSONValue;
-begin
-  lValue := aObject.GetValue(aName);
-  if not (lValue is TJSONArray) then
-    raise EConvertError.CreateFmt('Project facts cache array missing: %s', [aName]);
-
-  Result := TJSONArray(lValue);
-end;
-
-function TryJsonArray(const aObject: TJSONObject; const aName: string;
-  out aArray: TJSONArray): Boolean;
-var
-  lValue: TJSONValue;
-begin
-  lValue := aObject.GetValue(aName);
-  Result := lValue is TJSONArray;
-  if Result then
-    aArray := TJSONArray(lValue)
-  else
-    aArray := nil;
-end;
-
-procedure AddJsonStringPair(const aObject: TJSONObject; const aName, aValue: string);
-begin
-  if aValue <> '' then
-    aObject.AddPair(aName, aValue);
-end;
-
-procedure AddJsonIntPair(const aObject: TJSONObject; const aName: string;
-  const aValue: Integer);
-begin
-  if aValue <> 0 then
-    aObject.AddPair(aName, TJSONNumber.Create(aValue));
-end;
-
-procedure AddJsonBoolPair(const aObject: TJSONObject; const aName: string;
-  const aValue: Boolean);
-begin
-  if aValue then
-    aObject.AddPair(aName, TJSONBool.Create(True));
-end;
-
-function InventorySymbolToJson(const aSymbol: TDelphiSemanticInventorySymbol):
-  TJSONObject;
-begin
-  Result := TJSONObject.Create;
-  AddJsonStringPair(Result, 'name', aSymbol.Name);
-  AddJsonStringPair(Result, 'symbolClass', aSymbol.SymbolClass);
-  AddJsonStringPair(Result, 'kind', aSymbol.Kind);
-  AddJsonStringPair(Result, 'typeName', aSymbol.TypeName);
-  AddJsonStringPair(Result, 'modifier', aSymbol.Modifier);
-  AddJsonStringPair(Result, 'ownerName', aSymbol.OwnerName);
-  AddJsonStringPair(Result, 'ownerType', aSymbol.OwnerType);
-  AddJsonStringPair(Result, 'sourceOwnerType', aSymbol.SourceOwnerType);
-  AddJsonStringPair(Result, 'relatedTypeName', aSymbol.RelatedTypeName);
-  AddJsonStringPair(Result, 'routineName', aSymbol.RoutineName);
-  AddJsonStringPair(Result, 'unitName', aSymbol.UnitName);
-  AddJsonStringPair(Result, 'fileName', aSymbol.FileName);
-  AddJsonStringPair(Result, 'sectionKind', aSymbol.SectionKind);
-  AddJsonIntPair(Result, 'line', aSymbol.Line);
-  AddJsonIntPair(Result, 'column', aSymbol.Column);
-  AddJsonIntPair(Result, 'endLine', aSymbol.EndLine);
-  AddJsonIntPair(Result, 'endColumn', aSymbol.EndColumn);
-  AddJsonStringPair(Result, 'unsupportedReason', aSymbol.UnsupportedReason);
-  AddJsonBoolPair(Result, 'isHelper', aSymbol.IsHelper);
-  AddJsonBoolPair(Result, 'isOverride', aSymbol.IsOverride);
-  AddJsonBoolPair(Result, 'isDefault', aSymbol.IsDefault);
-  AddJsonBoolPair(Result, 'isIndexed', aSymbol.IsIndexed);
-  AddJsonIntPair(Result, 'indexParameterCount', aSymbol.IndexParameterCount);
-  AddJsonStringPair(Result, 'typeCategory', aSymbol.TypeCategory);
-end;
-
-function JsonToInventorySymbol(const aObject: TJSONObject):
-  TDelphiSemanticInventorySymbol;
-begin
-  Result := Default(TDelphiSemanticInventorySymbol);
-  Result.Name := JsonString(aObject, 'name');
-  Result.SymbolClass := JsonString(aObject, 'symbolClass');
-  Result.Kind := JsonString(aObject, 'kind');
-  Result.TypeName := JsonString(aObject, 'typeName');
-  Result.Modifier := JsonString(aObject, 'modifier');
-  Result.OwnerName := JsonString(aObject, 'ownerName');
-  Result.OwnerType := JsonString(aObject, 'ownerType');
-  Result.SourceOwnerType := JsonString(aObject, 'sourceOwnerType');
-  Result.RelatedTypeName := JsonString(aObject, 'relatedTypeName');
-  Result.RoutineName := JsonString(aObject, 'routineName');
-  Result.UnitName := JsonString(aObject, 'unitName');
-  Result.FileName := JsonString(aObject, 'fileName');
-  Result.SectionKind := JsonString(aObject, 'sectionKind');
-  Result.Line := JsonInt(aObject, 'line');
-  Result.Column := JsonInt(aObject, 'column');
-  Result.EndLine := JsonInt(aObject, 'endLine');
-  Result.EndColumn := JsonInt(aObject, 'endColumn');
-  Result.UnsupportedReason := JsonString(aObject, 'unsupportedReason');
-  Result.IsHelper := JsonBool(aObject, 'isHelper');
-  Result.IsOverride := JsonBool(aObject, 'isOverride');
-  Result.IsDefault := JsonBool(aObject, 'isDefault');
-  Result.IsIndexed := JsonBool(aObject, 'isIndexed');
-  Result.IndexParameterCount := JsonInt(aObject, 'indexParameterCount');
-  Result.TypeCategory := JsonString(aObject, 'typeCategory');
-end;
-
-function InventorySymbolsToJson(const aSymbols: TArray<TDelphiSemanticInventorySymbol>):
-  TJSONArray;
-var
-  lSymbol: TDelphiSemanticInventorySymbol;
-begin
-  Result := TJSONArray.Create;
-  for lSymbol in aSymbols do
-    Result.AddElement(InventorySymbolToJson(lSymbol));
-end;
-
-function JsonToInventorySymbols(const aArray: TJSONArray):
-  TArray<TDelphiSemanticInventorySymbol>;
-var
-  i: Integer;
-begin
-  SetLength(Result, aArray.Count);
-  for i := 0 to aArray.Count - 1 do
-    Result[i] := JsonToInventorySymbol(aArray.Items[i] as TJSONObject);
-end;
-
-function SelectorBindingToJson(const aSelector: TDelphiSemanticWithSelectorBinding):
-  TJSONObject;
-begin
-  Result := TJSONObject.Create;
-  AddJsonStringPair(Result, 'selectorText', aSelector.SelectorText);
-  AddJsonStringPair(Result, 'status', aSelector.Status);
-  AddJsonStringPair(Result, 'reasonCode', aSelector.ReasonCode);
-  AddJsonStringPair(Result, 'typeName', aSelector.TypeName);
-end;
-
-function JsonToSelectorBinding(const aObject: TJSONObject):
-  TDelphiSemanticWithSelectorBinding;
-begin
-  Result := Default(TDelphiSemanticWithSelectorBinding);
-  Result.SelectorText := JsonString(aObject, 'selectorText');
-  Result.Status := JsonString(aObject, 'status');
-  Result.ReasonCode := JsonString(aObject, 'reasonCode');
-  Result.TypeName := JsonString(aObject, 'typeName');
-end;
-
-function SelectorBindingsToJson(
-  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>): TJSONArray;
-var
-  lSelector: TDelphiSemanticWithSelectorBinding;
-begin
-  Result := TJSONArray.Create;
-  for lSelector in aSelectors do
-    Result.AddElement(SelectorBindingToJson(lSelector));
-end;
-
-function JsonToSelectorBindings(const aArray: TJSONArray):
-  TArray<TDelphiSemanticWithSelectorBinding>;
-var
-  i: Integer;
-begin
-  SetLength(Result, aArray.Count);
-  for i := 0 to aArray.Count - 1 do
-    Result[i] := JsonToSelectorBinding(aArray.Items[i] as TJSONObject);
-end;
-
-function BoundReferenceToJson(const aReference: TDelphiSemanticBoundReference):
-  TJSONObject;
-begin
-  Result := TJSONObject.Create;
-  AddJsonStringPair(Result, 'semanticId', aReference.SemanticId);
-  AddJsonStringPair(Result, 'name', aReference.Name);
-  AddJsonStringPair(Result, 'classification', aReference.Classification);
-  AddJsonStringPair(Result, 'lookupSource', aReference.LookupSource);
-  AddJsonStringPair(Result, 'receiverTypeName', aReference.ReceiverTypeName);
-  AddJsonStringPair(Result, 'kind', aReference.Kind);
-  AddJsonStringPair(Result, 'typeName', aReference.TypeName);
-  AddJsonStringPair(Result, 'reasonCode', aReference.ReasonCode);
-  AddJsonStringPair(Result, 'scopeConflictKind', aReference.ScopeConflictKind);
-  AddJsonStringPair(Result, 'scopeConflictName', aReference.ScopeConflictName);
-  AddJsonIntPair(Result, 'line', aReference.Line);
-  AddJsonIntPair(Result, 'column', aReference.Column);
-  AddJsonIntPair(Result, 'endLine', aReference.EndLine);
-  AddJsonIntPair(Result, 'endColumn', aReference.EndColumn);
-end;
-
-function JsonToBoundReference(const aObject: TJSONObject):
-  TDelphiSemanticBoundReference;
-begin
-  Result := Default(TDelphiSemanticBoundReference);
-  Result.SemanticId := JsonString(aObject, 'semanticId');
-  Result.Name := JsonString(aObject, 'name');
-  Result.Classification := JsonString(aObject, 'classification');
-  Result.LookupSource := JsonString(aObject, 'lookupSource');
-  Result.ReceiverTypeName := JsonString(aObject, 'receiverTypeName');
-  Result.Kind := JsonString(aObject, 'kind');
-  Result.TypeName := JsonString(aObject, 'typeName');
-  Result.ReasonCode := JsonString(aObject, 'reasonCode');
-  Result.ScopeConflictKind := JsonString(aObject, 'scopeConflictKind');
-  Result.ScopeConflictName := JsonString(aObject, 'scopeConflictName');
-  Result.Line := JsonInt(aObject, 'line');
-  Result.Column := JsonInt(aObject, 'column');
-  Result.EndLine := JsonInt(aObject, 'endLine');
-  Result.EndColumn := JsonInt(aObject, 'endColumn');
-end;
-
-function BoundReferencesToJson(
-  const aReferences: TArray<TDelphiSemanticBoundReference>): TJSONArray;
-var
-  lReference: TDelphiSemanticBoundReference;
-begin
-  Result := TJSONArray.Create;
-  for lReference in aReferences do
-    Result.AddElement(BoundReferenceToJson(lReference));
-end;
-
-function JsonToBoundReferences(const aArray: TJSONArray):
-  TArray<TDelphiSemanticBoundReference>;
-var
-  i: Integer;
-begin
-  SetLength(Result, aArray.Count);
-  for i := 0 to aArray.Count - 1 do
-    Result[i] := JsonToBoundReference(aArray.Items[i] as TJSONObject);
-end;
-
-function WithBindingToJson(const aBinding: TDelphiSemanticWithBinding):
-  TJSONObject;
-begin
-  Result := TJSONObject.Create;
-  AddJsonStringPair(Result, 'semanticId', aBinding.SemanticId);
-  AddJsonStringPair(Result, 'provenance', aBinding.Provenance);
-  AddJsonStringPair(Result, 'fileName', aBinding.FileName);
-  AddJsonStringPair(Result, 'unitName', aBinding.UnitName);
-  AddJsonStringPair(Result, 'routineName', aBinding.RoutineName);
-  AddJsonIntPair(Result, 'line', aBinding.Line);
-  AddJsonIntPair(Result, 'column', aBinding.Column);
-  AddJsonIntPair(Result, 'endLine', aBinding.EndLine);
-  AddJsonIntPair(Result, 'endColumn', aBinding.EndColumn);
-  AddJsonIntPair(Result, 'bodyLine', aBinding.BodyLine);
-  AddJsonIntPair(Result, 'bodyColumn', aBinding.BodyColumn);
-  AddJsonIntPair(Result, 'bodyEndLine', aBinding.BodyEndLine);
-  AddJsonIntPair(Result, 'bodyEndColumn', aBinding.BodyEndColumn);
-  AddJsonStringPair(Result, 'selectorText', aBinding.SelectorText);
-  AddJsonStringPair(Result, 'status', aBinding.Status);
-  AddJsonStringPair(Result, 'skipReason', aBinding.SkipReason);
-  AddJsonBoolPair(Result, 'hasScopedDeclaration', aBinding.HasScopedDeclaration);
-  AddJsonIntPair(Result, 'memberReferenceCount', aBinding.MemberReferenceCount);
-  AddJsonIntPair(Result, 'lexicalReferenceCount', aBinding.LexicalReferenceCount);
-  AddJsonIntPair(Result, 'externalReferenceCount', aBinding.ExternalReferenceCount);
-  AddJsonIntPair(Result, 'intrinsicReferenceCount', aBinding.IntrinsicReferenceCount);
-  AddJsonIntPair(Result, 'unsupportedReferenceCount', aBinding.UnsupportedReferenceCount);
-  AddJsonIntPair(Result, 'unresolvedReferenceCount', aBinding.UnresolvedReferenceCount);
-  Result.AddPair('selectors', SelectorBindingsToJson(aBinding.Selectors));
-  Result.AddPair('references', BoundReferencesToJson(aBinding.References));
-end;
-
-function JsonToWithBinding(const aObject: TJSONObject): TDelphiSemanticWithBinding;
-begin
-  Result := Default(TDelphiSemanticWithBinding);
-  Result.SemanticId := JsonString(aObject, 'semanticId');
-  Result.Provenance := JsonString(aObject, 'provenance');
-  Result.FileName := JsonString(aObject, 'fileName');
-  Result.UnitName := JsonString(aObject, 'unitName');
-  Result.RoutineName := JsonString(aObject, 'routineName');
-  Result.Line := JsonInt(aObject, 'line');
-  Result.Column := JsonInt(aObject, 'column');
-  Result.EndLine := JsonInt(aObject, 'endLine');
-  Result.EndColumn := JsonInt(aObject, 'endColumn');
-  Result.BodyLine := JsonInt(aObject, 'bodyLine');
-  Result.BodyColumn := JsonInt(aObject, 'bodyColumn');
-  Result.BodyEndLine := JsonInt(aObject, 'bodyEndLine');
-  Result.BodyEndColumn := JsonInt(aObject, 'bodyEndColumn');
-  Result.SelectorText := JsonString(aObject, 'selectorText');
-  Result.Status := JsonString(aObject, 'status');
-  Result.SkipReason := JsonString(aObject, 'skipReason');
-  Result.HasScopedDeclaration := JsonBool(aObject, 'hasScopedDeclaration');
-  Result.MemberReferenceCount := JsonInt(aObject, 'memberReferenceCount');
-  Result.LexicalReferenceCount := JsonInt(aObject, 'lexicalReferenceCount');
-  Result.ExternalReferenceCount := JsonInt(aObject, 'externalReferenceCount');
-  Result.IntrinsicReferenceCount := JsonInt(aObject, 'intrinsicReferenceCount');
-  Result.UnsupportedReferenceCount := JsonInt(aObject, 'unsupportedReferenceCount');
-  Result.UnresolvedReferenceCount := JsonInt(aObject, 'unresolvedReferenceCount');
-  Result.Selectors := JsonToSelectorBindings(JsonArray(aObject, 'selectors'));
-  Result.References := JsonToBoundReferences(JsonArray(aObject, 'references'));
-end;
-
-function WithBindingsToJson(const aBindings: TArray<TDelphiSemanticWithBinding>):
-  TJSONArray;
-var
-  lBinding: TDelphiSemanticWithBinding;
-begin
-  Result := TJSONArray.Create;
-  for lBinding in aBindings do
-    Result.AddElement(WithBindingToJson(lBinding));
-end;
-
-function JsonToWithBindings(const aArray: TJSONArray):
-  TArray<TDelphiSemanticWithBinding>;
-var
-  i: Integer;
-begin
-  SetLength(Result, aArray.Count);
-  for i := 0 to aArray.Count - 1 do
-    Result[i] := JsonToWithBinding(aArray.Items[i] as TJSONObject);
-end;
-
-function ProjectFactsCacheToJson(const aCacheKey: string;
-  const aFacts: TDelphiSemanticProjectWithBindingFacts): TJSONObject;
-begin
-  Result := TJSONObject.Create;
-  Result.AddPair('schemaVersion', cProjectFactsCacheSchemaVersion);
-  Result.AddPair('cacheKey', aCacheKey);
-  Result.AddPair('contextFingerprint', aFacts.ContextFingerprint);
-  AddJsonBoolPair(Result, 'semanticGraphUsed', aFacts.Metrics.SemanticGraphUsed);
-  Result.AddPair('symbols', InventorySymbolsToJson(aFacts.Symbols));
-  Result.AddPair('bindings', WithBindingsToJson(aFacts.Bindings));
-end;
-
-function TryLoadProjectFactsCache(const aCacheFileName, aCacheKey: string;
-  const aModels: TArray<TDelphiSemanticUnitModel>;
-  out aFacts: TDelphiSemanticProjectWithBindingFacts; out aInvalidated: Boolean):
-  Boolean;
-var
-  lBindings: TJSONArray;
-  lLookupStopwatch: TStopwatch;
-  lObject: TJSONObject;
-  lSymbols: TJSONArray;
-  lValue: TJSONValue;
-begin
-  Result := False;
-  aFacts := Default(TDelphiSemanticProjectWithBindingFacts);
-  aInvalidated := False;
-  if (Trim(aCacheFileName) = '') or (not TFile.Exists(aCacheFileName)) then
-    Exit;
-
-  lValue := nil;
-  try
-    lValue := TJSONObject.ParseJSONValue(TFile.ReadAllText(aCacheFileName,
-      TEncoding.UTF8));
-    if not (lValue is TJSONObject) then
-    begin
-      aInvalidated := True;
-      Exit;
-    end;
-
-    lObject := TJSONObject(lValue);
-    if (JsonString(lObject, 'schemaVersion') <> cProjectFactsCacheSchemaVersion) or
-      (JsonString(lObject, 'cacheKey') <> aCacheKey) then
-    begin
-      aInvalidated := True;
-      Exit;
-    end;
-    if (not TryJsonArray(lObject, 'symbols', lSymbols)) or
-      (not TryJsonArray(lObject, 'bindings', lBindings)) then
-    begin
-      aInvalidated := True;
-      Exit;
-    end;
-
-    aFacts.ContextFingerprint := JsonString(lObject, 'contextFingerprint');
-    aFacts.Symbols := JsonToInventorySymbols(lSymbols);
-    aFacts.Bindings := JsonToWithBindings(lBindings);
-    aFacts.UnitModels := Copy(aModels);
-    aFacts.Metrics.SemanticGraphUsed := JsonBool(lObject, 'semanticGraphUsed');
-    aFacts.Metrics.UnitCount := Length(aFacts.UnitModels);
-    aFacts.Metrics.WithStatementCount := Length(aFacts.Bindings);
-    aFacts.Metrics.BindingCount := Length(aFacts.Bindings);
-    aFacts.Metrics.ProjectFactsCacheHits := 1;
-    lLookupStopwatch := TStopwatch.StartNew;
-    aFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(aFacts.UnitModels,
-      aFacts.Symbols);
-    lLookupStopwatch.Stop;
-    aFacts.Metrics.LookupIndexBuildMilliseconds :=
-      lLookupStopwatch.ElapsedMilliseconds;
-    Result := True;
-  finally
-    lValue.Free;
-  end;
-end;
-
-procedure StoreProjectFactsCache(const aCacheFileName, aCacheKey: string;
-  const aFacts: TDelphiSemanticProjectWithBindingFacts);
-var
-  lCacheDir: string;
-  lObject: TJSONObject;
-  lTempFileName: string;
-begin
-  if Trim(aCacheFileName) = '' then
-    Exit;
-
-  lCacheDir := TPath.GetDirectoryName(aCacheFileName);
-  if lCacheDir <> '' then
-    TDirectory.CreateDirectory(lCacheDir);
-
-  lObject := ProjectFactsCacheToJson(aCacheKey, aFacts);
-  try
-    lTempFileName := aCacheFileName + '.' + TGUID.NewGuid.ToString + '.tmp';
-    TFile.WriteAllText(lTempFileName, lObject.ToJSON, TEncoding.UTF8);
-    if TFile.Exists(aCacheFileName) then
-      TFile.Delete(aCacheFileName);
-    TFile.Move(lTempFileName, aCacheFileName);
-  finally
-    if (lTempFileName <> '') and TFile.Exists(lTempFileName) then
-      TFile.Delete(lTempFileName);
-    lObject.Free;
-  end;
 end;
 
 function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
@@ -1465,12 +950,25 @@ function CreateRemoveWithPlanningFacts(const aExactStrings: TSemanticStringPool;
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TSemanticRemoveWithPlanningFacts;
 var
   i: Integer;
+  lRoutineOwners: TList<TSemanticRemoveWithInventorySymbolFact>;
+  lSymbol: TDelphiSemanticInventorySymbol;
 begin
   Result := Default(TSemanticRemoveWithPlanningFacts);
   Result.ContextFingerprintId := aExactStrings.Intern(aFacts.ContextFingerprint);
-  SetLength(Result.Symbols, Length(aFacts.Symbols));
-  for i := 0 to High(aFacts.Symbols) do
-    Result.Symbols[i] := SnapshotInventorySymbol(aExactStrings, aFacts.Symbols[i]);
+  if aFacts.LookupIndex.IsAvailable then
+    Result.LookupIndex := aFacts.LookupIndex
+  else
+    Result.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(
+      aFacts.UnitModels, aFacts.Symbols);
+  lRoutineOwners := TList<TSemanticRemoveWithInventorySymbolFact>.Create;
+  try
+    for lSymbol in aFacts.Symbols do
+      if SameText(lSymbol.SymbolClass, 'routine') or SameText(lSymbol.Kind, 'routine') then
+        lRoutineOwners.Add(SnapshotInventorySymbol(aExactStrings, lSymbol));
+    Result.RoutineOwners := lRoutineOwners.ToArray;
+  finally
+    lRoutineOwners.Free;
+  end;
   SetLength(Result.Bindings, Length(aFacts.Bindings));
   for i := 0 to High(aFacts.Bindings) do
     Result.Bindings[i] := SnapshotWithBinding(aExactStrings, aFacts.Bindings[i]);
@@ -1792,32 +1290,12 @@ function TDelphiSemanticProjectSession.BuildWithBindingFacts:
   TDelphiSemanticProjectWithBindingFacts;
 var
   lCacheMetrics: TDelphiSemanticCacheMetrics;
-  lProjectFactsCacheFileName: string;
-  lProjectFactsCacheInvalidated: Boolean;
-  lProjectFactsCacheKey: string;
   lGraph: TDelphiSemanticSemanticGraph;
   lExtractionMilliseconds: Int64;
-  lCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
   lModels: TArray<TDelphiSemanticUnitModel>;
 begin
-  lProjectFactsCacheFileName := ProjectFactsCacheFileName(fOptions);
-  lProjectFactsCacheKey := '';
   lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds,
-    lCacheMetrics, lCacheIdentities);
-  if lProjectFactsCacheFileName <> '' then
-    lProjectFactsCacheKey := ProjectFactsCacheKey(fProject, fOptions,
-      lCacheIdentities);
-  if TryLoadProjectFactsCache(lProjectFactsCacheFileName, lProjectFactsCacheKey,
-    lModels, Result, lProjectFactsCacheInvalidated) then
-  begin
-    Result.Metrics.ModelExtractionMilliseconds := lExtractionMilliseconds;
-    Result.Metrics.SemanticCacheHits := lCacheMetrics.CacheHits;
-    Result.Metrics.SemanticCacheMisses := lCacheMetrics.CacheMisses;
-    Result.Metrics.SemanticCacheInvalidations := lCacheMetrics.Invalidations;
-    Result.Metrics.SemanticCachePersistentConnectionOpenCount :=
-      lCacheMetrics.PersistentConnectionOpenCount;
-    Exit;
-  end;
+    lCacheMetrics);
 
   if fOptions.SkipWithBindingSemanticGraph then
     lGraph := nil
@@ -1836,13 +1314,6 @@ begin
     Result.Metrics.SemanticCacheInvalidations := lCacheMetrics.Invalidations;
     Result.Metrics.SemanticCachePersistentConnectionOpenCount :=
       lCacheMetrics.PersistentConnectionOpenCount;
-    if lProjectFactsCacheFileName <> '' then
-    begin
-      Result.Metrics.ProjectFactsCacheMisses := 1;
-      if lProjectFactsCacheInvalidated then
-        Result.Metrics.ProjectFactsCacheInvalidations := 1;
-      StoreProjectFactsCache(lProjectFactsCacheFileName, lProjectFactsCacheKey, Result);
-    end;
   finally
     lGraph.Free;
   end;

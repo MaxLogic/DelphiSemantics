@@ -8685,19 +8685,23 @@ function BindingFactsFromSnapshot(
   const aSnapshot: TDelphiProjectSnapshot): TDelphiSemanticProjectWithBindingFacts;
 var
   i: Integer;
-  lPlanningFacts: TSemanticRemoveWithPlanningFacts;
+  lBindingCount: Integer;
+  lRoutineOwnerCount: Integer;
 begin
   Result := Default(TDelphiSemanticProjectWithBindingFacts);
-  lPlanningFacts := aSnapshot.RemoveWithPlanningFacts;
   Result.ContextFingerprint := aSnapshot.ExactTextOf(
-    lPlanningFacts.ContextFingerprintId);
-  SetLength(Result.Symbols, Length(lPlanningFacts.Symbols));
-  for i := 0 to High(lPlanningFacts.Symbols) do
-    Result.Symbols[i] := SnapshotInventorySymbol(aSnapshot, lPlanningFacts.Symbols[i]);
-  SetLength(Result.Bindings, Length(lPlanningFacts.Bindings));
-  for i := 0 to High(lPlanningFacts.Bindings) do
-    Result.Bindings[i] := SnapshotWithBinding(aSnapshot, lPlanningFacts.Bindings[i]);
-  Result.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(nil, Result.Symbols);
+    aSnapshot.RemoveWithPlanningContextFingerprintId);
+  lRoutineOwnerCount := aSnapshot.RemoveWithPlanningRoutineOwnerCount;
+  SetLength(Result.Symbols, lRoutineOwnerCount);
+  for i := 0 to High(Result.Symbols) do
+    Result.Symbols[i] := SnapshotInventorySymbol(aSnapshot,
+      aSnapshot.RemoveWithPlanningRoutineOwnerByIndex(i));
+  lBindingCount := aSnapshot.RemoveWithPlanningBindingCount;
+  SetLength(Result.Bindings, lBindingCount);
+  for i := 0 to High(Result.Bindings) do
+    Result.Bindings[i] := SnapshotWithBinding(aSnapshot,
+      aSnapshot.RemoveWithPlanningBindingByIndex(i));
+  Result.LookupIndex := aSnapshot.RemoveWithPlanningLookupIndex;
   Result.Metrics.UnitCount := aSnapshot.UnitCount;
   Result.Metrics.WithStatementCount := Length(Result.Bindings);
   Result.Metrics.BindingCount := Length(Result.Bindings);

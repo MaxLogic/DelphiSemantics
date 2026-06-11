@@ -59,6 +59,8 @@ type
     [Test]
     procedure ExtractsMembersRoutinesLocalsAndReferences;
     [Test]
+    procedure SkipReferenceExtractionKeepsSymbolsAndOmitsReferences;
+    [Test]
     procedure ExtractsUntypedRoutineParameters;
     [Test]
     procedure ExtractsRoutineAfterSingleLineGuidInterface;
@@ -540,6 +542,27 @@ begin
   Assert.IsTrue(HasReference(lModel, 'Value'));
   Assert.IsTrue(HasReference(lModel, 'Length'));
   Assert.IsTrue(HasReference(lModel, 'SemanticGlobal'));
+end;
+
+procedure TUnitModelTests.SkipReferenceExtractionKeepsSymbolsAndOmitsReferences;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('UnitModel', 'SemanticUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  lOptions.SkipReferenceExtraction := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(HasDeclaration(lModel, 'TSemanticRecord', 'type', 'interface'));
+  Assert.IsTrue(HasMember(lModel, 'TSemanticRecord', 'Value', 'field', 'Integer'));
+  Assert.IsTrue(HasRoutine(lModel, 'SemanticProcedure', 'interface'));
+  Assert.IsTrue(HasLocal(lModel, 'SemanticProcedure', 'lRecord', 'TSemanticRecord'));
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
+  Assert.AreEqual(0, Integer(Length(lModel.References)));
 end;
 
 procedure TUnitModelTests.ExtractsUntypedRoutineParameters;
