@@ -3,9 +3,9 @@ unit DelphiSemantics.ProjectSession;
 interface
 
 uses
-  DelphiSemantics.Cache, DelphiSemantics.Model, DelphiSemantics.ProjectContext,
-  DelphiSemantics.Query, DelphiSemantics.RemoveWithPlan, DelphiSemantics.SemanticGraph,
-  DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
+  DelphiSemantics.Cache, DelphiSemantics.GlobalVars, DelphiSemantics.Model,
+  DelphiSemantics.ProjectContext, DelphiSemantics.Query, DelphiSemantics.RemoveWithPlan,
+  DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticProjectSession = class;
@@ -76,6 +76,12 @@ type
       const aProject: TDelphiSemanticProjectInfo;
       const aDiagnostics: TArray<TDelphiSemanticDiagnostic>;
       const aStatus: TDelphiSemanticProjectSessionStatus; const aProvenance: string);
+    function BuildGlobalAnalysis(out aCacheIdentities:
+      TArray<TDelphiSemanticUnitCacheIdentity>; out aCacheMetrics:
+      TDelphiSemanticCacheMetrics; out aExtractionMilliseconds: Int64):
+      TDelphiSemanticGlobalAnalysis;
+    function BuildGlobalCacheIdentities:
+      TArray<TDelphiSemanticUnitCacheIdentity>;
     function BuildSemanticGraph: TDelphiSemanticSemanticGraph;
     function BuildSymbolQueryContext(out aCacheMetrics: TDelphiSemanticCacheMetrics;
       out aExtractionMilliseconds: Int64): TDelphiSemanticSymbolQueryContext;
@@ -101,7 +107,7 @@ implementation
 
 uses
   System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils,
-  System.SysUtils,
+  System.RegularExpressions, System.SysUtils,
   DelphiSemantics.Cache.Sqlite, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
   MaxLogic.StrUtils;
@@ -193,7 +199,10 @@ function ProjectModelFileNames(const aProject: TDelphiSemanticProjectInfo):
 var
   lFileName: string;
   lFiles: TList<string>;
+  lMatch: TMatch;
+  lReferenceFileName: string;
   lSeen: TDictionary<string, Byte>;
+  lSourceText: string;
   lSourceFileName: string;
 begin
   lFiles := TList<string>.Create;
@@ -204,6 +213,23 @@ begin
       lSourceFileName := TPath.GetFullPath(aProject.MainSourceFileName);
       lSeen.AddOrSetValue(lSourceFileName, 0);
       lFiles.Add(lSourceFileName);
+    end;
+
+    if (aProject.MainSourceFileName <> '') and TFile.Exists(aProject.MainSourceFileName) then
+    begin
+      lSourceText := TFile.ReadAllText(aProject.MainSourceFileName, TEncoding.UTF8);
+      for lMatch in TRegEx.Matches(lSourceText, '\bin\s+''([^'']+)''',
+        [roIgnoreCase]) do
+      begin
+        lReferenceFileName := TPath.GetFullPath(TPath.Combine(
+          TPath.GetDirectoryName(aProject.MainSourceFileName),
+          lMatch.Groups[1].Value));
+        if (not TFile.Exists(lReferenceFileName)) or
+          lSeen.ContainsKey(lReferenceFileName) then
+          Continue;
+        lSeen.Add(lReferenceFileName, 0);
+        lFiles.Add(lReferenceFileName);
+      end;
     end;
 
     for lFileName in aProject.SourceFileNames do
@@ -683,6 +709,40 @@ begin
   fDiagnostics := Copy(aDiagnostics);
   fStatus := aStatus;
   fProvenance := aProvenance;
+end;
+
+function TDelphiSemanticProjectSession.BuildGlobalAnalysis(out aCacheIdentities:
+  TArray<TDelphiSemanticUnitCacheIdentity>; out aCacheMetrics: TDelphiSemanticCacheMetrics;
+  out aExtractionMilliseconds: Int64): TDelphiSemanticGlobalAnalysis;
+var
+  lModels: TArray<TDelphiSemanticUnitModel>;
+begin
+  lModels := ExtractProjectModels(fProject, fOptions, aExtractionMilliseconds,
+    aCacheMetrics, aCacheIdentities);
+  Result := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits(lModels);
+end;
+
+function TDelphiSemanticProjectSession.BuildGlobalCacheIdentities:
+  TArray<TDelphiSemanticUnitCacheIdentity>;
+var
+  i: Integer;
+  lCache: TDelphiSemanticUnitCache;
+  lOptions: TDelphiSemanticModelOptions;
+  lSourceFileNames: TArray<string>;
+begin
+  lCache := TDelphiSemanticUnitCache.Create(CacheOptionsFromSessionOptions(fOptions));
+  try
+    lOptions := MainModelOptions(fProject);
+    lSourceFileNames := ProjectModelFileNames(fProject);
+    SetLength(Result, Length(lSourceFileNames));
+    for i := 0 to High(lSourceFileNames) do
+    begin
+      lOptions.SourceFileName := lSourceFileNames[i];
+      Result[i] := lCache.BuildIdentity(lOptions);
+    end;
+  finally
+    lCache.Free;
+  end;
 end;
 
 function TDelphiSemanticProjectSession.BuildSemanticGraph: TDelphiSemanticSemanticGraph;

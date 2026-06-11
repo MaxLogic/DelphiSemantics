@@ -140,6 +140,8 @@ type
       TDelphiSemanticUnitCacheAccessResult;
     function GetOrBuildUnitModelWithStatus(const aOptions: TDelphiSemanticModelOptions;
       const aBuilder: TDelphiSemanticUnitModelBuilder): TDelphiSemanticUnitCacheAccessResult;
+    function BuildIdentity(const aOptions: TDelphiSemanticModelOptions):
+      TDelphiSemanticUnitCacheIdentity;
     property Diagnostics: TArray<TDelphiSemanticCacheDiagnostic> read GetDiagnostics;
     property Metrics: TDelphiSemanticCacheMetrics read GetMetrics;
     property CompilerProfileName: string read GetCompilerProfileName write SetCompilerProfileName;
@@ -537,6 +539,13 @@ end;
 function TDelphiSemanticUnitCache.GetParserVersion: string;
 begin
   Result := fParserVersion;
+end;
+
+function TDelphiSemanticUnitCache.BuildIdentity(
+  const aOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitCacheIdentity;
+begin
+  Result := BuildInternalUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
+    fModelVersion, fDelphiVersion, fConfiguration, fPlatform);
 end;
 
 function TDelphiSemanticUnitCache.PersistentEntryExistsForIdentity(
