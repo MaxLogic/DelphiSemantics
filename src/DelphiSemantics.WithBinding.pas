@@ -1,4 +1,4 @@
-unit DelphiSemantics.WithBinding;
+﻿unit DelphiSemantics.WithBinding;
 
 interface
 
@@ -119,6 +119,10 @@ type
     ProjectFactsCacheHits: Int64;
     ProjectFactsCacheMisses: Int64;
     ProjectFactsCacheInvalidations: Int64;
+    SnapshotSqlWriteMilliseconds: Int64;
+    SnapshotSqlReadMilliseconds: Int64;
+    SnapshotDeserializeMilliseconds: Int64;
+    SnapshotIndexRebuildMilliseconds: Int64;
   end;
 
   TDelphiSemanticRemoveWithLookupMetrics = record

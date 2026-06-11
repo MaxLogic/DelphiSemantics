@@ -586,6 +586,7 @@ begin
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, lFirstMetrics.SnapshotCacheMisses);
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheInvalidations);
+      Assert.IsTrue(lFirstMetrics.SnapshotSqlWriteMilliseconds > 0);
       Assert.IsTrue(lFirstMetrics.SnapshotSqlReadMilliseconds > 0);
       Assert.IsTrue(lFirstMetrics.SnapshotParseAvoidedEstimateMilliseconds > 0);
       Assert.IsFalse(lFirstMetrics.SnapshotCacheUseful);
@@ -607,6 +608,7 @@ begin
       Assert.AreEqual(1, lMetrics.SnapshotCacheHits);
       Assert.AreEqual(0, lMetrics.SnapshotCacheMisses);
       Assert.AreEqual(0, lMetrics.SnapshotCacheInvalidations);
+      Assert.AreEqual(Int64(0), lMetrics.SnapshotSqlWriteMilliseconds);
       Assert.IsTrue(lMetrics.SnapshotSqlReadMilliseconds > 0);
       Assert.IsTrue(lMetrics.SnapshotDeserializeMilliseconds >= 0);
       Assert.IsTrue(lMetrics.SnapshotIndexRebuildMilliseconds >= 0);
@@ -692,6 +694,7 @@ begin
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheUnitHits);
       Assert.AreEqual(2, lFirstMetrics.SnapshotCacheUnitMisses);
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheUnitStaleEntries);
+      Assert.IsTrue(lFirstMetrics.SnapshotSqlWriteMilliseconds > 0);
       Assert.IsTrue(lFirstMetrics.SnapshotCacheUnitBuildMilliseconds >= 0);
       Assert.IsTrue(lFirstMetrics.SnapshotCacheUnitMergeMilliseconds >= 0);
     finally
@@ -715,6 +718,7 @@ begin
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheUnitHits);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheUnitMisses);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheUnitStaleEntries);
+      Assert.AreEqual(Int64(0), lSecondMetrics.SnapshotSqlWriteMilliseconds);
       Assert.AreEqual(Int64(0), lSecondMetrics.SnapshotCacheUnitBuildMilliseconds);
       Assert.IsTrue(lSecondMetrics.SnapshotCacheUnitMergeMilliseconds >= 0);
     finally

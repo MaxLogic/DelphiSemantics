@@ -1,4 +1,4 @@
-unit DelphiSemantics.Snapshot;
+﻿unit DelphiSemantics.Snapshot;
 
 interface
 
@@ -177,6 +177,7 @@ type
     fUnitByFileName: TDictionary<string, TSemanticUnitId>;
     fUnits: TObjectList<TUnitSnapshot>;
     fUnitsById: TDictionary<TSemanticUnitId, TUnitSnapshot>;
+    function GetExactStringCount: Cardinal;
     function GetStringCount: Cardinal;
     constructor Create(const aStrings, aExactStrings: TSemanticStringPool;
       const aUnits: TObjectList<TUnitSnapshot>;
@@ -217,6 +218,7 @@ type
     function TryTypesByName(const aNameId: TSemanticStringId; out aLowIndex,
       aHighIndex: Integer): Boolean;
     function TypeRefByNameIndex(const aIndex: Integer): TSemanticSymbolRef;
+    property ExactStringCount: Cardinal read GetExactStringCount;
     property StringCount: Cardinal read GetStringCount;
     property UnitCount: Integer read GetUnitCount;
   end;
@@ -807,6 +809,14 @@ end;
 function TDelphiProjectSnapshot.ExactTextOf(const aId: TSemanticStringId): string;
 begin
   Result := fExactStrings.TextOf(aId);
+end;
+
+function TDelphiProjectSnapshot.GetExactStringCount: Cardinal;
+begin
+  if fExactStrings = nil then
+    Exit(0);
+
+  Result := fExactStrings.Count;
 end;
 
 procedure TDelphiProjectSnapshot.BuildIndexes(const aStrings: TSemanticStringPool;

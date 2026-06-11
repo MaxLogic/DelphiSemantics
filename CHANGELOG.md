@@ -70,6 +70,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Snapshot SQLite cache persistence now uses prepared dense-fact writes,
+  preserves remove-with planning extension facts, validates extension row counts,
+  and reports snapshot SQL timing metrics through the remove-with benchmark.
 - Dependency graph cycle analysis now uses a shared DelphiSemantics typed SCC
   analyzer for both DelphiSemantics and DAK deps output, replacing duplicated
   reachability sweeps while preserving cycle, hotspot, and SCC JSON fields.

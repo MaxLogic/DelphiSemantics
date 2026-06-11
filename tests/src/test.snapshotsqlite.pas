@@ -1,4 +1,4 @@
-unit Test.SnapshotSqlite;
+﻿unit Test.SnapshotSqlite;
 
 interface
 
@@ -27,6 +27,8 @@ type
     [Test]
     procedure DefaultSnapshotBuildDoesNotRequireSqliteCache;
     [Test]
+    procedure BuildProjectSnapshotFromUnitSnapshotsPreservesRemoveWithPlanningFacts;
+    [Test]
     procedure InvalidationDeletesAtomicallyWhenDeleteFails;
     [Test]
     procedure MalformedLoadIdentityDoesNotDeleteStoredUnit;
@@ -39,7 +41,11 @@ type
     [Test]
     procedure StoreRejectsAmbiguousIdentityValues;
     [Test]
+    procedure SnapshotSqliteCacheUsesPreparedStatementsAndCachedFields;
+    [Test]
     procedure SnapshotCacheSourceDoesNotUseJsonRepresentation;
+    [Test]
+    procedure StoreUnitFromSnapshotPreservesRemoveWithPlanningFacts;
     [Test]
     procedure SparseChildRowsInvalidateStoredSnapshot;
     [Test]
@@ -56,7 +62,8 @@ uses
   System.IOUtils, System.StrUtils, System.SysUtils, System.Variants,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   maxLogic.IOUtils,
-  DelphiSemantics.Snapshot;
+  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
+  DelphiSemantics.Snapshot.RemoveWith;
 
 procedure TSnapshotSqliteTests.AssertIdentityChangeInvalidates(const aName: string;
   const aChangedIdentity: TDelphiSemanticSnapshotCacheIdentity);
@@ -201,6 +208,52 @@ begin
     Assert.AreEqual('MemoryOnlyUnit.pas', lProject.TextOf(lFileNameId));
   finally
     lProject.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.BuildProjectSnapshotFromUnitSnapshotsPreservesRemoveWithPlanningFacts;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lFacts: TSemanticRemoveWithPlanningFacts;
+  lFileNameId: TSemanticStringId;
+  lMergedSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSnapshots: TArray<TDelphiProjectSnapshot>;
+  lUnit: TUnitSnapshot;
+  lUnitNameId: TSemanticStringId;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lFileNameId := lBuilder.Strings.Intern('MergeRemoveWithUnit.pas');
+    lUnitNameId := lBuilder.Strings.Intern('MergeRemoveWithUnit');
+    lUnit := TUnitSnapshot.Create(1, lFileNameId, lUnitNameId);
+    lBuilder.AddUnit(lUnit);
+    lFacts := Default(TSemanticRemoveWithPlanningFacts);
+    lFacts.ContextFingerprintId := lBuilder.ExactStrings.Intern('Merge-Context');
+    SetLength(lFacts.Bindings, 1);
+    lFacts.Bindings[0].SelectorTextId := lBuilder.ExactStrings.Intern('DF[D]^');
+    lBuilder.SetRemoveWithPlanningFacts(lFacts);
+    lSnapshot := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+
+  try
+    SetLength(lSnapshots, 1);
+    lSnapshots[0] := lSnapshot;
+    lMergedSnapshot := BuildProjectSnapshotFromUnitSnapshots(lSnapshots, lMetrics);
+    try
+      Assert.IsTrue(lMergedSnapshot.HasRemoveWithPlanningFacts);
+      Assert.AreEqual('Merge-Context', lMergedSnapshot.ExactTextOf(
+        lMergedSnapshot.RemoveWithPlanningContextFingerprintId));
+      Assert.AreEqual('DF[D]^', lMergedSnapshot.ExactTextOf(
+        lMergedSnapshot.RemoveWithPlanningBindingByIndex(0).SelectorTextId));
+    finally
+      lMergedSnapshot.Free;
+    end;
+  finally
+    lSnapshot.Free;
   end;
 end;
 
@@ -470,6 +523,28 @@ begin
   Assert.IsFalse(ContainsText(lSourceText, 'model_json'));
 end;
 
+procedure TSnapshotSqliteTests.SnapshotSqliteCacheUsesPreparedStatementsAndCachedFields;
+var
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Snapshot.Cache.Sqlite.pas']));
+
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+
+  Assert.IsFalse(ContainsText(lSourceText, 'FieldByName('),
+    'Snapshot SQLite load paths should cache fields once per result set.');
+  Assert.IsFalse(ContainsText(lSourceText, 'ExecSQL(''insert into snapshot_strings'),
+    'Snapshot string facts should use a prepared insert query.');
+  Assert.IsFalse(ContainsText(lSourceText, 'ExecSQL(''insert into snapshot_symbols'),
+    'Snapshot symbol facts should use a prepared insert query.');
+  Assert.IsFalse(ContainsText(lSourceText, 'ExecSQL(''insert into snapshot_with_statements'),
+    'Snapshot with-statement facts should use a prepared insert query.');
+  Assert.IsFalse(ContainsText(lSourceText, 'ExecSQL(''insert into snapshot_references'),
+    'Snapshot reference facts should use a prepared insert query.');
+end;
+
 procedure TSnapshotSqliteTests.SparseChildRowsInvalidateStoredSnapshot;
 var
   lCache: TDelphiSemanticSnapshotSqliteCache;
@@ -677,6 +752,141 @@ begin
     lUnit.Free;
     lCache.Free;
     lBuilder.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.StoreUnitFromSnapshotPreservesRemoveWithPlanningFacts;
+var
+  lBinding: TSemanticRemoveWithBindingFact;
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheFileName: string;
+  lFacts: TSemanticRemoveWithPlanningFacts;
+  lFileNameId: TSemanticStringId;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoadedFacts: TSemanticRemoveWithPlanningFacts;
+  lLoadedSnapshot: TDelphiProjectSnapshot;
+  lRoutineOwner: TSemanticRemoveWithInventorySymbolFact;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+  lUnitNameId: TSemanticStringId;
+begin
+  lCacheFileName := TempPath('snapshot-remove-with-facts.sqlite3');
+  if TFile.Exists(lCacheFileName) then
+    TFile.Delete(lCacheFileName);
+  lIdentity := CreateIdentity('SnapshotRemoveWithFactsUnit', 'file-a', 'context-a',
+    'include-a', 'snapshot-v1');
+
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lFileNameId := lBuilder.Strings.Intern('RemoveWithUnit.pas');
+    lUnitNameId := lBuilder.Strings.Intern('RemoveWithUnit');
+    lUnit := TUnitSnapshot.Create(3, lFileNameId, lUnitNameId);
+    lBuilder.AddUnit(lUnit);
+
+    lFacts := Default(TSemanticRemoveWithPlanningFacts);
+    lFacts.ContextFingerprintId := lBuilder.ExactStrings.Intern('Context-A');
+    SetLength(lFacts.RoutineOwners, 1);
+    lFacts.RoutineOwners[0].NameId := lBuilder.ExactStrings.Intern('UseWidget');
+    lFacts.RoutineOwners[0].SymbolClassId := lBuilder.ExactStrings.Intern('routine');
+    lFacts.RoutineOwners[0].KindId := lBuilder.ExactStrings.Intern('procedure');
+    lFacts.RoutineOwners[0].FileNameId := lBuilder.ExactStrings.Intern('RemoveWithUnit.pas');
+    lFacts.RoutineOwners[0].Line := 10;
+    lFacts.RoutineOwners[0].Column := 3;
+    lFacts.RoutineOwners[0].EndLine := 12;
+    lFacts.RoutineOwners[0].EndColumn := 6;
+
+    SetLength(lFacts.Bindings, 1);
+    lFacts.Bindings[0].SemanticIdId := lBuilder.ExactStrings.Intern('with-1');
+    lFacts.Bindings[0].FileNameId := lBuilder.ExactStrings.Intern('RemoveWithUnit.pas');
+    lFacts.Bindings[0].UnitNameId := lBuilder.ExactStrings.Intern('RemoveWithUnit');
+    lFacts.Bindings[0].RoutineNameId := lBuilder.ExactStrings.Intern('UseWidget');
+    lFacts.Bindings[0].SelectorTextId := lBuilder.ExactStrings.Intern('DF[D]^');
+    lFacts.Bindings[0].StatusId := lBuilder.ExactStrings.Intern('planned');
+    lFacts.Bindings[0].Line := 20;
+    lFacts.Bindings[0].Column := 5;
+    lFacts.Bindings[0].EndLine := 23;
+    lFacts.Bindings[0].EndColumn := 8;
+    SetLength(lFacts.Bindings[0].Selectors, 1);
+    lFacts.Bindings[0].Selectors[0].SelectorTextId := lFacts.Bindings[0].SelectorTextId;
+    lFacts.Bindings[0].Selectors[0].StatusId := lFacts.Bindings[0].StatusId;
+    lFacts.Bindings[0].Selectors[0].ReasonCodeId := lBuilder.ExactStrings.Intern('ok');
+    lFacts.Bindings[0].Selectors[0].TypeNameId := lBuilder.ExactStrings.Intern('TWidget');
+    SetLength(lFacts.Bindings[0].References, 1);
+    lFacts.Bindings[0].References[0].SemanticIdId := lBuilder.ExactStrings.Intern('ref-1');
+    lFacts.Bindings[0].References[0].NameId := lBuilder.ExactStrings.Intern('Value');
+    lFacts.Bindings[0].References[0].ClassificationId := lBuilder.ExactStrings.Intern('member');
+    lFacts.Bindings[0].References[0].Line := 21;
+    lFacts.Bindings[0].References[0].Column := 7;
+
+    lBuilder.SetRemoveWithPlanningFacts(lFacts);
+    lSnapshot := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+
+  try
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+    try
+      lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+    finally
+      lCache.Free;
+    end;
+
+    Assert.AreEqual(1, TableRowCount(lCacheFileName, 'snapshot_remove_with_facts'));
+    Assert.AreEqual(1, TableRowCount(lCacheFileName,
+      'snapshot_remove_with_routine_owners'));
+    Assert.AreEqual(1, TableRowCount(lCacheFileName, 'snapshot_remove_with_bindings'));
+    Assert.AreEqual(1, TableRowCount(lCacheFileName,
+      'snapshot_remove_with_binding_selectors'));
+    Assert.AreEqual(1, TableRowCount(lCacheFileName,
+      'snapshot_remove_with_binding_references'));
+
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+    try
+      Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lLoadedSnapshot));
+      try
+        Assert.IsTrue(lLoadedSnapshot.HasRemoveWithPlanningFacts);
+        Assert.AreEqual('Context-A', lLoadedSnapshot.ExactTextOf(
+          lLoadedSnapshot.RemoveWithPlanningContextFingerprintId));
+        Assert.AreEqual(1, lLoadedSnapshot.RemoveWithPlanningRoutineOwnerCount);
+        Assert.AreEqual(1, lLoadedSnapshot.RemoveWithPlanningBindingCount);
+        lRoutineOwner := lLoadedSnapshot.RemoveWithPlanningRoutineOwnerByIndex(0);
+        Assert.AreEqual('UseWidget', lLoadedSnapshot.ExactTextOf(lRoutineOwner.NameId));
+        lBinding := lLoadedSnapshot.RemoveWithPlanningBindingByIndex(0);
+        Assert.AreEqual('DF[D]^', lLoadedSnapshot.ExactTextOf(lBinding.SelectorTextId));
+        Assert.AreEqual(1, Length(lBinding.Selectors));
+        Assert.AreEqual('TWidget', lLoadedSnapshot.ExactTextOf(
+          lBinding.Selectors[0].TypeNameId));
+        Assert.AreEqual(1, Length(lBinding.References));
+        Assert.AreEqual('Value', lLoadedSnapshot.ExactTextOf(
+          lBinding.References[0].NameId));
+        lLoadedFacts := lLoadedSnapshot.RemoveWithPlanningFacts;
+        Assert.AreEqual(1, Length(lLoadedFacts.Bindings));
+      finally
+        lLoadedSnapshot.Free;
+      end;
+    finally
+      lCache.Free;
+    end;
+
+    ExecCacheSql(lCacheFileName, 'delete from snapshot_remove_with_binding_selectors');
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+    try
+      lLoadedSnapshot := nil;
+      try
+        Assert.IsFalse(lCache.TryLoadUnit(lIdentity, lLoadedSnapshot));
+        Assert.IsNull(lLoadedSnapshot);
+      finally
+        lLoadedSnapshot.Free;
+      end;
+      Assert.AreEqual(1, lCache.Metrics.Invalidations);
+      Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+    finally
+      lCache.Free;
+    end;
+  finally
+    lSnapshot.Free;
   end;
 end;
 

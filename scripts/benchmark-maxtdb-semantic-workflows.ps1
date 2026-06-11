@@ -396,13 +396,17 @@ function ConvertTo-MarkdownTable {
 
   $lCulture = [System.Globalization.CultureInfo]::InvariantCulture
   $lLines = New-Object System.Collections.Generic.List[string]
-  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Target seconds | Target status | Min | Max | Result count | Cache hits | Cache misses | Reference fallbacks | Source mutation |')
-  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|---|')
+  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Target seconds | Target status | Min | Max | Result count | Cache hits | Cache misses | Reference fallbacks | Snapshot SQL write ms | Snapshot SQL read ms | Snapshot deserialize ms | Snapshot index rebuild ms | Source mutation |')
+  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|')
   foreach ($lRow in $Rows) {
     $lCount = if ([string]::IsNullOrWhiteSpace($lRow.ResultCount)) { '' } else { $lRow.ResultCount }
     $lHits = if ([string]::IsNullOrWhiteSpace($lRow.SemanticCacheHits)) { '' } else { $lRow.SemanticCacheHits }
     $lMisses = if ([string]::IsNullOrWhiteSpace($lRow.SemanticCacheMisses)) { '' } else { $lRow.SemanticCacheMisses }
     $lFallbacks = if ([string]::IsNullOrWhiteSpace($lRow.ReferenceFallbackCount)) { '' } else { $lRow.ReferenceFallbackCount }
+    $lSnapshotSqlWriteMs = if ([string]::IsNullOrWhiteSpace($lRow.SnapshotSqlWriteMs)) { '' } else { $lRow.SnapshotSqlWriteMs }
+    $lSnapshotSqlReadMs = if ([string]::IsNullOrWhiteSpace($lRow.SnapshotSqlReadMs)) { '' } else { $lRow.SnapshotSqlReadMs }
+    $lSnapshotDeserializeMs = if ([string]::IsNullOrWhiteSpace($lRow.SnapshotDeserializeMs)) { '' } else { $lRow.SnapshotDeserializeMs }
+    $lSnapshotIndexRebuildMs = if ([string]::IsNullOrWhiteSpace($lRow.SnapshotIndexRebuildMs)) { '' } else { $lRow.SnapshotIndexRebuildMs }
     $lTargetSeconds = if (($lRow.PSObject.Properties.Name -contains 'TargetSeconds') -and
         -not [string]::IsNullOrWhiteSpace($lRow.TargetSeconds)) {
       ([double]$lRow.TargetSeconds).ToString('F3', $lCulture)
@@ -416,7 +420,7 @@ function ConvertTo-MarkdownTable {
     $lMax = ([double]$lRow.MaxSeconds).ToString('F3', $lCulture)
     $lMutation = if (($lRow.PSObject.Properties.Name -contains 'SourceMutationStatus') -and
         -not [string]::IsNullOrWhiteSpace($lRow.SourceMutationStatus)) { $lRow.SourceMutationStatus } else { '' }
-    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} | {14} | {15} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lTargetSeconds, $lTargetStatus, $lMin, $lMax, $lCount, $lHits, $lMisses, $lFallbacks, $lMutation))
+    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} | {14} | {15} | {16} | {17} | {18} | {19} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lTargetSeconds, $lTargetStatus, $lMin, $lMax, $lCount, $lHits, $lMisses, $lFallbacks, $lSnapshotSqlWriteMs, $lSnapshotSqlReadMs, $lSnapshotDeserializeMs, $lSnapshotIndexRebuildMs, $lMutation))
   }
 
   return ($lLines -join [Environment]::NewLine)
@@ -662,6 +666,27 @@ function New-SummaryRows {
         $lTargetStatus = 'missed'
       }
     }
+    $lPlannerPhaseMetrics = if ($lFirst.PSObject.Properties.Name -contains 'PlannerPhaseMetrics') {
+      $lFirst.PlannerPhaseMetrics
+    } else {
+      $null
+    }
+    $lSnapshotSqlWriteMs = if (($null -ne $lPlannerPhaseMetrics) -and
+        ($lPlannerPhaseMetrics.PSObject.Properties.Name -contains 'snapshotSqlWriteMs')) {
+      $lPlannerPhaseMetrics.snapshotSqlWriteMs
+    } else { '' }
+    $lSnapshotSqlReadMs = if (($null -ne $lPlannerPhaseMetrics) -and
+        ($lPlannerPhaseMetrics.PSObject.Properties.Name -contains 'snapshotSqlReadMs')) {
+      $lPlannerPhaseMetrics.snapshotSqlReadMs
+    } else { '' }
+    $lSnapshotDeserializeMs = if (($null -ne $lPlannerPhaseMetrics) -and
+        ($lPlannerPhaseMetrics.PSObject.Properties.Name -contains 'snapshotDeserializeMs')) {
+      $lPlannerPhaseMetrics.snapshotDeserializeMs
+    } else { '' }
+    $lSnapshotIndexRebuildMs = if (($null -ne $lPlannerPhaseMetrics) -and
+        ($lPlannerPhaseMetrics.PSObject.Properties.Name -contains 'snapshotIndexRebuildMs')) {
+      $lPlannerPhaseMetrics.snapshotIndexRebuildMs
+    } else { '' }
     $lSummaryRows.Add([pscustomobject]@{
       Id = $lFirst.Id
       Feature = $lFirst.Feature
@@ -679,8 +704,12 @@ function New-SummaryRows {
       SemanticCacheHits = $lFirst.SemanticCacheHits
       SemanticCacheMisses = $lFirst.SemanticCacheMisses
       ReferenceFallbackCount = $lFirst.ReferenceFallbackCount
+      SnapshotSqlWriteMs = $lSnapshotSqlWriteMs
+      SnapshotSqlReadMs = $lSnapshotSqlReadMs
+      SnapshotDeserializeMs = $lSnapshotDeserializeMs
+      SnapshotIndexRebuildMs = $lSnapshotIndexRebuildMs
       SourceMutationStatus = $lMutationStatus
-      PlannerPhaseMetrics = if ($lFirst.PSObject.Properties.Name -contains 'PlannerPhaseMetrics') { $lFirst.PlannerPhaseMetrics } else { $null }
+      PlannerPhaseMetrics = $lPlannerPhaseMetrics
       Command = $lFirst.Command
     })
   }

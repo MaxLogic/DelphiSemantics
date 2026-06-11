@@ -1,4 +1,4 @@
-unit DelphiSemantics.Snapshot.Builder;
+﻿unit DelphiSemantics.Snapshot.Builder;
 
 interface
 
@@ -1514,8 +1514,10 @@ function BuildProjectSnapshotFromUnitSnapshots(
   out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
 var
   i: Integer;
+  lExactStringId: Cardinal;
   lBuilder: TDelphiProjectSnapshotBuilder;
   lMergedUnit: TUnitSnapshot;
+  lPlanningFacts: TSemanticRemoveWithPlanningFacts;
   lSourceStrings: TSemanticStringPool;
   lStopwatch: TStopwatch;
   lTargetSymbolsByName: TDictionary<string, TSemanticSymbolRef>;
@@ -1552,6 +1554,16 @@ begin
       Inc(aMetrics.ReferenceCount, lUnit.ReferenceCount);
       Inc(aMetrics.WithStatementCount, lUnit.WithStatementCount);
     end;
+    for i := 0 to High(aSnapshots) do
+      if (aSnapshots[i] <> nil) and aSnapshots[i].HasRemoveWithPlanningFacts then
+      begin
+        for lExactStringId := 1 to aSnapshots[i].ExactStringCount do
+          lBuilder.ExactStrings.Intern(aSnapshots[i].ExactTextOf(
+            TSemanticStringId(lExactStringId)));
+        lPlanningFacts := aSnapshots[i].RemoveWithPlanningFacts;
+        lBuilder.SetRemoveWithPlanningFactsOwned(lPlanningFacts);
+        Break;
+      end;
     aMetrics.DeterministicFactCount := aMetrics.UnitCount + aMetrics.SymbolCount +
       aMetrics.ReferenceCount + aMetrics.WithStatementCount;
     aMetrics.WorkerCount := 0;

@@ -1,4 +1,4 @@
-unit DelphiSemantics.Snapshot.Cache.Sqlite;
+﻿unit DelphiSemantics.Snapshot.Cache.Sqlite;
 
 interface
 
@@ -23,6 +23,7 @@ type
     Invalidations: Integer;
     PersistentConnectionOpenCount: Integer;
     SnapshotCacheProbes: Integer;
+    SnapshotSqlWriteMilliseconds: Int64;
     SnapshotSqlReadMilliseconds: Int64;
     SnapshotDeserializeMilliseconds: Int64;
     SnapshotIndexRebuildMilliseconds: Int64;
@@ -43,8 +44,12 @@ type
     function EntryExistsForIdentity(const aIdentityKey: string): Boolean;
     function IdentityMatches(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject): Boolean;
+    procedure LoadExactStrings(const aCacheKey: string; const aConnection: TObject;
+      const aExactStrings: TSemanticStringPool);
     procedure LoadReferences(const aCacheKey: string; const aConnection: TObject;
       const aUnit: TUnitSnapshot);
+    procedure LoadRemoveWithPlanningFacts(const aCacheKey: string; const aConnection: TObject;
+      const aBuilder: TDelphiProjectSnapshotBuilder);
     procedure LoadStrings(const aCacheKey: string; const aConnection: TObject;
       const aStrings: TSemanticStringPool);
     procedure LoadSymbols(const aCacheKey: string; const aConnection: TObject;
@@ -60,8 +65,13 @@ type
     procedure RebuildSnapshotTables(const aConnection: TObject);
     procedure ResetProbeMetrics;
     function SharedConnection(out aConnection: TObject; out aError: string): Boolean;
+    procedure StoreExactStrings(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      const aConnection: TObject; const aSnapshot: TDelphiProjectSnapshot);
     procedure StoreReferences(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aUnit: TUnitSnapshot);
+    procedure StoreRemoveWithPlanningFacts(
+      const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
+      const aSnapshot: TDelphiProjectSnapshot);
     procedure StoreStrings(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aStrings: TSemanticStringPool);
     procedure StoreSymbols(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
@@ -74,7 +84,8 @@ type
     constructor Create(const aCacheFileName: string);
     destructor Destroy; override;
     procedure StoreUnit(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aStrings: TSemanticStringPool; const aUnit: TUnitSnapshot);
+      const aStrings: TSemanticStringPool; const aUnit: TUnitSnapshot;
+      const aSnapshot: TDelphiProjectSnapshot = nil);
     procedure StoreUnitFromSnapshot(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aSnapshot: TDelphiProjectSnapshot; const aUnitIndex: Integer);
     function TryLoadUnit(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
@@ -86,11 +97,13 @@ implementation
 
 uses
   System.DateUtils, System.Diagnostics, System.SysUtils, System.Variants,
+  Data.DB,
+  DelphiSemantics.Snapshot.RemoveWith,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
   FireDAC.Stan.Def;
 
 const
-  cSnapshotCacheSchemaVersion = '4';
+  cSnapshotCacheSchemaVersion = '5';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
 
 function NewQuery(const aConnection: TFDConnection; const aSql: string): TFDQuery;
@@ -111,6 +124,15 @@ begin
   Result := aStopwatch.ElapsedMilliseconds;
   if Result <= 0 then
     Result := 1;
+end;
+
+procedure CacheQueryFields(const aQuery: TFDQuery; var aFields: TArray<TField>);
+var
+  i: Integer;
+begin
+  SetLength(aFields, aQuery.FieldCount);
+  for i := 0 to aQuery.FieldCount - 1 do
+    aFields[i] := aQuery.Fields[i];
 end;
 
 procedure ValidateIdentityComplete(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
@@ -257,6 +279,20 @@ var
   lConnection: TFDConnection;
 begin
   lConnection := TFDConnection(aConnection);
+  lConnection.ExecSQL('delete from snapshot_remove_with_binding_references where cache_key in ' +
+    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
+  lConnection.ExecSQL('delete from snapshot_remove_with_binding_selectors where cache_key in ' +
+    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
+  lConnection.ExecSQL('delete from snapshot_remove_with_bindings where cache_key in ' +
+    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
+  lConnection.ExecSQL('delete from snapshot_remove_with_symbols where cache_key in ' +
+    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
+  lConnection.ExecSQL('delete from snapshot_remove_with_routine_owners where cache_key in ' +
+    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
+  lConnection.ExecSQL('delete from snapshot_remove_with_facts where cache_key in ' +
+    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
+  lConnection.ExecSQL('delete from snapshot_exact_strings where cache_key in ' +
+    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
   lConnection.ExecSQL('delete from snapshot_references where cache_key in ' +
     '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
   lConnection.ExecSQL('delete from snapshot_with_statements where cache_key in ' +
@@ -300,6 +336,9 @@ begin
     lConnection.ExecSQL('create table if not exists snapshot_strings (' +
       'cache_key text not null, string_id integer not null, text_value text not null, ' +
       'primary key(cache_key, string_id))');
+    lConnection.ExecSQL('create table if not exists snapshot_exact_strings (' +
+      'cache_key text not null, string_id integer not null, text_value text not null, ' +
+      'primary key(cache_key, string_id))');
     lConnection.ExecSQL('create table if not exists snapshot_symbols (' +
       'cache_key text not null, unit_id integer not null, symbol_id integer not null, ' +
       'name_id integer not null, owner_type_id integer not null, type_id integer not null, ' +
@@ -326,6 +365,52 @@ begin
       'reason_id integer not null, line integer not null, column integer not null, ' +
       'end_line integer not null, end_column integer not null, ' +
       'primary key(cache_key, unit_id, reference_id))');
+    lConnection.ExecSQL('create table if not exists snapshot_remove_with_facts (' +
+      'cache_key text primary key not null, context_fingerprint_id integer not null, ' +
+      'routine_owner_count integer not null, symbol_count integer not null, ' +
+      'binding_count integer not null)');
+    lConnection.ExecSQL('create table if not exists snapshot_remove_with_routine_owners (' +
+      'cache_key text not null, item_index integer not null, name_id integer not null, ' +
+      'symbol_class_id integer not null, kind_id integer not null, type_name_id integer not null, ' +
+      'modifier_id integer not null, owner_name_id integer not null, owner_type_id integer not null, ' +
+      'source_owner_type_id integer not null, related_type_name_id integer not null, ' +
+      'routine_name_id integer not null, unit_name_id integer not null, file_name_id integer not null, ' +
+      'section_kind_id integer not null, line integer not null, column integer not null, ' +
+      'end_line integer not null, end_column integer not null, unsupported_reason_id integer not null, ' +
+      'flags integer not null, index_parameter_count integer not null, type_category_id integer not null, ' +
+      'primary key(cache_key, item_index))');
+    lConnection.ExecSQL('create table if not exists snapshot_remove_with_symbols (' +
+      'cache_key text not null, item_index integer not null, name_id integer not null, ' +
+      'symbol_class_id integer not null, kind_id integer not null, type_name_id integer not null, ' +
+      'modifier_id integer not null, owner_name_id integer not null, owner_type_id integer not null, ' +
+      'source_owner_type_id integer not null, related_type_name_id integer not null, ' +
+      'routine_name_id integer not null, unit_name_id integer not null, file_name_id integer not null, ' +
+      'section_kind_id integer not null, line integer not null, column integer not null, ' +
+      'end_line integer not null, end_column integer not null, unsupported_reason_id integer not null, ' +
+      'flags integer not null, index_parameter_count integer not null, type_category_id integer not null, ' +
+      'primary key(cache_key, item_index))');
+    lConnection.ExecSQL('create table if not exists snapshot_remove_with_bindings (' +
+      'cache_key text not null, binding_index integer not null, semantic_id_id integer not null, ' +
+      'provenance_id integer not null, file_name_id integer not null, unit_name_id integer not null, ' +
+      'routine_name_id integer not null, line integer not null, column integer not null, ' +
+      'end_line integer not null, end_column integer not null, body_line integer not null, ' +
+      'body_column integer not null, body_end_line integer not null, body_end_column integer not null, ' +
+      'selector_text_id integer not null, status_id integer not null, skip_reason_id integer not null, ' +
+      'flags integer not null, member_reference_count integer not null, lexical_reference_count integer not null, ' +
+      'external_reference_count integer not null, intrinsic_reference_count integer not null, ' +
+      'unsupported_reference_count integer not null, unresolved_reference_count integer not null, ' +
+      'selector_count integer not null, reference_count integer not null, primary key(cache_key, binding_index))');
+    lConnection.ExecSQL('create table if not exists snapshot_remove_with_binding_selectors (' +
+      'cache_key text not null, binding_index integer not null, selector_index integer not null, ' +
+      'selector_text_id integer not null, status_id integer not null, reason_code_id integer not null, ' +
+      'type_name_id integer not null, primary key(cache_key, binding_index, selector_index))');
+    lConnection.ExecSQL('create table if not exists snapshot_remove_with_binding_references (' +
+      'cache_key text not null, binding_index integer not null, reference_index integer not null, ' +
+      'semantic_id_id integer not null, name_id integer not null, classification_id integer not null, ' +
+      'lookup_source_id integer not null, receiver_type_name_id integer not null, kind_id integer not null, ' +
+      'type_name_id integer not null, reason_code_id integer not null, scope_conflict_kind_id integer not null, ' +
+      'scope_conflict_name_id integer not null, line integer not null, column integer not null, ' +
+      'end_line integer not null, end_column integer not null, primary key(cache_key, binding_index, reference_index))');
     lConnection.ExecSQL('insert or replace into meta(key_name, value_text) values (?, ?)',
       [cSnapshotSchemaMetaKey, cSnapshotCacheSchemaVersion]);
   finally
@@ -340,6 +425,7 @@ var
   lConnectionObject: TObject;
   lConnection: TFDConnection;
   lError: string;
+  lRowCountField: TField;
   lQuery: TFDQuery;
   lStopwatch: TStopwatch;
 begin
@@ -354,7 +440,8 @@ begin
     lQuery.Open;
     lQuery.FetchAll;
     Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
-    Result := lQuery.FieldByName('row_count').AsInteger > 0;
+    lRowCountField := lQuery.Fields[0];
+    Result := lRowCountField.AsInteger > 0;
   finally
     lQuery.Free;
   end;
@@ -364,7 +451,12 @@ function TDelphiSemanticSnapshotSqliteCache.IdentityMatches(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
   const aConnection: TObject): Boolean;
 var
+  lContextHashField: TField;
+  lFileHashField: TField;
+  lIncludeGraphHashField: TField;
   lQuery: TFDQuery;
+  lSchemaVersionField: TField;
+  lSourceFileNameField: TField;
   lStopwatch: TStopwatch;
 begin
   Result := False;
@@ -381,11 +473,55 @@ begin
     if lQuery.Eof then
       Exit;
 
-    Result := SameText(lQuery.FieldByName('source_file_name').AsString, aIdentity.SourceFileName)
-      and (lQuery.FieldByName('file_hash').AsString = aIdentity.FileHash)
-      and (lQuery.FieldByName('context_hash').AsString = aIdentity.ContextHash)
-      and (lQuery.FieldByName('include_graph_hash').AsString = aIdentity.IncludeGraphHash)
-      and (lQuery.FieldByName('schema_version').AsString = aIdentity.SchemaVersion);
+    lSourceFileNameField := lQuery.Fields[0];
+    lFileHashField := lQuery.Fields[1];
+    lContextHashField := lQuery.Fields[2];
+    lIncludeGraphHashField := lQuery.Fields[3];
+    lSchemaVersionField := lQuery.Fields[4];
+    Result := SameText(lSourceFileNameField.AsString, aIdentity.SourceFileName)
+      and (lFileHashField.AsString = aIdentity.FileHash)
+      and (lContextHashField.AsString = aIdentity.ContextHash)
+      and (lIncludeGraphHashField.AsString = aIdentity.IncludeGraphHash)
+      and (lSchemaVersionField.AsString = aIdentity.SchemaVersion);
+  finally
+    lQuery.Free;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.LoadExactStrings(const aCacheKey: string;
+  const aConnection: TObject; const aExactStrings: TSemanticStringPool);
+var
+  lExpectedId: TSemanticStringId;
+  lQuery: TFDQuery;
+  lStringId: TSemanticStringId;
+  lStringIdField: TField;
+  lStopwatch: TStopwatch;
+  lTextValueField: TField;
+begin
+  lExpectedId := 1;
+  lQuery := NewQuery(TFDConnection(aConnection), 'select string_id, text_value from ' +
+    'snapshot_exact_strings where cache_key = ? order by string_id');
+  try
+    lQuery.Params[0].AsString := aCacheKey;
+    lStopwatch := TStopwatch.StartNew;
+    lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    lStringIdField := lQuery.Fields[0];
+    lTextValueField := lQuery.Fields[1];
+    lStopwatch := TStopwatch.StartNew;
+    while not lQuery.Eof do
+    begin
+      if TSemanticStringId(lStringIdField.AsInteger) <> lExpectedId then
+        raise Exception.Create('Snapshot exact string IDs are not dense.');
+
+      lStringId := aExactStrings.Intern(lTextValueField.AsString);
+      if lStringId <> lExpectedId then
+        raise Exception.Create('Snapshot exact string ID rebuild mismatch.');
+      Inc(lExpectedId);
+      lQuery.Next;
+    end;
+    Inc(fMetrics.SnapshotDeserializeMilliseconds, lStopwatch.ElapsedMilliseconds);
   finally
     lQuery.Free;
   end;
@@ -394,11 +530,28 @@ end;
 procedure TDelphiSemanticSnapshotSqliteCache.LoadReferences(const aCacheKey: string;
   const aConnection: TObject; const aUnit: TUnitSnapshot);
 var
+  lClassificationIdField: TField;
+  lColumnField: TField;
+  lEndColumnField: TField;
+  lEndLineField: TField;
   lExpectedId: TSemanticReferenceId;
+  lLineField: TField;
+  lLookupSourceIdField: TField;
+  lNameIdField: TField;
   lQuery: TFDQuery;
+  lReasonIdField: TField;
+  lReceiverTypeIdField: TField;
   lReference: TSemanticReferenceFact;
+  lReferenceIdField: TField;
   lReferenceId: TSemanticReferenceId;
+  lRoutineIdField: TField;
+  lSectionKindIdField: TField;
+  lSourceKindIdField: TField;
   lStopwatch: TStopwatch;
+  lTargetSymbolIdField: TField;
+  lTargetUnitIdField: TField;
+  lTypeIdField: TField;
+  lWithIdField: TField;
 begin
   lExpectedId := 1;
   lQuery := NewQuery(TFDConnection(aConnection), 'select reference_id, with_id, ' +
@@ -411,29 +564,46 @@ begin
     lQuery.Open;
     lQuery.FetchAll;
     Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    lReferenceIdField := lQuery.Fields[0];
+    lWithIdField := lQuery.Fields[1];
+    lTargetUnitIdField := lQuery.Fields[2];
+    lTargetSymbolIdField := lQuery.Fields[3];
+    lNameIdField := lQuery.Fields[4];
+    lReceiverTypeIdField := lQuery.Fields[5];
+    lTypeIdField := lQuery.Fields[6];
+    lClassificationIdField := lQuery.Fields[7];
+    lRoutineIdField := lQuery.Fields[8];
+    lSectionKindIdField := lQuery.Fields[9];
+    lSourceKindIdField := lQuery.Fields[10];
+    lLookupSourceIdField := lQuery.Fields[11];
+    lReasonIdField := lQuery.Fields[12];
+    lLineField := lQuery.Fields[13];
+    lColumnField := lQuery.Fields[14];
+    lEndLineField := lQuery.Fields[15];
+    lEndColumnField := lQuery.Fields[16];
     lStopwatch := TStopwatch.StartNew;
     while not lQuery.Eof do
     begin
-      if TSemanticReferenceId(lQuery.FieldByName('reference_id').AsInteger) <> lExpectedId then
+      if TSemanticReferenceId(lReferenceIdField.AsInteger) <> lExpectedId then
         raise Exception.Create('Snapshot reference IDs are not dense.');
 
       lReference := Default(TSemanticReferenceFact);
-      lReference.WithId := TSemanticWithId(lQuery.FieldByName('with_id').AsInteger);
-      lReference.TargetUnitId := TSemanticUnitId(lQuery.FieldByName('target_unit_id').AsInteger);
-      lReference.TargetSymbolId := TSemanticSymbolId(lQuery.FieldByName('target_symbol_id').AsInteger);
-      lReference.NameId := TSemanticStringId(lQuery.FieldByName('name_id').AsInteger);
-      lReference.ReceiverTypeId := TSemanticStringId(lQuery.FieldByName('receiver_type_id').AsInteger);
-      lReference.TypeId := TSemanticStringId(lQuery.FieldByName('type_id').AsInteger);
-      lReference.ClassificationId := TSemanticStringId(lQuery.FieldByName('classification_id').AsInteger);
-      lReference.RoutineId := TSemanticStringId(lQuery.FieldByName('routine_id').AsInteger);
-      lReference.SectionKindId := TSemanticStringId(lQuery.FieldByName('section_kind_id').AsInteger);
-      lReference.SourceKindId := TSemanticStringId(lQuery.FieldByName('source_kind_id').AsInteger);
-      lReference.LookupSourceId := TSemanticStringId(lQuery.FieldByName('lookup_source_id').AsInteger);
-      lReference.ReasonId := TSemanticStringId(lQuery.FieldByName('reason_id').AsInteger);
-      lReference.Line := lQuery.FieldByName('line').AsInteger;
-      lReference.Column := lQuery.FieldByName('column').AsInteger;
-      lReference.EndLine := lQuery.FieldByName('end_line').AsInteger;
-      lReference.EndColumn := lQuery.FieldByName('end_column').AsInteger;
+      lReference.WithId := TSemanticWithId(lWithIdField.AsInteger);
+      lReference.TargetUnitId := TSemanticUnitId(lTargetUnitIdField.AsInteger);
+      lReference.TargetSymbolId := TSemanticSymbolId(lTargetSymbolIdField.AsInteger);
+      lReference.NameId := TSemanticStringId(lNameIdField.AsInteger);
+      lReference.ReceiverTypeId := TSemanticStringId(lReceiverTypeIdField.AsInteger);
+      lReference.TypeId := TSemanticStringId(lTypeIdField.AsInteger);
+      lReference.ClassificationId := TSemanticStringId(lClassificationIdField.AsInteger);
+      lReference.RoutineId := TSemanticStringId(lRoutineIdField.AsInteger);
+      lReference.SectionKindId := TSemanticStringId(lSectionKindIdField.AsInteger);
+      lReference.SourceKindId := TSemanticStringId(lSourceKindIdField.AsInteger);
+      lReference.LookupSourceId := TSemanticStringId(lLookupSourceIdField.AsInteger);
+      lReference.ReasonId := TSemanticStringId(lReasonIdField.AsInteger);
+      lReference.Line := lLineField.AsInteger;
+      lReference.Column := lColumnField.AsInteger;
+      lReference.EndLine := lEndLineField.AsInteger;
+      lReference.EndColumn := lEndColumnField.AsInteger;
       lReferenceId := aUnit.AddReference(lReference);
       if lReferenceId <> lExpectedId then
         raise Exception.Create('Snapshot reference ID rebuild mismatch.');
@@ -451,7 +621,9 @@ procedure TDelphiSemanticSnapshotSqliteCache.LoadStrings(const aCacheKey: string
 var
   lExpectedId: TSemanticStringId;
   lQuery: TFDQuery;
+  lStringIdField: TField;
   lStringId: TSemanticStringId;
+  lTextValueField: TField;
   lStopwatch: TStopwatch;
 begin
   lExpectedId := 1;
@@ -463,13 +635,15 @@ begin
     lQuery.Open;
     lQuery.FetchAll;
     Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    lStringIdField := lQuery.Fields[0];
+    lTextValueField := lQuery.Fields[1];
     lStopwatch := TStopwatch.StartNew;
     while not lQuery.Eof do
     begin
-      if TSemanticStringId(lQuery.FieldByName('string_id').AsInteger) <> lExpectedId then
+      if TSemanticStringId(lStringIdField.AsInteger) <> lExpectedId then
         raise Exception.Create('Snapshot string IDs are not dense.');
 
-      lStringId := aStrings.Intern(lQuery.FieldByName('text_value').AsString);
+      lStringId := aStrings.Intern(lTextValueField.AsString);
       if lStringId <> lExpectedId then
         raise Exception.Create('Snapshot string ID rebuild mismatch.');
       Inc(lExpectedId);
@@ -484,11 +658,26 @@ end;
 procedure TDelphiSemanticSnapshotSqliteCache.LoadSymbols(const aCacheKey: string;
   const aConnection: TObject; const aUnit: TUnitSnapshot);
 var
+  lColumnField: TField;
+  lEndColumnField: TField;
+  lEndLineField: TField;
   lExpectedId: TSemanticSymbolId;
+  lFlagsField: TField;
+  lKindIdField: TField;
+  lLineField: TField;
+  lNameIdField: TField;
   lQuery: TFDQuery;
+  lOwnerTypeIdField: TField;
+  lRoutineIdField: TField;
+  lSectionKindIdField: TField;
+  lSignatureIdField: TField;
+  lSourceKindIdField: TField;
   lStopwatch: TStopwatch;
   lSymbol: TSemanticSymbolFact;
+  lSymbolIdField: TField;
   lSymbolId: TSemanticSymbolId;
+  lTypeIdField: TField;
+  lVisibilityIdField: TField;
 begin
   lExpectedId := 1;
   lQuery := NewQuery(TFDConnection(aConnection), 'select symbol_id, name_id, owner_type_id, ' +
@@ -501,27 +690,42 @@ begin
     lQuery.Open;
     lQuery.FetchAll;
     Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    lSymbolIdField := lQuery.Fields[0];
+    lNameIdField := lQuery.Fields[1];
+    lOwnerTypeIdField := lQuery.Fields[2];
+    lTypeIdField := lQuery.Fields[3];
+    lRoutineIdField := lQuery.Fields[4];
+    lKindIdField := lQuery.Fields[5];
+    lSectionKindIdField := lQuery.Fields[6];
+    lSourceKindIdField := lQuery.Fields[7];
+    lVisibilityIdField := lQuery.Fields[8];
+    lSignatureIdField := lQuery.Fields[9];
+    lFlagsField := lQuery.Fields[10];
+    lLineField := lQuery.Fields[11];
+    lColumnField := lQuery.Fields[12];
+    lEndLineField := lQuery.Fields[13];
+    lEndColumnField := lQuery.Fields[14];
     lStopwatch := TStopwatch.StartNew;
     while not lQuery.Eof do
     begin
-      if TSemanticSymbolId(lQuery.FieldByName('symbol_id').AsInteger) <> lExpectedId then
+      if TSemanticSymbolId(lSymbolIdField.AsInteger) <> lExpectedId then
         raise Exception.Create('Snapshot symbol IDs are not dense.');
 
       lSymbol := Default(TSemanticSymbolFact);
-      lSymbol.NameId := TSemanticStringId(lQuery.FieldByName('name_id').AsInteger);
-      lSymbol.OwnerTypeId := TSemanticStringId(lQuery.FieldByName('owner_type_id').AsInteger);
-      lSymbol.TypeId := TSemanticStringId(lQuery.FieldByName('type_id').AsInteger);
-      lSymbol.RoutineId := TSemanticStringId(lQuery.FieldByName('routine_id').AsInteger);
-      lSymbol.KindId := TSemanticStringId(lQuery.FieldByName('kind_id').AsInteger);
-      lSymbol.SectionKindId := TSemanticStringId(lQuery.FieldByName('section_kind_id').AsInteger);
-      lSymbol.SourceKindId := TSemanticStringId(lQuery.FieldByName('source_kind_id').AsInteger);
-      lSymbol.VisibilityId := TSemanticStringId(lQuery.FieldByName('visibility_id').AsInteger);
-      lSymbol.SignatureId := TSemanticStringId(lQuery.FieldByName('signature_id').AsInteger);
-      lSymbol.Flags := Cardinal(lQuery.FieldByName('flags').AsInteger);
-      lSymbol.Line := lQuery.FieldByName('line').AsInteger;
-      lSymbol.Column := lQuery.FieldByName('column').AsInteger;
-      lSymbol.EndLine := lQuery.FieldByName('end_line').AsInteger;
-      lSymbol.EndColumn := lQuery.FieldByName('end_column').AsInteger;
+      lSymbol.NameId := TSemanticStringId(lNameIdField.AsInteger);
+      lSymbol.OwnerTypeId := TSemanticStringId(lOwnerTypeIdField.AsInteger);
+      lSymbol.TypeId := TSemanticStringId(lTypeIdField.AsInteger);
+      lSymbol.RoutineId := TSemanticStringId(lRoutineIdField.AsInteger);
+      lSymbol.KindId := TSemanticStringId(lKindIdField.AsInteger);
+      lSymbol.SectionKindId := TSemanticStringId(lSectionKindIdField.AsInteger);
+      lSymbol.SourceKindId := TSemanticStringId(lSourceKindIdField.AsInteger);
+      lSymbol.VisibilityId := TSemanticStringId(lVisibilityIdField.AsInteger);
+      lSymbol.SignatureId := TSemanticStringId(lSignatureIdField.AsInteger);
+      lSymbol.Flags := Cardinal(lFlagsField.AsInteger);
+      lSymbol.Line := lLineField.AsInteger;
+      lSymbol.Column := lColumnField.AsInteger;
+      lSymbol.EndLine := lEndLineField.AsInteger;
+      lSymbol.EndColumn := lEndColumnField.AsInteger;
       lSymbolId := aUnit.AddSymbol(lSymbol);
       if lSymbolId <> lExpectedId then
         raise Exception.Create('Snapshot symbol ID rebuild mismatch.');
@@ -534,13 +738,351 @@ begin
   end;
 end;
 
+procedure TDelphiSemanticSnapshotSqliteCache.LoadRemoveWithPlanningFacts(
+  const aCacheKey: string; const aConnection: TObject;
+  const aBuilder: TDelphiProjectSnapshotBuilder);
+var
+  i: Integer;
+  lBinding: TSemanticRemoveWithBindingFact;
+  lBindingIndexField: TField;
+  lBodyColumnField: TField;
+  lBodyEndColumnField: TField;
+  lBodyEndLineField: TField;
+  lBodyLineField: TField;
+  lColumnField: TField;
+  lContextFingerprintIdField: TField;
+  lEndColumnField: TField;
+  lEndLineField: TField;
+  lExternalReferenceCountField: TField;
+  lExpectedBindingCount: Integer;
+  lExpectedReferenceCount: Integer;
+  lExpectedRoutineOwnerCount: Integer;
+  lExpectedSelectorCount: Integer;
+  lExpectedSymbolCount: Integer;
+  lFacts: TSemanticRemoveWithPlanningFacts;
+  lFields: TArray<TField>;
+  lFileNameIdField: TField;
+  lFlagsField: TField;
+  lIntrinsicReferenceCountField: TField;
+  lLexicalReferenceCountField: TField;
+  lLineField: TField;
+  lMemberReferenceCountField: TField;
+  lProvenanceIdField: TField;
+  lQuery: TFDQuery;
+  lReferenceCountField: TField;
+  lRoutineNameIdField: TField;
+  lSelectorCountField: TField;
+  lSelectorIndex: Integer;
+  lSelectorTextIdField: TField;
+  lSemanticIdIdField: TField;
+  lSkipReasonIdField: TField;
+  lStatusIdField: TField;
+  lStopwatch: TStopwatch;
+  lUnitNameIdField: TField;
+  lLoadedReferenceCount: Integer;
+  lLoadedSelectorCount: Integer;
+  lUnresolvedReferenceCountField: TField;
+  lUnsupportedReferenceCountField: TField;
+  lReferenceIndex: Integer;
+begin
+  lQuery := NewQuery(TFDConnection(aConnection), 'select context_fingerprint_id, ' +
+    'routine_owner_count, symbol_count, binding_count from snapshot_remove_with_facts ' +
+    'where cache_key = ?');
+  try
+    lQuery.Params[0].AsString := aCacheKey;
+    lStopwatch := TStopwatch.StartNew;
+    lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    if lQuery.Eof then
+      Exit;
+
+    lContextFingerprintIdField := lQuery.Fields[0];
+    lExpectedRoutineOwnerCount := lQuery.Fields[1].AsInteger;
+    lExpectedSymbolCount := lQuery.Fields[2].AsInteger;
+    lExpectedBindingCount := lQuery.Fields[3].AsInteger;
+    lFacts := Default(TSemanticRemoveWithPlanningFacts);
+    lFacts.ContextFingerprintId := TSemanticStringId(lContextFingerprintIdField.AsInteger);
+  finally
+    lQuery.Free;
+  end;
+
+  lQuery := NewQuery(TFDConnection(aConnection), 'select name_id, symbol_class_id, kind_id, ' +
+    'type_name_id, modifier_id, owner_name_id, owner_type_id, source_owner_type_id, ' +
+    'related_type_name_id, routine_name_id, unit_name_id, file_name_id, section_kind_id, ' +
+    'line, column, end_line, end_column, unsupported_reason_id, flags, ' +
+    'index_parameter_count, type_category_id from snapshot_remove_with_routine_owners ' +
+    'where cache_key = ? order by item_index');
+  try
+    lQuery.Params[0].AsString := aCacheKey;
+    lStopwatch := TStopwatch.StartNew;
+    lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    CacheQueryFields(lQuery, lFields);
+    i := 0;
+    while not lQuery.Eof do
+    begin
+      SetLength(lFacts.RoutineOwners, i + 1);
+      lFacts.RoutineOwners[i].NameId := TSemanticStringId(lFields[0].AsInteger);
+      lFacts.RoutineOwners[i].SymbolClassId := TSemanticStringId(lFields[1].AsInteger);
+      lFacts.RoutineOwners[i].KindId := TSemanticStringId(lFields[2].AsInteger);
+      lFacts.RoutineOwners[i].TypeNameId := TSemanticStringId(lFields[3].AsInteger);
+      lFacts.RoutineOwners[i].ModifierId := TSemanticStringId(lFields[4].AsInteger);
+      lFacts.RoutineOwners[i].OwnerNameId := TSemanticStringId(lFields[5].AsInteger);
+      lFacts.RoutineOwners[i].OwnerTypeId := TSemanticStringId(lFields[6].AsInteger);
+      lFacts.RoutineOwners[i].SourceOwnerTypeId := TSemanticStringId(lFields[7].AsInteger);
+      lFacts.RoutineOwners[i].RelatedTypeNameId := TSemanticStringId(lFields[8].AsInteger);
+      lFacts.RoutineOwners[i].RoutineNameId := TSemanticStringId(lFields[9].AsInteger);
+      lFacts.RoutineOwners[i].UnitNameId := TSemanticStringId(lFields[10].AsInteger);
+      lFacts.RoutineOwners[i].FileNameId := TSemanticStringId(lFields[11].AsInteger);
+      lFacts.RoutineOwners[i].SectionKindId := TSemanticStringId(lFields[12].AsInteger);
+      lFacts.RoutineOwners[i].Line := lFields[13].AsInteger;
+      lFacts.RoutineOwners[i].Column := lFields[14].AsInteger;
+      lFacts.RoutineOwners[i].EndLine := lFields[15].AsInteger;
+      lFacts.RoutineOwners[i].EndColumn := lFields[16].AsInteger;
+      lFacts.RoutineOwners[i].UnsupportedReasonId := TSemanticStringId(lFields[17].AsInteger);
+      lFacts.RoutineOwners[i].Flags := Cardinal(lFields[18].AsInteger);
+      lFacts.RoutineOwners[i].IndexParameterCount := lFields[19].AsInteger;
+      lFacts.RoutineOwners[i].TypeCategoryId := TSemanticStringId(lFields[20].AsInteger);
+      Inc(i);
+      lQuery.Next;
+    end;
+  finally
+    lQuery.Free;
+  end;
+  if Length(lFacts.RoutineOwners) <> lExpectedRoutineOwnerCount then
+    raise Exception.Create('Snapshot remove-with routine owner row count mismatch.');
+
+  lQuery := NewQuery(TFDConnection(aConnection), 'select name_id, symbol_class_id, kind_id, ' +
+    'type_name_id, modifier_id, owner_name_id, owner_type_id, source_owner_type_id, ' +
+    'related_type_name_id, routine_name_id, unit_name_id, file_name_id, section_kind_id, ' +
+    'line, column, end_line, end_column, unsupported_reason_id, flags, ' +
+    'index_parameter_count, type_category_id from snapshot_remove_with_symbols ' +
+    'where cache_key = ? order by item_index');
+  try
+    lQuery.Params[0].AsString := aCacheKey;
+    lStopwatch := TStopwatch.StartNew;
+    lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    CacheQueryFields(lQuery, lFields);
+    i := 0;
+    while not lQuery.Eof do
+    begin
+      SetLength(lFacts.Symbols, i + 1);
+      lFacts.Symbols[i].NameId := TSemanticStringId(lFields[0].AsInteger);
+      lFacts.Symbols[i].SymbolClassId := TSemanticStringId(lFields[1].AsInteger);
+      lFacts.Symbols[i].KindId := TSemanticStringId(lFields[2].AsInteger);
+      lFacts.Symbols[i].TypeNameId := TSemanticStringId(lFields[3].AsInteger);
+      lFacts.Symbols[i].ModifierId := TSemanticStringId(lFields[4].AsInteger);
+      lFacts.Symbols[i].OwnerNameId := TSemanticStringId(lFields[5].AsInteger);
+      lFacts.Symbols[i].OwnerTypeId := TSemanticStringId(lFields[6].AsInteger);
+      lFacts.Symbols[i].SourceOwnerTypeId := TSemanticStringId(lFields[7].AsInteger);
+      lFacts.Symbols[i].RelatedTypeNameId := TSemanticStringId(lFields[8].AsInteger);
+      lFacts.Symbols[i].RoutineNameId := TSemanticStringId(lFields[9].AsInteger);
+      lFacts.Symbols[i].UnitNameId := TSemanticStringId(lFields[10].AsInteger);
+      lFacts.Symbols[i].FileNameId := TSemanticStringId(lFields[11].AsInteger);
+      lFacts.Symbols[i].SectionKindId := TSemanticStringId(lFields[12].AsInteger);
+      lFacts.Symbols[i].Line := lFields[13].AsInteger;
+      lFacts.Symbols[i].Column := lFields[14].AsInteger;
+      lFacts.Symbols[i].EndLine := lFields[15].AsInteger;
+      lFacts.Symbols[i].EndColumn := lFields[16].AsInteger;
+      lFacts.Symbols[i].UnsupportedReasonId := TSemanticStringId(lFields[17].AsInteger);
+      lFacts.Symbols[i].Flags := Cardinal(lFields[18].AsInteger);
+      lFacts.Symbols[i].IndexParameterCount := lFields[19].AsInteger;
+      lFacts.Symbols[i].TypeCategoryId := TSemanticStringId(lFields[20].AsInteger);
+      Inc(i);
+      lQuery.Next;
+    end;
+  finally
+    lQuery.Free;
+  end;
+  if Length(lFacts.Symbols) <> lExpectedSymbolCount then
+    raise Exception.Create('Snapshot remove-with symbol row count mismatch.');
+
+  lQuery := NewQuery(TFDConnection(aConnection), 'select binding_index, semantic_id_id, ' +
+    'provenance_id, file_name_id, unit_name_id, routine_name_id, line, column, end_line, ' +
+    'end_column, body_line, body_column, body_end_line, body_end_column, selector_text_id, ' +
+    'status_id, skip_reason_id, flags, member_reference_count, lexical_reference_count, ' +
+    'external_reference_count, intrinsic_reference_count, unsupported_reference_count, ' +
+    'unresolved_reference_count, selector_count, reference_count from snapshot_remove_with_bindings ' +
+    'where cache_key = ? order by binding_index');
+  try
+    lQuery.Params[0].AsString := aCacheKey;
+    lStopwatch := TStopwatch.StartNew;
+    lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    lBindingIndexField := lQuery.Fields[0];
+    lSemanticIdIdField := lQuery.Fields[1];
+    lProvenanceIdField := lQuery.Fields[2];
+    lFileNameIdField := lQuery.Fields[3];
+    lUnitNameIdField := lQuery.Fields[4];
+    lRoutineNameIdField := lQuery.Fields[5];
+    lLineField := lQuery.Fields[6];
+    lColumnField := lQuery.Fields[7];
+    lEndLineField := lQuery.Fields[8];
+    lEndColumnField := lQuery.Fields[9];
+    lBodyLineField := lQuery.Fields[10];
+    lBodyColumnField := lQuery.Fields[11];
+    lBodyEndLineField := lQuery.Fields[12];
+    lBodyEndColumnField := lQuery.Fields[13];
+    lSelectorTextIdField := lQuery.Fields[14];
+    lStatusIdField := lQuery.Fields[15];
+    lSkipReasonIdField := lQuery.Fields[16];
+    lFlagsField := lQuery.Fields[17];
+    lMemberReferenceCountField := lQuery.Fields[18];
+    lLexicalReferenceCountField := lQuery.Fields[19];
+    lExternalReferenceCountField := lQuery.Fields[20];
+    lIntrinsicReferenceCountField := lQuery.Fields[21];
+    lUnsupportedReferenceCountField := lQuery.Fields[22];
+    lUnresolvedReferenceCountField := lQuery.Fields[23];
+    lSelectorCountField := lQuery.Fields[24];
+    lReferenceCountField := lQuery.Fields[25];
+    lExpectedSelectorCount := 0;
+    lExpectedReferenceCount := 0;
+    while not lQuery.Eof do
+    begin
+      i := lBindingIndexField.AsInteger;
+      SetLength(lFacts.Bindings, i + 1);
+      lBinding := Default(TSemanticRemoveWithBindingFact);
+      lBinding.SemanticIdId := TSemanticStringId(lSemanticIdIdField.AsInteger);
+      lBinding.ProvenanceId := TSemanticStringId(lProvenanceIdField.AsInteger);
+      lBinding.FileNameId := TSemanticStringId(lFileNameIdField.AsInteger);
+      lBinding.UnitNameId := TSemanticStringId(lUnitNameIdField.AsInteger);
+      lBinding.RoutineNameId := TSemanticStringId(lRoutineNameIdField.AsInteger);
+      lBinding.Line := lLineField.AsInteger;
+      lBinding.Column := lColumnField.AsInteger;
+      lBinding.EndLine := lEndLineField.AsInteger;
+      lBinding.EndColumn := lEndColumnField.AsInteger;
+      lBinding.BodyLine := lBodyLineField.AsInteger;
+      lBinding.BodyColumn := lBodyColumnField.AsInteger;
+      lBinding.BodyEndLine := lBodyEndLineField.AsInteger;
+      lBinding.BodyEndColumn := lBodyEndColumnField.AsInteger;
+      lBinding.SelectorTextId := TSemanticStringId(lSelectorTextIdField.AsInteger);
+      lBinding.StatusId := TSemanticStringId(lStatusIdField.AsInteger);
+      lBinding.SkipReasonId := TSemanticStringId(lSkipReasonIdField.AsInteger);
+      lBinding.Flags := Cardinal(lFlagsField.AsInteger);
+      lBinding.MemberReferenceCount := lMemberReferenceCountField.AsInteger;
+      lBinding.LexicalReferenceCount := lLexicalReferenceCountField.AsInteger;
+      lBinding.ExternalReferenceCount := lExternalReferenceCountField.AsInteger;
+      lBinding.IntrinsicReferenceCount := lIntrinsicReferenceCountField.AsInteger;
+      lBinding.UnsupportedReferenceCount := lUnsupportedReferenceCountField.AsInteger;
+      lBinding.UnresolvedReferenceCount := lUnresolvedReferenceCountField.AsInteger;
+      SetLength(lBinding.Selectors, lSelectorCountField.AsInteger);
+      SetLength(lBinding.References, lReferenceCountField.AsInteger);
+      Inc(lExpectedSelectorCount, lSelectorCountField.AsInteger);
+      Inc(lExpectedReferenceCount, lReferenceCountField.AsInteger);
+      lFacts.Bindings[i] := lBinding;
+      lQuery.Next;
+    end;
+  finally
+    lQuery.Free;
+  end;
+  if Length(lFacts.Bindings) <> lExpectedBindingCount then
+    raise Exception.Create('Snapshot remove-with binding row count mismatch.');
+
+  lQuery := NewQuery(TFDConnection(aConnection), 'select binding_index, selector_index, ' +
+    'selector_text_id, status_id, reason_code_id, type_name_id from ' +
+    'snapshot_remove_with_binding_selectors where cache_key = ? order by binding_index, selector_index');
+  try
+    lQuery.Params[0].AsString := aCacheKey;
+    lStopwatch := TStopwatch.StartNew;
+    lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    CacheQueryFields(lQuery, lFields);
+    lLoadedSelectorCount := 0;
+    while not lQuery.Eof do
+    begin
+      i := lFields[0].AsInteger;
+      lSelectorIndex := lFields[1].AsInteger;
+      lFacts.Bindings[i].Selectors[lSelectorIndex].SelectorTextId :=
+        TSemanticStringId(lFields[2].AsInteger);
+      lFacts.Bindings[i].Selectors[lSelectorIndex].StatusId :=
+        TSemanticStringId(lFields[3].AsInteger);
+      lFacts.Bindings[i].Selectors[lSelectorIndex].ReasonCodeId :=
+        TSemanticStringId(lFields[4].AsInteger);
+      lFacts.Bindings[i].Selectors[lSelectorIndex].TypeNameId :=
+        TSemanticStringId(lFields[5].AsInteger);
+      Inc(lLoadedSelectorCount);
+      lQuery.Next;
+    end;
+  finally
+    lQuery.Free;
+  end;
+  if lLoadedSelectorCount <> lExpectedSelectorCount then
+    raise Exception.Create('Snapshot remove-with selector row count mismatch.');
+
+  lQuery := NewQuery(TFDConnection(aConnection), 'select binding_index, reference_index, ' +
+    'semantic_id_id, name_id, classification_id, lookup_source_id, receiver_type_name_id, ' +
+    'kind_id, type_name_id, reason_code_id, scope_conflict_kind_id, scope_conflict_name_id, ' +
+    'line, column, end_line, end_column from snapshot_remove_with_binding_references ' +
+    'where cache_key = ? order by binding_index, reference_index');
+  try
+    lQuery.Params[0].AsString := aCacheKey;
+    lStopwatch := TStopwatch.StartNew;
+    lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    CacheQueryFields(lQuery, lFields);
+    lLoadedReferenceCount := 0;
+    while not lQuery.Eof do
+    begin
+      i := lFields[0].AsInteger;
+      lReferenceIndex := lFields[1].AsInteger;
+      lFacts.Bindings[i].References[lReferenceIndex].SemanticIdId :=
+        TSemanticStringId(lFields[2].AsInteger);
+      lFacts.Bindings[i].References[lReferenceIndex].NameId :=
+        TSemanticStringId(lFields[3].AsInteger);
+      lFacts.Bindings[i].References[lReferenceIndex].ClassificationId :=
+        TSemanticStringId(lFields[4].AsInteger);
+      lFacts.Bindings[i].References[lReferenceIndex].LookupSourceId :=
+        TSemanticStringId(lFields[5].AsInteger);
+      lFacts.Bindings[i].References[lReferenceIndex].ReceiverTypeNameId :=
+        TSemanticStringId(lFields[6].AsInteger);
+      lFacts.Bindings[i].References[lReferenceIndex].KindId :=
+        TSemanticStringId(lFields[7].AsInteger);
+      lFacts.Bindings[i].References[lReferenceIndex].TypeNameId :=
+        TSemanticStringId(lFields[8].AsInteger);
+      lFacts.Bindings[i].References[lReferenceIndex].ReasonCodeId :=
+        TSemanticStringId(lFields[9].AsInteger);
+      lFacts.Bindings[i].References[lReferenceIndex].ScopeConflictKindId :=
+        TSemanticStringId(lFields[10].AsInteger);
+      lFacts.Bindings[i].References[lReferenceIndex].ScopeConflictNameId :=
+        TSemanticStringId(lFields[11].AsInteger);
+      lFacts.Bindings[i].References[lReferenceIndex].Line := lFields[12].AsInteger;
+      lFacts.Bindings[i].References[lReferenceIndex].Column := lFields[13].AsInteger;
+      lFacts.Bindings[i].References[lReferenceIndex].EndLine := lFields[14].AsInteger;
+      lFacts.Bindings[i].References[lReferenceIndex].EndColumn := lFields[15].AsInteger;
+      Inc(lLoadedReferenceCount);
+      lQuery.Next;
+    end;
+  finally
+    lQuery.Free;
+  end;
+  if lLoadedReferenceCount <> lExpectedReferenceCount then
+    raise Exception.Create('Snapshot remove-with reference row count mismatch.');
+
+  aBuilder.SetRemoveWithPlanningFactsOwned(lFacts);
+end;
+
 function TDelphiSemanticSnapshotSqliteCache.LoadUnitHeader(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
   out aUnit: TUnitSnapshot; out aStringCount, aSymbolCount, aWithStatementCount,
   aReferenceCount: Integer; out aParseAvoidedEstimateMilliseconds: Int64): Boolean;
 var
+  lFileNameIdField: TField;
+  lParseAvoidedEstimateMillisecondsField: TField;
   lQuery: TFDQuery;
+  lReferenceCountField: TField;
   lStopwatch: TStopwatch;
+  lStringCountField: TField;
+  lSymbolCountField: TField;
+  lUnitIdField: TField;
+  lUnitNameIdField: TField;
+  lWithStatementCountField: TField;
 begin
   aUnit := nil;
   aStringCount := 0;
@@ -562,15 +1104,22 @@ begin
     Result := not lQuery.Eof;
     if Result then
     begin
-      aUnit := TUnitSnapshot.Create(TSemanticUnitId(lQuery.FieldByName('unit_id').AsInteger),
-        TSemanticStringId(lQuery.FieldByName('file_name_id').AsInteger),
-        TSemanticStringId(lQuery.FieldByName('unit_name_id').AsInteger));
-      aStringCount := lQuery.FieldByName('string_count').AsInteger;
-      aSymbolCount := lQuery.FieldByName('symbol_count').AsInteger;
-      aWithStatementCount := lQuery.FieldByName('with_statement_count').AsInteger;
-      aReferenceCount := lQuery.FieldByName('reference_count').AsInteger;
-      aParseAvoidedEstimateMilliseconds := lQuery.FieldByName(
-        'parse_avoided_estimate_ms').AsLargeInt;
+      lUnitIdField := lQuery.Fields[0];
+      lFileNameIdField := lQuery.Fields[1];
+      lUnitNameIdField := lQuery.Fields[2];
+      lStringCountField := lQuery.Fields[3];
+      lSymbolCountField := lQuery.Fields[4];
+      lWithStatementCountField := lQuery.Fields[5];
+      lReferenceCountField := lQuery.Fields[6];
+      lParseAvoidedEstimateMillisecondsField := lQuery.Fields[7];
+      aUnit := TUnitSnapshot.Create(TSemanticUnitId(lUnitIdField.AsInteger),
+        TSemanticStringId(lFileNameIdField.AsInteger),
+        TSemanticStringId(lUnitNameIdField.AsInteger));
+      aStringCount := lStringCountField.AsInteger;
+      aSymbolCount := lSymbolCountField.AsInteger;
+      aWithStatementCount := lWithStatementCountField.AsInteger;
+      aReferenceCount := lReferenceCountField.AsInteger;
+      aParseAvoidedEstimateMilliseconds := lParseAvoidedEstimateMillisecondsField.AsLargeInt;
     end;
     Inc(fMetrics.SnapshotDeserializeMilliseconds, lStopwatch.ElapsedMilliseconds);
   finally
@@ -581,10 +1130,19 @@ end;
 procedure TDelphiSemanticSnapshotSqliteCache.LoadWithStatements(const aCacheKey: string;
   const aConnection: TObject; const aUnit: TUnitSnapshot);
 var
+  lBodyEndColumnField: TField;
+  lBodyEndLineField: TField;
+  lBodyStartColumnField: TField;
+  lBodyStartLineField: TField;
   lExpectedId: TSemanticWithId;
+  lFlagsField: TField;
   lQuery: TFDQuery;
+  lRoutineIdField: TField;
+  lSelectorStartColumnField: TField;
+  lSelectorStartLineField: TField;
   lStopwatch: TStopwatch;
   lWith: TSemanticWithStatementFact;
+  lWithIdField: TField;
   lWithId: TSemanticWithId;
 begin
   lExpectedId := 1;
@@ -598,21 +1156,30 @@ begin
     lQuery.Open;
     lQuery.FetchAll;
     Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    lWithIdField := lQuery.Fields[0];
+    lRoutineIdField := lQuery.Fields[1];
+    lSelectorStartLineField := lQuery.Fields[2];
+    lSelectorStartColumnField := lQuery.Fields[3];
+    lBodyStartLineField := lQuery.Fields[4];
+    lBodyStartColumnField := lQuery.Fields[5];
+    lBodyEndLineField := lQuery.Fields[6];
+    lBodyEndColumnField := lQuery.Fields[7];
+    lFlagsField := lQuery.Fields[8];
     lStopwatch := TStopwatch.StartNew;
     while not lQuery.Eof do
     begin
-      if TSemanticWithId(lQuery.FieldByName('with_id').AsInteger) <> lExpectedId then
+      if TSemanticWithId(lWithIdField.AsInteger) <> lExpectedId then
         raise Exception.Create('Snapshot with IDs are not dense.');
 
       lWith := Default(TSemanticWithStatementFact);
-      lWith.RoutineId := TSemanticStringId(lQuery.FieldByName('routine_id').AsInteger);
-      lWith.SelectorStartLine := lQuery.FieldByName('selector_start_line').AsInteger;
-      lWith.SelectorStartColumn := lQuery.FieldByName('selector_start_column').AsInteger;
-      lWith.BodyStartLine := lQuery.FieldByName('body_start_line').AsInteger;
-      lWith.BodyStartColumn := lQuery.FieldByName('body_start_column').AsInteger;
-      lWith.BodyEndLine := lQuery.FieldByName('body_end_line').AsInteger;
-      lWith.BodyEndColumn := lQuery.FieldByName('body_end_column').AsInteger;
-      lWith.Flags := Cardinal(lQuery.FieldByName('flags').AsInteger);
+      lWith.RoutineId := TSemanticStringId(lRoutineIdField.AsInteger);
+      lWith.SelectorStartLine := lSelectorStartLineField.AsInteger;
+      lWith.SelectorStartColumn := lSelectorStartColumnField.AsInteger;
+      lWith.BodyStartLine := lBodyStartLineField.AsInteger;
+      lWith.BodyStartColumn := lBodyStartColumnField.AsInteger;
+      lWith.BodyEndLine := lBodyEndLineField.AsInteger;
+      lWith.BodyEndColumn := lBodyEndColumnField.AsInteger;
+      lWith.Flags := Cardinal(lFlagsField.AsInteger);
       lWithId := aUnit.AddWithStatement(lWith);
       if lWithId <> lExpectedId then
         raise Exception.Create('Snapshot with ID rebuild mismatch.');
@@ -666,6 +1233,13 @@ var
   lConnection: TFDConnection;
 begin
   lConnection := TFDConnection(aConnection);
+  lConnection.ExecSQL('drop table if exists snapshot_remove_with_binding_references');
+  lConnection.ExecSQL('drop table if exists snapshot_remove_with_binding_selectors');
+  lConnection.ExecSQL('drop table if exists snapshot_remove_with_bindings');
+  lConnection.ExecSQL('drop table if exists snapshot_remove_with_symbols');
+  lConnection.ExecSQL('drop table if exists snapshot_remove_with_routine_owners');
+  lConnection.ExecSQL('drop table if exists snapshot_remove_with_facts');
+  lConnection.ExecSQL('drop table if exists snapshot_exact_strings');
   lConnection.ExecSQL('drop table if exists snapshot_references');
   lConnection.ExecSQL('drop table if exists snapshot_with_statements');
   lConnection.ExecSQL('drop table if exists snapshot_symbols');
@@ -676,6 +1250,7 @@ end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.ResetProbeMetrics;
 begin
+  fMetrics.SnapshotSqlWriteMilliseconds := 0;
   fMetrics.SnapshotSqlReadMilliseconds := 0;
   fMetrics.SnapshotDeserializeMilliseconds := 0;
   fMetrics.SnapshotIndexRebuildMilliseconds := 0;
@@ -702,31 +1277,288 @@ begin
   end;
 end;
 
+procedure TDelphiSemanticSnapshotSqliteCache.StoreExactStrings(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
+  const aSnapshot: TDelphiProjectSnapshot);
+var
+  i: Integer;
+  lConnection: TFDConnection;
+  lQuery: TFDQuery;
+begin
+  if aSnapshot = nil then
+    Exit;
+
+  lConnection := TFDConnection(aConnection);
+  lQuery := NewQuery(lConnection, 'insert into snapshot_exact_strings(cache_key, ' +
+    'string_id, text_value) values (?, ?, ?)');
+  try
+    lQuery.Params[0].DataType := ftString;
+    lQuery.Params[1].DataType := ftInteger;
+    lQuery.Params[2].DataType := ftString;
+    lQuery.Prepare;
+    for i := 1 to Integer(aSnapshot.ExactStringCount) do
+    begin
+      lQuery.Params[0].AsString := aIdentity.CacheKey;
+      lQuery.Params[1].AsInteger := i;
+      lQuery.Params[2].AsString := aSnapshot.ExactTextOf(TSemanticStringId(i));
+      lQuery.ExecSQL;
+    end;
+  finally
+    lQuery.Free;
+  end;
+end;
+
 procedure TDelphiSemanticSnapshotSqliteCache.StoreReferences(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
   const aUnit: TUnitSnapshot);
 var
   i: Integer;
   lConnection: TFDConnection;
+  lParamIndex: Integer;
+  lQuery: TFDQuery;
   lReference: TSemanticReferenceFact;
 begin
   lConnection := TFDConnection(aConnection);
-  for i := 1 to aUnit.ReferenceCount do
+  lQuery := NewQuery(lConnection, 'insert into snapshot_references(cache_key, unit_id, ' +
+    'reference_id, with_id, target_unit_id, target_symbol_id, name_id, receiver_type_id, ' +
+    'type_id, routine_id, section_kind_id, source_kind_id, classification_id, ' +
+    'lookup_source_id, reason_id, line, column, end_line, end_column) values (?, ?, ?, ?, ' +
+    '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  try
+    lQuery.Params[0].DataType := ftString;
+    for lParamIndex := 1 to 18 do
+      lQuery.Params[lParamIndex].DataType := ftInteger;
+    lQuery.Prepare;
+    for i := 1 to aUnit.ReferenceCount do
+    begin
+      lReference := aUnit.ReferenceById(TSemanticReferenceId(i));
+      lQuery.Params[0].AsString := aIdentity.CacheKey;
+      lQuery.Params[1].AsInteger := Integer(aUnit.UnitId);
+      lQuery.Params[2].AsInteger := i;
+      lQuery.Params[3].AsInteger := Integer(lReference.WithId);
+      lQuery.Params[4].AsInteger := Integer(lReference.TargetUnitId);
+      lQuery.Params[5].AsInteger := Integer(lReference.TargetSymbolId);
+      lQuery.Params[6].AsInteger := Integer(lReference.NameId);
+      lQuery.Params[7].AsInteger := Integer(lReference.ReceiverTypeId);
+      lQuery.Params[8].AsInteger := Integer(lReference.TypeId);
+      lQuery.Params[9].AsInteger := Integer(lReference.RoutineId);
+      lQuery.Params[10].AsInteger := Integer(lReference.SectionKindId);
+      lQuery.Params[11].AsInteger := Integer(lReference.SourceKindId);
+      lQuery.Params[12].AsInteger := Integer(lReference.ClassificationId);
+      lQuery.Params[13].AsInteger := Integer(lReference.LookupSourceId);
+      lQuery.Params[14].AsInteger := Integer(lReference.ReasonId);
+      lQuery.Params[15].AsInteger := lReference.Line;
+      lQuery.Params[16].AsInteger := lReference.Column;
+      lQuery.Params[17].AsInteger := lReference.EndLine;
+      lQuery.Params[18].AsInteger := lReference.EndColumn;
+      lQuery.ExecSQL;
+    end;
+  finally
+    lQuery.Free;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.StoreRemoveWithPlanningFacts(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
+  const aSnapshot: TDelphiProjectSnapshot);
+var
+  i: Integer;
+  j: Integer;
+  lBinding: TSemanticRemoveWithBindingFact;
+  lConnection: TFDConnection;
+  lFacts: TSemanticRemoveWithPlanningFacts;
+  lParamIndex: Integer;
+  lQuery: TFDQuery;
+  lReference: TSemanticRemoveWithBoundReferenceFact;
+  lSelector: TSemanticRemoveWithSelectorBindingFact;
+  lSymbol: TSemanticRemoveWithInventorySymbolFact;
+
+  procedure StoreInventoryFacts(const aTableName: string;
+    const aSymbols: TArray<TSemanticRemoveWithInventorySymbolFact>);
+  var
+    lIndex: Integer;
+    lInventoryQuery: TFDQuery;
+    lParamIndex: Integer;
+    lStoredSymbol: TSemanticRemoveWithInventorySymbolFact;
   begin
-    lReference := aUnit.ReferenceById(TSemanticReferenceId(i));
-    lConnection.ExecSQL('insert into snapshot_references(cache_key, unit_id, reference_id, ' +
-      'with_id, target_unit_id, target_symbol_id, name_id, receiver_type_id, type_id, ' +
-      'routine_id, section_kind_id, source_kind_id, classification_id, lookup_source_id, ' +
-      'reason_id, line, column, end_line, end_column) ' +
-      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [aIdentity.CacheKey, Integer(aUnit.UnitId), i, Integer(lReference.WithId),
-      Integer(lReference.TargetUnitId), Integer(lReference.TargetSymbolId),
-      Integer(lReference.NameId), Integer(lReference.ReceiverTypeId),
-      Integer(lReference.TypeId), Integer(lReference.RoutineId),
-      Integer(lReference.SectionKindId), Integer(lReference.SourceKindId),
-      Integer(lReference.ClassificationId), Integer(lReference.LookupSourceId),
-      Integer(lReference.ReasonId), lReference.Line, lReference.Column, lReference.EndLine,
-      lReference.EndColumn]);
+    lInventoryQuery := NewQuery(lConnection, 'insert into ' + aTableName +
+      '(cache_key, item_index, name_id, symbol_class_id, kind_id, type_name_id, ' +
+      'modifier_id, owner_name_id, owner_type_id, source_owner_type_id, related_type_name_id, ' +
+      'routine_name_id, unit_name_id, file_name_id, section_kind_id, line, column, end_line, ' +
+      'end_column, unsupported_reason_id, flags, index_parameter_count, type_category_id) ' +
+      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    try
+      lInventoryQuery.Params[0].DataType := ftString;
+      for lParamIndex := 1 to 22 do
+        lInventoryQuery.Params[lParamIndex].DataType := ftInteger;
+      lInventoryQuery.Prepare;
+      for lIndex := 0 to High(aSymbols) do
+      begin
+        lStoredSymbol := aSymbols[lIndex];
+        lInventoryQuery.Params[0].AsString := aIdentity.CacheKey;
+        lInventoryQuery.Params[1].AsInteger := lIndex;
+        lInventoryQuery.Params[2].AsInteger := Integer(lStoredSymbol.NameId);
+        lInventoryQuery.Params[3].AsInteger := Integer(lStoredSymbol.SymbolClassId);
+        lInventoryQuery.Params[4].AsInteger := Integer(lStoredSymbol.KindId);
+        lInventoryQuery.Params[5].AsInteger := Integer(lStoredSymbol.TypeNameId);
+        lInventoryQuery.Params[6].AsInteger := Integer(lStoredSymbol.ModifierId);
+        lInventoryQuery.Params[7].AsInteger := Integer(lStoredSymbol.OwnerNameId);
+        lInventoryQuery.Params[8].AsInteger := Integer(lStoredSymbol.OwnerTypeId);
+        lInventoryQuery.Params[9].AsInteger := Integer(lStoredSymbol.SourceOwnerTypeId);
+        lInventoryQuery.Params[10].AsInteger := Integer(lStoredSymbol.RelatedTypeNameId);
+        lInventoryQuery.Params[11].AsInteger := Integer(lStoredSymbol.RoutineNameId);
+        lInventoryQuery.Params[12].AsInteger := Integer(lStoredSymbol.UnitNameId);
+        lInventoryQuery.Params[13].AsInteger := Integer(lStoredSymbol.FileNameId);
+        lInventoryQuery.Params[14].AsInteger := Integer(lStoredSymbol.SectionKindId);
+        lInventoryQuery.Params[15].AsInteger := lStoredSymbol.Line;
+        lInventoryQuery.Params[16].AsInteger := lStoredSymbol.Column;
+        lInventoryQuery.Params[17].AsInteger := lStoredSymbol.EndLine;
+        lInventoryQuery.Params[18].AsInteger := lStoredSymbol.EndColumn;
+        lInventoryQuery.Params[19].AsInteger := Integer(lStoredSymbol.UnsupportedReasonId);
+        lInventoryQuery.Params[20].AsInteger := Integer(lStoredSymbol.Flags);
+        lInventoryQuery.Params[21].AsInteger := lStoredSymbol.IndexParameterCount;
+        lInventoryQuery.Params[22].AsInteger := Integer(lStoredSymbol.TypeCategoryId);
+        lInventoryQuery.ExecSQL;
+      end;
+    finally
+      lInventoryQuery.Free;
+    end;
+  end;
+begin
+  if (aSnapshot = nil) or not aSnapshot.HasRemoveWithPlanningFacts then
+    Exit;
+
+  lConnection := TFDConnection(aConnection);
+  lFacts := aSnapshot.RemoveWithPlanningFacts;
+  lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_facts(cache_key, ' +
+    'context_fingerprint_id, routine_owner_count, symbol_count, binding_count) values ' +
+    '(?, ?, ?, ?, ?)');
+  try
+    lQuery.Params[0].DataType := ftString;
+    for lParamIndex := 1 to 4 do
+      lQuery.Params[lParamIndex].DataType := ftInteger;
+    lQuery.Prepare;
+    lQuery.Params[0].AsString := aIdentity.CacheKey;
+    lQuery.Params[1].AsInteger := Integer(lFacts.ContextFingerprintId);
+    lQuery.Params[2].AsInteger := Length(lFacts.RoutineOwners);
+    lQuery.Params[3].AsInteger := Length(lFacts.Symbols);
+    lQuery.Params[4].AsInteger := Length(lFacts.Bindings);
+    lQuery.ExecSQL;
+  finally
+    lQuery.Free;
+  end;
+
+  StoreInventoryFacts('snapshot_remove_with_routine_owners', lFacts.RoutineOwners);
+  StoreInventoryFacts('snapshot_remove_with_symbols', lFacts.Symbols);
+
+  lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_bindings(cache_key, ' +
+    'binding_index, semantic_id_id, provenance_id, file_name_id, unit_name_id, routine_name_id, ' +
+    'line, column, end_line, end_column, body_line, body_column, body_end_line, body_end_column, ' +
+    'selector_text_id, status_id, skip_reason_id, flags, member_reference_count, ' +
+    'lexical_reference_count, external_reference_count, intrinsic_reference_count, ' +
+    'unsupported_reference_count, unresolved_reference_count, selector_count, reference_count) ' +
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  try
+    lQuery.Params[0].DataType := ftString;
+    for lParamIndex := 1 to 26 do
+      lQuery.Params[lParamIndex].DataType := ftInteger;
+    lQuery.Prepare;
+    for i := 0 to High(lFacts.Bindings) do
+    begin
+      lBinding := lFacts.Bindings[i];
+      lQuery.Params[0].AsString := aIdentity.CacheKey;
+      lQuery.Params[1].AsInteger := i;
+      lQuery.Params[2].AsInteger := Integer(lBinding.SemanticIdId);
+      lQuery.Params[3].AsInteger := Integer(lBinding.ProvenanceId);
+      lQuery.Params[4].AsInteger := Integer(lBinding.FileNameId);
+      lQuery.Params[5].AsInteger := Integer(lBinding.UnitNameId);
+      lQuery.Params[6].AsInteger := Integer(lBinding.RoutineNameId);
+      lQuery.Params[7].AsInteger := lBinding.Line;
+      lQuery.Params[8].AsInteger := lBinding.Column;
+      lQuery.Params[9].AsInteger := lBinding.EndLine;
+      lQuery.Params[10].AsInteger := lBinding.EndColumn;
+      lQuery.Params[11].AsInteger := lBinding.BodyLine;
+      lQuery.Params[12].AsInteger := lBinding.BodyColumn;
+      lQuery.Params[13].AsInteger := lBinding.BodyEndLine;
+      lQuery.Params[14].AsInteger := lBinding.BodyEndColumn;
+      lQuery.Params[15].AsInteger := Integer(lBinding.SelectorTextId);
+      lQuery.Params[16].AsInteger := Integer(lBinding.StatusId);
+      lQuery.Params[17].AsInteger := Integer(lBinding.SkipReasonId);
+      lQuery.Params[18].AsInteger := Integer(lBinding.Flags);
+      lQuery.Params[19].AsInteger := lBinding.MemberReferenceCount;
+      lQuery.Params[20].AsInteger := lBinding.LexicalReferenceCount;
+      lQuery.Params[21].AsInteger := lBinding.ExternalReferenceCount;
+      lQuery.Params[22].AsInteger := lBinding.IntrinsicReferenceCount;
+      lQuery.Params[23].AsInteger := lBinding.UnsupportedReferenceCount;
+      lQuery.Params[24].AsInteger := lBinding.UnresolvedReferenceCount;
+      lQuery.Params[25].AsInteger := Length(lBinding.Selectors);
+      lQuery.Params[26].AsInteger := Length(lBinding.References);
+      lQuery.ExecSQL;
+    end;
+  finally
+    lQuery.Free;
+  end;
+
+  lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_binding_selectors(' +
+    'cache_key, binding_index, selector_index, selector_text_id, status_id, reason_code_id, ' +
+    'type_name_id) values (?, ?, ?, ?, ?, ?, ?)');
+  try
+    lQuery.Params[0].DataType := ftString;
+    for lParamIndex := 1 to 6 do
+      lQuery.Params[lParamIndex].DataType := ftInteger;
+    lQuery.Prepare;
+    for i := 0 to High(lFacts.Bindings) do
+      for j := 0 to High(lFacts.Bindings[i].Selectors) do
+      begin
+        lSelector := lFacts.Bindings[i].Selectors[j];
+        lQuery.Params[0].AsString := aIdentity.CacheKey;
+        lQuery.Params[1].AsInteger := i;
+        lQuery.Params[2].AsInteger := j;
+        lQuery.Params[3].AsInteger := Integer(lSelector.SelectorTextId);
+        lQuery.Params[4].AsInteger := Integer(lSelector.StatusId);
+        lQuery.Params[5].AsInteger := Integer(lSelector.ReasonCodeId);
+        lQuery.Params[6].AsInteger := Integer(lSelector.TypeNameId);
+        lQuery.ExecSQL;
+      end;
+  finally
+    lQuery.Free;
+  end;
+
+  lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_binding_references(' +
+    'cache_key, binding_index, reference_index, semantic_id_id, name_id, classification_id, ' +
+    'lookup_source_id, receiver_type_name_id, kind_id, type_name_id, reason_code_id, ' +
+    'scope_conflict_kind_id, scope_conflict_name_id, line, column, end_line, end_column) ' +
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  try
+    lQuery.Params[0].DataType := ftString;
+    for lParamIndex := 1 to 16 do
+      lQuery.Params[lParamIndex].DataType := ftInteger;
+    lQuery.Prepare;
+    for i := 0 to High(lFacts.Bindings) do
+      for j := 0 to High(lFacts.Bindings[i].References) do
+      begin
+        lReference := lFacts.Bindings[i].References[j];
+        lQuery.Params[0].AsString := aIdentity.CacheKey;
+        lQuery.Params[1].AsInteger := i;
+        lQuery.Params[2].AsInteger := j;
+        lQuery.Params[3].AsInteger := Integer(lReference.SemanticIdId);
+        lQuery.Params[4].AsInteger := Integer(lReference.NameId);
+        lQuery.Params[5].AsInteger := Integer(lReference.ClassificationId);
+        lQuery.Params[6].AsInteger := Integer(lReference.LookupSourceId);
+        lQuery.Params[7].AsInteger := Integer(lReference.ReceiverTypeNameId);
+        lQuery.Params[8].AsInteger := Integer(lReference.KindId);
+        lQuery.Params[9].AsInteger := Integer(lReference.TypeNameId);
+        lQuery.Params[10].AsInteger := Integer(lReference.ReasonCodeId);
+        lQuery.Params[11].AsInteger := Integer(lReference.ScopeConflictKindId);
+        lQuery.Params[12].AsInteger := Integer(lReference.ScopeConflictNameId);
+        lQuery.Params[13].AsInteger := lReference.Line;
+        lQuery.Params[14].AsInteger := lReference.Column;
+        lQuery.Params[15].AsInteger := lReference.EndLine;
+        lQuery.Params[16].AsInteger := lReference.EndColumn;
+        lQuery.ExecSQL;
+      end;
+  finally
+    lQuery.Free;
   end;
 end;
 
@@ -736,11 +1568,26 @@ procedure TDelphiSemanticSnapshotSqliteCache.StoreStrings(
 var
   i: Integer;
   lConnection: TFDConnection;
+  lQuery: TFDQuery;
 begin
   lConnection := TFDConnection(aConnection);
-  for i := 1 to Integer(aStrings.Count) do
-    lConnection.ExecSQL('insert into snapshot_strings(cache_key, string_id, text_value) ' +
-      'values (?, ?, ?)', [aIdentity.CacheKey, i, aStrings.TextOf(TSemanticStringId(i))]);
+  lQuery := NewQuery(lConnection, 'insert into snapshot_strings(cache_key, string_id, ' +
+    'text_value) values (?, ?, ?)');
+  try
+    lQuery.Params[0].DataType := ftString;
+    lQuery.Params[1].DataType := ftInteger;
+    lQuery.Params[2].DataType := ftString;
+    lQuery.Prepare;
+    for i := 1 to Integer(aStrings.Count) do
+    begin
+      lQuery.Params[0].AsString := aIdentity.CacheKey;
+      lQuery.Params[1].AsInteger := i;
+      lQuery.Params[2].AsString := aStrings.TextOf(TSemanticStringId(i));
+      lQuery.ExecSQL;
+    end;
+  finally
+    lQuery.Free;
+  end;
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreSymbols(
@@ -749,32 +1596,55 @@ procedure TDelphiSemanticSnapshotSqliteCache.StoreSymbols(
 var
   i: Integer;
   lConnection: TFDConnection;
+  lParamIndex: Integer;
+  lQuery: TFDQuery;
   lSymbol: TSemanticSymbolFact;
 begin
   lConnection := TFDConnection(aConnection);
-  for i := 1 to aUnit.SymbolCount do
-  begin
-    lSymbol := aUnit.SymbolById(TSemanticSymbolId(i));
-    lConnection.ExecSQL('insert into snapshot_symbols(cache_key, unit_id, symbol_id, ' +
-      'name_id, owner_type_id, type_id, routine_id, kind_id, flags, line, column, end_line, ' +
-      'end_column, section_kind_id, source_kind_id, visibility_id, signature_id) values ' +
-      '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [aIdentity.CacheKey, Integer(aUnit.UnitId), i, Integer(lSymbol.NameId),
-      Integer(lSymbol.OwnerTypeId), Integer(lSymbol.TypeId), Integer(lSymbol.RoutineId),
-      Integer(lSymbol.KindId), Integer(lSymbol.Flags), lSymbol.Line, lSymbol.Column,
-      lSymbol.EndLine, lSymbol.EndColumn, Integer(lSymbol.SectionKindId),
-      Integer(lSymbol.SourceKindId), Integer(lSymbol.VisibilityId),
-      Integer(lSymbol.SignatureId)]);
+  lQuery := NewQuery(lConnection, 'insert into snapshot_symbols(cache_key, unit_id, ' +
+    'symbol_id, name_id, owner_type_id, type_id, routine_id, kind_id, flags, line, column, ' +
+    'end_line, end_column, section_kind_id, source_kind_id, visibility_id, signature_id) ' +
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  try
+    lQuery.Params[0].DataType := ftString;
+    for lParamIndex := 1 to 16 do
+      lQuery.Params[lParamIndex].DataType := ftInteger;
+    lQuery.Prepare;
+    for i := 1 to aUnit.SymbolCount do
+    begin
+      lSymbol := aUnit.SymbolById(TSemanticSymbolId(i));
+      lQuery.Params[0].AsString := aIdentity.CacheKey;
+      lQuery.Params[1].AsInteger := Integer(aUnit.UnitId);
+      lQuery.Params[2].AsInteger := i;
+      lQuery.Params[3].AsInteger := Integer(lSymbol.NameId);
+      lQuery.Params[4].AsInteger := Integer(lSymbol.OwnerTypeId);
+      lQuery.Params[5].AsInteger := Integer(lSymbol.TypeId);
+      lQuery.Params[6].AsInteger := Integer(lSymbol.RoutineId);
+      lQuery.Params[7].AsInteger := Integer(lSymbol.KindId);
+      lQuery.Params[8].AsInteger := Integer(lSymbol.Flags);
+      lQuery.Params[9].AsInteger := lSymbol.Line;
+      lQuery.Params[10].AsInteger := lSymbol.Column;
+      lQuery.Params[11].AsInteger := lSymbol.EndLine;
+      lQuery.Params[12].AsInteger := lSymbol.EndColumn;
+      lQuery.Params[13].AsInteger := Integer(lSymbol.SectionKindId);
+      lQuery.Params[14].AsInteger := Integer(lSymbol.SourceKindId);
+      lQuery.Params[15].AsInteger := Integer(lSymbol.VisibilityId);
+      lQuery.Params[16].AsInteger := Integer(lSymbol.SignatureId);
+      lQuery.ExecSQL;
+    end;
+  finally
+    lQuery.Free;
   end;
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreUnit(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aStrings: TSemanticStringPool;
-  const aUnit: TUnitSnapshot);
+  const aUnit: TUnitSnapshot; const aSnapshot: TDelphiProjectSnapshot);
 var
   lConnectionObject: TObject;
   lConnection: TFDConnection;
   lError: string;
+  lWriteStopwatch: TStopwatch;
 begin
   if not Assigned(aStrings) then
     raise Exception.Create('Cannot store a unit snapshot without a string pool.');
@@ -787,6 +1657,7 @@ begin
 
   lConnection := TFDConnection(lConnectionObject);
   lConnection.StartTransaction;
+  lWriteStopwatch := TStopwatch.StartNew;
   try
     DeleteIdentityRows(lConnection, aIdentity.IdentityKey);
     StoreUnitHeader(aIdentity, lConnection, aUnit, Integer(aStrings.Count));
@@ -794,7 +1665,10 @@ begin
     StoreSymbols(aIdentity, lConnection, aUnit);
     StoreWithStatements(aIdentity, lConnection, aUnit);
     StoreReferences(aIdentity, lConnection, aUnit);
+    StoreExactStrings(aIdentity, lConnection, aSnapshot);
+    StoreRemoveWithPlanningFacts(aIdentity, lConnection, aSnapshot);
     lConnection.Commit;
+    Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
   except
     lConnection.Rollback;
     raise;
@@ -815,7 +1689,7 @@ begin
   try
     for i := 1 to aSnapshot.StringCount do
       lStrings.Intern(aSnapshot.TextOf(TSemanticStringId(i)));
-    StoreUnit(aIdentity, lStrings, aSnapshot.UnitByIndex(aUnitIndex));
+    StoreUnit(aIdentity, lStrings, aSnapshot.UnitByIndex(aUnitIndex), aSnapshot);
   finally
     lStrings.Free;
   end;
@@ -843,19 +1717,38 @@ procedure TDelphiSemanticSnapshotSqliteCache.StoreWithStatements(
 var
   i: Integer;
   lConnection: TFDConnection;
+  lParamIndex: Integer;
+  lQuery: TFDQuery;
   lWith: TSemanticWithStatementFact;
 begin
   lConnection := TFDConnection(aConnection);
-  for i := 1 to aUnit.WithStatementCount do
-  begin
-    lWith := aUnit.WithStatementById(TSemanticWithId(i));
-    lConnection.ExecSQL('insert into snapshot_with_statements(cache_key, unit_id, with_id, ' +
-      'routine_id, selector_start_line, selector_start_column, body_start_line, ' +
-      'body_start_column, body_end_line, body_end_column, flags) ' +
-      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [aIdentity.CacheKey, Integer(aUnit.UnitId), i, Integer(lWith.RoutineId),
-      lWith.SelectorStartLine, lWith.SelectorStartColumn, lWith.BodyStartLine,
-      lWith.BodyStartColumn, lWith.BodyEndLine, lWith.BodyEndColumn, Integer(lWith.Flags)]);
+  lQuery := NewQuery(lConnection, 'insert into snapshot_with_statements(cache_key, ' +
+    'unit_id, with_id, routine_id, selector_start_line, selector_start_column, ' +
+    'body_start_line, body_start_column, body_end_line, body_end_column, flags) values ' +
+    '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  try
+    lQuery.Params[0].DataType := ftString;
+    for lParamIndex := 1 to 10 do
+      lQuery.Params[lParamIndex].DataType := ftInteger;
+    lQuery.Prepare;
+    for i := 1 to aUnit.WithStatementCount do
+    begin
+      lWith := aUnit.WithStatementById(TSemanticWithId(i));
+      lQuery.Params[0].AsString := aIdentity.CacheKey;
+      lQuery.Params[1].AsInteger := Integer(aUnit.UnitId);
+      lQuery.Params[2].AsInteger := i;
+      lQuery.Params[3].AsInteger := Integer(lWith.RoutineId);
+      lQuery.Params[4].AsInteger := lWith.SelectorStartLine;
+      lQuery.Params[5].AsInteger := lWith.SelectorStartColumn;
+      lQuery.Params[6].AsInteger := lWith.BodyStartLine;
+      lQuery.Params[7].AsInteger := lWith.BodyStartColumn;
+      lQuery.Params[8].AsInteger := lWith.BodyEndLine;
+      lQuery.Params[9].AsInteger := lWith.BodyEndColumn;
+      lQuery.Params[10].AsInteger := Integer(lWith.Flags);
+      lQuery.ExecSQL;
+    end;
+  finally
+    lQuery.Free;
   end;
 end;
 
@@ -899,12 +1792,14 @@ begin
   try
     try
       LoadStrings(aIdentity.CacheKey, lConnectionObject, lBuilder.Strings);
+      LoadExactStrings(aIdentity.CacheKey, lConnectionObject, lBuilder.ExactStrings);
       if not LoadUnitHeader(aIdentity, lConnectionObject, lUnit, lStringCount, lSymbolCount,
         lWithStatementCount, lReferenceCount, lParseAvoidedEstimateMilliseconds) then
         raise Exception.Create('Snapshot unit header disappeared during load.');
       LoadSymbols(aIdentity.CacheKey, lConnectionObject, lUnit);
       LoadWithStatements(aIdentity.CacheKey, lConnectionObject, lUnit);
       LoadReferences(aIdentity.CacheKey, lConnectionObject, lUnit);
+      LoadRemoveWithPlanningFacts(aIdentity.CacheKey, lConnectionObject, lBuilder);
       ValidateLoadedCounts(lBuilder.Strings, lUnit, lStringCount, lSymbolCount,
         lWithStatementCount, lReferenceCount);
       ValidateUnitStringIds(lBuilder.Strings, lUnit);
