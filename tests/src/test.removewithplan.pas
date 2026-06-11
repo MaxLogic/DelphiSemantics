@@ -7749,8 +7749,8 @@ begin
   lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
     '..\..\src\DelphiSemantics.RemoveWithPlan.pas')), TEncoding.UTF8);
 
-  Assert.IsTrue(ContainsText(lSourceText, 'TDictionary<string, TArray<string>>'),
-    'remove-with plan DTO should cache source lines per file while building edits');
+  Assert.IsTrue(ContainsText(lSourceText, 'TDelphiSemanticSourceContextCache'),
+    'remove-with plan DTO should use the shared source-context cache while building edits');
   Assert.IsTrue(ContainsText(lSourceText, 'TDictionary<string, string>'),
     'remove-with plan DTO should cache source hashes per file while building edits');
 end;

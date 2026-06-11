@@ -155,7 +155,8 @@ implementation
 
 uses
   System.Generics.Collections, System.Hash, System.IOUtils, System.StrUtils,
-  System.SysUtils;
+  System.SysUtils,
+  DelphiSemantics.SourceContext;
 
 type
   TFinalSelectorDecision = record
@@ -267,74 +268,42 @@ begin
     aHashCache.AddOrSetValue(aFileName, Result);
 end;
 
-function SourceLineBreakForFile(const aFileName: string): string;
+function SourceLineBreakForFile(const aFileName: string;
+  const aLineCache: TDelphiSemanticSourceContextCache): string;
 var
-  lText: string;
+  lCache: TDelphiSemanticSourceContextCache;
 begin
-  Result := sLineBreak;
-  if not TFile.Exists(aFileName) then
-    Exit;
-  lText := TFile.ReadAllText(aFileName);
-  if Pos(#13#10, lText) > 0 then
-    Exit(#13#10);
-  if Pos(#10, lText) > 0 then
-    Exit(#10);
-  if Pos(#13, lText) > 0 then
-    Exit(#13);
+  if Assigned(aLineCache) then
+    Exit(aLineCache.LineBreakForFile(aFileName));
+
+  lCache := TDelphiSemanticSourceContextCache.Create;
+  try
+    Result := lCache.LineBreakForFile(aFileName);
+  finally
+    lCache.Free;
+  end;
 end;
 
 function SourceTextForRange(const aFileName: string;
   const aRange: TDelphiSemanticRemoveWithSourceRange;
-  const aLineCache: TDictionary<string, TArray<string>>): string;
+  const aLineCache: TDelphiSemanticSourceContextCache): string;
 var
-  lBuilder: TStringBuilder;
-  lEndColumn: Integer;
-  lLine: string;
-  lLineBreak: string;
-  lLineIndex: Integer;
-  lLines: TArray<string>;
-  lStartColumn: Integer;
+  lCache: TDelphiSemanticSourceContextCache;
 begin
   Result := '';
-  if (aRange.StartLine <= 0) or (aRange.EndLine <= 0) or
-    (not TFile.Exists(aFileName)) then
-    Exit;
-
-  if (not Assigned(aLineCache)) or (not aLineCache.TryGetValue(aFileName, lLines)) then
+  if Assigned(aLineCache) then
   begin
-    lLines := TFile.ReadAllLines(aFileName);
-    if Assigned(aLineCache) then
-      aLineCache.AddOrSetValue(aFileName, lLines);
-  end;
-  if (aRange.StartLine > Length(lLines)) or (aRange.EndLine > Length(lLines)) then
+    aLineCache.TryExtractRange(aFileName, aRange.StartLine, aRange.StartColumn,
+      aRange.EndLine, aRange.EndColumn, Result);
     Exit;
+  end;
 
-  lLineBreak := SourceLineBreakForFile(aFileName);
-  lBuilder := TStringBuilder.Create;
+  lCache := TDelphiSemanticSourceContextCache.Create;
   try
-    for lLineIndex := aRange.StartLine to aRange.EndLine do
-    begin
-      lLine := lLines[lLineIndex - 1];
-      lStartColumn := 1;
-      if lLineIndex = aRange.StartLine then
-        lStartColumn := aRange.StartColumn;
-      lEndColumn := Length(lLine) + 1;
-      if lLineIndex = aRange.EndLine then
-        lEndColumn := aRange.EndColumn;
-      if lStartColumn < 1 then
-        lStartColumn := 1;
-      if lEndColumn < lStartColumn then
-        lEndColumn := lStartColumn;
-      if lEndColumn > Length(lLine) then
-        lEndColumn := Length(lLine);
-      if lStartColumn <= Length(lLine) then
-        lBuilder.Append(Copy(lLine, lStartColumn, lEndColumn - lStartColumn + 1));
-      if lLineIndex < aRange.EndLine then
-        lBuilder.Append(lLineBreak);
-    end;
-    Result := lBuilder.ToString;
+    lCache.TryExtractRange(aFileName, aRange.StartLine, aRange.StartColumn,
+      aRange.EndLine, aRange.EndColumn, Result);
   finally
-    lBuilder.Free;
+    lCache.Free;
   end;
 end;
 
@@ -860,7 +829,7 @@ begin
 end;
 
 function TypeHasOperatorSyntax(const aFacts: TRemoveWithPlanFacts;
-  const aTypeName: string; const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+  const aTypeName: string; const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   lDeclaration: TDelphiSemanticInventorySymbol;
   lDeclarations: TArray<TDelphiSemanticInventorySymbol>;
@@ -1133,7 +1102,7 @@ end;
 
 function ReferenceLooksLikeLocalLabel(const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference;
-  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   lLine: string;
   lLines: TArray<string>;
@@ -1158,7 +1127,7 @@ end;
 function ReferenceIsInlineLocalDeclaredInBinding(
   const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference;
-  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   lBlockDepth: Integer;
   lDeclarationName: string;
@@ -1231,7 +1200,7 @@ end;
 
 function ReferenceAppearsQualified(const aReference: TDelphiSemanticBoundReference;
   const aBinding: TDelphiSemanticWithBinding;
-  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   lColumn: Integer;
   lLine: string;
@@ -1263,7 +1232,7 @@ end;
 
 function ReferenceLineHasConditionalDirective(const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference;
-  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   lLine: string;
   lLines: TArray<string>;
@@ -1280,7 +1249,7 @@ end;
 function ReferenceInsideInactiveNeverConditionalRegion(
   const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference;
-  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   i: Integer;
   lInactiveDepth: Integer;
@@ -1313,7 +1282,7 @@ begin
 end;
 
 function RoutineDeclarationHasOverload(const aBinding: TDelphiSemanticWithBinding;
-  const aLineCache: TDictionary<string, TArray<string>>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
   const aDeclarationLine: Integer): Boolean;
 var
   lLines: TArray<string>;
@@ -1333,7 +1302,7 @@ end;
 function RoutineDeclarationIsNestedInBindingScope(const aFacts:
   TRemoveWithPlanFacts; const aBinding:
   TDelphiSemanticWithBinding; const aRoutine: TDelphiSemanticInventorySymbol;
-  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   lLines: TArray<string>;
   lOwner: TDelphiSemanticInventorySymbol;
@@ -1361,7 +1330,7 @@ end;
 function ReferenceHasPriorRoutineDeclaration(const aFacts:
   TRemoveWithPlanFacts; const aBinding:
   TDelphiSemanticWithBinding; const aReference: TDelphiSemanticBoundReference;
-  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   lName: string;
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -1386,7 +1355,7 @@ end;
 
 function ReferenceAppearsAsAssignmentTarget(const aReference:
   TDelphiSemanticBoundReference; const aBinding: TDelphiSemanticWithBinding;
-  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   lColumn: Integer;
   lLine: string;
@@ -1406,7 +1375,7 @@ end;
 
 function ReceiverMemberMissReason(const aReference:
   TDelphiSemanticBoundReference; const aBinding: TDelphiSemanticWithBinding;
-  const aLineCache: TDictionary<string, TArray<string>>): string;
+  const aLineCache: TDelphiSemanticSourceContextCache): string;
 begin
   if ReferenceAppearsAsAssignmentTarget(aReference, aBinding, aLineCache) then
     Result := 'receiver-member-not-found'
@@ -1492,7 +1461,7 @@ begin
 end;
 
 function BindingFollowsControlStatement(const aBinding: TDelphiSemanticWithBinding;
-  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   lLineIndex: Integer;
   lLines: TArray<string>;
@@ -1535,13 +1504,13 @@ begin
 end;
 
 function RoutineDeclarationIsProcedure(const aBinding: TDelphiSemanticWithBinding;
-  const aLineCache: TDictionary<string, TArray<string>>): Boolean; forward;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean; forward;
 
 function BuildSelectorDecision(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
   const aReservedNames: TDictionary<string, Integer>;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>;
-  const aLineCache: TDictionary<string, TArray<string>>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
   out aDecision: TFinalSelectorDecision; out aReason: string): Boolean;
 var
   lBaseName: string;
@@ -2007,7 +1976,7 @@ end;
 function ReferenceBlocksFinalRewrite(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference;
-  const aLineCache: TDictionary<string, TArray<string>>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
   out aReason: string): Boolean;
 begin
   Result := False;
@@ -2067,7 +2036,7 @@ function RewrittenBodyText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>;
   const aNestedReplacements: TArray<TFinalNestedReplacement>;
-  const aLineCache: TDictionary<string, TArray<string>>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
   const aPreserveLeadingIndent: Boolean; out aReplacementText, aReason: string):
   Boolean;
 var
@@ -2099,7 +2068,7 @@ begin
   lBodyStartsWithBegin := (aBinding.Line > 0) and
     (aBinding.Line < Length(lLines)) and SameText(Trim(lLines[aBinding.Line]),
     'begin');
-  lLineBreak := SourceLineBreakForFile(aBinding.FileName);
+  lLineBreak := SourceLineBreakForFile(aBinding.FileName, aLineCache);
 
   for lNestedReplacement in aNestedReplacements do
   begin
@@ -2204,7 +2173,7 @@ begin
 end;
 
 function RoutineDeclarationIsProcedure(const aBinding: TDelphiSemanticWithBinding;
-  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   lLineIndex: Integer;
   lLines: TArray<string>;
@@ -2250,7 +2219,7 @@ function ValueRecordProcedureParameterReferenceNeedsSkip(
   const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aTempDecisions: TArray<TFinalSelectorDecision>;
-  const aLineCache: TDictionary<string, TArray<string>>): Boolean;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   lBodyRange: TDelphiSemanticRemoveWithSourceRange;
   lReference: TDelphiSemanticBoundReference;
@@ -2408,7 +2377,7 @@ function BuildFinalReplacementText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aVisibleDecisions, aTempDecisions: TArray<TFinalSelectorDecision>;
   const aNestedReplacements: TArray<TFinalNestedReplacement>;
-  const aLineCache: TDictionary<string, TArray<string>>; out aReplacementText,
+  const aLineCache: TDelphiSemanticSourceContextCache; out aReplacementText,
   aReason: string; out aReplacementRange: TDelphiSemanticRemoveWithSourceRange): Boolean;
 var
   lBodyText: string;
@@ -2416,6 +2385,7 @@ var
   lIndentColumn: Integer;
   lHasTempInitialization: Boolean;
   lLines: TArray<string>;
+  lLineBreak: string;
   lLineText: string;
   lNeedsControlledWrapper: Boolean;
   lPreviousLineIndex: Integer;
@@ -2546,26 +2516,27 @@ begin
   if SameText(aBinding.SelectorText, 'DF[d]^.MarkListe') and
     (BindingRange(aBinding).StartLine = 2197) then
   begin
+    lLineBreak := SourceLineBreakForFile(aBinding.FileName, aLineCache);
     aReplacementRange.EndLine := 2210;
     aReplacementRange.EndColumn := 4;
-    aReplacementText := '    begin' + SourceLineBreakForFile(aBinding.FileName) +
+    aReplacementText := '    begin' + lLineBreak +
       '      if DF[d]^.MarkListe.Anfang = nil then' +
-      SourceLineBreakForFile(aBinding.FileName) + '      begin' +
-      SourceLineBreakForFile(aBinding.FileName) +
+      lLineBreak + '      begin' +
+      lLineBreak +
       '        DF[d]^.MarkListe.Aktuell := nil;' +
-      SourceLineBreakForFile(aBinding.FileName) + '        DatError := 1;' +
-      SourceLineBreakForFile(aBinding.FileName) + '        lastmark := 0' +
-      SourceLineBreakForFile(aBinding.FileName) + '      end' +
-      SourceLineBreakForFile(aBinding.FileName) + '      else' +
-      SourceLineBreakForFile(aBinding.FileName) + '      begin' +
-      SourceLineBreakForFile(aBinding.FileName) + '        DatError := 0;' +
-      SourceLineBreakForFile(aBinding.FileName) +
+      lLineBreak + '        DatError := 1;' +
+      lLineBreak + '        lastmark := 0' +
+      lLineBreak + '      end' +
+      lLineBreak + '      else' +
+      lLineBreak + '      begin' +
+      lLineBreak + '        DatError := 0;' +
+      lLineBreak +
       '        DF[d]^.MarkListe.Aktuell := DF[d]^.MarkListe.Ende;' +
-      SourceLineBreakForFile(aBinding.FileName) +
+      lLineBreak +
       '        lastmark := DF[d]^.MarkListe.Ende^.DV' +
-      SourceLineBreakForFile(aBinding.FileName) + '      end' +
-      SourceLineBreakForFile(aBinding.FileName) + 'end;' +
-      SourceLineBreakForFile(aBinding.FileName) + '    end;';
+      lLineBreak + '      end' +
+      lLineBreak + 'end;' +
+      lLineBreak + '    end;';
   end;
   if SameText(ExtractFileName(aBinding.FileName), 'Tdbutils.Ident.pas') and
     SameText(aBinding.SelectorText, 'f^') and
@@ -2794,7 +2765,7 @@ function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aStatementId: string;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aReservedNames: TDictionary<string, Integer>;
-  const aLineCache: TDictionary<string, TArray<string>>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>):
   TDelphiSemanticRemoveWithFinalStatement; overload; forward;
 
@@ -2882,7 +2853,7 @@ end;
 
 function BindingFactSkipReason(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
-  const aLineCache: TDictionary<string, TArray<string>>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
   out aReason: string): Boolean;
 var
   lOpenParen: Integer;
@@ -2958,7 +2929,7 @@ function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aStatementId: string;
   const aCandidateEdit: TDelphiSemanticRemoveWithEdit;
   const aReservedNames: TDictionary<string, Integer>;
-  const aLineCache: TDictionary<string, TArray<string>>):
+  const aLineCache: TDelphiSemanticSourceContextCache):
   TDelphiSemanticRemoveWithFinalStatement; overload;
 var
   lBindingTree: TFinalBindingTree;
@@ -2991,7 +2962,7 @@ function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aStatementId: string;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aReservedNames: TDictionary<string, Integer>;
-  const aLineCache: TDictionary<string, TArray<string>>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>):
   TDelphiSemanticRemoveWithFinalStatement; overload;
 var
@@ -7283,7 +7254,7 @@ begin
   if SameText(lBinding.SelectorText, 'DF[d]^.MarkListe') and
     (BindingRange(lBinding).StartLine = 2197) then
   begin
-    lLineBreak := SourceLineBreakForFile(lBinding.FileName);
+    lLineBreak := SourceLineBreakForFile(lBinding.FileName, aLineCache);
     lReplacementRange := BindingRange(lBinding);
     lReplacementRange.StartColumn := 1;
     lReplacementRange.EndLine := 2210;
@@ -7307,7 +7278,7 @@ begin
   if SameText(ExtractFileName(lBinding.FileName), 'linkfile.pas') and
     (lBinding.Line = 223) and SameText(lBinding.SelectorText, 'Maske[j]^') then
   begin
-    lLineBreak := SourceLineBreakForFile(lBinding.FileName);
+    lLineBreak := SourceLineBreakForFile(lBinding.FileName, aLineCache);
     if lLineBreak = #10 then
     begin
       lReplacementText := StringReplace(lReplacementText, #13#10, #10,
@@ -8017,7 +7988,7 @@ end;
 
 function FindRoutineDeclarationRange(const aFileName: string;
   const aBeforeLine: Integer; const aRoutineName: string;
-  const aLineCache: TDictionary<string, TArray<string>>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
   out aRange: TDelphiSemanticRemoveWithSourceRange; out aHasVarSection: Boolean):
   Boolean;
 var
@@ -8109,7 +8080,7 @@ begin
 end;
 
 procedure AddRoutineDeclarationEdits(var aPlan: TDelphiSemanticRemoveWithPlan;
-  const aLineCache: TDictionary<string, TArray<string>>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
   const aHashCache: TDictionary<string, string>);
 var
   lDeclarationByRoutine: TDictionary<string, string>;
@@ -8221,7 +8192,7 @@ end;
 
 function AddEdit(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aBinding: TDelphiSemanticWithBinding; const aHashCache:
-  TDictionary<string, string>; const aLineCache: TDictionary<string, TArray<string>>):
+  TDictionary<string, string>; const aLineCache: TDelphiSemanticSourceContextCache):
   TDelphiSemanticRemoveWithEdit;
 var
   lIndex: Integer;
@@ -8400,7 +8371,7 @@ procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aBindingIndex: Integer;
   const aReservedNames: TDictionary<string, Integer>;
-  const aLineCache: TDictionary<string, TArray<string>>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>);
 var
   lChildIndex: Integer;
@@ -8658,7 +8629,7 @@ var
   lEdit: TDelphiSemanticRemoveWithEdit;
   lHashCache: TDictionary<string, string>;
   lInheritedDecisions: TArray<TFinalSelectorDecision>;
-  lLineCache: TDictionary<string, TArray<string>>;
+  lLineCache: TDelphiSemanticSourceContextCache;
   lReservedNames: TDictionary<string, Integer>;
   lRootIndex: Integer;
   lStatementIndex: Integer;
@@ -8688,7 +8659,7 @@ begin
   end;
 
   lHashCache := TDictionary<string, string>.Create;
-  lLineCache := TDictionary<string, TArray<string>>.Create;
+  lLineCache := TDelphiSemanticSourceContextCache.Create;
   lReservedNames := TDictionary<string, Integer>.Create;
   try
     lStatementIndex := 0;

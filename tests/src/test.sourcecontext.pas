@@ -38,6 +38,8 @@ type
     procedure SourceContextCandidateFallsBackToEnclosingSymbol;
     [Test]
     procedure SourceContextCandidateReturnsFalseWithoutReasonableCandidate;
+    [Test]
+    procedure SourceContextImplementationOwnsSharedLoadingAndWindowLogic;
   end;
 
 implementation
@@ -268,6 +270,53 @@ begin
     'NoCandidateUnit.pas(3,1): error E2010: Syntax error', 1, lContext, lToken,
     lEnclosingSymbol, lError));
   Assert.IsTrue(Pos('candidate', LowerCase(lError)) > 0, lError);
+end;
+
+procedure TSourceContextTests.SourceContextImplementationOwnsSharedLoadingAndWindowLogic;
+var
+  lDakBuildRunnerText: string;
+  lDakBuildSummaryText: string;
+  lDakDfmCheckText: string;
+  lDakSourceContextText: string;
+  lRemoveWithPlanText: string;
+begin
+  lDakBuildRunnerText := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
+    ExtractFilePath(ParamStr(0)), '..', '..', '..', 'DelphiAiKit', 'src',
+    'Dak.Build.Runner.pas'])), TEncoding.UTF8);
+  lDakBuildSummaryText := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
+    ExtractFilePath(ParamStr(0)), '..', '..', '..', 'DelphiAiKit', 'src',
+    'dak.build.summary.pas'])), TEncoding.UTF8);
+  lDakDfmCheckText := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
+    ExtractFilePath(ParamStr(0)), '..', '..', '..', 'DelphiAiKit', 'src',
+    'dak.dfmcheck.pas'])), TEncoding.UTF8);
+  lDakSourceContextText := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
+    ExtractFilePath(ParamStr(0)), '..', '..', '..', 'DelphiAiKit', 'src',
+    'dak.sourcecontext.pas'])), TEncoding.UTF8);
+  lRemoveWithPlanText := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
+    ExtractFilePath(ParamStr(0)), '..', '..', 'src',
+    'DelphiSemantics.RemoveWithPlan.pas'])), TEncoding.UTF8);
+
+  Assert.IsTrue(Pos('TDelphiSemanticSourceContext.', lDakSourceContextText) > 0,
+    'DAK source-context should delegate parsing/resolution to DelphiSemantics.');
+  Assert.IsFalse(Pos('function TryLoadLines(', lDakSourceContextText) > 0,
+    'DAK should not own duplicate source loading.');
+  Assert.IsFalse(Pos('function TryResolveSourceFile(', lDakSourceContextText) > 0,
+    'DAK should not own duplicate source-file resolution.');
+  Assert.IsFalse(Pos('TFile.ReadAllLines(aFileName)', lRemoveWithPlanText) > 0,
+    'Remove-with planning should use the shared source-context cache.');
+  Assert.IsTrue(Pos('TDelphiSemanticSourceContextCache', lRemoveWithPlanText) > 0,
+    'Remove-with planning should share cached source text and line maps.');
+  Assert.IsTrue(Pos('lBuildSourceContextCache := TSourceContextRunCache.Create(lProjectLookup)',
+    lDakBuildRunnerText) > 0,
+    'DAK build source-context enrichment should reuse one source cache per build run.');
+  Assert.IsTrue(Pos('TSourceContextRunCache.Create(aLookup)', lDakBuildSummaryText) > 0,
+    'DAK build-summary source-context enrichment should use the shared run cache.');
+  Assert.IsFalse(Pos('TryResolveSourceContext(aLookup', lDakBuildSummaryText) > 0,
+    'DAK build-summary source-context enrichment should not use the stateless resolver.');
+  Assert.IsTrue(Pos('lSourceContextCache := TSourceContextRunCache.Create', lDakDfmCheckText) > 0,
+    'DAK DFM source-context enrichment should reuse one source cache per run.');
+  Assert.IsTrue(Pos('SourceLineBreakForFile(aBinding.FileName, aLineCache)', lRemoveWithPlanText) > 0,
+    'Remove-with line-break reads should use the plan source-context cache.');
 end;
 
 initialization
