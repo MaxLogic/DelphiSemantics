@@ -75,6 +75,8 @@ type
     destructor Destroy; override;
     procedure StoreUnit(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aStrings: TSemanticStringPool; const aUnit: TUnitSnapshot);
+    procedure StoreUnitFromSnapshot(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      const aSnapshot: TDelphiProjectSnapshot; const aUnitIndex: Integer);
     function TryLoadUnit(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       out aSnapshot: TDelphiProjectSnapshot): Boolean;
     property Metrics: TDelphiSemanticSnapshotCacheMetrics read fMetrics;
@@ -796,6 +798,26 @@ begin
   except
     lConnection.Rollback;
     raise;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.StoreUnitFromSnapshot(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  const aSnapshot: TDelphiProjectSnapshot; const aUnitIndex: Integer);
+var
+  i: Cardinal;
+  lStrings: TSemanticStringPool;
+begin
+  if aSnapshot = nil then
+    Exit;
+
+  lStrings := TSemanticStringPool.Create;
+  try
+    for i := 1 to aSnapshot.StringCount do
+      lStrings.Intern(aSnapshot.TextOf(TSemanticStringId(i)));
+    StoreUnit(aIdentity, lStrings, aSnapshot.UnitByIndex(aUnitIndex));
+  finally
+    lStrings.Free;
   end;
 end;
 

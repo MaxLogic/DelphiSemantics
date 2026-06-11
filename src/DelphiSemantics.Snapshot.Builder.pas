@@ -30,6 +30,9 @@ function BuildProjectSnapshotFromModels(
   const aRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
   const aOptions: TDelphiSnapshotBuildOptions;
   out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
+function BuildProjectSnapshotFromUnitSnapshots(
+  const aSnapshots: TArray<TDelphiProjectSnapshot>;
+  out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
 function BuildRemoveWithPlanningSnapshotFromFacts(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiProjectSnapshot;
 
@@ -691,6 +694,79 @@ begin
   Result.ReasonId := RemapStringId(aSourceStrings, aTargetStrings, aReference.ReasonId);
 end;
 
+function TargetNameKey(const aUnitId: TSemanticUnitId; const aName: string): string;
+begin
+  Result := IntToStr(Integer(aUnitId)) + '|' + aName;
+end;
+
+function BuildUniqueTargetSymbolsByName(
+  const aSnapshots: TArray<TDelphiProjectSnapshot>): TDictionary<string, TSemanticSymbolRef>;
+var
+  i: Integer;
+  lAmbiguous: TDictionary<string, Byte>;
+  lKey: string;
+  lRef: TSemanticSymbolRef;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSymbol: TSemanticSymbolFact;
+  lSymbolId: TSemanticSymbolId;
+  lUnit: TUnitSnapshot;
+begin
+  Result := TDictionary<string, TSemanticSymbolRef>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lAmbiguous := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  try
+    for i := 0 to High(aSnapshots) do
+    begin
+      lSnapshot := aSnapshots[i];
+      if (lSnapshot = nil) or (lSnapshot.UnitCount <> 1) then
+        Continue;
+      lUnit := lSnapshot.UnitByIndex(0);
+      for lSymbolId := 1 to TSemanticSymbolId(lUnit.SymbolCount) do
+      begin
+        lSymbol := lUnit.SymbolById(lSymbolId);
+        lKey := TargetNameKey(lUnit.UnitId, lSnapshot.TextOf(lSymbol.NameId));
+        if lAmbiguous.ContainsKey(lKey) then
+          Continue;
+        lRef.UnitId := lUnit.UnitId;
+        lRef.SymbolId := lSymbol.Id;
+        if Result.ContainsKey(lKey) then
+        begin
+          Result.Remove(lKey);
+          lAmbiguous.Add(lKey, 0);
+        end else
+          Result.Add(lKey, lRef);
+      end;
+    end;
+  finally
+    lAmbiguous.Free;
+  end;
+end;
+
+function RemapReferenceFactWithResolvedTargets(const aSourceStrings,
+  aTargetStrings: TSemanticStringPool; const aReference: TSemanticReferenceFact;
+  const aTargetSymbolsByName: TDictionary<string, TSemanticSymbolRef>):
+  TSemanticReferenceFact;
+var
+  lKey: string;
+  lReferenceName: string;
+  lTargetRef: TSemanticSymbolRef;
+begin
+  Result := RemapReferenceFact(aSourceStrings, aTargetStrings, aReference);
+  if (aReference.TargetUnitId = 0) or (aReference.TargetSymbolId = 0) then
+    Exit;
+
+  lReferenceName := aSourceStrings.TextOf(aReference.NameId);
+  lKey := TargetNameKey(aReference.TargetUnitId, lReferenceName);
+  if aTargetSymbolsByName.TryGetValue(lKey, lTargetRef) then
+  begin
+    Result.TargetUnitId := lTargetRef.UnitId;
+    Result.TargetSymbolId := lTargetRef.SymbolId;
+  end else begin
+    Result.TargetUnitId := 0;
+    Result.TargetSymbolId := 0;
+  end;
+end;
+
 function RemapUnitSnapshot(const aSourceStrings: TSemanticStringPool;
   const aTargetStrings: TSemanticStringPool; const aUnit: TUnitSnapshot):
   TUnitSnapshot;
@@ -712,6 +788,48 @@ begin
     for lReferenceId := 1 to TSemanticReferenceId(aUnit.ReferenceCount) do
       Result.AddReference(RemapReferenceFact(aSourceStrings, aTargetStrings,
         aUnit.ReferenceById(lReferenceId)));
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+function RemapUnitSnapshotWithResolvedTargets(const aSourceStrings: TSemanticStringPool;
+  const aTargetStrings: TSemanticStringPool; const aUnit: TUnitSnapshot;
+  const aTargetSymbolsByName: TDictionary<string, TSemanticSymbolRef>):
+  TUnitSnapshot;
+var
+  lReferenceId: TSemanticReferenceId;
+  lSymbolId: TSemanticSymbolId;
+  lWithId: TSemanticWithId;
+begin
+  Result := TUnitSnapshot.Create(aUnit.UnitId, RemapStringId(aSourceStrings,
+    aTargetStrings, aUnit.FileNameId), RemapStringId(aSourceStrings,
+    aTargetStrings, aUnit.UnitNameId));
+  try
+    for lSymbolId := 1 to TSemanticSymbolId(aUnit.SymbolCount) do
+      Result.AddSymbol(RemapSymbolFact(aSourceStrings, aTargetStrings,
+        aUnit.SymbolById(lSymbolId)));
+    for lWithId := 1 to TSemanticWithId(aUnit.WithStatementCount) do
+      Result.AddWithStatement(RemapWithFact(aSourceStrings, aTargetStrings,
+        aUnit.WithStatementById(lWithId)));
+    for lReferenceId := 1 to TSemanticReferenceId(aUnit.ReferenceCount) do
+      Result.AddReference(RemapReferenceFactWithResolvedTargets(aSourceStrings,
+        aTargetStrings, aUnit.ReferenceById(lReferenceId), aTargetSymbolsByName));
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+function CloneSnapshotStrings(const aSnapshot: TDelphiProjectSnapshot): TSemanticStringPool;
+var
+  i: Cardinal;
+begin
+  Result := TSemanticStringPool.Create;
+  try
+    for i := 1 to aSnapshot.StringCount do
+      Result.Intern(aSnapshot.TextOf(TSemanticStringId(i)));
   except
     Result.Free;
     raise;
@@ -1069,6 +1187,62 @@ begin
     aMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;
     FreeUnitBuildResults(lResults);
     lReferenceTargets.Free;
+  end;
+end;
+
+function BuildProjectSnapshotFromUnitSnapshots(
+  const aSnapshots: TArray<TDelphiProjectSnapshot>;
+  out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
+var
+  i: Integer;
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lMergedUnit: TUnitSnapshot;
+  lSourceStrings: TSemanticStringPool;
+  lStopwatch: TStopwatch;
+  lTargetSymbolsByName: TDictionary<string, TSemanticSymbolRef>;
+  lUnit: TUnitSnapshot;
+begin
+  aMetrics := Default(TDelphiSnapshotBuilderMetrics);
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  lTargetSymbolsByName := nil;
+  lStopwatch := TStopwatch.StartNew;
+  try
+    lTargetSymbolsByName := BuildUniqueTargetSymbolsByName(aSnapshots);
+    for i := 0 to High(aSnapshots) do
+    begin
+      if (aSnapshots[i] = nil) or (aSnapshots[i].UnitCount <> 1) then
+        raise Exception.Create('Project snapshot merge requires one-unit snapshot inputs.');
+
+      lUnit := aSnapshots[i].UnitByIndex(0);
+      lSourceStrings := CloneSnapshotStrings(aSnapshots[i]);
+      try
+        lMergedUnit := RemapUnitSnapshotWithResolvedTargets(lSourceStrings,
+          lBuilder.Strings, lUnit, lTargetSymbolsByName);
+        try
+          lBuilder.AddUnit(lMergedUnit);
+          lMergedUnit := nil;
+        finally
+          lMergedUnit.Free;
+        end;
+      finally
+        lSourceStrings.Free;
+      end;
+
+      Inc(aMetrics.UnitCount);
+      Inc(aMetrics.SymbolCount, lUnit.SymbolCount);
+      Inc(aMetrics.ReferenceCount, lUnit.ReferenceCount);
+      Inc(aMetrics.WithStatementCount, lUnit.WithStatementCount);
+    end;
+    aMetrics.DeterministicFactCount := aMetrics.UnitCount + aMetrics.SymbolCount +
+      aMetrics.ReferenceCount + aMetrics.WithStatementCount;
+    aMetrics.WorkerCount := 0;
+    Result := lBuilder.Build;
+  finally
+    lStopwatch.Stop;
+    aMetrics.MergeMilliseconds := lStopwatch.ElapsedMilliseconds;
+    aMetrics.BuildMilliseconds := aMetrics.MergeMilliseconds;
+    lTargetSymbolsByName.Free;
+    lBuilder.Free;
   end;
 end;
 

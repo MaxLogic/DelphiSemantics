@@ -263,6 +263,7 @@ type
     fUnitByFileName: TDictionary<string, TSemanticUnitId>;
     fUnits: TObjectList<TUnitSnapshot>;
     fUnitsById: TDictionary<TSemanticUnitId, TUnitSnapshot>;
+    function GetStringCount: Cardinal;
     constructor Create(const aStrings, aExactStrings: TSemanticStringPool;
       const aUnits: TObjectList<TUnitSnapshot>;
       var aRemoveWithPlanningFacts: TSemanticRemoveWithPlanningFacts);
@@ -314,6 +315,7 @@ type
     function TryTypesByName(const aNameId: TSemanticStringId; out aLowIndex,
       aHighIndex: Integer): Boolean;
     function TypeRefByNameIndex(const aIndex: Integer): TSemanticSymbolRef;
+    property StringCount: Cardinal read GetStringCount;
     property UnitCount: Integer read GetUnitCount;
   end;
 
@@ -1015,6 +1017,14 @@ begin
     Exit(0);
 
   Result := fUnits.Count;
+end;
+
+function TDelphiProjectSnapshot.GetStringCount: Cardinal;
+begin
+  if fStrings = nil then
+    Exit(0);
+
+  Result := fStrings.Count;
 end;
 
 function TDelphiProjectSnapshot.MemberRefByOwnerAndNameIndex(

@@ -44,6 +44,11 @@ type
     SnapshotCacheHits: Integer;
     SnapshotCacheMisses: Integer;
     SnapshotCacheInvalidations: Integer;
+    SnapshotCacheUnitHits: Integer;
+    SnapshotCacheUnitMisses: Integer;
+    SnapshotCacheUnitStaleEntries: Integer;
+    SnapshotCacheUnitBuildMilliseconds: Int64;
+    SnapshotCacheUnitMergeMilliseconds: Int64;
     SnapshotSqlReadMilliseconds: Int64;
     SnapshotDeserializeMilliseconds: Int64;
     SnapshotIndexRebuildMilliseconds: Int64;
@@ -260,36 +265,50 @@ begin
     Result.IncludeGraphHash);
 end;
 
-procedure ApplySnapshotCacheMetrics(var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+procedure AccumulateSnapshotCacheMetrics(var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
   const aCacheMetrics: TDelphiSemanticSnapshotCacheMetrics);
 begin
-  aMetrics.SnapshotCacheProbes := aCacheMetrics.SnapshotCacheProbes;
-  aMetrics.SnapshotCacheHits := aCacheMetrics.CacheHits;
-  aMetrics.SnapshotCacheMisses := aCacheMetrics.CacheMisses;
-  aMetrics.SnapshotCacheInvalidations := aCacheMetrics.Invalidations;
-  aMetrics.SnapshotSqlReadMilliseconds := aCacheMetrics.SnapshotSqlReadMilliseconds;
-  aMetrics.SnapshotDeserializeMilliseconds := aCacheMetrics.SnapshotDeserializeMilliseconds;
-  aMetrics.SnapshotIndexRebuildMilliseconds := aCacheMetrics.SnapshotIndexRebuildMilliseconds;
-  aMetrics.SnapshotParseAvoidedEstimateMilliseconds :=
-    aCacheMetrics.SnapshotParseAvoidedEstimateMilliseconds;
-  aMetrics.SnapshotCacheUseful := aCacheMetrics.SnapshotCacheUseful;
+  Inc(aMetrics.SnapshotCacheProbes, aCacheMetrics.SnapshotCacheProbes);
+  Inc(aMetrics.SnapshotCacheHits, aCacheMetrics.CacheHits);
+  Inc(aMetrics.SnapshotCacheMisses, aCacheMetrics.CacheMisses);
+  Inc(aMetrics.SnapshotCacheInvalidations, aCacheMetrics.Invalidations);
+  Inc(aMetrics.SnapshotCacheUnitHits, aCacheMetrics.CacheHits);
+  Inc(aMetrics.SnapshotCacheUnitMisses, aCacheMetrics.CacheMisses);
+  Inc(aMetrics.SnapshotCacheUnitStaleEntries, aCacheMetrics.Invalidations);
+  Inc(aMetrics.SnapshotSqlReadMilliseconds, aCacheMetrics.SnapshotSqlReadMilliseconds);
+  Inc(aMetrics.SnapshotDeserializeMilliseconds,
+    aCacheMetrics.SnapshotDeserializeMilliseconds);
+  Inc(aMetrics.SnapshotIndexRebuildMilliseconds,
+    aCacheMetrics.SnapshotIndexRebuildMilliseconds);
+  Inc(aMetrics.SnapshotParseAvoidedEstimateMilliseconds,
+    aCacheMetrics.SnapshotParseAvoidedEstimateMilliseconds);
+  aMetrics.SnapshotCacheUseful := aMetrics.SnapshotCacheUseful or
+    aCacheMetrics.SnapshotCacheUseful;
 end;
 
-procedure CaptureLoadedSnapshotCounts(const aSnapshot: TDelphiProjectSnapshot;
-  var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics);
-var
-  lUnit: TUnitSnapshot;
+procedure AddSnapshotCacheMetricTotals(var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  const aCacheMetrics: TDelphiSemanticProjectSnapshotBuildMetrics);
 begin
-  if aSnapshot = nil then
-    Exit;
-
-  aMetrics.UnitCount := aSnapshot.UnitCount;
-  if aSnapshot.TryFindUnitById(1, lUnit) then
-  begin
-    aMetrics.SymbolCount := lUnit.SymbolCount;
-    aMetrics.ReferenceCount := lUnit.ReferenceCount;
-    aMetrics.WithStatementCount := lUnit.WithStatementCount;
-  end;
+  Inc(aMetrics.SnapshotCacheProbes, aCacheMetrics.SnapshotCacheProbes);
+  Inc(aMetrics.SnapshotCacheHits, aCacheMetrics.SnapshotCacheHits);
+  Inc(aMetrics.SnapshotCacheMisses, aCacheMetrics.SnapshotCacheMisses);
+  Inc(aMetrics.SnapshotCacheInvalidations, aCacheMetrics.SnapshotCacheInvalidations);
+  Inc(aMetrics.SnapshotCacheUnitHits, aCacheMetrics.SnapshotCacheUnitHits);
+  Inc(aMetrics.SnapshotCacheUnitMisses, aCacheMetrics.SnapshotCacheUnitMisses);
+  Inc(aMetrics.SnapshotCacheUnitStaleEntries, aCacheMetrics.SnapshotCacheUnitStaleEntries);
+  Inc(aMetrics.SnapshotCacheUnitBuildMilliseconds,
+    aCacheMetrics.SnapshotCacheUnitBuildMilliseconds);
+  Inc(aMetrics.SnapshotCacheUnitMergeMilliseconds,
+    aCacheMetrics.SnapshotCacheUnitMergeMilliseconds);
+  Inc(aMetrics.SnapshotSqlReadMilliseconds, aCacheMetrics.SnapshotSqlReadMilliseconds);
+  Inc(aMetrics.SnapshotDeserializeMilliseconds,
+    aCacheMetrics.SnapshotDeserializeMilliseconds);
+  Inc(aMetrics.SnapshotIndexRebuildMilliseconds,
+    aCacheMetrics.SnapshotIndexRebuildMilliseconds);
+  Inc(aMetrics.SnapshotParseAvoidedEstimateMilliseconds,
+    aCacheMetrics.SnapshotParseAvoidedEstimateMilliseconds);
+  aMetrics.SnapshotCacheUseful := aMetrics.SnapshotCacheUseful or
+    aCacheMetrics.SnapshotCacheUseful;
 end;
 
 function BodyAnalysisSourceFileSet(const aOptions: TDelphiSemanticOptions):
@@ -1018,39 +1037,6 @@ begin
   Result := BuildSnapshotFromModels(aModels, lFacts, True, aWorkerCount, aMetrics);
 end;
 
-procedure StoreSingleUnitSnapshotCacheEntry(const aCacheFileName: string;
-  const aModel: TDelphiSemanticUnitModel;
-  const aIdentity: TDelphiSemanticSnapshotCacheIdentity);
-var
-  lBuilder: TDelphiProjectSnapshotBuilder;
-  lCache: TDelphiSemanticSnapshotSqliteCache;
-  lMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
-  lReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
-  lUnit: TUnitSnapshot;
-begin
-  if Trim(aCacheFileName) = '' then
-    Exit;
-  if not aModel.Success then
-    Exit;
-
-  lBuilder := TDelphiProjectSnapshotBuilder.Create;
-  lCache := nil;
-  lReferenceTargets := nil;
-  lUnit := nil;
-  lMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
-  try
-    lCache := TDelphiSemanticSnapshotSqliteCache.Create(aCacheFileName);
-    lReferenceTargets := BuildSnapshotReferenceTargets([aModel]);
-    lUnit := CreateSnapshotUnitModel(lBuilder, aModel, 1, lReferenceTargets, lMetrics);
-    lCache.StoreUnit(aIdentity, lBuilder.Strings, lUnit);
-  finally
-    lUnit.Free;
-    lReferenceTargets.Free;
-    lCache.Free;
-    lBuilder.Free;
-  end;
-end;
-
 function TryLoadSingleUnitSnapshotFromCache(const aCacheFileName: string;
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
   out aSnapshot: TDelphiProjectSnapshot;
@@ -1068,6 +1054,71 @@ begin
   try
     Result := lCache.TryLoadUnit(aIdentity, aSnapshot);
     aCacheMetrics := lCache.Metrics;
+  finally
+    lCache.Free;
+  end;
+end;
+
+function BuildSingleUnitSnapshotFromModels(const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aModelIndex: Integer; const aUnitId: TSemanticUnitId;
+  var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
+  lStopwatch: TStopwatch;
+  lUnit: TUnitSnapshot;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  lReferenceTargets := nil;
+  lUnit := nil;
+  lStopwatch := TStopwatch.StartNew;
+  try
+    lReferenceTargets := BuildSnapshotReferenceTargets(aModels);
+    lUnit := CreateSnapshotUnitModel(lBuilder, aModels[aModelIndex], aUnitId,
+      lReferenceTargets, aMetrics);
+    lBuilder.AddUnit(lUnit);
+    lUnit := nil;
+    Result := lBuilder.Build;
+  finally
+    lStopwatch.Stop;
+    Inc(aMetrics.SnapshotCacheUnitBuildMilliseconds, lStopwatch.ElapsedMilliseconds);
+    lUnit.Free;
+    lReferenceTargets.Free;
+    lBuilder.Free;
+  end;
+end;
+
+procedure FreeSnapshots(var aSnapshots: TArray<TDelphiProjectSnapshot>);
+var
+  i: Integer;
+begin
+  for i := 0 to High(aSnapshots) do
+  begin
+    aSnapshots[i].Free;
+    aSnapshots[i] := nil;
+  end;
+end;
+
+procedure StoreSnapshotCacheEntries(const aCacheFileName: string;
+  const aProject: TDelphiSemanticProjectInfo; const aOptions: TDelphiSemanticOptions;
+  const aSourceFileNames: TArray<string>; const aSnapshot: TDelphiProjectSnapshot;
+  const aParseAvoidedEstimateMilliseconds: Int64);
+var
+  i: Integer;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+begin
+  if (Trim(aCacheFileName) = '') or (aSnapshot = nil) then
+    Exit;
+
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(aCacheFileName);
+  try
+    for i := 0 to High(aSourceFileNames) do
+    begin
+      lIdentity := SnapshotCacheIdentityForUnit(aProject, aOptions, aSourceFileNames[i],
+        aParseAvoidedEstimateMilliseconds);
+      lCache.StoreUnitFromSnapshot(lIdentity, aSnapshot, i);
+    end;
   finally
     lCache.Free;
   end;
@@ -1233,52 +1284,91 @@ function TDelphiSemanticProjectSession.BuildSnapshot: TDelphiProjectSnapshot;
 var
   lCacheIdentity: TDelphiSemanticSnapshotCacheIdentity;
   lCacheMetrics: TDelphiSemanticSnapshotCacheMetrics;
+  lCacheSnapshot: TDelphiProjectSnapshot;
+  lCacheSnapshotMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lLoadedAllUnits: Boolean;
+  lBuilderMetrics: TDelphiSnapshotBuilderMetrics;
   lExtractionMilliseconds: Int64;
+  i: Integer;
   lModels: TArray<TDelphiSemanticUnitModel>;
   lParseAvoidedEstimateMilliseconds: Int64;
   lSnapshot: TDelphiProjectSnapshot;
   lSourceFileNames: TArray<string>;
+  lUnitSnapshots: TArray<TDelphiProjectSnapshot>;
 begin
   Result := nil;
+  fLastSnapshotBuildMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
   lSourceFileNames := ProjectModelFileNames(fProject);
-  if (Length(lSourceFileNames) = 1) and (Trim(fOptions.SqliteCacheFileName) <> '') then
+  lCacheSnapshotMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
+  SetLength(lUnitSnapshots, 0);
+  if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
   begin
-    lCacheIdentity := SnapshotCacheIdentityForUnit(fProject, fOptions, lSourceFileNames[0], 0);
-    if TryLoadSingleUnitSnapshotFromCache(fOptions.SqliteCacheFileName, lCacheIdentity, lSnapshot,
-      lCacheMetrics) then
+    SetLength(lUnitSnapshots, Length(lSourceFileNames));
+    lLoadedAllUnits := True;
+    for i := 0 to High(lSourceFileNames) do
+    begin
+      lCacheIdentity := SnapshotCacheIdentityForUnit(fProject, fOptions, lSourceFileNames[i],
+        0);
+      lCacheSnapshot := nil;
+      if TryLoadSingleUnitSnapshotFromCache(fOptions.SqliteCacheFileName, lCacheIdentity,
+        lCacheSnapshot, lCacheMetrics) then
+        lUnitSnapshots[i] := lCacheSnapshot
+      else begin
+        lCacheSnapshot.Free;
+        lLoadedAllUnits := False;
+      end;
+      AccumulateSnapshotCacheMetrics(lCacheSnapshotMetrics, lCacheMetrics);
+    end;
+
+    if lLoadedAllUnits then
     begin
       try
-        fLastSnapshotBuildMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
-        CaptureLoadedSnapshotCounts(lSnapshot, fLastSnapshotBuildMetrics);
-        ApplySnapshotCacheMetrics(fLastSnapshotBuildMetrics, lCacheMetrics);
-        fLastSnapshotBuildMetrics.BuildMilliseconds :=
-          fLastSnapshotBuildMetrics.SnapshotIndexRebuildMilliseconds;
-        Result := lSnapshot;
-        lSnapshot := nil;
-        Exit;
+        lSnapshot := BuildProjectSnapshotFromUnitSnapshots(lUnitSnapshots, lBuilderMetrics);
+        try
+          fLastSnapshotBuildMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
+          ApplySnapshotBuilderMetrics(fLastSnapshotBuildMetrics, lBuilderMetrics);
+          AddSnapshotCacheMetricTotals(fLastSnapshotBuildMetrics, lCacheSnapshotMetrics);
+          fLastSnapshotBuildMetrics.SnapshotCacheUnitMergeMilliseconds :=
+            lBuilderMetrics.MergeMilliseconds;
+          Result := lSnapshot;
+          lSnapshot := nil;
+          Exit;
+        finally
+          lSnapshot.Free;
+        end;
       finally
-        lSnapshot.Free;
+        FreeSnapshots(lUnitSnapshots);
       end;
     end;
-  end else
-    lCacheMetrics := Default(TDelphiSemanticSnapshotCacheMetrics);
+  end;
 
   lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds);
   lParseAvoidedEstimateMilliseconds := VisibleMetricMilliseconds(lExtractionMilliseconds);
-  lSnapshot := BuildSnapshotFromModels(lModels, fOptions.SnapshotBuildWorkerCount,
-    fLastSnapshotBuildMetrics);
+  if Length(lUnitSnapshots) > 0 then
+  begin
+    try
+      for i := 0 to High(lSourceFileNames) do
+        if lUnitSnapshots[i] = nil then
+          lUnitSnapshots[i] := BuildSingleUnitSnapshotFromModels(lModels, i,
+            TSemanticUnitId(i + 1), lCacheSnapshotMetrics);
+      lSnapshot := BuildProjectSnapshotFromUnitSnapshots(lUnitSnapshots, lBuilderMetrics);
+    finally
+      FreeSnapshots(lUnitSnapshots);
+    end;
+    ApplySnapshotBuilderMetrics(fLastSnapshotBuildMetrics, lBuilderMetrics);
+  end else
+    lSnapshot := BuildSnapshotFromModels(lModels, fOptions.SnapshotBuildWorkerCount,
+      fLastSnapshotBuildMetrics);
   try
-    ApplySnapshotCacheMetrics(fLastSnapshotBuildMetrics, lCacheMetrics);
+    AddSnapshotCacheMetricTotals(fLastSnapshotBuildMetrics, lCacheSnapshotMetrics);
+    if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
+      fLastSnapshotBuildMetrics.SnapshotCacheUnitMergeMilliseconds :=
+        lBuilderMetrics.MergeMilliseconds;
     fLastSnapshotBuildMetrics.SnapshotParseAvoidedEstimateMilliseconds :=
       lParseAvoidedEstimateMilliseconds;
-    if (Length(lSourceFileNames) = 1) and (Trim(fOptions.SqliteCacheFileName) <> '') and
-      (Length(lModels) = 1) then
-    begin
-      lCacheIdentity := SnapshotCacheIdentityForUnit(fProject, fOptions, lSourceFileNames[0],
-        lParseAvoidedEstimateMilliseconds);
-      StoreSingleUnitSnapshotCacheEntry(fOptions.SqliteCacheFileName, lModels[0],
-        lCacheIdentity);
-    end;
+    if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
+      StoreSnapshotCacheEntries(fOptions.SqliteCacheFileName, fProject, fOptions,
+        lSourceFileNames, lSnapshot, lParseAvoidedEstimateMilliseconds);
     Result := lSnapshot;
     lSnapshot := nil;
   finally

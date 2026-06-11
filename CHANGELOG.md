@@ -69,6 +69,11 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Project-session snapshot builds now reuse SQLite snapshot cache entries per
+  unit for multi-unit projects, merge cached and rebuilt units
+  deterministically, expose unit hit/miss/stale/build/merge telemetry, and
+  conservatively repair cross-unit reference targets after mixed cache hits and
+  misses.
 - Remove-with snapshot planning now uses snapshot-owned planning facts directly
   instead of rebuilding the legacy project-with-binding facts DTO or
   materializing the full legacy binding array; maxTdb proof preserved scan
