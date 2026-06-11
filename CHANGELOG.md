@@ -70,6 +70,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Dependency graph cycle analysis now uses a shared DelphiSemantics typed SCC
+  analyzer for both DelphiSemantics and DAK deps output, replacing duplicated
+  reachability sweeps while preserving cycle, hotspot, and SCC JSON fields.
 - Unit model extraction now scopes line, source-section, and type-block caches
   to each extraction thread, allowing DAK remove-with semantic fact construction
   to run without a broad global `ProjectSemanticFactsLock`.

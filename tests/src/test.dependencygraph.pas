@@ -37,6 +37,10 @@ type
     procedure RanksHotspotsAndPrefersImplementationEdges;
     [Test]
     procedure MergesInterconnectedCyclesIntoOneComponent;
+    [Test]
+    procedure ReportsSelfLoopAsCycleComponent;
+    [Test]
+    procedure SkipsInvalidExternalFileCandidateNames;
   end;
 
 implementation
@@ -269,6 +273,44 @@ begin
   Assert.IsTrue(HasUnit(lComponent.Units, 'BridgeB'));
   Assert.IsTrue(HasUnit(lComponent.Units, 'BridgeC'));
   Assert.IsTrue(HasUnit(lComponent.Units, 'BridgeD'));
+end;
+
+procedure TDependencyGraphTests.ReportsSelfLoopAsCycleComponent;
+var
+  lComponent: TDelphiSemanticDependencyCycleComponent;
+  lEdge: TDelphiSemanticDependencyEdge;
+  lGraph: TDelphiSemanticDependencyGraph;
+  lNode: TDelphiSemanticDependencyNode;
+begin
+  lGraph := BuildGraph(['SelfCycle.pas']);
+
+  Assert.IsTrue(FindNode(lGraph, 'SelfCycle', lNode));
+  Assert.IsTrue(lNode.InCycle);
+  Assert.IsTrue(FindEdge(lGraph, 'SelfCycle', 'SelfCycle', 'interface', lEdge));
+  Assert.IsTrue(lEdge.IsCycleEdge);
+  Assert.AreEqual(1, Integer(Length(lGraph.CycleComponents)));
+  lComponent := lGraph.CycleComponents[0];
+  Assert.IsTrue(HasUnit(lComponent.Units, 'SelfCycle'));
+  Assert.IsTrue(PathEquals(lComponent.Path, ['SelfCycle', 'SelfCycle']));
+end;
+
+procedure TDependencyGraphTests.SkipsInvalidExternalFileCandidateNames;
+var
+  lGraph: TDelphiSemanticDependencyGraph;
+  lModel: TDelphiSemanticUnitModel;
+  lNode: TDelphiSemanticDependencyNode;
+  lOptions: TDelphiSemanticDependencyGraphOptions;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.UnitName := 'InvalidRoot';
+  lModel.InterfaceUses := TArray<string>.Create('Bad' + #10 + 'Unit');
+  lOptions := Default(TDelphiSemanticDependencyGraphOptions);
+  lOptions.SearchPaths := [FixturePath('External')];
+
+  lGraph := TDelphiSemanticDependencyGraphBuilder.Build([lModel], lOptions);
+
+  Assert.IsTrue(FindNode(lGraph, 'Bad' + #10 + 'Unit', lNode));
+  Assert.AreEqual('unresolved', lNode.Status);
 end;
 
 initialization

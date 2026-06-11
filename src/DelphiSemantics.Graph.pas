@@ -6,6 +6,32 @@ uses
   DelphiSemantics.Model;
 
 type
+  TDelphiSemanticTypedSccEdge = record
+    EdgeId: Integer;
+    SourceNodeId: Integer;
+    TargetNodeId: Integer;
+  end;
+
+  TDelphiSemanticTypedSccComponent = record
+    SccId: Integer;
+    NodeIds: TArray<Integer>;
+    EdgeIds: TArray<Integer>;
+    RepresentativePath: TArray<Integer>;
+  end;
+
+  TDelphiSemanticTypedSccResult = record
+    Components: TArray<TDelphiSemanticTypedSccComponent>;
+    NodeSccIds: TArray<Integer>;
+    EdgeSccIds: TArray<Integer>;
+  end;
+
+  TDelphiSemanticTypedSccAnalyzer = record
+  public
+    class function Analyze(const aNodeCount: Integer;
+      const aEdges: TArray<TDelphiSemanticTypedSccEdge>):
+      TDelphiSemanticTypedSccResult; static;
+  end;
+
   TDelphiSemanticDependencyGraphOptions = record
     SearchPaths: TArray<string>;
   end;
@@ -76,15 +102,253 @@ begin
   Result := SameText(aLeft, aRight);
 end;
 
-function ContainsUnit(const aUnits: TArray<string>; const aUnitName: string): Boolean;
+class function TDelphiSemanticTypedSccAnalyzer.Analyze(const aNodeCount: Integer;
+  const aEdges: TArray<TDelphiSemanticTypedSccEdge>): TDelphiSemanticTypedSccResult;
+type
+  TAdjacencyEdge = record
+    EdgeId: Integer;
+    TargetNodeId: Integer;
+  end;
+  TPathFrame = record
+    NodeId: Integer;
+    NextEdgeIndex: Integer;
+  end;
 var
-  lUnit: string;
-begin
-  for lUnit in aUnits do
-    if SameUnit(lUnit, aUnitName) then
-      Exit(True);
+  lAdjacency: TArray<TList<TAdjacencyEdge>>;
+  lComponents: TList<TDelphiSemanticTypedSccComponent>;
+  lCurrentIndex: Integer;
+  lAdjacencyEdge: TAdjacencyEdge;
+  lEdgeTargetComparer: IComparer<TAdjacencyEdge>;
+  lEdge: TDelphiSemanticTypedSccEdge;
+  lIndexes: TArray<Integer>;
+  lLowLinks: TArray<Integer>;
+  lMaxEdgeId: Integer;
+  lNodeId: Integer;
+  lOnStack: TArray<Boolean>;
+  lResultComponent: TDelphiSemanticTypedSccComponent;
+  lResultEdgeId: Integer;
+  lStack: TStack<Integer>;
 
-  Result := False;
+  function TryBuildIterativePath(const aStartNodeId, aRootNodeId: Integer;
+    const aInComponent: TArray<Boolean>; out aPath: TArray<Integer>): Boolean;
+  var
+    i: Integer;
+    lEdge: TAdjacencyEdge;
+    lFrame: TPathFrame;
+    lFrameIndex: Integer;
+    lFrames: TList<TPathFrame>;
+    lVisited: TArray<Boolean>;
+  begin
+    aPath := [];
+    lFrames := TList<TPathFrame>.Create;
+    try
+      SetLength(lVisited, aNodeCount);
+      lFrame.NodeId := aStartNodeId;
+      lFrame.NextEdgeIndex := 0;
+      lFrames.Add(lFrame);
+      lVisited[aStartNodeId] := True;
+      while lFrames.Count > 0 do
+      begin
+        lFrameIndex := Pred(lFrames.Count);
+        lFrame := lFrames[lFrameIndex];
+        if lFrame.NodeId = aRootNodeId then
+        begin
+          SetLength(aPath, lFrames.Count);
+          for i := 0 to Pred(lFrames.Count) do
+            aPath[i] := lFrames[i].NodeId;
+          Exit(True);
+        end;
+
+        if lFrame.NextEdgeIndex >= lAdjacency[lFrame.NodeId].Count then
+        begin
+          lVisited[lFrame.NodeId] := False;
+          lFrames.Delete(lFrameIndex);
+          Continue;
+        end;
+
+        lEdge := lAdjacency[lFrame.NodeId][lFrame.NextEdgeIndex];
+        Inc(lFrame.NextEdgeIndex);
+        lFrames[lFrameIndex] := lFrame;
+        if aInComponent[lEdge.TargetNodeId] and not lVisited[lEdge.TargetNodeId] then
+        begin
+          lFrame.NodeId := lEdge.TargetNodeId;
+          lFrame.NextEdgeIndex := 0;
+          lFrames.Add(lFrame);
+          lVisited[lEdge.TargetNodeId] := True;
+        end;
+      end;
+      Result := False;
+    finally
+      lFrames.Free;
+    end;
+  end;
+
+  function RepresentativePath(const aComponent: TDelphiSemanticTypedSccComponent):
+    TArray<Integer>;
+  var
+    i: Integer;
+    lEdge: TAdjacencyEdge;
+    lInComponent: TArray<Boolean>;
+    lPath: TArray<Integer>;
+    lRootNodeId: Integer;
+  begin
+    lRootNodeId := aComponent.NodeIds[0];
+    if Length(aComponent.NodeIds) = 1 then
+      Exit(TArray<Integer>.Create(lRootNodeId, lRootNodeId));
+
+    SetLength(lInComponent, aNodeCount);
+    for i := 0 to High(aComponent.NodeIds) do
+      lInComponent[aComponent.NodeIds[i]] := True;
+
+    for lEdge in lAdjacency[lRootNodeId] do
+      if lInComponent[lEdge.TargetNodeId] then
+      begin
+        if TryBuildIterativePath(lEdge.TargetNodeId, lRootNodeId, lInComponent, lPath) then
+        begin
+          SetLength(Result, Length(lPath) + 1);
+          Result[0] := lRootNodeId;
+          for i := 0 to High(lPath) do
+            Result[i + 1] := lPath[i];
+          Exit;
+        end;
+      end;
+
+    Result := Copy(aComponent.NodeIds);
+    SetLength(Result, Length(Result) + 1);
+    Result[High(Result)] := Result[0];
+  end;
+
+  procedure FinishComponent(const aRootNodeId: Integer);
+  var
+    lComponent: TDelphiSemanticTypedSccComponent;
+    lComponentEdge: TAdjacencyEdge;
+    lEdgeIds: TList<Integer>;
+    lHasSelfLoop: Boolean;
+    lInComponent: TArray<Boolean>;
+    lMemberId: Integer;
+    lNodeIds: TList<Integer>;
+  begin
+    lNodeIds := TList<Integer>.Create;
+    lEdgeIds := TList<Integer>.Create;
+    try
+      repeat
+        lMemberId := lStack.Pop;
+        lOnStack[lMemberId] := False;
+        lNodeIds.Add(lMemberId);
+      until lMemberId = aRootNodeId;
+
+      lNodeIds.Sort;
+      lComponent := Default(TDelphiSemanticTypedSccComponent);
+      lComponent.NodeIds := lNodeIds.ToArray;
+      SetLength(lInComponent, aNodeCount);
+      for lMemberId in lComponent.NodeIds do
+        lInComponent[lMemberId] := True;
+      lHasSelfLoop := False;
+      for lMemberId in lComponent.NodeIds do
+        for lComponentEdge in lAdjacency[lMemberId] do
+          if lInComponent[lComponentEdge.TargetNodeId] then
+          begin
+            lEdgeIds.Add(lComponentEdge.EdgeId);
+            lHasSelfLoop := lHasSelfLoop or (lMemberId = lComponentEdge.TargetNodeId);
+          end;
+
+      if (Length(lComponent.NodeIds) <= 1) and not lHasSelfLoop then
+        Exit;
+
+      lEdgeIds.Sort;
+      lComponent.SccId := lComponents.Count + 1;
+      lComponent.EdgeIds := lEdgeIds.ToArray;
+      lComponent.RepresentativePath := RepresentativePath(lComponent);
+      lComponents.Add(lComponent);
+    finally
+      lEdgeIds.Free;
+      lNodeIds.Free;
+    end;
+  end;
+
+  procedure StrongConnect(const aNodeId: Integer);
+  var
+    lAdjacencyEdge: TAdjacencyEdge;
+  begin
+    lIndexes[aNodeId] := lCurrentIndex;
+    lLowLinks[aNodeId] := lCurrentIndex;
+    Inc(lCurrentIndex);
+    lStack.Push(aNodeId);
+    lOnStack[aNodeId] := True;
+
+    for lAdjacencyEdge in lAdjacency[aNodeId] do
+      if lIndexes[lAdjacencyEdge.TargetNodeId] < 0 then
+      begin
+        StrongConnect(lAdjacencyEdge.TargetNodeId);
+        if lLowLinks[lAdjacencyEdge.TargetNodeId] < lLowLinks[aNodeId] then
+          lLowLinks[aNodeId] := lLowLinks[lAdjacencyEdge.TargetNodeId];
+      end else if lOnStack[lAdjacencyEdge.TargetNodeId] and
+        (lIndexes[lAdjacencyEdge.TargetNodeId] < lLowLinks[aNodeId]) then
+        lLowLinks[aNodeId] := lIndexes[lAdjacencyEdge.TargetNodeId];
+
+    if lLowLinks[aNodeId] = lIndexes[aNodeId] then
+      FinishComponent(aNodeId);
+  end;
+
+begin
+  lComponents := TList<TDelphiSemanticTypedSccComponent>.Create;
+  lStack := TStack<Integer>.Create;
+  try
+    SetLength(lAdjacency, aNodeCount);
+    for lNodeId := 0 to Pred(aNodeCount) do
+      lAdjacency[lNodeId] := TList<TAdjacencyEdge>.Create;
+    try
+      lMaxEdgeId := -1;
+      for lEdge in aEdges do
+      begin
+        lAdjacencyEdge.EdgeId := lEdge.EdgeId;
+        lAdjacencyEdge.TargetNodeId := lEdge.TargetNodeId;
+        lAdjacency[lEdge.SourceNodeId].Add(lAdjacencyEdge);
+        if lEdge.EdgeId > lMaxEdgeId then
+          lMaxEdgeId := lEdge.EdgeId;
+      end;
+      lEdgeTargetComparer := TComparer<TAdjacencyEdge>.Construct(
+        function(const aLeft, aRight: TAdjacencyEdge): Integer
+        begin
+          Result := aLeft.TargetNodeId - aRight.TargetNodeId;
+          if Result = 0 then
+            Result := aLeft.EdgeId - aRight.EdgeId;
+        end);
+      for lNodeId := 0 to Pred(aNodeCount) do
+        lAdjacency[lNodeId].Sort(lEdgeTargetComparer);
+
+      SetLength(lIndexes, aNodeCount);
+      SetLength(lLowLinks, aNodeCount);
+      SetLength(lOnStack, aNodeCount);
+      for lNodeId := 0 to Pred(aNodeCount) do
+      begin
+        lIndexes[lNodeId] := -1;
+        lLowLinks[lNodeId] := -1;
+      end;
+
+      lCurrentIndex := 0;
+      for lNodeId := 0 to Pred(aNodeCount) do
+        if lIndexes[lNodeId] < 0 then
+          StrongConnect(lNodeId);
+
+      Result.Components := lComponents.ToArray;
+      SetLength(Result.NodeSccIds, aNodeCount);
+      SetLength(Result.EdgeSccIds, lMaxEdgeId + 1);
+      for lResultComponent in Result.Components do
+      begin
+        for lNodeId in lResultComponent.NodeIds do
+          Result.NodeSccIds[lNodeId] := lResultComponent.SccId;
+        for lResultEdgeId in lResultComponent.EdgeIds do
+          Result.EdgeSccIds[lResultEdgeId] := lResultComponent.SccId;
+      end;
+    finally
+      for lNodeId := 0 to High(lAdjacency) do
+        lAdjacency[lNodeId].Free;
+    end;
+  finally
+    lStack.Free;
+    lComponents.Free;
+  end;
 end;
 
 procedure AddUniqueUnit(const aUnits: TList<string>; const aUnitName: string);
@@ -125,12 +389,28 @@ begin
   Result := False;
 end;
 
+function HasInvalidFileNameCharacter(const aUnitName: string): Boolean;
+const
+  cInvalidChars = '<>:"/\|?*';
+var
+  lChar: Char;
+begin
+  for lChar in aUnitName do
+    if (Ord(lChar) < 32) or (Pos(string(lChar), cInvalidChars) > 0) then
+      Exit(True);
+
+  Result := False;
+end;
+
 function FindExternalFile(const aOptions: TDelphiSemanticDependencyGraphOptions;
   const aUnitName: string): string;
 var
   lPath: string;
   lSearchPath: string;
 begin
+  if (aUnitName = '') or HasInvalidFileNameCharacter(aUnitName) then
+    Exit('');
+
   for lSearchPath in aOptions.SearchPaths do
   begin
     lPath := TPath.Combine(lSearchPath, aUnitName + '.pas');
@@ -204,91 +484,80 @@ begin
   aEdges.Add(lEdge);
 end;
 
-function IsProjectUnit(const aModels: TArray<TDelphiSemanticUnitModel>;
-  const aUnitName: string): Boolean;
-var
-  lModel: TDelphiSemanticUnitModel;
+function UnitLookupKey(const aUnitName: string): string;
 begin
-  Result := FindModel(aModels, aUnitName, lModel);
+  Result := LowerCase(aUnitName);
 end;
 
-function FindPath(const aEdges: TList<TDelphiSemanticDependencyEdge>;
-  const aModels: TArray<TDelphiSemanticUnitModel>; const aStartUnit, aTargetUnit: string;
-  out aPath: TArray<string>): Boolean;
-var
-  lPath: TList<string>;
-  lVisited: TList<string>;
-
-  function IsVisited(const aUnitName: string): Boolean;
-  var
-    lUnit: string;
-  begin
-    for lUnit in lVisited do
-      if SameUnit(lUnit, aUnitName) then
-        Exit(True);
-    Result := False;
-  end;
-
-  function Visit(const aUnitName: string): Boolean;
-  var
-    lEdge: TDelphiSemanticDependencyEdge;
-  begin
-    AddUniqueUnit(lVisited, aUnitName);
-    lPath.Add(aUnitName);
-    if SameUnit(aUnitName, aTargetUnit) then
-      Exit(True);
-
-    for lEdge in aEdges do
-      if SameUnit(lEdge.SourceUnit, aUnitName) and IsProjectUnit(aModels, lEdge.TargetUnit) and
-        not IsVisited(lEdge.TargetUnit) then
-        if Visit(lEdge.TargetUnit) then
-          Exit(True);
-
-    lPath.Delete(Pred(lPath.Count));
-    Result := False;
-  end;
-
-begin
-  lPath := TList<string>.Create;
-  lVisited := TList<string>.Create;
-  try
-    Result := Visit(aStartUnit);
-    if Result then
-      aPath := lPath.ToArray
-    else
-      aPath := [];
-  finally
-    lVisited.Free;
-    lPath.Free;
-  end;
-end;
-
-procedure MarkCycles(const aNodes: TList<TDelphiSemanticDependencyNode>;
-  const aEdges: TList<TDelphiSemanticDependencyEdge>;
-  const aModels: TArray<TDelphiSemanticUnitModel>);
+function BuildTypedSccResult(const aEdges: TList<TDelphiSemanticDependencyEdge>;
+  const aModels: TArray<TDelphiSemanticUnitModel>; out aNodeNames: TArray<string>):
+  TDelphiSemanticTypedSccResult;
 var
   i: Integer;
-  lBackPath: TArray<string>;
   lEdge: TDelphiSemanticDependencyEdge;
+  lNodeIdByUnit: TDictionary<string, Integer>;
+  lNodeNames: TList<string>;
+  lSourceNodeId: Integer;
+  lTargetNodeId: Integer;
+  lTypedEdge: TDelphiSemanticTypedSccEdge;
+  lTypedEdges: TList<TDelphiSemanticTypedSccEdge>;
+  lUnitModel: TDelphiSemanticUnitModel;
+begin
+  lNodeIdByUnit := TDictionary<string, Integer>.Create;
+  lNodeNames := TList<string>.Create;
+  lTypedEdges := TList<TDelphiSemanticTypedSccEdge>.Create;
+  try
+    for lUnitModel in aModels do
+      if (lUnitModel.UnitName <> '') and not lNodeIdByUnit.ContainsKey(UnitLookupKey(lUnitModel.UnitName)) then
+      begin
+        lNodeIdByUnit.Add(UnitLookupKey(lUnitModel.UnitName), lNodeNames.Count);
+        lNodeNames.Add(lUnitModel.UnitName);
+      end;
+
+    for i := 0 to Pred(aEdges.Count) do
+    begin
+      lEdge := aEdges[i];
+      if lNodeIdByUnit.TryGetValue(UnitLookupKey(lEdge.SourceUnit), lSourceNodeId) and
+        lNodeIdByUnit.TryGetValue(UnitLookupKey(lEdge.TargetUnit), lTargetNodeId) then
+      begin
+        lTypedEdge.EdgeId := i;
+        lTypedEdge.SourceNodeId := lSourceNodeId;
+        lTypedEdge.TargetNodeId := lTargetNodeId;
+        lTypedEdges.Add(lTypedEdge);
+      end;
+    end;
+
+    aNodeNames := lNodeNames.ToArray;
+    Result := TDelphiSemanticTypedSccAnalyzer.Analyze(lNodeNames.Count, lTypedEdges.ToArray);
+  finally
+    lTypedEdges.Free;
+    lNodeNames.Free;
+    lNodeIdByUnit.Free;
+  end;
+end;
+
+procedure ApplySccCycles(const aNodes: TList<TDelphiSemanticDependencyNode>;
+  const aEdges: TList<TDelphiSemanticDependencyEdge>;
+  const aSccResult: TDelphiSemanticTypedSccResult; const aNodeNames: TArray<string>);
+var
+  lComponent: TDelphiSemanticTypedSccComponent;
+  lEdge: TDelphiSemanticDependencyEdge;
+  lEdgeId: Integer;
   lNode: TDelphiSemanticDependencyNode;
+  lNodeId: Integer;
   lNodeIndex: Integer;
 begin
-  for i := 0 to Pred(aEdges.Count) do
+  for lComponent in aSccResult.Components do
   begin
-    lEdge := aEdges[i];
-    if IsProjectUnit(aModels, lEdge.SourceUnit) and IsProjectUnit(aModels, lEdge.TargetUnit) and
-      FindPath(aEdges, aModels, lEdge.TargetUnit, lEdge.SourceUnit, lBackPath) then
+    for lEdgeId in lComponent.EdgeIds do
     begin
+      lEdge := aEdges[lEdgeId];
       lEdge.IsCycleEdge := True;
-      aEdges[i] := lEdge;
-      lNodeIndex := FindNodeIndex(aNodes, lEdge.SourceUnit);
-      if lNodeIndex >= 0 then
-      begin
-        lNode := aNodes[lNodeIndex];
-        lNode.InCycle := True;
-        aNodes[lNodeIndex] := lNode;
-      end;
-      lNodeIndex := FindNodeIndex(aNodes, lEdge.TargetUnit);
+      aEdges[lEdgeId] := lEdge;
+    end;
+    for lNodeId in lComponent.NodeIds do
+    begin
+      lNodeIndex := FindNodeIndex(aNodes, aNodeNames[lNodeId]);
       if lNodeIndex >= 0 then
       begin
         lNode := aNodes[lNodeIndex];
@@ -299,111 +568,38 @@ begin
   end;
 end;
 
-function ComponentIndexForUnit(
-  const aComponents: TList<TDelphiSemanticDependencyCycleComponent>;
-  const aUnitName: string): Integer;
-var
-  i: Integer;
-begin
-  for i := 0 to Pred(aComponents.Count) do
-    if ContainsUnit(aComponents[i].Units, aUnitName) then
-      Exit(i);
-
-  Result := -1;
-end;
-
-procedure MergeComponentUnits(var aComponent: TDelphiSemanticDependencyCycleComponent;
-  const aUnits: TArray<string>);
-var
-  lList: TList<string>;
-  lUnit: string;
-begin
-  lList := TList<string>.Create;
-  try
-    for lUnit in aComponent.Units do
-      AddUniqueUnit(lList, lUnit);
-    for lUnit in aUnits do
-      AddUniqueUnit(lList, lUnit);
-    aComponent.Units := lList.ToArray;
-  finally
-    lList.Free;
-  end;
-end;
-
-function CyclePathForEdge(const aEdges: TList<TDelphiSemanticDependencyEdge>;
-  const aModels: TArray<TDelphiSemanticUnitModel>;
-  const aEdge: TDelphiSemanticDependencyEdge): TArray<string>;
-var
-  lBackPath: TArray<string>;
-  lList: TList<string>;
-  lUnit: string;
-begin
-  lList := TList<string>.Create;
-  try
-    lList.Add(aEdge.SourceUnit);
-    if FindPath(aEdges, aModels, aEdge.TargetUnit, aEdge.SourceUnit, lBackPath) then
-      for lUnit in lBackPath do
-        lList.Add(lUnit);
-    Result := lList.ToArray;
-  finally
-    lList.Free;
-  end;
-end;
-
-function BuildCycleComponents(const aEdges: TList<TDelphiSemanticDependencyEdge>;
-  const aModels: TArray<TDelphiSemanticUnitModel>):
-  TArray<TDelphiSemanticDependencyCycleComponent>;
+function BuildCycleComponents(const aSccResult: TDelphiSemanticTypedSccResult;
+  const aNodeNames: TArray<string>): TArray<TDelphiSemanticDependencyCycleComponent>;
 var
   i: Integer;
   lComponent: TDelphiSemanticDependencyCycleComponent;
   lComponents: TList<TDelphiSemanticDependencyCycleComponent>;
-  lEdge: TDelphiSemanticDependencyEdge;
-  lIndex: Integer;
-  lTargetIndex: Integer;
+  lNodeId: Integer;
+  lSccComponent: TDelphiSemanticTypedSccComponent;
+  lUnits: TList<string>;
 begin
   lComponents := TList<TDelphiSemanticDependencyCycleComponent>.Create;
   try
-    for lEdge in aEdges do
-      if lEdge.IsCycleEdge then
-      begin
-        lIndex := ComponentIndexForUnit(lComponents, lEdge.SourceUnit);
-        lTargetIndex := ComponentIndexForUnit(lComponents, lEdge.TargetUnit);
-        if (lIndex >= 0) and (lTargetIndex >= 0) and (lIndex <> lTargetIndex) then
-        begin
-          lComponent := lComponents[lIndex];
-          MergeComponentUnits(lComponent, lComponents[lTargetIndex].Units);
-          if Length(lComponent.Path) = 0 then
-            lComponent.Path := lComponents[lTargetIndex].Path;
-          lComponents[lIndex] := lComponent;
-          lComponents.Delete(lTargetIndex);
-          Continue;
-        end else if lIndex < 0 then
-          lIndex := lTargetIndex;
-        if lIndex < 0 then
-        begin
-          lComponent := Default(TDelphiSemanticDependencyCycleComponent);
-          lComponent.Units := [lEdge.SourceUnit, lEdge.TargetUnit];
-          lComponent.Path := CyclePathForEdge(aEdges, aModels, lEdge);
-          lComponents.Add(lComponent);
-        end else
-        begin
-          lComponent := lComponents[lIndex];
-          MergeComponentUnits(lComponent, [lEdge.SourceUnit, lEdge.TargetUnit]);
-          if Length(lComponent.Path) = 0 then
-            lComponent.Path := CyclePathForEdge(aEdges, aModels, lEdge);
-          lComponents[lIndex] := lComponent;
-        end;
-      end;
-
-    for i := 0 to Pred(lComponents.Count) do
+    for lSccComponent in aSccResult.Components do
     begin
-      lComponent := lComponents[i];
+      lUnits := TList<string>.Create;
+      try
+        for lNodeId in lSccComponent.NodeIds do
+          lUnits.Add(aNodeNames[lNodeId]);
+        lComponent := Default(TDelphiSemanticDependencyCycleComponent);
+        lComponent.Units := lUnits.ToArray;
+        SetLength(lComponent.Path, Length(lSccComponent.RepresentativePath));
+        for i := 0 to High(lSccComponent.RepresentativePath) do
+          lComponent.Path[i] := aNodeNames[lSccComponent.RepresentativePath[i]];
+      finally
+        lUnits.Free;
+      end;
       TArray.Sort<string>(lComponent.Units, TComparer<string>.Construct(
         function(const aLeft, aRight: string): Integer
         begin
           Result := CompareText(aLeft, aRight);
         end));
-      lComponents[i] := lComponent;
+      lComponents.Add(lComponent);
     end;
     Result := lComponents.ToArray;
   finally
@@ -534,7 +730,9 @@ class function TDelphiSemanticDependencyGraphBuilder.Build(
 var
   lEdges: TList<TDelphiSemanticDependencyEdge>;
   lModel: TDelphiSemanticUnitModel;
+  lNodeNames: TArray<string>;
   lNodes: TList<TDelphiSemanticDependencyNode>;
+  lSccResult: TDelphiSemanticTypedSccResult;
   lUnresolvedUnits: TList<string>;
 begin
   lNodes := TList<TDelphiSemanticDependencyNode>.Create;
@@ -553,11 +751,12 @@ begin
           lModel.ImplementationUses, 'implementation');
       end;
 
-    MarkCycles(lNodes, lEdges, aModels);
+    lSccResult := BuildTypedSccResult(lEdges, aModels, lNodeNames);
+    ApplySccCycles(lNodes, lEdges, lSccResult, lNodeNames);
     Result.Nodes := lNodes.ToArray;
     Result.Edges := lEdges.ToArray;
     Result.UnresolvedUnits := lUnresolvedUnits.ToArray;
-    Result.CycleComponents := BuildCycleComponents(lEdges, aModels);
+    Result.CycleComponents := BuildCycleComponents(lSccResult, lNodeNames);
     Result.UnitHotspots := BuildUnitHotspots(lEdges);
     Result.EdgeHotspots := BuildEdgeHotspots(lEdges);
   finally
