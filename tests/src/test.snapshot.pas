@@ -20,6 +20,10 @@ type
     [Test]
     procedure ProjectSnapshotUsesPackedMemberKeysAndBuilderBoundary;
     [Test]
+    procedure SnapshotBuilderResolvesReferenceTargetsWithoutLegacyProjectIndex;
+    [Test]
+    procedure SnapshotReferenceTargetsKeepOverloadedRoutineLocalAmbiguityUnresolved;
+    [Test]
     procedure SnapshotUnitDoesNotUseJsonLiveRepresentation;
     [Test]
     procedure StringPoolInternsStableCaseAwareIds;
@@ -40,7 +44,8 @@ implementation
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   maxLogic.IOUtils,
-  DelphiSemantics.Snapshot;
+  DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
+  DelphiSemantics.WithBinding;
 
 procedure TSnapshotTests.MemberKeyPacksOwnerAndNameIds;
 var
@@ -285,6 +290,96 @@ begin
     'Built snapshots should expose read-only string lookup instead of the mutable string pool.');
   Assert.IsFalse(ContainsText(lSourceText, 'procedure TDelphiProjectSnapshot.AddUnit'),
     'Public consumers should not mutate a built project snapshot.');
+end;
+
+procedure TSnapshotTests.SnapshotBuilderResolvesReferenceTargetsWithoutLegacyProjectIndex;
+var
+  lBuilderSource: string;
+  lFunctionEnd: Integer;
+  lFunctionSource: string;
+  lFunctionStart: Integer;
+  lSessionSource: string;
+begin
+  lBuilderSource := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
+    ExtractFilePath(ParamStr(0)), '..', '..', 'src',
+    'DelphiSemantics.Snapshot.Builder.pas'])));
+  lFunctionStart := Pos('function BuildSnapshotReferenceTargets', lBuilderSource);
+  lFunctionEnd := PosEx('procedure AddSnapshotWithStatement', lBuilderSource,
+    lFunctionStart);
+  Assert.IsTrue((lFunctionStart > 0) and (lFunctionEnd > lFunctionStart),
+    'Expected BuildSnapshotReferenceTargets implementation section.');
+
+  lFunctionSource := Copy(lBuilderSource, lFunctionStart,
+    lFunctionEnd - lFunctionStart);
+  Assert.IsFalse(ContainsText(lFunctionSource, 'TDelphiSemanticProjectSymbolIndexer.Build'),
+    'Snapshot reference targets must resolve directly to snapshot-native symbol ids.');
+  Assert.IsFalse(ContainsText(lFunctionSource, 'BuildProjectSymbolIndexContext'),
+    'Snapshot reference targets must not build a legacy symbol-index context.');
+  Assert.IsFalse(ContainsText(lFunctionSource, 'lSymbolRefByLegacyId'),
+    'Snapshot reference targets must not remap legacy symbol ids back to snapshot ids.');
+
+  lSessionSource := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
+    ExtractFilePath(ParamStr(0)), '..', '..', 'src',
+    'DelphiSemantics.ProjectSession.pas'])));
+  Assert.IsFalse(ContainsText(lSessionSource, 'TDelphiSemanticProjectSymbolIndexer.Build'),
+    'Project-session snapshot cache rebuilds must not use the legacy symbol index.');
+  Assert.IsFalse(ContainsText(lSessionSource, 'BuildProjectSymbolIndexContext'),
+    'Project-session snapshot cache rebuilds must not build a legacy symbol-index context.');
+  Assert.IsFalse(ContainsText(lSessionSource, 'lSymbolRefByLegacyId'),
+    'Project-session snapshot cache rebuilds must not remap legacy symbol ids back to snapshot ids.');
+end;
+
+procedure TSnapshotTests.SnapshotReferenceTargetsKeepOverloadedRoutineLocalAmbiguityUnresolved;
+var
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lReference: TSemanticReferenceFact;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.UnitName := 'SnapshotOverloadUnit';
+  lModel.FileName := 'SnapshotOverloadUnit.pas';
+  SetLength(lModel.Routines, 2);
+  lModel.Routines[0].Name := 'DoWork';
+  lModel.Routines[0].Signature := 'DoWork(Integer)';
+  lModel.Routines[0].Line := 10;
+  lModel.Routines[0].Column := 11;
+  lModel.Routines[1].Name := 'DoWork';
+  lModel.Routines[1].Signature := 'DoWork(string)';
+  lModel.Routines[1].Line := 20;
+  lModel.Routines[1].Column := 11;
+  SetLength(lModel.Locals, 1);
+  lModel.Locals[0].RoutineName := 'DoWork';
+  lModel.Locals[0].Name := 'LocalOnlyInOneOverload';
+  lModel.Locals[0].Kind := 'local';
+  lModel.Locals[0].Line := 12;
+  lModel.Locals[0].Column := 5;
+  SetLength(lModel.References, 1);
+  lModel.References[0].RoutineName := 'DoWork';
+  lModel.References[0].Name := 'LocalOnlyInOneOverload';
+  lModel.References[0].SectionKind := 'implementation';
+  lModel.References[0].Line := 13;
+  lModel.References[0].Column := 3;
+  lModel.References[0].EndLine := 13;
+  lModel.References[0].EndColumn := 24;
+
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lOptions.WorkerCount := 1;
+  lSnapshot := BuildProjectSnapshotFromModels([lModel], Default(TDelphiSemanticProjectWithBindingFacts),
+    lOptions, lMetrics);
+  try
+    lUnit := lSnapshot.UnitByIndex(0);
+    lReference := lUnit.ReferenceById(1);
+    Assert.AreEqual(0, Integer(lReference.TargetUnitId),
+      'Ambiguous overloaded routine owner must not resolve a local target.');
+    Assert.AreEqual(0, Integer(lReference.TargetSymbolId),
+      'Ambiguous overloaded routine owner must not resolve a local target.');
+  finally
+    lSnapshot.Free;
+  end;
 end;
 
 procedure TSnapshotTests.SnapshotUnitDoesNotUseJsonLiveRepresentation;
