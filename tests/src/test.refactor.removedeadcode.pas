@@ -1,4 +1,4 @@
-unit Test.Refactor.RemoveDeadCode;
+﻿unit Test.Refactor.RemoveDeadCode;
 
 interface
 
@@ -42,7 +42,28 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GRemoveDeadCodeTempRoot: string;
+
+function RemoveDeadCodeTempPath(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GRemoveDeadCodeTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GRemoveDeadCodeTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'snapshot-remove-deadcode-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GRemoveDeadCodeTempRoot);
+  Result := TPath.Combine(GRemoveDeadCodeTempRoot, aName);
+end;
 
 function TRemoveDeadCodePlannerTests.BlockerReason(
   const aPlan: TDelphiSemanticDeadCodeRemovalPlan; const aName: string): string;
@@ -178,10 +199,7 @@ begin
   lProject := nil;
   lRootPath := '';
   try
-    lRootPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-      'snapshot-remove-deadcode-temp'));
-    if TDirectory.Exists(lRootPath) then
-      TDirectory.Delete(lRootPath, True);
+    lRootPath := RemoveDeadCodeTempPath('snapshot-remove-deadcode');
     TDirectory.CreateDirectory(lRootPath);
     lFileName := TPath.Combine(lRootPath, 'SnapshotRemoveDeadCodeUnit.pas');
     TFile.WriteAllText(lFileName, 'unit SnapshotRemoveDeadCodeUnit;' + sLineBreak +
@@ -229,8 +247,6 @@ begin
   finally
     lContext.ProjectSnapshot := nil;
     lProject.Free;
-    if (lRootPath <> '') and TDirectory.Exists(lRootPath) then
-      TDirectory.Delete(lRootPath, True);
   end;
 end;
 

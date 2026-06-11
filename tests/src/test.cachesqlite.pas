@@ -1,4 +1,4 @@
-unit Test.CacheSqlite;
+﻿unit Test.CacheSqlite;
 
 interface
 
@@ -59,9 +59,30 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils, System.Variants,
+  Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   DelphiSemantics.Api, DelphiSemantics.Api.WithBinding, DelphiSemantics.CompilerProfile,
   maxLogic.IOUtils;
+
+var
+  GCacheSqliteTempRoot: string;
+
+function CacheSqliteTempRoot: string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GCacheSqliteTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
+      [rfReplaceAll]);
+    GCacheSqliteTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'cache-sqlite-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GCacheSqliteTempRoot);
+  Result := GCacheSqliteTempRoot;
+end;
 
 function TCacheSqliteTests.HasCacheDiagnostic(const aCache: TDelphiSemanticSqliteUnitCache;
   const aCode: string): Boolean;
@@ -108,8 +129,7 @@ end;
 
 function TCacheSqliteTests.TempPath(const aName: string): string;
 begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-sqlite-temp',
-    aName]));
+  Result := TPath.GetFullPath(CombinePath([CacheSqliteTempRoot, aName]));
   TDirectory.CreateDirectory(TPath.GetDirectoryName(Result));
 end;
 
@@ -568,8 +588,7 @@ var
   lProfile: TDelphiSemanticCompilerProfile;
   lRtlRoot: string;
 begin
-  lRtlRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-    'cache-sqlite-temp', 'fake-shared-rtl-source']));
+  lRtlRoot := TPath.GetFullPath(CombinePath([CacheSqliteTempRoot, 'fake-shared-rtl-source']));
   lCommonRoot := CombinePath([lRtlRoot, 'rtl', 'common']);
   TDirectory.CreateDirectory(lCommonRoot);
   TFile.WriteAllText(TPath.Combine(lCommonRoot, 'System.SharedRtl.pas'),

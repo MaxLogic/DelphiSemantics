@@ -1,4 +1,4 @@
-unit Test.RemoveWithPlan;
+﻿unit Test.RemoveWithPlan;
 
 interface
 
@@ -477,12 +477,32 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
+  Winapi.Windows,
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.RemoveWith;
 
 var
   GMaxTdbPlanCached: Boolean;
   GMaxTdbProjectPath: string;
   GMaxTdbPlan: TDelphiSemanticRemoveWithPlan;
+  GRemoveWithPlanTempRoot: string;
+
+function RemoveWithPlanTempRoot: string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GRemoveWithPlanTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
+      [rfReplaceAll]);
+    GRemoveWithPlanTempRoot := TPath.GetFullPath(TPath.Combine(
+      TPath.Combine(ExtractFilePath(ParamStr(0)), 'remove-with-plan-temp'),
+      'run-' + GetCurrentProcessId.ToString + '-' + lGuidText));
+  end;
+  TDirectory.CreateDirectory(GRemoveWithPlanTempRoot);
+  Result := GRemoveWithPlanTempRoot;
+end;
 
 function IsMaxTdbProjectPath(const aProjectPath: string): Boolean;
 var
@@ -628,9 +648,7 @@ end;
 
 function TRemoveWithPlanTests.TempPath(const aRelativePath: string): string;
 begin
-  Result := TPath.GetFullPath(TPath.Combine(
-    TPath.Combine(ExtractFilePath(ParamStr(0)), 'remove-with-plan-temp'),
-    aRelativePath));
+  Result := TPath.GetFullPath(TPath.Combine(RemoveWithPlanTempRoot, aRelativePath));
 end;
 
 function TRemoveWithPlanTests.CopyDakFixtureToTemp(const aRelativePath,

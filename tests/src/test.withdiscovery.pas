@@ -1,4 +1,4 @@
-unit Test.WithDiscovery;
+﻿unit Test.WithDiscovery;
 
 interface
 
@@ -31,7 +31,28 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GWithDiscoveryTempRoot: string;
+
+function WithDiscoveryTempRoot: string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GWithDiscoveryTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GWithDiscoveryTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'with-discovery-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GWithDiscoveryTempRoot);
+  Result := GWithDiscoveryTempRoot;
+end;
 
 function TWithDiscoveryTests.FixturePath(const aFileName: string): string;
 begin
@@ -54,8 +75,7 @@ end;
 
 function TWithDiscoveryTests.TempPath(const aName: string): string;
 begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'with-discovery-temp',
-    aName]));
+  Result := TPath.GetFullPath(TPath.Combine(WithDiscoveryTempRoot, aName));
   TDirectory.CreateDirectory(TPath.GetDirectoryName(Result));
 end;
 

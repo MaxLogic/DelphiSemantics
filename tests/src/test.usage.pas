@@ -1,4 +1,4 @@
-unit Test.Usage;
+﻿unit Test.Usage;
 
 interface
 
@@ -35,7 +35,28 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GUsageTempRoot: string;
+
+function UsageTempPath(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GUsageTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GUsageTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'snapshot-usage-session-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GUsageTempRoot);
+  Result := TPath.Combine(GUsageTempRoot, aName);
+end;
 
 function TUsageTests.FixturePath(const aFileName: string): string;
 begin
@@ -119,10 +140,7 @@ var
   lUnitPath: string;
   lUsage: TDelphiSemanticUsage;
 begin
-  lRootPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    'snapshot-usage-session-temp'));
-  if TDirectory.Exists(lRootPath) then
-    TDirectory.Delete(lRootPath, True);
+  lRootPath := UsageTempPath('snapshot-usage-session');
   TDirectory.CreateDirectory(lRootPath);
 
   lDprPath := TPath.Combine(lRootPath, 'SnapshotUsageProject.dpr');
@@ -185,8 +203,6 @@ begin
       lSessionResult.Session.Free;
     end;
   finally
-    if TDirectory.Exists(lRootPath) then
-      TDirectory.Delete(lRootPath, True);
   end;
 end;
 

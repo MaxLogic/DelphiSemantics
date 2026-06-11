@@ -1,4 +1,4 @@
-unit Test.CompilerProfile;
+﻿unit Test.CompilerProfile;
 
 interface
 
@@ -17,8 +17,22 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils,
   DelphiSemantics.CompilerProfile;
+
+function CompilerProfileTempRoot: string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  CreateGUID(lGuid);
+  lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
+    [rfReplaceAll]);
+  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'compiler-profile-temp',
+    'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  TDirectory.CreateDirectory(Result);
+end;
 
 procedure TCompilerProfileTests.RecursiveRtlDuplicateBasenamesChooseSortedPath;
 var
@@ -29,10 +43,7 @@ var
   lRtlRoot: string;
   lSecondRoot: string;
 begin
-  lRtlRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
-    'fake-duplicate-rtl-source']));
-  if TDirectory.Exists(lRtlRoot) then
-    TDirectory.Delete(lRtlRoot, True);
+  lRtlRoot := TPath.Combine(CompilerProfileTempRoot, 'fake-duplicate-rtl-source');
 
   lFirstRoot := CombinePath([lRtlRoot, 'rtl', 'aaa']);
   lSecondRoot := CombinePath([lRtlRoot, 'rtl', 'zzz']);

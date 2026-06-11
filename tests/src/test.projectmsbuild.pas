@@ -1,4 +1,4 @@
-unit Test.ProjectMsBuild;
+﻿unit Test.ProjectMsBuild;
 
 interface
 
@@ -69,7 +69,29 @@ implementation
 
 uses
   System.IOUtils,
-  System.SysUtils;
+  System.SysUtils,
+  Winapi.Windows,
+  maxLogic.IOUtils;
+
+var
+  GProjectMsBuildTempRoot: string;
+
+function ProjectMsBuildTempPath(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GProjectMsBuildTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GProjectMsBuildTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'project-msbuild-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GProjectMsBuildTempRoot);
+  Result := TPath.Combine(GProjectMsBuildTempRoot, aName);
+end;
 
 function TProjectMsBuildTests.FixturePath(const aRelativePath: string): string;
 begin
@@ -330,9 +352,7 @@ var
   lResult: TDelphiSemanticContextResult;
   lRoot: string;
 begin
-  lRoot := TPath.Combine(ExtractFilePath(ParamStr(0)), 'project-platform-override');
-  if TDirectory.Exists(lRoot) then
-    TDirectory.Delete(lRoot, True);
+  lRoot := ProjectMsBuildTempPath('project-platform-override');
   TDirectory.CreateDirectory(lRoot);
 
   TFile.WriteAllText(TPath.Combine(lRoot, 'PlatformOverride.dpr'),

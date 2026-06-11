@@ -1,4 +1,4 @@
-unit Test.SemanticInvalidation;
+﻿unit Test.SemanticInvalidation;
 
 interface
 
@@ -22,7 +22,21 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
+  Winapi.Windows,
   DelphiSemantics.ProjectContext;
+
+function SemanticInvalidationTempRoot: string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  CreateGUID(lGuid);
+  lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
+    [rfReplaceAll]);
+  Result := TPath.GetFullPath(TPath.Combine(TPath.Combine(ExtractFilePath(ParamStr(0)),
+    'semantic-invalidation-temp'), 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText));
+  TDirectory.CreateDirectory(Result);
+end;
 
 function TSemanticInvalidationTests.BuildSession(const aProjectDir: string):
   TDelphiSemanticProjectSession;
@@ -40,9 +54,7 @@ end;
 
 function TSemanticInvalidationTests.CreateFixtureProject: string;
 begin
-  Result := TPath.Combine(ExtractFilePath(ParamStr(0)), 'semantic-invalidation-fixture');
-  if TDirectory.Exists(Result) then
-    TDirectory.Delete(Result, True);
+  Result := TPath.Combine(SemanticInvalidationTempRoot, 'semantic-invalidation-fixture');
   TDirectory.CreateDirectory(Result);
 
   TFile.WriteAllText(TPath.Combine(Result, 'InvalidationProject.dpr'),

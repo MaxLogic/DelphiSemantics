@@ -1,4 +1,4 @@
-unit Test.SourceContext;
+﻿unit Test.SourceContext;
 
 interface
 
@@ -46,7 +46,28 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GSourceContextTempRoot: string;
+
+function SourceContextTempPath(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GSourceContextTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GSourceContextTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'source-context-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GSourceContextTempRoot);
+  Result := TPath.Combine(GSourceContextTempRoot, aName);
+end;
 
 function TSourceContextTests.FixturePath(const aFolder, aFileName: string): string;
 begin
@@ -102,9 +123,7 @@ var
   lShadowFileName: string;
 begin
   lProject := LoadProject(FixturePath('SourceContext', 'SourceContextFixture.dproj'));
-  lShadowDir := TPath.Combine(ExtractFilePath(ParamStr(0)), 'source-context-shadow');
-  if TDirectory.Exists(lShadowDir) then
-    TDirectory.Delete(lShadowDir, True);
+  lShadowDir := SourceContextTempPath('source-context-shadow');
   TDirectory.CreateDirectory(lShadowDir);
   lShadowFileName := TPath.Combine(lShadowDir, 'ProjectRelativeUnit.pas');
   TFile.WriteAllText(lShadowFileName,

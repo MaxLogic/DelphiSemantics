@@ -1,4 +1,4 @@
-unit Test.UnitResolver;
+﻿unit Test.UnitResolver;
 
 interface
 
@@ -32,7 +32,28 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils, System.Types,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GUnitResolverTempRoot: string;
+
+function UnitResolverTempPath(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GUnitResolverTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GUnitResolverTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'unit-resolver-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GUnitResolverTempRoot);
+  Result := TPath.Combine(GUnitResolverTempRoot, aName);
+end;
 
 function TUnitResolverTests.FixturePath(const aRelativePath: string): string;
 begin
@@ -127,7 +148,7 @@ var
   lResult: TDelphiSemanticUnitResolutionResult;
   lTempDir: string;
 begin
-  lTempDir := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-resolver-temp');
+  lTempDir := UnitResolverTempPath('precompiled-dcu');
   TDirectory.CreateDirectory(lTempDir);
   lDcuPath := TPath.Combine(lTempDir, 'PackageOnly.dcu');
   TFile.WriteAllBytes(lDcuPath, TBytes.Create(1, 2, 3, 4));

@@ -1,4 +1,4 @@
-unit Test.Cache;
+﻿unit Test.Cache;
 
 interface
 
@@ -29,6 +29,8 @@ type
   public
     [Test]
     procedure DefaultOptionsUseInMemoryCache;
+    [Test]
+    procedure TempPathUsesPerRunRoot;
     [Test]
     procedure InMemoryMetricsExposeEmptyCacheFileName;
     [Test]
@@ -89,8 +91,29 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils,
   DelphiSemantics.Resolve;
+
+var
+  GCacheTempRoot: string;
+
+function CacheTempRoot: string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GCacheTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
+      [rfReplaceAll]);
+    GCacheTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
+      'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GCacheTempRoot);
+  Result := GCacheTempRoot;
+end;
 
 procedure TCacheTests.AssertIndexedProfileNameKind(
   const aProfile: TDelphiSemanticCompilerProfile; const aName, aKind: string);
@@ -206,8 +229,22 @@ end;
 
 function TCacheTests.TempPath(const aName: string): string;
 begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp', aName]));
+  Result := TPath.GetFullPath(CombinePath([CacheTempRoot, aName]));
   TDirectory.CreateDirectory(TPath.GetDirectoryName(Result));
+end;
+
+procedure TCacheTests.TempPathUsesPerRunRoot;
+var
+  lFixedRoot: string;
+  lPath: string;
+begin
+  lFixedRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp']));
+  lPath := TempPath('temp-root-guard.sqlite3');
+
+  Assert.IsFalse(SameText(TPath.GetDirectoryName(lPath), lFixedRoot),
+    'Cache tests must use a per-run temp root, not the fixed binary-local cache-temp directory.');
+  Assert.IsTrue(Pos(GetCurrentProcessId.ToString, lPath) > 0,
+    'Cache temp path should include the current process id. Actual: ' + lPath);
 end;
 
 procedure TCacheTests.DefaultOptionsUseInMemoryCache;
@@ -717,10 +754,8 @@ var
   lSecondDir: string;
 begin
   lPath := TempPath('SearchPathOrderUnit.pas');
-  lFirstDir := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
-    'search-a']));
-  lSecondDir := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
-    'search-b']));
+  lFirstDir := TPath.GetFullPath(CombinePath([CacheTempRoot, 'search-a']));
+  lSecondDir := TPath.GetFullPath(CombinePath([CacheTempRoot, 'search-b']));
   TDirectory.CreateDirectory(lFirstDir);
   TDirectory.CreateDirectory(lSecondDir);
   TFile.WriteAllText(lPath, 'unit SearchPathOrderUnit;' + sLineBreak + 'interface' +
@@ -974,8 +1009,7 @@ var
   lRtlRoot: string;
   lSourceModel: TDelphiSemanticUnitModel;
 begin
-  lRtlRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
-    'fake-delphi-source']));
+  lRtlRoot := TPath.GetFullPath(CombinePath([CacheTempRoot, 'fake-delphi-source']));
   lCommonRoot := CombinePath([lRtlRoot, 'rtl', 'common']);
   TDirectory.CreateDirectory(lCommonRoot);
   TFile.WriteAllText(TPath.Combine(lCommonRoot, 'System.Math.pas'),
@@ -1046,8 +1080,7 @@ var
   lFiles: TArray<string>;
   lRtlRoot: string;
 begin
-  lRtlRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
-    'fake-indexed-rtl-source']));
+  lRtlRoot := TPath.GetFullPath(CombinePath([CacheTempRoot, 'fake-indexed-rtl-source']));
   if TDirectory.Exists(lRtlRoot) then
     TDirectory.Delete(lRtlRoot, True);
 
@@ -1091,8 +1124,7 @@ var
   lSource: string;
   lSourceModel: TDelphiSemanticUnitModel;
 begin
-  lRtlRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
-    'fake-fast-delphi-source']));
+  lRtlRoot := TPath.GetFullPath(CombinePath([CacheTempRoot, 'fake-fast-delphi-source']));
   lCommonRoot := CombinePath([lRtlRoot, 'rtl', 'common']);
   TDirectory.CreateDirectory(lCommonRoot);
 
@@ -1165,8 +1197,7 @@ var
   lRsVarsPath: string;
   lSourceRoot: string;
 begin
-  lBdsRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
-    'fake-bds']));
+  lBdsRoot := TPath.GetFullPath(CombinePath([CacheTempRoot, 'fake-bds']));
   lRsVarsPath := CombinePath([lBdsRoot, 'bin', 'rsvars.bat']);
   lSourceRoot := TPath.Combine(lBdsRoot, 'source');
   TDirectory.CreateDirectory(TPath.GetDirectoryName(lRsVarsPath));

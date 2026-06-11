@@ -1,4 +1,4 @@
-unit Test.SymbolQuery;
+﻿unit Test.SymbolQuery;
 
 interface
 
@@ -60,7 +60,28 @@ implementation
 
 uses
   System.Classes, System.IOUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GSymbolQueryTempRoot: string;
+
+function SymbolQueryTempPath(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GSymbolQueryTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GSymbolQueryTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'snapshot-query-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GSymbolQueryTempRoot);
+  Result := TPath.Combine(GSymbolQueryTempRoot, aName);
+end;
 
 function TSymbolQueryTests.FixturePath(const aFileName: string): string;
 begin
@@ -250,10 +271,7 @@ begin
   lProject := nil;
   lRootPath := '';
   try
-    lRootPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-      'snapshot-query-temp'));
-    if TDirectory.Exists(lRootPath) then
-      TDirectory.Delete(lRootPath, True);
+    lRootPath := SymbolQueryTempPath('snapshot-query');
     TDirectory.CreateDirectory(lRootPath);
     lFileName := TPath.Combine(lRootPath, 'SnapshotQueryUnit.pas');
     TFile.WriteAllText(lFileName, 'unit SnapshotQueryUnit;' + sLineBreak +
@@ -393,8 +411,6 @@ begin
     Assert.AreEqual('snapshot-source', lReferences[0].SourceKind);
   finally
     lProject.Free;
-    if (lRootPath <> '') and TDirectory.Exists(lRootPath) then
-      TDirectory.Delete(lRootPath, True);
   end;
 end;
 

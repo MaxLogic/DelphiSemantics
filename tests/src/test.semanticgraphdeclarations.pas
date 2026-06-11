@@ -1,4 +1,4 @@
-unit Test.SemanticGraphDeclarations;
+﻿unit Test.SemanticGraphDeclarations;
 
 interface
 
@@ -28,7 +28,29 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GSemanticGraphDeclarationTempRoot: string;
+
+function SemanticGraphDeclarationTempPath(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GSemanticGraphDeclarationTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GSemanticGraphDeclarationTempRoot := TPath.GetFullPath(CombinePath([
+      ExtractFilePath(ParamStr(0)), 'semantic-graph-declarations-temp',
+      'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GSemanticGraphDeclarationTempRoot);
+  Result := TPath.Combine(GSemanticGraphDeclarationTempRoot, aName);
+end;
 
 function TSemanticGraphDeclarationTests.FixturePath(const aRelativePath: string): string;
 begin
@@ -154,7 +176,7 @@ var
   lPath: string;
   lSource: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'semantic-graph-parameters.pas');
+  lPath := SemanticGraphDeclarationTempPath('semantic-graph-parameters.pas');
   lSource := 'unit SemanticGraphParameters;' + sLineBreak + 'interface' + sLineBreak +
     'function RunGraph(const aValue: Integer): string;' + sLineBreak + 'implementation' +
     sLineBreak + 'function RunGraph(const aValue: Integer): string;' + sLineBreak +

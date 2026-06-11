@@ -1,4 +1,4 @@
-unit Test.UnitModel;
+﻿unit Test.UnitModel;
 
 interface
 
@@ -136,7 +136,28 @@ implementation
 
 uses
   System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GUnitModelTempRoot: string;
+
+function UnitModelTempPath(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GUnitModelTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GUnitModelTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'unit-model-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GUnitModelTempRoot);
+  Result := TPath.Combine(GUnitModelTempRoot, aName);
+end;
 
 function TUnitModelTests.FixturePath(const aFolder, aFileName: string): string;
 begin
@@ -502,7 +523,7 @@ var
   lResult: TDelphiSemanticSourceLoadResult;
   lPath: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-ansi-source.pas');
+  lPath := UnitModelTempPath('unit-model-ansi-source.pas');
   lBytes := [$75, $6E, $69, $74, $20, $41, $6E, $73, $69, $46, $61, $6C, $6C, $62, $61, $63,
     $6B, $3B, $0D, $0A, $69, $6E, $74, $65, $72, $66, $61, $63, $65, $0D, $0A, $2F, $2F,
     $20, $E4, $0D, $0A, $69, $6D, $70, $6C, $65, $6D, $65, $6E, $74, $61, $74, $69,
@@ -522,7 +543,7 @@ var
   lResult: TDelphiSemanticSourceLoadResult;
   lPath: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-overlong-source.pas');
+  lPath := UnitModelTempPath('unit-model-overlong-source.pas');
   lBytes := [$75, $6E, $69, $74, $20, $4F, $76, $65, $72, $6C, $6F, $6E, $67, $46, $61, $6C,
     $6C, $62, $61, $63, $6B, $3B, $0D, $0A, $69, $6E, $74, $65, $72, $66, $61, $63,
     $65, $0D, $0A, $2F, $2F, $20, $C0, $AF, $0D, $0A, $69, $6D, $70, $6C, $65, $6D,
@@ -753,7 +774,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
   lPath: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'symbol-map-namespaced-unit.pas');
+  lPath := UnitModelTempPath('symbol-map-namespaced-unit.pas');
   TFile.WriteAllText(lPath, 'unit Foo.Bar;' + sLineBreak + 'interface' + sLineBreak +
     'uses System.SysUtils;' + sLineBreak + 'implementation' + sLineBreak + 'end.',
     TEncoding.UTF8);
@@ -922,7 +943,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
   lRoot: string;
 begin
-  lRoot := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-include-lines');
+  lRoot := UnitModelTempPath('unit-model-include-lines');
   TDirectory.CreateDirectory(lRoot);
   TFile.WriteAllText(TPath.Combine(lRoot, 'Included.inc'), 'type TIncludedLineType = class end;',
     TEncoding.UTF8);
@@ -952,7 +973,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
   lRoot: string;
 begin
-  lRoot := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-include-multiline');
+  lRoot := UnitModelTempPath('unit-model-include-multiline');
   TDirectory.CreateDirectory(lRoot);
   TFile.WriteAllText(TPath.Combine(lRoot, 'IncludedRecord.inc'),
     'type' + sLineBreak +
@@ -985,7 +1006,7 @@ var
   lRoot: string;
   lSource: string;
 begin
-  lRoot := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-include-with-lines');
+  lRoot := UnitModelTempPath('unit-model-include-with-lines');
   TDirectory.CreateDirectory(lRoot);
   TFile.WriteAllText(TPath.Combine(lRoot, 'IncludedTypes.inc'),
     'type' + sLineBreak +
@@ -1031,7 +1052,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
   lPath: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-ansi-extract.pas');
+  lPath := UnitModelTempPath('unit-model-ansi-extract.pas');
   lBytes := [$75, $6E, $69, $74, $20, $41, $6E, $73, $69, $45, $78, $74, $72, $61, $63, $74,
     $55, $6E, $69, $74, $3B, $0D, $0A, $69, $6E, $74, $65, $72, $66, $61, $63, $65,
     $0D, $0A, $2F, $2F, $20, $E4, $0D, $0A, $69, $6D, $70, $6C, $65, $6D, $65, $6E,
@@ -1075,7 +1096,7 @@ var
   lPath: string;
   lSource: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-with-scanner.pas');
+  lPath := UnitModelTempPath('unit-model-with-scanner.pas');
   lSource :=
     'unit WithScannerUnit;' + sLineBreak +
     'interface' + sLineBreak +
@@ -1109,7 +1130,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
   lPath: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-reference-scanner.pas');
+  lPath := UnitModelTempPath('unit-model-reference-scanner.pas');
   TFile.WriteAllText(lPath,
     'unit ReferenceScannerUnit;' + sLineBreak +
     'interface' + sLineBreak +
@@ -1139,7 +1160,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
   lRoot: string;
 begin
-  lRoot := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-include-reference-lines');
+  lRoot := UnitModelTempPath('unit-model-include-reference-lines');
   TDirectory.CreateDirectory(lRoot);
   TFile.WriteAllText(TPath.Combine(lRoot, 'IncludedRefTypes.inc'),
     'type' + sLineBreak +
@@ -1173,7 +1194,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
   lRoot: string;
 begin
-  lRoot := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-include-position-lines');
+  lRoot := UnitModelTempPath('unit-model-include-position-lines');
   TDirectory.CreateDirectory(lRoot);
   TFile.WriteAllText(TPath.Combine(lRoot, 'IncludedManyLines.inc'),
     'type' + sLineBreak +
@@ -1216,7 +1237,7 @@ var
   lPath: string;
   lSource: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-with-if-else.pas');
+  lPath := UnitModelTempPath('unit-model-with-if-else.pas');
   lSource :=
     'unit WithIfElseUnit;' + sLineBreak +
     'interface' + sLineBreak +
@@ -1273,7 +1294,7 @@ var
   lPath: string;
   lSource: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-source-sections.pas');
+  lPath := UnitModelTempPath('unit-model-source-sections.pas');
   lSource :=
     'unit SourceSectionsUnit;' + sLineBreak +
     'interface' + sLineBreak +
@@ -1303,7 +1324,7 @@ var
   lPath: string;
   lSource: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-no-implementation.pas');
+  lPath := UnitModelTempPath('unit-model-no-implementation.pas');
   lSource :=
     'unit NoImplementationUnit;' + sLineBreak +
     'interface' + sLineBreak +
@@ -1334,7 +1355,7 @@ var
   lPath: string;
   lSource: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-section-keywords.pas');
+  lPath := UnitModelTempPath('unit-model-section-keywords.pas');
   lSource :=
     'unit SectionKeywordsUnit;' + sLineBreak +
     'interface' + sLineBreak +
@@ -1377,7 +1398,7 @@ var
   lSecondSameNameOffset: Integer;
   lSource: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-original-ranges.pas');
+  lPath := UnitModelTempPath('unit-model-original-ranges.pas');
   lSource :=
     'unit OriginalRangeUnit;' + sLineBreak +
     'interface' + sLineBreak +
@@ -1514,7 +1535,7 @@ var
   lRoot: string;
   lSource: string;
 begin
-  lRoot := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-reference-ranges');
+  lRoot := UnitModelTempPath('unit-model-reference-ranges');
   TDirectory.CreateDirectory(lRoot);
   TFile.WriteAllText(TPath.Combine(lRoot, 'ReferenceRanges.inc'),
     '// include before body references' + sLineBreak, TEncoding.ASCII);
@@ -1612,7 +1633,7 @@ var
   lRoot: string;
   lSource: string;
 begin
-  lRoot := TPath.Combine(ExtractFilePath(ParamStr(0)), 'unit-model-plain-reference-ranges');
+  lRoot := UnitModelTempPath('unit-model-plain-reference-ranges');
   TDirectory.CreateDirectory(lRoot);
   lPath := TPath.Combine(lRoot, 'PlainReferenceRangeUnit.pas');
   lSource :=

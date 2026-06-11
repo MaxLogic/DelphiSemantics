@@ -1,4 +1,4 @@
-unit Test.DeadCode;
+﻿unit Test.DeadCode;
 
 interface
 
@@ -36,7 +36,28 @@ implementation
 
 uses
   System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GDeadCodeTempRoot: string;
+
+function DeadCodeTempPath(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GDeadCodeTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GDeadCodeTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'snapshot-deadcode-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GDeadCodeTempRoot);
+  Result := TPath.Combine(GDeadCodeTempRoot, aName);
+end;
 
 function TDeadCodeTests.CandidateHasBlocker(const aReport: TDelphiSemanticDeadCodeReport;
   const aName, aBlocker: string): Boolean;
@@ -169,10 +190,7 @@ begin
   lProject := nil;
   lRootPath := '';
   try
-    lRootPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-      'snapshot-deadcode-temp'));
-    if TDirectory.Exists(lRootPath) then
-      TDirectory.Delete(lRootPath, True);
+    lRootPath := DeadCodeTempPath('snapshot-report');
     TDirectory.CreateDirectory(lRootPath);
     lFileName := TPath.Combine(lRootPath, 'SnapshotDeadCodeUnit.pas');
     TFile.WriteAllText(lFileName, 'unit SnapshotDeadCodeUnit;' + sLineBreak +
@@ -220,8 +238,6 @@ begin
   finally
     lContext.ProjectSnapshot := nil;
     lProject.Free;
-    if (lRootPath <> '') and TDirectory.Exists(lRootPath) then
-      TDirectory.Delete(lRootPath, True);
   end;
 end;
 
@@ -248,8 +264,7 @@ var
   lTargetRef: TSemanticSymbolRef;
   lUnit: TUnitSnapshot;
 begin
-  lFileName := TPath.Combine(ExtractFilePath(ParamStr(0)),
-    'snapshot-deadcode-parity-temp.pas');
+  lFileName := DeadCodeTempPath('snapshot-deadcode-parity-temp.pas');
   lSource := 'unit SnapshotDeadCodeParityUnit;' + sLineBreak + 'interface' +
     sLineBreak + 'implementation' + sLineBreak + 'var' + sLineBreak +
     '  SnapshotReferencedHook: Integer;' + sLineBreak +

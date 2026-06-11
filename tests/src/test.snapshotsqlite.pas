@@ -60,10 +60,31 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils, System.Variants,
+  Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   maxLogic.IOUtils,
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.RemoveWith;
+
+var
+  GSnapshotSqliteTempRoot: string;
+
+function SnapshotSqliteTempRoot: string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GSnapshotSqliteTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
+      [rfReplaceAll]);
+    GSnapshotSqliteTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'snapshot-sqlite-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GSnapshotSqliteTempRoot);
+  Result := GSnapshotSqliteTempRoot;
+end;
 
 procedure TSnapshotSqliteTests.AssertIdentityChangeInvalidates(const aName: string;
   const aChangedIdentity: TDelphiSemanticSnapshotCacheIdentity);
@@ -993,8 +1014,7 @@ end;
 
 function TSnapshotSqliteTests.TempPath(const aName: string): string;
 begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-    'snapshot-sqlite-temp', aName]));
+  Result := TPath.GetFullPath(CombinePath([SnapshotSqliteTempRoot, aName]));
   TDirectory.CreateDirectory(TPath.GetDirectoryName(Result));
 end;
 

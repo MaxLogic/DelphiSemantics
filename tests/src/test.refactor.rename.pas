@@ -1,4 +1,4 @@
-unit Test.Refactor.Rename;
+﻿unit Test.Refactor.Rename;
 
 interface
 
@@ -74,7 +74,28 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GRenameTempRoot: string;
+
+function RenameTempPath(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GRenameTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GRenameTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'snapshot-rename-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GRenameTempRoot);
+  Result := TPath.Combine(GRenameTempRoot, aName);
+end;
 
 function TRenamePlannerTests.FixturePath(const aFileName: string): string;
 begin
@@ -355,10 +376,7 @@ begin
   lProject := nil;
   lRootPath := '';
   try
-    lRootPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-      'snapshot-rename-temp'));
-    if TDirectory.Exists(lRootPath) then
-      TDirectory.Delete(lRootPath, True);
+    lRootPath := RenameTempPath('snapshot-rename');
     TDirectory.CreateDirectory(lRootPath);
     lFileName := TPath.Combine(lRootPath, 'SnapshotRenameUnit.pas');
     TFile.WriteAllText(lFileName, 'unit SnapshotRenameUnit;' + sLineBreak +
@@ -420,8 +438,6 @@ begin
   finally
     lContext.ProjectSnapshot := nil;
     lProject.Free;
-    if (lRootPath <> '') and TDirectory.Exists(lRootPath) then
-      TDirectory.Delete(lRootPath, True);
   end;
 end;
 
@@ -445,10 +461,7 @@ begin
   lProject := nil;
   lRootPath := '';
   try
-    lRootPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-      'snapshot-rename-shadow-temp'));
-    if TDirectory.Exists(lRootPath) then
-      TDirectory.Delete(lRootPath, True);
+    lRootPath := RenameTempPath('snapshot-rename-shadow');
     TDirectory.CreateDirectory(lRootPath);
     lFileName := TPath.Combine(lRootPath, 'SnapshotRenameShadowUnit.pas');
     TFile.WriteAllText(lFileName, 'unit SnapshotRenameShadowUnit;' + sLineBreak +
@@ -526,8 +539,6 @@ begin
   finally
     lContext.ProjectSnapshot := nil;
     lProject.Free;
-    if (lRootPath <> '') and TDirectory.Exists(lRootPath) then
-      TDirectory.Delete(lRootPath, True);
   end;
 end;
 

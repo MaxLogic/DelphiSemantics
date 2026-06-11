@@ -1,4 +1,4 @@
-unit Test.WithBinder;
+﻿unit Test.WithBinder;
 
 interface
 
@@ -96,7 +96,28 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GWithBinderTempRoot: string;
+
+function WithBinderTempPath(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GWithBinderTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GWithBinderTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'with-binder-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GWithBinderTempRoot);
+  Result := TPath.Combine(GWithBinderTempRoot, aName);
+end;
 
 function TWithBinderTests.FixturePath(const aFileName: string): string;
 begin
@@ -313,8 +334,7 @@ var
   lPath: string;
   lSource: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)),
-    'withbinder-current-type-regression.pas');
+  lPath := WithBinderTempPath('withbinder-current-type-regression.pas');
   lSource :=
     'unit WithBinderCurrentTypeRegression;' + sLineBreak +
     'interface' + sLineBreak +
@@ -366,8 +386,7 @@ var
   lPath: string;
   lSource: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)),
-    'withbinder-indexed-property-regression.pas');
+  lPath := WithBinderTempPath('withbinder-indexed-property-regression.pas');
   lSource :=
     'unit WithBinderIndexedPropertyRegression;' + sLineBreak +
     'interface' + sLineBreak +
@@ -428,8 +447,7 @@ var
   lReference: TDelphiSemanticBoundReference;
   lSource: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)),
-    'withbinder-scope-conflict-regression.pas');
+  lPath := WithBinderTempPath('withbinder-scope-conflict-regression.pas');
   lSource :=
     'unit WithBinderScopeConflictRegression;' + sLineBreak +
     'interface' + sLineBreak +

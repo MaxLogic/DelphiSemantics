@@ -1,4 +1,4 @@
-unit Test.Preprocess;
+﻿unit Test.Preprocess;
 
 interface
 
@@ -46,8 +46,22 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils,
   DelphiSemantics.ProjectContext;
+
+function PreprocessTempRoot(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  CreateGUID(lGuid);
+  lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
+    [rfReplaceAll]);
+  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'preprocess-temp',
+    'run-' + GetCurrentProcessId.ToString + '-' + lGuidText, aName]));
+  TDirectory.CreateDirectory(Result);
+end;
 
 function TPreprocessTests.FixturePath(const aFolder, aFileName: string): string;
 begin
@@ -123,8 +137,7 @@ var
   lSecond: TDelphiSemanticPreprocessResult;
   lTempDir: string;
 begin
-  lTempDir := TPath.Combine(ExtractFilePath(ParamStr(0)), 'preprocess-temp');
-  TDirectory.CreateDirectory(lTempDir);
+  lTempDir := PreprocessTempRoot('includes');
   TFile.WriteAllText(TPath.Combine(lTempDir, 'Dynamic.inc'), 'type TFirstInclude = class end;',
     TEncoding.UTF8);
   TFile.WriteAllText(TPath.Combine(lTempDir, 'DynamicIncludeUnit.pas'),
@@ -157,8 +170,7 @@ var
   lResult: TDelphiSemanticPreprocessResult;
   lTempDir: string;
 begin
-  lTempDir := TPath.Combine(ExtractFilePath(ParamStr(0)), 'preprocess-cycle-temp');
-  TDirectory.CreateDirectory(lTempDir);
+  lTempDir := PreprocessTempRoot('cycles');
   TFile.WriteAllText(TPath.Combine(lTempDir, 'CycleUnit.pas'),
     'unit CycleUnit;' + sLineBreak +
     'interface' + sLineBreak +

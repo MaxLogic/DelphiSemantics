@@ -1,4 +1,4 @@
-unit Test.ExternalSymbols;
+﻿unit Test.ExternalSymbols;
 
 interface
 
@@ -22,12 +22,32 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GExternalSymbolsTempRoot: string;
+
+function ExternalSymbolsTempRoot: string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GExternalSymbolsTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GExternalSymbolsTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'external-symbols-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GExternalSymbolsTempRoot);
+  Result := GExternalSymbolsTempRoot;
+end;
 
 function TExternalSymbolsTests.TempPath(const aRelativePath: string): string;
 begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-    'external-symbols-temp', aRelativePath]));
+  Result := TPath.GetFullPath(TPath.Combine(ExternalSymbolsTempRoot, aRelativePath));
 end;
 
 procedure TExternalSymbolsTests.CompilerIntrinsicsResolveFromExternalService;
@@ -78,8 +98,6 @@ var
   lTypeResult: TDelphiSemanticExternalSymbolResult;
 begin
   lRtlRoot := TempPath('fake-delphi-source');
-  if TDirectory.Exists(lRtlRoot) then
-    TDirectory.Delete(lRtlRoot, True);
   lCommonRoot := CombinePath([lRtlRoot, 'rtl', 'common']);
   TDirectory.CreateDirectory(lCommonRoot);
   TFile.WriteAllText(TPath.Combine(lCommonRoot, 'Winapi.Windows.pas'),

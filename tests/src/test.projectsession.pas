@@ -1,4 +1,4 @@
-unit Test.ProjectSession;
+﻿unit Test.ProjectSession;
 
 interface
 
@@ -57,12 +57,38 @@ implementation
 uses
   System.IOUtils,
   System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils,
   DelphiSemantics.Api,
   DelphiSemantics.Api.RemoveWith,
   DelphiSemantics.Model,
   DelphiSemantics.ProjectContext,
   DelphiSemantics.ProjectSession;
+
+var
+  GProjectSessionTempRoot: string;
+
+function ProjectSessionTempRoot: string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GProjectSessionTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
+      [rfReplaceAll]);
+    GProjectSessionTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'project-session-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GProjectSessionTempRoot);
+  Result := GProjectSessionTempRoot;
+end;
+
+function ProjectSessionTempPath(const aName: string): string;
+begin
+  Result := TPath.Combine(ProjectSessionTempRoot, aName);
+end;
 
 function TProjectSessionTests.FixturePath(const aRelativePath: string): string;
 begin
@@ -551,10 +577,7 @@ var
   lRootPath: string;
   lSnapshot: TDelphiProjectSnapshot;
 begin
-  lRootPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    'snapshot-session-cache-temp'));
-  if TDirectory.Exists(lRootPath) then
-    TDirectory.Delete(lRootPath, True);
+  lRootPath := ProjectSessionTempPath('snapshot-session-cache-temp');
   TDirectory.CreateDirectory(lRootPath);
 
   lDprPath := TPath.Combine(lRootPath, 'SnapshotSessionCache.dpr');
@@ -646,10 +669,7 @@ var
   lUnit: TUnitSnapshot;
   lUnitPath: string;
 begin
-  lRootPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    'snapshot-session-multi-cache-temp'));
-  if TDirectory.Exists(lRootPath) then
-    TDirectory.Delete(lRootPath, True);
+  lRootPath := ProjectSessionTempPath('snapshot-session-multi-cache-temp');
   TDirectory.CreateDirectory(lRootPath);
 
   lDprPath := TPath.Combine(lRootPath, 'MultiUnitSnapshotCache.dpr');
@@ -802,10 +822,7 @@ var
   lThirdResult: TDelphiSemanticProjectSessionResult;
   lUnitPath: string;
 begin
-  lRootPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    'project-session-cache-temp'));
-  if TDirectory.Exists(lRootPath) then
-    TDirectory.Delete(lRootPath, True);
+  lRootPath := ProjectSessionTempPath('project-session-cache-temp');
   TDirectory.CreateDirectory(lRootPath);
 
   lDprPath := TPath.Combine(lRootPath, 'ProjectFactsCache.dpr');

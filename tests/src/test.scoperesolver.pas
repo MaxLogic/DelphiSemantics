@@ -1,4 +1,4 @@
-unit Test.ScopeResolver;
+﻿unit Test.ScopeResolver;
 
 interface
 
@@ -34,7 +34,28 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils;
+
+var
+  GScopeResolverTempRoot: string;
+
+function ScopeResolverTempPath(const aName: string): string;
+var
+  lGuid: TGUID;
+  lGuidText: string;
+begin
+  if GScopeResolverTempRoot = '' then
+  begin
+    CreateGUID(lGuid);
+    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
+      '', [rfReplaceAll]);
+    GScopeResolverTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'scope-resolver-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  end;
+  TDirectory.CreateDirectory(GScopeResolverTempRoot);
+  Result := TPath.Combine(GScopeResolverTempRoot, aName);
+end;
 
 function TScopeResolverTests.FixturePath(const aFileName: string): string;
 begin
@@ -48,7 +69,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
   lPath: string;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)), aFileName);
+  lPath := ScopeResolverTempPath(aFileName);
   TFile.WriteAllText(lPath, aSource);
   lOptions := Default(TDelphiSemanticModelOptions);
   lOptions.SourceFileName := lPath;
