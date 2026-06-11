@@ -110,6 +110,16 @@ function Get-JsonCount {
   param([object]$Json)
 
   if (($Json.PSObject.Properties.Name -contains 'operation') -and ($Json.operation -eq 'remove-with')) {
+    if (($Json.PSObject.Properties.Name -contains 'summary') -and ($null -ne $Json.summary)) {
+      if (($Json.PSObject.Properties.Name -contains 'mode') -and ($Json.mode -eq 'plan') -and
+          ($Json.summary.PSObject.Properties.Name -contains 'plannedEdits')) {
+        return [string]$Json.summary.plannedEdits
+      }
+      if ($Json.summary.PSObject.Properties.Name -contains 'withStatements') {
+        return [string]$Json.summary.withStatements
+      }
+    }
+
     if (($Json.PSObject.Properties.Name -contains 'mode') -and ($Json.mode -eq 'plan')) {
       if ($Json.PSObject.Properties.Name -contains 'plannedEdits') {
         return [string]@($Json.plannedEdits).Count
@@ -142,6 +152,24 @@ function Get-JsonCount {
   }
 
   return ''
+}
+
+function Get-RemoveWithSummaryCount {
+  param(
+    [object]$Json,
+    [string]$Name
+  )
+
+  if (($Json.PSObject.Properties.Name -contains 'summary') -and ($null -ne $Json.summary) -and
+      ($Json.summary.PSObject.Properties.Name -contains $Name)) {
+    return [int]$Json.summary.$Name
+  }
+
+  if ($Json.PSObject.Properties.Name -contains $Name) {
+    return @($Json.$Name).Count
+  }
+
+  return 0
 }
 
 function Read-ResultCount {
@@ -230,31 +258,61 @@ function Export-RemoveWithPlanParityReport {
   )
 
   $lPlanRuns = @($RunRows | Where-Object {
-    ($_.Id -eq 'remove-with-plan-all') -and
-    ($_.ExitCode -eq 0) -and
-    (-not [string]::IsNullOrWhiteSpace($_.Stdout)) -and
-    (Test-Path -LiteralPath $_.Stdout -PathType Leaf)
+    ($_.Id -eq 'remove-with-plan-all') -and ($_.ExitCode -eq 0)
   })
   if ($lPlanRuns.Count -eq 0) {
     return
   }
 
-  $lRun = $lPlanRuns[0]
-  try {
-    $lJson = Get-Content -LiteralPath $lRun.Stdout -Raw | ConvertFrom-Json
-  } catch {
-    return
-  }
+  $lExpectedWithStatements = 667
+  $lExpectedPlannedEdits = 215
+  $lRun = $null
+  $lJson = $null
+  foreach ($lCandidateRun in $lPlanRuns) {
+    if ([string]::IsNullOrWhiteSpace($lCandidateRun.Stdout) -or
+        (-not (Test-Path -LiteralPath $lCandidateRun.Stdout -PathType Leaf))) {
+      throw "Missing remove-with plan benchmark output: $($lCandidateRun.Stdout)"
+    }
 
-  if (-not ($lJson.PSObject.Properties.Name -contains 'semanticDtoParity')) {
-    return
+    try {
+      $lCandidateJson = Get-Content -LiteralPath $lCandidateRun.Stdout -Raw |
+        ConvertFrom-Json
+    } catch {
+      throw "Unable to read remove-with plan benchmark output: $($lCandidateRun.Stdout)"
+    }
+
+    if (-not ($lCandidateJson.PSObject.Properties.Name -contains 'semanticDtoParity')) {
+      throw "Missing semanticDtoParity in successful remove-with plan output: $($lCandidateRun.Stdout)"
+    }
+
+    $lCandidateParity = $lCandidateJson.semanticDtoParity
+    if (-not ($lCandidateParity.PSObject.Properties.Name -contains 'mismatchCount')) {
+      throw "Missing semanticDtoParity.mismatchCount in successful remove-with plan output: $($lCandidateRun.Stdout)"
+    }
+
+    $lWithStatementCount = Get-RemoveWithSummaryCount -Json $lCandidateJson `
+      -Name 'withStatements'
+    $lPlannedEditCount = Get-RemoveWithSummaryCount -Json $lCandidateJson `
+      -Name 'plannedEdits'
+    $lMismatchCount = [int]$lCandidateParity.mismatchCount
+    if (($lWithStatementCount -ne $lExpectedWithStatements) -or
+        ($lPlannedEditCount -ne $lExpectedPlannedEdits) -or
+        ($lMismatchCount -ne 0)) {
+      throw ('remove-with plan parity drift in {0}: withStatements={1}, plannedEdits={2}, semanticDtoParity.mismatchCount={3}' -f
+        $lCandidateRun.Stdout, $lWithStatementCount, $lPlannedEditCount, $lMismatchCount)
+    }
+
+    if ($null -eq $lRun) {
+      $lRun = $lCandidateRun
+      $lJson = $lCandidateJson
+    }
   }
 
   $lParity = $lJson.semanticDtoParity
   $lReport = [ordered]@{
     status = $lParity.status
-    withStatementCount = @($lJson.withStatements).Count
-    plannedEditCount = @($lJson.plannedEdits).Count
+    withStatementCount = Get-RemoveWithSummaryCount -Json $lJson -Name 'withStatements'
+    plannedEditCount = Get-RemoveWithSummaryCount -Json $lJson -Name 'plannedEdits'
     mismatchCount = [int]$lParity.mismatchCount
     summaryText = $lParity.summaryText
     mismatches = $lParity.mismatches
@@ -400,6 +458,14 @@ function New-SummaryRows {
     $lFirst = $lRows[0]
     $lExit = if (@($lRows | Where-Object { $_.ExitCode -ne 0 }).Count -gt 0) { 1 } else { 0 }
     $lStatus = if ($lExit -eq 0) { 'passed' } else { 'failed' }
+    $lSuccessfulCounts = @($lRows | Where-Object {
+      ($_.ExitCode -eq 0) -and (-not [string]::IsNullOrWhiteSpace($_.ResultCount))
+    } | ForEach-Object { [string]$_.ResultCount } | Select-Object -Unique)
+    if ($lSuccessfulCounts.Count -gt 1) {
+      throw ('Result count drift for {0}/{1}: {2}' -f $lFirst.Id, $lFirst.CacheMode,
+        ($lSuccessfulCounts -join ', '))
+    }
+    $lResultCount = if ($lSuccessfulCounts.Count -eq 1) { $lSuccessfulCounts[0] } else { $lFirst.ResultCount }
     $lMedianSeconds = [Math]::Round((Get-Median -Values $lSeconds), 3)
     $lTargetSeconds = ''
     $lTargetStatus = ''
@@ -426,7 +492,7 @@ function New-SummaryRows {
       TargetStatus = $lTargetStatus
       MinSeconds = [Math]::Round((@($lSeconds | Measure-Object -Minimum).Minimum), 3)
       MaxSeconds = [Math]::Round((@($lSeconds | Measure-Object -Maximum).Maximum), 3)
-      ResultCount = $lFirst.ResultCount
+      ResultCount = $lResultCount
       SemanticCacheHits = $lFirst.SemanticCacheHits
       SemanticCacheMisses = $lFirst.SemanticCacheMisses
       ReferenceFallbackCount = $lFirst.ReferenceFallbackCount
@@ -576,6 +642,7 @@ if ($SummarizeOnly) {
     project = $lExistingSummary.project
     repeat = $lExistingSummary.repeat
     cacheModes = if ($lExistingSummary.PSObject.Properties.Name -contains 'cacheModes') { $lExistingSummary.cacheModes } else { @('default') }
+    warmTargetSeconds = if ($lExistingSummary.PSObject.Properties.Name -contains 'warmTargetSeconds') { $lExistingSummary.warmTargetSeconds } else { $WarmTargetSeconds }
     cacheDirectory = if ($lExistingSummary.PSObject.Properties.Name -contains 'cacheDirectory') { $lExistingSummary.cacheDirectory } else { '' }
     machine = if ($lExistingSummary.PSObject.Properties.Name -contains 'machine') { $lExistingSummary.machine } else { $env:COMPUTERNAME }
     delphiSemanticsSha = if ($lExistingSummary.PSObject.Properties.Name -contains 'delphiSemanticsSha') { $lExistingSummary.delphiSemanticsSha } else { Get-GitSha -Path (Get-Location) }
