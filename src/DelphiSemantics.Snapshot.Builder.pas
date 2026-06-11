@@ -41,7 +41,8 @@ implementation
 uses
   System.Classes, System.Diagnostics, System.IOUtils, System.SysUtils,
   MaxLogic.StrUtils,
-  DelphiSemantics.Index, DelphiSemantics.Query, DelphiSemantics.Symbols;
+  DelphiSemantics.Index, DelphiSemantics.Query, DelphiSemantics.Snapshot.RemoveWith,
+  DelphiSemantics.Symbols;
 
 const
   cSnapshotDeclarationKindAlias = 'alias';

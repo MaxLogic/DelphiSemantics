@@ -36,6 +36,10 @@ type
     [Test]
     procedure SnapshotPlannerAvoidsWholePlanningFactCopies;
     [Test]
+    procedure CoreSnapshotUnitDoesNotExposeRemoveWithPlanningFacts;
+    [Test]
+    procedure RemoveWithSnapshotExtensionPreservesExactPlanningText;
+    [Test]
     procedure SnapshotPlannerDoesNotDelegateToLegacyFactsPlanner;
     [Test]
     procedure SnapshotPlannerPreservesCaseOnlySelectorText;
@@ -472,7 +476,8 @@ type
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils;
+  System.IOUtils, System.StrUtils, System.SysUtils,
+  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.RemoveWith;
 
 var
   GMaxTdbPlanCached: Boolean;
@@ -971,6 +976,52 @@ begin
   Assert.IsTrue(ContainsText(lFunctionSource,
     'RoutineOwners'),
     'Planning snapshots should preserve the small routine-owner subset needed for safety.');
+end;
+
+procedure TRemoveWithPlanTests.CoreSnapshotUnitDoesNotExposeRemoveWithPlanningFacts;
+var
+  lSnapshotSource: string;
+begin
+  lSnapshotSource := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
+    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.Snapshot.pas')),
+    TEncoding.UTF8);
+
+  Assert.IsFalse(ContainsText(lSnapshotSource, 'DelphiSemantics.WithBinding'),
+    'Core snapshot unit must not link remove-with binding contracts.');
+  Assert.IsFalse(ContainsText(lSnapshotSource, 'TSemanticRemoveWith'),
+    'Core snapshot unit must not expose remove-with planning DTOs.');
+  Assert.IsFalse(ContainsText(lSnapshotSource, 'RemoveWithPlanning'),
+    'Core snapshot unit must not expose remove-with planning accessors.');
+  Assert.IsFalse(ContainsText(lSnapshotSource, 'cSemanticRemoveWith'),
+    'Core snapshot unit must not expose remove-with planning flags.');
+end;
+
+procedure TRemoveWithPlanTests.RemoveWithSnapshotExtensionPreservesExactPlanningText;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lFacts: TSemanticRemoveWithPlanningFacts;
+  lProject: TDelphiProjectSnapshot;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lFacts.ContextFingerprintId := lBuilder.ExactStrings.Intern('ctx');
+    SetLength(lFacts.Bindings, 2);
+    lFacts.Bindings[0].SelectorTextId := lBuilder.ExactStrings.Intern('DF[D]^');
+    lFacts.Bindings[1].SelectorTextId := lBuilder.ExactStrings.Intern('DF[d]^');
+    lBuilder.SetRemoveWithPlanningFacts(lFacts);
+    lProject := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+  try
+    lFacts := lProject.RemoveWithPlanningFacts;
+    Assert.AreEqual('DF[D]^', lProject.ExactTextOf(lFacts.Bindings[0].SelectorTextId));
+    Assert.AreEqual('DF[d]^', lProject.ExactTextOf(lFacts.Bindings[1].SelectorTextId));
+    Assert.IsTrue(lFacts.Bindings[0].SelectorTextId <> lFacts.Bindings[1].SelectorTextId,
+      'Source-exact remove-with text must not be case-folded.');
+  finally
+    lProject.Free;
+  end;
 end;
 
 procedure TRemoveWithPlanTests.SnapshotPlannerDoesNotDelegateToLegacyFactsPlanner;

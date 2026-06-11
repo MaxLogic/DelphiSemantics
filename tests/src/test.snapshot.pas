@@ -16,8 +16,6 @@ type
     [Test]
     procedure ProjectSnapshotIndexesOnlyExplicitTypeFacts;
     [Test]
-    procedure ProjectSnapshotPreservesExactRemoveWithPlanningText;
-    [Test]
     procedure ProjectSnapshotFreezesUnitsAndExposesReadOnlyStrings;
     [Test]
     procedure ProjectSnapshotUsesPackedMemberKeysAndBuilderBoundary;
@@ -211,34 +209,6 @@ begin
     lTypeRef := lProject.TypeRefByNameIndex(lLowIndex);
     Assert.AreEqual(1, Integer(lTypeRef.UnitId));
     Assert.AreEqual(Integer(lTypeSymbolId), Integer(lTypeRef.SymbolId));
-  finally
-    lProject.Free;
-  end;
-end;
-
-procedure TSnapshotTests.ProjectSnapshotPreservesExactRemoveWithPlanningText;
-var
-  lBuilder: TDelphiProjectSnapshotBuilder;
-  lFacts: TSemanticRemoveWithPlanningFacts;
-  lProject: TDelphiProjectSnapshot;
-begin
-  lBuilder := TDelphiProjectSnapshotBuilder.Create;
-  try
-    lFacts.ContextFingerprintId := lBuilder.ExactStrings.Intern('ctx');
-    SetLength(lFacts.Bindings, 2);
-    lFacts.Bindings[0].SelectorTextId := lBuilder.ExactStrings.Intern('DF[D]^');
-    lFacts.Bindings[1].SelectorTextId := lBuilder.ExactStrings.Intern('DF[d]^');
-    lBuilder.SetRemoveWithPlanningFacts(lFacts);
-    lProject := lBuilder.Build;
-  finally
-    lBuilder.Free;
-  end;
-  try
-    lFacts := lProject.RemoveWithPlanningFacts;
-    Assert.AreEqual('DF[D]^', lProject.ExactTextOf(lFacts.Bindings[0].SelectorTextId));
-    Assert.AreEqual('DF[d]^', lProject.ExactTextOf(lFacts.Bindings[1].SelectorTextId));
-    Assert.IsTrue(lFacts.Bindings[0].SelectorTextId <> lFacts.Bindings[1].SelectorTextId,
-      'Source-exact remove-with text must not be case-folded.');
   finally
     lProject.Free;
   end;

@@ -3,7 +3,7 @@ unit DelphiSemantics.RemoveWithPlan;
 interface
 
 uses
-  DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
+  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticRemoveWithSourceRange = record

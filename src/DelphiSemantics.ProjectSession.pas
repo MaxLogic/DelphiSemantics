@@ -101,7 +101,8 @@ uses
   System.SysUtils,
   DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Index,
   DelphiSemantics.Query, DelphiSemantics.Snapshot.Builder,
-  DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Symbols, MaxLogic.StrUtils;
+  DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
+  DelphiSemantics.Symbols, MaxLogic.StrUtils;
 
 const
   cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v2';
