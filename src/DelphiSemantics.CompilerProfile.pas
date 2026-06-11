@@ -47,7 +47,7 @@ type
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.Hash, System.IOUtils,
+  System.Classes, System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils,
   System.RegularExpressions, System.StrUtils, System.SysUtils,
   System.Win.Registry,
   Winapi.Windows,
@@ -305,17 +305,22 @@ var
   lFile: string;
   lFileName: string;
   lFiles: TArray<string>;
+  lIndex: Integer;
 begin
   Result := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   if not TDirectory.Exists(aRtlSourceRoot) then
     Exit;
 
   lFiles := TDirectory.GetFiles(aRtlSourceRoot, '*.pas', TSearchOption.soAllDirectories);
+  for lIndex := 0 to High(lFiles) do
+    lFiles[lIndex] := TPath.GetFullPath(lFiles[lIndex]);
+  TArray.Sort<string>(lFiles, TStringComparer.OrdinalIgnoreCase);
   for lFile in lFiles do
   begin
     lFileName := TPath.GetFileName(lFile);
+    // Duplicate RTL basenames use the first normalized sorted path for stable fallback selection.
     if not Result.ContainsKey(lFileName) then
-      Result.Add(lFileName, TPath.GetFullPath(lFile));
+      Result.Add(lFileName, lFile);
   end;
 end;
 

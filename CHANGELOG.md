@@ -70,6 +70,8 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Recursive RTL source fallback now sorts normalized source paths and uses a
+  documented first-sorted-path policy for duplicate unit filenames.
 - Snapshot SQLite cache persistence now uses prepared dense-fact writes,
   preserves remove-with planning extension facts, validates extension row counts,
   and reports snapshot SQL timing metrics through the remove-with benchmark.
