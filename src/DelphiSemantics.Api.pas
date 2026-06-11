@@ -5,13 +5,11 @@ interface
 uses
   DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.ExternalSymbols,
   DelphiSemantics.Index, DelphiSemantics.Model, DelphiSemantics.ProjectContext,
-  DelphiSemantics.ProjectSession, DelphiSemantics.Query, DelphiSemantics.Refactor,
-  DelphiSemantics.RemoveWithPlan,
+  DelphiSemantics.Query, DelphiSemantics.Refactor,
   DelphiSemantics.Resolve.MemberResolver,
   DelphiSemantics.Resolve.ScopeResolver, DelphiSemantics.Resolve.TypeResolver,
   DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Search, DelphiSemantics.SemanticGraph,
-  DelphiSemantics.Symbols, DelphiSemantics.Usage, DelphiSemantics.WithBinding,
-  DelphiSemantics.WithScan;
+  DelphiSemantics.Symbols, DelphiSemantics.Usage, DelphiSemantics.WithScan;
 
 type
   TDelphiSemanticDiagnosticSeverity =
@@ -20,16 +18,6 @@ type
   TDelphiSemanticDiagnostic = DelphiSemantics.ProjectContext.TDelphiSemanticDiagnostic;
   TDelphiSemanticProjectInfo = DelphiSemantics.ProjectContext.TDelphiSemanticProjectInfo;
   TDelphiSemanticContextResult = DelphiSemantics.ProjectContext.TDelphiSemanticContextResult;
-  TDelphiSemanticProjectSessionStatus =
-    DelphiSemantics.ProjectSession.TDelphiSemanticProjectSessionStatus;
-  TDelphiSemanticProjectSession =
-    DelphiSemantics.ProjectSession.TDelphiSemanticProjectSession;
-  TDelphiSemanticProjectSessionResult =
-    DelphiSemantics.ProjectSession.TDelphiSemanticProjectSessionResult;
-  TDelphiSemanticSessionChange =
-    DelphiSemantics.ProjectSession.TDelphiSemanticSessionChange;
-  TDelphiSemanticSessionInvalidationPlan =
-    DelphiSemantics.ProjectSession.TDelphiSemanticSessionInvalidationPlan;
   TDelphiSemanticCacheOptions = DelphiSemantics.Cache.TDelphiSemanticCacheOptions;
   TDelphiSemanticCacheMetrics = DelphiSemantics.Cache.TDelphiSemanticCacheMetrics;
   TDelphiSemanticCacheDiagnostic = DelphiSemantics.Cache.TDelphiSemanticCacheDiagnostic;
@@ -55,52 +43,9 @@ type
     DelphiSemantics.Refactor.TDelphiSemanticDeadCodeRemovalBlocker;
   TDelphiSemanticDeadCodeRemovalPlan =
     DelphiSemantics.Refactor.TDelphiSemanticDeadCodeRemovalPlan;
-  TDelphiSemanticRemoveWithSourceRange =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSourceRange;
-  TDelphiSemanticRemoveWithVerification =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithVerification;
-  TDelphiSemanticRemoveWithEdit =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithEdit;
-  TDelphiSemanticRemoveWithSkippedStatement =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSkippedStatement;
-  TDelphiSemanticRemoveWithSourceVerification =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSourceVerification;
-  TDelphiSemanticRemoveWithFinalTempDecision =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithFinalTempDecision;
-  TDelphiSemanticRemoveWithFinalTextEdit =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithFinalTextEdit;
-  TDelphiSemanticRemoveWithFinalStatement =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithFinalStatement;
-  TDelphiSemanticRemoveWithPlanParityEdit =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParityEdit;
-  TDelphiSemanticRemoveWithPlanParityStatement =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParityStatement;
-  TDelphiSemanticRemoveWithPlanParityMismatch =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParityMismatch;
-  TDelphiSemanticRemoveWithPlanParityReport =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParityReport;
-  TDelphiSemanticRemoveWithPlan =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlan;
-  TDelphiSemanticRemoveWithPlanner =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanner;
-  TDelphiSemanticRemoveWithPlanParity =
-    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParity;
   TDelphiSemanticSearchQuery = DelphiSemantics.Search.TDelphiSemanticSearchQuery;
   TDelphiSemanticSearchMatch = DelphiSemantics.Search.TDelphiSemanticSearchMatch;
   TDelphiSemanticSearchResult = DelphiSemantics.Search.TDelphiSemanticSearchResult;
-  TDelphiSemanticInventorySymbol = DelphiSemantics.WithBinding.TDelphiSemanticInventorySymbol;
-  TDelphiSemanticRemoveWithLookupMetrics =
-    DelphiSemantics.WithBinding.TDelphiSemanticRemoveWithLookupMetrics;
-  TDelphiSemanticRemoveWithLookupIndex =
-    DelphiSemantics.WithBinding.TDelphiSemanticRemoveWithLookupIndex;
-  TDelphiSemanticWithBinding = DelphiSemantics.WithBinding.TDelphiSemanticWithBinding;
-  TDelphiSemanticProjectWithBindingMetrics =
-    DelphiSemantics.WithBinding.TDelphiSemanticProjectWithBindingMetrics;
-  TDelphiSemanticProjectWithBindingFacts =
-    DelphiSemantics.WithBinding.TDelphiSemanticProjectWithBindingFacts;
-  TDelphiSemanticRemoveWithInventory =
-    DelphiSemantics.WithBinding.TDelphiSemanticRemoveWithInventory;
-  TDelphiSemanticWithBinder = DelphiSemantics.WithBinding.TDelphiSemanticWithBinder;
   TDelphiSemanticWithScanOptions =
     DelphiSemantics.WithScan.TDelphiSemanticWithScanOptions;
   TDelphiSemanticWithScanResult =
@@ -197,27 +142,12 @@ type
     SkipWithBindingSemanticGraph: Boolean;
   end;
 
-  TDelphiSemanticUnitIndex = record
-    Success: Boolean;
-    Model: TDelphiSemanticUnitModel;
-    Inventory: TDelphiSemanticRemoveWithInventory;
-    Bindings: TArray<TDelphiSemanticWithBinding>;
-    CacheMetrics: TDelphiSemanticCacheMetrics;
-    CacheDiagnostics: TArray<TDelphiSemanticCacheDiagnostic>;
-  end;
-
   TDelphiSemanticApi = record
   public
     class function LoadProjectContext(const aFileName: string;
       const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticContextResult; static;
-    class function OpenProjectSession(const aOptions: TDelphiSemanticApiOptions):
-      TDelphiSemanticProjectSessionResult; static;
-    class function BuildProjectWithBindingFacts(const aOptions: TDelphiSemanticApiOptions):
-      TDelphiSemanticProjectWithBindingFacts; static;
     class function ScanWithStatements(const aOptions: TDelphiSemanticApiOptions):
       TDelphiSemanticWithScanResult; static;
-    class function BuildUnitIndex(const aOptions: TDelphiSemanticApiOptions):
-      TDelphiSemanticUnitIndex; static;
     class function BuildProjectSymbolIndex(const aContext: TDelphiSemanticSymbolQueryContext):
       TDelphiSemanticProjectSymbolIndex; static;
     class function FindUsagesByName(const aContext: TDelphiSemanticSymbolQueryContext;
@@ -237,13 +167,6 @@ type
       const aProfile: string): TDelphiSemanticDeadCodeReport; static;
     class function PlanDeadCodeRemoval(const aContext: TDelphiSemanticSymbolQueryContext;
       const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; static;
-    class function PlanRemoveWith(const aOptions: TDelphiSemanticApiOptions):
-      TDelphiSemanticRemoveWithPlan; overload; static;
-    class function PlanRemoveWith(const aFacts: TDelphiSemanticProjectWithBindingFacts):
-      TDelphiSemanticRemoveWithPlan; overload; static;
-    class function PlanRemoveWithSnapshot(
-      const aFacts: TDelphiSemanticProjectWithBindingFacts):
-      TDelphiSemanticRemoveWithPlan; static;
     class function Search(const aContext: TDelphiSemanticSymbolQueryContext;
       const aQuery: TDelphiSemanticSearchQuery): TDelphiSemanticSearchResult; static;
   end;
@@ -251,7 +174,7 @@ type
 implementation
 
 uses
-  DelphiSemantics.Cache.Sqlite, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder;
+  System.SysUtils;
 
 function ProjectOptionsFromApiOptions(const aOptions: TDelphiSemanticApiOptions):
   TDelphiSemanticOptions;
@@ -271,16 +194,6 @@ begin
   Result.SkipWithBindingSemanticGraph := aOptions.SkipWithBindingSemanticGraph;
 end;
 
-function ModelOptionsFromApiOptions(const aOptions: TDelphiSemanticApiOptions;
-  const aSourceFileName: string): TDelphiSemanticModelOptions;
-begin
-  Result := Default(TDelphiSemanticModelOptions);
-  Result.SourceFileName := aSourceFileName;
-  Result.Defines := aOptions.Defines;
-  Result.SearchPaths := aOptions.SearchPaths;
-  Result.ProjectContextApplied := aOptions.ProjectContextApplied;
-end;
-
 function WithScanOptionsFromApiOptions(const aOptions: TDelphiSemanticApiOptions):
   TDelphiSemanticWithScanOptions;
 begin
@@ -289,16 +202,6 @@ begin
   Result.Defines := aOptions.Defines;
   Result.SearchPaths := aOptions.SearchPaths;
   Result.ProjectContextApplied := aOptions.ProjectContextApplied;
-end;
-
-function EmptyUnitIndex(const aCache: TDelphiSemanticUnitCache): TDelphiSemanticUnitIndex;
-begin
-  Result := Default(TDelphiSemanticUnitIndex);
-  if Assigned(aCache) then
-  begin
-    Result.CacheMetrics := aCache.Metrics;
-    Result.CacheDiagnostics := aCache.Diagnostics;
-  end;
 end;
 
 class function TDelphiSemanticApi.LoadProjectContext(const aFileName: string;
@@ -310,68 +213,10 @@ begin
   Result := TDelphiSemanticProject.Load(aFileName, lOptions);
 end;
 
-class function TDelphiSemanticApi.OpenProjectSession(
-  const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticProjectSessionResult;
-var
-  lOptions: TDelphiSemanticOptions;
-begin
-  lOptions := ProjectOptionsFromApiOptions(aOptions);
-  if lOptions.ProjectPath = '' then
-    lOptions.ProjectPath := aOptions.ProjectFileName;
-  Result := DelphiSemantics.ProjectSession.TDelphiSemanticProjectSession.Open(lOptions);
-end;
-
-class function TDelphiSemanticApi.BuildProjectWithBindingFacts(
-  const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticProjectWithBindingFacts;
-var
-  lSession: TDelphiSemanticProjectSessionResult;
-begin
-  lSession := OpenProjectSession(aOptions);
-  try
-    if (not lSession.Success) or (lSession.Session = nil) then
-      Exit(Default(TDelphiSemanticProjectWithBindingFacts));
-
-    Result := lSession.Session.BuildWithBindingFacts;
-  finally
-    lSession.Session.Free;
-  end;
-end;
-
 class function TDelphiSemanticApi.ScanWithStatements(
   const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticWithScanResult;
 begin
   Result := TDelphiSemanticWithScanner.ScanFile(WithScanOptionsFromApiOptions(aOptions));
-end;
-
-class function TDelphiSemanticApi.BuildUnitIndex(const aOptions: TDelphiSemanticApiOptions):
-  TDelphiSemanticUnitIndex;
-var
-  lCache: TDelphiSemanticUnitCache;
-  lModelOptions: TDelphiSemanticModelOptions;
-  lSourceFileName: string;
-begin
-  if aOptions.Cache.SqliteCacheFileName <> '' then
-    lCache := TDelphiSemanticSqliteUnitCache.Create(aOptions.Cache)
-  else
-    lCache := TDelphiSemanticUnitCache.Create(aOptions.Cache);
-  try
-    lSourceFileName := aOptions.SourceFileName;
-    if (lSourceFileName = '') and (aOptions.ProjectFileName <> '') then
-      lSourceFileName := LoadProjectContext(aOptions.ProjectFileName, aOptions).Project.MainSourceFileName;
-
-    if lSourceFileName = '' then
-      Exit(EmptyUnitIndex(lCache));
-
-    lModelOptions := ModelOptionsFromApiOptions(aOptions, lSourceFileName);
-    Result.Model := lCache.GetOrExtractUnitModel(lModelOptions);
-    Result.Success := Result.Model.Success;
-    Result.Inventory := TDelphiSemanticWithBinder.BuildInventory(Result.Model);
-    Result.Bindings := Result.Inventory.Bindings;
-    Result.CacheMetrics := lCache.Metrics;
-    Result.CacheDiagnostics := lCache.Diagnostics;
-  finally
-    lCache.Free;
-  end;
 end;
 
 class function TDelphiSemanticApi.BuildProjectSymbolIndex(
@@ -429,48 +274,6 @@ class function TDelphiSemanticApi.PlanDeadCodeRemoval(
   TDelphiSemanticDeadCodeRemovalPlan;
 begin
   Result := TDelphiSemanticRenamePlanner.PlanDeadCodeRemoval(aContext, aProfile);
-end;
-
-class function TDelphiSemanticApi.PlanRemoveWith(
-  const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticRemoveWithPlan;
-var
-  lSession: TDelphiSemanticProjectSessionResult;
-begin
-  lSession := OpenProjectSession(aOptions);
-  try
-    if (not lSession.Success) or (lSession.Session = nil) then
-    begin
-      Result := Default(TDelphiSemanticRemoveWithPlan);
-      Result.Operation := 'remove-with';
-      Result.Status := 'blocked';
-      Result.BaselineSemanticModelVersion := 'project-snapshot-v1';
-      Result.Diagnostic := 'Cannot open project session.';
-      Exit;
-    end;
-
-    Result := lSession.Session.PlanRemoveWith;
-  finally
-    lSession.Session.Free;
-  end;
-end;
-
-class function TDelphiSemanticApi.PlanRemoveWith(
-  const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
-begin
-  Result := TDelphiSemanticRemoveWithPlanner.Plan(aFacts);
-end;
-
-class function TDelphiSemanticApi.PlanRemoveWithSnapshot(
-  const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
-var
-  lSnapshot: TDelphiProjectSnapshot;
-begin
-  lSnapshot := BuildRemoveWithPlanningSnapshotFromFacts(aFacts);
-  try
-    Result := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
-  finally
-    lSnapshot.Free;
-  end;
 end;
 
 class function TDelphiSemanticApi.Search(const aContext: TDelphiSemanticSymbolQueryContext;

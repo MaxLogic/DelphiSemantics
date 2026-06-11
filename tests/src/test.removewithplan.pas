@@ -4,7 +4,7 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Api;
+  DelphiSemantics.Api, DelphiSemantics.Api.RemoveWith;
 
 type
   [TestFixture]
@@ -664,8 +664,8 @@ begin
 
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := lFullProjectPath;
-  lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
-  Result := TDelphiSemanticApi.PlanRemoveWith(lFacts);
+  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lOptions);
+  Result := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lFacts);
   if IsMaxTdbProjectPath(lFullProjectPath) then
   begin
     GMaxTdbPlan := Result;
@@ -778,7 +778,7 @@ begin
   lSkippedFacts.Bindings[0].SemanticId := 'with:skipped';
   lSkippedFacts.Bindings[0].Status := 'skipped';
   lSkippedFacts.Bindings[0].SkipReason := 'UNRESOLVED_REFERENCE';
-  lSkippedPlan := TDelphiSemanticApi.PlanRemoveWith(lSkippedFacts);
+  lSkippedPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lSkippedFacts);
   Assert.AreEqual(0, Integer(Length(lSkippedPlan.Edits)));
   Assert.AreEqual(1, Integer(Length(lSkippedPlan.SkippedStatements)));
   Assert.AreEqual('SOURCE_RANGE_UNAVAILABLE', lSkippedPlan.SkippedStatements[0].Reason);
@@ -811,8 +811,8 @@ begin
   lExpectedOptions := Default(TDelphiSemanticApiOptions);
   lExpectedOptions.ProjectFileName := FixturePath(
     'ProjectWithBinding\ProjectWithBinding.dproj');
-  lExpectedFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lExpectedOptions);
-  lExpectedPlan := TDelphiSemanticApi.PlanRemoveWith(lExpectedFacts);
+  lExpectedFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lExpectedOptions);
+  lExpectedPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lExpectedFacts);
 
   lOptions := lExpectedOptions;
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lCacheDir,
@@ -821,7 +821,7 @@ begin
   TDirectory.CreateDirectory(lProjectFactsSidecar);
   Assert.IsTrue(TDirectory.Exists(lProjectFactsSidecar));
 
-  lActualPlan := TDelphiSemanticApi.PlanRemoveWith(lOptions);
+  lActualPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lOptions);
 
   Assert.AreEqual('project-snapshot-v1', lActualPlan.BaselineSemanticModelVersion);
   Assert.AreEqual(lExpectedPlan.Status, lActualPlan.Status, lActualPlan.Diagnostic);
@@ -852,9 +852,9 @@ begin
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
 
-  lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
-  lExpectedPlan := TDelphiSemanticApi.PlanRemoveWith(lFacts);
-  lActualPlan := TDelphiSemanticApi.PlanRemoveWithSnapshot(lFacts);
+  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lOptions);
+  lExpectedPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lFacts);
+  lActualPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWithSnapshot(lFacts);
 
   Assert.AreEqual('project-snapshot-v1', lActualPlan.BaselineSemanticModelVersion);
   Assert.AreEqual(lExpectedPlan.Status, lActualPlan.Status, lActualPlan.Diagnostic);
@@ -874,10 +874,10 @@ begin
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
 
-  lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
-  lExpectedPlan := TDelphiSemanticApi.PlanRemoveWith(lFacts);
+  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lOptions);
+  lExpectedPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lFacts);
   lFacts.LookupIndex := Default(TDelphiSemanticRemoveWithLookupIndex);
-  lActualPlan := TDelphiSemanticApi.PlanRemoveWithSnapshot(lFacts);
+  lActualPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWithSnapshot(lFacts);
 
   Assert.AreEqual(lExpectedPlan.Status, lActualPlan.Status, lActualPlan.Diagnostic);
   Assert.AreEqual(ComparableRemoveWithPlanText(lExpectedPlan),
@@ -893,12 +893,12 @@ var
   lSourceText: string;
 begin
   lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
-    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.Api.pas')),
+    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.Api.RemoveWith.pas')),
     TEncoding.UTF8);
 
-  lFunctionStart := Pos('class function TDelphiSemanticApi.PlanRemoveWithSnapshot',
+  lFunctionStart := Pos('class function TDelphiSemanticRemoveWithApi.PlanRemoveWithSnapshot',
     lSourceText);
-  lFunctionEnd := PosEx('class function TDelphiSemanticApi.Search',
+  lFunctionEnd := PosEx('end.',
     lSourceText, lFunctionStart);
   Assert.IsTrue((lFunctionStart > 0) and (lFunctionEnd > lFunctionStart),
     'Expected PlanRemoveWithSnapshot implementation section.');
@@ -1108,8 +1108,8 @@ begin
 
   lExpectedOptions := Default(TDelphiSemanticApiOptions);
   lExpectedOptions.ProjectFileName := lProjectPath;
-  lExpectedFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lExpectedOptions);
-  lExpectedPlan := TDelphiSemanticApi.PlanRemoveWith(lExpectedFacts);
+  lExpectedFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lExpectedOptions);
+  lExpectedPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lExpectedFacts);
 
   lCacheDir := TempPath('snapshot-planner-case-selector-cache');
   if TDirectory.Exists(lCacheDir) then
@@ -1119,7 +1119,7 @@ begin
   lOptions := lExpectedOptions;
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lCacheDir,
     'semantic-cache.sqlite3');
-  lActualPlan := TDelphiSemanticApi.PlanRemoveWith(lOptions);
+  lActualPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lOptions);
 
   Assert.AreEqual(ComparableRemoveWithPlanText(lExpectedPlan),
     ComparableRemoveWithPlanText(lActualPlan),
@@ -1154,7 +1154,7 @@ begin
   lProjectFactsSidecar := lOptions.Cache.SqliteCacheFileName + '.project-facts.json';
   TDirectory.CreateDirectory(lProjectFactsSidecar);
 
-  lPlan := TDelphiSemanticApi.PlanRemoveWith(lOptions);
+  lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lOptions);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual('project-snapshot-v1', lPlan.BaselineSemanticModelVersion);
@@ -1895,7 +1895,7 @@ begin
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := DakFixturePath(
     'RemoveWithTempAggregationFixture\RemoveWithTempAggregationFixture.dproj');
-  lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
+  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lOptions);
 
   Assert.IsTrue(lFacts.LookupIndex.FindRoutineSymbol(
     'TTempAggregationScope.ExistingVarSection', 'aFirstRecord', lSymbol),
@@ -1911,7 +1911,7 @@ begin
   Assert.IsTrue(lFacts.LookupIndex.FindRoutineSymbol(lFacts.Bindings[0].RoutineName,
     'lMarker', lSymbol), 'Expected local marker to resolve in binding routine.');
 
-  lPlan := TDelphiSemanticApi.PlanRemoveWith(lFacts);
+  lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lFacts);
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
     'Expected existing var-section record selector.');
@@ -2637,8 +2637,8 @@ begin
   lOptions.Configuration := 'Release';
   lOptions.Platform := 'Win32';
   lOptions.DelphiVersion := '23.0';
-  lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
-  lPlan := TDelphiSemanticApi.PlanRemoveWith(lFacts);
+  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lFacts);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'FileIO.pas', 853, 3, lStatement),
     'Expected maxTdb FileIO security with statement.');
@@ -4694,8 +4694,8 @@ begin
   lOptions.ProjectFileName := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
   lOptions.BodyAnalysisSourceFileNames := MaxTdbBodyAnalysisSourceFileNames;
 
-  lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
-  lPlan := TDelphiSemanticApi.PlanRemoveWith(lFacts);
+  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lFacts);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 801, 3, lStatement),
     'Expected maxTdb tdb01 h_FNr RelRec with statement.');
@@ -7004,8 +7004,8 @@ begin
   lOptions.SkipWithBindingSemanticGraph := True;
   lOptions.AdditionalSourceFileNames := TDirectory.GetFiles(lSourceDir, '*.pas',
     TSearchOption.soAllDirectories);
-  lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
-  lPlan := TDelphiSemanticApi.PlanRemoveWith(lFacts);
+  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lFacts);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1134, 3, lStatement),
     'Expected maxTdb tdbutils FlipMark ml with statement.');
@@ -7650,8 +7650,8 @@ begin
   lOptions.SkipWithBindingSemanticGraph := True;
   lOptions.AdditionalSourceFileNames := TDirectory.GetFiles(lSourceDir, '*.pas',
     TSearchOption.soAllDirectories);
-  lFacts := TDelphiSemanticApi.BuildProjectWithBindingFacts(lOptions);
-  lPlan := TDelphiSemanticApi.PlanRemoveWith(lFacts);
+  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lFacts);
 
   lMatchCount := 0;
   for lStatementItem in lPlan.FinalStatements do

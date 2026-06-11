@@ -42,8 +42,9 @@
   with documented sequential DAK RemoveWith execution and `DAK_TEST_OUTPUT_ROOT` isolation guidance.
 - Migration gate script and documentation for the DelphiSemantics suite, DAK remove-with suite,
   and cloned maxTdb apply smoke.
-- Stable `DelphiSemantics.Api` facade for project-context loading, cache-backed unit indexing,
-  with-binding inventory, cache metrics, and DAK integration.
+- Stable `DelphiSemantics.Api` facade for project-context loading, query/refactor/search entrypoints,
+  and DAK integration, with remove-with and with-binding compatibility APIs split into explicit
+  `DelphiSemantics.Api.RemoveWith` and `DelphiSemantics.Api.WithBinding` units.
 - DAK obsolete GlobalVars and RemoveWith parser snapshots are backed up under `_obselete` and excluded from normal compilation.
 - DAK GlobalVars now consumes the DelphiSemantics global analysis API and rebuilds legacy cache schema entries through the new analyzer.
 - Global variable semantic analysis API for reusable declarations, usages, ambiguity reporting, access classification, local shadowing, and semantic filters.

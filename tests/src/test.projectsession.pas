@@ -27,7 +27,7 @@ type
       TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
   public
     [Test]
-    procedure ApiFacadeOpensProjectSessionFromProjectFileName;
+    procedure ProjectSessionOpensFromProjectFileName;
     [Test]
     procedure EmptyProjectPathReturnsStructuredSessionDiagnostic;
     [Test]
@@ -59,6 +59,7 @@ uses
   System.SysUtils,
   maxLogic.IOUtils,
   DelphiSemantics.Api,
+  DelphiSemantics.Api.RemoveWith,
   DelphiSemantics.Model,
   DelphiSemantics.ProjectContext,
   DelphiSemantics.ProjectSession;
@@ -233,15 +234,15 @@ begin
   end;
 end;
 
-procedure TProjectSessionTests.ApiFacadeOpensProjectSessionFromProjectFileName;
+procedure TProjectSessionTests.ProjectSessionOpensFromProjectFileName;
 var
-  lOptions: TDelphiSemanticApiOptions;
+  lOptions: TDelphiSemanticOptions;
   lResult: TDelphiSemanticProjectSessionResult;
 begin
-  lOptions := Default(TDelphiSemanticApiOptions);
-  lOptions.ProjectFileName := FixturePath('ProjectContext\Basic\BasicProject.dproj');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectContext\Basic\BasicProject.dproj');
 
-  lResult := TDelphiSemanticApi.OpenProjectSession(lOptions);
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
     Assert.AreEqual(psOpen, lResult.Status);

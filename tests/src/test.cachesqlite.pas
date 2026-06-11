@@ -60,7 +60,7 @@ implementation
 uses
   System.IOUtils, System.SysUtils, System.Variants,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
-  DelphiSemantics.Api, DelphiSemantics.CompilerProfile,
+  DelphiSemantics.Api, DelphiSemantics.Api.WithBinding, DelphiSemantics.CompilerProfile,
   maxLogic.IOUtils;
 
 function TCacheSqliteTests.HasCacheDiagnostic(const aCache: TDelphiSemanticSqliteUnitCache;
@@ -423,7 +423,7 @@ begin
   if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
     TFile.Delete(lOptions.Cache.SqliteCacheFileName);
 
-  lIndex := TDelphiSemanticApi.BuildUnitIndex(lOptions);
+  lIndex := TDelphiSemanticWithBindingApi.BuildUnitIndex(lOptions);
 
   Assert.IsTrue(lIndex.Success);
   Assert.AreEqual('sqlite', lIndex.CacheMetrics.CacheKind);

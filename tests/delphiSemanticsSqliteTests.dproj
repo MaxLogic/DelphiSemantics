@@ -63,6 +63,8 @@
     </DelphiCompile>
     <DCCReference Include="src\test.cachesqlite.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Api.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Api.RemoveWith.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Api.WithBinding.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Cache.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Cache.Sqlite.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.CompilerProfile.pas"/>

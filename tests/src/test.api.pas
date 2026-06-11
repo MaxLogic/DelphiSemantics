@@ -13,8 +13,6 @@ type
   public
     [Test]
     procedure LoadsProjectContextThroughStableFacade;
-    [Test]
-    procedure BuildsCacheBackedUnitIndexWithWithBindings;
   end;
 
 implementation
@@ -46,24 +44,6 @@ begin
   Assert.AreEqual('BasicProject', lResult.Project.ProjectName);
   Assert.AreEqual('Debug', lResult.Project.Configuration);
   Assert.AreEqual('Win32', lResult.Project.Platform);
-end;
-
-procedure TApiTests.BuildsCacheBackedUnitIndexWithWithBindings;
-var
-  lIndex: TDelphiSemanticUnitIndex;
-  lOptions: TDelphiSemanticApiOptions;
-begin
-  lOptions := Default(TDelphiSemanticApiOptions);
-  lOptions.SourceFileName := FixturePath('WithBinder\WithBinderUnit.pas');
-  lOptions.ProjectContextApplied := True;
-
-  lIndex := TDelphiSemanticApi.BuildUnitIndex(lOptions);
-
-  Assert.IsTrue(lIndex.Success);
-  Assert.AreEqual('WithBinderUnit', lIndex.Model.UnitName);
-  Assert.IsTrue(Length(lIndex.Bindings) > 0, 'Expected stable facade to expose with bindings.');
-  Assert.IsTrue(Length(lIndex.Inventory.Symbols) > 0, 'Expected stable facade to expose inventory symbols.');
-  Assert.AreEqual('in-memory', lIndex.CacheMetrics.CacheKind);
 end;
 
 initialization

@@ -4,7 +4,7 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Api;
+  DelphiSemantics.ProjectSession;
 
 type
   [TestFixture]
@@ -21,18 +21,19 @@ type
 implementation
 
 uses
-  System.IOUtils, System.SysUtils;
+  System.IOUtils, System.SysUtils,
+  DelphiSemantics.ProjectContext;
 
 function TSemanticInvalidationTests.BuildSession(const aProjectDir: string):
   TDelphiSemanticProjectSession;
 var
-  lOptions: TDelphiSemanticApiOptions;
+  lOptions: TDelphiSemanticOptions;
   lResult: TDelphiSemanticProjectSessionResult;
 begin
-  lOptions := Default(TDelphiSemanticApiOptions);
-  lOptions.ProjectFileName := TPath.Combine(aProjectDir, 'InvalidationProject.dproj');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(aProjectDir, 'InvalidationProject.dproj');
 
-  lResult := TDelphiSemanticApi.OpenProjectSession(lOptions);
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
   Assert.IsTrue(lResult.Success);
   Result := lResult.Session;
 end;

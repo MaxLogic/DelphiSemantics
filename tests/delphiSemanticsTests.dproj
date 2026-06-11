@@ -103,6 +103,8 @@
     <DCCReference Include="src\test.withscan.pas"/>
     <DCCReference Include="src\test.withbinder.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Api.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Api.RemoveWith.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Api.WithBinding.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Cache.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Cache.Sqlite.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.CompilerProfile.pas"/>

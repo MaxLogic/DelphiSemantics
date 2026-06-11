@@ -8,6 +8,7 @@ uses
   DelphiSemantics.Cache,
   DelphiSemantics.CompilerProfile,
   DelphiSemantics.Model,
+  DelphiSemantics.ProjectContext,
   DelphiSemantics.ProjectSession,
   DelphiSemantics.Query,
   DelphiSemantics.Snapshot,
@@ -110,7 +111,7 @@ var
   lDprojPath: string;
   lFoundDeclaration: Boolean;
   lFoundReference: Boolean;
-  lOptions: TDelphiSemanticApiOptions;
+  lOptions: TDelphiSemanticOptions;
   lResult: TDelphiSemanticUsageResult;
   lRootPath: string;
   lSessionResult: TDelphiSemanticProjectSessionResult;
@@ -145,11 +146,11 @@ begin
     sLineBreak + '    <DCCReference Include="SnapshotUsageUnit.pas"/>' +
     sLineBreak + '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
 
-  lOptions := Default(TDelphiSemanticApiOptions);
-  lOptions.ProjectFileName := lDprojPath;
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojPath;
 
   try
-    lSessionResult := TDelphiSemanticApi.OpenProjectSession(lOptions);
+    lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
     try
       Assert.IsTrue(lSessionResult.Success);
       lSnapshot := lSessionResult.Session.BuildSnapshot;
