@@ -3,8 +3,9 @@ unit DelphiSemantics.ProjectSession;
 interface
 
 uses
-  DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.RemoveWithPlan,
-  DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
+  DelphiSemantics.Cache, DelphiSemantics.Model, DelphiSemantics.ProjectContext,
+  DelphiSemantics.Query, DelphiSemantics.RemoveWithPlan, DelphiSemantics.SemanticGraph,
+  DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticProjectSession = class;
@@ -76,6 +77,8 @@ type
       const aDiagnostics: TArray<TDelphiSemanticDiagnostic>;
       const aStatus: TDelphiSemanticProjectSessionStatus; const aProvenance: string);
     function BuildSemanticGraph: TDelphiSemanticSemanticGraph;
+    function BuildSymbolQueryContext(out aCacheMetrics: TDelphiSemanticCacheMetrics;
+      out aExtractionMilliseconds: Int64): TDelphiSemanticSymbolQueryContext;
     function BuildSnapshot: TDelphiProjectSnapshot;
     function BuildWithBindingFacts: TDelphiSemanticProjectWithBindingFacts;
     function PlanRemoveWith: TDelphiSemanticRemoveWithPlan;
@@ -99,7 +102,7 @@ implementation
 uses
   System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils,
   System.SysUtils,
-  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Snapshot.Builder,
+  DelphiSemantics.Cache.Sqlite, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
   MaxLogic.StrUtils;
 
@@ -690,6 +693,34 @@ begin
   lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds);
   Result := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lModels);
   fLastSemanticGraphBuildMetrics := Result.Metrics;
+end;
+
+function TDelphiSemanticProjectSession.BuildSymbolQueryContext(
+  out aCacheMetrics: TDelphiSemanticCacheMetrics; out aExtractionMilliseconds: Int64):
+  TDelphiSemanticSymbolQueryContext;
+var
+  i: Integer;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+begin
+  Result := Default(TDelphiSemanticSymbolQueryContext);
+  aCacheMetrics := Default(TDelphiSemanticCacheMetrics);
+  aExtractionMilliseconds := 0;
+  lModels := ExtractProjectModels(fProject, fOptions, aExtractionMilliseconds,
+    aCacheMetrics);
+  if Length(lModels) = 0 then
+    Exit;
+
+  Result.UnitModel := lModels[0];
+  if Length(lModels) > 1 then
+  begin
+    SetLength(Result.IndexedUnitModels, Length(lModels) - 1);
+    SetLength(Result.IndexedUnitSourceKinds, Length(lModels) - 1);
+    for i := 1 to High(lModels) do
+    begin
+      Result.IndexedUnitModels[i - 1] := lModels[i];
+      Result.IndexedUnitSourceKinds[i - 1] := 'project-source';
+    end;
+  end;
 end;
 
 function TDelphiSemanticProjectSession.BuildSnapshot: TDelphiProjectSnapshot;

@@ -342,12 +342,12 @@ begin
     lSnapshot := lResult.Session.BuildSnapshot;
     try
       lMetrics := lResult.Session.LastSnapshotBuildMetrics;
-      Assert.AreEqual(Length(lFacts.UnitModels), lSnapshot.UnitCount);
+      Assert.AreEqual(Integer(Length(lFacts.UnitModels)), lSnapshot.UnitCount);
       Assert.AreEqual(lSnapshot.UnitCount, lMetrics.UnitCount);
       Assert.AreEqual(lExpectedSymbolCount, lMetrics.SymbolCount);
       Assert.AreEqual(lExpectedReferenceCount, lMetrics.ReferenceCount);
       Assert.AreEqual(lExpectedWithStatementCount, lMetrics.WithStatementCount);
-      Assert.AreEqual(Length(lFacts.Bindings), lMetrics.WithStatementCount);
+      Assert.AreEqual(Integer(Length(lFacts.Bindings)), lMetrics.WithStatementCount);
       Assert.IsTrue(lMetrics.BuildMilliseconds >= 0);
 
       Assert.IsTrue(lSnapshot.TryFindUnitByFileName(
