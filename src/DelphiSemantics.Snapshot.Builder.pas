@@ -33,6 +33,10 @@ function BuildProjectSnapshotFromModels(
 function BuildProjectSnapshotFromUnitSnapshots(
   const aSnapshots: TArray<TDelphiProjectSnapshot>;
   out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
+function BuildProjectUnitSnapshotFromModels(
+  const aModels: TArray<TDelphiSemanticUnitModel>; const aModelIndex: Integer;
+  const aUnitId: TSemanticUnitId; out aMetrics: TDelphiSnapshotBuilderMetrics):
+  TDelphiProjectSnapshot;
 function BuildRemoveWithPlanningSnapshotFromFacts(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiProjectSnapshot;
 function BuildSnapshotReferenceTargets(
@@ -1469,6 +1473,34 @@ begin
         aMetrics);
       Result := MergeUnitResults(lResults, aRemoveWithFacts, aMetrics);
     end;
+  finally
+    lStopwatch.Stop;
+    aMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;
+    FreeUnitBuildResults(lResults);
+    lReferenceTargets.Free;
+  end;
+end;
+
+function BuildProjectUnitSnapshotFromModels(
+  const aModels: TArray<TDelphiSemanticUnitModel>; const aModelIndex: Integer;
+  const aUnitId: TSemanticUnitId; out aMetrics: TDelphiSnapshotBuilderMetrics):
+  TDelphiProjectSnapshot;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
+  lResults: TArray<TSnapshotUnitBuildResult>;
+  lStopwatch: TStopwatch;
+begin
+  aMetrics := Default(TDelphiSnapshotBuilderMetrics);
+  lFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+  lReferenceTargets := nil;
+  lResults := nil;
+  lStopwatch := TStopwatch.StartNew;
+  try
+    lReferenceTargets := BuildSnapshotReferenceTargets(aModels);
+    SetLength(lResults, 1);
+    lResults[0] := BuildUnitResult(aModels[aModelIndex], aUnitId, lReferenceTargets);
+    Result := MergeUnitResults(lResults, lFacts, aMetrics);
   finally
     lStopwatch.Stop;
     aMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;
