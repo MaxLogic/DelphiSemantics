@@ -396,8 +396,8 @@ function ConvertTo-MarkdownTable {
 
   $lCulture = [System.Globalization.CultureInfo]::InvariantCulture
   $lLines = New-Object System.Collections.Generic.List[string]
-  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Target seconds | Target status | Min | Max | Result count | Cache hits | Cache misses | Reference fallbacks |')
-  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|')
+  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Target seconds | Target status | Min | Max | Result count | Cache hits | Cache misses | Reference fallbacks | Source mutation |')
+  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|---|')
   foreach ($lRow in $Rows) {
     $lCount = if ([string]::IsNullOrWhiteSpace($lRow.ResultCount)) { '' } else { $lRow.ResultCount }
     $lHits = if ([string]::IsNullOrWhiteSpace($lRow.SemanticCacheHits)) { '' } else { $lRow.SemanticCacheHits }
@@ -414,7 +414,9 @@ function ConvertTo-MarkdownTable {
     $lMedian = ([double]$lRow.MedianSeconds).ToString('F3', $lCulture)
     $lMin = ([double]$lRow.MinSeconds).ToString('F3', $lCulture)
     $lMax = ([double]$lRow.MaxSeconds).ToString('F3', $lCulture)
-    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} | {14} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lTargetSeconds, $lTargetStatus, $lMin, $lMax, $lCount, $lHits, $lMisses, $lFallbacks))
+    $lMutation = if (($lRow.PSObject.Properties.Name -contains 'SourceMutationStatus') -and
+        -not [string]::IsNullOrWhiteSpace($lRow.SourceMutationStatus)) { $lRow.SourceMutationStatus } else { '' }
+    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} | {14} | {15} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lTargetSeconds, $lTargetStatus, $lMin, $lMax, $lCount, $lHits, $lMisses, $lFallbacks, $lMutation))
   }
 
   return ($lLines -join [Environment]::NewLine)
@@ -447,6 +449,175 @@ function Remove-ColdCacheArtifacts {
   }
 }
 
+function Get-ProjectSourceRoot {
+  param([string]$ProjectPath)
+
+  return Split-Path -Parent ([System.IO.Path]::GetFullPath($ProjectPath))
+}
+
+function Get-ProjectDprojPath {
+  param([string]$ProjectPath)
+
+  if ([System.IO.Path]::GetExtension($ProjectPath).Equals('.dproj',
+      [System.StringComparison]::OrdinalIgnoreCase)) {
+    return [System.IO.Path]::GetFullPath($ProjectPath)
+  }
+
+  $lCandidate = [System.IO.Path]::ChangeExtension($ProjectPath, '.dproj')
+  if (Test-Path -LiteralPath $lCandidate -PathType Leaf) {
+    return [System.IO.Path]::GetFullPath($lCandidate)
+  }
+
+  return ''
+}
+
+function Resolve-ProjectPathToken {
+  param(
+    [string]$BaseDirectory,
+    [string]$Path
+  )
+
+  $lPath = $Path.Trim()
+  if ([string]::IsNullOrWhiteSpace($lPath) -or $lPath.StartsWith('$(')) {
+    return ''
+  }
+
+  if ([System.IO.Path]::IsPathRooted($lPath)) {
+    return [System.IO.Path]::GetFullPath($lPath)
+  }
+
+  return [System.IO.Path]::GetFullPath((Join-Path $BaseDirectory $lPath))
+}
+
+function Get-ProjectSearchPathDirectories {
+  param([string]$ProjectPath)
+
+  $lDprojPath = Get-ProjectDprojPath -ProjectPath $ProjectPath
+  if ($lDprojPath -eq '') {
+    return @()
+  }
+
+  $lDprojDirectory = Split-Path -Parent $lDprojPath
+  $lDirectories = [System.Collections.Generic.HashSet[string]]::new(
+    [System.StringComparer]::OrdinalIgnoreCase)
+  $lText = Get-Content -LiteralPath $lDprojPath -Raw
+  foreach ($lMatch in [regex]::Matches($lText,
+      '<DCC_UnitSearchPath>(.*?)</DCC_UnitSearchPath>',
+      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
+    foreach ($lPart in $lMatch.Groups[1].Value.Split(';')) {
+      $lDirectory = Resolve-ProjectPathToken -BaseDirectory $lDprojDirectory `
+        -Path $lPart
+      if (($lDirectory -ne '') -and (Test-Path -LiteralPath $lDirectory -PathType Container)) {
+        [void]$lDirectories.Add($lDirectory)
+      }
+    }
+  }
+
+  return @($lDirectories)
+}
+
+function Get-ProjectSourceFiles {
+  param([string]$ProjectPath)
+
+  $lRoot = Get-ProjectSourceRoot -ProjectPath $ProjectPath
+  $lFiles = [System.Collections.Generic.HashSet[string]]::new(
+    [System.StringComparer]::OrdinalIgnoreCase)
+  if (-not (Test-Path -LiteralPath $lRoot -PathType Container)) {
+    return @()
+  }
+
+  $lExtensions = @('.pas', '.dpr', '.dpk', '.inc', '.dfm', '.fmx')
+  Get-ChildItem -LiteralPath $lRoot -Recurse -File | Where-Object {
+    $lExtensions -contains $_.Extension.ToLowerInvariant()
+  } | ForEach-Object { [void]$lFiles.Add($_.FullName) }
+
+  foreach ($lDirectory in Get-ProjectSearchPathDirectories -ProjectPath $ProjectPath) {
+    Get-ChildItem -LiteralPath $lDirectory -Recurse -File | Where-Object {
+      $lExtensions -contains $_.Extension.ToLowerInvariant()
+    } | ForEach-Object { [void]$lFiles.Add($_.FullName) }
+  }
+
+  if (Test-Path -LiteralPath $ProjectPath -PathType Leaf) {
+    [void]$lFiles.Add([System.IO.Path]::GetFullPath($ProjectPath))
+    $lProjectText = Get-Content -LiteralPath $ProjectPath -Raw
+    foreach ($lMatch in [regex]::Matches($lProjectText, "\bin\s+'([^']+)'",
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
+      $lReferencedPath = $lMatch.Groups[1].Value
+      if ([string]::IsNullOrWhiteSpace($lReferencedPath)) {
+        Continue
+      }
+
+      $lFullPath = Resolve-ProjectPathToken -BaseDirectory $lRoot `
+        -Path $lReferencedPath
+      if ((Test-Path -LiteralPath $lFullPath -PathType Leaf) -and
+          ($lExtensions -contains ([System.IO.Path]::GetExtension($lFullPath).ToLowerInvariant()))) {
+        [void]$lFiles.Add($lFullPath)
+      }
+    }
+  }
+
+  return @($lFiles)
+}
+
+function New-SourceSnapshot {
+  param([string]$ProjectPath)
+
+  $lSnapshot = @{}
+  foreach ($lPath in Get-ProjectSourceFiles -ProjectPath $ProjectPath) {
+    $lSnapshot[$lPath] = [pscustomobject]@{
+      Hash = (Get-FileHash -LiteralPath $lPath -Algorithm SHA256).Hash
+      Bytes = [System.IO.File]::ReadAllBytes($lPath)
+    }
+  }
+
+  return $lSnapshot
+}
+
+function Test-SourceSnapshotChanged {
+  param(
+    [string]$ProjectPath,
+    [hashtable]$Snapshot
+  )
+
+  foreach ($lPath in Get-ProjectSourceFiles -ProjectPath $ProjectPath) {
+    if (-not $Snapshot.ContainsKey($lPath)) {
+      return $true
+    }
+  }
+
+  foreach ($lPath in $Snapshot.Keys) {
+    if (-not (Test-Path -LiteralPath $lPath -PathType Leaf)) {
+      return $true
+    }
+    if ((Get-FileHash -LiteralPath $lPath -Algorithm SHA256).Hash -ne $Snapshot[$lPath].Hash) {
+      return $true
+    }
+  }
+
+  return $false
+}
+
+function Restore-SourceSnapshot {
+  param(
+    [string]$ProjectPath,
+    [hashtable]$Snapshot
+  )
+
+  foreach ($lPath in $Snapshot.Keys) {
+    $lExpected = $Snapshot[$lPath]
+    if ((-not (Test-Path -LiteralPath $lPath -PathType Leaf)) -or
+        ((Get-FileHash -LiteralPath $lPath -Algorithm SHA256).Hash -ne $lExpected.Hash)) {
+      [System.IO.File]::WriteAllBytes($lPath, [byte[]]$lExpected.Bytes)
+    }
+  }
+
+  foreach ($lPath in Get-ProjectSourceFiles -ProjectPath $ProjectPath) {
+    if (-not $Snapshot.ContainsKey($lPath)) {
+      Remove-Item -LiteralPath $lPath -Force
+    }
+  }
+}
+
 function New-SummaryRows {
   param([object[]]$RunRows)
 
@@ -466,6 +637,18 @@ function New-SummaryRows {
         ($lSuccessfulCounts -join ', '))
     }
     $lResultCount = if ($lSuccessfulCounts.Count -eq 1) { $lSuccessfulCounts[0] } else { $lFirst.ResultCount }
+    $lMutationStatuses = @($lRows | Where-Object {
+      $_.PSObject.Properties.Name -contains 'SourceMutationStatus'
+    } | ForEach-Object { [string]$_.SourceMutationStatus } | Select-Object -Unique)
+    $lMutationStatus = if ($lMutationStatuses.Count -eq 0) {
+      ''
+    } elseif (($lMutationStatuses.Count -eq 1) -and ($lMutationStatuses[0] -eq 'clean')) {
+      'clean'
+    } elseif ($lMutationStatuses -contains 'mutated') {
+      'mutated'
+    } else {
+      ($lMutationStatuses -join ',')
+    }
     $lMedianSeconds = [Math]::Round((Get-Median -Values $lSeconds), 3)
     $lTargetSeconds = ''
     $lTargetStatus = ''
@@ -496,6 +679,7 @@ function New-SummaryRows {
       SemanticCacheHits = $lFirst.SemanticCacheHits
       SemanticCacheMisses = $lFirst.SemanticCacheMisses
       ReferenceFallbackCount = $lFirst.ReferenceFallbackCount
+      SourceMutationStatus = $lMutationStatus
       PlannerPhaseMetrics = if ($lFirst.PSObject.Properties.Name -contains 'PlannerPhaseMetrics') { $lFirst.PlannerPhaseMetrics } else { $null }
       Command = $lFirst.Command
     })
@@ -614,6 +798,9 @@ if ($SummarizeOnly) {
       if (-not ($lRow.PSObject.Properties.Name -contains 'PlannerPhaseMetrics')) {
         Add-Member -InputObject $lRow -NotePropertyName PlannerPhaseMetrics -NotePropertyValue $null
       }
+      if (-not ($lRow.PSObject.Properties.Name -contains 'SourceMutationStatus')) {
+        Add-Member -InputObject $lRow -NotePropertyName SourceMutationStatus -NotePropertyValue 'unknown'
+      }
       $lRow.ReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lRow.Stdout
       $lRow.SemanticCacheHits = Read-SemanticCacheMetric -Path $lRow.Stdout -Name 'semanticCacheHits'
       $lRow.SemanticCacheMisses = Read-SemanticCacheMetric -Path $lRow.Stdout -Name 'semanticCacheMisses'
@@ -629,6 +816,9 @@ if ($SummarizeOnly) {
       }
     } elseif (-not ($lRow.PSObject.Properties.Name -contains 'ReferenceFallbackCount')) {
       Add-Member -InputObject $lRow -NotePropertyName ReferenceFallbackCount -NotePropertyValue ''
+    }
+    if (-not ($lRow.PSObject.Properties.Name -contains 'SourceMutationStatus')) {
+      Add-Member -InputObject $lRow -NotePropertyName SourceMutationStatus -NotePropertyValue 'unknown'
     }
   }
   $lResultRows = New-SummaryRows -RunRows $lRunRows
@@ -671,10 +861,15 @@ if ($SummarizeOnly) {
         $env:DELPHISEMANTICS_BENCHMARK_CACHE_DIR = $lCacheDirectory
         $env:DELPHISEMANTICS_BENCHMARK_CACHE_MODE = $lCacheMode
         $lWarmupArguments = @(Get-BenchmarkArguments -Benchmark $lBenchmark -CacheMode $lCacheMode -SemanticCacheFile $lSemanticCacheFile)
+        $lWarmupSourceSnapshot = New-SourceSnapshot -ProjectPath $Project
         & $DakExe @($lWarmupArguments) 1> $lWarmupStdout 2> $lWarmupStderr
         $lWarmupExitCode = $LASTEXITCODE
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_DIR -ErrorAction SilentlyContinue
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_MODE -ErrorAction SilentlyContinue
+        if (Test-SourceSnapshotChanged -ProjectPath $Project -Snapshot $lWarmupSourceSnapshot) {
+          Restore-SourceSnapshot -ProjectPath $Project -Snapshot $lWarmupSourceSnapshot
+          throw "Warm-cache priming mutated source files for $($lBenchmark.Id). Source was restored."
+        }
         if ($lWarmupExitCode -ne 0) {
           throw "Warm-cache priming failed for $($lBenchmark.Id). See: $lWarmupStderr"
         }
@@ -702,11 +897,21 @@ if ($SummarizeOnly) {
         $env:DELPHISEMANTICS_BENCHMARK_CACHE_MODE = $lCacheMode
         $lStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         $lArguments = @(Get-BenchmarkArguments -Benchmark $lBenchmark -CacheMode $lCacheMode -SemanticCacheFile $lSemanticCacheFile)
+        $lSourceSnapshot = New-SourceSnapshot -ProjectPath $Project
         & $DakExe @($lArguments) 1> $lStdout 2> $lStderr
         $lExitCode = $LASTEXITCODE
         $lStopwatch.Stop()
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_DIR -ErrorAction SilentlyContinue
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_MODE -ErrorAction SilentlyContinue
+        $lSourceMutationStatus = 'clean'
+        if (Test-SourceSnapshotChanged -ProjectPath $Project -Snapshot $lSourceSnapshot) {
+          Restore-SourceSnapshot -ProjectPath $Project -Snapshot $lSourceSnapshot
+          $lSourceMutationStatus = 'mutated'
+          if ($lExitCode -eq 0) {
+            $lExitCode = 1
+          }
+          Add-Content -LiteralPath $lStderr -Value 'Report-only benchmark mutated source files; source was restored.'
+        }
         $lReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lStdout
         $lSemanticCacheHits = Read-SemanticCacheMetric -Path $lStdout -Name 'semanticCacheHits'
         $lSemanticCacheMisses = Read-SemanticCacheMetric -Path $lStdout -Name 'semanticCacheMisses'
@@ -735,6 +940,7 @@ if ($SummarizeOnly) {
           SemanticCacheHits = $lSemanticCacheHits
           SemanticCacheMisses = $lSemanticCacheMisses
           ReferenceFallbackCount = $lReferenceFallbackCount
+          SourceMutationStatus = $lSourceMutationStatus
           SemanticPhaseMetrics = $lSemanticPhaseMetrics
           PlannerPhaseMetrics = $lPlannerPhaseMetrics
           Stdout = $lStdout

@@ -22,6 +22,45 @@ function New-TestWorkspace {
   return $lPath
 }
 
+function New-MutatingDakScript {
+  param(
+    [string]$Path,
+    [string]$SourceFile
+  )
+
+  $lScript = @"
+param([Parameter(ValueFromRemainingArguments = `$true)][string[]]`$Arguments)
+Add-Content -LiteralPath '$SourceFile' -Value '// mutated by fake DAK'
+`$lModeIndex = [Array]::IndexOf(`$Arguments, '--mode')
+`$lMode = if (`$lModeIndex -ge 0) { `$Arguments[`$lModeIndex + 1] } else { 'scan' }
+if (`$lMode -eq 'plan') {
+  [ordered]@{
+    operation = 'remove-with'
+    mode = 'plan'
+    summary = [ordered]@{ withStatements = 667; plannedEdits = 215 }
+    withStatements = @()
+    plannedEdits = @()
+    semanticDtoParity = [ordered]@{
+      status = 'passed'
+      mismatchCount = 0
+      summaryText = 'test parity'
+      mismatches = @()
+    }
+    plannerPhaseMetrics = [ordered]@{ totalMs = 1 }
+  } | ConvertTo-Json -Depth 8
+} else {
+  [ordered]@{
+    operation = 'remove-with'
+    mode = 'scan'
+    summary = [ordered]@{ withStatements = 667 }
+    withStatements = @()
+  } | ConvertTo-Json -Depth 8
+}
+exit 0
+"@
+  Set-Content -LiteralPath $Path -Value $lScript -Encoding UTF8
+}
+
 function New-PlanJson {
   param(
     [string]$Path,
@@ -238,12 +277,155 @@ function Test-PlanRunMissingMismatchCountFailsClosed {
   }
 }
 
+function Test-ReportOnlyBenchmarkMutationFailsClosedAndRestoresSource {
+  $lWorkspace = New-TestWorkspace 'report-only-mutation'
+  $lProject = Join-Path $lWorkspace 'project.dpr'
+  $lSource = Join-Path $lWorkspace 'unit1.pas'
+  $lDak = Join-Path $lWorkspace 'dak.ps1'
+  Set-Content -LiteralPath $lProject -Value 'program project; uses unit1;' -Encoding UTF8
+  Set-Content -LiteralPath $lSource -Value 'unit unit1; interface implementation end.' -Encoding UTF8
+  $lBefore = Get-Content -LiteralPath $lSource -Raw
+  New-MutatingDakScript -Path $lDak -SourceFile $lSource
+
+  & pwsh -NoProfile -ExecutionPolicy Bypass -File $BenchmarkScript `
+    -DakExe $lDak -Project $lProject -Workflow remove-with-scan-all `
+    -Repeat 1 -CacheMode cold -OutDir $lWorkspace -NoBaselineCopy `
+    1> (Join-Path $lWorkspace 'mutation.stdout.txt') `
+    2> (Join-Path $lWorkspace 'mutation.stderr.txt')
+  $lExit = $LASTEXITCODE
+  if ($lExit -eq 0) {
+    throw 'Benchmark must fail when a report-only workflow mutates source.'
+  }
+
+  $lAfter = Get-Content -LiteralPath $lSource -Raw
+  Assert-Equal $lBefore $lAfter 'Benchmark mutation guard must restore the mutated source file.'
+}
+
+function Test-ReportOnlyBenchmarkRecordsCleanMutationStatus {
+  $lWorkspace = New-TestWorkspace 'report-only-clean-status'
+  $lProject = Join-Path $lWorkspace 'project.dpr'
+  $lSource = Join-Path $lWorkspace 'unit1.pas'
+  $lDak = Join-Path $lWorkspace 'dak.ps1'
+  Set-Content -LiteralPath $lProject -Value 'program project; uses unit1;' -Encoding UTF8
+  Set-Content -LiteralPath $lSource -Value 'unit unit1; interface implementation end.' -Encoding UTF8
+
+  $lScript = @"
+param([Parameter(ValueFromRemainingArguments = `$true)][string[]]`$Arguments)
+[ordered]@{
+  operation = 'remove-with'
+  mode = 'scan'
+  summary = [ordered]@{ withStatements = 667 }
+  withStatements = @()
+} | ConvertTo-Json -Depth 8
+exit 0
+"@
+  Set-Content -LiteralPath $lDak -Value $lScript -Encoding UTF8
+
+  & pwsh -NoProfile -ExecutionPolicy Bypass -File $BenchmarkScript `
+    -DakExe $lDak -Project $lProject -Workflow remove-with-scan-all `
+    -Repeat 1 -CacheMode cold -OutDir $lWorkspace -NoBaselineCopy `
+    1> (Join-Path $lWorkspace 'clean.stdout.txt') `
+    2> (Join-Path $lWorkspace 'clean.stderr.txt')
+  Assert-Equal 0 $LASTEXITCODE 'Clean report-only benchmark should pass.'
+
+  $lBaseline = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.json') -Raw |
+    ConvertFrom-Json
+  Assert-Equal 'clean' $lBaseline.runs[0].SourceMutationStatus `
+    'Run rows must record clean source mutation status.'
+  Assert-Equal 'clean' $lBaseline.results[0].SourceMutationStatus `
+    'Summary rows must record clean source mutation status.'
+  $lMarkdown = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.md') -Raw
+  if ($lMarkdown -notmatch 'Source mutation') {
+    throw 'Markdown summary must include the source mutation status column.'
+  }
+}
+
+function Test-ReportOnlyBenchmarkExternalProjectSourceMutationFailsClosed {
+  $lWorkspace = New-TestWorkspace 'external-source-mutation'
+  $lProjectDir = Join-Path $lWorkspace 'project'
+  $lExternalDir = Join-Path $lWorkspace 'external'
+  New-Item -ItemType Directory -Force -Path $lProjectDir, $lExternalDir | Out-Null
+  $lProject = Join-Path $lProjectDir 'project.dpr'
+  $lExternalSource = Join-Path $lExternalDir 'ExternalUnit.pas'
+  $lDak = Join-Path $lWorkspace 'dak.ps1'
+  Set-Content -LiteralPath $lProject -Value @"
+program project;
+uses
+  ExternalUnit in '..\external\ExternalUnit.pas';
+begin
+end.
+"@ -Encoding UTF8
+  Set-Content -LiteralPath $lExternalSource -Value 'unit ExternalUnit; interface implementation end.' `
+    -Encoding UTF8
+  $lBefore = Get-Content -LiteralPath $lExternalSource -Raw
+  New-MutatingDakScript -Path $lDak -SourceFile $lExternalSource
+
+  & pwsh -NoProfile -ExecutionPolicy Bypass -File $BenchmarkScript `
+    -DakExe $lDak -Project $lProject -Workflow remove-with-scan-all `
+    -Repeat 1 -CacheMode cold -OutDir $lWorkspace -NoBaselineCopy `
+    1> (Join-Path $lWorkspace 'external.stdout.txt') `
+    2> (Join-Path $lWorkspace 'external.stderr.txt')
+  $lExit = $LASTEXITCODE
+  if ($lExit -eq 0) {
+    throw 'Benchmark must fail when an externally referenced project source mutates.'
+  }
+
+  $lAfter = Get-Content -LiteralPath $lExternalSource -Raw
+  Assert-Equal $lBefore $lAfter 'Benchmark mutation guard must restore externally referenced source.'
+}
+
+function Test-ReportOnlyBenchmarkSearchPathSourceMutationFailsClosed {
+  $lWorkspace = New-TestWorkspace 'search-path-source-mutation'
+  $lProjectDir = Join-Path $lWorkspace 'project'
+  $lExternalDir = Join-Path $lWorkspace 'external'
+  New-Item -ItemType Directory -Force -Path $lProjectDir, $lExternalDir | Out-Null
+  $lProject = Join-Path $lProjectDir 'project.dpr'
+  $lDproj = Join-Path $lProjectDir 'project.dproj'
+  $lSearchPathSource = Join-Path $lExternalDir 'SearchPathUnit.pas'
+  $lDak = Join-Path $lWorkspace 'dak.ps1'
+  Set-Content -LiteralPath $lProject -Value @"
+program project;
+uses
+  SearchPathUnit;
+begin
+end.
+"@ -Encoding UTF8
+  Set-Content -LiteralPath $lDproj -Value @"
+<Project>
+  <PropertyGroup>
+    <DCC_UnitSearchPath>..\external;`$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+  </PropertyGroup>
+</Project>
+"@ -Encoding UTF8
+  Set-Content -LiteralPath $lSearchPathSource -Value 'unit SearchPathUnit; interface implementation end.' `
+    -Encoding UTF8
+  $lBefore = Get-Content -LiteralPath $lSearchPathSource -Raw
+  New-MutatingDakScript -Path $lDak -SourceFile $lSearchPathSource
+
+  & pwsh -NoProfile -ExecutionPolicy Bypass -File $BenchmarkScript `
+    -DakExe $lDak -Project $lProject -Workflow remove-with-scan-all `
+    -Repeat 1 -CacheMode cold -OutDir $lWorkspace -NoBaselineCopy `
+    1> (Join-Path $lWorkspace 'searchpath.stdout.txt') `
+    2> (Join-Path $lWorkspace 'searchpath.stderr.txt')
+  $lExit = $LASTEXITCODE
+  if ($lExit -eq 0) {
+    throw 'Benchmark must fail when a search-path project source mutates.'
+  }
+
+  $lAfter = Get-Content -LiteralPath $lSearchPathSource -Raw
+  Assert-Equal $lBefore $lAfter 'Benchmark mutation guard must restore search-path source.'
+}
+
 $lTests = @(
   'Test-CompactPlanSummaryCountsDriveParityExport',
   'Test-PlanRunCountDriftFailsClosed',
   'Test-SummaryCountDriftFailsClosed',
   'Test-PlanRunMissingStdoutFailsClosed',
-  'Test-PlanRunMissingMismatchCountFailsClosed'
+  'Test-PlanRunMissingMismatchCountFailsClosed',
+  'Test-ReportOnlyBenchmarkMutationFailsClosedAndRestoresSource',
+  'Test-ReportOnlyBenchmarkRecordsCleanMutationStatus',
+  'Test-ReportOnlyBenchmarkExternalProjectSourceMutationFailsClosed',
+  'Test-ReportOnlyBenchmarkSearchPathSourceMutationFailsClosed'
 )
 $lFailures = New-Object System.Collections.Generic.List[string]
 foreach ($lTest in $lTests) {
