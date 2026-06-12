@@ -34,6 +34,10 @@ type
     [Test]
     procedure SecondCacheInstancePreservesSourceText;
     [Test]
+    procedure SecondCacheInstancePreservesUnicodeSourceText;
+    [Test]
+    procedure SqliteUnitCacheUsesWideTextAccessors;
+    [Test]
     procedure SourceChangeInvalidatesPersistentEntry;
     [Test]
     procedure SourceTimestampChangeInvalidatesPersistentEntry;
@@ -58,7 +62,7 @@ type
 implementation
 
 uses
-  System.IOUtils, System.SysUtils, System.Variants,
+  System.IOUtils, System.StrUtils, System.SysUtils, System.Variants,
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   DelphiSemantics.Api, DelphiSemantics.Api.WithBinding, DelphiSemantics.CompilerProfile,
@@ -66,6 +70,11 @@ uses
 
 var
   GCacheSqliteTempRoot: string;
+
+function CacheSqliteUnicodeText: string;
+begin
+  Result := 'Za' + #$017C + #$00F3 + #$0142 + #$0107 + '-' + #$6F22 + #$5B57;
+end;
 
 function CacheSqliteTempRoot: string;
 var
@@ -355,6 +364,77 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+procedure TCacheSqliteTests.SecondCacheInstancePreservesUnicodeSourceText;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lEncoding: TEncoding;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lSourceText: string;
+  lUnicodeText: string;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('unicode-source-text-cache.sqlite3');
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+
+  lUnicodeText := CacheSqliteUnicodeText;
+  lPath := TempPath('SqliteUnicodeSourceTextUnit-' + lUnicodeText + '.pas');
+  lSourceText := 'unit SqliteUnicodeSourceTextUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TSqliteUnicodeSourceTextType = record' + sLineBreak +
+    '    Name: string;' + sLineBreak + '  end;' + sLineBreak + 'implementation' +
+    sLineBreak + '// ' + lUnicodeText + sLineBreak +
+    'const LocalText = ''' + lUnicodeText + ''';' + sLineBreak + 'end.';
+  lEncoding := TUTF8Encoding.Create(False);
+  try
+    TFile.WriteAllText(lPath, lSourceText, lEncoding);
+  finally
+    lEncoding.Free;
+  end;
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+
+    Assert.AreEqual(lSourceText, lModel.SourceText);
+    Assert.AreEqual(lPath, lModel.FileName);
+    Assert.IsTrue(ContainsText(lModel.SourceText, lUnicodeText));
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.SqliteUnitCacheUsesWideTextAccessors;
+var
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Cache.Sqlite.pas']));
+
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+
+  Assert.IsFalse(ContainsText(lSourceText, 'VarToStr(lConnection.ExecSQLScalar'),
+    'SQLite cache text reads should use wide field accessors, not scalar variant string conversion.');
+  Assert.IsFalse(ContainsText(lSourceText, 'ExecSQL(''insert or replace into unit_models'),
+    'SQLite cache text writes should use prepared wide parameters.');
+  Assert.IsTrue(ContainsText(lSourceText, '.AsWideString'),
+    'SQLite cache text paths should use Unicode-safe FireDAC accessors.');
 end;
 
 procedure TCacheSqliteTests.SourceChangeInvalidatesPersistentEntry;

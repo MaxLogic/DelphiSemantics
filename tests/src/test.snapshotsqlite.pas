@@ -45,7 +45,11 @@ type
     [Test]
     procedure SnapshotSqliteCacheUsesPreparedStatementsAndCachedFields;
     [Test]
+    procedure SnapshotSqliteCacheUsesWideTextAccessors;
+    [Test]
     procedure SnapshotCacheSourceDoesNotUseJsonRepresentation;
+    [Test]
+    procedure StoreUnitFromSnapshotPreservesUnicodeTextValues;
     [Test]
     procedure StoreUnitFromSnapshotPreservesRemoveWithPlanningFacts;
     [Test]
@@ -70,6 +74,11 @@ uses
 
 var
   GSnapshotSqliteTempRoot: string;
+
+function SnapshotUnicodeText: string;
+begin
+  Result := 'Za' + #$017C + #$00F3 + #$0142 + #$0107 + '-' + #$6F22 + #$5B57;
+end;
 
 function SnapshotSqliteTempRoot: string;
 var
@@ -636,6 +645,24 @@ begin
     'Snapshot reference facts should use a prepared insert query.');
 end;
 
+procedure TSnapshotSqliteTests.SnapshotSqliteCacheUsesWideTextAccessors;
+var
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Snapshot.Cache.Sqlite.pas']));
+
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+
+  Assert.IsFalse(ContainsText(lSourceText, '.AsString'),
+    'Snapshot SQLite text fields and parameters should use Unicode-safe accessors.');
+  Assert.IsFalse(ContainsText(lSourceText, 'DataType := ftString'),
+    'Snapshot SQLite text parameters should be declared as wide text.');
+  Assert.IsTrue(ContainsText(lSourceText, '.AsWideString'),
+    'Snapshot SQLite cache should read/write text through wide accessors.');
+end;
+
 procedure TSnapshotSqliteTests.SparseChildRowsInvalidateStoredSnapshot;
 var
   lCache: TDelphiSemanticSnapshotSqliteCache;
@@ -682,6 +709,110 @@ begin
   AssertIdentityChangeMissesWithoutEviction('SnapshotSchemaInvalidationUnit',
     CreateIdentity('SnapshotSchemaInvalidationUnit', 'file-a', 'context-a', 'include-a',
     'snapshot-v2'));
+end;
+
+procedure TSnapshotSqliteTests.StoreUnitFromSnapshotPreservesUnicodeTextValues;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheFileName: string;
+  lExactContextText: string;
+  lFacts: TSemanticRemoveWithPlanningFacts;
+  lFileNameId: TSemanticStringId;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoadedSnapshot: TDelphiProjectSnapshot;
+  lLoadedUnit: TUnitSnapshot;
+  lMemberName: string;
+  lMemberNameId: TSemanticStringId;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSourceFileName: string;
+  lSymbol: TSemanticSymbolFact;
+  lTypeName: string;
+  lTypeNameId: TSemanticStringId;
+  lUnit: TUnitSnapshot;
+  lUnitNameId: TSemanticStringId;
+  lUnicodeText: string;
+begin
+  lCacheFileName := TempPath('snapshot-unicode.sqlite3');
+  if TFile.Exists(lCacheFileName) then
+    TFile.Delete(lCacheFileName);
+
+  lUnicodeText := SnapshotUnicodeText;
+  lSourceFileName := TempPath('Snapshot-' + lUnicodeText + '.pas');
+  lTypeName := 'T' + lUnicodeText;
+  lMemberName := 'Value' + lUnicodeText;
+  lExactContextText := 'Context-' + lUnicodeText;
+  lIdentity := CreateIdentity('SnapshotUnicodeUnit', 'file-unicode', 'context-unicode',
+    'include-unicode', 'snapshot-v1');
+  lIdentity.IdentityKey := 'SnapshotIdentity-' + lUnicodeText;
+  lIdentity.SourceFileName := lSourceFileName;
+  lIdentity.CacheKey := lIdentity.IdentityKey + '|file-unicode|context-unicode|' +
+    'include-unicode|snapshot-v1';
+
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lFileNameId := lBuilder.Strings.Intern(lSourceFileName);
+    lUnitNameId := lBuilder.Strings.Intern('SnapshotUnicodeUnit');
+    lTypeNameId := lBuilder.Strings.Intern(lTypeName);
+    lMemberNameId := lBuilder.Strings.Intern(lMemberName);
+    lUnit := TUnitSnapshot.Create(19, lFileNameId, lUnitNameId);
+
+    lSymbol := Default(TSemanticSymbolFact);
+    lSymbol.NameId := lTypeNameId;
+    lSymbol.KindId := lBuilder.Strings.Intern('type');
+    lSymbol.SignatureId := lBuilder.Strings.Intern('type ' + lTypeName + ' = class end');
+    lUnit.AddSymbol(lSymbol);
+
+    lSymbol := Default(TSemanticSymbolFact);
+    lSymbol.NameId := lMemberNameId;
+    lSymbol.OwnerTypeId := lTypeNameId;
+    lSymbol.TypeId := lBuilder.Strings.Intern('string');
+    lSymbol.KindId := lBuilder.Strings.Intern('property');
+    lSymbol.SignatureId := lBuilder.Strings.Intern('property ' + lMemberName + ': string');
+    lUnit.AddSymbol(lSymbol);
+
+    lBuilder.AddUnit(lUnit);
+    lFacts := Default(TSemanticRemoveWithPlanningFacts);
+    lFacts.ContextFingerprintId := lBuilder.ExactStrings.Intern(lExactContextText);
+    SetLength(lFacts.Bindings, 1);
+    lFacts.Bindings[0].SelectorTextId := lBuilder.ExactStrings.Intern(lMemberName);
+    lBuilder.SetRemoveWithPlanningFacts(lFacts);
+    lSnapshot := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+
+  try
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+    try
+      lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+    finally
+      lCache.Free;
+    end;
+
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+    try
+      Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lLoadedSnapshot));
+      try
+        lLoadedUnit := lLoadedSnapshot.UnitByIndex(0);
+        Assert.AreEqual(lSourceFileName, lLoadedSnapshot.TextOf(lLoadedUnit.FileNameId));
+        Assert.AreEqual(lTypeName,
+          lLoadedSnapshot.TextOf(lLoadedUnit.SymbolById(TSemanticSymbolId(1)).NameId));
+        Assert.AreEqual(lMemberName,
+          lLoadedSnapshot.TextOf(lLoadedUnit.SymbolById(TSemanticSymbolId(2)).NameId));
+        Assert.AreEqual(lExactContextText, lLoadedSnapshot.ExactTextOf(
+          lLoadedSnapshot.RemoveWithPlanningContextFingerprintId));
+        Assert.AreEqual(lMemberName, lLoadedSnapshot.ExactTextOf(
+          lLoadedSnapshot.RemoveWithPlanningBindingByIndex(0).SelectorTextId));
+      finally
+        lLoadedSnapshot.Free;
+      end;
+    finally
+      lCache.Free;
+    end;
+  finally
+    lSnapshot.Free;
+  end;
 end;
 
 procedure TSnapshotSqliteTests.StoreDemoUnit(const aCacheFileName: string;

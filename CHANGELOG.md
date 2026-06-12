@@ -70,6 +70,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- SQLite semantic caches now read and write cached text through Unicode-safe
+  FireDAC accessors, preserving non-ASCII snapshot strings, source paths,
+  unit-model JSON, and DAK global-vars projection data across cache reuse.
 - Snapshot SQLite cache invalidation now deletes only the exact context-specific
   cache-key row being refreshed, preserving sibling variants for the same source
   file across different project contexts.

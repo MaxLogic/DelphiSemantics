@@ -95,11 +95,11 @@ type
 implementation
 
 uses
-  System.DateUtils, System.Diagnostics, System.SysUtils, System.Variants,
+  System.DateUtils, System.Diagnostics, System.SysUtils,
   Data.DB,
-  DelphiSemantics.Snapshot.RemoveWith,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
-  FireDAC.Stan.Def;
+  FireDAC.Stan.Def,
+  DelphiSemantics.Snapshot.RemoveWith;
 
 const
   cSnapshotCacheSchemaVersion = '5';
@@ -110,6 +110,60 @@ begin
   Result := TFDQuery.Create(nil);
   Result.Connection := aConnection;
   Result.SQL.Text := aSql;
+end;
+
+procedure SetWideParam(const aQuery: TFDQuery; const aIndex: Integer; const aValue: string;
+  const aDataType: TFieldType = ftWideString);
+begin
+  if aQuery.Params[aIndex].DataType <> aDataType then
+    aQuery.Params[aIndex].DataType := aDataType;
+  aQuery.Params[aIndex].AsWideString := aValue;
+end;
+
+procedure ExecWideSql(const aConnection: TFDConnection; const aSql, aValue: string); overload;
+var
+  lQuery: TFDQuery;
+begin
+  lQuery := NewQuery(aConnection, aSql);
+  try
+    SetWideParam(lQuery, 0, aValue);
+    lQuery.Prepare;
+    lQuery.ExecSQL;
+  finally
+    lQuery.Free;
+  end;
+end;
+
+procedure ExecWideSql(const aConnection: TFDConnection; const aSql, aFirstValue,
+  aSecondValue: string); overload;
+var
+  lQuery: TFDQuery;
+begin
+  lQuery := NewQuery(aConnection, aSql);
+  try
+    SetWideParam(lQuery, 0, aFirstValue);
+    SetWideParam(lQuery, 1, aSecondValue);
+    lQuery.Prepare;
+    lQuery.ExecSQL;
+  finally
+    lQuery.Free;
+  end;
+end;
+
+function QueryWideString(const aConnection: TFDConnection; const aSql, aValue: string): string;
+var
+  lQuery: TFDQuery;
+begin
+  Result := '';
+  lQuery := NewQuery(aConnection, aSql);
+  try
+    SetWideParam(lQuery, 0, aValue);
+    lQuery.Open;
+    if not lQuery.Eof then
+      Result := lQuery.Fields[0].AsWideString;
+  finally
+    lQuery.Free;
+  end;
 end;
 
 function SnapshotUtcTimestamp: string;
@@ -278,24 +332,26 @@ var
   lConnection: TFDConnection;
 begin
   lConnection := TFDConnection(aConnection);
-  lConnection.ExecSQL('delete from snapshot_remove_with_binding_references where cache_key = ?',
-    [aCacheKey]);
-  lConnection.ExecSQL('delete from snapshot_remove_with_binding_selectors where cache_key = ?',
-    [aCacheKey]);
-  lConnection.ExecSQL('delete from snapshot_remove_with_bindings where cache_key = ?',
-    [aCacheKey]);
-  lConnection.ExecSQL('delete from snapshot_remove_with_symbols where cache_key = ?',
-    [aCacheKey]);
-  lConnection.ExecSQL('delete from snapshot_remove_with_routine_owners where cache_key = ?',
-    [aCacheKey]);
-  lConnection.ExecSQL('delete from snapshot_remove_with_facts where cache_key = ?',
-    [aCacheKey]);
-  lConnection.ExecSQL('delete from snapshot_exact_strings where cache_key = ?', [aCacheKey]);
-  lConnection.ExecSQL('delete from snapshot_references where cache_key = ?', [aCacheKey]);
-  lConnection.ExecSQL('delete from snapshot_with_statements where cache_key = ?', [aCacheKey]);
-  lConnection.ExecSQL('delete from snapshot_symbols where cache_key = ?', [aCacheKey]);
-  lConnection.ExecSQL('delete from snapshot_strings where cache_key = ?', [aCacheKey]);
-  lConnection.ExecSQL('delete from snapshot_units where cache_key = ?', [aCacheKey]);
+  ExecWideSql(lConnection,
+    'delete from snapshot_remove_with_binding_references where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection,
+    'delete from snapshot_remove_with_binding_selectors where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_remove_with_bindings where cache_key = ?',
+    aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_remove_with_symbols where cache_key = ?',
+    aCacheKey);
+  ExecWideSql(lConnection,
+    'delete from snapshot_remove_with_routine_owners where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_remove_with_facts where cache_key = ?',
+    aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_exact_strings where cache_key = ?',
+    aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_references where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_with_statements where cache_key = ?',
+    aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_symbols where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_strings where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_units where cache_key = ?', aCacheKey);
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.EnsureDatabase;
@@ -312,8 +368,8 @@ begin
     lConnection := TFDConnection(lConnectionObject);
     lConnection.ExecSQL('create table if not exists meta (' +
       'key_name text primary key not null, value_text text not null)');
-    lVersion := VarToStr(lConnection.ExecSQLScalar(
-      'select value_text from meta where key_name = ?', [cSnapshotSchemaMetaKey]));
+    lVersion := QueryWideString(lConnection, 'select value_text from meta where key_name = ?',
+      cSnapshotSchemaMetaKey);
     if (lVersion <> '') and (lVersion <> cSnapshotCacheSchemaVersion) then
       RebuildSnapshotTables(lConnection);
 
@@ -405,8 +461,8 @@ begin
       'type_name_id integer not null, reason_code_id integer not null, scope_conflict_kind_id integer not null, ' +
       'scope_conflict_name_id integer not null, line integer not null, column integer not null, ' +
       'end_line integer not null, end_column integer not null, primary key(cache_key, binding_index, reference_index))');
-    lConnection.ExecSQL('insert or replace into meta(key_name, value_text) values (?, ?)',
-      [cSnapshotSchemaMetaKey, cSnapshotCacheSchemaVersion]);
+    ExecWideSql(lConnection, 'insert or replace into meta(key_name, value_text) values (?, ?)',
+      cSnapshotSchemaMetaKey, cSnapshotCacheSchemaVersion);
   finally
     lConnectionObject.Free;
     lDriverLinkObject.Free;
@@ -432,7 +488,7 @@ begin
     'file_hash, context_hash, include_graph_hash, schema_version from snapshot_units ' +
     'where cache_key = ?');
   try
-    lQuery.Params[0].AsString := aIdentity.CacheKey;
+    lQuery.Params[0].AsWideString := aIdentity.CacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -441,7 +497,7 @@ begin
       Exit;
 
     lIdentityKeyField := lQuery.Fields[0];
-    aEntryBelongsToIdentity := lIdentityKeyField.AsString = aIdentity.IdentityKey;
+    aEntryBelongsToIdentity := lIdentityKeyField.AsWideString = aIdentity.IdentityKey;
     if not aEntryBelongsToIdentity then
       Exit;
 
@@ -450,11 +506,11 @@ begin
     lContextHashField := lQuery.Fields[3];
     lIncludeGraphHashField := lQuery.Fields[4];
     lSchemaVersionField := lQuery.Fields[5];
-    Result := SameText(lSourceFileNameField.AsString, aIdentity.SourceFileName)
-      and (lFileHashField.AsString = aIdentity.FileHash)
-      and (lContextHashField.AsString = aIdentity.ContextHash)
-      and (lIncludeGraphHashField.AsString = aIdentity.IncludeGraphHash)
-      and (lSchemaVersionField.AsString = aIdentity.SchemaVersion);
+    Result := SameText(lSourceFileNameField.AsWideString, aIdentity.SourceFileName)
+      and (lFileHashField.AsWideString = aIdentity.FileHash)
+      and (lContextHashField.AsWideString = aIdentity.ContextHash)
+      and (lIncludeGraphHashField.AsWideString = aIdentity.IncludeGraphHash)
+      and (lSchemaVersionField.AsWideString = aIdentity.SchemaVersion);
   finally
     lQuery.Free;
   end;
@@ -474,7 +530,7 @@ begin
   lQuery := NewQuery(TFDConnection(aConnection), 'select string_id, text_value from ' +
     'snapshot_exact_strings where cache_key = ? order by string_id');
   try
-    lQuery.Params[0].AsString := aCacheKey;
+    lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -487,7 +543,7 @@ begin
       if TSemanticStringId(lStringIdField.AsInteger) <> lExpectedId then
         raise Exception.Create('Snapshot exact string IDs are not dense.');
 
-      lStringId := aExactStrings.Intern(lTextValueField.AsString);
+      lStringId := aExactStrings.Intern(lTextValueField.AsWideString);
       if lStringId <> lExpectedId then
         raise Exception.Create('Snapshot exact string ID rebuild mismatch.');
       Inc(lExpectedId);
@@ -531,7 +587,7 @@ begin
     'routine_id, section_kind_id, source_kind_id, lookup_source_id, reason_id, line, column, ' +
     'end_line, end_column from snapshot_references where cache_key = ? order by reference_id');
   try
-    lQuery.Params[0].AsString := aCacheKey;
+    lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -602,7 +658,7 @@ begin
   lQuery := NewQuery(TFDConnection(aConnection), 'select string_id, text_value from ' +
     'snapshot_strings where cache_key = ? order by string_id');
   try
-    lQuery.Params[0].AsString := aCacheKey;
+    lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -615,7 +671,7 @@ begin
       if TSemanticStringId(lStringIdField.AsInteger) <> lExpectedId then
         raise Exception.Create('Snapshot string IDs are not dense.');
 
-      lStringId := aStrings.Intern(lTextValueField.AsString);
+      lStringId := aStrings.Intern(lTextValueField.AsWideString);
       if lStringId <> lExpectedId then
         raise Exception.Create('Snapshot string ID rebuild mismatch.');
       Inc(lExpectedId);
@@ -657,7 +713,7 @@ begin
     'signature_id, flags, line, column, end_line, end_column from snapshot_symbols ' +
     'where cache_key = ? order by symbol_id');
   try
-    lQuery.Params[0].AsString := aCacheKey;
+    lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -761,7 +817,7 @@ begin
     'routine_owner_count, symbol_count, binding_count from snapshot_remove_with_facts ' +
     'where cache_key = ?');
   try
-    lQuery.Params[0].AsString := aCacheKey;
+    lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -786,7 +842,7 @@ begin
     'index_parameter_count, type_category_id from snapshot_remove_with_routine_owners ' +
     'where cache_key = ? order by item_index');
   try
-    lQuery.Params[0].AsString := aCacheKey;
+    lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -833,7 +889,7 @@ begin
     'index_parameter_count, type_category_id from snapshot_remove_with_symbols ' +
     'where cache_key = ? order by item_index');
   try
-    lQuery.Params[0].AsString := aCacheKey;
+    lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -881,7 +937,7 @@ begin
     'unresolved_reference_count, selector_count, reference_count from snapshot_remove_with_bindings ' +
     'where cache_key = ? order by binding_index');
   try
-    lQuery.Params[0].AsString := aCacheKey;
+    lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -959,7 +1015,7 @@ begin
     'selector_text_id, status_id, reason_code_id, type_name_id from ' +
     'snapshot_remove_with_binding_selectors where cache_key = ? order by binding_index, selector_index');
   try
-    lQuery.Params[0].AsString := aCacheKey;
+    lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -993,7 +1049,7 @@ begin
     'line, column, end_line, end_column from snapshot_remove_with_binding_references ' +
     'where cache_key = ? order by binding_index, reference_index');
   try
-    lQuery.Params[0].AsString := aCacheKey;
+    lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -1066,8 +1122,8 @@ begin
     'string_count, symbol_count, with_statement_count, reference_count, ' +
     'parse_avoided_estimate_ms from snapshot_units where cache_key = ? and identity_key = ?');
   try
-    lQuery.Params[0].AsString := aIdentity.CacheKey;
-    lQuery.Params[1].AsString := aIdentity.IdentityKey;
+    lQuery.Params[0].AsWideString := aIdentity.CacheKey;
+    lQuery.Params[1].AsWideString := aIdentity.IdentityKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -1123,7 +1179,7 @@ begin
     'body_end_line, body_end_column, flags from snapshot_with_statements where cache_key = ? ' +
     'order by with_id');
   try
-    lQuery.Params[0].AsString := aCacheKey;
+    lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -1217,7 +1273,7 @@ begin
   lConnection.ExecSQL('drop table if exists snapshot_symbols');
   lConnection.ExecSQL('drop table if exists snapshot_strings');
   lConnection.ExecSQL('drop table if exists snapshot_units');
-  lConnection.ExecSQL('delete from meta where key_name = ?', [cSnapshotSchemaMetaKey]);
+  ExecWideSql(lConnection, 'delete from meta where key_name = ?', cSnapshotSchemaMetaKey);
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.ResetProbeMetrics;
@@ -1264,15 +1320,15 @@ begin
   lQuery := NewQuery(lConnection, 'insert into snapshot_exact_strings(cache_key, ' +
     'string_id, text_value) values (?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftString;
+    lQuery.Params[0].DataType := ftWideString;
     lQuery.Params[1].DataType := ftInteger;
-    lQuery.Params[2].DataType := ftString;
+    lQuery.Params[2].DataType := ftWideString;
     lQuery.Prepare;
     for i := 1 to Integer(aSnapshot.ExactStringCount) do
     begin
-      lQuery.Params[0].AsString := aIdentity.CacheKey;
+      lQuery.Params[0].AsWideString := aIdentity.CacheKey;
       lQuery.Params[1].AsInteger := i;
-      lQuery.Params[2].AsString := aSnapshot.ExactTextOf(TSemanticStringId(i));
+      lQuery.Params[2].AsWideString := aSnapshot.ExactTextOf(TSemanticStringId(i));
       lQuery.ExecSQL;
     end;
   finally
@@ -1297,14 +1353,14 @@ begin
     'lookup_source_id, reason_id, line, column, end_line, end_column) values (?, ?, ?, ?, ' +
     '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftString;
+    lQuery.Params[0].DataType := ftWideString;
     for lParamIndex := 1 to 18 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
     for i := 1 to aUnit.ReferenceCount do
     begin
       lReference := aUnit.ReferenceById(TSemanticReferenceId(i));
-      lQuery.Params[0].AsString := aIdentity.CacheKey;
+      lQuery.Params[0].AsWideString := aIdentity.CacheKey;
       lQuery.Params[1].AsInteger := Integer(aUnit.UnitId);
       lQuery.Params[2].AsInteger := i;
       lQuery.Params[3].AsInteger := Integer(lReference.WithId);
@@ -1360,14 +1416,14 @@ var
       'end_column, unsupported_reason_id, flags, index_parameter_count, type_category_id) ' +
       'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     try
-      lInventoryQuery.Params[0].DataType := ftString;
+      lInventoryQuery.Params[0].DataType := ftWideString;
       for lParamIndex := 1 to 22 do
         lInventoryQuery.Params[lParamIndex].DataType := ftInteger;
       lInventoryQuery.Prepare;
       for lIndex := 0 to High(aSymbols) do
       begin
         lStoredSymbol := aSymbols[lIndex];
-        lInventoryQuery.Params[0].AsString := aIdentity.CacheKey;
+        lInventoryQuery.Params[0].AsWideString := aIdentity.CacheKey;
         lInventoryQuery.Params[1].AsInteger := lIndex;
         lInventoryQuery.Params[2].AsInteger := Integer(lStoredSymbol.NameId);
         lInventoryQuery.Params[3].AsInteger := Integer(lStoredSymbol.SymbolClassId);
@@ -1406,11 +1462,11 @@ begin
     'context_fingerprint_id, routine_owner_count, symbol_count, binding_count) values ' +
     '(?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftString;
+    lQuery.Params[0].DataType := ftWideString;
     for lParamIndex := 1 to 4 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
-    lQuery.Params[0].AsString := aIdentity.CacheKey;
+    lQuery.Params[0].AsWideString := aIdentity.CacheKey;
     lQuery.Params[1].AsInteger := Integer(lFacts.ContextFingerprintId);
     lQuery.Params[2].AsInteger := Length(lFacts.RoutineOwners);
     lQuery.Params[3].AsInteger := Length(lFacts.Symbols);
@@ -1431,14 +1487,14 @@ begin
     'unsupported_reference_count, unresolved_reference_count, selector_count, reference_count) ' +
     'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftString;
+    lQuery.Params[0].DataType := ftWideString;
     for lParamIndex := 1 to 26 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
     for i := 0 to High(lFacts.Bindings) do
     begin
       lBinding := lFacts.Bindings[i];
-      lQuery.Params[0].AsString := aIdentity.CacheKey;
+      lQuery.Params[0].AsWideString := aIdentity.CacheKey;
       lQuery.Params[1].AsInteger := i;
       lQuery.Params[2].AsInteger := Integer(lBinding.SemanticIdId);
       lQuery.Params[3].AsInteger := Integer(lBinding.ProvenanceId);
@@ -1475,7 +1531,7 @@ begin
     'cache_key, binding_index, selector_index, selector_text_id, status_id, reason_code_id, ' +
     'type_name_id) values (?, ?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftString;
+    lQuery.Params[0].DataType := ftWideString;
     for lParamIndex := 1 to 6 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
@@ -1483,7 +1539,7 @@ begin
       for j := 0 to High(lFacts.Bindings[i].Selectors) do
       begin
         lSelector := lFacts.Bindings[i].Selectors[j];
-        lQuery.Params[0].AsString := aIdentity.CacheKey;
+        lQuery.Params[0].AsWideString := aIdentity.CacheKey;
         lQuery.Params[1].AsInteger := i;
         lQuery.Params[2].AsInteger := j;
         lQuery.Params[3].AsInteger := Integer(lSelector.SelectorTextId);
@@ -1502,7 +1558,7 @@ begin
     'scope_conflict_kind_id, scope_conflict_name_id, line, column, end_line, end_column) ' +
     'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftString;
+    lQuery.Params[0].DataType := ftWideString;
     for lParamIndex := 1 to 16 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
@@ -1510,7 +1566,7 @@ begin
       for j := 0 to High(lFacts.Bindings[i].References) do
       begin
         lReference := lFacts.Bindings[i].References[j];
-        lQuery.Params[0].AsString := aIdentity.CacheKey;
+        lQuery.Params[0].AsWideString := aIdentity.CacheKey;
         lQuery.Params[1].AsInteger := i;
         lQuery.Params[2].AsInteger := j;
         lQuery.Params[3].AsInteger := Integer(lReference.SemanticIdId);
@@ -1546,15 +1602,15 @@ begin
   lQuery := NewQuery(lConnection, 'insert into snapshot_strings(cache_key, string_id, ' +
     'text_value) values (?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftString;
+    lQuery.Params[0].DataType := ftWideString;
     lQuery.Params[1].DataType := ftInteger;
-    lQuery.Params[2].DataType := ftString;
+    lQuery.Params[2].DataType := ftWideString;
     lQuery.Prepare;
     for i := 1 to Integer(aStrings.Count) do
     begin
-      lQuery.Params[0].AsString := aIdentity.CacheKey;
+      lQuery.Params[0].AsWideString := aIdentity.CacheKey;
       lQuery.Params[1].AsInteger := i;
-      lQuery.Params[2].AsString := aStrings.TextOf(TSemanticStringId(i));
+      lQuery.Params[2].AsWideString := aStrings.TextOf(TSemanticStringId(i));
       lQuery.ExecSQL;
     end;
   finally
@@ -1578,14 +1634,14 @@ begin
     'end_line, end_column, section_kind_id, source_kind_id, visibility_id, signature_id) ' +
     'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftString;
+    lQuery.Params[0].DataType := ftWideString;
     for lParamIndex := 1 to 16 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
     for i := 1 to aUnit.SymbolCount do
     begin
       lSymbol := aUnit.SymbolById(TSemanticSymbolId(i));
-      lQuery.Params[0].AsString := aIdentity.CacheKey;
+      lQuery.Params[0].AsWideString := aIdentity.CacheKey;
       lQuery.Params[1].AsInteger := Integer(aUnit.UnitId);
       lQuery.Params[2].AsInteger := i;
       lQuery.Params[3].AsInteger := Integer(lSymbol.NameId);
@@ -1670,17 +1726,46 @@ end;
 procedure TDelphiSemanticSnapshotSqliteCache.StoreUnitHeader(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
   const aUnit: TUnitSnapshot; const aStringCount: Integer);
+var
+  lConnection: TFDConnection;
+  lQuery: TFDQuery;
 begin
-  TFDConnection(aConnection).ExecSQL('insert into snapshot_units(cache_key, identity_key, ' +
+  lConnection := TFDConnection(aConnection);
+  lQuery := NewQuery(lConnection, 'insert into snapshot_units(cache_key, identity_key, ' +
     'source_file_name, file_hash, context_hash, include_graph_hash, schema_version, ' +
     'stored_at_utc, unit_id, file_name_id, unit_name_id, string_count, symbol_count, ' +
     'with_statement_count, reference_count, parse_avoided_estimate_ms) ' +
-    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [aIdentity.CacheKey, aIdentity.IdentityKey, aIdentity.SourceFileName, aIdentity.FileHash,
-    aIdentity.ContextHash, aIdentity.IncludeGraphHash, aIdentity.SchemaVersion,
-    SnapshotUtcTimestamp, Integer(aUnit.UnitId), Integer(aUnit.FileNameId),
-    Integer(aUnit.UnitNameId), aStringCount, aUnit.SymbolCount, aUnit.WithStatementCount,
-    aUnit.ReferenceCount, aIdentity.ParseAvoidedEstimateMilliseconds]);
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  try
+    SetWideParam(lQuery, 0, aIdentity.CacheKey);
+    SetWideParam(lQuery, 1, aIdentity.IdentityKey);
+    SetWideParam(lQuery, 2, aIdentity.SourceFileName);
+    SetWideParam(lQuery, 3, aIdentity.FileHash);
+    SetWideParam(lQuery, 4, aIdentity.ContextHash);
+    SetWideParam(lQuery, 5, aIdentity.IncludeGraphHash);
+    SetWideParam(lQuery, 6, aIdentity.SchemaVersion);
+    SetWideParam(lQuery, 7, SnapshotUtcTimestamp);
+    lQuery.Params[8].DataType := ftInteger;
+    lQuery.Params[8].AsInteger := Integer(aUnit.UnitId);
+    lQuery.Params[9].DataType := ftInteger;
+    lQuery.Params[9].AsInteger := Integer(aUnit.FileNameId);
+    lQuery.Params[10].DataType := ftInteger;
+    lQuery.Params[10].AsInteger := Integer(aUnit.UnitNameId);
+    lQuery.Params[11].DataType := ftInteger;
+    lQuery.Params[11].AsInteger := aStringCount;
+    lQuery.Params[12].DataType := ftInteger;
+    lQuery.Params[12].AsInteger := aUnit.SymbolCount;
+    lQuery.Params[13].DataType := ftInteger;
+    lQuery.Params[13].AsInteger := aUnit.WithStatementCount;
+    lQuery.Params[14].DataType := ftInteger;
+    lQuery.Params[14].AsInteger := aUnit.ReferenceCount;
+    lQuery.Params[15].DataType := ftLargeint;
+    lQuery.Params[15].AsLargeInt := aIdentity.ParseAvoidedEstimateMilliseconds;
+    lQuery.Prepare;
+    lQuery.ExecSQL;
+  finally
+    lQuery.Free;
+  end;
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreWithStatements(
@@ -1699,14 +1784,14 @@ begin
     'body_start_line, body_start_column, body_end_line, body_end_column, flags) values ' +
     '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftString;
+    lQuery.Params[0].DataType := ftWideString;
     for lParamIndex := 1 to 10 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
     for i := 1 to aUnit.WithStatementCount do
     begin
       lWith := aUnit.WithStatementById(TSemanticWithId(i));
-      lQuery.Params[0].AsString := aIdentity.CacheKey;
+      lQuery.Params[0].AsWideString := aIdentity.CacheKey;
       lQuery.Params[1].AsInteger := Integer(aUnit.UnitId);
       lQuery.Params[2].AsInteger := i;
       lQuery.Params[3].AsInteger := Integer(lWith.RoutineId);
