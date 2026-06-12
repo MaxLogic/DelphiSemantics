@@ -12,16 +12,23 @@ type
     [Test]
     procedure ProfileBuildersShareIntrinsicSeedContract;
     [Test]
+    procedure RtlSourceRootProjectionUsesUnitModelSemantics;
+    [Test]
+    procedure RtlSourceRootProjectionStripsAssignedEnumValues;
+    [Test]
+    procedure RtlSourceRootProjectionHidesImplementationSymbols;
+    [Test]
     procedure RecursiveRtlDuplicateBasenamesChooseSortedPath;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
-  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile;
+  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Model,
+  DelphiSemantics.Resolve;
 
 function CompilerProfileTempRoot: string;
 var
@@ -34,6 +41,87 @@ begin
   Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'compiler-profile-temp',
     'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
   TDirectory.CreateDirectory(Result);
+end;
+
+function CompilerProfileFixtureRoot(const aName: string): string;
+begin
+  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
+    'CompilerProfile', aName]));
+end;
+
+function FindProfileDeclaration(const aModel: TDelphiSemanticUnitModel; const aName,
+  aKind: string; out aDeclaration: TDelphiSemanticDeclaration): Boolean;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+begin
+  for lDeclaration in aModel.Declarations do
+  begin
+    if SameText(lDeclaration.Name, aName) and SameText(lDeclaration.Kind, aKind) then
+    begin
+      aDeclaration := lDeclaration;
+      Exit(True);
+    end;
+  end;
+
+  aDeclaration := Default(TDelphiSemanticDeclaration);
+  Result := False;
+end;
+
+function FindProfileMember(const aModel: TDelphiSemanticUnitModel; const aOwnerName,
+  aName: string; out aMember: TDelphiSemanticMember): Boolean;
+var
+  lMember: TDelphiSemanticMember;
+begin
+  for lMember in aModel.Members do
+  begin
+    if SameText(lMember.OwnerName, aOwnerName) and SameText(lMember.Name, aName) then
+    begin
+      aMember := lMember;
+      Exit(True);
+    end;
+  end;
+
+  aMember := Default(TDelphiSemanticMember);
+  Result := False;
+end;
+
+function CountProfileMembers(const aModel: TDelphiSemanticUnitModel; const aOwnerName,
+  aName: string): Integer;
+var
+  lMember: TDelphiSemanticMember;
+begin
+  Result := 0;
+  for lMember in aModel.Members do
+    if SameText(lMember.OwnerName, aOwnerName) and SameText(lMember.Name, aName) then
+      Inc(Result);
+end;
+
+function CountProfileRoutines(const aModel: TDelphiSemanticUnitModel; const aName: string):
+  Integer;
+var
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  Result := 0;
+  for lRoutine in aModel.Routines do
+    if SameText(lRoutine.Name, aName) then
+      Inc(Result);
+end;
+
+function LoadSemanticRtlProfile: TDelphiSemanticCompilerProfile;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.CompilerProfileName := 'Delphi-12-RTL-Projection';
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    Result := TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceRoot(lCache,
+      'Delphi-12-RTL-Projection', '23.0', 'Win32',
+      CompilerProfileFixtureRoot('RtlProjection'), ['SemanticRtl']);
+  finally
+    lCache.Free;
+  end;
 end;
 
 function ProfileHasIntrinsic(const aProfile: TDelphiSemanticCompilerProfile;
@@ -95,6 +183,124 @@ begin
   end;
 
   AssertSharedIntrinsicSeed(lTargetProfile, lCachedProfile, 'FromCachedSources');
+end;
+
+procedure TCompilerProfileTests.RtlSourceRootProjectionUsesUnitModelSemantics;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lProfile: TDelphiSemanticCompilerProfile;
+begin
+  lProfile := LoadSemanticRtlProfile;
+
+  Assert.AreEqual(1, Integer(Length(lProfile.RtlSourceUnitModels)));
+  lModel := lProfile.RtlSourceUnitModels[0];
+  Assert.IsTrue(lModel.Success, 'Expected RTL projection unit model to succeed.');
+  Assert.AreEqual('System.SemanticRtl', lModel.UnitName);
+
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'TRtlRecord', 'type', lDeclaration),
+    'Expected record declaration.');
+  Assert.AreEqual('record', lDeclaration.TypeName);
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'TRtlRecordHelper', 'type', lDeclaration),
+    'Expected record helper declaration.');
+  Assert.AreEqual('TRtlRecord', lDeclaration.HelperTargetName);
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'TRtlClassHelper', 'type', lDeclaration),
+    'Expected class helper declaration.');
+  Assert.AreEqual('TRtlChild', lDeclaration.HelperTargetName);
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'TRtlForward', 'type', lDeclaration),
+    'Expected forward class declaration.');
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'reOne', 'enum-value', lDeclaration),
+    'Expected enum value declaration.');
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'reAssigned', 'enum-value', lDeclaration),
+    'Expected assigned enum value declaration.');
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'rceTwo', 'enum-value', lDeclaration),
+    'Expected commented multiline enum value declaration.');
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'RtlPlainConst', 'const', lDeclaration),
+    'Expected const declaration.');
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'RtlTypedConst', 'typed-const', lDeclaration),
+    'Expected typed const declaration.');
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'rsRtlMessage', 'resourcestring',
+    lDeclaration), 'Expected resourcestring declaration.');
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'RtlGlobal', 'var', lDeclaration),
+    'Expected var declaration.');
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'RtlThreadGlobal', 'threadvar',
+    lDeclaration), 'Expected threadvar declaration.');
+
+  Assert.IsTrue(FindProfileMember(lModel, 'TRtlChild', 'Items', lMember),
+    'Expected indexed default property member.');
+  Assert.AreEqual('property', lMember.Kind);
+  Assert.AreEqual('string', lMember.TypeName);
+  Assert.IsTrue(lMember.IsIndexed, 'Expected indexed property metadata.');
+  Assert.IsTrue(lMember.IsDefault, 'Expected default property metadata.');
+
+  Assert.AreEqual(1, CountProfileMembers(lModel, 'TRtlLifecycle', 'Create'),
+    'Expected instance constructor member projection.');
+  Assert.AreEqual(1, CountProfileMembers(lModel, 'TRtlLifecycle', 'Destroy'),
+    'Expected instance destructor member projection.');
+  Assert.AreEqual(1, CountProfileMembers(lModel, 'TRtlClassLifecycle', 'Create'),
+    'Expected class constructor member projection.');
+  Assert.AreEqual(1, CountProfileMembers(lModel, 'TRtlClassLifecycle', 'Destroy'),
+    'Expected class destructor member projection.');
+
+  Assert.AreEqual(2, CountProfileRoutines(lModel, 'RtlOverloaded'));
+  Assert.IsTrue(CountProfileRoutines(lModel, 'RtlProjectValue') > 0,
+    'Expected top-level RTL routine projection.');
+end;
+
+procedure TCompilerProfileTests.RtlSourceRootProjectionStripsAssignedEnumValues;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lProfile: TDelphiSemanticCompilerProfile;
+begin
+  lProfile := LoadSemanticRtlProfile;
+  Assert.AreEqual(1, Integer(Length(lProfile.RtlSourceUnitModels)));
+  lModel := lProfile.RtlSourceUnitModels[0];
+
+  Assert.IsTrue(FindProfileDeclaration(lModel, 'reAssigned', 'enum-value', lDeclaration),
+    'Expected assigned enum member to publish only the identifier.');
+  Assert.AreEqual('TRtlEnum', lDeclaration.TypeName);
+  Assert.IsFalse(FindProfileDeclaration(lModel, 'reAssigned = 7', 'enum-value', lDeclaration),
+    'Assigned enum member value text must not become the semantic name.');
+  Assert.IsFalse(FindProfileDeclaration(lModel, '// comment rceTwo', 'enum-value',
+    lDeclaration), 'Line-comment text must not become part of a multiline enum value name.');
+end;
+
+procedure TCompilerProfileTests.RtlSourceRootProjectionHidesImplementationSymbols;
+var
+  lContext: TDelphiSemanticResolveContext;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lProfile: TDelphiSemanticCompilerProfile;
+  lResult: TDelphiSemanticResolveResult;
+  lSourceModel: TDelphiSemanticUnitModel;
+begin
+  lProfile := LoadSemanticRtlProfile;
+  Assert.AreEqual(1, Integer(Length(lProfile.RtlSourceUnitModels)));
+  lModel := lProfile.RtlSourceUnitModels[0];
+
+  Assert.IsFalse(FindProfileDeclaration(lModel, 'TImplementationOnly', 'type', lDeclaration));
+  Assert.IsFalse(FindProfileDeclaration(lModel, 'ImplementationOnlyConst', 'const',
+    lDeclaration));
+  Assert.IsFalse(FindProfileDeclaration(lModel, 'ImplementationOnlyGlobal', 'var',
+    lDeclaration));
+  Assert.IsFalse(FindProfileDeclaration(lModel, 'ImplementationOnlyRoutine', 'routine',
+    lDeclaration));
+  Assert.AreEqual(0, CountProfileRoutines(lModel, 'ImplementationOnlyRoutine'));
+  Assert.IsFalse(ContainsText(lModel.SourceText, 'ImplementationOnlyRoutine'),
+    'Interface-only RTL projection must not expose implementation source text.');
+
+  lSourceModel := Default(TDelphiSemanticUnitModel);
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.ConformanceLevel := 3;
+  lContext.IntrinsicSymbols := lProfile.IntrinsicSymbols;
+  lContext.IndexedUnitModels := lProfile.RtlSourceUnitModels;
+
+  lResult := TDelphiSemanticResolver.ResolveName(lSourceModel, lContext,
+    'TImplementationOnly');
+
+  Assert.IsFalse(lResult.Found, 'Implementation-only RTL type must not resolve externally.');
 end;
 
 procedure TCompilerProfileTests.RecursiveRtlDuplicateBasenamesChooseSortedPath;

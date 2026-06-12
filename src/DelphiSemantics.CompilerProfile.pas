@@ -47,12 +47,11 @@ type
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils,
-  System.RegularExpressions, System.StrUtils, System.SysUtils,
+  System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils,
+  System.SysUtils,
   System.Win.Registry,
   Winapi.Windows,
-  MaxLogic.StrUtils,
-  DelphiSemantics.Preprocess, DelphiSemantics.Source;
+  MaxLogic.StrUtils;
 
 const
   cIntrinsicSeedVersion = 'delphi-intrinsics-v1';
@@ -477,469 +476,82 @@ begin
   Result := CompilerProfileDefinesForPlatform(aPlatform);
 end;
 
-function StripRtlLineComment(const aLine: string): string;
+function RtlProfileKeepsMemberOwner(const aOwnerName: string;
+  const aInterfaceTypeNames: TDictionary<string, Boolean>): Boolean;
 var
-  lCommentPos: Integer;
+  lDotPos: Integer;
+  lOwnerName: string;
 begin
-  lCommentPos := Pos('//', aLine);
-  if lCommentPos > 0 then
-    Result := Trim(Copy(aLine, 1, lCommentPos - 1))
-  else
-    Result := Trim(aLine);
-end;
+  if aOwnerName = '' then
+    Exit(False);
+  if aInterfaceTypeNames.ContainsKey(aOwnerName) then
+    Exit(True);
 
-function RtlSourceUnitNameFromText(const aText, aSourceFileName: string): string;
-var
-  lMatch: TMatch;
-begin
-  lMatch := TRegEx.Match(aText, '^\s*unit\s+([A-Za-z_][A-Za-z0-9_\.]*)\s*;',
-    [roIgnoreCase, roMultiLine]);
-  if lMatch.Success then
-    Exit(lMatch.Groups[1].Value);
-
-  Result := ChangeFileExt(TPath.GetFileName(aSourceFileName), '');
-end;
-
-function RtlInterfacePrefixText(const aText: string): string;
-var
-  i: Integer;
-  lLines: TStringList;
-  lText: string;
-begin
-  lLines := TStringList.Create;
-  try
-    lLines.Text := aText;
-    for i := 0 to Pred(lLines.Count) do
-    begin
-      lText := StripRtlLineComment(lLines[i]);
-      if SameText(lText, 'implementation') then
-      begin
-        while lLines.Count > i + 1 do
-          lLines.Delete(lLines.Count - 1);
-        Exit(lLines.Text);
-      end;
-    end;
-  finally
-    lLines.Free;
+  lOwnerName := aOwnerName;
+  while lOwnerName <> '' do
+  begin
+    lDotPos := LastDelimiter('.', lOwnerName);
+    if lDotPos <= 0 then
+      Break;
+    lOwnerName := Copy(lOwnerName, 1, lDotPos - 1);
+    if aInterfaceTypeNames.ContainsKey(lOwnerName) then
+      Exit(True);
   end;
 
-  Result := aText;
+  Result := False;
 end;
 
-function NormalizeRtlTypeCategory(const aTypeText: string): string;
-var
-  lText: string;
-begin
-  lText := Trim(aTypeText);
-  if StartsText('packed ', lText) then
-    lText := Trim(Copy(lText, Length('packed ') + 1, MaxInt));
-  if StartsText('record', lText) then
-    Exit('record');
-  if StartsText('class', lText) or ContainsText(lText, ' class') then
-    Exit('class');
-  if StartsText('interface', lText) then
-    Exit('interface');
-  if StartsText('object', lText) then
-    Exit('object');
-  if StartsText('(', lText) then
-    Exit('enum');
-
-  Result := lText;
-end;
-
-function ExtractRtlBaseTypeName(const aTypeText: string): string;
-var
-  lMatch: TMatch;
-begin
-  lMatch := TRegEx.Match(aTypeText, '\b(?:class|interface)\s*\(\s*([A-Za-z_][A-Za-z0-9_\.]*)',
-    [roIgnoreCase]);
-  if lMatch.Success then
-    Result := lMatch.Groups[1].Value
-  else
-    Result := '';
-end;
-
-function RtlMatchGroupValue(const aMatch: TMatch; const aIndex: Integer): string;
-begin
-  if aIndex < aMatch.Groups.Count then
-    Result := aMatch.Groups[aIndex].Value
-  else
-    Result := '';
-end;
-
-procedure AddRtlSourceDeclaration(const aDeclarations: TList<TDelphiSemanticDeclaration>;
-  const aName, aKind, aTypeName: string; const aLine: Integer; const aBaseTypeName: string = '');
+function RtlProfileInterfaceProjection(
+  const aModel: TDelphiSemanticUnitModel): TDelphiSemanticUnitModel;
 var
   lDeclaration: TDelphiSemanticDeclaration;
-begin
-  if aName = '' then
-    Exit;
-
-  lDeclaration := Default(TDelphiSemanticDeclaration);
-  lDeclaration.Name := aName;
-  lDeclaration.Kind := aKind;
-  lDeclaration.TypeName := aTypeName;
-  lDeclaration.BaseTypeName := aBaseTypeName;
-  lDeclaration.SectionKind := 'interface';
-  lDeclaration.Line := aLine;
-  lDeclaration.Column := 1;
-  aDeclarations.Add(lDeclaration);
-end;
-
-procedure AddRtlEnumValueDeclarations(const aDeclarations: TList<TDelphiSemanticDeclaration>;
-  const aOwnerName, aTypeText: string; const aLine: Integer);
-var
-  lEnumText: string;
-  lMatch: TMatch;
-  lName: string;
-  lPart: string;
-begin
-  lMatch := TRegEx.Match(aTypeText, '\((.*?)\)', [roSingleLine]);
-  if not lMatch.Success then
-    Exit;
-
-  lEnumText := lMatch.Groups[1].Value;
-  for lPart in lEnumText.Split([',']) do
-  begin
-    lName := Trim(lPart);
-    if Pos('=', lName) > 0 then
-      lName := Trim(Copy(lName, 1, Pos('=', lName) - 1));
-    AddRtlSourceDeclaration(aDeclarations, lName, 'enum-value', aOwnerName, aLine);
-  end;
-end;
-
-function TryAddRtlConstDeclaration(const aDeclarations: TList<TDelphiSemanticDeclaration>;
-  const aLine, aBlockKind: string; const aLineNumber: Integer): Boolean;
-var
-  lDeclarationKind: string;
-  lMatch: TMatch;
-  lTypeName: string;
-begin
-  lMatch := TRegEx.Match(aLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=]+?))?\s*=',
-    [roIgnoreCase]);
-  Result := lMatch.Success;
-  if not Result then
-    Exit;
-
-  lTypeName := Trim(RtlMatchGroupValue(lMatch, 2));
-  if SameText(aBlockKind, 'resourcestring') then
-    lDeclarationKind := 'resourcestring'
-  else if lTypeName <> '' then
-    lDeclarationKind := 'typed-const'
-  else
-    lDeclarationKind := 'const';
-  AddRtlSourceDeclaration(aDeclarations, lMatch.Groups[1].Value, lDeclarationKind, lTypeName,
-    aLineNumber);
-end;
-
-function TryAddRtlVarDeclaration(const aDeclarations: TList<TDelphiSemanticDeclaration>;
-  const aLine, aBlockKind: string; const aLineNumber: Integer): Boolean;
-var
-  lMatch: TMatch;
-  lName: string;
-begin
-  lMatch := TRegEx.Match(aLine,
-    '^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:\s*([^;]+);',
-    [roIgnoreCase]);
-  Result := lMatch.Success;
-  if not Result then
-    Exit;
-
-  for lName in lMatch.Groups[1].Value.Split([',']) do
-    AddRtlSourceDeclaration(aDeclarations, Trim(lName), aBlockKind,
-      Trim(RtlMatchGroupValue(lMatch, 2)), aLineNumber);
-end;
-
-procedure AddRtlSourceMember(const aMembers: TList<TDelphiSemanticMember>; const aOwnerName,
-  aName, aKind, aTypeName, aSignature: string; const aLine: Integer);
-var
-  lMember: TDelphiSemanticMember;
-begin
-  if (aOwnerName = '') or (aName = '') then
-    Exit;
-
-  lMember := Default(TDelphiSemanticMember);
-  lMember.OwnerName := aOwnerName;
-  lMember.Name := aName;
-  lMember.Kind := aKind;
-  lMember.TypeName := Trim(aTypeName);
-  lMember.Visibility := 'public';
-  lMember.Signature := aSignature;
-  lMember.Line := aLine;
-  lMember.Column := 1;
-  aMembers.Add(lMember);
-end;
-
-procedure AddRtlSourceRoutine(const aDeclarations: TList<TDelphiSemanticDeclaration>;
-  const aRoutines: TList<TDelphiSemanticRoutine>; const aUnitName, aName, aSignature,
-  aReturnType: string; const aLine: Integer);
-var
-  lRoutine: TDelphiSemanticRoutine;
-begin
-  if aName = '' then
-    Exit;
-
-  lRoutine := Default(TDelphiSemanticRoutine);
-  lRoutine.Name := aName;
-  lRoutine.OwnerName := aUnitName;
-  lRoutine.SectionKind := 'interface';
-  lRoutine.Signature := aSignature;
-  lRoutine.ReturnType := Trim(aReturnType);
-  lRoutine.Line := aLine;
-  lRoutine.Column := 1;
-  aRoutines.Add(lRoutine);
-  AddRtlSourceDeclaration(aDeclarations, aName, 'routine', lRoutine.ReturnType, aLine);
-end;
-
-function TryAddRtlRoutine(const aDeclarations: TList<TDelphiSemanticDeclaration>;
-  const aRoutines: TList<TDelphiSemanticRoutine>; const aUnitName, aLine: string;
-  const aLineNumber: Integer): Boolean;
-var
-  lMatch: TMatch;
-  lReturnMatch: TMatch;
-  lReturnType: string;
-begin
-  lMatch := TRegEx.Match(aLine,
-    '^(?:class\s+)?(procedure|function)\s+([A-Za-z_][A-Za-z0-9_]*)\b(.*);',
-    [roIgnoreCase]);
-  Result := lMatch.Success;
-  if not Result then
-    Exit;
-
-  lReturnType := '';
-  if SameText(lMatch.Groups[1].Value, 'function') then
-  begin
-    lReturnMatch := TRegEx.Match(aLine, ':\s*([^:;]+)\s*;', [roIgnoreCase]);
-    if lReturnMatch.Success then
-      lReturnType := lReturnMatch.Groups[1].Value;
-  end;
-  AddRtlSourceRoutine(aDeclarations, aRoutines, aUnitName, lMatch.Groups[2].Value, aLine,
-    lReturnType, aLineNumber);
-end;
-
-function TryAddRtlMember(const aMembers: TList<TDelphiSemanticMember>; const aOwnerName,
-  aLine: string; const aLineNumber: Integer): Boolean;
-var
-  lFieldMatch: TMatch;
-  lName: string;
-  lPropertyMatch: TMatch;
-  lRoutineMatch: TMatch;
-begin
-  lPropertyMatch := TRegEx.Match(aLine,
-    '^property\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\[[^\]]+\])?\s*:\s*([^;]+);',
-    [roIgnoreCase]);
-  if lPropertyMatch.Success then
-  begin
-    AddRtlSourceMember(aMembers, aOwnerName, lPropertyMatch.Groups[1].Value, 'property',
-      lPropertyMatch.Groups[2].Value, aLine, aLineNumber);
-    Exit(True);
-  end;
-
-  lRoutineMatch := TRegEx.Match(aLine,
-    '^(?:class\s+)?(procedure|function|constructor|destructor)\s+([A-Za-z_][A-Za-z0-9_]*)\b(.*);',
-    [roIgnoreCase]);
-  if lRoutineMatch.Success then
-  begin
-    AddRtlSourceMember(aMembers, aOwnerName, lRoutineMatch.Groups[2].Value, 'method', '',
-      aLine, aLineNumber);
-    Exit(True);
-  end;
-
-  lFieldMatch := TRegEx.Match(aLine,
-    '^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:\s*([^;]+);',
-    [roIgnoreCase]);
-  Result := lFieldMatch.Success;
-  if not Result then
-    Exit;
-
-  for lName in lFieldMatch.Groups[1].Value.Split([',']) do
-    AddRtlSourceMember(aMembers, aOwnerName, Trim(lName), 'field',
-      lFieldMatch.Groups[2].Value, '', aLineNumber);
-end;
-
-function TryStartRtlType(const aDeclarations: TList<TDelphiSemanticDeclaration>;
-  const aLine: string; const aLineNumber: Integer; out aOwnerName, aPendingEnumName: string):
-  Boolean;
-var
-  lCategory: string;
-  lKind: string;
-  lMatch: TMatch;
-  lTypeText: string;
-begin
-  aOwnerName := '';
-  aPendingEnumName := '';
-  lMatch := TRegEx.Match(aLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\r\n]+)',
-    [roIgnoreCase]);
-  Result := lMatch.Success;
-  if not Result then
-    Exit;
-
-  lTypeText := Trim(lMatch.Groups[2].Value);
-  lCategory := NormalizeRtlTypeCategory(lTypeText);
-  if MatchText(lCategory, ['class', 'interface', 'record', 'object', 'enum']) then
-    lKind := 'type'
-  else
-    lKind := 'type-alias';
-
-  AddRtlSourceDeclaration(aDeclarations, lMatch.Groups[1].Value, lKind, lCategory, aLineNumber,
-    ExtractRtlBaseTypeName(lTypeText));
-  if SameText(lCategory, 'enum') then
-  begin
-    if Pos(')', lTypeText) > 0 then
-      AddRtlEnumValueDeclarations(aDeclarations, lMatch.Groups[1].Value, lTypeText, aLineNumber)
-    else
-      aPendingEnumName := lMatch.Groups[1].Value;
-  end;
-  if SameText(lCategory, 'class') or SameText(lCategory, 'interface') or
-    SameText(lCategory, 'record') or SameText(lCategory, 'object') then
-    if (not ContainsText(aLine, ' end')) and (not EndsText(';', Trim(aLine))) then
-      aOwnerName := lMatch.Groups[1].Value;
-end;
-
-function BuildRtlSourceUnitModel(const aSourceFileName, aPlatform: string): TDelphiSemanticUnitModel;
-var
-  i: Integer;
   lDeclarations: TList<TDelphiSemanticDeclaration>;
-  lBlockKind: string;
-  lInInterface: Boolean;
-  lLine: string;
-  lLines: TStringList;
+  lInterfaceTypeNames: TDictionary<string, Boolean>;
+  lMember: TDelphiSemanticMember;
   lMembers: TList<TDelphiSemanticMember>;
-  lPendingEnumName: string;
-  lPendingEnumText: string;
-  lOwnerName: string;
-  lPreprocessOptions: TDelphiSemanticPreprocessOptions;
-  lPreprocessResult: TDelphiSemanticPreprocessResult;
+  lRoutine: TDelphiSemanticRoutine;
   lRoutines: TList<TDelphiSemanticRoutine>;
-  lSourceResult: TDelphiSemanticSourceLoadResult;
-  lText: string;
 begin
-  Result := Default(TDelphiSemanticUnitModel);
-  Result.FileName := aSourceFileName;
-  lSourceResult := TDelphiSemanticSourceLoader.LoadFile(aSourceFileName);
-  Result.Success := lSourceResult.Success;
-  Result.FileName := lSourceResult.Source.FileName;
-  Result.EncodingName := lSourceResult.Source.EncodingName;
-  if not lSourceResult.Success then
-    Exit;
-
-  lPreprocessOptions := Default(TDelphiSemanticPreprocessOptions);
-  lPreprocessOptions.SourceFileName := aSourceFileName;
-  lPreprocessOptions.SourceText := RtlInterfacePrefixText(lSourceResult.Source.Text);
-  lPreprocessOptions.Defines := CompilerProfileDefinesForPlatform(aPlatform);
-  lPreprocessOptions.SearchPaths := [TPath.GetDirectoryName(aSourceFileName)];
-  lPreprocessResult := TDelphiSemanticPreprocessor.PreprocessFile(lPreprocessOptions);
-  lText := lPreprocessResult.OutputText;
-  if lText = '' then
-    lText := lPreprocessOptions.SourceText;
-  if (lText <> '') and (lText[1] = #$FEFF) then
-    Delete(lText, 1, 1);
-
-  Result.UnitName := RtlSourceUnitNameFromText(lText, aSourceFileName);
+  Result := aModel;
+  if (Result.SourceText <> '') and (Result.SourceSections.ImplementationOffset > 0) then
+    Result.SourceText := Copy(Result.SourceText, 1, Result.SourceSections.ImplementationOffset - 1);
+  Result.SourceSections.ImplementationOffset := 0;
+  Result.SourceSections.InitializationOffset := 0;
+  Result.SourceSections.FinalizationOffset := 0;
 
   lDeclarations := TList<TDelphiSemanticDeclaration>.Create;
   lMembers := TList<TDelphiSemanticMember>.Create;
   lRoutines := TList<TDelphiSemanticRoutine>.Create;
-  lLines := TStringList.Create;
+  lInterfaceTypeNames := TDictionary<string, Boolean>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
   try
-    lLines.Text := lText;
-    lInInterface := False;
-    lBlockKind := '';
-    lOwnerName := '';
-    lPendingEnumName := '';
-    lPendingEnumText := '';
-    for i := 0 to Pred(lLines.Count) do
+    for lDeclaration in aModel.Declarations do
     begin
-      lLine := StripRtlLineComment(lLines[i]);
-      if lLine = '' then
-        Continue;
-
-      if SameText(lLine, 'interface') then
+      if SameText(lDeclaration.SectionKind, 'interface') then
       begin
-        lInInterface := True;
-        Continue;
+        lDeclarations.Add(lDeclaration);
+        if SameText(lDeclaration.Kind, 'type') then
+          lInterfaceTypeNames.AddOrSetValue(lDeclaration.Name, True);
       end;
-      if SameText(lLine, 'implementation') then
-        Break;
-      if not lInInterface then
-        Continue;
-
-      if lPendingEnumName <> '' then
-      begin
-        lPendingEnumText := lPendingEnumText + ' ' + lLine;
-        if Pos(')', lLine) > 0 then
-        begin
-          AddRtlEnumValueDeclarations(lDeclarations, lPendingEnumName, lPendingEnumText, i + 1);
-          lPendingEnumName := '';
-          lPendingEnumText := '';
-        end;
-        Continue;
-      end;
-
-      if SameText(lLine, 'type') then
-      begin
-        lBlockKind := 'type';
-        Continue;
-      end;
-      if MatchText(lLine, ['const', 'var', 'threadvar', 'resourcestring']) then
-      begin
-        lBlockKind := LowerCase(lLine);
-        lOwnerName := '';
-        Continue;
-      end;
-
-      if lOwnerName <> '' then
-      begin
-        if SameText(lLine, 'end;') or SameText(lLine, 'end') then
-        begin
-          lOwnerName := '';
-          Continue;
-        end;
-        TryAddRtlMember(lMembers, lOwnerName, lLine, i + 1);
-        Continue;
-      end;
-
-      if SameText(lBlockKind, 'type') then
-      begin
-        if TryAddRtlRoutine(lDeclarations, lRoutines, Result.UnitName, lLine, i + 1) then
-        begin
-          lBlockKind := '';
-          Continue;
-        end;
-        if TryStartRtlType(lDeclarations, lLine, i + 1, lOwnerName, lPendingEnumName) and
-          (lPendingEnumName <> '') then
-          lPendingEnumText := lLine;
-        Continue;
-      end;
-      if SameText(lBlockKind, 'const') or SameText(lBlockKind, 'resourcestring') then
-      begin
-        if TryAddRtlRoutine(lDeclarations, lRoutines, Result.UnitName, lLine, i + 1) then
-        begin
-          lBlockKind := '';
-          Continue;
-        end;
-        TryAddRtlConstDeclaration(lDeclarations, lLine, lBlockKind, i + 1);
-        Continue;
-      end;
-      if SameText(lBlockKind, 'var') or SameText(lBlockKind, 'threadvar') then
-      begin
-        if TryAddRtlRoutine(lDeclarations, lRoutines, Result.UnitName, lLine, i + 1) then
-        begin
-          lBlockKind := '';
-          Continue;
-        end;
-        TryAddRtlVarDeclaration(lDeclarations, lLine, lBlockKind, i + 1);
-        Continue;
-      end;
-
-      TryAddRtlRoutine(lDeclarations, lRoutines, Result.UnitName, lLine, i + 1);
     end;
+
+    for lMember in aModel.Members do
+      if RtlProfileKeepsMemberOwner(lMember.OwnerName, lInterfaceTypeNames) then
+        lMembers.Add(lMember);
+
+    for lRoutine in aModel.Routines do
+      if SameText(lRoutine.SectionKind, 'interface') then
+        lRoutines.Add(lRoutine);
 
     Result.Declarations := lDeclarations.ToArray;
     Result.Members := lMembers.ToArray;
     Result.Routines := lRoutines.ToArray;
+    SetLength(Result.ImplementationUses, 0);
+    SetLength(Result.Locals, 0);
+    SetLength(Result.References, 0);
+    SetLength(Result.WithStatements, 0);
   finally
-    lLines.Free;
+    lInterfaceTypeNames.Free;
     lRoutines.Free;
     lMembers.Free;
     lDeclarations.Free;
@@ -963,11 +575,9 @@ begin
     lOptions.SearchPaths := [TPath.GetDirectoryName(aSourceFileNames[i])];
     lOptions.ProjectContextApplied := True;
     lOptions.SkipBodyAnalysis := True;
-    Result.RtlSourceUnitModels[i] := aCache.GetOrBuildUnitModelWithStatus(lOptions,
-      function(const aBuildOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel
-      begin
-        Result := BuildRtlSourceUnitModel(aBuildOptions.SourceFileName, aPlatform);
-      end).Model;
+    lOptions.SkipReferenceExtraction := True;
+    Result.RtlSourceUnitModels[i] := RtlProfileInterfaceProjection(
+      aCache.GetOrExtractUnitModel(lOptions));
   end;
 end;
 

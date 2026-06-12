@@ -66,7 +66,7 @@ type
     [Test]
     procedure CompilerProfileRecursiveRtlSourceLookupPreservesOrder;
     [Test]
-    procedure CompilerProfileRtlSourceRootBuildsFastInterfaceModels;
+    procedure CompilerProfileRtlSourceRootBuildsSharedUnitModels;
     [Test]
     procedure CompilerProfileResolvesRtlSourceRootFromRsVars;
     [Test]
@@ -1123,7 +1123,7 @@ begin
     lFiles[2], 'Scoped recursive lookup must resolve the scoped file name.');
 end;
 
-procedure TCacheTests.CompilerProfileRtlSourceRootBuildsFastInterfaceModels;
+procedure TCacheTests.CompilerProfileRtlSourceRootBuildsSharedUnitModels;
 var
   i: Integer;
   lCache: TDelphiSemanticUnitCache;
@@ -1197,7 +1197,7 @@ begin
     Assert.IsTrue(lMemberResult.Found, 'Expected RTL alias members to resolve through the aliased record type.');
     Assert.AreEqual('_SECURITY_ATTRIBUTES', lMemberResult.OwnerName);
     Assert.AreEqual(1, lCache.Metrics.CacheMisses,
-      'RTL source-root profiles must cache fast interface models without using the full parser path.');
+      'RTL source-root profiles must cache shared unit-model projections.');
   finally
     lCache.Free;
   end;

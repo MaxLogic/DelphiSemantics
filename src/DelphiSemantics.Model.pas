@@ -357,7 +357,7 @@ begin
         begin
           lTypeName := NormalizeTypeName(lTypeMatch.Groups[2].Value);
           if MatchText(lTypeName, ['class', 'interface', 'record']) and
-            not ContainsText(lScopeLine, ' end') then
+            (not ContainsText(lScopeLine, ' end')) and (not EndsText(';', lScopeLine)) then
             Inc(lTypeDepth);
         end;
       end;
@@ -943,6 +943,7 @@ procedure ExtractEnumValues(const aText: string; const aDeclarations: TList<TDel
   const aOwnerName, aEnumText, aSection: string; const aOffset: Integer);
 var
   lEnumMatch: TMatch;
+  lEnumName: string;
   lEnumPart: string;
 begin
   lEnumMatch := TRegEx.Match(aEnumText, '\((.*?)\)', [roSingleLine]);
@@ -950,9 +951,14 @@ begin
     Exit;
 
   for lEnumPart in lEnumMatch.Groups[1].Value.Split([',']) do
-    if lEnumPart.Trim <> '' then
-      AddDeclaration(aDeclarations, lEnumPart.Trim, 'enum-value', aOwnerName, aSection, aText,
+  begin
+    lEnumName := lEnumPart.Trim;
+    if Pos('=', lEnumName) > 0 then
+      lEnumName := Copy(lEnumName, 1, Pos('=', lEnumName) - 1).Trim;
+    if lEnumName <> '' then
+      AddDeclaration(aDeclarations, lEnumName, 'enum-value', aOwnerName, aSection, aText,
         aOffset);
+  end;
 end;
 
 procedure ExtractTypeDeclarations(const aText: string;
@@ -969,6 +975,10 @@ var
   lName: string;
   lScopeLine: string;
   lOffset: Integer;
+  lPendingEnumName: string;
+  lPendingEnumOffset: Integer;
+  lPendingEnumSection: string;
+  lPendingEnumText: string;
   lSection: string;
   lTypeName: string;
   lTypeText: string;
@@ -981,12 +991,26 @@ begin
     lInImplementation := False;
     lInRoutine := False;
     lOffset := 0;
+    lPendingEnumName := '';
+    lPendingEnumOffset := 0;
+    lPendingEnumSection := '';
+    lPendingEnumText := '';
     lTypeDepth := 0;
     for i := 0 to Pred(lLines.Count) do
     begin
       lLine := lLines[i].Trim;
       lScopeLine := StripTrailingDeclarationComment(lLine);
-      if (lTypeDepth > 0) and SameText(lScopeLine, 'end;') then
+      if lPendingEnumName <> '' then
+      begin
+        lPendingEnumText := lPendingEnumText + ' ' + lScopeLine;
+        if Pos(')', lScopeLine) > 0 then
+        begin
+          ExtractEnumValues(aText, aDeclarations, lPendingEnumName, lPendingEnumText,
+            lPendingEnumSection, lPendingEnumOffset);
+          lPendingEnumName := '';
+          lPendingEnumText := '';
+        end;
+      end else if (lTypeDepth > 0) and SameText(lScopeLine, 'end;') then
       begin
         Dec(lTypeDepth);
       end else if SameText(lScopeLine, 'implementation') then
@@ -1016,7 +1040,7 @@ begin
           lBlockKind := ''
         else if lBlockKind = 'type' then
         begin
-          lMatch := TRegEx.Match(lLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\r\n]+)',
+          lMatch := TRegEx.Match(lScopeLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\r\n]+)',
             [roIgnoreCase]);
           if lMatch.Success then
           begin
@@ -1037,10 +1061,20 @@ begin
             end;
 
             if lTypeName = 'enum' then
-              ExtractEnumValues(aText, aDeclarations, lName, lMatch.Groups[2].Value, lSection,
-                lOffset + 1)
+            begin
+              if Pos(')', lTypeText) > 0 then
+                ExtractEnumValues(aText, aDeclarations, lName, lMatch.Groups[2].Value, lSection,
+                  lOffset + 1)
+              else
+              begin
+                lPendingEnumName := lName;
+                lPendingEnumText := lTypeText;
+                lPendingEnumSection := lSection;
+                lPendingEnumOffset := lOffset + 1;
+              end;
+            end
             else if MatchText(lTypeName, ['class', 'interface', 'record']) and
-              not ContainsText(lScopeLine, ' end') then
+              (not ContainsText(lScopeLine, ' end')) and (not EndsText(';', lScopeLine)) then
               Inc(lTypeDepth);
           end;
         end;
@@ -1170,20 +1204,24 @@ begin
       begin
         if SameText(lLine, 'const') then
           lBlockKind := 'const'
+        else if SameText(lLine, 'resourcestring') then
+          lBlockKind := 'resourcestring'
         else if SameText(lLine, 'var') then
           lBlockKind := 'var'
         else if SameText(lLine, 'threadvar') then
           lBlockKind := 'threadvar'
         else if SameText(lLine, 'type') then
           lBlockKind := ''
-        else if lBlockKind = 'const' then
+        else if MatchText(lBlockKind, ['const', 'resourcestring']) then
         begin
           lMatch := TRegEx.Match(lLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=]+?))?\s*=',
             [roIgnoreCase]);
           if lMatch.Success then
           begin
             lSection := SectionForOffset(aText, lOffset + 1);
-            if MatchGroupValue(lMatch, 2).Trim <> '' then
+            if SameText(lBlockKind, 'resourcestring') then
+              lDeclarationKind := 'resourcestring'
+            else if MatchGroupValue(lMatch, 2).Trim <> '' then
               lDeclarationKind := 'typed-const'
             else
               lDeclarationKind := 'const';
@@ -1334,7 +1372,8 @@ begin
           end else
           begin
             lMethodMatch := TRegEx.Match(lLine,
-              '^(?:class\s+)?(procedure|function)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\([^\r\n]*\))?\s*(?::\s*([^;]+))?',
+              '^(?:class\s+)?(procedure|function|constructor|destructor)\s+' +
+              '([A-Za-z_][A-Za-z0-9_]*)\s*(\([^\r\n]*\))?\s*(?::\s*([^;]+))?',
               [roIgnoreCase]);
             if lMethodMatch.Success then
             begin

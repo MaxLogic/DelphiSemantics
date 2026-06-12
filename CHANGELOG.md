@@ -76,6 +76,10 @@
 - Default compiler profiles now use the shared versioned intrinsic seed, so
   default, target-backed, and cached-source profile builders expose the same
   intrinsic symbol set.
+- RTL source-root compiler profiles now build source models through shared
+  unit-model extraction instead of a compiler-profile-local regex parser,
+  preserving helper metadata, property metadata, resourcestrings, multiline
+  enum values, and forward class declarations.
 - Remove-with selector planning now resolves source-backed dotted selector
   chains through semantic symbol/member facts instead of maxTdb-specific
   selector-decision patches, while preserving the maxTdb `667` scan count and
