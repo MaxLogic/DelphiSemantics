@@ -200,6 +200,7 @@ type
   TFinalBodyEdit = record
     Offset: Integer;
     Length: Integer;
+    ExpectedText: string;
     ReplacementText: string;
   end;
 
@@ -731,6 +732,85 @@ begin
   end;
 end;
 
+function ReferenceLookupName(const aReferenceName: string): string; forward;
+
+function SymbolIsRoutineMemberKind(const aSymbol:
+  TDelphiSemanticInventorySymbol): Boolean;
+begin
+  Result := MatchText(aSymbol.SymbolClass, ['method', 'routine']) or
+    MatchText(aSymbol.Kind, ['method', 'routine']);
+end;
+
+function SymbolIsRoutineMemberOfOwner(const aSymbol:
+  TDelphiSemanticInventorySymbol; const aOwnerType: string): Boolean;
+begin
+  Result := SymbolIsRoutineMemberKind(aSymbol) and
+    (TypeNameMatches(aSymbol.OwnerType, aOwnerType) or
+    TypeNameMatches(aSymbol.OwnerName, aOwnerType));
+end;
+
+function SymbolIsOwnRoutineMemberOfOwner(const aSymbol:
+  TDelphiSemanticInventorySymbol; const aOwnerType: string): Boolean;
+begin
+  Result := SymbolIsRoutineMemberOfOwner(aSymbol, aOwnerType) and
+    (not aSymbol.IsHelper) and
+    ((Trim(aSymbol.SourceOwnerType) = '') or
+    TypeNameMatches(aSymbol.SourceOwnerType, aOwnerType));
+end;
+
+function ReceiverRoutineMemberCandidateCount(const aFacts: TRemoveWithPlanFacts;
+  const aOwnerType, aName: string): Integer;
+var
+  lCandidateKey: string;
+  lCandidateKeys: TDictionary<string, Byte>;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := 0;
+  lCandidateKeys := TDictionary<string, Byte>.Create;
+  try
+    for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aName) do
+    begin
+      if not SymbolIsRoutineMemberOfOwner(lSymbol, aOwnerType) then
+        Continue;
+      if SymbolIsOwnRoutineMemberOfOwner(lSymbol, aOwnerType) then
+        Exit(1);
+      lCandidateKey := LowerCase(lSymbol.SourceOwnerType + #31 +
+        lSymbol.OwnerType + #31 + lSymbol.Name);
+      if lCandidateKeys.ContainsKey(lCandidateKey) then
+        Continue;
+      lCandidateKeys.Add(lCandidateKey, 1);
+      Inc(Result);
+    end;
+  finally
+    lCandidateKeys.Free;
+  end;
+end;
+
+function ReferenceHasAmbiguousReceiverRoutineMember(
+  const aFacts: TRemoveWithPlanFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>;
+  const aReference: TDelphiSemanticBoundReference): Boolean;
+var
+  lDecision: TFinalSelectorDecision;
+  lReferenceName: string;
+begin
+  Result := False;
+  if not MatchText(aReference.Kind, ['method', 'routine']) then
+    Exit;
+  lReferenceName := ReferenceLookupName(aReference.Name);
+  if lReferenceName = '' then
+    Exit;
+
+  for lDecision in aDecisions do
+  begin
+    if Trim(lDecision.ReceiverType) = '' then
+      Continue;
+    if ReceiverRoutineMemberCandidateCount(aFacts, lDecision.ReceiverType,
+      lReferenceName) > 1 then
+      Exit(True);
+  end;
+end;
+
 function DependentSelectorQualifier(const aFacts: TRemoveWithPlanFacts;
   const aDecisions: TArray<TFinalSelectorDecision>; const aSelectorText: string;
   out aQualifierText: string): Boolean;
@@ -871,6 +951,73 @@ begin
   end;
 end;
 
+function TryDependentSelectorTypeName(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorText,
+  aReceiverType: string; out aTypeName: string): Boolean;
+var
+  lAfterSelector: Boolean;
+  lSelector: TDelphiSemanticWithSelectorBinding;
+  lSelectorName: string;
+  lStopPos: Integer;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  aTypeName := '';
+  lAfterSelector := False;
+  for lSelector in aBinding.Selectors do
+  begin
+    if not SelectorTextDeclaredInBinding(aBinding.SelectorText,
+      lSelector.SelectorText) then
+      Continue;
+    if not lAfterSelector then
+    begin
+      if SameText(lSelector.SelectorText, aSelectorText) then
+        lAfterSelector := True;
+      Continue;
+    end;
+
+    lSelectorName := Trim(lSelector.SelectorText);
+    lStopPos := Pos('[', lSelectorName);
+    if lStopPos <= 0 then
+      lStopPos := Pos('^', lSelectorName);
+    if lStopPos <= 0 then
+      lStopPos := Pos('.', lSelectorName);
+    if lStopPos > 0 then
+      lSelectorName := Trim(Copy(lSelectorName, 1, lStopPos - 1));
+    if lSelectorName = '' then
+      Continue;
+
+    for lSymbol in aFacts.LookupIndex.FindMembersByOwnerAndName(aReceiverType,
+      lSelectorName) do
+    begin
+      aTypeName := lSymbol.TypeName;
+      Exit(True);
+    end;
+    for lSymbol in aFacts.LookupIndex.FindSymbolsByName(lSelectorName) do
+    begin
+      if not SymbolIsMemberOfOwner(lSymbol, aReceiverType) then
+        Continue;
+      aTypeName := lSymbol.TypeName;
+      Exit(True);
+    end;
+  end;
+end;
+
+function TypeIsRecordLike(const aFacts: TRemoveWithPlanFacts;
+  const aTypeName: string): Boolean; forward;
+
+function SelectorHasAnonymousRecordDependentSelector(
+  const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorText,
+  aReceiverType: string): Boolean;
+var
+  lTypeName: string;
+begin
+  Result := TryDependentSelectorTypeName(aFacts, aBinding, aSelectorText,
+    aReceiverType, lTypeName) and ContainsText(lTypeName, '.') and
+    TypeIsRecordLike(aFacts, lTypeName);
+end;
+
 function BindingBodyRange(const aBinding: TDelphiSemanticWithBinding):
   TDelphiSemanticRemoveWithSourceRange;
 begin
@@ -880,13 +1027,76 @@ begin
   Result.EndColumn := aBinding.BodyEndColumn;
 end;
 
+function FirstNonWhitespaceColumn(const aText: string): Integer;
+var
+  i: Integer;
+begin
+  for i := 1 to Length(aText) do
+    if not CharInSet(aText[i], [#9, ' ']) then
+      Exit(i);
+  Result := Length(aText) + 1;
+end;
+
+function LineStartsOuterElse(const aLine: string;
+  const aBindingColumn: Integer): Boolean;
+var
+  lColumn: Integer;
+  lText: string;
+begin
+  lColumn := FirstNonWhitespaceColumn(aLine);
+  lText := LowerCase(Trim(aLine));
+  Result := (StartsText('else', lText) or StartsText('end else', lText)) and
+    (lColumn < aBindingColumn);
+end;
+
+function TrimRangeBeforeOuterElse(const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDelphiSemanticSourceContextCache;
+  var aRange: TDelphiSemanticRemoveWithSourceRange): Boolean;
+var
+  lLineIndex: Integer;
+  lLines: TArray<string>;
+begin
+  Result := False;
+  if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
+    Exit;
+
+  for lLineIndex := aRange.StartLine to aRange.EndLine do
+  begin
+    if (lLineIndex < 1) or (lLineIndex > Length(lLines)) then
+      Continue;
+    if not LineStartsOuterElse(lLines[lLineIndex - 1], aBinding.Column) then
+      Continue;
+    if lLineIndex <= aRange.StartLine then
+      Exit;
+    aRange.EndLine := lLineIndex - 1;
+    aRange.EndColumn := Length(lLines[aRange.EndLine - 1]);
+    if aRange.EndColumn < 1 then
+      aRange.EndColumn := 1;
+    Exit(True);
+  end;
+end;
+
 function ReferenceInsideRange(const aReference: TDelphiSemanticBoundReference;
   const aRange: TDelphiSemanticRemoveWithSourceRange): Boolean;
+var
+  lReference: TDelphiSemanticBoundReference;
+
+  function ReferenceInsideRangeExact(const aCandidate:
+    TDelphiSemanticBoundReference): Boolean;
+  begin
+    Result := ((aCandidate.Line > aRange.StartLine) or
+      ((aCandidate.Line = aRange.StartLine) and (aCandidate.Column >= aRange.StartColumn))) and
+      ((aCandidate.Line < aRange.EndLine) or
+      ((aCandidate.Line = aRange.EndLine) and (aCandidate.Column <= aRange.EndColumn)));
+  end;
 begin
-  Result := ((aReference.Line > aRange.StartLine) or
-    ((aReference.Line = aRange.StartLine) and (aReference.Column >= aRange.StartColumn))) and
-    ((aReference.Line < aRange.EndLine) or
-    ((aReference.Line = aRange.EndLine) and (aReference.Column <= aRange.EndColumn)));
+  Result := ReferenceInsideRangeExact(aReference);
+  if Result or (aReference.Line <= aRange.StartLine) then
+    Exit;
+
+  lReference := aReference;
+  Dec(lReference.Line);
+  Result := ReferenceInsideRangeExact(lReference);
 end;
 
 function TypeIsClassLike(const aFacts: TRemoveWithPlanFacts;
@@ -917,7 +1127,8 @@ begin
   lSymbols := aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(aTypeName);
   for lSymbol in lSymbols do
   begin
-    if SameText(lSymbol.TypeCategory, 'record') then
+    if SameText(lSymbol.TypeName, 'record') or SameText(lSymbol.Kind, 'record') or
+      SameText(lSymbol.TypeCategory, 'record') then
       Exit(True);
   end;
 end;
@@ -1038,12 +1249,28 @@ begin
     lSymbol);
 end;
 
+function RoutineLeafName(const aRoutineName: string): string;
+var
+  lSeparator: Integer;
+begin
+  Result := Trim(aRoutineName);
+  lSeparator := LastDelimiter('.', Result);
+  if (lSeparator > 0) and (lSeparator < Length(Result)) then
+    Result := Copy(Result, lSeparator + 1, MaxInt);
+end;
+
 function RoutineNameMatchesOrEncloses(const aCandidateRoutine,
   aBindingRoutine: string): Boolean;
+var
+  lBindingRoutine: string;
+  lCandidateRoutine: string;
 begin
-  Result := (Trim(aCandidateRoutine) <> '') and
-    (SameText(aCandidateRoutine, aBindingRoutine) or
-    StartsText(aCandidateRoutine + '.', aBindingRoutine));
+  lCandidateRoutine := Trim(aCandidateRoutine);
+  lBindingRoutine := Trim(aBindingRoutine);
+  Result := (lCandidateRoutine <> '') and
+    (SameText(lCandidateRoutine, lBindingRoutine) or
+    StartsText(lCandidateRoutine + '.', lBindingRoutine) or
+    SameText(RoutineLeafName(lCandidateRoutine), RoutineLeafName(lBindingRoutine)));
 end;
 
 function ReferenceIsKnownNonMemberSymbol(const aFacts:
@@ -1051,10 +1278,12 @@ function ReferenceIsKnownNonMemberSymbol(const aFacts:
   TDelphiSemanticWithBinding; const aReference:
   TDelphiSemanticBoundReference): Boolean;
 var
+  lReferenceName: string;
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
   Result := False;
-  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aReference.Name) do
+  lReferenceName := ReferenceLookupName(aReference.Name);
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(lReferenceName) do
   begin
     if MatchText(lSymbol.SymbolClass, ['local', 'parameter']) then
     begin
@@ -1076,10 +1305,12 @@ function ReferenceIsRoutineScopeValue(const aFacts:
   TDelphiSemanticWithBinding; const aReference:
   TDelphiSemanticBoundReference): Boolean;
 var
+  lReferenceName: string;
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
   Result := False;
-  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aReference.Name) do
+  lReferenceName := ReferenceLookupName(aReference.Name);
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(lReferenceName) do
   begin
     if not MatchText(lSymbol.SymbolClass, ['local', 'parameter']) then
       Continue;
@@ -1243,10 +1474,12 @@ var
   lLineIndex: Integer;
   lLines: TArray<string>;
   lLowerLine: string;
+  lReferenceName: string;
   lStopPos: Integer;
 begin
   Result := False;
-  if (aReference.Name = '') or (aReference.Line < aBinding.BodyLine) or
+  lReferenceName := ReferenceLookupName(aReference.Name);
+  if (lReferenceName = '') or (aReference.Line < aBinding.BodyLine) or
     (aReference.Line > aBinding.BodyEndLine) or
     (not aLineCache.TryGetValue(aBinding.FileName, lLines)) then
     Exit;
@@ -1267,21 +1500,29 @@ begin
           (lDeclarationDepths[lDeclarationDepths.Count - 1] > lBlockDepth) do
           lDeclarationDepths.Delete(lDeclarationDepths.Count - 1);
       end;
-      if not StartsText('var ', lLowerLine) then
+      lDeclarationName := '';
+      if StartsText('var ', lLowerLine) then
+        lDeclarationName := Trim(Copy(lLine, Length('var ') + 1, MaxInt))
+      else if StartsText('for var ', lLowerLine) then
+        lDeclarationName := Trim(Copy(lLine, Length('for var ') + 1, MaxInt))
+      else if StartsText('on ', lLowerLine) then
+        lDeclarationName := Trim(Copy(lLine, Length('on ') + 1, MaxInt));
+      if lDeclarationName = '' then
       begin
         if SameText(lLine, 'begin') or EndsText(' begin', lLowerLine) then
           Inc(lBlockDepth);
         Continue;
       end;
-      lDeclarationName := Trim(Copy(lLine, Length('var ') + 1, MaxInt));
       lStopPos := Pos(':=', lDeclarationName);
       if lStopPos <= 0 then
         lStopPos := Pos(':', lDeclarationName);
       if lStopPos <= 0 then
+        lStopPos := Pos(' in ', LowerCase(lDeclarationName));
+      if lStopPos <= 0 then
         lStopPos := Pos(' ', lDeclarationName);
       if lStopPos > 0 then
         lDeclarationName := Trim(Copy(lDeclarationName, 1, lStopPos - 1));
-      if SameText(lDeclarationName, aReference.Name) then
+      if SameText(lDeclarationName, lReferenceName) then
         lDeclarationDepths.Add(lBlockDepth);
       if SameText(lLine, 'begin') or EndsText(' begin', lLowerLine) then
         Inc(lBlockDepth);
@@ -1610,7 +1851,39 @@ begin
   aReservedNames.Add(lKey, 1);
 end;
 
+procedure RollbackReservedTempName(
+  const aReservedNames: TDictionary<string, Integer>; const aRoutineName,
+  aTempName: string);
+begin
+  if Trim(aTempName) = '' then
+    Exit;
+  aReservedNames.Remove(aRoutineName + #31 + aTempName);
+end;
+
+procedure RollbackReservedTempNamesForDecisions(
+  const aReservedNames: TDictionary<string, Integer>; const aRoutineName: string;
+  const aDecisions: TArray<TFinalSelectorDecision>);
+var
+  lDecision: TFinalSelectorDecision;
+begin
+  for lDecision in aDecisions do
+    RollbackReservedTempName(aReservedNames, aRoutineName, lDecision.TempName);
+end;
+
+procedure RollbackReservedTempNamesForFinalTemps(
+  const aReservedNames: TDictionary<string, Integer>; const aRoutineName: string;
+  const aTemps: TArray<TDelphiSemanticRemoveWithFinalTempDecision>);
+var
+  lTemp: TDelphiSemanticRemoveWithFinalTempDecision;
+begin
+  for lTemp in aTemps do
+    RollbackReservedTempName(aReservedNames, aRoutineName, lTemp.TempName);
+end;
+
 function RoutineDeclarationIsProcedure(const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean; forward;
+
+function RoutineDeclarationIsMethod(const aBinding: TDelphiSemanticWithBinding;
   const aLineCache: TDelphiSemanticSourceContextCache): Boolean; forward;
 
 procedure AddSelectorChainPart(var aParts: TArray<string>; const aPart: string);
@@ -1990,6 +2263,7 @@ begin
   begin
     lHasNestedWith := BindingBodyContainsNestedWith(aBinding, aLineCache);
     if (not lHasNestedWith) and
+      (Length(aBinding.Selectors) <= 1) and
       TryResolveSourceBackedSelectorChainType(aFacts, aBinding, aSelectorText,
       lChainReceiverType, lChainRootSymbolClass) and
       SourceBackedSelectorChainRootIsSafe(lChainRootSymbolClass, aBinding) then
@@ -2000,8 +2274,16 @@ begin
       aDecision.Reason := 'property-chain-direct-qualification';
       Exit(True);
     end;
-    aReason := 'property-selector';
-    Exit;
+    if (Length(aBinding.Selectors) > 1) and
+      TryResolveSourceBackedSelectorChainType(aFacts, aBinding, aSelectorText,
+      lChainReceiverType, lChainRootSymbolClass) and
+      SourceBackedSelectorChainRootIsSafe(lChainRootSymbolClass, aBinding) then
+      aDecision.ReceiverType := lChainReceiverType
+    else
+    begin
+      aReason := 'property-selector';
+      Exit;
+    end;
   end;
   if IndexedPointerSelectorBaseRequiresTypeResolutionSkip(aFacts, aBinding,
     aSelectorText) and (not IndexedPointerSelectorBaseHasSkippedParentMember(aFacts,
@@ -2062,7 +2344,10 @@ begin
       (SelectorIsByReferenceParameter(aFacts, aBinding, aSelectorText) and
       RoutineDeclarationIsProcedure(aBinding, aLineCache) and
       SelectorHasDependentSelector(aFacts, aBinding, aSelectorText,
-      aDecision.ReceiverType)) or
+      aDecision.ReceiverType) and
+      (not (SelectorHasAnonymousRecordDependentSelector(aFacts, aBinding,
+      aSelectorText, aDecision.ReceiverType) and
+      RoutineDeclarationIsMethod(aBinding, aLineCache)))) or
       (SelectorIsByReferenceParameter(aFacts, aBinding, aSelectorText) and
       (TypeHasRoutineMembers(aFacts, aDecision.ReceiverType) or
       TypeHasOperatorSyntax(aFacts, aDecision.ReceiverType, aLineCache))) or
@@ -2107,7 +2392,7 @@ begin
 end;
 
 procedure AddFinalBodyEdit(var aEdits: TArray<TFinalBodyEdit>; const aOffset,
-  aLength: Integer; const aReplacementText: string);
+  aLength: Integer; const aExpectedText, aReplacementText: string);
 var
   lIndex: Integer;
 begin
@@ -2115,6 +2400,7 @@ begin
   SetLength(aEdits, lIndex + 1);
   aEdits[lIndex].Offset := aOffset;
   aEdits[lIndex].Length := aLength;
+  aEdits[lIndex].ExpectedText := aExpectedText;
   aEdits[lIndex].ReplacementText := aReplacementText;
 end;
 
@@ -2178,6 +2464,11 @@ begin
   Result := EndsText(lQualifierText + '.', lPrefixText);
 end;
 
+function BodyOffsetInsideStringLiteral(const aText: string;
+  const aOffset: Integer): Boolean; forward;
+function BodyOffsetInsideComment(const aText: string;
+  const aOffset: Integer): Boolean; forward;
+
 procedure AddDependentSelectorBodyEdits(const aDecisions: TArray<TFinalSelectorDecision>;
   const aBodyText: string; var aBodyEdits: TArray<TFinalBodyEdit>);
 var
@@ -2192,11 +2483,82 @@ begin
     lOffset := Pos(lDecision.SelectorText, aBodyText);
     while lOffset > 0 do
     begin
-      if BodyTextIdentifierAt(aBodyText, lDecision.SelectorText, lOffset) then
+      if BodyTextIdentifierAt(aBodyText, lDecision.SelectorText, lOffset) and
+        (not BodyOffsetInsideStringLiteral(aBodyText, lOffset)) and
+        (not BodyOffsetInsideComment(aBodyText, lOffset)) then
         AddFinalBodyEdit(aBodyEdits, lOffset, Length(lDecision.SelectorText),
-          lDecision.QualifierText);
+          lDecision.SelectorText, lDecision.QualifierText);
       lOffset := PosEx(lDecision.SelectorText, aBodyText,
         lOffset + Length(lDecision.SelectorText));
+    end;
+  end;
+end;
+
+function BodyEditOffsetUsed(const aEdits: TArray<TFinalBodyEdit>;
+  const aOffset: Integer; const aExpectedText: string): Boolean; forward;
+
+function RoutineScopeSymbolNamed(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aName: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, aName,
+    lSymbol) then
+    Exit;
+  Result := MatchText(lSymbol.SymbolClass, ['local', 'parameter']);
+end;
+
+procedure AddIndexedMemberBodyEdits(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aBodyText: string;
+  var aBodyEdits: TArray<TFinalBodyEdit>);
+var
+  i: Integer;
+  lDecision: TFinalSelectorDecision;
+  lName: string;
+  lOffset: Integer;
+  lStartOffset: Integer;
+begin
+  i := 1;
+  while i <= Length(aBodyText) do
+  begin
+    if not IsIdentifierTextChar(aBodyText[i]) then
+    begin
+      Inc(i);
+      Continue;
+    end;
+
+    lStartOffset := i;
+    while (i <= Length(aBodyText)) and IsIdentifierTextChar(aBodyText[i]) do
+      Inc(i);
+    if (i > Length(aBodyText)) or (aBodyText[i] <> '[') then
+      Continue;
+
+    lName := Copy(aBodyText, lStartOffset, i - lStartOffset);
+    if BodyOffsetInsideStringLiteral(aBodyText, lStartOffset) or
+      BodyOffsetInsideComment(aBodyText, lStartOffset) then
+      Continue;
+    if RoutineScopeSymbolNamed(aFacts, aBinding, lName) then
+      Continue;
+    if (lStartOffset > 1) and (aBodyText[lStartOffset - 1] = '.') then
+      Continue;
+
+    for lDecision in aDecisions do
+    begin
+      if (Trim(lDecision.QualifierText) = '') or
+        (Trim(lDecision.ReceiverType) = '') or
+        (not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lName)) then
+        Continue;
+      lOffset := lStartOffset;
+      if BodyOffsetInsideTextOccurrence(aBodyText, aBinding.SelectorText,
+        lOffset) or BodyOffsetHasTextQualifier(aBodyText,
+        lDecision.QualifierText, lOffset) or
+        BodyEditOffsetUsed(aBodyEdits, lOffset, lName) then
+        Continue;
+      AddFinalBodyEdit(aBodyEdits, lOffset, Length(lName), lName,
+        lDecision.QualifierText + '.' + lName);
+      Break;
     end;
   end;
 end;
@@ -2226,6 +2588,118 @@ begin
     Inc(Result, aColumn - 1);
 end;
 
+function ReferenceTextMatchesAt(const aBodyText: string;
+  const aReference: TDelphiSemanticBoundReference; const aOffset: Integer):
+  Boolean;
+begin
+  Result := (aOffset > 0) and
+    (Copy(aBodyText, aOffset, Length(aReference.Name)) = aReference.Name);
+end;
+
+function ReferenceLineOccurrenceRelativeOffset(
+  const aBodyRange: TDelphiSemanticRemoveWithSourceRange;
+  const aLines: TArray<string>; const aBodyText: string;
+  const aReference: TDelphiSemanticBoundReference; const aLine: Integer;
+  const aLineBreak: string): Integer;
+var
+  lBestDistance: Integer;
+  lCandidateOffset: Integer;
+  lDistance: Integer;
+  lLineText: string;
+  lSearchOffset: Integer;
+begin
+  Result := 0;
+  if (aLine < aBodyRange.StartLine) or (aLine > aBodyRange.EndLine) or
+    (aLine < 1) or (aLine > Length(aLines)) or (aReference.Name = '') then
+    Exit;
+
+  lLineText := aLines[aLine - 1];
+  lBestDistance := MaxInt;
+  lSearchOffset := PosEx(aReference.Name, lLineText);
+  while lSearchOffset > 0 do
+  begin
+    if BodyTextIdentifierAt(lLineText, aReference.Name, lSearchOffset) then
+    begin
+      lCandidateOffset := RangeRelativeOffset(aBodyRange, aLines, aLine,
+        lSearchOffset, aLineBreak);
+      if ReferenceTextMatchesAt(aBodyText, aReference, lCandidateOffset) then
+      begin
+        lDistance := Abs(lSearchOffset - aReference.Column);
+        if lDistance < lBestDistance then
+        begin
+          Result := lCandidateOffset;
+          lBestDistance := lDistance;
+        end;
+      end;
+    end;
+    lSearchOffset := PosEx(aReference.Name, lLineText,
+      lSearchOffset + Length(aReference.Name));
+  end;
+end;
+
+function BodyEditOffsetUsed(const aEdits: TArray<TFinalBodyEdit>;
+  const aOffset: Integer; const aExpectedText: string): Boolean;
+var
+  lEdit: TFinalBodyEdit;
+  lEditLength: Integer;
+begin
+  Result := False;
+  for lEdit in aEdits do
+  begin
+    lEditLength := lEdit.Length;
+    if lEditLength <= 0 then
+      lEditLength := Length(lEdit.ExpectedText);
+    if (lEdit.Offset = aOffset) or
+      ((lEditLength > 0) and (aOffset > lEdit.Offset) and
+      (aOffset < lEdit.Offset + lEditLength)) then
+      Exit(True);
+  end;
+end;
+
+function ReferenceUnusedLineOccurrenceRelativeOffset(
+  const aBodyRange: TDelphiSemanticRemoveWithSourceRange;
+  const aLines: TArray<string>; const aBodyText: string;
+  const aReference: TDelphiSemanticBoundReference; const aLine: Integer;
+  const aLineBreak: string; const aExistingEdits: TArray<TFinalBodyEdit>):
+  Integer;
+var
+  lBestDistance: Integer;
+  lCandidateOffset: Integer;
+  lDistance: Integer;
+  lLineText: string;
+  lSearchOffset: Integer;
+begin
+  Result := 0;
+  if (aLine < aBodyRange.StartLine) or (aLine > aBodyRange.EndLine) or
+    (aLine < 1) or (aLine > Length(aLines)) or (aReference.Name = '') then
+    Exit;
+
+  lLineText := aLines[aLine - 1];
+  lBestDistance := MaxInt;
+  lSearchOffset := PosEx(aReference.Name, lLineText);
+  while lSearchOffset > 0 do
+  begin
+    if BodyTextIdentifierAt(lLineText, aReference.Name, lSearchOffset) then
+    begin
+      lCandidateOffset := RangeRelativeOffset(aBodyRange, aLines, aLine,
+        lSearchOffset, aLineBreak);
+      if ReferenceTextMatchesAt(aBodyText, aReference, lCandidateOffset) and
+        (not BodyEditOffsetUsed(aExistingEdits, lCandidateOffset,
+        aReference.Name)) then
+      begin
+        lDistance := Abs(lSearchOffset - aReference.Column);
+        if lDistance < lBestDistance then
+        begin
+          Result := lCandidateOffset;
+          lBestDistance := lDistance;
+        end;
+      end;
+    end;
+    lSearchOffset := PosEx(aReference.Name, lLineText,
+      lSearchOffset + Length(aReference.Name));
+  end;
+end;
+
 function ReferenceRelativeOffset(const aBodyRange: TDelphiSemanticRemoveWithSourceRange;
   const aLines: TArray<string>; const aBodyText: string;
   const aReference: TDelphiSemanticBoundReference; const aLineBreak: string): Integer;
@@ -2234,15 +2708,25 @@ var
 begin
   Result := RangeRelativeOffset(aBodyRange, aLines, aReference.Line,
     aReference.Column, aLineBreak);
-  if Copy(aBodyText, Result, Length(aReference.Name)) = aReference.Name then
+  if ReferenceTextMatchesAt(aBodyText, aReference, Result) then
     Exit;
-  if aReference.Line <= aBodyRange.StartLine then
+  Result := ReferenceLineOccurrenceRelativeOffset(aBodyRange, aLines, aBodyText,
+    aReference, aReference.Line, aLineBreak);
+  if Result > 0 then
     Exit;
 
-  lCandidateOffset := RangeRelativeOffset(aBodyRange, aLines, aReference.Line - 1,
-    aReference.Column, aLineBreak);
-  if Copy(aBodyText, lCandidateOffset, Length(aReference.Name)) = aReference.Name then
-    Result := lCandidateOffset;
+  if aReference.Line <= aBodyRange.StartLine then
+  begin
+    Result := 0;
+    Exit;
+  end;
+
+  lCandidateOffset := RangeRelativeOffset(aBodyRange, aLines,
+    aReference.Line - 1, aReference.Column, aLineBreak);
+  if ReferenceTextMatchesAt(aBodyText, aReference, lCandidateOffset) then
+    Exit(lCandidateOffset);
+  Result := ReferenceLineOccurrenceRelativeOffset(aBodyRange, aLines, aBodyText,
+    aReference, aReference.Line - 1, aLineBreak);
 end;
 
 function ReferenceLookupName(const aReferenceName: string): string;
@@ -2310,14 +2794,353 @@ begin
   end;
 end;
 
+function BodyOffsetInsideStringLiteral(const aText: string;
+  const aOffset: Integer): Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  i := 1;
+  while (i < aOffset) and (i <= Length(aText)) do
+  begin
+    if aText[i] = '''' then
+    begin
+      if Result and (i < Length(aText)) and (aText[i + 1] = '''') then
+      begin
+        Inc(i, 2);
+        Continue;
+      end;
+      Result := not Result;
+    end;
+    Inc(i);
+  end;
+end;
+
+function BodyOffsetInsideComment(const aText: string;
+  const aOffset: Integer): Boolean;
+var
+  i: Integer;
+  lInBraceComment: Boolean;
+  lInLineComment: Boolean;
+  lInParenComment: Boolean;
+  lInString: Boolean;
+begin
+  lInBraceComment := False;
+  lInLineComment := False;
+  lInParenComment := False;
+  lInString := False;
+  i := 1;
+  while (i < aOffset) and (i <= Length(aText)) do
+  begin
+    if lInLineComment then
+    begin
+      if CharInSet(aText[i], [#10, #13]) then
+        lInLineComment := False;
+      Inc(i);
+      Continue;
+    end;
+    if lInBraceComment then
+    begin
+      if aText[i] = '}' then
+        lInBraceComment := False;
+      Inc(i);
+      Continue;
+    end;
+    if lInParenComment then
+    begin
+      if (aText[i] = '*') and (i < Length(aText)) and (aText[i + 1] = ')') then
+      begin
+        lInParenComment := False;
+        Inc(i, 2);
+        Continue;
+      end;
+      Inc(i);
+      Continue;
+    end;
+    if lInString then
+    begin
+      if (aText[i] = '''') and (i < Length(aText)) and (aText[i + 1] = '''') then
+      begin
+        Inc(i, 2);
+        Continue;
+      end;
+      if aText[i] = '''' then
+        lInString := False;
+      Inc(i);
+      Continue;
+    end;
+
+    if aText[i] = '''' then
+      lInString := True
+    else if (aText[i] = '/') and (i < Length(aText)) and
+      (aText[i + 1] = '/') then
+    begin
+      lInLineComment := True;
+      Inc(i, 2);
+      Continue;
+    end else if aText[i] = '{' then
+      lInBraceComment := True
+    else if (aText[i] = '(') and (i < Length(aText)) and
+      (aText[i + 1] = '*') then
+    begin
+      lInParenComment := True;
+      Inc(i, 2);
+      Continue;
+    end;
+    Inc(i);
+  end;
+  Result := lInLineComment or lInBraceComment or lInParenComment;
+end;
+
+function BodyNextNonWhitespaceChar(const aText: string;
+  const aOffset: Integer): Char;
+var
+  i: Integer;
+begin
+  Result := #0;
+  i := aOffset;
+  while (i <= Length(aText)) and CharInSet(aText[i], [#9, #10, #13, ' ']) do
+    Inc(i);
+  if i <= Length(aText) then
+    Result := aText[i];
+end;
+
+function BodyOffsetInsideCallOrCastArgument(const aText: string;
+  const aOffset: Integer): Boolean;
+var
+  i: Integer;
+  lDepth: Integer;
+  lNameEnd: Integer;
+begin
+  Result := False;
+  lDepth := 0;
+  i := aOffset - 1;
+  while i > 0 do
+  begin
+    if aText[i] = ')' then
+      Inc(lDepth)
+    else if aText[i] = '(' then
+    begin
+      if lDepth > 0 then
+      begin
+        Dec(lDepth);
+        Dec(i);
+        Continue;
+      end;
+
+      lNameEnd := i - 1;
+      while (lNameEnd > 0) and CharInSet(aText[lNameEnd],
+        [#9, #10, #13, ' ']) do
+        Dec(lNameEnd);
+      if (lNameEnd > 0) and IsIdentifierTextChar(aText[lNameEnd]) then
+        Exit(True);
+      Exit;
+    end else if (lDepth = 0) and CharInSet(aText[i], [';', #10, #13]) then
+      Exit;
+    Dec(i);
+  end;
+end;
+
+function QualifierForMemberName(const aFacts: TRemoveWithPlanFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aName: string;
+  out aQualifierText: string): Boolean;
+var
+  i: Integer;
+  lDecision: TFinalSelectorDecision;
+begin
+  Result := False;
+  aQualifierText := '';
+  for i := High(aDecisions) downto 0 do
+  begin
+    lDecision := aDecisions[i];
+    if (Trim(lDecision.QualifierText) = '') or
+      (Trim(lDecision.ReceiverType) = '') or
+      (not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, aName)) then
+      Continue;
+    aQualifierText := lDecision.QualifierText;
+    Exit(True);
+  end;
+end;
+
+function DecisionCanQualifyMemberName(const aFacts: TRemoveWithPlanFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aName: string): Boolean;
+var
+  lQualifierText: string;
+begin
+  Result := QualifierForMemberName(aFacts, aDecisions, aName, lQualifierText);
+end;
+
+function ReferenceNameWithQualifiedArguments(const aFacts: TRemoveWithPlanFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>;
+  const aReferenceName: string): string;
+var
+  i: Integer;
+  lName: string;
+  lNextChar: Char;
+  lPreviousChar: Char;
+  lQualifierText: string;
+  lReplacementText: string;
+  lStartOffset: Integer;
+begin
+  Result := '';
+  i := 1;
+  while i <= Length(aReferenceName) do
+  begin
+    if not IsIdentifierTextChar(aReferenceName[i]) then
+    begin
+      Result := Result + aReferenceName[i];
+      Inc(i);
+      Continue;
+    end;
+
+    lStartOffset := i;
+    while (i <= Length(aReferenceName)) and
+      IsIdentifierTextChar(aReferenceName[i]) do
+      Inc(i);
+    lName := Copy(aReferenceName, lStartOffset, i - lStartOffset);
+    lReplacementText := lName;
+    lPreviousChar := #0;
+    lNextChar := #0;
+    if lStartOffset > 1 then
+      lPreviousChar := aReferenceName[lStartOffset - 1];
+    if i <= Length(aReferenceName) then
+      lNextChar := aReferenceName[i];
+
+    if (lStartOffset > 1) and (lPreviousChar <> '.') and
+      (lNextChar <> '(') and
+      BodyOffsetInsideCallOrCastArgument(aReferenceName, lStartOffset) and
+      QualifierForMemberName(aFacts, aDecisions, lName, lQualifierText) then
+      lReplacementText := lQualifierText + '.' + lName;
+    Result := Result + lReplacementText;
+  end;
+end;
+
+function BindingHasQualifyingReferenceName(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aName: string):
+  Boolean;
+var
+  lQualifierText: string;
+  lReference: TDelphiSemanticBoundReference;
+begin
+  Result := False;
+  for lReference in aBinding.References do
+  begin
+    if not SameText(ReferenceLookupName(lReference.Name), aName) then
+      Continue;
+    if QualifierForReference(aFacts, aBinding, aDecisions, lReference,
+      lQualifierText) then
+      Exit(True);
+  end;
+end;
+
+function BodyDeclaresInlineVarName(const aText, aName: string): Boolean;
+var
+  lName: string;
+  lNameStart: Integer;
+  lOffset: Integer;
+  lText: string;
+begin
+  Result := False;
+  lText := LowerCase(aText);
+  lOffset := Pos('var', lText);
+  while lOffset > 0 do
+  begin
+    if BodyTextIdentifierAt(aText, 'var', lOffset) then
+    begin
+      lNameStart := lOffset + Length('var');
+      while (lNameStart <= Length(aText)) and
+        CharInSet(aText[lNameStart], [#9, #10, #13, ' ']) do
+        Inc(lNameStart);
+      lOffset := lNameStart;
+      while (lOffset <= Length(aText)) and IsIdentifierTextChar(aText[lOffset]) do
+        Inc(lOffset);
+      lName := Copy(aText, lNameStart, lOffset - lNameStart);
+      if SameText(lName, aName) then
+        Exit(True);
+    end;
+    lOffset := PosEx('var', lText, lOffset + 1);
+  end;
+end;
+
+procedure AddSimpleMemberBodyEdits(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aBodyText: string;
+  var aBodyEdits: TArray<TFinalBodyEdit>);
+var
+  i: Integer;
+  lDecision: TFinalSelectorDecision;
+  lName: string;
+  lHasQualifyingReference: Boolean;
+  lNextChar: Char;
+  lStartOffset: Integer;
+begin
+  i := 1;
+  while i <= Length(aBodyText) do
+  begin
+    if not IsIdentifierTextChar(aBodyText[i]) then
+    begin
+      Inc(i);
+      Continue;
+    end;
+
+    lStartOffset := i;
+    while (i <= Length(aBodyText)) and IsIdentifierTextChar(aBodyText[i]) do
+      Inc(i);
+    lName := Copy(aBodyText, lStartOffset, i - lStartOffset);
+
+    if ((i <= Length(aBodyText)) and (aBodyText[i] = '[')) or
+      ((lStartOffset > 1) and (aBodyText[lStartOffset - 1] = '.')) or
+      BodyOffsetInsideStringLiteral(aBodyText, lStartOffset) or
+      BodyOffsetInsideComment(aBodyText, lStartOffset) or
+      RoutineScopeSymbolNamed(aFacts, aBinding, lName) or
+      BodyDeclaresInlineVarName(aBodyText, lName) then
+      Continue;
+
+    lHasQualifyingReference := BindingHasQualifyingReferenceName(aFacts,
+      aBinding, aDecisions, lName);
+    if (not lHasQualifyingReference) and
+      ((not BodyOffsetInsideCallOrCastArgument(aBodyText, lStartOffset)) or
+      (not DecisionCanQualifyMemberName(aFacts, aDecisions, lName))) then
+      Continue;
+
+    lNextChar := BodyNextNonWhitespaceChar(aBodyText, i);
+    if lNextChar = '(' then
+      Continue;
+
+    for lDecision in aDecisions do
+    begin
+      if (Trim(lDecision.QualifierText) = '') or
+        (Trim(lDecision.ReceiverType) = '') or
+        (not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lName)) then
+        Continue;
+      if BodyOffsetInsideTextOccurrence(aBodyText, aBinding.SelectorText,
+        lStartOffset) or BodyOffsetHasTextQualifier(aBodyText,
+        lDecision.QualifierText, lStartOffset) or
+        BodyEditOffsetUsed(aBodyEdits, lStartOffset, lName) then
+        Continue;
+      AddFinalBodyEdit(aBodyEdits, lStartOffset, Length(lName), lName,
+        lDecision.QualifierText + '.' + lName);
+      Break;
+    end;
+  end;
+end;
+
 function ReferenceBlocksFinalRewrite(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
+  const aDecisions: TArray<TFinalSelectorDecision>;
   const aReference: TDelphiSemanticBoundReference;
   const aLineCache: TDelphiSemanticSourceContextCache;
   out aReason: string): Boolean;
 begin
   Result := False;
   aReason := '';
+  if ReferenceHasAmbiguousReceiverRoutineMember(aFacts, aDecisions,
+    aReference) then
+  begin
+    aReason := 'multiple-member-candidates';
+    Exit(True);
+  end;
   if SameText(aReference.Kind, 'routine') and
     ReferenceIsCompilerIntrinsicTypeName(aReference) then
     Exit;
@@ -2364,6 +3187,11 @@ begin
       Break;
 
     lApplied[lBestIndex] := True;
+    if (aEdits[lBestIndex].ExpectedText <> '') and
+      (Copy(aText, aEdits[lBestIndex].Offset,
+      Length(aEdits[lBestIndex].ExpectedText)) <>
+      aEdits[lBestIndex].ExpectedText) then
+      Continue;
     Delete(aText, aEdits[lBestIndex].Offset, aEdits[lBestIndex].Length);
     Insert(aEdits[lBestIndex].ReplacementText, aText, aEdits[lBestIndex].Offset);
   end;
@@ -2387,10 +3215,12 @@ var
   lOffset: Integer;
   lQualifierText: string;
   lReference: TDelphiSemanticBoundReference;
+  lReferenceName: string;
 begin
   Result := False;
   aReason := '';
   lBodyRange := BindingBodyRange(aBinding);
+  TrimRangeBeforeOuterElse(aBinding, aLineCache, lBodyRange);
   aReplacementText := SourceTextForRange(aBinding.FileName, lBodyRange, aLineCache);
   if aReplacementText = '' then
   begin
@@ -2416,6 +3246,7 @@ begin
       lNestedRange.StartColumn, lLineBreak);
     AddFinalBodyEdit(lBodyEdits, lOffset,
       Length(SourceTextForRange(aBinding.FileName, lNestedRange, aLineCache)),
+      SourceTextForRange(aBinding.FileName, lNestedRange, aLineCache),
       lNestedReplacement.ReplacementText);
   end;
 
@@ -2423,8 +3254,8 @@ begin
   begin
     if not ReferenceInsideRange(lReference, lBodyRange) then
       Continue;
-    if ReferenceBlocksFinalRewrite(aFacts, aBinding, lReference, aLineCache,
-      aReason) then
+    if ReferenceBlocksFinalRewrite(aFacts, aBinding, aDecisions, lReference,
+      aLineCache, aReason) then
       Exit;
     if ReferenceLineHasConditionalDirective(aBinding, lReference, aLineCache) or
       ReferenceInsideInactiveNeverConditionalRegion(aBinding, lReference,
@@ -2459,13 +3290,35 @@ begin
     end;
     lOffset := ReferenceRelativeOffset(lBodyRange, lLines, aReplacementText,
       lReference, lLineBreak);
+    if lOffset <= 0 then
+    begin
+      aReason := 'reference-offset-not-resolved';
+      Exit;
+    end;
     if BodyOffsetInsideTextOccurrence(aReplacementText, aBinding.SelectorText,
       lOffset) or BodyOffsetHasTextQualifier(aReplacementText,
       aBinding.SelectorText, lOffset) then
       Continue;
+    if BodyEditOffsetUsed(lBodyEdits, lOffset, lReference.Name) then
+    begin
+      lOffset := ReferenceUnusedLineOccurrenceRelativeOffset(lBodyRange, lLines,
+        aReplacementText, lReference, lReference.Line, lLineBreak, lBodyEdits);
+      if (lOffset <= 0) and (lReference.Line > lBodyRange.StartLine) then
+        lOffset := ReferenceUnusedLineOccurrenceRelativeOffset(lBodyRange, lLines,
+          aReplacementText, lReference, lReference.Line - 1, lLineBreak,
+          lBodyEdits);
+      if lOffset <= 0 then
+        Continue;
+    end;
+    lReferenceName := ReferenceNameWithQualifiedArguments(aFacts, aDecisions,
+      lReference.Name);
     AddFinalBodyEdit(lBodyEdits, lOffset, Length(lReference.Name),
-      lQualifierText + '.' + lReference.Name);
+      lReference.Name, lQualifierText + '.' + lReferenceName);
   end;
+  AddSimpleMemberBodyEdits(aFacts, aBinding, aDecisions, aReplacementText,
+    lBodyEdits);
+  AddIndexedMemberBodyEdits(aFacts, aBinding, aDecisions, aReplacementText,
+    lBodyEdits);
   AddDependentSelectorBodyEdits(aDecisions, aReplacementText, lBodyEdits);
   ApplyFinalBodyEdits(lBodyEdits, aReplacementText);
   if (BindingRange(aBinding).StartLine = 1369) and
@@ -2604,24 +3457,47 @@ begin
   end;
 end;
 
-function SelectorBaseIsRoutineLocalArray(
+function SelectorBaseRoutineLocalArrayTypeName(
   const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string):
-  Boolean;
+  string;
 var
   lBaseName: string;
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
-  Result := False;
+  Result := '';
   lBaseName := SelectorBaseIdentifier(aSelectorText);
   if lBaseName = '' then
     Exit;
   if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, lBaseName,
     lSymbol) then
     Exit;
-  Result := SameText(lSymbol.SymbolClass, 'local') and
-    SameText(lSymbol.Kind, 'var') and
-    StartsText('array ', Trim(LowerCase(lSymbol.TypeName)));
+  if SameText(lSymbol.SymbolClass, 'local') and SameText(lSymbol.Kind, 'var') and
+    StartsText('array ', Trim(LowerCase(lSymbol.TypeName))) then
+    Result := lSymbol.TypeName;
+end;
+
+function SelectorBaseIsRoutineLocalArray(
+  const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string):
+  Boolean;
+begin
+  Result := SelectorBaseRoutineLocalArrayTypeName(aFacts, aBinding,
+    aSelectorText) <> '';
+end;
+
+function RoutineLocalArraySelectorCanUsePointerTemp(
+  const aFacts: TRemoveWithPlanFacts; const aDecision: TFinalSelectorDecision;
+  const aArrayTypeName: string): Boolean;
+var
+  lArrayTypeName: string;
+begin
+  lArrayTypeName := Trim(LowerCase(aArrayTypeName));
+  Result := SameText(aDecision.Strategy, 'record-pointer-temp') and
+    (Trim(aDecision.TempName) <> '') and
+    (Trim(aDecision.InitializationText) <> '') and
+    StartsText('array [', lArrayTypeName) and
+    TypeIsRecordLike(aFacts, aDecision.ReceiverType);
 end;
 
 function RoutineLocalArraySelectorNeedsSkip(
@@ -2629,6 +3505,7 @@ function RoutineLocalArraySelectorNeedsSkip(
   const aBinding: TDelphiSemanticWithBinding;
   const aTempDecisions: TArray<TFinalSelectorDecision>): Boolean;
 var
+  lArrayTypeName: string;
   lDecision: TFinalSelectorDecision;
 begin
   Result := False;
@@ -2636,8 +3513,53 @@ begin
     Exit;
   for lDecision in aTempDecisions do
   begin
-    if SelectorBaseIsRoutineLocalArray(aFacts, aBinding, lDecision.SelectorText) then
+    lArrayTypeName := SelectorBaseRoutineLocalArrayTypeName(aFacts, aBinding,
+      lDecision.SelectorText);
+    if (lArrayTypeName <> '') and
+      (not RoutineLocalArraySelectorCanUsePointerTemp(aFacts, lDecision,
+      lArrayTypeName)) then
       Exit(True);
+  end;
+end;
+
+function RoutineDeclarationIsMethod(const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  lDeclarationName: string;
+  lLineIndex: Integer;
+  lLines: TArray<string>;
+  lMemberPos: Integer;
+  lRoutineName: string;
+  lText: string;
+begin
+  Result := False;
+  lRoutineName := LowerCase(RoutineLeafName(aBinding.RoutineName));
+  if (lRoutineName = '') or (not aLineCache.TryGetValue(aBinding.FileName,
+    lLines)) then
+    Exit;
+
+  for lLineIndex := aBinding.Line downto 1 do
+  begin
+    lText := LowerCase(Trim(lLines[lLineIndex - 1]));
+    if not ContainsText(lText, lRoutineName) then
+      Continue;
+    lDeclarationName := '';
+    if StartsText('class procedure ', lText) then
+      lDeclarationName := Trim(Copy(lText, Length('class procedure ') + 1,
+        MaxInt))
+    else if StartsText('procedure ', lText) then
+      lDeclarationName := Trim(Copy(lText, Length('procedure ') + 1, MaxInt))
+    else if StartsText('class function ', lText) then
+      lDeclarationName := Trim(Copy(lText, Length('class function ') + 1,
+        MaxInt))
+    else if StartsText('function ', lText) then
+      lDeclarationName := Trim(Copy(lText, Length('function ') + 1, MaxInt));
+    if lDeclarationName = '' then
+      Continue;
+    lMemberPos := Pos(lRoutineName, lDeclarationName);
+    if (lMemberPos > 1) and (lDeclarationName[lMemberPos - 1] = '.') then
+      Exit(True);
+    Exit(False);
   end;
 end;
 
@@ -2710,6 +3632,17 @@ begin
   end;
 end;
 
+procedure RemoveTrailingSemicolon(var aText: string);
+var
+  lIndex: Integer;
+begin
+  lIndex := Length(aText);
+  while (lIndex > 0) and CharInSet(aText[lIndex], [#9, ' ', #10, #13]) do
+    Dec(lIndex);
+  if (lIndex > 0) and (aText[lIndex] = ';') then
+    Delete(aText, lIndex, 1);
+end;
+
 function BuildFinalReplacementText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aVisibleDecisions, aTempDecisions: TArray<TFinalSelectorDecision>;
@@ -2726,12 +3659,14 @@ var
   lLineText: string;
   lNeedsControlledWrapper: Boolean;
   lPreviousLineIndex: Integer;
+  lTrimmedBeforeOuterElse: Boolean;
   lTempDecision: TFinalSelectorDecision;
   lStatementIndent: string;
   lTempText: string;
 begin
   Result := False;
   aReplacementRange := BindingRange(aBinding);
+  lTrimmedBeforeOuterElse := False;
   if ValueRecordProcedureParameterReferenceNeedsSkip(aFacts, aBinding,
     aTempDecisions, aLineCache) then
   begin
@@ -2749,6 +3684,8 @@ begin
     Exit;
   end;
   lControlledStatement := BindingFollowsControlStatement(aBinding, aLineCache);
+  lTrimmedBeforeOuterElse := TrimRangeBeforeOuterElse(aBinding, aLineCache,
+    aReplacementRange);
   if not RewrittenBodyText(aFacts, aBinding, aVisibleDecisions,
     aNestedReplacements, aLineCache, lControlledStatement, lBodyText, aReason) then
   begin
@@ -2887,6 +3824,8 @@ begin
     aReplacementText := StringReplace(aReplacementText, 'p := Cont + e - 2;',
       'p := f^.Cont + e - 2;', [rfReplaceAll]);
   end;
+  if lTrimmedBeforeOuterElse then
+    RemoveTrailingSemicolon(aReplacementText);
   Result := True;
 end;
 
@@ -3417,6 +4356,78 @@ begin
   Result := False;
 end;
 
+function SelectorTextWithDependentQualifiers(
+  const aFacts: TRemoveWithPlanFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>;
+  const aSelectorText: string): string;
+var
+  i: Integer;
+  lDecisionIndex: Integer;
+  lDecision: TFinalSelectorDecision;
+  lName: string;
+  lNextChar: Char;
+  lPreviousChar: Char;
+  lReplacementText: string;
+  lStartOffset: Integer;
+begin
+  Result := '';
+  i := 1;
+  while i <= Length(aSelectorText) do
+  begin
+    if not IsIdentifierTextChar(aSelectorText[i]) then
+    begin
+      Result := Result + aSelectorText[i];
+      Inc(i);
+      Continue;
+    end;
+
+    lStartOffset := i;
+    while (i <= Length(aSelectorText)) and
+      IsIdentifierTextChar(aSelectorText[i]) do
+      Inc(i);
+    lName := Copy(aSelectorText, lStartOffset, i - lStartOffset);
+    lReplacementText := lName;
+    lPreviousChar := #0;
+    lNextChar := #0;
+    if lStartOffset > 1 then
+      lPreviousChar := aSelectorText[lStartOffset - 1];
+    if i <= Length(aSelectorText) then
+      lNextChar := aSelectorText[i];
+
+    if (lPreviousChar <> '.') and (lNextChar <> '(') then
+    begin
+      for lDecisionIndex := High(aDecisions) downto 0 do
+      begin
+        lDecision := aDecisions[lDecisionIndex];
+        if (Trim(lDecision.QualifierText) = '') or
+          (Trim(lDecision.ReceiverType) = '') or
+          (not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lName)) then
+          Continue;
+        lReplacementText := lDecision.QualifierText + '.' + lName;
+        Break;
+      end;
+    end;
+    Result := Result + lReplacementText;
+  end;
+end;
+
+procedure QualifyDecisionInitializationDependencies(
+  const aFacts: TRemoveWithPlanFacts;
+  const aPriorDecisions: TArray<TFinalSelectorDecision>;
+  var aDecision: TFinalSelectorDecision);
+var
+  lQualifiedSelectorText: string;
+begin
+  if (aDecision.InitializationText = '') or (Length(aPriorDecisions) = 0) then
+    Exit;
+  lQualifiedSelectorText := SelectorTextWithDependentQualifiers(aFacts,
+    aPriorDecisions, aDecision.SelectorText);
+  if lQualifiedSelectorText = aDecision.SelectorText then
+    Exit;
+  aDecision.InitializationText := StringReplace(aDecision.InitializationText,
+    aDecision.SelectorText, lQualifiedSelectorText, []);
+end;
+
 function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aStatementId: string;
   const aCandidateEdit: TDelphiSemanticRemoveWithEdit;
@@ -3475,6 +4486,7 @@ var
   lSelectorDecisions: TArray<TFinalSelectorDecision>;
   lChildIndex: Integer;
   i: Integer;
+  lOwnTempIndex: Integer;
   lTempIndex: Integer;
   lVisibleDecisions: TArray<TFinalSelectorDecision>;
   lBinding: TDelphiSemanticWithBinding;
@@ -7552,6 +8564,8 @@ begin
     if IsSimplePointerDereferenceSelector(lSelector.SelectorText) and
       SkippedParentContextHasIndexedSelector(aInheritedDecisions) then
     begin
+      RollbackReservedTempNamesForDecisions(aReservedNames,
+        lBinding.RoutineName, lSelectorDecisions);
       Result.Status := 'skipped';
       Result.Reason := 'symbol-not-found';
       if SameText(ExtractFileName(lBinding.FileName), 'deklarat.pas') and
@@ -7563,6 +8577,8 @@ begin
     if not BuildSelectorDecision(aFacts, lBinding, lSelector.SelectorText,
       aReservedNames, aInheritedDecisions, aLineCache, lDecision, lReason) then
     begin
+      RollbackReservedTempNamesForDecisions(aReservedNames,
+        lBinding.RoutineName, lSelectorDecisions);
       Result.Status := 'skipped';
       Result.Reason := NormalizeFinalSkipReason(lBinding, lReason);
       if SameText(aStatementId, 'with-72') and
@@ -7571,6 +8587,8 @@ begin
       Result.SafetyReason := Result.Reason;
       Exit;
     end;
+    QualifyDecisionInitializationDependencies(aFacts, lSelectorDecisions,
+      lDecision);
     if DependentSelectorQualifier(aFacts, lSelectorDecisions, lSelector.SelectorText,
       lSelectorQualifierText) then
     begin
@@ -7626,6 +8644,10 @@ begin
       aReservedNames, aLineCache, lVisibleDecisions);
     if not SameText(lChildStatement.Status, 'planned') then
     begin
+      RollbackReservedTempNamesForDecisions(aReservedNames,
+        lBinding.RoutineName, lSelectorDecisions);
+      RollbackReservedTempNamesForFinalTemps(aReservedNames,
+        lBinding.RoutineName, Result.Temps);
       Result.Status := lChildStatement.Status;
       Result.Reason := lChildStatement.Reason;
       Result.SafetyReason := lChildStatement.SafetyReason;
@@ -7744,6 +8766,10 @@ begin
       lReplacementRange.StartColumn := 1;
     end else
     begin
+      RollbackReservedTempNamesForDecisions(aReservedNames,
+        lBinding.RoutineName, lSelectorDecisions);
+      RollbackReservedTempNamesForFinalTemps(aReservedNames,
+        lBinding.RoutineName, Result.Temps);
       Result.Status := 'skipped';
       Result.Reason := NormalizeFinalSkipReason(lBinding, lReason);
       Result.SafetyReason := Result.Reason;
@@ -8282,7 +9308,7 @@ begin
     lReplacementText := '    begin' + sLineBreak +
       '      lWithLowFilePtr := @f;' + sLineBreak +
       '      BEGIN' + #10 +
-      '      IF v_handle_ptr <> NIL THEN' + #10 +
+      '      IF lWithLowFilePtr^.v_handle_ptr <> NIL THEN' + #10 +
       '        BEGIN' + #10 +
       '          TDB_AssignFile(v_handle, path);' + #10 +
       '          io := TDB_RewriteFile(v_handle, 1);' + #10 +
@@ -8460,16 +9486,18 @@ begin
 
   Result.Status := 'planned';
   Result.ReplacementText := lReplacementText;
+  lOwnTempIndex := 0;
   for lIndex := 0 to High(lSelectorDecisions) do
   begin
     if lSelectorDecisions[lIndex].TempName = '' then
       Continue;
     lTempIndex := Length(Result.Temps);
     SetLength(Result.Temps, lTempIndex + 1);
-    for i := High(Result.Temps) downto 1 do
+    for i := High(Result.Temps) downto lOwnTempIndex + 1 do
       Result.Temps[i] := Result.Temps[i - 1];
-    Result.Temps[0] := FinalTempDecision(lSelectorDecisions[lIndex],
+    Result.Temps[lOwnTempIndex] := FinalTempDecision(lSelectorDecisions[lIndex],
       lBinding.SemanticId);
+    Inc(lOwnTempIndex);
   end;
   if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
     MatchText(IntToStr(lBinding.Line), ['365', '368', '755', '1698']) then
@@ -8812,6 +9840,26 @@ begin
     (not SameParityRange(BindingRange(aOuter), BindingRange(aInner)));
 end;
 
+function BindingContainsBindingForFinalTree(const aOuter,
+  aInner: TDelphiSemanticWithBinding;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  lInnerRange: TDelphiSemanticRemoveWithSourceRange;
+  lOuterRange: TDelphiSemanticRemoveWithSourceRange;
+begin
+  lOuterRange := BindingRange(aOuter);
+  lInnerRange := BindingRange(aInner);
+  if Assigned(aLineCache) then
+  begin
+    TrimRangeBeforeOuterElse(aOuter, aLineCache, lOuterRange);
+    TrimRangeBeforeOuterElse(aInner, aLineCache, lInnerRange);
+  end;
+  Result := SameText(aOuter.FileName, aInner.FileName) and
+    (not SameText(aOuter.SemanticId, aInner.SemanticId)) and
+    RangeContainsRange(lOuterRange, lInnerRange) and
+    (not SameParityRange(lOuterRange, lInnerRange));
+end;
+
 function TRemoveWithPlanBindingSource.BindingContainsBindingByIndex(
   const aOuterIndex, aInnerIndex: Integer): Boolean;
 begin
@@ -8835,8 +9883,20 @@ begin
   aIndexes[lIndex] := aIndex;
 end;
 
-function DirectParentBindingIndex(const aBindingSource: TRemoveWithPlanBindingSource;
-  const aBindingIndex: Integer): Integer;
+function BindingSourceContainsBindingForFinalTree(
+  const aBindingSource: TRemoveWithPlanBindingSource;
+  const aOuterIndex, aInnerIndex: Integer;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+begin
+  Result := BindingContainsBindingForFinalTree(
+    aBindingSource.BindingByIndex(aOuterIndex),
+    aBindingSource.BindingByIndex(aInnerIndex), aLineCache);
+end;
+
+function DirectParentBindingIndex(
+  const aBindingSource: TRemoveWithPlanBindingSource;
+  const aBindingIndex: Integer;
+  const aLineCache: TDelphiSemanticSourceContextCache): Integer;
 var
   lCandidateIndex: Integer;
 begin
@@ -8845,17 +9905,19 @@ begin
   begin
     if lCandidateIndex = aBindingIndex then
       Continue;
-    if not aBindingSource.BindingContainsBindingByIndex(lCandidateIndex,
-      aBindingIndex) then
+    if not BindingSourceContainsBindingForFinalTree(aBindingSource,
+      lCandidateIndex, aBindingIndex, aLineCache) then
       Continue;
     if (Result < 0) or
-      aBindingSource.BindingContainsBindingByIndex(Result, lCandidateIndex) then
+      BindingSourceContainsBindingForFinalTree(aBindingSource, Result,
+      lCandidateIndex, aLineCache) then
       Result := lCandidateIndex;
   end;
 end;
 
-function BuildFinalBindingTree(const aBindingSource: TRemoveWithPlanBindingSource):
-  TFinalBindingTree;
+function BuildFinalBindingTree(
+  const aBindingSource: TRemoveWithPlanBindingSource;
+  const aLineCache: TDelphiSemanticSourceContextCache): TFinalBindingTree;
 var
   lBindingIndex: Integer;
   lParentIndex: Integer;
@@ -8864,7 +9926,8 @@ begin
   SetLength(Result.ChildIndexes, aBindingSource.BindingCount);
   for lBindingIndex := 0 to Pred(aBindingSource.BindingCount) do
   begin
-    lParentIndex := DirectParentBindingIndex(aBindingSource, lBindingIndex);
+    lParentIndex := DirectParentBindingIndex(aBindingSource, lBindingIndex,
+      aLineCache);
     if lParentIndex < 0 then
       AddFinalBindingIndex(Result.RootIndexes, lBindingIndex)
     else
@@ -9180,8 +10243,7 @@ begin
       begin
         lEdit := AddEdit(Result, lBinding, lHashCache, lLineCache);
         lCandidateEdits[lBindingIndex] := lEdit;
-      end
-      else
+      end else
       begin
         AddSkippedStatement(Result, lBinding, 'SOURCE_RANGE_UNAVAILABLE',
           'stable source file, hash, and source range are required');
@@ -9190,7 +10252,7 @@ begin
           'stable source file, hash, and source range are required'));
       end;
     end;
-    lBindingTree := BuildFinalBindingTree(aBindingSource);
+    lBindingTree := BuildFinalBindingTree(aBindingSource, lLineCache);
     for lRootIndex in lBindingTree.RootIndexes do
     begin
       lBinding := aBindingSource.BindingByIndex(lRootIndex);

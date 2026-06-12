@@ -195,6 +195,7 @@ if ($DakTestShards -ne 1) {
 
 $lFixture = Join-Path $DakRoot 'tests\fixtures\test-projects\maxTdb'
 $lClone = Join-Path $WorkRoot 'maxTdb'
+$lPlanReport = Join-Path $WorkRoot 'maxTdb-plan-only.json'
 $lReport = Join-Path $WorkRoot 'maxTdb-remove-with.json'
 
 if (-not (Test-Path -LiteralPath $lFixture -PathType Container)) {
@@ -226,7 +227,7 @@ if (-not $SkipBuild) {
     -Name 'Build DAK tests' `
     -WorkingDirectory $DakRoot `
     -FilePath 'cmd.exe' `
-    -Arguments @('/C', 'build-delphi.bat', 'tests\DelphiAIKit.Tests.dproj', '-config', 'Debug', '-platform', 'Win32', '-target', 'Rebuild')))
+    -Arguments @('/C', 'build-delphi.bat', 'tests\DelphiAIKit.Tests.dproj', '-config', 'Debug', '-platform', 'Win64', '-target', 'Rebuild')))
 }
 
 $lResults.Add((Invoke-DakRemoveWithTests `
@@ -240,11 +241,14 @@ if (-not $SkipBuild) {
     -Name 'Build DAK CLI' `
     -WorkingDirectory $DakRoot `
     -FilePath 'cmd.exe' `
-    -Arguments @('/C', 'build-delphi.bat', 'projects\DelphiAIKit.dproj', '-config', 'Debug', '-platform', 'Win32', '-target', 'Rebuild')))
+    -Arguments @('/C', 'build-delphi.bat', 'projects\DelphiAIKit.dproj', '-config', 'Debug', '-platform', 'Win64', '-target', 'Rebuild')))
 }
 
 New-Item -ItemType Directory -Force -Path $WorkRoot | Out-Null
 Reset-DirectoryUnder -Path $lClone -AllowedRoot $WorkRoot
+if (Test-Path -LiteralPath $lPlanReport) {
+  Remove-Item -LiteralPath $lPlanReport -Force
+}
 if (Test-Path -LiteralPath $lReport) {
   Remove-Item -LiteralPath $lReport -Force
 }
@@ -253,31 +257,55 @@ Copy-Item -LiteralPath $lFixture -Destination $lClone -Recurse -Force
 
 $lProject = Join-Path $lClone 'src\maxtdb.dproj'
 $lResults.Add((Invoke-GateStep `
+  -Name 'Run cloned maxTdb report-only plan' `
+  -WorkingDirectory $DakRoot `
+  -FilePath 'bin\DelphiAIKit.exe' `
+  -Arguments @('remove-with', '--project', $lProject, '--all', '--mode', 'plan', '--format', 'json', '--output', $lPlanReport) `
+  -MaxOutputLines 0))
+
+$lResults.Add((Invoke-GateStep `
   -Name 'Run cloned maxTdb smoke' `
   -WorkingDirectory $DakRoot `
   -FilePath 'bin\DelphiAIKit.exe' `
   -Arguments @('remove-with', '--project', $lProject, '--all', '--mode', 'apply', '--format', 'json', '--output', $lReport) `
   -MaxOutputLines 0))
 
+Assert-ExistingFile $lPlanReport
 Assert-ExistingFile $lReport
+$lPlanJson = Get-Content -LiteralPath $lPlanReport -Raw | ConvertFrom-Json
 $lJson = Get-Content -LiteralPath $lReport -Raw | ConvertFrom-Json
-$lWithStatements = @($lJson.withStatements).Count
+$lPlanWithStatements = [int]$lPlanJson.summary.withStatements
+$lApplyWithStatements = [int]$lJson.summary.withStatements
+$lPlanPlannedEdits = [int]$lPlanJson.summary.plannedEdits
+$lApplyPlannedEdits = [int]$lJson.summary.plannedEdits
 $lAppliedEdits = [int]$lJson.summary.appliedEdits
 $lSkipped = [int]$lJson.summary.skipped
 $lVerification = [string]$lJson.verification.status
+$lPlanStatus = [string]$lPlanJson.status
 $lStatus = [string]$lJson.status
 
+if ($lPlanStatus -ne 'ok') {
+  throw "Expected maxTdb report-only status ok, got $lPlanStatus"
+}
 if ($lStatus -ne 'applied') {
   throw "Expected maxTdb status applied, got $lStatus"
 }
 if ($lVerification -ne 'passed') {
   throw "Expected maxTdb verification passed, got $lVerification"
 }
+if (($lPlanWithStatements -ne 667) -or ($lApplyWithStatements -ne 667)) {
+  throw "Expected maxTdb scan count 667 in plan/apply reports, got plan=$lPlanWithStatements apply=$lApplyWithStatements"
+}
+if (($lPlanPlannedEdits -ne 215) -or ($lApplyPlannedEdits -ne $lPlanPlannedEdits)) {
+  throw "Expected maxTdb planned edit parity at 215, got plan=$lPlanPlannedEdits apply=$lApplyPlannedEdits"
+}
+$lPlanIds = @($lPlanJson.plannedEdits | ForEach-Object { [string]$_.statementId })
+$lApplyIds = @($lJson.plannedEdits | ForEach-Object { [string]$_.statementId })
+if (@(Compare-Object $lPlanIds $lApplyIds).Count -ne 0) {
+  throw 'Expected maxTdb report-only and apply planned statement IDs to match.'
+}
 if ($lAppliedEdits -lt 1) {
   throw "Expected at least one applied maxTdb edit"
-}
-if ($lSkipped -gt 20) {
-  throw "Unexpected maxTdb skip regression: $lSkipped"
 }
 
 $lSkipBuckets = @($lJson.skipped | Group-Object reason | Sort-Object Count -Descending |
@@ -302,14 +330,16 @@ $lDominantPhases | Format-Table -AutoSize | Out-String | Write-Host
 [pscustomobject]@{
   Status = $lStatus
   Verification = $lVerification
-  WithStatements = $lWithStatements
+  WithStatements = $lApplyWithStatements
+  PlannedEdits = $lApplyPlannedEdits
   AppliedEdits = $lAppliedEdits
   Skipped = $lSkipped
-  Report = $lReport
+  PlanReport = $lPlanReport
+  ApplyReport = $lReport
   Clone = $lClone
 } | Format-List | Out-String | Write-Host
 
 Write-Host '== maxTdb skip buckets'
 $lSkipBuckets | Format-Table -AutoSize | Out-String | Write-Host
 
-Write-Host "Migration gate passed. Report: $lReport"
+Write-Host "Migration gate passed. Reports: $lPlanReport, $lReport"

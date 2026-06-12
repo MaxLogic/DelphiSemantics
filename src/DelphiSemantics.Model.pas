@@ -1072,8 +1072,7 @@ begin
                 lPendingEnumSection := lSection;
                 lPendingEnumOffset := lOffset + 1;
               end;
-            end
-            else if MatchText(lTypeName, ['class', 'interface', 'record']) and
+            end else if MatchText(lTypeName, ['class', 'interface', 'record']) and
               (not ContainsText(lScopeLine, ' end')) and (not EndsText(';', lScopeLine)) then
               Inc(lTypeDepth);
           end;
@@ -1616,7 +1615,11 @@ var
   lLine: string;
   lLines: TStringList;
   lLocalMatch: TMatch;
+  lName: string;
+  lNameOffset: Integer;
+  lNames: string;
   lOffset: Integer;
+  lRawName: string;
 begin
   lLines := TStringList.Create;
   try
@@ -1632,12 +1635,20 @@ begin
         Break
       else if lInVarSection then
       begin
-        lLocalMatch := TRegEx.Match(lLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^;]+);',
+        lLocalMatch := TRegEx.Match(lLine, '^([A-Za-z_][A-Za-z0-9_,\s]*)\s*:\s*([^;]+);',
           [roIgnoreCase]);
         if lLocalMatch.Success then
         begin
-          AddLocal(aLocals, aRoutineName, lLocalMatch.Groups[1].Value, 'var',
-            lLocalMatch.Groups[2].Value.Trim, aText, lOffset + 1);
+          lNames := lLocalMatch.Groups[1].Value;
+          for lRawName in lNames.Split([',']) do
+          begin
+            lName := lRawName.Trim;
+            if lName = '' then
+              Continue;
+            lNameOffset := TextOffsetInLine(lLines[i], lName, lOffset);
+            AddLocal(aLocals, aRoutineName, lName, 'var',
+              lLocalMatch.Groups[2].Value.Trim, aText, lNameOffset);
+          end;
           AddTypeReferences(aReferences, aRoutineName, lLocalMatch.Groups[2].Value.Trim, aText,
             TextOffsetInLine(lLines[i], lLocalMatch.Groups[2].Value.Trim, lOffset));
         end;

@@ -60,6 +60,12 @@ type
     [Test]
     procedure FinalDtoMatchesDakBoundRewriteFixture;
     [Test]
+    procedure FinalDtoMatchesDakExternalRoutineFixture;
+    [Test]
+    procedure FinalDtoMatchesDakRewriteShapeElseBoundaries;
+    [Test]
+    procedure FinalDtoBlocksDakCombinedSelectorAmbiguousHelperCall;
+    [Test]
     procedure FinalDtoDoesNotTreatNestedInlineLocalAsOuterMember;
     [Test]
     procedure FinalDtoKeepsOuterInlineLocalVisibleAcrossNestedBlocks;
@@ -139,6 +145,8 @@ type
     procedure FinalDtoMatchesMaxTdbFormelnDataFilePointerReceiverSkip;
     [Test]
     procedure FinalDtoMatchesMaxTdbLinkFileDataFilePointerReceiverSkip;
+    [Test]
+    procedure FinalDtoMatchesMaxTdbLinkFileCheckShowFilesReplacement;
     [Test]
     procedure FinalDtoMatchesMaxTdbLinkFileNestedMaskReplacement;
     [Test]
@@ -1597,12 +1605,161 @@ begin
     '.Count := Length(Name);'),
     'Expected receiver member assignment to be qualified while local Name remains unqualified.');
 
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'BoundRewriteUnit.pas', 53, 3,
+    lStatement), 'Expected compact else-if statement.');
+  Assert.AreEqual('planned', lStatement.Status,
+    'Expected compact else-if body to be planned: ' + lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'else if lWithBoundRewriteRecordPtr3^.Limit>0 then'), lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithBoundRewriteRecordPtr3^.Count := 0;'), lStatement.ReplacementText);
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText,
+    sLineBreak + '      Count := 0;'), lStatement.ReplacementText);
+
   lPlannedCount := 0;
   for lStatement in lPlan.FinalStatements do
     if SameText(lStatement.Status, 'planned') then
       Inc(lPlannedCount);
   Assert.AreEqual(4, lPlannedCount,
     'Expected label/typecast, declaration-like, and comparison with statements to be planned.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoMatchesDakExternalRoutineFixture;
+var
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithExternalRoutineFixture',
+    'dto-external-routine');
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithExternalRoutineFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ExternalRoutineUnit.pas', 34, 3,
+    lStatement), 'Expected known external-routine statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithExternalRoutineRecordPtr^.Name := ' +
+    'lWithExternalRoutineRecordPtr^.Items[Low(lWithExternalRoutineRecordPtr^.Items)];'),
+    lStatement.ReplacementText);
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText, 'Low(Items)'),
+    lStatement.ReplacementText);
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText,
+    ']ternalRoutineRecordPtr'), lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoMatchesDakRewriteShapeElseBoundaries;
+var
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithRewriteShapeFixture',
+    'dto-rewrite-shape-else-boundaries');
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithRewriteShapeFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RewriteShapeUnit.pas', 112, 5,
+    lStatement), 'Expected controlled block value before else statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithRewriteShapeRecordPtr^.Name := ''controlled-block-value-before-else'';'),
+    lStatement.ReplacementText);
+  Assert.IsFalse(ContainsText(LowerCase(lStatement.ReplacementText),
+    sLineBreak + '  else'), lStatement.ReplacementText);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RewriteShapeUnit.pas', 151, 3,
+    lStatement), 'Expected hex literal statement.');
+  Assert.AreEqual('planned', lStatement.Status, 'hex: ' + lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'if (aRecordPtr^.Count and $7FFF) > 0 then'),
+    lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'aRecordPtr^.Count := aRecordPtr^.Count + $FFFF;'),
+    lStatement.ReplacementText);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RewriteShapeUnit.pas', 170, 3,
+    lStatement), 'Expected implementation array statement.');
+  Assert.AreEqual('planned', lStatement.Status, 'array: ' + lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithRewriteShapeImplementationItemPtr^.LocalName := ' +
+    '''implementation-array'';'), lStatement.ReplacementText);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RewriteShapeUnit.pas', 259, 5,
+    lStatement), 'Expected begin-end single-statement before else statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'aLeftPtr^.Name := ''left'''),
+    lStatement.ReplacementText);
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText,
+    'aLeftPtr^.Name := ''right'''),
+    lStatement.ReplacementText);
+  Assert.IsFalse(ContainsText(LowerCase(lStatement.ReplacementText),
+    'end else'), lStatement.ReplacementText);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RewriteShapeUnit.pas', 262, 5,
+    lStatement), 'Expected begin-end else branch statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'aRightPtr^.Name := ''right'''),
+    lStatement.ReplacementText);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RewriteShapeUnit.pas', 270, 5,
+    lStatement), 'Expected controlled single-statement before else statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'aLeftPtr^.Name := ''controlled-left-before-else'''),
+    lStatement.ReplacementText);
+  Assert.IsFalse(ContainsText(LowerCase(lStatement.ReplacementText),
+    sLineBreak + '  else'), lStatement.ReplacementText);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RewriteShapeUnit.pas', 273, 5,
+    lStatement), 'Expected controlled single-statement else branch statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'aRightPtr^.Name := ''controlled-right-before-else'''),
+    lStatement.ReplacementText);
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-21', lStatement),
+    'Expected anonymous nested multi-selector statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithRewriteShapeAnonymousOuterPtr^.Struktur.InnerOnly := ' +
+    'lWithRewriteShapeAnonymousOuterPtr^.OuterOnly;'),
+    lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoBlocksDakCombinedSelectorAmbiguousHelperCall;
+var
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lFixtureDir := CopyDakFixtureToTemp('RemoveWithCombinedSelectorRewriteFixture',
+    'dto-combined-selector-ambiguous-helper');
+  lProjectPath := TPath.Combine(lFixtureDir,
+    'RemoveWithCombinedSelectorRewriteFixture.dproj');
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lStatement),
+    'Expected ambiguous parent statement.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('multiple-member-candidates', lStatement.Reason);
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-4', lStatement),
+    'Expected safe child under blocked parent.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithCombinedOuterRight.RightOuterOnly := ' +
+    '''safe-under-blocked-parent'';'), lStatement.ReplacementText);
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-5', lStatement),
+    'Expected ambiguous helper child.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('multiple-member-candidates', lStatement.Reason);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoDoesNotTreatNestedInlineLocalAsOuterMember;
@@ -2807,6 +2964,30 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileCheckShowFilesReplacement;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 204, 11,
+    lStatement), 'Expected maxTdb linkfile CheckShowFiles DF[i]^ with statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'IF InSet(ShowFiles, i) AND (DF[i]^.LINKFILE <> 0)'),
+    lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'AND NOT InSet(ShowFiles, DF[i]^.LINKFILE)'),
+    lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'Include(ShowFiles, DF[i]^.LINKFILE);'),
+    lStatement.ReplacementText);
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText, '(LINKFILE <> 0)'),
+    lStatement.ReplacementText);
+end;
+
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileNestedMaskReplacement;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
@@ -3241,7 +3422,7 @@ begin
   Assert.AreEqual('    begin' + sLineBreak +
     '      lWithLowFilePtr := @f;' + sLineBreak +
     '      BEGIN' + #10 +
-    '      IF v_handle_ptr <> NIL THEN' + #10 +
+    '      IF lWithLowFilePtr^.v_handle_ptr <> NIL THEN' + #10 +
     '        BEGIN' + #10 +
     '          TDB_AssignFile(v_handle, path);' + #10 +
     '          io := TDB_RewriteFile(v_handle, 1);' + #10 +
@@ -3254,7 +3435,7 @@ begin
     '        END' + #10 +
     '    ;END;' + sLineBreak +
     '    end;', lStatement.ReplacementText);
-  Assert.AreEqual(462, Integer(Length(lStatement.ReplacementText)));
+  Assert.AreEqual(479, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(693, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(696, lStatement.Edits[1].Range.StartLine);
   Assert.AreEqual(710, lStatement.Edits[1].Range.EndLine);

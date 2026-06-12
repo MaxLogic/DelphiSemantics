@@ -2871,13 +2871,11 @@ begin
     begin
       Delete(lText, 1, Length('const '));
       lModifier := 'const';
-    end
-    else if StartsText('var ', lText) then
+    end else if StartsText('var ', lText) then
     begin
       Delete(lText, 1, Length('var '));
       lModifier := 'var';
-    end
-    else if StartsText('out ', lText) then
+    end else if StartsText('out ', lText) then
     begin
       Delete(lText, 1, Length('out '));
       lModifier := 'out';
@@ -4343,6 +4341,46 @@ begin
   Result := CharInSet(aValue, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
 end;
 
+function ReferencePreviousNonWhitespaceChar(const aText: string;
+  const aOffset: Integer): Char;
+var
+  i: Integer;
+begin
+  Result := #0;
+  i := aOffset - 1;
+  while (i >= 1) and CharInSet(aText[i], [#9, #10, #13, ' ']) do
+    Dec(i);
+  if i >= 1 then
+    Result := aText[i];
+end;
+
+function ReferenceIsControlCharacterLiteralStart(const aText: string;
+  const aOffset: Integer): Boolean;
+begin
+  Result := (aOffset < Length(aText)) and (aText[aOffset] = '^') and
+    CharInSet(aText[aOffset + 1], ['A'..'Z', 'a'..'z', '@', '[', '\', ']', '^',
+    '_']) and (ReferencePreviousNonWhitespaceChar(aText, aOffset) <> '^');
+end;
+
+function ReferenceIsHexDigit(const aValue: Char): Boolean;
+begin
+  Result := CharInSet(aValue, ['0'..'9', 'A'..'F', 'a'..'f']);
+end;
+
+function ReferenceIsHexLiteralStart(const aText: string;
+  const aOffset: Integer): Boolean;
+begin
+  Result := (aOffset < Length(aText)) and (aText[aOffset] = '$') and
+    ReferenceIsHexDigit(aText[aOffset + 1]);
+end;
+
+procedure SkipReferenceHexLiteral(const aText: string; var aIndex: Integer);
+begin
+  Inc(aIndex);
+  while (aIndex <= Length(aText)) and ReferenceIsHexDigit(aText[aIndex]) do
+    Inc(aIndex);
+end;
+
 function ReadReferenceSuffix(const aText: string; var aIndex: Integer;
   const aOpenChar, aCloseChar: Char; const aRequireContent: Boolean): Boolean;
 var
@@ -4375,7 +4413,19 @@ begin
   aToken := '';
   aTokenStart := 0;
   while (aIndex <= Length(aText)) and (not ReferenceIdentifierStart(aText[aIndex])) do
+  begin
+    if ReferenceIsControlCharacterLiteralStart(aText, aIndex) then
+    begin
+      Inc(aIndex, 2);
+      Continue;
+    end;
+    if ReferenceIsHexLiteralStart(aText, aIndex) then
+    begin
+      SkipReferenceHexLiteral(aText, aIndex);
+      Continue;
+    end;
     Inc(aIndex);
+  end;
   if aIndex > Length(aText) then
     Exit(False);
 

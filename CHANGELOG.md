@@ -73,6 +73,10 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with apply mode now preserves the semantic report-only statement set
+  instead of retrying through a compatibility fallback plan after verification
+  failure; the migration gate now emits and compares cloned maxTdb report-only
+  and apply JSON artifacts.
 - Dead-code report/removal profile names now use a shared typed profile
   contract with deterministic unknown-profile diagnostics, and DAK CLI
   validation consumes the same parser/allowed-name list.

@@ -63,6 +63,8 @@ type
     [Test]
     procedure ExtractsMembersRoutinesLocalsAndReferences;
     [Test]
+    procedure ExtractsCommaDeclaredRoutineLocals;
+    [Test]
     procedure SkipReferenceExtractionKeepsSymbolsAndOmitsReferences;
     [Test]
     procedure ExtractsUntypedRoutineParameters;
@@ -610,6 +612,39 @@ begin
   Assert.IsTrue(HasReference(lModel, 'Value'));
   Assert.IsTrue(HasReference(lModel, 'Length'));
   Assert.IsTrue(HasReference(lModel, 'SemanticGlobal'));
+end;
+
+procedure TUnitModelTests.ExtractsCommaDeclaredRoutineLocals;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := UnitModelTempPath('unit-model-comma-locals.pas');
+  TFile.WriteAllText(lPath,
+    'unit CommaLocalsUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lLeft, lRight: Integer;' + sLineBreak +
+    '  lPtr, lOtherPtr: PChar;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  lRight := lLeft;' + sLineBreak +
+    '  lOtherPtr := lPtr;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(HasLocal(lModel, 'Run', 'lLeft', 'Integer'));
+  Assert.IsTrue(HasLocal(lModel, 'Run', 'lRight', 'Integer'));
+  Assert.IsTrue(HasLocal(lModel, 'Run', 'lPtr', 'PChar'));
+  Assert.IsTrue(HasLocal(lModel, 'Run', 'lOtherPtr', 'PChar'));
 end;
 
 procedure TUnitModelTests.SkipReferenceExtractionKeepsSymbolsAndOmitsReferences;
