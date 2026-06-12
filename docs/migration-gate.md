@@ -51,6 +51,10 @@ The gate fails on dirty DelphiSemantics or DAK worktrees by default. Use
 `-AllowDirty` only when intentionally collecting local proof before a commit;
 the manifest records that opt-out.
 
+When `-WorkRoot` is supplied explicitly, the gate writes directly under that
+directory and holds `migration-gate.lock` there for the run. A second gate using
+the same explicit root fails instead of racing clone/report cleanup.
+
 Use `-SkipBuild` only when the projects have already been rebuilt and we want a
 faster local verification pass.
 

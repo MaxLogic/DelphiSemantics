@@ -165,6 +165,55 @@ function Write-MigrationGateManifest {
   $lManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
+function New-MigrationGateWorkRootLock {
+  param(
+    [Parameter(Mandatory = $true)][string]$WorkRoot
+  )
+
+  $lRoot = [IO.Path]::GetFullPath($WorkRoot)
+  [IO.Directory]::CreateDirectory($lRoot) | Out-Null
+  $lPath = Join-Path $lRoot 'migration-gate.lock'
+  try {
+    $lStream = [IO.File]::Open($lPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+  } catch [IO.IOException] {
+    throw "WorkRoot is already locked by another migration gate run: $lRoot"
+  }
+
+  $lText = "pid=$PID`nstartedAt=$((Get-Date).ToString('o'))`nworkRoot=$lRoot`n"
+  $lBytes = [Text.Encoding]::UTF8.GetBytes($lText)
+  try {
+    $lStream.SetLength(0)
+    $lStream.Write($lBytes, 0, $lBytes.Length)
+    $lStream.Flush()
+  } catch {
+    $lStream.Dispose()
+    throw
+  }
+
+  return [pscustomobject]@{
+    WorkRoot = $lRoot
+    Path = $lPath
+    Stream = $lStream
+  }
+}
+
+function Close-MigrationGateWorkRootLock {
+  param(
+    [object]$Lock
+  )
+
+  if ($null -eq $Lock) {
+    return
+  }
+
+  if ($null -ne $Lock.Stream) {
+    $Lock.Stream.Dispose()
+  }
+  if ((-not [string]::IsNullOrWhiteSpace($Lock.Path)) -and (Test-Path -LiteralPath $Lock.Path)) {
+    Remove-Item -LiteralPath $Lock.Path -Force -ErrorAction SilentlyContinue
+  }
+}
+
 function Invoke-GateStep {
   param(
     [Parameter(Mandatory = $true)][string]$Name,
@@ -370,7 +419,9 @@ Assert-NoFixtureCollision -FixtureRoot $lFixture -CandidatePath $WorkRoot -Descr
 Assert-NoFixtureCollision -FixtureRoot $lFixture -CandidatePath $lClone -Description 'maxTdb clone path'
 Assert-NoFixtureCollision -FixtureRoot $lFixture -CandidatePath (Split-Path -Parent $lReport) -Description 'maxTdb report directory'
 
-[IO.Directory]::CreateDirectory($WorkRoot) | Out-Null
+$lWorkRootLock = New-MigrationGateWorkRootLock -WorkRoot $WorkRoot
+try {
+
 Write-MigrationGateManifest `
   -Path $lManifest `
   -WorkRoot $WorkRoot `
@@ -516,3 +567,6 @@ Write-Host '== maxTdb skip buckets'
 $lSkipBuckets | Format-Table -AutoSize | Out-String | Write-Host
 
 Write-Host "Migration gate passed. Reports: $lPlanReport, $lReport"
+} finally {
+  Close-MigrationGateWorkRootLock -Lock $lWorkRootLock
+}

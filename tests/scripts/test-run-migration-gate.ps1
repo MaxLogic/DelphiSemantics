@@ -54,6 +54,22 @@ function New-TestGitRepo {
   return $lRepo
 }
 
+function Add-TestRepoFile {
+  param(
+    [Parameter(Mandatory = $true)][string]$Repo,
+    [Parameter(Mandatory = $true)][string]$RelativePath,
+    [string]$Value = 'test'
+  )
+
+  $lFile = Join-Path $Repo $RelativePath
+  $lParent = Split-Path -Parent $lFile
+  if (-not [string]::IsNullOrWhiteSpace($lParent)) {
+    [IO.Directory]::CreateDirectory($lParent) | Out-Null
+  }
+  Set-Content -LiteralPath $lFile -Value $Value -Encoding UTF8
+  Invoke-Git -Repo $Repo add $RelativePath | Out-Null
+}
+
 function Assert-Equal {
   param(
     [object]$Expected,
@@ -163,11 +179,90 @@ function Test-ManifestUsesAcceptedProvenanceSnapshot {
     'Manifest must use the provenance snapshot accepted by the dirty gate.'
 }
 
+function Test-ExplicitWorkRootLockBlocksConcurrentRuns {
+  Reset-TestWorkspace
+  $lWorkRoot = Join-Path $TempRoot 'explicit-work-root'
+  $lFirstLock = New-MigrationGateWorkRootLock -WorkRoot $lWorkRoot
+  try {
+    $lFailed = $false
+    $lSecondLock = $null
+    try {
+      $lSecondLock = New-MigrationGateWorkRootLock -WorkRoot $lWorkRoot
+    } catch {
+      $lFailed = $true
+      Assert-True ($_.Exception.Message -like '*WorkRoot*') `
+        'Concurrent explicit WorkRoot failure should name the guarded root.'
+    } finally {
+      if ($null -ne $lSecondLock) {
+        Close-MigrationGateWorkRootLock -Lock $lSecondLock
+      }
+    }
+
+    Assert-True $lFailed 'A second gate must not acquire the same explicit WorkRoot lock.'
+  } finally {
+    Close-MigrationGateWorkRootLock -Lock $lFirstLock
+  }
+
+  $lReusedLock = New-MigrationGateWorkRootLock -WorkRoot $lWorkRoot
+  Close-MigrationGateWorkRootLock -Lock $lReusedLock
+}
+
+function Test-MainScriptFailsBeforeWorkRootMutationWhenExplicitRootLocked {
+  Reset-TestWorkspace
+  $lSemanticsRepo = New-TestGitRepo 'mainflow-semantics-repo'
+  Add-TestRepoFile -Repo $lSemanticsRepo -RelativePath 'tests\delphiSemanticsTests.dproj'
+  Invoke-Git -Repo $lSemanticsRepo commit -m 'add semantics markers' | Out-Null
+
+  $lDakRepo = New-TestGitRepo 'mainflow-dak-repo'
+  Add-TestRepoFile -Repo $lDakRepo -RelativePath 'tests\DelphiAIKit.Tests.dproj'
+  Add-TestRepoFile -Repo $lDakRepo -RelativePath 'projects\DelphiAIKit.dproj'
+  Add-TestRepoFile -Repo $lDakRepo -RelativePath 'tests\fixtures\test-projects\maxTdb\.keep'
+  Invoke-Git -Repo $lDakRepo commit -m 'add dak markers' | Out-Null
+
+  $lWorkRoot = Join-Path $TempRoot 'mainflow-explicit-work-root'
+  $lCloneRoot = Join-Path $lWorkRoot 'maxTdb'
+  [IO.Directory]::CreateDirectory($lCloneRoot) | Out-Null
+  $lCloneSentinel = Join-Path $lCloneRoot 'sentinel.txt'
+  Set-Content -LiteralPath $lCloneSentinel -Value 'keep me' -Encoding UTF8
+  $lLock = New-MigrationGateWorkRootLock -WorkRoot $lWorkRoot
+  try {
+    $lPowerShell = [Diagnostics.Process]::GetCurrentProcess().Path
+    $lOldErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      $lOutput = & $lPowerShell `
+        -NoProfile `
+        -ExecutionPolicy Bypass `
+        -File $GateScript `
+        -DelphiSemanticsRoot $lSemanticsRepo `
+        -DakRoot $lDakRepo `
+        -WorkRoot $lWorkRoot `
+        -SkipBuild 2>&1
+      $lExitCode = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $lOldErrorActionPreference
+    }
+    $lText = @($lOutput) -join "`n"
+
+    Assert-True ($lExitCode -ne 0) 'A contended explicit WorkRoot must fail the main script.'
+    Assert-True ($lText -like '*WorkRoot is already locked*') `
+      'Main script failure should report the explicit WorkRoot lock.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $lWorkRoot 'migration-gate-manifest.json'))) `
+      'Main script must fail before writing the manifest for a locked explicit WorkRoot.'
+    Assert-True (Test-Path -LiteralPath $lCloneSentinel -PathType Leaf) `
+      'Main script must fail before deleting an existing clone under a locked explicit WorkRoot.'
+  } finally {
+    Close-MigrationGateWorkRootLock -Lock $lLock
+  }
+}
+
 $lTests = @(
   'Test-DefaultWorkRootsAreRunScoped',
   'Test-DirtyWorktreeFailsUnlessAllowed',
   'Test-ManifestRecordsGitProvenance',
-  'Test-ManifestUsesAcceptedProvenanceSnapshot'
+  'Test-ManifestUsesAcceptedProvenanceSnapshot',
+  'Test-ExplicitWorkRootLockBlocksConcurrentRuns',
+  'Test-MainScriptFailsBeforeWorkRootMutationWhenExplicitRootLocked'
 )
 
 $lFailures = New-Object System.Collections.Generic.List[string]

@@ -80,6 +80,8 @@
 - The migration gate now uses run-scoped default work roots and writes a Git
   provenance manifest; dirty DelphiSemantics or DAK worktrees require an
   explicit `-AllowDirty` opt-out.
+- Explicit migration-gate `-WorkRoot` runs now hold a root-local lock file so
+  concurrent runs cannot overwrite each other's clone/report artifacts.
 - Dead-code report/removal profile names now use a shared typed profile
   contract with deterministic unknown-profile diagnostics, and DAK CLI
   validation consumes the same parser/allowed-name list.
