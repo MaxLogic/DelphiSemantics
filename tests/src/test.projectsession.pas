@@ -43,7 +43,7 @@ type
     [Test]
     procedure ProjectSessionReusesUnchangedMultiUnitSnapshotCacheEntries;
     [Test]
-    procedure ProjectSessionSnapshotCacheInvalidatesIncludedFileChanges;
+    procedure ProjectSessionSnapshotCacheRebuildsIncludedFileChanges;
     [Test]
     procedure ProjectSessionAssociatesNestedWithReferencesWithInnermostSnapshotFact;
     [Test]
@@ -767,10 +767,10 @@ begin
       Assert.AreEqual(2, lThirdMetrics.SnapshotCacheProbes);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheMisses);
-      Assert.AreEqual(1, lThirdMetrics.SnapshotCacheInvalidations);
+      Assert.AreEqual(0, lThirdMetrics.SnapshotCacheInvalidations);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheUnitHits);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheUnitMisses);
-      Assert.AreEqual(1, lThirdMetrics.SnapshotCacheUnitStaleEntries);
+      Assert.AreEqual(0, lThirdMetrics.SnapshotCacheUnitStaleEntries);
       Assert.IsTrue(lThirdMetrics.SnapshotCacheUnitBuildMilliseconds >= 0);
       Assert.IsTrue(lThirdMetrics.SnapshotCacheUnitMergeMilliseconds >= 0);
       Assert.IsTrue(lThirdSnapshot.TryReferenceAt(lDprPath, 6, 13, lReferenceRef),
@@ -805,7 +805,7 @@ begin
   end;
 end;
 
-procedure TProjectSessionTests.ProjectSessionSnapshotCacheInvalidatesIncludedFileChanges;
+procedure TProjectSessionTests.ProjectSessionSnapshotCacheRebuildsIncludedFileChanges;
 var
   lCachePath: string;
   lDprPath: string;
@@ -908,7 +908,8 @@ begin
       Assert.AreEqual(2, lThirdMetrics.SnapshotCacheProbes);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheMisses);
-      Assert.AreEqual(1, lThirdMetrics.SnapshotCacheInvalidations);
+      Assert.AreEqual(0, lThirdMetrics.SnapshotCacheInvalidations);
+      Assert.AreEqual(0, lThirdMetrics.SnapshotCacheUnitStaleEntries);
       Assert.IsTrue(lThirdSnapshot.TryFindStringId('IncludeSnapshotCacheChangedValue',
         lNameId));
       Assert.IsTrue(lThirdSnapshot.TrySymbolsByName(lNameId, lLowIndex, lHighIndex));

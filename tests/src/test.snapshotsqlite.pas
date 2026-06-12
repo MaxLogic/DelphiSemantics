@@ -17,11 +17,13 @@ type
       const aIdentity: TDelphiSemanticSnapshotCacheIdentity);
     function TableRowCount(const aCacheFileName, aTableName: string): Integer;
     function TempPath(const aName: string): string;
-    procedure AssertIdentityChangeInvalidates(const aName: string; const aChangedIdentity:
+    procedure AssertIdentityChangeMissesWithoutEviction(const aName: string; const aChangedIdentity:
       TDelphiSemanticSnapshotCacheIdentity);
   public
     [Test]
     procedure CacheKeyReuseWithDifferentIdentityDoesNotLoadStoredUnit;
+    [Test]
+    procedure ContextSpecificSnapshotVariantsShareIdentityWithoutEviction;
     [Test]
     procedure CorruptStringIdInvalidatesStoredSnapshot;
     [Test]
@@ -53,7 +55,7 @@ type
     [Test]
     procedure SecondCacheInstanceReusesStoredUnitSnapshot;
     [Test]
-    procedure SourceContextIncludeAndSchemaChangesInvalidateStoredSnapshot;
+    procedure SourceContextIncludeAndSchemaChangesMissWithoutIdentityWideEviction;
   end;
 
 implementation
@@ -86,7 +88,7 @@ begin
   Result := GSnapshotSqliteTempRoot;
 end;
 
-procedure TSnapshotSqliteTests.AssertIdentityChangeInvalidates(const aName: string;
+procedure TSnapshotSqliteTests.AssertIdentityChangeMissesWithoutEviction(const aName: string;
   const aChangedIdentity: TDelphiSemanticSnapshotCacheIdentity);
 var
   lBaseIdentity: TDelphiSemanticSnapshotCacheIdentity;
@@ -107,13 +109,19 @@ begin
     Assert.IsNull(lSnapshot);
     Assert.AreEqual(0, lCache.Metrics.CacheHits);
     Assert.AreEqual(1, lCache.Metrics.CacheMisses);
-    Assert.AreEqual(1, lCache.Metrics.Invalidations);
+    Assert.AreEqual(0, lCache.Metrics.Invalidations);
     Assert.AreEqual(1, lCache.Metrics.SnapshotCacheProbes);
-    Assert.IsTrue(lCache.Metrics.SnapshotSqlReadMilliseconds >= 2);
+    Assert.IsTrue(lCache.Metrics.SnapshotSqlReadMilliseconds >= 1);
     Assert.IsTrue(lCache.Metrics.SnapshotDeserializeMilliseconds >= 0);
     Assert.IsTrue(lCache.Metrics.SnapshotIndexRebuildMilliseconds >= 0);
     Assert.AreEqual(Int64(0), lCache.Metrics.SnapshotParseAvoidedEstimateMilliseconds);
     Assert.IsFalse(lCache.Metrics.SnapshotCacheUseful);
+    Assert.IsTrue(lCache.TryLoadUnit(lBaseIdentity, lSnapshot));
+    try
+      Assert.AreEqual(1, lSnapshot.UnitCount);
+    finally
+      lSnapshot.Free;
+    end;
   finally
     lCache.Free;
   end;
@@ -169,6 +177,68 @@ begin
     finally
       lSnapshot.Free;
     end;
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.ContextSpecificSnapshotVariantsShareIdentityWithoutEviction;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheFileName: string;
+  lFirstIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lSecondIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lSnapshot: TDelphiProjectSnapshot;
+  lStaleIdentity: TDelphiSemanticSnapshotCacheIdentity;
+begin
+  lCacheFileName := TempPath('snapshot-context-variants.sqlite3');
+  if TFile.Exists(lCacheFileName) then
+    TFile.Delete(lCacheFileName);
+  lFirstIdentity := CreateIdentity('SnapshotContextVariantUnit', 'file-a', 'context-a',
+    'include-a', 'snapshot-v1');
+  lSecondIdentity := CreateIdentity('SnapshotContextVariantUnit', 'file-a', 'context-b',
+    'include-a', 'snapshot-v1');
+
+  StoreDemoUnit(lCacheFileName, lFirstIdentity);
+  StoreDemoUnit(lCacheFileName, lSecondIdentity);
+
+  Assert.AreEqual(2, TableRowCount(lCacheFileName, 'snapshot_units'));
+
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+  try
+    Assert.IsTrue(lCache.TryLoadUnit(lFirstIdentity, lSnapshot));
+    try
+      Assert.AreEqual(1, lSnapshot.UnitCount);
+    finally
+      lSnapshot.Free;
+    end;
+    Assert.IsTrue(lCache.TryLoadUnit(lSecondIdentity, lSnapshot));
+    try
+      Assert.AreEqual(1, lSnapshot.UnitCount);
+    finally
+      lSnapshot.Free;
+    end;
+    Assert.IsTrue(lCache.TryLoadUnit(lFirstIdentity, lSnapshot));
+    try
+      Assert.AreEqual(1, lSnapshot.UnitCount);
+    finally
+      lSnapshot.Free;
+    end;
+
+    lStaleIdentity := lFirstIdentity;
+    lStaleIdentity.FileHash := 'file-stale';
+    Assert.IsFalse(lCache.TryLoadUnit(lStaleIdentity, lSnapshot));
+    Assert.IsNull(lSnapshot);
+    Assert.AreEqual(1, TableRowCount(lCacheFileName, 'snapshot_units'));
+    Assert.IsTrue(lCache.TryLoadUnit(lSecondIdentity, lSnapshot));
+    try
+      Assert.AreEqual(1, lSnapshot.UnitCount);
+    finally
+      lSnapshot.Free;
+    end;
+    Assert.AreEqual(4, lCache.Metrics.CacheHits);
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(1, lCache.Metrics.Invalidations);
   finally
     lCache.Free;
   end;
@@ -314,8 +384,8 @@ begin
   StoreDemoUnit(lCacheFileName, lIdentity);
   ExecCacheSql(lCacheFileName, 'create trigger block_snapshot_symbol_delete before delete on ' +
     'snapshot_symbols begin select raise(abort, ''blocked delete''); end');
-  lChangedIdentity := CreateIdentity('SnapshotAtomicDeleteUnit', 'file-b', 'context-a',
-    'include-a', 'snapshot-v1');
+  lChangedIdentity := lIdentity;
+  lChangedIdentity.FileHash := 'file-b';
 
   lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
   try
@@ -598,18 +668,18 @@ begin
   end;
 end;
 
-procedure TSnapshotSqliteTests.SourceContextIncludeAndSchemaChangesInvalidateStoredSnapshot;
+procedure TSnapshotSqliteTests.SourceContextIncludeAndSchemaChangesMissWithoutIdentityWideEviction;
 begin
-  AssertIdentityChangeInvalidates('SnapshotSourceInvalidationUnit',
+  AssertIdentityChangeMissesWithoutEviction('SnapshotSourceInvalidationUnit',
     CreateIdentity('SnapshotSourceInvalidationUnit', 'file-b', 'context-a', 'include-a',
     'snapshot-v1'));
-  AssertIdentityChangeInvalidates('SnapshotContextInvalidationUnit',
+  AssertIdentityChangeMissesWithoutEviction('SnapshotContextInvalidationUnit',
     CreateIdentity('SnapshotContextInvalidationUnit', 'file-a', 'context-b', 'include-a',
     'snapshot-v1'));
-  AssertIdentityChangeInvalidates('SnapshotIncludeInvalidationUnit',
+  AssertIdentityChangeMissesWithoutEviction('SnapshotIncludeInvalidationUnit',
     CreateIdentity('SnapshotIncludeInvalidationUnit', 'file-a', 'context-a', 'include-b',
     'snapshot-v1'));
-  AssertIdentityChangeInvalidates('SnapshotSchemaInvalidationUnit',
+  AssertIdentityChangeMissesWithoutEviction('SnapshotSchemaInvalidationUnit',
     CreateIdentity('SnapshotSchemaInvalidationUnit', 'file-a', 'context-a', 'include-a',
     'snapshot-v2'));
 end;

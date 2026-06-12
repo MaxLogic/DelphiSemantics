@@ -7,7 +7,8 @@ uses
   System.SysUtils,
   DUnitX.Loggers.Console,
   DUnitX.TestFramework,
-  Test.CacheSqlite in 'src\test.cachesqlite.pas';
+  Test.CacheSqlite in 'src\test.cachesqlite.pas',
+  Test.SnapshotSqlite in 'src\test.snapshotsqlite.pas';
 
 var
   lRunner: ITestRunner;

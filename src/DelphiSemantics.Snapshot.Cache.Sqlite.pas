@@ -38,12 +38,11 @@ type
     fDriverLink: TObject;
     fMetrics: TDelphiSemanticSnapshotCacheMetrics;
     procedure CloseSharedConnection;
-    procedure DeleteIdentity(const aIdentityKey: string);
-    procedure DeleteIdentityRows(const aConnection: TObject; const aIdentityKey: string);
+    procedure DeleteCacheKey(const aCacheKey: string);
+    procedure DeleteCacheKeyRows(const aConnection: TObject; const aCacheKey: string);
     procedure EnsureDatabase;
-    function EntryExistsForIdentity(const aIdentityKey: string): Boolean;
     function IdentityMatches(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aConnection: TObject): Boolean;
+      const aConnection: TObject; out aEntryBelongsToIdentity: Boolean): Boolean;
     procedure LoadExactStrings(const aCacheKey: string; const aConnection: TObject;
       const aExactStrings: TSemanticStringPool);
     procedure LoadReferences(const aCacheKey: string; const aConnection: TObject;
@@ -249,7 +248,7 @@ begin
   fDriverLink := nil;
 end;
 
-procedure TDelphiSemanticSnapshotSqliteCache.DeleteIdentity(const aIdentityKey: string);
+procedure TDelphiSemanticSnapshotSqliteCache.DeleteCacheKey(const aCacheKey: string);
 var
   lConnectionObject: TObject;
   lConnection: TFDConnection;
@@ -263,7 +262,7 @@ begin
   if lOwnsTransaction then
     lConnection.StartTransaction;
   try
-    DeleteIdentityRows(lConnection, aIdentityKey);
+    DeleteCacheKeyRows(lConnection, aCacheKey);
     if lOwnsTransaction then
       lConnection.Commit;
   except
@@ -273,35 +272,30 @@ begin
   end;
 end;
 
-procedure TDelphiSemanticSnapshotSqliteCache.DeleteIdentityRows(const aConnection: TObject;
-  const aIdentityKey: string);
+procedure TDelphiSemanticSnapshotSqliteCache.DeleteCacheKeyRows(const aConnection: TObject;
+  const aCacheKey: string);
 var
   lConnection: TFDConnection;
 begin
   lConnection := TFDConnection(aConnection);
-  lConnection.ExecSQL('delete from snapshot_remove_with_binding_references where cache_key in ' +
-    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
-  lConnection.ExecSQL('delete from snapshot_remove_with_binding_selectors where cache_key in ' +
-    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
-  lConnection.ExecSQL('delete from snapshot_remove_with_bindings where cache_key in ' +
-    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
-  lConnection.ExecSQL('delete from snapshot_remove_with_symbols where cache_key in ' +
-    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
-  lConnection.ExecSQL('delete from snapshot_remove_with_routine_owners where cache_key in ' +
-    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
-  lConnection.ExecSQL('delete from snapshot_remove_with_facts where cache_key in ' +
-    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
-  lConnection.ExecSQL('delete from snapshot_exact_strings where cache_key in ' +
-    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
-  lConnection.ExecSQL('delete from snapshot_references where cache_key in ' +
-    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
-  lConnection.ExecSQL('delete from snapshot_with_statements where cache_key in ' +
-    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
-  lConnection.ExecSQL('delete from snapshot_symbols where cache_key in ' +
-    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
-  lConnection.ExecSQL('delete from snapshot_strings where cache_key in ' +
-    '(select cache_key from snapshot_units where identity_key = ?)', [aIdentityKey]);
-  lConnection.ExecSQL('delete from snapshot_units where identity_key = ?', [aIdentityKey]);
+  lConnection.ExecSQL('delete from snapshot_remove_with_binding_references where cache_key = ?',
+    [aCacheKey]);
+  lConnection.ExecSQL('delete from snapshot_remove_with_binding_selectors where cache_key = ?',
+    [aCacheKey]);
+  lConnection.ExecSQL('delete from snapshot_remove_with_bindings where cache_key = ?',
+    [aCacheKey]);
+  lConnection.ExecSQL('delete from snapshot_remove_with_symbols where cache_key = ?',
+    [aCacheKey]);
+  lConnection.ExecSQL('delete from snapshot_remove_with_routine_owners where cache_key = ?',
+    [aCacheKey]);
+  lConnection.ExecSQL('delete from snapshot_remove_with_facts where cache_key = ?',
+    [aCacheKey]);
+  lConnection.ExecSQL('delete from snapshot_exact_strings where cache_key = ?', [aCacheKey]);
+  lConnection.ExecSQL('delete from snapshot_references where cache_key = ?', [aCacheKey]);
+  lConnection.ExecSQL('delete from snapshot_with_statements where cache_key = ?', [aCacheKey]);
+  lConnection.ExecSQL('delete from snapshot_symbols where cache_key = ?', [aCacheKey]);
+  lConnection.ExecSQL('delete from snapshot_strings where cache_key = ?', [aCacheKey]);
+  lConnection.ExecSQL('delete from snapshot_units where cache_key = ?', [aCacheKey]);
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.EnsureDatabase;
@@ -419,53 +413,26 @@ begin
   end;
 end;
 
-function TDelphiSemanticSnapshotSqliteCache.EntryExistsForIdentity(
-  const aIdentityKey: string): Boolean;
-var
-  lConnectionObject: TObject;
-  lConnection: TFDConnection;
-  lError: string;
-  lRowCountField: TField;
-  lQuery: TFDQuery;
-  lStopwatch: TStopwatch;
-begin
-  if not SharedConnection(lConnectionObject, lError) then
-    raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
-  lConnection := TFDConnection(lConnectionObject);
-  lQuery := NewQuery(lConnection,
-    'select count(*) as row_count from snapshot_units where identity_key = ?');
-  try
-    lQuery.Params[0].AsString := aIdentityKey;
-    lStopwatch := TStopwatch.StartNew;
-    lQuery.Open;
-    lQuery.FetchAll;
-    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
-    lRowCountField := lQuery.Fields[0];
-    Result := lRowCountField.AsInteger > 0;
-  finally
-    lQuery.Free;
-  end;
-end;
-
 function TDelphiSemanticSnapshotSqliteCache.IdentityMatches(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-  const aConnection: TObject): Boolean;
+  const aConnection: TObject; out aEntryBelongsToIdentity: Boolean): Boolean;
 var
   lContextHashField: TField;
   lFileHashField: TField;
   lIncludeGraphHashField: TField;
+  lIdentityKeyField: TField;
   lQuery: TFDQuery;
   lSchemaVersionField: TField;
   lSourceFileNameField: TField;
   lStopwatch: TStopwatch;
 begin
   Result := False;
-  lQuery := NewQuery(TFDConnection(aConnection), 'select source_file_name, file_hash, ' +
-    'context_hash, include_graph_hash, schema_version from snapshot_units where cache_key = ? ' +
-    'and identity_key = ?');
+  aEntryBelongsToIdentity := False;
+  lQuery := NewQuery(TFDConnection(aConnection), 'select identity_key, source_file_name, ' +
+    'file_hash, context_hash, include_graph_hash, schema_version from snapshot_units ' +
+    'where cache_key = ?');
   try
     lQuery.Params[0].AsString := aIdentity.CacheKey;
-    lQuery.Params[1].AsString := aIdentity.IdentityKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -473,11 +440,16 @@ begin
     if lQuery.Eof then
       Exit;
 
-    lSourceFileNameField := lQuery.Fields[0];
-    lFileHashField := lQuery.Fields[1];
-    lContextHashField := lQuery.Fields[2];
-    lIncludeGraphHashField := lQuery.Fields[3];
-    lSchemaVersionField := lQuery.Fields[4];
+    lIdentityKeyField := lQuery.Fields[0];
+    aEntryBelongsToIdentity := lIdentityKeyField.AsString = aIdentity.IdentityKey;
+    if not aEntryBelongsToIdentity then
+      Exit;
+
+    lSourceFileNameField := lQuery.Fields[1];
+    lFileHashField := lQuery.Fields[2];
+    lContextHashField := lQuery.Fields[3];
+    lIncludeGraphHashField := lQuery.Fields[4];
+    lSchemaVersionField := lQuery.Fields[5];
     Result := SameText(lSourceFileNameField.AsString, aIdentity.SourceFileName)
       and (lFileHashField.AsString = aIdentity.FileHash)
       and (lContextHashField.AsString = aIdentity.ContextHash)
@@ -1659,7 +1631,7 @@ begin
   lConnection.StartTransaction;
   lWriteStopwatch := TStopwatch.StartNew;
   try
-    DeleteIdentityRows(lConnection, aIdentity.IdentityKey);
+    DeleteCacheKeyRows(lConnection, aIdentity.CacheKey);
     StoreUnitHeader(aIdentity, lConnection, aUnit, Integer(aStrings.Count));
     StoreStrings(aIdentity, lConnection, aStrings);
     StoreSymbols(aIdentity, lConnection, aUnit);
@@ -1758,6 +1730,7 @@ function TDelphiSemanticSnapshotSqliteCache.TryLoadUnit(
 var
   lBuilder: TDelphiProjectSnapshotBuilder;
   lConnectionObject: TObject;
+  lEntryBelongsToIdentity: Boolean;
   lError: string;
   lIndexRebuildStopwatch: TStopwatch;
   lLoadCostMilliseconds: Int64;
@@ -1777,12 +1750,12 @@ begin
   if not SharedConnection(lConnectionObject, lError) then
     raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
 
-  if not IdentityMatches(aIdentity, lConnectionObject) then
+  if not IdentityMatches(aIdentity, lConnectionObject, lEntryBelongsToIdentity) then
   begin
-    if EntryExistsForIdentity(aIdentity.IdentityKey) then
+    if lEntryBelongsToIdentity then
     begin
       Inc(fMetrics.Invalidations);
-      DeleteIdentity(aIdentity.IdentityKey);
+      DeleteCacheKey(aIdentity.CacheKey);
     end;
     Inc(fMetrics.CacheMisses);
     Exit;
@@ -1822,7 +1795,7 @@ begin
       on E: Exception do
       begin
         lUnit.Free;
-        DeleteIdentity(aIdentity.IdentityKey);
+        DeleteCacheKey(aIdentity.CacheKey);
         Inc(fMetrics.Invalidations);
         Inc(fMetrics.CacheMisses);
         Result := False;
