@@ -201,7 +201,8 @@ implementation
 uses
   System.Classes, System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.Math,
   System.RegularExpressions, System.StrUtils, System.SysUtils,
-  DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver,
+  DelphiSemantics.CompilerProfile, DelphiSemantics.ProjectContext,
+  DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver,
   MaxLogic.StrUtils;
 
 type
@@ -4582,72 +4583,92 @@ end;
 function BuildInventorySymbols(const aModel: TDelphiSemanticUnitModel):
   TArray<TDelphiSemanticInventorySymbol>; forward;
 
-procedure AddProjectCompatibilitySymbol(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
-  const aName, aSymbolClass, aKind, aTypeName, aOwnerType, aSourceKind: string;
-  const aTypeCategory: string = '');
+function CompilerProfileCompatibilitySourceKind(
+  const aIntrinsic: TDelphiSemanticIntrinsicSymbol): string;
+begin
+  if SameText(aIntrinsic.OwnerName, 'rtl') or
+    SameText(aIntrinsic.Kind, 'intrinsic-field') or
+    SameText(aIntrinsic.Kind, 'intrinsic-property') then
+    Result := 'rtl-source'
+  else
+    Result := 'compiler-intrinsic';
+end;
+
+function CompilerProfileCompatibilityTypeCategory(
+  const aIntrinsic: TDelphiSemanticIntrinsicSymbol): string;
+begin
+  if SameText(aIntrinsic.TypeName, 'record') then
+    Result := 'record'
+  else if SameText(aIntrinsic.TypeName, 'class') then
+    Result := 'class'
+  else if SameText(aIntrinsic.TypeName, 'Pointer') or StartsText('^', aIntrinsic.TypeName) then
+    Result := 'pointer'
+  else if MatchText(aIntrinsic.Name, ['Boolean', 'Byte', 'Char', 'Integer', 'Int32',
+    'NativeInt', 'NativeUInt']) then
+    Result := 'ordinal'
+  else
+    Result := '';
+end;
+
+procedure AddCompilerProfileCompatibilitySymbol(
+  const aSymbols: TList<TDelphiSemanticInventorySymbol>;
+  const aIntrinsic: TDelphiSemanticIntrinsicSymbol);
 var
   lSymbol: TDelphiSemanticInventorySymbol;
+  lSourceKind: string;
 begin
+  lSourceKind := CompilerProfileCompatibilitySourceKind(aIntrinsic);
   lSymbol := Default(TDelphiSemanticInventorySymbol);
-  lSymbol.Name := aName;
-  lSymbol.SymbolClass := aSymbolClass;
-  lSymbol.Kind := aKind;
-  lSymbol.TypeName := aTypeName;
-  lSymbol.OwnerName := aOwnerType;
-  lSymbol.OwnerType := aOwnerType;
-  lSymbol.SourceOwnerType := aSourceKind;
-  lSymbol.UnitName := aSourceKind;
-  lSymbol.TypeCategory := aTypeCategory;
+  lSymbol.Name := aIntrinsic.Name;
+  lSymbol.TypeName := aIntrinsic.TypeName;
+  lSymbol.SourceOwnerType := lSourceKind;
+  lSymbol.UnitName := lSourceKind;
+  lSymbol.TypeCategory := CompilerProfileCompatibilityTypeCategory(aIntrinsic);
+  if SameText(aIntrinsic.Kind, 'intrinsic-routine') then
+  begin
+    lSymbol.SymbolClass := 'routine';
+    lSymbol.Kind := 'routine';
+  end else if SameText(aIntrinsic.Kind, 'intrinsic-unit') then
+  begin
+    lSymbol.SymbolClass := 'unit';
+    lSymbol.Kind := 'unit';
+  end else if SameText(aIntrinsic.Kind, 'intrinsic-type') then
+  begin
+    if SameText(lSourceKind, 'rtl-source') then
+    begin
+      lSymbol.SymbolClass := 'type-member';
+      lSymbol.Kind := 'type-member';
+    end else
+    begin
+      lSymbol.SymbolClass := 'type';
+      lSymbol.Kind := 'type';
+    end;
+  end else if SameText(aIntrinsic.Kind, 'intrinsic-field') then
+  begin
+    lSymbol.SymbolClass := 'field';
+    lSymbol.Kind := 'field';
+    lSymbol.OwnerName := aIntrinsic.OwnerName;
+    lSymbol.OwnerType := aIntrinsic.OwnerName;
+  end else if SameText(aIntrinsic.Kind, 'intrinsic-property') then
+  begin
+    lSymbol.SymbolClass := 'property';
+    lSymbol.Kind := 'property';
+    lSymbol.OwnerName := aIntrinsic.OwnerName;
+    lSymbol.OwnerType := aIntrinsic.OwnerName;
+  end else
+    Exit;
   AddInventorySymbol(aSymbols, lSymbol);
 end;
 
-procedure AddProjectCompatibilityRoutine(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
-  const aName, aTypeName, aSourceKind: string);
-begin
-  AddProjectCompatibilitySymbol(aSymbols, aName, 'routine', 'routine', aTypeName, '',
-    aSourceKind);
-end;
-
-procedure AddProjectCompatibilitySymbols(const aSymbols: TList<TDelphiSemanticInventorySymbol>);
-const
-  cCompilerIntrinsicRoutines: array [0..46] of string = ('Abs', 'Addr', 'Assert',
-    'Assign', 'Assigned', 'BlockRead', 'BlockWrite', 'Close', 'Copy', 'Dec', 'Delete',
-    'Dispose', 'EOF', 'Exclude', 'FilePos', 'FillChar', 'Flush', 'FreeMem',
-    'GetMem', 'Halt', 'High', 'Inc', 'Include', 'Length', 'Low', 'Move', 'New',
-    'Ord', 'Pred', 'Read', 'Readln', 'ReallocMem', 'Reset',
-    'Rewrite', 'Round', 'Seek', 'SetLength', 'SizeOf', 'Sqr', 'Str', 'Succ',
-    'Swap', 'UpCase', 'Val', 'Write', 'Writeln', 'IOResult');
-  cRtlSourceRoutines: array [0..7] of string = ('ExpandFileName',
-    'FileDateToDateTime', 'IntToStr', 'Max', 'Min', 'Pop', 'Push', 'Random');
+procedure AddCompilerProfileCompatibilitySymbols(
+  const aSymbols: TList<TDelphiSemanticInventorySymbol>);
 var
-  lName: string;
+  lIntrinsic: TDelphiSemanticIntrinsicSymbol;
+  lProfile: TDelphiSemanticCompilerProfile;
 begin
-  AddProjectCompatibilitySymbol(aSymbols, 'Integer', 'type', 'type',
-    'Integer', '', '', 'ordinal');
-  AddProjectCompatibilitySymbol(aSymbols, 'Int32', 'type', 'type',
-    'Integer', '', 'compiler-intrinsic', 'ordinal');
-  AddProjectCompatibilitySymbol(aSymbols, 'PByte', 'type', 'type',
-    'Pointer', '', 'compiler-intrinsic', 'pointer');
-  AddProjectCompatibilitySymbol(aSymbols, 'TFileName', 'type-member', 'type-member',
-    'string', '', 'rtl-source');
-  AddProjectCompatibilitySymbol(aSymbols, 'TSearchRec', 'type-member', 'type-member',
-    'record', '', 'rtl-source', 'record');
-  AddProjectCompatibilitySymbol(aSymbols, 'Exception', 'type-member', 'type-member',
-    'class', '', 'rtl-source', 'class');
-  AddProjectCompatibilitySymbol(aSymbols, 'Name', 'field', 'field', 'TFileName',
-    'TSearchRec', 'rtl-source');
-  AddProjectCompatibilitySymbol(aSymbols, 'Size', 'field', 'field', 'Int64',
-    'TSearchRec', 'rtl-source');
-  AddProjectCompatibilitySymbol(aSymbols, 'Attr', 'field', 'field', 'Integer',
-    'TSearchRec', 'rtl-source');
-  AddProjectCompatibilitySymbol(aSymbols, 'Time', 'field', 'field', 'Integer',
-    'TSearchRec', 'rtl-source');
-  AddProjectCompatibilitySymbol(aSymbols, 'Message', 'property', 'property', 'string',
-    'Exception', 'rtl-source');
-  for lName in cCompilerIntrinsicRoutines do
-    AddProjectCompatibilityRoutine(aSymbols, lName, '', 'compiler-intrinsic');
-  for lName in cRtlSourceRoutines do
-    AddProjectCompatibilityRoutine(aSymbols, lName, '', 'rtl-source');
+  lProfile := TDelphiSemanticCompilerProfileBuilder.DefaultProfile('with-binding-compatibility');
+  for lIntrinsic in lProfile.IntrinsicSymbols do
+    AddCompilerProfileCompatibilitySymbol(aSymbols, lIntrinsic);
 end;
 
 procedure AddProjectExternalUsesUnits(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
@@ -4856,7 +4877,7 @@ begin
       lBindingStopwatch.Stop;
       Inc(lBindingBuildMs, lBindingStopwatch.ElapsedMilliseconds);
     end;
-    AddProjectCompatibilitySymbols(lSymbols);
+    AddCompilerProfileCompatibilitySymbols(lSymbols);
     AddProjectExternalUnitSymbols(aModels, lSymbols);
     lStopwatch := TStopwatch.StartNew;
     Result.Symbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lSymbols.ToArray);

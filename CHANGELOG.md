@@ -73,6 +73,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- With-binding compatibility facts now project compiler and RTL intrinsic
+  compatibility symbols from the shared compiler-profile seed instead of a
+  local hardcoded routine/type list.
 - Default compiler profiles now use the shared versioned intrinsic seed, so
   default, target-backed, and cached-source profile builders expose the same
   intrinsic symbol set.

@@ -173,8 +173,12 @@ begin
     Assert.IsTrue(HasProjectSymbol(lFacts, 'TProjectWithRecord', 'declaration'));
     Assert.IsTrue(HasProjectSymbol(lFacts, 'Value', 'member'));
     Assert.IsTrue(HasProjectSymbolSource(lFacts, 'SizeOf', 'routine', 'compiler-intrinsic'));
+    Assert.IsTrue(HasProjectSymbolSource(lFacts, 'NativeUInt', 'type', 'compiler-intrinsic'));
+    Assert.IsTrue(HasProjectSymbolSource(lFacts, 'FreeAndNil', 'routine', 'rtl-source'));
     Assert.IsTrue(HasProjectSymbolSource(lFacts, 'Push', 'routine', 'rtl-source'));
     Assert.IsTrue(HasProjectSymbolSource(lFacts, 'TSearchRec', 'type-member', 'rtl-source'));
+    Assert.IsTrue(HasProjectSymbolSource(lFacts, 'Name', 'field', 'rtl-source'));
+    Assert.IsTrue(HasProjectSymbolSource(lFacts, 'Message', 'property', 'rtl-source'));
     Assert.IsFalse(HasBindingForUnit(lFacts, 'UnreferencedWithUnit'),
       'Unreferenced .pas files in the project directory must not be scanned as project units.');
 

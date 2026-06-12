@@ -167,7 +167,7 @@ begin
   lTargetProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTarget(
     'Delphi-12-Win32-Debug', '23.0', 'Win32', 'C:\rtl\source');
 
-  Assert.AreEqual('delphi-intrinsics-v1', lTargetProfile.IntrinsicSeedVersion);
+  Assert.AreEqual('delphi-intrinsics-v2', lTargetProfile.IntrinsicSeedVersion);
   Assert.IsTrue(Length(lTargetProfile.IntrinsicSymbols) >= 47);
   Assert.IsTrue(ProfileHasIntrinsic(lTargetProfile, 'NativeUInt', 'intrinsic-type'));
   Assert.IsTrue(ProfileHasIntrinsic(lTargetProfile, 'Random', 'intrinsic-routine'));

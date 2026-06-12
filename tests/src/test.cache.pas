@@ -660,7 +660,7 @@ begin
   Assert.AreEqual('Delphi-12-Win32-Debug', lProfile.Name);
   Assert.AreEqual('23.0', lProfile.DelphiVersion);
   Assert.AreEqual('Win32', lProfile.Platform);
-  Assert.AreEqual('delphi-intrinsics-v1', lProfile.IntrinsicSeedVersion);
+  Assert.AreEqual('delphi-intrinsics-v2', lProfile.IntrinsicSeedVersion);
   Assert.IsNotEmpty(lProfile.ProfileKey);
   Assert.IsTrue(Length(lProfile.IntrinsicSymbols) >= 47);
 
@@ -943,7 +943,7 @@ begin
   lContext.IntrinsicSymbols := lProfile.IntrinsicSymbols;
 
   Assert.AreEqual('Delphi-12-Win32-Debug', lProfile.Name);
-  Assert.AreEqual('delphi-intrinsics-v1', lProfile.IntrinsicSeedVersion);
+  Assert.AreEqual('delphi-intrinsics-v2', lProfile.IntrinsicSeedVersion);
   Assert.IsTrue(Length(lProfile.IntrinsicSymbols) >= 47);
 
   lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'Length');

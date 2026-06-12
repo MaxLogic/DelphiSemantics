@@ -54,7 +54,7 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cIntrinsicSeedVersion = 'delphi-intrinsics-v1';
+  cIntrinsicSeedVersion = 'delphi-intrinsics-v2';
   cProfileSchemaVersion = '1';
 
 function StableHash(const aText: string): string;
@@ -110,12 +110,22 @@ begin
   SetLength(Result, 0);
   AddIntrinsic(Result, 'Abs', 'intrinsic-routine', 'numeric', 'compiler',
     'function Abs(X): numeric', 'compiler/RTL intrinsic');
+  AddIntrinsic(Result, 'Addr', 'intrinsic-routine', 'Pointer', 'compiler',
+    'function Addr(X): Pointer', 'compiler intrinsic');
+  AddIntrinsic(Result, 'Assign', 'intrinsic-routine', '', 'compiler',
+    'procedure Assign(var F; FileName: string)', 'compiler/RTL intrinsic');
   AddIntrinsic(Result, 'Assigned', 'intrinsic-routine', 'Boolean', 'compiler',
     'function Assigned(P): Boolean', 'compiler intrinsic');
   AddIntrinsic(Result, 'Assert', 'intrinsic-routine', '', 'compiler',
     'procedure Assert(Expression: Boolean)', 'compiler intrinsic');
+  AddIntrinsic(Result, 'BlockRead', 'intrinsic-routine', '', 'compiler',
+    'procedure BlockRead(var F; var Buf; Count: Integer)', 'compiler/RTL intrinsic');
+  AddIntrinsic(Result, 'BlockWrite', 'intrinsic-routine', '', 'compiler',
+    'procedure BlockWrite(var F; const Buf; Count: Integer)', 'compiler/RTL intrinsic');
   AddIntrinsic(Result, 'Break', 'intrinsic-routine', '', 'compiler', 'procedure Break',
     'compiler intrinsic');
+  AddIntrinsic(Result, 'Close', 'intrinsic-routine', '', 'compiler', 'procedure Close(var F)',
+    'compiler/RTL intrinsic');
   AddIntrinsic(Result, 'Continue', 'intrinsic-routine', '', 'compiler', 'procedure Continue',
     'compiler intrinsic');
   AddIntrinsic(Result, 'Copy', 'intrinsic-routine', '', 'compiler',
@@ -124,16 +134,34 @@ begin
     'procedure Dec(var X; N: Integer = 1)', 'compiler intrinsic');
   AddIntrinsic(Result, 'Default', 'intrinsic-routine', 'T', 'compiler', 'function Default(T): T',
     'compiler intrinsic');
+  AddIntrinsic(Result, 'Delete', 'intrinsic-routine', '', 'compiler',
+    'procedure Delete(var S; Index, Count: Integer)', 'compiler intrinsic');
   AddIntrinsic(Result, 'Dispose', 'intrinsic-routine', '', 'compiler', 'procedure Dispose(P)',
     'compiler intrinsic');
+  AddIntrinsic(Result, 'EOF', 'intrinsic-routine', 'Boolean', 'compiler', 'function EOF(var F): Boolean',
+    'compiler/RTL intrinsic');
   AddIntrinsic(Result, 'Exclude', 'intrinsic-routine', '', 'compiler',
     'procedure Exclude(var S; I)', 'compiler intrinsic');
   AddIntrinsic(Result, 'Exit', 'intrinsic-routine', '', 'compiler', 'procedure Exit',
     'compiler intrinsic');
+  AddIntrinsic(Result, 'FilePos', 'intrinsic-routine', 'Integer', 'compiler',
+    'function FilePos(var F): Integer', 'compiler/RTL intrinsic');
   AddIntrinsic(Result, 'FillChar', 'intrinsic-routine', '', 'compiler',
     'procedure FillChar(var X; Count: NativeInt; Value)', 'compiler intrinsic');
+  AddIntrinsic(Result, 'Flush', 'intrinsic-routine', '', 'compiler', 'procedure Flush(var F)',
+    'compiler/RTL intrinsic');
+  AddIntrinsic(Result, 'FreeMem', 'intrinsic-routine', '', 'compiler',
+    'procedure FreeMem(P: Pointer)', 'compiler intrinsic');
   AddIntrinsic(Result, 'FreeAndNil', 'intrinsic-routine', '', 'rtl',
     'procedure FreeAndNil(var Obj)', 'RTL helper');
+  AddIntrinsic(Result, 'ExpandFileName', 'intrinsic-routine', 'string', 'rtl',
+    'function ExpandFileName(const FileName: string): string', 'RTL helper');
+  AddIntrinsic(Result, 'FileDateToDateTime', 'intrinsic-routine', 'TDateTime', 'rtl',
+    'function FileDateToDateTime(FileDate: Integer): TDateTime', 'RTL helper');
+  AddIntrinsic(Result, 'GetMem', 'intrinsic-routine', '', 'compiler',
+    'procedure GetMem(var P: Pointer; Size: NativeInt)', 'compiler intrinsic');
+  AddIntrinsic(Result, 'Halt', 'intrinsic-routine', '', 'compiler', 'procedure Halt(Code: Integer = 0)',
+    'compiler intrinsic');
   AddIntrinsic(Result, 'High', 'intrinsic-routine', '', 'compiler', 'function High(X)',
     'compiler intrinsic');
   AddIntrinsic(Result, 'Inc', 'intrinsic-routine', '', 'compiler',
@@ -142,10 +170,16 @@ begin
     'procedure Include(var S; I)', 'compiler intrinsic');
   AddIntrinsic(Result, 'IOResult', 'intrinsic-routine', 'Integer', 'compiler',
     'function IOResult: Integer', 'compiler/RTL intrinsic');
+  AddIntrinsic(Result, 'IntToStr', 'intrinsic-routine', 'string', 'rtl',
+    'function IntToStr(Value: Integer): string', 'RTL helper');
   AddIntrinsic(Result, 'Length', 'intrinsic-routine', 'Integer', 'compiler',
     'function Length(S): Integer', 'compiler intrinsic');
   AddIntrinsic(Result, 'Low', 'intrinsic-routine', '', 'compiler', 'function Low(X)',
     'compiler intrinsic');
+  AddIntrinsic(Result, 'Max', 'intrinsic-routine', 'Integer', 'rtl',
+    'function Max(A, B: Integer): Integer', 'RTL helper');
+  AddIntrinsic(Result, 'Min', 'intrinsic-routine', 'Integer', 'rtl',
+    'function Min(A, B: Integer): Integer', 'RTL helper');
   AddIntrinsic(Result, 'Move', 'intrinsic-routine', '', 'compiler',
     'procedure Move(const Source; var Dest; Count: NativeInt)', 'compiler intrinsic');
   AddIntrinsic(Result, 'New', 'intrinsic-routine', '', 'compiler', 'procedure New(var P)',
@@ -156,23 +190,39 @@ begin
     'function ParamCount: Integer', 'System routine');
   AddIntrinsic(Result, 'ParamStr', 'intrinsic-routine', 'string', 'System',
     'function ParamStr(Index: Integer): string', 'System routine');
+  AddIntrinsic(Result, 'Pop', 'intrinsic-routine', '', 'rtl', 'procedure Pop(var Buffer; Count: Integer)',
+    'RTL compatibility helper');
   AddIntrinsic(Result, 'Pred', 'intrinsic-routine', '', 'compiler', 'function Pred(X)',
     'compiler intrinsic');
+  AddIntrinsic(Result, 'Push', 'intrinsic-routine', '', 'rtl',
+    'procedure Push(const Buffer; Count: Integer)', 'RTL compatibility helper');
   AddIntrinsic(Result, 'Random', 'intrinsic-routine', 'Integer', 'compiler',
     'function Random([Range: Integer]): Integer', 'compiler/RTL intrinsic');
   AddIntrinsic(Result, 'Read', 'intrinsic-routine', '', 'System', 'procedure Read(var V)',
     'System routine');
   AddIntrinsic(Result, 'ReadLn', 'intrinsic-routine', '', 'System', 'procedure ReadLn(var V)',
     'System routine');
+  AddIntrinsic(Result, 'ReallocMem', 'intrinsic-routine', '', 'compiler',
+    'procedure ReallocMem(var P: Pointer; Size: NativeInt)', 'compiler intrinsic');
+  AddIntrinsic(Result, 'Reset', 'intrinsic-routine', '', 'compiler', 'procedure Reset(var F)',
+    'compiler/RTL intrinsic');
+  AddIntrinsic(Result, 'Rewrite', 'intrinsic-routine', '', 'compiler', 'procedure Rewrite(var F)',
+    'compiler/RTL intrinsic');
   AddIntrinsic(Result, 'Round', 'intrinsic-routine', 'Integer', 'compiler',
     'function Round(X): Integer', 'compiler/RTL intrinsic');
+  AddIntrinsic(Result, 'Seek', 'intrinsic-routine', '', 'compiler',
+    'procedure Seek(var F; N: Integer)', 'compiler/RTL intrinsic');
   AddIntrinsic(Result, 'SetLength', 'intrinsic-routine', '', 'compiler',
     'procedure SetLength(var S; NewLength: Integer)', 'compiler intrinsic');
   AddIntrinsic(Result, 'SizeOf', 'intrinsic-routine', 'NativeInt', 'compiler',
     'function SizeOf(X): NativeInt', 'compiler intrinsic');
   AddIntrinsic(Result, 'Sqr', 'intrinsic-routine', 'numeric', 'compiler', 'function Sqr(X): numeric',
     'compiler/RTL intrinsic');
+  AddIntrinsic(Result, 'Str', 'intrinsic-routine', '', 'compiler', 'procedure Str(X; var S: string)',
+    'compiler/RTL intrinsic');
   AddIntrinsic(Result, 'Succ', 'intrinsic-routine', '', 'compiler', 'function Succ(X)',
+    'compiler intrinsic');
+  AddIntrinsic(Result, 'Swap', 'intrinsic-routine', 'Integer', 'compiler', 'function Swap(X): Integer',
     'compiler intrinsic');
   AddIntrinsic(Result, 'System', 'intrinsic-unit', 'unit', 'compiler', 'unit System',
     'implicitly available unit');
@@ -182,6 +232,8 @@ begin
     'function Trunc(X): Integer', 'compiler/RTL intrinsic');
   AddIntrinsic(Result, 'TypeInfo', 'intrinsic-routine', 'Pointer', 'compiler',
     'function TypeInfo(TypeIdentifier): Pointer', 'compiler intrinsic');
+  AddIntrinsic(Result, 'UpCase', 'intrinsic-routine', 'Char', 'compiler', 'function UpCase(Ch): Char',
+    'compiler intrinsic');
   AddIntrinsic(Result, 'Val', 'intrinsic-routine', '', 'System',
     'procedure Val(S; var V; var Code: Integer)', 'System routine');
   AddIntrinsic(Result, 'Write', 'intrinsic-routine', '', 'System', 'procedure Write(Args)',
@@ -206,10 +258,28 @@ begin
     'type NativeUInt', 'compiler intrinsic type');
   AddIntrinsic(Result, 'Pointer', 'intrinsic-type', 'Pointer', 'compiler', 'type Pointer',
     'compiler intrinsic type');
+  AddIntrinsic(Result, 'PByte', 'intrinsic-type', 'Pointer', 'compiler', 'type PByte = ^Byte',
+    'compiler compatibility pointer type');
   AddIntrinsic(Result, 'Single', 'intrinsic-type', 'Single', 'compiler', 'type Single',
     'compiler intrinsic type');
   AddIntrinsic(Result, 'string', 'intrinsic-type', 'string', 'compiler', 'type string',
     'compiler intrinsic type');
+  AddIntrinsic(Result, 'TFileName', 'intrinsic-type', 'string', 'rtl', 'type TFileName = string',
+    'RTL compatibility type');
+  AddIntrinsic(Result, 'TSearchRec', 'intrinsic-type', 'record', 'rtl', 'type TSearchRec = record',
+    'RTL compatibility record');
+  AddIntrinsic(Result, 'Exception', 'intrinsic-type', 'class', 'rtl', 'type Exception = class',
+    'RTL compatibility class');
+  AddIntrinsic(Result, 'Name', 'intrinsic-field', 'TFileName', 'TSearchRec',
+    'Name: TFileName', 'RTL compatibility field');
+  AddIntrinsic(Result, 'Size', 'intrinsic-field', 'Int64', 'TSearchRec', 'Size: Int64',
+    'RTL compatibility field');
+  AddIntrinsic(Result, 'Attr', 'intrinsic-field', 'Integer', 'TSearchRec', 'Attr: Integer',
+    'RTL compatibility field');
+  AddIntrinsic(Result, 'Time', 'intrinsic-field', 'Integer', 'TSearchRec', 'Time: Integer',
+    'RTL compatibility field');
+  AddIntrinsic(Result, 'Message', 'intrinsic-property', 'string', 'Exception',
+    'property Message: string', 'RTL compatibility property');
 end;
 
 function RtlSourceSearchRoots(const aRtlSourceRoot: string): TArray<string>;
