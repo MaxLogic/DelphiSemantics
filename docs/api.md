@@ -28,6 +28,14 @@ The default cache is in-memory. Set
 `TDelphiSemanticApiOptions.Cache.SqliteCacheFileName` to a non-empty path when a
 caller wants persistent SQLite-backed reuse.
 
+## LSP Enrichment
+
+`UseLspEnrichment` is an explicit opt-in boundary. Until a DelphiSemantics-owned
+LSP enrichment adapter is wired into the facade, project-context loading returns
+the warning diagnostic `lsp.enrichment.not-implemented` when the flag is set.
+Leaving the flag false keeps the semantic-model-only behavior and emits no LSP
+diagnostic.
+
 ## Boundary
 
 DelphiSemantics owns project metadata, source loading, preprocessing, cache

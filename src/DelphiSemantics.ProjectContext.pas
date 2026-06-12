@@ -87,7 +87,7 @@ uses
   System.RegularExpressions,
   System.StrUtils,
   System.SysUtils,
-  DelphiSemantics.CompilerProfile;
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Lsp;
 
 type
   TPropertyMap = TDictionary<string, string>;
@@ -1369,6 +1369,17 @@ begin
   end;
 end;
 
+procedure AddLspEnrichmentDiagnosticIfRequested(const aOptions: TDelphiSemanticOptions;
+  const aProjectFileName: string; const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
+begin
+  if not aOptions.UseLspEnrichment then
+    Exit;
+
+  AddDiagnostic(aDiagnostics, CreateWarningDiagnostic(
+    cDelphiSemanticLspEnrichmentNotImplementedCode,
+    cDelphiSemanticLspEnrichmentNotImplementedMessage, aProjectFileName));
+end;
+
 class function TDelphiSemanticProject.Load(const aFileName: string): TDelphiSemanticContextResult;
 var
   lOptions: TDelphiSemanticOptions;
@@ -1391,6 +1402,7 @@ begin
   lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
   try
     lProject := LoadProjectInfo(lProjectFileName, aOptions, lDiagnostics);
+    AddLspEnrichmentDiagnosticIfRequested(aOptions, lProjectFileName, lDiagnostics);
     Result := SuccessResult(lProject, lDiagnostics);
   finally
     lDiagnostics.Free;

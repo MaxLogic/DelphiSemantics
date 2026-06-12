@@ -13,7 +13,7 @@ type
     [Test]
     procedure LspEnrichmentIsDisabledByDefault;
     [Test]
-    procedure LspDerivedResultsCarryLspProvenance;
+    procedure EnabledDefinitionEnrichmentReportsMissingAdapter;
     [Test]
     procedure SemanticResultsRemainAuthoritativeByDefault;
     [Test]
@@ -53,7 +53,7 @@ begin
   Assert.AreEqual('', lResult.Provenance);
 end;
 
-procedure TLspBoundaryTests.LspDerivedResultsCarryLspProvenance;
+procedure TLspBoundaryTests.EnabledDefinitionEnrichmentReportsMissingAdapter;
 var
   lLocation: TDelphiSemanticLspLocation;
   lOptions: TDelphiSemanticLspOptions;
@@ -67,13 +67,11 @@ begin
 
   lResult := TDelphiSemanticLspBoundary.EnrichDefinition(lOptions, 'Value', lLocation);
 
-  Assert.IsTrue(lResult.Found);
+  Assert.IsFalse(lResult.Found);
   Assert.IsFalse(lResult.Authoritative);
+  Assert.AreEqual('not-implemented', lResult.Status);
   Assert.AreEqual('lsp', lResult.Provenance);
-  Assert.AreEqual('Value', lResult.Name);
-  Assert.AreEqual('Unit1.pas', lResult.FileName);
-  Assert.AreEqual(10, lResult.Line);
-  Assert.AreEqual(5, lResult.Column);
+  Assert.AreEqual('lsp.enrichment.not-implemented', lResult.ErrorMessage);
 end;
 
 procedure TLspBoundaryTests.SemanticResultsRemainAuthoritativeByDefault;

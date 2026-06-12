@@ -73,6 +73,10 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- `UseLspEnrichment=True` now produces the deterministic
+  `lsp.enrichment.not-implemented` project-context warning until a
+  DelphiSemantics-owned LSP enrichment adapter is wired in; the default false
+  path remains semantic-model-only.
 - With-binding compatibility facts now project compiler and RTL intrinsic
   compatibility symbols from the shared compiler-profile seed instead of a
   local hardcoded routine/type list.

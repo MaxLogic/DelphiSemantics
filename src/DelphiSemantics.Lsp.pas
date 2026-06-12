@@ -6,6 +6,11 @@ uses
   System.Generics.Collections,
   DelphiSemantics.Resolve;
 
+const
+  cDelphiSemanticLspEnrichmentNotImplementedCode = 'lsp.enrichment.not-implemented';
+  cDelphiSemanticLspEnrichmentNotImplementedMessage =
+    'LSP enrichment was requested, but no DelphiSemantics LSP enrichment adapter is configured.';
+
 type
   TDelphiSemanticLspOptions = record
     Enabled: Boolean;
@@ -106,6 +111,7 @@ type
       const aPosition: TDelphiSemanticLspProtocolPosition): TDelphiSemanticLspLocation; static;
     class function MakeEmptyHover: TDelphiSemanticLspHoverResult; static;
     class function MakeErrorResult(const aMessage: string): TDelphiSemanticLspResult; static;
+    class function MakeNotImplementedResult: TDelphiSemanticLspResult; static;
     class function MakeHover(const aContents, aUri: string; const aStartLine, aStartCharacter,
       aEndLine, aEndCharacter: Integer): TDelphiSemanticLspHoverResult; static;
     class function NormalizeFileUri(const aUri: string): string; static;
@@ -164,15 +170,7 @@ begin
     Exit;
   end;
 
-  Result.Found := True;
-  Result.Authoritative := False;
-  Result.Status := 'resolved';
-  Result.Provenance := 'lsp';
-  Result.Name := aName;
-  Result.Kind := 'definition';
-  Result.FileName := aLocation.FileName;
-  Result.Line := aLocation.Line;
-  Result.Column := aLocation.Column;
+  Result := MakeNotImplementedResult;
 end;
 
 procedure AddFlattenedSymbol(const aList: TList<TDelphiSemanticLspSymbol>;
@@ -304,6 +302,17 @@ begin
   Result.Status := 'error';
   Result.Provenance := 'lsp';
   Result.ErrorMessage := aMessage;
+end;
+
+class function TDelphiSemanticLspBoundary.MakeNotImplementedResult:
+  TDelphiSemanticLspResult;
+begin
+  Result := Default(TDelphiSemanticLspResult);
+  Result.Found := False;
+  Result.Authoritative := False;
+  Result.Status := 'not-implemented';
+  Result.Provenance := 'lsp';
+  Result.ErrorMessage := cDelphiSemanticLspEnrichmentNotImplementedCode;
 end;
 
 class function TDelphiSemanticLspBoundary.MakeHover(const aContents, aUri: string;
