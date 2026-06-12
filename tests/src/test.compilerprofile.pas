@@ -10,6 +10,8 @@ type
   TCompilerProfileTests = class
   public
     [Test]
+    procedure ProfileBuildersShareIntrinsicSeedContract;
+    [Test]
     procedure RecursiveRtlDuplicateBasenamesChooseSortedPath;
   end;
 
@@ -19,7 +21,7 @@ uses
   System.IOUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
-  DelphiSemantics.CompilerProfile;
+  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile;
 
 function CompilerProfileTempRoot: string;
 var
@@ -32,6 +34,67 @@ begin
   Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'compiler-profile-temp',
     'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
   TDirectory.CreateDirectory(Result);
+end;
+
+function ProfileHasIntrinsic(const aProfile: TDelphiSemanticCompilerProfile;
+  const aName, aKind: string): Boolean;
+var
+  lIntrinsic: TDelphiSemanticIntrinsicSymbol;
+begin
+  Result := False;
+  for lIntrinsic in aProfile.IntrinsicSymbols do
+  begin
+    if SameText(lIntrinsic.Name, aName) and SameText(lIntrinsic.Kind, aKind) then
+      Exit(True);
+  end;
+end;
+
+procedure AssertSharedIntrinsicSeed(const aExpected, aActual: TDelphiSemanticCompilerProfile;
+  const aActualLabel: string);
+var
+  lExpected: TDelphiSemanticIntrinsicSymbol;
+begin
+  Assert.AreEqual(aExpected.IntrinsicSeedVersion, aActual.IntrinsicSeedVersion,
+    aActualLabel + ' seed version drifted.');
+  Assert.AreEqual(Integer(Length(aExpected.IntrinsicSymbols)),
+    Integer(Length(aActual.IntrinsicSymbols)), aActualLabel + ' intrinsic count drifted.');
+
+  for lExpected in aExpected.IntrinsicSymbols do
+  begin
+    Assert.IsTrue(ProfileHasIntrinsic(aActual, lExpected.Name, lExpected.Kind),
+      aActualLabel + ' missing intrinsic ' + lExpected.Kind + ':' + lExpected.Name);
+  end;
+end;
+
+procedure TCompilerProfileTests.ProfileBuildersShareIntrinsicSeedContract;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lCachedProfile: TDelphiSemanticCompilerProfile;
+  lDefaultProfile: TDelphiSemanticCompilerProfile;
+  lTargetProfile: TDelphiSemanticCompilerProfile;
+begin
+  lDefaultProfile := TDelphiSemanticCompilerProfileBuilder.DefaultProfile(
+    'Delphi-12-Win32-Debug');
+  lTargetProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTarget(
+    'Delphi-12-Win32-Debug', '23.0', 'Win32', 'C:\rtl\source');
+
+  Assert.AreEqual('delphi-intrinsics-v1', lTargetProfile.IntrinsicSeedVersion);
+  Assert.IsTrue(Length(lTargetProfile.IntrinsicSymbols) >= 47);
+  Assert.IsTrue(ProfileHasIntrinsic(lTargetProfile, 'NativeUInt', 'intrinsic-type'));
+  Assert.IsTrue(ProfileHasIntrinsic(lTargetProfile, 'Random', 'intrinsic-routine'));
+
+  AssertSharedIntrinsicSeed(lTargetProfile, lDefaultProfile, 'DefaultProfile');
+
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lCachedProfile := TDelphiSemanticCompilerProfileBuilder.FromCachedSources(lCache, []);
+  finally
+    lCache.Free;
+  end;
+
+  AssertSharedIntrinsicSeed(lTargetProfile, lCachedProfile, 'FromCachedSources');
 end;
 
 procedure TCompilerProfileTests.RecursiveRtlDuplicateBasenamesChooseSortedPath;

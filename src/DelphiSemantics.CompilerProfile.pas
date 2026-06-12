@@ -418,13 +418,8 @@ begin
   if Result.Name = '' then
     Result.Name := 'default';
   Result.ProfileKey := Result.Name;
-  Result.IntrinsicSymbols := [
-    MakeIntrinsic('Length', 'intrinsic-routine', 'Integer', 'compiler',
-      'function Length(S): Integer', 'compiler intrinsic'),
-    MakeIntrinsic('Assigned', 'intrinsic-routine', 'Boolean', 'compiler',
-      'function Assigned(P): Boolean', 'compiler intrinsic'),
-    MakeIntrinsic('TObject', 'intrinsic-type', 'class', 'rtl', 'type TObject',
-      'RTL base class')];
+  Result.IntrinsicSeedVersion := cIntrinsicSeedVersion;
+  Result.IntrinsicSymbols := BuildIntrinsicSymbols;
   SetLength(Result.RtlSourceUnitModels, 0);
 end;
 

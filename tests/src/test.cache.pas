@@ -943,7 +943,8 @@ begin
   lContext.IntrinsicSymbols := lProfile.IntrinsicSymbols;
 
   Assert.AreEqual('Delphi-12-Win32-Debug', lProfile.Name);
-  Assert.AreEqual(3, Integer(Length(lProfile.IntrinsicSymbols)));
+  Assert.AreEqual('delphi-intrinsics-v1', lProfile.IntrinsicSeedVersion);
+  Assert.IsTrue(Length(lProfile.IntrinsicSymbols) >= 47);
 
   lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'Length');
 
@@ -956,6 +957,18 @@ begin
   Assert.IsTrue(lResult.Found);
   Assert.AreEqual('intrinsic-type', lResult.Kind);
   Assert.AreEqual('rtl', lResult.OwnerName);
+
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'Random');
+
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('intrinsic-routine', lResult.Kind);
+  Assert.AreEqual('compiler', lResult.OwnerName);
+
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'NativeUInt');
+
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('intrinsic-type', lResult.Kind);
+  Assert.AreEqual('compiler', lResult.OwnerName);
 end;
 
 procedure TCacheTests.CompilerProfileLoadsCachedRtlSourceModels;

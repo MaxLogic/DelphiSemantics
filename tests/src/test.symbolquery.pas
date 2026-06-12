@@ -519,7 +519,7 @@ begin
   Assert.AreEqual('in-memory', lStatus.CacheKind);
   Assert.AreEqual(2, lStatus.CacheMisses);
   Assert.AreEqual('Delphi-12-SymbolQuery', lStatus.CompilerProfileName);
-  Assert.AreEqual(3, lStatus.IntrinsicCount);
+  Assert.IsTrue(lStatus.IntrinsicCount >= 47);
   Assert.AreEqual(1, lStatus.RtlSourceUnitCount);
 end;
 

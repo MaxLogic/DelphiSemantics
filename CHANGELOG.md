@@ -73,6 +73,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Default compiler profiles now use the shared versioned intrinsic seed, so
+  default, target-backed, and cached-source profile builders expose the same
+  intrinsic symbol set.
 - Remove-with selector planning now resolves source-backed dotted selector
   chains through semantic symbol/member facts instead of maxTdb-specific
   selector-decision patches, while preserving the maxTdb `667` scan count and
