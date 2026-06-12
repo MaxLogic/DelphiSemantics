@@ -15,6 +15,11 @@ if /I "%~1"=="--skip-build" (
   shift
   goto :parse
 )
+if /I "%~1"=="--allow-dirty" (
+  set "PS_ARGS=%PS_ARGS% -AllowDirty"
+  shift
+  goto :parse
+)
 if /I "%~1"=="--dak-root" (
   if "%~2"=="" goto :missing_value
   set "PS_ARGS=%PS_ARGS% -DakRoot ""%~2"""
@@ -69,6 +74,7 @@ echo Usage: run-migration-gate.bat [options]
 echo.
 echo Options:
 echo   --skip-build                 Skip project rebuilds. Maps to PowerShell -SkipBuild.
+echo   --allow-dirty                Allow dirty DelphiSemantics/DAK worktrees and record it in the manifest.
 echo   --dak-root ^<path^>            DAK checkout root. Maps to -DakRoot.
 echo   --work-root ^<path^>           Gate clone/report root. Maps to -WorkRoot.
 echo   --dak-test-shards ^<count^>     DAK RemoveWith DUnitX shard count. Only 1 is safe.

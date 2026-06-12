@@ -40,10 +40,16 @@ an isolated `DAK_TEST_OUTPUT_ROOT`. The failures point to additional shared
 state or non-interactive codepage sensitivity, so sequential execution is the
 safe default.
 
-The maxTdb smoke never edits the original fixture. It copies
-`F:\projects\MaxLogic\DelphiAiKit\tests\fixtures\test-projects\maxTdb` to
-`%TEMP%\delphi-semantics-migration-gate\maxTdb` and writes the JSON report to
-`%TEMP%\delphi-semantics-migration-gate\maxTdb-remove-with.json`.
+The maxTdb smoke never edits the original fixture. By default it copies
+`F:\projects\MaxLogic\DelphiAiKit\tests\fixtures\test-projects\maxTdb` to a
+unique run-scoped directory under `%TEMP%\delphi-semantics-migration-gate\` and
+writes plan/apply JSON reports plus `migration-gate-manifest.json` there. The
+manifest records DelphiSemantics and DAK branch, commit, and dirty-state
+provenance for the run.
+
+The gate fails on dirty DelphiSemantics or DAK worktrees by default. Use
+`-AllowDirty` only when intentionally collecting local proof before a commit;
+the manifest records that opt-out.
 
 Use `-SkipBuild` only when the projects have already been rebuilt and we want a
 faster local verification pass.
@@ -51,6 +57,7 @@ faster local verification pass.
 Wrapper options:
 
 - `--skip-build` maps to `-SkipBuild`.
+- `--allow-dirty` maps to `-AllowDirty`.
 - `--dak-root <path>` maps to `-DakRoot`.
 - `--work-root <path>` maps to `-WorkRoot`.
 - `--dak-test-shards <count>` maps to `-DakTestShards`. Only `1` is currently safe.

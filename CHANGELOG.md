@@ -77,6 +77,9 @@
   instead of retrying through a compatibility fallback plan after verification
   failure; the migration gate now emits and compares cloned maxTdb report-only
   and apply JSON artifacts.
+- The migration gate now uses run-scoped default work roots and writes a Git
+  provenance manifest; dirty DelphiSemantics or DAK worktrees require an
+  explicit `-AllowDirty` opt-out.
 - Dead-code report/removal profile names now use a shared typed profile
   contract with deterministic unknown-profile diagnostics, and DAK CLI
   validation consumes the same parser/allowed-name list.
