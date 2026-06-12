@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Remove-with final statement DTOs now expose rewrite recipe metadata for
+  selector decisions, temp declarations, text edits, replacement range/text,
+  render instruction, and rule provenance.
 - Remove-with planning can now run through a DelphiSemantics project-session
   snapshot API path, preserving current plan DTOs without requiring the legacy
   JSON project-facts sidecar on that core path.

@@ -1,4 +1,4 @@
-﻿unit Test.RemoveWithPlan;
+unit Test.RemoveWithPlan;
 
 interface
 
@@ -55,6 +55,8 @@ type
     procedure FinalDtoMatchesFocusedRewriteCases;
     [Test]
     procedure FinalDtoPlansSourceBackedPropertyChainSelectorWithoutLinePatch;
+    [Test]
+    procedure FinalDtoUsesRewriteRecipeFactsForRepresentativeHardCases;
     [Test]
     procedure FinalDtoMatchesDakBoundRewriteFixture;
     [Test]
@@ -1472,6 +1474,86 @@ begin
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(23, lStatement.Edits[0].Range.EndLine);
   Assert.AreEqual(23, lStatement.Edits[0].Range.EndColumn);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoUsesRewriteRecipeFactsForRepresentativeHardCases;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRecipe: TDelphiSemanticRemoveWithRewriteRecipe;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPropertyChain\RemoveWithPropertyChain.dproj'));
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
+    'Expected source-backed property-chain statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('  aParent^.Child.Count := aParent^.Child.Count + 1;',
+    lStatement.ReplacementText);
+
+  lRecipe := lStatement.RewriteRecipe;
+  Assert.AreEqual('planned', lRecipe.Status,
+    'Rewrite recipe must mirror the final statement status.');
+  Assert.AreEqual('source-backed-selector-chain', lRecipe.RuleId,
+    'Expected source-backed property-chain recipe provenance.');
+  Assert.AreEqual('semantic-remove-with-final-planner', lRecipe.Provenance);
+  Assert.AreEqual('render-final-edits', lRecipe.RenderInstruction);
+  Assert.AreEqual(lStatement.ReplacementText, lRecipe.ReplacementText);
+  Assert.AreEqual(lStatement.Edits[0].Range.StartLine, lRecipe.ReplacementRange.StartLine);
+  Assert.AreEqual(lStatement.Edits[0].Range.StartColumn, lRecipe.ReplacementRange.StartColumn);
+  Assert.AreEqual(lStatement.Edits[0].Range.EndLine, lRecipe.ReplacementRange.EndLine);
+  Assert.AreEqual(lStatement.Edits[0].Range.EndColumn, lRecipe.ReplacementRange.EndColumn);
+  Assert.AreEqual(1, Integer(Length(lRecipe.SelectorDecisions)),
+    'Expected one source-backed selector decision in the recipe.');
+  Assert.AreEqual('aParent^.Child', lRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('aParent^.Child', lRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('direct-qualification', lRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('property-chain-direct-qualification',
+    lRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual(0, Integer(Length(lRecipe.TempDeclarations)));
+  Assert.AreEqual(1, Integer(Length(lRecipe.TextEdits)));
+  Assert.AreEqual('replace-statement', lRecipe.TextEdits[0].Kind);
+  Assert.AreEqual(lStatement.ReplacementText, lRecipe.TextEdits[0].ReplacementText);
+
+  lPlan := BuildPlanForProject(DakFixturePath(
+    'RemoveWithPlannerFixture\RemoveWithPlannerFixture.dproj'));
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
+    'Expected fixture-backed temp declaration statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)),
+    'Expected record pointer temp declaration.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)),
+    'Expected declaration and replacement edits.');
+  lRecipe := lStatement.RewriteRecipe;
+  Assert.AreEqual('record-pointer-temp', lRecipe.RuleId);
+  Assert.AreEqual(1, Integer(Length(lRecipe.TempDeclarations)),
+    'Recipe must carry the temp declaration decision.');
+  Assert.AreEqual(lStatement.Temps[0].TempName, lRecipe.TempDeclarations[0].TempName);
+  Assert.AreEqual(lStatement.Temps[0].DeclarationText,
+    lRecipe.TempDeclarations[0].DeclarationText);
+  Assert.AreEqual(2, Integer(Length(lRecipe.TextEdits)),
+    'Recipe must stay synchronized after late declaration edits.');
+  Assert.AreEqual('declare-temp', lRecipe.TextEdits[0].Kind);
+  Assert.AreEqual('replace-statement', lRecipe.TextEdits[1].Kind);
+  Assert.AreEqual(lStatement.Edits[1].Range.StartLine, lRecipe.ReplacementRange.StartLine);
+  Assert.AreEqual(lStatement.Edits[1].Range.StartColumn,
+    lRecipe.ReplacementRange.StartColumn);
+
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithRewriteRecipePatches\RemoveWithRewriteRecipePatches.dproj'));
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
+    'Expected fixture-backed legacy final rewrite statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  lRecipe := lStatement.RewriteRecipe;
+  Assert.AreEqual('legacy-final-statement-patch', lRecipe.RuleId,
+    'Line-specific replacement patches must be visible as recipe provenance.');
+  Assert.AreEqual('render-final-edits', lRecipe.RenderInstruction);
+  Assert.AreEqual(1, Integer(Length(lRecipe.TextEdits)));
+  Assert.AreEqual('replace-statement', lRecipe.TextEdits[0].Kind);
+  Assert.IsTrue(ContainsText(lRecipe.ReplacementText, 'ReadNBytes(Files[D]^.f^'),
+    'Expected controlled fixture to exercise the legacy final rewrite replacement.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesDakBoundRewriteFixture;

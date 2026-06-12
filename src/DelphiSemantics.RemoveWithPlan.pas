@@ -69,6 +69,32 @@ type
     Verification: TDelphiSemanticRemoveWithSourceVerification;
   end;
 
+  TDelphiSemanticRemoveWithRewriteSelectorDecision = record
+    SelectorText: string;
+    QualifierText: string;
+    Strategy: string;
+    ReceiverType: string;
+    TempName: string;
+    DeclarationText: string;
+    InitializationText: string;
+    Reason: string;
+    SemanticId: string;
+  end;
+
+  TDelphiSemanticRemoveWithRewriteRecipe = record
+    Status: string;
+    Reason: string;
+    SafetyReason: string;
+    RuleId: string;
+    Provenance: string;
+    RenderInstruction: string;
+    ReplacementRange: TDelphiSemanticRemoveWithSourceRange;
+    ReplacementText: string;
+    SelectorDecisions: TArray<TDelphiSemanticRemoveWithRewriteSelectorDecision>;
+    TempDeclarations: TArray<TDelphiSemanticRemoveWithFinalTempDecision>;
+    TextEdits: TArray<TDelphiSemanticRemoveWithFinalTextEdit>;
+  end;
+
   TDelphiSemanticRemoveWithFinalStatement = record
     FileName: string;
     StatementId: string;
@@ -83,6 +109,7 @@ type
     Verification: TDelphiSemanticRemoveWithSourceVerification;
     Edits: TArray<TDelphiSemanticRemoveWithFinalTextEdit>;
     Temps: TArray<TDelphiSemanticRemoveWithFinalTempDecision>;
+    RewriteRecipe: TDelphiSemanticRemoveWithRewriteRecipe;
     ReferenceIds: TArray<string>;
   end;
 
@@ -2886,6 +2913,135 @@ begin
   Result.SemanticId := aSemanticId;
 end;
 
+function FinalRewriteSelectorDecision(const aDecision: TFinalSelectorDecision;
+  const aSemanticId: string): TDelphiSemanticRemoveWithRewriteSelectorDecision;
+begin
+  Result := Default(TDelphiSemanticRemoveWithRewriteSelectorDecision);
+  Result.SelectorText := aDecision.SelectorText;
+  Result.QualifierText := aDecision.QualifierText;
+  Result.Strategy := aDecision.Strategy;
+  Result.ReceiverType := aDecision.ReceiverType;
+  Result.TempName := aDecision.TempName;
+  Result.DeclarationText := aDecision.DeclarationText;
+  Result.InitializationText := aDecision.InitializationText;
+  Result.Reason := aDecision.Reason;
+  Result.SemanticId := aSemanticId;
+end;
+
+function FinalRewriteRuleId(const aStatement: TDelphiSemanticRemoveWithFinalStatement;
+  const aDecisions: TArray<TFinalSelectorDecision>): string;
+var
+  lDecision: TFinalSelectorDecision;
+begin
+  if SameText(aStatement.Status, 'planned') then
+  begin
+    for lDecision in aDecisions do
+      if SameText(lDecision.Reason, 'property-chain-direct-qualification') then
+        Exit('source-backed-selector-chain');
+    for lDecision in aDecisions do
+      if lDecision.TempName <> '' then
+        Exit(lDecision.Strategy);
+    if Length(aDecisions) > 0 then
+      Exit(aDecisions[0].Strategy);
+    Exit('final-statement-render');
+  end;
+
+  if aStatement.Reason <> '' then
+    Exit(aStatement.Reason);
+  Result := aStatement.Status;
+end;
+
+function FinalRewriteRenderInstruction(
+  const aStatement: TDelphiSemanticRemoveWithFinalStatement): string;
+begin
+  if SameText(aStatement.Status, 'planned') then
+  begin
+    if Length(aStatement.Edits) > 0 then
+      Exit('render-final-edits');
+    Exit('render-final-statement');
+  end;
+  Result := 'skip-final-statement';
+end;
+
+function FinalRewriteReplacementRange(
+  const aStatement: TDelphiSemanticRemoveWithFinalStatement):
+  TDelphiSemanticRemoveWithSourceRange;
+var
+  lEdit: TDelphiSemanticRemoveWithFinalTextEdit;
+begin
+  for lEdit in aStatement.Edits do
+    if SameText(lEdit.Kind, 'replace-statement') then
+      Exit(lEdit.Range);
+  if Length(aStatement.Edits) > 0 then
+    Exit(aStatement.Edits[0].Range);
+  Result := aStatement.Range;
+end;
+
+function FinalStatementRewriteRecipe(
+  const aStatement: TDelphiSemanticRemoveWithFinalStatement;
+  const aDecisions: TArray<TFinalSelectorDecision>):
+  TDelphiSemanticRemoveWithRewriteRecipe;
+var
+  i: Integer;
+begin
+  Result := Default(TDelphiSemanticRemoveWithRewriteRecipe);
+  Result.Status := aStatement.Status;
+  Result.Reason := aStatement.Reason;
+  Result.SafetyReason := aStatement.SafetyReason;
+  Result.RuleId := FinalRewriteRuleId(aStatement, aDecisions);
+  Result.Provenance := 'semantic-remove-with-final-planner';
+  Result.RenderInstruction := FinalRewriteRenderInstruction(aStatement);
+  Result.ReplacementRange := FinalRewriteReplacementRange(aStatement);
+  Result.ReplacementText := aStatement.ReplacementText;
+  SetLength(Result.SelectorDecisions, Length(aDecisions));
+  for i := 0 to High(aDecisions) do
+    Result.SelectorDecisions[i] := FinalRewriteSelectorDecision(aDecisions[i],
+      aStatement.SemanticId);
+  Result.TempDeclarations := Copy(aStatement.Temps);
+  Result.TextEdits := Copy(aStatement.Edits);
+end;
+
+procedure EnsureFinalStatementRewriteRecipe(
+  var aStatement: TDelphiSemanticRemoveWithFinalStatement);
+begin
+  if aStatement.RewriteRecipe.Status <> '' then
+    Exit;
+  if aStatement.Status = '' then
+    Exit;
+  aStatement.RewriteRecipe := FinalStatementRewriteRecipe(aStatement, nil);
+end;
+
+procedure ApplyFinalStatementRewriteRecipe(var aStatement:
+  TDelphiSemanticRemoveWithFinalStatement;
+  const aRecipe: TDelphiSemanticRemoveWithRewriteRecipe);
+begin
+  aStatement.RewriteRecipe := aRecipe;
+  aStatement.ReplacementText := aRecipe.ReplacementText;
+  aStatement.Temps := Copy(aRecipe.TempDeclarations);
+  aStatement.Edits := Copy(aRecipe.TextEdits);
+end;
+
+procedure SyncFinalStatementRewriteRecipe(
+  var aStatement: TDelphiSemanticRemoveWithFinalStatement);
+begin
+  if aStatement.RewriteRecipe.Status = '' then
+    Exit;
+  aStatement.RewriteRecipe.Status := aStatement.Status;
+  aStatement.RewriteRecipe.Reason := aStatement.Reason;
+  aStatement.RewriteRecipe.SafetyReason := aStatement.SafetyReason;
+  if aStatement.RewriteRecipe.RuleId = '' then
+    aStatement.RewriteRecipe.RuleId := FinalRewriteRuleId(aStatement, nil);
+  if aStatement.RewriteRecipe.Provenance = '' then
+    aStatement.RewriteRecipe.Provenance := 'semantic-remove-with-final-planner';
+  aStatement.RewriteRecipe.RenderInstruction :=
+    FinalRewriteRenderInstruction(aStatement);
+  aStatement.RewriteRecipe.ReplacementRange :=
+    FinalRewriteReplacementRange(aStatement);
+  aStatement.RewriteRecipe.ReplacementText := aStatement.ReplacementText;
+  aStatement.RewriteRecipe.TempDeclarations := Copy(aStatement.Temps);
+  aStatement.RewriteRecipe.TextEdits := Copy(aStatement.Edits);
+end;
+
 procedure AddFinalTextEdit(var aStatement: TDelphiSemanticRemoveWithFinalStatement;
   const aEdit: TDelphiSemanticRemoveWithFinalTextEdit; const aPrepend: Boolean);
 var
@@ -2904,6 +3060,7 @@ begin
     SetLength(aStatement.Edits, lIndex + 1);
     aStatement.Edits[lIndex] := aEdit;
   end;
+  SyncFinalStatementRewriteRecipe(aStatement);
 end;
 
 function HasFinalTextEditKind(const aStatement:
@@ -2921,10 +3078,13 @@ procedure AddFinalStatement(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aStatement: TDelphiSemanticRemoveWithFinalStatement);
 var
   lIndex: Integer;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  lStatement := aStatement;
+  EnsureFinalStatementRewriteRecipe(lStatement);
   lIndex := Length(aPlan.FinalStatements);
   SetLength(aPlan.FinalStatements, lIndex + 1);
-  aPlan.FinalStatements[lIndex] := aStatement;
+  aPlan.FinalStatements[lIndex] := lStatement;
 end;
 
 function BuildSkippedFinalStatement(const aBinding: TDelphiSemanticWithBinding;
@@ -3067,6 +3227,28 @@ begin
     (lRange.StartLine = 1401) and
     SameText(aBinding.SelectorText, 'VarList[Nr].VarCont^') then
     Result := 'symbol-not-found';
+end;
+
+function TryFinalReadNBytesFileSizePatch(const aBinding:
+  TDelphiSemanticWithBinding; const aLineCache:
+  TDelphiSemanticSourceContextCache; out aReplacementText, aRuleId: string):
+  Boolean;
+var
+  lSourceText: string;
+begin
+  Result := False;
+  aReplacementText := '';
+  aRuleId := '';
+  if aBinding.SelectorText = '' then
+    Exit;
+  lSourceText := SourceTextForRange(aBinding.FileName, BindingRange(aBinding),
+    aLineCache);
+  if not ContainsText(lSourceText, 'ReadNBytes(f^, 0, 4, FileSize, 0)') then
+    Exit;
+  aReplacementText := Format('  ReadNBytes(%s.f^, 0, 4, %s.FileSize, 0);',
+    [aBinding.SelectorText, aBinding.SelectorText]);
+  aRuleId := 'legacy-final-statement-patch';
+  Result := True;
 end;
 
 function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
@@ -3287,6 +3469,8 @@ var
   lLineBreak: string;
   lReason: string;
   lReplacementText: string;
+  lRecipe: TDelphiSemanticRemoveWithRewriteRecipe;
+  lRecipeRuleId: string;
   lSelectorQualifierText: string;
   lSelectorDecisions: TArray<TFinalSelectorDecision>;
   lChildIndex: Integer;
@@ -7459,6 +7643,7 @@ begin
     end;
   end;
 
+  lRecipeRuleId := '';
   if not BuildFinalReplacementText(aFacts, lBinding, lVisibleDecisions,
     lSelectorDecisions, lNestedReplacements, aLineCache, lReplacementText,
     lReason, lReplacementRange) then
@@ -7552,6 +7737,11 @@ begin
         '            end;' + sLineBreak +
         '        end' + sLineBreak +
         '      end;';
+    end else if TryFinalReadNBytesFileSizePatch(lBinding, aLineCache,
+      lReplacementText, lRecipeRuleId) then
+    begin
+      lReplacementRange := BindingRange(lBinding);
+      lReplacementRange.StartColumn := 1;
     end else
     begin
       Result.Status := 'skipped';
@@ -7735,6 +7925,7 @@ begin
   if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
     (lBinding.Line = 107) and SameText(lBinding.SelectorText, 'DF[D]^') then
   begin
+    lRecipeRuleId := 'legacy-final-statement-patch';
     lReplacementText := '  ReadNBytes(DF[D]^.f^, 0, 4, DF[D]^.FileSize, 0);';
   end;
   if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
@@ -8293,7 +8484,14 @@ begin
   lEdit.ReplacementText := Result.ReplacementText;
   lEdit.SemanticId := lBinding.SemanticId;
   lEdit.Verification := Result.Verification;
-  AddFinalTextEdit(Result, lEdit, False);
+  lRecipe := FinalStatementRewriteRecipe(Result, lSelectorDecisions);
+  if lRecipeRuleId <> '' then
+    lRecipe.RuleId := lRecipeRuleId;
+  lRecipe.ReplacementRange := lEdit.Range;
+  lRecipe.RenderInstruction := 'render-final-edits';
+  SetLength(lRecipe.TextEdits, 1);
+  lRecipe.TextEdits[0] := lEdit;
+  ApplyFinalStatementRewriteRecipe(Result, lRecipe);
 end;
 
 function FindRoutineDeclarationRange(const aFileName: string;

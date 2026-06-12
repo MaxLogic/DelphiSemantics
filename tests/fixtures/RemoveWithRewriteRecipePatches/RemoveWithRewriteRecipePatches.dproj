@@ -1,0 +1,11 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{C4E3CE8F-468E-49A7-900B-BC1860DF42FD}</ProjectGuid>
+    <MainSource>RemoveWithRewriteRecipePatches.dpr</MainSource>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <Platform Condition="'$(Platform)'==''">Win32</Platform>
+  </PropertyGroup>
+  <ItemGroup>
+    <DCCReference Include="RewriteRecipePatchUnit.pas"/>
+  </ItemGroup>
+</Project>

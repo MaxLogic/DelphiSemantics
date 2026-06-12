@@ -20,6 +20,10 @@ type
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithFinalTempDecision;
   TDelphiSemanticRemoveWithFinalTextEdit =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithFinalTextEdit;
+  TDelphiSemanticRemoveWithRewriteSelectorDecision =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithRewriteSelectorDecision;
+  TDelphiSemanticRemoveWithRewriteRecipe =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithRewriteRecipe;
   TDelphiSemanticRemoveWithFinalStatement =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithFinalStatement;
   TDelphiSemanticRemoveWithPlanParityEdit =
