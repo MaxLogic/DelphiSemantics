@@ -25,9 +25,13 @@ type
     function LoadContext: TDelphiSemanticSymbolQueryContext;
   public
     [Test]
+    procedure DeadCodeProfilesParseFormatAndRejectUnknown;
+    [Test]
     procedure ReportsConservativeDeadCodeStatuses;
     [Test]
     procedure ReportsDeadCodeFromSnapshotWithoutProjectIndexBuild;
+    [Test]
+    procedure UnknownReportProfileReturnsDiagnostic;
     [Test]
     procedure SnapshotReferenceCountsMatchModelBackedReport;
   end;
@@ -108,6 +112,25 @@ begin
   Result := -1;
 end;
 
+procedure TDeadCodeTests.DeadCodeProfilesParseFormatAndRejectUnknown;
+var
+  lProfile: TDelphiSemanticDeadCodeSafetyProfile;
+begin
+  Assert.IsTrue(TDelphiSemanticDeadCodeProfiles.TryParse('legacy-static', lProfile));
+  Assert.AreEqual(TDelphiSemanticDeadCodeSafetyProfile.dcspLegacyStatic, lProfile);
+  Assert.AreEqual('legacy-static', TDelphiSemanticDeadCodeProfiles.ToName(lProfile));
+  Assert.AreEqual('audit',
+    TDelphiSemanticDeadCodeProfiles.ToName(TDelphiSemanticDeadCodeProfiles.DefaultReportProfile));
+  Assert.AreEqual('conservative',
+    TDelphiSemanticDeadCodeProfiles.ToName(
+    TDelphiSemanticDeadCodeProfiles.DefaultRemovalProfile));
+  Assert.AreEqual('audit, conservative, or legacy-static',
+    TDelphiSemanticDeadCodeProfiles.AllowedNamesText);
+  Assert.IsFalse(TDelphiSemanticDeadCodeProfiles.TryParse('typo', lProfile));
+  Assert.AreEqual('Invalid dead-code profile: typo (expected audit, conservative, or legacy-static).',
+    TDelphiSemanticDeadCodeProfiles.InvalidProfileDiagnostic('typo'));
+end;
+
 function TDeadCodeTests.FixturePath(const aFileName: string): string;
 begin
   Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
@@ -171,6 +194,18 @@ begin
   Assert.IsTrue(CandidateHasBlocker(lReport, 'AmbiguousGlobal', 'ambiguous-reference'));
   Assert.IsTrue(CandidateHasBlocker(lReport, 'MissingExternalSymbol', 'unresolved-reference'));
   Assert.IsTrue(CandidateHasBlocker(lReport, 'ExternalOnlySymbol', 'unresolved-reference'));
+end;
+
+procedure TDeadCodeTests.UnknownReportProfileReturnsDiagnostic;
+var
+  lReport: TDelphiSemanticDeadCodeReport;
+begin
+  lReport := TDelphiSemanticApi.ReportDeadCode(LoadContext, 'typo');
+
+  Assert.AreEqual('typo', lReport.Profile);
+  Assert.AreEqual('Invalid dead-code profile: typo (expected audit, conservative, or legacy-static).',
+    lReport.Diagnostic);
+  Assert.AreEqual(0, Integer(Length(lReport.Candidates)));
 end;
 
 procedure TDeadCodeTests.ReportsDeadCodeFromSnapshotWithoutProjectIndexBuild;

@@ -35,6 +35,8 @@ type
     [Test]
     procedure LegacyStaticPlansImplementationRoutineRemoval;
     [Test]
+    procedure UnknownProfileBlocksRemovalWithDiagnostic;
+    [Test]
     procedure UnsupportedSyntaxBlocksUnsafeLineDeletion;
   end;
 
@@ -267,6 +269,19 @@ begin
   Assert.AreEqual(LineOf('MaybeDynamicHook') + 4, lEdit.EndLine);
   Assert.AreEqual(1, lEdit.EndColumn);
   Assert.AreEqual('', lEdit.NewText);
+end;
+
+procedure TRemoveDeadCodePlannerTests.UnknownProfileBlocksRemovalWithDiagnostic;
+var
+  lPlan: TDelphiSemanticDeadCodeRemovalPlan;
+begin
+  lPlan := TDelphiSemanticApi.PlanDeadCodeRemoval(LoadContext, 'typo');
+
+  Assert.AreEqual('blocked', lPlan.Status);
+  Assert.AreEqual('typo', lPlan.Profile);
+  Assert.AreEqual('Invalid dead-code profile: typo (expected audit, conservative, or legacy-static).',
+    lPlan.Diagnostic);
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
 end;
 
 procedure TRemoveDeadCodePlannerTests.UnsupportedSyntaxBlocksUnsafeLineDeletion;

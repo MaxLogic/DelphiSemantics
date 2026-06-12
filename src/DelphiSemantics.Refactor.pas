@@ -50,7 +50,10 @@ type
       const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string;
       const aLine, aColumn: Integer): TDelphiSemanticRenamePlan; static;
     class function PlanDeadCodeRemoval(const aContext: TDelphiSemanticSymbolQueryContext;
-      const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; static;
+      const aProfile: TDelphiSemanticDeadCodeSafetyProfile):
+      TDelphiSemanticDeadCodeRemovalPlan; overload; static;
+    class function PlanDeadCodeRemoval(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; overload; static;
   end;
 
 implementation
@@ -1066,25 +1069,50 @@ class function TDelphiSemanticRenamePlanner.PlanDeadCodeRemoval(
   const aContext: TDelphiSemanticSymbolQueryContext; const aProfile: string):
   TDelphiSemanticDeadCodeRemovalPlan;
 var
+  lProfile: TDelphiSemanticDeadCodeSafetyProfile;
+  lProfileName: string;
+begin
+  lProfileName := Trim(aProfile);
+  if lProfileName = '' then
+    Exit(PlanDeadCodeRemoval(aContext,
+      TDelphiSemanticDeadCodeProfiles.DefaultRemovalProfile));
+
+  if not TDelphiSemanticDeadCodeProfiles.TryParse(lProfileName, lProfile) then
+  begin
+    Result := Default(TDelphiSemanticDeadCodeRemovalPlan);
+    Result.Status := 'blocked';
+    Result.Profile := lProfileName;
+    Result.Diagnostic := TDelphiSemanticDeadCodeProfiles.InvalidProfileDiagnostic(
+      lProfileName);
+    Exit;
+  end;
+
+  Result := PlanDeadCodeRemoval(aContext, lProfile);
+end;
+
+class function TDelphiSemanticRenamePlanner.PlanDeadCodeRemoval(
+  const aContext: TDelphiSemanticSymbolQueryContext;
+  const aProfile: TDelphiSemanticDeadCodeSafetyProfile): TDelphiSemanticDeadCodeRemovalPlan;
+var
   lBlockerReason: string;
   lBlockers: TList<TDelphiSemanticDeadCodeRemovalBlocker>;
   lCandidate: TDelphiSemanticDeadCodeCandidate;
   lEdit: TDelphiSemanticTextEdit;
   lEdits: TList<TDelphiSemanticTextEdit>;
   lProfile: string;
+  lSafetyProfile: TDelphiSemanticDeadCodeSafetyProfile;
   lReport: TDelphiSemanticDeadCodeReport;
 begin
-  lProfile := aProfile;
-  if lProfile = '' then
-    lProfile := 'conservative';
+  lSafetyProfile := aProfile;
+  lProfile := TDelphiSemanticDeadCodeProfiles.ToName(lSafetyProfile);
 
-  lReport := TDelphiSemanticDeadCodeReporter.Report(aContext, lProfile);
+  lReport := TDelphiSemanticDeadCodeReporter.Report(aContext, lSafetyProfile);
   lEdits := TList<TDelphiSemanticTextEdit>.Create;
   lBlockers := TList<TDelphiSemanticDeadCodeRemovalBlocker>.Create;
   try
     for lCandidate in lReport.Candidates do
     begin
-      if SameText(lProfile, 'audit') then
+      if lSafetyProfile = TDelphiSemanticDeadCodeSafetyProfile.dcspAudit then
       begin
         lBlockers.Add(MakeRemovalBlocker(lCandidate, 'audit-profile'));
         Continue;

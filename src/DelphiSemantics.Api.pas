@@ -34,6 +34,9 @@ type
     DelphiSemantics.Symbols.TDelphiSemanticIndexedReference;
   TDelphiSemanticUsage = DelphiSemantics.Usage.TDelphiSemanticUsage;
   TDelphiSemanticUsageResult = DelphiSemantics.Usage.TDelphiSemanticUsageResult;
+  TDelphiSemanticDeadCodeSafetyProfile =
+    DelphiSemantics.DeadCode.TDelphiSemanticDeadCodeSafetyProfile;
+  TDelphiSemanticDeadCodeProfiles = DelphiSemantics.DeadCode.TDelphiSemanticDeadCodeProfiles;
   TDelphiSemanticDeadCodeCandidate =
     DelphiSemantics.DeadCode.TDelphiSemanticDeadCodeCandidate;
   TDelphiSemanticDeadCodeReport = DelphiSemantics.DeadCode.TDelphiSemanticDeadCodeReport;
@@ -164,9 +167,15 @@ type
       const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string;
       const aLine, aColumn: Integer): TDelphiSemanticRenamePlan; static;
     class function ReportDeadCode(const aContext: TDelphiSemanticSymbolQueryContext;
-      const aProfile: string): TDelphiSemanticDeadCodeReport; static;
+      const aProfile: TDelphiSemanticDeadCodeSafetyProfile): TDelphiSemanticDeadCodeReport;
+      overload; static;
+    class function ReportDeadCode(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aProfile: string): TDelphiSemanticDeadCodeReport; overload; static;
     class function PlanDeadCodeRemoval(const aContext: TDelphiSemanticSymbolQueryContext;
-      const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; static;
+      const aProfile: TDelphiSemanticDeadCodeSafetyProfile):
+      TDelphiSemanticDeadCodeRemovalPlan; overload; static;
+    class function PlanDeadCodeRemoval(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; overload; static;
     class function Search(const aContext: TDelphiSemanticSymbolQueryContext;
       const aQuery: TDelphiSemanticSearchQuery): TDelphiSemanticSearchResult; static;
   end;
@@ -264,10 +273,25 @@ begin
 end;
 
 class function TDelphiSemanticApi.ReportDeadCode(
+  const aContext: TDelphiSemanticSymbolQueryContext;
+  const aProfile: TDelphiSemanticDeadCodeSafetyProfile): TDelphiSemanticDeadCodeReport;
+begin
+  Result := TDelphiSemanticDeadCodeReporter.Report(aContext, aProfile);
+end;
+
+class function TDelphiSemanticApi.ReportDeadCode(
   const aContext: TDelphiSemanticSymbolQueryContext; const aProfile: string):
   TDelphiSemanticDeadCodeReport;
 begin
   Result := TDelphiSemanticDeadCodeReporter.Report(aContext, aProfile);
+end;
+
+class function TDelphiSemanticApi.PlanDeadCodeRemoval(
+  const aContext: TDelphiSemanticSymbolQueryContext;
+  const aProfile: TDelphiSemanticDeadCodeSafetyProfile):
+  TDelphiSemanticDeadCodeRemovalPlan;
+begin
+  Result := TDelphiSemanticRenamePlanner.PlanDeadCodeRemoval(aContext, aProfile);
 end;
 
 class function TDelphiSemanticApi.PlanDeadCodeRemoval(

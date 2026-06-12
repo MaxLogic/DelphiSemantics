@@ -73,6 +73,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Dead-code report/removal profile names now use a shared typed profile
+  contract with deterministic unknown-profile diagnostics, and DAK CLI
+  validation consumes the same parser/allowed-name list.
 - `UseLspEnrichment=True` now produces the deterministic
   `lsp.enrichment.not-implemented` project-context warning until a
   DelphiSemantics-owned LSP enrichment adapter is wired in; the default false

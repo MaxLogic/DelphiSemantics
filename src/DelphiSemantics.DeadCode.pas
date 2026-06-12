@@ -6,6 +6,21 @@ uses
   DelphiSemantics.Index, DelphiSemantics.Query, DelphiSemantics.Symbols;
 
 type
+  TDelphiSemanticDeadCodeSafetyProfile = (dcspAudit, dcspConservative,
+    dcspLegacyStatic);
+
+  TDelphiSemanticDeadCodeProfiles = record
+  public
+    class function AllowedNamesText: string; static;
+    class function DefaultRemovalProfile: TDelphiSemanticDeadCodeSafetyProfile; static;
+    class function DefaultReportProfile: TDelphiSemanticDeadCodeSafetyProfile; static;
+    class function InvalidProfileDiagnostic(const aProfileName: string): string; static;
+    class function ToName(const aProfile: TDelphiSemanticDeadCodeSafetyProfile): string;
+      static;
+    class function TryParse(const aProfileName: string;
+      out aProfile: TDelphiSemanticDeadCodeSafetyProfile): Boolean; static;
+  end;
+
   TDelphiSemanticDeadCodeCandidate = record
     SymbolId: TDelphiSemanticSymbolId;
     Name: string;
@@ -24,6 +39,7 @@ type
 
   TDelphiSemanticDeadCodeReport = record
     Profile: string;
+    Diagnostic: string;
     Candidates: TArray<TDelphiSemanticDeadCodeCandidate>;
     IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
   end;
@@ -31,7 +47,10 @@ type
   TDelphiSemanticDeadCodeReporter = record
   public
     class function Report(const aContext: TDelphiSemanticSymbolQueryContext;
-      const aProfile: string): TDelphiSemanticDeadCodeReport; static;
+      const aProfile: TDelphiSemanticDeadCodeSafetyProfile):
+      TDelphiSemanticDeadCodeReport; overload; static;
+    class function Report(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aProfile: string): TDelphiSemanticDeadCodeReport; overload; static;
   end;
 
 implementation
@@ -40,6 +59,11 @@ uses
   System.Classes, System.Generics.Collections, System.Generics.Defaults,
   System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils;
+
+const
+  cDeadCodeProfileAudit = 'audit';
+  cDeadCodeProfileConservative = 'conservative';
+  cDeadCodeProfileLegacyStatic = 'legacy-static';
 
 type
   TDeadCodeSourceEntry = record
@@ -77,6 +101,67 @@ type
     function HasUnresolvedReferenceByName(const aSymbol: TDelphiSemanticIndexedSymbol):
       Boolean;
   end;
+
+class function TDelphiSemanticDeadCodeProfiles.AllowedNamesText: string;
+begin
+  Result := cDeadCodeProfileAudit + ', ' + cDeadCodeProfileConservative + ', or ' +
+    cDeadCodeProfileLegacyStatic;
+end;
+
+class function TDelphiSemanticDeadCodeProfiles.DefaultRemovalProfile:
+  TDelphiSemanticDeadCodeSafetyProfile;
+begin
+  Result := TDelphiSemanticDeadCodeSafetyProfile.dcspConservative;
+end;
+
+class function TDelphiSemanticDeadCodeProfiles.DefaultReportProfile:
+  TDelphiSemanticDeadCodeSafetyProfile;
+begin
+  Result := TDelphiSemanticDeadCodeSafetyProfile.dcspAudit;
+end;
+
+class function TDelphiSemanticDeadCodeProfiles.InvalidProfileDiagnostic(
+  const aProfileName: string): string;
+begin
+  Result := Format('Invalid dead-code profile: %s (expected %s).', [aProfileName,
+    AllowedNamesText]);
+end;
+
+class function TDelphiSemanticDeadCodeProfiles.ToName(
+  const aProfile: TDelphiSemanticDeadCodeSafetyProfile): string;
+begin
+  case aProfile of
+    TDelphiSemanticDeadCodeSafetyProfile.dcspAudit:
+      Result := cDeadCodeProfileAudit;
+    TDelphiSemanticDeadCodeSafetyProfile.dcspConservative:
+      Result := cDeadCodeProfileConservative;
+    TDelphiSemanticDeadCodeSafetyProfile.dcspLegacyStatic:
+      Result := cDeadCodeProfileLegacyStatic;
+  else
+    Result := cDeadCodeProfileAudit;
+  end;
+end;
+
+class function TDelphiSemanticDeadCodeProfiles.TryParse(const aProfileName: string;
+  out aProfile: TDelphiSemanticDeadCodeSafetyProfile): Boolean;
+var
+  lProfileName: string;
+begin
+  lProfileName := Trim(aProfileName);
+  if SameText(lProfileName, cDeadCodeProfileAudit) then
+    aProfile := TDelphiSemanticDeadCodeSafetyProfile.dcspAudit
+  else if SameText(lProfileName, cDeadCodeProfileConservative) then
+    aProfile := TDelphiSemanticDeadCodeSafetyProfile.dcspConservative
+  else if SameText(lProfileName, cDeadCodeProfileLegacyStatic) then
+    aProfile := TDelphiSemanticDeadCodeSafetyProfile.dcspLegacyStatic
+  else
+  begin
+    aProfile := DefaultReportProfile;
+    Exit(False);
+  end;
+
+  Result := True;
+end;
 
 constructor TDeadCodeSourceCache.Create;
 begin
@@ -500,11 +585,12 @@ begin
 end;
 
 function DefinitelyUnusedEligible(const aSymbol: TDelphiSemanticIndexedSymbol;
-  const aProfile: string): Boolean;
+  const aProfile: TDelphiSemanticDeadCodeSafetyProfile): Boolean;
 begin
   Result := IsDataSymbol(aSymbol) or SameText(aSymbol.Visibility, 'private') or
     SameText(aSymbol.Visibility, 'strict private') or
-    (SameText(aProfile, 'legacy-static') and SameText(aSymbol.Kind, 'routine') and
+    ((aProfile = TDelphiSemanticDeadCodeSafetyProfile.dcspLegacyStatic) and
+    SameText(aSymbol.Kind, 'routine') and
     SameText(aSymbol.SectionKind, 'implementation') and (aSymbol.OwnerName = ''));
 end;
 
@@ -518,21 +604,44 @@ class function TDelphiSemanticDeadCodeReporter.Report(
   const aContext: TDelphiSemanticSymbolQueryContext; const aProfile: string):
   TDelphiSemanticDeadCodeReport;
 var
+  lProfile: TDelphiSemanticDeadCodeSafetyProfile;
+  lProfileName: string;
+begin
+  lProfileName := Trim(aProfile);
+  if lProfileName = '' then
+    Exit(Report(aContext, TDelphiSemanticDeadCodeProfiles.DefaultReportProfile));
+
+  if not TDelphiSemanticDeadCodeProfiles.TryParse(lProfileName, lProfile) then
+  begin
+    Result := Default(TDelphiSemanticDeadCodeReport);
+    Result.Profile := lProfileName;
+    Result.Diagnostic := TDelphiSemanticDeadCodeProfiles.InvalidProfileDiagnostic(
+      lProfileName);
+    Exit;
+  end;
+
+  Result := Report(aContext, lProfile);
+end;
+
+class function TDelphiSemanticDeadCodeReporter.Report(
+  const aContext: TDelphiSemanticSymbolQueryContext;
+  const aProfile: TDelphiSemanticDeadCodeSafetyProfile): TDelphiSemanticDeadCodeReport;
+var
   lBlockers: TList<string>;
   lBlockedUnresolvedNames: TDictionary<string, Boolean>;
   lCandidate: TDelphiSemanticDeadCodeCandidate;
   lCandidates: TList<TDelphiSemanticDeadCodeCandidate>;
   lIndex: TDelphiSemanticProjectSymbolIndex;
   lProfile: string;
+  lSafetyProfile: TDelphiSemanticDeadCodeSafetyProfile;
   lReferenceIndex: TDeadCodeReferenceIndex;
   lReference: TDelphiSemanticIndexedReference;
   lReferenceCount: Integer;
   lSourceCache: TDeadCodeSourceCache;
   lSymbol: TDelphiSemanticIndexedSymbol;
 begin
-  lProfile := aProfile;
-  if lProfile = '' then
-    lProfile := 'audit';
+  lSafetyProfile := aProfile;
+  lProfile := TDelphiSemanticDeadCodeProfiles.ToName(lSafetyProfile);
 
   lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
   lCandidates := TList<TDelphiSemanticDeadCodeCandidate>.Create;
@@ -574,7 +683,7 @@ begin
         else if ExternallyVisible(lSymbol) then
           lCandidate := MakeCandidate(lSymbol, 'externally-visible', 'public-api-surface',
             lProfile, lReferenceCount, [])
-        else if DefinitelyUnusedEligible(lSymbol, lProfile) then
+        else if DefinitelyUnusedEligible(lSymbol, lSafetyProfile) then
           lCandidate := MakeCandidate(lSymbol, 'definitely-unused', 'no-resolved-references',
             lProfile, lReferenceCount, [])
         else if MaybeUnusedEligible(lSymbol) then
