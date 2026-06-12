@@ -1,0 +1,11 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{AF536922-1574-4CED-9715-313D94D0AA2C}</ProjectGuid>
+    <MainSource>RemoveWithPropertyChain.dpr</MainSource>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <Platform Condition="'$(Platform)'==''">Win32</Platform>
+  </PropertyGroup>
+  <ItemGroup>
+    <DCCReference Include="PropertyChainUnit.pas"/>
+  </ItemGroup>
+</Project>

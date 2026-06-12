@@ -480,6 +480,28 @@ begin
       Exit(lSymbol.TypeName);
 end;
 
+function ConventionalPointerTargetType(const aFacts: TRemoveWithPlanFacts;
+  const aTypeName: string): string;
+var
+  lCandidateTypeName: string;
+  lTypeName: string;
+begin
+  Result := '';
+  lTypeName := Trim(aTypeName);
+  if EndsText('Ptr', lTypeName) and (Length(lTypeName) > Length('Ptr')) then
+  begin
+    lCandidateTypeName := Copy(lTypeName, 1, Length(lTypeName) - Length('Ptr'));
+    if Length(aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(lCandidateTypeName)) > 0 then
+      Exit(lCandidateTypeName);
+  end;
+  if StartsText('P', lTypeName) and (Length(lTypeName) > 1) then
+  begin
+    lCandidateTypeName := Copy(lTypeName, 2, MaxInt);
+    if Length(aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(lCandidateTypeName)) > 0 then
+      Exit(lCandidateTypeName);
+  end;
+end;
+
 function SelectorShapeType(const aFacts: TRemoveWithPlanFacts;
   const aBaseTypeName, aSelectorText: string): string;
 var
@@ -510,6 +532,47 @@ begin
   if (lPointerPos > 0) and ((lIndexPos = 0) or (lIndexPos < lPointerPos)) then
   begin
     lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
+    if lPointerTargetType = '' then
+      Exit('')
+    else
+      Result := lPointerTargetType;
+  end;
+end;
+
+function SelectorChainPartShapeType(const aFacts: TRemoveWithPlanFacts;
+  const aBaseTypeName, aSelectorText: string): string;
+var
+  lElementType: string;
+  lIndexPos: Integer;
+  lPointerPos: Integer;
+  lPointerTargetType: string;
+begin
+  Result := aBaseTypeName;
+  lIndexPos := Pos('[', aSelectorText);
+  lPointerPos := Pos('^', aSelectorText);
+  if (lPointerPos > 0) and ((lIndexPos = 0) or (lPointerPos < lIndexPos)) then
+  begin
+    lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
+    if lPointerTargetType = '' then
+      lPointerTargetType := ConventionalPointerTargetType(aFacts, Result);
+    if (lPointerTargetType = '') and (lIndexPos > 0) then
+      Exit('')
+    else if lPointerTargetType <> '' then
+      Result := lPointerTargetType;
+  end;
+  if lIndexPos > 0 then
+  begin
+    lElementType := IndexedElementType(aFacts, Result);
+    if lElementType = '' then
+      Exit('')
+    else
+      Result := lElementType;
+  end;
+  if (lPointerPos > 0) and (lIndexPos > 0) and (lIndexPos < lPointerPos) then
+  begin
+    lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
+    if lPointerTargetType = '' then
+      lPointerTargetType := ConventionalPointerTargetType(aFacts, Result);
     if lPointerTargetType = '' then
       Exit('')
     else
@@ -599,13 +662,30 @@ begin
   end;
 end;
 
+function UnqualifiedTypeName(const aTypeName: string): string;
+var
+  lSeparator: Integer;
+begin
+  Result := Trim(aTypeName);
+  lSeparator := LastDelimiter('.', Result);
+  if (lSeparator > 0) and (lSeparator < Length(Result)) then
+    Result := Copy(Result, lSeparator + 1, MaxInt);
+end;
+
+function TypeNameMatches(const aLeft, aRight: string): Boolean;
+begin
+  Result := SameText(aLeft, aRight) or
+    ((Trim(aLeft) <> '') and (Trim(aRight) <> '') and
+    SameText(UnqualifiedTypeName(aLeft), UnqualifiedTypeName(aRight)));
+end;
+
 function SymbolIsMemberOfOwner(const aSymbol: TDelphiSemanticInventorySymbol;
   const aOwnerType: string): Boolean;
 begin
   Result := MatchText(aSymbol.SymbolClass, ['field', 'property', 'member']) and
-    (SameText(aSymbol.OwnerType, aOwnerType) or
-    SameText(aSymbol.OwnerName, aOwnerType) or
-    SameText(aSymbol.SourceOwnerType, aOwnerType));
+    (TypeNameMatches(aSymbol.OwnerType, aOwnerType) or
+    TypeNameMatches(aSymbol.OwnerName, aOwnerType) or
+    TypeNameMatches(aSymbol.SourceOwnerType, aOwnerType));
 end;
 
 function OwnerHasMemberNamed(const aFacts: TRemoveWithPlanFacts;
@@ -1506,6 +1586,260 @@ end;
 function RoutineDeclarationIsProcedure(const aBinding: TDelphiSemanticWithBinding;
   const aLineCache: TDelphiSemanticSourceContextCache): Boolean; forward;
 
+procedure AddSelectorChainPart(var aParts: TArray<string>; const aPart: string);
+var
+  lPartCount: Integer;
+begin
+  lPartCount := Length(aParts);
+  SetLength(aParts, lPartCount + 1);
+  aParts[lPartCount] := Trim(aPart);
+end;
+
+function TrySplitSelectorChainParts(const aSelectorText: string;
+  out aParts: TArray<string>): Boolean;
+var
+  i: Integer;
+  lBracketDepth: Integer;
+  lPart: string;
+begin
+  Result := False;
+  aParts := nil;
+  lBracketDepth := 0;
+  lPart := '';
+  for i := 1 to Length(aSelectorText) do
+  begin
+    if aSelectorText[i] = '[' then
+      Inc(lBracketDepth)
+    else if aSelectorText[i] = ']' then
+    begin
+      if lBracketDepth <= 0 then
+      begin
+        aParts := nil;
+        Exit;
+      end;
+      Dec(lBracketDepth);
+    end;
+
+    if (aSelectorText[i] = '.') and (lBracketDepth = 0) then
+    begin
+      if Trim(lPart) = '' then
+      begin
+        aParts := nil;
+        Exit;
+      end;
+      AddSelectorChainPart(aParts, lPart);
+      lPart := '';
+    end else
+      lPart := lPart + aSelectorText[i];
+  end;
+
+  if (lBracketDepth <> 0) or (Trim(lPart) = '') then
+  begin
+    aParts := nil;
+    Exit;
+  end;
+  AddSelectorChainPart(aParts, lPart);
+  Result := Length(aParts) > 1;
+end;
+
+function InventorySymbolIsSourceBacked(const aSymbol:
+  TDelphiSemanticInventorySymbol): Boolean;
+begin
+  Result := (Trim(aSymbol.FileName) <> '') and
+    (not MatchText(aSymbol.SourceOwnerType, ['compiler-intrinsic',
+    'rtl-source']));
+end;
+
+function RoutineScopedSymbolMatchesBinding(const aSymbol:
+  TDelphiSemanticInventorySymbol;
+  const aBinding: TDelphiSemanticWithBinding): Boolean;
+begin
+  Result := InventorySymbolIsSourceBacked(aSymbol) and
+    MatchText(aSymbol.SymbolClass, ['local', 'parameter']) and
+    SameText(aSymbol.FileName, aBinding.FileName) and
+    (aSymbol.Line > 0) and (aSymbol.Line <= aBinding.Line) and
+    ((Trim(aBinding.RoutineName) = '') or (Trim(aSymbol.RoutineName) = '') or
+    SameText(aSymbol.RoutineName, aBinding.RoutineName) or
+    RoutineNameMatchesOrEncloses(aSymbol.RoutineName, aBinding.RoutineName) or
+    RoutineNameMatchesOrEncloses(aBinding.RoutineName, aSymbol.RoutineName));
+end;
+
+function TryFindSourceBackedSelectorSymbol(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aName: string;
+  out aSymbol: TDelphiSemanticInventorySymbol): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  aSymbol := Default(TDelphiSemanticInventorySymbol);
+  if aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, aName,
+    lSymbol) and (Trim(lSymbol.TypeName) <> '') and
+    RoutineScopedSymbolMatchesBinding(lSymbol, aBinding) then
+  begin
+    aSymbol := lSymbol;
+    Exit(True);
+  end;
+
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aName) do
+  begin
+    if RoutineScopedSymbolMatchesBinding(lSymbol, aBinding) then
+    begin
+      aSymbol := lSymbol;
+      Exit(True);
+    end;
+  end;
+end;
+
+function TryResolveSelectorBasePartType(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorPart: string;
+  out aTypeName, aSymbolClass: string): Boolean;
+var
+  lBaseName: string;
+  lShapeType: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  aTypeName := '';
+  aSymbolClass := '';
+  lBaseName := SelectorBaseIdentifier(aSelectorPart);
+  if lBaseName = '' then
+    Exit;
+
+  if TryFindSourceBackedSelectorSymbol(aFacts, aBinding, lBaseName,
+    lSymbol) then
+  begin
+    lShapeType := SelectorChainPartShapeType(aFacts, lSymbol.TypeName, aSelectorPart);
+    if lShapeType <> '' then
+    begin
+      aTypeName := lShapeType;
+      aSymbolClass := lSymbol.SymbolClass;
+      Exit(True);
+    end;
+  end;
+
+  for lSymbol in aFacts.LookupIndex.FindUnitOrGlobalByName(lBaseName) do
+  begin
+    if not InventorySymbolIsSourceBacked(lSymbol) then
+      Continue;
+    lShapeType := SelectorChainPartShapeType(aFacts, lSymbol.TypeName, aSelectorPart);
+    if lShapeType <> '' then
+    begin
+      aTypeName := lShapeType;
+      aSymbolClass := lSymbol.SymbolClass;
+      Exit(True);
+    end;
+  end;
+end;
+
+function TryResolveSelectorChainMemberType(const aFacts: TRemoveWithPlanFacts;
+  const aOwnerType, aSelectorPart: string; out aTypeName: string): Boolean;
+var
+  lMember: TDelphiSemanticInventorySymbol;
+  lMemberName: string;
+  lShapeType: string;
+
+  function TryUseMember(const aMember: TDelphiSemanticInventorySymbol): Boolean;
+  begin
+    Result := False;
+    if not InventorySymbolIsSourceBacked(aMember) then
+      Exit;
+    if SameText(aMember.Kind, 'property') or
+      SameText(aMember.SymbolClass, 'property') then
+      Exit;
+    if not SymbolIsMemberOfOwner(aMember, aOwnerType) then
+      Exit;
+    lShapeType := SelectorChainPartShapeType(aFacts, aMember.TypeName, aSelectorPart);
+    if lShapeType = '' then
+      Exit;
+    aTypeName := lShapeType;
+    Result := True;
+  end;
+
+begin
+  Result := False;
+  aTypeName := '';
+  lMemberName := SelectorBaseIdentifier(aSelectorPart);
+  if (aOwnerType = '') or (lMemberName = '') then
+    Exit;
+
+  for lMember in aFacts.LookupIndex.FindMembersByOwnerAndName(aOwnerType,
+    lMemberName) do
+  begin
+    if TryUseMember(lMember) then
+      Exit(True);
+  end;
+
+  for lMember in aFacts.LookupIndex.FindSymbolsByName(lMemberName) do
+  begin
+    if TryUseMember(lMember) then
+      Exit(True);
+  end;
+end;
+
+function TryResolveSourceBackedSelectorChainType(
+  const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
+  out aReceiverType, aRootSymbolClass: string): Boolean;
+var
+  lCurrentType: string;
+  lNextType: string;
+  lPartIndex: Integer;
+  lParts: TArray<string>;
+begin
+  Result := False;
+  aReceiverType := '';
+  aRootSymbolClass := '';
+  if not TrySplitSelectorChainParts(aSelectorText, lParts) then
+    Exit;
+  if not TryResolveSelectorBasePartType(aFacts, aBinding, lParts[0],
+    lCurrentType, aRootSymbolClass) then
+    Exit;
+  for lPartIndex := 1 to High(lParts) do
+  begin
+    if not TryResolveSelectorChainMemberType(aFacts, lCurrentType,
+      lParts[lPartIndex], lNextType) then
+      Exit;
+    lCurrentType := lNextType;
+  end;
+  aReceiverType := lCurrentType;
+  Result := aReceiverType <> '';
+end;
+
+function BindingReferencesAreResolved(const aBinding:
+  TDelphiSemanticWithBinding): Boolean;
+begin
+  Result := (aBinding.UnresolvedReferenceCount = 0) and
+    (aBinding.UnsupportedReferenceCount = 0);
+end;
+
+function SourceBackedSelectorChainRootIsSafe(const aRootSymbolClass: string;
+  const aBinding: TDelphiSemanticWithBinding): Boolean;
+begin
+  Result := not SameText(aRootSymbolClass, 'local') or
+    BindingReferencesAreResolved(aBinding);
+end;
+
+function BindingBodyContainsNestedWith(const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  lLineIndex: Integer;
+  lLines: TArray<string>;
+begin
+  Result := False;
+  if (aBinding.BodyLine <= 0) or (aBinding.BodyEndLine <= 0) or
+    (not aLineCache.TryGetValue(aBinding.FileName, lLines)) then
+    Exit;
+  for lLineIndex := aBinding.BodyLine to aBinding.BodyEndLine do
+  begin
+    if lLineIndex = aBinding.Line then
+      Continue;
+    if (lLineIndex < 1) or (lLineIndex > Length(lLines)) then
+      Continue;
+    if ContainsText(lLines[lLineIndex - 1], 'with ') then
+      Exit(True);
+  end;
+end;
+
 function BuildSelectorDecision(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
   const aReservedNames: TDictionary<string, Integer>;
@@ -1514,6 +1848,9 @@ function BuildSelectorDecision(const aFacts: TRemoveWithPlanFacts;
   out aDecision: TFinalSelectorDecision; out aReason: string): Boolean;
 var
   lBaseName: string;
+  lChainReceiverType: string;
+  lChainRootSymbolClass: string;
+  lHasNestedWith: Boolean;
   lOpenParen: Integer;
   lPrefixText: string;
   lTypeSuffix: string;
@@ -1534,45 +1871,6 @@ begin
     end;
     aReason := 'call-selector';
     Exit;
-  end;
-  if SameText(aSelectorText, 'DF[d]^.Maske[Nr]^') and
-    (BindingRange(aBinding).StartLine = 1614) then
-  begin
-    aDecision.Strategy := 'direct-qualification';
-    aDecision.QualifierText := aSelectorText;
-    aDecision.ReceiverType := 'TMaskEntry';
-    aDecision.Reason := 'property-chain-direct-qualification';
-    Exit(True);
-  end;
-  if SameText(aSelectorText, 'DF[d]^.MarkListe') and
-    MatchText(IntToStr(BindingRange(aBinding).StartLine), ['2106', '2135',
-    '2152', '2197']) then
-  begin
-    aDecision.Strategy := 'direct-qualification';
-    aDecision.QualifierText := aSelectorText;
-    aDecision.ReceiverType := 'MarkList';
-    aDecision.Reason := 'property-chain-direct-qualification';
-    Exit(True);
-  end;
-  if SameText(aSelectorText, 'FileQueue^.last^') and
-    SameText(ExtractFileName(aBinding.FileName), 'lowFiles.pas') and
-    MatchText(IntToStr(BindingRange(aBinding).StartLine), ['200', '235']) then
-  begin
-    aDecision.Strategy := 'direct-qualification';
-    aDecision.QualifierText := aSelectorText;
-    aDecision.ReceiverType := 'LowFile';
-    aDecision.Reason := 'property-chain-direct-qualification';
-    Exit(True);
-  end;
-  if SameText(aSelectorText, 'DF[D]^.Maske[Feld]^') and
-    SameText(ExtractFileName(aBinding.FileName), 'makeiv.pas') and
-    (BindingRange(aBinding).StartLine = 109) then
-  begin
-    aDecision.Strategy := 'direct-qualification';
-    aDecision.QualifierText := aSelectorText;
-    aDecision.ReceiverType := 'TMaskEntry';
-    aDecision.Reason := 'property-chain-direct-qualification';
-    Exit(True);
   end;
   if SameText(aSelectorText, 'Context') and
     SameText(ExtractFileName(aBinding.FileName), 'md5.pas') and
@@ -1663,6 +1961,18 @@ begin
   end;
   if ContainsText(aSelectorText, '.') then
   begin
+    lHasNestedWith := BindingBodyContainsNestedWith(aBinding, aLineCache);
+    if (not lHasNestedWith) and
+      TryResolveSourceBackedSelectorChainType(aFacts, aBinding, aSelectorText,
+      lChainReceiverType, lChainRootSymbolClass) and
+      SourceBackedSelectorChainRootIsSafe(lChainRootSymbolClass, aBinding) then
+    begin
+      aDecision.Strategy := 'direct-qualification';
+      aDecision.QualifierText := aSelectorText;
+      aDecision.ReceiverType := lChainReceiverType;
+      aDecision.Reason := 'property-chain-direct-qualification';
+      Exit(True);
+    end;
     aReason := 'property-selector';
     Exit;
   end;

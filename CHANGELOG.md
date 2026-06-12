@@ -70,6 +70,10 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with selector planning now resolves source-backed dotted selector
+  chains through semantic symbol/member facts instead of maxTdb-specific
+  selector-decision patches, while preserving the maxTdb `667` scan count and
+  `215` planned edit count.
 - SQLite semantic caches now read and write cached text through Unicode-safe
   FireDAC accessors, preserving non-ASCII snapshot strings, source paths,
   unit-model JSON, and DAK global-vars projection data across cache reuse.

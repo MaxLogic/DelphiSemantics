@@ -54,6 +54,8 @@ type
     [Test]
     procedure FinalDtoMatchesFocusedRewriteCases;
     [Test]
+    procedure FinalDtoPlansSourceBackedPropertyChainSelectorWithoutLinePatch;
+    [Test]
     procedure FinalDtoMatchesDakBoundRewriteFixture;
     [Test]
     procedure FinalDtoDoesNotTreatNestedInlineLocalAsOuterMember;
@@ -155,6 +157,8 @@ type
     procedure FinalDtoMatchesMaxTdbLowFilesQueuePointerSkips;
     [Test]
     procedure FinalDtoMatchesMaxTdbLowFilesFileQueueLastQualification;
+    [Test]
+    procedure FinalDtoIndexesMaxTdbLowFilesPropertyChainFacts;
     [Test]
     procedure FinalDtoMatchesMaxTdbLowFilesVirtualFileSkips;
     [Test]
@@ -1443,6 +1447,31 @@ begin
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)), 'Expected only replacement edit.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'aRecordPtr^.Name'),
     'Expected direct pointer qualification.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPlansSourceBackedPropertyChainSelectorWithoutLinePatch;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPropertyChain\RemoveWithPropertyChain.dproj'));
+
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)),
+    'Expected one final statement for the property-chain fixture.');
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
+    'Expected source-backed property-chain statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
+    'Expected direct qualification without a temporary.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)),
+    'Expected only the replacement edit.');
+  Assert.AreEqual('  aParent^.Child.Count := aParent^.Child.Count + 1;',
+    lStatement.ReplacementText);
+  Assert.AreEqual(22, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
+  Assert.AreEqual(23, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(23, lStatement.Edits[0].Range.EndColumn);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesDakBoundRewriteFixture;
@@ -2920,6 +2949,31 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 235, 5, lStatement),
     'Expected maxTdb lowFiles GetFreeHandles FileQueue^.last^ with statement.');
   AssertFileQueueLastStatement(lStatement, 235, 239);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoIndexesMaxTdbLowFilesPropertyChainFacts;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lFileQueueSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lLastSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lOptions: TDelphiSemanticApiOptions;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
+  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lOptions);
+  lFileQueueSymbols := lFacts.LookupIndex.FindUnitOrGlobalByName('FileQueue');
+  lLastSymbols := lFacts.LookupIndex.FindMembersByOwnerAndName('LowFile', 'last');
+
+  Assert.IsTrue(Length(lFileQueueSymbols) > 0,
+    'Expected FileQueue unit-global to be indexed.');
+  Assert.AreEqual('LowFilePtr', lFileQueueSymbols[0].TypeName,
+    'Expected FileQueue to retain its pointer alias type.');
+  Assert.AreEqual('LowFile', lFacts.LookupIndex.PointerTargetType('LowFilePtr'),
+    'Expected LowFilePtr pointer alias to resolve to LowFile.');
+  Assert.IsTrue(Length(lLastSymbols) > 0,
+    'Expected LowFile.last record field to be indexed.');
+  Assert.AreEqual('LowFilePtr', lLastSymbols[0].TypeName,
+    'Expected LowFile.last to retain its pointer alias type.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLowFilesVirtualFileSkips;
