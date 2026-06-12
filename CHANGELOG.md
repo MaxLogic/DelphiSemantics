@@ -172,6 +172,8 @@
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
 
 ### Fixed
+- SQLite snapshot cache entries now invalidate on include-only file changes by
+  using per-unit preprocessing include graph hashes in snapshot identity.
 - With-binding indexed expressions such as `LTable[Hash(s)]` no longer treat
   the parenthesized index expression as a routine-call suffix during reference
   binding.
