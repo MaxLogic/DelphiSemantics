@@ -140,10 +140,11 @@ function New-PlanRun {
   param(
     [string]$Stdout,
     [int]$Run,
-    [string]$Id = 'remove-with-plan-all'
+    [string]$Id = 'remove-with-plan-all',
+    [switch]$OmitSourceMutationStatus
   )
 
-  return [pscustomobject]@{
+  $lRun = [pscustomobject]@{
     Id = $Id
     Run = $Run
     Feature = 'with-removal'
@@ -167,6 +168,11 @@ function New-PlanRun {
     Stderr = ''
     Command = 'dak remove-with'
   }
+  if (-not $OmitSourceMutationStatus) {
+    Add-Member -InputObject $lRun -NotePropertyName SourceMutationStatus `
+      -NotePropertyValue 'clean'
+  }
+  return $lRun
 }
 
 function Invoke-BenchmarkSummarize {
@@ -274,6 +280,24 @@ function Test-PlanRunMissingMismatchCountFailsClosed {
   $lExit = Invoke-BenchmarkSummarize -Workspace $lWorkspace
   if ($lExit -eq 0) {
     throw 'SummarizeOnly must fail when semanticDtoParity.mismatchCount is missing.'
+  }
+}
+
+function Test-SummarizeOnlyMissingSourceMutationStatusFailsClosed {
+  $lWorkspace = New-TestWorkspace 'missing-source-mutation-status'
+  $lPlanPath = Join-Path $lWorkspace 'plan.stdout.json'
+  New-PlanJson -Path $lPlanPath -WithCount 667 -PlannedCount 215 -MismatchCount 0
+  New-BaselineJson -Path (Join-Path $lWorkspace 'baseline.json') -Runs @(
+    (New-PlanRun -Stdout $lPlanPath -Run 1 -OmitSourceMutationStatus)
+  )
+
+  $lExit = Invoke-BenchmarkSummarize -Workspace $lWorkspace
+  if ($lExit -eq 0) {
+    throw 'SummarizeOnly must fail when a successful run is missing SourceMutationStatus.'
+  }
+  $lStderr = Get-Content -LiteralPath (Join-Path $lWorkspace 'summarize.stderr.txt') -Raw
+  if ($lStderr -notmatch 'SourceMutationStatus') {
+    throw 'SummarizeOnly missing mutation-status failure must name SourceMutationStatus.'
   }
 }
 
@@ -422,6 +446,7 @@ $lTests = @(
   'Test-SummaryCountDriftFailsClosed',
   'Test-PlanRunMissingStdoutFailsClosed',
   'Test-PlanRunMissingMismatchCountFailsClosed',
+  'Test-SummarizeOnlyMissingSourceMutationStatusFailsClosed',
   'Test-ReportOnlyBenchmarkMutationFailsClosedAndRestoresSource',
   'Test-ReportOnlyBenchmarkRecordsCleanMutationStatus',
   'Test-ReportOnlyBenchmarkExternalProjectSourceMutationFailsClosed',

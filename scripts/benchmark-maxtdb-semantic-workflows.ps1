@@ -827,9 +827,6 @@ if ($SummarizeOnly) {
       if (-not ($lRow.PSObject.Properties.Name -contains 'PlannerPhaseMetrics')) {
         Add-Member -InputObject $lRow -NotePropertyName PlannerPhaseMetrics -NotePropertyValue $null
       }
-      if (-not ($lRow.PSObject.Properties.Name -contains 'SourceMutationStatus')) {
-        Add-Member -InputObject $lRow -NotePropertyName SourceMutationStatus -NotePropertyValue 'unknown'
-      }
       $lRow.ReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lRow.Stdout
       $lRow.SemanticCacheHits = Read-SemanticCacheMetric -Path $lRow.Stdout -Name 'semanticCacheHits'
       $lRow.SemanticCacheMisses = Read-SemanticCacheMetric -Path $lRow.Stdout -Name 'semanticCacheMisses'
@@ -846,8 +843,15 @@ if ($SummarizeOnly) {
     } elseif (-not ($lRow.PSObject.Properties.Name -contains 'ReferenceFallbackCount')) {
       Add-Member -InputObject $lRow -NotePropertyName ReferenceFallbackCount -NotePropertyValue ''
     }
-    if (-not ($lRow.PSObject.Properties.Name -contains 'SourceMutationStatus')) {
-      Add-Member -InputObject $lRow -NotePropertyName SourceMutationStatus -NotePropertyValue 'unknown'
+    $lHasSourceMutationStatus = $lRow.PSObject.Properties.Name -contains 'SourceMutationStatus'
+    if (($lRow.ExitCode -eq 0) -and
+        ((-not $lHasSourceMutationStatus) -or
+        [string]::IsNullOrWhiteSpace([string]$lRow.SourceMutationStatus))) {
+      throw "Successful benchmark row missing SourceMutationStatus: $($lRow.Id) run $($lRow.Run)"
+    }
+    if (-not $lHasSourceMutationStatus) {
+      Add-Member -InputObject $lRow -NotePropertyName SourceMutationStatus `
+        -NotePropertyValue 'not-applicable'
     }
   }
   $lResultRows = New-SummaryRows -RunRows $lRunRows
