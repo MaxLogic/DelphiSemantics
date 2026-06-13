@@ -136,7 +136,6 @@ type
     EnvOptionsPath: string;
     EnvironmentVariables: TArray<TDelphiSemanticProperty>;
     AdditionalSourceFileNames: TArray<string>;
-    BodyAnalysisSourceFileNames: TArray<string>;
     Defines: TArray<string>;
     SearchPaths: TArray<string>;
     ProjectContextApplied: Boolean;
@@ -197,7 +196,6 @@ begin
   Result.EnvOptionsPath := aOptions.EnvOptionsPath;
   Result.EnvironmentVariables := aOptions.EnvironmentVariables;
   Result.AdditionalSourceFileNames := aOptions.AdditionalSourceFileNames;
-  Result.BodyAnalysisSourceFileNames := aOptions.BodyAnalysisSourceFileNames;
   Result.SearchPaths := aOptions.SearchPaths;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;
   Result.UseLspEnrichment := aOptions.UseLspEnrichment;

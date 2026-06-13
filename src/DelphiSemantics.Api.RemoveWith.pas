@@ -54,11 +54,20 @@ type
     DelphiSemantics.WithBinding.TDelphiSemanticRemoveWithInventory;
   TDelphiSemanticWithBinder = DelphiSemantics.WithBinding.TDelphiSemanticWithBinder;
 
+  TDelphiSemanticRemoveWithRequest = record
+    Options: TDelphiSemanticApiOptions;
+    BodyAnalysisSourceFileNames: TArray<string>;
+  end;
+
   TDelphiSemanticRemoveWithApi = record
   public
     class function BuildProjectWithBindingFacts(const aOptions: TDelphiSemanticApiOptions):
-      TDelphiSemanticProjectWithBindingFacts; static;
+      TDelphiSemanticProjectWithBindingFacts; overload; static;
+    class function BuildProjectWithBindingFacts(const aRequest: TDelphiSemanticRemoveWithRequest):
+      TDelphiSemanticProjectWithBindingFacts; overload; static;
     class function PlanRemoveWith(const aOptions: TDelphiSemanticApiOptions):
+      TDelphiSemanticRemoveWithPlan; overload; static;
+    class function PlanRemoveWith(const aRequest: TDelphiSemanticRemoveWithRequest):
       TDelphiSemanticRemoveWithPlan; overload; static;
     class function PlanRemoveWith(const aFacts: TDelphiSemanticProjectWithBindingFacts):
       TDelphiSemanticRemoveWithPlan; overload; static;
@@ -85,7 +94,6 @@ begin
   Result.EnvOptionsPath := aOptions.EnvOptionsPath;
   Result.EnvironmentVariables := aOptions.EnvironmentVariables;
   Result.AdditionalSourceFileNames := aOptions.AdditionalSourceFileNames;
-  Result.BodyAnalysisSourceFileNames := aOptions.BodyAnalysisSourceFileNames;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;
   Result.UseLspEnrichment := aOptions.UseLspEnrichment;
   Result.SkipWithBindingSemanticGraph := aOptions.SkipWithBindingSemanticGraph;
@@ -105,14 +113,26 @@ end;
 class function TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(
   const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticProjectWithBindingFacts;
 var
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := aOptions;
+  Result := BuildProjectWithBindingFacts(lRequest);
+end;
+
+class function TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(
+  const aRequest: TDelphiSemanticRemoveWithRequest):
+  TDelphiSemanticProjectWithBindingFacts;
+var
   lSession: TDelphiSemanticProjectSessionResult;
 begin
-  lSession := OpenProjectSession(aOptions);
+  lSession := OpenProjectSession(aRequest.Options);
   try
     if (not lSession.Success) or (lSession.Session = nil) then
       Exit(Default(TDelphiSemanticProjectWithBindingFacts));
 
-    Result := lSession.Session.BuildWithBindingFacts;
+    Result := lSession.Session.BuildWithBindingFacts(
+      aRequest.BodyAnalysisSourceFileNames);
   finally
     lSession.Session.Free;
   end;
@@ -121,9 +141,19 @@ end;
 class function TDelphiSemanticRemoveWithApi.PlanRemoveWith(
   const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticRemoveWithPlan;
 var
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := aOptions;
+  Result := PlanRemoveWith(lRequest);
+end;
+
+class function TDelphiSemanticRemoveWithApi.PlanRemoveWith(
+  const aRequest: TDelphiSemanticRemoveWithRequest): TDelphiSemanticRemoveWithPlan;
+var
   lSession: TDelphiSemanticProjectSessionResult;
 begin
-  lSession := OpenProjectSession(aOptions);
+  lSession := OpenProjectSession(aRequest.Options);
   try
     if (not lSession.Success) or (lSession.Session = nil) then
     begin
@@ -135,7 +165,7 @@ begin
       Exit;
     end;
 
-    Result := lSession.Session.PlanRemoveWith;
+    Result := lSession.Session.PlanRemoveWith(aRequest.BodyAnalysisSourceFileNames);
   finally
     lSession.Session.Free;
   end;

@@ -73,6 +73,8 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with body-analysis scoping now lives on the remove-with-specific
+  request/API path instead of the common project/API option records.
 - Remove-with apply mode now preserves the semantic report-only statement set
   instead of retrying through a compatibility fallback plan after verification
   failure; the migration gate now emits and compares cloned maxTdb report-only

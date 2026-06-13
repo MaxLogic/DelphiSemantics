@@ -49,6 +49,8 @@ type
     [Test]
     procedure BuildWithBindingFactsSkipsReferencesForNonBodyModels;
     [Test]
+    procedure ScopedBuildWithBindingFactsDoesNotPolluteGenericCacheEntries;
+    [Test]
     procedure BuildWithBindingFactsDoesNotWriteProjectFactsJsonSidecar;
     [Test]
     procedure InvalidProjectReturnsStructuredSessionDiagnostic;
@@ -977,13 +979,11 @@ begin
   lOptions.ProjectPath := lDprojPath;
   lOptions.SqliteCacheFileName := lCachePath;
   lOptions.SkipWithBindingSemanticGraph := True;
-  SetLength(lOptions.BodyAnalysisSourceFileNames, 1);
-  lOptions.BodyAnalysisSourceFileNames[0] := lUnitPath;
 
   lFirstResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lFirstResult.Success);
-    lFirstFacts := lFirstResult.Session.BuildWithBindingFacts;
+    lFirstFacts := lFirstResult.Session.BuildWithBindingFacts([lUnitPath]);
   finally
     lFirstResult.Session.Free;
   end;
@@ -997,7 +997,7 @@ begin
   lSecondResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lSecondResult.Success);
-    lSecondFacts := lSecondResult.Session.BuildWithBindingFacts;
+    lSecondFacts := lSecondResult.Session.BuildWithBindingFacts([lUnitPath]);
   finally
     lSecondResult.Session.Free;
   end;
@@ -1028,7 +1028,7 @@ begin
   lThirdResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lThirdResult.Success);
-    lThirdFacts := lThirdResult.Session.BuildWithBindingFacts;
+    lThirdFacts := lThirdResult.Session.BuildWithBindingFacts([lUnitPath]);
   finally
     lThirdResult.Session.Free;
   end;
@@ -1046,7 +1046,7 @@ begin
   lFourthResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lFourthResult.Success);
-    lFourthFacts := lFourthResult.Session.BuildWithBindingFacts;
+    lFourthFacts := lFourthResult.Session.BuildWithBindingFacts([lUnitPath]);
   finally
     lFourthResult.Session.Free;
   end;
@@ -1074,12 +1074,11 @@ begin
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
   lOptions.SkipWithBindingSemanticGraph := True;
-  lOptions.BodyAnalysisSourceFileNames := [lUnitPath];
 
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
-    lFacts := lResult.Session.BuildWithBindingFacts;
+    lFacts := lResult.Session.BuildWithBindingFacts([lUnitPath]);
   finally
     lResult.Session.Free;
   end;
@@ -1097,6 +1096,60 @@ begin
   Assert.AreEqual(0, Integer(Length(lMainModel.WithStatements)));
   Assert.AreEqual(0, Integer(Length(lMainModel.References)));
   Assert.IsTrue(Length(lFacts.Bindings) > 0);
+end;
+
+procedure TProjectSessionTests.ScopedBuildWithBindingFactsDoesNotPolluteGenericCacheEntries;
+var
+  lCachePath: string;
+  lGenericFacts: TDelphiSemanticProjectWithBindingFacts;
+  lGenericResult: TDelphiSemanticProjectSessionResult;
+  lMainModel: TDelphiSemanticUnitModel;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticOptions;
+  lScopedFacts: TDelphiSemanticProjectWithBindingFacts;
+  lScopedResult: TDelphiSemanticProjectSessionResult;
+  lScopedUnitPath: string;
+begin
+  lCachePath := TPath.Combine(ProjectSessionTempPath('scoped-cache-contamination'),
+    'semantic-cache.sqlite3');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lCachePath));
+  lScopedUnitPath := FixturePath('ProjectWithBinding\ProjectWithUnit.pas');
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lOptions.SqliteCacheFileName := lCachePath;
+  lOptions.SkipWithBindingSemanticGraph := True;
+
+  lScopedResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lScopedResult.Success);
+    lScopedFacts := lScopedResult.Session.BuildWithBindingFacts([lScopedUnitPath]);
+  finally
+    lScopedResult.Session.Free;
+  end;
+  Assert.IsTrue(Length(lScopedFacts.Bindings) > 0);
+
+  lGenericResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lGenericResult.Success);
+    lGenericFacts := lGenericResult.Session.BuildWithBindingFacts;
+  finally
+    lGenericResult.Session.Free;
+  end;
+
+  lMainModel := Default(TDelphiSemanticUnitModel);
+  for lModel in lGenericFacts.UnitModels do
+    if SameText(ExtractFileName(lModel.FileName), 'ProjectWithBinding.dpr') then
+    begin
+      lMainModel := lModel;
+      Break;
+    end;
+
+  Assert.AreEqual('ProjectWithBinding', lMainModel.UnitName);
+  Assert.IsTrue(Length(lMainModel.WithStatements) > 0,
+    'Generic facts must not reuse scoped no-body cache entries.');
+  Assert.IsTrue(Length(lMainModel.References) > 0,
+    'Generic facts must not reuse scoped no-reference cache entries.');
 end;
 
 procedure TProjectSessionTests.InvalidProjectReturnsStructuredSessionDiagnostic;

@@ -19,7 +19,6 @@ type
     EnvOptionsPath: string;
     EnvironmentVariables: TArray<TDelphiSemanticProperty>;
     AdditionalSourceFileNames: TArray<string>;
-    BodyAnalysisSourceFileNames: TArray<string>;
     SearchPaths: TArray<string>;
     SqliteCacheFileName: string;
     SnapshotBuildWorkerCount: Integer;

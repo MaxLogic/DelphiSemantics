@@ -4,13 +4,17 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Api;
+  DelphiSemantics.Api, DelphiSemantics.Api.RemoveWith;
 
 type
   [TestFixture]
   TApiTests = class
   private
     function FixturePath(const aRelativePath: string): string;
+    function HasBindingForUnit(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+      const aUnitName: string): Boolean;
+    function HasProjectSymbol(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+      const aName, aSymbolClass: string): Boolean;
     function TryFindDiagnostic(const aResult: TDelphiSemanticContextResult;
       const aCode: string; out aDiagnostic: TDelphiSemanticDiagnostic): Boolean;
   public
@@ -20,6 +24,10 @@ type
     procedure LoadProjectContextMergesApiSearchPaths;
     [Test]
     procedure LoadProjectContextReportsExplicitLspEnrichmentStatus;
+    [Test]
+    procedure CommonOptionsDoNotExposeRemoveWithBodyAnalysisScope;
+    [Test]
+    procedure RemoveWithRequestOwnsBodyAnalysisScope;
   end;
 
 implementation
@@ -32,6 +40,30 @@ begin
   Result := TPath.GetFullPath(TPath.Combine(
     TPath.Combine(ExtractFilePath(ParamStr(0)), '..\fixtures'),
     aRelativePath));
+end;
+
+function TApiTests.HasBindingForUnit(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts; const aUnitName: string): Boolean;
+var
+  lBinding: TDelphiSemanticWithBinding;
+begin
+  for lBinding in aFacts.Bindings do
+    if SameText(lBinding.UnitName, aUnitName) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function TApiTests.HasProjectSymbol(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aName, aSymbolClass: string): Boolean;
+var
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  for lSymbol in aFacts.Symbols do
+    if SameText(lSymbol.Name, aName) and SameText(lSymbol.SymbolClass, aSymbolClass) then
+      Exit(True);
+
+  Result := False;
 end;
 
 function TApiTests.TryFindDiagnostic(const aResult: TDelphiSemanticContextResult;
@@ -139,6 +171,45 @@ begin
   Assert.AreEqual(lProjectFileName, lDiagnostic.FileName);
   Assert.AreEqual('LSP enrichment was requested, but no DelphiSemantics LSP enrichment adapter is configured.',
     lDiagnostic.Message);
+end;
+
+procedure TApiTests.CommonOptionsDoNotExposeRemoveWithBodyAnalysisScope;
+var
+  lApiSource: string;
+  lProjectContextSource: string;
+begin
+  lApiSource := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
+    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.Api.pas')), TEncoding.UTF8);
+  lProjectContextSource := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
+    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.ProjectContext.pas')),
+    TEncoding.UTF8);
+
+  Assert.IsFalse(Pos('BodyAnalysisSourceFileNames', lApiSource) > 0,
+    'Common API options must not expose remove-with-only body-analysis scope.');
+  Assert.IsFalse(Pos('BodyAnalysisSourceFileNames', lProjectContextSource) > 0,
+    'Common project/session options must not expose remove-with-only body-analysis scope.');
+end;
+
+procedure TApiTests.RemoveWithRequestOwnsBodyAnalysisScope;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := FixturePath(
+    'ProjectWithBinding\ProjectWithBinding.dproj');
+  lRequest.Options.AdditionalSourceFileNames := [
+    FixturePath('ProjectWithBinding\UnreferencedWithUnit.pas')];
+  lRequest.BodyAnalysisSourceFileNames := [
+    FixturePath('ProjectWithBinding\ProjectWithBinding.dpr'),
+    FixturePath('ProjectWithBinding\ProjectWithUnit.pas')];
+
+  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lRequest);
+
+  Assert.IsFalse(HasBindingForUnit(lFacts, 'UnreferencedWithUnit'),
+    'Remove-with request scope must suppress bindings for non-scoped source files.');
+  Assert.IsTrue(HasProjectSymbol(lFacts, 'TUnreferencedRecord', 'declaration'),
+    'Remove-with request scope must still preserve declarations from loaded sources.');
 end;
 
 initialization

@@ -1165,6 +1165,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lProjectFactsSidecar: string;
   lProjectPath: string;
+  lRequest: TDelphiSemanticRemoveWithRequest;
 begin
   lProjectPath := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
   if not TFile.Exists(lProjectPath) then
@@ -1180,13 +1181,15 @@ begin
 
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := lProjectPath;
-  lOptions.BodyAnalysisSourceFileNames := MaxTdbBodyAnalysisSourceFileNames;
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lCacheDir,
     'semantic-cache.sqlite3');
   lProjectFactsSidecar := lOptions.Cache.SqliteCacheFileName + '.project-facts.json';
   TDirectory.CreateDirectory(lProjectFactsSidecar);
 
-  lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lOptions);
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := lOptions;
+  lRequest.BodyAnalysisSourceFileNames := MaxTdbBodyAnalysisSourceFileNames;
+  lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lRequest);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual('project-snapshot-v1', lPlan.BaselineSemanticModelVersion);
@@ -5023,13 +5026,16 @@ var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lOptions: TDelphiSemanticApiOptions;
   lPlan: TDelphiSemanticRemoveWithPlan;
+  lRequest: TDelphiSemanticRemoveWithRequest;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
-  lOptions.BodyAnalysisSourceFileNames := MaxTdbBodyAnalysisSourceFileNames;
 
-  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lOptions);
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := lOptions;
+  lRequest.BodyAnalysisSourceFileNames := MaxTdbBodyAnalysisSourceFileNames;
+  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lRequest);
   lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lFacts);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 801, 3, lStatement),

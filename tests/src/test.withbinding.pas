@@ -259,14 +259,13 @@ begin
   lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
   lOptions.AdditionalSourceFileNames := [
     FixturePath('ProjectWithBinding\UnreferencedWithUnit.pas')];
-  lOptions.BodyAnalysisSourceFileNames := [
-    FixturePath('ProjectWithBinding\ProjectWithBinding.dpr'),
-    FixturePath('ProjectWithBinding\ProjectWithUnit.pas')];
 
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
-    lFacts := lResult.Session.BuildWithBindingFacts;
+    lFacts := lResult.Session.BuildWithBindingFacts([
+      FixturePath('ProjectWithBinding\ProjectWithBinding.dpr'),
+      FixturePath('ProjectWithBinding\ProjectWithUnit.pas')]);
 
     Assert.IsFalse(HasBindingForUnit(lFacts, 'UnreferencedWithUnit'),
       'Sources outside the body-analysis set must not contribute with bindings.');
