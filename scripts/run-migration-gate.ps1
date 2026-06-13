@@ -125,6 +125,7 @@ function Write-MigrationGateManifest {
     [Parameter(Mandatory = $true)][string]$DelphiSemanticsRoot,
     [Parameter(Mandatory = $true)][string]$DakRoot,
     [object[]]$Provenance = @(),
+    [object[]]$Steps = @(),
     [switch]$AllowDirty
   )
 
@@ -156,6 +157,7 @@ function Write-MigrationGateManifest {
         statusLines = $lDak.StatusLines
       }
     }
+    steps = @($Steps)
   }
 
   $lParent = Split-Path -Parent $Path
@@ -220,48 +222,79 @@ function Invoke-GateStep {
     [Parameter(Mandatory = $true)][string]$WorkingDirectory,
     [Parameter(Mandatory = $true)][string]$FilePath,
     [string[]]$Arguments = @(),
+    [string]$ArtifactDirectory = '',
+    [switch]$NoThrow,
     [int]$MaxOutputLines = 400
   )
 
   Write-Host "== $Name"
-  Write-Host "   cwd: $WorkingDirectory"
+  $lWorkingDirectory = [IO.Path]::GetFullPath($WorkingDirectory)
+  $lCommand = ('{0} {1}' -f $FilePath, ($Arguments -join ' ')).Trim()
+  Write-Host "   cwd: $lWorkingDirectory"
   Write-Host "   run: $FilePath $($Arguments -join ' ')"
+
+  if ([string]::IsNullOrWhiteSpace($ArtifactDirectory)) {
+    $ArtifactDirectory = Join-Path ([IO.Path]::GetTempPath()) 'delphi-semantics-migration-gate-step-logs'
+  }
+  [IO.Directory]::CreateDirectory($ArtifactDirectory) | Out-Null
+  $lSafeName = [Regex]::Replace($Name.ToLowerInvariant(), '[^a-z0-9]+', '-').Trim('-')
+  if ([string]::IsNullOrWhiteSpace($lSafeName)) {
+    $lSafeName = 'step'
+  }
+  $lStamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+  $lStdout = Join-Path $ArtifactDirectory "$lStamp-$lSafeName.stdout.txt"
+  $lStderr = Join-Path $ArtifactDirectory "$lStamp-$lSafeName.stderr.txt"
 
   $lOldLocation = Get-Location
   $lTimer = [Diagnostics.Stopwatch]::StartNew()
   try {
-    Set-Location -LiteralPath $WorkingDirectory
-    $lOutput = & $FilePath @Arguments 2>&1
+    Set-Location -LiteralPath $lWorkingDirectory
+    & $FilePath @Arguments 1> $lStdout 2> $lStderr
     $lExitCode = $LASTEXITCODE
   } finally {
     Set-Location -LiteralPath $lOldLocation
     $lTimer.Stop()
   }
 
-  if ($null -ne $lOutput) {
-    $lOutputLines = @($lOutput)
+  $lOutputLines = @()
+  if (Test-Path -LiteralPath $lStdout -PathType Leaf) {
+    $lOutputLines = @(Get-Content -LiteralPath $lStdout)
+  }
+  if (Test-Path -LiteralPath $lStderr -PathType Leaf) {
+    $lOutputLines += @(Get-Content -LiteralPath $lStderr)
+  }
+  if ($lOutputLines.Count -gt 0) {
     if ($MaxOutputLines -eq 0) {
-      Write-Host "   output suppressed; see generated report or rerun the command for full output."
+      Write-Host "   output suppressed; see $lStdout and $lStderr."
     } elseif (($MaxOutputLines -gt 0) -and ($lOutputLines.Count -gt $MaxOutputLines)) {
       $lOutputLines | Select-Object -First $MaxOutputLines | ForEach-Object { Write-Host $_ }
-      Write-Host "   ... suppressed $($lOutputLines.Count - $MaxOutputLines) output line(s); see generated report or rerun the command for full output."
+      Write-Host "   ... suppressed $($lOutputLines.Count - $MaxOutputLines) output line(s); see $lStdout and $lStderr."
     } else {
       $lOutputLines | ForEach-Object { Write-Host $_ }
     }
   }
 
   $lResult = [pscustomobject]@{
-    Name = $Name
-    ExitCode = $lExitCode
-    Seconds = [Math]::Round($lTimer.Elapsed.TotalSeconds, 1)
+    name = $Name
+    workingDirectory = $lWorkingDirectory
+    filePath = $FilePath
+    arguments = @($Arguments)
+    command = $lCommand
+    exitCode = $lExitCode
+    elapsedSeconds = [Math]::Round($lTimer.Elapsed.TotalSeconds, 1)
+    stdout = $lStdout
+    stderr = $lStderr
   }
 
   if ($lExitCode -ne 0) {
-    Write-Host "!! $Name failed in $($lResult.Seconds)s with exit code $lExitCode"
-    throw "$Name failed with exit code $lExitCode"
+    Write-Host "!! $Name failed in $($lResult.elapsedSeconds)s with exit code $lExitCode"
+    if (-not $NoThrow) {
+      throw "$Name failed with exit code $lExitCode"
+    }
+    return $lResult
   }
 
-  Write-Host "-- $Name passed in $($lResult.Seconds)s"
+  Write-Host "-- $Name passed in $($lResult.elapsedSeconds)s"
   return $lResult
 }
 
@@ -319,7 +352,9 @@ function Invoke-DakRemoveWithTests {
     [Parameter(Mandatory = $true)][string]$DakRoot,
     [Parameter(Mandatory = $true)][string]$WorkRoot,
     [Parameter(Mandatory = $true)][int]$ShardCount,
-    [Parameter(Mandatory = $true)][string]$Profile
+    [Parameter(Mandatory = $true)][string]$Profile,
+    [string]$ArtifactDirectory = '',
+    [switch]$NoThrow
   )
 
   $lFilters = @(Get-DakRemoveWithTestFilters -DakRoot $DakRoot)
@@ -349,7 +384,36 @@ function Invoke-DakRemoveWithTests {
     -Name 'Run DAK remove-with tests' `
     -WorkingDirectory $DakRoot `
     -FilePath 'tests\DelphiAIKit.Tests.exe' `
-    -Arguments @('--hidebanner', '--consolemode:quiet', "-r:$($lFilters -join ',')")
+    -Arguments @('--hidebanner', '--consolemode:quiet', "-r:$($lFilters -join ',')") `
+    -ArtifactDirectory $ArtifactDirectory `
+    -NoThrow:$NoThrow
+}
+
+function Add-GateStepResult {
+  param(
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][System.Collections.Generic.List[object]]$Results,
+    [Parameter(Mandatory = $true)][object]$Result,
+    [Parameter(Mandatory = $true)][string]$ManifestPath,
+    [Parameter(Mandatory = $true)][string]$WorkRoot,
+    [Parameter(Mandatory = $true)][string]$DelphiSemanticsRoot,
+    [Parameter(Mandatory = $true)][string]$DakRoot,
+    [object[]]$Provenance = @(),
+    [switch]$AllowDirty
+  )
+
+  $Results.Add($Result)
+  Write-MigrationGateManifest `
+    -Path $ManifestPath `
+    -WorkRoot $WorkRoot `
+    -DelphiSemanticsRoot $DelphiSemanticsRoot `
+    -DakRoot $DakRoot `
+    -Provenance $Provenance `
+    -Steps $Results.ToArray() `
+    -AllowDirty:$AllowDirty
+
+  if ([int]$Result.exitCode -ne 0) {
+    throw "$($Result.name) failed with exit code $($Result.exitCode)"
+  }
 }
 
 function Get-NormalizedDirectoryPath {
@@ -410,6 +474,7 @@ $lClone = Join-Path $WorkRoot 'maxTdb'
 $lPlanReport = Join-Path $WorkRoot 'maxTdb-plan-only.json'
 $lReport = Join-Path $WorkRoot 'maxTdb-remove-with.json'
 $lManifest = Join-Path $WorkRoot 'migration-gate-manifest.json'
+$lLogDir = Join-Path $WorkRoot 'logs'
 
 if (-not (Test-Path -LiteralPath $lFixture -PathType Container)) {
   throw "maxTdb fixture not found: $lFixture"
@@ -433,39 +498,49 @@ Write-MigrationGateManifest `
 $lResults = New-Object System.Collections.Generic.List[object]
 
 if (-not $SkipBuild) {
-  $lResults.Add((Invoke-GateStep `
+  Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
     -Name 'Build DelphiSemantics tests' `
     -WorkingDirectory $DelphiSemanticsRoot `
     -FilePath 'cmd.exe' `
-    -Arguments @('/C', 'build-delphi.bat', 'tests\delphiSemanticsTests.dproj', '-config', 'Debug', '-platform', 'Win32', '-target', 'Rebuild', '-test-output-dir', 'tests\bin')))
+    -Arguments @('/C', 'build-delphi.bat', 'tests\delphiSemanticsTests.dproj', '-config', 'Debug', '-platform', 'Win32', '-target', 'Rebuild', '-test-output-dir', 'tests\bin') `
+    -ArtifactDirectory $lLogDir `
+    -NoThrow)
 }
 
-$lResults.Add((Invoke-GateStep `
+Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
   -Name 'Run DelphiSemantics tests' `
   -WorkingDirectory $DelphiSemanticsRoot `
   -FilePath 'tests\bin\delphiSemanticsTests.exe' `
-  -Arguments @('--hidebanner', '--consolemode:quiet')))
+  -Arguments @('--hidebanner', '--consolemode:quiet') `
+  -ArtifactDirectory $lLogDir `
+  -NoThrow)
 
 if (-not $SkipBuild) {
-  $lResults.Add((Invoke-GateStep `
+  Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
     -Name 'Build DAK tests' `
     -WorkingDirectory $DakRoot `
     -FilePath 'cmd.exe' `
-    -Arguments @('/C', 'build-delphi.bat', 'tests\DelphiAIKit.Tests.dproj', '-config', 'Debug', '-platform', 'Win64', '-target', 'Rebuild')))
+    -Arguments @('/C', 'build-delphi.bat', 'tests\DelphiAIKit.Tests.dproj', '-config', 'Debug', '-platform', 'Win64', '-target', 'Rebuild') `
+    -ArtifactDirectory $lLogDir `
+    -NoThrow)
 }
 
-$lResults.Add((Invoke-DakRemoveWithTests `
+Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-DakRemoveWithTests `
   -DakRoot $DakRoot `
   -WorkRoot $WorkRoot `
   -ShardCount $DakTestShards `
-  -Profile $DakTestProfile))
+  -Profile $DakTestProfile `
+  -ArtifactDirectory $lLogDir `
+  -NoThrow)
 
 if (-not $SkipBuild) {
-  $lResults.Add((Invoke-GateStep `
+  Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
     -Name 'Build DAK CLI' `
     -WorkingDirectory $DakRoot `
     -FilePath 'cmd.exe' `
-    -Arguments @('/C', 'build-delphi.bat', 'projects\DelphiAIKit.dproj', '-config', 'Debug', '-platform', 'Win64', '-target', 'Rebuild')))
+    -Arguments @('/C', 'build-delphi.bat', 'projects\DelphiAIKit.dproj', '-config', 'Debug', '-platform', 'Win64', '-target', 'Rebuild') `
+    -ArtifactDirectory $lLogDir `
+    -NoThrow)
 }
 
 Reset-DirectoryUnder -Path $lClone -AllowedRoot $WorkRoot
@@ -479,19 +554,23 @@ if (Test-Path -LiteralPath $lReport) {
 Copy-Item -LiteralPath $lFixture -Destination $lClone -Recurse -Force
 
 $lProject = Join-Path $lClone 'src\maxtdb.dproj'
-$lResults.Add((Invoke-GateStep `
+Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
   -Name 'Run cloned maxTdb report-only plan' `
   -WorkingDirectory $DakRoot `
   -FilePath 'bin\DelphiAIKit.exe' `
   -Arguments @('remove-with', '--project', $lProject, '--all', '--mode', 'plan', '--format', 'json', '--output', $lPlanReport) `
-  -MaxOutputLines 0))
+  -ArtifactDirectory $lLogDir `
+  -NoThrow `
+  -MaxOutputLines 0)
 
-$lResults.Add((Invoke-GateStep `
+Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
   -Name 'Run cloned maxTdb smoke' `
   -WorkingDirectory $DakRoot `
   -FilePath 'bin\DelphiAIKit.exe' `
   -Arguments @('remove-with', '--project', $lProject, '--all', '--mode', 'apply', '--format', 'json', '--output', $lReport) `
-  -MaxOutputLines 0))
+  -ArtifactDirectory $lLogDir `
+  -NoThrow `
+  -MaxOutputLines 0)
 
 Assert-ExistingFile $lPlanReport
 Assert-ExistingFile $lReport
@@ -534,16 +613,25 @@ if ($lAppliedEdits -lt 1) {
 $lSkipBuckets = @($lJson.skipped | Group-Object reason | Sort-Object Count -Descending |
   Select-Object Count, Name)
 
+Write-MigrationGateManifest `
+  -Path $lManifest `
+  -WorkRoot $WorkRoot `
+  -DelphiSemanticsRoot $DelphiSemanticsRoot `
+  -DakRoot $DakRoot `
+  -Provenance $lGateProvenance `
+  -Steps $lResults.ToArray() `
+  -AllowDirty:$AllowDirty
+
 Write-Host ''
 Write-Host '== Migration gate summary'
 $lResults | Format-Table -AutoSize | Out-String | Write-Host
 
-$lTotalSeconds = ($lResults | Measure-Object -Property Seconds -Sum).Sum
-$lDominantPhases = @($lResults | Sort-Object Seconds -Descending | Select-Object -First 3 | ForEach-Object {
+$lTotalSeconds = ($lResults | Measure-Object -Property elapsedSeconds -Sum).Sum
+$lDominantPhases = @($lResults | Sort-Object elapsedSeconds -Descending | Select-Object -First 3 | ForEach-Object {
   [pscustomobject]@{
-    Name = $_.Name
-    Seconds = $_.Seconds
-    Percent = if ($lTotalSeconds -gt 0) { [Math]::Round(($_.Seconds / $lTotalSeconds) * 100, 1) } else { 0 }
+    Name = $_.name
+    Seconds = $_.elapsedSeconds
+    Percent = if ($lTotalSeconds -gt 0) { [Math]::Round(($_.elapsedSeconds / $lTotalSeconds) * 100, 1) } else { 0 }
   }
 })
 

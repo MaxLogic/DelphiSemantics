@@ -45,7 +45,8 @@ The maxTdb smoke never edits the original fixture. By default it copies
 unique run-scoped directory under `%TEMP%\delphi-semantics-migration-gate\` and
 writes plan/apply JSON reports plus `migration-gate-manifest.json` there. The
 manifest records DelphiSemantics and DAK branch, commit, and dirty-state
-provenance for the run.
+provenance for the run, plus each proof step's working directory, command,
+exit code, elapsed seconds, and stdout/stderr artifact paths.
 
 The gate fails on dirty DelphiSemantics or DAK worktrees by default. Use
 `-AllowDirty` only when intentionally collecting local proof before a commit;

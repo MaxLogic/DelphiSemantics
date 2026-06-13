@@ -70,6 +70,32 @@ function Add-TestRepoFile {
   Invoke-Git -Repo $Repo add $RelativePath | Out-Null
 }
 
+function New-TestGateProvenance {
+  param(
+    [Parameter(Mandatory = $true)][string]$DelphiSemanticsRoot,
+    [Parameter(Mandatory = $true)][string]$DakRoot
+  )
+
+  return @(
+    [pscustomobject]@{
+      Name = 'DelphiSemantics'
+      Path = $DelphiSemanticsRoot
+      Branch = 'main'
+      Commit = 'semantics-commit'
+      Dirty = $false
+      StatusLines = @()
+    },
+    [pscustomobject]@{
+      Name = 'DAK'
+      Path = $DakRoot
+      Branch = 'master'
+      Commit = 'dak-commit'
+      Dirty = $false
+      StatusLines = @()
+    }
+  )
+}
+
 function Assert-Equal {
   param(
     [object]$Expected,
@@ -179,6 +205,107 @@ function Test-ManifestUsesAcceptedProvenanceSnapshot {
     'Manifest must use the provenance snapshot accepted by the dirty gate.'
 }
 
+function Test-GateStepRecordsCommandAndLogArtifacts {
+  Reset-TestWorkspace
+  $lWorkDir = Join-Path $TempRoot 'step-metadata'
+  [IO.Directory]::CreateDirectory($lWorkDir) | Out-Null
+  $lPowerShell = [Diagnostics.Process]::GetCurrentProcess().Path
+  $lManifest = Join-Path $TempRoot 'metadata-manifest.json'
+  $lResults = New-Object System.Collections.Generic.List[object]
+  $lProvenance = New-TestGateProvenance -DelphiSemanticsRoot $RepoRoot -DakRoot $RepoRoot
+
+  $lResult = Invoke-GateStep `
+    -Name 'metadata probe' `
+    -WorkingDirectory $lWorkDir `
+    -FilePath $lPowerShell `
+    -Arguments @('-NoProfile', '-Command', "[Console]::Out.WriteLine('step out'); [Console]::Error.WriteLine('step err')")
+
+  Assert-Equal 'metadata probe' $lResult.Name 'Step result must record name.'
+  Assert-Equal ([IO.Path]::GetFullPath($lWorkDir)) $lResult.WorkingDirectory `
+    'Step result must record working directory.'
+  Assert-Equal $lPowerShell $lResult.FilePath 'Step result must record executable.'
+  Assert-True (@($lResult.Arguments).Count -gt 0) 'Step result must record arguments.'
+  Assert-True ($lResult.Command -like '*step out*') 'Step result must record command text.'
+  Assert-Equal '0' $lResult.ExitCode 'Step result must record exit code.'
+  Assert-True ([double]$lResult.ElapsedSeconds -ge 0) 'Step result must record elapsed seconds.'
+  Assert-True (Test-Path -LiteralPath $lResult.Stdout -PathType Leaf) `
+    'Step result must record stdout artifact path.'
+  Assert-True (Test-Path -LiteralPath $lResult.Stderr -PathType Leaf) `
+    'Step result must record stderr artifact path.'
+  Assert-True ((Get-Content -LiteralPath $lResult.Stdout -Raw) -like '*step out*') `
+    'Stdout artifact must contain command output.'
+  Assert-True ((Get-Content -LiteralPath $lResult.Stderr -Raw) -like '*step err*') `
+    'Stderr artifact must contain command error output.'
+
+  Add-GateStepResult `
+    -Results $lResults `
+    -Result $lResult `
+    -ManifestPath $lManifest `
+    -WorkRoot $TempRoot `
+    -DelphiSemanticsRoot $RepoRoot `
+    -DakRoot $RepoRoot `
+    -Provenance $lProvenance `
+    -AllowDirty:$false
+
+  $lJson = Get-Content -LiteralPath $lManifest -Raw | ConvertFrom-Json
+  $lStep = @($lJson.steps)[0]
+  $lStepPropertyNames = @($lStep.PSObject.Properties.Name)
+  foreach ($lProperty in @('name', 'workingDirectory', 'filePath', 'arguments', 'command', 'exitCode', 'elapsedSeconds', 'stdout', 'stderr')) {
+    Assert-True ($lStepPropertyNames -contains $lProperty) `
+      "Serialized manifest step must expose lower-camel property '$lProperty'."
+  }
+}
+
+function Test-FailedGateStepPersistsManifestLogs {
+  Reset-TestWorkspace
+  $lWorkDir = Join-Path $TempRoot 'failed-step'
+  [IO.Directory]::CreateDirectory($lWorkDir) | Out-Null
+  $lPowerShell = [Diagnostics.Process]::GetCurrentProcess().Path
+  $lManifest = Join-Path $TempRoot 'failed-manifest.json'
+  $lResults = New-Object System.Collections.Generic.List[object]
+  $lProvenance = New-TestGateProvenance -DelphiSemanticsRoot $RepoRoot -DakRoot $RepoRoot
+
+  $lResult = Invoke-GateStep `
+    -Name 'failed probe' `
+    -WorkingDirectory $lWorkDir `
+    -FilePath $lPowerShell `
+    -Arguments @('-NoProfile', '-Command', "[Console]::Out.WriteLine('failed out'); [Console]::Error.WriteLine('failed err'); exit 7") `
+    -NoThrow
+
+  $lFailed = $false
+  try {
+    Add-GateStepResult `
+      -Results $lResults `
+      -Result $lResult `
+      -ManifestPath $lManifest `
+      -WorkRoot $TempRoot `
+      -DelphiSemanticsRoot $RepoRoot `
+      -DakRoot $RepoRoot `
+      -Provenance $lProvenance `
+      -AllowDirty:$false
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*failed probe*') `
+      'Failed step exception should name the failed step.'
+  }
+
+  Assert-True $lFailed 'Failed recorded step must still fail the gate.'
+  Assert-True (Test-Path -LiteralPath $lManifest -PathType Leaf) `
+    'Failed step must persist the manifest before raising.'
+  $lJson = Get-Content -LiteralPath $lManifest -Raw | ConvertFrom-Json
+  $lStep = @($lJson.steps)[0]
+  Assert-Equal 'failed probe' $lStep.name 'Manifest must record failed step name.'
+  Assert-Equal '7' $lStep.exitCode 'Manifest must record failed step exit code.'
+  Assert-True (Test-Path -LiteralPath $lStep.stdout -PathType Leaf) `
+    'Manifest must link failed step stdout artifact.'
+  Assert-True (Test-Path -LiteralPath $lStep.stderr -PathType Leaf) `
+    'Manifest must link failed step stderr artifact.'
+  Assert-True ((Get-Content -LiteralPath $lStep.stdout -Raw) -like '*failed out*') `
+    'Failed step stdout artifact must contain output.'
+  Assert-True ((Get-Content -LiteralPath $lStep.stderr -Raw) -like '*failed err*') `
+    'Failed step stderr artifact must contain error output.'
+}
+
 function Test-ExplicitWorkRootLockBlocksConcurrentRuns {
   Reset-TestWorkspace
   $lWorkRoot = Join-Path $TempRoot 'explicit-work-root'
@@ -261,6 +388,8 @@ $lTests = @(
   'Test-DirtyWorktreeFailsUnlessAllowed',
   'Test-ManifestRecordsGitProvenance',
   'Test-ManifestUsesAcceptedProvenanceSnapshot',
+  'Test-GateStepRecordsCommandAndLogArtifacts',
+  'Test-FailedGateStepPersistsManifestLogs',
   'Test-ExplicitWorkRootLockBlocksConcurrentRuns',
   'Test-MainScriptFailsBeforeWorkRootMutationWhenExplicitRootLocked'
 )
