@@ -95,6 +95,7 @@
     <DCCReference Include="src\test.sourcecontext.pas"/>
     <DCCReference Include="src\test.smoke.pas"/>
     <DCCReference Include="src\test.symbolquery.pas"/>
+    <DCCReference Include="src\test.support.pas"/>
     <DCCReference Include="src\test.typeresolver.pas"/>
     <DCCReference Include="src\test.unitresolver.pas"/>
     <DCCReference Include="src\test.usage.pas"/>

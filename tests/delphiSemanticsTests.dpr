@@ -41,6 +41,7 @@ uses
   Test.Snapshot in 'src\test.snapshot.pas',
   Test.SnapshotSqlite in 'src\test.snapshotsqlite.pas',
   Test.SymbolQuery in 'src\test.symbolquery.pas',
+  Test.Support in 'src\test.support.pas',
   Test.TypeResolver in 'src\test.typeresolver.pas',
   Test.UnitResolver in 'src\test.unitresolver.pas',
   Test.Usage in 'src\test.usage.pas',

@@ -139,7 +139,8 @@ implementation
 uses
   System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GUnitModelTempRoot: string;
@@ -1812,8 +1813,7 @@ begin
       lThreadB.FreeOnTerminate := False;
       lThreadA.Start;
       lThreadB.Start;
-      lThreadA.WaitFor;
-      lThreadB.WaitFor;
+      WaitForTestThreads([lThreadA, lThreadB], 30000);
     finally
       lThreadB.Free;
       lThreadA.Free;

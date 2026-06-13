@@ -32,7 +32,8 @@ implementation
 
 uses
   System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 function TSemanticGraphReferenceTests.FixturePath(const aRelativePath: string): string;
 begin
@@ -243,8 +244,7 @@ begin
     lThread1.FreeOnTerminate := False;
     lThread0.Start;
     lThread1.Start;
-    lThread0.WaitFor;
-    lThread1.WaitFor;
+    WaitForTestThreads([lThread0, lThread1], 30000);
   finally
     lThread1.Free;
     lThread0.Free;
