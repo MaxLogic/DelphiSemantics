@@ -383,16 +383,24 @@ function Test-MainScriptFailsBeforeWorkRootMutationWhenExplicitRootLocked {
   }
 }
 
-$lTests = @(
-  'Test-DefaultWorkRootsAreRunScoped',
-  'Test-DirtyWorktreeFailsUnlessAllowed',
-  'Test-ManifestRecordsGitProvenance',
-  'Test-ManifestUsesAcceptedProvenanceSnapshot',
-  'Test-GateStepRecordsCommandAndLogArtifacts',
-  'Test-FailedGateStepPersistsManifestLogs',
-  'Test-ExplicitWorkRootLockBlocksConcurrentRuns',
-  'Test-MainScriptFailsBeforeWorkRootMutationWhenExplicitRootLocked'
-)
+function Get-ScriptTestNames {
+  $lScriptPath = [IO.Path]::GetFullPath($PSCommandPath)
+  $lTests = @(Get-Command -CommandType Function -Name 'Test-*' |
+    Where-Object {
+      (-not [string]::IsNullOrWhiteSpace($_.ScriptBlock.File)) -and
+      ([IO.Path]::GetFullPath($_.ScriptBlock.File) -eq $lScriptPath)
+    } |
+    Sort-Object Name |
+    Select-Object -ExpandProperty Name)
+
+  if ($lTests.Count -eq 0) {
+    throw "No Test-* functions discovered in $lScriptPath."
+  }
+  return $lTests
+}
+
+$lTests = @(Get-ScriptTestNames)
+Write-Host "Discovered $($lTests.Count) test(s)."
 
 $lFailures = New-Object System.Collections.Generic.List[string]
 foreach ($lTest in $lTests) {
