@@ -46,7 +46,7 @@ implementation
 
 uses
   System.Generics.Collections, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Index, DelphiSemantics.Snapshot;
+  DelphiSemantics.Index, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.QuerySupport;
 
 function MakeBlockedResult(const aDiagnostic: string): TDelphiSemanticSearchResult;
 begin
@@ -94,44 +94,9 @@ begin
   Result.Column := aSymbol.Column;
 end;
 
-function ContextProjectSnapshot(const aContext: TDelphiSemanticSymbolQueryContext):
-  TDelphiProjectSnapshot;
-begin
-  if aContext.ProjectSnapshot = nil then
-    Exit(nil);
-
-  Result := aContext.ProjectSnapshot.Snapshot;
-end;
-
-function SnapshotText(const aSnapshot: TDelphiProjectSnapshot;
-  const aId: TSemanticStringId): string;
-begin
-  if (aSnapshot = nil) or (aId = 0) then
-    Exit('');
-
-  Result := aSnapshot.TextOf(aId);
-end;
-
-function SnapshotSymbolId(const aSymbolRef: TSemanticSymbolRef): TDelphiSemanticSymbolId;
-begin
-  Result.Value := 'snapshot:' + IntToStr(Integer(aSymbolRef.UnitId)) + ':' +
-    IntToStr(Integer(aSymbolRef.SymbolId));
-end;
-
 function SnapshotUnitSymbolId(const aUnit: TUnitSnapshot): TDelphiSemanticSymbolId;
 begin
   Result.Value := 'snapshot:' + IntToStr(Integer(aUnit.UnitId)) + ':unit';
-end;
-
-function SnapshotSymbolOwnerName(const aSnapshot: TDelphiProjectSnapshot;
-  const aSymbol: TSemanticSymbolFact; const aKind: string): string;
-begin
-  if aSymbol.OwnerTypeId <> 0 then
-    Exit(aSnapshot.TextOf(aSymbol.OwnerTypeId));
-  if (aSymbol.RoutineId <> 0) and MatchText(aKind, ['local', 'parameter', 'var']) then
-    Exit(aSnapshot.TextOf(aSymbol.RoutineId));
-
-  Result := '';
 end;
 
 function SnapshotSourceKindForUnit(const aSnapshot: TDelphiProjectSnapshot;

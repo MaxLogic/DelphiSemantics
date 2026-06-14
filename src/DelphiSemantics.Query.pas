@@ -96,7 +96,8 @@ implementation
 
 uses
   System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.Source;
+  DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.Snapshot.QuerySupport,
+  DelphiSemantics.Source;
 
 function MakeNotFound(const aName: string): TDelphiSemanticSymbolQueryResult;
 begin
@@ -247,24 +248,6 @@ begin
   Result.EndColumn := Length(aModel.UnitName) + 5;
 end;
 
-function SnapshotText(const aSnapshot: TDelphiProjectSnapshot;
-  const aId: TSemanticStringId): string;
-begin
-  if (aSnapshot = nil) or (aId = 0) then
-    Exit('');
-
-  Result := aSnapshot.TextOf(aId);
-end;
-
-function ContextProjectSnapshot(const aContext: TDelphiSemanticSymbolQueryContext):
-  TDelphiProjectSnapshot;
-begin
-  if aContext.ProjectSnapshot = nil then
-    Exit(nil);
-
-  Result := aContext.ProjectSnapshot.Snapshot;
-end;
-
 function SnapshotEndLine(const aLine, aEndLine: Integer): Integer;
 begin
   Result := aEndLine;
@@ -278,17 +261,6 @@ begin
   Result := aEndColumn;
   if Result <= 0 then
     Result := aColumn + Length(aName) - 1;
-end;
-
-function SnapshotSymbolOwnerName(const aSnapshot: TDelphiProjectSnapshot;
-  const aSymbol: TSemanticSymbolFact; const aKind: string): string;
-begin
-  if aSymbol.OwnerTypeId <> 0 then
-    Exit(aSnapshot.TextOf(aSymbol.OwnerTypeId));
-  if (aSymbol.RoutineId <> 0) and MatchText(aKind, ['local', 'parameter', 'var']) then
-    Exit(aSnapshot.TextOf(aSymbol.RoutineId));
-
-  Result := '';
 end;
 
 function SnapshotSymbolResult(const aSnapshot: TDelphiProjectSnapshot;

@@ -60,7 +60,7 @@ implementation
 
 uses
   System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Model, DelphiSemantics.Snapshot,
+  DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.QuerySupport,
   MaxLogic.StrUtils;
 
 type
@@ -364,22 +364,6 @@ begin
   except
     Result := aFileName;
   end;
-end;
-
-function ContextProjectSnapshot(const aContext: TDelphiSemanticSymbolQueryContext):
-  TDelphiProjectSnapshot;
-begin
-  if aContext.ProjectSnapshot = nil then
-    Exit(nil);
-  Result := aContext.ProjectSnapshot.Snapshot;
-end;
-
-function SnapshotText(const aSnapshot: TDelphiProjectSnapshot;
-  const aId: TSemanticStringId): string;
-begin
-  if (aSnapshot = nil) or (aId = 0) then
-    Exit('');
-  Result := aSnapshot.TextOf(aId);
 end;
 
 function TryFindUsageModel(const aContext: TDelphiSemanticSymbolQueryContext;

@@ -25,16 +25,8 @@ function TryResolveSnapshotPosition(const aSnapshot: TDelphiProjectSnapshot;
 implementation
 
 uses
-  System.SysUtils;
-
-function SnapshotText(const aSnapshot: TDelphiProjectSnapshot;
-  const aId: TSemanticStringId): string;
-begin
-  if (aSnapshot = nil) or (aId = 0) then
-    Exit('');
-
-  Result := aSnapshot.TextOf(aId);
-end;
+  System.SysUtils,
+  DelphiSemantics.Snapshot.QuerySupport;
 
 function TryResolveSnapshotPosition(const aSnapshot: TDelphiProjectSnapshot;
   const aFileName: string; const aLine, aColumn: Integer; const aToken: string;
