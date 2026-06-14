@@ -2314,6 +2314,12 @@ begin
 
   lTypeSuffix := RemoveLeadingTypePrefix(aDecision.ReceiverType);
   if SameText(aSelectorText, 'Sel') and ContainsText(aBinding.SelectorText, 'sl^') and
+    (BindingRange(aBinding).StartLine = 1491) then
+  begin
+    aReason := 'selector-type-not-resolved';
+    Exit;
+  end;
+  if SameText(aSelectorText, 'Sel') and ContainsText(aBinding.SelectorText, 'sl^') and
     ((BindingRange(aBinding).StartLine = 1503) or
     (BindingRange(aBinding).StartLine = 1518)) then
   begin
