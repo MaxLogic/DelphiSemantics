@@ -3,7 +3,7 @@ unit DelphiSemantics.Lsp;
 interface
 
 uses
-  System.Generics.Collections,
+  System.Generics.Collections, System.JSON,
   DelphiSemantics.Resolve;
 
 const
@@ -94,8 +94,22 @@ type
     class function ErrorSession(const aMessage: string): TDelphiSemanticLspLifecycle; static;
   end;
 
+  TDelphiSemanticLspSettings = record
+    MainSourcePath: string;
+    Defines: TArray<string>;
+    UnitSearchPath: TArray<string>;
+    LibraryPath: TArray<string>;
+    UnitScopes: TArray<string>;
+    UnitAliases: TArray<string>;
+  end;
+
   TDelphiSemanticLspBoundary = record
   public
+    class function BuildSettings(const aMainSourcePath: string; const aDefines,
+      aUnitSearchPath, aLibraryPath, aUnitScopes, aUnitAliases: TArray<string>):
+      TDelphiSemanticLspSettings; static;
+    class function BuildDccOptions(const aSettings: TDelphiSemanticLspSettings): string; static;
+    class function BuildOfficialSettingsJson(const aSettings: TDelphiSemanticLspSettings): string; static;
     class function EnrichDefinition(const aOptions: TDelphiSemanticLspOptions;
       const aName: string; const aLocation: TDelphiSemanticLspLocation):
       TDelphiSemanticLspResult; static;
@@ -114,6 +128,7 @@ type
     class function MakeNotImplementedResult: TDelphiSemanticLspResult; static;
     class function MakeHover(const aContents, aUri: string; const aStartLine, aStartCharacter,
       aEndLine, aEndCharacter: Integer): TDelphiSemanticLspHoverResult; static;
+    class function FilePathToUri(const aPath: string): string; static;
     class function NormalizeFileUri(const aUri: string): string; static;
     class function ToProtocolPosition(const aLine, aColumn: Integer):
       TDelphiSemanticLspProtocolPosition; static;
@@ -122,7 +137,8 @@ type
 implementation
 
 uses
-  System.StrUtils, System.SysUtils;
+  System.StrUtils, System.SysUtils,
+  maxLogic.ioUtils;
 
 constructor TDelphiSemanticLspSymbolNode.Create;
 begin
@@ -157,6 +173,110 @@ begin
   Result := Default(TDelphiSemanticLspLifecycle);
   Result.Initialized := True;
   Result.Status := 'initialized';
+end;
+
+procedure AddStringArray(aObject: TJSONObject; const aName: string; const aValues: TArray<string>);
+var
+  lArray: TJSONArray;
+  lValue: string;
+begin
+  lArray := TJSONArray.Create;
+  for lValue in aValues do
+    lArray.Add(lValue);
+  aObject.AddPair(aName, lArray);
+end;
+
+function QuoteCompilerPath(const aPath: string): string;
+begin
+  Result := aPath;
+  if (Pos(' ', Result) > 0) and (not Result.StartsWith('"')) then
+    Result := '"' + Result + '"';
+end;
+
+function JoinCompilerPaths(const aValues: TArray<string>): string;
+var
+  i: Integer;
+  lValues: TArray<string>;
+begin
+  SetLength(lValues, Length(aValues));
+  for i := 0 to High(aValues) do
+    lValues[i] := QuoteCompilerPath(aValues[i]);
+  Result := String.Join(';', lValues);
+end;
+
+class function TDelphiSemanticLspBoundary.BuildSettings(const aMainSourcePath: string;
+  const aDefines, aUnitSearchPath, aLibraryPath, aUnitScopes, aUnitAliases: TArray<string>):
+  TDelphiSemanticLspSettings;
+begin
+  Result := Default(TDelphiSemanticLspSettings);
+  Result.MainSourcePath := aMainSourcePath;
+  Result.Defines := aDefines;
+  Result.UnitSearchPath := aUnitSearchPath;
+  Result.LibraryPath := aLibraryPath;
+  Result.UnitScopes := aUnitScopes;
+  Result.UnitAliases := aUnitAliases;
+end;
+
+class function TDelphiSemanticLspBoundary.BuildDccOptions(
+  const aSettings: TDelphiSemanticLspSettings): string;
+var
+  lParts: TList<string>;
+begin
+  lParts := TList<string>.Create;
+  try
+    if Length(aSettings.Defines) > 0 then
+      lParts.Add('-D' + String.Join(';', aSettings.Defines));
+    if Length(aSettings.UnitSearchPath) > 0 then
+      lParts.Add('-U' + JoinCompilerPaths(aSettings.UnitSearchPath));
+    if Length(aSettings.LibraryPath) > 0 then
+      lParts.Add('-I' + JoinCompilerPaths(aSettings.LibraryPath));
+    if Length(aSettings.UnitScopes) > 0 then
+      lParts.Add('-NS' + String.Join(';', aSettings.UnitScopes));
+    if Length(aSettings.UnitAliases) > 0 then
+      lParts.Add('-A' + String.Join(';', aSettings.UnitAliases));
+    Result := String.Join(' ', lParts.ToArray);
+  finally
+    lParts.Free;
+  end;
+end;
+
+class function TDelphiSemanticLspBoundary.BuildOfficialSettingsJson(
+  const aSettings: TDelphiSemanticLspSettings): string;
+var
+  lBrowsingPaths: TList<string>;
+  lRoot: TJSONObject;
+  lSettings: TJSONObject;
+  lValue: string;
+begin
+  lRoot := TJSONObject.Create;
+  try
+    lSettings := TJSONObject.Create;
+    lSettings.AddPair('project', FilePathToUri(aSettings.MainSourcePath));
+    lSettings.AddPair('dccOptions', BuildDccOptions(aSettings));
+    lSettings.AddPair('projectFiles', TJSONArray.Create);
+    lSettings.AddPair('includeDCUsInUsesCompletion', TJSONBool.Create(True));
+    lSettings.AddPair('enableKeyWordCompletion', TJSONBool.Create(False));
+
+    lBrowsingPaths := TList<string>.Create;
+    try
+      for lValue in aSettings.UnitSearchPath do
+        if not lBrowsingPaths.Contains(lValue) then
+          lBrowsingPaths.Add(lValue);
+      for lValue in aSettings.LibraryPath do
+        if not lBrowsingPaths.Contains(lValue) then
+          lBrowsingPaths.Add(lValue);
+      for var i := 0 to lBrowsingPaths.Count - 1 do
+        lBrowsingPaths[i] := FilePathToUri(lBrowsingPaths[i]);
+      AddStringArray(lSettings, 'browsingPaths', lBrowsingPaths.ToArray);
+    finally
+      lBrowsingPaths.Free;
+    end;
+
+    lRoot.AddPair('settings', lSettings);
+    Result := lRoot.ToJSON;
+  finally
+    lRoot.Free;
+  end;
 end;
 
 class function TDelphiSemanticLspBoundary.EnrichDefinition(
@@ -332,6 +452,11 @@ begin
   Result.Range.StartColumn := aStartCharacter + 1;
   Result.Range.EndLine := aEndLine + 1;
   Result.Range.EndColumn := aEndCharacter + 1;
+end;
+
+class function TDelphiSemanticLspBoundary.FilePathToUri(const aPath: string): string;
+begin
+  Result := FilePathToURL(aPath);
 end;
 
 class function TDelphiSemanticLspBoundary.NormalizeFileUri(const aUri: string): string;

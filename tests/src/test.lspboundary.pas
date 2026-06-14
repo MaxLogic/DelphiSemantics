@@ -3,6 +3,7 @@ unit Test.LspBoundary;
 interface
 
 uses
+  System.IOUtils, System.JSON, System.StrUtils, System.SysUtils,
   DUnitX.TestFramework,
   DelphiSemantics.Lsp, DelphiSemantics.Resolve;
 
@@ -30,6 +31,10 @@ type
     procedure ErrorResultsAreExplicitAndCarryLspProvenance;
     [Test]
     procedure LifecycleReportsInitializeShutdownAndErrors;
+    [Test]
+    procedure OwnsOfficialSettingsJsonConstruction;
+    [Test]
+    procedure BuildsOfficialSettingsJsonFromSemanticDto;
   end;
 
 implementation
@@ -268,6 +273,62 @@ begin
   Assert.IsFalse(lSession.Initialized);
   Assert.AreEqual('error', lSession.Status);
   Assert.AreEqual('initialize failed', lSession.ErrorMessage);
+end;
+
+procedure TLspBoundaryTests.OwnsOfficialSettingsJsonConstruction;
+var
+  lSource: string;
+  lSourceFileName: string;
+begin
+  lSourceFileName := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\..\src\DelphiSemantics.Lsp.pas'));
+  lSource := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+
+  Assert.IsTrue(ContainsText(lSource, 'TDelphiSemanticLspSettings'),
+    'Expected DelphiSemantics.Lsp to expose the reusable DelphiLSP settings DTO.');
+  Assert.IsTrue(ContainsText(lSource, 'BuildSettings'),
+    'Expected DelphiSemantics.Lsp to own project/compiler-context-to-settings shaping.');
+  Assert.IsTrue(ContainsText(lSource, 'BuildOfficialSettingsJson'),
+    'Expected DelphiSemantics.Lsp to own official DelphiLSP settings JSON construction.');
+  Assert.IsTrue(ContainsText(lSource, 'BuildDccOptions'),
+    'Expected DelphiSemantics.Lsp to own dccOptions construction.');
+end;
+
+procedure TLspBoundaryTests.BuildsOfficialSettingsJsonFromSemanticDto;
+var
+  lBrowsingPaths: TJSONArray;
+  lJson: TJSONObject;
+  lSettings: TDelphiSemanticLspSettings;
+  lSettingsJson: TJSONObject;
+begin
+  lSettings := TDelphiSemanticLspBoundary.BuildSettings('C:\Repo\Project1.dpr',
+    ['DEBUG', 'TRACE'], ['C:\Repo\Source', 'C:\Shared Units'],
+    ['C:\Repo\Source', 'C:\Lib'], ['System', 'Vcl'], ['WinTypes=Windows']);
+
+  Assert.AreEqual('-DDEBUG;TRACE -UC:\Repo\Source;"C:\Shared Units" -IC:\Repo\Source;C:\Lib ' +
+    '-NSSystem;Vcl -AWinTypes=Windows',
+    TDelphiSemanticLspBoundary.BuildDccOptions(lSettings));
+
+  lJson := TJSONObject.ParseJSONValue(
+    TDelphiSemanticLspBoundary.BuildOfficialSettingsJson(lSettings)) as TJSONObject;
+  try
+    Assert.IsNotNull(lJson, 'Expected settings JSON to parse.');
+    lSettingsJson := lJson.GetValue<TJSONObject>('settings');
+    Assert.IsNotNull(lSettingsJson, 'Expected settings object.');
+    Assert.AreEqual('file:///C:/Repo/Project1.dpr', lSettingsJson.GetValue<string>('project', ''));
+    Assert.AreEqual(TDelphiSemanticLspBoundary.BuildDccOptions(lSettings),
+      lSettingsJson.GetValue<string>('dccOptions', ''));
+    Assert.IsTrue(lSettingsJson.GetValue<Boolean>('includeDCUsInUsesCompletion', False));
+    Assert.IsFalse(lSettingsJson.GetValue<Boolean>('enableKeyWordCompletion', True));
+    lBrowsingPaths := lSettingsJson.GetValue<TJSONArray>('browsingPaths');
+    Assert.IsNotNull(lBrowsingPaths, 'Expected browsingPaths.');
+    Assert.AreEqual(3, lBrowsingPaths.Count, 'Expected deduped unit search and library paths.');
+    Assert.AreEqual('file:///C:/Repo/Source', lBrowsingPaths.Items[0].Value);
+    Assert.AreEqual('file:///C:/Shared%20Units', lBrowsingPaths.Items[1].Value);
+    Assert.AreEqual('file:///C:/Lib', lBrowsingPaths.Items[2].Value);
+  finally
+    lJson.Free;
+  end;
 end;
 
 initialization
