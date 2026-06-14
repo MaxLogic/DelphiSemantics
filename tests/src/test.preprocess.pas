@@ -23,6 +23,8 @@ type
     [Test]
     procedure IncludesResolveFromSearchPathsAndAffectGraphHash;
     [Test]
+    procedure IncludeHashUsesLoadedIncludeText;
+    [Test]
     procedure IncludeCyclesProduceDeterministicDiagnostic;
     [Test]
     procedure MalformedConditionalStackProducesDiagnostics;
@@ -162,6 +164,29 @@ begin
   Assert.IsTrue(Pos('TFirstInclude', lFirst.OutputText) > 0);
   Assert.IsTrue(Pos('TSecondInclude', lSecond.OutputText) > 0);
   Assert.AreNotEqual(lFirst.IncludeGraphHash, lSecond.IncludeGraphHash);
+end;
+
+procedure TPreprocessTests.IncludeHashUsesLoadedIncludeText;
+var
+  lSource: string;
+  lSourceFileName: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Preprocess.pas']));
+  lSource := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+
+  Assert.IsFalse(Pos('CalculateTextHash(TFile.ReadAllText', lSource) > 0,
+    'Include content hash must use the text already loaded for include processing.');
+  Assert.IsFalse(Pos('ProcessSourceFile(lIncludeFileName', lSource) > 0,
+    'Include processing should not call the file-loading entry point after hashing.');
+  Assert.IsFalse(Pos('TFile.ReadAllText', lSource) > 0,
+    'Preprocessor file reads should use the shared source loader.');
+  Assert.IsTrue(Pos('TSourceTextCache', lSource) > 0,
+    'Preprocessor should keep a pass-scoped source text cache.');
+  Assert.IsTrue(Pos('TSourceTextCache.Create(TFastCaseAwareComparer.OrdinalIgnoreCase)',
+    lSource) > 0, 'Preprocessor source text cache should use path-casing tolerant keys.');
+  Assert.IsTrue(Pos('TDelphiSemanticSourceLoader.LoadFile', lSource) > 0,
+    'Preprocessor source reads should route through the shared source loader.');
 end;
 
 procedure TPreprocessTests.IncludeCyclesProduceDeterministicDiagnostic;

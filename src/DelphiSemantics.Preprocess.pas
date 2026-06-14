@@ -48,10 +48,13 @@ type
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils;
+  System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
+  MaxLogic.StrUtils,
+  DelphiSemantics.Source;
 
 type
   TDefineMap = TDictionary<string, Boolean>;
+  TSourceTextCache = TDictionary<string, string>;
 
   TPreprocessFrame = record
     ParentActive: Boolean;
@@ -101,6 +104,39 @@ begin
     lHash := (lHash * cFnvPrime) and cFnv32Mask;
   end;
   Result := IntToHex(Int64(lHash), 8);
+end;
+
+function TryLoadPreprocessSource(const aFileName: string;
+  const aSourceCache: TSourceTextCache;
+  const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>;
+  out aSourceText: string): Boolean;
+var
+  lDiagnostic: TDelphiSemanticSourceDiagnostic;
+  lFileName: string;
+  lSourceLoad: TDelphiSemanticSourceLoadResult;
+begin
+  lFileName := TPath.GetFullPath(aFileName);
+  if aSourceCache.TryGetValue(lFileName, aSourceText) then
+    Exit(True);
+
+  lSourceLoad := TDelphiSemanticSourceLoader.LoadFile(lFileName);
+  if not lSourceLoad.Success then
+  begin
+    if Length(lSourceLoad.Diagnostics) > 0 then
+    begin
+      lDiagnostic := lSourceLoad.Diagnostics[0];
+      AddDiagnostic(aDiagnostics, lDiagnostic.Code, lDiagnostic.Message,
+        lDiagnostic.FileName, 0);
+    end else
+      AddDiagnostic(aDiagnostics, 'SOURCE_FILE_NOT_FOUND',
+        'Source file not found: ' + lFileName, lFileName, 0);
+    aSourceText := '';
+    Exit(False);
+  end;
+
+  aSourceText := lSourceLoad.Source.Text;
+  aSourceCache.Add(lFileName, aSourceText);
+  Result := True;
 end;
 
 function CurrentActive(const aStack: TList<TPreprocessFrame>): Boolean;
@@ -461,7 +497,7 @@ function ProcessDirective(const aDirective, aFileName: string; const aLine: Inte
   const aStack: TList<TPreprocessFrame>; const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>;
   const aOutput: TStringBuilder; const aRegions: TList<TDelphiSemanticSourceRegion>;
   const aIncludes: TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>;
-  var aOutputLineWritten: Boolean): Boolean; forward;
+  const aSourceCache: TSourceTextCache; var aOutputLineWritten: Boolean): Boolean; forward;
 
 function IsRootSourceFile(const aFileName: string;
   const aOptions: TDelphiSemanticPreprocessOptions): Boolean;
@@ -523,7 +559,8 @@ function ProcessInlineDirectiveLine(const aLine, aFileName: string; const aLineN
   const aStack: TList<TPreprocessFrame>; const aDiagnostics:
   TList<TDelphiSemanticPreprocessDiagnostic>; const aOutput: TStringBuilder;
   const aRegions: TList<TDelphiSemanticSourceRegion>; const aIncludes:
-  TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>): Boolean;
+  TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>;
+  const aSourceCache: TSourceTextCache): Boolean;
 var
   lDirective: string;
   lDirectiveStart: Integer;
@@ -557,8 +594,9 @@ begin
         lDirective := Copy(aLine, lDirectiveStart + 2, lDirectiveStop - lDirectiveStart - 2).Trim;
 
       lOutputLineWritten := False;
-      if not ProcessDirective(lDirective, aFileName, aLineNumber, aOptions, aDefines, aStack,
-        aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, lOutputLineWritten) then
+      if not ProcessDirective(lDirective, aFileName, aLineNumber, aOptions, aDefines,
+        aStack, aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache,
+        lOutputLineWritten) then
         Result := False;
       lLineOutput.Append(StringOfChar(' ', lDirectiveStop - lDirectiveStart + 1));
       lPos := lDirectiveStop + 1;
@@ -575,11 +613,13 @@ begin
   end;
 end;
 
-procedure ProcessSourceFile(const aFileName: string; const aOptions: TDelphiSemanticPreprocessOptions;
+procedure ProcessLoadedSourceFile(const aFileName, aSourceText: string;
+  const aOptions: TDelphiSemanticPreprocessOptions;
   const aDefines: TDefineMap; const aStack: TList<TPreprocessFrame>;
   const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>; const aOutput: TStringBuilder;
   const aRegions: TList<TDelphiSemanticSourceRegion>; const aIncludes: TList<TDelphiSemanticIncludeFile>;
-  const aIncludeStack: TList<string>; var aSuccess: Boolean);
+  const aIncludeStack: TList<string>; const aSourceCache: TSourceTextCache;
+  var aSuccess: Boolean);
 var
   i: Integer;
   lDirective: string;
@@ -590,16 +630,7 @@ var
   lOutputLineWritten: Boolean;
   lPendingDirectiveCloseBrace: Boolean;
   lSearchStart: Integer;
-  lText: string;
 begin
-  if not TFile.Exists(aFileName) then
-  begin
-    AddDiagnostic(aDiagnostics, 'SOURCE_FILE_NOT_FOUND', 'Source file not found: ' + aFileName,
-      aFileName, 0);
-    aSuccess := False;
-    Exit;
-  end;
-
   if IsFileInStack(aIncludeStack, aFileName) then
   begin
     AddDiagnostic(aDiagnostics, 'INCLUDE_CYCLE', 'Include cycle detected: ' + aFileName,
@@ -608,14 +639,10 @@ begin
     Exit;
   end;
 
-  if IsRootSourceFile(aFileName, aOptions) and (aOptions.SourceText <> '') then
-    lText := aOptions.SourceText
-  else
-    lText := TFile.ReadAllText(aFileName, TEncoding.UTF8);
   lLines := TStringList.Create;
   try
     aIncludeStack.Add(aFileName);
-    lLines.Text := lText;
+    lLines.Text := aSourceText;
     lPendingDirectiveCloseBrace := False;
     for i := 0 to Pred(lLines.Count) do
     begin
@@ -632,14 +659,16 @@ begin
         begin
           AddRegion(aRegions, aFileName, i + 1, CurrentActive(aStack));
           if not ProcessInlineDirectiveLine(lLines[i], aFileName, i + 1, aOptions, aDefines,
-            aStack, aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack) then
+            aStack, aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack,
+            aSourceCache) then
             aSuccess := False;
           Continue;
         end;
 
         lOutputLineWritten := False;
         if not ProcessDirective(lDirective, aFileName, i + 1, aOptions, aDefines, aStack,
-          aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, lOutputLineWritten) then
+          aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache,
+          lOutputLineWritten) then
           aSuccess := False;
         lDirectiveStart := Pos('{$', lLines[i]);
         lDirectiveStop := PosEx('}', lLines[i], lDirectiveStart + 2);
@@ -656,7 +685,8 @@ begin
               lDirectiveStop - lDirectiveStart - 2).Trim;
             lExtraOutputLineWritten := False;
             if not ProcessDirective(lDirective, aFileName, i + 1, aOptions, aDefines, aStack,
-              aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, lExtraOutputLineWritten) then
+              aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache,
+              lExtraOutputLineWritten) then
               aSuccess := False;
             lSearchStart := lDirectiveStop + 1;
             lDirectiveStart := PosEx('{$', lLines[i], lSearchStart);
@@ -680,18 +710,40 @@ begin
   end;
 end;
 
+procedure ProcessSourceFile(const aFileName: string; const aOptions: TDelphiSemanticPreprocessOptions;
+  const aDefines: TDefineMap; const aStack: TList<TPreprocessFrame>;
+  const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>; const aOutput: TStringBuilder;
+  const aRegions: TList<TDelphiSemanticSourceRegion>; const aIncludes: TList<TDelphiSemanticIncludeFile>;
+  const aIncludeStack: TList<string>; const aSourceCache: TSourceTextCache;
+  var aSuccess: Boolean);
+var
+  lText: string;
+begin
+  if IsRootSourceFile(aFileName, aOptions) and (aOptions.SourceText <> '') then
+    lText := aOptions.SourceText
+  else if not TryLoadPreprocessSource(aFileName, aSourceCache, aDiagnostics, lText) then
+  begin
+    aSuccess := False;
+    Exit;
+  end;
+
+  ProcessLoadedSourceFile(aFileName, lText, aOptions, aDefines, aStack, aDiagnostics,
+    aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache, aSuccess);
+end;
+
 function ProcessDirective(const aDirective, aFileName: string; const aLine: Integer;
   const aOptions: TDelphiSemanticPreprocessOptions; const aDefines: TDefineMap;
   const aStack: TList<TPreprocessFrame>; const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>;
   const aOutput: TStringBuilder; const aRegions: TList<TDelphiSemanticSourceRegion>;
   const aIncludes: TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>;
-  var aOutputLineWritten: Boolean): Boolean;
+  const aSourceCache: TSourceTextCache; var aOutputLineWritten: Boolean): Boolean;
 var
   lActive: Boolean;
   lInclude: TDelphiSemanticIncludeFile;
   lIncludeFileName: string;
   lIncludeName: string;
   lIncludeOutput: TStringBuilder;
+  lIncludeText: string;
   lSuccess: Boolean;
   lText: string;
 begin
@@ -801,13 +853,17 @@ begin
     end;
 
     lInclude.FileName := lIncludeFileName;
-    lInclude.ContentHash := CalculateTextHash(TFile.ReadAllText(lIncludeFileName, TEncoding.UTF8));
+    if not TryLoadPreprocessSource(lIncludeFileName, aSourceCache, aDiagnostics,
+      lIncludeText) then
+      Exit(False);
+    lInclude.ContentHash := CalculateTextHash(lIncludeText);
     aIncludes.Add(lInclude);
     lSuccess := True;
     lIncludeOutput := TStringBuilder.Create;
     try
-      ProcessSourceFile(lIncludeFileName, aOptions, aDefines, aStack, aDiagnostics,
-        lIncludeOutput, aRegions, aIncludes, aIncludeStack, lSuccess);
+      ProcessLoadedSourceFile(lIncludeFileName, lIncludeText, aOptions, aDefines,
+        aStack, aDiagnostics, lIncludeOutput, aRegions, aIncludes, aIncludeStack,
+        aSourceCache, lSuccess);
       aOutput.Append(lIncludeOutput.ToString);
       aOutputLineWritten := True;
     finally
@@ -863,6 +919,7 @@ var
   lIncludes: TList<TDelphiSemanticIncludeFile>;
   lOutput: TStringBuilder;
   lRegions: TList<TDelphiSemanticSourceRegion>;
+  lSourceCache: TSourceTextCache;
   lStack: TList<TPreprocessFrame>;
   lSuccess: Boolean;
 begin
@@ -872,6 +929,7 @@ begin
   lIncludeStack := nil;
   lOutput := nil;
   lRegions := nil;
+  lSourceCache := nil;
   lStack := nil;
   try
     lDefines := CreateDefineMap(aOptions.Defines);
@@ -880,11 +938,13 @@ begin
     lIncludeStack := TList<string>.Create;
     lOutput := TStringBuilder.Create;
     lRegions := TList<TDelphiSemanticSourceRegion>.Create;
+    lSourceCache := TSourceTextCache.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
     lStack := TList<TPreprocessFrame>.Create;
 
     lSuccess := True;
     ProcessSourceFile(TPath.GetFullPath(aOptions.SourceFileName), aOptions, lDefines, lStack,
-      lDiagnostics, lOutput, lRegions, lIncludes, lIncludeStack, lSuccess);
+      lDiagnostics, lOutput, lRegions, lIncludes, lIncludeStack, lSourceCache,
+      lSuccess);
     if lStack.Count > 0 then
     begin
       AddDiagnostic(lDiagnostics, 'UNTERMINATED_PREPROCESS_CONDITIONAL',
@@ -899,6 +959,7 @@ begin
     Result.Diagnostics := lDiagnostics.ToArray;
   finally
     lStack.Free;
+    lSourceCache.Free;
     lRegions.Free;
     lOutput.Free;
     lIncludeStack.Free;
