@@ -168,6 +168,7 @@ type
     fExtensions: TObjectDictionary<string, TObject>;
     fMemberCandidatesByOwnerAndName: TSortedList<UInt64, TSemanticSymbolRef>;
     fMembersByOwnerAndName: TDictionary<UInt64, TSemanticSymbolRef>;
+    fReferencesByFileAndLine: TSortedList<UInt64, TSemanticReferenceRef>;
     fReferencesByName: TSortedList<TSemanticStringId, TSemanticReferenceRef>;
     fReferencesBySymbol: TSortedList<UInt64, TSemanticReferenceRef>;
     fStrings: TSemanticStringPool;
@@ -761,6 +762,7 @@ begin
     fUnitByFileName := TDictionary<string, TSemanticUnitId>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
     fMembersByOwnerAndName := TDictionary<UInt64, TSemanticSymbolRef>.Create;
     fMemberCandidatesByOwnerAndName := TSortedList<UInt64, TSemanticSymbolRef>.Create;
+    fReferencesByFileAndLine := TSortedList<UInt64, TSemanticReferenceRef>.Create;
     fReferencesByName := TSortedList<TSemanticStringId, TSemanticReferenceRef>.Create;
     fReferencesBySymbol := TSortedList<UInt64, TSemanticReferenceRef>.Create;
     fSymbolsByFileAndLine := TSortedList<UInt64, TSemanticSymbolRef>.Create;
@@ -779,6 +781,7 @@ begin
     fSymbolsByFileAndLine.Free;
     fReferencesBySymbol.Free;
     fReferencesByName.Free;
+    fReferencesByFileAndLine.Free;
     fMemberCandidatesByOwnerAndName.Free;
     fMembersByOwnerAndName.Free;
     fUnitByFileName.Free;
@@ -795,6 +798,7 @@ begin
   fSymbolsByFileAndLine.Free;
   fReferencesBySymbol.Free;
   fReferencesByName.Free;
+  fReferencesByFileAndLine.Free;
   fMemberCandidatesByOwnerAndName.Free;
   fMembersByOwnerAndName.Free;
   fUnitByFileName.Free;
@@ -829,6 +833,7 @@ var
   lMemberKey: UInt64;
   lReference: TSemanticReferenceFact;
   lReferenceIndex: Integer;
+  lReferenceRef: TSemanticReferenceRef;
   lStartLine: Integer;
   lSymbol: TSemanticSymbolFact;
   lSymbolIndex: Integer;
@@ -880,19 +885,30 @@ begin
     for lReferenceIndex := 1 to lUnit.ReferenceCount do
     begin
       lReference := lUnit.ReferenceById(TSemanticReferenceId(lReferenceIndex));
+      lReferenceRef := MakeReferenceRef(lUnit.UnitId, lReference.Id);
+      lStartLine := lReference.Line;
+      lEndLine := lReference.EndLine;
+      if lEndLine < lStartLine then
+        lEndLine := lStartLine;
+      if (lUnit.FileNameId <> 0) and (lStartLine > 0) then
+        for lLine := lStartLine to lEndLine do
+        begin
+          fReferencesByFileAndLine.Insert(fReferencesByFileAndLine.Count,
+            lReferenceRef, SourceLineKey(lUnit.FileNameId, lLine));
+        end;
       if lReference.NameId <> 0 then
         fReferencesByName.Insert(fReferencesByName.Count,
-          MakeReferenceRef(lUnit.UnitId, lReference.Id), lReference.NameId);
+          lReferenceRef, lReference.NameId);
       if (lReference.TargetUnitId <> 0) and (lReference.TargetSymbolId <> 0) then
       begin
         fReferencesBySymbol.Insert(fReferencesBySymbol.Count,
-          MakeReferenceRef(lUnit.UnitId, lReference.Id),
-          SymbolRefKey(lReference.TargetUnitId, lReference.TargetSymbolId));
+          lReferenceRef, SymbolRefKey(lReference.TargetUnitId, lReference.TargetSymbolId));
       end;
     end;
   end;
 
   fMemberCandidatesByOwnerAndName.sort;
+  fReferencesByFileAndLine.sort;
   fReferencesByName.sort;
   fReferencesBySymbol.sort;
   fSymbolsByFileAndLine.sort;
@@ -1014,7 +1030,10 @@ var
   i: Integer;
   lEndColumn: Integer;
   lEndLine: Integer;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
   lReference: TSemanticReferenceFact;
+  lReferenceRef: TSemanticReferenceRef;
   lUnit: TUnitSnapshot;
   lUnitId: TSemanticUnitId;
 begin
@@ -1027,9 +1046,16 @@ begin
   if not fUnitsById.TryGetValue(lUnitId, lUnit) then
     Exit;
 
-  for i := 1 to lUnit.ReferenceCount do
+  if not fReferencesByFileAndLine.FindMinMaxIndex(SourceLineKey(lUnit.FileNameId, aLine),
+    lLowIndex, lHighIndex) then
+    Exit;
+
+  for i := lLowIndex to lHighIndex do
   begin
-    lReference := lUnit.ReferenceById(TSemanticReferenceId(i));
+    lReferenceRef := fReferencesByFileAndLine[i];
+    if lReferenceRef.UnitId <> lUnitId then
+      Continue;
+    lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
     if (lReference.Line <= 0) or (lReference.Column <= 0) then
       Continue;
     if aLine < lReference.Line then

@@ -16,6 +16,8 @@ type
     [Test]
     procedure ProjectSnapshotIndexesOnlyExplicitTypeFacts;
     [Test]
+    procedure ProjectSnapshotReferenceAtUsesFileLineIndex;
+    [Test]
     procedure ProjectSnapshotFreezesUnitsAndExposesReadOnlyStrings;
     [Test]
     procedure ProjectSnapshotUsesPackedMemberKeysAndBuilderBoundary;
@@ -127,8 +129,8 @@ begin
     lReference.TargetSymbolId := lMemberSymbolId;
     lReference.Line := 22;
     lReference.Column := 7;
-    lReference.EndLine := 22;
-    lReference.EndColumn := 12;
+    lReference.EndLine := 23;
+    lReference.EndColumn := 4;
     lUnit.AddReference(lReference);
 
     lOtherUnit := TUnitSnapshot.Create(2, lOtherFileNameId, lOtherUnitNameId);
@@ -171,6 +173,13 @@ begin
     Assert.IsTrue(lFoundSecondUnit, 'Expected duplicate member candidates to retain the second unit.');
     Assert.IsTrue(lProject.TrySymbolAt('UnitA.pas', 12, 8, lSymbolRef));
     Assert.AreEqual(Integer(lMemberSymbolId), Integer(lSymbolRef.SymbolId));
+    Assert.IsTrue(lProject.TryReferenceAt('UnitA.pas', 22, 9, lReferenceRef));
+    Assert.AreEqual(1, Integer(lReferenceRef.ReferenceId));
+    Assert.IsTrue(lProject.TryReferenceAt('UnitA.pas', 23, 3, lReferenceRef),
+      'Reference file/line index must include every line in a multi-line reference span.');
+    Assert.AreEqual(1, Integer(lReferenceRef.ReferenceId));
+    Assert.IsFalse(lProject.TryReferenceAt('UnitA.pas', 23, 5, lReferenceRef),
+      'Reference lookup must still respect the end column after indexed line selection.');
     Assert.IsTrue(lProject.TryReferencesForSymbol(lSymbolRef, lLowIndex, lHighIndex));
     Assert.AreEqual(1, lHighIndex - lLowIndex + 1);
     lReferenceRef := lProject.ReferenceRefBySymbolIndex(lLowIndex);
@@ -230,6 +239,33 @@ begin
   finally
     lProject.Free;
   end;
+end;
+
+procedure TSnapshotTests.ProjectSnapshotReferenceAtUsesFileLineIndex;
+var
+  lNextFunctionStart: Integer;
+  lSourceFileName: string;
+  lSourceText: string;
+  lTryReferenceAtStart: Integer;
+  lTryReferenceAtText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Snapshot.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lTryReferenceAtStart := Pos('function TDelphiProjectSnapshot.TryReferenceAt', lSourceText);
+  lNextFunctionStart := PosEx('function TDelphiProjectSnapshot.TrySymbolsByName',
+    lSourceText, lTryReferenceAtStart + 1);
+  Assert.IsTrue((lTryReferenceAtStart > 0) and (lNextFunctionStart > lTryReferenceAtStart),
+    'Expected TryReferenceAt source section.');
+
+  lTryReferenceAtText := Copy(lSourceText, lTryReferenceAtStart,
+    lNextFunctionStart - lTryReferenceAtStart);
+  Assert.IsTrue(ContainsText(lSourceText, 'fReferencesByFileAndLine'),
+    'Snapshot must build a reference file/line index.');
+  Assert.IsTrue(ContainsText(lTryReferenceAtText, 'SourceLineKey('),
+    'TryReferenceAt must probe the reference file/line index.');
+  Assert.IsFalse(ContainsText(lTryReferenceAtText, 'for i := 1 to lUnit.ReferenceCount do'),
+    'TryReferenceAt must not scan every reference in the unit.');
 end;
 
 procedure TSnapshotTests.ProjectSnapshotFreezesUnitsAndExposesReadOnlyStrings;
