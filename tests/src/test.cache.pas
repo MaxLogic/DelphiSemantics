@@ -84,6 +84,10 @@ type
     [Test]
     procedure SymbolMapCompatibleIdentityReusesSharedSourceAcrossProjects;
     [Test]
+    procedure SymbolMapCompatibleIdentitySeparatesSearchAndConfiguration;
+    [Test]
+    procedure SymbolMapCompatibleIdentitySeparatesExtractionOptions;
+    [Test]
     procedure CompilerProfileExposesDakIntrinsicSeedFacts;
   end;
 
@@ -853,6 +857,82 @@ begin
   lSecond := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lPathB, lContextB);
 
   Assert.AreNotEqual(lFirst.ContextHash, lSecond.ContextHash);
+  Assert.AreNotEqual(lFirst.UnitCacheKey, lSecond.UnitCacheKey);
+end;
+
+procedure TCacheTests.SymbolMapCompatibleIdentitySeparatesSearchAndConfiguration;
+var
+  lContextA: TDelphiSemanticCacheIdentityContext;
+  lContextB: TDelphiSemanticCacheIdentityContext;
+  lConfigOnly: TDelphiSemanticUnitCacheIdentity;
+  lFirst: TDelphiSemanticUnitCacheIdentity;
+  lPathA: string;
+  lPathB: string;
+  lSearchOnly: TDelphiSemanticUnitCacheIdentity;
+  lSecond: TDelphiSemanticUnitCacheIdentity;
+begin
+  lPathA := TempPath('SharedContextA\ContextUnit.pas');
+  lPathB := TempPath('SharedContextB\ContextUnit.pas');
+  TFile.WriteAllText(lPathA, 'unit ContextUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lPathB));
+  TFile.Copy(lPathA, lPathB, True);
+
+  lContextA := Default(TDelphiSemanticCacheIdentityContext);
+  lContextA.DelphiVersion := '23.0';
+  lContextA.Platform := 'Win32';
+  lContextA.Configuration := 'Debug';
+  lContextA.SearchPaths := ['C:\project\src', 'C:\project\lib'];
+  lContextB := lContextA;
+  lContextB.Configuration := 'Release';
+  lContextB.SearchPaths := ['C:\project\lib', 'C:\project\src'];
+
+  lFirst := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lPathA, lContextA);
+  lSecond := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lPathB, lContextB);
+
+  Assert.AreEqual(lFirst.FileHash, lSecond.FileHash);
+  Assert.AreNotEqual(lFirst.SearchPathHash, lSecond.SearchPathHash);
+  Assert.AreNotEqual(lFirst.ContextHash, lSecond.ContextHash);
+  Assert.AreNotEqual(lFirst.UnitCacheKey, lSecond.UnitCacheKey);
+
+  lContextB := lContextA;
+  lContextB.SearchPaths := ['C:\project\lib', 'C:\project\src'];
+  lSearchOnly := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lPathB, lContextB);
+  Assert.AreNotEqual(lFirst.SearchPathHash, lSearchOnly.SearchPathHash);
+  Assert.AreNotEqual(lFirst.UnitCacheKey, lSearchOnly.UnitCacheKey);
+
+  lContextB := lContextA;
+  lContextB.Configuration := 'Release';
+  lConfigOnly := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lPathB, lContextB);
+  Assert.AreEqual(lFirst.SearchPathHash, lConfigOnly.SearchPathHash);
+  Assert.AreNotEqual(lFirst.ContextHash, lConfigOnly.ContextHash);
+  Assert.AreNotEqual(lFirst.UnitCacheKey, lConfigOnly.UnitCacheKey);
+end;
+
+procedure TCacheTests.SymbolMapCompatibleIdentitySeparatesExtractionOptions;
+var
+  lContextA: TDelphiSemanticCacheIdentityContext;
+  lContextB: TDelphiSemanticCacheIdentityContext;
+  lFirst: TDelphiSemanticUnitCacheIdentity;
+  lPath: string;
+  lSecond: TDelphiSemanticUnitCacheIdentity;
+begin
+  lPath := TempPath('ExtractionOptions\ContextUnit.pas');
+  TFile.WriteAllText(lPath, 'unit ContextUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+
+  lContextA := Default(TDelphiSemanticCacheIdentityContext);
+  lContextA.DelphiVersion := '23.0';
+  lContextA.Platform := 'Win32';
+  lContextA.Configuration := 'Debug';
+  lContextA.ExtractionOptionsHash := 'options-a';
+  lContextB := lContextA;
+  lContextB.ExtractionOptionsHash := 'options-b';
+
+  lFirst := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lPath, lContextA);
+  lSecond := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lPath, lContextB);
+
+  Assert.AreNotEqual(lFirst.ExtractionOptionsHash, lSecond.ExtractionOptionsHash);
   Assert.AreNotEqual(lFirst.UnitCacheKey, lSecond.UnitCacheKey);
 end;
 

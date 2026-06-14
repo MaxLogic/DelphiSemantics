@@ -39,6 +39,7 @@ type
     ProjectPath: string;
     Configuration: string;
     SearchPaths: TArray<string>;
+    ExtractionOptionsHash: string;
     CentralCacheRoot: string;
   end;
 
@@ -285,8 +286,10 @@ begin
     lBuilder.AppendLine('includeGraph=' + EffectiveIdentityValue(aContext.IncludeGraphHash,
       cDefaultIdentityIncludeGraphHash));
     lBuilder.AppendLine('delphi=' + LowerCase(Trim(aContext.DelphiVersion)));
+    lBuilder.AppendLine('config=' + LowerCase(Trim(aContext.Configuration)));
     lBuilder.AppendLine('platform=' + LowerCase(Trim(aContext.Platform)));
     lBuilder.AppendLine('defines=' + NormalizeIdentityDefines(aContext));
+    lBuilder.AppendLine('search=' + NormalizeIdentityArray(aContext.SearchPaths, False));
     lBuilder.AppendLine('unitScopes=' + NormalizeIdentityArray(aContext.UnitScopes, False));
     lBuilder.AppendLine('unitAliases=' + NormalizeIdentityArray(aContext.UnitAliases, False));
     Result := StableHash(lBuilder.ToString);
@@ -339,12 +342,15 @@ begin
   Result.DefinesHash := StableHash(NormalizeIdentityDefines(aContext));
   Result.SearchPathHash := StableHash(NormalizeIdentityArray(aContext.SearchPaths, False));
   Result.ExtractionOptionsHash := StableHash('');
+  if Trim(aContext.ExtractionOptionsHash) <> '' then
+    Result.ExtractionOptionsHash := Trim(aContext.ExtractionOptionsHash);
   Result.DelphiVersion := aContext.DelphiVersion;
   Result.Configuration := aContext.Configuration;
   Result.Platform := aContext.Platform;
   Result.UnitCacheKey := StableHash('unit|' + Result.SchemaVersion + '|' + Result.ParserVersion +
     '|' + Result.FileHash + '|' + Result.FileTimestampUtc + '|' + Result.IncludeGraphHash + '|' +
-    Result.ContextHash);
+    Result.ContextHash + '|' + Result.SearchPathHash + '|' + Result.ExtractionOptionsHash + '|' +
+    LowerCase(Trim(Result.Configuration)));
 end;
 
 function BuildSemanticContextHash(const aOptions: TDelphiSemanticModelOptions): string;
