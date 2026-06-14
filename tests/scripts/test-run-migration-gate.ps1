@@ -383,6 +383,139 @@ function Test-MainScriptFailsBeforeWorkRootMutationWhenExplicitRootLocked {
   }
 }
 
+function Test-PlannedEditParityDetectsShapeMismatch {
+  $lPlan = [pscustomobject]@{
+    plannedEdits = @(
+      [pscustomobject]@{
+        statementId = 'stmt-1'
+        file = 'Unit1.pas'
+        status = 'planned'
+        reason = 'safe'
+        replacementText = 'A := B;'
+        edits = @(
+          [pscustomobject]@{
+            kind = 'replace'
+            file = 'Unit1.pas'
+            statementId = 'stmt-1'
+            range = [pscustomobject]@{
+              startLine = 10
+              startCol = 3
+              endLine = 10
+              endCol = 11
+            }
+            replacementText = 'A := B;'
+          }
+        )
+      }
+    )
+  }
+  $lApply = [pscustomobject]@{
+    plannedEdits = @(
+      [pscustomobject]@{
+        statementId = 'stmt-1'
+        file = 'Unit1.pas'
+        status = 'planned'
+        reason = 'safe'
+        replacementText = 'A := C;'
+        edits = @(
+          [pscustomobject]@{
+            kind = 'replace'
+            file = 'Unit1.pas'
+            statementId = 'stmt-1'
+            range = [pscustomobject]@{
+              startLine = 10
+              startCol = 3
+              endLine = 10
+              endCol = 11
+            }
+            replacementText = 'A := C;'
+          }
+        )
+      }
+    )
+  }
+
+  $lFailed = $false
+  try {
+    Assert-MigrationGatePlannedEditParity -PlanJson $lPlan -ApplyJson $lApply
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*planned edit shape*') `
+      'Parity failure should report planned edit shape drift.'
+    Assert-True ($_.Exception.Message -like '*stmt-1*') `
+      'Parity failure should name the mismatched statement id.'
+  }
+
+  Assert-True $lFailed 'Planned edit parity must reject same-id replacement drift.'
+}
+
+function Test-PlannedEditParityDetectsReasonShapeMismatch {
+  $lPlan = [pscustomobject]@{
+    plannedEdits = @(
+      [pscustomobject]@{
+        statementId = 'stmt-2'
+        file = 'Unit2.pas'
+        status = 'planned'
+        reason = 'safe'
+        replacementText = 'A := B;'
+        edits = @(
+          [pscustomobject]@{
+            kind = 'replace'
+            file = 'Unit2.pas'
+            statementId = 'stmt-2'
+            range = [pscustomobject]@{
+              startLine = 4
+              startCol = 5
+              endLine = 4
+              endCol = 13
+            }
+            replacementText = 'A := B;'
+          }
+        )
+      }
+    )
+  }
+  $lApply = [pscustomobject]@{
+    plannedEdits = @(
+      [pscustomobject]@{
+        statementId = 'stmt-2'
+        file = 'Unit2.pas'
+        status = 'planned'
+        replacementText = 'A := B;'
+        edits = @(
+          [pscustomobject]@{
+            kind = 'replace'
+            file = 'Unit2.pas'
+            statementId = 'stmt-2'
+            range = [pscustomobject]@{
+              startLine = 4
+              startCol = 5
+              endLine = 4
+              endCol = 13
+            }
+            replacementText = 'A := B;'
+          }
+        )
+      }
+    )
+  }
+
+  $lFailed = $false
+  try {
+    Assert-MigrationGatePlannedEditParity -PlanJson $lPlan -ApplyJson $lApply
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*planned edit shape*') `
+      'Reason shape failure should report planned edit shape drift.'
+    Assert-True ($_.Exception.Message -like '*stmt-2*') `
+      'Reason shape failure should name the mismatched statement id.'
+    Assert-True ($_.Exception.Message -like '*hasReason*') `
+      'Reason shape failure should expose field-presence drift.'
+  }
+
+  Assert-True $lFailed 'Planned edit parity must reject missing reason drift.'
+}
+
 function Get-ScriptTestNames {
   $lScriptPath = [IO.Path]::GetFullPath($PSCommandPath)
   $lTests = @(Get-Command -CommandType Function -Name 'Test-*' |

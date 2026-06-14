@@ -444,6 +444,121 @@ function Assert-NoFixtureCollision {
   }
 }
 
+function Get-MigrationGateObjectProperty {
+  param(
+    [object]$Object,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  if ($null -eq $Object) {
+    return $null
+  }
+
+  $lProperty = $Object.PSObject.Properties[$Name]
+  if ($null -eq $lProperty) {
+    return $null
+  }
+  return $lProperty.Value
+}
+
+function Test-MigrationGateObjectProperty {
+  param(
+    [object]$Object,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  if ($null -eq $Object) {
+    return $false
+  }
+  return $null -ne $Object.PSObject.Properties[$Name]
+}
+
+function ConvertTo-MigrationGateStableJson {
+  param([object]$Value)
+
+  if ($null -eq $Value) {
+    return ''
+  }
+  return ($Value | ConvertTo-Json -Depth 16 -Compress)
+}
+
+function Get-MigrationGateTextHash {
+  param([object]$Value)
+
+  $lText = [string]$Value
+  $lBytes = [Text.Encoding]::UTF8.GetBytes($lText)
+  $lHash = [Security.Cryptography.SHA256]::Create()
+  try {
+    return ([BitConverter]::ToString($lHash.ComputeHash($lBytes))).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $lHash.Dispose()
+  }
+}
+
+function Get-MigrationGatePlannedEditShape {
+  param([Parameter(Mandatory = $true)][object]$PlannedEdit)
+
+  $lEditShapes = @(
+    @(Get-MigrationGateObjectProperty -Object $PlannedEdit -Name 'edits') |
+      ForEach-Object {
+        [ordered]@{
+          hasKind = Test-MigrationGateObjectProperty -Object $_ -Name 'kind'
+          kind = [string](Get-MigrationGateObjectProperty -Object $_ -Name 'kind')
+          hasFile = Test-MigrationGateObjectProperty -Object $_ -Name 'file'
+          file = [string](Get-MigrationGateObjectProperty -Object $_ -Name 'file')
+          hasStatementId = Test-MigrationGateObjectProperty -Object $_ -Name 'statementId'
+          statementId = [string](Get-MigrationGateObjectProperty -Object $_ -Name 'statementId')
+          hasRange = Test-MigrationGateObjectProperty -Object $_ -Name 'range'
+          range = ConvertTo-MigrationGateStableJson (Get-MigrationGateObjectProperty -Object $_ -Name 'range')
+          hasReplacementText = Test-MigrationGateObjectProperty -Object $_ -Name 'replacementText'
+          replacementHash = Get-MigrationGateTextHash (Get-MigrationGateObjectProperty -Object $_ -Name 'replacementText')
+        }
+      } |
+      ForEach-Object { ConvertTo-MigrationGateStableJson $_ } |
+      Sort-Object
+  )
+
+  $lShape = [ordered]@{
+    hasStatementId = Test-MigrationGateObjectProperty -Object $PlannedEdit -Name 'statementId'
+    statementId = [string](Get-MigrationGateObjectProperty -Object $PlannedEdit -Name 'statementId')
+    hasFile = Test-MigrationGateObjectProperty -Object $PlannedEdit -Name 'file'
+    file = [string](Get-MigrationGateObjectProperty -Object $PlannedEdit -Name 'file')
+    hasRange = Test-MigrationGateObjectProperty -Object $PlannedEdit -Name 'range'
+    range = ConvertTo-MigrationGateStableJson (Get-MigrationGateObjectProperty -Object $PlannedEdit -Name 'range')
+    hasStatus = Test-MigrationGateObjectProperty -Object $PlannedEdit -Name 'status'
+    status = [string](Get-MigrationGateObjectProperty -Object $PlannedEdit -Name 'status')
+    hasReason = Test-MigrationGateObjectProperty -Object $PlannedEdit -Name 'reason'
+    reason = [string](Get-MigrationGateObjectProperty -Object $PlannedEdit -Name 'reason')
+    hasReplacementText = Test-MigrationGateObjectProperty -Object $PlannedEdit -Name 'replacementText'
+    replacementHash = Get-MigrationGateTextHash (Get-MigrationGateObjectProperty -Object $PlannedEdit -Name 'replacementText')
+    edits = @($lEditShapes)
+  }
+  return ConvertTo-MigrationGateStableJson $lShape
+}
+
+function Assert-MigrationGatePlannedEditParity {
+  param(
+    [Parameter(Mandatory = $true)][object]$PlanJson,
+    [Parameter(Mandatory = $true)][object]$ApplyJson
+  )
+
+  $lPlanShapes = @(
+    @(Get-MigrationGateObjectProperty -Object $PlanJson -Name 'plannedEdits') |
+      ForEach-Object { Get-MigrationGatePlannedEditShape -PlannedEdit $_ } |
+      Sort-Object
+  )
+  $lApplyShapes = @(
+    @(Get-MigrationGateObjectProperty -Object $ApplyJson -Name 'plannedEdits') |
+      ForEach-Object { Get-MigrationGatePlannedEditShape -PlannedEdit $_ } |
+      Sort-Object
+  )
+  $lDifferences = @(Compare-Object $lPlanShapes $lApplyShapes)
+  if ($lDifferences.Count -ne 0) {
+    $lSample = @($lDifferences | Select-Object -First 4 | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" })
+    throw "Expected maxTdb report-only and apply planned edit shapes to match. Differences: $($lSample -join ' | ')"
+  }
+}
+
 if ($ImportOnly) {
   return
 }
@@ -601,11 +716,7 @@ if (($lPlanWithStatements -ne 667) -or ($lApplyWithStatements -ne 667)) {
 if (($lPlanPlannedEdits -ne 215) -or ($lApplyPlannedEdits -ne $lPlanPlannedEdits)) {
   throw "Expected maxTdb planned edit parity at 215, got plan=$lPlanPlannedEdits apply=$lApplyPlannedEdits"
 }
-$lPlanIds = @($lPlanJson.plannedEdits | ForEach-Object { [string]$_.statementId })
-$lApplyIds = @($lJson.plannedEdits | ForEach-Object { [string]$_.statementId })
-if (@(Compare-Object $lPlanIds $lApplyIds).Count -ne 0) {
-  throw 'Expected maxTdb report-only and apply planned statement IDs to match.'
-}
+Assert-MigrationGatePlannedEditParity -PlanJson $lPlanJson -ApplyJson $lJson
 if ($lAppliedEdits -lt 1) {
   throw "Expected at least one applied maxTdb edit"
 }
