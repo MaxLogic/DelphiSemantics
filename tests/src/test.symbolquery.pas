@@ -263,7 +263,10 @@ var
   lResult: TDelphiSemanticSymbolQueryResult;
   lResults: TArray<TDelphiSemanticSymbolQueryResult>;
   lRootPath: string;
+  lRoutineLocals: TArray<TDelphiSemanticIndexedSymbol>;
   lRoutineNameId: TSemanticStringId;
+  lRoutineSymbol: TSemanticSymbolFact;
+  lRoutineSymbols: TArray<TDelphiSemanticIndexedSymbol>;
   lScopes: TArray<TDelphiSemanticUnitModel>;
   lSectionKindId: TSemanticStringId;
   lSourceKindId: TSemanticStringId;
@@ -317,6 +320,17 @@ begin
       lAliasSymbol.EndLine := 4;
       lAliasSymbol.EndColumn := 15;
       lUnit.AddSymbol(lAliasSymbol);
+
+      lRoutineSymbol := Default(TSemanticSymbolFact);
+      lRoutineSymbol.NameId := lRoutineNameId;
+      lRoutineSymbol.KindId := lBuilder.Strings.Intern('routine');
+      lRoutineSymbol.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lRoutineSymbol.SourceKindId := lSourceKindId;
+      lRoutineSymbol.Line := 5;
+      lRoutineSymbol.Column := 11;
+      lRoutineSymbol.EndLine := 5;
+      lRoutineSymbol.EndColumn := 15;
+      lUnit.AddSymbol(lRoutineSymbol);
 
       lLocalSymbol := Default(TSemanticSymbolFact);
       lLocalSymbol.NameId := lNameId;
@@ -372,8 +386,14 @@ begin
     lIndex := TDelphiSemanticApi.BuildProjectSymbolIndex(lContext);
 
     Assert.AreEqual(0, lIndex.Metrics.BuildInvocationCount);
-    Assert.AreEqual(5, Integer(Length(lIndex.Symbols)));
+    Assert.AreEqual(6, Integer(Length(lIndex.Symbols)));
     Assert.AreEqual(1, Integer(Length(lIndex.References)));
+    lRoutineSymbols := lIndex.FindSymbolsByName('Touch');
+    Assert.AreEqual(1, Integer(Length(lRoutineSymbols)));
+    lRoutineLocals := lIndex.FindLocalSymbolsByRoutineIdAndName(lRoutineSymbols[0].Id,
+      'SnapshotOnlyValue');
+    Assert.AreEqual(1, Integer(Length(lRoutineLocals)));
+    Assert.AreEqual('Touch', lRoutineLocals[0].OwnerName);
     lScopes := lIndex.FindVisibleUnitScopes('SnapshotQueryUnit', 'interface');
     Assert.AreEqual(1, Integer(Length(lScopes)));
     Assert.AreEqual('SnapshotQueryUnit', lScopes[0].UnitName);

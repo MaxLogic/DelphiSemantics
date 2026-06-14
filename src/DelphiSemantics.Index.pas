@@ -167,12 +167,16 @@ type
     procedure AddVisibleScopesForModel(const aModel: TDelphiSemanticUnitModel);
     procedure AddVisibleScope(const aUnitName, aSectionKind: string;
       const aModel: TDelphiSemanticUnitModel);
+    procedure AddSnapshotSymbolMaps(const aSymbols: TArray<TDelphiSemanticIndexedSymbol>);
+    procedure InitializeLookupMaps;
     class procedure AddSymbolToMap(const aMap: TDictionary<string,
       TDelphiSemanticIndexedSymbolList>; const aKey: string;
       const aSymbol: TDelphiSemanticIndexedSymbol); static;
   public
     constructor Create(const aContext: TDelphiSemanticSymbolQueryContext;
       const aSymbols: TArray<TDelphiSemanticIndexedSymbol>;
+      const aReferences: TArray<TDelphiSemanticIndexedReference>);
+    constructor CreateSnapshot(const aSymbols: TArray<TDelphiSemanticIndexedSymbol>;
       const aReferences: TArray<TDelphiSemanticIndexedReference>);
     destructor Destroy; override;
     function FindSymbolById(const aId: TDelphiSemanticSymbolId; out aSymbol:
@@ -651,30 +655,19 @@ function TryFindUniqueRoutineSymbolId(const aSymbols: TArray<TDelphiSemanticInde
   const aUnitName, aRoutineName: string; out aRoutineId: TDelphiSemanticSymbolId): Boolean;
   forward;
 
-constructor TDelphiSemanticProjectSymbolIndexData.Create(
-  const aContext: TDelphiSemanticSymbolQueryContext;
-  const aSymbols: TArray<TDelphiSemanticIndexedSymbol>;
-  const aReferences: TArray<TDelphiSemanticIndexedReference>);
+function IsSnapshotLocalSymbol(const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
+begin
+  Result := (aSymbol.OwnerName <> '') and MatchText(aSymbol.Kind, ['local', 'parameter', 'var']);
+end;
+
+procedure TDelphiSemanticProjectSymbolIndexData.InitializeLookupMaps;
 var
-  i: Integer;
   lCompositeComparer: IEqualityComparer<TDelphiSemanticOwnerNameKey>;
   lComparer: IEqualityComparer<string>;
-  lLocalOriginKeys: TDelphiSemanticSymbolOriginSet;
-  lMemberOriginKeys: TDelphiSemanticSymbolOriginSet;
-  lModel: TDelphiSemanticUnitModel;
-  lOriginComparer: IEqualityComparer<TDelphiSemanticSymbolOriginKey>;
-  lOriginKey: TDelphiSemanticSymbolOriginKey;
-  lReference: TDelphiSemanticIndexedReference;
-  lRoutineId: TDelphiSemanticSymbolId;
-  lSymbol: TDelphiSemanticIndexedSymbol;
   lVisibleScopeComparer: IEqualityComparer<TDelphiSemanticUnitSectionKey>;
 begin
-  inherited Create;
-  lLocalOriginKeys := nil;
-  lMemberOriginKeys := nil;
   lComparer := TFastCaseAwareComparer.OrdinalIgnoreCase;
   lCompositeComparer := TDelphiSemanticOwnerNameKeyComparer.Create;
-  lOriginComparer := TDelphiSemanticSymbolOriginKeyComparer.Create;
   lVisibleScopeComparer := TDelphiSemanticUnitSectionKeyComparer.Create;
   fSymbolsById := TDictionary<string, TDelphiSemanticIndexedSymbol>.Create(lComparer);
   fSymbolsByName := TDictionary<string, TDelphiSemanticIndexedSymbolList>.Create(lComparer);
@@ -693,6 +686,66 @@ begin
   fUnitModelsByName := TDictionary<string, TDelphiSemanticUnitModel>.Create(lComparer);
   fVisibleScopesByUnitAndSection := TDictionary<TDelphiSemanticUnitSectionKey,
     TDelphiSemanticUnitModelList>.Create(lVisibleScopeComparer);
+end;
+
+procedure TDelphiSemanticProjectSymbolIndexData.AddSnapshotSymbolMaps(
+  const aSymbols: TArray<TDelphiSemanticIndexedSymbol>);
+var
+  lModel: TDelphiSemanticUnitModel;
+  lRoutineId: TDelphiSemanticSymbolId;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+begin
+  for lSymbol in aSymbols do
+  begin
+    fSymbolsById.AddOrSetValue(lSymbol.Id.Value, lSymbol);
+    AddSymbolToMap(fSymbolsByName, lSymbol.Name, lSymbol);
+    if SameText(lSymbol.Kind, 'unit') then
+    begin
+      lModel := Default(TDelphiSemanticUnitModel);
+      lModel.UnitName := lSymbol.UnitName;
+      lModel.FileName := lSymbol.FileName;
+      lModel.Success := True;
+      if lModel.UnitName <> '' then
+      begin
+        fUnitModelsByName.AddOrSetValue(lModel.UnitName, lModel);
+        AddVisibleScope(lModel.UnitName, 'interface', lModel);
+        AddVisibleScope(lModel.UnitName, 'implementation', lModel);
+      end;
+      AddSymbolToMap(fTopLevelSymbolsByName, lSymbol.Name, lSymbol);
+    end else if IsSnapshotLocalSymbol(lSymbol) then
+    begin
+      AddSymbolToCompositeMap(fLocalSymbolsByRoutineAndName, lSymbol.OwnerName, lSymbol.Name,
+        lSymbol);
+      if TryFindUniqueRoutineSymbolId(aSymbols, lSymbol.UnitName, lSymbol.OwnerName,
+        lRoutineId) then
+        AddSymbolToCompositeMap(fLocalSymbolsByRoutineIdAndName, lRoutineId.Value, lSymbol.Name,
+          lSymbol);
+    end else if lSymbol.OwnerName <> '' then
+      AddSymbolToCompositeMap(fMembersByOwnerAndName, lSymbol.OwnerName, lSymbol.Name, lSymbol)
+    else
+      AddSymbolToMap(fTopLevelSymbolsByName, lSymbol.Name, lSymbol);
+  end;
+end;
+
+constructor TDelphiSemanticProjectSymbolIndexData.Create(
+  const aContext: TDelphiSemanticSymbolQueryContext;
+  const aSymbols: TArray<TDelphiSemanticIndexedSymbol>;
+  const aReferences: TArray<TDelphiSemanticIndexedReference>);
+var
+  i: Integer;
+  lLocalOriginKeys: TDelphiSemanticSymbolOriginSet;
+  lMemberOriginKeys: TDelphiSemanticSymbolOriginSet;
+  lModel: TDelphiSemanticUnitModel;
+  lOriginComparer: IEqualityComparer<TDelphiSemanticSymbolOriginKey>;
+  lOriginKey: TDelphiSemanticSymbolOriginKey;
+  lRoutineId: TDelphiSemanticSymbolId;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+begin
+  inherited Create;
+  lLocalOriginKeys := nil;
+  lMemberOriginKeys := nil;
+  lOriginComparer := TDelphiSemanticSymbolOriginKeyComparer.Create;
+  InitializeLookupMaps;
 
   if aContext.UnitModel.UnitName <> '' then
     fUnitModelsByName.AddOrSetValue(aContext.UnitModel.UnitName, aContext.UnitModel);
@@ -746,6 +799,16 @@ begin
     lLocalOriginKeys.Free;
   end;
 
+  AddReferences(aReferences);
+end;
+
+constructor TDelphiSemanticProjectSymbolIndexData.CreateSnapshot(
+  const aSymbols: TArray<TDelphiSemanticIndexedSymbol>;
+  const aReferences: TArray<TDelphiSemanticIndexedReference>);
+begin
+  inherited Create;
+  InitializeLookupMaps;
+  AddSnapshotSymbolMaps(aSymbols);
   AddReferences(aReferences);
 end;
 
@@ -890,7 +953,21 @@ function TDelphiSemanticProjectSymbolIndexData.FindVisibleUnitScopes(
 var
   lKey: TDelphiSemanticUnitSectionKey;
   lList: TDelphiSemanticUnitModelList;
+  lModel: TDelphiSemanticUnitModel;
+  lModels: TDelphiSemanticUnitModelList;
 begin
+  if aUnitName = '' then
+  begin
+    lModels := TDelphiSemanticUnitModelList.Create;
+    try
+      for lModel in fUnitModelsByName.Values do
+        lModels.Add(lModel);
+      Exit(lModels.ToArray);
+    finally
+      lModels.Free;
+    end;
+  end;
+
   lKey.UnitName := aUnitName;
   lKey.SectionKind := aSectionKind;
   if fVisibleScopesByUnitAndSection.TryGetValue(lKey, lList) then
@@ -1514,6 +1591,8 @@ begin
     AddSnapshotReferences(lReferences, aSnapshot);
     Result.Symbols := lSymbols.ToArray;
     Result.References := lReferences.ToArray;
+    Result.fData := TDelphiSemanticProjectSymbolIndexData.CreateSnapshot(Result.Symbols,
+      Result.References);
     Result.Metrics.BuildInvocationCount := 0;
   finally
     lReferences.Free;
