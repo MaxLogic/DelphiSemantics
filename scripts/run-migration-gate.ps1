@@ -568,6 +568,158 @@ function Assert-MigrationGatePlannedEditParity {
   }
 }
 
+function Get-MigrationGateArrayProperty {
+  param(
+    [object]$Object,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  if ($null -eq $Object) {
+    return @()
+  }
+
+  $lProperty = $Object.PSObject.Properties[$Name]
+  if ($null -eq $lProperty) {
+    return @()
+  }
+
+  $lValue = $lProperty.Value
+  if ($null -eq $lValue) {
+    return @()
+  }
+  if ($lValue -isnot [array]) {
+    throw "Expected report property $Name to be a skipped array."
+  }
+  return @($lValue)
+}
+
+function Get-MigrationGateNestedIntProperty {
+  param(
+    [object]$Object,
+    [Parameter(Mandatory = $true)][string]$ParentName,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  $lParent = Get-MigrationGateObjectProperty -Object $Object -Name $ParentName
+  if (-not (Test-MigrationGateObjectProperty -Object $lParent -Name $Name)) {
+    throw "Expected report property $ParentName.$Name."
+  }
+  return [int](Get-MigrationGateObjectProperty -Object $lParent -Name $Name)
+}
+
+function Assert-MigrationGateObjectRequiredProperty {
+  param(
+    [object]$Object,
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$Context
+  )
+
+  if (-not (Test-MigrationGateObjectProperty -Object $Object -Name $Name)) {
+    throw "Expected $Context.$Name."
+  }
+  if ($null -eq (Get-MigrationGateObjectProperty -Object $Object -Name $Name)) {
+    throw "Expected $Context.$Name to be non-null."
+  }
+}
+
+function Assert-MigrationGateSkippedStatementContract {
+  param([Parameter(Mandatory = $true)][object]$SkippedStatement)
+
+  foreach ($lName in @('statementId', 'file', 'range', 'reason', 'signature')) {
+    Assert-MigrationGateObjectRequiredProperty -Object $SkippedStatement -Name $lName `
+      -Context 'skipped statement'
+  }
+
+  $lRange = Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'range'
+  foreach ($lRangeName in @('startLine', 'startCol', 'endLine', 'endCol')) {
+    Assert-MigrationGateObjectRequiredProperty -Object $lRange -Name $lRangeName `
+      -Context "skipped statement range"
+  }
+}
+
+function Get-MigrationGateSkippedStatementShape {
+  param([Parameter(Mandatory = $true)][object]$SkippedStatement)
+
+  Assert-MigrationGateSkippedStatementContract -SkippedStatement $SkippedStatement
+
+  $lShape = [ordered]@{
+    hasStatementId = Test-MigrationGateObjectProperty -Object $SkippedStatement -Name 'statementId'
+    statementId = [string](Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'statementId')
+    hasFile = Test-MigrationGateObjectProperty -Object $SkippedStatement -Name 'file'
+    file = [string](Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'file')
+    hasRange = Test-MigrationGateObjectProperty -Object $SkippedStatement -Name 'range'
+    range = ConvertTo-MigrationGateStableJson (Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'range')
+    hasReason = Test-MigrationGateObjectProperty -Object $SkippedStatement -Name 'reason'
+    reason = [string](Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'reason')
+    hasSignature = Test-MigrationGateObjectProperty -Object $SkippedStatement -Name 'signature'
+    signature = [string](Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'signature')
+  }
+  return ConvertTo-MigrationGateStableJson $lShape
+}
+
+function Get-MigrationGateSkippedReasonBucketShapes {
+  param([object[]]$SkippedStatements)
+
+  return @(
+    $SkippedStatements |
+      Group-Object { [string](Get-MigrationGateObjectProperty -Object $_ -Name 'reason') } |
+      ForEach-Object {
+        ConvertTo-MigrationGateStableJson ([ordered]@{
+          reason = [string]$_.Name
+          count = [int]$_.Count
+        })
+      } |
+      Sort-Object
+  )
+}
+
+function Assert-MigrationGateSkippedParity {
+  param(
+    [Parameter(Mandatory = $true)][object]$PlanJson,
+    [Parameter(Mandatory = $true)][object]$ApplyJson
+  )
+
+  $lPlanSkippedSummary = Get-MigrationGateNestedIntProperty -Object $PlanJson `
+    -ParentName 'summary' -Name 'skipped'
+  $lApplySkippedSummary = Get-MigrationGateNestedIntProperty -Object $ApplyJson `
+    -ParentName 'summary' -Name 'skipped'
+  if ($lPlanSkippedSummary -ne $lApplySkippedSummary) {
+    throw "Expected maxTdb report-only and apply skipped summary counts to match, got plan=$lPlanSkippedSummary apply=$lApplySkippedSummary"
+  }
+
+  $lPlanSkipped = @(Get-MigrationGateArrayProperty -Object $PlanJson -Name 'skipped')
+  $lApplySkipped = @(Get-MigrationGateArrayProperty -Object $ApplyJson -Name 'skipped')
+  if (($lPlanSkipped.Count -ne $lPlanSkippedSummary) -or
+      ($lApplySkipped.Count -ne $lApplySkippedSummary) -or
+      ($lPlanSkipped.Count -ne $lApplySkipped.Count)) {
+    throw "Expected maxTdb report-only and apply skipped array counts to match summary skipped count, got planSummary=$lPlanSkippedSummary planArray=$($lPlanSkipped.Count) applySummary=$lApplySkippedSummary applyArray=$($lApplySkipped.Count)"
+  }
+
+  $lPlanReasonBuckets = @(Get-MigrationGateSkippedReasonBucketShapes -SkippedStatements $lPlanSkipped)
+  $lApplyReasonBuckets = @(Get-MigrationGateSkippedReasonBucketShapes -SkippedStatements $lApplySkipped)
+  $lReasonDifferences = @(Compare-Object $lPlanReasonBuckets $lApplyReasonBuckets)
+  if ($lReasonDifferences.Count -ne 0) {
+    $lSample = @($lReasonDifferences | Select-Object -First 4 | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" })
+    throw "Expected maxTdb report-only and apply skipped reason buckets to match. Differences: $($lSample -join ' | ')"
+  }
+
+  $lPlanShapes = @(
+    $lPlanSkipped |
+      ForEach-Object { Get-MigrationGateSkippedStatementShape -SkippedStatement $_ } |
+      Sort-Object
+  )
+  $lApplyShapes = @(
+    $lApplySkipped |
+      ForEach-Object { Get-MigrationGateSkippedStatementShape -SkippedStatement $_ } |
+      Sort-Object
+  )
+  $lShapeDifferences = @(Compare-Object $lPlanShapes $lApplyShapes)
+  if ($lShapeDifferences.Count -ne 0) {
+    $lSample = @($lShapeDifferences | Select-Object -First 4 | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" })
+    throw "Expected maxTdb report-only and apply skipped shapes to match. Differences: $($lSample -join ' | ')"
+  }
+}
+
 function Get-MigrationGateSourceRelativePath {
   param(
     [Parameter(Mandatory = $true)][string]$Root,
@@ -868,6 +1020,7 @@ if (($lPlanPlannedEdits -ne 215) -or ($lApplyPlannedEdits -ne $lPlanPlannedEdits
   throw "Expected maxTdb planned edit parity at 215, got plan=$lPlanPlannedEdits apply=$lApplyPlannedEdits"
 }
 Assert-MigrationGatePlannedEditParity -PlanJson $lPlanJson -ApplyJson $lJson
+Assert-MigrationGateSkippedParity -PlanJson $lPlanJson -ApplyJson $lJson
 if ($lAppliedEdits -lt 1) {
   throw "Expected at least one applied maxTdb edit"
 }

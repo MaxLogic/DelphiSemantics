@@ -516,6 +516,288 @@ function Test-PlannedEditParityDetectsReasonShapeMismatch {
   Assert-True $lFailed 'Planned edit parity must reject missing reason drift.'
 }
 
+function New-TestSkippedStatement {
+  param(
+    [string]$StatementId = 'skip-1',
+    [string]$File = 'Unit1.pas',
+    [string]$Reason = 'selector-type-not-resolved',
+    [string]$Signature = 'Unit1.pas:10:3-10:15',
+    [int]$StartLine = 10,
+    [int]$StartCol = 3
+  )
+
+  return [pscustomobject]@{
+    statementId = $StatementId
+    file = $File
+    reason = $Reason
+    signature = $Signature
+    range = [pscustomobject]@{
+      startLine = $StartLine
+      startCol = $StartCol
+      endLine = $StartLine
+      endCol = 15
+    }
+  }
+}
+
+function Test-SkippedParityDetectsSummaryMismatch {
+  $lPlan = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 1 }
+    skipped = @((New-TestSkippedStatement))
+  }
+  $lApply = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 2 }
+    skipped = @((New-TestSkippedStatement))
+  }
+
+  $lFailed = $false
+  try {
+    Assert-MigrationGateSkippedParity -PlanJson $lPlan -ApplyJson $lApply
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*skipped summary*') `
+      'Skipped summary mismatch should name skipped summary parity.'
+  }
+
+  Assert-True $lFailed 'Skipped parity must reject summary skipped-count drift.'
+}
+
+function Test-SkippedParityDetectsArrayMismatch {
+  $lPlan = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 2 }
+    skipped = @(
+      (New-TestSkippedStatement -StatementId 'skip-1'),
+      (New-TestSkippedStatement -StatementId 'skip-2' -StartLine 20)
+    )
+  }
+  $lApply = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 2 }
+    skipped = [object[]]@((New-TestSkippedStatement -StatementId 'skip-1'))
+  }
+
+  $lFailed = $false
+  try {
+    Assert-MigrationGateSkippedParity -PlanJson $lPlan -ApplyJson $lApply
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*skipped array*') `
+      'Skipped array mismatch should name skipped array parity.'
+  }
+
+  Assert-True $lFailed 'Skipped parity must reject skipped array count drift.'
+}
+
+function Test-SkippedParityAcceptsMatchingSkippedStatements {
+  $lPlan = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 2 }
+    skipped = @(
+      (New-TestSkippedStatement -StatementId 'skip-1' -Reason 'selector-type-not-resolved'),
+      (New-TestSkippedStatement -StatementId 'skip-2' -Reason 'property-selector' -StartLine 20)
+    )
+  }
+  $lApply = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 2 }
+    skipped = @(
+      (New-TestSkippedStatement -StatementId 'skip-2' -Reason 'property-selector' -StartLine 20),
+      (New-TestSkippedStatement -StatementId 'skip-1' -Reason 'selector-type-not-resolved')
+    )
+  }
+
+  Assert-MigrationGateSkippedParity -PlanJson $lPlan -ApplyJson $lApply
+}
+
+function Test-SkippedParityDetectsReasonBucketDrift {
+  $lPlan = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 2 }
+    skipped = @(
+      (New-TestSkippedStatement -StatementId 'skip-1' -Reason 'selector-type-not-resolved'),
+      (New-TestSkippedStatement -StatementId 'skip-2' -Reason 'property-selector' -StartLine 20)
+    )
+  }
+  $lApply = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 2 }
+    skipped = @(
+      (New-TestSkippedStatement -StatementId 'skip-1' -Reason 'selector-type-not-resolved'),
+      (New-TestSkippedStatement -StatementId 'skip-2' -Reason 'call-selector' -StartLine 20)
+    )
+  }
+
+  $lFailed = $false
+  try {
+    Assert-MigrationGateSkippedParity -PlanJson $lPlan -ApplyJson $lApply
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*reason bucket*') `
+      'Skipped reason drift should name reason bucket parity.'
+    Assert-True ($_.Exception.Message -like '*property-selector*') `
+      'Skipped reason drift should include the missing bucket.'
+  }
+
+  Assert-True $lFailed 'Skipped parity must reject reason-bucket drift.'
+}
+
+function Test-SkippedParityDetectsStatementIdentityMismatch {
+  $lPlan = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 1 }
+    skipped = [object[]]@((New-TestSkippedStatement -StatementId 'skip-1'))
+  }
+  $lApply = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 1 }
+    skipped = [object[]]@((New-TestSkippedStatement -StatementId 'skip-2'))
+  }
+
+  $lFailed = $false
+  try {
+    Assert-MigrationGateSkippedParity -PlanJson $lPlan -ApplyJson $lApply
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*skipped shape*') `
+      'Skipped identity mismatch should report skipped shape parity.'
+    Assert-True ($_.Exception.Message -like '*skip-1*') `
+      'Skipped identity mismatch should name the missing statement id.'
+  }
+
+  Assert-True $lFailed 'Skipped parity must reject statement identity drift.'
+}
+
+function Test-SkippedParityDetectsSignatureMismatch {
+  $lPlan = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 1 }
+    skipped = [object[]]@((New-TestSkippedStatement -StatementId 'skip-1' -Signature 'old-signature'))
+  }
+  $lApply = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 1 }
+    skipped = [object[]]@((New-TestSkippedStatement -StatementId 'skip-1' -Signature 'new-signature'))
+  }
+
+  $lFailed = $false
+  try {
+    Assert-MigrationGateSkippedParity -PlanJson $lPlan -ApplyJson $lApply
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*skipped shape*') `
+      'Skipped signature mismatch should report skipped shape parity.'
+    Assert-True ($_.Exception.Message -like '*skip-1*') `
+      'Skipped signature mismatch should name the statement id.'
+  }
+
+  Assert-True $lFailed 'Skipped parity must reject statement signature drift.'
+}
+
+function Test-SkippedParityRejectsScalarSkippedShape {
+  $lPlan = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 1 }
+    skipped = (New-TestSkippedStatement)
+  }
+  $lApply = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 1 }
+    skipped = (New-TestSkippedStatement)
+  }
+
+  $lFailed = $false
+  try {
+    Assert-MigrationGateSkippedParity -PlanJson $lPlan -ApplyJson $lApply
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*skipped array*') `
+      'Scalar skipped shape should report skipped array contract failure.'
+  }
+
+  Assert-True $lFailed 'Skipped parity must reject scalar skipped report shape.'
+}
+
+function Test-SkippedParityRejectsMissingRequiredSkippedField {
+  $lPlan = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 1 }
+    skipped = [object[]]@(
+      [pscustomobject]@{
+        statementId = 'skip-1'
+        file = 'Unit1.pas'
+        reason = 'selector-type-not-resolved'
+        range = [pscustomobject]@{
+          startLine = 10
+          startCol = 3
+          endLine = 10
+          endCol = 15
+        }
+      }
+    )
+  }
+  $lApply = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 1 }
+    skipped = [object[]]@(
+      [pscustomobject]@{
+        statementId = 'skip-1'
+        file = 'Unit1.pas'
+        reason = 'selector-type-not-resolved'
+        range = [pscustomobject]@{
+          startLine = 10
+          startCol = 3
+          endLine = 10
+          endCol = 15
+        }
+      }
+    )
+  }
+
+  $lFailed = $false
+  try {
+    Assert-MigrationGateSkippedParity -PlanJson $lPlan -ApplyJson $lApply
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*signature*') `
+      'Missing skipped signature should name the required field.'
+  }
+
+  Assert-True $lFailed 'Skipped parity must reject missing required skipped fields.'
+}
+
+function Test-SkippedParityRejectsMissingRequiredRangeField {
+  $lPlan = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 1 }
+    skipped = [object[]]@(
+      [pscustomobject]@{
+        statementId = 'skip-1'
+        file = 'Unit1.pas'
+        reason = 'selector-type-not-resolved'
+        signature = 'Unit1.pas:10:3-10:15'
+        range = [pscustomobject]@{
+          startLine = 10
+          startCol = 3
+          endLine = 10
+        }
+      }
+    )
+  }
+  $lApply = [pscustomobject]@{
+    summary = [pscustomobject]@{ skipped = 1 }
+    skipped = [object[]]@(
+      [pscustomobject]@{
+        statementId = 'skip-1'
+        file = 'Unit1.pas'
+        reason = 'selector-type-not-resolved'
+        signature = 'Unit1.pas:10:3-10:15'
+        range = [pscustomobject]@{
+          startLine = 10
+          startCol = 3
+          endLine = 10
+        }
+      }
+    )
+  }
+
+  $lFailed = $false
+  try {
+    Assert-MigrationGateSkippedParity -PlanJson $lPlan -ApplyJson $lApply
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*range.endCol*') `
+      'Missing skipped range field should name the required range field.'
+  }
+
+  Assert-True $lFailed 'Skipped parity must reject missing required skipped range fields.'
+}
+
 function Test-PlanSourceMutationCheckRecordsAndFails {
   Reset-TestWorkspace
   $lClone = Join-Path $TempRoot 'plan-mutation-clone'
