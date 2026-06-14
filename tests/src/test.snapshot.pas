@@ -47,10 +47,10 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
-  Winapi.Windows,
   maxLogic.IOUtils,
   DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
-  DelphiSemantics.WithBinding;
+  DelphiSemantics.WithBinding,
+  Test.Support;
 
 const
   cSnapshotWorkerJoinTimeoutEnv =
@@ -309,15 +309,12 @@ procedure TSnapshotTests.ParallelSnapshotWorkerTimeoutReportsWorkerAndSourceFile
 var
   i: Integer;
   lDeclaration: TDelphiSemanticDeclaration;
-  lHadPreviousTimeout: Boolean;
-  lHadPreviousStallFile: Boolean;
-  lHadPreviousStallMs: Boolean;
   lMetrics: TDelphiSnapshotBuilderMetrics;
   lModels: TArray<TDelphiSemanticUnitModel>;
   lOptions: TDelphiSnapshotBuildOptions;
-  lPreviousStallFile: string;
-  lPreviousStallMs: string;
-  lPreviousTimeout: string;
+  lScopedStallFile: TScopedEnvironmentVariable;
+  lScopedStallMs: TScopedEnvironmentVariable;
+  lScopedTimeout: TScopedEnvironmentVariable;
   lSnapshot: TDelphiProjectSnapshot;
 begin
   SetLength(lModels, 2);
@@ -343,22 +340,18 @@ begin
   lOptions := Default(TDelphiSnapshotBuildOptions);
   lOptions.ResolveReferenceTargets := False;
   lOptions.WorkerCount := 2;
-  lPreviousTimeout := GetEnvironmentVariable(cSnapshotWorkerJoinTimeoutEnv);
-  lPreviousStallFile := GetEnvironmentVariable(cSnapshotWorkerTestStallFileEnv);
-  lPreviousStallMs := GetEnvironmentVariable(cSnapshotWorkerTestStallMsEnv);
-  lHadPreviousTimeout := lPreviousTimeout <> '';
-  lHadPreviousStallFile := lPreviousStallFile <> '';
-  lHadPreviousStallMs := lPreviousStallMs <> '';
-  Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerJoinTimeoutEnv),
-    PChar('50'));
-  Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerTestStallFileEnv),
-    PChar('TimeoutUnit0.pas'));
-  Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerTestStallMsEnv),
-    PChar('500'));
-  Assert.AreEqual('50', GetEnvironmentVariable(cSnapshotWorkerJoinTimeoutEnv),
-    'Expected the snapshot worker timeout override to be visible to the builder.');
+  lSnapshot := nil;
+  lScopedTimeout := nil;
+  lScopedStallFile := nil;
+  lScopedStallMs := nil;
   try
-    lSnapshot := nil;
+    lScopedTimeout := TScopedEnvironmentVariable.Create(cSnapshotWorkerJoinTimeoutEnv, '50');
+    lScopedStallFile := TScopedEnvironmentVariable.Create(cSnapshotWorkerTestStallFileEnv,
+      'TimeoutUnit0.pas');
+    lScopedStallMs := TScopedEnvironmentVariable.Create(cSnapshotWorkerTestStallMsEnv,
+      '500');
+    Assert.AreEqual('50', GetEnvironmentVariable(cSnapshotWorkerJoinTimeoutEnv),
+      'Expected the snapshot worker timeout override to be visible to the builder.');
     try
       lSnapshot := BuildProjectSnapshotFromModels(lModels,
         Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
@@ -376,24 +369,9 @@ begin
     end;
   finally
     lSnapshot.Free;
-    if lHadPreviousTimeout then
-      Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerJoinTimeoutEnv),
-        PChar(lPreviousTimeout))
-    else
-      Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerJoinTimeoutEnv),
-        nil);
-    if lHadPreviousStallFile then
-      Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerTestStallFileEnv),
-        PChar(lPreviousStallFile))
-    else
-      Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerTestStallFileEnv),
-        nil);
-    if lHadPreviousStallMs then
-      Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerTestStallMsEnv),
-        PChar(lPreviousStallMs))
-    else
-      Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerTestStallMsEnv),
-        nil);
+    lScopedStallMs.Free;
+    lScopedStallFile.Free;
+    lScopedTimeout.Free;
   end;
 end;
 
