@@ -20,7 +20,11 @@ type
     [Test]
     procedure ProjectSnapshotUsesPackedMemberKeysAndBuilderBoundary;
     [Test]
+    procedure ParallelSnapshotWorkerTimeoutReportsWorkerAndSourceFile;
+    [Test]
     procedure SnapshotBuilderResolvesReferenceTargetsWithoutLegacyProjectIndex;
+    [Test]
+    procedure SnapshotBuilderUsesBoundedWorkerJoins;
     [Test]
     procedure SnapshotReferenceTargetsKeepOverloadedRoutineLocalAmbiguityUnresolved;
     [Test]
@@ -43,9 +47,18 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
+  Winapi.Windows,
   maxLogic.IOUtils,
   DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.WithBinding;
+
+const
+  cSnapshotWorkerJoinTimeoutEnv =
+    'DELPHI_SEMANTICS_SNAPSHOT_WORKER_JOIN_TIMEOUT_MS';
+  cSnapshotWorkerTestStallFileEnv =
+    'DELPHI_SEMANTICS_TEST_SNAPSHOT_WORKER_STALL_FILE';
+  cSnapshotWorkerTestStallMsEnv =
+    'DELPHI_SEMANTICS_TEST_SNAPSHOT_WORKER_STALL_MS';
 
 procedure TSnapshotTests.MemberKeyPacksOwnerAndNameIds;
 var
@@ -292,6 +305,98 @@ begin
     'Public consumers should not mutate a built project snapshot.');
 end;
 
+procedure TSnapshotTests.ParallelSnapshotWorkerTimeoutReportsWorkerAndSourceFile;
+var
+  i: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lHadPreviousTimeout: Boolean;
+  lHadPreviousStallFile: Boolean;
+  lHadPreviousStallMs: Boolean;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lPreviousStallFile: string;
+  lPreviousStallMs: string;
+  lPreviousTimeout: string;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  SetLength(lModels, 2);
+  lDeclaration := Default(TDelphiSemanticDeclaration);
+  lDeclaration.Kind := 'type';
+  lDeclaration.SectionKind := 'interface';
+  lDeclaration.Line := 1;
+  lDeclaration.Column := 1;
+  for i := 0 to High(lModels) do
+  begin
+    lModels[i].Success := True;
+    lModels[i].UnitName := 'TimeoutUnit' + IntToStr(i);
+    lModels[i].FileName := 'TimeoutUnit' + IntToStr(i) + '.pas';
+    SetLength(lModels[i].Declarations, 1);
+  end;
+  for i := 0 to High(lModels[0].Declarations) do
+  begin
+    lDeclaration.Name := 'TTimeoutSymbol' + IntToStr(i);
+    lModels[0].Declarations[i] := lDeclaration;
+    lModels[1].Declarations[i] := lDeclaration;
+  end;
+
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := False;
+  lOptions.WorkerCount := 2;
+  lPreviousTimeout := GetEnvironmentVariable(cSnapshotWorkerJoinTimeoutEnv);
+  lPreviousStallFile := GetEnvironmentVariable(cSnapshotWorkerTestStallFileEnv);
+  lPreviousStallMs := GetEnvironmentVariable(cSnapshotWorkerTestStallMsEnv);
+  lHadPreviousTimeout := lPreviousTimeout <> '';
+  lHadPreviousStallFile := lPreviousStallFile <> '';
+  lHadPreviousStallMs := lPreviousStallMs <> '';
+  Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerJoinTimeoutEnv),
+    PChar('50'));
+  Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerTestStallFileEnv),
+    PChar('TimeoutUnit0.pas'));
+  Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerTestStallMsEnv),
+    PChar('500'));
+  Assert.AreEqual('50', GetEnvironmentVariable(cSnapshotWorkerJoinTimeoutEnv),
+    'Expected the snapshot worker timeout override to be visible to the builder.');
+  try
+    lSnapshot := nil;
+    try
+      lSnapshot := BuildProjectSnapshotFromModels(lModels,
+        Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+      Assert.Fail('Expected parallel snapshot worker timeout.');
+    except
+      on E: Exception do
+      begin
+        Assert.IsTrue(ContainsText(E.Message, 'Snapshot worker join timed out'),
+          'Timeout should fail through the bounded worker join diagnostic.');
+        Assert.IsTrue(ContainsText(E.Message, 'Snapshot worker'),
+          'Timeout should identify the worker.');
+        Assert.IsTrue(ContainsText(E.Message, 'TimeoutUnit'),
+          'Timeout should identify the source file being processed.');
+      end;
+    end;
+  finally
+    lSnapshot.Free;
+    if lHadPreviousTimeout then
+      Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerJoinTimeoutEnv),
+        PChar(lPreviousTimeout))
+    else
+      Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerJoinTimeoutEnv),
+        nil);
+    if lHadPreviousStallFile then
+      Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerTestStallFileEnv),
+        PChar(lPreviousStallFile))
+    else
+      Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerTestStallFileEnv),
+        nil);
+    if lHadPreviousStallMs then
+      Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerTestStallMsEnv),
+        PChar(lPreviousStallMs))
+    else
+      Winapi.Windows.SetEnvironmentVariable(PChar(cSnapshotWorkerTestStallMsEnv),
+        nil);
+  end;
+end;
+
 procedure TSnapshotTests.SnapshotBuilderResolvesReferenceTargetsWithoutLegacyProjectIndex;
 var
   lBuilderSource: string;
@@ -327,6 +432,37 @@ begin
     'Project-session snapshot cache rebuilds must not build a legacy symbol-index context.');
   Assert.IsFalse(ContainsText(lSessionSource, 'lSymbolRefByLegacyId'),
     'Project-session snapshot cache rebuilds must not remap legacy symbol ids back to snapshot ids.');
+end;
+
+procedure TSnapshotTests.SnapshotBuilderUsesBoundedWorkerJoins;
+var
+  lBuilderSource: string;
+  lFunctionEnd: Integer;
+  lFunctionSource: string;
+  lFunctionStart: Integer;
+begin
+  lBuilderSource := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
+    ExtractFilePath(ParamStr(0)), '..', '..', 'src',
+    'DelphiSemantics.Snapshot.Builder.pas'])));
+  lFunctionStart := Pos('function BuildUnitResults', lBuilderSource);
+  lFunctionEnd := PosEx('function MergeUnitResults', lBuilderSource,
+    lFunctionStart);
+  Assert.IsTrue((lFunctionStart > 0) and (lFunctionEnd > lFunctionStart),
+    'Expected BuildUnitResults implementation section.');
+
+  lFunctionSource := Copy(lBuilderSource, lFunctionStart,
+    lFunctionEnd - lFunctionStart);
+  Assert.IsFalse(ContainsText(lFunctionSource, '.WaitFor'),
+    'Parallel snapshot workers must use bounded joins, not unbounded TThread.WaitFor.');
+  Assert.IsTrue(ContainsText(lBuilderSource, 'WaitForSingleObject'),
+    'Bounded joins should poll worker handles with an explicit timeout.');
+  Assert.IsTrue(ContainsText(lBuilderSource,
+    'DELPHI_SEMANTICS_SNAPSHOT_WORKER_JOIN_TIMEOUT_MS'),
+    'Timeout must be configurable for deterministic tests and diagnostics.');
+  Assert.IsTrue(ContainsText(lBuilderSource, 'RequestCancel'),
+    'Timed-out snapshot workers should receive cooperative cancellation.');
+  Assert.IsTrue(ContainsText(lBuilderSource, 'Snapshot worker'),
+    'Timeout diagnostics should identify the affected worker/source file.');
 end;
 
 procedure TSnapshotTests.SnapshotReferenceTargetsKeepOverloadedRoutineLocalAmbiguityUnresolved;

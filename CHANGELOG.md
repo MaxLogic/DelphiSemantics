@@ -73,6 +73,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Parallel project snapshot worker joins now use bounded handle polling with
+  cooperative cancellation and worker/source-file timeout diagnostics instead
+  of unbounded `TThread.WaitFor`.
 - Remove-with body-analysis scoping now lives on the remove-with-specific
   request/API path instead of the common project/API option records.
 - Remove-with apply mode now preserves the semantic report-only statement set
