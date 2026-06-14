@@ -516,6 +516,105 @@ function Test-PlannedEditParityDetectsReasonShapeMismatch {
   Assert-True $lFailed 'Planned edit parity must reject missing reason drift.'
 }
 
+function Test-PlanSourceMutationCheckRecordsAndFails {
+  Reset-TestWorkspace
+  $lClone = Join-Path $TempRoot 'plan-mutation-clone'
+  $lSourceDir = Join-Path $lClone 'src'
+  [IO.Directory]::CreateDirectory($lSourceDir) | Out-Null
+  $lUnitPath = Join-Path $lSourceDir 'Unit1.pas'
+  Set-Content -LiteralPath $lUnitPath -Value 'unit Unit1; interface implementation end.' -Encoding UTF8
+  $lSnapshot = New-MigrationGateSourceSnapshot -Root $lClone
+  Set-Content -LiteralPath $lUnitPath -Value 'unit Unit1; interface const Mutated = True; implementation end.' -Encoding UTF8
+
+  $lManifest = Join-Path $TempRoot 'plan-mutation-manifest.json'
+  $lResults = New-Object System.Collections.Generic.List[object]
+  $lProvenance = New-TestGateProvenance -DelphiSemanticsRoot $RepoRoot -DakRoot $RepoRoot
+  $lResult = New-MigrationGatePlanSourceMutationResult -Name 'Check report-only plan source mutation' `
+    -Root $lClone `
+    -Snapshot $lSnapshot
+
+  $lFailed = $false
+  try {
+    Add-GateStepResult `
+      -Results $lResults `
+      -Result $lResult `
+      -ManifestPath $lManifest `
+      -WorkRoot $TempRoot `
+      -DelphiSemanticsRoot $RepoRoot `
+      -DakRoot $RepoRoot `
+      -Provenance $lProvenance `
+      -AllowDirty:$false
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*source mutation*') `
+      'Plan mutation failure should name the mutation check step.'
+  }
+
+  Assert-True $lFailed 'A report-only source mutation must fail the gate.'
+  $lJson = Get-Content -LiteralPath $lManifest -Raw | ConvertFrom-Json
+  $lStep = @($lJson.steps)[0]
+  Assert-Equal 'mutated' $lStep.sourceMutation.status `
+    'Manifest step must record the plan source mutation status.'
+  Assert-True (@($lStep.sourceMutation.changedFiles) -contains 'src\Unit1.pas') `
+    'Manifest mutation status must list changed Delphi source files.'
+}
+
+function Test-FailedPlanStillRecordsSourceMutationBeforeFailing {
+  Reset-TestWorkspace
+  $lClone = Join-Path $TempRoot 'failed-plan-mutation-clone'
+  $lSourceDir = Join-Path $lClone 'src'
+  [IO.Directory]::CreateDirectory($lSourceDir) | Out-Null
+  $lUnitPath = Join-Path $lSourceDir 'Unit2.pas'
+  Set-Content -LiteralPath $lUnitPath -Value 'unit Unit2; interface implementation end.' -Encoding UTF8
+  $lSnapshot = New-MigrationGateSourceSnapshot -Root $lClone
+  Set-Content -LiteralPath $lUnitPath -Value 'unit Unit2; interface const Mutated = True; implementation end.' -Encoding UTF8
+
+  $lManifest = Join-Path $TempRoot 'failed-plan-mutation-manifest.json'
+  $lResults = New-Object System.Collections.Generic.List[object]
+  $lProvenance = New-TestGateProvenance -DelphiSemanticsRoot $RepoRoot -DakRoot $RepoRoot
+  $lPlanResult = [pscustomobject]@{
+    name = 'Run cloned maxTdb report-only plan'
+    workingDirectory = $RepoRoot
+    filePath = 'fake-plan.exe'
+    arguments = @()
+    command = 'fake failed plan'
+    exitCode = 7
+    elapsedSeconds = 0
+    stdout = ''
+    stderr = ''
+  }
+
+  $lFailed = $false
+  try {
+    Add-MigrationGateReportOnlyPlanResult `
+      -Results $lResults `
+      -PlanResult $lPlanResult `
+      -ManifestPath $lManifest `
+      -WorkRoot $TempRoot `
+      -DelphiSemanticsRoot $RepoRoot `
+      -DakRoot $RepoRoot `
+      -Provenance $lProvenance `
+      -MutationRoot $lClone `
+      -MutationSnapshot $lSnapshot `
+      -AllowDirty:$false
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*source mutation*') `
+      'Failed plan with source mutation should report the mutation check first.'
+  }
+
+  Assert-True $lFailed 'A failed report-only plan with source mutation must fail the gate.'
+  $lJson = Get-Content -LiteralPath $lManifest -Raw | ConvertFrom-Json
+  $lSteps = @($lJson.steps)
+  Assert-Equal '2' $lSteps.Count 'Manifest must contain the failed plan step and the mutation check step.'
+  Assert-Equal 'Run cloned maxTdb report-only plan' $lSteps[0].name `
+    'Manifest must record the failed plan step.'
+  Assert-Equal 'Check report-only plan source mutation' $lSteps[1].name `
+    'Manifest must record the mutation check after the failed plan.'
+  Assert-Equal 'mutated' $lSteps[1].sourceMutation.status `
+    'Mutation check must record mutated status even when plan failed.'
+}
+
 function Get-ScriptTestNames {
   $lScriptPath = [IO.Path]::GetFullPath($PSCommandPath)
   $lTests = @(Get-Command -CommandType Function -Name 'Test-*' |

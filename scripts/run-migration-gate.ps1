@@ -7,11 +7,19 @@ param(
   [ValidateSet('Gate', 'Full')][string]$DakTestProfile = 'Gate',
   [switch]$SkipBuild,
   [switch]$AllowDirty,
-  [switch]$ImportOnly
+  [switch]$ImportOnly,
+  [switch]$Help
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ($Help) {
+  Write-Host 'Usage: run-migration-gate.ps1 [-DelphiSemanticsRoot <path>] [-DakRoot <path>] [-WorkRoot <path>] [-SkipBuild] [-AllowDirty]'
+  Write-Host 'Runs the DelphiSemantics/DAK migration gate on a maxTdb clone.'
+  Write-Host 'The gate snapshots cloned Delphi source before report-only plan mode and records a sourceMutation manifest step before apply.'
+  return
+}
 
 if ([string]::IsNullOrWhiteSpace($DelphiSemanticsRoot)) {
   $lScriptRoot = $PSScriptRoot
@@ -398,7 +406,8 @@ function Add-GateStepResult {
     [Parameter(Mandatory = $true)][string]$DelphiSemanticsRoot,
     [Parameter(Mandatory = $true)][string]$DakRoot,
     [object[]]$Provenance = @(),
-    [switch]$AllowDirty
+    [switch]$AllowDirty,
+    [switch]$NoThrow
   )
 
   $Results.Add($Result)
@@ -411,7 +420,7 @@ function Add-GateStepResult {
     -Steps $Results.ToArray() `
     -AllowDirty:$AllowDirty
 
-  if ([int]$Result.exitCode -ne 0) {
+  if (([int]$Result.exitCode -ne 0) -and (-not $NoThrow)) {
     throw "$($Result.name) failed with exit code $($Result.exitCode)"
   }
 }
@@ -559,6 +568,147 @@ function Assert-MigrationGatePlannedEditParity {
   }
 }
 
+function Get-MigrationGateSourceRelativePath {
+  param(
+    [Parameter(Mandatory = $true)][string]$Root,
+    [Parameter(Mandatory = $true)][string]$Path
+  )
+
+  $lRelative = [IO.Path]::GetRelativePath([IO.Path]::GetFullPath($Root), [IO.Path]::GetFullPath($Path))
+  return $lRelative.Replace([IO.Path]::AltDirectorySeparatorChar, [IO.Path]::DirectorySeparatorChar)
+}
+
+function Get-MigrationGateFileHash {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $lHash = Get-FileHash -LiteralPath $Path -Algorithm SHA256
+  return $lHash.Hash.ToLowerInvariant()
+}
+
+function New-MigrationGateSourceSnapshot {
+  param([Parameter(Mandatory = $true)][string]$Root)
+
+  $lRoot = [IO.Path]::GetFullPath($Root)
+  $lExtensions = @('.pas', '.dpr', '.inc', '.dfm')
+  $lSnapshot = New-Object System.Collections.Generic.List[object]
+  if (-not (Test-Path -LiteralPath $lRoot -PathType Container)) {
+    throw "Source snapshot root not found: $lRoot"
+  }
+
+  Get-ChildItem -LiteralPath $lRoot -Recurse -File |
+    Where-Object { $lExtensions -contains $_.Extension.ToLowerInvariant() } |
+    Sort-Object FullName |
+    ForEach-Object {
+      $lRelative = Get-MigrationGateSourceRelativePath -Root $lRoot -Path $_.FullName
+      $lSnapshot.Add([pscustomobject]@{
+        path = $lRelative
+        hash = Get-MigrationGateFileHash -Path $_.FullName
+      })
+    }
+  return [pscustomobject]@{
+    root = $lRoot
+    files = $lSnapshot.ToArray()
+  }
+}
+
+function Compare-MigrationGateSourceSnapshot {
+  param(
+    [Parameter(Mandatory = $true)][string]$Root,
+    [Parameter(Mandatory = $true)][object]$Snapshot
+  )
+
+  $lCurrent = New-MigrationGateSourceSnapshot -Root $Root
+  $lBefore = @{}
+  foreach ($lFile in @($Snapshot.files)) {
+    $lBefore[[string]$lFile.path] = [string]$lFile.hash
+  }
+  $lAfter = @{}
+  foreach ($lFile in @($lCurrent.files)) {
+    $lAfter[[string]$lFile.path] = [string]$lFile.hash
+  }
+
+  $lBeforeNames = @($lBefore.Keys | Sort-Object)
+  $lAfterNames = @($lAfter.Keys | Sort-Object)
+  $lAdded = @($lAfterNames | Where-Object { -not $lBefore.ContainsKey($_) })
+  $lRemoved = @($lBeforeNames | Where-Object { -not $lAfter.ContainsKey($_) })
+  $lChanged = @($lBeforeNames | Where-Object { $lAfter.ContainsKey($_) -and ($lBefore[$_] -ne $lAfter[$_]) })
+  $lMutated = (($lAdded.Count + $lRemoved.Count + $lChanged.Count) -gt 0)
+
+  return [pscustomobject]@{
+    status = if ($lMutated) { 'mutated' } else { 'unchanged' }
+    beforeCount = $lBeforeNames.Count
+    afterCount = $lAfterNames.Count
+    addedFiles = @($lAdded)
+    removedFiles = @($lRemoved)
+    changedFiles = @($lChanged)
+  }
+}
+
+function New-MigrationGatePlanSourceMutationResult {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$Root,
+    [Parameter(Mandatory = $true)][object]$Snapshot
+  )
+
+  $lMutation = Compare-MigrationGateSourceSnapshot -Root $Root -Snapshot $Snapshot
+  return [pscustomobject]@{
+    name = $Name
+    workingDirectory = [IO.Path]::GetFullPath($Root)
+    filePath = ''
+    arguments = @()
+    command = 'compare report-only plan source snapshot'
+    exitCode = if ($lMutation.status -eq 'mutated') { 1 } else { 0 }
+    elapsedSeconds = 0
+    stdout = ''
+    stderr = ''
+    sourceMutation = $lMutation
+  }
+}
+
+function Add-MigrationGateReportOnlyPlanResult {
+  param(
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][System.Collections.Generic.List[object]]$Results,
+    [Parameter(Mandatory = $true)][object]$PlanResult,
+    [Parameter(Mandatory = $true)][string]$ManifestPath,
+    [Parameter(Mandatory = $true)][string]$WorkRoot,
+    [Parameter(Mandatory = $true)][string]$DelphiSemanticsRoot,
+    [Parameter(Mandatory = $true)][string]$DakRoot,
+    [Parameter(Mandatory = $true)][object]$MutationSnapshot,
+    [Parameter(Mandatory = $true)][string]$MutationRoot,
+    [object[]]$Provenance = @(),
+    [switch]$AllowDirty
+  )
+
+  Add-GateStepResult `
+    -Results $Results `
+    -Result $PlanResult `
+    -ManifestPath $ManifestPath `
+    -WorkRoot $WorkRoot `
+    -DelphiSemanticsRoot $DelphiSemanticsRoot `
+    -DakRoot $DakRoot `
+    -Provenance $Provenance `
+    -AllowDirty:$AllowDirty `
+    -NoThrow
+
+  Add-GateStepResult `
+    -Results $Results `
+    -Result (New-MigrationGatePlanSourceMutationResult `
+      -Name 'Check report-only plan source mutation' `
+      -Root $MutationRoot `
+      -Snapshot $MutationSnapshot) `
+    -ManifestPath $ManifestPath `
+    -WorkRoot $WorkRoot `
+    -DelphiSemanticsRoot $DelphiSemanticsRoot `
+    -DakRoot $DakRoot `
+    -Provenance $Provenance `
+    -AllowDirty:$AllowDirty
+
+  if ([int]$PlanResult.exitCode -ne 0) {
+    throw "$($PlanResult.name) failed with exit code $($PlanResult.exitCode)"
+  }
+}
+
 if ($ImportOnly) {
   return
 }
@@ -669,7 +819,8 @@ if (Test-Path -LiteralPath $lReport) {
 Copy-Item -LiteralPath $lFixture -Destination $lClone -Recurse -Force
 
 $lProject = Join-Path $lClone 'src\maxtdb.dproj'
-Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
+$lPlanSourceSnapshot = New-MigrationGateSourceSnapshot -Root $lClone
+Add-MigrationGateReportOnlyPlanResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -MutationRoot $lClone -MutationSnapshot $lPlanSourceSnapshot -PlanResult (Invoke-GateStep `
   -Name 'Run cloned maxTdb report-only plan' `
   -WorkingDirectory $DakRoot `
   -FilePath 'bin\DelphiAIKit.exe' `
