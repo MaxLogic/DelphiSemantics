@@ -74,7 +74,7 @@ type
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.IOUtils, System.RegularExpressions,
+  System.Classes, System.Generics.Collections, System.RegularExpressions,
   System.StrUtils, System.SysUtils;
 
 procedure AddDiagnostic(const aDiagnostics: TList<TDelphiSemanticGlobalDiagnostic>;
@@ -227,17 +227,13 @@ begin
   Result := False;
 end;
 
-function ReadSourceLine(const aFileName: string; const aLine: Integer): string;
-var
-  lLines: TArray<string>;
+function ReadModelSourceLine(const aLines: TStrings; const aLine: Integer): string;
 begin
   Result := '';
-  if (aFileName = '') or (aLine <= 0) or not TFile.Exists(aFileName) then
+  if (aLine <= 0) or (aLine > aLines.Count) then
     Exit;
 
-  lLines := TFile.ReadAllLines(aFileName);
-  if aLine <= Length(lLines) then
-    Result := lLines[aLine - 1];
+  Result := aLines[aLine - 1];
 end;
 
 function IsIdentifierChar(const aValue: Char): Boolean;
@@ -506,9 +502,13 @@ var
   lReference: TDelphiSemanticReference;
   lRoutineName: string;
   lRoutineStartLine: Integer;
+  lSourceLines: TStringList;
 begin
+  lSourceLines := nil;
   lCandidates := TList<TDelphiSemanticGlobalDeclaration>.Create;
   try
+    lSourceLines := TStringList.Create;
+    lSourceLines.Text := aModel.SourceText;
     for lReference in aModel.References do
     begin
       lRoutineName := FindRoutineNameForLine(aModel, lReference.Line);
@@ -529,7 +529,7 @@ begin
       if lCandidates.Count = 0 then
         Continue;
 
-      lLine := ReadSourceLine(aModel.FileName, lReference.Line);
+      lLine := ReadModelSourceLine(lSourceLines, lReference.Line);
       lAccess := DetectAccess(lLine, lReference.Name);
       if lCandidates.Count = 1 then
         AddUsage(aUsages, lCandidates[0], aModel, lRoutineName, lAccess, lReference)
@@ -538,6 +538,7 @@ begin
       aSeenUsages.Add(lKey, True);
     end;
   finally
+    lSourceLines.Free;
     lCandidates.Free;
   end;
 end;

@@ -28,6 +28,8 @@ type
   public
     [Test]
     procedure AnalyzesGlobalDeclarationsUsagesShadowingAndAmbiguity;
+    [Test]
+    procedure UsageAccessUsesModelSourceText;
   end;
 
 implementation
@@ -214,6 +216,23 @@ begin
   lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits(lModels);
 
   Assert.IsTrue(HasDiagnostic(lAnalysis, 'MODEL_FAILED'));
+end;
+
+procedure TGlobalVarsSemanticTests.UsageAccessUsesModelSourceText;
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+begin
+  lModels := [LoadModel('GlobalVarsFixture.Globals.pas')];
+  lModels[0].SourceText := StringReplace(lModels[0].SourceText, '  Inc(GCounter);',
+    '  GCounter := 1;', []);
+
+  lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits(lModels);
+
+  Assert.AreEqual(1, CountUsages(lAnalysis, 'GCounter', 'write'),
+    'GCounter access should be classified from model SourceText.');
+  Assert.AreEqual(0, CountUsages(lAnalysis, 'GCounter', 'readwrite'),
+    'Disk source still has Inc(GCounter), but analysis should not reopen it.');
 end;
 
 initialization
