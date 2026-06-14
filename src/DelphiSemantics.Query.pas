@@ -96,7 +96,7 @@ implementation
 
 uses
   System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Source;
+  DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.Source;
 
 function MakeNotFound(const aName: string): TDelphiSemanticSymbolQueryResult;
 begin
@@ -769,40 +769,6 @@ begin
   end;
 end;
 
-function TrySnapshotReferenceTargetResultAtPosition(
-  const aSnapshot: TDelphiProjectSnapshot; const aFileName: string; const aLine,
-  aColumn: Integer; const aToken: string;
-  out aResult: TDelphiSemanticSymbolQueryResult): Boolean;
-var
-  lReference: TSemanticReferenceFact;
-  lReferenceRef: TSemanticReferenceRef;
-  lTargetSymbol: TSemanticSymbolFact;
-  lTargetUnit: TUnitSnapshot;
-  lUnit: TUnitSnapshot;
-begin
-  Result := False;
-  aResult := MakeNotFound(aToken);
-  if (aSnapshot = nil) or not aSnapshot.TryReferenceAt(aFileName, aLine, aColumn,
-    lReferenceRef) then
-    Exit;
-  if not aSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit) then
-    Exit;
-
-  lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
-  if (aToken <> '') and not SameText(SnapshotText(aSnapshot, lReference.NameId),
-    aToken) then
-    Exit;
-  if (lReference.TargetUnitId = 0) or (lReference.TargetSymbolId = 0) then
-    Exit;
-  if not aSnapshot.TryFindUnitById(lReference.TargetUnitId, lTargetUnit) then
-    Exit;
-
-  lTargetSymbol := lTargetUnit.SymbolById(lReference.TargetSymbolId);
-  aResult := SnapshotSymbolResult(aSnapshot, lTargetUnit, lTargetSymbol,
-    'snapshot-reference-target');
-  Result := aResult.Found;
-end;
-
 function SnapshotTokenReferences(const aSnapshot: TDelphiProjectSnapshot; const aName: string;
   const aLimit: Integer): TArray<TDelphiSemanticSymbolReferenceResult>;
 var
@@ -892,6 +858,7 @@ class function TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(
   const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string;
   const aLine, aColumn: Integer): TDelphiSemanticSymbolQueryResult;
 var
+  lPositionResolution: TDelphiSemanticSnapshotPositionResolution;
   lResult: TDelphiSemanticSymbolQueryResult;
   lLineText: string;
   lModel: TDelphiSemanticUnitModel;
@@ -899,9 +866,6 @@ var
   lSourceKind: string;
   lToken: string;
   lTypeName: string;
-  lSymbol: TSemanticSymbolFact;
-  lSymbolRef: TSemanticSymbolRef;
-  lUnit: TUnitSnapshot;
 begin
   if TryReadLine(aFileName, aLine, lLineText) and TryExtractIdentifierAtColumn(lLineText,
     aColumn, lToken) then
@@ -909,15 +873,10 @@ begin
     lSnapshot := ContextProjectSnapshot(aContext);
     if lSnapshot <> nil then
     begin
-      if TrySnapshotReferenceTargetResultAtPosition(lSnapshot, aFileName, aLine, aColumn,
-        lToken, lResult) then
-        Exit(lResult);
-      if lSnapshot.TrySymbolAt(aFileName, aLine, aColumn, lSymbolRef) and
-        lSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit) then
-      begin
-        lSymbol := lUnit.SymbolById(lSymbolRef.SymbolId);
-        Exit(SnapshotSymbolResult(lSnapshot, lUnit, lSymbol, 'snapshot-position-match'));
-      end;
+      if TryResolveSnapshotPosition(lSnapshot, aFileName, aLine, aColumn, lToken,
+        lPositionResolution) then
+        Exit(SnapshotSymbolResult(lSnapshot, lPositionResolution.SymbolUnit,
+          lPositionResolution.Symbol, lPositionResolution.Status));
       lResult := FindDefinitionByName(aContext, lToken);
       if lResult.Found then
         Exit(lResult);

@@ -11,6 +11,7 @@ uses
   DelphiSemantics.Model,
   DelphiSemantics.Query,
   DelphiSemantics.Snapshot,
+  DelphiSemantics.Snapshot.PositionResolver,
   DelphiSemantics.Symbols;
 
 type
@@ -41,6 +42,10 @@ type
     [Test]
     procedure SnapshotBackedQueriesUseProjectSnapshotIndexes;
     [Test]
+    procedure SnapshotPositionLookupUsesSharedResolver;
+    [Test]
+    procedure SnapshotPositionResolverFallsBackWhenReferenceTargetIsStale;
+    [Test]
     procedure TokenReferencesExposeMetadata;
     [Test]
     procedure VisibleUnitScopesIncludeProjectAndRtlModels;
@@ -59,7 +64,7 @@ type
 implementation
 
 uses
-  System.Classes, System.IOUtils, System.SysUtils,
+  System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils;
 
@@ -445,6 +450,97 @@ begin
   Assert.AreEqual('type-reference', lReferences[0].Role);
   Assert.AreEqual('interface', lReferences[0].SectionKind);
   Assert.AreEqual(lContext.UnitModel.References[lReferenceIndex].EndColumn, lReferences[0].EndColumn);
+end;
+
+procedure TSymbolQueryTests.SnapshotPositionLookupUsesSharedResolver;
+var
+  lPositionResolverSourceFileName: string;
+  lPositionResolverSourceText: string;
+  lQuerySourceFileName: string;
+  lQuerySourceText: string;
+  lUsageSourceFileName: string;
+  lUsageSourceText: string;
+begin
+  lQuerySourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Query.pas']));
+  lPositionResolverSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+    '..', '..', 'src', 'DelphiSemantics.Snapshot.PositionResolver.pas']));
+  lUsageSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Usage.pas']));
+  lQuerySourceText := TFile.ReadAllText(lQuerySourceFileName, TEncoding.UTF8);
+  lPositionResolverSourceText := TFile.ReadAllText(lPositionResolverSourceFileName,
+    TEncoding.UTF8);
+  lUsageSourceText := TFile.ReadAllText(lUsageSourceFileName, TEncoding.UTF8);
+
+  Assert.IsTrue(ContainsText(lPositionResolverSourceText, 'TryResolveSnapshotPosition('),
+    'Snapshot position resolution must live in one internal resolver unit.');
+  Assert.IsTrue(ContainsText(lPositionResolverSourceText,
+    'TDelphiSemanticSnapshotPositionResolution'),
+    'The shared resolver must return the resolved reference, symbol, and source unit facts.');
+  Assert.IsFalse(ContainsText(lQuerySourceText,
+    'function TryResolveSnapshotPosition(const aSnapshot'),
+    'Query must not expose the internal snapshot position resolver in its public interface.');
+  Assert.IsTrue(ContainsText(lQuerySourceText, 'TryResolveSnapshotPosition('),
+    'Definition-at-position must delegate to the shared resolver.');
+  Assert.IsTrue(ContainsText(lUsageSourceText, 'TryResolveSnapshotPosition('),
+    'Usage must delegate snapshot position lookup to the shared resolver.');
+  Assert.IsFalse(ContainsText(lUsageSourceText, 'TryFindSnapshotUsageSymbolAtReference'),
+    'Usage must not keep a separate reference-first position helper.');
+end;
+
+procedure TSymbolQueryTests.SnapshotPositionResolverFallsBackWhenReferenceTargetIsStale;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lFileNameId: TSemanticStringId;
+  lNameId: TSemanticStringId;
+  lProject: TDelphiProjectSnapshot;
+  lReference: TSemanticReferenceFact;
+  lResolution: TDelphiSemanticSnapshotPositionResolution;
+  lSymbol: TSemanticSymbolFact;
+  lUnit: TUnitSnapshot;
+  lUnitNameId: TSemanticStringId;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lFileNameId := lBuilder.Strings.Intern('StaleTargetUnit.pas');
+    lUnitNameId := lBuilder.Strings.Intern('StaleTargetUnit');
+    lNameId := lBuilder.Strings.Intern('StaleValue');
+    lUnit := TUnitSnapshot.Create(1, lFileNameId, lUnitNameId);
+
+    lSymbol := Default(TSemanticSymbolFact);
+    lSymbol.NameId := lNameId;
+    lSymbol.Line := 10;
+    lSymbol.Column := 3;
+    lSymbol.EndLine := 10;
+    lSymbol.EndColumn := 12;
+    lUnit.AddSymbol(lSymbol);
+
+    lReference := Default(TSemanticReferenceFact);
+    lReference.NameId := lNameId;
+    lReference.TargetUnitId := 1;
+    lReference.TargetSymbolId := 99;
+    lReference.Line := 10;
+    lReference.Column := 3;
+    lReference.EndLine := 10;
+    lReference.EndColumn := 12;
+    lUnit.AddReference(lReference);
+
+    lBuilder.AddUnit(lUnit);
+    lProject := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+  try
+    Assert.IsTrue(TryResolveSnapshotPosition(lProject, 'StaleTargetUnit.pas', 10, 5,
+      'StaleValue', lResolution));
+    Assert.AreEqual('snapshot-position-match', lResolution.Status);
+    Assert.AreEqual(1, Integer(lResolution.SymbolRef.SymbolId));
+    Assert.IsTrue(lResolution.SymbolFound);
+    Assert.IsFalse(lResolution.ReferenceFound,
+      'Stale reference target must not short-circuit symbol-at-position fallback.');
+  finally
+    lProject.Free;
+  end;
 end;
 
 procedure TSymbolQueryTests.LimitsTokenReferenceResults;

@@ -46,7 +46,7 @@ implementation
 
 uses
   System.Generics.Collections, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Snapshot;
+  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.PositionResolver;
 
 function MakeDiagnosticResult(const aStatus, aDiagnostic: string): TDelphiSemanticUsageResult;
 begin
@@ -368,38 +368,6 @@ begin
   end;
 end;
 
-function TryFindSnapshotUsageSymbolAtReference(const aSnapshot: TDelphiProjectSnapshot;
-  const aFileName: string; const aLine, aColumn: Integer; out aSymbolRef:
-  TSemanticSymbolRef; out aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
-var
-  lReference: TSemanticReferenceFact;
-  lReferenceRef: TSemanticReferenceRef;
-  lSnapshotSymbol: TSemanticSymbolFact;
-  lTargetUnit: TUnitSnapshot;
-  lUnit: TUnitSnapshot;
-begin
-  Result := False;
-  aSymbolRef := Default(TSemanticSymbolRef);
-  aSymbol := Default(TDelphiSemanticIndexedSymbol);
-  if (aSnapshot = nil) or not aSnapshot.TryReferenceAt(aFileName, aLine, aColumn,
-    lReferenceRef) then
-    Exit;
-  if not aSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit) then
-    Exit;
-
-  lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
-  if (lReference.TargetUnitId = 0) or (lReference.TargetSymbolId = 0) then
-    Exit;
-  aSymbolRef.UnitId := lReference.TargetUnitId;
-  aSymbolRef.SymbolId := lReference.TargetSymbolId;
-  if not aSnapshot.TryFindUnitById(aSymbolRef.UnitId, lTargetUnit) then
-    Exit;
-
-  lSnapshotSymbol := lTargetUnit.SymbolById(aSymbolRef.SymbolId);
-  aSymbol := SnapshotIndexedSymbol(aSnapshot, lTargetUnit, aSymbolRef, lSnapshotSymbol);
-  Result := aSymbol.Name <> '';
-end;
-
 function FindSnapshotUsagesByName(const aContext: TDelphiSemanticSymbolQueryContext;
   const aName: string): TDelphiSemanticUsageResult;
 var
@@ -421,25 +389,20 @@ end;
 function FindSnapshotUsagesAtPosition(const aContext: TDelphiSemanticSymbolQueryContext;
   const aFileName: string; const aLine, aColumn: Integer): TDelphiSemanticUsageResult;
 var
+  lPositionResolution: TDelphiSemanticSnapshotPositionResolution;
   lSnapshot: TDelphiProjectSnapshot;
-  lSnapshotSymbol: TSemanticSymbolFact;
   lSymbol: TDelphiSemanticIndexedSymbol;
-  lSymbolRef: TSemanticSymbolRef;
-  lUnit: TUnitSnapshot;
 begin
   lSnapshot := ContextProjectSnapshot(aContext);
   if lSnapshot = nil then
     Exit(MakeDiagnosticResult('unresolved', 'No project snapshot is available.'));
-  if TryFindSnapshotUsageSymbolAtReference(lSnapshot, aFileName, aLine, aColumn, lSymbolRef,
-    lSymbol) then
-    Exit(BuildSnapshotResultForSymbol(lSnapshot, lSymbolRef, lSymbol));
-  if not lSnapshot.TrySymbolAt(aFileName, aLine, aColumn, lSymbolRef) or
-    not lSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit) then
+  if not TryResolveSnapshotPosition(lSnapshot, aFileName, aLine, aColumn, '',
+    lPositionResolution) then
     Exit(MakeDiagnosticResult('not-found', 'No symbol found at the requested position.'));
 
-  lSnapshotSymbol := lUnit.SymbolById(lSymbolRef.SymbolId);
-  lSymbol := SnapshotIndexedSymbol(lSnapshot, lUnit, lSymbolRef, lSnapshotSymbol);
-  Result := BuildSnapshotResultForSymbol(lSnapshot, lSymbolRef, lSymbol);
+  lSymbol := SnapshotIndexedSymbol(lSnapshot, lPositionResolution.SymbolUnit,
+    lPositionResolution.SymbolRef, lPositionResolution.Symbol);
+  Result := BuildSnapshotResultForSymbol(lSnapshot, lPositionResolution.SymbolRef, lSymbol);
 end;
 
 function SymbolIsMethodPair(const aLeft, aRight: TDelphiSemanticIndexedSymbol): Boolean;
