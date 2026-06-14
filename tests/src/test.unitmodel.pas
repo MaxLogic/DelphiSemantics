@@ -1,4 +1,4 @@
-﻿unit Test.UnitModel;
+unit Test.UnitModel;
 
 interface
 
@@ -58,6 +58,8 @@ type
     procedure SourceLoaderUsesAnsiFallbackForInvalidUtf8;
     [Test]
     procedure SourceLoaderUsesAnsiFallbackForMalformedUtf8;
+    [Test]
+    procedure SourceLoaderUsesUtf16LeBom;
     [Test]
     procedure ExtractsUnitNameUsesDeclarationsAndWithStatements;
     [Test]
@@ -558,6 +560,32 @@ begin
   Assert.IsTrue(lResult.Success);
   Assert.AreEqual('windows-1252', lResult.Source.EncodingName);
   Assert.IsTrue(Pos('OverlongFallback', lResult.Source.Text) > 0);
+end;
+
+procedure TUnitModelTests.SourceLoaderUsesUtf16LeBom;
+var
+  lBody: TBytes;
+  lBytes: TBytes;
+  lResult: TDelphiSemanticSourceLoadResult;
+  lPath: string;
+begin
+  lPath := UnitModelTempPath('unit-model-utf16le-source.pas');
+  lBody := TEncoding.Unicode.GetBytes('unit Utf16Bom;' + sLineBreak +
+    'interface' + sLineBreak +
+    '// Caf' + Char($00E9) + sLineBreak +
+    'implementation' + sLineBreak +
+    'end.');
+  SetLength(lBytes, Length(lBody) + 2);
+  lBytes[0] := $FF;
+  lBytes[1] := $FE;
+  Move(lBody[0], lBytes[2], Length(lBody));
+  TFile.WriteAllBytes(lPath, lBytes);
+
+  lResult := TDelphiSemanticSourceLoader.LoadFile(lPath);
+
+  Assert.IsTrue(lResult.Success);
+  Assert.AreEqual('utf-16le', lResult.Source.EncodingName);
+  Assert.IsTrue(Pos('Caf' + Char($00E9), lResult.Source.Text) > 0);
 end;
 
 procedure TUnitModelTests.ExtractsUnitNameUsesDeclarationsAndWithStatements;

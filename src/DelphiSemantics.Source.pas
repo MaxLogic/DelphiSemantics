@@ -103,6 +103,22 @@ begin
   Result := True;
 end;
 
+function StartsWithUtf8Bom(const aBytes: TBytes): Boolean;
+begin
+  Result := (Length(aBytes) >= 3) and (aBytes[0] = $EF) and (aBytes[1] = $BB) and
+    (aBytes[2] = $BF);
+end;
+
+function StartsWithUtf16LeBom(const aBytes: TBytes): Boolean;
+begin
+  Result := (Length(aBytes) >= 2) and (aBytes[0] = $FF) and (aBytes[1] = $FE);
+end;
+
+function StartsWithUtf16BeBom(const aBytes: TBytes): Boolean;
+begin
+  Result := (Length(aBytes) >= 2) and (aBytes[0] = $FE) and (aBytes[1] = $FF);
+end;
+
 class function TDelphiSemanticSourceLoader.LoadFile(
   const aFileName: string): TDelphiSemanticSourceLoadResult;
 var
@@ -124,7 +140,20 @@ begin
   end;
 
   lBytes := TFile.ReadAllBytes(lFileName);
-  if IsValidUtf8(lBytes) then
+  if StartsWithUtf8Bom(lBytes) then
+  begin
+    Result.Source.Text := TEncoding.UTF8.GetString(lBytes, 3, Length(lBytes) - 3);
+    Result.Source.EncodingName := 'utf-8';
+  end else if StartsWithUtf16LeBom(lBytes) then
+  begin
+    Result.Source.Text := TEncoding.Unicode.GetString(lBytes, 2, Length(lBytes) - 2);
+    Result.Source.EncodingName := 'utf-16le';
+  end else if StartsWithUtf16BeBom(lBytes) then
+  begin
+    Result.Source.Text := TEncoding.BigEndianUnicode.GetString(lBytes, 2,
+      Length(lBytes) - 2);
+    Result.Source.EncodingName := 'utf-16be';
+  end else if IsValidUtf8(lBytes) then
   begin
     Result.Source.Text := TEncoding.UTF8.GetString(lBytes);
     Result.Source.EncodingName := 'utf-8';
