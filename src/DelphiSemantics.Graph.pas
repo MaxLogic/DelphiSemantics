@@ -124,6 +124,10 @@ type
     NodeId: Integer;
     NextEdgeIndex: Integer;
   end;
+  TTraversalFrame = record
+    NodeId: Integer;
+    NextEdgeIndex: Integer;
+  end;
 var
   lAdjacency: TArray<TList<TAdjacencyEdge>>;
   lComponents: TList<TDelphiSemanticTypedSccComponent>;
@@ -139,6 +143,7 @@ var
   lResultComponent: TDelphiSemanticTypedSccComponent;
   lResultEdgeId: Integer;
   lStack: TStack<Integer>;
+  lTraversalStack: TList<TTraversalFrame>;
 
   function TryBuildIterativePath(const aStartNodeId, aRootNodeId: Integer;
     const aInComponent: TArray<Boolean>; out aPath: TArray<Integer>): Boolean;
@@ -277,87 +282,124 @@ var
     end;
   end;
 
-  procedure StrongConnect(const aNodeId: Integer);
+  procedure BeginNodeVisit(const aNodeId: Integer);
   var
-    lAdjacencyEdge: TAdjacencyEdge;
+    lFrame: TTraversalFrame;
   begin
     lIndexes[aNodeId] := lCurrentIndex;
     lLowLinks[aNodeId] := lCurrentIndex;
     Inc(lCurrentIndex);
     lStack.Push(aNodeId);
     lOnStack[aNodeId] := True;
+    lFrame.NodeId := aNodeId;
+    lFrame.NextEdgeIndex := 0;
+    lTraversalStack.Add(lFrame);
+  end;
 
-    for lAdjacencyEdge in lAdjacency[aNodeId] do
-      if lIndexes[lAdjacencyEdge.TargetNodeId] < 0 then
+  procedure ConnectComponentFrom(const aStartNodeId: Integer);
+  var
+    lAdjacencyEdge: TAdjacencyEdge;
+    lChildNodeId: Integer;
+    lFrame: TTraversalFrame;
+    lFrameIndex: Integer;
+    lNodeId: Integer;
+    lParentFrame: TTraversalFrame;
+  begin
+    BeginNodeVisit(aStartNodeId);
+    while lTraversalStack.Count > 0 do
+    begin
+      lFrameIndex := Pred(lTraversalStack.Count);
+      lFrame := lTraversalStack[lFrameIndex];
+      lNodeId := lFrame.NodeId;
+      if lFrame.NextEdgeIndex < lAdjacency[lNodeId].Count then
       begin
-        StrongConnect(lAdjacencyEdge.TargetNodeId);
-        if lLowLinks[lAdjacencyEdge.TargetNodeId] < lLowLinks[aNodeId] then
-          lLowLinks[aNodeId] := lLowLinks[lAdjacencyEdge.TargetNodeId];
-      end else if lOnStack[lAdjacencyEdge.TargetNodeId] and
-        (lIndexes[lAdjacencyEdge.TargetNodeId] < lLowLinks[aNodeId]) then
-        lLowLinks[aNodeId] := lIndexes[lAdjacencyEdge.TargetNodeId];
-
-    if lLowLinks[aNodeId] = lIndexes[aNodeId] then
-      FinishComponent(aNodeId);
+        lAdjacencyEdge := lAdjacency[lNodeId][lFrame.NextEdgeIndex];
+        Inc(lFrame.NextEdgeIndex);
+        lTraversalStack[lFrameIndex] := lFrame;
+        lChildNodeId := lAdjacencyEdge.TargetNodeId;
+        if lIndexes[lChildNodeId] < 0 then
+          BeginNodeVisit(lChildNodeId)
+        else if lOnStack[lChildNodeId] and (lIndexes[lChildNodeId] < lLowLinks[lNodeId]) then
+          lLowLinks[lNodeId] := lIndexes[lChildNodeId];
+      end else begin
+        lTraversalStack.Delete(lFrameIndex);
+        if lLowLinks[lNodeId] = lIndexes[lNodeId] then
+          FinishComponent(lNodeId);
+        if lTraversalStack.Count > 0 then
+        begin
+          lParentFrame := lTraversalStack[Pred(lTraversalStack.Count)];
+          if lLowLinks[lNodeId] < lLowLinks[lParentFrame.NodeId] then
+            lLowLinks[lParentFrame.NodeId] := lLowLinks[lNodeId];
+        end;
+      end;
+    end;
   end;
 
 begin
   lComponents := TList<TDelphiSemanticTypedSccComponent>.Create;
-  lStack := TStack<Integer>.Create;
   try
-    SetLength(lAdjacency, aNodeCount);
-    for lNodeId := 0 to Pred(aNodeCount) do
-      lAdjacency[lNodeId] := TList<TAdjacencyEdge>.Create;
+    lStack := TStack<Integer>.Create;
     try
-      lMaxEdgeId := -1;
-      for lEdge in aEdges do
-      begin
-        lAdjacencyEdge.EdgeId := lEdge.EdgeId;
-        lAdjacencyEdge.TargetNodeId := lEdge.TargetNodeId;
-        lAdjacency[lEdge.SourceNodeId].Add(lAdjacencyEdge);
-        if lEdge.EdgeId > lMaxEdgeId then
-          lMaxEdgeId := lEdge.EdgeId;
-      end;
-      lEdgeTargetComparer := TComparer<TAdjacencyEdge>.Construct(
-        function(const aLeft, aRight: TAdjacencyEdge): Integer
-        begin
-          Result := aLeft.TargetNodeId - aRight.TargetNodeId;
-          if Result = 0 then
-            Result := aLeft.EdgeId - aRight.EdgeId;
-        end);
-      for lNodeId := 0 to Pred(aNodeCount) do
-        lAdjacency[lNodeId].Sort(lEdgeTargetComparer);
+      lTraversalStack := TList<TTraversalFrame>.Create;
+      try
+        SetLength(lAdjacency, aNodeCount);
+        for lNodeId := 0 to Pred(aNodeCount) do
+          lAdjacency[lNodeId] := TList<TAdjacencyEdge>.Create;
+        try
+          lMaxEdgeId := -1;
+          for lEdge in aEdges do
+          begin
+            lAdjacencyEdge.EdgeId := lEdge.EdgeId;
+            lAdjacencyEdge.TargetNodeId := lEdge.TargetNodeId;
+            lAdjacency[lEdge.SourceNodeId].Add(lAdjacencyEdge);
+            if lEdge.EdgeId > lMaxEdgeId then
+              lMaxEdgeId := lEdge.EdgeId;
+          end;
+          lEdgeTargetComparer := TComparer<TAdjacencyEdge>.Construct(
+            function(const aLeft, aRight: TAdjacencyEdge): Integer
+            begin
+              Result := aLeft.TargetNodeId - aRight.TargetNodeId;
+              if Result = 0 then
+                Result := aLeft.EdgeId - aRight.EdgeId;
+            end);
+          for lNodeId := 0 to Pred(aNodeCount) do
+            lAdjacency[lNodeId].Sort(lEdgeTargetComparer);
 
-      SetLength(lIndexes, aNodeCount);
-      SetLength(lLowLinks, aNodeCount);
-      SetLength(lOnStack, aNodeCount);
-      for lNodeId := 0 to Pred(aNodeCount) do
-      begin
-        lIndexes[lNodeId] := -1;
-        lLowLinks[lNodeId] := -1;
-      end;
+          SetLength(lIndexes, aNodeCount);
+          SetLength(lLowLinks, aNodeCount);
+          SetLength(lOnStack, aNodeCount);
+          for lNodeId := 0 to Pred(aNodeCount) do
+          begin
+            lIndexes[lNodeId] := -1;
+            lLowLinks[lNodeId] := -1;
+          end;
 
-      lCurrentIndex := 0;
-      for lNodeId := 0 to Pred(aNodeCount) do
-        if lIndexes[lNodeId] < 0 then
-          StrongConnect(lNodeId);
+          lCurrentIndex := 0;
+          for lNodeId := 0 to Pred(aNodeCount) do
+            if lIndexes[lNodeId] < 0 then
+              ConnectComponentFrom(lNodeId);
 
-      Result.Components := lComponents.ToArray;
-      SetLength(Result.NodeSccIds, aNodeCount);
-      SetLength(Result.EdgeSccIds, lMaxEdgeId + 1);
-      for lResultComponent in Result.Components do
-      begin
-        for lNodeId in lResultComponent.NodeIds do
-          Result.NodeSccIds[lNodeId] := lResultComponent.SccId;
-        for lResultEdgeId in lResultComponent.EdgeIds do
-          Result.EdgeSccIds[lResultEdgeId] := lResultComponent.SccId;
+          Result.Components := lComponents.ToArray;
+          SetLength(Result.NodeSccIds, aNodeCount);
+          SetLength(Result.EdgeSccIds, lMaxEdgeId + 1);
+          for lResultComponent in Result.Components do
+          begin
+            for lNodeId in lResultComponent.NodeIds do
+              Result.NodeSccIds[lNodeId] := lResultComponent.SccId;
+            for lResultEdgeId in lResultComponent.EdgeIds do
+              Result.EdgeSccIds[lResultEdgeId] := lResultComponent.SccId;
+          end;
+        finally
+          for lNodeId := 0 to High(lAdjacency) do
+            lAdjacency[lNodeId].Free;
+        end;
+      finally
+        lTraversalStack.Free;
       end;
     finally
-      for lNodeId := 0 to High(lAdjacency) do
-        lAdjacency[lNodeId].Free;
+      lStack.Free;
     end;
   finally
-    lStack.Free;
     lComponents.Free;
   end;
 end;

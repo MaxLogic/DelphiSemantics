@@ -40,6 +40,8 @@ type
     [Test]
     procedure ReportsSelfLoopAsCycleComponent;
     [Test]
+    procedure TypedSccAnalyzerHandlesDeepCycleIteratively;
+    [Test]
     procedure SkipsInvalidExternalFileCandidateNames;
   end;
 
@@ -292,6 +294,35 @@ begin
   lComponent := lGraph.CycleComponents[0];
   Assert.IsTrue(HasUnit(lComponent.Units, 'SelfCycle'));
   Assert.IsTrue(PathEquals(lComponent.Path, ['SelfCycle', 'SelfCycle']));
+end;
+
+procedure TDependencyGraphTests.TypedSccAnalyzerHandlesDeepCycleIteratively;
+const
+  cNodeCount = 4096;
+var
+  i: Integer;
+  lEdges: TArray<TDelphiSemanticTypedSccEdge>;
+  lResult: TDelphiSemanticTypedSccResult;
+begin
+  SetLength(lEdges, cNodeCount);
+  for i := 0 to cNodeCount - 2 do
+  begin
+    lEdges[i].EdgeId := i;
+    lEdges[i].SourceNodeId := i;
+    lEdges[i].TargetNodeId := i + 1;
+  end;
+  lEdges[cNodeCount - 1].EdgeId := cNodeCount - 1;
+  lEdges[cNodeCount - 1].SourceNodeId := cNodeCount - 1;
+  lEdges[cNodeCount - 1].TargetNodeId := 0;
+
+  lResult := TDelphiSemanticTypedSccAnalyzer.Analyze(cNodeCount, lEdges);
+
+  Assert.AreEqual(1, Integer(Length(lResult.Components)));
+  Assert.AreEqual(cNodeCount, Integer(Length(lResult.Components[0].NodeIds)));
+  Assert.AreEqual(cNodeCount, Integer(Length(lResult.Components[0].EdgeIds)));
+  Assert.AreEqual(lResult.Components[0].SccId, lResult.NodeSccIds[0]);
+  Assert.AreEqual(lResult.Components[0].SccId, lResult.NodeSccIds[cNodeCount - 1]);
+  Assert.AreEqual(lResult.Components[0].SccId, lResult.EdgeSccIds[cNodeCount - 1]);
 end;
 
 procedure TDependencyGraphTests.SkipsInvalidExternalFileCandidateNames;
