@@ -10,6 +10,7 @@ param(
   [double]$WarmTargetSeconds = 10.0,
   [switch]$List,
   [switch]$SummarizeOnly,
+  [switch]$AllowHistoricalSummary,
   [switch]$NoBaselineCopy
 )
 
@@ -55,6 +56,62 @@ function Get-GitSha {
   }
 
   return ''
+}
+
+function Get-ObjectPropertyValue {
+  param(
+    [object]$Object,
+    [string]$Name,
+    [object]$Default = ''
+  )
+
+  if (($null -ne $Object) -and ($Object.PSObject.Properties.Name -contains $Name)) {
+    return $Object.$Name
+  }
+
+  return $Default
+}
+
+function Test-BenchmarkProvenance {
+  param(
+    [string]$StoredDelphiSemanticsSha,
+    [string]$StoredDakSha,
+    [string]$CurrentDelphiSemanticsSha,
+    [string]$CurrentDakSha,
+    [switch]$AllowHistorical
+  )
+
+  $lMismatches = New-Object System.Collections.Generic.List[string]
+  if ((-not [string]::IsNullOrWhiteSpace($StoredDelphiSemanticsSha)) -and
+      (-not [string]::IsNullOrWhiteSpace($CurrentDelphiSemanticsSha)) -and
+      ($StoredDelphiSemanticsSha -ne $CurrentDelphiSemanticsSha)) {
+    $lMismatches.Add("DelphiSemantics stored=$StoredDelphiSemanticsSha current=$CurrentDelphiSemanticsSha")
+  }
+  if ((-not [string]::IsNullOrWhiteSpace($StoredDakSha)) -and
+      (-not [string]::IsNullOrWhiteSpace($CurrentDakSha)) -and
+      ($StoredDakSha -ne $CurrentDakSha)) {
+    $lMismatches.Add("DAK stored=$StoredDakSha current=$CurrentDakSha")
+  }
+
+  if (($lMismatches.Count -gt 0) -and (-not $AllowHistorical)) {
+    throw "SummarizeOnly baseline provenance is stale. Re-run the benchmark or pass -AllowHistoricalSummary to summarize historical artifacts. $($lMismatches -join '; ')"
+  }
+
+  if ($lMismatches.Count -gt 0) {
+    return [ordered]@{
+      status = 'historical'
+      mismatches = @($lMismatches.ToArray())
+      currentDelphiSemanticsSha = $CurrentDelphiSemanticsSha
+      currentDakSha = $CurrentDakSha
+    }
+  }
+
+  return [ordered]@{
+    status = 'current'
+    mismatches = @()
+    currentDelphiSemanticsSha = $CurrentDelphiSemanticsSha
+    currentDakSha = $CurrentDakSha
+  }
 }
 
 function New-BenchmarkDefinitions {
@@ -855,6 +912,18 @@ if ($SummarizeOnly) {
     }
   }
   $lResultRows = New-SummaryRows -RunRows $lRunRows
+  $lCurrentDelphiSemanticsSha = Get-GitSha -Path (Get-Location)
+  $lCurrentDakSha = Get-GitSha -Path (Split-Path (Split-Path $DakExe -Parent) -Parent)
+  $lStoredDelphiSemanticsSha = [string](Get-ObjectPropertyValue -Object $lExistingSummary `
+    -Name 'delphiSemanticsSha' -Default $lCurrentDelphiSemanticsSha)
+  $lStoredDakSha = [string](Get-ObjectPropertyValue -Object $lExistingSummary `
+    -Name 'dakSha' -Default $lCurrentDakSha)
+  $lProvenance = Test-BenchmarkProvenance `
+    -StoredDelphiSemanticsSha $lStoredDelphiSemanticsSha `
+    -StoredDakSha $lStoredDakSha `
+    -CurrentDelphiSemanticsSha $lCurrentDelphiSemanticsSha `
+    -CurrentDakSha $lCurrentDakSha `
+    -AllowHistorical:$AllowHistoricalSummary
 
   $lSummary = [ordered]@{
     name = $lExistingSummary.name
@@ -868,8 +937,9 @@ if ($SummarizeOnly) {
     warmTargetSeconds = if ($lExistingSummary.PSObject.Properties.Name -contains 'warmTargetSeconds') { $lExistingSummary.warmTargetSeconds } else { $WarmTargetSeconds }
     cacheDirectory = if ($lExistingSummary.PSObject.Properties.Name -contains 'cacheDirectory') { $lExistingSummary.cacheDirectory } else { '' }
     machine = if ($lExistingSummary.PSObject.Properties.Name -contains 'machine') { $lExistingSummary.machine } else { $env:COMPUTERNAME }
-    delphiSemanticsSha = if ($lExistingSummary.PSObject.Properties.Name -contains 'delphiSemanticsSha') { $lExistingSummary.delphiSemanticsSha } else { Get-GitSha -Path (Get-Location) }
-    dakSha = if ($lExistingSummary.PSObject.Properties.Name -contains 'dakSha') { $lExistingSummary.dakSha } else { Get-GitSha -Path (Split-Path (Split-Path $DakExe -Parent) -Parent) }
+    delphiSemanticsSha = $lStoredDelphiSemanticsSha
+    dakSha = $lStoredDakSha
+    provenance = $lProvenance
     results = $lResultRows
     runs = $lRunRows
   }
@@ -990,6 +1060,13 @@ if ($SummarizeOnly) {
   $lRunRows = @($lRows.ToArray())
   $lResultRows = New-SummaryRows -RunRows $lRunRows
   $lDakRoot = Split-Path (Split-Path $DakExe -Parent) -Parent
+  $lDelphiSemanticsSha = Get-GitSha -Path (Get-Location)
+  $lDakSha = Get-GitSha -Path $lDakRoot
+  $lProvenance = Test-BenchmarkProvenance `
+    -StoredDelphiSemanticsSha $lDelphiSemanticsSha `
+    -StoredDakSha $lDakSha `
+    -CurrentDelphiSemanticsSha $lDelphiSemanticsSha `
+    -CurrentDakSha $lDakSha
   $lSummary = [ordered]@{
     name = 'maxTdb semantic workflow benchmark'
     startedAt = $lStartedAt.ToString('o')
@@ -1002,8 +1079,9 @@ if ($SummarizeOnly) {
     warmTargetSeconds = $WarmTargetSeconds
     cacheDirectory = $lCacheDirectory
     machine = $env:COMPUTERNAME
-    delphiSemanticsSha = Get-GitSha -Path (Get-Location)
-    dakSha = Get-GitSha -Path $lDakRoot
+    delphiSemanticsSha = $lDelphiSemanticsSha
+    dakSha = $lDakSha
+    provenance = $lProvenance
     results = $lResultRows
     runs = $lRunRows
   }
@@ -1029,6 +1107,7 @@ $lMarkdown = @(
   ('Machine: `{0}`' -f $lSummary.machine)
   ('DelphiSemantics SHA: `{0}`' -f $lSummary.delphiSemanticsSha)
   ('DAK SHA: `{0}`' -f $lSummary.dakSha)
+  ('Provenance: `{0}`' -f $lSummary.provenance.status)
   ('Warm target: `{0}` seconds' -f ([double]$lWarmTargetSeconds).ToString('F3',
     [System.Globalization.CultureInfo]::InvariantCulture))
   ('Cache directory: `{0}`' -f $lSummary.cacheDirectory)

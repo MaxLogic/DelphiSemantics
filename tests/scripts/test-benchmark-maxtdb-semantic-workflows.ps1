@@ -116,7 +116,9 @@ function New-ScanJson {
 function New-BaselineJson {
   param(
     [string]$Path,
-    [object[]]$Runs
+    [object[]]$Runs,
+    [string]$DelphiSemanticsSha = '',
+    [string]$DakSha = ''
   )
 
   $lBaseline = [ordered]@{
@@ -130,6 +132,8 @@ function New-BaselineJson {
     cacheModes = @('default')
     cacheDirectory = ''
     machine = 'test'
+    delphiSemanticsSha = $DelphiSemanticsSha
+    dakSha = $DakSha
     results = @()
     runs = $Runs
   }
@@ -176,15 +180,28 @@ function New-PlanRun {
 }
 
 function Invoke-BenchmarkSummarize {
-  param([string]$Workspace)
+  param(
+    [string]$Workspace,
+    [switch]$AllowHistoricalSummary
+  )
 
   $lDakExe = Join-Path $Workspace 'dak.exe'
   $lProject = Join-Path $Workspace 'project.dpr'
   $lStdout = Join-Path $Workspace 'summarize.stdout.txt'
   $lStderr = Join-Path $Workspace 'summarize.stderr.txt'
-  & pwsh -NoProfile -ExecutionPolicy Bypass -File $BenchmarkScript `
-    -DakExe $lDakExe -Project $lProject -SummarizeOnly -OutDir $Workspace -NoBaselineCopy `
-    1> $lStdout 2> $lStderr
+  $lArgs = @(
+    '-NoProfile', '-ExecutionPolicy', 'Bypass',
+    '-File', $BenchmarkScript,
+    '-DakExe', $lDakExe,
+    '-Project', $lProject,
+    '-SummarizeOnly',
+    '-OutDir', $Workspace,
+    '-NoBaselineCopy'
+  )
+  if ($AllowHistoricalSummary) {
+    $lArgs += '-AllowHistoricalSummary'
+  }
+  & pwsh @lArgs 1> $lStdout 2> $lStderr
   return $LASTEXITCODE
 }
 
@@ -219,6 +236,13 @@ function Test-CompactPlanSummaryCountsDriveParityExport {
   $lBaseline = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.json') -Raw |
     ConvertFrom-Json
   Assert-Equal 215 $lBaseline.results[0].ResultCount 'summary result count must use compact summary plannedEdits.'
+  Assert-Equal 'current' $lBaseline.provenance.status `
+    'SummarizeOnly with matching current provenance must mark current status.'
+
+  $lMarkdown = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.md') -Raw
+  if ($lMarkdown -notmatch 'Provenance: `current`') {
+    throw 'Markdown summary must mark current provenance.'
+  }
 }
 
 function Test-PlanRunCountDriftFailsClosed {
@@ -298,6 +322,64 @@ function Test-SummarizeOnlyMissingSourceMutationStatusFailsClosed {
   $lStderr = Get-Content -LiteralPath (Join-Path $lWorkspace 'summarize.stderr.txt') -Raw
   if ($lStderr -notmatch 'SourceMutationStatus') {
     throw 'SummarizeOnly missing mutation-status failure must name SourceMutationStatus.'
+  }
+}
+
+function Test-SummarizeOnlyStaleProvenanceFailsClosed {
+  $lWorkspace = New-TestWorkspace 'stale-provenance'
+  $lPlanPath = Join-Path $lWorkspace 'plan.stdout.json'
+  New-PlanJson -Path $lPlanPath -WithCount 667 -PlannedCount 215 -MismatchCount 0
+  New-BaselineJson -Path (Join-Path $lWorkspace 'baseline.json') -Runs @(
+    (New-PlanRun -Stdout $lPlanPath -Run 1)
+  ) -DelphiSemanticsSha 'stale-delphi-semantics-sha'
+
+  $lExit = Invoke-BenchmarkSummarize -Workspace $lWorkspace
+  if ($lExit -eq 0) {
+    throw 'SummarizeOnly must fail when stored DelphiSemantics provenance is stale.'
+  }
+  $lStderr = Get-Content -LiteralPath (Join-Path $lWorkspace 'summarize.stderr.txt') -Raw
+  if ($lStderr -notmatch 'provenance is stale') {
+    throw 'SummarizeOnly stale-provenance failure must name stale provenance.'
+  }
+}
+
+function Test-SummarizeOnlyStaleDakProvenanceFailsClosed {
+  $lWorkspace = New-TestWorkspace 'stale-dak-provenance'
+  $lPlanPath = Join-Path $lWorkspace 'plan.stdout.json'
+  New-PlanJson -Path $lPlanPath -WithCount 667 -PlannedCount 215 -MismatchCount 0
+  New-BaselineJson -Path (Join-Path $lWorkspace 'baseline.json') -Runs @(
+    (New-PlanRun -Stdout $lPlanPath -Run 1)
+  ) -DakSha 'stale-dak-sha'
+
+  $lExit = Invoke-BenchmarkSummarize -Workspace $lWorkspace
+  if ($lExit -eq 0) {
+    throw 'SummarizeOnly must fail when stored DAK provenance is stale.'
+  }
+  $lStderr = Get-Content -LiteralPath (Join-Path $lWorkspace 'summarize.stderr.txt') -Raw
+  if ($lStderr -notmatch 'DAK stored=stale-dak-sha') {
+    throw 'SummarizeOnly stale DAK provenance failure must name stored DAK SHA.'
+  }
+}
+
+function Test-SummarizeOnlyAllowsHistoricalProvenanceWhenExplicit {
+  $lWorkspace = New-TestWorkspace 'historical-provenance'
+  $lPlanPath = Join-Path $lWorkspace 'plan.stdout.json'
+  New-PlanJson -Path $lPlanPath -WithCount 667 -PlannedCount 215 -MismatchCount 0
+  New-BaselineJson -Path (Join-Path $lWorkspace 'baseline.json') -Runs @(
+    (New-PlanRun -Stdout $lPlanPath -Run 1)
+  ) -DelphiSemanticsSha 'stale-delphi-semantics-sha'
+
+  $lExit = Invoke-BenchmarkSummarize -Workspace $lWorkspace -AllowHistoricalSummary
+  Assert-Equal 0 $lExit 'SummarizeOnly should allow stale provenance only when explicit.'
+
+  $lBaseline = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.json') -Raw |
+    ConvertFrom-Json
+  Assert-Equal 'historical' $lBaseline.provenance.status `
+    'Historical summarize-only output must mark stale provenance.'
+
+  $lMarkdown = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.md') -Raw
+  if ($lMarkdown -notmatch 'Provenance: `historical`') {
+    throw 'Markdown summary must mark historical provenance.'
   }
 }
 
