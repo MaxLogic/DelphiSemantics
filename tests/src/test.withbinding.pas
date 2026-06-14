@@ -50,6 +50,8 @@ type
     procedure ReceiverMemberBindingUsesSemanticMemberIndex;
     [Test]
     procedure ReceiverMemberIndexDoesNotWalkVisibleUnitsPerLookup;
+    [Test]
+    procedure WithBindingUsesSingleResolverAuthorityAdapter;
   end;
 
 implementation
@@ -594,6 +596,71 @@ begin
     'Receiver/member lookup must not walk visible units for each lookup.');
   Assert.IsFalse(ContainsText(lIndexText, 'for lUnitName in fUnitNames do'),
     'Receiver/member lookup must not walk all project units for each lookup.');
+end;
+
+procedure TProjectWithBindingTests.WithBindingUsesSingleResolverAuthorityAdapter;
+var
+  lAdapterStart: Integer;
+  lAdapterText: string;
+  lCount: Integer;
+  lOffset: Integer;
+  lResolveNameCachedStart: Integer;
+  lResolveNameCachedText: string;
+  lScopeConflictStart: Integer;
+  lSelectorBindingStart: Integer;
+  lSelectorBindingText: string;
+  lSelectorPropertyStart: Integer;
+  lSelectorPropertyText: string;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  Assert.IsTrue(ContainsText(lSourceText, 'ResolveNameThroughWithBindingAuthority'),
+    'WithBinding must route legacy name resolution through one documented adapter.');
+  Assert.IsTrue(ContainsText(lSourceText, 'Compatibility adapter for model-array name resolution'),
+    'The remaining compatibility adapter must explain why it exists.');
+
+  lAdapterStart := Pos('function ResolveNameThroughWithBindingAuthority', lSourceText);
+  lSelectorPropertyStart := Pos('function SelectorPrefixUsesProperty', lSourceText);
+  lSelectorBindingStart := Pos('function MakeSelectorBinding', lSourceText);
+  lResolveNameCachedStart := Pos('function ResolveNameCached', lSourceText);
+  lScopeConflictStart := Pos('procedure ApplyScopeConflictFact', lSourceText);
+  Assert.IsTrue((lAdapterStart > 0) and (lSelectorPropertyStart > lAdapterStart),
+    'Expected resolver adapter before selector property resolution.');
+  Assert.IsTrue((lSelectorBindingStart > lSelectorPropertyStart) and
+    (lResolveNameCachedStart > lSelectorBindingStart) and
+    (lScopeConflictStart > lResolveNameCachedStart),
+    'Expected selector and cached lexical resolver sections.');
+
+  lAdapterText := Copy(lSourceText, lAdapterStart, lSelectorPropertyStart - lAdapterStart);
+  lSelectorPropertyText := Copy(lSourceText, lSelectorPropertyStart,
+    lSelectorBindingStart - lSelectorPropertyStart);
+  lSelectorBindingText := Copy(lSourceText, lSelectorBindingStart,
+    lResolveNameCachedStart - lSelectorBindingStart);
+  lResolveNameCachedText := Copy(lSourceText, lResolveNameCachedStart,
+    lScopeConflictStart - lResolveNameCachedStart);
+  Assert.IsTrue(ContainsText(lAdapterText, 'TDelphiSemanticResolver.ResolveName('),
+    'Only the adapter should call the legacy resolver directly.');
+  Assert.IsTrue(ContainsText(lSelectorPropertyText,
+    'ResolveNameThroughWithBindingAuthority'),
+    'Selector property checks must route through the adapter.');
+  Assert.IsTrue(ContainsText(lSelectorBindingText, 'ResolveNameThroughWithBindingAuthority'),
+    'Selector binding fallback must route through the adapter.');
+  Assert.IsTrue(ContainsText(lResolveNameCachedText, 'ResolveNameThroughWithBindingAuthority'),
+    'Cached lexical and scope-conflict resolution must route through the adapter.');
+
+  lCount := 0;
+  lOffset := Pos('TDelphiSemanticResolver.ResolveName(', lSourceText);
+  while lOffset > 0 do
+  begin
+    Inc(lCount);
+    lOffset := PosEx('TDelphiSemanticResolver.ResolveName(', lSourceText, lOffset + 1);
+  end;
+
+  Assert.AreEqual(1, lCount,
+    'WithBinding must have exactly one direct legacy ResolveName call.');
 end;
 
 initialization

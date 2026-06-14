@@ -1409,13 +1409,21 @@ begin
   Result := False;
 end;
 
+function ResolveNameThroughWithBindingAuthority(const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext; const aName: string):
+  TDelphiSemanticResolveResult;
+begin
+  // Compatibility adapter for model-array name resolution while WithBinding moves to one authority.
+  Result := TDelphiSemanticResolver.ResolveName(aModel, aContext, aName);
+end;
+
 function SelectorPrefixUsesProperty(const aModel: TDelphiSemanticUnitModel;
   const aContext: TDelphiSemanticResolveContext; const aSelectorPrefix: string;
   const aCheckDefaultProperty: Boolean): Boolean;
 var
   lResult: TDelphiSemanticResolveResult;
 begin
-  lResult := TDelphiSemanticResolver.ResolveName(aModel, aContext, aSelectorPrefix);
+  lResult := ResolveNameThroughWithBindingAuthority(aModel, aContext, aSelectorPrefix);
   Result := SameText(lResult.Kind, 'property') or
     (aCheckDefaultProperty and lResult.Found and TypeHasDefaultIndexedProperty(aModel,
     lResult.TypeName));
@@ -1481,7 +1489,7 @@ begin
     TryResolveReceiverMember(aModel, aProjectModels, aPreviousSelectors,
     aCurrentTypeName, ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
     aPreviousSelectors), lSelectorText, aProjectMemberIndex, aMemberCache, lResult)) then
-    lResult := TDelphiSemanticResolver.ResolveName(aModel, lContext, lSelectorText);
+    lResult := ResolveNameThroughWithBindingAuthority(aModel, lContext, lSelectorText);
   if lResult.Found and SelectorUsesUnsafeProperty(aModel, lContext, lSelectorText) then
     MarkPropertySelectorUnsupported(lSelectorText, lResult);
   Result.SelectorText := lSelectorText;
@@ -4079,7 +4087,7 @@ begin
   if Assigned(aResolveCache) and aResolveCache.TryGetValue(lKey, Result) then
     Exit;
 
-  Result := TDelphiSemanticResolver.ResolveName(aModel, aContext, aName);
+  Result := ResolveNameThroughWithBindingAuthority(aModel, aContext, aName);
   if Assigned(aResolveCache) then
     aResolveCache.AddOrSetValue(lKey, Result);
 end;
