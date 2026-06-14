@@ -64,7 +64,10 @@ uses
   MaxLogic.StrUtils;
 
 type
-  TSnapshotModelCache = TDictionary<string, TDelphiSemanticUnitModel>;
+  TSnapshotFunctionRoutine = record
+    Name: string;
+    Line: Integer;
+  end;
 
 function MakeBlockedPlan(const aDiagnostic: string): TDelphiSemanticRenamePlan;
 begin
@@ -379,111 +382,8 @@ begin
   Result := aSnapshot.TextOf(aId);
 end;
 
-function TryBuildModelFromSnapshot(const aContext: TDelphiSemanticSymbolQueryContext;
-  const aFileName: string; const aSnapshotModelCache: TSnapshotModelCache;
-  out aModel: TDelphiSemanticUnitModel): Boolean;
-var
-  i: Integer;
-  lKind: string;
-  lLocal: TDelphiSemanticLocal;
-  lLocals: TList<TDelphiSemanticLocal>;
-  lLookupFileName: string;
-  lRoutine: TDelphiSemanticRoutine;
-  lRoutineName: string;
-  lRoutines: TList<TDelphiSemanticRoutine>;
-  lSnapshot: TDelphiProjectSnapshot;
-  lSymbol: TSemanticSymbolFact;
-  lUnit: TUnitSnapshot;
-  lUnitId: TSemanticUnitId;
-  lWith: TSemanticWithStatementFact;
-  lWithStatement: TDelphiSemanticWithStatement;
-  lWithStatements: TList<TDelphiSemanticWithStatement>;
-begin
-  aModel := Default(TDelphiSemanticUnitModel);
-  lLookupFileName := NormalizedFileName(aFileName);
-  if (aSnapshotModelCache <> nil) and aSnapshotModelCache.TryGetValue(lLookupFileName,
-    aModel) then
-    Exit(aModel.FileName <> '');
-
-  lSnapshot := ContextProjectSnapshot(aContext);
-  if lSnapshot = nil then
-    Exit(False);
-  if not lSnapshot.TryFindUnitByFileName(lLookupFileName, lUnitId) and
-    not lSnapshot.TryFindUnitByFileName(aFileName, lUnitId) then
-    Exit(False);
-  if not lSnapshot.TryFindUnitById(lUnitId, lUnit) then
-    Exit(False);
-
-  lRoutines := nil;
-  lLocals := nil;
-  lWithStatements := nil;
-  try
-    lRoutines := TList<TDelphiSemanticRoutine>.Create;
-    lLocals := TList<TDelphiSemanticLocal>.Create;
-    lWithStatements := TList<TDelphiSemanticWithStatement>.Create;
-    for i := 1 to lUnit.SymbolCount do
-    begin
-      lSymbol := lUnit.SymbolById(TSemanticSymbolId(i));
-      lKind := SnapshotPublicSymbolKind(SnapshotText(lSnapshot, lSymbol.KindId));
-      lRoutineName := SnapshotText(lSnapshot, lSymbol.RoutineId);
-      if SameText(lKind, 'routine') then
-      begin
-        lRoutine := Default(TDelphiSemanticRoutine);
-        lRoutine.Name := SnapshotText(lSnapshot, lSymbol.NameId);
-        lRoutine.OwnerName := SnapshotText(lSnapshot, lSymbol.OwnerTypeId);
-        lRoutine.SectionKind := SnapshotText(lSnapshot, lSymbol.SectionKindId);
-        lRoutine.Signature := SnapshotText(lSnapshot, lSymbol.SignatureId);
-        lRoutine.ReturnType := SnapshotText(lSnapshot, lSymbol.TypeId);
-        lRoutine.Line := lSymbol.Line;
-        lRoutine.Column := lSymbol.Column;
-        lRoutines.Add(lRoutine);
-      end else if (lRoutineName <> '') and (SameText(lKind, 'local') or
-        SameText(lKind, 'var') or SameText(lKind, 'parameter')) then
-      begin
-        lLocal := Default(TDelphiSemanticLocal);
-        lLocal.RoutineName := lRoutineName;
-        lLocal.Name := SnapshotText(lSnapshot, lSymbol.NameId);
-        lLocal.Kind := lKind;
-        lLocal.TypeName := SnapshotText(lSnapshot, lSymbol.TypeId);
-        lLocal.Line := lSymbol.Line;
-        lLocal.Column := lSymbol.Column;
-        lLocals.Add(lLocal);
-      end;
-    end;
-
-    for i := 1 to lUnit.WithStatementCount do
-    begin
-      lWith := lUnit.WithStatementById(TSemanticWithId(i));
-      lWithStatement := Default(TDelphiSemanticWithStatement);
-      lWithStatement.Line := lWith.SelectorStartLine;
-      lWithStatement.Column := lWith.SelectorStartColumn;
-      lWithStatement.EndLine := lWith.BodyEndLine;
-      lWithStatement.EndColumn := lWith.BodyEndColumn;
-      lWithStatement.BodyLine := lWith.BodyStartLine;
-      lWithStatement.BodyColumn := lWith.BodyStartColumn;
-      lWithStatement.BodyEndLine := lWith.BodyEndLine;
-      lWithStatement.BodyEndColumn := lWith.BodyEndColumn;
-      lWithStatements.Add(lWithStatement);
-    end;
-
-    aModel.UnitName := SnapshotText(lSnapshot, lUnit.UnitNameId);
-    aModel.FileName := SnapshotText(lSnapshot, lUnit.FileNameId);
-    aModel.Routines := lRoutines.ToArray;
-    aModel.Locals := lLocals.ToArray;
-    aModel.WithStatements := lWithStatements.ToArray;
-    if aSnapshotModelCache <> nil then
-      aSnapshotModelCache.AddOrSetValue(NormalizedFileName(aModel.FileName), aModel);
-    Result := True;
-  finally
-    lWithStatements.Free;
-    lLocals.Free;
-    lRoutines.Free;
-  end;
-end;
-
 function TryFindUsageModel(const aContext: TDelphiSemanticSymbolQueryContext;
-  const aUsage: TDelphiSemanticUsage; const aSnapshotModelCache: TSnapshotModelCache;
-  out aModel: TDelphiSemanticUnitModel): Boolean;
+  const aUsage: TDelphiSemanticUsage; out aModel: TDelphiSemanticUnitModel): Boolean;
 var
   lModel: TDelphiSemanticUnitModel;
 begin
@@ -499,9 +399,6 @@ begin
       aModel := lModel;
       Exit(True);
     end;
-
-  if TryBuildModelFromSnapshot(aContext, aUsage.FileName, aSnapshotModelCache, aModel) then
-    Exit(True);
 
   aModel := Default(TDelphiSemanticUnitModel);
   Result := False;
@@ -525,11 +422,38 @@ begin
       Exit(True);
     end;
 
-  if TryBuildModelFromSnapshot(aContext, aFileName, nil, aModel) then
-    Exit(True);
-
   aModel := Default(TDelphiSemanticUnitModel);
   Result := False;
+end;
+
+function TryFindSnapshotUnitByFile(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aFileName: string; out aSnapshot: TDelphiProjectSnapshot; out aUnit: TUnitSnapshot;
+  out aResolvedFileName: string): Boolean;
+var
+  lLookupFileName: string;
+  lUnitId: TSemanticUnitId;
+begin
+  aSnapshot := ContextProjectSnapshot(aContext);
+  aUnit := nil;
+  aResolvedFileName := '';
+  if aSnapshot = nil then
+    Exit(False);
+
+  lLookupFileName := NormalizedFileName(aFileName);
+  if not aSnapshot.TryFindUnitByFileName(lLookupFileName, lUnitId) and
+    not aSnapshot.TryFindUnitByFileName(aFileName, lUnitId) then
+    Exit(False);
+  if not aSnapshot.TryFindUnitById(lUnitId, aUnit) then
+    Exit(False);
+
+  aResolvedFileName := SnapshotText(aSnapshot, aUnit.FileNameId);
+  Result := aResolvedFileName <> '';
+end;
+
+function IsSnapshotLocalSymbolKind(const aKind: string): Boolean;
+begin
+  Result := SameText(aKind, 'local') or SameText(aKind, 'var') or
+    SameText(aKind, 'parameter');
 end;
 
 function UnqualifiedName(const aName: string): string;
@@ -750,26 +674,23 @@ begin
   Result := False;
 end;
 
-function TryFindRoutineBodySpan(const aLines: TArray<string>; const aRoutine: TDelphiSemanticRoutine;
-  out aBodyStartLine, aEndLine: Integer): Boolean;
+function TryFindRoutineBodySpanFromLine(const aLines: TArray<string>;
+  const aRoutineLine: Integer; out aBodyStartLine, aEndLine: Integer): Boolean;
 var
   i: Integer;
   lBodyStartLine: Integer;
   lCommentMode: Integer;
   lLineText: string;
   lNestedEndLine: Integer;
-  lNestedRoutine: TDelphiSemanticRoutine;
 begin
-  i := aRoutine.Line;
+  i := aRoutineLine;
   lCommentMode := 0;
   while i <= Length(aLines) do
   begin
     lLineText := SanitizeFunctionResultLine(aLines[i - 1], lCommentMode);
-    if (i > aRoutine.Line) and IsRoutineHeaderLine(lLineText) then
+    if (i > aRoutineLine) and IsRoutineHeaderLine(lLineText) then
     begin
-      lNestedRoutine := Default(TDelphiSemanticRoutine);
-      lNestedRoutine.Line := i;
-      if TryFindRoutineBodySpan(aLines, lNestedRoutine, lBodyStartLine, lNestedEndLine) then
+      if TryFindRoutineBodySpanFromLine(aLines, i, lBodyStartLine, lNestedEndLine) then
       begin
         i := lNestedEndLine + 1;
         Continue;
@@ -788,6 +709,12 @@ begin
   aBodyStartLine := 0;
   aEndLine := 0;
   Result := False;
+end;
+
+function TryFindRoutineBodySpan(const aLines: TArray<string>; const aRoutine: TDelphiSemanticRoutine;
+  out aBodyStartLine, aEndLine: Integer): Boolean;
+begin
+  Result := TryFindRoutineBodySpanFromLine(aLines, aRoutine.Line, aBodyStartLine, aEndLine);
 end;
 
 function TryFindEnclosingFunctionBodyRoutine(const aModel: TDelphiSemanticUnitModel;
@@ -811,6 +738,44 @@ begin
       Continue;
     if (not Result) or (lRoutine.Line > aRoutine.Line) then
     begin
+      aRoutine := lRoutine;
+      aBodyStartLine := lBodyStartLine;
+      aEndLine := lEndLine;
+      Result := True;
+    end;
+  end;
+end;
+
+function TryFindEnclosingSnapshotFunctionRoutine(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aLines: TArray<string>; const aLine: Integer;
+  out aRoutine: TSnapshotFunctionRoutine; out aBodyStartLine, aEndLine: Integer): Boolean;
+var
+  i: Integer;
+  lBodyStartLine: Integer;
+  lEndLine: Integer;
+  lKind: string;
+  lRoutine: TSnapshotFunctionRoutine;
+  lSymbol: TSemanticSymbolFact;
+begin
+  Result := False;
+  aRoutine := Default(TSnapshotFunctionRoutine);
+  aBodyStartLine := 0;
+  aEndLine := 0;
+  for i := 1 to aUnit.SymbolCount do
+  begin
+    lSymbol := aUnit.SymbolById(TSemanticSymbolId(i));
+    lKind := SnapshotPublicSymbolKind(SnapshotText(aSnapshot, lSymbol.KindId));
+    if not SameText(lKind, 'routine') or (SnapshotText(aSnapshot, lSymbol.TypeId) = '') or
+      (lSymbol.Line > aLine) then
+      Continue;
+    if not TryFindRoutineBodySpanFromLine(aLines, lSymbol.Line, lBodyStartLine, lEndLine) or
+      (aLine > lEndLine) or (aLine < lBodyStartLine) then
+      Continue;
+    if (not Result) or (lSymbol.Line > aRoutine.Line) then
+    begin
+      lRoutine := Default(TSnapshotFunctionRoutine);
+      lRoutine.Name := SnapshotText(aSnapshot, lSymbol.NameId);
+      lRoutine.Line := lSymbol.Line;
       aRoutine := lRoutine;
       aBodyStartLine := lBodyStartLine;
       aEndLine := lEndLine;
@@ -856,6 +821,25 @@ begin
   Result := False;
 end;
 
+function SnapshotPositionInWithBody(const aUnit: TUnitSnapshot; const aLine,
+  aColumn: Integer): Boolean;
+var
+  i: Integer;
+  lWithStatement: TSemanticWithStatementFact;
+begin
+  for i := 1 to aUnit.WithStatementCount do
+  begin
+    lWithStatement := aUnit.WithStatementById(TSemanticWithId(i));
+    if ((aLine > lWithStatement.BodyStartLine) or
+      ((aLine = lWithStatement.BodyStartLine) and (aColumn >= lWithStatement.BodyStartColumn))) and
+      ((aLine < lWithStatement.BodyEndLine) or
+      ((aLine = lWithStatement.BodyEndLine) and (aColumn <= lWithStatement.BodyEndColumn))) then
+      Exit(True);
+  end;
+
+  Result := False;
+end;
+
 procedure AddFunctionResultEdits(const aFileName: string; const aLines: TArray<string>;
   const aModel: TDelphiSemanticUnitModel; const aRoutine: TDelphiSemanticRoutine;
   const aBodyStartLine, aEndLine: Integer; const aEdits: TList<TDelphiSemanticTextEdit>);
@@ -896,16 +880,140 @@ begin
   end;
 end;
 
+procedure AddSnapshotFunctionResultEdits(const aFileName: string; const aLines: TArray<string>;
+  const aUnit: TUnitSnapshot; const aRoutine: TSnapshotFunctionRoutine;
+  const aBodyStartLine, aEndLine: Integer; const aEdits: TList<TDelphiSemanticTextEdit>);
+var
+  i: Integer;
+  lCommentMode: Integer;
+  lEndColumn: Integer;
+  lEdit: TDelphiSemanticTextEdit;
+  lLineText: string;
+  lStartColumn: Integer;
+  lToken: string;
+begin
+  lCommentMode := 0;
+  for i := aBodyStartLine to aEndLine do
+  begin
+    lLineText := SanitizeFunctionResultLine(aLines[i - 1], lCommentMode);
+    lStartColumn := 1;
+    while lStartColumn <= Length(lLineText) do
+    begin
+      while (lStartColumn <= Length(lLineText)) and not IsIdentifierChar(lLineText[lStartColumn]) do
+        Inc(lStartColumn);
+      if lStartColumn > Length(lLineText) then
+        Break;
+      lEndColumn := lStartColumn;
+      while (lEndColumn < Length(lLineText)) and IsIdentifierChar(lLineText[lEndColumn + 1]) do
+        Inc(lEndColumn);
+      lToken := Copy(lLineText, lStartColumn, lEndColumn - lStartColumn + 1);
+      if SameText(lToken, UnqualifiedName(aRoutine.Name)) and
+        IsFunctionResultToken(lLineText, aRoutine.Name, lStartColumn, lEndColumn) and
+        not SnapshotPositionInWithBody(aUnit, i, lStartColumn) then
+      begin
+        lEdit := MakeFunctionResultEditFromRange(aFileName, i, lStartColumn, lEndColumn);
+        if not EditAlreadyPlanned(aEdits, lEdit) then
+          aEdits.Add(lEdit);
+      end;
+      lStartColumn := lEndColumn + 1;
+    end;
+  end;
+end;
+
+function IsShadowedBySnapshotLocal(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aUsage: TDelphiSemanticUsage): Boolean;
+var
+  i: Integer;
+  lKind: string;
+  lResolvedFileName: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSymbol: TSemanticSymbolFact;
+  lUnit: TUnitSnapshot;
+begin
+  if not TryFindSnapshotUnitByFile(aContext, aUsage.FileName, lSnapshot, lUnit,
+    lResolvedFileName) then
+    Exit(False);
+
+  for i := 1 to lUnit.SymbolCount do
+  begin
+    lSymbol := lUnit.SymbolById(TSemanticSymbolId(i));
+    lKind := SnapshotPublicSymbolKind(SnapshotText(lSnapshot, lSymbol.KindId));
+    if IsSnapshotLocalSymbolKind(lKind) and SameText(SnapshotText(lSnapshot, lSymbol.RoutineId),
+      aUsage.RoutineName) and SameText(SnapshotText(lSnapshot, lSymbol.NameId), aUsage.Name) and
+      (lSymbol.Line < aUsage.Line) then
+      Exit(True);
+  end;
+
+  Result := False;
+end;
+
+function PlanSnapshotFunctionResultRefactorAtPosition(
+  const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string; const aLine,
+  aColumn: Integer): TDelphiSemanticRenamePlan;
+var
+  lBodyStartLine: Integer;
+  lEdits: TList<TDelphiSemanticTextEdit>;
+  lEndColumn: Integer;
+  lEndLine: Integer;
+  lLines: TArray<string>;
+  lResolvedFileName: string;
+  lRoutine: TSnapshotFunctionRoutine;
+  lSelectedLineText: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lStartColumn: Integer;
+  lToken: string;
+  lUnit: TUnitSnapshot;
+begin
+  if not TryFindSnapshotUnitByFile(aContext, aFileName, lSnapshot, lUnit, lResolvedFileName) then
+    Exit(MakeBlockedPlan('No semantic model found for the requested file.'));
+  if not TFile.Exists(lResolvedFileName) then
+    Exit(MakeBlockedPlan('Source file is not available for function-result planning.'));
+
+  lLines := TFile.ReadAllLines(lResolvedFileName);
+  if (aLine > 0) and (aLine <= Length(lLines)) then
+    lSelectedLineText := SanitizedLineAt(lLines, aLine)
+  else
+    lSelectedLineText := '';
+  if (aLine <= 0) or (aLine > Length(lLines)) or
+    not TryTokenAtPosition(lSelectedLineText, aColumn, lToken, lStartColumn, lEndColumn) then
+    Exit(MakeBlockedPlan('No function-result identifier found at the requested position.'));
+  if not TryFindEnclosingSnapshotFunctionRoutine(lSnapshot, lUnit, lLines, aLine, lRoutine,
+    lBodyStartLine, lEndLine) then
+    Exit(MakeBlockedPlan('Selected identifier is not inside a function routine.'));
+  if not SameText(lToken, UnqualifiedName(lRoutine.Name)) then
+    Exit(MakeBlockedPlan('Selected identifier is not the enclosing function result name.'));
+  if SnapshotPositionInWithBody(lUnit, aLine, lStartColumn) then
+    Exit(MakeBlockedPlan('Selected identifier is inside a with-statement body.'));
+  if not IsFunctionResultToken(lSelectedLineText, lRoutine.Name, lStartColumn, lEndColumn) then
+    Exit(MakeBlockedPlan('Selected identifier is not a function-result assignment or read.'));
+
+  lEdits := TList<TDelphiSemanticTextEdit>.Create;
+  try
+    AddSnapshotFunctionResultEdits(lResolvedFileName, lLines, lUnit, lRoutine, lBodyStartLine,
+      lEndLine, lEdits);
+
+    if lEdits.Count = 0 then
+      Exit(MakeBlockedPlan('No function-result edits were planned.'));
+
+    Result := Default(TDelphiSemanticRenamePlan);
+    Result.Status := 'planned';
+    Result.Edits := lEdits.ToArray;
+  finally
+    lEdits.Free;
+  end;
+end;
+
 function IsShadowedByLocal(const aContext: TDelphiSemanticSymbolQueryContext;
-  const aUsage: TDelphiSemanticUsage; const aSnapshotModelCache: TSnapshotModelCache):
-  Boolean;
+  const aUsage: TDelphiSemanticUsage): Boolean;
 var
   lLocal: TDelphiSemanticLocal;
   lModel: TDelphiSemanticUnitModel;
 begin
-  if (aUsage.RoutineName = '') or not SameText(aUsage.Role, 'reference') or
-    not TryFindUsageModel(aContext, aUsage, aSnapshotModelCache, lModel) then
+  if (aUsage.RoutineName = '') or not SameText(aUsage.Role, 'reference') then
     Exit(False);
+
+  if not TryFindUsageModel(aContext, aUsage, lModel) then
+    Exit(IsShadowedBySnapshotLocal(aContext, aUsage));
 
   for lLocal in lModel.Locals do
     if SameText(lLocal.RoutineName, aUsage.RoutineName) and SameText(lLocal.Name, aUsage.Name) and
@@ -921,23 +1029,18 @@ function BuildRenamePlanFromUsages(const aContext: TDelphiSemanticSymbolQueryCon
 var
   lEdit: TDelphiSemanticTextEdit;
   lEdits: TList<TDelphiSemanticTextEdit>;
-  lSnapshotModelCache: TSnapshotModelCache;
   lUsage: TDelphiSemanticUsage;
 begin
   if aUsageResult.Status <> 'resolved' then
     Exit(MakeBlockedPlan(aUsageResult.Diagnostic));
 
   lEdits := TList<TDelphiSemanticTextEdit>.Create;
-  lSnapshotModelCache := nil;
   try
-    if ContextProjectSnapshot(aContext) <> nil then
-      lSnapshotModelCache := TSnapshotModelCache.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
     for lUsage in aUsageResult.Usages do
     begin
       if not IsProjectUsage(lUsage) then
         Exit(MakeBlockedPlan('Rename contains non-project usage in "' + lUsage.FileName + '".'));
-      if (aUsageResult.Symbol.OwnerName = '') and IsShadowedByLocal(aContext, lUsage,
-        lSnapshotModelCache) then
+      if (aUsageResult.Symbol.OwnerName = '') and IsShadowedByLocal(aContext, lUsage) then
         Continue;
       if (lUsage.FileName = '') or (lUsage.Line <= 0) or (lUsage.Column <= 0) or
         (lUsage.EndLine <= 0) or (lUsage.EndColumn <= 0) or
@@ -952,7 +1055,6 @@ begin
     Result.Status := 'planned';
     Result.Edits := lEdits.ToArray;
   finally
-    lSnapshotModelCache.Free;
     lEdits.Free;
   end;
 end;
@@ -1027,7 +1129,7 @@ var
   lToken: string;
 begin
   if not TryFindModelByFile(aContext, aFileName, lModel) then
-    Exit(MakeBlockedPlan('No semantic model found for the requested file.'));
+    Exit(PlanSnapshotFunctionResultRefactorAtPosition(aContext, aFileName, aLine, aColumn));
   if (lModel.FileName = '') or not TFile.Exists(lModel.FileName) then
     Exit(MakeBlockedPlan('Source file is not available for function-result planning.'));
 
