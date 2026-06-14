@@ -5,7 +5,8 @@ interface
 uses
   DelphiSemantics.Cache, DelphiSemantics.GlobalVars, DelphiSemantics.Model,
   DelphiSemantics.ProjectContext, DelphiSemantics.Query, DelphiSemantics.RemoveWithPlan,
-  DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
+  DelphiSemantics.Graph, DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot,
+  DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticProjectSession = class;
@@ -83,6 +84,7 @@ type
       TDelphiSemanticGlobalAnalysis;
     function BuildGlobalCacheIdentities:
       TArray<TDelphiSemanticUnitCacheIdentity>;
+    function BuildDependencyGraph: TDelphiSemanticDependencyGraph;
     function BuildSemanticGraph: TDelphiSemanticSemanticGraph;
     function BuildSymbolQueryContext(out aCacheMetrics: TDelphiSemanticCacheMetrics;
       out aExtractionMilliseconds: Int64): TDelphiSemanticSymbolQueryContext;
@@ -115,6 +117,7 @@ implementation
 uses
   System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils,
   System.RegularExpressions, System.SysUtils,
+  DelphiAST.Classes, DelphiAST.Consts, DelphiAST.ProjectIndexer,
   DelphiSemantics.Cache.Sqlite, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
   MaxLogic.StrUtils;
@@ -513,6 +516,159 @@ begin
   end;
 end;
 
+function DependencyGraphSearchPaths(const aProject: TDelphiSemanticProjectInfo): TArray<string>;
+var
+  lItems: TList<string>;
+  lPath: string;
+begin
+  lItems := TList<string>.Create;
+  try
+    for lPath in aProject.SourceLookupPaths do
+      if (Trim(lPath) <> '') and (not lItems.Contains(lPath)) then
+        lItems.Add(lPath);
+    if (Trim(aProject.ProjectDirectory) <> '') and
+      (not lItems.Contains(aProject.ProjectDirectory)) then
+      lItems.Add(aProject.ProjectDirectory);
+    Result := lItems.ToArray;
+  finally
+    lItems.Free;
+  end;
+end;
+
+function DependencyProblemUnitName(const aFileName: string): string;
+begin
+  Result := aFileName;
+  if SameText(TPath.GetExtension(Result), '.pas') or
+    SameText(TPath.GetExtension(Result), '.dpr') then
+    Result := TPath.GetFileNameWithoutExtension(Result);
+end;
+
+procedure AddDependencyGraphFactEdge(
+  const aEdges: TList<TDelphiSemanticDependencyEdge>;
+  const aSourceUnit, aTargetUnit, aSectionKind: string);
+var
+  lEdge: TDelphiSemanticDependencyEdge;
+begin
+  if (Trim(aSourceUnit) = '') or (Trim(aTargetUnit) = '') then
+    Exit;
+
+  lEdge := Default(TDelphiSemanticDependencyEdge);
+  lEdge.SourceUnit := aSourceUnit;
+  lEdge.TargetUnit := aTargetUnit;
+  lEdge.SectionKind := aSectionKind;
+  aEdges.Add(lEdge);
+end;
+
+procedure CollectDependencyUsesEdges(const aSourceUnit, aSectionKind: string;
+  const aUsesNode: TSyntaxNode; const aEdges: TList<TDelphiSemanticDependencyEdge>);
+var
+  lNode: TSyntaxNode;
+begin
+  if not Assigned(aUsesNode) then
+    Exit;
+
+  for lNode in aUsesNode.ChildNodes do
+    if lNode.Typ = TSyntaxNodeType.ntUnit then
+      AddDependencyGraphFactEdge(aEdges, aSourceUnit, lNode.GetAttribute(anName),
+        aSectionKind);
+end;
+
+function FirstDependencyChildNode(const aNode: TSyntaxNode;
+  const aNodeType: TSyntaxNodeType): TSyntaxNode;
+var
+  lNode: TSyntaxNode;
+begin
+  Result := nil;
+  if not Assigned(aNode) then
+    Exit;
+  if aNode.Typ = aNodeType then
+    Exit(aNode);
+
+  for lNode in aNode.ChildNodes do
+  begin
+    if lNode.Typ = aNodeType then
+      Exit(lNode);
+    Result := FirstDependencyChildNode(lNode, aNodeType);
+    if Assigned(Result) then
+      Exit;
+  end;
+end;
+
+procedure CollectDependencyGraphIndexFacts(const aProject: TDelphiSemanticProjectInfo;
+  var aOptions: TDelphiSemanticDependencyGraphOptions);
+var
+  lContainsNode: TSyntaxNode;
+  lEdges: TList<TDelphiSemanticDependencyEdge>;
+  lImplementationNode: TSyntaxNode;
+  lIndexer: TProjectIndexer;
+  lInterfaceNode: TSyntaxNode;
+  lProblem: TProjectIndexer.TProblemInfo;
+  lProblemInfo: TDelphiSemanticDependencyParserProblem;
+  lProblems: TList<TDelphiSemanticDependencyParserProblem>;
+  lUnitName: string;
+  lUnitInfo: TProjectIndexer.TUnitInfo;
+  lUnitNode: TSyntaxNode;
+  lUnresolvedUnits: TList<string>;
+  lUsesNode: TSyntaxNode;
+begin
+  lIndexer := TProjectIndexer.Create;
+  lEdges := TList<TDelphiSemanticDependencyEdge>.Create;
+  lProblems := TList<TDelphiSemanticDependencyParserProblem>.Create;
+  lUnresolvedUnits := TList<string>.Create;
+  try
+    lIndexer.Options := lIndexer.Options - [piUseDefinesDefinedByCompiler];
+    lIndexer.Defines := String.Join(';', aProject.Defines);
+    lIndexer.SearchPath := String.Join(';', DependencyGraphSearchPaths(aProject));
+    lIndexer.Index(aProject.MainSourceFileName);
+
+    for lUnitInfo in lIndexer.ParsedUnits do
+    begin
+      lUnitNode := FirstDependencyChildNode(lUnitInfo.SyntaxTree, TSyntaxNodeType.ntUnit);
+      if not Assigned(lUnitNode) then
+        Continue;
+
+      if SameText(TPath.GetExtension(lUnitInfo.Path), '.dpr') then
+      begin
+        lUsesNode := FirstDependencyChildNode(lUnitNode, TSyntaxNodeType.ntUses);
+        CollectDependencyUsesEdges(lUnitInfo.Name, 'project', lUsesNode, lEdges);
+        lContainsNode := FirstDependencyChildNode(lUnitNode, TSyntaxNodeType.ntContains);
+        CollectDependencyUsesEdges(lUnitInfo.Name, 'contains', lContainsNode, lEdges);
+      end else
+      begin
+        lInterfaceNode := FirstDependencyChildNode(lUnitNode, TSyntaxNodeType.ntInterface);
+        lUsesNode := FirstDependencyChildNode(lInterfaceNode, TSyntaxNodeType.ntUses);
+        CollectDependencyUsesEdges(lUnitInfo.Name, 'interface', lUsesNode, lEdges);
+        lImplementationNode := FirstDependencyChildNode(lUnitNode,
+          TSyntaxNodeType.ntImplementation);
+        lUsesNode := FirstDependencyChildNode(lImplementationNode, TSyntaxNodeType.ntUses);
+        CollectDependencyUsesEdges(lUnitInfo.Name, 'implementation', lUsesNode, lEdges);
+      end;
+    end;
+
+    for lProblem in lIndexer.Problems do
+      if lProblem.ProblemType = TProjectIndexer.TProblemType.ptCantParseFile then
+      begin
+        lProblemInfo := Default(TDelphiSemanticDependencyParserProblem);
+        lProblemInfo.UnitName := DependencyProblemUnitName(lProblem.FileName);
+        lProblemInfo.FileName := lProblem.FileName;
+        lProblemInfo.Description := lProblem.Description;
+        lProblems.Add(lProblemInfo);
+      end;
+
+    for lUnitName in lIndexer.NotFoundUnits do
+      lUnresolvedUnits.Add(DependencyProblemUnitName(lUnitName));
+
+    aOptions.ProjectEdges := lEdges.ToArray;
+    aOptions.UnresolvedUnits := lUnresolvedUnits.ToArray;
+    aOptions.ParserProblems := lProblems.ToArray;
+  finally
+    lUnresolvedUnits.Free;
+    lProblems.Free;
+    lEdges.Free;
+    lIndexer.Free;
+  end;
+end;
+
 procedure ApplySnapshotBuilderMetrics(var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
   const aBuilderMetrics: TDelphiSnapshotBuilderMetrics);
 begin
@@ -817,6 +973,21 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+function TDelphiSemanticProjectSession.BuildDependencyGraph:
+  TDelphiSemanticDependencyGraph;
+var
+  lExtractionMilliseconds: Int64;
+  lGraphOptions: TDelphiSemanticDependencyGraphOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+begin
+  lGraphOptions := Default(TDelphiSemanticDependencyGraphOptions);
+  lGraphOptions.SearchPaths := DependencyGraphSearchPaths(fProject);
+  lGraphOptions.ProjectUnitName := fProject.ProjectName;
+  CollectDependencyGraphIndexFacts(fProject, lGraphOptions);
+  lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds);
+  Result := TDelphiSemanticDependencyGraphBuilder.Build(lModels, lGraphOptions);
 end;
 
 function TDelphiSemanticProjectSession.BuildSemanticGraph: TDelphiSemanticSemanticGraph;

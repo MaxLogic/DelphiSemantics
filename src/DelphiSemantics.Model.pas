@@ -837,13 +837,28 @@ end;
 procedure AddParameterTypeReferences(const aReferences: TList<TDelphiSemanticReference>;
   const aRoutineName, aParameterText, aText: string; const aParameterTextOffset: Integer); forward;
 
+function ExtractUsesUnitName(const aUsesItem: string): string;
+var
+  lMatch: TMatch;
+begin
+  Result := aUsesItem.Trim;
+  lMatch := TRegEx.Match(Result, '^([A-Za-z_][A-Za-z0-9_\.]*)\b',
+    [roIgnoreCase]);
+  if lMatch.Success then
+    Result := lMatch.Groups[1].Value;
+end;
+
 procedure AddUses(const aList: TList<string>; const aUsesText: string);
 var
   lPart: string;
+  lUnitName: string;
 begin
   for lPart in aUsesText.Split([',']) do
-    if lPart.Trim <> '' then
-      aList.Add(lPart.Trim);
+  begin
+    lUnitName := ExtractUsesUnitName(lPart);
+    if lUnitName <> '' then
+      aList.Add(lUnitName);
+  end;
 end;
 
 procedure ExtractUses(const aText: string; const aInterfaceUses, aImplementationUses: TList<string>);

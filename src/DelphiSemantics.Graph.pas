@@ -32,10 +32,6 @@ type
       TDelphiSemanticTypedSccResult; static;
   end;
 
-  TDelphiSemanticDependencyGraphOptions = record
-    SearchPaths: TArray<string>;
-  end;
-
   TDelphiSemanticDependencyNode = record
     UnitName: string;
     FileName: string;
@@ -52,6 +48,20 @@ type
     SectionKind: string;
     TargetStatus: string;
     IsCycleEdge: Boolean;
+  end;
+
+  TDelphiSemanticDependencyParserProblem = record
+    UnitName: string;
+    FileName: string;
+    Description: string;
+  end;
+
+  TDelphiSemanticDependencyGraphOptions = record
+    SearchPaths: TArray<string>;
+    ProjectUnitName: string;
+    ProjectEdges: TArray<TDelphiSemanticDependencyEdge>;
+    UnresolvedUnits: TArray<string>;
+    ParserProblems: TArray<TDelphiSemanticDependencyParserProblem>;
   end;
 
   TDelphiSemanticDependencyCycleComponent = record
@@ -75,6 +85,7 @@ type
     Nodes: TArray<TDelphiSemanticDependencyNode>;
     Edges: TArray<TDelphiSemanticDependencyEdge>;
     UnresolvedUnits: TArray<string>;
+    ParserProblems: TArray<TDelphiSemanticDependencyParserProblem>;
     CycleComponents: TArray<TDelphiSemanticDependencyCycleComponent>;
     UnitHotspots: TArray<TDelphiSemanticDependencyUnitHotspot>;
     EdgeHotspots: TArray<TDelphiSemanticDependencyEdgeHotspot>;
@@ -724,6 +735,39 @@ begin
   end;
 end;
 
+procedure AddGraphFactEdges(const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aOptions: TDelphiSemanticDependencyGraphOptions;
+  const aNodes: TList<TDelphiSemanticDependencyNode>;
+  const aEdges: TList<TDelphiSemanticDependencyEdge>;
+  const aUnresolvedUnits: TList<string>);
+var
+  lEdge: TDelphiSemanticDependencyEdge;
+  lTargetNode: TDelphiSemanticDependencyNode;
+begin
+  for lEdge in aOptions.ProjectEdges do
+  begin
+    lTargetNode := ResolveTargetNode(aModels, aOptions, lEdge.TargetUnit);
+    AddNode(aNodes, lTargetNode);
+    if lTargetNode.IsUnresolved then
+      AddUniqueUnit(aUnresolvedUnits, lTargetNode.UnitName);
+    AddEdge(aEdges, lEdge.SourceUnit, lTargetNode.UnitName, lEdge.SectionKind,
+      lTargetNode.Status);
+  end;
+end;
+
+procedure AddGraphFactUnresolvedUnits(const aNodes: TList<TDelphiSemanticDependencyNode>;
+  const aUnresolvedUnits: TList<string>;
+  const aOptions: TDelphiSemanticDependencyGraphOptions);
+var
+  lUnitName: string;
+begin
+  for lUnitName in aOptions.UnresolvedUnits do
+  begin
+    AddUniqueUnit(aUnresolvedUnits, lUnitName);
+    AddNode(aNodes, UnresolvedNode(lUnitName));
+  end;
+end;
+
 class function TDelphiSemanticDependencyGraphBuilder.Build(
   const aModels: TArray<TDelphiSemanticUnitModel>;
   const aOptions: TDelphiSemanticDependencyGraphOptions): TDelphiSemanticDependencyGraph;
@@ -745,17 +789,22 @@ begin
     for lModel in aModels do
       if lModel.UnitName <> '' then
       begin
+        if SameUnit(lModel.UnitName, aOptions.ProjectUnitName) then
+          Continue;
         AddUsesEdges(aModels, aOptions, lNodes, lEdges, lUnresolvedUnits, lModel,
           lModel.InterfaceUses, 'interface');
         AddUsesEdges(aModels, aOptions, lNodes, lEdges, lUnresolvedUnits, lModel,
           lModel.ImplementationUses, 'implementation');
       end;
+    AddGraphFactEdges(aModels, aOptions, lNodes, lEdges, lUnresolvedUnits);
+    AddGraphFactUnresolvedUnits(lNodes, lUnresolvedUnits, aOptions);
 
     lSccResult := BuildTypedSccResult(lEdges, aModels, lNodeNames);
     ApplySccCycles(lNodes, lEdges, lSccResult, lNodeNames);
     Result.Nodes := lNodes.ToArray;
     Result.Edges := lEdges.ToArray;
     Result.UnresolvedUnits := lUnresolvedUnits.ToArray;
+    Result.ParserProblems := Copy(aOptions.ParserProblems);
     Result.CycleComponents := BuildCycleComponents(lSccResult, lNodeNames);
     Result.UnitHotspots := BuildUnitHotspots(lEdges);
     Result.EdgeHotspots := BuildEdgeHotspots(lEdges);
