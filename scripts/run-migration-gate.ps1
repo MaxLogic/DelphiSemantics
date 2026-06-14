@@ -397,6 +397,133 @@ function Invoke-DakRemoveWithTests {
     -NoThrow:$NoThrow
 }
 
+function Get-DakSemanticConsumerTestFilters {
+  param([Parameter(Mandatory = $true)][string]$DakRoot)
+
+  $lRequiredUnits = @(
+    [pscustomobject]@{ Unit = 'test.symbolmap.pas'; UnitName = 'Test.SymbolMap'; Filter = 'Test.SymbolMap' },
+    [pscustomobject]@{ Unit = 'test.deps.pas'; UnitName = 'Test.Deps'; Filter = 'Test.Deps' },
+    [pscustomobject]@{ Unit = 'test.globalvars.pas'; UnitName = 'Test.GlobalVars'; Filter = 'Test.GlobalVars' }
+  )
+
+  $lFilters = New-Object System.Collections.Generic.List[string]
+  foreach ($lRequiredUnit in $lRequiredUnits) {
+    $lUnitPath = Join-Path $DakRoot "tests\units\$($lRequiredUnit.Unit)"
+    Assert-ExistingFile $lUnitPath
+    $lSource = Get-Content -LiteralPath $lUnitPath -Raw
+    if ($lSource -notmatch "(?im)^\s*unit\s+$([Regex]::Escape($lRequiredUnit.UnitName))\s*;") {
+      throw "DAK semantic-consumer unit $lUnitPath does not declare unit $($lRequiredUnit.UnitName)."
+    }
+    if ($lSource -notmatch '(?im)^\s*\[TestFixture\]\s*$') {
+      throw "DAK semantic-consumer unit $lUnitPath declares no DUnitX TestFixture."
+    }
+    if ($lSource -notmatch '(?im)^\s*\[Test\](\s*procedure\b)?') {
+      throw "DAK semantic-consumer unit $lUnitPath declares no DUnitX Test methods."
+    }
+    if ($lSource -notmatch '(?im)TDUnitX\.RegisterTestFixture\(') {
+      throw "DAK semantic-consumer unit $lUnitPath registers no DUnitX fixtures."
+    }
+    $lFilters.Add([string]$lRequiredUnit.Filter)
+  }
+
+  if ($lFilters.Count -eq 0) {
+    throw 'No DAK semantic-consumer DUnitX filters selected.'
+  }
+
+  return $lFilters.ToArray()
+}
+
+function Get-DakSemanticConsumerTestArguments {
+  param(
+    [Parameter(Mandatory = $true)][string]$DakRoot,
+    [Parameter(Mandatory = $true)][string]$Profile,
+    [string[]]$Filters = @()
+  )
+
+  $lFilters = @($Filters)
+  if ($lFilters.Count -eq 0) {
+    $lFilters = @(Get-DakSemanticConsumerTestFilters -DakRoot $DakRoot)
+  }
+  if ($Profile -eq 'Gate') {
+    $lFilters = @($lFilters | Sort-Object)
+  }
+  if ($lFilters.Count -eq 0) {
+    throw "DAK semantic-consumer test profile '$Profile' selected no filters"
+  }
+
+  return @('--hidebanner', '--consolemode:quiet', "-r:$($lFilters -join ',')")
+}
+
+function Assert-DUnitXStepDiscoveredTests {
+  param(
+    [Parameter(Mandatory = $true)][object]$Result,
+    [Parameter(Mandatory = $true)][string]$StepName
+  )
+
+  if ([int]$Result.exitCode -ne 0) {
+    return
+  }
+  if ([string]::IsNullOrWhiteSpace([string]$Result.stdout) -or
+      (-not (Test-Path -LiteralPath $Result.stdout -PathType Leaf))) {
+    throw "$StepName did not produce a readable stdout artifact for DUnitX discovery."
+  }
+
+  $lText = Get-Content -LiteralPath $Result.stdout -Raw
+  $lMatch = [Regex]::Match($lText, 'Tests\s+Found\s*:\s*(\d+)', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+  if (-not $lMatch.Success) {
+    throw "$StepName output did not include a DUnitX Tests Found count."
+  }
+  if ([int]$lMatch.Groups[1].Value -le 0) {
+    throw "$StepName selected no DUnitX tests."
+  }
+}
+
+function Set-GateStepFailure {
+  param(
+    [Parameter(Mandatory = $true)][object]$Result,
+    [Parameter(Mandatory = $true)][string]$Message
+  )
+
+  $Result.exitCode = 1
+  $Result | Add-Member -MemberType NoteProperty -Name failureReason -Value $Message -Force
+  return $Result
+}
+
+function Invoke-DakSemanticConsumerTestFilter {
+  param(
+    [Parameter(Mandatory = $true)][string]$DakRoot,
+    [Parameter(Mandatory = $true)][string]$WorkRoot,
+    [Parameter(Mandatory = $true)][string]$Profile,
+    [Parameter(Mandatory = $true)][string]$Filter,
+    [string]$ArtifactDirectory = '',
+    [switch]$NoThrow
+  )
+
+  $lArguments = @(Get-DakSemanticConsumerTestArguments -DakRoot $DakRoot -Profile $Profile `
+    -Filters @($Filter))
+  Write-Host "   DAK semantic-consumer profile: $Profile"
+  Write-Host "   DAK semantic-consumer filters: $($lArguments[-1])"
+  Write-Host '   policy: semantic-consumer gate covers SymbolMap, deps, and GlobalVars separately from remove-with.'
+
+  $lResult = Invoke-GateStep `
+    -Name "Run DAK semantic-consumer tests $Filter" `
+    -WorkingDirectory $DakRoot `
+    -FilePath 'tests\DelphiAIKit.Tests.exe' `
+    -Arguments $lArguments `
+    -ArtifactDirectory $ArtifactDirectory `
+    -NoThrow:$NoThrow
+  try {
+    Assert-DUnitXStepDiscoveredTests -Result $lResult `
+      -StepName "Run DAK semantic-consumer tests $Filter"
+  } catch {
+    if ($NoThrow) {
+      return Set-GateStepFailure -Result $lResult -Message $_.Exception.Message
+    }
+    throw
+  }
+  return $lResult
+}
+
 function Add-GateStepResult {
   param(
     [Parameter(Mandatory = $true)][AllowEmptyCollection()][System.Collections.Generic.List[object]]$Results,
@@ -625,15 +752,17 @@ function Assert-MigrationGateObjectRequiredProperty {
 function Assert-MigrationGateSkippedStatementContract {
   param([Parameter(Mandatory = $true)][object]$SkippedStatement)
 
-  foreach ($lName in @('statementId', 'file', 'range', 'reason', 'signature')) {
+  foreach ($lName in @('statementId', 'file', 'reason')) {
     Assert-MigrationGateObjectRequiredProperty -Object $SkippedStatement -Name $lName `
       -Context 'skipped statement'
   }
 
-  $lRange = Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'range'
-  foreach ($lRangeName in @('startLine', 'startCol', 'endLine', 'endCol')) {
-    Assert-MigrationGateObjectRequiredProperty -Object $lRange -Name $lRangeName `
-      -Context "skipped statement range"
+  if (Test-MigrationGateObjectProperty -Object $SkippedStatement -Name 'range') {
+    $lRange = Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'range'
+    foreach ($lRangeName in @('startLine', 'startCol', 'endLine', 'endCol')) {
+      Assert-MigrationGateObjectRequiredProperty -Object $lRange -Name $lRangeName `
+        -Context "skipped statement range"
+    }
   }
 }
 
@@ -651,6 +780,10 @@ function Get-MigrationGateSkippedStatementShape {
     range = ConvertTo-MigrationGateStableJson (Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'range')
     hasReason = Test-MigrationGateObjectProperty -Object $SkippedStatement -Name 'reason'
     reason = [string](Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'reason')
+    hasDetailedReason = Test-MigrationGateObjectProperty -Object $SkippedStatement -Name 'detailedReason'
+    detailedReason = [string](Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'detailedReason')
+    hasUnsupportedIdentifierRole = Test-MigrationGateObjectProperty -Object $SkippedStatement -Name 'unsupportedIdentifierRole'
+    unsupportedIdentifierRole = [string](Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'unsupportedIdentifierRole')
     hasSignature = Test-MigrationGateObjectProperty -Object $SkippedStatement -Name 'signature'
     signature = [string](Get-MigrationGateObjectProperty -Object $SkippedStatement -Name 'signature')
   }
@@ -949,6 +1082,17 @@ Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRo
   -Profile $DakTestProfile `
   -ArtifactDirectory $lLogDir `
   -NoThrow)
+
+$lDakSemanticConsumerFilters = @(Get-DakSemanticConsumerTestFilters -DakRoot $DakRoot)
+foreach ($lDakSemanticConsumerFilter in $lDakSemanticConsumerFilters) {
+  Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-DakSemanticConsumerTestFilter `
+    -DakRoot $DakRoot `
+    -WorkRoot $WorkRoot `
+    -Profile $DakTestProfile `
+    -Filter $lDakSemanticConsumerFilter `
+    -ArtifactDirectory $lLogDir `
+    -NoThrow)
+}
 
 if (-not $SkipBuild) {
   Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `

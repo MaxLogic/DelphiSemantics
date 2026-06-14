@@ -256,6 +256,231 @@ function Test-GateStepRecordsCommandAndLogArtifacts {
   }
 }
 
+function Write-TestDakSemanticConsumerUnit {
+  param(
+    [Parameter(Mandatory = $true)][string]$DakRoot,
+    [Parameter(Mandatory = $true)][string]$FileName,
+    [Parameter(Mandatory = $true)][string]$UnitName,
+    [Parameter(Mandatory = $true)][string]$FixtureName
+  )
+
+  $lUnitPath = Join-Path $DakRoot "tests\units\$FileName"
+  @"
+unit $UnitName;
+
+interface
+
+uses
+  DUnitX.TestFramework;
+
+type
+  [TestFixture]
+  $FixtureName = class
+  public
+    [Test]
+    procedure Smoke;
+  end;
+
+implementation
+
+procedure $FixtureName.Smoke;
+begin
+end;
+
+initialization
+  TDUnitX.RegisterTestFixture($FixtureName);
+
+end.
+"@ | Set-Content -LiteralPath $lUnitPath -Encoding UTF8
+}
+
+function Write-TestDakSemanticConsumerUnits {
+  param([Parameter(Mandatory = $true)][string]$DakRoot)
+
+  [IO.Directory]::CreateDirectory((Join-Path $DakRoot 'tests\units')) | Out-Null
+  Write-TestDakSemanticConsumerUnit -DakRoot $DakRoot -FileName 'test.symbolmap.pas' `
+    -UnitName 'Test.SymbolMap' -FixtureName 'TSymbolMapSmokeTests'
+  Write-TestDakSemanticConsumerUnit -DakRoot $DakRoot -FileName 'test.deps.pas' `
+    -UnitName 'Test.Deps' -FixtureName 'TDepsSmokeTests'
+  Write-TestDakSemanticConsumerUnit -DakRoot $DakRoot -FileName 'test.globalvars.pas' `
+    -UnitName 'Test.GlobalVars' -FixtureName 'TGlobalVarsSmokeTests'
+}
+
+function Test-DakSemanticConsumerFiltersAreSelected {
+  Reset-TestWorkspace
+  $lDakRoot = Join-Path $TempRoot 'dak-semantic-consumers'
+  Write-TestDakSemanticConsumerUnits -DakRoot $lDakRoot
+
+  $lFilters = @(Get-DakSemanticConsumerTestFilters -DakRoot $lDakRoot)
+
+  Assert-True ($lFilters.Count -ge 3) 'Semantic-consumer filters must be non-empty.'
+  Assert-True ($lFilters -contains 'Test.SymbolMap') 'Gate filters must include SymbolMap coverage.'
+  Assert-True ($lFilters -contains 'Test.Deps') 'Gate filters must include deps coverage.'
+  Assert-True ($lFilters -contains 'Test.GlobalVars') 'Gate filters must include GlobalVars coverage.'
+}
+
+function Test-DakSemanticConsumerFiltersFailWhenMissing {
+  Reset-TestWorkspace
+  $lDakRoot = Join-Path $TempRoot 'dak-semantic-consumers-missing'
+  [IO.Directory]::CreateDirectory((Join-Path $lDakRoot 'tests\units')) | Out-Null
+
+  $lFailed = $false
+  try {
+    Get-DakSemanticConsumerTestFilters -DakRoot $lDakRoot | Out-Null
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*Required file not found*') `
+      'Missing semantic-consumer test units should fail closed.'
+  }
+
+  Assert-True $lFailed 'Semantic-consumer discovery must fail when required test units are missing.'
+}
+
+function Test-DakSemanticConsumerFiltersFailWhenUnitHasNoTests {
+  Reset-TestWorkspace
+  $lDakRoot = Join-Path $TempRoot 'dak-semantic-consumers-empty'
+  [IO.Directory]::CreateDirectory((Join-Path $lDakRoot 'tests\units')) | Out-Null
+  foreach ($lUnit in @('test.symbolmap.pas', 'test.deps.pas', 'test.globalvars.pas')) {
+    Set-Content -LiteralPath (Join-Path $lDakRoot "tests\units\$lUnit") -Value 'unit fake; end.' -Encoding UTF8
+  }
+
+  $lFailed = $false
+  try {
+    Get-DakSemanticConsumerTestFilters -DakRoot $lDakRoot | Out-Null
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*does not declare unit*') `
+      'Empty semantic-consumer units should fail real DUnitX discovery.'
+  }
+
+  Assert-True $lFailed 'Semantic-consumer discovery must fail when units contain no DUnitX tests.'
+}
+
+function Test-DakSemanticConsumerStepArgumentsRecordManifestFilters {
+  Reset-TestWorkspace
+  $lDakRoot = Join-Path $TempRoot 'dak-semantic-step'
+  Write-TestDakSemanticConsumerUnits -DakRoot $lDakRoot
+
+  $lArguments = @(Get-DakSemanticConsumerTestArguments `
+    -DakRoot $lDakRoot `
+    -Profile 'Gate')
+
+  Assert-True (($lArguments -join ' ') -like '*Test.SymbolMap*') `
+    'Semantic-consumer manifest arguments must include SymbolMap filter.'
+  Assert-True (($lArguments -join ' ') -like '*Test.Deps*') `
+    'Semantic-consumer manifest arguments must include deps filter.'
+  Assert-True (($lArguments -join ' ') -like '*Test.GlobalVars*') `
+    'Semantic-consumer manifest arguments must include GlobalVars filter.'
+}
+
+function Test-DakSemanticConsumerStepPersistsManifestFilters {
+  Reset-TestWorkspace
+  $lDakRoot = Join-Path $TempRoot 'dak-semantic-manifest'
+  $lWorkRoot = Join-Path $TempRoot 'dak-semantic-manifest-work'
+  $lManifest = Join-Path $lWorkRoot 'manifest.json'
+  [IO.Directory]::CreateDirectory($lWorkRoot) | Out-Null
+  Write-TestDakSemanticConsumerUnits -DakRoot $lDakRoot
+  $lProvenance = New-TestGateProvenance -DelphiSemanticsRoot $RepoRoot -DakRoot $lDakRoot
+  $lResults = New-Object System.Collections.Generic.List[object]
+  foreach ($lFilter in @(Get-DakSemanticConsumerTestFilters -DakRoot $lDakRoot)) {
+    $lArguments = @(Get-DakSemanticConsumerTestArguments -DakRoot $lDakRoot -Profile 'Gate' `
+      -Filters @($lFilter))
+    $lResult = [pscustomobject]@{
+      name = "Run DAK semantic-consumer tests $lFilter"
+      workingDirectory = $lDakRoot
+      filePath = 'tests\DelphiAIKit.Tests.exe'
+      arguments = $lArguments
+      command = "tests\DelphiAIKit.Tests.exe $($lArguments -join ' ')"
+      exitCode = 0
+      elapsedSeconds = 0
+      stdout = ''
+      stderr = ''
+    }
+
+    Add-GateStepResult `
+      -Results $lResults `
+      -Result $lResult `
+      -ManifestPath $lManifest `
+      -WorkRoot $lWorkRoot `
+      -DelphiSemanticsRoot $RepoRoot `
+      -DakRoot $lDakRoot `
+      -Provenance $lProvenance `
+      -AllowDirty:$false
+  }
+
+  $lJson = Get-Content -LiteralPath $lManifest -Raw | ConvertFrom-Json
+  $lStepArguments = @($lJson.steps | Where-Object { $_.name -like 'Run DAK semantic-consumer tests*' } |
+    ForEach-Object { $_.arguments -join ' ' })
+  Assert-True (($lStepArguments -join ' ') -like '*Test.SymbolMap*') `
+    'Manifest semantic-consumer step must persist SymbolMap filter.'
+  Assert-True (($lStepArguments -join ' ') -like '*Test.Deps*') `
+    'Manifest semantic-consumer step must persist deps filter.'
+  Assert-True (($lStepArguments -join ' ') -like '*Test.GlobalVars*') `
+    'Manifest semantic-consumer step must persist GlobalVars filter.'
+}
+
+function Test-DakSemanticConsumerStepFailsWhenDUnitXSelectsNoTests {
+  Reset-TestWorkspace
+  $lStdout = Join-Path $TempRoot 'dak-semantic-zero-tests.stdout.txt'
+  Set-Content -LiteralPath $lStdout -Value @(
+    'DUnitX - [DelphiAIKit.Tests.exe] - Starting Tests.'
+    ''
+    'Tests Found   : 0'
+    'Tests Ignored : 0'
+    'Tests Passed  : 0'
+  ) -Encoding UTF8
+  $lResult = [pscustomobject]@{
+    name = 'Run DAK semantic-consumer tests'
+    exitCode = 0
+    stdout = $lStdout
+  }
+
+  $lFailed = $false
+  try {
+    Assert-DUnitXStepDiscoveredTests -Result $lResult -StepName 'Run DAK semantic-consumer tests'
+  } catch {
+    $lFailed = $true
+    Assert-True ($_.Exception.Message -like '*selected no DUnitX tests*') `
+      'Zero-match DUnitX output should fail the semantic-consumer gate.'
+  }
+
+  Assert-True $lFailed 'Semantic-consumer gate must fail when DUnitX finds zero tests.'
+}
+
+function Test-DakSemanticConsumerDiscoveryFailureCanBeManifested {
+  $lResult = [pscustomobject]@{
+    name = 'Run DAK semantic-consumer tests Test.Deps'
+    exitCode = 0
+  }
+
+  $lFailedResult = Set-GateStepFailure -Result $lResult `
+    -Message 'Run DAK semantic-consumer tests Test.Deps selected no DUnitX tests.'
+
+  Assert-Equal '1' $lFailedResult.exitCode `
+    'Discovery failure should mark the step result failed before manifest persistence.'
+  Assert-True ($lFailedResult.failureReason -like '*selected no DUnitX tests*') `
+    'Discovery failure reason should be serializable into the manifest step.'
+}
+
+function Test-DakSemanticConsumerStepAcceptsDiscoveredTests {
+  Reset-TestWorkspace
+  $lStdout = Join-Path $TempRoot 'dak-semantic-found-tests.stdout.txt'
+  Set-Content -LiteralPath $lStdout -Value @(
+    'DUnitX - [DelphiAIKit.Tests.exe] - Starting Tests.'
+    ''
+    'Tests Found   : 97'
+    'Tests Ignored : 0'
+    'Tests Passed  : 97'
+  ) -Encoding UTF8
+  $lResult = [pscustomobject]@{
+    name = 'Run DAK semantic-consumer tests'
+    exitCode = 0
+    stdout = $lStdout
+  }
+
+  Assert-DUnitXStepDiscoveredTests -Result $lResult -StepName 'Run DAK semantic-consumer tests'
+}
+
 function Test-FailedGateStepPersistsManifestLogs {
   Reset-TestWorkspace
   $lWorkDir = Join-Path $TempRoot 'failed-step'
@@ -706,14 +931,14 @@ function Test-SkippedParityRejectsScalarSkippedShape {
   Assert-True $lFailed 'Skipped parity must reject scalar skipped report shape.'
 }
 
-function Test-SkippedParityRejectsMissingRequiredSkippedField {
+function Test-SkippedParityRejectsMissingRequiredReasonField {
   $lPlan = [pscustomobject]@{
     summary = [pscustomobject]@{ skipped = 1 }
     skipped = [object[]]@(
       [pscustomobject]@{
         statementId = 'skip-1'
         file = 'Unit1.pas'
-        reason = 'selector-type-not-resolved'
+        signature = 'Unit1.pas:10:3-10:15'
         range = [pscustomobject]@{
           startLine = 10
           startCol = 3
@@ -729,7 +954,7 @@ function Test-SkippedParityRejectsMissingRequiredSkippedField {
       [pscustomobject]@{
         statementId = 'skip-1'
         file = 'Unit1.pas'
-        reason = 'selector-type-not-resolved'
+        signature = 'Unit1.pas:10:3-10:15'
         range = [pscustomobject]@{
           startLine = 10
           startCol = 3
@@ -745,8 +970,8 @@ function Test-SkippedParityRejectsMissingRequiredSkippedField {
     Assert-MigrationGateSkippedParity -PlanJson $lPlan -ApplyJson $lApply
   } catch {
     $lFailed = $true
-    Assert-True ($_.Exception.Message -like '*signature*') `
-      'Missing skipped signature should name the required field.'
+    Assert-True ($_.Exception.Message -like '*reason*') `
+      'Missing skipped reason should name the required field.'
   }
 
   Assert-True $lFailed 'Skipped parity must reject missing required skipped fields.'
