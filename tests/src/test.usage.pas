@@ -214,23 +214,45 @@ var
   lAliasSymbolId: TSemanticSymbolId;
   lBuilder: TDelphiProjectSnapshotBuilder;
   lContext: TDelphiSemanticSymbolQueryContext;
+  lEquivalentCount: Integer;
+  lEquivalentRef: TSemanticSymbolRef;
+  lEquivalentSymbol: TSemanticSymbolFact;
+  lEquivalentUnit: TUnitSnapshot;
   lFileNameId: TSemanticStringId;
+  lHighIndex: Integer;
+  i: Integer;
   lKindId: TSemanticStringId;
+  lLowIndex: Integer;
+  lMethodReference: TSemanticReferenceFact;
+  lMethodSymbol: TSemanticSymbolFact;
+  lMethodSymbolId: TSemanticSymbolId;
   lNameId: TSemanticStringId;
+  lNoiseSymbol: TSemanticSymbolFact;
+  lNoiseUnit: TUnitSnapshot;
+  lOwnerId: TSemanticStringId;
+  lPositionResult: TDelphiSemanticUsageResult;
   lProject: TDelphiProjectSnapshot;
   lReference: TSemanticReferenceFact;
   lResult: TDelphiSemanticUsageResult;
+  lRoutineReference: TSemanticReferenceFact;
+  lRoutineSymbol: TSemanticSymbolFact;
+  lRoutineSymbolId: TSemanticSymbolId;
   lSecondResult: TDelphiSemanticUsageResult;
   lSectionKindId: TSemanticStringId;
   lSourceKindId: TSemanticStringId;
   lSymbol: TSemanticSymbolFact;
   lSymbolId: TSemanticSymbolId;
+  lTouchNameId: TSemanticStringId;
   lUnit: TUnitSnapshot;
   lUnitNameId: TSemanticStringId;
   lUsage: TDelphiSemanticUsage;
   lFoundDeclaration: Boolean;
   lFoundReference: Boolean;
   lFoundAliasReference: Boolean;
+  lFoundMethodDeclaration: Boolean;
+  lFoundMethodReference: Boolean;
+  lFoundRoutineDeclaration: Boolean;
+  lFoundRoutineReference: Boolean;
 begin
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
   lProject := nil;
@@ -239,6 +261,8 @@ begin
     lUnitNameId := lBuilder.Strings.Intern('SnapshotUsageUnit');
     lNameId := lBuilder.Strings.Intern('SnapshotUsageValue');
     lKindId := lBuilder.Strings.Intern('var');
+    lOwnerId := lBuilder.Strings.Intern('TSnapshotUsage');
+    lTouchNameId := lBuilder.Strings.Intern('Touch');
     lSectionKindId := lBuilder.Strings.Intern('interface');
     lSourceKindId := lBuilder.Strings.Intern('snapshot-source');
 
@@ -266,6 +290,30 @@ begin
       lAliasSymbol.EndColumn := 20;
       lAliasSymbolId := lUnit.AddSymbol(lAliasSymbol);
 
+      lMethodSymbol := Default(TSemanticSymbolFact);
+      lMethodSymbol.NameId := lTouchNameId;
+      lMethodSymbol.OwnerTypeId := lOwnerId;
+      lMethodSymbol.KindId := lBuilder.Strings.Intern('method');
+      lMethodSymbol.SectionKindId := lSectionKindId;
+      lMethodSymbol.SourceKindId := lSourceKindId;
+      lMethodSymbol.Line := 6;
+      lMethodSymbol.Column := 5;
+      lMethodSymbol.EndLine := 6;
+      lMethodSymbol.EndColumn := 9;
+      lMethodSymbolId := lUnit.AddSymbol(lMethodSymbol);
+
+      lRoutineSymbol := Default(TSemanticSymbolFact);
+      lRoutineSymbol.NameId := lTouchNameId;
+      lRoutineSymbol.OwnerTypeId := lOwnerId;
+      lRoutineSymbol.KindId := lBuilder.Strings.Intern('routine');
+      lRoutineSymbol.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lRoutineSymbol.SourceKindId := lSourceKindId;
+      lRoutineSymbol.Line := 16;
+      lRoutineSymbol.Column := 26;
+      lRoutineSymbol.EndLine := 16;
+      lRoutineSymbol.EndColumn := 30;
+      lRoutineSymbolId := lUnit.AddSymbol(lRoutineSymbol);
+
       lReference := Default(TSemanticReferenceFact);
       lReference.NameId := lNameId;
       lReference.TargetUnitId := lUnit.UnitId;
@@ -292,10 +340,57 @@ begin
       lAliasReference.EndColumn := 22;
       lUnit.AddReference(lAliasReference);
 
+      lMethodReference := Default(TSemanticReferenceFact);
+      lMethodReference.NameId := lTouchNameId;
+      lMethodReference.TargetUnitId := lUnit.UnitId;
+      lMethodReference.TargetSymbolId := lMethodSymbolId;
+      lMethodReference.ClassificationId := lBuilder.Strings.Intern('method-reference');
+      lMethodReference.SectionKindId := lSectionKindId;
+      lMethodReference.SourceKindId := lSourceKindId;
+      lMethodReference.Line := 14;
+      lMethodReference.Column := 7;
+      lMethodReference.EndLine := 14;
+      lMethodReference.EndColumn := 11;
+      lUnit.AddReference(lMethodReference);
+
+      lRoutineReference := Default(TSemanticReferenceFact);
+      lRoutineReference.NameId := lTouchNameId;
+      lRoutineReference.TargetUnitId := lUnit.UnitId;
+      lRoutineReference.TargetSymbolId := lRoutineSymbolId;
+      lRoutineReference.ClassificationId := lBuilder.Strings.Intern('routine-reference');
+      lRoutineReference.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lRoutineReference.SourceKindId := lSourceKindId;
+      lRoutineReference.Line := 18;
+      lRoutineReference.Column := 3;
+      lRoutineReference.EndLine := 18;
+      lRoutineReference.EndColumn := 7;
+      lUnit.AddReference(lRoutineReference);
+
       lBuilder.AddUnit(lUnit);
       lUnit := nil;
     finally
       lUnit.Free;
+    end;
+    for i := 1 to 20 do
+    begin
+      lNoiseUnit := TUnitSnapshot.Create(TSemanticUnitId(100 + i),
+        lBuilder.Strings.Intern(FixturePath('SnapshotUsageNoise' + IntToStr(i) + '.pas')),
+        lBuilder.Strings.Intern('SnapshotUsageNoise' + IntToStr(i)));
+      try
+        lNoiseSymbol := Default(TSemanticSymbolFact);
+      lNoiseSymbol.NameId := lTouchNameId;
+        lNoiseSymbol.OwnerTypeId := lBuilder.Strings.Intern('TOther' + IntToStr(i));
+        lNoiseSymbol.KindId := lBuilder.Strings.Intern('method');
+        lNoiseSymbol.SectionKindId := lSectionKindId;
+        lNoiseSymbol.SourceKindId := lSourceKindId;
+        lNoiseSymbol.Line := 3;
+        lNoiseSymbol.Column := 5;
+        lNoiseUnit.AddSymbol(lNoiseSymbol);
+        lBuilder.AddUnit(lNoiseUnit);
+        lNoiseUnit := nil;
+      finally
+        lNoiseUnit.Free;
+      end;
     end;
     lProject := lBuilder.Build;
   finally
@@ -311,6 +406,8 @@ begin
       'SnapshotUsageValue');
     lAliasResult := TDelphiSemanticUsageFinder.FindUsagesByName(lContext,
       'SnapshotUsageAlias');
+    lPositionResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lContext,
+      FixturePath('SnapshotUsageUnit.pas'), 16, 28);
 
     Assert.AreEqual('resolved', lResult.Status);
     Assert.AreEqual('SnapshotUsageValue', lResult.Symbol.Name);
@@ -318,6 +415,24 @@ begin
     Assert.AreEqual(0, lSecondResult.IndexMetrics.BuildInvocationCount);
     Assert.AreEqual('resolved', lAliasResult.Status);
     Assert.AreEqual('type-alias', lAliasResult.Symbol.Kind);
+    Assert.AreEqual('resolved', lPositionResult.Status);
+
+    Assert.IsTrue(lProject.TryFindUnitById(1, lEquivalentUnit));
+    lEquivalentSymbol := lEquivalentUnit.SymbolById(lRoutineSymbolId);
+    Assert.IsTrue(lProject.TryRoutineMethodEquivalents(lEquivalentSymbol, lLowIndex,
+      lHighIndex));
+    lEquivalentCount := 0;
+    for i := lLowIndex to lHighIndex do
+    begin
+      lEquivalentRef := lProject.RoutineMethodEquivalentRefByIndex(i);
+      Assert.AreEqual(1, Integer(lEquivalentRef.UnitId));
+      Assert.IsTrue(lProject.TryFindUnitById(lEquivalentRef.UnitId, lEquivalentUnit));
+      lEquivalentSymbol := lEquivalentUnit.SymbolById(lEquivalentRef.SymbolId);
+      Assert.AreEqual(lOwnerId, lEquivalentSymbol.OwnerTypeId);
+      Assert.AreEqual(lTouchNameId, lEquivalentSymbol.NameId);
+      Inc(lEquivalentCount);
+    end;
+    Assert.AreEqual(2, lEquivalentCount);
 
     lFoundDeclaration := False;
     lFoundReference := False;
@@ -339,6 +454,26 @@ begin
         'snapshot-source') then
         lFoundAliasReference := True;
     Assert.IsTrue(lFoundAliasReference);
+
+    lFoundMethodDeclaration := False;
+    lFoundRoutineDeclaration := False;
+    lFoundMethodReference := False;
+    lFoundRoutineReference := False;
+    for lUsage in lPositionResult.Usages do
+    begin
+      if SameText(lUsage.Role, 'declaration') and (lUsage.Line = 6) then
+        lFoundMethodDeclaration := True;
+      if SameText(lUsage.Role, 'declaration') and (lUsage.Line = 16) then
+        lFoundRoutineDeclaration := True;
+      if SameText(lUsage.Role, 'method-reference') then
+        lFoundMethodReference := True;
+      if SameText(lUsage.Role, 'routine-reference') then
+        lFoundRoutineReference := True;
+    end;
+    Assert.IsTrue(lFoundMethodDeclaration);
+    Assert.IsTrue(lFoundRoutineDeclaration);
+    Assert.IsTrue(lFoundMethodReference);
+    Assert.IsTrue(lFoundRoutineReference);
   finally
     lProject.Free;
   end;

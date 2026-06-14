@@ -308,33 +308,33 @@ var
   lEquivalentRefs: TList<TSemanticSymbolRef>;
   lEquivalentSnapshotSymbol: TSemanticSymbolFact;
   lEquivalentSymbol: TDelphiSemanticIndexedSymbol;
+  lOriginalSymbol: TSemanticSymbolFact;
   lReference: TSemanticReferenceFact;
   lReferenceRef: TSemanticReferenceRef;
-  lSymbolIndex: Integer;
   lUnit: TUnitSnapshot;
-  lUnitIndex: Integer;
   lUsages: TList<TDelphiSemanticUsage>;
 begin
   lEquivalentRefs := TList<TSemanticSymbolRef>.Create;
   lUsages := TList<TDelphiSemanticUsage>.Create;
   try
     AddSnapshotSymbolRef(lEquivalentRefs, aSymbolRef);
-    for lUnitIndex := 0 to aSnapshot.UnitCount - 1 do
+    if aSnapshot.TryFindUnitById(aSymbolRef.UnitId, lUnit) then
     begin
-      lUnit := aSnapshot.UnitByIndex(lUnitIndex);
-      for lSymbolIndex := 1 to lUnit.SymbolCount do
-      begin
-        lEquivalentSnapshotSymbol := lUnit.SymbolById(TSemanticSymbolId(lSymbolIndex));
-        lEquivalentRef.UnitId := lUnit.UnitId;
-        lEquivalentRef.SymbolId := lEquivalentSnapshotSymbol.Id;
-        if SnapshotSymbolRefInList(lEquivalentRefs, lEquivalentRef) then
-          Continue;
-
-        lEquivalentSymbol := SnapshotIndexedSymbol(aSnapshot, lUnit, lEquivalentRef,
-          lEquivalentSnapshotSymbol);
-        if SymbolIsMethodPair(lEquivalentSymbol, aSymbol) then
-          AddSnapshotSymbolRef(lEquivalentRefs, lEquivalentRef);
-      end;
+      lOriginalSymbol := lUnit.SymbolById(aSymbolRef.SymbolId);
+      if aSnapshot.TryRoutineMethodEquivalents(lOriginalSymbol, lLowIndex, lHighIndex) then
+        for i := lLowIndex to lHighIndex do
+        begin
+          lEquivalentRef := aSnapshot.RoutineMethodEquivalentRefByIndex(i);
+          if SnapshotSymbolRefInList(lEquivalentRefs, lEquivalentRef) then
+            Continue;
+          if not aSnapshot.TryFindUnitById(lEquivalentRef.UnitId, lUnit) then
+            Continue;
+          lEquivalentSnapshotSymbol := lUnit.SymbolById(lEquivalentRef.SymbolId);
+          lEquivalentSymbol := SnapshotIndexedSymbol(aSnapshot, lUnit, lEquivalentRef,
+            lEquivalentSnapshotSymbol);
+          if SymbolIsMethodPair(lEquivalentSymbol, aSymbol) then
+            AddSnapshotSymbolRef(lEquivalentRefs, lEquivalentRef);
+        end;
     end;
 
     for lEquivalentRef in lEquivalentRefs do

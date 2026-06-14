@@ -171,6 +171,7 @@ type
     fReferencesByFileAndLine: TSortedList<UInt64, TSemanticReferenceRef>;
     fReferencesByName: TSortedList<TSemanticStringId, TSemanticReferenceRef>;
     fReferencesBySymbol: TSortedList<UInt64, TSemanticReferenceRef>;
+    fRoutineMethodEquivalentsByOwnerAndName: TSortedList<UInt64, TSemanticSymbolRef>;
     fStrings: TSemanticStringPool;
     fSymbolsByFileAndLine: TSortedList<UInt64, TSemanticSymbolRef>;
     fSymbolsByName: TSortedList<TSemanticStringId, TSemanticSymbolRef>;
@@ -193,6 +194,7 @@ type
     function MemberRefByOwnerAndNameIndex(const aIndex: Integer): TSemanticSymbolRef;
     function ReferenceRefByNameIndex(const aIndex: Integer): TSemanticReferenceRef;
     function ReferenceRefBySymbolIndex(const aIndex: Integer): TSemanticReferenceRef;
+    function RoutineMethodEquivalentRefByIndex(const aIndex: Integer): TSemanticSymbolRef;
     function SymbolRefByNameIndex(const aIndex: Integer): TSemanticSymbolRef;
     function TextOf(const aId: TSemanticStringId): string;
     function TryGetExtension(const aName: string; out aExtension: TObject): Boolean;
@@ -209,6 +211,8 @@ type
     function TryReferencesByName(const aNameId: TSemanticStringId; out aLowIndex,
       aHighIndex: Integer): Boolean;
     function TryReferencesForSymbol(const aSymbolRef: TSemanticSymbolRef; out aLowIndex,
+      aHighIndex: Integer): Boolean;
+    function TryRoutineMethodEquivalents(const aSymbol: TSemanticSymbolFact; out aLowIndex,
       aHighIndex: Integer): Boolean;
     function TryReferenceAt(const aFileName: string; const aLine, aColumn: Integer;
       out aReferenceRef: TSemanticReferenceRef): Boolean;
@@ -283,6 +287,18 @@ end;
 function SymbolRefKey(const aUnitId: TSemanticUnitId; const aSymbolId: TSemanticSymbolId): UInt64; inline;
 begin
   Result := (UInt64(aUnitId) shl 32) or UInt64(aSymbolId);
+end;
+
+function SymbolIsRoutineMethodEquivalentCandidate(const aStrings: TSemanticStringPool;
+  const aSymbol: TSemanticSymbolFact): Boolean;
+var
+  lKind: string;
+begin
+  if (aSymbol.OwnerTypeId = 0) or (aSymbol.NameId = 0) then
+    Exit(False);
+
+  lKind := aStrings.TextOf(aSymbol.KindId);
+  Result := SameText(lKind, 'routine') or SameText(lKind, 'method');
 end;
 
 constructor TBorrowedProjectSnapshotRef.Create(const aSnapshot: TDelphiProjectSnapshot);
@@ -765,6 +781,7 @@ begin
     fReferencesByFileAndLine := TSortedList<UInt64, TSemanticReferenceRef>.Create;
     fReferencesByName := TSortedList<TSemanticStringId, TSemanticReferenceRef>.Create;
     fReferencesBySymbol := TSortedList<UInt64, TSemanticReferenceRef>.Create;
+    fRoutineMethodEquivalentsByOwnerAndName := TSortedList<UInt64, TSemanticSymbolRef>.Create;
     fSymbolsByFileAndLine := TSortedList<UInt64, TSemanticSymbolRef>.Create;
     fSymbolsByName := TSortedList<TSemanticStringId, TSemanticSymbolRef>.Create;
     fTypesByName := TSortedList<TSemanticStringId, TSemanticSymbolRef>.Create;
@@ -782,6 +799,7 @@ begin
     fReferencesBySymbol.Free;
     fReferencesByName.Free;
     fReferencesByFileAndLine.Free;
+    fRoutineMethodEquivalentsByOwnerAndName.Free;
     fMemberCandidatesByOwnerAndName.Free;
     fMembersByOwnerAndName.Free;
     fUnitByFileName.Free;
@@ -799,6 +817,7 @@ begin
   fReferencesBySymbol.Free;
   fReferencesByName.Free;
   fReferencesByFileAndLine.Free;
+  fRoutineMethodEquivalentsByOwnerAndName.Free;
   fMemberCandidatesByOwnerAndName.Free;
   fMembersByOwnerAndName.Free;
   fUnitByFileName.Free;
@@ -880,6 +899,10 @@ begin
         fMemberCandidatesByOwnerAndName.Insert(fMemberCandidatesByOwnerAndName.Count,
           lSymbolRef, lMemberKey);
       end;
+      if SymbolIsRoutineMethodEquivalentCandidate(aStrings, lSymbol) then
+        fRoutineMethodEquivalentsByOwnerAndName.Insert(
+          fRoutineMethodEquivalentsByOwnerAndName.Count, lSymbolRef,
+          MemberKey(lSymbol.OwnerTypeId, lSymbol.NameId));
     end;
 
     for lReferenceIndex := 1 to lUnit.ReferenceCount do
@@ -911,6 +934,7 @@ begin
   fReferencesByFileAndLine.sort;
   fReferencesByName.sort;
   fReferencesBySymbol.sort;
+  fRoutineMethodEquivalentsByOwnerAndName.sort;
   fSymbolsByFileAndLine.sort;
   fSymbolsByName.sort;
   fTypesByName.sort;
@@ -958,6 +982,12 @@ function TDelphiProjectSnapshot.ReferenceRefBySymbolIndex(
   const aIndex: Integer): TSemanticReferenceRef;
 begin
   Result := fReferencesBySymbol[aIndex];
+end;
+
+function TDelphiProjectSnapshot.RoutineMethodEquivalentRefByIndex(
+  const aIndex: Integer): TSemanticSymbolRef;
+begin
+  Result := fRoutineMethodEquivalentsByOwnerAndName[aIndex];
 end;
 
 function TDelphiProjectSnapshot.SymbolRefByNameIndex(const aIndex: Integer): TSemanticSymbolRef;
@@ -1022,6 +1052,16 @@ function TDelphiProjectSnapshot.TryReferencesForSymbol(const aSymbolRef: TSemant
   out aLowIndex, aHighIndex: Integer): Boolean;
 begin
   Result := fReferencesBySymbol.FindMinMaxIndex(SymbolRefKeyOf(aSymbolRef), aLowIndex, aHighIndex);
+end;
+
+function TDelphiProjectSnapshot.TryRoutineMethodEquivalents(
+  const aSymbol: TSemanticSymbolFact; out aLowIndex, aHighIndex: Integer): Boolean;
+begin
+  if (aSymbol.OwnerTypeId = 0) or (aSymbol.NameId = 0) then
+    Exit(False);
+
+  Result := fRoutineMethodEquivalentsByOwnerAndName.FindMinMaxIndex(
+    MemberKey(aSymbol.OwnerTypeId, aSymbol.NameId), aLowIndex, aHighIndex);
 end;
 
 function TDelphiProjectSnapshot.TryReferenceAt(const aFileName: string; const aLine,
