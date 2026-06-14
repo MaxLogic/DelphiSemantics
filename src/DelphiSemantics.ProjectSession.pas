@@ -120,6 +120,7 @@ uses
   DelphiAST.Classes, DelphiAST.Consts, DelphiAST.ProjectIndexer,
   DelphiSemantics.Cache.Sqlite, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
+  DelphiSemantics.Source,
   MaxLogic.StrUtils;
 
 const
@@ -212,6 +213,7 @@ var
   lMatch: TMatch;
   lReferenceFileName: string;
   lSeen: TDictionary<string, Byte>;
+  lSourceLoad: TDelphiSemanticSourceLoadResult;
   lSourceText: string;
   lSourceFileName: string;
 begin
@@ -227,7 +229,11 @@ begin
 
     if (aProject.MainSourceFileName <> '') and TFile.Exists(aProject.MainSourceFileName) then
     begin
-      lSourceText := TFile.ReadAllText(aProject.MainSourceFileName, TEncoding.UTF8);
+      lSourceLoad := TDelphiSemanticSourceLoader.LoadFile(aProject.MainSourceFileName);
+      if not lSourceLoad.Success then
+        lSourceText := ''
+      else
+        lSourceText := lSourceLoad.Source.Text;
       for lMatch in TRegEx.Matches(lSourceText, '\bin\s+''([^'']+)''',
         [roIgnoreCase]) do
       begin
@@ -409,6 +415,12 @@ function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
   const aScopedSourceFileNames: TArray<string>;
   out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>):
   TArray<TDelphiSemanticUnitModel>; overload; forward;
+function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
+  out aCacheMetrics: TDelphiSemanticCacheMetrics; const aSourceFileNames,
+  aScopedSourceFileNames: TArray<string>;
+  out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>):
+  TArray<TDelphiSemanticUnitModel>; overload; forward;
 
 function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions):
@@ -462,6 +474,21 @@ function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
   TArray<TDelphiSemanticUnitModel>;
   overload;
 var
+  lSourceFileNames: TArray<string>;
+begin
+  lSourceFileNames := ProjectModelFileNames(aProject);
+  Result := ExtractProjectModels(aProject, aOptions, aExtractionMilliseconds,
+    aCacheMetrics, lSourceFileNames, aScopedSourceFileNames, aCacheIdentities);
+end;
+
+function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
+  out aCacheMetrics: TDelphiSemanticCacheMetrics; const aSourceFileNames,
+  aScopedSourceFileNames: TArray<string>;
+  out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>):
+  TArray<TDelphiSemanticUnitModel>;
+  overload;
+var
   lBodyAnalysisSourceFiles: TDictionary<string, Byte>;
   lCache: TDelphiSemanticUnitCache;
   lCacheOptions: TDelphiSemanticCacheOptions;
@@ -470,7 +497,6 @@ var
   lModel: TDelphiSemanticUnitModel;
   lModels: TList<TDelphiSemanticUnitModel>;
   lSkipBodyAnalysis: Boolean;
-  lSourceFileNames: TArray<string>;
   lStopwatch: TStopwatch;
 begin
   lBodyAnalysisSourceFiles := nil;
@@ -487,15 +513,14 @@ begin
       lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
     end;
 
-    lSourceFileNames := ProjectModelFileNames(aProject);
-    SetLength(aCacheIdentities, Length(lSourceFileNames));
+    SetLength(aCacheIdentities, Length(aSourceFileNames));
     lBodyAnalysisSourceFiles := ScopedSourceFileSet(aScopedSourceFileNames);
     lModels := TList<TDelphiSemanticUnitModel>.Create;
-    for i := 0 to High(lSourceFileNames) do
+    for i := 0 to High(aSourceFileNames) do
     begin
       lSkipBodyAnalysis := Assigned(lBodyAnalysisSourceFiles) and
-        (not lBodyAnalysisSourceFiles.ContainsKey(lSourceFileNames[i]));
-      lModel := ExtractProjectUnitModel(aProject, lSourceFileNames[i], lCache,
+        (not lBodyAnalysisSourceFiles.ContainsKey(aSourceFileNames[i]));
+      lModel := ExtractProjectUnitModel(aProject, aSourceFileNames[i], lCache,
         lSkipBodyAnalysis, lIdentity);
       aCacheIdentities[i] := lIdentity;
       if (i = 0) and (lModel.Success) and (lModel.UnitName = '') and
@@ -1106,7 +1131,8 @@ begin
   end;
 
   lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds,
-    lCacheMetricsUnused, aScopedSourceFileNames, lExtractionCacheIdentities);
+    lCacheMetricsUnused, lSourceFileNames, aScopedSourceFileNames,
+    lExtractionCacheIdentities);
   lParseAvoidedEstimateMilliseconds := VisibleMetricMilliseconds(lExtractionMilliseconds);
   if Length(lUnitSnapshots) > 0 then
   begin

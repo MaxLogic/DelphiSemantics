@@ -43,6 +43,8 @@ type
     [Test]
     procedure ProjectSessionReusesUnchangedMultiUnitSnapshotCacheEntries;
     [Test]
+    procedure ProjectSessionDiscoversAnsiDprInReferencesThroughSourceLoader;
+    [Test]
     procedure ProjectSessionSnapshotCacheRebuildsIncludedFileChanges;
     [Test]
     procedure ProjectSessionAssociatesNestedWithReferencesWithInnermostSnapshotFact;
@@ -65,6 +67,7 @@ uses
   maxLogic.IOUtils,
   DelphiSemantics.Api,
   DelphiSemantics.Api.RemoveWith,
+  DelphiSemantics.Cache,
   DelphiSemantics.Model,
   DelphiSemantics.ProjectContext,
   DelphiSemantics.ProjectSession;
@@ -801,6 +804,83 @@ begin
       Assert.AreEqual(Int64(0), lSecondMetrics.SnapshotCacheUnitBuildMilliseconds);
     finally
       lSecondSnapshot.Free;
+    end;
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionDiscoversAnsiDprInReferencesThroughSourceLoader;
+var
+  lCachePath: string;
+  lDprBytes: TBytes;
+  lDprPath: string;
+  lDprojPath: string;
+  lIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  lMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnitId: TSemanticUnitId;
+  lUnitFileName: string;
+  lUnitPath: string;
+begin
+  lRootPath := ProjectSessionTempPath('project-session-ansi-dpr');
+  TDirectory.CreateDirectory(lRootPath);
+
+  lUnitFileName := 'AnsiDpr' + Chr(233) + 'Unit.pas';
+  lDprPath := TPath.Combine(lRootPath, 'AnsiDprProject.dpr');
+  lDprojPath := TPath.Combine(lRootPath, 'AnsiDprProject.dproj');
+  lUnitPath := TPath.Combine(lRootPath, lUnitFileName);
+  lCachePath := CombinePath([lRootPath, '.dak', 'semantic-cache.sqlite3']);
+
+  lDprBytes := TBytes.Create(
+    Ord('p'), Ord('r'), Ord('o'), Ord('g'), Ord('r'), Ord('a'), Ord('m'), Ord(' '),
+    Ord('A'), Ord('n'), Ord('s'), Ord('i'), Ord('D'), Ord('p'), Ord('r'), Ord('P'),
+    Ord('r'), Ord('o'), Ord('j'), Ord('e'), Ord('c'), Ord('t'), Ord(';'), 13, 10,
+    Ord('u'), Ord('s'), Ord('e'), Ord('s'), Ord(' '), Ord('A'), Ord('n'), Ord('s'),
+    Ord('i'), Ord('D'), Ord('p'), Ord('r'), Ord('U'), Ord('n'), Ord('i'), Ord('t'),
+    Ord(' '), Ord('i'), Ord('n'), Ord(' '), Ord(''''), Ord('A'), Ord('n'), Ord('s'),
+    Ord('i'), Ord('D'), Ord('p'), Ord('r'), $E9, Ord('U'), Ord('n'), Ord('i'),
+    Ord('t'), Ord('.'), Ord('p'), Ord('a'), Ord('s'), Ord(''''), Ord(';'), 13, 10,
+    Ord('b'), Ord('e'), Ord('g'), Ord('i'), Ord('n'), 13, 10, Ord('e'), Ord('n'),
+    Ord('d'), Ord('.'));
+  TFile.WriteAllBytes(lDprPath, lDprBytes);
+  TFile.WriteAllText(lDprojPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    sLineBreak + '  <PropertyGroup>' + sLineBreak +
+    '    <ProjectGuid>{762E6D41-4EAB-424E-94DE-72E9510E0C8B}</ProjectGuid>' +
+    sLineBreak + '    <MainSource>AnsiDprProject.dpr</MainSource>' +
+    sLineBreak + '  </PropertyGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+  TFile.WriteAllText(lUnitPath, 'unit AnsiDprUnit;' + sLineBreak +
+    'interface' + sLineBreak + 'const' + sLineBreak +
+    '  AnsiDprValue = 7;' + sLineBreak + 'implementation' + sLineBreak +
+    'end.', TEncoding.UTF8);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojPath;
+  lOptions.SqliteCacheFileName := lCachePath;
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lIdentities := lResult.Session.BuildGlobalCacheIdentities;
+    Assert.AreEqual(2, Integer(Length(lIdentities)));
+    Assert.IsNotEmpty(lIdentities[0].FileHash);
+    Assert.IsNotEmpty(lIdentities[1].FileHash);
+
+    lSnapshot := lResult.Session.BuildSnapshot;
+    try
+      Assert.AreEqual(2, lSnapshot.UnitCount);
+      Assert.IsTrue(lSnapshot.TryFindUnitByFileName(lUnitPath, lUnitId),
+        'Expected source-loader-decoded DPR in-reference unit in project snapshot.');
+      lMetrics := lResult.Session.LastSnapshotBuildMetrics;
+      Assert.AreEqual(2, lMetrics.SnapshotCacheProbes);
+      Assert.AreEqual(0, lMetrics.SnapshotCacheHits);
+      Assert.AreEqual(2, lMetrics.SnapshotCacheMisses);
+    finally
+      lSnapshot.Free;
     end;
   finally
     lResult.Session.Free;
