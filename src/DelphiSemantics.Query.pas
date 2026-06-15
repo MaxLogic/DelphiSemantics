@@ -382,6 +382,27 @@ begin
   end;
 end;
 
+function TryReadLineFromSourceText(const aSourceText: string; const aLine: Integer;
+  out aLineText: string): Boolean;
+var
+  lLines: TStringList;
+begin
+  aLineText := '';
+  if (aSourceText = '') or (aLine <= 0) then
+    Exit(False);
+
+  lLines := TStringList.Create;
+  try
+    lLines.Text := aSourceText;
+    if aLine > lLines.Count then
+      Exit(False);
+    aLineText := lLines[aLine - 1];
+    Result := True;
+  finally
+    lLines.Free;
+  end;
+end;
+
 function TryFindTypeForLocal(const aModel: TDelphiSemanticUnitModel; const aName: string;
   out aTypeName: string): Boolean;
 var
@@ -532,6 +553,19 @@ begin
   aModel := Default(TDelphiSemanticUnitModel);
   aSourceKind := '';
   Result := False;
+end;
+
+function TryReadContextLine(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aFileName: string; const aLine: Integer; out aLineText: string): Boolean;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lSourceKind: string;
+begin
+  if TryFindModelForFile(aContext, aFileName, lModel, lSourceKind) and
+    TryReadLineFromSourceText(lModel.SourceText, aLine, aLineText) then
+    Exit(True);
+
+  Result := TryReadLine(aFileName, aLine, aLineText);
 end;
 
 function FindDefinitionInModel(const aModel: TDelphiSemanticUnitModel; const aSourceKind,
@@ -823,10 +857,15 @@ var
   lToken: string;
   lTypeName: string;
 begin
-  if TryReadLine(aFileName, aLine, lLineText) and TryExtractIdentifierAtColumn(lLineText,
+  lSnapshot := ContextProjectSnapshot(aContext);
+  if (lSnapshot <> nil) and TryResolveSnapshotPosition(lSnapshot, aFileName, aLine, aColumn,
+    '', lPositionResolution) then
+    Exit(SnapshotSymbolResult(lSnapshot, lPositionResolution.SymbolUnit,
+      lPositionResolution.Symbol, lPositionResolution.Status));
+
+  if TryReadContextLine(aContext, aFileName, aLine, lLineText) and TryExtractIdentifierAtColumn(lLineText,
     aColumn, lToken) then
   begin
-    lSnapshot := ContextProjectSnapshot(aContext);
     if lSnapshot <> nil then
     begin
       if TryResolveSnapshotPosition(lSnapshot, aFileName, aLine, aColumn, lToken,

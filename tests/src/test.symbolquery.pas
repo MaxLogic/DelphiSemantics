@@ -35,6 +35,8 @@ type
     [Test]
     procedure ResolvesSourcePositionAndReportsCacheStatus;
     [Test]
+    procedure ResolvesPositionFromCapturedModelSourceAfterDiskEdit;
+    [Test]
     procedure CacheStatusExposesProfileKeyAndCacheFileName;
     [Test]
     procedure SearchMatchesSubstringsAndReturnsRanges;
@@ -624,6 +626,47 @@ begin
   Assert.AreEqual('Delphi-12-SymbolQuery', lStatus.CompilerProfileName);
   Assert.IsTrue(lStatus.IntrinsicCount >= 47);
   Assert.AreEqual(1, lStatus.RtlSourceUnitCount);
+end;
+
+procedure TSymbolQueryTests.ResolvesPositionFromCapturedModelSourceAfterDiskEdit;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lResult: TDelphiSemanticSymbolQueryResult;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := SymbolQueryTempPath('captured-source-position\SymbolQueryUnit.pas');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lSourceFileName));
+  TFile.Copy(FixturePath('SymbolQuery', 'SymbolQueryUnit.pas'), lSourceFileName, True);
+
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.CompilerProfileName := 'Delphi-12-SymbolQuery-CapturedSource';
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := lSourceFileName;
+    lModelOptions.ProjectContextApplied := True;
+    lContext.UnitModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    lContext.CompilerProfile := TDelphiSemanticCompilerProfileBuilder.FromCachedSources(lCache, []);
+    lContext.CacheMetrics := lCache.Metrics;
+  finally
+    lCache.Free;
+  end;
+
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lSourceText := StringReplace(lSourceText, '  lFixture: TSymbolMapFixture;',
+    '  lEdited: Integer;', []);
+  TFile.WriteAllText(lSourceFileName, lSourceText, TEncoding.UTF8);
+
+  lResult := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext, lSourceFileName,
+    32, 13);
+
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('TSymbolMapFixture', lResult.Name);
+  Assert.AreEqual('type', lResult.Kind);
 end;
 
 procedure TSymbolQueryTests.CacheStatusExposesProfileKeyAndCacheFileName;
