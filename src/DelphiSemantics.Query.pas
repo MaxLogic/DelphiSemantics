@@ -248,21 +248,6 @@ begin
   Result.EndColumn := Length(aModel.UnitName) + 5;
 end;
 
-function SnapshotEndLine(const aLine, aEndLine: Integer): Integer;
-begin
-  Result := aEndLine;
-  if Result <= 0 then
-    Result := aLine;
-end;
-
-function SnapshotEndColumn(const aColumn: Integer; const aName: string;
-  const aEndColumn: Integer): Integer;
-begin
-  Result := aEndColumn;
-  if Result <= 0 then
-    Result := aColumn + Length(aName) - 1;
-end;
-
 function SnapshotSymbolResult(const aSnapshot: TDelphiProjectSnapshot;
   const aUnit: TUnitSnapshot; const aSymbol: TSemanticSymbolFact; const aConfidence: string):
   TDelphiSemanticSymbolQueryResult;

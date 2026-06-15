@@ -1048,40 +1048,6 @@ begin
   Result := 'rtl-source';
 end;
 
-function SnapshotUnitSymbolId(const aUnit: TUnitSnapshot): TDelphiSemanticSymbolId;
-begin
-  Result.Value := 'snapshot:' + IntToStr(Integer(aUnit.UnitId)) + ':unit';
-end;
-
-function SnapshotSourceKindForUnit(const aSnapshot: TDelphiProjectSnapshot;
-  const aUnit: TUnitSnapshot): string;
-var
-  lSymbol: TSemanticSymbolFact;
-begin
-  Result := 'project-snapshot';
-  if aUnit.SymbolCount <= 0 then
-    Exit;
-
-  lSymbol := aUnit.SymbolById(TSemanticSymbolId(1));
-  if SnapshotText(aSnapshot, lSymbol.SourceKindId) <> '' then
-    Result := SnapshotText(aSnapshot, lSymbol.SourceKindId);
-end;
-
-function SnapshotEndLine(const aLine, aEndLine: Integer): Integer;
-begin
-  Result := aEndLine;
-  if Result <= 0 then
-    Result := aLine;
-end;
-
-function SnapshotEndColumn(const aColumn: Integer; const aName: string;
-  const aEndColumn: Integer): Integer;
-begin
-  Result := aEndColumn;
-  if Result <= 0 then
-    Result := aColumn + Length(aName) - 1;
-end;
-
 procedure AddSymbol(const aSymbols: TDelphiSemanticSymbolList;
   const aModel: TDelphiSemanticUnitModel; const aSourceKind, aKind, aOwnerName, aName: string;
   const aSectionKind, aVisibility, aSignature: string; const aLine, aColumn: Integer);
@@ -1138,52 +1104,21 @@ end;
 
 procedure AddSnapshotUnitSymbol(const aSymbols: TDelphiSemanticSymbolList;
   const aSnapshot: TDelphiProjectSnapshot; const aUnit: TUnitSnapshot);
-var
-  lSymbol: TDelphiSemanticIndexedSymbol;
 begin
   if SnapshotText(aSnapshot, aUnit.UnitNameId) = '' then
     Exit;
 
-  lSymbol := Default(TDelphiSemanticIndexedSymbol);
-  lSymbol.Id := SnapshotUnitSymbolId(aUnit);
-  lSymbol.Name := SnapshotText(aSnapshot, aUnit.UnitNameId);
-  lSymbol.Kind := 'unit';
-  lSymbol.UnitName := lSymbol.Name;
-  lSymbol.SectionKind := 'interface';
-  lSymbol.SourceKind := SnapshotSourceKindForUnit(aSnapshot, aUnit);
-  lSymbol.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
-  lSymbol.Line := 1;
-  lSymbol.Column := 1;
-  aSymbols.Add(lSymbol);
+  aSymbols.Add(SnapshotUnitIndexedSymbol(aSnapshot, aUnit));
 end;
 
 procedure AddSnapshotSymbol(const aSymbols: TDelphiSemanticSymbolList;
   const aSnapshot: TDelphiProjectSnapshot; const aUnit: TUnitSnapshot;
   const aSymbolRef: TSemanticSymbolRef; const aSymbol: TSemanticSymbolFact);
-var
-  lKind: string;
-  lSymbol: TDelphiSemanticIndexedSymbol;
 begin
   if aSymbol.NameId = 0 then
     Exit;
 
-  lKind := SnapshotPublicSymbolKind(SnapshotText(aSnapshot, aSymbol.KindId));
-  lSymbol := Default(TDelphiSemanticIndexedSymbol);
-  lSymbol.Id := SnapshotSymbolId(aSymbolRef);
-  lSymbol.Name := SnapshotText(aSnapshot, aSymbol.NameId);
-  lSymbol.Kind := lKind;
-  lSymbol.OwnerName := SnapshotSymbolOwnerName(aSnapshot, aSymbol, lKind);
-  lSymbol.UnitName := SnapshotText(aSnapshot, aUnit.UnitNameId);
-  lSymbol.SectionKind := SnapshotText(aSnapshot, aSymbol.SectionKindId);
-  lSymbol.SourceKind := SnapshotText(aSnapshot, aSymbol.SourceKindId);
-  if lSymbol.SourceKind = '' then
-    lSymbol.SourceKind := 'project-snapshot';
-  lSymbol.Visibility := SnapshotText(aSnapshot, aSymbol.VisibilityId);
-  lSymbol.Signature := SnapshotText(aSnapshot, aSymbol.SignatureId);
-  lSymbol.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
-  lSymbol.Line := aSymbol.Line;
-  lSymbol.Column := aSymbol.Column;
-  aSymbols.Add(lSymbol);
+  aSymbols.Add(SnapshotIndexedSymbol(aSnapshot, aUnit, aSymbolRef, aSymbol));
 end;
 
 procedure AddSnapshotSymbols(const aSymbols: TDelphiSemanticSymbolList;
@@ -1215,7 +1150,6 @@ var
   i: Integer;
   lIndexedReference: TDelphiSemanticIndexedReference;
   lReference: TSemanticReferenceFact;
-  lReferenceSymbolRef: TSemanticSymbolRef;
   lUnit: TUnitSnapshot;
   lUnitIndex: Integer;
 begin
@@ -1225,35 +1159,7 @@ begin
     for i := 1 to lUnit.ReferenceCount do
     begin
       lReference := lUnit.ReferenceById(TSemanticReferenceId(i));
-      lIndexedReference := Default(TDelphiSemanticIndexedReference);
-      lIndexedReference.Name := SnapshotText(aSnapshot, lReference.NameId);
-      lIndexedReference.RoutineName := SnapshotText(aSnapshot, lReference.RoutineId);
-      lIndexedReference.UnitName := SnapshotText(aSnapshot, lUnit.UnitNameId);
-      lIndexedReference.SourceKind := SnapshotText(aSnapshot, lReference.SourceKindId);
-      if lIndexedReference.SourceKind = '' then
-        lIndexedReference.SourceKind := 'project-snapshot';
-      lIndexedReference.FileName := SnapshotText(aSnapshot, lUnit.FileNameId);
-      lIndexedReference.SectionKind := SnapshotText(aSnapshot, lReference.SectionKindId);
-      if lIndexedReference.SectionKind = '' then
-        lIndexedReference.SectionKind := 'implementation';
-      lIndexedReference.Line := lReference.Line;
-      lIndexedReference.Column := lReference.Column;
-      lIndexedReference.EndLine := SnapshotEndLine(lReference.Line, lReference.EndLine);
-      lIndexedReference.EndColumn := SnapshotEndColumn(lReference.Column,
-        lIndexedReference.Name, lReference.EndColumn);
-      if (lReference.TargetUnitId <> 0) and (lReference.TargetSymbolId <> 0) then
-      begin
-        lReferenceSymbolRef.UnitId := lReference.TargetUnitId;
-        lReferenceSymbolRef.SymbolId := lReference.TargetSymbolId;
-        lIndexedReference.SymbolId := SnapshotSymbolId(lReferenceSymbolRef);
-        lIndexedReference.CandidateSymbolIds := [lIndexedReference.SymbolId];
-        lIndexedReference.Status := 'resolved';
-        lIndexedReference.Confidence := 'snapshot-target';
-      end else
-      begin
-        lIndexedReference.Status := 'unresolved';
-        lIndexedReference.Confidence := 'no-candidates';
-      end;
+      lIndexedReference := SnapshotIndexedReference(aSnapshot, lUnit, lReference);
       aReferences.Add(lIndexedReference);
     end;
   end;

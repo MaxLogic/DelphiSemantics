@@ -60,6 +60,8 @@ type
     procedure ProjectSymbolIndexResolvesReferencesWithoutSymbolScans;
     [Test]
     procedure ProjectSymbolIndexUsesCaseInsensitiveLookupMaps;
+    [Test]
+    procedure SnapshotProjectionHelpersLiveInQuerySupport;
   end;
 
 implementation
@@ -1079,6 +1081,43 @@ begin
   end;
   Assert.IsTrue(lFoundRtlScope);
   Assert.IsFalse(lSawHiddenScope);
+end;
+
+procedure TSymbolQueryTests.SnapshotProjectionHelpersLiveInQuerySupport;
+var
+  lIndexSource: string;
+  lQuerySource: string;
+  lSearchSource: string;
+  lSupportSource: string;
+  lUsageSource: string;
+begin
+  lSupportSource := ReadRepoSource('src\DelphiSemantics.Snapshot.QuerySupport.pas');
+  lQuerySource := ReadRepoSource('src\DelphiSemantics.Query.pas');
+  lUsageSource := ReadRepoSource('src\DelphiSemantics.Usage.pas');
+  lSearchSource := ReadRepoSource('src\DelphiSemantics.Search.pas');
+  lIndexSource := ReadRepoSource('src\DelphiSemantics.Index.pas');
+
+  Assert.IsTrue(ContainsText(lSupportSource, 'function SnapshotEndLine'),
+    'Snapshot end-range projection should be centralized.');
+  Assert.IsTrue(ContainsText(lSupportSource, 'function SnapshotIndexedSymbol'),
+    'Snapshot indexed-symbol projection should be centralized.');
+  Assert.IsTrue(ContainsText(lSupportSource, 'function SnapshotSourceKindForUnit'),
+    'Snapshot unit source-kind projection should be centralized.');
+  Assert.IsTrue(ContainsText(lSupportSource, 'function SnapshotUnitSymbolId'),
+    'Snapshot unit-id projection should be centralized.');
+
+  Assert.IsFalse(ContainsText(lQuerySource, 'function SnapshotEndLine'),
+    'Query should delegate snapshot range projection to QuerySupport.');
+  Assert.IsFalse(ContainsText(lUsageSource, 'function SnapshotEndLine'),
+    'Usage should delegate snapshot range projection to QuerySupport.');
+  Assert.IsFalse(ContainsText(lUsageSource, 'function SnapshotIndexedSymbol'),
+    'Usage should delegate snapshot symbol projection to QuerySupport.');
+  Assert.IsFalse(ContainsText(lSearchSource, 'function SnapshotIndexedSymbol'),
+    'Search should delegate snapshot symbol projection to QuerySupport.');
+  Assert.IsFalse(ContainsText(lSearchSource, 'function SnapshotUnitSymbolId'),
+    'Search should delegate snapshot unit projection to QuerySupport.');
+  Assert.IsFalse(ContainsText(lIndexSource, 'function SnapshotUnitSymbolId'),
+    'Index should delegate snapshot unit projection to QuerySupport.');
 end;
 
 initialization

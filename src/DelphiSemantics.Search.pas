@@ -94,64 +94,6 @@ begin
   Result.Column := aSymbol.Column;
 end;
 
-function SnapshotUnitSymbolId(const aUnit: TUnitSnapshot): TDelphiSemanticSymbolId;
-begin
-  Result.Value := 'snapshot:' + IntToStr(Integer(aUnit.UnitId)) + ':unit';
-end;
-
-function SnapshotSourceKindForUnit(const aSnapshot: TDelphiProjectSnapshot;
-  const aUnit: TUnitSnapshot): string;
-var
-  lSymbol: TSemanticSymbolFact;
-begin
-  Result := 'project-snapshot';
-  if aUnit.SymbolCount <= 0 then
-    Exit;
-
-  lSymbol := aUnit.SymbolById(TSemanticSymbolId(1));
-  if SnapshotText(aSnapshot, lSymbol.SourceKindId) <> '' then
-    Result := SnapshotText(aSnapshot, lSymbol.SourceKindId);
-end;
-
-function SnapshotUnitIndexedSymbol(const aSnapshot: TDelphiProjectSnapshot;
-  const aUnit: TUnitSnapshot): TDelphiSemanticIndexedSymbol;
-begin
-  Result := Default(TDelphiSemanticIndexedSymbol);
-  Result.Id := SnapshotUnitSymbolId(aUnit);
-  Result.Name := SnapshotText(aSnapshot, aUnit.UnitNameId);
-  Result.Kind := 'unit';
-  Result.UnitName := Result.Name;
-  Result.SectionKind := 'interface';
-  Result.SourceKind := SnapshotSourceKindForUnit(aSnapshot, aUnit);
-  Result.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
-  Result.Line := 1;
-  Result.Column := 1;
-end;
-
-function SnapshotIndexedSymbol(const aSnapshot: TDelphiProjectSnapshot;
-  const aUnit: TUnitSnapshot; const aSymbolRef: TSemanticSymbolRef;
-  const aSymbol: TSemanticSymbolFact): TDelphiSemanticIndexedSymbol;
-var
-  lKind: string;
-begin
-  lKind := SnapshotPublicSymbolKind(SnapshotText(aSnapshot, aSymbol.KindId));
-  Result := Default(TDelphiSemanticIndexedSymbol);
-  Result.Id := SnapshotSymbolId(aSymbolRef);
-  Result.Name := SnapshotText(aSnapshot, aSymbol.NameId);
-  Result.Kind := lKind;
-  Result.OwnerName := SnapshotSymbolOwnerName(aSnapshot, aSymbol, lKind);
-  Result.UnitName := SnapshotText(aSnapshot, aUnit.UnitNameId);
-  Result.SectionKind := SnapshotText(aSnapshot, aSymbol.SectionKindId);
-  Result.SourceKind := SnapshotText(aSnapshot, aSymbol.SourceKindId);
-  if Result.SourceKind = '' then
-    Result.SourceKind := 'project-snapshot';
-  Result.Visibility := SnapshotText(aSnapshot, aSymbol.VisibilityId);
-  Result.Signature := SnapshotText(aSnapshot, aSymbol.SignatureId);
-  Result.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
-  Result.Line := aSymbol.Line;
-  Result.Column := aSymbol.Column;
-end;
-
 function TryResolveSymbolFilter(const aIndex: TDelphiSemanticProjectSymbolIndex;
   const aName: string; out aSymbolId: TDelphiSemanticSymbolId; out aDiagnostic: string):
   Boolean;
