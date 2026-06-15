@@ -28,6 +28,8 @@ type
     [Test]
     procedure SnapshotBuilderUsesBoundedWorkerJoins;
     [Test]
+    procedure SnapshotWorkerPipelineLivesBehindFocusedBoundary;
+    [Test]
     procedure SnapshotReferenceTargetsKeepOverloadedRoutineLocalAmbiguityUnresolved;
     [Test]
     procedure SnapshotUnitDoesNotUseJsonLiveRepresentation;
@@ -450,33 +452,64 @@ end;
 
 procedure TSnapshotTests.SnapshotBuilderUsesBoundedWorkerJoins;
 var
-  lBuilderSource: string;
+  lWorkersSource: string;
   lFunctionEnd: Integer;
   lFunctionSource: string;
   lFunctionStart: Integer;
 begin
-  lBuilderSource := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
+  lWorkersSource := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
     ExtractFilePath(ParamStr(0)), '..', '..', 'src',
-    'DelphiSemantics.Snapshot.Builder.pas'])));
-  lFunctionStart := Pos('function BuildUnitResults', lBuilderSource);
-  lFunctionEnd := PosEx('function MergeUnitResults', lBuilderSource,
+    'DelphiSemantics.Snapshot.Workers.pas'])));
+  lFunctionStart := Pos('function BuildSnapshotUnitResults', lWorkersSource);
+  lFunctionEnd := PosEx('end.', lWorkersSource,
     lFunctionStart);
   Assert.IsTrue((lFunctionStart > 0) and (lFunctionEnd > lFunctionStart),
-    'Expected BuildUnitResults implementation section.');
+    'Expected BuildSnapshotUnitResults implementation section.');
 
-  lFunctionSource := Copy(lBuilderSource, lFunctionStart,
+  lFunctionSource := Copy(lWorkersSource, lFunctionStart,
     lFunctionEnd - lFunctionStart);
   Assert.IsFalse(ContainsText(lFunctionSource, '.WaitFor'),
     'Parallel snapshot workers must use bounded joins, not unbounded TThread.WaitFor.');
-  Assert.IsTrue(ContainsText(lBuilderSource, 'WaitForSingleObject'),
+  Assert.IsTrue(ContainsText(lWorkersSource, 'WaitForSingleObject'),
     'Bounded joins should poll worker handles with an explicit timeout.');
-  Assert.IsTrue(ContainsText(lBuilderSource,
+  Assert.IsTrue(ContainsText(lWorkersSource,
     'DELPHI_SEMANTICS_SNAPSHOT_WORKER_JOIN_TIMEOUT_MS'),
     'Timeout must be configurable for deterministic tests and diagnostics.');
-  Assert.IsTrue(ContainsText(lBuilderSource, 'RequestCancel'),
+  Assert.IsTrue(ContainsText(lWorkersSource, 'RequestCancel'),
     'Timed-out snapshot workers should receive cooperative cancellation.');
-  Assert.IsTrue(ContainsText(lBuilderSource, 'Snapshot worker'),
+  Assert.IsTrue(ContainsText(lWorkersSource, 'Snapshot worker'),
     'Timeout diagnostics should identify the affected worker/source file.');
+end;
+
+procedure TSnapshotTests.SnapshotWorkerPipelineLivesBehindFocusedBoundary;
+var
+  lBuilderSource: string;
+  lWorkersPath: string;
+  lWorkersSource: string;
+begin
+  lBuilderSource := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
+    ExtractFilePath(ParamStr(0)), '..', '..', 'src',
+    'DelphiSemantics.Snapshot.Builder.pas'])));
+  lWorkersPath := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+    '..', '..', 'src', 'DelphiSemantics.Snapshot.Workers.pas']));
+  Assert.IsTrue(TFile.Exists(lWorkersPath),
+    'Expected focused snapshot worker pipeline unit.');
+
+  lWorkersSource := TFile.ReadAllText(lWorkersPath);
+  Assert.IsTrue(ContainsText(lBuilderSource, 'DelphiSemantics.Snapshot.Workers'),
+    'Snapshot builder should delegate worker orchestration to the worker pipeline.');
+  Assert.IsFalse(ContainsText(lBuilderSource, 'TSnapshotBuildWorkerContext = class'),
+    'Snapshot builder should not own worker queue state.');
+  Assert.IsFalse(ContainsText(lBuilderSource, 'TSnapshotBuildWorkerThread = class'),
+    'Snapshot builder should not own worker thread lifecycle.');
+  Assert.IsFalse(ContainsText(lBuilderSource, 'WaitForSingleObject'),
+    'Snapshot builder should not own bounded worker join policy.');
+  Assert.IsTrue(ContainsText(lWorkersSource, 'TSnapshotBuildWorkerContext = class'),
+    'Worker pipeline should own worker queue state.');
+  Assert.IsTrue(ContainsText(lWorkersSource, 'TSnapshotBuildWorkerThread = class'),
+    'Worker pipeline should own worker thread lifecycle.');
+  Assert.IsTrue(ContainsText(lWorkersSource, 'WaitForSingleObject'),
+    'Worker pipeline should own bounded worker join policy.');
 end;
 
 procedure TSnapshotTests.SnapshotReferenceTargetsKeepOverloadedRoutineLocalAmbiguityUnresolved;

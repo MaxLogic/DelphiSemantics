@@ -136,6 +136,7 @@
     <DCCReference Include="..\src\DelphiSemantics.SourceContext.Candidates.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.SourceContext.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.Builder.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Snapshot.Workers.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.PositionResolver.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.QuerySupport.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Symbols.pas"/>
