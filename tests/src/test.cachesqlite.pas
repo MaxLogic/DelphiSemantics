@@ -1,4 +1,4 @@
-﻿unit Test.CacheSqlite;
+unit Test.CacheSqlite;
 
 interface
 
@@ -57,6 +57,8 @@ type
     procedure CorruptStoredEntryRebuildsWithDiagnostic;
     [Test]
     procedure IncompatibleSchemaRebuildsWithDiagnostic;
+    [Test]
+    procedure UnitModelJsonSerializationIsOutsideSqlitePersistence;
   end;
 
 implementation
@@ -797,6 +799,32 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+procedure TCacheSqliteTests.UnitModelJsonSerializationIsOutsideSqlitePersistence;
+var
+  lCacheSource: string;
+  lJsonPath: string;
+  lJsonSource: string;
+begin
+  lCacheSource := TFile.ReadAllText(TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+    '..', '..', 'src', 'DelphiSemantics.Cache.Sqlite.pas'])), TEncoding.UTF8);
+  lJsonPath := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', '..',
+    'src', 'DelphiSemantics.Model.Json.pas']));
+
+  Assert.IsTrue(TFile.Exists(lJsonPath), 'Expected focused UnitModel JSON serialization unit.');
+  lJsonSource := TFile.ReadAllText(lJsonPath, TEncoding.UTF8);
+
+  Assert.IsTrue(ContainsText(lCacheSource, 'DelphiSemantics.Model.Json'),
+    'SQLite cache should call the model JSON serializer unit.');
+  Assert.IsFalse(ContainsText(lCacheSource, 'System.JSON'),
+    'SQLite cache persistence must not own JSON encoding details.');
+  Assert.IsTrue(ContainsText(lJsonSource, 'ModelToJson'),
+    'Model JSON unit should own UnitModel serialization.');
+  Assert.IsTrue(ContainsText(lJsonSource, 'JsonToModel'),
+    'Model JSON unit should own UnitModel deserialization.');
+  Assert.IsFalse(ContainsText(lJsonSource, 'FireDAC'),
+    'Model JSON serialization must not depend on SQLite persistence.');
 end;
 
 initialization
