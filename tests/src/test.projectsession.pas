@@ -1,4 +1,4 @@
-unit Test.ProjectSession;
+﻿unit Test.ProjectSession;
 
 interface
 
@@ -37,6 +37,8 @@ type
     procedure ProjectSessionParallelSnapshotBuildMatchesSequentialFacts;
     [Test]
     procedure ProjectSessionParallelRemoveWithPlanMatchesSequentialCounts;
+    [Test]
+    procedure ProjectSessionPlanRemoveWithCachesProjectFactsByProjectIdentity;
     [Test]
     procedure ProjectSessionSnapshotMetricsExposeCacheUsefulnessTelemetry;
     [Test]
@@ -507,6 +509,123 @@ begin
   finally
     lSequentialResult.Session.Free;
   end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionPlanRemoveWithCachesProjectFactsByProjectIdentity;
+var
+  lCachePath: string;
+  lDprPath: string;
+  lDprojPath: string;
+  lFirstMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lFirstPlan: TDelphiSemanticRemoveWithPlan;
+  lFirstResult: TDelphiSemanticProjectSessionResult;
+  lOptions: TDelphiSemanticOptions;
+  lRootPath: string;
+  lSecondMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lSecondPlan: TDelphiSemanticRemoveWithPlan;
+  lSecondResult: TDelphiSemanticProjectSessionResult;
+  lThirdMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lThirdPlan: TDelphiSemanticRemoveWithPlan;
+  lThirdResult: TDelphiSemanticProjectSessionResult;
+  lUnitPath: string;
+begin
+  lRootPath := ProjectSessionTempPath('remove-with-project-facts-cache-temp');
+  TDirectory.CreateDirectory(lRootPath);
+
+  lDprPath := TPath.Combine(lRootPath, 'RemoveWithProjectFactsCache.dpr');
+  lDprojPath := TPath.Combine(lRootPath, 'RemoveWithProjectFactsCache.dproj');
+  lUnitPath := TPath.Combine(lRootPath, 'RemoveWithProjectFactsCacheUnit.pas');
+  lCachePath := CombinePath([lRootPath, '.dak', 'semantic-cache.sqlite3']);
+
+  TFile.WriteAllText(lDprPath, 'program RemoveWithProjectFactsCache;' + sLineBreak +
+    'uses RemoveWithProjectFactsCacheUnit;' + sLineBreak + 'begin' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lDprojPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    sLineBreak + '  <PropertyGroup>' + sLineBreak +
+    '    <ProjectGuid>{A36F2B31-F86F-4B9D-8D24-3C60712BF150}</ProjectGuid>' +
+    sLineBreak + '    <MainSource>RemoveWithProjectFactsCache.dpr</MainSource>' +
+    sLineBreak + '  </PropertyGroup>' + sLineBreak + '  <ItemGroup>' +
+    sLineBreak + '    <DCCReference Include="RemoveWithProjectFactsCacheUnit.pas"/>' +
+    sLineBreak + '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+  TFile.WriteAllText(lUnitPath, 'unit RemoveWithProjectFactsCacheUnit;' +
+    sLineBreak + 'interface' + sLineBreak + 'type' + sLineBreak +
+    '  TRemoveWithProjectFactsCacheRecord = record' + sLineBreak +
+    '    Value: Integer;' + sLineBreak + '    OtherValue: Integer;' + sLineBreak +
+    '  end;' + sLineBreak + 'procedure UseCacheRecord;' + sLineBreak +
+    'implementation' + sLineBreak + 'procedure UseCacheRecord;' + sLineBreak +
+    'var' + sLineBreak + '  lRecord: TRemoveWithProjectFactsCacheRecord;' +
+    sLineBreak + 'begin' + sLineBreak + '  with lRecord do' + sLineBreak +
+    '    Value := 1;' + sLineBreak + 'end;' + sLineBreak + 'end.', TEncoding.UTF8);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojPath;
+  lOptions.SqliteCacheFileName := lCachePath;
+  lOptions.SkipWithBindingSemanticGraph := True;
+
+  lFirstResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lFirstResult.Success);
+    lFirstPlan := lFirstResult.Session.PlanRemoveWith;
+    lFirstMetrics := lFirstResult.Session.LastSnapshotBuildMetrics;
+  finally
+    lFirstResult.Session.Free;
+  end;
+  Assert.AreEqual(1, lFirstMetrics.SnapshotCacheProbes);
+  Assert.AreEqual(0, lFirstMetrics.SnapshotCacheHits);
+  Assert.AreEqual(1, lFirstMetrics.SnapshotCacheMisses);
+  Assert.IsTrue(lFirstMetrics.SnapshotSqlWriteMilliseconds > 0,
+    'First remove-with project facts cache miss should write project facts.');
+  Assert.IsTrue(Length(lFirstPlan.FinalStatements) > 0,
+    'Expected remove-with fixture to produce a final statement.');
+  Assert.IsTrue(Pos('Value', lFirstPlan.FinalStatements[0].ReplacementText) > 0,
+    'First remove-with plan should reference Value.');
+
+  lSecondResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lSecondResult.Success);
+    lSecondPlan := lSecondResult.Session.PlanRemoveWith;
+    lSecondMetrics := lSecondResult.Session.LastSnapshotBuildMetrics;
+  finally
+    lSecondResult.Session.Free;
+  end;
+  Assert.AreEqual(1, lSecondMetrics.SnapshotCacheProbes);
+  Assert.AreEqual(1, lSecondMetrics.SnapshotCacheHits);
+  Assert.AreEqual(0, lSecondMetrics.SnapshotCacheMisses);
+  Assert.AreEqual(Int64(0), lSecondMetrics.SnapshotSqlWriteMilliseconds);
+  Assert.AreEqual(lFirstPlan.FinalStatements[0].ReplacementText,
+    lSecondPlan.FinalStatements[0].ReplacementText,
+    'Warm cached status=' + lSecondPlan.FinalStatements[0].Status +
+    '; reason=' + lSecondPlan.FinalStatements[0].Reason +
+    '; safety=' + lSecondPlan.FinalStatements[0].SafetyReason);
+
+  TFile.WriteAllText(lUnitPath, 'unit RemoveWithProjectFactsCacheUnit;' +
+    sLineBreak + 'interface' + sLineBreak + 'type' + sLineBreak +
+    '  TRemoveWithProjectFactsCacheRecord = record' + sLineBreak +
+    '    Value: Integer;' + sLineBreak + '    OtherValue: Integer;' + sLineBreak +
+    '  end;' + sLineBreak + 'procedure UseCacheRecord;' + sLineBreak +
+    'implementation' + sLineBreak + 'procedure UseCacheRecord;' + sLineBreak +
+    'var' + sLineBreak + '  lRecord: TRemoveWithProjectFactsCacheRecord;' +
+    sLineBreak + 'begin' + sLineBreak + '  with lRecord do' + sLineBreak +
+    '    OtherValue := 1;' + sLineBreak + 'end;' + sLineBreak + 'end.', TEncoding.UTF8);
+
+  lThirdResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lThirdResult.Success);
+    lThirdPlan := lThirdResult.Session.PlanRemoveWith;
+    lThirdMetrics := lThirdResult.Session.LastSnapshotBuildMetrics;
+  finally
+    lThirdResult.Session.Free;
+  end;
+  Assert.AreEqual(1, lThirdMetrics.SnapshotCacheProbes);
+  Assert.AreEqual(0, lThirdMetrics.SnapshotCacheHits);
+  Assert.AreEqual(1, lThirdMetrics.SnapshotCacheMisses);
+  Assert.IsTrue(lThirdMetrics.SnapshotSqlWriteMilliseconds > 0,
+    'Changed remove-with project facts cache miss should write refreshed project facts.');
+  Assert.IsTrue(Length(lThirdPlan.FinalStatements) > 0,
+    'Expected changed remove-with fixture to produce a final statement.');
+  Assert.IsTrue(Pos('OtherValue', lThirdPlan.FinalStatements[0].ReplacementText) > 0,
+    'Changed remove-with plan should reference OtherValue, not stale Value facts.');
 end;
 
 procedure TProjectSessionTests.ProjectSessionAssociatesNestedWithReferencesWithInnermostSnapshotFact;

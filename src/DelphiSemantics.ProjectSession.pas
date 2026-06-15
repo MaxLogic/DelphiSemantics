@@ -125,6 +125,9 @@ uses
 
 const
   cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v2';
+  cProjectRemoveWithFactsCacheIdentitySchemaVersion =
+    'project-session-remove-with-facts-v1';
+
 function MainModelOptions(const aProject: TDelphiSemanticProjectInfo):
   TDelphiSemanticModelOptions;
 begin
@@ -304,6 +307,71 @@ begin
     Result.IncludeGraphHash);
 end;
 
+function ProjectRemoveWithFactsCacheIdentity(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; const aSourceFileNames,
+  aScopedSourceFileNames: TArray<string>;
+  const aUnitCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>):
+  TDelphiSemanticSnapshotCacheIdentity;
+var
+  i: Integer;
+  lFileName: string;
+  lFullSourceFileName: string;
+  lIdentityText: string;
+  lIncludeGraphText: string;
+  lProjectFileName: string;
+  lScopedFileName: string;
+  lScopedFiles: TList<string>;
+begin
+  lProjectFileName := TPath.GetFullPath(aOptions.ProjectPath);
+  lIdentityText := 'projectContext=' + SnapshotCacheContextHash(aProject, aOptions) +
+    sLineBreak + 'project=' + lProjectFileName;
+  lIncludeGraphText := '';
+
+  for i := 0 to High(aSourceFileNames) do
+  begin
+    lFullSourceFileName := TPath.GetFullPath(aSourceFileNames[i]);
+    lIdentityText := lIdentityText + sLineBreak + 'source[' + IntToStr(i) + ']=' +
+      lFullSourceFileName;
+    if i <= High(aUnitCacheIdentities) then
+    begin
+      lIdentityText := lIdentityText + sLineBreak + 'unitCache[' + IntToStr(i) + ']=' +
+        aUnitCacheIdentities[i].UnitCacheKey;
+      lIncludeGraphText := lIncludeGraphText + sLineBreak + 'includeGraph[' +
+        IntToStr(i) + ']=' + aUnitCacheIdentities[i].IncludeGraphHash;
+    end;
+  end;
+
+  lScopedFiles := TList<string>.Create;
+  try
+    for lFileName in aScopedSourceFileNames do
+      if Trim(lFileName) <> '' then
+        lScopedFiles.Add(TPath.GetFullPath(lFileName));
+    lScopedFiles.Sort;
+    for lScopedFileName in lScopedFiles do
+      lIdentityText := lIdentityText + sLineBreak + 'scoped=' + lScopedFileName;
+  finally
+    lScopedFiles.Free;
+  end;
+
+  Result := Default(TDelphiSemanticSnapshotCacheIdentity);
+  Result.IdentityKey := lProjectFileName + '|remove-with-facts';
+  Result.SourceFileName := lProjectFileName;
+  if TFile.Exists(lProjectFileName) then
+    Result.FileHash := THashSHA2.GetHashStringFromFile(lProjectFileName)
+  else
+    Result.FileHash := 'missing';
+  Result.ContextHash := THashSHA2.GetHashString(lIdentityText);
+  if Trim(lIncludeGraphText) = '' then
+    Result.IncludeGraphHash := 'no-includes-v1'
+  else
+    Result.IncludeGraphHash := THashSHA2.GetHashString(lIncludeGraphText);
+  Result.SchemaVersion := cProjectRemoveWithFactsCacheIdentitySchemaVersion;
+  Result.ParseAvoidedEstimateMilliseconds := 0;
+  Result.CacheKey := THashSHA2.GetHashString('project-remove-with-facts|' +
+    Result.SchemaVersion + '|' + Result.SourceFileName + '|' + Result.FileHash + '|' +
+    Result.ContextHash + '|' + Result.IncludeGraphHash);
+end;
+
 procedure AccumulateSnapshotCacheMetrics(var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
   const aCacheMetrics: TDelphiSemanticSnapshotCacheMetrics);
 begin
@@ -340,6 +408,26 @@ begin
     aCacheMetrics.SnapshotCacheUnitBuildMilliseconds);
   Inc(aMetrics.SnapshotCacheUnitMergeMilliseconds,
     aCacheMetrics.SnapshotCacheUnitMergeMilliseconds);
+  Inc(aMetrics.SnapshotSqlWriteMilliseconds, aCacheMetrics.SnapshotSqlWriteMilliseconds);
+  Inc(aMetrics.SnapshotSqlReadMilliseconds, aCacheMetrics.SnapshotSqlReadMilliseconds);
+  Inc(aMetrics.SnapshotDeserializeMilliseconds,
+    aCacheMetrics.SnapshotDeserializeMilliseconds);
+  Inc(aMetrics.SnapshotIndexRebuildMilliseconds,
+    aCacheMetrics.SnapshotIndexRebuildMilliseconds);
+  Inc(aMetrics.SnapshotParseAvoidedEstimateMilliseconds,
+    aCacheMetrics.SnapshotParseAvoidedEstimateMilliseconds);
+  aMetrics.SnapshotCacheUseful := aMetrics.SnapshotCacheUseful or
+    aCacheMetrics.SnapshotCacheUseful;
+end;
+
+procedure AccumulateProjectFactsCacheMetrics(
+  var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  const aCacheMetrics: TDelphiSemanticSnapshotCacheMetrics);
+begin
+  Inc(aMetrics.SnapshotCacheProbes, aCacheMetrics.SnapshotCacheProbes);
+  Inc(aMetrics.SnapshotCacheHits, aCacheMetrics.CacheHits);
+  Inc(aMetrics.SnapshotCacheMisses, aCacheMetrics.CacheMisses);
+  Inc(aMetrics.SnapshotCacheInvalidations, aCacheMetrics.Invalidations);
   Inc(aMetrics.SnapshotSqlWriteMilliseconds, aCacheMetrics.SnapshotSqlWriteMilliseconds);
   Inc(aMetrics.SnapshotSqlReadMilliseconds, aCacheMetrics.SnapshotSqlReadMilliseconds);
   Inc(aMetrics.SnapshotDeserializeMilliseconds,
@@ -738,6 +826,89 @@ begin
   Result := BuildSnapshotFromModels(aModels, lFacts, True, aWorkerCount, aMetrics);
 end;
 
+function CachedInventorySymbol(const aExactStrings: TSemanticStringPool;
+  const aSymbol: TSemanticRemoveWithInventorySymbolFact): TDelphiSemanticInventorySymbol;
+begin
+  Result := Default(TDelphiSemanticInventorySymbol);
+  Result.Name := aExactStrings.TextOf(aSymbol.NameId);
+  Result.SymbolClass := aExactStrings.TextOf(aSymbol.SymbolClassId);
+  Result.Kind := aExactStrings.TextOf(aSymbol.KindId);
+  Result.TypeName := aExactStrings.TextOf(aSymbol.TypeNameId);
+  Result.Modifier := aExactStrings.TextOf(aSymbol.ModifierId);
+  Result.OwnerName := aExactStrings.TextOf(aSymbol.OwnerNameId);
+  Result.OwnerType := aExactStrings.TextOf(aSymbol.OwnerTypeId);
+  Result.SourceOwnerType := aExactStrings.TextOf(aSymbol.SourceOwnerTypeId);
+  Result.RelatedTypeName := aExactStrings.TextOf(aSymbol.RelatedTypeNameId);
+  Result.RoutineName := aExactStrings.TextOf(aSymbol.RoutineNameId);
+  Result.UnitName := aExactStrings.TextOf(aSymbol.UnitNameId);
+  Result.FileName := aExactStrings.TextOf(aSymbol.FileNameId);
+  Result.SectionKind := aExactStrings.TextOf(aSymbol.SectionKindId);
+  Result.Line := aSymbol.Line;
+  Result.Column := aSymbol.Column;
+  Result.EndLine := aSymbol.EndLine;
+  Result.EndColumn := aSymbol.EndColumn;
+  Result.UnsupportedReason := aExactStrings.TextOf(aSymbol.UnsupportedReasonId);
+  Result.IsHelper := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsHelper) <> 0;
+  Result.IsOverride := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsOverride) <> 0;
+  Result.IsDefault := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsDefault) <> 0;
+  Result.IsIndexed := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsIndexed) <> 0;
+  Result.IndexParameterCount := aSymbol.IndexParameterCount;
+  Result.TypeCategory := aExactStrings.TextOf(aSymbol.TypeCategoryId);
+end;
+
+function CachedRoutineOwnerSymbols(const aExactStrings: TSemanticStringPool;
+  const aFacts: TSemanticRemoveWithPlanningFacts): TArray<TDelphiSemanticInventorySymbol>;
+var
+  i: Integer;
+begin
+  SetLength(Result, Length(aFacts.RoutineOwners));
+  for i := 0 to High(aFacts.RoutineOwners) do
+    Result[i] := CachedInventorySymbol(aExactStrings, aFacts.RoutineOwners[i]);
+end;
+
+function BuildCachedRemoveWithSnapshotWithLookup(const aCachedSnapshot:
+  TDelphiProjectSnapshot; const aModels: TArray<TDelphiSemanticUnitModel>):
+  TDelphiProjectSnapshot;
+var
+  i: Cardinal;
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lFacts: TSemanticRemoveWithPlanningFacts;
+  lLookupSymbols: TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := nil;
+  if (aCachedSnapshot = nil) or not aCachedSnapshot.HasRemoveWithPlanningFacts then
+    Exit;
+
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    for i := 1 to aCachedSnapshot.ExactStringCount do
+      lBuilder.ExactStrings.Intern(aCachedSnapshot.ExactTextOf(TSemanticStringId(i)));
+    lFacts := aCachedSnapshot.RemoveWithPlanningFacts;
+    if not lFacts.LookupIndex.IsAvailable then
+    begin
+      lLookupSymbols := CachedRoutineOwnerSymbols(lBuilder.ExactStrings, lFacts);
+      lFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(aModels,
+        lLookupSymbols);
+    end;
+    lBuilder.SetRemoveWithPlanningFactsOwned(lFacts);
+    Result := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+end;
+
+function CachedRemoveWithPlanNeedsModelRebuild(
+  const aPlan: TDelphiSemanticRemoveWithPlan): Boolean;
+var
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  Result := False;
+  for lStatement in aPlan.FinalStatements do
+    if SameText(lStatement.Status, 'skipped') and
+      SameText(lStatement.Reason, 'type-source-not-indexed') then
+      Exit(True);
+end;
+
 function TryLoadSingleUnitSnapshotFromCache(const aCacheFileName: string;
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
   out aSnapshot: TDelphiProjectSnapshot;
@@ -754,6 +925,28 @@ begin
   lCache := TDelphiSemanticSnapshotSqliteCache.Create(aCacheFileName);
   try
     Result := lCache.TryLoadUnit(aIdentity, aSnapshot);
+    aCacheMetrics := lCache.Metrics;
+  finally
+    lCache.Free;
+  end;
+end;
+
+function TryLoadProjectRemoveWithFactsFromCache(const aCacheFileName: string;
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  out aSnapshot: TDelphiProjectSnapshot;
+  out aCacheMetrics: TDelphiSemanticSnapshotCacheMetrics): Boolean;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+begin
+  Result := False;
+  aSnapshot := nil;
+  aCacheMetrics := Default(TDelphiSemanticSnapshotCacheMetrics);
+  if Trim(aCacheFileName) = '' then
+    Exit;
+
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(aCacheFileName);
+  try
+    Result := lCache.TryLoadProjectRemoveWithPlanningFacts(aIdentity, aSnapshot);
     aCacheMetrics := lCache.Metrics;
   finally
     lCache.Free;
@@ -779,6 +972,28 @@ begin
   begin
     aSnapshots[i].Free;
     aSnapshots[i] := nil;
+  end;
+end;
+
+procedure StoreProjectRemoveWithFactsCacheEntry(const aCacheFileName: string;
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  const aSnapshot: TDelphiProjectSnapshot;
+  const aLookupSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics);
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+begin
+  if (Trim(aCacheFileName) = '') or (aSnapshot = nil) or
+    not aSnapshot.HasRemoveWithPlanningFacts then
+    Exit;
+
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(aCacheFileName);
+  try
+    lCache.StoreProjectRemoveWithPlanningFacts(aIdentity, aSnapshot, aLookupSymbols);
+    Inc(aMetrics.SnapshotSqlWriteMilliseconds,
+      lCache.Metrics.SnapshotSqlWriteMilliseconds);
+  finally
+    lCache.Free;
   end;
 end;
 
@@ -1237,14 +1452,81 @@ function TDelphiSemanticProjectSession.PlanRemoveWith(
   const aScopedSourceFileNames: TArray<string>): TDelphiSemanticRemoveWithPlan;
 var
   lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lCacheSnapshotMetrics: TDelphiSemanticSnapshotCacheMetrics;
+  lCacheSnapshot: TDelphiProjectSnapshot;
+  lCachedPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectFactsIdentity: TDelphiSemanticSnapshotCacheIdentity;
   lExtractionMilliseconds: Int64;
+  lExtractionCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  lFallbackMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lGraph: TDelphiSemanticSemanticGraph;
   lModels: TArray<TDelphiSemanticUnitModel>;
   lSnapshot: TDelphiProjectSnapshot;
+  lSourceFileNames: TArray<string>;
+  lUnitCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
 begin
+  fLastSnapshotBuildMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
+  lCacheSnapshotMetrics := Default(TDelphiSemanticSnapshotCacheMetrics);
+  lSourceFileNames := ProjectModelFileNames(fProject);
+  SetLength(lUnitCacheIdentities, 0);
+  if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
+  begin
+    lUnitCacheIdentities := BuildProjectUnitCacheIdentities(fProject, fOptions,
+      lSourceFileNames, aScopedSourceFileNames);
+    lProjectFactsIdentity := ProjectRemoveWithFactsCacheIdentity(fProject, fOptions,
+      lSourceFileNames, aScopedSourceFileNames, lUnitCacheIdentities);
+    lCacheSnapshot := nil;
+    if TryLoadProjectRemoveWithFactsFromCache(fOptions.SqliteCacheFileName,
+      lProjectFactsIdentity, lCacheSnapshot, lCacheSnapshotMetrics) then
+    begin
+      try
+        AccumulateProjectFactsCacheMetrics(fLastSnapshotBuildMetrics,
+          lCacheSnapshotMetrics);
+        fLastSemanticGraphBuildMetrics := Default(TDelphiSemanticGraphBuildMetrics);
+        lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds,
+          lCacheMetrics, lSourceFileNames, aScopedSourceFileNames,
+          lExtractionCacheIdentities);
+        lSnapshot := BuildCachedRemoveWithSnapshotWithLookup(lCacheSnapshot, lModels);
+        try
+          lCachedPlan := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
+          if not CachedRemoveWithPlanNeedsModelRebuild(lCachedPlan) then
+            Exit(lCachedPlan);
+        finally
+          lSnapshot.Free;
+        end;
+        if fOptions.SkipWithBindingSemanticGraph then
+          lGraph := nil
+        else
+          lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lModels);
+        try
+          if lGraph <> nil then
+            fLastSemanticGraphBuildMetrics := lGraph.Metrics
+          else
+            fLastSemanticGraphBuildMetrics := Default(TDelphiSemanticGraphBuildMetrics);
+          lFacts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint,
+            lGraph, lModels);
+          lSnapshot := BuildSnapshotFromModels(lModels, lFacts, False,
+            fOptions.SnapshotBuildWorkerCount, lFallbackMetrics);
+          try
+            Exit(TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot));
+          finally
+            lSnapshot.Free;
+          end;
+        finally
+          lGraph.Free;
+        end;
+      finally
+        lCacheSnapshot.Free;
+      end;
+    end;
+    AccumulateProjectFactsCacheMetrics(fLastSnapshotBuildMetrics,
+      lCacheSnapshotMetrics);
+  end;
+
   lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds,
-    lCacheMetrics, aScopedSourceFileNames);
+    lCacheMetrics, lSourceFileNames, aScopedSourceFileNames,
+    lExtractionCacheIdentities);
   if fOptions.SkipWithBindingSemanticGraph then
     lGraph := nil
   else
@@ -1267,6 +1549,17 @@ begin
     lSnapshot := BuildSnapshotFromModels(lModels, lFacts, False,
       fOptions.SnapshotBuildWorkerCount, fLastSnapshotBuildMetrics);
     try
+      if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
+      begin
+        AccumulateProjectFactsCacheMetrics(fLastSnapshotBuildMetrics,
+          lCacheSnapshotMetrics);
+        if Length(lUnitCacheIdentities) = 0 then
+          lUnitCacheIdentities := lExtractionCacheIdentities;
+        lProjectFactsIdentity := ProjectRemoveWithFactsCacheIdentity(fProject, fOptions,
+          lSourceFileNames, aScopedSourceFileNames, lUnitCacheIdentities);
+        StoreProjectRemoveWithFactsCacheEntry(fOptions.SqliteCacheFileName,
+          lProjectFactsIdentity, lSnapshot, lFacts.Symbols, fLastSnapshotBuildMetrics);
+      end;
       Result := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
     finally
       lSnapshot.Free;

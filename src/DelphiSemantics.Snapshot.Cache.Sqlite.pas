@@ -3,7 +3,7 @@
 interface
 
 uses
-  DelphiSemantics.Snapshot;
+  DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticSnapshotCacheIdentity = record
@@ -45,6 +45,8 @@ type
       const aConnection: TObject; out aEntryBelongsToIdentity: Boolean): Boolean;
     procedure LoadExactStrings(const aCacheKey: string; const aConnection: TObject;
       const aExactStrings: TSemanticStringPool);
+    function ProjectRemoveWithIdentityMatches(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      const aConnection: TObject; out aEntryBelongsToIdentity: Boolean): Boolean;
     procedure LoadReferences(const aCacheKey: string; const aConnection: TObject;
       const aUnit: TUnitSnapshot);
     procedure LoadRemoveWithPlanningFacts(const aCacheKey: string; const aConnection: TObject;
@@ -66,11 +68,14 @@ type
     function SharedConnection(out aConnection: TObject; out aError: string): Boolean;
     procedure StoreExactStrings(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aSnapshot: TDelphiProjectSnapshot);
+    procedure StoreExactStringPool(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      const aConnection: TObject; const aExactStrings: TSemanticStringPool);
     procedure StoreReferences(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aUnit: TUnitSnapshot);
     procedure StoreRemoveWithPlanningFacts(
       const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
-      const aSnapshot: TDelphiProjectSnapshot);
+      const aSnapshot: TDelphiProjectSnapshot; const aExactStrings: TSemanticStringPool;
+      const aLookupSymbols: TArray<TDelphiSemanticInventorySymbol>);
     procedure StoreStrings(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aStrings: TSemanticStringPool);
     procedure StoreSymbols(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
@@ -87,6 +92,16 @@ type
       const aSnapshot: TDelphiProjectSnapshot = nil);
     procedure StoreUnitFromSnapshot(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aSnapshot: TDelphiProjectSnapshot; const aUnitIndex: Integer);
+    procedure StoreProjectRemoveWithPlanningFacts(
+      const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      const aSnapshot: TDelphiProjectSnapshot); overload;
+    procedure StoreProjectRemoveWithPlanningFacts(
+      const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      const aSnapshot: TDelphiProjectSnapshot;
+      const aLookupSymbols: TArray<TDelphiSemanticInventorySymbol>); overload;
+    function TryLoadProjectRemoveWithPlanningFacts(
+      const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      out aSnapshot: TDelphiProjectSnapshot): Boolean;
     function TryLoadUnit(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       out aSnapshot: TDelphiProjectSnapshot): Boolean;
     property Metrics: TDelphiSemanticSnapshotCacheMetrics read fMetrics;
@@ -102,7 +117,7 @@ uses
   DelphiSemantics.Snapshot.RemoveWith;
 
 const
-  cSnapshotCacheSchemaVersion = '5';
+  cSnapshotCacheSchemaVersion = '6';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
 
 function NewQuery(const aConnection: TFDConnection; const aSql: string): TFDQuery;
@@ -221,6 +236,92 @@ begin
     raise Exception.Create('Snapshot string ID outside string pool: ' + aFieldName);
   if aStrings.TextOf(aId) = '' then
     raise Exception.Create('Snapshot string ID resolves to empty text: ' + aFieldName);
+end;
+
+function LoadedInventorySymbol(const aExactStrings: TSemanticStringPool;
+  const aSymbol: TSemanticRemoveWithInventorySymbolFact): TDelphiSemanticInventorySymbol;
+begin
+  Result := Default(TDelphiSemanticInventorySymbol);
+  Result.Name := aExactStrings.TextOf(aSymbol.NameId);
+  Result.SymbolClass := aExactStrings.TextOf(aSymbol.SymbolClassId);
+  Result.Kind := aExactStrings.TextOf(aSymbol.KindId);
+  Result.TypeName := aExactStrings.TextOf(aSymbol.TypeNameId);
+  Result.Modifier := aExactStrings.TextOf(aSymbol.ModifierId);
+  Result.OwnerName := aExactStrings.TextOf(aSymbol.OwnerNameId);
+  Result.OwnerType := aExactStrings.TextOf(aSymbol.OwnerTypeId);
+  Result.SourceOwnerType := aExactStrings.TextOf(aSymbol.SourceOwnerTypeId);
+  Result.RelatedTypeName := aExactStrings.TextOf(aSymbol.RelatedTypeNameId);
+  Result.RoutineName := aExactStrings.TextOf(aSymbol.RoutineNameId);
+  Result.UnitName := aExactStrings.TextOf(aSymbol.UnitNameId);
+  Result.FileName := aExactStrings.TextOf(aSymbol.FileNameId);
+  Result.SectionKind := aExactStrings.TextOf(aSymbol.SectionKindId);
+  Result.Line := aSymbol.Line;
+  Result.Column := aSymbol.Column;
+  Result.EndLine := aSymbol.EndLine;
+  Result.EndColumn := aSymbol.EndColumn;
+  Result.UnsupportedReason := aExactStrings.TextOf(aSymbol.UnsupportedReasonId);
+  Result.IsHelper := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsHelper) <> 0;
+  Result.IsOverride := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsOverride) <> 0;
+  Result.IsDefault := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsDefault) <> 0;
+  Result.IsIndexed := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsIndexed) <> 0;
+  Result.IndexParameterCount := aSymbol.IndexParameterCount;
+  Result.TypeCategory := aExactStrings.TextOf(aSymbol.TypeCategoryId);
+end;
+
+function LoadedInventorySymbols(const aExactStrings: TSemanticStringPool;
+  const aSymbols: TArray<TSemanticRemoveWithInventorySymbolFact>):
+  TArray<TDelphiSemanticInventorySymbol>;
+var
+  i: Integer;
+begin
+  SetLength(Result, Length(aSymbols));
+  for i := 0 to High(aSymbols) do
+    Result[i] := LoadedInventorySymbol(aExactStrings, aSymbols[i]);
+end;
+
+function StoredInventorySymbol(const aExactStrings: TSemanticStringPool;
+  const aSymbol: TDelphiSemanticInventorySymbol): TSemanticRemoveWithInventorySymbolFact;
+begin
+  Result := Default(TSemanticRemoveWithInventorySymbolFact);
+  Result.NameId := aExactStrings.Intern(aSymbol.Name);
+  Result.SymbolClassId := aExactStrings.Intern(aSymbol.SymbolClass);
+  Result.KindId := aExactStrings.Intern(aSymbol.Kind);
+  Result.TypeNameId := aExactStrings.Intern(aSymbol.TypeName);
+  Result.ModifierId := aExactStrings.Intern(aSymbol.Modifier);
+  Result.OwnerNameId := aExactStrings.Intern(aSymbol.OwnerName);
+  Result.OwnerTypeId := aExactStrings.Intern(aSymbol.OwnerType);
+  Result.SourceOwnerTypeId := aExactStrings.Intern(aSymbol.SourceOwnerType);
+  Result.RelatedTypeNameId := aExactStrings.Intern(aSymbol.RelatedTypeName);
+  Result.RoutineNameId := aExactStrings.Intern(aSymbol.RoutineName);
+  Result.UnitNameId := aExactStrings.Intern(aSymbol.UnitName);
+  Result.FileNameId := aExactStrings.Intern(aSymbol.FileName);
+  Result.SectionKindId := aExactStrings.Intern(aSymbol.SectionKind);
+  Result.Line := aSymbol.Line;
+  Result.Column := aSymbol.Column;
+  Result.EndLine := aSymbol.EndLine;
+  Result.EndColumn := aSymbol.EndColumn;
+  Result.UnsupportedReasonId := aExactStrings.Intern(aSymbol.UnsupportedReason);
+  if aSymbol.IsHelper then
+    Result.Flags := Result.Flags or cSemanticRemoveWithSymbolFlagIsHelper;
+  if aSymbol.IsOverride then
+    Result.Flags := Result.Flags or cSemanticRemoveWithSymbolFlagIsOverride;
+  if aSymbol.IsDefault then
+    Result.Flags := Result.Flags or cSemanticRemoveWithSymbolFlagIsDefault;
+  if aSymbol.IsIndexed then
+    Result.Flags := Result.Flags or cSemanticRemoveWithSymbolFlagIsIndexed;
+  Result.IndexParameterCount := aSymbol.IndexParameterCount;
+  Result.TypeCategoryId := aExactStrings.Intern(aSymbol.TypeCategory);
+end;
+
+function StoredInventorySymbols(const aExactStrings: TSemanticStringPool;
+  const aSymbols: TArray<TDelphiSemanticInventorySymbol>):
+  TArray<TSemanticRemoveWithInventorySymbolFact>;
+var
+  i: Integer;
+begin
+  SetLength(Result, Length(aSymbols));
+  for i := 0 to High(aSymbols) do
+    Result[i] := StoredInventorySymbol(aExactStrings, aSymbols[i]);
 end;
 
 procedure ValidateUnitStringIds(const aStrings: TSemanticStringPool; const aUnit: TUnitSnapshot);
@@ -346,6 +447,8 @@ begin
     aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_exact_strings where cache_key = ?',
     aCacheKey);
+  ExecWideSql(lConnection,
+    'delete from snapshot_project_remove_with_facts where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_references where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_with_statements where cache_key = ?',
     aCacheKey);
@@ -389,6 +492,13 @@ begin
     lConnection.ExecSQL('create table if not exists snapshot_exact_strings (' +
       'cache_key text not null, string_id integer not null, text_value text not null, ' +
       'primary key(cache_key, string_id))');
+    lConnection.ExecSQL('create table if not exists snapshot_project_remove_with_facts (' +
+      'cache_key text primary key not null, identity_key text not null, ' +
+      'source_file_name text not null, file_hash text not null, context_hash text not null, ' +
+      'include_graph_hash text not null, schema_version text not null, ' +
+      'stored_at_utc text not null)');
+    lConnection.ExecSQL('create index if not exists idx_snapshot_project_remove_with_identity on ' +
+      'snapshot_project_remove_with_facts(identity_key)');
     lConnection.ExecSQL('create table if not exists snapshot_symbols (' +
       'cache_key text not null, unit_id integer not null, symbol_id integer not null, ' +
       'name_id integer not null, owner_type_id integer not null, type_id integer not null, ' +
@@ -487,6 +597,53 @@ begin
   lQuery := NewQuery(TFDConnection(aConnection), 'select identity_key, source_file_name, ' +
     'file_hash, context_hash, include_graph_hash, schema_version from snapshot_units ' +
     'where cache_key = ?');
+  try
+    lQuery.Params[0].AsWideString := aIdentity.CacheKey;
+    lStopwatch := TStopwatch.StartNew;
+    lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    if lQuery.Eof then
+      Exit;
+
+    lIdentityKeyField := lQuery.Fields[0];
+    aEntryBelongsToIdentity := lIdentityKeyField.AsWideString = aIdentity.IdentityKey;
+    if not aEntryBelongsToIdentity then
+      Exit;
+
+    lSourceFileNameField := lQuery.Fields[1];
+    lFileHashField := lQuery.Fields[2];
+    lContextHashField := lQuery.Fields[3];
+    lIncludeGraphHashField := lQuery.Fields[4];
+    lSchemaVersionField := lQuery.Fields[5];
+    Result := SameText(lSourceFileNameField.AsWideString, aIdentity.SourceFileName)
+      and (lFileHashField.AsWideString = aIdentity.FileHash)
+      and (lContextHashField.AsWideString = aIdentity.ContextHash)
+      and (lIncludeGraphHashField.AsWideString = aIdentity.IncludeGraphHash)
+      and (lSchemaVersionField.AsWideString = aIdentity.SchemaVersion);
+  finally
+    lQuery.Free;
+  end;
+end;
+
+function TDelphiSemanticSnapshotSqliteCache.ProjectRemoveWithIdentityMatches(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  const aConnection: TObject; out aEntryBelongsToIdentity: Boolean): Boolean;
+var
+  lContextHashField: TField;
+  lFileHashField: TField;
+  lIncludeGraphHashField: TField;
+  lIdentityKeyField: TField;
+  lQuery: TFDQuery;
+  lSchemaVersionField: TField;
+  lSourceFileNameField: TField;
+  lStopwatch: TStopwatch;
+begin
+  Result := False;
+  aEntryBelongsToIdentity := False;
+  lQuery := NewQuery(TFDConnection(aConnection), 'select identity_key, source_file_name, ' +
+    'file_hash, context_hash, include_graph_hash, schema_version from ' +
+    'snapshot_project_remove_with_facts where cache_key = ?');
   try
     lQuery.Params[0].AsWideString := aIdentity.CacheKey;
     lStopwatch := TStopwatch.StartNew;
@@ -1093,6 +1250,9 @@ begin
   if lLoadedReferenceCount <> lExpectedReferenceCount then
     raise Exception.Create('Snapshot remove-with reference row count mismatch.');
 
+  if not lFacts.LookupIndex.IsAvailable then
+    lFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build([],
+      LoadedInventorySymbols(aBuilder.ExactStrings, lFacts.Symbols));
   aBuilder.SetRemoveWithPlanningFactsOwned(lFacts);
 end;
 
@@ -1267,6 +1427,7 @@ begin
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_symbols');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_routine_owners');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_facts');
+  lConnection.ExecSQL('drop table if exists snapshot_project_remove_with_facts');
   lConnection.ExecSQL('drop table if exists snapshot_exact_strings');
   lConnection.ExecSQL('drop table if exists snapshot_references');
   lConnection.ExecSQL('drop table if exists snapshot_with_statements');
@@ -1310,10 +1471,30 @@ procedure TDelphiSemanticSnapshotSqliteCache.StoreExactStrings(
   const aSnapshot: TDelphiProjectSnapshot);
 var
   i: Integer;
+  lExactStrings: TSemanticStringPool;
+begin
+  if aSnapshot = nil then
+    Exit;
+
+  lExactStrings := TSemanticStringPool.Create;
+  try
+    for i := 1 to Integer(aSnapshot.ExactStringCount) do
+      lExactStrings.Intern(aSnapshot.ExactTextOf(TSemanticStringId(i)));
+    StoreExactStringPool(aIdentity, aConnection, lExactStrings);
+  finally
+    lExactStrings.Free;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.StoreExactStringPool(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
+  const aExactStrings: TSemanticStringPool);
+var
+  i: Integer;
   lConnection: TFDConnection;
   lQuery: TFDQuery;
 begin
-  if aSnapshot = nil then
+  if aExactStrings = nil then
     Exit;
 
   lConnection := TFDConnection(aConnection);
@@ -1324,11 +1505,11 @@ begin
     lQuery.Params[1].DataType := ftInteger;
     lQuery.Params[2].DataType := ftWideString;
     lQuery.Prepare;
-    for i := 1 to Integer(aSnapshot.ExactStringCount) do
+    for i := 1 to Integer(aExactStrings.Count) do
     begin
       lQuery.Params[0].AsWideString := aIdentity.CacheKey;
       lQuery.Params[1].AsInteger := i;
-      lQuery.Params[2].AsWideString := aSnapshot.ExactTextOf(TSemanticStringId(i));
+      lQuery.Params[2].AsWideString := aExactStrings.TextOf(TSemanticStringId(i));
       lQuery.ExecSQL;
     end;
   finally
@@ -1388,13 +1569,15 @@ end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreRemoveWithPlanningFacts(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
-  const aSnapshot: TDelphiProjectSnapshot);
+  const aSnapshot: TDelphiProjectSnapshot; const aExactStrings: TSemanticStringPool;
+  const aLookupSymbols: TArray<TDelphiSemanticInventorySymbol>);
 var
   i: Integer;
   j: Integer;
   lBinding: TSemanticRemoveWithBindingFact;
   lConnection: TFDConnection;
   lFacts: TSemanticRemoveWithPlanningFacts;
+  lLookupSymbols: TArray<TSemanticRemoveWithInventorySymbolFact>;
   lParamIndex: Integer;
   lQuery: TFDQuery;
   lReference: TSemanticRemoveWithBoundReferenceFact;
@@ -1458,6 +1641,7 @@ begin
 
   lConnection := TFDConnection(aConnection);
   lFacts := aSnapshot.RemoveWithPlanningFacts;
+  lLookupSymbols := StoredInventorySymbols(aExactStrings, aLookupSymbols);
   lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_facts(cache_key, ' +
     'context_fingerprint_id, routine_owner_count, symbol_count, binding_count) values ' +
     '(?, ?, ?, ?, ?)');
@@ -1469,7 +1653,7 @@ begin
     lQuery.Params[0].AsWideString := aIdentity.CacheKey;
     lQuery.Params[1].AsInteger := Integer(lFacts.ContextFingerprintId);
     lQuery.Params[2].AsInteger := Length(lFacts.RoutineOwners);
-    lQuery.Params[3].AsInteger := Length(lFacts.Symbols);
+    lQuery.Params[3].AsInteger := Length(lLookupSymbols);
     lQuery.Params[4].AsInteger := Length(lFacts.Bindings);
     lQuery.ExecSQL;
   finally
@@ -1477,7 +1661,7 @@ begin
   end;
 
   StoreInventoryFacts('snapshot_remove_with_routine_owners', lFacts.RoutineOwners);
-  StoreInventoryFacts('snapshot_remove_with_symbols', lFacts.Symbols);
+  StoreInventoryFacts('snapshot_remove_with_symbols', lLookupSymbols);
 
   lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_bindings(cache_key, ' +
     'binding_index, semantic_id_id, provenance_id, file_name_id, unit_name_id, routine_name_id, ' +
@@ -1694,7 +1878,6 @@ begin
     StoreWithStatements(aIdentity, lConnection, aUnit);
     StoreReferences(aIdentity, lConnection, aUnit);
     StoreExactStrings(aIdentity, lConnection, aSnapshot);
-    StoreRemoveWithPlanningFacts(aIdentity, lConnection, aSnapshot);
     lConnection.Commit;
     Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
   except
@@ -1720,6 +1903,77 @@ begin
     StoreUnit(aIdentity, lStrings, aSnapshot.UnitByIndex(aUnitIndex), aSnapshot);
   finally
     lStrings.Free;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.StoreProjectRemoveWithPlanningFacts(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  const aSnapshot: TDelphiProjectSnapshot);
+var
+  lLookupSymbols: TArray<TDelphiSemanticInventorySymbol>;
+begin
+  SetLength(lLookupSymbols, 0);
+  StoreProjectRemoveWithPlanningFacts(aIdentity, aSnapshot, lLookupSymbols);
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.StoreProjectRemoveWithPlanningFacts(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  const aSnapshot: TDelphiProjectSnapshot;
+  const aLookupSymbols: TArray<TDelphiSemanticInventorySymbol>);
+var
+  i: Cardinal;
+  lConnectionObject: TObject;
+  lConnection: TFDConnection;
+  lError: string;
+  lExactStrings: TSemanticStringPool;
+  lQuery: TFDQuery;
+  lWriteStopwatch: TStopwatch;
+begin
+  if (aSnapshot = nil) or not aSnapshot.HasRemoveWithPlanningFacts then
+    raise Exception.Create('Cannot store project remove-with planning facts from an empty snapshot.');
+  ValidateIdentityComplete(aIdentity, 'store project remove-with planning facts for');
+
+  if not SharedConnection(lConnectionObject, lError) then
+    raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
+
+  lConnection := TFDConnection(lConnectionObject);
+  lConnection.StartTransaction;
+  lWriteStopwatch := TStopwatch.StartNew;
+  lExactStrings := TSemanticStringPool.Create;
+  try
+    try
+      for i := 1 to aSnapshot.ExactStringCount do
+        lExactStrings.Intern(aSnapshot.ExactTextOf(TSemanticStringId(i)));
+      StoredInventorySymbols(lExactStrings, aLookupSymbols);
+      DeleteCacheKeyRows(lConnection, aIdentity.CacheKey);
+      lQuery := NewQuery(lConnection, 'insert into snapshot_project_remove_with_facts(' +
+        'cache_key, identity_key, source_file_name, file_hash, context_hash, ' +
+        'include_graph_hash, schema_version, stored_at_utc) values (?, ?, ?, ?, ?, ?, ?, ?)');
+      try
+        SetWideParam(lQuery, 0, aIdentity.CacheKey);
+        SetWideParam(lQuery, 1, aIdentity.IdentityKey);
+        SetWideParam(lQuery, 2, aIdentity.SourceFileName);
+        SetWideParam(lQuery, 3, aIdentity.FileHash);
+        SetWideParam(lQuery, 4, aIdentity.ContextHash);
+        SetWideParam(lQuery, 5, aIdentity.IncludeGraphHash);
+        SetWideParam(lQuery, 6, aIdentity.SchemaVersion);
+        SetWideParam(lQuery, 7, SnapshotUtcTimestamp);
+        lQuery.Prepare;
+        lQuery.ExecSQL;
+      finally
+        lQuery.Free;
+      end;
+      StoreExactStringPool(aIdentity, lConnection, lExactStrings);
+      StoreRemoveWithPlanningFacts(aIdentity, lConnection, aSnapshot, lExactStrings,
+        aLookupSymbols);
+      lConnection.Commit;
+      Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
+    except
+      lConnection.Rollback;
+      raise;
+    end;
+  finally
+    lExactStrings.Free;
   end;
 end;
 
@@ -1857,7 +2111,6 @@ begin
       LoadSymbols(aIdentity.CacheKey, lConnectionObject, lUnit);
       LoadWithStatements(aIdentity.CacheKey, lConnectionObject, lUnit);
       LoadReferences(aIdentity.CacheKey, lConnectionObject, lUnit);
-      LoadRemoveWithPlanningFacts(aIdentity.CacheKey, lConnectionObject, lBuilder);
       ValidateLoadedCounts(lBuilder.Strings, lUnit, lStringCount, lSymbolCount,
         lWithStatementCount, lReferenceCount);
       ValidateUnitStringIds(lBuilder.Strings, lUnit);
@@ -1880,6 +2133,65 @@ begin
       on E: Exception do
       begin
         lUnit.Free;
+        DeleteCacheKey(aIdentity.CacheKey);
+        Inc(fMetrics.Invalidations);
+        Inc(fMetrics.CacheMisses);
+        Result := False;
+      end;
+    end;
+  finally
+    lBuilder.Free;
+  end;
+end;
+
+function TDelphiSemanticSnapshotSqliteCache.TryLoadProjectRemoveWithPlanningFacts(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  out aSnapshot: TDelphiProjectSnapshot): Boolean;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lConnectionObject: TObject;
+  lEntryBelongsToIdentity: Boolean;
+  lError: string;
+  lIndexRebuildStopwatch: TStopwatch;
+begin
+  Result := False;
+  aSnapshot := nil;
+  ValidateIdentityComplete(aIdentity, 'load project remove-with planning facts for');
+  ResetProbeMetrics;
+  Inc(fMetrics.SnapshotCacheProbes);
+  if not SharedConnection(lConnectionObject, lError) then
+    raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
+
+  if not ProjectRemoveWithIdentityMatches(aIdentity, lConnectionObject,
+    lEntryBelongsToIdentity) then
+  begin
+    if lEntryBelongsToIdentity then
+    begin
+      Inc(fMetrics.Invalidations);
+      DeleteCacheKey(aIdentity.CacheKey);
+    end;
+    Inc(fMetrics.CacheMisses);
+    Exit;
+  end;
+
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    try
+      LoadExactStrings(aIdentity.CacheKey, lConnectionObject, lBuilder.ExactStrings);
+      LoadRemoveWithPlanningFacts(aIdentity.CacheKey, lConnectionObject, lBuilder);
+      lIndexRebuildStopwatch := TStopwatch.StartNew;
+      aSnapshot := lBuilder.Build;
+      if not aSnapshot.HasRemoveWithPlanningFacts then
+        raise Exception.Create('Snapshot project remove-with planning facts disappeared during load.');
+      Inc(fMetrics.SnapshotIndexRebuildMilliseconds,
+        VisibleElapsedMilliseconds(lIndexRebuildStopwatch));
+      Inc(fMetrics.CacheHits);
+      Result := True;
+    except
+      on E: Exception do
+      begin
+        aSnapshot.Free;
+        aSnapshot := nil;
         DeleteCacheKey(aIdentity.CacheKey);
         Inc(fMetrics.Invalidations);
         Inc(fMetrics.CacheMisses);
