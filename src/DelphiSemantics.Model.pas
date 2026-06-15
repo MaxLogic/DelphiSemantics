@@ -884,6 +884,18 @@ begin
   end;
 end;
 
+procedure ExtractContains(const aText: string; const aImplementationUses: TList<string>);
+var
+  lMatch: TMatch;
+begin
+  lMatch := TRegEx.Match(aText, '\bcontains\s+(.*?);', [roIgnoreCase, roSingleLine]);
+  while lMatch.Success do
+  begin
+    AddUses(aImplementationUses, lMatch.Groups[1].Value);
+    lMatch := lMatch.NextMatch;
+  end;
+end;
+
 function NormalizeTypeName(const aTypeName: string): string;
 begin
   Result := aTypeName.Trim;
@@ -2625,6 +2637,7 @@ begin
     end;
 
     ExtractUses(lText, lInterfaceUses, lImplementationUses);
+    ExtractContains(lText, lImplementationUses);
     lReferenceSink := lReferences;
     if aOptions.SkipReferenceExtraction then
       lReferenceSink := nil;

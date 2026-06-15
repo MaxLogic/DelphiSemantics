@@ -32,6 +32,8 @@ type
     [Test]
     procedure OpensProjectSessionThroughExistingProjectContext;
     [Test]
+    procedure ProjectSessionDependencyGraphUsesSemanticModelsOnly;
+    [Test]
     procedure ProjectSessionBuildsSnapshotFromExtractedModels;
     [Test]
     procedure ProjectSessionParallelSnapshotBuildMatchesSequentialFacts;
@@ -67,6 +69,7 @@ implementation
 
 uses
   System.IOUtils,
+  System.StrUtils,
   System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
@@ -330,6 +333,18 @@ begin
   finally
     lResult.Session.Free;
   end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionDependencyGraphUsesSemanticModelsOnly;
+var
+  lSourceText: string;
+begin
+  lSourceText := ReadRepoSource('src\DelphiSemantics.ProjectSession.pas');
+
+  Assert.IsFalse(ContainsText(lSourceText, 'CollectDependencyGraphIndexFacts'),
+    'BuildDependencyGraph must consume semantic unit models directly.');
+  Assert.IsFalse(ContainsText(lSourceText, 'TProjectIndexer.Create'),
+    'Dependency graph construction must not run a separate project indexer scan.');
 end;
 
 procedure TProjectSessionTests.ProjectSessionBuildsSnapshotFromExtractedModels;

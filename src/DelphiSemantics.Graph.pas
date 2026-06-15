@@ -832,11 +832,17 @@ begin
       if lModel.UnitName <> '' then
       begin
         if SameUnit(lModel.UnitName, aOptions.ProjectUnitName) then
-          Continue;
-        AddUsesEdges(aModels, aOptions, lNodes, lEdges, lUnresolvedUnits, lModel,
-          lModel.InterfaceUses, 'interface');
-        AddUsesEdges(aModels, aOptions, lNodes, lEdges, lUnresolvedUnits, lModel,
-          lModel.ImplementationUses, 'implementation');
+        begin
+          AddUsesEdges(aModels, aOptions, lNodes, lEdges, lUnresolvedUnits, lModel,
+            lModel.InterfaceUses, 'project');
+          AddUsesEdges(aModels, aOptions, lNodes, lEdges, lUnresolvedUnits, lModel,
+            lModel.ImplementationUses, 'contains');
+        end else begin
+          AddUsesEdges(aModels, aOptions, lNodes, lEdges, lUnresolvedUnits, lModel,
+            lModel.InterfaceUses, 'interface');
+          AddUsesEdges(aModels, aOptions, lNodes, lEdges, lUnresolvedUnits, lModel,
+            lModel.ImplementationUses, 'implementation');
+        end;
       end;
     AddGraphFactEdges(aModels, aOptions, lNodes, lEdges, lUnresolvedUnits);
     AddGraphFactUnresolvedUnits(lNodes, lUnresolvedUnits, aOptions);

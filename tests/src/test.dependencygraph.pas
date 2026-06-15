@@ -29,6 +29,8 @@ type
     [Test]
     procedure BuildsProjectExternalAndUnresolvedNodes;
     [Test]
+    procedure BuildsProjectUnitEdgesFromSemanticModel;
+    [Test]
     procedure ReportsCycleComponentsAndRealTraversalPaths;
     [Test]
     procedure FocusNeighborhoodUsesExactUnitName;
@@ -205,6 +207,26 @@ begin
   Assert.AreEqual('project', lEdge.TargetStatus);
   Assert.IsTrue(FindEdge(lGraph, 'GraphRoot', 'ExternalLib', 'interface', lEdge));
   Assert.AreEqual('external', lEdge.TargetStatus);
+end;
+
+procedure TDependencyGraphTests.BuildsProjectUnitEdgesFromSemanticModel;
+var
+  lEdge: TDelphiSemanticDependencyEdge;
+  lGraph: TDelphiSemanticDependencyGraph;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSemanticDependencyGraphOptions;
+begin
+  lModels := LoadModels(['GraphProject.dpr', 'GraphA.pas', 'GraphRoot.pas']);
+  lModels[0].UnitName := 'GraphProject';
+  lOptions := Default(TDelphiSemanticDependencyGraphOptions);
+  lOptions.ProjectUnitName := 'GraphProject';
+
+  lGraph := TDelphiSemanticDependencyGraphBuilder.Build(lModels, lOptions);
+
+  Assert.IsTrue(FindEdge(lGraph, 'GraphProject', 'GraphA', 'project', lEdge));
+  Assert.AreEqual('project', lEdge.TargetStatus);
+  Assert.IsTrue(FindEdge(lGraph, 'GraphProject', 'GraphRoot', 'contains', lEdge));
+  Assert.AreEqual('project', lEdge.TargetStatus);
 end;
 
 procedure TDependencyGraphTests.ReportsCycleComponentsAndRealTraversalPaths;
