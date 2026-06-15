@@ -64,6 +64,8 @@
     <DCCReference Include="src\test.cachesqlite.pas"/>
     <DCCReference Include="src\test.snapshotsqlite.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Api.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Api.ProjectOptions.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Api.RemoveWith.Compatibility.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Api.RemoveWith.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Api.WithBinding.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Cache.pas"/>

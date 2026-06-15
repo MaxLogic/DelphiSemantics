@@ -4,7 +4,7 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Api, DelphiSemantics.Api.RemoveWith;
+  DelphiSemantics.Api, DelphiSemantics.Api.RemoveWith, DelphiSemantics.Api.RemoveWith.Compatibility;
 
 type
   [TestFixture]
@@ -26,13 +26,15 @@ type
     [Test]
     procedure CommonOptionsDoNotExposeRemoveWithBodyAnalysisScope;
     [Test]
+    procedure RemoveWithPrimaryFacadeHidesInternalAliases;
+    [Test]
     procedure RemoveWithRequestOwnsBodyAnalysisScope;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   Test.Support;
 
 
@@ -181,6 +183,31 @@ begin
     'Common project/session options must not expose remove-with-only body-analysis scope.');
 end;
 
+procedure TApiTests.RemoveWithPrimaryFacadeHidesInternalAliases;
+var
+  lInterfaceSource: string;
+  lSource: string;
+begin
+  lSource := ReadRepoSource('src\DelphiSemantics.Api.RemoveWith.pas');
+  lInterfaceSource := Copy(lSource, 1, Pos('implementation', lSource) - 1);
+
+  Assert.IsFalse(ContainsText(lInterfaceSource, 'FinalTextEdit'),
+    'Primary remove-with API facade must not expose final-edit internals.');
+  Assert.IsFalse(ContainsText(lInterfaceSource, 'FinalStatement'),
+    'Primary remove-with API facade must not expose final-statement internals.');
+  Assert.IsFalse(ContainsText(lInterfaceSource, 'RewriteRecipe'),
+    'Primary remove-with API facade must not expose rewrite recipe internals.');
+  Assert.IsFalse(ContainsText(lInterfaceSource, 'LookupIndex'),
+    'Primary remove-with API facade must not expose lookup internals.');
+  Assert.IsFalse(ContainsText(lInterfaceSource, 'Inventory'),
+    'Primary remove-with API facade must not expose inventory internals.');
+  Assert.IsFalse(ContainsText(lInterfaceSource, 'WithBinding'),
+    'Primary remove-with API facade must not expose with-binding internals.');
+  Assert.IsTrue(ContainsText(ReadRepoSource('src\DelphiSemantics.Api.RemoveWith.Compatibility.pas'),
+    'TDelphiSemanticRemoveWithCompatibilityApi'),
+    'Compatibility remove-with API should own internal adapter aliases.');
+end;
+
 procedure TApiTests.RemoveWithRequestOwnsBodyAnalysisScope;
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
@@ -195,7 +222,7 @@ begin
     FixturePath('ProjectWithBinding\ProjectWithBinding.dpr'),
     FixturePath('ProjectWithBinding\ProjectWithUnit.pas')];
 
-  lFacts := TDelphiSemanticRemoveWithApi.BuildProjectWithBindingFacts(lRequest);
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lRequest);
 
   Assert.IsFalse(HasBindingForUnit(lFacts, 'UnreferencedWithUnit'),
     'Remove-with request scope must suppress bindings for non-scoped source files.');

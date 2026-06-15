@@ -76,7 +76,7 @@ uses
   Winapi.Windows,
   maxLogic.IOUtils,
   DelphiSemantics.Api,
-  DelphiSemantics.Api.RemoveWith,
+  DelphiSemantics.Api.RemoveWith.Compatibility,
   DelphiSemantics.Cache,
   DelphiSemantics.Model,
   DelphiSemantics.ProjectContext,
