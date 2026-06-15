@@ -1,4 +1,4 @@
-﻿unit DelphiSemantics.Snapshot.Cache.Sqlite;
+unit DelphiSemantics.Snapshot.Cache.Sqlite;
 
 interface
 
@@ -949,8 +949,10 @@ var
   lFileNameIdField: TField;
   lFlagsField: TField;
   lIntrinsicReferenceCountField: TField;
+  lItemIndex: Integer;
   lLexicalReferenceCountField: TField;
   lLineField: TField;
+  lLoadedBindingCount: Integer;
   lMemberReferenceCountField: TField;
   lProvenanceIdField: TField;
   lQuery: TFDQuery;
@@ -965,7 +967,9 @@ var
   lStopwatch: TStopwatch;
   lUnitNameIdField: TField;
   lLoadedReferenceCount: Integer;
+  lLoadedRoutineOwnerCount: Integer;
   lLoadedSelectorCount: Integer;
+  lLoadedSymbolCount: Integer;
   lUnresolvedReferenceCountField: TField;
   lUnsupportedReferenceCountField: TField;
   lReferenceIndex: Integer;
@@ -988,6 +992,9 @@ begin
     lExpectedBindingCount := lQuery.Fields[3].AsInteger;
     lFacts := Default(TSemanticRemoveWithPlanningFacts);
     lFacts.ContextFingerprintId := TSemanticStringId(lContextFingerprintIdField.AsInteger);
+    SetLength(lFacts.RoutineOwners, lExpectedRoutineOwnerCount);
+    SetLength(lFacts.Symbols, lExpectedSymbolCount);
+    SetLength(lFacts.Bindings, lExpectedBindingCount);
   finally
     lQuery.Free;
   end;
@@ -996,7 +1003,7 @@ begin
     'type_name_id, modifier_id, owner_name_id, owner_type_id, source_owner_type_id, ' +
     'related_type_name_id, routine_name_id, unit_name_id, file_name_id, section_kind_id, ' +
     'line, column, end_line, end_column, unsupported_reason_id, flags, ' +
-    'index_parameter_count, type_category_id from snapshot_remove_with_routine_owners ' +
+    'index_parameter_count, type_category_id, item_index from snapshot_remove_with_routine_owners ' +
     'where cache_key = ? order by item_index');
   try
     lQuery.Params[0].AsWideString := aCacheKey;
@@ -1005,45 +1012,47 @@ begin
     lQuery.FetchAll;
     Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
     CacheQueryFields(lQuery, lFields);
-    i := 0;
+    lLoadedRoutineOwnerCount := 0;
     while not lQuery.Eof do
     begin
-      SetLength(lFacts.RoutineOwners, i + 1);
-      lFacts.RoutineOwners[i].NameId := TSemanticStringId(lFields[0].AsInteger);
-      lFacts.RoutineOwners[i].SymbolClassId := TSemanticStringId(lFields[1].AsInteger);
-      lFacts.RoutineOwners[i].KindId := TSemanticStringId(lFields[2].AsInteger);
-      lFacts.RoutineOwners[i].TypeNameId := TSemanticStringId(lFields[3].AsInteger);
-      lFacts.RoutineOwners[i].ModifierId := TSemanticStringId(lFields[4].AsInteger);
-      lFacts.RoutineOwners[i].OwnerNameId := TSemanticStringId(lFields[5].AsInteger);
-      lFacts.RoutineOwners[i].OwnerTypeId := TSemanticStringId(lFields[6].AsInteger);
-      lFacts.RoutineOwners[i].SourceOwnerTypeId := TSemanticStringId(lFields[7].AsInteger);
-      lFacts.RoutineOwners[i].RelatedTypeNameId := TSemanticStringId(lFields[8].AsInteger);
-      lFacts.RoutineOwners[i].RoutineNameId := TSemanticStringId(lFields[9].AsInteger);
-      lFacts.RoutineOwners[i].UnitNameId := TSemanticStringId(lFields[10].AsInteger);
-      lFacts.RoutineOwners[i].FileNameId := TSemanticStringId(lFields[11].AsInteger);
-      lFacts.RoutineOwners[i].SectionKindId := TSemanticStringId(lFields[12].AsInteger);
-      lFacts.RoutineOwners[i].Line := lFields[13].AsInteger;
-      lFacts.RoutineOwners[i].Column := lFields[14].AsInteger;
-      lFacts.RoutineOwners[i].EndLine := lFields[15].AsInteger;
-      lFacts.RoutineOwners[i].EndColumn := lFields[16].AsInteger;
-      lFacts.RoutineOwners[i].UnsupportedReasonId := TSemanticStringId(lFields[17].AsInteger);
-      lFacts.RoutineOwners[i].Flags := Cardinal(lFields[18].AsInteger);
-      lFacts.RoutineOwners[i].IndexParameterCount := lFields[19].AsInteger;
-      lFacts.RoutineOwners[i].TypeCategoryId := TSemanticStringId(lFields[20].AsInteger);
-      Inc(i);
+      lItemIndex := lFields[21].AsInteger;
+      if (lItemIndex < 0) or (lItemIndex >= lExpectedRoutineOwnerCount) then
+        raise Exception.Create('Snapshot remove-with routine owner row count mismatch.');
+      lFacts.RoutineOwners[lItemIndex].NameId := TSemanticStringId(lFields[0].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].SymbolClassId := TSemanticStringId(lFields[1].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].KindId := TSemanticStringId(lFields[2].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].TypeNameId := TSemanticStringId(lFields[3].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].ModifierId := TSemanticStringId(lFields[4].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].OwnerNameId := TSemanticStringId(lFields[5].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].OwnerTypeId := TSemanticStringId(lFields[6].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].SourceOwnerTypeId := TSemanticStringId(lFields[7].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].RelatedTypeNameId := TSemanticStringId(lFields[8].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].RoutineNameId := TSemanticStringId(lFields[9].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].UnitNameId := TSemanticStringId(lFields[10].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].FileNameId := TSemanticStringId(lFields[11].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].SectionKindId := TSemanticStringId(lFields[12].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].Line := lFields[13].AsInteger;
+      lFacts.RoutineOwners[lItemIndex].Column := lFields[14].AsInteger;
+      lFacts.RoutineOwners[lItemIndex].EndLine := lFields[15].AsInteger;
+      lFacts.RoutineOwners[lItemIndex].EndColumn := lFields[16].AsInteger;
+      lFacts.RoutineOwners[lItemIndex].UnsupportedReasonId := TSemanticStringId(lFields[17].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].Flags := Cardinal(lFields[18].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].IndexParameterCount := lFields[19].AsInteger;
+      lFacts.RoutineOwners[lItemIndex].TypeCategoryId := TSemanticStringId(lFields[20].AsInteger);
+      Inc(lLoadedRoutineOwnerCount);
       lQuery.Next;
     end;
   finally
     lQuery.Free;
   end;
-  if Length(lFacts.RoutineOwners) <> lExpectedRoutineOwnerCount then
+  if lLoadedRoutineOwnerCount <> lExpectedRoutineOwnerCount then
     raise Exception.Create('Snapshot remove-with routine owner row count mismatch.');
 
   lQuery := NewQuery(TFDConnection(aConnection), 'select name_id, symbol_class_id, kind_id, ' +
     'type_name_id, modifier_id, owner_name_id, owner_type_id, source_owner_type_id, ' +
     'related_type_name_id, routine_name_id, unit_name_id, file_name_id, section_kind_id, ' +
     'line, column, end_line, end_column, unsupported_reason_id, flags, ' +
-    'index_parameter_count, type_category_id from snapshot_remove_with_symbols ' +
+    'index_parameter_count, type_category_id, item_index from snapshot_remove_with_symbols ' +
     'where cache_key = ? order by item_index');
   try
     lQuery.Params[0].AsWideString := aCacheKey;
@@ -1052,38 +1061,40 @@ begin
     lQuery.FetchAll;
     Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
     CacheQueryFields(lQuery, lFields);
-    i := 0;
+    lLoadedSymbolCount := 0;
     while not lQuery.Eof do
     begin
-      SetLength(lFacts.Symbols, i + 1);
-      lFacts.Symbols[i].NameId := TSemanticStringId(lFields[0].AsInteger);
-      lFacts.Symbols[i].SymbolClassId := TSemanticStringId(lFields[1].AsInteger);
-      lFacts.Symbols[i].KindId := TSemanticStringId(lFields[2].AsInteger);
-      lFacts.Symbols[i].TypeNameId := TSemanticStringId(lFields[3].AsInteger);
-      lFacts.Symbols[i].ModifierId := TSemanticStringId(lFields[4].AsInteger);
-      lFacts.Symbols[i].OwnerNameId := TSemanticStringId(lFields[5].AsInteger);
-      lFacts.Symbols[i].OwnerTypeId := TSemanticStringId(lFields[6].AsInteger);
-      lFacts.Symbols[i].SourceOwnerTypeId := TSemanticStringId(lFields[7].AsInteger);
-      lFacts.Symbols[i].RelatedTypeNameId := TSemanticStringId(lFields[8].AsInteger);
-      lFacts.Symbols[i].RoutineNameId := TSemanticStringId(lFields[9].AsInteger);
-      lFacts.Symbols[i].UnitNameId := TSemanticStringId(lFields[10].AsInteger);
-      lFacts.Symbols[i].FileNameId := TSemanticStringId(lFields[11].AsInteger);
-      lFacts.Symbols[i].SectionKindId := TSemanticStringId(lFields[12].AsInteger);
-      lFacts.Symbols[i].Line := lFields[13].AsInteger;
-      lFacts.Symbols[i].Column := lFields[14].AsInteger;
-      lFacts.Symbols[i].EndLine := lFields[15].AsInteger;
-      lFacts.Symbols[i].EndColumn := lFields[16].AsInteger;
-      lFacts.Symbols[i].UnsupportedReasonId := TSemanticStringId(lFields[17].AsInteger);
-      lFacts.Symbols[i].Flags := Cardinal(lFields[18].AsInteger);
-      lFacts.Symbols[i].IndexParameterCount := lFields[19].AsInteger;
-      lFacts.Symbols[i].TypeCategoryId := TSemanticStringId(lFields[20].AsInteger);
-      Inc(i);
+      lItemIndex := lFields[21].AsInteger;
+      if (lItemIndex < 0) or (lItemIndex >= lExpectedSymbolCount) then
+        raise Exception.Create('Snapshot remove-with symbol row count mismatch.');
+      lFacts.Symbols[lItemIndex].NameId := TSemanticStringId(lFields[0].AsInteger);
+      lFacts.Symbols[lItemIndex].SymbolClassId := TSemanticStringId(lFields[1].AsInteger);
+      lFacts.Symbols[lItemIndex].KindId := TSemanticStringId(lFields[2].AsInteger);
+      lFacts.Symbols[lItemIndex].TypeNameId := TSemanticStringId(lFields[3].AsInteger);
+      lFacts.Symbols[lItemIndex].ModifierId := TSemanticStringId(lFields[4].AsInteger);
+      lFacts.Symbols[lItemIndex].OwnerNameId := TSemanticStringId(lFields[5].AsInteger);
+      lFacts.Symbols[lItemIndex].OwnerTypeId := TSemanticStringId(lFields[6].AsInteger);
+      lFacts.Symbols[lItemIndex].SourceOwnerTypeId := TSemanticStringId(lFields[7].AsInteger);
+      lFacts.Symbols[lItemIndex].RelatedTypeNameId := TSemanticStringId(lFields[8].AsInteger);
+      lFacts.Symbols[lItemIndex].RoutineNameId := TSemanticStringId(lFields[9].AsInteger);
+      lFacts.Symbols[lItemIndex].UnitNameId := TSemanticStringId(lFields[10].AsInteger);
+      lFacts.Symbols[lItemIndex].FileNameId := TSemanticStringId(lFields[11].AsInteger);
+      lFacts.Symbols[lItemIndex].SectionKindId := TSemanticStringId(lFields[12].AsInteger);
+      lFacts.Symbols[lItemIndex].Line := lFields[13].AsInteger;
+      lFacts.Symbols[lItemIndex].Column := lFields[14].AsInteger;
+      lFacts.Symbols[lItemIndex].EndLine := lFields[15].AsInteger;
+      lFacts.Symbols[lItemIndex].EndColumn := lFields[16].AsInteger;
+      lFacts.Symbols[lItemIndex].UnsupportedReasonId := TSemanticStringId(lFields[17].AsInteger);
+      lFacts.Symbols[lItemIndex].Flags := Cardinal(lFields[18].AsInteger);
+      lFacts.Symbols[lItemIndex].IndexParameterCount := lFields[19].AsInteger;
+      lFacts.Symbols[lItemIndex].TypeCategoryId := TSemanticStringId(lFields[20].AsInteger);
+      Inc(lLoadedSymbolCount);
       lQuery.Next;
     end;
   finally
     lQuery.Free;
   end;
-  if Length(lFacts.Symbols) <> lExpectedSymbolCount then
+  if lLoadedSymbolCount <> lExpectedSymbolCount then
     raise Exception.Create('Snapshot remove-with symbol row count mismatch.');
 
   lQuery := NewQuery(TFDConnection(aConnection), 'select binding_index, semantic_id_id, ' +
@@ -1127,10 +1138,12 @@ begin
     lReferenceCountField := lQuery.Fields[25];
     lExpectedSelectorCount := 0;
     lExpectedReferenceCount := 0;
+    lLoadedBindingCount := 0;
     while not lQuery.Eof do
     begin
       i := lBindingIndexField.AsInteger;
-      SetLength(lFacts.Bindings, i + 1);
+      if (i < 0) or (i >= lExpectedBindingCount) then
+        raise Exception.Create('Snapshot remove-with binding row count mismatch.');
       lBinding := Default(TSemanticRemoveWithBindingFact);
       lBinding.SemanticIdId := TSemanticStringId(lSemanticIdIdField.AsInteger);
       lBinding.ProvenanceId := TSemanticStringId(lProvenanceIdField.AsInteger);
@@ -1160,12 +1173,13 @@ begin
       Inc(lExpectedSelectorCount, lSelectorCountField.AsInteger);
       Inc(lExpectedReferenceCount, lReferenceCountField.AsInteger);
       lFacts.Bindings[i] := lBinding;
+      Inc(lLoadedBindingCount);
       lQuery.Next;
     end;
   finally
     lQuery.Free;
   end;
-  if Length(lFacts.Bindings) <> lExpectedBindingCount then
+  if lLoadedBindingCount <> lExpectedBindingCount then
     raise Exception.Create('Snapshot remove-with binding row count mismatch.');
 
   lQuery := NewQuery(TFDConnection(aConnection), 'select binding_index, selector_index, ' +

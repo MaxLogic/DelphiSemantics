@@ -1,4 +1,4 @@
-﻿unit Test.SnapshotSqlite;
+unit Test.SnapshotSqlite;
 
 interface
 
@@ -46,6 +46,8 @@ type
     procedure StoreRejectsAmbiguousIdentityValues;
     [Test]
     procedure SnapshotSqliteCacheUsesPreparedStatementsAndCachedFields;
+    [Test]
+    procedure SnapshotSqliteRemoveWithLoadsPreSizeStoredFactArrays;
     [Test]
     procedure SnapshotSqliteCacheUsesWideTextAccessors;
     [Test]
@@ -703,6 +705,72 @@ begin
     'Snapshot with-statement facts should use a prepared insert query.');
   Assert.IsFalse(ContainsText(lSourceText, 'ExecSQL(''insert into snapshot_references'),
     'Snapshot reference facts should use a prepared insert query.');
+end;
+
+procedure TSnapshotSqliteTests.SnapshotSqliteRemoveWithLoadsPreSizeStoredFactArrays;
+var
+  lBindingGrowth: string;
+  lBindingPreSize: string;
+  lLoadEnd: Integer;
+  lLoadSource: string;
+  lLoadStart: Integer;
+  lRoutineOwnerGrowth: string;
+  lRoutineOwnerPreSize: string;
+  lSourceFileName: string;
+  lSourceText: string;
+  lSymbolGrowth: string;
+  lSymbolPreSize: string;
+
+  procedure AssertContainsInOrder(const aSource, aFirst, aSecond, aMessage: string);
+  var
+    lFirstIndex: Integer;
+    lSecondIndex: Integer;
+  begin
+    lFirstIndex := Pos(aFirst, aSource);
+    lSecondIndex := Pos(aSecond, aSource);
+    Assert.IsTrue((lFirstIndex > 0) and (lSecondIndex > lFirstIndex), aMessage);
+  end;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Snapshot.Cache.Sqlite.pas']));
+
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lLoadStart := Pos('procedure TDelphiSemanticSnapshotSqliteCache.LoadRemoveWithPlanningFacts',
+    lSourceText);
+  lLoadEnd := PosEx('function TDelphiSemanticSnapshotSqliteCache.LoadUnitHeader', lSourceText,
+    lLoadStart);
+  Assert.IsTrue((lLoadStart > 0) and (lLoadEnd > lLoadStart),
+    'Expected remove-with planning fact load implementation.');
+  lLoadSource := Copy(lSourceText, lLoadStart, lLoadEnd - lLoadStart);
+
+  lRoutineOwnerGrowth := 'SetLength(lFacts.RoutineOwners, ' + 'i + 1)';
+  lSymbolGrowth := 'SetLength(lFacts.Symbols, ' + 'i + 1)';
+  lBindingGrowth := 'SetLength(lFacts.Bindings, ' + 'i + 1)';
+  Assert.IsFalse(ContainsText(lLoadSource, lRoutineOwnerGrowth),
+    'Routine owner loads must not grow fact arrays per row.');
+  Assert.IsFalse(ContainsText(lLoadSource, lSymbolGrowth),
+    'Symbol loads must not grow fact arrays per row.');
+  Assert.IsFalse(ContainsText(lLoadSource, lBindingGrowth),
+    'Binding loads must not grow fact arrays per row.');
+
+  lRoutineOwnerPreSize := 'SetLength(lFacts.RoutineOwners, lExpectedRoutineOwnerCount)';
+  lSymbolPreSize := 'SetLength(lFacts.Symbols, lExpectedSymbolCount)';
+  lBindingPreSize := 'SetLength(lFacts.Bindings, lExpectedBindingCount)';
+  AssertContainsInOrder(lLoadSource, 'lExpectedRoutineOwnerCount := lQuery.Fields[1].AsInteger',
+    lRoutineOwnerPreSize, 'Routine owners should use the stored row count before loading rows.');
+  AssertContainsInOrder(lLoadSource, 'lExpectedSymbolCount := lQuery.Fields[2].AsInteger',
+    lSymbolPreSize, 'Symbols should use the stored row count before loading rows.');
+  AssertContainsInOrder(lLoadSource, 'lExpectedBindingCount := lQuery.Fields[3].AsInteger',
+    lBindingPreSize, 'Bindings should use the stored row count before loading rows.');
+  AssertContainsInOrder(lLoadSource, lRoutineOwnerPreSize,
+    'Snapshot remove-with routine owner row count mismatch.',
+    'Routine owner mismatch guard should remain after loading rows.');
+  AssertContainsInOrder(lLoadSource, lSymbolPreSize,
+    'Snapshot remove-with symbol row count mismatch.',
+    'Symbol mismatch guard should remain after loading rows.');
+  AssertContainsInOrder(lLoadSource, lBindingPreSize,
+    'Snapshot remove-with binding row count mismatch.',
+    'Binding mismatch guard should remain after loading rows.');
 end;
 
 procedure TSnapshotSqliteTests.SnapshotSqliteCacheUsesWideTextAccessors;
