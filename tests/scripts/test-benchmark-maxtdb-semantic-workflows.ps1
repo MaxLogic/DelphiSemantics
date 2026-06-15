@@ -9,6 +9,8 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $ScriptRoot)
 $BenchmarkScript = Join-Path $RepoRoot 'scripts\benchmark-maxtdb-semantic-workflows.ps1'
 $TempRoot = Join-Path $RepoRoot 'tests\bin\benchmark-script-tests'
 
+. (Join-Path $ScriptRoot 'test-support.ps1')
+
 function New-TestWorkspace {
   param([string]$Name)
 
@@ -203,18 +205,6 @@ function Invoke-BenchmarkSummarize {
   }
   & pwsh @lArgs 1> $lStdout 2> $lStderr
   return $LASTEXITCODE
-}
-
-function Assert-Equal {
-  param(
-    [object]$Expected,
-    [object]$Actual,
-    [string]$Message
-  )
-
-  if ([string]$Expected -ne [string]$Actual) {
-    throw "$Message Expected=[$Expected] Actual=[$Actual]"
-  }
 }
 
 function Test-CompactPlanSummaryCountsDriveParityExport {
@@ -522,35 +512,4 @@ end.
   Assert-Equal $lBefore $lAfter 'Benchmark mutation guard must restore search-path source.'
 }
 
-function Get-ScriptTestNames {
-  $lScriptPath = [IO.Path]::GetFullPath($PSCommandPath)
-  $lTests = @(Get-Command -CommandType Function -Name 'Test-*' |
-    Where-Object {
-      (-not [string]::IsNullOrWhiteSpace($_.ScriptBlock.File)) -and
-      ([IO.Path]::GetFullPath($_.ScriptBlock.File) -eq $lScriptPath)
-    } |
-    Sort-Object Name |
-    Select-Object -ExpandProperty Name)
-
-  if ($lTests.Count -eq 0) {
-    throw "No Test-* functions discovered in $lScriptPath."
-  }
-  return $lTests
-}
-
-$lTests = @(Get-ScriptTestNames)
-Write-Host "Discovered $($lTests.Count) test(s)."
-$lFailures = New-Object System.Collections.Generic.List[string]
-foreach ($lTest in $lTests) {
-  try {
-    & $lTest
-    Write-Host "PASS $lTest"
-  } catch {
-    $lFailures.Add("FAIL ${lTest}: $($_.Exception.Message)")
-    Write-Host "FAIL ${lTest}: $($_.Exception.Message)"
-  }
-}
-
-if ($lFailures.Count -gt 0) {
-  exit 1
-}
+Invoke-ScriptTests
