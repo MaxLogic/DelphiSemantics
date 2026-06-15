@@ -117,6 +117,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Graph.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.GlobalVars.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Index.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Index.LegacyModel.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Lsp.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Model.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Preprocess.pas"/>

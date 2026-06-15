@@ -62,6 +62,8 @@ type
     procedure ProjectSymbolIndexUsesCaseInsensitiveLookupMaps;
     [Test]
     procedure SnapshotProjectionHelpersLiveInQuerySupport;
+    [Test]
+    procedure LegacyModelIndexingLivesInCompatibilityAdapter;
   end;
 
 implementation
@@ -1118,6 +1120,40 @@ begin
     'Search should delegate snapshot unit projection to QuerySupport.');
   Assert.IsFalse(ContainsText(lIndexSource, 'function SnapshotUnitSymbolId'),
     'Index should delegate snapshot unit projection to QuerySupport.');
+end;
+
+procedure TSymbolQueryTests.LegacyModelIndexingLivesInCompatibilityAdapter;
+var
+  lAdapterPath: string;
+  lAdapterSource: string;
+  lIndexSource: string;
+begin
+  lAdapterPath := RepoSourcePath('src\DelphiSemantics.Index.LegacyModel.pas');
+  Assert.IsTrue(TFile.Exists(lAdapterPath),
+    'Legacy model-backed indexing should live in an explicit compatibility adapter.');
+
+  lIndexSource := ReadRepoSource('src\DelphiSemantics.Index.pas');
+  lAdapterSource := ReadRepoSource('src\DelphiSemantics.Index.LegacyModel.pas');
+
+  Assert.IsTrue(ContainsText(lIndexSource, 'DelphiSemantics.Index.LegacyModel'),
+    'Index should delegate model-backed index construction to the compatibility adapter.');
+  Assert.IsTrue(ContainsText(lAdapterSource, 'TDelphiSemanticLegacyModelIndexer'),
+    'The adapter should expose a focused model-backed indexer.');
+  Assert.IsTrue(ContainsText(lAdapterSource, 'BuildSymbols') and
+    ContainsText(lAdapterSource, 'BuildReferences'),
+    'The adapter should keep legacy model symbol and reference construction together.');
+  Assert.IsFalse(ContainsText(lIndexSource, 'procedure AddModelSymbols'),
+    'Index should not own model symbol construction.');
+  Assert.IsFalse(ContainsText(lIndexSource, 'procedure AddModelReferences'),
+    'Index should not own model reference construction.');
+  Assert.IsFalse(ContainsText(lIndexSource, 'procedure ResolveReference'),
+    'Index should not own legacy model reference resolution.');
+  Assert.IsTrue(ContainsText(lIndexSource, 'BuildSnapshotProjectSymbolIndex'),
+    'Index should keep the snapshot project-index path separate from the model adapter.');
+  Assert.IsFalse(ContainsText(lAdapterSource, 'TDelphiProjectSnapshot'),
+    'The legacy model adapter should not own snapshot projection.');
+  Assert.IsFalse(ContainsText(lAdapterSource, 'SnapshotIndexedSymbol'),
+    'The legacy model adapter should not call snapshot projection helpers.');
 end;
 
 initialization
