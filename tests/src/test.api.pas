@@ -10,10 +10,17 @@ type
   [TestFixture]
   TApiTests = class
   private
+    function BlockerReason(const aPlan: TDelphiSemanticDeadCodeRemovalPlan;
+      const aName: string): string;
     function HasBindingForUnit(const aFacts: TDelphiSemanticProjectWithBindingFacts;
       const aUnitName: string): Boolean;
     function HasProjectSymbol(const aFacts: TDelphiSemanticProjectWithBindingFacts;
       const aName, aSymbolClass: string): Boolean;
+    function LoadCachedContext(const aCompilerProfileName, aSourceFileName: string;
+      const aIndexedSourceFileNames: TArray<string>; const aIndexedSourceKinds:
+      TArray<string>): TDelphiSemanticSymbolQueryContext;
+    function ReportCandidateStatus(const aReport: TDelphiSemanticDeadCodeReport;
+      const aName: string): string;
     function TryFindDiagnostic(const aResult: TDelphiSemanticContextResult;
       const aCode: string; out aDiagnostic: TDelphiSemanticDiagnostic): Boolean;
   public
@@ -23,6 +30,14 @@ type
     procedure LoadProjectContextMergesApiSearchPaths;
     [Test]
     procedure LoadProjectContextReportsExplicitLspEnrichmentStatus;
+    [Test]
+    procedure ScanWithAndSymbolIndexRoutesReturnStableShapes;
+    [Test]
+    procedure UsageRoutesReturnStableShapes;
+    [Test]
+    procedure RenameAndFunctionResultRoutesReturnStableShapes;
+    [Test]
+    procedure DeadCodeAndSearchRoutesReturnStableShapes;
     [Test]
     procedure CommonOptionsDoNotExposeRemoveWithBodyAnalysisScope;
     [Test]
@@ -35,8 +50,21 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
+  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Model,
   Test.Support;
 
+
+function TApiTests.BlockerReason(const aPlan: TDelphiSemanticDeadCodeRemovalPlan;
+  const aName: string): string;
+var
+  lBlocker: TDelphiSemanticDeadCodeRemovalBlocker;
+begin
+  for lBlocker in aPlan.Blockers do
+    if SameText(lBlocker.Name, aName) then
+      Exit(lBlocker.Reason);
+
+  Result := '';
+end;
 
 function TApiTests.HasBindingForUnit(
   const aFacts: TDelphiSemanticProjectWithBindingFacts; const aUnitName: string): Boolean;
@@ -60,6 +88,44 @@ begin
       Exit(True);
 
   Result := False;
+end;
+
+function TApiTests.LoadCachedContext(const aCompilerProfileName, aSourceFileName: string;
+  const aIndexedSourceFileNames: TArray<string>; const aIndexedSourceKinds: TArray<string>):
+  TDelphiSemanticSymbolQueryContext;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.CompilerProfileName := aCompilerProfileName;
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := aSourceFileName;
+    lModelOptions.ProjectContextApplied := True;
+    Result.UnitModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Result.CompilerProfile := TDelphiSemanticCompilerProfileBuilder.FromCachedSources(lCache,
+      aIndexedSourceFileNames);
+    Result.IndexedUnitModels := Result.CompilerProfile.RtlSourceUnitModels;
+    Result.IndexedUnitSourceKinds := aIndexedSourceKinds;
+    Result.CacheMetrics := lCache.Metrics;
+  finally
+    lCache.Free;
+  end;
+end;
+
+function TApiTests.ReportCandidateStatus(const aReport: TDelphiSemanticDeadCodeReport;
+  const aName: string): string;
+var
+  lCandidate: TDelphiSemanticDeadCodeCandidate;
+begin
+  for lCandidate in aReport.Candidates do
+    if SameText(lCandidate.Name, aName) then
+      Exit(lCandidate.Status);
+
+  Result := '';
 end;
 
 function TApiTests.TryFindDiagnostic(const aResult: TDelphiSemanticContextResult;
@@ -167,6 +233,146 @@ begin
   Assert.AreEqual(lProjectFileName, lDiagnostic.FileName);
   Assert.AreEqual('LSP enrichment was requested, but no DelphiSemantics LSP enrichment adapter is configured.',
     lDiagnostic.Message);
+end;
+
+procedure TApiTests.ScanWithAndSymbolIndexRoutesReturnStableShapes;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lIndex: TDelphiSemanticProjectSymbolIndex;
+  lOptions: TDelphiSemanticApiOptions;
+  lScan: TDelphiSemanticWithScanResult;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.SourceFileName := FixturePath('WithDiscovery', 'WithDiscoveryUnit.pas');
+  lOptions.ProjectContextApplied := True;
+
+  lScan := TDelphiSemanticApi.ScanWithStatements(lOptions);
+
+  Assert.IsTrue(lScan.Success);
+  Assert.IsFalse(lScan.ProjectSessionUsed);
+  Assert.AreEqual('WithDiscoveryUnit', lScan.UnitName);
+  Assert.AreEqual(5, Integer(Length(lScan.WithStatements)));
+
+  lContext := LoadCachedContext('Delphi-12-Api-SymbolQuery',
+    FixturePath('SymbolQuery', 'SymbolQueryUnit.pas'),
+    [FixturePath('SymbolQuery', 'SymbolQueryRtlUnit.pas')], ['rtl-source']);
+
+  lIndex := TDelphiSemanticApi.BuildProjectSymbolIndex(lContext);
+
+  Assert.IsTrue(Length(lIndex.Symbols) > 0);
+  Assert.AreEqual(1, lIndex.Metrics.BuildInvocationCount);
+  Assert.IsTrue(Length(lIndex.FindSymbolsByName('GlobalQueryValue')) > 0);
+  Assert.AreEqual('project-source',
+    lIndex.FindSymbolsByName('GlobalQueryValue')[0].SourceKind);
+end;
+
+procedure TApiTests.UsageRoutesReturnStableShapes;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lNameResult: TDelphiSemanticUsageResult;
+  lPositionResult: TDelphiSemanticUsageResult;
+begin
+  lContext := LoadCachedContext('Delphi-12-Api-Usage',
+    FixturePath('SymbolQuery', 'SymbolQueryUnit.pas'),
+    [FixturePath('SymbolQuery', 'SymbolQueryRtlUnit.pas')], ['rtl-source']);
+
+  lPositionResult := TDelphiSemanticApi.FindUsagesAtPosition(lContext,
+    FixturePath('SymbolQuery', 'SymbolQueryUnit.pas'), 6, 3);
+  lNameResult := TDelphiSemanticApi.FindUsagesByName(lContext, 'GlobalQueryValue');
+
+  Assert.AreEqual('resolved', lPositionResult.Status);
+  Assert.AreEqual('TSymbolMapFixture', lPositionResult.Symbol.Name);
+  Assert.IsTrue(Length(lPositionResult.Usages) >= 3);
+  Assert.AreEqual('resolved', lNameResult.Status);
+  Assert.AreEqual('GlobalQueryValue', lNameResult.Symbol.Name);
+  Assert.IsTrue(Length(lNameResult.Usages) >= 3);
+end;
+
+procedure TApiTests.RenameAndFunctionResultRoutesReturnStableShapes;
+var
+  lFunctionContext: TDelphiSemanticSymbolQueryContext;
+  lFunctionPlan: TDelphiSemanticRenamePlan;
+  lRenameContext: TDelphiSemanticSymbolQueryContext;
+  lRenamePlan: TDelphiSemanticRenamePlan;
+  lRoutineContext: TDelphiSemanticSymbolQueryContext;
+  lRoutinePlan: TDelphiSemanticRenamePlan;
+begin
+  lRenameContext := LoadCachedContext('Delphi-12-Api-Rename',
+    FixturePath('Rename', 'RenameUnit.pas'), [FixturePath('Rename', 'RenameConsumerUnit.pas')],
+    ['project-source']);
+
+  lRenamePlan := TDelphiSemanticApi.PlanRename(lRenameContext, 'GlobalQueryValue',
+    'RenamedGlobalQueryValue');
+
+  Assert.AreEqual('planned', lRenamePlan.Status, lRenamePlan.Diagnostic);
+  Assert.AreEqual(3, Integer(Length(lRenamePlan.Edits)));
+
+  lRoutineContext := LoadCachedContext('Delphi-12-Api-Rename-Routine',
+    FixturePath('RenameUnblock', 'RenameRoutineUnit.pas'),
+    [FixturePath('RenameUnblock', 'RenameRoutineConsumerUnit.pas')], ['project-source']);
+
+  lRoutinePlan := TDelphiSemanticApi.PlanRenameAtPosition(lRoutineContext,
+    FixturePath('RenameUnblock', 'RenameRoutineUnit.pas'), 8, 10, 'RenamedRoutineTarget');
+
+  Assert.AreEqual('planned', lRoutinePlan.Status, lRoutinePlan.Diagnostic);
+  Assert.AreEqual(3, Integer(Length(lRoutinePlan.Edits)));
+
+  lFunctionContext := LoadCachedContext('Delphi-12-Api-Function-Result',
+    FixturePath('FunctionResult', 'FunctionResultUnit.pas'), [], []);
+
+  lFunctionPlan := TDelphiSemanticApi.PlanFunctionResultRefactorAtPosition(lFunctionContext,
+    FixturePath('FunctionResult', 'FunctionResultUnit.pas'), 23, 3);
+
+  Assert.AreEqual('planned', lFunctionPlan.Status, lFunctionPlan.Diagnostic);
+  Assert.AreEqual(4, Integer(Length(lFunctionPlan.Edits)));
+end;
+
+procedure TApiTests.DeadCodeAndSearchRoutesReturnStableShapes;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lRemovalByName: TDelphiSemanticDeadCodeRemovalPlan;
+  lRemovalByProfile: TDelphiSemanticDeadCodeRemovalPlan;
+  lReportByName: TDelphiSemanticDeadCodeReport;
+  lReportByProfile: TDelphiSemanticDeadCodeReport;
+  lSearchQuery: TDelphiSemanticSearchQuery;
+  lSearchResult: TDelphiSemanticSearchResult;
+begin
+  lContext := LoadCachedContext('Delphi-12-Api-DeadCode',
+    FixturePath('DeadCode', 'DeadCodeUnit.pas'),
+    [FixturePath('DeadCode', 'DeadCodeOtherUnit.pas'),
+    FixturePath('DeadCode', 'DeadCodeRtlUnit.pas')], ['project-source', 'rtl-source']);
+
+  lReportByProfile := TDelphiSemanticApi.ReportDeadCode(lContext,
+    TDelphiSemanticDeadCodeSafetyProfile.dcspAudit);
+  lReportByName := TDelphiSemanticApi.ReportDeadCode(lContext, 'audit');
+
+  Assert.AreEqual('audit', lReportByProfile.Profile);
+  Assert.AreEqual('audit', lReportByName.Profile);
+  Assert.AreEqual('definitely-unused', ReportCandidateStatus(lReportByName,
+    'StaticUnusedValue'));
+
+  lRemovalByProfile := TDelphiSemanticApi.PlanDeadCodeRemoval(lContext,
+    TDelphiSemanticDeadCodeSafetyProfile.dcspConservative);
+  lRemovalByName := TDelphiSemanticApi.PlanDeadCodeRemoval(lContext, 'audit');
+
+  Assert.AreEqual('planned', lRemovalByProfile.Status);
+  Assert.AreEqual('conservative', lRemovalByProfile.Profile);
+  Assert.IsTrue(Length(lRemovalByProfile.Edits) > 0);
+  Assert.AreEqual('planned', lRemovalByName.Status);
+  Assert.AreEqual('audit', lRemovalByName.Profile);
+  Assert.AreEqual('audit-profile', BlockerReason(lRemovalByName, 'StaticUnusedValue'));
+
+  lContext := LoadCachedContext('Delphi-12-Api-Search',
+    FixturePath('SymbolQuery', 'SymbolQueryUnit.pas'),
+    [FixturePath('SymbolQuery', 'SymbolQueryRtlUnit.pas')], ['rtl-source']);
+  lSearchQuery := Default(TDelphiSemanticSearchQuery);
+  lSearchQuery.Pattern := 'GlobalQuery';
+
+  lSearchResult := TDelphiSemanticApi.Search(lContext, lSearchQuery);
+
+  Assert.AreEqual('resolved', lSearchResult.Status);
+  Assert.IsTrue(Length(lSearchResult.Matches) > 0);
+  Assert.AreEqual('GlobalQueryValue', lSearchResult.Matches[0].Name);
 end;
 
 procedure TApiTests.CommonOptionsDoNotExposeRemoveWithBodyAnalysisScope;
