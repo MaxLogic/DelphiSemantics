@@ -130,6 +130,7 @@ var
   lOptions: TDelphiSemanticOptions;
   lResult: TDelphiSemanticUsageResult;
   lRootPath: string;
+  lScopedContext: TScopedSnapshotQueryContext;
   lSessionResult: TDelphiSemanticProjectSessionResult;
   lSnapshot: TDelphiProjectSnapshot;
   lUnitPath: string;
@@ -168,29 +169,33 @@ begin
       Assert.IsTrue(lSessionResult.Success);
       lSnapshot := lSessionResult.Session.BuildSnapshot;
       try
-        lContext := Default(TDelphiSemanticSymbolQueryContext);
-        lContext.ProjectSnapshot := BorrowProjectSnapshot(lSnapshot);
+        lScopedContext := TScopedSnapshotQueryContext.Create(lSnapshot);
+        try
+          lContext := lScopedContext.Context;
 
-        lResult := TDelphiSemanticUsageFinder.FindUsagesByName(lContext,
-          'SnapshotUsageProjectValue');
+          lResult := TDelphiSemanticUsageFinder.FindUsagesByName(lContext,
+            'SnapshotUsageProjectValue');
 
-        Assert.AreEqual('resolved', lResult.Status);
-        Assert.AreEqual('SnapshotUsageProjectValue', lResult.Symbol.Name);
-        Assert.AreEqual(0, lResult.IndexMetrics.BuildInvocationCount);
+          Assert.AreEqual('resolved', lResult.Status);
+          Assert.AreEqual('SnapshotUsageProjectValue', lResult.Symbol.Name);
+          Assert.AreEqual(0, lResult.IndexMetrics.BuildInvocationCount);
 
-        lFoundDeclaration := False;
-        lFoundReference := False;
-        for lUsage in lResult.Usages do
-        begin
-          if SameText(lUsage.Role, 'declaration') then
-            lFoundDeclaration := True;
-          if not SameText(lUsage.Role, 'declaration') then
-            lFoundReference := True;
+          lFoundDeclaration := False;
+          lFoundReference := False;
+          for lUsage in lResult.Usages do
+          begin
+            if SameText(lUsage.Role, 'declaration') then
+              lFoundDeclaration := True;
+            if not SameText(lUsage.Role, 'declaration') then
+              lFoundReference := True;
+          end;
+
+          Assert.IsTrue(lFoundDeclaration);
+          Assert.IsTrue(lFoundReference,
+            'Expected the real session-built snapshot to carry a target-resolved project reference.');
+        finally
+          lScopedContext.Free;
         end;
-
-        Assert.IsTrue(lFoundDeclaration);
-        Assert.IsTrue(lFoundReference,
-          'Expected the real session-built snapshot to carry a target-resolved project reference.');
       finally
         lSnapshot.Free;
       end;
@@ -232,6 +237,7 @@ var
   lRoutineReference: TSemanticReferenceFact;
   lRoutineSymbol: TSemanticSymbolFact;
   lRoutineSymbolId: TSemanticSymbolId;
+  lScopedContext: TScopedSnapshotQueryContext;
   lSecondResult: TDelphiSemanticUsageResult;
   lSectionKindId: TSemanticStringId;
   lSourceKindId: TSemanticStringId;
@@ -392,9 +398,9 @@ begin
     lBuilder.Free;
   end;
 
+  lScopedContext := TScopedSnapshotQueryContext.Create(lProject);
   try
-    lContext := Default(TDelphiSemanticSymbolQueryContext);
-    lContext.ProjectSnapshot := BorrowProjectSnapshot(lProject);
+    lContext := lScopedContext.Context;
 
     lResult := TDelphiSemanticUsageFinder.FindUsagesByName(lContext, 'SnapshotUsageValue');
     lSecondResult := TDelphiSemanticUsageFinder.FindUsagesByName(lContext,
@@ -470,6 +476,7 @@ begin
     Assert.IsTrue(lFoundMethodReference);
     Assert.IsTrue(lFoundRoutineReference);
   finally
+    lScopedContext.Free;
     lProject.Free;
   end;
 end;

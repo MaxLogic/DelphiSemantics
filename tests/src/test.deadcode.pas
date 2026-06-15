@@ -213,6 +213,7 @@ var
   lProject: TDelphiProjectSnapshot;
   lReport: TDelphiSemanticDeadCodeReport;
   lRootPath: string;
+  lScopedContext: TScopedSnapshotQueryContext;
   lSymbol: TSemanticSymbolFact;
   lUnit: TUnitSnapshot;
 begin
@@ -255,9 +256,9 @@ begin
     lBuilder.Free;
   end;
 
+  lScopedContext := TScopedSnapshotQueryContext.Create(lProject);
   try
-    lContext := Default(TDelphiSemanticSymbolQueryContext);
-    lContext.ProjectSnapshot := BorrowProjectSnapshot(lProject);
+    lContext := lScopedContext.Context;
 
     lReport := TDelphiSemanticApi.ReportDeadCode(lContext, 'audit');
 
@@ -266,7 +267,7 @@ begin
     Assert.AreEqual(0, lReport.IndexMetrics.BuildInvocationCount);
     Assert.AreEqual(lBefore, TFile.ReadAllText(lFileName));
   finally
-    lContext.ProjectSnapshot := nil;
+    lScopedContext.Free;
     lProject.Free;
   end;
 end;
@@ -284,6 +285,7 @@ var
   lNameId: TSemanticStringId;
   lProject: TDelphiProjectSnapshot;
   lReference: TDelphiSemanticReference;
+  lScopedSnapshotContext: TScopedSnapshotQueryContext;
   lSnapshotContext: TDelphiSemanticSymbolQueryContext;
   lSnapshotReference: TSemanticReferenceFact;
   lSnapshotReport: TDelphiSemanticDeadCodeReport;
@@ -302,9 +304,11 @@ begin
     sLineBreak + '  SnapshotReferencedHook := 1;' + sLineBreak + 'end.';
   TFile.WriteAllText(lFileName, lSource, TEncoding.UTF8);
   lProject := nil;
+  lScopedSnapshotContext := nil;
   lMap := TDictionary<string, TSemanticSymbolRef>.Create;
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
   try
+    // Low-level parity contract: this model-backed context intentionally has no project snapshot.
     lContext := Default(TDelphiSemanticSymbolQueryContext);
     lContext.UnitModel.UnitName := 'SnapshotDeadCodeParityUnit';
     lContext.UnitModel.FileName := lFileName;
@@ -389,8 +393,8 @@ begin
     end;
 
     lProject := lBuilder.Build;
-    lSnapshotContext := Default(TDelphiSemanticSymbolQueryContext);
-    lSnapshotContext.ProjectSnapshot := BorrowProjectSnapshot(lProject);
+    lScopedSnapshotContext := TScopedSnapshotQueryContext.Create(lProject);
+    lSnapshotContext := lScopedSnapshotContext.Context;
     lSnapshotReport := TDelphiSemanticApi.ReportDeadCode(lSnapshotContext, 'audit');
 
     Assert.AreEqual(CandidateStatus(lModelReport, 'SnapshotReferencedHook'),
@@ -403,7 +407,7 @@ begin
       CandidateReferenceCount(lSnapshotReport, 'SnapshotUnusedParityValue'));
     Assert.AreEqual(0, lSnapshotReport.IndexMetrics.BuildInvocationCount);
   finally
-    lSnapshotContext.ProjectSnapshot := nil;
+    lScopedSnapshotContext.Free;
     lProject.Free;
     lBuilder.Free;
     lMap.Free;

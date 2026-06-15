@@ -3,7 +3,8 @@ unit Test.Support;
 interface
 
 uses
-  System.Classes, DUnitX.TestFramework;
+  System.Classes, DUnitX.TestFramework,
+  DelphiSemantics.Query, DelphiSemantics.Snapshot;
 
 function RepoRoot: string;
 function FixturePath(const aRelativePath: string): string; overload;
@@ -13,6 +14,15 @@ function ReadRepoSource(const aRelativePath: string): string;
 procedure WaitForTestThreads(const aThreads: array of TThread; const aTimeoutMs: Cardinal);
 
 type
+  TScopedSnapshotQueryContext = class
+  private
+    fContext: TDelphiSemanticSymbolQueryContext;
+  public
+    constructor Create(const aSnapshot: TDelphiProjectSnapshot);
+    destructor Destroy; override;
+    property Context: TDelphiSemanticSymbolQueryContext read fContext;
+  end;
+
   TScopedEnvironmentVariable = class
   private
     fHadPreviousValue: Boolean;
@@ -50,6 +60,8 @@ type
     procedure ScopedEnvironmentConstructorFailureReleasesLock;
     [Test]
     procedure RepoPathHelpersResolveFixturesAndSource;
+    [Test]
+    procedure SnapshotBackedQueryContextsUseScopedHelper;
   end;
 
 implementation
@@ -60,6 +72,19 @@ uses
 
 var
   gEnvironmentLock: TCriticalSection;
+
+constructor TScopedSnapshotQueryContext.Create(const aSnapshot: TDelphiProjectSnapshot);
+begin
+  inherited Create;
+  fContext := Default(TDelphiSemanticSymbolQueryContext);
+  fContext.ProjectSnapshot := BorrowProjectSnapshot(aSnapshot);
+end;
+
+destructor TScopedSnapshotQueryContext.Destroy;
+begin
+  fContext.ProjectSnapshot := nil;
+  inherited;
+end;
 
 function RepoRoot: string;
 begin
@@ -243,6 +268,36 @@ begin
     'RepoSourcePath should resolve from the repository root.');
   Assert.IsTrue(ContainsText(ReadRepoSource('src\DelphiSemantics.Api.pas'),
     'unit DelphiSemantics.Api;'));
+end;
+
+procedure TSupportTests.SnapshotBackedQueryContextsUseScopedHelper;
+var
+  lDeadCodeSource: string;
+  lDirectSnapshotBorrow: string;
+  lDirectSnapshotClear: string;
+  lHelperTypeName: string;
+  lSupportSource: string;
+  lSymbolQuerySource: string;
+  lUsageSource: string;
+begin
+  lSupportSource := ReadRepoSource('tests\src\test.support.pas');
+  lSymbolQuerySource := ReadRepoSource('tests\src\test.symbolquery.pas');
+  lUsageSource := ReadRepoSource('tests\src\test.usage.pas');
+  lDeadCodeSource := ReadRepoSource('tests\src\test.deadcode.pas');
+  lDirectSnapshotBorrow := 'ProjectSnapshot := ' + 'BorrowProjectSnapshot';
+  lDirectSnapshotClear := 'ProjectSnapshot := ' + 'nil';
+  lHelperTypeName := 'TScoped' + 'SnapshotQueryContext = class';
+
+  Assert.IsTrue(ContainsText(lSupportSource, lHelperTypeName),
+    'Expected one shared scoped snapshot query-context helper.');
+  Assert.IsFalse(ContainsText(lSymbolQuerySource, lDirectSnapshotBorrow),
+    'SymbolQuery tests should use the shared snapshot context helper.');
+  Assert.IsFalse(ContainsText(lUsageSource, lDirectSnapshotBorrow),
+    'Usage tests should use the shared snapshot context helper.');
+  Assert.IsFalse(ContainsText(lDeadCodeSource, lDirectSnapshotBorrow),
+    'DeadCode tests should use the shared snapshot context helper.');
+  Assert.IsFalse(ContainsText(lDeadCodeSource, lDirectSnapshotClear),
+    'DeadCode tests should let the shared helper clear snapshot context state.');
 end;
 
 procedure TSupportTests.WaitForTestThreadsFailsTimedOutWorker;

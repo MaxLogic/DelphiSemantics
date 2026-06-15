@@ -262,6 +262,7 @@ var
   lRoutineNameId: TSemanticStringId;
   lRoutineSymbol: TSemanticSymbolFact;
   lRoutineSymbols: TArray<TDelphiSemanticIndexedSymbol>;
+  lScopedContext: TScopedSnapshotQueryContext;
   lScopes: TArray<TDelphiSemanticUnitModel>;
   lSectionKindId: TSemanticStringId;
   lSourceKindId: TSemanticStringId;
@@ -374,9 +375,9 @@ begin
     lBuilder.Free;
   end;
 
+  lScopedContext := TScopedSnapshotQueryContext.Create(lProject);
   try
-    lContext := Default(TDelphiSemanticSymbolQueryContext);
-    lContext.ProjectSnapshot := BorrowProjectSnapshot(lProject);
+    lContext := lScopedContext.Context;
 
     lIndex := TDelphiSemanticApi.BuildProjectSymbolIndex(lContext);
 
@@ -430,6 +431,7 @@ begin
     Assert.AreEqual('read', lReferences[0].Role);
     Assert.AreEqual('snapshot-source', lReferences[0].SourceKind);
   finally
+    lScopedContext.Free;
     lProject.Free;
   end;
 end;
@@ -878,6 +880,7 @@ var
   lReference: TDelphiSemanticIndexedReference;
   lSawSharedLocal: Boolean;
 begin
+  // Low-level index contract: this model-only context intentionally has no project snapshot.
   lContext := Default(TDelphiSemanticSymbolQueryContext);
   lContext.UnitModel.UnitName := 'OverloadedLocalUnit';
   lContext.UnitModel.FileName := FixturePath('SymbolQuery', 'OverloadedLocalUnit.pas');
