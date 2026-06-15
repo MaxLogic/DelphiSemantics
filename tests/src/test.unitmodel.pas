@@ -10,7 +10,6 @@ type
   [TestFixture]
   TUnitModelTests = class
   private
-    function FixturePath(const aFolder, aFileName: string): string;
     function HasDeclaration(const aModel: TDelphiSemanticUnitModel; const aName, aKind,
       aSection: string): Boolean;
     function HasDiagnostic(const aModel: TDelphiSemanticUnitModel; const aCode: string): Boolean;
@@ -164,11 +163,6 @@ begin
   Result := TPath.Combine(GUnitModelTempRoot, aName);
 end;
 
-function TUnitModelTests.FixturePath(const aFolder, aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    aFolder, aFileName]));
-end;
 
 function TUnitModelTests.HasDeclaration(const aModel: TDelphiSemanticUnitModel;
   const aName, aKind, aSection: string): Boolean;
@@ -1797,8 +1791,7 @@ var
   lThreadA: TThread;
   lThreadB: TThread;
 begin
-  lModelSource := TFile.ReadAllText(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    '..\..\src\DelphiSemantics.Model.pas'), TEncoding.UTF8);
+  lModelSource := ReadRepoSource('src\DelphiSemantics.Model.pas');
   Assert.IsFalse(ContainsText(lModelSource, 'GLineCacheText'),
     'line coordinate cache must be scoped to an extraction, not process-global');
   Assert.IsFalse(ContainsText(lModelSource, 'GSectionCacheText'),
@@ -1916,8 +1909,7 @@ procedure TUnitModelTests.RoutineReconciliationUsesOffsetMapBeforeFallback;
 var
   lSourceText: string;
 begin
-  lSourceText := TFile.ReadAllText(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    '..\..\src\DelphiSemantics.Model.pas'), TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.Model.pas');
 
   Assert.IsTrue(ContainsText(lSourceText,
     'ApplyRoutineSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lRoutines);'),

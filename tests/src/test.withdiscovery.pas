@@ -1,4 +1,4 @@
-﻿unit Test.WithDiscovery;
+unit Test.WithDiscovery;
 
 interface
 
@@ -10,7 +10,6 @@ type
   [TestFixture]
   TWithDiscoveryTests = class
   private
-    function FixturePath(const aFileName: string): string;
     function LoadModel(const aFileName: string;
       const aDefines: TArray<string> = nil): TDelphiSemanticUnitModel;
     function TempPath(const aName: string): string;
@@ -32,7 +31,8 @@ implementation
 uses
   System.IOUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GWithDiscoveryTempRoot: string;
@@ -54,11 +54,6 @@ begin
   Result := GWithDiscoveryTempRoot;
 end;
 
-function TWithDiscoveryTests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'WithDiscovery', aFileName]));
-end;
 
 function TWithDiscoveryTests.LoadModel(const aFileName: string;
   const aDefines: TArray<string>): TDelphiSemanticUnitModel;
@@ -66,7 +61,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
 begin
   lOptions := Default(TDelphiSemanticModelOptions);
-  lOptions.SourceFileName := FixturePath(aFileName);
+  lOptions.SourceFileName := FixturePath('WithDiscovery', aFileName);
   lOptions.ProjectContextApplied := True;
   lOptions.Defines := aDefines;
   Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);

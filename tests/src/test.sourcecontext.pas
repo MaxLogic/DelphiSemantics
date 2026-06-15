@@ -1,4 +1,4 @@
-﻿unit Test.SourceContext;
+unit Test.SourceContext;
 
 interface
 
@@ -11,7 +11,6 @@ type
   [TestFixture]
   TSourceContextTests = class
   private
-    function FixturePath(const aFolder, aFileName: string): string;
     function LoadProject(const aFileName: string): TDelphiSemanticProjectInfo;
   public
     [Test]
@@ -47,7 +46,8 @@ implementation
 uses
   System.IOUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GSourceContextTempRoot: string;
@@ -69,11 +69,6 @@ begin
   Result := TPath.Combine(GSourceContextTempRoot, aName);
 end;
 
-function TSourceContextTests.FixturePath(const aFolder, aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    aFolder, aFileName]));
-end;
 
 function TSourceContextTests.LoadProject(const aFileName: string): TDelphiSemanticProjectInfo;
 var
@@ -157,8 +152,7 @@ begin
 
   Assert.IsTrue(TDelphiSemanticSourceContext.TryResolve(lProject, 'SearchHitUnit.pas', 7, 1,
     lContext, lError), lError);
-  Assert.AreEqual(TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'SourceContext', 'lib', 'SearchHitUnit.pas'])), lContext.FileName);
+  Assert.AreEqual(FixturePath('SourceContext', 'lib\SearchHitUnit.pas'), lContext.FileName);
 end;
 
 procedure TSourceContextTests.MissingSourceContextFileReturnsFalse;
@@ -311,9 +305,7 @@ begin
   lDakSourceContextText := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
     ExtractFilePath(ParamStr(0)), '..', '..', '..', 'DelphiAiKit', 'src',
     'dak.sourcecontext.pas'])), TEncoding.UTF8);
-  lRemoveWithPlanText := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
-    ExtractFilePath(ParamStr(0)), '..', '..', 'src',
-    'DelphiSemantics.RemoveWithPlan.pas'])), TEncoding.UTF8);
+  lRemoveWithPlanText := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.pas');
 
   Assert.IsTrue(Pos('TDelphiSemanticSourceContext.', lDakSourceContextText) > 0,
     'DAK source-context should delegate parsing/resolution to DelphiSemantics.');

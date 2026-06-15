@@ -1,4 +1,4 @@
-﻿unit Test.DeadCode;
+unit Test.DeadCode;
 
 interface
 
@@ -21,7 +21,6 @@ type
       const aName, aBlocker: string): Boolean;
     function CandidateStatus(const aReport: TDelphiSemanticDeadCodeReport;
       const aName: string): string;
-    function FixturePath(const aFileName: string): string;
     function LoadContext: TDelphiSemanticSymbolQueryContext;
   public
     [Test]
@@ -41,7 +40,8 @@ implementation
 uses
   System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GDeadCodeTempRoot: string;
@@ -131,11 +131,6 @@ begin
     TDelphiSemanticDeadCodeProfiles.InvalidProfileDiagnostic('typo'));
 end;
 
-function TDeadCodeTests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'DeadCode', aFileName]));
-end;
 
 function TDeadCodeTests.LoadContext: TDelphiSemanticSymbolQueryContext;
 var
@@ -148,13 +143,13 @@ begin
   lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
   try
     lModelOptions := Default(TDelphiSemanticModelOptions);
-    lModelOptions.SourceFileName := FixturePath('DeadCodeUnit.pas');
+    lModelOptions.SourceFileName := FixturePath('DeadCode', 'DeadCodeUnit.pas');
     lModelOptions.ProjectContextApplied := True;
     Result.UnitModel := lCache.GetOrExtractUnitModel(lModelOptions);
     Result.CompilerProfile := TDelphiSemanticCompilerProfileBuilder.FromCachedSources(lCache,
-      [FixturePath('DeadCodeOtherUnit.pas')]);
+      [FixturePath('DeadCode', 'DeadCodeOtherUnit.pas')]);
     lModelOptions := Default(TDelphiSemanticModelOptions);
-    lModelOptions.SourceFileName := FixturePath('DeadCodeRtlUnit.pas');
+    lModelOptions.SourceFileName := FixturePath('DeadCode', 'DeadCodeRtlUnit.pas');
     lModelOptions.ProjectContextApplied := True;
     Result.IndexedUnitModels := Result.CompilerProfile.RtlSourceUnitModels +
       [lCache.GetOrExtractUnitModel(lModelOptions)];

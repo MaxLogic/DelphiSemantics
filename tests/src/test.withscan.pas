@@ -10,7 +10,6 @@ type
   [TestFixture]
   TWithScanTests = class
   private
-    function FixturePath(const aFileName: string): string;
   public
     [Test]
     procedure ScannerReturnsWithStatementsWithoutProjectSession;
@@ -22,13 +21,9 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
-function TWithScanTests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'WithDiscovery', aFileName]));
-end;
 
 procedure TWithScanTests.ScannerReturnsWithStatementsWithoutProjectSession;
 var
@@ -36,7 +31,7 @@ var
   lResult: TDelphiSemanticWithScanResult;
 begin
   lOptions := Default(TDelphiSemanticWithScanOptions);
-  lOptions.SourceFileName := FixturePath('WithDiscoveryUnit.pas');
+  lOptions.SourceFileName := FixturePath('WithDiscovery', 'WithDiscoveryUnit.pas');
   lOptions.ProjectContextApplied := True;
 
   lResult := TDelphiSemanticWithScanner.ScanFile(lOptions);
@@ -55,7 +50,7 @@ var
   lResult: TDelphiSemanticWithScanResult;
 begin
   lOptions := Default(TDelphiSemanticApiOptions);
-  lOptions.SourceFileName := FixturePath('WithDiscoveryUnit.pas');
+  lOptions.SourceFileName := FixturePath('WithDiscovery', 'WithDiscoveryUnit.pas');
   lOptions.ProjectContextApplied := True;
 
   lResult := TDelphiSemanticApi.ScanWithStatements(lOptions);

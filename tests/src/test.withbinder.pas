@@ -1,4 +1,4 @@
-﻿unit Test.WithBinder;
+unit Test.WithBinder;
 
 interface
 
@@ -10,7 +10,6 @@ type
   [TestFixture]
   TWithBinderTests = class
   private
-    function FixturePath(const aFileName: string): string;
     function LoadModel: TDelphiSemanticUnitModel;
     function HasReference(const aBinding: TDelphiSemanticWithBinding; const aName,
       aClassification: string): Boolean;
@@ -97,7 +96,8 @@ implementation
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GWithBinderTempRoot: string;
@@ -119,18 +119,13 @@ begin
   Result := TPath.Combine(GWithBinderTempRoot, aName);
 end;
 
-function TWithBinderTests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'WithBinder', aFileName]));
-end;
 
 function TWithBinderTests.LoadModel: TDelphiSemanticUnitModel;
 var
   lOptions: TDelphiSemanticModelOptions;
 begin
   lOptions := Default(TDelphiSemanticModelOptions);
-  lOptions.SourceFileName := FixturePath('WithBinderUnit.pas');
+  lOptions.SourceFileName := FixturePath('WithBinder', 'WithBinderUnit.pas');
   lOptions.ProjectContextApplied := True;
   Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(Result.Success);
@@ -759,7 +754,7 @@ var
 begin
   lProjectedBaseName := False;
   lOptions := Default(TDelphiSemanticModelOptions);
-  lOptions.SourceFileName := FixturePath('SourceModelGoldenUnit.pas');
+  lOptions.SourceFileName := FixturePath('WithBinder', 'SourceModelGoldenUnit.pas');
   lOptions.ProjectContextApplied := True;
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(lModel.Success);
@@ -899,12 +894,9 @@ end;
 
 procedure TWithBinderTests.InventoryExpansionUsesIndexedOwnMemberLookup;
 var
-  lSourceFileName: string;
   lSourceText: string;
 begin
-  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
-    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
-  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
 
   Assert.IsTrue(ContainsText(lSourceText, 'BuildInventoryOwnMemberKeys'),
     'Inventory expansion must build an indexed own-member lookup for large semantic inventories.');
@@ -917,12 +909,9 @@ var
   lExpansionEnd: Integer;
   lExpansionStart: Integer;
   lExpansionText: string;
-  lSourceFileName: string;
   lSourceText: string;
 begin
-  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
-    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
-  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
   lExpansionStart := Pos('procedure AddRelatedInventoryMemberSymbols', lSourceText);
   lExpansionEnd := Pos('procedure AddRelatedInventoryCurrentClassSymbols', lSourceText);
   lExpansionText := Copy(lSourceText, lExpansionStart, lExpansionEnd - lExpansionStart);
@@ -938,12 +927,9 @@ var
   lExpansionEnd: Integer;
   lExpansionStart: Integer;
   lExpansionText: string;
-  lSourceFileName: string;
   lSourceText: string;
 begin
-  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
-    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
-  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
   lExpansionStart := Pos('procedure AddRelatedInventoryCurrentClassSymbols', lSourceText);
   lExpansionEnd := Pos('procedure AddExpandedExternalTypeSymbol', lSourceText);
   Assert.IsTrue((lExpansionStart > 0) and (lExpansionEnd > lExpansionStart),
@@ -1103,12 +1089,9 @@ var
   lBindEnd: Integer;
   lBindStart: Integer;
   lBindText: string;
-  lSourceFileName: string;
   lSourceText: string;
 begin
-  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
-    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
-  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
 
   lArgumentStart := Pos('procedure AddArgumentReferences', lSourceText);
   lBindStart := Pos('function BindReferences', lSourceText);
@@ -1127,12 +1110,9 @@ end;
 procedure TWithBinderTests.InventoryExpansionUsesOrdinalIgnoreCaseSymbolKeys;
 var
   lKeyFunctionText: string;
-  lSourceFileName: string;
   lSourceText: string;
 begin
-  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
-    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
-  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
   lKeyFunctionText := Copy(lSourceText, Pos('function InventorySymbolKey', lSourceText), 900);
 
   Assert.IsTrue(ContainsText(lSourceText,
@@ -1187,7 +1167,7 @@ var
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
   lOptions := Default(TDelphiSemanticModelOptions);
-  lOptions.SourceFileName := FixturePath('NestedAnonymousWithUnit.pas');
+  lOptions.SourceFileName := FixturePath('WithBinder', 'NestedAnonymousWithUnit.pas');
   lOptions.ProjectContextApplied := True;
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(lModel.Success);
@@ -1218,7 +1198,7 @@ var
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
   lOptions := Default(TDelphiSemanticModelOptions);
-  lOptions.SourceFileName := FixturePath('GlobalAnonymousWithUnit.pas');
+  lOptions.SourceFileName := FixturePath('WithBinder', 'GlobalAnonymousWithUnit.pas');
   lOptions.ProjectContextApplied := True;
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(lModel.Success);
@@ -1248,7 +1228,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
 begin
   lOptions := Default(TDelphiSemanticModelOptions);
-  lOptions.SourceFileName := FixturePath('DefaultPointerWithUnit.pas');
+  lOptions.SourceFileName := FixturePath('WithBinder', 'DefaultPointerWithUnit.pas');
   lOptions.ProjectContextApplied := True;
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(lModel.Success);

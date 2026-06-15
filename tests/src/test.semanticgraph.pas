@@ -10,7 +10,6 @@ type
   [TestFixture]
   TSemanticGraphTests = class
   private
-    function FixturePath(const aRelativePath: string): string;
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function SymbolModel(const aUnitName, aFileName: string): TDelphiSemanticUnitModel;
   public
@@ -29,13 +28,9 @@ implementation
 uses
   System.IOUtils, System.SysUtils,
   maxLogic.IOUtils,
-  DelphiSemantics.ProjectSession;
+  DelphiSemantics.ProjectSession,
+  Test.Support;
 
-function TSemanticGraphTests.FixturePath(const aRelativePath: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    aRelativePath]));
-end;
 
 function TSemanticGraphTests.ProjectInfo: TDelphiSemanticProjectInfo;
 var

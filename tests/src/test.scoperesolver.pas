@@ -1,4 +1,4 @@
-﻿unit Test.ScopeResolver;
+unit Test.ScopeResolver;
 
 interface
 
@@ -10,7 +10,6 @@ type
   [TestFixture]
   TScopeResolverTests = class
   private
-    function FixturePath(const aFileName: string): string;
     function ExtractSource(const aFileName, aSource: string): TDelphiSemanticUnitModel;
     function LoadModel: TDelphiSemanticUnitModel;
   public
@@ -35,7 +34,8 @@ implementation
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GScopeResolverTempRoot: string;
@@ -57,11 +57,6 @@ begin
   Result := TPath.Combine(GScopeResolverTempRoot, aName);
 end;
 
-function TScopeResolverTests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'Resolver', aFileName]));
-end;
 
 function TScopeResolverTests.ExtractSource(const aFileName, aSource: string):
   TDelphiSemanticUnitModel;
@@ -83,7 +78,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
 begin
   lOptions := Default(TDelphiSemanticModelOptions);
-  lOptions.SourceFileName := FixturePath('Level2ResolverUnit.pas');
+  lOptions.SourceFileName := FixturePath('Resolver', 'Level2ResolverUnit.pas');
   lOptions.ProjectContextApplied := True;
   Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(Result.Success);

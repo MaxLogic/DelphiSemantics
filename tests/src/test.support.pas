@@ -5,6 +5,11 @@ interface
 uses
   System.Classes, DUnitX.TestFramework;
 
+function RepoRoot: string;
+function FixturePath(const aRelativePath: string): string; overload;
+function FixturePath(const aFolder, aFileName: string): string; overload;
+function RepoSourcePath(const aRelativePath: string): string;
+function ReadRepoSource(const aRelativePath: string): string;
 procedure WaitForTestThreads(const aThreads: array of TThread; const aTimeoutMs: Cardinal);
 
 type
@@ -43,6 +48,8 @@ type
     procedure ScopedEnvironmentSerializesOverlappingScopes;
     [Test]
     procedure ScopedEnvironmentConstructorFailureReleasesLock;
+    [Test]
+    procedure RepoPathHelpersResolveFixturesAndSource;
   end;
 
 implementation
@@ -53,6 +60,32 @@ uses
 
 var
   gEnvironmentLock: TCriticalSection;
+
+function RepoRoot: string;
+begin
+  Result := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..'));
+end;
+
+function FixturePath(const aRelativePath: string): string;
+begin
+  Result := TPath.GetFullPath(TPath.Combine(TPath.Combine(RepoRoot, 'tests\fixtures'),
+    aRelativePath));
+end;
+
+function FixturePath(const aFolder, aFileName: string): string;
+begin
+  Result := FixturePath(TPath.Combine(aFolder, aFileName));
+end;
+
+function RepoSourcePath(const aRelativePath: string): string;
+begin
+  Result := TPath.GetFullPath(TPath.Combine(RepoRoot, aRelativePath));
+end;
+
+function ReadRepoSource(const aRelativePath: string): string;
+begin
+  Result := TFile.ReadAllText(RepoSourcePath(aRelativePath), TEncoding.UTF8);
+end;
 
 function TryReadEnvironmentVariable(const aName: string; out aValue: string): Boolean;
 var
@@ -200,6 +233,16 @@ begin
   finally
     lThread.Free;
   end;
+end;
+
+procedure TSupportTests.RepoPathHelpersResolveFixturesAndSource;
+begin
+  Assert.IsTrue(DirectoryExists(FixturePath('DependencyGraph')),
+    'FixturePath should resolve under tests\fixtures.');
+  Assert.IsTrue(FileExists(RepoSourcePath('src\DelphiSemantics.Api.pas')),
+    'RepoSourcePath should resolve from the repository root.');
+  Assert.IsTrue(ContainsText(ReadRepoSource('src\DelphiSemantics.Api.pas'),
+    'unit DelphiSemantics.Api;'));
 end;
 
 procedure TSupportTests.WaitForTestThreadsFailsTimedOutWorker;

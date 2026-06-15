@@ -1,4 +1,4 @@
-﻿unit Test.ProjectSession;
+unit Test.ProjectSession;
 
 interface
 
@@ -11,7 +11,6 @@ type
   [TestFixture]
   TProjectSessionTests = class
   private
-    function FixturePath(const aRelativePath: string): string;
     procedure AssertReferenceFactsEqual(const aExpectedSnapshot,
       aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
       aActualUnit: TUnitSnapshot; const aReferenceId: TSemanticReferenceId);
@@ -70,7 +69,8 @@ uses
   DelphiSemantics.Cache,
   DelphiSemantics.Model,
   DelphiSemantics.ProjectContext,
-  DelphiSemantics.ProjectSession;
+  DelphiSemantics.ProjectSession,
+  Test.Support;
 
 var
   GProjectSessionTempRoot: string;
@@ -97,12 +97,6 @@ begin
   Result := TPath.Combine(ProjectSessionTempRoot, aName);
 end;
 
-function TProjectSessionTests.FixturePath(const aRelativePath: string): string;
-begin
-  Result := TPath.GetFullPath(TPath.Combine(
-    TPath.Combine(ExtractFilePath(ParamStr(0)), '..\fixtures'),
-    aRelativePath));
-end;
 
 procedure TProjectSessionTests.AssertReferenceFactsEqual(const aExpectedSnapshot,
   aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,

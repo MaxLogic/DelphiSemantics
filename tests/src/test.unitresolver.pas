@@ -1,4 +1,4 @@
-﻿unit Test.UnitResolver;
+unit Test.UnitResolver;
 
 interface
 
@@ -10,7 +10,6 @@ type
   [TestFixture]
   TUnitResolverTests = class
   private
-    function FixturePath(const aRelativePath: string): string;
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function ProjectModel(const aUnitName, aFileName: string): TDelphiSemanticUnitModel;
   public
@@ -33,7 +32,8 @@ implementation
 uses
   System.IOUtils, System.SysUtils, System.Types,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GUnitResolverTempRoot: string;
@@ -55,17 +55,12 @@ begin
   Result := TPath.Combine(GUnitResolverTempRoot, aName);
 end;
 
-function TUnitResolverTests.FixturePath(const aRelativePath: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'UnitResolver', aRelativePath]));
-end;
 
 function TUnitResolverTests.ProjectInfo: TDelphiSemanticProjectInfo;
 var
   lResult: TDelphiSemanticContextResult;
 begin
-  lResult := TDelphiSemanticProject.Load(FixturePath('UnitResolverProject.dproj'));
+  lResult := TDelphiSemanticProject.Load(FixturePath('UnitResolver', 'UnitResolverProject.dproj'));
   Assert.IsTrue(lResult.Success);
   Result := lResult.Project;
 end;
@@ -92,7 +87,7 @@ begin
   Assert.AreEqual('resolved', lResult.Status);
   Assert.AreEqual('AliasTarget', lResult.CanonicalUnitName);
   Assert.AreEqual('alias', lResult.MatchKind);
-  Assert.AreEqual(FixturePath('Alias\AliasTarget.pas'), lResult.FileName);
+  Assert.AreEqual(FixturePath('UnitResolver', 'Alias\AliasTarget.pas'), lResult.FileName);
 end;
 
 procedure TUnitResolverTests.ExactScopedUnitNameResolvesWithoutNamespaceFallback;
@@ -107,7 +102,7 @@ begin
   Assert.IsTrue(lResult.Found, lResult.Reason);
   Assert.AreEqual('Scoped.TargetUnit', lResult.CanonicalUnitName);
   Assert.AreEqual('exact', lResult.MatchKind);
-  Assert.AreEqual(FixturePath('Scoped\Scoped.TargetUnit.pas'), lResult.FileName);
+  Assert.AreEqual(FixturePath('UnitResolver', 'Scoped\Scoped.TargetUnit.pas'), lResult.FileName);
 end;
 
 procedure TUnitResolverTests.NamespaceFallbackResolvesWindowsWhenCompilerContextSelectsWinapi;
@@ -123,7 +118,7 @@ begin
   Assert.AreEqual('Winapi.Windows', lResult.CanonicalUnitName);
   Assert.AreEqual('scope', lResult.MatchKind);
   Assert.AreEqual('Winapi', lResult.UnitScopeName);
-  Assert.AreEqual(FixturePath('Rtl\Winapi.Windows.pas'), lResult.FileName);
+  Assert.AreEqual(FixturePath('UnitResolver', 'Rtl\Winapi.Windows.pas'), lResult.FileName);
 end;
 
 procedure TUnitResolverTests.SearchPathOrderChoosesFirstCompilerCandidate;
@@ -137,7 +132,7 @@ begin
 
   Assert.IsTrue(lResult.Found, lResult.Reason);
   Assert.AreEqual('DuplicateUnit', lResult.CanonicalUnitName);
-  Assert.AreEqual(FixturePath('First\DuplicateUnit.pas'), lResult.FileName);
+  Assert.AreEqual(FixturePath('UnitResolver', 'First\DuplicateUnit.pas'), lResult.FileName);
   Assert.AreEqual(2, lResult.SearchPathIndex);
 end;
 
@@ -172,8 +167,8 @@ var
 begin
   lProject := ProjectInfo;
   lModels := [
-    ProjectModel('AmbiguousUnit', FixturePath('First\AmbiguousUnit.pas')),
-    ProjectModel('AmbiguousUnit', FixturePath('Second\AmbiguousUnit.pas'))];
+    ProjectModel('AmbiguousUnit', FixturePath('UnitResolver', 'First\AmbiguousUnit.pas')),
+    ProjectModel('AmbiguousUnit', FixturePath('UnitResolver', 'Second\AmbiguousUnit.pas'))];
 
   lResult := TDelphiSemanticUnitResolver.Resolve(lProject, 'AmbiguousUnit', lModels);
 

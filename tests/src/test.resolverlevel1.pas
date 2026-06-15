@@ -10,7 +10,6 @@ type
   [TestFixture]
   TResolverLevel1Tests = class
   private
-    function FixturePath(const aFileName: string): string;
     function LoadModel: TDelphiSemanticUnitModel;
   public
     [Test]
@@ -37,20 +36,16 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
-function TResolverLevel1Tests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'Resolver', aFileName]));
-end;
 
 function TResolverLevel1Tests.LoadModel: TDelphiSemanticUnitModel;
 var
   lOptions: TDelphiSemanticModelOptions;
 begin
   lOptions := Default(TDelphiSemanticModelOptions);
-  lOptions.SourceFileName := FixturePath('Level1ResolverUnit.pas');
+  lOptions.SourceFileName := FixturePath('Resolver', 'Level1ResolverUnit.pas');
   lOptions.ProjectContextApplied := True;
   Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(Result.Success);

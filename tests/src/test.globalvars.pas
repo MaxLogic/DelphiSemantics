@@ -10,7 +10,6 @@ type
   [TestFixture]
   TGlobalVarsSemanticTests = class
   private
-    function FixturePath(const aFileName: string): string;
     function LoadModel(const aFileName: string): TDelphiSemanticUnitModel;
     function HasDeclaration(const aAnalysis: TDelphiSemanticGlobalAnalysis;
       const aName, aKind: string): Boolean;
@@ -36,20 +35,16 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
-function TGlobalVarsSemanticTests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'GlobalVars', aFileName]));
-end;
 
 function TGlobalVarsSemanticTests.LoadModel(const aFileName: string): TDelphiSemanticUnitModel;
 var
   lOptions: TDelphiSemanticModelOptions;
 begin
   lOptions := Default(TDelphiSemanticModelOptions);
-  lOptions.SourceFileName := FixturePath(aFileName);
+  lOptions.SourceFileName := FixturePath('GlobalVars', aFileName);
   lOptions.ProjectContextApplied := True;
   Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(Result.Success);

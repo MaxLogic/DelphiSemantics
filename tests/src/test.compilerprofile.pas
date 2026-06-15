@@ -1,4 +1,4 @@
-﻿unit Test.CompilerProfile;
+unit Test.CompilerProfile;
 
 interface
 
@@ -28,7 +28,8 @@ uses
   Winapi.Windows,
   maxLogic.IOUtils,
   DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Model,
-  DelphiSemantics.Resolve;
+  DelphiSemantics.Resolve,
+  Test.Support;
 
 function CompilerProfileTempRoot: string;
 var
@@ -45,8 +46,7 @@ end;
 
 function CompilerProfileFixtureRoot(const aName: string): string;
 begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'CompilerProfile', aName]));
+  Result := FixturePath('CompilerProfile', aName);
 end;
 
 function FindProfileDeclaration(const aModel: TDelphiSemanticUnitModel; const aName,

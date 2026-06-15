@@ -1,4 +1,4 @@
-﻿unit Test.ProjectMsBuild;
+unit Test.ProjectMsBuild;
 
 interface
 
@@ -10,7 +10,6 @@ type
   [TestFixture]
   TProjectMsBuildTests = class
   private
-    function FixturePath(const aRelativePath: string): string;
     function ContainsPath(const aItems: TArray<string>; const aExpectedPath: string): Boolean;
     function ContainsText(const aItems: TArray<string>; const aExpectedText: string): Boolean;
     function HasDiagnostic(const aResult: TDelphiSemanticContextResult; const aCode: string): Boolean;
@@ -71,7 +70,8 @@ uses
   System.IOUtils,
   System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GProjectMsBuildTempRoot: string;
@@ -93,12 +93,6 @@ begin
   Result := TPath.Combine(GProjectMsBuildTempRoot, aName);
 end;
 
-function TProjectMsBuildTests.FixturePath(const aRelativePath: string): string;
-begin
-  Result := TPath.GetFullPath(TPath.Combine(
-    TPath.Combine(ExtractFilePath(ParamStr(0)), '..\fixtures'),
-    aRelativePath));
-end;
 
 function TProjectMsBuildTests.ContainsPath(const aItems: TArray<string>;
   const aExpectedPath: string): Boolean;

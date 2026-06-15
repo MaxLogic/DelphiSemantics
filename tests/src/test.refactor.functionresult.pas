@@ -16,7 +16,6 @@ type
   [TestFixture]
   TFunctionResultRefactorTests = class
   private
-    function FixturePath(const aFileName: string): string;
     function LoadContext: TDelphiSemanticSymbolQueryContext;
     function LoadSnapshotContext(out aSnapshot: TDelphiProjectSnapshot):
       TDelphiSemanticSymbolQueryContext;
@@ -39,13 +38,9 @@ implementation
 
 uses
   System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
-function TFunctionResultRefactorTests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'FunctionResult', aFileName]));
-end;
 
 function TFunctionResultRefactorTests.LoadContext: TDelphiSemanticSymbolQueryContext;
 var
@@ -58,7 +53,7 @@ begin
   lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
   try
     lModelOptions := Default(TDelphiSemanticModelOptions);
-    lModelOptions.SourceFileName := FixturePath('FunctionResultUnit.pas');
+    lModelOptions.SourceFileName := FixturePath('FunctionResult', 'FunctionResultUnit.pas');
     lModelOptions.ProjectContextApplied := True;
     Result.UnitModel := lCache.GetOrExtractUnitModel(lModelOptions);
     Result.CompilerProfile := Default(TDelphiSemanticCompilerProfile);
@@ -141,7 +136,7 @@ begin
   lContext := LoadContext;
 
   lPlan := TDelphiSemanticApi.PlanFunctionResultRefactorAtPosition(lContext,
-    FixturePath('FunctionResultUnit.pas'), 23, 3);
+    FixturePath('FunctionResult', 'FunctionResultUnit.pas'), 23, 3);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(4, Integer(Length(lPlan.Edits)));
@@ -162,7 +157,7 @@ begin
   lContext := LoadContext;
 
   lPlan := TDelphiSemanticRenamePlanner.PlanFunctionResultRefactorAtPosition(lContext,
-    FixturePath('FunctionResultUnit.pas'), 23, 3);
+    FixturePath('FunctionResult', 'FunctionResultUnit.pas'), 23, 3);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(4, Integer(Length(lPlan.Edits)));
@@ -209,8 +204,7 @@ begin
   lSnapshot := nil;
   lContext := LoadSnapshotContext(lSnapshot);
   try
-    lRequestedFileName := CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-      'FunctionResult', 'FunctionResultUnit.pas']);
+    lRequestedFileName := FixturePath('FunctionResult', 'FunctionResultUnit.pas');
     lPlan := TDelphiSemanticRenamePlanner.PlanFunctionResultRefactorAtPosition(lContext,
       lRequestedFileName, 23, 3);
 
@@ -239,7 +233,7 @@ begin
   lContext := LoadContext;
 
   lPlan := TDelphiSemanticRenamePlanner.PlanFunctionResultRefactorAtPosition(lContext,
-    FixturePath('FunctionResultUnit.pas'), 45, 3);
+    FixturePath('FunctionResult', 'FunctionResultUnit.pas'), 45, 3);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(7, Integer(Length(lPlan.Edits)));
@@ -292,7 +286,7 @@ begin
   lContext := LoadContext;
 
   lPlan := TDelphiSemanticRenamePlanner.PlanFunctionResultRefactorAtPosition(lContext,
-    FixturePath('FunctionResultUnit.pas'), 39, 3);
+    FixturePath('FunctionResult', 'FunctionResultUnit.pas'), 39, 3);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
@@ -335,7 +329,7 @@ begin
   lContext := LoadContext;
 
   lPlan := TDelphiSemanticRenamePlanner.PlanFunctionResultRefactorAtPosition(lContext,
-    FixturePath('FunctionResultUnit.pas'), 58, 3);
+    FixturePath('FunctionResult', 'FunctionResultUnit.pas'), 58, 3);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
@@ -353,7 +347,7 @@ begin
   Assert.IsTrue(lFoundAfterWith, 'Expected result assignment/read after with block.');
 
   lPlan := TDelphiSemanticRenamePlanner.PlanFunctionResultRefactorAtPosition(lContext,
-    FixturePath('FunctionResultUnit.pas'), 61, 5);
+    FixturePath('FunctionResult', 'FunctionResultUnit.pas'), 61, 5);
   Assert.AreEqual('blocked', lPlan.Status, 'With-scoped same-text field must not trigger refactor.');
 end;
 

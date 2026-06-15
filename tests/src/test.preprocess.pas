@@ -1,4 +1,4 @@
-﻿unit Test.Preprocess;
+unit Test.Preprocess;
 
 interface
 
@@ -10,7 +10,6 @@ type
   [TestFixture]
   TPreprocessTests = class
   private
-    function FixturePath(const aFolder, aFileName: string): string;
     function HasDiagnostic(const aResult: TDelphiSemanticPreprocessResult;
       const aCode: string): Boolean;
     function HasRegion(const aResult: TDelphiSemanticPreprocessResult; const aLine: Integer;
@@ -50,7 +49,8 @@ uses
   System.IOUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
-  DelphiSemantics.ProjectContext;
+  DelphiSemantics.ProjectContext,
+  Test.Support;
 
 function PreprocessTempRoot(const aName: string): string;
 var
@@ -65,11 +65,6 @@ begin
   TDirectory.CreateDirectory(Result);
 end;
 
-function TPreprocessTests.FixturePath(const aFolder, aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    aFolder, aFileName]));
-end;
 
 function TPreprocessTests.HasDiagnostic(const aResult: TDelphiSemanticPreprocessResult;
   const aCode: string): Boolean;
@@ -169,11 +164,8 @@ end;
 procedure TPreprocessTests.IncludeHashUsesLoadedIncludeText;
 var
   lSource: string;
-  lSourceFileName: string;
 begin
-  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
-    '..', 'src', 'DelphiSemantics.Preprocess.pas']));
-  lSource := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lSource := ReadRepoSource('src\DelphiSemantics.Preprocess.pas');
 
   Assert.IsFalse(Pos('CalculateTextHash(TFile.ReadAllText', lSource) > 0,
     'Include content hash must use the text already loaded for include processing.');
@@ -305,8 +297,7 @@ begin
   lContextOptions.DelphiVersion := '23.0';
 
   lContext := TDelphiSemanticProject.Load(
-    TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'ProjectContext', 'MsBuild', 'MsBuildProject.dproj'])), lContextOptions);
+    FixturePath('ProjectContext', 'MsBuild\MsBuildProject.dproj'), lContextOptions);
   Assert.IsTrue(lContext.Success);
 
   lOptions := Default(TDelphiSemanticPreprocessOptions);

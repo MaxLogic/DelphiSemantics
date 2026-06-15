@@ -3,7 +3,7 @@ unit Test.LspBoundary;
 interface
 
 uses
-  System.IOUtils, System.JSON, System.StrUtils, System.SysUtils,
+  System.JSON, System.StrUtils, System.SysUtils,
   DUnitX.TestFramework,
   DelphiSemantics.Lsp, DelphiSemantics.Resolve;
 
@@ -38,6 +38,9 @@ type
   end;
 
 implementation
+
+uses
+  Test.Support;
 
 procedure TLspBoundaryTests.LspEnrichmentIsDisabledByDefault;
 var
@@ -278,11 +281,8 @@ end;
 procedure TLspBoundaryTests.OwnsOfficialSettingsJsonConstruction;
 var
   lSource: string;
-  lSourceFileName: string;
 begin
-  lSourceFileName := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    '..\..\src\DelphiSemantics.Lsp.pas'));
-  lSource := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lSource := ReadRepoSource('src\DelphiSemantics.Lsp.pas');
 
   Assert.IsTrue(ContainsText(lSource, 'TDelphiSemanticLspSettings'),
     'Expected DelphiSemantics.Lsp to expose the reusable DelphiLSP settings DTO.');

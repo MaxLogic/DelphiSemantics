@@ -10,7 +10,6 @@ type
   [TestFixture]
   TResolverLevel2Tests = class
   private
-    function FixturePath(const aFileName: string): string;
     function LoadInventoryModel: TDelphiSemanticUnitModel;
     function LoadModel: TDelphiSemanticUnitModel;
   public
@@ -34,20 +33,16 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
-function TResolverLevel2Tests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'Resolver', aFileName]));
-end;
 
 function TResolverLevel2Tests.LoadInventoryModel: TDelphiSemanticUnitModel;
 var
   lOptions: TDelphiSemanticModelOptions;
 begin
   lOptions := Default(TDelphiSemanticModelOptions);
-  lOptions.SourceFileName := FixturePath('InventoryResolverUnit.pas');
+  lOptions.SourceFileName := FixturePath('Resolver', 'InventoryResolverUnit.pas');
   lOptions.ProjectContextApplied := True;
   Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(Result.Success);
@@ -58,7 +53,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
 begin
   lOptions := Default(TDelphiSemanticModelOptions);
-  lOptions.SourceFileName := FixturePath('Level2ResolverUnit.pas');
+  lOptions.SourceFileName := FixturePath('Resolver', 'Level2ResolverUnit.pas');
   lOptions.ProjectContextApplied := True;
   Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(Result.Success);

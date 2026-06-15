@@ -1,4 +1,4 @@
-﻿unit Test.SymbolQuery;
+unit Test.SymbolQuery;
 
 interface
 
@@ -18,7 +18,6 @@ type
   [TestFixture]
   TSymbolQueryTests = class
   private
-    function FixturePath(const aFileName: string): string;
     function LoadContext: TDelphiSemanticSymbolQueryContext;
   public
     [Test]
@@ -66,7 +65,8 @@ implementation
 uses
   System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GSymbolQueryTempRoot: string;
@@ -88,11 +88,6 @@ begin
   Result := TPath.Combine(GSymbolQueryTempRoot, aName);
 end;
 
-function TSymbolQueryTests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'SymbolQuery', aFileName]));
-end;
 
 function TSymbolQueryTests.LoadContext: TDelphiSemanticSymbolQueryContext;
 var
@@ -105,12 +100,12 @@ begin
   lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
   try
     lModelOptions := Default(TDelphiSemanticModelOptions);
-    lModelOptions.SourceFileName := FixturePath('SymbolQueryUnit.pas');
+    lModelOptions.SourceFileName := FixturePath('SymbolQuery', 'SymbolQueryUnit.pas');
     lModelOptions.ProjectContextApplied := True;
     Result.UnitModel := lCache.GetOrExtractUnitModel(lModelOptions);
 
     Result.CompilerProfile := TDelphiSemanticCompilerProfileBuilder.FromCachedSources(lCache,
-      [FixturePath('SymbolQueryRtlUnit.pas')]);
+      [FixturePath('SymbolQuery', 'SymbolQueryRtlUnit.pas')]);
     Result.IndexedUnitModels := Result.CompilerProfile.RtlSourceUnitModels;
     Result.CacheMetrics := lCache.Metrics;
   finally
@@ -131,17 +126,17 @@ begin
   Assert.AreEqual('TDeclarationRecord', lResult.Name);
   Assert.AreEqual('type', lResult.Kind);
   Assert.AreEqual('semantic-model', lResult.Provenance);
-  Assert.AreEqual(FixturePath('SymbolQueryUnit.pas'), lResult.FileName);
+  Assert.AreEqual(FixturePath('SymbolQuery', 'SymbolQueryUnit.pas'), lResult.FileName);
 
   lResult := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext,
-    FixturePath('SymbolQueryUnit.pas'), 32, 13);
+    FixturePath('SymbolQuery', 'SymbolQueryUnit.pas'), 32, 13);
 
   Assert.IsTrue(lResult.Found);
   Assert.AreEqual('TSymbolMapFixture', lResult.Name);
   Assert.AreEqual('type', lResult.Kind);
 
   lResult := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext,
-    FixturePath('SymbolQueryUnit.pas'), 1, 1);
+    FixturePath('SymbolQuery', 'SymbolQueryUnit.pas'), 1, 1);
 
   Assert.IsTrue(lResult.Found);
   Assert.AreEqual('SymbolQueryUnit', lResult.Name);
@@ -208,7 +203,7 @@ begin
   Assert.IsTrue(Length(lReferences) >= 2);
   Assert.AreEqual('token-name-match', lReferences[0].Confidence);
   Assert.AreEqual('project-source', lReferences[0].SourceKind);
-  Assert.AreEqual(FixturePath('SymbolQueryUnit.pas'), lReferences[0].FileName);
+  Assert.AreEqual(FixturePath('SymbolQuery', 'SymbolQueryUnit.pas'), lReferences[0].FileName);
 end;
 
 procedure TSymbolQueryTests.SearchMatchesSubstringsAndReturnsRanges;
@@ -474,23 +469,13 @@ end;
 
 procedure TSymbolQueryTests.SnapshotPositionLookupUsesSharedResolver;
 var
-  lPositionResolverSourceFileName: string;
   lPositionResolverSourceText: string;
-  lQuerySourceFileName: string;
   lQuerySourceText: string;
-  lUsageSourceFileName: string;
   lUsageSourceText: string;
 begin
-  lQuerySourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
-    '..', 'src', 'DelphiSemantics.Query.pas']));
-  lPositionResolverSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-    '..', '..', 'src', 'DelphiSemantics.Snapshot.PositionResolver.pas']));
-  lUsageSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
-    '..', 'src', 'DelphiSemantics.Usage.pas']));
-  lQuerySourceText := TFile.ReadAllText(lQuerySourceFileName, TEncoding.UTF8);
-  lPositionResolverSourceText := TFile.ReadAllText(lPositionResolverSourceFileName,
-    TEncoding.UTF8);
-  lUsageSourceText := TFile.ReadAllText(lUsageSourceFileName, TEncoding.UTF8);
+  lQuerySourceText := ReadRepoSource('src\DelphiSemantics.Query.pas');
+  lPositionResolverSourceText := ReadRepoSource('src\DelphiSemantics.Snapshot.PositionResolver.pas');
+  lUsageSourceText := ReadRepoSource('src\DelphiSemantics.Usage.pas');
 
   Assert.IsTrue(ContainsText(lPositionResolverSourceText, 'TryResolveSnapshotPosition('),
     'Snapshot position resolution must live in one internal resolver unit.');
@@ -609,21 +594,21 @@ begin
   lContext := LoadContext;
 
   lResult := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext,
-    FixturePath('SymbolQueryUnit.pas'), 36, 3);
+    FixturePath('SymbolQuery', 'SymbolQueryUnit.pas'), 36, 3);
 
   Assert.IsTrue(lResult.Found);
   Assert.AreEqual('GlobalQueryValue', lResult.Name);
 
   lResult := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext,
-    FixturePath('SymbolQueryRtlUnit.pas'), 10, 3);
+    FixturePath('SymbolQuery', 'SymbolQueryRtlUnit.pas'), 10, 3);
 
   Assert.IsTrue(lResult.Found);
   Assert.AreEqual('TDeclarationRecord', lResult.Name);
   Assert.AreEqual('rtl-source', lResult.SourceKind);
-  Assert.AreEqual(FixturePath('SymbolQueryRtlUnit.pas'), lResult.FileName);
+  Assert.AreEqual(FixturePath('SymbolQuery', 'SymbolQueryRtlUnit.pas'), lResult.FileName);
 
   lResult := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext,
-    FixturePath('SymbolQueryUnit.pas'), 39, 3);
+    FixturePath('SymbolQuery', 'SymbolQueryUnit.pas'), 39, 3);
 
   Assert.IsTrue(lResult.Found);
   Assert.AreEqual('Length', lResult.Name);
@@ -695,7 +680,7 @@ begin
   lContext := LoadContext;
   lSibling := Default(TDelphiSemanticUnitModel);
   lSibling.UnitName := 'SymbolQuerySiblingUnit';
-  lSibling.FileName := FixturePath('SymbolQuerySiblingUnit.pas');
+  lSibling.FileName := FixturePath('SymbolQuery', 'SymbolQuerySiblingUnit.pas');
   SetLength(lSibling.Declarations, 2);
   lSibling.Declarations[0].Name := 'SiblingExact';
   lSibling.Declarations[0].Kind := 'type';
@@ -768,7 +753,7 @@ begin
   lContext := LoadContext;
   lAmbiguous := Default(TDelphiSemanticUnitModel);
   lAmbiguous.UnitName := 'AmbiguousSymbolUnit';
-  lAmbiguous.FileName := FixturePath('AmbiguousSymbolUnit.pas');
+  lAmbiguous.FileName := FixturePath('SymbolQuery', 'AmbiguousSymbolUnit.pas');
   SetLength(lAmbiguous.Declarations, 2);
   lAmbiguous.Declarations[0].Name := 'GlobalQueryValue';
   lAmbiguous.Declarations[0].Kind := 'var';
@@ -782,7 +767,7 @@ begin
   lAmbiguous.Declarations[1].Column := 3;
   lHidden := Default(TDelphiSemanticUnitModel);
   lHidden.UnitName := 'HiddenSymbolUnit';
-  lHidden.FileName := FixturePath('HiddenSymbolUnit.pas');
+  lHidden.FileName := FixturePath('SymbolQuery', 'HiddenSymbolUnit.pas');
   SetLength(lHidden.Declarations, 1);
   lHidden.Declarations[0].Name := 'HiddenUniqueValue';
   lHidden.Declarations[0].Kind := 'var';
@@ -895,7 +880,7 @@ var
 begin
   lContext := Default(TDelphiSemanticSymbolQueryContext);
   lContext.UnitModel.UnitName := 'OverloadedLocalUnit';
-  lContext.UnitModel.FileName := FixturePath('OverloadedLocalUnit.pas');
+  lContext.UnitModel.FileName := FixturePath('SymbolQuery', 'OverloadedLocalUnit.pas');
   SetLength(lContext.UnitModel.Declarations, 1);
   lContext.UnitModel.Declarations[0].Name := 'lShared';
   lContext.UnitModel.Declarations[0].Kind := 'var';
@@ -981,7 +966,7 @@ begin
   lContext := LoadContext;
   lHidden := Default(TDelphiSemanticUnitModel);
   lHidden.UnitName := 'HiddenSymbolUnit';
-  lHidden.FileName := FixturePath('HiddenSymbolUnit.pas');
+  lHidden.FileName := FixturePath('SymbolQuery', 'HiddenSymbolUnit.pas');
   lContext.IndexedUnitModels := lContext.IndexedUnitModels + [lHidden];
   lContext.IndexedUnitSourceKinds := lContext.IndexedUnitSourceKinds + ['project-source'];
   lContext.UnitModel.ImplementationUses := lContext.UnitModel.ImplementationUses +

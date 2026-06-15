@@ -10,7 +10,6 @@ type
   [TestFixture]
   TApiTests = class
   private
-    function FixturePath(const aRelativePath: string): string;
     function HasBindingForUnit(const aFacts: TDelphiSemanticProjectWithBindingFacts;
       const aUnitName: string): Boolean;
     function HasProjectSymbol(const aFacts: TDelphiSemanticProjectWithBindingFacts;
@@ -33,14 +32,9 @@ type
 implementation
 
 uses
-  System.IOUtils, System.SysUtils;
+  System.IOUtils, System.SysUtils,
+  Test.Support;
 
-function TApiTests.FixturePath(const aRelativePath: string): string;
-begin
-  Result := TPath.GetFullPath(TPath.Combine(
-    TPath.Combine(ExtractFilePath(ParamStr(0)), '..\fixtures'),
-    aRelativePath));
-end;
 
 function TApiTests.HasBindingForUnit(
   const aFacts: TDelphiSemanticProjectWithBindingFacts; const aUnitName: string): Boolean;
@@ -178,11 +172,8 @@ var
   lApiSource: string;
   lProjectContextSource: string;
 begin
-  lApiSource := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
-    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.Api.pas')), TEncoding.UTF8);
-  lProjectContextSource := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
-    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.ProjectContext.pas')),
-    TEncoding.UTF8);
+  lApiSource := ReadRepoSource('src\DelphiSemantics.Api.pas');
+  lProjectContextSource := ReadRepoSource('src\DelphiSemantics.ProjectContext.pas');
 
   Assert.IsFalse(Pos('BodyAnalysisSourceFileNames', lApiSource) > 0,
     'Common API options must not expose remove-with-only body-analysis scope.');

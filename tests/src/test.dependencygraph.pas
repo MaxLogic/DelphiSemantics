@@ -10,7 +10,6 @@ type
   [TestFixture]
   TDependencyGraphTests = class
   private
-    function FixturePath(const aFileName: string): string;
     function LoadModel(const aFileName: string): TDelphiSemanticUnitModel;
     function LoadModels(const aFileNames: array of string): TArray<TDelphiSemanticUnitModel>;
     function BuildGraph(const aFileNames: array of string): TDelphiSemanticDependencyGraph;
@@ -49,20 +48,16 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
-function TDependencyGraphTests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'DependencyGraph', aFileName]));
-end;
 
 function TDependencyGraphTests.LoadModel(const aFileName: string): TDelphiSemanticUnitModel;
 var
   lOptions: TDelphiSemanticModelOptions;
 begin
   lOptions := Default(TDelphiSemanticModelOptions);
-  lOptions.SourceFileName := FixturePath(aFileName);
+  lOptions.SourceFileName := FixturePath('DependencyGraph', aFileName);
   lOptions.ProjectContextApplied := True;
   Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(Result.Success, aFileName);
@@ -84,7 +79,7 @@ var
   lOptions: TDelphiSemanticDependencyGraphOptions;
 begin
   lOptions := Default(TDelphiSemanticDependencyGraphOptions);
-  lOptions.SearchPaths := [FixturePath('External')];
+  lOptions.SearchPaths := [FixturePath('DependencyGraph', 'External')];
   Result := TDelphiSemanticDependencyGraphBuilder.Build(LoadModels(aFileNames), lOptions);
 end;
 
@@ -336,7 +331,7 @@ begin
   lModel.UnitName := 'InvalidRoot';
   lModel.InterfaceUses := TArray<string>.Create('Bad' + #10 + 'Unit');
   lOptions := Default(TDelphiSemanticDependencyGraphOptions);
-  lOptions.SearchPaths := [FixturePath('External')];
+  lOptions.SearchPaths := [FixturePath('DependencyGraph', 'External')];
 
   lGraph := TDelphiSemanticDependencyGraphBuilder.Build([lModel], lOptions);
 

@@ -10,7 +10,6 @@ type
   [TestFixture]
   TProjectWithBindingTests = class
   private
-    function FixturePath(const aRelativePath: string): string;
     function BindingByUnit(const aFacts: TDelphiSemanticProjectWithBindingFacts;
       const aUnitName: string): TDelphiSemanticWithBinding;
     function HasBindingForUnit(const aFacts: TDelphiSemanticProjectWithBindingFacts;
@@ -58,14 +57,9 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.ProjectContext, maxLogic.IOUtils;
+  DelphiSemantics.ProjectContext, maxLogic.IOUtils,
+  Test.Support;
 
-function TProjectWithBindingTests.FixturePath(const aRelativePath: string): string;
-begin
-  Result := TPath.GetFullPath(TPath.Combine(
-    TPath.Combine(ExtractFilePath(ParamStr(0)), '..\fixtures'),
-    aRelativePath));
-end;
 
 function TProjectWithBindingTests.BindingByUnit(
   const aFacts: TDelphiSemanticProjectWithBindingFacts;
@@ -431,8 +425,7 @@ procedure TProjectWithBindingTests.BindingReferenceCacheUsesStatementPrefix;
 var
   lSourceText: string;
 begin
-  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    '..\..\src\DelphiSemantics.WithBinding.pas')), TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
 
   Assert.IsTrue(ContainsText(lSourceText, 'BoundReferenceCachePrefix'),
     'binding should build the shared reference-cache key prefix once per statement');
@@ -449,8 +442,7 @@ var
   lBindStart: Integer;
   lSourceText: string;
 begin
-  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    '..\..\src\DelphiSemantics.WithBinding.pas')), TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
   lBindStart := Pos('function BindReferences(', lSourceText);
   lBindEnd := Pos('function StatementContains(', lSourceText);
   Assert.IsTrue((lBindStart > 0) and (lBindEnd > lBindStart),
@@ -477,8 +469,7 @@ var
   lSourceText: string;
   lWithGuardPos: Integer;
 begin
-  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    '..\..\src\DelphiSemantics.WithBinding.pas')), TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
   lBindProjectStart := Pos('class function TDelphiSemanticWithBinder.BindProject',
     lSourceText);
   lBindProjectEnd := Pos('class function TDelphiSemanticWithBinder.ExpandInventorySymbols',
@@ -503,8 +494,7 @@ var
   lBindProjectStart: Integer;
   lSourceText: string;
 begin
-  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    '..\..\src\DelphiSemantics.WithBinding.pas')), TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
   lBindProjectStart := Pos('class function TDelphiSemanticWithBinder.BindProject',
     lSourceText);
   lBindProjectEnd := Pos('class function TDelphiSemanticWithBinder.ExpandInventorySymbols',
@@ -527,8 +517,7 @@ var
   lBindProjectStart: Integer;
   lSourceText: string;
 begin
-  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    '..\..\src\DelphiSemantics.WithBinding.pas')), TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
   lBindProjectStart := Pos('class function TDelphiSemanticWithBinder.BindProject',
     lSourceText);
   lBindProjectEnd := Pos('class function TDelphiSemanticWithBinder.ExpandInventorySymbols',
@@ -549,12 +538,9 @@ var
   lReceiverMemberEnd: Integer;
   lReceiverMemberStart: Integer;
   lReceiverMemberText: string;
-  lSourceFileName: string;
   lSourceText: string;
 begin
-  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
-    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
-  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
   lReceiverMemberStart := Pos('function ReceiverMemberCacheKey', lSourceText);
   lReceiverMemberEnd := Pos('function AnySelectorUnresolved', lSourceText);
   Assert.IsTrue((lReceiverMemberStart > 0) and (lReceiverMemberEnd > lReceiverMemberStart),
@@ -575,12 +561,9 @@ var
   lIndexEnd: Integer;
   lIndexStart: Integer;
   lIndexText: string;
-  lSourceFileName: string;
   lSourceText: string;
 begin
-  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
-    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
-  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
   lIndexStart := Pos('function TWithBindingProjectMemberIndex.TryResolveDirectMember',
     lSourceText);
   lIndexEnd := Pos('function IsBinderKeyword', lSourceText);
@@ -611,12 +594,9 @@ var
   lSelectorBindingText: string;
   lSelectorPropertyStart: Integer;
   lSelectorPropertyText: string;
-  lSourceFileName: string;
   lSourceText: string;
 begin
-  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
-    '..', 'src', 'DelphiSemantics.WithBinding.pas']));
-  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
   Assert.IsTrue(ContainsText(lSourceText, 'ResolveNameThroughWithBindingAuthority'),
     'WithBinding must route legacy name resolution through one documented adapter.');
   Assert.IsTrue(ContainsText(lSourceText, 'Compatibility adapter for model-array name resolution'),

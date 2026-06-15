@@ -1,4 +1,4 @@
-﻿unit Test.SemanticGraphDeclarations;
+unit Test.SemanticGraphDeclarations;
 
 interface
 
@@ -10,7 +10,6 @@ type
   [TestFixture]
   TSemanticGraphDeclarationTests = class
   private
-    function FixturePath(const aRelativePath: string): string;
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function UnitModel: TDelphiSemanticUnitModel;
   public
@@ -29,7 +28,8 @@ implementation
 uses
   System.IOUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GSemanticGraphDeclarationTempRoot: string;
@@ -52,11 +52,6 @@ begin
   Result := TPath.Combine(GSemanticGraphDeclarationTempRoot, aName);
 end;
 
-function TSemanticGraphDeclarationTests.FixturePath(const aRelativePath: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    aRelativePath]));
-end;
 
 function TSemanticGraphDeclarationTests.ProjectInfo: TDelphiSemanticProjectInfo;
 var

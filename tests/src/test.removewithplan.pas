@@ -10,7 +10,6 @@ type
   [TestFixture]
   TRemoveWithPlanTests = class
   private
-    function FixturePath(const aRelativePath: string): string;
     function DakFixturePath(const aRelativePath: string): string;
     function TempPath(const aRelativePath: string): string;
     function CopyDakFixtureToTemp(const aRelativePath, aTempName: string): string;
@@ -492,7 +491,8 @@ implementation
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.RemoveWith;
+  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.RemoveWith,
+  Test.Support;
 
 var
   GMaxTdbPlanCached: Boolean;
@@ -648,11 +648,6 @@ begin
   end;
 end;
 
-function TRemoveWithPlanTests.FixturePath(const aRelativePath: string): string;
-begin
-  Result := TPath.GetFullPath(TPath.Combine(
-    TPath.Combine(ExtractFilePath(ParamStr(0)), '..\fixtures'), aRelativePath));
-end;
 
 function TRemoveWithPlanTests.DakFixturePath(const aRelativePath: string): string;
 begin
@@ -924,9 +919,7 @@ var
   lFunctionStart: Integer;
   lSourceText: string;
 begin
-  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
-    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.Api.RemoveWith.pas')),
-    TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.Api.RemoveWith.pas');
 
   lFunctionStart := Pos('class function TDelphiSemanticRemoveWithApi.PlanRemoveWithSnapshot',
     lSourceText);
@@ -952,9 +945,7 @@ var
   lFunctionStart: Integer;
   lPlannerSource: string;
 begin
-  lPlannerSource := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
-    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.RemoveWithPlan.pas')),
-    TEncoding.UTF8);
+  lPlannerSource := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.pas');
   lFunctionStart := Pos('function BindingFactsFromSnapshot',
     lPlannerSource);
   lFunctionEnd := PosEx('class function TDelphiSemanticRemoveWithPlanner.Plan',
@@ -983,9 +974,7 @@ begin
     'RemoveWithPlanningRoutineOwnerByIndex'),
     'Snapshot planner should carry only routine-owner symbols needed for nested-routine safety.');
 
-  lBuilderSource := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
-    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.Snapshot.Builder.pas')),
-    TEncoding.UTF8);
+  lBuilderSource := ReadRepoSource('src\DelphiSemantics.Snapshot.Builder.pas');
   lFunctionStart := Pos('function BuildRemoveWithPlanningSnapshotFromFacts',
     lBuilderSource);
   Assert.IsTrue(lFunctionStart > 0,
@@ -1014,9 +1003,7 @@ procedure TRemoveWithPlanTests.CoreSnapshotUnitDoesNotExposeRemoveWithPlanningFa
 var
   lSnapshotSource: string;
 begin
-  lSnapshotSource := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
-    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.Snapshot.pas')),
-    TEncoding.UTF8);
+  lSnapshotSource := ReadRepoSource('src\DelphiSemantics.Snapshot.pas');
 
   Assert.IsFalse(ContainsText(lSnapshotSource, 'DelphiSemantics.WithBinding'),
     'Core snapshot unit must not link remove-with binding contracts.');
@@ -1063,9 +1050,7 @@ var
   lFunctionStart: Integer;
   lPlannerSource: string;
 begin
-  lPlannerSource := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(
-    ExtractFilePath(ParamStr(0)), '..\..\src\DelphiSemantics.RemoveWithPlan.pas')),
-    TEncoding.UTF8);
+  lPlannerSource := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.pas');
   lFunctionStart := PosEx('class function TDelphiSemanticRemoveWithPlanner.Plan(',
     lPlannerSource, Pos('function BindingFactsFromSnapshot', lPlannerSource));
   lFunctionEnd := PosEx('class function TDelphiSemanticRemoveWithPlanParity.Compare',
@@ -2082,9 +2067,7 @@ var
   lSourceText: string;
   lTreeStart: Integer;
 begin
-  lSourceText := TFile.ReadAllText(
-    TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    '..\..\src\DelphiSemantics.RemoveWithPlan.pas')));
+  lSourceText := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.pas');
 
   lTreeStart := Pos('function BuildFinalBindingTree', lSourceText);
   Assert.IsTrue(lTreeStart > 0,
@@ -8087,8 +8070,7 @@ procedure TRemoveWithPlanTests.PlannerCachesSourceTextAndHashesPerFile;
 var
   lSourceText: string;
 begin
-  lSourceText := TFile.ReadAllText(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    '..\..\src\DelphiSemantics.RemoveWithPlan.pas')), TEncoding.UTF8);
+  lSourceText := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.pas');
 
   Assert.IsTrue(ContainsText(lSourceText, 'TDelphiSemanticSourceContextCache'),
     'remove-with plan DTO should use the shared source-context cache while building edits');

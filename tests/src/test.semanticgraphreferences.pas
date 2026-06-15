@@ -12,7 +12,6 @@ type
   [TestFixture]
   TSemanticGraphReferenceTests = class
   private
-    function FixturePath(const aRelativePath: string): string;
     function IndexContext(const aUnitName, aSymbolName: string):
       TDelphiSemanticSymbolQueryContext;
     function ProjectInfo: TDelphiSemanticProjectInfo;
@@ -35,11 +34,6 @@ uses
   maxLogic.IOUtils,
   Test.Support;
 
-function TSemanticGraphReferenceTests.FixturePath(const aRelativePath: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    aRelativePath]));
-end;
 
 function TSemanticGraphReferenceTests.IndexContext(const aUnitName, aSymbolName: string):
   TDelphiSemanticSymbolQueryContext;

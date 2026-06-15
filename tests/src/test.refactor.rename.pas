@@ -1,4 +1,4 @@
-﻿unit Test.Refactor.Rename;
+unit Test.Refactor.Rename;
 
 interface
 
@@ -17,7 +17,6 @@ type
   [TestFixture]
   TRenamePlannerTests = class
   private
-    function FixturePath(const aFileName: string): string;
     function LoadContext: TDelphiSemanticSymbolQueryContext;
     function RenameFixturePath(const aFileName: string): string;
     function RenameUnblockFixturePath(const aFileName: string): string;
@@ -75,7 +74,8 @@ implementation
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GRenameTempRoot: string;
@@ -97,11 +97,6 @@ begin
   Result := TPath.Combine(GRenameTempRoot, aName);
 end;
 
-function TRenamePlannerTests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'SymbolQuery', aFileName]));
-end;
 
 function TRenamePlannerTests.LoadRenameTypeContext: TDelphiSemanticSymbolQueryContext;
 var
@@ -128,14 +123,12 @@ end;
 
 function TRenamePlannerTests.RenameFixturePath(const aFileName: string): string;
 begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'Rename', aFileName]));
+  Result := FixturePath('Rename', aFileName);
 end;
 
 function TRenamePlannerTests.RenameUnblockFixturePath(const aFileName: string): string;
 begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'RenameUnblock', aFileName]));
+  Result := FixturePath('RenameUnblock', aFileName);
 end;
 
 function TRenamePlannerTests.LoadRenameComplexContext: TDelphiSemanticSymbolQueryContext;
@@ -222,12 +215,12 @@ begin
   lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
   try
     lModelOptions := Default(TDelphiSemanticModelOptions);
-    lModelOptions.SourceFileName := FixturePath('SymbolQueryUnit.pas');
+    lModelOptions.SourceFileName := FixturePath('SymbolQuery', 'SymbolQueryUnit.pas');
     lModelOptions.ProjectContextApplied := True;
     Result.UnitModel := lCache.GetOrExtractUnitModel(lModelOptions);
 
     Result.CompilerProfile := TDelphiSemanticCompilerProfileBuilder.FromCachedSources(lCache,
-      [FixturePath('SymbolQueryRtlUnit.pas')]);
+      [FixturePath('SymbolQuery', 'SymbolQueryRtlUnit.pas')]);
     Result.IndexedUnitModels := Result.CompilerProfile.RtlSourceUnitModels;
     Result.CacheMetrics := lCache.Metrics;
   finally

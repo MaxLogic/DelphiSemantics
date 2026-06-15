@@ -1,4 +1,4 @@
-﻿unit Test.Refactor.RemoveDeadCode;
+unit Test.Refactor.RemoveDeadCode;
 
 interface
 
@@ -20,7 +20,6 @@ type
       const aName: string): string;
     function EditAtLine(const aPlan: TDelphiSemanticDeadCodeRemovalPlan;
       const aLine: Integer): TDelphiSemanticTextEdit;
-    function FixturePath(const aFileName: string): string;
     function HasEditAtLine(const aPlan: TDelphiSemanticDeadCodeRemovalPlan;
       const aLine: Integer): Boolean;
     function LineOf(const aText: string): Integer;
@@ -45,7 +44,8 @@ implementation
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GRemoveDeadCodeTempRoot: string;
@@ -91,11 +91,6 @@ begin
   Result := Default(TDelphiSemanticTextEdit);
 end;
 
-function TRemoveDeadCodePlannerTests.FixturePath(const aFileName: string): string;
-begin
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', 'fixtures',
-    'DeadCode', aFileName]));
-end;
 
 function TRemoveDeadCodePlannerTests.HasEditAtLine(
   const aPlan: TDelphiSemanticDeadCodeRemovalPlan; const aLine: Integer): Boolean;
@@ -108,7 +103,7 @@ var
   i: Integer;
   lLines: TArray<string>;
 begin
-  lLines := TFile.ReadAllLines(FixturePath('DeadCodeUnit.pas'));
+  lLines := TFile.ReadAllLines(FixturePath('DeadCode', 'DeadCodeUnit.pas'));
   for i := 0 to High(lLines) do
     if ContainsText(lLines[i], aText) then
       Exit(i + 1);
@@ -127,13 +122,13 @@ begin
   lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
   try
     lModelOptions := Default(TDelphiSemanticModelOptions);
-    lModelOptions.SourceFileName := FixturePath('DeadCodeUnit.pas');
+    lModelOptions.SourceFileName := FixturePath('DeadCode', 'DeadCodeUnit.pas');
     lModelOptions.ProjectContextApplied := True;
     Result.UnitModel := lCache.GetOrExtractUnitModel(lModelOptions);
     Result.CompilerProfile := TDelphiSemanticCompilerProfileBuilder.FromCachedSources(lCache,
-      [FixturePath('DeadCodeOtherUnit.pas')]);
+      [FixturePath('DeadCode', 'DeadCodeOtherUnit.pas')]);
     lModelOptions := Default(TDelphiSemanticModelOptions);
-    lModelOptions.SourceFileName := FixturePath('DeadCodeRtlUnit.pas');
+    lModelOptions.SourceFileName := FixturePath('DeadCode', 'DeadCodeRtlUnit.pas');
     lModelOptions.ProjectContextApplied := True;
     Result.IndexedUnitModels := Result.CompilerProfile.RtlSourceUnitModels +
       [lCache.GetOrExtractUnitModel(lModelOptions)];
@@ -163,7 +158,7 @@ var
   lFileName: string;
   lPlan: TDelphiSemanticDeadCodeRemovalPlan;
 begin
-  lFileName := FixturePath('DeadCodeUnit.pas');
+  lFileName := FixturePath('DeadCode', 'DeadCodeUnit.pas');
   lBefore := TFile.ReadAllText(lFileName);
 
   lPlan := TDelphiSemanticApi.PlanDeadCodeRemoval(LoadContext, 'conservative');
@@ -262,7 +257,7 @@ begin
   Assert.AreEqual('planned', lPlan.Status);
   Assert.AreEqual('legacy-static', lPlan.Profile);
   lEdit := EditAtLine(lPlan, LineOf('MaybeDynamicHook'));
-  Assert.AreEqual(FixturePath('DeadCodeUnit.pas'), lEdit.FileName);
+  Assert.AreEqual(FixturePath('DeadCode', 'DeadCodeUnit.pas'), lEdit.FileName);
   Assert.AreEqual('remove-dead-code', lEdit.Role);
   Assert.AreEqual(LineOf('MaybeDynamicHook'), lEdit.StartLine);
   Assert.AreEqual(1, lEdit.StartColumn);

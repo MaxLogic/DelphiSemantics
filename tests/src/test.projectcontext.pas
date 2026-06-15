@@ -10,7 +10,6 @@ type
   TProjectContextTests = class
   private
     function ContainsPath(const aItems: TArray<string>; const aExpectedPath: string): Boolean;
-    function FixturePath(const aRelativePath: string): string;
   public
     [Test]
     procedure DprojResolvesBasicMetadata;
@@ -27,7 +26,8 @@ implementation
 uses
   System.IOUtils,
   System.SysUtils,
-  DelphiSemantics.ProjectContext;
+  DelphiSemantics.ProjectContext,
+  Test.Support;
 
 function TProjectContextTests.ContainsPath(const aItems: TArray<string>;
   const aExpectedPath: string): Boolean;
@@ -43,12 +43,6 @@ begin
   Result := False;
 end;
 
-function TProjectContextTests.FixturePath(const aRelativePath: string): string;
-begin
-  Result := TPath.GetFullPath(TPath.Combine(
-    TPath.Combine(ExtractFilePath(ParamStr(0)), '..\fixtures'),
-    aRelativePath));
-end;
 
 procedure TProjectContextTests.DprojResolvesBasicMetadata;
 var
