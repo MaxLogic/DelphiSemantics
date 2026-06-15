@@ -15,15 +15,18 @@ type
     [Test]
     procedure CompilerIntrinsicsResolveFromExternalService;
     [Test]
+    procedure ExternalSymbolServiceSerializesLazyState;
+    [Test]
     procedure RtlSourceUnitsLoadLazilyAndExposeMetrics;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils,
+  Test.Support;
 
 var
   GExternalSymbolsTempRoot: string;
@@ -48,6 +51,26 @@ end;
 function TExternalSymbolsTests.TempPath(const aRelativePath: string): string;
 begin
   Result := TPath.GetFullPath(TPath.Combine(ExternalSymbolsTempRoot, aRelativePath));
+end;
+
+procedure AssertMethodUsesExternalSymbolLock(const aSource, aMethodName: string);
+var
+  lBody: string;
+  lNextMethodPos: Integer;
+  lStartPos: Integer;
+begin
+  lStartPos := Pos(aMethodName, aSource);
+  Assert.IsTrue(lStartPos > 0, aMethodName + ' should exist.');
+  lNextMethodPos := PosEx('function TDelphiSemanticExternalSymbolServiceData.', aSource,
+    lStartPos + Length(aMethodName));
+  if lNextMethodPos > 0 then
+    lBody := Copy(aSource, lStartPos, lNextMethodPos - lStartPos) else
+    lBody := Copy(aSource, lStartPos, MaxInt);
+
+  Assert.IsTrue(ContainsText(lBody, 'TMonitor.Enter(fLock)'),
+    aMethodName + ' should enter the lazy-state lock.');
+  Assert.IsTrue(ContainsText(lBody, 'TMonitor.Exit(fLock)'),
+    aMethodName + ' should release the lazy-state lock.');
 end;
 
 procedure TExternalSymbolsTests.CompilerIntrinsicsResolveFromExternalService;
@@ -83,6 +106,24 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+procedure TExternalSymbolsTests.ExternalSymbolServiceSerializesLazyState;
+var
+  lSource: string;
+begin
+  lSource := ReadRepoSource('src\DelphiSemantics.ExternalSymbols.pas');
+
+  Assert.IsTrue(ContainsText(lSource, 'fLock: TObject'),
+    'External symbol service data should own a lock for lazy shared state.');
+  AssertMethodUsesExternalSymbolLock(lSource,
+    'function TDelphiSemanticExternalSymbolServiceData.Metrics');
+  AssertMethodUsesExternalSymbolLock(lSource,
+    'function TDelphiSemanticExternalSymbolServiceData.ResolveIntrinsic');
+  AssertMethodUsesExternalSymbolLock(lSource,
+    'function TDelphiSemanticExternalSymbolServiceData.ResolveRtlUnit');
+  AssertMethodUsesExternalSymbolLock(lSource,
+    'function TDelphiSemanticExternalSymbolServiceData.ResolveType');
 end;
 
 procedure TExternalSymbolsTests.RtlSourceUnitsLoadLazilyAndExposeMetrics;

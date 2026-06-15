@@ -70,6 +70,7 @@ type
   private
     fCache: TDelphiSemanticUnitCache;
     fIntrinsicByName: TDictionary<string, TDelphiSemanticIntrinsicSymbol>;
+    fLock: TObject;
     fLoadedUnitsByName: TDictionary<string, TDelphiSemanticUnitModel>;
     fMetrics: TDelphiSemanticExternalSymbolMetrics;
     fProfile: TDelphiSemanticCompilerProfile;
@@ -167,6 +168,7 @@ begin
   fCache := aCache;
   fProfile := aProfile;
   try
+    fLock := TObject.Create;
     fIntrinsicByName := TDictionary<string, TDelphiSemanticIntrinsicSymbol>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     fLoadedUnitsByName := TDictionary<string, TDelphiSemanticUnitModel>.Create(
@@ -182,6 +184,8 @@ begin
 
     CaptureCacheMetrics;
   except
+    fLock.Free;
+    fLock := nil;
     fLoadedUnitsByName.Free;
     fLoadedUnitsByName := nil;
     fRtlSourceDiscovery.Free;
@@ -197,6 +201,7 @@ begin
   fRtlSourceDiscovery.Free;
   fLoadedUnitsByName.Free;
   fIntrinsicByName.Free;
+  fLock.Free;
   inherited;
 end;
 
@@ -272,22 +277,32 @@ end;
 function TDelphiSemanticExternalSymbolServiceData.Metrics:
   TDelphiSemanticExternalSymbolMetrics;
 begin
-  CaptureCacheMetrics;
-  Result := fMetrics;
+  TMonitor.Enter(fLock);
+  try
+    CaptureCacheMetrics;
+    Result := fMetrics;
+  finally
+    TMonitor.Exit(fLock);
+  end;
 end;
 
 function TDelphiSemanticExternalSymbolServiceData.ResolveIntrinsic(
   const aName: string): TDelphiSemanticExternalSymbolResult;
 begin
-  Inc(fMetrics.IntrinsicLookupCount);
-  if TryResolveIntrinsic(aName, Result) then
-  begin
-    Inc(fMetrics.IntrinsicResolvedCount);
-    Exit;
-  end;
+  TMonitor.Enter(fLock);
+  try
+    Inc(fMetrics.IntrinsicLookupCount);
+    if TryResolveIntrinsic(aName, Result) then
+    begin
+      Inc(fMetrics.IntrinsicResolvedCount);
+      Exit;
+    end;
 
-  Result := UnresolvedResult(aName, 'EXTERNAL_INTRINSIC_NOT_FOUND',
-    'No compiler intrinsic named "' + aName + '" was found.');
+    Result := UnresolvedResult(aName, 'EXTERNAL_INTRINSIC_NOT_FOUND',
+      'No compiler intrinsic named "' + aName + '" was found.');
+  finally
+    TMonitor.Exit(fLock);
+  end;
 end;
 
 function TDelphiSemanticExternalSymbolServiceData.ResolveRtlUnit(
@@ -296,13 +311,18 @@ var
   lModel: TDelphiSemanticUnitModel;
   lUnitName: string;
 begin
-  Inc(fMetrics.RtlUnitLookupCount);
-  lUnitName := Trim(aUnitName);
-  if LoadRtlUnit(lUnitName, lModel) then
-    Exit(RtlUnitResult(lModel));
+  TMonitor.Enter(fLock);
+  try
+    Inc(fMetrics.RtlUnitLookupCount);
+    lUnitName := Trim(aUnitName);
+    if LoadRtlUnit(lUnitName, lModel) then
+      Exit(RtlUnitResult(lModel));
 
-  Result := UnresolvedResult(aUnitName, 'EXTERNAL_RTL_UNIT_NOT_FOUND',
-    'No source-available RTL unit named "' + aUnitName + '" was found.');
+    Result := UnresolvedResult(aUnitName, 'EXTERNAL_RTL_UNIT_NOT_FOUND',
+      'No source-available RTL unit named "' + aUnitName + '" was found.');
+  finally
+    TMonitor.Exit(fLock);
+  end;
 end;
 
 function TDelphiSemanticExternalSymbolServiceData.ResolveType(
@@ -312,23 +332,28 @@ var
   lIntrinsic: TDelphiSemanticExternalSymbolResult;
   lResult: TDelphiSemanticTypeLookupResult;
 begin
-  Inc(fMetrics.RtlTypeLookupCount);
+  TMonitor.Enter(fLock);
+  try
+    Inc(fMetrics.RtlTypeLookupCount);
 
-  if TryResolveIntrinsic(aTypeName, lIntrinsic) then
-  begin
-    Inc(fMetrics.RtlTypeResolvedCount);
-    Exit(lIntrinsic);
+    if TryResolveIntrinsic(aTypeName, lIntrinsic) then
+    begin
+      Inc(fMetrics.RtlTypeResolvedCount);
+      Exit(lIntrinsic);
+    end;
+
+    lIndex := BuildTypeIndex;
+    lResult := lIndex.ResolveSimpleName(aTypeName);
+    if lResult.Found then
+    begin
+      Inc(fMetrics.RtlTypeResolvedCount);
+      Exit(TypeResult(lResult.Identity));
+    end;
+
+    Result := UnresolvedResult(aTypeName, lResult.ReasonCode, lResult.Reason);
+  finally
+    TMonitor.Exit(fLock);
   end;
-
-  lIndex := BuildTypeIndex;
-  lResult := lIndex.ResolveSimpleName(aTypeName);
-  if lResult.Found then
-  begin
-    Inc(fMetrics.RtlTypeResolvedCount);
-    Exit(TypeResult(lResult.Identity));
-  end;
-
-  Result := UnresolvedResult(aTypeName, lResult.ReasonCode, lResult.Reason);
 end;
 
 function TDelphiSemanticExternalSymbolServiceData.TryResolveIntrinsic(const aName: string;
