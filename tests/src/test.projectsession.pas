@@ -1,4 +1,4 @@
-﻿unit Test.ProjectSession;
+unit Test.ProjectSession;
 
 interface
 
@@ -33,6 +33,8 @@ type
     procedure OpensProjectSessionThroughExistingProjectContext;
     [Test]
     procedure ProjectSessionDependencyGraphUsesSemanticModelsOnly;
+    [Test]
+    procedure ProjectSessionModelExtractionUsesSingleResultRecord;
     [Test]
     procedure ProjectSessionBuildsSnapshotFromExtractedModels;
     [Test]
@@ -345,6 +347,26 @@ begin
     'BuildDependencyGraph must consume semantic unit models directly.');
   Assert.IsFalse(ContainsText(lSourceText, 'TProjectIndexer.Create'),
     'Dependency graph construction must not run a separate project indexer scan.');
+end;
+
+procedure TProjectSessionTests.ProjectSessionModelExtractionUsesSingleResultRecord;
+var
+  lExtractWithScopeModeName: string;
+  lOutExtractionSignature: string;
+  lSource: string;
+begin
+  lSource := ReadRepoSource('src\DelphiSemantics.ProjectSession.pas');
+  lExtractWithScopeModeName := 'ExtractProjectModels' + 'WithScopeMode';
+  lOutExtractionSignature := 'function ExtractProjectModels' + '(const aProject: ' +
+    'TDelphiSemanticProjectInfo;' + sLineBreak +
+    '  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64';
+
+  Assert.IsTrue(ContainsText(lSource, 'TProjectModelExtractionResult = record'),
+    'Expected private project model extraction to return one result record.');
+  Assert.IsFalse(ContainsText(lSource, lExtractWithScopeModeName),
+    'Wrapper-only extraction scope-mode fan-out should be removed.');
+  Assert.IsFalse(ContainsText(lSource, lOutExtractionSignature),
+    'ExtractProjectModels should not thread elapsed time and cache data through out parameters.');
 end;
 
 procedure TProjectSessionTests.ProjectSessionBuildsSnapshotFromExtractedModels;

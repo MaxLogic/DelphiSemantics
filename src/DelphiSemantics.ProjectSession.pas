@@ -1,4 +1,4 @@
-﻿unit DelphiSemantics.ProjectSession;
+unit DelphiSemantics.ProjectSession;
 
 interface
 
@@ -511,116 +511,18 @@ begin
   end;
 end;
 
-function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64):
-  TArray<TDelphiSemanticUnitModel>; overload; forward;
-function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
-  out aCacheMetrics: TDelphiSemanticCacheMetrics): TArray<TDelphiSemanticUnitModel>;
-  overload; forward;
-function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
-  out aCacheMetrics: TDelphiSemanticCacheMetrics;
-  const aScopedSourceFileNames: TArray<string>): TArray<TDelphiSemanticUnitModel>;
-  overload; forward;
-function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
-  out aCacheMetrics: TDelphiSemanticCacheMetrics;
-  const aScopedSourceFileNames: TArray<string>;
-  out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>):
-  TArray<TDelphiSemanticUnitModel>; overload; forward;
-function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
-  out aCacheMetrics: TDelphiSemanticCacheMetrics; const aSourceFileNames,
-  aScopedSourceFileNames: TArray<string>;
-  out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>):
-  TArray<TDelphiSemanticUnitModel>; overload; forward;
-function ExtractProjectModelsWithScopeMode(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
-  out aCacheMetrics: TDelphiSemanticCacheMetrics; const aSourceFileNames,
-  aScopedSourceFileNames: TArray<string>;
-  out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
-  const aUseScopedSourceFileNames: Boolean): TArray<TDelphiSemanticUnitModel>;
-  forward;
+type
+  TProjectModelExtractionResult = record
+    Models: TArray<TDelphiSemanticUnitModel>;
+    CacheMetrics: TDelphiSemanticCacheMetrics;
+    CacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+    ExtractionMilliseconds: Int64;
+  end;
 
 function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions):
-  TArray<TDelphiSemanticUnitModel>; overload;
-var
-  lCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
-  lCacheMetrics: TDelphiSemanticCacheMetrics;
-  lExtractionMilliseconds: Int64;
-begin
-  Result := ExtractProjectModels(aProject, aOptions, lExtractionMilliseconds,
-    lCacheMetrics, [], lCacheIdentities);
-end;
-
-function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64):
-  TArray<TDelphiSemanticUnitModel>; overload;
-var
-  lCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
-  lCacheMetrics: TDelphiSemanticCacheMetrics;
-begin
-  Result := ExtractProjectModels(aProject, aOptions, aExtractionMilliseconds,
-    lCacheMetrics, [], lCacheIdentities);
-end;
-
-function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
-  out aCacheMetrics: TDelphiSemanticCacheMetrics): TArray<TDelphiSemanticUnitModel>;
-  overload;
-begin
-  Result := ExtractProjectModels(aProject, aOptions, aExtractionMilliseconds,
-    aCacheMetrics, []);
-end;
-
-function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
-  out aCacheMetrics: TDelphiSemanticCacheMetrics;
-  const aScopedSourceFileNames: TArray<string>): TArray<TDelphiSemanticUnitModel>;
-  overload;
-var
-  lCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
-begin
-  Result := ExtractProjectModels(aProject, aOptions, aExtractionMilliseconds,
-    aCacheMetrics, aScopedSourceFileNames, lCacheIdentities);
-end;
-
-function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
-  out aCacheMetrics: TDelphiSemanticCacheMetrics;
-  const aScopedSourceFileNames: TArray<string>;
-  out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>):
-  TArray<TDelphiSemanticUnitModel>;
-  overload;
-var
-  lSourceFileNames: TArray<string>;
-begin
-  lSourceFileNames := ProjectModelFileNames(aProject);
-  Result := ExtractProjectModels(aProject, aOptions, aExtractionMilliseconds,
-    aCacheMetrics, lSourceFileNames, aScopedSourceFileNames, aCacheIdentities);
-end;
-
-function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
-  out aCacheMetrics: TDelphiSemanticCacheMetrics; const aSourceFileNames,
-  aScopedSourceFileNames: TArray<string>;
-  out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>):
-  TArray<TDelphiSemanticUnitModel>;
-  overload;
-begin
-  Result := ExtractProjectModelsWithScopeMode(aProject, aOptions,
-    aExtractionMilliseconds, aCacheMetrics, aSourceFileNames,
-    aScopedSourceFileNames, aCacheIdentities, Length(aScopedSourceFileNames) > 0);
-end;
-
-function ExtractProjectModelsWithScopeMode(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
-  out aCacheMetrics: TDelphiSemanticCacheMetrics; const aSourceFileNames,
-  aScopedSourceFileNames: TArray<string>;
-  out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
-  const aUseScopedSourceFileNames: Boolean): TArray<TDelphiSemanticUnitModel>;
+  const aOptions: TDelphiSemanticOptions; const aSourceFileNames,
+  aScopedSourceFileNames: TArray<string>; const aUseScopedSourceFileNames: Boolean):
+  TProjectModelExtractionResult;
 var
   lBodyAnalysisSourceFiles: TDictionary<string, Byte>;
   lCache: TDelphiSemanticUnitCache;
@@ -636,9 +538,7 @@ begin
   lBodyAnalysisSourceFiles := nil;
   lModels := nil;
   lCache := nil;
-  aExtractionMilliseconds := 0;
-  aCacheMetrics := Default(TDelphiSemanticCacheMetrics);
-  SetLength(aCacheIdentities, 0);
+  Result := Default(TProjectModelExtractionResult);
   lStopwatch := TStopwatch.StartNew;
   try
     if Trim(aOptions.SqliteCacheFileName) <> '' then
@@ -647,7 +547,7 @@ begin
       lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
     end;
 
-    SetLength(aCacheIdentities, Length(aSourceFileNames));
+    SetLength(Result.CacheIdentities, Length(aSourceFileNames));
     if aUseScopedSourceFileNames then
     begin
       lBodyAnalysisSourceFiles := TDictionary<string, Byte>.Create(
@@ -663,19 +563,19 @@ begin
         (not lBodyAnalysisSourceFiles.ContainsKey(aSourceFileNames[i]));
       lModel := ExtractProjectUnitModel(aProject, aSourceFileNames[i], lCache,
         lSkipBodyAnalysis, lIdentity);
-      aCacheIdentities[i] := lIdentity;
+      Result.CacheIdentities[i] := lIdentity;
       if (i = 0) and (lModel.Success) and (lModel.UnitName = '') and
         SameText(lModel.FileName, aProject.MainSourceFileName) then
         lModel.UnitName := aProject.ProjectName;
       lModels.Add(lModel);
     end;
 
-    Result := lModels.ToArray;
+    Result.Models := lModels.ToArray;
   finally
     lStopwatch.Stop;
-    aExtractionMilliseconds := lStopwatch.ElapsedMilliseconds;
+    Result.ExtractionMilliseconds := lStopwatch.ElapsedMilliseconds;
     if Assigned(lCache) then
-      aCacheMetrics := lCache.Metrics;
+      Result.CacheMetrics := lCache.Metrics;
     lCache.Free;
     lBodyAnalysisSourceFiles.Free;
     lModels.Free;
@@ -1104,11 +1004,14 @@ function TDelphiSemanticProjectSession.BuildGlobalAnalysis(out aCacheIdentities:
   TArray<TDelphiSemanticUnitCacheIdentity>; out aCacheMetrics: TDelphiSemanticCacheMetrics;
   out aExtractionMilliseconds: Int64): TDelphiSemanticGlobalAnalysis;
 var
-  lModels: TArray<TDelphiSemanticUnitModel>;
+  lExtraction: TProjectModelExtractionResult;
 begin
-  lModels := ExtractProjectModels(fProject, fOptions, aExtractionMilliseconds,
-    aCacheMetrics, [], aCacheIdentities);
-  Result := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits(lModels);
+  lExtraction := ExtractProjectModels(fProject, fOptions, ProjectModelFileNames(fProject),
+    [], False);
+  aCacheIdentities := lExtraction.CacheIdentities;
+  aCacheMetrics := lExtraction.CacheMetrics;
+  aExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
+  Result := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits(lExtraction.Models);
 end;
 
 function TDelphiSemanticProjectSession.BuildGlobalCacheIdentities:
@@ -1137,24 +1040,24 @@ end;
 function TDelphiSemanticProjectSession.BuildDependencyGraph:
   TDelphiSemanticDependencyGraph;
 var
-  lExtractionMilliseconds: Int64;
+  lExtraction: TProjectModelExtractionResult;
   lGraphOptions: TDelphiSemanticDependencyGraphOptions;
-  lModels: TArray<TDelphiSemanticUnitModel>;
 begin
   lGraphOptions := Default(TDelphiSemanticDependencyGraphOptions);
   lGraphOptions.SearchPaths := DependencyGraphSearchPaths(fProject);
   lGraphOptions.ProjectUnitName := fProject.ProjectName;
-  lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds);
-  Result := TDelphiSemanticDependencyGraphBuilder.Build(lModels, lGraphOptions);
+  lExtraction := ExtractProjectModels(fProject, fOptions, ProjectModelFileNames(fProject),
+    [], False);
+  Result := TDelphiSemanticDependencyGraphBuilder.Build(lExtraction.Models, lGraphOptions);
 end;
 
 function TDelphiSemanticProjectSession.BuildSemanticGraph: TDelphiSemanticSemanticGraph;
 var
-  lExtractionMilliseconds: Int64;
-  lModels: TArray<TDelphiSemanticUnitModel>;
+  lExtraction: TProjectModelExtractionResult;
 begin
-  lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds);
-  Result := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lModels);
+  lExtraction := ExtractProjectModels(fProject, fOptions, ProjectModelFileNames(fProject),
+    [], False);
+  Result := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lExtraction.Models);
   fLastSemanticGraphBuildMetrics := Result.Metrics;
 end;
 
@@ -1163,24 +1066,26 @@ function TDelphiSemanticProjectSession.BuildSymbolQueryContext(
   TDelphiSemanticSymbolQueryContext;
 var
   i: Integer;
-  lModels: TArray<TDelphiSemanticUnitModel>;
+  lExtraction: TProjectModelExtractionResult;
 begin
   Result := Default(TDelphiSemanticSymbolQueryContext);
   aCacheMetrics := Default(TDelphiSemanticCacheMetrics);
   aExtractionMilliseconds := 0;
-  lModels := ExtractProjectModels(fProject, fOptions, aExtractionMilliseconds,
-    aCacheMetrics);
-  if Length(lModels) = 0 then
+  lExtraction := ExtractProjectModels(fProject, fOptions, ProjectModelFileNames(fProject),
+    [], False);
+  aCacheMetrics := lExtraction.CacheMetrics;
+  aExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
+  if Length(lExtraction.Models) = 0 then
     Exit;
 
-  Result.UnitModel := lModels[0];
-  if Length(lModels) > 1 then
+  Result.UnitModel := lExtraction.Models[0];
+  if Length(lExtraction.Models) > 1 then
   begin
-    SetLength(Result.IndexedUnitModels, Length(lModels) - 1);
-    SetLength(Result.IndexedUnitSourceKinds, Length(lModels) - 1);
-    for i := 1 to High(lModels) do
+    SetLength(Result.IndexedUnitModels, Length(lExtraction.Models) - 1);
+    SetLength(Result.IndexedUnitSourceKinds, Length(lExtraction.Models) - 1);
+    for i := 1 to High(lExtraction.Models) do
     begin
-      Result.IndexedUnitModels[i - 1] := lModels[i];
+      Result.IndexedUnitModels[i - 1] := lExtraction.Models[i];
       Result.IndexedUnitSourceKinds[i - 1] := 'project-source';
     end;
   end;
@@ -1205,11 +1110,8 @@ var
   lLoadedAllUnits: Boolean;
   lLoadedAnyUnit: Boolean;
   lBuilderMetrics: TDelphiSnapshotBuilderMetrics;
-  lCacheMetricsUnused: TDelphiSemanticCacheMetrics;
-  lExtractionMilliseconds: Int64;
+  lExtraction: TProjectModelExtractionResult;
   i: Integer;
-  lExtractionCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
-  lModels: TArray<TDelphiSemanticUnitModel>;
   lMissingSourceFileNames: TArray<string>;
   lParseAvoidedEstimateMilliseconds: Int64;
   lSnapshot: TDelphiProjectSnapshot;
@@ -1223,7 +1125,6 @@ begin
   fLastSnapshotBuildMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
   lSourceFileNames := ProjectModelFileNames(fProject);
   SetLength(lUnitCacheIdentities, 0);
-  SetLength(lExtractionCacheIdentities, 0);
   SetLength(lMissingSourceFileNames, 0);
   SetLength(lStoreUnitFlags, 0);
   lCacheHadPartialHit := False;
@@ -1291,10 +1192,10 @@ begin
       lExtractionScopeSourceFileNames := IntersectSourceFileNames(
         lMissingSourceFileNames, aScopedSourceFileNames);
   end;
-  lModels := ExtractProjectModelsWithScopeMode(fProject, fOptions, lExtractionMilliseconds,
-    lCacheMetricsUnused, lExtractionSourceFileNames, lExtractionScopeSourceFileNames,
-    lExtractionCacheIdentities, lExtractionUsesScopedSourceFileNames);
-  lParseAvoidedEstimateMilliseconds := VisibleMetricMilliseconds(lExtractionMilliseconds);
+  lExtraction := ExtractProjectModels(fProject, fOptions, lExtractionSourceFileNames,
+    lExtractionScopeSourceFileNames, lExtractionUsesScopedSourceFileNames);
+  lParseAvoidedEstimateMilliseconds :=
+    VisibleMetricMilliseconds(lExtraction.ExtractionMilliseconds);
   if Length(lUnitSnapshots) > 0 then
   begin
     try
@@ -1302,7 +1203,7 @@ begin
       for i := 0 to High(lSourceFileNames) do
         if lUnitSnapshots[i] = nil then
         begin
-          lUnitSnapshots[i] := BuildSingleUnitSnapshotFromModels(lModels, i,
+          lUnitSnapshots[i] := BuildSingleUnitSnapshotFromModels(lExtraction.Models, i,
             TSemanticUnitId(i + 1), lCacheSnapshotMetrics);
           lStoreUnitFlags[i] := True;
         end;
@@ -1312,7 +1213,7 @@ begin
     end;
     ApplySnapshotBuilderMetrics(fLastSnapshotBuildMetrics, lBuilderMetrics);
   end else
-    lSnapshot := BuildSnapshotFromModels(lModels, fOptions.SnapshotBuildWorkerCount,
+    lSnapshot := BuildSnapshotFromModels(lExtraction.Models, fOptions.SnapshotBuildWorkerCount,
       fLastSnapshotBuildMetrics);
   try
     AddSnapshotCacheMetricTotals(fLastSnapshotBuildMetrics, lCacheSnapshotMetrics);
@@ -1328,7 +1229,7 @@ begin
       lParseAvoidedEstimateMilliseconds;
     if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
     begin
-      lStoreCacheIdentities := lExtractionCacheIdentities;
+      lStoreCacheIdentities := lExtraction.CacheIdentities;
       if Length(lUnitCacheIdentities) = Length(lSourceFileNames) then
         lStoreCacheIdentities := lUnitCacheIdentities;
       StoreSnapshotCacheEntries(fOptions.SqliteCacheFileName, fProject, fOptions,
@@ -1352,32 +1253,30 @@ function TDelphiSemanticProjectSession.BuildWithBindingFacts(
   const aScopedSourceFileNames: TArray<string>):
   TDelphiSemanticProjectWithBindingFacts;
 var
-  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lExtraction: TProjectModelExtractionResult;
   lGraph: TDelphiSemanticSemanticGraph;
-  lExtractionMilliseconds: Int64;
-  lModels: TArray<TDelphiSemanticUnitModel>;
   lSnapshot: TDelphiProjectSnapshot;
 begin
-  lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds,
-    lCacheMetrics, aScopedSourceFileNames);
+  lExtraction := ExtractProjectModels(fProject, fOptions, ProjectModelFileNames(fProject),
+    aScopedSourceFileNames, Length(aScopedSourceFileNames) > 0);
 
   if fOptions.SkipWithBindingSemanticGraph then
     lGraph := nil
   else
-    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lModels);
+    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lExtraction.Models);
   try
     if lGraph <> nil then
       fLastSemanticGraphBuildMetrics := lGraph.Metrics
     else
       fLastSemanticGraphBuildMetrics := Default(TDelphiSemanticGraphBuildMetrics);
     Result := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint, lGraph,
-      lModels);
-    Result.Metrics.ModelExtractionMilliseconds := lExtractionMilliseconds;
-    Result.Metrics.SemanticCacheHits := lCacheMetrics.CacheHits;
-    Result.Metrics.SemanticCacheMisses := lCacheMetrics.CacheMisses;
-    Result.Metrics.SemanticCacheInvalidations := lCacheMetrics.Invalidations;
+      lExtraction.Models);
+    Result.Metrics.ModelExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
+    Result.Metrics.SemanticCacheHits := lExtraction.CacheMetrics.CacheHits;
+    Result.Metrics.SemanticCacheMisses := lExtraction.CacheMetrics.CacheMisses;
+    Result.Metrics.SemanticCacheInvalidations := lExtraction.CacheMetrics.Invalidations;
     Result.Metrics.SemanticCachePersistentConnectionOpenCount :=
-      lCacheMetrics.PersistentConnectionOpenCount;
+      lExtraction.CacheMetrics.PersistentConnectionOpenCount;
     if Trim(fOptions.SqliteCacheFileName) <> '' then
     begin
       lSnapshot := BuildSnapshot(aScopedSourceFileNames);
@@ -1407,17 +1306,14 @@ end;
 function TDelphiSemanticProjectSession.PlanRemoveWith(
   const aScopedSourceFileNames: TArray<string>): TDelphiSemanticRemoveWithPlan;
 var
-  lCacheMetrics: TDelphiSemanticCacheMetrics;
   lCacheSnapshotMetrics: TDelphiSemanticSnapshotCacheMetrics;
   lCacheSnapshot: TDelphiProjectSnapshot;
   lCachedPlan: TDelphiSemanticRemoveWithPlan;
   lProjectFactsIdentity: TDelphiSemanticSnapshotCacheIdentity;
-  lExtractionMilliseconds: Int64;
-  lExtractionCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  lExtraction: TProjectModelExtractionResult;
   lFallbackMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lGraph: TDelphiSemanticSemanticGraph;
-  lModels: TArray<TDelphiSemanticUnitModel>;
   lSnapshot: TDelphiProjectSnapshot;
   lSourceFileNames: TArray<string>;
   lUnitCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
@@ -1440,10 +1336,10 @@ begin
         AccumulateProjectFactsCacheMetrics(fLastSnapshotBuildMetrics,
           lCacheSnapshotMetrics);
         fLastSemanticGraphBuildMetrics := Default(TDelphiSemanticGraphBuildMetrics);
-        lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds,
-          lCacheMetrics, lSourceFileNames, aScopedSourceFileNames,
-          lExtractionCacheIdentities);
-        lSnapshot := BuildCachedRemoveWithSnapshotWithLookup(lCacheSnapshot, lModels);
+        lExtraction := ExtractProjectModels(fProject, fOptions, lSourceFileNames,
+          aScopedSourceFileNames, Length(aScopedSourceFileNames) > 0);
+        lSnapshot := BuildCachedRemoveWithSnapshotWithLookup(lCacheSnapshot,
+          lExtraction.Models);
         try
           lCachedPlan := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
           if not CachedRemoveWithPlanNeedsModelRebuild(lCachedPlan) then
@@ -1454,15 +1350,16 @@ begin
         if fOptions.SkipWithBindingSemanticGraph then
           lGraph := nil
         else
-          lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lModels);
+          lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject,
+            lExtraction.Models);
         try
           if lGraph <> nil then
             fLastSemanticGraphBuildMetrics := lGraph.Metrics
           else
             fLastSemanticGraphBuildMetrics := Default(TDelphiSemanticGraphBuildMetrics);
           lFacts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint,
-            lGraph, lModels);
-          lSnapshot := BuildSnapshotFromModels(lModels, lFacts, False,
+            lGraph, lExtraction.Models);
+          lSnapshot := BuildSnapshotFromModels(lExtraction.Models, lFacts, False,
             fOptions.SnapshotBuildWorkerCount, lFallbackMetrics);
           try
             Exit(TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot));
@@ -1480,13 +1377,12 @@ begin
       lCacheSnapshotMetrics);
   end;
 
-  lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds,
-    lCacheMetrics, lSourceFileNames, aScopedSourceFileNames,
-    lExtractionCacheIdentities);
+  lExtraction := ExtractProjectModels(fProject, fOptions, lSourceFileNames,
+    aScopedSourceFileNames, Length(aScopedSourceFileNames) > 0);
   if fOptions.SkipWithBindingSemanticGraph then
     lGraph := nil
   else
-    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lModels);
+    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lExtraction.Models);
   try
     if lGraph <> nil then
       fLastSemanticGraphBuildMetrics := lGraph.Metrics
@@ -1494,15 +1390,15 @@ begin
       fLastSemanticGraphBuildMetrics := Default(TDelphiSemanticGraphBuildMetrics);
 
     lFacts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint, lGraph,
-      lModels);
-    lFacts.Metrics.ModelExtractionMilliseconds := lExtractionMilliseconds;
-    lFacts.Metrics.SemanticCacheHits := lCacheMetrics.CacheHits;
-    lFacts.Metrics.SemanticCacheMisses := lCacheMetrics.CacheMisses;
-    lFacts.Metrics.SemanticCacheInvalidations := lCacheMetrics.Invalidations;
+      lExtraction.Models);
+    lFacts.Metrics.ModelExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
+    lFacts.Metrics.SemanticCacheHits := lExtraction.CacheMetrics.CacheHits;
+    lFacts.Metrics.SemanticCacheMisses := lExtraction.CacheMetrics.CacheMisses;
+    lFacts.Metrics.SemanticCacheInvalidations := lExtraction.CacheMetrics.Invalidations;
     lFacts.Metrics.SemanticCachePersistentConnectionOpenCount :=
-      lCacheMetrics.PersistentConnectionOpenCount;
+      lExtraction.CacheMetrics.PersistentConnectionOpenCount;
 
-    lSnapshot := BuildSnapshotFromModels(lModels, lFacts, False,
+    lSnapshot := BuildSnapshotFromModels(lExtraction.Models, lFacts, False,
       fOptions.SnapshotBuildWorkerCount, fLastSnapshotBuildMetrics);
     try
       if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
@@ -1510,7 +1406,7 @@ begin
         AccumulateProjectFactsCacheMetrics(fLastSnapshotBuildMetrics,
           lCacheSnapshotMetrics);
         if Length(lUnitCacheIdentities) = 0 then
-          lUnitCacheIdentities := lExtractionCacheIdentities;
+          lUnitCacheIdentities := lExtraction.CacheIdentities;
         lProjectFactsIdentity := ProjectRemoveWithFactsCacheIdentity(fProject, fOptions,
           lSourceFileNames, aScopedSourceFileNames, lUnitCacheIdentities);
         StoreProjectRemoveWithFactsCacheEntry(fOptions.SqliteCacheFileName,
@@ -1530,9 +1426,9 @@ function TDelphiSemanticProjectSession.PlanInvalidation(
   TDelphiSemanticSessionInvalidationPlan;
 var
   lChange: TDelphiSemanticSessionChange;
+  lExtraction: TProjectModelExtractionResult;
   lFiles: TList<string>;
   lModel: TDelphiSemanticUnitModel;
-  lModels: TArray<TDelphiSemanticUnitModel>;
   lReasons: TList<string>;
   lUnits: TList<string>;
 begin
@@ -1541,7 +1437,8 @@ begin
   lUnits := TList<string>.Create;
   lReasons := TList<string>.Create;
   try
-    lModels := ExtractProjectModels(fProject, fOptions);
+    lExtraction := ExtractProjectModels(fProject, fOptions, ProjectModelFileNames(fProject),
+      [], False);
     for lChange in aChanges do
     begin
       if SameText(lChange.ChangeKind, 'context') then
@@ -1549,25 +1446,25 @@ begin
         Result.ContextInvalidated := True;
         Result.RequiresFullSessionRebuild := True;
         AddUniqueText(lReasons, 'CONTEXT_CHANGED');
-        AddAllModels(lModels, lFiles, lUnits);
+        AddAllModels(lExtraction.Models, lFiles, lUnits);
       end else if SameText(lChange.ChangeKind, 'include') or
         SameText(TPath.GetExtension(lChange.FileName), '.inc') then
       begin
         Result.IncludeGraphInvalidated := True;
         AddUniqueText(lReasons, 'INCLUDE_GRAPH_CHANGED');
-        AddAllModels(lModels, lFiles, lUnits);
+        AddAllModels(lExtraction.Models, lFiles, lUnits);
       end else if SameText(lChange.ChangeKind, 'unknown') then
       begin
         Result.RequiresFullSessionRebuild := True;
         AddUniqueText(lReasons, 'UNKNOWN_CHANGE');
-        AddAllModels(lModels, lFiles, lUnits);
-      end else if FindModelByFileName(lModels, lChange.FileName, lModel) then
+        AddAllModels(lExtraction.Models, lFiles, lUnits);
+      end else if FindModelByFileName(lExtraction.Models, lChange.FileName, lModel) then
       begin
         if (not lModel.Success) or (Trim(lModel.UnitName) = '') then
         begin
           Result.RequiresFullSessionRebuild := True;
           AddUniqueText(lReasons, 'CHANGED_UNIT_MODEL_UNAVAILABLE');
-          AddAllModels(lModels, lFiles, lUnits);
+          AddAllModels(lExtraction.Models, lFiles, lUnits);
           Continue;
         end;
 
@@ -1582,13 +1479,13 @@ begin
             Result.LookupMemoizationInvalidated := True;
           AddUniqueText(lReasons, UpperCase(StringReplace(lChange.ChangeKind, '-',
             '_', [rfReplaceAll])) + '_CHANGED');
-          AddDependentClosure(lModels, lModel, lFiles, lUnits);
+          AddDependentClosure(lExtraction.Models, lModel, lFiles, lUnits);
         end;
       end else
       begin
         Result.RequiresFullSessionRebuild := True;
         AddUniqueText(lReasons, 'CHANGE_OUTSIDE_PROJECT_MODEL');
-        AddAllModels(lModels, lFiles, lUnits);
+        AddAllModels(lExtraction.Models, lFiles, lUnits);
       end;
     end;
 
