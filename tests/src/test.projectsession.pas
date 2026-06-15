@@ -11,17 +11,8 @@ type
   [TestFixture]
   TProjectSessionTests = class
   private
-    procedure AssertReferenceFactsEqual(const aExpectedSnapshot,
-      aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
-      aActualUnit: TUnitSnapshot; const aReferenceId: TSemanticReferenceId);
     procedure AssertSnapshotFactsEqual(const aExpectedSnapshot,
       aActualSnapshot: TDelphiProjectSnapshot);
-    procedure AssertSymbolFactsEqual(const aExpectedSnapshot,
-      aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
-      aActualUnit: TUnitSnapshot; const aSymbolId: TSemanticSymbolId);
-    procedure AssertWithFactsEqual(const aExpectedSnapshot,
-      aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
-      aActualUnit: TUnitSnapshot; const aWithId: TSemanticWithId);
     function ParityStatementsFromPlan(const aPlan: TDelphiSemanticRemoveWithPlan):
       TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
   public
@@ -37,6 +28,8 @@ type
     procedure ProjectSessionModelExtractionUsesSingleResultRecord;
     [Test]
     procedure ProjectSessionBuildsSnapshotFromExtractedModels;
+    [Test]
+    procedure ProjectSessionSnapshotParityComparesSemanticFacts;
     [Test]
     procedure ProjectSessionParallelSnapshotBuildMatchesSequentialFacts;
     [Test]
@@ -70,6 +63,7 @@ type
 implementation
 
 uses
+  System.Classes,
   System.IOUtils,
   System.StrUtils,
   System.SysUtils,
@@ -108,137 +102,212 @@ begin
   Result := TPath.Combine(ProjectSessionTempRoot, aName);
 end;
 
-
-procedure TProjectSessionTests.AssertReferenceFactsEqual(const aExpectedSnapshot,
-  aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
-  aActualUnit: TUnitSnapshot; const aReferenceId: TSemanticReferenceId);
+procedure TProjectSessionTests.ProjectSessionSnapshotParityComparesSemanticFacts;
 var
-  lActual: TSemanticReferenceFact;
-  lExpected: TSemanticReferenceFact;
+  lAssertPrefix: string;
+  lSource: string;
 begin
-  lExpected := aExpectedUnit.ReferenceById(aReferenceId);
-  lActual := aActualUnit.ReferenceById(aReferenceId);
-  Assert.AreEqual(Integer(lExpected.Id), Integer(lActual.Id));
-  Assert.AreEqual(Integer(lExpected.UnitId), Integer(lActual.UnitId));
-  Assert.AreEqual(Integer(lExpected.WithId), Integer(lActual.WithId));
-  Assert.AreEqual(Integer(lExpected.TargetUnitId), Integer(lActual.TargetUnitId));
-  Assert.AreEqual(Integer(lExpected.TargetSymbolId), Integer(lActual.TargetSymbolId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.NameId),
-    aActualSnapshot.TextOf(lActual.NameId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.ReceiverTypeId),
-    aActualSnapshot.TextOf(lActual.ReceiverTypeId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.TypeId),
-    aActualSnapshot.TextOf(lActual.TypeId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.RoutineId),
-    aActualSnapshot.TextOf(lActual.RoutineId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.SectionKindId),
-    aActualSnapshot.TextOf(lActual.SectionKindId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.SourceKindId),
-    aActualSnapshot.TextOf(lActual.SourceKindId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.ClassificationId),
-    aActualSnapshot.TextOf(lActual.ClassificationId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.LookupSourceId),
-    aActualSnapshot.TextOf(lActual.LookupSourceId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.ReasonId),
-    aActualSnapshot.TextOf(lActual.ReasonId));
-  Assert.AreEqual(lExpected.Line, lActual.Line);
-  Assert.AreEqual(lExpected.Column, lActual.Column);
-  Assert.AreEqual(lExpected.EndLine, lActual.EndLine);
-  Assert.AreEqual(lExpected.EndColumn, lActual.EndColumn);
+  lSource := ReadRepoSource('tests\src\test.projectsession.pas');
+  lAssertPrefix := 'Assert.AreEqual(Integer(lExpected.';
+
+  Assert.IsFalse(ContainsText(lSource, lAssertPrefix + 'Id)'),
+    'Project-session snapshot parity must not compare dense fact IDs.');
+  Assert.IsFalse(ContainsText(lSource, lAssertPrefix + 'UnitId)'),
+    'Project-session snapshot parity must not compare dense unit IDs.');
+  Assert.IsFalse(ContainsText(lSource, lAssertPrefix + 'WithId)'),
+    'Project-session snapshot parity must not compare dense with IDs.');
+  Assert.IsFalse(ContainsText(lSource, lAssertPrefix + 'TargetUnitId)'),
+    'Project-session snapshot parity must not compare dense target unit IDs.');
+  Assert.IsFalse(ContainsText(lSource, lAssertPrefix + 'TargetSymbolId)'),
+    'Project-session snapshot parity must not compare dense target symbol IDs.');
+end;
+
+
+function SnapshotUnitKey(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot): string;
+begin
+  Result := aSnapshot.TextOf(aUnit.FileNameId) + #31 + aSnapshot.TextOf(aUnit.UnitNameId);
+end;
+
+function SnapshotSymbolKey(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbol: TSemanticSymbolFact): string;
+begin
+  Result := aSnapshot.TextOf(aSymbol.NameId) + #31 +
+    aSnapshot.TextOf(aSymbol.OwnerTypeId) + #31 +
+    aSnapshot.TextOf(aSymbol.TypeId) + #31 +
+    aSnapshot.TextOf(aSymbol.RoutineId) + #31 +
+    aSnapshot.TextOf(aSymbol.KindId) + #31 +
+    aSnapshot.TextOf(aSymbol.SectionKindId) + #31 +
+    aSnapshot.TextOf(aSymbol.SourceKindId) + #31 +
+    aSnapshot.TextOf(aSymbol.VisibilityId) + #31 +
+    aSnapshot.TextOf(aSymbol.SignatureId) + #31 + IntToStr(aSymbol.Flags) + #31 +
+    IntToStr(aSymbol.Line) + #31 + IntToStr(aSymbol.Column) + #31 +
+    IntToStr(aSymbol.EndLine) + #31 + IntToStr(aSymbol.EndColumn);
+end;
+
+function SnapshotWithKey(const aSnapshot: TDelphiProjectSnapshot;
+  const aWith: TSemanticWithStatementFact): string;
+begin
+  Result := aSnapshot.TextOf(aWith.RoutineId) + #31 +
+    IntToStr(aWith.SelectorStartLine) + #31 + IntToStr(aWith.SelectorStartColumn) + #31 +
+    IntToStr(aWith.BodyStartLine) + #31 + IntToStr(aWith.BodyStartColumn) + #31 +
+    IntToStr(aWith.BodyEndLine) + #31 + IntToStr(aWith.BodyEndColumn) + #31 +
+    IntToStr(aWith.Flags);
+end;
+
+function SnapshotReferenceWithKey(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aReference: TSemanticReferenceFact): string;
+begin
+  Result := '';
+  if aReference.WithId <> 0 then
+    Result := SnapshotWithKey(aSnapshot, aUnit.WithStatementById(aReference.WithId));
+end;
+
+function SnapshotReferenceTargetKey(const aSnapshot: TDelphiProjectSnapshot;
+  const aReference: TSemanticReferenceFact): string;
+var
+  lTargetUnit: TUnitSnapshot;
+begin
+  Result := '';
+  if (aReference.TargetUnitId = 0) or (aReference.TargetSymbolId = 0) then
+    Exit;
+
+  Assert.IsTrue(aSnapshot.TryFindUnitById(aReference.TargetUnitId, lTargetUnit),
+    'Expected reference target unit to exist.');
+  Result := SnapshotUnitKey(aSnapshot, lTargetUnit) + #31 +
+    SnapshotSymbolKey(aSnapshot, lTargetUnit.SymbolById(aReference.TargetSymbolId));
+end;
+
+function SnapshotReferenceKey(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aReference: TSemanticReferenceFact): string;
+begin
+  Result := SnapshotReferenceWithKey(aSnapshot, aUnit, aReference) + #31 +
+    SnapshotReferenceTargetKey(aSnapshot, aReference) + #31 +
+    aSnapshot.TextOf(aReference.NameId) + #31 +
+    aSnapshot.TextOf(aReference.ReceiverTypeId) + #31 +
+    aSnapshot.TextOf(aReference.TypeId) + #31 +
+    aSnapshot.TextOf(aReference.RoutineId) + #31 +
+    aSnapshot.TextOf(aReference.SectionKindId) + #31 +
+    aSnapshot.TextOf(aReference.SourceKindId) + #31 +
+    aSnapshot.TextOf(aReference.ClassificationId) + #31 +
+    aSnapshot.TextOf(aReference.LookupSourceId) + #31 +
+    aSnapshot.TextOf(aReference.ReasonId) + #31 + IntToStr(aReference.Line) + #31 +
+    IntToStr(aReference.Column) + #31 + IntToStr(aReference.EndLine) + #31 +
+    IntToStr(aReference.EndColumn);
+end;
+
+procedure AssertSemanticListEquals(const aLabel: string; const aExpected,
+  aActual: TStringList);
+var
+  i: Integer;
+begin
+  aExpected.Sort;
+  aActual.Sort;
+  Assert.AreEqual(aExpected.Count, aActual.Count, aLabel + ' count mismatch.');
+  for i := 0 to aExpected.Count - 1 do
+    Assert.AreEqual(aExpected[i], aActual[i], aLabel + ' semantic fact mismatch.');
+end;
+
+procedure AddSnapshotUnitKeys(const aSnapshot: TDelphiProjectSnapshot; const aList: TStringList);
+var
+  i: Integer;
+begin
+  for i := 0 to aSnapshot.UnitCount - 1 do
+    aList.Add(SnapshotUnitKey(aSnapshot, aSnapshot.UnitByIndex(i)));
+end;
+
+procedure AddSnapshotSymbolKeys(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aList: TStringList);
+var
+  lSymbolId: TSemanticSymbolId;
+begin
+  for lSymbolId := 1 to TSemanticSymbolId(aUnit.SymbolCount) do
+    aList.Add(SnapshotSymbolKey(aSnapshot, aUnit.SymbolById(lSymbolId)));
+end;
+
+procedure AddSnapshotWithKeys(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aList: TStringList);
+var
+  lWithId: TSemanticWithId;
+begin
+  for lWithId := 1 to TSemanticWithId(aUnit.WithStatementCount) do
+    aList.Add(SnapshotWithKey(aSnapshot, aUnit.WithStatementById(lWithId)));
+end;
+
+procedure AddSnapshotReferenceKeys(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aList: TStringList);
+var
+  lReferenceId: TSemanticReferenceId;
+begin
+  for lReferenceId := 1 to TSemanticReferenceId(aUnit.ReferenceCount) do
+    aList.Add(SnapshotReferenceKey(aSnapshot, aUnit, aUnit.ReferenceById(lReferenceId)));
+end;
+
+procedure AssertSnapshotUnitSemanticFactsEqual(const aExpectedSnapshot,
+  aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit: TUnitSnapshot);
+var
+  lActualList: TStringList;
+  lActualUnit: TUnitSnapshot;
+  lActualUnitId: TSemanticUnitId;
+  lExpectedFileName: string;
+  lExpectedList: TStringList;
+begin
+  lExpectedFileName := aExpectedSnapshot.TextOf(aExpectedUnit.FileNameId);
+  Assert.IsTrue(aActualSnapshot.TryFindUnitByFileName(lExpectedFileName, lActualUnitId),
+    'Expected actual snapshot to contain unit ' + lExpectedFileName);
+  Assert.IsTrue(aActualSnapshot.TryFindUnitById(lActualUnitId, lActualUnit),
+    'Expected actual snapshot unit lookup to succeed for ' + lExpectedFileName);
+
+  lExpectedList := TStringList.Create;
+  lActualList := TStringList.Create;
+  try
+    AddSnapshotSymbolKeys(aExpectedSnapshot, aExpectedUnit, lExpectedList);
+    AddSnapshotSymbolKeys(aActualSnapshot, lActualUnit, lActualList);
+    AssertSemanticListEquals(lExpectedFileName + ' symbols', lExpectedList, lActualList);
+
+    lExpectedList.Clear;
+    lActualList.Clear;
+    AddSnapshotWithKeys(aExpectedSnapshot, aExpectedUnit, lExpectedList);
+    AddSnapshotWithKeys(aActualSnapshot, lActualUnit, lActualList);
+    AssertSemanticListEquals(lExpectedFileName + ' with statements', lExpectedList,
+      lActualList);
+
+    lExpectedList.Clear;
+    lActualList.Clear;
+    AddSnapshotReferenceKeys(aExpectedSnapshot, aExpectedUnit, lExpectedList);
+    AddSnapshotReferenceKeys(aActualSnapshot, lActualUnit, lActualList);
+    AssertSemanticListEquals(lExpectedFileName + ' references', lExpectedList,
+      lActualList);
+  finally
+    lActualList.Free;
+    lExpectedList.Free;
+  end;
 end;
 
 procedure TProjectSessionTests.AssertSnapshotFactsEqual(const aExpectedSnapshot,
   aActualSnapshot: TDelphiProjectSnapshot);
 var
   i: Integer;
-  lActualUnit: TUnitSnapshot;
+  lActualUnits: TStringList;
   lExpectedUnit: TUnitSnapshot;
-  lReferenceId: TSemanticReferenceId;
-  lSymbolId: TSemanticSymbolId;
-  lWithId: TSemanticWithId;
+  lExpectedUnits: TStringList;
 begin
-  Assert.AreEqual(aExpectedSnapshot.UnitCount, aActualSnapshot.UnitCount);
+  lExpectedUnits := TStringList.Create;
+  lActualUnits := TStringList.Create;
+  try
+    AddSnapshotUnitKeys(aExpectedSnapshot, lExpectedUnits);
+    AddSnapshotUnitKeys(aActualSnapshot, lActualUnits);
+    AssertSemanticListEquals('snapshot units', lExpectedUnits, lActualUnits);
+  finally
+    lActualUnits.Free;
+    lExpectedUnits.Free;
+  end;
+
   for i := 0 to aExpectedSnapshot.UnitCount - 1 do
   begin
     lExpectedUnit := aExpectedSnapshot.UnitByIndex(i);
-    lActualUnit := aActualSnapshot.UnitByIndex(i);
-    Assert.AreEqual(Integer(lExpectedUnit.UnitId), Integer(lActualUnit.UnitId));
-    Assert.AreEqual(aExpectedSnapshot.TextOf(lExpectedUnit.FileNameId),
-      aActualSnapshot.TextOf(lActualUnit.FileNameId));
-    Assert.AreEqual(aExpectedSnapshot.TextOf(lExpectedUnit.UnitNameId),
-      aActualSnapshot.TextOf(lActualUnit.UnitNameId));
-    Assert.AreEqual(lExpectedUnit.SymbolCount, lActualUnit.SymbolCount);
-    Assert.AreEqual(lExpectedUnit.WithStatementCount, lActualUnit.WithStatementCount);
-    Assert.AreEqual(lExpectedUnit.ReferenceCount, lActualUnit.ReferenceCount);
-
-    for lSymbolId := 1 to TSemanticSymbolId(lExpectedUnit.SymbolCount) do
-      AssertSymbolFactsEqual(aExpectedSnapshot, aActualSnapshot, lExpectedUnit,
-        lActualUnit, lSymbolId);
-    for lWithId := 1 to TSemanticWithId(lExpectedUnit.WithStatementCount) do
-      AssertWithFactsEqual(aExpectedSnapshot, aActualSnapshot, lExpectedUnit,
-        lActualUnit, lWithId);
-    for lReferenceId := 1 to TSemanticReferenceId(lExpectedUnit.ReferenceCount) do
-      AssertReferenceFactsEqual(aExpectedSnapshot, aActualSnapshot, lExpectedUnit,
-        lActualUnit, lReferenceId);
+    AssertSnapshotUnitSemanticFactsEqual(aExpectedSnapshot, aActualSnapshot, lExpectedUnit);
   end;
-end;
-
-procedure TProjectSessionTests.AssertSymbolFactsEqual(const aExpectedSnapshot,
-  aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
-  aActualUnit: TUnitSnapshot; const aSymbolId: TSemanticSymbolId);
-var
-  lActual: TSemanticSymbolFact;
-  lExpected: TSemanticSymbolFact;
-begin
-  lExpected := aExpectedUnit.SymbolById(aSymbolId);
-  lActual := aActualUnit.SymbolById(aSymbolId);
-  Assert.AreEqual(Integer(lExpected.Id), Integer(lActual.Id));
-  Assert.AreEqual(Integer(lExpected.UnitId), Integer(lActual.UnitId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.NameId),
-    aActualSnapshot.TextOf(lActual.NameId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.OwnerTypeId),
-    aActualSnapshot.TextOf(lActual.OwnerTypeId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.TypeId),
-    aActualSnapshot.TextOf(lActual.TypeId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.RoutineId),
-    aActualSnapshot.TextOf(lActual.RoutineId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.KindId),
-    aActualSnapshot.TextOf(lActual.KindId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.SectionKindId),
-    aActualSnapshot.TextOf(lActual.SectionKindId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.SourceKindId),
-    aActualSnapshot.TextOf(lActual.SourceKindId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.VisibilityId),
-    aActualSnapshot.TextOf(lActual.VisibilityId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.SignatureId),
-    aActualSnapshot.TextOf(lActual.SignatureId));
-  Assert.AreEqual(Int64(lExpected.Flags), Int64(lActual.Flags));
-  Assert.AreEqual(lExpected.Line, lActual.Line);
-  Assert.AreEqual(lExpected.Column, lActual.Column);
-  Assert.AreEqual(lExpected.EndLine, lActual.EndLine);
-  Assert.AreEqual(lExpected.EndColumn, lActual.EndColumn);
-end;
-
-procedure TProjectSessionTests.AssertWithFactsEqual(const aExpectedSnapshot,
-  aActualSnapshot: TDelphiProjectSnapshot; const aExpectedUnit,
-  aActualUnit: TUnitSnapshot; const aWithId: TSemanticWithId);
-var
-  lActual: TSemanticWithStatementFact;
-  lExpected: TSemanticWithStatementFact;
-begin
-  lExpected := aExpectedUnit.WithStatementById(aWithId);
-  lActual := aActualUnit.WithStatementById(aWithId);
-  Assert.AreEqual(Integer(lExpected.Id), Integer(lActual.Id));
-  Assert.AreEqual(Integer(lExpected.UnitId), Integer(lActual.UnitId));
-  Assert.AreEqual(aExpectedSnapshot.TextOf(lExpected.RoutineId),
-    aActualSnapshot.TextOf(lActual.RoutineId));
-  Assert.AreEqual(lExpected.SelectorStartLine, lActual.SelectorStartLine);
-  Assert.AreEqual(lExpected.SelectorStartColumn, lActual.SelectorStartColumn);
-  Assert.AreEqual(lExpected.BodyStartLine, lActual.BodyStartLine);
-  Assert.AreEqual(lExpected.BodyStartColumn, lActual.BodyStartColumn);
-  Assert.AreEqual(lExpected.BodyEndLine, lActual.BodyEndLine);
-  Assert.AreEqual(lExpected.BodyEndColumn, lActual.BodyEndColumn);
-  Assert.AreEqual(Int64(lExpected.Flags), Int64(lActual.Flags));
 end;
 
 function TProjectSessionTests.ParityStatementsFromPlan(
@@ -384,8 +453,10 @@ var
   lResult: TDelphiSemanticProjectSessionResult;
   lRoutine: TDelphiSemanticRoutine;
   lSnapshot: TDelphiProjectSnapshot;
+  lSymbol: TSemanticSymbolFact;
   lSymbolRef: TSemanticSymbolRef;
   lTypeNameId: TSemanticStringId;
+  lUnit: TUnitSnapshot;
   lUnitId: TSemanticUnitId;
 begin
   lOptions := Default(TDelphiSemanticOptions);
@@ -422,13 +493,18 @@ begin
 
       Assert.IsTrue(lSnapshot.TryFindUnitByFileName(
         FixturePath('ProjectWithBinding\ProjectWithBinding.dpr'), lUnitId));
-      Assert.AreEqual(1, Integer(lUnitId));
+      Assert.IsTrue(lSnapshot.TryFindUnitById(lUnitId, lUnit));
+      Assert.AreEqual(FixturePath('ProjectWithBinding\ProjectWithBinding.dpr'),
+        lSnapshot.TextOf(lUnit.FileNameId));
 
       Assert.IsTrue(lSnapshot.TryFindStringId('TProjectWithRecord', lTypeNameId));
       Assert.IsTrue(lSnapshot.TryTypesByName(lTypeNameId, lLowIndex, lHighIndex));
       Assert.IsTrue(lSnapshot.TryFindStringId('Value', lMemberNameId));
       Assert.IsTrue(lSnapshot.TryFindMember(lTypeNameId, lMemberNameId, lSymbolRef));
-      Assert.AreEqual(1, Integer(lSymbolRef.UnitId));
+      Assert.IsTrue(lSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit));
+      lSymbol := lUnit.SymbolById(lSymbolRef.SymbolId);
+      Assert.AreEqual('Value', lSnapshot.TextOf(lSymbol.NameId));
+      Assert.AreEqual('TProjectWithRecord', lSnapshot.TextOf(lSymbol.OwnerTypeId));
     finally
       lSnapshot.Free;
     end;
