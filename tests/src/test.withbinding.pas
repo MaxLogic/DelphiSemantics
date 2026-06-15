@@ -51,6 +51,8 @@ type
     procedure ReceiverMemberIndexDoesNotWalkVisibleUnitsPerLookup;
     [Test]
     procedure WithBindingUsesSingleResolverAuthorityAdapter;
+    [Test]
+    procedure WithBindingDelegatesCompatibilityInventory;
   end;
 
 implementation
@@ -641,6 +643,36 @@ begin
 
   Assert.AreEqual(1, lCount,
     'WithBinding must have exactly one direct legacy ResolveName call.');
+end;
+
+procedure TProjectWithBindingTests.WithBindingDelegatesCompatibilityInventory;
+var
+  lInventoryPath: string;
+  lInventorySource: string;
+  lWithBindingSource: string;
+begin
+  lInventoryPath := RepoSourcePath('src\DelphiSemantics.WithBinding.Inventory.pas');
+  Assert.IsTrue(TFile.Exists(lInventoryPath),
+    'Compatibility inventory construction should live in a focused unit.');
+
+  lWithBindingSource := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
+  lInventorySource := ReadRepoSource('src\DelphiSemantics.WithBinding.Inventory.pas');
+
+  Assert.IsTrue(ContainsText(lWithBindingSource, 'DelphiSemantics.WithBinding.Inventory'),
+    'WithBinding should delegate compatibility inventory construction to the focused unit.');
+  Assert.IsTrue(ContainsText(lInventorySource, 'BuildInventorySymbols'),
+    'The inventory unit should own model-to-inventory symbol construction.');
+  Assert.IsTrue(ContainsText(lInventorySource, 'ExpandInventorySymbols'),
+    'The inventory unit should own compatibility inventory expansion.');
+  Assert.IsFalse(ContainsText(lWithBindingSource, 'function BuildInventorySymbols'),
+    'WithBinding should not keep the compatibility inventory builder implementation.');
+  Assert.IsFalse(ContainsText(lWithBindingSource, 'InventoryDecodeSourceText'),
+    'WithBinding should not own legacy file-byte source decoding.');
+  Assert.IsFalse(ContainsText(lWithBindingSource, 'TFile.ReadAllBytes'),
+    'WithBinding compatibility inventory must not directly decode source bytes.');
+  Assert.IsTrue(ContainsText(lInventorySource, 'aModel.SourceText') or
+    ContainsText(lInventorySource, 'TDelphiSemanticSourceLoader'),
+    'Compatibility inventory source fallback should use model source text or the shared source loader.');
 end;
 
 initialization

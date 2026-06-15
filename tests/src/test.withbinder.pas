@@ -896,7 +896,7 @@ procedure TWithBinderTests.InventoryExpansionUsesIndexedOwnMemberLookup;
 var
   lSourceText: string;
 begin
-  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.Inventory.pas');
 
   Assert.IsTrue(ContainsText(lSourceText, 'BuildInventoryOwnMemberKeys'),
     'Inventory expansion must build an indexed own-member lookup for large semantic inventories.');
@@ -911,7 +911,7 @@ var
   lExpansionText: string;
   lSourceText: string;
 begin
-  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.Inventory.pas');
   lExpansionStart := Pos('procedure AddRelatedInventoryMemberSymbols', lSourceText);
   lExpansionEnd := Pos('procedure AddRelatedInventoryCurrentClassSymbols', lSourceText);
   lExpansionText := Copy(lSourceText, lExpansionStart, lExpansionEnd - lExpansionStart);
@@ -929,7 +929,7 @@ var
   lExpansionText: string;
   lSourceText: string;
 begin
-  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.Inventory.pas');
   lExpansionStart := Pos('procedure AddRelatedInventoryCurrentClassSymbols', lSourceText);
   lExpansionEnd := Pos('procedure AddExpandedExternalTypeSymbol', lSourceText);
   Assert.IsTrue((lExpansionStart > 0) and (lExpansionEnd > lExpansionStart),
@@ -1112,7 +1112,7 @@ var
   lKeyFunctionText: string;
   lSourceText: string;
 begin
-  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.Inventory.pas');
   lKeyFunctionText := Copy(lSourceText, Pos('function InventorySymbolKey', lSourceText), 900);
 
   Assert.IsTrue(ContainsText(lSourceText,
