@@ -3,6 +3,7 @@ unit DelphiSemantics.CompilerProfile;
 interface
 
 uses
+  System.Generics.Collections,
   DelphiSemantics.Cache, DelphiSemantics.Model;
 
 type
@@ -26,6 +27,19 @@ type
     RtlSourceUnitModels: TArray<TDelphiSemanticUnitModel>;
   end;
 
+  TDelphiSemanticRtlSourceDiscovery = class
+  private
+    fRecursiveFileIndex: TDictionary<string, string>;
+    fRecursiveIndexBuildCount: Integer;
+    fRtlSourceRoot: string;
+  public
+    constructor Create(const aRtlSourceRoot: string);
+    destructor Destroy; override;
+    function DiscoverSourceFiles(const aUnitNames: TArray<string>): TArray<string>;
+    property RecursiveIndexBuildCount: Integer read fRecursiveIndexBuildCount;
+    property RtlSourceRoot: string read fRtlSourceRoot;
+  end;
+
   TDelphiSemanticCompilerProfileBuilder = record
   public
     class function DefaultProfile(const aCompilerProfileName: string):
@@ -40,6 +54,9 @@ type
     class function ProfileForTargetFromRtlSourceRoot(const aCache: TDelphiSemanticUnitCache;
       const aCompilerProfileName, aDelphiVersion, aPlatform, aRtlSourceRoot: string;
       const aUnitNames: TArray<string>): TDelphiSemanticCompilerProfile; static;
+    class function ProfileForTargetFromRtlSourceFiles(const aCache: TDelphiSemanticUnitCache;
+      const aCompilerProfileName, aDelphiVersion, aPlatform, aRtlSourceRoot: string;
+      const aSourceFileNames: TArray<string>): TDelphiSemanticCompilerProfile; static;
     class function ResolveBdsRoot(const aDelphiVersion, aRsVarsPath: string): string; static;
     class function ResolveRtlSourceRoot(const aDelphiVersion, aRsVarsPath: string): string; static;
   end;
@@ -47,8 +64,7 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils,
-  System.SysUtils,
+  System.Generics.Defaults, System.Hash, System.IOUtils, System.SysUtils,
   System.Win.Registry,
   Winapi.Windows,
   MaxLogic.StrUtils;
@@ -433,6 +449,49 @@ begin
   end;
 end;
 
+constructor TDelphiSemanticRtlSourceDiscovery.Create(const aRtlSourceRoot: string);
+begin
+  inherited Create;
+  fRtlSourceRoot := NormalizeRtlSourceRoot(aRtlSourceRoot);
+end;
+
+destructor TDelphiSemanticRtlSourceDiscovery.Destroy;
+begin
+  fRecursiveFileIndex.Free;
+  inherited;
+end;
+
+function TDelphiSemanticRtlSourceDiscovery.DiscoverSourceFiles(
+  const aUnitNames: TArray<string>): TArray<string>;
+var
+  lFiles: TList<string>;
+  lHadRecursiveIndex: Boolean;
+  lSourceFileName: string;
+  lUnitName: string;
+begin
+  if (fRtlSourceRoot = '') or not TDirectory.Exists(fRtlSourceRoot) then
+  begin
+    SetLength(Result, 0);
+    Exit;
+  end;
+
+  lFiles := TList<string>.Create;
+  try
+    for lUnitName in aUnitNames do
+      begin
+        lHadRecursiveIndex := fRecursiveFileIndex <> nil;
+        if TryFindRtlSourceFile(fRtlSourceRoot, lUnitName, fRecursiveFileIndex,
+          lSourceFileName) and not ContainsPath(lFiles, lSourceFileName) then
+          lFiles.Add(lSourceFileName);
+        if (not lHadRecursiveIndex) and (fRecursiveFileIndex <> nil) then
+          Inc(fRecursiveIndexBuildCount);
+      end;
+    Result := lFiles.ToArray;
+  finally
+    lFiles.Free;
+  end;
+end;
+
 function TryReadRegistryBdsRoot(const aDelphiVersion: string; const aViewFlag: Cardinal;
   out aBdsRoot: string): Boolean;
 var
@@ -671,30 +730,13 @@ end;
 class function TDelphiSemanticCompilerProfileBuilder.DiscoverRtlSourceFiles(
   const aRtlSourceRoot: string; const aUnitNames: TArray<string>): TArray<string>;
 var
-  lList: TList<string>;
-  lRecursiveFileIndex: TDictionary<string, string>;
-  lRtlSourceRoot: string;
-  lSourceFileName: string;
-  lUnitName: string;
+  lDiscovery: TDelphiSemanticRtlSourceDiscovery;
 begin
-  lRtlSourceRoot := NormalizeRtlSourceRoot(aRtlSourceRoot);
-  lRecursiveFileIndex := nil;
-  lList := TList<string>.Create;
+  lDiscovery := TDelphiSemanticRtlSourceDiscovery.Create(aRtlSourceRoot);
   try
-    if TDirectory.Exists(lRtlSourceRoot) then
-    begin
-      for lUnitName in aUnitNames do
-      begin
-        if TryFindRtlSourceFile(lRtlSourceRoot, lUnitName, lRecursiveFileIndex, lSourceFileName) and
-          (not ContainsPath(lList, lSourceFileName)) then
-          lList.Add(lSourceFileName);
-      end;
-    end;
-
-    Result := lList.ToArray;
+    Result := lDiscovery.DiscoverSourceFiles(aUnitNames);
   finally
-    lRecursiveFileIndex.Free;
-    lList.Free;
+    lDiscovery.Free;
   end;
 end;
 
@@ -705,9 +747,18 @@ var
   lSourceFileNames: TArray<string>;
 begin
   lSourceFileNames := DiscoverRtlSourceFiles(aRtlSourceRoot, aUnitNames);
+  Result := ProfileForTargetFromRtlSourceFiles(aCache, aCompilerProfileName, aDelphiVersion,
+    aPlatform, aRtlSourceRoot, lSourceFileNames);
+end;
+
+class function TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceFiles(
+  const aCache: TDelphiSemanticUnitCache; const aCompilerProfileName, aDelphiVersion,
+  aPlatform, aRtlSourceRoot: string; const aSourceFileNames: TArray<string>):
+  TDelphiSemanticCompilerProfile;
+begin
   Result := ProfileForTarget(aCompilerProfileName, aDelphiVersion, aPlatform, aRtlSourceRoot);
   Result.RtlSourceUnitModels := FromRtlSourceRootForPlatform(aCache, aCompilerProfileName, aPlatform,
-    lSourceFileNames).RtlSourceUnitModels;
+    aSourceFileNames).RtlSourceUnitModels;
 end;
 
 class function TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot(const aDelphiVersion,

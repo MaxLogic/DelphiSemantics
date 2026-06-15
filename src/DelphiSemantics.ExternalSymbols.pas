@@ -12,6 +12,7 @@ type
     IntrinsicResolvedCount: Integer;
     RtlUnitLookupCount: Integer;
     RtlUnitLoadCount: Integer;
+    RtlSourceDiscoveryIndexBuildCount: Integer;
     RtlTypeLookupCount: Integer;
     RtlTypeResolvedCount: Integer;
     RtlTypeIndexBuildCount: Integer;
@@ -72,6 +73,7 @@ type
     fLoadedUnitsByName: TDictionary<string, TDelphiSemanticUnitModel>;
     fMetrics: TDelphiSemanticExternalSymbolMetrics;
     fProfile: TDelphiSemanticCompilerProfile;
+    fRtlSourceDiscovery: TDelphiSemanticRtlSourceDiscovery;
     fTypeIndex: TDelphiSemanticTypeIdentityIndex;
     fTypeIndexValid: Boolean;
     function LoadedModels: TArray<TDelphiSemanticUnitModel>;
@@ -169,6 +171,7 @@ begin
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     fLoadedUnitsByName := TDictionary<string, TDelphiSemanticUnitModel>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
+    fRtlSourceDiscovery := TDelphiSemanticRtlSourceDiscovery.Create(fProfile.RtlSourceRoot);
 
     for lIntrinsic in fProfile.IntrinsicSymbols do
       if lIntrinsic.Name <> '' then
@@ -181,6 +184,8 @@ begin
   except
     fLoadedUnitsByName.Free;
     fLoadedUnitsByName := nil;
+    fRtlSourceDiscovery.Free;
+    fRtlSourceDiscovery := nil;
     fIntrinsicByName.Free;
     fIntrinsicByName := nil;
     raise;
@@ -189,6 +194,7 @@ end;
 
 destructor TDelphiSemanticExternalSymbolServiceData.Destroy;
 begin
+  fRtlSourceDiscovery.Free;
   fLoadedUnitsByName.Free;
   fIntrinsicByName.Free;
   inherited;
@@ -239,6 +245,7 @@ function TDelphiSemanticExternalSymbolServiceData.LoadRtlUnit(const aUnitName: s
   out aModel: TDelphiSemanticUnitModel): Boolean;
 var
   lProfile: TDelphiSemanticCompilerProfile;
+  lSourceFileNames: TArray<string>;
 begin
   aModel := Default(TDelphiSemanticUnitModel);
   if fLoadedUnitsByName.TryGetValue(aUnitName, aModel) then
@@ -247,9 +254,11 @@ begin
   if (fCache = nil) or (fProfile.RtlSourceRoot = '') then
     Exit(False);
 
-  lProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceRoot(fCache,
-    fProfile.Name, fProfile.DelphiVersion, fProfile.Platform, fProfile.RtlSourceRoot,
-    [aUnitName]);
+  lSourceFileNames := fRtlSourceDiscovery.DiscoverSourceFiles([aUnitName]);
+  fMetrics.RtlSourceDiscoveryIndexBuildCount := fRtlSourceDiscovery.RecursiveIndexBuildCount;
+  lProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceFiles(
+    fCache, fProfile.Name, fProfile.DelphiVersion, fProfile.Platform, fProfile.RtlSourceRoot,
+    lSourceFileNames);
   CaptureCacheMetrics;
   if Length(lProfile.RtlSourceUnitModels) = 0 then
     Exit(False);

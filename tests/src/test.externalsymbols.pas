@@ -1,4 +1,4 @@
-﻿unit Test.ExternalSymbols;
+unit Test.ExternalSymbols;
 
 interface
 
@@ -90,6 +90,7 @@ var
   lCache: TDelphiSemanticUnitCache;
   lCacheOptions: TDelphiSemanticCacheOptions;
   lCommonRoot: string;
+  lDeepRoot: string;
   lMetrics: TDelphiSemanticExternalSymbolMetrics;
   lProfile: TDelphiSemanticCompilerProfile;
   lResult: TDelphiSemanticExternalSymbolResult;
@@ -99,10 +100,20 @@ var
 begin
   lRtlRoot := TempPath('fake-delphi-source');
   lCommonRoot := CombinePath([lRtlRoot, 'rtl', 'common']);
+  lDeepRoot := CombinePath([lRtlRoot, 'rtl', 'custom', 'deep']);
   TDirectory.CreateDirectory(lCommonRoot);
+  TDirectory.CreateDirectory(lDeepRoot);
   TFile.WriteAllText(TPath.Combine(lCommonRoot, 'Winapi.Windows.pas'),
     'unit Winapi.Windows;' + sLineBreak + 'interface' + sLineBreak +
     'type' + sLineBreak + '  THandle = NativeUInt;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lDeepRoot, 'System.FirstLazy.pas'),
+    'unit System.FirstLazy;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TFirstLazy = record end;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lDeepRoot, 'System.SecondLazy.pas'),
+    'unit System.SecondLazy;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TSecondLazy = record end;' + sLineBreak +
     'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
 
   lCacheOptions := Default(TDelphiSemanticCacheOptions);
@@ -122,29 +133,49 @@ begin
     Assert.IsTrue(lResult.Found, lResult.Reason);
     Assert.AreEqual('Winapi.Windows', lResult.UnitModel.UnitName);
     Assert.AreEqual('rtl-source', lResult.SourceKind);
+    Assert.AreEqual(0, lMetrics.RtlSourceDiscoveryIndexBuildCount,
+      'Direct RTL loads should not build the recursive discovery index.');
     lResult := lService.ResolveRtlUnit('Windows');
     lMetrics := lService.Metrics;
     Assert.IsTrue(lResult.Found, lResult.Reason);
-    Assert.AreEqual(2, lMetrics.RtlUnitLookupCount);
+    Assert.AreEqual(2, lMetrics.RtlUnitLookupCount,
+      'Two explicit Windows unit lookups should be counted before recursive loads.');
     Assert.AreEqual(1, lMetrics.RtlUnitLoadCount,
       'Repeated alias lookups must reuse the in-memory external unit model.');
+
+    lResult := lService.ResolveRtlUnit('FirstLazy');
+    lMetrics := lService.Metrics;
+    Assert.IsTrue(lResult.Found, lResult.Reason);
+    Assert.AreEqual('System.FirstLazy', lResult.UnitModel.UnitName);
+    Assert.AreEqual(1, lMetrics.RtlSourceDiscoveryIndexBuildCount,
+      'First recursive fallback load should build one reusable discovery index.');
+
+    lResult := lService.ResolveRtlUnit('SecondLazy');
+    lMetrics := lService.Metrics;
+    Assert.IsTrue(lResult.Found, lResult.Reason);
+    Assert.AreEqual('System.SecondLazy', lResult.UnitModel.UnitName);
+    Assert.AreEqual(1, lMetrics.RtlSourceDiscoveryIndexBuildCount,
+      'Second recursive fallback load should reuse the first discovery index.');
+    Assert.AreEqual(3, lMetrics.RtlUnitLoadCount);
 
     lTypeResult := lService.ResolveType('THandle');
     lMetrics := lService.Metrics;
     Assert.IsTrue(lTypeResult.Found);
-    Assert.AreEqual(2, lMetrics.RtlUnitLookupCount);
-    Assert.AreEqual(1, lMetrics.RtlUnitLoadCount);
+    Assert.AreEqual(4, lMetrics.RtlUnitLookupCount,
+      'Type lookup should not increment the four explicit RTL unit lookup requests.');
+    Assert.AreEqual(3, lMetrics.RtlUnitLoadCount);
     Assert.AreEqual(1, lMetrics.RtlTypeResolvedCount);
     Assert.AreEqual(1, lMetrics.RtlTypeIndexBuildCount);
     lTypeResult := lService.ResolveType('THandle');
     lMetrics := lService.Metrics;
     Assert.IsTrue(lTypeResult.Found);
-    Assert.AreEqual(2, lMetrics.RtlTypeResolvedCount);
+    Assert.AreEqual(2, lMetrics.RtlTypeResolvedCount,
+      'Repeated type lookup should count two resolved type requests.');
     Assert.AreEqual(1, lMetrics.RtlTypeIndexBuildCount,
       'Repeated type lookups must reuse the in-memory external type index.');
     Assert.AreEqual(0, lMetrics.IntrinsicLookupCount,
       'Type fallback intrinsic probes must not inflate direct intrinsic lookup metrics.');
-    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(3, lCache.Metrics.CacheMisses);
   finally
     lCache.Free;
   end;
