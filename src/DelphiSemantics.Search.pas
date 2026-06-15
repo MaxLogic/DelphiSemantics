@@ -196,17 +196,11 @@ begin
   for lUnitIndex := 0 to aSnapshot.UnitCount - 1 do
   begin
     lUnit := aSnapshot.UnitByIndex(lUnitIndex);
-    lIndexedSymbol := SnapshotUnitIndexedSymbol(aSnapshot, lUnit);
-    if SameText(lIndexedSymbol.Name, aName) and SameText(lIndexedSymbol.SourceKind,
-      'project-source') then
-    begin
-      Inc(lMatchCount);
-      aSymbolId := lIndexedSymbol.Id;
-    end;
-
     for i := 1 to lUnit.SymbolCount do
     begin
       lSymbol := lUnit.SymbolById(TSemanticSymbolId(i));
+      if not SnapshotSymbolVisibleToPublicNameQuery(aSnapshot, lSymbol) then
+        Continue;
       lSymbolRef.UnitId := lUnit.UnitId;
       lSymbolRef.SymbolId := lSymbol.Id;
       lIndexedSymbol := SnapshotIndexedSymbol(aSnapshot, lUnit, lSymbolRef, lSymbol);
@@ -262,19 +256,11 @@ begin
     for lUnitIndex := 0 to aSnapshot.UnitCount - 1 do
     begin
       lUnit := aSnapshot.UnitByIndex(lUnitIndex);
-      lIndexedSymbol := SnapshotUnitIndexedSymbol(aSnapshot, lUnit);
-      if ((aQuery.ResolvedSymbolName = '') or
-        (lIndexedSymbol.Id.Value = lResolvedSymbolId.Value)) and
-        SymbolMatchesFilters(lIndexedSymbol, aQuery) then
-      begin
-        lMatches.Add(MakeMatch(lIndexedSymbol, lMatchKind));
-        if lMatches.Count >= lLimit then
-          Break;
-      end;
-
       for i := 1 to lUnit.SymbolCount do
       begin
         lSymbol := lUnit.SymbolById(TSemanticSymbolId(i));
+        if not SnapshotSymbolVisibleToPublicNameQuery(aSnapshot, lSymbol) then
+          Continue;
         lSymbolRef.UnitId := lUnit.UnitId;
         lSymbolRef.SymbolId := lSymbol.Id;
         lIndexedSymbol := SnapshotIndexedSymbol(aSnapshot, lUnit, lSymbolRef, lSymbol);

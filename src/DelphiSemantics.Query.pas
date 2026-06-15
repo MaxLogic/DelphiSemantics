@@ -572,22 +572,6 @@ begin
   Result := (aLimit > 0) and (aResults.Count >= aLimit);
 end;
 
-function SnapshotSymbolVisibleToNameQuery(const aSnapshot: TDelphiProjectSnapshot;
-  const aSymbol: TSemanticSymbolFact): Boolean;
-var
-  lKind: string;
-begin
-  lKind := SnapshotText(aSnapshot, aSymbol.KindId);
-  if SameText(lKind, 'unit') or SameText(lKind, 'local') or SameText(lKind,
-    'parameter') then
-    Exit(False);
-  if (aSymbol.RoutineId <> 0) and (aSymbol.OwnerTypeId = 0) and
-    not SameText(lKind, 'routine') then
-    Exit(False);
-
-  Result := True;
-end;
-
 function TrySnapshotSymbolResultByName(const aSnapshot: TDelphiProjectSnapshot;
   const aName: string; out aResult: TDelphiSemanticSymbolQueryResult): Boolean;
 var
@@ -616,7 +600,7 @@ begin
     if not aSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit) then
       Continue;
     lSymbol := lUnit.SymbolById(lSymbolRef.SymbolId);
-    if not SnapshotSymbolVisibleToNameQuery(aSnapshot, lSymbol) then
+    if not SnapshotSymbolVisibleToPublicNameQuery(aSnapshot, lSymbol) then
       Continue;
     aResult := SnapshotSymbolResult(aSnapshot, lUnit, lSymbol, 'snapshot-name-match');
     Exit(True);
@@ -648,7 +632,7 @@ begin
       if not lSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit) then
         Continue;
       lSymbol := lUnit.SymbolById(lSymbolRef.SymbolId);
-      if SnapshotSymbolVisibleToNameQuery(lSnapshot, lSymbol) then
+      if SnapshotSymbolVisibleToPublicNameQuery(lSnapshot, lSymbol) then
         Exit(True);
     end;
 
@@ -691,7 +675,7 @@ begin
           if not lSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit) then
             Continue;
           lSymbol := lUnit.SymbolById(lSymbolRef.SymbolId);
-          if not SnapshotSymbolVisibleToNameQuery(lSnapshot, lSymbol) then
+          if not SnapshotSymbolVisibleToPublicNameQuery(lSnapshot, lSymbol) then
             Continue;
           lSymbolName := SnapshotText(lSnapshot, lSymbol.NameId);
           if NameMatchesQuery(lSymbolName, aName, aAllowSubstring) then
@@ -710,7 +694,7 @@ begin
           for i := 1 to lUnit.SymbolCount do
           begin
             lSymbol := lUnit.SymbolById(TSemanticSymbolId(i));
-            if not SnapshotSymbolVisibleToNameQuery(lSnapshot, lSymbol) then
+            if not SnapshotSymbolVisibleToPublicNameQuery(lSnapshot, lSymbol) then
               Continue;
             lSymbolName := SnapshotText(lSnapshot, lSymbol.NameId);
             if NameMatchesQuery(lSymbolName, aName, aAllowSubstring) then

@@ -118,6 +118,8 @@ var
   lQuery: TDelphiSemanticSearchQuery;
   lResult: TDelphiSemanticSearchResult;
   lAliasSymbol: TSemanticSymbolFact;
+  lLocalSymbol: TSemanticSymbolFact;
+  lParameterSymbol: TSemanticSymbolFact;
   lSymbol: TSemanticSymbolFact;
   lUnit: TUnitSnapshot;
 begin
@@ -148,6 +150,30 @@ begin
       lAliasSymbol.EndLine := 6;
       lAliasSymbol.EndColumn := 21;
       lUnit.AddSymbol(lAliasSymbol);
+
+      lLocalSymbol := Default(TSemanticSymbolFact);
+      lLocalSymbol.NameId := lBuilder.Strings.Intern('SnapshotSearchLocal');
+      lLocalSymbol.KindId := lBuilder.Strings.Intern('local');
+      lLocalSymbol.RoutineId := lBuilder.Strings.Intern('SnapshotSearchRoutine');
+      lLocalSymbol.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lLocalSymbol.SourceKindId := lBuilder.Strings.Intern('project-source');
+      lLocalSymbol.Line := 12;
+      lLocalSymbol.Column := 5;
+      lLocalSymbol.EndLine := 12;
+      lLocalSymbol.EndColumn := 23;
+      lUnit.AddSymbol(lLocalSymbol);
+
+      lParameterSymbol := Default(TSemanticSymbolFact);
+      lParameterSymbol.NameId := lBuilder.Strings.Intern('SnapshotSearchParam');
+      lParameterSymbol.KindId := lBuilder.Strings.Intern('parameter');
+      lParameterSymbol.RoutineId := lBuilder.Strings.Intern('SnapshotSearchRoutine');
+      lParameterSymbol.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lParameterSymbol.SourceKindId := lBuilder.Strings.Intern('project-source');
+      lParameterSymbol.Line := 10;
+      lParameterSymbol.Column := 27;
+      lParameterSymbol.EndLine := 10;
+      lParameterSymbol.EndColumn := 46;
+      lUnit.AddSymbol(lParameterSymbol);
 
       lBuilder.AddUnit(lUnit);
       lUnit := nil;
@@ -184,6 +210,16 @@ begin
     Assert.AreEqual(1, Integer(Length(lResult.Matches)));
     Assert.AreEqual('SnapshotSearchAlias', lResult.Matches[0].Name);
     Assert.AreEqual('type-alias', lResult.Matches[0].Kind);
+
+    lQuery := Default(TDelphiSemanticSearchQuery);
+    lQuery.Pattern := 'SnapshotSearch';
+    lQuery.Limit := 10;
+
+    lResult := TDelphiSemanticApi.Search(lContext, lQuery);
+
+    Assert.AreEqual('resolved', lResult.Status);
+    Assert.AreEqual(2, Integer(Length(lResult.Matches)),
+      'Snapshot search should expose only public name-query symbols.');
   finally
     lProject.Free;
   end;

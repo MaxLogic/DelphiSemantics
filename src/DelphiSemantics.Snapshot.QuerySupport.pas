@@ -12,6 +12,8 @@ function SnapshotText(const aSnapshot: TDelphiProjectSnapshot;
 function SnapshotSymbolId(const aSymbolRef: TSemanticSymbolRef): TDelphiSemanticSymbolId;
 function SnapshotSymbolOwnerName(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbol: TSemanticSymbolFact; const aKind: string): string;
+function SnapshotSymbolVisibleToPublicNameQuery(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbol: TSemanticSymbolFact): Boolean;
 
 implementation
 
@@ -51,6 +53,22 @@ begin
     Exit(aSnapshot.TextOf(aSymbol.RoutineId));
 
   Result := '';
+end;
+
+function SnapshotSymbolVisibleToPublicNameQuery(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbol: TSemanticSymbolFact): Boolean;
+var
+  lKind: string;
+begin
+  lKind := SnapshotText(aSnapshot, aSymbol.KindId);
+  if SameText(lKind, 'unit') or SameText(lKind, 'local') or SameText(lKind,
+    'parameter') then
+    Exit(False);
+  if (aSymbol.RoutineId <> 0) and (aSymbol.OwnerTypeId = 0) and
+    not SameText(lKind, 'routine') then
+    Exit(False);
+
+  Result := True;
 end;
 
 end.
