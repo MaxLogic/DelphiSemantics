@@ -46,6 +46,9 @@ type
     SnapshotCacheHits: Integer;
     SnapshotCacheMisses: Integer;
     SnapshotCacheInvalidations: Integer;
+    SnapshotCacheFullHitCount: Integer;
+    SnapshotCachePartialHitCount: Integer;
+    SnapshotCacheMissRebuildCount: Integer;
     SnapshotCacheUnitHits: Integer;
     SnapshotCacheUnitMisses: Integer;
     SnapshotCacheUnitStaleEntries: Integer;
@@ -454,6 +457,30 @@ begin
       Result.AddOrSetValue(TPath.GetFullPath(lFileName), 0);
 end;
 
+function IntersectSourceFileNames(const aLeft, aRight: TArray<string>): TArray<string>;
+var
+  lFileName: string;
+  lItems: TList<string>;
+  lRightSet: TDictionary<string, Byte>;
+begin
+  lItems := nil;
+  lRightSet := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  try
+    for lFileName in aRight do
+      if Trim(lFileName) <> '' then
+        lRightSet.AddOrSetValue(TPath.GetFullPath(lFileName), 0);
+
+    lItems := TList<string>.Create;
+    for lFileName in aLeft do
+      if lRightSet.ContainsKey(TPath.GetFullPath(lFileName)) then
+        lItems.Add(lFileName);
+    Result := lItems.ToArray;
+  finally
+    lItems.Free;
+    lRightSet.Free;
+  end;
+end;
+
 function BuildProjectUnitCacheIdentities(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions; const aSourceFileNames,
   aScopedSourceFileNames: TArray<string>):
@@ -509,6 +536,13 @@ function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
   aScopedSourceFileNames: TArray<string>;
   out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>):
   TArray<TDelphiSemanticUnitModel>; overload; forward;
+function ExtractProjectModelsWithScopeMode(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
+  out aCacheMetrics: TDelphiSemanticCacheMetrics; const aSourceFileNames,
+  aScopedSourceFileNames: TArray<string>;
+  out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  const aUseScopedSourceFileNames: Boolean): TArray<TDelphiSemanticUnitModel>;
+  forward;
 
 function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions):
@@ -576,12 +610,25 @@ function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
   out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>):
   TArray<TDelphiSemanticUnitModel>;
   overload;
+begin
+  Result := ExtractProjectModelsWithScopeMode(aProject, aOptions,
+    aExtractionMilliseconds, aCacheMetrics, aSourceFileNames,
+    aScopedSourceFileNames, aCacheIdentities, Length(aScopedSourceFileNames) > 0);
+end;
+
+function ExtractProjectModelsWithScopeMode(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; out aExtractionMilliseconds: Int64;
+  out aCacheMetrics: TDelphiSemanticCacheMetrics; const aSourceFileNames,
+  aScopedSourceFileNames: TArray<string>;
+  out aCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  const aUseScopedSourceFileNames: Boolean): TArray<TDelphiSemanticUnitModel>;
 var
   lBodyAnalysisSourceFiles: TDictionary<string, Byte>;
   lCache: TDelphiSemanticUnitCache;
   lCacheOptions: TDelphiSemanticCacheOptions;
   i: Integer;
   lIdentity: TDelphiSemanticUnitCacheIdentity;
+  lFileName: string;
   lModel: TDelphiSemanticUnitModel;
   lModels: TList<TDelphiSemanticUnitModel>;
   lSkipBodyAnalysis: Boolean;
@@ -602,7 +649,14 @@ begin
     end;
 
     SetLength(aCacheIdentities, Length(aSourceFileNames));
-    lBodyAnalysisSourceFiles := ScopedSourceFileSet(aScopedSourceFileNames);
+    if aUseScopedSourceFileNames then
+    begin
+      lBodyAnalysisSourceFiles := TDictionary<string, Byte>.Create(
+        TFastCaseAwareComparer.OrdinalIgnoreCase);
+      for lFileName in aScopedSourceFileNames do
+        if Trim(lFileName) <> '' then
+          lBodyAnalysisSourceFiles.AddOrSetValue(TPath.GetFullPath(lFileName), 1);
+    end;
     lModels := TList<TDelphiSemanticUnitModel>.Create;
     for i := 0 to High(aSourceFileNames) do
     begin
@@ -1277,19 +1331,26 @@ function TDelphiSemanticProjectSession.BuildSnapshot(
   const aScopedSourceFileNames: TArray<string>): TDelphiProjectSnapshot;
 var
   lCacheIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lCacheHadPartialHit: Boolean;
   lCacheMetrics: TDelphiSemanticSnapshotCacheMetrics;
   lCacheSnapshot: TDelphiProjectSnapshot;
   lCacheSnapshotMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lExtractionSourceFileNames: TArray<string>;
+  lExtractionScopeSourceFileNames: TArray<string>;
+  lExtractionUsesScopedSourceFileNames: Boolean;
   lLoadedAllUnits: Boolean;
+  lLoadedAnyUnit: Boolean;
   lBuilderMetrics: TDelphiSnapshotBuilderMetrics;
   lCacheMetricsUnused: TDelphiSemanticCacheMetrics;
   lExtractionMilliseconds: Int64;
   i: Integer;
   lExtractionCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
   lModels: TArray<TDelphiSemanticUnitModel>;
+  lMissingSourceFileNames: TArray<string>;
   lParseAvoidedEstimateMilliseconds: Int64;
   lSnapshot: TDelphiProjectSnapshot;
   lSourceFileNames: TArray<string>;
+  lStoreCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
   lStoreUnitFlags: TArray<Boolean>;
   lUnitCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
   lUnitSnapshots: TArray<TDelphiProjectSnapshot>;
@@ -1299,7 +1360,9 @@ begin
   lSourceFileNames := ProjectModelFileNames(fProject);
   SetLength(lUnitCacheIdentities, 0);
   SetLength(lExtractionCacheIdentities, 0);
+  SetLength(lMissingSourceFileNames, 0);
   SetLength(lStoreUnitFlags, 0);
+  lCacheHadPartialHit := False;
   lCacheSnapshotMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
   SetLength(lUnitSnapshots, 0);
   if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
@@ -1308,6 +1371,7 @@ begin
       lSourceFileNames, aScopedSourceFileNames);
     SetLength(lUnitSnapshots, Length(lSourceFileNames));
     lLoadedAllUnits := True;
+    lLoadedAnyUnit := False;
     for i := 0 to High(lSourceFileNames) do
     begin
       lCacheIdentity := SnapshotCacheIdentityForUnit(fProject, fOptions, lSourceFileNames[i],
@@ -1315,13 +1379,18 @@ begin
       lCacheSnapshot := nil;
       if TryLoadSingleUnitSnapshotFromCache(fOptions.SqliteCacheFileName, lCacheIdentity,
         lCacheSnapshot, lCacheMetrics) then
-        lUnitSnapshots[i] := lCacheSnapshot
-      else begin
+      begin
+        lUnitSnapshots[i] := lCacheSnapshot;
+        lLoadedAnyUnit := True;
+      end else begin
         lCacheSnapshot.Free;
         lLoadedAllUnits := False;
+        SetLength(lMissingSourceFileNames, Length(lMissingSourceFileNames) + 1);
+        lMissingSourceFileNames[High(lMissingSourceFileNames)] := lSourceFileNames[i];
       end;
       AccumulateSnapshotCacheMetrics(lCacheSnapshotMetrics, lCacheMetrics);
     end;
+    lCacheHadPartialHit := lLoadedAnyUnit and (not lLoadedAllUnits);
 
     if lLoadedAllUnits then
     begin
@@ -1331,6 +1400,7 @@ begin
           fLastSnapshotBuildMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
           ApplySnapshotBuilderMetrics(fLastSnapshotBuildMetrics, lBuilderMetrics);
           AddSnapshotCacheMetricTotals(fLastSnapshotBuildMetrics, lCacheSnapshotMetrics);
+          fLastSnapshotBuildMetrics.SnapshotCacheFullHitCount := 1;
           fLastSnapshotBuildMetrics.SnapshotCacheUnitMergeMilliseconds :=
             lBuilderMetrics.MergeMilliseconds;
           Result := lSnapshot;
@@ -1345,9 +1415,21 @@ begin
     end;
   end;
 
-  lModels := ExtractProjectModels(fProject, fOptions, lExtractionMilliseconds,
-    lCacheMetricsUnused, lSourceFileNames, aScopedSourceFileNames,
-    lExtractionCacheIdentities);
+  lExtractionSourceFileNames := lSourceFileNames;
+  lExtractionScopeSourceFileNames := aScopedSourceFileNames;
+  lExtractionUsesScopedSourceFileNames := Length(aScopedSourceFileNames) > 0;
+  if lCacheHadPartialHit then
+  begin
+    lExtractionUsesScopedSourceFileNames := True;
+    if Length(aScopedSourceFileNames) = 0 then
+      lExtractionScopeSourceFileNames := lMissingSourceFileNames
+    else
+      lExtractionScopeSourceFileNames := IntersectSourceFileNames(
+        lMissingSourceFileNames, aScopedSourceFileNames);
+  end;
+  lModels := ExtractProjectModelsWithScopeMode(fProject, fOptions, lExtractionMilliseconds,
+    lCacheMetricsUnused, lExtractionSourceFileNames, lExtractionScopeSourceFileNames,
+    lExtractionCacheIdentities, lExtractionUsesScopedSourceFileNames);
   lParseAvoidedEstimateMilliseconds := VisibleMetricMilliseconds(lExtractionMilliseconds);
   if Length(lUnitSnapshots) > 0 then
   begin
@@ -1370,15 +1452,25 @@ begin
       fLastSnapshotBuildMetrics);
   try
     AddSnapshotCacheMetricTotals(fLastSnapshotBuildMetrics, lCacheSnapshotMetrics);
+    if Length(lUnitSnapshots) > 0 then
+      if lCacheHadPartialHit then
+        fLastSnapshotBuildMetrics.SnapshotCachePartialHitCount := 1
+      else
+        fLastSnapshotBuildMetrics.SnapshotCacheMissRebuildCount := 1;
     if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
       fLastSnapshotBuildMetrics.SnapshotCacheUnitMergeMilliseconds :=
         lBuilderMetrics.MergeMilliseconds;
     fLastSnapshotBuildMetrics.SnapshotParseAvoidedEstimateMilliseconds :=
       lParseAvoidedEstimateMilliseconds;
     if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
+    begin
+      lStoreCacheIdentities := lExtractionCacheIdentities;
+      if Length(lUnitCacheIdentities) = Length(lSourceFileNames) then
+        lStoreCacheIdentities := lUnitCacheIdentities;
       StoreSnapshotCacheEntries(fOptions.SqliteCacheFileName, fProject, fOptions,
-        lSourceFileNames, lExtractionCacheIdentities, lStoreUnitFlags, lSnapshot,
+        lSourceFileNames, lStoreCacheIdentities, lStoreUnitFlags, lSnapshot,
         lParseAvoidedEstimateMilliseconds, fLastSnapshotBuildMetrics);
+    end;
     Result := lSnapshot;
     lSnapshot := nil;
   finally

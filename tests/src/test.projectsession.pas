@@ -44,6 +44,10 @@ type
     [Test]
     procedure ProjectSessionReusesUnchangedMultiUnitSnapshotCacheEntries;
     [Test]
+    procedure ProjectSessionScopedPartialSnapshotCacheHitStoresMissedUnitUnderScopedIdentity;
+    [Test]
+    procedure ProjectSessionPartialSnapshotCacheRebuildResolvesReferencesToCachedUnits;
+    [Test]
     procedure ProjectSessionDiscoversAnsiDprInReferencesThroughSourceLoader;
     [Test]
     procedure ProjectSessionSnapshotCacheRebuildsIncludedFileChanges;
@@ -831,6 +835,9 @@ begin
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheHits);
       Assert.AreEqual(2, lFirstMetrics.SnapshotCacheMisses);
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheInvalidations);
+      Assert.AreEqual(0, lFirstMetrics.SnapshotCacheFullHitCount);
+      Assert.AreEqual(0, lFirstMetrics.SnapshotCachePartialHitCount);
+      Assert.AreEqual(1, lFirstMetrics.SnapshotCacheMissRebuildCount);
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheUnitHits);
       Assert.AreEqual(2, lFirstMetrics.SnapshotCacheUnitMisses);
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheUnitStaleEntries);
@@ -855,6 +862,9 @@ begin
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheHits);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheMisses);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheInvalidations);
+      Assert.AreEqual(1, lSecondMetrics.SnapshotCacheFullHitCount);
+      Assert.AreEqual(0, lSecondMetrics.SnapshotCachePartialHitCount);
+      Assert.AreEqual(0, lSecondMetrics.SnapshotCacheMissRebuildCount);
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheUnitHits);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheUnitMisses);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheUnitStaleEntries);
@@ -886,6 +896,9 @@ begin
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheMisses);
       Assert.AreEqual(0, lThirdMetrics.SnapshotCacheInvalidations);
+      Assert.AreEqual(0, lThirdMetrics.SnapshotCacheFullHitCount);
+      Assert.AreEqual(1, lThirdMetrics.SnapshotCachePartialHitCount);
+      Assert.AreEqual(0, lThirdMetrics.SnapshotCacheMissRebuildCount);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheUnitHits);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheUnitMisses);
       Assert.AreEqual(0, lThirdMetrics.SnapshotCacheUnitStaleEntries);
@@ -911,12 +924,218 @@ begin
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheHits);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheMisses);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheInvalidations);
+      Assert.AreEqual(1, lSecondMetrics.SnapshotCacheFullHitCount);
+      Assert.AreEqual(0, lSecondMetrics.SnapshotCachePartialHitCount);
+      Assert.AreEqual(0, lSecondMetrics.SnapshotCacheMissRebuildCount);
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheUnitHits);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheUnitMisses);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheUnitStaleEntries);
       Assert.AreEqual(Int64(0), lSecondMetrics.SnapshotCacheUnitBuildMilliseconds);
     finally
       lSecondSnapshot.Free;
+    end;
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionScopedPartialSnapshotCacheHitStoresMissedUnitUnderScopedIdentity;
+var
+  lCachePath: string;
+  lDprPath: string;
+  lDprojPath: string;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lSecondMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lSnapshot: TDelphiProjectSnapshot;
+  lThirdMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lUnitPath: string;
+begin
+  lRootPath := ProjectSessionTempPath('snapshot-session-scoped-partial-cache-temp');
+  TDirectory.CreateDirectory(lRootPath);
+
+  lDprPath := TPath.Combine(lRootPath, 'ScopedPartialSnapshotCache.dpr');
+  lDprojPath := TPath.Combine(lRootPath, 'ScopedPartialSnapshotCache.dproj');
+  lUnitPath := TPath.Combine(lRootPath, 'ScopedPartialSnapshotCacheUnit.pas');
+  lCachePath := CombinePath([lRootPath, '.dak', 'semantic-cache.sqlite3']);
+
+  TFile.WriteAllText(lDprPath, 'program ScopedPartialSnapshotCache;' +
+    sLineBreak + 'uses ScopedPartialSnapshotCacheUnit;' + sLineBreak +
+    'begin' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lDprojPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    sLineBreak + '  <PropertyGroup>' + sLineBreak +
+    '    <ProjectGuid>{8D8D3663-8935-4B81-8BDE-2D621BD44534}</ProjectGuid>' +
+    sLineBreak + '    <MainSource>ScopedPartialSnapshotCache.dpr</MainSource>' +
+    sLineBreak + '  </PropertyGroup>' + sLineBreak + '  <ItemGroup>' +
+    sLineBreak + '    <DCCReference Include="ScopedPartialSnapshotCacheUnit.pas"/>' +
+    sLineBreak + '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+  TFile.WriteAllText(lUnitPath, 'unit ScopedPartialSnapshotCacheUnit;' +
+    sLineBreak + 'interface' + sLineBreak + 'type' + sLineBreak +
+    '  TScopedPartialSnapshotCacheRecord = record' + sLineBreak +
+    '    Value: Integer;' + sLineBreak + '  end;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojPath;
+  lOptions.SqliteCacheFileName := lCachePath;
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lSnapshot := lResult.Session.BuildSnapshot([lDprPath]);
+    try
+      Assert.AreEqual(2, lSnapshot.UnitCount);
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    lResult.Session.Free;
+  end;
+
+  TFile.AppendAllText(lUnitPath, sLineBreak +
+    '// scoped partial snapshot cache invalidation probe' + sLineBreak,
+    TEncoding.UTF8);
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lSnapshot := lResult.Session.BuildSnapshot([lDprPath]);
+    try
+      Assert.AreEqual(2, lSnapshot.UnitCount);
+      lSecondMetrics := lResult.Session.LastSnapshotBuildMetrics;
+      Assert.AreEqual(2, lSecondMetrics.SnapshotCacheProbes);
+      Assert.AreEqual(1, lSecondMetrics.SnapshotCacheHits);
+      Assert.AreEqual(1, lSecondMetrics.SnapshotCacheMisses);
+      Assert.AreEqual(0, lSecondMetrics.SnapshotCacheFullHitCount);
+      Assert.AreEqual(1, lSecondMetrics.SnapshotCachePartialHitCount);
+      Assert.AreEqual(0, lSecondMetrics.SnapshotCacheMissRebuildCount);
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    lResult.Session.Free;
+  end;
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lSnapshot := lResult.Session.BuildSnapshot([lDprPath]);
+    try
+      Assert.AreEqual(2, lSnapshot.UnitCount);
+      lThirdMetrics := lResult.Session.LastSnapshotBuildMetrics;
+      Assert.AreEqual(2, lThirdMetrics.SnapshotCacheProbes);
+      Assert.AreEqual(2, lThirdMetrics.SnapshotCacheHits);
+      Assert.AreEqual(0, lThirdMetrics.SnapshotCacheMisses);
+      Assert.AreEqual(1, lThirdMetrics.SnapshotCacheFullHitCount);
+      Assert.AreEqual(0, lThirdMetrics.SnapshotCachePartialHitCount);
+      Assert.AreEqual(0, lThirdMetrics.SnapshotCacheMissRebuildCount);
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionPartialSnapshotCacheRebuildResolvesReferencesToCachedUnits;
+var
+  lCachePath: string;
+  lChangingPath: string;
+  lDprPath: string;
+  lDprojPath: string;
+  lMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lOptions: TDelphiSemanticOptions;
+  lReference: TSemanticReferenceFact;
+  lReferenceRef: TSemanticReferenceRef;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lStablePath: string;
+  lSymbol: TSemanticSymbolFact;
+  lUnit: TUnitSnapshot;
+begin
+  lRootPath := ProjectSessionTempPath('snapshot-session-partial-reference-cache-temp');
+  TDirectory.CreateDirectory(lRootPath);
+
+  lDprPath := TPath.Combine(lRootPath, 'PartialReferenceCache.dpr');
+  lDprojPath := TPath.Combine(lRootPath, 'PartialReferenceCache.dproj');
+  lStablePath := TPath.Combine(lRootPath, 'PartialReferenceStableUnit.pas');
+  lChangingPath := TPath.Combine(lRootPath, 'PartialReferenceChangingUnit.pas');
+  lCachePath := CombinePath([lRootPath, '.dak', 'semantic-cache.sqlite3']);
+
+  TFile.WriteAllText(lDprPath, 'program PartialReferenceCache;' + sLineBreak +
+    'uses PartialReferenceStableUnit, PartialReferenceChangingUnit;' +
+    sLineBreak + 'begin' + sLineBreak + '  Touch;' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+  TFile.WriteAllText(lDprojPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    sLineBreak + '  <PropertyGroup>' + sLineBreak +
+    '    <ProjectGuid>{2451ECAB-05F3-48BD-A108-3F63707012C7}</ProjectGuid>' +
+    sLineBreak + '    <MainSource>PartialReferenceCache.dpr</MainSource>' +
+    sLineBreak + '  </PropertyGroup>' + sLineBreak + '  <ItemGroup>' +
+    sLineBreak + '    <DCCReference Include="PartialReferenceStableUnit.pas"/>' +
+    sLineBreak + '    <DCCReference Include="PartialReferenceChangingUnit.pas"/>' +
+    sLineBreak + '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+  TFile.WriteAllText(lStablePath, 'unit PartialReferenceStableUnit;' +
+    sLineBreak + 'interface' + sLineBreak + 'const' + sLineBreak +
+    '  StableValue = 7;' + sLineBreak + 'implementation' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lChangingPath, 'unit PartialReferenceChangingUnit;' +
+    sLineBreak + 'interface' + sLineBreak + 'procedure Touch;' + sLineBreak +
+    'implementation' + sLineBreak + 'uses PartialReferenceStableUnit;' +
+    sLineBreak + 'procedure Touch;' + sLineBreak + 'var' + sLineBreak +
+    '  lValue: Integer;' + sLineBreak + 'begin' + sLineBreak +
+    '  lValue := StableValue;' + sLineBreak + 'end;' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojPath;
+  lOptions.SqliteCacheFileName := lCachePath;
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lSnapshot := lResult.Session.BuildSnapshot;
+    try
+      Assert.AreEqual(3, lSnapshot.UnitCount);
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    lResult.Session.Free;
+  end;
+
+  TFile.WriteAllText(lChangingPath, 'unit PartialReferenceChangingUnit;' +
+    sLineBreak + 'interface' + sLineBreak + 'procedure Touch;' + sLineBreak +
+    'implementation' + sLineBreak + 'uses PartialReferenceStableUnit;' +
+    sLineBreak + 'procedure Touch;' + sLineBreak + 'var' + sLineBreak +
+    '  lValue: Integer;' + sLineBreak + 'begin' + sLineBreak +
+    '  lValue := StableValue + 1;' + sLineBreak + 'end;' + sLineBreak +
+    'end.', TEncoding.UTF8);
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lSnapshot := lResult.Session.BuildSnapshot;
+    try
+      Assert.AreEqual(3, lSnapshot.UnitCount);
+      lMetrics := lResult.Session.LastSnapshotBuildMetrics;
+      Assert.AreEqual(3, lMetrics.SnapshotCacheProbes);
+      Assert.AreEqual(2, lMetrics.SnapshotCacheHits);
+      Assert.AreEqual(1, lMetrics.SnapshotCacheMisses);
+      Assert.AreEqual(1, lMetrics.SnapshotCachePartialHitCount);
+      Assert.IsTrue(lSnapshot.TryReferenceAt(lChangingPath, 10, 13, lReferenceRef),
+        'Expected rebuilt unit reference to remain indexed after partial cache hit.');
+      Assert.IsTrue(lSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit));
+      lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
+      Assert.AreNotEqual(0, Integer(lReference.TargetUnitId));
+      Assert.IsTrue(lSnapshot.TryFindUnitById(lReference.TargetUnitId, lUnit));
+      lSymbol := lUnit.SymbolById(lReference.TargetSymbolId);
+      Assert.AreEqual('StableValue', lSnapshot.TextOf(lSymbol.NameId));
+    finally
+      lSnapshot.Free;
     end;
   finally
     lResult.Session.Free;
