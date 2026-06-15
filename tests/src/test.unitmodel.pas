@@ -133,6 +133,8 @@ type
     procedure ReferenceReconciliationBuildsOccurrenceTableOnce;
     [Test]
     procedure RoutineReconciliationUsesOffsetMapBeforeFallback;
+    [Test]
+    procedure UnitModelImplementationIsSplitIntoFocusedUnits;
   end;
 
 implementation
@@ -2032,26 +2034,61 @@ end;
 
 procedure TUnitModelTests.RoutineReconciliationUsesOffsetMapBeforeFallback;
 var
-  lSourceText: string;
+  lCoordinateSource: string;
+  lExtractSource: string;
 begin
-  lSourceText := ReadRepoSource('src\DelphiSemantics.Model.pas');
+  lExtractSource := ReadRepoSource('src\DelphiSemantics.Model.Extract.pas');
+  lCoordinateSource := ReadRepoSource('src\DelphiSemantics.Model.Coordinates.pas');
 
-  Assert.IsTrue(ContainsText(lSourceText,
+  Assert.IsTrue(ContainsText(lExtractSource,
     'ApplyRoutineSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lRoutines);'),
     'routine reconciliation should first map preprocessed offsets back to source offsets');
-  Assert.IsTrue(ContainsText(lSourceText, 'SourceRangeMatchesRoutine'),
+  Assert.IsTrue(ContainsText(lCoordinateSource, 'SourceRangeMatchesRoutine'),
     'routine reconciliation should skip fallback scans when the mapped source range is already exact');
-  Assert.IsTrue(ContainsText(lSourceText,
+  Assert.IsTrue(ContainsText(lExtractSource,
     'ApplyDeclarationSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lDeclarations);'),
     'declaration reconciliation should first map preprocessed offsets back to source offsets');
-  Assert.IsTrue(ContainsText(lSourceText,
+  Assert.IsTrue(ContainsText(lExtractSource,
     'ApplyMemberSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lMembers);'),
     'member reconciliation should first map preprocessed offsets back to source offsets');
-  Assert.IsTrue(ContainsText(lSourceText,
+  Assert.IsTrue(ContainsText(lExtractSource,
     'ApplyLocalSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lLocals);'),
     'local reconciliation should first map preprocessed offsets back to source offsets');
-  Assert.IsTrue(ContainsText(lSourceText, 'if lCleanText = '''' then'),
+  Assert.IsTrue(ContainsText(lCoordinateSource, 'if lCleanText = '''' then'),
     'fallback reconciliation should not sanitize whole source files when mapped ranges are already exact');
+end;
+
+procedure TUnitModelTests.UnitModelImplementationIsSplitIntoFocusedUnits;
+var
+  lCoordinateSource: string;
+  lExtractPath: string;
+  lExtractSource: string;
+  lModelSource: string;
+  lTextSource: string;
+begin
+  lModelSource := ReadRepoSource('src\DelphiSemantics.Model.pas');
+  lExtractPath := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..', '..',
+    'src', 'DelphiSemantics.Model.Extract.pas']));
+
+  Assert.IsTrue(TFile.Exists(lExtractPath), 'Expected focused model extraction unit.');
+  lExtractSource := TFile.ReadAllText(lExtractPath, TEncoding.UTF8);
+  lTextSource := TFile.ReadAllText(TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+    '..', '..', 'src', 'DelphiSemantics.Model.Text.pas'])), TEncoding.UTF8);
+  lCoordinateSource := TFile.ReadAllText(TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+    '..', '..', 'src', 'DelphiSemantics.Model.Coordinates.pas'])), TEncoding.UTF8);
+
+  Assert.IsFalse(ContainsText(lModelSource, 'System.RegularExpressions'),
+    'Model DTO contract must not own regex extraction implementation.');
+  Assert.IsFalse(ContainsText(lModelSource, 'SanitizeCodeText'),
+    'Model DTO contract must not own source sanitizing.');
+  Assert.IsFalse(ContainsText(lModelSource, 'ReconcileReferencesCoordinates'),
+    'Model DTO contract must not own coordinate reconciliation.');
+  Assert.IsTrue(ContainsText(lExtractSource, 'TDelphiSemanticUnitModelExtractorImpl'),
+    'Extraction implementation should live in the focused extraction unit.');
+  Assert.IsTrue(ContainsText(lTextSource, 'SanitizeCodeText'),
+    'Source sanitizing should live in the focused text helper unit.');
+  Assert.IsTrue(ContainsText(lCoordinateSource, 'ReconcileReferencesCoordinates'),
+    'Coordinate reconciliation should live in the focused coordinate unit.');
 end;
 
 initialization
