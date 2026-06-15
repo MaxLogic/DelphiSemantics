@@ -38,6 +38,8 @@ type
     [Test]
     procedure SourceContextCandidateReturnsFalseWithoutReasonableCandidate;
     [Test]
+    procedure SourceContextCandidateParsingLivesInFocusedUnit;
+    [Test]
     procedure SourceConditionalsOwnConditionalLineRules;
     [Test]
     procedure SourceContextImplementationOwnsSharedLoadingAndWindowLogic;
@@ -285,6 +287,39 @@ begin
     'NoCandidateUnit.pas(3,1): error E2010: Syntax error', 1, lContext, lToken,
     lEnclosingSymbol, lError));
   Assert.IsTrue(Pos('candidate', LowerCase(lError)) > 0, lError);
+end;
+
+procedure TSourceContextTests.SourceContextCandidateParsingLivesInFocusedUnit;
+var
+  lCandidateUnitSource: string;
+  lSourceContextSource: string;
+begin
+  Assert.IsTrue(FileExists(RepoSourcePath('src\DelphiSemantics.SourceContext.Candidates.pas')),
+    'Expected focused source-context candidate parsing unit.');
+
+  lSourceContextSource := ReadRepoSource('src\DelphiSemantics.SourceContext.pas');
+  lCandidateUnitSource := ReadRepoSource('src\DelphiSemantics.SourceContext.Candidates.pas');
+
+  Assert.IsTrue(ContainsText(lSourceContextSource,
+    'DelphiSemantics.SourceContext.Candidates'),
+    'SourceContext should delegate candidate parsing to the focused unit.');
+  Assert.IsFalse(ContainsText(lSourceContextSource, 'function TryExtractIdentifierAtColumn'),
+    'SourceContext should not own identifier-at-column parsing.');
+  Assert.IsFalse(ContainsText(lSourceContextSource, 'function TryExtractFirstIdentifierFromLine'),
+    'SourceContext should not own first-identifier fallback parsing.');
+  Assert.IsFalse(ContainsText(lSourceContextSource, 'function TryExtractEnclosingSymbolFromLine'),
+    'SourceContext should not own enclosing-symbol fallback parsing.');
+  Assert.IsFalse(ContainsText(lSourceContextSource, 'function TryExtractQuotedIdentifier'),
+    'SourceContext should not own finding quoted-identifier parsing.');
+  Assert.IsFalse(ContainsText(lSourceContextSource, 'TRegEx.Match(aFinding'),
+    'SourceContext should not own diagnostic location parsing.');
+
+  Assert.IsTrue(ContainsText(lCandidateUnitSource, 'TryExtractIdentifierAtColumn'),
+    'Candidate unit should own identifier-at-column parsing.');
+  Assert.IsTrue(ContainsText(lCandidateUnitSource, 'TryExtractEnclosingSymbolFromLine'),
+    'Candidate unit should own enclosing-symbol fallback parsing.');
+  Assert.IsTrue(ContainsText(lCandidateUnitSource, 'TryParseFindingLocationWithColumn'),
+    'Candidate unit should own diagnostic location parsing.');
 end;
 
 procedure TSourceContextTests.SourceConditionalsOwnConditionalLineRules;

@@ -68,8 +68,9 @@ implementation
 
 uses
   System.Classes, System.IOUtils, System.Math,
-  System.RegularExpressions, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
+  System.SysUtils,
+  DelphiSemantics.Source, DelphiSemantics.SourceConditionals,
+  DelphiSemantics.SourceContext.Candidates;
 
 procedure AddCandidate(const aCandidates: TList<string>; const aSeen: TDictionary<string, Boolean>;
   const aValue: string);
@@ -399,147 +400,11 @@ begin
   end;
 end;
 
-function IsIdentifierChar(const aChar: Char): Boolean;
-begin
-  Result := (aChar = '_') or CharInSet(aChar, ['A'..'Z', 'a'..'z', '0'..'9']);
-end;
-
-function IsPascalKeyword(const aToken: string): Boolean;
-begin
-  Result := MatchText(aToken, ['begin', 'class', 'const', 'constructor', 'destructor', 'do',
-    'else', 'end', 'except', 'finally', 'for', 'function', 'implementation', 'interface',
-    'operator', 'procedure', 'record', 'then', 'try', 'unit']);
-end;
-
-function TryExtractIdentifierAtColumn(const aLineText: string; const aColumn: Integer;
-  out aToken: string): Boolean;
-var
-  lIndex: Integer;
-  lLeft: Integer;
-  lRight: Integer;
-begin
-  aToken := '';
-  if (aLineText = '') or (aColumn <= 0) or (aColumn > Length(aLineText) + 1) then
-    Exit(False);
-
-  lIndex := aColumn;
-  if lIndex > Length(aLineText) then
-    Dec(lIndex);
-  if not IsIdentifierChar(aLineText[lIndex]) then
-  begin
-    if (lIndex > 1) and IsIdentifierChar(aLineText[lIndex - 1]) then
-      Dec(lIndex)
-    else
-      Exit(False);
-  end;
-
-  lLeft := lIndex;
-  while (lLeft > 1) and IsIdentifierChar(aLineText[lLeft - 1]) do
-    Dec(lLeft);
-
-  lRight := lIndex;
-  while (lRight < Length(aLineText)) and IsIdentifierChar(aLineText[lRight + 1]) do
-    Inc(lRight);
-
-  aToken := Copy(aLineText, lLeft, lRight - lLeft + 1);
-  Result := (aToken <> '') and not IsPascalKeyword(aToken);
-end;
-
-function TryExtractFirstIdentifierFromLine(const aLineText: string; out aToken: string): Boolean;
-var
-  lIndex: Integer;
-  lStart: Integer;
-begin
-  aToken := '';
-  lIndex := 1;
-  while lIndex <= Length(aLineText) do
-  begin
-    if IsIdentifierChar(aLineText[lIndex]) and not CharInSet(aLineText[lIndex], ['0'..'9']) then
-    begin
-      lStart := lIndex;
-      Inc(lIndex);
-      while (lIndex <= Length(aLineText)) and IsIdentifierChar(aLineText[lIndex]) do
-        Inc(lIndex);
-      aToken := Copy(aLineText, lStart, lIndex - lStart);
-      if (aToken <> '') and not IsPascalKeyword(aToken) then
-        Exit(True);
-    end;
-    Inc(lIndex);
-  end;
-  Result := False;
-end;
-
-function TryExtractEnclosingSymbolFromLine(const aLineText: string; out aSymbol: string): Boolean;
-var
-  lMatch: TMatch;
-begin
-  aSymbol := '';
-  lMatch := TRegEx.Match(aLineText,
-    '^\s*(?:class\s+)?(?:procedure|function|constructor|destructor)\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)',
-    [roIgnoreCase]);
-  if not lMatch.Success then
-  begin
-    lMatch := TRegEx.Match(aLineText, '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*class\b',
-      [roIgnoreCase]);
-    if not lMatch.Success then
-      Exit(False);
-  end;
-
-  aSymbol := lMatch.Groups[1].Value;
-  Result := aSymbol <> '';
-end;
-
-function TryExtractQuotedIdentifier(const aFinding: string; out aIdentifier: string): Boolean;
-var
-  lMatch: TMatch;
-begin
-  aIdentifier := '';
-  lMatch := TRegEx.Match(aFinding, '''([A-Za-z_][A-Za-z0-9_]*)''');
-  if not lMatch.Success then
-    Exit(False);
-
-  aIdentifier := lMatch.Groups[1].Value;
-  Result := aIdentifier <> '';
-end;
-
-function TryFindIdentifierInContext(const aContext: TDelphiSemanticSourceContextSnippet;
-  const aIdentifier: string; out aCandidate: string): Boolean;
-var
-  lLineText: string;
-  lPattern: string;
-begin
-  aCandidate := '';
-  if aIdentifier = '' then
-    Exit(False);
-
-  lPattern := '\b' + TRegEx.Escape(aIdentifier) + '\b';
-  for lLineText in aContext.Lines do
-    if TRegEx.IsMatch(lLineText, lPattern) then
-    begin
-      aCandidate := aIdentifier;
-      Exit(True);
-    end;
-
-  Result := False;
-end;
-
 class function TDelphiSemanticSourceContext.TryParseFindingLocationWithColumn(
   const aFinding: string; out aFileToken: string; out aLine, aColumn: Integer): Boolean;
-var
-  lMatch: TMatch;
 begin
-  aFileToken := '';
-  aLine := 0;
-  aColumn := 0;
-  lMatch := TRegEx.Match(aFinding, '^(.+)\((\d+)(?:,(\d+))?\):');
-  if not lMatch.Success then
-    Exit(False);
-
-  aFileToken := Trim(lMatch.Groups[1].Value);
-  aLine := StrToIntDef(lMatch.Groups[2].Value, 0);
-  if lMatch.Groups.Count >= 4 then
-    aColumn := StrToIntDef(lMatch.Groups[3].Value, 0);
-  Result := (aFileToken <> '') and (aLine > 0) and (aColumn >= 0);
+  Result := TDelphiSemanticSourceContextCandidates.TryParseFindingLocationWithColumn(aFinding,
+    aFileToken, aLine, aColumn);
 end;
 
 class function TDelphiSemanticSourceContext.TryResolve(const aProject: TDelphiSemanticProjectInfo;
@@ -599,7 +464,6 @@ var
   lFileToken: string;
   lIndex: Integer;
   lLine: Integer;
-  lLineText: string;
 begin
   aContext := Default(TDelphiSemanticSourceContextSnippet);
   aToken := '';
@@ -615,32 +479,8 @@ begin
     Exit(False);
 
   lIndex := aContext.TargetLine - aContext.StartLine;
-  if (lIndex < 0) or (lIndex > High(aContext.Lines)) then
-  begin
-    aError := Format('Could not derive enrichment candidate from %s(%d,%d).',
-      [lFileToken, lLine, lColumn]);
-    Exit(False);
-  end;
-
-  lLineText := aContext.Lines[lIndex];
-  if (lColumn > 0) and TryExtractIdentifierAtColumn(lLineText, lColumn, aToken) then
-    Exit(True);
-  if TryExtractQuotedIdentifier(aFinding, aToken) and TryFindIdentifierInContext(aContext, aToken,
-    aToken) then
-    Exit(True);
-  if TryExtractFirstIdentifierFromLine(lLineText, aToken) then
-    Exit(True);
-
-  while lIndex >= 0 do
-  begin
-    if TryExtractEnclosingSymbolFromLine(aContext.Lines[lIndex], aEnclosingSymbol) then
-      Exit(True);
-    Dec(lIndex);
-  end;
-
-  aError := Format('Could not derive enrichment candidate from %s(%d,%d).',
-    [lFileToken, lLine, lColumn]);
-  Result := False;
+  Result := TDelphiSemanticSourceContextCandidates.TrySelectCandidate(aFinding, aContext.Lines,
+    lIndex, lFileToken, lLine, lColumn, aToken, aEnclosingSymbol, aError);
 end;
 
 class function TDelphiSemanticSourceContext.FormatLines(
