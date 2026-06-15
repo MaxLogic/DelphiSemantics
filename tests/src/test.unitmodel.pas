@@ -163,6 +163,90 @@ begin
   Result := TPath.Combine(GUnitModelTempRoot, aName);
 end;
 
+function UnitModelMemberKey(const aOwnerName, aName, aKind: string): string;
+begin
+  Result := aOwnerName + '.' + aName + ':' + aKind;
+end;
+
+function UnitModelDeclarationKey(const aName, aKind, aSectionKind: string): string;
+begin
+  Result := aName + ':' + aKind + ':' + aSectionKind;
+end;
+
+procedure AssertStringKeysExactly(const aActualKeys: TStringList; const aExpectedKeys: array of string;
+  const aContext: string);
+var
+  lActualKey: string;
+  lExpected: TStringList;
+  lExpectedKey: string;
+  i: Integer;
+begin
+  lExpected := TStringList.Create;
+  try
+    lExpected.Sorted := True;
+    for i := Low(aExpectedKeys) to High(aExpectedKeys) do
+    begin
+      Assert.IsTrue(lExpected.IndexOf(aExpectedKeys[i]) < 0,
+        'Duplicate expected ' + aContext + ' key: ' + aExpectedKeys[i]);
+      lExpected.Add(aExpectedKeys[i]);
+    end;
+
+    for lExpectedKey in lExpected do
+      Assert.IsTrue(aActualKeys.IndexOf(lExpectedKey) >= 0,
+        'Missing ' + aContext + ' key: ' + lExpectedKey + '. Actual keys: ' + aActualKeys.CommaText);
+    for lActualKey in aActualKeys do
+      Assert.IsTrue(lExpected.IndexOf(lActualKey) >= 0,
+        'Unexpected ' + aContext + ' key: ' + lActualKey + '. Expected keys: ' + lExpected.CommaText);
+    Assert.AreEqual(lExpected.Count, aActualKeys.Count, 'Expected ' + aContext + ' key count to match.');
+  finally
+    lExpected.Free;
+  end;
+end;
+
+procedure AssertUnitModelMemberKeysExactly(const aModel: TDelphiSemanticUnitModel;
+  const aExpectedKeys: array of string);
+var
+  lActualKeys: TStringList;
+  lKey: string;
+  lMember: TDelphiSemanticMember;
+begin
+  lActualKeys := TStringList.Create;
+  try
+    lActualKeys.Sorted := True;
+    for lMember in aModel.Members do
+    begin
+      lKey := UnitModelMemberKey(lMember.OwnerName, lMember.Name, lMember.Kind);
+      Assert.IsTrue(lActualKeys.IndexOf(lKey) < 0, 'Duplicate member key: ' + lKey);
+      lActualKeys.Add(lKey);
+    end;
+    AssertStringKeysExactly(lActualKeys, aExpectedKeys, 'member');
+  finally
+    lActualKeys.Free;
+  end;
+end;
+
+procedure AssertUnitModelDeclarationKeysExactly(const aModel: TDelphiSemanticUnitModel;
+  const aExpectedKeys: array of string);
+var
+  lActualKeys: TStringList;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lKey: string;
+begin
+  lActualKeys := TStringList.Create;
+  try
+    lActualKeys.Sorted := True;
+    for lDeclaration in aModel.Declarations do
+    begin
+      lKey := UnitModelDeclarationKey(lDeclaration.Name, lDeclaration.Kind,
+        lDeclaration.SectionKind);
+      Assert.IsTrue(lActualKeys.IndexOf(lKey) < 0, 'Duplicate declaration key: ' + lKey);
+      lActualKeys.Add(lKey);
+    end;
+    AssertStringKeysExactly(lActualKeys, aExpectedKeys, 'declaration');
+  finally
+    lActualKeys.Free;
+  end;
+end;
 
 function TUnitModelTests.HasDeclaration(const aModel: TDelphiSemanticUnitModel;
   const aName, aKind, aSection: string): Boolean;
@@ -862,6 +946,25 @@ begin
 
   Assert.IsTrue(lModel.Success);
   Assert.AreEqual('SymbolMapDeclarations', lModel.UnitName);
+  AssertUnitModelDeclarationKeysExactly(lModel, [
+    'TDeclarationEnum:type:interface',
+    'deOne:enum-value:interface',
+    'deTwo:enum-value:interface',
+    'TDeclarationAlias:type-alias:interface',
+    'TDeclarationRecord:type:interface',
+    'TDeclarationClass:type:interface',
+    'cDeclarationConst:const:interface',
+    'cDeclarationTyped:typed-const:interface',
+    'GDeclarationGlobal:var:interface',
+    'cImplementationConst:const:implementation',
+    'GImplementationGlobal:var:implementation',
+    'DeclarationProcedure:routine:interface',
+    'DeclarationFunction:routine:interface',
+    'DeclarationMultiParam:routine:interface',
+    'DeclarationProcedure:routine:implementation',
+    'DeclarationFunction:routine:implementation',
+    'DeclarationMultiParam:routine:implementation',
+    'ImplementationOnlyProcedure:routine:implementation']);
   Assert.IsTrue(FindDeclaration(lModel, 'TDeclarationEnum', 'type', 'interface', lDeclaration));
   Assert.AreEqual('enum', lDeclaration.TypeName);
   Assert.IsTrue(FindDeclaration(lModel, 'deOne', 'enum-value', 'interface', lDeclaration));
@@ -922,7 +1025,29 @@ begin
 
   Assert.IsTrue(lModel.Success);
   Assert.AreEqual('SymbolMapMembers', lModel.UnitName);
-  Assert.AreEqual(22, Integer(Length(lModel.Members)));
+  AssertUnitModelMemberKeysExactly(lModel, [
+    'TMemberRecord.RecordField:field',
+    'TMemberRecord.Reset:method',
+    'TMemberRecord.DisplayName:property',
+    'TMemberClass.FName:field',
+    'TMemberClass.FItems:field',
+    'TMemberClass.FEnabled:field',
+    'TMemberClass.GetItem:method',
+    'TMemberClass.GetNamedItem:method',
+    'TMemberClass.ClassField:field',
+    'TMemberClass.Run:method',
+    'TMemberClass.Count:method',
+    'TMemberClass.Name:property',
+    'TMemberClass.Enabled:property',
+    'TMemberClass.Items:property',
+    'TMemberClass.MultiItems:property',
+    'TDefaultVisibilityClass.DefaultField:field',
+    'TDefaultVisibilityClass.DefaultProperty:property',
+    'IMemberInterface.Touch:method',
+    'IMemberInterface.GetCaption:method',
+    'IMemberInterface.Caption:property',
+    'TMemberRecordHelper.Normalize:method',
+    'TMemberRecordHelper.HelperValue:property']);
   Assert.IsTrue(FindMember(lModel, 'TMemberRecord', 'RecordField', 'field', lMember));
   Assert.AreEqual('Integer', lMember.TypeName);
   Assert.AreEqual(7, lMember.Line);
