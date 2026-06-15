@@ -38,13 +38,15 @@ type
     [Test]
     procedure SourceContextCandidateReturnsFalseWithoutReasonableCandidate;
     [Test]
+    procedure SourceConditionalsOwnConditionalLineRules;
+    [Test]
     procedure SourceContextImplementationOwnsSharedLoadingAndWindowLogic;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
   Test.Support;
@@ -283,6 +285,24 @@ begin
     'NoCandidateUnit.pas(3,1): error E2010: Syntax error', 1, lContext, lToken,
     lEnclosingSymbol, lError));
   Assert.IsTrue(Pos('candidate', LowerCase(lError)) > 0, lError);
+end;
+
+procedure TSourceContextTests.SourceConditionalsOwnConditionalLineRules;
+var
+  lConditionalRule: string;
+  lRemoveWithSource: string;
+  lSourceContextSource: string;
+begin
+  lConditionalRule := 'StartsText(''{$IF';
+  lSourceContextSource := ReadRepoSource('src\DelphiSemantics.SourceContext.pas');
+  lRemoveWithSource := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.pas');
+
+  Assert.IsTrue(FileExists(RepoSourcePath('src\DelphiSemantics.SourceConditionals.pas')),
+    'Expected shared conditional-line helper unit.');
+  Assert.IsFalse(ContainsText(lSourceContextSource, lConditionalRule),
+    'SourceContext should delegate conditional-line rules to SourceConditionals.');
+  Assert.IsFalse(ContainsText(lRemoveWithSource, lConditionalRule),
+    'RemoveWithPlan should delegate conditional-line rules to SourceConditionals.');
 end;
 
 procedure TSourceContextTests.SourceContextImplementationOwnsSharedLoadingAndWindowLogic;

@@ -183,7 +183,7 @@ implementation
 uses
   System.Generics.Collections, System.Hash, System.IOUtils, System.StrUtils,
   System.SysUtils,
-  DelphiSemantics.SourceContext;
+  DelphiSemantics.SourceConditionals, DelphiSemantics.SourceContext;
 
 type
   TFinalSelectorDecision = record
@@ -1582,16 +1582,12 @@ function ReferenceLineHasConditionalDirective(const aBinding: TDelphiSemanticWit
   const aReference: TDelphiSemanticBoundReference;
   const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
-  lLine: string;
   lLines: TArray<string>;
 begin
-  Result := False;
   if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
-    Exit;
-  if (aReference.Line <= 0) or (aReference.Line > Length(lLines)) then
-    Exit;
-  lLine := lLines[aReference.Line - 1];
-  Result := StartsText('{$IF', Trim(lLine));
+    Exit(False);
+  Result := TDelphiSemanticSourceConditionals.LineHasConditionalDirective(lLines,
+    aReference.Line);
 end;
 
 function ReferenceInsideInactiveNeverConditionalRegion(
@@ -1599,29 +1595,12 @@ function ReferenceInsideInactiveNeverConditionalRegion(
   const aReference: TDelphiSemanticBoundReference;
   const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
-  i: Integer;
-  lInactiveDepth: Integer;
-  lLine: string;
   lLines: TArray<string>;
 begin
-  Result := False;
   if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
-    Exit;
-  if (aReference.Line <= 0) or (aReference.Line > Length(lLines)) then
-    Exit;
-  lInactiveDepth := 0;
-  for i := aBinding.BodyLine to aReference.Line do
-  begin
-    if (i <= 0) or (i > Length(lLines)) then
-      Continue;
-    lLine := Trim(lLines[i - 1]);
-    if StartsText('{$IFDEF NEVER', lLine) then
-      Inc(lInactiveDepth)
-    else if StartsText('{$ENDIF', lLine) and (lInactiveDepth > 0) then
-      Dec(lInactiveDepth);
-    if (i = aReference.Line) and (lInactiveDepth > 0) then
-      Exit(True);
-  end;
+    Exit(False);
+  Result := TDelphiSemanticSourceConditionals.InsideInactiveNeverConditionalRegion(lLines,
+    aBinding.BodyLine, aReference.Line);
 end;
 
 function LineIsTopLevel(const aLine: string): Boolean;

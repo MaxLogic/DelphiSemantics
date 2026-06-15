@@ -69,7 +69,7 @@ implementation
 uses
   System.Classes, System.IOUtils, System.Math,
   System.RegularExpressions, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Source;
+  DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 procedure AddCandidate(const aCandidates: TList<string>; const aSeen: TDictionary<string, Boolean>;
   const aValue: string);
@@ -316,35 +316,20 @@ end;
 function TDelphiSemanticSourceContextCache.LineHasConditionalDirective(
   const aFileName: string; const aLine: Integer): Boolean;
 var
-  lLineText: string;
+  lLines: TArray<string>;
 begin
-  Result := TryGetLine(aFileName, aLine, lLineText) and
-    StartsText('{$IF', Trim(lLineText));
+  Result := TryGetValue(aFileName, lLines) and
+    TDelphiSemanticSourceConditionals.LineHasConditionalDirective(lLines, aLine);
 end;
 
 function TDelphiSemanticSourceContextCache.InsideInactiveNeverConditionalRegion(
   const aFileName: string; const aStartLine, aLine: Integer): Boolean;
 var
-  i: Integer;
-  lInactiveDepth: Integer;
-  lLineText: string;
+  lLines: TArray<string>;
 begin
-  Result := False;
-  if (aStartLine <= 0) or (aLine <= 0) then
-    Exit;
-  lInactiveDepth := 0;
-  for i := aStartLine to aLine do
-  begin
-    if not TryGetLine(aFileName, i, lLineText) then
-      Continue;
-    lLineText := Trim(lLineText);
-    if StartsText('{$IFDEF NEVER', lLineText) then
-      Inc(lInactiveDepth)
-    else if StartsText('{$ENDIF', lLineText) and (lInactiveDepth > 0) then
-      Dec(lInactiveDepth);
-    if (i = aLine) and (lInactiveDepth > 0) then
-      Exit(True);
-  end;
+  Result := TryGetValue(aFileName, lLines) and
+    TDelphiSemanticSourceConditionals.InsideInactiveNeverConditionalRegion(lLines,
+    aStartLine, aLine);
 end;
 
 function TDelphiSemanticSourceContextCache.LineBreakForFile(
