@@ -107,12 +107,16 @@ type
     fEntries: TCacheDictionary;
     fDiagnostics: TList<TDelphiSemanticCacheDiagnostic>;
     fMetrics: TDelphiSemanticCacheMetrics;
+    fAccessLock: TObject;
+    fAccessActive: Boolean;
     fCompilerProfileName: string;
     fConfiguration: string;
     fDelphiVersion: string;
     fParserVersion: string;
     fPlatform: string;
     fModelVersion: string;
+    procedure EnterAccess(const aMarkActive: Boolean);
+    procedure LeaveAccess(const aMarkedActive: Boolean);
     function GetCompilerProfileName: string;
     function GetDiagnostics: TArray<TDelphiSemanticCacheDiagnostic>;
     function GetMetrics: TDelphiSemanticCacheMetrics;
@@ -120,6 +124,7 @@ type
     function GetParserVersion: string;
   protected
     procedure AddDiagnostic(const aCode, aMessage, aFileName: string);
+    function CurrentCompilerProfileName: string;
     procedure RecordPersistentInvalidation(const aIdentity, aKey: string); virtual;
     procedure RecordPersistentConnectionOpen;
     function PersistentEntryExistsForIdentity(const aIdentity: string): Boolean; virtual;
@@ -166,6 +171,7 @@ const
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
   cDefaultParserVersion = 'DelphiSemantics.Model.Parser.2';
+  cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
 begin
@@ -497,6 +503,7 @@ end;
 constructor TDelphiSemanticUnitCache.Create(const aOptions: TDelphiSemanticCacheOptions);
 begin
   inherited Create;
+  fAccessLock := TObject.Create;
   fEntries := TCacheDictionary.Create;
   fDiagnostics := TList<TDelphiSemanticCacheDiagnostic>.Create;
   fMetrics.CacheKind := 'in-memory';
@@ -519,39 +526,97 @@ destructor TDelphiSemanticUnitCache.Destroy;
 begin
   fDiagnostics.Free;
   fEntries.Free;
+  fAccessLock.Free;
   inherited;
 end;
 
+procedure TDelphiSemanticUnitCache.EnterAccess(const aMarkActive: Boolean);
+begin
+  if not TMonitor.TryEnter(fAccessLock) then
+    raise EInvalidOperation.Create(cUnitCacheSingleThreadMessage);
+  try
+    if fAccessActive then
+      raise EInvalidOperation.Create(cUnitCacheSingleThreadMessage);
+    if aMarkActive then
+      fAccessActive := True;
+  except
+    TMonitor.Exit(fAccessLock);
+    raise;
+  end;
+end;
+
+procedure TDelphiSemanticUnitCache.LeaveAccess(const aMarkedActive: Boolean);
+begin
+  if aMarkedActive then
+    fAccessActive := False;
+  TMonitor.Exit(fAccessLock);
+end;
+
 function TDelphiSemanticUnitCache.GetCompilerProfileName: string;
+begin
+  EnterAccess(False);
+  try
+    Result := fCompilerProfileName;
+  finally
+    LeaveAccess(False);
+  end;
+end;
+
+function TDelphiSemanticUnitCache.CurrentCompilerProfileName: string;
 begin
   Result := fCompilerProfileName;
 end;
 
 function TDelphiSemanticUnitCache.GetDiagnostics: TArray<TDelphiSemanticCacheDiagnostic>;
 begin
-  Result := fDiagnostics.ToArray;
+  EnterAccess(False);
+  try
+    Result := fDiagnostics.ToArray;
+  finally
+    LeaveAccess(False);
+  end;
 end;
 
 function TDelphiSemanticUnitCache.GetMetrics: TDelphiSemanticCacheMetrics;
 begin
-  Result := fMetrics;
+  EnterAccess(False);
+  try
+    Result := fMetrics;
+  finally
+    LeaveAccess(False);
+  end;
 end;
 
 function TDelphiSemanticUnitCache.GetModelVersion: string;
 begin
-  Result := fModelVersion;
+  EnterAccess(False);
+  try
+    Result := fModelVersion;
+  finally
+    LeaveAccess(False);
+  end;
 end;
 
 function TDelphiSemanticUnitCache.GetParserVersion: string;
 begin
-  Result := fParserVersion;
+  EnterAccess(False);
+  try
+    Result := fParserVersion;
+  finally
+    LeaveAccess(False);
+  end;
 end;
 
 function TDelphiSemanticUnitCache.BuildIdentity(
   const aOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitCacheIdentity;
 begin
-  Result := BuildInternalUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
-    fModelVersion, fDelphiVersion, fConfiguration, fPlatform);
+  EnterAccess(False);
+  try
+    Result := BuildInternalUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
+      fModelVersion, fDelphiVersion, fConfiguration, fPlatform);
+  finally
+    LeaveAccess(False);
+  end;
 end;
 
 function TDelphiSemanticUnitCache.PersistentEntryExistsForIdentity(
@@ -589,64 +654,84 @@ var
   lIdentity: string;
   lKey: string;
 begin
-  Result := Default(TDelphiSemanticUnitCacheAccessResult);
-  Result.Identity := BuildInternalUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
-    fModelVersion, fDelphiVersion, fConfiguration, fPlatform);
-  lIdentity := UpperCase(TPath.GetFullPath(aOptions.SourceFileName));
-  lKey := Result.Identity.UnitCacheKey;
-  lDictionary := fEntries;
-  if lDictionary.TryGetValue(lIdentity, lEntry) then
-  begin
-    if lEntry.Key = lKey then
+  EnterAccess(True);
+  try
+    Result := Default(TDelphiSemanticUnitCacheAccessResult);
+    Result.Identity := BuildInternalUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
+      fModelVersion, fDelphiVersion, fConfiguration, fPlatform);
+    lIdentity := UpperCase(TPath.GetFullPath(aOptions.SourceFileName));
+    lKey := Result.Identity.UnitCacheKey;
+    lDictionary := fEntries;
+    if lDictionary.TryGetValue(lIdentity, lEntry) then
+    begin
+      if lEntry.Key = lKey then
+      begin
+        Inc(fMetrics.CacheHits);
+        Result.CacheHit := True;
+        Result.Model := CloneUnitModel(lEntry.Model);
+        Exit;
+      end;
+      Inc(fMetrics.Invalidations);
+    end;
+
+    if TryLoadPersistentEntry(lIdentity, lKey, Result.Model) then
     begin
       Inc(fMetrics.CacheHits);
       Result.CacheHit := True;
-      Result.Model := CloneUnitModel(lEntry.Model);
+      lEntry.Key := lKey;
+      lEntry.Model := CloneUnitModel(Result.Model);
+      lDictionary.AddOrSetValue(lIdentity, lEntry);
+      Result.Model := CloneUnitModel(Result.Model);
       Exit;
     end;
-    Inc(fMetrics.Invalidations);
-  end;
 
-  if TryLoadPersistentEntry(lIdentity, lKey, Result.Model) then
-  begin
-    Inc(fMetrics.CacheHits);
-    Result.CacheHit := True;
+    if PersistentEntryExistsForIdentity(lIdentity) then
+    begin
+      Inc(fMetrics.Invalidations);
+      RecordPersistentInvalidation(lIdentity, lKey);
+    end;
+
+    Inc(fMetrics.CacheMisses);
+    Result.Model := aBuilder(aOptions);
     lEntry.Key := lKey;
     lEntry.Model := CloneUnitModel(Result.Model);
     lDictionary.AddOrSetValue(lIdentity, lEntry);
-    Result.Model := CloneUnitModel(Result.Model);
-    Exit;
+    StorePersistentEntry(lIdentity, lKey, Result.Identity, Result.Model);
+  finally
+    LeaveAccess(True);
   end;
-
-  if PersistentEntryExistsForIdentity(lIdentity) then
-  begin
-    Inc(fMetrics.Invalidations);
-    RecordPersistentInvalidation(lIdentity, lKey);
-  end;
-
-  Inc(fMetrics.CacheMisses);
-  Result.Model := aBuilder(aOptions);
-  lEntry.Key := lKey;
-  lEntry.Model := CloneUnitModel(Result.Model);
-  lDictionary.AddOrSetValue(lIdentity, lEntry);
-  StorePersistentEntry(lIdentity, lKey, Result.Identity, Result.Model);
 end;
 
 procedure TDelphiSemanticUnitCache.SetCompilerProfileName(const aValue: string);
 begin
-  fCompilerProfileName := aValue;
-  if fCompilerProfileName = '' then
-    fCompilerProfileName := cDefaultCompilerProfileName;
+  EnterAccess(False);
+  try
+    fCompilerProfileName := aValue;
+    if fCompilerProfileName = '' then
+      fCompilerProfileName := cDefaultCompilerProfileName;
+  finally
+    LeaveAccess(False);
+  end;
 end;
 
 procedure TDelphiSemanticUnitCache.SetModelVersion(const aValue: string);
 begin
-  fModelVersion := aValue;
+  EnterAccess(False);
+  try
+    fModelVersion := aValue;
+  finally
+    LeaveAccess(False);
+  end;
 end;
 
 procedure TDelphiSemanticUnitCache.SetCacheKind(const aValue: string);
 begin
-  fMetrics.CacheKind := aValue;
+  EnterAccess(False);
+  try
+    fMetrics.CacheKind := aValue;
+  finally
+    LeaveAccess(False);
+  end;
 end;
 
 procedure TDelphiSemanticUnitCache.RecordPersistentConnectionOpen;
@@ -656,7 +741,12 @@ end;
 
 procedure TDelphiSemanticUnitCache.SetParserVersion(const aValue: string);
 begin
-  fParserVersion := aValue;
+  EnterAccess(False);
+  try
+    fParserVersion := aValue;
+  finally
+    LeaveAccess(False);
+  end;
 end;
 
 procedure TDelphiSemanticUnitCache.StorePersistentEntry(const aIdentity, aKey: string;

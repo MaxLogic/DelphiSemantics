@@ -876,9 +876,9 @@ begin
   lProfile := QueryWideString(lConnection,
     'select compiler_profile_name from unit_models where identity_key = ? limit 1',
     aIdentity);
-  if (lProfile <> '') and (not SameText(lProfile, CompilerProfileName)) then
+  if (lProfile <> '') and (not SameText(lProfile, CurrentCompilerProfileName)) then
     AddDiagnostic('SQLITE_CACHE_STALE_PROFILE_REBUILT',
-      'SQLite cache entry was rebuilt for compiler profile: ' + CompilerProfileName,
+      'SQLite cache entry was rebuilt for compiler profile: ' + CurrentCompilerProfileName,
       fCacheFileName)
   else
     AddDiagnostic('SQLITE_CACHE_STALE_ENTRY_REBUILT',
@@ -913,7 +913,7 @@ begin
     SetWideParam(lQuery, 4, DelphiVersion);
     SetWideParam(lQuery, 5, Configuration);
     SetWideParam(lQuery, 6, Platform);
-    SetWideParam(lQuery, 7, CompilerProfileName);
+    SetWideParam(lQuery, 7, CurrentCompilerProfileName);
     SetWideParam(lQuery, 8, aCacheIdentity.SchemaVersion);
     SetWideParam(lQuery, 9, aCacheIdentity.ParserVersion);
     SetWideParam(lQuery, 10, aCacheIdentity.ModelVersion);

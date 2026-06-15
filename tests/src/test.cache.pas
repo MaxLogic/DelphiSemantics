@@ -34,6 +34,8 @@ type
     [Test]
     procedure InMemoryMetricsExposeEmptyCacheFileName;
     [Test]
+    procedure SharedUnitCacheRejectsReentrantAccess;
+    [Test]
     procedure RepeatedUnchangedUnitHitsInMemoryCache;
     [Test]
     procedure CacheHitReturnsIndependentUnitModelCopy;
@@ -279,6 +281,51 @@ begin
   lCache := TDelphiSemanticUnitCache.Create(lOptions);
   try
     Assert.AreEqual('', lCache.Metrics.CacheFileName);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.SharedUnitCacheRejectsReentrantAccess;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lFailedFast: Boolean;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := TempPath('SharedCacheGuardUnit.pas');
+  TFile.WriteAllText(lPath, 'unit SharedCacheGuardUnit;' + sLineBreak + 'interface' +
+    sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lFailedFast := False;
+    try
+      lCache.GetOrBuildUnitModelWithStatus(lModelOptions,
+        function(const aBuildOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel
+        begin
+          Result := lCache.GetOrExtractUnitModel(aBuildOptions);
+        end);
+    except
+      on E: Exception do
+      begin
+        lFailedFast := True;
+        Assert.IsTrue(Pos('single-threaded', E.Message) > 0,
+          'Expected single-threaded cache contract message. Actual: ' + E.Message);
+      end;
+    end;
+    Assert.IsTrue(lFailedFast,
+      'A shared unit cache instance must fail fast when one access re-enters another.');
+    Assert.AreEqual(0, lCache.Metrics.CacheHits);
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(0, lCache.Metrics.Invalidations);
+    lCache.GetOrExtractUnitModel(lModelOptions);
+    Assert.AreEqual(2, lCache.Metrics.CacheMisses);
   finally
     lCache.Free;
   end;
