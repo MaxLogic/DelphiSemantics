@@ -1,4 +1,4 @@
-unit DelphiSemantics.ProjectSession;
+﻿unit DelphiSemantics.ProjectSession;
 
 interface
 
@@ -120,6 +120,7 @@ implementation
 uses
   System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils,
   System.RegularExpressions, System.SysUtils,
+  DelphiAST.ProjectIndexer,
   DelphiSemantics.Cache.Sqlite, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
   DelphiSemantics.Source,
@@ -263,6 +264,72 @@ begin
     end;
     Result := lFiles.ToArray;
   finally
+    lSeen.Free;
+    lFiles.Free;
+  end;
+end;
+
+function DependencyGraphSearchPaths(const aProject: TDelphiSemanticProjectInfo): TArray<string>; forward;
+
+procedure CollectDependencyGraphFacts(const aProject: TDelphiSemanticProjectInfo;
+  out aSourceFileNames: TArray<string>; out aGraphOptions: TDelphiSemanticDependencyGraphOptions);
+var
+  lFile: string;
+  lFiles: TList<string>;
+  lIndexer: TProjectIndexer;
+  lNode: TProjectIndexer.TUnitInfo;
+  lProblem: TProjectIndexer.TProblemInfo;
+  lSeen: TDictionary<string, Byte>;
+begin
+  aSourceFileNames := [];
+  aGraphOptions := Default(TDelphiSemanticDependencyGraphOptions);
+  aGraphOptions.SearchPaths := DependencyGraphSearchPaths(aProject);
+  aGraphOptions.ProjectUnitName := aProject.ProjectName;
+
+  lFiles := TList<string>.Create;
+  lSeen := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lIndexer := TProjectIndexer.Create;
+  try
+    lIndexer.Options := lIndexer.Options - [piUseDefinesDefinedByCompiler];
+    lIndexer.Defines := String.Join(';', aProject.Defines);
+    lIndexer.SearchPath := String.Join(';', aProject.SourceLookupPaths);
+    lIndexer.Index(aProject.MainSourceFileName);
+
+    if aProject.MainSourceFileName <> '' then
+    begin
+      lFile := TPath.GetFullPath(aProject.MainSourceFileName);
+      if (lFile <> '') and (not lSeen.ContainsKey(lFile)) then
+      begin
+        lSeen.Add(lFile, 0);
+        lFiles.Add(lFile);
+      end;
+    end;
+
+    for lNode in lIndexer.ParsedUnits do
+    begin
+      lFile := TPath.GetFullPath(lNode.Path);
+      if (lFile = '') or lSeen.ContainsKey(lFile) or (not TFile.Exists(lFile)) then
+        Continue;
+      lSeen.Add(lFile, 0);
+      lFiles.Add(lFile);
+    end;
+
+    SetLength(aGraphOptions.ParserProblems, lIndexer.Problems.Count);
+    for var i := 0 to Pred(lIndexer.Problems.Count) do
+    begin
+      lProblem := lIndexer.Problems[i];
+      aGraphOptions.ParserProblems[i].UnitName := TPath.GetFileNameWithoutExtension(lProblem.FileName);
+      aGraphOptions.ParserProblems[i].FileName := lProblem.FileName;
+      aGraphOptions.ParserProblems[i].Description := lProblem.Description;
+    end;
+
+    SetLength(aGraphOptions.UnresolvedUnits, lIndexer.NotFoundUnits.Count);
+    for var i := 0 to Pred(lIndexer.NotFoundUnits.Count) do
+      aGraphOptions.UnresolvedUnits[i] := lIndexer.NotFoundUnits[i];
+
+    aSourceFileNames := lFiles.ToArray;
+  finally
+    lIndexer.Free;
     lSeen.Free;
     lFiles.Free;
   end;
@@ -1042,12 +1109,10 @@ function TDelphiSemanticProjectSession.BuildDependencyGraph:
 var
   lExtraction: TProjectModelExtractionResult;
   lGraphOptions: TDelphiSemanticDependencyGraphOptions;
+  lSourceFileNames: TArray<string>;
 begin
-  lGraphOptions := Default(TDelphiSemanticDependencyGraphOptions);
-  lGraphOptions.SearchPaths := DependencyGraphSearchPaths(fProject);
-  lGraphOptions.ProjectUnitName := fProject.ProjectName;
-  lExtraction := ExtractProjectModels(fProject, fOptions, ProjectModelFileNames(fProject),
-    [], False);
+  CollectDependencyGraphFacts(fProject, lSourceFileNames, lGraphOptions);
+  lExtraction := ExtractProjectModels(fProject, fOptions, lSourceFileNames, [], False);
   Result := TDelphiSemanticDependencyGraphBuilder.Build(lExtraction.Models, lGraphOptions);
 end;
 

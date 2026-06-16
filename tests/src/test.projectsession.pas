@@ -1,9 +1,10 @@
-unit Test.ProjectSession;
+﻿unit Test.ProjectSession;
 
 interface
 
 uses
   DUnitX.TestFramework,
+  DelphiSemantics.Graph,
   DelphiSemantics.RemoveWithPlan,
   DelphiSemantics.Snapshot;
 
@@ -13,6 +14,14 @@ type
   private
     procedure AssertSnapshotFactsEqual(const aExpectedSnapshot,
       aActualSnapshot: TDelphiProjectSnapshot);
+    function DependencyGraphRegressionProjectPath: string;
+    function FindComponentWithUnit(const aGraph: TDelphiSemanticDependencyGraph;
+      const aUnitName: string; out aComponent: TDelphiSemanticDependencyCycleComponent): Boolean;
+    function FindEdge(const aGraph: TDelphiSemanticDependencyGraph; const aSourceUnit,
+      aTargetUnit, aSectionKind: string; out aEdge: TDelphiSemanticDependencyEdge): Boolean;
+    function FindNode(const aGraph: TDelphiSemanticDependencyGraph; const aUnitName: string;
+      out aNode: TDelphiSemanticDependencyNode): Boolean;
+    function HasUnit(const aUnits: TArray<string>; const aUnitName: string): Boolean;
     function ParityStatementsFromPlan(const aPlan: TDelphiSemanticRemoveWithPlan):
       TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
   public
@@ -23,9 +32,11 @@ type
     [Test]
     procedure OpensProjectSessionThroughExistingProjectContext;
     [Test]
-    procedure ProjectSessionDependencyGraphUsesSemanticModelsOnly;
-    [Test]
     procedure ProjectSessionModelExtractionUsesSingleResultRecord;
+    [Test]
+    procedure ProjectSessionDependencyGraphCollectsRecursiveProjectFacts;
+    [Test]
+    procedure ProjectSessionDependencyGraphUsesLinux64TargetDefines;
     [Test]
     procedure ProjectSessionBuildsSnapshotFromExtractedModels;
     [Test]
@@ -100,6 +111,184 @@ end;
 function ProjectSessionTempPath(const aName: string): string;
 begin
   Result := TPath.Combine(ProjectSessionTempRoot, aName);
+end;
+
+function DependencyGraphRegressionProjectRoot: string;
+begin
+  Result := ProjectSessionTempPath('dependency-graph-regression');
+  TDirectory.CreateDirectory(Result);
+end;
+
+procedure WriteTextFile(const aFileName, aText: string);
+begin
+  TDirectory.CreateDirectory(ExtractFileDir(aFileName));
+  TFile.WriteAllText(aFileName, aText, TEncoding.UTF8);
+end;
+
+function TProjectSessionTests.DependencyGraphRegressionProjectPath: string;
+var
+  lRoot: string;
+begin
+  lRoot := DependencyGraphRegressionProjectRoot;
+
+  Result := TPath.Combine(lRoot, 'DepsGraphRegression.dproj');
+  if TFile.Exists(Result) then
+    Exit;
+
+  WriteTextFile(Result,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>DepsGraphRegression.dpr</MainSource>' + sLineBreak +
+    '    <Config Condition="''$(Config)''==''''">Debug</Config>' + sLineBreak +
+    '    <Platform Condition="''$(Platform)''==''''">Win32</Platform>' + sLineBreak +
+    '    <ProjectName>DepsGraphRegression</ProjectName>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '</Project>');
+
+  WriteTextFile(TPath.Combine(lRoot, 'DepsGraphRegression.dpr'),
+    'program DepsGraphRegression;' + sLineBreak +
+    sLineBreak +
+    'uses' + sLineBreak +
+    '  DepsGraphRegression.Main in ''DepsGraphRegression.Main.pas'';' + sLineBreak +
+    sLineBreak +
+    'begin' + sLineBreak +
+    'end.');
+
+  WriteTextFile(TPath.Combine(lRoot, 'DepsGraphRegression.Main.pas'),
+    'unit DepsGraphRegression.Main;' + sLineBreak +
+    sLineBreak +
+    'interface' + sLineBreak +
+    sLineBreak +
+    'uses' + sLineBreak +
+    '  DepsGraphRegression.CycleA,' + sLineBreak +
+    '  DepsGraphRegression.Broken,' + sLineBreak +
+    '  DepsGraphRegression.MissingUnit' + sLineBreak +
+    '{$IFDEF LINUX}' + sLineBreak +
+    '  , DepsGraphRegression.LinuxOnly' + sLineBreak +
+    '{$ENDIF}' + sLineBreak +
+    '{$IFDEF MSWINDOWS}' + sLineBreak +
+    '  , DepsGraphRegression.HostOnly' + sLineBreak +
+    '{$ENDIF}' + sLineBreak +
+    '  ;' + sLineBreak +
+    sLineBreak +
+    'implementation' + sLineBreak +
+    sLineBreak +
+    'end.');
+
+  WriteTextFile(TPath.Combine(lRoot, 'DepsGraphRegression.CycleA.pas'),
+    'unit DepsGraphRegression.CycleA;' + sLineBreak +
+    sLineBreak +
+    'interface' + sLineBreak +
+    sLineBreak +
+    'uses' + sLineBreak +
+    '  DepsGraphRegression.CycleB;' + sLineBreak +
+    sLineBreak +
+    'implementation' + sLineBreak +
+    sLineBreak +
+    'end.');
+
+  WriteTextFile(TPath.Combine(lRoot, 'DepsGraphRegression.CycleB.pas'),
+    'unit DepsGraphRegression.CycleB;' + sLineBreak +
+    sLineBreak +
+    'interface' + sLineBreak +
+    sLineBreak +
+    'uses' + sLineBreak +
+    '  DepsGraphRegression.CycleA;' + sLineBreak +
+    sLineBreak +
+    'implementation' + sLineBreak +
+    sLineBreak +
+    'end.');
+
+  WriteTextFile(TPath.Combine(lRoot, 'DepsGraphRegression.Broken.pas'),
+    'unit DepsGraphRegression.Broken;' + sLineBreak +
+    sLineBreak +
+    'interface' + sLineBreak +
+    sLineBreak +
+    'type' + sLineBreak +
+    '  TBroken = class' + sLineBreak +
+    sLineBreak +
+    'implementation' + sLineBreak +
+    sLineBreak +
+    'end.');
+
+  WriteTextFile(TPath.Combine(lRoot, 'DepsGraphRegression.LinuxOnly.pas'),
+    'unit DepsGraphRegression.LinuxOnly;' + sLineBreak +
+    sLineBreak +
+    'interface' + sLineBreak +
+    sLineBreak +
+    'implementation' + sLineBreak +
+    sLineBreak +
+    'end.');
+
+  WriteTextFile(TPath.Combine(lRoot, 'DepsGraphRegression.HostOnly.pas'),
+    'unit DepsGraphRegression.HostOnly;' + sLineBreak +
+    sLineBreak +
+    'interface' + sLineBreak +
+    sLineBreak +
+    'implementation' + sLineBreak +
+    sLineBreak +
+    'end.');
+end;
+
+function TProjectSessionTests.FindComponentWithUnit(const aGraph: TDelphiSemanticDependencyGraph;
+  const aUnitName: string; out aComponent: TDelphiSemanticDependencyCycleComponent): Boolean;
+var
+  lComponent: TDelphiSemanticDependencyCycleComponent;
+begin
+  for lComponent in aGraph.CycleComponents do
+    if HasUnit(lComponent.Units, aUnitName) then
+    begin
+      aComponent := lComponent;
+      Exit(True);
+    end;
+
+  aComponent := Default(TDelphiSemanticDependencyCycleComponent);
+  Result := False;
+end;
+
+function TProjectSessionTests.FindEdge(const aGraph: TDelphiSemanticDependencyGraph;
+  const aSourceUnit, aTargetUnit, aSectionKind: string;
+  out aEdge: TDelphiSemanticDependencyEdge): Boolean;
+var
+  lEdge: TDelphiSemanticDependencyEdge;
+begin
+  for lEdge in aGraph.Edges do
+    if SameText(lEdge.SourceUnit, aSourceUnit) and SameText(lEdge.TargetUnit, aTargetUnit) and
+      SameText(lEdge.SectionKind, aSectionKind) then
+    begin
+      aEdge := lEdge;
+      Exit(True);
+    end;
+
+  aEdge := Default(TDelphiSemanticDependencyEdge);
+  Result := False;
+end;
+
+function TProjectSessionTests.FindNode(const aGraph: TDelphiSemanticDependencyGraph;
+  const aUnitName: string; out aNode: TDelphiSemanticDependencyNode): Boolean;
+var
+  lNode: TDelphiSemanticDependencyNode;
+begin
+  for lNode in aGraph.Nodes do
+    if SameText(lNode.UnitName, aUnitName) then
+    begin
+      aNode := lNode;
+      Exit(True);
+    end;
+
+  aNode := Default(TDelphiSemanticDependencyNode);
+  Result := False;
+end;
+
+function TProjectSessionTests.HasUnit(const aUnits: TArray<string>; const aUnitName: string): Boolean;
+var
+  lUnit: string;
+begin
+  for lUnit in aUnits do
+    if SameText(lUnit, aUnitName) then
+      Exit(True);
+
+  Result := False;
 end;
 
 procedure TProjectSessionTests.ProjectSessionSnapshotParityComparesSemanticFacts;
@@ -406,18 +595,6 @@ begin
   end;
 end;
 
-procedure TProjectSessionTests.ProjectSessionDependencyGraphUsesSemanticModelsOnly;
-var
-  lSourceText: string;
-begin
-  lSourceText := ReadRepoSource('src\DelphiSemantics.ProjectSession.pas');
-
-  Assert.IsFalse(ContainsText(lSourceText, 'CollectDependencyGraphIndexFacts'),
-    'BuildDependencyGraph must consume semantic unit models directly.');
-  Assert.IsFalse(ContainsText(lSourceText, 'TProjectIndexer.Create'),
-    'Dependency graph construction must not run a separate project indexer scan.');
-end;
-
 procedure TProjectSessionTests.ProjectSessionModelExtractionUsesSingleResultRecord;
 var
   lExtractWithScopeModeName: string;
@@ -436,6 +613,69 @@ begin
     'Wrapper-only extraction scope-mode fan-out should be removed.');
   Assert.IsFalse(ContainsText(lSource, lOutExtractionSignature),
     'ExtractProjectModels should not thread elapsed time and cache data through out parameters.');
+end;
+
+procedure TProjectSessionTests.ProjectSessionDependencyGraphCollectsRecursiveProjectFacts;
+var
+  lComponent: TDelphiSemanticDependencyCycleComponent;
+  lEdge: TDelphiSemanticDependencyEdge;
+  lGraph: TDelphiSemanticDependencyGraph;
+  lNode: TDelphiSemanticDependencyNode;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := DependencyGraphRegressionProjectPath;
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win32';
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lGraph := lResult.Session.BuildDependencyGraph;
+    Assert.IsTrue(FindNode(lGraph, 'DepsGraphRegression.Main', lNode));
+    Assert.AreEqual('project', lNode.Status);
+    Assert.IsTrue(FindEdge(lGraph, 'DepsGraphRegression.Main', 'DepsGraphRegression.CycleA',
+      'interface', lEdge));
+    Assert.IsTrue(FindEdge(lGraph, 'DepsGraphRegression.CycleA', 'DepsGraphRegression.CycleB',
+      'interface', lEdge));
+    Assert.IsTrue(FindEdge(lGraph, 'DepsGraphRegression.CycleB', 'DepsGraphRegression.CycleA',
+      'interface', lEdge));
+    Assert.IsTrue(FindComponentWithUnit(lGraph, 'DepsGraphRegression.CycleA', lComponent));
+    Assert.IsTrue(HasUnit(lComponent.Units, 'DepsGraphRegression.CycleB'));
+    Assert.IsTrue(Length(lComponent.Path) >= 3);
+    Assert.IsTrue(HasUnit(lGraph.UnresolvedUnits, 'DepsGraphRegression.MissingUnit'));
+    Assert.IsTrue(Length(lGraph.ParserProblems) >= 1);
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionDependencyGraphUsesLinux64TargetDefines;
+var
+  lGraph: TDelphiSemanticDependencyGraph;
+  lNode: TDelphiSemanticDependencyNode;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := DependencyGraphRegressionProjectPath;
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Linux64';
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    Assert.AreEqual('Linux64', lResult.Session.Project.Platform);
+    Assert.IsTrue(Length(lResult.Session.Project.Defines) > 0);
+    lGraph := lResult.Session.BuildDependencyGraph;
+    Assert.IsTrue(FindNode(lGraph, 'DepsGraphRegression.LinuxOnly', lNode));
+    Assert.AreEqual('project', lNode.Status);
+    Assert.IsFalse(FindNode(lGraph, 'DepsGraphRegression.HostOnly', lNode));
+    Assert.IsTrue(HasUnit(lResult.Session.Project.Defines, 'LINUX'));
+  finally
+    lResult.Session.Free;
+  end;
 end;
 
 procedure TProjectSessionTests.ProjectSessionBuildsSnapshotFromExtractedModels;

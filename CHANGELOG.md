@@ -216,6 +216,9 @@
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
 
 ### Fixed
+- DAK command output writes now share a dedicated helper for stdout/file mechanics,
+  keeping command-specific rendering separate while preserving existing bytes and `-`
+  semantics.
 - SQLite snapshot cache entries now invalidate on include-only file changes by
   using per-unit preprocessing include graph hashes in snapshot identity.
 - With-binding indexed expressions such as `LTable[Hash(s)]` no longer treat
