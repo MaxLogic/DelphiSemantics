@@ -1,4 +1,4 @@
-unit DelphiSemantics.SourceContext;
+﻿unit DelphiSemantics.SourceContext;
 
 interface
 
@@ -61,6 +61,10 @@ type
       const aFinding: string; const aContextLines: Integer; const aCache: TDelphiSemanticSourceContextCache;
       out aContext: TDelphiSemanticSourceContextSnippet; out aToken, aEnclosingSymbol,
       aError: string): Boolean; overload; static;
+    class function TryResolveCandidate(const aProject: TDelphiSemanticProjectInfo; const aFileToken: string;
+      const aLine, aColumn, aContextLines: Integer; const aCandidateText: string;
+      const aCache: TDelphiSemanticSourceContextCache; out aContext: TDelphiSemanticSourceContextSnippet;
+      out aToken, aEnclosingSymbol, aError: string): Boolean; overload; static;
     class function FormatLines(const aContext: TDelphiSemanticSourceContextSnippet): TArray<string>; static;
   end;
 
@@ -462,7 +466,6 @@ class function TDelphiSemanticSourceContext.TryResolveCandidate(
 var
   lColumn: Integer;
   lFileToken: string;
-  lIndex: Integer;
   lLine: Integer;
 begin
   aContext := Default(TDelphiSemanticSourceContextSnippet);
@@ -474,13 +477,28 @@ begin
     aError := 'Could not parse compiler failure location: ' + aFinding;
     Exit(False);
   end;
+  Result := TryResolveCandidate(aProject, lFileToken, lLine, lColumn, aContextLines, aFinding, aCache,
+    aContext, aToken, aEnclosingSymbol, aError);
+end;
 
-  if not TryResolve(aProject, lFileToken, lLine, aContextLines, aCache, aContext, aError) then
+class function TDelphiSemanticSourceContext.TryResolveCandidate(
+  const aProject: TDelphiSemanticProjectInfo; const aFileToken: string; const aLine, aColumn,
+  aContextLines: Integer; const aCandidateText: string; const aCache: TDelphiSemanticSourceContextCache;
+  out aContext: TDelphiSemanticSourceContextSnippet; out aToken, aEnclosingSymbol,
+  aError: string): Boolean;
+var
+  lIndex: Integer;
+begin
+  aContext := Default(TDelphiSemanticSourceContextSnippet);
+  aToken := '';
+  aEnclosingSymbol := '';
+  aError := '';
+  if not TryResolve(aProject, aFileToken, aLine, aContextLines, aCache, aContext, aError) then
     Exit(False);
 
   lIndex := aContext.TargetLine - aContext.StartLine;
-  Result := TDelphiSemanticSourceContextCandidates.TrySelectCandidate(aFinding, aContext.Lines,
-    lIndex, lFileToken, lLine, lColumn, aToken, aEnclosingSymbol, aError);
+  Result := TDelphiSemanticSourceContextCandidates.TrySelectCandidateFromText(aCandidateText, aContext.Lines,
+    lIndex, aFileToken, aLine, aColumn, aToken, aEnclosingSymbol, aError);
 end;
 
 class function TDelphiSemanticSourceContext.FormatLines(

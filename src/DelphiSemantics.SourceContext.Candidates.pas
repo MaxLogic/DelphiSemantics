@@ -1,4 +1,4 @@
-unit DelphiSemantics.SourceContext.Candidates;
+﻿unit DelphiSemantics.SourceContext.Candidates;
 
 interface
 
@@ -8,6 +8,9 @@ type
     class function TryParseFindingLocationWithColumn(const aFinding: string;
       out aFileToken: string; out aLine, aColumn: Integer): Boolean; static;
     class function TrySelectCandidate(const aFinding: string; const aLines: TArray<string>;
+      const aTargetLineIndex: Integer; const aFileToken: string; const aLine,
+      aColumn: Integer; out aToken, aEnclosingSymbol, aError: string): Boolean; static;
+    class function TrySelectCandidateFromText(const aCandidateText: string; const aLines: TArray<string>;
       const aTargetLineIndex: Integer; const aFileToken: string; const aLine,
       aColumn: Integer; out aToken, aEnclosingSymbol, aError: string): Boolean; static;
   end;
@@ -163,6 +166,14 @@ end;
 class function TDelphiSemanticSourceContextCandidates.TrySelectCandidate(const aFinding: string;
   const aLines: TArray<string>; const aTargetLineIndex: Integer; const aFileToken: string;
   const aLine, aColumn: Integer; out aToken, aEnclosingSymbol, aError: string): Boolean;
+begin
+  Result := TrySelectCandidateFromText(aFinding, aLines, aTargetLineIndex, aFileToken, aLine, aColumn,
+    aToken, aEnclosingSymbol, aError);
+end;
+
+class function TDelphiSemanticSourceContextCandidates.TrySelectCandidateFromText(const aCandidateText: string;
+  const aLines: TArray<string>; const aTargetLineIndex: Integer; const aFileToken: string;
+  const aLine, aColumn: Integer; out aToken, aEnclosingSymbol, aError: string): Boolean;
 var
   lIndex: Integer;
   lLineText: string;
@@ -180,7 +191,7 @@ begin
   lLineText := aLines[aTargetLineIndex];
   if (aColumn > 0) and TryExtractIdentifierAtColumn(lLineText, aColumn, aToken) then
     Exit(True);
-  if TryExtractQuotedIdentifier(aFinding, aToken) and TryFindIdentifierInContext(aLines, aToken,
+  if TryExtractQuotedIdentifier(aCandidateText, aToken) and TryFindIdentifierInContext(aLines, aToken,
     aToken) then
     Exit(True);
   if TryExtractFirstIdentifierFromLine(lLineText, aToken) then

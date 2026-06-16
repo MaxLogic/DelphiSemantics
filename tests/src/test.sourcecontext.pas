@@ -375,8 +375,8 @@ begin
   Assert.IsTrue(Pos('lBuildSourceContextCache := TSourceContextRunCache.Create(lProjectLookup)',
     lDakBuildRunnerText) > 0,
     'DAK build source-context enrichment should reuse one source cache per build run.');
-  Assert.IsTrue(Pos('TSourceContextRunCache.Create(aLookup)', lDakBuildSummaryText) > 0,
-    'DAK build-summary source-context enrichment should use the shared run cache.');
+  Assert.IsFalse(Pos('TSourceContextRunCache.Create(aLookup)', lDakBuildSummaryText) > 0,
+    'DAK build summary parsing should not own source-context enrichment.');
   Assert.IsFalse(Pos('TryResolveSourceContext(aLookup', lDakBuildSummaryText) > 0,
     'DAK build-summary source-context enrichment should not use the stateless resolver.');
   Assert.IsTrue(Pos('lSourceContextCache := TSourceContextRunCache.Create', lDakDfmCheckText) > 0,
