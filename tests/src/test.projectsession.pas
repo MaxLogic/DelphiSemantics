@@ -56,6 +56,8 @@ type
     [Test]
     procedure ProjectSessionPartialSnapshotCacheRebuildResolvesReferencesToCachedUnits;
     [Test]
+    procedure ProjectSessionPartialSnapshotCacheInvalidationMatchesFullRebuildFacts;
+    [Test]
     procedure ProjectSessionDiscoversAnsiDprInReferencesThroughSourceLoader;
     [Test]
     procedure ProjectSessionSnapshotCacheRebuildsIncludedFileChanges;
@@ -79,6 +81,7 @@ uses
   System.StrUtils,
   System.SysUtils,
   Winapi.Windows,
+  FireDAC.Comp.Client, FireDAC.Phys.SQLite,
   maxLogic.IOUtils,
   DelphiSemantics.Api,
   DelphiSemantics.Api.RemoveWith.Compatibility,
@@ -123,6 +126,25 @@ procedure WriteTextFile(const aFileName, aText: string);
 begin
   TDirectory.CreateDirectory(ExtractFileDir(aFileName));
   TFile.WriteAllText(aFileName, aText, TEncoding.UTF8);
+end;
+
+procedure ExecProjectSessionCacheSql(const aCacheFileName, aSql: string);
+var
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+begin
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := aCacheFileName;
+    lConnection.Connected := True;
+    lConnection.ExecSQL(aSql);
+  finally
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
 end;
 
 function TProjectSessionTests.DependencyGraphRegressionProjectPath: string;
@@ -1487,6 +1509,117 @@ begin
       Assert.IsTrue(lSnapshot.TryFindUnitById(lReference.TargetUnitId, lUnit));
       lSymbol := lUnit.SymbolById(lReference.TargetSymbolId);
       Assert.AreEqual('StableValue', lSnapshot.TextOf(lSymbol.NameId));
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionPartialSnapshotCacheInvalidationMatchesFullRebuildFacts;
+var
+  lCacheOptions: TDelphiSemanticOptions;
+  lCachePath: string;
+  lDprPath: string;
+  lDprojPath: string;
+  lExpectedResult: TDelphiSemanticProjectSessionResult;
+  lExpectedSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lStablePath: string;
+  lTouchedPath: string;
+begin
+  lRootPath := ProjectSessionTempPath('snapshot-session-partial-invalidation-cache-temp');
+  TDirectory.CreateDirectory(lRootPath);
+
+  lDprPath := TPath.Combine(lRootPath, 'PartialInvalidationCache.dpr');
+  lDprojPath := TPath.Combine(lRootPath, 'PartialInvalidationCache.dproj');
+  lStablePath := TPath.Combine(lRootPath, 'PartialInvalidationStableUnit.pas');
+  lTouchedPath := TPath.Combine(lRootPath, 'PartialInvalidationTouchedUnit.pas');
+  lCachePath := CombinePath([lRootPath, '.dak', 'semantic-cache.sqlite3']);
+
+  TFile.WriteAllText(lDprPath, 'program PartialInvalidationCache;' + sLineBreak +
+    'uses PartialInvalidationStableUnit, PartialInvalidationTouchedUnit;' +
+    sLineBreak + 'begin' + sLineBreak + '  Touch;' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+  TFile.WriteAllText(lDprojPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    sLineBreak + '  <PropertyGroup>' + sLineBreak +
+    '    <ProjectGuid>{8B704690-D5B1-4D52-B677-C4F8299148B2}</ProjectGuid>' +
+    sLineBreak + '    <MainSource>PartialInvalidationCache.dpr</MainSource>' +
+    sLineBreak + '  </PropertyGroup>' + sLineBreak + '  <ItemGroup>' +
+    sLineBreak + '    <DCCReference Include="PartialInvalidationStableUnit.pas"/>' +
+    sLineBreak + '    <DCCReference Include="PartialInvalidationTouchedUnit.pas"/>' +
+    sLineBreak + '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+  TFile.WriteAllText(lStablePath, 'unit PartialInvalidationStableUnit;' +
+    sLineBreak + 'interface' + sLineBreak + 'const' + sLineBreak +
+    '  StableInvalidationValue = 11;' + sLineBreak + 'implementation' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lTouchedPath, 'unit PartialInvalidationTouchedUnit;' +
+    sLineBreak + 'interface' + sLineBreak + 'procedure Touch;' + sLineBreak +
+    'implementation' + sLineBreak + 'uses PartialInvalidationStableUnit;' +
+    sLineBreak + 'procedure Touch;' + sLineBreak + 'var' + sLineBreak +
+    '  lValue: Integer;' + sLineBreak + 'begin' + sLineBreak +
+    '  lValue := StableInvalidationValue;' + sLineBreak + 'end;' + sLineBreak +
+    'end.', TEncoding.UTF8);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojPath;
+  lOptions.SqliteCacheFileName := lCachePath;
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lSnapshot := lResult.Session.BuildSnapshot;
+    try
+      Assert.AreEqual(3, lSnapshot.UnitCount);
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    lResult.Session.Free;
+  end;
+
+  ExecProjectSessionCacheSql(lCachePath,
+    'update snapshot_units set file_hash = ''poisoned'' where source_file_name like ' +
+    '''%PartialInvalidationStableUnit.pas''');
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lSnapshot := lResult.Session.BuildSnapshot;
+    try
+      Assert.AreEqual(3, lSnapshot.UnitCount);
+      lMetrics := lResult.Session.LastSnapshotBuildMetrics;
+      Assert.AreEqual(3, lMetrics.SnapshotCacheProbes);
+      Assert.AreEqual(2, lMetrics.SnapshotCacheHits);
+      Assert.AreEqual(1, lMetrics.SnapshotCacheMisses);
+      Assert.AreEqual(1, lMetrics.SnapshotCacheInvalidations);
+      Assert.AreEqual(0, lMetrics.SnapshotCacheFullHitCount);
+      Assert.AreEqual(1, lMetrics.SnapshotCachePartialHitCount);
+      Assert.AreEqual(0, lMetrics.SnapshotCacheMissRebuildCount);
+      Assert.AreEqual(2, lMetrics.SnapshotCacheUnitHits);
+      Assert.AreEqual(1, lMetrics.SnapshotCacheUnitMisses);
+      Assert.AreEqual(1, lMetrics.SnapshotCacheUnitStaleEntries);
+
+      lCacheOptions := lOptions;
+      lCacheOptions.SqliteCacheFileName := '';
+      lExpectedResult := TDelphiSemanticProjectSession.Open(lCacheOptions);
+      try
+        Assert.IsTrue(lExpectedResult.Success);
+        lExpectedSnapshot := lExpectedResult.Session.BuildSnapshot;
+        try
+          AssertSnapshotFactsEqual(lExpectedSnapshot, lSnapshot);
+        finally
+          lExpectedSnapshot.Free;
+        end;
+      finally
+        lExpectedResult.Session.Free;
+      end;
     finally
       lSnapshot.Free;
     end;
