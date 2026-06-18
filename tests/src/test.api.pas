@@ -306,6 +306,11 @@ begin
 
   Assert.AreEqual('planned', lRenamePlan.Status, lRenamePlan.Diagnostic);
   Assert.AreEqual(3, Integer(Length(lRenamePlan.Edits)));
+  Assert.IsNotEmpty(lRenamePlan.ContextFingerprint);
+  Assert.IsNotEmpty(lRenamePlan.BaselineSemanticModelVersion);
+  Assert.IsTrue(Length(lRenamePlan.RequiredVerification) >= 3);
+  Assert.AreEqual('GlobalQueryValue', lRenamePlan.Edits[0].ExpectedSourceText);
+  Assert.IsNotEmpty(lRenamePlan.Edits[0].ExpectedFileHash);
 
   lRoutineContext := LoadCachedContext('Delphi-12-Api-Rename-Routine',
     FixturePath('RenameUnblock', 'RenameRoutineUnit.pas'),
@@ -316,6 +321,9 @@ begin
 
   Assert.AreEqual('planned', lRoutinePlan.Status, lRoutinePlan.Diagnostic);
   Assert.AreEqual(3, Integer(Length(lRoutinePlan.Edits)));
+  Assert.IsNotEmpty(lRoutinePlan.ContextFingerprint);
+  Assert.IsNotEmpty(lRoutinePlan.Edits[0].ExpectedSourceText);
+  Assert.IsNotEmpty(lRoutinePlan.Edits[0].ExpectedFileHash);
 
   lFunctionContext := LoadCachedContext('Delphi-12-Api-Function-Result',
     FixturePath('FunctionResult', 'FunctionResultUnit.pas'), [], []);
@@ -325,6 +333,9 @@ begin
 
   Assert.AreEqual('planned', lFunctionPlan.Status, lFunctionPlan.Diagnostic);
   Assert.AreEqual(4, Integer(Length(lFunctionPlan.Edits)));
+  Assert.IsNotEmpty(lFunctionPlan.ContextFingerprint);
+  Assert.AreEqual('LegacyValue', lFunctionPlan.Edits[0].ExpectedSourceText);
+  Assert.IsNotEmpty(lFunctionPlan.Edits[0].ExpectedFileHash);
 end;
 
 procedure TApiTests.DeadCodeAndSearchRoutesReturnStableShapes;

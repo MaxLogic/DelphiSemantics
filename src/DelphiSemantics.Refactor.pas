@@ -10,6 +10,8 @@ type
   TDelphiSemanticTextEdit = record
     FileName: string;
     Role: string;
+    ExpectedFileHash: string;
+    ExpectedSourceText: string;
     StartLine: Integer;
     StartColumn: Integer;
     EndLine: Integer;
@@ -17,9 +19,17 @@ type
     NewText: string;
   end;
 
+  TDelphiSemanticRenameVerification = record
+    Kind: string;
+    Description: string;
+  end;
+
   TDelphiSemanticRenamePlan = record
     Status: string;
+    ContextFingerprint: string;
+    BaselineSemanticModelVersion: string;
     Diagnostic: string;
+    RequiredVerification: TArray<TDelphiSemanticRenameVerification>;
     Edits: TArray<TDelphiSemanticTextEdit>;
     IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
   end;
@@ -59,9 +69,10 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Classes, System.Generics.Collections, System.Hash, System.IOUtils, System.StrUtils,
+  System.SysUtils,
   DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot,
-  DelphiSemantics.Snapshot.QuerySupport,
+  DelphiSemantics.Snapshot.QuerySupport, DelphiSemantics.SourceContext, DelphiSemantics.Version,
   MaxLogic.StrUtils;
 
 type
@@ -113,6 +124,38 @@ begin
   Result := False;
 end;
 
+function SourceFileHash(const aFileName: string): string;
+begin
+  if (aFileName = '') or not TFile.Exists(aFileName) then
+    Exit('');
+
+  Result := THashSHA2.GetHashStringFromFile(aFileName);
+end;
+
+function SourceTextForRange(const aFileName: string; const aStartLine, aStartColumn,
+  aEndLine, aEndColumn: Integer): string;
+var
+  lCache: TDelphiSemanticSourceContextCache;
+begin
+  Result := '';
+  if aFileName = '' then
+    Exit;
+
+  lCache := TDelphiSemanticSourceContextCache.Create;
+  try
+    lCache.TryExtractRange(aFileName, aStartLine, aStartColumn, aEndLine, aEndColumn, Result);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure PopulateEditGuards(var aEdit: TDelphiSemanticTextEdit);
+begin
+  aEdit.ExpectedFileHash := SourceFileHash(aEdit.FileName);
+  aEdit.ExpectedSourceText := SourceTextForRange(aEdit.FileName, aEdit.StartLine,
+    aEdit.StartColumn, aEdit.EndLine, aEdit.EndColumn);
+end;
+
 function MakeEdit(const aUsage: TDelphiSemanticUsage; const aNewName: string):
   TDelphiSemanticTextEdit;
 begin
@@ -124,6 +167,66 @@ begin
   Result.EndLine := aUsage.EndLine;
   Result.EndColumn := aUsage.EndColumn;
   Result.NewText := aNewName;
+  PopulateEditGuards(Result);
+end;
+
+function RenameBaselineModelVersion(const aContext: TDelphiSemanticSymbolQueryContext): string;
+begin
+  if aContext.ProjectSnapshot <> nil then
+    Result := 'project-snapshot-v1'
+  else
+    Result := DelphiSemanticsVersionText;
+end;
+
+procedure AddRenameVerification(var aPlan: TDelphiSemanticRenamePlan; const aKind,
+  aDescription: string);
+var
+  lIndex: Integer;
+begin
+  lIndex := Length(aPlan.RequiredVerification);
+  SetLength(aPlan.RequiredVerification, lIndex + 1);
+  aPlan.RequiredVerification[lIndex].Kind := aKind;
+  aPlan.RequiredVerification[lIndex].Description := aDescription;
+end;
+
+function RenamePlanFingerprint(const aPlan: TDelphiSemanticRenamePlan): string;
+var
+  lBuilder: TStringBuilder;
+  lEdit: TDelphiSemanticTextEdit;
+  lVerification: TDelphiSemanticRenameVerification;
+begin
+  lBuilder := TStringBuilder.Create;
+  try
+    lBuilder.AppendLine('operation=rename');
+    lBuilder.AppendLine('model=' + aPlan.BaselineSemanticModelVersion);
+    for lVerification in aPlan.RequiredVerification do
+      lBuilder.AppendLine('verification=' + lVerification.Kind + '|' +
+        lVerification.Description);
+    for lEdit in aPlan.Edits do
+      lBuilder.AppendLine('edit=' + lEdit.FileName + '|' + lEdit.Role + '|' +
+        lEdit.StartLine.ToString + ':' + lEdit.StartColumn.ToString + '-' +
+        lEdit.EndLine.ToString + ':' + lEdit.EndColumn.ToString + '|' +
+        lEdit.ExpectedFileHash + '|' + lEdit.ExpectedSourceText + '|' + lEdit.NewText);
+    Result := THashSHA2.GetHashString(lBuilder.ToString);
+  finally
+    lBuilder.Free;
+  end;
+end;
+
+procedure FinalizeRenamePlan(var aPlan: TDelphiSemanticRenamePlan;
+  const aContext: TDelphiSemanticSymbolQueryContext);
+begin
+  if not SameText(aPlan.Status, 'planned') then
+    Exit;
+
+  aPlan.BaselineSemanticModelVersion := RenameBaselineModelVersion(aContext);
+  AddRenameVerification(aPlan, 'context-fingerprint',
+    'DAK must verify semantic rename plan provenance before apply.');
+  AddRenameVerification(aPlan, 'source-file-hash',
+    'DAK must verify planned source file hashes before apply.');
+  AddRenameVerification(aPlan, 'source-text-range',
+    'DAK must verify each planned source range before apply.');
+  aPlan.ContextFingerprint := RenamePlanFingerprint(aPlan);
 end;
 
 function EditAlreadyPlanned(const aEdits: TList<TDelphiSemanticTextEdit>;
@@ -784,6 +887,7 @@ begin
   Result.EndLine := aLine;
   Result.EndColumn := aEndColumn;
   Result.NewText := 'Result';
+  PopulateEditGuards(Result);
 end;
 
 function PositionInWithBody(const aModel: TDelphiSemanticUnitModel; const aLine,
@@ -978,6 +1082,7 @@ begin
     Result := Default(TDelphiSemanticRenamePlan);
     Result.Status := 'planned';
     Result.Edits := lEdits.ToArray;
+    FinalizeRenamePlan(Result, aContext);
   finally
     lEdits.Free;
   end;
@@ -1034,6 +1139,7 @@ begin
     Result := Default(TDelphiSemanticRenamePlan);
     Result.Status := 'planned';
     Result.Edits := lEdits.ToArray;
+    FinalizeRenamePlan(Result, aContext);
   finally
     lEdits.Free;
   end;
@@ -1142,6 +1248,7 @@ begin
     Result := Default(TDelphiSemanticRenamePlan);
     Result.Status := 'planned';
     Result.Edits := lEdits.ToArray;
+    FinalizeRenamePlan(Result, aContext);
   finally
     lEdits.Free;
   end;

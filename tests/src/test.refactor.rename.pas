@@ -30,6 +30,8 @@ type
     [Test]
     procedure PlansProjectWideRenameForUnambiguousSymbol;
     [Test]
+    procedure RenamePlanContractDeclaresStaleEditGuards;
+    [Test]
     procedure PlansRenameWithOneProjectIndexBuild;
     [Test]
     procedure PlansRenameFromSnapshotWithoutProjectIndexBuild;
@@ -337,6 +339,33 @@ begin
   Assert.AreEqual(1, lConsumerLine12Count);
 end;
 
+procedure TRenamePlannerTests.RenamePlanContractDeclaresStaleEditGuards;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lEdit: TDelphiSemanticTextEdit;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lContext := LoadRenameContext;
+
+  lPlan := TDelphiSemanticRenamePlanner.PlanRename(lContext, 'GlobalQueryValue',
+    'RenamedGlobalQueryValue');
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.IsNotEmpty(lPlan.ContextFingerprint,
+    'Rename plans must carry semantic provenance for stale-plan diagnostics.');
+  Assert.IsNotEmpty(lPlan.BaselineSemanticModelVersion,
+    'Rename plans must carry the semantic model version used to produce edits.');
+  Assert.IsTrue(Length(lPlan.RequiredVerification) >= 3,
+    'Rename plans must declare source and context verification requirements.');
+  for lEdit in lPlan.Edits do
+  begin
+    Assert.IsNotEmpty(lEdit.ExpectedFileHash,
+      'Rename text edits must carry the source file hash expected at apply time.');
+    Assert.AreEqual('GlobalQueryValue', lEdit.ExpectedSourceText,
+      'Rename text edits must carry the source span expected at apply time.');
+  end;
+end;
+
 procedure TRenamePlannerTests.PlansRenameWithOneProjectIndexBuild;
 var
   lContext: TDelphiSemanticSymbolQueryContext;
@@ -428,6 +457,10 @@ begin
     Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
     Assert.AreEqual(2, Integer(Length(lPlan.Edits)));
     Assert.AreEqual(0, lPlan.IndexMetrics.BuildInvocationCount);
+    Assert.IsNotEmpty(lPlan.ContextFingerprint);
+    Assert.AreEqual('project-snapshot-v1', lPlan.BaselineSemanticModelVersion);
+    Assert.AreEqual('SnapshotRenameValue', lPlan.Edits[0].ExpectedSourceText);
+    Assert.IsNotEmpty(lPlan.Edits[0].ExpectedFileHash);
   finally
     lContext.ProjectSnapshot := nil;
     lProject.Free;
