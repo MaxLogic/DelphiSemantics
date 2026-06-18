@@ -216,6 +216,9 @@
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
 
 ### Fixed
+- Dead-code safety checks now use loaded model or snapshot source text instead
+  of rereading files from disk, preserving message/export/initialization/
+  finalization blockers for stale or snapshot-backed reports.
 - DAK command output writes now share a dedicated helper for stdout/file mechanics,
   keeping command-specific rendering separate while preserving existing bytes and `-`
   semantics.

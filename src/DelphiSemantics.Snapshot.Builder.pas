@@ -719,7 +719,7 @@ begin
   Inc(aMetrics.ReferenceCount);
 end;
 
-function CreateSnapshotUnitModel(const aStrings: TSemanticStringPool;
+function CreateSnapshotUnitModel(const aStrings, aExactStrings: TSemanticStringPool;
   const aModel: TDelphiSemanticUnitModel; const aUnitId: TSemanticUnitId;
   const aReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
   var aMetrics: TSnapshotUnitBuildResult): TUnitSnapshot;
@@ -732,7 +732,7 @@ var
   lWith: TDelphiSemanticWithStatement;
 begin
   Result := TUnitSnapshot.Create(aUnitId, aStrings.Intern(SnapshotFullPath(aModel.FileName)),
-    aStrings.Intern(aModel.UnitName));
+    aStrings.Intern(aModel.UnitName), aExactStrings.Intern(aModel.SourceText));
   try
     for lWith in aModel.WithStatements do
       AddSnapshotWithStatement(aStrings, Result, aModel, lWith, aMetrics);
@@ -1023,8 +1023,9 @@ begin
   end;
 end;
 
-function RemapUnitSnapshot(const aSourceStrings: TSemanticStringPool;
-  const aTargetStrings: TSemanticStringPool; const aUnit: TUnitSnapshot):
+function RemapUnitSnapshot(const aSourceStrings, aTargetStrings: TSemanticStringPool;
+  const aSourceExactStrings, aTargetExactStrings: TSemanticStringPool;
+  const aUnit: TUnitSnapshot):
   TUnitSnapshot;
 var
   lReferenceId: TSemanticReferenceId;
@@ -1033,7 +1034,8 @@ var
 begin
   Result := TUnitSnapshot.Create(aUnit.UnitId, RemapStringId(aSourceStrings,
     aTargetStrings, aUnit.FileNameId), RemapStringId(aSourceStrings,
-    aTargetStrings, aUnit.UnitNameId));
+    aTargetStrings, aUnit.UnitNameId), RemapStringId(aSourceExactStrings,
+    aTargetExactStrings, aUnit.SourceTextId));
   try
     for lSymbolId := 1 to TSemanticSymbolId(aUnit.SymbolCount) do
       Result.AddSymbol(RemapSymbolFact(aSourceStrings, aTargetStrings,
@@ -1050,8 +1052,9 @@ begin
   end;
 end;
 
-function RemapUnitSnapshotWithResolvedTargets(const aSourceStrings: TSemanticStringPool;
-  const aTargetStrings: TSemanticStringPool; const aUnit: TUnitSnapshot;
+function RemapUnitSnapshotWithResolvedTargets(const aSourceStrings,
+  aTargetStrings: TSemanticStringPool; const aSourceExactStrings,
+  aTargetExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot;
   const aTargetSymbolsByName: TDictionary<string, TSemanticSymbolRef>):
   TUnitSnapshot;
 var
@@ -1061,7 +1064,8 @@ var
 begin
   Result := TUnitSnapshot.Create(aUnit.UnitId, RemapStringId(aSourceStrings,
     aTargetStrings, aUnit.FileNameId), RemapStringId(aSourceStrings,
-    aTargetStrings, aUnit.UnitNameId));
+    aTargetStrings, aUnit.UnitNameId), RemapStringId(aSourceExactStrings,
+    aTargetExactStrings, aUnit.SourceTextId));
   try
     for lSymbolId := 1 to TSemanticSymbolId(aUnit.SymbolCount) do
       Result.AddSymbol(RemapSymbolFact(aSourceStrings, aTargetStrings,
@@ -1092,6 +1096,21 @@ begin
   end;
 end;
 
+function CloneSnapshotExactStrings(const aSnapshot: TDelphiProjectSnapshot):
+  TSemanticStringPool;
+var
+  i: Cardinal;
+begin
+  Result := TSemanticStringPool.Create(True);
+  try
+    for i := 1 to aSnapshot.ExactStringCount do
+      Result.Intern(aSnapshot.ExactTextOf(TSemanticStringId(i)));
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
 procedure AddSequentialSnapshotUnit(const aBuilder: TDelphiProjectSnapshotBuilder;
   const aModel: TDelphiSemanticUnitModel; const aUnitId: TSemanticUnitId;
   const aReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
@@ -1101,8 +1120,8 @@ var
   lUnitMetrics: TSnapshotUnitBuildResult;
 begin
   lUnitMetrics := Default(TSnapshotUnitBuildResult);
-  lUnit := CreateSnapshotUnitModel(aBuilder.Strings, aModel, aUnitId, aReferenceTargets,
-    lUnitMetrics);
+  lUnit := CreateSnapshotUnitModel(aBuilder.Strings, aBuilder.ExactStrings, aModel, aUnitId,
+    aReferenceTargets, lUnitMetrics);
   try
     aBuilder.AddUnit(lUnit);
     lUnit := nil;
@@ -1167,12 +1186,14 @@ function BuildUnitResult(const aModel: TDelphiSemanticUnitModel;
 begin
   Result := Default(TSnapshotUnitBuildResult);
   Result.Strings := TSemanticStringPool.Create;
+  Result.ExactStrings := TSemanticStringPool.Create(True);
   try
-    Result.UnitSnapshot := CreateSnapshotUnitModel(Result.Strings, aModel, aUnitId,
-      aReferenceTargets, Result);
+    Result.UnitSnapshot := CreateSnapshotUnitModel(Result.Strings, Result.ExactStrings,
+      aModel, aUnitId, aReferenceTargets, Result);
     Result.UnitCount := 1;
   except
     Result.UnitSnapshot.Free;
+    Result.ExactStrings.Free;
     Result.Strings.Free;
     Result := Default(TSnapshotUnitBuildResult);
     raise;
@@ -1216,7 +1237,7 @@ begin
     for i := 0 to High(aResults) do
     begin
       lMergedUnit := RemapUnitSnapshot(aResults[i].Strings, lBuilder.Strings,
-        aResults[i].UnitSnapshot);
+        aResults[i].ExactStrings, lBuilder.ExactStrings, aResults[i].UnitSnapshot);
       try
         lBuilder.AddUnit(lMergedUnit);
         lMergedUnit := nil;
@@ -1320,6 +1341,7 @@ var
   i: Integer;
   lBuilder: TDelphiProjectSnapshotBuilder;
   lMergedUnit: TUnitSnapshot;
+  lSourceExactStrings: TSemanticStringPool;
   lSourceStrings: TSemanticStringPool;
   lStopwatch: TStopwatch;
   lTargetSymbolsByName: TDictionary<string, TSemanticSymbolRef>;
@@ -1338,9 +1360,12 @@ begin
 
       lUnit := aSnapshots[i].UnitByIndex(0);
       lSourceStrings := CloneSnapshotStrings(aSnapshots[i]);
+      lSourceExactStrings := nil;
       try
+        lSourceExactStrings := CloneSnapshotExactStrings(aSnapshots[i]);
         lMergedUnit := RemapUnitSnapshotWithResolvedTargets(lSourceStrings,
-          lBuilder.Strings, lUnit, lTargetSymbolsByName);
+          lBuilder.Strings, lSourceExactStrings, lBuilder.ExactStrings, lUnit,
+          lTargetSymbolsByName);
         try
           lBuilder.AddUnit(lMergedUnit);
           lMergedUnit := nil;
@@ -1348,6 +1373,7 @@ begin
           lMergedUnit.Free;
         end;
       finally
+        lSourceExactStrings.Free;
         lSourceStrings.Free;
       end;
 

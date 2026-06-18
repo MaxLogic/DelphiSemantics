@@ -100,6 +100,7 @@ type
     fFrozen: Boolean;
     fReferences: TSimpleList<TSemanticReferenceFact>;
     fReferencesByWithId: TSortedList<TSemanticWithId, TSemanticReferenceId>;
+    fSourceTextId: TSemanticStringId;
     fSymbols: TSimpleList<TSemanticSymbolFact>;
     fUnitId: TSemanticUnitId;
     fUnitNameId: TSemanticStringId;
@@ -114,6 +115,8 @@ type
     constructor Create(const aUnitId: TSemanticUnitId); overload;
     constructor Create(const aUnitId: TSemanticUnitId; const aFileNameId,
       aUnitNameId: TSemanticStringId); overload;
+    constructor Create(const aUnitId: TSemanticUnitId; const aFileNameId,
+      aUnitNameId, aSourceTextId: TSemanticStringId); overload;
     destructor Destroy; override;
     function AddReference(const aReference: TSemanticReferenceFact): TSemanticReferenceId;
     function AddSymbol(const aSymbol: TSemanticSymbolFact): TSemanticSymbolId;
@@ -131,6 +134,7 @@ type
     function WithStatementById(const aId: TSemanticWithId): TSemanticWithStatementFact;
     property FileNameId: TSemanticStringId read fFileNameId;
     property ReferenceCount: Integer read GetReferenceCount;
+    property SourceTextId: TSemanticStringId read fSourceTextId;
     property SymbolCount: Integer read GetSymbolCount;
     property UnitId: TSemanticUnitId read fUnitId;
     property UnitNameId: TSemanticStringId read fUnitNameId;
@@ -452,16 +456,23 @@ end;
 
 constructor TUnitSnapshot.Create(const aUnitId: TSemanticUnitId);
 begin
-  Create(aUnitId, 0, 0);
+  Create(aUnitId, 0, 0, 0);
 end;
 
 constructor TUnitSnapshot.Create(const aUnitId: TSemanticUnitId; const aFileNameId,
   aUnitNameId: TSemanticStringId);
 begin
+  Create(aUnitId, aFileNameId, aUnitNameId, 0);
+end;
+
+constructor TUnitSnapshot.Create(const aUnitId: TSemanticUnitId; const aFileNameId,
+  aUnitNameId, aSourceTextId: TSemanticStringId);
+begin
   inherited Create;
   fUnitId := aUnitId;
   fFileNameId := aFileNameId;
   fUnitNameId := aUnitNameId;
+  fSourceTextId := aSourceTextId;
   try
     fSymbols := TSimpleList<TSemanticSymbolFact>.Create;
     fWithStatements := TSimpleList<TSemanticWithStatementFact>.Create;

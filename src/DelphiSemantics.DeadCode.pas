@@ -56,8 +56,8 @@ type
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.Generics.Defaults,
-  System.StrUtils, System.SysUtils,
+  System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
+  DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.QuerySupport,
   MaxLogic.StrUtils;
 
 const
@@ -71,11 +71,14 @@ type
     LowerText: string;
   end;
 
-  TDeadCodeSourceCache = class
+  TDeadCodeSourceIndex = class
   private
     fEntries: TDictionary<string, TDeadCodeSourceEntry>;
+    procedure AddEntry(const aFileName, aText: string);
+    procedure AddModel(const aModel: TDelphiSemanticUnitModel);
+    procedure AddSnapshot(const aSnapshot: TDelphiProjectSnapshot);
   public
-    constructor Create;
+    constructor Create(const aContext: TDelphiSemanticSymbolQueryContext);
     destructor Destroy; override;
     function TryGetEntry(const aFileName: string; out aEntry: TDeadCodeSourceEntry):
       Boolean;
@@ -163,46 +166,68 @@ begin
   Result := True;
 end;
 
-constructor TDeadCodeSourceCache.Create;
+constructor TDeadCodeSourceIndex.Create(const aContext: TDelphiSemanticSymbolQueryContext);
+var
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
 begin
   inherited Create;
   fEntries := TDictionary<string, TDeadCodeSourceEntry>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lSnapshot := ContextProjectSnapshot(aContext);
+  AddSnapshot(lSnapshot);
+  AddModel(aContext.UnitModel);
+  for lModel in aContext.IndexedUnitModels do
+    AddModel(lModel);
 end;
 
-destructor TDeadCodeSourceCache.Destroy;
+destructor TDeadCodeSourceIndex.Destroy;
 begin
   fEntries.Free;
   inherited;
 end;
 
-function TDeadCodeSourceCache.TryGetEntry(const aFileName: string;
-  out aEntry: TDeadCodeSourceEntry): Boolean;
+procedure TDeadCodeSourceIndex.AddEntry(const aFileName, aText: string);
 var
-  lLines: TStringList;
+  lEntry: TDeadCodeSourceEntry;
+begin
+  if (aFileName = '') or (aText = '') then
+    Exit;
+
+  lEntry.Text := aText;
+  lEntry.LowerText := LowerCase(lEntry.Text);
+  fEntries.AddOrSetValue(aFileName, lEntry);
+end;
+
+procedure TDeadCodeSourceIndex.AddModel(const aModel: TDelphiSemanticUnitModel);
+begin
+  AddEntry(aModel.FileName, aModel.SourceText);
+end;
+
+procedure TDeadCodeSourceIndex.AddSnapshot(const aSnapshot: TDelphiProjectSnapshot);
+var
+  i: Integer;
+  lUnit: TUnitSnapshot;
+begin
+  if aSnapshot = nil then
+    Exit;
+
+  for i := 0 to aSnapshot.UnitCount - 1 do
+  begin
+    lUnit := aSnapshot.UnitByIndex(i);
+    AddEntry(SnapshotText(aSnapshot, lUnit.FileNameId),
+      aSnapshot.ExactTextOf(lUnit.SourceTextId));
+  end;
+end;
+
+function TDeadCodeSourceIndex.TryGetEntry(const aFileName: string;
+  out aEntry: TDeadCodeSourceEntry): Boolean;
 begin
   aEntry := Default(TDeadCodeSourceEntry);
   if aFileName = '' then
     Exit(False);
 
-  if fEntries.TryGetValue(aFileName, aEntry) then
-    Exit(True);
-
-  lLines := TStringList.Create;
-  try
-    try
-      lLines.LoadFromFile(aFileName);
-    except
-      Exit(False);
-    end;
-
-    aEntry.Text := lLines.Text;
-    aEntry.LowerText := LowerCase(aEntry.Text);
-    fEntries.Add(aFileName, aEntry);
-    Result := True;
-  finally
-    lLines.Free;
-  end;
+  Result := fEntries.TryGetValue(aFileName, aEntry);
 end;
 
 constructor TDeadCodeReferenceIndex.Create(const aIndex: TDelphiSemanticProjectSymbolIndex);
@@ -465,7 +490,7 @@ begin
   end;
 end;
 
-function SourceLineContains(const aSourceCache: TDeadCodeSourceCache; const aFileName: string;
+function SourceLineContains(const aSourceIndex: TDeadCodeSourceIndex; const aFileName: string;
   const aLine: Integer; const aText: string): Boolean;
 var
   lEntry: TDeadCodeSourceEntry;
@@ -473,11 +498,11 @@ begin
   if (aFileName = '') or (aLine <= 0) then
     Exit(False);
 
-  Result := aSourceCache.TryGetEntry(aFileName, lEntry) and
+  Result := aSourceIndex.TryGetEntry(aFileName, lEntry) and
     ContainsText(SourceLineText(lEntry.Text, aLine), aText);
 end;
 
-function SourceSectionContainsIdentifier(const aSourceCache: TDeadCodeSourceCache;
+function SourceSectionContainsIdentifier(const aSourceIndex: TDeadCodeSourceIndex;
   const aFileName, aSectionName, aName: string): Boolean;
 var
   lAfterSectionLower: string;
@@ -489,7 +514,7 @@ begin
   if (aFileName = '') or (aSectionName = '') or (aName = '') then
     Exit(False);
 
-  if not aSourceCache.TryGetEntry(aFileName, lEntry) then
+  if not aSourceIndex.TryGetEntry(aFileName, lEntry) then
     Exit(False);
 
   lStartPos := Pos(LowerCase(aSectionName), lEntry.LowerText);
@@ -505,7 +530,7 @@ begin
   Result := TextContainsIdentifier(lAfterSectionLower, lLowerName);
 end;
 
-function SourceExportsSymbol(const aSourceCache: TDeadCodeSourceCache; const aFileName,
+function SourceExportsSymbol(const aSourceIndex: TDeadCodeSourceIndex; const aFileName,
   aName: string): Boolean;
 var
   lBlock: string;
@@ -518,7 +543,7 @@ begin
   if (aFileName = '') or (aName = '') then
     Exit(False);
 
-  if not aSourceCache.TryGetEntry(aFileName, lEntry) then
+  if not aSourceIndex.TryGetEntry(aFileName, lEntry) then
     Exit(False);
 
   lLowerName := LowerCase(aName);
@@ -545,11 +570,11 @@ begin
   Result := False;
 end;
 
-function HasInitializationHook(const aSourceCache: TDeadCodeSourceCache;
+function HasInitializationHook(const aSourceIndex: TDeadCodeSourceIndex;
   const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
 begin
-  Result := SourceSectionContainsIdentifier(aSourceCache, aSymbol.FileName, 'initialization',
-    aSymbol.Name) or SourceSectionContainsIdentifier(aSourceCache, aSymbol.FileName,
+  Result := SourceSectionContainsIdentifier(aSourceIndex, aSymbol.FileName, 'initialization',
+    aSymbol.Name) or SourceSectionContainsIdentifier(aSourceIndex, aSymbol.FileName,
     'finalization', aSymbol.Name);
 end;
 
@@ -637,7 +662,7 @@ var
   lReferenceIndex: TDeadCodeReferenceIndex;
   lReference: TDelphiSemanticIndexedReference;
   lReferenceCount: Integer;
-  lSourceCache: TDeadCodeSourceCache;
+  lSourceIndex: TDeadCodeSourceIndex;
   lSymbol: TDelphiSemanticIndexedSymbol;
 begin
   lSafetyProfile := aProfile;
@@ -648,7 +673,7 @@ begin
   lBlockedUnresolvedNames := TDictionary<string, Boolean>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lReferenceIndex := TDeadCodeReferenceIndex.Create(lIndex);
-  lSourceCache := TDeadCodeSourceCache.Create;
+  lSourceIndex := TDeadCodeSourceIndex.Create(aContext);
   try
     for lSymbol in lIndex.Symbols do
     begin
@@ -659,11 +684,11 @@ begin
       try
         if SameText(lSymbol.Visibility, 'published') then
           AddBlocker(lBlockers, 'published-or-dfm-handler');
-        if SourceLineContains(lSourceCache, lSymbol.FileName, lSymbol.Line, 'message') then
+        if SourceLineContains(lSourceIndex, lSymbol.FileName, lSymbol.Line, 'message') then
           AddBlocker(lBlockers, 'message-method');
-        if SourceExportsSymbol(lSourceCache, lSymbol.FileName, lSymbol.Name) then
+        if SourceExportsSymbol(lSourceIndex, lSymbol.FileName, lSymbol.Name) then
           AddBlocker(lBlockers, 'exported-symbol');
-        if HasInitializationHook(lSourceCache, lSymbol) then
+        if HasInitializationHook(lSourceIndex, lSymbol) then
           AddBlocker(lBlockers, 'initialization-hook');
         if lReferenceIndex.HasAmbiguousReference(lSymbol) then
           AddBlocker(lBlockers, 'ambiguous-reference');
@@ -730,7 +755,7 @@ begin
     Result.Candidates := lCandidates.ToArray;
     Result.IndexMetrics := lIndex.Metrics;
   finally
-    lSourceCache.Free;
+    lSourceIndex.Free;
     lReferenceIndex.Free;
     lBlockedUnresolvedNames.Free;
     lCandidates.Free;

@@ -117,7 +117,7 @@ uses
   DelphiSemantics.Snapshot.RemoveWith;
 
 const
-  cSnapshotCacheSchemaVersion = '6';
+  cSnapshotCacheSchemaVersion = '7';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
 
 function NewQuery(const aConnection: TFDConnection; const aSql: string): TFDQuery;
@@ -369,6 +369,12 @@ begin
   end;
 end;
 
+procedure ValidateUnitExactStringIds(const aExactStrings: TSemanticStringPool;
+  const aUnit: TUnitSnapshot);
+begin
+  ValidateStringId(aExactStrings, aUnit.SourceTextId, 'source_text_id');
+end;
+
 procedure ValidateLoadedCounts(const aStrings: TSemanticStringPool; const aUnit: TUnitSnapshot;
   const aStringCount, aSymbolCount, aWithStatementCount, aReferenceCount: Integer);
 begin
@@ -481,7 +487,8 @@ begin
       'source_file_name text not null, file_hash text not null, context_hash text not null, ' +
       'include_graph_hash text not null, schema_version text not null, ' +
       'stored_at_utc text not null, unit_id integer not null, file_name_id integer not null, ' +
-      'unit_name_id integer not null, string_count integer not null, ' +
+      'unit_name_id integer not null, source_text_id integer not null, ' +
+      'string_count integer not null, ' +
       'symbol_count integer not null, with_statement_count integer not null, ' +
       'reference_count integer not null, parse_avoided_estimate_ms integer not null)');
     lConnection.ExecSQL('create index if not exists idx_snapshot_units_identity on ' +
@@ -1279,6 +1286,7 @@ var
   lParseAvoidedEstimateMillisecondsField: TField;
   lQuery: TFDQuery;
   lReferenceCountField: TField;
+  lSourceTextIdField: TField;
   lStopwatch: TStopwatch;
   lStringCountField: TField;
   lSymbolCountField: TField;
@@ -1293,7 +1301,7 @@ begin
   aReferenceCount := 0;
   aParseAvoidedEstimateMilliseconds := 0;
   lQuery := NewQuery(TFDConnection(aConnection), 'select unit_id, file_name_id, unit_name_id, ' +
-    'string_count, symbol_count, with_statement_count, reference_count, ' +
+    'source_text_id, string_count, symbol_count, with_statement_count, reference_count, ' +
     'parse_avoided_estimate_ms from snapshot_units where cache_key = ? and identity_key = ?');
   try
     lQuery.Params[0].AsWideString := aIdentity.CacheKey;
@@ -1309,14 +1317,16 @@ begin
       lUnitIdField := lQuery.Fields[0];
       lFileNameIdField := lQuery.Fields[1];
       lUnitNameIdField := lQuery.Fields[2];
-      lStringCountField := lQuery.Fields[3];
-      lSymbolCountField := lQuery.Fields[4];
-      lWithStatementCountField := lQuery.Fields[5];
-      lReferenceCountField := lQuery.Fields[6];
-      lParseAvoidedEstimateMillisecondsField := lQuery.Fields[7];
+      lSourceTextIdField := lQuery.Fields[3];
+      lStringCountField := lQuery.Fields[4];
+      lSymbolCountField := lQuery.Fields[5];
+      lWithStatementCountField := lQuery.Fields[6];
+      lReferenceCountField := lQuery.Fields[7];
+      lParseAvoidedEstimateMillisecondsField := lQuery.Fields[8];
       aUnit := TUnitSnapshot.Create(TSemanticUnitId(lUnitIdField.AsInteger),
         TSemanticStringId(lFileNameIdField.AsInteger),
-        TSemanticStringId(lUnitNameIdField.AsInteger));
+        TSemanticStringId(lUnitNameIdField.AsInteger),
+        TSemanticStringId(lSourceTextIdField.AsInteger));
       aStringCount := lStringCountField.AsInteger;
       aSymbolCount := lSymbolCountField.AsInteger;
       aWithStatementCount := lWithStatementCountField.AsInteger;
@@ -1490,7 +1500,7 @@ begin
   if aSnapshot = nil then
     Exit;
 
-  lExactStrings := TSemanticStringPool.Create;
+  lExactStrings := TSemanticStringPool.Create(True);
   try
     for i := 1 to Integer(aSnapshot.ExactStringCount) do
       lExactStrings.Intern(aSnapshot.ExactTextOf(TSemanticStringId(i)));
@@ -1953,7 +1963,7 @@ begin
   lConnection := TFDConnection(lConnectionObject);
   lConnection.StartTransaction;
   lWriteStopwatch := TStopwatch.StartNew;
-  lExactStrings := TSemanticStringPool.Create;
+  lExactStrings := TSemanticStringPool.Create(True);
   try
     try
       for i := 1 to aSnapshot.ExactStringCount do
@@ -2001,9 +2011,9 @@ begin
   lConnection := TFDConnection(aConnection);
   lQuery := NewQuery(lConnection, 'insert into snapshot_units(cache_key, identity_key, ' +
     'source_file_name, file_hash, context_hash, include_graph_hash, schema_version, ' +
-    'stored_at_utc, unit_id, file_name_id, unit_name_id, string_count, symbol_count, ' +
-    'with_statement_count, reference_count, parse_avoided_estimate_ms) ' +
-    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    'stored_at_utc, unit_id, file_name_id, unit_name_id, source_text_id, string_count, ' +
+    'symbol_count, with_statement_count, reference_count, parse_avoided_estimate_ms) ' +
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
     SetWideParam(lQuery, 0, aIdentity.CacheKey);
     SetWideParam(lQuery, 1, aIdentity.IdentityKey);
@@ -2020,15 +2030,17 @@ begin
     lQuery.Params[10].DataType := ftInteger;
     lQuery.Params[10].AsInteger := Integer(aUnit.UnitNameId);
     lQuery.Params[11].DataType := ftInteger;
-    lQuery.Params[11].AsInteger := aStringCount;
+    lQuery.Params[11].AsInteger := Integer(aUnit.SourceTextId);
     lQuery.Params[12].DataType := ftInteger;
-    lQuery.Params[12].AsInteger := aUnit.SymbolCount;
+    lQuery.Params[12].AsInteger := aStringCount;
     lQuery.Params[13].DataType := ftInteger;
-    lQuery.Params[13].AsInteger := aUnit.WithStatementCount;
+    lQuery.Params[13].AsInteger := aUnit.SymbolCount;
     lQuery.Params[14].DataType := ftInteger;
-    lQuery.Params[14].AsInteger := aUnit.ReferenceCount;
-    lQuery.Params[15].DataType := ftLargeint;
-    lQuery.Params[15].AsLargeInt := aIdentity.ParseAvoidedEstimateMilliseconds;
+    lQuery.Params[14].AsInteger := aUnit.WithStatementCount;
+    lQuery.Params[15].DataType := ftInteger;
+    lQuery.Params[15].AsInteger := aUnit.ReferenceCount;
+    lQuery.Params[16].DataType := ftLargeint;
+    lQuery.Params[16].AsLargeInt := aIdentity.ParseAvoidedEstimateMilliseconds;
     lQuery.Prepare;
     lQuery.ExecSQL;
   finally
@@ -2128,6 +2140,7 @@ begin
       ValidateLoadedCounts(lBuilder.Strings, lUnit, lStringCount, lSymbolCount,
         lWithStatementCount, lReferenceCount);
       ValidateUnitStringIds(lBuilder.Strings, lUnit);
+      ValidateUnitExactStringIds(lBuilder.ExactStrings, lUnit);
       lBuilder.AddUnit(lUnit);
       lUnit := nil;
       lIndexRebuildStopwatch := TStopwatch.StartNew;

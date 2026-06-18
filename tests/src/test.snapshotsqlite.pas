@@ -854,6 +854,8 @@ var
   lMemberNameId: TSemanticStringId;
   lProjectFactsIdentity: TDelphiSemanticSnapshotCacheIdentity;
   lSnapshot: TDelphiProjectSnapshot;
+  lSourceText: string;
+  lSourceTextId: TSemanticStringId;
   lSourceFileName: string;
   lSymbol: TSemanticSymbolFact;
   lTypeName: string;
@@ -871,6 +873,9 @@ begin
   lTypeName := 'T' + lUnicodeText;
   lMemberName := 'Value' + lUnicodeText;
   lExactContextText := 'Context-' + lUnicodeText;
+  lSourceText := 'unit SnapshotUnicodeUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'implementation' + sLineBreak + '// ExactSource ' + lUnicodeText + ' Aa' + sLineBreak +
+    'end.';
   lIdentity := CreateIdentity('SnapshotUnicodeUnit', 'file-unicode', 'context-unicode',
     'include-unicode', 'snapshot-v1');
   lIdentity.IdentityKey := 'SnapshotIdentity-' + lUnicodeText;
@@ -891,7 +896,8 @@ begin
     lUnitNameId := lBuilder.Strings.Intern('SnapshotUnicodeUnit');
     lTypeNameId := lBuilder.Strings.Intern(lTypeName);
     lMemberNameId := lBuilder.Strings.Intern(lMemberName);
-    lUnit := TUnitSnapshot.Create(19, lFileNameId, lUnitNameId);
+    lSourceTextId := lBuilder.ExactStrings.Intern(lSourceText);
+    lUnit := TUnitSnapshot.Create(19, lFileNameId, lUnitNameId, lSourceTextId);
 
     lSymbol := Default(TSemanticSymbolFact);
     lSymbol.NameId := lTypeNameId;
@@ -937,6 +943,7 @@ begin
           lLoadedSnapshot.TextOf(lLoadedUnit.SymbolById(TSemanticSymbolId(1)).NameId));
         Assert.AreEqual(lMemberName,
           lLoadedSnapshot.TextOf(lLoadedUnit.SymbolById(TSemanticSymbolId(2)).NameId));
+        Assert.AreEqual(lSourceText, lLoadedSnapshot.ExactTextOf(lLoadedUnit.SourceTextId));
         Assert.IsFalse(lLoadedSnapshot.HasRemoveWithPlanningFacts,
           'Unit cache entries must not carry project remove-with planning facts.');
       finally

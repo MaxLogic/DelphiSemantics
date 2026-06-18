@@ -16,6 +16,7 @@ type
   end;
 
   TSnapshotUnitBuildResult = record
+    ExactStrings: TSemanticStringPool;
     Strings: TSemanticStringPool;
     UnitSnapshot: TUnitSnapshot;
     UnitCount: Integer;
@@ -123,6 +124,8 @@ begin
   begin
     aResults[i].UnitSnapshot.Free;
     aResults[i].UnitSnapshot := nil;
+    aResults[i].ExactStrings.Free;
+    aResults[i].ExactStrings := nil;
     aResults[i].Strings.Free;
     aResults[i].Strings := nil;
   end;

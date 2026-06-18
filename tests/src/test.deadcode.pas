@@ -28,6 +28,10 @@ type
     [Test]
     procedure ReportsConservativeDeadCodeStatuses;
     [Test]
+    procedure SafetyGuardsUseModelSourceTextAfterDiskChanges;
+    [Test]
+    procedure SafetyGuardsUseSnapshotSourceTextAfterDiskChanges;
+    [Test]
     procedure ReportsDeadCodeFromSnapshotWithoutProjectIndexBuild;
     [Test]
     procedure UnknownReportProfileReturnsDiagnostic;
@@ -40,6 +44,7 @@ implementation
 uses
   System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
+  DelphiSemantics.Snapshot.Builder, DelphiSemantics.WithBinding,
   maxLogic.IOUtils,
   Test.Support;
 
@@ -189,6 +194,147 @@ begin
   Assert.IsTrue(CandidateHasBlocker(lReport, 'AmbiguousGlobal', 'ambiguous-reference'));
   Assert.IsTrue(CandidateHasBlocker(lReport, 'MissingExternalSymbol', 'unresolved-reference'));
   Assert.IsTrue(CandidateHasBlocker(lReport, 'ExternalOnlySymbol', 'unresolved-reference'));
+end;
+
+procedure TDeadCodeTests.SafetyGuardsUseModelSourceTextAfterDiskChanges;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lMutatedSource: string;
+  lPath: string;
+  lReport: TDelphiSemanticDeadCodeReport;
+  lSource: string;
+begin
+  lPath := DeadCodeTempPath('dead-code-model-source-text.pas');
+  lSource :=
+    'unit DeadCodeModelSourceTextUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure WindowHook(var Msg: Integer); message 1024;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end;' + sLineBreak +
+    'procedure ExportedHook;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end;' + sLineBreak +
+    'procedure InitializedHook;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end;' + sLineBreak +
+    'procedure FinalizedHook;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end;' + sLineBreak +
+    'exports' + sLineBreak +
+    '  ExportedHook;' + sLineBreak +
+    'initialization' + sLineBreak +
+    '  InitializedHook;' + sLineBreak +
+    'finalization' + sLineBreak +
+    '  FinalizedHook;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  Assert.IsTrue(lContext.UnitModel.Success);
+
+  lMutatedSource := StringReplace(lSource, ' message 1024', '', []);
+  lMutatedSource := StringReplace(lMutatedSource,
+    'exports' + sLineBreak + '  ExportedHook;' + sLineBreak +
+    'initialization' + sLineBreak + '  InitializedHook;' + sLineBreak +
+    'finalization' + sLineBreak + '  FinalizedHook;' + sLineBreak, '', []);
+  TFile.WriteAllText(lPath, lMutatedSource, TEncoding.UTF8);
+
+  lReport := TDelphiSemanticApi.ReportDeadCode(lContext, 'audit');
+
+  Assert.IsTrue(CandidateHasBlocker(lReport, 'WindowHook', 'message-method'),
+    'Message method safety should use model SourceText, not a disk reread.');
+  Assert.IsTrue(CandidateHasBlocker(lReport, 'ExportedHook', 'exported-symbol'),
+    'Export safety should use model SourceText, not a disk reread.');
+  Assert.IsTrue(CandidateHasBlocker(lReport, 'InitializedHook', 'initialization-hook'),
+    'Initialization/finalization safety should use model SourceText, not a disk reread.');
+  Assert.IsTrue(CandidateHasBlocker(lReport, 'FinalizedHook', 'initialization-hook'),
+    'Finalization safety should use model SourceText, not a disk reread.');
+end;
+
+procedure TDeadCodeTests.SafetyGuardsUseSnapshotSourceTextAfterDiskChanges;
+var
+  lBuildOptions: TDelphiSnapshotBuildOptions;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lMutatedSource: string;
+  lPath: string;
+  lRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
+  lReport: TDelphiSemanticDeadCodeReport;
+  lScopedContext: TScopedSnapshotQueryContext;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSnapshotContext: TDelphiSemanticSymbolQueryContext;
+  lSource: string;
+begin
+  lPath := DeadCodeTempPath('dead-code-snapshot-source-text.pas');
+  lSource :=
+    'unit DeadCodeSnapshotSourceTextUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure WindowHook(var Msg: Integer); message 1024;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end;' + sLineBreak +
+    'procedure ExportedHook;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end;' + sLineBreak +
+    'procedure InitializedHook;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end;' + sLineBreak +
+    'procedure FinalizedHook;' + sLineBreak +
+    'begin' + sLineBreak +
+    'end;' + sLineBreak +
+    'exports' + sLineBreak +
+    '  ExportedHook;' + sLineBreak +
+    'initialization' + sLineBreak +
+    '  InitializedHook;' + sLineBreak +
+    'finalization' + sLineBreak +
+    '  FinalizedHook;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  Assert.IsTrue(lContext.UnitModel.Success);
+
+  lBuildOptions := Default(TDelphiSnapshotBuildOptions);
+  lRemoveWithFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+  lSnapshot := BuildProjectSnapshotFromModels([lContext.UnitModel], lRemoveWithFacts,
+    lBuildOptions, lMetrics);
+  lScopedContext := nil;
+  try
+    lMutatedSource := StringReplace(lSource, ' message 1024', '', []);
+    lMutatedSource := StringReplace(lMutatedSource,
+      'exports' + sLineBreak + '  ExportedHook;' + sLineBreak +
+      'initialization' + sLineBreak + '  InitializedHook;' + sLineBreak +
+      'finalization' + sLineBreak + '  FinalizedHook;' + sLineBreak, '', []);
+    TFile.WriteAllText(lPath, lMutatedSource, TEncoding.UTF8);
+
+    lScopedContext := TScopedSnapshotQueryContext.Create(lSnapshot);
+    lSnapshotContext := lScopedContext.Context;
+
+    lReport := TDelphiSemanticApi.ReportDeadCode(lSnapshotContext, 'audit');
+
+    Assert.IsTrue(CandidateHasBlocker(lReport, 'WindowHook', 'message-method'),
+      'Message method safety should use snapshot SourceText, not a disk reread.');
+    Assert.IsTrue(CandidateHasBlocker(lReport, 'ExportedHook', 'exported-symbol'),
+      'Export safety should use snapshot SourceText, not a disk reread.');
+    Assert.IsTrue(CandidateHasBlocker(lReport, 'InitializedHook', 'initialization-hook'),
+      'Initialization/finalization safety should use snapshot SourceText, not a disk reread.');
+    Assert.IsTrue(CandidateHasBlocker(lReport, 'FinalizedHook', 'initialization-hook'),
+      'Finalization safety should use snapshot SourceText, not a disk reread.');
+  finally
+    lScopedContext.Free;
+    lSnapshot.Free;
+  end;
 end;
 
 procedure TDeadCodeTests.UnknownReportProfileReturnsDiagnostic;
