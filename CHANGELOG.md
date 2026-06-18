@@ -73,6 +73,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Project and option-set loading now walks MSBuild XML through Delphi's XML DOM,
+  covering single-quoted attributes, XML entities, imports, property groups, and
+  conditional `DCCReference` entries without regex tokenization of project XML.
 - With-binding `BuildUnitIndex` now applies project-derived defines and source
   lookup paths for project-file inputs, and reports project context failures as
   deterministic model diagnostics.

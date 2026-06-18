@@ -62,6 +62,8 @@ type
     procedure PublicConditionEvaluationKeepsDakBooleanLiteralCases;
     [Test]
     procedure DakNamespaceAndPluralAliasesFeedSemanticLists;
+    [Test]
+    procedure DomParsingHandlesSingleQuotedAttributesEntitiesImportsOptsetsAndConditionalReferences;
   end;
 
 implementation
@@ -580,6 +582,64 @@ begin
     'Expected DCC_Namespace to feed semantic unit scopes.');
   Assert.IsTrue(ContainsText(lResult.Project.UnitAliases, 'Project.PluralLegacy=Project.PluralModern'),
     'Expected DCC_UnitAliases to feed semantic aliases.');
+end;
+
+procedure TProjectMsBuildTests.DomParsingHandlesSingleQuotedAttributesEntitiesImportsOptsetsAndConditionalReferences;
+var
+  lEntityDir: string;
+  lEntityUnitFileName: string;
+  lImportedFileName: string;
+  lProjectFileName: string;
+  lResult: TDelphiSemanticContextResult;
+  lRoot: string;
+begin
+  lRoot := ProjectMsBuildTempPath('dom-xml-project');
+  TDirectory.CreateDirectory(lRoot);
+  lEntityDir := TPath.Combine(lRoot, 'Lib&More');
+  TDirectory.CreateDirectory(lEntityDir);
+  lEntityUnitFileName := TPath.Combine(lEntityDir, 'EntityUnit.pas');
+  TFile.WriteAllText(lEntityUnitFileName, 'unit EntityUnit;' + sLineBreak +
+    'interface' + sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'DomXmlProject.dpr'), 'program DomXmlProject;' +
+    sLineBreak + 'begin' + sLineBreak + 'end.', TEncoding.UTF8);
+
+  lImportedFileName := TPath.Combine(lRoot, 'Imported&Props.optset');
+  TFile.WriteAllText(lImportedFileName,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup Condition=''true''>' + sLineBreak +
+    '    <DCC_Define>IMPORTED&amp;DEFINE</DCC_Define>' + sLineBreak +
+    '    <DCC_UnitSearchPath>Lib&amp;More</DCC_UnitSearchPath>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '</Project>', TEncoding.UTF8);
+
+  lProjectFileName := TPath.Combine(lRoot, 'DomXmlProject.dproj');
+  TFile.WriteAllText(lProjectFileName,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <Import Project=''Imported&amp;Props.optset'' />' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>DomXmlProject.dpr</MainSource>' + sLineBreak +
+    '    <Config>Debug</Config>' + sLineBreak +
+    '    <Platform>Win32</Platform>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '  <ItemGroup>' + sLineBreak +
+    '    <DCCReference Include=''Lib&amp;More\EntityUnit.pas'' Condition="''$(Config)''==''Debug''" />' + sLineBreak +
+    '    <DCCReference Include=''Inactive\Nope.pas'' Condition="''$(Config)''==''Release''" />' + sLineBreak +
+    '  </ItemGroup>' + sLineBreak +
+    '</Project>', TEncoding.UTF8);
+
+  lResult := TDelphiSemanticProject.Load(lProjectFileName);
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(ContainsText(lResult.Project.Defines, 'IMPORTED&DEFINE'),
+    'Expected XML entity text from imported optset property group.');
+  Assert.IsTrue(ContainsPath(lResult.Project.SearchPaths, lEntityDir),
+    'Expected imported optset search path with decoded XML entity.');
+  Assert.IsTrue(ContainsPath(lResult.Project.ReferenceDirectories, lEntityDir),
+    'Expected active single-quoted DCCReference include with decoded XML entity.');
+  Assert.IsTrue(ContainsPath(lResult.Project.SourceFileNames, lEntityUnitFileName),
+    'Expected active DCCReference source file with decoded XML entity.');
+  Assert.IsFalse(ContainsPath(lResult.Project.ReferenceDirectories,
+    TPath.Combine(lRoot, 'Inactive')), 'Inactive conditional DCCReference must stay skipped.');
 end;
 
 initialization

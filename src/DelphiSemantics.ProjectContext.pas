@@ -86,6 +86,10 @@ uses
   System.RegularExpressions,
   System.StrUtils,
   System.SysUtils,
+  Xml.omnixmldom,
+  Xml.XMLDoc,
+  Xml.XMLIntf,
+  Xml.xmldom,
   DelphiSemantics.CompilerProfile, DelphiSemantics.Lsp;
 
 type
@@ -100,16 +104,6 @@ begin
       Exit(lProperty.Value);
 
   Result := '';
-end;
-
-function DecodeXmlText(const aValue: string): string;
-begin
-  Result := aValue.Trim;
-  Result := Result.Replace('&lt;', '<');
-  Result := Result.Replace('&gt;', '>');
-  Result := Result.Replace('&quot;', '"');
-  Result := Result.Replace('&apos;', '''');
-  Result := Result.Replace('&amp;', '&');
 end;
 
 function CreateDiagnostic(const aCode, aMessage, aFileName: string;
@@ -383,30 +377,79 @@ begin
   aDiagnostics.Add(aDiagnostic);
 end;
 
-function ExtractXmlElementText(const aText, aElementName: string): string;
+function LoadProjectXml(const aText: string): IXMLDocument;
 var
-  lMatch: TMatch;
-  lPattern: string;
+  lDocument: TXMLDocument;
 begin
-  lPattern := Format('<%s(?:\s+[^>]*)?>(.*?)</%s>', [aElementName, aElementName]);
-  lMatch := TRegEx.Match(aText, lPattern, [roIgnoreCase, roSingleLine]);
-  if lMatch.Success then
-    Result := DecodeXmlText(lMatch.Groups[1].Value)
+  lDocument := TXMLDocument.Create(nil);
+  try
+    lDocument.DOMVendor := GetDOMVendor(sOmniXmlVendor);
+    lDocument.LoadFromXML(aText);
+    Result := lDocument as IXMLDocument;
+  except
+    lDocument.Free;
+    raise;
+  end;
+end;
+
+function IsXmlElement(const aNode: IXMLNode): Boolean;
+begin
+  Result := Assigned(aNode) and (aNode.NodeType = ntElement);
+end;
+
+function XmlNodeName(const aNode: IXMLNode): string;
+begin
+  Result := '';
+  if not Assigned(aNode) then
+    Exit;
+
+  Result := aNode.LocalName;
+  if Result = '' then
+    Result := aNode.NodeName;
+end;
+
+function IsXmlElementNamed(const aNode: IXMLNode; const aName: string): Boolean;
+begin
+  Result := IsXmlElement(aNode) and SameText(XmlNodeName(aNode), aName);
+end;
+
+function XmlNodeAttributeValue(const aNode: IXMLNode; const aName: string): string;
+begin
+  if Assigned(aNode) and aNode.HasAttribute(aName) then
+    Result := string(aNode.Attributes[aName]).Trim
   else
     Result := '';
 end;
 
-function ExtractAttributeValue(const aAttributes, aAttributeName: string): string;
+function TryFindXmlElementText(const aNode: IXMLNode; const aName: string;
+  out aValue: string): Boolean;
 var
-  lMatch: TMatch;
-  lPattern: string;
+  i: Integer;
+  lChild: IXMLNode;
 begin
-  lPattern := Format('%s\s*=\s*"(.*?)"', [aAttributeName]);
-  lMatch := TRegEx.Match(aAttributes, lPattern, [roIgnoreCase, roSingleLine]);
-  if lMatch.Success then
-    Result := DecodeXmlText(lMatch.Groups[1].Value)
-  else
-    Result := '';
+  Result := False;
+  if not Assigned(aNode) then
+    Exit;
+
+  if IsXmlElementNamed(aNode, aName) then
+  begin
+    aValue := aNode.Text.Trim;
+    Exit(True);
+  end;
+
+  for i := 0 to aNode.ChildNodes.Count - 1 do
+  begin
+    lChild := aNode.ChildNodes[i];
+    if TryFindXmlElementText(lChild, aName, aValue) then
+      Exit(True);
+  end;
+end;
+
+function XmlElementText(const aDocument: IXMLDocument; const aName: string): string;
+begin
+  Result := '';
+  if Assigned(aDocument) then
+    TryFindXmlElementText(aDocument.DocumentElement, aName, Result);
 end;
 
 function NormalizeProjectPath(const aBaseDirectory, aFileName: string): string;
@@ -839,7 +882,7 @@ end;
 procedure ApplyPropertyFile(const aFileName, aBaseDirectory: string; const aProperties: TPropertyMap;
   const aDiagnostics: TList<TDelphiSemanticDiagnostic>; const aLockPlatform: Boolean); forward;
 
-procedure ApplyImport(const aAttributes, aFileName, aBaseDirectory: string;
+procedure ApplyImport(const aNode: IXMLNode; const aFileName, aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
   const aLockPlatform: Boolean);
 var
@@ -847,10 +890,10 @@ var
   lImportFileName: string;
   lProject: string;
 begin
-  lCondition := ExtractAttributeValue(aAttributes, 'Condition');
+  lCondition := XmlNodeAttributeValue(aNode, 'Condition');
   if IsConditionActive(lCondition, aFileName, aBaseDirectory, aProperties, aDiagnostics) then
   begin
-    lProject := ExtractAttributeValue(aAttributes, 'Project');
+    lProject := XmlNodeAttributeValue(aNode, 'Project');
     lProject := ExpandProperties(lProject, aFileName, aProperties, aDiagnostics);
     if lProject <> '' then
     begin
@@ -861,11 +904,12 @@ begin
   end;
 end;
 
-procedure ApplyPropertyGroup(const aAttributes, aBody, aFileName, aBaseDirectory: string;
+procedure ApplyPropertyGroup(const aNode: IXMLNode; const aFileName, aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
   const aLockPlatform: Boolean);
 var
-  lChild: TMatch;
+  i: Integer;
+  lChild: IXMLNode;
   lCondition: string;
   lExpandedValue: string;
   lName: string;
@@ -874,18 +918,20 @@ var
   lParts: TArray<string>;
   lValue: string;
 begin
-  lCondition := ExtractAttributeValue(aAttributes, 'Condition');
+  lCondition := XmlNodeAttributeValue(aNode, 'Condition');
   if IsConditionActive(lCondition, aFileName, aBaseDirectory, aProperties, aDiagnostics) then
   begin
-    lChild := TRegEx.Match(aBody, '<([A-Za-z_][A-Za-z0-9_\.]*)([^>]*)>(.*?)</\1>',
-      [roIgnoreCase, roSingleLine]);
-    while lChild.Success do
+    for i := 0 to aNode.ChildNodes.Count - 1 do
     begin
-      lName := lChild.Groups[1].Value;
-      lCondition := ExtractAttributeValue(lChild.Groups[2].Value, 'Condition');
+      lChild := aNode.ChildNodes[i];
+      if not IsXmlElement(lChild) then
+        Continue;
+
+      lName := XmlNodeName(lChild);
+      lCondition := XmlNodeAttributeValue(lChild, 'Condition');
       if IsConditionActive(lCondition, aFileName, aBaseDirectory, aProperties, aDiagnostics) then
       begin
-        lValue := DecodeXmlText(lChild.Groups[3].Value);
+        lValue := lChild.Text.Trim;
         lExpandedValue := ExpandProperties(lValue, aFileName, aProperties, aDiagnostics);
         if SameText(lName, 'CfgDependentOn') then
         begin
@@ -903,35 +949,41 @@ begin
         if (not aLockPlatform) or (not SameText(lName, 'Platform')) then
           SetPropertyValue(aProperties, lName, lExpandedValue);
       end;
-      lChild := lChild.NextMatch;
     end;
   end;
 end;
 
-procedure ApplyPropertyText(const aText, aFileName, aBaseDirectory: string;
+procedure ApplyPropertyDocument(const aDocument: IXMLDocument; const aFileName,
+  aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
   const aLockPlatform: Boolean);
 var
-  lNode: TMatch;
+  i: Integer;
+  lNode: IXMLNode;
+  lRoot: IXMLNode;
 begin
-  lNode := TRegEx.Match(aText,
-    '<(PropertyGroup)([^>]*)>(.*?)</PropertyGroup>|<Import\b\s+([^>]*)/?\s*>',
-    [roIgnoreCase, roSingleLine]);
-  while lNode.Success do
+  if not Assigned(aDocument) then
+    Exit;
+
+  lRoot := aDocument.DocumentElement;
+  if not Assigned(lRoot) then
+    Exit;
+
+  for i := 0 to lRoot.ChildNodes.Count - 1 do
   begin
-    if SameText(lNode.Groups[1].Value, 'PropertyGroup') then
-      ApplyPropertyGroup(lNode.Groups[2].Value, lNode.Groups[3].Value, aFileName,
-        aBaseDirectory, aProperties, aDiagnostics, aLockPlatform)
-    else
-      ApplyImport(lNode.Groups[4].Value, aFileName, aBaseDirectory, aProperties,
-        aDiagnostics, aLockPlatform);
-    lNode := lNode.NextMatch;
+    lNode := lRoot.ChildNodes[i];
+    if IsXmlElementNamed(lNode, 'PropertyGroup') then
+      ApplyPropertyGroup(lNode, aFileName, aBaseDirectory, aProperties, aDiagnostics,
+        aLockPlatform)
+    else if IsXmlElementNamed(lNode, 'Import') then
+      ApplyImport(lNode, aFileName, aBaseDirectory, aProperties, aDiagnostics, aLockPlatform);
   end;
 end;
 
 procedure ApplyPropertyFile(const aFileName, aBaseDirectory: string; const aProperties: TPropertyMap;
   const aDiagnostics: TList<TDelphiSemanticDiagnostic>; const aLockPlatform: Boolean);
 var
+  lDocument: IXMLDocument;
   lText: string;
 begin
   if not TFile.Exists(aFileName) then
@@ -942,7 +994,8 @@ begin
   end;
 
   lText := TFile.ReadAllText(aFileName, TEncoding.UTF8);
-  ApplyPropertyText(lText, aFileName, aBaseDirectory, aProperties, aDiagnostics,
+  lDocument := LoadProjectXml(lText);
+  ApplyPropertyDocument(lDocument, aFileName, aBaseDirectory, aProperties, aDiagnostics,
     aLockPlatform);
 end;
 
@@ -1024,40 +1077,52 @@ begin
   Result := False;
 end;
 
-procedure AddReferenceDirectories(const aText, aProjectFileName, aProjectDirectory: string;
+procedure AddReferenceDirectories(const aDocument: IXMLDocument; const aProjectFileName,
+  aProjectDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
   const aSearchPaths, aItems, aSourceFiles: TList<string>);
 var
+  i: Integer;
+  j: Integer;
   lCondition: string;
   lDirectory: string;
   lFileName: string;
-  lGroup: TMatch;
-  lGroupBody: string;
+  lGroup: IXMLNode;
   lInclude: string;
-  lMatch: TMatch;
+  lReference: IXMLNode;
+  lRoot: IXMLNode;
 begin
-  lGroup := TRegEx.Match(aText, '<ItemGroup([^>]*)>(.*?)</ItemGroup>',
-    [roIgnoreCase, roSingleLine]);
-  while lGroup.Success do
+  if not Assigned(aDocument) then
+    Exit;
+
+  lRoot := aDocument.DocumentElement;
+  if not Assigned(lRoot) then
+    Exit;
+
+  for i := 0 to lRoot.ChildNodes.Count - 1 do
   begin
-    lCondition := ExtractAttributeValue(lGroup.Groups[1].Value, 'Condition');
+    lGroup := lRoot.ChildNodes[i];
+    if not IsXmlElementNamed(lGroup, 'ItemGroup') then
+      Continue;
+
+    lCondition := XmlNodeAttributeValue(lGroup, 'Condition');
     if IsConditionActive(lCondition, aProjectFileName, aProjectDirectory, aProperties,
       aDiagnostics) then
     begin
-      lGroupBody := lGroup.Groups[2].Value;
-      lMatch := TRegEx.Match(lGroupBody, '<DCCReference\s+([^>]*)>',
-        [roIgnoreCase, roSingleLine]);
-      while lMatch.Success do
+      for j := 0 to lGroup.ChildNodes.Count - 1 do
       begin
-        lCondition := ExtractAttributeValue(lMatch.Groups[1].Value, 'Condition');
+        lReference := lGroup.ChildNodes[j];
+        if not IsXmlElementNamed(lReference, 'DCCReference') then
+          Continue;
+
+        lCondition := XmlNodeAttributeValue(lReference, 'Condition');
         if IsConditionActive(lCondition, aProjectFileName, aProjectDirectory, aProperties,
           aDiagnostics) then
         begin
-          lInclude := ExtractAttributeValue(lMatch.Groups[1].Value, 'Include');
+          lInclude := XmlNodeAttributeValue(lReference, 'Include');
           if HasUnresolvedPropertyReference(lInclude, aProperties) then
           begin
             ExpandProperties(lInclude, aProjectFileName, aProperties, aDiagnostics);
-            lMatch := lMatch.NextMatch;
             Continue;
           end;
 
@@ -1071,15 +1136,13 @@ begin
           else
             AddUniquePath(aItems, aProjectDirectory, lDirectory);
         end;
-        lMatch := lMatch.NextMatch;
       end;
     end;
-    lGroup := lGroup.NextMatch;
   end;
 end;
 
 procedure PopulateProjectSemanticContext(var aProject: TDelphiSemanticProjectInfo;
-  const aText: string; const aProperties: TPropertyMap;
+  const aDocument: IXMLDocument; const aProperties: TPropertyMap;
   const aOptions: TDelphiSemanticOptions;
   const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
 var
@@ -1123,7 +1186,7 @@ begin
     AddDelimitedTexts(lUnitScopeNames, GetPropertyValue(aProperties, 'DCC_Namespace'));
     AddDelimitedTexts(lUnitAliases, GetPropertyValue(aProperties, 'DCC_UnitAlias'));
     AddDelimitedTexts(lUnitAliases, GetPropertyValue(aProperties, 'DCC_UnitAliases'));
-    AddReferenceDirectories(aText, aProject.ProjectFileName, aProject.ProjectDirectory,
+    AddReferenceDirectories(aDocument, aProject.ProjectFileName, aProject.ProjectDirectory,
       aProperties, aDiagnostics, lSearchPaths, lReferenceDirectories, lSourceFiles);
 
     aProject.Defines := lDefines.ToArray;
@@ -1256,7 +1319,7 @@ begin
   end;
 end;
 
-function CreateInitialProperties(const aProjectFileName, aText: string;
+function CreateInitialProperties(const aProjectFileName: string; const aDocument: IXMLDocument;
   const aOptions: TDelphiSemanticOptions): TPropertyMap;
 var
   lEnvironmentProperty: TDelphiSemanticProperty;
@@ -1282,12 +1345,13 @@ begin
     if not Result.ContainsKey(PropertyKey(lEnvironmentProperty.Name)) then
       SetPropertyValue(Result, lEnvironmentProperty.Name, lEnvironmentProperty.Value);
   if GetPropertyValue(Result, 'Config') = '' then
-    SetPropertyValue(Result, 'Config', ExtractXmlElementText(aText, 'Config'));
+    SetPropertyValue(Result, 'Config', XmlElementText(aDocument, 'Config'));
   if GetPropertyValue(Result, 'Platform') = '' then
-    SetPropertyValue(Result, 'Platform', ExtractXmlElementText(aText, 'Platform'));
+    SetPropertyValue(Result, 'Platform', XmlElementText(aDocument, 'Platform'));
 end;
 
-function CreateProjectInfoFromProperties(const aProjectFileName, aText: string;
+function CreateProjectInfoFromProperties(const aProjectFileName: string;
+  const aDocument: IXMLDocument;
   const aProperties: TPropertyMap): TDelphiSemanticProjectInfo;
 var
   lMainSource: string;
@@ -1303,7 +1367,7 @@ begin
 
   lMainSource := GetPropertyValue(aProperties, 'MainSource');
   if lMainSource = '' then
-    lMainSource := ExtractXmlElementText(aText, 'MainSource');
+    lMainSource := XmlElementText(aDocument, 'MainSource');
   if lMainSource = '' then
     lMainSource := TPath.ChangeExtension(TPath.GetFileName(aProjectFileName), '.dpr');
   Result.MainSourceFileName := NormalizeProjectPath(Result.ProjectDirectory, lMainSource);
@@ -1350,16 +1414,18 @@ end;
 function LoadProjectInfo(const aProjectFileName: string; const aOptions: TDelphiSemanticOptions;
   const aDiagnostics: TList<TDelphiSemanticDiagnostic>): TDelphiSemanticProjectInfo;
 var
+  lDocument: IXMLDocument;
   lProperties: TPropertyMap;
   lText: string;
 begin
   lText := TFile.ReadAllText(aProjectFileName, TEncoding.UTF8);
-  lProperties := CreateInitialProperties(aProjectFileName, lText, aOptions);
+  lDocument := LoadProjectXml(lText);
+  lProperties := CreateInitialProperties(aProjectFileName, lDocument, aOptions);
   try
-    ApplyPropertyText(lText, aProjectFileName, TPath.GetDirectoryName(aProjectFileName),
+    ApplyPropertyDocument(lDocument, aProjectFileName, TPath.GetDirectoryName(aProjectFileName),
       lProperties, aDiagnostics, Trim(aOptions.Platform) <> '');
-    Result := CreateProjectInfoFromProperties(aProjectFileName, lText, lProperties);
-    PopulateProjectSemanticContext(Result, lText, lProperties, aOptions, aDiagnostics);
+    Result := CreateProjectInfoFromProperties(aProjectFileName, lDocument, lProperties);
+    PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics);
     AddAdditionalSourceFiles(Result, aOptions);
     Result.CompilerProfileName := BuildCompilerProfileName(Result, aOptions);
     Result.ContextFingerprint := BuildContextFingerprint(Result, aOptions);
