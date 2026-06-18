@@ -73,6 +73,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Snapshot SQLite cache connections now declare a busy timeout plus WAL/normal
+  locking policy, and writer transactions retry transient SQLite lock conflicts
+  during shared-cache multi-process use.
 - Parallel project snapshot worker joins now use bounded handle polling with
   cooperative cancellation and worker/source-file timeout diagnostics instead
   of unbounded `TThread.WaitFor`.

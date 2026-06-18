@@ -10,15 +10,22 @@ type
   [TestFixture]
   TSnapshotSqliteTests = class
   private
+    function CreateConcurrencyIdentity(const aCacheFileName, aName: string):
+      TDelphiSemanticSnapshotCacheIdentity;
     function CreateIdentity(const aName, aFileHash, aContextHash, aIncludeGraphHash,
       aSchemaVersion: string): TDelphiSemanticSnapshotCacheIdentity;
     procedure ExecCacheSql(const aCacheFileName, aSql: string);
+    procedure HoldConcurrencyWriteLock(const aCacheFileName, aReadyFileName,
+      aReleaseFileName: string);
     procedure StoreDemoUnit(const aCacheFileName: string;
       const aIdentity: TDelphiSemanticSnapshotCacheIdentity);
+    procedure StoreConcurrencyIdentity(const aCacheFileName, aName: string);
     function TableRowCount(const aCacheFileName, aTableName: string): Integer;
     function TempPath(const aName: string): string;
     procedure AssertIdentityChangeMissesWithoutEviction(const aName: string; const aChangedIdentity:
       TDelphiSemanticSnapshotCacheIdentity);
+    procedure VerifyConcurrencyIdentities(const aCacheFileName: string;
+      const aNames: TArray<string>);
   public
     [Test]
     procedure CacheKeyReuseWithDifferentIdentityDoesNotLoadStoredUnit;
@@ -47,6 +54,10 @@ type
     [Test]
     procedure SnapshotSqliteCacheUsesPreparedStatementsAndCachedFields;
     [Test]
+    procedure SnapshotSqliteConnectionsDeclareBusyJournalAndLockingPolicy;
+    [Test]
+    procedure SnapshotSqliteConcurrencyHarness;
+    [Test]
     procedure SnapshotSqliteRemoveWithLoadsPreSizeStoredFactArrays;
     [Test]
     procedure SnapshotSqliteCacheUsesWideTextAccessors;
@@ -71,7 +82,7 @@ type
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils, System.Variants,
+  System.Diagnostics, System.IOUtils, System.StrUtils, System.SysUtils, System.Variants,
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   maxLogic.IOUtils,
@@ -140,6 +151,15 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+function TSnapshotSqliteTests.CreateConcurrencyIdentity(const aCacheFileName,
+  aName: string): TDelphiSemanticSnapshotCacheIdentity;
+begin
+  Result := CreateIdentity('SnapshotConcurrency' + aName, 'file-' + aName, 'context-a',
+    'include-a', 'snapshot-v1');
+  Result.SourceFileName := TPath.Combine(ExtractFilePath(aCacheFileName),
+    Result.IdentityKey + '.pas');
 end;
 
 function TSnapshotSqliteTests.CreateIdentity(const aName, aFileHash, aContextHash,
@@ -707,6 +727,77 @@ begin
     'Snapshot reference facts should use a prepared insert query.');
 end;
 
+procedure TSnapshotSqliteTests.SnapshotSqliteConnectionsDeclareBusyJournalAndLockingPolicy;
+var
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '..', 'src', 'DelphiSemantics.Snapshot.Cache.Sqlite.pas']));
+
+  lSourceText := TFile.ReadAllText(lSourceFileName, TEncoding.UTF8);
+
+  Assert.IsTrue(ContainsText(lSourceText, 'BusyTimeout'),
+    'Snapshot SQLite connections must declare an explicit busy timeout.');
+  Assert.IsTrue(ContainsText(lSourceText, 'JournalMode') and ContainsText(lSourceText, 'WAL'),
+    'Snapshot SQLite connections must declare an explicit journal policy.');
+  Assert.IsTrue(ContainsText(lSourceText, 'LockingMode') and ContainsText(lSourceText, 'Normal'),
+    'Snapshot SQLite connections must declare an explicit locking policy for multi-process writers.');
+end;
+
+procedure TSnapshotSqliteTests.SnapshotSqliteConcurrencyHarness;
+var
+  lCacheFileName: string;
+  lIdentityName: string;
+  lIdentityNames: TArray<string>;
+  lReadyFileName: string;
+  lReleaseFileName: string;
+  lRole: string;
+begin
+  lRole := GetEnvironmentVariable(
+    'DELPHI_SEMANTICS_SNAPSHOT_SQLITE_CONCURRENCY_ROLE');
+  lCacheFileName := GetEnvironmentVariable(
+    'DELPHI_SEMANTICS_SNAPSHOT_SQLITE_CONCURRENCY_CACHE');
+  if Trim(lCacheFileName) = '' then
+    lCacheFileName := TempPath('snapshot-concurrency-harness.sqlite3');
+
+  if SameText(lRole, 'holder') then
+  begin
+    lReadyFileName := GetEnvironmentVariable(
+      'DELPHI_SEMANTICS_SNAPSHOT_SQLITE_CONCURRENCY_READY');
+    lReleaseFileName := GetEnvironmentVariable(
+      'DELPHI_SEMANTICS_SNAPSHOT_SQLITE_CONCURRENCY_RELEASE');
+    HoldConcurrencyWriteLock(lCacheFileName, lReadyFileName, lReleaseFileName);
+    Assert.Pass('Held and released the SQLite write lock.');
+    Exit;
+  end;
+
+  if SameText(lRole, 'writer') then
+  begin
+    lIdentityName := GetEnvironmentVariable(
+      'DELPHI_SEMANTICS_SNAPSHOT_SQLITE_CONCURRENCY_IDENTITY');
+    if Trim(lIdentityName) = '' then
+      raise Exception.Create('Missing snapshot SQLite concurrency identity.');
+    StoreConcurrencyIdentity(lCacheFileName, lIdentityName);
+    VerifyConcurrencyIdentities(lCacheFileName, [lIdentityName]);
+    Exit;
+  end;
+
+  if SameText(lRole, 'verify') then
+  begin
+    lIdentityNames := SplitString(GetEnvironmentVariable(
+      'DELPHI_SEMANTICS_SNAPSHOT_SQLITE_CONCURRENCY_IDENTITIES'), ';');
+    VerifyConcurrencyIdentities(lCacheFileName, lIdentityNames);
+    Exit;
+  end;
+
+  if TFile.Exists(lCacheFileName) then
+    TFile.Delete(lCacheFileName);
+  StoreConcurrencyIdentity(lCacheFileName, 'LocalA');
+  StoreConcurrencyIdentity(lCacheFileName, 'LocalB');
+  VerifyConcurrencyIdentities(lCacheFileName, ['LocalA', 'LocalB']);
+end;
+
 procedure TSnapshotSqliteTests.SnapshotSqliteRemoveWithLoadsPreSizeStoredFactArrays;
 var
   lBindingGrowth: string;
@@ -968,6 +1059,64 @@ begin
   end;
 end;
 
+procedure TSnapshotSqliteTests.HoldConcurrencyWriteLock(const aCacheFileName,
+  aReadyFileName, aReleaseFileName: string);
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+  lStopwatch: TStopwatch;
+begin
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(aCacheFileName);
+  try
+    // Create the schema before holding the write lock used by the script-level contention proof.
+  finally
+    lCache.Free;
+  end;
+
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := aCacheFileName;
+    lConnection.Params.Values['BusyTimeout'] := '10000';
+    lConnection.Params.Values['JournalMode'] := 'WAL';
+    lConnection.Params.Values['LockingMode'] := 'Normal';
+    lConnection.Connected := True;
+    lConnection.StartTransaction;
+    try
+      lConnection.ExecSQL(
+        'insert or replace into meta(key_name, value_text) values(' +
+        '''snapshot_concurrency_holder'', ''locked'')');
+      if aReadyFileName <> '' then
+        TFile.WriteAllText(aReadyFileName, 'ready', TEncoding.UTF8);
+
+      lStopwatch := TStopwatch.StartNew;
+      while (aReleaseFileName <> '') and not TFile.Exists(aReleaseFileName) do
+      begin
+        if lStopwatch.ElapsedMilliseconds > 15000 then
+          raise Exception.Create('Timed out waiting to release the SQLite write lock.');
+        Sleep(50);
+      end;
+      lConnection.Commit;
+    except
+      if lConnection.InTransaction then
+        lConnection.Rollback;
+      raise;
+    end;
+  finally
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.StoreConcurrencyIdentity(const aCacheFileName,
+  aName: string);
+begin
+  StoreDemoUnit(aCacheFileName, CreateConcurrencyIdentity(aCacheFileName, aName));
+end;
+
 procedure TSnapshotSqliteTests.StoreDemoUnit(const aCacheFileName: string;
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity);
 var
@@ -1072,6 +1221,35 @@ begin
     lUnit.Free;
     lCache.Free;
     lBuilder.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.VerifyConcurrencyIdentities(const aCacheFileName: string;
+  const aNames: TArray<string>);
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lName: string;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(aCacheFileName);
+  try
+    for lName in aNames do
+    begin
+      if Trim(lName) = '' then
+        Continue;
+      lIdentity := CreateConcurrencyIdentity(aCacheFileName, lName);
+      lSnapshot := nil;
+      Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lSnapshot),
+        'Expected concurrency identity to load: ' + lName);
+      try
+        Assert.AreEqual(1, lSnapshot.UnitCount);
+      finally
+        lSnapshot.Free;
+      end;
+    end;
+  finally
+    lCache.Free;
   end;
 end;
 

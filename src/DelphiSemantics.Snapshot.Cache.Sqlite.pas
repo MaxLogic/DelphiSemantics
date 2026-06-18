@@ -41,6 +41,7 @@ type
     procedure DeleteCacheKey(const aCacheKey: string);
     procedure DeleteCacheKeyRows(const aConnection: TObject; const aCacheKey: string);
     procedure EnsureDatabase;
+    procedure EnsureDatabaseOnce;
     function IdentityMatches(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; out aEntryBelongsToIdentity: Boolean): Boolean;
     procedure LoadExactStrings(const aCacheKey: string; const aConnection: TObject;
@@ -110,7 +111,7 @@ type
 implementation
 
 uses
-  System.DateUtils, System.Diagnostics, System.SysUtils,
+  System.Classes, System.DateUtils, System.Diagnostics, System.SysUtils,
   Data.DB,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
   FireDAC.Stan.Def,
@@ -119,6 +120,39 @@ uses
 const
   cSnapshotCacheSchemaVersion = '7';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
+  cSnapshotSqliteBusyTimeoutMs = 30000;
+  cSnapshotSqliteBusyRetryDelayMs = 50;
+  cSnapshotSqliteJournalMode = 'WAL';
+  cSnapshotSqliteLockingMode = 'Normal';
+
+procedure ConfigureSnapshotSqliteConnection(const aConnection: TFDConnection;
+  const aDatabase: string);
+begin
+  aConnection.LoginPrompt := False;
+  aConnection.Params.Values['DriverID'] := 'SQLite';
+  aConnection.Params.Values['Database'] := aDatabase;
+  aConnection.Params.Values['BusyTimeout'] := IntToStr(cSnapshotSqliteBusyTimeoutMs);
+  aConnection.Params.Values['JournalMode'] := cSnapshotSqliteJournalMode;
+  aConnection.Params.Values['LockingMode'] := cSnapshotSqliteLockingMode;
+end;
+
+function SnapshotSqliteBusyError(const aMessage: string): Boolean;
+var
+  lMessage: string;
+begin
+  lMessage := LowerCase(aMessage);
+  Result := (Pos('database is locked', lMessage) > 0) or
+    (Pos('database is busy', lMessage) > 0);
+end;
+
+function RetrySnapshotSqliteBusy(const aMessage: string;
+  const aStopwatch: TStopwatch): Boolean;
+begin
+  Result := SnapshotSqliteBusyError(aMessage) and
+    (aStopwatch.ElapsedMilliseconds < cSnapshotSqliteBusyTimeoutMs);
+  if Result then
+    TThread.Sleep(cSnapshotSqliteBusyRetryDelayMs);
+end;
 
 function NewQuery(const aConnection: TFDConnection; const aSql: string): TFDQuery;
 begin
@@ -464,6 +498,27 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.EnsureDatabase;
+var
+  lError: string;
+  lRetryStopwatch: TStopwatch;
+begin
+  lRetryStopwatch := TStopwatch.StartNew;
+  repeat
+    try
+      EnsureDatabaseOnce;
+      Exit;
+    except
+      on E: Exception do
+      begin
+        lError := E.Message;
+        if not RetrySnapshotSqliteBusy(lError, lRetryStopwatch) then
+          raise;
+      end;
+    end;
+  until False;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.EnsureDatabaseOnce;
 var
   lConnectionObject: TObject;
   lConnection: TFDConnection;
@@ -1410,34 +1465,42 @@ var
   lConnection: TFDConnection;
   lDirectory: string;
   lDriverLink: TFDPhysSQLiteDriverLink;
+  lStopwatch: TStopwatch;
 begin
   Result := False;
   aConnection := nil;
   aDriverLink := nil;
   aError := '';
-  lConnection := nil;
-  lDriverLink := nil;
-  try
-    lDirectory := ExtractFilePath(fCacheFileName);
-    if lDirectory <> '' then
-      ForceDirectories(lDirectory);
+
+  lDirectory := ExtractFilePath(fCacheFileName);
+  if lDirectory <> '' then
+    ForceDirectories(lDirectory);
+
+  lStopwatch := TStopwatch.StartNew;
+  repeat
+    lConnection := nil;
+    lDriverLink := nil;
     lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
     lConnection := TFDConnection.Create(nil);
-    lConnection.LoginPrompt := False;
-    lConnection.Params.Values['DriverID'] := 'SQLite';
-    lConnection.Params.Values['Database'] := fCacheFileName;
-    lConnection.Connected := True;
-    aConnection := lConnection;
-    aDriverLink := lDriverLink;
-    Result := True;
-  except
-    on E: Exception do
-    begin
-      aError := E.Message;
-      lConnection.Free;
-      lDriverLink.Free;
+    try
+      ConfigureSnapshotSqliteConnection(lConnection, fCacheFileName);
+      lConnection.Connected := True;
+      aConnection := lConnection;
+      aDriverLink := lDriverLink;
+      Exit(True);
+    except
+      on E: Exception do
+      begin
+        aError := E.Message;
+        lConnection.Free;
+        lDriverLink.Free;
+        if (not SnapshotSqliteBusyError(aError)) or
+          (lStopwatch.ElapsedMilliseconds >= cSnapshotSqliteBusyTimeoutMs) then
+          Exit(False);
+        TThread.Sleep(cSnapshotSqliteBusyRetryDelayMs);
+      end;
     end;
-  end;
+  until False;
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.RebuildSnapshotTables(const aConnection: TObject);
@@ -1880,6 +1943,7 @@ var
   lConnectionObject: TObject;
   lConnection: TFDConnection;
   lError: string;
+  lRetryStopwatch: TStopwatch;
   lWriteStopwatch: TStopwatch;
 begin
   if not Assigned(aStrings) then
@@ -1892,22 +1956,31 @@ begin
     raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
 
   lConnection := TFDConnection(lConnectionObject);
-  lConnection.StartTransaction;
   lWriteStopwatch := TStopwatch.StartNew;
-  try
-    DeleteCacheKeyRows(lConnection, aIdentity.CacheKey);
-    StoreUnitHeader(aIdentity, lConnection, aUnit, Integer(aStrings.Count));
-    StoreStrings(aIdentity, lConnection, aStrings);
-    StoreSymbols(aIdentity, lConnection, aUnit);
-    StoreWithStatements(aIdentity, lConnection, aUnit);
-    StoreReferences(aIdentity, lConnection, aUnit);
-    StoreExactStrings(aIdentity, lConnection, aSnapshot);
-    lConnection.Commit;
-    Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
-  except
-    lConnection.Rollback;
-    raise;
-  end;
+  lRetryStopwatch := TStopwatch.StartNew;
+  repeat
+    try
+      lConnection.StartTransaction;
+      DeleteCacheKeyRows(lConnection, aIdentity.CacheKey);
+      StoreUnitHeader(aIdentity, lConnection, aUnit, Integer(aStrings.Count));
+      StoreStrings(aIdentity, lConnection, aStrings);
+      StoreSymbols(aIdentity, lConnection, aUnit);
+      StoreWithStatements(aIdentity, lConnection, aUnit);
+      StoreReferences(aIdentity, lConnection, aUnit);
+      StoreExactStrings(aIdentity, lConnection, aSnapshot);
+      lConnection.Commit;
+      Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
+      Exit;
+    except
+      on E: Exception do
+      begin
+        if lConnection.InTransaction then
+          lConnection.Rollback;
+        if not RetrySnapshotSqliteBusy(E.Message, lRetryStopwatch) then
+          raise;
+      end;
+    end;
+  until False;
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreUnitFromSnapshot(
@@ -1951,6 +2024,7 @@ var
   lError: string;
   lExactStrings: TSemanticStringPool;
   lQuery: TFDQuery;
+  lRetryStopwatch: TStopwatch;
   lWriteStopwatch: TStopwatch;
 begin
   if (aSnapshot = nil) or not aSnapshot.HasRemoveWithPlanningFacts then
@@ -1961,41 +2035,50 @@ begin
     raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
 
   lConnection := TFDConnection(lConnectionObject);
-  lConnection.StartTransaction;
   lWriteStopwatch := TStopwatch.StartNew;
+  lRetryStopwatch := TStopwatch.StartNew;
   lExactStrings := TSemanticStringPool.Create(True);
   try
-    try
-      for i := 1 to aSnapshot.ExactStringCount do
-        lExactStrings.Intern(aSnapshot.ExactTextOf(TSemanticStringId(i)));
-      StoredInventorySymbols(lExactStrings, aLookupSymbols);
-      DeleteCacheKeyRows(lConnection, aIdentity.CacheKey);
-      lQuery := NewQuery(lConnection, 'insert into snapshot_project_remove_with_facts(' +
-        'cache_key, identity_key, source_file_name, file_hash, context_hash, ' +
-        'include_graph_hash, schema_version, stored_at_utc) values (?, ?, ?, ?, ?, ?, ?, ?)');
+    for i := 1 to aSnapshot.ExactStringCount do
+      lExactStrings.Intern(aSnapshot.ExactTextOf(TSemanticStringId(i)));
+    StoredInventorySymbols(lExactStrings, aLookupSymbols);
+    repeat
       try
-        SetWideParam(lQuery, 0, aIdentity.CacheKey);
-        SetWideParam(lQuery, 1, aIdentity.IdentityKey);
-        SetWideParam(lQuery, 2, aIdentity.SourceFileName);
-        SetWideParam(lQuery, 3, aIdentity.FileHash);
-        SetWideParam(lQuery, 4, aIdentity.ContextHash);
-        SetWideParam(lQuery, 5, aIdentity.IncludeGraphHash);
-        SetWideParam(lQuery, 6, aIdentity.SchemaVersion);
-        SetWideParam(lQuery, 7, SnapshotUtcTimestamp);
-        lQuery.Prepare;
-        lQuery.ExecSQL;
-      finally
-        lQuery.Free;
+        lConnection.StartTransaction;
+        DeleteCacheKeyRows(lConnection, aIdentity.CacheKey);
+        lQuery := NewQuery(lConnection, 'insert into snapshot_project_remove_with_facts(' +
+          'cache_key, identity_key, source_file_name, file_hash, context_hash, ' +
+          'include_graph_hash, schema_version, stored_at_utc) values (?, ?, ?, ?, ?, ?, ?, ?)');
+        try
+          SetWideParam(lQuery, 0, aIdentity.CacheKey);
+          SetWideParam(lQuery, 1, aIdentity.IdentityKey);
+          SetWideParam(lQuery, 2, aIdentity.SourceFileName);
+          SetWideParam(lQuery, 3, aIdentity.FileHash);
+          SetWideParam(lQuery, 4, aIdentity.ContextHash);
+          SetWideParam(lQuery, 5, aIdentity.IncludeGraphHash);
+          SetWideParam(lQuery, 6, aIdentity.SchemaVersion);
+          SetWideParam(lQuery, 7, SnapshotUtcTimestamp);
+          lQuery.Prepare;
+          lQuery.ExecSQL;
+        finally
+          lQuery.Free;
+        end;
+        StoreExactStringPool(aIdentity, lConnection, lExactStrings);
+        StoreRemoveWithPlanningFacts(aIdentity, lConnection, aSnapshot, lExactStrings,
+          aLookupSymbols);
+        lConnection.Commit;
+        Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
+        Exit;
+      except
+        on E: Exception do
+        begin
+          if lConnection.InTransaction then
+            lConnection.Rollback;
+          if not RetrySnapshotSqliteBusy(E.Message, lRetryStopwatch) then
+            raise;
+        end;
       end;
-      StoreExactStringPool(aIdentity, lConnection, lExactStrings);
-      StoreRemoveWithPlanningFacts(aIdentity, lConnection, aSnapshot, lExactStrings,
-        aLookupSymbols);
-      lConnection.Commit;
-      Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
-    except
-      lConnection.Rollback;
-      raise;
-    end;
+    until False;
   finally
     lExactStrings.Free;
   end;
