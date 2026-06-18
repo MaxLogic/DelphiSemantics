@@ -14,6 +14,8 @@ type
       TDelphiSemanticSnapshotCacheIdentity;
     function CreateIdentity(const aName, aFileHash, aContextHash, aIncludeGraphHash,
       aSchemaVersion: string): TDelphiSemanticSnapshotCacheIdentity;
+    function CacheTextRowCount(const aCacheFileName, aTableName, aCacheKey,
+      aTextValue: string): Integer;
     procedure ExecCacheSql(const aCacheFileName, aSql: string);
     procedure HoldConcurrencyWriteLock(const aCacheFileName, aReadyFileName,
       aReleaseFileName: string);
@@ -65,6 +67,8 @@ type
     procedure SnapshotCacheSourceDoesNotUseJsonRepresentation;
     [Test]
     procedure StoreUnitFromSnapshotPreservesUnicodeTextValues;
+    [Test]
+    procedure StoreUnitFromSnapshotStoresOnlyReachableUnitStrings;
     [Test]
     procedure StoreProjectRemoveWithPlanningFactsUsesProjectIdentity;
     [Test]
@@ -150,6 +154,38 @@ begin
     end;
   finally
     lCache.Free;
+  end;
+end;
+
+function TSnapshotSqliteTests.CacheTextRowCount(const aCacheFileName, aTableName, aCacheKey,
+  aTextValue: string): Integer;
+var
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+  lQuery: TFDQuery;
+begin
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := aCacheFileName;
+    lConnection.Connected := True;
+    lQuery := TFDQuery.Create(nil);
+    try
+      lQuery.Connection := lConnection;
+      lQuery.SQL.Text := 'select count(*) from ' + aTableName +
+        ' where cache_key = ? and text_value = ?';
+      lQuery.Params[0].AsWideString := aCacheKey;
+      lQuery.Params[1].AsWideString := aTextValue;
+      lQuery.Open;
+      Result := lQuery.Fields[0].AsInteger;
+    finally
+      lQuery.Free;
+    end;
+  finally
+    lConnection.Free;
+    lDriverLink.Free;
   end;
 end;
 
@@ -1048,6 +1084,112 @@ begin
           lLoadedSnapshot.RemoveWithPlanningContextFingerprintId));
         Assert.AreEqual(lMemberName, lLoadedSnapshot.ExactTextOf(
           lLoadedSnapshot.RemoveWithPlanningBindingByIndex(0).SelectorTextId));
+      finally
+        lLoadedSnapshot.Free;
+      end;
+    finally
+      lCache.Free;
+    end;
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.StoreUnitFromSnapshotStoresOnlyReachableUnitStrings;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheFileName: string;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoadedSnapshot: TDelphiProjectSnapshot;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSourceAText: string;
+  lSourceAId: TSemanticStringId;
+  lSourceBText: string;
+  lSourceBId: TSemanticStringId;
+  lStringId: TSemanticStringId;
+  lSymbol: TSemanticSymbolFact;
+  lUnit: TUnitSnapshot;
+  lUnitANameId: TSemanticStringId;
+  lUnitBNameId: TSemanticStringId;
+  lUnitATypeName: string;
+  lUnitBTypeName: string;
+begin
+  lCacheFileName := TempPath('snapshot-local-string-pool.sqlite3');
+  if TFile.Exists(lCacheFileName) then
+    TFile.Delete(lCacheFileName);
+
+  lUnitATypeName := 'TOnlyUnitAType';
+  lUnitBTypeName := 'TOnlyUnitBType';
+  lSourceAText := 'unit LocalPoolUnitA; interface type ' + lUnitATypeName +
+    ' = class end; implementation end.';
+  lSourceBText := 'unit LocalPoolUnitB; interface type ' + lUnitBTypeName +
+    ' = class end; implementation end.';
+  lIdentity := CreateIdentity('LocalPoolUnitA', 'file-local-a', 'context-local',
+    'include-local', 'snapshot-v1');
+
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lUnitANameId := lBuilder.Strings.Intern('LocalPoolUnitA');
+    lSourceAId := lBuilder.ExactStrings.Intern(lSourceAText);
+    lUnit := TUnitSnapshot.Create(1, lBuilder.Strings.Intern('LocalPoolUnitA.pas'),
+      lUnitANameId, lSourceAId);
+    try
+      lSymbol := Default(TSemanticSymbolFact);
+      lSymbol.NameId := lBuilder.Strings.Intern(lUnitATypeName);
+      lSymbol.KindId := lBuilder.Strings.Intern('type');
+      lSymbol.SectionKindId := lBuilder.Strings.Intern('interface');
+      lUnit.AddSymbol(lSymbol);
+      lBuilder.AddUnit(lUnit);
+      lUnit := nil;
+    finally
+      lUnit.Free;
+    end;
+
+    lUnitBNameId := lBuilder.Strings.Intern('LocalPoolUnitB');
+    lSourceBId := lBuilder.ExactStrings.Intern(lSourceBText);
+    lUnit := TUnitSnapshot.Create(2, lBuilder.Strings.Intern('LocalPoolUnitB.pas'),
+      lUnitBNameId, lSourceBId);
+    try
+      lSymbol := Default(TSemanticSymbolFact);
+      lSymbol.NameId := lBuilder.Strings.Intern(lUnitBTypeName);
+      lSymbol.KindId := lBuilder.Strings.Intern('type');
+      lSymbol.SectionKindId := lBuilder.Strings.Intern('interface');
+      lUnit.AddSymbol(lSymbol);
+      lBuilder.AddUnit(lUnit);
+      lUnit := nil;
+    finally
+      lUnit.Free;
+    end;
+
+    lSnapshot := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+
+  try
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+    try
+      lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+    finally
+      lCache.Free;
+    end;
+
+    Assert.AreEqual(1, CacheTextRowCount(lCacheFileName, 'snapshot_strings',
+      lIdentity.CacheKey, lUnitATypeName), 'Expected unit A string to be stored.');
+    Assert.AreEqual(0, CacheTextRowCount(lCacheFileName, 'snapshot_strings',
+      lIdentity.CacheKey, lUnitBTypeName),
+      'Unit A cache key must not store strings reachable only from unit B.');
+    Assert.AreEqual(0, CacheTextRowCount(lCacheFileName, 'snapshot_exact_strings',
+      lIdentity.CacheKey, lSourceBText),
+      'Unit A cache key must not store exact source text reachable only from unit B.');
+
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+    try
+      Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lLoadedSnapshot));
+      try
+        Assert.IsTrue(lLoadedSnapshot.TryFindStringId(lUnitATypeName, lStringId));
+        Assert.IsFalse(lLoadedSnapshot.TryFindStringId(lUnitBTypeName, lStringId));
       finally
         lLoadedSnapshot.Free;
       end;

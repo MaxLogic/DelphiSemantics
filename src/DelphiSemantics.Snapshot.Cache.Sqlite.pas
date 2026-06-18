@@ -67,8 +67,6 @@ type
     procedure RebuildSnapshotTables(const aConnection: TObject);
     procedure ResetProbeMetrics;
     function SharedConnection(out aConnection: TObject; out aError: string): Boolean;
-    procedure StoreExactStrings(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aConnection: TObject; const aSnapshot: TDelphiProjectSnapshot);
     procedure StoreExactStringPool(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aExactStrings: TSemanticStringPool);
     procedure StoreReferences(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
@@ -83,6 +81,12 @@ type
       const aConnection: TObject; const aUnit: TUnitSnapshot);
     procedure StoreUnitHeader(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aUnit: TUnitSnapshot; const aStringCount: Integer);
+    procedure StoreUnitFromProjectSnapshot(
+      const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      const aSnapshot: TDelphiProjectSnapshot; const aUnit: TUnitSnapshot);
+    procedure StoreUnitWithExactStrings(
+      const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      const aStrings, aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot);
     procedure StoreWithStatements(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aUnit: TUnitSnapshot);
   public
@@ -118,7 +122,7 @@ uses
   DelphiSemantics.Snapshot.RemoveWith;
 
 const
-  cSnapshotCacheSchemaVersion = '7';
+  cSnapshotCacheSchemaVersion = '8';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -1553,26 +1557,6 @@ begin
   end;
 end;
 
-procedure TDelphiSemanticSnapshotSqliteCache.StoreExactStrings(
-  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
-  const aSnapshot: TDelphiProjectSnapshot);
-var
-  i: Integer;
-  lExactStrings: TSemanticStringPool;
-begin
-  if aSnapshot = nil then
-    Exit;
-
-  lExactStrings := TSemanticStringPool.Create(True);
-  try
-    for i := 1 to Integer(aSnapshot.ExactStringCount) do
-      lExactStrings.Intern(aSnapshot.ExactTextOf(TSemanticStringId(i)));
-    StoreExactStringPool(aIdentity, aConnection, lExactStrings);
-  finally
-    lExactStrings.Free;
-  end;
-end;
-
 procedure TDelphiSemanticSnapshotSqliteCache.StoreExactStringPool(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
   const aExactStrings: TSemanticStringPool);
@@ -1936,9 +1920,110 @@ begin
   end;
 end;
 
-procedure TDelphiSemanticSnapshotSqliteCache.StoreUnit(
-  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aStrings: TSemanticStringPool;
-  const aUnit: TUnitSnapshot; const aSnapshot: TDelphiProjectSnapshot);
+function RemapSnapshotStringId(const aSnapshot: TDelphiProjectSnapshot;
+  const aTargetStrings: TSemanticStringPool; const aId: TSemanticStringId): TSemanticStringId;
+begin
+  if aId = 0 then
+    Exit(0);
+
+  Result := aTargetStrings.Intern(aSnapshot.TextOf(aId));
+end;
+
+function RemapSnapshotExactStringId(const aSnapshot: TDelphiProjectSnapshot;
+  const aTargetExactStrings: TSemanticStringPool; const aId: TSemanticStringId):
+  TSemanticStringId;
+begin
+  if aId = 0 then
+    Exit(0);
+
+  Result := aTargetExactStrings.Intern(aSnapshot.ExactTextOf(aId));
+end;
+
+function RemapSnapshotSymbolFact(const aSnapshot: TDelphiProjectSnapshot;
+  const aTargetStrings: TSemanticStringPool; const aSymbol: TSemanticSymbolFact):
+  TSemanticSymbolFact;
+begin
+  Result := aSymbol;
+  Result.NameId := RemapSnapshotStringId(aSnapshot, aTargetStrings, aSymbol.NameId);
+  Result.OwnerTypeId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aSymbol.OwnerTypeId);
+  Result.TypeId := RemapSnapshotStringId(aSnapshot, aTargetStrings, aSymbol.TypeId);
+  Result.RoutineId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aSymbol.RoutineId);
+  Result.KindId := RemapSnapshotStringId(aSnapshot, aTargetStrings, aSymbol.KindId);
+  Result.SectionKindId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aSymbol.SectionKindId);
+  Result.SourceKindId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aSymbol.SourceKindId);
+  Result.VisibilityId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aSymbol.VisibilityId);
+  Result.SignatureId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aSymbol.SignatureId);
+end;
+
+function RemapSnapshotWithFact(const aSnapshot: TDelphiProjectSnapshot;
+  const aTargetStrings: TSemanticStringPool; const aWith: TSemanticWithStatementFact):
+  TSemanticWithStatementFact;
+begin
+  Result := aWith;
+  Result.RoutineId := RemapSnapshotStringId(aSnapshot, aTargetStrings, aWith.RoutineId);
+end;
+
+function RemapSnapshotReferenceFact(const aSnapshot: TDelphiProjectSnapshot;
+  const aTargetStrings: TSemanticStringPool; const aReference: TSemanticReferenceFact):
+  TSemanticReferenceFact;
+begin
+  Result := aReference;
+  Result.NameId := RemapSnapshotStringId(aSnapshot, aTargetStrings, aReference.NameId);
+  Result.ReceiverTypeId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aReference.ReceiverTypeId);
+  Result.TypeId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aReference.TypeId);
+  Result.RoutineId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aReference.RoutineId);
+  Result.SectionKindId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aReference.SectionKindId);
+  Result.SourceKindId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aReference.SourceKindId);
+  Result.ClassificationId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aReference.ClassificationId);
+  Result.LookupSourceId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aReference.LookupSourceId);
+  Result.ReasonId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
+    aReference.ReasonId);
+end;
+
+function BuildLocalUnitSnapshot(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aTargetStrings,
+  aTargetExactStrings: TSemanticStringPool): TUnitSnapshot;
+var
+  lReferenceId: TSemanticReferenceId;
+  lSymbolId: TSemanticSymbolId;
+  lWithId: TSemanticWithId;
+begin
+  Result := TUnitSnapshot.Create(aUnit.UnitId, RemapSnapshotStringId(aSnapshot,
+    aTargetStrings, aUnit.FileNameId), RemapSnapshotStringId(aSnapshot,
+    aTargetStrings, aUnit.UnitNameId), RemapSnapshotExactStringId(aSnapshot,
+    aTargetExactStrings, aUnit.SourceTextId));
+  try
+    for lSymbolId := 1 to TSemanticSymbolId(aUnit.SymbolCount) do
+      Result.AddSymbol(RemapSnapshotSymbolFact(aSnapshot, aTargetStrings,
+        aUnit.SymbolById(lSymbolId)));
+    for lWithId := 1 to TSemanticWithId(aUnit.WithStatementCount) do
+      Result.AddWithStatement(RemapSnapshotWithFact(aSnapshot, aTargetStrings,
+        aUnit.WithStatementById(lWithId)));
+    for lReferenceId := 1 to TSemanticReferenceId(aUnit.ReferenceCount) do
+      Result.AddReference(RemapSnapshotReferenceFact(aSnapshot, aTargetStrings,
+        aUnit.ReferenceById(lReferenceId)));
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.StoreUnitWithExactStrings(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  const aStrings, aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot);
 var
   lConnectionObject: TObject;
   lConnection: TFDConnection;
@@ -1967,7 +2052,7 @@ begin
       StoreSymbols(aIdentity, lConnection, aUnit);
       StoreWithStatements(aIdentity, lConnection, aUnit);
       StoreReferences(aIdentity, lConnection, aUnit);
-      StoreExactStrings(aIdentity, lConnection, aSnapshot);
+      StoreExactStringPool(aIdentity, lConnection, aExactStrings);
       lConnection.Commit;
       Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
       Exit;
@@ -1983,24 +2068,54 @@ begin
   until False;
 end;
 
+procedure TDelphiSemanticSnapshotSqliteCache.StoreUnit(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aStrings: TSemanticStringPool;
+  const aUnit: TUnitSnapshot; const aSnapshot: TDelphiProjectSnapshot);
+begin
+  if aSnapshot <> nil then
+  begin
+    StoreUnitFromProjectSnapshot(aIdentity, aSnapshot, aUnit);
+    Exit;
+  end;
+
+  StoreUnitWithExactStrings(aIdentity, aStrings, nil, aUnit);
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.StoreUnitFromProjectSnapshot(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  const aSnapshot: TDelphiProjectSnapshot; const aUnit: TUnitSnapshot);
+var
+  lExactStrings: TSemanticStringPool;
+  lLocalStrings: TSemanticStringPool;
+  lLocalUnit: TUnitSnapshot;
+begin
+  if aSnapshot = nil then
+    Exit;
+  if not Assigned(aUnit) then
+    raise Exception.Create('Cannot store a nil unit snapshot.');
+
+  lLocalStrings := TSemanticStringPool.Create;
+  lExactStrings := TSemanticStringPool.Create(True);
+  lLocalUnit := nil;
+  try
+    lLocalUnit := BuildLocalUnitSnapshot(aSnapshot, aUnit, lLocalStrings,
+      lExactStrings);
+    StoreUnitWithExactStrings(aIdentity, lLocalStrings, lExactStrings, lLocalUnit);
+  finally
+    lLocalUnit.Free;
+    lExactStrings.Free;
+    lLocalStrings.Free;
+  end;
+end;
+
 procedure TDelphiSemanticSnapshotSqliteCache.StoreUnitFromSnapshot(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
   const aSnapshot: TDelphiProjectSnapshot; const aUnitIndex: Integer);
-var
-  i: Cardinal;
-  lStrings: TSemanticStringPool;
 begin
   if aSnapshot = nil then
     Exit;
 
-  lStrings := TSemanticStringPool.Create;
-  try
-    for i := 1 to aSnapshot.StringCount do
-      lStrings.Intern(aSnapshot.TextOf(TSemanticStringId(i)));
-    StoreUnit(aIdentity, lStrings, aSnapshot.UnitByIndex(aUnitIndex), aSnapshot);
-  finally
-    lStrings.Free;
-  end;
+  StoreUnitFromProjectSnapshot(aIdentity, aSnapshot, aSnapshot.UnitByIndex(aUnitIndex));
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreProjectRemoveWithPlanningFacts(
