@@ -18,12 +18,8 @@ type
 implementation
 
 uses
-  System.RegularExpressions, System.StrUtils, System.SysUtils;
-
-function IsIdentifierChar(const aChar: Char): Boolean;
-begin
-  Result := (aChar = '_') or CharInSet(aChar, ['A'..'Z', 'a'..'z', '0'..'9']);
-end;
+  System.RegularExpressions, System.StrUtils, System.SysUtils,
+  DelphiSemantics.Model.Text;
 
 function IsPascalKeyword(const aToken: string): Boolean;
 begin

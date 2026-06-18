@@ -134,6 +134,8 @@ type
     [Test]
     procedure RoutineReconciliationUsesOffsetMapBeforeFallback;
     [Test]
+    procedure PascalLexicalHelpersAreCentralized;
+    [Test]
     procedure UnitModelImplementationIsSplitIntoFocusedUnits;
   end;
 
@@ -2056,6 +2058,43 @@ begin
     'local reconciliation should first map preprocessed offsets back to source offsets');
   Assert.IsTrue(ContainsText(lCoordinateSource, 'if lCleanText = '''' then'),
     'fallback reconciliation should not sanitize whole source files when mapped ranges are already exact');
+end;
+
+procedure TUnitModelTests.PascalLexicalHelpersAreCentralized;
+var
+  lDeadCodeSource: string;
+  lGlobalVarsSource: string;
+  lQuerySource: string;
+  lRefactorSource: string;
+  lSourceContextSource: string;
+  lTextSource: string;
+begin
+  lTextSource := ReadRepoSource('src\DelphiSemantics.Model.Text.pas');
+  Assert.IsTrue(ContainsText(lTextSource, 'function IsIdentifierStart'),
+    'Model text helpers should own Pascal identifier-start logic.');
+  Assert.IsTrue(ContainsText(lTextSource, 'function IsWordAt'),
+    'Model text helpers should own Pascal word-boundary logic.');
+  Assert.IsTrue(ContainsText(lTextSource, 'function TextContainsIdentifier'),
+    'Model text helpers should own repeated identifier containment scans.');
+
+  lDeadCodeSource := ReadRepoSource('src\DelphiSemantics.DeadCode.pas');
+  lGlobalVarsSource := ReadRepoSource('src\DelphiSemantics.GlobalVars.pas');
+  lQuerySource := ReadRepoSource('src\DelphiSemantics.Query.pas');
+  lRefactorSource := ReadRepoSource('src\DelphiSemantics.Refactor.pas');
+  lSourceContextSource := ReadRepoSource('src\DelphiSemantics.SourceContext.Candidates.pas');
+
+  Assert.IsFalse(ContainsText(lDeadCodeSource, 'function IsIdentifierChar('),
+    'Dead-code scans should use the shared Pascal lexical helper.');
+  Assert.IsFalse(ContainsText(lGlobalVarsSource, 'function IsIdentifierChar('),
+    'Global-var scans should use the shared Pascal lexical helper.');
+  Assert.IsFalse(ContainsText(lGlobalVarsSource, 'function IsWordAt('),
+    'Global-var word scans should use the shared Pascal word-boundary helper.');
+  Assert.IsFalse(ContainsText(lQuerySource, 'function IsIdentifierChar('),
+    'Query token extraction should use the shared Pascal lexical helper.');
+  Assert.IsFalse(ContainsText(lRefactorSource, 'function IsIdentifierChar('),
+    'Refactor token extraction should use the shared Pascal lexical helper.');
+  Assert.IsFalse(ContainsText(lSourceContextSource, 'function IsIdentifierChar('),
+    'Source-context candidate extraction should use the shared Pascal lexical helper.');
 end;
 
 procedure TUnitModelTests.UnitModelImplementationIsSplitIntoFocusedUnits;

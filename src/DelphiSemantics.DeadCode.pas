@@ -57,7 +57,7 @@ implementation
 
 uses
   System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.QuerySupport,
+  DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.QuerySupport,
   MaxLogic.StrUtils;
 
 const
@@ -326,31 +326,6 @@ class function TDeadCodeReferenceIndex.SymbolKey(const aId: TDelphiSemanticSymbo
   string;
 begin
   Result := aId.Value;
-end;
-
-function IsIdentifierChar(const ch: Char): Boolean;
-begin
-  Result := CharInSet(ch, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
-end;
-
-function TextContainsIdentifier(const aLowerText, aLowerName: string): Boolean;
-var
-  lAfterPos: Integer;
-  lPos: Integer;
-begin
-  Result := False;
-  if (aLowerText = '') or (aLowerName = '') then
-    Exit;
-
-  lPos := Pos(aLowerName, aLowerText);
-  while lPos > 0 do
-  begin
-    lAfterPos := lPos + Length(aLowerName);
-    if ((lPos = 1) or not IsIdentifierChar(aLowerText[lPos - 1])) and
-      ((lAfterPos > Length(aLowerText)) or not IsIdentifierChar(aLowerText[lAfterPos])) then
-      Exit(True);
-    lPos := Pos(aLowerName, aLowerText, lPos + 1);
-  end;
 end;
 
 function SameSymbolId(const aLeft, aRight: TDelphiSemanticSymbolId): Boolean;

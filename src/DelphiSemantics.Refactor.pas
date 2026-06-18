@@ -60,7 +60,8 @@ implementation
 
 uses
   System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.QuerySupport,
+  DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot,
+  DelphiSemantics.Snapshot.QuerySupport,
   MaxLogic.StrUtils;
 
 type
@@ -83,11 +84,11 @@ begin
   if aText = '' then
     Exit(False);
 
-  if not CharInSet(aText[1], ['A'..'Z', 'a'..'z', '_']) then
+  if not IsIdentifierStart(aText[1]) then
     Exit(False);
 
   for c in aText do
-    if not CharInSet(c, ['A'..'Z', 'a'..'z', '0'..'9', '_']) then
+    if not IsIdentifierChar(c) then
       Exit(False);
 
   Result := not MatchText(aText, ['absolute', 'and', 'array', 'as', 'asm', 'begin', 'case',
@@ -471,11 +472,6 @@ begin
       Exit(aText[i]);
 
   Result := #0;
-end;
-
-function IsIdentifierChar(const c: Char): Boolean;
-begin
-  Result := CharInSet(c, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
 end;
 
 function SanitizeFunctionResultLine(const aLine: string; var aCommentMode: Integer): string;

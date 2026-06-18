@@ -75,7 +75,8 @@ implementation
 
 uses
   System.Classes, System.Generics.Collections, System.RegularExpressions,
-  System.StrUtils, System.SysUtils;
+  System.StrUtils, System.SysUtils,
+  DelphiSemantics.Model.Text;
 
 procedure AddDiagnostic(const aDiagnostics: TList<TDelphiSemanticGlobalDiagnostic>;
   const aCode, aMessage, aFileName: string; const aLine: Integer);
@@ -234,20 +235,6 @@ begin
     Exit;
 
   Result := aLines[aLine - 1];
-end;
-
-function IsIdentifierChar(const aValue: Char): Boolean;
-begin
-  Result := CharInSet(aValue, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
-end;
-
-function IsWordAt(const aText, aName: string; const aIndex: Integer): Boolean;
-var
-  lAfter: Integer;
-begin
-  lAfter := aIndex + Length(aName);
-  Result := ((aIndex = 1) or not IsIdentifierChar(aText[aIndex - 1])) and
-    ((lAfter > Length(aText)) or not IsIdentifierChar(aText[lAfter]));
 end;
 
 procedure DetectNameSides(const aLine, aName: string; const aAssignPos: Integer;

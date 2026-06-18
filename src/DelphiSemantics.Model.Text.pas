@@ -2,17 +2,62 @@ unit DelphiSemantics.Model.Text;
 
 interface
 
+function IsIdentifierStart(const aChar: Char): Boolean;
 function IsIdentifierChar(const aChar: Char): Boolean;
+function IsWordAt(const aText: string; const aOffset: Integer; const aWord: string): Boolean; overload;
+function IsWordAt(const aText, aWord: string; const aIndex: Integer): Boolean; overload;
+function TextContainsIdentifier(const aText, aIdentifier: string): Boolean;
 function SanitizeCodeText(const aText: string): string;
 
 implementation
 
 uses
-  System.SysUtils;
+  System.StrUtils, System.SysUtils;
+
+function IsIdentifierStart(const aChar: Char): Boolean;
+begin
+  Result := CharInSet(aChar, ['A'..'Z', 'a'..'z', '_']);
+end;
 
 function IsIdentifierChar(const aChar: Char): Boolean;
 begin
-  Result := CharInSet(aChar, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
+  Result := IsIdentifierStart(aChar) or CharInSet(aChar, ['0'..'9']);
+end;
+
+function IsWordAt(const aText: string; const aOffset: Integer; const aWord: string): Boolean; overload;
+var
+  lAfterOffset: Integer;
+begin
+  Result := False;
+  if (aOffset < 1) or (aWord = '') or (aOffset + Length(aWord) - 1 > Length(aText)) then
+    Exit;
+
+  lAfterOffset := aOffset + Length(aWord);
+  Result := SameText(Copy(aText, aOffset, Length(aWord)), aWord) and
+    ((aOffset = 1) or not IsIdentifierChar(aText[aOffset - 1])) and
+    ((lAfterOffset > Length(aText)) or not IsIdentifierChar(aText[lAfterOffset]));
+end;
+
+function IsWordAt(const aText, aWord: string; const aIndex: Integer): Boolean; overload;
+begin
+  Result := IsWordAt(aText, aIndex, aWord);
+end;
+
+function TextContainsIdentifier(const aText, aIdentifier: string): Boolean;
+var
+  lIndex: Integer;
+begin
+  Result := False;
+  if (aText = '') or (aIdentifier = '') then
+    Exit;
+
+  lIndex := Pos(aIdentifier, aText);
+  while lIndex > 0 do
+  begin
+    if IsWordAt(aText, lIndex, aIdentifier) then
+      Exit(True);
+    lIndex := PosEx(aIdentifier, aText, lIndex + 1);
+  end;
 end;
 
 function SanitizeCodeText(const aText: string): string;

@@ -96,7 +96,7 @@ implementation
 
 uses
   System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.Snapshot.QuerySupport,
+  DelphiSemantics.Model.Text, DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.Snapshot.QuerySupport,
   DelphiSemantics.Source;
 
 function MakeNotFound(const aName: string): TDelphiSemanticSymbolQueryResult;
@@ -300,11 +300,6 @@ begin
   Result.Column := aReference.Column;
   Result.EndLine := SnapshotEndLine(aReference.Line, aReference.EndLine);
   Result.EndColumn := SnapshotEndColumn(aReference.Column, Result.Name, aReference.EndColumn);
-end;
-
-function IsIdentifierChar(const aChar: Char): Boolean;
-begin
-  Result := (aChar = '_') or CharInSet(aChar, ['A'..'Z', 'a'..'z', '0'..'9']);
 end;
 
 function TryExtractIdentifierAtColumn(const aLineText: string; const aColumn: Integer;
