@@ -132,6 +132,8 @@ type
     UnitName: string;
     SourceText: string;
     EncodingName: string;
+    LineEndingName: string;
+    LineBreak: string;
     SourceSections: TDelphiSemanticSourceSections;
     InterfaceUses: TArray<string>;
     ImplementationUses: TArray<string>;

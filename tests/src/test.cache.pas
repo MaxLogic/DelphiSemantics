@@ -36,6 +36,8 @@ type
     [Test]
     procedure SharedUnitCacheRejectsReentrantAccess;
     [Test]
+    procedure CacheSchemaVersionIncludesSourceProvenanceModelShape;
+    [Test]
     procedure RepeatedUnchangedUnitHitsInMemoryCache;
     [Test]
     procedure CacheHitReturnsIndependentUnitModelCopy;
@@ -331,6 +333,33 @@ begin
   end;
 end;
 
+procedure TCacheTests.CacheSchemaVersionIncludesSourceProvenanceModelShape;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lIdentity: TDelphiSemanticUnitCacheIdentity;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := TempPath('SourceProvenanceSchemaUnit.pas');
+  TFile.WriteAllText(lPath, 'unit SourceProvenanceSchemaUnit;' + sLineBreak + 'interface' +
+    sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lIdentity := lCache.BuildIdentity(lModelOptions);
+
+    Assert.AreEqual('8', lIdentity.SchemaVersion,
+      'Source provenance fields changed the persisted unit-model shape.');
+  finally
+    lCache.Free;
+  end;
+end;
+
 procedure TCacheTests.RepeatedUnchangedUnitHitsInMemoryCache;
 var
   lCache: TDelphiSemanticUnitCache;
@@ -517,6 +546,9 @@ begin
       lSecond.Model.SourceSections.ImplementationOffset);
     Assert.AreEqual(Pos('initialization', lSource), lSecond.Model.SourceSections.InitializationOffset);
     Assert.AreEqual(Pos('finalization', lSource), lSecond.Model.SourceSections.FinalizationOffset);
+    Assert.AreEqual('utf-8', lSecond.Model.EncodingName);
+    Assert.AreEqual('crlf', lSecond.Model.LineEndingName);
+    Assert.AreEqual(sLineBreak, lSecond.Model.LineBreak);
   finally
     lCache.Free;
   end;

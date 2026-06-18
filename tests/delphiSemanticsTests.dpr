@@ -37,6 +37,7 @@ uses
   Test.SemanticGraphDeclarations in 'src\test.semanticgraphdeclarations.pas',
   Test.SemanticGraphReferences in 'src\test.semanticgraphreferences.pas',
   Test.SourceContext in 'src\test.sourcecontext.pas',
+  Test.SourceLoader in 'src\test.sourceloader.pas',
   Test.Smoke in 'src\test.smoke.pas',
   Test.Snapshot in 'src\test.snapshot.pas',
   Test.SnapshotSqlite in 'src\test.snapshotsqlite.pas',

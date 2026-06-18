@@ -1763,6 +1763,9 @@ begin
     Result.Success := lSourceResult.Success;
     Result.FileName := lSourceResult.Source.FileName;
     Result.SourceText := lSourceResult.Source.Text;
+    Result.EncodingName := lSourceResult.Source.EncodingName;
+    Result.LineEndingName := lSourceResult.Source.LineEndingName;
+    Result.LineBreak := lSourceResult.Source.LineBreak;
     if not lSourceResult.Success then
     begin
       AddSourceDiagnostics(lDiagnostics, lSourceResult.Diagnostics);
@@ -1790,7 +1793,6 @@ begin
         'No full project/compiler context was applied.', aOptions.SourceFileName, 0);
 
     Result.FileName := lSourceResult.Source.FileName;
-    Result.EncodingName := lSourceResult.Source.EncodingName;
     Result.SourceSections := BuildSourceSections(lSourceResult.Source.Text);
     lMatch := TRegEx.Match(lText, '^\s*unit\s+([A-Za-z_][A-Za-z0-9_\.]*)\s*;',
       [roIgnoreCase, roMultiLine]);

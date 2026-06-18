@@ -171,17 +171,6 @@ begin
   Result := False;
 end;
 
-function SourceLineBreak(const aText: string): string;
-begin
-  Result := sLineBreak;
-  if Pos(#13#10, aText) > 0 then
-    Exit(#13#10);
-  if Pos(#10, aText) > 0 then
-    Exit(#10);
-  if Pos(#13, aText) > 0 then
-    Exit(#13);
-end;
-
 class function TDelphiSemanticSourceContextCache.CacheKey(
   const aFileName: string): string;
 begin
@@ -229,7 +218,7 @@ begin
   aSource.FileName := TPath.GetFullPath(aFileName);
   aSource.Text := lResult.Source.Text;
   aSource.LowerText := LowerCase(aSource.Text);
-  aSource.LineBreak := SourceLineBreak(aSource.Text);
+  aSource.LineBreak := lResult.Source.LineBreak;
   lLines := TStringList.Create;
   try
     lLines.Text := aSource.Text;

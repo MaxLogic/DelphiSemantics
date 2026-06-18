@@ -13,6 +13,8 @@ type
     FileName: string;
     Text: string;
     EncodingName: string;
+    LineEndingName: string;
+    LineBreak: string;
   end;
 
   TDelphiSemanticSourceLoadResult = record
@@ -119,6 +121,75 @@ begin
   Result := (Length(aBytes) >= 2) and (aBytes[0] = $FE) and (aBytes[1] = $FF);
 end;
 
+procedure AssignLineEndingProvenance(var aSource: TDelphiSemanticSourceText);
+var
+  i: Integer;
+  lCrCount: Integer;
+  lCrlfCount: Integer;
+  lFirstLineBreak: string;
+  lKindCount: Integer;
+  lLfCount: Integer;
+begin
+  lCrCount := 0;
+  lCrlfCount := 0;
+  lFirstLineBreak := '';
+  lLfCount := 0;
+  i := 1;
+  while i <= Length(aSource.Text) do
+  begin
+    if aSource.Text[i] = #13 then
+    begin
+      if (i < Length(aSource.Text)) and (aSource.Text[i + 1] = #10) then
+      begin
+        Inc(lCrlfCount);
+        if lFirstLineBreak = '' then
+          lFirstLineBreak := #13#10;
+        Inc(i, 2);
+        Continue;
+      end;
+      Inc(lCrCount);
+      if lFirstLineBreak = '' then
+        lFirstLineBreak := #13;
+    end else if aSource.Text[i] = #10 then
+    begin
+      Inc(lLfCount);
+      if lFirstLineBreak = '' then
+        lFirstLineBreak := #10;
+    end;
+    Inc(i);
+  end;
+
+  lKindCount := 0;
+  if lCrlfCount > 0 then
+    Inc(lKindCount);
+  if lLfCount > 0 then
+    Inc(lKindCount);
+  if lCrCount > 0 then
+    Inc(lKindCount);
+
+  if lKindCount = 0 then
+  begin
+    aSource.LineEndingName := 'none';
+    aSource.LineBreak := sLineBreak;
+  end else if lKindCount > 1 then
+  begin
+    aSource.LineEndingName := 'mixed';
+    aSource.LineBreak := lFirstLineBreak;
+  end else if lCrlfCount > 0 then
+  begin
+    aSource.LineEndingName := 'crlf';
+    aSource.LineBreak := #13#10;
+  end else if lLfCount > 0 then
+  begin
+    aSource.LineEndingName := 'lf';
+    aSource.LineBreak := #10;
+  end else
+  begin
+    aSource.LineEndingName := 'cr';
+    aSource.LineBreak := #13;
+  end;
+end;
+
 class function TDelphiSemanticSourceLoader.LoadFile(
   const aFileName: string): TDelphiSemanticSourceLoadResult;
 var
@@ -167,6 +238,7 @@ begin
     end;
     Result.Source.EncodingName := 'windows-1252';
   end;
+  AssignLineEndingProvenance(Result.Source);
   Result.Success := True;
 end;
 

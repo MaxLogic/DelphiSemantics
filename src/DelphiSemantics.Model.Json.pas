@@ -505,6 +505,8 @@ begin
     lObject.AddPair('FileName', aModel.FileName);
     lObject.AddPair('UnitName', aModel.UnitName);
     lObject.AddPair('EncodingName', aModel.EncodingName);
+    lObject.AddPair('LineEndingName', aModel.LineEndingName);
+    lObject.AddPair('LineBreak', aModel.LineBreak);
     lObject.AddPair('SourceText', aModel.SourceText);
     lObject.AddPair('SourceSections', SourceSectionsToJson(aModel.SourceSections));
     lObject.AddPair('InterfaceUses', StringArrayToJson(aModel.InterfaceUses));
@@ -537,6 +539,8 @@ begin
     Result.FileName := JsonString(lObject, 'FileName');
     Result.UnitName := JsonString(lObject, 'UnitName');
     Result.EncodingName := JsonString(lObject, 'EncodingName');
+    Result.LineEndingName := JsonString(lObject, 'LineEndingName');
+    Result.LineBreak := JsonString(lObject, 'LineBreak');
     Result.SourceText := JsonString(lObject, 'SourceText');
     Result.SourceSections := JsonToSourceSections(lObject.GetValue('SourceSections') as TJSONObject);
     Result.InterfaceUses := JsonToStringArray(lObject.GetValue('InterfaceUses') as TJSONArray);
