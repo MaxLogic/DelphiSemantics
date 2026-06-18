@@ -1,4 +1,4 @@
-﻿unit DelphiSemantics.Snapshot.Builder;
+unit DelphiSemantics.Snapshot.Builder;
 
 interface
 
@@ -369,12 +369,24 @@ begin
   Result := aCandidateRefs.Count > 0;
 end;
 
+function ModelUsesUnitInSection(const aModel: TDelphiSemanticUnitModel;
+  const aSectionKind, aUnitName: string): Boolean; forward;
+
 function OwnedSymbolIsVisibleFromReference(const aModel: TDelphiSemanticUnitModel;
   const aReference: TDelphiSemanticReference;
   const aSymbol: TSnapshotTargetSymbol): Boolean;
+var
+  lSectionKind: string;
 begin
   if aSymbol.OwnerName = '' then
     Exit(False);
+  if SameText(aSymbol.Kind, 'class-var') then
+  begin
+    lSectionKind := aReference.SectionKind;
+    if lSectionKind = '' then
+      lSectionKind := 'implementation';
+    Exit(ModelUsesUnitInSection(aModel, lSectionKind, aSymbol.UnitName));
+  end;
   if not SameText(aModel.UnitName, aSymbol.UnitName) then
     Exit(False);
   if MatchText(aSymbol.Kind, ['field', 'class-var', 'property']) then
@@ -438,8 +450,10 @@ begin
   if not (SameText(aSymbol.Kind, 'unit') or SameText(aSymbol.Kind, 'type') or
     SameText(aSymbol.Kind, cSnapshotDeclarationKindAlias) or
     SameText(aSymbol.Kind, cSnapshotDeclarationKindTypeAlias) or
-    SameText(aSymbol.Kind, 'var') or SameText(aSymbol.Kind, 'const') or
-    SameText(aSymbol.Kind, cSnapshotSymbolKindRoutine)) then
+    SameText(aSymbol.Kind, 'var') or SameText(aSymbol.Kind, 'threadvar') or
+    SameText(aSymbol.Kind, 'const') or SameText(aSymbol.Kind, 'typed-const') or
+    SameText(aSymbol.Kind, 'resourcestring') or SameText(aSymbol.Kind,
+    cSnapshotSymbolKindRoutine)) then
     Exit(False);
 
   if SameText(aModel.UnitName, aSymbol.UnitName) then

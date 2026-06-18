@@ -4,7 +4,8 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.GlobalVars, DelphiSemantics.Model;
+  DelphiSemantics.GlobalVars, DelphiSemantics.Model,
+  DelphiSemantics.Snapshot;
 
 type
   [TestFixture]
@@ -28,6 +29,10 @@ type
     [Test]
     procedure AnalyzesGlobalDeclarationsUsagesShadowingAndAmbiguity;
     [Test]
+    procedure AnalyzesProjectSnapshotUsingSnapshotSourceText;
+    [Test]
+    procedure SnapshotGlobalAnalysisDoesNotUseHiddenDuplicateFallback;
+    [Test]
     procedure UsageAccessUsesModelSourceText;
   end;
 
@@ -36,6 +41,7 @@ implementation
 uses
   System.IOUtils, System.SysUtils,
   maxLogic.IOUtils,
+  DelphiSemantics.Snapshot.Builder, DelphiSemantics.WithBinding,
   Test.Support;
 
 
@@ -211,6 +217,124 @@ begin
   lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits(lModels);
 
   Assert.IsTrue(HasDiagnostic(lAnalysis, 'MODEL_FAILED'));
+end;
+
+procedure TGlobalVarsSemanticTests.AnalyzesProjectSnapshotUsingSnapshotSourceText;
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lBuildMetrics: TDelphiSnapshotBuilderMetrics;
+  lBuildOptions: TDelphiSnapshotBuildOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lModels := [LoadModel('GlobalVarsFixture.Globals.pas'),
+    LoadModel('GlobalVarsFixture.Consumer.pas')];
+  lModels[0].SourceText := StringReplace(lModels[0].SourceText, '  Inc(GCounter);',
+    '  GCounter := 1;', []);
+  lBuildOptions := Default(TDelphiSnapshotBuildOptions);
+  lBuildOptions.ResolveReferenceTargets := True;
+  lBuildOptions.WorkerCount := 1;
+  lRemoveWithFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+
+  lSnapshot := BuildProjectSnapshotFromModels(lModels, lRemoveWithFacts, lBuildOptions,
+    lBuildMetrics);
+  try
+    lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lSnapshot);
+  finally
+    lSnapshot.Free;
+  end;
+
+  Assert.IsTrue(HasDeclaration(lAnalysis, 'GCounter', 'var'));
+  Assert.IsTrue(HasDeclaration(lAnalysis, 'sCache', 'classvar'));
+  Assert.AreEqual(1, CountUsagesInUnit(lAnalysis, 'GCounter', 'write',
+    'GlobalVarsFixture.Globals'),
+    'Snapshot source text should classify the mutated assignment as a write.');
+  Assert.AreEqual(0, CountUsagesInUnit(lAnalysis, 'GCounter', 'readwrite',
+    'GlobalVarsFixture.Globals'),
+    'Snapshot analysis must not classify from the original disk Inc(GCounter).');
+  Assert.AreEqual(1, CountUsages(lAnalysis, 'GThreadCounter', 'read'),
+    'Snapshot target IDs should preserve cross-unit global reads.');
+  Assert.AreEqual(2, CountUsages(lAnalysis, 'sCache', 'write'),
+    'Snapshot target IDs should preserve qualified class-var writes.');
+end;
+
+procedure TGlobalVarsSemanticTests.SnapshotGlobalAnalysisDoesNotUseHiddenDuplicateFallback;
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lBuildMetrics: TDelphiSnapshotBuilderMetrics;
+  lBuildOptions: TDelphiSnapshotBuildOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  SetLength(lModels, 3);
+  lModels[0].UnitName := 'VisibleGlobals';
+  lModels[0].FileName := 'VisibleGlobals.pas';
+  lModels[0].SourceText := 'unit VisibleGlobals;' + sLineBreak + 'interface' +
+    sLineBreak + 'threadvar' + sLineBreak + '  GSharedThread: Integer;' +
+    sLineBreak + 'implementation' + sLineBreak + 'end.';
+  SetLength(lModels[0].Declarations, 1);
+  lModels[0].Declarations[0].Name := 'GSharedThread';
+  lModels[0].Declarations[0].Kind := 'threadvar';
+  lModels[0].Declarations[0].TypeName := 'Integer';
+  lModels[0].Declarations[0].SectionKind := 'interface';
+  lModels[0].Declarations[0].Line := 4;
+  lModels[0].Declarations[0].Column := 3;
+
+  lModels[1].UnitName := 'HiddenGlobals';
+  lModels[1].FileName := 'HiddenGlobals.pas';
+  lModels[1].SourceText := 'unit HiddenGlobals;' + sLineBreak + 'interface' +
+    sLineBreak + 'threadvar' + sLineBreak + '  GSharedThread: Integer;' +
+    sLineBreak + 'implementation' + sLineBreak + 'end.';
+  SetLength(lModels[1].Declarations, 1);
+  lModels[1].Declarations[0].Name := 'GSharedThread';
+  lModels[1].Declarations[0].Kind := 'threadvar';
+  lModels[1].Declarations[0].TypeName := 'Integer';
+  lModels[1].Declarations[0].SectionKind := 'interface';
+  lModels[1].Declarations[0].Line := 4;
+  lModels[1].Declarations[0].Column := 3;
+
+  lModels[2].UnitName := 'ThreadConsumer';
+  lModels[2].FileName := 'ThreadConsumer.pas';
+  lModels[2].ImplementationUses := ['VisibleGlobals'];
+  lModels[2].SourceText := 'unit ThreadConsumer;' + sLineBreak + 'interface' +
+    sLineBreak + 'implementation' + sLineBreak + 'uses VisibleGlobals;' +
+    sLineBreak + 'procedure RunConsumer;' + sLineBreak + 'begin' + sLineBreak +
+    '  if GSharedThread > 0 then' + sLineBreak + '  begin' + sLineBreak +
+    '  end;' + sLineBreak + 'end;' + sLineBreak + 'end.';
+  SetLength(lModels[2].Routines, 1);
+  lModels[2].Routines[0].Name := 'RunConsumer';
+  lModels[2].Routines[0].SectionKind := 'implementation';
+  lModels[2].Routines[0].Line := 5;
+  lModels[2].Routines[0].Column := 11;
+  SetLength(lModels[2].References, 1);
+  lModels[2].References[0].Name := 'GSharedThread';
+  lModels[2].References[0].RoutineName := 'RunConsumer';
+  lModels[2].References[0].Role := 'reference';
+  lModels[2].References[0].SectionKind := 'implementation';
+  lModels[2].References[0].Line := 7;
+  lModels[2].References[0].Column := 6;
+  lModels[2].References[0].EndLine := 7;
+  lModels[2].References[0].EndColumn := 18;
+
+  lBuildOptions := Default(TDelphiSnapshotBuildOptions);
+  lBuildOptions.ResolveReferenceTargets := True;
+  lBuildOptions.WorkerCount := 1;
+  lRemoveWithFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+
+  lSnapshot := BuildProjectSnapshotFromModels(lModels, lRemoveWithFacts, lBuildOptions,
+    lBuildMetrics);
+  try
+    lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lSnapshot);
+  finally
+    lSnapshot.Free;
+  end;
+
+  Assert.AreEqual(1, CountUsages(lAnalysis, 'GSharedThread', 'read'),
+    'Snapshot analysis should resolve the visible threadvar target.');
+  Assert.AreEqual(0, CountAmbiguities(lAnalysis, 'GSharedThread'),
+    'Hidden same-name globals must not inflate snapshot ambiguities.');
 end;
 
 procedure TGlobalVarsSemanticTests.UsageAccessUsesModelSourceText;

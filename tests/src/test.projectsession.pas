@@ -34,6 +34,10 @@ type
     [Test]
     procedure ProjectSessionModelExtractionUsesSingleResultRecord;
     [Test]
+    procedure ProjectSessionGlobalAnalysisUsesSnapshotAuthority;
+    [Test]
+    procedure ProjectSessionGlobalAnalysisReportsSnapshotCacheMetrics;
+    [Test]
     procedure ProjectSessionDependencyGraphCollectsRecursiveProjectFacts;
     [Test]
     procedure ProjectSessionDependencyGraphUsesLinux64TargetDefines;
@@ -86,6 +90,7 @@ uses
   DelphiSemantics.Api,
   DelphiSemantics.Api.RemoveWith.Compatibility,
   DelphiSemantics.Cache,
+  DelphiSemantics.GlobalVars,
   DelphiSemantics.Model,
   DelphiSemantics.ProjectContext,
   DelphiSemantics.ProjectSession,
@@ -635,6 +640,90 @@ begin
     'Wrapper-only extraction scope-mode fan-out should be removed.');
   Assert.IsFalse(ContainsText(lSource, lOutExtractionSignature),
     'ExtractProjectModels should not thread elapsed time and cache data through out parameters.');
+end;
+
+procedure TProjectSessionTests.ProjectSessionGlobalAnalysisUsesSnapshotAuthority;
+var
+  lBody: string;
+  lEndIndex: Integer;
+  lSource: string;
+  lStartIndex: Integer;
+begin
+  lSource := ReadRepoSource('src\DelphiSemantics.ProjectSession.pas');
+  lStartIndex := Pos('function TDelphiSemanticProjectSession.BuildGlobalAnalysis',
+    lSource);
+  Assert.IsTrue(lStartIndex > 0, 'Expected BuildGlobalAnalysis implementation.');
+  lEndIndex := PosEx('function TDelphiSemanticProjectSession.BuildGlobalCacheIdentities',
+    lSource, lStartIndex);
+  Assert.IsTrue(lEndIndex > lStartIndex,
+    'Expected BuildGlobalAnalysis to appear before BuildGlobalCacheIdentities.');
+  lBody := Copy(lSource, lStartIndex, lEndIndex - lStartIndex);
+
+  Assert.IsTrue(ContainsText(lBody, 'BuildSnapshot'),
+    'Project-session global-vars analysis should use the session snapshot authority.');
+  Assert.IsTrue(ContainsText(lBody, 'AnalyzeSnapshot'),
+    'Global-vars analysis should consume snapshot-derived facts.');
+  Assert.IsFalse(ContainsText(lBody, 'ExtractProjectModels'),
+    'BuildGlobalAnalysis should not own a separate project model extraction path.');
+end;
+
+procedure TProjectSessionTests.ProjectSessionGlobalAnalysisReportsSnapshotCacheMetrics;
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lCachePath: string;
+  lDprPath: string;
+  lDprojPath: string;
+  lExtractionMilliseconds: Int64;
+  lIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lUnitPath: string;
+begin
+  lRootPath := ProjectSessionTempPath('global-analysis-snapshot-cache-metrics');
+  TDirectory.CreateDirectory(lRootPath);
+
+  lDprPath := TPath.Combine(lRootPath, 'GlobalAnalysisCacheMetrics.dpr');
+  lDprojPath := TPath.Combine(lRootPath, 'GlobalAnalysisCacheMetrics.dproj');
+  lUnitPath := TPath.Combine(lRootPath, 'GlobalAnalysisCacheMetricsUnit.pas');
+  lCachePath := CombinePath([lRootPath, '.dak', 'semantic-cache.sqlite3']);
+
+  TFile.WriteAllText(lDprPath, 'program GlobalAnalysisCacheMetrics;' + sLineBreak +
+    'uses GlobalAnalysisCacheMetricsUnit;' + sLineBreak + 'begin' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lDprojPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    sLineBreak + '  <PropertyGroup>' + sLineBreak +
+    '    <ProjectGuid>{3D3B94A9-B5F5-4F6D-8B9E-F55F3178419C}</ProjectGuid>' +
+    sLineBreak + '    <MainSource>GlobalAnalysisCacheMetrics.dpr</MainSource>' +
+    sLineBreak + '  </PropertyGroup>' + sLineBreak + '  <ItemGroup>' +
+    sLineBreak + '    <DCCReference Include="GlobalAnalysisCacheMetricsUnit.pas"/>' +
+    sLineBreak + '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+  TFile.WriteAllText(lUnitPath, 'unit GlobalAnalysisCacheMetricsUnit;' +
+    sLineBreak + 'interface' + sLineBreak + 'var' + sLineBreak +
+    '  GGlobalAnalysisMetricValue: Integer;' + sLineBreak + 'procedure TouchMetric;' +
+    sLineBreak + 'implementation' + sLineBreak + 'procedure TouchMetric;' +
+    sLineBreak + 'begin' + sLineBreak + '  Inc(GGlobalAnalysisMetricValue);' +
+    sLineBreak + 'end;' + sLineBreak + 'end.', TEncoding.UTF8);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojPath;
+  lOptions.SqliteCacheFileName := lCachePath;
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lAnalysis := lResult.Session.BuildGlobalAnalysis(lIdentities, lCacheMetrics,
+      lExtractionMilliseconds);
+    Assert.IsTrue(Length(lAnalysis.Declarations) > 0,
+      'Expected snapshot-backed global analysis to return declarations.');
+    Assert.AreEqual(2, Integer(Length(lIdentities)));
+    Assert.IsTrue(lCacheMetrics.CacheMisses > 0,
+      'Snapshot-backed global analysis should preserve cache miss metrics.');
+  finally
+    lResult.Session.Free;
+  end;
 end;
 
 procedure TProjectSessionTests.ProjectSessionDependencyGraphCollectsRecursiveProjectFacts;

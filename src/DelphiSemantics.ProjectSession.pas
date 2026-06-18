@@ -509,6 +509,19 @@ begin
     aCacheMetrics.SnapshotCacheUseful;
 end;
 
+function SnapshotBuildCacheMetricsAsSemanticCacheMetrics(
+  const aOptions: TDelphiSemanticOptions;
+  const aSnapshotMetrics: TDelphiSemanticProjectSnapshotBuildMetrics):
+  TDelphiSemanticCacheMetrics;
+begin
+  Result := Default(TDelphiSemanticCacheMetrics);
+  Result.CacheFileName := aOptions.SqliteCacheFileName;
+  Result.CacheKind := 'snapshot';
+  Result.CacheHits := aSnapshotMetrics.SnapshotCacheHits;
+  Result.CacheMisses := aSnapshotMetrics.SnapshotCacheMisses;
+  Result.Invalidations := aSnapshotMetrics.SnapshotCacheInvalidations;
+end;
+
 function ScopedSourceFileSet(const aScopedSourceFileNames: TArray<string>):
   TDictionary<string, Byte>;
 var
@@ -1071,14 +1084,21 @@ function TDelphiSemanticProjectSession.BuildGlobalAnalysis(out aCacheIdentities:
   TArray<TDelphiSemanticUnitCacheIdentity>; out aCacheMetrics: TDelphiSemanticCacheMetrics;
   out aExtractionMilliseconds: Int64): TDelphiSemanticGlobalAnalysis;
 var
-  lExtraction: TProjectModelExtractionResult;
+  lSnapshot: TDelphiProjectSnapshot;
 begin
-  lExtraction := ExtractProjectModels(fProject, fOptions, ProjectModelFileNames(fProject),
-    [], False);
-  aCacheIdentities := lExtraction.CacheIdentities;
-  aCacheMetrics := lExtraction.CacheMetrics;
-  aExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
-  Result := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits(lExtraction.Models);
+  aCacheIdentities := BuildGlobalCacheIdentities;
+  aCacheMetrics := Default(TDelphiSemanticCacheMetrics);
+  aExtractionMilliseconds := 0;
+  lSnapshot := BuildSnapshot;
+  try
+    aExtractionMilliseconds := fLastSnapshotBuildMetrics.SnapshotBuilderParseExtractMilliseconds +
+      fLastSnapshotBuildMetrics.SnapshotCacheUnitBuildMilliseconds;
+    aCacheMetrics := SnapshotBuildCacheMetricsAsSemanticCacheMetrics(fOptions,
+      fLastSnapshotBuildMetrics);
+    Result := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lSnapshot);
+  finally
+    lSnapshot.Free;
+  end;
 end;
 
 function TDelphiSemanticProjectSession.BuildGlobalCacheIdentities:
