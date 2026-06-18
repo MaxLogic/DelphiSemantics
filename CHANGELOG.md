@@ -73,6 +73,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- With-binding `BuildUnitIndex` now applies project-derived defines and source
+  lookup paths for project-file inputs, and reports project context failures as
+  deterministic model diagnostics.
 - maxTdb semantic benchmark runs now keep generated baseline artifacts under
   `-OutDir` by default; publishing to `docs\benchmarks` requires
   `-PromoteBaseline` and passes dirty/stale provenance gates.

@@ -4,7 +4,8 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Api, DelphiSemantics.Api.RemoveWith, DelphiSemantics.Api.RemoveWith.Compatibility;
+  DelphiSemantics.Api, DelphiSemantics.Api.RemoveWith, DelphiSemantics.Api.RemoveWith.Compatibility,
+  DelphiSemantics.Api.WithBinding;
 
 type
   [TestFixture]
@@ -31,6 +32,10 @@ type
     [Test]
     procedure LoadProjectContextReportsExplicitLspEnrichmentStatus;
     [Test]
+    procedure WithBindingBuildUnitIndexAppliesProjectDefines;
+    [Test]
+    procedure WithBindingBuildUnitIndexReportsMissingProjectContext;
+    [Test]
     procedure ScanWithAndSymbolIndexRoutesReturnStableShapes;
     [Test]
     procedure UsageRoutesReturnStableShapes;
@@ -51,8 +56,27 @@ implementation
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Model,
+  maxLogic.IOUtils,
   Test.Support;
 
+
+var
+  GApiTempRoot: string;
+
+function ApiTempRoot: string;
+begin
+  if GApiTempRoot = '' then
+    GApiTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+      'api-temp', 'default']));
+  TDirectory.CreateDirectory(GApiTempRoot);
+  Result := GApiTempRoot;
+end;
+
+function ApiTempPath(const aRelativePath: string): string;
+begin
+  Result := TPath.GetFullPath(TPath.Combine(ApiTempRoot, aRelativePath));
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(Result));
+end;
 
 function TApiTests.BlockerReason(const aPlan: TDelphiSemanticDeadCodeRemovalPlan;
   const aName: string): string;
@@ -233,6 +257,76 @@ begin
   Assert.AreEqual(lProjectFileName, lDiagnostic.FileName);
   Assert.AreEqual('LSP enrichment was requested, but no DelphiSemantics LSP enrichment adapter is configured.',
     lDiagnostic.Message);
+end;
+
+procedure TApiTests.WithBindingBuildUnitIndexAppliesProjectDefines;
+var
+  lDprFileName: string;
+  lDprojFileName: string;
+  lIndex: TDelphiSemanticUnitIndex;
+  lOptions: TDelphiSemanticApiOptions;
+begin
+  lDprFileName := ApiTempPath('withbinding-project-define\ApiProjectDefine.dpr');
+  lDprojFileName := ApiTempPath('withbinding-project-define\ApiProjectDefine.dproj');
+
+  TFile.WriteAllText(lDprFileName,
+    'program ApiProjectDefine;' + sLineBreak +
+    sLineBreak +
+    '{$IFDEF API_PROJECT_DEFINE}' + sLineBreak +
+    'type' + sLineBreak +
+    '  TApiProjectRecord = record' + sLineBreak +
+    '    Value: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    sLineBreak +
+    'var' + sLineBreak +
+    '  lRecord: TApiProjectRecord;' + sLineBreak +
+    '{$ENDIF}' + sLineBreak +
+    sLineBreak +
+    'begin' + sLineBreak +
+    '{$IFDEF API_PROJECT_DEFINE}' + sLineBreak +
+    '  with lRecord do' + sLineBreak +
+    '    Value := 7;' + sLineBreak +
+    '{$ENDIF}' + sLineBreak +
+    'end.', TEncoding.ASCII);
+  TFile.WriteAllText(lDprojFileName,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <ProjectGuid>{B98F61BE-6A87-4335-9F54-B539A0660C62}</ProjectGuid>' + sLineBreak +
+    '    <MainSource>ApiProjectDefine.dpr</MainSource>' + sLineBreak +
+    '    <Config Condition="''$(Config)''==''''">Debug</Config>' + sLineBreak +
+    '    <Platform Condition="''$(Platform)''==''''">Win32</Platform>' + sLineBreak +
+    '    <DCC_Define>API_PROJECT_DEFINE</DCC_Define>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '</Project>', TEncoding.ASCII);
+
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := lDprojFileName;
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win32';
+
+  lIndex := TDelphiSemanticWithBindingApi.BuildUnitIndex(lOptions);
+
+  Assert.IsTrue(lIndex.Success);
+  Assert.AreEqual(1, Integer(Length(lIndex.Bindings)),
+    'Project-file BuildUnitIndex must apply project DCC_Define before extracting with bindings.');
+end;
+
+procedure TApiTests.WithBindingBuildUnitIndexReportsMissingProjectContext;
+var
+  lIndex: TDelphiSemanticUnitIndex;
+  lOptions: TDelphiSemanticApiOptions;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := ApiTempPath('missing-project-context\MissingProject.dproj');
+
+  lIndex := TDelphiSemanticWithBindingApi.BuildUnitIndex(lOptions);
+
+  Assert.IsFalse(lIndex.Success);
+  Assert.IsFalse(lIndex.Model.Success);
+  Assert.AreEqual(1, Integer(Length(lIndex.Model.Diagnostics)),
+    'Project context failures must be reported through deterministic model diagnostics.');
+  Assert.AreEqual('PROJECT_FILE_NOT_FOUND', lIndex.Model.Diagnostics[0].Code);
+  Assert.AreEqual(lOptions.ProjectFileName, lIndex.Model.Diagnostics[0].FileName);
 end;
 
 procedure TApiTests.ScanWithAndSymbolIndexRoutesReturnStableShapes;

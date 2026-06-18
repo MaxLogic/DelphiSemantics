@@ -22,6 +22,7 @@ begin
   Result.EnvOptionsPath := aOptions.EnvOptionsPath;
   Result.EnvironmentVariables := aOptions.EnvironmentVariables;
   Result.AdditionalSourceFileNames := aOptions.AdditionalSourceFileNames;
+  Result.SearchPaths := aOptions.SearchPaths;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;
   Result.UseLspEnrichment := aOptions.UseLspEnrichment;
   Result.SkipWithBindingSemanticGraph := aOptions.SkipWithBindingSemanticGraph;
