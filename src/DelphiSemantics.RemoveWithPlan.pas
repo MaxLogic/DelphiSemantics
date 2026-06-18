@@ -181,8 +181,8 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.Hash, System.IOUtils, System.StrUtils,
-  System.SysUtils,
+  System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils,
+  System.StrUtils, System.SysUtils,
   DelphiSemantics.SourceConditionals, DelphiSemantics.SourceContext;
 
 type
@@ -253,6 +253,15 @@ type
     RootIndexes: TFinalBindingIndexArray;
     ChildIndexes: TFinalBindingChildIndexArray;
   end;
+
+  TFinalBindingInfo = record
+    Index: Integer;
+    FileName: string;
+    SemanticId: string;
+    Range: TDelphiSemanticRemoveWithSourceRange;
+  end;
+
+  TFinalBindingInfoArray = TArray<TFinalBindingInfo>;
 
 constructor TArrayRemoveWithPlanBindingSource.Create(
   const aBindings: TArray<TDelphiSemanticWithBinding>);
@@ -9825,26 +9834,6 @@ begin
     (not SameParityRange(BindingRange(aOuter), BindingRange(aInner)));
 end;
 
-function BindingContainsBindingForFinalTree(const aOuter,
-  aInner: TDelphiSemanticWithBinding;
-  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
-var
-  lInnerRange: TDelphiSemanticRemoveWithSourceRange;
-  lOuterRange: TDelphiSemanticRemoveWithSourceRange;
-begin
-  lOuterRange := BindingRange(aOuter);
-  lInnerRange := BindingRange(aInner);
-  if Assigned(aLineCache) then
-  begin
-    TrimRangeBeforeOuterElse(aOuter, aLineCache, lOuterRange);
-    TrimRangeBeforeOuterElse(aInner, aLineCache, lInnerRange);
-  end;
-  Result := SameText(aOuter.FileName, aInner.FileName) and
-    (not SameText(aOuter.SemanticId, aInner.SemanticId)) and
-    RangeContainsRange(lOuterRange, lInnerRange) and
-    (not SameParityRange(lOuterRange, lInnerRange));
-end;
-
 function TRemoveWithPlanBindingSource.BindingContainsBindingByIndex(
   const aOuterIndex, aInnerIndex: Integer): Boolean;
 begin
@@ -9868,35 +9857,130 @@ begin
   aIndexes[lIndex] := aIndex;
 end;
 
-function BindingSourceContainsBindingForFinalTree(
-  const aBindingSource: TRemoveWithPlanBindingSource;
-  const aOuterIndex, aInnerIndex: Integer;
-  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+function CompareRangeStart(const aLeft, aRight: TDelphiSemanticRemoveWithSourceRange):
+  Integer;
 begin
-  Result := BindingContainsBindingForFinalTree(
-    aBindingSource.BindingByIndex(aOuterIndex),
-    aBindingSource.BindingByIndex(aInnerIndex), aLineCache);
+  if aLeft.StartLine <> aRight.StartLine then
+    Exit(aLeft.StartLine - aRight.StartLine);
+  Result := aLeft.StartColumn - aRight.StartColumn;
 end;
 
-function DirectParentBindingIndex(
+function CompareRangeEndDescending(const aLeft, aRight:
+  TDelphiSemanticRemoveWithSourceRange): Integer;
+begin
+  if aLeft.EndLine <> aRight.EndLine then
+    Exit(aRight.EndLine - aLeft.EndLine);
+  Result := aRight.EndColumn - aLeft.EndColumn;
+end;
+
+function CompareFinalBindingInfo(const aLeft, aRight: TFinalBindingInfo): Integer;
+begin
+  Result := CompareText(aLeft.FileName, aRight.FileName);
+  if Result <> 0 then
+    Exit;
+  Result := CompareRangeStart(aLeft.Range, aRight.Range);
+  if Result <> 0 then
+    Exit;
+  Result := CompareRangeEndDescending(aLeft.Range, aRight.Range);
+  if Result <> 0 then
+    Exit;
+  Result := aLeft.Index - aRight.Index;
+end;
+
+function RangeEndsBeforeRangeStart(const aLeft, aRight:
+  TDelphiSemanticRemoveWithSourceRange): Boolean;
+begin
+  Result := (aLeft.EndLine < aRight.StartLine) or
+    ((aLeft.EndLine = aRight.StartLine) and (aLeft.EndColumn < aRight.StartColumn));
+end;
+
+function FinalBindingInfoContains(const aOuter, aInner: TFinalBindingInfo): Boolean;
+begin
+  Result := SameText(aOuter.FileName, aInner.FileName) and
+    (not SameText(aOuter.SemanticId, aInner.SemanticId)) and
+    RangeContainsRange(aOuter.Range, aInner.Range) and
+    (not SameParityRange(aOuter.Range, aInner.Range));
+end;
+
+function BuildFinalBindingInfos(
   const aBindingSource: TRemoveWithPlanBindingSource;
-  const aBindingIndex: Integer;
-  const aLineCache: TDelphiSemanticSourceContextCache): Integer;
+  const aLineCache: TDelphiSemanticSourceContextCache): TFinalBindingInfoArray;
 var
-  lCandidateIndex: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lBindingCount: Integer;
+  lBindingIndex: Integer;
+begin
+  lBindingCount := aBindingSource.BindingCount;
+  SetLength(Result, lBindingCount);
+  for lBindingIndex := 0 to lBindingCount - 1 do
+  begin
+    lBinding := aBindingSource.BindingByIndex(lBindingIndex);
+    Result[lBindingIndex].Index := lBindingIndex;
+    Result[lBindingIndex].FileName := lBinding.FileName;
+    Result[lBindingIndex].SemanticId := lBinding.SemanticId;
+    Result[lBindingIndex].Range := BindingRange(lBinding);
+    if Assigned(aLineCache) then
+      TrimRangeBeforeOuterElse(lBinding, aLineCache, Result[lBindingIndex].Range);
+  end;
+end;
+
+procedure PruneInactiveFinalBindingParents(var aActive: TFinalBindingInfoArray;
+  var aActiveCount: Integer; const aCurrent: TFinalBindingInfo);
+var
+  i: Integer;
+  lWriteIndex: Integer;
+begin
+  lWriteIndex := 0;
+  for i := 0 to aActiveCount - 1 do
+  begin
+    if SameText(aActive[i].FileName, aCurrent.FileName) and
+      (not RangeEndsBeforeRangeStart(aActive[i].Range, aCurrent.Range)) then
+    begin
+      aActive[lWriteIndex] := aActive[i];
+      Inc(lWriteIndex);
+    end;
+  end;
+  aActiveCount := lWriteIndex;
+end;
+
+function FindActiveFinalBindingParent(const aActive: TFinalBindingInfoArray;
+  const aActiveCount: Integer; const aCurrent: TFinalBindingInfo): Integer;
+var
+  i: Integer;
 begin
   Result := -1;
-  for lCandidateIndex := 0 to Pred(aBindingSource.BindingCount) do
+  for i := aActiveCount - 1 downto 0 do
   begin
-    if lCandidateIndex = aBindingIndex then
-      Continue;
-    if not BindingSourceContainsBindingForFinalTree(aBindingSource,
-      lCandidateIndex, aBindingIndex, aLineCache) then
-      Continue;
-    if (Result < 0) or
-      BindingSourceContainsBindingForFinalTree(aBindingSource, Result,
-      lCandidateIndex, aLineCache) then
-      Result := lCandidateIndex;
+    if FinalBindingInfoContains(aActive[i], aCurrent) then
+      Exit(aActive[i].Index);
+  end;
+end;
+
+function BuildFinalBindingParentIndexes(
+  const aBindingInfos: TFinalBindingInfoArray): TFinalBindingIndexArray;
+var
+  lActive: TFinalBindingInfoArray;
+  lActiveCount: Integer;
+  lInfo: TFinalBindingInfo;
+  lSorted: TFinalBindingInfoArray;
+  i: Integer;
+begin
+  SetLength(Result, Length(aBindingInfos));
+  for i := 0 to High(Result) do
+    Result[i] := -1;
+
+  lSorted := Copy(aBindingInfos);
+  TArray.Sort<TFinalBindingInfo>(lSorted, TComparer<TFinalBindingInfo>.Construct(
+    CompareFinalBindingInfo));
+
+  SetLength(lActive, Length(lSorted));
+  lActiveCount := 0;
+  for lInfo in lSorted do
+  begin
+    PruneInactiveFinalBindingParents(lActive, lActiveCount, lInfo);
+    Result[lInfo.Index] := FindActiveFinalBindingParent(lActive, lActiveCount, lInfo);
+    lActive[lActiveCount] := lInfo;
+    Inc(lActiveCount);
   end;
 end;
 
@@ -9904,15 +9988,20 @@ function BuildFinalBindingTree(
   const aBindingSource: TRemoveWithPlanBindingSource;
   const aLineCache: TDelphiSemanticSourceContextCache): TFinalBindingTree;
 var
+  lBindingCount: Integer;
   lBindingIndex: Integer;
+  lBindingInfos: TFinalBindingInfoArray;
   lParentIndex: Integer;
+  lParentIndexes: TFinalBindingIndexArray;
 begin
   Result := Default(TFinalBindingTree);
-  SetLength(Result.ChildIndexes, aBindingSource.BindingCount);
-  for lBindingIndex := 0 to Pred(aBindingSource.BindingCount) do
+  lBindingCount := aBindingSource.BindingCount;
+  lBindingInfos := BuildFinalBindingInfos(aBindingSource, aLineCache);
+  lParentIndexes := BuildFinalBindingParentIndexes(lBindingInfos);
+  SetLength(Result.ChildIndexes, lBindingCount);
+  for lBindingIndex := 0 to lBindingCount - 1 do
   begin
-    lParentIndex := DirectParentBindingIndex(aBindingSource, lBindingIndex,
-      aLineCache);
+    lParentIndex := lParentIndexes[lBindingIndex];
     if lParentIndex < 0 then
       AddFinalBindingIndex(Result.RootIndexes, lBindingIndex)
     else
@@ -10179,6 +10268,7 @@ function PlanFromBindingSource(const aFacts: TRemoveWithPlanFacts;
   const aModelVersion: string): TDelphiSemanticRemoveWithPlan;
 var
   lBinding: TDelphiSemanticWithBinding;
+  lBindingCount: Integer;
   lBindingTree: TFinalBindingTree;
   lBindingIndex: Integer;
   lCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
@@ -10219,8 +10309,9 @@ begin
   lReservedNames := TDictionary<string, Integer>.Create;
   try
     lStatementIndex := 0;
-    SetLength(lCandidateEdits, aBindingSource.BindingCount);
-    for lBindingIndex := 0 to Pred(aBindingSource.BindingCount) do
+    lBindingCount := aBindingSource.BindingCount;
+    SetLength(lCandidateEdits, lBindingCount);
+    for lBindingIndex := 0 to lBindingCount - 1 do
     begin
       lBinding := aBindingSource.BindingByIndex(lBindingIndex);
       Inc(lStatementIndex);

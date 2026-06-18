@@ -2072,6 +2072,11 @@ begin
   lTreeStart := Pos('function BuildFinalBindingTree', lSourceText);
   Assert.IsTrue(lTreeStart > 0,
     'Final DTO planning must precompute the direct nested binding tree once.');
+  Assert.IsFalse(ContainsText(lSourceText, 'function DirectParentBindingIndex'),
+    'Final binding tree construction must not run a full parent search per binding.');
+  Assert.IsFalse(ContainsText(lSourceText,
+    'for lCandidateIndex := 0 to Pred(aBindingSource.BindingCount)'),
+    'Final binding tree construction must not scan all bindings for each binding parent.');
 
   lBuildStatementStart := Pos('function BuildFinalStatement', lSourceText);
   lBuildStatementEnd := lTreeStart;

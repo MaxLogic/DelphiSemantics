@@ -98,6 +98,52 @@ exit 0
   Set-Content -LiteralPath $Path -Value $lScript -Encoding UTF8
 }
 
+function Write-DiagnosticSensitiveDakScript {
+  param(
+    [string]$Path,
+    [string]$ArgsLogPath
+  )
+
+  $lScript = @"
+param([Parameter(ValueFromRemainingArguments = `$true)][string[]]`$Arguments)
+Set-Content -LiteralPath '$ArgsLogPath' -Value (`$Arguments -join ' ') -Encoding UTF8
+`$lModeIndex = [Array]::IndexOf(`$Arguments, '--mode')
+`$lMode = if (`$lModeIndex -ge 0) { `$Arguments[`$lModeIndex + 1] } else { 'scan' }
+`$lDiagnosticsIndex = [Array]::IndexOf(`$Arguments, '--diagnostics')
+`$lHasDiagnostics = (`$lDiagnosticsIndex -ge 0) -and
+  (`$lDiagnosticsIndex + 1 -lt `$Arguments.Count) -and
+  (`$Arguments[`$lDiagnosticsIndex + 1] -eq 'true')
+if (`$lMode -eq 'plan') {
+  `$lPlan = [ordered]@{
+    operation = 'remove-with'
+    mode = 'plan'
+    summary = [ordered]@{ withStatements = 667; plannedEdits = 215 }
+    withStatements = @()
+    plannedEdits = @()
+    semanticDtoParity = [ordered]@{
+      status = 'passed'
+      mismatchCount = 0
+      summaryText = 'test parity'
+      mismatches = @()
+    }
+  }
+  if (`$lHasDiagnostics) {
+    `$lPlan.plannerPhaseMetrics = [ordered]@{ totalMs = 1 }
+  }
+  `$lPlan | ConvertTo-Json -Depth 8
+} else {
+  [ordered]@{
+    operation = 'remove-with'
+    mode = 'scan'
+    summary = [ordered]@{ withStatements = 667 }
+    withStatements = @()
+  } | ConvertTo-Json -Depth 8
+}
+exit 0
+"@
+  Set-Content -LiteralPath $Path -Value $lScript -Encoding UTF8
+}
+
 function Initialize-TestGitRepository {
   param([string]$Path)
 
@@ -316,6 +362,27 @@ function Test-BenchmarkDoesNotPromoteBaselineByDefault {
     'Default benchmark run must still write baseline.json under OutDir.'
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $lWorkspace 'docs\benchmarks'))) `
     'Default benchmark run must not promote artifacts to docs\benchmarks.'
+}
+
+function Test-RemoveWithPlanBenchmarkRequestsDiagnosticForPlannerMetric {
+  $lWorkspace = New-TestWorkspace 'plan-diagnostics-for-metrics'
+  $lDak = Join-Path $lWorkspace 'dak.ps1'
+  $lArgsLog = Join-Path $lWorkspace 'dak.args.txt'
+  Write-DiagnosticSensitiveDakScript -Path $lDak -ArgsLogPath $lArgsLog
+
+  & pwsh -NoProfile -ExecutionPolicy Bypass -File $BenchmarkScript `
+    -DakExe $lDak -Project (Join-Path $lWorkspace 'project.dpr') `
+    -Workflow remove-with-plan-all -Repeat 1 -CacheMode cold `
+    -OutDir $lWorkspace -NoBaselineCopy `
+    1> (Join-Path $lWorkspace 'diagnostics.stdout.txt') `
+    2> (Join-Path $lWorkspace 'diagnostics.stderr.txt')
+
+  Assert-Equal 0 $LASTEXITCODE `
+    'remove-with-plan-all benchmark must request diagnostics so planner metrics are emitted.'
+  $lArgs = Get-Content -LiteralPath $lArgsLog -Raw
+  if ($lArgs -notmatch '--diagnostics true') {
+    throw 'remove-with-plan-all benchmark command must pass --diagnostics true.'
+  }
 }
 
 function Test-BenchmarkPromotesBaselineOnlyWhenExplicit {

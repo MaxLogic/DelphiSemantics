@@ -860,6 +860,17 @@ function Get-BenchmarkArguments {
 
   $lArguments = New-Object System.Collections.Generic.List[string]
   $lArguments.AddRange([string[]]$Benchmark.Arguments)
+  if (Requires-PlannerPhaseMetrics -Row $Benchmark) {
+    $lDiagnosticsIndex = $lArguments.IndexOf('--diagnostics')
+    if ($lDiagnosticsIndex -lt 0) {
+      $lArguments.Add('--diagnostics')
+      $lArguments.Add('true')
+    } elseif ($lDiagnosticsIndex + 1 -lt $lArguments.Count) {
+      $lArguments[$lDiagnosticsIndex + 1] = 'true'
+    } else {
+      $lArguments.Add('true')
+    }
+  }
   if ($CacheMode -ne 'default') {
     $lArguments.Add('--semantic-cache')
     $lArguments.Add($SemanticCacheFile)
