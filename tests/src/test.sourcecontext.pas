@@ -24,6 +24,8 @@ type
     [Test]
     procedure MissingSourceContextFileReturnsFalse;
     [Test]
+    procedure SourceContextCacheRefreshesWhenFileChanges;
+    [Test]
     procedure ParseFindingLocationExtractsColumn;
     [Test]
     procedure SourceContextCandidateUsesTokenAtColumn;
@@ -48,7 +50,7 @@ type
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils,
+  System.DateUtils, System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
   Test.Support;
@@ -170,6 +172,80 @@ begin
   Assert.IsFalse(TDelphiSemanticSourceContext.TryResolve(lProject, 'MissingUnit.pas', 7, 1,
     lContext, lError));
   Assert.IsTrue(Pos('Could not resolve source file', lError) > 0);
+end;
+
+procedure WriteSourceContextRefreshFixture(const aFileName, aLineBreak, aMarker: string;
+  const aInactive: Boolean; const aTimestampUtc: TDateTime);
+var
+  lText: string;
+begin
+  if aInactive then
+    lText := 'unit CacheRefreshUnit;' + aLineBreak +
+      'interface' + aLineBreak +
+      '{$IFDEF NEVER}' + aLineBreak +
+      '  ' + aMarker + aLineBreak +
+      '{$ENDIF}' + aLineBreak +
+      'implementation' + aLineBreak +
+      'end.'
+  else
+    lText := 'unit CacheRefreshUnit;' + aLineBreak +
+      'interface' + aLineBreak +
+      'implementation' + aLineBreak +
+      '  ' + aMarker + aLineBreak +
+      'end.';
+
+  TFile.WriteAllText(aFileName, lText, TEncoding.UTF8);
+  TFile.SetLastWriteTimeUtc(aFileName, aTimestampUtc);
+end;
+
+procedure TSourceContextTests.SourceContextCacheRefreshesWhenFileChanges;
+var
+  lCache: TDelphiSemanticSourceContextCache;
+  lContext: TDelphiSemanticSourceContextSnippet;
+  lError: string;
+  lFileName: string;
+  lLine: string;
+  lProject: TDelphiSemanticProjectInfo;
+  lRangeText: string;
+  lSource: TDelphiSemanticSourceFile;
+  lTimestampUtc: TDateTime;
+begin
+  lFileName := TPath.Combine(SourceContextTempPath('cache-refresh'), 'CacheRefreshUnit.pas');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lFileName));
+  lTimestampUtc := EncodeDateTime(2026, 6, 18, 8, 0, 0, 0);
+  WriteSourceContextRefreshFixture(lFileName, #13#10, 'StaleValue := 1;', True,
+    lTimestampUtc);
+
+  lCache := TDelphiSemanticSourceContextCache.Create;
+  try
+    Assert.IsTrue(lCache.TryGetLine(lFileName, 4, lLine));
+    Assert.AreEqual('  StaleValue := 1;', lLine);
+    Assert.IsTrue(lCache.LineHasConditionalDirective(lFileName, 3));
+    Assert.IsTrue(lCache.InsideInactiveNeverConditionalRegion(lFileName, 1, 4));
+    Assert.AreEqual(#13#10, lCache.LineBreakForFile(lFileName));
+
+    WriteSourceContextRefreshFixture(lFileName, #10, 'FreshValue := 2;', False,
+      IncSecond(lTimestampUtc, 2));
+
+    Assert.IsTrue(lCache.TryGetLine(lFileName, 4, lLine));
+    Assert.AreEqual('  FreshValue := 2;', lLine);
+    Assert.IsFalse(lCache.LineHasConditionalDirective(lFileName, 3));
+    Assert.IsFalse(lCache.InsideInactiveNeverConditionalRegion(lFileName, 1, 4));
+    Assert.AreEqual(#10, lCache.LineBreakForFile(lFileName));
+    Assert.IsTrue(lCache.TryLoad(lFileName, lSource, lError), lError);
+    Assert.IsTrue(Pos('FreshValue := 2;', lSource.Text) > 0);
+    Assert.IsFalse(Pos('StaleValue := 1;', lSource.Text) > 0);
+    Assert.IsTrue(lCache.TryExtractRange(lFileName, 4, 3, 4, 12, lRangeText));
+    Assert.AreEqual('FreshValue', lRangeText);
+
+    lProject := Default(TDelphiSemanticProjectInfo);
+    Assert.IsTrue(TDelphiSemanticSourceContext.TryResolve(lProject, lFileName, 4, 1,
+      lCache, lContext, lError), lError);
+    Assert.IsTrue(Pos('FreshValue := 2;', String.Join(sLineBreak, lContext.Lines)) > 0);
+    Assert.IsFalse(Pos('StaleValue := 1;', String.Join(sLineBreak, lContext.Lines)) > 0);
+  finally
+    lCache.Free;
+  end;
 end;
 
 procedure TSourceContextTests.ParseFindingLocationExtractsColumn;

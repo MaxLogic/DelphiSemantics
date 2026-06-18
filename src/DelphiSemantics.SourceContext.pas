@@ -24,7 +24,14 @@ type
 
   TDelphiSemanticSourceContextCache = class
   private
-    fFiles: TDictionary<string, TDelphiSemanticSourceFile>;
+    type
+      TCacheEntry = record
+        LastWriteTimeUtc: TDateTime;
+        Size: Int64;
+        Source: TDelphiSemanticSourceFile;
+      end;
+    var
+      fFiles: TDictionary<string, TCacheEntry>;
     class function CacheKey(const aFileName: string): string; static;
   public
     constructor Create;
@@ -180,7 +187,7 @@ end;
 constructor TDelphiSemanticSourceContextCache.Create;
 begin
   inherited Create;
-  fFiles := TDictionary<string, TDelphiSemanticSourceFile>.Create;
+  fFiles := TDictionary<string, TCacheEntry>.Create;
 end;
 
 destructor TDelphiSemanticSourceContextCache.Destroy;
@@ -192,9 +199,12 @@ end;
 function TDelphiSemanticSourceContextCache.TryLoad(const aFileName: string;
   out aSource: TDelphiSemanticSourceFile; out aError: string): Boolean;
 var
+  lEntry: TCacheEntry;
   lKey: string;
   lLines: TStringList;
   lResult: TDelphiSemanticSourceLoadResult;
+  lSize: Int64;
+  lTimestampUtc: TDateTime;
 begin
   aSource := Default(TDelphiSemanticSourceFile);
   aError := '';
@@ -205,8 +215,14 @@ begin
   end;
 
   lKey := CacheKey(aFileName);
-  if fFiles.TryGetValue(lKey, aSource) then
+  lTimestampUtc := TFile.GetLastWriteTimeUtc(aFileName);
+  lSize := TFile.GetSize(aFileName);
+  if fFiles.TryGetValue(lKey, lEntry) and
+    (lEntry.LastWriteTimeUtc = lTimestampUtc) and (lEntry.Size = lSize) then
+  begin
+    aSource := lEntry.Source;
     Exit(True);
+  end;
 
   lResult := TDelphiSemanticSourceLoader.LoadFile(aFileName);
   if not lResult.Success then
@@ -227,7 +243,10 @@ begin
     lLines.Free;
   end;
 
-  fFiles.AddOrSetValue(lKey, aSource);
+  lEntry.LastWriteTimeUtc := lTimestampUtc;
+  lEntry.Size := lSize;
+  lEntry.Source := aSource;
+  fFiles.AddOrSetValue(lKey, lEntry);
   Result := True;
 end;
 

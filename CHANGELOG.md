@@ -228,6 +228,9 @@
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
 
 ### Fixed
+- Source-context caches now refresh cached source text, line maps,
+  inactive-region state, and line-break provenance when the underlying file's
+  timestamp or size changes during a long-lived run.
 - Dead-code safety checks now use loaded model or snapshot source text instead
   of rereading files from disk, preserving message/export/initialization/
   finalization blockers for stale or snapshot-backed reports.
