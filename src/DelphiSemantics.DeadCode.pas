@@ -89,7 +89,8 @@ type
     fAmbiguousSymbolIds: TDictionary<string, Boolean>;
     fResolvedCountsBySymbolId: TDictionary<string, Integer>;
     fSameUnitNameCounts: TDictionary<string, Integer>;
-    fUnresolvedNames: TDictionary<string, Boolean>;
+    fUnresolvedReferenceKeys: TDictionary<string, Boolean>;
+    class function ReferenceScopeKey(const aSourceKind, aUnitName, aName: string): string; static;
     class function SameUnitNameKey(const aUnitName, aName: string): string; static;
     class function SymbolKey(const aId: TDelphiSemanticSymbolId): string; static;
     procedure IncrementCount(const aMap: TDictionary<string, Integer>; const aKey: string);
@@ -101,7 +102,7 @@ type
     function CountSameUnitNameReferences(const aSymbol: TDelphiSemanticIndexedSymbol):
       Integer;
     function HasAmbiguousReference(const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
-    function HasUnresolvedReferenceByName(const aSymbol: TDelphiSemanticIndexedSymbol):
+    function HasUnresolvedReferenceInScope(const aSymbol: TDelphiSemanticIndexedSymbol):
       Boolean;
   end;
 
@@ -241,7 +242,7 @@ begin
   fAmbiguousSymbolIds := TDictionary<string, Boolean>.Create(lComparer);
   fResolvedCountsBySymbolId := TDictionary<string, Integer>.Create(lComparer);
   fSameUnitNameCounts := TDictionary<string, Integer>.Create(lComparer);
-  fUnresolvedNames := TDictionary<string, Boolean>.Create(lComparer);
+  fUnresolvedReferenceKeys := TDictionary<string, Boolean>.Create(lComparer);
 
   for lReference in aIndex.References do
   begin
@@ -255,13 +256,14 @@ begin
       for lCandidateId in lReference.CandidateSymbolIds do
         fAmbiguousSymbolIds.AddOrSetValue(SymbolKey(lCandidateId), True);
     end else if SameText(lReference.Status, 'unresolved') then
-      fUnresolvedNames.AddOrSetValue(lReference.Name, True);
+      fUnresolvedReferenceKeys.AddOrSetValue(ReferenceScopeKey(lReference.SourceKind,
+        lReference.UnitName, lReference.Name), True);
   end;
 end;
 
 destructor TDeadCodeReferenceIndex.Destroy;
 begin
-  fUnresolvedNames.Free;
+  fUnresolvedReferenceKeys.Free;
   fSameUnitNameCounts.Free;
   fResolvedCountsBySymbolId.Free;
   fAmbiguousSymbolIds.Free;
@@ -291,10 +293,11 @@ begin
   Result := fAmbiguousSymbolIds.ContainsKey(SymbolKey(aSymbol.Id));
 end;
 
-function TDeadCodeReferenceIndex.HasUnresolvedReferenceByName(
+function TDeadCodeReferenceIndex.HasUnresolvedReferenceInScope(
   const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
 begin
-  Result := fUnresolvedNames.ContainsKey(aSymbol.Name);
+  Result := fUnresolvedReferenceKeys.ContainsKey(ReferenceScopeKey(aSymbol.SourceKind,
+    aSymbol.UnitName, aSymbol.Name));
 end;
 
 procedure TDeadCodeReferenceIndex.IncrementCount(const aMap: TDictionary<string, Integer>;
@@ -311,6 +314,12 @@ class function TDeadCodeReferenceIndex.SameUnitNameKey(const aUnitName,
   aName: string): string;
 begin
   Result := aUnitName + #1 + aName;
+end;
+
+class function TDeadCodeReferenceIndex.ReferenceScopeKey(const aSourceKind, aUnitName,
+  aName: string): string;
+begin
+  Result := aSourceKind + #1 + aUnitName + #1 + aName;
 end;
 
 class function TDeadCodeReferenceIndex.SymbolKey(const aId: TDelphiSemanticSymbolId):
@@ -412,18 +421,6 @@ var
 begin
   for lReference in aIndex.References do
     if SameText(lReference.Status, 'ambiguous') and HasSymbolCandidate(lReference, aSymbol) then
-      Exit(True);
-
-  Result := False;
-end;
-
-function HasUnresolvedReferenceByName(const aIndex: TDelphiSemanticProjectSymbolIndex;
-  const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
-var
-  lReference: TDelphiSemanticIndexedReference;
-begin
-  for lReference in aIndex.References do
-    if SameText(lReference.Status, 'unresolved') and SameText(lReference.Name, aSymbol.Name) then
       Exit(True);
 
   Result := False;
@@ -653,7 +650,7 @@ class function TDelphiSemanticDeadCodeReporter.Report(
   const aProfile: TDelphiSemanticDeadCodeSafetyProfile): TDelphiSemanticDeadCodeReport;
 var
   lBlockers: TList<string>;
-  lBlockedUnresolvedNames: TDictionary<string, Boolean>;
+  lBlockedUnresolvedReferenceKeys: TDictionary<string, Boolean>;
   lCandidate: TDelphiSemanticDeadCodeCandidate;
   lCandidates: TList<TDelphiSemanticDeadCodeCandidate>;
   lIndex: TDelphiSemanticProjectSymbolIndex;
@@ -670,7 +667,7 @@ begin
 
   lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
   lCandidates := TList<TDelphiSemanticDeadCodeCandidate>.Create;
-  lBlockedUnresolvedNames := TDictionary<string, Boolean>.Create(
+  lBlockedUnresolvedReferenceKeys := TDictionary<string, Boolean>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lReferenceIndex := TDeadCodeReferenceIndex.Create(lIndex);
   lSourceIndex := TDeadCodeSourceIndex.Create(aContext);
@@ -692,12 +689,12 @@ begin
           AddBlocker(lBlockers, 'initialization-hook');
         if lReferenceIndex.HasAmbiguousReference(lSymbol) then
           AddBlocker(lBlockers, 'ambiguous-reference');
-        if lReferenceIndex.HasUnresolvedReferenceByName(lSymbol) then
+        if lReferenceIndex.HasUnresolvedReferenceInScope(lSymbol) then
           AddBlocker(lBlockers, 'unresolved-reference');
 
       lReferenceCount := lReferenceIndex.CountResolvedReferences(lSymbol);
       if (lReferenceCount = 0) and not lReferenceIndex.HasAmbiguousReference(lSymbol) and
-        not lReferenceIndex.HasUnresolvedReferenceByName(lSymbol) then
+        not lReferenceIndex.HasUnresolvedReferenceInScope(lSymbol) then
         lReferenceCount := lReferenceIndex.CountSameUnitNameReferences(lSymbol);
         if (lReferenceCount > 0) and (lBlockers.Count = 0) then
         Continue;
@@ -720,15 +717,17 @@ begin
 
         lCandidates.Add(lCandidate);
         if CandidateHasBlocker(lCandidate, 'unresolved-reference') then
-          lBlockedUnresolvedNames.AddOrSetValue(lCandidate.Name, True);
+          lBlockedUnresolvedReferenceKeys.AddOrSetValue(TDeadCodeReferenceIndex.ReferenceScopeKey(
+            'project-source', lCandidate.UnitName, lCandidate.Name), True);
       finally
         lBlockers.Free;
       end;
     end;
 
     for lReference in lIndex.References do
-      if SameText(lReference.Status, 'unresolved') and not lBlockedUnresolvedNames.ContainsKey(
-        lReference.Name) then
+      if SameText(lReference.Status, 'unresolved') and not lBlockedUnresolvedReferenceKeys.ContainsKey(
+        TDeadCodeReferenceIndex.ReferenceScopeKey(lReference.SourceKind, lReference.UnitName,
+        lReference.Name)) then
       begin
         lSymbol := Default(TDelphiSemanticIndexedSymbol);
         lSymbol.Id.Value := LowerCase(lReference.UnitName) + ':unresolved:' +
@@ -746,7 +745,8 @@ begin
         begin
           lCandidates.Add(MakeCandidate(lSymbol, 'blocked', 'unresolved-reference-risk',
             lProfile, 0, ['unresolved-reference']));
-          lBlockedUnresolvedNames.AddOrSetValue(lReference.Name, True);
+          lBlockedUnresolvedReferenceKeys.AddOrSetValue(TDeadCodeReferenceIndex.ReferenceScopeKey(
+            lReference.SourceKind, lReference.UnitName, lReference.Name), True);
         end;
       end;
 
@@ -757,7 +757,7 @@ begin
   finally
     lSourceIndex.Free;
     lReferenceIndex.Free;
-    lBlockedUnresolvedNames.Free;
+    lBlockedUnresolvedReferenceKeys.Free;
     lCandidates.Free;
   end;
 end;

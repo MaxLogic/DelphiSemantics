@@ -19,14 +19,20 @@ type
   private
     function CandidateHasBlocker(const aReport: TDelphiSemanticDeadCodeReport;
       const aName, aBlocker: string): Boolean;
+    function CandidateHasBlockerInUnit(const aReport: TDelphiSemanticDeadCodeReport;
+      const aName, aUnitName, aKind, aBlocker: string): Boolean;
     function CandidateStatus(const aReport: TDelphiSemanticDeadCodeReport;
       const aName: string): string;
+    function CandidateStatusInUnit(const aReport: TDelphiSemanticDeadCodeReport;
+      const aName, aUnitName, aKind: string): string;
     function LoadContext: TDelphiSemanticSymbolQueryContext;
   public
     [Test]
     procedure DeadCodeProfilesParseFormatAndRejectUnknown;
     [Test]
     procedure ReportsConservativeDeadCodeStatuses;
+    [Test]
+    procedure UnresolvedReferenceBlockersStayInSourceUnit;
     [Test]
     procedure SafetyGuardsUseModelSourceTextAfterDiskChanges;
     [Test]
@@ -83,6 +89,23 @@ begin
   Result := False;
 end;
 
+function TDeadCodeTests.CandidateHasBlockerInUnit(const aReport:
+  TDelphiSemanticDeadCodeReport; const aName, aUnitName, aKind,
+  aBlocker: string): Boolean;
+var
+  lBlocker: string;
+  lCandidate: TDelphiSemanticDeadCodeCandidate;
+begin
+  for lCandidate in aReport.Candidates do
+    if SameText(lCandidate.Name, aName) and SameText(lCandidate.UnitName, aUnitName) and
+      SameText(lCandidate.Kind, aKind) then
+      for lBlocker in lCandidate.Blockers do
+        if SameText(lBlocker, aBlocker) then
+          Exit(True);
+
+  Result := False;
+end;
+
 function TDeadCodeTests.CandidateStatus(const aReport: TDelphiSemanticDeadCodeReport;
   const aName: string): string;
 var
@@ -90,6 +113,19 @@ var
 begin
   for lCandidate in aReport.Candidates do
     if SameText(lCandidate.Name, aName) then
+      Exit(lCandidate.Status);
+
+  Result := '';
+end;
+
+function TDeadCodeTests.CandidateStatusInUnit(const aReport:
+  TDelphiSemanticDeadCodeReport; const aName, aUnitName, aKind: string): string;
+var
+  lCandidate: TDelphiSemanticDeadCodeCandidate;
+begin
+  for lCandidate in aReport.Candidates do
+    if SameText(lCandidate.Name, aName) and SameText(lCandidate.UnitName, aUnitName) and
+      SameText(lCandidate.Kind, aKind) then
       Exit(lCandidate.Status);
 
   Result := '';
@@ -194,6 +230,73 @@ begin
   Assert.IsTrue(CandidateHasBlocker(lReport, 'AmbiguousGlobal', 'ambiguous-reference'));
   Assert.IsTrue(CandidateHasBlocker(lReport, 'MissingExternalSymbol', 'unresolved-reference'));
   Assert.IsTrue(CandidateHasBlocker(lReport, 'ExternalOnlySymbol', 'unresolved-reference'));
+end;
+
+procedure TDeadCodeTests.UnresolvedReferenceBlockersStayInSourceUnit;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lReference: TDelphiSemanticReference;
+  lReport: TDelphiSemanticDeadCodeReport;
+  lUnresolvedUnit: TDelphiSemanticUnitModel;
+  lUnusedUnit: TDelphiSemanticUnitModel;
+begin
+  lUnresolvedUnit := Default(TDelphiSemanticUnitModel);
+  lUnresolvedUnit.Success := True;
+  lUnresolvedUnit.UnitName := 'UnresolvedUseUnit';
+  lUnresolvedUnit.FileName := DeadCodeTempPath('unresolved-reference-use.pas');
+  lUnresolvedUnit.SourceText :=
+    'unit UnresolvedUseUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Touch;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  SharedHook := 1;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  lReference := Default(TDelphiSemanticReference);
+  lReference.Name := 'SharedHook';
+  lReference.SectionKind := 'implementation';
+  lReference.Line := 6;
+  lReference.Column := 3;
+  lReference.EndLine := 6;
+  lReference.EndColumn := 12;
+  lUnresolvedUnit.References := [lReference];
+
+  lUnusedUnit := Default(TDelphiSemanticUnitModel);
+  lUnusedUnit.Success := True;
+  lUnusedUnit.UnitName := 'UnusedHookUnit';
+  lUnusedUnit.FileName := DeadCodeTempPath('unresolved-reference-unused.pas');
+  lUnusedUnit.SourceText :=
+    'unit UnusedHookUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'var' + sLineBreak +
+    '  SharedHook: Integer;' + sLineBreak +
+    'end.';
+  lDeclaration := Default(TDelphiSemanticDeclaration);
+  lDeclaration.Name := 'SharedHook';
+  lDeclaration.Kind := 'var';
+  lDeclaration.SectionKind := 'implementation';
+  lDeclaration.Line := 5;
+  lDeclaration.Column := 3;
+  lUnusedUnit.Declarations := [lDeclaration];
+
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel := lUnresolvedUnit;
+  lContext.IndexedUnitModels := [lUnusedUnit];
+  lContext.IndexedUnitSourceKinds := ['project-source'];
+
+  lReport := TDelphiSemanticApi.ReportDeadCode(lContext, 'audit');
+
+  Assert.AreEqual('definitely-unused', CandidateStatusInUnit(lReport, 'SharedHook',
+    'UnusedHookUnit', 'var'), DescribeCandidates(lReport));
+  Assert.IsFalse(CandidateHasBlockerInUnit(lReport, 'SharedHook', 'UnusedHookUnit', 'var',
+    'unresolved-reference'), DescribeCandidates(lReport));
+  Assert.AreEqual('blocked', CandidateStatusInUnit(lReport, 'SharedHook',
+    'UnresolvedUseUnit', 'unresolved-reference'), DescribeCandidates(lReport));
+  Assert.IsTrue(CandidateHasBlockerInUnit(lReport, 'SharedHook', 'UnresolvedUseUnit',
+    'unresolved-reference', 'unresolved-reference'), DescribeCandidates(lReport));
 end;
 
 procedure TDeadCodeTests.SafetyGuardsUseModelSourceTextAfterDiskChanges;
