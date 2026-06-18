@@ -11,6 +11,8 @@ param(
   [switch]$List,
   [switch]$SummarizeOnly,
   [switch]$AllowHistoricalSummary,
+  [switch]$AllowHistoricalPromotion,
+  [switch]$PromoteBaseline,
   [switch]$NoBaselineCopy
 )
 
@@ -56,6 +58,45 @@ function Get-GitSha {
   }
 
   return ''
+}
+
+function Test-GitDirty {
+  param([string]$Path)
+
+  try {
+    $lRepositoryRoot = git -C $Path rev-parse --show-toplevel 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      return $false
+    }
+    $lExpectedRoot = [IO.Path]::GetFullPath($Path).TrimEnd([IO.Path]::DirectorySeparatorChar,
+      [IO.Path]::AltDirectorySeparatorChar)
+    $lActualRoot = [IO.Path]::GetFullPath([string]$lRepositoryRoot).TrimEnd(
+      [IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    if ($lActualRoot -ne $lExpectedRoot) {
+      return $false
+    }
+
+    git -C $Path diff --quiet --ignore-submodules -- 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      return $true
+    }
+
+    git -C $Path diff --cached --quiet --ignore-submodules -- 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      return $true
+    }
+
+    $lUntracked = @(git -C $Path ls-files --others --exclude-standard 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+      return $true
+    }
+
+    return $lUntracked.Count -gt 0
+  } catch {
+    Write-Verbose "Unable to read git dirty state from $Path"
+  }
+
+  return $false
 }
 
 function Get-ObjectPropertyValue {
@@ -243,6 +284,42 @@ function Read-ResultCount {
   } catch {
     return ''
   }
+}
+
+function Get-BenchmarkPromotionBlocker {
+  param(
+    [object]$Summary,
+    [string]$DelphiSemanticsRoot,
+    [string]$DakRoot,
+    [switch]$AllowHistoricalPromotion
+  )
+
+  $lBlockers = New-Object System.Collections.Generic.List[string]
+  if (Test-GitDirty -Path $DelphiSemanticsRoot) {
+    $lBlockers.Add("DelphiSemantics workspace is dirty: $DelphiSemanticsRoot")
+  }
+  if ((-not [string]::IsNullOrWhiteSpace($DakRoot)) -and (Test-GitDirty -Path $DakRoot)) {
+    $lBlockers.Add("DAK workspace is dirty: $DakRoot")
+  }
+
+  $lProvenanceStatus = ''
+  $lProvenance = $null
+  if (($Summary -is [System.Collections.IDictionary]) -and $Summary.Contains('provenance')) {
+    $lProvenance = $Summary.provenance
+  } elseif (($null -ne $Summary) -and ($Summary.PSObject.Properties.Name -contains 'provenance')) {
+    $lProvenance = $Summary.provenance
+  }
+  if (($lProvenance -is [System.Collections.IDictionary]) -and $lProvenance.Contains('status')) {
+    $lProvenanceStatus = [string]$lProvenance.status
+  } elseif (($null -ne $lProvenance) -and
+      ($lProvenance.PSObject.Properties.Name -contains 'status')) {
+    $lProvenanceStatus = [string]$lProvenance.status
+  }
+  if (($lProvenanceStatus -eq 'historical') -and (-not $AllowHistoricalPromotion)) {
+    $lBlockers.Add('Benchmark provenance is historical; pass -AllowHistoricalPromotion to publish stale evidence intentionally.')
+  }
+
+  return @($lBlockers.ToArray())
 }
 
 function Get-JsonReferenceFallbackCount {
@@ -808,6 +885,9 @@ $lCacheModes = @(Split-ArgumentValues -Values $CacheMode)
 if ($lCacheModes.Count -eq 0) {
   $lCacheModes = @('default')
 }
+if ($PromoteBaseline -and $NoBaselineCopy) {
+  throw 'Use either -PromoteBaseline or -NoBaselineCopy, not both.'
+}
 foreach ($lCacheMode in $lCacheModes) {
   if (@('default', 'cold', 'warm') -notcontains $lCacheMode) {
     throw "Unknown cache mode: $lCacheMode"
@@ -918,12 +998,13 @@ if ($SummarizeOnly) {
     -Name 'delphiSemanticsSha' -Default $lCurrentDelphiSemanticsSha)
   $lStoredDakSha = [string](Get-ObjectPropertyValue -Object $lExistingSummary `
     -Name 'dakSha' -Default $lCurrentDakSha)
+  $lAllowHistoricalSummary = $AllowHistoricalSummary -or $AllowHistoricalPromotion
   $lProvenance = Test-BenchmarkProvenance `
     -StoredDelphiSemanticsSha $lStoredDelphiSemanticsSha `
     -StoredDakSha $lStoredDakSha `
     -CurrentDelphiSemanticsSha $lCurrentDelphiSemanticsSha `
     -CurrentDakSha $lCurrentDakSha `
-    -AllowHistorical:$AllowHistoricalSummary
+    -AllowHistorical:$lAllowHistoricalSummary
 
   $lSummary = [ordered]@{
     name = $lExistingSummary.name
@@ -1118,20 +1199,30 @@ $lMarkdown = @(
 ) -join [Environment]::NewLine
 $lMarkdown | Set-Content -LiteralPath $lMarkdownPath -Encoding UTF8
 
-if ((-not $NoBaselineCopy) -and ($lWorkflowFilter.Count -eq 0) -and ($OutputDir -eq '.dak\benchmarks\maxtdb-semantic')) {
-  $lBaselineDir = Join-Path (Get-Location) 'docs\benchmarks'
-  New-Item -ItemType Directory -Force -Path $lBaselineDir | Out-Null
-  Copy-Item -LiteralPath $lJsonPath -Destination (Join-Path $lBaselineDir 'maxtdb-semantic-baseline.json') -Force
-  Copy-Item -LiteralPath $lMarkdownPath -Destination (Join-Path $lBaselineDir 'maxtdb-semantic-baseline.md') -Force
-} elseif (-not $NoBaselineCopy) {
-  $lBaselineDir = Join-Path (Get-Location) 'docs\benchmarks'
-  New-Item -ItemType Directory -Force -Path $lBaselineDir | Out-Null
-  $lResultName = Split-Path $lOutputDir -Leaf
-  if ([string]::IsNullOrWhiteSpace($lResultName)) {
-    $lResultName = 'custom'
+if ($PromoteBaseline) {
+  $lPromotionDakRoot = Split-Path (Split-Path $DakExe -Parent) -Parent
+  $lPromotionBlockers = @(Get-BenchmarkPromotionBlocker `
+    -Summary $lSummary `
+    -DelphiSemanticsRoot (Get-Location) `
+    -DakRoot $lPromotionDakRoot `
+    -AllowHistoricalPromotion:$AllowHistoricalPromotion)
+  if ($lPromotionBlockers.Count -gt 0) {
+    throw "Benchmark baseline promotion refused. $($lPromotionBlockers -join '; ')"
   }
-  Copy-Item -LiteralPath $lJsonPath -Destination (Join-Path $lBaselineDir ('maxtdb-semantic-{0}.json' -f $lResultName)) -Force
-  Copy-Item -LiteralPath $lMarkdownPath -Destination (Join-Path $lBaselineDir ('maxtdb-semantic-{0}.md' -f $lResultName)) -Force
+
+  $lBaselineDir = Join-Path (Get-Location) 'docs\benchmarks'
+  New-Item -ItemType Directory -Force -Path $lBaselineDir | Out-Null
+  if (($lWorkflowFilter.Count -eq 0) -and ($OutputDir -eq '.dak\benchmarks\maxtdb-semantic')) {
+    Copy-Item -LiteralPath $lJsonPath -Destination (Join-Path $lBaselineDir 'maxtdb-semantic-baseline.json') -Force
+    Copy-Item -LiteralPath $lMarkdownPath -Destination (Join-Path $lBaselineDir 'maxtdb-semantic-baseline.md') -Force
+  } else {
+    $lResultName = Split-Path $lOutputDir -Leaf
+    if ([string]::IsNullOrWhiteSpace($lResultName)) {
+      $lResultName = 'custom'
+    }
+    Copy-Item -LiteralPath $lJsonPath -Destination (Join-Path $lBaselineDir ('maxtdb-semantic-{0}.json' -f $lResultName)) -Force
+    Copy-Item -LiteralPath $lMarkdownPath -Destination (Join-Path $lBaselineDir ('maxtdb-semantic-{0}.md' -f $lResultName)) -Force
+  }
 }
 
 ConvertTo-MarkdownTable -Rows $lResultRows

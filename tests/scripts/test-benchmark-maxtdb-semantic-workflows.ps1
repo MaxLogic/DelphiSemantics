@@ -63,6 +63,60 @@ exit 0
   Set-Content -LiteralPath $Path -Value $lScript -Encoding UTF8
 }
 
+function New-CleanDakScript {
+  param([string]$Path)
+
+  $lScript = @"
+param([Parameter(ValueFromRemainingArguments = `$true)][string[]]`$Arguments)
+`$lModeIndex = [Array]::IndexOf(`$Arguments, '--mode')
+`$lMode = if (`$lModeIndex -ge 0) { `$Arguments[`$lModeIndex + 1] } else { 'scan' }
+if (`$lMode -eq 'plan') {
+  [ordered]@{
+    operation = 'remove-with'
+    mode = 'plan'
+    summary = [ordered]@{ withStatements = 667; plannedEdits = 215 }
+    withStatements = @()
+    plannedEdits = @()
+    semanticDtoParity = [ordered]@{
+      status = 'passed'
+      mismatchCount = 0
+      summaryText = 'test parity'
+      mismatches = @()
+    }
+    plannerPhaseMetrics = [ordered]@{ totalMs = 1 }
+  } | ConvertTo-Json -Depth 8
+} else {
+  [ordered]@{
+    operation = 'remove-with'
+    mode = 'scan'
+    summary = [ordered]@{ withStatements = 667 }
+    withStatements = @()
+  } | ConvertTo-Json -Depth 8
+}
+exit 0
+"@
+  Set-Content -LiteralPath $Path -Value $lScript -Encoding UTF8
+}
+
+function Initialize-TestGitRepository {
+  param([string]$Path)
+
+  git -C $Path init | Out-Null
+  Set-Content -LiteralPath (Join-Path $Path '.gitignore') -Value @"
+out/
+docs/
+benchmark.stdout.txt
+benchmark.stderr.txt
+summarize.stdout.txt
+summarize.stderr.txt
+*.stdout.json
+"@ -Encoding UTF8
+  Set-Content -LiteralPath (Join-Path $Path 'tracked.txt') -Value 'clean' -Encoding UTF8
+  git -C $Path add . | Out-Null
+  git -C $Path -c user.name='Benchmark Test' -c user.email='benchmark@example.test' `
+    commit -m init | Out-Null
+}
+
 function New-PlanJson {
   param(
     [string]$Path,
@@ -205,6 +259,120 @@ function Invoke-BenchmarkSummarize {
   }
   & pwsh @lArgs 1> $lStdout 2> $lStderr
   return $LASTEXITCODE
+}
+
+function Invoke-BenchmarkRun {
+  param(
+    [string]$Workspace,
+    [switch]$PromoteBaseline,
+    [switch]$SummarizeOnly,
+    [switch]$AllowHistoricalSummary,
+    [switch]$AllowHistoricalPromotion
+  )
+
+  $lDakExe = Join-Path $Workspace 'dak.ps1'
+  $lProject = Join-Path $Workspace 'project.dpr'
+  $lStdout = Join-Path $Workspace 'benchmark.stdout.txt'
+  $lStderr = Join-Path $Workspace 'benchmark.stderr.txt'
+  $lArgs = @(
+    '-NoProfile', '-ExecutionPolicy', 'Bypass',
+    '-File', $BenchmarkScript,
+    '-DakExe', $lDakExe,
+    '-Project', $lProject,
+    '-Workflow', 'remove-with-scan-all',
+    '-Repeat', '1',
+    '-CacheMode', 'cold',
+    '-OutDir', 'out'
+  )
+  if ($SummarizeOnly) {
+    $lArgs += '-SummarizeOnly'
+  }
+  if ($PromoteBaseline) {
+    $lArgs += '-PromoteBaseline'
+  }
+  if ($AllowHistoricalSummary) {
+    $lArgs += '-AllowHistoricalSummary'
+  }
+  if ($AllowHistoricalPromotion) {
+    $lArgs += '-AllowHistoricalPromotion'
+  }
+
+  Push-Location $Workspace
+  try {
+    & pwsh @lArgs 1> $lStdout 2> $lStderr
+    return $LASTEXITCODE
+  } finally {
+    Pop-Location
+  }
+}
+
+function Test-BenchmarkDoesNotPromoteBaselineByDefault {
+  $lWorkspace = New-TestWorkspace 'default-no-baseline-promotion'
+  New-CleanDakScript -Path (Join-Path $lWorkspace 'dak.ps1')
+
+  $lExit = Invoke-BenchmarkRun -Workspace $lWorkspace
+  Assert-Equal 0 $lExit 'Default benchmark run should pass.'
+  Assert-True (Test-Path -LiteralPath (Join-Path $lWorkspace 'out\baseline.json')) `
+    'Default benchmark run must still write baseline.json under OutDir.'
+  Assert-True (-not (Test-Path -LiteralPath (Join-Path $lWorkspace 'docs\benchmarks'))) `
+    'Default benchmark run must not promote artifacts to docs\benchmarks.'
+}
+
+function Test-BenchmarkPromotesBaselineOnlyWhenExplicit {
+  $lWorkspace = New-TestWorkspace 'explicit-baseline-promotion'
+  New-CleanDakScript -Path (Join-Path $lWorkspace 'dak.ps1')
+  Initialize-TestGitRepository -Path $lWorkspace
+
+  $lExit = Invoke-BenchmarkRun -Workspace $lWorkspace -PromoteBaseline
+  Assert-Equal 0 $lExit 'Explicit benchmark promotion should pass for a clean workspace.'
+  Assert-True (Test-Path -LiteralPath (Join-Path $lWorkspace 'docs\benchmarks\maxtdb-semantic-out.json')) `
+    'Explicit custom benchmark promotion must copy JSON to docs\benchmarks.'
+  Assert-True (Test-Path -LiteralPath (Join-Path $lWorkspace 'docs\benchmarks\maxtdb-semantic-out.md')) `
+    'Explicit custom benchmark promotion must copy Markdown to docs\benchmarks.'
+}
+
+function Test-BenchmarkPromotionRefusesDirtyDelphiSemanticsWorkspace {
+  $lWorkspace = New-TestWorkspace 'dirty-baseline-promotion'
+  New-CleanDakScript -Path (Join-Path $lWorkspace 'dak.ps1')
+  Initialize-TestGitRepository -Path $lWorkspace
+  Add-Content -LiteralPath (Join-Path $lWorkspace 'tracked.txt') -Value 'dirty'
+
+  $lExit = Invoke-BenchmarkRun -Workspace $lWorkspace -PromoteBaseline
+  if ($lExit -eq 0) {
+    throw 'Benchmark promotion must fail for a dirty DelphiSemantics workspace.'
+  }
+  $lStderr = Get-Content -LiteralPath (Join-Path $lWorkspace 'benchmark.stderr.txt') -Raw
+  if ($lStderr -notmatch 'dirty') {
+    throw 'Dirty promotion failure must explain dirty provenance.'
+  }
+}
+
+function Test-BenchmarkHistoricalPromotionRequiresExplicitOverride {
+  $lWorkspace = New-TestWorkspace 'historical-promotion'
+  New-CleanDakScript -Path (Join-Path $lWorkspace 'dak.ps1')
+  Initialize-TestGitRepository -Path $lWorkspace
+  New-Item -ItemType Directory -Force -Path (Join-Path $lWorkspace 'out') | Out-Null
+  $lPlanPath = Join-Path $lWorkspace 'plan.stdout.json'
+  New-PlanJson -Path $lPlanPath -WithCount 667 -PlannedCount 215 -MismatchCount 0
+  New-BaselineJson -Path (Join-Path $lWorkspace 'out\baseline.json') -Runs @(
+    (New-PlanRun -Stdout $lPlanPath -Run 1)
+  ) -DelphiSemanticsSha 'stale-delphi-semantics-sha'
+
+  $lBlockedExit = Invoke-BenchmarkRun -Workspace $lWorkspace -SummarizeOnly -PromoteBaseline `
+    -AllowHistoricalSummary
+  if ($lBlockedExit -eq 0) {
+    throw 'Historical benchmark promotion must require AllowHistoricalPromotion.'
+  }
+
+  $lAllowedExit = Invoke-BenchmarkRun -Workspace $lWorkspace -SummarizeOnly -PromoteBaseline `
+    -AllowHistoricalPromotion
+  Assert-Equal 0 $lAllowedExit 'Explicit historical promotion should pass.'
+  Assert-True (Test-Path -LiteralPath (Join-Path $lWorkspace 'docs\benchmarks\maxtdb-semantic-out.json')) `
+    'Explicit historical promotion must copy JSON to docs\benchmarks.'
+  $lPromoted = Get-Content -LiteralPath (Join-Path $lWorkspace 'docs\benchmarks\maxtdb-semantic-out.json') `
+    -Raw | ConvertFrom-Json
+  Assert-Equal 'historical' $lPromoted.provenance.status `
+    'Historical promotion must preserve historical provenance status.'
 }
 
 function Test-CompactPlanSummaryCountsDriveParityExport {

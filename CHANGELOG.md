@@ -73,6 +73,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- maxTdb semantic benchmark runs now keep generated baseline artifacts under
+  `-OutDir` by default; publishing to `docs\benchmarks` requires
+  `-PromoteBaseline` and passes dirty/stale provenance gates.
 - Snapshot SQLite cache connections now declare a busy timeout plus WAL/normal
   locking policy, and writer transactions retry transient SQLite lock conflicts
   during shared-cache multi-process use.
