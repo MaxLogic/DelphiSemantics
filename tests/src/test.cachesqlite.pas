@@ -40,7 +40,7 @@ type
     [Test]
     procedure SourceChangeInvalidatesPersistentEntry;
     [Test]
-    procedure SourceTimestampChangeInvalidatesPersistentEntry;
+    procedure SourceTimestampChangeReusesPersistentEntry;
     [Test]
     procedure ApiBuildUnitIndexUsesSqliteCacheWhenFileNameConfigured;
     [Test]
@@ -479,11 +479,12 @@ begin
   end;
 end;
 
-procedure TCacheSqliteTests.SourceTimestampChangeInvalidatesPersistentEntry;
+procedure TCacheSqliteTests.SourceTimestampChangeReusesPersistentEntry;
 var
   lCache: TDelphiSemanticSqliteUnitCache;
   lCacheOptions: TDelphiSemanticCacheOptions;
   lModelOptions: TDelphiSemanticModelOptions;
+  lResult: TDelphiSemanticUnitCacheAccessResult;
 begin
   lCacheOptions := Default(TDelphiSemanticCacheOptions);
   lCacheOptions.SqliteCacheFileName := TempPath('timestamp-change-cache.sqlite3');
@@ -504,12 +505,13 @@ begin
     TFile.GetLastWriteTimeUtc(lModelOptions.SourceFileName) + EncodeTime(0, 0, 5, 0));
   lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
   try
-    lCache.GetOrExtractUnitModel(lModelOptions);
+    lResult := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
 
-    Assert.AreEqual(0, lCache.Metrics.CacheHits);
-    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
-    Assert.AreEqual(1, lCache.Metrics.Invalidations);
-    Assert.IsTrue(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_STALE_ENTRY_REBUILT'));
+    Assert.IsTrue(lResult.CacheHit);
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(0, lCache.Metrics.Invalidations);
+    Assert.IsFalse(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_STALE_ENTRY_REBUILT'));
   finally
     lCache.Free;
   end;

@@ -46,7 +46,7 @@ type
     [Test]
     procedure SourceChangeInvalidatesCachedUnitModel;
     [Test]
-    procedure SourceTimestampChangeInvalidatesCachedUnitModel;
+    procedure SourceTimestampChangeReusesCachedUnitModel;
     [Test]
     procedure SemanticContextChangeInvalidatesCachedUnitModel;
     [Test]
@@ -738,12 +738,14 @@ begin
   end;
 end;
 
-procedure TCacheTests.SourceTimestampChangeInvalidatesCachedUnitModel;
+procedure TCacheTests.SourceTimestampChangeReusesCachedUnitModel;
 var
   lCache: TDelphiSemanticUnitCache;
   lCacheOptions: TDelphiSemanticCacheOptions;
+  lFirst: TDelphiSemanticUnitCacheAccessResult;
   lModelOptions: TDelphiSemanticModelOptions;
   lPath: string;
+  lSecond: TDelphiSemanticUnitCacheAccessResult;
 begin
   lPath := TempPath('SourceTimestampChangeUnit.pas');
   TFile.WriteAllText(lPath, 'unit SourceTimestampChangeUnit;' + sLineBreak + 'interface' +
@@ -755,12 +757,17 @@ begin
   lModelOptions.ProjectContextApplied := True;
   lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
   try
-    lCache.GetOrExtractUnitModel(lModelOptions);
+    lFirst := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
     TFile.SetLastWriteTimeUtc(lPath, TFile.GetLastWriteTimeUtc(lPath) + EncodeTime(0, 0, 5, 0));
-    lCache.GetOrExtractUnitModel(lModelOptions);
+    lSecond := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
 
-    Assert.AreEqual(2, lCache.Metrics.CacheMisses);
-    Assert.AreEqual(1, lCache.Metrics.Invalidations);
+    Assert.IsFalse(lFirst.CacheHit);
+    Assert.IsTrue(lSecond.CacheHit);
+    Assert.AreEqual(lFirst.Identity.UnitCacheKey, lSecond.Identity.UnitCacheKey);
+    Assert.AreNotEqual(lFirst.Identity.FileTimestampUtc, lSecond.Identity.FileTimestampUtc);
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    Assert.AreEqual(0, lCache.Metrics.Invalidations);
   finally
     lCache.Free;
   end;

@@ -402,8 +402,8 @@ begin
   Result.Configuration := aContext.Configuration;
   Result.Platform := aContext.Platform;
   Result.UnitCacheKey := StableHash('unit|' + Result.SchemaVersion + '|' + Result.ParserVersion +
-    '|' + Result.FileHash + '|' + Result.FileTimestampUtc + '|' + Result.IncludeGraphHash + '|' +
-    Result.ContextHash + '|' + Result.SearchPathHash + '|' + Result.ExtractionOptionsHash + '|' +
+    '|' + Result.FileHash + '|' + Result.IncludeGraphHash + '|' + Result.ContextHash + '|' +
+    Result.SearchPathHash + '|' + Result.ExtractionOptionsHash + '|' +
     CanonicalIdentityText(Result.Configuration));
 end;
 
@@ -451,7 +451,6 @@ begin
     'model=' + aIdentity.ModelVersion + sLineBreak +
     'file=' + aIdentity.SourceFileName + sLineBreak +
     'source=' + aIdentity.FileHash + sLineBreak +
-    'timestamp=' + aIdentity.FileTimestampUtc + sLineBreak +
     'include=' + aIdentity.IncludeGraphHash + sLineBreak +
     'context=' + aIdentity.ContextHash);
 end;
