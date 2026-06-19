@@ -21,6 +21,8 @@ type
     DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithSourceVerification;
   TDelphiSemanticRemoveWithPlan =
     DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithPlan;
+  TDelphiSemanticRemoveWithApi =
+    DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithApi;
   TDelphiSemanticRemoveWithOptions =
     DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithOptions;
   TDelphiSemanticRemoveWithFinalTempDecision =
@@ -79,6 +81,9 @@ type
       const aRequest: TDelphiSemanticRemoveWithRequest):
       TDelphiSemanticRemoveWithFactBuildResult; overload; static;
     class function PlanRemoveWith(const aFacts: TDelphiSemanticProjectWithBindingFacts):
+      TDelphiSemanticRemoveWithPlan; static;
+    class function PlanRemoveWithCompatibilitySnapshot(
+      const aFacts: TDelphiSemanticProjectWithBindingFacts):
       TDelphiSemanticRemoveWithPlan; static;
     class function PlanRemoveWithSnapshot(
       const aFacts: TDelphiSemanticProjectWithBindingFacts):
@@ -197,17 +202,23 @@ begin
   Result := TDelphiSemanticRemoveWithPlanner.Plan(aFacts);
 end;
 
-class function TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithSnapshot(
+class function TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
 var
   lSnapshot: TDelphiProjectSnapshot;
 begin
-  lSnapshot := BuildRemoveWithPlanningSnapshotFromFacts(aFacts);
+  lSnapshot := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(aFacts);
   try
     Result := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
   finally
     lSnapshot.Free;
   end;
+end;
+
+class function TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithSnapshot(
+  const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
+begin
+  Result := PlanRemoveWithCompatibilitySnapshot(aFacts);
 end;
 
 end.

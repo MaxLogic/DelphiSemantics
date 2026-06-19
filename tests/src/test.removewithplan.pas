@@ -883,7 +883,8 @@ begin
 
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   lExpectedPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
-  lActualPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithSnapshot(lFacts);
+  lActualPlan :=
+    TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
 
   Assert.AreEqual('project-snapshot-v1', lActualPlan.BaselineSemanticModelVersion);
   Assert.AreEqual(lExpectedPlan.Status, lActualPlan.Status, lActualPlan.Diagnostic);
@@ -906,7 +907,8 @@ begin
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   lExpectedPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
   lFacts.LookupIndex := Default(TDelphiSemanticRemoveWithLookupIndex);
-  lActualPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithSnapshot(lFacts);
+  lActualPlan :=
+    TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
 
   Assert.AreEqual(lExpectedPlan.Status, lActualPlan.Status, lActualPlan.Diagnostic);
   Assert.AreEqual(ComparableRemoveWithPlanText(lExpectedPlan),
@@ -923,20 +925,21 @@ var
 begin
   lSourceText := ReadRepoSource('src\DelphiSemantics.Api.RemoveWith.Compatibility.pas');
 
-  lFunctionStart := Pos('class function TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithSnapshot',
+  lFunctionStart := Pos(
+    'class function TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot',
     lSourceText);
   lFunctionEnd := PosEx('end.',
     lSourceText, lFunctionStart);
   Assert.IsTrue((lFunctionStart > 0) and (lFunctionEnd > lFunctionStart),
-    'Expected PlanRemoveWithSnapshot implementation section.');
+    'Expected PlanRemoveWithCompatibilitySnapshot implementation section.');
 
   lFunctionSource := Copy(lSourceText, lFunctionStart,
     lFunctionEnd - lFunctionStart);
   Assert.IsTrue(ContainsText(lFunctionSource,
-    'BuildRemoveWithPlanningSnapshotFromFacts'),
-    'PlanRemoveWithSnapshot(existing facts) should build only snapshot planning facts.');
+    'BuildCompatibilityRemoveWithPlanningSnapshotFromFacts'),
+    'Compatibility snapshot planning from existing facts should build only snapshot planning facts.');
   Assert.IsFalse(ContainsText(lFunctionSource, 'BuildProjectSnapshotFromModels'),
-    'PlanRemoveWithSnapshot(existing facts) must not rebuild generic unit snapshot facts.');
+    'Compatibility snapshot planning from existing facts must not rebuild generic unit snapshot facts.');
 end;
 
 procedure TRemoveWithPlanTests.SnapshotPlannerAvoidsWholePlanningFactCopies;
@@ -977,10 +980,10 @@ begin
     'Snapshot planner should carry only routine-owner symbols needed for nested-routine safety.');
 
   lBuilderSource := ReadRepoSource('src\DelphiSemantics.Snapshot.Builder.pas');
-  lFunctionStart := Pos('function BuildRemoveWithPlanningSnapshotFromFacts',
+  lFunctionStart := Pos('function BuildCompatibilityRemoveWithPlanningSnapshotFromFacts',
     lBuilderSource);
   Assert.IsTrue(lFunctionStart > 0,
-    'Expected BuildRemoveWithPlanningSnapshotFromFacts implementation section.');
+    'Expected BuildCompatibilityRemoveWithPlanningSnapshotFromFacts implementation section.');
   lFunctionSource := Copy(lBuilderSource, lFunctionStart, MaxInt);
   Assert.IsTrue(ContainsText(lFunctionSource,
     'SetRemoveWithPlanningFactsOwned'),

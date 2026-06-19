@@ -37,7 +37,7 @@ function BuildProjectUnitSnapshotFromModels(
   const aModels: TArray<TDelphiSemanticUnitModel>; const aModelIndex: Integer;
   const aUnitId: TSemanticUnitId; out aMetrics: TDelphiSnapshotBuilderMetrics):
   TDelphiProjectSnapshot;
-function BuildRemoveWithPlanningSnapshotFromFacts(
+function BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiProjectSnapshot;
 function BuildSnapshotReferenceTargets(
   const aModels: TArray<TDelphiSemanticUnitModel>):
@@ -1409,7 +1409,7 @@ begin
   end;
 end;
 
-function BuildRemoveWithPlanningSnapshotFromFacts(
+function BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiProjectSnapshot;
 var
   lBuilder: TDelphiProjectSnapshotBuilder;

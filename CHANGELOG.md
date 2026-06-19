@@ -76,6 +76,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with compatibility fact-to-snapshot planning now uses explicitly
+  compatibility-named helpers, keeping the primary remove-with API path
+  session-backed and snapshot-native.
 - Remove-with-only semantic graph skipping now lives on the remove-with request
   options instead of the common API options record.
 - Snapshot-backed remove-with planning now caches converted binding DTOs once
