@@ -235,6 +235,7 @@ type
 
   TSnapshotRemoveWithPlanBindingSource = class(TRemoveWithPlanBindingSource)
   private
+    fBindings: TArray<TDelphiSemanticWithBinding>;
     fSnapshot: TDelphiProjectSnapshot;
   public
     constructor Create(const aSnapshot: TDelphiProjectSnapshot);
@@ -10478,21 +10479,26 @@ end;
 
 constructor TSnapshotRemoveWithPlanBindingSource.Create(
   const aSnapshot: TDelphiProjectSnapshot);
+var
+  i: Integer;
 begin
   inherited Create;
   fSnapshot := aSnapshot;
+  SetLength(fBindings, fSnapshot.RemoveWithPlanningBindingCount);
+  for i := 0 to High(fBindings) do
+    fBindings[i] := SnapshotWithBinding(fSnapshot,
+      fSnapshot.RemoveWithPlanningBindingByIndex(i));
 end;
 
 function TSnapshotRemoveWithPlanBindingSource.BindingByIndex(
   const aIndex: Integer): TDelphiSemanticWithBinding;
 begin
-  Result := SnapshotWithBinding(fSnapshot,
-    fSnapshot.RemoveWithPlanningBindingByIndex(aIndex));
+  Result := fBindings[aIndex];
 end;
 
 function TSnapshotRemoveWithPlanBindingSource.BindingCount: Integer;
 begin
-  Result := fSnapshot.RemoveWithPlanningBindingCount;
+  Result := Length(fBindings);
 end;
 
 function RemoveWithBindingFactRange(const aBinding:

@@ -73,6 +73,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Snapshot-backed remove-with planning now caches converted binding DTOs once
+  per snapshot binding source instead of rebuilding them on every hot-path
+  binding lookup.
 - Project and option-set loading now walks MSBuild XML through Delphi's XML DOM,
   covering single-quoted attributes, XML entities, imports, property groups, and
   conditional `DCCReference` entries without regex tokenization of project XML.

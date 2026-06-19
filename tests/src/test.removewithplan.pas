@@ -35,6 +35,8 @@ type
     [Test]
     procedure SnapshotPlannerAvoidsWholePlanningFactCopies;
     [Test]
+    procedure SnapshotBindingSourceCachesDtoConversion;
+    [Test]
     procedure CoreSnapshotUnitDoesNotExposeRemoveWithPlanningFacts;
     [Test]
     procedure RemoveWithSnapshotExtensionPreservesExactPlanningText;
@@ -997,6 +999,67 @@ begin
   Assert.IsTrue(ContainsText(lFunctionSource,
     'RoutineOwners'),
     'Planning snapshots should preserve the small routine-owner subset needed for safety.');
+end;
+
+procedure TRemoveWithPlanTests.SnapshotBindingSourceCachesDtoConversion;
+var
+  lBindingByIndexSource: string;
+  lBindingByIndexEnd: Integer;
+  lBindingByIndexStart: Integer;
+  lClassEnd: Integer;
+  lClassSource: string;
+  lClassStart: Integer;
+  lConstructorEnd: Integer;
+  lConstructorSource: string;
+  lConstructorStart: Integer;
+  lPlannerSource: string;
+begin
+  lPlannerSource := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.pas');
+  lClassStart := Pos(
+    'TSnapshotRemoveWithPlanBindingSource = class(TRemoveWithPlanBindingSource)',
+    lPlannerSource);
+  lClassEnd := PosEx('  public', lPlannerSource, lClassStart);
+  Assert.IsTrue((lClassStart > 0) and (lClassEnd > lClassStart),
+    'Expected snapshot binding source class declaration.');
+
+  lClassSource := Copy(lPlannerSource, lClassStart, lClassEnd - lClassStart);
+  Assert.IsTrue(ContainsText(lClassSource,
+    'fBindings: TArray<TDelphiSemanticWithBinding>'),
+    'Snapshot binding source should own a converted binding DTO cache.');
+  lConstructorStart := Pos(
+    'constructor TSnapshotRemoveWithPlanBindingSource.Create',
+    lPlannerSource);
+  lConstructorEnd := PosEx(
+    'function TSnapshotRemoveWithPlanBindingSource.BindingByIndex',
+    lPlannerSource, lConstructorStart);
+  Assert.IsTrue((lConstructorStart > 0) and
+    (lConstructorEnd > lConstructorStart),
+    'Expected snapshot binding source constructor implementation.');
+
+  lConstructorSource := Copy(lPlannerSource, lConstructorStart,
+    lConstructorEnd - lConstructorStart);
+  Assert.IsTrue(ContainsText(lConstructorSource,
+    'SetLength(fBindings, fSnapshot.RemoveWithPlanningBindingCount)'),
+    'Snapshot binding source should size the converted binding DTO cache once.');
+  Assert.IsTrue(ContainsText(lConstructorSource, 'SnapshotWithBinding(fSnapshot'),
+    'Snapshot binding source should convert snapshot binding DTOs only while filling the cache.');
+  lBindingByIndexStart := Pos(
+    'function TSnapshotRemoveWithPlanBindingSource.BindingByIndex',
+    lPlannerSource);
+  lBindingByIndexEnd := PosEx(
+    'function TSnapshotRemoveWithPlanBindingSource.BindingCount',
+    lPlannerSource, lBindingByIndexStart);
+  Assert.IsTrue((lBindingByIndexStart > 0) and
+    (lBindingByIndexEnd > lBindingByIndexStart),
+    'Expected snapshot binding source BindingByIndex implementation.');
+
+  lBindingByIndexSource := Copy(lPlannerSource, lBindingByIndexStart,
+    lBindingByIndexEnd - lBindingByIndexStart);
+  Assert.IsFalse(ContainsText(lBindingByIndexSource, 'SnapshotWithBinding'),
+    'Snapshot BindingByIndex must not convert the snapshot binding DTO on every hot-path access.');
+  Assert.IsTrue(ContainsText(lPlannerSource,
+    'Result := fBindings[aIndex]'),
+    'Snapshot BindingByIndex should return the cached converted binding DTO.');
 end;
 
 procedure TRemoveWithPlanTests.CoreSnapshotUnitDoesNotExposeRemoveWithPlanningFacts;
