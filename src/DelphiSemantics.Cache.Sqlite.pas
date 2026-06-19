@@ -368,7 +368,7 @@ begin
   try
     SetWideParam(lQuery, 0, aKey);
     SetWideParam(lQuery, 1, aIdentity);
-    SetWideParam(lQuery, 2, aModel.FileName);
+    SetWideParam(lQuery, 2, aCacheIdentity.SourceFileName);
     SetWideParam(lQuery, 3, aCacheIdentity.FileHash);
     SetWideParam(lQuery, 4, DelphiVersion);
     SetWideParam(lQuery, 5, Configuration);

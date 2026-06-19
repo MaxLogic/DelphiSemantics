@@ -48,6 +48,8 @@ type
     [Test]
     procedure CompilerProfileChangeInvalidatesPersistentEntry;
     [Test]
+    procedure StoredRowsPersistSourcePathFromCacheIdentity;
+    [Test]
     procedure StoredRowsKeepSharedCompilerContextKeys;
     [Test]
     procedure RtlSourceRootProfilesReuseSharedSqliteCache;
@@ -68,7 +70,7 @@ uses
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   DelphiSemantics.Api, DelphiSemantics.Api.WithBinding, DelphiSemantics.CompilerProfile,
-  maxLogic.IOUtils;
+  maxLogic.IOUtils, Test.Support;
 
 var
   GCacheSqliteTempRoot: string;
@@ -660,6 +662,29 @@ begin
     lConnection.Free;
     lDriverLink.Free;
   end;
+end;
+
+procedure TCacheSqliteTests.StoredRowsPersistSourcePathFromCacheIdentity;
+var
+  lBody: string;
+  lEndIndex: Integer;
+  lSource: string;
+  lStartIndex: Integer;
+begin
+  lSource := ReadRepoSource('src\DelphiSemantics.Cache.Sqlite.pas');
+  lStartIndex := Pos('procedure TDelphiSemanticSqliteUnitCache.StorePersistentEntry',
+    lSource);
+  Assert.IsTrue(lStartIndex > 0, 'Expected SQLite unit persistence helper.');
+  lEndIndex := PosEx('function TDelphiSemanticSqliteUnitCache.TryLoadPersistentEntry',
+    lSource, lStartIndex);
+  Assert.IsTrue(lEndIndex > lStartIndex,
+    'Expected SQLite unit persistence helper before load helper.');
+  lBody := Copy(lSource, lStartIndex, lEndIndex - lStartIndex);
+
+  Assert.IsTrue(ContainsText(lBody, 'SetWideParam(lQuery, 2, aCacheIdentity.SourceFileName)'),
+    'SQLite unit rows should persist the normalized source path from the unit identity record.');
+  Assert.IsFalse(ContainsText(lBody, 'SetWideParam(lQuery, 2, aModel.FileName)'),
+    'SQLite unit rows should not derive source_file_name from the serialized model.');
 end;
 
 procedure TCacheSqliteTests.RtlSourceRootProfilesReuseSharedSqliteCache;

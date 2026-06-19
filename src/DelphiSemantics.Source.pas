@@ -12,6 +12,7 @@ type
   TDelphiSemanticSourceText = record
     FileName: string;
     Text: string;
+    ContentHash: string;
     EncodingName: string;
     LineEndingName: string;
     LineBreak: string;
@@ -31,7 +32,17 @@ type
 implementation
 
 uses
-  System.Classes, System.IOUtils, System.SysUtils;
+  System.Classes, System.Hash, System.IOUtils, System.SysUtils;
+
+function HashBytes(const aBytes: TBytes): string;
+var
+  lHash: THashSHA2;
+begin
+  lHash := THashSHA2.Create;
+  if Length(aBytes) > 0 then
+    lHash.Update(aBytes);
+  Result := lHash.HashAsString;
+end;
 
 function IsUtf8Continuation(const aByte: Byte): Boolean;
 begin
@@ -211,6 +222,7 @@ begin
   end;
 
   lBytes := TFile.ReadAllBytes(lFileName);
+  Result.Source.ContentHash := HashBytes(lBytes);
   if StartsWithUtf8Bom(lBytes) then
   begin
     Result.Source.Text := TEncoding.UTF8.GetString(lBytes, 3, Length(lBytes) - 3);

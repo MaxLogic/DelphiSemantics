@@ -38,6 +38,8 @@ type
     [Test]
     procedure CacheSchemaVersionIncludesSourceProvenanceModelShape;
     [Test]
+    procedure UnitCacheIdentityBuilderReusesSingleSourceLoad;
+    [Test]
     procedure RepeatedUnchangedUnitHitsInMemoryCache;
     [Test]
     procedure CacheHitReturnsIndependentUnitModelCopy;
@@ -103,7 +105,7 @@ uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
-  DelphiSemantics.Resolve;
+  DelphiSemantics.Resolve, Test.Support;
 
 var
   GCacheTempRoot: string;
@@ -362,6 +364,41 @@ begin
   end;
 end;
 
+procedure TCacheTests.UnitCacheIdentityBuilderReusesSingleSourceLoad;
+const
+  cLoadCall = 'TDelphiSemanticSourceLoader.LoadFile';
+var
+  lBody: string;
+  lEndIndex: Integer;
+  lLoadCount: Integer;
+  lPreprocessCount: Integer;
+  lSource: string;
+  lStartIndex: Integer;
+begin
+  lSource := ReadRepoSource('src\DelphiSemantics.Cache.pas');
+  lStartIndex := Pos('function BuildLoadedUnitIdentity', lSource);
+  Assert.IsTrue(lStartIndex > 0,
+    'Expected one loaded-source unit identity builder.');
+  lEndIndex := Pos('procedure TDelphiSemanticUnitCache.AddDiagnostic', lSource);
+  Assert.IsTrue(lEndIndex > lStartIndex,
+    'Expected unit identity builder to stay before cache methods.');
+  lBody := Copy(lSource, lStartIndex, lEndIndex - lStartIndex);
+
+  lLoadCount := (Length(lBody) - Length(StringReplace(lBody, cLoadCall, '',
+    [rfReplaceAll]))) div Length(cLoadCall);
+  lPreprocessCount := (Length(lBody) - Length(StringReplace(lBody,
+    'BuildPreprocessResult', '', [rfReplaceAll]))) div Length('BuildPreprocessResult');
+
+  Assert.AreEqual(1, lLoadCount,
+    'Unit cache identity should load the source once and reuse that result.');
+  Assert.AreEqual(1, lPreprocessCount,
+    'Unit cache identity should preprocess once and reuse the include graph.');
+  Assert.IsFalse(ContainsText(lBody, 'BuildCacheKey('),
+    'Unit cache identity should derive UnitCacheKey from the one identity record.');
+  Assert.IsFalse(ContainsText(lBody, 'HashFileIfExists('),
+    'Unit cache identity should reuse the content hash from the loaded source result.');
+end;
+
 procedure TCacheTests.RepeatedUnchangedUnitHitsInMemoryCache;
 var
   lCache: TDelphiSemanticUnitCache;
@@ -450,6 +487,8 @@ begin
     Assert.IsTrue(lSecond.CacheHit);
     Assert.AreEqual('AccessResultUnit', lSecond.Model.UnitName);
     Assert.IsNotEmpty(lSecond.Identity.UnitCacheKey);
+    Assert.AreEqual(TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lPath),
+      lSecond.Identity.SourceFileName);
     Assert.IsNotEmpty(lSecond.Identity.FileHash);
     Assert.IsNotEmpty(lSecond.Identity.ContextHash);
     Assert.IsNotEmpty(lSecond.Identity.DefinesHash);

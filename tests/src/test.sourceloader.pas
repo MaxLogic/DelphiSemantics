@@ -16,6 +16,8 @@ type
     [Test]
     procedure LoadFileReportsMixedLineEndingProvenance;
     [Test]
+    procedure LoadFileReportsByteContentHash;
+    [Test]
     procedure UnitModelCarriesSourceLoaderProvenance;
     [Test]
     procedure SourceContextUsesLoaderLineBreakForMixedSource;
@@ -24,7 +26,7 @@ type
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.Hash, System.IOUtils, System.SysUtils,
   DelphiSemantics.Model, DelphiSemantics.Source, DelphiSemantics.SourceContext;
 
 var
@@ -85,6 +87,21 @@ begin
   Assert.AreEqual('mixed', lResult.Source.LineEndingName);
   Assert.AreEqual(#10, lResult.Source.LineBreak,
     'Mixed source should expose the first observed line break for writers.');
+end;
+
+procedure TSourceLoaderTests.LoadFileReportsByteContentHash;
+var
+  lPath: string;
+  lResult: TDelphiSemanticSourceLoadResult;
+begin
+  lPath := TempPath('source-loader-hash.pas');
+  WriteUtf8Bytes(lPath, 'unit SourceLoaderHash;' + #13#10 + 'interface' + #13#10 +
+    'implementation' + #13#10 + 'end.');
+
+  lResult := TDelphiSemanticSourceLoader.LoadFile(lPath);
+
+  Assert.IsTrue(lResult.Success);
+  Assert.AreEqual(THashSHA2.GetHashStringFromFile(lPath), lResult.Source.ContentHash);
 end;
 
 procedure TSourceLoaderTests.UnitModelCarriesSourceLoaderProvenance;

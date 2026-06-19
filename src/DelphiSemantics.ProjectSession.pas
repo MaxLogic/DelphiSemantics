@@ -363,15 +363,18 @@ function SnapshotCacheIdentityForUnit(const aProject: TDelphiSemanticProjectInfo
   const aUnitCacheIdentity: TDelphiSemanticUnitCacheIdentity;
   const aParseAvoidedEstimateMilliseconds: Int64): TDelphiSemanticSnapshotCacheIdentity;
 var
-  lFullSourceFileName: string;
   lProjectContextHash: string;
+  lSourceFileName: string;
 begin
-  lFullSourceFileName := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aSourceFileName);
+  if Trim(aUnitCacheIdentity.SourceFileName) <> '' then
+    lSourceFileName := aUnitCacheIdentity.SourceFileName
+  else
+    lSourceFileName := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aSourceFileName);
   Result := Default(TDelphiSemanticSnapshotCacheIdentity);
-  Result.IdentityKey := lFullSourceFileName;
-  Result.SourceFileName := lFullSourceFileName;
-  if TFile.Exists(lFullSourceFileName) then
-    Result.FileHash := THashSHA2.GetHashStringFromFile(lFullSourceFileName)
+  Result.IdentityKey := lSourceFileName;
+  Result.SourceFileName := lSourceFileName;
+  if Trim(aUnitCacheIdentity.FileHash) <> '' then
+    Result.FileHash := aUnitCacheIdentity.FileHash
   else
     Result.FileHash := 'missing';
   lProjectContextHash := SnapshotCacheContextHash(aProject, aOptions);

@@ -34,6 +34,8 @@ type
     [Test]
     procedure ProjectSessionModelExtractionUsesSingleResultRecord;
     [Test]
+    procedure ProjectSessionSnapshotIdentityReusesUnitCacheIdentityRecord;
+    [Test]
     procedure ProjectSessionGlobalAnalysisUsesSnapshotAuthority;
     [Test]
     procedure ProjectSessionGlobalAnalysisReportsSnapshotCacheMetrics;
@@ -642,6 +644,33 @@ begin
     'Wrapper-only extraction scope-mode fan-out should be removed.');
   Assert.IsFalse(ContainsText(lSource, lOutExtractionSignature),
     'ExtractProjectModels should not thread elapsed time and cache data through out parameters.');
+end;
+
+procedure TProjectSessionTests.ProjectSessionSnapshotIdentityReusesUnitCacheIdentityRecord;
+var
+  lBody: string;
+  lEndIndex: Integer;
+  lSource: string;
+  lStartIndex: Integer;
+begin
+  lSource := ReadRepoSource('src\DelphiSemantics.ProjectSession.pas');
+  lStartIndex := Pos('function SnapshotCacheIdentityForUnit', lSource);
+  Assert.IsTrue(lStartIndex > 0, 'Expected snapshot unit identity helper.');
+  lEndIndex := PosEx('function ProjectRemoveWithFactsCacheIdentity', lSource, lStartIndex);
+  Assert.IsTrue(lEndIndex > lStartIndex,
+    'Expected snapshot unit identity helper to stay before project facts identity.');
+  lBody := Copy(lSource, lStartIndex, lEndIndex - lStartIndex);
+
+  Assert.IsTrue(ContainsText(lBody, 'aUnitCacheIdentity.SourceFileName'),
+    'Snapshot identity should reuse the normalized source path from the unit identity record.');
+  Assert.IsTrue(ContainsText(lBody, 'aUnitCacheIdentity.FileHash'),
+    'Snapshot identity should reuse the content hash from the unit identity record.');
+  Assert.IsTrue(ContainsText(lBody, 'aUnitCacheIdentity.IncludeGraphHash'),
+    'Snapshot identity should reuse the include/preprocess result from the unit identity record.');
+  Assert.IsFalse(ContainsText(lBody, 'GetHashStringFromFile(lFullSourceFileName)'),
+    'Snapshot identity should not re-hash the source file after unit identity building.');
+  Assert.IsFalse(ContainsText(lBody, 'TFile.Exists(lFullSourceFileName)'),
+    'Snapshot identity should not perform a second source-file probe.');
 end;
 
 procedure TProjectSessionTests.ProjectSessionGlobalAnalysisUsesSnapshotAuthority;
