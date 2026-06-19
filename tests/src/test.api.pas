@@ -44,9 +44,13 @@ type
     [Test]
     procedure DeadCodeAndSearchRoutesReturnStableShapes;
     [Test]
-    procedure CommonOptionsDoNotExposeRemoveWithBodyAnalysisScope;
+    procedure CommonOptionsDoNotExposeRemoveWithOnlyControls;
     [Test]
     procedure RemoveWithPrimaryFacadeHidesInternalAliases;
+    [Test]
+    procedure RemoveWithCompatibilityFactsExposeExplicitBuildResult;
+    [Test]
+    procedure RemoveWithCompatibilityFactBuildReportsSessionDiagnostics;
     [Test]
     procedure RemoveWithRequestOwnsBodyAnalysisScope;
   end;
@@ -480,7 +484,7 @@ begin
   Assert.AreEqual('GlobalQueryValue', lSearchResult.Matches[0].Name);
 end;
 
-procedure TApiTests.CommonOptionsDoNotExposeRemoveWithBodyAnalysisScope;
+procedure TApiTests.CommonOptionsDoNotExposeRemoveWithOnlyControls;
 var
   lApiSource: string;
   lProjectContextSource: string;
@@ -490,6 +494,8 @@ begin
 
   Assert.IsFalse(Pos('BodyAnalysisSourceFileNames', lApiSource) > 0,
     'Common API options must not expose remove-with-only body-analysis scope.');
+  Assert.IsFalse(Pos('SkipWithBindingSemanticGraph', lApiSource) > 0,
+    'Common API options must not expose remove-with-only semantic graph switches.');
   Assert.IsFalse(Pos('BodyAnalysisSourceFileNames', lProjectContextSource) > 0,
     'Common project/session options must not expose remove-with-only body-analysis scope.');
 end;
@@ -517,6 +523,40 @@ begin
   Assert.IsTrue(ContainsText(ReadRepoSource('src\DelphiSemantics.Api.RemoveWith.Compatibility.pas'),
     'TDelphiSemanticRemoveWithCompatibilityApi'),
     'Compatibility remove-with API should own internal adapter aliases.');
+end;
+
+procedure TApiTests.RemoveWithCompatibilityFactsExposeExplicitBuildResult;
+var
+  lSource: string;
+begin
+  lSource := ReadRepoSource('src\DelphiSemantics.Api.RemoveWith.Compatibility.pas');
+
+  Assert.IsTrue(ContainsText(lSource, 'TDelphiSemanticRemoveWithFactBuildResult'),
+    'Compatibility fact building must expose an explicit success/diagnostic result.');
+  Assert.IsTrue(ContainsText(lSource, 'BuildProjectWithBindingFactsResult'),
+    'Compatibility fact building must offer an explicit result-returning entry point.');
+  Assert.IsTrue(ContainsText(lSource, 'Success: Boolean'),
+    'Fact-build result must not signal failure through empty/default facts.');
+  Assert.IsTrue(ContainsText(lSource, 'Diagnostics: TArray<TDelphiSemanticDiagnostic>'),
+    'Fact-build result should preserve structured DelphiSemantics diagnostics.');
+end;
+
+procedure TApiTests.RemoveWithCompatibilityFactBuildReportsSessionDiagnostics;
+var
+  lRequest: TDelphiSemanticRemoveWithRequest;
+  lResult: TDelphiSemanticRemoveWithFactBuildResult;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := FixturePath(
+    'ProjectContext\Missing\MissingProject.dproj');
+
+  lResult := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult(
+    lRequest);
+
+  Assert.IsFalse(lResult.Success);
+  Assert.AreEqual(1, Integer(Length(lResult.Diagnostics)));
+  Assert.AreEqual('PROJECT_FILE_NOT_FOUND', lResult.Diagnostics[0].Code);
+  Assert.AreEqual(0, Integer(Length(lResult.Facts.Bindings)));
 end;
 
 procedure TApiTests.RemoveWithRequestOwnsBodyAnalysisScope;

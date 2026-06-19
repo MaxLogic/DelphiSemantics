@@ -21,6 +21,8 @@ type
     DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithSourceVerification;
   TDelphiSemanticRemoveWithPlan =
     DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithPlan;
+  TDelphiSemanticRemoveWithOptions =
+    DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithOptions;
   TDelphiSemanticRemoveWithFinalTempDecision =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithFinalTempDecision;
   TDelphiSemanticRemoveWithFinalTextEdit =
@@ -57,12 +59,25 @@ type
     DelphiSemantics.WithBinding.TDelphiSemanticRemoveWithInventory;
   TDelphiSemanticWithBinder = DelphiSemantics.WithBinding.TDelphiSemanticWithBinder;
 
+  TDelphiSemanticRemoveWithFactBuildResult = record
+    Success: Boolean;
+    Facts: TDelphiSemanticProjectWithBindingFacts;
+    Metrics: TDelphiSemanticProjectWithBindingMetrics;
+    Diagnostics: TArray<TDelphiSemanticDiagnostic>;
+  end;
+
   TDelphiSemanticRemoveWithCompatibilityApi = record
   public
     class function BuildProjectWithBindingFacts(const aOptions: TDelphiSemanticApiOptions):
       TDelphiSemanticProjectWithBindingFacts; overload; static;
     class function BuildProjectWithBindingFacts(const aRequest: TDelphiSemanticRemoveWithRequest):
       TDelphiSemanticProjectWithBindingFacts; overload; static;
+    class function BuildProjectWithBindingFactsResult(
+      const aOptions: TDelphiSemanticApiOptions):
+      TDelphiSemanticRemoveWithFactBuildResult; overload; static;
+    class function BuildProjectWithBindingFactsResult(
+      const aRequest: TDelphiSemanticRemoveWithRequest):
+      TDelphiSemanticRemoveWithFactBuildResult; overload; static;
     class function PlanRemoveWith(const aFacts: TDelphiSemanticProjectWithBindingFacts):
       TDelphiSemanticRemoveWithPlan; static;
     class function PlanRemoveWithSnapshot(
@@ -73,16 +88,45 @@ type
 implementation
 
 uses
+  System.SysUtils,
   DelphiSemantics.Api.ProjectOptions, DelphiSemantics.ProjectContext,
   DelphiSemantics.ProjectSession, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder;
 
-function OpenProjectSession(const aOptions: TDelphiSemanticApiOptions):
-  TDelphiSemanticProjectSessionResult;
-var
-  lOptions: TDelphiSemanticOptions;
+function ProjectOptionsFromRemoveWithRequest(
+  const aRequest: TDelphiSemanticRemoveWithRequest): TDelphiSemanticOptions;
 begin
-  lOptions := ProjectOptionsFromApiOptions(aOptions);
-  Result := TDelphiSemanticProjectSession.Open(lOptions);
+  Result := ProjectOptionsFromApiOptions(aRequest.Options);
+  Result.SkipWithBindingSemanticGraph := aRequest.RemoveWithOptions.SkipSemanticGraph;
+end;
+
+function OpenProjectSession(const aRequest: TDelphiSemanticRemoveWithRequest):
+  TDelphiSemanticProjectSessionResult;
+begin
+  Result := TDelphiSemanticProjectSession.Open(
+    ProjectOptionsFromRemoveWithRequest(aRequest));
+end;
+
+function FactBuildFailure(const aCode, aMessage, aFileName: string):
+  TDelphiSemanticRemoveWithFactBuildResult;
+begin
+  Result := Default(TDelphiSemanticRemoveWithFactBuildResult);
+  Result.Success := False;
+  SetLength(Result.Diagnostics, 1);
+  Result.Diagnostics[0].Code := aCode;
+  Result.Diagnostics[0].Message := aMessage;
+  Result.Diagnostics[0].FileName := aFileName;
+  Result.Diagnostics[0].Severity := dsError;
+end;
+
+function FactBuildSessionFailure(const aSession:
+  TDelphiSemanticProjectSessionResult): TDelphiSemanticRemoveWithFactBuildResult;
+begin
+  Result := Default(TDelphiSemanticRemoveWithFactBuildResult);
+  Result.Success := False;
+  Result.Diagnostics := Copy(aSession.Diagnostics);
+  if Length(Result.Diagnostics) = 0 then
+    Result := FactBuildFailure('REMOVE_WITH_PROJECT_SESSION_FAILED',
+      'Cannot open project session.', '');
 end;
 
 class function TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(
@@ -99,17 +143,51 @@ class function TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBinding
   const aRequest: TDelphiSemanticRemoveWithRequest):
   TDelphiSemanticProjectWithBindingFacts;
 var
+  lResult: TDelphiSemanticRemoveWithFactBuildResult;
+begin
+  lResult := BuildProjectWithBindingFactsResult(aRequest);
+  Result := lResult.Facts;
+end;
+
+class function TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult(
+  const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticRemoveWithFactBuildResult;
+var
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := aOptions;
+  Result := BuildProjectWithBindingFactsResult(lRequest);
+end;
+
+class function TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult(
+  const aRequest: TDelphiSemanticRemoveWithRequest):
+  TDelphiSemanticRemoveWithFactBuildResult;
+var
   lSession: TDelphiSemanticProjectSessionResult;
 begin
-  lSession := OpenProjectSession(aRequest.Options);
+  Result := Default(TDelphiSemanticRemoveWithFactBuildResult);
   try
-    if (not lSession.Success) or (lSession.Session = nil) then
-      Exit(Default(TDelphiSemanticProjectWithBindingFacts));
+    lSession := OpenProjectSession(aRequest);
+    try
+      if (not lSession.Success) or (lSession.Session = nil) then
+        Exit(FactBuildSessionFailure(lSession));
 
-    Result := lSession.Session.BuildWithBindingFacts(
-      aRequest.BodyAnalysisSourceFileNames);
-  finally
-    lSession.Session.Free;
+      Result.Facts := lSession.Session.BuildWithBindingFacts(
+        aRequest.BodyAnalysisSourceFileNames);
+      Result.Metrics := Result.Facts.Metrics;
+      Result.Diagnostics := Copy(lSession.Diagnostics);
+      Result.Success := Result.Facts.ContextFingerprint <> '';
+      if not Result.Success then
+        Result := FactBuildFailure('REMOVE_WITH_FACTS_CONTEXT_FINGERPRINT_MISSING',
+          'DelphiSemantics project facts did not return a context fingerprint.',
+          aRequest.Options.ProjectFileName);
+    finally
+      lSession.Session.Free;
+    end;
+  except
+    on E: Exception do
+      Result := FactBuildFailure('REMOVE_WITH_FACT_BUILD_EXCEPTION', E.Message,
+        aRequest.Options.ProjectFileName);
   end;
 end;
 

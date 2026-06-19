@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Remove-with compatibility fact building now exposes an explicit result record
+  with success, diagnostics, facts, and metrics for callers that need
+  structured failure handling.
 - Remove-with final statement DTOs now expose rewrite recipe metadata for
   selector decisions, temp declarations, text edits, replacement range/text,
   render instruction, and rule provenance.
@@ -73,6 +76,8 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with-only semantic graph skipping now lives on the remove-with request
+  options instead of the common API options record.
 - Snapshot-backed remove-with planning now caches converted binding DTOs once
   per snapshot binding source instead of rebuilding them on every hot-path
   binding lookup.

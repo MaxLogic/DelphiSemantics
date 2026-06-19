@@ -25,7 +25,6 @@ begin
   Result.SearchPaths := aOptions.SearchPaths;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;
   Result.UseLspEnrichment := aOptions.UseLspEnrichment;
-  Result.SkipWithBindingSemanticGraph := aOptions.SkipWithBindingSemanticGraph;
 end;
 
 end.

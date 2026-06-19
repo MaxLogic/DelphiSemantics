@@ -19,8 +19,13 @@ type
   TDelphiSemanticRemoveWithPlan =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlan;
 
+  TDelphiSemanticRemoveWithOptions = record
+    SkipSemanticGraph: Boolean;
+  end;
+
   TDelphiSemanticRemoveWithRequest = record
     Options: TDelphiSemanticApiOptions;
+    RemoveWithOptions: TDelphiSemanticRemoveWithOptions;
     BodyAnalysisSourceFileNames: TArray<string>;
   end;
 
@@ -38,15 +43,20 @@ uses
   DelphiSemantics.Api.ProjectOptions, DelphiSemantics.ProjectContext,
   DelphiSemantics.ProjectSession;
 
-function OpenProjectSession(const aOptions: TDelphiSemanticApiOptions):
-  TDelphiSemanticProjectSessionResult;
-var
-  lOptions: TDelphiSemanticOptions;
+function ProjectOptionsFromRemoveWithRequest(
+  const aRequest: TDelphiSemanticRemoveWithRequest): TDelphiSemanticOptions;
 begin
-  lOptions := ProjectOptionsFromApiOptions(aOptions);
-  if lOptions.ProjectPath = '' then
-    lOptions.ProjectPath := aOptions.ProjectFileName;
-  Result := TDelphiSemanticProjectSession.Open(lOptions);
+  Result := ProjectOptionsFromApiOptions(aRequest.Options);
+  if Result.ProjectPath = '' then
+    Result.ProjectPath := aRequest.Options.ProjectFileName;
+  Result.SkipWithBindingSemanticGraph := aRequest.RemoveWithOptions.SkipSemanticGraph;
+end;
+
+function OpenProjectSession(const aRequest: TDelphiSemanticRemoveWithRequest):
+  TDelphiSemanticProjectSessionResult;
+begin
+  Result := TDelphiSemanticProjectSession.Open(
+    ProjectOptionsFromRemoveWithRequest(aRequest));
 end;
 
 class function TDelphiSemanticRemoveWithApi.PlanRemoveWith(
@@ -64,7 +74,7 @@ class function TDelphiSemanticRemoveWithApi.PlanRemoveWith(
 var
   lSession: TDelphiSemanticProjectSessionResult;
 begin
-  lSession := OpenProjectSession(aRequest.Options);
+  lSession := OpenProjectSession(aRequest);
   try
     if (not lSession.Success) or (lSession.Session = nil) then
     begin

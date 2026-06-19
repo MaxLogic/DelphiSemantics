@@ -7380,6 +7380,7 @@ var
   lProjectDir: string;
   lProjectPath: string;
   lPlan: TDelphiSemanticRemoveWithPlan;
+  lRequest: TDelphiSemanticRemoveWithRequest;
   lSourceDir: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
@@ -7393,10 +7394,12 @@ begin
   lOptions.Configuration := 'Debug';
   lOptions.Platform := 'Win32';
   lOptions.DelphiVersion := '23.0';
-  lOptions.SkipWithBindingSemanticGraph := True;
   lOptions.AdditionalSourceFileNames := TDirectory.GetFiles(lSourceDir, '*.pas',
     TSearchOption.soAllDirectories);
-  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := lOptions;
+  lRequest.RemoveWithOptions.SkipSemanticGraph := True;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lRequest);
   lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1134, 3, lStatement),
@@ -8025,6 +8028,7 @@ var
   lProjectDir: string;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lProjectPath: string;
+  lRequest: TDelphiSemanticRemoveWithRequest;
   lSourceDir: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
   lStatementItem: TDelphiSemanticRemoveWithFinalStatement;
@@ -8039,10 +8043,12 @@ begin
   lOptions.Configuration := 'Debug';
   lOptions.Platform := 'Win32';
   lOptions.DelphiVersion := '23.0';
-  lOptions.SkipWithBindingSemanticGraph := True;
   lOptions.AdditionalSourceFileNames := TDirectory.GetFiles(lSourceDir, '*.pas',
     TSearchOption.soAllDirectories);
-  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := lOptions;
+  lRequest.RemoveWithOptions.SkipSemanticGraph := True;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lRequest);
   lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
 
   lMatchCount := 0;

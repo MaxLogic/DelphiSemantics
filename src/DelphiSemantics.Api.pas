@@ -141,7 +141,6 @@ type
     ProjectContextApplied: Boolean;
     Cache: TDelphiSemanticCacheOptions;
     UseLspEnrichment: Boolean;
-    SkipWithBindingSemanticGraph: Boolean;
   end;
 
   TDelphiSemanticApi = record
@@ -199,7 +198,6 @@ begin
   Result.SearchPaths := aOptions.SearchPaths;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;
   Result.UseLspEnrichment := aOptions.UseLspEnrichment;
-  Result.SkipWithBindingSemanticGraph := aOptions.SkipWithBindingSemanticGraph;
 end;
 
 function WithScanOptionsFromApiOptions(const aOptions: TDelphiSemanticApiOptions):
