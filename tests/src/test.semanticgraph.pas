@@ -125,7 +125,7 @@ end;
 
 procedure TSemanticGraphTests.ProjectSessionBuildMetricsReportGraphCounts;
 var
-  lGraph: TDelphiSemanticSemanticGraph;
+  lGraphResult: TDelphiSemanticSemanticGraphBuildResult;
   lOptions: TDelphiSemanticOptions;
   lResult: TDelphiSemanticProjectSessionResult;
 begin
@@ -134,14 +134,14 @@ begin
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
-    lGraph := lResult.Session.BuildSemanticGraph;
+    lGraphResult := lResult.Session.BuildSemanticGraphResult;
     try
-      Assert.AreEqual(1, lGraph.Metrics.UnitCount);
-      Assert.AreEqual(0, lGraph.Metrics.SymbolCount);
-      Assert.IsTrue(lGraph.Metrics.BuildMilliseconds >= 0);
-      Assert.AreEqual(lGraph.Metrics.UnitCount, lResult.Session.LastSemanticGraphBuildMetrics.UnitCount);
+      Assert.AreEqual(1, lGraphResult.Metrics.UnitCount);
+      Assert.AreEqual(0, lGraphResult.Metrics.SymbolCount);
+      Assert.IsTrue(lGraphResult.Metrics.BuildMilliseconds >= 0);
+      Assert.AreEqual(lGraphResult.Graph.Metrics.UnitCount, lGraphResult.Metrics.UnitCount);
     finally
-      lGraph.Free;
+      lGraphResult.Graph.Free;
     end;
   finally
     lResult.Session.Free;

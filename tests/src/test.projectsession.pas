@@ -54,6 +54,8 @@ type
     [Test]
     procedure ProjectSessionParallelRemoveWithPlanMatchesSequentialCounts;
     [Test]
+    procedure ProjectSessionOperationResultsKeepMetricsStableAcrossLaterOperations;
+    [Test]
     procedure ProjectSessionPlanRemoveWithCachesProjectFactsByProjectIdentity;
     [Test]
     procedure ProjectSessionSnapshotMetricsExposeCacheUsefulnessTelemetry;
@@ -129,6 +131,39 @@ end;
 function ProjectSessionTempPath(const aName: string): string;
 begin
   Result := TPath.Combine(ProjectSessionTempRoot, aName);
+end;
+
+function BuildSnapshotWithMetrics(const aSession: TDelphiSemanticProjectSession;
+  out aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot; overload;
+var
+  lResult: TDelphiSemanticProjectSnapshotBuildResult;
+begin
+  lResult := aSession.BuildSnapshotResult;
+  aMetrics := lResult.Metrics;
+  Result := lResult.Snapshot;
+  lResult.Snapshot := nil;
+end;
+
+function BuildSnapshotWithMetrics(const aSession: TDelphiSemanticProjectSession;
+  const aScopedSourceFileNames: TArray<string>;
+  out aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot; overload;
+var
+  lResult: TDelphiSemanticProjectSnapshotBuildResult;
+begin
+  lResult := aSession.BuildSnapshotResult(aScopedSourceFileNames);
+  aMetrics := lResult.Metrics;
+  Result := lResult.Snapshot;
+  lResult.Snapshot := nil;
+end;
+
+function PlanRemoveWithWithMetrics(const aSession: TDelphiSemanticProjectSession;
+  out aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiSemanticRemoveWithPlan;
+var
+  lResult: TDelphiSemanticRemoveWithPlanBuildResult;
+begin
+  lResult := aSession.PlanRemoveWithResult;
+  aMetrics := lResult.SnapshotMetrics;
+  Result := lResult.Plan;
 end;
 
 function DependencyGraphRegressionProjectRoot: string;
@@ -864,9 +899,8 @@ begin
       Inc(lExpectedWithStatementCount, Length(lModel.WithStatements));
     end;
 
-    lSnapshot := lResult.Session.BuildSnapshot;
+    lSnapshot := BuildSnapshotWithMetrics(lResult.Session, lMetrics);
     try
-      lMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(Integer(Length(lFacts.UnitModels)), lSnapshot.UnitCount);
       Assert.AreEqual(lSnapshot.UnitCount, lMetrics.UnitCount);
       for i := 0 to lSnapshot.UnitCount - 1 do
@@ -966,17 +1000,17 @@ begin
   lSequentialResult := TDelphiSemanticProjectSession.Open(lSequentialOptions);
   try
     Assert.IsTrue(lSequentialResult.Success);
-    lSequentialSnapshot := lSequentialResult.Session.BuildSnapshot;
+    lSequentialSnapshot := BuildSnapshotWithMetrics(lSequentialResult.Session,
+      lSequentialMetrics);
     try
-      lSequentialMetrics := lSequentialResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(1, lSequentialMetrics.SnapshotBuilderWorkerCount);
 
       lParallelResult := TDelphiSemanticProjectSession.Open(lParallelOptions);
       try
         Assert.IsTrue(lParallelResult.Success);
-        lParallelSnapshot := lParallelResult.Session.BuildSnapshot;
+        lParallelSnapshot := BuildSnapshotWithMetrics(lParallelResult.Session,
+          lParallelMetrics);
         try
-          lParallelMetrics := lParallelResult.Session.LastSnapshotBuildMetrics;
           Assert.AreEqual(2, lParallelMetrics.SnapshotBuilderWorkerCount);
           Assert.IsTrue(lParallelMetrics.SnapshotBuilderQueueMilliseconds >= 0);
           Assert.IsTrue(lParallelMetrics.SnapshotBuilderParseExtractMilliseconds >= 0);
@@ -1028,15 +1062,15 @@ begin
   lSequentialResult := TDelphiSemanticProjectSession.Open(lSequentialOptions);
   try
     Assert.IsTrue(lSequentialResult.Success);
-    lSequentialPlan := lSequentialResult.Session.PlanRemoveWith;
-    lSequentialMetrics := lSequentialResult.Session.LastSnapshotBuildMetrics;
+    lSequentialPlan := PlanRemoveWithWithMetrics(lSequentialResult.Session,
+      lSequentialMetrics);
     Assert.AreEqual(1, lSequentialMetrics.SnapshotBuilderWorkerCount);
 
     lParallelResult := TDelphiSemanticProjectSession.Open(lParallelOptions);
     try
       Assert.IsTrue(lParallelResult.Success);
-      lParallelPlan := lParallelResult.Session.PlanRemoveWith;
-      lParallelMetrics := lParallelResult.Session.LastSnapshotBuildMetrics;
+      lParallelPlan := PlanRemoveWithWithMetrics(lParallelResult.Session,
+        lParallelMetrics);
 
       Assert.AreEqual(2, lParallelMetrics.SnapshotBuilderWorkerCount);
       Assert.AreEqual(lSequentialPlan.Operation, lParallelPlan.Operation);
@@ -1057,6 +1091,45 @@ begin
     end;
   finally
     lSequentialResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionOperationResultsKeepMetricsStableAcrossLaterOperations;
+var
+  lFactsResult: TDelphiSemanticProjectWithBindingFactsBuildResult;
+  lOptions: TDelphiSemanticOptions;
+  lPlanResult: TDelphiSemanticRemoveWithPlanBuildResult;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lSnapshotMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lSnapshotResult: TDelphiSemanticProjectSnapshotBuildResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lSnapshotResult := lResult.Session.BuildSnapshotResult;
+    try
+      lSnapshotMetrics := lSnapshotResult.Metrics;
+      Assert.AreEqual(2, lSnapshotResult.Snapshot.UnitCount);
+      Assert.AreEqual(lSnapshotResult.Snapshot.UnitCount, lSnapshotMetrics.UnitCount);
+
+      lFactsResult := lResult.Session.BuildWithBindingFactsResult;
+      Assert.IsTrue(Length(lFactsResult.Facts.Bindings) > 0);
+      Assert.AreEqual(2, lFactsResult.SemanticGraphMetrics.UnitCount);
+
+      lPlanResult := lResult.Session.PlanRemoveWithResult;
+      Assert.IsTrue(Length(lPlanResult.Plan.FinalStatements) > 0);
+      Assert.AreEqual(lSnapshotMetrics.UnitCount, lSnapshotResult.Metrics.UnitCount,
+        'Snapshot operation metrics must stay attached to their original result.');
+      Assert.AreEqual(lSnapshotMetrics.SymbolCount, lSnapshotResult.Metrics.SymbolCount,
+        'Snapshot operation metrics must not depend on later facts or plan calls.');
+    finally
+      lSnapshotResult.Snapshot.Free;
+    end;
+  finally
+    lResult.Session.Free;
   end;
 end;
 
@@ -1115,8 +1188,7 @@ begin
   lFirstResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lFirstResult.Success);
-    lFirstPlan := lFirstResult.Session.PlanRemoveWith;
-    lFirstMetrics := lFirstResult.Session.LastSnapshotBuildMetrics;
+    lFirstPlan := PlanRemoveWithWithMetrics(lFirstResult.Session, lFirstMetrics);
   finally
     lFirstResult.Session.Free;
   end;
@@ -1133,8 +1205,7 @@ begin
   lSecondResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lSecondResult.Success);
-    lSecondPlan := lSecondResult.Session.PlanRemoveWith;
-    lSecondMetrics := lSecondResult.Session.LastSnapshotBuildMetrics;
+    lSecondPlan := PlanRemoveWithWithMetrics(lSecondResult.Session, lSecondMetrics);
   finally
     lSecondResult.Session.Free;
   end;
@@ -1161,8 +1232,7 @@ begin
   lThirdResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lThirdResult.Success);
-    lThirdPlan := lThirdResult.Session.PlanRemoveWith;
-    lThirdMetrics := lThirdResult.Session.LastSnapshotBuildMetrics;
+    lThirdPlan := PlanRemoveWithWithMetrics(lThirdResult.Session, lThirdMetrics);
   finally
     lThirdResult.Session.Free;
   end;
@@ -1270,10 +1340,9 @@ begin
   lFirstResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lFirstResult.Success);
-    lFirstSnapshot := lFirstResult.Session.BuildSnapshot;
+    lFirstSnapshot := BuildSnapshotWithMetrics(lFirstResult.Session, lFirstMetrics);
     try
       Assert.AreEqual(1, lFirstSnapshot.UnitCount);
-      lFirstMetrics := lFirstResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(1, lFirstMetrics.SnapshotCacheProbes);
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, lFirstMetrics.SnapshotCacheMisses);
@@ -1292,10 +1361,9 @@ begin
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
-    lSnapshot := lResult.Session.BuildSnapshot;
+    lSnapshot := BuildSnapshotWithMetrics(lResult.Session, lMetrics);
     try
       Assert.AreEqual(1, lSnapshot.UnitCount);
-      lMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(1, lMetrics.SnapshotCacheProbes);
       Assert.AreEqual(1, lMetrics.SnapshotCacheHits);
       Assert.AreEqual(0, lMetrics.SnapshotCacheMisses);
@@ -1372,10 +1440,9 @@ begin
   lFirstResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lFirstResult.Success);
-    lFirstSnapshot := lFirstResult.Session.BuildSnapshot;
+    lFirstSnapshot := BuildSnapshotWithMetrics(lFirstResult.Session, lFirstMetrics);
     try
       Assert.AreEqual(2, lFirstSnapshot.UnitCount);
-      lFirstMetrics := lFirstResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(2, lFirstMetrics.SnapshotCacheProbes);
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheHits);
       Assert.AreEqual(2, lFirstMetrics.SnapshotCacheMisses);
@@ -1399,10 +1466,9 @@ begin
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
-    lSecondSnapshot := lResult.Session.BuildSnapshot;
+    lSecondSnapshot := BuildSnapshotWithMetrics(lResult.Session, lSecondMetrics);
     try
       Assert.AreEqual(2, lSecondSnapshot.UnitCount);
-      lSecondMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheProbes);
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheHits);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheMisses);
@@ -1433,10 +1499,9 @@ begin
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
-    lThirdSnapshot := lResult.Session.BuildSnapshot;
+    lThirdSnapshot := BuildSnapshotWithMetrics(lResult.Session, lThirdMetrics);
     try
       Assert.AreEqual(2, lThirdSnapshot.UnitCount);
-      lThirdMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(2, lThirdMetrics.SnapshotCacheProbes);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheMisses);
@@ -1461,10 +1526,9 @@ begin
       lThirdSnapshot.Free;
     end;
 
-    lSecondSnapshot := lResult.Session.BuildSnapshot;
+    lSecondSnapshot := BuildSnapshotWithMetrics(lResult.Session, lSecondMetrics);
     try
       Assert.AreEqual(2, lSecondSnapshot.UnitCount);
-      lSecondMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheProbes);
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheHits);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheMisses);
@@ -1535,10 +1599,9 @@ begin
   lFirstResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lFirstResult.Success);
-    lSnapshot := lFirstResult.Session.BuildSnapshot;
+    lSnapshot := BuildSnapshotWithMetrics(lFirstResult.Session, lFirstMetrics);
     try
       Assert.AreEqual(2, lSnapshot.UnitCount);
-      lFirstMetrics := lFirstResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(2, lFirstMetrics.SnapshotCacheProbes);
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheHits);
       Assert.AreEqual(2, lFirstMetrics.SnapshotCacheMisses);
@@ -1553,10 +1616,9 @@ begin
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
-    lSnapshot := lResult.Session.BuildSnapshot;
+    lSnapshot := BuildSnapshotWithMetrics(lResult.Session, lSecondMetrics);
     try
       Assert.AreEqual(2, lSnapshot.UnitCount);
-      lSecondMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheProbes);
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheHits);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheMisses);
@@ -1609,10 +1671,9 @@ begin
   lFirstResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lFirstResult.Success);
-    lSnapshot := lFirstResult.Session.BuildSnapshot;
+    lSnapshot := BuildSnapshotWithMetrics(lFirstResult.Session, lFirstMetrics);
     try
       Assert.AreEqual(1, lSnapshot.UnitCount);
-      lFirstMetrics := lFirstResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(1, lFirstMetrics.SnapshotCacheProbes);
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, lFirstMetrics.SnapshotCacheMisses);
@@ -1628,10 +1689,9 @@ begin
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
-    lSnapshot := lResult.Session.BuildSnapshot;
+    lSnapshot := BuildSnapshotWithMetrics(lResult.Session, lSecondMetrics);
     try
       Assert.AreEqual(1, lSnapshot.UnitCount);
-      lSecondMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(1, lSecondMetrics.SnapshotCacheProbes);
       Assert.AreEqual(1, lSecondMetrics.SnapshotCacheHits);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheMisses);
@@ -1709,10 +1769,10 @@ begin
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
-    lSnapshot := lResult.Session.BuildSnapshot([lDprPath]);
+    lSnapshot := BuildSnapshotWithMetrics(lResult.Session, [lDprPath],
+      lSecondMetrics);
     try
       Assert.AreEqual(2, lSnapshot.UnitCount);
-      lSecondMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheProbes);
       Assert.AreEqual(1, lSecondMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, lSecondMetrics.SnapshotCacheMisses);
@@ -1729,10 +1789,10 @@ begin
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
-    lSnapshot := lResult.Session.BuildSnapshot([lDprPath]);
+    lSnapshot := BuildSnapshotWithMetrics(lResult.Session, [lDprPath],
+      lThirdMetrics);
     try
       Assert.AreEqual(2, lSnapshot.UnitCount);
-      lThirdMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(2, lThirdMetrics.SnapshotCacheProbes);
       Assert.AreEqual(2, lThirdMetrics.SnapshotCacheHits);
       Assert.AreEqual(0, lThirdMetrics.SnapshotCacheMisses);
@@ -1826,10 +1886,9 @@ begin
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
-    lSnapshot := lResult.Session.BuildSnapshot;
+    lSnapshot := BuildSnapshotWithMetrics(lResult.Session, lMetrics);
     try
       Assert.AreEqual(3, lSnapshot.UnitCount);
-      lMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(3, lMetrics.SnapshotCacheProbes);
       Assert.AreEqual(2, lMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, lMetrics.SnapshotCacheMisses);
@@ -1924,10 +1983,9 @@ begin
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lResult.Success);
-    lSnapshot := lResult.Session.BuildSnapshot;
+    lSnapshot := BuildSnapshotWithMetrics(lResult.Session, lMetrics);
     try
       Assert.AreEqual(3, lSnapshot.UnitCount);
-      lMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(3, lMetrics.SnapshotCacheProbes);
       Assert.AreEqual(2, lMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, lMetrics.SnapshotCacheMisses);
@@ -2021,12 +2079,11 @@ begin
     Assert.IsNotEmpty(lIdentities[0].FileHash);
     Assert.IsNotEmpty(lIdentities[1].FileHash);
 
-    lSnapshot := lResult.Session.BuildSnapshot;
+    lSnapshot := BuildSnapshotWithMetrics(lResult.Session, lMetrics);
     try
       Assert.AreEqual(2, lSnapshot.UnitCount);
       Assert.IsTrue(lSnapshot.TryFindUnitByFileName(lUnitPath, lUnitId),
         'Expected source-loader-decoded DPR in-reference unit in project snapshot.');
-      lMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(2, lMetrics.SnapshotCacheProbes);
       Assert.AreEqual(0, lMetrics.SnapshotCacheHits);
       Assert.AreEqual(2, lMetrics.SnapshotCacheMisses);
@@ -2093,10 +2150,9 @@ begin
   lFirstResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lFirstResult.Success);
-    lFirstSnapshot := lFirstResult.Session.BuildSnapshot;
+    lFirstSnapshot := BuildSnapshotWithMetrics(lFirstResult.Session, lFirstMetrics);
     try
       Assert.AreEqual(2, lFirstSnapshot.UnitCount);
-      lFirstMetrics := lFirstResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(2, lFirstMetrics.SnapshotCacheProbes);
       Assert.AreEqual(0, lFirstMetrics.SnapshotCacheHits);
       Assert.AreEqual(2, lFirstMetrics.SnapshotCacheMisses);
@@ -2113,10 +2169,9 @@ begin
   lSecondResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lSecondResult.Success);
-    lSecondSnapshot := lSecondResult.Session.BuildSnapshot;
+    lSecondSnapshot := BuildSnapshotWithMetrics(lSecondResult.Session, lSecondMetrics);
     try
       Assert.AreEqual(2, lSecondSnapshot.UnitCount);
-      lSecondMetrics := lSecondResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheProbes);
       Assert.AreEqual(2, lSecondMetrics.SnapshotCacheHits);
       Assert.AreEqual(0, lSecondMetrics.SnapshotCacheMisses);
@@ -2134,10 +2189,9 @@ begin
   lThirdResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lThirdResult.Success);
-    lThirdSnapshot := lThirdResult.Session.BuildSnapshot;
+    lThirdSnapshot := BuildSnapshotWithMetrics(lThirdResult.Session, lThirdMetrics);
     try
       Assert.AreEqual(2, lThirdSnapshot.UnitCount);
-      lThirdMetrics := lThirdResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(2, lThirdMetrics.SnapshotCacheProbes);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, lThirdMetrics.SnapshotCacheMisses);
