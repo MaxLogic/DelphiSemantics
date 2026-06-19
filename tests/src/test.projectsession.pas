@@ -1,4 +1,4 @@
-﻿unit Test.ProjectSession;
+unit Test.ProjectSession;
 
 interface
 
@@ -55,6 +55,8 @@ type
     procedure ProjectSessionSnapshotMetricsExposeCacheUsefulnessTelemetry;
     [Test]
     procedure ProjectSessionReusesUnchangedMultiUnitSnapshotCacheEntries;
+    [Test]
+    procedure ProjectSessionSnapshotCacheReusesPathVariantProjectIdentity;
     [Test]
     procedure ProjectSessionScopedPartialSnapshotCacheHitStoresMissedUnitUnderScopedIdentity;
     [Test]
@@ -1397,6 +1399,94 @@ begin
       Assert.AreEqual(Int64(0), lSecondMetrics.SnapshotCacheUnitBuildMilliseconds);
     finally
       lSecondSnapshot.Free;
+    end;
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionSnapshotCacheReusesPathVariantProjectIdentity;
+var
+  lCachePath: string;
+  lDprPath: string;
+  lDprojPath: string;
+  lFirstMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lFirstResult: TDelphiSemanticProjectSessionResult;
+  lOptions: TDelphiSemanticOptions;
+  lPathVariant: string;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootName: string;
+  lRootPath: string;
+  lSecondMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnitPath: string;
+begin
+  lRootPath := ProjectSessionTempPath('snapshot-session-path-variant-cache-temp');
+  TDirectory.CreateDirectory(lRootPath);
+
+  lDprPath := TPath.Combine(lRootPath, 'PathVariantSnapshotCache.dpr');
+  lDprojPath := TPath.Combine(lRootPath, 'PathVariantSnapshotCache.dproj');
+  lUnitPath := TPath.Combine(lRootPath, 'PathVariantSnapshotCacheUnit.pas');
+  lCachePath := CombinePath([lRootPath, '.dak', 'semantic-cache.sqlite3']);
+  lRootName := TPath.GetFileName(lRootPath);
+  lPathVariant := StringReplace(UpperCase(CombinePath([lRootPath, '..', lRootName,
+    'PathVariantSnapshotCache.dproj'])), '\', '/', [rfReplaceAll]);
+
+  TFile.WriteAllText(lDprPath, 'program PathVariantSnapshotCache;' + sLineBreak +
+    'uses PathVariantSnapshotCacheUnit;' + sLineBreak + 'begin' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lDprojPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    sLineBreak + '  <PropertyGroup>' + sLineBreak +
+    '    <ProjectGuid>{8D42FE30-5BC2-4589-8EDE-A04E48506138}</ProjectGuid>' +
+    sLineBreak + '    <MainSource>PathVariantSnapshotCache.dpr</MainSource>' +
+    sLineBreak + '  </PropertyGroup>' + sLineBreak + '  <ItemGroup>' +
+    sLineBreak + '    <DCCReference Include="PathVariantSnapshotCacheUnit.pas"/>' +
+    sLineBreak + '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+  TFile.WriteAllText(lUnitPath, 'unit PathVariantSnapshotCacheUnit;' + sLineBreak +
+    'interface' + sLineBreak + 'type' + sLineBreak +
+    '  TPathVariantSnapshotCacheRecord = record' + sLineBreak + '    Value: Integer;' +
+    sLineBreak + '  end;' + sLineBreak + 'implementation' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojPath;
+  lOptions.SqliteCacheFileName := lCachePath;
+
+  lFirstResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lFirstResult.Success);
+    lSnapshot := lFirstResult.Session.BuildSnapshot;
+    try
+      Assert.AreEqual(2, lSnapshot.UnitCount);
+      lFirstMetrics := lFirstResult.Session.LastSnapshotBuildMetrics;
+      Assert.AreEqual(2, lFirstMetrics.SnapshotCacheProbes);
+      Assert.AreEqual(0, lFirstMetrics.SnapshotCacheHits);
+      Assert.AreEqual(2, lFirstMetrics.SnapshotCacheMisses);
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    lFirstResult.Session.Free;
+  end;
+
+  lOptions.ProjectPath := lPathVariant;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lSnapshot := lResult.Session.BuildSnapshot;
+    try
+      Assert.AreEqual(2, lSnapshot.UnitCount);
+      lSecondMetrics := lResult.Session.LastSnapshotBuildMetrics;
+      Assert.AreEqual(2, lSecondMetrics.SnapshotCacheProbes);
+      Assert.AreEqual(2, lSecondMetrics.SnapshotCacheHits);
+      Assert.AreEqual(0, lSecondMetrics.SnapshotCacheMisses);
+      Assert.AreEqual(0, lSecondMetrics.SnapshotCacheInvalidations);
+      Assert.AreEqual(1, lSecondMetrics.SnapshotCacheFullHitCount);
+      Assert.AreEqual(2, lSecondMetrics.SnapshotCacheUnitHits);
+      Assert.AreEqual(0, lSecondMetrics.SnapshotCacheUnitMisses);
+    finally
+      lSnapshot.Free;
     end;
   finally
     lResult.Session.Free;

@@ -90,6 +90,7 @@ uses
   Xml.XMLDoc,
   Xml.XMLIntf,
   Xml.xmldom,
+  DelphiSemantics.Cache,
   DelphiSemantics.CompilerProfile, DelphiSemantics.Lsp;
 
 type
@@ -1255,17 +1256,30 @@ begin
   aBuilder.AppendLine(aValue);
 end;
 
+function CanonicalFingerprintText(const aValue: string): string;
+begin
+  Result := LowerCase(Trim(aValue));
+end;
+
 procedure AppendFingerprintItems(const aBuilder: TStringBuilder; const aName: string;
-  const aItems: TArray<string>);
+  const aItems: TArray<string>; const aItemsArePaths: Boolean);
 var
   lItem: string;
+  lValue: string;
 begin
   aBuilder.Append(aName);
   aBuilder.Append('=');
   for lItem in aItems do
   begin
-    aBuilder.Append(lItem);
-    aBuilder.Append('|');
+    if aItemsArePaths then
+      lValue := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lItem)
+    else
+      lValue := CanonicalFingerprintText(lItem);
+    if lValue <> '' then
+    begin
+      aBuilder.Append(lValue);
+      aBuilder.Append('|');
+    end;
   end;
   aBuilder.AppendLine;
 end;
@@ -1274,24 +1288,35 @@ function BuildContextFingerprint(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions): string;
 var
   lBuilder: TStringBuilder;
+  lContext: TDelphiSemanticCacheIdentityContext;
+  lProjectIdentity: TDelphiSemanticProjectCacheIdentity;
 begin
+  lContext := Default(TDelphiSemanticCacheIdentityContext);
+  lContext.SchemaVersion := 'project-context-fingerprint-v2';
+  lContext.ProjectPath := aProject.ProjectFileName;
+  lContext.Configuration := aProject.Configuration;
+  lContext.Platform := aProject.Platform;
+  lContext.DelphiVersion := aOptions.DelphiVersion;
+  lContext.Defines := aProject.Defines;
+  lContext.SearchPaths := aProject.SourceLookupPaths;
+  lContext.UnitScopes := aProject.UnitScopeNames;
+  lContext.UnitAliases := aProject.UnitAliases;
+  lProjectIdentity := TDelphiSemanticCacheIdentityBuilder.BuildProjectIdentity(lContext);
+
   lBuilder := TStringBuilder.Create;
   try
-    AppendFingerprintItem(lBuilder, 'project', AnsiLowerCase(aProject.ProjectFileName));
-    AppendFingerprintItem(lBuilder, 'main', AnsiLowerCase(aProject.MainSourceFileName));
-    AppendFingerprintItem(lBuilder, 'configuration', aProject.Configuration);
-    AppendFingerprintItem(lBuilder, 'platform', aProject.Platform);
-    AppendFingerprintItem(lBuilder, 'delphiVersion', aOptions.DelphiVersion);
-    AppendFingerprintItem(lBuilder, 'rsvars', AnsiLowerCase(aOptions.RsVarsPath));
-    AppendFingerprintItem(lBuilder, 'envoptions', AnsiLowerCase(aOptions.EnvOptionsPath));
-    AppendFingerprintItem(lBuilder, 'compilerProfile', aProject.CompilerProfileName);
-    AppendFingerprintItems(lBuilder, 'defines', aProject.Defines);
-    AppendFingerprintItems(lBuilder, 'includePaths', aProject.IncludePaths);
-    AppendFingerprintItems(lBuilder, 'searchPaths', aProject.SearchPaths);
-    AppendFingerprintItems(lBuilder, 'unitScopes', aProject.UnitScopeNames);
-    AppendFingerprintItems(lBuilder, 'unitAliases', aProject.UnitAliases);
-    AppendFingerprintItems(lBuilder, 'references', aProject.ReferenceDirectories);
-    AppendFingerprintItems(lBuilder, 'sourceFiles', aProject.SourceFileNames);
+    AppendFingerprintItem(lBuilder, 'projectIdentity', lProjectIdentity.ProjectKey);
+    AppendFingerprintItem(lBuilder, 'main',
+      TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aProject.MainSourceFileName));
+    AppendFingerprintItem(lBuilder, 'rsvars',
+      TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.RsVarsPath));
+    AppendFingerprintItem(lBuilder, 'envoptions',
+      TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.EnvOptionsPath));
+    AppendFingerprintItem(lBuilder, 'compilerProfile',
+      CanonicalFingerprintText(aProject.CompilerProfileName));
+    AppendFingerprintItems(lBuilder, 'includePaths', aProject.IncludePaths, True);
+    AppendFingerprintItems(lBuilder, 'references', aProject.ReferenceDirectories, True);
+    AppendFingerprintItems(lBuilder, 'sourceFiles', aProject.SourceFileNames, True);
     Result := THashSHA2.GetHashString(lBuilder.ToString);
   finally
     lBuilder.Free;

@@ -86,6 +86,7 @@ type
 
   TDelphiSemanticCacheIdentityBuilder = record
   public
+    class function CanonicalPath(const aPath: string): string; static;
     class function BuildContextHash(const aContext: TDelphiSemanticCacheIdentityContext):
       string; static;
     class function BuildProjectIdentity(const aContext: TDelphiSemanticCacheIdentityContext):
@@ -161,7 +162,7 @@ type
 implementation
 
 uses
-  System.Classes, System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Classes, System.Hash, System.IOUtils, System.SysUtils,
   DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.Version;
 
 const
@@ -211,26 +212,43 @@ begin
     Result := aDefault;
 end;
 
-function SortedArrayText(const aValues: TArray<string>): string;
-var
-  lList: TStringList;
-  lValue: string;
+function CanonicalIdentityText(const aValue: string): string;
 begin
-  lList := TStringList.Create;
-  try
-    lList.CaseSensitive := False;
-    lList.Sorted := True;
-    lList.Duplicates := dupIgnore;
-    for lValue in aValues do
-      if lValue.Trim <> '' then
-        lList.Add(lValue.Trim);
-    Result := lList.Text;
-  finally
-    lList.Free;
-  end;
+  Result := LowerCase(Trim(aValue));
 end;
 
-function NormalizeIdentityArray(const aValues: TArray<string>; const aSortValues: Boolean): string;
+function CanonicalIdentityPath(const aPath: string): string;
+var
+  lPath: string;
+  lRoot: string;
+begin
+  lPath := Trim(aPath);
+  if lPath = '' then
+    Exit('');
+
+  lPath := StringReplace(lPath, '/', '\', [rfReplaceAll]);
+  if Pos('$(', lPath) > 0 then
+  begin
+    Result := LowerCase(lPath);
+    Exit;
+  end;
+  try
+    Result := LowerCase(TPath.GetFullPath(lPath));
+  except
+    // MSBuild macros and unresolved variables are still stable identity text.
+    Result := LowerCase(lPath);
+  end;
+  try
+    lRoot := LowerCase(TPath.GetPathRoot(Result));
+  except
+    lRoot := '';
+  end;
+  if (Result <> '') and (not SameText(Result, lRoot)) then
+    Result := ExcludeTrailingPathDelimiter(Result);
+end;
+
+function CanonicalIdentityArrayText(const aValues: TArray<string>;
+  const aSortValues, aValuesArePaths: Boolean): string;
 var
   lList: TStringList;
   lNormalized: string;
@@ -244,7 +262,10 @@ begin
       lList.Duplicates := dupIgnore;
     for lValue in aValues do
     begin
-      lNormalized := LowerCase(Trim(lValue));
+      if aValuesArePaths then
+        lNormalized := CanonicalIdentityPath(lValue)
+      else
+        lNormalized := CanonicalIdentityText(lValue);
       if lNormalized <> '' then
         lList.Add(lNormalized);
     end;
@@ -254,28 +275,41 @@ begin
   end;
 end;
 
-function NormalizeIdentityDefines(const aContext: TDelphiSemanticCacheIdentityContext): string;
+function CanonicalIdentityDefinesText(const aContext: TDelphiSemanticCacheIdentityContext):
+  string;
 begin
   if Length(aContext.Defines) > 0 then
-    Exit(NormalizeIdentityArray(aContext.Defines, True));
+    Exit(CanonicalIdentityArrayText(aContext.Defines, True, False));
 
-  Result := NormalizeIdentityArray(aContext.ParserDefines.Split([';']), True);
+  Result := CanonicalIdentityArrayText(aContext.ParserDefines.Split([';']), True, False);
 end;
 
-function OrderedArrayText(const aValues: TArray<string>): string;
-var
-  lValue: string;
-  sb: TStringBuilder;
+function ExtractionOptionsIdentityText(const aOptions: TDelphiSemanticModelOptions): string;
 begin
-  sb := TStringBuilder.Create;
-  try
-    for lValue in aValues do
-      if lValue.Trim <> '' then
-        sb.AppendLine(lValue.Trim);
-    Result := sb.ToString;
-  finally
-    sb.Free;
-  end;
+  Result := 'projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) +
+    sLineBreak + 'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) +
+    sLineBreak + 'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True);
+end;
+
+function ModelOptionsIdentityContext(const aOptions: TDelphiSemanticModelOptions;
+  const aSchemaVersion, aParserVersion, aDelphiVersion, aConfiguration,
+  aPlatform: string): TDelphiSemanticCacheIdentityContext;
+begin
+  Result := Default(TDelphiSemanticCacheIdentityContext);
+  Result.SchemaVersion := aSchemaVersion;
+  Result.ParserVersion := aParserVersion;
+  Result.DelphiVersion := aDelphiVersion;
+  Result.Configuration := aConfiguration;
+  Result.Platform := aPlatform;
+  Result.Defines := aOptions.Defines;
+  Result.SearchPaths := aOptions.SearchPaths;
+  Result.ExtractionOptionsHash := StableHash(ExtractionOptionsIdentityText(aOptions));
+end;
+
+class function TDelphiSemanticCacheIdentityBuilder.CanonicalPath(
+  const aPath: string): string;
+begin
+  Result := CanonicalIdentityPath(aPath);
 end;
 
 class function TDelphiSemanticCacheIdentityBuilder.BuildContextHash(
@@ -291,13 +325,16 @@ begin
       cDefaultIdentityParserVersion));
     lBuilder.AppendLine('includeGraph=' + EffectiveIdentityValue(aContext.IncludeGraphHash,
       cDefaultIdentityIncludeGraphHash));
-    lBuilder.AppendLine('delphi=' + LowerCase(Trim(aContext.DelphiVersion)));
-    lBuilder.AppendLine('config=' + LowerCase(Trim(aContext.Configuration)));
-    lBuilder.AppendLine('platform=' + LowerCase(Trim(aContext.Platform)));
-    lBuilder.AppendLine('defines=' + NormalizeIdentityDefines(aContext));
-    lBuilder.AppendLine('search=' + NormalizeIdentityArray(aContext.SearchPaths, False));
-    lBuilder.AppendLine('unitScopes=' + NormalizeIdentityArray(aContext.UnitScopes, False));
-    lBuilder.AppendLine('unitAliases=' + NormalizeIdentityArray(aContext.UnitAliases, False));
+    lBuilder.AppendLine('delphi=' + CanonicalIdentityText(aContext.DelphiVersion));
+    lBuilder.AppendLine('config=' + CanonicalIdentityText(aContext.Configuration));
+    lBuilder.AppendLine('platform=' + CanonicalIdentityText(aContext.Platform));
+    lBuilder.AppendLine('defines=' + CanonicalIdentityDefinesText(aContext));
+    lBuilder.AppendLine('search=' + CanonicalIdentityArrayText(aContext.SearchPaths,
+      False, True));
+    lBuilder.AppendLine('unitScopes=' + CanonicalIdentityArrayText(aContext.UnitScopes,
+      False, False));
+    lBuilder.AppendLine('unitAliases=' + CanonicalIdentityArrayText(aContext.UnitAliases,
+      False, False));
     Result := StableHash(lBuilder.ToString);
   finally
     lBuilder.Free;
@@ -310,22 +347,27 @@ var
   lBuilder: TStringBuilder;
 begin
   Result := Default(TDelphiSemanticProjectCacheIdentity);
-  Result.DefinesHash := StableHash(NormalizeIdentityDefines(aContext));
-  Result.SearchPathHash := StableHash(NormalizeIdentityArray(aContext.SearchPaths, False));
-  Result.UnitScopeHash := StableHash(NormalizeIdentityArray(aContext.UnitScopes, False));
-  Result.AliasHash := StableHash(NormalizeIdentityArray(aContext.UnitAliases, False));
+  Result.DefinesHash := StableHash(CanonicalIdentityDefinesText(aContext));
+  Result.SearchPathHash := StableHash(CanonicalIdentityArrayText(aContext.SearchPaths,
+    False, True));
+  Result.UnitScopeHash := StableHash(CanonicalIdentityArrayText(aContext.UnitScopes,
+    False, False));
+  Result.AliasHash := StableHash(CanonicalIdentityArrayText(aContext.UnitAliases,
+    False, False));
 
   lBuilder := TStringBuilder.Create;
   try
-    lBuilder.AppendLine('project=' + LowerCase(Trim(aContext.ProjectPath)));
-    lBuilder.AppendLine('config=' + LowerCase(Trim(aContext.Configuration)));
-    lBuilder.AppendLine('platform=' + LowerCase(Trim(aContext.Platform)));
-    lBuilder.AppendLine('delphi=' + LowerCase(Trim(aContext.DelphiVersion)));
-    lBuilder.AppendLine('defines=' + NormalizeIdentityDefines(aContext));
-    lBuilder.AppendLine('search=' + NormalizeIdentityArray(aContext.SearchPaths, False));
-    lBuilder.AppendLine('scopes=' + NormalizeIdentityArray(aContext.UnitScopes, False));
-    lBuilder.AppendLine('aliases=' + NormalizeIdentityArray(aContext.UnitAliases, False));
-    lBuilder.AppendLine('central=' + LowerCase(Trim(aContext.CentralCacheRoot)));
+    lBuilder.AppendLine('project=' + CanonicalIdentityPath(aContext.ProjectPath));
+    lBuilder.AppendLine('config=' + CanonicalIdentityText(aContext.Configuration));
+    lBuilder.AppendLine('platform=' + CanonicalIdentityText(aContext.Platform));
+    lBuilder.AppendLine('delphi=' + CanonicalIdentityText(aContext.DelphiVersion));
+    lBuilder.AppendLine('defines=' + CanonicalIdentityDefinesText(aContext));
+    lBuilder.AppendLine('search=' + CanonicalIdentityArrayText(aContext.SearchPaths,
+      False, True));
+    lBuilder.AppendLine('scopes=' + CanonicalIdentityArrayText(aContext.UnitScopes,
+      False, False));
+    lBuilder.AppendLine('aliases=' + CanonicalIdentityArrayText(aContext.UnitAliases,
+      False, False));
     Result.ProjectKey := StableHash(lBuilder.ToString);
   finally
     lBuilder.Free;
@@ -334,7 +376,10 @@ end;
 
 class function TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(const aSourceFileName: string;
   const aContext: TDelphiSemanticCacheIdentityContext): TDelphiSemanticUnitCacheIdentity;
+var
+  lSourceFileName: string;
 begin
+  lSourceFileName := CanonicalIdentityPath(aSourceFileName);
   Result := Default(TDelphiSemanticUnitCacheIdentity);
   Result.SchemaVersion := EffectiveIdentityValue(aContext.SchemaVersion,
     cDefaultIdentitySchemaVersion);
@@ -342,11 +387,12 @@ begin
     cDefaultIdentityParserVersion);
   Result.IncludeGraphHash := EffectiveIdentityValue(aContext.IncludeGraphHash,
     cDefaultIdentityIncludeGraphHash);
-  Result.FileHash := HashFileIfExists(aSourceFileName);
-  Result.FileTimestampUtc := FileTimestampIfExists(aSourceFileName);
+  Result.FileHash := HashFileIfExists(lSourceFileName);
+  Result.FileTimestampUtc := FileTimestampIfExists(lSourceFileName);
   Result.ContextHash := BuildContextHash(aContext);
-  Result.DefinesHash := StableHash(NormalizeIdentityDefines(aContext));
-  Result.SearchPathHash := StableHash(NormalizeIdentityArray(aContext.SearchPaths, False));
+  Result.DefinesHash := StableHash(CanonicalIdentityDefinesText(aContext));
+  Result.SearchPathHash := StableHash(CanonicalIdentityArrayText(aContext.SearchPaths,
+    False, True));
   Result.ExtractionOptionsHash := StableHash('');
   if Trim(aContext.ExtractionOptionsHash) <> '' then
     Result.ExtractionOptionsHash := Trim(aContext.ExtractionOptionsHash);
@@ -356,36 +402,44 @@ begin
   Result.UnitCacheKey := StableHash('unit|' + Result.SchemaVersion + '|' + Result.ParserVersion +
     '|' + Result.FileHash + '|' + Result.FileTimestampUtc + '|' + Result.IncludeGraphHash + '|' +
     Result.ContextHash + '|' + Result.SearchPathHash + '|' + Result.ExtractionOptionsHash + '|' +
-    LowerCase(Trim(Result.Configuration)));
+    CanonicalIdentityText(Result.Configuration));
 end;
 
 function BuildSemanticContextHash(const aOptions: TDelphiSemanticModelOptions): string;
+var
+  lContext: TDelphiSemanticCacheIdentityContext;
+  lExtractionOptionsHash: string;
 begin
-  Result := StableHash(
-    'defines=' + SortedArrayText(aOptions.Defines) + sLineBreak +
-    'searchPaths=' + OrderedArrayText(aOptions.SearchPaths) + sLineBreak +
-    'projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) + sLineBreak +
-    'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) + sLineBreak +
-    'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True));
+  lContext := ModelOptionsIdentityContext(aOptions, cCacheSchemaVersion,
+    cDefaultParserVersion, '', '', '');
+  lExtractionOptionsHash := lContext.ExtractionOptionsHash;
+  Result := StableHash('context=' +
+    TDelphiSemanticCacheIdentityBuilder.BuildContextHash(lContext) + sLineBreak +
+    'extraction=' + lExtractionOptionsHash);
 end;
 
 function BuildSemanticDefinesHash(const aOptions: TDelphiSemanticModelOptions): string;
+var
+  lContext: TDelphiSemanticCacheIdentityContext;
 begin
-  Result := StableHash(SortedArrayText(aOptions.Defines));
+  lContext := ModelOptionsIdentityContext(aOptions, cCacheSchemaVersion,
+    cDefaultParserVersion, '', '', '');
+  Result := StableHash(CanonicalIdentityDefinesText(lContext));
 end;
 
 function BuildSemanticSearchPathHash(const aOptions: TDelphiSemanticModelOptions): string;
+var
+  lContext: TDelphiSemanticCacheIdentityContext;
 begin
-  Result := StableHash(OrderedArrayText(aOptions.SearchPaths));
+  lContext := ModelOptionsIdentityContext(aOptions, cCacheSchemaVersion,
+    cDefaultParserVersion, '', '', '');
+  Result := StableHash(CanonicalIdentityArrayText(lContext.SearchPaths, False, True));
 end;
 
 function BuildSemanticExtractionOptionsHash(const aOptions: TDelphiSemanticModelOptions):
   string;
 begin
-  Result := StableHash(
-    'projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) + sLineBreak +
-    'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) + sLineBreak +
-    'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True));
+  Result := StableHash(ExtractionOptionsIdentityText(aOptions));
 end;
 
 function CloneUnitModel(const aModel: TDelphiSemanticUnitModel): TDelphiSemanticUnitModel;
@@ -427,7 +481,7 @@ var
   lSourceFileName: string;
   lSourceHash: string;
 begin
-  lSourceFileName := TPath.GetFullPath(aOptions.SourceFileName);
+  lSourceFileName := CanonicalIdentityPath(aOptions.SourceFileName);
   if TFile.Exists(lSourceFileName) then
     lSourceHash := THashSHA2.GetHashStringFromFile(lSourceFileName)
   else
@@ -448,7 +502,7 @@ begin
     'platform=' + aPlatform + sLineBreak +
     'parser=' + aParserVersion + sLineBreak +
     'model=' + aModelVersion + sLineBreak +
-    'file=' + UpperCase(lSourceFileName) + sLineBreak +
+    'file=' + lSourceFileName + sLineBreak +
     'source=' + lSourceHash + sLineBreak +
     'timestamp=' + FileTimestampIfExists(lSourceFileName) + sLineBreak +
     'include=' + lPreprocessResult.IncludeGraphHash + sLineBreak +
@@ -464,7 +518,7 @@ var
   lSourceFileName: string;
   lSourceResult: TDelphiSemanticSourceLoadResult;
 begin
-  lSourceFileName := TPath.GetFullPath(aOptions.SourceFileName);
+  lSourceFileName := CanonicalIdentityPath(aOptions.SourceFileName);
   lSourceResult := TDelphiSemanticSourceLoader.LoadFile(lSourceFileName);
   if lSourceResult.Success then
     lPreprocessResult := BuildPreprocessResult(lSourceResult, aOptions)
@@ -659,7 +713,7 @@ begin
     Result := Default(TDelphiSemanticUnitCacheAccessResult);
     Result.Identity := BuildInternalUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
       fModelVersion, fDelphiVersion, fConfiguration, fPlatform);
-    lIdentity := UpperCase(TPath.GetFullPath(aOptions.SourceFileName));
+    lIdentity := CanonicalIdentityPath(aOptions.SourceFileName);
     lKey := Result.Identity.UnitCacheKey;
     lDictionary := fEntries;
     if lDictionary.TryGetValue(lIdentity, lEntry) then

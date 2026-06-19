@@ -1,4 +1,4 @@
-﻿unit Test.Cache;
+unit Test.Cache;
 
 interface
 
@@ -89,6 +89,8 @@ type
     procedure SymbolMapCompatibleIdentityReusesSharedSourceAcrossProjects;
     [Test]
     procedure SymbolMapCompatibleIdentitySeparatesSearchAndConfiguration;
+    [Test]
+    procedure CanonicalSemanticIdentityNormalizesPathVariantsAndIgnoresStorageRoot;
     [Test]
     procedure SymbolMapCompatibleIdentitySeparatesExtractionOptions;
     [Test]
@@ -986,6 +988,81 @@ begin
   Assert.AreEqual(lFirst.SearchPathHash, lConfigOnly.SearchPathHash);
   Assert.AreNotEqual(lFirst.ContextHash, lConfigOnly.ContextHash);
   Assert.AreNotEqual(lFirst.UnitCacheKey, lConfigOnly.UnitCacheKey);
+end;
+
+procedure TCacheTests.CanonicalSemanticIdentityNormalizesPathVariantsAndIgnoresStorageRoot;
+var
+  lContextA: TDelphiSemanticCacheIdentityContext;
+  lContextB: TDelphiSemanticCacheIdentityContext;
+  lFirstProject: TDelphiSemanticProjectCacheIdentity;
+  lFirstUnit: TDelphiSemanticUnitCacheIdentity;
+  lProjectFileName: string;
+  lProjectVariant: string;
+  lSearchPath: string;
+  lSearchVariant: string;
+  lSecondProject: TDelphiSemanticProjectCacheIdentity;
+  lSecondUnit: TDelphiSemanticUnitCacheIdentity;
+  lSourceFileName: string;
+  lSourceVariant: string;
+begin
+  lProjectFileName := TempPath('CanonicalIdentity\Project\IdentityProject.dproj');
+  lSearchPath := TempPath('CanonicalIdentity\Source');
+  lSourceFileName := TPath.Combine(lSearchPath, 'IdentityUnit.pas');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lProjectFileName));
+  TDirectory.CreateDirectory(lSearchPath);
+  TFile.WriteAllText(lProjectFileName, '<Project />', TEncoding.UTF8);
+  TFile.WriteAllText(lSourceFileName, 'unit IdentityUnit;' + sLineBreak + 'interface' +
+    sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+
+  lProjectVariant := StringReplace(UpperCase(CombinePath([TPath.GetDirectoryName(
+    lProjectFileName), '..', 'Project', 'IdentityProject.dproj'])), '\', '/', [rfReplaceAll]);
+  lSearchVariant := StringReplace(UpperCase(CombinePath([lSearchPath, '..', 'Source'])),
+    '\', '/', [rfReplaceAll]);
+  lSourceVariant := StringReplace(UpperCase(CombinePath([lSearchPath, '..', 'Source',
+    'IdentityUnit.pas'])), '\', '/', [rfReplaceAll]);
+
+  lContextA := Default(TDelphiSemanticCacheIdentityContext);
+  lContextA.ProjectPath := lProjectFileName;
+  lContextA.DelphiVersion := '23.0';
+  lContextA.Platform := 'Win32';
+  lContextA.Configuration := 'Debug';
+  lContextA.SearchPaths := [lSearchPath];
+  lContextA.Defines := ['TRACE', 'DEBUG'];
+  lContextA.UnitScopes := ['System', 'Vcl'];
+  lContextA.UnitAliases := ['WinTypes=Windows'];
+  lContextA.CentralCacheRoot := TempPath('CanonicalIdentity\cache-a');
+  lContextB := lContextA;
+  lContextB.ProjectPath := lProjectVariant;
+  lContextB.SearchPaths := [lSearchVariant];
+  lContextB.Defines := ['debug', 'trace'];
+  lContextB.UnitScopes := ['system', 'vcl'];
+  lContextB.UnitAliases := ['wintypes=windows'];
+  lContextB.CentralCacheRoot := TempPath('CanonicalIdentity\cache-b');
+
+  lFirstProject := TDelphiSemanticCacheIdentityBuilder.BuildProjectIdentity(lContextA);
+  lSecondProject := TDelphiSemanticCacheIdentityBuilder.BuildProjectIdentity(lContextB);
+  lFirstUnit := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lSourceFileName,
+    lContextA);
+  lSecondUnit := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lSourceVariant,
+    lContextB);
+
+  Assert.AreEqual(lFirstProject.ProjectKey, lSecondProject.ProjectKey);
+  Assert.AreEqual(lFirstProject.SearchPathHash, lSecondProject.SearchPathHash);
+  Assert.AreEqual(lFirstProject.DefinesHash, lSecondProject.DefinesHash);
+  Assert.AreEqual(lFirstProject.UnitScopeHash, lSecondProject.UnitScopeHash);
+  Assert.AreEqual(lFirstProject.AliasHash, lSecondProject.AliasHash);
+  Assert.AreEqual(lFirstUnit.ContextHash, lSecondUnit.ContextHash);
+  Assert.AreEqual(lFirstUnit.SearchPathHash, lSecondUnit.SearchPathHash);
+  Assert.AreEqual(lFirstUnit.UnitCacheKey, lSecondUnit.UnitCacheKey);
+
+  lContextB.Platform := 'Win64';
+  lSecondProject := TDelphiSemanticCacheIdentityBuilder.BuildProjectIdentity(lContextB);
+  lSecondUnit := TDelphiSemanticCacheIdentityBuilder.BuildUnitIdentity(lSourceVariant,
+    lContextB);
+
+  Assert.AreNotEqual(lFirstProject.ProjectKey, lSecondProject.ProjectKey);
+  Assert.AreNotEqual(lFirstUnit.ContextHash, lSecondUnit.ContextHash);
+  Assert.AreNotEqual(lFirstUnit.UnitCacheKey, lSecondUnit.UnitCacheKey);
 end;
 
 procedure TCacheTests.SymbolMapCompatibleIdentitySeparatesExtractionOptions;

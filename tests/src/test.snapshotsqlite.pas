@@ -80,6 +80,8 @@ type
     [Test]
     procedure SecondCacheInstanceReusesStoredUnitSnapshot;
     [Test]
+    procedure SourcePathVariantsReuseStoredUnitSnapshotIdentity;
+    [Test]
     procedure SourceContextIncludeAndSchemaChangesMissWithoutIdentityWideEviction;
   end;
 
@@ -620,6 +622,43 @@ begin
     end;
     Assert.AreEqual(1, lCache.Metrics.CacheHits);
     Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.SourcePathVariantsReuseStoredUnitSnapshotIdentity;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheFileName: string;
+  lLoadedSnapshot: TDelphiProjectSnapshot;
+  lStoredIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lVariantIdentity: TDelphiSemanticSnapshotCacheIdentity;
+begin
+  lCacheFileName := TempPath('snapshot-source-path-identity.sqlite3');
+  if TFile.Exists(lCacheFileName) then
+    TFile.Delete(lCacheFileName);
+
+  lStoredIdentity := CreateIdentity('SnapshotSourcePathIdentityUnit', 'file-a',
+    'context-a', 'include-a', 'snapshot-v1');
+  StoreDemoUnit(lCacheFileName, lStoredIdentity);
+
+  lVariantIdentity := lStoredIdentity;
+  lVariantIdentity.SourceFileName := StringReplace(UpperCase(lStoredIdentity.SourceFileName),
+    '\', '/', [rfReplaceAll]);
+
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+  try
+    lLoadedSnapshot := nil;
+    Assert.IsTrue(lCache.TryLoadUnit(lVariantIdentity, lLoadedSnapshot));
+    try
+      Assert.AreEqual(1, lLoadedSnapshot.UnitCount);
+    finally
+      lLoadedSnapshot.Free;
+    end;
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(0, lCache.Metrics.Invalidations);
   finally
     lCache.Free;
   end;

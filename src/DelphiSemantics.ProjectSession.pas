@@ -1,4 +1,4 @@
-﻿unit DelphiSemantics.ProjectSession;
+unit DelphiSemantics.ProjectSession;
 
 interface
 
@@ -337,13 +337,24 @@ end;
 
 function SnapshotCacheContextHash(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions): string;
+var
+  lContext: TDelphiSemanticCacheIdentityContext;
+  lProjectIdentity: TDelphiSemanticProjectCacheIdentity;
 begin
+  lContext := Default(TDelphiSemanticCacheIdentityContext);
+  lContext.SchemaVersion := cProjectSnapshotCacheIdentitySchemaVersion;
+  lContext.ProjectPath := aOptions.ProjectPath;
+  lContext.DelphiVersion := aOptions.DelphiVersion;
+  lContext.Configuration := aOptions.Configuration;
+  lContext.Platform := aOptions.Platform;
+  lContext.Defines := aProject.Defines;
+  lContext.SearchPaths := aProject.SourceLookupPaths;
+  lContext.UnitScopes := aProject.UnitScopeNames;
+  lContext.UnitAliases := aProject.UnitAliases;
+  lProjectIdentity := TDelphiSemanticCacheIdentityBuilder.BuildProjectIdentity(lContext);
   Result := THashSHA2.GetHashString(
-    'projectContext=' + aProject.ContextFingerprint + sLineBreak +
-    'project=' + TPath.GetFullPath(aOptions.ProjectPath) + sLineBreak +
-    'delphi=' + aOptions.DelphiVersion + sLineBreak +
-    'configuration=' + aOptions.Configuration + sLineBreak +
-    'platform=' + aOptions.Platform + sLineBreak +
+    'canonicalProjectContext=' + aProject.ContextFingerprint + sLineBreak +
+    'projectIdentity=' + lProjectIdentity.ProjectKey + sLineBreak +
     'skipWithGraph=' + BoolToStr(aOptions.SkipWithBindingSemanticGraph, True));
 end;
 
@@ -355,7 +366,7 @@ var
   lFullSourceFileName: string;
   lProjectContextHash: string;
 begin
-  lFullSourceFileName := TPath.GetFullPath(aSourceFileName);
+  lFullSourceFileName := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aSourceFileName);
   Result := Default(TDelphiSemanticSnapshotCacheIdentity);
   Result.IdentityKey := lFullSourceFileName;
   Result.SourceFileName := lFullSourceFileName;
@@ -391,14 +402,14 @@ var
   lScopedFileName: string;
   lScopedFiles: TList<string>;
 begin
-  lProjectFileName := TPath.GetFullPath(aOptions.ProjectPath);
+  lProjectFileName := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.ProjectPath);
   lIdentityText := 'projectContext=' + SnapshotCacheContextHash(aProject, aOptions) +
     sLineBreak + 'project=' + lProjectFileName;
   lIncludeGraphText := '';
 
   for i := 0 to High(aSourceFileNames) do
   begin
-    lFullSourceFileName := TPath.GetFullPath(aSourceFileNames[i]);
+    lFullSourceFileName := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aSourceFileNames[i]);
     lIdentityText := lIdentityText + sLineBreak + 'source[' + IntToStr(i) + ']=' +
       lFullSourceFileName;
     if i <= High(aUnitCacheIdentities) then
@@ -414,7 +425,7 @@ begin
   try
     for lFileName in aScopedSourceFileNames do
       if Trim(lFileName) <> '' then
-        lScopedFiles.Add(TPath.GetFullPath(lFileName));
+        lScopedFiles.Add(TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lFileName));
     lScopedFiles.Sort;
     for lScopedFileName in lScopedFiles do
       lIdentityText := lIdentityText + sLineBreak + 'scoped=' + lScopedFileName;

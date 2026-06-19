@@ -119,6 +119,7 @@ uses
   Data.DB,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
   FireDAC.Stan.Def,
+  DelphiSemantics.Cache,
   DelphiSemantics.Snapshot.RemoveWith;
 
 const
@@ -128,6 +129,12 @@ const
   cSnapshotSqliteBusyRetryDelayMs = 50;
   cSnapshotSqliteJournalMode = 'WAL';
   cSnapshotSqliteLockingMode = 'Normal';
+
+function SameCanonicalIdentityPath(const aLeft, aRight: string): Boolean;
+begin
+  Result := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aLeft) =
+    TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aRight);
+end;
 
 procedure ConfigureSnapshotSqliteConnection(const aConnection: TFDConnection;
   const aDatabase: string);
@@ -682,7 +689,8 @@ begin
     lContextHashField := lQuery.Fields[3];
     lIncludeGraphHashField := lQuery.Fields[4];
     lSchemaVersionField := lQuery.Fields[5];
-    Result := SameText(lSourceFileNameField.AsWideString, aIdentity.SourceFileName)
+    Result := SameCanonicalIdentityPath(lSourceFileNameField.AsWideString,
+      aIdentity.SourceFileName)
       and (lFileHashField.AsWideString = aIdentity.FileHash)
       and (lContextHashField.AsWideString = aIdentity.ContextHash)
       and (lIncludeGraphHashField.AsWideString = aIdentity.IncludeGraphHash)
@@ -729,7 +737,8 @@ begin
     lContextHashField := lQuery.Fields[3];
     lIncludeGraphHashField := lQuery.Fields[4];
     lSchemaVersionField := lQuery.Fields[5];
-    Result := SameText(lSourceFileNameField.AsWideString, aIdentity.SourceFileName)
+    Result := SameCanonicalIdentityPath(lSourceFileNameField.AsWideString,
+      aIdentity.SourceFileName)
       and (lFileHashField.AsWideString = aIdentity.FileHash)
       and (lContextHashField.AsWideString = aIdentity.ContextHash)
       and (lIncludeGraphHashField.AsWideString = aIdentity.IncludeGraphHash)
