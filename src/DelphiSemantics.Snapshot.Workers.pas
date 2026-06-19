@@ -31,14 +31,30 @@ type
     ParseExtractMilliseconds: Int64;
   end;
 
+  TSnapshotReferenceTargetMap = TDictionary<string, TSemanticSymbolRef>;
+
+  TSnapshotReferenceTargetLookupItem = record
+    Key: string;
+    Ref: TSemanticSymbolRef;
+  end;
+
+  TSnapshotReferenceTargetLookup = record
+  private
+    fItems: TArray<TSnapshotReferenceTargetLookupItem>;
+  public
+    class function FromMap(const aTargets: TSnapshotReferenceTargetMap):
+      TSnapshotReferenceTargetLookup; static;
+    function TryGetValue(const aKey: string; out aRef: TSemanticSymbolRef): Boolean;
+  end;
+
   TSnapshotUnitBuildCallback = function(
     const aModel: TDelphiSemanticUnitModel; const aUnitId: TSemanticUnitId;
-    const aReferenceTargets: TDictionary<string, TSemanticSymbolRef>):
+    const aReferenceTargetLookup: TSnapshotReferenceTargetLookup):
     TSnapshotUnitBuildResult;
 
 function BuildSnapshotUnitResults(
   const aModels: TArray<TDelphiSemanticUnitModel>;
-  const aReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
+  const aReferenceTargetLookup: TSnapshotReferenceTargetLookup;
   const aWorkerCount: Integer; const aBuildUnit: TSnapshotUnitBuildCallback;
   out aMetrics: TSnapshotWorkerPipelineMetrics): TArray<TSnapshotUnitBuildResult>;
 procedure FreeSnapshotUnitBuildResults(var aResults: TArray<TSnapshotUnitBuildResult>);
@@ -46,8 +62,9 @@ procedure FreeSnapshotUnitBuildResults(var aResults: TArray<TSnapshotUnitBuildRe
 implementation
 
 uses
-  System.Classes, System.Diagnostics, System.StrUtils,
-  Winapi.Windows;
+  System.Classes, System.Diagnostics, System.Generics.Defaults,
+  Winapi.Windows,
+  MaxLogic.StrUtils;
 
 const
   cSnapshotWorkerCleanupTimeoutMs = 1000;
@@ -62,6 +79,67 @@ const
     'DELPHI_SEMANTICS_TEST_SNAPSHOT_WORKER_STALL_MS';
   cUnassignedWorkerModelIndex = -1;
 
+var
+  GSnapshotReferenceTargetKeyComparer: IComparer<string>;
+
+function CompareSnapshotReferenceTargetLookupItems(
+  const aLeft, aRight: TSnapshotReferenceTargetLookupItem): Integer;
+begin
+  Result := GSnapshotReferenceTargetKeyComparer.Compare(aLeft.Key, aRight.Key);
+end;
+
+class function TSnapshotReferenceTargetLookup.FromMap(
+  const aTargets: TSnapshotReferenceTargetMap): TSnapshotReferenceTargetLookup;
+var
+  i: Integer;
+  lPair: TPair<string, TSemanticSymbolRef>;
+begin
+  Result := Default(TSnapshotReferenceTargetLookup);
+  if aTargets = nil then
+    Exit;
+
+  SetLength(Result.fItems, aTargets.Count);
+  i := 0;
+  for lPair in aTargets do
+  begin
+    Result.fItems[i].Key := lPair.Key;
+    Result.fItems[i].Ref := lPair.Value;
+    Inc(i);
+  end;
+  TArray.Sort<TSnapshotReferenceTargetLookupItem>(Result.fItems,
+    TComparer<TSnapshotReferenceTargetLookupItem>.Construct(
+      CompareSnapshotReferenceTargetLookupItems));
+end;
+
+function TSnapshotReferenceTargetLookup.TryGetValue(const aKey: string;
+  out aRef: TSemanticSymbolRef): Boolean;
+var
+  lCompare: Integer;
+  lHigh: Integer;
+  lLow: Integer;
+  lMid: Integer;
+begin
+  aRef := Default(TSemanticSymbolRef);
+  lLow := 0;
+  lHigh := High(fItems);
+  while lLow <= lHigh do
+  begin
+    lMid := lLow + ((lHigh - lLow) div 2);
+    lCompare := GSnapshotReferenceTargetKeyComparer.Compare(aKey,
+      fItems[lMid].Key);
+    if lCompare = 0 then
+    begin
+      aRef := fItems[lMid].Ref;
+      Exit(True);
+    end;
+    if lCompare < 0 then
+      lHigh := lMid - 1
+    else
+      lLow := lMid + 1;
+  end;
+  Result := False;
+end;
+
 type
   TSnapshotBuildWorkerContext = class
   private
@@ -69,7 +147,7 @@ type
     fCancelRequested: Boolean;
     fLock: TObject;
     fNextIndex: Integer;
-    fReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
+    fReferenceTargetLookup: TSnapshotReferenceTargetLookup;
     fUnitModels: TArray<TDelphiSemanticUnitModel>;
     fWorkerFileNames: TArray<string>;
     fWorkerModelIndexes: TArray<Integer>;
@@ -78,7 +156,7 @@ type
     procedure ClearWorkerState(const aWorkerIndex: Integer);
     procedure ConfigureWorkerCount(const aWorkerCount: Integer);
     constructor Create(const aModels: TArray<TDelphiSemanticUnitModel>;
-      const aReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
+      const aReferenceTargetLookup: TSnapshotReferenceTargetLookup;
       const aBuildUnit: TSnapshotUnitBuildCallback);
     destructor Destroy; override;
     function BuildUnit(const aModel: TDelphiSemanticUnitModel;
@@ -289,14 +367,14 @@ end;
 
 constructor TSnapshotBuildWorkerContext.Create(
   const aModels: TArray<TDelphiSemanticUnitModel>;
-  const aReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
+  const aReferenceTargetLookup: TSnapshotReferenceTargetLookup;
   const aBuildUnit: TSnapshotUnitBuildCallback);
 begin
   inherited Create;
   fBuildUnit := aBuildUnit;
   fLock := TObject.Create;
   fNextIndex := 0;
-  fReferenceTargets := aReferenceTargets;
+  fReferenceTargetLookup := aReferenceTargetLookup;
   fUnitModels := Copy(aModels);
   SetLength(Results, Length(aModels));
 end;
@@ -311,7 +389,7 @@ function TSnapshotBuildWorkerContext.BuildUnit(
   const aModel: TDelphiSemanticUnitModel; const aUnitId: TSemanticUnitId):
   TSnapshotUnitBuildResult;
 begin
-  Result := fBuildUnit(aModel, aUnitId, fReferenceTargets);
+  Result := fBuildUnit(aModel, aUnitId, fReferenceTargetLookup);
 end;
 
 procedure TSnapshotBuildWorkerContext.RequestCancel;
@@ -420,7 +498,7 @@ end;
 
 function BuildSnapshotUnitResults(
   const aModels: TArray<TDelphiSemanticUnitModel>;
-  const aReferenceTargets: TDictionary<string, TSemanticSymbolRef>;
+  const aReferenceTargetLookup: TSnapshotReferenceTargetLookup;
   const aWorkerCount: Integer; const aBuildUnit: TSnapshotUnitBuildCallback;
   out aMetrics: TSnapshotWorkerPipelineMetrics): TArray<TSnapshotUnitBuildResult>;
 var
@@ -448,7 +526,7 @@ begin
     try
       for i := 0 to High(aModels) do
         Result[i] := aBuildUnit(aModels[i], TSemanticUnitId(i + 1),
-          aReferenceTargets);
+          aReferenceTargetLookup);
     finally
       lWorkerStopwatch.Stop;
       aMetrics.ParseExtractMilliseconds := lWorkerStopwatch.ElapsedMilliseconds;
@@ -457,8 +535,8 @@ begin
   end;
 
   lAbandonedWorkers := False;
-  lContext := TSnapshotBuildWorkerContext.Create(aModels, aReferenceTargets,
-    aBuildUnit);
+  lContext := TSnapshotBuildWorkerContext.Create(aModels,
+    aReferenceTargetLookup, aBuildUnit);
   try
     try
       lCreatedCount := 0;
@@ -547,5 +625,11 @@ begin
       lContext.Free;
   end;
 end;
+
+initialization
+  GSnapshotReferenceTargetKeyComparer := TStringComparer.OrdinalIgnoreCase;
+
+finalization
+  GSnapshotReferenceTargetKeyComparer := nil;
 
 end.

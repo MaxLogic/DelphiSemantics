@@ -30,6 +30,8 @@ type
     [Test]
     procedure SnapshotWorkerPipelineLivesBehindFocusedBoundary;
     [Test]
+    procedure SnapshotWorkerReferenceTargetsUseImmutableLookup;
+    [Test]
     procedure SnapshotReferenceTargetsKeepOverloadedRoutineLocalAmbiguityUnresolved;
     [Test]
     procedure SnapshotReferenceTargetsUseLineQualifiedRoutineForWeakOwners;
@@ -518,6 +520,31 @@ begin
     'Worker pipeline should own worker thread lifecycle.');
   Assert.IsTrue(ContainsText(lWorkersSource, 'WaitForSingleObject'),
     'Worker pipeline should own bounded worker join policy.');
+end;
+
+procedure TSnapshotTests.SnapshotWorkerReferenceTargetsUseImmutableLookup;
+var
+  lBuilderSource: string;
+  lWorkersSource: string;
+begin
+  lBuilderSource := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
+    ExtractFilePath(ParamStr(0)), '..', '..', 'src',
+    'DelphiSemantics.Snapshot.Builder.pas'])));
+  lWorkersSource := TFile.ReadAllText(TPath.GetFullPath(CombinePath([
+    ExtractFilePath(ParamStr(0)), '..', '..', 'src',
+    'DelphiSemantics.Snapshot.Workers.pas'])));
+
+  Assert.IsTrue(ContainsText(lWorkersSource, 'TSnapshotReferenceTargetLookup'),
+    'Parallel snapshot workers should receive an immutable reference-target lookup.');
+  Assert.IsFalse(ContainsText(lWorkersSource,
+    'fReferenceTargets: TDictionary<string, TSemanticSymbolRef>'),
+    'Worker context must not own a shared mutable reference-target dictionary.');
+  Assert.IsFalse(ContainsText(lWorkersSource,
+    'const aReferenceTargets: TDictionary<string, TSemanticSymbolRef>'),
+    'Worker callbacks must not share a mutable reference-target dictionary.');
+  Assert.IsFalse(ContainsText(lBuilderSource,
+    'const aReferenceTargets: TDictionary<string, TSemanticSymbolRef>'),
+    'Snapshot unit builders should accept the immutable lookup contract.');
 end;
 
 procedure TSnapshotTests.SnapshotReferenceTargetsKeepOverloadedRoutineLocalAmbiguityUnresolved;
