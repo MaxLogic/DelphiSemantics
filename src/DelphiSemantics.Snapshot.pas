@@ -1,4 +1,4 @@
-﻿unit DelphiSemantics.Snapshot;
+unit DelphiSemantics.Snapshot;
 
 interface
 
@@ -298,11 +298,19 @@ function SymbolIsRoutineMethodEquivalentCandidate(const aStrings: TSemanticStrin
 var
   lKind: string;
 begin
-  if (aSymbol.OwnerTypeId = 0) or (aSymbol.NameId = 0) then
+  if aSymbol.NameId = 0 then
     Exit(False);
 
   lKind := aStrings.TextOf(aSymbol.KindId);
   Result := SameText(lKind, 'routine') or SameText(lKind, 'method');
+end;
+
+function RoutineEquivalentOwnerKey(const aUnit: TUnitSnapshot;
+  const aSymbol: TSemanticSymbolFact): TSemanticStringId;
+begin
+  Result := aSymbol.OwnerTypeId;
+  if (Result = 0) and (aUnit <> nil) then
+    Result := aUnit.UnitNameId;
 end;
 
 constructor TBorrowedProjectSnapshotRef.Create(const aSnapshot: TDelphiProjectSnapshot);
@@ -913,7 +921,7 @@ begin
       if SymbolIsRoutineMethodEquivalentCandidate(aStrings, lSymbol) then
         fRoutineMethodEquivalentsByOwnerAndName.Insert(
           fRoutineMethodEquivalentsByOwnerAndName.Count, lSymbolRef,
-          MemberKey(lSymbol.OwnerTypeId, lSymbol.NameId));
+          MemberKey(RoutineEquivalentOwnerKey(lUnit, lSymbol), lSymbol.NameId));
     end;
 
     for lReferenceIndex := 1 to lUnit.ReferenceCount do
@@ -1067,12 +1075,20 @@ end;
 
 function TDelphiProjectSnapshot.TryRoutineMethodEquivalents(
   const aSymbol: TSemanticSymbolFact; out aLowIndex, aHighIndex: Integer): Boolean;
+var
+  lOwnerKey: TSemanticStringId;
+  lUnit: TUnitSnapshot;
 begin
-  if (aSymbol.OwnerTypeId = 0) or (aSymbol.NameId = 0) then
+  if aSymbol.NameId = 0 then
+    Exit(False);
+  if not fUnitsById.TryGetValue(aSymbol.UnitId, lUnit) then
+    Exit(False);
+  lOwnerKey := RoutineEquivalentOwnerKey(lUnit, aSymbol);
+  if lOwnerKey = 0 then
     Exit(False);
 
   Result := fRoutineMethodEquivalentsByOwnerAndName.FindMinMaxIndex(
-    MemberKey(aSymbol.OwnerTypeId, aSymbol.NameId), aLowIndex, aHighIndex);
+    MemberKey(lOwnerKey, aSymbol.NameId), aLowIndex, aHighIndex);
 end;
 
 function TDelphiProjectSnapshot.TryReferenceAt(const aFileName: string; const aLine,

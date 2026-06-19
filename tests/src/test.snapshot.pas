@@ -32,6 +32,14 @@ type
     [Test]
     procedure SnapshotReferenceTargetsKeepOverloadedRoutineLocalAmbiguityUnresolved;
     [Test]
+    procedure SnapshotReferenceTargetsUseLineQualifiedRoutineForWeakOwners;
+    [Test]
+    procedure SnapshotReferenceTargetsResolveExtractedClassMethodShadows;
+    [Test]
+    procedure SnapshotReferenceTargetsResolveSymbolMapFixtureShadows;
+    [Test]
+    procedure ProjectSnapshotMergePreservesCrossUnitDuplicateTargetReferences;
+    [Test]
     procedure SnapshotUnitDoesNotUseJsonLiveRepresentation;
     [Test]
     procedure StringPoolInternsStableCaseAwareIds;
@@ -53,7 +61,7 @@ uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   maxLogic.IOUtils,
   DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
-  DelphiSemantics.WithBinding,
+  DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.WithBinding,
   Test.Support;
 
 const
@@ -562,6 +570,364 @@ begin
       'Ambiguous overloaded routine owner must not resolve a local target.');
   finally
     lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.SnapshotReferenceTargetsUseLineQualifiedRoutineForWeakOwners;
+var
+  lLocalResolution: TDelphiSemanticSnapshotPositionResolution;
+  lMemberResolution: TDelphiSemanticSnapshotPositionResolution;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSourceFileName: string;
+begin
+  lSourceFileName := TPath.GetFullPath('SnapshotWeakRoutineOwnerUnit.pas');
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.UnitName := 'SnapshotWeakRoutineOwnerUnit';
+  lModel.FileName := lSourceFileName;
+
+  SetLength(lModel.Declarations, 1);
+  lModel.Declarations[0].Name := 'lShadowValue';
+  lModel.Declarations[0].Kind := 'var';
+  lModel.Declarations[0].SectionKind := 'interface';
+  lModel.Declarations[0].Line := 5;
+  lModel.Declarations[0].Column := 3;
+
+  SetLength(lModel.Members, 1);
+  lModel.Members[0].OwnerName := 'TMemberShadow';
+  lModel.Members[0].Name := 'lShadowValue';
+  lModel.Members[0].Kind := 'field';
+  lModel.Members[0].Line := 10;
+  lModel.Members[0].Column := 5;
+
+  SetLength(lModel.Routines, 2);
+  lModel.Routines[0].Name := 'Run';
+  lModel.Routines[0].OwnerName := 'TLocalShadow';
+  lModel.Routines[0].Line := 20;
+  lModel.Routines[0].Column := 23;
+  lModel.Routines[1].Name := 'Run';
+  lModel.Routines[1].OwnerName := 'TMemberShadow';
+  lModel.Routines[1].Line := 30;
+  lModel.Routines[1].Column := 24;
+
+  SetLength(lModel.Locals, 1);
+  lModel.Locals[0].RoutineName := 'TLocalShadow.Run';
+  lModel.Locals[0].Name := 'lShadowValue';
+  lModel.Locals[0].Kind := 'var';
+  lModel.Locals[0].Line := 22;
+  lModel.Locals[0].Column := 3;
+
+  SetLength(lModel.References, 2);
+  lModel.References[0].RoutineName := 'Run';
+  lModel.References[0].Name := 'lShadowValue';
+  lModel.References[0].SectionKind := 'implementation';
+  lModel.References[0].Line := 24;
+  lModel.References[0].Column := 6;
+  lModel.References[0].EndLine := 24;
+  lModel.References[0].EndColumn := 17;
+  lModel.References[1].RoutineName := 'Run';
+  lModel.References[1].Name := 'lShadowValue';
+  lModel.References[1].SectionKind := 'implementation';
+  lModel.References[1].Line := 34;
+  lModel.References[1].Column := 3;
+  lModel.References[1].EndLine := 34;
+  lModel.References[1].EndColumn := 14;
+
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lOptions.WorkerCount := 1;
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+  try
+    Assert.IsTrue(TryResolveSnapshotPosition(lSnapshot, lSourceFileName, 24, 6,
+      'lShadowValue', lLocalResolution),
+      'Expected weak-routine local reference to resolve through its line-qualified owner.');
+    Assert.AreEqual('TLocalShadow.Run', lSnapshot.TextOf(
+      lLocalResolution.Symbol.RoutineId));
+    Assert.AreEqual('var', lSnapshot.TextOf(lLocalResolution.Symbol.KindId));
+
+    Assert.IsTrue(TryResolveSnapshotPosition(lSnapshot, lSourceFileName, 34, 3,
+      'lShadowValue', lMemberResolution),
+      'Expected weak-routine member reference to resolve through its line-qualified owner.');
+    Assert.AreEqual('TMemberShadow', lSnapshot.TextOf(
+      lMemberResolution.Symbol.OwnerTypeId));
+    Assert.AreEqual('field', lSnapshot.TextOf(lMemberResolution.Symbol.KindId));
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.SnapshotReferenceTargetsResolveExtractedClassMethodShadows;
+var
+  lLocalResolution: TDelphiSemanticSnapshotPositionResolution;
+  lMemberResolution: TDelphiSemanticSnapshotPositionResolution;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSourceFileName: string;
+  lSourceText: string;
+begin
+  lSourceFileName := TPath.Combine(TPath.GetTempPath,
+    TPath.ChangeExtension(TPath.GetRandomFileName, '.pas'));
+  lSourceText := 'unit SnapshotExtractedShadowUnit;' + sLineBreak + sLineBreak +
+    'interface' + sLineBreak + sLineBreak + 'type' + sLineBreak +
+    '  TLocalShadow = class' + sLineBreak + '  public' + sLineBreak +
+    '    procedure Run;' + sLineBreak + '  end;' + sLineBreak + sLineBreak +
+    '  TMemberShadow = class' + sLineBreak + '  private' + sLineBreak +
+    '    lShadowValue: Integer;' + sLineBreak + '  public' + sLineBreak +
+    '    procedure Run;' + sLineBreak + '  end;' + sLineBreak + sLineBreak +
+    'var' + sLineBreak + '  lShadowValue: Integer;' + sLineBreak + sLineBreak +
+    'implementation' + sLineBreak + sLineBreak + 'procedure TLocalShadow.Run;' +
+    sLineBreak + 'var' + sLineBreak + '  lShadowValue: Integer;' + sLineBreak +
+    'begin' + sLineBreak + '  lShadowValue := 1;' + sLineBreak +
+    '  if lShadowValue > 0 then' + sLineBreak +
+    '    lShadowValue := lShadowValue + 1;' + sLineBreak + 'end;' +
+    sLineBreak + sLineBreak + 'procedure TMemberShadow.Run;' + sLineBreak +
+    'begin' + sLineBreak + '  lShadowValue := 2;' + sLineBreak + 'end;' +
+    sLineBreak + sLineBreak + 'end.';
+  TFile.WriteAllText(lSourceFileName, lSourceText, TEncoding.UTF8);
+
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lSourceFileName;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  Assert.IsTrue(lModel.Success, 'Expected fixture model extraction to succeed.');
+
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lOptions.WorkerCount := 1;
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+  try
+    Assert.IsTrue(TryResolveSnapshotPosition(lSnapshot, lSourceFileName, 28, 6,
+      'lShadowValue', lLocalResolution),
+      'Expected extracted local shadow reference to resolve.');
+    Assert.AreEqual('TLocalShadow.Run', lSnapshot.TextOf(
+      lLocalResolution.Symbol.RoutineId));
+    Assert.AreEqual('var', lSnapshot.TextOf(lLocalResolution.Symbol.KindId));
+
+    Assert.IsTrue(TryResolveSnapshotPosition(lSnapshot, lSourceFileName, 34, 3,
+      'lShadowValue', lMemberResolution),
+      'Expected extracted member shadow reference to resolve.');
+    Assert.AreEqual('TMemberShadow', lSnapshot.TextOf(
+      lMemberResolution.Symbol.OwnerTypeId));
+    Assert.AreEqual('field', lSnapshot.TextOf(lMemberResolution.Symbol.KindId));
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.SnapshotReferenceTargetsResolveSymbolMapFixtureShadows;
+var
+  lDummyModel: TDelphiSemanticUnitModel;
+  lDummySnapshot: TDelphiProjectSnapshot;
+  lLocalResolution: TDelphiSemanticSnapshotPositionResolution;
+  lMemberResolution: TDelphiSemanticSnapshotPositionResolution;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSourceFileName: string;
+  lSourceText: string;
+  lUnitSnapshot: TDelphiProjectSnapshot;
+begin
+  lDummySnapshot := nil;
+  lSnapshot := nil;
+  lUnitSnapshot := nil;
+  lSourceFileName := TPath.Combine(TPath.GetTempPath,
+    TPath.ChangeExtension(TPath.GetRandomFileName, '.pas'));
+  lSourceText := 'unit SymbolMapUnit;' + sLineBreak + sLineBreak + 'interface' +
+    sLineBreak + sLineBreak + 'uses' + sLineBreak + '  System.SysUtils,' +
+    sLineBreak + '  Winapi.Windows;' + sLineBreak + sLineBreak + 'type' +
+    sLineBreak + '  TSymbolMapFixture = class' + sLineBreak + '  public' +
+    sLineBreak + '    procedure Run;' + sLineBreak + '  end;' + sLineBreak +
+    sLineBreak + '  TSymbolMapFixtureType = TSymbolMapFixture;' + sLineBreak +
+    sLineBreak + '  TSymbolMapReferenceHolder = class' + sLineBreak +
+    '  private' + sLineBreak + '    FValue: TSymbolMapFixtureType;' +
+    sLineBreak + '  public' + sLineBreak +
+    '    procedure UseValue(const aValue: TSymbolMapFixtureType);' + sLineBreak +
+    '  end;' + sLineBreak + sLineBreak +
+    '  TSymbolMapShadowCollision = class' + sLineBreak + '  public' +
+    sLineBreak + '    procedure Run;' + sLineBreak + '  end;' + sLineBreak +
+    sLineBreak + '  TSymbolMapMemberShadowCollision = class' + sLineBreak +
+    '  private' + sLineBreak + '    lShadowValue: Integer;' + sLineBreak +
+    '  public' + sLineBreak + '    procedure Run;' + sLineBreak + '  end;' +
+    sLineBreak + sLineBreak + '  TSymbolMapOverloadCollision = class' +
+    sLineBreak + '  public' + sLineBreak +
+    '    procedure Select(const aValue: string); overload;' + sLineBreak +
+    '    procedure Select(const aValue: Integer); overload;' + sLineBreak +
+    '    procedure Run;' + sLineBreak + '  end;' + sLineBreak + sLineBreak +
+    'var' + sLineBreak + '  lShadowValue: Integer;' + sLineBreak + sLineBreak +
+    'implementation' + sLineBreak + sLineBreak + 'uses' + sLineBreak +
+    '  System.Classes,' + sLineBreak + '  System.Generics.Collections;' +
+    sLineBreak + sLineBreak + 'procedure TSymbolMapFixture.Run;' + sLineBreak +
+    'begin' + sLineBreak + 'end;' + sLineBreak + sLineBreak +
+    'procedure TSymbolMapReferenceHolder.UseValue(const aValue: TSymbolMapFixtureType);' +
+    sLineBreak + 'begin' + sLineBreak + '  FValue := aValue;' + sLineBreak +
+    '  if Assigned(FValue) then' + sLineBreak + '    FValue.Run;' +
+    sLineBreak + 'end;' + sLineBreak + sLineBreak +
+    'procedure TSymbolMapShadowCollision.Run;' + sLineBreak + 'var' +
+    sLineBreak + '  lShadowValue: Integer;' + sLineBreak + 'begin' +
+    sLineBreak + '  lShadowValue := 1;' + sLineBreak +
+    '  if lShadowValue > 0 then' + sLineBreak +
+    '    lShadowValue := lShadowValue + 1;' + sLineBreak + 'end;' +
+    sLineBreak + sLineBreak + 'procedure TSymbolMapMemberShadowCollision.Run;' +
+    sLineBreak + 'begin' + sLineBreak + '  lShadowValue := 2;' + sLineBreak +
+    'end;' + sLineBreak + sLineBreak +
+    'procedure TSymbolMapOverloadCollision.Select(const aValue: string);' +
+    sLineBreak + 'begin' + sLineBreak + 'end;' + sLineBreak + sLineBreak +
+    'procedure TSymbolMapOverloadCollision.Select(const aValue: Integer);' +
+    sLineBreak + 'begin' + sLineBreak + 'end;' + sLineBreak + sLineBreak +
+    'procedure TSymbolMapOverloadCollision.Run;' + sLineBreak + 'begin' +
+    sLineBreak + '  Select(42);' + sLineBreak + 'end;' + sLineBreak +
+    sLineBreak + 'end.';
+  TFile.WriteAllText(lSourceFileName, lSourceText, TEncoding.UTF8);
+
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lSourceFileName;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  Assert.IsTrue(lModel.Success, 'Expected SymbolMap fixture model extraction to succeed.');
+
+  lDummyModel := Default(TDelphiSemanticUnitModel);
+  lDummyModel.UnitName := 'SnapshotDummyUnit';
+  lDummyModel.FileName := TPath.GetFullPath('SnapshotDummyUnit.pas');
+  lModels := [lDummyModel, lModel];
+  lDummySnapshot := BuildProjectUnitSnapshotFromModels(lModels, 0, 1, lMetrics);
+  try
+    lUnitSnapshot := BuildProjectUnitSnapshotFromModels(lModels, 1, 2, lMetrics);
+    try
+      lSnapshot := BuildProjectSnapshotFromUnitSnapshots([lDummySnapshot,
+        lUnitSnapshot], lMetrics);
+      try
+        Assert.IsTrue(TryResolveSnapshotPosition(lSnapshot, lSourceFileName, 68, 6,
+          'lShadowValue', lLocalResolution),
+          'Expected merged SymbolMap local shadow reference to resolve.');
+        Assert.AreEqual('TSymbolMapShadowCollision.Run', lSnapshot.TextOf(
+          lLocalResolution.Symbol.RoutineId));
+        Assert.AreEqual('var', lSnapshot.TextOf(lLocalResolution.Symbol.KindId));
+
+        Assert.IsTrue(TryResolveSnapshotPosition(lSnapshot, lSourceFileName, 74, 3,
+          'lShadowValue', lMemberResolution),
+          'Expected merged SymbolMap member shadow reference to resolve.');
+        Assert.AreEqual('TSymbolMapMemberShadowCollision', lSnapshot.TextOf(
+          lMemberResolution.Symbol.OwnerTypeId));
+        Assert.AreEqual('field', lSnapshot.TextOf(lMemberResolution.Symbol.KindId));
+      finally
+        lSnapshot.Free;
+      end;
+    finally
+      lUnitSnapshot.Free;
+    end;
+  finally
+    lDummySnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.ProjectSnapshotMergePreservesCrossUnitDuplicateTargetReferences;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lMerged: TDelphiProjectSnapshot;
+  lMergedReference: TSemanticReferenceFact;
+  lMergedSourceUnit: TUnitSnapshot;
+  lMergedTargetSymbol: TSemanticSymbolFact;
+  lMergedTargetUnit: TUnitSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReference: TSemanticReferenceFact;
+  lSourceSnapshot: TDelphiProjectSnapshot;
+  lSourceUnit: TUnitSnapshot;
+  lTargetSnapshot: TDelphiProjectSnapshot;
+  lTargetSymbol: TSemanticSymbolFact;
+  lTargetSymbolId: TSemanticSymbolId;
+  lTargetUnit: TUnitSnapshot;
+begin
+  lMerged := nil;
+  lSourceSnapshot := nil;
+  lTargetSnapshot := nil;
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lTargetUnit := TUnitSnapshot.Create(2, lBuilder.Strings.Intern('UnitB.pas'),
+      lBuilder.Strings.Intern('UnitB'));
+    try
+      lTargetSymbol := Default(TSemanticSymbolFact);
+      lTargetSymbol.NameId := lBuilder.Strings.Intern('SharedTarget');
+      lTargetSymbol.KindId := lBuilder.Strings.Intern('routine');
+      lTargetSymbol.SectionKindId := lBuilder.Strings.Intern('interface');
+      lTargetSymbol.SourceKindId := lBuilder.Strings.Intern('project-source');
+      lTargetSymbol.SignatureId := lBuilder.Strings.Intern('(Integer)');
+      lTargetSymbol.Line := 5;
+      lTargetSymbol.Column := 11;
+      lTargetUnit.AddSymbol(lTargetSymbol);
+
+      lTargetSymbol := Default(TSemanticSymbolFact);
+      lTargetSymbol.NameId := lBuilder.Strings.Intern('SharedTarget');
+      lTargetSymbol.KindId := lBuilder.Strings.Intern('routine');
+      lTargetSymbol.SectionKindId := lBuilder.Strings.Intern('interface');
+      lTargetSymbol.SourceKindId := lBuilder.Strings.Intern('project-source');
+      lTargetSymbol.SignatureId := lBuilder.Strings.Intern('(string)');
+      lTargetSymbol.Line := 9;
+      lTargetSymbol.Column := 11;
+      lTargetSymbolId := lTargetUnit.AddSymbol(lTargetSymbol);
+
+      lBuilder.AddUnit(lTargetUnit);
+      lTargetUnit := nil;
+    finally
+      lTargetUnit.Free;
+    end;
+    lTargetSnapshot := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lSourceUnit := TUnitSnapshot.Create(1, lBuilder.Strings.Intern('UnitA.pas'),
+      lBuilder.Strings.Intern('UnitA'));
+    try
+      lReference := Default(TSemanticReferenceFact);
+      lReference.NameId := lBuilder.Strings.Intern('SharedTarget');
+      lReference.TargetUnitId := 2;
+      lReference.TargetSymbolId := lTargetSymbolId;
+      lReference.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lReference.SourceKindId := lBuilder.Strings.Intern('project-source');
+      lReference.Line := 12;
+      lReference.Column := 3;
+      lReference.EndLine := 12;
+      lReference.EndColumn := 14;
+      lSourceUnit.AddReference(lReference);
+
+      lBuilder.AddUnit(lSourceUnit);
+      lSourceUnit := nil;
+    finally
+      lSourceUnit.Free;
+    end;
+    lSourceSnapshot := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+
+  try
+    lMerged := BuildProjectSnapshotFromUnitSnapshots([lSourceSnapshot, lTargetSnapshot],
+      lMetrics);
+
+    Assert.IsTrue(lMerged.TryFindUnitById(1, lMergedSourceUnit));
+    lMergedReference := lMergedSourceUnit.ReferenceById(1);
+    Assert.AreEqual(2, Integer(lMergedReference.TargetUnitId),
+      'Expected cross-unit target unit to survive snapshot merge.');
+    Assert.AreNotEqual(0, Integer(lMergedReference.TargetSymbolId),
+      'Expected cross-unit target symbol to survive snapshot merge.');
+    Assert.IsTrue(lMerged.TryFindUnitById(lMergedReference.TargetUnitId,
+      lMergedTargetUnit));
+    lMergedTargetSymbol := lMergedTargetUnit.SymbolById(lMergedReference.TargetSymbolId);
+    Assert.AreEqual(9, lMergedTargetSymbol.Line,
+      'Expected exact target symbol remap to avoid name-only ambiguity.');
+  finally
+    lMerged.Free;
+    lSourceSnapshot.Free;
+    lTargetSnapshot.Free;
   end;
 end;
 

@@ -46,6 +46,8 @@ type
     [Test]
     procedure ProjectSessionBuildsSnapshotFromExtractedModels;
     [Test]
+    procedure ProjectSessionBuildsOwnedSnapshotQueryContext;
+    [Test]
     procedure ProjectSessionSnapshotParityComparesSemanticFacts;
     [Test]
     procedure ProjectSessionParallelSnapshotBuildMatchesSequentialFacts;
@@ -97,9 +99,11 @@ uses
   DelphiSemantics.Api.RemoveWith.Compatibility,
   DelphiSemantics.Cache,
   DelphiSemantics.GlobalVars,
+  DelphiSemantics.Index,
   DelphiSemantics.Model,
   DelphiSemantics.ProjectContext,
   DelphiSemantics.ProjectSession,
+  DelphiSemantics.Query,
   Test.Support;
 
 var
@@ -835,13 +839,13 @@ var
   lModel: TDelphiSemanticUnitModel;
   lOptions: TDelphiSemanticOptions;
   lResult: TDelphiSemanticProjectSessionResult;
-  lRoutine: TDelphiSemanticRoutine;
   lSnapshot: TDelphiProjectSnapshot;
   lSymbol: TSemanticSymbolFact;
   lSymbolRef: TSemanticSymbolRef;
   lTypeNameId: TSemanticStringId;
   lUnit: TUnitSnapshot;
   lUnitId: TSemanticUnitId;
+  i: Integer;
 begin
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
@@ -857,11 +861,7 @@ begin
     for lModel in lFacts.UnitModels do
     begin
       Inc(lExpectedReferenceCount, Length(lModel.References));
-      Inc(lExpectedSymbolCount, Length(lModel.Declarations) + Length(lModel.Members) +
-        Length(lModel.Routines) + Length(lModel.Locals));
       Inc(lExpectedWithStatementCount, Length(lModel.WithStatements));
-      for lRoutine in lModel.Routines do
-        Inc(lExpectedSymbolCount, Length(lRoutine.Parameters));
     end;
 
     lSnapshot := lResult.Session.BuildSnapshot;
@@ -869,6 +869,8 @@ begin
       lMetrics := lResult.Session.LastSnapshotBuildMetrics;
       Assert.AreEqual(Integer(Length(lFacts.UnitModels)), lSnapshot.UnitCount);
       Assert.AreEqual(lSnapshot.UnitCount, lMetrics.UnitCount);
+      for i := 0 to lSnapshot.UnitCount - 1 do
+        Inc(lExpectedSymbolCount, lSnapshot.UnitByIndex(i).SymbolCount);
       Assert.AreEqual(lExpectedSymbolCount, lMetrics.SymbolCount);
       Assert.AreEqual(lExpectedReferenceCount, lMetrics.ReferenceCount);
       Assert.AreEqual(lExpectedWithStatementCount, lMetrics.WithStatementCount);
@@ -894,6 +896,52 @@ begin
     end;
   finally
     lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionBuildsOwnedSnapshotQueryContext;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lDefinition: TDelphiSemanticSymbolQueryResult;
+  lExtractionMilliseconds: Int64;
+  lIndex: TDelphiSemanticProjectSymbolIndex;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lContext := lResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    Assert.IsTrue(lContext.ProjectSnapshot <> nil,
+      'Expected session-built query context to own a project snapshot.');
+    Assert.IsTrue(lContext.ProjectSnapshot.Snapshot <> nil,
+      'Expected session-built query context to expose an owned project snapshot.');
+    Assert.AreEqual(2, lContext.ProjectSnapshot.Snapshot.UnitCount);
+
+    lDefinition := TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext,
+      'TProjectWithRecord');
+    Assert.IsTrue(lDefinition.Found);
+    Assert.AreEqual('project-snapshot', lDefinition.Provenance);
+    lIndex := TDelphiSemanticProjectSymbolIndexer.Build(lContext);
+    Assert.AreEqual(0, lIndex.Metrics.BuildInvocationCount,
+      'Owned snapshot query context should use the snapshot index path.');
+  finally
+    lResult.Session.Free;
+  end;
+
+  try
+    lDefinition := TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext,
+      'TProjectWithRecord');
+    Assert.IsTrue(lDefinition.Found,
+      'Owned snapshot query context should remain valid after the session is freed.');
+    Assert.AreEqual('project-snapshot', lDefinition.Provenance);
+  finally
+    lContext.ProjectSnapshot := nil;
   end;
 end;
 

@@ -124,6 +124,39 @@ begin
   Result := False;
 end;
 
+function HasSnapshotNameCollision(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aOriginalName, aNewName: string): Boolean;
+var
+  i: Integer;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
+  lNameId: TSemanticStringId;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSymbol: TSemanticSymbolFact;
+  lSymbolRef: TSemanticSymbolRef;
+  lUnit: TUnitSnapshot;
+begin
+  if SameText(aOriginalName, aNewName) then
+    Exit(False);
+
+  lSnapshot := ContextProjectSnapshot(aContext);
+  if (lSnapshot = nil) or not lSnapshot.TryFindStringId(aNewName, lNameId) or
+    not lSnapshot.TrySymbolsByName(lNameId, lLowIndex, lHighIndex) then
+    Exit(False);
+
+  for i := lLowIndex to lHighIndex do
+  begin
+    lSymbolRef := lSnapshot.SymbolRefByNameIndex(i);
+    if not lSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit) then
+      Continue;
+    lSymbol := lUnit.SymbolById(lSymbolRef.SymbolId);
+    if SameText(SnapshotText(lSnapshot, lSymbol.NameId), aNewName) then
+      Exit(True);
+  end;
+
+  Result := False;
+end;
+
 function SourceFileHash(const aFileName: string): string;
 begin
   if (aFileName = '') or not TFile.Exists(aFileName) then
@@ -1150,10 +1183,24 @@ class function TDelphiSemanticRenamePlanner.PlanRename(
   TDelphiSemanticRenamePlan;
 var
   lIndex: TDelphiSemanticProjectSymbolIndex;
+  lSnapshot: TDelphiProjectSnapshot;
   lUsageResult: TDelphiSemanticUsageResult;
 begin
   if not IsIdentifierText(aNewName) then
     Exit(MakeBlockedPlan('New name is not a valid Delphi identifier.'));
+
+  lSnapshot := ContextProjectSnapshot(aContext);
+  if lSnapshot <> nil then
+  begin
+    if HasSnapshotNameCollision(aContext, aName, aNewName) then
+      Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' +
+        aNewName + '".'));
+
+    lUsageResult := TDelphiSemanticUsageFinder.FindUsagesByName(aContext, aName);
+    Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
+    Result.IndexMetrics := lUsageResult.IndexMetrics;
+    Exit;
+  end;
 
   lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
   if HasNameCollision(lIndex, aName, aNewName) then
@@ -1173,10 +1220,28 @@ class function TDelphiSemanticRenamePlanner.PlanRenameAtPosition(
   aColumn: Integer; const aNewName: string): TDelphiSemanticRenamePlan;
 var
   lIndex: TDelphiSemanticProjectSymbolIndex;
+  lSnapshot: TDelphiProjectSnapshot;
   lUsageResult: TDelphiSemanticUsageResult;
 begin
   if not IsIdentifierText(aNewName) then
     Exit(MakeBlockedPlan('New name is not a valid Delphi identifier.'));
+
+  lSnapshot := ContextProjectSnapshot(aContext);
+  if lSnapshot <> nil then
+  begin
+    lUsageResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(aContext, aFileName,
+      aLine, aColumn);
+    if lUsageResult.Status <> 'resolved' then
+      Exit(MakeBlockedPlan(lUsageResult.Diagnostic));
+
+    if HasSnapshotNameCollision(aContext, lUsageResult.Symbol.Name, aNewName) then
+      Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' +
+        aNewName + '".'));
+
+    Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
+    Result.IndexMetrics := lUsageResult.IndexMetrics;
+    Exit;
+  end;
 
   lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
   lUsageResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lIndex, aContext, aFileName,

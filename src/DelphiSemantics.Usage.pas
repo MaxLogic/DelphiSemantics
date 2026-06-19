@@ -45,7 +45,7 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.StrUtils, System.SysUtils,
+  System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.PositionResolver,
   DelphiSemantics.Snapshot.QuerySupport;
 
@@ -124,6 +124,102 @@ begin
   Result.EndColumn := aSymbol.Column + Length(aSymbol.Name) - 1;
 end;
 
+function UsageRoleRank(const aRole: string): Integer;
+begin
+  if SameText(aRole, 'declaration') then
+    Exit(0);
+
+  Result := 1;
+end;
+
+function CompareIntegerValues(const aLeft, aRight: Integer): Integer;
+begin
+  if aLeft < aRight then
+    Exit(-1);
+  if aLeft > aRight then
+    Exit(1);
+
+  Result := 0;
+end;
+
+function CompareStringValues(const aLeft, aRight: string): Integer;
+begin
+  Result := CompareText(aLeft, aRight);
+  if Result = 0 then
+    Result := CompareStr(aLeft, aRight);
+end;
+
+function CompareUsages(const aLeft, aRight: TDelphiSemanticUsage): Integer;
+begin
+  Result := CompareIntegerValues(UsageRoleRank(aLeft.Role), UsageRoleRank(aRight.Role));
+  if Result <> 0 then
+    Exit;
+
+  Result := CompareStringValues(aLeft.FileName, aRight.FileName);
+  if Result <> 0 then
+    Exit;
+  Result := CompareStringValues(aLeft.UnitName, aRight.UnitName);
+  if Result <> 0 then
+    Exit;
+  Result := CompareIntegerValues(aLeft.Line, aRight.Line);
+  if Result <> 0 then
+    Exit;
+  Result := CompareIntegerValues(aLeft.Column, aRight.Column);
+  if Result <> 0 then
+    Exit;
+  Result := CompareIntegerValues(aLeft.EndLine, aRight.EndLine);
+  if Result <> 0 then
+    Exit;
+  Result := CompareIntegerValues(aLeft.EndColumn, aRight.EndColumn);
+  if Result <> 0 then
+    Exit;
+  Result := CompareStringValues(aLeft.Role, aRight.Role);
+  if Result <> 0 then
+    Exit;
+  Result := CompareStringValues(aLeft.Name, aRight.Name);
+  if Result <> 0 then
+    Exit;
+  Result := CompareStringValues(aLeft.RoutineName, aRight.RoutineName);
+  if Result <> 0 then
+    Exit;
+  Result := CompareStringValues(aLeft.SectionKind, aRight.SectionKind);
+  if Result <> 0 then
+    Exit;
+
+  Result := CompareStringValues(aLeft.SourceKind, aRight.SourceKind);
+end;
+
+function SameUsageRange(const aLeft, aRight: TDelphiSemanticUsage): Boolean;
+begin
+  Result := SameText(aLeft.FileName, aRight.FileName) and
+    SameText(aLeft.UnitName, aRight.UnitName) and SameText(aLeft.Role, aRight.Role) and
+    SameText(aLeft.Name, aRight.Name) and SameText(aLeft.RoutineName, aRight.RoutineName) and
+    SameText(aLeft.SectionKind, aRight.SectionKind) and
+    SameText(aLeft.SourceKind, aRight.SourceKind) and (aLeft.Line = aRight.Line) and
+    (aLeft.Column = aRight.Column) and (aLeft.EndLine = aRight.EndLine) and
+    (aLeft.EndColumn = aRight.EndColumn);
+end;
+
+function SortedUsages(const aUsages: TList<TDelphiSemanticUsage>): TArray<TDelphiSemanticUsage>;
+var
+  i: Integer;
+  lCount: Integer;
+  lSorted: TArray<TDelphiSemanticUsage>;
+begin
+  lSorted := aUsages.ToArray;
+  TArray.Sort<TDelphiSemanticUsage>(lSorted,
+    TComparer<TDelphiSemanticUsage>.Construct(CompareUsages));
+  SetLength(Result, Length(lSorted));
+  lCount := 0;
+  for i := 0 to High(lSorted) do
+    if (i = 0) or not SameUsageRange(lSorted[i], lSorted[i - 1]) then
+    begin
+      Result[lCount] := lSorted[i];
+      Inc(lCount);
+    end;
+  SetLength(Result, lCount);
+end;
+
 function MakeSnapshotReferenceUsage(const aSnapshot: TDelphiProjectSnapshot;
   const aUnit: TUnitSnapshot; const aReference: TSemanticReferenceFact): TDelphiSemanticUsage;
 begin
@@ -175,6 +271,171 @@ begin
     aRefs.Add(aRef);
 end;
 
+function NormalizedSymbolSignature(const aSignature: string): string; forward;
+function SymbolIsMethodPair(const aLeft, aRight: TDelphiSemanticIndexedSymbol): Boolean; forward;
+
+function SnapshotUsageRoutineSimpleName(const aRoutineName: string): string;
+var
+  lIndex: Integer;
+begin
+  lIndex := LastDelimiter('.', aRoutineName);
+  if lIndex > 0 then
+    Exit(Copy(aRoutineName, lIndex + 1, MaxInt));
+
+  Result := aRoutineName;
+end;
+
+function SnapshotSymbolKindIs(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbol: TSemanticSymbolFact; const aKind: string): Boolean;
+begin
+  Result := SameText(SnapshotText(aSnapshot, aSymbol.KindId), aKind);
+end;
+
+function SnapshotSignaturesMatch(const aLeft, aRight: string): Boolean;
+begin
+  if (aLeft = '') or (aRight = '') then
+    Exit(True);
+
+  Result := SameText(NormalizedSymbolSignature(aLeft),
+    NormalizedSymbolSignature(aRight));
+end;
+
+function TryFindSnapshotRoutineForParameter(const aSnapshot: TDelphiProjectSnapshot;
+  const aParameterRef: TSemanticSymbolRef; const aParameter: TSemanticSymbolFact;
+  out aRoutineRef: TSemanticSymbolRef; out aRoutineUnit: TUnitSnapshot;
+  out aRoutine: TSemanticSymbolFact): Boolean;
+var
+  i: Integer;
+  lCandidate: TSemanticSymbolFact;
+  lCandidateRef: TSemanticSymbolRef;
+  lCandidateUnit: TUnitSnapshot;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
+  lNameId: TSemanticStringId;
+  lRoutineName: string;
+begin
+  Result := False;
+  aRoutineRef := Default(TSemanticSymbolRef);
+  aRoutineUnit := nil;
+  aRoutine := Default(TSemanticSymbolFact);
+  if not SnapshotSymbolKindIs(aSnapshot, aParameter, 'parameter') then
+    Exit;
+
+  lRoutineName := SnapshotText(aSnapshot, aParameter.RoutineId);
+  if lRoutineName = '' then
+    Exit;
+  if not aSnapshot.TryFindStringId(SnapshotUsageRoutineSimpleName(lRoutineName),
+    lNameId) then
+    Exit;
+  if not aSnapshot.TrySymbolsByName(lNameId, lLowIndex, lHighIndex) then
+    Exit;
+
+  for i := lLowIndex to lHighIndex do
+  begin
+    lCandidateRef := aSnapshot.SymbolRefByNameIndex(i);
+    if lCandidateRef.UnitId <> aParameterRef.UnitId then
+      Continue;
+    if not aSnapshot.TryFindUnitById(lCandidateRef.UnitId, lCandidateUnit) then
+      Continue;
+
+    lCandidate := lCandidateUnit.SymbolById(lCandidateRef.SymbolId);
+    if not SnapshotSymbolKindIs(aSnapshot, lCandidate, 'routine') then
+      Continue;
+    if not SameText(SnapshotText(aSnapshot, lCandidate.RoutineId), lRoutineName) then
+      Continue;
+    if (aParameter.Line > 0) and (lCandidate.Line > aParameter.Line) then
+      Continue;
+    if Result and (lCandidate.Line < aRoutine.Line) then
+      Continue;
+
+    aRoutineRef := lCandidateRef;
+    aRoutineUnit := lCandidateUnit;
+    aRoutine := lCandidate;
+    Result := True;
+  end;
+end;
+
+procedure AddSnapshotParametersForRoutine(const aSnapshot: TDelphiProjectSnapshot;
+  const aRoutineRef: TSemanticSymbolRef; const aRoutine,
+  aOriginalParameter: TSemanticSymbolFact; const aRefs: TList<TSemanticSymbolRef>);
+var
+  i: Integer;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
+  lParameter: TSemanticSymbolFact;
+  lParameterRef: TSemanticSymbolRef;
+  lParameterUnit: TUnitSnapshot;
+  lRoutineSignature: string;
+begin
+  if not aSnapshot.TrySymbolsByName(aOriginalParameter.NameId, lLowIndex,
+    lHighIndex) then
+    Exit;
+
+  lRoutineSignature := SnapshotText(aSnapshot, aRoutine.SignatureId);
+  for i := lLowIndex to lHighIndex do
+  begin
+    lParameterRef := aSnapshot.SymbolRefByNameIndex(i);
+    if lParameterRef.UnitId <> aRoutineRef.UnitId then
+      Continue;
+    if not aSnapshot.TryFindUnitById(lParameterRef.UnitId, lParameterUnit) then
+      Continue;
+
+    lParameter := lParameterUnit.SymbolById(lParameterRef.SymbolId);
+    if not SnapshotSymbolKindIs(aSnapshot, lParameter, 'parameter') then
+      Continue;
+    if lParameter.RoutineId <> aRoutine.RoutineId then
+      Continue;
+    if not SnapshotSignaturesMatch(lRoutineSignature,
+      SnapshotText(aSnapshot, lParameter.SignatureId)) then
+      Continue;
+
+    AddSnapshotSymbolRef(aRefs, lParameterRef);
+  end;
+end;
+
+procedure AddSnapshotParameterEquivalentRefs(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbolRef: TSemanticSymbolRef; const aSymbol: TSemanticSymbolFact;
+  const aRefs: TList<TSemanticSymbolRef>);
+var
+  i: Integer;
+  lEquivalentRef: TSemanticSymbolRef;
+  lEquivalentRoutine: TSemanticSymbolFact;
+  lEquivalentRoutineSymbol: TDelphiSemanticIndexedSymbol;
+  lEquivalentUnit: TUnitSnapshot;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
+  lRoutine: TSemanticSymbolFact;
+  lRoutineRef: TSemanticSymbolRef;
+  lRoutineSymbol: TDelphiSemanticIndexedSymbol;
+  lRoutineUnit: TUnitSnapshot;
+begin
+  if not TryFindSnapshotRoutineForParameter(aSnapshot, aSymbolRef, aSymbol,
+    lRoutineRef, lRoutineUnit, lRoutine) then
+    Exit;
+
+  lRoutineSymbol := SnapshotIndexedSymbol(aSnapshot, lRoutineUnit, lRoutineRef,
+    lRoutine);
+  if not aSnapshot.TryRoutineMethodEquivalents(lRoutine, lLowIndex,
+    lHighIndex) then
+    Exit;
+
+  for i := lLowIndex to lHighIndex do
+  begin
+    lEquivalentRef := aSnapshot.RoutineMethodEquivalentRefByIndex(i);
+    if not aSnapshot.TryFindUnitById(lEquivalentRef.UnitId, lEquivalentUnit) then
+      Continue;
+
+    lEquivalentRoutine := lEquivalentUnit.SymbolById(lEquivalentRef.SymbolId);
+    lEquivalentRoutineSymbol := SnapshotIndexedSymbol(aSnapshot, lEquivalentUnit,
+      lEquivalentRef, lEquivalentRoutine);
+    if not SymbolIsMethodPair(lEquivalentRoutineSymbol, lRoutineSymbol) then
+      Continue;
+
+    AddSnapshotParametersForRoutine(aSnapshot, lEquivalentRef,
+      lEquivalentRoutine, aSymbol, aRefs);
+  end;
+end;
+
 function TryFindSnapshotUsageSymbolByName(const aSnapshot: TDelphiProjectSnapshot;
   const aName: string; out aSymbolRef: TSemanticSymbolRef; out aSymbol:
   TDelphiSemanticIndexedSymbol): Boolean;
@@ -206,11 +467,14 @@ begin
     if not SnapshotSymbolMatchesUsageName(lCandidate, aName) then
       Continue;
 
-    Inc(lCount);
-    if lCount = 1 then
+    if lCount = 0 then
     begin
+      Inc(lCount);
       aSymbolRef := lSymbolRef;
       aSymbol := lCandidate;
+    end else if SymbolIsMethodPair(lCandidate, aSymbol) then
+    begin
+      Continue;
     end else
     begin
       aSymbolRef := Default(TSemanticSymbolRef);
@@ -221,8 +485,6 @@ begin
 
   Result := lCount = 1;
 end;
-
-function SymbolIsMethodPair(const aLeft, aRight: TDelphiSemanticIndexedSymbol): Boolean; forward;
 
 function BuildSnapshotResultForSymbol(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbolRef: TSemanticSymbolRef; const aSymbol: TDelphiSemanticIndexedSymbol):
@@ -262,6 +524,8 @@ begin
           if SymbolIsMethodPair(lEquivalentSymbol, aSymbol) then
             AddSnapshotSymbolRef(lEquivalentRefs, lEquivalentRef);
         end;
+      AddSnapshotParameterEquivalentRefs(aSnapshot, aSymbolRef, lOriginalSymbol,
+        lEquivalentRefs);
     end;
 
     for lEquivalentRef in lEquivalentRefs do
@@ -287,7 +551,7 @@ begin
     Result := Default(TDelphiSemanticUsageResult);
     Result.Status := 'resolved';
     Result.Symbol := aSymbol;
-    Result.Usages := lUsages.ToArray;
+    Result.Usages := SortedUsages(lUsages);
     Result.IndexMetrics.BuildInvocationCount := 0;
   finally
     lUsages.Free;
@@ -332,12 +596,26 @@ begin
   Result := BuildSnapshotResultForSymbol(lSnapshot, lPositionResolution.SymbolRef, lSymbol);
 end;
 
+function NormalizedSymbolSignature(const aSignature: string): string;
+begin
+  Result := LowerCase(StringReplace(aSignature.Trim, ' ', '', [rfReplaceAll]));
+end;
+
 function SymbolIsMethodPair(const aLeft, aRight: TDelphiSemanticIndexedSymbol): Boolean;
 begin
-  Result := SameText(aLeft.UnitName, aRight.UnitName) and
-    SameText(aLeft.OwnerName, aRight.OwnerName) and SameText(aLeft.Name, aRight.Name) and
-    ((SameText(aLeft.Kind, 'method') and SameText(aRight.Kind, 'routine')) or
-    (SameText(aLeft.Kind, 'routine') and SameText(aRight.Kind, 'method')));
+  if not (SameText(aLeft.UnitName, aRight.UnitName) and
+    SameText(aLeft.OwnerName, aRight.OwnerName) and SameText(aLeft.Name, aRight.Name)) then
+    Exit(False);
+
+  if (SameText(aLeft.Kind, 'method') and SameText(aRight.Kind, 'routine')) or
+    (SameText(aLeft.Kind, 'routine') and SameText(aRight.Kind, 'method')) then
+    Exit(True);
+
+  Result := SameText(aLeft.Kind, 'routine') and SameText(aRight.Kind, 'routine') and
+    (SameText(NormalizedSymbolSignature(aLeft.Signature),
+    NormalizedSymbolSignature(aRight.Signature)) or
+    ((aLeft.Line > 0) and (aLeft.Line = aRight.Line) and
+    (aLeft.Column = aRight.Column)));
 end;
 
 function ReferenceMatchesSymbol(const aReference: TDelphiSemanticIndexedReference;
@@ -370,7 +648,7 @@ begin
     Result := Default(TDelphiSemanticUsageResult);
     Result.Status := 'resolved';
     Result.Symbol := aSymbol;
-    Result.Usages := lUsages.ToArray;
+    Result.Usages := SortedUsages(lUsages);
     Result.IndexMetrics := aIndex.Metrics;
   finally
     lUsages.Free;

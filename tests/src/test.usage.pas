@@ -27,6 +27,12 @@ type
     [Test]
     procedure SnapshotBackedUsagesReuseProjectSnapshotIndexes;
     [Test]
+    procedure SnapshotBackedUsagesResolveImplementationRoutineByName;
+    [Test]
+    procedure SnapshotBackedUsagesResolveInterfaceImplementationRoutineByName;
+    [Test]
+    procedure SnapshotBackedUsagesResolveInterfaceImplementationParameterAtPosition;
+    [Test]
     procedure BlocksAmbiguousUsageTargets;
   end;
 
@@ -214,6 +220,7 @@ var
   lAliasSymbolId: TSemanticSymbolId;
   lBuilder: TDelphiProjectSnapshotBuilder;
   lContext: TDelphiSemanticSymbolQueryContext;
+  lEarlierReference: TSemanticReferenceFact;
   lEquivalentCount: Integer;
   lEquivalentRef: TSemanticSymbolRef;
   lEquivalentSymbol: TSemanticSymbolFact;
@@ -328,6 +335,19 @@ begin
       lReference.EndColumn := 22;
       lUnit.AddReference(lReference);
 
+      lEarlierReference := Default(TSemanticReferenceFact);
+      lEarlierReference.NameId := lNameId;
+      lEarlierReference.TargetUnitId := lUnit.UnitId;
+      lEarlierReference.TargetSymbolId := lSymbolId;
+      lEarlierReference.ClassificationId := lBuilder.Strings.Intern('read');
+      lEarlierReference.SectionKindId := lBuilder.Strings.Intern('implementation');
+      lEarlierReference.SourceKindId := lSourceKindId;
+      lEarlierReference.Line := 10;
+      lEarlierReference.Column := 5;
+      lEarlierReference.EndLine := 10;
+      lEarlierReference.EndColumn := 22;
+      lUnit.AddReference(lEarlierReference);
+
       lAliasReference := Default(TSemanticReferenceFact);
       lAliasReference.NameId := lBuilder.Strings.Intern('SnapshotUsageAlias');
       lAliasReference.TargetUnitId := lUnit.UnitId;
@@ -417,6 +437,12 @@ begin
     Assert.AreEqual('resolved', lAliasResult.Status);
     Assert.AreEqual('type-alias', lAliasResult.Symbol.Kind);
     Assert.AreEqual('resolved', lPositionResult.Status);
+    Assert.IsTrue(Length(lResult.Usages) >= 3);
+    Assert.AreEqual('declaration', lResult.Usages[0].Role);
+    Assert.AreEqual(10, lResult.Usages[1].Line,
+      'Expected snapshot usages to be returned in source order.');
+    Assert.AreEqual(12, lResult.Usages[2].Line,
+      'Expected snapshot usages to be returned in source order.');
 
     Assert.IsTrue(lProject.TryFindUnitById(1, lEquivalentUnit));
     lEquivalentSymbol := lEquivalentUnit.SymbolById(lRoutineSymbolId);
@@ -478,6 +504,242 @@ begin
   finally
     lScopedContext.Free;
     lProject.Free;
+  end;
+end;
+
+procedure TUsageTests.SnapshotBackedUsagesResolveImplementationRoutineByName;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lDprPath: string;
+  lDprojPath: string;
+  lExtractionMilliseconds: Int64;
+  lFoundCall: Boolean;
+  lFoundDeclaration: Boolean;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticUsageResult;
+  lRootPath: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+  lUnitPath: string;
+  lUsage: TDelphiSemanticUsage;
+begin
+  lRootPath := UsageTempPath('snapshot-implementation-routine');
+  TDirectory.CreateDirectory(lRootPath);
+
+  lDprPath := TPath.Combine(lRootPath, 'ImplementationRoutineProject.dpr');
+  lDprojPath := TPath.Combine(lRootPath, 'ImplementationRoutineProject.dproj');
+  lUnitPath := TPath.Combine(lRootPath, 'ImplementationRoutineUnit.pas');
+  TFile.WriteAllText(lDprPath, 'program ImplementationRoutineProject;' + sLineBreak +
+    'uses ImplementationRoutineUnit;' + sLineBreak + 'begin' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+  TFile.WriteAllText(lUnitPath, 'unit ImplementationRoutineUnit;' + sLineBreak +
+    'interface' + sLineBreak + 'implementation' + sLineBreak +
+    'procedure HiddenRoutine;' + sLineBreak + 'begin' + sLineBreak + 'end;' +
+    sLineBreak + sLineBreak + 'procedure Touch;' + sLineBreak + 'begin' +
+    sLineBreak + '  HiddenRoutine;' + sLineBreak + 'end;' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+  TFile.WriteAllText(lDprojPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    sLineBreak + '  <PropertyGroup>' + sLineBreak +
+    '    <ProjectGuid>{83D12B56-131E-4D25-A91E-7056059C5F5E}</ProjectGuid>' +
+    sLineBreak + '    <MainSource>ImplementationRoutineProject.dpr</MainSource>' +
+    sLineBreak + '  </PropertyGroup>' + sLineBreak + '  <ItemGroup>' +
+    sLineBreak + '    <DCCReference Include="ImplementationRoutineUnit.pas"/>' +
+    sLineBreak + '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojPath;
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lSessionResult.Success);
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      lResult := TDelphiSemanticUsageFinder.FindUsagesByName(lContext,
+        'HiddenRoutine');
+
+      Assert.AreEqual('resolved', lResult.Status, lResult.Diagnostic);
+      Assert.AreEqual(0, lResult.IndexMetrics.BuildInvocationCount);
+      Assert.AreEqual(2, Integer(Length(lResult.Usages)),
+        'Expected equivalent routine declaration facts to collapse.');
+
+      lFoundDeclaration := False;
+      lFoundCall := False;
+      for lUsage in lResult.Usages do
+      begin
+        if SameText(lUsage.Role, 'declaration') and (lUsage.Line = 4) then
+          lFoundDeclaration := True;
+        if not SameText(lUsage.Role, 'declaration') and (lUsage.Line = 10) then
+          lFoundCall := True;
+      end;
+
+      Assert.IsTrue(lFoundDeclaration);
+      Assert.IsTrue(lFoundCall);
+    finally
+      lContext.ProjectSnapshot := nil;
+    end;
+  finally
+    lSessionResult.Session.Free;
+  end;
+end;
+
+procedure TUsageTests.SnapshotBackedUsagesResolveInterfaceImplementationRoutineByName;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lDprPath: string;
+  lDprojPath: string;
+  lExtractionMilliseconds: Int64;
+  lFoundCall: Boolean;
+  lFoundImplementationDeclaration: Boolean;
+  lFoundInterfaceDeclaration: Boolean;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticUsageResult;
+  lRootPath: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+  lUnitPath: string;
+  lUsage: TDelphiSemanticUsage;
+begin
+  lRootPath := UsageTempPath('snapshot-interface-implementation-routine');
+  TDirectory.CreateDirectory(lRootPath);
+
+  lDprPath := TPath.Combine(lRootPath, 'InterfaceImplementationRoutineProject.dpr');
+  lDprojPath := TPath.Combine(lRootPath, 'InterfaceImplementationRoutineProject.dproj');
+  lUnitPath := TPath.Combine(lRootPath, 'InterfaceImplementationRoutineUnit.pas');
+  TFile.WriteAllText(lDprPath, 'program InterfaceImplementationRoutineProject;' +
+    sLineBreak + 'uses InterfaceImplementationRoutineUnit;' + sLineBreak + 'begin' +
+    sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lUnitPath, 'unit InterfaceImplementationRoutineUnit;' +
+    sLineBreak + 'interface' + sLineBreak +
+    'function SharedRoutine(const aValue: Integer): Integer;' + sLineBreak +
+    'implementation' + sLineBreak + 'function SharedRoutine(const aValue: Integer): Integer;' +
+    sLineBreak + 'begin' + sLineBreak + '  Result := aValue;' + sLineBreak + 'end;' +
+    sLineBreak + sLineBreak + 'procedure Touch;' + sLineBreak + 'begin' +
+    sLineBreak + '  SharedRoutine(1);' + sLineBreak + 'end;' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+  TFile.WriteAllText(lDprojPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    sLineBreak + '  <PropertyGroup>' + sLineBreak +
+    '    <ProjectGuid>{6D90E61B-CEFA-4696-909C-BED6FE25078E}</ProjectGuid>' +
+    sLineBreak + '    <MainSource>InterfaceImplementationRoutineProject.dpr</MainSource>' +
+    sLineBreak + '  </PropertyGroup>' + sLineBreak + '  <ItemGroup>' +
+    sLineBreak + '    <DCCReference Include="InterfaceImplementationRoutineUnit.pas"/>' +
+    sLineBreak + '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojPath;
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lSessionResult.Success);
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      lResult := TDelphiSemanticUsageFinder.FindUsagesByName(lContext,
+        'SharedRoutine');
+
+      Assert.AreEqual('resolved', lResult.Status, lResult.Diagnostic);
+      Assert.AreEqual(3, Integer(Length(lResult.Usages)));
+
+      lFoundInterfaceDeclaration := False;
+      lFoundImplementationDeclaration := False;
+      lFoundCall := False;
+      for lUsage in lResult.Usages do
+      begin
+        if SameText(lUsage.Role, 'declaration') and (lUsage.Line = 3) then
+          lFoundInterfaceDeclaration := True;
+        if SameText(lUsage.Role, 'declaration') and (lUsage.Line = 5) then
+          lFoundImplementationDeclaration := True;
+        if not SameText(lUsage.Role, 'declaration') and (lUsage.Line = 12) then
+          lFoundCall := True;
+      end;
+
+      Assert.IsTrue(lFoundInterfaceDeclaration);
+      Assert.IsTrue(lFoundImplementationDeclaration);
+      Assert.IsTrue(lFoundCall);
+    finally
+      lContext.ProjectSnapshot := nil;
+    end;
+  finally
+    lSessionResult.Session.Free;
+  end;
+end;
+
+procedure TUsageTests.SnapshotBackedUsagesResolveInterfaceImplementationParameterAtPosition;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lDprPath: string;
+  lDprojPath: string;
+  lExtractionMilliseconds: Int64;
+  lFoundBodyReference: Boolean;
+  lFoundImplementationDeclaration: Boolean;
+  lFoundInterfaceDeclaration: Boolean;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticUsageResult;
+  lRootPath: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+  lUnitPath: string;
+  lUsage: TDelphiSemanticUsage;
+begin
+  lRootPath := UsageTempPath('snapshot-interface-implementation-parameter');
+  TDirectory.CreateDirectory(lRootPath);
+
+  lDprPath := TPath.Combine(lRootPath, 'InterfaceImplementationParameterProject.dpr');
+  lDprojPath := TPath.Combine(lRootPath, 'InterfaceImplementationParameterProject.dproj');
+  lUnitPath := TPath.Combine(lRootPath, 'InterfaceImplementationParameterUnit.pas');
+  TFile.WriteAllText(lDprPath, 'program InterfaceImplementationParameterProject;' +
+    sLineBreak + 'uses InterfaceImplementationParameterUnit;' + sLineBreak + 'begin' +
+    sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lUnitPath, 'unit InterfaceImplementationParameterUnit;' +
+    sLineBreak + 'interface' + sLineBreak +
+    'function SharedValue(const aValue: Integer): Integer;' + sLineBreak +
+    'implementation' + sLineBreak + 'function SharedValue(const aValue: Integer): Integer;' +
+    sLineBreak + 'begin' + sLineBreak + '  Result := aValue;' + sLineBreak + 'end;' +
+    sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lDprojPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    sLineBreak + '  <PropertyGroup>' + sLineBreak +
+    '    <ProjectGuid>{8F1A0B12-6C8B-4D1D-A5E4-02F0F5F78C71}</ProjectGuid>' +
+    sLineBreak + '    <MainSource>InterfaceImplementationParameterProject.dpr</MainSource>' +
+    sLineBreak + '  </PropertyGroup>' + sLineBreak + '  <ItemGroup>' +
+    sLineBreak + '    <DCCReference Include="InterfaceImplementationParameterUnit.pas"/>' +
+    sLineBreak + '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojPath;
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lSessionResult.Success);
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      lResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lContext, lUnitPath, 7, 13);
+
+      Assert.AreEqual('resolved', lResult.Status, lResult.Diagnostic);
+      Assert.AreEqual(0, lResult.IndexMetrics.BuildInvocationCount);
+      Assert.AreEqual(3, Integer(Length(lResult.Usages)));
+
+      lFoundInterfaceDeclaration := False;
+      lFoundImplementationDeclaration := False;
+      lFoundBodyReference := False;
+      for lUsage in lResult.Usages do
+      begin
+        if SameText(lUsage.Role, 'declaration') and (lUsage.Line = 3) then
+          lFoundInterfaceDeclaration := True;
+        if SameText(lUsage.Role, 'declaration') and (lUsage.Line = 5) then
+          lFoundImplementationDeclaration := True;
+        if not SameText(lUsage.Role, 'declaration') and (lUsage.Line = 7) then
+          lFoundBodyReference := True;
+      end;
+
+      Assert.IsTrue(lFoundInterfaceDeclaration);
+      Assert.IsTrue(lFoundImplementationDeclaration);
+      Assert.IsTrue(lFoundBodyReference);
+    finally
+      lContext.ProjectSnapshot := nil;
+    end;
+  finally
+    lSessionResult.Session.Free;
   end;
 end;
 

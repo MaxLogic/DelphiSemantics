@@ -70,6 +70,7 @@ type
   TDelphiSemanticProjectSession = class
   private
     fDiagnostics: TArray<TDelphiSemanticDiagnostic>;
+    fLastFailedModel: TDelphiSemanticUnitModel;
     fLastSnapshotBuildMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
     fLastSemanticGraphBuildMetrics: TDelphiSemanticGraphBuildMetrics;
     fOptions: TDelphiSemanticOptions;
@@ -89,6 +90,9 @@ type
       TArray<TDelphiSemanticUnitCacheIdentity>;
     function BuildDependencyGraph: TDelphiSemanticDependencyGraph;
     function BuildSemanticGraph: TDelphiSemanticSemanticGraph;
+    function BuildSnapshotSymbolQueryContext(out aCacheMetrics:
+      TDelphiSemanticCacheMetrics; out aExtractionMilliseconds: Int64):
+      TDelphiSemanticSymbolQueryContext;
     function BuildSymbolQueryContext(out aCacheMetrics: TDelphiSemanticCacheMetrics;
       out aExtractionMilliseconds: Int64): TDelphiSemanticSymbolQueryContext;
     function BuildSnapshot: TDelphiProjectSnapshot; overload;
@@ -121,15 +125,42 @@ uses
   System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils,
   System.RegularExpressions, System.SysUtils,
   DelphiAST.ProjectIndexer,
-  DelphiSemantics.Cache.Sqlite, DelphiSemantics.Snapshot.Builder,
-  DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
-  DelphiSemantics.Source,
+  DelphiSemantics.Cache.Sqlite, DelphiSemantics.CompilerProfile,
+  DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite,
+  DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Source,
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v2';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v5';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
     'project-session-remove-with-facts-v1';
+
+type
+  TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
+  private
+    fSnapshot: TDelphiProjectSnapshot;
+  public
+    constructor Create(const aSnapshot: TDelphiProjectSnapshot);
+    destructor Destroy; override;
+    function Snapshot: TDelphiProjectSnapshot;
+  end;
+
+constructor TOwnedProjectSnapshotRef.Create(const aSnapshot: TDelphiProjectSnapshot);
+begin
+  inherited Create;
+  fSnapshot := aSnapshot;
+end;
+
+destructor TOwnedProjectSnapshotRef.Destroy;
+begin
+  fSnapshot.Free;
+  inherited Destroy;
+end;
+
+function TOwnedProjectSnapshotRef.Snapshot: TDelphiProjectSnapshot;
+begin
+  Result := fSnapshot;
+end;
 
 function MainModelOptions(const aProject: TDelphiSemanticProjectInfo):
   TDelphiSemanticModelOptions;
@@ -676,6 +707,20 @@ begin
   end;
 end;
 
+function FirstFailedModel(const aModels: TArray<TDelphiSemanticUnitModel>):
+  TDelphiSemanticUnitModel;
+var
+  lModel: TDelphiSemanticUnitModel;
+begin
+  Result := Default(TDelphiSemanticUnitModel);
+  for lModel in aModels do
+    if not lModel.Success then
+    begin
+      Result := lModel;
+      Exit;
+    end;
+end;
+
 function DependencyGraphSearchPaths(const aProject: TDelphiSemanticProjectInfo): TArray<string>;
 var
   lItems: TList<string>;
@@ -1160,6 +1205,32 @@ begin
   fLastSemanticGraphBuildMetrics := Result.Metrics;
 end;
 
+function TDelphiSemanticProjectSession.BuildSnapshotSymbolQueryContext(
+  out aCacheMetrics: TDelphiSemanticCacheMetrics; out aExtractionMilliseconds: Int64):
+  TDelphiSemanticSymbolQueryContext;
+var
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  Result := Default(TDelphiSemanticSymbolQueryContext);
+  aCacheMetrics := Default(TDelphiSemanticCacheMetrics);
+  aExtractionMilliseconds := 0;
+  lSnapshot := BuildSnapshot;
+  try
+    aExtractionMilliseconds := fLastSnapshotBuildMetrics.SnapshotBuilderParseExtractMilliseconds +
+      fLastSnapshotBuildMetrics.SnapshotCacheUnitBuildMilliseconds;
+    aCacheMetrics := SnapshotBuildCacheMetricsAsSemanticCacheMetrics(fOptions,
+      fLastSnapshotBuildMetrics);
+    Result.CacheMetrics := aCacheMetrics;
+    Result.CompilerProfile := TDelphiSemanticCompilerProfileBuilder.DefaultProfile(
+      fProject.CompilerProfileName);
+    Result.UnitModel := fLastFailedModel;
+    Result.ProjectSnapshot := TOwnedProjectSnapshotRef.Create(lSnapshot);
+    lSnapshot := nil;
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
 function TDelphiSemanticProjectSession.BuildSymbolQueryContext(
   out aCacheMetrics: TDelphiSemanticCacheMetrics; out aExtractionMilliseconds: Int64):
   TDelphiSemanticSymbolQueryContext;
@@ -1222,6 +1293,7 @@ var
 begin
   Result := nil;
   fLastSnapshotBuildMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
+  fLastFailedModel := Default(TDelphiSemanticUnitModel);
   lSourceFileNames := ProjectModelFileNames(fProject);
   SetLength(lUnitCacheIdentities, 0);
   SetLength(lMissingSourceFileNames, 0);
@@ -1293,6 +1365,7 @@ begin
   end;
   lExtraction := ExtractProjectModels(fProject, fOptions, lExtractionSourceFileNames,
     lExtractionScopeSourceFileNames, lExtractionUsesScopedSourceFileNames);
+  fLastFailedModel := FirstFailedModel(lExtraction.Models);
   lParseAvoidedEstimateMilliseconds :=
     VisibleMetricMilliseconds(lExtraction.ExtractionMilliseconds);
   if Length(lUnitSnapshots) > 0 then

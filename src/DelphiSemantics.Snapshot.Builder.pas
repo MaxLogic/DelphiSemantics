@@ -70,10 +70,17 @@ type
     UnitName: string;
     SectionKind: string;
     Signature: string;
+    Line: Integer;
+    Column: Integer;
+    IsRoutineFact: Boolean;
   end;
 
   TSnapshotTargetSymbolList = TList<TSnapshotTargetSymbol>;
   TSnapshotTargetSymbolsByName = TObjectDictionary<string, TSnapshotTargetSymbolList>;
+  TOriginalTargetUnit = record
+    Snapshot: TDelphiProjectSnapshot;
+    UnitSnapshot: TUnitSnapshot;
+  end;
 
 function SnapshotDeclarationKind(const aKind: string): string;
 begin
@@ -130,6 +137,33 @@ begin
   end;
 end;
 
+function SnapshotRoutineNameHasOwner(const aRoutineName: string): Boolean;
+begin
+  Result := Pos('.', aRoutineName) > 0;
+end;
+
+function SnapshotReferenceRoutineNameForResolution(
+  const aModel: TDelphiSemanticUnitModel;
+  const aRoutineNamesByLine: TDictionary<Integer, string>;
+  const aReference: TDelphiSemanticReference): string;
+var
+  lLineRoutineName: string;
+begin
+  Result := aReference.RoutineName;
+  if (Result = '') or SnapshotRoutineNameHasOwner(Result) or
+    (aReference.Line <= 0) then
+    Exit;
+
+  if not aRoutineNamesByLine.TryGetValue(aReference.Line, lLineRoutineName) then
+  begin
+    lLineRoutineName := SnapshotRoutineNameForLine(aModel, aReference.Line);
+    aRoutineNamesByLine.AddOrSetValue(aReference.Line, lLineRoutineName);
+  end;
+
+  if (lLineRoutineName <> '') and SnapshotRoutineNameHasOwner(lLineRoutineName) then
+    Result := lLineRoutineName;
+end;
+
 function SnapshotWithIdForLine(const aUnit: TUnitSnapshot; const aLine: Integer):
   TSemanticWithId;
 begin
@@ -165,6 +199,7 @@ end;
 procedure AddSnapshotTargetSymbol(const aSymbols: TSnapshotTargetSymbolList;
   const aSymbolsByName: TSnapshotTargetSymbolsByName; const aUnitName, aKind,
   aOwnerName, aName, aSectionKind, aSignature: string; const aUnitId: TSemanticUnitId;
+  const aLine, aColumn: Integer; const aIsRoutineFact: Boolean;
   var aNextSymbolId: TSemanticSymbolId);
 var
   lSymbol: TSnapshotTargetSymbol;
@@ -182,6 +217,9 @@ begin
   lSymbol.UnitName := aUnitName;
   lSymbol.SectionKind := aSectionKind;
   lSymbol.Signature := aSignature;
+  lSymbol.Line := aLine;
+  lSymbol.Column := aColumn;
+  lSymbol.IsRoutineFact := aIsRoutineFact;
   aSymbols.Add(lSymbol);
   AddTargetSymbolByName(aSymbolsByName, lSymbol);
 end;
@@ -199,26 +237,34 @@ var
 begin
   lSymbolId := 0;
   for lDeclaration in aModel.Declarations do
+  begin
+    if SameText(SnapshotDeclarationKind(lDeclaration.Kind), cSnapshotSymbolKindRoutine) then
+      Continue;
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
       SnapshotDeclarationKind(lDeclaration.Kind), '', lDeclaration.Name,
-      lDeclaration.SectionKind, '', aUnitId, lSymbolId);
+      lDeclaration.SectionKind, '', aUnitId, lDeclaration.Line, lDeclaration.Column,
+      False, lSymbolId);
+  end;
   for lMember in aModel.Members do
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
       lMember.Kind, lMember.OwnerName, lMember.Name, '', lMember.Signature,
-      aUnitId, lSymbolId);
+      aUnitId, lMember.Line, lMember.Column, False, lSymbolId);
   for lRoutine in aModel.Routines do
   begin
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
       cSnapshotSymbolKindRoutine, lRoutine.OwnerName, lRoutine.Name,
-      lRoutine.SectionKind, lRoutine.Signature, aUnitId, lSymbolId);
+      lRoutine.SectionKind, lRoutine.Signature, aUnitId, lRoutine.Line,
+      lRoutine.Column, True, lSymbolId);
     for lParameter in lRoutine.Parameters do
       AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
         cSnapshotSymbolKindParameter, SnapshotRoutineName(lRoutine),
-        lParameter.Name, '', '', aUnitId, lSymbolId);
+        lParameter.Name, lRoutine.SectionKind, lRoutine.Signature, aUnitId,
+        lParameter.Line, lParameter.Column, False, lSymbolId);
   end;
   for lLocal in aModel.Locals do
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
-      lLocal.Kind, lLocal.RoutineName, lLocal.Name, '', '', aUnitId, lSymbolId);
+      lLocal.Kind, lLocal.RoutineName, lLocal.Name, '', '', aUnitId, lLocal.Line,
+      lLocal.Column, False, lSymbolId);
 end;
 
 function BuildSnapshotTargetSymbolsByName(
@@ -296,10 +342,87 @@ begin
   Result := LowerCase(StringReplace(aSignature.Trim, ' ', '', [rfReplaceAll]));
 end;
 
+function SnapshotLocalSymbolMatchesReference(const aModel: TDelphiSemanticUnitModel;
+  const aReference: TDelphiSemanticReference; const aRoutineSignature: string;
+  const aSymbol: TSnapshotTargetSymbol): Boolean;
+begin
+  Result := SameText(aSymbol.UnitName, aModel.UnitName)
+    and SameText(aSymbol.OwnerName, aReference.RoutineName)
+    and SnapshotLocalSymbolKind(aSymbol.Kind);
+  if Result and (aRoutineSignature <> '') and (aSymbol.Signature <> '') then
+    Result := SameText(NormalizeSnapshotSignature(aSymbol.Signature),
+      aRoutineSignature);
+end;
+
+function SnapshotLocalSymbolPrecedesReference(
+  const aReference: TDelphiSemanticReference;
+  const aSymbol: TSnapshotTargetSymbol): Boolean;
+begin
+  if (aReference.Line <= 0) or (aSymbol.Line <= 0) then
+    Exit(True);
+  if aSymbol.Line < aReference.Line then
+    Exit(True);
+  if aSymbol.Line > aReference.Line then
+    Exit(False);
+  if (aReference.Column <= 0) or (aSymbol.Column <= 0) then
+    Exit(True);
+
+  Result := aSymbol.Column <= aReference.Column;
+end;
+
+function SnapshotLocalSymbolIsBetterForReference(
+  const aReference: TDelphiSemanticReference;
+  const aCandidate, aCurrent: TSnapshotTargetSymbol): Boolean;
+begin
+  if not SnapshotLocalSymbolPrecedesReference(aReference, aCandidate) then
+    Exit(False);
+  if not SnapshotLocalSymbolPrecedesReference(aReference, aCurrent) then
+    Exit(True);
+  if aCandidate.Line <> aCurrent.Line then
+    Exit(aCandidate.Line > aCurrent.Line);
+
+  Result := aCandidate.Column > aCurrent.Column;
+end;
+
+function SnapshotLocalSymbolsHaveSameLocation(const aLeft, aRight:
+  TSnapshotTargetSymbol): Boolean;
+begin
+  Result := (aLeft.Line = aRight.Line) and (aLeft.Column = aRight.Column);
+end;
+
+function SnapshotTargetSymbolsAreEquivalent(const aLeft, aRight:
+  TSnapshotTargetSymbol): Boolean;
+begin
+  if not (SameText(aLeft.UnitName, aRight.UnitName) and
+    SameText(aLeft.OwnerName, aRight.OwnerName) and SameText(aLeft.Name, aRight.Name)) then
+    Exit(False);
+  if not (SameText(aLeft.Kind, cSnapshotSymbolKindRoutine) and
+    SameText(aRight.Kind, cSnapshotSymbolKindRoutine)) then
+    Exit(False);
+
+  Result := SameText(NormalizeSnapshotSignature(aLeft.Signature),
+    NormalizeSnapshotSignature(aRight.Signature)) or
+    ((aLeft.Line > 0) and (aLeft.Line = aRight.Line) and
+    (aLeft.Column = aRight.Column));
+end;
+
+function TargetSymbolInList(const aSymbols: TSnapshotTargetSymbolList;
+  const aSymbol: TSnapshotTargetSymbol): Boolean;
+var
+  lSymbol: TSnapshotTargetSymbol;
+begin
+  for lSymbol in aSymbols do
+    if SnapshotTargetSymbolsAreEquivalent(lSymbol, aSymbol) then
+      Exit(True);
+
+  Result := False;
+end;
+
 function TryResolveUniqueSnapshotRoutineRef(
   const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aRoutineName: string;
-  out aRoutineRef: TSemanticSymbolRef; out aAmbiguous: Boolean): Boolean;
+  out aRoutineRef: TSemanticSymbolRef; out aRoutineSignature: string;
+  out aAmbiguous: Boolean): Boolean;
 var
   lCount: Integer;
   lSignature: string;
@@ -307,6 +430,7 @@ var
   lSymbols: TSnapshotTargetSymbolList;
 begin
   aRoutineRef := Default(TSemanticSymbolRef);
+  aRoutineSignature := '';
   aAmbiguous := False;
   lCount := 0;
   lSignature := '';
@@ -317,6 +441,7 @@ begin
   for lSymbol in lSymbols do
     if SameText(lSymbol.UnitName, aModel.UnitName)
       and SameText(lSymbol.Kind, cSnapshotSymbolKindRoutine)
+      and lSymbol.IsRoutineFact
       and SameText(SnapshotQualifiedRoutineName(lSymbol), aRoutineName) then
     begin
       if lCount = 0 then
@@ -324,6 +449,7 @@ begin
         Inc(lCount);
         aRoutineRef := lSymbol.Ref;
         lSignature := NormalizeSnapshotSignature(lSymbol.Signature);
+        aRoutineSignature := lSignature;
       end else if not SameText(lSignature,
         NormalizeSnapshotSignature(lSymbol.Signature)) then
       begin
@@ -342,7 +468,11 @@ function AddLocalReferenceCandidates(const aSymbolsByName: TSnapshotTargetSymbol
   const aCandidateRefs: TList<TSemanticSymbolRef>): Boolean;
 var
   lAmbiguousRoutine: Boolean;
+  lBestCount: Integer;
+  lBestSymbol: TSnapshotTargetSymbol;
+  lHasBest: Boolean;
   lRoutineRef: TSemanticSymbolRef;
+  lRoutineSignature: string;
   lSymbol: TSnapshotTargetSymbol;
   lSymbols: TSnapshotTargetSymbolList;
 begin
@@ -350,7 +480,7 @@ begin
   if aReference.RoutineName = '' then
     Exit;
   if not TryResolveUniqueSnapshotRoutineRef(aSymbolsByName, aModel,
-    aReference.RoutineName, lRoutineRef, lAmbiguousRoutine) then
+    aReference.RoutineName, lRoutineRef, lRoutineSignature, lAmbiguousRoutine) then
   begin
     Result := lAmbiguousRoutine;
     Exit;
@@ -360,11 +490,29 @@ begin
   if not aSymbolsByName.TryGetValue(aReference.Name, lSymbols) then
     Exit;
 
+  lBestSymbol := Default(TSnapshotTargetSymbol);
+  lBestCount := 0;
+  lHasBest := False;
   for lSymbol in lSymbols do
-    if SameText(lSymbol.UnitName, aModel.UnitName)
-      and SameText(lSymbol.OwnerName, aReference.RoutineName)
-      and SnapshotLocalSymbolKind(lSymbol.Kind) then
-      AddCandidateRef(aCandidateRefs, lSymbol);
+  begin
+    if not SnapshotLocalSymbolMatchesReference(aModel, aReference,
+      lRoutineSignature, lSymbol) then
+      Continue;
+    if not SnapshotLocalSymbolPrecedesReference(aReference, lSymbol) then
+      Continue;
+
+    if not lHasBest or SnapshotLocalSymbolIsBetterForReference(aReference,
+      lSymbol, lBestSymbol) then
+    begin
+      lBestSymbol := lSymbol;
+      lBestCount := 1;
+      lHasBest := True;
+    end else if SnapshotLocalSymbolsHaveSameLocation(lSymbol, lBestSymbol) then
+      Inc(lBestCount);
+  end;
+
+  if lHasBest and (lBestCount = 1) then
+    AddCandidateRef(aCandidateRefs, lBestSymbol);
 
   Result := aCandidateRefs.Count > 0;
 end;
@@ -402,18 +550,20 @@ begin
     and SameText(aSymbol.Kind, 'method');
 end;
 
-procedure AddOwnedReferenceCandidates(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+function AddOwnedReferenceCandidates(const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
-  const aCandidateRefs: TList<TSemanticSymbolRef>);
+  const aCandidateRefs: TList<TSemanticSymbolRef>): Boolean;
 var
+  lOriginalCount: Integer;
   lMethodCandidate: TSnapshotTargetSymbol;
   lMethodCount: Integer;
   lMethodOwnerName: string;
   lSymbol: TSnapshotTargetSymbol;
   lSymbols: TSnapshotTargetSymbolList;
 begin
+  lOriginalCount := aCandidateRefs.Count;
   if not aSymbolsByName.TryGetValue(aReference.Name, lSymbols) then
-    Exit;
+    Exit(False);
 
   lMethodCandidate := Default(TSnapshotTargetSymbol);
   lMethodCount := 0;
@@ -433,6 +583,8 @@ begin
 
   if lMethodCount = 1 then
     AddCandidateRef(aCandidateRefs, lMethodCandidate);
+
+  Result := aCandidateRefs.Count > lOriginalCount;
 end;
 
 function SectionCanSeeImplementationSymbols(const aSectionKind: string): Boolean;
@@ -488,6 +640,7 @@ procedure AddTopLevelReferenceCandidates(const aSymbolsByName: TSnapshotTargetSy
   const aCandidateRefs: TList<TSemanticSymbolRef>);
 var
   lSectionKind: string;
+  lSelectedSymbols: TSnapshotTargetSymbolList;
   lSymbol: TSnapshotTargetSymbol;
   lSymbols: TSnapshotTargetSymbolList;
 begin
@@ -498,10 +651,19 @@ begin
   if lSectionKind = '' then
     lSectionKind := 'implementation';
 
-  for lSymbol in lSymbols do
-    if ModelUsesUnitInSection(aModel, lSectionKind, lSymbol.UnitName)
-      and TopLevelSymbolIsVisibleFromReference(aModel, lSectionKind, lSymbol) then
-      AddCandidateRef(aCandidateRefs, lSymbol);
+  lSelectedSymbols := TSnapshotTargetSymbolList.Create;
+  try
+    for lSymbol in lSymbols do
+      if ModelUsesUnitInSection(aModel, lSectionKind, lSymbol.UnitName)
+        and TopLevelSymbolIsVisibleFromReference(aModel, lSectionKind, lSymbol) and
+        not TargetSymbolInList(lSelectedSymbols, lSymbol) then
+      begin
+        lSelectedSymbols.Add(lSymbol);
+        AddCandidateRef(aCandidateRefs, lSymbol);
+      end;
+  finally
+    lSelectedSymbols.Free;
+  end;
 end;
 
 function TryResolveSnapshotReferenceTarget(const aSymbolsByName: TSnapshotTargetSymbolsByName;
@@ -516,10 +678,10 @@ begin
     if not AddLocalReferenceCandidates(aSymbolsByName, aModel, aReference,
       lCandidateRefs) then
     begin
-      AddOwnedReferenceCandidates(aSymbolsByName, aModel, aReference,
-        lCandidateRefs);
-      AddTopLevelReferenceCandidates(aSymbolsByName, aModel, aReference,
-        lCandidateRefs);
+      if not AddOwnedReferenceCandidates(aSymbolsByName, aModel, aReference,
+        lCandidateRefs) then
+        AddTopLevelReferenceCandidates(aSymbolsByName, aModel, aReference,
+          lCandidateRefs);
     end;
 
     Result := lCandidateRefs.Count = 1;
@@ -535,6 +697,8 @@ function BuildSnapshotReferenceTargets(
   TDictionary<string, TSemanticSymbolRef>;
 var
   lReference: TDelphiSemanticReference;
+  lResolutionReference: TDelphiSemanticReference;
+  lRoutineNamesByLine: TDictionary<Integer, string>;
   lSymbols: TSnapshotTargetSymbolList;
   lSymbolsByName: TSnapshotTargetSymbolsByName;
   lTargetRef: TSemanticSymbolRef;
@@ -543,15 +707,25 @@ begin
   Result := TDictionary<string, TSemanticSymbolRef>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lSymbolsByName := BuildSnapshotTargetSymbolsByName(aModels, lSymbols);
+  lRoutineNamesByLine := TDictionary<Integer, string>.Create;
   try
     for lUnitModel in aModels do
+    begin
+      lRoutineNamesByLine.Clear;
       for lReference in lUnitModel.References do
-        if TryResolveSnapshotReferenceTarget(lSymbolsByName, lUnitModel, lReference,
-          lTargetRef) then
+      begin
+        lResolutionReference := lReference;
+        lResolutionReference.RoutineName := SnapshotReferenceRoutineNameForResolution(
+          lUnitModel, lRoutineNamesByLine, lReference);
+        if TryResolveSnapshotReferenceTarget(lSymbolsByName, lUnitModel,
+          lResolutionReference, lTargetRef) then
           Result.AddOrSetValue(SnapshotReferenceMatchKey(lUnitModel.UnitName,
             lReference.RoutineName, lReference.Name, lReference.Line,
             lReference.Column), lTargetRef);
+      end;
+    end;
   finally
+    lRoutineNamesByLine.Free;
     lSymbolsByName.Free;
     lSymbols.Free;
   end;
@@ -584,6 +758,9 @@ procedure AddSnapshotDeclaration(const aStrings: TSemanticStringPool;
 var
   lSymbol: TSemanticSymbolFact;
 begin
+  if SameText(SnapshotDeclarationKind(aDeclaration.Kind), cSnapshotSymbolKindRoutine) then
+    Exit;
+
   lSymbol := Default(TSemanticSymbolFact);
   lSymbol.NameId := aStrings.Intern(aDeclaration.Name);
   lSymbol.TypeId := aStrings.Intern(aDeclaration.TypeName);
@@ -625,8 +802,8 @@ begin
 end;
 
 procedure AddSnapshotParameter(const aStrings: TSemanticStringPool;
-  const aUnit: TUnitSnapshot; const aRoutineName: string;
-  const aParameter: TDelphiSemanticParameter;
+  const aUnit: TUnitSnapshot; const aRoutineName, aRoutineSectionKind,
+  aRoutineSignature: string; const aParameter: TDelphiSemanticParameter;
   var aMetrics: TSnapshotUnitBuildResult);
 var
   lSymbol: TSemanticSymbolFact;
@@ -636,7 +813,9 @@ begin
   lSymbol.TypeId := aStrings.Intern(aParameter.TypeName);
   lSymbol.RoutineId := aStrings.Intern(aRoutineName);
   lSymbol.KindId := aStrings.Intern(cSnapshotSymbolKindParameter);
+  lSymbol.SectionKindId := aStrings.Intern(aRoutineSectionKind);
   lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
+  lSymbol.SignatureId := aStrings.Intern(aRoutineSignature);
   lSymbol.Line := aParameter.Line;
   lSymbol.Column := aParameter.Column;
   lSymbol.EndLine := aParameter.Line;
@@ -671,7 +850,8 @@ begin
   Inc(aMetrics.SymbolCount);
 
   for lParameter in aRoutine.Parameters do
-    AddSnapshotParameter(aStrings, aUnit, lRoutineName, lParameter, aMetrics);
+    AddSnapshotParameter(aStrings, aUnit, lRoutineName, aRoutine.SectionKind,
+      aRoutine.Signature, lParameter, aMetrics);
 end;
 
 procedure AddSnapshotLocal(const aStrings: TSemanticStringPool;
@@ -966,7 +1146,53 @@ end;
 
 function TargetNameKey(const aUnitId: TSemanticUnitId; const aName: string): string;
 begin
-  Result := IntToStr(Integer(aUnitId)) + '|' + aName;
+  Result := 'name|' + IntToStr(Integer(aUnitId)) + '|' + aName;
+end;
+
+function TargetSymbolKey(const aUnitId: TSemanticUnitId; const aName, aOwnerType,
+  aRoutine, aKind, aSectionKind, aSignature: string; const aLine,
+  aColumn: Integer): string;
+begin
+  Result := 'symbol|' + IntToStr(Integer(aUnitId)) + '|' + aName + '|' +
+    aOwnerType + '|' + aRoutine + '|' + aKind + '|' + aSectionKind + '|' +
+    aSignature + '|' + IntToStr(aLine) + '|' + IntToStr(aColumn);
+end;
+
+function TargetSymbolKeyFromSnapshot(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnitId: TSemanticUnitId; const aSymbol: TSemanticSymbolFact): string;
+begin
+  Result := TargetSymbolKey(aUnitId, aSnapshot.TextOf(aSymbol.NameId),
+    aSnapshot.TextOf(aSymbol.OwnerTypeId), aSnapshot.TextOf(aSymbol.RoutineId),
+    aSnapshot.TextOf(aSymbol.KindId), aSnapshot.TextOf(aSymbol.SectionKindId),
+    aSnapshot.TextOf(aSymbol.SignatureId), aSymbol.Line, aSymbol.Column);
+end;
+
+function TargetSymbolKeyFromStrings(const aStrings: TSemanticStringPool;
+  const aUnitId: TSemanticUnitId; const aSymbol: TSemanticSymbolFact): string;
+begin
+  Result := TargetSymbolKey(aUnitId, aStrings.TextOf(aSymbol.NameId),
+    aStrings.TextOf(aSymbol.OwnerTypeId), aStrings.TextOf(aSymbol.RoutineId),
+    aStrings.TextOf(aSymbol.KindId), aStrings.TextOf(aSymbol.SectionKindId),
+    aStrings.TextOf(aSymbol.SignatureId), aSymbol.Line, aSymbol.Column);
+end;
+
+procedure AddUniqueTargetSymbolRef(
+  const aTargets: TDictionary<string, TSemanticSymbolRef>;
+  const aAmbiguous: TDictionary<string, Byte>; const aKey: string;
+  const aRef: TSemanticSymbolRef);
+begin
+  if aKey = '' then
+    Exit;
+  if aAmbiguous.ContainsKey(aKey) then
+    Exit;
+
+  if aTargets.ContainsKey(aKey) then
+  begin
+    aTargets.Remove(aKey);
+    aAmbiguous.Add(aKey, 0);
+  end else begin
+    aTargets.Add(aKey, aRef);
+  end;
 end;
 
 function BuildUniqueTargetSymbolsByName(
@@ -994,17 +1220,12 @@ begin
       for lSymbolId := 1 to TSemanticSymbolId(lUnit.SymbolCount) do
       begin
         lSymbol := lUnit.SymbolById(lSymbolId);
-        lKey := TargetNameKey(lUnit.UnitId, lSnapshot.TextOf(lSymbol.NameId));
-        if lAmbiguous.ContainsKey(lKey) then
-          Continue;
         lRef.UnitId := lUnit.UnitId;
         lRef.SymbolId := lSymbol.Id;
-        if Result.ContainsKey(lKey) then
-        begin
-          Result.Remove(lKey);
-          lAmbiguous.Add(lKey, 0);
-        end else
-          Result.Add(lKey, lRef);
+        lKey := TargetSymbolKeyFromSnapshot(lSnapshot, lUnit.UnitId, lSymbol);
+        AddUniqueTargetSymbolRef(Result, lAmbiguous, lKey, lRef);
+        lKey := TargetNameKey(lUnit.UnitId, lSnapshot.TextOf(lSymbol.NameId));
+        AddUniqueTargetSymbolRef(Result, lAmbiguous, lKey, lRef);
       end;
     end;
   finally
@@ -1012,18 +1233,69 @@ begin
   end;
 end;
 
+function BuildOriginalTargetUnitsById(
+  const aSnapshots: TArray<TDelphiProjectSnapshot>): TDictionary<Integer, TOriginalTargetUnit>;
+var
+  i: Integer;
+  lOriginal: TOriginalTargetUnit;
+begin
+  Result := TDictionary<Integer, TOriginalTargetUnit>.Create;
+  for i := 0 to High(aSnapshots) do
+    if (aSnapshots[i] <> nil) and (aSnapshots[i].UnitCount = 1) then
+    begin
+      lOriginal.Snapshot := aSnapshots[i];
+      lOriginal.UnitSnapshot := aSnapshots[i].UnitByIndex(0);
+      if not Result.ContainsKey(Integer(lOriginal.UnitSnapshot.UnitId)) then
+        Result.Add(Integer(lOriginal.UnitSnapshot.UnitId), lOriginal);
+    end;
+end;
+
+function TryOriginalTargetSymbol(
+  const aOriginalUnitsById: TDictionary<Integer, TOriginalTargetUnit>;
+  const aReference: TSemanticReferenceFact; out aSnapshot: TDelphiProjectSnapshot;
+  out aSymbol: TSemanticSymbolFact): Boolean;
+var
+  lOriginal: TOriginalTargetUnit;
+begin
+  aSnapshot := nil;
+  aSymbol := Default(TSemanticSymbolFact);
+  if (aOriginalUnitsById = nil) or (aReference.TargetUnitId = 0) or
+    (aReference.TargetSymbolId = 0) or
+    not aOriginalUnitsById.TryGetValue(Integer(aReference.TargetUnitId), lOriginal) or
+    (Integer(aReference.TargetSymbolId) > lOriginal.UnitSnapshot.SymbolCount) then
+    Exit(False);
+
+  aSnapshot := lOriginal.Snapshot;
+  aSymbol := lOriginal.UnitSnapshot.SymbolById(aReference.TargetSymbolId);
+  Result := True;
+end;
+
 function RemapReferenceFactWithResolvedTargets(const aSourceStrings,
   aTargetStrings: TSemanticStringPool; const aReference: TSemanticReferenceFact;
+  const aOriginalUnitsById: TDictionary<Integer, TOriginalTargetUnit>;
   const aTargetSymbolsByName: TDictionary<string, TSemanticSymbolRef>):
   TSemanticReferenceFact;
 var
   lKey: string;
   lReferenceName: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSymbol: TSemanticSymbolFact;
   lTargetRef: TSemanticSymbolRef;
 begin
   Result := RemapReferenceFact(aSourceStrings, aTargetStrings, aReference);
   if (aReference.TargetUnitId = 0) or (aReference.TargetSymbolId = 0) then
     Exit;
+
+  if TryOriginalTargetSymbol(aOriginalUnitsById, aReference, lSnapshot, lSymbol) then
+  begin
+    lKey := TargetSymbolKeyFromSnapshot(lSnapshot, aReference.TargetUnitId, lSymbol);
+    if aTargetSymbolsByName.TryGetValue(lKey, lTargetRef) then
+    begin
+      Result.TargetUnitId := lTargetRef.UnitId;
+      Result.TargetSymbolId := lTargetRef.SymbolId;
+      Exit;
+    end;
+  end;
 
   lReferenceName := aSourceStrings.TextOf(aReference.NameId);
   lKey := TargetNameKey(aReference.TargetUnitId, lReferenceName);
@@ -1069,6 +1341,7 @@ end;
 function RemapUnitSnapshotWithResolvedTargets(const aSourceStrings,
   aTargetStrings: TSemanticStringPool; const aSourceExactStrings,
   aTargetExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot;
+  const aOriginalUnitsById: TDictionary<Integer, TOriginalTargetUnit>;
   const aTargetSymbolsByName: TDictionary<string, TSemanticSymbolRef>):
   TUnitSnapshot;
 var
@@ -1089,7 +1362,8 @@ begin
         aUnit.WithStatementById(lWithId)));
     for lReferenceId := 1 to TSemanticReferenceId(aUnit.ReferenceCount) do
       Result.AddReference(RemapReferenceFactWithResolvedTargets(aSourceStrings,
-        aTargetStrings, aUnit.ReferenceById(lReferenceId), aTargetSymbolsByName));
+        aTargetStrings, aUnit.ReferenceById(lReferenceId), aOriginalUnitsById,
+        aTargetSymbolsByName));
   except
     Result.Free;
     raise;
@@ -1358,14 +1632,17 @@ var
   lSourceExactStrings: TSemanticStringPool;
   lSourceStrings: TSemanticStringPool;
   lStopwatch: TStopwatch;
+  lOriginalUnitsById: TDictionary<Integer, TOriginalTargetUnit>;
   lTargetSymbolsByName: TDictionary<string, TSemanticSymbolRef>;
   lUnit: TUnitSnapshot;
 begin
   aMetrics := Default(TDelphiSnapshotBuilderMetrics);
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  lOriginalUnitsById := nil;
   lTargetSymbolsByName := nil;
   lStopwatch := TStopwatch.StartNew;
   try
+    lOriginalUnitsById := BuildOriginalTargetUnitsById(aSnapshots);
     lTargetSymbolsByName := BuildUniqueTargetSymbolsByName(aSnapshots);
     for i := 0 to High(aSnapshots) do
     begin
@@ -1379,7 +1656,7 @@ begin
         lSourceExactStrings := CloneSnapshotExactStrings(aSnapshots[i]);
         lMergedUnit := RemapUnitSnapshotWithResolvedTargets(lSourceStrings,
           lBuilder.Strings, lSourceExactStrings, lBuilder.ExactStrings, lUnit,
-          lTargetSymbolsByName);
+          lOriginalUnitsById, lTargetSymbolsByName);
         try
           lBuilder.AddUnit(lMergedUnit);
           lMergedUnit := nil;
@@ -1404,6 +1681,7 @@ begin
     lStopwatch.Stop;
     aMetrics.MergeMilliseconds := lStopwatch.ElapsedMilliseconds;
     aMetrics.BuildMilliseconds := aMetrics.MergeMilliseconds;
+    lOriginalUnitsById.Free;
     lTargetSymbolsByName.Free;
     lBuilder.Free;
   end;
