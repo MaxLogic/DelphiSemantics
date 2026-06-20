@@ -1025,6 +1025,7 @@ $lPlanReport = Join-Path $WorkRoot 'maxTdb-plan-only.json'
 $lReport = Join-Path $WorkRoot 'maxTdb-remove-with.json'
 $lManifest = Join-Path $WorkRoot 'migration-gate-manifest.json'
 $lLogDir = Join-Path $WorkRoot 'logs'
+$lMaxTdbRemoveWithBuildArgs = @('--delphi', '23.0', '--platform', 'Win32', '--config', 'Debug')
 
 if (-not (Test-Path -LiteralPath $lFixture -PathType Container)) {
   throw "maxTdb fixture not found: $lFixture"
@@ -1120,7 +1121,7 @@ Add-MigrationGateReportOnlyPlanResult -Results $lResults -ManifestPath $lManifes
   -Name 'Run cloned maxTdb report-only plan' `
   -WorkingDirectory $DakRoot `
   -FilePath 'bin\DelphiAIKit.exe' `
-  -Arguments @('remove-with', '--project', $lProject, '--all', '--mode', 'plan', '--format', 'json', '--output', $lPlanReport) `
+  -Arguments (@('remove-with', '--project', $lProject, '--all', '--mode', 'plan', '--format', 'json', '--output', $lPlanReport) + $lMaxTdbRemoveWithBuildArgs) `
   -ArtifactDirectory $lLogDir `
   -NoThrow `
   -MaxOutputLines 0)
@@ -1129,7 +1130,7 @@ Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRo
   -Name 'Run cloned maxTdb smoke' `
   -WorkingDirectory $DakRoot `
   -FilePath 'bin\DelphiAIKit.exe' `
-  -Arguments @('remove-with', '--project', $lProject, '--all', '--mode', 'apply', '--format', 'json', '--output', $lReport) `
+  -Arguments (@('remove-with', '--project', $lProject, '--all', '--mode', 'apply', '--format', 'json', '--output', $lReport) + $lMaxTdbRemoveWithBuildArgs) `
   -ArtifactDirectory $lLogDir `
   -NoThrow `
   -MaxOutputLines 0)
