@@ -949,13 +949,14 @@ begin
 end;
 
 function BuildSingleUnitSnapshotFromModels(const aModels: TArray<TDelphiSemanticUnitModel>;
-  const aModelIndex: Integer; const aUnitId: TSemanticUnitId;
+  const aModelUnitIds: TArray<TSemanticUnitId>; const aModelIndex: Integer;
+  const aReferenceSnapshots: TArray<TDelphiProjectSnapshot>;
   var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot;
 var
   lBuilderMetrics: TDelphiSnapshotBuilderMetrics;
 begin
-  Result := BuildProjectUnitSnapshotFromModels(aModels, aModelIndex, aUnitId,
-    lBuilderMetrics);
+  Result := BuildProjectUnitSnapshotFromModels(aModels, aModelUnitIds, aModelIndex,
+    aReferenceSnapshots, lBuilderMetrics);
   Inc(aMetrics.SnapshotCacheUnitBuildMilliseconds, lBuilderMetrics.BuildMilliseconds);
 end;
 
@@ -1350,6 +1351,8 @@ var
   lCacheMetrics: TDelphiSemanticSnapshotCacheMetrics;
   lCacheSnapshot: TDelphiProjectSnapshot;
   lCacheSnapshotMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lExtractionModelIndex: Integer;
+  lExtractionModelUnitIds: TArray<TSemanticUnitId>;
   lExtractionSourceFileNames: TArray<string>;
   lExtractionScopeSourceFileNames: TArray<string>;
   lExtractionUsesScopedSourceFileNames: Boolean;
@@ -1358,7 +1361,9 @@ var
   lBuilderMetrics: TDelphiSnapshotBuilderMetrics;
   lExtraction: TProjectModelExtractionResult;
   i: Integer;
+  lMissingModelIndex: Integer;
   lMissingSourceFileNames: TArray<string>;
+  lMissingSourceIndexes: TArray<Integer>;
   lParseAvoidedEstimateMilliseconds: Int64;
   lSnapshot: TDelphiProjectSnapshot;
   lSourceFileNames: TArray<string>;
@@ -1371,6 +1376,7 @@ begin
   lSourceFileNames := ProjectModelFileNames(fProject);
   SetLength(lUnitCacheIdentities, 0);
   SetLength(lMissingSourceFileNames, 0);
+  SetLength(lMissingSourceIndexes, 0);
   SetLength(lStoreUnitFlags, 0);
   lCacheHadPartialHit := False;
   lCacheSnapshotMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
@@ -1397,6 +1403,8 @@ begin
         lLoadedAllUnits := False;
         SetLength(lMissingSourceFileNames, Length(lMissingSourceFileNames) + 1);
         lMissingSourceFileNames[High(lMissingSourceFileNames)] := lSourceFileNames[i];
+        SetLength(lMissingSourceIndexes, Length(lMissingSourceIndexes) + 1);
+        lMissingSourceIndexes[High(lMissingSourceIndexes)] := i;
       end;
       AccumulateSnapshotCacheMetrics(lCacheSnapshotMetrics, lCacheMetrics);
     end;
@@ -1429,6 +1437,7 @@ begin
   lExtractionUsesScopedSourceFileNames := Length(aScopedSourceFileNames) > 0;
   if lCacheHadPartialHit then
   begin
+    lExtractionSourceFileNames := lMissingSourceFileNames;
     lExtractionUsesScopedSourceFileNames := True;
     if Length(aScopedSourceFileNames) = 0 then
       lExtractionScopeSourceFileNames := lMissingSourceFileNames
@@ -1439,17 +1448,34 @@ begin
   lExtraction := ExtractProjectModels(fProject, fOptions, lExtractionSourceFileNames,
     lExtractionScopeSourceFileNames, lExtractionUsesScopedSourceFileNames);
   Result.FailedModel := FirstFailedModel(lExtraction.Models);
+  SetLength(lExtractionModelUnitIds, Length(lExtractionSourceFileNames));
+  if lCacheHadPartialHit then
+  begin
+    for i := 0 to High(lExtractionModelUnitIds) do
+      lExtractionModelUnitIds[i] := TSemanticUnitId(lMissingSourceIndexes[i] + 1);
+  end else begin
+    for i := 0 to High(lExtractionModelUnitIds) do
+      lExtractionModelUnitIds[i] := TSemanticUnitId(i + 1);
+  end;
   lParseAvoidedEstimateMilliseconds :=
     VisibleMetricMilliseconds(lExtraction.ExtractionMilliseconds);
   if Length(lUnitSnapshots) > 0 then
   begin
     try
       SetLength(lStoreUnitFlags, Length(lSourceFileNames));
+      lMissingModelIndex := 0;
       for i := 0 to High(lSourceFileNames) do
         if lUnitSnapshots[i] = nil then
         begin
-          lUnitSnapshots[i] := BuildSingleUnitSnapshotFromModels(lExtraction.Models, i,
-            TSemanticUnitId(i + 1), lCacheSnapshotMetrics);
+          if lCacheHadPartialHit then
+          begin
+            lExtractionModelIndex := lMissingModelIndex;
+            Inc(lMissingModelIndex);
+          end else
+            lExtractionModelIndex := i;
+          lUnitSnapshots[i] := BuildSingleUnitSnapshotFromModels(lExtraction.Models,
+            lExtractionModelUnitIds, lExtractionModelIndex, lUnitSnapshots,
+            lCacheSnapshotMetrics);
           lStoreUnitFlags[i] := True;
         end;
       lSnapshot := BuildProjectSnapshotFromUnitSnapshots(lUnitSnapshots, lBuilderMetrics);

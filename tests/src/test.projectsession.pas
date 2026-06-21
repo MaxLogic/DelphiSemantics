@@ -62,6 +62,8 @@ type
     [Test]
     procedure ProjectSessionReusesUnchangedMultiUnitSnapshotCacheEntries;
     [Test]
+    procedure ProjectSessionPartialSnapshotCacheExtractsOnlyMissedUnits;
+    [Test]
     procedure ProjectSessionSnapshotCacheReusesPathVariantProjectIdentity;
     [Test]
     procedure ProjectSessionSnapshotCacheReusesTimestampOnlyChangedSource;
@@ -1705,6 +1707,44 @@ begin
   finally
     lResult.Session.Free;
   end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionPartialSnapshotCacheExtractsOnlyMissedUnits;
+var
+  lBuildBody: string;
+  lBuildEnd: Integer;
+  lBuildStart: Integer;
+  lPartialBranch: string;
+  lPartialEnd: Integer;
+  lPartialStart: Integer;
+  lSource: string;
+begin
+  lSource := ReadRepoSource('src\DelphiSemantics.ProjectSession.pas');
+  lBuildStart := Pos('function TDelphiSemanticProjectSession.BuildSnapshot(' +
+    sLineBreak + '  const aScopedSourceFileNames', lSource);
+  Assert.IsTrue(lBuildStart > 0, 'Expected scoped BuildSnapshot implementation.');
+  lBuildEnd := PosEx('function TDelphiSemanticProjectSession.BuildWithBindingFacts',
+    lSource, lBuildStart);
+  Assert.IsTrue(lBuildEnd > lBuildStart,
+    'Expected BuildSnapshot implementation to end before BuildWithBindingFacts.');
+  lBuildBody := Copy(lSource, lBuildStart, lBuildEnd - lBuildStart);
+
+  lPartialStart := PosEx('if lCacheHadPartialHit then', lBuildBody);
+  Assert.IsTrue(lPartialStart > 0, 'Expected partial snapshot cache branch.');
+  lPartialEnd := PosEx('lExtraction := ExtractProjectModels', lBuildBody,
+    lPartialStart);
+  Assert.IsTrue(lPartialEnd > lPartialStart,
+    'Expected model extraction after partial snapshot cache branch.');
+  lPartialBranch := Copy(lBuildBody, lPartialStart, lPartialEnd - lPartialStart);
+
+  Assert.IsTrue(ContainsText(lPartialBranch,
+    'lExtractionSourceFileNames := lMissingSourceFileNames'),
+    'Partial snapshot cache hits must extract models only for missing units.');
+  Assert.IsTrue(ContainsText(lBuildBody, 'lMissingSourceIndexes'),
+    'Partial snapshot cache rebuild must map missing extraction models back to project unit indexes.');
+  Assert.IsFalse(ContainsText(lBuildBody,
+    'BuildSingleUnitSnapshotFromModels(lExtraction.Models, i,'),
+    'Missing unit snapshot rebuild must not index partial extraction models by full project index.');
 end;
 
 procedure TProjectSessionTests.ProjectSessionScopedPartialSnapshotCacheHitStoresMissedUnitUnderScopedIdentity;

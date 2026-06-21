@@ -36,7 +36,12 @@ function BuildProjectSnapshotFromUnitSnapshots(
 function BuildProjectUnitSnapshotFromModels(
   const aModels: TArray<TDelphiSemanticUnitModel>; const aModelIndex: Integer;
   const aUnitId: TSemanticUnitId; out aMetrics: TDelphiSnapshotBuilderMetrics):
-  TDelphiProjectSnapshot;
+  TDelphiProjectSnapshot; overload;
+function BuildProjectUnitSnapshotFromModels(
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aModelUnitIds: TArray<TSemanticUnitId>; const aModelIndex: Integer;
+  const aReferenceSnapshots: TArray<TDelphiProjectSnapshot>;
+  out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot; overload;
 function BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiProjectSnapshot;
 function BuildSnapshotReferenceTargets(
@@ -268,9 +273,65 @@ begin
       lLocal.Column, False, lSymbolId);
 end;
 
+function ModelUnitIdAt(const aModelUnitIds: TArray<TSemanticUnitId>;
+  const aIndex: Integer): TSemanticUnitId;
+begin
+  if (aIndex >= 0) and (aIndex <= High(aModelUnitIds)) and
+    (aModelUnitIds[aIndex] <> 0) then
+    Exit(aModelUnitIds[aIndex]);
+
+  Result := TSemanticUnitId(aIndex + 1);
+end;
+
+procedure AddSnapshotTargetSymbolsFromSnapshot(const aSymbols: TSnapshotTargetSymbolList;
+  const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aSnapshot: TDelphiProjectSnapshot);
+var
+  i: Integer;
+  lFact: TSemanticSymbolFact;
+  lKind: string;
+  lSymbol: TSnapshotTargetSymbol;
+  lSymbolId: TSemanticSymbolId;
+  lUnit: TUnitSnapshot;
+begin
+  if aSnapshot = nil then
+    Exit;
+
+  for i := 0 to aSnapshot.UnitCount - 1 do
+  begin
+    lUnit := aSnapshot.UnitByIndex(i);
+    for lSymbolId := 1 to TSemanticSymbolId(lUnit.SymbolCount) do
+    begin
+      lFact := lUnit.SymbolById(lSymbolId);
+      lSymbol := Default(TSnapshotTargetSymbol);
+      lSymbol.Ref.UnitId := lUnit.UnitId;
+      lSymbol.Ref.SymbolId := lFact.Id;
+      lSymbol.Name := aSnapshot.TextOf(lFact.NameId);
+      if lSymbol.Name = '' then
+        Continue;
+
+      lKind := aSnapshot.TextOf(lFact.KindId);
+      lSymbol.Kind := lKind;
+      lSymbol.OwnerName := aSnapshot.TextOf(lFact.OwnerTypeId);
+      if lSymbol.OwnerName = '' then
+        lSymbol.OwnerName := aSnapshot.TextOf(lFact.RoutineId);
+      lSymbol.UnitName := aSnapshot.TextOf(lUnit.UnitNameId);
+      lSymbol.SectionKind := aSnapshot.TextOf(lFact.SectionKindId);
+      lSymbol.Signature := aSnapshot.TextOf(lFact.SignatureId);
+      lSymbol.Line := lFact.Line;
+      lSymbol.Column := lFact.Column;
+      lSymbol.IsRoutineFact := SameText(lKind, cSnapshotSymbolKindRoutine);
+      aSymbols.Add(lSymbol);
+      AddTargetSymbolByName(aSymbolsByName, lSymbol);
+    end;
+  end;
+end;
+
 function BuildSnapshotTargetSymbolsByName(
   const aModels: TArray<TDelphiSemanticUnitModel>;
-  out aSymbols: TSnapshotTargetSymbolList): TSnapshotTargetSymbolsByName;
+  const aModelUnitIds: TArray<TSemanticUnitId>;
+  const aReferenceSnapshots: TArray<TDelphiProjectSnapshot>;
+  out aSymbols: TSnapshotTargetSymbolList): TSnapshotTargetSymbolsByName; overload;
 var
   i: Integer;
 begin
@@ -282,7 +343,9 @@ begin
     try
       for i := 0 to High(aModels) do
         AddModelSnapshotTargetSymbols(aSymbols, Result, aModels[i],
-          TSemanticUnitId(i + 1));
+          ModelUnitIdAt(aModelUnitIds, i));
+      for i := 0 to High(aReferenceSnapshots) do
+        AddSnapshotTargetSymbolsFromSnapshot(aSymbols, Result, aReferenceSnapshots[i]);
     except
       Result.Free;
       Result := nil;
@@ -292,6 +355,13 @@ begin
     aSymbols.Free;
     raise;
   end;
+end;
+
+function BuildSnapshotTargetSymbolsByName(
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  out aSymbols: TSnapshotTargetSymbolList): TSnapshotTargetSymbolsByName; overload;
+begin
+  Result := BuildSnapshotTargetSymbolsByName(aModels, [], [], aSymbols);
 end;
 
 function SymbolRefInList(const aRefs: TList<TSemanticSymbolRef>;
@@ -693,8 +763,10 @@ begin
   end;
 end;
 
-function BuildSnapshotReferenceTargets(
-  const aModels: TArray<TDelphiSemanticUnitModel>):
+function BuildSnapshotReferenceTargetsForModelsAndSnapshots(
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aModelUnitIds: TArray<TSemanticUnitId>;
+  const aReferenceSnapshots: TArray<TDelphiProjectSnapshot>):
   TSnapshotReferenceTargetLookup;
 var
   lTargets: TSnapshotReferenceTargetMap;
@@ -708,7 +780,8 @@ var
 begin
   lTargets := TSnapshotReferenceTargetMap.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
-  lSymbolsByName := BuildSnapshotTargetSymbolsByName(aModels, lSymbols);
+  lSymbolsByName := BuildSnapshotTargetSymbolsByName(aModels, aModelUnitIds,
+    aReferenceSnapshots, lSymbols);
   lRoutineNamesByLine := TDictionary<Integer, string>.Create;
   try
     for lUnitModel in aModels do
@@ -733,6 +806,13 @@ begin
     lSymbols.Free;
     lTargets.Free;
   end;
+end;
+
+function BuildSnapshotReferenceTargets(
+  const aModels: TArray<TDelphiSemanticUnitModel>):
+  TSnapshotReferenceTargetLookup;
+begin
+  Result := BuildSnapshotReferenceTargetsForModelsAndSnapshots(aModels, [], []);
 end;
 
 procedure AddSnapshotWithStatement(const aStrings: TSemanticStringPool;
@@ -1588,9 +1668,10 @@ begin
 end;
 
 function BuildProjectUnitSnapshotFromModels(
-  const aModels: TArray<TDelphiSemanticUnitModel>; const aModelIndex: Integer;
-  const aUnitId: TSemanticUnitId; out aMetrics: TDelphiSnapshotBuilderMetrics):
-  TDelphiProjectSnapshot;
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aModelUnitIds: TArray<TSemanticUnitId>; const aModelIndex: Integer;
+  const aReferenceSnapshots: TArray<TDelphiProjectSnapshot>;
+  out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot; overload;
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lReferenceTargetLookup: TSnapshotReferenceTargetLookup;
@@ -1603,16 +1684,35 @@ begin
   lResults := nil;
   lStopwatch := TStopwatch.StartNew;
   try
-    lReferenceTargetLookup := BuildSnapshotReferenceTargets(aModels);
+    lReferenceTargetLookup := BuildSnapshotReferenceTargetsForModelsAndSnapshots(aModels,
+      aModelUnitIds, aReferenceSnapshots);
     SetLength(lResults, 1);
-    lResults[0] := BuildUnitResult(aModels[aModelIndex], aUnitId,
-      lReferenceTargetLookup);
+    lResults[0] := BuildUnitResult(aModels[aModelIndex],
+      ModelUnitIdAt(aModelUnitIds, aModelIndex), lReferenceTargetLookup);
     Result := MergeUnitResults(lResults, lFacts, aMetrics);
   finally
     lStopwatch.Stop;
     aMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;
     FreeSnapshotUnitBuildResults(lResults);
   end;
+end;
+
+function BuildProjectUnitSnapshotFromModels(
+  const aModels: TArray<TDelphiSemanticUnitModel>; const aModelIndex: Integer;
+  const aUnitId: TSemanticUnitId; out aMetrics: TDelphiSnapshotBuilderMetrics):
+  TDelphiProjectSnapshot; overload;
+var
+  i: Integer;
+  lModelUnitIds: TArray<TSemanticUnitId>;
+begin
+  SetLength(lModelUnitIds, Length(aModels));
+  for i := 0 to High(lModelUnitIds) do
+    lModelUnitIds[i] := TSemanticUnitId(i + 1);
+  if (aModelIndex >= 0) and (aModelIndex <= High(lModelUnitIds)) then
+    lModelUnitIds[aModelIndex] := aUnitId;
+
+  Result := BuildProjectUnitSnapshotFromModels(aModels, lModelUnitIds, aModelIndex,
+    [], aMetrics);
 end;
 
 function BuildProjectSnapshotFromUnitSnapshots(
