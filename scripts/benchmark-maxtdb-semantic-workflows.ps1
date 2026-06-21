@@ -168,6 +168,7 @@ function New-BenchmarkDefinitions {
     [ordered]@{
       Id = 'remove-with-plan-all'
       Feature = 'with-removal'
+      # T-583: explicit multi-minute maxTdb proof lane; use -OutDir .dak\benchmarks\maxtdb-semantic\remove-with-plan-proof-lane.
       Description = 'Plan safe with-removal edits for all project units'
       Arguments = @('remove-with', '--project', $ProjectPath, '--all', '--mode', 'plan', '--format', 'json')
     },

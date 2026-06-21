@@ -5,6 +5,7 @@ program delphiSemanticsTests;
 
 uses
   System.SysUtils,
+  DUnitX.FilterBuilder,
   DUnitX.Loggers.Console,
   DUnitX.TestFramework,
   Test.Api in 'src\test.api.pas',
@@ -52,6 +53,18 @@ uses
   Test.WithScan in 'src\test.withscan.pas',
   Test.WithBinder in 'src\test.withbinder.pas';
 
+const
+  cMaxTdbProofCategory = 'MaxTdbProof';
+
+procedure ApplyDefaultCategoryExclusions;
+begin
+  if (TDUnitX.Options.Include = '') and (TDUnitX.Options.Exclude = '') then
+  begin
+    TDUnitX.Options.Exclude := cMaxTdbProofCategory;
+    TDUnitX.Filter := TDUnitXFilterBuilder.BuildFilter(TDUnitX.Options);
+  end;
+end;
+
 var
   lRunner: ITestRunner;
   lResults: IRunResults;
@@ -60,6 +73,7 @@ begin
   ReportMemoryLeaksOnShutdown := True;
   try
     TDUnitX.CheckCommandLine;
+    ApplyDefaultCategoryExclusions;
     lRunner := TDUnitX.CreateRunner;
     lRunner.UseRTTI := True;
     lRunner.FailsOnNoAsserts := True;

@@ -76,6 +76,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with maxTdb-backed plan tests are now categorized as `MaxTdbProof`
+  and excluded from the ordinary focused DUnitX lane by default; the explicit
+  multi-minute proof lane remains the maxTdb benchmark wrapper.
 - The maxTdb semantic benchmark now treats `remove-with-plan-all` warm target
   misses as best-effort performance signals while still recording
   `TargetStatus`, median time, and correctness outputs.

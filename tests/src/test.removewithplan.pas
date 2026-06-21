@@ -45,6 +45,7 @@ type
     [Test]
     procedure SnapshotPlannerPreservesCaseOnlySelectorText;
     [Test]
+    [Category('MaxTdbProof')]
     procedure SnapshotPlannerMaxTdbPreservesCountsWithoutProjectFactsSidecar;
     [Test]
     procedure DtoParityHarnessReportsMissingFinalStatements;
@@ -83,406 +84,605 @@ type
     [Test]
     procedure FinalDtoMatchesTempAggregationDeclarations;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbUnresolvedOuterNesting;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbSimpleRecordParameterDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbValueRecordParameterPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbSetBitSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTruncBitArrayDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexedPointerSelectorDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbDependentPointerSelectorQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbNestedRecordSelectorDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbNestedRecordSelectorSingleLineDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbUnresolvedLocalBufferSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbNestedInheritedSelectorDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbReceiverMemberNotFoundSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbReadDbfPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbConvertMaskSymbolNotFoundSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbCopyRecToStringSelectorTypeSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbGetDataMaskIndexQualifier;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbPutDataSelectorTypeSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbSelektNrToStringSelectorTypeSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbSelektLookupDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbSelektLengthDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbForgetSelektListMemberSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLabelStringPropertyChainQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbFieldTypeSymbolNotFoundSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbDeleteMarkPropertyChainQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLastMarkControlledPropertyChainQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbCheckMarkListReceiverMemberSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbCheckMarkListNestedReceiverMemberSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbEasyTableMaskSymbolSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbFileIoSearchRecordSymbolSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbFileIoSecurityTypeSourceSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbFormelnDataFilePointerReceiverSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLinkFileDataFilePointerReceiverSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLinkFileCheckShowFilesReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLinkFileNestedMaskReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLinkFileNewPointerSymbolSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLinkFileStatLinksPointerReceiverSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLinkFileSetIvDataFilePointerSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLinkFileCheckIndirektReceiverSkips;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLinkFileCheckStatLinksPointerSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLinkFileFinalDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLowFilesResetFileTypeSourceSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLowFilesQueuePointerSkips;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLowFilesFileQueueLastQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoIndexesMaxTdbLowFilesPropertyChainFacts;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLowFilesVirtualFileSkips;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLowFilesReadNBytesReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLowFilesWriteNBytesReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLowFilesSizeAndCutFileParity;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLowFilesCopyLowFileReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbMakeIvIndexedVectorReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbMd5ContextReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesCheckRamTextSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesRewriteRamTextReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesInitRamTextSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesCgiBufferDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesResetRamTextPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesAppendRamTextPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesClosePointerQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesInsertPCharPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesBlockWriteCgiBufferQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesReadRamTextSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesGetCharPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesReadLnSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesEofPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesResetFileSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesRamFileSkipReasons;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesSkipRamTextReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesSaveItemWrapperIndent;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesReadTextPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesRestoreSaveItemSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesFindStringPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesCopyStringPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesSetEnvSizeDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesInitCgiVarsDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbStrFuncsMaskedWordSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbStrFuncsAutoEntrySkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbStrFuncsRelFileDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbStrFuncsIndexFileDirectQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbStrFuncsScanFieldMaskSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbStrFuncsKeywordIndexFileSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbStrFuncsArrayVarPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsFileSizeQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsNewIndSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsNewIndNestedSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsGetIndPathSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsIvOkayReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsRemoveIndexSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsOpenIndexNestedIvQualification;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsAddNewTempIndexReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsGenIndexSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsGetTreeParamReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsNewTreeUniqueReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsEqualIndexPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsNormIndFilesSkipCluster;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsLoadIndexSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsPufferLeerenSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsIndFormelSkipCluster;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsCountRecsIvReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsPushPopFileReplacementRanges;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01InitCacheReplacementRange;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01ExitCacheReplacementRange;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01OpenDbNameReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01OpenDbOuterSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01OpenDbMaskInitializationReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01OpenDbMaskListReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01FlushVTableReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoKeepsMaxTdbRelRecPlannedWithBodyAnalysisSubset;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01RelRecPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01RelRecNestedSelectorPointerTemp;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01LiesSekLinkFileReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01LiesSekLocalInitPointerTemps;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01LiesSekNextRecSkipReasons;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01DeleteDbRelationReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01NextRecordSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01TestRelRecReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01ChainAndFnMaxParity;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01AutoLinkNumberSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01EmptyReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01LinkFileNumberReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01CheckFilesSkipCluster;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02GetLinkInfoReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02GetNumValReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02SkipReasons;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02InitDefReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02GetVarReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02ToDbfReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02ArrayVarSkipReasons;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02ArrayVarBitReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02BitArrayOpReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02ReverseMarksReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02GetAutoReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02ArrayVarGetAutoSkipReasons;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02MarksAndCompareArrayVarParity;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02InArrayAndMarksReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02FilterAndSetMarksParity;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02GetArrayVarReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02JobListSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02BitArraySumSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02ArrayVarSizeReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02VarContCaseReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02CheckSelStrSkips;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02SetByteSkipReasons;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02FindDirektReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbDtoPrimaryPlanCountParity;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02CheckExpressionInitVarReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02SummenSkipReasons;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02MemoLastRecordReplacements;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02KonvertVarNrReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb06WriteFailedReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb06MaskeNormalizationReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb06ExportListReplacements;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb06RelFileAndMaskRestoreReplacements;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbJobsProgramBlockReplacements;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbJobsGetParameterReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbJobsSubRoutineFileReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbJobsSplitVarSkipReasons;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbJobsInitVarSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbJobsJumpTempDeclarationSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbJobsSubRZeroSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbJobsReportSubRReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbJobsParameterDirectReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbJobsSubPointerSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbJobsPrgSaveRecReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsReopenDbReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsRelationSkipReasons;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsGenRelMaskReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsGenListReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsGlobalStatLineReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsSubstStringLineReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsMarkListSkipReasons;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsClearMarksSkipReason;
     [Test]
     procedure FinalDtoMatchesMaxTdbTdbUtilsFlipMarkReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsMakeSelektReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsImportFileReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsDdatSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsDdatMaskReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsDdatStringMaskReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsDdatSolveMaskReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsDdatFormSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsGetStructureReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsFormListSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsGenshSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsGenshNestedSkipReasons;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsIsEmptyReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsTakeOverAutoLinkReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsCopyMemoSkipReason;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsCopyMemoLastMbRecReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbWinMemosPutMemoBlockReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsGetFSizeReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsGetMarksAutoReplacement;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbCloseDbfSymbolNotFoundSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbDependentSelectorTypeNotResolvedSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbNestedPointerSymbolNotFoundSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbSimplePointerStatementIndent;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexedPointerStatementIndent;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexedPointerBlockKeepsEnd;
     [Test]
     procedure FinalDtoMatchesMaxTdbClonedIndexedPointerBlockKeepsEnd;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbConstIndexedMaskSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbNestedRoutineIndexedMaskSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbConvertIndexedMaskSymbolSkip;
     [Test]
+    [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbVarIndexedMaskSymbolNotFoundSkip;
     [Test]
     procedure PlannerCachesSourceTextAndHashesPerFile;
