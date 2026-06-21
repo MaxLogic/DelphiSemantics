@@ -56,6 +56,8 @@ type
     [Test]
     procedure ProjectSessionOperationResultsKeepMetricsStableAcrossLaterOperations;
     [Test]
+    procedure ProjectSessionBuildWithBindingFactsDoesNotBuildDiscardedSnapshot;
+    [Test]
     procedure ProjectSessionPlanRemoveWithCachesProjectFactsByProjectIdentity;
     [Test]
     procedure ProjectSessionSnapshotMetricsExposeCacheUsefulnessTelemetry;
@@ -1130,6 +1132,46 @@ begin
     finally
       lSnapshotResult.Snapshot.Free;
     end;
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionBuildWithBindingFactsDoesNotBuildDiscardedSnapshot;
+var
+  lCachePath: string;
+  lFactsResult: TDelphiSemanticProjectWithBindingFactsBuildResult;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+begin
+  lRootPath := ProjectSessionTempPath('with-binding-facts-no-discarded-snapshot');
+  if TDirectory.Exists(lRootPath) then
+    TDirectory.Delete(lRootPath, True);
+  TDirectory.CreateDirectory(lRootPath);
+  lCachePath := CombinePath([lRootPath, '.dak', 'semantic-cache.sqlite3']);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lOptions.SqliteCacheFileName := lCachePath;
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lFactsResult := lResult.Session.BuildWithBindingFactsResult;
+    Assert.IsTrue(Length(lFactsResult.Facts.Bindings) > 0);
+    Assert.AreEqual(0, lFactsResult.SnapshotMetrics.UnitCount,
+      'BuildWithBindingFactsResult must not build a discarded snapshot for metrics.');
+    Assert.AreEqual(0, lFactsResult.SnapshotMetrics.SnapshotCacheProbes,
+      'Binding facts should report only cache work they actually perform.');
+    Assert.AreEqual(Int64(0),
+      lFactsResult.Facts.Metrics.SnapshotSqlWriteMilliseconds);
+    Assert.AreEqual(Int64(0),
+      lFactsResult.Facts.Metrics.SnapshotSqlReadMilliseconds);
+    Assert.AreEqual(Int64(0),
+      lFactsResult.Facts.Metrics.SnapshotDeserializeMilliseconds);
+    Assert.AreEqual(Int64(0),
+      lFactsResult.Facts.Metrics.SnapshotIndexRebuildMilliseconds);
   finally
     lResult.Session.Free;
   end;

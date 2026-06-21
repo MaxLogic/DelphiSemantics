@@ -1551,7 +1551,6 @@ function TDelphiSemanticProjectSession.BuildWithBindingFactsResult(
 var
   lExtraction: TProjectModelExtractionResult;
   lGraph: TDelphiSemanticSemanticGraph;
-  lSnapshotResult: TDelphiSemanticProjectSnapshotBuildResult;
 begin
   Result := Default(TDelphiSemanticProjectWithBindingFactsBuildResult);
   lExtraction := ExtractProjectModels(fProject, fOptions, ProjectModelFileNames(fProject),
@@ -1574,23 +1573,6 @@ begin
     Result.Facts.Metrics.SemanticCacheInvalidations := lExtraction.CacheMetrics.Invalidations;
     Result.Facts.Metrics.SemanticCachePersistentConnectionOpenCount :=
       lExtraction.CacheMetrics.PersistentConnectionOpenCount;
-    if Trim(fOptions.SqliteCacheFileName) <> '' then
-    begin
-      lSnapshotResult := BuildSnapshotResult(aScopedSourceFileNames);
-      try
-        Result.SnapshotMetrics := lSnapshotResult.Metrics;
-        Result.Facts.Metrics.SnapshotSqlWriteMilliseconds :=
-          lSnapshotResult.Metrics.SnapshotSqlWriteMilliseconds;
-        Result.Facts.Metrics.SnapshotSqlReadMilliseconds :=
-          lSnapshotResult.Metrics.SnapshotSqlReadMilliseconds;
-        Result.Facts.Metrics.SnapshotDeserializeMilliseconds :=
-          lSnapshotResult.Metrics.SnapshotDeserializeMilliseconds;
-        Result.Facts.Metrics.SnapshotIndexRebuildMilliseconds :=
-          lSnapshotResult.Metrics.SnapshotIndexRebuildMilliseconds;
-      finally
-        lSnapshotResult.Snapshot.Free;
-      end;
-    end;
   finally
     lGraph.Free;
   end;
