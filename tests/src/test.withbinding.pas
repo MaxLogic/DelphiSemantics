@@ -46,6 +46,8 @@ type
     [Test]
     procedure BindProjectPreallocatesHotFactLists;
     [Test]
+    procedure BindProjectCachesParentSelectorStacks;
+    [Test]
     procedure ReceiverMemberBindingUsesSemanticMemberIndex;
     [Test]
     procedure ReceiverMemberIndexDoesNotWalkVisibleUnitsPerLookup;
@@ -533,6 +535,46 @@ begin
     'BindProject should preallocate the binding list from with-statement counts.');
   Assert.IsTrue(ContainsText(lBindProjectSource, 'lSymbols.Capacity := lSymbolCapacity'),
     'BindProject should preallocate the inventory symbol list from model symbol counts.');
+end;
+
+procedure TProjectWithBindingTests.BindProjectCachesParentSelectorStacks;
+var
+  lBindProjectEnd: Integer;
+  lBindProjectSource: string;
+  lBindProjectStart: Integer;
+  lSelectorStackEnd: Integer;
+  lSelectorStackSource: string;
+  lSelectorStackStart: Integer;
+  lSourceText: string;
+begin
+  lSourceText := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
+  lSelectorStackStart := Pos('function StatementContains(', lSourceText);
+  lSelectorStackEnd := Pos('class function TDelphiSemanticWithBinder.BindModel',
+    lSourceText);
+  Assert.IsTrue((lSelectorStackStart > 0) and (lSelectorStackEnd > lSelectorStackStart),
+    'Expected selector-stack helper implementation section.');
+
+  lSelectorStackSource := Copy(lSourceText, lSelectorStackStart,
+    lSelectorStackEnd - lSelectorStackStart);
+  Assert.IsTrue(ContainsText(lSelectorStackSource, 'function BuildParentStatementIndexes'),
+    'With-binding should precompute parent statement indexes once per model.');
+  Assert.IsTrue(ContainsText(lSelectorStackSource, 'function BuildSelectorStackCache'),
+    'With-binding should cache combined selector stacks instead of rebuilding parent chains.');
+  Assert.IsFalse(ContainsText(lSelectorStackSource, 'for i := 0 to Pred(aStatementIndex)'),
+    'Selector inheritance must not scan all previous statements for every binding.');
+
+  lBindProjectStart := Pos('class function TDelphiSemanticWithBinder.BindProject',
+    lSourceText);
+  lBindProjectEnd := Pos('class function TDelphiSemanticWithBinder.ExpandInventorySymbols',
+    lSourceText);
+  Assert.IsTrue((lBindProjectStart > 0) and (lBindProjectEnd > lBindProjectStart),
+    'Expected BindProject implementation section.');
+  lBindProjectSource := Copy(lSourceText, lBindProjectStart,
+    lBindProjectEnd - lBindProjectStart);
+  Assert.IsTrue(ContainsText(lBindProjectSource, 'lSelectorStacks := BuildSelectorStackCache'),
+    'BindProject should build selector stacks once for each model.');
+  Assert.IsTrue(ContainsText(lBindProjectSource, 'lBinding.Selectors := lSelectorStacks[i]'),
+    'Binding construction should consume the cached selector stack for each statement.');
 end;
 
 procedure TProjectWithBindingTests.ReceiverMemberBindingUsesSemanticMemberIndex;

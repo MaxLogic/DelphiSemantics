@@ -305,6 +305,9 @@ type
       out aResult: TDelphiSemanticResolveResult): Boolean;
   end;
 
+  TWithSelectorBindingArray = TArray<TDelphiSemanticWithSelectorBinding>;
+  TWithSelectorStackArray = TArray<TWithSelectorBindingArray>;
+
 function StableFactId(const aPrefix, aText: string): string;
 begin
   Result := aPrefix + '-' + THashSHA2.GetHashString(aText);
@@ -2439,34 +2442,86 @@ begin
     ((aOuter.EndLine = aInner.EndLine) and (aOuter.EndColumn >= aInner.EndColumn)));
 end;
 
-function CombinedSelectors(const aModel: TDelphiSemanticUnitModel;
-  const aProjectModels: TArray<TDelphiSemanticUnitModel>;
-  const aStatements: TArray<TDelphiSemanticWithStatement>; const aStatementIndex: Integer;
-  const aRoutineName, aCurrentTypeName: string;
-  const aParentRoutineNames: TArray<string>;
-  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
-  TArray<TDelphiSemanticWithSelectorBinding>;
+function BuildParentStatementIndexes(
+  const aStatements: TArray<TDelphiSemanticWithStatement>): TArray<Integer>;
 var
   i: Integer;
-  lSelector: TDelphiSemanticWithSelectorBinding;
-  lSelectors: TList<TDelphiSemanticWithSelectorBinding>;
+  lParentIndex: Integer;
+  lStack: TList<Integer>;
 begin
-  lSelectors := TList<TDelphiSemanticWithSelectorBinding>.Create;
+  SetLength(Result, Length(aStatements));
+  lStack := TList<Integer>.Create;
   try
-    for i := 0 to Pred(aStatementIndex) do
-      if StatementContains(aStatements[i], aStatements[aStatementIndex]) then
-        for lSelector in BindSelectors(aModel, aProjectModels, aRoutineName,
-          aCurrentTypeName, aStatements[i].SelectorText, aParentRoutineNames,
-          aProjectMemberIndex, aMemberCache) do
-          lSelectors.Add(lSelector);
-    for lSelector in BindSelectors(aModel, aProjectModels, aRoutineName,
-      aCurrentTypeName, aStatements[aStatementIndex].SelectorText, aParentRoutineNames,
-      aProjectMemberIndex, aMemberCache) do
-      lSelectors.Add(lSelector);
-    Result := lSelectors.ToArray;
+    for i := 0 to High(aStatements) do
+    begin
+      while lStack.Count > 0 do
+      begin
+        lParentIndex := lStack[lStack.Count - 1];
+        if StatementContains(aStatements[lParentIndex], aStatements[i]) then
+          Break;
+        lStack.Delete(lStack.Count - 1);
+      end;
+      if lStack.Count > 0 then
+        Result[i] := lStack[lStack.Count - 1]
+      else
+        Result[i] := -1;
+      lStack.Add(i);
+    end;
   finally
-    lSelectors.Free;
+    lStack.Free;
+  end;
+end;
+
+function MergeSelectorStacks(const aParentSelectors,
+  aOwnSelectors: TWithSelectorBindingArray): TWithSelectorBindingArray;
+var
+  i: Integer;
+  lParentCount: Integer;
+begin
+  lParentCount := Length(aParentSelectors);
+  SetLength(Result, lParentCount + Length(aOwnSelectors));
+  for i := 0 to High(aParentSelectors) do
+    Result[i] := aParentSelectors[i];
+  for i := 0 to High(aOwnSelectors) do
+    Result[lParentCount + i] := aOwnSelectors[i];
+end;
+
+function BuildSelectorStackCache(const aModel: TDelphiSemanticUnitModel;
+  const aProjectModels: TArray<TDelphiSemanticUnitModel>;
+  const aStatements: TArray<TDelphiSemanticWithStatement>;
+  const aScopeIndex: TDelphiSemanticRoutineScopeIndex;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
+  TWithSelectorStackArray;
+var
+  i: Integer;
+  lCurrentTypeName: string;
+  lDirectSelectors: TWithSelectorBindingArray;
+  lParentIndexes: TArray<Integer>;
+  lParentIndex: Integer;
+  lParentRoutineNames: TArray<string>;
+  lRoutineLookupName: string;
+  lRoutineName: string;
+begin
+  lParentIndexes := BuildParentStatementIndexes(aStatements);
+  SetLength(Result, Length(aStatements));
+  for i := 0 to High(aStatements) do
+  begin
+    lRoutineName := aScopeIndex.RoutineNameForLine(aStatements[i].Line);
+    lParentRoutineNames := aScopeIndex.ParentRoutineNamesForLine(lRoutineName,
+      aStatements[i].Line);
+    lCurrentTypeName := CallerTypeNameForRoutineContext(aModel, lRoutineName,
+      lParentRoutineNames, aStatements[i].Line);
+    lRoutineLookupName := RoutineLookupNameForRoutineContext(aModel, lRoutineName,
+      aStatements[i].Line);
+    lDirectSelectors := BindSelectors(aModel, aProjectModels, lRoutineLookupName,
+      lCurrentTypeName, aStatements[i].SelectorText, lParentRoutineNames,
+      aProjectMemberIndex, aMemberCache);
+    lParentIndex := lParentIndexes[i];
+    if lParentIndex >= 0 then
+      Result[i] := MergeSelectorStacks(Result[lParentIndex], lDirectSelectors)
+    else
+      Result[i] := lDirectSelectors;
   end;
 end;
 
@@ -2506,6 +2561,7 @@ var
   lRoutineName: string;
   lScopeIndexBuildMs: Int64;
   lSelectorBindingMs: Int64;
+  lSelectorStacks: TWithSelectorStackArray;
   lScopeIndex: TDelphiSemanticRoutineScopeIndex;
   lStatement: TDelphiSemanticWithStatement;
   lStopwatch: TStopwatch;
@@ -2568,6 +2624,11 @@ begin
       lStopwatch.Stop;
       Inc(lScopeIndexBuildMs, lStopwatch.ElapsedMilliseconds);
       lBindingStopwatch := TStopwatch.StartNew;
+      lSubphaseStopwatch := TStopwatch.StartNew;
+      lSelectorStacks := BuildSelectorStackCache(lModel, aModels, lModel.WithStatements,
+        lScopeIndex, lProjectMemberIndex, lMemberCache);
+      lSubphaseStopwatch.Stop;
+      Inc(lSelectorBindingMs, lSubphaseStopwatch.ElapsedMilliseconds);
       for i := 0 to High(lModel.WithStatements) do
       begin
         lStatement := lModel.WithStatements[i];
@@ -2596,12 +2657,7 @@ begin
           lParentRoutineNames, lStatement.Line);
         lRoutineLookupName := RoutineLookupNameForRoutineContext(lModel, lRoutineName,
           lStatement.Line);
-        lSubphaseStopwatch := TStopwatch.StartNew;
-        lBinding.Selectors := CombinedSelectors(lModel, aModels, lModel.WithStatements, i,
-          lRoutineLookupName, lCurrentTypeName, lParentRoutineNames, lProjectMemberIndex,
-          lMemberCache);
-        lSubphaseStopwatch.Stop;
-        Inc(lSelectorBindingMs, lSubphaseStopwatch.ElapsedMilliseconds);
+        lBinding.Selectors := lSelectorStacks[i];
         lSubphaseStopwatch := TStopwatch.StartNew;
         lBinding.References := BindReferences(lModel, aModels, lStatement,
           lModel.WithStatements, i, lRoutineLookupName, lCurrentTypeName,
