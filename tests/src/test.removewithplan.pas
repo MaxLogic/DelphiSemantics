@@ -78,6 +78,8 @@ type
     [Test]
     procedure FinalDtoUsesPrecomputedNestedBindingTree;
     [Test]
+    procedure FinalDtoUsesFocusedFinalRewriteUnit;
+    [Test]
     procedure FinalDtoMatchesNestedRewriteOrdering;
     [Test]
     procedure FinalDtoMatchesTempPolicyCollisionRules;
@@ -2352,6 +2354,31 @@ begin
   Assert.IsFalse(ContainsText(Copy(lSourceText, lBuildStatementStart,
     lBuildStatementEnd - lBuildStatementStart), 'IsDirectNestedBinding'),
     'Final statement construction must consume the precomputed child index, not rescan all bindings.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoUsesFocusedFinalRewriteUnit;
+var
+  lPlannerSource: string;
+  lRewriteSource: string;
+begin
+  lPlannerSource := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.pas');
+  lRewriteSource := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.FinalRewrite.pas');
+
+  Assert.IsTrue(ContainsText(lRewriteSource,
+    'function FinalStatementRewriteRecipe'),
+    'Final rewrite recipe construction should live in the focused final rewrite unit.');
+  Assert.IsTrue(ContainsText(lRewriteSource,
+    'procedure AddFinalTextEdit'),
+    'Final text edit synchronization should live in the focused final rewrite unit.');
+  Assert.IsFalse(ContainsText(lPlannerSource,
+    'function FinalStatementRewriteRecipe'),
+    'Main planner should not own final rewrite recipe construction.');
+  Assert.IsFalse(ContainsText(lPlannerSource,
+    'procedure AddFinalTextEdit'),
+    'Main planner should not own final text edit synchronization.');
+  Assert.IsTrue(ContainsText(lPlannerSource,
+    'DelphiSemantics.RemoveWithPlan.FinalRewrite'),
+    'Main planner should consume the focused final rewrite boundary.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesNestedRewriteOrdering;

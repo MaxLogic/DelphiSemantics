@@ -127,6 +127,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Query.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Refactor.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.RemoveWithPlan.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.RemoveWithPlan.FinalRewrite.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.MemberResolver.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.ScopeResolver.pas"/>
