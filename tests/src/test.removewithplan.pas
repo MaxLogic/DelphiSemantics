@@ -60,6 +60,8 @@ type
     [Test]
     procedure FinalDtoUsesRewriteRecipeFactsForRepresentativeHardCases;
     [Test]
+    procedure FinalBodyRendererLivesBehindFocusedBoundary;
+    [Test]
     procedure FinalDtoMatchesDakBoundRewriteFixture;
     [Test]
     procedure FinalDtoMatchesDakExternalRoutineFixture;
@@ -1818,6 +1820,36 @@ begin
   Assert.AreEqual('replace-statement', lRecipe.TextEdits[0].Kind);
   Assert.IsTrue(ContainsText(lRecipe.ReplacementText, 'ReadNBytes(Files[D]^.f^'),
     'Expected controlled fixture to exercise the legacy final rewrite replacement.');
+end;
+
+procedure TRemoveWithPlanTests.FinalBodyRendererLivesBehindFocusedBoundary;
+var
+  lPlannerSource: string;
+  lRendererSource: string;
+begin
+  Assert.IsTrue(FileExists(RepoSourcePath(
+    'src\DelphiSemantics.RemoveWithPlan.FinalBodyRenderer.pas')),
+    'Expected focused final body renderer unit.');
+
+  lPlannerSource := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.pas');
+  lRendererSource := ReadRepoSource(
+    'src\DelphiSemantics.RemoveWithPlan.FinalBodyRenderer.pas');
+
+  Assert.IsTrue(ContainsText(lPlannerSource,
+    'DelphiSemantics.RemoveWithPlan.FinalBodyRenderer'),
+    'RemoveWithPlan should delegate final body rendering to the focused unit.');
+  Assert.IsFalse(ContainsText(lPlannerSource,
+    'function BuildFinalReplacementText'),
+    'RemoveWithPlan should not own final replacement assembly.');
+  Assert.IsFalse(ContainsText(lPlannerSource,
+    'function BuildTempInitializationText'),
+    'RemoveWithPlan should not own final temp initialization rendering.');
+  Assert.IsTrue(ContainsText(lRendererSource,
+    'function BuildFinalReplacementText'),
+    'Final body renderer should own final replacement assembly.');
+  Assert.IsTrue(ContainsText(lRendererSource,
+    'function BuildTempInitializationText'),
+    'Final body renderer should own temp initialization rendering.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesDakBoundRewriteFixture;

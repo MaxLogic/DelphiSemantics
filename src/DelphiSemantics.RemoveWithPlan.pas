@@ -183,6 +183,7 @@ implementation
 uses
   System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils,
   System.StrUtils, System.SysUtils,
+  DelphiSemantics.RemoveWithPlan.FinalBodyRenderer,
   DelphiSemantics.RemoveWithPlan.FinalRewrite,
   DelphiSemantics.SourceConditionals, DelphiSemantics.SourceContext;
 
@@ -3193,7 +3194,7 @@ begin
   end;
 end;
 
-function RewrittenBodyText(const aFacts: TRemoveWithPlanFacts;
+function PrepareFinalBodyText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>;
   const aNestedReplacements: TArray<TFinalNestedReplacement>;
@@ -3332,18 +3333,45 @@ begin
   Result := True;
 end;
 
-function BuildTempInitializationText(const aDecisions: TArray<TFinalSelectorDecision>;
-  const aIndentColumn: Integer): string;
-var
-  lDecision: TFinalSelectorDecision;
+function RendererRange(const aRange: TDelphiSemanticRemoveWithSourceRange):
+  TFinalBodyRendererRange;
 begin
-  Result := '';
-  for lDecision in aDecisions do
-  begin
-    if lDecision.InitializationText <> '' then
-      Result := Result + IndentText(aIndentColumn) + lDecision.InitializationText +
-        sLineBreak;
-  end;
+  Result.StartLine := aRange.StartLine;
+  Result.StartColumn := aRange.StartColumn;
+  Result.EndLine := aRange.EndLine;
+  Result.EndColumn := aRange.EndColumn;
+end;
+
+function PlannerRange(const aRange: TFinalBodyRendererRange):
+  TDelphiSemanticRemoveWithSourceRange;
+begin
+  Result.StartLine := aRange.StartLine;
+  Result.StartColumn := aRange.StartColumn;
+  Result.EndLine := aRange.EndLine;
+  Result.EndColumn := aRange.EndColumn;
+end;
+
+function RendererSelectorDecision(const aDecision: TFinalSelectorDecision):
+  TFinalBodyRendererSelectorDecision;
+begin
+  Result.SelectorText := aDecision.SelectorText;
+  Result.QualifierText := aDecision.QualifierText;
+  Result.Strategy := aDecision.Strategy;
+  Result.ReceiverType := aDecision.ReceiverType;
+  Result.TempName := aDecision.TempName;
+  Result.DeclarationText := aDecision.DeclarationText;
+  Result.InitializationText := aDecision.InitializationText;
+  Result.Reason := aDecision.Reason;
+end;
+
+function RendererSelectorDecisions(const aDecisions: TArray<TFinalSelectorDecision>):
+  TArray<TFinalBodyRendererSelectorDecision>;
+var
+  i: Integer;
+begin
+  SetLength(Result, Length(aDecisions));
+  for i := 0 to High(aDecisions) do
+    Result[i] := RendererSelectorDecision(aDecisions[i]);
 end;
 
 function HasRecordPointerTempDecision(const aDecisions: TArray<TFinalSelectorDecision>): Boolean;
@@ -3572,74 +3600,7 @@ begin
   end;
 end;
 
-function TrimTrailingEnclosingRoutineEnd(var aText: string): Boolean;
-var
-  lBeforeLastLine: string;
-  lLastBreak: Integer;
-  lLastLine: string;
-  lPreviousBreak: Integer;
-  lPreviousLine: string;
-  lText: string;
-begin
-  Result := False;
-  lText := aText;
-  while EndsText(sLineBreak, lText) do
-    Delete(lText, Length(lText) - Length(sLineBreak) + 1, Length(sLineBreak));
-  while (lText <> '') and CharInSet(lText[Length(lText)], [#10, #13]) do
-    Delete(lText, Length(lText), 1);
-  if EndsText(sLineBreak + 'END;', lText) then
-  begin
-    lBeforeLastLine := Copy(lText, 1, Length(lText) - Length(sLineBreak + 'END;'));
-    lPreviousBreak := LastDelimiter(#10#13, lBeforeLastLine);
-    if lPreviousBreak > 0 then
-      lPreviousLine := Copy(lBeforeLastLine, lPreviousBreak + 1, MaxInt)
-    else
-      lPreviousLine := lBeforeLastLine;
-    if SameText(Trim(lPreviousLine), 'end') then
-    begin
-      aText := lBeforeLastLine + sLineBreak;
-      Exit(True);
-    end;
-  end;
-  lLastBreak := LastDelimiter(#10#13, lText);
-  if lLastBreak <= 0 then
-    Exit;
-
-  lLastLine := Copy(lText, lLastBreak + 1, MaxInt);
-  if SameText(Trim(lLastLine), 'end;') then
-  begin
-    lBeforeLastLine := Copy(lText, 1, lLastBreak - 1);
-    while EndsText(sLineBreak, lBeforeLastLine) do
-      Delete(lBeforeLastLine, Length(lBeforeLastLine) - Length(sLineBreak) + 1,
-        Length(sLineBreak));
-    while (lBeforeLastLine <> '') and CharInSet(lBeforeLastLine[Length(lBeforeLastLine)],
-      [#10, #13]) do
-      Delete(lBeforeLastLine, Length(lBeforeLastLine), 1);
-    lPreviousBreak := LastDelimiter(#10#13, lBeforeLastLine);
-    if lPreviousBreak > 0 then
-      lPreviousLine := Copy(lBeforeLastLine, lPreviousBreak + 1, MaxInt)
-    else
-      lPreviousLine := lBeforeLastLine;
-    if SameText(Trim(lPreviousLine), 'end') then
-    begin
-      aText := lBeforeLastLine + sLineBreak;
-      Exit(True);
-    end;
-  end;
-end;
-
-procedure RemoveTrailingSemicolon(var aText: string);
-var
-  lIndex: Integer;
-begin
-  lIndex := Length(aText);
-  while (lIndex > 0) and CharInSet(aText[lIndex], [#9, ' ', #10, #13]) do
-    Dec(lIndex);
-  if (lIndex > 0) and (aText[lIndex] = ';') then
-    Delete(aText, lIndex, 1);
-end;
-
-function BuildFinalReplacementText(const aFacts: TRemoveWithPlanFacts;
+function TryRenderFinalReplacementText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aVisibleDecisions, aTempDecisions: TArray<TFinalSelectorDecision>;
   const aNestedReplacements: TArray<TFinalNestedReplacement>;
@@ -3648,21 +3609,14 @@ function BuildFinalReplacementText(const aFacts: TRemoveWithPlanFacts;
 var
   lBodyText: string;
   lControlledStatement: Boolean;
-  lIndentColumn: Integer;
-  lHasTempInitialization: Boolean;
-  lLines: TArray<string>;
-  lLineBreak: string;
-  lLineText: string;
-  lNeedsControlledWrapper: Boolean;
-  lPreviousLineIndex: Integer;
+  lOriginalRange: TDelphiSemanticRemoveWithSourceRange;
+  lRendererRange: TFinalBodyRendererRange;
+  lRequest: TFinalBodyRendererRequest;
   lTrimmedBeforeOuterElse: Boolean;
-  lTempDecision: TFinalSelectorDecision;
-  lStatementIndent: string;
-  lTempText: string;
 begin
   Result := False;
   aReplacementRange := BindingRange(aBinding);
-  lTrimmedBeforeOuterElse := False;
+  lOriginalRange := aReplacementRange;
   if ValueRecordProcedureParameterReferenceNeedsSkip(aFacts, aBinding,
     aTempDecisions, aLineCache) then
   begin
@@ -3682,7 +3636,7 @@ begin
   lControlledStatement := BindingFollowsControlStatement(aBinding, aLineCache);
   lTrimmedBeforeOuterElse := TrimRangeBeforeOuterElse(aBinding, aLineCache,
     aReplacementRange);
-  if not RewrittenBodyText(aFacts, aBinding, aVisibleDecisions,
+  if not PrepareFinalBodyText(aFacts, aBinding, aVisibleDecisions,
     aNestedReplacements, aLineCache, lControlledStatement, lBodyText, aReason) then
   begin
     if SameText(aReason, 'symbol-not-found') and
@@ -3691,138 +3645,17 @@ begin
     Exit;
   end;
 
-  if aLineCache.TryGetValue(aBinding.FileName, lLines) then
-  begin
-    for lPreviousLineIndex := aBinding.Line - 1 downto 1 do
-    begin
-      lLineText := Trim(lLines[lPreviousLineIndex - 1]);
-      if (lLineText = '') or StartsText('//', lLineText) then
-        Continue;
-      if SameText(lLineText, 'initialization') or SameText(lLineText, 'finalization') then
-      begin
-        aReason := 'controlled-with-statement';
-        Exit;
-      end;
-      lControlledStatement := EndsText(' then', LowerCase(lLineText)) or
-        SameText(lLineText, 'then') or EndsText(' do', LowerCase(lLineText)) or
-        SameText(lLineText, 'do') or EndsText(' else', LowerCase(lLineText)) or
-        SameText(lLineText, 'else') or EndsText(':', lLineText);
-      Break;
-    end;
-  end;
-  lHasTempInitialization := False;
-  for lTempDecision in aTempDecisions do
-  begin
-    if lTempDecision.InitializationText <> '' then
-    begin
-      lHasTempInitialization := True;
-      Break;
-    end;
-  end;
-  if lControlledStatement and
-    (lHasTempInitialization or
-    (not StartsText('begin', LowerCase(Trim(lBodyText))))) then
-    lIndentColumn := aBinding.Column + 2
-  else
-    lIndentColumn := aBinding.Column;
-  lTempText := BuildTempInitializationText(aTempDecisions, lIndentColumn);
-  if lControlledStatement and lHasTempInitialization and
-    StartsText('begin', LowerCase(TrimLeft(lBodyText))) then
-    aReplacementText := IndentText(lIndentColumn) + TrimLeft(lBodyText)
-  else if (lTempText = '') and ContainsText(aBinding.SelectorText, '^') then
-    aReplacementText := IndentText(lIndentColumn) + TrimLeft(lBodyText)
-  else if (lBodyText <> '') and CharInSet(lBodyText[1], [#9, ' ']) then
-    aReplacementText := lBodyText
-  else
-    aReplacementText := IndentText(lIndentColumn) + lBodyText;
-  aReplacementText := lTempText + aReplacementText;
-  lNeedsControlledWrapper := lControlledStatement and
-    ((lTempText <> '') or (not StartsText('begin', LowerCase(Trim(lBodyText)))));
-  if lNeedsControlledWrapper then
-  begin
-    lStatementIndent := IndentText(aBinding.Column);
-    aReplacementText := lStatementIndent + 'begin' + sLineBreak +
-      aReplacementText + sLineBreak + lStatementIndent + 'end;';
-  end;
-  if ((lTempText <> '') or (lControlledStatement and
-    StartsText('begin', LowerCase(Trim(lBodyText))))) and
-    TrimTrailingEnclosingRoutineEnd(aReplacementText) then
-  begin
-    aReplacementRange.EndColumn := 1;
-    if lTempText = '' then
-    begin
-      while EndsText(sLineBreak, aReplacementText) do
-        Delete(aReplacementText, Length(aReplacementText) - Length(sLineBreak) + 1,
-          Length(sLineBreak));
-      while (aReplacementText <> '') and
-        CharInSet(aReplacementText[Length(aReplacementText)], [#10, #13]) do
-        Delete(aReplacementText, Length(aReplacementText), 1);
-      aReplacementText := aReplacementText + sLineBreak + ';';
-    end;
-  end;
-  if (lTempText = '') and
-    (not IsSimplePointerDereferenceSelector(aBinding.SelectorText)) and
-    (not ((Pos('[', aBinding.SelectorText) > 0) and
-    ContainsText(aBinding.SelectorText, '^'))) and
-    TrimTrailingEnclosingRoutineEnd(aReplacementText) then
-  begin
-    if aBinding.Column > 2 then
-      aReplacementRange.EndColumn := aBinding.Column - 2
-    else
-      aReplacementRange.EndColumn := 1;
-    aReplacementText := aReplacementText + IndentText(aReplacementRange.EndColumn);
-  end;
-  if (lTempText = '') and (aBinding.Column > 3) and
-    EndsText(sLineBreak + IndentText(aBinding.Column - 2) + 'END;',
-    aReplacementText) then
-  begin
-    aReplacementRange.EndColumn := aBinding.Column - 2;
-    Delete(aReplacementText, Length(aReplacementText) -
-      Length(sLineBreak + IndentText(aReplacementRange.EndColumn) + 'END;') + 1,
-      Length(sLineBreak + IndentText(aReplacementRange.EndColumn) + 'END;'));
-    aReplacementText := aReplacementText + sLineBreak +
-      IndentText(aReplacementRange.EndColumn);
-  end;
-  if SameText(aBinding.SelectorText, 'DF[d]^.MarkListe') and
-    (BindingRange(aBinding).StartLine = 2197) then
-  begin
-    lLineBreak := SourceLineBreakForFile(aBinding.FileName, aLineCache);
-    aReplacementRange.EndLine := 2210;
-    aReplacementRange.EndColumn := 4;
-    aReplacementText := '    begin' + lLineBreak +
-      '      if DF[d]^.MarkListe.Anfang = nil then' +
-      lLineBreak + '      begin' +
-      lLineBreak +
-      '        DF[d]^.MarkListe.Aktuell := nil;' +
-      lLineBreak + '        DatError := 1;' +
-      lLineBreak + '        lastmark := 0' +
-      lLineBreak + '      end' +
-      lLineBreak + '      else' +
-      lLineBreak + '      begin' +
-      lLineBreak + '        DatError := 0;' +
-      lLineBreak +
-      '        DF[d]^.MarkListe.Aktuell := DF[d]^.MarkListe.Ende;' +
-      lLineBreak +
-      '        lastmark := DF[d]^.MarkListe.Ende^.DV' +
-      lLineBreak + '      end' +
-      lLineBreak + 'end;' +
-      lLineBreak + '    end;';
-  end;
-  if SameText(ExtractFileName(aBinding.FileName), 'Tdbutils.Ident.pas') and
-    SameText(aBinding.SelectorText, 'f^') and
-    MatchText(IntToStr(BindingRange(aBinding).StartLine), ['173', '280']) then
-  begin
-    aReplacementText := StringReplace(aReplacementText, 'gs := _FileSize;',
-      'gs := f^._FileSize;', [rfReplaceAll]);
-    aReplacementText := StringReplace(aReplacementText,
-      'lc := Cont + _FileSize - 1;', 'lc := f^.Cont + f^._FileSize - 1;',
-      [rfReplaceAll]);
-    aReplacementText := StringReplace(aReplacementText, 'p := Cont + e - 2;',
-      'p := f^.Cont + e - 2;', [rfReplaceAll]);
-  end;
-  if lTrimmedBeforeOuterElse then
-    RemoveTrailingSemicolon(aReplacementText);
-  Result := True;
+  lRequest := Default(TFinalBodyRendererRequest);
+  lRequest.Binding := aBinding;
+  lRequest.BodyText := lBodyText;
+  lRequest.OriginalRange := RendererRange(lOriginalRange);
+  lRequest.ReplacementRange := RendererRange(aReplacementRange);
+  lRequest.TempDecisions := RendererSelectorDecisions(aTempDecisions);
+  lRequest.ControlledStatement := lControlledStatement;
+  lRequest.TrimmedBeforeOuterElse := lTrimmedBeforeOuterElse;
+  Result := DelphiSemantics.RemoveWithPlan.FinalBodyRenderer.BuildFinalReplacementText(
+    lRequest, aLineCache, aReplacementText, lRendererRange, aReason);
+  aReplacementRange := PlannerRange(lRendererRange);
 end;
 
 function FinalVerification(const aEdit: TDelphiSemanticRemoveWithEdit):
@@ -8533,7 +8366,7 @@ begin
   end;
 
   lRecipeRuleId := '';
-  if not BuildFinalReplacementText(aFacts, lBinding, lVisibleDecisions,
+  if not TryRenderFinalReplacementText(aFacts, lBinding, lVisibleDecisions,
     lSelectorDecisions, lNestedReplacements, aLineCache, lReplacementText,
     lReason, lReplacementRange) then
   begin
