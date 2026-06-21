@@ -76,6 +76,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- The maxTdb semantic benchmark now treats `remove-with-plan-all` warm target
+  misses as best-effort performance signals while still recording
+  `TargetStatus`, median time, and correctness outputs.
 - Remove-with compatibility fact-to-snapshot planning now uses explicitly
   compatibility-named helpers, keeping the primary remove-with API path
   session-backed and snapshot-native.

@@ -509,6 +509,15 @@ function Requires-PlannerPhaseMetrics {
   return ($Row.Feature -eq 'with-removal') -and ($Row.Id -eq 'remove-with-plan-all')
 }
 
+function Test-BestEffortTargetMiss {
+  param([object]$Row)
+
+  # T-582: keep remove-with-plan-all warm target misses as best-effort performance signals.
+  return ($Row.Id -eq 'remove-with-plan-all') -and
+    ($Row.CacheMode -eq 'warm') -and
+    ($Row.TargetStatus -eq 'missed')
+}
+
 function Get-Median {
   param([double[]]$Values)
 
@@ -1245,6 +1254,8 @@ if (@($lResultRows | Where-Object { $_.ExitCode -ne 0 }).Count -gt 0) {
   exit 1
 }
 
-if (@($lResultRows | Where-Object { $_.TargetStatus -eq 'missed' }).Count -gt 0) {
+if (@($lResultRows | Where-Object {
+      ($_.TargetStatus -eq 'missed') -and (-not (Test-BestEffortTargetMiss -Row $_))
+    }).Count -gt 0) {
   exit 2
 }

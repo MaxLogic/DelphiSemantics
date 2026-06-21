@@ -385,6 +385,43 @@ function Test-RemoveWithPlanBenchmarkRequestsDiagnosticForPlannerMetric {
   }
 }
 
+function Test-RemoveWithPlanWarmTargetMissIsBestEffort {
+  $lWorkspace = New-TestWorkspace 'plan-warm-target-best-effort'
+  New-CleanDakScript -Path (Join-Path $lWorkspace 'dak.ps1')
+
+  & pwsh -NoProfile -ExecutionPolicy Bypass -File $BenchmarkScript `
+    -DakExe (Join-Path $lWorkspace 'dak.ps1') `
+    -Project (Join-Path $lWorkspace 'project.dpr') `
+    -Workflow remove-with-plan-all `
+    -Repeat 1 `
+    -CacheMode warm `
+    -WarmTargetSeconds 0.000001 `
+    -OutDir $lWorkspace `
+    -NoBaselineCopy `
+    1> (Join-Path $lWorkspace 'warm-target.stdout.txt') `
+    2> (Join-Path $lWorkspace 'warm-target.stderr.txt')
+
+  Assert-Equal 0 $LASTEXITCODE `
+    'remove-with-plan-all warm target miss should be a best-effort signal, not a hard failure.'
+
+  $lBaseline = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.json') -Raw |
+    ConvertFrom-Json
+  $lResult = @($lBaseline.results | Where-Object {
+    ($_.Id -eq 'remove-with-plan-all') -and ($_.CacheMode -eq 'warm')
+  })[0]
+  Assert-Equal 'missed' $lResult.TargetStatus `
+    'Warm target miss must remain visible in baseline JSON.'
+  Assert-Equal 215 $lResult.ResultCount `
+    'Correctness signal must still report planned edits.'
+  Assert-Equal 'clean' $lResult.SourceMutationStatus `
+    'Report-only source mutation status must stay clean.'
+
+  $lMarkdown = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.md') -Raw
+  if ($lMarkdown -notmatch 'missed') {
+    throw 'Markdown summary must still show the missed warm target.'
+  }
+}
+
 function Test-BenchmarkPromotesBaselineOnlyWhenExplicit {
   $lWorkspace = New-TestWorkspace 'explicit-baseline-promotion'
   New-CleanDakScript -Path (Join-Path $lWorkspace 'dak.ps1')
