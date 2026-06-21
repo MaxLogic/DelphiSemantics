@@ -9,6 +9,11 @@ if not exist "%DAK_BUILD%" (
 
 set "ARG_LIST="
 set "PROJECT_SEEN="
+set "PROJECT_DIR="
+set "PROJECT_NAME="
+
+for /f %%r in ('powershell -NoProfile -Command "[guid]::NewGuid().ToString('N')"') do set "RUN_ID=%%r"
+if not defined RUN_ID set "RUN_ID=%RANDOM%%RANDOM%"
 
 :collect_args
 if "%~1"=="" goto run_build
@@ -27,7 +32,11 @@ goto append_arg
 :normalize_project
 set "PROJECT_SEEN=1"
 if exist "%~1" (
-  for %%p in ("%~1") do set "ARG=%%~fp"
+  for %%p in ("%~1") do (
+    set "ARG=%%~fp"
+    set "PROJECT_DIR=%%~dpp"
+    set "PROJECT_NAME=%%~np"
+  )
 )
 
 :append_arg
@@ -49,5 +58,9 @@ shift
 goto collect_args
 
 :run_build
+if not defined DCC_DcuOutput if defined PROJECT_DIR if defined PROJECT_NAME (
+  set "DCC_DcuOutput=!PROJECT_DIR!.dak\!PROJECT_NAME!\build\dcu-!RUN_ID!"
+  if not exist "!DCC_DcuOutput!" mkdir "!DCC_DcuOutput!" >nul 2>&1
+)
 call "%DAK_BUILD%" !ARG_LIST!
 exit /b %ERRORLEVEL%

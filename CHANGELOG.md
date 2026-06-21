@@ -239,6 +239,9 @@
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
 
 ### Fixed
+- Parallel test-project rebuilds through `build-delphi.bat` now use per-run DCU
+  output folders under `.dak`, avoiding shared `tests\bin` unit-output writes
+  while keeping executable output unchanged.
 - Source-context caches now refresh cached source text, line maps,
   inactive-region state, and line-break provenance when the underlying file's
   timestamp or size changes during a long-lived run.
