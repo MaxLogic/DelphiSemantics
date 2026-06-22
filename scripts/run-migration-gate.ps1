@@ -884,8 +884,22 @@ function Get-MigrationGateSourceRelativePath {
 function Get-MigrationGateFileHash {
   param([Parameter(Mandatory = $true)][string]$Path)
 
-  $lHash = Get-FileHash -LiteralPath $Path -Algorithm SHA256
-  return $lHash.Hash.ToLowerInvariant()
+  $lGetFileHash = Get-Command Get-FileHash -ErrorAction SilentlyContinue
+  if ($null -ne $lGetFileHash) {
+    $lHash = Get-FileHash -LiteralPath $Path -Algorithm SHA256
+    return $lHash.Hash.ToLowerInvariant()
+  }
+
+  $lSha256 = [Security.Cryptography.SHA256]::Create()
+  $lStream = [IO.File]::OpenRead($Path)
+  try {
+    $lBytes = $lSha256.ComputeHash($lStream)
+    return (($lBytes | ForEach-Object { $_.ToString('x2') }) -join '')
+  }
+  finally {
+    $lStream.Dispose()
+    $lSha256.Dispose()
+  }
 }
 
 function New-MigrationGateSourceSnapshot {
