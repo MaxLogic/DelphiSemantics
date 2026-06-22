@@ -859,7 +859,25 @@ function Get-MigrationGateSourceRelativePath {
     [Parameter(Mandatory = $true)][string]$Path
   )
 
-  $lRelative = [IO.Path]::GetRelativePath([IO.Path]::GetFullPath($Root), [IO.Path]::GetFullPath($Path))
+  $lRoot = [IO.Path]::GetFullPath($Root)
+  $lPath = [IO.Path]::GetFullPath($Path)
+  $lGetRelativePath = [IO.Path].GetMethod('GetRelativePath', [type[]]@([string], [string]))
+  if ($null -ne $lGetRelativePath) {
+    $lRelative = [IO.Path]::GetRelativePath($lRoot, $lPath)
+    return $lRelative.Replace([IO.Path]::AltDirectorySeparatorChar, [IO.Path]::DirectorySeparatorChar)
+  }
+
+  $lDirectorySeparator = [IO.Path]::DirectorySeparatorChar.ToString()
+  $lAltDirectorySeparator = [IO.Path]::AltDirectorySeparatorChar.ToString()
+  if ((-not $lRoot.EndsWith($lDirectorySeparator)) -and
+    (-not $lRoot.EndsWith($lAltDirectorySeparator))) {
+    $lRoot = $lRoot + $lDirectorySeparator
+  }
+
+  $lRootUri = [Uri]$lRoot
+  $lPathUri = [Uri]$lPath
+  $lRelative = [Uri]::UnescapeDataString($lRootUri.MakeRelativeUri($lPathUri).ToString())
+  $lRelative = $lRelative.Replace('/', [IO.Path]::DirectorySeparatorChar)
   return $lRelative.Replace([IO.Path]::AltDirectorySeparatorChar, [IO.Path]::DirectorySeparatorChar)
 }
 
