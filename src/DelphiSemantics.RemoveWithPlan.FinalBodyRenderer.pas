@@ -41,7 +41,7 @@ function BuildFinalReplacementText(const aRequest: TFinalBodyRendererRequest;
 implementation
 
 uses
-  System.IOUtils, System.Math, System.StrUtils, System.SysUtils;
+  System.Math, System.StrUtils, System.SysUtils;
 
 function IndentText(const aColumn: Integer): string;
 begin
@@ -154,7 +154,6 @@ var
   lBinding: TDelphiSemanticWithBinding;
   lHasTempInitialization: Boolean;
   lIndentColumn: Integer;
-  lLineBreak: string;
   lLines: TArray<string>;
   lLineText: string;
   lNeedsControlledWrapper: Boolean;
@@ -263,43 +262,6 @@ begin
       Length(sLineBreak + IndentText(aReplacementRange.EndColumn) + 'END;'));
     aReplacementText := aReplacementText + sLineBreak +
       IndentText(aReplacementRange.EndColumn);
-  end;
-  if SameText(lBinding.SelectorText, 'DF[d]^.MarkListe') and
-    (aRequest.OriginalRange.StartLine = 2197) then
-  begin
-    lLineBreak := aLineCache.LineBreakForFile(lBinding.FileName);
-    aReplacementRange.EndLine := 2210;
-    aReplacementRange.EndColumn := 4;
-    aReplacementText := '    begin' + lLineBreak +
-      '      if DF[d]^.MarkListe.Anfang = nil then' +
-      lLineBreak + '      begin' +
-      lLineBreak +
-      '        DF[d]^.MarkListe.Aktuell := nil;' +
-      lLineBreak + '        DatError := 1;' +
-      lLineBreak + '        lastmark := 0' +
-      lLineBreak + '      end' +
-      lLineBreak + '      else' +
-      lLineBreak + '      begin' +
-      lLineBreak + '        DatError := 0;' +
-      lLineBreak +
-      '        DF[d]^.MarkListe.Aktuell := DF[d]^.MarkListe.Ende;' +
-      lLineBreak +
-      '        lastmark := DF[d]^.MarkListe.Ende^.DV' +
-      lLineBreak + '      end' +
-      lLineBreak + 'end;' +
-      lLineBreak + '    end;';
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'Tdbutils.Ident.pas') and
-    SameText(lBinding.SelectorText, 'f^') and
-    MatchText(IntToStr(aRequest.OriginalRange.StartLine), ['173', '280']) then
-  begin
-    aReplacementText := StringReplace(aReplacementText, 'gs := _FileSize;',
-      'gs := f^._FileSize;', [rfReplaceAll]);
-    aReplacementText := StringReplace(aReplacementText,
-      'lc := Cont + _FileSize - 1;', 'lc := f^.Cont + f^._FileSize - 1;',
-      [rfReplaceAll]);
-    aReplacementText := StringReplace(aReplacementText, 'p := Cont + e - 2;',
-      'p := f^.Cont + e - 2;', [rfReplaceAll]);
   end;
   if aRequest.TrimmedBeforeOuterElse then
     RemoveTrailingSemicolon(aReplacementText);

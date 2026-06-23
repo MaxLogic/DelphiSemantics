@@ -68,6 +68,8 @@ type
     [Test]
     procedure SkipDecisionsDoNotUseSourceSpecificCoordinates;
     [Test]
+    procedure RenderDecisionsDoNotUseSourceSpecificCoordinates;
+    [Test]
     procedure FinalDtoUsesRewriteRecipeFactsForRepresentativeHardCases;
     [Test]
     procedure FinalBodyRendererLivesBehindFocusedBoundary;
@@ -1900,8 +1902,7 @@ begin
   lSectionStart := Pos(
     'Result.ReferenceIds := aCandidateEdits[aBindingIndex].ReferenceIds;',
     lPlannerSource);
-  lSectionEnd := Pos(
-    'if SameText(ExtractFileName(lBinding.FileName), ''tdbvars.pas'') and',
+  lSectionEnd := Pos('if BindingFactSkipReason(aFacts, lBinding, aLineCache, lReason) then',
     lPlannerSource);
   Assert.IsTrue((lSectionStart > 0) and (lSectionEnd > lSectionStart),
     'Expected BuildFinalStatement skip prelude section.');
@@ -1912,6 +1913,43 @@ begin
     'Skip decisions must not branch on fixture source filenames.');
   Assert.IsFalse(ContainsText(lFinalSkipPrefix, 'lBinding.Line ='),
     'Skip decisions must not branch on exact fixture source lines.');
+end;
+
+procedure TRemoveWithPlanTests.RenderDecisionsDoNotUseSourceSpecificCoordinates;
+var
+  lPlannerRenderSource: string;
+  lPlannerSource: string;
+  lRendererSource: string;
+  lSectionEnd: Integer;
+  lSectionStart: Integer;
+begin
+  lPlannerSource := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.pas');
+  lRendererSource := ReadRepoSource(
+    'src\DelphiSemantics.RemoveWithPlan.FinalBodyRenderer.pas');
+
+  Assert.IsFalse(ContainsText(lRendererSource, 'ExtractFileName('),
+    'Final body renderer must not branch on fixture source filenames.');
+  Assert.IsFalse(ContainsText(lRendererSource, 'OriginalRange.StartLine ='),
+    'Final body renderer must not branch on exact fixture source lines.');
+
+  lSectionStart := Pos(
+    'Result.ReferenceIds := aCandidateEdits[aBindingIndex].ReferenceIds;',
+    lPlannerSource);
+  lSectionEnd := Pos('lRecipe.RenderInstruction := ''render-final-edits'';',
+    lPlannerSource);
+  Assert.IsTrue((lSectionStart > 0) and (lSectionEnd > lSectionStart),
+    'Expected BuildFinalStatement rendering source section.');
+  lPlannerRenderSource := Copy(lPlannerSource, lSectionStart,
+    lSectionEnd - lSectionStart);
+
+  Assert.IsFalse(ContainsText(lPlannerRenderSource,
+    'ExtractFileName(lBinding.FileName)'),
+    'Final statement rendering must not branch on fixture source filenames.');
+  Assert.IsFalse(ContainsText(lPlannerRenderSource, 'lBinding.Line ='),
+    'Final statement rendering must not branch on exact fixture source lines.');
+  Assert.IsFalse(ContainsText(lPlannerRenderSource,
+    'BindingRange(lBinding).StartLine ='),
+    'Final statement rendering must not branch on exact fixture source ranges.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoUsesRewriteRecipeFactsForRepresentativeHardCases;
@@ -1982,16 +2020,17 @@ begin
     'RemoveWithRewriteRecipePatches\RemoveWithRewriteRecipePatches.dproj'));
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
-    'Expected fixture-backed legacy final rewrite statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+    'Expected hard-patch fixture final statement.');
+  Assert.AreEqual('skipped', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason,
+    'Unsupported legacy patch cases must fail closed instead of using a hardcoded body.');
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)),
+    'Skipped hard-patch fixture must not expose replacement edits.');
   lRecipe := lStatement.RewriteRecipe;
-  Assert.AreEqual('legacy-final-statement-patch', lRecipe.RuleId,
-    'Line-specific replacement patches must be visible as recipe provenance.');
-  Assert.AreEqual('render-final-edits', lRecipe.RenderInstruction);
-  Assert.AreEqual(1, Integer(Length(lRecipe.TextEdits)));
-  Assert.AreEqual('replace-statement', lRecipe.TextEdits[0].Kind);
-  Assert.IsTrue(ContainsText(lRecipe.ReplacementText, 'ReadNBytes(Files[D]^.f^'),
-    'Expected controlled fixture to exercise the legacy final rewrite replacement.');
+  Assert.AreEqual('skipped', lRecipe.Status,
+    'Rewrite recipe must mirror the fail-closed statement status.');
+  Assert.AreEqual('symbol-not-found', lRecipe.Reason);
+  Assert.AreEqual(0, Integer(Length(lRecipe.TextEdits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalBodyRendererLivesBehindFocusedBoundary;

@@ -82,6 +82,9 @@
 - Remove-with skip and safety decisions no longer use proprietary filename or
   exact source-line branches; unresolved or unsafe statements now fail closed
   through generic selector and member diagnostics.
+- Remove-with final body rendering no longer uses maxTdb-specific replacement
+  body tables or filename/line post-render patches; unsupported legacy shapes
+  now remain skipped with stable reasons.
 - Remove-with maxTdb-backed plan tests are now categorized as `MaxTdbProof`
   and excluded from the ordinary focused DUnitX lane by default; the explicit
   multi-minute proof lane remains the maxTdb benchmark wrapper.
