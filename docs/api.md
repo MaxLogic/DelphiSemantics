@@ -37,18 +37,23 @@ semantic-model-only behavior and emits no LSP diagnostic. The reusable LSP unit
 still owns settings JSON construction and result normalization helpers for a
 later adapter, but no production path performs enrichment today.
 
-## Remove-With Compatibility
+## Remove-With Planning
 
 `TDelphiSemanticRemoveWithApi.PlanRemoveWith` is the stable primary planning
-route. It returns a facade-owned plan DTO with operation status, diagnostics,
-required verification, a complete statement ledger, candidate edits, and
-skipped statements. `Statements` has one row for every discovered `with`
-statement with `planned` or `skipped` status, stable reason fields, source
-range, semantic ID, and `CoveredByStatementId` when a nested statement is
-rewritten as part of a parent replacement. `SkippedStatements` mirrors the
-skipped ledger rows for report consumers that only need unresolved statements.
-It does not expose final statement DTOs, rewrite recipes, parity helpers, or
-planner internals.
+route. It is generic best-effort planning for any Delphi project: every
+discovered `with` statement is represented in the result as either planned or
+skipped. The facade-owned DTO includes operation status, diagnostics, required
+verification, a complete statement ledger, candidate edits, and skipped
+statements. `Statements` has one row for every discovered `with` statement with
+`planned` or `skipped` status, stable reason fields, source range, semantic ID,
+and `CoveredByStatementId` when a nested statement is rewritten as part of a
+parent replacement. `SkippedStatements` mirrors the skipped ledger rows for
+report consumers that only need unresolved statements. It does not expose final
+statement DTOs, rewrite recipes, parity helpers, or planner internals.
+
+Specific projects and fixtures can be used as dogfood evidence, but they must
+not become production profiles, filename/line behavior selectors, or fixed-count
+correctness gates for the planner.
 
 `TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult`
 is the failure-aware fact-build entry point. It returns `Success`, structured

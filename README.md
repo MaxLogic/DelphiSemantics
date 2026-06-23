@@ -61,6 +61,11 @@ primary remove-with DTO, and compatibility final DTOs. DAK owns command
 orchestration, source rewrite, apply/rollback, verification, reporting, and
 operator-facing telemetry.
 
+Remove-with planning is generic best-effort behavior for any Delphi project:
+every discovered `with` statement is reported as planned or skipped with stable
+reason fields, and project-specific fixtures such as maxTdb are dogfood proof
+only, not production modes or fixed-count contracts.
+
 ## Layout
 
 - `lib/DelphiAST` - parser submodule.
