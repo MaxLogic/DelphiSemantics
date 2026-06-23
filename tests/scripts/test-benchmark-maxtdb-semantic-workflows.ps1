@@ -39,9 +39,14 @@ if (`$lMode -eq 'plan') {
   [ordered]@{
     operation = 'remove-with'
     mode = 'plan'
-    summary = [ordered]@{ withStatements = 667; plannedEdits = 215 }
+    summary = [ordered]@{ withStatements = 667; plannedEdits = 215; skipped = 452 }
     withStatements = @()
-    plannedEdits = @()
+    plannedEdits = @(for (`$i = 1; `$i -le 215; `$i++) {
+      [ordered]@{ statementId = "planned-`$i" }
+    })
+    skipped = @(for (`$i = 1; `$i -le 452; `$i++) {
+      [ordered]@{ statementId = "skipped-`$i"; reason = 'symbol-not-found' }
+    })
     semanticDtoParity = [ordered]@{
       status = 'passed'
       mismatchCount = 0
@@ -74,9 +79,14 @@ if (`$lMode -eq 'plan') {
   [ordered]@{
     operation = 'remove-with'
     mode = 'plan'
-    summary = [ordered]@{ withStatements = 667; plannedEdits = 215 }
+    summary = [ordered]@{ withStatements = 667; plannedEdits = 215; skipped = 452 }
     withStatements = @()
-    plannedEdits = @()
+    plannedEdits = @(for (`$i = 1; `$i -le 215; `$i++) {
+      [ordered]@{ statementId = "planned-`$i" }
+    })
+    skipped = @(for (`$i = 1; `$i -le 452; `$i++) {
+      [ordered]@{ statementId = "skipped-`$i"; reason = 'symbol-not-found' }
+    })
     semanticDtoParity = [ordered]@{
       status = 'passed'
       mismatchCount = 0
@@ -117,9 +127,14 @@ if (`$lMode -eq 'plan') {
   `$lPlan = [ordered]@{
     operation = 'remove-with'
     mode = 'plan'
-    summary = [ordered]@{ withStatements = 667; plannedEdits = 215 }
+    summary = [ordered]@{ withStatements = 667; plannedEdits = 215; skipped = 452 }
     withStatements = @()
-    plannedEdits = @()
+    plannedEdits = @(for (`$i = 1; `$i -le 215; `$i++) {
+      [ordered]@{ statementId = "planned-`$i" }
+    })
+    skipped = @(for (`$i = 1; `$i -le 452; `$i++) {
+      [ordered]@{ statementId = "skipped-`$i"; reason = 'symbol-not-found' }
+    })
     semanticDtoParity = [ordered]@{
       status = 'passed'
       mismatchCount = 0
@@ -169,8 +184,13 @@ function New-PlanJson {
     [int]$WithCount,
     [int]$PlannedCount,
     [int]$MismatchCount,
+    [int]$SkippedCount = -1,
     [switch]$OmitMismatchCount
   )
+
+  if ($SkippedCount -lt 0) {
+    $SkippedCount = $WithCount - $PlannedCount
+  }
 
   $lParity = [ordered]@{
     status = if ($MismatchCount -eq 0) { 'passed' } else { 'failed' }
@@ -187,9 +207,15 @@ function New-PlanJson {
     summary = [ordered]@{
       withStatements = $WithCount
       plannedEdits = $PlannedCount
+      skipped = $SkippedCount
     }
     withStatements = @()
-    plannedEdits = @()
+    plannedEdits = @(for ($i = 1; $i -le $PlannedCount; $i++) {
+      [ordered]@{ statementId = "planned-$i" }
+    })
+    skipped = @(for ($i = 1; $i -le $SkippedCount; $i++) {
+      [ordered]@{ statementId = "skipped-$i"; reason = 'symbol-not-found' }
+    })
     semanticDtoParity = $lParity
     plannerPhaseMetrics = [ordered]@{
       totalMs = 1
@@ -479,10 +505,10 @@ function Test-BenchmarkHistoricalPromotionRequiresExplicitOverride {
     'Historical promotion must preserve historical provenance status.'
 }
 
-function Test-CompactPlanSummaryCountsDriveParityExport {
+function Test-CompactPlanSummaryCountsDriveDogfoodExport {
   $lWorkspace = New-TestWorkspace 'compact-summary-counts'
   $lPlanPath = Join-Path $lWorkspace 'plan.stdout.json'
-  New-PlanJson -Path $lPlanPath -WithCount 667 -PlannedCount 215 -MismatchCount 0
+  New-PlanJson -Path $lPlanPath -WithCount 12 -PlannedCount 4 -MismatchCount 0
   New-BaselineJson -Path (Join-Path $lWorkspace 'baseline.json') -Runs @(
     (New-PlanRun -Stdout $lPlanPath -Run 1)
   )
@@ -490,14 +516,24 @@ function Test-CompactPlanSummaryCountsDriveParityExport {
   $lExit = Invoke-BenchmarkSummarize -Workspace $lWorkspace
   Assert-Equal 0 $lExit 'SummarizeOnly should pass for compact plan output.'
 
-  $lParity = Get-Content -LiteralPath (Join-Path $lWorkspace 'parity.json') -Raw |
+  $lDogfood = Get-Content -LiteralPath (Join-Path $lWorkspace 'dogfood.json') -Raw |
     ConvertFrom-Json
-  Assert-Equal 667 $lParity.withStatementCount 'parity.json must use summary.withStatements.'
-  Assert-Equal 215 $lParity.plannedEditCount 'parity.json must use summary.plannedEdits.'
+  Assert-Equal 'passed' $lDogfood.status 'dogfood.json must pass for complete accounting.'
+  Assert-Equal 12 $lDogfood.latest.discoveredCount 'dogfood.json must use summary.withStatements.'
+  Assert-Equal 4 $lDogfood.latest.plannedCount 'dogfood.json must use summary.plannedEdits.'
+  Assert-Equal 8 $lDogfood.latest.skippedCount 'dogfood.json must use summary.skipped.'
+  Assert-Equal 'complete' $lDogfood.latest.completeness.status `
+    'dogfood.json must report complete statement accounting.'
+  Assert-Equal 0 $lDogfood.latest.completeness.unaccountedCount `
+    'dogfood.json must expose no unaccounted statements.'
+  $lBucket = @($lDogfood.latest.skipBuckets | Where-Object { $_.reason -eq 'symbol-not-found' })[0]
+  Assert-Equal 8 $lBucket.count 'dogfood.json must bucket skipped statements by reason.'
+  Assert-Equal 'clean' $lDogfood.latest.sourceMutationStatus `
+    'dogfood.json must preserve report-only mutation status.'
 
   $lBaseline = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.json') -Raw |
     ConvertFrom-Json
-  Assert-Equal 215 $lBaseline.results[0].ResultCount 'summary result count must use compact summary plannedEdits.'
+  Assert-Equal 4 $lBaseline.results[0].ResultCount 'summary result count must use compact summary plannedEdits.'
   Assert-Equal 'current' $lBaseline.provenance.status `
     'SummarizeOnly with matching current provenance must mark current status.'
 
@@ -507,20 +543,43 @@ function Test-CompactPlanSummaryCountsDriveParityExport {
   }
 }
 
-function Test-PlanRunCountDriftFailsClosed {
+function Test-PlanRunCountDriftIsReportedAsDogfoodEvidence {
   $lWorkspace = New-TestWorkspace 'plan-count-drift'
   $lFirstPlanPath = Join-Path $lWorkspace 'plan-1.stdout.json'
   $lSecondPlanPath = Join-Path $lWorkspace 'plan-2.stdout.json'
-  New-PlanJson -Path $lFirstPlanPath -WithCount 667 -PlannedCount 215 -MismatchCount 0
-  New-PlanJson -Path $lSecondPlanPath -WithCount 667 -PlannedCount 214 -MismatchCount 0
+  New-PlanJson -Path $lFirstPlanPath -WithCount 12 -PlannedCount 4 -MismatchCount 0
+  New-PlanJson -Path $lSecondPlanPath -WithCount 13 -PlannedCount 4 -MismatchCount 0
   New-BaselineJson -Path (Join-Path $lWorkspace 'baseline.json') -Runs @(
     (New-PlanRun -Stdout $lFirstPlanPath -Run 1),
     (New-PlanRun -Stdout $lSecondPlanPath -Run 2)
   )
 
   $lExit = Invoke-BenchmarkSummarize -Workspace $lWorkspace
+  Assert-Equal 0 $lExit 'SummarizeOnly must not fail just because dogfood counts changed.'
+
+  $lDogfood = Get-Content -LiteralPath (Join-Path $lWorkspace 'dogfood.json') -Raw |
+    ConvertFrom-Json
+  Assert-Equal 2 @($lDogfood.runs).Count 'dogfood.json must record every successful plan run.'
+  Assert-Equal 13 $lDogfood.latest.discoveredCount 'dogfood.json latest run must report current discovered count.'
+  Assert-Equal 4 $lDogfood.latest.plannedCount 'dogfood.json latest run must report current planned count.'
+  Assert-Equal 9 $lDogfood.latest.skippedCount 'dogfood.json latest run must report current skipped count.'
+}
+
+function Test-PlanRunIncompleteAccountingFailsClosed {
+  $lWorkspace = New-TestWorkspace 'plan-incomplete-accounting'
+  $lPlanPath = Join-Path $lWorkspace 'plan.stdout.json'
+  New-PlanJson -Path $lPlanPath -WithCount 12 -PlannedCount 4 -SkippedCount 7 -MismatchCount 0
+  New-BaselineJson -Path (Join-Path $lWorkspace 'baseline.json') -Runs @(
+    (New-PlanRun -Stdout $lPlanPath -Run 1)
+  )
+
+  $lExit = Invoke-BenchmarkSummarize -Workspace $lWorkspace
   if ($lExit -eq 0) {
-    throw 'SummarizeOnly must fail when any successful plan run drifts from 667/215/0.'
+    throw 'SummarizeOnly must fail when planned and skipped counts do not account for discovered statements.'
+  }
+  $lStderr = Get-Content -LiteralPath (Join-Path $lWorkspace 'summarize.stderr.txt') -Raw
+  if ($lStderr -notmatch 'accounting') {
+    throw 'Incomplete accounting failure must name the accounting problem.'
   }
 }
 

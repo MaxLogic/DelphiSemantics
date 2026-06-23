@@ -271,6 +271,23 @@ function Get-RemoveWithSummaryCount {
   return 0
 }
 
+function Get-JsonArrayCount {
+  param(
+    [object]$Json,
+    [string]$Name
+  )
+
+  if (-not ($Json.PSObject.Properties.Name -contains $Name)) {
+    return 0
+  }
+
+  if ($null -eq $Json.$Name) {
+    return 0
+  }
+
+  return @($Json.$Name).Count
+}
+
 function Read-ResultCount {
   param([string]$Path)
 
@@ -386,7 +403,35 @@ function Read-SemanticCacheMetric {
   }
 }
 
-function Export-RemoveWithPlanParityReport {
+function Get-RemoveWithSkipBuckets {
+  param([object]$Json)
+
+  if (-not ($Json.PSObject.Properties.Name -contains 'skipped') -or ($null -eq $Json.skipped)) {
+    return @()
+  }
+
+  return @($Json.skipped |
+    ForEach-Object {
+      $lReason = ''
+      if (($_.PSObject.Properties.Name -contains 'reason') -and
+          -not [string]::IsNullOrWhiteSpace([string]$_.reason)) {
+        $lReason = [string]$_.reason
+      } else {
+        $lReason = 'unknown'
+      }
+      [pscustomobject]@{ Reason = $lReason }
+    } |
+    Group-Object -Property Reason |
+    Sort-Object Name |
+    ForEach-Object {
+      [ordered]@{
+        reason = $_.Name
+        count = $_.Count
+      }
+    })
+}
+
+function Export-RemoveWithPlanDogfoodReport {
   param(
     [object[]]$RunRows,
     [string]$OutputDirectory
@@ -399,10 +444,7 @@ function Export-RemoveWithPlanParityReport {
     return
   }
 
-  $lExpectedWithStatements = 667
-  $lExpectedPlannedEdits = 215
-  $lRun = $null
-  $lJson = $null
+  $lReports = New-Object System.Collections.Generic.List[object]
   foreach ($lCandidateRun in $lPlanRuns) {
     if ([string]::IsNullOrWhiteSpace($lCandidateRun.Stdout) -or
         (-not (Test-Path -LiteralPath $lCandidateRun.Stdout -PathType Leaf))) {
@@ -429,32 +471,72 @@ function Export-RemoveWithPlanParityReport {
       -Name 'withStatements'
     $lPlannedEditCount = Get-RemoveWithSummaryCount -Json $lCandidateJson `
       -Name 'plannedEdits'
+    $lSkippedCount = Get-RemoveWithSummaryCount -Json $lCandidateJson `
+      -Name 'skipped'
+    $lPlannedArrayCount = Get-JsonArrayCount -Json $lCandidateJson -Name 'plannedEdits'
+    $lSkippedArrayCount = Get-JsonArrayCount -Json $lCandidateJson -Name 'skipped'
     $lMismatchCount = [int]$lCandidateParity.mismatchCount
-    if (($lWithStatementCount -ne $lExpectedWithStatements) -or
-        ($lPlannedEditCount -ne $lExpectedPlannedEdits) -or
-        ($lMismatchCount -ne 0)) {
-      throw ('remove-with plan parity drift in {0}: withStatements={1}, plannedEdits={2}, semanticDtoParity.mismatchCount={3}' -f
-        $lCandidateRun.Stdout, $lWithStatementCount, $lPlannedEditCount, $lMismatchCount)
+    if ($lMismatchCount -ne 0) {
+      throw ('remove-with plan semantic DTO parity failed in {0}: mismatchCount={1}' -f
+        $lCandidateRun.Stdout, $lMismatchCount)
     }
 
-    if ($null -eq $lRun) {
-      $lRun = $lCandidateRun
-      $lJson = $lCandidateJson
+    if ($lPlannedArrayCount -ne $lPlannedEditCount) {
+      throw ('remove-with plan report accounting mismatch in {0}: summary.plannedEdits={1}, plannedEdits array={2}' -f
+        $lCandidateRun.Stdout, $lPlannedEditCount, $lPlannedArrayCount)
     }
+
+    if ($lSkippedArrayCount -ne $lSkippedCount) {
+      throw ('remove-with plan report accounting mismatch in {0}: summary.skipped={1}, skipped array={2}' -f
+        $lCandidateRun.Stdout, $lSkippedCount, $lSkippedArrayCount)
+    }
+
+    $lAccountedCount = $lPlannedEditCount + $lSkippedCount
+    $lUnaccountedCount = $lWithStatementCount - $lAccountedCount
+    $lCompletenessStatus = if ($lUnaccountedCount -eq 0) { 'complete' } else { 'incomplete' }
+    if ($lUnaccountedCount -ne 0) {
+      throw ('remove-with plan accounting incomplete in {0}: discovered={1}, planned={2}, skipped={3}, unaccounted={4}' -f
+        $lCandidateRun.Stdout, $lWithStatementCount, $lPlannedEditCount, $lSkippedCount,
+        $lUnaccountedCount)
+    }
+
+    $lReports.Add([ordered]@{
+      status = 'passed'
+      run = $lCandidateRun.Run
+      cacheMode = $lCandidateRun.CacheMode
+      sourceMutationStatus = $lCandidateRun.SourceMutationStatus
+      discoveredCount = $lWithStatementCount
+      plannedCount = $lPlannedEditCount
+      skippedCount = $lSkippedCount
+      plannedArrayCount = $lPlannedArrayCount
+      skippedArrayCount = $lSkippedArrayCount
+      completeness = [ordered]@{
+        status = $lCompletenessStatus
+        accountedCount = $lAccountedCount
+        unaccountedCount = $lUnaccountedCount
+      }
+      skipBuckets = @(Get-RemoveWithSkipBuckets -Json $lCandidateJson)
+      semanticDtoParity = [ordered]@{
+        status = $lCandidateParity.status
+        mismatchCount = $lMismatchCount
+        summaryText = $lCandidateParity.summaryText
+        mismatches = $lCandidateParity.mismatches
+      }
+      source = $lCandidateRun.Stdout
+    }) | Out-Null
   }
 
-  $lParity = $lJson.semanticDtoParity
   $lReport = [ordered]@{
-    status = $lParity.status
-    withStatementCount = Get-RemoveWithSummaryCount -Json $lJson -Name 'withStatements'
-    plannedEditCount = Get-RemoveWithSummaryCount -Json $lJson -Name 'plannedEdits'
-    mismatchCount = [int]$lParity.mismatchCount
-    summaryText = $lParity.summaryText
-    mismatches = $lParity.mismatches
-    source = $lRun.Stdout
+    status = 'passed'
+    workflow = 'remove-with-plan-all'
+    mode = 'dogfood'
+    generatedAt = (Get-Date).ToString('o')
+    runCount = $lReports.Count
+    latest = $lReports[($lReports.Count - 1)]
+    runs = @($lReports.ToArray())
   }
 
-  $lReport | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'parity.json') `
+  $lReport | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'dogfood.json') `
     -Encoding UTF8
 }
 
@@ -1190,7 +1272,7 @@ if ($SummarizeOnly) {
 }
 
 $lSummary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $lJsonPath -Encoding UTF8
-Export-RemoveWithPlanParityReport -RunRows $lRunRows -OutputDirectory $lOutputDir
+Export-RemoveWithPlanDogfoodReport -RunRows $lRunRows -OutputDirectory $lOutputDir
 
 $lWarmTargetSeconds = $WarmTargetSeconds
 if (($lSummary -is [System.Collections.IDictionary]) -and $lSummary.Contains('warmTargetSeconds')) {

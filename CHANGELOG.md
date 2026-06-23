@@ -79,6 +79,9 @@
 - Remove-with planning now exposes a complete stable statement ledger for every
   discovered `with` statement, including skipped reason fields and nested
   statements covered by a parent rewrite.
+- maxTdb remove-with benchmark proof now emits a report-only `dogfood.json`
+  with discovered/planned/skipped counts, skip buckets, completeness status, and
+  source mutation status instead of enforcing fixed historical maxTdb counts.
 - Remove-with skip and safety decisions no longer use proprietary filename or
   exact source-line branches; unresolved or unsafe statements now fail closed
   through generic selector and member diagnostics.
