@@ -7,9 +7,9 @@ uses
   DelphiSemantics.Resolve;
 
 const
-  cDelphiSemanticLspEnrichmentNotImplementedCode = 'lsp.enrichment.not-implemented';
-  cDelphiSemanticLspEnrichmentNotImplementedMessage =
-    'LSP enrichment was requested, but no DelphiSemantics LSP enrichment adapter is configured.';
+  cDelphiSemanticLspEnrichmentUnsupportedCode = 'lsp.enrichment.unsupported';
+  cDelphiSemanticLspEnrichmentUnsupportedMessage =
+    'LSP enrichment is explicitly unsupported in this DelphiSemantics build.';
 
 type
   TDelphiSemanticLspOptions = record
@@ -125,7 +125,7 @@ type
       const aPosition: TDelphiSemanticLspProtocolPosition): TDelphiSemanticLspLocation; static;
     class function MakeEmptyHover: TDelphiSemanticLspHoverResult; static;
     class function MakeErrorResult(const aMessage: string): TDelphiSemanticLspResult; static;
-    class function MakeNotImplementedResult: TDelphiSemanticLspResult; static;
+    class function MakeUnsupportedResult: TDelphiSemanticLspResult; static;
     class function MakeHover(const aContents, aUri: string; const aStartLine, aStartCharacter,
       aEndLine, aEndCharacter: Integer): TDelphiSemanticLspHoverResult; static;
     class function FilePathToUri(const aPath: string): string; static;
@@ -290,7 +290,7 @@ begin
     Exit;
   end;
 
-  Result := MakeNotImplementedResult;
+  Result := MakeUnsupportedResult;
 end;
 
 procedure AddFlattenedSymbol(const aList: TList<TDelphiSemanticLspSymbol>;
@@ -424,15 +424,15 @@ begin
   Result.ErrorMessage := aMessage;
 end;
 
-class function TDelphiSemanticLspBoundary.MakeNotImplementedResult:
+class function TDelphiSemanticLspBoundary.MakeUnsupportedResult:
   TDelphiSemanticLspResult;
 begin
   Result := Default(TDelphiSemanticLspResult);
   Result.Found := False;
   Result.Authoritative := False;
-  Result.Status := 'not-implemented';
+  Result.Status := 'unsupported';
   Result.Provenance := 'lsp';
-  Result.ErrorMessage := cDelphiSemanticLspEnrichmentNotImplementedCode;
+  Result.ErrorMessage := cDelphiSemanticLspEnrichmentUnsupportedCode;
 end;
 
 class function TDelphiSemanticLspBoundary.MakeHover(const aContents, aUri: string;

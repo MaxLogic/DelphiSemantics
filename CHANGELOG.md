@@ -120,9 +120,9 @@
   contract with deterministic unknown-profile diagnostics, and DAK CLI
   validation consumes the same parser/allowed-name list.
 - `UseLspEnrichment=True` now produces the deterministic
-  `lsp.enrichment.not-implemented` project-context warning until a
-  DelphiSemantics-owned LSP enrichment adapter is wired in; the default false
-  path remains semantic-model-only.
+  `lsp.enrichment.unsupported` project-context warning while runtime LSP
+  enrichment remains unsupported; the default false path remains
+  semantic-model-only.
 - With-binding compatibility facts now project compiler and RTL intrinsic
   compatibility symbols from the shared compiler-profile seed instead of a
   local hardcoded routine/type list.
@@ -245,6 +245,8 @@
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
 - Primary remove-with planning now returns a facade-owned stable DTO and keeps
   final statement / rewrite recipe internals behind the compatibility API.
+- `UseLspEnrichment=True` now reports an explicit unsupported diagnostic instead
+  of the older placeholder diagnostic.
 
 ### Fixed
 - Legacy remove-with compatibility fact-builder overloads now fail loudly with

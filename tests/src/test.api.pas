@@ -251,7 +251,7 @@ begin
     lDisabledOptions);
 
   Assert.IsTrue(lDisabledResult.Success);
-  Assert.IsFalse(TryFindDiagnostic(lDisabledResult, 'lsp.enrichment.not-implemented',
+  Assert.IsFalse(TryFindDiagnostic(lDisabledResult, 'lsp.enrichment.unsupported',
     lDiagnostic), 'UseLspEnrichment=False must keep semantic-model-only behavior.');
 
   lEnabledOptions := lDisabledOptions;
@@ -261,11 +261,11 @@ begin
     lEnabledOptions);
 
   Assert.IsTrue(lEnabledResult.Success);
-  Assert.IsTrue(TryFindDiagnostic(lEnabledResult, 'lsp.enrichment.not-implemented',
+  Assert.IsTrue(TryFindDiagnostic(lEnabledResult, 'lsp.enrichment.unsupported',
     lDiagnostic), 'UseLspEnrichment=True must return an explicit enrichment diagnostic.');
   Assert.AreEqual(dsWarning, lDiagnostic.Severity);
   Assert.AreEqual(lProjectFileName, lDiagnostic.FileName);
-  Assert.AreEqual('LSP enrichment was requested, but no DelphiSemantics LSP enrichment adapter is configured.',
+  Assert.AreEqual('LSP enrichment is explicitly unsupported in this DelphiSemantics build.',
     lDiagnostic.Message);
 end;
 

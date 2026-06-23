@@ -14,7 +14,7 @@ type
     [Test]
     procedure LspEnrichmentIsDisabledByDefault;
     [Test]
-    procedure EnabledDefinitionEnrichmentReportsMissingAdapter;
+    procedure EnabledDefinitionEnrichmentReportsUnsupportedContract;
     [Test]
     procedure SemanticResultsRemainAuthoritativeByDefault;
     [Test]
@@ -61,7 +61,7 @@ begin
   Assert.AreEqual('', lResult.Provenance);
 end;
 
-procedure TLspBoundaryTests.EnabledDefinitionEnrichmentReportsMissingAdapter;
+procedure TLspBoundaryTests.EnabledDefinitionEnrichmentReportsUnsupportedContract;
 var
   lLocation: TDelphiSemanticLspLocation;
   lOptions: TDelphiSemanticLspOptions;
@@ -77,9 +77,9 @@ begin
 
   Assert.IsFalse(lResult.Found);
   Assert.IsFalse(lResult.Authoritative);
-  Assert.AreEqual('not-implemented', lResult.Status);
+  Assert.AreEqual('unsupported', lResult.Status);
   Assert.AreEqual('lsp', lResult.Provenance);
-  Assert.AreEqual('lsp.enrichment.not-implemented', lResult.ErrorMessage);
+  Assert.AreEqual('lsp.enrichment.unsupported', lResult.ErrorMessage);
 end;
 
 procedure TLspBoundaryTests.SemanticResultsRemainAuthoritativeByDefault;

@@ -1466,8 +1466,8 @@ begin
     Exit;
 
   AddDiagnostic(aDiagnostics, CreateWarningDiagnostic(
-    cDelphiSemanticLspEnrichmentNotImplementedCode,
-    cDelphiSemanticLspEnrichmentNotImplementedMessage, aProjectFileName));
+    cDelphiSemanticLspEnrichmentUnsupportedCode,
+    cDelphiSemanticLspEnrichmentUnsupportedMessage, aProjectFileName));
 end;
 
 class function TDelphiSemanticProject.Load(const aFileName: string): TDelphiSemanticContextResult;

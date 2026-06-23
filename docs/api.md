@@ -30,11 +30,12 @@ caller wants persistent SQLite-backed reuse.
 
 ## LSP Enrichment
 
-`UseLspEnrichment` is an explicit opt-in boundary. Until a DelphiSemantics-owned
-LSP enrichment adapter is wired into the facade, project-context loading returns
-the warning diagnostic `lsp.enrichment.not-implemented` when the flag is set.
-Leaving the flag false keeps the semantic-model-only behavior and emits no LSP
-diagnostic.
+`UseLspEnrichment` is an explicit opt-in boundary, but LSP enrichment is
+currently unsupported in this DelphiSemantics build. Setting the flag returns
+the warning diagnostic `lsp.enrichment.unsupported`; leaving it false keeps the
+semantic-model-only behavior and emits no LSP diagnostic. The reusable LSP unit
+still owns settings JSON construction and result normalization helpers for a
+future adapter, but no production path performs enrichment today.
 
 ## Remove-With Compatibility
 
