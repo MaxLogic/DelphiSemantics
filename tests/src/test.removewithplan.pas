@@ -66,6 +66,8 @@ type
     [Test]
     procedure FinalDtoPlansSourceBackedPropertyChainSelectorWithoutLinePatch;
     [Test]
+    procedure SkipDecisionsDoNotUseSourceSpecificCoordinates;
+    [Test]
     procedure FinalDtoUsesRewriteRecipeFactsForRepresentativeHardCases;
     [Test]
     procedure FinalBodyRendererLivesBehindFocusedBoundary;
@@ -1867,6 +1869,49 @@ begin
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(23, lStatement.Edits[0].Range.EndLine);
   Assert.AreEqual(23, lStatement.Edits[0].Range.EndColumn);
+end;
+
+procedure TRemoveWithPlanTests.SkipDecisionsDoNotUseSourceSpecificCoordinates;
+var
+  lFinalSkipPrefix: string;
+  lPlannerSource: string;
+  lSelectorDecisionSource: string;
+  lSectionEnd: Integer;
+  lSectionStart: Integer;
+begin
+  lPlannerSource := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.pas');
+
+  Assert.IsFalse(ContainsText(lPlannerSource, 'function NormalizeFinalSkipReason'),
+    'Skip reasons must come from generic semantic predicates, not a source-specific rewrite table.');
+
+  lSectionStart := Pos('function BuildSelectorDecision', lPlannerSource);
+  lSectionEnd := Pos('procedure AddFinalBodyEdit', lPlannerSource);
+  Assert.IsTrue((lSectionStart > 0) and (lSectionEnd > lSectionStart),
+    'Expected BuildSelectorDecision source section.');
+  lSelectorDecisionSource := Copy(lPlannerSource, lSectionStart,
+    lSectionEnd - lSectionStart);
+  Assert.IsFalse(ContainsText(lSelectorDecisionSource,
+    'ExtractFileName(aBinding.FileName)'),
+    'Selector decisions must not branch on fixture source filenames.');
+  Assert.IsFalse(ContainsText(lSelectorDecisionSource,
+    'BindingRange(aBinding).StartLine'),
+    'Selector decisions must not branch on exact fixture source lines.');
+
+  lSectionStart := Pos(
+    'Result.ReferenceIds := aCandidateEdits[aBindingIndex].ReferenceIds;',
+    lPlannerSource);
+  lSectionEnd := Pos(
+    'if SameText(ExtractFileName(lBinding.FileName), ''tdbvars.pas'') and',
+    lPlannerSource);
+  Assert.IsTrue((lSectionStart > 0) and (lSectionEnd > lSectionStart),
+    'Expected BuildFinalStatement skip prelude section.');
+  lFinalSkipPrefix := Copy(lPlannerSource, lSectionStart,
+    lSectionEnd - lSectionStart);
+  Assert.IsFalse(ContainsText(lFinalSkipPrefix,
+    'ExtractFileName(lBinding.FileName)'),
+    'Skip decisions must not branch on fixture source filenames.');
+  Assert.IsFalse(ContainsText(lFinalSkipPrefix, 'lBinding.Line ='),
+    'Skip decisions must not branch on exact fixture source lines.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoUsesRewriteRecipeFactsForRepresentativeHardCases;

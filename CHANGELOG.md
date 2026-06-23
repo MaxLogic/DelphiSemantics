@@ -79,6 +79,9 @@
 - Remove-with planning now exposes a complete stable statement ledger for every
   discovered `with` statement, including skipped reason fields and nested
   statements covered by a parent rewrite.
+- Remove-with skip and safety decisions no longer use proprietary filename or
+  exact source-line branches; unresolved or unsafe statements now fail closed
+  through generic selector and member diagnostics.
 - Remove-with maxTdb-backed plan tests are now categorized as `MaxTdbProof`
   and excluded from the ordinary focused DUnitX lane by default; the explicit
   multi-minute proof lane remains the maxTdb benchmark wrapper.

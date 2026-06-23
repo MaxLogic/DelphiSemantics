@@ -2177,93 +2177,6 @@ begin
     aReason := 'call-selector';
     Exit;
   end;
-  if SameText(aSelectorText, 'Context') and
-    SameText(ExtractFileName(aBinding.FileName), 'md5.pas') and
-    (BindingRange(aBinding).StartLine = 237) then
-  begin
-    aDecision.Strategy := 'direct-qualification';
-    aDecision.QualifierText := aSelectorText;
-    aDecision.ReceiverType := 'TMD5Context';
-    aDecision.Reason := 'record-direct-qualification';
-    Exit(True);
-  end;
-  if SameText(aSelectorText, 'RamText') and
-    SameText(ExtractFileName(aBinding.FileName), 'ramfiles.pas') and
-    MatchText(IntToStr(BindingRange(aBinding).StartLine),
-      ['249', '307', '323', '586', '666']) then
-  begin
-    aDecision.Strategy := 'record-pointer-temp';
-    aDecision.ReceiverType := 'TRamText';
-    aDecision.TempName := ReservedTempName(aFacts, aReservedNames,
-      aBinding.RoutineName, 'lWithRamTextPtr');
-    aDecision.QualifierText := aDecision.TempName + '^';
-    aDecision.DeclarationText := aDecision.TempName + ': ^TRamText;';
-    aDecision.InitializationText := aDecision.TempName + ' := @RamText;';
-    aDecision.Reason := 'record-pointer-preserves-alias';
-    Exit(True);
-  end;
-  if SameText(aSelectorText, 'rt') and
-    SameText(ExtractFileName(aBinding.FileName), 'ramfiles.pas') and
-    MatchText(IntToStr(BindingRange(aBinding).StartLine), ['456', '1049', '1398', '1421']) then
-  begin
-    aDecision.Strategy := 'record-pointer-temp';
-    aDecision.ReceiverType := 'TRamText';
-    aDecision.TempName := ReservedTempName(aFacts, aReservedNames,
-      aBinding.RoutineName, 'lWithRamTextPtr');
-    aDecision.QualifierText := aDecision.TempName + '^';
-    aDecision.DeclarationText := aDecision.TempName + ': ^TRamText;';
-    aDecision.InitializationText := aDecision.TempName + ' := @rt;';
-    aDecision.Reason := 'record-pointer-preserves-alias';
-    Exit(True);
-  end;
-  if SameText(aSelectorText, 'CGIBuffer') and
-    SameText(ExtractFileName(aBinding.FileName), 'ramfiles.pas') and
-    MatchText(IntToStr(BindingRange(aBinding).StartLine), ['295', '478']) then
-  begin
-    aDecision.Strategy := 'direct-qualification';
-    aDecision.QualifierText := aSelectorText;
-    aDecision.ReceiverType := 'TRamText';
-    aDecision.Reason := 'unit-level-pure-selector';
-    Exit(True);
-  end;
-  if SameText(aSelectorText, 'RamTextSave[1]') and
-    SameText(ExtractFileName(aBinding.FileName), 'ramfiles.pas') and
-    (BindingRange(aBinding).StartLine = 1602) then
-  begin
-    aDecision.Strategy := 'direct-qualification';
-    aDecision.QualifierText := aSelectorText;
-    aDecision.ReceiverType := 'TRamTextSaveItem';
-    aDecision.Reason := 'indexed-record-direct-qualification';
-    Exit(True);
-  end;
-  if SameText(aSelectorText, 'VarList[Vnr]') and
-    SameText(ExtractFileName(aBinding.FileName), 'strfuncs.pas') and
-    (BindingRange(aBinding).StartLine = 2794) then
-  begin
-    aDecision.Strategy := 'record-pointer-temp';
-    aDecision.ReceiverType := 'EasyVar';
-    aDecision.TempName := ReservedTempName(aFacts, aReservedNames,
-      aBinding.RoutineName, 'lWithEasyVarPtr');
-    aDecision.QualifierText := aDecision.TempName + '^';
-    aDecision.DeclarationText := aDecision.TempName + ': ^EasyVar;';
-    aDecision.InitializationText := aDecision.TempName + ' := @VarList[Vnr];';
-    aDecision.Reason := 'record-pointer-preserves-alias';
-    Exit(True);
-  end;
-  if SameText(aSelectorText, 'VarList[i]') and
-    SameText(ExtractFileName(aBinding.FileName), 'tdbvars.pas') and
-    (BindingRange(aBinding).StartLine = 663) then
-  begin
-    aDecision.Strategy := 'record-pointer-temp';
-    aDecision.ReceiverType := 'EasyVar';
-    aDecision.TempName := ReservedTempName(aFacts, aReservedNames,
-      aBinding.RoutineName, 'lWithEasyVarPtr');
-    aDecision.QualifierText := aDecision.TempName + '^';
-    aDecision.DeclarationText := aDecision.TempName + ': ^EasyVar;';
-    aDecision.InitializationText := aDecision.TempName + ' := @VarList[i];';
-    aDecision.Reason := 'record-pointer-preserves-alias';
-    Exit(True);
-  end;
   if ContainsText(aSelectorText, '.') then
   begin
     lHasNestedWith := BindingBodyContainsNestedWith(aBinding, aLineCache);
@@ -2318,21 +2231,6 @@ begin
   end;
 
   lTypeSuffix := RemoveLeadingTypePrefix(aDecision.ReceiverType);
-  if SameText(aSelectorText, 'Sel') and ContainsText(aBinding.SelectorText, 'sl^') and
-    (BindingRange(aBinding).StartLine = 1491) then
-  begin
-    aReason := 'selector-type-not-resolved';
-    Exit;
-  end;
-  if SameText(aSelectorText, 'Sel') and ContainsText(aBinding.SelectorText, 'sl^') and
-    ((BindingRange(aBinding).StartLine = 1503) or
-    (BindingRange(aBinding).StartLine = 1518)) then
-  begin
-    aDecision.Strategy := 'direct-qualification';
-    aDecision.QualifierText := 'sl^.Sel';
-    aDecision.Reason := 'dependent-pointer-selector-direct-qualification';
-    Exit(True);
-  end;
   if TypeIsClassLike(aFacts, aDecision.ReceiverType) then
   begin
     lBaseName := 'lWith' + lTypeSuffix;
@@ -3653,9 +3551,6 @@ begin
   if not PrepareFinalBodyText(aFacts, aBinding, aVisibleDecisions,
     aNestedReplacements, aLineCache, lControlledStatement, lBodyText, aReason) then
   begin
-    if SameText(aReason, 'symbol-not-found') and
-      (aBinding.Line = 597) and SameText(aBinding.SelectorText, 'DBF') then
-      aReason := 'receiver-member-not-found';
     Exit;
   end;
 
@@ -3767,119 +3662,6 @@ begin
     Result := LowerCase(StringReplace(aBinding.SkipReason, '_', '-', [rfReplaceAll]))
   else
     Result := 'semantic-binding-skipped';
-end;
-
-function NormalizeFinalSkipReason(const aBinding: TDelphiSemanticWithBinding;
-  const aReason: string): string;
-var
-  lRange: TDelphiSemanticRemoveWithSourceRange;
-begin
-  Result := aReason;
-  lRange := BindingRange(aBinding);
-  if SameText(aReason, 'symbol-not-found') and (lRange.StartLine = 597) and
-    SameText(aBinding.SelectorText, 'DBF') then
-    Result := 'receiver-member-not-found';
-  if SameText(aReason, 'symbol-not-found') and
-    SameText(ExtractFileName(aBinding.FileName), 'TDB00.indexUtils.pas') and
-    (lRange.StartLine = 195) and SameText(aBinding.SelectorText, 'D') then
-    Result := 'selector-type-not-resolved';
-  if SameText(aReason, 'symbol-not-found') and
-    SameText(ExtractFileName(aBinding.FileName), 'TDB00.indexUtils.pas') and
-    (lRange.StartLine = 223) and
-    SameText(aBinding.SelectorText, 'DF[D]^, IndFiles[INr]^') then
-    Result := 'receiver-member-not-found';
-  if SameText(aReason, 'symbol-not-found') and
-    SameText(ExtractFileName(aBinding.FileName), 'TDB00.indexUtils.pas') and
-    (lRange.StartLine = 1117) and SameText(aBinding.SelectorText, 'DF[D]^') then
-    Result := 'receiver-member-not-found';
-  if SameText(aReason, 'symbol-not-found') and (lRange.StartLine = 1173) and
-    SameText(aBinding.SelectorText, 'Maske[Nr]^') then
-    Result := 'selector-type-not-resolved';
-  if SameText(aReason, 'symbol-not-found') and (lRange.StartLine = 1417) and
-    SameText(aBinding.SelectorText, 'Mask[Nr]^') then
-    Result := 'selector-type-not-resolved';
-  if SameText(aReason, 'symbol-not-found') and (lRange.StartLine = 1491) and
-    ContainsText(aBinding.SelectorText, 'sl^') and
-    ContainsText(aBinding.SelectorText, 'Sel') then
-    Result := 'selector-type-not-resolved';
-  if SameText(aReason, 'property-selector') and (lRange.StartLine = 1532) and
-    SameText(aBinding.SelectorText, 'p^.Sel') then
-    Result := 'member-not-found';
-  if SameText(aReason, 'property-selector') and (lRange.StartLine = 1632) and
-    SameText(aBinding.SelectorText, 'DF[d]^.Maske[Nr]^') then
-    Result := 'symbol-not-found';
-  if SameText(aReason, 'property-selector') and
-    SameText(ExtractFileName(aBinding.FileName), 'TDB02.pas') and
-    ((lRange.StartLine = 2883) or (lRange.StartLine = 2906)) and
-    SameText(aBinding.SelectorText, 'VarList[Nr].VarCont^') then
-    Result := 'symbol-not-found';
-  if SameText(aReason, 'cast-selector') and
-    SameText(ExtractFileName(aBinding.FileName), 'TDB02.pas') and
-    (lRange.StartLine = 3026) and
-    SameText(aBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
-    Result := 'symbol-not-found';
-  if SameText(aReason, 'cast-selector') and
-    SameText(ExtractFileName(aBinding.FileName), 'tdbvars.pas') and
-    (lRange.StartLine = 1450) and
-    SameText(aBinding.SelectorText, 'ArrayVarRecPtr(VarList[Nr].VarCont)^') then
-    Result := 'symbol-not-found';
-  if SameText(aReason, 'property-selector') and (lRange.StartLine = 2290) and
-    SameText(aBinding.SelectorText, 'DF[d]^.MarkListe') then
-    Result := 'receiver-member-not-found';
-  if SameText(aReason, 'symbol-not-found') and
-    ((aBinding.Line = 2296) or SameText(aBinding.RoutineName, 'CheckMarkList')) and
-    SameText(aBinding.SelectorText, 'p^') then
-    Result := 'receiver-member-not-found';
-  if SameText(aReason, 'symbol-not-found') and
-    SameText(ExtractFileName(aBinding.FileName), 'deklarat.pas') and
-    SameText(aBinding.SelectorText, 'p^') then
-    Result := 'receiver-member-not-found';
-  if SameText(aReason, 'property-selector') and (lRange.StartLine = 1715) and
-    SameText(aBinding.SelectorText, 'DF[DB].Maske[field]^') then
-    Result := 'symbol-not-found';
-  if SameText(aReason, 'receiver-member-not-found') and
-    SameText(ExtractFileName(aBinding.FileName), 'FileIO.pas') and
-    (lRange.StartLine = 853) and SameText(aBinding.SelectorText, 'security') then
-    Result := 'type-source-not-indexed';
-  if SameText(aReason, 'receiver-member-not-found') and (lRange.StartLine = 833) and
-    ContainsText(aBinding.SelectorText, 'DBF') and
-    ContainsText(aBinding.SelectorText, 'Struktur') then
-    Result := 'selector-type-not-resolved';
-  if SameText(aReason, 'selector-type-not-resolved') and
-    (lRange.StartLine = 969) and SameText(aBinding.SelectorText, 'M[i]^') then
-    Result := 'symbol-not-found';
-  if SameText(aReason, 'selector-type-not-resolved') and
-    SameText(ExtractFileName(aBinding.FileName), 'TDB00.indexUtils.pas') and
-    (lRange.StartLine = 1587) and
-    SameText(aBinding.SelectorText, 'Maske[Feld AND $7FFF]^') then
-    Result := 'symbol-not-found';
-  if SameText(aReason, 'symbol-not-found') and
-    SameText(ExtractFileName(aBinding.FileName), 'linkfile.pas') and
-    (((lRange.StartLine = 446) and SameText(aBinding.SelectorText, 'DF[D]^')) or
-    ((lRange.StartLine = 450) and SameText(aBinding.SelectorText, 'Maske[j]^'))) then
-    Result := 'receiver-member-not-found';
-  if SameText(aReason, 'selector-type-not-resolved') and
-    SameText(ExtractFileName(aBinding.FileName), 'tdb01.pas') and
-    (lRange.StartLine = 343) and SameText(aBinding.SelectorText, 'DF[d]^') then
-    Result := 'symbol-not-found';
-  if SameText(aReason, 'type-source-not-indexed') and
-    SameText(ExtractFileName(aBinding.FileName), 'tdb01.pas') and
-    (((lRange.StartLine = 870) and SameText(aBinding.SelectorText, 'RelRec')) or
-    ((lRange.StartLine = 1022) and SameText(aBinding.SelectorText, 'DF[lf]^'))) then
-    Result := 'symbol-not-found';
-  if SameText(aReason, 'symbol-not-found') and
-    SameText(ExtractFileName(aBinding.FileName), 'tdbvars.pas') and
-    (lRange.StartLine = 592) and SameText(aBinding.SelectorText, 'pl^') then
-    Result := 'receiver-member-not-found';
-  if SameText(aReason, 'symbol-not-found') and
-    SameText(ExtractFileName(aBinding.FileName), 'tdbvars.pas') and
-    (lRange.StartLine = 1622) and SameText(aBinding.SelectorText, 'p^, ArrayVar') then
-    Result := 'selector-type-not-resolved';
-  if SameText(aReason, 'property-selector') and
-    SameText(ExtractFileName(aBinding.FileName), 'tdbvars.pas') and
-    (lRange.StartLine = 1401) and
-    SameText(aBinding.SelectorText, 'VarList[Nr].VarCont^') then
-    Result := 'symbol-not-found';
 end;
 
 function TryFinalReadNBytesFileSizePatch(const aBinding:
@@ -4215,327 +3997,6 @@ begin
   Result.Range := BindingRange(lBinding);
   Result.Verification := FinalVerification(aCandidateEdits[aBindingIndex]);
   Result.ReferenceIds := aCandidateEdits[aBindingIndex].ReferenceIds;
-  if SameText(ExtractFileName(lBinding.FileName), 'FileIO.pas') and
-    (lBinding.Line = 715) and SameText(lBinding.SelectorText, '_SR') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
-    (lBinding.Line = 138) and SameText(lBinding.SelectorText, 'f') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'type-source-not-indexed';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
-    ((lBinding.Line = 155) or (lBinding.Line = 173)) and
-    SameText(lBinding.SelectorText, 'fptr^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
-    SameText(lBinding.SelectorText, 'f') and
-    MatchText(IntToStr(lBinding.Line), ['266', '315', '382', '603']) then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'selector-type-not-resolved';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
-    SameText(lBinding.SelectorText, 'v_handle_ptr^') and
-    MatchText(IntToStr(lBinding.Line), ['272', '330', '386', '608']) then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'selector-type-not-resolved';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
-    (lBinding.Line = 398) and SameText(lBinding.SelectorText, 'f') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'receiver-member-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'lowFiles.pas') and
-    (lBinding.Line = 351) and SameText(lBinding.SelectorText, 'f') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'type-source-not-indexed';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
-    (lBinding.Line = 147) and SameText(lBinding.SelectorText, 'rt') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'receiver-member-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
-    (lBinding.Line = 267) and SameText(lBinding.SelectorText, 'RamText') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
-    (lBinding.Line = 544) and SameText(lBinding.SelectorText, 'RamText') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
-    (lBinding.Line = 608) and SameText(lBinding.SelectorText, 'RamText') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
-    (lBinding.Line = 688) and SameText(lBinding.SelectorText, 'f') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'type-source-not-indexed';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
-    SameText(lBinding.SelectorText, 'f') and
-    MatchText(IntToStr(lBinding.Line), ['704', '719', '737', '757', '774']) then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'type-source-not-indexed';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'ramfiles.pas') and
-    (lBinding.Line = 1116) and SameText(lBinding.SelectorText, 'RamTextSave[1 + i]') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'strfuncs.pas') and
-    (lBinding.Line = 806) and SameText(lBinding.SelectorText, 'Maske[1]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'strfuncs.pas') and
-    (lBinding.Line = 830) and SameText(lBinding.SelectorText, 'DF[d]^, Ind') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'strfuncs.pas') and
-    (lBinding.Line = 2003) and SameText(lBinding.SelectorText, 'DF[d]^.Maske[s_i]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'strfuncs.pas') and
-    (lBinding.Line = 2717) and SameText(lBinding.SelectorText, 'DF[g_Index_File]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
-    (lBinding.Line = 208) and SameText(lBinding.SelectorText, 'IndFiles[INr]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'selector-type-not-resolved';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
-    (lBinding.Line = 298) and SameText(lBinding.SelectorText, 'DF[D]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
-    (lBinding.Line = 648) and SameText(lBinding.SelectorText, 'g^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
-    MatchText(IntToStr(lBinding.Line), ['1063', '1067', '1073', '1078',
-    '1090', '1094', '1101']) then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'selector-type-not-resolved';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
-    (lBinding.Line = 1203) and
-    SameText(lBinding.SelectorText, 'DF[D]^, IndFiles[Nr]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'TDB00.indexUtils.pas') and
-    (((lBinding.Line = 1420) and
-    SameText(lBinding.SelectorText, 'DF[D]^, IndFiles[ID]^')) or
-    ((lBinding.Line = 1423) and SameText(lBinding.SelectorText, 'IV[1]'))) then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'receiver-member-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'tdb01.pas') and
-    (lBinding.Line = 343) and SameText(lBinding.SelectorText, 'DF[d]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
-    (lBinding.Line = 114) and SameText(lBinding.SelectorText, 'DF[D]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'receiver-member-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
-    (lBinding.Line = 137) and SameText(lBinding.SelectorText, 'MB') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
-    (lBinding.Line = 167) and SameText(lBinding.SelectorText, 'DF[D]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'receiver-member-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
-    (lBinding.Line = 196) and SameText(lBinding.SelectorText, 'DF[D]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
-    (lBinding.Line = 297) and SameText(lBinding.SelectorText, 'DF[D]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'receiver-member-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
-    (lBinding.Line = 311) and SameText(lBinding.SelectorText, 'TM') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'receiver-member-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
-    (lBinding.Line = 511) and SameText(lBinding.SelectorText, 'DF[D]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'winblobs.pas') and
-    (lBinding.Line = 514) and SameText(lBinding.SelectorText, 'DF[D]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'winmemos.pas') and
-    (lBinding.Line = 184) and SameText(lBinding.SelectorText, 'DF[D]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'receiver-member-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'winmemos.pas') and
-    (lBinding.Line = 299) and SameText(lBinding.SelectorText, 'DF[D]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'receiver-member-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'winmemos.pas') and
-    (lBinding.Line = 445) and SameText(lBinding.SelectorText, 'DF[D]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'symbol-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'winmemos.pas') and
-    (lBinding.Line = 766) and SameText(lBinding.SelectorText, 'DF[D]^') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'receiver-member-not-found';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
-    (lBinding.Line = 1503) and
-    SameText(lBinding.SelectorText, 'VarList[MaxVars + i]') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'temp-declaration-requires-routine-var-section';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
-  if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
-    (lBinding.Line = 1622) and SameText(lBinding.SelectorText, 'p^, ArrayVar') then
-  begin
-    Result.Status := 'skipped';
-    Result.Reason := 'selector-type-not-resolved';
-    Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
   if SameText(ExtractFileName(lBinding.FileName), 'tdbvars.pas') and
     (lBinding.Line = 1514) and SameText(lBinding.SelectorText, 'VarCont^') then
   begin
@@ -8264,7 +7725,7 @@ begin
   if BindingFactSkipReason(aFacts, lBinding, aLineCache, lReason) then
   begin
     Result.Status := 'skipped';
-    Result.Reason := NormalizeFinalSkipReason(lBinding, lReason);
+    Result.Reason := lReason;
     Result.SafetyReason := Result.Reason;
     Exit;
   end;
@@ -8282,9 +7743,6 @@ begin
         lBinding.RoutineName, lSelectorDecisions);
       Result.Status := 'skipped';
       Result.Reason := 'symbol-not-found';
-      if SameText(ExtractFileName(lBinding.FileName), 'deklarat.pas') and
-        SameText(lSelector.SelectorText, 'p^') then
-        Result.Reason := 'receiver-member-not-found';
       Result.SafetyReason := Result.Reason;
       Exit;
     end;
@@ -8294,10 +7752,7 @@ begin
       RollbackReservedTempNamesForDecisions(aReservedNames,
         lBinding.RoutineName, lSelectorDecisions);
       Result.Status := 'skipped';
-      Result.Reason := NormalizeFinalSkipReason(lBinding, lReason);
-      if SameText(aStatementId, 'with-72') and
-        SameText(Result.Reason, 'symbol-not-found') then
-        Result.Reason := 'receiver-member-not-found';
+      Result.Reason := lReason;
       Result.SafetyReason := Result.Reason;
       Exit;
     end;
@@ -8311,16 +7766,6 @@ begin
       lDecision.DeclarationText := '';
       lDecision.InitializationText := '';
       lDecision.QualifierText := lSelectorQualifierText;
-      lDecision.Reason := 'dependent-selector-direct-qualification';
-    end else if SameText(lBinding.SelectorText, 'sl^, Sel') and
-      SameText(lSelector.SelectorText, 'Sel') and
-      ((lBinding.Line = 1503) or (lBinding.Line = 1518)) then
-    begin
-      lDecision.Strategy := 'direct-qualification';
-      lDecision.TempName := '';
-      lDecision.DeclarationText := '';
-      lDecision.InitializationText := '';
-      lDecision.QualifierText := 'sl^.Sel';
       lDecision.Reason := 'dependent-selector-direct-qualification';
     end else if SameText(lDecision.Strategy, 'direct-qualification') and
       DependentSelectorQualifier(aFacts, aInheritedDecisions, lSelector.SelectorText,
@@ -8485,7 +7930,7 @@ begin
       RollbackReservedTempNamesForFinalTemps(aReservedNames,
         lBinding.RoutineName, Result.Temps);
       Result.Status := 'skipped';
-      Result.Reason := NormalizeFinalSkipReason(lBinding, lReason);
+      Result.Reason := lReason;
       Result.SafetyReason := Result.Reason;
       Exit;
     end;
