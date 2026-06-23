@@ -63,7 +63,7 @@ operator-facing telemetry.
 
 Remove-with planning is generic best-effort behavior for any Delphi project:
 every discovered `with` statement is reported as planned or skipped with stable
-reason fields, and project-specific fixtures such as maxTdb are dogfood proof
+reason fields, and project-specific fixtures are dogfood proof
 only, not production modes or fixed-count contracts.
 
 ## Layout
@@ -75,9 +75,9 @@ only, not production modes or fixed-count contracts.
 
 ## Smoke Tests
 
-- [maxTdb remove-with smoke](docs/smoke-tests.md#maxtdb-remove-with-smoke)
+- [proprietary fixture remove-with smoke](docs/smoke-tests.md#proprietary-fixture-remove-with-smoke)
   documents the clone-based DAK verification command. It must never run apply
   mode against the original read-only fixture.
 - [migration gate](docs/migration-gate.md) runs DelphiSemantics tests, DAK
-  remove-with tests, and the cloned maxTdb smoke in the migration proof order.
+  remove-with tests, and the cloned proprietary fixture smoke in the migration proof order.
   Use `run-migration-gate.bat --skip-build` for the repo-root Windows wrapper.

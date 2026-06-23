@@ -1,8 +1,8 @@
 # Smoke Tests
 
-## maxTdb Remove-With Smoke
+## Proprietary Fixture Remove-With Smoke
 
-The `maxTdb` fixture under DelphiAIKit is read-only. Always clone it before
+The proprietary fixture under DelphiAIKit is read-only. Always clone it before
 running `remove-with` in apply mode.
 
 Run this from PowerShell:
@@ -10,9 +10,9 @@ Run this from PowerShell:
 ```powershell
 Set-Location F:\projects\MaxLogic\DelphiAiKit
 
-$src = 'F:\projects\MaxLogic\DelphiAiKit\tests\fixtures\test-projects\maxTdb'
-$dst = Join-Path $env:TEMP 'dak-maxtdb-remove-with-smoke'
-$report = Join-Path $env:TEMP 'dak-maxtdb-remove-with-smoke.json'
+$src = 'F:\projects\MaxLogic\DelphiAiKit\tests\fixtures\test-projects\<proprietary-fixture>'
+$dst = Join-Path $env:TEMP 'dak-proprietary-fixture-remove-with-smoke'
+$report = Join-Path $env:TEMP 'dak-proprietary-fixture-remove-with-smoke.json'
 $tempRoot = [IO.Path]::GetFullPath($env:TEMP)
 
 if (Test-Path -LiteralPath $dst) {
@@ -26,7 +26,7 @@ if (Test-Path -LiteralPath $dst) {
 Copy-Item -LiteralPath $src -Destination $dst -Recurse -Force
 
 bin\DelphiAIKit.exe remove-with `
-  --project (Join-Path $dst 'src\maxtdb.dproj') `
+  --project (Join-Path $dst 'src\<fixture>.dproj') `
   --all `
   --mode apply `
   --format json `

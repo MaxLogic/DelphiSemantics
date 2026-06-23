@@ -1,0 +1,77 @@
+{
+  "name": "proprietary fixture semantic workflow benchmark",
+  "startedAt": "2026-05-23T17:54:08.5142197+02:00",
+  "completedAt": "2026-05-23T17:54:17.1574254+02:00",
+  "elapsedSeconds": 8.643,
+  "dakExe": "F:\\projects\\MaxLogic\\DelphiAiKit\\bin\\DelphiAIKit.exe",
+  "project": "F:\\projects\\MaxLogic\\DelphiAiKit\\tests\\fixtures\\test-projects\\proprietary fixture\\src\\<fixture>.dpr",
+  "repeat": 3,
+  "cacheModes": [
+    "warm"
+  ],
+  "cacheDirectory": "F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\semantic-cache",
+  "machine": "PAWEL3",
+  "delphiSemanticsSha": "312d170f5a20a5fc8bb0caab1bb2a7c481a571fe",
+  "dakSha": "d746dc6c46cddce7e573c72739b4114784b48228",
+  "results": {
+    "Id": "rename-dry-run-allfiles",
+    "Feature": "rename",
+    "Description": "Dry-run rename plan for routine AllFiles",
+    "CacheMode": "warm",
+    "Runs": 3,
+    "Status": "passed",
+    "ExitCode": 0,
+    "MedianSeconds": 2.849,
+    "MinSeconds": 2.84,
+    "MaxSeconds": 2.871,
+    "ResultCount": "4",
+    "Command": "F:\\projects\\MaxLogic\\DelphiAiKit\\bin\\DelphiAIKit.exe rename --project F:\\projects\\MaxLogic\\DelphiAiKit\\tests\\fixtures\\test-projects\\proprietary fixture\\src\\<fixture>.dpr --symbol AllFiles --new-name BenchmarkRenameAllFiles --format json --semantic-cache F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\semantic-cache\\unit-models.sqlite3"
+  },
+  "runs": [
+    {
+      "Id": "rename-dry-run-allfiles",
+      "Run": 1,
+      "Feature": "rename",
+      "Description": "Dry-run rename plan for routine AllFiles",
+      "CacheMode": "warm",
+      "CacheDirectory": "F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\semantic-cache",
+      "Status": "passed",
+      "ExitCode": 0,
+      "ElapsedSeconds": 2.871,
+      "ResultCount": "4",
+      "Stdout": "F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\rename-dry-run-allfiles-warm-run1.stdout.json",
+      "Stderr": "F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\rename-dry-run-allfiles-warm-run1.stderr.txt",
+      "Command": "F:\\projects\\MaxLogic\\DelphiAiKit\\bin\\DelphiAIKit.exe rename --project F:\\projects\\MaxLogic\\DelphiAiKit\\tests\\fixtures\\test-projects\\proprietary fixture\\src\\<fixture>.dpr --symbol AllFiles --new-name BenchmarkRenameAllFiles --format json --semantic-cache F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\semantic-cache\\unit-models.sqlite3"
+    },
+    {
+      "Id": "rename-dry-run-allfiles",
+      "Run": 2,
+      "Feature": "rename",
+      "Description": "Dry-run rename plan for routine AllFiles",
+      "CacheMode": "warm",
+      "CacheDirectory": "F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\semantic-cache",
+      "Status": "passed",
+      "ExitCode": 0,
+      "ElapsedSeconds": 2.849,
+      "ResultCount": "4",
+      "Stdout": "F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\rename-dry-run-allfiles-warm-run2.stdout.json",
+      "Stderr": "F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\rename-dry-run-allfiles-warm-run2.stderr.txt",
+      "Command": "F:\\projects\\MaxLogic\\DelphiAiKit\\bin\\DelphiAIKit.exe rename --project F:\\projects\\MaxLogic\\DelphiAiKit\\tests\\fixtures\\test-projects\\proprietary fixture\\src\\<fixture>.dpr --symbol AllFiles --new-name BenchmarkRenameAllFiles --format json --semantic-cache F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\semantic-cache\\unit-models.sqlite3"
+    },
+    {
+      "Id": "rename-dry-run-allfiles",
+      "Run": 3,
+      "Feature": "rename",
+      "Description": "Dry-run rename plan for routine AllFiles",
+      "CacheMode": "warm",
+      "CacheDirectory": "F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\semantic-cache",
+      "Status": "passed",
+      "ExitCode": 0,
+      "ElapsedSeconds": 2.84,
+      "ResultCount": "4",
+      "Stdout": "F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\rename-dry-run-allfiles-warm-run3.stdout.json",
+      "Stderr": "F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\rename-dry-run-allfiles-warm-run3.stderr.txt",
+      "Command": "F:\\projects\\MaxLogic\\DelphiAiKit\\bin\\DelphiAIKit.exe rename --project F:\\projects\\MaxLogic\\DelphiAiKit\\tests\\fixtures\\test-projects\\proprietary fixture\\src\\<fixture>.dpr --symbol AllFiles --new-name BenchmarkRenameAllFiles --format json --semantic-cache F:\\projects\\MaxLogic\\DelphiSemantics\\.dak\\benchmarks\\proprietary-fixture-semantic\\indexed-resolver\\semantic-cache\\unit-models.sqlite3"
+    }
+  ]
+}

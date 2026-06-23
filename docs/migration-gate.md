@@ -21,14 +21,14 @@ The gate runs, in order:
 4. DelphiAIKit remove-with gate profile, discovered from `TRemoveWith*Tests`
    fixtures and run sequentially.
 5. DelphiAIKit CLI build.
-6. A cloned maxTdb smoke using `remove-with --mode apply`.
+6. A cloned proprietary fixture smoke using `remove-with --mode apply`.
 
 The final summary prints per-phase seconds and a sorted
 `Dominant migration gate phases` table so the current bottleneck is explicit.
 
 The default DAK RemoveWith proof uses the `Gate` profile to reduce wall-clock
 time while keeping DUnitX execution sequential. The profile excludes
-`TRemoveWithProprietaryProjectTests` because the cloned maxTdb smoke covers that
+`TRemoveWithProprietaryProjectTests` because the cloned proprietary fixture smoke covers that
 path immediately afterward. Use `--dak-test-profile Full` to include every DAK
 RemoveWith fixture in the gate.
 
@@ -40,8 +40,8 @@ an isolated `DAK_TEST_OUTPUT_ROOT`. The failures point to additional shared
 state or non-interactive codepage sensitivity, so sequential execution is the
 safe default.
 
-The maxTdb smoke never edits the original fixture. By default it copies
-`F:\projects\MaxLogic\DelphiAiKit\tests\fixtures\test-projects\maxTdb` to a
+The proprietary fixture smoke never edits the original fixture. By default it copies
+`F:\projects\MaxLogic\DelphiAiKit\tests\fixtures\test-projects\<proprietary-fixture>` to a
 unique run-scoped directory under `%TEMP%\delphi-semantics-migration-gate\` and
 writes plan/apply JSON reports plus `migration-gate-manifest.json` there. The
 manifest records DelphiSemantics and DAK branch, commit, and dirty-state

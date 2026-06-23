@@ -29,7 +29,7 @@
   calls, qualifiers, comments, strings, nested routines, and `with` bodies.
 - Rename planner regressions for project-scoped routine identity, position-based
   routine header rename, same-unit declaration-side type references, and real
-  maxTdb dogfood blockers.
+  proprietary fixture dogfood blockers.
 - Agent guidance for DAK project-scoped semantic refactoring, including
   `find-usages`, dry-run `rename`, and dead-code review safety rules.
 - Optional semantic search facade with syntax-only match labeling, resolved
@@ -44,10 +44,10 @@
   resolved, ambiguous, and unresolved reference diagnostics.
 - Project find-usages API for source-position and symbol-name queries, including
   ambiguous-target blocking and section-aware usage rows.
-- Repo-root `run-migration-gate.bat` wrapper for the DelphiSemantics/DAK/maxTdb migration gate,
+- Repo-root `run-migration-gate.bat` wrapper for the DelphiSemantics/DAK/proprietary fixture migration gate,
   with documented sequential DAK RemoveWith execution and `DAK_TEST_OUTPUT_ROOT` isolation guidance.
 - Migration gate script and documentation for the DelphiSemantics suite, DAK remove-with suite,
-  and cloned maxTdb apply smoke.
+  and cloned proprietary fixture apply smoke.
 - Stable `DelphiSemantics.Api` facade for project-context loading, query/refactor/search entrypoints,
   and DAK integration, with remove-with and with-binding compatibility APIs split into explicit
   `DelphiSemantics.Api.RemoveWith` and `DelphiSemantics.Api.WithBinding` units.
@@ -79,19 +79,19 @@
 - Remove-with planning now exposes a complete stable statement ledger for every
   discovered `with` statement, including skipped reason fields and nested
   statements covered by a parent rewrite.
-- maxTdb remove-with benchmark proof now emits a report-only `dogfood.json`
+- proprietary fixture remove-with benchmark proof now emits a report-only `dogfood.json`
   with discovered/planned/skipped counts, skip buckets, completeness status, and
-  source mutation status instead of enforcing fixed historical maxTdb counts.
+  source mutation status instead of enforcing fixed historical proprietary fixture counts.
 - Remove-with skip and safety decisions no longer use proprietary filename or
   exact source-line branches; unresolved or unsafe statements now fail closed
   through generic selector and member diagnostics.
-- Remove-with final body rendering no longer uses maxTdb-specific replacement
+- Remove-with final body rendering no longer uses proprietary fixture-specific replacement
   body tables or filename/line post-render patches; unsupported legacy shapes
   now remain skipped with stable reasons.
-- Remove-with maxTdb-backed plan tests are now categorized as `MaxTdbProof`
+- Remove-with proprietary fixture-backed plan tests are now categorized as `<proprietary-fixture-proof-category>`
   and excluded from the ordinary focused DUnitX lane by default; the explicit
-  multi-minute proof lane remains the maxTdb benchmark wrapper.
-- The maxTdb semantic benchmark now treats `remove-with-plan-all` warm target
+  multi-minute proof lane remains the proprietary fixture benchmark wrapper.
+- The proprietary fixture semantic benchmark now treats `remove-with-plan-all` warm target
   misses as best-effort performance signals while still recording
   `TargetStatus`, median time, and correctness outputs.
 - Remove-with compatibility fact-to-snapshot planning now uses explicitly
@@ -108,7 +108,7 @@
 - With-binding `BuildUnitIndex` now applies project-derived defines and source
   lookup paths for project-file inputs, and reports project context failures as
   deterministic model diagnostics.
-- maxTdb semantic benchmark runs now keep generated baseline artifacts under
+- proprietary fixture semantic benchmark runs now keep generated baseline artifacts under
   `-OutDir` by default; publishing to `docs\benchmarks` requires
   `-PromoteBaseline` and passes dirty/stale provenance gates.
 - Snapshot SQLite cache connections now declare a busy timeout plus WAL/normal
@@ -121,7 +121,7 @@
   request/API path instead of the common project/API option records.
 - Remove-with apply mode now preserves the semantic report-only statement set
   instead of retrying through a compatibility fallback plan after verification
-  failure; the migration gate now emits and compares cloned maxTdb report-only
+  failure; the migration gate now emits and compares cloned proprietary fixture report-only
   and apply JSON artifacts.
 - The migration gate now uses run-scoped default work roots and writes a Git
   provenance manifest; dirty DelphiSemantics or DAK worktrees require an
@@ -146,8 +146,8 @@
   preserving helper metadata, property metadata, resourcestrings, multiline
   enum values, and forward class declarations.
 - Remove-with selector planning now resolves source-backed dotted selector
-  chains through semantic symbol/member facts instead of maxTdb-specific
-  selector-decision patches, while preserving the maxTdb `667` scan count and
+  chains through semantic symbol/member facts instead of proprietary fixture-specific
+  selector-decision patches, while preserving the proprietary fixture `667` scan count and
   `215` planned edit count.
 - SQLite semantic caches now read and write cached text through Unicode-safe
   FireDAC accessors, preserving non-ASCII snapshot strings, source paths,
@@ -173,12 +173,12 @@
   misses.
 - Remove-with snapshot planning now uses snapshot-owned planning facts directly
   instead of rebuilding the legacy project-with-binding facts DTO or
-  materializing the full legacy binding array; maxTdb proof preserved scan
+  materializing the full legacy binding array; proprietary fixture proof preserved scan
   count `667` and planned edit count `215` with warm plan median `6.415s`.
 - Remove-with no longer reads or writes the obsolete project-facts JSON sidecar;
   planning now keeps the typed snapshot path in memory, reuses the model-backed
   lookup index with only the routine-owner safety subset, and avoids routine
-  parent-scope array allocation for top-level lines. The final maxTdb proof is
+  parent-scope array allocation for top-level lines. The final proprietary fixture proof is
   cold `remove-with-plan-all` `9.224s` median, warm `5.972s`, scan count `667`,
   and planned edit count `215`.
 - The earlier compact project-facts sidecar and project-facts reuse path is now
@@ -186,46 +186,46 @@
   zero when remove-with plans through DelphiSemantics snapshots.
 - Remove-with current-class inventory expansion now deduplicates owner/routine
   projection contexts, and the semantic report contract benchmark now proves
-  maxTdb cold `remove-with-plan-all` at `9.712s` median with scan count `667`
+  proprietary fixture cold `remove-with-plan-all` at `9.712s` median with scan count `667`
   and planned edit count `215`.
 - Remove-with semantic binding now reports routine scope-conflict facts on
   receiver-member references so DAK can avoid recomputing scope-shadow
-  decisions; the maxTdb cold `remove-with-plan-all` proof preserved scan count
+  decisions; the proprietary fixture cold `remove-with-plan-all` proof preserved scan count
   `667`, planned edit count `215`, and reduced `fallbackDecisionMs` to `4ms`.
 - Remove-with receiver/member binding now uses an operation-local indexed lookup
-  and statement-level receiver cache prefixes, reducing maxTdb cold
+  and statement-level receiver cache prefixes, reducing proprietary fixture cold
   `remove-with-plan-all` median to `21.841s` and
   `semanticReceiverMemberResolveMs` to `1ms` while preserving scan count `667`
   and planned edit count `215`.
 - Remove-with planning now exposes deeper semantic reference-binding and legacy
-  resolver-report classification metrics, restoring the maxTdb cold
+  resolver-report classification metrics, restoring the proprietary fixture cold
   `remove-with-plan-all` median to `28.138s` while preserving scan count `667`
   and planned edit count `215`.
 - Remove-with project fact planning now exposes finer hot-path phase metrics and
   uses indexed final DTO nesting, indexed related-inventory expansion, faster
   scope scanning, and regex-free body reference token enumeration. The current
-  maxTdb cold `remove-with-plan-all` median improved from `37.458s` to
+  proprietary fixture cold `remove-with-plan-all` median improved from `37.458s` to
   `32.961s` while preserving scan count `667` and planned edit count `215`;
   the original T-152 `<= 30.0s` target remains open.
 - Project-aware parsing now combines evaluated project defines with target
   compiler/platform built-ins, and DAK project analysis avoids host-process
   DelphiAST compiler defines when analyzing another target platform.
 - DAK normal remove-with plan mode now consumes DelphiSemantics final statement
-  DTOs as the primary planning source while preserving maxTdb scan count 667,
+  DTOs as the primary planning source while preserving proprietary fixture scan count 667,
   planned edit count 215, and a 26.870s cold plan benchmark median.
-- Remove-with semantic-hub planning now preserves the maxTdb 667 scan /
+- Remove-with semantic-hub planning now preserves the proprietary fixture 667 scan /
   215 plan baseline while reducing the final cold plan benchmark median to
   29.632s.
 - Cold reference reconciliation now builds one token occurrence table per unit
-  instead of regex-scanning source once per fallback name, reducing maxTdb cold
+  instead of regex-scanning source once per fallback name, reducing proprietary fixture cold
   `rename-dry-run-allfiles` median runtime from 18.744s to 11.479s.
 - Cold semantic unit extraction now reuses per-unit line, type-block, and
-  reference-name scan data, reducing maxTdb cold `rename-dry-run-allfiles`
+  reference-name scan data, reducing proprietary fixture cold `rename-dry-run-allfiles`
   median runtime from 70.012s to 18.744s while preserving warm-cache targets.
-- DAK semantic JSON and maxTdb benchmark rows now include additive
+- DAK semantic JSON and proprietary fixture benchmark rows now include additive
   `semanticPhaseMetrics` timing and counter data for cold-path optimization.
 - Dead-code reporting now uses per-report in-memory lookup caches, bringing
-  maxTdb warm-cache `dead-code-legacy-static` dogfood below the 10-second target.
+  proprietary fixture warm-cache `dead-code-legacy-static` dogfood below the 10-second target.
 - SQLite semantic cache identity now includes compiler/toolchain and extraction
   metadata, while DAK semantic benchmarks report cache hit/miss counts.
 - Semantic workflow benchmarks now expose reference reconciliation fallback
@@ -241,12 +241,12 @@
   original-source `Offset` and exclusive `EndOffset` ranges, including SQLite
   cache restoration.
 - Project reference resolution now uses dictionary-backed project-index lookups,
-  routine-id local scope matching, and ordered visible-scope queries; maxTdb
+  routine-id local scope matching, and ordered visible-scope queries; proprietary fixture
   warm `rename-dry-run-allfiles` benchmark is down to a 2.849s median.
 - Migration gate now reports dominant runtime phases explicitly, uses a sequential DAK RemoveWith gate
-  profile to avoid duplicate maxTdb/proprietary coverage, and hard-blocks unsafe parallel DAK shards.
+  profile to avoid duplicate proprietary fixture/proprietary coverage, and hard-blocks unsafe parallel DAK shards.
 - DAK RemoveWith now rewrites safe scoped-declaration `with` bodies while preserving inline locals,
-  exception variables, and generic type names; cloned maxTdb apply now verifies at 505 removals with
+  exception variables, and generic type names; cloned proprietary fixture apply now verifies at 505 removals with
   zero `scoped-declaration-in-with-body` and zero `symbol-not-found` skips.
 - DAK RemoveWith tests can isolate process temp/output roots with `DAK_TEST_OUTPUT_ROOT` for explicit
   parallel-filter proof runs while the migration gate remains sequential by default.
@@ -295,6 +295,6 @@
 - Rename planning now coalesces Delphi routine declarations and implementations,
   targets routine identifiers from header positions, indexes declaration-side
   type references, and de-duplicates identical edit ranges before apply.
-- Preprocessing now tolerates legacy compiler directives used by maxTdb,
+- Preprocessing now tolerates legacy compiler directives used by proprietary fixture,
   including multiline conditional close braces, inline conditional pairs,
   compiler switches, resource directives, and region markers.
