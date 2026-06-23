@@ -243,6 +243,8 @@
   without invoking the full unit-model cache/parser path.
 - Semantic cache identity now includes source timestamps in addition to content hashes, and
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
+- Primary remove-with planning now returns a facade-owned stable DTO and keeps
+  final statement / rewrite recipe internals behind the compatibility API.
 
 ### Fixed
 - Legacy remove-with compatibility fact-builder overloads now fail loudly with

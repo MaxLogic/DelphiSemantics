@@ -10,17 +10,17 @@ type
   TDelphiSemanticRemoveWithRequest =
     DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithRequest;
   TDelphiSemanticRemoveWithSourceRange =
-    DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithSourceRange;
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSourceRange;
   TDelphiSemanticRemoveWithVerification =
-    DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithVerification;
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithVerification;
   TDelphiSemanticRemoveWithEdit =
-    DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithEdit;
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithEdit;
   TDelphiSemanticRemoveWithSkippedStatement =
-    DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithSkippedStatement;
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSkippedStatement;
   TDelphiSemanticRemoveWithSourceVerification =
-    DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithSourceVerification;
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSourceVerification;
   TDelphiSemanticRemoveWithPlan =
-    DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithPlan;
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlan;
   TDelphiSemanticRemoveWithApi =
     DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithApi;
   TDelphiSemanticRemoveWithOptions =
@@ -80,8 +80,12 @@ type
     class function BuildProjectWithBindingFactsResult(
       const aRequest: TDelphiSemanticRemoveWithRequest):
       TDelphiSemanticRemoveWithFactBuildResult; overload; static;
+    class function PlanRemoveWith(const aOptions: TDelphiSemanticApiOptions):
+      TDelphiSemanticRemoveWithPlan; overload; static;
+    class function PlanRemoveWith(const aRequest: TDelphiSemanticRemoveWithRequest):
+      TDelphiSemanticRemoveWithPlan; overload; static;
     class function PlanRemoveWith(const aFacts: TDelphiSemanticProjectWithBindingFacts):
-      TDelphiSemanticRemoveWithPlan; static;
+      TDelphiSemanticRemoveWithPlan; overload; static;
     class function PlanRemoveWithCompatibilitySnapshot(
       const aFacts: TDelphiSemanticProjectWithBindingFacts):
       TDelphiSemanticRemoveWithPlan; static;
@@ -132,6 +136,30 @@ begin
   if Length(Result.Diagnostics) = 0 then
     Result := FactBuildFailure('REMOVE_WITH_PROJECT_SESSION_FAILED',
       'Cannot open project session.', '');
+end;
+
+function SessionFailureDiagnostics(const aSession: TDelphiSemanticProjectSessionResult):
+  TArray<TDelphiSemanticDiagnostic>;
+begin
+  Result := Copy(aSession.Diagnostics);
+  if Length(Result) > 0 then
+    Exit;
+
+  SetLength(Result, 1);
+  Result[0].Code := 'REMOVE_WITH_PROJECT_SESSION_FAILED';
+  Result[0].Severity := dsError;
+  Result[0].Message := 'Cannot open project session.';
+end;
+
+function PlanSessionFailure(const aSession: TDelphiSemanticProjectSessionResult):
+  TDelphiSemanticRemoveWithPlan;
+begin
+  Result := Default(TDelphiSemanticRemoveWithPlan);
+  Result.Operation := 'remove-with';
+  Result.Status := 'blocked';
+  Result.BaselineSemanticModelVersion := 'project-snapshot-v1';
+  Result.Diagnostics := SessionFailureDiagnostics(aSession);
+  Result.Diagnostic := Result.Diagnostics[0].Message;
 end;
 
 function FactBuildDiagnosticsMessage(const aResult:
@@ -223,6 +251,33 @@ begin
     on E: Exception do
       Result := FactBuildFailure('REMOVE_WITH_FACT_BUILD_EXCEPTION', E.Message,
         aRequest.Options.ProjectFileName);
+  end;
+end;
+
+class function TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(
+  const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticRemoveWithPlan;
+var
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := aOptions;
+  Result := PlanRemoveWith(lRequest);
+end;
+
+class function TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(
+  const aRequest: TDelphiSemanticRemoveWithRequest): TDelphiSemanticRemoveWithPlan;
+var
+  lSession: TDelphiSemanticProjectSessionResult;
+begin
+  lSession := OpenProjectSession(aRequest);
+  try
+    if (not lSession.Success) or (lSession.Session = nil) then
+      Exit(PlanSessionFailure(lSession));
+
+    Result := lSession.Session.PlanRemoveWith(aRequest.BodyAnalysisSourceFileNames);
+    Result.Diagnostics := Copy(lSession.Diagnostics);
+  finally
+    lSession.Session.Free;
   end;
 end;
 

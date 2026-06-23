@@ -1054,7 +1054,7 @@ begin
   TDirectory.CreateDirectory(lProjectFactsSidecar);
   Assert.IsTrue(TDirectory.Exists(lProjectFactsSidecar));
 
-  lActualPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lOptions);
+  lActualPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
 
   Assert.AreEqual('project-snapshot-v1', lActualPlan.BaselineSemanticModelVersion);
   Assert.AreEqual(lExpectedPlan.Status, lActualPlan.Status, lActualPlan.Diagnostic);
@@ -1406,7 +1406,7 @@ begin
   lOptions := lExpectedOptions;
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lCacheDir,
     'semantic-cache.sqlite3');
-  lActualPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lOptions);
+  lActualPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
 
   Assert.AreEqual(ComparableRemoveWithPlanText(lExpectedPlan),
     ComparableRemoveWithPlanText(lActualPlan),
@@ -1444,7 +1444,7 @@ begin
   lRequest := Default(TDelphiSemanticRemoveWithRequest);
   lRequest.Options := lOptions;
   lRequest.BodyAnalysisSourceFileNames := MaxTdbBodyAnalysisSourceFileNames;
-  lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lRequest);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lRequest);
 
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual('project-snapshot-v1', lPlan.BaselineSemanticModelVersion);

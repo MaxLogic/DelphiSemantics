@@ -50,6 +50,8 @@ type
     [Test]
     procedure RemoveWithPrimaryPlanReportsSessionDiagnostics;
     [Test]
+    procedure RemoveWithPrimaryPlanReturnsStableMappedFields;
+    [Test]
     procedure RemoveWithCompatibilityFactsExposeExplicitBuildResult;
     [Test]
     procedure RemoveWithCompatibilityFactBuildReportsSessionDiagnostics;
@@ -62,9 +64,9 @@ type
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils,
+  System.IOUtils, System.Rtti, System.StrUtils, System.SysUtils,
   DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Model,
-  maxLogic.IOUtils,
+  DelphiSemantics.RemoveWithPlan, maxLogic.IOUtils,
   Test.Support;
 
 
@@ -506,7 +508,12 @@ end;
 
 procedure TApiTests.RemoveWithPrimaryFacadeHidesInternalAliases;
 var
+  lFields: TArray<TRttiField>;
+  lField: TRttiField;
   lInterfaceSource: string;
+  lInternalType: TRttiType;
+  lPrimaryType: TRttiType;
+  lRttiContext: TRttiContext;
   lSource: string;
 begin
   lSource := ReadRepoSource('src\DelphiSemantics.Api.RemoveWith.pas');
@@ -524,6 +531,30 @@ begin
     'Primary remove-with API facade must not expose inventory internals.');
   Assert.IsFalse(ContainsText(lInterfaceSource, 'WithBinding'),
     'Primary remove-with API facade must not expose with-binding internals.');
+  Assert.IsFalse(ContainsText(lInterfaceSource,
+    'DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlan'),
+    'Primary remove-with plan must be a facade-owned record, not a type alias.');
+
+  lRttiContext := TRttiContext.Create;
+  lPrimaryType := lRttiContext.GetType(TypeInfo(
+    DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithPlan));
+  lInternalType := lRttiContext.GetType(TypeInfo(
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlan));
+  Assert.IsNotNull(lPrimaryType, 'Primary remove-with plan type must have RTTI.');
+  Assert.IsNotNull(lInternalType, 'Internal remove-with plan type must have RTTI.');
+  Assert.AreNotEqual(lInternalType.QualifiedName, lPrimaryType.QualifiedName,
+    'Primary remove-with plan must not resolve to the internal planner record.');
+
+  lFields := lPrimaryType.GetFields;
+  Assert.IsTrue(Length(lFields) > 0,
+    'Primary remove-with plan type surface must be inspectable.');
+  for lField in lFields do
+  begin
+    Assert.IsFalse(SameText(lField.Name, 'FinalStatements'),
+      'Primary remove-with plan must not expose final-statement internals.');
+    Assert.IsFalse(SameText(lField.Name, 'RewriteRecipe'),
+      'Primary remove-with plan must not expose rewrite recipe internals.');
+  end;
   Assert.IsTrue(ContainsText(ReadRepoSource('src\DelphiSemantics.Api.RemoveWith.Compatibility.pas'),
     'TDelphiSemanticRemoveWithCompatibilityApi'),
     'Compatibility remove-with API should own internal adapter aliases.');
@@ -531,8 +562,8 @@ end;
 
 procedure TApiTests.RemoveWithPrimaryPlanReportsSessionDiagnostics;
 var
-  lMissingFilePlan: TDelphiSemanticRemoveWithPlan;
-  lMissingPathPlan: TDelphiSemanticRemoveWithPlan;
+  lMissingFilePlan: DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithPlan;
+  lMissingPathPlan: DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithPlan;
   lRequest: TDelphiSemanticRemoveWithRequest;
 begin
   lRequest := Default(TDelphiSemanticRemoveWithRequest);
@@ -553,6 +584,43 @@ begin
   Assert.AreEqual('PROJECT_FILE_NOT_FOUND', lMissingFilePlan.Diagnostics[0].Code);
   Assert.AreEqual(dsError, lMissingFilePlan.Diagnostics[0].Severity);
   Assert.AreEqual(lRequest.Options.ProjectFileName, lMissingFilePlan.Diagnostics[0].FileName);
+end;
+
+procedure TApiTests.RemoveWithPrimaryPlanReturnsStableMappedFields;
+var
+  lCompatibilityPlan:
+    DelphiSemantics.Api.RemoveWith.Compatibility.TDelphiSemanticRemoveWithPlan;
+  lPrimaryPlan: DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithPlan;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := FixturePath(
+    'ProjectWithBinding\ProjectWithBinding.dproj');
+
+  lCompatibilityPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(
+    lRequest);
+  lPrimaryPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lRequest);
+
+  Assert.AreEqual('planned', lPrimaryPlan.Status, lPrimaryPlan.Diagnostic);
+  Assert.AreEqual(lCompatibilityPlan.Operation, lPrimaryPlan.Operation);
+  Assert.AreEqual(lCompatibilityPlan.ContextFingerprint,
+    lPrimaryPlan.ContextFingerprint);
+  Assert.AreEqual(lCompatibilityPlan.BaselineSemanticModelVersion,
+    lPrimaryPlan.BaselineSemanticModelVersion);
+  Assert.AreEqual(Integer(Length(lCompatibilityPlan.RequiredVerification)),
+    Integer(Length(lPrimaryPlan.RequiredVerification)));
+  Assert.AreEqual(Integer(Length(lCompatibilityPlan.Edits)),
+    Integer(Length(lPrimaryPlan.Edits)));
+  Assert.IsTrue(Length(lPrimaryPlan.Edits) > 0,
+    'Primary remove-with plan should expose stable candidate edits.');
+  Assert.AreEqual(lCompatibilityPlan.Edits[0].FileName,
+    lPrimaryPlan.Edits[0].FileName);
+  Assert.AreEqual(lCompatibilityPlan.Edits[0].StatementId,
+    lPrimaryPlan.Edits[0].StatementId);
+  Assert.AreEqual(lCompatibilityPlan.Edits[0].ReplacementText,
+    lPrimaryPlan.Edits[0].ReplacementText);
+  Assert.AreEqual(Integer(Length(lCompatibilityPlan.SkippedStatements)),
+    Integer(Length(lPrimaryPlan.SkippedStatements)));
 end;
 
 procedure TApiTests.RemoveWithCompatibilityFactsExposeExplicitBuildResult;

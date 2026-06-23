@@ -38,10 +38,20 @@ diagnostic.
 
 ## Remove-With Compatibility
 
+`TDelphiSemanticRemoveWithApi.PlanRemoveWith` is the stable primary planning
+route. It returns a facade-owned plan DTO with operation status, diagnostics,
+required verification, candidate edits, and skipped statements. It does not
+expose final statement DTOs, rewrite recipes, parity helpers, or planner
+internals.
+
 `TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult`
 is the failure-aware fact-build entry point. It returns `Success`, structured
 diagnostics, facts, and metrics so production callers can decide how to handle
 project/session failures.
+
+`TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith` returns the full
+internal planner record for DAK parity and migration workflows that still need
+final statement DTOs or rewrite recipe data.
 
 The legacy `BuildProjectWithBindingFacts` overloads are compatibility-only.
 They raise an exception containing the diagnostic codes when fact building
