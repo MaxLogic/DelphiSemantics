@@ -17,6 +17,8 @@ type
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithEdit;
   TDelphiSemanticRemoveWithSkippedStatement =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSkippedStatement;
+  TDelphiSemanticRemoveWithStatement =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithStatement;
   TDelphiSemanticRemoveWithSourceVerification =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithSourceVerification;
   TDelphiSemanticRemoveWithPlan =

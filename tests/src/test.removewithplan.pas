@@ -16,6 +16,10 @@ type
     function BuildPlan: TDelphiSemanticRemoveWithPlan;
     function BuildPlanForProject(const aProjectPath: string): TDelphiSemanticRemoveWithPlan;
     function MaxTdbBodyAnalysisSourceFileNames: TArray<string>;
+    function FindStatement(const aPlan: TDelphiSemanticRemoveWithPlan;
+      const aStatementId: string; out aStatement: TDelphiSemanticRemoveWithStatement): Boolean;
+    function FindStatementBySemanticId(const aPlan: TDelphiSemanticRemoveWithPlan;
+      const aSemanticId: string; out aStatement: TDelphiSemanticRemoveWithStatement): Boolean;
     function FindFinalStatement(const aPlan: TDelphiSemanticRemoveWithPlan;
       const aStatementId: string; out aStatement: TDelphiSemanticRemoveWithFinalStatement): Boolean;
     function FindFinalStatementAt(const aPlan: TDelphiSemanticRemoveWithPlan;
@@ -53,6 +57,10 @@ type
     procedure DtoParityHarnessReportsUnexpectedFinalStatements;
     [Test]
     procedure FinalStatementDtoPreservesCandidateFields;
+    [Test]
+    procedure PlanStatementsAccountForEveryDiscoveredBinding;
+    [Test]
+    procedure PlanSkippedStatementsMirrorSkippedPlanStatements;
     [Test]
     procedure FinalDtoMatchesFocusedRewriteCases;
     [Test]
@@ -927,6 +935,42 @@ begin
     Result[i] := TPath.Combine(lSourceDir, cFiles[i]);
 end;
 
+function TRemoveWithPlanTests.FindStatement(const aPlan: TDelphiSemanticRemoveWithPlan;
+  const aStatementId: string; out aStatement:
+  TDelphiSemanticRemoveWithStatement): Boolean;
+var
+  lStatement: TDelphiSemanticRemoveWithStatement;
+begin
+  Result := False;
+  aStatement := Default(TDelphiSemanticRemoveWithStatement);
+  for lStatement in aPlan.Statements do
+  begin
+    if SameText(lStatement.StatementId, aStatementId) then
+    begin
+      aStatement := lStatement;
+      Exit(True);
+    end;
+  end;
+end;
+
+function TRemoveWithPlanTests.FindStatementBySemanticId(
+  const aPlan: TDelphiSemanticRemoveWithPlan; const aSemanticId: string;
+  out aStatement: TDelphiSemanticRemoveWithStatement): Boolean;
+var
+  lStatement: TDelphiSemanticRemoveWithStatement;
+begin
+  Result := False;
+  aStatement := Default(TDelphiSemanticRemoveWithStatement);
+  for lStatement in aPlan.Statements do
+  begin
+    if SameText(lStatement.SemanticId, aSemanticId) then
+    begin
+      aStatement := lStatement;
+      Exit(True);
+    end;
+  end;
+end;
+
 function TRemoveWithPlanTests.FindFinalStatement(const aPlan: TDelphiSemanticRemoveWithPlan;
   const aStatementId: string; out aStatement: TDelphiSemanticRemoveWithFinalStatement): Boolean;
 var
@@ -1643,6 +1687,89 @@ begin
   Assert.AreEqual(1, lReport.MismatchCount, lReport.SummaryText);
   Assert.AreEqual('unexpected-final-statement', lReport.Mismatches[0].Kind);
   Assert.AreEqual('with-skipped', lReport.Mismatches[0].StatementId);
+end;
+
+procedure TRemoveWithPlanTests.PlanStatementsAccountForEveryDiscoveredBinding;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lCoveredCount: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithStatement;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := DakFixturePath(
+    'RemoveWithNestedRewriteFixture\RemoveWithNestedRewriteFixture.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(
+    lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+
+  Assert.IsTrue(Length(lFacts.Bindings) > Length(lPlan.FinalStatements),
+    'Fixture must exercise a child with-statement folded into a parent rewrite.');
+  Assert.AreEqual(Integer(Length(lFacts.Bindings)),
+    Integer(Length(lPlan.Statements)),
+    'Plan statement ledger must account for every discovered binding.');
+
+  for lBinding in lFacts.Bindings do
+  begin
+    Assert.IsTrue(FindStatementBySemanticId(lPlan, lBinding.SemanticId,
+      lStatement), 'Missing statement ledger row for ' + lBinding.SemanticId);
+    Assert.IsTrue(SameText(lStatement.Status, 'planned') or
+      SameText(lStatement.Status, 'skipped'),
+      'Statement ledger rows must have a reportable status.');
+  end;
+
+  lCoveredCount := 0;
+  for lStatement in lPlan.Statements do
+    if lStatement.CoveredByStatementId <> '' then
+      Inc(lCoveredCount);
+
+  Assert.AreEqual(1, lCoveredCount,
+    'Expected the nested child statement to be reported as covered.');
+  Assert.IsTrue(FindStatement(lPlan, 'with-2', lStatement),
+    'Expected nested child statement ledger row.');
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('covered-by-parent-rewrite', lStatement.Reason);
+  Assert.AreEqual('with-1', lStatement.CoveredByStatementId);
+end;
+
+procedure TRemoveWithPlanTests.PlanSkippedStatementsMirrorSkippedPlanStatements;
+var
+  lFoundSkippedStatement: Boolean;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lSkippedCount: Integer;
+  lSkippedStatement: TDelphiSemanticRemoveWithSkippedStatement;
+  lStatement: TDelphiSemanticRemoveWithStatement;
+begin
+  lPlan := BuildPlanForProject(DakFixturePath(
+    'RemoveWithPlannerFixture\RemoveWithPlannerFixture.dproj'));
+
+  lSkippedCount := 0;
+  for lStatement in lPlan.Statements do
+  begin
+    if not SameText(lStatement.Status, 'skipped') then
+      Continue;
+    Inc(lSkippedCount);
+    lFoundSkippedStatement := False;
+    for lSkippedStatement in lPlan.SkippedStatements do
+    begin
+      if not SameText(lSkippedStatement.StatementId, lStatement.StatementId) then
+        Continue;
+      lFoundSkippedStatement := True;
+      Assert.AreEqual(lStatement.FileName, lSkippedStatement.FileName);
+      Assert.AreEqual(lStatement.Reason, lSkippedStatement.Reason);
+      Assert.AreEqual(lStatement.SafetyReason, lSkippedStatement.SafetyReason);
+      Assert.AreEqual(lStatement.SemanticId, lSkippedStatement.SemanticId);
+      Break;
+    end;
+    Assert.IsTrue(lFoundSkippedStatement,
+      'Missing skipped statement report row for ' + lStatement.StatementId);
+  end;
+
+  Assert.IsTrue(lSkippedCount > 0,
+    'Fixture should include skipped statements for reason-code coverage.');
+  Assert.AreEqual(lSkippedCount, Integer(Length(lPlan.SkippedStatements)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesFocusedRewriteCases;

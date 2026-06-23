@@ -590,8 +590,12 @@ procedure TApiTests.RemoveWithPrimaryPlanReturnsStableMappedFields;
 var
   lCompatibilityPlan:
     DelphiSemantics.Api.RemoveWith.Compatibility.TDelphiSemanticRemoveWithPlan;
+  lFoundStatement: Boolean;
+  lInternalStatement:
+    DelphiSemantics.Api.RemoveWith.Compatibility.TDelphiSemanticRemoveWithStatement;
   lPrimaryPlan: DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithPlan;
   lRequest: TDelphiSemanticRemoveWithRequest;
+  lStatement: DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithStatement;
 begin
   lRequest := Default(TDelphiSemanticRemoveWithRequest);
   lRequest.Options.ProjectFileName := FixturePath(
@@ -619,6 +623,32 @@ begin
     lPrimaryPlan.Edits[0].StatementId);
   Assert.AreEqual(lCompatibilityPlan.Edits[0].ReplacementText,
     lPrimaryPlan.Edits[0].ReplacementText);
+
+  Assert.AreEqual(Integer(Length(lCompatibilityPlan.Statements)),
+    Integer(Length(lPrimaryPlan.Statements)));
+  Assert.IsTrue(Length(lPrimaryPlan.Statements) > 0,
+    'Primary remove-with plan should account for every discovered statement.');
+  for lInternalStatement in lCompatibilityPlan.Statements do
+  begin
+    lFoundStatement := False;
+    for lStatement in lPrimaryPlan.Statements do
+    begin
+      if not SameText(lStatement.StatementId, lInternalStatement.StatementId) then
+        Continue;
+      lFoundStatement := True;
+      Assert.AreEqual(lInternalStatement.FileName, lStatement.FileName);
+      Assert.AreEqual(lInternalStatement.Status, lStatement.Status);
+      Assert.AreEqual(lInternalStatement.Reason, lStatement.Reason);
+      Assert.AreEqual(lInternalStatement.SafetyReason, lStatement.SafetyReason);
+      Assert.AreEqual(lInternalStatement.SemanticId, lStatement.SemanticId);
+      Assert.AreEqual(lInternalStatement.CoveredByStatementId,
+        lStatement.CoveredByStatementId);
+      Break;
+    end;
+    Assert.IsTrue(lFoundStatement,
+      'Primary remove-with plan must expose statement ' +
+      lInternalStatement.StatementId);
+  end;
   Assert.AreEqual(Integer(Length(lCompatibilityPlan.SkippedStatements)),
     Integer(Length(lPrimaryPlan.SkippedStatements)));
 end;

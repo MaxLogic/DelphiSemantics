@@ -42,6 +42,17 @@ type
     SemanticId: string;
   end;
 
+  TDelphiSemanticRemoveWithStatement = record
+    FileName: string;
+    StatementId: string;
+    Range: TDelphiSemanticRemoveWithSourceRange;
+    Status: string;
+    Reason: string;
+    SafetyReason: string;
+    SemanticId: string;
+    CoveredByStatementId: string;
+  end;
+
   TDelphiSemanticRemoveWithSourceVerification = record
     ExpectedFileHash: string;
     ExpectedSourceText: string;
@@ -160,6 +171,7 @@ type
     Diagnostic: string;
     Diagnostics: TArray<TDelphiSemanticDiagnostic>;
     RequiredVerification: TArray<TDelphiSemanticRemoveWithVerification>;
+    Statements: TArray<TDelphiSemanticRemoveWithStatement>;
     Edits: TArray<TDelphiSemanticRemoveWithEdit>;
     SkippedStatements: TArray<TDelphiSemanticRemoveWithSkippedStatement>;
     FinalStatements: TArray<TDelphiSemanticRemoveWithFinalStatement>;
@@ -9455,24 +9467,154 @@ begin
   aPlan.Edits[lIndex] := Result;
 end;
 
-procedure AddSkippedStatement(var aPlan: TDelphiSemanticRemoveWithPlan;
-  const aBinding: TDelphiSemanticWithBinding; const aReason,
-  aSafetyReason: string);
+function SkippedStatementFromStatement(
+  const aStatement: TDelphiSemanticRemoveWithStatement):
+  TDelphiSemanticRemoveWithSkippedStatement;
+begin
+  Result.FileName := aStatement.FileName;
+  Result.StatementId := aStatement.StatementId;
+  Result.Range := aStatement.Range;
+  Result.Reason := aStatement.Reason;
+  Result.SafetyReason := aStatement.SafetyReason;
+  Result.SemanticId := aStatement.SemanticId;
+end;
+
+function FindFinalStatementById(const aPlan: TDelphiSemanticRemoveWithPlan;
+  const aStatementId: string;
+  out aStatement: TDelphiSemanticRemoveWithFinalStatement): Boolean;
+var
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  Result := False;
+  aStatement := Default(TDelphiSemanticRemoveWithFinalStatement);
+  for lStatement in aPlan.FinalStatements do
+  begin
+    if SameText(lStatement.StatementId, aStatementId) then
+    begin
+      aStatement := lStatement;
+      Exit(True);
+    end;
+  end;
+end;
+
+function FinalBindingParentIndexesFromTree(
+  const aBindingTree: TFinalBindingTree): TFinalBindingIndexArray;
+var
+  lChildIndex: Integer;
+  lIndex: Integer;
+  lParentIndex: Integer;
+begin
+  SetLength(Result, Length(aBindingTree.ChildIndexes));
+  for lIndex := 0 to High(Result) do
+    Result[lIndex] := -1;
+
+  for lParentIndex := 0 to High(aBindingTree.ChildIndexes) do
+    for lChildIndex in aBindingTree.ChildIndexes[lParentIndex] do
+      Result[lChildIndex] := lParentIndex;
+end;
+
+function CoveringFinalStatementId(const aPlan: TDelphiSemanticRemoveWithPlan;
+  const aParentIndexes: TFinalBindingIndexArray; const aBindingIndex: Integer):
+  string;
+var
+  lParentIndex: Integer;
+  lParentStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lParentStatementId: string;
+begin
+  Result := '';
+  lParentIndex := aParentIndexes[aBindingIndex];
+  while lParentIndex >= 0 do
+  begin
+    lParentStatementId := FinalStatementId(lParentIndex + 1);
+    if FindFinalStatementById(aPlan, lParentStatementId, lParentStatement) and
+      SameText(lParentStatement.Status, 'planned') then
+      Exit(lParentStatementId);
+    lParentIndex := aParentIndexes[lParentIndex];
+  end;
+end;
+
+function StatementFromBinding(const aBinding: TDelphiSemanticWithBinding;
+  const aStatementId: string): TDelphiSemanticRemoveWithStatement;
+begin
+  Result := Default(TDelphiSemanticRemoveWithStatement);
+  Result.FileName := aBinding.FileName;
+  Result.StatementId := aStatementId;
+  Result.Range := BindingRange(aBinding);
+  Result.SemanticId := aBinding.SemanticId;
+end;
+
+procedure ApplyFinalStatementToStatement(
+  const aFinalStatement: TDelphiSemanticRemoveWithFinalStatement;
+  var aStatement: TDelphiSemanticRemoveWithStatement);
+begin
+  aStatement.FileName := aFinalStatement.FileName;
+  aStatement.StatementId := aFinalStatement.StatementId;
+  aStatement.Range := aFinalStatement.Range;
+  aStatement.Status := aFinalStatement.Status;
+  aStatement.Reason := aFinalStatement.Reason;
+  aStatement.SafetyReason := aFinalStatement.SafetyReason;
+  aStatement.SemanticId := aFinalStatement.SemanticId;
+  aStatement.CoveredByStatementId := '';
+end;
+
+procedure RefreshSkippedStatementsFromStatements(
+  var aPlan: TDelphiSemanticRemoveWithPlan);
 var
   lIndex: Integer;
-  lStatement: TDelphiSemanticRemoveWithSkippedStatement;
+  lStatementIndex: Integer;
 begin
-  lStatement := Default(TDelphiSemanticRemoveWithSkippedStatement);
-  lStatement.FileName := aBinding.FileName;
-  lStatement.StatementId := aBinding.SemanticId;
-  lStatement.Range := BindingRange(aBinding);
-  lStatement.Reason := aReason;
-  lStatement.SafetyReason := aSafetyReason;
-  lStatement.SemanticId := aBinding.SemanticId;
+  SetLength(aPlan.SkippedStatements, 0);
+  for lStatementIndex := 0 to High(aPlan.Statements) do
+  begin
+    if not SameText(aPlan.Statements[lStatementIndex].Status, 'skipped') then
+      Continue;
+    lIndex := Length(aPlan.SkippedStatements);
+    SetLength(aPlan.SkippedStatements, lIndex + 1);
+    aPlan.SkippedStatements[lIndex] := SkippedStatementFromStatement(
+      aPlan.Statements[lStatementIndex]);
+  end;
+end;
 
-  lIndex := Length(aPlan.SkippedStatements);
-  SetLength(aPlan.SkippedStatements, lIndex + 1);
-  aPlan.SkippedStatements[lIndex] := lStatement;
+procedure RefreshStatementsFromBindings(var aPlan: TDelphiSemanticRemoveWithPlan;
+  const aBindingSource: TRemoveWithPlanBindingSource;
+  const aBindingTree: TFinalBindingTree);
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lBindingIndex: Integer;
+  lCoveredByStatementId: string;
+  lFinalStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lParentIndexes: TFinalBindingIndexArray;
+  lStatement: TDelphiSemanticRemoveWithStatement;
+  lStatementId: string;
+begin
+  lParentIndexes := FinalBindingParentIndexesFromTree(aBindingTree);
+  SetLength(aPlan.Statements, aBindingSource.BindingCount);
+  for lBindingIndex := 0 to aBindingSource.BindingCount - 1 do
+  begin
+    lBinding := aBindingSource.BindingByIndex(lBindingIndex);
+    lStatementId := FinalStatementId(lBindingIndex + 1);
+    lStatement := StatementFromBinding(lBinding, lStatementId);
+    if FindFinalStatementById(aPlan, lStatementId, lFinalStatement) then
+      ApplyFinalStatementToStatement(lFinalStatement, lStatement)
+    else
+    begin
+      lCoveredByStatementId := CoveringFinalStatementId(aPlan, lParentIndexes,
+        lBindingIndex);
+      if lCoveredByStatementId <> '' then
+      begin
+        lStatement.Status := 'planned';
+        lStatement.Reason := 'covered-by-parent-rewrite';
+        lStatement.CoveredByStatementId := lCoveredByStatementId;
+      end else
+      begin
+        lStatement.Status := 'skipped';
+        lStatement.Reason := 'planner-status-unresolved';
+        lStatement.SafetyReason :=
+          'planner did not produce a final decision for this with statement';
+      end;
+    end;
+    aPlan.Statements[lBindingIndex] := lStatement;
+  end;
 end;
 
 function HasStableSourceRange(const aBinding: TDelphiSemanticWithBinding): Boolean;
@@ -10030,8 +10172,6 @@ begin
         lCandidateEdits[lBindingIndex] := lEdit;
       end else
       begin
-        AddSkippedStatement(Result, lBinding, 'SOURCE_RANGE_UNAVAILABLE',
-          'stable source file, hash, and source range are required');
         AddFinalStatement(Result, BuildSkippedFinalStatement(lBinding,
           FinalStatementId(lStatementIndex), 'SOURCE_RANGE_UNAVAILABLE',
           'stable source file, hash, and source range are required'));
@@ -10050,6 +10190,8 @@ begin
       end;
     end;
     AddRoutineDeclarationEdits(Result, lLineCache, lHashCache);
+    RefreshStatementsFromBindings(Result, aBindingSource, lBindingTree);
+    RefreshSkippedStatementsFromStatements(Result);
   finally
     lReservedNames.Free;
     lLineCache.Free;

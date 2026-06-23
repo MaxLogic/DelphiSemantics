@@ -41,6 +41,17 @@ type
     SemanticId: string;
   end;
 
+  TDelphiSemanticRemoveWithStatement = record
+    FileName: string;
+    StatementId: string;
+    Range: TDelphiSemanticRemoveWithSourceRange;
+    Status: string;
+    Reason: string;
+    SafetyReason: string;
+    SemanticId: string;
+    CoveredByStatementId: string;
+  end;
+
   TDelphiSemanticRemoveWithPlan = record
     Operation: string;
     Status: string;
@@ -49,6 +60,7 @@ type
     Diagnostic: string;
     Diagnostics: TArray<TDelphiSemanticDiagnostic>;
     RequiredVerification: TArray<TDelphiSemanticRemoveWithVerification>;
+    Statements: TArray<TDelphiSemanticRemoveWithStatement>;
     Edits: TArray<TDelphiSemanticRemoveWithEdit>;
     SkippedStatements: TArray<TDelphiSemanticRemoveWithSkippedStatement>;
   end;
@@ -155,6 +167,21 @@ begin
   Result.SemanticId := aStatement.SemanticId;
 end;
 
+function PublicStatementFromInternal(
+  const aStatement:
+  DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithStatement):
+  TDelphiSemanticRemoveWithStatement;
+begin
+  Result.FileName := aStatement.FileName;
+  Result.StatementId := aStatement.StatementId;
+  Result.Range := PublicSourceRangeFromInternal(aStatement.Range);
+  Result.Status := aStatement.Status;
+  Result.Reason := aStatement.Reason;
+  Result.SafetyReason := aStatement.SafetyReason;
+  Result.SemanticId := aStatement.SemanticId;
+  Result.CoveredByStatementId := aStatement.CoveredByStatementId;
+end;
+
 function PublicVerificationsFromInternal(
   const aVerifications:
   TArray<DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithVerification>):
@@ -190,6 +217,18 @@ begin
     Result[lIndex] := PublicSkippedStatementFromInternal(aStatements[lIndex]);
 end;
 
+function PublicStatementsFromInternal(
+  const aStatements:
+  TArray<DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithStatement>):
+  TArray<TDelphiSemanticRemoveWithStatement>;
+var
+  lIndex: Integer;
+begin
+  SetLength(Result, Length(aStatements));
+  for lIndex := 0 to High(aStatements) do
+    Result[lIndex] := PublicStatementFromInternal(aStatements[lIndex]);
+end;
+
 function PublicPlanFromInternal(
   const aPlan: DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlan):
   TDelphiSemanticRemoveWithPlan;
@@ -202,6 +241,7 @@ begin
   Result.Diagnostics := Copy(aPlan.Diagnostics);
   Result.RequiredVerification := PublicVerificationsFromInternal(
     aPlan.RequiredVerification);
+  Result.Statements := PublicStatementsFromInternal(aPlan.Statements);
   Result.Edits := PublicEditsFromInternal(aPlan.Edits);
   Result.SkippedStatements := PublicSkippedStatementsFromInternal(
     aPlan.SkippedStatements);

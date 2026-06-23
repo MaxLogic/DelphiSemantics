@@ -41,9 +41,14 @@ later adapter, but no production path performs enrichment today.
 
 `TDelphiSemanticRemoveWithApi.PlanRemoveWith` is the stable primary planning
 route. It returns a facade-owned plan DTO with operation status, diagnostics,
-required verification, candidate edits, and skipped statements. It does not
-expose final statement DTOs, rewrite recipes, parity helpers, or planner
-internals.
+required verification, a complete statement ledger, candidate edits, and
+skipped statements. `Statements` has one row for every discovered `with`
+statement with `planned` or `skipped` status, stable reason fields, source
+range, semantic ID, and `CoveredByStatementId` when a nested statement is
+rewritten as part of a parent replacement. `SkippedStatements` mirrors the
+skipped ledger rows for report consumers that only need unresolved statements.
+It does not expose final statement DTOs, rewrite recipes, parity helpers, or
+planner internals.
 
 `TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult`
 is the failure-aware fact-build entry point. It returns `Success`, structured
