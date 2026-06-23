@@ -245,6 +245,9 @@
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
 
 ### Fixed
+- Legacy remove-with compatibility fact-builder overloads now fail loudly with
+  diagnostic codes when fact building fails, instead of returning default facts
+  that can look like a valid empty result.
 - Primary remove-with planning failures now preserve structured project/session
   diagnostics in the returned plan, so callers can distinguish missing project
   path and missing project file errors without parsing the fallback summary

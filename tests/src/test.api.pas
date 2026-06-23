@@ -54,6 +54,8 @@ type
     [Test]
     procedure RemoveWithCompatibilityFactBuildReportsSessionDiagnostics;
     [Test]
+    procedure RemoveWithLegacyFactBuildFailsLoudlyOnSessionDiagnostics;
+    [Test]
     procedure RemoveWithRequestOwnsBodyAnalysisScope;
   end;
 
@@ -585,6 +587,33 @@ begin
   Assert.AreEqual(1, Integer(Length(lResult.Diagnostics)));
   Assert.AreEqual('PROJECT_FILE_NOT_FOUND', lResult.Diagnostics[0].Code);
   Assert.AreEqual(0, Integer(Length(lResult.Facts.Bindings)));
+end;
+
+procedure TApiTests.RemoveWithLegacyFactBuildFailsLoudlyOnSessionDiagnostics;
+var
+  lExceptionMessage: string;
+  lRaised: Boolean;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := FixturePath(
+    'ProjectContext\Missing\MissingProject.dproj');
+  lRaised := False;
+
+  try
+    TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lRequest);
+  except
+    on E: Exception do
+    begin
+      lRaised := True;
+      lExceptionMessage := E.Message;
+    end;
+  end;
+
+  Assert.IsTrue(lRaised,
+    'Legacy fact building must fail loudly instead of returning default facts.');
+  Assert.IsTrue(ContainsText(lExceptionMessage, 'PROJECT_FILE_NOT_FOUND'),
+    'Legacy failure must still expose the structured diagnostic code.');
 end;
 
 procedure TApiTests.RemoveWithRequestOwnsBodyAnalysisScope;

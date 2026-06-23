@@ -36,6 +36,18 @@ the warning diagnostic `lsp.enrichment.not-implemented` when the flag is set.
 Leaving the flag false keeps the semantic-model-only behavior and emits no LSP
 diagnostic.
 
+## Remove-With Compatibility
+
+`TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult`
+is the failure-aware fact-build entry point. It returns `Success`, structured
+diagnostics, facts, and metrics so production callers can decide how to handle
+project/session failures.
+
+The legacy `BuildProjectWithBindingFacts` overloads are compatibility-only.
+They raise an exception containing the diagnostic codes when fact building
+fails, instead of returning default facts that could be mistaken for a valid
+empty result. New callers should use `BuildProjectWithBindingFactsResult`.
+
 ## Boundary
 
 DelphiSemantics owns project metadata, source loading, preprocessing, cache

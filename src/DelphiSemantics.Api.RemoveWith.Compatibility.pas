@@ -134,6 +134,33 @@ begin
       'Cannot open project session.', '');
 end;
 
+function FactBuildDiagnosticsMessage(const aResult:
+  TDelphiSemanticRemoveWithFactBuildResult): string;
+var
+  lDiagnostic: TDelphiSemanticDiagnostic;
+  lLine: string;
+begin
+  Result := '';
+  for lDiagnostic in aResult.Diagnostics do
+  begin
+    if lDiagnostic.Code <> '' then
+      lLine := lDiagnostic.Code
+    else begin
+      lLine := 'REMOVE_WITH_FACT_BUILD_FAILED';
+    end;
+    if lDiagnostic.Message <> '' then
+      lLine := lLine + ': ' + lDiagnostic.Message;
+    if lDiagnostic.FileName <> '' then
+      lLine := lLine + ' (' + lDiagnostic.FileName + ')';
+
+    if Result <> '' then
+      Result := Result + sLineBreak;
+    Result := Result + lLine;
+  end;
+  if Result = '' then
+    Result := 'Remove-with fact building failed without diagnostics.';
+end;
+
 class function TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(
   const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticProjectWithBindingFacts;
 var
@@ -151,6 +178,9 @@ var
   lResult: TDelphiSemanticRemoveWithFactBuildResult;
 begin
   lResult := BuildProjectWithBindingFactsResult(aRequest);
+  if not lResult.Success then
+    raise Exception.Create(FactBuildDiagnosticsMessage(lResult));
+
   Result := lResult.Facts;
 end;
 
