@@ -3,7 +3,8 @@ unit DelphiSemantics.RemoveWithPlan;
 interface
 
 uses
-  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding;
+  DelphiSemantics.ProjectContext, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.RemoveWith,
+  DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticRemoveWithSourceRange = record
@@ -157,6 +158,7 @@ type
     ContextFingerprint: string;
     BaselineSemanticModelVersion: string;
     Diagnostic: string;
+    Diagnostics: TArray<TDelphiSemanticDiagnostic>;
     RequiredVerification: TArray<TDelphiSemanticRemoveWithVerification>;
     Edits: TArray<TDelphiSemanticRemoveWithEdit>;
     SkippedStatements: TArray<TDelphiSemanticRemoveWithSkippedStatement>;

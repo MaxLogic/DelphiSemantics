@@ -48,6 +48,8 @@ type
     [Test]
     procedure RemoveWithPrimaryFacadeHidesInternalAliases;
     [Test]
+    procedure RemoveWithPrimaryPlanReportsSessionDiagnostics;
+    [Test]
     procedure RemoveWithCompatibilityFactsExposeExplicitBuildResult;
     [Test]
     procedure RemoveWithCompatibilityFactBuildReportsSessionDiagnostics;
@@ -523,6 +525,32 @@ begin
   Assert.IsTrue(ContainsText(ReadRepoSource('src\DelphiSemantics.Api.RemoveWith.Compatibility.pas'),
     'TDelphiSemanticRemoveWithCompatibilityApi'),
     'Compatibility remove-with API should own internal adapter aliases.');
+end;
+
+procedure TApiTests.RemoveWithPrimaryPlanReportsSessionDiagnostics;
+var
+  lMissingFilePlan: TDelphiSemanticRemoveWithPlan;
+  lMissingPathPlan: TDelphiSemanticRemoveWithPlan;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+
+  lMissingPathPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lRequest);
+
+  Assert.AreEqual('blocked', lMissingPathPlan.Status);
+  Assert.AreEqual(1, Integer(Length(lMissingPathPlan.Diagnostics)));
+  Assert.AreEqual('PROJECT_FILE_NOT_SPECIFIED', lMissingPathPlan.Diagnostics[0].Code);
+
+  lRequest.Options.ProjectFileName := FixturePath(
+    'ProjectContext\Missing\MissingProject.dproj');
+
+  lMissingFilePlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lRequest);
+
+  Assert.AreEqual('blocked', lMissingFilePlan.Status);
+  Assert.AreEqual(1, Integer(Length(lMissingFilePlan.Diagnostics)));
+  Assert.AreEqual('PROJECT_FILE_NOT_FOUND', lMissingFilePlan.Diagnostics[0].Code);
+  Assert.AreEqual(dsError, lMissingFilePlan.Diagnostics[0].Severity);
+  Assert.AreEqual(lRequest.Options.ProjectFileName, lMissingFilePlan.Diagnostics[0].FileName);
 end;
 
 procedure TApiTests.RemoveWithCompatibilityFactsExposeExplicitBuildResult;

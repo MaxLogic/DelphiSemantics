@@ -59,6 +59,19 @@ begin
     ProjectOptionsFromRemoveWithRequest(aRequest));
 end;
 
+function SessionFailureDiagnostics(const aSession: TDelphiSemanticProjectSessionResult):
+  TArray<TDelphiSemanticDiagnostic>;
+begin
+  Result := Copy(aSession.Diagnostics);
+  if Length(Result) > 0 then
+    Exit;
+
+  SetLength(Result, 1);
+  Result[0].Code := 'REMOVE_WITH_PROJECT_SESSION_FAILED';
+  Result[0].Severity := dsError;
+  Result[0].Message := 'Cannot open project session.';
+end;
+
 class function TDelphiSemanticRemoveWithApi.PlanRemoveWith(
   const aOptions: TDelphiSemanticApiOptions): TDelphiSemanticRemoveWithPlan;
 var
@@ -82,11 +95,13 @@ begin
       Result.Operation := 'remove-with';
       Result.Status := 'blocked';
       Result.BaselineSemanticModelVersion := 'project-snapshot-v1';
-      Result.Diagnostic := 'Cannot open project session.';
+      Result.Diagnostics := SessionFailureDiagnostics(lSession);
+      Result.Diagnostic := Result.Diagnostics[0].Message;
       Exit;
     end;
 
     Result := lSession.Session.PlanRemoveWith(aRequest.BodyAnalysisSourceFileNames);
+    Result.Diagnostics := Copy(lSession.Diagnostics);
   finally
     lSession.Session.Free;
   end;

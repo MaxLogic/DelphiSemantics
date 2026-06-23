@@ -245,6 +245,10 @@
   the public API selects the SQLite cache when `SqliteCacheFileName` is configured.
 
 ### Fixed
+- Primary remove-with planning failures now preserve structured project/session
+  diagnostics in the returned plan, so callers can distinguish missing project
+  path and missing project file errors without parsing the fallback summary
+  string.
 - Parallel test-project rebuilds through `build-delphi.bat` now use per-run DCU
   output folders under `.dak`, avoiding shared `tests\bin` unit-output writes
   while keeping executable output unchanged.
