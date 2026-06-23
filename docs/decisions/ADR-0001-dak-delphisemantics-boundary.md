@@ -26,6 +26,8 @@ DelphiSemantics owns reusable semantic behavior:
   conditional handling
 - semantic unit models, declaration extraction, symbol queries, resolver
   behavior, and with-binding classification
+- semantic remove-with planning, primary remove-with API DTOs, compatibility
+  final DTOs, and parity helpers used by DAK migration workflows
 - cache identity, invalidation, in-memory cache behavior, and optional SQLite
   cache behavior selected by `SqliteCacheFileName`
 - optional LSP enrichment boundaries when semantic-model provenance remains
@@ -35,8 +37,8 @@ DAK owns command-specific orchestration:
 
 - CLI parsing, command dispatch, progress output, JSON/report formatting, and
   user-facing telemetry
-- remove-with planning, source rewrite generation, transaction/apply logic,
-  rollback, and post-removal verification
+- remove-with source rewrite generation, transaction/apply logic, rollback,
+  post-removal verification, and command-specific reporting
 - build/analyze command orchestration and tool-specific report rendering
 - compatibility adapters needed while DAK command code consumes
   DelphiSemantics APIs

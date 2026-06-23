@@ -53,6 +53,14 @@ proof unless the compile gate has passed.
 Agent workflow guidance lives in
 [`docs/semantic-refactoring-agents.md`](docs/semantic-refactoring-agents.md).
 
+## API Boundary
+
+DelphiSemantics owns project/compiler context, semantic models, resolver
+behavior, with-binding classification, semantic remove-with planning, the
+primary remove-with DTO, and compatibility final DTOs. DAK owns command
+orchestration, source rewrite, apply/rollback, verification, reporting, and
+operator-facing telemetry.
+
 ## Layout
 
 - `lib/DelphiAST` - parser submodule.

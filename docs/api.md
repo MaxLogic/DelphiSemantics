@@ -1,6 +1,6 @@
 # DelphiSemantics API
 
-`DelphiSemantics.Api` is the small facade intended for DAK and future tool
+`DelphiSemantics.Api` is the small facade intended for DAK and later tool
 integrations. It keeps callers on one stable unit for common project and
 semantic-index workflows while the lower-level units remain available for
 focused tests and internal implementation.
@@ -8,7 +8,7 @@ focused tests and internal implementation.
 ## Stable Facade
 
 - `TDelphiSemanticApiOptions` configures project loading, source loading,
-  project context, cache behavior, and future opt-in LSP enrichment.
+  project context, cache behavior, and later opt-in LSP enrichment.
 - `TDelphiSemanticApi.LoadProjectContext` loads `.dproj` or `.dpr` metadata
   through the project-context implementation.
 - `TDelphiSemanticApi.BuildUnitIndex` builds or loads one cache-backed unit
@@ -35,7 +35,7 @@ currently unsupported in this DelphiSemantics build. Setting the flag returns
 the warning diagnostic `lsp.enrichment.unsupported`; leaving it false keeps the
 semantic-model-only behavior and emits no LSP diagnostic. The reusable LSP unit
 still owns settings JSON construction and result normalization helpers for a
-future adapter, but no production path performs enrichment today.
+later adapter, but no production path performs enrichment today.
 
 ## Remove-With Compatibility
 
