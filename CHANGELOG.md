@@ -76,6 +76,9 @@
 - Source loading and unit-model extraction for Delphi semantic analysis, including deterministic Windows-1252 fallback, declaration/member/routine/local/reference extraction, diagnostics, and `with` ranges.
 
 ### Changed
+- Remove-with planning now demotes final replacement edits that do not cover the
+  complete original `with` statement, including tricky `if/then/else` and outer
+  `end else` boundary shapes.
 - Remove-with planning now exposes a complete stable statement ledger for every
   discovered `with` statement, including skipped reason fields and nested
   statements covered by a parent rewrite.

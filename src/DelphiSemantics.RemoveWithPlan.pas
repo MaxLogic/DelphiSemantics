@@ -3563,6 +3563,23 @@ begin
   aReplacementRange := PlannerRange(lRendererRange);
 end;
 
+function ReplacementRangeCoversExpectedWithRange(
+  const aBinding: TDelphiSemanticWithBinding;
+  const aReplacementRange: TDelphiSemanticRemoveWithSourceRange;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  lExpectedRange: TDelphiSemanticRemoveWithSourceRange;
+begin
+  lExpectedRange := BindingRange(aBinding);
+  TrimRangeBeforeOuterElse(aBinding, aLineCache, lExpectedRange);
+  Result := ((aReplacementRange.StartLine < lExpectedRange.StartLine) or
+    ((aReplacementRange.StartLine = lExpectedRange.StartLine) and
+    (aReplacementRange.StartColumn <= lExpectedRange.StartColumn))) and
+    ((aReplacementRange.EndLine > lExpectedRange.EndLine) or
+    ((aReplacementRange.EndLine = lExpectedRange.EndLine) and
+    (aReplacementRange.EndColumn >= lExpectedRange.EndColumn)));
+end;
+
 function FinalVerification(const aEdit: TDelphiSemanticRemoveWithEdit):
   TDelphiSemanticRemoveWithSourceVerification;
 begin
@@ -4082,6 +4099,18 @@ begin
       lBinding.RoutineName, Result.Temps);
     Result.Status := 'skipped';
     Result.Reason := lReason;
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+  if not ReplacementRangeCoversExpectedWithRange(lBinding, lReplacementRange,
+    aLineCache) then
+  begin
+    RollbackReservedTempNamesForDecisions(aReservedNames,
+      lBinding.RoutineName, lSelectorDecisions);
+    RollbackReservedTempNamesForFinalTemps(aReservedNames,
+      lBinding.RoutineName, Result.Temps);
+    Result.Status := 'skipped';
+    Result.Reason := 'replace-statement-range-mismatch';
     Result.SafetyReason := Result.Reason;
     Exit;
   end;

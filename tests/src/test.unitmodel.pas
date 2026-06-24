@@ -1454,6 +1454,287 @@ begin
   Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
   Assert.IsTrue(Pos('Text := ''zero''', lModel.WithStatements[0].Text) > 0);
   Assert.IsTrue(Pos('AfterWith := True', lModel.WithStatements[0].Text) = 0);
+
+  lPath := UnitModelTempPath('unit-model-with-if-end-else-begin.pas');
+  lSource :=
+    'unit WithIfEndElseBeginUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lRecord: TSemanticRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with lRecord do' + sLineBreak +
+    '    if Queue = nil then' + sLineBreak +
+    '    begin' + sLineBreak +
+    '      Next := lRecord;' + sLineBreak +
+    '      Last := lRecord;' + sLineBreak +
+    '    end' + sLineBreak +
+    '    else begin' + sLineBreak +
+    '      Next := Queue;' + sLineBreak +
+    '      Last := Queue.Last;' + sLineBreak +
+    '      Queue := lRecord;' + sLineBreak +
+    '    end;' + sLineBreak +
+    '  AfterWith := True;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
+  Assert.IsTrue(Pos('Last := Queue.Last', lModel.WithStatements[0].Text) > 0,
+    lModel.WithStatements[0].Text);
+  Assert.IsTrue(Pos('AfterWith := True', lModel.WithStatements[0].Text) = 0);
+
+  lPath := UnitModelTempPath('unit-model-with-structured-then-else.pas');
+  lSource :=
+    'unit WithStructuredThenElseUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lRecord: TSemanticRecord;' + sLineBreak +
+    '  lOther: TSemanticRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with lRecord do' + sLineBreak +
+    '    if Queue = nil then' + sLineBreak +
+    '      with lOther do' + sLineBreak +
+    '      begin' + sLineBreak +
+    '        Next := 1;' + sLineBreak +
+    '      end' + sLineBreak +
+    '    else begin' + sLineBreak +
+    '      Last := Queue.Last;' + sLineBreak +
+    '    end;' + sLineBreak +
+    '  AfterWith := True;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(2, Integer(Length(lModel.WithStatements)));
+  Assert.IsTrue(Pos('Last := Queue.Last', lModel.WithStatements[0].Text) > 0,
+    lModel.WithStatements[0].Text);
+  Assert.IsTrue(Pos('AfterWith := True', lModel.WithStatements[0].Text) = 0);
+
+  lPath := UnitModelTempPath('unit-model-with-inner-else-before-outer-else.pas');
+  lSource :=
+    'unit WithInnerElseBeforeOuterElseUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lRecord: TSemanticRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  if OuterFlag then' + sLineBreak +
+    '    with lRecord do' + sLineBreak +
+    '      if Queue = nil then' + sLineBreak +
+    '      begin' + sLineBreak +
+    '        Next := 1;' + sLineBreak +
+    '      end' + sLineBreak +
+    '      else begin' + sLineBreak +
+    '        Last := Queue.Last;' + sLineBreak +
+    '      end' + sLineBreak +
+    '  else' + sLineBreak +
+    '    AfterOuter := True;' + sLineBreak +
+    '  AfterWith := True;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
+  Assert.IsTrue(Pos('Last := Queue.Last', lModel.WithStatements[0].Text) > 0,
+    lModel.WithStatements[0].Text);
+  Assert.IsTrue(Pos('AfterOuter := True', lModel.WithStatements[0].Text) = 0,
+    lModel.WithStatements[0].Text);
+
+  lPath := UnitModelTempPath('unit-model-with-inner-single-else-before-outer-else.pas');
+  lSource :=
+    'unit WithInnerSingleElseBeforeOuterElseUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lRecord: TSemanticRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  if OuterFlag then' + sLineBreak +
+    '    with lRecord do' + sLineBreak +
+    '      if Queue = nil then' + sLineBreak +
+    '      begin' + sLineBreak +
+    '        Next := 1;' + sLineBreak +
+    '      end' + sLineBreak +
+    '      else' + sLineBreak +
+    '        Last := Queue.Last' + sLineBreak +
+    '  else' + sLineBreak +
+    '    AfterOuter := True;' + sLineBreak +
+    '  AfterWith := True;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
+  Assert.IsTrue(Pos('Last := Queue.Last', lModel.WithStatements[0].Text) > 0,
+    lModel.WithStatements[0].Text);
+  Assert.IsTrue(Pos('AfterOuter := True', lModel.WithStatements[0].Text) = 0,
+    lModel.WithStatements[0].Text);
+
+  lPath := UnitModelTempPath('unit-model-with-nested-if-else-before-outer-else.pas');
+  lSource :=
+    'unit WithNestedIfElseBeforeOuterElseUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lRecord: TSemanticRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with lRecord do' + sLineBreak +
+    '    if First then' + sLineBreak +
+    '      if Second then' + sLineBreak +
+    '      begin' + sLineBreak +
+    '        Next := 1;' + sLineBreak +
+    '      end' + sLineBreak +
+    '      else begin' + sLineBreak +
+    '        Last := Queue.Last;' + sLineBreak +
+    '      end' + sLineBreak +
+    '    else begin' + sLineBreak +
+    '      Queue := 3;' + sLineBreak +
+    '    end;' + sLineBreak +
+    '  AfterWith := True;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
+  Assert.IsTrue(Pos('Queue := 3', lModel.WithStatements[0].Text) > 0,
+    lModel.WithStatements[0].Text);
+  Assert.IsTrue(Pos('AfterWith := True', lModel.WithStatements[0].Text) = 0,
+    lModel.WithStatements[0].Text);
+
+  lPath := UnitModelTempPath('unit-model-with-single-assignment-before-outer-else.pas');
+  lSource :=
+    'unit WithSingleAssignmentBeforeOuterElseUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lRecord: TSemanticRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  if OuterFlag then' + sLineBreak +
+    '    with lRecord do' + sLineBreak +
+    '      Text := ''left''' + sLineBreak +
+    '  else' + sLineBreak +
+    '    AfterOuter := True;' + sLineBreak +
+    '  AfterWith := True;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
+  Assert.IsTrue(Pos('Text := ''left''', lModel.WithStatements[0].Text) > 0,
+    lModel.WithStatements[0].Text);
+  Assert.IsFalse(EndsText('end', Trim(lModel.WithStatements[0].Text)),
+    lModel.WithStatements[0].Text);
+  Assert.AreEqual(LineContaining(lSource, 'Text := ''left'''), lModel.WithStatements[0].EndLine,
+    lModel.WithStatements[0].Text);
+  Assert.IsTrue(Pos('AfterOuter := True', lModel.WithStatements[0].Text) = 0,
+    lModel.WithStatements[0].Text);
+
+  lPath := UnitModelTempPath('unit-model-with-begin-end-before-outer-else.pas');
+  lSource :=
+    'unit WithBeginEndBeforeOuterElseUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lRecord: TSemanticRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  if OuterFlag then' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    with lRecord do' + sLineBreak +
+    '      Text := ''left''' + sLineBreak +
+    '  end else begin' + sLineBreak +
+    '    AfterOuter := True;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  AfterWith := True;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
+  Assert.IsTrue(Pos('Text := ''left''', lModel.WithStatements[0].Text) > 0,
+    lModel.WithStatements[0].Text);
+  Assert.AreEqual(LineContaining(lSource, 'Text := ''left'''), lModel.WithStatements[0].EndLine,
+    lModel.WithStatements[0].Text);
+  Assert.IsTrue(Pos('AfterOuter := True', lModel.WithStatements[0].Text) = 0,
+    lModel.WithStatements[0].Text);
+
+  lPath := UnitModelTempPath('unit-model-with-comment-semicolon.pas');
+  lSource :=
+    'unit WithCommentSemicolonUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lRecord: TSemanticRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with lRecord do' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    Text := ''done'';' + sLineBreak +
+    '  end { comment; };' + sLineBreak +
+    '  AfterWith := True;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
+  Assert.IsTrue(Pos('};', lModel.WithStatements[0].Text) > 0,
+    lModel.WithStatements[0].Text);
+  Assert.IsTrue(Pos('AfterWith := True', lModel.WithStatements[0].Text) = 0);
 end;
 
 procedure TUnitModelTests.ModelKeepsOriginalSourceLineNumbersAfterPreprocessing;

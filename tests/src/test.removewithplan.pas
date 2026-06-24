@@ -80,6 +80,10 @@ type
     [Test]
     procedure FinalDtoMatchesDakRewriteShapeElseBoundaries;
     [Test]
+    procedure FinalDtoCoversCompleteIfThenElseWithRange;
+    [Test]
+    procedure FinalDtoDemotesShortReplacementRange;
+    [Test]
     procedure FinalDtoBlocksDakCombinedSelectorAmbiguousHelperCall;
     [Test]
     procedure FinalDtoDoesNotTreatNestedInlineLocalAsOuterMember;
@@ -2228,6 +2232,151 @@ begin
     'lWithRewriteShapeAnonymousOuterPtr^.Struktur.InnerOnly := ' +
     'lWithRewriteShapeAnonymousOuterPtr^.OuterOnly;'),
     lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoCoversCompleteIfThenElseWithRange;
+var
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lUnitText: string;
+begin
+  lFixtureDir := TempPath('remove-with-if-else-range');
+  if TDirectory.Exists(lFixtureDir) then
+    TDirectory.Delete(lFixtureDir, True);
+  TDirectory.CreateDirectory(lFixtureDir);
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithIfElseRangeFixture.dproj');
+  TFile.WriteAllText(TPath.Combine(lFixtureDir, 'RemoveWithIfElseRangeFixture.dpr'),
+    'program RemoveWithIfElseRangeFixture;' + sLineBreak +
+    'uses RemoveWithIfElseRangeUnit in ''RemoveWithIfElseRangeUnit.pas'';' +
+    sLineBreak +
+    'begin' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>RemoveWithIfElseRangeFixture.dpr</MainSource>' + sLineBreak +
+    '    <Config Condition="''$(Config)''==''''">Debug</Config>' + sLineBreak +
+    '    <Platform Condition="''$(Platform)''==''''">Win32</Platform>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '  <ItemGroup>' + sLineBreak +
+    '    <DelphiCompile Include="$(MainSource)">' + sLineBreak +
+    '      <MainSource>MainSource</MainSource>' + sLineBreak +
+    '    </DelphiCompile>' + sLineBreak +
+    '    <DCCReference Include="RemoveWithIfElseRangeUnit.pas" />' + sLineBreak +
+    '  </ItemGroup>' + sLineBreak +
+    '</Project>', TEncoding.UTF8);
+  lUnitText :=
+    'unit RemoveWithIfElseRangeUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TRangeRecord = record' + sLineBreak +
+    '    Next: Integer;' + sLineBreak +
+    '    Last: Integer;' + sLineBreak +
+    '    Queue: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  PRangeRecord = ^TRangeRecord;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lRecord: TRangeRecord;' + sLineBreak +
+    '  lRecordPtr: PRangeRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  lRecordPtr := @lRecord;' + sLineBreak +
+    '  with lRecordPtr^ do' + sLineBreak +
+    '    if Queue = 0 then' + sLineBreak +
+    '    begin' + sLineBreak +
+    '      Next := 1;' + sLineBreak +
+    '      Last := 2;' + sLineBreak +
+    '    end' + sLineBreak +
+    '    else begin' + sLineBreak +
+    '      Next := Queue;' + sLineBreak +
+    '      Last := Queue;' + sLineBreak +
+    '      Queue := 3;' + sLineBreak +
+    '    end;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(TPath.Combine(lFixtureDir, 'RemoveWithIfElseRangeUnit.pas'),
+    lUnitText, TEncoding.UTF8);
+
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithIfElseRangeUnit.pas', 17,
+    3, lStatement), 'Expected if/else range fixture statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual(17, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(27, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(8, lStatement.Edits[0].Range.EndColumn);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lRecordPtr^.Last := lRecordPtr^.Queue;'), lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lRecordPtr^.Queue := 3;'), lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoDemotesShortReplacementRange;
+var
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lUnitText: string;
+begin
+  lFixtureDir := TempPath('remove-with-short-range');
+  if TDirectory.Exists(lFixtureDir) then
+    TDirectory.Delete(lFixtureDir, True);
+  TDirectory.CreateDirectory(lFixtureDir);
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithShortRangeFixture.dproj');
+  TFile.WriteAllText(TPath.Combine(lFixtureDir, 'RemoveWithShortRangeFixture.dpr'),
+    'program RemoveWithShortRangeFixture;' + sLineBreak +
+    'uses RemoveWithShortRangeUnit in ''RemoveWithShortRangeUnit.pas'';' +
+    sLineBreak +
+    'begin' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>RemoveWithShortRangeFixture.dpr</MainSource>' + sLineBreak +
+    '    <Config Condition="''$(Config)''==''''">Debug</Config>' + sLineBreak +
+    '    <Platform Condition="''$(Platform)''==''''">Win32</Platform>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '  <ItemGroup>' + sLineBreak +
+    '    <DelphiCompile Include="$(MainSource)">' + sLineBreak +
+    '      <MainSource>MainSource</MainSource>' + sLineBreak +
+    '    </DelphiCompile>' + sLineBreak +
+    '    <DCCReference Include="RemoveWithShortRangeUnit.pas" />' + sLineBreak +
+    '  </ItemGroup>' + sLineBreak +
+    '</Project>', TEncoding.UTF8);
+  lUnitText :=
+    'unit RemoveWithShortRangeUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TShortRangeRecord = record' + sLineBreak +
+    '    Next: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lRecord: TShortRangeRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with lRecord do' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    Next := 1' + sLineBreak +
+    '  end' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(TPath.Combine(lFixtureDir, 'RemoveWithShortRangeUnit.pas'),
+    lUnitText, TEncoding.UTF8);
+
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithShortRangeUnit.pas', 12,
+    3, lStatement), 'Expected short replacement range fixture statement.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('replace-statement-range-mismatch', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoBlocksDakCombinedSelectorAmbiguousHelperCall;

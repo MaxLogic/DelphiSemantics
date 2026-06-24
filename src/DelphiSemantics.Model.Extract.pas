@@ -1526,14 +1526,156 @@ function FindWithStatementEndOffset(const aText: string; const aBodyStartOffset:
 var
   i: Integer;
   lBlockDepth: Integer;
+  lBlockKinds: TArray<string>;
+  lClosedBlockKind: string;
   lCommentMode: Integer;
+  lLastCodeEndOffset: Integer;
+  lPreviousCodeToken: string;
+  lTokenEndOffset: Integer;
+  lTokenStartOffset: Integer;
+  lTopLevelThenCount: Integer;
   lToken: string;
+
+  procedure PushBlockKind(const aKind: string);
+  var
+    lIndex: Integer;
+  begin
+    lIndex := Length(lBlockKinds);
+    SetLength(lBlockKinds, lIndex + 1);
+    lBlockKinds[lIndex] := LowerCase(aKind);
+  end;
+
+  function PopBlockKind: string;
+  begin
+    Result := '';
+    if Length(lBlockKinds) = 0 then
+      Exit;
+    Result := lBlockKinds[High(lBlockKinds)];
+    SetLength(lBlockKinds, Length(lBlockKinds) - 1);
+  end;
+
+  function NextCodeTokenIsElse(const aStartIndex: Integer): Boolean;
+  var
+    lIndex: Integer;
+    lTokenText: string;
+  begin
+    Result := False;
+    lIndex := aStartIndex;
+    while lIndex <= Length(aText) do
+    begin
+      if CharInSet(aText[lIndex], [#9, #10, #13, ' ']) then
+      begin
+        Inc(lIndex);
+        Continue;
+      end;
+      if (aText[lIndex] = '/') and (lIndex < Length(aText)) and
+        (aText[lIndex + 1] = '/') then
+      begin
+        while (lIndex <= Length(aText)) and
+          (not CharInSet(aText[lIndex], [#10, #13])) do
+          Inc(lIndex);
+        Continue;
+      end;
+      if aText[lIndex] = '{' then
+      begin
+        Inc(lIndex);
+        while (lIndex <= Length(aText)) and (aText[lIndex] <> '}') do
+          Inc(lIndex);
+        if lIndex <= Length(aText) then
+          Inc(lIndex);
+        Continue;
+      end;
+      if (aText[lIndex] = '(') and (lIndex < Length(aText)) and
+        (aText[lIndex + 1] = '*') then
+      begin
+        Inc(lIndex, 2);
+        while (lIndex < Length(aText)) and
+          ((aText[lIndex] <> '*') or (aText[lIndex + 1] <> ')')) do
+          Inc(lIndex);
+        if lIndex < Length(aText) then
+          Inc(lIndex, 2);
+        Continue;
+      end;
+      Break;
+    end;
+    if (lIndex > Length(aText)) or
+      (not CharInSet(aText[lIndex], ['A'..'Z', 'a'..'z', '_'])) then
+      Exit;
+
+    lTokenText := '';
+    while (lIndex <= Length(aText)) and
+      CharInSet(aText[lIndex], ['A'..'Z', 'a'..'z', '0'..'9', '_']) do
+    begin
+      lTokenText := lTokenText + aText[lIndex];
+      Inc(lIndex);
+    end;
+    Result := SameText(lTokenText, 'else');
+  end;
+
+  function FindNextSemicolonOutsideTrivia(const aStartIndex: Integer): Integer;
+  var
+    lIndex: Integer;
+  begin
+    lIndex := aStartIndex;
+    while lIndex <= Length(aText) do
+    begin
+      if aText[lIndex] = '''' then
+      begin
+        Inc(lIndex);
+        while lIndex <= Length(aText) do
+        begin
+          if aText[lIndex] = '''' then
+          begin
+            if (lIndex < Length(aText)) and (aText[lIndex + 1] = '''') then
+              Inc(lIndex)
+            else
+              Break;
+          end;
+          Inc(lIndex);
+        end;
+      end else if (aText[lIndex] = '/') and (lIndex < Length(aText)) and
+        (aText[lIndex + 1] = '/') then
+      begin
+        while (lIndex <= Length(aText)) and
+          (not CharInSet(aText[lIndex], [#10, #13])) do
+          Inc(lIndex);
+      end else if aText[lIndex] = '{' then
+      begin
+        Inc(lIndex);
+        while (lIndex <= Length(aText)) and (aText[lIndex] <> '}') do
+          Inc(lIndex);
+      end else if (aText[lIndex] = '(') and (lIndex < Length(aText)) and
+        (aText[lIndex + 1] = '*') then
+      begin
+        Inc(lIndex, 2);
+        while (lIndex < Length(aText)) and
+          ((aText[lIndex] <> '*') or (aText[lIndex + 1] <> ')')) do
+          Inc(lIndex);
+        if lIndex < Length(aText) then
+          Inc(lIndex);
+      end else if aText[lIndex] = ';' then
+        Exit(lIndex);
+      Inc(lIndex);
+    end;
+
+    Result := Length(aText);
+  end;
+
+  function PreviousNonWhitespaceOffset(const aStartIndex: Integer): Integer;
+  begin
+    Result := aStartIndex;
+    while (Result > 0) and CharInSet(aText[Result], [#9, #10, #13, ' ']) do
+      Dec(Result);
+  end;
 begin
   if (aBodyStartOffset < 1) or (aBodyStartOffset > Length(aText)) then
     Exit(Length(aText));
 
   lBlockDepth := 0;
   lCommentMode := 0;
+  lLastCodeEndOffset := 0;
+  lPreviousCodeToken := '';
+  lTopLevelThenCount := 0;
   i := aBodyStartOffset;
   while i <= Length(aText) do
   begin
@@ -1580,28 +1722,55 @@ begin
     end else if CharInSet(aText[i], ['A'..'Z', 'a'..'z', '_']) then
     begin
       lToken := '';
+      lTokenStartOffset := i;
       while (i <= Length(aText)) and CharInSet(aText[i], ['A'..'Z', 'a'..'z', '0'..'9', '_']) do
       begin
         lToken := lToken + aText[i];
         Inc(i);
       end;
       Dec(i);
+      lTokenEndOffset := i;
+      if SameText(lToken, 'then') and (lBlockDepth = 0) then
+        Inc(lTopLevelThenCount);
+      if SameText(lToken, 'else') and (lBlockDepth = 0) then
+      begin
+        if lTopLevelThenCount > 0 then
+          Dec(lTopLevelThenCount)
+        else if lLastCodeEndOffset > 0 then
+          Exit(PreviousNonWhitespaceOffset(lTokenStartOffset - 1));
+      end;
       if SameText(lToken, 'begin') then
       begin
+        PushBlockKind(lPreviousCodeToken);
         Inc(lBlockDepth);
       end else if SameText(lToken, 'end') then
       begin
+        lClosedBlockKind := '';
         if lBlockDepth > 0 then
+        begin
           Dec(lBlockDepth);
+          lClosedBlockKind := PopBlockKind;
+        end;
         if lBlockDepth = 0 then
         begin
-          while (i <= Length(aText)) and (aText[i] <> ';') do
-            Inc(i);
-          if i <= Length(aText) then
+          if NextCodeTokenIsElse(i + 1) then
+          begin
+            if (lTopLevelThenCount > 0) or SameText(lClosedBlockKind, 'then') then
+            begin
+              lPreviousCodeToken := lToken;
+              lLastCodeEndOffset := lTokenEndOffset;
+              Inc(i);
+              Continue;
+            end;
+            if lClosedBlockKind = '' then
+              Exit(PreviousNonWhitespaceOffset(lTokenStartOffset - 1));
             Exit(i);
-          Exit(Length(aText));
+          end;
+          Exit(FindNextSemicolonOutsideTrivia(i));
         end;
       end;
+      lPreviousCodeToken := lToken;
+      lLastCodeEndOffset := lTokenEndOffset;
     end else if (aText[i] = ';') and (lBlockDepth = 0) then
       Exit(i);
     Inc(i);
