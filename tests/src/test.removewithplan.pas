@@ -68,6 +68,8 @@ type
     [Test]
     procedure FinalDtoQualifiesPointerFieldChainWithoutRetargetingQualifiedMembers;
     [Test]
+    procedure FinalDtoQualifiesDependentPointerSelectorWithoutTemp;
+    [Test]
     procedure SkipDecisionsDoNotUseSourceSpecificCoordinates;
     [Test]
     procedure RenderDecisionsDoNotUseSourceSpecificCoordinates;
@@ -112,6 +114,9 @@ type
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbUnresolvedOuterNesting;
+    [Test]
+    [Category('MaxTdbProof')]
+    procedure FinalDtoQualifiesMaxTdbPointerFieldChainFirstStatement;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbSimpleRecordParameterDirectQualification;
@@ -162,7 +167,7 @@ type
     procedure FinalDtoMatchesMaxTdbPutDataSelectorTypeSkip;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbSelektNrToStringSelectorTypeSkip;
+    procedure FinalDtoMatchesMaxTdbSelektNrToStringDependentSelectorQualification;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbSelektLookupDirectQualification;
@@ -1892,10 +1897,10 @@ begin
   lPlan := BuildPlanForProject(FixturePath(
     'RemoveWithPointerFieldChain\RemoveWithPointerFieldChain.dproj'));
 
-  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)),
-    'Expected one final statement for the pointer-field-chain fixture.');
+  Assert.AreEqual(3, Integer(Length(lPlan.FinalStatements)),
+    'Expected three final statements for the pointer-field-chain fixture.');
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
-    'Expected pointer-field-chain statement.');
+    'Expected append pointer-field-chain statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
     'Expected direct pointer qualification without a temporary.');
@@ -1907,17 +1912,60 @@ begin
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
   Assert.AreEqual('  if Queue = nil then' + #10 +
     '    begin' + #10 +
-    '      aNode^.Next := aNode;' + #10 +
-    '      aNode^.Last := aNode;' + #10 +
-    '      Queue := aNode;' + #10 +
+    '      aFptr^.next := aFptr;' + #10 +
+    '      aFptr^.last := aFptr;' + #10 +
+    '      Queue := aFptr;' + #10 +
     '    end' + #10 +
     '    else begin' + #10 +
-    '      aNode^.Next := Queue;' + #10 +
-    '      aNode^.Last := Queue^.Last;' + #10 +
-    '      aNode^.Last^.Next := aNode;' + #10 +
-    '      aNode^.Next^.Last := aNode;' + #10 +
-    '      Queue := aNode;' + #10 +
+    '      aFptr^.next := Queue;' + #10 +
+    '      aFptr^.last := Queue^.last;' + #10 +
+    '      aFptr^.last^.next := aFptr;' + #10 +
+    '      aFptr^.next^.last := aFptr;' + #10 +
+    '      Queue := aFptr;' + #10 +
     '    end;', lReplacementText);
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-2', lStatement),
+    'Expected delete pointer-field-chain statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)),
+    'Expected only the replacement edit.');
+  lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
+    [rfReplaceAll]);
+  lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
+  Assert.AreEqual('  begin' + #10 +
+    '    aFptr^.last^.next := aFptr^.next;' + #10 +
+    '    aFptr^.next^.last := aFptr^.last;' + #10 +
+    '    if Queue = aFptr then' + #10 +
+    '    begin' + #10 +
+    '      Queue := aFptr^.next;' + #10 +
+    '      if Queue = aFptr then' + #10 +
+    '        Queue := nil;' + #10 +
+    '    end;' + #10 +
+    '  end;', lReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoQualifiesDependentPointerSelectorWithoutTemp;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lReplacementText: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPointerFieldChain\RemoveWithPointerFieldChain.dproj'));
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lStatement),
+    'Expected dependent pointer selector statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
+    'Expected dependent selector to use direct qualification without a temp.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)),
+    'Expected only the replacement edit.');
+
+  lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
+    [rfReplaceAll]);
+  lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
+  Assert.AreEqual('  aValue := aNode^.Sel.count;', lReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.SkipDecisionsDoNotUseSourceSpecificCoordinates;
@@ -3143,6 +3191,29 @@ begin
     '          END;', lStatement.ReplacementText);
 end;
 
+procedure TRemoveWithPlanTests.FinalDtoQualifiesMaxTdbPointerFieldChainFirstStatement;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lReplacementText: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 173, 3, lStatement),
+    'Expected maxTdb lowFiles DeleteQueue pointer-field-chain statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+
+  lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
+    [rfReplaceAll]);
+  lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
+  Assert.IsTrue(ContainsText(lReplacementText,
+    'fptr^.last^.next := fptr^.next'),
+    'Expected the first pointer-field-chain statement to be fully qualified: ' +
+    lReplacementText);
+  Assert.IsFalse(ContainsText(lReplacementText, 'last^.next := next'),
+    'Expected no bare pointer-field-chain root to remain: ' + lReplacementText);
+end;
+
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbSimpleRecordParameterDirectQualification;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
@@ -3551,7 +3622,7 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbSelektNrToStringSelectorTypeSkip;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbSelektNrToStringDependentSelectorQualification;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -3560,10 +3631,12 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1491, 5, lStatement),
     'Expected maxTdb SelektNrToString sl^, Sel with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('    begin' + sLineBreak +
+    '      if a <= sl^.Sel.M_Az then' + sLineBreak +
+    '        s := SelektStr(sl^.Sel.Menu^[a]);' + sLineBreak +
+    '    end;', lStatement.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbSelektLookupDirectQualification;

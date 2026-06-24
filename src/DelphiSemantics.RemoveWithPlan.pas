@@ -585,7 +585,7 @@ begin
     else
       Result := lElementType;
   end;
-  if (lPointerPos > 0) and ((lIndexPos = 0) or (lIndexPos < lPointerPos)) then
+  if (lPointerPos > 0) and (lIndexPos > 0) and (lIndexPos < lPointerPos) then
   begin
     lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
     if lPointerTargetType = '' then
@@ -643,17 +643,29 @@ begin
   Result := 'with-' + IntToStr(aIndex);
 end;
 
+function TryFindDecisionForSelector(const aDecisions: TArray<TFinalSelectorDecision>;
+  const aSelectorText: string; out aDecision: TFinalSelectorDecision): Boolean;
+var
+  lDecision: TFinalSelectorDecision;
+begin
+  Result := False;
+  aDecision := Default(TFinalSelectorDecision);
+  for lDecision in aDecisions do
+  begin
+    if SameText(lDecision.SelectorText, aSelectorText) then
+    begin
+      aDecision := lDecision;
+      Exit(True);
+    end;
+  end;
+end;
+
 function HasDecisionForSelector(const aDecisions: TArray<TFinalSelectorDecision>;
   const aSelectorText: string): Boolean;
 var
   lDecision: TFinalSelectorDecision;
 begin
-  Result := False;
-  for lDecision in aDecisions do
-  begin
-    if SameText(lDecision.SelectorText, aSelectorText) then
-      Exit(True);
-  end;
+  Result := TryFindDecisionForSelector(aDecisions, aSelectorText, lDecision);
 end;
 
 function SelectorHasEarlierSelector(const aBinding: TDelphiSemanticWithBinding;
@@ -680,6 +692,31 @@ begin
     lStopPos := Pos('^', Result);
   if lStopPos > 0 then
     Result := Trim(Copy(Result, 1, lStopPos - 1));
+end;
+
+function SelectorBaseDeclaredShapeType(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string): string;
+var
+  lBaseName: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := '';
+  lBaseName := SelectorBaseIdentifier(aSelectorText);
+  if lBaseName = '' then
+    Exit;
+  if aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, lBaseName,
+    lSymbol) then
+  begin
+    Result := SelectorShapeType(aFacts, lSymbol.TypeName, aSelectorText);
+    if Result <> '' then
+      Exit;
+  end;
+  for lSymbol in aFacts.LookupIndex.FindUnitOrGlobalByName(lBaseName) do
+  begin
+    Result := SelectorShapeType(aFacts, lSymbol.TypeName, aSelectorText);
+    if Result <> '' then
+      Exit;
+  end;
 end;
 
 function IndexedPointerSelectorBaseRequiresTypeResolutionSkip(
@@ -841,22 +878,53 @@ begin
   end;
 end;
 
+function BindingDependentSelectorQualifier(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aSelectorText,
+  aSelectorName: string; out aQualifierText: string): Boolean;
+var
+  lDecision: TFinalSelectorDecision;
+  lPreviousSelector: TDelphiSemanticWithSelectorBinding;
+  lPreviousTypeName: string;
+begin
+  Result := False;
+  for lPreviousSelector in aBinding.Selectors do
+  begin
+    if SameText(lPreviousSelector.SelectorText, aSelectorText) then
+      Exit;
+    if not TryFindDecisionForSelector(aDecisions, lPreviousSelector.SelectorText,
+      lDecision) then
+      Continue;
+    if SameText(lDecision.Reason, 'skipped-parent-context') or
+      (Trim(lDecision.QualifierText) = '') then
+      Continue;
+    lPreviousTypeName := SelectorShapeType(aFacts, lPreviousSelector.TypeName,
+      lPreviousSelector.SelectorText);
+    if lPreviousTypeName = '' then
+      lPreviousTypeName := SelectorBaseDeclaredShapeType(aFacts, aBinding,
+        lPreviousSelector.SelectorText);
+    if lPreviousTypeName = '' then
+      lPreviousTypeName := lDecision.ReceiverType;
+    if (lPreviousTypeName <> '') and
+      OwnerHasMemberNamed(aFacts, lPreviousTypeName, aSelectorName) then
+    begin
+      aQualifierText := lDecision.QualifierText + '.' + aSelectorText;
+      Exit(True);
+    end;
+  end;
+end;
+
 function DependentSelectorQualifier(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>; const aSelectorText: string;
   out aQualifierText: string): Boolean;
 var
   lDecision: TFinalSelectorDecision;
   lSelectorName: string;
-  lStopPos: Integer;
 begin
   Result := False;
   aQualifierText := '';
-  lSelectorName := Trim(aSelectorText);
-  lStopPos := Pos('[', lSelectorName);
-  if lStopPos <= 0 then
-    lStopPos := Pos('^', lSelectorName);
-  if lStopPos > 0 then
-    lSelectorName := Trim(Copy(lSelectorName, 1, lStopPos - 1));
+  lSelectorName := SelectorBaseIdentifier(aSelectorText);
   if lSelectorName = '' then
     Exit;
 
@@ -871,6 +939,8 @@ begin
       Exit(True);
     end;
   end;
+  Result := BindingDependentSelectorQualifier(aFacts, aBinding, aDecisions,
+    aSelectorText, lSelectorName, aQualifierText);
 end;
 
 function SkippedParentContextHasMember(const aFacts:
@@ -2696,6 +2766,16 @@ begin
   if ReferenceTextMatchesAt(aBodyText, aReference, Result) and
     (not BodyOffsetAppearsQualified(aBodyText, Result)) then
     Exit;
+
+  if aReference.Line > aBodyRange.StartLine then
+  begin
+    lCandidateOffset := RangeRelativeOffset(aBodyRange, aLines,
+      aReference.Line - 1, aReference.Column, aLineBreak);
+    if ReferenceTextMatchesAt(aBodyText, aReference, lCandidateOffset) and
+      (not BodyOffsetAppearsQualified(aBodyText, lCandidateOffset)) then
+      Exit(lCandidateOffset);
+  end;
+
   Result := ReferenceLineOccurrenceRelativeOffset(aBodyRange, aLines, aBodyText,
     aReference, aReference.Line, aLineBreak);
   if Result > 0 then
@@ -2707,11 +2787,6 @@ begin
     Exit;
   end;
 
-  lCandidateOffset := RangeRelativeOffset(aBodyRange, aLines,
-    aReference.Line - 1, aReference.Column, aLineBreak);
-  if ReferenceTextMatchesAt(aBodyText, aReference, lCandidateOffset) and
-    (not BodyOffsetAppearsQualified(aBodyText, lCandidateOffset)) then
-    Exit(lCandidateOffset);
   Result := ReferenceLineOccurrenceRelativeOffset(aBodyRange, aLines, aBodyText,
     aReference, aReference.Line - 1, aLineBreak);
 end;
@@ -2719,12 +2794,19 @@ end;
 function ReferenceLookupName(const aReferenceName: string): string;
 var
   lDelimiterPos: Integer;
+
+  procedure ConsiderDelimiter(const aPos: Integer);
+  begin
+    if (aPos > 0) and ((lDelimiterPos = 0) or (aPos < lDelimiterPos)) then
+      lDelimiterPos := aPos;
+  end;
+
 begin
   Result := aReferenceName;
-  lDelimiterPos := Pos('[', Result);
-  if lDelimiterPos > 0 then
-    Result := Copy(Result, 1, lDelimiterPos - 1);
-  lDelimiterPos := Pos('.', Result);
+  lDelimiterPos := 0;
+  ConsiderDelimiter(Pos('[', Result));
+  ConsiderDelimiter(Pos('.', Result));
+  ConsiderDelimiter(Pos('^', Result));
   if lDelimiterPos > 0 then
     Result := Copy(Result, 1, lDelimiterPos - 1);
 end;
@@ -3102,12 +3184,15 @@ begin
 
     lHasQualifyingReference := BindingHasQualifyingReferenceName(aFacts,
       aBinding, aDecisions, lName);
+    lNextChar := BodyNextNonWhitespaceChar(aBodyText, i);
+    if lNextChar = '^' then
+      Continue;
+
     if (not lHasQualifyingReference) and
       ((not BodyOffsetInsideCallOrCastArgument(aBodyText, lStartOffset)) or
       (not DecisionCanQualifyMemberName(aFacts, aDecisions, lName))) then
       Continue;
 
-    lNextChar := BodyNextNonWhitespaceChar(aBodyText, i);
     if lNextChar = '(' then
       Continue;
 
@@ -4249,8 +4334,8 @@ begin
     end;
     QualifyDecisionInitializationDependencies(aFacts, lSelectorDecisions,
       lDecision);
-    if DependentSelectorQualifier(aFacts, lSelectorDecisions, lSelector.SelectorText,
-      lSelectorQualifierText) then
+    if DependentSelectorQualifier(aFacts, lBinding, lSelectorDecisions,
+      lSelector.SelectorText, lSelectorQualifierText) then
     begin
       lDecision.Strategy := 'direct-qualification';
       lDecision.TempName := '';
@@ -4259,8 +4344,8 @@ begin
       lDecision.QualifierText := lSelectorQualifierText;
       lDecision.Reason := 'dependent-selector-direct-qualification';
     end else if SameText(lDecision.Strategy, 'direct-qualification') and
-      DependentSelectorQualifier(aFacts, aInheritedDecisions, lSelector.SelectorText,
-      lSelectorQualifierText) then
+      DependentSelectorQualifier(aFacts, lBinding, aInheritedDecisions,
+      lSelector.SelectorText, lSelectorQualifierText) then
     begin
       lDecision.QualifierText := lSelectorQualifierText;
       lDecision.Reason := 'dependent-selector-direct-qualification';

@@ -5,33 +5,63 @@ interface
 type
   PQueueNode = ^TQueueNode;
   TQueueNode = record
-    Next: PQueueNode;
-    Last: PQueueNode;
+    last: PQueueNode;
+    next: PQueueNode;
+  end;
+  PSelectorNode = ^TSelectorNode;
+  TSelector = record
+    count: Integer;
+  end;
+  TSelectorNode = record
+    Sel: TSelector;
   end;
 
-procedure AppendQueue(const aNode: PQueueNode);
+procedure AppendQueue(aFptr: PQueueNode);
+procedure DeleteQueue(aFptr: PQueueNode);
+procedure ReadSelector(aNode: PSelectorNode; var aValue: Integer);
 
 implementation
 
 var
   Queue: PQueueNode;
 
-procedure AppendQueue(const aNode: PQueueNode);
+procedure AppendQueue(aFptr: PQueueNode);
 begin
-  with aNode^ do
+  with aFptr^ do
     if Queue = nil then
     begin
-      Next := aNode;
-      Last := aNode;
-      Queue := aNode;
+      next := aFptr;
+      last := aFptr;
+      Queue := aFptr;
     end
     else begin
-      Next := Queue;
-      Last := Queue^.Last;
-      Last^.Next := aNode;
-      Next^.Last := aNode;
-      Queue := aNode;
+      next := Queue;
+      last := Queue^.last;
+      last^.next := aFptr;
+      next^.last := aFptr;
+      Queue := aFptr;
     end;
+end;
+
+procedure DeleteQueue(aFptr: PQueueNode);
+begin
+  with aFptr^ do
+  begin
+    last^.next := next;
+    next^.last := last;
+    if Queue = aFptr then
+    begin
+      Queue := next;
+      if Queue = aFptr then
+        Queue := nil;
+    end;
+  end;
+end;
+
+procedure ReadSelector(aNode: PSelectorNode; var aValue: Integer);
+begin
+  with aNode^, Sel do
+    aValue := count;
 end;
 
 end.
