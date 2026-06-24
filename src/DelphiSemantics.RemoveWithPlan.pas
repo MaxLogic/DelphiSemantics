@@ -570,6 +570,8 @@ begin
   if (lPointerPos > 0) and ((lIndexPos = 0) or (lPointerPos < lIndexPos)) then
   begin
     lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
+    if lPointerTargetType = '' then
+      lPointerTargetType := ConventionalPointerTargetType(aFacts, Result);
     if (lPointerTargetType = '') and (lIndexPos > 0) then
       Exit('')
     else if lPointerTargetType <> '' then
@@ -586,6 +588,8 @@ begin
   if (lPointerPos > 0) and ((lIndexPos = 0) or (lIndexPos < lPointerPos)) then
   begin
     lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
+    if lPointerTargetType = '' then
+      lPointerTargetType := ConventionalPointerTargetType(aFacts, Result);
     if lPointerTargetType = '' then
       Exit('')
     else
@@ -2680,6 +2684,22 @@ begin
   end;
 end;
 
+function HasHiddenUnresolvedPointerSelectorDecision(
+  const aEditDecisions, aValidationDecisions: TArray<TFinalSelectorDecision>):
+  Boolean;
+var
+  lDecision: TFinalSelectorDecision;
+begin
+  Result := False;
+  for lDecision in aValidationDecisions do
+  begin
+    if (Trim(lDecision.ReceiverType) = '') and
+      IsSimplePointerDereferenceSelector(lDecision.SelectorText) and
+      (not HasDecisionForSelector(aEditDecisions, lDecision.SelectorText)) then
+      Exit(True);
+  end;
+end;
+
 function QualifierForReference(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aDecisions: TArray<TFinalSelectorDecision>;
   const aReference: TDelphiSemanticBoundReference; out aQualifierText: string): Boolean;
@@ -3216,7 +3236,7 @@ end;
 
 function PrepareFinalBodyText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
-  const aDecisions: TArray<TFinalSelectorDecision>;
+  const aEditDecisions, aValidationDecisions: TArray<TFinalSelectorDecision>;
   const aNestedReplacements: TArray<TFinalNestedReplacement>;
   const aLineCache: TDelphiSemanticSourceContextCache;
   const aPreserveLeadingIndent: Boolean; out aReplacementText, aReason: string):
@@ -3271,7 +3291,7 @@ begin
   begin
     if not ReferenceInsideRange(lReference, lBodyRange) then
       Continue;
-    if ReferenceBlocksFinalRewrite(aFacts, aBinding, aDecisions, lReference,
+    if ReferenceBlocksFinalRewrite(aFacts, aBinding, aEditDecisions, lReference,
       aLineCache, aReason) then
       Exit;
     if ReferenceLineHasConditionalDirective(aBinding, lReference, aLineCache) or
@@ -3286,11 +3306,20 @@ begin
     if ReferenceShouldRemainUnchanged(aFacts, aBinding, lReference) then
     begin
       if SameText(lReference.Kind, 'routine') or
-        (not ActiveDecisionHasMember(aFacts, aDecisions, lReference.Name)) then
+        (not ActiveDecisionHasMember(aFacts, aEditDecisions, lReference.Name)) then
         Continue;
     end;
-    if not QualifierForReference(aFacts, aBinding, aDecisions, lReference, lQualifierText) then
+    if not QualifierForReference(aFacts, aBinding, aEditDecisions, lReference, lQualifierText) then
     begin
+      if HasHiddenUnresolvedPointerSelectorDecision(aEditDecisions,
+        aValidationDecisions) and
+        (not ReferenceCanRemainUnchanged(aFacts, aBinding, lReference)) and
+        (not ReferenceLooksLikeLocalLabel(aBinding, lReference, aLineCache)) and
+        (not ReferenceAppearsQualified(lReference, aBinding, aLineCache)) then
+      begin
+        aReason := 'semantic-rewrite-incomplete';
+        Exit;
+      end;
       if SameText(lReference.Classification, 'unresolved') then
       begin
         if ReferenceHasKnownRoutineSymbol(aFacts, lReference) or
@@ -3327,18 +3356,18 @@ begin
       if lOffset <= 0 then
         Continue;
     end;
-    lReferenceName := ReferenceNameWithQualifiedArguments(aFacts, aDecisions,
+    lReferenceName := ReferenceNameWithQualifiedArguments(aFacts, aEditDecisions,
       lReference.Name);
     AddFinalBodyEdit(lBodyEdits, lOffset, Length(lReference.Name),
       lReference.Name, lQualifierText + '.' + lReferenceName);
   end;
-  AddSimpleMemberBodyEdits(aFacts, aBinding, aDecisions, aReplacementText,
+  AddSimpleMemberBodyEdits(aFacts, aBinding, aEditDecisions, aReplacementText,
     lBodyEdits);
-  AddIndexedMemberBodyEdits(aFacts, aBinding, aDecisions, aReplacementText,
+  AddIndexedMemberBodyEdits(aFacts, aBinding, aEditDecisions, aReplacementText,
     lBodyEdits);
-  AddDependentSelectorBodyEdits(aDecisions, aReplacementText, lBodyEdits);
+  AddDependentSelectorBodyEdits(aEditDecisions, aReplacementText, lBodyEdits);
   ApplyFinalBodyEdits(lBodyEdits, aReplacementText);
-  if FinalBodyHasIncompleteReceiverReference(aFacts, aBinding, aDecisions,
+  if FinalBodyHasIncompleteReceiverReference(aFacts, aBinding, aValidationDecisions,
     aLineCache, lBodyRange, aReplacementText) then
   begin
     aReason := 'semantic-rewrite-incomplete';
@@ -3624,7 +3653,8 @@ end;
 
 function TryRenderFinalReplacementText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
-  const aVisibleDecisions, aTempDecisions: TArray<TFinalSelectorDecision>;
+  const aVisibleDecisions, aValidationDecisions,
+  aTempDecisions: TArray<TFinalSelectorDecision>;
   const aNestedReplacements: TArray<TFinalNestedReplacement>;
   const aLineCache: TDelphiSemanticSourceContextCache; out aReplacementText,
   aReason: string; out aReplacementRange: TDelphiSemanticRemoveWithSourceRange): Boolean;
@@ -3659,7 +3689,8 @@ begin
   lTrimmedBeforeOuterElse := TrimRangeBeforeOuterElse(aBinding, aLineCache,
     aReplacementRange);
   if not PrepareFinalBodyText(aFacts, aBinding, aVisibleDecisions,
-    aNestedReplacements, aLineCache, lControlledStatement, lBodyText, aReason) then
+    aValidationDecisions, aNestedReplacements, aLineCache, lControlledStatement,
+    lBodyText, aReason) then
   begin
     Exit;
   end;
@@ -4060,6 +4091,22 @@ begin
   end;
 end;
 
+function SelectorDecisionsWithAdditional(
+  const aBaseDecisions, aAdditionalDecisions: TArray<TFinalSelectorDecision>):
+  TArray<TFinalSelectorDecision>;
+var
+  lDecision: TFinalSelectorDecision;
+  lIndex: Integer;
+begin
+  Result := Copy(aBaseDecisions);
+  for lDecision in aAdditionalDecisions do
+  begin
+    lIndex := Length(Result);
+    SetLength(Result, lIndex + 1);
+    Result[lIndex] := lDecision;
+  end;
+end;
+
 function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aBindingSource: TRemoveWithPlanBindingSource;
   const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
@@ -4187,8 +4234,16 @@ begin
       RollbackReservedTempNamesForFinalTemps(aReservedNames,
         lBinding.RoutineName, Result.Temps);
       Result.Status := lChildStatement.Status;
-      Result.Reason := lChildStatement.Reason;
-      Result.SafetyReason := lChildStatement.SafetyReason;
+      if SameText(lChildStatement.Reason, 'semantic-rewrite-incomplete') or
+        SameText(lChildStatement.Reason, 'covered-child-rewrite-incomplete') then
+      begin
+        Result.Reason := 'covered-child-rewrite-incomplete';
+        Result.SafetyReason := Result.Reason;
+      end else
+      begin
+        Result.Reason := lChildStatement.Reason;
+        Result.SafetyReason := lChildStatement.SafetyReason;
+      end;
       Exit;
     end;
     lNestedReplacement.Range := lChildStatement.Range;
@@ -4203,9 +4258,11 @@ begin
     end;
   end;
 
+  lDecisions := SelectorDecisionsWithAdditional(aInheritedDecisions,
+    lSelectorDecisions);
   if not TryRenderFinalReplacementText(aFacts, lBinding, lVisibleDecisions,
-    lSelectorDecisions, lNestedReplacements, aLineCache, lReplacementText,
-    lReason, lReplacementRange) then
+    lDecisions, lSelectorDecisions, lNestedReplacements, aLineCache,
+    lReplacementText, lReason, lReplacementRange) then
   begin
     RollbackReservedTempNamesForDecisions(aReservedNames,
       lBinding.RoutineName, lSelectorDecisions);

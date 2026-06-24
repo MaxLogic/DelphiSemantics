@@ -86,6 +86,8 @@ type
     [Test]
     procedure FinalDtoDemotesIndexedMemberWithUnqualifiedReceiverIndex;
     [Test]
+    procedure FinalDtoDemotesParentWhenCoveredChildRewriteIsIncomplete;
+    [Test]
     procedure FinalDtoBlocksDakCombinedSelectorAmbiguousHelperCall;
     [Test]
     procedure FinalDtoDoesNotTreatNestedInlineLocalAsOuterMember;
@@ -2447,6 +2449,86 @@ begin
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('semantic-rewrite-incomplete', lStatement.Reason);
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoDemotesParentWhenCoveredChildRewriteIsIncomplete;
+var
+  lChildStatement: TDelphiSemanticRemoveWithStatement;
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lUnitText: string;
+begin
+  lFixtureDir := TempPath('remove-with-covered-child-completeness');
+  if TDirectory.Exists(lFixtureDir) then
+    TDirectory.Delete(lFixtureDir, True);
+  TDirectory.CreateDirectory(lFixtureDir);
+  lProjectPath := TPath.Combine(lFixtureDir,
+    'RemoveWithCoveredChildCompletenessFixture.dproj');
+  TFile.WriteAllText(TPath.Combine(lFixtureDir,
+    'RemoveWithCoveredChildCompletenessFixture.dpr'),
+    'program RemoveWithCoveredChildCompletenessFixture;' + sLineBreak +
+    'uses RemoveWithCoveredChildCompletenessUnit in ' +
+    '''RemoveWithCoveredChildCompletenessUnit.pas'';' + sLineBreak +
+    'begin' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>RemoveWithCoveredChildCompletenessFixture.dpr</MainSource>' +
+    sLineBreak +
+    '    <Config Condition="''$(Config)''==''''">Debug</Config>' + sLineBreak +
+    '    <Platform Condition="''$(Platform)''==''''">Win32</Platform>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '  <ItemGroup>' + sLineBreak +
+    '    <DelphiCompile Include="$(MainSource)">' + sLineBreak +
+    '      <MainSource>MainSource</MainSource>' + sLineBreak +
+    '    </DelphiCompile>' + sLineBreak +
+    '    <DCCReference Include="RemoveWithCoveredChildCompletenessUnit.pas" />' +
+    sLineBreak +
+    '  </ItemGroup>' + sLineBreak +
+    '</Project>', TEncoding.UTF8);
+  lUnitText :=
+    'unit RemoveWithCoveredChildCompletenessUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TVirtualHandle = record' + sLineBreak +
+    '    v_Mem: Pointer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  PVirtualHandle = ^TVirtualHandle;' + sLineBreak +
+    '  TLowFile = record' + sLineBreak +
+    '    v_handle_ptr: PVirtualHandle;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Release(var f: TLowFile; aSize: Integer);' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with f do' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    if v_handle_ptr <> nil then' + sLineBreak +
+    '      with v_handle_ptr^ do' + sLineBreak +
+    '        FreeMem(v_Mem, aSize);' + sLineBreak +
+    '  end;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(TPath.Combine(lFixtureDir,
+    'RemoveWithCoveredChildCompletenessUnit.pas'), lUnitText, TEncoding.UTF8);
+
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan,
+    'RemoveWithCoveredChildCompletenessUnit.pas', 14, 3, lStatement),
+    'Expected covered child completeness outer statement.');
+  Assert.AreEqual('skipped', lStatement.Status, lStatement.ReplacementText);
+  Assert.AreEqual('covered-child-rewrite-incomplete', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(2, Integer(Length(lPlan.Statements)),
+    'Statement ledger must account for both discovered with statements.');
+  Assert.IsTrue(FindStatement(lPlan, 'with-2', lChildStatement),
+    'Expected nested child statement ledger row after parent demotion.');
+  Assert.AreEqual('skipped', lChildStatement.Status);
+  Assert.AreEqual('semantic-rewrite-incomplete', lChildStatement.Reason);
+  Assert.AreEqual('', lChildStatement.CoveredByStatementId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoBlocksDakCombinedSelectorAmbiguousHelperCall;
