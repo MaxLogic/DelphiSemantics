@@ -1,0 +1,11 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{E59D2466-38F4-446E-AD1F-D9411887A999}</ProjectGuid>
+    <MainSource>RemoveWithControlBody.dpr</MainSource>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <Platform Condition="'$(Platform)'==''">Win32</Platform>
+  </PropertyGroup>
+  <ItemGroup>
+    <DCCReference Include="RemoveWithControlBodyUnit.pas"/>
+  </ItemGroup>
+</Project>

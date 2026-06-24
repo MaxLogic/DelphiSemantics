@@ -52,6 +52,9 @@ type
     [Category('MaxTdbProof')]
     procedure SnapshotPlannerMaxTdbPreservesCountsWithoutProjectFactsSidecar;
     [Test]
+    [Category('MaxTdbProof')]
+    procedure MaxTdbCurrentRunPublishesOnlySafeFinalEdits;
+    [Test]
     procedure DtoParityHarnessReportsMissingFinalStatements;
     [Test]
     procedure DtoParityHarnessReportsUnexpectedFinalStatements;
@@ -86,7 +89,13 @@ type
     [Test]
     procedure FinalDtoCoversCompleteIfThenElseWithRange;
     [Test]
-    procedure FinalDtoDemotesShortReplacementRange;
+    procedure FinalDtoPlansSemicolonlessBlockBeforeRoutineEnd;
+    [Test]
+    procedure FinalDtoPlansCompleteRepeatUntilControlBody;
+    [Test]
+    procedure FinalDtoPlansCompleteLoopBranchControlBody;
+    [Test]
+    procedure FinalDtoKeepsCompleteWhileControlBodyRewrite;
     [Test]
     procedure FinalDtoDemotesIndexedMemberWithUnqualifiedReceiverIndex;
     [Test]
@@ -1521,6 +1530,76 @@ begin
     'Snapshot maxTdb path must not write the JSON project-facts sidecar.');
 end;
 
+procedure TRemoveWithPlanTests.MaxTdbCurrentRunPublishesOnlySafeFinalEdits;
+var
+  lEditIndex: Integer;
+  lPlannedCount: Integer;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lReplacementEditCount: Integer;
+  lSkippedCount: Integer;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lProjectPath := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
+  if not TFile.Exists(lProjectPath) then
+  begin
+    Assert.Pass('Optional proprietary maxTdb fixture is absent; no maxTdb safety proof was run.');
+    Exit;
+  end;
+
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.IsTrue(Length(lPlan.FinalStatements) > 100,
+    'Expected the current maxTdb fixture to exercise a broad final DTO set.');
+
+  lPlannedCount := 0;
+  lReplacementEditCount := 0;
+  lSkippedCount := 0;
+  for lStatement in lPlan.FinalStatements do
+  begin
+    if SameText(lStatement.Status, 'planned') then
+    begin
+      Inc(lPlannedCount);
+      Assert.IsFalse(SameText(lStatement.Reason, 'replace-statement-range-mismatch'),
+        Format('Range mismatches must fail closed: %s %s',
+        [ExtractFileName(lStatement.FileName), SourceRangeText(lStatement.Range)]));
+      if not SameText(lStatement.Reason, 'covered-by-parent-rewrite') then
+        Assert.IsTrue(Length(lStatement.Edits) > 0,
+          Format('Planned statement has no edits: %s %s',
+          [ExtractFileName(lStatement.FileName), SourceRangeText(lStatement.Range)]));
+      for lEditIndex := 0 to High(lStatement.Edits) do
+      begin
+        Assert.IsTrue(lStatement.Edits[lEditIndex].Range.StartLine > 0,
+          'Planned edits must carry source ranges.');
+        Assert.IsTrue(lStatement.Edits[lEditIndex].Range.EndLine >=
+          lStatement.Edits[lEditIndex].Range.StartLine,
+          'Planned edit end line must not precede its start line.');
+        if SameText(lStatement.Edits[lEditIndex].Kind, 'replace-statement') then
+        begin
+          Inc(lReplacementEditCount);
+          Assert.IsTrue(lStatement.Edits[lEditIndex].ReplacementText <> '',
+            'Replacement edits must carry replacement text.');
+        end;
+      end;
+    end else if SameText(lStatement.Status, 'skipped') then
+    begin
+      Inc(lSkippedCount);
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)),
+        Format('Skipped statements must not publish edits: %s %s',
+        [ExtractFileName(lStatement.FileName), SourceRangeText(lStatement.Range)]));
+    end else
+      Assert.IsTrue(False, Format('Unexpected final statement status %s at %s %s',
+        [lStatement.Status, ExtractFileName(lStatement.FileName),
+        SourceRangeText(lStatement.Range)]));
+  end;
+
+  Assert.IsTrue(lPlannedCount > 0, 'Expected at least one planned maxTdb final edit.');
+  Assert.IsTrue(lReplacementEditCount > 0,
+    'Expected at least one maxTdb replacement edit.');
+  Assert.IsTrue(lSkippedCount > 0, 'Expected at least one skipped maxTdb final statement.');
+end;
+
 procedure TRemoveWithPlanTests.DtoParityHarnessReportsMissingFinalStatements;
 var
   lExpectedEdit: TDelphiSemanticRemoveWithPlanParityEdit;
@@ -2407,7 +2486,7 @@ begin
     'lRecordPtr^.Queue := 3;'), lStatement.ReplacementText);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoDemotesShortReplacementRange;
+procedure TRemoveWithPlanTests.FinalDtoPlansSemicolonlessBlockBeforeRoutineEnd;
 var
   lFixtureDir: string;
   lPlan: TDelphiSemanticRemoveWithPlan;
@@ -2465,9 +2544,82 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithShortRangeUnit.pas', 12,
     3, lStatement), 'Expected short replacement range fixture statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('replace-statement-range-mismatch', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)),
+    'Expected declaration and replacement edits.');
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(12, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(15, lStatement.Edits[1].Range.EndLine);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, '^.Next := 1'),
+    lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPlansCompleteRepeatUntilControlBody;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithControlBody\RemoveWithControlBody.dproj'));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithControlBodyUnit.pas', 24,
+    3, lStatement), 'Expected repeat/until control-body statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(24, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(28, lStatement.Edits[0].Range.EndLine);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'aItem^.Memo := aItem^.Code;'), lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'Inc(aItem^.MemoOffset);'), lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'until aItem^.MemoOffset >= aItem^.Count;'), lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPlansCompleteLoopBranchControlBody;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithControlBody\RemoveWithControlBody.dproj'));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithControlBodyUnit.pas', 33,
+    3, lStatement), 'Expected loop/branch control-body statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(33, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(40, lStatement.Edits[0].Range.EndLine);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'while aItem^.Active do'), lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'case aItem^.Code of'), lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'aItem^.MemoOffset := aItem^.Count;'), lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoKeepsCompleteWhileControlBodyRewrite;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithControlBody\RemoveWithControlBody.dproj'));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithControlBodyUnit.pas', 45,
+    3, lStatement), 'Expected complete while control-body statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual(45, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(51, lStatement.Edits[0].Range.EndLine);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'aItem^.MemoOffset := aItem^.Count;'), lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'aItem^.Active := False;'), lStatement.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoDemotesIndexedMemberWithUnqualifiedReceiverIndex;

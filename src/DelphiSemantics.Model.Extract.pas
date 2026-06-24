@@ -1554,7 +1554,8 @@ var
     SetLength(lBlockKinds, Length(lBlockKinds) - 1);
   end;
 
-  function NextCodeTokenIsElse(const aStartIndex: Integer): Boolean;
+  function NextCodeTokenEquals(const aStartIndex: Integer; const aToken: string):
+    Boolean;
   var
     lIndex: Integer;
     lTokenText: string;
@@ -1609,7 +1610,7 @@ var
       lTokenText := lTokenText + aText[lIndex];
       Inc(lIndex);
     end;
-    Result := SameText(lTokenText, 'else');
+    Result := SameText(lTokenText, aToken);
   end;
 
   function FindNextSemicolonOutsideTrivia(const aStartIndex: Integer): Integer;
@@ -1739,10 +1740,21 @@ begin
         else if lLastCodeEndOffset > 0 then
           Exit(PreviousNonWhitespaceOffset(lTokenStartOffset - 1));
       end;
-      if SameText(lToken, 'begin') then
+      if SameText(lToken, 'begin') or SameText(lToken, 'case') or
+        SameText(lToken, 'try') then
       begin
         PushBlockKind(lPreviousCodeToken);
         Inc(lBlockDepth);
+      end else if SameText(lToken, 'repeat') then
+      begin
+        PushBlockKind('repeat');
+        Inc(lBlockDepth);
+      end else if SameText(lToken, 'until') and
+        (Length(lBlockKinds) > 0) and SameText(lBlockKinds[High(lBlockKinds)],
+        'repeat') then
+      begin
+        Dec(lBlockDepth);
+        PopBlockKind;
       end else if SameText(lToken, 'end') then
       begin
         lClosedBlockKind := '';
@@ -1753,7 +1765,7 @@ begin
         end;
         if lBlockDepth = 0 then
         begin
-          if NextCodeTokenIsElse(i + 1) then
+          if NextCodeTokenEquals(i + 1, 'else') then
           begin
             if (lTopLevelThenCount > 0) or SameText(lClosedBlockKind, 'then') then
             begin
@@ -1766,6 +1778,8 @@ begin
               Exit(PreviousNonWhitespaceOffset(lTokenStartOffset - 1));
             Exit(i);
           end;
+          if NextCodeTokenEquals(i + 1, 'end') then
+            Exit(lTokenEndOffset);
           Exit(FindNextSemicolonOutsideTrivia(i));
         end;
       end;
