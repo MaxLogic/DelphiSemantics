@@ -84,6 +84,8 @@ type
     [Test]
     procedure FinalDtoDemotesShortReplacementRange;
     [Test]
+    procedure FinalDtoDemotesIndexedMemberWithUnqualifiedReceiverIndex;
+    [Test]
     procedure FinalDtoBlocksDakCombinedSelectorAmbiguousHelperCall;
     [Test]
     procedure FinalDtoDoesNotTreatNestedInlineLocalAsOuterMember;
@@ -2376,6 +2378,74 @@ begin
     3, lStatement), 'Expected short replacement range fixture statement.');
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('replace-statement-range-mismatch', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoDemotesIndexedMemberWithUnqualifiedReceiverIndex;
+var
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lUnitText: string;
+begin
+  lFixtureDir := TempPath('remove-with-indexed-member-completeness');
+  if TDirectory.Exists(lFixtureDir) then
+    TDirectory.Delete(lFixtureDir, True);
+  TDirectory.CreateDirectory(lFixtureDir);
+  lProjectPath := TPath.Combine(lFixtureDir,
+    'RemoveWithIndexedMemberCompletenessFixture.dproj');
+  TFile.WriteAllText(TPath.Combine(lFixtureDir,
+    'RemoveWithIndexedMemberCompletenessFixture.dpr'),
+    'program RemoveWithIndexedMemberCompletenessFixture;' + sLineBreak +
+    'uses RemoveWithIndexedMemberCompletenessUnit in ' +
+    '''RemoveWithIndexedMemberCompletenessUnit.pas'';' + sLineBreak +
+    'begin' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>RemoveWithIndexedMemberCompletenessFixture.dpr</MainSource>' +
+    sLineBreak +
+    '    <Config Condition="''$(Config)''==''''">Debug</Config>' + sLineBreak +
+    '    <Platform Condition="''$(Platform)''==''''">Win32</Platform>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '  <ItemGroup>' + sLineBreak +
+    '    <DelphiCompile Include="$(MainSource)">' + sLineBreak +
+    '      <MainSource>MainSource</MainSource>' + sLineBreak +
+    '    </DelphiCompile>' + sLineBreak +
+    '    <DCCReference Include="RemoveWithIndexedMemberCompletenessUnit.pas" />' +
+    sLineBreak +
+    '  </ItemGroup>' + sLineBreak +
+    '</Project>', TEncoding.UTF8);
+  lUnitText :=
+    'unit RemoveWithIndexedMemberCompletenessUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TIndexedRecord = record' + sLineBreak +
+    '    Items: array[0..9] of Integer;' + sLineBreak +
+    '    Index: Integer;' + sLineBreak +
+    '    Count: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run(var aRecord: TIndexedRecord);' + sLineBreak +
+    'begin' + sLineBreak +
+    '  with aRecord do' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    Items[Index] := Count;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(TPath.Combine(lFixtureDir,
+    'RemoveWithIndexedMemberCompletenessUnit.pas'), lUnitText, TEncoding.UTF8);
+
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan,
+    'RemoveWithIndexedMemberCompletenessUnit.pas', 12, 3, lStatement),
+    'Expected indexed member completeness fixture statement.');
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('semantic-rewrite-incomplete', lStatement.Reason);
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 

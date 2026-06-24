@@ -2373,6 +2373,18 @@ begin
   Result := EndsText(lQualifierText + '.', lPrefixText);
 end;
 
+function BodyOffsetAppearsQualified(const aBodyText: string;
+  const aOffset: Integer): Boolean;
+var
+  lOffset: Integer;
+begin
+  Result := False;
+  lOffset := aOffset - 1;
+  while (lOffset > 0) and CharInSet(aBodyText[lOffset], [#9, #10, #13, ' ']) do
+    Dec(lOffset);
+  Result := (lOffset > 0) and (aBodyText[lOffset] = '.');
+end;
+
 function BodyOffsetInsideStringLiteral(const aText: string;
   const aOffset: Integer): Boolean; forward;
 function BodyOffsetInsideComment(const aText: string;
@@ -3106,6 +3118,102 @@ begin
   end;
 end;
 
+function FinalBodyHasIncompleteReceiverReference(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aDecisions: TArray<TFinalSelectorDecision>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
+  const aBodyRange: TDelphiSemanticRemoveWithSourceRange; const aBodyText: string):
+  Boolean;
+var
+  i: Integer;
+  lDecision: TFinalSelectorDecision;
+  lQualified: Boolean;
+  lReference: TDelphiSemanticBoundReference;
+  lName: string;
+  lRequiresQualification: Boolean;
+  lStartOffset: Integer;
+
+  procedure BodyOffsetToReferenceLocation(var aReference:
+    TDelphiSemanticBoundReference; const aOffset: Integer);
+  var
+    lBodyLine: Integer;
+    lColumn: Integer;
+    lLineStartOffset: Integer;
+    lTextIndex: Integer;
+  begin
+    lBodyLine := 1;
+    lLineStartOffset := 1;
+    lTextIndex := 1;
+    while (lTextIndex < aOffset) and (lTextIndex <= Length(aBodyText)) do
+    begin
+      if aBodyText[lTextIndex] = #10 then
+      begin
+        Inc(lBodyLine);
+        lLineStartOffset := lTextIndex + 1;
+      end;
+      Inc(lTextIndex);
+    end;
+
+    lColumn := aOffset - lLineStartOffset + 1;
+    aReference.Line := aBodyRange.StartLine + lBodyLine - 1;
+    if lBodyLine = 1 then
+      aReference.Column := aBodyRange.StartColumn + lColumn - 1
+    else
+      aReference.Column := lColumn;
+    aReference.EndLine := aReference.Line;
+    aReference.EndColumn := aReference.Column + Length(aReference.Name) - 1;
+  end;
+begin
+  Result := False;
+  i := 1;
+  while i <= Length(aBodyText) do
+  begin
+    if not IsIdentifierTextChar(aBodyText[i]) then
+    begin
+      Inc(i);
+      Continue;
+    end;
+
+    lStartOffset := i;
+    while (i <= Length(aBodyText)) and IsIdentifierTextChar(aBodyText[i]) do
+      Inc(i);
+    lName := Copy(aBodyText, lStartOffset, i - lStartOffset);
+
+    if BodyOffsetInsideStringLiteral(aBodyText, lStartOffset) or
+      BodyOffsetInsideComment(aBodyText, lStartOffset) or
+      BodyOffsetAppearsQualified(aBodyText, lStartOffset) or
+      RoutineScopeSymbolNamed(aFacts, aBinding, lName) or
+      BodyDeclaresInlineVarName(aBodyText, lName) then
+      Continue;
+
+    lReference := Default(TDelphiSemanticBoundReference);
+    lReference.Name := lName;
+    BodyOffsetToReferenceLocation(lReference, lStartOffset);
+    if ReferenceCanRemainUnchanged(aFacts, aBinding, lReference) or
+      ReferenceLooksLikeLocalLabel(aBinding, lReference, aLineCache) then
+      Continue;
+
+    lQualified := False;
+    lRequiresQualification := False;
+    for lDecision in aDecisions do
+    begin
+      if (Trim(lDecision.QualifierText) = '') or
+        (Trim(lDecision.ReceiverType) = '') then
+        Continue;
+      if not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lName) then
+        Continue;
+
+      lRequiresQualification := True;
+      if BodyOffsetInsideTextOccurrence(aBodyText, lDecision.QualifierText,
+        lStartOffset) or BodyOffsetHasTextQualifier(aBodyText,
+        lDecision.QualifierText, lStartOffset) then
+        lQualified := True;
+    end;
+    if lRequiresQualification and (not lQualified) then
+      Exit(True);
+  end;
+end;
+
 function PrepareFinalBodyText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>;
@@ -3230,6 +3338,12 @@ begin
     lBodyEdits);
   AddDependentSelectorBodyEdits(aDecisions, aReplacementText, lBodyEdits);
   ApplyFinalBodyEdits(lBodyEdits, aReplacementText);
+  if FinalBodyHasIncompleteReceiverReference(aFacts, aBinding, aDecisions,
+    aLineCache, lBodyRange, aReplacementText) then
+  begin
+    aReason := 'semantic-rewrite-incomplete';
+    Exit;
+  end;
   while StartsText(lLineBreak, aReplacementText) do
     Delete(aReplacementText, 1, Length(lLineBreak));
   while StartsText(#13, aReplacementText) or StartsText(#10, aReplacementText) do
