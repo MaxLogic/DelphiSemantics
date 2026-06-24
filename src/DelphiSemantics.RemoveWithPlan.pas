@@ -2389,6 +2389,18 @@ begin
   Result := (lOffset > 0) and (aBodyText[lOffset] = '.');
 end;
 
+function LineOffsetAppearsQualified(const aLineText: string;
+  const aOffset: Integer): Boolean;
+var
+  lOffset: Integer;
+begin
+  Result := False;
+  lOffset := aOffset - 1;
+  while (lOffset > 0) and CharInSet(aLineText[lOffset], [#9, ' ']) do
+    Dec(lOffset);
+  Result := (lOffset > 0) and (aLineText[lOffset] = '.');
+end;
+
 function BodyOffsetInsideStringLiteral(const aText: string;
   const aOffset: Integer): Boolean; forward;
 function BodyOffsetInsideComment(const aText: string;
@@ -2543,7 +2555,8 @@ begin
   lSearchOffset := PosEx(aReference.Name, lLineText);
   while lSearchOffset > 0 do
   begin
-    if BodyTextIdentifierAt(lLineText, aReference.Name, lSearchOffset) then
+    if BodyTextIdentifierAt(lLineText, aReference.Name, lSearchOffset) and
+      (not LineOffsetAppearsQualified(lLineText, lSearchOffset)) then
     begin
       lCandidateOffset := RangeRelativeOffset(aBodyRange, aLines, aLine,
         lSearchOffset, aLineBreak);
@@ -2604,7 +2617,8 @@ begin
   lSearchOffset := PosEx(aReference.Name, lLineText);
   while lSearchOffset > 0 do
   begin
-    if BodyTextIdentifierAt(lLineText, aReference.Name, lSearchOffset) then
+    if BodyTextIdentifierAt(lLineText, aReference.Name, lSearchOffset) and
+      (not LineOffsetAppearsQualified(lLineText, lSearchOffset)) then
     begin
       lCandidateOffset := RangeRelativeOffset(aBodyRange, aLines, aLine,
         lSearchOffset, aLineBreak);
@@ -2625,6 +2639,52 @@ begin
   end;
 end;
 
+function ReferenceLineHasQualifiedOccurrence(
+  const aBodyRange: TDelphiSemanticRemoveWithSourceRange;
+  const aLines: TArray<string>; const aBodyText: string;
+  const aReference: TDelphiSemanticBoundReference; const aLine: Integer;
+  const aLineBreak: string): Boolean;
+var
+  lCandidateOffset: Integer;
+  lLineText: string;
+  lSearchOffset: Integer;
+begin
+  Result := False;
+  if (aLine < aBodyRange.StartLine) or (aLine > aBodyRange.EndLine) or
+    (aLine < 1) or (aLine > Length(aLines)) or (aReference.Name = '') then
+    Exit;
+
+  lLineText := aLines[aLine - 1];
+  lSearchOffset := PosEx(aReference.Name, lLineText);
+  while lSearchOffset > 0 do
+  begin
+    if BodyTextIdentifierAt(lLineText, aReference.Name, lSearchOffset) and
+      LineOffsetAppearsQualified(lLineText, lSearchOffset) then
+    begin
+      lCandidateOffset := RangeRelativeOffset(aBodyRange, aLines, aLine,
+        lSearchOffset, aLineBreak);
+      if ReferenceTextMatchesAt(aBodyText, aReference, lCandidateOffset) then
+        Exit(True);
+    end;
+    lSearchOffset := PosEx(aReference.Name, lLineText,
+      lSearchOffset + Length(aReference.Name));
+  end;
+end;
+
+function ReferenceHasQualifiedOccurrenceNearReference(
+  const aBodyRange: TDelphiSemanticRemoveWithSourceRange;
+  const aLines: TArray<string>; const aBodyText: string;
+  const aReference: TDelphiSemanticBoundReference;
+  const aLineBreak: string): Boolean;
+begin
+  Result := ReferenceLineHasQualifiedOccurrence(aBodyRange, aLines, aBodyText,
+    aReference, aReference.Line, aLineBreak);
+  if Result or (aReference.Line <= aBodyRange.StartLine) then
+    Exit;
+  Result := ReferenceLineHasQualifiedOccurrence(aBodyRange, aLines, aBodyText,
+    aReference, aReference.Line - 1, aLineBreak);
+end;
+
 function ReferenceRelativeOffset(const aBodyRange: TDelphiSemanticRemoveWithSourceRange;
   const aLines: TArray<string>; const aBodyText: string;
   const aReference: TDelphiSemanticBoundReference; const aLineBreak: string): Integer;
@@ -2633,7 +2693,8 @@ var
 begin
   Result := RangeRelativeOffset(aBodyRange, aLines, aReference.Line,
     aReference.Column, aLineBreak);
-  if ReferenceTextMatchesAt(aBodyText, aReference, Result) then
+  if ReferenceTextMatchesAt(aBodyText, aReference, Result) and
+    (not BodyOffsetAppearsQualified(aBodyText, Result)) then
     Exit;
   Result := ReferenceLineOccurrenceRelativeOffset(aBodyRange, aLines, aBodyText,
     aReference, aReference.Line, aLineBreak);
@@ -2648,7 +2709,8 @@ begin
 
   lCandidateOffset := RangeRelativeOffset(aBodyRange, aLines,
     aReference.Line - 1, aReference.Column, aLineBreak);
-  if ReferenceTextMatchesAt(aBodyText, aReference, lCandidateOffset) then
+  if ReferenceTextMatchesAt(aBodyText, aReference, lCandidateOffset) and
+    (not BodyOffsetAppearsQualified(aBodyText, lCandidateOffset)) then
     Exit(lCandidateOffset);
   Result := ReferenceLineOccurrenceRelativeOffset(aBodyRange, aLines, aBodyText,
     aReference, aReference.Line - 1, aLineBreak);
@@ -3338,6 +3400,9 @@ begin
       lReference, lLineBreak);
     if lOffset <= 0 then
     begin
+      if ReferenceHasQualifiedOccurrenceNearReference(lBodyRange, lLines,
+        aReplacementText, lReference, lLineBreak) then
+        Continue;
       aReason := 'reference-offset-not-resolved';
       Exit;
     end;

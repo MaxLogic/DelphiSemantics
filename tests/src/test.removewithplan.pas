@@ -66,6 +66,8 @@ type
     [Test]
     procedure FinalDtoPlansSourceBackedPropertyChainSelectorWithoutLinePatch;
     [Test]
+    procedure FinalDtoQualifiesPointerFieldChainWithoutRetargetingQualifiedMembers;
+    [Test]
     procedure SkipDecisionsDoNotUseSourceSpecificCoordinates;
     [Test]
     procedure RenderDecisionsDoNotUseSourceSpecificCoordinates;
@@ -621,7 +623,7 @@ type
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsClearMarksSkipReason;
     [Test]
-    procedure FinalDtoMatchesMaxTdbTdbUtilsFlipMarkReplacement;
+    procedure FinalDtoMatchesMaxTdbTdbUtilsFlipMarkRangeMismatchSkip;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsMakeSelektReplacement;
@@ -1879,6 +1881,43 @@ begin
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(23, lStatement.Edits[0].Range.EndLine);
   Assert.AreEqual(23, lStatement.Edits[0].Range.EndColumn);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoQualifiesPointerFieldChainWithoutRetargetingQualifiedMembers;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lReplacementText: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPointerFieldChain\RemoveWithPointerFieldChain.dproj'));
+
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)),
+    'Expected one final statement for the pointer-field-chain fixture.');
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
+    'Expected pointer-field-chain statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
+    'Expected direct pointer qualification without a temporary.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)),
+    'Expected only the replacement edit.');
+
+  lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
+    [rfReplaceAll]);
+  lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
+  Assert.AreEqual('  if Queue = nil then' + #10 +
+    '    begin' + #10 +
+    '      aNode^.Next := aNode;' + #10 +
+    '      aNode^.Last := aNode;' + #10 +
+    '      Queue := aNode;' + #10 +
+    '    end' + #10 +
+    '    else begin' + #10 +
+    '      aNode^.Next := Queue;' + #10 +
+    '      aNode^.Last := Queue^.Last;' + #10 +
+    '      aNode^.Last^.Next := aNode;' + #10 +
+    '      aNode^.Next^.Last := aNode;' + #10 +
+    '      Queue := aNode;' + #10 +
+    '    end;', lReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.SkipDecisionsDoNotUseSourceSpecificCoordinates;
@@ -8147,7 +8186,7 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsFlipMarkReplacement;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsFlipMarkRangeMismatchSkip;
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lOptions: TDelphiSemanticApiOptions;
@@ -8178,35 +8217,10 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1134, 3, lStatement),
     'Expected maxTdb tdbutils FlipMark ml with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('ml', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('MarkList', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithMarkListPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithMarkListPtr^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
-  Assert.AreEqual(1133, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(1133, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  lWithMarkListPtr: ^MarkList;' + sLineBreak, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
-  Assert.AreEqual(1134, lStatement.Edits[1].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
-  Assert.AreEqual(1166, lStatement.Edits[1].Range.EndLine);
-  Assert.AreEqual(6, lStatement.Edits[1].Range.EndColumn);
-  Assert.AreEqual(885, Integer(Length(lStatement.ReplacementText)));
-  Assert.IsTrue(Pos('  lWithMarkListPtr := @ml;', lStatement.ReplacementText) > 0);
-  Assert.IsTrue(Pos('    p := lWithMarkListPtr^.Anfang;', lStatement.ReplacementText) > 0);
-  Assert.IsTrue(Pos('    lWithMarkListPtr^.Aktuell := nil;', lStatement.ReplacementText) > 0);
-  Assert.IsTrue(Pos('      if lWithMarkListPtr^.Ende = p then', lStatement.ReplacementText) > 0);
-  Assert.IsTrue(Pos('      Inc(lWithMarkListPtr^.AnzMarkiert);', lStatement.ReplacementText) > 0);
-  Assert.IsTrue(EndsText('      lWithMarkListPtr^.Ende := p;' + sLineBreak +
-    '    end' + sLineBreak +
-    '  end;', lStatement.ReplacementText));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('replace-statement-range-mismatch', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsMakeSelektReplacement;
