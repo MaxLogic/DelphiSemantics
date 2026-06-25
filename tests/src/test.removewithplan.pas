@@ -73,6 +73,10 @@ type
     [Test]
     procedure FinalDtoQualifiesDependentPointerSelectorWithoutTemp;
     [Test]
+    procedure FinalDtoQualifiesSiblingMemberOfDependentPointerSelector;
+    [Test]
+    procedure FinalDtoQualifiesHiddenPointerSelectorSiblingUnderInheritedWith;
+    [Test]
     procedure SkipDecisionsDoNotUseSourceSpecificCoordinates;
     [Test]
     procedure RenderDecisionsDoNotUseSourceSpecificCoordinates;
@@ -87,6 +91,8 @@ type
     [Test]
     procedure FinalDtoMatchesDakRewriteShapeElseBoundaries;
     [Test]
+    procedure FinalDtoTrimsControlledWrapperBeforeCommentedOuterElse;
+    [Test]
     procedure FinalDtoCoversCompleteIfThenElseWithRange;
     [Test]
     procedure FinalDtoPlansSemicolonlessBlockBeforeRoutineEnd;
@@ -97,7 +103,7 @@ type
     [Test]
     procedure FinalDtoKeepsCompleteWhileControlBodyRewrite;
     [Test]
-    procedure FinalDtoDemotesIndexedMemberWithUnqualifiedReceiverIndex;
+    procedure FinalDtoQualifiesIndexedMemberReceiverIndex;
     [Test]
     procedure FinalDtoDemotesParentWhenCoveredChildRewriteIsIncomplete;
     [Test]
@@ -318,6 +324,9 @@ type
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesResetFileSkip;
+    [Test]
+    [Category('MaxTdbProof')]
+    procedure FinalDtoMatchesMaxTdbRamFilesResetFileBodyAnalysisReplacement;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbRamFilesRamFileSkipReasons;
@@ -1976,8 +1985,8 @@ begin
   lPlan := BuildPlanForProject(FixturePath(
     'RemoveWithPointerFieldChain\RemoveWithPointerFieldChain.dproj'));
 
-  Assert.AreEqual(3, Integer(Length(lPlan.FinalStatements)),
-    'Expected three final statements for the pointer-field-chain fixture.');
+  Assert.AreEqual(5, Integer(Length(lPlan.FinalStatements)),
+    'Expected five final statements for the pointer-field-chain fixture.');
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
     'Expected append pointer-field-chain statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
@@ -2045,6 +2054,62 @@ begin
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
   Assert.AreEqual('  aValue := aNode^.Sel.count;', lReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoQualifiesSiblingMemberOfDependentPointerSelector;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lReplacementText: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPointerFieldChain\RemoveWithPointerFieldChain.dproj'));
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-4', lStatement),
+    'Expected dependent pointer selector statement with sibling outer member.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
+    'Expected dependent selector to use direct qualification without a temp.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)),
+    'Expected only the replacement edit.');
+
+  lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
+    [rfReplaceAll]);
+  lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
+  Assert.AreEqual('  begin' + #10 +
+    '    aValue := aNode^.Sel.count;' + #10 +
+    '    aNode^.n := nil;' + #10 +
+    '  end;', lReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoQualifiesHiddenPointerSelectorSiblingUnderInheritedWith;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lReplacementText: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPointerFieldChain\RemoveWithPointerFieldChain.dproj'));
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-5', lStatement),
+    'Expected outer statement covering a nested dependent pointer selector.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
+    'Expected dependent selector to use direct qualification without a temp.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)),
+    'Expected only the replacement edit.');
+
+  lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
+    [rfReplaceAll]);
+  lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
+  Assert.IsTrue(Pos('Inc(aMask^.Marker);', lReplacementText) > 0,
+    'Expected outer receiver member to be qualified through aMask^.');
+  Assert.IsTrue(Pos('aNode^.Sel.count', lReplacementText) > 0,
+    'Expected dependent selector member to stay qualified through aNode^.Sel.');
+  Assert.IsTrue(Pos('aNode^.n := nil;', lReplacementText) > 0,
+    'Expected sibling field from aNode^ to stay visible under inherited with.');
+  Assert.IsFalse(Pos('    n := nil;', lReplacementText) > 0,
+    'Unqualified sibling field n does not compile after rewrite.');
 end;
 
 procedure TRemoveWithPlanTests.SkipDecisionsDoNotUseSourceSpecificCoordinates;
@@ -2327,6 +2392,7 @@ var
   lFixtureDir: string;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lProjectPath: string;
+  lReplacementText: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lFixtureDir := CopyDakFixtureToTemp('RemoveWithRewriteShapeFixture',
@@ -2387,6 +2453,12 @@ begin
     lStatement.ReplacementText);
   Assert.IsFalse(ContainsText(LowerCase(lStatement.ReplacementText),
     sLineBreak + '  else'), lStatement.ReplacementText);
+  lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
+    [rfReplaceAll]);
+  lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
+  Assert.AreEqual('    begin' + #10 +
+    '      aLeftPtr^.Name := ''controlled-left-before-else''' + #10 +
+    '    end', lReplacementText);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'RewriteShapeUnit.pas', 273, 5,
     lStatement), 'Expected controlled single-statement else branch statement.');
@@ -2402,6 +2474,79 @@ begin
     'lWithRewriteShapeAnonymousOuterPtr^.Struktur.InnerOnly := ' +
     'lWithRewriteShapeAnonymousOuterPtr^.OuterOnly;'),
     lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoTrimsControlledWrapperBeforeCommentedOuterElse;
+var
+  lFixtureDir: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lReplacementText: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lUnitText: string;
+begin
+  lFixtureDir := TempPath('remove-with-commented-outer-else');
+  if TDirectory.Exists(lFixtureDir) then
+    TDirectory.Delete(lFixtureDir, True);
+  TDirectory.CreateDirectory(lFixtureDir);
+  lProjectPath := TPath.Combine(lFixtureDir,
+    'RemoveWithCommentedElseFixture.dproj');
+  TFile.WriteAllText(TPath.Combine(lFixtureDir,
+    'RemoveWithCommentedElseFixture.dpr'),
+    'program RemoveWithCommentedElseFixture;' + sLineBreak +
+    'uses RemoveWithCommentedElseUnit in ''RemoveWithCommentedElseUnit.pas'';' +
+    sLineBreak +
+    'begin' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>RemoveWithCommentedElseFixture.dpr</MainSource>' + sLineBreak +
+    '    <Config Condition="''$(Config)''==''''">Debug</Config>' + sLineBreak +
+    '    <Platform Condition="''$(Platform)''==''''">Win32</Platform>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '  <ItemGroup>' + sLineBreak +
+    '    <DelphiCompile Include="$(MainSource)">' + sLineBreak +
+    '      <MainSource>MainSource</MainSource>' + sLineBreak +
+    '    </DelphiCompile>' + sLineBreak +
+    '    <DCCReference Include="RemoveWithCommentedElseUnit.pas" />' + sLineBreak +
+    '  </ItemGroup>' + sLineBreak +
+    '</Project>', TEncoding.UTF8);
+  lUnitText :=
+    'unit RemoveWithCommentedElseUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TCommentedElseRecord = record' + sLineBreak +
+    '    Name: string;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  PCommentedElseRecord = ^TCommentedElseRecord;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run(aLeftPtr, aRightPtr: PCommentedElseRecord);' + sLineBreak +
+    'begin' + sLineBreak +
+    '  if aLeftPtr <> nil then' + sLineBreak +
+    '    with aLeftPtr^ do' + sLineBreak +
+    '      Name := ''left''' + sLineBreak +
+    '  { keep else attached }' + sLineBreak +
+    '  else' + sLineBreak +
+    '    with aRightPtr^ do' + sLineBreak +
+    '      Name := ''right'';' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(TPath.Combine(lFixtureDir,
+    'RemoveWithCommentedElseUnit.pas'), lUnitText, TEncoding.UTF8);
+
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan,
+    'RemoveWithCommentedElseUnit.pas', 12, 5, lStatement),
+    'Expected commented outer-else fixture statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
+    [rfReplaceAll]);
+  lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
+  Assert.AreEqual('    begin' + #10 +
+    '      aLeftPtr^.Name := ''left''' + #10 +
+    '    end', lReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoCoversCompleteIfThenElseWithRange;
@@ -2622,7 +2767,7 @@ begin
     'aItem^.Active := False;'), lStatement.ReplacementText);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoDemotesIndexedMemberWithUnqualifiedReceiverIndex;
+procedure TRemoveWithPlanTests.FinalDtoQualifiesIndexedMemberReceiverIndex;
 var
   lFixtureDir: string;
   lPlan: TDelphiSemanticRemoveWithPlan;
@@ -2668,9 +2813,21 @@ begin
     '    Index: Integer;' + sLineBreak +
     '    Count: Integer;' + sLineBreak +
     '  end;' + sLineBreak +
+    'procedure Run(var aRecord: TIndexedRecord);' + sLineBreak +
+    'procedure RunWithLocalIndex(var aRecord: TIndexedRecord);' + sLineBreak +
     'implementation' + sLineBreak +
     'procedure Run(var aRecord: TIndexedRecord);' + sLineBreak +
     'begin' + sLineBreak +
+    '  with aRecord do' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    Items[Index] := Count;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'end;' + sLineBreak +
+    'procedure RunWithLocalIndex(var aRecord: TIndexedRecord);' + sLineBreak +
+    'var' + sLineBreak +
+    '  Index: Integer;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  Index := 1;' + sLineBreak +
     '  with aRecord do' + sLineBreak +
     '  begin' + sLineBreak +
     '    Items[Index] := Count;' + sLineBreak +
@@ -2683,11 +2840,25 @@ begin
   lPlan := BuildPlanForProject(lProjectPath);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan,
-    'RemoveWithIndexedMemberCompletenessUnit.pas', 12, 3, lStatement),
+    'RemoveWithIndexedMemberCompletenessUnit.pas', 14, 3, lStatement),
     'Expected indexed member completeness fixture statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('semantic-rewrite-incomplete', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithIndexedRecordPtr^.Items[lWithIndexedRecordPtr^.Index] := ' +
+    'lWithIndexedRecordPtr^.Count;'), lStatement.ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan,
+    'RemoveWithIndexedMemberCompletenessUnit.pas', 24, 3, lStatement),
+    'Expected local indexed member fixture statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithIndexedRecordPtr^.Items[Index] := lWithIndexedRecordPtr^.Count;'),
+    lStatement.ReplacementText);
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText,
+    'lWithIndexedRecordPtr^.Items[lWithIndexedRecordPtr^.Index]'),
+    'Local index variables must not be retargeted to receiver fields: ' +
+    lStatement.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoDemotesParentWhenCoveredChildRewriteIsIncomplete;
@@ -2912,6 +3083,12 @@ begin
     '      var Name := ''inner'';' + sLineBreak +
     '      Count := Count + Length(Name);' + sLineBreak +
     '    end;' + sLineBreak +
+    '    try' + sLineBreak +
+    '      Count := Count + 1;' + sLineBreak +
+    '    finally' + sLineBreak +
+    '      Count := Count + 1;' + sLineBreak +
+    '    end;' + sLineBreak +
+    '    Name := Name + ''x'';' + sLineBreak +
     '    Count := Count + Length(Name);' + sLineBreak +
     '  end;' + sLineBreak +
     'end;' + sLineBreak +
@@ -2958,6 +3135,14 @@ begin
     'lWithInlineLocalRecordPtr^.Count := lWithInlineLocalRecordPtr^.Count + Length(Name);',
     lStatement.ReplacementText, lLocalUsePos + 1) > 0,
     'Expected outer inline local to be restored after the nested block: ' +
+    lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'Name := Name + ''x'';'),
+    'Expected outer inline local to remain visible after a nested try block: ' +
+    lStatement.ReplacementText);
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText,
+    'lWithInlineLocalRecordPtr^.Name := lWithInlineLocalRecordPtr^.Name + ''x'';'),
+    'Nested try blocks must not end the inline local range too early: ' +
     lStatement.ReplacementText);
 end;
 
@@ -4944,6 +5129,49 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbRamFilesResetFileBodyAnalysisReplacement;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lReplacementText: string;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
+
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := lOptions;
+  lRequest.BodyAnalysisSourceFileNames := MaxTdbBodyAnalysisSourceFileNames;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lRequest);
+  Assert.IsTrue(Length(lFacts.LookupIndex.FindMembersByOwnerAndName('RamFile',
+    'fn')) > 0, 'Expected RamFile.fn to be indexed.');
+  Assert.IsTrue(Length(lFacts.LookupIndex.FindMembersByOwnerAndName('RamFile',
+    's')) > 0, 'Expected RamFile.s to be indexed.');
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 688, 3,
+    lStatement), 'Expected body-analysis maxTdb ramfiles ResetRamFile f statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('RamFile', lStatement.Temps[0].ReceiverType);
+
+  lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
+    [rfReplaceAll]);
+  lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
+  Assert.IsTrue(Pos('lWithRamFilePtr^.fn := nil;', lReplacementText) > 0,
+    'Expected short field fn to be qualified through the RamFile temp.');
+  Assert.IsTrue(Pos('lWithRamFilePtr^.r[lWithRamFilePtr^.s] := #0;',
+    lReplacementText) > 0,
+    'Expected short index field s to be qualified through the RamFile temp.');
+  Assert.IsFalse(Pos('    fn := nil;', lReplacementText) > 0,
+    'Unqualified fn does not compile after apply mode removes the with.');
+  Assert.IsFalse(Pos('r[s] := #0;', lReplacementText) > 0,
+    'Unqualified s index does not compile after apply mode removes the with.');
+end;
+
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbRamFilesRamFileSkipReasons;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
@@ -6029,14 +6257,18 @@ begin
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
   Assert.AreEqual(469, lStatement.Edits[0].Range.EndLine);
   Assert.AreEqual(10, lStatement.Edits[0].Range.EndColumn);
-  Assert.IsTrue(Pos('        Inc(DF[d]^.V_Nr, Ord(DF[d]^.Maske[i].ShowLabel));',
+  Assert.IsTrue(Pos('        Inc(V_Nr, Ord(Maske[i].ShowLabel));',
     lStatement.ReplacementText) > 0);
-  Assert.IsTrue(Pos('              DF[d]^.HatAuto := True;',
+  Assert.IsTrue(Pos('              HatAuto := True;',
     lStatement.ReplacementText) > 0);
   Assert.IsTrue(Pos('              if Maske[i]^.m <> '''' then',
     lStatement.ReplacementText) > 0);
-  Assert.IsTrue(Pos('              if DF[d]^.SelList = nil then',
+  Assert.IsTrue(Pos('              if SelList = nil then',
     lStatement.ReplacementText) > 0);
+  Assert.IsTrue(Pos('              qs^.n := nil;', lStatement.ReplacementText) > 0,
+    'Expected dependent selector sibling field n to be qualified through qs^.');
+  Assert.IsFalse(Pos('              n := nil;', lStatement.ReplacementText) > 0,
+    'Unqualified dependent selector sibling field n does not compile after rewrite.');
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
 end;
 
@@ -7695,14 +7927,33 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb06WriteFailedReplacement;
 var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
   lPlan: TDelphiSemanticRemoveWithPlan;
+  lReplacementText: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.IsTrue(Length(lFacts.LookupIndex.FindMembersByOwnerAndName('DatFile',
+    'f')) > 0, 'Expected DatFile.f to be indexed for final-body qualification.');
+  Assert.IsTrue(Length(lFacts.LookupIndex.FindMembersByOwnerAndName('DatFile',
+    'FileOffset')) > 0,
+    'Expected DatFile.FileOffset to be indexed for final-body qualification.');
+
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 120, 5, lStatement),
     'Expected maxTdb TDB06 WriteFailed D with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('D', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^',
+    lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp',
+    lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('D', lStatement.Temps[0].SelectorText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
@@ -7717,15 +7968,17 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual(120, lStatement.Edits[1].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
-  Assert.AreEqual(126, lStatement.Edits[1].Range.EndLine);
-  Assert.AreEqual(3, lStatement.Edits[1].Range.EndColumn);
-  Assert.AreEqual('    lWithDatFilePtr := @D;' + sLineBreak +
+  Assert.AreEqual(125, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(7, lStatement.Edits[1].Range.EndColumn);
+  lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
+    [rfReplaceAll]);
+  lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
+  Assert.AreEqual('    lWithDatFilePtr := @D;' + #10 +
     '    BEGIN' + #10 +
     '      WriteNBytes(lWithDatFilePtr^.f^, lWithDatFilePtr^.FileOffset, n, V, 0);' + #10 +
     '      INC(lWithDatFilePtr^.FileOffset, n);' + #10 +
     '      WriteFailed := IO_Error <> 0' + #10 +
-    '    END' + #10 +
-    '  ', lStatement.ReplacementText);
+    '    END', lReplacementText);
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
 end;
 

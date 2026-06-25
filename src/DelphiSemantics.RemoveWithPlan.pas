@@ -694,6 +694,10 @@ begin
     Result := Trim(Copy(Result, 1, lStopPos - 1));
 end;
 
+function TryFindRoutineScopedSymbolForBinding(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aName: string;
+  out aSymbol: TDelphiSemanticInventorySymbol): Boolean; forward;
+
 function SelectorBaseDeclaredShapeType(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string): string;
 var
@@ -704,7 +708,7 @@ begin
   lBaseName := SelectorBaseIdentifier(aSelectorText);
   if lBaseName = '' then
     Exit;
-  if aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, lBaseName,
+  if TryFindRoutineScopedSymbolForBinding(aFacts, aBinding, lBaseName,
     lSymbol) then
   begin
     Result := SelectorShapeType(aFacts, lSymbol.TypeName, aSelectorText);
@@ -717,6 +721,23 @@ begin
     if Result <> '' then
       Exit;
   end;
+end;
+
+function SelectorBaseIsRoutineScopeValue(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string):
+  Boolean;
+var
+  lBaseName: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  lBaseName := SelectorBaseIdentifier(aSelectorText);
+  if lBaseName = '' then
+    Exit;
+  if not TryFindRoutineScopedSymbolForBinding(aFacts, aBinding, lBaseName,
+    lSymbol) then
+    Exit;
+  Result := MatchText(lSymbol.SymbolClass, ['local', 'parameter']);
 end;
 
 function IndexedPointerSelectorBaseRequiresTypeResolutionSkip(
@@ -1149,30 +1170,97 @@ begin
     (lColumn < aBindingColumn);
 end;
 
+function LineIsOuterElseTrivia(const aLine: string): Boolean;
+var
+  lText: string;
+begin
+  lText := Trim(aLine);
+  Result := (lText = '') or StartsText('//', lText) or
+    (StartsText('{', lText) and EndsText('}', lText)) or
+    (StartsText('(*', lText) and EndsText('*)', lText));
+end;
+
 function TrimRangeBeforeOuterElse(const aBinding: TDelphiSemanticWithBinding;
   const aLineCache: TDelphiSemanticSourceContextCache;
   var aRange: TDelphiSemanticRemoveWithSourceRange): Boolean;
 var
   lLineIndex: Integer;
   lLines: TArray<string>;
+  lTriviaStartLine: Integer;
 begin
   Result := False;
   if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
     Exit;
 
+  lTriviaStartLine := 0;
   for lLineIndex := aRange.StartLine to aRange.EndLine do
   begin
     if (lLineIndex < 1) or (lLineIndex > Length(lLines)) then
       Continue;
-    if not LineStartsOuterElse(lLines[lLineIndex - 1], aBinding.Column) then
+    if LineIsOuterElseTrivia(lLines[lLineIndex - 1]) then
+    begin
+      if lTriviaStartLine = 0 then
+        lTriviaStartLine := lLineIndex;
       Continue;
+    end;
+    if not LineStartsOuterElse(lLines[lLineIndex - 1], aBinding.Column) then
+    begin
+      lTriviaStartLine := 0;
+      Continue;
+    end;
     if lLineIndex <= aRange.StartLine then
       Exit;
-    aRange.EndLine := lLineIndex - 1;
+    if lTriviaStartLine > aRange.StartLine then
+      aRange.EndLine := lTriviaStartLine - 1
+    else
+      aRange.EndLine := lLineIndex - 1;
     aRange.EndColumn := Length(lLines[aRange.EndLine - 1]);
     if aRange.EndColumn < 1 then
       aRange.EndColumn := 1;
     Exit(True);
+  end;
+
+  if (aRange.EndLine >= aRange.StartLine) and
+    LineIsOuterElseTrivia(lLines[aRange.EndLine - 1]) then
+  begin
+    lLineIndex := aRange.EndLine + 1;
+    while (lLineIndex <= Length(lLines)) and
+      LineIsOuterElseTrivia(lLines[lLineIndex - 1]) do
+      Inc(lLineIndex);
+    if (lLineIndex <= Length(lLines)) and
+      LineStartsOuterElse(lLines[lLineIndex - 1], aBinding.Column) then
+    begin
+      while (aRange.EndLine >= aRange.StartLine) and
+        LineIsOuterElseTrivia(lLines[aRange.EndLine - 1]) do
+        Dec(aRange.EndLine);
+      if aRange.EndLine < aRange.StartLine then
+        Exit;
+      aRange.EndColumn := Length(lLines[aRange.EndLine - 1]);
+      if aRange.EndColumn < 1 then
+        aRange.EndColumn := 1;
+      Exit(True);
+    end;
+  end;
+end;
+
+function RangeIsFollowedByOuterElse(const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDelphiSemanticSourceContextCache;
+  const aRange: TDelphiSemanticRemoveWithSourceRange): Boolean;
+var
+  lLineIndex: Integer;
+  lLineText: string;
+  lLines: TArray<string>;
+begin
+  Result := False;
+  if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
+    Exit;
+
+  for lLineIndex := aRange.EndLine + 1 to Length(lLines) do
+  begin
+    lLineText := Trim(lLines[lLineIndex - 1]);
+    if LineIsOuterElseTrivia(lLineText) then
+      Continue;
+    Exit(LineStartsOuterElse(lLines[lLineIndex - 1], aBinding.Column));
   end;
 end;
 
@@ -1289,15 +1377,6 @@ var
 begin
   Result := '';
   lHasEarlierSelector := False;
-  for lSelector in aBinding.Selectors do
-  begin
-    if SameText(lSelector.SelectorText, aSelectorText) and (Trim(lSelector.TypeName) <> '') then
-    begin
-      Result := SelectorShapeType(aFacts, lSelector.TypeName, aSelectorText);
-      if Result <> '' then
-        Exit;
-    end;
-  end;
   lSelectorName := Trim(aSelectorText);
   if EndsText('^', lSelectorName) then
     lSelectorName := Copy(lSelectorName, 1, Length(lSelectorName) - 1);
@@ -1306,12 +1385,22 @@ begin
     lSelectorName := Trim(Copy(lSelectorName, 1, lBracketPos - 1));
   if EndsText('^', lSelectorName) then
     lSelectorName := Copy(lSelectorName, 1, Length(lSelectorName) - 1);
-  if aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, lSelectorName,
+  if TryFindRoutineScopedSymbolForBinding(aFacts, aBinding, lSelectorName,
     lSymbol) then
   begin
     Result := SelectorShapeType(aFacts, lSymbol.TypeName, aSelectorText);
     if Result <> '' then
       Exit;
+  end;
+  for lSelector in aBinding.Selectors do
+  begin
+    if SameText(lSelector.SelectorText, aSelectorText) and
+      (Trim(lSelector.TypeName) <> '') then
+    begin
+      Result := SelectorShapeType(aFacts, lSelector.TypeName, aSelectorText);
+      if Result <> '' then
+        Exit;
+    end;
   end;
   for lSymbol in aFacts.LookupIndex.FindUnitOrGlobalByName(lSelectorName) do
   begin
@@ -1562,6 +1651,13 @@ begin
     SameText(lLine, 'goto ' + lReferenceName + ';');
 end;
 
+function LineOpensEndClosedBlock(const aLine, aLowerLine: string): Boolean;
+begin
+  Result := SameText(aLine, 'begin') or EndsText(' begin', aLowerLine) or
+    SameText(aLowerLine, 'try') or
+    (StartsText('case ', aLowerLine) and EndsText(' of', aLowerLine));
+end;
+
 function ReferenceIsInlineLocalDeclaredInBinding(
   const aBinding: TDelphiSemanticWithBinding;
   const aReference: TDelphiSemanticBoundReference;
@@ -1609,7 +1705,7 @@ begin
         lDeclarationName := Trim(Copy(lLine, Length('on ') + 1, MaxInt));
       if lDeclarationName = '' then
       begin
-        if SameText(lLine, 'begin') or EndsText(' begin', lLowerLine) then
+        if LineOpensEndClosedBlock(lLine, lLowerLine) then
           Inc(lBlockDepth);
         Continue;
       end;
@@ -1624,7 +1720,7 @@ begin
         lDeclarationName := Trim(Copy(lDeclarationName, 1, lStopPos - 1));
       if SameText(lDeclarationName, lReferenceName) then
         lDeclarationDepths.Add(lBlockDepth);
-      if SameText(lLine, 'begin') or EndsText(' begin', lLowerLine) then
+      if LineOpensEndClosedBlock(lLine, lLowerLine) then
         Inc(lBlockDepth);
     end;
     Result := lDeclarationDepths.Count > 0;
@@ -1827,7 +1923,7 @@ begin
   Result := False;
   if not IsSimpleIdentifier(aSelectorText) then
     Exit;
-  if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName,
+  if not TryFindRoutineScopedSymbolForBinding(aFacts, aBinding,
     Trim(aSelectorText), lSymbol) then
     Exit;
   Result := SameText(lSymbol.SymbolClass, 'parameter') and
@@ -1842,7 +1938,7 @@ begin
   Result := False;
   if not IsSimpleIdentifier(aSelectorText) then
     Exit;
-  if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName,
+  if not TryFindRoutineScopedSymbolForBinding(aFacts, aBinding,
     Trim(aSelectorText), lSymbol) then
     Exit;
   Result := SameText(lSymbol.SymbolClass, 'parameter') and (Trim(lSymbol.Modifier) = '');
@@ -2043,6 +2139,80 @@ begin
     RoutineNameMatchesOrEncloses(aBinding.RoutineName, aSymbol.RoutineName));
 end;
 
+function RoutineSymbolEnclosesBinding(const aFacts: TRemoveWithPlanFacts;
+  const aRoutineName: string; const aBinding: TDelphiSemanticWithBinding):
+  Boolean;
+var
+  lRoutineLeaf: string;
+  lRoutineSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  lRoutineLeaf := RoutineLeafName(aRoutineName);
+  if (lRoutineLeaf = '') or (aBinding.Line <= 0) then
+    Exit;
+
+  for lRoutineSymbol in aFacts.LookupIndex.FindSymbolsByName(lRoutineLeaf) do
+  begin
+    if (not SameText(lRoutineSymbol.FileName, aBinding.FileName)) or
+      (not SymbolIsRoutineMemberKind(lRoutineSymbol)) or
+      (not SameText(lRoutineSymbol.Name, lRoutineLeaf)) or
+      (lRoutineSymbol.Line <= 0) or (lRoutineSymbol.Line > aBinding.Line) or
+      (lRoutineSymbol.EndLine < aBinding.Line) then
+      Continue;
+    Exit(True);
+  end;
+end;
+
+function RoutineScopedSymbolBindingScore(const aFacts: TRemoveWithPlanFacts;
+  const aSymbol: TDelphiSemanticInventorySymbol;
+  const aBinding: TDelphiSemanticWithBinding): Integer;
+var
+  lBindingRoutine: string;
+  lSymbolRoutine: string;
+begin
+  Result := -1;
+  if (not InventorySymbolIsSourceBacked(aSymbol)) or
+    (not MatchText(aSymbol.SymbolClass, ['local', 'parameter'])) or
+    (not SameText(aSymbol.FileName, aBinding.FileName)) or
+    (aSymbol.Line <= 0) or (aSymbol.Line > aBinding.Line) then
+    Exit;
+
+  lBindingRoutine := Trim(aBinding.RoutineName);
+  lSymbolRoutine := Trim(aSymbol.RoutineName);
+  if SameText(lSymbolRoutine, lBindingRoutine) then
+    Exit(200000 + Length(lSymbolRoutine));
+  if RoutineNameMatchesOrEncloses(lSymbolRoutine, lBindingRoutine) then
+    Exit(100000 + Length(lSymbolRoutine));
+  if RoutineNameMatchesOrEncloses(lBindingRoutine, lSymbolRoutine) then
+    Exit(90000 + Length(lSymbolRoutine));
+  if RoutineSymbolEnclosesBinding(aFacts, lSymbolRoutine, aBinding) then
+    Exit(80000 + Length(lSymbolRoutine));
+  if (lSymbolRoutine = '') and (lBindingRoutine = '') then
+    Exit(0);
+end;
+
+function TryFindRoutineScopedSymbolForBinding(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aName: string;
+  out aSymbol: TDelphiSemanticInventorySymbol): Boolean;
+var
+  lBestScore: Integer;
+  lScore: Integer;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  aSymbol := Default(TDelphiSemanticInventorySymbol);
+  lBestScore := -1;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aName) do
+  begin
+    lScore := RoutineScopedSymbolBindingScore(aFacts, lSymbol, aBinding);
+    if lScore <= lBestScore then
+      Continue;
+    lBestScore := lScore;
+    aSymbol := lSymbol;
+    Result := True;
+  end;
+end;
+
 function TryFindSourceBackedSelectorSymbol(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aName: string;
   out aSymbol: TDelphiSemanticInventorySymbol): Boolean;
@@ -2051,9 +2221,8 @@ var
 begin
   Result := False;
   aSymbol := Default(TDelphiSemanticInventorySymbol);
-  if aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, aName,
-    lSymbol) and (Trim(lSymbol.TypeName) <> '') and
-    RoutineScopedSymbolMatchesBinding(lSymbol, aBinding) then
+  if TryFindRoutineScopedSymbolForBinding(aFacts, aBinding, aName, lSymbol) and
+    (Trim(lSymbol.TypeName) <> '') then
   begin
     aSymbol := lSymbol;
     Exit(True);
@@ -2316,7 +2485,14 @@ begin
     aDecision.Reason := 'reference-temp-preserves-evaluation';
   end else if TypeIsRecordLike(aFacts, aDecision.ReceiverType) then
   begin
-    if SelectorIsByReferenceParameter(aFacts, aBinding, aSelectorText) and
+    if IsSimpleIdentifier(aSelectorText) and
+      EndsText('.' + aSelectorText, aDecision.ReceiverType) then
+    begin
+      aDecision.Strategy := 'direct-qualification';
+      aDecision.QualifierText := aSelectorText;
+      aDecision.Reason := 'local-record-direct-qualification';
+      Exit(True);
+    end else if SelectorIsByReferenceParameter(aFacts, aBinding, aSelectorText) and
       SelectorHasDependentSelector(aFacts, aBinding, aSelectorText,
       aDecision.ReceiverType) and (Pos('.', aBinding.RoutineName) > 0) then
     begin
@@ -2424,7 +2600,9 @@ begin
   lOffset := PosEx(lOccurrenceText, aBodyText);
   while lOffset > 0 do
   begin
-    if (aOffset >= lOffset) and
+    if ((not IsSimpleIdentifier(lOccurrenceText)) or
+      BodyTextIdentifierAt(aBodyText, lOccurrenceText, lOffset)) and
+      (aOffset >= lOffset) and
       (aOffset < lOffset + Length(lOccurrenceText)) then
       Exit(True);
     lOffset := PosEx(lOccurrenceText, aBodyText,
@@ -2510,7 +2688,7 @@ var
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
   Result := False;
-  if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, aName,
+  if not TryFindRoutineScopedSymbolForBinding(aFacts, aBinding, aName,
     lSymbol) then
     Exit;
   Result := MatchText(lSymbol.SymbolClass, ['local', 'parameter']);
@@ -3026,6 +3204,28 @@ begin
   end;
 end;
 
+function BodyOffsetInsideIndexArgument(const aText: string;
+  const aOffset: Integer): Boolean;
+var
+  i: Integer;
+  lDepth: Integer;
+  lLimit: Integer;
+begin
+  Result := False;
+  lDepth := 0;
+  lLimit := aOffset - 1;
+  if lLimit > Length(aText) then
+    lLimit := Length(aText);
+  for i := 1 to lLimit do
+  begin
+    if aText[i] = '[' then
+      Inc(lDepth)
+    else if (aText[i] = ']') and (lDepth > 0) then
+      Dec(lDepth);
+  end;
+  Result := lDepth > 0;
+end;
+
 function QualifierForMemberName(const aFacts: TRemoveWithPlanFacts;
   const aDecisions: TArray<TFinalSelectorDecision>; const aName: string;
   out aQualifierText: string): Boolean;
@@ -3056,44 +3256,54 @@ begin
 end;
 
 function ReferenceNameWithQualifiedArguments(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>;
-  const aReferenceName: string): string;
+  const aReference: TDelphiSemanticBoundReference;
+  const aLineCache: TDelphiSemanticSourceContextCache): string;
 var
   i: Integer;
+  lArgumentReference: TDelphiSemanticBoundReference;
   lName: string;
   lNextChar: Char;
   lPreviousChar: Char;
   lQualifierText: string;
+  lReferenceName: string;
   lReplacementText: string;
   lStartOffset: Integer;
 begin
   Result := '';
+  lReferenceName := aReference.Name;
   i := 1;
-  while i <= Length(aReferenceName) do
+  while i <= Length(lReferenceName) do
   begin
-    if not IsIdentifierTextChar(aReferenceName[i]) then
+    if not IsIdentifierTextChar(lReferenceName[i]) then
     begin
-      Result := Result + aReferenceName[i];
+      Result := Result + lReferenceName[i];
       Inc(i);
       Continue;
     end;
 
     lStartOffset := i;
-    while (i <= Length(aReferenceName)) and
-      IsIdentifierTextChar(aReferenceName[i]) do
+    while (i <= Length(lReferenceName)) and
+      IsIdentifierTextChar(lReferenceName[i]) do
       Inc(i);
-    lName := Copy(aReferenceName, lStartOffset, i - lStartOffset);
+    lName := Copy(lReferenceName, lStartOffset, i - lStartOffset);
     lReplacementText := lName;
     lPreviousChar := #0;
     lNextChar := #0;
     if lStartOffset > 1 then
-      lPreviousChar := aReferenceName[lStartOffset - 1];
-    if i <= Length(aReferenceName) then
-      lNextChar := aReferenceName[i];
+      lPreviousChar := lReferenceName[lStartOffset - 1];
+    if i <= Length(lReferenceName) then
+      lNextChar := lReferenceName[i];
 
-    if (lStartOffset > 1) and (lPreviousChar <> '.') and
-      (lNextChar <> '(') and
-      BodyOffsetInsideCallOrCastArgument(aReferenceName, lStartOffset) and
+    lArgumentReference := aReference;
+    lArgumentReference.Name := lName;
+    if (lStartOffset > 1) and (lPreviousChar <> '.') and (lNextChar <> '(') and
+      (BodyOffsetInsideCallOrCastArgument(lReferenceName, lStartOffset) or
+      BodyOffsetInsideIndexArgument(lReferenceName, lStartOffset)) and
+      (not RoutineScopeSymbolNamed(aFacts, aBinding, lName)) and
+      (not ReferenceIsInlineLocalDeclaredInBinding(aBinding, lArgumentReference,
+      aLineCache)) and
       QualifierForMemberName(aFacts, aDecisions, lName, lQualifierText) then
       lReplacementText := lQualifierText + '.' + lName;
     Result := Result + lReplacementText;
@@ -3154,10 +3364,11 @@ procedure AddSimpleMemberBodyEdits(const aFacts: TRemoveWithPlanFacts;
   var aBodyEdits: TArray<TFinalBodyEdit>);
 var
   i: Integer;
-  lDecision: TFinalSelectorDecision;
+  lCanQualifyMember: Boolean;
   lName: string;
   lHasQualifyingReference: Boolean;
   lNextChar: Char;
+  lQualifierText: string;
   lStartOffset: Integer;
 begin
   i := 1;
@@ -3184,33 +3395,25 @@ begin
 
     lHasQualifyingReference := BindingHasQualifyingReferenceName(aFacts,
       aBinding, aDecisions, lName);
+    lCanQualifyMember := QualifierForMemberName(aFacts, aDecisions, lName,
+      lQualifierText);
     lNextChar := BodyNextNonWhitespaceChar(aBodyText, i);
-    if lNextChar = '^' then
+
+    if (not lHasQualifyingReference) and (not lCanQualifyMember) then
       Continue;
 
-    if (not lHasQualifyingReference) and
-      ((not BodyOffsetInsideCallOrCastArgument(aBodyText, lStartOffset)) or
-      (not DecisionCanQualifyMemberName(aFacts, aDecisions, lName))) then
+    if (lNextChar = '^') and (not lCanQualifyMember) then
       Continue;
-
     if lNextChar = '(' then
       Continue;
+    if (not lCanQualifyMember) or
+      BodyOffsetInsideTextOccurrence(aBodyText, aBinding.SelectorText,
+      lStartOffset) or BodyOffsetHasTextQualifier(aBodyText, lQualifierText,
+      lStartOffset) or BodyEditOffsetUsed(aBodyEdits, lStartOffset, lName) then
+      Continue;
 
-    for lDecision in aDecisions do
-    begin
-      if (Trim(lDecision.QualifierText) = '') or
-        (Trim(lDecision.ReceiverType) = '') or
-        (not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lName)) then
-        Continue;
-      if BodyOffsetInsideTextOccurrence(aBodyText, aBinding.SelectorText,
-        lStartOffset) or BodyOffsetHasTextQualifier(aBodyText,
-        lDecision.QualifierText, lStartOffset) or
-        BodyEditOffsetUsed(aBodyEdits, lStartOffset, lName) then
-        Continue;
-      AddFinalBodyEdit(aBodyEdits, lStartOffset, Length(lName), lName,
-        lDecision.QualifierText + '.' + lName);
-      Break;
-    end;
+    AddFinalBodyEdit(aBodyEdits, lStartOffset, Length(lName), lName,
+      lQualifierText + '.' + lName);
   end;
 end;
 
@@ -3506,8 +3709,8 @@ begin
       if lOffset <= 0 then
         Continue;
     end;
-    lReferenceName := ReferenceNameWithQualifiedArguments(aFacts, aEditDecisions,
-      lReference.Name);
+    lReferenceName := ReferenceNameWithQualifiedArguments(aFacts, aBinding,
+      aEditDecisions, lReference, aLineCache);
     AddFinalBodyEdit(lBodyEdits, lOffset, Length(lReference.Name),
       lReference.Name, lQualifierText + '.' + lReferenceName);
   end;
@@ -3838,6 +4041,9 @@ begin
   lControlledStatement := BindingFollowsControlStatement(aBinding, aLineCache);
   lTrimmedBeforeOuterElse := TrimRangeBeforeOuterElse(aBinding, aLineCache,
     aReplacementRange);
+  if (not lTrimmedBeforeOuterElse) and
+    RangeIsFollowedByOuterElse(aBinding, aLineCache, aReplacementRange) then
+    lTrimmedBeforeOuterElse := True;
   if not PrepareFinalBodyText(aFacts, aBinding, aVisibleDecisions,
     aValidationDecisions, aNestedReplacements, aLineCache, lControlledStatement,
     lBodyText, aReason) then
@@ -4257,6 +4463,28 @@ begin
   end;
 end;
 
+function BodyReferenceDecisionsWithLocalHiddenPointers(
+  const aFacts: TRemoveWithPlanFacts; const aBinding: TDelphiSemanticWithBinding;
+  const aVisibleDecisions, aSelectorDecisions: TArray<TFinalSelectorDecision>):
+  TArray<TFinalSelectorDecision>;
+var
+  lDecision: TFinalSelectorDecision;
+  lIndex: Integer;
+begin
+  Result := Copy(aVisibleDecisions);
+  for lDecision in aSelectorDecisions do
+  begin
+    if (not IsSimplePointerDereferenceSelector(lDecision.SelectorText)) or
+      HasDecisionForSelector(Result, lDecision.SelectorText) or
+      (not SelectorBaseIsRoutineScopeValue(aFacts, aBinding,
+      lDecision.SelectorText)) then
+      Continue;
+    lIndex := Length(Result);
+    SetLength(Result, lIndex + 1);
+    Result[lIndex] := lDecision;
+  end;
+end;
+
 function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aBindingSource: TRemoveWithPlanBindingSource;
   const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
@@ -4267,6 +4495,7 @@ function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>):
   TDelphiSemanticRemoveWithFinalStatement; overload;
 var
+  lBodyReferenceDecisions: TArray<TFinalSelectorDecision>;
   lChildStatement: TDelphiSemanticRemoveWithFinalStatement;
   lDecision: TFinalSelectorDecision;
   lDecisions: TArray<TFinalSelectorDecision>;
@@ -4410,7 +4639,9 @@ begin
 
   lDecisions := SelectorDecisionsWithAdditional(aInheritedDecisions,
     lSelectorDecisions);
-  if not TryRenderFinalReplacementText(aFacts, lBinding, lVisibleDecisions,
+  lBodyReferenceDecisions := BodyReferenceDecisionsWithLocalHiddenPointers(
+    aFacts, lBinding, lVisibleDecisions, lSelectorDecisions);
+  if not TryRenderFinalReplacementText(aFacts, lBinding, lBodyReferenceDecisions,
     lDecisions, lSelectorDecisions, lNestedReplacements, aLineCache,
     lReplacementText, lReason, lReplacementRange) then
   begin

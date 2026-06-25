@@ -13,12 +13,20 @@ type
     count: Integer;
   end;
   TSelectorNode = record
+    n: Pointer;
     Sel: TSelector;
+  end;
+  PMaskNode = ^TMaskNode;
+  TMaskNode = record
+    Marker: Integer;
   end;
 
 procedure AppendQueue(aFptr: PQueueNode);
 procedure DeleteQueue(aFptr: PQueueNode);
 procedure ReadSelector(aNode: PSelectorNode; var aValue: Integer);
+procedure ReadSelectorAndNode(aNode: PSelectorNode; var aValue: Integer);
+procedure ReadSelectorAndNodeUnderOuterWith(aMask: PMaskNode;
+  aNode: PSelectorNode; var aValue: Integer);
 
 implementation
 
@@ -62,6 +70,29 @@ procedure ReadSelector(aNode: PSelectorNode; var aValue: Integer);
 begin
   with aNode^, Sel do
     aValue := count;
+end;
+
+procedure ReadSelectorAndNode(aNode: PSelectorNode; var aValue: Integer);
+begin
+  with aNode^, Sel do
+  begin
+    aValue := count;
+    n := nil;
+  end;
+end;
+
+procedure ReadSelectorAndNodeUnderOuterWith(aMask: PMaskNode;
+  aNode: PSelectorNode; var aValue: Integer);
+begin
+  with aMask^ do
+  begin
+    Inc(Marker);
+    with aNode^, Sel do
+    begin
+      aValue := count;
+      n := nil;
+    end;
+  end;
 end;
 
 end.
