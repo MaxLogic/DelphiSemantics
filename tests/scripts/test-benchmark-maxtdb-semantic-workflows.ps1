@@ -185,11 +185,13 @@ function New-PlanJson {
     [int]$PlannedCount,
     [int]$MismatchCount,
     [int]$SkippedCount = -1,
-    [switch]$OmitMismatchCount
+    [int]$CoveredCount = 0,
+    [switch]$OmitMismatchCount,
+    [switch]$OmitCovered
   )
 
   if ($SkippedCount -lt 0) {
-    $SkippedCount = $WithCount - $PlannedCount
+    $SkippedCount = $WithCount - $PlannedCount - $CoveredCount
   }
 
   $lParity = [ordered]@{
@@ -208,6 +210,7 @@ function New-PlanJson {
       withStatements = $WithCount
       plannedEdits = $PlannedCount
       skipped = $SkippedCount
+      covered = $CoveredCount
     }
     withStatements = @()
     plannedEdits = @(for ($i = 1; $i -le $PlannedCount; $i++) {
@@ -216,10 +219,21 @@ function New-PlanJson {
     skipped = @(for ($i = 1; $i -le $SkippedCount; $i++) {
       [ordered]@{ statementId = "skipped-$i"; reason = 'symbol-not-found' }
     })
+    covered = @(for ($i = 1; $i -le $CoveredCount; $i++) {
+      [ordered]@{
+        statementId = "covered-$i"
+        reason = 'covered-by-parent-rewrite'
+        coveredByStatementId = 'planned-1'
+      }
+    })
     semanticDtoParity = $lParity
     plannerPhaseMetrics = [ordered]@{
       totalMs = 1
     }
+  }
+  if ($OmitCovered) {
+    $lJson.summary.Remove('covered')
+    $lJson.Remove('covered')
   }
   $lJson | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $Path -Encoding UTF8
 }
@@ -273,6 +287,7 @@ function New-PlanRun {
     [string]$Stdout,
     [int]$Run,
     [string]$Id = 'remove-with-plan-all',
+    [double]$ElapsedSeconds = 1,
     [switch]$OmitSourceMutationStatus
   )
 
@@ -289,7 +304,7 @@ function New-PlanRun {
     CacheDirectory = ''
     Status = 'passed'
     ExitCode = 0
-    ElapsedSeconds = 1
+    ElapsedSeconds = $ElapsedSeconds
     ResultCount = ''
     SemanticCacheHits = ''
     SemanticCacheMisses = ''
@@ -543,6 +558,40 @@ function Test-CompactPlanSummaryCountsDriveDogfoodExport {
   }
 }
 
+function Test-CoveredPlanRowsCompleteAccounting {
+  $lWorkspace = New-TestWorkspace 'covered-plan-accounting'
+  $lPlanPath = Join-Path $lWorkspace 'plan.stdout.json'
+  New-PlanJson -Path $lPlanPath -WithCount 12 -PlannedCount 4 -SkippedCount 6 `
+    -CoveredCount 2 -MismatchCount 0
+  New-BaselineJson -Path (Join-Path $lWorkspace 'baseline.json') -Runs @(
+    (New-PlanRun -Stdout $lPlanPath -Run 1)
+  )
+
+  $lExit = Invoke-BenchmarkSummarize -Workspace $lWorkspace
+  Assert-Equal 0 $lExit 'SummarizeOnly should accept covered rows as complete accounting.'
+
+  $lDogfood = Get-Content -LiteralPath (Join-Path $lWorkspace 'dogfood.json') -Raw |
+    ConvertFrom-Json
+  Assert-Equal 'passed' $lDogfood.status 'Covered plan accounting must pass.'
+  Assert-Equal 12 $lDogfood.latest.discoveredCount 'Expected discovered count.'
+  Assert-Equal 4 $lDogfood.latest.plannedCount 'Expected planned count.'
+  Assert-Equal 6 $lDogfood.latest.skippedCount 'Expected skipped count.'
+  Assert-Equal 2 $lDogfood.latest.coveredCount 'Expected covered count.'
+  Assert-Equal 12 $lDogfood.latest.completeness.accountedCount `
+    'Covered rows must contribute to accounted statements.'
+  Assert-Equal 0 $lDogfood.latest.completeness.unaccountedCount `
+    'Covered rows must leave no unaccounted statements.'
+
+  $lBaseline = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.json') -Raw |
+    ConvertFrom-Json
+  Assert-Equal 2 $lBaseline.results[0].CoveredCount `
+    'Benchmark results must preserve the covered count.'
+  $lMarkdown = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.md') -Raw
+  if ($lMarkdown -notmatch 'covered=2') {
+    throw 'Markdown summary must report the covered count.'
+  }
+}
+
 function Test-PlanRunCountDriftIsReportedAsDogfoodEvidence {
   $lWorkspace = New-TestWorkspace 'plan-count-drift'
   $lFirstPlanPath = Join-Path $lWorkspace 'plan-1.stdout.json'
@@ -563,6 +612,31 @@ function Test-PlanRunCountDriftIsReportedAsDogfoodEvidence {
   Assert-Equal 13 $lDogfood.latest.discoveredCount 'dogfood.json latest run must report current discovered count.'
   Assert-Equal 4 $lDogfood.latest.plannedCount 'dogfood.json latest run must report current planned count.'
   Assert-Equal 9 $lDogfood.latest.skippedCount 'dogfood.json latest run must report current skipped count.'
+}
+
+function Test-LegacyPlanWithoutCoveredStillSummarizes {
+  $lWorkspace = New-TestWorkspace 'legacy-plan-without-covered'
+  $lPlanPath = Join-Path $lWorkspace 'plan.stdout.json'
+  New-PlanJson -Path $lPlanPath -WithCount 12 -PlannedCount 4 -SkippedCount 8 `
+    -MismatchCount 0 -OmitCovered
+  New-BaselineJson -Path (Join-Path $lWorkspace 'baseline.json') -Runs @(
+    (New-PlanRun -Stdout $lPlanPath -Run 1)
+  )
+
+  $lExit = Invoke-BenchmarkSummarize -Workspace $lWorkspace
+  Assert-Equal 0 $lExit 'Legacy plan output without covered must remain summarizable.'
+
+  $lDogfood = Get-Content -LiteralPath (Join-Path $lWorkspace 'dogfood.json') -Raw |
+    ConvertFrom-Json
+  Assert-Equal 12 $lDogfood.latest.completeness.accountedCount `
+    'Legacy planned and skipped rows must still complete accounting.'
+  Assert-Equal 0 $lDogfood.latest.coveredCount `
+    'Legacy plan output must be interpreted as zero covered rows.'
+
+  $lBaseline = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.json') -Raw |
+    ConvertFrom-Json
+  Assert-True ([string]::IsNullOrWhiteSpace([string]$lBaseline.results[0].CoveredCount)) `
+    'Legacy plan summaries must leave the additive covered metric blank.'
 }
 
 function Test-PlanRunIncompleteAccountingFailsClosed {
@@ -625,6 +699,38 @@ function Test-PlanRunMissingMismatchCountFailsClosed {
   $lExit = Invoke-BenchmarkSummarize -Workspace $lWorkspace
   if ($lExit -eq 0) {
     throw 'SummarizeOnly must fail when semanticDtoParity.mismatchCount is missing.'
+  }
+}
+
+function Test-SummaryUsesNearestRankP95 {
+  $lWorkspace = New-TestWorkspace 'nearest-rank-p95'
+  $lPlanPath = Join-Path $lWorkspace 'plan.stdout.json'
+  New-PlanJson -Path $lPlanPath -WithCount 12 -PlannedCount 4 -SkippedCount 6 `
+    -CoveredCount 2 -MismatchCount 0
+  $lSamples = @(20, 1, 19, 2, 18, 3, 17, 4, 16, 5, 15, 6, 14, 7, 13, 8, 12, 9, 11, 10)
+  $lRuns = @(for ($i = 0; $i -lt $lSamples.Count; $i++) {
+    New-PlanRun -Stdout $lPlanPath -Run ($i + 1) -ElapsedSeconds $lSamples[$i]
+  })
+  $lScanPath = Join-Path $lWorkspace 'scan.stdout.json'
+  New-ScanJson -Path $lScanPath -WithCount 12
+  $lRuns += New-PlanRun -Stdout $lScanPath -Run 1 -Id 'remove-with-scan-all' `
+    -ElapsedSeconds 7.5
+  New-BaselineJson -Path (Join-Path $lWorkspace 'baseline.json') -Runs $lRuns
+
+  $lExit = Invoke-BenchmarkSummarize -Workspace $lWorkspace
+  Assert-Equal 0 $lExit 'SummarizeOnly should calculate p95 for valid runs.'
+
+  $lBaseline = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.json') -Raw |
+    ConvertFrom-Json
+  $lPlanResult = $lBaseline.results | Where-Object { $_.Id -eq 'remove-with-plan-all' }
+  $lScanResult = $lBaseline.results | Where-Object { $_.Id -eq 'remove-with-scan-all' }
+  Assert-Equal 19 $lPlanResult.P95Seconds `
+    'p95 must use one-based nearest rank ceil(0.95 * N), not the maximum sample.'
+  Assert-Equal 7.5 $lScanResult.P95Seconds `
+    'A one-sample p95 must clamp to the only sample.'
+  $lMarkdown = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.md') -Raw
+  if ($lMarkdown -notmatch 'P95 seconds') {
+    throw 'Markdown summary must report p95.'
   }
 }
 
@@ -702,6 +808,65 @@ function Test-SummarizeOnlyAllowsHistoricalProvenanceWhenExplicit {
   if ($lMarkdown -notmatch 'Provenance: `historical`') {
     throw 'Markdown summary must mark historical provenance.'
   }
+}
+
+function Test-WarmCacheIsPrimedAndIsolatedPerWorkflow {
+  $lWorkspace = New-TestWorkspace 'warm-cache-workflow-isolation'
+  $lProject = Join-Path $lWorkspace 'project.dpr'
+  $lDak = Join-Path $lWorkspace 'dak.ps1'
+  $lInvocationLog = Join-Path $lWorkspace 'dak-invocations.jsonl'
+  foreach ($lWorkflow in @('find-usages-allfiles', 'rename-dry-run-allfiles')) {
+    $lCacheDirectory = Join-Path $lWorkspace "semantic-cache\$lWorkflow"
+    New-Item -ItemType Directory -Force -Path $lCacheDirectory | Out-Null
+    Set-Content -LiteralPath (Join-Path $lCacheDirectory 'unit-models.sqlite3') `
+      -Value 'pre-existing cache' -Encoding UTF8
+  }
+  $lScript = @"
+param([Parameter(ValueFromRemainingArguments = `$true)][string[]]`$Arguments)
+`$lCacheIndex = [Array]::IndexOf(`$Arguments, '--semantic-cache')
+`$lCachePath = if (`$lCacheIndex -ge 0) { `$Arguments[`$lCacheIndex + 1] } else { '' }
+if (-not [string]::IsNullOrWhiteSpace(`$lCachePath)) {
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent `$lCachePath) | Out-Null
+  Set-Content -LiteralPath `$lCachePath -Value 'primed' -Encoding UTF8
+}
+[ordered]@{
+  command = `$Arguments[0]
+  cachePath = `$lCachePath
+} | ConvertTo-Json -Compress | Add-Content -LiteralPath '$lInvocationLog' -Encoding UTF8
+[ordered]@{
+  count = 1
+  referenceReconciliationFallbackCount = 0
+} | ConvertTo-Json
+exit 0
+"@
+  Set-Content -LiteralPath $lDak -Value $lScript -Encoding UTF8
+
+  & pwsh -NoProfile -ExecutionPolicy Bypass -File $BenchmarkScript `
+    -DakExe $lDak -Project $lProject `
+    -Workflow 'find-usages-allfiles,rename-dry-run-allfiles' `
+    -Repeat 1 -CacheMode warm -OutDir $lWorkspace -NoBaselineCopy `
+    1> (Join-Path $lWorkspace 'warm-isolation.stdout.txt') `
+    2> (Join-Path $lWorkspace 'warm-isolation.stderr.txt')
+  Assert-Equal 0 $LASTEXITCODE 'Warm benchmark should pass.'
+
+  $lInvocations = @(Get-Content -LiteralPath $lInvocationLog | ForEach-Object {
+    $_ | ConvertFrom-Json
+  })
+  Assert-Equal 4 $lInvocations.Count `
+    'Each workflow needs one unmeasured prime and one measured warm run.'
+  $lCachePaths = @($lInvocations | Select-Object -ExpandProperty cachePath -Unique)
+  Assert-Equal 2 $lCachePaths.Count 'Each workflow must use an isolated cache path.'
+  foreach ($lCachePath in $lCachePaths) {
+    $lCacheUseCount = @($lInvocations | Where-Object { $_.cachePath -eq $lCachePath }).Count
+    Assert-Equal 2 $lCacheUseCount 'Each workflow cache must be primed before its measured run.'
+  }
+
+  $lBaseline = Get-Content -LiteralPath (Join-Path $lWorkspace 'baseline.json') -Raw |
+    ConvertFrom-Json
+  $lRunCacheDirectories = @($lBaseline.runs |
+    Select-Object -ExpandProperty CacheDirectory -Unique)
+  Assert-Equal 2 $lRunCacheDirectories.Count `
+    'Measured rows must identify their workflow-isolated cache directories.'
 }
 
 function Test-ReportOnlyBenchmarkMutationFailsClosedAndRestoresSource {

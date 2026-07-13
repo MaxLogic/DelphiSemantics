@@ -29,7 +29,7 @@ function Resolve-OutputPath {
   return Join-Path (Get-Location) $Path
 }
 
-function Split-ArgumentValues {
+function Split-ArgumentValue {
   param([string[]]$Values)
 
   $lResult = New-Object System.Collections.Generic.List[string]
@@ -155,7 +155,7 @@ function Test-BenchmarkProvenance {
   }
 }
 
-function New-BenchmarkDefinitions {
+function Get-BenchmarkDefinition {
   param([string]$ProjectPath)
 
   @(
@@ -304,6 +304,29 @@ function Read-ResultCount {
   }
 }
 
+function Read-RemoveWithCoveredCount {
+  param([string]$Path)
+
+  try {
+    $lText = Get-Content -LiteralPath $Path -Raw
+    if ([string]::IsNullOrWhiteSpace($lText)) {
+      return ''
+    }
+
+    $lJson = $lText | ConvertFrom-Json
+    $lHasSummaryCount = ($lJson.PSObject.Properties.Name -contains 'summary') -and
+      ($null -ne $lJson.summary) -and
+      ($lJson.summary.PSObject.Properties.Name -contains 'covered')
+    if ($lHasSummaryCount -or ($lJson.PSObject.Properties.Name -contains 'covered')) {
+      return [string](Get-RemoveWithSummaryCount -Json $lJson -Name 'covered')
+    }
+
+    return ''
+  } catch {
+    return ''
+  }
+}
+
 function Get-BenchmarkPromotionBlocker {
   param(
     [object]$Summary,
@@ -403,7 +426,7 @@ function Read-SemanticCacheMetric {
   }
 }
 
-function Get-RemoveWithSkipBuckets {
+function Get-RemoveWithSkipBucket {
   param([object]$Json)
 
   if (-not ($Json.PSObject.Properties.Name -contains 'skipped') -or ($null -eq $Json.skipped)) {
@@ -473,8 +496,11 @@ function Export-RemoveWithPlanDogfoodReport {
       -Name 'plannedEdits'
     $lSkippedCount = Get-RemoveWithSummaryCount -Json $lCandidateJson `
       -Name 'skipped'
+    $lCoveredCount = Get-RemoveWithSummaryCount -Json $lCandidateJson `
+      -Name 'covered'
     $lPlannedArrayCount = Get-JsonArrayCount -Json $lCandidateJson -Name 'plannedEdits'
     $lSkippedArrayCount = Get-JsonArrayCount -Json $lCandidateJson -Name 'skipped'
+    $lCoveredArrayCount = Get-JsonArrayCount -Json $lCandidateJson -Name 'covered'
     $lMismatchCount = [int]$lCandidateParity.mismatchCount
     if ($lMismatchCount -ne 0) {
       throw ('remove-with plan semantic DTO parity failed in {0}: mismatchCount={1}' -f
@@ -491,13 +517,18 @@ function Export-RemoveWithPlanDogfoodReport {
         $lCandidateRun.Stdout, $lSkippedCount, $lSkippedArrayCount)
     }
 
-    $lAccountedCount = $lPlannedEditCount + $lSkippedCount
+    if ($lCoveredArrayCount -ne $lCoveredCount) {
+      throw ('remove-with plan report accounting mismatch in {0}: summary.covered={1}, covered array={2}' -f
+        $lCandidateRun.Stdout, $lCoveredCount, $lCoveredArrayCount)
+    }
+
+    $lAccountedCount = $lPlannedEditCount + $lSkippedCount + $lCoveredCount
     $lUnaccountedCount = $lWithStatementCount - $lAccountedCount
     $lCompletenessStatus = if ($lUnaccountedCount -eq 0) { 'complete' } else { 'incomplete' }
     if ($lUnaccountedCount -ne 0) {
-      throw ('remove-with plan accounting incomplete in {0}: discovered={1}, planned={2}, skipped={3}, unaccounted={4}' -f
+      throw ('remove-with plan accounting incomplete in {0}: discovered={1}, planned={2}, skipped={3}, covered={4}, unaccounted={5}' -f
         $lCandidateRun.Stdout, $lWithStatementCount, $lPlannedEditCount, $lSkippedCount,
-        $lUnaccountedCount)
+        $lCoveredCount, $lUnaccountedCount)
     }
 
     $lReports.Add([ordered]@{
@@ -508,14 +539,16 @@ function Export-RemoveWithPlanDogfoodReport {
       discoveredCount = $lWithStatementCount
       plannedCount = $lPlannedEditCount
       skippedCount = $lSkippedCount
+      coveredCount = $lCoveredCount
       plannedArrayCount = $lPlannedArrayCount
       skippedArrayCount = $lSkippedArrayCount
+      coveredArrayCount = $lCoveredArrayCount
       completeness = [ordered]@{
         status = $lCompletenessStatus
         accountedCount = $lAccountedCount
         unaccountedCount = $lUnaccountedCount
       }
-      skipBuckets = @(Get-RemoveWithSkipBuckets -Json $lCandidateJson)
+      skipBuckets = @(Get-RemoveWithSkipBucket -Json $lCandidateJson)
       semanticDtoParity = [ordered]@{
         status = $lCandidateParity.status
         mismatchCount = $lMismatchCount
@@ -540,7 +573,7 @@ function Export-RemoveWithPlanDogfoodReport {
     -Encoding UTF8
 }
 
-function Read-SemanticPhaseMetrics {
+function Read-SemanticPhaseMetric {
   param([string]$Path)
 
   try {
@@ -560,7 +593,7 @@ function Read-SemanticPhaseMetrics {
   return $null
 }
 
-function Read-PlannerPhaseMetrics {
+function Read-PlannerPhaseMetric {
   param([string]$Path)
 
   try {
@@ -580,13 +613,13 @@ function Read-PlannerPhaseMetrics {
   return $null
 }
 
-function Requires-ReferenceFallbackCount {
+function Test-RequiresReferenceFallbackCount {
   param([object]$Row)
 
   return @('find-usages', 'rename', 'dead-code-detection') -contains $Row.Feature
 }
 
-function Requires-PlannerPhaseMetrics {
+function Test-RequiresPlannerPhaseMetric {
   param([object]$Row)
 
   return ($Row.Feature -eq 'with-removal') -and ($Row.Id -eq 'remove-with-plan-all')
@@ -617,15 +650,32 @@ function Get-Median {
   return ($lValues[$lMiddle - 1] + $lValues[$lMiddle]) / 2
 }
 
+function Get-NearestRankPercentile {
+  param(
+    [double[]]$Values,
+    [double]$Percentile
+  )
+
+  if ($Values.Count -eq 0) {
+    return 0
+  }
+
+  $lValues = @($Values | Sort-Object)
+  $lRank = [int][Math]::Ceiling($Percentile * $lValues.Count)
+  $lRank = [Math]::Max(1, [Math]::Min($lRank, $lValues.Count))
+  return $lValues[$lRank - 1]
+}
+
 function ConvertTo-MarkdownTable {
   param([object[]]$Rows)
 
   $lCulture = [System.Globalization.CultureInfo]::InvariantCulture
   $lLines = New-Object System.Collections.Generic.List[string]
-  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | Target seconds | Target status | Min | Max | Result count | Cache hits | Cache misses | Reference fallbacks | Snapshot SQL write ms | Snapshot SQL read ms | Snapshot deserialize ms | Snapshot index rebuild ms | Source mutation |')
-  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|')
+  $lLines.Add('| Feature | Benchmark | Cache mode | Runs | Status | Exit | Median seconds | P95 seconds | Target seconds | Target status | Min | Max | Result count | Covered count | Cache hits | Cache misses | Reference fallbacks | Snapshot SQL write ms | Snapshot SQL read ms | Snapshot deserialize ms | Snapshot index rebuild ms | Source mutation |')
+  $lLines.Add('|---|---|---|---:|---|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|')
   foreach ($lRow in $Rows) {
     $lCount = if ([string]::IsNullOrWhiteSpace($lRow.ResultCount)) { '' } else { $lRow.ResultCount }
+    $lCovered = if ([string]::IsNullOrWhiteSpace($lRow.CoveredCount)) { '' } else { 'covered={0}' -f $lRow.CoveredCount }
     $lHits = if ([string]::IsNullOrWhiteSpace($lRow.SemanticCacheHits)) { '' } else { $lRow.SemanticCacheHits }
     $lMisses = if ([string]::IsNullOrWhiteSpace($lRow.SemanticCacheMisses)) { '' } else { $lRow.SemanticCacheMisses }
     $lFallbacks = if ([string]::IsNullOrWhiteSpace($lRow.ReferenceFallbackCount)) { '' } else { $lRow.ReferenceFallbackCount }
@@ -642,11 +692,12 @@ function ConvertTo-MarkdownTable {
     $lTargetStatus = if (($lRow.PSObject.Properties.Name -contains 'TargetStatus') -and
         -not [string]::IsNullOrWhiteSpace($lRow.TargetStatus)) { $lRow.TargetStatus } else { '' }
     $lMedian = ([double]$lRow.MedianSeconds).ToString('F3', $lCulture)
+    $lP95 = ([double]$lRow.P95Seconds).ToString('F3', $lCulture)
     $lMin = ([double]$lRow.MinSeconds).ToString('F3', $lCulture)
     $lMax = ([double]$lRow.MaxSeconds).ToString('F3', $lCulture)
     $lMutation = if (($lRow.PSObject.Properties.Name -contains 'SourceMutationStatus') -and
         -not [string]::IsNullOrWhiteSpace($lRow.SourceMutationStatus)) { $lRow.SourceMutationStatus } else { '' }
-    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} | {14} | {15} | {16} | {17} | {18} | {19} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lTargetSeconds, $lTargetStatus, $lMin, $lMax, $lCount, $lHits, $lMisses, $lFallbacks, $lSnapshotSqlWriteMs, $lSnapshotSqlReadMs, $lSnapshotDeserializeMs, $lSnapshotIndexRebuildMs, $lMutation))
+    $lLines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} | {14} | {15} | {16} | {17} | {18} | {19} | {20} | {21} |' -f $lRow.Feature, $lRow.Id, $lRow.CacheMode, $lRow.Runs, $lRow.Status, $lRow.ExitCode, $lMedian, $lP95, $lTargetSeconds, $lTargetStatus, $lMin, $lMax, $lCount, $lCovered, $lHits, $lMisses, $lFallbacks, $lSnapshotSqlWriteMs, $lSnapshotSqlReadMs, $lSnapshotDeserializeMs, $lSnapshotIndexRebuildMs, $lMutation))
   }
 
   return ($lLines -join [Environment]::NewLine)
@@ -662,7 +713,8 @@ function Format-BenchmarkTimestamp {
   return [string]$Value
 }
 
-function Remove-ColdCacheArtifacts {
+function Clear-ColdCacheArtifact {
+  [CmdletBinding(SupportsShouldProcess)]
   param(
     [string]$CacheDirectory,
     [string]$OutputDirectory
@@ -674,7 +726,8 @@ function Remove-ColdCacheArtifacts {
     throw "Refusing to remove cache outside benchmark output directory: $CacheDirectory"
   }
 
-  if (Test-Path -LiteralPath $CacheDirectory) {
+  if ((Test-Path -LiteralPath $CacheDirectory) -and
+      $PSCmdlet.ShouldProcess($CacheDirectory, 'Remove cold benchmark cache')) {
     Remove-Item -LiteralPath $CacheDirectory -Recurse -Force
   }
 }
@@ -719,7 +772,7 @@ function Resolve-ProjectPathToken {
   return [System.IO.Path]::GetFullPath((Join-Path $BaseDirectory $lPath))
 }
 
-function Get-ProjectSearchPathDirectories {
+function Get-ProjectSearchPathDirectory {
   param([string]$ProjectPath)
 
   $lDprojPath = Get-ProjectDprojPath -ProjectPath $ProjectPath
@@ -746,7 +799,7 @@ function Get-ProjectSearchPathDirectories {
   return @($lDirectories)
 }
 
-function Get-ProjectSourceFiles {
+function Get-ProjectSourceFile {
   param([string]$ProjectPath)
 
   $lRoot = Get-ProjectSourceRoot -ProjectPath $ProjectPath
@@ -761,7 +814,7 @@ function Get-ProjectSourceFiles {
     $lExtensions -contains $_.Extension.ToLowerInvariant()
   } | ForEach-Object { [void]$lFiles.Add($_.FullName) }
 
-  foreach ($lDirectory in Get-ProjectSearchPathDirectories -ProjectPath $ProjectPath) {
+  foreach ($lDirectory in Get-ProjectSearchPathDirectory -ProjectPath $ProjectPath) {
     Get-ChildItem -LiteralPath $lDirectory -Recurse -File | Where-Object {
       $lExtensions -contains $_.Extension.ToLowerInvariant()
     } | ForEach-Object { [void]$lFiles.Add($_.FullName) }
@@ -789,11 +842,11 @@ function Get-ProjectSourceFiles {
   return @($lFiles)
 }
 
-function New-SourceSnapshot {
+function Get-SourceSnapshot {
   param([string]$ProjectPath)
 
   $lSnapshot = @{}
-  foreach ($lPath in Get-ProjectSourceFiles -ProjectPath $ProjectPath) {
+  foreach ($lPath in Get-ProjectSourceFile -ProjectPath $ProjectPath) {
     $lSnapshot[$lPath] = [pscustomobject]@{
       Hash = (Get-FileHash -LiteralPath $lPath -Algorithm SHA256).Hash
       Bytes = [System.IO.File]::ReadAllBytes($lPath)
@@ -809,7 +862,7 @@ function Test-SourceSnapshotChanged {
     [hashtable]$Snapshot
   )
 
-  foreach ($lPath in Get-ProjectSourceFiles -ProjectPath $ProjectPath) {
+  foreach ($lPath in Get-ProjectSourceFile -ProjectPath $ProjectPath) {
     if (-not $Snapshot.ContainsKey($lPath)) {
       return $true
     }
@@ -841,14 +894,14 @@ function Restore-SourceSnapshot {
     }
   }
 
-  foreach ($lPath in Get-ProjectSourceFiles -ProjectPath $ProjectPath) {
+  foreach ($lPath in Get-ProjectSourceFile -ProjectPath $ProjectPath) {
     if (-not $Snapshot.ContainsKey($lPath)) {
       Remove-Item -LiteralPath $lPath -Force
     }
   }
 }
 
-function New-SummaryRows {
+function Get-SummaryRow {
   param([object[]]$RunRows)
 
   $lSummaryRows = New-Object System.Collections.Generic.List[object]
@@ -867,6 +920,21 @@ function New-SummaryRows {
         ($lSuccessfulCounts -join ', '))
     }
     $lResultCount = if ($lSuccessfulCounts.Count -eq 1) { $lSuccessfulCounts[0] } else { $lFirst.ResultCount }
+    $lSuccessfulCoveredCounts = @($lRows | Where-Object {
+      ($_.ExitCode -eq 0) -and
+      (-not [string]::IsNullOrWhiteSpace([string](Get-ObjectPropertyValue -Object $_ -Name 'CoveredCount')))
+    } | ForEach-Object {
+      [string](Get-ObjectPropertyValue -Object $_ -Name 'CoveredCount')
+    } | Select-Object -Unique)
+    if ($lSuccessfulCoveredCounts.Count -gt 1) {
+      throw ('Covered count drift for {0}/{1}: {2}' -f $lFirst.Id, $lFirst.CacheMode,
+        ($lSuccessfulCoveredCounts -join ', '))
+    }
+    $lCoveredCount = if ($lSuccessfulCoveredCounts.Count -eq 1) {
+      $lSuccessfulCoveredCounts[0]
+    } else {
+      [string](Get-ObjectPropertyValue -Object $lFirst -Name 'CoveredCount')
+    }
     $lMutationStatuses = @($lRows | Where-Object {
       $_.PSObject.Properties.Name -contains 'SourceMutationStatus'
     } | ForEach-Object { [string]$_.SourceMutationStatus } | Select-Object -Unique)
@@ -922,11 +990,14 @@ function New-SummaryRows {
       Status = $lStatus
       ExitCode = $lExit
       MedianSeconds = $lMedianSeconds
+      P95Seconds = [Math]::Round((Get-NearestRankPercentile -Values $lSeconds `
+        -Percentile 0.95), 3)
       TargetSeconds = $lTargetSeconds
       TargetStatus = $lTargetStatus
       MinSeconds = [Math]::Round((@($lSeconds | Measure-Object -Minimum).Minimum), 3)
       MaxSeconds = [Math]::Round((@($lSeconds | Measure-Object -Maximum).Maximum), 3)
       ResultCount = $lResultCount
+      CoveredCount = $lCoveredCount
       SemanticCacheHits = $lFirst.SemanticCacheHits
       SemanticCacheMisses = $lFirst.SemanticCacheMisses
       ReferenceFallbackCount = $lFirst.ReferenceFallbackCount
@@ -943,7 +1014,7 @@ function New-SummaryRows {
   return @($lSummaryRows.ToArray())
 }
 
-function Get-BenchmarkArguments {
+function Get-BenchmarkArgument {
   param(
     [object]$Benchmark,
     [string]$CacheMode,
@@ -952,7 +1023,7 @@ function Get-BenchmarkArguments {
 
   $lArguments = New-Object System.Collections.Generic.List[string]
   $lArguments.AddRange([string[]]$Benchmark.Arguments)
-  if (Requires-PlannerPhaseMetrics -Row $Benchmark) {
+  if (Test-RequiresPlannerPhaseMetric -Row $Benchmark) {
     $lDiagnosticsIndex = $lArguments.IndexOf('--diagnostics')
     if ($lDiagnosticsIndex -lt 0) {
       $lArguments.Add('--diagnostics')
@@ -983,8 +1054,8 @@ if (-not (Test-Path -LiteralPath $Project -PathType Leaf)) {
   throw "Project fixture not found: $Project"
 }
 
-$lWorkflowFilter = @(Split-ArgumentValues -Values $Workflow)
-$lCacheModes = @(Split-ArgumentValues -Values $CacheMode)
+$lWorkflowFilter = @(Split-ArgumentValue -Values $Workflow)
+$lCacheModes = @(Split-ArgumentValue -Values $CacheMode)
 if ($lCacheModes.Count -eq 0) {
   $lCacheModes = @('default')
 }
@@ -997,7 +1068,7 @@ foreach ($lCacheMode in $lCacheModes) {
   }
 }
 
-$lBenchmarks = @(New-BenchmarkDefinitions -ProjectPath $Project)
+$lBenchmarks = @(Get-BenchmarkDefinition -ProjectPath $Project)
 if ($lWorkflowFilter.Count -gt 0) {
   $lKnown = @($lBenchmarks | ForEach-Object { $_.Id })
   foreach ($lWorkflow in $lWorkflowFilter) {
@@ -1046,12 +1117,16 @@ if ($SummarizeOnly) {
     }
   }
   foreach ($lRow in $lRunRows) {
+    if (-not ($lRow.PSObject.Properties.Name -contains 'CoveredCount')) {
+      Add-Member -InputObject $lRow -NotePropertyName CoveredCount -NotePropertyValue ''
+    }
     if (-not ($lRow.PSObject.Properties.Name -contains 'Status')) {
       $lStatus = if (($lRow.PSObject.Properties.Name -contains 'ExitCode') -and ($lRow.ExitCode -eq 0)) { 'passed' } else { 'failed' }
       Add-Member -InputObject $lRow -NotePropertyName Status -NotePropertyValue $lStatus
     }
     if (($lRow.PSObject.Properties.Name -contains 'Stdout') -and (Test-Path -LiteralPath $lRow.Stdout -PathType Leaf)) {
       $lRow.ResultCount = Read-ResultCount -Path $lRow.Stdout
+      $lRow.CoveredCount = Read-RemoveWithCoveredCount -Path $lRow.Stdout
       if (-not ($lRow.PSObject.Properties.Name -contains 'ReferenceFallbackCount')) {
         Add-Member -InputObject $lRow -NotePropertyName ReferenceFallbackCount -NotePropertyValue ''
       }
@@ -1070,13 +1145,13 @@ if ($SummarizeOnly) {
       $lRow.ReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lRow.Stdout
       $lRow.SemanticCacheHits = Read-SemanticCacheMetric -Path $lRow.Stdout -Name 'semanticCacheHits'
       $lRow.SemanticCacheMisses = Read-SemanticCacheMetric -Path $lRow.Stdout -Name 'semanticCacheMisses'
-      $lRow.SemanticPhaseMetrics = Read-SemanticPhaseMetrics -Path $lRow.Stdout
-      $lRow.PlannerPhaseMetrics = Read-PlannerPhaseMetrics -Path $lRow.Stdout
-      if (($lRow.ExitCode -eq 0) -and (Requires-ReferenceFallbackCount -Row $lRow) -and
+      $lRow.SemanticPhaseMetrics = Read-SemanticPhaseMetric -Path $lRow.Stdout
+      $lRow.PlannerPhaseMetrics = Read-PlannerPhaseMetric -Path $lRow.Stdout
+      if (($lRow.ExitCode -eq 0) -and (Test-RequiresReferenceFallbackCount -Row $lRow) -and
           [string]::IsNullOrWhiteSpace($lRow.ReferenceFallbackCount)) {
         throw "Missing referenceReconciliationFallbackCount in successful benchmark output: $($lRow.Stdout)"
       }
-      if (($lRow.ExitCode -eq 0) -and (Requires-PlannerPhaseMetrics -Row $lRow) -and
+      if (($lRow.ExitCode -eq 0) -and (Test-RequiresPlannerPhaseMetric -Row $lRow) -and
           ($null -eq $lRow.PlannerPhaseMetrics)) {
         throw "Missing plannerPhaseMetrics in successful benchmark output: $($lRow.Stdout)"
       }
@@ -1094,7 +1169,7 @@ if ($SummarizeOnly) {
         -NotePropertyValue 'not-applicable'
     }
   }
-  $lResultRows = New-SummaryRows -RunRows $lRunRows
+  $lResultRows = Get-SummaryRow -RunRows $lRunRows
   $lCurrentDelphiSemanticsSha = Get-GitSha -Path (Get-Location)
   $lCurrentDakSha = Get-GitSha -Path (Split-Path (Split-Path $DakExe -Parent) -Parent)
   $lStoredDelphiSemanticsSha = [string](Get-ObjectPropertyValue -Object $lExistingSummary `
@@ -1136,19 +1211,21 @@ if ($SummarizeOnly) {
   }
 
   $lCacheDirectory = Join-Path $lOutputDir 'semantic-cache'
-  $lSemanticCacheFile = Join-Path $lCacheDirectory 'unit-models.sqlite3'
   foreach ($lCacheMode in $lCacheModes) {
     New-Item -ItemType Directory -Force -Path $lCacheDirectory | Out-Null
 
     foreach ($lBenchmark in $lBenchmarks) {
-      if (($lCacheMode -eq 'warm') -and (-not (Test-Path -LiteralPath $lSemanticCacheFile -PathType Leaf))) {
+      $lWorkflowCacheDirectory = Join-Path $lCacheDirectory $lBenchmark.Id
+      $lSemanticCacheFile = Join-Path $lWorkflowCacheDirectory 'unit-models.sqlite3'
+      New-Item -ItemType Directory -Force -Path $lWorkflowCacheDirectory | Out-Null
+      if ($lCacheMode -eq 'warm') {
         $lWarmupId = '{0}-{1}-warmup' -f $lBenchmark.Id, $lCacheMode
         $lWarmupStdout = Join-Path $lOutputDir ($lWarmupId + '.stdout.json')
         $lWarmupStderr = Join-Path $lOutputDir ($lWarmupId + '.stderr.txt')
-        $env:DELPHISEMANTICS_BENCHMARK_CACHE_DIR = $lCacheDirectory
+        $env:DELPHISEMANTICS_BENCHMARK_CACHE_DIR = $lWorkflowCacheDirectory
         $env:DELPHISEMANTICS_BENCHMARK_CACHE_MODE = $lCacheMode
-        $lWarmupArguments = @(Get-BenchmarkArguments -Benchmark $lBenchmark -CacheMode $lCacheMode -SemanticCacheFile $lSemanticCacheFile)
-        $lWarmupSourceSnapshot = New-SourceSnapshot -ProjectPath $Project
+        $lWarmupArguments = @(Get-BenchmarkArgument -Benchmark $lBenchmark -CacheMode $lCacheMode -SemanticCacheFile $lSemanticCacheFile)
+        $lWarmupSourceSnapshot = Get-SourceSnapshot -ProjectPath $Project
         & $DakExe @($lWarmupArguments) 1> $lWarmupStdout 2> $lWarmupStderr
         $lWarmupExitCode = $LASTEXITCODE
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_DIR -ErrorAction SilentlyContinue
@@ -1160,31 +1237,32 @@ if ($SummarizeOnly) {
         if ($lWarmupExitCode -ne 0) {
           throw "Warm-cache priming failed for $($lBenchmark.Id). See: $lWarmupStderr"
         }
-        if ((Requires-ReferenceFallbackCount -Row $lBenchmark) -and
+        if ((Test-RequiresReferenceFallbackCount -Row $lBenchmark) -and
             [string]::IsNullOrWhiteSpace((Read-ReferenceFallbackCount -Path $lWarmupStdout))) {
           throw "Warm-cache priming output is missing referenceReconciliationFallbackCount: $lWarmupStdout"
         }
-        if ((Requires-PlannerPhaseMetrics -Row $lBenchmark) -and
-            ($null -eq (Read-PlannerPhaseMetrics -Path $lWarmupStdout))) {
+        if ((Test-RequiresPlannerPhaseMetric -Row $lBenchmark) -and
+            ($null -eq (Read-PlannerPhaseMetric -Path $lWarmupStdout))) {
           throw "Warm-cache priming output is missing plannerPhaseMetrics: $lWarmupStdout"
         }
       }
 
       for ($i = 1; $i -le $Repeat; $i++) {
         if ($lCacheMode -eq 'cold') {
-          Remove-ColdCacheArtifacts -CacheDirectory $lCacheDirectory -OutputDirectory $lOutputDir
-          New-Item -ItemType Directory -Force -Path $lCacheDirectory | Out-Null
+          Clear-ColdCacheArtifact -CacheDirectory $lWorkflowCacheDirectory `
+            -OutputDirectory $lOutputDir
+          New-Item -ItemType Directory -Force -Path $lWorkflowCacheDirectory | Out-Null
         }
 
         $lRunId = '{0}-{1}-run{2}' -f $lBenchmark.Id, $lCacheMode, $i
         $lStdout = Join-Path $lOutputDir ($lRunId + '.stdout.json')
         $lStderr = Join-Path $lOutputDir ($lRunId + '.stderr.txt')
 
-        $env:DELPHISEMANTICS_BENCHMARK_CACHE_DIR = $lCacheDirectory
+        $env:DELPHISEMANTICS_BENCHMARK_CACHE_DIR = $lWorkflowCacheDirectory
         $env:DELPHISEMANTICS_BENCHMARK_CACHE_MODE = $lCacheMode
         $lStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-        $lArguments = @(Get-BenchmarkArguments -Benchmark $lBenchmark -CacheMode $lCacheMode -SemanticCacheFile $lSemanticCacheFile)
-        $lSourceSnapshot = New-SourceSnapshot -ProjectPath $Project
+        $lArguments = @(Get-BenchmarkArgument -Benchmark $lBenchmark -CacheMode $lCacheMode -SemanticCacheFile $lSemanticCacheFile)
+        $lSourceSnapshot = Get-SourceSnapshot -ProjectPath $Project
         & $DakExe @($lArguments) 1> $lStdout 2> $lStderr
         $lExitCode = $LASTEXITCODE
         $lStopwatch.Stop()
@@ -1202,13 +1280,13 @@ if ($SummarizeOnly) {
         $lReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lStdout
         $lSemanticCacheHits = Read-SemanticCacheMetric -Path $lStdout -Name 'semanticCacheHits'
         $lSemanticCacheMisses = Read-SemanticCacheMetric -Path $lStdout -Name 'semanticCacheMisses'
-        $lSemanticPhaseMetrics = Read-SemanticPhaseMetrics -Path $lStdout
-        $lPlannerPhaseMetrics = Read-PlannerPhaseMetrics -Path $lStdout
-        if (($lExitCode -eq 0) -and (Requires-ReferenceFallbackCount -Row $lBenchmark) -and
+        $lSemanticPhaseMetrics = Read-SemanticPhaseMetric -Path $lStdout
+        $lPlannerPhaseMetrics = Read-PlannerPhaseMetric -Path $lStdout
+        if (($lExitCode -eq 0) -and (Test-RequiresReferenceFallbackCount -Row $lBenchmark) -and
             [string]::IsNullOrWhiteSpace($lReferenceFallbackCount)) {
           throw "Missing referenceReconciliationFallbackCount in successful benchmark output: $lStdout"
         }
-        if (($lExitCode -eq 0) -and (Requires-PlannerPhaseMetrics -Row $lBenchmark) -and
+        if (($lExitCode -eq 0) -and (Test-RequiresPlannerPhaseMetric -Row $lBenchmark) -and
             ($null -eq $lPlannerPhaseMetrics)) {
           throw "Missing plannerPhaseMetrics in successful benchmark output: $lStdout"
         }
@@ -1219,11 +1297,12 @@ if ($SummarizeOnly) {
           Feature = $lBenchmark.Feature
           Description = $lBenchmark.Description
           CacheMode = $lCacheMode
-          CacheDirectory = $lCacheDirectory
+          CacheDirectory = $lWorkflowCacheDirectory
           Status = if ($lExitCode -eq 0) { 'passed' } else { 'failed' }
           ExitCode = $lExitCode
           ElapsedSeconds = [Math]::Round($lStopwatch.Elapsed.TotalSeconds, 3)
           ResultCount = Read-ResultCount -Path $lStdout
+          CoveredCount = Read-RemoveWithCoveredCount -Path $lStdout
           SemanticCacheHits = $lSemanticCacheHits
           SemanticCacheMisses = $lSemanticCacheMisses
           ReferenceFallbackCount = $lReferenceFallbackCount
@@ -1242,7 +1321,7 @@ if ($SummarizeOnly) {
 
   $lCompletedAt = Get-Date
   $lRunRows = @($lRows.ToArray())
-  $lResultRows = New-SummaryRows -RunRows $lRunRows
+  $lResultRows = Get-SummaryRow -RunRows $lRunRows
   $lDakRoot = Split-Path (Split-Path $DakExe -Parent) -Parent
   $lDelphiSemanticsSha = Get-GitSha -Path (Get-Location)
   $lDakSha = Get-GitSha -Path $lDakRoot
@@ -1329,9 +1408,9 @@ if ($PromoteBaseline) {
 }
 
 ConvertTo-MarkdownTable -Rows $lResultRows
-Write-Host ''
-Write-Host "Baseline JSON: $lJsonPath"
-Write-Host "Baseline Markdown: $lMarkdownPath"
+Write-Output ''
+Write-Output "Baseline JSON: $lJsonPath"
+Write-Output "Baseline Markdown: $lMarkdownPath"
 
 if (@($lResultRows | Where-Object { $_.ExitCode -ne 0 }).Count -gt 0) {
   exit 1
