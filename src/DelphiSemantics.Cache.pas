@@ -735,12 +735,7 @@ end;
 
 procedure TDelphiSemanticUnitCache.SetCacheKind(const aValue: string);
 begin
-  EnterAccess(False);
-  try
-    fMetrics.CacheKind := aValue;
-  finally
-    LeaveAccess(False);
-  end;
+  fMetrics.CacheKind := aValue;
 end;
 
 procedure TDelphiSemanticUnitCache.RecordPersistentConnectionOpen;

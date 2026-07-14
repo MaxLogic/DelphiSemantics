@@ -16,7 +16,30 @@ type
       const aCode: string): Boolean;
     function HasDeclaration(const aModel: TDelphiSemanticUnitModel; const aName: string):
       Boolean;
+    procedure AssertUnitCacheRetention(const aCacheFileName: string);
     procedure CorruptStoredModelJson(const aFileName: string);
+    procedure AwaitUnitCacheConcurrencyStart;
+    procedure AwaitUnitCacheConcurrencyRelease(const aReleaseFileName: string);
+    procedure HoldUnitCacheConcurrencyWriteLock(const aCacheFileName, aReadyFileName,
+      aReleaseFileName: string; const aColdDatabase: Boolean);
+    procedure OpenContendedUnitCache(const aCacheFileName: string);
+    procedure ReadContendedInvalidUnit(const aCacheFileName, aSourceFileName,
+      aExpectedTypeName: string);
+    procedure RunLocalUnitCacheConcurrencyScenario(const aCacheFileName: string);
+    procedure RunUnitCacheConcurrencySourceRole(const aRole, aCacheFileName,
+      aSourceFileName: string);
+    procedure SetStoredTimestampForConfiguration(const aCacheFileName, aConfiguration,
+      aStoredAtUtc: string);
+    procedure StoreConcurrencyUnit(const aCacheFileName, aSourceFileName: string;
+      const aExpectedTypeName: string; const aExpectInvalidation,
+      aExpectContention: Boolean);
+    procedure StoreRetentionVariant(const aCacheOptions: TDelphiSemanticCacheOptions;
+      const aModelOptions: TDelphiSemanticModelOptions; const aUnitName, aTypeName: string);
+    procedure VerifyConcurrencyCache(const aCacheFileName: string;
+      const aExpectedSourceFileNames: TArray<string>; const aExpectHolderSentinel,
+      aExpectColdHolderSentinel: Boolean);
+    procedure VerifyConcurrencyUnitHit(const aCacheFileName, aSourceFileName,
+      aExpectedTypeName: string);
     procedure WriteIncompatibleSchema(const aFileName: string);
     function TempPath(const aName: string): string;
     function WriteUnitFile(const aName, aTypeName: string): string;
@@ -25,6 +48,8 @@ type
     procedure NonEmptySqliteFileNameCreatesPersistentCacheFile;
     [Test]
     procedure SqliteMetricsExposeCacheFileName;
+    [Test]
+    procedure UnavailableSqlitePathFallsBackToInMemoryWithoutDeletion;
     [Test]
     procedure SqliteCacheKeepsOnePersistentConnectionPerInstance;
     [Test]
@@ -38,6 +63,12 @@ type
     [Test]
     procedure SqliteUnitCacheUsesWideTextAccessors;
     [Test]
+    procedure SqliteConnectionsDeclareBusyJournalAndLockingPolicy;
+    [Test]
+    procedure SqliteLockedErrorsUseNonDestructiveClassifier;
+    [Test]
+    procedure RebuildFailureDisablesPersistenceWithoutRetry;
+    [Test]
     procedure SourceChangeInvalidatesPersistentEntry;
     [Test]
     procedure SourceTimestampChangeReusesPersistentEntry;
@@ -50,7 +81,11 @@ type
     [Test]
     procedure StoredRowsPersistSourcePathFromCacheIdentity;
     [Test]
+    procedure StoreAndRetentionUseRetryingTransaction;
+    [Test]
     procedure StoredRowsKeepSharedCompilerContextKeys;
+    [Test]
+    procedure StoresRetainFourNewestKeysPerSourceIdentity;
     [Test]
     procedure RtlSourceRootProfilesReuseSharedSqliteCache;
     [Test]
@@ -61,19 +96,34 @@ type
     procedure IncompatibleSchemaRebuildsWithDiagnostic;
     [Test]
     procedure UnitModelJsonSerializationIsOutsideSqlitePersistence;
+    [Test]
+    procedure UnitCacheSqliteConcurrencyHarness;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils, System.Variants,
+  System.Diagnostics, System.IOUtils, System.StrUtils, System.SysUtils, System.Variants,
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
+  FireDAC.Stan.Error,
   DelphiSemantics.Api, DelphiSemantics.Api.WithBinding, DelphiSemantics.CompilerProfile,
   maxLogic.IOUtils, Test.Support;
 
+type
+  TTestableDelphiSemanticSqliteUnitCache = class(TDelphiSemanticSqliteUnitCache)
+  public
+    class function IsSqliteBusyError(const aException: Exception): Boolean; static;
+  end;
+
 var
   GCacheSqliteTempRoot: string;
+
+class function TTestableDelphiSemanticSqliteUnitCache.IsSqliteBusyError(
+  const aException: Exception): Boolean;
+begin
+  Result := SqliteBusyError(aException);
+end;
 
 function CacheSqliteUnicodeText: string;
 begin
@@ -121,6 +171,55 @@ begin
   Result := False;
 end;
 
+procedure TCacheSqliteTests.AssertUnitCacheRetention(const aCacheFileName: string);
+var
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+  lQuery: TFDQuery;
+begin
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := aCacheFileName;
+    lConnection.Connected := True;
+
+    Assert.AreEqual(8, Integer(lConnection.ExecSQLScalar(
+      'select count(*) from unit_models')),
+      'Two source identities must independently retain four persistent keys.');
+    Assert.AreEqual(0, Integer(lConnection.ExecSQLScalar(
+      'select count(*) from unit_models where configuration in (''Config1'', ''Config2'')')),
+      'Retention must prune the oldest insertions despite misleading wall-clock values.');
+    Assert.AreEqual(8, Integer(lConnection.ExecSQLScalar(
+      'select count(*) from unit_models where configuration in ' +
+      '(''Config3'', ''Config4'', ''Config5'', ''Config6'')')),
+      'Retention must preserve four newest keys for each identity.');
+
+    lQuery := TFDQuery.Create(nil);
+    try
+      lQuery.Connection := lConnection;
+      lQuery.SQL.Text := 'select count(*) from unit_models where source_file_name = ?';
+      lQuery.Params[0].AsWideString :=
+        TDelphiSemanticCacheIdentityBuilder.CanonicalPath(TempPath('SqliteRetentionUnitA.pas'));
+      lQuery.Open;
+      Assert.AreEqual(4, lQuery.Fields[0].AsInteger,
+        'The first source identity must retain four keys.');
+      lQuery.Close;
+      lQuery.Params[0].AsWideString :=
+        TDelphiSemanticCacheIdentityBuilder.CanonicalPath(TempPath('SqliteRetentionUnitB.pas'));
+      lQuery.Open;
+      Assert.AreEqual(4, lQuery.Fields[0].AsInteger,
+        'The second source identity must retain four keys.');
+    finally
+      lQuery.Free;
+    end;
+  finally
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+end;
+
 procedure TCacheSqliteTests.CorruptStoredModelJson(const aFileName: string);
 var
   lConnection: TFDConnection;
@@ -166,6 +265,55 @@ begin
   finally
     lConnection.Free;
     lDriverLink.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.SetStoredTimestampForConfiguration(const aCacheFileName,
+  aConfiguration, aStoredAtUtc: string);
+var
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+  lQuery: TFDQuery;
+begin
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := aCacheFileName;
+    lConnection.Connected := True;
+    lQuery := TFDQuery.Create(nil);
+    try
+      lQuery.Connection := lConnection;
+      lQuery.SQL.Text := 'update unit_models set stored_at_utc = ? where configuration = ?';
+      lQuery.Params[0].AsWideString := aStoredAtUtc;
+      lQuery.Params[1].AsWideString := aConfiguration;
+      lQuery.ExecSQL;
+    finally
+      lQuery.Free;
+    end;
+  finally
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.StoreRetentionVariant(
+  const aCacheOptions: TDelphiSemanticCacheOptions;
+  const aModelOptions: TDelphiSemanticModelOptions; const aUnitName, aTypeName: string);
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lModelOptions := aModelOptions;
+  lModelOptions.SourceFileName := WriteUnitFile(aUnitName, aTypeName);
+  lCache := TDelphiSemanticSqliteUnitCache.Create(aCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Assert.IsTrue(HasDeclaration(lModel, aTypeName));
+  finally
+    lCache.Free;
   end;
 end;
 
@@ -220,6 +368,462 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+procedure TCacheSqliteTests.UnavailableSqlitePathFallsBackToInMemoryWithoutDeletion;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('unavailable-cache.sqlite3');
+  TDirectory.CreateDirectory(lCacheOptions.SqliteCacheFileName);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := WriteUnitFile('SqliteUnavailableUnit',
+    'TSqliteUnavailableType');
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+
+    Assert.IsTrue(HasDeclaration(lModel, 'TSqliteUnavailableType'));
+    Assert.IsTrue(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_UNAVAILABLE'));
+    Assert.AreEqual(1, Integer(Length(lCache.Diagnostics)),
+      'In-memory fallback must not append an empty SQLite open failure per extracted unit.');
+    Assert.AreEqual('in-memory-fallback', lCache.Metrics.CacheKind);
+    Assert.IsTrue(TDirectory.Exists(lCacheOptions.SqliteCacheFileName),
+      'An unavailable cache path must never be deleted during fallback.');
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.AwaitUnitCacheConcurrencyStart;
+var
+  lAttemptFileName: string;
+  lProceedFileName: string;
+  lReadyFileName: string;
+  lStartFileName: string;
+  lStopwatch: TStopwatch;
+begin
+  lReadyFileName := GetEnvironmentVariable(
+    'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_CHILD_READY');
+  if lReadyFileName <> '' then
+    TFile.WriteAllText(lReadyFileName, 'ready', TEncoding.UTF8);
+
+  lStartFileName := GetEnvironmentVariable(
+    'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_CHILD_START');
+  lStopwatch := TStopwatch.StartNew;
+  while (lStartFileName <> '') and not TFile.Exists(lStartFileName) do
+  begin
+    if lStopwatch.ElapsedMilliseconds > 15000 then
+      raise Exception.Create('Timed out waiting to start unit-cache concurrency access.');
+    Sleep(25);
+  end;
+
+  lAttemptFileName := GetEnvironmentVariable(
+    'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_CHILD_ATTEMPT');
+  if lAttemptFileName <> '' then
+    TFile.WriteAllText(lAttemptFileName, 'attempt', TEncoding.UTF8);
+
+  lProceedFileName := GetEnvironmentVariable(
+    'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_CHILD_PROCEED');
+  lStopwatch := TStopwatch.StartNew;
+  while (lProceedFileName <> '') and not TFile.Exists(lProceedFileName) do
+  begin
+    if lStopwatch.ElapsedMilliseconds > 15000 then
+      raise Exception.Create('Timed out waiting to enter unit-cache concurrency access.');
+    Sleep(25);
+  end;
+end;
+
+procedure TCacheSqliteTests.AwaitUnitCacheConcurrencyRelease(
+  const aReleaseFileName: string);
+var
+  lStopwatch: TStopwatch;
+begin
+  lStopwatch := TStopwatch.StartNew;
+  while (aReleaseFileName <> '') and not TFile.Exists(aReleaseFileName) do
+  begin
+    if lStopwatch.ElapsedMilliseconds > 15000 then
+      raise Exception.Create('Timed out waiting to release the unit-cache SQLite write lock.');
+    Sleep(50);
+  end;
+end;
+
+procedure TCacheSqliteTests.HoldUnitCacheConcurrencyWriteLock(const aCacheFileName,
+  aReadyFileName, aReleaseFileName: string; const aColdDatabase: Boolean);
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+begin
+  if not aColdDatabase then
+  begin
+    lCacheOptions := Default(TDelphiSemanticCacheOptions);
+    lCacheOptions.SqliteCacheFileName := aCacheFileName;
+    lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+    try
+      // Create the schema before holding the write lock used by the process-level proof.
+    finally
+      lCache.Free;
+    end;
+  end;
+
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := aCacheFileName;
+    lConnection.Params.Values['BusyTimeout'] := '10000';
+    lConnection.Params.Values['JournalMode'] := 'WAL';
+    lConnection.Params.Values['LockingMode'] := 'Normal';
+    lConnection.Params.Values['SharedCache'] := 'False';
+    lConnection.Connected := True;
+    lConnection.StartTransaction;
+    try
+      if aColdDatabase then
+      begin
+        lConnection.ExecSQL('create table unit_cache_concurrency_holder(' +
+          'value_text text not null)');
+        lConnection.ExecSQL('insert into unit_cache_concurrency_holder(value_text) ' +
+          'values(''locked'')');
+      end else
+        lConnection.ExecSQL('insert or replace into meta(key_name, value_text) values(' +
+          '''unit_cache_concurrency_holder'', ''locked'')');
+      if aReadyFileName <> '' then
+        TFile.WriteAllText(aReadyFileName, 'ready', TEncoding.UTF8);
+      AwaitUnitCacheConcurrencyRelease(aReleaseFileName);
+      lConnection.Commit;
+    except
+      if lConnection.InTransaction then
+        lConnection.Rollback;
+      raise;
+    end;
+  finally
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.StoreConcurrencyUnit(const aCacheFileName,
+  aSourceFileName: string; const aExpectedTypeName: string;
+  const aExpectInvalidation, aExpectContention: Boolean);
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lStopwatch: TStopwatch;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := aCacheFileName;
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := aSourceFileName;
+  lModelOptions.ProjectContextApplied := True;
+
+  lStopwatch := TStopwatch.StartNew;
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Assert.IsTrue(lModel.UnitName <> '', 'Expected concurrency unit model to be stored.');
+    if aExpectedTypeName <> '' then
+      Assert.IsTrue(HasDeclaration(lModel, aExpectedTypeName),
+        'Expected concurrency declaration: ' + aExpectedTypeName);
+    if aExpectInvalidation then
+      Assert.AreEqual(1, lCache.Metrics.Invalidations,
+        'The changed concurrency source must invalidate its prior key.');
+    if aExpectContention then
+      Assert.IsTrue(lStopwatch.ElapsedMilliseconds >= 250,
+        'The writer must overlap the held SQLite lock instead of starting after release.');
+    Assert.IsFalse(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_REBUILT'),
+      'Lock contention must never rebuild the unit-cache database.');
+    Assert.IsFalse(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_SCHEMA_REBUILT'),
+      'Lock contention must never rebuild the unit-cache schema.');
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.OpenContendedUnitCache(const aCacheFileName: string);
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := aCacheFileName;
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    Assert.IsTrue(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_BUSY'),
+      'Exhausted lock contention must report in-memory fallback.');
+    Assert.IsFalse(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_REBUILT'),
+      'Exhausted lock contention must never rebuild the unit cache.');
+    Assert.IsFalse(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_SCHEMA_REBUILT'),
+      'Exhausted lock contention must never rebuild the unit-cache schema.');
+    Assert.AreEqual('in-memory-fallback', lCache.Metrics.CacheKind);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.ReadContendedInvalidUnit(const aCacheFileName,
+  aSourceFileName, aExpectedTypeName: string);
+var
+  lAccessResult: TDelphiSemanticUnitCacheAccessResult;
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := aCacheFileName;
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := aSourceFileName;
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lAccessResult := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+    Assert.IsFalse(lAccessResult.CacheHit,
+      'An invalid persistent model must be extracted again after cleanup contention.');
+    Assert.IsTrue(HasDeclaration(lAccessResult.Model, aExpectedTypeName),
+      'In-memory fallback must still return the extracted semantic model.');
+    Assert.IsTrue(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_ENTRY_REBUILT'));
+    Assert.IsTrue(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_BUSY'));
+    Assert.AreEqual('in-memory-fallback', lCache.Metrics.CacheKind);
+    Assert.IsFalse(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_REBUILT'));
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.RunUnitCacheConcurrencySourceRole(const aRole,
+  aCacheFileName, aSourceFileName: string);
+var
+  lExpectContention: Boolean;
+  lExpectInvalidation: Boolean;
+  lExpectedTypeName: string;
+begin
+  AwaitUnitCacheConcurrencyStart;
+  if SameText(aRole, 'timeout-open') then
+  begin
+    OpenContendedUnitCache(aCacheFileName);
+    Exit;
+  end;
+  if Trim(aSourceFileName) = '' then
+    raise Exception.Create('Missing unit-cache SQLite concurrency source.');
+
+  lExpectedTypeName := GetEnvironmentVariable(
+    'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_EXPECTED_TYPE');
+  if SameText(aRole, 'invalid-reader') then
+  begin
+    ReadContendedInvalidUnit(aCacheFileName, aSourceFileName, lExpectedTypeName);
+    Exit;
+  end;
+  if SameText(aRole, 'reader') then
+  begin
+    VerifyConcurrencyUnitHit(aCacheFileName, aSourceFileName, lExpectedTypeName);
+    Exit;
+  end;
+
+  lExpectInvalidation := SameText(GetEnvironmentVariable(
+    'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_EXPECT_INVALIDATION'), '1');
+  lExpectContention := SameText(GetEnvironmentVariable(
+    'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_EXPECT_CONTENTION'), '1');
+  StoreConcurrencyUnit(aCacheFileName, aSourceFileName, lExpectedTypeName,
+    lExpectInvalidation, lExpectContention);
+end;
+
+procedure TCacheSqliteTests.VerifyConcurrencyCache(const aCacheFileName: string;
+  const aExpectedSourceFileNames: TArray<string>; const aExpectHolderSentinel,
+  aExpectColdHolderSentinel: Boolean);
+var
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+  lQuery: TFDQuery;
+  lSourceFileName: string;
+begin
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := aCacheFileName;
+    lConnection.Params.Values['BusyTimeout'] := '10000';
+    lConnection.Connected := True;
+    Assert.AreEqual('ok', VarToStr(lConnection.ExecSQLScalar('pragma integrity_check')),
+      'Concurrent unit-cache access must preserve SQLite integrity.');
+    if aExpectHolderSentinel then
+      Assert.AreEqual('locked', VarToStr(lConnection.ExecSQLScalar(
+        'select value_text from meta where key_name = ''unit_cache_concurrency_holder''')),
+        'The committed holder sentinel must survive without cache deletion or rebuilding.');
+    if aExpectColdHolderSentinel then
+      Assert.AreEqual('locked', VarToStr(lConnection.ExecSQLScalar(
+        'select value_text from unit_cache_concurrency_holder limit 1')),
+        'The cold-database holder sentinel must survive without cache deletion or rebuilding.');
+
+    lQuery := TFDQuery.Create(nil);
+    try
+      lQuery.Connection := lConnection;
+      lQuery.SQL.Text := 'select count(*) from unit_models where source_file_name = ?';
+      for lSourceFileName in aExpectedSourceFileNames do
+      begin
+        if Trim(lSourceFileName) = '' then
+          Continue;
+        lQuery.Params[0].AsWideString :=
+          TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lSourceFileName);
+        lQuery.Open;
+        Assert.IsTrue(lQuery.Fields[0].AsInteger > 0,
+          'Expected concurrent cache row for source: ' + lSourceFileName);
+        Assert.IsTrue(lQuery.Fields[0].AsInteger <= 4,
+          'Concurrent cache rows must obey the per-source retention bound.');
+        lQuery.Close;
+      end;
+    finally
+      lQuery.Free;
+    end;
+  finally
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.VerifyConcurrencyUnitHit(const aCacheFileName,
+  aSourceFileName, aExpectedTypeName: string);
+var
+  lAccessResult: TDelphiSemanticUnitCacheAccessResult;
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := aCacheFileName;
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := aSourceFileName;
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lAccessResult := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+    Assert.IsTrue(lAccessResult.CacheHit,
+      'Expected unchanged concurrency source to load from the persistent cache.');
+    if aExpectedTypeName <> '' then
+      Assert.IsTrue(HasDeclaration(lAccessResult.Model, aExpectedTypeName),
+        'Expected warm concurrency declaration: ' + aExpectedTypeName);
+    Assert.IsFalse(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_REBUILT'),
+      'Concurrent reads must never rebuild the unit-cache database.');
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.SqliteConnectionsDeclareBusyJournalAndLockingPolicy;
+var
+  lBody: string;
+  lBusyIndex: Integer;
+  lDiagnosticIndex: Integer;
+  lExitIndex: Integer;
+  lRebuildIndex: Integer;
+  lSource: string;
+  lStartIndex: Integer;
+begin
+  lSource := ReadRepoSource('src\DelphiSemantics.Cache.Sqlite.pas');
+
+  Assert.IsTrue(ContainsText(lSource, 'BusyTimeout'),
+    'Unit-cache SQLite connections must declare an explicit busy timeout.');
+  Assert.IsTrue(ContainsText(lSource, 'JournalMode') and ContainsText(lSource, 'WAL'),
+    'Unit-cache SQLite connections must use WAL for concurrent readers and writers.');
+  Assert.IsTrue(ContainsText(lSource, 'LockingMode') and ContainsText(lSource, 'Normal'),
+    'Unit-cache SQLite connections must use normal multi-process locking.');
+  Assert.IsTrue(ContainsText(lSource, 'SqliteBusyError'),
+    'Unit-cache SQLite failures must classify BUSY and LOCKED separately from corruption.');
+  Assert.IsTrue(ContainsText(lSource, 'aException is EFDDBEngineException') and
+    ContainsText(lSource, 'ekRecordLocked'),
+    'FireDAC-native SQLite BUSY and LOCKED errors must use the typed lock classification.');
+  Assert.IsTrue(ContainsText(lSource, 'database schema is locked'),
+    'Generic SQLite schema-lock errors must remain a non-destructive contention fallback.');
+  Assert.IsTrue(ContainsText(lSource, 'UnitCacheSqliteCorruptionError') and
+    ContainsText(lSource, 'SQLITE_CACHE_UNAVAILABLE'),
+    'Only positively classified corruption may rebuild; unknown failures must disable persistence.');
+  Assert.IsTrue(ContainsText(lSource, 'SharedCache') and ContainsText(lSource, 'False'),
+    'WAL unit-cache connections must opt out of FireDAC global shared-cache locking.');
+
+  lStartIndex := Pos('procedure TDelphiSemanticSqliteUnitCache.EnsureDatabase;', lSource);
+  lBody := Copy(lSource, lStartIndex, PosEx(
+    'procedure TDelphiSemanticSqliteUnitCache.EnsureDatabaseOnce;', lSource,
+    lStartIndex) - lStartIndex);
+  Assert.IsTrue((lStartIndex > 0) and (lBody <> ''),
+    'Expected the SQLite unit-cache database initialization methods.');
+  lBusyIndex := Pos('if SqliteBusyError(E', lBody);
+  lDiagnosticIndex := PosEx('SQLITE_CACHE_BUSY', lBody, lBusyIndex);
+  lExitIndex := PosEx('Exit;', lBody, lDiagnosticIndex);
+  lRebuildIndex := PosEx('RebuildDatabase(', lBody, lBusyIndex);
+  Assert.IsTrue((lBusyIndex > 0) and (lDiagnosticIndex > lBusyIndex) and
+    (lExitIndex > lDiagnosticIndex) and (lRebuildIndex > lExitIndex),
+    'An exhausted BUSY or LOCKED failure must exit before the rebuild path.');
+end;
+
+procedure TCacheSqliteTests.SqliteLockedErrorsUseNonDestructiveClassifier;
+var
+  lDbException: EFDDBEngineException;
+  lException: Exception;
+begin
+  lDbException := EFDDBEngineException.Create;
+  try
+    Assert.IsNotNull(lDbException.AppendError(1, 6, 'database table is locked', '',
+      ekRecordLocked, -1, -1));
+    Assert.IsTrue(TTestableDelphiSemanticSqliteUnitCache.IsSqliteBusyError(lDbException),
+      'A typed FireDAC SQLITE_LOCKED error must take the non-destructive BUSY path.');
+  finally
+    lDbException.Free;
+  end;
+
+  lException := Exception.Create('database schema is locked: main');
+  try
+    Assert.IsTrue(TTestableDelphiSemanticSqliteUnitCache.IsSqliteBusyError(lException),
+      'A generic SQLite schema-lock error must take the non-destructive BUSY path.');
+  finally
+    lException.Free;
+  end;
+
+  lException := Exception.Create('unclassified SQLite failure');
+  try
+    Assert.IsFalse(TTestableDelphiSemanticSqliteUnitCache.IsSqliteBusyError(lException),
+      'Unknown SQLite failures must not be reclassified as lock contention.');
+  finally
+    lException.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.RebuildFailureDisablesPersistenceWithoutRetry;
+var
+  lBody: string;
+  lDiagnosticIndex: Integer;
+  lSchemaIndex: Integer;
+  lSource: string;
+  lStartIndex: Integer;
+begin
+  lSource := ReadRepoSource('src\DelphiSemantics.Cache.Sqlite.pas');
+  lStartIndex := Pos('procedure TDelphiSemanticSqliteUnitCache.RebuildDatabase', lSource);
+  lBody := Copy(lSource, lStartIndex, PosEx(
+    'procedure TDelphiSemanticSqliteUnitCache.RecordPersistentInvalidation', lSource,
+    lStartIndex) - lStartIndex);
+
+  Assert.IsTrue((lStartIndex > 0) and (lBody <> ''),
+    'Expected the SQLite rebuild failure boundary.');
+  Assert.IsTrue(ContainsText(lBody, 'not DeleteFile'),
+    'Rebuild must detect a cache file that cannot be deleted.');
+  Assert.IsTrue(ContainsText(lBody, 'except') and
+    ContainsText(lBody, 'DisablePersistence'),
+    'Delete, reopen, drop, and create failures must disable persistence without escaping.');
+  lSchemaIndex := Pos('CreateUnitCacheSqliteSchema', lBody);
+  lDiagnosticIndex := Pos('AddDiagnostic(aCode', lBody);
+  Assert.IsTrue((lSchemaIndex > 0) and (lDiagnosticIndex > lSchemaIndex),
+    'A rebuild diagnostic is valid only after the replacement schema succeeds.');
 end;
 
 procedure TCacheSqliteTests.SqliteCacheKeepsOnePersistentConnectionPerInstance;
@@ -689,6 +1293,83 @@ begin
     'SQLite unit rows should not derive source_file_name from the serialized model.');
 end;
 
+procedure TCacheSqliteTests.StoreAndRetentionUseRetryingTransaction;
+var
+  lBody: string;
+  lEndIndex: Integer;
+  lSource: string;
+  lStartIndex: Integer;
+  lTransactionBody: string;
+  lTransactionEndIndex: Integer;
+  lTransactionStartIndex: Integer;
+begin
+  lSource := ReadRepoSource('src\DelphiSemantics.Cache.Sqlite.pas');
+  lStartIndex := Pos('procedure TDelphiSemanticSqliteUnitCache.StorePersistentEntry', lSource);
+  Assert.IsTrue(lStartIndex > 0, 'Expected SQLite unit persistence helper.');
+  lEndIndex := PosEx('function TDelphiSemanticSqliteUnitCache.TryLoadPersistentEntry',
+    lSource, lStartIndex);
+  Assert.IsTrue(lEndIndex > lStartIndex,
+    'Expected SQLite unit persistence helper before load helper.');
+  lBody := Copy(lSource, lStartIndex, lEndIndex - lStartIndex);
+
+  Assert.IsTrue(ContainsText(lBody, 'ExecuteUnitCacheStoreTransaction'),
+    'Unit-model persistence must use the transactional retention helper.');
+  lTransactionStartIndex := Pos('procedure ExecuteUnitCacheStoreTransaction', lSource);
+  lTransactionEndIndex := PosEx('constructor TDelphiSemanticSqliteUnitCache.Create', lSource,
+    lTransactionStartIndex);
+  Assert.IsTrue((lTransactionStartIndex > 0) and
+    (lTransactionEndIndex > lTransactionStartIndex),
+    'Expected the unit-cache store transaction helper.');
+  lTransactionBody := Copy(lSource, lTransactionStartIndex,
+    lTransactionEndIndex - lTransactionStartIndex);
+
+  Assert.IsTrue(ContainsText(lTransactionBody, 'aConnection.StartTransaction'),
+    'The unit-model insert and retention prune must share one transaction.');
+  Assert.IsTrue(ContainsText(lTransactionBody, 'aQuery.Prepare'),
+    'Statement preparation must remain inside the BUSY or LOCKED retry boundary.');
+  Assert.IsTrue(ContainsText(lTransactionBody, 'aConnection.Commit'),
+    'A successful unit-model write must commit its insert and retention prune together.');
+  Assert.IsTrue(ContainsText(lTransactionBody, 'aConnection.Rollback'),
+    'A failed unit-model write must roll back before retrying.');
+  Assert.IsTrue(ContainsText(lTransactionBody, 'SqliteBusyError') and
+    (ContainsText(lTransactionBody, 'GetTickCount64') or
+    ContainsText(lTransactionBody, 'ElapsedMilliseconds')),
+    'Unit-model writes must retry bounded BUSY or LOCKED contention.');
+  Assert.IsTrue(ContainsText(lTransactionBody, 'order by rowid desc'),
+    'Retention must rank keys by monotonic insertion order.');
+  Assert.IsFalse(ContainsText(lTransactionBody, 'order by stored_at_utc desc'),
+    'Wall-clock text must not outrank insertion order during retention.');
+end;
+
+procedure TCacheSqliteTests.StoresRetainFourNewestKeysPerSourceIdentity;
+var
+  i: Integer;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('bounded-retention-cache.sqlite3');
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.ProjectContextApplied := True;
+
+  for i := 1 to 6 do
+  begin
+    lModelOptions.SkipBodyAnalysis := (i mod 2) = 0;
+    lModelOptions.SkipReferenceExtraction := (i mod 3) = 0;
+    lCacheOptions.Configuration := 'Config' + i.ToString;
+    StoreRetentionVariant(lCacheOptions, lModelOptions, 'SqliteRetentionUnitA',
+      'TSqliteRetentionTypeA' + i.ToString);
+    StoreRetentionVariant(lCacheOptions, lModelOptions, 'SqliteRetentionUnitB',
+      'TSqliteRetentionTypeB' + i.ToString);
+    if i = 4 then
+      SetStoredTimestampForConfiguration(lCacheOptions.SqliteCacheFileName, 'Config1',
+        '9999-12-31T23:59:59Z');
+  end;
+  AssertUnitCacheRetention(lCacheOptions.SqliteCacheFileName);
+end;
+
 procedure TCacheSqliteTests.RtlSourceRootProfilesReuseSharedSqliteCache;
 var
   lCache: TDelphiSemanticSqliteUnitCache;
@@ -852,6 +1533,71 @@ begin
     'Model JSON unit should own UnitModel deserialization.');
   Assert.IsFalse(ContainsText(lJsonSource, 'FireDAC'),
     'Model JSON serialization must not depend on SQLite persistence.');
+end;
+
+procedure TCacheSqliteTests.RunLocalUnitCacheConcurrencyScenario(
+  const aCacheFileName: string);
+var
+  lSourceFileName: string;
+begin
+  if TFile.Exists(aCacheFileName) then
+    TFile.Delete(aCacheFileName);
+  lSourceFileName := WriteUnitFile('SqliteLocalConcurrencyUnit',
+    'TSqliteLocalConcurrencyType');
+  StoreConcurrencyUnit(aCacheFileName, lSourceFileName, 'TSqliteLocalConcurrencyType',
+    False, False);
+  VerifyConcurrencyUnitHit(aCacheFileName, lSourceFileName,
+    'TSqliteLocalConcurrencyType');
+  VerifyConcurrencyCache(aCacheFileName, [lSourceFileName], False, False);
+end;
+
+procedure TCacheSqliteTests.UnitCacheSqliteConcurrencyHarness;
+var
+  lCacheFileName: string;
+  lRole: string;
+begin
+  lRole := GetEnvironmentVariable('DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_ROLE');
+  lCacheFileName := GetEnvironmentVariable('DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_CACHE');
+  if Trim(lCacheFileName) = '' then
+    lCacheFileName := TempPath('unit-cache-concurrency-harness.sqlite3');
+
+  if SameText(lRole, 'holder') or SameText(lRole, 'cold-holder') then
+  begin
+    HoldUnitCacheConcurrencyWriteLock(lCacheFileName, GetEnvironmentVariable(
+      'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_READY'), GetEnvironmentVariable(
+      'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_RELEASE'), SameText(lRole, 'cold-holder'));
+    Assert.Pass('Held and released the unit-cache SQLite write lock.');
+    Exit;
+  end;
+
+  if SameText(lRole, 'corrupt-entry') then
+  begin
+    CorruptStoredModelJson(lCacheFileName);
+    Assert.Pass('Corrupted the stored unit-cache model JSON.');
+    Exit;
+  end;
+
+  if SameText(lRole, 'writer') or SameText(lRole, 'seed') or
+    SameText(lRole, 'reader') or SameText(lRole, 'invalid-reader') or
+    SameText(lRole, 'timeout-open') then
+  begin
+    RunUnitCacheConcurrencySourceRole(lRole, lCacheFileName, GetEnvironmentVariable(
+      'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_SOURCE'));
+    Exit;
+  end;
+
+  if SameText(lRole, 'verify') then
+  begin
+    VerifyConcurrencyCache(lCacheFileName, SplitString(GetEnvironmentVariable(
+      'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_EXPECTED_SOURCES'), ';'),
+      SameText(GetEnvironmentVariable(
+      'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_EXPECT_HOLDER_SENTINEL'), '1'),
+      SameText(GetEnvironmentVariable(
+      'DELPHI_SEMANTICS_UNIT_SQLITE_CONCURRENCY_EXPECT_COLD_HOLDER_SENTINEL'), '1'));
+    Exit;
+  end;
+
+  RunLocalUnitCacheConcurrencyScenario(lCacheFileName);
 end;
 
 initialization
