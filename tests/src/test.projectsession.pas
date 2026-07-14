@@ -1221,8 +1221,8 @@ begin
     'BuildCompatibilityRemoveWithPlanningSnapshotFromFacts'),
     'Combined session must build the canonical planning snapshot from its facts.');
   Assert.IsTrue(ContainsText(lBody,
-    'TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot)'),
-    'Combined session must use the snapshot planner.');
+    'TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot,'),
+    'Combined session must use the instrumented snapshot planner.');
   Assert.IsTrue(ContainsText(lBody,
     'fLastRemoveWithFactsAndPlanBuildMetrics.SemanticProjectFactsMilliseconds :='),
     'Facts timing must be published from its finally boundary.');

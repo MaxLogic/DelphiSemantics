@@ -131,6 +131,11 @@ type
     MissCount: Int64;
   end;
 
+  TDelphiSemanticRemoveWithLookupActivityMetrics = record
+    ResultMaterializationCount: Int64;
+    MaterializedSymbolCount: Int64;
+  end;
+
   IDelphiSemanticRemoveWithLookupIndexData = interface
     ['{14739A1A-96F8-4F81-B0B9-73AF9DA6BE2F}']
     function FindMembersByOwnerAndName(const aOwnerName, aName: string):
@@ -171,6 +176,7 @@ type
     function FindSymbolsByOwnerType(const aOwnerType: string):
       TArray<TDelphiSemanticInventorySymbol>;
     function Metrics: TDelphiSemanticRemoveWithLookupMetrics;
+    function ActivityMetrics: TDelphiSemanticRemoveWithLookupActivityMetrics;
   end;
 
   TDelphiSemanticProjectWithBindingFacts = record
@@ -206,9 +212,16 @@ uses
   MaxLogic.StrUtils;
 
 type
+  IDelphiSemanticRemoveWithLookupActivityData = interface
+    ['{5E17BE4B-30D7-43E4-A47D-835EB036B78A}']
+    function ActivityMetrics: TDelphiSemanticRemoveWithLookupActivityMetrics;
+  end;
+
   TDelphiSemanticRemoveWithLookupIndexData = class(TInterfacedObject,
-    IDelphiSemanticRemoveWithLookupIndexData)
+    IDelphiSemanticRemoveWithLookupIndexData,
+    IDelphiSemanticRemoveWithLookupActivityData)
   private
+    fActivityMetrics: TDelphiSemanticRemoveWithLookupActivityMetrics;
     fDeclarationsByName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
     fMembersByOwnerName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
     fMemberMisses: TDictionary<string, Byte>;
@@ -258,6 +271,7 @@ type
     function FindSymbolsByOwnerType(const aOwnerType: string):
       TArray<TDelphiSemanticInventorySymbol>;
     function Metrics: TDelphiSemanticRemoveWithLookupMetrics;
+    function ActivityMetrics: TDelphiSemanticRemoveWithLookupActivityMetrics;
   end;
 
   TWithBindingProjectMemberIndex = class
@@ -607,6 +621,8 @@ begin
   if aMap.TryGetValue(aKey, lSymbols) then
   begin
     CountLookup(True);
+    Inc(fActivityMetrics.ResultMaterializationCount);
+    Inc(fActivityMetrics.MaterializedSymbolCount, lSymbols.Count);
     Exit(lSymbols.ToArray);
   end;
   if (aMisses <> nil) and aMisses.ContainsKey(aKey) then
@@ -711,6 +727,12 @@ begin
   Result := fMetrics;
 end;
 
+function TDelphiSemanticRemoveWithLookupIndexData.ActivityMetrics:
+  TDelphiSemanticRemoveWithLookupActivityMetrics;
+begin
+  Result := fActivityMetrics;
+end;
+
 class function TDelphiSemanticRemoveWithLookupIndex.Build(
   const aModels: TArray<TDelphiSemanticUnitModel>;
   const aSymbols: TArray<TDelphiSemanticInventorySymbol>):
@@ -806,6 +828,17 @@ begin
   if fData = nil then
     Exit(Default(TDelphiSemanticRemoveWithLookupMetrics));
   Result := fData.Metrics;
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.ActivityMetrics:
+  TDelphiSemanticRemoveWithLookupActivityMetrics;
+var
+  lActivityData: IDelphiSemanticRemoveWithLookupActivityData;
+begin
+  if not Supports(fData, IDelphiSemanticRemoveWithLookupActivityData,
+    lActivityData) then
+    Exit(Default(TDelphiSemanticRemoveWithLookupActivityMetrics));
+  Result := lActivityData.ActivityMetrics;
 end;
 
 class function TWithBindingProjectMemberIndex.Key(const aUnitName, aOwnerName,

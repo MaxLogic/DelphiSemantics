@@ -47,6 +47,8 @@ type
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParityReport;
   TDelphiSemanticRemoveWithPlanner =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanner;
+  TDelphiSemanticRemoveWithPlannerMetrics =
+    DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlannerMetrics;
   TDelphiSemanticRemoveWithPlanParity =
     DelphiSemantics.RemoveWithPlan.TDelphiSemanticRemoveWithPlanParity;
   TDelphiSemanticRemoveWithLookupMetrics =
@@ -87,6 +89,11 @@ type
     Diagnostics: TArray<TDelphiSemanticDiagnostic>;
   end;
 
+  TDelphiSemanticRemoveWithDetailedCombinedResult = record
+    CombinedResult: TDelphiSemanticRemoveWithCombinedResult;
+    PlannerMetrics: TDelphiSemanticRemoveWithPlannerMetrics;
+  end;
+
   TDelphiSemanticRemoveWithCompatibilityApi = record
   public
     class function BuildProjectWithBindingFacts(const aOptions: TDelphiSemanticApiOptions):
@@ -105,6 +112,12 @@ type
     class function BuildProjectWithBindingFactsAndPlanResult(
       const aRequest: TDelphiSemanticRemoveWithRequest):
       TDelphiSemanticRemoveWithCombinedResult; overload; static;
+    class function BuildProjectWithBindingFactsAndPlanDetailedResult(
+      const aOptions: TDelphiSemanticApiOptions):
+      TDelphiSemanticRemoveWithDetailedCombinedResult; overload; static;
+    class function BuildProjectWithBindingFactsAndPlanDetailedResult(
+      const aRequest: TDelphiSemanticRemoveWithRequest):
+      TDelphiSemanticRemoveWithDetailedCombinedResult; overload; static;
     class function PlanRemoveWith(const aOptions: TDelphiSemanticApiOptions):
       TDelphiSemanticRemoveWithPlan; overload; static;
     class function PlanRemoveWith(const aRequest: TDelphiSemanticRemoveWithRequest):
@@ -238,7 +251,8 @@ function CombinedResultFromSession(
   const aRequest: TDelphiSemanticRemoveWithRequest;
   const aSession: TDelphiSemanticProjectSessionResult;
   const aSessionOpenCount: Integer;
-  const aSessionOpenMilliseconds: Int64):
+  const aSessionOpenMilliseconds: Int64;
+  out aPlannerMetrics: TDelphiSemanticRemoveWithPlannerMetrics):
   TDelphiSemanticRemoveWithCombinedResult;
 var
   lBuildMetrics: TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics;
@@ -246,6 +260,7 @@ var
   lFailure: TDelphiSemanticRemoveWithCombinedResult;
 begin
   Result := Default(TDelphiSemanticRemoveWithCombinedResult);
+  aPlannerMetrics := Default(TDelphiSemanticRemoveWithPlannerMetrics);
   Result.Metrics.SemanticSessionOpenCount := aSessionOpenCount;
   Result.Metrics.SemanticProjectFactsMilliseconds :=
     aSessionOpenMilliseconds;
@@ -262,6 +277,7 @@ begin
       aRequest.BodyAnalysisSourceFileNames);
     lBuildMetrics :=
       aSession.Session.LastRemoveWithFactsAndPlanBuildMetrics;
+    aPlannerMetrics := aSession.Session.LastRemoveWithPlannerMetrics;
     PopulateCombinedResult(Result, aSession, lBuildResult, lBuildMetrics,
       aSessionOpenMilliseconds);
     if Result.Facts.ContextFingerprint = '' then
@@ -279,6 +295,7 @@ begin
     begin
       lBuildMetrics :=
         aSession.Session.LastRemoveWithFactsAndPlanBuildMetrics;
+      aPlannerMetrics := aSession.Session.LastRemoveWithPlannerMetrics;
       lFailure := CombinedFailure('REMOVE_WITH_COMBINED_BUILD_EXCEPTION',
         E.Message, aRequest.Options.ProjectFileName);
       lFailure.Metrics := Result.Metrics;
@@ -288,6 +305,10 @@ begin
     end;
   end;
 end;
+
+function DetailedCombinedResultFromRequest(
+  const aRequest: TDelphiSemanticRemoveWithRequest):
+  TDelphiSemanticRemoveWithDetailedCombinedResult; forward;
 
 function FactBuildDiagnosticsMessage(const aResult:
   TDelphiSemanticRemoveWithFactBuildResult): string;
@@ -394,6 +415,31 @@ end;
 class function TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanResult(
   const aRequest: TDelphiSemanticRemoveWithRequest):
   TDelphiSemanticRemoveWithCombinedResult;
+begin
+  Result := DetailedCombinedResultFromRequest(aRequest).CombinedResult;
+end;
+
+class function TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanDetailedResult(
+  const aOptions: TDelphiSemanticApiOptions):
+  TDelphiSemanticRemoveWithDetailedCombinedResult;
+var
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := aOptions;
+  Result := BuildProjectWithBindingFactsAndPlanDetailedResult(lRequest);
+end;
+
+class function TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanDetailedResult(
+  const aRequest: TDelphiSemanticRemoveWithRequest):
+  TDelphiSemanticRemoveWithDetailedCombinedResult;
+begin
+  Result := DetailedCombinedResultFromRequest(aRequest);
+end;
+
+function DetailedCombinedResultFromRequest(
+  const aRequest: TDelphiSemanticRemoveWithRequest):
+  TDelphiSemanticRemoveWithDetailedCombinedResult;
 var
   lFailure: TDelphiSemanticRemoveWithCombinedResult;
   lSession: TDelphiSemanticProjectSessionResult;
@@ -401,7 +447,8 @@ var
   lSessionOpenMilliseconds: Int64;
   lStopwatch: TStopwatch;
 begin
-  Result := Default(TDelphiSemanticRemoveWithCombinedResult);
+  Result := Default(TDelphiSemanticRemoveWithDetailedCombinedResult);
+  lSession := Default(TDelphiSemanticProjectSessionResult);
   lSessionOpenCount := 0;
   lSessionOpenMilliseconds := 0;
   try
@@ -414,8 +461,8 @@ begin
       lSessionOpenMilliseconds := lStopwatch.ElapsedMilliseconds;
     end;
     try
-      Result := CombinedResultFromSession(aRequest, lSession,
-        lSessionOpenCount, lSessionOpenMilliseconds);
+      Result.CombinedResult := CombinedResultFromSession(aRequest, lSession,
+        lSessionOpenCount, lSessionOpenMilliseconds, Result.PlannerMetrics);
     finally
       lSession.Session.Free;
     end;
@@ -427,7 +474,7 @@ begin
       lFailure.Metrics.SemanticSessionOpenCount := lSessionOpenCount;
       lFailure.Metrics.SemanticProjectFactsMilliseconds :=
         lSessionOpenMilliseconds;
-      Result := lFailure;
+      Result.CombinedResult := lFailure;
     end;
   end;
 end;

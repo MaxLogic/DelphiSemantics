@@ -177,11 +177,31 @@ type
     FinalStatements: TArray<TDelphiSemanticRemoveWithFinalStatement>;
   end;
 
+  TDelphiSemanticRemoveWithPlannerMetrics = record
+    SnapshotBuildMilliseconds: Int64;
+    SnapshotBindingMaterializationMilliseconds: Int64;
+    CorePlanMilliseconds: Int64;
+    SemanticPlanUnattributedMilliseconds: Int64;
+    CandidateEditMilliseconds: Int64;
+    BindingTreeMilliseconds: Int64;
+    DecisionMilliseconds: Int64;
+    RoutineDeclarationMilliseconds: Int64;
+    StatementRefreshMilliseconds: Int64;
+    CorePlanUnattributedMilliseconds: Int64;
+    LookupRequestCount: Int64;
+    LookupResultMaterializationCount: Int64;
+    LookupResultReuseCount: Int64;
+    LookupMaterializedSymbolCount: Int64;
+  end;
+
   TDelphiSemanticRemoveWithPlanner = record
   public
     class function Plan(const aFacts: TDelphiSemanticProjectWithBindingFacts):
       TDelphiSemanticRemoveWithPlan; overload; static;
     class function Plan(const aSnapshot: TDelphiProjectSnapshot):
+      TDelphiSemanticRemoveWithPlan; overload; static;
+    class function Plan(const aSnapshot: TDelphiProjectSnapshot;
+      out aMetrics: TDelphiSemanticRemoveWithPlannerMetrics):
       TDelphiSemanticRemoveWithPlan; overload; static;
   end;
 
@@ -195,8 +215,8 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils,
-  System.StrUtils, System.SysUtils,
+  System.Diagnostics, System.Generics.Collections, System.Generics.Defaults,
+  System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
   DelphiSemantics.RemoveWithPlan.FinalBodyRenderer,
   DelphiSemantics.RemoveWithPlan.FinalRewrite,
   DelphiSemantics.SourceConditionals, DelphiSemantics.SourceContext;
@@ -5578,9 +5598,45 @@ begin
   end;
 end;
 
+procedure CompleteCorePlanMetrics(
+  var aMetrics: TDelphiSemanticRemoveWithPlannerMetrics;
+  const aElapsedMilliseconds: Int64;
+  const aLookupBefore: TDelphiSemanticRemoveWithLookupMetrics;
+  const aLookupActivityBefore: TDelphiSemanticRemoveWithLookupActivityMetrics;
+  const aLookupIndex: TDelphiSemanticRemoveWithLookupIndex);
+var
+  lAccountedMilliseconds: Int64;
+  lLookupActivityAfter: TDelphiSemanticRemoveWithLookupActivityMetrics;
+  lLookupAfter: TDelphiSemanticRemoveWithLookupMetrics;
+begin
+  aMetrics.CorePlanMilliseconds := aElapsedMilliseconds;
+  lAccountedMilliseconds := aMetrics.CandidateEditMilliseconds +
+    aMetrics.BindingTreeMilliseconds + aMetrics.DecisionMilliseconds +
+    aMetrics.RoutineDeclarationMilliseconds +
+    aMetrics.StatementRefreshMilliseconds;
+  if aMetrics.CorePlanMilliseconds > lAccountedMilliseconds then
+    aMetrics.CorePlanUnattributedMilliseconds :=
+      aMetrics.CorePlanMilliseconds - lAccountedMilliseconds
+  else
+    aMetrics.CorePlanUnattributedMilliseconds := 0;
+  lLookupAfter := aLookupIndex.Metrics;
+  aMetrics.LookupRequestCount :=
+    (lLookupAfter.HitCount + lLookupAfter.MissCount) -
+    (aLookupBefore.HitCount + aLookupBefore.MissCount);
+  lLookupActivityAfter := aLookupIndex.ActivityMetrics;
+  aMetrics.LookupResultMaterializationCount :=
+    lLookupActivityAfter.ResultMaterializationCount -
+    aLookupActivityBefore.ResultMaterializationCount;
+  aMetrics.LookupMaterializedSymbolCount :=
+    lLookupActivityAfter.MaterializedSymbolCount -
+    aLookupActivityBefore.MaterializedSymbolCount;
+end;
+
 function PlanFromBindingSource(const aFacts: TRemoveWithPlanFacts;
   const aBindingSource: TRemoveWithPlanBindingSource;
-  const aModelVersion: string): TDelphiSemanticRemoveWithPlan;
+  const aModelVersion: string;
+  var aMetrics: TDelphiSemanticRemoveWithPlannerMetrics):
+  TDelphiSemanticRemoveWithPlan;
 var
   lBinding: TDelphiSemanticWithBinding;
   lBindingCount: Integer;
@@ -5591,75 +5647,122 @@ var
   lHashCache: TDictionary<string, string>;
   lInheritedDecisions: TArray<TFinalSelectorDecision>;
   lLineCache: TDelphiSemanticSourceContextCache;
+  lLookupActivityBefore: TDelphiSemanticRemoveWithLookupActivityMetrics;
+  lLookupBefore: TDelphiSemanticRemoveWithLookupMetrics;
+  lCoreStopwatch: TStopwatch;
+  lPhaseStopwatch: TStopwatch;
   lReservedNames: TDictionary<string, Integer>;
   lRootIndex: Integer;
   lStatementIndex: Integer;
 begin
-  Result := Default(TDelphiSemanticRemoveWithPlan);
-  Result.Operation := 'remove-with';
-  Result.Status := 'planned';
-  Result.ContextFingerprint := aFacts.ContextFingerprint;
-  Result.BaselineSemanticModelVersion := aModelVersion;
-
-  AddVerification(Result, 'baseline-compile',
-    'Compile the project before source-changing apply.');
-  AddVerification(Result, 'context-fingerprint',
-    'Apply only when the semantic context fingerprint still matches.');
-  AddVerification(Result, 'source-range',
-    'Apply only when expected file hashes and source ranges still match.');
-  AddVerification(Result, 'post-edit-compile',
-    'Compile the project after source-changing apply.');
-  AddVerification(Result, 'rollback-on-failure',
-    'Rollback edited files when post-edit verification fails.');
-
-  if Result.ContextFingerprint = '' then
-  begin
-    Result.Status := 'blocked';
-    Result.Diagnostic := 'Missing semantic context fingerprint.';
-    Exit;
-  end;
-
-  lHashCache := TDictionary<string, string>.Create;
-  lLineCache := TDelphiSemanticSourceContextCache.Create;
-  lReservedNames := TDictionary<string, Integer>.Create;
+  lLookupBefore := aFacts.LookupIndex.Metrics;
+  lLookupActivityBefore := aFacts.LookupIndex.ActivityMetrics;
+  lCoreStopwatch := TStopwatch.StartNew;
   try
-    lStatementIndex := 0;
-    lBindingCount := aBindingSource.BindingCount;
-    SetLength(lCandidateEdits, lBindingCount);
-    for lBindingIndex := 0 to lBindingCount - 1 do
+    Result := Default(TDelphiSemanticRemoveWithPlan);
+    Result.Operation := 'remove-with';
+    Result.Status := 'planned';
+    Result.ContextFingerprint := aFacts.ContextFingerprint;
+    Result.BaselineSemanticModelVersion := aModelVersion;
+
+    AddVerification(Result, 'baseline-compile',
+      'Compile the project before source-changing apply.');
+    AddVerification(Result, 'context-fingerprint',
+      'Apply only when the semantic context fingerprint still matches.');
+    AddVerification(Result, 'source-range',
+      'Apply only when expected file hashes and source ranges still match.');
+    AddVerification(Result, 'post-edit-compile',
+      'Compile the project after source-changing apply.');
+    AddVerification(Result, 'rollback-on-failure',
+      'Rollback edited files when post-edit verification fails.');
+
+    if Result.ContextFingerprint = '' then
     begin
-      lBinding := aBindingSource.BindingByIndex(lBindingIndex);
-      Inc(lStatementIndex);
-      if aBindingSource.BindingHasStableSourceRange(lBindingIndex) then
-      begin
-        lEdit := AddEdit(Result, lBinding, lHashCache, lLineCache);
-        lCandidateEdits[lBindingIndex] := lEdit;
-      end else
-      begin
-        AddFinalStatement(Result, BuildSkippedFinalStatement(lBinding,
-          FinalStatementId(lStatementIndex), 'SOURCE_RANGE_UNAVAILABLE',
-          'stable source file, hash, and source range are required'));
-      end;
+      Result.Status := 'blocked';
+      Result.Diagnostic := 'Missing semantic context fingerprint.';
+      Exit;
     end;
-    lBindingTree := BuildFinalBindingTree(aBindingSource, lLineCache);
-    for lRootIndex in lBindingTree.RootIndexes do
-    begin
-      lBinding := aBindingSource.BindingByIndex(lRootIndex);
-      if aBindingSource.BindingHasStableSourceRange(lRootIndex) then
-      begin
-        lInheritedDecisions := nil;
-        AddFinalStatementTree(Result, aFacts, aBindingSource, lBindingTree,
-          lCandidateEdits, lRootIndex, lReservedNames, lLineCache,
-          lInheritedDecisions);
+
+    lHashCache := TDictionary<string, string>.Create;
+    lLineCache := TDelphiSemanticSourceContextCache.Create;
+    lReservedNames := TDictionary<string, Integer>.Create;
+    try
+      lPhaseStopwatch := TStopwatch.StartNew;
+      try
+        lStatementIndex := 0;
+        lBindingCount := aBindingSource.BindingCount;
+        SetLength(lCandidateEdits, lBindingCount);
+        for lBindingIndex := 0 to lBindingCount - 1 do
+        begin
+          lBinding := aBindingSource.BindingByIndex(lBindingIndex);
+          Inc(lStatementIndex);
+          if aBindingSource.BindingHasStableSourceRange(lBindingIndex) then
+          begin
+            lEdit := AddEdit(Result, lBinding, lHashCache, lLineCache);
+            lCandidateEdits[lBindingIndex] := lEdit;
+          end else
+          begin
+            AddFinalStatement(Result, BuildSkippedFinalStatement(lBinding,
+              FinalStatementId(lStatementIndex), 'SOURCE_RANGE_UNAVAILABLE',
+              'stable source file, hash, and source range are required'));
+          end;
+        end;
+      finally
+        lPhaseStopwatch.Stop;
+        aMetrics.CandidateEditMilliseconds :=
+          lPhaseStopwatch.ElapsedMilliseconds;
       end;
+      lPhaseStopwatch := TStopwatch.StartNew;
+      try
+        lBindingTree := BuildFinalBindingTree(aBindingSource, lLineCache);
+      finally
+        lPhaseStopwatch.Stop;
+        aMetrics.BindingTreeMilliseconds :=
+          lPhaseStopwatch.ElapsedMilliseconds;
+      end;
+      lPhaseStopwatch := TStopwatch.StartNew;
+      try
+        for lRootIndex in lBindingTree.RootIndexes do
+        begin
+          lBinding := aBindingSource.BindingByIndex(lRootIndex);
+          if aBindingSource.BindingHasStableSourceRange(lRootIndex) then
+          begin
+            lInheritedDecisions := nil;
+            AddFinalStatementTree(Result, aFacts, aBindingSource, lBindingTree,
+              lCandidateEdits, lRootIndex, lReservedNames, lLineCache,
+              lInheritedDecisions);
+          end;
+        end;
+      finally
+        lPhaseStopwatch.Stop;
+        aMetrics.DecisionMilliseconds := lPhaseStopwatch.ElapsedMilliseconds;
+      end;
+      lPhaseStopwatch := TStopwatch.StartNew;
+      try
+        AddRoutineDeclarationEdits(Result, lLineCache, lHashCache);
+      finally
+        lPhaseStopwatch.Stop;
+        aMetrics.RoutineDeclarationMilliseconds :=
+          lPhaseStopwatch.ElapsedMilliseconds;
+      end;
+      lPhaseStopwatch := TStopwatch.StartNew;
+      try
+        RefreshStatementsFromBindings(Result, aBindingSource, lBindingTree);
+        RefreshSkippedStatementsFromStatements(Result);
+      finally
+        lPhaseStopwatch.Stop;
+        aMetrics.StatementRefreshMilliseconds :=
+          lPhaseStopwatch.ElapsedMilliseconds;
+      end;
+    finally
+      lReservedNames.Free;
+      lLineCache.Free;
+      lHashCache.Free;
     end;
-    AddRoutineDeclarationEdits(Result, lLineCache, lHashCache);
-    RefreshStatementsFromBindings(Result, aBindingSource, lBindingTree);
-    RefreshSkippedStatementsFromStatements(Result);
   finally
-    lReservedNames.Free;
-    lLineCache.Free;
-    lHashCache.Free;
+    lCoreStopwatch.Stop;
+    CompleteCorePlanMetrics(aMetrics, lCoreStopwatch.ElapsedMilliseconds,
+      lLookupBefore, lLookupActivityBefore, aFacts.LookupIndex);
   end;
 end;
 
@@ -5667,8 +5770,10 @@ class function TDelphiSemanticRemoveWithPlanner.Plan(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
 var
   lBindingSource: TArrayRemoveWithPlanBindingSource;
+  lMetrics: TDelphiSemanticRemoveWithPlannerMetrics;
   lPlanFacts: TRemoveWithPlanFacts;
 begin
+  lMetrics := Default(TDelphiSemanticRemoveWithPlannerMetrics);
   lPlanFacts := Default(TRemoveWithPlanFacts);
   lPlanFacts.ContextFingerprint := aFacts.ContextFingerprint;
   lPlanFacts.LookupIndex := aFacts.LookupIndex;
@@ -5676,7 +5781,7 @@ begin
   lBindingSource := TArrayRemoveWithPlanBindingSource.Create(aFacts.Bindings);
   try
     Result := PlanFromBindingSource(lPlanFacts, lBindingSource,
-      'project-with-binding-v1');
+      'project-with-binding-v1', lMetrics);
   finally
     lBindingSource.Free;
   end;
@@ -5884,11 +5989,23 @@ end;
 class function TDelphiSemanticRemoveWithPlanner.Plan(
   const aSnapshot: TDelphiProjectSnapshot): TDelphiSemanticRemoveWithPlan;
 var
+  lMetrics: TDelphiSemanticRemoveWithPlannerMetrics;
+begin
+  Result := Plan(aSnapshot, lMetrics);
+end;
+
+class function TDelphiSemanticRemoveWithPlanner.Plan(
+  const aSnapshot: TDelphiProjectSnapshot;
+  out aMetrics: TDelphiSemanticRemoveWithPlannerMetrics):
+  TDelphiSemanticRemoveWithPlan;
+var
   i: Integer;
   lBindingSource: TSnapshotRemoveWithPlanBindingSource;
+  lMaterializationStopwatch: TStopwatch;
   lPlanFacts: TRemoveWithPlanFacts;
   lRoutineOwnerCount: Integer;
 begin
+  aMetrics := Default(TDelphiSemanticRemoveWithPlannerMetrics);
   Result := Default(TDelphiSemanticRemoveWithPlan);
   Result.Operation := 'remove-with';
   Result.Status := 'blocked';
@@ -5904,20 +6021,27 @@ begin
     Exit;
   end;
 
-  lPlanFacts := Default(TRemoveWithPlanFacts);
-  lPlanFacts.ContextFingerprint := aSnapshot.ExactTextOf(
-    aSnapshot.RemoveWithPlanningContextFingerprintId);
-  lPlanFacts.LookupIndex := aSnapshot.RemoveWithPlanningLookupIndex;
-  lRoutineOwnerCount := aSnapshot.RemoveWithPlanningRoutineOwnerCount;
-  SetLength(lPlanFacts.Symbols, lRoutineOwnerCount);
-  for i := 0 to High(lPlanFacts.Symbols) do
-    lPlanFacts.Symbols[i] := SnapshotInventorySymbol(aSnapshot,
-      aSnapshot.RemoveWithPlanningRoutineOwnerByIndex(i));
-
-  lBindingSource := TSnapshotRemoveWithPlanBindingSource.Create(aSnapshot);
+  lBindingSource := nil;
+  lMaterializationStopwatch := TStopwatch.StartNew;
+  try
+    lPlanFacts := Default(TRemoveWithPlanFacts);
+    lPlanFacts.ContextFingerprint := aSnapshot.ExactTextOf(
+      aSnapshot.RemoveWithPlanningContextFingerprintId);
+    lPlanFacts.LookupIndex := aSnapshot.RemoveWithPlanningLookupIndex;
+    lRoutineOwnerCount := aSnapshot.RemoveWithPlanningRoutineOwnerCount;
+    SetLength(lPlanFacts.Symbols, lRoutineOwnerCount);
+    for i := 0 to High(lPlanFacts.Symbols) do
+      lPlanFacts.Symbols[i] := SnapshotInventorySymbol(aSnapshot,
+        aSnapshot.RemoveWithPlanningRoutineOwnerByIndex(i));
+    lBindingSource := TSnapshotRemoveWithPlanBindingSource.Create(aSnapshot);
+  finally
+    lMaterializationStopwatch.Stop;
+    aMetrics.SnapshotBindingMaterializationMilliseconds :=
+      lMaterializationStopwatch.ElapsedMilliseconds;
+  end;
   try
     Result := PlanFromBindingSource(lPlanFacts, lBindingSource,
-      'project-snapshot-v1');
+      'project-snapshot-v1', aMetrics);
   finally
     lBindingSource.Free;
   end;

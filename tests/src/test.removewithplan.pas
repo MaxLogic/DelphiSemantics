@@ -40,6 +40,10 @@ type
     [Test]
     procedure CombinedApiReportsFinalSemanticCachePersistenceState;
     [Test]
+    procedure DetailedPlannerMetricsUseAdditiveResult;
+    [Test]
+    procedure DetailedPlannerMetricsReconcileWithSemanticPlan;
+    [Test]
     procedure SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;
     [Test]
     procedure SnapshotPlannerConsumesExistingFactsWithoutProjectSession;
@@ -1534,6 +1538,86 @@ begin
     'A blocked cache path must continue with the in-memory fallback.');
   Assert.IsFalse(lResult.Metrics.SemanticCachePersistenceAvailable,
     'Combined metrics must report final fallback state after cache initialization fails.');
+end;
+
+procedure TRemoveWithPlanTests.DetailedPlannerMetricsUseAdditiveResult;
+var
+  lApiSource: string;
+  lLegacyLookupEnd: Integer;
+  lLegacyLookupSource: string;
+  lLegacyLookupStart: Integer;
+  lLookupSource: string;
+  lPlannerSource: string;
+begin
+  lApiSource := ReadRepoSource(
+    'src\DelphiSemantics.Api.RemoveWith.Compatibility.pas');
+  lPlannerSource := ReadRepoSource('src\DelphiSemantics.RemoveWithPlan.pas');
+  lLookupSource := ReadRepoSource('src\DelphiSemantics.WithBinding.pas');
+
+  Assert.IsTrue(ContainsText(lPlannerSource,
+    'TDelphiSemanticRemoveWithPlannerMetrics = record'),
+    'Detailed planner metrics must use a new exported type.');
+  Assert.IsTrue(ContainsText(lApiSource,
+    'TDelphiSemanticRemoveWithDetailedCombinedResult = record'),
+    'Detailed telemetry must use an additive combined result.');
+  Assert.IsTrue(ContainsText(lApiSource,
+    'BuildProjectWithBindingFactsAndPlanDetailedResult('),
+    'Detailed telemetry must use an additive compatibility operation.');
+  Assert.IsFalse(ContainsText(lApiSource,
+    'TDelphiSemanticRemoveWithCombinedMetrics = record' + sLineBreak +
+    '    PlannerMetrics:'),
+    'P3 must not change the existing combined-metrics record layout.');
+  lLegacyLookupStart := Pos(
+    'IDelphiSemanticRemoveWithLookupIndexData = interface', lLookupSource);
+  lLegacyLookupEnd := Pos('TDelphiSemanticRemoveWithLookupIndex = record',
+    lLookupSource);
+  Assert.IsTrue(lLegacyLookupStart > 0);
+  Assert.IsTrue(lLegacyLookupEnd > lLegacyLookupStart,
+    'Expected the existing lookup interface before its public record.');
+  lLegacyLookupSource := Copy(lLookupSource, lLegacyLookupStart,
+    lLegacyLookupEnd - lLegacyLookupStart);
+  Assert.IsFalse(ContainsText(lLegacyLookupSource, 'ActivityMetrics'),
+    'P3 must not change the existing GUID-bearing lookup interface layout.');
+  Assert.IsTrue(ContainsText(lLookupSource,
+    'IDelphiSemanticRemoveWithLookupActivityData = interface'),
+    'Activity telemetry must use a separate optional lookup interface.');
+end;
+
+procedure TRemoveWithPlanTests.DetailedPlannerMetricsReconcileWithSemanticPlan;
+var
+  lCoreAccounted: Int64;
+  lMetrics: TDelphiSemanticRemoveWithPlannerMetrics;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+  lResult: TDelphiSemanticRemoveWithDetailedCombinedResult;
+  lTopAccounted: Int64;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := FixturePath(
+    'ProjectWithBinding\ProjectWithBinding.dproj');
+
+  lResult := TDelphiSemanticRemoveWithCompatibilityApi.
+    BuildProjectWithBindingFactsAndPlanDetailedResult(lRequest);
+  Assert.IsTrue(lResult.CombinedResult.Success);
+  lMetrics := lResult.PlannerMetrics;
+  lTopAccounted := lMetrics.SnapshotBuildMilliseconds +
+    lMetrics.SnapshotBindingMaterializationMilliseconds +
+    lMetrics.CorePlanMilliseconds +
+    lMetrics.SemanticPlanUnattributedMilliseconds;
+  Assert.AreEqual(lResult.CombinedResult.Metrics.SemanticPlanMilliseconds,
+    lTopAccounted, 'Detailed top-level timings must reconcile exactly.');
+  lCoreAccounted := lMetrics.CandidateEditMilliseconds +
+    lMetrics.BindingTreeMilliseconds + lMetrics.DecisionMilliseconds +
+    lMetrics.RoutineDeclarationMilliseconds +
+    lMetrics.StatementRefreshMilliseconds +
+    lMetrics.CorePlanUnattributedMilliseconds;
+  Assert.AreEqual(lMetrics.CorePlanMilliseconds, lCoreAccounted,
+    'Core planner self-times must reconcile exactly.');
+  Assert.IsTrue(lMetrics.LookupRequestCount > 0,
+    'Detailed metrics must count real planner lookup requests.');
+  Assert.IsTrue(lMetrics.LookupResultMaterializationCount > 0,
+    'Detailed metrics must count public lookup result materializations.');
+  Assert.AreEqual(Int64(0), lMetrics.LookupResultReuseCount,
+    'P3 telemetry must measure the unoptimized planner before P4 reuse.');
 end;
 
 procedure TRemoveWithPlanTests.SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;

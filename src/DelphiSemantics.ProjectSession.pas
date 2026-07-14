@@ -114,6 +114,7 @@ type
     fLastFailedModel: TDelphiSemanticUnitModel;
     fLastRemoveWithFactsAndPlanBuildMetrics:
       TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics;
+    fLastRemoveWithPlannerMetrics: TDelphiSemanticRemoveWithPlannerMetrics;
     fLastSnapshotBuildMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
     fLastSemanticGraphBuildMetrics: TDelphiSemanticGraphBuildMetrics;
     fOptions: TDelphiSemanticOptions;
@@ -171,6 +172,8 @@ type
     property LastRemoveWithFactsAndPlanBuildMetrics:
       TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics
       read fLastRemoveWithFactsAndPlanBuildMetrics;
+    property LastRemoveWithPlannerMetrics: TDelphiSemanticRemoveWithPlannerMetrics
+      read fLastRemoveWithPlannerMetrics;
     // Legacy metric accessors are populated by the raw-returning compatibility methods.
     property LastSnapshotBuildMetrics: TDelphiSemanticProjectSnapshotBuildMetrics
       read fLastSnapshotBuildMetrics;
@@ -1663,17 +1666,34 @@ begin
   Result := BuildRemoveWithFactsAndPlanResult([]);
 end;
 
+procedure CompleteSemanticPlanMetrics(
+  var aMetrics: TDelphiSemanticRemoveWithPlannerMetrics;
+  const aSemanticPlanMilliseconds: Int64);
+var
+  lAccountedMilliseconds: Int64;
+begin
+  lAccountedMilliseconds := aMetrics.SnapshotBuildMilliseconds +
+    aMetrics.SnapshotBindingMaterializationMilliseconds +
+    aMetrics.CorePlanMilliseconds;
+  aMetrics.SemanticPlanUnattributedMilliseconds :=
+    aSemanticPlanMilliseconds - lAccountedMilliseconds;
+end;
+
 function TDelphiSemanticProjectSession.BuildRemoveWithFactsAndPlanResult(
   const aScopedSourceFileNames: TArray<string>):
   TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
 var
   lCoreResult: TProjectWithBindingFactsCoreResult;
   lSnapshot: TDelphiProjectSnapshot;
+  lSnapshotBuildMilliseconds: Int64;
+  lSnapshotStopwatch: TStopwatch;
   lStopwatch: TStopwatch;
 begin
   Result := Default(TDelphiSemanticRemoveWithFactsAndPlanBuildResult);
   fLastRemoveWithFactsAndPlanBuildMetrics :=
     Default(TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics);
+  fLastRemoveWithPlannerMetrics :=
+    Default(TDelphiSemanticRemoveWithPlannerMetrics);
   Inc(fLastRemoveWithFactsAndPlanBuildMetrics.ModelExtractionPassCount);
   lStopwatch := TStopwatch.StartNew;
   try
@@ -1689,14 +1709,25 @@ begin
   lSnapshot := nil;
   lStopwatch := TStopwatch.StartNew;
   try
-    lSnapshot := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(
-      Result.Facts);
-    Result.Plan := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
+    lSnapshotStopwatch := TStopwatch.StartNew;
+    try
+      lSnapshot := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(
+        Result.Facts);
+    finally
+      lSnapshotStopwatch.Stop;
+      lSnapshotBuildMilliseconds := lSnapshotStopwatch.ElapsedMilliseconds;
+    end;
+    Result.Plan := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot,
+      fLastRemoveWithPlannerMetrics);
+    fLastRemoveWithPlannerMetrics.SnapshotBuildMilliseconds :=
+      lSnapshotBuildMilliseconds;
   finally
     lSnapshot.Free;
     lStopwatch.Stop;
     fLastRemoveWithFactsAndPlanBuildMetrics.SemanticPlanMilliseconds :=
       lStopwatch.ElapsedMilliseconds;
+    CompleteSemanticPlanMetrics(fLastRemoveWithPlannerMetrics,
+      fLastRemoveWithFactsAndPlanBuildMetrics.SemanticPlanMilliseconds);
   end;
   Result.ModelExtractionPassCount :=
     fLastRemoveWithFactsAndPlanBuildMetrics.ModelExtractionPassCount;
