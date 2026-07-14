@@ -646,7 +646,7 @@ type
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsClearMarksSkipReason;
     [Test]
-    procedure FinalDtoMatchesMaxTdbTdbUtilsFlipMarkRangeMismatchSkip;
+    procedure FinalDtoMatchesMaxTdbTdbUtilsFlipMarkReplacement;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsMakeSelektReplacement;
@@ -8664,7 +8664,7 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsFlipMarkRangeMismatchSkip;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsFlipMarkReplacement;
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lOptions: TDelphiSemanticApiOptions;
@@ -8695,10 +8695,34 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1134, 3, lStatement),
     'Expected maxTdb tdbutils FlipMark ml with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('replace-statement-range-mismatch', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('ml', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('MarkList', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithMarkListPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithMarkListPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual(1133, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
+  Assert.AreEqual(1133, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(1134, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(1166, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(6, lStatement.Edits[1].Range.EndColumn);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'p^.DV <> n'));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'p := p^.Rest'));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'q^.Rest := p^.Rest'));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithMarkListPtr^.Anfang := p^.Rest'));
+  Assert.AreEqual(lStatement.ReplacementText,
+    lStatement.Edits[1].ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsMakeSelektReplacement;
