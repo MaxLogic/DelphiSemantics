@@ -25,9 +25,18 @@ type
     function FindFinalStatementAt(const aPlan: TDelphiSemanticRemoveWithPlan;
       const aFileName: string; const aLine, aColumn: Integer;
       out aStatement: TDelphiSemanticRemoveWithFinalStatement): Boolean;
+    procedure AssertCombinedApiParity(const aSkipSemanticGraph: Boolean);
+    procedure AssertProjectFactsEqual(
+      const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
     [Test]
     procedure PlansDeterministicDryRunDtoWithVerificationAndProvenance;
+    [Test]
+    procedure CombinedApiReturnsFactsAndCanonicalPlanFromOneSession;
+    [Test]
+    procedure CombinedApiSkipGraphMatchesLegacyFactsAndCanonicalPlan;
+    [Test]
+    procedure CombinedApiReportsSessionFailureWithoutExtraction;
     [Test]
     procedure SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;
     [Test]
@@ -742,7 +751,7 @@ implementation
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.RemoveWith,
+  DelphiSemantics.Model.Json, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.RemoveWith,
   Test.Support;
 
 var
@@ -800,6 +809,73 @@ begin
   aBuilder.Append(aName).Append('=').Append(aVerification.ExpectedFileHash).Append('|')
     .Append(SourceRangeText(aVerification.Range)).Append('|')
     .Append(aVerification.ExpectedSourceText).AppendLine;
+end;
+
+procedure AppendRewriteSelectorDecision(const aBuilder: TStringBuilder;
+  const aIndex: Integer;
+  const aDecision: TDelphiSemanticRemoveWithRewriteSelectorDecision);
+begin
+  aBuilder.Append('recipeSelector|').Append(aIndex).Append('|')
+    .Append(aDecision.SelectorText).Append('|')
+    .Append(aDecision.QualifierText).Append('|')
+    .Append(aDecision.Strategy).Append('|')
+    .Append(aDecision.ReceiverType).Append('|')
+    .Append(aDecision.TempName).Append('|')
+    .Append(aDecision.DeclarationText).Append('|')
+    .Append(aDecision.InitializationText).Append('|')
+    .Append(aDecision.Reason).Append('|')
+    .Append(aDecision.SemanticId).AppendLine;
+end;
+
+procedure AppendRewriteTempDecision(const aBuilder: TStringBuilder;
+  const aIndex: Integer;
+  const aDecision: TDelphiSemanticRemoveWithFinalTempDecision);
+begin
+  aBuilder.Append('recipeTemp|').Append(aIndex).Append('|')
+    .Append(aDecision.SelectorText).Append('|')
+    .Append(aDecision.QualifierText).Append('|')
+    .Append(aDecision.Strategy).Append('|')
+    .Append(aDecision.ReceiverType).Append('|')
+    .Append(aDecision.TempName).Append('|')
+    .Append(aDecision.DeclarationText).Append('|')
+    .Append(aDecision.InitializationText).Append('|')
+    .Append(aDecision.Reason).Append('|')
+    .Append(aDecision.SemanticId).AppendLine;
+end;
+
+procedure AppendRewriteTextEdit(const aBuilder: TStringBuilder;
+  const aIndex: Integer; const aEdit: TDelphiSemanticRemoveWithFinalTextEdit);
+begin
+  aBuilder.Append('recipeEdit|').Append(aIndex).Append('|')
+    .Append(aEdit.Kind).Append('|').Append(aEdit.FileName).Append('|')
+    .Append(aEdit.StatementId).Append('|')
+    .Append(SourceRangeText(aEdit.Range)).Append('|')
+    .Append(aEdit.ReplacementText).Append('|').Append(aEdit.SemanticId).AppendLine;
+  AppendSourceVerification(aBuilder, 'recipeEditVerification',
+    aEdit.Verification);
+end;
+
+procedure AppendRewriteRecipe(const aBuilder: TStringBuilder;
+  const aRecipe: TDelphiSemanticRemoveWithRewriteRecipe);
+var
+  i: Integer;
+begin
+  aBuilder.Append('recipe|').Append(aRecipe.Status).Append('|')
+    .Append(aRecipe.Reason).Append('|').Append(aRecipe.SafetyReason).Append('|')
+    .Append(aRecipe.RuleId).Append('|').Append(aRecipe.Provenance).Append('|')
+    .Append(aRecipe.RenderInstruction).Append('|')
+    .Append(SourceRangeText(aRecipe.ReplacementRange)).Append('|')
+    .Append(aRecipe.ReplacementText).AppendLine;
+  aBuilder.Append('recipeSelectors=').Append(Length(aRecipe.SelectorDecisions))
+    .AppendLine;
+  for i := 0 to High(aRecipe.SelectorDecisions) do
+    AppendRewriteSelectorDecision(aBuilder, i, aRecipe.SelectorDecisions[i]);
+  aBuilder.Append('recipeTemps=').Append(Length(aRecipe.TempDeclarations)).AppendLine;
+  for i := 0 to High(aRecipe.TempDeclarations) do
+    AppendRewriteTempDecision(aBuilder, i, aRecipe.TempDeclarations[i]);
+  aBuilder.Append('recipeEdits=').Append(Length(aRecipe.TextEdits)).AppendLine;
+  for i := 0 to High(aRecipe.TextEdits) do
+    AppendRewriteTextEdit(aBuilder, i, aRecipe.TextEdits[i]);
 end;
 
 function ComparableRemoveWithPlanText(
@@ -864,6 +940,7 @@ begin
         .Append(aPlan.FinalStatements[i].ReplacementText).AppendLine;
       AppendSourceVerification(lBuilder, 'finalVerification',
         aPlan.FinalStatements[i].Verification);
+      AppendRewriteRecipe(lBuilder, aPlan.FinalStatements[i].RewriteRecipe);
       lBuilder.Append('finalEdits=').Append(Length(aPlan.FinalStatements[i].Edits))
         .AppendLine;
       for j := 0 to High(aPlan.FinalStatements[i].Edits) do
@@ -897,6 +974,197 @@ begin
   finally
     lBuilder.Free;
   end;
+end;
+
+function ComparableValue(const aValue: string): string; overload;
+begin
+  Result := IntToStr(Length(aValue)) + ':' + aValue + '|';
+end;
+
+function ComparableValue(const aValue: Integer): string; overload;
+begin
+  Result := IntToStr(aValue) + '|';
+end;
+
+function ComparableValue(const aValue: Boolean): string; overload;
+begin
+  Result := IntToStr(Ord(aValue)) + '|';
+end;
+
+function ComparableInventorySymbolText(
+  const aSymbol: TDelphiSemanticInventorySymbol): string;
+begin
+  Result :=
+    ComparableValue(aSymbol.Name) +
+    ComparableValue(aSymbol.SymbolClass) +
+    ComparableValue(aSymbol.Kind) +
+    ComparableValue(aSymbol.TypeName) +
+    ComparableValue(aSymbol.Modifier) +
+    ComparableValue(aSymbol.OwnerName) +
+    ComparableValue(aSymbol.OwnerType) +
+    ComparableValue(aSymbol.SourceOwnerType) +
+    ComparableValue(aSymbol.RelatedTypeName) +
+    ComparableValue(aSymbol.RoutineName) +
+    ComparableValue(aSymbol.UnitName) +
+    ComparableValue(aSymbol.FileName) +
+    ComparableValue(aSymbol.SectionKind) +
+    ComparableValue(aSymbol.Line) +
+    ComparableValue(aSymbol.Column) +
+    ComparableValue(aSymbol.EndLine) +
+    ComparableValue(aSymbol.EndColumn) +
+    ComparableValue(aSymbol.UnsupportedReason) +
+    ComparableValue(aSymbol.IsHelper) +
+    ComparableValue(aSymbol.IsOverride) +
+    ComparableValue(aSymbol.IsDefault) +
+    ComparableValue(aSymbol.IsIndexed) +
+    ComparableValue(aSymbol.IndexParameterCount) +
+    ComparableValue(aSymbol.TypeCategory);
+end;
+
+function ComparableBindingHeaderText(
+  const aBinding: TDelphiSemanticWithBinding): string;
+begin
+  Result :=
+    ComparableValue(aBinding.SemanticId) +
+    ComparableValue(aBinding.Provenance) +
+    ComparableValue(aBinding.FileName) +
+    ComparableValue(aBinding.UnitName) +
+    ComparableValue(aBinding.RoutineName) +
+    ComparableValue(aBinding.Line) +
+    ComparableValue(aBinding.Column) +
+    ComparableValue(aBinding.EndLine) +
+    ComparableValue(aBinding.EndColumn) +
+    ComparableValue(aBinding.BodyLine) +
+    ComparableValue(aBinding.BodyColumn) +
+    ComparableValue(aBinding.BodyEndLine) +
+    ComparableValue(aBinding.BodyEndColumn) +
+    ComparableValue(aBinding.SelectorText) +
+    ComparableValue(aBinding.Status) +
+    ComparableValue(aBinding.SkipReason) +
+    ComparableValue(aBinding.HasScopedDeclaration) +
+    ComparableValue(aBinding.MemberReferenceCount) +
+    ComparableValue(aBinding.LexicalReferenceCount) +
+    ComparableValue(aBinding.ExternalReferenceCount) +
+    ComparableValue(aBinding.IntrinsicReferenceCount) +
+    ComparableValue(aBinding.UnsupportedReferenceCount) +
+    ComparableValue(aBinding.UnresolvedReferenceCount);
+end;
+
+function ComparableSelectorText(const aBinding: TDelphiSemanticWithBinding;
+  const aIndex: Integer): string;
+begin
+  Result :=
+    ComparableValue(aBinding.Selectors[aIndex].SelectorText) +
+    ComparableValue(aBinding.Selectors[aIndex].Status) +
+    ComparableValue(aBinding.Selectors[aIndex].ReasonCode) +
+    ComparableValue(aBinding.Selectors[aIndex].TypeName);
+end;
+
+function ComparableReferenceText(const aBinding: TDelphiSemanticWithBinding;
+  const aIndex: Integer): string;
+begin
+  Result :=
+    ComparableValue(aBinding.References[aIndex].SemanticId) +
+    ComparableValue(aBinding.References[aIndex].Name) +
+    ComparableValue(aBinding.References[aIndex].Classification) +
+    ComparableValue(aBinding.References[aIndex].LookupSource) +
+    ComparableValue(aBinding.References[aIndex].ReceiverTypeName) +
+    ComparableValue(aBinding.References[aIndex].Kind) +
+    ComparableValue(aBinding.References[aIndex].TypeName) +
+    ComparableValue(aBinding.References[aIndex].ReasonCode) +
+    ComparableValue(aBinding.References[aIndex].ScopeConflictKind) +
+    ComparableValue(aBinding.References[aIndex].ScopeConflictName) +
+    ComparableValue(aBinding.References[aIndex].Line) +
+    ComparableValue(aBinding.References[aIndex].Column) +
+    ComparableValue(aBinding.References[aIndex].EndLine) +
+    ComparableValue(aBinding.References[aIndex].EndColumn);
+end;
+
+procedure AssertProjectModelsEqual(
+  const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
+var
+  i: Integer;
+begin
+  Assert.AreEqual(Integer(Length(aExpected.UnitModels)),
+    Integer(Length(aActual.UnitModels)));
+  for i := 0 to High(aExpected.UnitModels) do
+    Assert.AreEqual(ModelToJson(aExpected.UnitModels[i]),
+      ModelToJson(aActual.UnitModels[i]), Format('Unit model %d differs.', [i]));
+end;
+
+procedure AssertProjectSymbolsEqual(
+  const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
+var
+  i: Integer;
+begin
+  Assert.AreEqual(Integer(Length(aExpected.Symbols)),
+    Integer(Length(aActual.Symbols)));
+  for i := 0 to High(aExpected.Symbols) do
+    Assert.AreEqual(ComparableInventorySymbolText(aExpected.Symbols[i]),
+      ComparableInventorySymbolText(aActual.Symbols[i]),
+      Format('Inventory symbol %d differs.', [i]));
+end;
+
+procedure AssertBindingSelectorsEqual(const aExpected, aActual:
+  TDelphiSemanticWithBinding; const aBindingIndex: Integer);
+var
+  i: Integer;
+begin
+  Assert.AreEqual(Integer(Length(aExpected.Selectors)),
+    Integer(Length(aActual.Selectors)));
+  for i := 0 to High(aExpected.Selectors) do
+    Assert.AreEqual(ComparableSelectorText(aExpected, i),
+      ComparableSelectorText(aActual, i),
+      Format('Binding %d selector %d differs.', [aBindingIndex, i]));
+end;
+
+procedure AssertBindingReferencesEqual(const aExpected, aActual:
+  TDelphiSemanticWithBinding; const aBindingIndex: Integer);
+var
+  i: Integer;
+begin
+  Assert.AreEqual(Integer(Length(aExpected.References)),
+    Integer(Length(aActual.References)));
+  for i := 0 to High(aExpected.References) do
+    Assert.AreEqual(ComparableReferenceText(aExpected, i),
+      ComparableReferenceText(aActual, i),
+      Format('Binding %d reference %d differs.', [aBindingIndex, i]));
+end;
+
+procedure AssertProjectBindingsEqual(
+  const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
+var
+  i: Integer;
+begin
+  Assert.AreEqual(Integer(Length(aExpected.Bindings)),
+    Integer(Length(aActual.Bindings)));
+  for i := 0 to High(aExpected.Bindings) do
+  begin
+    Assert.AreEqual(ComparableBindingHeaderText(aExpected.Bindings[i]),
+      ComparableBindingHeaderText(aActual.Bindings[i]),
+      Format('Binding %d differs.', [i]));
+    AssertBindingSelectorsEqual(aExpected.Bindings[i], aActual.Bindings[i], i);
+    AssertBindingReferencesEqual(aExpected.Bindings[i], aActual.Bindings[i], i);
+  end;
+end;
+
+procedure TRemoveWithPlanTests.AssertProjectFactsEqual(
+  const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
+begin
+  Assert.AreEqual(aExpected.ContextFingerprint, aActual.ContextFingerprint);
+  Assert.AreEqual(aExpected.Metrics.SemanticGraphUsed,
+    aActual.Metrics.SemanticGraphUsed);
+  Assert.AreEqual(aExpected.Metrics.BuildUnitIndexUsed,
+    aActual.Metrics.BuildUnitIndexUsed);
+  Assert.AreEqual(aExpected.Metrics.UnitCount, aActual.Metrics.UnitCount);
+  Assert.AreEqual(aExpected.Metrics.WithStatementCount,
+    aActual.Metrics.WithStatementCount);
+  Assert.AreEqual(aExpected.Metrics.BindingCount, aActual.Metrics.BindingCount);
+  Assert.AreEqual(aExpected.LookupIndex.IsAvailable,
+    aActual.LookupIndex.IsAvailable);
+  AssertProjectModelsEqual(aExpected, aActual);
+  AssertProjectSymbolsEqual(aExpected, aActual);
+  AssertProjectBindingsEqual(aExpected, aActual);
 end;
 
 
@@ -1098,6 +1366,131 @@ begin
   Assert.AreEqual('SOURCE_RANGE_UNAVAILABLE', lSkippedPlan.SkippedStatements[0].Reason);
   Assert.AreEqual('stable source file, hash, and source range are required',
     lSkippedPlan.SkippedStatements[0].SafetyReason);
+end;
+
+procedure AssertDiagnosticsEqual(
+  const aExpected, aActual: TArray<TDelphiSemanticDiagnostic>);
+var
+  i: Integer;
+begin
+  Assert.AreEqual(Integer(Length(aExpected)), Integer(Length(aActual)));
+  for i := 0 to High(aExpected) do
+  begin
+    Assert.AreEqual(aExpected[i].Code, aActual[i].Code);
+    Assert.AreEqual(aExpected[i].Message, aActual[i].Message);
+    Assert.AreEqual(aExpected[i].FileName, aActual[i].FileName);
+    Assert.AreEqual(aExpected[i].Line, aActual[i].Line);
+    Assert.AreEqual(aExpected[i].Column, aActual[i].Column);
+    Assert.AreEqual(Ord(aExpected[i].Severity), Ord(aActual[i].Severity));
+  end;
+end;
+
+procedure AssertPlanStatementsEqual(const aExpected, aActual:
+  TDelphiSemanticRemoveWithPlan);
+var
+  i: Integer;
+begin
+  Assert.AreEqual(Integer(Length(aExpected.Statements)),
+    Integer(Length(aActual.Statements)));
+  for i := 0 to High(aExpected.Statements) do
+  begin
+    Assert.AreEqual(aExpected.Statements[i].FileName,
+      aActual.Statements[i].FileName);
+    Assert.AreEqual(aExpected.Statements[i].StatementId,
+      aActual.Statements[i].StatementId);
+    Assert.AreEqual(SourceRangeText(aExpected.Statements[i].Range),
+      SourceRangeText(aActual.Statements[i].Range));
+    Assert.AreEqual(aExpected.Statements[i].Status,
+      aActual.Statements[i].Status);
+    Assert.AreEqual(aExpected.Statements[i].Reason,
+      aActual.Statements[i].Reason);
+    Assert.AreEqual(aExpected.Statements[i].SafetyReason,
+      aActual.Statements[i].SafetyReason);
+    Assert.AreEqual(aExpected.Statements[i].SemanticId,
+      aActual.Statements[i].SemanticId);
+    Assert.AreEqual(aExpected.Statements[i].CoveredByStatementId,
+      aActual.Statements[i].CoveredByStatementId);
+  end;
+end;
+
+procedure TRemoveWithPlanTests.AssertCombinedApiParity(
+  const aSkipSemanticGraph: Boolean);
+var
+  lActual: TDelphiSemanticRemoveWithCombinedResult;
+  lExpectedFacts: TDelphiSemanticRemoveWithFactBuildResult;
+  lExpectedPlan: TDelphiSemanticRemoveWithPlan;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := FixturePath(
+    'ProjectWithBinding\ProjectWithBinding.dproj');
+  lRequest.RemoveWithOptions.SkipSemanticGraph := aSkipSemanticGraph;
+
+  lExpectedFacts :=
+    TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult(
+      lRequest);
+  lExpectedPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(
+    lRequest);
+  lActual :=
+    TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanResult(
+      lRequest);
+
+  Assert.IsTrue(lExpectedFacts.Success);
+  Assert.IsTrue(lActual.Success);
+  AssertProjectFactsEqual(lExpectedFacts.Facts, lActual.Facts);
+  Assert.AreEqual(lActual.Facts.Metrics.UnitCount,
+    lActual.Metrics.Facts.UnitCount);
+  Assert.AreEqual(lActual.Facts.Metrics.BindingCount,
+    lActual.Metrics.Facts.BindingCount);
+  Assert.AreEqual('project-snapshot-v1', lActual.Plan.BaselineSemanticModelVersion);
+  Assert.AreEqual(lExpectedPlan.BaselineSemanticModelVersion,
+    lActual.Plan.BaselineSemanticModelVersion);
+  Assert.AreEqual(ComparableRemoveWithPlanText(lExpectedPlan),
+    ComparableRemoveWithPlanText(lActual.Plan));
+  AssertDiagnosticsEqual(lExpectedFacts.Diagnostics, lActual.Diagnostics);
+  AssertDiagnosticsEqual(lExpectedPlan.Diagnostics, lActual.Plan.Diagnostics);
+  AssertPlanStatementsEqual(lExpectedPlan, lActual.Plan);
+  Assert.AreEqual(1, lActual.Metrics.SemanticSessionOpenCount,
+    'Combined operation must open exactly one semantic session.');
+  Assert.AreEqual(1, lActual.Metrics.ModelExtractionPassCount,
+    'Combined operation must perform exactly one model-extraction pass.');
+end;
+
+procedure TRemoveWithPlanTests.CombinedApiReturnsFactsAndCanonicalPlanFromOneSession;
+begin
+  AssertCombinedApiParity(False);
+end;
+
+procedure TRemoveWithPlanTests.CombinedApiSkipGraphMatchesLegacyFactsAndCanonicalPlan;
+begin
+  AssertCombinedApiParity(True);
+end;
+
+procedure TRemoveWithPlanTests.CombinedApiReportsSessionFailureWithoutExtraction;
+var
+  lResult: TDelphiSemanticRemoveWithCombinedResult;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := FixturePath(
+    'ProjectContext\Missing\MissingProject.dproj');
+
+  lResult :=
+    TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanResult(
+      lRequest);
+
+  Assert.IsFalse(lResult.Success);
+  Assert.AreEqual(1, lResult.Metrics.SemanticSessionOpenCount);
+  Assert.AreEqual(0, lResult.Metrics.ModelExtractionPassCount);
+  Assert.AreEqual(0, Integer(Length(lResult.Facts.Bindings)));
+  Assert.AreEqual(1, Integer(Length(lResult.Diagnostics)));
+  Assert.AreEqual('PROJECT_FILE_NOT_FOUND', lResult.Diagnostics[0].Code);
+  Assert.AreEqual('blocked', lResult.Plan.Status);
+  Assert.AreEqual('project-snapshot-v1',
+    lResult.Plan.BaselineSemanticModelVersion);
+  Assert.AreEqual(1, Integer(Length(lResult.Plan.Diagnostics)));
+  Assert.AreEqual(lResult.Diagnostics[0].Code,
+    lResult.Plan.Diagnostics[0].Code);
 end;
 
 procedure TRemoveWithPlanTests.SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;

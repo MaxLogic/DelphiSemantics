@@ -92,6 +92,12 @@ type
     SemanticGraphMetrics: TDelphiSemanticGraphBuildMetrics;
   end;
 
+  TDelphiSemanticRemoveWithFactsAndPlanBuildResult = record
+    Facts: TDelphiSemanticProjectWithBindingFacts;
+    Plan: TDelphiSemanticRemoveWithPlan;
+    ModelExtractionPassCount: Integer;
+  end;
+
   TDelphiSemanticProjectSession = class
   private
     fDiagnostics: TArray<TDelphiSemanticDiagnostic>;
@@ -134,6 +140,11 @@ type
       TDelphiSemanticProjectWithBindingFactsBuildResult; overload;
     function BuildWithBindingFactsResult(const aScopedSourceFileNames: TArray<string>):
       TDelphiSemanticProjectWithBindingFactsBuildResult; overload;
+    function BuildRemoveWithFactsAndPlanResult:
+      TDelphiSemanticRemoveWithFactsAndPlanBuildResult; overload;
+    function BuildRemoveWithFactsAndPlanResult(
+      const aScopedSourceFileNames: TArray<string>):
+      TDelphiSemanticRemoveWithFactsAndPlanBuildResult; overload;
     function PlanRemoveWith: TDelphiSemanticRemoveWithPlan; overload;
     function PlanRemoveWith(const aScopedSourceFileNames: TArray<string>):
       TDelphiSemanticRemoveWithPlan; overload;
@@ -1557,6 +1568,32 @@ begin
       lExtraction.CacheMetrics.PersistentConnectionOpenCount;
   finally
     lGraph.Free;
+  end;
+end;
+
+function TDelphiSemanticProjectSession.BuildRemoveWithFactsAndPlanResult:
+  TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
+begin
+  Result := BuildRemoveWithFactsAndPlanResult([]);
+end;
+
+function TDelphiSemanticProjectSession.BuildRemoveWithFactsAndPlanResult(
+  const aScopedSourceFileNames: TArray<string>):
+  TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
+var
+  lFactsResult: TDelphiSemanticProjectWithBindingFactsBuildResult;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  Result := Default(TDelphiSemanticRemoveWithFactsAndPlanBuildResult);
+  Inc(Result.ModelExtractionPassCount);
+  lFactsResult := BuildWithBindingFactsResult(aScopedSourceFileNames);
+  Result.Facts := lFactsResult.Facts;
+  lSnapshot := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(
+    Result.Facts);
+  try
+    Result.Plan := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
+  finally
+    lSnapshot.Free;
   end;
 end;
 

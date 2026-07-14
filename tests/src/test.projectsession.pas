@@ -54,6 +54,8 @@ type
     [Test]
     procedure ProjectSessionParallelRemoveWithPlanMatchesSequentialCounts;
     [Test]
+    procedure CombinedRemoveWithApiExposesOneSessionContract;
+    [Test]
     procedure ProjectSessionOperationResultsKeepMetricsStableAcrossLaterOperations;
     [Test]
     procedure ProjectSessionBuildWithBindingFactsDoesNotBuildDiscardedSnapshot;
@@ -1098,6 +1100,128 @@ begin
   finally
     lSequentialResult.Session.Free;
   end;
+end;
+
+procedure AssertCombinedApiOpensOneSession(const aSource: string);
+var
+  lBody: string;
+  lEndIndex: Integer;
+  lFirstOpenIndex: Integer;
+  lStartIndex: Integer;
+begin
+  lStartIndex := Pos('class function TDelphiSemanticRemoveWithCompatibilityApi.' +
+    'BuildProjectWithBindingFactsAndPlanResult(' + sLineBreak +
+    '  const aRequest', aSource);
+  Assert.IsTrue(lStartIndex > 0,
+    'Expected request-based combined compatibility implementation.');
+  lEndIndex := PosEx('class function TDelphiSemanticRemoveWithCompatibilityApi.' +
+    'PlanRemoveWith(', aSource, lStartIndex);
+  Assert.IsTrue(lEndIndex > lStartIndex,
+    'Expected combined compatibility implementation before PlanRemoveWith.');
+  lBody := Copy(aSource, lStartIndex, lEndIndex - lStartIndex);
+  lFirstOpenIndex := Pos('OpenProjectSession(', lBody);
+  Assert.IsTrue(lFirstOpenIndex > 0,
+    'Combined compatibility operation must open a project session.');
+  Assert.AreEqual(0, PosEx('OpenProjectSession(', lBody, lFirstOpenIndex + 1),
+    'Combined compatibility operation must open exactly one project session.');
+  Assert.IsTrue(ContainsText(lBody, 'Inc(lSessionOpenCount)'),
+    'Session metrics must increment at the actual open boundary.');
+  Assert.IsFalse(ContainsText(lBody, 'SemanticSessionOpenCount := 1'),
+    'Session metrics must not assert a literal count.');
+  Assert.IsFalse(ContainsText(lBody, 'BuildProjectWithBindingFactsResult('),
+    'Combined operation must not open the legacy facts-session path.');
+end;
+
+procedure AssertCombinedSessionExtractsOnce(const aSource: string);
+var
+  lBody: string;
+  lEndIndex: Integer;
+  lFirstFactsBuildIndex: Integer;
+  lStartIndex: Integer;
+begin
+  lStartIndex := Pos('function TDelphiSemanticProjectSession.' +
+    'BuildRemoveWithFactsAndPlanResult(' + sLineBreak +
+    '  const aScopedSourceFileNames', aSource);
+  Assert.IsTrue(lStartIndex > 0,
+    'Expected scoped combined session implementation.');
+  lEndIndex := PosEx('function TDelphiSemanticProjectSession.PlanRemoveWith:',
+    aSource, lStartIndex);
+  Assert.IsTrue(lEndIndex > lStartIndex,
+    'Expected combined session implementation before PlanRemoveWith.');
+  lBody := Copy(aSource, lStartIndex, lEndIndex - lStartIndex);
+  lFirstFactsBuildIndex := Pos('BuildWithBindingFactsResult(', lBody);
+  Assert.IsTrue(lFirstFactsBuildIndex > 0,
+    'Combined session must build compatibility facts.');
+  Assert.AreEqual(0, PosEx('BuildWithBindingFactsResult(', lBody,
+    lFirstFactsBuildIndex + 1),
+    'Combined session must perform one facts/model-extraction pass.');
+  Assert.IsTrue(ContainsText(lBody, 'Inc(Result.ModelExtractionPassCount)'),
+    'Extraction metrics must increment at the actual facts-build boundary.');
+  Assert.IsFalse(ContainsText(lBody, 'ModelExtractionPassCount := 1'),
+    'Extraction metrics must not assert a literal count.');
+  Assert.IsFalse(ContainsText(lBody, 'PlanRemoveWithResult'),
+    'Combined session must not trigger the second extraction plan path.');
+  Assert.IsTrue(ContainsText(lBody,
+    'BuildCompatibilityRemoveWithPlanningSnapshotFromFacts'),
+    'Combined session must build the canonical planning snapshot from its facts.');
+  Assert.IsTrue(ContainsText(lBody,
+    'TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot)'),
+    'Combined session must use the snapshot planner.');
+end;
+
+procedure AssertFactsBuildExtractsOnce(const aSource: string);
+var
+  lBody: string;
+  lEndIndex: Integer;
+  lFirstExtractionIndex: Integer;
+  lStartIndex: Integer;
+begin
+  lStartIndex := Pos('function TDelphiSemanticProjectSession.' +
+    'BuildWithBindingFactsResult(' + sLineBreak +
+    '  const aScopedSourceFileNames', aSource);
+  Assert.IsTrue(lStartIndex > 0,
+    'Expected scoped facts-build implementation.');
+  lEndIndex := PosEx('function TDelphiSemanticProjectSession.' +
+    'BuildRemoveWithFactsAndPlanResult:', aSource, lStartIndex);
+  Assert.IsTrue(lEndIndex > lStartIndex,
+    'Expected facts-build implementation before the combined operation.');
+  lBody := Copy(aSource, lStartIndex, lEndIndex - lStartIndex);
+  lFirstExtractionIndex := Pos('ExtractProjectModels(', lBody);
+  Assert.IsTrue(lFirstExtractionIndex > 0,
+    'Facts build must reach the project-model extraction boundary.');
+  Assert.AreEqual(0, PosEx('ExtractProjectModels(', lBody,
+    lFirstExtractionIndex + 1),
+    'One facts build must perform exactly one project-model extraction pass.');
+end;
+
+procedure TProjectSessionTests.CombinedRemoveWithApiExposesOneSessionContract;
+var
+  lApiSource: string;
+  lSessionSource: string;
+begin
+  lApiSource := ReadRepoSource(
+    'src\DelphiSemantics.Api.RemoveWith.Compatibility.pas');
+  lSessionSource := ReadRepoSource('src\DelphiSemantics.ProjectSession.pas');
+
+  Assert.IsTrue(ContainsText(lApiSource,
+    'TDelphiSemanticRemoveWithCombinedMetrics = record'),
+    'Combined API must expose narrow operation metrics.');
+  Assert.IsTrue(ContainsText(lApiSource,
+    'TDelphiSemanticRemoveWithCombinedResult = record'),
+    'Combined API must expose one facts-and-plan result.');
+  Assert.IsTrue(ContainsText(lApiSource, 'SemanticSessionOpenCount: Integer'),
+    'Combined metrics must count semantic session opens.');
+  Assert.IsTrue(ContainsText(lApiSource, 'ModelExtractionPassCount: Integer'),
+    'Combined metrics must count model-extraction passes.');
+  Assert.IsTrue(ContainsText(lApiSource,
+    'BuildProjectWithBindingFactsAndPlanResult'),
+    'Compatibility API must expose the combined operation.');
+  Assert.IsTrue(ContainsText(lSessionSource,
+    'BuildRemoveWithFactsAndPlanResult'),
+    'Project session must own the one-extraction facts-and-plan operation.');
+  AssertCombinedApiOpensOneSession(lApiSource);
+  AssertCombinedSessionExtractsOnce(lSessionSource);
+  AssertFactsBuildExtractsOnce(lSessionSource);
 end;
 
 procedure TProjectSessionTests.ProjectSessionOperationResultsKeepMetricsStableAcrossLaterOperations;
