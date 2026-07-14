@@ -64,7 +64,7 @@ type
     [Test]
     procedure ProjectSessionReusesUnchangedMultiUnitSnapshotCacheEntries;
     [Test]
-    procedure ProjectSessionPartialSnapshotCacheExtractsOnlyMissedUnits;
+    procedure ProjectSessionPartialSnapshotCacheFullyAnalyzesOnlyMissedUnits;
     [Test]
     procedure ProjectSessionSnapshotCacheReusesPathVariantProjectIdentity;
     [Test]
@@ -73,6 +73,8 @@ type
     procedure ProjectSessionScopedPartialSnapshotCacheHitStoresMissedUnitUnderScopedIdentity;
     [Test]
     procedure ProjectSessionPartialSnapshotCacheRebuildResolvesReferencesToCachedUnits;
+    [Test]
+    procedure ProjectSessionPartialSnapshotCacheRebuildPreservesCrossMissReferences;
     [Test]
     procedure ProjectSessionPartialSnapshotCacheInvalidationMatchesFullRebuildFacts;
     [Test]
@@ -1751,7 +1753,7 @@ begin
   end;
 end;
 
-procedure TProjectSessionTests.ProjectSessionPartialSnapshotCacheExtractsOnlyMissedUnits;
+procedure TProjectSessionTests.ProjectSessionPartialSnapshotCacheFullyAnalyzesOnlyMissedUnits;
 var
   lBuildBody: string;
   lBuildEnd: Integer;
@@ -1779,14 +1781,17 @@ begin
     'Expected model extraction after partial snapshot cache branch.');
   lPartialBranch := Copy(lBuildBody, lPartialStart, lPartialEnd - lPartialStart);
 
-  Assert.IsTrue(ContainsText(lPartialBranch,
+  Assert.IsFalse(ContainsText(lPartialBranch,
     'lExtractionSourceFileNames := lMissingSourceFileNames'),
-    'Partial snapshot cache hits must extract models only for missing units.');
-  Assert.IsTrue(ContainsText(lBuildBody, 'lMissingSourceIndexes'),
-    'Partial snapshot cache rebuild must map missing extraction models back to project unit indexes.');
-  Assert.IsFalse(ContainsText(lBuildBody,
-    'BuildSingleUnitSnapshotFromModels(lExtraction.Models, i,'),
-    'Missing unit snapshot rebuild must not index partial extraction models by full project index.');
+    'Partial cache rebuilds need lean models for cache hits as semantic context.');
+  Assert.IsTrue(ContainsText(lPartialBranch,
+    'lExtractionScopeSourceFileNames := lMissingSourceFileNames'),
+    'Partial cache rebuilds must fully analyze only the missing units.');
+  Assert.IsFalse(ContainsText(lBuildBody, 'lMissingModelIndex'),
+    'Partial cache rebuilds should preserve full project model indexes.');
+  Assert.IsTrue(ContainsText(lBuildBody,
+    'lExtractionModelIndex := i'),
+    'Missing unit snapshots must use their full project model indexes.');
 end;
 
 procedure TProjectSessionTests.ProjectSessionScopedPartialSnapshotCacheHitStoresMissedUnitUnderScopedIdentity;
@@ -1988,6 +1993,161 @@ begin
     end;
   finally
     lResult.Session.Free;
+  end;
+end;
+
+procedure WritePartialCrossMissProjectBase(const aRootPath: string);
+begin
+  TFile.WriteAllText(TPath.Combine(aRootPath,
+    'PartialCrossMissReference.dpr'), 'program PartialCrossMissReference;' +
+    sLineBreak + 'uses PartialCrossMissTypes, PartialCrossMissDeclarations, ' +
+    'PartialCrossMissConsumer;' + sLineBreak + 'begin' + sLineBreak +
+    '  Touch;' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(aRootPath,
+    'PartialCrossMissReference.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    sLineBreak + '  <PropertyGroup>' + sLineBreak +
+    '    <ProjectGuid>{5B622D59-C51E-46E2-9046-5E3909DD2303}</ProjectGuid>' +
+    sLineBreak + '    <MainSource>PartialCrossMissReference.dpr</MainSource>' +
+    sLineBreak + '  </PropertyGroup>' + sLineBreak + '  <ItemGroup>' +
+    sLineBreak + '    <DCCReference Include="PartialCrossMissTypes.pas"/>' +
+    sLineBreak + '    <DCCReference Include="PartialCrossMissConsumer.pas"/>' +
+    sLineBreak + '    <DCCReference Include="PartialCrossMissDeclarations.pas"/>' +
+    sLineBreak + '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(aRootPath,
+    'PartialCrossMissTypes.pas'), 'unit PartialCrossMissTypes;' +
+    sLineBreak + 'interface' + sLineBreak + 'type' + sLineBreak +
+    '  TSharedValue = Integer;' + sLineBreak + 'implementation' +
+    sLineBreak + 'end.', TEncoding.UTF8);
+end;
+
+procedure WritePartialCrossMissDeclaration(const aRootPath: string;
+  const aChanged: Boolean);
+var
+  lExpression: string;
+begin
+  if aChanged then
+    lExpression := 'aValue + 0'
+  else
+    lExpression := 'aValue';
+  TFile.WriteAllText(TPath.Combine(aRootPath,
+    'PartialCrossMissDeclarations.pas'),
+    'unit PartialCrossMissDeclarations;' + sLineBreak + 'interface' +
+    sLineBreak + 'uses PartialCrossMissTypes;' + sLineBreak +
+    'function SharedTarget(const aValue: TSharedValue): TSharedValue;' +
+    sLineBreak + 'implementation' + sLineBreak +
+    'function SharedTarget(const aValue: TSharedValue): TSharedValue;' +
+    sLineBreak + 'begin' + sLineBreak + '  Result := ' + lExpression + ';' +
+    sLineBreak + 'end;' + sLineBreak + 'end.', TEncoding.UTF8);
+end;
+
+procedure WritePartialCrossMissConsumer(const aRootPath: string;
+  const aChanged: Boolean);
+var
+  lExpression: string;
+begin
+  if aChanged then
+    lExpression := 'SharedTarget(1) + 1'
+  else
+    lExpression := 'SharedTarget(1)';
+  TFile.WriteAllText(TPath.Combine(aRootPath,
+    'PartialCrossMissConsumer.pas'), 'unit PartialCrossMissConsumer;' +
+    sLineBreak + 'interface' + sLineBreak + 'procedure Touch;' +
+    sLineBreak + 'implementation' + sLineBreak +
+    'uses PartialCrossMissTypes, PartialCrossMissDeclarations;' +
+    sLineBreak + 'procedure Touch;' + sLineBreak + 'var' + sLineBreak +
+    '  lValue: TSharedValue;' + sLineBreak + 'begin' + sLineBreak +
+    '  lValue := ' + lExpression + ';' + sLineBreak + 'end;' +
+    sLineBreak + 'end.', TEncoding.UTF8);
+end;
+
+procedure WritePartialCrossMissProject(const aRootPath: string);
+begin
+  WritePartialCrossMissProjectBase(aRootPath);
+  WritePartialCrossMissDeclaration(aRootPath, False);
+  WritePartialCrossMissConsumer(aRootPath, False);
+end;
+
+function BuildPartialCrossMissSnapshot(const aProjectPath, aCachePath: string;
+  out aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics):
+  TDelphiProjectSnapshot;
+var
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := aProjectPath;
+  lOptions.SqliteCacheFileName := aCachePath;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    Result := BuildSnapshotWithMetrics(lResult.Session, aMetrics);
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure AssertPartialCrossMissReferenceResolved(
+  const aSnapshot: TDelphiProjectSnapshot; const aConsumerPath: string);
+var
+  lReference: TSemanticReferenceFact;
+  lReferenceRef: TSemanticReferenceRef;
+  lSymbol: TSemanticSymbolFact;
+  lUnit: TUnitSnapshot;
+begin
+  Assert.IsTrue(aSnapshot.TryReferenceAt(aConsumerPath, 10, 13,
+    lReferenceRef),
+    'Expected the rebuilt consumer reference after a multi-unit cache miss.');
+  Assert.IsTrue(aSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit));
+  lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
+  Assert.AreNotEqual(0, Integer(lReference.TargetUnitId));
+  Assert.IsTrue(aSnapshot.TryFindUnitById(lReference.TargetUnitId, lUnit));
+  lSymbol := lUnit.SymbolById(lReference.TargetSymbolId);
+  Assert.AreEqual('SharedTarget', aSnapshot.TextOf(lSymbol.NameId));
+end;
+
+procedure TProjectSessionTests.ProjectSessionPartialSnapshotCacheRebuildPreservesCrossMissReferences;
+var
+  lCachePath: string;
+  lConsumerPath: string;
+  lDprojPath: string;
+  lExpectedSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lRootPath: string;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lRootPath := ProjectSessionTempPath(
+    'snapshot-session-partial-cross-miss-reference-temp');
+  TDirectory.CreateDirectory(lRootPath);
+  WritePartialCrossMissProject(lRootPath);
+  lDprojPath := TPath.Combine(lRootPath, 'PartialCrossMissReference.dproj');
+  lConsumerPath := TPath.Combine(lRootPath, 'PartialCrossMissConsumer.pas');
+  lCachePath := CombinePath([lRootPath, '.dak', 'semantic-cache.sqlite3']);
+
+  lSnapshot := BuildPartialCrossMissSnapshot(lDprojPath, lCachePath, lMetrics);
+  try
+    Assert.AreEqual(4, lSnapshot.UnitCount);
+  finally
+    lSnapshot.Free;
+  end;
+
+  WritePartialCrossMissDeclaration(lRootPath, True);
+  WritePartialCrossMissConsumer(lRootPath, True);
+  lSnapshot := BuildPartialCrossMissSnapshot(lDprojPath, lCachePath, lMetrics);
+  try
+    Assert.AreEqual(2, lMetrics.SnapshotCacheHits);
+    Assert.AreEqual(2, lMetrics.SnapshotCacheMisses);
+    Assert.AreEqual(1, lMetrics.SnapshotCachePartialHitCount);
+    AssertPartialCrossMissReferenceResolved(lSnapshot, lConsumerPath);
+    lExpectedSnapshot := BuildPartialCrossMissSnapshot(lDprojPath, '', lMetrics);
+    try
+      Assert.AreEqual(0, lMetrics.SnapshotCacheHits);
+      AssertSnapshotFactsEqual(lExpectedSnapshot, lSnapshot);
+    finally
+      lExpectedSnapshot.Free;
+    end;
+  finally
+    lSnapshot.Free;
   end;
 end;
 
