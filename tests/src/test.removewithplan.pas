@@ -38,6 +38,8 @@ type
     [Test]
     procedure CombinedApiReportsSessionFailureWithoutExtraction;
     [Test]
+    procedure CombinedApiReportsFinalSemanticCachePersistenceState;
+    [Test]
     procedure SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;
     [Test]
     procedure SnapshotPlannerConsumesExistingFactsWithoutProjectSession;
@@ -1454,6 +1456,11 @@ begin
     'Combined operation must open exactly one semantic session.');
   Assert.AreEqual(1, lActual.Metrics.ModelExtractionPassCount,
     'Combined operation must perform exactly one model-extraction pass.');
+  Assert.IsTrue(lActual.Metrics.SemanticProjectFactsMilliseconds >=
+    lActual.Metrics.Facts.ModelExtractionMilliseconds,
+    'Facts timing must contain the nested model-extraction phase.');
+  Assert.IsFalse(lActual.Metrics.SemanticCachePersistenceAvailable,
+    'An operation without a cache request must not report persistence available.');
 end;
 
 procedure TRemoveWithPlanTests.CombinedApiReturnsFactsAndCanonicalPlanFromOneSession;
@@ -1491,6 +1498,42 @@ begin
   Assert.AreEqual(1, Integer(Length(lResult.Plan.Diagnostics)));
   Assert.AreEqual(lResult.Diagnostics[0].Code,
     lResult.Plan.Diagnostics[0].Code);
+end;
+
+procedure TRemoveWithPlanTests.CombinedApiReportsFinalSemanticCachePersistenceState;
+var
+  lBlockedCachePath: string;
+  lCacheRoot: string;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+  lResult: TDelphiSemanticRemoveWithCombinedResult;
+begin
+  lCacheRoot := TempPath('combined-cache-persistence-state');
+  if TDirectory.Exists(lCacheRoot) then
+    TDirectory.Delete(lCacheRoot, True);
+  TDirectory.CreateDirectory(lCacheRoot);
+
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := FixturePath(
+    'ProjectWithBinding\ProjectWithBinding.dproj');
+  lRequest.Options.Cache.SqliteCacheFileName := TPath.Combine(lCacheRoot,
+    'semantic-cache.sqlite3');
+  lResult :=
+    TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanResult(
+      lRequest);
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(lResult.Metrics.SemanticCachePersistenceAvailable,
+    'A valid requested SQLite cache must report persistence available.');
+
+  lBlockedCachePath := TPath.Combine(lCacheRoot, 'blocked-cache.sqlite3');
+  TDirectory.CreateDirectory(lBlockedCachePath);
+  lRequest.Options.Cache.SqliteCacheFileName := lBlockedCachePath;
+  lResult :=
+    TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanResult(
+      lRequest);
+  Assert.IsTrue(lResult.Success,
+    'A blocked cache path must continue with the in-memory fallback.');
+  Assert.IsFalse(lResult.Metrics.SemanticCachePersistenceAvailable,
+    'Combined metrics must report final fallback state after cache initialization fails.');
 end;
 
 procedure TRemoveWithPlanTests.SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;

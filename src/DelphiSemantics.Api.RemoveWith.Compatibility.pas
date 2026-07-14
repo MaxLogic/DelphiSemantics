@@ -74,6 +74,9 @@ type
     Facts: TDelphiSemanticProjectWithBindingMetrics;
     SemanticSessionOpenCount: Integer;
     ModelExtractionPassCount: Integer;
+    SemanticProjectFactsMilliseconds: Int64;
+    SemanticPlanMilliseconds: Int64;
+    SemanticCachePersistenceAvailable: Boolean;
   end;
 
   TDelphiSemanticRemoveWithCombinedResult = record
@@ -119,7 +122,7 @@ type
 implementation
 
 uses
-  System.SysUtils,
+  System.Diagnostics, System.SysUtils,
   DelphiSemantics.Api.ProjectOptions, DelphiSemantics.ProjectContext,
   DelphiSemantics.ProjectSession, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder;
 
@@ -197,6 +200,93 @@ begin
   Result.Plan.BaselineSemanticModelVersion := 'project-snapshot-v1';
   Result.Plan.Diagnostics := Copy(Result.Diagnostics);
   Result.Plan.Diagnostic := Result.Diagnostics[0].Message;
+end;
+
+procedure ApplyCombinedBuildMetrics(
+  var aMetrics: TDelphiSemanticRemoveWithCombinedMetrics;
+  const aBuildMetrics: TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics;
+  const aSessionOpenMilliseconds: Int64);
+begin
+  aMetrics.ModelExtractionPassCount :=
+    aBuildMetrics.ModelExtractionPassCount;
+  aMetrics.SemanticProjectFactsMilliseconds :=
+    aSessionOpenMilliseconds +
+    aBuildMetrics.SemanticProjectFactsMilliseconds;
+  aMetrics.SemanticPlanMilliseconds :=
+    aBuildMetrics.SemanticPlanMilliseconds;
+  aMetrics.SemanticCachePersistenceAvailable :=
+    aBuildMetrics.SemanticCachePersistenceAvailable;
+end;
+
+procedure PopulateCombinedResult(
+  var aResult: TDelphiSemanticRemoveWithCombinedResult;
+  const aSession: TDelphiSemanticProjectSessionResult;
+  const aBuildResult: TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
+  const aBuildMetrics: TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics;
+  const aSessionOpenMilliseconds: Int64);
+begin
+  aResult.Facts := aBuildResult.Facts;
+  aResult.Plan := aBuildResult.Plan;
+  aResult.Plan.Diagnostics := Copy(aSession.Diagnostics);
+  aResult.Metrics.Facts := aResult.Facts.Metrics;
+  ApplyCombinedBuildMetrics(aResult.Metrics, aBuildMetrics,
+    aSessionOpenMilliseconds);
+  aResult.Diagnostics := Copy(aSession.Diagnostics);
+end;
+
+function CombinedResultFromSession(
+  const aRequest: TDelphiSemanticRemoveWithRequest;
+  const aSession: TDelphiSemanticProjectSessionResult;
+  const aSessionOpenCount: Integer;
+  const aSessionOpenMilliseconds: Int64):
+  TDelphiSemanticRemoveWithCombinedResult;
+var
+  lBuildMetrics: TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics;
+  lBuildResult: TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
+  lFailure: TDelphiSemanticRemoveWithCombinedResult;
+begin
+  Result := Default(TDelphiSemanticRemoveWithCombinedResult);
+  Result.Metrics.SemanticSessionOpenCount := aSessionOpenCount;
+  Result.Metrics.SemanticProjectFactsMilliseconds :=
+    aSessionOpenMilliseconds;
+  if (not aSession.Success) or (aSession.Session = nil) then
+  begin
+    Result.Diagnostics := SessionFailureDiagnostics(aSession);
+    Result.Plan := PlanSessionFailure(aSession);
+    Exit;
+  end;
+
+  lBuildMetrics := Default(TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics);
+  try
+    lBuildResult := aSession.Session.BuildRemoveWithFactsAndPlanResult(
+      aRequest.BodyAnalysisSourceFileNames);
+    lBuildMetrics :=
+      aSession.Session.LastRemoveWithFactsAndPlanBuildMetrics;
+    PopulateCombinedResult(Result, aSession, lBuildResult, lBuildMetrics,
+      aSessionOpenMilliseconds);
+    if Result.Facts.ContextFingerprint = '' then
+    begin
+      lFailure := CombinedFailure(
+        'REMOVE_WITH_FACTS_CONTEXT_FINGERPRINT_MISSING',
+        'DelphiSemantics project facts did not return a context fingerprint.',
+        aRequest.Options.ProjectFileName);
+      lFailure.Metrics := Result.Metrics;
+      Exit(lFailure);
+    end;
+    Result.Success := SameText(Result.Plan.Status, 'planned');
+  except
+    on E: Exception do
+    begin
+      lBuildMetrics :=
+        aSession.Session.LastRemoveWithFactsAndPlanBuildMetrics;
+      lFailure := CombinedFailure('REMOVE_WITH_COMBINED_BUILD_EXCEPTION',
+        E.Message, aRequest.Options.ProjectFileName);
+      lFailure.Metrics := Result.Metrics;
+      ApplyCombinedBuildMetrics(lFailure.Metrics, lBuildMetrics,
+        aSessionOpenMilliseconds);
+      Result := lFailure;
+    end;
+  end;
 end;
 
 function FactBuildDiagnosticsMessage(const aResult:
@@ -305,59 +395,39 @@ class function TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBinding
   const aRequest: TDelphiSemanticRemoveWithRequest):
   TDelphiSemanticRemoveWithCombinedResult;
 var
-  lBuildResult: TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
-  lExtractionPassCount: Integer;
   lFailure: TDelphiSemanticRemoveWithCombinedResult;
   lSession: TDelphiSemanticProjectSessionResult;
   lSessionOpenCount: Integer;
+  lSessionOpenMilliseconds: Int64;
+  lStopwatch: TStopwatch;
 begin
   Result := Default(TDelphiSemanticRemoveWithCombinedResult);
-  lExtractionPassCount := 0;
   lSessionOpenCount := 0;
+  lSessionOpenMilliseconds := 0;
   try
+    lStopwatch := TStopwatch.StartNew;
     Inc(lSessionOpenCount);
-    lSession := OpenProjectSession(aRequest);
-    Result.Metrics.SemanticSessionOpenCount := lSessionOpenCount;
     try
-      if (not lSession.Success) or (lSession.Session = nil) then
-      begin
-        Result.Diagnostics := SessionFailureDiagnostics(lSession);
-        Result.Plan := PlanSessionFailure(lSession);
-        Exit;
-      end;
-
-      Inc(lExtractionPassCount);
-      lBuildResult := lSession.Session.BuildRemoveWithFactsAndPlanResult(
-        aRequest.BodyAnalysisSourceFileNames);
-      Result.Facts := lBuildResult.Facts;
-      Result.Plan := lBuildResult.Plan;
-      Result.Plan.Diagnostics := Copy(lSession.Diagnostics);
-      Result.Metrics.Facts := Result.Facts.Metrics;
-      Result.Metrics.ModelExtractionPassCount :=
-        lBuildResult.ModelExtractionPassCount;
-      Result.Diagnostics := Copy(lSession.Diagnostics);
-      if Result.Facts.ContextFingerprint = '' then
-      begin
-        lFailure := CombinedFailure(
-          'REMOVE_WITH_FACTS_CONTEXT_FINGERPRINT_MISSING',
-          'DelphiSemantics project facts did not return a context fingerprint.',
-          aRequest.Options.ProjectFileName);
-        lFailure.Metrics.SemanticSessionOpenCount := lSessionOpenCount;
-        lFailure.Metrics.ModelExtractionPassCount :=
-          Result.Metrics.ModelExtractionPassCount;
-        Exit(lFailure);
-      end;
-      Result.Success := SameText(Result.Plan.Status, 'planned');
+      lSession := OpenProjectSession(aRequest);
+    finally
+      lStopwatch.Stop;
+      lSessionOpenMilliseconds := lStopwatch.ElapsedMilliseconds;
+    end;
+    try
+      Result := CombinedResultFromSession(aRequest, lSession,
+        lSessionOpenCount, lSessionOpenMilliseconds);
     finally
       lSession.Session.Free;
     end;
   except
     on E: Exception do
     begin
-      Result := CombinedFailure('REMOVE_WITH_COMBINED_BUILD_EXCEPTION', E.Message,
+      lFailure := CombinedFailure('REMOVE_WITH_COMBINED_BUILD_EXCEPTION', E.Message,
         aRequest.Options.ProjectFileName);
-      Result.Metrics.SemanticSessionOpenCount := lSessionOpenCount;
-      Result.Metrics.ModelExtractionPassCount := lExtractionPassCount;
+      lFailure.Metrics.SemanticSessionOpenCount := lSessionOpenCount;
+      lFailure.Metrics.SemanticProjectFactsMilliseconds :=
+        lSessionOpenMilliseconds;
+      Result := lFailure;
     end;
   end;
 end;

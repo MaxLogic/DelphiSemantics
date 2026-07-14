@@ -507,6 +507,16 @@ begin
   begin
     aConnection := fConnection;
     RecordPersistentConnectionOpen;
+  end else if lBusy then
+    DisablePersistence('SQLITE_CACHE_BUSY',
+      'SQLite cache contention prevented a persistent connection; continuing in memory: ' +
+      aError)
+  else if lCorrupt then
+    DisablePersistence('SQLITE_CACHE_UNAVAILABLE',
+      'SQLite cache became corrupt after initialization; continuing in memory: ' + aError)
+  else begin
+    DisablePersistence('SQLITE_CACHE_UNAVAILABLE',
+      'SQLite cache is unavailable; continuing in memory: ' + aError);
   end;
 end;
 
@@ -571,11 +581,7 @@ begin
   if not fPersistenceAvailable then
     Exit;
   if not SharedConnection(lConnectionObject, lError) then
-  begin
-    AddDiagnostic('SQLITE_CACHE_STALE_ENTRY_REBUILT',
-      'SQLite cache entry was stale for source identity: ' + aIdentity, fCacheFileName);
     Exit;
-  end;
   lConnection := TFDConnection(lConnectionObject);
   lProfile := QueryWideString(lConnection,
     'select compiler_profile_name from unit_models where identity_key = ? limit 1',
@@ -601,10 +607,7 @@ begin
   if not fPersistenceAvailable then
     Exit;
   if not SharedConnection(lConnectionObject, lError) then
-  begin
-    AddDiagnostic('SQLITE_CACHE_OPEN_FAILED', lError, fCacheFileName);
     Exit;
-  end;
   lConnection := TFDConnection(lConnectionObject);
   lQuery := NewQuery(lConnection, 'insert or replace into unit_models(cache_key, identity_key, ' +
     'source_file_name, file_hash, delphi_version, configuration, platform, compiler_profile_name, ' +

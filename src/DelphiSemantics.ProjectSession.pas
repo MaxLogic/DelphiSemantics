@@ -92,16 +92,28 @@ type
     SemanticGraphMetrics: TDelphiSemanticGraphBuildMetrics;
   end;
 
+  TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics = record
+    ModelExtractionPassCount: Integer;
+    SemanticCachePersistenceAvailable: Boolean;
+    SemanticProjectFactsMilliseconds: Int64;
+    SemanticPlanMilliseconds: Int64;
+  end;
+
   TDelphiSemanticRemoveWithFactsAndPlanBuildResult = record
     Facts: TDelphiSemanticProjectWithBindingFacts;
     Plan: TDelphiSemanticRemoveWithPlan;
     ModelExtractionPassCount: Integer;
+    SemanticCachePersistenceAvailable: Boolean;
+    SemanticProjectFactsMilliseconds: Int64;
+    SemanticPlanMilliseconds: Int64;
   end;
 
   TDelphiSemanticProjectSession = class
   private
     fDiagnostics: TArray<TDelphiSemanticDiagnostic>;
     fLastFailedModel: TDelphiSemanticUnitModel;
+    fLastRemoveWithFactsAndPlanBuildMetrics:
+      TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics;
     fLastSnapshotBuildMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
     fLastSemanticGraphBuildMetrics: TDelphiSemanticGraphBuildMetrics;
     fOptions: TDelphiSemanticOptions;
@@ -156,6 +168,9 @@ type
     class function Open(const aOptions: TDelphiSemanticOptions):
       TDelphiSemanticProjectSessionResult; static;
     property Diagnostics: TArray<TDelphiSemanticDiagnostic> read fDiagnostics;
+    property LastRemoveWithFactsAndPlanBuildMetrics:
+      TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics
+      read fLastRemoveWithFactsAndPlanBuildMetrics;
     // Legacy metric accessors are populated by the raw-returning compatibility methods.
     property LastSnapshotBuildMetrics: TDelphiSemanticProjectSnapshotBuildMetrics
       read fLastSnapshotBuildMetrics;
@@ -690,12 +705,33 @@ type
     CacheMetrics: TDelphiSemanticCacheMetrics;
     CacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
     ExtractionMilliseconds: Int64;
+    SemanticCachePersistenceAvailable: Boolean;
   end;
+
+  TProjectWithBindingFactsCoreResult = record
+    BuildResult: TDelphiSemanticProjectWithBindingFactsBuildResult;
+    SemanticCachePersistenceAvailable: Boolean;
+  end;
+
+procedure CaptureProjectModelCacheState(const aCache: TDelphiSemanticUnitCache;
+  var aResult: TProjectModelExtractionResult;
+  var aSemanticCachePersistenceAvailable: Boolean);
+begin
+  if not Assigned(aCache) then
+    Exit;
+
+  aResult.CacheMetrics := aCache.Metrics;
+  aResult.SemanticCachePersistenceAvailable := SameText(
+    aResult.CacheMetrics.CacheKind, 'sqlite');
+  aSemanticCachePersistenceAvailable :=
+    aResult.SemanticCachePersistenceAvailable;
+end;
 
 function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions; const aSourceFileNames,
-  aScopedSourceFileNames: TArray<string>; const aUseScopedSourceFileNames: Boolean):
-  TProjectModelExtractionResult;
+  aScopedSourceFileNames: TArray<string>; const aUseScopedSourceFileNames: Boolean;
+  var aSemanticCachePersistenceAvailable: Boolean):
+  TProjectModelExtractionResult; overload;
 var
   lBodyAnalysisSourceFiles: TDictionary<string, Byte>;
   lCache: TDelphiSemanticUnitCache;
@@ -712,6 +748,7 @@ begin
   lModels := nil;
   lCache := nil;
   Result := Default(TProjectModelExtractionResult);
+  aSemanticCachePersistenceAvailable := False;
   lStopwatch := TStopwatch.StartNew;
   try
     if Trim(aOptions.SqliteCacheFileName) <> '' then
@@ -747,12 +784,83 @@ begin
   finally
     lStopwatch.Stop;
     Result.ExtractionMilliseconds := lStopwatch.ElapsedMilliseconds;
-    if Assigned(lCache) then
-      Result.CacheMetrics := lCache.Metrics;
+    CaptureProjectModelCacheState(lCache, Result,
+      aSemanticCachePersistenceAvailable);
     lCache.Free;
     lBodyAnalysisSourceFiles.Free;
     lModels.Free;
   end;
+end;
+
+function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; const aSourceFileNames,
+  aScopedSourceFileNames: TArray<string>; const aUseScopedSourceFileNames: Boolean):
+  TProjectModelExtractionResult; overload;
+var
+  lSemanticCachePersistenceAvailable: Boolean;
+begin
+  Result := ExtractProjectModels(aProject, aOptions,
+    aSourceFileNames, aScopedSourceFileNames, aUseScopedSourceFileNames,
+    lSemanticCachePersistenceAvailable);
+  Result.SemanticCachePersistenceAvailable :=
+    lSemanticCachePersistenceAvailable;
+end;
+
+function BuildWithBindingFactsResultCore(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions;
+  const aScopedSourceFileNames: TArray<string>;
+  var aSemanticCachePersistenceAvailable: Boolean):
+  TProjectWithBindingFactsCoreResult; overload;
+var
+  lExtraction: TProjectModelExtractionResult;
+  lGraph: TDelphiSemanticSemanticGraph;
+begin
+  Result := Default(TProjectWithBindingFactsCoreResult);
+  lExtraction := ExtractProjectModels(aProject, aOptions,
+    ProjectModelFileNames(aProject), aScopedSourceFileNames,
+    Length(aScopedSourceFileNames) > 0, aSemanticCachePersistenceAvailable);
+  Result.SemanticCachePersistenceAvailable :=
+    aSemanticCachePersistenceAvailable;
+
+  if aOptions.SkipWithBindingSemanticGraph then
+    lGraph := nil
+  else
+    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(aProject,
+      lExtraction.Models);
+  try
+    if lGraph <> nil then
+      Result.BuildResult.SemanticGraphMetrics := lGraph.Metrics
+    else
+      Result.BuildResult.SemanticGraphMetrics :=
+        Default(TDelphiSemanticGraphBuildMetrics);
+    Result.BuildResult.Facts := TDelphiSemanticWithBinder.BindProject(
+      aProject.ContextFingerprint, lGraph, lExtraction.Models);
+    Result.BuildResult.Facts.Metrics.ModelExtractionMilliseconds :=
+      lExtraction.ExtractionMilliseconds;
+    Result.BuildResult.Facts.Metrics.SemanticCacheHits :=
+      lExtraction.CacheMetrics.CacheHits;
+    Result.BuildResult.Facts.Metrics.SemanticCacheMisses :=
+      lExtraction.CacheMetrics.CacheMisses;
+    Result.BuildResult.Facts.Metrics.SemanticCacheInvalidations :=
+      lExtraction.CacheMetrics.Invalidations;
+    Result.BuildResult.Facts.Metrics.SemanticCachePersistentConnectionOpenCount :=
+      lExtraction.CacheMetrics.PersistentConnectionOpenCount;
+  finally
+    lGraph.Free;
+  end;
+end;
+
+function BuildWithBindingFactsResultCore(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions;
+  const aScopedSourceFileNames: TArray<string>):
+  TProjectWithBindingFactsCoreResult; overload;
+var
+  lSemanticCachePersistenceAvailable: Boolean;
+begin
+  Result := BuildWithBindingFactsResultCore(aProject, aOptions,
+    aScopedSourceFileNames, lSemanticCachePersistenceAvailable);
+  Result.SemanticCachePersistenceAvailable :=
+    lSemanticCachePersistenceAvailable;
 end;
 
 function FirstFailedModel(const aModels: TArray<TDelphiSemanticUnitModel>):
@@ -1542,33 +1650,11 @@ function TDelphiSemanticProjectSession.BuildWithBindingFactsResult(
   const aScopedSourceFileNames: TArray<string>):
   TDelphiSemanticProjectWithBindingFactsBuildResult;
 var
-  lExtraction: TProjectModelExtractionResult;
-  lGraph: TDelphiSemanticSemanticGraph;
+  lCoreResult: TProjectWithBindingFactsCoreResult;
 begin
-  Result := Default(TDelphiSemanticProjectWithBindingFactsBuildResult);
-  lExtraction := ExtractProjectModels(fProject, fOptions, ProjectModelFileNames(fProject),
-    aScopedSourceFileNames, Length(aScopedSourceFileNames) > 0);
-
-  if fOptions.SkipWithBindingSemanticGraph then
-    lGraph := nil
-  else
-    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lExtraction.Models);
-  try
-    if lGraph <> nil then
-      Result.SemanticGraphMetrics := lGraph.Metrics
-    else
-      Result.SemanticGraphMetrics := Default(TDelphiSemanticGraphBuildMetrics);
-    Result.Facts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint, lGraph,
-      lExtraction.Models);
-    Result.Facts.Metrics.ModelExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
-    Result.Facts.Metrics.SemanticCacheHits := lExtraction.CacheMetrics.CacheHits;
-    Result.Facts.Metrics.SemanticCacheMisses := lExtraction.CacheMetrics.CacheMisses;
-    Result.Facts.Metrics.SemanticCacheInvalidations := lExtraction.CacheMetrics.Invalidations;
-    Result.Facts.Metrics.SemanticCachePersistentConnectionOpenCount :=
-      lExtraction.CacheMetrics.PersistentConnectionOpenCount;
-  finally
-    lGraph.Free;
-  end;
+  lCoreResult := BuildWithBindingFactsResultCore(fProject, fOptions,
+    aScopedSourceFileNames);
+  Result := lCoreResult.BuildResult;
 end;
 
 function TDelphiSemanticProjectSession.BuildRemoveWithFactsAndPlanResult:
@@ -1581,20 +1667,45 @@ function TDelphiSemanticProjectSession.BuildRemoveWithFactsAndPlanResult(
   const aScopedSourceFileNames: TArray<string>):
   TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
 var
-  lFactsResult: TDelphiSemanticProjectWithBindingFactsBuildResult;
+  lCoreResult: TProjectWithBindingFactsCoreResult;
   lSnapshot: TDelphiProjectSnapshot;
+  lStopwatch: TStopwatch;
 begin
   Result := Default(TDelphiSemanticRemoveWithFactsAndPlanBuildResult);
-  Inc(Result.ModelExtractionPassCount);
-  lFactsResult := BuildWithBindingFactsResult(aScopedSourceFileNames);
-  Result.Facts := lFactsResult.Facts;
-  lSnapshot := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(
-    Result.Facts);
+  fLastRemoveWithFactsAndPlanBuildMetrics :=
+    Default(TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics);
+  Inc(fLastRemoveWithFactsAndPlanBuildMetrics.ModelExtractionPassCount);
+  lStopwatch := TStopwatch.StartNew;
   try
+    lCoreResult := BuildWithBindingFactsResultCore(fProject, fOptions,
+      aScopedSourceFileNames,
+      fLastRemoveWithFactsAndPlanBuildMetrics.SemanticCachePersistenceAvailable);
+  finally
+    lStopwatch.Stop;
+    fLastRemoveWithFactsAndPlanBuildMetrics.SemanticProjectFactsMilliseconds :=
+      lStopwatch.ElapsedMilliseconds;
+  end;
+  Result.Facts := lCoreResult.BuildResult.Facts;
+  lSnapshot := nil;
+  lStopwatch := TStopwatch.StartNew;
+  try
+    lSnapshot := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(
+      Result.Facts);
     Result.Plan := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
   finally
     lSnapshot.Free;
+    lStopwatch.Stop;
+    fLastRemoveWithFactsAndPlanBuildMetrics.SemanticPlanMilliseconds :=
+      lStopwatch.ElapsedMilliseconds;
   end;
+  Result.ModelExtractionPassCount :=
+    fLastRemoveWithFactsAndPlanBuildMetrics.ModelExtractionPassCount;
+  Result.SemanticCachePersistenceAvailable :=
+    fLastRemoveWithFactsAndPlanBuildMetrics.SemanticCachePersistenceAvailable;
+  Result.SemanticProjectFactsMilliseconds :=
+    fLastRemoveWithFactsAndPlanBuildMetrics.SemanticProjectFactsMilliseconds;
+  Result.SemanticPlanMilliseconds :=
+    fLastRemoveWithFactsAndPlanBuildMetrics.SemanticPlanMilliseconds;
 end;
 
 function TDelphiSemanticProjectSession.PlanRemoveWith: TDelphiSemanticRemoveWithPlan;

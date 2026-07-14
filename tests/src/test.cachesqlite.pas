@@ -51,6 +51,8 @@ type
     [Test]
     procedure UnavailableSqlitePathFallsBackToInMemoryWithoutDeletion;
     [Test]
+    procedure PostInitializationSqliteOpenFailureDisablesPersistence;
+    [Test]
     procedure SqliteCacheKeepsOnePersistentConnectionPerInstance;
     [Test]
     procedure SecondCacheInstanceReusesStoredUnitModel;
@@ -396,6 +398,45 @@ begin
     Assert.AreEqual('in-memory-fallback', lCache.Metrics.CacheKind);
     Assert.IsTrue(TDirectory.Exists(lCacheOptions.SqliteCacheFileName),
       'An unavailable cache path must never be deleted during fallback.');
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.PostInitializationSqliteOpenFailureDisablesPersistence;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('post-init-open-failure.sqlite3');
+  if TDirectory.Exists(lCacheOptions.SqliteCacheFileName) then
+    TDirectory.Delete(lCacheOptions.SqliteCacheFileName, True);
+  if TFile.Exists(lCacheOptions.SqliteCacheFileName) then
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := WriteUnitFile('SqlitePostInitFailureUnit',
+    'TSqlitePostInitFailureType');
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    Assert.AreEqual('sqlite', lCache.Metrics.CacheKind);
+    Assert.IsTrue(TFile.Exists(lCacheOptions.SqliteCacheFileName));
+    TFile.Delete(lCacheOptions.SqliteCacheFileName);
+    TDirectory.CreateDirectory(lCacheOptions.SqliteCacheFileName);
+
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+
+    Assert.IsTrue(HasDeclaration(lModel, 'TSqlitePostInitFailureType'));
+    Assert.IsTrue(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_UNAVAILABLE'));
+    Assert.AreEqual(1, Integer(Length(lCache.Diagnostics)),
+      'A shared-open failure must transition once to in-memory fallback.');
+    Assert.AreEqual('in-memory-fallback', lCache.Metrics.CacheKind);
+    Assert.IsTrue(TDirectory.Exists(lCacheOptions.SqliteCacheFileName),
+      'A post-initialization open failure must not delete the unavailable path.');
   finally
     lCache.Free;
   end;
