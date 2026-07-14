@@ -453,7 +453,8 @@ end;
 function SourceUsesSupportedEncoding(
   const aSource: TDelphiSemanticSourceLoadResult): Boolean;
 begin
-  Result := aSource.Success and SameText(aSource.Source.EncodingName, 'utf-8');
+  Result := aSource.Success and MatchText(aSource.Source.EncodingName,
+    ['utf-8', 'windows-1252']);
 end;
 
 function TryScanSourceFile(const aProject: TDelphiSemanticProjectInfo;

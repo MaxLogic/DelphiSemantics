@@ -40,6 +40,8 @@ type
     [Test]
     procedure IdentifierCandidateCollectorIncludesLocalAndPrivateDeclarations;
     [Test]
+    procedure IdentifierCandidateCollectorSupportsWindows1252;
+    [Test]
     procedure IdentifierCandidateCollectorIncludesTransitiveAndSharedOwners;
     [Test]
     procedure IdentifierCandidateCollectorHandlesAliasesAndAmbiguity;
@@ -905,6 +907,40 @@ begin
   Assert.AreEqual(1, lResult.FullModelCount,
     'Local declarations must retain their owning unit.');
   Assert.AreEqual(lFileName, lResult.SourceFileNames[0]);
+end;
+
+procedure TProjectSessionTests.IdentifierCandidateCollectorSupportsWindows1252;
+var
+  lEncoding: TEncoding;
+  lFileName: string;
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticIdentifierScopeResult;
+  lRoot: string;
+begin
+  lRoot := ProjectSessionTempPath('identifier-windows-1252');
+  TDirectory.CreateDirectory(lRoot);
+  lFileName := TPath.Combine(lRoot, 'Windows1252Unit.pas');
+  lEncoding := TEncoding.GetEncoding(1252);
+  try
+    TFile.WriteAllText(lFileName, 'unit Windows1252Unit;' + sLineBreak +
+      'interface' + sLineBreak + '// Café' + sLineBreak +
+      'const AnsiTarget = 1;' + sLineBreak + 'implementation' + sLineBreak +
+      'end.', lEncoding);
+  finally
+    lEncoding.Free;
+  end;
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lProject.ProjectDirectory := lRoot;
+  lProject.SourceFileNames := TArray<string>.Create(lFileName);
+  lProject.SearchPaths := TArray<string>.Create(lRoot);
+
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'AnsiTarget');
+
+  Assert.IsTrue(lResult.UseScopedAnalysis,
+    'The source loader-supported Windows-1252 encoding must remain scannable.');
+  Assert.IsFalse(lResult.FailOpen);
+  Assert.AreEqual(1, lResult.FullModelCount);
 end;
 
 procedure TProjectSessionTests.
