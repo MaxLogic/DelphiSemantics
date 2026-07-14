@@ -219,9 +219,78 @@ uses
   System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
   DelphiSemantics.RemoveWithPlan.FinalBodyRenderer,
   DelphiSemantics.RemoveWithPlan.FinalRewrite,
-  DelphiSemantics.SourceConditionals, DelphiSemantics.SourceContext;
+  DelphiSemantics.SourceConditionals, DelphiSemantics.SourceContext,
+  MaxLogic.StrUtils;
 
 type
+  TPlannerRoutineLookupResult = record
+    Found: Boolean;
+    Symbol: TDelphiSemanticInventorySymbol;
+  end;
+
+  TPlannerLookupMemo = class
+  private
+    fDeclarationsByName: TDictionary<string,
+      TArray<TDelphiSemanticInventorySymbol>>;
+    fIndex: TDelphiSemanticRemoveWithLookupIndex;
+    fMaterializedSymbolCount: Int64;
+    fMembersByOwnerName: TDictionary<string,
+      TArray<TDelphiSemanticInventorySymbol>>;
+    fOwnerMemberResults: TDictionary<string, Boolean>;
+    fPointerTargetsByType: TDictionary<string, string>;
+    fRequestCount: Int64;
+    fResultMaterializationCount: Int64;
+    fResultReuseCount: Int64;
+    fRoutineScopedSymbols: TDictionary<string, TPlannerRoutineLookupResult>;
+    fRoutineSymbolsByName: TDictionary<string, TPlannerRoutineLookupResult>;
+    fSymbolsByName: TDictionary<string,
+      TArray<TDelphiSemanticInventorySymbol>>;
+    fSymbolsByOwnerType: TDictionary<string,
+      TArray<TDelphiSemanticInventorySymbol>>;
+    fUnitsAndGlobalsByName: TDictionary<string,
+      TArray<TDelphiSemanticInventorySymbol>>;
+    class function BindingNameKey(const aBinding: TDelphiSemanticWithBinding;
+      const aName: string): string; static;
+    class function OwnerNameKey(const aOwnerName, aName: string): string; static;
+    procedure StoreOwnerMemberResult(const aOwnerName, aName: string;
+      const aResult: Boolean);
+    procedure StoreRoutineScopedSymbol(
+      const aBinding: TDelphiSemanticWithBinding; const aName: string;
+      const aFound: Boolean; const aSymbol: TDelphiSemanticInventorySymbol);
+    procedure StoreSymbols(const aCache: TDictionary<string,
+      TArray<TDelphiSemanticInventorySymbol>>; const aKey: string;
+      const aSymbols: TArray<TDelphiSemanticInventorySymbol>);
+    function TryReuseSymbols(const aCache: TDictionary<string,
+      TArray<TDelphiSemanticInventorySymbol>>; const aKey: string;
+      out aSymbols: TArray<TDelphiSemanticInventorySymbol>): Boolean;
+    function TryReuseRoutineScopedSymbol(
+      const aBinding: TDelphiSemanticWithBinding; const aName: string;
+      out aFound: Boolean; out aSymbol: TDelphiSemanticInventorySymbol):
+      Boolean;
+    function TryReuseOwnerMemberResult(const aOwnerName, aName: string;
+      out aResult: Boolean): Boolean;
+  public
+    destructor Destroy; override;
+    function FindMembersByOwnerAndName(const aOwnerName, aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindRoutineSymbol(const aRoutineName, aName: string;
+      out aSymbol: TDelphiSemanticInventorySymbol): Boolean;
+    function PointerTargetType(const aTypeName: string): string;
+    function FindDeclarationOrTypeAliasByName(const aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindUnitOrGlobalByName(const aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindSymbolsByName(const aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindSymbolsByOwnerType(const aOwnerType: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    procedure Initialize(const aIndex: TDelphiSemanticRemoveWithLookupIndex);
+    function MaterializedSymbolCount: Int64;
+    function RequestCount: Int64;
+    function ResultMaterializationCount: Int64;
+    function ResultReuseCount: Int64;
+  end;
+
   TFinalSelectorDecision = record
     SelectorText: string;
     QualifierText: string;
@@ -247,7 +316,7 @@ type
 
   TRemoveWithPlanFacts = record
     ContextFingerprint: string;
-    LookupIndex: TDelphiSemanticRemoveWithLookupIndex;
+    LookupIndex: TPlannerLookupMemo;
     Symbols: TArray<TDelphiSemanticInventorySymbol>;
   end;
 
@@ -299,6 +368,228 @@ type
   end;
 
   TFinalBindingInfoArray = TArray<TFinalBindingInfo>;
+
+class function TPlannerLookupMemo.BindingNameKey(
+  const aBinding: TDelphiSemanticWithBinding; const aName: string): string;
+begin
+  if aBinding.SemanticId <> '' then
+    Result := 'id' + #31 + aBinding.SemanticId + #31 + aName
+  else
+    Result := 'source' + #31 + aBinding.FileName + #31 +
+      IntToStr(aBinding.Line) + #31 + IntToStr(aBinding.Column) + #31 +
+      aBinding.RoutineName + #31 + aName;
+end;
+
+class function TPlannerLookupMemo.OwnerNameKey(const aOwnerName,
+  aName: string): string;
+begin
+  Result := aOwnerName + #31 + aName;
+end;
+
+procedure TPlannerLookupMemo.Initialize(
+  const aIndex: TDelphiSemanticRemoveWithLookupIndex);
+begin
+  fIndex := aIndex;
+  fDeclarationsByName := TDictionary<string,
+    TArray<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fMembersByOwnerName := TDictionary<string,
+    TArray<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fOwnerMemberResults := TDictionary<string, Boolean>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fPointerTargetsByType := TDictionary<string, string>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fRoutineScopedSymbols := TDictionary<string,
+    TPlannerRoutineLookupResult>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fRoutineSymbolsByName := TDictionary<string,
+    TPlannerRoutineLookupResult>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fSymbolsByName := TDictionary<string,
+    TArray<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fSymbolsByOwnerType := TDictionary<string,
+    TArray<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fUnitsAndGlobalsByName := TDictionary<string,
+    TArray<TDelphiSemanticInventorySymbol>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+end;
+
+destructor TPlannerLookupMemo.Destroy;
+begin
+  fUnitsAndGlobalsByName.Free;
+  fSymbolsByOwnerType.Free;
+  fSymbolsByName.Free;
+  fRoutineSymbolsByName.Free;
+  fRoutineScopedSymbols.Free;
+  fPointerTargetsByType.Free;
+  fOwnerMemberResults.Free;
+  fMembersByOwnerName.Free;
+  fDeclarationsByName.Free;
+  inherited;
+end;
+
+procedure TPlannerLookupMemo.StoreOwnerMemberResult(const aOwnerName,
+  aName: string; const aResult: Boolean);
+begin
+  fOwnerMemberResults.Add(OwnerNameKey(aOwnerName, aName), aResult);
+end;
+
+procedure TPlannerLookupMemo.StoreRoutineScopedSymbol(
+  const aBinding: TDelphiSemanticWithBinding; const aName: string;
+  const aFound: Boolean; const aSymbol: TDelphiSemanticInventorySymbol);
+var
+  lLookup: TPlannerRoutineLookupResult;
+begin
+  lLookup.Found := aFound;
+  lLookup.Symbol := aSymbol;
+  fRoutineScopedSymbols.Add(BindingNameKey(aBinding, aName), lLookup);
+end;
+
+procedure TPlannerLookupMemo.StoreSymbols(const aCache: TDictionary<string,
+  TArray<TDelphiSemanticInventorySymbol>>; const aKey: string;
+  const aSymbols: TArray<TDelphiSemanticInventorySymbol>);
+begin
+  aCache.Add(aKey, aSymbols);
+  if Length(aSymbols) = 0 then
+    Exit;
+  Inc(fResultMaterializationCount);
+  Inc(fMaterializedSymbolCount, Length(aSymbols));
+end;
+
+function TPlannerLookupMemo.TryReuseSymbols(const aCache: TDictionary<string,
+  TArray<TDelphiSemanticInventorySymbol>>; const aKey: string;
+  out aSymbols: TArray<TDelphiSemanticInventorySymbol>): Boolean;
+begin
+  Inc(fRequestCount);
+  Result := aCache.TryGetValue(aKey, aSymbols);
+  if Result then
+    Inc(fResultReuseCount);
+end;
+
+function TPlannerLookupMemo.TryReuseRoutineScopedSymbol(
+  const aBinding: TDelphiSemanticWithBinding; const aName: string;
+  out aFound: Boolean; out aSymbol: TDelphiSemanticInventorySymbol): Boolean;
+var
+  lLookup: TPlannerRoutineLookupResult;
+begin
+  aFound := False;
+  aSymbol := Default(TDelphiSemanticInventorySymbol);
+  Result := fRoutineScopedSymbols.TryGetValue(BindingNameKey(aBinding, aName),
+    lLookup);
+  if not Result then
+    Exit;
+  aFound := lLookup.Found;
+  aSymbol := lLookup.Symbol;
+end;
+
+function TPlannerLookupMemo.TryReuseOwnerMemberResult(const aOwnerName,
+  aName: string; out aResult: Boolean): Boolean;
+begin
+  Result := fOwnerMemberResults.TryGetValue(OwnerNameKey(aOwnerName, aName),
+    aResult);
+end;
+
+function TPlannerLookupMemo.FindMembersByOwnerAndName(const aOwnerName,
+  aName: string): TArray<TDelphiSemanticInventorySymbol>;
+var
+  lKey: string;
+begin
+  lKey := OwnerNameKey(aOwnerName, aName);
+  if TryReuseSymbols(fMembersByOwnerName, lKey, Result) then
+    Exit;
+  Result := fIndex.FindMembersByOwnerAndName(aOwnerName, aName);
+  StoreSymbols(fMembersByOwnerName, lKey, Result);
+end;
+
+function TPlannerLookupMemo.FindRoutineSymbol(const aRoutineName,
+  aName: string; out aSymbol: TDelphiSemanticInventorySymbol): Boolean;
+var
+  lKey: string;
+  lLookup: TPlannerRoutineLookupResult;
+begin
+  Inc(fRequestCount);
+  lKey := OwnerNameKey(aRoutineName, aName);
+  if fRoutineSymbolsByName.TryGetValue(lKey, lLookup) then
+  begin
+    Inc(fResultReuseCount);
+    aSymbol := lLookup.Symbol;
+    Exit(lLookup.Found);
+  end;
+  lLookup.Found := fIndex.FindRoutineSymbol(aRoutineName, aName,
+    lLookup.Symbol);
+  fRoutineSymbolsByName.Add(lKey, lLookup);
+  aSymbol := lLookup.Symbol;
+  Result := lLookup.Found;
+end;
+
+function TPlannerLookupMemo.PointerTargetType(const aTypeName: string): string;
+begin
+  Inc(fRequestCount);
+  if fPointerTargetsByType.TryGetValue(aTypeName, Result) then
+  begin
+    Inc(fResultReuseCount);
+    Exit;
+  end;
+  Result := fIndex.PointerTargetType(aTypeName);
+  fPointerTargetsByType.Add(aTypeName, Result);
+end;
+
+function TPlannerLookupMemo.FindDeclarationOrTypeAliasByName(
+  const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  if TryReuseSymbols(fDeclarationsByName, aName, Result) then
+    Exit;
+  Result := fIndex.FindDeclarationOrTypeAliasByName(aName);
+  StoreSymbols(fDeclarationsByName, aName, Result);
+end;
+
+function TPlannerLookupMemo.FindUnitOrGlobalByName(
+  const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  if TryReuseSymbols(fUnitsAndGlobalsByName, aName, Result) then
+    Exit;
+  Result := fIndex.FindUnitOrGlobalByName(aName);
+  StoreSymbols(fUnitsAndGlobalsByName, aName, Result);
+end;
+
+function TPlannerLookupMemo.FindSymbolsByName(
+  const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  if TryReuseSymbols(fSymbolsByName, aName, Result) then
+    Exit;
+  Result := fIndex.FindSymbolsByName(aName);
+  StoreSymbols(fSymbolsByName, aName, Result);
+end;
+
+function TPlannerLookupMemo.FindSymbolsByOwnerType(
+  const aOwnerType: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  if TryReuseSymbols(fSymbolsByOwnerType, aOwnerType, Result) then
+    Exit;
+  Result := fIndex.FindSymbolsByOwnerType(aOwnerType);
+  StoreSymbols(fSymbolsByOwnerType, aOwnerType, Result);
+end;
+
+function TPlannerLookupMemo.MaterializedSymbolCount: Int64;
+begin
+  Result := fMaterializedSymbolCount;
+end;
+
+function TPlannerLookupMemo.RequestCount: Int64;
+begin
+  Result := fRequestCount;
+end;
+
+function TPlannerLookupMemo.ResultMaterializationCount: Int64;
+begin
+  Result := fResultMaterializationCount;
+end;
+
+function TPlannerLookupMemo.ResultReuseCount: Int64;
+begin
+  Result := fResultReuseCount;
+end;
 
 constructor TArrayRemoveWithPlanBindingSource.Create(
   const aBindings: TArray<TDelphiSemanticWithBinding>);
@@ -829,15 +1120,23 @@ function OwnerHasMemberNamed(const aFacts: TRemoveWithPlanFacts;
 var
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
+  if aFacts.LookupIndex.TryReuseOwnerMemberResult(aOwnerType, aName,
+    Result) then
+    Exit;
   Result := Length(aFacts.LookupIndex.FindMembersByOwnerAndName(aOwnerType,
     aName)) > 0;
-  if Result then
-    Exit;
-  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aName) do
+  if not Result then
   begin
-    if SymbolIsMemberOfOwner(lSymbol, aOwnerType) then
-      Exit(True);
+    for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aName) do
+    begin
+      if SymbolIsMemberOfOwner(lSymbol, aOwnerType) then
+      begin
+        Result := True;
+        Break;
+      end;
+    end;
   end;
+  aFacts.LookupIndex.StoreOwnerMemberResult(aOwnerType, aName, Result);
 end;
 
 function ReferenceLookupName(const aReferenceName: string): string; forward;
@@ -2216,11 +2515,17 @@ function TryFindRoutineScopedSymbolForBinding(const aFacts: TRemoveWithPlanFacts
   out aSymbol: TDelphiSemanticInventorySymbol): Boolean;
 var
   lBestScore: Integer;
+  lFound: Boolean;
   lScore: Integer;
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
   Result := False;
-  aSymbol := Default(TDelphiSemanticInventorySymbol);
+  if aFacts.LookupIndex.TryReuseRoutineScopedSymbol(aBinding, aName, lFound,
+    aSymbol) then
+  begin
+    Result := lFound;
+    Exit;
+  end;
   lBestScore := -1;
   for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aName) do
   begin
@@ -2231,6 +2536,8 @@ begin
     aSymbol := lSymbol;
     Result := True;
   end;
+  aFacts.LookupIndex.StoreRoutineScopedSymbol(aBinding, aName, Result,
+    aSymbol);
 end;
 
 function TryFindSourceBackedSelectorSymbol(const aFacts: TRemoveWithPlanFacts;
@@ -5601,13 +5908,9 @@ end;
 procedure CompleteCorePlanMetrics(
   var aMetrics: TDelphiSemanticRemoveWithPlannerMetrics;
   const aElapsedMilliseconds: Int64;
-  const aLookupBefore: TDelphiSemanticRemoveWithLookupMetrics;
-  const aLookupActivityBefore: TDelphiSemanticRemoveWithLookupActivityMetrics;
-  const aLookupIndex: TDelphiSemanticRemoveWithLookupIndex);
+  const aLookupIndex: TPlannerLookupMemo);
 var
   lAccountedMilliseconds: Int64;
-  lLookupActivityAfter: TDelphiSemanticRemoveWithLookupActivityMetrics;
-  lLookupAfter: TDelphiSemanticRemoveWithLookupMetrics;
 begin
   aMetrics.CorePlanMilliseconds := aElapsedMilliseconds;
   lAccountedMilliseconds := aMetrics.CandidateEditMilliseconds +
@@ -5619,17 +5922,12 @@ begin
       aMetrics.CorePlanMilliseconds - lAccountedMilliseconds
   else
     aMetrics.CorePlanUnattributedMilliseconds := 0;
-  lLookupAfter := aLookupIndex.Metrics;
-  aMetrics.LookupRequestCount :=
-    (lLookupAfter.HitCount + lLookupAfter.MissCount) -
-    (aLookupBefore.HitCount + aLookupBefore.MissCount);
-  lLookupActivityAfter := aLookupIndex.ActivityMetrics;
+  aMetrics.LookupRequestCount := aLookupIndex.RequestCount;
   aMetrics.LookupResultMaterializationCount :=
-    lLookupActivityAfter.ResultMaterializationCount -
-    aLookupActivityBefore.ResultMaterializationCount;
+    aLookupIndex.ResultMaterializationCount;
+  aMetrics.LookupResultReuseCount := aLookupIndex.ResultReuseCount;
   aMetrics.LookupMaterializedSymbolCount :=
-    lLookupActivityAfter.MaterializedSymbolCount -
-    aLookupActivityBefore.MaterializedSymbolCount;
+    aLookupIndex.MaterializedSymbolCount;
 end;
 
 function PlanFromBindingSource(const aFacts: TRemoveWithPlanFacts;
@@ -5647,16 +5945,12 @@ var
   lHashCache: TDictionary<string, string>;
   lInheritedDecisions: TArray<TFinalSelectorDecision>;
   lLineCache: TDelphiSemanticSourceContextCache;
-  lLookupActivityBefore: TDelphiSemanticRemoveWithLookupActivityMetrics;
-  lLookupBefore: TDelphiSemanticRemoveWithLookupMetrics;
   lCoreStopwatch: TStopwatch;
   lPhaseStopwatch: TStopwatch;
   lReservedNames: TDictionary<string, Integer>;
   lRootIndex: Integer;
   lStatementIndex: Integer;
 begin
-  lLookupBefore := aFacts.LookupIndex.Metrics;
-  lLookupActivityBefore := aFacts.LookupIndex.ActivityMetrics;
   lCoreStopwatch := TStopwatch.StartNew;
   try
     Result := Default(TDelphiSemanticRemoveWithPlan);
@@ -5762,7 +6056,7 @@ begin
   finally
     lCoreStopwatch.Stop;
     CompleteCorePlanMetrics(aMetrics, lCoreStopwatch.ElapsedMilliseconds,
-      lLookupBefore, lLookupActivityBefore, aFacts.LookupIndex);
+      aFacts.LookupIndex);
   end;
 end;
 
@@ -5776,14 +6070,17 @@ begin
   lMetrics := Default(TDelphiSemanticRemoveWithPlannerMetrics);
   lPlanFacts := Default(TRemoveWithPlanFacts);
   lPlanFacts.ContextFingerprint := aFacts.ContextFingerprint;
-  lPlanFacts.LookupIndex := aFacts.LookupIndex;
   lPlanFacts.Symbols := aFacts.Symbols;
-  lBindingSource := TArrayRemoveWithPlanBindingSource.Create(aFacts.Bindings);
+  lBindingSource := nil;
   try
+    lPlanFacts.LookupIndex := TPlannerLookupMemo.Create;
+    lPlanFacts.LookupIndex.Initialize(aFacts.LookupIndex);
+    lBindingSource := TArrayRemoveWithPlanBindingSource.Create(aFacts.Bindings);
     Result := PlanFromBindingSource(lPlanFacts, lBindingSource,
       'project-with-binding-v1', lMetrics);
   finally
     lBindingSource.Free;
+    lPlanFacts.LookupIndex.Free;
   end;
 end;
 
@@ -6021,29 +6318,32 @@ begin
     Exit;
   end;
 
+  lPlanFacts := Default(TRemoveWithPlanFacts);
   lBindingSource := nil;
-  lMaterializationStopwatch := TStopwatch.StartNew;
   try
-    lPlanFacts := Default(TRemoveWithPlanFacts);
-    lPlanFacts.ContextFingerprint := aSnapshot.ExactTextOf(
-      aSnapshot.RemoveWithPlanningContextFingerprintId);
-    lPlanFacts.LookupIndex := aSnapshot.RemoveWithPlanningLookupIndex;
-    lRoutineOwnerCount := aSnapshot.RemoveWithPlanningRoutineOwnerCount;
-    SetLength(lPlanFacts.Symbols, lRoutineOwnerCount);
-    for i := 0 to High(lPlanFacts.Symbols) do
-      lPlanFacts.Symbols[i] := SnapshotInventorySymbol(aSnapshot,
-        aSnapshot.RemoveWithPlanningRoutineOwnerByIndex(i));
-    lBindingSource := TSnapshotRemoveWithPlanBindingSource.Create(aSnapshot);
-  finally
-    lMaterializationStopwatch.Stop;
-    aMetrics.SnapshotBindingMaterializationMilliseconds :=
-      lMaterializationStopwatch.ElapsedMilliseconds;
-  end;
-  try
+    lMaterializationStopwatch := TStopwatch.StartNew;
+    try
+      lPlanFacts.ContextFingerprint := aSnapshot.ExactTextOf(
+        aSnapshot.RemoveWithPlanningContextFingerprintId);
+      lPlanFacts.LookupIndex := TPlannerLookupMemo.Create;
+      lPlanFacts.LookupIndex.Initialize(
+        aSnapshot.RemoveWithPlanningLookupIndex);
+      lRoutineOwnerCount := aSnapshot.RemoveWithPlanningRoutineOwnerCount;
+      SetLength(lPlanFacts.Symbols, lRoutineOwnerCount);
+      for i := 0 to High(lPlanFacts.Symbols) do
+        lPlanFacts.Symbols[i] := SnapshotInventorySymbol(aSnapshot,
+          aSnapshot.RemoveWithPlanningRoutineOwnerByIndex(i));
+      lBindingSource := TSnapshotRemoveWithPlanBindingSource.Create(aSnapshot);
+    finally
+      lMaterializationStopwatch.Stop;
+      aMetrics.SnapshotBindingMaterializationMilliseconds :=
+        lMaterializationStopwatch.ElapsedMilliseconds;
+    end;
     Result := PlanFromBindingSource(lPlanFacts, lBindingSource,
       'project-snapshot-v1', aMetrics);
   finally
     lBindingSource.Free;
+    lPlanFacts.LookupIndex.Free;
   end;
 end;
 

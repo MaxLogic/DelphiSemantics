@@ -1616,8 +1616,14 @@ begin
     'Detailed metrics must count real planner lookup requests.');
   Assert.IsTrue(lMetrics.LookupResultMaterializationCount > 0,
     'Detailed metrics must count public lookup result materializations.');
-  Assert.AreEqual(Int64(0), lMetrics.LookupResultReuseCount,
-    'P3 telemetry must measure the unoptimized planner before P4 reuse.');
+  Assert.IsTrue(lMetrics.LookupResultReuseCount > 0,
+    'The planner must reuse repeated lookup results within one plan.');
+  Assert.IsTrue(lMetrics.LookupResultMaterializationCount <
+    lMetrics.LookupRequestCount,
+    'Planner-private reuse must avoid materializing every lookup request.');
+  Assert.IsTrue(lMetrics.LookupRequestCount <= 80,
+    Format('Repeated routine-scope and owner-member decisions must reuse '
+    + 'lookups; actual=%d.', [lMetrics.LookupRequestCount]));
 end;
 
 procedure TRemoveWithPlanTests.SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;

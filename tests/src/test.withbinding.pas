@@ -34,6 +34,8 @@ type
     [Test]
     procedure ProjectSessionBuildsRemoveWithLookupIndex;
     [Test]
+    procedure RemoveWithLookupIndexReturnsIndependentMutableCopies;
+    [Test]
     procedure RemoveWithLookupIndexIncludesCompatibilityExternalSymbols;
     [Test]
     procedure BindingReferenceCacheUsesStatementPrefix;
@@ -325,6 +327,42 @@ begin
     Assert.IsTrue(HasLookupSymbol(lFacts.LookupIndex.FindSymbolsByOwnerType(
       'TProjectWithRecord'), 'Value', 'member'));
     Assert.IsTrue(lFacts.LookupIndex.Metrics.BuildMilliseconds >= 0);
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectWithBindingTests.RemoveWithLookupIndexReturnsIndependentMutableCopies;
+var
+  lExpectedName: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lFirst: TArray<TDelphiSemanticInventorySymbol>;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lSecond: TArray<TDelphiSemanticInventorySymbol>;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+    lFirst := lFacts.LookupIndex.FindMembersByOwnerAndName(
+      'TProjectWithRecord', 'Value');
+    lSecond := lFacts.LookupIndex.FindMembersByOwnerAndName(
+      'TProjectWithRecord', 'Value');
+
+    Assert.IsTrue(Length(lFirst) > 0);
+    Assert.AreEqual(Length(lFirst), Length(lSecond));
+    lExpectedName := lSecond[0].Name;
+    lFirst[0].Name := 'mutated-public-copy';
+    Assert.AreEqual(lExpectedName, lSecond[0].Name,
+      'A public lookup result must not alias an earlier mutable result.');
+    lSecond := lFacts.LookupIndex.FindMembersByOwnerAndName(
+      'TProjectWithRecord', 'Value');
+    Assert.AreEqual(lExpectedName, lSecond[0].Name,
+      'Mutating a public lookup result must not alter the lookup index.');
   finally
     lResult.Session.Free;
   end;
