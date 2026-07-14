@@ -24,6 +24,7 @@ type
     SnapshotBuildWorkerCount: Integer;
     UseLspEnrichment: Boolean;
     SkipWithBindingSemanticGraph: Boolean;
+    ForceFullIdentifierAnalysis: Boolean;
   end;
 
   TDelphiSemanticDiagnostic = record

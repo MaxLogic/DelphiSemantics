@@ -1,4 +1,4 @@
-unit Test.ProjectSession;
+﻿unit Test.ProjectSession;
 
 interface
 
@@ -33,6 +33,20 @@ type
     procedure OpensProjectSessionThroughExistingProjectContext;
     [Test]
     procedure ProjectSessionModelExtractionUsesSingleResultRecord;
+    [Test]
+    procedure IdentifierScopedQueryContractIsAdditiveAndForceFullIsInternal;
+    [Test]
+    procedure IdentifierCandidateCollectorFindsOnlyCodeTokens;
+    [Test]
+    procedure IdentifierCandidateCollectorIncludesLocalAndPrivateDeclarations;
+    [Test]
+    procedure IdentifierCandidateCollectorIncludesTransitiveAndSharedOwners;
+    [Test]
+    procedure IdentifierCandidateCollectorHandlesAliasesAndAmbiguity;
+    [Test]
+    procedure IdentifierCandidateCollectorFailsOpenForUnsafeInputs;
+    [Test]
+    procedure IdentifierScopedSessionMatchesForcedFullRename;
     [Test]
     procedure ProjectSessionSnapshotIdentityReusesUnitCacheIdentityRecord;
     [Test]
@@ -109,11 +123,13 @@ uses
   DelphiSemantics.Api.RemoveWith.Compatibility,
   DelphiSemantics.Cache,
   DelphiSemantics.GlobalVars,
+  DelphiSemantics.IdentifierScope,
   DelphiSemantics.Index,
   DelphiSemantics.Model,
   DelphiSemantics.ProjectContext,
   DelphiSemantics.ProjectSession,
   DelphiSemantics.Query,
+  DelphiSemantics.Refactor,
   Test.Support;
 
 var
@@ -139,6 +155,98 @@ end;
 function ProjectSessionTempPath(const aName: string): string;
 begin
   Result := TPath.Combine(ProjectSessionTempRoot, aName);
+end;
+
+type
+  TIdentifierScopePlanResult = record
+    Plan: TDelphiSemanticRenamePlan;
+    ScopeMetrics: TDelphiSemanticIdentifierScopeMetrics;
+  end;
+
+function CreateIdentifierScopeProject(const aRoot: string): string;
+var
+  lConsumerFileName: string;
+  lDprFileName: string;
+  lNoiseFileName: string;
+  lProviderFileName: string;
+begin
+  TDirectory.CreateDirectory(aRoot);
+  lDprFileName := TPath.Combine(aRoot, 'IdentifierScopeProject.dpr');
+  Result := TPath.Combine(aRoot, 'IdentifierScopeProject.dproj');
+  lProviderFileName := TPath.Combine(aRoot, 'IdentifierScopeProvider.pas');
+  lConsumerFileName := TPath.Combine(aRoot, 'IdentifierScopeConsumer.pas');
+  lNoiseFileName := TPath.Combine(aRoot, 'IdentifierScopeNoise.pas');
+  TFile.WriteAllText(lDprFileName, 'program IdentifierScopeProject;' +
+    sLineBreak + 'uses IdentifierScopeProvider, IdentifierScopeConsumer,' +
+    ' IdentifierScopeNoise;' + sLineBreak + 'begin' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+  TFile.WriteAllText(Result, '<Project>' + sLineBreak +
+    '  <PropertyGroup><MainSource>IdentifierScopeProject.dpr</MainSource>' +
+    '</PropertyGroup>' + sLineBreak + '  <ItemGroup>' + sLineBreak +
+    '    <DCCReference Include="IdentifierScopeProvider.pas"/>' + sLineBreak +
+    '    <DCCReference Include="IdentifierScopeConsumer.pas"/>' + sLineBreak +
+    '    <DCCReference Include="IdentifierScopeNoise.pas"/>' + sLineBreak +
+    '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+  TFile.WriteAllText(lProviderFileName, 'unit IdentifierScopeProvider;' +
+    sLineBreak + 'interface' + sLineBreak + 'var ScopeTarget: Integer;' +
+    sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lConsumerFileName, 'unit IdentifierScopeConsumer;' +
+    sLineBreak + 'interface' + sLineBreak + 'uses IdentifierScopeProvider;' +
+    sLineBreak + 'procedure TouchTarget;' + sLineBreak + 'implementation' +
+    sLineBreak + 'procedure TouchTarget;' + sLineBreak + 'begin' + sLineBreak +
+    '  ScopeTarget := ScopeTarget + 1;' + sLineBreak + 'end;' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lNoiseFileName, 'unit IdentifierScopeNoise;' + sLineBreak +
+    'interface' + sLineBreak + 'implementation' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+end;
+
+function BuildIdentifierScopePlan(const aOptions: TDelphiSemanticOptions):
+  TIdentifierScopePlanResult;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+begin
+  lSessionResult := TDelphiSemanticProjectSession.Open(aOptions);
+  try
+    Assert.IsTrue(lSessionResult.Success);
+    lContext := lSessionResult.Session.
+      BuildSnapshotSymbolQueryContextForIdentifier('ScopeTarget', lCacheMetrics,
+      lExtractionMilliseconds, Result.ScopeMetrics);
+    Result.Plan := TDelphiSemanticRenamePlanner.PlanRename(lContext,
+      'ScopeTarget', 'RenamedScopeTarget');
+  finally
+    lSessionResult.Session.Free;
+  end;
+end;
+
+procedure AssertRenamePlansEqual(const aExpected,
+  aActual: TDelphiSemanticRenamePlan);
+var
+  i: Integer;
+begin
+  Assert.AreEqual(aExpected.Status, aActual.Status);
+  Assert.AreEqual(aExpected.Diagnostic, aActual.Diagnostic);
+  Assert.AreEqual(aExpected.ContextFingerprint, aActual.ContextFingerprint);
+  Assert.AreEqual(Integer(Length(aExpected.Edits)),
+    Integer(Length(aActual.Edits)));
+  for i := 0 to High(aExpected.Edits) do
+  begin
+    Assert.AreEqual(aExpected.Edits[i].FileName, aActual.Edits[i].FileName);
+    Assert.AreEqual(aExpected.Edits[i].Role, aActual.Edits[i].Role);
+    Assert.AreEqual(aExpected.Edits[i].ExpectedFileHash,
+      aActual.Edits[i].ExpectedFileHash);
+    Assert.AreEqual(aExpected.Edits[i].ExpectedSourceText,
+      aActual.Edits[i].ExpectedSourceText);
+    Assert.AreEqual(aExpected.Edits[i].StartLine, aActual.Edits[i].StartLine);
+    Assert.AreEqual(aExpected.Edits[i].StartColumn,
+      aActual.Edits[i].StartColumn);
+    Assert.AreEqual(aExpected.Edits[i].EndLine, aActual.Edits[i].EndLine);
+    Assert.AreEqual(aExpected.Edits[i].EndColumn, aActual.Edits[i].EndColumn);
+    Assert.AreEqual(aExpected.Edits[i].NewText, aActual.Edits[i].NewText);
+  end;
 end;
 
 function BuildSnapshotWithMetrics(const aSession: TDelphiSemanticProjectSession;
@@ -693,6 +801,278 @@ begin
     'Wrapper-only extraction scope-mode fan-out should be removed.');
   Assert.IsFalse(ContainsText(lSource, lOutExtractionSignature),
     'ExtractProjectModels should not thread elapsed time and cache data through out parameters.');
+end;
+
+procedure TProjectSessionTests.IdentifierScopedQueryContractIsAdditiveAndForceFullIsInternal;
+var
+  lContextSource: string;
+  lSessionSource: string;
+begin
+  lContextSource := ReadRepoSource('src\DelphiSemantics.ProjectContext.pas');
+  lSessionSource := ReadRepoSource('src\DelphiSemantics.ProjectSession.pas');
+
+  Assert.IsTrue(ContainsText(lContextSource,
+    'ForceFullIdentifierAnalysis: Boolean'),
+    'The internal session option must make scoped/full parity testable.');
+  Assert.IsTrue(ContainsText(lSessionSource,
+    'TDelphiSemanticIdentifierScopeMetrics = record'),
+    'Identifier scoping must expose additive performance metrics.');
+  Assert.IsTrue(ContainsText(lSessionSource,
+    'BuildSnapshotSymbolQueryContextForIdentifier'),
+    'Name targets need an additive scoped-query session entry point.');
+  Assert.IsTrue(ContainsText(lSessionSource,
+    'TDelphiSemanticIdentifierCandidateCollector.Collect'),
+    'The session must delegate candidate semantics to the collector.');
+  Assert.IsTrue(ContainsText(lSessionSource,
+    'BuildSnapshotResult(lScope.SourceFileNames)'),
+    'The scoped query must reuse the existing full-plus-lean snapshot path.');
+end;
+
+procedure TProjectSessionTests.IdentifierCandidateCollectorFindsOnlyCodeTokens;
+var
+  lCandidateFileName: string;
+  lNoiseFileName: string;
+  lOtherFileName: string;
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticIdentifierScopeResult;
+  lRoot: string;
+begin
+  lRoot := ProjectSessionTempPath('identifier-code-tokens');
+  TDirectory.CreateDirectory(lRoot);
+  lCandidateFileName := TPath.Combine(lRoot, 'CandidateUnit.pas');
+  lNoiseFileName := TPath.Combine(lRoot, 'NoiseUnit.pas');
+  lOtherFileName := TPath.Combine(lRoot, 'OtherUnit.pas');
+  TFile.WriteAllText(lCandidateFileName, 'unit CandidateUnit;' + sLineBreak +
+    'interface' + sLineBreak + 'const tArGeTnAmE = 1;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lNoiseFileName, 'unit NoiseUnit;' + sLineBreak +
+    'interface' + sLineBreak + 'const TargetNameSuffix = 1;' + sLineBreak +
+    '  TextValue = ''TargetName''; // TargetName' + sLineBreak +
+    '{ TargetName } (* TargetName *)' + sLineBreak + 'implementation' +
+    sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lOtherFileName, 'unit OtherUnit;' + sLineBreak +
+    'interface' + sLineBreak + 'implementation' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lProject.ProjectDirectory := lRoot;
+  lProject.SourceFileNames := TArray<string>.Create(lCandidateFileName,
+    lNoiseFileName, lOtherFileName);
+  lProject.SearchPaths := TArray<string>.Create(lRoot);
+
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'TargetName');
+
+  Assert.IsTrue(lResult.UseScopedAnalysis);
+  Assert.IsFalse(lResult.FailOpen);
+  Assert.AreEqual(1, lResult.FullModelCount);
+  Assert.AreEqual(2, lResult.LeanModelCount);
+  Assert.AreEqual(1, Integer(Length(lResult.SourceFileNames)));
+  Assert.AreEqual(lCandidateFileName, lResult.SourceFileNames[0]);
+end;
+
+procedure TProjectSessionTests.
+  IdentifierCandidateCollectorIncludesLocalAndPrivateDeclarations;
+var
+  lFileName: string;
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticIdentifierScopeResult;
+  lRoot: string;
+begin
+  lRoot := ProjectSessionTempPath('identifier-local-private');
+  TDirectory.CreateDirectory(lRoot);
+  lFileName := TPath.Combine(lRoot, 'LocalPrivateUnit.pas');
+  TFile.WriteAllText(lFileName, 'unit LocalPrivateUnit;' + sLineBreak +
+    'interface' + sLineBreak + 'type TScopedType = class' + sLineBreak +
+    'private' + sLineBreak + '  fPrivateTarget: Integer;' + sLineBreak +
+    'end;' + sLineBreak + 'procedure TouchTarget;' + sLineBreak +
+    'implementation' + sLineBreak + 'procedure TouchTarget;' + sLineBreak +
+    'var' + sLineBreak + '  lLocalTarget: Integer;' + sLineBreak +
+    'begin' + sLineBreak + '  lLocalTarget := 0;' + sLineBreak + 'end;' +
+    sLineBreak + 'end.', TEncoding.UTF8);
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lProject.ProjectDirectory := lRoot;
+  lProject.SourceFileNames := TArray<string>.Create(lFileName);
+  lProject.SearchPaths := TArray<string>.Create(lRoot);
+
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'fPrivateTarget');
+  Assert.AreEqual(1, lResult.FullModelCount,
+    'Private declarations must retain their owning unit.');
+  Assert.AreEqual(lFileName, lResult.SourceFileNames[0]);
+
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'lLocalTarget');
+  Assert.AreEqual(1, lResult.FullModelCount,
+    'Local declarations must retain their owning unit.');
+  Assert.AreEqual(lFileName, lResult.SourceFileNames[0]);
+end;
+
+procedure TProjectSessionTests.
+  IdentifierCandidateCollectorIncludesTransitiveAndSharedOwners;
+var
+  lOtherFileName: string;
+  lOwnerOneFileName: string;
+  lOwnerTwoFileName: string;
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticIdentifierScopeResult;
+  lRoot: string;
+begin
+  lRoot := ProjectSessionTempPath('identifier-include-owners');
+  TDirectory.CreateDirectory(lRoot);
+  lOwnerOneFileName := TPath.Combine(lRoot, 'OwnerOne.pas');
+  lOwnerTwoFileName := TPath.Combine(lRoot, 'OwnerTwo.pas');
+  lOtherFileName := TPath.Combine(lRoot, 'OwnerOther.pas');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Direct.inc'), '{$I Shared.inc}',
+    TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Shared.inc'),
+    'const IncludeTarget = 1;', TEncoding.UTF8);
+  TFile.WriteAllText(lOwnerOneFileName, 'unit OwnerOne;' + sLineBreak +
+    'interface' + sLineBreak + '{$I Direct.inc}' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lOwnerTwoFileName, 'unit OwnerTwo;' + sLineBreak +
+    'interface' + sLineBreak + '{$I Shared.inc}' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lOtherFileName, 'unit OwnerOther;' + sLineBreak +
+    'interface' + sLineBreak + 'implementation' + sLineBreak + 'end.',
+    TEncoding.UTF8);
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lProject.ProjectDirectory := lRoot;
+  lProject.SourceFileNames := TArray<string>.Create(lOwnerOneFileName,
+    lOwnerTwoFileName, lOtherFileName);
+  lProject.SearchPaths := TArray<string>.Create(lRoot);
+
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'IncludeTarget');
+
+  Assert.IsTrue(lResult.UseScopedAnalysis);
+  Assert.IsFalse(lResult.FailOpen);
+  Assert.AreEqual(2, lResult.FullModelCount);
+  Assert.AreEqual(1, lResult.LeanModelCount);
+  Assert.AreEqual(2, Integer(Length(lResult.SourceFileNames)));
+  Assert.AreEqual(lOwnerOneFileName, lResult.SourceFileNames[0]);
+  Assert.AreEqual(lOwnerTwoFileName, lResult.SourceFileNames[1]);
+end;
+
+procedure TProjectSessionTests.IdentifierCandidateCollectorHandlesAliasesAndAmbiguity;
+var
+  lAliasFileName: string;
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticIdentifierScopeResult;
+  lRoot: string;
+begin
+  lRoot := ProjectSessionTempPath('identifier-aliases');
+  TDirectory.CreateDirectory(lRoot);
+  lAliasFileName := TPath.Combine(lRoot, 'AliasConsumer.pas');
+  TFile.WriteAllText(lAliasFileName, 'unit AliasConsumer;' + sLineBreak +
+    'interface' + sLineBreak + 'uses OldUnit;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lProject.ProjectDirectory := lRoot;
+  lProject.SourceFileNames := TArray<string>.Create(lAliasFileName);
+  lProject.SearchPaths := TArray<string>.Create(lRoot);
+  lProject.UnitAliases := TArray<string>.Create('OldUnit=NewUnit');
+
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'NewUnit');
+  Assert.IsTrue(lResult.UseScopedAnalysis);
+  Assert.IsFalse(lResult.FailOpen);
+  Assert.AreEqual(1, lResult.FullModelCount);
+
+  lProject.UnitAliases := TArray<string>.Create('OldUnit=NewUnit',
+    'OldUnit=DifferentUnit');
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'NewUnit');
+  Assert.IsTrue(lResult.FailOpen);
+  Assert.IsFalse(lResult.UseScopedAnalysis);
+  Assert.AreEqual(1, lResult.FullModelCount);
+  Assert.AreNotEqual('', lResult.FailOpenReason);
+end;
+
+procedure TProjectSessionTests.IdentifierCandidateCollectorFailsOpenForUnsafeInputs;
+var
+  lMissingFileName: string;
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticIdentifierScopeResult;
+  lRoot: string;
+  lUtf16FileName: string;
+begin
+  lRoot := ProjectSessionTempPath('identifier-unsafe-inputs');
+  TDirectory.CreateDirectory(lRoot);
+  lUtf16FileName := TPath.Combine(lRoot, 'Utf16Unit.pas');
+  lMissingFileName := TPath.Combine(lRoot, 'MissingUnit.pas');
+  TFile.WriteAllText(lUtf16FileName, 'unit Utf16Unit;' + sLineBreak +
+    'interface' + sLineBreak + 'implementation' + sLineBreak + 'end.',
+    TEncoding.Unicode);
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lProject.ProjectDirectory := lRoot;
+  lProject.SourceFileNames := TArray<string>.Create(lUtf16FileName);
+  lProject.SearchPaths := TArray<string>.Create(lRoot);
+
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'AsciiName');
+  Assert.IsTrue(lResult.FailOpen, 'UTF-16 must fail open to full analysis.');
+  Assert.AreEqual(1, lResult.FullModelCount);
+
+  lProject.SourceFileNames := TArray<string>.Create(lMissingFileName);
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'AsciiName');
+  Assert.IsTrue(lResult.FailOpen, 'Unreadable input must fail open.');
+
+  lProject.SourceFileNames := TArray<string>.Create(lUtf16FileName);
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'Náme');
+  Assert.IsTrue(lResult.FailOpen, 'Unicode identifiers must fail open.');
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'Unit.Name');
+  Assert.IsTrue(lResult.FailOpen, 'Non-simple identifiers must fail open.');
+
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'include-one'));
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'include-two'));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'include-one\Ambiguous.inc'),
+    'const AmbiguousTarget = 1;', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'include-two\Ambiguous.inc'),
+    'const AmbiguousTarget = 2;', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'AmbiguousOwner.pas'),
+    'unit AmbiguousOwner;' + sLineBreak +
+    'interface' + sLineBreak + '{$I Ambiguous.inc}' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lProject.SourceFileNames := TArray<string>.Create(
+    TPath.Combine(lRoot, 'AmbiguousOwner.pas'));
+  lProject.SearchPaths := TArray<string>.Create(
+    TPath.Combine(lRoot, 'include-one'), TPath.Combine(lRoot, 'include-two'));
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'AmbiguousTarget');
+  Assert.IsTrue(lResult.FailOpen, 'Ambiguous includes must fail open.');
+  Assert.AreEqual('ambiguous-include', lResult.FailOpenReason,
+    'Configured project search paths must participate in ambiguity checks.');
+end;
+
+procedure TProjectSessionTests.IdentifierScopedSessionMatchesForcedFullRename;
+var
+  lAutomatic: TIdentifierScopePlanResult;
+  lDprojFileName: string;
+  lForced: TIdentifierScopePlanResult;
+  lOptions: TDelphiSemanticOptions;
+  lRoot: string;
+begin
+  lRoot := ProjectSessionTempPath('identifier-scoped-session-parity');
+  lDprojFileName := CreateIdentifierScopeProject(lRoot);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojFileName;
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win32';
+  lAutomatic := BuildIdentifierScopePlan(lOptions);
+  lOptions.ForceFullIdentifierAnalysis := True;
+  lForced := BuildIdentifierScopePlan(lOptions);
+
+  Assert.IsFalse(lAutomatic.ScopeMetrics.FailOpen);
+  Assert.AreEqual(2, lAutomatic.ScopeMetrics.FullModelCount);
+  Assert.AreEqual(2, lAutomatic.ScopeMetrics.LeanModelCount);
+  Assert.IsTrue(lForced.ScopeMetrics.FailOpen);
+  Assert.AreEqual(4, lForced.ScopeMetrics.FullModelCount);
+  Assert.AreEqual(0, lForced.ScopeMetrics.LeanModelCount);
+  AssertRenamePlansEqual(lForced.Plan, lAutomatic.Plan);
 end;
 
 procedure TProjectSessionTests.ProjectSessionSnapshotIdentityReusesUnitCacheIdentityRecord;

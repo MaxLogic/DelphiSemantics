@@ -108,6 +108,14 @@ type
     SemanticPlanMilliseconds: Int64;
   end;
 
+  TDelphiSemanticIdentifierScopeMetrics = record
+    CandidateScanMilliseconds: Int64;
+    FullModelCount: Integer;
+    LeanModelCount: Integer;
+    FailOpen: Boolean;
+    FailOpenReason: string;
+  end;
+
   TDelphiSemanticProjectSession = class
   private
     fDiagnostics: TArray<TDelphiSemanticDiagnostic>;
@@ -137,6 +145,11 @@ type
     function BuildSemanticGraph: TDelphiSemanticSemanticGraph;
     function BuildSnapshotSymbolQueryContext(out aCacheMetrics:
       TDelphiSemanticCacheMetrics; out aExtractionMilliseconds: Int64):
+      TDelphiSemanticSymbolQueryContext;
+    function BuildSnapshotSymbolQueryContextForIdentifier(
+      const aIdentifier: string; out aCacheMetrics:
+      TDelphiSemanticCacheMetrics; out aExtractionMilliseconds: Int64;
+      out aScopeMetrics: TDelphiSemanticIdentifierScopeMetrics):
       TDelphiSemanticSymbolQueryContext;
     function BuildSymbolQueryContext(out aCacheMetrics: TDelphiSemanticCacheMetrics;
       out aExtractionMilliseconds: Int64): TDelphiSemanticSymbolQueryContext;
@@ -192,6 +205,7 @@ uses
   System.RegularExpressions, System.SysUtils,
   DelphiAST.ProjectIndexer,
   DelphiSemantics.Cache.Sqlite, DelphiSemantics.CompilerProfile,
+  DelphiSemantics.IdentifierScope,
   DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite,
   DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Source,
   MaxLogic.StrUtils;
@@ -1399,6 +1413,60 @@ begin
       fProject.CompilerProfileName);
     Result.UnitModel := lSnapshotResult.FailedModel;
     Result.ProjectSnapshot := TOwnedProjectSnapshotRef.Create(lSnapshotResult.Snapshot);
+    lSnapshotResult.Snapshot := nil;
+  finally
+    lSnapshotResult.Snapshot.Free;
+  end;
+end;
+
+function TDelphiSemanticProjectSession.
+  BuildSnapshotSymbolQueryContextForIdentifier(const aIdentifier: string;
+  out aCacheMetrics: TDelphiSemanticCacheMetrics;
+  out aExtractionMilliseconds: Int64;
+  out aScopeMetrics: TDelphiSemanticIdentifierScopeMetrics):
+  TDelphiSemanticSymbolQueryContext;
+var
+  lScope: TDelphiSemanticIdentifierScopeResult;
+  lSnapshotResult: TDelphiSemanticProjectSnapshotBuildResult;
+  lSourceFileNames: TArray<string>;
+begin
+  Result := Default(TDelphiSemanticSymbolQueryContext);
+  aCacheMetrics := Default(TDelphiSemanticCacheMetrics);
+  aExtractionMilliseconds := 0;
+  aScopeMetrics := Default(TDelphiSemanticIdentifierScopeMetrics);
+  lSourceFileNames := ProjectModelFileNames(fProject);
+  if fOptions.ForceFullIdentifierAnalysis then
+  begin
+    lScope := Default(TDelphiSemanticIdentifierScopeResult);
+    lScope.FailOpen := True;
+    lScope.FailOpenReason := 'forced-full-analysis';
+    lScope.FullModelCount := Length(lSourceFileNames);
+  end else
+    lScope := TDelphiSemanticIdentifierCandidateCollector.Collect(fProject,
+      lSourceFileNames, aIdentifier);
+
+  if lScope.UseScopedAnalysis then
+    lSnapshotResult := BuildSnapshotResult(lScope.SourceFileNames)
+  else
+    lSnapshotResult := BuildSnapshotResult;
+  try
+    aExtractionMilliseconds :=
+      lSnapshotResult.Metrics.SnapshotBuilderParseExtractMilliseconds +
+      lSnapshotResult.Metrics.SnapshotCacheUnitBuildMilliseconds;
+    aCacheMetrics := SnapshotBuildCacheMetricsAsSemanticCacheMetrics(fOptions,
+      lSnapshotResult.Metrics);
+    aScopeMetrics.CandidateScanMilliseconds :=
+      lScope.CandidateScanMilliseconds;
+    aScopeMetrics.FullModelCount := lScope.FullModelCount;
+    aScopeMetrics.LeanModelCount := lScope.LeanModelCount;
+    aScopeMetrics.FailOpen := lScope.FailOpen;
+    aScopeMetrics.FailOpenReason := lScope.FailOpenReason;
+    Result.CacheMetrics := aCacheMetrics;
+    Result.CompilerProfile := TDelphiSemanticCompilerProfileBuilder.DefaultProfile(
+      fProject.CompilerProfileName);
+    Result.UnitModel := lSnapshotResult.FailedModel;
+    Result.ProjectSnapshot := TOwnedProjectSnapshotRef.Create(
+      lSnapshotResult.Snapshot);
     lSnapshotResult.Snapshot := nil;
   finally
     lSnapshotResult.Snapshot.Free;
