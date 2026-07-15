@@ -1407,7 +1407,6 @@ end;
 
 procedure TCacheTests.CompilerProfileRtlSourceRootBuildsSharedUnitModels;
 var
-  i: Integer;
   lCache: TDelphiSemanticUnitCache;
   lCacheOptions: TDelphiSemanticCacheOptions;
   lCommonRoot: string;
@@ -1441,9 +1440,8 @@ begin
     'threadvar' + sLineBreak + '  FastRtlThreadGlobal: Integer;' + sLineBreak +
     'function FastMin(const A, B: Integer): Integer;' + sLineBreak +
     'implementation' + sLineBreak;
-  for i := 1 to 5000 do
-    lSource := lSource + 'this is intentionally not parsed as Delphi implementation body' +
-      sLineBreak;
+  lSource := lSource + DupeString(
+    'this is intentionally not parsed as Delphi implementation body' + sLineBreak, 5000);
   lSource := lSource + 'end.';
   TFile.WriteAllText(TPath.Combine(lCommonRoot, 'System.FastRtl.pas'), lSource, TEncoding.UTF8);
 

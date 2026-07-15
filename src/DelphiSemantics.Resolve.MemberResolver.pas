@@ -446,7 +446,7 @@ function TDelphiSemanticMemberIdentityIndexData.FilterCandidatesByArgumentTypes(
 var
   lCandidate: TDelphiSemanticMemberIdentity;
   lMatches: TDelphiSemanticMemberIdentityList;
-  lName: string;
+  lNameCount: Integer;
   lNameList: string;
   lParameterList: string;
   lParameterSegment: string;
@@ -475,8 +475,12 @@ begin
         s := StringReplace(s, 'const ', '', [rfIgnoreCase]);
         s := StringReplace(s, 'var ', '', [rfIgnoreCase]);
         s := StringReplace(s, 'out ', '', [rfIgnoreCase]);
-        for lName in lNameList.Split([',']) do
+        lNameCount := Length(lNameList.Split([',']));
+        while lNameCount > 0 do
+        begin
           lParameterTypes.Add(s.Trim);
+          Dec(lNameCount);
+        end;
       end;
       if lParameterTypes.Count = Length(aArgumentTypeNames) then
         if SameText(lParameterTypes[0], aArgumentTypeNames[0]) then

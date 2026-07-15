@@ -463,7 +463,7 @@ var
 begin
   if not SharedConnection(lConnectionObject, lError) then
     raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
-  lConnection := TFDConnection(lConnectionObject);
+  lConnection := lConnectionObject as TFDConnection;
   lOwnsTransaction := not lConnection.InTransaction;
   if lOwnsTransaction then
     lConnection.StartTransaction;
@@ -483,7 +483,7 @@ procedure TDelphiSemanticSnapshotSqliteCache.DeleteCacheKeyRows(const aConnectio
 var
   lConnection: TFDConnection;
 begin
-  lConnection := TFDConnection(aConnection);
+  lConnection := aConnection as TFDConnection;
   ExecWideSql(lConnection,
     'delete from snapshot_remove_with_binding_references where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection,
@@ -540,7 +540,7 @@ begin
   if not OpenConnection(lConnectionObject, lDriverLinkObject, lError) then
     raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
   try
-    lConnection := TFDConnection(lConnectionObject);
+    lConnection := lConnectionObject as TFDConnection;
     lConnection.ExecSQL('create table if not exists meta (' +
       'key_name text primary key not null, value_text text not null)');
     lVersion := QueryWideString(lConnection, 'select value_text from meta where key_name = ?',
@@ -667,7 +667,7 @@ var
 begin
   Result := False;
   aEntryBelongsToIdentity := False;
-  lQuery := NewQuery(TFDConnection(aConnection), 'select identity_key, source_file_name, ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select identity_key, source_file_name, ' +
     'file_hash, context_hash, include_graph_hash, schema_version from snapshot_units ' +
     'where cache_key = ?');
   try
@@ -715,7 +715,7 @@ var
 begin
   Result := False;
   aEntryBelongsToIdentity := False;
-  lQuery := NewQuery(TFDConnection(aConnection), 'select identity_key, source_file_name, ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select identity_key, source_file_name, ' +
     'file_hash, context_hash, include_graph_hash, schema_version from ' +
     'snapshot_project_remove_with_facts where cache_key = ?');
   try
@@ -759,7 +759,7 @@ var
   lTextValueField: TField;
 begin
   lExpectedId := 1;
-  lQuery := NewQuery(TFDConnection(aConnection), 'select string_id, text_value from ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select string_id, text_value from ' +
     'snapshot_exact_strings where cache_key = ? order by string_id');
   try
     lQuery.Params[0].AsWideString := aCacheKey;
@@ -814,7 +814,7 @@ var
   lWithIdField: TField;
 begin
   lExpectedId := 1;
-  lQuery := NewQuery(TFDConnection(aConnection), 'select reference_id, with_id, ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select reference_id, with_id, ' +
     'target_unit_id, target_symbol_id, name_id, receiver_type_id, type_id, classification_id, ' +
     'routine_id, section_kind_id, source_kind_id, lookup_source_id, reason_id, line, column, ' +
     'end_line, end_column from snapshot_references where cache_key = ? order by reference_id');
@@ -887,7 +887,7 @@ var
   lStopwatch: TStopwatch;
 begin
   lExpectedId := 1;
-  lQuery := NewQuery(TFDConnection(aConnection), 'select string_id, text_value from ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select string_id, text_value from ' +
     'snapshot_strings where cache_key = ? order by string_id');
   try
     lQuery.Params[0].AsWideString := aCacheKey;
@@ -940,7 +940,7 @@ var
   lVisibilityIdField: TField;
 begin
   lExpectedId := 1;
-  lQuery := NewQuery(TFDConnection(aConnection), 'select symbol_id, name_id, owner_type_id, ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select symbol_id, name_id, owner_type_id, ' +
     'type_id, routine_id, kind_id, section_kind_id, source_kind_id, visibility_id, ' +
     'signature_id, flags, line, column, end_line, end_column from snapshot_symbols ' +
     'where cache_key = ? order by symbol_id');
@@ -1049,7 +1049,7 @@ var
   lUnsupportedReferenceCountField: TField;
   lReferenceIndex: Integer;
 begin
-  lQuery := NewQuery(TFDConnection(aConnection), 'select context_fingerprint_id, ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select context_fingerprint_id, ' +
     'routine_owner_count, symbol_count, binding_count from snapshot_remove_with_facts ' +
     'where cache_key = ?');
   try
@@ -1074,7 +1074,7 @@ begin
     lQuery.Free;
   end;
 
-  lQuery := NewQuery(TFDConnection(aConnection), 'select name_id, symbol_class_id, kind_id, ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select name_id, symbol_class_id, kind_id, ' +
     'type_name_id, modifier_id, owner_name_id, owner_type_id, source_owner_type_id, ' +
     'related_type_name_id, routine_name_id, unit_name_id, file_name_id, section_kind_id, ' +
     'line, column, end_line, end_column, unsupported_reason_id, flags, ' +
@@ -1123,7 +1123,7 @@ begin
   if lLoadedRoutineOwnerCount <> lExpectedRoutineOwnerCount then
     raise Exception.Create('Snapshot remove-with routine owner row count mismatch.');
 
-  lQuery := NewQuery(TFDConnection(aConnection), 'select name_id, symbol_class_id, kind_id, ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select name_id, symbol_class_id, kind_id, ' +
     'type_name_id, modifier_id, owner_name_id, owner_type_id, source_owner_type_id, ' +
     'related_type_name_id, routine_name_id, unit_name_id, file_name_id, section_kind_id, ' +
     'line, column, end_line, end_column, unsupported_reason_id, flags, ' +
@@ -1172,7 +1172,7 @@ begin
   if lLoadedSymbolCount <> lExpectedSymbolCount then
     raise Exception.Create('Snapshot remove-with symbol row count mismatch.');
 
-  lQuery := NewQuery(TFDConnection(aConnection), 'select binding_index, semantic_id_id, ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select binding_index, semantic_id_id, ' +
     'provenance_id, file_name_id, unit_name_id, routine_name_id, line, column, end_line, ' +
     'end_column, body_line, body_column, body_end_line, body_end_column, selector_text_id, ' +
     'status_id, skip_reason_id, flags, member_reference_count, lexical_reference_count, ' +
@@ -1257,7 +1257,7 @@ begin
   if lLoadedBindingCount <> lExpectedBindingCount then
     raise Exception.Create('Snapshot remove-with binding row count mismatch.');
 
-  lQuery := NewQuery(TFDConnection(aConnection), 'select binding_index, selector_index, ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select binding_index, selector_index, ' +
     'selector_text_id, status_id, reason_code_id, type_name_id from ' +
     'snapshot_remove_with_binding_selectors where cache_key = ? order by binding_index, selector_index');
   try
@@ -1289,7 +1289,7 @@ begin
   if lLoadedSelectorCount <> lExpectedSelectorCount then
     raise Exception.Create('Snapshot remove-with selector row count mismatch.');
 
-  lQuery := NewQuery(TFDConnection(aConnection), 'select binding_index, reference_index, ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select binding_index, reference_index, ' +
     'semantic_id_id, name_id, classification_id, lookup_source_id, receiver_type_name_id, ' +
     'kind_id, type_name_id, reason_code_id, scope_conflict_kind_id, scope_conflict_name_id, ' +
     'line, column, end_line, end_column from snapshot_remove_with_binding_references ' +
@@ -1368,7 +1368,7 @@ begin
   aWithStatementCount := 0;
   aReferenceCount := 0;
   aParseAvoidedEstimateMilliseconds := 0;
-  lQuery := NewQuery(TFDConnection(aConnection), 'select unit_id, file_name_id, unit_name_id, ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select unit_id, file_name_id, unit_name_id, ' +
     'source_text_id, string_count, symbol_count, with_statement_count, reference_count, ' +
     'parse_avoided_estimate_ms from snapshot_units where cache_key = ? and identity_key = ?');
   try
@@ -1426,7 +1426,7 @@ var
   lWithId: TSemanticWithId;
 begin
   lExpectedId := 1;
-  lQuery := NewQuery(TFDConnection(aConnection), 'select with_id, routine_id, ' +
+  lQuery := NewQuery(aConnection as TFDConnection, 'select with_id, routine_id, ' +
     'selector_start_line, selector_start_column, body_start_line, body_start_column, ' +
     'body_end_line, body_end_column, flags from snapshot_with_statements where cache_key = ? ' +
     'order by with_id');
@@ -1520,7 +1520,7 @@ procedure TDelphiSemanticSnapshotSqliteCache.RebuildSnapshotTables(const aConnec
 var
   lConnection: TFDConnection;
 begin
-  lConnection := TFDConnection(aConnection);
+  lConnection := aConnection as TFDConnection;
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_binding_references');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_binding_selectors');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_bindings');
@@ -1577,7 +1577,7 @@ begin
   if aExactStrings = nil then
     Exit;
 
-  lConnection := TFDConnection(aConnection);
+  lConnection := aConnection as TFDConnection;
   lQuery := NewQuery(lConnection, 'insert into snapshot_exact_strings(cache_key, ' +
     'string_id, text_value) values (?, ?, ?)');
   try
@@ -1607,7 +1607,7 @@ var
   lQuery: TFDQuery;
   lReference: TSemanticReferenceFact;
 begin
-  lConnection := TFDConnection(aConnection);
+  lConnection := aConnection as TFDConnection;
   lQuery := NewQuery(lConnection, 'insert into snapshot_references(cache_key, unit_id, ' +
     'reference_id, with_id, target_unit_id, target_symbol_id, name_id, receiver_type_id, ' +
     'type_id, routine_id, section_kind_id, source_kind_id, classification_id, ' +
@@ -1719,7 +1719,7 @@ begin
   if (aSnapshot = nil) or not aSnapshot.HasRemoveWithPlanningFacts then
     Exit;
 
-  lConnection := TFDConnection(aConnection);
+  lConnection := aConnection as TFDConnection;
   lFacts := aSnapshot.RemoveWithPlanningFacts;
   lLookupSymbols := StoredInventorySymbols(aExactStrings, aLookupSymbols);
   lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_facts(cache_key, ' +
@@ -1862,7 +1862,7 @@ var
   lConnection: TFDConnection;
   lQuery: TFDQuery;
 begin
-  lConnection := TFDConnection(aConnection);
+  lConnection := aConnection as TFDConnection;
   lQuery := NewQuery(lConnection, 'insert into snapshot_strings(cache_key, string_id, ' +
     'text_value) values (?, ?, ?)');
   try
@@ -1892,7 +1892,7 @@ var
   lQuery: TFDQuery;
   lSymbol: TSemanticSymbolFact;
 begin
-  lConnection := TFDConnection(aConnection);
+  lConnection := aConnection as TFDConnection;
   lQuery := NewQuery(lConnection, 'insert into snapshot_symbols(cache_key, unit_id, ' +
     'symbol_id, name_id, owner_type_id, type_id, routine_id, kind_id, flags, line, column, ' +
     'end_line, end_column, section_kind_id, source_kind_id, visibility_id, signature_id) ' +
@@ -2049,7 +2049,7 @@ begin
   if not SharedConnection(lConnectionObject, lError) then
     raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
 
-  lConnection := TFDConnection(lConnectionObject);
+  lConnection := lConnectionObject as TFDConnection;
   lWriteStopwatch := TStopwatch.StartNew;
   lRetryStopwatch := TStopwatch.StartNew;
   repeat
@@ -2158,7 +2158,7 @@ begin
   if not SharedConnection(lConnectionObject, lError) then
     raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
 
-  lConnection := TFDConnection(lConnectionObject);
+  lConnection := lConnectionObject as TFDConnection;
   lWriteStopwatch := TStopwatch.StartNew;
   lRetryStopwatch := TStopwatch.StartNew;
   lExactStrings := TSemanticStringPool.Create(True);
@@ -2215,7 +2215,7 @@ var
   lConnection: TFDConnection;
   lQuery: TFDQuery;
 begin
-  lConnection := TFDConnection(aConnection);
+  lConnection := aConnection as TFDConnection;
   lQuery := NewQuery(lConnection, 'insert into snapshot_units(cache_key, identity_key, ' +
     'source_file_name, file_hash, context_hash, include_graph_hash, schema_version, ' +
     'stored_at_utc, unit_id, file_name_id, unit_name_id, source_text_id, string_count, ' +
@@ -2265,7 +2265,7 @@ var
   lQuery: TFDQuery;
   lWith: TSemanticWithStatementFact;
 begin
-  lConnection := TFDConnection(aConnection);
+  lConnection := aConnection as TFDConnection;
   lQuery := NewQuery(lConnection, 'insert into snapshot_with_statements(cache_key, ' +
     'unit_id, with_id, routine_id, selector_start_line, selector_start_column, ' +
     'body_start_line, body_start_column, body_end_line, body_end_column, flags) values ' +

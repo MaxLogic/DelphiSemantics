@@ -164,16 +164,20 @@ end;
 
 function ResolveTypeAlias(const aModel: TDelphiSemanticUnitModel; const aTypeName: string): string;
 var
-  i: Integer;
+  lDepth: Integer;
   lCurrent: string;
   lNext: string;
 begin
   lCurrent := aTypeName.Trim;
-  for i := 1 to 16 do
+  lDepth := 0;
+  while lDepth < 16 do
+  begin
     if TryFindTypeAlias(aModel, lCurrent, lNext) then
       lCurrent := lNext.Trim
     else
       Break;
+    Inc(lDepth);
+  end;
 
   Result := lCurrent;
 end;

@@ -534,7 +534,7 @@ begin
   try
     if not (lValue is TJSONObject) then
       Exit;
-    lObject := TJSONObject(lValue);
+    lObject := lValue as TJSONObject;
     Result.Success := JsonBool(lObject, 'Success');
     Result.FileName := JsonString(lObject, 'FileName');
     Result.UnitName := JsonString(lObject, 'UnitName');

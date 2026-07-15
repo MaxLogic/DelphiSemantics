@@ -256,6 +256,7 @@ var
   lAllFinished: Boolean;
   lStopwatch: TStopwatch;
 begin
+  Result := False;
   aUnfinishedWorkerIndex := -1;
   lStopwatch := TStopwatch.StartNew;
   while True do

@@ -419,7 +419,7 @@ begin
     raise Exception.Create(lError);
   end;
   try
-    lConnection := TFDConnection(lConnectionObject);
+    lConnection := lConnectionObject as TFDConnection;
     if UnitCacheSqliteSchemaReady(lConnection, lVersion) then
       Exit;
     if (lVersion <> '') and (lVersion <> cSqliteSchemaVersion) then
@@ -532,7 +532,7 @@ begin
     Exit;
   if not SharedConnection(lConnectionObject, lError) then
     Exit;
-  lConnection := TFDConnection(lConnectionObject);
+  lConnection := lConnectionObject as TFDConnection;
   Result := QueryInteger(lConnection, 'select count(*) from unit_models where identity_key = ?',
     aIdentity) > 0;
 end;
@@ -553,7 +553,7 @@ begin
     if not OpenConnection(lConnectionObject, lDriverLinkObject, lError, lBusy, lCorrupt) then
       raise Exception.Create('Could not reopen the SQLite cache database: ' + lError);
     try
-      lConnection := TFDConnection(lConnectionObject);
+      lConnection := lConnectionObject as TFDConnection;
       lConnection.ExecSQL('drop table if exists unit_models');
       lConnection.ExecSQL('drop table if exists meta');
       CreateUnitCacheSqliteSchema(lConnection);
@@ -582,7 +582,7 @@ begin
     Exit;
   if not SharedConnection(lConnectionObject, lError) then
     Exit;
-  lConnection := TFDConnection(lConnectionObject);
+  lConnection := lConnectionObject as TFDConnection;
   lProfile := QueryWideString(lConnection,
     'select compiler_profile_name from unit_models where identity_key = ? limit 1',
     aIdentity);
@@ -608,7 +608,7 @@ begin
     Exit;
   if not SharedConnection(lConnectionObject, lError) then
     Exit;
-  lConnection := TFDConnection(lConnectionObject);
+  lConnection := lConnectionObject as TFDConnection;
   lQuery := NewQuery(lConnection, 'insert or replace into unit_models(cache_key, identity_key, ' +
     'source_file_name, file_hash, delphi_version, configuration, platform, compiler_profile_name, ' +
     'schema_version, parser_version, model_version, include_graph_hash, context_hash, ' +
@@ -672,7 +672,7 @@ begin
     Exit;
   if not SharedConnection(lConnectionObject, lError) then
     Exit;
-  lConnection := TFDConnection(lConnectionObject);
+  lConnection := lConnectionObject as TFDConnection;
   lJson := QueryWideString(lConnection,
     'select model_json from unit_models where cache_key = ?', aKey);
   if lJson = '' then

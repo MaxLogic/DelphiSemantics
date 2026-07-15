@@ -193,7 +193,7 @@ begin
     and aSnapshot.TryGetExtension(cRemoveWithPlanningExtensionName, lExtension)
     and (lExtension is TRemoveWithPlanningFactsExtension);
   if Result then
-    aExtension := TRemoveWithPlanningFactsExtension(lExtension);
+    aExtension := lExtension as TRemoveWithPlanningFactsExtension;
 end;
 
 function TDelphiProjectSnapshotRemoveWithHelper.HasRemoveWithPlanningFacts: Boolean;

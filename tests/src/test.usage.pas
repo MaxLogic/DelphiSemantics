@@ -169,9 +169,8 @@ begin
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := lDprojPath;
 
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
-    lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
-    try
       Assert.IsTrue(lSessionResult.Success);
       lSnapshot := lSessionResult.Session.BuildSnapshot;
       try
@@ -205,10 +204,8 @@ begin
       finally
         lSnapshot.Free;
       end;
-    finally
-      lSessionResult.Session.Free;
-    end;
   finally
+    lSessionResult.Session.Free;
   end;
 end;
 

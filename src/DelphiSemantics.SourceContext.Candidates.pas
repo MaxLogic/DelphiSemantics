@@ -173,6 +173,7 @@ class function TDelphiSemanticSourceContextCandidates.TrySelectCandidateFromText
 var
   lIndex: Integer;
   lLineText: string;
+  lToken: string;
 begin
   aToken := '';
   aEnclosingSymbol := '';
@@ -187,9 +188,12 @@ begin
   lLineText := aLines[aTargetLineIndex];
   if (aColumn > 0) and TryExtractIdentifierAtColumn(lLineText, aColumn, aToken) then
     Exit(True);
-  if TryExtractQuotedIdentifier(aCandidateText, aToken) and TryFindIdentifierInContext(aLines, aToken,
-    aToken) then
-    Exit(True);
+  if TryExtractQuotedIdentifier(aCandidateText, aToken) then
+  begin
+    lToken := aToken;
+    if TryFindIdentifierInContext(aLines, lToken, aToken) then
+      Exit(True);
+  end;
   if TryExtractFirstIdentifierFromLine(lLineText, aToken) then
     Exit(True);
 
