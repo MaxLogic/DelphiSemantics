@@ -32,6 +32,7 @@ type
     TempDecisions: TArray<TFinalBodyRendererSelectorDecision>;
     ControlledStatement: Boolean;
     TrimmedBeforeOuterElse: Boolean;
+    UseArchitectureStableRoutineEndTrim: Boolean;
   end;
 
 function BuildFinalReplacementText(const aRequest: TFinalBodyRendererRequest;
@@ -80,7 +81,63 @@ begin
   end;
 end;
 
-function TrimTrailingEnclosingRoutineEnd(var aText: string;
+function TrimTrailingEnclosingRoutineEndOriginal(var aText: string): Boolean;
+var
+  lBeforeLastLine: string;
+  lLastBreak: Integer;
+  lLastLine: string;
+  lPreviousBreak: Integer;
+  lPreviousLine: string;
+  lText: string;
+begin
+  Result := False;
+  lText := aText;
+  while EndsText(sLineBreak, lText) do
+    Delete(lText, Length(lText) - Length(sLineBreak) + 1, Length(sLineBreak));
+  while (lText <> '') and CharInSet(lText[Length(lText)], [#10, #13]) do
+    Delete(lText, Length(lText), 1);
+  if EndsText(sLineBreak + 'END;', lText) then
+  begin
+    lBeforeLastLine := Copy(lText, 1,
+      Length(lText) - Length(sLineBreak + 'END;'));
+    lPreviousBreak := LastDelimiter(#10#13, lBeforeLastLine);
+    if lPreviousBreak > 0 then
+      lPreviousLine := Copy(lBeforeLastLine, lPreviousBreak + 1, MaxInt)
+    else
+      lPreviousLine := lBeforeLastLine;
+    if SameText(Trim(lPreviousLine), 'end') then
+    begin
+      aText := lBeforeLastLine + sLineBreak;
+      Exit(True);
+    end;
+  end;
+  lLastBreak := LastDelimiter(#10#13, lText);
+  if lLastBreak <= 0 then
+    Exit;
+  lLastLine := Copy(lText, lLastBreak + 1, MaxInt);
+  if SameText(Trim(lLastLine), 'end;') then
+  begin
+    lBeforeLastLine := Copy(lText, 1, lLastBreak - 1);
+    while EndsText(sLineBreak, lBeforeLastLine) do
+      Delete(lBeforeLastLine, Length(lBeforeLastLine) - Length(sLineBreak) + 1,
+        Length(sLineBreak));
+    while (lBeforeLastLine <> '') and
+      CharInSet(lBeforeLastLine[Length(lBeforeLastLine)], [#10, #13]) do
+      Delete(lBeforeLastLine, Length(lBeforeLastLine), 1);
+    lPreviousBreak := LastDelimiter(#10#13, lBeforeLastLine);
+    if lPreviousBreak > 0 then
+      lPreviousLine := Copy(lBeforeLastLine, lPreviousBreak + 1, MaxInt)
+    else
+      lPreviousLine := lBeforeLastLine;
+    if SameText(Trim(lPreviousLine), 'end') then
+    begin
+      aText := lBeforeLastLine + sLineBreak;
+      Exit(True);
+    end;
+  end;
+end;
+
+function TrimTrailingEnclosingRoutineEndStable(var aText: string;
   const aBindingColumn: Integer): Boolean;
 var
   lBeforeLastLine: string;
@@ -128,6 +185,16 @@ begin
       Exit(True);
     end;
   end;
+end;
+
+function TrimTrailingEnclosingRoutineEnd(var aText: string;
+  const aBindingColumn: Integer;
+  const aUseArchitectureStableTrim: Boolean): Boolean;
+begin
+  if aUseArchitectureStableTrim then
+    Result := TrimTrailingEnclosingRoutineEndStable(aText, aBindingColumn)
+  else
+    Result := TrimTrailingEnclosingRoutineEndOriginal(aText);
 end;
 
 procedure RemoveTrailingSemicolon(var aText: string);
@@ -220,7 +287,8 @@ begin
   end;
   if ((lTempText <> '') or (lControlledStatement and
     StartsText('begin', LowerCase(Trim(aRequest.BodyText))))) and
-    TrimTrailingEnclosingRoutineEnd(aReplacementText, lBinding.Column) then
+    TrimTrailingEnclosingRoutineEnd(aReplacementText, lBinding.Column,
+    aRequest.UseArchitectureStableRoutineEndTrim) then
   begin
     aReplacementRange.EndColumn := 1;
     if lTempText = '' then
@@ -238,7 +306,8 @@ begin
     (not IsSimplePointerDereferenceSelector(lBinding.SelectorText)) and
     (not ((Pos('[', lBinding.SelectorText) > 0) and
     ContainsText(lBinding.SelectorText, '^'))) and
-    TrimTrailingEnclosingRoutineEnd(aReplacementText, lBinding.Column) then
+    TrimTrailingEnclosingRoutineEnd(aReplacementText, lBinding.Column,
+    aRequest.UseArchitectureStableRoutineEndTrim) then
   begin
     if lBinding.Column > 2 then
       aReplacementRange.EndColumn := lBinding.Column - 2

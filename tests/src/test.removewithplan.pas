@@ -661,6 +661,7 @@ type
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsClearMarksSkipReason;
     [Test]
+    [Category('T614Parity')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsFlipMarkReplacement;
     [Test]
     [Category('MaxTdbProof')]
@@ -9192,6 +9193,11 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsFlipMarkReplacement;
 var
+  lCacheDir: string;
+  lCanonicalOptions: TDelphiSemanticApiOptions;
+  lCanonicalPlan: TDelphiSemanticRemoveWithPlan;
+  lCanonicalRequest: TDelphiSemanticRemoveWithRequest;
+  lCanonicalStatement: TDelphiSemanticRemoveWithFinalStatement;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lOptions: TDelphiSemanticApiOptions;
   lProjectDir: string;
@@ -9249,6 +9255,29 @@ begin
     'lWithMarkListPtr^.Anfang := p^.Rest'));
   Assert.AreEqual(lStatement.ReplacementText,
     lStatement.Edits[1].ReplacementText);
+
+  lCacheDir := TempPath('snapshot-planner-t614-parity-cache');
+  if TDirectory.Exists(lCacheDir) then
+    TDirectory.Delete(lCacheDir, True);
+  TDirectory.CreateDirectory(lCacheDir);
+  lCanonicalOptions := Default(TDelphiSemanticApiOptions);
+  lCanonicalOptions.ProjectFileName := DakFixturePath(
+    'test-projects\maxTdb\src\maxtdb.dpr');
+  lCanonicalOptions.Cache.SqliteCacheFileName := TPath.Combine(lCacheDir,
+    'semantic-cache.sqlite3');
+  lCanonicalRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lCanonicalRequest.Options := lCanonicalOptions;
+  lCanonicalRequest.BodyAnalysisSourceFileNames := TDirectory.GetFiles(
+    TPath.GetDirectoryName(lCanonicalOptions.ProjectFileName), '*.pas',
+    TSearchOption.soAllDirectories);
+  lCanonicalPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(
+    lCanonicalRequest);
+  Assert.AreEqual('project-snapshot-v1',
+    lCanonicalPlan.BaselineSemanticModelVersion);
+  Assert.IsTrue(FindFinalStatementAt(lCanonicalPlan, 'tdbutils.pas', 1134, 3,
+    lCanonicalStatement), 'Expected canonical maxTdb FlipMark statement.');
+  Assert.AreEqual('skipped', lCanonicalStatement.Status);
+  Assert.AreEqual('replace-statement-range-mismatch', lCanonicalStatement.Reason);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsMakeSelektReplacement;

@@ -318,6 +318,7 @@ type
     ContextFingerprint: string;
     LookupIndex: TPlannerLookupMemo;
     Symbols: TArray<TDelphiSemanticInventorySymbol>;
+    UseArchitectureStableRoutineEndTrim: Boolean;
   end;
 
   TRemoveWithPlanBindingSource = class abstract
@@ -4386,6 +4387,8 @@ begin
   lRequest.TempDecisions := RendererSelectorDecisions(aTempDecisions);
   lRequest.ControlledStatement := lControlledStatement;
   lRequest.TrimmedBeforeOuterElse := lTrimmedBeforeOuterElse;
+  lRequest.UseArchitectureStableRoutineEndTrim :=
+    aFacts.UseArchitectureStableRoutineEndTrim;
   Result := DelphiSemantics.RemoveWithPlan.FinalBodyRenderer.BuildFinalReplacementText(
     lRequest, aLineCache, aReplacementText, lRendererRange, aReason);
   aReplacementRange := PlannerRange(lRendererRange);
@@ -6071,6 +6074,7 @@ begin
   lPlanFacts := Default(TRemoveWithPlanFacts);
   lPlanFacts.ContextFingerprint := aFacts.ContextFingerprint;
   lPlanFacts.Symbols := aFacts.Symbols;
+  lPlanFacts.UseArchitectureStableRoutineEndTrim := True;
   lBindingSource := nil;
   try
     lPlanFacts.LookupIndex := TPlannerLookupMemo.Create;
