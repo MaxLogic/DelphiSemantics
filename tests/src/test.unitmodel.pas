@@ -118,6 +118,10 @@ type
     [Test]
     procedure ReferencesCarryOriginalSourceRanges;
     [Test]
+    procedure ReferenceReconciliationPreservesMixedLineEndings;
+    [Test]
+    procedure CoordinateMappingPreservesRangesAcrossModelKinds;
+    [Test]
     procedure ReferencesCarryOriginalSourceRangesWithoutFallbackForPlainSource;
     [Test]
     procedure ModelPropagatesSourceAndPreprocessDiagnostics;
@@ -142,9 +146,10 @@ type
 implementation
 
 uses
-  System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils,
+  AutoFree, maxLogic.IOUtils,
+  DelphiSemantics.Model.Coordinates,
   Test.Support;
 
 var
@@ -2091,6 +2096,144 @@ begin
     lSource)), 'string token');
   Assert.IsTrue(lModel.Metrics.ReferenceReconciliationFallbackCount <= 17,
     'preprocessed source should keep reference reconciliation fallback within the documented ceiling');
+end;
+
+procedure TUnitModelTests.ReferenceReconciliationPreservesMixedLineEndings;
+const
+  cSource = 'Token' + #13#10 + '  Token' + #10 + '{ Token' + #13#10 +
+    ' Token }' + #10 + '    Token';
+var
+  lMetrics: TDelphiSemanticUnitModelMetrics;
+  lReference: TDelphiSemanticReference;
+  lReferences: TList<TDelphiSemanticReference>;
+begin
+  lReferences := TList<TDelphiSemanticReference>.Create;
+  try
+    lMetrics := Default(TDelphiSemanticUnitModelMetrics);
+    ReconcileReferencesCoordinates('', lReferences, lMetrics);
+    Assert.AreEqual(0, lMetrics.ReferenceOccurrenceTableBuildCount);
+    lReference := Default(TDelphiSemanticReference);
+    lReference.Name := 'Token';
+    lReference.Line := 1;
+    lReference.Column := 1;
+    lReference.Offset := 1;
+    lReferences.Add(lReference);
+    lReference.Line := 2;
+    lReference.Column := 3;
+    lReference.Offset := 10;
+    lReferences.Add(lReference);
+    lReference.Line := 5;
+    lReference.Column := 4;
+    lReference.Offset := 0;
+    lReferences.Add(lReference);
+    ReconcileReferencesCoordinates(cSource, lReferences, lMetrics);
+    Assert.AreEqual(1, lReferences[0].Line);
+    Assert.AreEqual(1, lReferences[0].Column);
+    Assert.AreEqual(2, lReferences[1].Line);
+    Assert.AreEqual(3, lReferences[1].Column);
+    Assert.AreEqual(5, lReferences[2].Line);
+    Assert.AreEqual(5, lReferences[2].Column);
+    Assert.AreEqual(Length(cSource) - 4, lReferences[2].Offset);
+    Assert.AreEqual(Length(cSource) + 1, lReferences[2].EndOffset);
+    Assert.AreEqual(5, lReferences[2].EndLine);
+    Assert.AreEqual(9, lReferences[2].EndColumn);
+    Assert.AreEqual(1, lMetrics.ReferenceReconciliationFallbackCount);
+    Assert.AreEqual(1, lMetrics.ReferenceOccurrenceTableBuildCount);
+  finally
+    lReferences.Free;
+  end;
+end;
+
+procedure TUnitModelTests.CoordinateMappingPreservesRangesAcrossModelKinds;
+const
+  cSource = #$00FC + #13#10 + '  Token' + #10#10 + 'Token' + #13 + ' Z' + #10;
+  cLines: array[0..7] of Integer = (2, 99, 1, 0, 99, 99, 4, 99);
+  cColumns: array[0..7] of Integer = (3, 1, 6, 0, 1, 1, 1, 1);
+  cOffsets: array[0..7] of Integer = (1, 1, 1, 0, 2, 3, 999, 4);
+  cExpectedOffsets: array[0..7] of Integer = (6, 13, 6, 0, 2, 3, 13, 4);
+  cExpectedLines: array[0..7] of Integer = (2, 4, 2, 0, 99, 99, 4, 99);
+  cExpectedColumns: array[0..7] of Integer = (3, 1, 3, 0, 1, 1, 1, 1);
+var
+  g: TGarbos;
+  i: Integer;
+  lOffsetMap: TArray<Integer>;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lDeclarations: TList<TDelphiSemanticDeclaration>;
+  lMember: TDelphiSemanticMember;
+  lMembers: TList<TDelphiSemanticMember>;
+  lRoutine: TDelphiSemanticRoutine;
+  lRoutines: TList<TDelphiSemanticRoutine>;
+  lLocal: TDelphiSemanticLocal;
+  lLocals: TList<TDelphiSemanticLocal>;
+  lReference: TDelphiSemanticReference;
+  lReferences: TList<TDelphiSemanticReference>;
+begin
+  GC(lDeclarations, TList<TDelphiSemanticDeclaration>.Create, g);
+  GC(lMembers, TList<TDelphiSemanticMember>.Create, g);
+  GC(lRoutines, TList<TDelphiSemanticRoutine>.Create, g);
+  GC(lLocals, TList<TDelphiSemanticLocal>.Create, g);
+  GC(lReferences, TList<TDelphiSemanticReference>.Create, g);
+  SetLength(lOffsetMap, 5);
+  lOffsetMap[1] := 13;
+  lOffsetMap[2] := 0;
+  lOffsetMap[3] := 1;
+  lOffsetMap[4] := Length(cSource) + 1;
+  for i := Low(cLines) to High(cLines) do
+  begin
+    lDeclaration := Default(TDelphiSemanticDeclaration);
+    lDeclaration.Name := 'Token';
+    lDeclaration.Line := cLines[i];
+    lDeclaration.Column := cColumns[i];
+    lDeclaration.Offset := cOffsets[i];
+    lDeclarations.Add(lDeclaration);
+    lMember := Default(TDelphiSemanticMember);
+    lMember.Name := 'Token';
+    lMember.Line := cLines[i];
+    lMember.Column := cColumns[i];
+    lMember.Offset := cOffsets[i];
+    lMembers.Add(lMember);
+    lRoutine := Default(TDelphiSemanticRoutine);
+    lRoutine.Name := 'Token';
+    lRoutine.Line := cLines[i];
+    lRoutine.Column := cColumns[i];
+    lRoutine.Offset := cOffsets[i];
+    lRoutines.Add(lRoutine);
+    lLocal := Default(TDelphiSemanticLocal);
+    lLocal.Name := 'Token';
+    lLocal.Line := cLines[i];
+    lLocal.Column := cColumns[i];
+    lLocal.Offset := cOffsets[i];
+    lLocals.Add(lLocal);
+    lReference := Default(TDelphiSemanticReference);
+    lReference.Name := 'Token';
+    lReference.Line := cLines[i];
+    lReference.Column := cColumns[i];
+    lReference.Offset := cOffsets[i];
+    lReferences.Add(lReference);
+  end;
+  ApplyDeclarationSourceOffsetMap(cSource, lOffsetMap, lDeclarations);
+  ApplyMemberSourceOffsetMap(cSource, lOffsetMap, lMembers);
+  ApplyRoutineSourceOffsetMap(cSource, lOffsetMap, lRoutines);
+  ApplyLocalSourceOffsetMap(cSource, lOffsetMap, lLocals);
+  ApplyReferenceSourceOffsetMap(cSource, lOffsetMap, lReferences);
+  for i := Low(cLines) to High(cLines) do
+  begin
+    Assert.AreEqual(cExpectedOffsets[i], lDeclarations[i].Offset, 'Declaration ' + i.ToString);
+    Assert.AreEqual(cExpectedLines[i], lDeclarations[i].Line, 'Declaration ' + i.ToString);
+    Assert.AreEqual(cExpectedColumns[i], lDeclarations[i].Column, 'Declaration ' + i.ToString);
+    Assert.AreEqual(cExpectedOffsets[i], lMembers[i].Offset, 'Member ' + i.ToString);
+    Assert.AreEqual(cExpectedLines[i], lMembers[i].Line, 'Member ' + i.ToString);
+    Assert.AreEqual(cExpectedColumns[i], lMembers[i].Column, 'Member ' + i.ToString);
+    Assert.AreEqual(cExpectedOffsets[i], lRoutines[i].Offset, 'Routine ' + i.ToString);
+    Assert.AreEqual(cExpectedLines[i], lRoutines[i].Line, 'Routine ' + i.ToString);
+    Assert.AreEqual(cExpectedColumns[i], lRoutines[i].Column, 'Routine ' + i.ToString);
+    Assert.AreEqual(cExpectedOffsets[i], lLocals[i].Offset, 'Local ' + i.ToString);
+    Assert.AreEqual(cExpectedLines[i], lLocals[i].Line, 'Local ' + i.ToString);
+    Assert.AreEqual(cExpectedColumns[i], lLocals[i].Column, 'Local ' + i.ToString);
+    Assert.AreEqual(cExpectedOffsets[i], lReferences[i].Offset, 'Reference ' + i.ToString);
+    Assert.AreEqual(cExpectedLines[i], lReferences[i].Line, 'Reference ' + i.ToString);
+    Assert.AreEqual(cExpectedColumns[i], lReferences[i].Column, 'Reference ' + i.ToString);
+  end;
 end;
 
 procedure TUnitModelTests.ReferencesCarryOriginalSourceRangesWithoutFallbackForPlainSource;

@@ -50,6 +50,8 @@ type
     [Test]
     procedure IdentifierScopedSessionMatchesForcedFullRename;
     [Test]
+    procedure IdentifierScopedRenameMatchesColdWarmAndInvalidatedCache;
+    [Test]
     procedure ProjectSessionSnapshotIdentityReusesUnitCacheIdentityRecord;
     [Test]
     procedure ProjectSessionGlobalAnalysisUsesSnapshotAuthority;
@@ -190,7 +192,8 @@ begin
     '    <DCCReference Include="IdentifierScopeNoise.pas"/>' + sLineBreak +
     '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
   TFile.WriteAllText(lProviderFileName, 'unit IdentifierScopeProvider;' +
-    sLineBreak + 'interface' + sLineBreak + 'var ScopeTarget: Integer;' +
+    sLineBreak + 'interface' + sLineBreak + 'var' + sLineBreak +
+    '  ScopeTarget: Integer;' +
     sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
   TFile.WriteAllText(lConsumerFileName, 'unit IdentifierScopeConsumer;' +
     sLineBreak + 'interface' + sLineBreak + 'uses IdentifierScopeProvider;' +
@@ -1102,6 +1105,8 @@ begin
   lOptions.ForceFullIdentifierAnalysis := True;
   lForced := BuildIdentifierScopePlan(lOptions);
 
+  Assert.AreEqual('planned', lAutomatic.Plan.Status, lAutomatic.Plan.Diagnostic);
+  Assert.AreEqual(3, Integer(Length(lAutomatic.Plan.Edits)));
   Assert.IsFalse(lAutomatic.ScopeMetrics.FailOpen);
   Assert.AreEqual(2, lAutomatic.ScopeMetrics.FullModelCount);
   Assert.AreEqual(2, lAutomatic.ScopeMetrics.LeanModelCount);
@@ -1109,6 +1114,41 @@ begin
   Assert.AreEqual(4, lForced.ScopeMetrics.FullModelCount);
   Assert.AreEqual(0, lForced.ScopeMetrics.LeanModelCount);
   AssertRenamePlansEqual(lForced.Plan, lAutomatic.Plan);
+end;
+
+procedure TProjectSessionTests.IdentifierScopedRenameMatchesColdWarmAndInvalidatedCache;
+var
+  lCached: TIdentifierScopePlanResult;
+  lCacheFileName: string;
+  lConsumerFileName: string;
+  lExpected: TIdentifierScopePlanResult;
+  lOptions: TDelphiSemanticOptions;
+  lRoot: string;
+begin
+  lRoot := ProjectSessionTempPath('identifier-scoped-cache-parity');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := CreateIdentifierScopeProject(lRoot);
+  lOptions.Configuration := 'Release';
+  lOptions.Platform := 'Win64';
+  lCacheFileName := CombinePath([lRoot, '.dak', 'semantic-cache.sqlite3']);
+  lExpected := BuildIdentifierScopePlan(lOptions);
+  Assert.AreEqual('planned', lExpected.Plan.Status, lExpected.Plan.Diagnostic);
+  Assert.AreEqual(3, Integer(Length(lExpected.Plan.Edits)));
+  lOptions.SqliteCacheFileName := lCacheFileName;
+  lCached := BuildIdentifierScopePlan(lOptions);
+  AssertRenamePlansEqual(lExpected.Plan, lCached.Plan);
+  lCached := BuildIdentifierScopePlan(lOptions);
+  AssertRenamePlansEqual(lExpected.Plan, lCached.Plan);
+
+  lConsumerFileName := TPath.Combine(lRoot, 'IdentifierScopeConsumer.pas');
+  TFile.WriteAllText(lConsumerFileName,
+    StringReplace(TFile.ReadAllText(lConsumerFileName),
+      'ScopeTarget + 1', 'ScopeTarget + ScopeTarget', []), TEncoding.UTF8);
+  lCached := BuildIdentifierScopePlan(lOptions);
+  lOptions.SqliteCacheFileName := '';
+  lExpected := BuildIdentifierScopePlan(lOptions);
+  Assert.AreEqual(4, Integer(Length(lExpected.Plan.Edits)));
+  AssertRenamePlansEqual(lExpected.Plan, lCached.Plan);
 end;
 
 procedure TProjectSessionTests.ProjectSessionSnapshotIdentityReusesUnitCacheIdentityRecord;

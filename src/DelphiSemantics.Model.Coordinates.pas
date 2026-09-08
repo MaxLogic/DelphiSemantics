@@ -36,6 +36,19 @@ uses
   DelphiSemantics.Model.Text;
 
 type
+  TSourceCoordinateIndex = record
+  private
+    fSourceText: string;
+    fLineStarts: TArray<Integer>;
+    function LineIndexForOffset(const aOffset: Integer): Integer;
+  public
+    procedure Initialize(const aSourceText: string);
+    procedure CoordinatesAtOffset(const aOffset: Integer; out aLine, aColumn: Integer);
+    function LineOfOffset(const aOffset: Integer): Integer;
+    function ColumnOfOffset(const aOffset: Integer): Integer;
+    function OffsetOfLineColumn(const aLine, aColumn: Integer): Integer;
+  end;
+
   TReferenceCoordinateCandidate = record
     Offset: Integer;
     Line: Integer;
@@ -45,78 +58,93 @@ type
   TReferenceCandidateList = TList<TReferenceCoordinateCandidate>;
   TReferenceOccurrenceIndex = TObjectDictionary<string, TReferenceCandidateList>;
 
-function LineIndexOfOffset(const aText: string; const aOffset: Integer): Integer;
+procedure TSourceCoordinateIndex.Initialize(const aSourceText: string);
 var
   i: Integer;
-  lOffset: Integer;
+  lCount: Integer;
+begin
+  fSourceText := aSourceText;
+  lCount := 1;
+  for i := 1 to Length(fSourceText) do
+    if fSourceText[i] = #10 then
+      Inc(lCount);
+  SetLength(fLineStarts, lCount);
+  fLineStarts[0] := 1;
+  lCount := 1;
+  for i := 1 to Length(fSourceText) do
+    if fSourceText[i] = #10 then
+    begin
+      fLineStarts[lCount] := i + 1;
+      Inc(lCount);
+    end;
+end;
+
+function TSourceCoordinateIndex.LineIndexForOffset(const aOffset: Integer): Integer;
+var
+  lHigh: Integer;
+  lMiddle: Integer;
 begin
   Result := 0;
+  lHigh := High(fLineStarts);
+  while Result < lHigh do
+  begin
+    lMiddle := Result + (lHigh - Result + 1) div 2;
+    if fLineStarts[lMiddle] <= aOffset then
+      Result := lMiddle
+    else
+      lHigh := lMiddle - 1;
+  end;
+end;
+
+function TSourceCoordinateIndex.LineOfOffset(const aOffset: Integer): Integer;
+var
+  lOffset: Integer;
+begin
   lOffset := aOffset;
   if lOffset < 1 then
     lOffset := 1;
-  if lOffset > Length(aText) then
-    lOffset := Length(aText);
-  if (lOffset > 0) and (lOffset <= Length(aText)) and (aText[lOffset] = #10) then
-    Inc(lOffset);
-
-  for i := 1 to lOffset - 1 do
-    if aText[i] = #10 then
-      Inc(Result);
+  if lOffset > Length(fSourceText) then
+    lOffset := Length(fSourceText);
+  Result := LineIndexForOffset(lOffset) + 1;
+  // Keep the existing LF boundary contract: LF belongs to the next line.
+  if (lOffset > 0) and (fSourceText[lOffset] = #10) then
+    Inc(Result);
 end;
 
-function LineOfOffset(const aText: string; const aOffset: Integer): Integer;
+function TSourceCoordinateIndex.ColumnOfOffset(const aOffset: Integer): Integer;
 begin
-  Result := LineIndexOfOffset(aText, aOffset) + 1;
-end;
-
-function ColumnOfOffset(const aText: string; const aOffset: Integer): Integer;
-var
-  i: Integer;
-  lStartOffset: Integer;
-begin
-  lStartOffset := 1;
-  for i := 1 to aOffset - 1 do
-    if aText[i] = #10 then
-      lStartOffset := i + 1;
-  Result := aOffset - lStartOffset + 1;
+  Result := aOffset - fLineStarts[LineIndexForOffset(aOffset)] + 1;
   if Result < 1 then
     Result := 1;
 end;
 
-function OffsetOfLineColumn(const aText: string; const aLine, aColumn: Integer): Integer;
+procedure TSourceCoordinateIndex.CoordinatesAtOffset(const aOffset: Integer;
+  out aLine, aColumn: Integer);
 var
-  i: Integer;
-  lLine: Integer;
-  lLineStart: Integer;
+  lLineIndex: Integer;
+begin
+  lLineIndex := LineIndexForOffset(aOffset);
+  aColumn := aOffset - fLineStarts[lLineIndex] + 1;
+  if aColumn < 1 then
+    aColumn := 1;
+  aLine := lLineIndex + 1;
+  if (aOffset < 1) or (aOffset > Length(fSourceText)) then
+    aLine := LineOfOffset(aOffset)
+  else if fSourceText[aOffset] = #10 then
+    Inc(aLine);
+end;
+
+function TSourceCoordinateIndex.OffsetOfLineColumn(const aLine, aColumn: Integer): Integer;
+var
+  lStartOffset: Integer;
 begin
   Result := 0;
-  if (aLine <= 0) or (aColumn <= 0) then
+  if (aLine <= 0) or (aLine > Length(fLineStarts)) or (aColumn <= 0) then
     Exit;
-
-  lLine := 1;
-  lLineStart := 1;
-  for i := 1 to Length(aText) do
-  begin
-    if lLine = aLine then
-    begin
-      Result := lLineStart + aColumn - 1;
-      if Result > Length(aText) then
-        Result := 0;
-      Exit;
-    end;
-    if aText[i] = #10 then
-    begin
-      Inc(lLine);
-      lLineStart := i + 1;
-    end;
-  end;
-
-  if lLine = aLine then
-  begin
-    Result := lLineStart + aColumn - 1;
-    if Result > Length(aText) then
-      Result := 0;
-  end;
+  lStartOffset := fLineStarts[aLine - 1];
+  // Columns may cross a line boundary, but never the end of the source.
+  if aColumn <= Length(fSourceText) - lStartOffset + 1 then
+    Result := lStartOffset + aColumn - 1;
 end;
 
 function FindSectionKeywordOffset(const aLowerText, aKeyword: string): Integer;
@@ -154,16 +182,14 @@ begin
   Result.FinalizationOffset := FindSectionKeywordOffset(lLowerText, 'finalization');
 end;
 
-function SectionForOffset(const aText: string; const aOffset: Integer): string;
-var
-  lSections: TDelphiSemanticSourceSections;
+function SectionForOffset(const aSections: TDelphiSemanticSourceSections;
+  const aOffset: Integer): string;
 begin
-  lSections := BuildSourceSections(aText);
-  if (lSections.FinalizationOffset > 0) and (aOffset >= lSections.FinalizationOffset) then
+  if (aSections.FinalizationOffset > 0) and (aOffset >= aSections.FinalizationOffset) then
     Exit('finalization');
-  if (lSections.InitializationOffset > 0) and (aOffset >= lSections.InitializationOffset) then
+  if (aSections.InitializationOffset > 0) and (aOffset >= aSections.InitializationOffset) then
     Exit('initialization');
-  if (lSections.ImplementationOffset > 0) and (aOffset >= lSections.ImplementationOffset) then
+  if (aSections.ImplementationOffset > 0) and (aOffset >= aSections.ImplementationOffset) then
     Exit('implementation');
 
   Result := 'interface';
@@ -172,6 +198,7 @@ end;
 procedure ReconcileDeclarationCoordinates(const aSourceText: string;
   const aDeclarations: TList<TDelphiSemanticDeclaration>);
 var
+  lCoordinates: TSourceCoordinateIndex;
   i: Integer;
   lBestColumn: Integer;
   lBestDistance: Integer;
@@ -183,6 +210,9 @@ var
   lDeclaration: TDelphiSemanticDeclaration;
   lMatch: TMatch;
 begin
+  if aDeclarations.Count = 0 then
+    Exit;
+  lCoordinates.Initialize(aSourceText);
   for i := 0 to Pred(aDeclarations.Count) do
   begin
     lDeclaration := aDeclarations[i];
@@ -190,8 +220,8 @@ begin
       Length(aSourceText)) and SameText(Copy(aSourceText, lDeclaration.Offset,
       Length(lDeclaration.Name)), lDeclaration.Name) then
     begin
-      lDeclaration.Line := LineOfOffset(aSourceText, lDeclaration.Offset);
-      lDeclaration.Column := ColumnOfOffset(aSourceText, lDeclaration.Offset);
+      lDeclaration.Line := lCoordinates.LineOfOffset(lDeclaration.Offset);
+      lDeclaration.Column := lCoordinates.ColumnOfOffset(lDeclaration.Offset);
       aDeclarations[i] := lDeclaration;
       Continue;
     end;
@@ -204,8 +234,8 @@ begin
     while lMatch.Success do
     begin
       lCandidateOffset := lMatch.Index + Length(lMatch.Groups[1].Value);
-      lCandidateLine := LineOfOffset(aSourceText, lCandidateOffset);
-      lCandidateColumn := ColumnOfOffset(aSourceText, lCandidateOffset);
+      lCandidateLine := lCoordinates.LineOfOffset(lCandidateOffset);
+      lCandidateColumn := lCoordinates.ColumnOfOffset(lCandidateOffset);
       lCandidateDistance := Abs(lCandidateLine - lDeclaration.Line);
       if lCandidateDistance < lBestDistance then
       begin
@@ -269,14 +299,20 @@ end;
 procedure ApplyReferenceSourceOffsetMap(const aSourceText: string; const aOffsetMap:
   TArray<Integer>; const aReferences: TList<TDelphiSemanticReference>);
 var
+  lCoordinates: TSourceCoordinateIndex;
   i: Integer;
   lMappedOffset: Integer;
   lReference: TDelphiSemanticReference;
+  lSections: TDelphiSemanticSourceSections;
 begin
+  if aReferences.Count = 0 then
+    Exit;
+  lCoordinates.Initialize(aSourceText);
+  lSections := BuildSourceSections(aSourceText);
   for i := 0 to Pred(aReferences.Count) do
   begin
     lReference := aReferences[i];
-    lMappedOffset := OffsetOfLineColumn(aSourceText, lReference.Line, lReference.Column);
+    lMappedOffset := lCoordinates.OffsetOfLineColumn(lReference.Line, lReference.Column);
     if ((lMappedOffset <= 0) or (lMappedOffset + Length(lReference.Name) - 1 >
       Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
       Length(lReference.Name)), lReference.Name)) and (Length(aOffsetMap) > 0) and
@@ -290,11 +326,11 @@ begin
 
     lReference.Offset := lMappedOffset;
     lReference.EndOffset := lMappedOffset + Length(lReference.Name);
-    lReference.Line := LineOfOffset(aSourceText, lMappedOffset);
-    lReference.Column := ColumnOfOffset(aSourceText, lMappedOffset);
+    lReference.Line := lCoordinates.LineOfOffset(lMappedOffset);
+    lReference.Column := lCoordinates.ColumnOfOffset(lMappedOffset);
     lReference.EndLine := lReference.Line;
     lReference.EndColumn := lReference.Column + Length(lReference.Name) - 1;
-    lReference.SectionKind := SectionForOffset(aSourceText, lMappedOffset);
+    lReference.SectionKind := SectionForOffset(lSections, lMappedOffset);
     aReferences[i] := lReference;
   end;
 end;
@@ -308,25 +344,29 @@ begin
 end;
 
 procedure AssignRoutineSourceRange(var aRoutine: TDelphiSemanticRoutine;
-  const aSourceText: string; const aOffset: Integer);
+  const aCoordinates: TSourceCoordinateIndex; const aOffset: Integer);
 begin
   aRoutine.Offset := aOffset;
   aRoutine.EndOffset := aOffset + Length(aRoutine.Name);
-  aRoutine.Line := LineOfOffset(aSourceText, aOffset);
-  aRoutine.Column := ColumnOfOffset(aSourceText, aOffset);
+  aRoutine.Line := aCoordinates.LineOfOffset(aOffset);
+  aRoutine.Column := aCoordinates.ColumnOfOffset(aOffset);
 end;
 
 procedure ApplyRoutineSourceOffsetMap(const aSourceText: string; const aOffsetMap:
   TArray<Integer>; const aRoutines: TList<TDelphiSemanticRoutine>);
 var
+  lCoordinates: TSourceCoordinateIndex;
   i: Integer;
   lMappedOffset: Integer;
   lRoutine: TDelphiSemanticRoutine;
 begin
+  if aRoutines.Count = 0 then
+    Exit;
+  lCoordinates.Initialize(aSourceText);
   for i := 0 to Pred(aRoutines.Count) do
   begin
     lRoutine := aRoutines[i];
-    lMappedOffset := OffsetOfLineColumn(aSourceText, lRoutine.Line, lRoutine.Column);
+    lMappedOffset := lCoordinates.OffsetOfLineColumn(lRoutine.Line, lRoutine.Column);
     if ((lMappedOffset <= 0) or (lMappedOffset + Length(lRoutine.Name) - 1 >
       Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
       Length(lRoutine.Name)), lRoutine.Name)) and (Length(aOffsetMap) > 0) and
@@ -338,7 +378,7 @@ begin
       Length(lRoutine.Name)), lRoutine.Name) then
       Continue;
 
-    AssignRoutineSourceRange(lRoutine, aSourceText, lMappedOffset);
+    AssignRoutineSourceRange(lRoutine, lCoordinates, lMappedOffset);
     aRoutines[i] := lRoutine;
   end;
 end;
@@ -346,14 +386,18 @@ end;
 procedure ApplyDeclarationSourceOffsetMap(const aSourceText: string; const aOffsetMap:
   TArray<Integer>; const aDeclarations: TList<TDelphiSemanticDeclaration>);
 var
+  lCoordinates: TSourceCoordinateIndex;
   i: Integer;
   lDeclaration: TDelphiSemanticDeclaration;
   lMappedOffset: Integer;
 begin
+  if aDeclarations.Count = 0 then
+    Exit;
+  lCoordinates.Initialize(aSourceText);
   for i := 0 to Pred(aDeclarations.Count) do
   begin
     lDeclaration := aDeclarations[i];
-    lMappedOffset := OffsetOfLineColumn(aSourceText, lDeclaration.Line,
+    lMappedOffset := lCoordinates.OffsetOfLineColumn(lDeclaration.Line,
       lDeclaration.Column);
     if ((lMappedOffset <= 0) or (lMappedOffset + Length(lDeclaration.Name) - 1 >
       Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
@@ -368,8 +412,8 @@ begin
 
     lDeclaration.Offset := lMappedOffset;
     lDeclaration.EndOffset := lMappedOffset + Length(lDeclaration.Name);
-    lDeclaration.Line := LineOfOffset(aSourceText, lMappedOffset);
-    lDeclaration.Column := ColumnOfOffset(aSourceText, lMappedOffset);
+    lDeclaration.Line := lCoordinates.LineOfOffset(lMappedOffset);
+    lDeclaration.Column := lCoordinates.ColumnOfOffset(lMappedOffset);
     aDeclarations[i] := lDeclaration;
   end;
 end;
@@ -377,14 +421,18 @@ end;
 procedure ApplyMemberSourceOffsetMap(const aSourceText: string; const aOffsetMap:
   TArray<Integer>; const aMembers: TList<TDelphiSemanticMember>);
 var
+  lCoordinates: TSourceCoordinateIndex;
   i: Integer;
   lMappedOffset: Integer;
   lMember: TDelphiSemanticMember;
 begin
+  if aMembers.Count = 0 then
+    Exit;
+  lCoordinates.Initialize(aSourceText);
   for i := 0 to Pred(aMembers.Count) do
   begin
     lMember := aMembers[i];
-    lMappedOffset := OffsetOfLineColumn(aSourceText, lMember.Line, lMember.Column);
+    lMappedOffset := lCoordinates.OffsetOfLineColumn(lMember.Line, lMember.Column);
     if ((lMappedOffset <= 0) or (lMappedOffset + Length(lMember.Name) - 1 >
       Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
       Length(lMember.Name)), lMember.Name)) and (Length(aOffsetMap) > 0) and
@@ -398,8 +446,8 @@ begin
 
     lMember.Offset := lMappedOffset;
     lMember.EndOffset := lMappedOffset + Length(lMember.Name);
-    lMember.Line := LineOfOffset(aSourceText, lMappedOffset);
-    lMember.Column := ColumnOfOffset(aSourceText, lMappedOffset);
+    lMember.Line := lCoordinates.LineOfOffset(lMappedOffset);
+    lMember.Column := lCoordinates.ColumnOfOffset(lMappedOffset);
     aMembers[i] := lMember;
   end;
 end;
@@ -407,14 +455,18 @@ end;
 procedure ApplyLocalSourceOffsetMap(const aSourceText: string; const aOffsetMap:
   TArray<Integer>; const aLocals: TList<TDelphiSemanticLocal>);
 var
+  lCoordinates: TSourceCoordinateIndex;
   i: Integer;
   lLocal: TDelphiSemanticLocal;
   lMappedOffset: Integer;
 begin
+  if aLocals.Count = 0 then
+    Exit;
+  lCoordinates.Initialize(aSourceText);
   for i := 0 to Pred(aLocals.Count) do
   begin
     lLocal := aLocals[i];
-    lMappedOffset := OffsetOfLineColumn(aSourceText, lLocal.Line, lLocal.Column);
+    lMappedOffset := lCoordinates.OffsetOfLineColumn(lLocal.Line, lLocal.Column);
     if ((lMappedOffset <= 0) or (lMappedOffset + Length(lLocal.Name) - 1 >
       Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
       Length(lLocal.Name)), lLocal.Name)) and (Length(aOffsetMap) > 0) and
@@ -428,8 +480,8 @@ begin
 
     lLocal.Offset := lMappedOffset;
     lLocal.EndOffset := lMappedOffset + Length(lLocal.Name);
-    lLocal.Line := LineOfOffset(aSourceText, lMappedOffset);
-    lLocal.Column := ColumnOfOffset(aSourceText, lMappedOffset);
+    lLocal.Line := lCoordinates.LineOfOffset(lMappedOffset);
+    lLocal.Column := lCoordinates.ColumnOfOffset(lMappedOffset);
     aLocals[i] := lLocal;
   end;
 end;
@@ -450,6 +502,7 @@ var
   lCandidate: TReferenceCoordinateCandidate;
   lCandidates: TReferenceCandidateList;
   lCleanText: string;
+  lCoordinates: TSourceCoordinateIndex;
   lOccurrenceIndex: TReferenceOccurrenceIndex;
   lReference: TDelphiSemanticReference;
 
@@ -463,10 +516,15 @@ var
 
   function SourceRangeMatchesReference(const aOffset: Integer;
     const aReference: TDelphiSemanticReference): Boolean;
+  var
+    lColumn: Integer;
+    lLine: Integer;
   begin
-    Result := SourceTextMatchesReference(aOffset, aReference) and
-      (LineOfOffset(aSourceText, aOffset) = aReference.Line) and
-      (ColumnOfOffset(aSourceText, aOffset) = aReference.Column);
+    Result := SourceTextMatchesReference(aOffset, aReference);
+    if not Result then
+      Exit;
+    lCoordinates.CoordinatesAtOffset(aOffset, lLine, lColumn);
+    Result := (lLine = aReference.Line) and (lColumn = aReference.Column);
   end;
 
   function BuildReferenceOccurrenceIndex: TReferenceOccurrenceIndex;
@@ -497,8 +555,7 @@ var
           Result.Add(lKey, lList);
         end;
         lCandidate.Offset := lStartOffset;
-        lCandidate.Line := LineOfOffset(lCleanText, lStartOffset);
-        lCandidate.Column := ColumnOfOffset(lCleanText, lStartOffset);
+        lCoordinates.CoordinatesAtOffset(lStartOffset, lCandidate.Line, lCandidate.Column);
         lList.Add(lCandidate);
       end else
         Inc(i);
@@ -522,14 +579,16 @@ var
   procedure AssignReferenceSourceRange(var aReference: TDelphiSemanticReference;
     const aOffset: Integer);
   begin
-    aReference.Line := LineOfOffset(aSourceText, aOffset);
-    aReference.Column := ColumnOfOffset(aSourceText, aOffset);
+    lCoordinates.CoordinatesAtOffset(aOffset, aReference.Line, aReference.Column);
     aReference.Offset := aOffset;
     aReference.EndOffset := aOffset + Length(aReference.Name);
     aReference.EndLine := aReference.Line;
     aReference.EndColumn := aReference.Column + Length(aReference.Name) - 1;
   end;
 begin
+  if aReferences.Count = 0 then
+    Exit;
+  lCoordinates.Initialize(aSourceText);
   lCleanText := SanitizeCodeText(aSourceText);
   lOccurrenceIndex := nil;
   try
@@ -579,6 +638,7 @@ end;
 procedure ReconcileMemberCoordinates(const aSourceText: string;
   const aMembers: TList<TDelphiSemanticMember>);
 var
+  lCoordinates: TSourceCoordinateIndex;
   i: Integer;
   lBestColumn: Integer;
   lBestDistance: Integer;
@@ -591,6 +651,9 @@ var
   lMatch: TMatch;
   lMember: TDelphiSemanticMember;
 begin
+  if aMembers.Count = 0 then
+    Exit;
+  lCoordinates.Initialize(aSourceText);
   lCleanText := '';
   for i := 0 to Pred(aMembers.Count) do
   begin
@@ -599,8 +662,8 @@ begin
       Length(aSourceText)) and SameText(Copy(aSourceText, lMember.Offset,
       Length(lMember.Name)), lMember.Name) then
     begin
-      lMember.Line := LineOfOffset(aSourceText, lMember.Offset);
-      lMember.Column := ColumnOfOffset(aSourceText, lMember.Offset);
+      lMember.Line := lCoordinates.LineOfOffset(lMember.Offset);
+      lMember.Column := lCoordinates.ColumnOfOffset(lMember.Offset);
       aMembers[i] := lMember;
       Continue;
     end;
@@ -616,8 +679,8 @@ begin
     while lMatch.Success do
     begin
       lCandidateOffset := lMatch.Index + Length(lMatch.Groups[1].Value);
-      lCandidateLine := LineOfOffset(lCleanText, lCandidateOffset);
-      lCandidateColumn := ColumnOfOffset(lCleanText, lCandidateOffset);
+      lCandidateLine := lCoordinates.LineOfOffset(lCandidateOffset);
+      lCandidateColumn := lCoordinates.ColumnOfOffset(lCandidateOffset);
       lCandidateDistance := Abs(lCandidateLine - lMember.Line);
       if lCandidateDistance < lBestDistance then
       begin
@@ -641,6 +704,7 @@ end;
 procedure ReconcileRoutineCoordinates(const aSourceText: string;
   const aRoutines: TList<TDelphiSemanticRoutine>);
 var
+  lCoordinates: TSourceCoordinateIndex;
   i: Integer;
   lBestColumn: Integer;
   lBestDistance: Integer;
@@ -653,13 +717,16 @@ var
   lMatch: TMatch;
   lRoutine: TDelphiSemanticRoutine;
 begin
+  if aRoutines.Count = 0 then
+    Exit;
+  lCoordinates.Initialize(aSourceText);
   lCleanText := '';
   for i := 0 to Pred(aRoutines.Count) do
   begin
     lRoutine := aRoutines[i];
     if SourceRangeMatchesRoutine(aSourceText, lRoutine) then
     begin
-      AssignRoutineSourceRange(lRoutine, aSourceText, lRoutine.Offset);
+      AssignRoutineSourceRange(lRoutine, lCoordinates, lRoutine.Offset);
       aRoutines[i] := lRoutine;
       Continue;
     end;
@@ -675,8 +742,8 @@ begin
     while lMatch.Success do
     begin
       lCandidateOffset := lMatch.Index + Pos(lRoutine.Name, lMatch.Value) - 1;
-      lCandidateLine := LineOfOffset(lCleanText, lCandidateOffset);
-      lCandidateColumn := ColumnOfOffset(lCleanText, lCandidateOffset);
+      lCandidateLine := lCoordinates.LineOfOffset(lCandidateOffset);
+      lCandidateColumn := lCoordinates.ColumnOfOffset(lCandidateOffset);
       lCandidateDistance := Abs(lCandidateLine - lRoutine.Line);
       if lCandidateDistance < lBestDistance then
       begin
@@ -700,6 +767,7 @@ end;
 procedure ReconcileLocalCoordinates(const aSourceText: string;
   const aLocals: TList<TDelphiSemanticLocal>);
 var
+  lCoordinates: TSourceCoordinateIndex;
   i: Integer;
   lBestColumn: Integer;
   lBestDistance: Integer;
@@ -712,6 +780,9 @@ var
   lLocal: TDelphiSemanticLocal;
   lMatch: TMatch;
 begin
+  if aLocals.Count = 0 then
+    Exit;
+  lCoordinates.Initialize(aSourceText);
   lCleanText := '';
   for i := 0 to Pred(aLocals.Count) do
   begin
@@ -720,8 +791,8 @@ begin
       Length(aSourceText)) and SameText(Copy(aSourceText, lLocal.Offset,
       Length(lLocal.Name)), lLocal.Name) then
     begin
-      lLocal.Line := LineOfOffset(aSourceText, lLocal.Offset);
-      lLocal.Column := ColumnOfOffset(aSourceText, lLocal.Offset);
+      lLocal.Line := lCoordinates.LineOfOffset(lLocal.Offset);
+      lLocal.Column := lCoordinates.ColumnOfOffset(lLocal.Offset);
       aLocals[i] := lLocal;
       Continue;
     end;
@@ -736,8 +807,8 @@ begin
     while lMatch.Success do
     begin
       lCandidateOffset := lMatch.Index + Length(lMatch.Groups[1].Value);
-      lCandidateLine := LineOfOffset(lCleanText, lCandidateOffset);
-      lCandidateColumn := ColumnOfOffset(lCleanText, lCandidateOffset);
+      lCandidateLine := lCoordinates.LineOfOffset(lCandidateOffset);
+      lCandidateColumn := lCoordinates.ColumnOfOffset(lCandidateOffset);
       lCandidateDistance := Abs(lCandidateLine - lLocal.Line);
       if lCandidateDistance < lBestDistance then
       begin

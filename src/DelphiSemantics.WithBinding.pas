@@ -274,8 +274,16 @@ type
     function ActivityMetrics: TDelphiSemanticRemoveWithLookupActivityMetrics;
   end;
 
+  TIndexedDeclarationCandidate = record
+    ModelIndex: Integer;
+    DeclarationIndex: Integer;
+  end;
+
   TWithBindingProjectMemberIndex = class
   private
+    fModels: TArray<TDelphiSemanticUnitModel>;
+    fDeclarationCandidates: TObjectDictionary<string, TList<TIndexedDeclarationCandidate>>;
+    fDeclarationModels: TDictionary<string, TArray<TDelphiSemanticUnitModel>>;
     fByUnitOwnerName: TDictionary<string, TList<TDelphiSemanticResolveResult>>;
     fDirectMembersByContextOwnerName: TDictionary<string, TList<TDelphiSemanticResolveResult>>;
     fMemberKeysByUnit: TDictionary<string, TList<string>>;
@@ -284,6 +292,8 @@ type
     fSemanticMemberResultsByOwnerName: TDictionary<string, TDelphiSemanticResolveResult>;
     fUnitNames: TArray<string>;
     fVisibleUnitsByUnit: TDictionary<string, TArray<string>>;
+    procedure BuildDeclarationIndex;
+    function DeclarationModelsForName(const aName: string): TArray<TDelphiSemanticUnitModel>;
     class function Key(const aUnitName, aOwnerName, aName: string): string; static;
     class function KeyMemberName(const aKey: string): string; static;
     class function KeyOwnerName(const aKey: string): string; static;
@@ -314,6 +324,8 @@ type
     constructor Create(const aModels: TArray<TDelphiSemanticUnitModel>;
       const aGraph: TDelphiSemanticSemanticGraph);
     destructor Destroy; override;
+    function ContextForName(const aContext: TDelphiSemanticResolveContext;
+      const aName: string): TDelphiSemanticResolveContext;
     function TryResolveDirectMember(const aCurrentUnitName, aCurrentTypeName, aOwnerName,
       aName: string; const aAllowSemanticFallback: Boolean;
       out aResult: TDelphiSemanticResolveResult): Boolean;
@@ -967,6 +979,78 @@ begin
   Result := False;
 end;
 
+procedure TWithBindingProjectMemberIndex.BuildDeclarationIndex;
+var
+  lCandidate: TIndexedDeclarationCandidate;
+  lCandidates: TList<TIndexedDeclarationCandidate>;
+  lDeclaration: TDelphiSemanticDeclaration;
+  i: Integer;
+  j: Integer;
+begin
+  fDeclarationCandidates := TObjectDictionary<string,
+    TList<TIndexedDeclarationCandidate>>.Create([doOwnsValues],
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fDeclarationModels := TDictionary<string, TArray<TDelphiSemanticUnitModel>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  for i := 0 to High(fModels) do
+    for j := 0 to High(fModels[i].Declarations) do
+    begin
+      lDeclaration := fModels[i].Declarations[j];
+      if not SameText(lDeclaration.SectionKind, 'interface') then
+        Continue;
+      if not fDeclarationCandidates.TryGetValue(lDeclaration.Name, lCandidates) then
+      begin
+        lCandidates := TList<TIndexedDeclarationCandidate>.Create;
+        fDeclarationCandidates.Add(lDeclaration.Name, lCandidates);
+      end;
+      lCandidate.ModelIndex := i;
+      lCandidate.DeclarationIndex := j;
+      lCandidates.Add(lCandidate);
+    end;
+end;
+
+function TWithBindingProjectMemberIndex.DeclarationModelsForName(const aName: string):
+  TArray<TDelphiSemanticUnitModel>;
+var
+  lCandidate: TIndexedDeclarationCandidate;
+  lCandidates: TList<TIndexedDeclarationCandidate>;
+  i: Integer;
+begin
+  if fDeclarationModels.TryGetValue(aName, Result) then
+    Exit;
+  Result := nil;
+  if fDeclarationCandidates.TryGetValue(aName, lCandidates) then
+  begin
+    SetLength(Result, lCandidates.Count);
+    for i := 0 to lCandidates.Count - 1 do
+    begin
+      lCandidate := lCandidates[i];
+      Result[i].UnitName := fModels[lCandidate.ModelIndex].UnitName;
+      Result[i].Declarations :=
+        [fModels[lCandidate.ModelIndex].Declarations[lCandidate.DeclarationIndex]];
+    end;
+  end;
+  fDeclarationModels.Add(aName, Result);
+end;
+
+function TWithBindingProjectMemberIndex.ContextForName(
+  const aContext: TDelphiSemanticResolveContext;
+  const aName: string): TDelphiSemanticResolveContext;
+var
+  ch: Char;
+begin
+  Result := aContext;
+  if (aContext.ConformanceLevel < 3) or (aName = '') or
+    (Length(aContext.IndexedUnitModels) = 0) or
+    (Pointer(aContext.IndexedUnitModels) <> Pointer(fModels)) then
+    Exit;
+  for ch in aName do
+    if not CharInSet(ch, ['A'..'Z', 'a'..'z', '0'..'9', '_']) then
+      Exit;
+  // Keep the resolver authoritative; only its project declaration scan is narrowed.
+  Result.IndexedUnitModels := DeclarationModelsForName(aName);
+end;
+
 constructor TWithBindingProjectMemberIndex.Create(
   const aModels: TArray<TDelphiSemanticUnitModel>;
   const aGraph: TDelphiSemanticSemanticGraph);
@@ -980,6 +1064,8 @@ var
 begin
   inherited Create;
   try
+    fModels := aModels;
+    BuildDeclarationIndex;
     fByUnitOwnerName := TDictionary<string, TList<TDelphiSemanticResolveResult>>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     fDirectMembersByContextOwnerName := TDictionary<string,
@@ -1029,6 +1115,9 @@ var
   lList: TList<TDelphiSemanticResolveResult>;
   lStringList: TList<string>;
 begin
+  FreeAndNil(fDeclarationModels);
+  FreeAndNil(fDeclarationCandidates);
+  fModels := nil;
   FreeAndNil(fVisibleUnitsByUnit);
   if fMemberKeysByUnit <> nil then
     for lStringList in fMemberKeysByUnit.Values do
@@ -1952,16 +2041,21 @@ end;
 function ResolveNameCached(const aModel: TDelphiSemanticUnitModel;
   const aContext: TDelphiSemanticResolveContext; const aName: string;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aResolveCachePrefix: string):
+  const aResolveCachePrefix: string;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex):
   TDelphiSemanticResolveResult;
 var
+  lContext: TDelphiSemanticResolveContext;
   lKey: string;
 begin
   lKey := ResolveNameCacheKey(aResolveCachePrefix, aName);
   if Assigned(aResolveCache) and aResolveCache.TryGetValue(lKey, Result) then
     Exit;
 
-  Result := ResolveNameThroughWithBindingAuthority(aModel, aContext, aName);
+  lContext := aContext;
+  if aProjectMemberIndex <> nil then
+    lContext := aProjectMemberIndex.ContextForName(aContext, aName);
+  Result := ResolveNameThroughWithBindingAuthority(aModel, lContext, aName);
   if Assigned(aResolveCache) then
     aResolveCache.AddOrSetValue(lKey, Result);
 end;
@@ -1969,7 +2063,9 @@ end;
 procedure ApplyScopeConflictFact(const aModel: TDelphiSemanticUnitModel;
   const aContext: TDelphiSemanticResolveContext;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aResolveCachePrefix: string; var aReference: TDelphiSemanticBoundReference;
+  const aResolveCachePrefix: string;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  var aReference: TDelphiSemanticBoundReference;
   var aLexicalResolveMs: Int64);
 var
   lResult: TDelphiSemanticResolveResult;
@@ -1980,7 +2076,7 @@ begin
 
   lStopwatch := TStopwatch.StartNew;
   lResult := ResolveNameCached(aModel, aContext, aReference.Name, aResolveCache,
-    aResolveCachePrefix);
+    aResolveCachePrefix, aProjectMemberIndex);
   lStopwatch.Stop;
   Inc(aLexicalResolveMs, lStopwatch.ElapsedMilliseconds);
 
@@ -2049,7 +2145,7 @@ begin
 
     lStopwatch := TStopwatch.StartNew;
     lResult := ResolveNameCached(aModel, lContext, lCallName, aResolveCache,
-      aResolveCachePrefix);
+      aResolveCachePrefix, aProjectMemberIndex);
     lStopwatch.Stop;
     Inc(aLexicalResolveMs, lStopwatch.ElapsedMilliseconds);
     if lResult.Found and SameText(lResult.Kind, 'intrinsic-routine') then
@@ -2072,7 +2168,7 @@ begin
     lStopwatch := TStopwatch.StartNew;
     lResult := ResolveNameCached(aModel, Default(TDelphiSemanticResolveContext),
       aName, aResolveCache, ResolveNameCachePrefix(aModel.UnitName,
-      Default(TDelphiSemanticResolveContext)));
+      Default(TDelphiSemanticResolveContext)), aProjectMemberIndex);
     lStopwatch.Stop;
     Inc(aLexicalResolveMs, lStopwatch.ElapsedMilliseconds);
     Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(aName, 'unsupported',
@@ -2098,7 +2194,7 @@ begin
 
   lStopwatch := TStopwatch.StartNew;
   lResult := ResolveNameCached(aModel, lContext, aName, aResolveCache,
-    aResolveCachePrefix);
+    aResolveCachePrefix, aProjectMemberIndex);
   lStopwatch.Stop;
   Inc(aLexicalResolveMs, lStopwatch.ElapsedMilliseconds);
   if lResult.Found then
@@ -2388,7 +2484,7 @@ begin
       ApplyBodyRange(lReference, aStatement, lArgumentStartOffset, Length(lArgumentToken),
         aBodyLineStarts);
       ApplyScopeConflictFact(aModel, lResolveContext, aResolveCache, aResolveCachePrefix,
-        lReference, aLexicalResolveMs);
+        aProjectMemberIndex, lReference, aLexicalResolveMs);
       AddReference(aReferences, lReference);
     end;
   end;
@@ -2451,7 +2547,7 @@ begin
           aReferenceCacheMisses);
         ApplyBodyRange(lReference, aStatement, lTokenStart, Length(lToken), lBodyLineStarts);
         ApplyScopeConflictFact(aModel, lResolveContext, aResolveCache, lResolveCachePrefix,
-          lReference, aLexicalResolveMs);
+          aProjectMemberIndex, lReference, aLexicalResolveMs);
         AddReference(lReferences, lReference);
         AddArgumentReferences(lReferences, aModel, aProjectModels, aRoutineName,
           aCurrentTypeName,

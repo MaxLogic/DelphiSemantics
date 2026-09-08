@@ -1637,7 +1637,7 @@ begin
     lExtractionModelUnitIds[i] := TSemanticUnitId(i + 1);
   lParseAvoidedEstimateMilliseconds :=
     VisibleMetricMilliseconds(lExtraction.ExtractionMilliseconds);
-  if Length(lUnitSnapshots) > 0 then
+  if lCacheHadPartialHit then
   begin
     try
       SetLength(lStoreUnitFlags, Length(lSourceFileNames));
@@ -1667,7 +1667,7 @@ begin
         Result.Metrics.SnapshotCacheMissRebuildCount := 1;
     if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
       Result.Metrics.SnapshotCacheUnitMergeMilliseconds :=
-        lBuilderMetrics.MergeMilliseconds;
+        Result.Metrics.SnapshotBuilderMergeMilliseconds;
     Result.Metrics.SnapshotParseAvoidedEstimateMilliseconds :=
       lParseAvoidedEstimateMilliseconds;
     if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then

@@ -24,6 +24,10 @@ type
       aClassification: string): Boolean;
   public
     [Test]
+    procedure IndexedDeclarationsPreserveBindingPrecedence;
+    [Test]
+    procedure IndexedDeclarationCandidatesPreserveDuplicatesAndRefresh;
+    [Test]
     procedure ProjectSessionBuildsProjectLevelWithBindingFacts;
     [Test]
     procedure ProjectSessionCanSkipGraphForRangeMappedWithBindingFacts;
@@ -63,9 +67,121 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.ProjectContext, maxLogic.IOUtils,
+  DelphiSemantics.Model, DelphiSemantics.ProjectContext, maxLogic.IOUtils,
   Test.Support;
 
+
+function LoadIndexedBindingModel(const aFileName: string): TDelphiSemanticUnitModel;
+var
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('WithBinder', aFileName);
+  lOptions.ProjectContextApplied := True;
+  Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(Result.Success);
+end;
+
+function BindingReferenceByName(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aRoutineName, aName: string): TDelphiSemanticBoundReference;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lReference: TDelphiSemanticBoundReference;
+begin
+  for lBinding in aFacts.Bindings do
+    if SameText(lBinding.RoutineName, aRoutineName) then
+      for lReference in lBinding.References do
+        if SameText(lReference.Name, aName) then
+          Exit(lReference);
+  Assert.Fail('Missing reference ' + aRoutineName + '.' + aName);
+  Result := Default(TDelphiSemanticBoundReference);
+end;
+
+procedure AssertBindingReferencesEqual(const aExpected,
+  aActual: TDelphiSemanticBoundReference);
+begin
+  Assert.AreEqual(aExpected.SemanticId, aActual.SemanticId);
+  Assert.AreEqual(aExpected.Name, aActual.Name);
+  Assert.AreEqual(aExpected.Classification, aActual.Classification);
+  Assert.AreEqual(aExpected.LookupSource, aActual.LookupSource);
+  Assert.AreEqual(aExpected.ReceiverTypeName, aActual.ReceiverTypeName);
+  Assert.AreEqual(aExpected.Kind, aActual.Kind);
+  Assert.AreEqual(aExpected.TypeName, aActual.TypeName);
+  Assert.AreEqual(aExpected.ReasonCode, aActual.ReasonCode);
+  Assert.AreEqual(aExpected.ScopeConflictKind, aActual.ScopeConflictKind);
+  Assert.AreEqual(aExpected.ScopeConflictName, aActual.ScopeConflictName);
+  Assert.AreEqual(aExpected.Line, aActual.Line);
+  Assert.AreEqual(aExpected.Column, aActual.Column);
+  Assert.AreEqual(aExpected.EndLine, aActual.EndLine);
+  Assert.AreEqual(aExpected.EndColumn, aActual.EndColumn);
+end;
+
+procedure TProjectWithBindingTests.IndexedDeclarationsPreserveBindingPrecedence;
+var
+  lBaseline: TDelphiSemanticProjectWithBindingFacts;
+  lConsumer: TDelphiSemanticUnitModel;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lName: string;
+  lProvider: TDelphiSemanticUnitModel;
+  lReference: TDelphiSemanticBoundReference;
+begin
+  lConsumer := LoadIndexedBindingModel('WithBinderUnit.pas');
+  lProvider := LoadIndexedBindingModel('IndexedBindingProvider.pas');
+  lBaseline := TDelphiSemanticWithBinder.BindProject('indexed-binding', nil, [lConsumer]);
+  lFacts := TDelphiSemanticWithBinder.BindProject('indexed-binding', nil, [lConsumer, lProvider]);
+  lReference := BindingReferenceByName(lFacts, 'RunWithBinder', 'MissingValue');
+  Assert.AreEqual('lexical', lReference.Classification);
+  Assert.AreEqual('var', lReference.Kind);
+  Assert.AreEqual('Integer', lReference.TypeName);
+  Assert.AreEqual('IndexedBindingProvider', lReference.ReceiverTypeName);
+  Assert.AreEqual('', lReference.ReasonCode);
+  Assert.AreEqual(40, lReference.Line);
+  Assert.AreEqual(5, lReference.Column);
+  Assert.AreEqual(40, lReference.EndLine);
+  Assert.AreEqual(16, lReference.EndColumn);
+  Assert.IsNotEmpty(lReference.SemanticId);
+  for lName in ['lLocalValue', 'aParamValue', 'FirstOnly', 'lSecond.SecondOnly'] do
+    AssertBindingReferencesEqual(
+      BindingReferenceByName(lBaseline, 'RunWithBinder', lName),
+      BindingReferenceByName(lFacts, 'RunWithBinder', lName));
+  AssertBindingReferencesEqual(
+    BindingReferenceByName(lBaseline, 'RunPlanningBinder', 'MissingPlanValue'),
+    BindingReferenceByName(lFacts, 'RunPlanningBinder', 'MissingPlanValue'));
+end;
+
+procedure TProjectWithBindingTests.IndexedDeclarationCandidatesPreserveDuplicatesAndRefresh;
+var
+  lConsumer: TDelphiSemanticUnitModel;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOtherProvider: TDelphiSemanticUnitModel;
+  lProvider: TDelphiSemanticUnitModel;
+  lReference: TDelphiSemanticBoundReference;
+begin
+  lConsumer := LoadIndexedBindingModel('WithBinderUnit.pas');
+  lProvider := LoadIndexedBindingModel('IndexedBindingProvider.pas');
+  lOtherProvider := lProvider;
+  lOtherProvider.UnitName := 'OtherIndexedBindingProvider';
+  lFacts := TDelphiSemanticWithBinder.BindProject('indexed-binding', nil,
+    [lConsumer, lProvider, lOtherProvider]);
+  lReference := BindingReferenceByName(lFacts, 'RunWithBinder', 'MissingValue');
+  Assert.AreEqual('MULTIPLE_INDEXED_DECLARATIONS', lReference.ReasonCode);
+  SetLength(lProvider.Declarations, Length(lProvider.Declarations) + 1);
+  lProvider.Declarations[High(lProvider.Declarations)] := lProvider.Declarations[0];
+  lFacts := TDelphiSemanticWithBinder.BindProject('indexed-binding', nil, [lConsumer, lProvider]);
+  lReference := BindingReferenceByName(lFacts, 'RunWithBinder', 'MissingValue');
+  Assert.AreEqual('MULTIPLE_INDEXED_DECLARATIONS', lReference.ReasonCode);
+  SetLength(lProvider.Declarations, 1);
+  lProvider.Declarations[0].TypeName := 'Int64';
+  lFacts := TDelphiSemanticWithBinder.BindProject('indexed-binding', nil, [lConsumer, lProvider]);
+  lReference := BindingReferenceByName(lFacts, 'RunWithBinder', 'MissingValue');
+  Assert.AreEqual('lexical', lReference.Classification);
+  Assert.AreEqual('Int64', lReference.TypeName);
+  lProvider.Declarations := nil;
+  lFacts := TDelphiSemanticWithBinder.BindProject('indexed-binding', nil, [lConsumer, lProvider]);
+  lReference := BindingReferenceByName(lFacts, 'RunWithBinder', 'MissingValue');
+  Assert.AreEqual('unresolved', lReference.Classification);
+  Assert.AreEqual('NAME_NOT_FOUND', lReference.ReasonCode);
+end;
 
 function TProjectWithBindingTests.BindingByUnit(
   const aFacts: TDelphiSemanticProjectWithBindingFacts;
