@@ -4944,6 +4944,7 @@ begin
         lBinding.RoutineName, lSelectorDecisions);
       RollbackReservedTempNamesForFinalTemps(aReservedNames,
         lBinding.RoutineName, Result.Temps);
+      Result.Temps := nil;
       Result.Status := lChildStatement.Status;
       if SameText(lChildStatement.Reason, 'semantic-rewrite-incomplete') or
         SameText(lChildStatement.Reason, 'covered-child-rewrite-incomplete') then
@@ -4979,6 +4980,7 @@ begin
       lBinding.RoutineName, lSelectorDecisions);
     RollbackReservedTempNamesForFinalTemps(aReservedNames,
       lBinding.RoutineName, Result.Temps);
+    Result.Temps := nil;
     Result.Status := 'skipped';
     Result.Reason := lReason;
     Result.SafetyReason := Result.Reason;
@@ -4991,6 +4993,7 @@ begin
       lBinding.RoutineName, lSelectorDecisions);
     RollbackReservedTempNamesForFinalTemps(aReservedNames,
       lBinding.RoutineName, Result.Temps);
+    Result.Temps := nil;
     Result.Status := 'skipped';
     Result.Reason := 'replace-statement-range-mismatch';
     Result.SafetyReason := Result.Reason;

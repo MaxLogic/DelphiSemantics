@@ -270,7 +270,7 @@ begin
   if lControlledStatement and lHasTempInitialization and
     StartsText('begin', LowerCase(TrimLeft(aRequest.BodyText))) then
     aReplacementText := IndentText(lIndentColumn) + TrimLeft(aRequest.BodyText)
-  else if (lTempText = '') and ContainsText(lBinding.SelectorText, '^') then
+  else if ContainsText(lBinding.SelectorText, '^') then
     aReplacementText := IndentText(lIndentColumn) + TrimLeft(aRequest.BodyText)
   else if (aRequest.BodyText <> '') and CharInSet(aRequest.BodyText[1], [#9, ' ']) then
     aReplacementText := aRequest.BodyText

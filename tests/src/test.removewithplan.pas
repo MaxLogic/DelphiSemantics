@@ -172,6 +172,13 @@ type
     [Test]
     procedure FinalDtoSkipsRepeatedExplicitReceiverWithoutOccurrenceIdentity;
     [Test]
+    procedure FinalDtoClearsChildTempsWhenLaterChildFails;
+    [Test]
+    [TestCase('pointer at column 5', '0')]
+    [TestCase('indexed pointer at column 7', '1')]
+    [TestCase('controlled wrapper', '2')]
+    procedure FinalDtoKeepsCapturedBodyIndentation(const aCase: Integer);
+    [Test]
     procedure FinalDtoKeepsTempNameWhenQualifyingSelectorInitializer;
     [Test]
     procedure FinalDtoCapturesShadowedNestedReceiverWithDependentType;
@@ -4213,7 +4220,14 @@ begin
     '    END' + sLineBreak +
     '    ELSE' + sLineBreak +
     '      TestBit := FALSE' + sLineBreak +
-    '  END' + sLineBreak, lStatement.ReplacementText);
+    '  END', lStatement.ReplacementText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(115, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(125, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(5, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoCapturesPointerReceiverBeforeBodyCall;
@@ -4309,6 +4323,110 @@ begin
   Assert.IsTrue((lFirstAssignment > 0) and (lFirstAssignment < lSwitchCall) and
     (lSwitchCall < lSecondAssignment),
     'The inner receiver must be captured after SwitchReceiver.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoKeepsCapturedBodyIndentation(const aCase: Integer);
+const
+  cLines: array[0..2] of Integer = (27, 39, 51);
+  cColumns: array[0..2] of Integer = (5, 7, 5);
+  cEndColumns: array[0..2] of Integer = (17, 19, 17);
+  cDeclarationLines: array[0..2] of Integer = (23, 34, 47);
+var
+  lExpected: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  case aCase of
+    0: lExpected := '    lWithItemPtr := @ItemPtr^;' + sLineBreak +
+      '    lWithItemPtr^.Value := 1;';
+    1: lExpected := '      lWithItemPtr := @Items[0]^;' + sLineBreak +
+      '      lWithItemPtr^.Value := 2;';
+    2: lExpected := '    begin' + sLineBreak +
+      '      lWithItemPtr := @ItemPtr^;' + sLineBreak +
+      '      lWithItemPtr^.Value := 3;' + sLineBreak + '    end;';
+  else
+    raise Exception.Create('Unexpected indentation test case.');
+  end;
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithCapturedIndentation\CapturedIndent.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'CapturedIndentUnit.pas',
+    cLines[aCase], cColumns[aCase], lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(cLines[aCase], lStatement.Range.StartLine);
+  Assert.AreEqual(cColumns[aCase], lStatement.Range.StartColumn);
+  Assert.AreEqual(cLines[aCase] + 1, lStatement.Range.EndLine);
+  Assert.AreEqual(cEndColumns[aCase], lStatement.Range.EndColumn);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('lWithItemPtr: ^TItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual(cDeclarationLines[aCase], lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(cDeclarationLines[aCase], lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual('var' + sLineBreak + '  lWithItemPtr: ^TItem;' + sLineBreak,
+    lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual(cLines[aCase], lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(cLines[aCase] + 1, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(cEndColumns[aCase], lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual(lExpected, lStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoClearsChildTempsWhenLaterChildFails;
+var
+  lChild: TDelphiSemanticRemoveWithFinalStatement;
+  lEntry: TDelphiSemanticRemoveWithStatement;
+  lParent: TDelphiSemanticRemoveWithFinalStatement;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lUnsupported: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithParentRollback\ParentRollback.dproj'));
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lParent));
+  Assert.AreEqual('skipped', lParent.Status);
+  Assert.AreEqual('repeated-selector', lParent.Reason);
+  Assert.AreEqual(0, Integer(Length(lParent.Temps)),
+    'A failed parent must discard captures collected from earlier children.');
+  Assert.AreEqual(0, Integer(Length(lParent.Edits)));
+  Assert.AreEqual('', lParent.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lParent.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(0, Integer(Length(lParent.RewriteRecipe.TextEdits)));
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-2', lChild));
+  Assert.AreEqual('planned', lChild.Status, lChild.Reason);
+  Assert.AreEqual(1, Integer(Length(lChild.Temps)));
+  Assert.AreEqual('lWithNodePtr: ^TNode;', lChild.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithNodePtr := @lHolder.Current^;', lChild.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lChild.Edits)));
+  Assert.AreEqual('declare-temp', lChild.Edits[0].Kind);
+  Assert.AreEqual('replace-statement', lChild.Edits[1].Kind);
+  Assert.AreEqual(lChild.ReplacementText, lChild.Edits[1].ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lChild.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(lChild.Temps[0].InitializationText,
+    lChild.RewriteRecipe.TempDeclarations[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lChild.RewriteRecipe.TextEdits)));
+  Assert.IsTrue(Pos('lWithNodePtr := @lHolder.Current^;', lChild.ReplacementText) > 0);
+  Assert.IsTrue(Pos('lWithNodePtr := @lHolder.Current^;', lChild.ReplacementText) <
+    Pos('lWithNodePtr^.Value := 1;', lChild.ReplacementText));
+  Assert.IsFalse(ContainsText(lChild.ReplacementText, 'lWithHolderPtr'));
+  Assert.IsFalse(ContainsText(lChild.Edits[0].ReplacementText, 'lWithHolderPtr'));
+
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lUnsupported));
+  Assert.AreEqual('skipped', lUnsupported.Status);
+  Assert.AreEqual('repeated-selector', lUnsupported.Reason);
+  Assert.AreEqual(0, Integer(Length(lUnsupported.Temps)));
+  Assert.AreEqual(0, Integer(Length(lUnsupported.Edits)));
+  Assert.AreEqual(3, Integer(Length(lPlan.Statements)));
+  for lEntry in lPlan.Statements do
+    Assert.AreEqual('', lEntry.CoveredByStatementId,
+      'The failed parent must not claim either independently planned child.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoSkipsRepeatedExplicitReceiverWithoutOccurrenceIdentity;
@@ -4551,8 +4669,13 @@ begin
     '      BA.Cont^[m] := b;' + sLineBreak +
     '      FOR i := m + 1 TO BA.MaxBytes - 1 DO' + sLineBreak +
     '        BA.Cont^[i] := 0' + sLineBreak +
-    '    END' + sLineBreak +
-    ';', lStatement.ReplacementText);
+    '    END', lStatement.ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual(202, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
+  Assert.AreEqual(212, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(7, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexedPointerSelectorDirectQualification;
@@ -6124,12 +6247,12 @@ begin
     '      Dec(rt.ActChar, skip);' + sLineBreak +
     '      Dec(rt._CharPtr, skip);' + sLineBreak +
     '      fillchar(rt.ActChar^, skip, #0)' + sLineBreak +
-    '    end' + sLineBreak +
-    'end;', lStatement.ReplacementText);
+    '    end', lStatement.ReplacementText);
   Assert.AreEqual(831, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(839, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(4, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual(838, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(7, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbRamFilesSaveItemWrapperIndent;
@@ -10192,6 +10315,7 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbSimplePointerStatementIndent;
 var
+  lDeclarationOwner: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
@@ -10200,7 +10324,33 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 945, 5, lStatement),
     'Expected maxTdb NewDATFile D^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual('    D^.Maske.Free;', lStatement.ReplacementText);
+  Assert.AreEqual('    lWithDatFilePtr1 := @D^;' + sLineBreak +
+    '    lWithDatFilePtr1^.Maske.Free;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr1 := @D^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual(945, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
+  Assert.AreEqual(946, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(17, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 942, 5, lDeclarationOwner));
+  Assert.AreEqual('planned', lDeclarationOwner.Status, lDeclarationOwner.Reason);
+  Assert.AreEqual(2, Integer(Length(lDeclarationOwner.Edits)));
+  Assert.AreEqual('declare-temp', lDeclarationOwner.Edits[0].Kind);
+  Assert.AreEqual(940, lDeclarationOwner.Edits[0].Range.StartLine);
+  Assert.AreEqual(940, lDeclarationOwner.Edits[0].Range.EndLine);
+  Assert.AreEqual(1, lDeclarationOwner.Edits[0].Range.StartColumn);
+  Assert.AreEqual(1, lDeclarationOwner.Edits[0].Range.EndColumn);
+  Assert.AreEqual('var' + sLineBreak + '  lWithDatFilePtr: ^DatFile;' + sLineBreak +
+    '  lWithDatFilePtr1: ^DatFile;' + sLineBreak, lDeclarationOwner.Edits[0].ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexedPointerStatementIndent;
@@ -10213,9 +10363,30 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 1064, 7, lStatement),
     'Expected maxTdb ConvertFile DF[FilesOffen]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(
-    '      Convert(DBF, FilesOffen, DBF.Labels, DF[FilesOffen]^.Maske, DF[FilesOffen]^.RecZahl, DBF.E^, DF[FilesOffen]^.Dat^);',
+  Assert.AreEqual('      lWithDatFilePtr := @DF[FilesOffen]^;' + sLineBreak +
+    '      Convert(DBF, FilesOffen, DBF.Labels, lWithDatFilePtr^.Maske, lWithDatFilePtr^.RecZahl, DBF.E^, lWithDatFilePtr^.Dat^);',
     lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[FilesOffen]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual(1043, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(1043, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual('var' + sLineBreak + '  lWithDatFilePtr: ^DatFile;' + sLineBreak,
+    lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(1064, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(1065, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(75, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexedPointerBlockKeepsEnd;
