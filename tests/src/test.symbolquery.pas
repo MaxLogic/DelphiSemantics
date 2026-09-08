@@ -366,7 +366,6 @@ begin
       lUnit.Free;
     end;
 
-    lSiblingUnit := nil;
     lSiblingUnit := TUnitSnapshot.Create(2,
       lBuilder.Strings.Intern(TPath.Combine(lRootPath, 'SnapshotOtherUnit.pas')),
       lBuilder.Strings.Intern('SnapshotOtherUnit'));

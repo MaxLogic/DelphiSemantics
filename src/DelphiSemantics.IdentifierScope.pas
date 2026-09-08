@@ -39,13 +39,13 @@ type
 
 function IsAsciiIdentifierStart(const aChar: Char): Boolean;
 begin
-  Result := (aChar = '_') or (aChar in ['A'..'Z']) or
-    (aChar in ['a'..'z']);
+  Result := (aChar = '_') or CharInSet(aChar, ['A'..'Z']) or
+    CharInSet(aChar, ['a'..'z']);
 end;
 
 function IsAsciiIdentifierChar(const aChar: Char): Boolean;
 begin
-  Result := IsAsciiIdentifierStart(aChar) or (aChar in ['0'..'9']);
+  Result := IsAsciiIdentifierStart(aChar) or CharInSet(aChar, ['0'..'9']);
 end;
 
 function IsSimpleAsciiIdentifier(const aText: string): Boolean;
@@ -117,9 +117,9 @@ begin
   begin
     lLeft := aText[aStart + i - 1];
     lRight := aCandidate[i];
-    if lLeft in ['a'..'z'] then
+    if CharInSet(lLeft, ['a'..'z']) then
       Dec(lLeft, Ord('a') - Ord('A'));
-    if lRight in ['a'..'z'] then
+    if CharInSet(lRight, ['a'..'z']) then
       Dec(lRight, Ord('a') - Ord('A'));
     if lLeft <> lRight then
       Exit;
@@ -165,7 +165,7 @@ procedure SkipLineComment(const aText: string; var aIndex: Integer);
 begin
   Inc(aIndex, 2);
   while (aIndex <= Length(aText)) and
-    (not (aText[aIndex] in [#10, #13])) do
+    (not CharInSet(aText[aIndex], [#10, #13])) do
     Inc(aIndex);
 end;
 

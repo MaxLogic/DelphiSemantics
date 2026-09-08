@@ -1492,7 +1492,6 @@ begin
   lStopwatch := TStopwatch.StartNew;
   repeat
     lConnection := nil;
-    lDriverLink := nil;
     lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
     lConnection := TFDConnection.Create(nil);
     try
