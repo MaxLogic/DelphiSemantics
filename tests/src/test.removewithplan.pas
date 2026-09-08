@@ -155,7 +155,9 @@ type
     procedure FinalDtoMatchesMaxTdbValueRecordParameterPointerTemp;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbSetBitSkip;
+    procedure FinalDtoPlansMaxTdbSetBitParameterReferences;
+    [Test]
+    procedure FinalDtoPreservesByValueProcedureParameters;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTruncBitArrayDirectQualification;
@@ -4134,7 +4136,34 @@ begin
     '  END' + sLineBreak, lStatement.ReplacementText);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbSetBitSkip;
+procedure TRemoveWithPlanTests.FinalDtoPreservesByValueProcedureParameters;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithValueParameter\RemoveWithValueParameter.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ValueParameterUnit.pas', 18, 3,
+    lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('lWithValueRecordPtr := @aRecord;',
+    lStatement.Temps[0].InitializationText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithValueRecordPtr^.Value := lWithValueRecordPtr^.Value + aStep;'),
+    lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'aObserved := lWithValueRecordPtr^.Value;'), lStatement.ReplacementText);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ValueParameterUnit.pas', 27, 3,
+    lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'aObserved := lWithValueRecordPtr^.aDelta;'), lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPlansMaxTdbSetBitParameterReferences;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -4143,10 +4172,18 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'bitarray.pas', 79, 3, lStatement),
     'Expected maxTdb SetBit with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('lWithBitArrayPtr := @BA;',
+    lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'm := Bit SHR 3;'),
+    lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'b := addr(lWithBitArrayPtr^.Cont^[m]);'), lStatement.ReplacementText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'b^ := b^ OR (1 SHL (Bit AND 7));'), lStatement.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTruncBitArrayDirectQualification;

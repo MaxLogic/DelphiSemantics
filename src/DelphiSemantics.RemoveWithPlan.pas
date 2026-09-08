@@ -4143,48 +4143,6 @@ begin
   end;
 end;
 
-function ReferenceIsByValueParameterWithoutUnitFallback(
-  const aFacts: TRemoveWithPlanFacts;
-  const aBinding: TDelphiSemanticWithBinding;
-  const aReference: TDelphiSemanticBoundReference): Boolean;
-var
-  lSymbol: TDelphiSemanticInventorySymbol;
-begin
-  Result := False;
-  if not SameText(aReference.Classification, 'lexical') then
-    Exit;
-  if not aFacts.LookupIndex.FindRoutineSymbol(aBinding.RoutineName, aReference.Name,
-    lSymbol) then
-    Exit;
-  if (not SameText(lSymbol.SymbolClass, 'parameter')) or (Trim(lSymbol.Modifier) <> '') then
-    Exit;
-  Result := Length(aFacts.LookupIndex.FindUnitOrGlobalByName(aReference.Name)) = 0;
-end;
-
-function ValueRecordProcedureParameterReferenceNeedsSkip(
-  const aFacts: TRemoveWithPlanFacts;
-  const aBinding: TDelphiSemanticWithBinding;
-  const aTempDecisions: TArray<TFinalSelectorDecision>;
-  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
-var
-  lBodyRange: TDelphiSemanticRemoveWithSourceRange;
-  lReference: TDelphiSemanticBoundReference;
-begin
-  Result := False;
-  if not HasRecordPointerTempDecision(aTempDecisions) then
-    Exit;
-  if not RoutineDeclarationIsProcedure(aBinding, aLineCache) then
-    Exit;
-
-  lBodyRange := BindingBodyRange(aBinding);
-  for lReference in aBinding.References do
-  begin
-    if ReferenceInsideRange(lReference, lBodyRange) and
-      ReferenceIsByValueParameterWithoutUnitFallback(aFacts, aBinding, lReference) then
-      Exit(True);
-  end;
-end;
-
 function RoutineLocalArrayReferenceNeedsSkip(
   const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
@@ -4350,12 +4308,6 @@ begin
   Result := False;
   aReplacementRange := BindingRange(aBinding);
   lOriginalRange := aReplacementRange;
-  if ValueRecordProcedureParameterReferenceNeedsSkip(aFacts, aBinding,
-    aTempDecisions, aLineCache) then
-  begin
-    aReason := 'symbol-not-found';
-    Exit;
-  end;
   if RoutineLocalArrayReferenceNeedsSkip(aFacts, aBinding, aTempDecisions) then
   begin
     aReason := 'symbol-not-found';
