@@ -14,6 +14,10 @@ type
     TypeName: string;
     Kind: string;
     SectionKind: string;
+    DeclarationRole: string;
+    ScopeKind: string;
+    OwnerScopeId: string;
+    SymbolId: string;
     Line: Integer;
     Column: Integer;
   end;
@@ -21,8 +25,10 @@ type
   TDelphiSemanticGlobalUsage = record
     Name: string;
     DeclaringUnitName: string;
+    DeclaringSymbolId: string;
     UnitName: string;
     RoutineName: string;
+    RoutineScopeId: string;
     FileName: string;
     Access: string;
     Line: Integer;
@@ -52,6 +58,12 @@ type
     Usages: TArray<TDelphiSemanticGlobalUsage>;
     Ambiguities: TArray<TDelphiSemanticGlobalAmbiguity>;
     Diagnostics: TArray<TDelphiSemanticGlobalDiagnostic>;
+    FactSource: string;
+    SnapshotUnitCount: Integer;
+    VerifiedScopeUnitCount: Integer;
+    ModelFallbackUnitCount: Integer;
+    HeuristicFallbackUnitCount: Integer;
+    RejectedDeclarationCount: Integer;
   end;
 
   TDelphiSemanticGlobalFilterOptions = record
@@ -127,12 +139,35 @@ begin
   Result := MatchText(NormalizeDeclarationKind(aKind), ['var', 'threadvar', 'typedconst']);
 end;
 
-procedure AddGlobalDeclaration(const aDeclarations: TList<TDelphiSemanticGlobalDeclaration>;
+function UnitScopeId(const aUnitName: string): string;
+begin
+  Result := LowerCase(aUnitName);
+end;
+
+function TypeScopeId(const aUnitName, aOwnerName: string): string;
+begin
+  Result := UnitScopeId(aUnitName) + '|type|' + LowerCase(aOwnerName);
+end;
+
+function GlobalSymbolId(const aOwnerScopeId, aKind, aName: string): string;
+begin
+  Result := aOwnerScopeId + '|' + NormalizeDeclarationKind(aKind) + '|' +
+    LowerCase(aName);
+end;
+
+function AddGlobalDeclaration(const aDeclarations: TList<TDelphiSemanticGlobalDeclaration>;
   const aName, aUnitName, aFileName, aOwnerName, aTypeName, aKind, aSectionKind: string;
-  const aLine, aColumn: Integer);
+  const aDeclarationRole, aScopeKind, aOwnerScopeId, aSymbolId: string;
+  const aLine, aColumn: Integer): Integer;
 var
+  i: Integer;
   lDeclaration: TDelphiSemanticGlobalDeclaration;
 begin
+  for i := 0 to Pred(aDeclarations.Count) do
+    if SameText(aDeclarations[i].SymbolId, aSymbolId) then
+      Exit(i);
+
+  lDeclaration := Default(TDelphiSemanticGlobalDeclaration);
   lDeclaration.Name := aName;
   lDeclaration.UnitName := aUnitName;
   lDeclaration.FileName := aFileName;
@@ -140,9 +175,13 @@ begin
   lDeclaration.TypeName := aTypeName;
   lDeclaration.Kind := NormalizeDeclarationKind(aKind);
   lDeclaration.SectionKind := aSectionKind;
+  lDeclaration.DeclarationRole := aDeclarationRole;
+  lDeclaration.ScopeKind := aScopeKind;
+  lDeclaration.OwnerScopeId := aOwnerScopeId;
+  lDeclaration.SymbolId := aSymbolId;
   lDeclaration.Line := aLine;
   lDeclaration.Column := aColumn;
-  aDeclarations.Add(lDeclaration);
+  Result := aDeclarations.Add(lDeclaration);
 end;
 
 procedure AddModelDeclarations(const aDeclarations: TList<TDelphiSemanticGlobalDeclaration>;
@@ -152,16 +191,22 @@ var
   lMember: TDelphiSemanticMember;
 begin
   for lDeclaration in aModel.Declarations do
-    if IsGlobalDeclarationKind(lDeclaration.Kind) then
+    if IsGlobalDeclarationKind(lDeclaration.Kind) and
+      (SameText(lDeclaration.DeclarationRole, 'declaration') and
+      SameText(lDeclaration.ScopeKind, 'unit') and
+      (not SameText(lDeclaration.Kind, 'typed-const') or lDeclaration.Mutable)) then
       AddGlobalDeclaration(aDeclarations, lDeclaration.Name, aModel.UnitName, aModel.FileName, '',
-        lDeclaration.TypeName, lDeclaration.Kind, lDeclaration.SectionKind, lDeclaration.Line,
-        lDeclaration.Column);
+        lDeclaration.TypeName, lDeclaration.Kind, lDeclaration.SectionKind, 'declaration', 'unit',
+        UnitScopeId(aModel.UnitName), GlobalSymbolId(UnitScopeId(aModel.UnitName),
+        lDeclaration.Kind, lDeclaration.Name), lDeclaration.Line, lDeclaration.Column);
 
   for lMember in aModel.Members do
-    if SameText(lMember.Kind, 'class-var') then
+    if SameText(lMember.Kind, 'class-var') and (Trim(lMember.OwnerName) <> '') then
       AddGlobalDeclaration(aDeclarations, lMember.Name, aModel.UnitName, aModel.FileName,
-        lMember.OwnerName, lMember.TypeName, 'classvar', 'interface', lMember.Line,
-        lMember.Column);
+        lMember.OwnerName, lMember.TypeName, 'classvar', 'interface', 'declaration', 'type',
+        TypeScopeId(aModel.UnitName, lMember.OwnerName),
+        GlobalSymbolId(TypeScopeId(aModel.UnitName, lMember.OwnerName), 'classvar',
+        lMember.Name), lMember.Line, lMember.Column);
 end;
 
 function SnapshotText(const aSnapshot: TDelphiProjectSnapshot;
@@ -208,7 +253,8 @@ begin
       raise;
     end;
   end;
-  lIndexes.Add(aDeclarationIndex);
+  if not lIndexes.Contains(aDeclarationIndex) then
+    lIndexes.Add(aDeclarationIndex);
 end;
 
 procedure AddSnapshotDeclarations(const aSnapshot: TDelphiProjectSnapshot;
@@ -242,25 +288,45 @@ begin
       lName := SnapshotText(aSnapshot, lSymbol.NameId);
       lFileName := SnapshotText(aSnapshot, lUnit.FileNameId);
       lTypeName := SnapshotText(aSnapshot, lSymbol.TypeId);
-      if (lSymbol.RoutineId = 0) and IsGlobalDeclarationKind(lKind) then
+      if (lSymbol.RoutineId = 0) and IsGlobalDeclarationKind(lKind) and
+        ((lSymbol.Flags and cSnapshotSymbolFlagImmutableTypedConstant) = 0) and
+        SameText(SnapshotText(aSnapshot, lSymbol.DeclarationRoleId),
+        'declaration') and
+        SameText(SnapshotText(aSnapshot, lSymbol.ScopeKindId), 'unit') and
+        (SnapshotText(aSnapshot, lSymbol.OwnerScopeId) <> '') and
+        (SnapshotText(aSnapshot, lSymbol.SemanticSymbolId) <> '') then
       begin
-        lDeclarationIndex := aDeclarations.Count;
-        AddGlobalDeclaration(aDeclarations, lName, lUnitName, lFileName, '', lTypeName,
-          lKind, SnapshotText(aSnapshot, lSymbol.SectionKindId), lSymbol.Line,
-          lSymbol.Column);
+        lDeclarationIndex := AddGlobalDeclaration(aDeclarations, lName, lUnitName, lFileName, '',
+          lTypeName,
+          lKind, SnapshotText(aSnapshot, lSymbol.SectionKindId),
+          SnapshotText(aSnapshot, lSymbol.DeclarationRoleId),
+          SnapshotText(aSnapshot, lSymbol.ScopeKindId),
+          SnapshotText(aSnapshot, lSymbol.OwnerScopeId),
+          SnapshotText(aSnapshot, lSymbol.SemanticSymbolId),
+          lSymbol.Line, lSymbol.Column);
         aDeclarationBySymbolRef.AddOrSetValue(SnapshotSymbolRefKey(lUnit.UnitId,
           lSymbol.Id), lDeclarationIndex);
         AddSnapshotDeclarationIndex(aDeclarationByUnitName,
           SnapshotDeclarationUnitNameKey(lUnitName, lName), lDeclarationIndex);
-      end else if SameText(lKind, 'class-var') then
+      end else if SameText(lKind, 'class-var') and
+        (Trim(SnapshotText(aSnapshot, lSymbol.OwnerTypeId)) <> '') and
+        SameText(SnapshotText(aSnapshot, lSymbol.DeclarationRoleId),
+        'declaration') and
+        SameText(SnapshotText(aSnapshot, lSymbol.ScopeKindId), 'type') and
+        (SnapshotText(aSnapshot, lSymbol.OwnerScopeId) <> '') and
+        (SnapshotText(aSnapshot, lSymbol.SemanticSymbolId) <> '') then
       begin
         lSectionKind := SnapshotText(aSnapshot, lSymbol.SectionKindId);
         if lSectionKind = '' then
           lSectionKind := 'interface';
-        lDeclarationIndex := aDeclarations.Count;
-        AddGlobalDeclaration(aDeclarations, lName, lUnitName, lFileName,
+        lDeclarationIndex := AddGlobalDeclaration(aDeclarations, lName, lUnitName, lFileName,
           SnapshotText(aSnapshot, lSymbol.OwnerTypeId),
-          lTypeName, 'classvar', lSectionKind, lSymbol.Line, lSymbol.Column);
+          lTypeName, 'classvar', lSectionKind,
+          SnapshotText(aSnapshot, lSymbol.DeclarationRoleId),
+          SnapshotText(aSnapshot, lSymbol.ScopeKindId),
+          SnapshotText(aSnapshot, lSymbol.OwnerScopeId),
+          SnapshotText(aSnapshot, lSymbol.SemanticSymbolId),
+          lSymbol.Line, lSymbol.Column);
         aDeclarationBySymbolRef.AddOrSetValue(SnapshotSymbolRefKey(lUnit.UnitId,
           lSymbol.Id), lDeclarationIndex);
         AddSnapshotDeclarationIndex(aDeclarationByUnitName,
@@ -472,8 +538,7 @@ var
   lUsage: TDelphiSemanticGlobalUsage;
 begin
   for lUsage in aAnalysis.Usages do
-    if SameText(lUsage.Name, aDeclaration.Name) and
-      SameText(lUsage.DeclaringUnitName, aDeclaration.UnitName) then
+    if SameText(lUsage.DeclaringSymbolId, aDeclaration.SymbolId) then
       Exit(True);
 
   Result := False;
@@ -491,8 +556,7 @@ begin
     Exit(True);
 
   for lUsage in aAnalysis.Usages do
-    if SameText(lUsage.Name, aDeclaration.Name) and
-      SameText(lUsage.DeclaringUnitName, aDeclaration.UnitName) and
+    if SameText(lUsage.DeclaringSymbolId, aDeclaration.SymbolId) and
       AccessMatchesFilters(lUsage.Access, aFilters) then
       Exit(True);
 
@@ -515,6 +579,7 @@ var
   lUsage: TDelphiSemanticGlobalUsage;
   lUsages: TList<TDelphiSemanticGlobalUsage>;
 begin
+  Result := Default(TDelphiSemanticGlobalAnalysis);
   lAmbiguities := nil;
   lDeclarations := nil;
   lUsages := nil;
@@ -541,6 +606,12 @@ begin
     Result.Usages := lUsages.ToArray;
     Result.Ambiguities := lAmbiguities.ToArray;
     Result.Diagnostics := aAnalysis.Diagnostics;
+    Result.FactSource := aAnalysis.FactSource;
+    Result.SnapshotUnitCount := aAnalysis.SnapshotUnitCount;
+    Result.VerifiedScopeUnitCount := aAnalysis.VerifiedScopeUnitCount;
+    Result.ModelFallbackUnitCount := aAnalysis.ModelFallbackUnitCount;
+    Result.HeuristicFallbackUnitCount := aAnalysis.HeuristicFallbackUnitCount;
+    Result.RejectedDeclarationCount := aAnalysis.RejectedDeclarationCount;
   finally
     lAmbiguities.Free;
     lUsages.Free;
@@ -556,8 +627,10 @@ var
 begin
   lUsage.Name := aDeclaration.Name;
   lUsage.DeclaringUnitName := aDeclaration.UnitName;
+  lUsage.DeclaringSymbolId := aDeclaration.SymbolId;
   lUsage.UnitName := aModel.UnitName;
   lUsage.RoutineName := aRoutineName;
+  lUsage.RoutineScopeId := aReference.RoutineScopeId;
   lUsage.FileName := aModel.FileName;
   lUsage.Access := aAccess;
   lUsage.Line := aReference.Line;
@@ -664,6 +737,7 @@ begin
   begin
     lSymbol := aUnit.SymbolById(lSymbolId);
     if (lSymbol.Line <= 0) or (lSymbol.Line > aLine) or
+      ((lSymbol.EndLine > 0) and (aLine > lSymbol.EndLine)) or
       (lSymbol.Line < lBestLine) then
       Continue;
     lKind := SnapshotText(aSnapshot, lSymbol.KindId);
@@ -695,6 +769,7 @@ begin
   begin
     lSymbol := aUnit.SymbolById(lSymbolId);
     if (lSymbol.Line <= 0) or (lSymbol.Line > aLine) or
+      ((lSymbol.EndLine > 0) and (aLine > lSymbol.EndLine)) or
       (lSymbol.Line < lBestLine) then
       Continue;
     lKind := SnapshotText(aSnapshot, lSymbol.KindId);
@@ -707,7 +782,8 @@ begin
 end;
 
 function SnapshotHasLocalShadow(const aSnapshot: TDelphiProjectSnapshot;
-  const aUnit: TUnitSnapshot; const aRoutineName, aName: string;
+  const aUnit: TUnitSnapshot; const aRoutineName, aRoutineScopeId,
+  aName: string;
   const aRoutineStartLine, aReferenceLine: Integer): Boolean;
 var
   lKind: string;
@@ -725,7 +801,13 @@ begin
     if not SameText(SnapshotText(aSnapshot, lSymbol.NameId), aName) then
       Continue;
     lSymbolRoutineName := SnapshotText(aSnapshot, lSymbol.RoutineId);
-    if not SameText(lSymbolRoutineName, aRoutineName) then
+    if (aRoutineScopeId <> '') and
+      (SnapshotText(aSnapshot, lSymbol.RoutineScopeId) <> '') then
+    begin
+      if not SameText(SnapshotText(aSnapshot, lSymbol.RoutineScopeId),
+        aRoutineScopeId) then
+        Continue;
+    end else if not SameText(lSymbolRoutineName, aRoutineName) then
       Continue;
 
     lKind := SnapshotText(aSnapshot, lSymbol.KindId);
@@ -782,8 +864,10 @@ var
 begin
   lUsage.Name := aDeclaration.Name;
   lUsage.DeclaringUnitName := aDeclaration.UnitName;
+  lUsage.DeclaringSymbolId := aDeclaration.SymbolId;
   lUsage.UnitName := SnapshotText(aSnapshot, aUnit.UnitNameId);
   lUsage.RoutineName := aRoutineName;
+  lUsage.RoutineScopeId := SnapshotText(aSnapshot, aReference.RoutineScopeId);
   lUsage.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
   lUsage.Access := aAccess;
   lUsage.Line := aReference.Line;
@@ -850,7 +934,8 @@ begin
 
       lRoutineStartLine := SnapshotRoutineStartLineForLine(aSnapshot, aUnit,
         lReference.Line);
-      if SnapshotHasLocalShadow(aSnapshot, aUnit, lRoutineName, lName,
+      if SnapshotHasLocalShadow(aSnapshot, aUnit, lRoutineName,
+        SnapshotText(aSnapshot, lReference.RoutineScopeId), lName,
         lRoutineStartLine, lReference.Line) then
         Continue;
 
@@ -900,6 +985,7 @@ var
   lSeenUsages: TDictionary<string, Boolean>;
   lUsages: TList<TDelphiSemanticGlobalUsage>;
 begin
+  Result := Default(TDelphiSemanticGlobalAnalysis);
   lAmbiguities := nil;
   lDeclarations := nil;
   lDiagnostics := nil;
@@ -916,6 +1002,10 @@ begin
     begin
       AddModelDiagnostics(lDiagnostics, lModel);
       AddModelDeclarations(lDeclarations, lModel);
+      Inc(Result.ModelFallbackUnitCount);
+      if SameText(lModel.ScopeModelStatus, 'ast') then
+        Inc(Result.VerifiedScopeUnitCount);
+      Inc(Result.RejectedDeclarationCount, lModel.RejectedDeclarationCount);
     end;
 
     for lModel in aModels do
@@ -925,6 +1015,7 @@ begin
     Result.Usages := lUsages.ToArray;
     Result.Ambiguities := lAmbiguities.ToArray;
     Result.Diagnostics := lDiagnostics.ToArray;
+    Result.FactSource := 'model';
     Result := ApplyFilters(Result, aFilters);
   finally
     lSeenUsages.Free;
@@ -958,6 +1049,7 @@ var
   lUnit: TUnitSnapshot;
   lUsages: TList<TDelphiSemanticGlobalUsage>;
 begin
+  Result := Default(TDelphiSemanticGlobalAnalysis);
   lAmbiguities := nil;
   lDeclarationBySymbolRef := nil;
   lDeclarationByUnitName := nil;
@@ -982,6 +1074,19 @@ begin
       for i := 0 to Pred(aSnapshot.UnitCount) do
       begin
         lUnit := aSnapshot.UnitByIndex(i);
+        Inc(Result.SnapshotUnitCount);
+        if SameText(SnapshotText(aSnapshot, lUnit.ScopeModelStatusId), 'ast') then
+          Inc(Result.VerifiedScopeUnitCount)
+        else
+          AddDiagnostic(lDiagnostics, 'SCOPE_MODEL_UNVERIFIED',
+            'Unit lexical scope facts are not AST-verified: ' +
+            SnapshotText(aSnapshot, lUnit.ScopeModelStatusId),
+            SnapshotText(aSnapshot, lUnit.FileNameId), 0);
+        if SnapshotText(aSnapshot, lUnit.ScopeDiagnosticId) <> '' then
+          AddDiagnostic(lDiagnostics, 'SCOPE_MODEL_FAILED',
+            SnapshotText(aSnapshot, lUnit.ScopeDiagnosticId),
+            SnapshotText(aSnapshot, lUnit.FileNameId), 0);
+        Inc(Result.RejectedDeclarationCount, lUnit.RejectedDeclarationCount);
         AnalyzeSnapshotUnitUsages(lDeclarations, lDeclarationBySymbolRef,
           lDeclarationByUnitName, lUsages, lAmbiguities, lSeenUsages, aSnapshot,
           lUnit);
@@ -991,6 +1096,7 @@ begin
     Result.Usages := lUsages.ToArray;
     Result.Ambiguities := lAmbiguities.ToArray;
     Result.Diagnostics := lDiagnostics.ToArray;
+    Result.FactSource := 'snapshot';
     Result := ApplyFilters(Result, aFilters);
   finally
     lDeclarationByUnitName.Free;

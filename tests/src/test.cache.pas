@@ -36,7 +36,7 @@ type
     [Test]
     procedure SharedUnitCacheRejectsReentrantAccess;
     [Test]
-    procedure CacheSchemaVersionIncludesSourceProvenanceModelShape;
+    procedure CacheIdentityIncludesLexicalOwnershipModelShape;
     [Test]
     procedure UnitCacheIdentityBuilderReusesSingleSourceLoad;
     [Test]
@@ -51,6 +51,8 @@ type
     procedure SemanticContextChangeInvalidatesCachedUnitModel;
     [Test]
     procedure ReferenceExtractionOptionInvalidatesCachedUnitModel;
+    [Test]
+    procedure WritableTypedConstantsOptionInvalidatesCachedUnitModel;
     [Test]
     procedure EquivalentDefineOrderReusesCachedUnitModel;
     [Test]
@@ -77,6 +79,10 @@ type
     procedure CompilerProfileResolvesRtlSourceRootFromRsVars;
     [Test]
     procedure ParserVersionChangeInvalidatesCachedUnitModel;
+    [Test]
+    [TestCase('Before inline extraction', '4')]
+    [TestCase('Before lexical directive handling', '5')]
+    procedure DefaultParserInvalidatesObsoleteModels(const aVersion: string);
     [Test]
     procedure ModelVersionChangeInvalidatesCachedUnitModel;
     [Test]
@@ -337,7 +343,7 @@ begin
   end;
 end;
 
-procedure TCacheTests.CacheSchemaVersionIncludesSourceProvenanceModelShape;
+procedure TCacheTests.CacheIdentityIncludesLexicalOwnershipModelShape;
 var
   lCache: TDelphiSemanticUnitCache;
   lCacheOptions: TDelphiSemanticCacheOptions;
@@ -357,8 +363,10 @@ begin
   try
     lIdentity := lCache.BuildIdentity(lModelOptions);
 
-    Assert.AreEqual('8', lIdentity.SchemaVersion,
-      'Source provenance fields changed the persisted unit-model shape.');
+    Assert.AreEqual('9', lIdentity.SchemaVersion,
+      'Lexical ownership fields changed the persisted unit-model shape.');
+    Assert.AreEqual('DelphiSemantics.Model.Parser.6', lIdentity.ParserVersion,
+      'Inline section declarations changed parser semantics.');
   finally
     lCache.Free;
   end;
@@ -538,6 +546,44 @@ begin
       'Changing reference extraction must not reuse a full-reference cache entry.');
     Assert.IsTrue(Length(lFull.Model.References) > 0);
     Assert.AreEqual(0, Integer(Length(lLean.Model.References)));
+    Assert.AreEqual(2, lCache.Metrics.CacheMisses);
+    Assert.AreEqual(1, lCache.Metrics.Invalidations);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.WritableTypedConstantsOptionInvalidatesCachedUnitModel;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lDisabled: TDelphiSemanticUnitCacheAccessResult;
+  lDisabledOptions: TDelphiSemanticModelOptions;
+  lEnabled: TDelphiSemanticUnitCacheAccessResult;
+  lEnabledOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := TempPath('WritableTypedConstantsOptionUnit.pas');
+  TFile.WriteAllText(lPath, 'unit WritableTypedConstantsOptionUnit;' + sLineBreak +
+    'interface' + sLineBreak + 'const' + sLineBreak + '  GValue: Integer = 1;' +
+    sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lDisabledOptions := Default(TDelphiSemanticModelOptions);
+  lDisabledOptions.SourceFileName := lPath;
+  lDisabledOptions.ProjectContextApplied := True;
+  lEnabledOptions := lDisabledOptions;
+  lEnabledOptions.WritableTypedConstants := True;
+
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lDisabled := lCache.GetOrExtractUnitModelWithStatus(lDisabledOptions);
+    lEnabled := lCache.GetOrExtractUnitModelWithStatus(lEnabledOptions);
+
+    Assert.IsFalse(lDisabled.CacheHit);
+    Assert.IsFalse(lEnabled.CacheHit,
+      'Changing writable typed constants must not reuse an incompatible model.');
+    Assert.AreNotEqual(lDisabled.Identity.ExtractionOptionsHash,
+      lEnabled.Identity.ExtractionOptionsHash);
     Assert.AreEqual(2, lCache.Metrics.CacheMisses);
     Assert.AreEqual(1, lCache.Metrics.Invalidations);
   finally
@@ -1554,6 +1600,42 @@ begin
 
     Assert.AreEqual(2, lCache.Metrics.CacheMisses);
     Assert.AreEqual(1, lCache.Metrics.Invalidations);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.DefaultParserInvalidatesObsoleteModels(const aVersion: string);
+var
+  lAccess: TDelphiSemanticUnitCacheAccessResult;
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := TempPath('InlineSectionCacheUnit.pas');
+  lModelOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lModelOptions.SourceFileName,
+    'unit InlineSectionCacheUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'var ScopeTarget: Integer;' + sLineBreak + 'implementation' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('obsolete-parser-' + aVersion + '.sqlite3');
+  lCacheOptions.ParserVersion := 'DelphiSemantics.Model.Parser.' + aVersion;
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+  lCacheOptions.ParserVersion := '';
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lAccess := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+    Assert.IsFalse(lAccess.CacheHit,
+      'The default parser must reject persisted models from obsolete extraction rules.');
+    lAccess := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+    Assert.IsTrue(lAccess.CacheHit, 'The rebuilt model must remain reusable.');
   finally
     lCache.Free;
   end;

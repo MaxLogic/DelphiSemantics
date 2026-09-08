@@ -167,12 +167,12 @@ uses
   DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.Version;
 
 const
-  cCacheSchemaVersion = '8';
+  cCacheSchemaVersion = '9';
   cDefaultCompilerProfileName = 'default';
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.2';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.6';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -289,7 +289,8 @@ function ExtractionOptionsIdentityText(const aOptions: TDelphiSemanticModelOptio
 begin
   Result := 'projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) +
     sLineBreak + 'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) +
-    sLineBreak + 'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True);
+    sLineBreak + 'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True) +
+    sLineBreak + 'writableTypedConstants=' + BoolToStr(aOptions.WritableTypedConstants, True);
 end;
 
 function ModelOptionsIdentityContext(const aOptions: TDelphiSemanticModelOptions;

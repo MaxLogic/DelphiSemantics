@@ -6,6 +6,9 @@ uses
   System.Generics.Collections,
   MaxLogic.FastList;
 
+const
+  cSnapshotSymbolFlagImmutableTypedConstant = 4;
+
 type
   TSemanticStringId = Cardinal;
   TSemanticUnitId = Cardinal;
@@ -35,6 +38,11 @@ type
     SourceKindId: TSemanticStringId;
     VisibilityId: TSemanticStringId;
     SignatureId: TSemanticStringId;
+    DeclarationRoleId: TSemanticStringId;
+    ScopeKindId: TSemanticStringId;
+    OwnerScopeId: TSemanticStringId;
+    SemanticSymbolId: TSemanticStringId;
+    RoutineScopeId: TSemanticStringId;
     Flags: Cardinal;
     Line: Integer;
     Column: Integer;
@@ -70,6 +78,7 @@ type
     ClassificationId: TSemanticStringId;
     LookupSourceId: TSemanticStringId;
     ReasonId: TSemanticStringId;
+    RoutineScopeId: TSemanticStringId;
     Line: Integer;
     Column: Integer;
     EndLine: Integer;
@@ -100,6 +109,10 @@ type
     fFrozen: Boolean;
     fReferences: TSimpleList<TSemanticReferenceFact>;
     fReferencesByWithId: TSortedList<TSemanticWithId, TSemanticReferenceId>;
+    fRejectedDeclarationCount: Integer;
+    fScopeDiagnosticId: TSemanticStringId;
+    fScopeModelStatusId: TSemanticStringId;
+    fScopeModelVersionId: TSemanticStringId;
     fSourceTextId: TSemanticStringId;
     fSymbols: TSimpleList<TSemanticSymbolFact>;
     fUnitId: TSemanticUnitId;
@@ -124,6 +137,8 @@ type
     function ReferenceById(const aId: TSemanticReferenceId): TSemanticReferenceFact;
     function ReferenceIdByWithIndex(const aIndex: Integer): TSemanticReferenceId;
     function SymbolById(const aId: TSemanticSymbolId): TSemanticSymbolFact;
+    procedure SetScopeModelMetadata(const aStatusId, aVersionId,
+      aDiagnosticId: TSemanticStringId; const aRejectedDeclarationCount: Integer);
     function TryFindInnermostWithStatementAtLine(const aLine: Integer;
       out aWithId: TSemanticWithId): Boolean;
     function TryReferencesForWith(const aWithId: TSemanticWithId; out aLowIndex,
@@ -134,6 +149,10 @@ type
     function WithStatementById(const aId: TSemanticWithId): TSemanticWithStatementFact;
     property FileNameId: TSemanticStringId read fFileNameId;
     property ReferenceCount: Integer read GetReferenceCount;
+    property RejectedDeclarationCount: Integer read fRejectedDeclarationCount;
+    property ScopeDiagnosticId: TSemanticStringId read fScopeDiagnosticId;
+    property ScopeModelStatusId: TSemanticStringId read fScopeModelStatusId;
+    property ScopeModelVersionId: TSemanticStringId read fScopeModelVersionId;
     property SourceTextId: TSemanticStringId read fSourceTextId;
     property SymbolCount: Integer read GetSymbolCount;
     property UnitId: TSemanticUnitId read fUnitId;
@@ -608,6 +627,16 @@ begin
     Exit(Default(TSemanticSymbolFact));
 
   Result := fSymbols[Integer(aId) - 1];
+end;
+
+procedure TUnitSnapshot.SetScopeModelMetadata(const aStatusId, aVersionId,
+  aDiagnosticId: TSemanticStringId; const aRejectedDeclarationCount: Integer);
+begin
+  CheckMutable;
+  fScopeModelStatusId := aStatusId;
+  fScopeModelVersionId := aVersionId;
+  fScopeDiagnosticId := aDiagnosticId;
+  fRejectedDeclarationCount := aRejectedDeclarationCount;
 end;
 
 function TUnitSnapshot.TryFindInnermostWithStatementAtLine(const aLine: Integer;

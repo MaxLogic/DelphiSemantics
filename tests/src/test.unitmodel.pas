@@ -4,7 +4,8 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Model, DelphiSemantics.Source, DelphiSemantics.WithBinding;
+  DelphiSemantics.GlobalVars, DelphiSemantics.Model, DelphiSemantics.Source,
+  DelphiSemantics.WithBinding;
 
 type
   [TestFixture]
@@ -64,6 +65,8 @@ type
     [Test]
     procedure ExtractsMembersRoutinesLocalsAndReferences;
     [Test]
+    procedure ExtractsConstructorAndDestructorScopesAndLocals;
+    [Test]
     procedure ExtractsCommaDeclaredRoutineLocals;
     [Test]
     procedure SkipReferenceExtractionKeepsSymbolsAndOmitsReferences;
@@ -76,6 +79,14 @@ type
     [Test]
     procedure ExtractsUnprefixedConstVarAndTypedConstDeclarations;
     [Test]
+    procedure ExtractsInlineConstVarSections;
+    [Test]
+    procedure InlineConstSectionEndsTypeDeclarations;
+    [Test]
+    procedure MultilineVarParametersAreNotUnitVariables;
+    [Test]
+    procedure CommentedRoutineHeaderDoesNotHideUnitVariables;
+    [Test]
     procedure MigratedSymbolMapExtractsUnitNameAndUsesSections;
     [Test]
     procedure MigratedSymbolMapExtractsNamespacedUnitName;
@@ -85,6 +96,30 @@ type
     procedure MigratedSymbolMapExtractsMembersPropertiesAndMetadata;
     [Test]
     procedure PreprocessingRemovesInactiveDeclarations;
+    [Test]
+    procedure TypedConstantMutabilityUsesActivePreprocessedDirectives;
+    [Test]
+    [TestCase('Standalone include', '0')]
+    [TestCase('Switch before include', '1')]
+    [TestCase('Switch after include', '2')]
+    procedure TypedConstantMutabilityUsesIncludedDirectives(const aCase: Integer);
+    [Test]
+    [TestCase('Line comment', '0')]
+    [TestCase('Parenthesized block comment', '1')]
+    [TestCase('Brace block comment', '2')]
+    [TestCase('Quoted text', '3')]
+    procedure TypedConstantMutabilityIgnoresCommentedDirective(const aCase: Integer);
+    [Test]
+    procedure TypedConstantMutabilityRespectsInlineSwitchOrder;
+    [Test]
+    [TestCase('Parenthesized pair', '0')]
+    [TestCase('Brace then parenthesis', '1')]
+    [TestCase('Parenthesis then brace', '2')]
+    procedure TypedConstantMutabilityUsesLastStandaloneSwitch(const aCase: Integer);
+    [Test]
+    procedure ScopeModelFailureRejectsUnverifiedGlobalCandidates;
+    [Test]
+    procedure RejectedDeclarationsHaveDeterministicMutability;
     [Test]
     procedure IncludeExpansionDoesNotShiftFollowingParentLineNumbers;
     [Test]
@@ -138,6 +173,8 @@ type
     [Test]
     procedure RoutineReconciliationUsesOffsetMapBeforeFallback;
     [Test]
+    procedure ModelJsonPreservesDeclarationRolesAndLexicalOwnership;
+    [Test]
     procedure PascalLexicalHelpersAreCentralized;
     [Test]
     procedure UnitModelImplementationIsSplitIntoFocusedUnits;
@@ -149,7 +186,7 @@ uses
   System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   AutoFree, maxLogic.IOUtils,
-  DelphiSemantics.Model.Coordinates,
+  DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Json,
   Test.Support;
 
 var
@@ -730,6 +767,57 @@ begin
   Assert.IsTrue(HasReference(lModel, 'SemanticGlobal'));
 end;
 
+procedure TUnitModelTests.ExtractsConstructorAndDestructorScopesAndLocals;
+var
+  lLocal: TDelphiSemanticLocal;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  lPath := UnitModelTempPath('unit-model-lifecycle-scopes.pas');
+  TFile.WriteAllText(lPath,
+    'unit LifecycleScopesUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TStore = class' + sLineBreak +
+    '    constructor Create;' + sLineBreak +
+    '    destructor Destroy; override;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'constructor TStore.Create;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lValue: Integer;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  lValue := 1;' + sLineBreak +
+    'end;' + sLineBreak +
+    'destructor TStore.Destroy;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lValue: Integer;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  lValue := 2;' + sLineBreak +
+    '  inherited;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindRoutine(lModel, 'Create', 'implementation', lRoutine));
+  Assert.AreEqual('TStore', lRoutine.OwnerName);
+  Assert.IsNotEmpty(lRoutine.ScopeId);
+  Assert.IsTrue(FindLocal(lModel, 'TStore.Create', 'lValue', lLocal));
+  Assert.AreEqual(lRoutine.ScopeId, lLocal.RoutineScopeId);
+  Assert.IsTrue(FindRoutine(lModel, 'Destroy', 'implementation', lRoutine));
+  Assert.AreEqual('TStore', lRoutine.OwnerName);
+  Assert.IsNotEmpty(lRoutine.ScopeId);
+  Assert.IsTrue(FindLocal(lModel, 'TStore.Destroy', 'lValue', lLocal));
+  Assert.AreEqual(lRoutine.ScopeId, lLocal.RoutineScopeId);
+end;
+
 procedure TUnitModelTests.ExtractsCommaDeclaredRoutineLocals;
 var
   lModel: TDelphiSemanticUnitModel;
@@ -1127,6 +1215,243 @@ begin
   Assert.IsTrue(lModel.Success);
   Assert.IsTrue(HasDeclaration(lModel, 'TActiveModelType', 'type', 'interface'));
   Assert.IsFalse(HasDeclaration(lModel, 'TInactiveModelType', 'type', 'interface'));
+end;
+
+procedure TUnitModelTests.TypedConstantMutabilityUsesActivePreprocessedDirectives;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := UnitModelTempPath('unit-model-active-j-directive.pas');
+  TFile.WriteAllText(lPath,
+    'unit ActiveJDirectiveUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    '{$IFDEF INACTIVE_BRANCH}' + sLineBreak +
+    '{$J+}' + sLineBreak +
+    '{$ENDIF}' + sLineBreak +
+    'const' + sLineBreak +
+    '  GImmutableValue: Integer = 1;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(FindDeclaration(lModel, 'GImmutableValue', 'typed-const',
+    'interface', lDeclaration));
+  Assert.IsFalse(lDeclaration.Mutable,
+    'Inactive conditional directives must not change typed-constant mutability.');
+end;
+
+procedure TUnitModelTests.TypedConstantMutabilityUsesIncludedDirectives(const aCase: Integer);
+const
+  cDirectives: array[0..2] of string = ('{$I Writable.inc}',
+    '{$J-}{$I Writable.inc}', '{$I Writable.inc}{$J-}');
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoot: string;
+begin
+  lRoot := UnitModelTempPath('unit-model-included-j-directive-' + IntToStr(aCase));
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Writable.inc'), '{$J+}',
+    TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'IncludedJDirectiveUnit.pas'),
+    'unit IncludedJDirectiveUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    cDirectives[aCase] + sLineBreak +
+    'const' + sLineBreak +
+    '  GMutableValue: Integer = 1;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'IncludedJDirectiveUnit.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(FindDeclaration(lModel, 'GMutableValue', 'typed-const',
+    'interface', lDeclaration));
+  Assert.AreEqual(aCase <> 2, lDeclaration.Mutable,
+    'Include-origin directives must retain their order relative to surrounding switches.');
+end;
+
+procedure TUnitModelTests.TypedConstantMutabilityIgnoresCommentedDirective(const aCase: Integer);
+const
+  cExamples: array[0..3] of string = ('// example {$J+}',
+    '(* example' + sLineBreak + '{$J+}' + sLineBreak + '*)',
+    '{ example' + sLineBreak + '(*$J+*)' + sLineBreak + '}',
+    'const TextValue = ''It''''s {$J+} and (*$J+*)'';');
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := UnitModelTempPath('unit-model-commented-j-directive-' + IntToStr(aCase) + '.pas');
+  TFile.WriteAllText(lPath, 'unit CommentedJDirectiveUnit;' + sLineBreak +
+    'interface' + sLineBreak + '{$J-}' + sLineBreak +
+    cExamples[aCase] + sLineBreak + 'const' + sLineBreak +
+    '  ReadOnlyValue: Integer = 1;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindDeclaration(lModel, 'ReadOnlyValue', 'typed-const',
+    'interface', lDeclaration));
+  Assert.AreEqual('declaration', lDeclaration.DeclarationRole);
+  Assert.IsFalse(lDeclaration.Mutable,
+    'A commented directive must not change typed-constant mutability.');
+end;
+
+procedure TUnitModelTests.TypedConstantMutabilityRespectsInlineSwitchOrder;
+const
+  cNames: array[0..3] of string = ('BeforeSwitch', 'AfterSwitch', 'AfterPair', 'AfterParenPair');
+  cColumns: array[0..3] of Integer = (7, 7, 18, 22);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  i: Integer;
+begin
+  lPath := UnitModelTempPath('unit-model-inline-j-directives.pas');
+  TFile.WriteAllText(lPath, 'unit InlineJDirectiveUnit;' + sLineBreak +
+    'interface' + sLineBreak + '{$J-}' + sLineBreak +
+    'const BeforeSwitch: Integer = 1; {$J+}' + sLineBreak +
+    'const AfterSwitch: Integer = 2;' + sLineBreak +
+    '{$J+}{$J-} const AfterPair: Integer = 3;' + sLineBreak +
+    '(*$J+*)(*$J-*) const AfterParenPair: Integer = 4;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  for i := Low(cNames) to High(cNames) do
+  begin
+    Assert.IsTrue(FindDeclaration(lModel, cNames[i], 'typed-const', 'interface', lDeclaration),
+      cNames[i] + ' must remain a declaration.');
+    Assert.AreEqual('declaration', lDeclaration.DeclarationRole);
+    Assert.AreEqual(i = 1, lDeclaration.Mutable,
+      cNames[i] + ' must use the last preceding active switch.');
+    Assert.AreEqual(4 + i, lDeclaration.Line, 'Original source line must be retained.');
+    Assert.AreEqual(cColumns[i], lDeclaration.Column, 'Original source column must be retained.');
+  end;
+end;
+
+procedure TUnitModelTests.TypedConstantMutabilityUsesLastStandaloneSwitch(const aCase: Integer);
+const
+  cSwitches: array[0..2] of string = ('(*$J+*)(*$J-*)', '{$J+}(*$J-*)', '(*$J+*){$J-}');
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := UnitModelTempPath('unit-model-standalone-j-directives-' + IntToStr(aCase) + '.pas');
+  TFile.WriteAllText(lPath, 'unit StandaloneJDirectiveUnit;' + sLineBreak +
+    'interface' + sLineBreak + cSwitches[aCase] + sLineBreak +
+    'const ReadOnlyValue: Integer = 1;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindDeclaration(lModel, 'ReadOnlyValue', 'typed-const', 'interface', lDeclaration));
+  Assert.AreEqual('declaration', lDeclaration.DeclarationRole);
+  Assert.IsFalse(lDeclaration.Mutable, 'The final standalone switch must win.');
+  Assert.AreEqual(4, lDeclaration.Line);
+end;
+
+procedure TUnitModelTests.RejectedDeclarationsHaveDeterministicMutability;
+var
+  i: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFoundGlobal: Boolean;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lRejected: Integer;
+begin
+  lPath := UnitModelTempPath('rejected-mutability.pas');
+  TFile.WriteAllText(lPath,
+    'unit RejectedMutability;' + sLineBreak +
+    'interface' + sLineBreak +
+    'var' + sLineBreak +
+    '  GCounter: Integer;' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak +
+    'begin Inc(GCounter); end;' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  for i := 1 to 2 do
+  begin
+    lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.AreEqual('ast', lModel.ScopeModelStatus);
+    lFoundGlobal := False;
+    lRejected := 0;
+    for lDeclaration in lModel.Declarations do
+    begin
+      if lDeclaration.DeclarationRole = 'invalid' then
+      begin
+        Inc(lRejected);
+        Assert.IsFalse(lDeclaration.Mutable, Format('Rejected candidate must be nonmutable (extraction %d).', [i]));
+      end else if lDeclaration.Name = 'GCounter' then
+      begin
+        lFoundGlobal := True;
+        Assert.IsTrue(lDeclaration.Mutable, 'Valid variable must remain mutable.');
+      end;
+    end;
+    Assert.IsTrue(lFoundGlobal, 'Expected the valid GCounter control.');
+    Assert.IsTrue(lRejected > 0, 'Expected rejected routine candidates.');
+  end;
+end;
+
+procedure TUnitModelTests.ScopeModelFailureRejectsUnverifiedGlobalCandidates;
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := UnitModelTempPath('unit-model-invalid-scope.pas');
+  TFile.WriteAllText(lPath,
+    'unit InvalidScopeUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'var' + sLineBreak +
+    '  GUnverified: Integer;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Broken;' + sLineBreak +
+    'begin' + sLineBreak,
+    TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits([lModel]);
+
+  Assert.AreEqual('ast-failed', lModel.ScopeModelStatus);
+  Assert.IsTrue(HasDiagnostic(lModel, 'SCOPE_MODEL_FAILED'));
+  Assert.IsTrue(lModel.RejectedDeclarationCount > 0);
+  for lDeclaration in lModel.Declarations do
+    Assert.IsFalse(lDeclaration.Mutable, 'Rejected AST-failure candidate must be nonmutable.');
+  Assert.AreEqual(0, Integer(Length(lAnalysis.Declarations)),
+    'Unverified declaration candidates must fail closed.');
 end;
 
 procedure TUnitModelTests.IncludeExpansionDoesNotShiftFollowingParentLineNumbers;
@@ -1998,6 +2323,144 @@ begin
   Assert.AreEqual(2, lRoutineCount);
 end;
 
+procedure TUnitModelTests.CoordinateMappingPreservesRangesAcrossModelKinds;
+const
+  cSource = #$00FC + #13#10 + '  Token' + #10#10 + 'Token' + #13 + ' Z' + #10;
+  cLines: array[0..7] of Integer = (2, 99, 1, 0, 99, 99, 4, 99);
+  cColumns: array[0..7] of Integer = (3, 1, 6, 0, 1, 1, 1, 1);
+  cOffsets: array[0..7] of Integer = (1, 1, 1, 0, 2, 3, 999, 4);
+  cExpectedOffsets: array[0..7] of Integer = (6, 13, 6, 0, 2, 3, 13, 4);
+  cExpectedLines: array[0..7] of Integer = (2, 4, 2, 0, 99, 99, 4, 99);
+  cExpectedColumns: array[0..7] of Integer = (3, 1, 3, 0, 1, 1, 1, 1);
+var
+  g: TGarbos;
+  i: Integer;
+  lOffsetMap: TArray<Integer>;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lDeclarations: TList<TDelphiSemanticDeclaration>;
+  lMember: TDelphiSemanticMember;
+  lMembers: TList<TDelphiSemanticMember>;
+  lRoutine: TDelphiSemanticRoutine;
+  lRoutines: TList<TDelphiSemanticRoutine>;
+  lLocal: TDelphiSemanticLocal;
+  lLocals: TList<TDelphiSemanticLocal>;
+  lReference: TDelphiSemanticReference;
+  lReferences: TList<TDelphiSemanticReference>;
+begin
+  GC(lDeclarations, TList<TDelphiSemanticDeclaration>.Create, g);
+  GC(lMembers, TList<TDelphiSemanticMember>.Create, g);
+  GC(lRoutines, TList<TDelphiSemanticRoutine>.Create, g);
+  GC(lLocals, TList<TDelphiSemanticLocal>.Create, g);
+  GC(lReferences, TList<TDelphiSemanticReference>.Create, g);
+  SetLength(lOffsetMap, 5);
+  lOffsetMap[1] := 13;
+  lOffsetMap[2] := 0;
+  lOffsetMap[3] := 1;
+  lOffsetMap[4] := Length(cSource) + 1;
+  for i := Low(cLines) to High(cLines) do
+  begin
+    lDeclaration := Default(TDelphiSemanticDeclaration);
+    lDeclaration.Name := 'Token';
+    lDeclaration.Line := cLines[i];
+    lDeclaration.Column := cColumns[i];
+    lDeclaration.Offset := cOffsets[i];
+    lDeclarations.Add(lDeclaration);
+    lMember := Default(TDelphiSemanticMember);
+    lMember.Name := 'Token';
+    lMember.Line := cLines[i];
+    lMember.Column := cColumns[i];
+    lMember.Offset := cOffsets[i];
+    lMembers.Add(lMember);
+    lRoutine := Default(TDelphiSemanticRoutine);
+    lRoutine.Name := 'Token';
+    lRoutine.Line := cLines[i];
+    lRoutine.Column := cColumns[i];
+    lRoutine.Offset := cOffsets[i];
+    lRoutines.Add(lRoutine);
+    lLocal := Default(TDelphiSemanticLocal);
+    lLocal.Name := 'Token';
+    lLocal.Line := cLines[i];
+    lLocal.Column := cColumns[i];
+    lLocal.Offset := cOffsets[i];
+    lLocals.Add(lLocal);
+    lReference := Default(TDelphiSemanticReference);
+    lReference.Name := 'Token';
+    lReference.Line := cLines[i];
+    lReference.Column := cColumns[i];
+    lReference.Offset := cOffsets[i];
+    lReferences.Add(lReference);
+  end;
+  ApplyDeclarationSourceOffsetMap(cSource, lOffsetMap, lDeclarations);
+  ApplyMemberSourceOffsetMap(cSource, lOffsetMap, lMembers);
+  ApplyRoutineSourceOffsetMap(cSource, lOffsetMap, lRoutines);
+  ApplyLocalSourceOffsetMap(cSource, lOffsetMap, lLocals);
+  ApplyReferenceSourceOffsetMap(cSource, lOffsetMap, lReferences);
+  for i := Low(cLines) to High(cLines) do
+  begin
+    Assert.AreEqual(cExpectedOffsets[i], lDeclarations[i].Offset, 'Declaration ' + i.ToString);
+    Assert.AreEqual(cExpectedLines[i], lDeclarations[i].Line, 'Declaration ' + i.ToString);
+    Assert.AreEqual(cExpectedColumns[i], lDeclarations[i].Column, 'Declaration ' + i.ToString);
+    Assert.AreEqual(cExpectedOffsets[i], lMembers[i].Offset, 'Member ' + i.ToString);
+    Assert.AreEqual(cExpectedLines[i], lMembers[i].Line, 'Member ' + i.ToString);
+    Assert.AreEqual(cExpectedColumns[i], lMembers[i].Column, 'Member ' + i.ToString);
+    Assert.AreEqual(cExpectedOffsets[i], lRoutines[i].Offset, 'Routine ' + i.ToString);
+    Assert.AreEqual(cExpectedLines[i], lRoutines[i].Line, 'Routine ' + i.ToString);
+    Assert.AreEqual(cExpectedColumns[i], lRoutines[i].Column, 'Routine ' + i.ToString);
+    Assert.AreEqual(cExpectedOffsets[i], lLocals[i].Offset, 'Local ' + i.ToString);
+    Assert.AreEqual(cExpectedLines[i], lLocals[i].Line, 'Local ' + i.ToString);
+    Assert.AreEqual(cExpectedColumns[i], lLocals[i].Column, 'Local ' + i.ToString);
+    Assert.AreEqual(cExpectedOffsets[i], lReferences[i].Offset, 'Reference ' + i.ToString);
+    Assert.AreEqual(cExpectedLines[i], lReferences[i].Line, 'Reference ' + i.ToString);
+    Assert.AreEqual(cExpectedColumns[i], lReferences[i].Column, 'Reference ' + i.ToString);
+  end;
+end;
+
+procedure TUnitModelTests.ReferenceReconciliationPreservesMixedLineEndings;
+const
+  cSource = 'Token' + #13#10 + '  Token' + #10 + '{ Token' + #13#10 +
+    ' Token }' + #10 + '    Token';
+var
+  lMetrics: TDelphiSemanticUnitModelMetrics;
+  lReference: TDelphiSemanticReference;
+  lReferences: TList<TDelphiSemanticReference>;
+begin
+  lReferences := TList<TDelphiSemanticReference>.Create;
+  try
+    lMetrics := Default(TDelphiSemanticUnitModelMetrics);
+    ReconcileReferencesCoordinates('', lReferences, lMetrics);
+    Assert.AreEqual(0, lMetrics.ReferenceOccurrenceTableBuildCount);
+    lReference := Default(TDelphiSemanticReference);
+    lReference.Name := 'Token';
+    lReference.Line := 1;
+    lReference.Column := 1;
+    lReference.Offset := 1;
+    lReferences.Add(lReference);
+    lReference.Line := 2;
+    lReference.Column := 3;
+    lReference.Offset := 10;
+    lReferences.Add(lReference);
+    lReference.Line := 5;
+    lReference.Column := 4;
+    lReference.Offset := 0;
+    lReferences.Add(lReference);
+    ReconcileReferencesCoordinates(cSource, lReferences, lMetrics);
+    Assert.AreEqual(1, lReferences[0].Line);
+    Assert.AreEqual(1, lReferences[0].Column);
+    Assert.AreEqual(2, lReferences[1].Line);
+    Assert.AreEqual(3, lReferences[1].Column);
+    Assert.AreEqual(5, lReferences[2].Line);
+    Assert.AreEqual(5, lReferences[2].Column);
+    Assert.AreEqual(Length(cSource) - 4, lReferences[2].Offset);
+    Assert.AreEqual(Length(cSource) + 1, lReferences[2].EndOffset);
+    Assert.AreEqual(5, lReferences[2].EndLine);
+    Assert.AreEqual(9, lReferences[2].EndColumn);
+    Assert.AreEqual(1, lMetrics.ReferenceReconciliationFallbackCount);
+    Assert.AreEqual(1, lMetrics.ReferenceOccurrenceTableBuildCount);
+  finally
+    lReferences.Free;
+  end;
+end;
+
 procedure TUnitModelTests.ReferencesCarryOriginalSourceRanges;
 var
   lModel: TDelphiSemanticUnitModel;
@@ -2096,144 +2559,6 @@ begin
     lSource)), 'string token');
   Assert.IsTrue(lModel.Metrics.ReferenceReconciliationFallbackCount <= 17,
     'preprocessed source should keep reference reconciliation fallback within the documented ceiling');
-end;
-
-procedure TUnitModelTests.ReferenceReconciliationPreservesMixedLineEndings;
-const
-  cSource = 'Token' + #13#10 + '  Token' + #10 + '{ Token' + #13#10 +
-    ' Token }' + #10 + '    Token';
-var
-  lMetrics: TDelphiSemanticUnitModelMetrics;
-  lReference: TDelphiSemanticReference;
-  lReferences: TList<TDelphiSemanticReference>;
-begin
-  lReferences := TList<TDelphiSemanticReference>.Create;
-  try
-    lMetrics := Default(TDelphiSemanticUnitModelMetrics);
-    ReconcileReferencesCoordinates('', lReferences, lMetrics);
-    Assert.AreEqual(0, lMetrics.ReferenceOccurrenceTableBuildCount);
-    lReference := Default(TDelphiSemanticReference);
-    lReference.Name := 'Token';
-    lReference.Line := 1;
-    lReference.Column := 1;
-    lReference.Offset := 1;
-    lReferences.Add(lReference);
-    lReference.Line := 2;
-    lReference.Column := 3;
-    lReference.Offset := 10;
-    lReferences.Add(lReference);
-    lReference.Line := 5;
-    lReference.Column := 4;
-    lReference.Offset := 0;
-    lReferences.Add(lReference);
-    ReconcileReferencesCoordinates(cSource, lReferences, lMetrics);
-    Assert.AreEqual(1, lReferences[0].Line);
-    Assert.AreEqual(1, lReferences[0].Column);
-    Assert.AreEqual(2, lReferences[1].Line);
-    Assert.AreEqual(3, lReferences[1].Column);
-    Assert.AreEqual(5, lReferences[2].Line);
-    Assert.AreEqual(5, lReferences[2].Column);
-    Assert.AreEqual(Length(cSource) - 4, lReferences[2].Offset);
-    Assert.AreEqual(Length(cSource) + 1, lReferences[2].EndOffset);
-    Assert.AreEqual(5, lReferences[2].EndLine);
-    Assert.AreEqual(9, lReferences[2].EndColumn);
-    Assert.AreEqual(1, lMetrics.ReferenceReconciliationFallbackCount);
-    Assert.AreEqual(1, lMetrics.ReferenceOccurrenceTableBuildCount);
-  finally
-    lReferences.Free;
-  end;
-end;
-
-procedure TUnitModelTests.CoordinateMappingPreservesRangesAcrossModelKinds;
-const
-  cSource = #$00FC + #13#10 + '  Token' + #10#10 + 'Token' + #13 + ' Z' + #10;
-  cLines: array[0..7] of Integer = (2, 99, 1, 0, 99, 99, 4, 99);
-  cColumns: array[0..7] of Integer = (3, 1, 6, 0, 1, 1, 1, 1);
-  cOffsets: array[0..7] of Integer = (1, 1, 1, 0, 2, 3, 999, 4);
-  cExpectedOffsets: array[0..7] of Integer = (6, 13, 6, 0, 2, 3, 13, 4);
-  cExpectedLines: array[0..7] of Integer = (2, 4, 2, 0, 99, 99, 4, 99);
-  cExpectedColumns: array[0..7] of Integer = (3, 1, 3, 0, 1, 1, 1, 1);
-var
-  g: TGarbos;
-  i: Integer;
-  lOffsetMap: TArray<Integer>;
-  lDeclaration: TDelphiSemanticDeclaration;
-  lDeclarations: TList<TDelphiSemanticDeclaration>;
-  lMember: TDelphiSemanticMember;
-  lMembers: TList<TDelphiSemanticMember>;
-  lRoutine: TDelphiSemanticRoutine;
-  lRoutines: TList<TDelphiSemanticRoutine>;
-  lLocal: TDelphiSemanticLocal;
-  lLocals: TList<TDelphiSemanticLocal>;
-  lReference: TDelphiSemanticReference;
-  lReferences: TList<TDelphiSemanticReference>;
-begin
-  GC(lDeclarations, TList<TDelphiSemanticDeclaration>.Create, g);
-  GC(lMembers, TList<TDelphiSemanticMember>.Create, g);
-  GC(lRoutines, TList<TDelphiSemanticRoutine>.Create, g);
-  GC(lLocals, TList<TDelphiSemanticLocal>.Create, g);
-  GC(lReferences, TList<TDelphiSemanticReference>.Create, g);
-  SetLength(lOffsetMap, 5);
-  lOffsetMap[1] := 13;
-  lOffsetMap[2] := 0;
-  lOffsetMap[3] := 1;
-  lOffsetMap[4] := Length(cSource) + 1;
-  for i := Low(cLines) to High(cLines) do
-  begin
-    lDeclaration := Default(TDelphiSemanticDeclaration);
-    lDeclaration.Name := 'Token';
-    lDeclaration.Line := cLines[i];
-    lDeclaration.Column := cColumns[i];
-    lDeclaration.Offset := cOffsets[i];
-    lDeclarations.Add(lDeclaration);
-    lMember := Default(TDelphiSemanticMember);
-    lMember.Name := 'Token';
-    lMember.Line := cLines[i];
-    lMember.Column := cColumns[i];
-    lMember.Offset := cOffsets[i];
-    lMembers.Add(lMember);
-    lRoutine := Default(TDelphiSemanticRoutine);
-    lRoutine.Name := 'Token';
-    lRoutine.Line := cLines[i];
-    lRoutine.Column := cColumns[i];
-    lRoutine.Offset := cOffsets[i];
-    lRoutines.Add(lRoutine);
-    lLocal := Default(TDelphiSemanticLocal);
-    lLocal.Name := 'Token';
-    lLocal.Line := cLines[i];
-    lLocal.Column := cColumns[i];
-    lLocal.Offset := cOffsets[i];
-    lLocals.Add(lLocal);
-    lReference := Default(TDelphiSemanticReference);
-    lReference.Name := 'Token';
-    lReference.Line := cLines[i];
-    lReference.Column := cColumns[i];
-    lReference.Offset := cOffsets[i];
-    lReferences.Add(lReference);
-  end;
-  ApplyDeclarationSourceOffsetMap(cSource, lOffsetMap, lDeclarations);
-  ApplyMemberSourceOffsetMap(cSource, lOffsetMap, lMembers);
-  ApplyRoutineSourceOffsetMap(cSource, lOffsetMap, lRoutines);
-  ApplyLocalSourceOffsetMap(cSource, lOffsetMap, lLocals);
-  ApplyReferenceSourceOffsetMap(cSource, lOffsetMap, lReferences);
-  for i := Low(cLines) to High(cLines) do
-  begin
-    Assert.AreEqual(cExpectedOffsets[i], lDeclarations[i].Offset, 'Declaration ' + i.ToString);
-    Assert.AreEqual(cExpectedLines[i], lDeclarations[i].Line, 'Declaration ' + i.ToString);
-    Assert.AreEqual(cExpectedColumns[i], lDeclarations[i].Column, 'Declaration ' + i.ToString);
-    Assert.AreEqual(cExpectedOffsets[i], lMembers[i].Offset, 'Member ' + i.ToString);
-    Assert.AreEqual(cExpectedLines[i], lMembers[i].Line, 'Member ' + i.ToString);
-    Assert.AreEqual(cExpectedColumns[i], lMembers[i].Column, 'Member ' + i.ToString);
-    Assert.AreEqual(cExpectedOffsets[i], lRoutines[i].Offset, 'Routine ' + i.ToString);
-    Assert.AreEqual(cExpectedLines[i], lRoutines[i].Line, 'Routine ' + i.ToString);
-    Assert.AreEqual(cExpectedColumns[i], lRoutines[i].Column, 'Routine ' + i.ToString);
-    Assert.AreEqual(cExpectedOffsets[i], lLocals[i].Offset, 'Local ' + i.ToString);
-    Assert.AreEqual(cExpectedLines[i], lLocals[i].Line, 'Local ' + i.ToString);
-    Assert.AreEqual(cExpectedColumns[i], lLocals[i].Column, 'Local ' + i.ToString);
-    Assert.AreEqual(cExpectedOffsets[i], lReferences[i].Offset, 'Reference ' + i.ToString);
-    Assert.AreEqual(cExpectedLines[i], lReferences[i].Line, 'Reference ' + i.ToString);
-    Assert.AreEqual(cExpectedColumns[i], lReferences[i].Column, 'Reference ' + i.ToString);
-  end;
 end;
 
 procedure TUnitModelTests.ReferencesCarryOriginalSourceRangesWithoutFallbackForPlainSource;
@@ -2521,6 +2846,57 @@ begin
     'Source-context candidate extraction should use the shared Pascal lexical helper.');
 end;
 
+procedure TUnitModelTests.ModelJsonPreservesDeclarationRolesAndLexicalOwnership;
+var
+  lJson: string;
+  lModel: TDelphiSemanticUnitModel;
+  lRestored: TDelphiSemanticUnitModel;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.ScopeModelStatus := 'ast';
+  lModel.ScopeModelVersion := '1';
+  lModel.RejectedDeclarationCount := 2;
+  SetLength(lModel.Declarations, 1);
+  lModel.Declarations[0].Name := 'GValue';
+  lModel.Declarations[0].DeclarationRole := 'declaration';
+  lModel.Declarations[0].ScopeKind := 'unit';
+  lModel.Declarations[0].OwnerName := 'ScopeFixture';
+  lModel.Declarations[0].OwnerScopeId := 'unit:scopefixture';
+  lModel.Declarations[0].SymbolId := 'unit:scopefixture:gvalue';
+  lModel.Declarations[0].Mutable := True;
+  SetLength(lModel.Routines, 1);
+  lModel.Routines[0].Name := 'Run';
+  lModel.Routines[0].EndLine := 17;
+  lModel.Routines[0].EndColumn := 4;
+  lModel.Routines[0].ScopeId := 'routine:scopefixture.run';
+  lModel.Routines[0].ParentScopeId := 'unit:scopefixture';
+  SetLength(lModel.Locals, 1);
+  lModel.Locals[0].Name := 'lValue';
+  lModel.Locals[0].RoutineScopeId := lModel.Routines[0].ScopeId;
+  SetLength(lModel.References, 1);
+  lModel.References[0].Name := 'GValue';
+  lModel.References[0].RoutineScopeId := lModel.Routines[0].ScopeId;
+
+  lJson := ModelToJson(lModel);
+  lRestored := JsonToModel(lJson);
+
+  Assert.AreEqual('ast', lRestored.ScopeModelStatus);
+  Assert.AreEqual('1', lRestored.ScopeModelVersion);
+  Assert.AreEqual(2, lRestored.RejectedDeclarationCount);
+  Assert.AreEqual('declaration', lRestored.Declarations[0].DeclarationRole);
+  Assert.AreEqual('unit', lRestored.Declarations[0].ScopeKind);
+  Assert.AreEqual('ScopeFixture', lRestored.Declarations[0].OwnerName);
+  Assert.AreEqual('unit:scopefixture', lRestored.Declarations[0].OwnerScopeId);
+  Assert.AreEqual('unit:scopefixture:gvalue', lRestored.Declarations[0].SymbolId);
+  Assert.IsTrue(lRestored.Declarations[0].Mutable);
+  Assert.AreEqual(17, lRestored.Routines[0].EndLine);
+  Assert.AreEqual(4, lRestored.Routines[0].EndColumn);
+  Assert.AreEqual('routine:scopefixture.run', lRestored.Routines[0].ScopeId);
+  Assert.AreEqual('unit:scopefixture', lRestored.Routines[0].ParentScopeId);
+  Assert.AreEqual('routine:scopefixture.run', lRestored.Locals[0].RoutineScopeId);
+  Assert.AreEqual('routine:scopefixture.run', lRestored.References[0].RoutineScopeId);
+end;
+
 procedure TUnitModelTests.UnitModelImplementationIsSplitIntoFocusedUnits;
 var
   lCoordinateSource: string;
@@ -2552,6 +2928,118 @@ begin
     'Source sanitizing should live in the focused text helper unit.');
   Assert.IsTrue(ContainsText(lCoordinateSource, 'ReconcileReferencesCoordinates'),
     'Coordinate reconciliation should live in the focused coordinate unit.');
+end;
+
+procedure TUnitModelTests.ExtractsInlineConstVarSections;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lExpectedOffset: Integer;
+  lName: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lSource: string;
+begin
+  lSource := 'unit InlineSections;' + sLineBreak + 'interface' + sLineBreak +
+    'var ScopeTarget, v, a, ScopeOther: Integer;' + sLineBreak +
+    '  NextGlobal: Integer;' + sLineBreak +
+    'const c = 0;' + sLineBreak +
+    'const InlineConstant = 1;' + sLineBreak +
+    '  NextConstant = 2;' + sLineBreak +
+    'const InlineTyped: Integer = 3;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('inline-sections.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  for lName in ['ScopeTarget', 'v', 'a', 'ScopeOther', 'NextGlobal'] do
+  begin
+    Assert.IsTrue(FindDeclaration(lModel, lName, 'var', 'interface', lDeclaration), lName);
+    if MatchText(lName, ['v', 'a']) then
+      lExpectedOffset := Pos(', ' + lName + ',', lSource) + 2
+    else
+      lExpectedOffset := Pos(lName, lSource);
+    Assert.AreEqual(lExpectedOffset, lDeclaration.Offset, lName);
+    Assert.AreEqual('declaration', lDeclaration.DeclarationRole, lName);
+    Assert.AreEqual('unit', lDeclaration.ScopeKind, lName);
+  end;
+  for lName in ['c', 'InlineConstant', 'NextConstant'] do
+  begin
+    Assert.IsTrue(FindDeclaration(lModel, lName, 'const', 'interface', lDeclaration), lName);
+    Assert.AreEqual(Pos(lName + ' =', lSource), lDeclaration.Offset, lName);
+  end;
+  Assert.IsTrue(FindDeclaration(lModel, 'InlineTyped', 'typed-const', 'interface', lDeclaration));
+  Assert.AreEqual(Pos('InlineTyped', lSource), lDeclaration.Offset);
+end;
+
+procedure TUnitModelTests.InlineConstSectionEndsTypeDeclarations;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('inline-const-after-type.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit InlineAfterType;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + 'TNumber = Integer;' + sLineBreak +
+    'const First = 1;' + sLineBreak + 'Second = 2;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(HasDeclaration(lModel, 'TNumber', 'type-alias', 'interface'));
+  Assert.IsTrue(HasDeclaration(lModel, 'Second', 'const', 'interface'));
+  Assert.IsFalse(HasDeclaration(lModel, 'Second', 'type-alias', 'interface'),
+    'A const section must terminate type extraction even when its first declaration shares the line.');
+end;
+
+procedure TUnitModelTests.MultilineVarParametersAreNotUnitVariables;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('multiline-var-parameters.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit MultilineVarParameters;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + 'TValue = record' + sLineBreak +
+    '  Count: Integer;' + sLineBreak + 'end;' + sLineBreak +
+    'TScope = class' + sLineBreak + 'public' + sLineBreak +
+    '  class procedure Touch(var aOuter: TValue;' + sLineBreak +
+    '    var aInner: TValue);' + sLineBreak + 'end;' + sLineBreak +
+    'var ScopeTarget: Integer;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'class procedure TScope.Touch(var aOuter: TValue;' + sLineBreak +
+    '  var aInner: TValue);' + sLineBreak + 'begin' + sLineBreak +
+    '  aInner.Count := aOuter.Count;' + sLineBreak + 'end;' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(HasDeclaration(lModel, 'ScopeTarget', 'var', 'interface'));
+  Assert.IsFalse(HasDeclaration(lModel, 'aInner', 'var', 'interface'),
+    'A parameter continuation must not enter the unit variable inventory.');
+  Assert.IsFalse(HasDeclaration(lModel, 'aInner', 'var', 'implementation'));
+end;
+
+procedure TUnitModelTests.CommentedRoutineHeaderDoesNotHideUnitVariables;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('commented-routine-header.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit CommentedRoutineHeader;' + sLineBreak + 'interface' + sLineBreak +
+    '{' + sLineBreak + 'procedure Example' + sLineBreak + '}' + sLineBreak +
+    'var' + sLineBreak + '  Value: Integer;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(HasDeclaration(lModel, 'Value', 'var', 'interface'),
+    'Commented header text must not consume the next real declaration.');
 end;
 
 initialization

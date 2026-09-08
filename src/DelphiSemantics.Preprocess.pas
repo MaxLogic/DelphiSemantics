@@ -49,7 +49,7 @@ implementation
 
 uses
   System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
-  MaxLogic.StrUtils,
+  MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.Source;
 
 type
@@ -158,23 +158,48 @@ begin
     SameText(lText, 'IFEND') or StartsText('IFEND ', lText);
 end;
 
+function MaskDirectiveLookalikes(const aText: string): string;
+var
+  i: Integer;
+  lLexer: TmwBasePasLex;
+begin
+  Result := aText;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aText;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID in [ptBorComment, ptAnsiComment, ptSlashesComment, ptStringConst] then
+        for i := lLexer.TokenPos + 1 to lLexer.TokenPos + lLexer.TokenLen do
+          if Result[i] = '$' then
+            Result[i] := ' ';
+      lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
 function TryExtractDirective(const aLine: string; out aDirective: string;
   out aNeedsCloseBrace: Boolean): Boolean;
 var
+  lLine: string;
   lStart: Integer;
   lStop: Integer;
 begin
   aNeedsCloseBrace := False;
-  lStart := Pos('{$', aLine);
+  lLine := aLine;
+  lStart := Pos('{$', lLine);
   if lStart > 0 then
   begin
-    lStop := PosEx('}', aLine, lStart + 2);
+    lStop := PosEx('}', lLine, lStart + 2);
     if lStop > lStart then
     begin
-      aDirective := Copy(aLine, lStart + 2, lStop - lStart - 2).Trim;
+      aDirective := Copy(lLine, lStart + 2, lStop - lStart - 2).Trim;
       Exit(True);
     end;
-    aDirective := Copy(aLine, lStart + 2, MaxInt).Trim;
+    aDirective := Copy(lLine, lStart + 2, MaxInt).Trim;
     if IsConditionalDirectiveText(aDirective) then
     begin
       aNeedsCloseBrace := True;
@@ -182,13 +207,13 @@ begin
     end;
   end;
 
-  lStart := Pos('(*$', aLine);
+  lStart := Pos('(*$', lLine);
   if lStart > 0 then
   begin
-    lStop := PosEx('*)', aLine, lStart + 3);
+    lStop := PosEx('*)', lLine, lStart + 3);
     if lStop > lStart then
     begin
-      aDirective := Copy(aLine, lStart + 3, lStop - lStart - 3).Trim;
+      aDirective := Copy(lLine, lStart + 3, lStop - lStart - 3).Trim;
       Exit(True);
     end;
   end;
@@ -554,7 +579,7 @@ begin
   Result := Result + Copy(aLine, lPos, MaxInt);
 end;
 
-function ProcessInlineDirectiveLine(const aLine, aFileName: string; const aLineNumber: Integer;
+function ProcessInlineDirectiveLine(const aLine, aDirectiveLine, aFileName: string; const aLineNumber: Integer;
   const aOptions: TDelphiSemanticPreprocessOptions; const aDefines: TDefineMap;
   const aStack: TList<TPreprocessFrame>; const aDiagnostics:
   TList<TDelphiSemanticPreprocessDiagnostic>; const aOutput: TStringBuilder;
@@ -573,7 +598,7 @@ begin
   lLineOutput := TStringBuilder.Create;
   try
     lPos := 1;
-    lDirectiveStart := FindNextDirectiveStart(aLine, lPos);
+    lDirectiveStart := FindNextDirectiveStart(aDirectiveLine, lPos);
     while lDirectiveStart > 0 do
     begin
       if CurrentActive(aStack) then
@@ -581,7 +606,7 @@ begin
       else
         lLineOutput.Append(StringOfChar(' ', lDirectiveStart - lPos));
 
-      lDirectiveStop := FindDirectiveStop(aLine, lDirectiveStart);
+      lDirectiveStop := FindDirectiveStop(aDirectiveLine, lDirectiveStart);
       if lDirectiveStop = 0 then
       begin
         lLineOutput.Append(StringOfChar(' ', Length(aLine) - lDirectiveStart + 1));
@@ -593,14 +618,23 @@ begin
       else
         lDirective := Copy(aLine, lDirectiveStart + 2, lDirectiveStop - lDirectiveStart - 2).Trim;
 
-      lOutputLineWritten := False;
-      if not ProcessDirective(lDirective, aFileName, aLineNumber, aOptions, aDefines,
-        aStack, aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache,
-        lOutputLineWritten) then
-        Result := False;
-      lLineOutput.Append(StringOfChar(' ', lDirectiveStop - lDirectiveStart + 1));
+      if IsCompilerSwitchDirective(lDirective) then
+      begin
+        if CurrentActive(aStack) then
+          lLineOutput.Append(Copy(aLine, lDirectiveStart, lDirectiveStop - lDirectiveStart + 1))
+        else
+          lLineOutput.Append(StringOfChar(' ', lDirectiveStop - lDirectiveStart + 1));
+      end else
+      begin
+        lOutputLineWritten := False;
+        if not ProcessDirective(lDirective, aFileName, aLineNumber, aOptions, aDefines,
+          aStack, aDiagnostics, lLineOutput, aRegions, aIncludes, aIncludeStack, aSourceCache,
+          lOutputLineWritten) then
+          Result := False;
+        lLineOutput.Append(StringOfChar(' ', lDirectiveStop - lDirectiveStart + 1));
+      end;
       lPos := lDirectiveStop + 1;
-      lDirectiveStart := FindNextDirectiveStart(aLine, lPos);
+      lDirectiveStart := FindNextDirectiveStart(aDirectiveLine, lPos);
     end;
 
     if CurrentActive(aStack) then
@@ -623,13 +657,12 @@ procedure ProcessLoadedSourceFile(const aFileName, aSourceText: string;
 var
   i: Integer;
   lDirective: string;
+  lDirectiveLines: TStringList;
   lDirectiveStart: Integer;
   lDirectiveStop: Integer;
-  lExtraOutputLineWritten: Boolean;
   lLines: TStringList;
   lOutputLineWritten: Boolean;
   lPendingDirectiveCloseBrace: Boolean;
-  lSearchStart: Integer;
 begin
   if IsFileInStack(aIncludeStack, aFileName) then
   begin
@@ -640,7 +673,10 @@ begin
   end;
 
   lLines := TStringList.Create;
+  lDirectiveLines := nil;
   try
+    lDirectiveLines := TStringList.Create;
+    lDirectiveLines.Text := MaskDirectiveLookalikes(aSourceText);
     aIncludeStack.Add(aFileName);
     lLines.Text := aSourceText;
     lPendingDirectiveCloseBrace := False;
@@ -653,12 +689,16 @@ begin
         Continue;
       end;
 
-      if TryExtractDirective(lLines[i], lDirective, lPendingDirectiveCloseBrace) then
+      if TryExtractDirective(lDirectiveLines[i], lDirective, lPendingDirectiveCloseBrace) then
       begin
-        if RemoveInlineDirectivesForDetection(lLines[i]).Trim <> '' then
+        lDirectiveStart := FindNextDirectiveStart(lDirectiveLines[i], 1);
+        lDirectiveStop := FindDirectiveStop(lDirectiveLines[i], lDirectiveStart);
+        if (RemoveInlineDirectivesForDetection(lDirectiveLines[i]).Trim <> '') or
+          ((lDirectiveStop > 0) and
+          (FindNextDirectiveStart(lDirectiveLines[i], lDirectiveStop + 1) > 0)) then
         begin
           AddRegion(aRegions, aFileName, i + 1, CurrentActive(aStack));
-          if not ProcessInlineDirectiveLine(lLines[i], aFileName, i + 1, aOptions, aDefines,
+          if not ProcessInlineDirectiveLine(lLines[i], lDirectiveLines[i], aFileName, i + 1, aOptions, aDefines,
             aStack, aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack,
             aSourceCache) then
             aSuccess := False;
@@ -670,28 +710,6 @@ begin
           aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache,
           lOutputLineWritten) then
           aSuccess := False;
-        lDirectiveStart := Pos('{$', lLines[i]);
-        lDirectiveStop := PosEx('}', lLines[i], lDirectiveStart + 2);
-        if lDirectiveStop > lDirectiveStart then
-        begin
-          lSearchStart := lDirectiveStop + 1;
-          lDirectiveStart := PosEx('{$', lLines[i], lSearchStart);
-          while lDirectiveStart > 0 do
-          begin
-            lDirectiveStop := PosEx('}', lLines[i], lDirectiveStart + 2);
-            if lDirectiveStop <= lDirectiveStart then
-              Break;
-            lDirective := Copy(lLines[i], lDirectiveStart + 2,
-              lDirectiveStop - lDirectiveStart - 2).Trim;
-            lExtraOutputLineWritten := False;
-            if not ProcessDirective(lDirective, aFileName, i + 1, aOptions, aDefines, aStack,
-              aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache,
-              lExtraOutputLineWritten) then
-              aSuccess := False;
-            lSearchStart := lDirectiveStop + 1;
-            lDirectiveStart := PosEx('{$', lLines[i], lSearchStart);
-          end;
-        end;
         if not lOutputLineWritten then
           aOutput.AppendLine('');
       end else
@@ -706,6 +724,7 @@ begin
   finally
     if aIncludeStack.Count > 0 then
       aIncludeStack.Delete(Pred(aIncludeStack.Count));
+    lDirectiveLines.Free;
     lLines.Free;
   end;
 end;
@@ -881,7 +900,14 @@ begin
   end;
 
   if IsCompilerSwitchDirective(lText) then
+  begin
+    if CurrentActive(aStack) then
+    begin
+      aOutput.AppendLine('{$' + lText + '}');
+      aOutputLineWritten := True;
+    end;
     Exit(True);
+  end;
 
   AddDiagnostic(aDiagnostics, 'UNSUPPORTED_PREPROCESS_DIRECTIVE',
     'Unsupported preprocessing directive: ' + aDirective, aFileName, aLine);

@@ -11,6 +11,7 @@ type
     SkipBodyAnalysis: Boolean;
     SkipReferenceExtraction: Boolean;
     WithStatementsOnly: Boolean;
+    WritableTypedConstants: Boolean;
   end;
 
   TDelphiSemanticModelDiagnostic = record
@@ -31,6 +32,12 @@ type
     Column: Integer;
     Offset: Integer;
     EndOffset: Integer;
+    DeclarationRole: string;
+    ScopeKind: string;
+    OwnerName: string;
+    OwnerScopeId: string;
+    SymbolId: string;
+    Mutable: Boolean;
   end;
 
   TDelphiSemanticMember = record
@@ -69,6 +76,10 @@ type
     Column: Integer;
     Offset: Integer;
     EndOffset: Integer;
+    EndLine: Integer;
+    EndColumn: Integer;
+    ScopeId: string;
+    ParentScopeId: string;
     Parameters: TArray<TDelphiSemanticParameter>;
   end;
 
@@ -81,6 +92,7 @@ type
     Column: Integer;
     Offset: Integer;
     EndOffset: Integer;
+    RoutineScopeId: string;
   end;
 
   TDelphiSemanticReference = record
@@ -94,6 +106,7 @@ type
     EndOffset: Integer;
     EndLine: Integer;
     EndColumn: Integer;
+    RoutineScopeId: string;
   end;
 
   TDelphiSemanticWithStatement = record
@@ -145,6 +158,9 @@ type
     WithStatements: TArray<TDelphiSemanticWithStatement>;
     Diagnostics: TArray<TDelphiSemanticModelDiagnostic>;
     Metrics: TDelphiSemanticUnitModelMetrics;
+    ScopeModelStatus: string;
+    ScopeModelVersion: string;
+    RejectedDeclarationCount: Integer;
   end;
 
   TDelphiSemanticUnitModelExtractor = record

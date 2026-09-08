@@ -50,6 +50,8 @@ type
     [Test]
     procedure IdentifierScopedSessionMatchesForcedFullRename;
     [Test]
+    procedure InlineSectionRenameProducesThreeEdits;
+    [Test]
     procedure IdentifierScopedRenameMatchesColdWarmAndInvalidatedCache;
     [Test]
     procedure ProjectSessionSnapshotIdentityReusesUnitCacheIdentityRecord;
@@ -58,6 +60,8 @@ type
     [Test]
     procedure ProjectSessionGlobalAnalysisReportsSnapshotCacheMetrics;
     [Test]
+    procedure ProjectSessionGlobalAnalysisHonorsWritableTypedConstants;
+    [Test]
     procedure ProjectSessionDependencyGraphCollectsRecursiveProjectFacts;
     [Test]
     procedure ProjectSessionDependencyGraphUsesLinux64TargetDefines;
@@ -65,6 +69,8 @@ type
     procedure ProjectSessionBuildsSnapshotFromExtractedModels;
     [Test]
     procedure ProjectSessionBuildsOwnedSnapshotQueryContext;
+    [Test]
+    procedure TypedConstantsRemainQueryableAcrossSnapshotCacheModes;
     [Test]
     procedure ProjectSessionSnapshotParityComparesSemanticFacts;
     [Test]
@@ -1255,8 +1261,81 @@ begin
     Assert.IsTrue(Length(lAnalysis.Declarations) > 0,
       'Expected snapshot-backed global analysis to return declarations.');
     Assert.AreEqual(2, Integer(Length(lIdentities)));
+    Assert.AreEqual(2, lAnalysis.SnapshotUnitCount);
+    Assert.AreEqual(2, lAnalysis.VerifiedScopeUnitCount);
     Assert.IsTrue(lCacheMetrics.CacheMisses > 0,
       'Snapshot-backed global analysis should preserve cache miss metrics.');
+  finally
+    lResult.Session.Free;
+  end;
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lAnalysis := lResult.Session.BuildGlobalAnalysis(lIdentities, lCacheMetrics,
+      lExtractionMilliseconds);
+    Assert.IsTrue(Length(lAnalysis.Declarations) > 0,
+      'A cache hit must preserve explicit declaration facts.');
+    Assert.AreEqual(2, lAnalysis.SnapshotUnitCount);
+    Assert.AreEqual(2, lAnalysis.VerifiedScopeUnitCount,
+      'A cache hit must preserve verified lexical-scope provenance.');
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ProjectSessionGlobalAnalysisHonorsWritableTypedConstants;
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lDeclaration: TDelphiSemanticGlobalDeclaration;
+  lDprPath: string;
+  lDprojPath: string;
+  lExtractionMilliseconds: Int64;
+  lFound: Boolean;
+  lIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lUnitPath: string;
+begin
+  lRootPath := ProjectSessionTempPath('global-analysis-writable-typed-constants');
+  TDirectory.CreateDirectory(lRootPath);
+  lDprPath := TPath.Combine(lRootPath, 'WritableTypedConstants.dpr');
+  lDprojPath := TPath.Combine(lRootPath, 'WritableTypedConstants.dproj');
+  lUnitPath := TPath.Combine(lRootPath, 'WritableTypedConstantsUnit.pas');
+  TFile.WriteAllText(lDprPath, 'program WritableTypedConstants;' + sLineBreak +
+    'uses WritableTypedConstantsUnit;' + sLineBreak + 'begin' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lDprojPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    sLineBreak + '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>WritableTypedConstants.dpr</MainSource>' + sLineBreak +
+    '    <DCC_WriteableConstants>true</DCC_WriteableConstants>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak + '  <ItemGroup>' + sLineBreak +
+    '    <DCCReference Include="WritableTypedConstantsUnit.pas"/>' + sLineBreak +
+    '  </ItemGroup>' + sLineBreak + '</Project>', TEncoding.UTF8);
+  TFile.WriteAllText(lUnitPath, 'unit WritableTypedConstantsUnit;' + sLineBreak +
+    'interface' + sLineBreak + 'const' + sLineBreak +
+    '  GMutableValue: Integer = 1;' + sLineBreak + 'implementation' +
+    sLineBreak + 'end.', TEncoding.UTF8);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojPath;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lAnalysis := lResult.Session.BuildGlobalAnalysis(lIdentities, lCacheMetrics,
+      lExtractionMilliseconds);
+    lFound := False;
+    for lDeclaration in lAnalysis.Declarations do
+      if SameText(lDeclaration.Name, 'GMutableValue') then
+      begin
+        lFound := True;
+        Break;
+      end;
+    Assert.IsTrue(lFound,
+      'DCC_WriteableConstants=true must make typed constants mutable globals.');
   finally
     lResult.Session.Free;
   end;
@@ -1376,16 +1455,23 @@ begin
       Assert.IsTrue(lMetrics.BuildMilliseconds >= 0);
 
       Assert.IsTrue(lSnapshot.TryFindUnitByFileName(
-        FixturePath('ProjectWithBinding\ProjectWithBinding.dpr'), lUnitId));
-      Assert.IsTrue(lSnapshot.TryFindUnitById(lUnitId, lUnit));
+        FixturePath('ProjectWithBinding\ProjectWithBinding.dpr'), lUnitId),
+        'Expected project DPR unit in snapshot.');
+      Assert.IsTrue(lSnapshot.TryFindUnitById(lUnitId, lUnit),
+        'Expected project DPR unit ID to resolve.');
       Assert.AreEqual(FixturePath('ProjectWithBinding\ProjectWithBinding.dpr'),
         lSnapshot.TextOf(lUnit.FileNameId));
 
-      Assert.IsTrue(lSnapshot.TryFindStringId('TProjectWithRecord', lTypeNameId));
-      Assert.IsTrue(lSnapshot.TryTypesByName(lTypeNameId, lLowIndex, lHighIndex));
-      Assert.IsTrue(lSnapshot.TryFindStringId('Value', lMemberNameId));
-      Assert.IsTrue(lSnapshot.TryFindMember(lTypeNameId, lMemberNameId, lSymbolRef));
-      Assert.IsTrue(lSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit));
+      Assert.IsTrue(lSnapshot.TryFindStringId('TProjectWithRecord', lTypeNameId),
+        'Expected TProjectWithRecord string in snapshot.');
+      Assert.IsTrue(lSnapshot.TryTypesByName(lTypeNameId, lLowIndex, lHighIndex),
+        'Expected TProjectWithRecord type index entry.');
+      Assert.IsTrue(lSnapshot.TryFindStringId('Value', lMemberNameId),
+        'Expected Value member string in snapshot.');
+      Assert.IsTrue(lSnapshot.TryFindMember(lTypeNameId, lMemberNameId, lSymbolRef),
+        'Expected TProjectWithRecord.Value member index entry.');
+      Assert.IsTrue(lSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit),
+        'Expected member unit ID to resolve.');
       lSymbol := lUnit.SymbolById(lSymbolRef.SymbolId);
       Assert.AreEqual('Value', lSnapshot.TextOf(lSymbol.NameId));
       Assert.AreEqual('TProjectWithRecord', lSnapshot.TextOf(lSymbol.OwnerTypeId));
@@ -1423,7 +1509,8 @@ begin
 
     lDefinition := TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext,
       'TProjectWithRecord');
-    Assert.IsTrue(lDefinition.Found);
+    Assert.IsTrue(lDefinition.Found,
+      'Expected TProjectWithRecord definition in owned snapshot context.');
     Assert.AreEqual('project-snapshot', lDefinition.Provenance);
     lIndex := TDelphiSemanticProjectSymbolIndexer.Build(lContext);
     Assert.AreEqual(0, lIndex.Metrics.BuildInvocationCount,
@@ -1440,6 +1527,110 @@ begin
     Assert.AreEqual('project-snapshot', lDefinition.Provenance);
   finally
     lContext.ProjectSnapshot := nil;
+  end;
+end;
+
+procedure TProjectSessionTests.TypedConstantsRemainQueryableAcrossSnapshotCacheModes;
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lDeclaration: TDelphiSemanticGlobalDeclaration;
+  lDefinition: TDelphiSemanticSymbolQueryResult;
+  lExtractionMilliseconds: Int64;
+  lFoundWritable: Boolean;
+  lIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  lName: string;
+  lOptions: TDelphiSemanticOptions;
+  lReference: TSemanticReferenceFact;
+  lReferenceRef: TSemanticReferenceRef;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSymbol: TSemanticSymbolFact;
+  lUnit: TUnitSnapshot;
+  lUnitPath: string;
+  i: Integer;
+  j: Integer;
+begin
+  lRootPath := ProjectSessionTempPath('typed-constant-query-cache');
+  TDirectory.CreateDirectory(lRootPath);
+  lUnitPath := TPath.Combine(lRootPath, 'TypedValues.pas');
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'TypedValuesProject.dpr'),
+    'program TypedValuesProject;' + sLineBreak + 'uses TypedValues;' +
+    sLineBreak + 'begin end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'TypedValuesProject.dproj'),
+    '<Project><PropertyGroup><MainSource>TypedValuesProject.dpr</MainSource>' +
+    '</PropertyGroup><ItemGroup><DCCReference Include="TypedValues.pas"/>' +
+    '</ItemGroup></Project>', TEncoding.UTF8);
+  TFile.WriteAllText(lUnitPath, 'unit TypedValues;' + sLineBreak +
+    'interface' + sLineBreak + '{$J-}' + sLineBreak + 'const' + sLineBreak +
+    '  ReadOnlyValue: Integer = 1;' + sLineBreak + '{$J+}' + sLineBreak +
+    'const' + sLineBreak + '  WritableValue: Integer = 2;' + sLineBreak +
+    'function ReadBoth: Integer;' + sLineBreak + 'implementation' + sLineBreak +
+    'function ReadBoth: Integer;' + sLineBreak + 'begin' + sLineBreak +
+    '  Result := ReadOnlyValue;' + sLineBreak +
+    '  Result := Result + WritableValue;' + sLineBreak + 'end;' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'TypedValuesProject.dproj');
+  for i := 0 to 3 do
+  begin
+    if i > 0 then
+      lOptions.SqliteCacheFileName := TPath.Combine(lRootPath, 'snapshot.sqlite');
+    if i = 3 then
+      ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
+        'update snapshot_units set schema_version = ''project-session-snapshot-v6''');
+    lResult := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lResult.Success);
+      lContext := lResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+        lExtractionMilliseconds);
+      if (i = 1) or (i = 3) then
+        Assert.IsTrue(lCacheMetrics.CacheMisses > 0,
+          'Cold or pre-immutable-inventory snapshot must miss.');
+      if i = 2 then
+      begin
+        Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Warm snapshot must hit.');
+        Assert.AreEqual(0, lCacheMetrics.CacheMisses);
+      end;
+      lSnapshot := lContext.ProjectSnapshot.Snapshot;
+      for j := 0 to 1 do
+      begin
+        if j = 0 then
+          lName := 'ReadOnlyValue'
+        else
+          lName := 'WritableValue';
+        lDefinition := TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext, lName);
+        Assert.IsTrue(lDefinition.Found, lName + ' must remain in shared symbols.');
+        lDefinition := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext,
+          lUnitPath, 13 + j, 13 + j * 9);
+        Assert.IsTrue(lDefinition.Found, lName + ' must resolve at its read site.');
+        Assert.IsTrue(lSnapshot.TryReferenceAt(lUnitPath, 13 + j, 13 + j * 9,
+          lReferenceRef));
+        Assert.IsTrue(lSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit));
+        lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
+        Assert.AreNotEqual(0, Integer(lReference.TargetSymbolId),
+          lName + ' must have a resolved reference target.');
+        Assert.IsTrue(lSnapshot.TryFindUnitById(lReference.TargetUnitId, lUnit));
+        lSymbol := lUnit.SymbolById(lReference.TargetSymbolId);
+        Assert.AreEqual(lName, lSnapshot.TextOf(lSymbol.NameId));
+      end;
+      lAnalysis := lResult.Session.BuildGlobalAnalysis(lIdentities, lCacheMetrics,
+        lExtractionMilliseconds);
+      lFoundWritable := False;
+      for lDeclaration in lAnalysis.Declarations do
+      begin
+        Assert.IsFalse(SameText(lDeclaration.Name, 'ReadOnlyValue'),
+          'Read-only constants must stay out of mutable-global reporting.');
+        if SameText(lDeclaration.Name, 'WritableValue') then
+          lFoundWritable := True;
+      end;
+      Assert.IsTrue(lFoundWritable, 'Writable constants must remain mutable globals.');
+    finally
+      lContext.ProjectSnapshot := nil;
+      lResult.Session.Free;
+    end;
   end;
 end;
 
@@ -3380,6 +3571,34 @@ begin
   finally
     lResult.Session.Free;
   end;
+end;
+
+procedure TProjectSessionTests.InlineSectionRenameProducesThreeEdits;
+var
+  lExpected: TIdentifierScopePlanResult;
+  lInline: TIdentifierScopePlanResult;
+  lOptions: TDelphiSemanticOptions;
+  lProviderFileName: string;
+  lRoot: string;
+begin
+  lRoot := ProjectSessionTempPath('inline-section-rename');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := CreateIdentifierScopeProject(lRoot);
+  lOptions.Configuration := 'Release';
+  lOptions.Platform := 'Win64';
+  lExpected := BuildIdentifierScopePlan(lOptions);
+  Assert.AreEqual('planned', lExpected.Plan.Status, lExpected.Plan.Diagnostic);
+  Assert.AreEqual(3, Integer(Length(lExpected.Plan.Edits)));
+  lProviderFileName := TPath.Combine(lRoot, 'IdentifierScopeProvider.pas');
+  TFile.WriteAllText(lProviderFileName,
+    StringReplace(TFile.ReadAllText(lProviderFileName),
+      'var' + sLineBreak + '  ScopeTarget', 'var ScopeTarget', []), TEncoding.UTF8);
+  lInline := BuildIdentifierScopePlan(lOptions);
+  Assert.AreEqual('planned', lInline.Plan.Status, lInline.Plan.Diagnostic);
+  Assert.AreEqual(3, Integer(Length(lInline.Plan.Edits)));
+  lOptions.ForceFullIdentifierAnalysis := True;
+  lExpected := BuildIdentifierScopePlan(lOptions);
+  AssertRenamePlansEqual(lExpected.Plan, lInline.Plan);
 end;
 
 initialization

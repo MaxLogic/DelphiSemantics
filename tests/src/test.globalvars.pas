@@ -22,7 +22,12 @@ type
       aAccess, aUnitName: string): Integer;
     function CountAmbiguities(const aAnalysis: TDelphiSemanticGlobalAnalysis;
       const aName: string): Integer;
+    function HasUsageInRoutine(const aAnalysis: TDelphiSemanticGlobalAnalysis;
+      const aName, aRoutineName: string): Boolean;
+    function HasUsageForOwner(const aAnalysis: TDelphiSemanticGlobalAnalysis;
+      const aName, aOwnerName: string): Boolean;
     function DescribeGCounter(const aAnalysis: TDelphiSemanticGlobalAnalysis): string;
+    function DescribeDeclarations(const aAnalysis: TDelphiSemanticGlobalAnalysis): string;
     function HasDiagnostic(const aAnalysis: TDelphiSemanticGlobalAnalysis;
       const aCode: string): Boolean;
   public
@@ -32,6 +37,10 @@ type
     procedure AnalyzesProjectSnapshotUsingSnapshotSourceText;
     [Test]
     procedure SnapshotGlobalAnalysisDoesNotUseHiddenDuplicateFallback;
+    [Test]
+    procedure SnapshotGlobalAnalysisUsesDeclarationRolesAndLexicalOwnership;
+    [Test]
+    procedure SnapshotGlobalAnalysisDeduplicatesSemanticDeclarationIdentity;
     [Test]
     procedure UsageAccessUsesModelSourceText;
   end;
@@ -115,6 +124,36 @@ begin
       Inc(Result);
 end;
 
+function TGlobalVarsSemanticTests.HasUsageInRoutine(
+  const aAnalysis: TDelphiSemanticGlobalAnalysis; const aName,
+  aRoutineName: string): Boolean;
+var
+  lUsage: TDelphiSemanticGlobalUsage;
+begin
+  for lUsage in aAnalysis.Usages do
+    if SameText(lUsage.Name, aName) and SameText(lUsage.RoutineName, aRoutineName) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function TGlobalVarsSemanticTests.HasUsageForOwner(
+  const aAnalysis: TDelphiSemanticGlobalAnalysis; const aName,
+  aOwnerName: string): Boolean;
+var
+  lDeclaration: TDelphiSemanticGlobalDeclaration;
+  lUsage: TDelphiSemanticGlobalUsage;
+begin
+  for lDeclaration in aAnalysis.Declarations do
+    if SameText(lDeclaration.Name, aName) and
+      SameText(lDeclaration.OwnerName, aOwnerName) then
+      for lUsage in aAnalysis.Usages do
+        if SameText(lUsage.DeclaringSymbolId, lDeclaration.SymbolId) then
+          Exit(True);
+
+  Result := False;
+end;
+
 function TGlobalVarsSemanticTests.DescribeGCounter(
   const aAnalysis: TDelphiSemanticGlobalAnalysis): string;
 var
@@ -135,6 +174,16 @@ begin
     if SameText(lAmbiguity.Name, 'GCounter') then
       Result := Result + Format(' ambiguity=%s/%s', [lAmbiguity.UnitName,
         lAmbiguity.Candidates]);
+end;
+
+function TGlobalVarsSemanticTests.DescribeDeclarations(
+  const aAnalysis: TDelphiSemanticGlobalAnalysis): string;
+var
+  lDeclaration: TDelphiSemanticGlobalDeclaration;
+begin
+  Result := '';
+  for lDeclaration in aAnalysis.Declarations do
+    Result := Result + Format(' %s/%s', [lDeclaration.Name, lDeclaration.Kind]);
 end;
 
 function TGlobalVarsSemanticTests.HasDiagnostic(
@@ -279,6 +328,11 @@ begin
   lModels[0].Declarations[0].Kind := 'threadvar';
   lModels[0].Declarations[0].TypeName := 'Integer';
   lModels[0].Declarations[0].SectionKind := 'interface';
+  lModels[0].Declarations[0].DeclarationRole := 'declaration';
+  lModels[0].Declarations[0].ScopeKind := 'unit';
+  lModels[0].Declarations[0].OwnerScopeId := 'visibleglobals';
+  lModels[0].Declarations[0].SymbolId :=
+    'visibleglobals|threadvar|gsharedthread';
   lModels[0].Declarations[0].Line := 4;
   lModels[0].Declarations[0].Column := 3;
 
@@ -292,6 +346,11 @@ begin
   lModels[1].Declarations[0].Kind := 'threadvar';
   lModels[1].Declarations[0].TypeName := 'Integer';
   lModels[1].Declarations[0].SectionKind := 'interface';
+  lModels[1].Declarations[0].DeclarationRole := 'declaration';
+  lModels[1].Declarations[0].ScopeKind := 'unit';
+  lModels[1].Declarations[0].OwnerScopeId := 'hiddenglobals';
+  lModels[1].Declarations[0].SymbolId :=
+    'hiddenglobals|threadvar|gsharedthread';
   lModels[1].Declarations[0].Line := 4;
   lModels[1].Declarations[0].Column := 3;
 
@@ -335,6 +394,161 @@ begin
     'Snapshot analysis should resolve the visible threadvar target.');
   Assert.AreEqual(0, CountAmbiguities(lAnalysis, 'GSharedThread'),
     'Hidden same-name globals must not inflate snapshot ambiguities.');
+end;
+
+procedure TGlobalVarsSemanticTests.SnapshotGlobalAnalysisUsesDeclarationRolesAndLexicalOwnership;
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lBuildMetrics: TDelphiSnapshotBuilderMetrics;
+  lBuildOptions: TDelphiSnapshotBuildOptions;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFoundMutable: Boolean;
+  lGlobalDeclaration: TDelphiSemanticGlobalDeclaration;
+  lModelDescription: string;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lModels := [LoadModel('GlobalVarsFixture.ScopeRoles.pas')];
+  lFoundMutable := False;
+  lModelDescription := '';
+  for lDeclaration in lModels[0].Declarations do
+  begin
+    lModelDescription := lModelDescription + Format(' %s/%s/%s/%s/%s',
+      [lDeclaration.Name, lDeclaration.Kind, lDeclaration.DeclarationRole,
+      lDeclaration.ScopeKind, BoolToStr(lDeclaration.Mutable, True)]);
+    if SameText(lDeclaration.Name, 'GMutableValue') then
+    begin
+      lFoundMutable := True;
+      Assert.IsTrue(lDeclaration.Mutable, Format(
+        'GMutableValue role=%s scope=%s line=%d rejected=%d status=%s',
+        [lDeclaration.DeclarationRole, lDeclaration.ScopeKind, lDeclaration.Line,
+        lModels[0].RejectedDeclarationCount, lModels[0].ScopeModelStatus]));
+    end;
+  end;
+  Assert.IsTrue(lFoundMutable, 'Missing model declaration:' + lModelDescription);
+  lBuildOptions := Default(TDelphiSnapshotBuildOptions);
+  lBuildOptions.ResolveReferenceTargets := True;
+  lBuildOptions.WorkerCount := 1;
+  lRemoveWithFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+
+  lSnapshot := BuildProjectSnapshotFromModels(lModels, lRemoveWithFacts, lBuildOptions,
+    lBuildMetrics);
+  try
+    try
+      lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lSnapshot);
+    except
+      on e: Exception do
+        Assert.Fail('Snapshot analysis: ' + e.Message);
+    end;
+  finally
+    lSnapshot.Free;
+  end;
+
+  Assert.AreEqual(5, Integer(Length(lAnalysis.Declarations)), 'Exact shared-state inventory:' +
+    DescribeDeclarations(lAnalysis) + ' model:' + lModelDescription);
+  Assert.IsTrue(HasDeclaration(lAnalysis, 'GUnitValue', 'var'));
+  Assert.IsTrue(HasDeclaration(lAnalysis, 'GThreadValue', 'threadvar'));
+  Assert.IsTrue(HasDeclaration(lAnalysis, 'GMutableValue', 'typedconst'));
+  Assert.IsTrue(HasDeclaration(lAnalysis, 'sSharedValue', 'classvar'));
+  Assert.IsTrue(HasUsageForOwner(lAnalysis, 'sSharedValue', 'TScopeStore'),
+    'TScopeStore.sSharedValue usage must target its stable declaration identity.');
+  Assert.IsTrue(HasUsageForOwner(lAnalysis, 'sSharedValue', 'TSecondScopeStore'),
+    'TSecondScopeStore.sSharedValue usage must target its stable declaration identity.');
+  for lGlobalDeclaration in lAnalysis.Declarations do
+  begin
+    Assert.AreEqual('declaration', lGlobalDeclaration.DeclarationRole);
+    Assert.IsNotEmpty(lGlobalDeclaration.SymbolId);
+    Assert.IsNotEmpty(lGlobalDeclaration.OwnerScopeId);
+    if SameText(lGlobalDeclaration.Kind, 'classvar') then
+    begin
+      Assert.AreEqual('type', lGlobalDeclaration.ScopeKind);
+      Assert.IsNotEmpty(lGlobalDeclaration.OwnerName);
+    end else
+      Assert.AreEqual('unit', lGlobalDeclaration.ScopeKind);
+  end;
+  Assert.IsFalse(HasDeclaration(lAnalysis, 'GImmutableValue', 'typedconst'));
+  Assert.IsFalse(HasDeclaration(lAnalysis, 'lValue', 'var'));
+  Assert.IsFalse(HasDeclaration(lAnalysis, 'Result', 'var'));
+  Assert.IsFalse(HasDeclaration(lAnalysis, 'CaseSensitive', 'var'));
+  Assert.IsFalse(HasDeclaration(lAnalysis, 'NameValueSeparator', 'var'));
+  Assert.IsFalse(HasDeclaration(lAnalysis, 'fValue', 'var'));
+  Assert.IsTrue(HasUsageInRoutine(lAnalysis, 'GUnitValue', 'BuildNumber'));
+  Assert.IsTrue(HasUsageInRoutine(lAnalysis, 'GMutableValue', 'TScopeStore.WriteField'));
+  Assert.IsTrue(HasUsageInRoutine(lAnalysis, 'GThreadValue', 'TouchNested'));
+  Assert.AreEqual(0, CountAmbiguities(lAnalysis, 'GThreadValue'),
+    'Nested local shadow must resolve before global candidates.');
+  Assert.AreEqual('snapshot', lAnalysis.FactSource);
+  Assert.AreEqual(1, lAnalysis.SnapshotUnitCount);
+  Assert.AreEqual(1, lAnalysis.VerifiedScopeUnitCount);
+  Assert.AreEqual(0, lAnalysis.ModelFallbackUnitCount);
+  Assert.AreEqual(0, lAnalysis.HeuristicFallbackUnitCount);
+  Assert.IsTrue(lAnalysis.RejectedDeclarationCount > 0,
+    'Rejected assignment-shaped candidates must remain visible in provenance.');
+end;
+
+procedure TGlobalVarsSemanticTests.
+  SnapshotGlobalAnalysisDeduplicatesSemanticDeclarationIdentity;
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lBuildMetrics: TDelphiSnapshotBuilderMetrics;
+  lBuildOptions: TDelphiSnapshotBuildOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.Success := True;
+  lModel.UnitName := 'DuplicateIdentityUnit';
+  lModel.FileName := 'DuplicateIdentityUnit.pas';
+  lModel.SourceText := 'unit DuplicateIdentityUnit;' + sLineBreak +
+    'interface' + sLineBreak + 'var GValue: Integer;' + sLineBreak +
+    'implementation' + sLineBreak + 'procedure Run;' + sLineBreak +
+    'begin' + sLineBreak + '  GValue := 1;' + sLineBreak + 'end;' +
+    sLineBreak + 'end.';
+  SetLength(lModel.Declarations, 2);
+  lModel.Declarations[0].Name := 'GValue';
+  lModel.Declarations[0].Kind := 'var';
+  lModel.Declarations[0].TypeName := 'Integer';
+  lModel.Declarations[0].SectionKind := 'interface';
+  lModel.Declarations[0].DeclarationRole := 'declaration';
+  lModel.Declarations[0].ScopeKind := 'unit';
+  lModel.Declarations[0].OwnerScopeId := 'duplicateidentityunit';
+  lModel.Declarations[0].SymbolId := 'duplicateidentityunit|var|gvalue';
+  lModel.Declarations[0].Line := 3;
+  lModel.Declarations[0].Column := 5;
+  lModel.Declarations[1] := lModel.Declarations[0];
+  SetLength(lModel.Routines, 1);
+  lModel.Routines[0].Name := 'Run';
+  lModel.Routines[0].SectionKind := 'implementation';
+  lModel.Routines[0].Line := 5;
+  lModel.Routines[0].Column := 11;
+  SetLength(lModel.References, 1);
+  lModel.References[0].Name := 'GValue';
+  lModel.References[0].RoutineName := 'Run';
+  lModel.References[0].Role := 'reference';
+  lModel.References[0].SectionKind := 'implementation';
+  lModel.References[0].Line := 7;
+  lModel.References[0].Column := 3;
+  lModel.References[0].EndLine := 7;
+  lModel.References[0].EndColumn := 9;
+  lModel.References[0].Offset := Pos('GValue :=', lModel.SourceText);
+  lModel.References[0].EndOffset := lModel.References[0].Offset + Length('GValue');
+  lBuildOptions := Default(TDelphiSnapshotBuildOptions);
+  lBuildOptions.ResolveReferenceTargets := True;
+  lBuildOptions.WorkerCount := 1;
+  lRemoveWithFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+  lSnapshot := BuildProjectSnapshotFromModels([lModel], lRemoveWithFacts,
+    lBuildOptions, lBuildMetrics);
+  try
+    lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lSnapshot);
+  finally
+    lSnapshot.Free;
+  end;
+
+  Assert.AreEqual(1, Integer(Length(lAnalysis.Declarations)), 'declarations');
+  Assert.AreEqual(1, Integer(Length(lAnalysis.Usages)), 'usages');
+  Assert.AreEqual(0, Integer(Length(lAnalysis.Ambiguities)), 'ambiguities');
 end;
 
 procedure TGlobalVarsSemanticTests.UsageAccessUsesModelSourceText;

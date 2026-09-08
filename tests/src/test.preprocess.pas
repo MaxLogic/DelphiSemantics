@@ -34,6 +34,17 @@ type
     [Test]
     procedure CompilerSwitchDirectivesDoNotFailPreprocessing;
     [Test]
+    procedure DirectivesInsideLineCommentsAreIgnored;
+    [Test]
+    [TestCase('Brace text inside block comment', '0')]
+    [TestCase('Parenthesized text inside brace comment', '1')]
+    [TestCase('Directive text inside escaped string', '2')]
+    procedure DirectiveLookalikesPreserveSource(const aCase: Integer);
+    [Test]
+    [TestCase('Parenthesized comment', '0')]
+    [TestCase('Brace comment', '1')]
+    procedure CommentSlashesDoNotHideFollowingDirective(const aCase: Integer);
+    [Test]
     procedure InlineConditionalDirectivesCloseOnSameLine;
     [Test]
     procedure Linux64ProjectConditionalsUseTargetDefines;
@@ -267,6 +278,78 @@ begin
   Assert.IsTrue(lResult.Success);
   Assert.IsTrue(Pos('TAfterCompilerSwitch', lResult.OutputText) > 0);
   Assert.IsFalse(HasDiagnostic(lResult, 'UNSUPPORTED_PREPROCESS_DIRECTIVE'));
+end;
+
+procedure TPreprocessTests.DirectivesInsideLineCommentsAreIgnored;
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lPath: string;
+  lResult: TDelphiSemanticPreprocessResult;
+  lRoot: string;
+begin
+  lRoot := PreprocessTempRoot('line-comment-directive');
+  lPath := TPath.Combine(lRoot, 'LineCommentDirectiveUnit.pas');
+  TFile.WriteAllText(lPath,
+    'unit LineCommentDirectiveUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    '/// Documentation mentioning {$IFDEF FPC} must stay a comment.' +
+    sLineBreak + 'implementation' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := lPath;
+
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(Pos('implementation', lResult.OutputText) > 0);
+  Assert.IsFalse(HasDiagnostic(lResult, 'UNTERMINATED_PREPROCESS_CONDITIONAL'));
+end;
+
+procedure TPreprocessTests.DirectiveLookalikesPreserveSource(const aCase: Integer);
+const
+  cExamples: array[0..2] of string = (
+    '(* Example' + sLineBreak + '{$J+}' + sLineBreak + '*)',
+    '{ Example' + sLineBreak + '(*$J+*)' + sLineBreak + '}',
+    'const TextValue = ''It''''s {$J+} and (*$J+*)'';');
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lSource: string;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('directive-lookalikes'),
+    'DirectiveLookalikes.pas');
+  lSource := 'unit DirectiveLookalikes;' + sLineBreak + 'interface' +
+    sLineBreak + '{$J-}' + sLineBreak + cExamples[aCase] + sLineBreak +
+    'const ReadOnlyValue: Integer = 1;' + sLineBreak + 'implementation' +
+    sLineBreak + 'end.' + sLineBreak;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success);
+  Assert.AreEqual(lSource, lResult.OutputText,
+    'Inactive directive-shaped text must remain byte-position-equivalent source.');
+end;
+
+procedure TPreprocessTests.CommentSlashesDoNotHideFollowingDirective(const aCase: Integer);
+const
+  cComments: array[0..1] of string = ('(* // *)', '{ // }');
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('comment-before-directive'),
+    'CommentBeforeDirective.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit CommentBeforeDirective;' + sLineBreak + 'interface' + sLineBreak +
+    cComments[aCase] + ' {$IFDEF NEVER_DEFINED}' + sLineBreak +
+    'const HiddenValue = 1;' + sLineBreak + '{$ENDIF}' + sLineBreak +
+    'const VisibleValue = 2;' + sLineBreak + 'implementation' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success, 'Comment text must not hide the active conditional directive.');
+  Assert.IsFalse(Pos('HiddenValue', lResult.OutputText) > 0);
+  Assert.IsTrue(Pos('VisibleValue', lResult.OutputText) > 0);
 end;
 
 procedure TPreprocessTests.InlineConditionalDirectivesCloseOnSameLine;

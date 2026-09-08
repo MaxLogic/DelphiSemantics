@@ -100,6 +100,12 @@ begin
   Result.AddPair('Column', TJSONNumber.Create(aDeclaration.Column));
   Result.AddPair('Offset', TJSONNumber.Create(aDeclaration.Offset));
   Result.AddPair('EndOffset', TJSONNumber.Create(aDeclaration.EndOffset));
+  Result.AddPair('DeclarationRole', aDeclaration.DeclarationRole);
+  Result.AddPair('ScopeKind', aDeclaration.ScopeKind);
+  Result.AddPair('OwnerName', aDeclaration.OwnerName);
+  Result.AddPair('OwnerScopeId', aDeclaration.OwnerScopeId);
+  Result.AddPair('SymbolId', aDeclaration.SymbolId);
+  Result.AddPair('Mutable', TJSONBool.Create(aDeclaration.Mutable));
 end;
 
 function JsonToDeclaration(const aObject: TJSONObject): TDelphiSemanticDeclaration;
@@ -114,6 +120,12 @@ begin
   Result.Column := JsonInt(aObject, 'Column');
   Result.Offset := JsonInt(aObject, 'Offset');
   Result.EndOffset := JsonInt(aObject, 'EndOffset');
+  Result.DeclarationRole := JsonString(aObject, 'DeclarationRole');
+  Result.ScopeKind := JsonString(aObject, 'ScopeKind');
+  Result.OwnerName := JsonString(aObject, 'OwnerName');
+  Result.OwnerScopeId := JsonString(aObject, 'OwnerScopeId');
+  Result.SymbolId := JsonString(aObject, 'SymbolId');
+  Result.Mutable := JsonBool(aObject, 'Mutable');
 end;
 
 function DeclarationsToJson(const aDeclarations: TArray<TDelphiSemanticDeclaration>): TJSONArray;
@@ -255,6 +267,10 @@ begin
   Result.AddPair('Column', TJSONNumber.Create(aRoutine.Column));
   Result.AddPair('Offset', TJSONNumber.Create(aRoutine.Offset));
   Result.AddPair('EndOffset', TJSONNumber.Create(aRoutine.EndOffset));
+  Result.AddPair('EndLine', TJSONNumber.Create(aRoutine.EndLine));
+  Result.AddPair('EndColumn', TJSONNumber.Create(aRoutine.EndColumn));
+  Result.AddPair('ScopeId', aRoutine.ScopeId);
+  Result.AddPair('ParentScopeId', aRoutine.ParentScopeId);
   Result.AddPair('Parameters', ParametersToJson(aRoutine.Parameters));
 end;
 
@@ -269,6 +285,10 @@ begin
   Result.Column := JsonInt(aObject, 'Column');
   Result.Offset := JsonInt(aObject, 'Offset');
   Result.EndOffset := JsonInt(aObject, 'EndOffset');
+  Result.EndLine := JsonInt(aObject, 'EndLine');
+  Result.EndColumn := JsonInt(aObject, 'EndColumn');
+  Result.ScopeId := JsonString(aObject, 'ScopeId');
+  Result.ParentScopeId := JsonString(aObject, 'ParentScopeId');
   Result.Parameters := JsonToParameters(aObject.GetValue('Parameters') as TJSONArray);
 end;
 
@@ -306,6 +326,7 @@ begin
   Result.AddPair('Column', TJSONNumber.Create(aLocal.Column));
   Result.AddPair('Offset', TJSONNumber.Create(aLocal.Offset));
   Result.AddPair('EndOffset', TJSONNumber.Create(aLocal.EndOffset));
+  Result.AddPair('RoutineScopeId', aLocal.RoutineScopeId);
 end;
 
 function JsonToLocal(const aObject: TJSONObject): TDelphiSemanticLocal;
@@ -318,6 +339,7 @@ begin
   Result.Column := JsonInt(aObject, 'Column');
   Result.Offset := JsonInt(aObject, 'Offset');
   Result.EndOffset := JsonInt(aObject, 'EndOffset');
+  Result.RoutineScopeId := JsonString(aObject, 'RoutineScopeId');
 end;
 
 function LocalsToJson(const aLocals: TArray<TDelphiSemanticLocal>): TJSONArray;
@@ -356,6 +378,7 @@ begin
   Result.AddPair('EndOffset', TJSONNumber.Create(aReference.EndOffset));
   Result.AddPair('EndLine', TJSONNumber.Create(aReference.EndLine));
   Result.AddPair('EndColumn', TJSONNumber.Create(aReference.EndColumn));
+  Result.AddPair('RoutineScopeId', aReference.RoutineScopeId);
 end;
 
 function JsonToReference(const aObject: TJSONObject): TDelphiSemanticReference;
@@ -370,6 +393,7 @@ begin
   Result.EndOffset := JsonInt(aObject, 'EndOffset');
   Result.EndLine := JsonInt(aObject, 'EndLine');
   Result.EndColumn := JsonInt(aObject, 'EndColumn');
+  Result.RoutineScopeId := JsonString(aObject, 'RoutineScopeId');
 end;
 
 function ReferencesToJson(const aReferences: TArray<TDelphiSemanticReference>): TJSONArray;
@@ -518,6 +542,10 @@ begin
     lObject.AddPair('References', ReferencesToJson(aModel.References));
     lObject.AddPair('WithStatements', WithStatementsToJson(aModel.WithStatements));
     lObject.AddPair('Diagnostics', DiagnosticsToJson(aModel.Diagnostics));
+    lObject.AddPair('ScopeModelStatus', aModel.ScopeModelStatus);
+    lObject.AddPair('ScopeModelVersion', aModel.ScopeModelVersion);
+    lObject.AddPair('RejectedDeclarationCount',
+      TJSONNumber.Create(aModel.RejectedDeclarationCount));
     Result := lObject.ToJSON;
   finally
     lObject.Free;
@@ -552,6 +580,9 @@ begin
     Result.References := JsonToReferences(lObject.GetValue('References') as TJSONArray);
     Result.WithStatements := JsonToWithStatements(lObject.GetValue('WithStatements') as TJSONArray);
     Result.Diagnostics := JsonToDiagnostics(lObject.GetValue('Diagnostics') as TJSONArray);
+    Result.ScopeModelStatus := JsonString(lObject, 'ScopeModelStatus');
+    Result.ScopeModelVersion := JsonString(lObject, 'ScopeModelVersion');
+    Result.RejectedDeclarationCount := JsonInt(lObject, 'RejectedDeclarationCount');
   finally
     lValue.Free;
   end;

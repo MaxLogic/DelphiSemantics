@@ -211,7 +211,7 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v5';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v7';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
     'project-session-remove-with-facts-v1';
 
@@ -250,6 +250,8 @@ begin
   Result.Defines := aProject.Defines;
   Result.SearchPaths := aProject.SourceLookupPaths;
   Result.ProjectContextApplied := True;
+  Result.WritableTypedConstants := SameText(
+    Trim(aProject.PropertyValue('DCC_WriteableConstants')), 'true');
 end;
 
 procedure ApplyProjectMainUnitName(const aProject: TDelphiSemanticProjectInfo;

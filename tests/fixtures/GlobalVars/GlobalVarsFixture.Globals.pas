@@ -16,8 +16,10 @@ var
 threadvar
   GThreadCounter, GOtherThreadCounter: Integer;
 
+{$J+}
 const
   GTypedValue: Integer = 7;
+{$J-}
 
 procedure TouchGlobals;
 
