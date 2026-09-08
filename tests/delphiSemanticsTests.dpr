@@ -8,6 +8,7 @@ uses
   DUnitX.FilterBuilder,
   DUnitX.Loggers.Console,
   DUnitX.TestFramework,
+  DelphiSemantics.RemoveWith.Visibility in '..\src\DelphiSemantics.RemoveWith.Visibility.pas',
   Test.Api in 'src\test.api.pas',
   Test.Cache in 'src\test.cache.pas',
   Test.CacheSqlite in 'src\test.cachesqlite.pas',

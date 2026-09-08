@@ -72,6 +72,8 @@ type
     [Test]
     procedure StoreProjectRemoveWithPlanningFactsUsesProjectIdentity;
     [Test]
+    procedure ProjectPlanningCachePreservesDirectImportVisibility;
+    [Test]
     procedure StoreUnitFromSnapshotDoesNotPersistRemoveWithPlanningFacts;
     [Test]
     procedure SparseChildRowsInvalidateStoredSnapshot;
@@ -92,6 +94,7 @@ uses
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   maxLogic.IOUtils,
+  DelphiSemantics.Model, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding;
 
@@ -1029,6 +1032,7 @@ var
   lUnit: TUnitSnapshot;
   lUnitNameId: TSemanticStringId;
   lUnicodeText: string;
+  lVisibilityModel: TDelphiSemanticUnitModel;
 begin
   lCacheFileName := TempPath('snapshot-unicode.sqlite3');
   if TFile.Exists(lCacheFileName) then
@@ -1059,6 +1063,10 @@ begin
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
   try
     lFileNameId := lBuilder.Strings.Intern(lSourceFileName);
+    lVisibilityModel := Default(TDelphiSemanticUnitModel);
+    lVisibilityModel.FileName := lSourceFileName;
+    lVisibilityModel.UnitName := 'SnapshotUnicodeUnit';
+    AttachRemoveWithVisibility(lBuilder, [lVisibilityModel]);
     lUnitNameId := lBuilder.Strings.Intern('SnapshotUnicodeUnit');
     lTypeNameId := lBuilder.Strings.Intern(lTypeName);
     lMemberNameId := lBuilder.Strings.Intern(lMemberName);
@@ -1431,6 +1439,85 @@ begin
     end;
   finally
     lCache.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.ProjectPlanningCachePreservesDirectImportVisibility;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheFileName: string;
+  lExtension: TObject;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoadedSnapshot: TDelphiProjectSnapshot;
+  lSnapshot: TDelphiProjectSnapshot;
+  lVisibility: TRemoveWithUnitVisibility;
+begin
+  lCacheFileName := TempPath('snapshot-project-import-visibility.sqlite3');
+  lIdentity := CreateIdentity('SnapshotProjectImportVisibility', 'project-file-a',
+    'project-context-a', 'project-include-a', 'snapshot-project-imports-v1');
+  lIdentity.SourceFileName := TempPath('ProjectImportVisibility.dproj');
+  lFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+  lFacts.ContextFingerprint := 'Project-Import-Visibility';
+  SetLength(lFacts.UnitModels, 2);
+  lFacts.UnitModels[0].FileName := TempPath('Consumer.pas');
+  lFacts.UnitModels[0].UnitName := 'Consumer';
+  lFacts.UnitModels[0].InterfaceUses := ['Provider', 'provider'];
+  lFacts.UnitModels[0].ImplementationUses := ['DirectTypes'];
+  lFacts.UnitModels[1].FileName := TempPath('Provider.pas');
+  lFacts.UnitModels[1].UnitName := 'Provider';
+  lFacts.UnitModels[1].InterfaceUses := ['HiddenTypes'];
+  lSnapshot := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+  try
+    Assert.IsTrue(lSnapshot.TryGetExtension('DelphiSemantics.RemoveWithVisibility', lExtension),
+      'Planning snapshots must retain direct imports independently from transitive lookup symbols.');
+    Assert.IsTrue(TryGetRemoveWithVisibility(lSnapshot, lVisibility));
+    Assert.IsTrue(lVisibility.HasUnit(lFacts.UnitModels[0].FileName));
+    Assert.IsTrue(lVisibility.IsUnitVisible(lFacts.UnitModels[0].FileName, 'consumer'));
+    Assert.IsTrue(lVisibility.IsUnitVisible(lFacts.UnitModels[0].FileName, 'PROVIDER'));
+    Assert.IsTrue(lVisibility.IsUnitVisible(lFacts.UnitModels[0].FileName, 'DirectTypes'));
+    Assert.IsFalse(lVisibility.IsUnitVisible(lFacts.UnitModels[0].FileName, 'HiddenTypes'),
+      'Lookup availability through Provider must not make its imports directly visible in Consumer.');
+    Assert.IsFalse(lVisibility.HasUnit(TempPath('Unknown.pas')));
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+    try
+      lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lSnapshot);
+    finally
+      lCache.Free;
+    end;
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+    try
+      Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoadedSnapshot),
+        'Standalone cache loads must preserve planning facts without a ProjectSession rebuild.');
+      try
+        Assert.IsTrue(lLoadedSnapshot.TryGetExtension('DelphiSemantics.RemoveWithVisibility', lExtension),
+          'Standalone cached planning facts must retain direct-import visibility.');
+        Assert.IsTrue(TryGetRemoveWithVisibility(lLoadedSnapshot, lVisibility));
+        Assert.IsTrue(lVisibility.IsUnitVisible(lFacts.UnitModels[0].FileName, 'PROVIDER'));
+        Assert.IsTrue(lVisibility.IsUnitVisible(lFacts.UnitModels[0].FileName, 'DirectTypes'));
+        Assert.IsFalse(lVisibility.IsUnitVisible(lFacts.UnitModels[0].FileName, 'HiddenTypes'));
+        Assert.IsTrue(lVisibility.IsUnitVisible(lFacts.UnitModels[1].FileName, 'HiddenTypes'));
+      finally
+        lLoadedSnapshot.Free;
+      end;
+    finally
+      lCache.Free;
+    end;
+    Assert.AreEqual(5, TableRowCount(lCacheFileName,
+      'snapshot_remove_with_visible_units'),
+      'A transitive import must be stored only for its direct importing unit.');
+    ExecCacheSql(lCacheFileName, 'delete from snapshot_remove_with_visible_units ' +
+      'where visible_unit_name = ''HiddenTypes''');
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+    try
+      Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoadedSnapshot),
+        'Truncated visibility rows must invalidate the cache instead of changing planner decisions.');
+      Assert.IsNull(lLoadedSnapshot);
+    finally
+      lCache.Free;
+    end;
+  finally
+    lSnapshot.Free;
   end;
 end;
 

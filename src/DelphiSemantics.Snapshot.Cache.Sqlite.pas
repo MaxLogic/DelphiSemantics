@@ -52,6 +52,10 @@ type
       const aUnit: TUnitSnapshot);
     procedure LoadRemoveWithPlanningFacts(const aCacheKey: string; const aConnection: TObject;
       const aBuilder: TDelphiProjectSnapshotBuilder);
+    procedure LoadRemoveWithVisibility(const aCacheKey: string; const aConnection: TObject;
+      const aBuilder: TDelphiProjectSnapshotBuilder);
+    procedure LoadRemoveWithVisibilityCounts(const aCacheKey: string; const aConnection: TObject;
+      out aUnitCount, aRowCount: Integer);
     procedure LoadStrings(const aCacheKey: string; const aConnection: TObject;
       const aStrings: TSemanticStringPool);
     procedure LoadSymbols(const aCacheKey: string; const aConnection: TObject;
@@ -69,6 +73,8 @@ type
     function SharedConnection(out aConnection: TObject; out aError: string): Boolean;
     procedure StoreExactStringPool(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aExactStrings: TSemanticStringPool);
+    procedure StoreRemoveWithVisibility(const aCacheKey: string; const aConnection: TObject;
+      const aSnapshot: TDelphiProjectSnapshot);
     procedure StoreReferences(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aUnit: TUnitSnapshot);
     procedure StoreRemoveWithPlanningFacts(
@@ -119,11 +125,11 @@ uses
   Data.DB,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
   FireDAC.Stan.Def,
-  DelphiSemantics.Cache,
+  DelphiSemantics.Cache, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Snapshot.RemoveWith;
 
 const
-  cSnapshotCacheSchemaVersion = '9';
+  cSnapshotCacheSchemaVersion = '10';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -501,6 +507,8 @@ var
   lConnection: TFDConnection;
 begin
   lConnection := aConnection as TFDConnection;
+  ExecWideSql(lConnection, 'delete from snapshot_remove_with_visible_units where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_remove_with_visibility where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection,
     'delete from snapshot_remove_with_binding_references where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection,
@@ -625,6 +633,11 @@ begin
       'cache_key text primary key not null, context_fingerprint_id integer not null, ' +
       'routine_owner_count integer not null, symbol_count integer not null, ' +
       'binding_count integer not null)');
+    lConnection.ExecSQL('create table if not exists snapshot_remove_with_visibility (' +
+      'cache_key text primary key not null, unit_count integer not null, row_count integer not null)');
+    lConnection.ExecSQL('create table if not exists snapshot_remove_with_visible_units (' +
+      'cache_key text not null, file_name text not null, visible_unit_name text not null, ' +
+      'primary key(cache_key, file_name, visible_unit_name))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_routine_owners (' +
       'cache_key text not null, item_index integer not null, name_id integer not null, ' +
       'symbol_class_id integer not null, kind_id integer not null, type_name_id integer not null, ' +
@@ -1040,6 +1053,133 @@ begin
       lQuery.Next;
     end;
     Inc(fMetrics.SnapshotDeserializeMilliseconds, lStopwatch.ElapsedMilliseconds);
+  finally
+    lQuery.Free;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.StoreRemoveWithVisibility(
+  const aCacheKey: string; const aConnection: TObject; const aSnapshot: TDelphiProjectSnapshot);
+var
+  i: Integer;
+  lQuery: TFDQuery;
+  lRow: TRemoveWithVisibleUnit;
+  lRows: TArray<TRemoveWithVisibleUnit>;
+  lUnitCount: Integer;
+  lVisibility: TRemoveWithUnitVisibility;
+begin
+  lRows := nil;
+  lUnitCount := 0;
+  if TryGetRemoveWithVisibility(aSnapshot, lVisibility) then
+  begin
+    lRows := lVisibility.Rows;
+    lUnitCount := lVisibility.UnitCount;
+  end else begin
+    if aSnapshot.UnitCount <> 0 then
+      raise Exception.Create('Cannot store remove-with planning facts without unit visibility.');
+    for i := 0 to aSnapshot.RemoveWithPlanningBindingCount - 1 do
+      if aSnapshot.RemoveWithPlanningBindingByIndex(i).FileNameId <> 0 then
+        raise Exception.Create('Cannot store bound remove-with facts without unit visibility.');
+  end;
+
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'insert into snapshot_remove_with_visibility(cache_key, unit_count, row_count) values (?, ?, ?)');
+  try
+    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Params[1].AsInteger := lUnitCount;
+    lQuery.Params[2].AsInteger := Length(lRows);
+    lQuery.Prepare;
+    lQuery.ExecSQL;
+  finally
+    lQuery.Free;
+  end;
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'insert into snapshot_remove_with_visible_units(cache_key, file_name, visible_unit_name) values (?, ?, ?)');
+  try
+    SetWideParam(lQuery, 0, aCacheKey);
+    SetWideParam(lQuery, 1, '');
+    SetWideParam(lQuery, 2, '');
+    lQuery.Prepare;
+    for lRow in lRows do
+    begin
+      lQuery.Params[1].AsWideString := lRow.FileName;
+      lQuery.Params[2].AsWideString := lRow.UnitName;
+      lQuery.ExecSQL;
+    end;
+  finally
+    lQuery.Free;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.LoadRemoveWithVisibilityCounts(
+  const aCacheKey: string; const aConnection: TObject; out aUnitCount, aRowCount: Integer);
+var
+  lQuery: TFDQuery;
+  lStopwatch: TStopwatch;
+begin
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'select unit_count, row_count from snapshot_remove_with_visibility where cache_key = ?');
+  try
+    SetWideParam(lQuery, 0, aCacheKey);
+    lStopwatch := TStopwatch.StartNew;
+    lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    if lQuery.Eof then
+      raise Exception.Create('Cached remove-with unit visibility is missing.');
+    aUnitCount := lQuery.Fields[0].AsInteger;
+    aRowCount := lQuery.Fields[1].AsInteger;
+    if (aUnitCount < 0) or (aRowCount < aUnitCount) then
+      raise Exception.Create('Invalid cached remove-with visibility counts.');
+  finally
+    lQuery.Free;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.LoadRemoveWithVisibility(
+  const aCacheKey: string; const aConnection: TObject;
+  const aBuilder: TDelphiProjectSnapshotBuilder);
+var
+  i: Integer;
+  lQuery: TFDQuery;
+  lRowCount: Integer;
+  lRows: TArray<TRemoveWithVisibleUnit>;
+  lStopwatch: TStopwatch;
+  lUnitCount: Integer;
+  lVisibility: TRemoveWithUnitVisibility;
+begin
+  LoadRemoveWithVisibilityCounts(aCacheKey, aConnection, lUnitCount, lRowCount);
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'select file_name, visible_unit_name from snapshot_remove_with_visible_units ' +
+    'where cache_key = ? order by file_name, visible_unit_name');
+  try
+    SetWideParam(lQuery, 0, aCacheKey);
+    lStopwatch := TStopwatch.StartNew;
+    lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    lStopwatch := TStopwatch.StartNew;
+    if lQuery.RecordCount <> lRowCount then
+      raise Exception.Create('Cached remove-with visibility rows are incomplete.');
+    SetLength(lRows, lRowCount);
+    i := 0;
+    while not lQuery.Eof do
+    begin
+      lRows[i].FileName := lQuery.Fields[0].AsWideString;
+      lRows[i].UnitName := lQuery.Fields[1].AsWideString;
+      Inc(i);
+      lQuery.Next;
+    end;
+    lVisibility := TRemoveWithUnitVisibility.Create(lRows);
+    try
+      if lVisibility.UnitCount <> lUnitCount then
+        raise Exception.Create('Cached remove-with visibility unit count does not match.');
+      aBuilder.SetExtensionOwned(cRemoveWithVisibilityExtensionName, lVisibility);
+      lVisibility := nil;
+    finally
+      lVisibility.Free;
+    end;
+    Inc(fMetrics.SnapshotDeserializeMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
   finally
     lQuery.Free;
   end;
@@ -1582,6 +1722,8 @@ var
   lConnection: TFDConnection;
 begin
   lConnection := aConnection as TFDConnection;
+  lConnection.ExecSQL('drop table if exists snapshot_remove_with_visible_units');
+  lConnection.ExecSQL('drop table if exists snapshot_remove_with_visibility');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_binding_references');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_binding_selectors');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_bindings');
@@ -2275,6 +2417,7 @@ begin
         StoreExactStringPool(aIdentity, lConnection, lExactStrings);
         StoreRemoveWithPlanningFacts(aIdentity, lConnection, aSnapshot, lExactStrings,
           aLookupSymbols);
+        StoreRemoveWithVisibility(aIdentity.CacheKey, lConnection, aSnapshot);
         lConnection.Commit;
         Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
         Exit;
@@ -2508,6 +2651,7 @@ begin
     try
       LoadExactStrings(aIdentity.CacheKey, lConnectionObject, lBuilder.ExactStrings);
       LoadRemoveWithPlanningFacts(aIdentity.CacheKey, lConnectionObject, lBuilder);
+      LoadRemoveWithVisibility(aIdentity.CacheKey, lConnectionObject, lBuilder);
       lIndexRebuildStopwatch := TStopwatch.StartNew;
       aSnapshot := lBuilder.Build;
       if not aSnapshot.HasRemoveWithPlanningFacts then

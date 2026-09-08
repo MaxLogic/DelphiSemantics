@@ -205,15 +205,15 @@ uses
   System.RegularExpressions, System.SysUtils,
   DelphiAST.ProjectIndexer,
   DelphiSemantics.Cache.Sqlite, DelphiSemantics.CompilerProfile,
-  DelphiSemantics.IdentifierScope,
+  DelphiSemantics.IdentifierScope, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite,
   DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Source,
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v7';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v8';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v1';
+    'project-session-remove-with-facts-v2';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -1024,6 +1024,7 @@ begin
         lLookupSymbols);
     end;
     lBuilder.SetRemoveWithPlanningFactsOwned(lFacts);
+    AttachRemoveWithVisibility(lBuilder, aModels);
     Result := lBuilder.Build;
   finally
     lBuilder.Free;

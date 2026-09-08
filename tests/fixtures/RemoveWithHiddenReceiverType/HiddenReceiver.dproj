@@ -1,0 +1,24 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{E5D2B18A-A1E0-4A30-98AC-0696F80ADB68}</ProjectGuid>
+    <ProjectVersion>20.3</ProjectVersion>
+    <MainSource>HiddenReceiver.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <AppType>Console</AppType>
+    <DCC_ExeOutput>.dak\HiddenReceiver\bin\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>.dak\HiddenReceiver\dcu\$(Platform)</DCC_DcuOutput>
+    <DCC_Namespace>System;$(DCC_Namespace)</DCC_Namespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="AliasConsumer.pas"/>
+    <DCCReference Include="HiddenTypes.pas"/>
+    <DCCReference Include="Provider.pas"/>
+    <DCCReference Include="Consumer.pas"/>
+    <DCCReference Include="InactiveConsumer.pas"/>
+    <DCCReference Include="DirectConsumer.pas"/>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>

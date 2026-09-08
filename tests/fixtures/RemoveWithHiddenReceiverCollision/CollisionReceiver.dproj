@@ -1,0 +1,21 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{91343690-7821-4B76-8301-D264BC74F080}</ProjectGuid>
+    <ProjectVersion>20.3</ProjectVersion>
+    <MainSource>CollisionReceiver.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <AppType>Console</AppType>
+    <DCC_ExeOutput>.dak\CollisionReceiver\bin\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>.dak\CollisionReceiver\dcu\$(Platform)</DCC_DcuOutput>
+    <DCC_Namespace>System;$(DCC_Namespace)</DCC_Namespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="HiddenTypes.pas"/>
+    <DCCReference Include="Provider.pas"/>
+    <DCCReference Include="ShadowConsumer.pas"/>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>

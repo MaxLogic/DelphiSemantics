@@ -577,9 +577,45 @@ begin
   end;
 end;
 
+procedure ExtractReferencesFromBody(const aText, aBody: string; const aBodyOffset: Integer;
+  const aRoutineName: string; const aReferences: TList<TDelphiSemanticReference>); forward;
+
+procedure ExtractProgramBodyReferences(const aText: string; const aRoot: TSyntaxNode;
+  const aReferences: TList<TDelphiSemanticReference>);
+var
+  i: Integer;
+  lBody: TCompoundSyntaxNode;
+  lChild: TSyntaxNode;
+  lEndOffset: Integer;
+  lRetainedCount: Integer;
+  lStartOffset: Integer;
+begin
+  for lChild in aRoot.ChildNodes do
+    if (lChild.Typ = ntStatements) and (lChild is TCompoundSyntaxNode) then
+    begin
+      lBody := lChild as TCompoundSyntaxNode;
+      lStartOffset := OffsetOfLineColumn(aText, lBody.Line, lBody.Col);
+      lEndOffset := OffsetOfLineColumn(aText, lBody.EndLine, lBody.EndCol);
+      if (lStartOffset < 1) or (lEndOffset <= lStartOffset) then
+        Continue;
+      // The last routine's lexical slice can include the main block.
+      lRetainedCount := 0;
+      for i := 0 to Pred(aReferences.Count) do
+        if (aReferences[i].Offset < lStartOffset) or
+          (aReferences[i].Offset >= lEndOffset) then
+        begin
+          aReferences[lRetainedCount] := aReferences[i];
+          Inc(lRetainedCount);
+        end;
+      aReferences.Count := lRetainedCount;
+      ExtractReferencesFromBody(aText, Copy(aText, lStartOffset,
+        lEndOffset - lStartOffset), lStartOffset, '', aReferences);
+    end;
+end;
+
 procedure EnrichLexicalScopeFacts(const aText, aUnitName: string;
   const aWritableSwitches: TArray<TWritableConstantSwitch>;
-  const aWritableTypedConstants: Boolean;
+  const aWritableTypedConstants, aExtractBodyReferences: Boolean;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aRoutines: TList<TDelphiSemanticRoutine>;
   const aLocals: TList<TDelphiSemanticLocal>;
@@ -784,6 +820,8 @@ begin
       end;
       aReferences[i] := lReference;
     end;
+    if aExtractBodyReferences then
+      ExtractProgramBodyReferences(aText, lSyntaxTree, aReferences);
   finally
     lSyntaxTree.Free;
     lBuilder.Free;
@@ -988,12 +1026,14 @@ end;
 
 procedure ExtractUses(const aText: string; const aInterfaceUses, aImplementationUses: TList<string>);
 var
+  lCleanText: string;
   lImplementationPos: Integer;
   lMatch: TMatch;
   lSection: string;
 begin
-  lImplementationPos := Pos('implementation', LowerCase(aText));
-  lMatch := TRegEx.Match(aText, '\buses\s+(.*?);', [roIgnoreCase, roSingleLine]);
+  lCleanText := SanitizeCodeText(aText);
+  lImplementationPos := Pos('implementation', LowerCase(lCleanText));
+  lMatch := TRegEx.Match(lCleanText, '\buses\s+(.*?);', [roIgnoreCase, roSingleLine]);
   while lMatch.Success do
   begin
     if (lImplementationPos > 0) and (lMatch.Index + 1 > lImplementationPos) then
@@ -1307,6 +1347,7 @@ var
   j: Integer;
   lBlockKind: string;
   lDeclarationKind: string;
+  lDeclaredType: string;
   lEndLine: Integer;
   lHeaderDepth: Integer;
   lHeaderOffset: Integer;
@@ -1324,6 +1365,10 @@ var
   lSection: string;
   lSkipUntilLine: Integer;
   lSyntheticTypeName: string;
+  lTypeDepth: Integer;
+  lTypeLength: Integer;
+  lTypeOffset: Integer;
+  lTypeText: string;
 begin
   lLines := TStringList.Create;
   try
@@ -1417,15 +1462,35 @@ begin
           if lMatch.Success then
           begin
             lSection := SectionForOffset(aText, lOffset + 1);
+            lTypeOffset := lLineOffset + lMatch.Groups[2].Index;
+            lTypeText := Copy(lHeaderText, lTypeOffset, lMatch.Groups[2].Length);
+            lTypeLength := Length(lTypeText);
+            lTypeDepth := 0;
+            for j := 1 to Length(lTypeText) do
+            begin
+              case lTypeText[j] of
+                '(', '[':
+                  Inc(lTypeDepth);
+                ')', ']':
+                  Dec(lTypeDepth);
+                '=':
+                  if lTypeDepth = 0 then
+                  begin
+                    lTypeLength := j - 1;
+                    Break;
+                  end;
+              end;
+            end;
+            lDeclaredType := Copy(lMatch.Groups[2].Value, 1, lTypeLength).Trim;
             for lNameMatch in TRegEx.Matches(lMatch.Groups[1].Value,
               '[A-Za-z_][A-Za-z0-9_]*') do
             begin
               lNameOffset := lLineOffset + lMatch.Groups[1].Index + lNameMatch.Index - 1;
               AddDeclaration(aDeclarations, lNameMatch.Value, lBlockKind,
-                lMatch.Groups[2].Value.Trim, lSection, aText, lNameOffset);
+                lDeclaredType, lSection, aText, lNameOffset);
             end;
-            AddTypeReferences(aReferences, '', lMatch.Groups[2].Value.Trim, aText,
-              TextOffsetInLine(lLines[i], lMatch.Groups[2].Value.Trim, lOffset));
+            AddTypeReferences(aReferences, '', Copy(lTypeText, 1, lTypeLength), aText,
+              lTypeOffset);
           end else if TryAnonymousRecordVarStart(lLine, lName) then
           begin
             lSection := SectionForOffset(aText, lOffset + 1);
@@ -2212,7 +2277,8 @@ begin
     lItem.BodyColumn := ColumnOfOffset(aText, lBodyStartOffset);
     lItem.BodyEndLine := lItem.EndLine;
     lItem.BodyEndColumn := lItem.EndColumn;
-    lItem.SelectorText := lMatch.Groups[1].Value.Trim;
+    lItem.SelectorText := Copy(aText, lMatch.Groups[1].Index,
+      lMatch.Groups[1].Length).Trim;
     lSelectorParts := lItem.SelectorText.Split([',']);
     lItem.SelectorCount := Length(lSelectorParts);
     lItem.NestingDepth := 0;
@@ -2405,6 +2471,7 @@ begin
     end;
     EnrichLexicalScopeFacts(lText, Result.UnitName, lWritableSwitches,
       aOptions.WritableTypedConstants,
+      not aOptions.SkipBodyAnalysis and not aOptions.SkipReferenceExtraction,
       lDeclarations, lRoutines, lLocals, lReferences, lDiagnostics, Result);
     lOffsetMap := BuildOutputToSourceOffsetMap(lSourceResult.Source.Text, lText);
     if lReferences.Count > 0 then

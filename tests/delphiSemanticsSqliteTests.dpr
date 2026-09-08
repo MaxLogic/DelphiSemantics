@@ -7,6 +7,7 @@ uses
   System.SysUtils,
   DUnitX.Loggers.Console,
   DUnitX.TestFramework,
+  DelphiSemantics.RemoveWith.Visibility in '..\src\DelphiSemantics.RemoveWith.Visibility.pas',
   Test.CacheSqlite in 'src\test.cachesqlite.pas',
   Test.SnapshotSqlite in 'src\test.snapshotsqlite.pas';
 

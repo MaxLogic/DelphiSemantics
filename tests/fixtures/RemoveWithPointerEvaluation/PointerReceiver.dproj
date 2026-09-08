@@ -1,0 +1,19 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{A66EE0FE-3932-4C6C-8C06-44EADFC41FBA}</ProjectGuid>
+    <ProjectVersion>20.3</ProjectVersion>
+    <MainSource>PointerReceiver.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <AppType>Console</AppType>
+    <DCC_ExeOutput>.dak\PointerReceiver\bin\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>.dak\PointerReceiver\dcu\$(Platform)</DCC_DcuOutput>
+    <DCC_Namespace>System;$(DCC_Namespace)</DCC_Namespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="PointerReceiverUnit.pas"/>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>

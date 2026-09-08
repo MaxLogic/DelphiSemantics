@@ -63,6 +63,8 @@ type
     [Test]
     procedure ExtractsUnitNameUsesDeclarationsAndWithStatements;
     [Test]
+    procedure ExtractsOnlyActiveUsesOutsideCommentsAndStrings;
+    [Test]
     procedure ExtractsMembersRoutinesLocalsAndReferences;
     [Test]
     procedure ExtractsConstructorAndDestructorScopesAndLocals;
@@ -80,6 +82,10 @@ type
     procedure ExtractsUnprefixedConstVarAndTypedConstDeclarations;
     [Test]
     procedure ExtractsInlineConstVarSections;
+    [Test]
+    procedure InitializedVariablesRetainOnlyDeclaredTypes;
+    [Test]
+    procedure ProgramBodyReferencesUseActualSyntaxScope;
     [Test]
     procedure InlineConstSectionEndsTypeDeclarations;
     [Test]
@@ -710,6 +716,44 @@ begin
   Assert.IsTrue(lResult.Success);
   Assert.AreEqual('utf-16le', lResult.Source.EncodingName);
   Assert.IsTrue(Pos('Caf' + Char($00E9), lResult.Source.Text) > 0);
+end;
+
+procedure TUnitModelTests.ExtractsOnlyActiveUsesOutsideCommentsAndStrings;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSource: string;
+begin
+  lSource := 'unit LexicalImports;' + sLineBreak + 'interface' + sLineBreak +
+    '{ implementation uses HiddenBrace; }' + sLineBreak +
+    '// uses HiddenLine;' + sLineBreak +
+    '(* uses HiddenParen; *)' + sLineBreak +
+    'uses ActiveInterface, { uses HiddenInline; }' + sLineBreak +
+    '{$IFDEF IMPORT_ACTIVE}' + sLineBreak +
+    '  ActiveConditional;' + sLineBreak +
+    '{$ELSE}' + sLineBreak +
+    '  HiddenInactive;' + sLineBreak +
+    '{$ENDIF}' + sLineBreak +
+    'const cNoise = ''uses HiddenString;'';' + sLineBreak +
+    'implementation' + sLineBreak +
+    '// uses HiddenImplementation;' + sLineBreak +
+    'uses ActiveImplementation;' + sLineBreak + 'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('lexical-imports.pas');
+  lOptions.ProjectContextApplied := True;
+  lOptions.Defines := ['IMPORT_ACTIVE'];
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(2, Integer(Length(lModel.InterfaceUses)),
+    'Only active interface imports establish type visibility.');
+  Assert.AreEqual('ActiveInterface', lModel.InterfaceUses[0]);
+  Assert.AreEqual('ActiveConditional', lModel.InterfaceUses[1]);
+  Assert.AreEqual(1, Integer(Length(lModel.ImplementationUses)),
+    'Comments and string literals do not import units.');
+  Assert.AreEqual('ActiveImplementation', lModel.ImplementationUses[0]);
 end;
 
 procedure TUnitModelTests.ExtractsUnitNameUsesDeclarationsAndWithStatements;
@@ -2971,6 +3015,140 @@ begin
   end;
   Assert.IsTrue(FindDeclaration(lModel, 'InlineTyped', 'typed-const', 'interface', lDeclaration));
   Assert.AreEqual(Pos('InlineTyped', lSource), lDeclaration.Offset);
+end;
+
+procedure TUnitModelTests.ProgramBodyReferencesUseActualSyntaxScope;
+var
+  lExpectedOffset: Integer;
+  lMode: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticReference;
+  lReferenceCount: Integer;
+  lSource: string;
+  lWithRoutine: Boolean;
+begin
+  for lWithRoutine := False to True do
+  begin
+    lSource := 'program ProgramBodyReferences;' + sLineBreak +
+      'uses ChangedValues;' + sLineBreak + 'var' + sLineBreak +
+      '  lValue: Integer;' + sLineBreak;
+    if lWithRoutine then
+      lSource := lSource + 'procedure Work;' + sLineBreak + 'begin' + sLineBreak +
+        '  lValue := RoutineValue;' + sLineBreak + 'end;' + sLineBreak;
+    lExpectedOffset := Length(lSource) + Length('begin' + sLineBreak + '  lValue := ') + 1;
+    lSource := lSource + 'begin' + sLineBreak + '  lValue := ChangedValue;' +
+      sLineBreak + '  { IgnoreCommentValue }' + sLineBreak +
+      '  Writeln(''IgnoreStringValue'');' + sLineBreak + 'end.';
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := UnitModelTempPath('program-body-references.dpr');
+    lOptions.ProjectContextApplied := True;
+    TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+    for lMode := 0 to 2 do
+    begin
+      lOptions.SkipBodyAnalysis := lMode = 1;
+      lOptions.SkipReferenceExtraction := lMode = 2;
+      lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+      Assert.IsTrue(lModel.Success);
+      lReferenceCount := 0;
+      for lReference in lModel.References do
+      begin
+        Assert.IsFalse(MatchText(lReference.Name, ['IgnoreCommentValue',
+          'IgnoreStringValue']), lReference.Name);
+        if lWithRoutine and (lMode = 0) and
+          SameText(lReference.Name, 'RoutineValue') then
+        begin
+          Assert.AreEqual('Work', lReference.RoutineName);
+          Assert.AreNotEqual('', lReference.RoutineScopeId);
+        end;
+        if SameText(lReference.Name, 'ChangedValue') then
+        begin
+          Inc(lReferenceCount);
+          Assert.AreEqual(lExpectedOffset, lReference.Offset);
+          Assert.AreEqual(lExpectedOffset + Length('ChangedValue'), lReference.EndOffset);
+          Assert.AreEqual(LineContaining(lSource, '  lValue := ChangedValue;'), lReference.Line);
+          Assert.AreEqual(13, lReference.Column);
+          Assert.AreEqual('reference', lReference.Role);
+          Assert.AreEqual('', lReference.RoutineName);
+          Assert.AreEqual('', lReference.RoutineScopeId);
+        end;
+      end;
+      Assert.AreEqual(Integer(Ord(lMode = 0)), lReferenceCount);
+      if not lWithRoutine and (lMode = 0) then
+        Assert.AreEqual(0, lModel.Metrics.ReferenceReconciliationFallbackCount,
+          'Main-body coordinates must be exact before reconciliation.');
+      if lWithRoutine and (lMode = 0) then
+        Assert.IsTrue(HasReferenceAtOffset(lModel, 'RoutineValue',
+          Pos('RoutineValue', lSource)));
+      if lMode = 2 then
+        Assert.AreEqual(0, Integer(Length(lModel.References)));
+    end;
+  end;
+end;
+
+procedure TUnitModelTests.InitializedVariablesRetainOnlyDeclaredTypes;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lExpectedOffset: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lName: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticReference;
+  lSource: string;
+begin
+  lSource := 'unit InitializedVariables;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TRelRec = record' + sLineBreak +
+    '    aktiv: Boolean;' + sLineBreak + '  end;' + sLineBreak +
+    'var' + sLineBreak + '  RelRec: TRelRec = (aktiv: False);' + sLineBreak +
+    'var InlineRec: TRelRec = (aktiv: True);' + sLineBreak +
+    '  TRelRecValue: TRelRec = (aktiv: False);' + sLineBreak +
+    '  Uninitialized: TRelRec;' + sLineBreak +
+    '  Symbols: array[''=''..''>''] of Char = (''a'', ''b'');' + sLineBreak +
+    '  UninitializedSymbols: array[''=''..''>''] of Char;' + sLineBreak +
+    '  BooleanSymbols: array[False..(1 = 1)] of Char = (''c'', ''d'');' + sLineBreak +
+    'threadvar ThreadRec: TRelRec;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('initialized-variables.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  for lName in ['RelRec', 'InlineRec', 'TRelRecValue', 'Uninitialized'] do
+  begin
+    Assert.IsTrue(FindDeclaration(lModel, lName, 'var', 'interface', lDeclaration), lName);
+    Assert.AreEqual('TRelRec', lDeclaration.TypeName, lName);
+    Assert.AreEqual(Pos(lName + ': TRelRec', lSource), lDeclaration.Offset, lName);
+    Assert.AreEqual(LineContaining(lSource, lName + ': TRelRec'), lDeclaration.Line, lName);
+    Assert.AreEqual(ColumnOfSourceOffset(lSource, lDeclaration.Offset),
+      lDeclaration.Column, lName);
+    lExpectedOffset := Pos(lName + ': TRelRec', lSource) + Length(lName) + 2;
+    Assert.IsTrue(FindReferenceAtOffset(lModel, 'TRelRec', lExpectedOffset,
+      lReference), lName);
+    Assert.AreEqual('type-reference', lReference.Role, lName);
+    Assert.AreEqual(lExpectedOffset + Length('TRelRec'), lReference.EndOffset, lName);
+    Assert.AreEqual(lDeclaration.Line, lReference.Line, lName);
+    Assert.AreEqual(ColumnOfSourceOffset(lSource, lExpectedOffset), lReference.Column, lName);
+  end;
+  Assert.IsTrue(FindDeclaration(lModel, 'Symbols', 'var', 'interface', lDeclaration));
+  Assert.AreEqual('array[''=''..''>''] of Char', lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'UninitializedSymbols', 'var', 'interface',
+    lDeclaration));
+  Assert.AreEqual('array[''=''..''>''] of Char', lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'BooleanSymbols', 'var', 'interface', lDeclaration));
+  Assert.AreEqual('array[False..(1 = 1)] of Char', lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'ThreadRec', 'threadvar', 'interface', lDeclaration));
+  Assert.AreEqual('TRelRec', lDeclaration.TypeName);
+  for lReference in lModel.References do
+    if lReference.Role = 'type-reference' then
+    begin
+      if lReference.Line = LineContaining(lSource, 'BooleanSymbols:') then
+        Assert.IsTrue(lReference.Offset < Pos(' = (''c''', lSource),
+          'Array initializer values must not become type references.')
+      else
+        Assert.IsFalse(MatchText(lReference.Name, ['aktiv', 'False', 'True', 'a', 'b']),
+          'Initializer values and fields must not become type references.');
+    end;
 end;
 
 procedure TUnitModelTests.InlineConstSectionEndsTypeDeclarations;

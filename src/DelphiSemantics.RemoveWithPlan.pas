@@ -217,7 +217,7 @@ implementation
 uses
   System.Diagnostics, System.Generics.Collections, System.Generics.Defaults,
   System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.RemoveWithPlan.FinalBodyRenderer,
+  DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.RemoveWithPlan.FinalBodyRenderer,
   DelphiSemantics.RemoveWithPlan.FinalRewrite,
   DelphiSemantics.SourceConditionals, DelphiSemantics.SourceContext,
   MaxLogic.StrUtils;
@@ -319,6 +319,7 @@ type
     LookupIndex: TPlannerLookupMemo;
     Symbols: TArray<TDelphiSemanticInventorySymbol>;
     UseArchitectureStableRoutineEndTrim: Boolean;
+    UnitVisibility: TRemoveWithUnitVisibility;
   end;
 
   TRemoveWithPlanBindingSource = class abstract
@@ -1035,23 +1036,6 @@ begin
   end;
 end;
 
-function SelectorBaseIsRoutineScopeValue(const aFacts: TRemoveWithPlanFacts;
-  const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string):
-  Boolean;
-var
-  lBaseName: string;
-  lSymbol: TDelphiSemanticInventorySymbol;
-begin
-  Result := False;
-  lBaseName := SelectorBaseIdentifier(aSelectorText);
-  if lBaseName = '' then
-    Exit;
-  if not TryFindRoutineScopedSymbolForBinding(aFacts, aBinding, lBaseName,
-    lSymbol) then
-    Exit;
-  Result := MatchText(lSymbol.SymbolClass, ['local', 'parameter']);
-end;
-
 function IndexedPointerSelectorBaseRequiresTypeResolutionSkip(
   const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string): Boolean;
@@ -1328,15 +1312,15 @@ begin
   end;
 end;
 
-function SelectorTextDeclaredInBinding(const aBindingSelectorText,
-  aSelectorText: string): Boolean;
+function SelectorTextOccurrenceCount(const aBindingSelectorText,
+  aSelectorText: string): Integer;
 var
   lBracketDepth: Integer;
   lPart: string;
   lText: string;
   i: Integer;
 begin
-  Result := False;
+  Result := 0;
   lText := Trim(aBindingSelectorText);
   lPart := '';
   lBracketDepth := 0;
@@ -1350,12 +1334,19 @@ begin
     if (lText[i] = ',') and (lBracketDepth = 0) then
     begin
       if SameText(Trim(lPart), Trim(aSelectorText)) then
-        Exit(True);
+        Inc(Result);
       lPart := '';
     end else
       lPart := lPart + lText[i];
   end;
-  Result := SameText(Trim(lPart), Trim(aSelectorText));
+  if SameText(Trim(lPart), Trim(aSelectorText)) then
+    Inc(Result);
+end;
+
+function SelectorTextDeclaredInBinding(const aBindingSelectorText,
+  aSelectorText: string): Boolean;
+begin
+  Result := SelectorTextOccurrenceCount(aBindingSelectorText, aSelectorText) > 0;
 end;
 
 function SelectorHasDependentSelector(const aFacts: TRemoveWithPlanFacts;
@@ -2716,26 +2707,139 @@ begin
   end;
 end;
 
+function TryResolveDependentSelectorType(const aFacts: TRemoveWithPlanFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aSelectorText: string;
+  out aHasDependentReceiver: Boolean; out aReceiverType: string): Boolean;
+var
+  i: Integer;
+  lNextType: string;
+  lPart: string;
+  lParts: TArray<string>;
+begin
+  Result := False;
+  aHasDependentReceiver := False;
+  aReceiverType := '';
+  for i := High(aDecisions) downto 0 do
+  begin
+    if not OwnerHasMemberNamed(aFacts, aDecisions[i].ReceiverType,
+      SelectorBaseIdentifier(aSelectorText)) then
+      Continue;
+    aHasDependentReceiver := True;
+    if (not TrySplitSelectorChainParts(aSelectorText, lParts)) and
+      (Length(lParts) <> 1) then
+      Exit;
+    aReceiverType := aDecisions[i].ReceiverType;
+    for lPart in lParts do
+    begin
+      if not TryResolveSelectorChainMemberType(aFacts, aReceiverType, lPart,
+        lNextType) then
+        Exit;
+      aReceiverType := lNextType;
+    end;
+    Exit(True);
+  end;
+end;
+
+function FindRoutineDeclarationRange(const aFileName: string;
+  const aBeforeLine: Integer; const aRoutineName: string;
+  const aLineCache: TDelphiSemanticSourceContextCache;
+  out aRange: TDelphiSemanticRemoveWithSourceRange; out aHasVarSection: Boolean):
+  Boolean; forward;
+
+function CaptureDeclarationIsVisible(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aDeclaration: TDelphiSemanticInventorySymbol;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  lHasVarSection: Boolean;
+  lInsertion: TDelphiSemanticRemoveWithSourceRange;
+  lRoutine: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if SameText(aDeclaration.FileName, aBinding.FileName) then
+  begin
+    if (aDeclaration.Line <= 0) or (aDeclaration.Line > aBinding.Line) then
+      Exit;
+    if (not FindRoutineDeclarationRange(aBinding.FileName, aBinding.Line,
+      aBinding.RoutineName, aLineCache, lInsertion, lHasVarSection)) or
+      (aDeclaration.Line >= lInsertion.StartLine) then
+      Exit;
+    // A local type must belong to a routine that also encloses the capture.
+    for lRoutine in aFacts.Symbols do
+    begin
+      if (not SameText(lRoutine.Kind, 'routine')) or
+        (not SameText(lRoutine.FileName, aBinding.FileName)) or
+        (lRoutine.Line >= aDeclaration.Line) or
+        (lRoutine.EndLine < aDeclaration.Line) then
+        Continue;
+      if (aBinding.Line <= lRoutine.Line) or
+        (aBinding.EndLine > lRoutine.EndLine) then
+        Exit;
+    end;
+    Exit(True);
+  end;
+  if not SameText(aDeclaration.SectionKind, 'interface') then
+    Exit;
+  if SameText(aDeclaration.UnitName, 'System') then
+    Exit(True);
+  Result := (aFacts.UnitVisibility <> nil) and
+    aFacts.UnitVisibility.IsUnitVisible(aBinding.FileName, aDeclaration.UnitName);
+end;
+
+function CaptureTypeIsVisible(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aTypeName: string;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  lDeclaration: TDelphiSemanticInventorySymbol;
+  lSelected: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  lSelected := Default(TDelphiSemanticInventorySymbol);
+  for lDeclaration in aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(aTypeName) do
+  begin
+    if (not SameText(aTypeName, lDeclaration.Name)) and
+      (not SameText(aTypeName, lDeclaration.UnitName + '.' + lDeclaration.Name)) then
+      Continue;
+    if Result and ((not SameText(lSelected.FileName, lDeclaration.FileName)) or
+      (lSelected.Line <> lDeclaration.Line) or
+      (lSelected.Column <> lDeclaration.Column)) then
+      Exit(False);
+    if (not Result) or SameText(lDeclaration.SymbolClass, 'declaration') then
+      lSelected := lDeclaration;
+    Result := True;
+  end;
+  if Result then
+    Result := CaptureDeclarationIsVisible(aFacts, aBinding, lSelected, aLineCache);
+end;
+
 function BuildSelectorDecision(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
   const aReservedNames: TDictionary<string, Integer>;
-  const aInheritedDecisions: TArray<TFinalSelectorDecision>;
+  const aPriorDecisions: TArray<TFinalSelectorDecision>;
   const aLineCache: TDelphiSemanticSourceContextCache;
   out aDecision: TFinalSelectorDecision; out aReason: string): Boolean;
 var
   lBaseName: string;
   lChainReceiverType: string;
   lChainRootSymbolClass: string;
+  lHasDependentReceiver: Boolean;
   lHasNestedWith: Boolean;
   lOpenParen: Integer;
   lPrefixText: string;
-  lTypeSuffix: string;
 begin
   Result := False;
   aReason := '';
   aDecision := Default(TFinalSelectorDecision);
   aDecision.SelectorText := aSelectorText;
   aDecision.ReceiverType := SelectorTypeName(aFacts, aBinding, aSelectorText);
+  if TryResolveDependentSelectorType(aFacts, aPriorDecisions, aSelectorText,
+    lHasDependentReceiver, lChainReceiverType) then
+    aDecision.ReceiverType := lChainReceiverType
+  else if lHasDependentReceiver then
+  begin
+    aReason := 'dependent-selector-type-not-resolved';
+    Exit;
+  end;
   lOpenParen := Pos('(', aSelectorText);
   if lOpenParen > 0 then
   begin
@@ -2748,22 +2852,10 @@ begin
     aReason := 'call-selector';
     Exit;
   end;
-  if ContainsText(aSelectorText, '.') then
+  if ContainsText(aSelectorText, '.') and (not lHasDependentReceiver) then
   begin
     lHasNestedWith := BindingBodyContainsNestedWith(aBinding, aLineCache);
-    if (not lHasNestedWith) and
-      (Length(aBinding.Selectors) <= 1) and
-      TryResolveSourceBackedSelectorChainType(aFacts, aBinding, aSelectorText,
-      lChainReceiverType, lChainRootSymbolClass) and
-      SourceBackedSelectorChainRootIsSafe(lChainRootSymbolClass, aBinding) then
-    begin
-      aDecision.Strategy := 'direct-qualification';
-      aDecision.QualifierText := aSelectorText;
-      aDecision.ReceiverType := lChainReceiverType;
-      aDecision.Reason := 'property-chain-direct-qualification';
-      Exit(True);
-    end;
-    if (Length(aBinding.Selectors) > 1) and
+    if ((not lHasNestedWith) or (Length(aBinding.Selectors) > 1)) and
       TryResolveSourceBackedSelectorChainType(aFacts, aBinding, aSelectorText,
       lChainReceiverType, lChainRootSymbolClass) and
       SourceBackedSelectorChainRootIsSafe(lChainRootSymbolClass, aBinding) then
@@ -2776,35 +2868,26 @@ begin
   end;
   if IndexedPointerSelectorBaseRequiresTypeResolutionSkip(aFacts, aBinding,
     aSelectorText) and (not IndexedPointerSelectorBaseHasSkippedParentMember(aFacts,
-    aInheritedDecisions, aSelectorText)) then
+    aPriorDecisions, aSelectorText)) then
   begin
     aReason := 'selector-type-not-resolved';
     Exit;
-  end;
-  if ContainsText(aSelectorText, '^') and (Pos('[', aSelectorText) = 0) then
-  begin
-    aDecision.Strategy := 'direct-qualification';
-    aDecision.QualifierText := aSelectorText;
-    aDecision.Reason := 'already-pointer-qualified';
-    Exit(True);
   end;
   if aDecision.ReceiverType = '' then
   begin
     aReason := 'selector-type-not-resolved';
     Exit;
   end;
-  if ContainsText(aSelectorText, '^') then
-  begin
-    aDecision.Strategy := 'direct-qualification';
-    aDecision.QualifierText := aSelectorText;
-    aDecision.Reason := 'already-pointer-qualified';
-    Exit(True);
-  end;
 
-  lTypeSuffix := RemoveLeadingTypePrefix(aDecision.ReceiverType);
+  lBaseName := 'lWith' + RemoveLeadingTypePrefix(aDecision.ReceiverType);
   if TypeIsClassLike(aFacts, aDecision.ReceiverType) then
   begin
-    lBaseName := 'lWith' + lTypeSuffix;
+    if not CaptureTypeIsVisible(aFacts, aBinding, aDecision.ReceiverType,
+      aLineCache) then
+    begin
+      aReason := 'receiver-type-not-visible';
+      Exit;
+    end;
     aDecision.Strategy := 'reference-temp';
     aDecision.TempName := ReservedTempName(aFacts, aReservedNames, aBinding.RoutineName, lBaseName);
     aDecision.QualifierText := aDecision.TempName;
@@ -2852,7 +2935,13 @@ begin
         aDecision.Reason := 'record-routine-member-direct-qualification';
     end else
     begin
-      lBaseName := 'lWith' + lTypeSuffix + 'Ptr';
+      if not CaptureTypeIsVisible(aFacts, aBinding, aDecision.ReceiverType,
+        aLineCache) then
+      begin
+        aReason := 'receiver-type-not-visible';
+        Exit;
+      end;
+      lBaseName := lBaseName + 'Ptr';
       aDecision.Strategy := 'record-pointer-temp';
       aDecision.TempName := ReservedTempName(aFacts, aReservedNames, aBinding.RoutineName, lBaseName);
       aDecision.QualifierText := aDecision.TempName + '^';
@@ -2977,9 +3066,7 @@ begin
   Result := (lOffset > 0) and (aLineText[lOffset] = '.');
 end;
 
-function BodyOffsetInsideStringLiteral(const aText: string;
-  const aOffset: Integer): Boolean; forward;
-function BodyOffsetInsideComment(const aText: string;
+function BodyOffsetInsideLiteralOrComment(const aText: string;
   const aOffset: Integer): Boolean; forward;
 
 procedure AddDependentSelectorBodyEdits(const aDecisions: TArray<TFinalSelectorDecision>;
@@ -2997,8 +3084,7 @@ begin
     while lOffset > 0 do
     begin
       if BodyTextIdentifierAt(aBodyText, lDecision.SelectorText, lOffset) and
-        (not BodyOffsetInsideStringLiteral(aBodyText, lOffset)) and
-        (not BodyOffsetInsideComment(aBodyText, lOffset)) then
+        (not BodyOffsetInsideLiteralOrComment(aBodyText, lOffset)) then
         AddFinalBodyEdit(aBodyEdits, lOffset, Length(lDecision.SelectorText),
           lDecision.SelectorText, lDecision.QualifierText);
       lOffset := PosEx(lDecision.SelectorText, aBodyText,
@@ -3049,8 +3135,7 @@ begin
       Continue;
 
     lName := Copy(aBodyText, lStartOffset, i - lStartOffset);
-    if BodyOffsetInsideStringLiteral(aBodyText, lStartOffset) or
-      BodyOffsetInsideComment(aBodyText, lStartOffset) then
+    if BodyOffsetInsideLiteralOrComment(aBodyText, lStartOffset) then
       Continue;
     if RoutineScopeSymbolNamed(aFacts, aBinding, lName) then
       Continue;
@@ -3385,29 +3470,7 @@ begin
   end;
 end;
 
-function BodyOffsetInsideStringLiteral(const aText: string;
-  const aOffset: Integer): Boolean;
-var
-  i: Integer;
-begin
-  Result := False;
-  i := 1;
-  while (i < aOffset) and (i <= Length(aText)) do
-  begin
-    if aText[i] = '''' then
-    begin
-      if Result and (i < Length(aText)) and (aText[i + 1] = '''') then
-      begin
-        Inc(i, 2);
-        Continue;
-      end;
-      Result := not Result;
-    end;
-    Inc(i);
-  end;
-end;
-
-function BodyOffsetInsideComment(const aText: string;
+function BodyOffsetInsideLiteralOrComment(const aText: string;
   const aOffset: Integer): Boolean;
 var
   i: Integer;
@@ -3480,7 +3543,7 @@ begin
     end;
     Inc(i);
   end;
-  Result := lInLineComment or lInBraceComment or lInParenComment;
+  Result := lInString or lInLineComment or lInBraceComment or lInParenComment;
 end;
 
 function BodyNextNonWhitespaceChar(const aText: string;
@@ -3715,8 +3778,7 @@ begin
 
     if ((i <= Length(aBodyText)) and (aBodyText[i] = '[')) or
       ((lStartOffset > 1) and (aBodyText[lStartOffset - 1] = '.')) or
-      BodyOffsetInsideStringLiteral(aBodyText, lStartOffset) or
-      BodyOffsetInsideComment(aBodyText, lStartOffset) or
+      BodyOffsetInsideLiteralOrComment(aBodyText, lStartOffset) or
       RoutineScopeSymbolNamed(aFacts, aBinding, lName) or
       BodyDeclaresInlineVarName(aBodyText, lName) then
       Continue;
@@ -3877,8 +3939,7 @@ begin
       Inc(i);
     lName := Copy(aBodyText, lStartOffset, i - lStartOffset);
 
-    if BodyOffsetInsideStringLiteral(aBodyText, lStartOffset) or
-      BodyOffsetInsideComment(aBodyText, lStartOffset) or
+    if BodyOffsetInsideLiteralOrComment(aBodyText, lStartOffset) or
       BodyOffsetAppearsQualified(aBodyText, lStartOffset) or
       RoutineScopeSymbolNamed(aFacts, aBinding, lName) or
       BodyDeclaresInlineVarName(aBodyText, lName) then
@@ -4664,7 +4725,8 @@ begin
     if i <= Length(aSelectorText) then
       lNextChar := aSelectorText[i];
 
-    if (lPreviousChar <> '.') and (lNextChar <> '(') then
+    if (not CharInSet(lPreviousChar, ['.', '$'])) and (lNextChar <> '(') and
+      (not BodyOffsetInsideLiteralOrComment(aSelectorText, lStartOffset)) then
     begin
       for lDecisionIndex := High(aDecisions) downto 0 do
       begin
@@ -4694,8 +4756,10 @@ begin
     aPriorDecisions, aDecision.SelectorText);
   if lQualifiedSelectorText = aDecision.SelectorText then
     Exit;
-  aDecision.InitializationText := StringReplace(aDecision.InitializationText,
-    aDecision.SelectorText, lQualifiedSelectorText, []);
+  if SameText(aDecision.Strategy, 'record-pointer-temp') then
+    lQualifiedSelectorText := '@' + lQualifiedSelectorText;
+  aDecision.InitializationText := aDecision.TempName + ' := ' +
+    lQualifiedSelectorText + ';';
 end;
 
 function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
@@ -4745,28 +4809,6 @@ begin
   end;
 end;
 
-function BodyReferenceDecisionsWithLocalHiddenPointers(
-  const aFacts: TRemoveWithPlanFacts; const aBinding: TDelphiSemanticWithBinding;
-  const aVisibleDecisions, aSelectorDecisions: TArray<TFinalSelectorDecision>):
-  TArray<TFinalSelectorDecision>;
-var
-  lDecision: TFinalSelectorDecision;
-  lIndex: Integer;
-begin
-  Result := Copy(aVisibleDecisions);
-  for lDecision in aSelectorDecisions do
-  begin
-    if (not IsSimplePointerDereferenceSelector(lDecision.SelectorText)) or
-      HasDecisionForSelector(Result, lDecision.SelectorText) or
-      (not SelectorBaseIsRoutineScopeValue(aFacts, aBinding,
-      lDecision.SelectorText)) then
-      Continue;
-    lIndex := Length(Result);
-    SetLength(Result, lIndex + 1);
-    Result[lIndex] := lDecision;
-  end;
-end;
-
 function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aBindingSource: TRemoveWithPlanBindingSource;
   const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
@@ -4777,7 +4819,6 @@ function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>):
   TDelphiSemanticRemoveWithFinalStatement; overload;
 var
-  lBodyReferenceDecisions: TArray<TFinalSelectorDecision>;
   lChildStatement: TDelphiSemanticRemoveWithFinalStatement;
   lDecision: TFinalSelectorDecision;
   lDecisions: TArray<TFinalSelectorDecision>;
@@ -4789,6 +4830,7 @@ var
   lReason: string;
   lReplacementText: string;
   lRecipe: TDelphiSemanticRemoveWithRewriteRecipe;
+  lSelectorOccurrences: Integer;
   lSelectorQualifierText: string;
   lSelectorDecisions: TArray<TFinalSelectorDecision>;
   lChildIndex: Integer;
@@ -4819,9 +4861,20 @@ begin
 
   for lSelector in lBinding.Selectors do
   begin
-    if not SelectorTextDeclaredInBinding(lBinding.SelectorText, lSelector.SelectorText) then
+    lSelectorOccurrences := SelectorTextOccurrenceCount(lBinding.SelectorText,
+      lSelector.SelectorText);
+    if lSelectorOccurrences = 0 then
       Continue;
-    if HasDecisionForSelector(aInheritedDecisions, lSelector.SelectorText) then
+    if lSelectorOccurrences > 1 then
+    begin
+      RollbackReservedTempNamesForDecisions(aReservedNames,
+        lBinding.RoutineName, lSelectorDecisions);
+      Result.Status := 'skipped';
+      Result.Reason := 'repeated-selector';
+      Result.SafetyReason := Result.Reason;
+      Exit;
+    end;
+    if HasDecisionForSelector(lSelectorDecisions, lSelector.SelectorText) then
       Continue;
     if IsSimplePointerDereferenceSelector(lSelector.SelectorText) and
       SkippedParentContextHasIndexedSelector(aInheritedDecisions) then
@@ -4834,7 +4887,7 @@ begin
       Exit;
     end;
     if not BuildSelectorDecision(aFacts, lBinding, lSelector.SelectorText,
-      aReservedNames, aInheritedDecisions, aLineCache, lDecision, lReason) then
+      aReservedNames, lVisibleDecisions, aLineCache, lDecision, lReason) then
     begin
       RollbackReservedTempNamesForDecisions(aReservedNames,
         lBinding.RoutineName, lSelectorDecisions);
@@ -4843,9 +4896,10 @@ begin
       Result.SafetyReason := Result.Reason;
       Exit;
     end;
-    QualifyDecisionInitializationDependencies(aFacts, lSelectorDecisions,
+    QualifyDecisionInitializationDependencies(aFacts, lVisibleDecisions,
       lDecision);
-    if DependentSelectorQualifier(aFacts, lBinding, lSelectorDecisions,
+    if SameText(lDecision.Strategy, 'direct-qualification') and
+      DependentSelectorQualifier(aFacts, lBinding, lSelectorDecisions,
       lSelector.SelectorText, lSelectorQualifierText) then
     begin
       lDecision.Strategy := 'direct-qualification';
@@ -4874,13 +4928,9 @@ begin
     lIndex := Length(lSelectorDecisions);
     SetLength(lSelectorDecisions, lIndex + 1);
     lSelectorDecisions[lIndex] := lDecision;
-    if (Length(aInheritedDecisions) = 0) or
-      (not IsSimplePointerDereferenceSelector(lSelector.SelectorText)) then
-    begin
-      lIndex := Length(lVisibleDecisions);
-      SetLength(lVisibleDecisions, lIndex + 1);
-      lVisibleDecisions[lIndex] := lDecision;
-    end;
+    lIndex := Length(lVisibleDecisions);
+    SetLength(lVisibleDecisions, lIndex + 1);
+    lVisibleDecisions[lIndex] := lDecision;
   end;
 
   for lChildIndex in aBindingTree.ChildIndexes[aBindingIndex] do
@@ -4921,9 +4971,7 @@ begin
 
   lDecisions := SelectorDecisionsWithAdditional(aInheritedDecisions,
     lSelectorDecisions);
-  lBodyReferenceDecisions := BodyReferenceDecisionsWithLocalHiddenPointers(
-    aFacts, lBinding, lVisibleDecisions, lSelectorDecisions);
-  if not TryRenderFinalReplacementText(aFacts, lBinding, lBodyReferenceDecisions,
+  if not TryRenderFinalReplacementText(aFacts, lBinding, lVisibleDecisions,
     lDecisions, lSelectorDecisions, lNestedReplacements, aLineCache,
     lReplacementText, lReason, lReplacementRange) then
   begin
@@ -6031,10 +6079,12 @@ begin
   try
     lPlanFacts.LookupIndex := TPlannerLookupMemo.Create;
     lPlanFacts.LookupIndex.Initialize(aFacts.LookupIndex);
+    lPlanFacts.UnitVisibility := TRemoveWithUnitVisibility.Create(aFacts.UnitModels);
     lBindingSource := TArrayRemoveWithPlanBindingSource.Create(aFacts.Bindings);
     Result := PlanFromBindingSource(lPlanFacts, lBindingSource,
       'project-with-binding-v1', lMetrics);
   finally
+    lPlanFacts.UnitVisibility.Free;
     lBindingSource.Free;
     lPlanFacts.LookupIndex.Free;
   end;
@@ -6289,6 +6339,8 @@ begin
       for i := 0 to High(lPlanFacts.Symbols) do
         lPlanFacts.Symbols[i] := SnapshotInventorySymbol(aSnapshot,
           aSnapshot.RemoveWithPlanningRoutineOwnerByIndex(i));
+      if not TryGetRemoveWithVisibility(aSnapshot, lPlanFacts.UnitVisibility) then
+        lPlanFacts.UnitVisibility := nil;
       lBindingSource := TSnapshotRemoveWithPlanBindingSource.Create(aSnapshot);
     finally
       lMaterializationStopwatch.Stop;

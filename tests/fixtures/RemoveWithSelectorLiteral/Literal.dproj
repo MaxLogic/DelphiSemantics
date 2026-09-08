@@ -1,0 +1,19 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{1D5CF868-84CC-4E55-BF7B-0E6BF0EAEC78}</ProjectGuid>
+    <ProjectVersion>20.3</ProjectVersion>
+    <MainSource>Literal.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <AppType>Console</AppType>
+    <DCC_ExeOutput>.dak\Literal\bin\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>.dak\Literal\dcu\$(Platform)</DCC_DcuOutput>
+    <DCC_Namespace>System;$(DCC_Namespace)</DCC_Namespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="LiteralUnit.pas"/>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>

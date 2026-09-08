@@ -86,7 +86,7 @@ type
     [Test]
     procedure FinalDtoQualifiesPointerFieldChainWithoutRetargetingQualifiedMembers;
     [Test]
-    procedure FinalDtoQualifiesDependentPointerSelectorWithoutTemp;
+    procedure FinalDtoCapturesDependentPointerSelector;
     [Test]
     procedure FinalDtoQualifiesSiblingMemberOfDependentPointerSelector;
     [Test]
@@ -120,7 +120,7 @@ type
     [Test]
     procedure FinalDtoQualifiesIndexedMemberReceiverIndex;
     [Test]
-    procedure FinalDtoDemotesParentWhenCoveredChildRewriteIsIncomplete;
+    procedure FinalDtoCapturesNestedReceiverInsideNilGuard;
     [Test]
     procedure FinalDtoBlocksDakCombinedSelectorAmbiguousHelperCall;
     [Test]
@@ -156,6 +156,47 @@ type
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoPlansMaxTdbSetBitParameterReferences;
+    [Test]
+    procedure FinalDtoCapturesPointerReceiverBeforeBodyCall;
+    [Test]
+    [TestCase('indexed pointer', 'with-2,Pointers[CurrentIndex]^,SwitchIndex')]
+    [TestCase('field chain', 'with-3,Holder.Current^,SwitchField')]
+    procedure FinalDtoCapturesIndirectReceiverBeforeBodyCall(const aStatementId,
+      aSelector, aSwitchRoutine: string);
+    [Test]
+    [TestCase('same header', 'with-4')]
+    [TestCase('nested header', 'with-5')]
+    procedure FinalDtoCapturesDependentReceiverBeforeBodyCall(const aStatementId: string);
+    [Test]
+    procedure FinalDtoEvaluatesRepeatedNestedReceiverAtEachEntry;
+    [Test]
+    procedure FinalDtoSkipsRepeatedExplicitReceiverWithoutOccurrenceIdentity;
+    [Test]
+    procedure FinalDtoKeepsTempNameWhenQualifyingSelectorInitializer;
+    [Test]
+    procedure FinalDtoCapturesShadowedNestedReceiverWithDependentType;
+    [Test]
+    [TestCase('hexadecimal index', 'with-1,Items[$AB]^')]
+    [TestCase('character index', 'with-2,Letters[''X'']^')]
+    procedure FinalDtoPreservesLiteralsInDependentReceiver(const aStatementId,
+      aSelectorText: string);
+    [Test]
+    procedure FinalDtoQualifiesIndexAfterCommentApostrophe;
+    [Test]
+    [TestCase('transitive import', 'Consumer.pas,15')]
+    [TestCase('inactive direct import', 'InactiveConsumer.pas,18')]
+    procedure FinalDtoSkipsCaptureTypeOutsideVisibleScope(const aFileName: string;
+      const aLine: Integer);
+    [Test]
+    [TestCase('direct import', 'DirectConsumer.pas,15,THiddenItem')]
+    procedure FinalDtoCapturesVisibleReceiverType(const aFileName: string;
+      const aLine: Integer; const aTypeName: string);
+    [Test]
+    procedure FinalDtoPreservesUnsupportedReceiverAliasSkip;
+    [Test]
+    procedure FinalDtoRejectsVisibleNamesakeOfHiddenReceiverType;
+    [Test]
+    procedure FinalDtoChecksTypeVisibilityAtCaptureInsertion;
     [Test]
     procedure FinalDtoPreservesByValueProcedureParameters;
     [Test]
@@ -2474,10 +2515,10 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-7', lStatement),
     'Expected pointer selector statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)), 'Expected direct pointer selector without temp.');
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)), 'Expected only replacement edit.');
-  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'aRecordPtr^.Name'),
-    'Expected direct pointer qualification.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)), 'Expected captured pointer receiver.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)), 'Expected declaration and replacement edits.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'lWithPlannerRecordPtr^.Name'),
+    'Expected captured pointer qualification.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoPlansSourceBackedPropertyChainSelectorWithoutLinePatch;
@@ -2493,16 +2534,17 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
     'Expected source-backed property-chain statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
-    'Expected direct qualification without a temporary.');
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)),
-    'Expected only the replacement edit.');
-  Assert.AreEqual('  aParent^.Child.Count := aParent^.Child.Count + 1;',
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)),
+    'Capture the selected receiver before executing its body.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)),
+    'Expected declaration and replacement edits.');
+  Assert.AreEqual('  lWithChainLeafPtr := @aParent^.Child;' + sLineBreak +
+    '  lWithChainLeafPtr^.Count := lWithChainLeafPtr^.Count + 1;',
     lStatement.ReplacementText);
-  Assert.AreEqual(22, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(23, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(23, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual(22, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(23, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(23, lStatement.Edits[1].Range.EndColumn);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoQualifiesPointerFieldChainWithoutRetargetingQualifiedMembers;
@@ -2519,50 +2561,52 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
     'Expected append pointer-field-chain statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
-    'Expected direct pointer qualification without a temporary.');
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)),
-    'Expected only the replacement edit.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)),
+    'Capture the selected pointer receiver before its body.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)),
+    'Expected declaration and replacement edits.');
 
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
-  Assert.AreEqual('  if Queue = nil then' + #10 +
+  Assert.AreEqual('  lWithQueueNodePtr := @aFptr^;' + #10 +
+    '  if Queue = nil then' + #10 +
     '    begin' + #10 +
-    '      aFptr^.next := aFptr;' + #10 +
-    '      aFptr^.last := aFptr;' + #10 +
+    '      lWithQueueNodePtr^.next := aFptr;' + #10 +
+    '      lWithQueueNodePtr^.last := aFptr;' + #10 +
     '      Queue := aFptr;' + #10 +
     '    end' + #10 +
     '    else begin' + #10 +
-    '      aFptr^.next := Queue;' + #10 +
-    '      aFptr^.last := Queue^.last;' + #10 +
-    '      aFptr^.last^.next := aFptr;' + #10 +
-    '      aFptr^.next^.last := aFptr;' + #10 +
+    '      lWithQueueNodePtr^.next := Queue;' + #10 +
+    '      lWithQueueNodePtr^.last := Queue^.last;' + #10 +
+    '      lWithQueueNodePtr^.last^.next := aFptr;' + #10 +
+    '      lWithQueueNodePtr^.next^.last := aFptr;' + #10 +
     '      Queue := aFptr;' + #10 +
     '    end;', lReplacementText);
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-2', lStatement),
     'Expected delete pointer-field-chain statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)),
-    'Expected only the replacement edit.');
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)),
+    'Expected declaration and replacement edits.');
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
-  Assert.AreEqual('  begin' + #10 +
-    '    aFptr^.last^.next := aFptr^.next;' + #10 +
-    '    aFptr^.next^.last := aFptr^.last;' + #10 +
+  Assert.AreEqual('  lWithQueueNodePtr := @aFptr^;' + #10 +
+    '  begin' + #10 +
+    '    lWithQueueNodePtr^.last^.next := lWithQueueNodePtr^.next;' + #10 +
+    '    lWithQueueNodePtr^.next^.last := lWithQueueNodePtr^.last;' + #10 +
     '    if Queue = aFptr then' + #10 +
     '    begin' + #10 +
-    '      Queue := aFptr^.next;' + #10 +
+    '      Queue := lWithQueueNodePtr^.next;' + #10 +
     '      if Queue = aFptr then' + #10 +
     '        Queue := nil;' + #10 +
     '    end;' + #10 +
     '  end;', lReplacementText);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoQualifiesDependentPointerSelectorWithoutTemp;
+procedure TRemoveWithPlanTests.FinalDtoCapturesDependentPointerSelector;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lReplacementText: string;
@@ -2574,15 +2618,17 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lStatement),
     'Expected dependent pointer selector statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
-    'Expected dependent selector to use direct qualification without a temp.');
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)),
-    'Expected only the replacement edit.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)),
+    'Capture each selected receiver in evaluation order.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)),
+    'Expected declaration and replacement edits.');
 
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
-  Assert.AreEqual('  aValue := aNode^.Sel.count;', lReplacementText);
+  Assert.AreEqual('  lWithSelectorNodePtr := @aNode^;' + #10 +
+    '  lWithSelectorPtr := @lWithSelectorNodePtr^.Sel;' + #10 +
+    '  aValue := lWithSelectorPtr^.count;', lReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoQualifiesSiblingMemberOfDependentPointerSelector;
@@ -2597,17 +2643,19 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-4', lStatement),
     'Expected dependent pointer selector statement with sibling outer member.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
-    'Expected dependent selector to use direct qualification without a temp.');
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)),
-    'Expected only the replacement edit.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)),
+    'Capture each selected receiver in evaluation order.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)),
+    'Expected declaration and replacement edits.');
 
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
-  Assert.AreEqual('  begin' + #10 +
-    '    aValue := aNode^.Sel.count;' + #10 +
-    '    aNode^.n := nil;' + #10 +
+  Assert.AreEqual('  lWithSelectorNodePtr := @aNode^;' + #10 +
+    '  lWithSelectorPtr := @lWithSelectorNodePtr^.Sel;' + #10 +
+    '  begin' + #10 +
+    '    aValue := lWithSelectorPtr^.count;' + #10 +
+    '    lWithSelectorNodePtr^.n := nil;' + #10 +
     '  end;', lReplacementText);
 end;
 
@@ -2623,20 +2671,20 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-5', lStatement),
     'Expected outer statement covering a nested dependent pointer selector.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
-    'Expected dependent selector to use direct qualification without a temp.');
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)),
-    'Expected only the replacement edit.');
+  Assert.AreEqual(3, Integer(Length(lStatement.Temps)),
+    'Capture each selected receiver in evaluation order.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)),
+    'Expected declaration and replacement edits.');
 
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
-  Assert.IsTrue(Pos('Inc(aMask^.Marker);', lReplacementText) > 0,
-    'Expected outer receiver member to be qualified through aMask^.');
-  Assert.IsTrue(Pos('aNode^.Sel.count', lReplacementText) > 0,
-    'Expected dependent selector member to stay qualified through aNode^.Sel.');
-  Assert.IsTrue(Pos('aNode^.n := nil;', lReplacementText) > 0,
-    'Expected sibling field from aNode^ to stay visible under inherited with.');
+  Assert.IsTrue(Pos('Inc(lWithMaskNodePtr^.Marker);', lReplacementText) > 0,
+    'Expected outer receiver member to be qualified through the captured mask.');
+  Assert.IsTrue(Pos('lWithSelectorPtr^.count', lReplacementText) > 0,
+    'Expected dependent selector member to use the captured dependent selector.');
+  Assert.IsTrue(Pos('lWithSelectorNodePtr^.n := nil;', lReplacementText) > 0,
+    'Expected sibling field from the captured node to stay visible under inherited with.');
   Assert.IsFalse(Pos('    n := nil;', lReplacementText) > 0,
     'Unqualified sibling field n does not compile after rewrite.');
 end;
@@ -2732,32 +2780,34 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
     'Expected source-backed property-chain statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual('  aParent^.Child.Count := aParent^.Child.Count + 1;',
+  Assert.AreEqual('  lWithChainLeafPtr := @aParent^.Child;' + sLineBreak +
+    '  lWithChainLeafPtr^.Count := lWithChainLeafPtr^.Count + 1;',
     lStatement.ReplacementText);
 
   lRecipe := lStatement.RewriteRecipe;
   Assert.AreEqual('planned', lRecipe.Status,
     'Rewrite recipe must mirror the final statement status.');
-  Assert.AreEqual('source-backed-selector-chain', lRecipe.RuleId,
-    'Expected source-backed property-chain recipe provenance.');
+  Assert.AreEqual('record-pointer-temp', lRecipe.RuleId,
+    'Expected captured field-chain recipe provenance.');
   Assert.AreEqual('semantic-remove-with-final-planner', lRecipe.Provenance);
   Assert.AreEqual('render-final-edits', lRecipe.RenderInstruction);
   Assert.AreEqual(lStatement.ReplacementText, lRecipe.ReplacementText);
-  Assert.AreEqual(lStatement.Edits[0].Range.StartLine, lRecipe.ReplacementRange.StartLine);
-  Assert.AreEqual(lStatement.Edits[0].Range.StartColumn, lRecipe.ReplacementRange.StartColumn);
-  Assert.AreEqual(lStatement.Edits[0].Range.EndLine, lRecipe.ReplacementRange.EndLine);
-  Assert.AreEqual(lStatement.Edits[0].Range.EndColumn, lRecipe.ReplacementRange.EndColumn);
+  Assert.AreEqual(lStatement.Edits[1].Range.StartLine, lRecipe.ReplacementRange.StartLine);
+  Assert.AreEqual(lStatement.Edits[1].Range.StartColumn, lRecipe.ReplacementRange.StartColumn);
+  Assert.AreEqual(lStatement.Edits[1].Range.EndLine, lRecipe.ReplacementRange.EndLine);
+  Assert.AreEqual(lStatement.Edits[1].Range.EndColumn, lRecipe.ReplacementRange.EndColumn);
   Assert.AreEqual(1, Integer(Length(lRecipe.SelectorDecisions)),
     'Expected one source-backed selector decision in the recipe.');
   Assert.AreEqual('aParent^.Child', lRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('aParent^.Child', lRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('direct-qualification', lRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('property-chain-direct-qualification',
+  Assert.AreEqual('lWithChainLeafPtr^', lRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('record-pointer-preserves-alias',
     lRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual(0, Integer(Length(lRecipe.TempDeclarations)));
-  Assert.AreEqual(1, Integer(Length(lRecipe.TextEdits)));
-  Assert.AreEqual('replace-statement', lRecipe.TextEdits[0].Kind);
-  Assert.AreEqual(lStatement.ReplacementText, lRecipe.TextEdits[0].ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lRecipe.TempDeclarations)));
+  Assert.AreEqual(2, Integer(Length(lRecipe.TextEdits)));
+  Assert.AreEqual('declare-temp', lRecipe.TextEdits[0].Kind);
+  Assert.AreEqual('replace-statement', lRecipe.TextEdits[1].Kind);
+  Assert.AreEqual(lStatement.ReplacementText, lRecipe.TextEdits[1].ReplacementText);
 
   lPlan := BuildPlanForProject(DakFixturePath(
     'RemoveWithPlannerFixture\RemoveWithPlannerFixture.dproj'));
@@ -2942,10 +2992,10 @@ begin
     lStatement), 'Expected hex literal statement.');
   Assert.AreEqual('planned', lStatement.Status, 'hex: ' + lStatement.Reason);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'if (aRecordPtr^.Count and $7FFF) > 0 then'),
+    'if (lWithRewriteShapeRecordPtr^.Count and $7FFF) > 0 then'),
     lStatement.ReplacementText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'aRecordPtr^.Count := aRecordPtr^.Count + $FFFF;'),
+    'lWithRewriteShapeRecordPtr^.Count := lWithRewriteShapeRecordPtr^.Count + $FFFF;'),
     lStatement.ReplacementText);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'RewriteShapeUnit.pas', 170, 3,
@@ -2959,10 +3009,10 @@ begin
     lStatement), 'Expected begin-end single-statement before else statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'aLeftPtr^.Name := ''left'''),
+    'lWithRewriteShapeRecordPtr^.Name := ''left'''),
     lStatement.ReplacementText);
   Assert.IsFalse(ContainsText(lStatement.ReplacementText,
-    'aLeftPtr^.Name := ''right'''),
+    'lWithRewriteShapeRecordPtr^.Name := ''right'''),
     lStatement.ReplacementText);
   Assert.IsFalse(ContainsText(LowerCase(lStatement.ReplacementText),
     'end else'), lStatement.ReplacementText);
@@ -2971,14 +3021,14 @@ begin
     lStatement), 'Expected begin-end else branch statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'aRightPtr^.Name := ''right'''),
+    'lWithRewriteShapeRecordPtr1^.Name := ''right'''),
     lStatement.ReplacementText);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'RewriteShapeUnit.pas', 270, 5,
     lStatement), 'Expected controlled single-statement before else statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'aLeftPtr^.Name := ''controlled-left-before-else'''),
+    'lWithRewriteShapeRecordPtr^.Name := ''controlled-left-before-else'''),
     lStatement.ReplacementText);
   Assert.IsFalse(ContainsText(LowerCase(lStatement.ReplacementText),
     sLineBreak + '  else'), lStatement.ReplacementText);
@@ -2986,14 +3036,15 @@ begin
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
   Assert.AreEqual('    begin' + #10 +
-    '      aLeftPtr^.Name := ''controlled-left-before-else''' + #10 +
+    '      lWithRewriteShapeRecordPtr := @aLeftPtr^;' + #10 +
+    '      lWithRewriteShapeRecordPtr^.Name := ''controlled-left-before-else''' + #10 +
     '    end', lReplacementText);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'RewriteShapeUnit.pas', 273, 5,
     lStatement), 'Expected controlled single-statement else branch statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'aRightPtr^.Name := ''controlled-right-before-else'''),
+    'lWithRewriteShapeRecordPtr1^.Name := ''controlled-right-before-else'''),
     lStatement.ReplacementText);
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-21', lStatement),
@@ -3074,7 +3125,8 @@ begin
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
   Assert.AreEqual('    begin' + #10 +
-    '      aLeftPtr^.Name := ''left''' + #10 +
+    '      lWithCommentedElseRecordPtr := @aLeftPtr^;' + #10 +
+    '      lWithCommentedElseRecordPtr^.Name := ''left''' + #10 +
     '    end', lReplacementText);
 end;
 
@@ -3149,15 +3201,15 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithIfElseRangeUnit.pas', 17,
     3, lStatement), 'Expected if/else range fixture statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(17, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(27, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(8, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(17, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(27, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(8, lStatement.Edits[1].Range.EndColumn);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'lRecordPtr^.Last := lRecordPtr^.Queue;'), lStatement.ReplacementText);
+    'lWithRangeRecordPtr^.Last := lWithRangeRecordPtr^.Queue;'), lStatement.ReplacementText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'lRecordPtr^.Queue := 3;'), lStatement.ReplacementText);
+    'lWithRangeRecordPtr^.Queue := 3;'), lStatement.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoPlansSemicolonlessBlockBeforeRoutineEnd;
@@ -3242,15 +3294,19 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithControlBodyUnit.pas', 24,
     3, lStatement), 'Expected repeat/until control-body statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(24, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(28, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.IsTrue(StartsText('  ' + lStatement.Temps[0].InitializationText +
+    sLineBreak, lStatement.ReplacementText), 'Capture must precede the complete loop.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(24, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(28, lStatement.Edits[1].Range.EndLine);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'aItem^.Memo := aItem^.Code;'), lStatement.ReplacementText);
+    'lWithControlMemoPtr^.Memo := lWithControlMemoPtr^.Code;'), lStatement.ReplacementText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'Inc(aItem^.MemoOffset);'), lStatement.ReplacementText);
+    'Inc(lWithControlMemoPtr^.MemoOffset);'), lStatement.ReplacementText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'until aItem^.MemoOffset >= aItem^.Count;'), lStatement.ReplacementText);
+    'until lWithControlMemoPtr^.MemoOffset >= lWithControlMemoPtr^.Count;'), lStatement.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoPlansCompleteLoopBranchControlBody;
@@ -3264,15 +3320,19 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithControlBodyUnit.pas', 33,
     3, lStatement), 'Expected loop/branch control-body statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(33, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(40, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.IsTrue(StartsText('  ' + lStatement.Temps[0].InitializationText +
+    sLineBreak, lStatement.ReplacementText), 'Capture must precede the complete loop.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(33, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(40, lStatement.Edits[1].Range.EndLine);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'while aItem^.Active do'), lStatement.ReplacementText);
+    'while lWithControlMemoPtr^.Active do'), lStatement.ReplacementText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'case aItem^.Code of'), lStatement.ReplacementText);
+    'case lWithControlMemoPtr^.Code of'), lStatement.ReplacementText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'aItem^.MemoOffset := aItem^.Count;'), lStatement.ReplacementText);
+    'lWithControlMemoPtr^.MemoOffset := lWithControlMemoPtr^.Count;'), lStatement.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoKeepsCompleteWhileControlBodyRewrite;
@@ -3286,14 +3346,18 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithControlBodyUnit.pas', 45,
     3, lStatement), 'Expected complete while control-body statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(45, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(51, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.IsTrue(StartsText('  ' + lStatement.Temps[0].InitializationText +
+    sLineBreak, lStatement.ReplacementText), 'Capture must precede the complete loop.');
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(45, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(51, lStatement.Edits[1].Range.EndLine);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'aItem^.MemoOffset := aItem^.Count;'), lStatement.ReplacementText);
+    'lWithControlMemoPtr^.MemoOffset := lWithControlMemoPtr^.Count;'), lStatement.ReplacementText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'aItem^.Active := False;'), lStatement.ReplacementText);
+    'lWithControlMemoPtr^.Active := False;'), lStatement.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoQualifiesIndexedMemberReceiverIndex;
@@ -3390,7 +3454,7 @@ begin
     lStatement.ReplacementText);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoDemotesParentWhenCoveredChildRewriteIsIncomplete;
+procedure TRemoveWithPlanTests.FinalDtoCapturesNestedReceiverInsideNilGuard;
 var
   lChildStatement: TDelphiSemanticRemoveWithStatement;
   lFixtureDir: string;
@@ -3458,16 +3522,24 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan,
     'RemoveWithCoveredChildCompletenessUnit.pas', 14, 3, lStatement),
     'Expected covered child completeness outer statement.');
-  Assert.AreEqual('skipped', lStatement.Status, lStatement.ReplacementText);
-  Assert.AreEqual('covered-child-rewrite-incomplete', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'if lWithLowFilePtr^.v_handle_ptr <> nil then' + sLineBreak +
+    '      begin' + sLineBreak +
+    '        lWithVirtualHandlePtr := @lWithLowFilePtr^.v_handle_ptr^;'),
+    'Capture the nested receiver only inside the existing nil guard.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'FreeMem(lWithVirtualHandlePtr^.v_Mem, aSize);'));
+
   Assert.AreEqual(2, Integer(Length(lPlan.Statements)),
     'Statement ledger must account for both discovered with statements.');
   Assert.IsTrue(FindStatement(lPlan, 'with-2', lChildStatement),
-    'Expected nested child statement ledger row after parent demotion.');
-  Assert.AreEqual('skipped', lChildStatement.Status);
-  Assert.AreEqual('semantic-rewrite-incomplete', lChildStatement.Reason);
-  Assert.AreEqual('', lChildStatement.CoveredByStatementId);
+    'Expected nested child statement ledger row after complete parent rewrite.');
+  Assert.AreEqual('planned', lChildStatement.Status);
+  Assert.AreEqual('covered-by-parent-rewrite', lChildStatement.Reason);
+  Assert.AreEqual('with-1', lChildStatement.CoveredByStatementId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoBlocksDakCombinedSelectorAmbiguousHelperCall;
@@ -3934,10 +4006,18 @@ begin
   Assert.AreEqual('lWithTempPolicyRecordPtr2', lStatement.Temps[0].TempName,
     'Expected existing run locals to be reserved before generated temps.');
 
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lStatement),
+    'Expected pointer selector to reserve its own receiver capture.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('lWithTempPolicyRecordPtr3', lStatement.Temps[0].TempName);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('lWithTempPolicyRecordPtr3 := @lRecordPtr^;',
+    lStatement.Temps[0].InitializationText);
+
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-4', lStatement),
     'Expected indexed record selector.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual('lWithTempPolicyRecordPtr3', lStatement.Temps[0].TempName,
+  Assert.AreEqual('lWithTempPolicyRecordPtr4', lStatement.Temps[0].TempName,
     'Expected sequential generated temps to stay reserved inside the routine.');
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-9', lStatement),
@@ -4134,6 +4214,269 @@ begin
     '    ELSE' + sLineBreak +
     '      TestBit := FALSE' + sLineBreak +
     '  END' + sLineBreak, lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoCapturesPointerReceiverBeforeBodyCall;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPointerEvaluation\PointerReceiver.dproj'));
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)),
+    'A call can change CurrentPointer; with must retain its originally selected record.');
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual(lStatement.Temps[0].TempName + ' := @CurrentPointer^;',
+    lStatement.Temps[0].InitializationText);
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText, 'CurrentPointer^.Value'),
+    'Receiver fields must not re-evaluate the pointer after SwitchReceiver.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    lStatement.Temps[0].TempName + '^.Value := 1;'));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'SwitchReceiver;'));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    lStatement.Temps[0].TempName + '^.Value := ' +
+    lStatement.Temps[0].TempName + '^.Value + 1;'));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoCapturesIndirectReceiverBeforeBodyCall(
+  const aStatementId, aSelector, aSwitchRoutine: string);
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPointerEvaluation\PointerReceiver.dproj'));
+  Assert.IsTrue(FindFinalStatement(lPlan, aStatementId, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)),
+    'Body calls can change the selector address; capture its original receiver.');
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual(lStatement.Temps[0].TempName + ' := @' + aSelector + ';',
+    lStatement.Temps[0].InitializationText);
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText, aSelector + '.Value'));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, aSwitchRoutine + ';'));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    lStatement.Temps[0].TempName + '^.Value := 1;'));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    lStatement.Temps[0].TempName + '^.Value := ' +
+    lStatement.Temps[0].TempName + '^.Value + 1;'));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoCapturesDependentReceiverBeforeBodyCall(
+  const aStatementId: string);
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPointerEvaluation\PointerReceiver.dproj'));
+  Assert.IsTrue(FindFinalStatement(lPlan, aStatementId, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)),
+    'Capture both the holder and its selected pointee before the body call.');
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText, '@Current^'),
+    'The pointee initializer must resolve Current through the captured holder.');
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText, '.Current^.Value'),
+    'The body must use the captured pointee after SwitchField changes Current.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'SwitchField;'));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoEvaluatesRepeatedNestedReceiverAtEachEntry;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lFirstAssignment: Integer;
+  lSwitchCall: Integer;
+  lSecondAssignment: Integer;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPointerEvaluation\PointerReceiver.dproj'));
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-7', lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)),
+    'Each with entry must evaluate CurrentPointer, even when selector text repeats.');
+  Assert.AreNotEqual(lStatement.Temps[0].TempName, lStatement.Temps[1].TempName);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    lStatement.Temps[0].TempName + '^.Value := 1;'));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    lStatement.Temps[1].TempName + '^.Value := 2;'));
+  lFirstAssignment := Pos(' := @CurrentPointer^;', lStatement.ReplacementText);
+  lSwitchCall := Pos('SwitchReceiver;', lStatement.ReplacementText);
+  lSecondAssignment := PosEx(' := @CurrentPointer^;', lStatement.ReplacementText,
+    lFirstAssignment + 1);
+  Assert.IsTrue((lFirstAssignment > 0) and (lFirstAssignment < lSwitchCall) and
+    (lSwitchCall < lSecondAssignment),
+    'The inner receiver must be captured after SwitchReceiver.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoSkipsRepeatedExplicitReceiverWithoutOccurrenceIdentity;
+var
+  lChild: TDelphiSemanticRemoveWithStatement;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPointerEvaluation\PointerReceiver.dproj'));
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-9', lStatement));
+  Assert.AreEqual('skipped', lStatement.Status,
+    'Repeated selector text can resolve to different receivers in one header.');
+  Assert.AreEqual('repeated-selector', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.IsTrue(FindStatement(lPlan, 'with-10', lChild));
+  Assert.AreEqual('skipped', lChild.Status);
+  Assert.AreEqual('repeated-selector', lChild.Reason);
+  Assert.AreEqual('', lChild.CoveredByStatementId,
+    'An incomplete child must demote its parent and cannot be claimed as covered.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoKeepsTempNameWhenQualifyingSelectorInitializer;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPointerFieldChain\RemoveWithPointerFieldChain.dproj'));
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(lStatement.Temps[1].TempName + ' := @' +
+    lStatement.Temps[0].TempName + '^.Sel;', lStatement.Temps[1].InitializationText,
+    'Qualify only the selector expression, even when its name occurs inside the temp name.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoCapturesShadowedNestedReceiverWithDependentType;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithPointerEvaluation\PointerReceiver.dproj'));
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-11', lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(lStatement.Temps[0].TempName + ': ^TOuter;',
+    lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual(lStatement.Temps[1].TempName + ': ^TInner;',
+    lStatement.Temps[1].DeclarationText,
+    'The nested Current field has a different pointee type from the outer global Current.');
+  Assert.AreEqual(lStatement.Temps[1].TempName + ' := @' +
+    lStatement.Temps[0].TempName + '^.Current^;', lStatement.Temps[1].InitializationText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPreservesLiteralsInDependentReceiver(
+  const aStatementId, aSelectorText: string);
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithSelectorLiteral\Literal.dproj'));
+  Assert.IsTrue(FindFinalStatement(lPlan, aStatementId, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(lStatement.Temps[1].TempName + ' := @' +
+    lStatement.Temps[0].TempName + '^.' + aSelectorText + ';',
+    lStatement.Temps[1].InitializationText,
+    'Literal contents are values, even when they match fields of the selected receiver.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoQualifiesIndexAfterCommentApostrophe;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lQualifier: string;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithSelectorLiteral\Literal.dproj'));
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  lQualifier := lStatement.Temps[0].TempName + '^.';
+  Assert.AreEqual(lStatement.Temps[1].TempName + ' := @' + lQualifier +
+    'Items[{don''t change} ' + lQualifier + 'Index]^;',
+    lStatement.Temps[1].InitializationText,
+    'An apostrophe inside a comment must not hide the dependent field after it.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoSkipsCaptureTypeOutsideVisibleScope(
+  const aFileName: string; const aLine: Integer);
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithHiddenReceiverType\HiddenReceiver.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, aFileName, aLine, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status,
+    'A receiver can be accessible without its explicit type being visible at the capture declaration.');
+  Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoCapturesVisibleReceiverType(
+  const aFileName: string; const aLine: Integer; const aTypeName: string);
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithHiddenReceiverType\HiddenReceiver.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, aFileName, aLine, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(lStatement.Temps[0].TempName + ': ^' + aTypeName + ';',
+    lStatement.Temps[0].DeclarationText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    lStatement.Temps[0].TempName + '^.Value := ' +
+    lStatement.Temps[0].TempName + '^.Value + 1;'));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoRejectsVisibleNamesakeOfHiddenReceiverType;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithHiddenReceiverCollision\CollisionReceiver.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ShadowConsumer.pas', 20, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status,
+    'A visible namesake must not replace the hidden receiver record with a different layout.');
+  Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoChecksTypeVisibilityAtCaptureInsertion;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithLocalCaptureType\LocalReceiver.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'LocalConsumer.pas', 21, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status,
+    'The current temporary insertion point precedes the routine-local type declaration.');
+  Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'LocalConsumer.pas', 37, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(lStatement.Temps[0].TempName + ': ^TOuter;',
+    lStatement.Temps[0].DeclarationText,
+    'An outer local type remains visible at the nested routine capture declaration.');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPreservesUnsupportedReceiverAliasSkip;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithHiddenReceiverType\HiddenReceiver.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'AliasConsumer.pas', 15, 3, lStatement));
+  // Alias category resolution is unsupported by the existing planner.
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('type-category-not-resolved', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoPreservesByValueProcedureParameters;
@@ -9944,11 +10287,15 @@ begin
     'Expected cloned maxTdb L_Nr DF[d]^ with statement.');
   Assert.AreEqual(1, lMatchCount, 'Expected only one final DTO for the with-47 range.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(818, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(6, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  begin' + sLineBreak +
-    '    p := DF[d]^.LTable[Hash(s)];' + sLineBreak +
-    '    while (p <> nil) and ((p^.l = 0) or (LabString(DF[d]^.Maske[p^.l].m) <> s)) do' + sLineBreak +
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(818, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(6, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[d]^;' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    p := lWithDatFilePtr^.LTable[Hash(s)];' + sLineBreak +
+    '    while (p <> nil) and ((p^.l = 0) or (LabString(lWithDatFilePtr^.Maske[p^.l].m) <> s)) do' + sLineBreak +
     '      p := p^.n;' + sLineBreak +
     '    if p = nil then' + sLineBreak +
     '      L_Nr := 0' + sLineBreak +

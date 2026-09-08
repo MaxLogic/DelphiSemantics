@@ -54,7 +54,7 @@ uses
   System.Diagnostics, System.Generics.Collections, System.IOUtils,
   System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils,
-  DelphiSemantics.Snapshot.RemoveWith;
+  DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Snapshot.RemoveWith;
 
 const
   cSnapshotDeclarationKindAlias = 'alias';
@@ -1659,6 +1659,7 @@ begin
       lPlanningFacts := CreateRemoveWithPlanningFacts(lBuilder.ExactStrings,
         aRemoveWithFacts);
       lBuilder.SetRemoveWithPlanningFactsOwned(lPlanningFacts);
+      AttachRemoveWithVisibility(lBuilder, aModels);
       aMetrics.DeterministicFactCount := aMetrics.UnitCount + aMetrics.SymbolCount +
         aMetrics.ReferenceCount + aMetrics.WithStatementCount;
       Result := lBuilder.Build;
@@ -1714,6 +1715,7 @@ end;
 
 function MergeUnitResults(
   const aResults: TArray<TSnapshotUnitBuildResult>;
+  const aModels: TArray<TDelphiSemanticUnitModel>;
   const aRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
   var aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
 var
@@ -1745,6 +1747,7 @@ begin
     lPlanningFacts := CreateRemoveWithPlanningFacts(lBuilder.ExactStrings,
       aRemoveWithFacts);
     lBuilder.SetRemoveWithPlanningFactsOwned(lPlanningFacts);
+    AttachRemoveWithVisibility(lBuilder, aModels);
     aMetrics.DeterministicFactCount := aMetrics.UnitCount + aMetrics.SymbolCount +
       aMetrics.ReferenceCount + aMetrics.WithStatementCount;
     Result := lBuilder.Build;
@@ -1778,7 +1781,7 @@ begin
     else begin
       lResults := BuildUnitResults(aModels, lReferenceTargetLookup,
         aOptions.WorkerCount, aMetrics);
-      Result := MergeUnitResults(lResults, aRemoveWithFacts, aMetrics);
+      Result := MergeUnitResults(lResults, aModels, aRemoveWithFacts, aMetrics);
     end;
   finally
     lStopwatch.Stop;
@@ -1809,7 +1812,7 @@ begin
     SetLength(lResults, 1);
     lResults[0] := BuildUnitResult(aModels[aModelIndex],
       ModelUnitIdAt(aModelUnitIds, aModelIndex), lReferenceTargetLookup);
-    Result := MergeUnitResults(lResults, lFacts, aMetrics);
+    Result := MergeUnitResults(lResults, [aModels[aModelIndex]], lFacts, aMetrics);
   finally
     lStopwatch.Stop;
     aMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;
@@ -1911,6 +1914,7 @@ begin
     lPlanningFacts := CreateRemoveWithPlanningFacts(lBuilder.ExactStrings,
       aFacts);
     lBuilder.SetRemoveWithPlanningFactsOwned(lPlanningFacts);
+    AttachRemoveWithVisibility(lBuilder, aFacts.UnitModels);
     Result := lBuilder.Build;
   finally
     lBuilder.Free;
