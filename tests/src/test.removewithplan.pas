@@ -3435,6 +3435,29 @@ begin
     '    Items[Index] := Count;' + sLineBreak +
     '  end;' + sLineBreak +
     'end;' + sLineBreak +
+    'procedure RunWithOtherIndex(var aRecord: TIndexedRecord);' + sLineBreak +
+    'var' + sLineBreak +
+    '  lIndex: Integer;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  lIndex := 1;' + sLineBreak +
+    '  with aRecord do' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    Items[lIndex] := Count;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'end;' + sLineBreak +
+    'procedure RunWithQualifiedIndex(var aRecord: TIndexedRecord);' + sLineBreak +
+    'var' + sLineBreak +
+    '  Index: Integer;' + sLineBreak +
+    '  lOther: TIndexedRecord;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  Index := 1;' + sLineBreak +
+    '  lOther := Default(TIndexedRecord);' + sLineBreak +
+    '  lOther.Index := Index;' + sLineBreak +
+    '  with aRecord do' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    Items[lOther. Index] := Count;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'end;' + sLineBreak +
     'end.';
   TFile.WriteAllText(TPath.Combine(lFixtureDir,
     'RemoveWithIndexedMemberCompletenessUnit.pas'), lUnitText, TEncoding.UTF8);
@@ -3455,12 +3478,32 @@ begin
     'Expected local indexed member fixture statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'lWithIndexedRecordPtr^.Items[Index] := lWithIndexedRecordPtr^.Count;'),
-    lStatement.ReplacementText);
+    'lWithIndexedRecordPtr^.Items[lWithIndexedRecordPtr^.Index] := ' +
+    'lWithIndexedRecordPtr^.Count;'), lStatement.ReplacementText);
   Assert.IsFalse(ContainsText(lStatement.ReplacementText,
-    'lWithIndexedRecordPtr^.Items[lWithIndexedRecordPtr^.Index]'),
-    'Local index variables must not be retargeted to receiver fields: ' +
+    'lWithIndexedRecordPtr^.Items[Index]'),
+    'The WITH field must retain precedence over the outer local index: ' +
     lStatement.ReplacementText);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan,
+    'RemoveWithIndexedMemberCompletenessUnit.pas', 34, 3, lStatement),
+    'Expected unrelated local index preservation control.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithIndexedRecordPtr^.Items[lIndex] := lWithIndexedRecordPtr^.Count;'),
+    lStatement.ReplacementText);
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText, '^.lIndex'),
+    'An unrelated lexical index must remain lexical.');
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan,
+    'RemoveWithIndexedMemberCompletenessUnit.pas', 47, 3, lStatement),
+    'Expected explicitly qualified index preservation control.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithIndexedRecordPtr^.Items[lOther. Index] := ' +
+    'lWithIndexedRecordPtr^.Count;'), lStatement.ReplacementText);
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText, 'lOther. lWith'),
+    'Whitespace after an explicit qualifier must preserve its target.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoCapturesNestedReceiverInsideNilGuard;

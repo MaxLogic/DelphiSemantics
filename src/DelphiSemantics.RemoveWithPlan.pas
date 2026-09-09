@@ -3656,7 +3656,6 @@ var
   lArgumentReference: TDelphiSemanticBoundReference;
   lName: string;
   lNextChar: Char;
-  lPreviousChar: Char;
   lQualifierText: string;
   lReferenceName: string;
   lReplacementText: string;
@@ -3680,19 +3679,17 @@ begin
       Inc(i);
     lName := Copy(lReferenceName, lStartOffset, i - lStartOffset);
     lReplacementText := lName;
-    lPreviousChar := #0;
     lNextChar := #0;
-    if lStartOffset > 1 then
-      lPreviousChar := lReferenceName[lStartOffset - 1];
     if i <= Length(lReferenceName) then
       lNextChar := lReferenceName[i];
 
     lArgumentReference := aReference;
     lArgumentReference.Name := lName;
-    if (lStartOffset > 1) and (lPreviousChar <> '.') and (lNextChar <> '(') and
+    if (lStartOffset > 1) and
+      (not BodyOffsetAppearsQualified(lReferenceName, lStartOffset)) and
+      (lNextChar <> '(') and
       (BodyOffsetInsideCallOrCastArgument(lReferenceName, lStartOffset) or
       BodyOffsetInsideIndexArgument(lReferenceName, lStartOffset)) and
-      (not RoutineScopeSymbolNamed(aFacts, aBinding, lName)) and
       (not ReferenceIsInlineLocalDeclaredInBinding(aBinding, lArgumentReference,
       aLineCache)) and
       QualifierForMemberName(aFacts, aDecisions, lName, lQualifierText) then

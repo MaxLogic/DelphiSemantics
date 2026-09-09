@@ -269,6 +269,7 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- Remove-with preserves receiver-field precedence over outer locals in indexed arguments, while retaining lexical indexes and explicit qualifiers, including whitespace after a dot.
 - Nested forward and external declarations no longer claim the enclosing routine's later references or remove-with captures. Older cached planning facts are rebuilt without invalidating unit models.
 - Legacy remove-with compatibility fact-builder overloads now fail loudly with
   diagnostic codes when fact building fails, instead of returning default facts
