@@ -247,7 +247,7 @@ type
     procedure FinalDtoMatchesMaxTdbTruncBitArrayDirectQualification;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbIndexedPointerSelectorDirectQualification;
+    procedure FinalDtoMatchesMaxTdbIndexedPointerSelectorCapture;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbDependentPointerSelectorQualification;
@@ -322,7 +322,7 @@ type
     procedure FinalDtoMatchesMaxTdbFileIoSecurityTypeSourceSkip;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbFormelnDataFilePointerReceiverSkip;
+    procedure FinalDtoMatchesMaxTdbFormelnDataFilePointerCapture;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLinkFileDataFilePointerReceiverSkip;
@@ -337,10 +337,10 @@ type
     procedure FinalDtoMatchesMaxTdbLinkFileNewPointerSymbolSkip;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbLinkFileStatLinksPointerReceiverSkip;
+    procedure FinalDtoMatchesMaxTdbLinkFileStatLinksPointerCapture;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbLinkFileSetIvDataFilePointerSkip;
+    procedure FinalDtoMatchesMaxTdbLinkFileSetIvDataFileCapture;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLinkFileCheckIndirektReceiverSkips;
@@ -349,7 +349,7 @@ type
     procedure FinalDtoMatchesMaxTdbLinkFileCheckStatLinksPointerSkip;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbLinkFileFinalDirectQualification;
+    procedure FinalDtoMatchesMaxTdbLinkFileFinalCapture;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbLowFilesResetFileCapture;
@@ -460,19 +460,19 @@ type
     procedure FinalDtoMatchesMaxTdbStrFuncsMaskedWordSkip;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbStrFuncsAutoEntrySkip;
+    procedure FinalDtoMatchesMaxTdbStrFuncsAutoEntryCaptures;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbStrFuncsRelFileDirectQualification;
+    procedure FinalDtoMatchesMaxTdbStrFuncsRelFileCapture;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbStrFuncsIndexFileDirectQualification;
+    procedure FinalDtoMatchesMaxTdbStrFuncsIndexFileCapture;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbStrFuncsScanFieldMaskSkipReason;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbStrFuncsKeywordIndexFileSkip;
+    procedure FinalDtoMatchesMaxTdbStrFuncsKeywordIndexFileCapture;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbStrFuncsArrayVarPointerTemp;
@@ -484,7 +484,7 @@ type
     procedure FinalDtoMatchesMaxTdbIndexUtilsNewIndSkipReason;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbIndexUtilsNewIndNestedSkipReason;
+    procedure FinalDtoMatchesMaxTdbIndexUtilsNewIndNestedCapture;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsGetIndPathSkipReason;
@@ -493,7 +493,7 @@ type
     procedure FinalDtoMatchesMaxTdbIndexUtilsIvOkayReplacement;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbIndexUtilsRemoveIndexSkip;
+    procedure FinalDtoMatchesMaxTdbIndexUtilsRemoveIndexCapture;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsOpenIndexNestedIvQualification;
@@ -520,10 +520,10 @@ type
     procedure FinalDtoMatchesMaxTdbIndexUtilsLoadIndexSkipReason;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbIndexUtilsPufferLeerenSkip;
+    procedure FinalDtoMatchesMaxTdbIndexUtilsPufferLeerenCaptures;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbIndexUtilsIndFormelSkipCluster;
+    procedure FinalDtoMatchesMaxTdbIndexUtilsIndFormelCapturedParentAndChild;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbIndexUtilsCountRecsIvReplacement;
@@ -565,7 +565,7 @@ type
     procedure FinalDtoMatchesMaxTdbTdb01LiesSekLinkFileReplacement;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbTdb01LiesSekLocalInitPointerTemps;
+    procedure FinalDtoMatchesMaxTdbTdb01NextRecInitPointerCaptures;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb01LiesSekNextRecSkipReasons;
@@ -703,10 +703,10 @@ type
     procedure FinalDtoMatchesMaxTdbTdbJobsSplitVarSkipReasons;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbTdbJobsInitVarSkipReason;
+    procedure FinalDtoMatchesMaxTdbTdbJobsInitVarCapture;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbTdbJobsJumpTempDeclarationSkip;
+    procedure FinalDtoMatchesMaxTdbTdbJobsJumpCaptureDeclaration;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbJobsSubRZeroSkipReason;
@@ -4957,33 +4957,85 @@ begin
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexedPointerSelectorDirectQualification;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexedPointerSelectorCapture;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'bitarray.pas', 225, 5, lStatement),
-    'Expected maxTdb BitArraySum indexed pointer with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
-    'Expected current DAK parity for indexed pointer selector to use direct qualification.');
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)), 'Expected only replacement edit.');
-  Assert.AreEqual('    BEGIN' + sLineBreak +
-    '      FOR i := 0 TO BitArrayListPtr^[c].MaxBytes - 1 DO' + sLineBreak +
-    '      BEGIN' + sLineBreak +
-    '        b := BitArrayListPtr^[c].Cont^[i];' + sLineBreak +
-    '        FOR j := 0 TO 7 DO' + sLineBreak +
-    '          IF t <= max THEN' + sLineBreak +
-    '          BEGIN' + sLineBreak +
-    '            INC(Int32(r0^), (b SHR j) AND 1);' + sLineBreak +
-    '            INC(pByte(r0), SizeOf(Int32));' + sLineBreak +
-    '            INC(t)' + sLineBreak +
-    '          END' + sLineBreak +
-    '      END' + sLineBreak +
-    '    END' + sLineBreak +
-    '  ', lStatement.ReplacementText);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'bitarray.pas', 225, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('BitArraySum', lStatement.RoutineName);
+  Assert.AreEqual('225:5-238:7', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('225:5-238:7', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('ddcfa4300a3e1627fb4862fc65cfc6742328029e4cbe6483ee486dc65ab4af76',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH BitArrayListPtr^[c] DO' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '      FOR i := 0 TO MaxBytes - 1 DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        b := Cont^[i];' + #13#10 +
+    '        FOR j := 0 TO 7 DO' + #13#10 +
+    '          IF t <= max THEN' + #13#10 +
+    '          BEGIN' + #13#10 +
+    '            INC(Int32(r0^), (b SHR j) AND 1);' + #13#10 +
+    '            INC(pByte(r0), SizeOf(Int32));' + #13#10 +
+    '            INC(t)' + #13#10 +
+    '          END' + #13#10 +
+    '      END' + #13#10 +
+    '    END', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('    lWithBitArrayPtr := @BitArrayListPtr^[c];' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '      FOR i := 0 TO lWithBitArrayPtr^.MaxBytes - 1 DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        b := lWithBitArrayPtr^.Cont^[i];' + #13#10 +
+    '        FOR j := 0 TO 7 DO' + #13#10 +
+    '          IF t <= max THEN' + #13#10 +
+    '          BEGIN' + #13#10 +
+    '            INC(Int32(r0^), (b SHR j) AND 1);' + #13#10 +
+    '            INC(pByte(r0), SizeOf(Int32));' + #13#10 +
+    '            INC(t)' + #13#10 +
+    '          END' + #13#10 +
+    '      END' + #13#10 +
+    '    END', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('BitArrayListPtr^[c]', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithBitArrayPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('TBitArray', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithBitArrayPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithBitArrayPtr: ^TBitArray;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithBitArrayPtr := @BitArrayListPtr^[c];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('a1cbfd09c84de21f41361e6137505a7a12b34d2b729f462f7c4c3994c6d3ffd4',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('220:1-220:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithBitArrayPtr: ^TBitArray;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('225:1-238:7', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('a1cbfd09c84de21f41361e6137505a7a12b34d2b729f462f7c4c3994c6d3ffd4',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('BitArrayListPtr^[c]', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithBitArrayPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TBitArray', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithBitArrayPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithBitArrayPtr: ^TBitArray;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithBitArrayPtr := @BitArrayListPtr^[c];',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('a1cbfd09c84de21f41361e6137505a7a12b34d2b729f462f7c4c3994c6d3ffd4',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbDependentPointerSelectorQualification;
@@ -5456,14 +5508,62 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1369, 5, lStatement),
-    'Expected maxTdb GetData Mask[Nr]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual('    begin' + sLineBreak +
-    '      CheckUnDef := (Mask[Nr]^.Art and 128 = 128) and (lFieldType <> A_LONG);' + sLineBreak +
-    '      UnDef := CheckUnDef and (s[Mask[Nr]^.l] = #0);' + sLineBreak +
-    '      ll := Mask[Nr]^.l; {TODO -oPawel -cInvestigation : where does this `L` ccome from? seems to be a globl variable}' + sLineBreak +
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1369, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('GetData', lStatement.RoutineName);
+  Assert.AreEqual('1369:5-1374:8', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('1369:5-1374:8', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('8078c228cc3241793a5a607d9f0a16bbfa786a299e85e26e7a71f02fd73843eb',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with Mask[Nr]^ do' + #13#10 +
+    '    begin' + #13#10 +
+    '      CheckUnDef := (Art and 128 = 128) and (lFieldType <> A_LONG);' + #13#10 +
+    '      UnDef := CheckUnDef and (s[l] = #0);' + #13#10 +
+    '      ll := l; {TODO -oPawel -cInvestigation : where does this `L` ccome from? seems to be a globl variable}' + #13#10 +
+    '    end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('    lWithMaskEntryPtr := @Mask[Nr]^;' + #13#10 +
+    '    begin' + #13#10 +
+    '      CheckUnDef := (lWithMaskEntryPtr^.Art and 128 = 128) and (lFieldType <> A_LONG);' + #13#10 +
+    '      UnDef := CheckUnDef and (s[lWithMaskEntryPtr^.l] = #0);' + #13#10 +
+    '      ll := lWithMaskEntryPtr^.l; {TODO -oPawel -cInvestigation : where does this `L` ccome from? seems to be a globl variable}' + #13#10 +
     '    end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('Mask[Nr]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithMaskEntryPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('TMaskEntry', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithMaskEntryPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithMaskEntryPtr := @Mask[Nr]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('d6c97b566e4b7ec6cdcc58c6b0d006ffbfa54968a215ec79d5e4e4afed2499bd',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('1348:1-1348:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithMaskEntryPtr: ^TMaskEntry;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('1369:1-1374:8', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('d6c97b566e4b7ec6cdcc58c6b0d006ffbfa54968a215ec79d5e4e4afed2499bd',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('Mask[Nr]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithMaskEntryPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TMaskEntry', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithMaskEntryPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithMaskEntryPtr := @Mask[Nr]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('d6c97b566e4b7ec6cdcc58c6b0d006ffbfa54968a215ec79d5e4e4afed2499bd',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbPutDataSelectorTypeSkip;
@@ -6161,19 +6261,79 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbFormelnDataFilePointerReceiverSkip;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbFormelnDataFilePointerCapture;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'formeln.pas', 164, 5, lStatement),
-    'Expected maxTdb formeln DF[D]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'formeln.pas', 164, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('IVWert', lStatement.RoutineName);
+  Assert.AreEqual('164:5-173:8', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('164:5-173:8', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('a36bacd4da95a3782de6c9910c3f2817b12c56c7a95267e0c2a8d9a7e12dc7c2',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[D]^ DO' + #10 +
+    '    BEGIN' + #10 +
+    '      n := 1;' + #10 +
+    '      zg := Zugriff;' + #10 +
+    '      Zugriff := NummerZgr;' + #10 +
+    '      fc := Berechne(S1, n, FromRec, E, t_Art, h);' + #10 +
+    '      Zugriff := zg;' + #10 +
+    '      IF fc = 43 THEN' + #10 +
+    '        fc := 0 { kein Overflow-Error }' + #10 +
+    '    END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('    begin' + #13#10 +
+    '      lWithDatFilePtr := @DF[D]^;' + #13#10 +
+    '      BEGIN' + #10 +
+    '      n := 1;' + #10 +
+    '      zg := lWithDatFilePtr^.Zugriff;' + #10 +
+    '      lWithDatFilePtr^.Zugriff := NummerZgr;' + #10 +
+    '      fc := Berechne(S1, n, FromRec, E, t_Art, h);' + #10 +
+    '      lWithDatFilePtr^.Zugriff := zg;' + #10 +
+    '      IF fc = 43 THEN' + #10 +
+    '        fc := 0 { kein Overflow-Error }' + #10 +
+    '    END;' + #13#10 +
+    '    end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('254ea14df86ec0d663f26650a031de4530b4f83ef362330ded09494e1cef5a0e',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('158:1-158:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('164:1-173:8', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('254ea14df86ec0d663f26650a031de4530b4f83ef362330ded09494e1cef5a0e',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[D]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('254ea14df86ec0d663f26650a031de4530b4f83ef362330ded09494e1cef5a0e',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileDataFilePointerReceiverSkip;
@@ -6220,18 +6380,77 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 204, 11,
-    lStatement), 'Expected maxTdb linkfile CheckShowFiles DF[i]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 204, 11, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('CheckShowFiles', lStatement.RoutineName);
+  Assert.AreEqual('204:11-211:16', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('204:11-211:16', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[i]^ DO' + #10 +
+    '            IF InSet(ShowFiles, i) AND (LINKFILE <> 0)' + #10 +
+    '              AND NOT InSet(ShowFiles, LINKFILE)' + #10 +
+    '            THEN' + #10 +
+    '            BEGIN' + #10 +
+    '              Include(ShowFiles, LINKFILE);' + #10 +
+    '              ready := FALSE;' + #10 +
+    '            END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('          begin' + #13#10 +
+    '            lWithDatFilePtr := @DF[i]^;' + #13#10 +
+    '            IF InSet(ShowFiles, i) AND (lWithDatFilePtr^.LINKFILE <> 0)' + #10 +
+    '              AND NOT InSet(ShowFiles, lWithDatFilePtr^.LINKFILE)' + #10 +
+    '            THEN' + #10 +
+    '            BEGIN' + #10 +
+    '              Include(ShowFiles, lWithDatFilePtr^.LINKFILE);' + #10 +
+    '              ready := FALSE;' + #10 +
+    '            END;' + #13#10 +
+    '          end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[i]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('28154f0f42ecded551af197a148ea81986938f793ad056e9115151e22d46b024',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('199:1-199:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('204:1-211:16', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('28154f0f42ecded551af197a148ea81986938f793ad056e9115151e22d46b024',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[i]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('28154f0f42ecded551af197a148ea81986938f793ad056e9115151e22d46b024',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'IF InSet(ShowFiles, i) AND (DF[i]^.LINKFILE <> 0)'),
+    'IF InSet(ShowFiles, i) AND (lWithDatFilePtr^.LINKFILE <> 0)'),
     lStatement.ReplacementText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'AND NOT InSet(ShowFiles, DF[i]^.LINKFILE)'),
+    'AND NOT InSet(ShowFiles, lWithDatFilePtr^.LINKFILE)'),
     lStatement.ReplacementText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'Include(ShowFiles, DF[i]^.LINKFILE);'),
+    'Include(ShowFiles, lWithDatFilePtr^.LINKFILE);'),
     lStatement.ReplacementText);
   Assert.IsFalse(ContainsText(lStatement.ReplacementText, '(LINKFILE <> 0)'),
     lStatement.ReplacementText);
@@ -6289,22 +6508,86 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileStatLinksPointerReceiverSkip;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileStatLinksPointerCapture;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 368, 5, lStatement),
-    'Expected maxTdb linkfile StatLinks[i]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 368, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('TestLinks', lStatement.RoutineName);
+  Assert.AreEqual('368:5-380:15', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('368:5-380:15', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH StatLinks[i]^ DO' + #10 +
+    '      IF (f1 > FilesOffen) OR (f2 > FilesOffen)' + #10 +
+    '      THEN' + #10 +
+    '      BEGIN' + #10 +
+    '        DISPOSE(StatLinks[i]);' + #10 +
+    '        FOR j := i + 1 TO LastLink DO' + #10 +
+    '          StatLinks[j - 1] := StatLinks[j];' + #10 +
+    '        DEC(LastLink);' + #10 +
+    '        IF Appender > 0 THEN' + #10 +
+    '          DEC(Appender)' + #10 +
+    '      END' + #10 +
+    '      ELSE' + #10 +
+    '        INC(i);', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('    lWithStatLinkTypePtr := @StatLinks[i]^;' + #13#10 +
+    '    IF (lWithStatLinkTypePtr^.f1 > FilesOffen) OR (lWithStatLinkTypePtr^.f2 > FilesOffen)' + #10 +
+    '      THEN' + #10 +
+    '      BEGIN' + #10 +
+    '        DISPOSE(StatLinks[i]);' + #10 +
+    '        FOR j := i + 1 TO LastLink DO' + #10 +
+    '          StatLinks[j - 1] := StatLinks[j];' + #10 +
+    '        DEC(LastLink);' + #10 +
+    '        IF Appender > 0 THEN' + #10 +
+    '          DEC(Appender)' + #10 +
+    '      END' + #10 +
+    '      ELSE' + #10 +
+    '        INC(i);', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('StatLinks[i]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithStatLinkTypePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('StatLinkType', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithStatLinkTypePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithStatLinkTypePtr: ^StatLinkType;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithStatLinkTypePtr := @StatLinks[i]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('47edc33c856ce18f3d4f519038d635a623f393671907a2ffc601ffef94cec606',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('364:1-364:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithStatLinkTypePtr: ^StatLinkType;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('368:1-380:15', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('47edc33c856ce18f3d4f519038d635a623f393671907a2ffc601ffef94cec606',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('StatLinks[i]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithStatLinkTypePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('StatLinkType', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithStatLinkTypePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithStatLinkTypePtr: ^StatLinkType;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithStatLinkTypePtr := @StatLinks[i]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('47edc33c856ce18f3d4f519038d635a623f393671907a2ffc601ffef94cec606',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileSetIvDataFilePointerSkip;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileSetIvDataFileCapture;
 var
   lMatchedStatement: TDelphiSemanticRemoveWithFinalStatement;
   lMatchCount: Integer;
@@ -6313,12 +6596,70 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 413, 7, lStatement),
-    'Expected maxTdb linkfile SetIV DF[D]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 413, 7, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('SetIV', lStatement.RoutineName);
+  Assert.AreEqual('413:7-421:10', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('413:7-421:10', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[D]^ DO' + #10 +
+    '      BEGIN' + #10 +
+    '        fillchar(LinkIV, SizeOf(LinkIV), 0);' + #10 +
+    '        LinkIV[1].Feld := FL;' + #10 +
+    '        LinkIV[1].Anzahl := 4;' + #10 +
+    '        LinkIV[1].IV_Art := A_LONG;' + #10 +
+    '        LinkIndex := LI;' + #10 +
+    '        LINKFILE := LF;' + #10 +
+    '      end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      lWithDatFilePtr := @DF[D]^;' + #13#10 +
+    '      BEGIN' + #10 +
+    '        fillchar(lWithDatFilePtr^.LinkIV, SizeOf(lWithDatFilePtr^.LinkIV), 0);' + #10 +
+    '        lWithDatFilePtr^.LinkIV[1].Feld := FL;' + #10 +
+    '        lWithDatFilePtr^.LinkIV[1].Anzahl := 4;' + #10 +
+    '        lWithDatFilePtr^.LinkIV[1].IV_Art := A_LONG;' + #10 +
+    '        lWithDatFilePtr^.LinkIndex := LI;' + #10 +
+    '        lWithDatFilePtr^.LINKFILE := LF;' + #10 +
+    '      end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('1e74a0fbd42975619d771e0ae46c36651a1116bc9dea6e87ed9f8c9d16612f31',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('412:1-412:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('413:1-421:10', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('1e74a0fbd42975619d771e0ae46c36651a1116bc9dea6e87ed9f8c9d16612f31',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[D]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('1e74a0fbd42975619d771e0ae46c36651a1116bc9dea6e87ed9f8c9d16612f31',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
   lMatchCount := 0;
   for lMatchedStatement in lPlan.FinalStatements do
   begin
@@ -6364,34 +6705,168 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileFinalDirectQualification;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileFinalCapture;
 var
+  i: Integer;
+  j: Integer;
+  lDeclarationCount: Integer;
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lReplacementText: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 682, 9, lStatement),
-    'Expected maxTdb linkfile final DF[i]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 682, 9, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('CheckLinkFiles', lStatement.RoutineName);
+  Assert.AreEqual('682:9-687:14', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('682:9-687:14', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[i]^ DO' + #10 +
+    '          IF i <> FileNo THEN' + #10 +
+    '          BEGIN' + #10 +
+    '            Zugriff := IndexZgr;' + #10 +
+    '            AktIndex := LinkIndex' + #10 +
+    '          END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('        begin' + #13#10 +
+    '          lWithDatFilePtr1 := @DF[i]^;' + #13#10 +
+    '          IF i <> FileNo THEN' + #10 +
+    '          BEGIN' + #10 +
+    '            lWithDatFilePtr1^.Zugriff := IndexZgr;' + #10 +
+    '            lWithDatFilePtr1^.AktIndex := lWithDatFilePtr1^.LinkIndex' + #10 +
+    '          END;' + #13#10 +
+    '        end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[i]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr1^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr1', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr1 := @DF[i]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('2963a0c424c1fcf036e03ee7c5051f20123b4f6c4d7d183681a88159e0584fcc',
+    lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(177, Integer(Length(lStatement.ReplacementText)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual('682:1-687:14', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('2963a0c424c1fcf036e03ee7c5051f20123b4f6c4d7d183681a88159e0584fcc',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[i]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr1^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr1: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr1 := @DF[i]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('2963a0c424c1fcf036e03ee7c5051f20123b4f6c4d7d183681a88159e0584fcc',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
+  Assert.AreEqual(250, Integer(Length(lStatement.ReplacementText)));
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
   Assert.AreEqual('        begin' + #10 +
+    '          lWithDatFilePtr1 := @DF[i]^;' + #10 +
     '          IF i <> FileNo THEN' + #10 +
     '          BEGIN' + #10 +
-    '            DF[i]^.Zugriff := IndexZgr;' + #10 +
-    '            DF[i]^.AktIndex := DF[i]^.LinkIndex' + #10 +
+    '            lWithDatFilePtr1^.Zugriff := IndexZgr;' + #10 +
+    '            lWithDatFilePtr1^.AktIndex := lWithDatFilePtr1^.LinkIndex' + #10 +
     '          END;' + #10 +
     '        end;', lReplacementText);
-  Assert.AreEqual(682, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(687, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(14, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual(247, Integer(Length(lReplacementText)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 646, 9, lOwnerStatement));
+  Assert.AreEqual('planned', lOwnerStatement.Status);
+  Assert.AreEqual('', lOwnerStatement.Reason);
+  Assert.AreEqual('', lOwnerStatement.SafetyReason);
+  Assert.AreEqual('CheckLinkFiles', lOwnerStatement.RoutineName);
+  Assert.AreEqual('646:9-656:12', SourceRangeText(lOwnerStatement.Range));
+  Assert.AreEqual('646:9-656:12', SourceRangeText(lOwnerStatement.Verification.Range));
+  Assert.AreEqual('79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb',
+    lOwnerStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[i]^ DO' + #10 +
+    '        BEGIN' + #10 +
+    '          LINKFILE := 0;' + #10 +
+    '          LegalFiles := LegalFiles OR (FileSet(1) SHL i);' + #10 +
+    '          IF (i <> FileNo) THEN' + #10 +
+    '            IF V_Base > 0' + #10 +
+    '            THEN' + #10 +
+    '              RestFiles := RestFiles OR (FileSet(1) SHL i)' + #10 +
+    '            ELSE' + #10 +
+    '              Gesamt := Gesamt OR (FileSet(1) SHL i);' + #10 +
+    '        END;', lOwnerStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('        begin' + #13#10 +
+    '          lWithDatFilePtr := @DF[i]^;' + #13#10 +
+    '          BEGIN' + #10 +
+    '          lWithDatFilePtr^.LINKFILE := 0;' + #10 +
+    '          LegalFiles := LegalFiles OR (FileSet(1) SHL i);' + #10 +
+    '          IF (i <> FileNo) THEN' + #10 +
+    '            IF lWithDatFilePtr^.V_Base > 0' + #10 +
+    '            THEN' + #10 +
+    '              RestFiles := RestFiles OR (FileSet(1) SHL i)' + #10 +
+    '            ELSE' + #10 +
+    '              Gesamt := Gesamt OR (FileSet(1) SHL i);' + #10 +
+    '        END;' + #13#10 +
+    '        end;', lOwnerStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.Temps)));
+  Assert.AreEqual('DF[i]^', lOwnerStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lOwnerStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lOwnerStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
+  Assert.AreEqual('7fa23856258381c402f1bbfd7657446e4fc6c3d04a7cb8a3897f5ccb5145f83d',
+    lOwnerStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
+  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
+  Assert.AreEqual('404:1-404:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithDatFilePtr: ^DatFile;' + #13#10 +
+    '  lWithDatFilePtr1: ^DatFile;' + #13#10, lOwnerStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
+  Assert.AreEqual('646:1-656:12', SourceRangeText(lOwnerStatement.Edits[1].Range));
+  Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('7fa23856258381c402f1bbfd7657446e4fc6c3d04a7cb8a3897f5ccb5145f83d',
+    lOwnerStatement.SemanticId);
+  Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[i]^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('7fa23856258381c402f1bbfd7657446e4fc6c3d04a7cb8a3897f5ccb5145f83d',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
+  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
+  lDeclarationCount := 0;
+  for i := 0 to High(lPlan.FinalStatements) do
+    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
+      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
+        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
+        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
+        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
+        Inc(lDeclarationCount);
+  Assert.AreEqual(1, lDeclarationCount);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLowFilesResetFileCapture;
@@ -7424,25 +7899,73 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'md5.pas', 237, 3, lStatement),
-    'Expected maxTdb md5 Context with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('  begin' + #10 +
-    '    Context.State[0] := $67452301;' + #10 +
-    '    Context.State[1] := $EFCDAB89;' + #10 +
-    '    Context.State[2] := $98BADCFE;' + #10 +
-    '    Context.State[3] := $10325476;' + #10 +
-    '    Context.Count[0] := 0;' + #10 +
-    '    Context.Count[1] := 0;' + #10 +
-    '    FillChar(Context.Buffer, SizeOf(TMD5Buffer), 0);' + #10 +
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'md5.pas', 237, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('MD5Init', lStatement.RoutineName);
+  Assert.AreEqual('237:3-246:6', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('237:3-246:6', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('6fbf3241b98491489110051ec94d78962dfc37860dd89f7766381bf28a6e78bb',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with Context do' + #10 +
+    '  begin' + #10 +
+    '    State[0] := $67452301;' + #10 +
+    '    State[1] := $EFCDAB89;' + #10 +
+    '    State[2] := $98BADCFE;' + #10 +
+    '    State[3] := $10325476;' + #10 +
+    '    Count[0] := 0;' + #10 +
+    '    Count[1] := 0;' + #10 +
+    '    FillChar(Buffer, SizeOf(TMD5Buffer), 0);' + #10 +
+    '  end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithMD5ContextPtr := @Context;' + #13#10 +
+    '  begin' + #10 +
+    '    lWithMD5ContextPtr^.State[0] := $67452301;' + #10 +
+    '    lWithMD5ContextPtr^.State[1] := $EFCDAB89;' + #10 +
+    '    lWithMD5ContextPtr^.State[2] := $98BADCFE;' + #10 +
+    '    lWithMD5ContextPtr^.State[3] := $10325476;' + #10 +
+    '    lWithMD5ContextPtr^.Count[0] := 0;' + #10 +
+    '    lWithMD5ContextPtr^.Count[1] := 0;' + #10 +
+    '    FillChar(lWithMD5ContextPtr^.Buffer, SizeOf(TMD5Buffer), 0);' + #10 +
     '  end;', lStatement.ReplacementText);
-  Assert.AreEqual(261, Integer(Length(lStatement.ReplacementText)));
-  Assert.AreEqual(237, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(246, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(6, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('Context', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithMD5ContextPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('TMD5Context', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithMD5ContextPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithMD5ContextPtr: ^TMD5Context;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithMD5ContextPtr := @Context;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('115701dacaa3f75712480f06d005255471d50bebaafef60f182709616b3f40ee',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('236:1-236:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithMD5ContextPtr: ^TMD5Context;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('237:1-246:6', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('115701dacaa3f75712480f06d005255471d50bebaafef60f182709616b3f40ee',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('Context', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithMD5ContextPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TMD5Context', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithMD5ContextPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithMD5ContextPtr: ^TMD5Context;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithMD5ContextPtr := @Context;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('115701dacaa3f75712480f06d005255471d50bebaafef60f182709616b3f40ee',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
+  Assert.AreEqual(380, Integer(Length(lStatement.ReplacementText)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbRamFilesCheckRamTextReplacement;
@@ -9040,69 +9563,370 @@ begin
     'f30b4af544f722d0d558b70afcc6c89bba04c4432ff1e296901d83cc25415689');
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsAutoEntrySkip;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsAutoEntryCaptures;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 830, 3, lStatement),
-    'Expected maxTdb strfuncs DF[d]^, Ind with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 830, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('GenRelEntries', lStatement.RoutineName);
+  Assert.AreEqual('830:3-843:6', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('830:3-843:6', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('f30b4af544f722d0d558b70afcc6c89bba04c4432ff1e296901d83cc25415689',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with DF[d]^, Ind do' + #13#10 +
+    '  begin' + #13#10 +
+    '    while KL <> nil do' + #13#10 +
+    '    begin' + #13#10 +
+    '      entry.A1 := KL^.AutoNo;' + #13#10 +
+    '      entry.A2 := A02;' + #13#10 +
+    '      entry.M0 := KL^.Mask;' + #13#10 +
+    '      move(entry, Dat^, SatzGroesse);' + #13#10 +
+    '      fp := FileOffset + FileSize * SatzGroesse;' + #13#10 +
+    '      WriteNBytes(f^, fp, SatzGroesse, Dat^, Code);' + #13#10 +
+    '      Inc(FileSize);' + #13#10 +
+    '      KL := KL^.next;' + #13#10 +
+    '    end' + #13#10 +
+    '  end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[d]^;' + #13#10 +
+    '  lWithIndexPtr := @lWithDatFilePtr^.Ind;' + #13#10 +
+    '  begin' + #13#10 +
+    '    while KL <> nil do' + #13#10 +
+    '    begin' + #13#10 +
+    '      entry.A1 := KL^.AutoNo;' + #13#10 +
+    '      entry.A2 := A02;' + #13#10 +
+    '      entry.M0 := KL^.Mask;' + #13#10 +
+    '      move(entry, lWithDatFilePtr^.Dat^, lWithDatFilePtr^.SatzGroesse);' + #13#10 +
+    '      fp := lWithDatFilePtr^.FileOffset + lWithDatFilePtr^.FileSize * lWithDatFilePtr^.SatzGroesse;' + #13#10 +
+    '      WriteNBytes(lWithDatFilePtr^.f^, fp, lWithDatFilePtr^.SatzGroesse, lWithDatFilePtr^.Dat^, lWithDatFilePtr^.Code);' + #13#10 +
+    '      Inc(lWithDatFilePtr^.FileSize);' + #13#10 +
+    '      KL := KL^.next;' + #13#10 +
+    '    end' + #13#10 +
+    '  end;', lStatement.ReplacementText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[d]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('3b10319b97ae4e400640e883367f0158a5f4b70a8cc203ddb6b962be5a176629',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('Ind', lStatement.Temps[1].SelectorText);
+  Assert.AreEqual('lWithIndexPtr^', lStatement.Temps[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
+  Assert.AreEqual('Index', lStatement.Temps[1].ReceiverType);
+  Assert.AreEqual('lWithIndexPtr', lStatement.Temps[1].TempName);
+  Assert.AreEqual('lWithIndexPtr: ^Index;', lStatement.Temps[1].DeclarationText);
+  Assert.AreEqual('lWithIndexPtr := @lWithDatFilePtr^.Ind;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
+  Assert.AreEqual('3b10319b97ae4e400640e883367f0158a5f4b70a8cc203ddb6b962be5a176629',
+    lStatement.Temps[1].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('829:1-829:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithDatFilePtr: ^DatFile;' + #13#10 +
+    '  lWithIndexPtr: ^Index;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('830:1-843:6', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('3b10319b97ae4e400640e883367f0158a5f4b70a8cc203ddb6b962be5a176629',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[d]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[d]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('3b10319b97ae4e400640e883367f0158a5f4b70a8cc203ddb6b962be5a176629',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual('Ind', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
+  Assert.AreEqual('lWithIndexPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
+  Assert.AreEqual('Index', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
+  Assert.AreEqual('lWithIndexPtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
+  Assert.AreEqual('lWithIndexPtr: ^Index;', lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
+  Assert.AreEqual('lWithIndexPtr := @lWithDatFilePtr^.Ind;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
+  Assert.AreEqual('3b10319b97ae4e400640e883367f0158a5f4b70a8cc203ddb6b962be5a176629',
+    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsRelFileDirectQualification;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsRelFileCapture;
 var
+  i: Integer;
+  j: Integer;
+  lDeclarationCount: Integer;
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1495, 3, lStatement),
-    'Expected maxTdb strfuncs DF[RelFile]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(1495, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(1500, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(6, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  begin' + sLineBreak +
-    '    DF[RelFile]^.IndFiles[2]^.nn := DF[RelFile]^.FileSize;' + sLineBreak +
-    '    if Modus and 4 = 4 then' + sLineBreak +
-    '      DF[RelFile]^.FileSize := 0;' + sLineBreak +
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1495, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('ScanRecsNew', lStatement.RoutineName);
+  Assert.AreEqual('1495:3-1500:6', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('1495:3-1500:6', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('f30b4af544f722d0d558b70afcc6c89bba04c4432ff1e296901d83cc25415689',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with DF[RelFile]^ do' + #13#10 +
+    '  begin' + #13#10 +
+    '    IndFiles[2]^.nn := FileSize;' + #13#10 +
+    '    if Modus and 4 = 4 then' + #13#10 +
+    '      FileSize := 0;' + #13#10 +
+    '  end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr1 := @DF[RelFile]^;' + #13#10 +
+    '  begin' + #13#10 +
+    '    lWithDatFilePtr1^.IndFiles[2]^.nn := lWithDatFilePtr1^.FileSize;' + #13#10 +
+    '    if Modus and 4 = 4 then' + #13#10 +
+    '      lWithDatFilePtr1^.FileSize := 0;' + #13#10 +
     '  end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[RelFile]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr1^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr1', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr1 := @DF[RelFile]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('61600ce007139cf362acfb8993d5e5b5e01636fb5014cfb93f9100c7a14cf133',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual('1495:1-1500:6', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('61600ce007139cf362acfb8993d5e5b5e01636fb5014cfb93f9100c7a14cf133',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[RelFile]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr1^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr1: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr1 := @DF[RelFile]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('61600ce007139cf362acfb8993d5e5b5e01636fb5014cfb93f9100c7a14cf133',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1232, 3, lOwnerStatement));
+  Assert.AreEqual('planned', lOwnerStatement.Status);
+  Assert.AreEqual('', lOwnerStatement.Reason);
+  Assert.AreEqual('', lOwnerStatement.SafetyReason);
+  Assert.AreEqual('ScanRecsNew', lOwnerStatement.RoutineName);
+  Assert.AreEqual('1232:3-1233:66', SourceRangeText(lOwnerStatement.Range));
+  Assert.AreEqual('1232:3-1233:66', SourceRangeText(lOwnerStatement.Verification.Range));
+  Assert.AreEqual('f30b4af544f722d0d558b70afcc6c89bba04c4432ff1e296901d83cc25415689',
+    lOwnerStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with DF[IndexFile]^ do' + #13#10 +
+    '    gDoCount := (RecZahl > 2) and (Maske[2].Art and 15 = A_Int16);', lOwnerStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[IndexFile]^;' + #13#10 +
+    '  gDoCount := (lWithDatFilePtr^.RecZahl > 2) and (lWithDatFilePtr^.Maske[2].Art and 15 = A_Int16);', lOwnerStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.Temps)));
+  Assert.AreEqual('DF[IndexFile]^', lOwnerStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lOwnerStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lOwnerStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
+  Assert.AreEqual('e5c1e66893b6a8682c295dc6b8183b4614c9e179c0abf0f893b6248618e5ffd1',
+    lOwnerStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
+  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
+  Assert.AreEqual('1189:1-1189:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithDatFilePtr: ^DatFile;' + #13#10 +
+    '  lWithDatFilePtr1: ^DatFile;' + #13#10 +
+    '  lWithDatFilePtr2: ^DatFile;' + #13#10, lOwnerStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
+  Assert.AreEqual('1232:1-1233:66', SourceRangeText(lOwnerStatement.Edits[1].Range));
+  Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('e5c1e66893b6a8682c295dc6b8183b4614c9e179c0abf0f893b6248618e5ffd1',
+    lOwnerStatement.SemanticId);
+  Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[IndexFile]^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('e5c1e66893b6a8682c295dc6b8183b4614c9e179c0abf0f893b6248618e5ffd1',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
+  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
+  lDeclarationCount := 0;
+  for i := 0 to High(lPlan.FinalStatements) do
+    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
+      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
+        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
+        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
+        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
+        Inc(lDeclarationCount);
+  Assert.AreEqual(1, lDeclarationCount);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsIndexFileDirectQualification;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsIndexFileCapture;
 var
+  i: Integer;
+  j: Integer;
+  lDeclarationCount: Integer;
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1501, 3, lStatement),
-    'Expected maxTdb strfuncs DF[IndexFile]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(1501, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(1508, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(6, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  begin' + sLineBreak +
-    '    if DF[IndexFile]^.HatAuto then' + sLineBreak +
-    '      WriteNBytes(DF[IndexFile]^.f^, DF[IndexFile]^.FileOffset - 4, 4, DF[IndexFile]^.AutoNum, 0);' + sLineBreak +
-    '    DF[IndexFile]^.IndFiles[1]^.nn := DF[IndexFile]^.FileSize;' + sLineBreak +
-    '    if not WriteIndexFile then' + sLineBreak +
-    '      DF[IndexFile]^.FileSize := -1;' + sLineBreak +
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1501, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('ScanRecsNew', lStatement.RoutineName);
+  Assert.AreEqual('1501:3-1508:6', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('1501:3-1508:6', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('f30b4af544f722d0d558b70afcc6c89bba04c4432ff1e296901d83cc25415689',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with DF[IndexFile]^ do' + #13#10 +
+    '  begin' + #13#10 +
+    '    if HatAuto then' + #13#10 +
+    '      WriteNBytes(f^, FileOffset - 4, 4, AutoNum, 0);' + #13#10 +
+    '    IndFiles[1]^.nn := FileSize;' + #13#10 +
+    '    if not WriteIndexFile then' + #13#10 +
+    '      FileSize := -1;' + #13#10 +
+    '  end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr2 := @DF[IndexFile]^;' + #13#10 +
+    '  begin' + #13#10 +
+    '    if lWithDatFilePtr2^.HatAuto then' + #13#10 +
+    '      WriteNBytes(lWithDatFilePtr2^.f^, lWithDatFilePtr2^.FileOffset - 4, 4, lWithDatFilePtr2^.AutoNum, 0);' + #13#10 +
+    '    lWithDatFilePtr2^.IndFiles[1]^.nn := lWithDatFilePtr2^.FileSize;' + #13#10 +
+    '    if not WriteIndexFile then' + #13#10 +
+    '      lWithDatFilePtr2^.FileSize := -1;' + #13#10 +
     '  end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[IndexFile]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr2^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr2', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr2: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr2 := @DF[IndexFile]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('469bd23c289285f177f9492239205bb3de8931175224d69481fd9c1b4e902bc2',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual('1501:1-1508:6', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('469bd23c289285f177f9492239205bb3de8931175224d69481fd9c1b4e902bc2',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[IndexFile]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr2^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr2', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr2: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr2 := @DF[IndexFile]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('469bd23c289285f177f9492239205bb3de8931175224d69481fd9c1b4e902bc2',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1232, 3, lOwnerStatement));
+  Assert.AreEqual('planned', lOwnerStatement.Status);
+  Assert.AreEqual('', lOwnerStatement.Reason);
+  Assert.AreEqual('', lOwnerStatement.SafetyReason);
+  Assert.AreEqual('ScanRecsNew', lOwnerStatement.RoutineName);
+  Assert.AreEqual('1232:3-1233:66', SourceRangeText(lOwnerStatement.Range));
+  Assert.AreEqual('1232:3-1233:66', SourceRangeText(lOwnerStatement.Verification.Range));
+  Assert.AreEqual('f30b4af544f722d0d558b70afcc6c89bba04c4432ff1e296901d83cc25415689',
+    lOwnerStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with DF[IndexFile]^ do' + #13#10 +
+    '    gDoCount := (RecZahl > 2) and (Maske[2].Art and 15 = A_Int16);', lOwnerStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[IndexFile]^;' + #13#10 +
+    '  gDoCount := (lWithDatFilePtr^.RecZahl > 2) and (lWithDatFilePtr^.Maske[2].Art and 15 = A_Int16);', lOwnerStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.Temps)));
+  Assert.AreEqual('DF[IndexFile]^', lOwnerStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lOwnerStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lOwnerStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
+  Assert.AreEqual('e5c1e66893b6a8682c295dc6b8183b4614c9e179c0abf0f893b6248618e5ffd1',
+    lOwnerStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
+  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
+  Assert.AreEqual('1189:1-1189:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithDatFilePtr: ^DatFile;' + #13#10 +
+    '  lWithDatFilePtr1: ^DatFile;' + #13#10 +
+    '  lWithDatFilePtr2: ^DatFile;' + #13#10, lOwnerStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
+  Assert.AreEqual('1232:1-1233:66', SourceRangeText(lOwnerStatement.Edits[1].Range));
+  Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('e5c1e66893b6a8682c295dc6b8183b4614c9e179c0abf0f893b6248618e5ffd1',
+    lOwnerStatement.SemanticId);
+  Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[IndexFile]^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('e5c1e66893b6a8682c295dc6b8183b4614c9e179c0abf0f893b6248618e5ffd1',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
+  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
+  lDeclarationCount := 0;
+  for i := 0 to High(lPlan.FinalStatements) do
+    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
+      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
+        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
+        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
+        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
+        Inc(lDeclarationCount);
+  Assert.AreEqual(1, lDeclarationCount);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsScanFieldMaskSkipReason;
@@ -9120,19 +9944,69 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsKeywordIndexFileSkip;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsKeywordIndexFileCapture;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 2717, 3, lStatement),
-    'Expected maxTdb strfuncs DF[g_Index_File]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 2717, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('get_keyword', lStatement.RoutineName);
+  Assert.AreEqual('2717:3-2722:6', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('2717:3-2722:6', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('f30b4af544f722d0d558b70afcc6c89bba04c4432ff1e296901d83cc25415689',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with DF[g_Index_File]^ do' + #13#10 +
+    '  begin' + #13#10 +
+    '    DateiZeiger := findauto(g_Index_File, a_no);' + #13#10 +
+    '    ReadDat(g_Index_File);' + #13#10 +
+    '    GetField(FromRec, g_Index_File, 1, res, t_a);' + #13#10 +
+    '  end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[g_Index_File]^;' + #13#10 +
+    '  begin' + #13#10 +
+    '    lWithDatFilePtr^.DateiZeiger := findauto(g_Index_File, a_no);' + #13#10 +
+    '    ReadDat(g_Index_File);' + #13#10 +
+    '    GetField(FromRec, g_Index_File, 1, res, t_a);' + #13#10 +
+    '  end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[g_Index_File]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[g_Index_File]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('be70c839bb0ee51a87cb317f186ef8a74a557f4e68cfbc98367a81d418118ec0',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('2716:1-2716:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('2717:1-2722:6', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('be70c839bb0ee51a87cb317f186ef8a74a557f4e68cfbc98367a81d418118ec0',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[g_Index_File]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[g_Index_File]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('be70c839bb0ee51a87cb317f186ef8a74a557f4e68cfbc98367a81d418118ec0',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsArrayVarPointerTemp;
@@ -9182,31 +10056,105 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 107, 3, lStatement),
-    'Expected maxTdb indexUtils DoGetFileSize DF[D]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(107, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(108, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(38, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  ReadNBytes(DF[D]^.f^, 0, 4, DF[D]^.FileSize, 0);',
-    lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 107, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('DoGetFileSize', lStatement.RoutineName);
+  Assert.AreEqual('107:3-108:38', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('107:3-108:38', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[D]^ DO' + #13#10 +
+    '    ReadNBytes(f^, 0, 4, FileSize, 0);', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+    '  ReadNBytes(lWithDatFilePtr^.f^, 0, 4, lWithDatFilePtr^.FileSize, 0);', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('d6cf9cff438dcddca65a7b42326d3502a473a6f83e8c5bc61b8f714b94eaf9a3',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('106:1-106:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('107:1-108:38', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('d6cf9cff438dcddca65a7b42326d3502a473a6f83e8c5bc61b8f714b94eaf9a3',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[D]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('d6cf9cff438dcddca65a7b42326d3502a473a6f83e8c5bc61b8f714b94eaf9a3',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 113, 3, lStatement),
-    'Expected maxTdb indexUtils DoPutFileSize DF[D]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(113, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(114, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(39, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  WriteNBytes(DF[D]^.f^, 0, 4, DF[D]^.FileSize, 0);',
-    lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 113, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('DoPutFileSize', lStatement.RoutineName);
+  Assert.AreEqual('113:3-114:39', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('113:3-114:39', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[D]^ DO' + #13#10 +
+    '    WriteNBytes(f^, 0, 4, FileSize, 0);', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+    '  WriteNBytes(lWithDatFilePtr^.f^, 0, 4, lWithDatFilePtr^.FileSize, 0);', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('e93d9b8eb4c733b7397bc57986db617e429133ae03d6734562fa9a372316935b',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('112:1-112:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('113:1-114:39', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('e93d9b8eb4c733b7397bc57986db617e429133ae03d6734562fa9a372316935b',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[D]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('e93d9b8eb4c733b7397bc57986db617e429133ae03d6734562fa9a372316935b',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsNewIndSkipReason;
@@ -9224,17 +10172,71 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsNewIndNestedSkipReason;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsNewIndNestedCapture;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 208, 5, lStatement),
-    'Expected maxTdb indexUtils NewInd IndFiles[INr]^ with statement.');
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 208, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('NewInd', lStatement.RoutineName);
+  Assert.AreEqual('208:5-212:8', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('208:5-212:8', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH IndFiles[INr]^ DO' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '      IndexName := F_Name(STR255(FN))^;' + #13#10 +
+    '       IndexName:= str255(IndexName) + str255(ext);' + #13#10 +
+    '    END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('    lWithIndexFilePtr := @D.IndFiles[INr]^;' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '      lWithIndexFilePtr^.IndexName := F_Name(STR255(FN))^;' + #13#10 +
+    '       lWithIndexFilePtr^.IndexName:= str255(lWithIndexFilePtr^.IndexName) + str255(ext);' + #13#10 +
+    '    END;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('IndFiles[INr]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('IndexFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithIndexFilePtr := @D.IndFiles[INr]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('6588e6d93af765b70dae6975a2ea298160b9433300aa5512683f31dcc980a782',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('194:1-194:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithIndexFilePtr: ^IndexFile;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('208:1-212:8', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('6588e6d93af765b70dae6975a2ea298160b9433300aa5512683f31dcc980a782',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('IndFiles[INr]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithIndexFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('IndexFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithIndexFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithIndexFilePtr := @D.IndFiles[INr]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('6588e6d93af765b70dae6975a2ea298160b9433300aa5512683f31dcc980a782',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 195, 3, lStatement));
   Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
@@ -9256,135 +10258,516 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsIvOkayReplacement;
 var
+  i: Integer;
+  lCoveredFinal: TDelphiSemanticRemoveWithFinalStatement;
+  lCoveredStatement: TDelphiSemanticRemoveWithStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 255, 3, lStatement),
-    'Expected maxTdb indexUtils IV_okay DF[D]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 255, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('IV_okay', lStatement.RoutineName);
+  Assert.AreEqual('255:3-277:5', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('255:3-277:5', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[D]^ DO' + #13#10 +
+    '  BEGIN' + #13#10 +
+    '    Sum := 0;' + #13#10 +
+    '    IV_okay := FALSE;' + #13#10 +
+    '    FOR I := 1 TO cMaxIndex DO' + #13#10 +
+    '      WITH IV[I] DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        IF (Feld <> 0) AND (IV_Art = A_BLOB) AND (Maske[Feld AND $7FFF].l >= 10)' + #13#10 +
+    '        THEN' + #13#10 +
+    '          IV_Art := A_STRING;' + #13#10 +
+    '        IF Feld = 0 THEN' + #13#10 +
+    '          GOTO Fertig' + #13#10 +
+    '        ELSE' + #13#10 +
+    '          IF (Feld <> $FFFF) AND (IV_Art <> 16 OR A_AUTO) AND' + #13#10 +
+    '          ((Feld AND $7FFF > RecZahl) OR (Maske[Feld AND $7FFF].Art AND 15 <> IV_Art))' + #13#10 +
+    '        THEN' + #13#10 +
+    '          EXIT' + #13#10 +
+    '        ELSE' + #13#10 +
+    '          INC(Sum, Anzahl);' + #13#10 +
+    '      END;' + #13#10 +
+    '  Fertig:' + #13#10 +
+    '    IV_okay := (Sum > 0) AND (Sum <= 256)' + #13#10 +
+    '  END', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+    '  BEGIN' + #13#10 +
+    '    Sum := 0;' + #13#10 +
+    '    IV_okay := FALSE;' + #13#10 +
+    '    FOR I := 1 TO cMaxIndex DO' + #13#10 +
+    '      begin' + #13#10 +
+    '        lWithIndexVektorItemPtr := @IV[I];' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '        IF (lWithIndexVektorItemPtr^.Feld <> 0) AND (lWithIndexVektorItemPtr^.IV_Art = A_BLOB) AND (lWithDatFilePtr^.Maske[lWithIndexVektorItemPtr^.Feld AND $7FFF].l >= 10)' + #13#10 +
+    '        THEN' + #13#10 +
+    '          lWithIndexVektorItemPtr^.IV_Art := A_STRING;' + #13#10 +
+    '        IF lWithIndexVektorItemPtr^.Feld = 0 THEN' + #13#10 +
+    '          GOTO Fertig' + #13#10 +
+    '        ELSE' + #13#10 +
+    '          IF (lWithIndexVektorItemPtr^.Feld <> $FFFF) AND (lWithIndexVektorItemPtr^.IV_Art <> 16 OR A_AUTO) AND' + #13#10 +
+    '          ((lWithIndexVektorItemPtr^.Feld AND $7FFF > lWithDatFilePtr^.RecZahl) OR (lWithDatFilePtr^.Maske[lWithIndexVektorItemPtr^.Feld AND $7FFF].Art AND 15 <> lWithIndexVektorItemPtr^.IV_Art))' + #13#10 +
+    '        THEN' + #13#10 +
+    '          EXIT' + #13#10 +
+    '        ELSE' + #13#10 +
+    '          INC(Sum, lWithIndexVektorItemPtr^.Anzahl);' + #13#10 +
+    '      END;' + #13#10 +
+    '      end;' + #13#10 +
+    '  Fertig:' + #13#10 +
+    '    IV_okay := (Sum > 0) AND (Sum <= 256)' + #13#10 +
+    '  END', lStatement.ReplacementText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];',
-    lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('d0b15ec466820517605979f8ef799314978e0ada29e1da889ae3e9fdb9addb99',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('IV[I]', lStatement.Temps[1].SelectorText);
+  Assert.AreEqual('lWithIndexVektorItemPtr^', lStatement.Temps[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
+  Assert.AreEqual('TIndexVektorItem', lStatement.Temps[1].ReceiverType);
+  Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.Temps[1].TempName);
+  Assert.AreEqual('lWithIndexVektorItemPtr: ^TIndexVektorItem;', lStatement.Temps[1].DeclarationText);
+  Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
+  Assert.AreEqual('327e657338c7fd35b28325927529a5056af9d5dea44e1b1fd01378788b919b17',
+    lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('  lWithIndexVektorItemPtr: ^TIndexVektorItem;' + sLineBreak,
-    lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual(252, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(252, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual(255, lStatement.Edits[1].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
-  Assert.AreEqual(278, lStatement.Edits[1].Range.EndLine);
-  Assert.AreEqual(1, lStatement.Edits[1].Range.EndColumn);
-  Assert.AreEqual('  BEGIN' + sLineBreak +
-    '    Sum := 0;' + sLineBreak +
-    '    IV_okay := FALSE;' + sLineBreak +
-    '    FOR I := 1 TO cMaxIndex DO' + sLineBreak +
-    '      begin' + sLineBreak +
-    '        lWithIndexVektorItemPtr := @IV[I];' + sLineBreak +
-    '        BEGIN' + sLineBreak +
-    '        IF (lWithIndexVektorItemPtr^.Feld <> 0) AND (lWithIndexVektorItemPtr^.IV_Art = A_BLOB) AND (DF[D]^.Maske[lWithIndexVektorItemPtr^.Feld AND $7FFF].l >= 10)' + sLineBreak +
-    '        THEN' + sLineBreak +
-    '          lWithIndexVektorItemPtr^.IV_Art := A_STRING;' + sLineBreak +
-    '        IF lWithIndexVektorItemPtr^.Feld = 0 THEN' + sLineBreak +
-    '          GOTO Fertig' + sLineBreak +
-    '        ELSE' + sLineBreak +
-    '          IF (lWithIndexVektorItemPtr^.Feld <> $FFFF) AND (lWithIndexVektorItemPtr^.IV_Art <> 16 OR A_AUTO) AND' + sLineBreak +
-    '          ((lWithIndexVektorItemPtr^.Feld AND $7FFF > DF[D]^.RecZahl) OR (DF[D]^.Maske[lWithIndexVektorItemPtr^.Feld AND $7FFF].Art AND 15 <> lWithIndexVektorItemPtr^.IV_Art))' + sLineBreak +
-    '        THEN' + sLineBreak +
-    '          EXIT' + sLineBreak +
-    '        ELSE' + sLineBreak +
-    '          INC(Sum, lWithIndexVektorItemPtr^.Anzahl);' + sLineBreak +
-    '      END;' + sLineBreak +
-    '      end;' + sLineBreak +
-    '  Fertig:' + sLineBreak +
-    '    IV_okay := (Sum > 0) AND (Sum <= 256)' + sLineBreak +
-    '  END' + sLineBreak, lStatement.ReplacementText);
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('252:1-252:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithDatFilePtr: ^DatFile;' + #13#10 +
+    '  lWithIndexVektorItemPtr: ^TIndexVektorItem;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('255:1-277:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('d0b15ec466820517605979f8ef799314978e0ada29e1da889ae3e9fdb9addb99',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[D]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('d0b15ec466820517605979f8ef799314978e0ada29e1da889ae3e9fdb9addb99',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
+  Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 260, 7, lCoveredFinal));
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '327e657338c7fd35b28325927529a5056af9d5dea44e1b1fd01378788b919b17',
+    lCoveredStatement));
+  Assert.AreEqual('with-66', lCoveredStatement.StatementId);
+  Assert.AreEqual('327e657338c7fd35b28325927529a5056af9d5dea44e1b1fd01378788b919b17',
+    lCoveredStatement.SemanticId);
+  Assert.AreEqual('planned', lCoveredStatement.Status);
+  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
+  Assert.AreEqual('', lCoveredStatement.SafetyReason);
+  Assert.AreEqual('with-65', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('260:7-274:10', SourceRangeText(lCoveredStatement.Range));
+  Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
+  for i := 0 to High(lPlan.SkippedStatements) do
+    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsRemoveIndexSkip;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsRemoveIndexCapture;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 298, 3, lStatement),
-    'Expected maxTdb indexUtils RemoveIndex DF[D]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 298, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('RemoveIndex', lStatement.RoutineName);
+  Assert.AreEqual('298:3-305:5', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('298:3-305:5', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[D]^ Do' + #13#10 +
+    '  BEGIN' + #13#10 +
+    '    FreeMem(IndFiles[Nr], SizeOf(IndexFile));' + #13#10 +
+    '    FOR I := Nr TO indiziert - 1 DO' + #13#10 +
+    '      IndFiles[I] := IndFiles[I + 1];' + #13#10 +
+    '    IndFiles[indiziert] := NIL;' + #13#10 +
+    '    DEC(indiziert);' + #13#10 +
+    '  END', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+    '  BEGIN' + #13#10 +
+    '    FreeMem(lWithDatFilePtr^.IndFiles[Nr], SizeOf(IndexFile));' + #13#10 +
+    '    FOR I := Nr TO lWithDatFilePtr^.indiziert - 1 DO' + #13#10 +
+    '      lWithDatFilePtr^.IndFiles[I] := lWithDatFilePtr^.IndFiles[I + 1];' + #13#10 +
+    '    lWithDatFilePtr^.IndFiles[lWithDatFilePtr^.indiziert] := NIL;' + #13#10 +
+    '    DEC(lWithDatFilePtr^.indiziert);' + #13#10 +
+    '  END', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('268139f3370d559be162abbd2c108a111d981063709f65536e67eda9ab0f0a2b',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('297:1-297:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('298:1-305:5', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('268139f3370d559be162abbd2c108a111d981063709f65536e67eda9ab0f0a2b',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[D]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('268139f3370d559be162abbd2c108a111d981063709f65536e67eda9ab0f0a2b',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsOpenIndexNestedIvQualification;
 var
+  i: Integer;
+  j: Integer;
+  lDeclarationCount: Integer;
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 365, 11, lStatement),
-    'Expected maxTdb indexUtils Oeffne_Index IV[I] with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(365, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(367, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(33, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('          begin' + sLineBreak +
-    '            IF (IV[I].IV_Art = A_BLOB) AND (IV[I].Anzahl > 10) THEN' + sLineBreak +
-    '              IV[I].IV_Art := A_STRING;' + sLineBreak +
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 365, 11, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('Oeffne_Index', lStatement.RoutineName);
+  Assert.AreEqual('365:11-367:33', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('365:11-367:33', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH IV[I] DO' + #13#10 +
+    '            IF (IV_Art = A_BLOB) AND (Anzahl > 10) THEN' + #13#10 +
+    '              IV_Art := A_STRING;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('          begin' + #13#10 +
+    '            lWithIndexVektorItemPtr := @IV[I];' + #13#10 +
+    '            IF (lWithIndexVektorItemPtr^.IV_Art = A_BLOB) AND (lWithIndexVektorItemPtr^.Anzahl > 10) THEN' + #13#10 +
+    '              lWithIndexVektorItemPtr^.IV_Art := A_STRING;' + #13#10 +
     '          end;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('IV[I]', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithIndexVektorItemPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('TIndexVektorItem', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithIndexVektorItemPtr: ^TIndexVektorItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('60249f4e18d3f2306a267d447363008e64240588d29444819a63734336d83183',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('315:1-315:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithIndexVektorItemPtr: ^TIndexVektorItem;' + #13#10 +
+    '  lWithIndexVektorItemPtr1: ^TIndexVektorItem;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('365:1-367:33', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('60249f4e18d3f2306a267d447363008e64240588d29444819a63734336d83183',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('IV[I]', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithIndexVektorItemPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TIndexVektorItem', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithIndexVektorItemPtr: ^TIndexVektorItem;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('60249f4e18d3f2306a267d447363008e64240588d29444819a63734336d83183',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 368, 9, lStatement),
-    'Expected maxTdb indexUtils Oeffne_Index IV[cMaxIndex] with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  lOwnerStatement := lStatement;
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 368, 9, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('Oeffne_Index', lStatement.RoutineName);
+  Assert.AreEqual('368:9-369:73', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('368:9-369:73', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH IV[cMaxIndex] DO' + #13#10 +
+    '          MustBeUnique := (Feld = 0) AND (Anzahl = 0) AND (IV_Art = $FF);', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('        lWithIndexVektorItemPtr1 := @IV[cMaxIndex];' + #13#10 +
+    '  MustBeUnique := (lWithIndexVektorItemPtr1^.Feld = 0) AND (lWithIndexVektorItemPtr1^.Anzahl = 0) AND (lWithIndexVektorItemPtr1^.IV_Art = $FF);', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('IV[cMaxIndex]', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithIndexVektorItemPtr1^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('TIndexVektorItem', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithIndexVektorItemPtr1', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithIndexVektorItemPtr1: ^TIndexVektorItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithIndexVektorItemPtr1 := @IV[cMaxIndex];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('a46353ad35634cb6b7a9e3f0c389a37a69bb7eff9709e622fc7b528f9840b1c4',
+    lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(368, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(369, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(73, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('        IndFiles[IR]^.MustBeUnique := (IV[cMaxIndex].Feld = 0) AND (IV[cMaxIndex].Anzahl = 0) AND (IV[cMaxIndex].IV_Art = $FF);',
-    lStatement.ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual('368:1-369:73', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('a46353ad35634cb6b7a9e3f0c389a37a69bb7eff9709e622fc7b528f9840b1c4',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('IV[cMaxIndex]', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithIndexVektorItemPtr1^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TIndexVektorItem', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithIndexVektorItemPtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithIndexVektorItemPtr1: ^TIndexVektorItem;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithIndexVektorItemPtr1 := @IV[cMaxIndex];',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('a46353ad35634cb6b7a9e3f0c389a37a69bb7eff9709e622fc7b528f9840b1c4',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
+  Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
+  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
+  lDeclarationCount := 0;
+  for i := 0 to High(lPlan.FinalStatements) do
+    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
+      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
+        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
+        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
+        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
+        Inc(lDeclarationCount);
+  Assert.AreEqual(1, lDeclarationCount);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 316, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsAddNewTempIndexReplacement;
 var
+  i: Integer;
+  j: Integer;
+  lDeclarationCount: Integer;
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 422, 7, lStatement),
-    'Expected maxTdb indexUtils Erzeuge_Index IndFiles[indiziert + 1]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(422, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(432, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(10, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('      BEGIN' + sLineBreak +
-    '        I := 1;' + sLineBreak +
-    '        IndFiles[indiziert + 1]^.IV := t_IV;' + sLineBreak +
-    '        IndFiles[indiziert + 1]^.MustBeUnique := FALSE;' + sLineBreak +
-    '        FOR j := 1 TO DF[D]^.indiziert DO' + sLineBreak +
-    '          IF TempInd(DF[D]^.IndFiles[j]^.IndexName) THEN' + sLineBreak +
-    '            INC(I);' + sLineBreak +
-    '        IF DF[D]^.V_Base = 0 THEN' + sLineBreak +
-    '          IndFiles[indiziert + 1]^.IndexName[length(IndFiles[indiziert + 1]^.IndexName)] := ansiChar(48 + I);' + sLineBreak +
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 422, 7, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('IndexNummer', lStatement.RoutineName);
+  Assert.AreEqual('422:7-432:10', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('422:7-432:10', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH IndFiles[indiziert + 1]^ DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        I := 1;' + #13#10 +
+    '        IV := t_IV;' + #13#10 +
+    '        MustBeUnique := FALSE;' + #13#10 +
+    '        FOR j := 1 TO indiziert DO' + #13#10 +
+    '          IF TempInd(IndFiles[j]^.IndexName) THEN' + #13#10 +
+    '            INC(I);' + #13#10 +
+    '        IF V_Base = 0 THEN' + #13#10 +
+    '          IndexName[length(IndexName)] := ansiChar(48 + I);' + #13#10 +
+    '      END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        I := 1;' + #13#10 +
+    '        lWithIndexFilePtr1^.IV := t_IV;' + #13#10 +
+    '        lWithIndexFilePtr1^.MustBeUnique := FALSE;' + #13#10 +
+    '        FOR j := 1 TO indiziert DO' + #13#10 +
+    '          IF TempInd(IndFiles[j]^.IndexName) THEN' + #13#10 +
+    '            INC(I);' + #13#10 +
+    '        IF V_Base = 0 THEN' + #13#10 +
+    '          lWithIndexFilePtr1^.IndexName[length(lWithIndexFilePtr1^.IndexName)] := ansiChar(48 + I);' + #13#10 +
     '      END;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('IndFiles[indiziert + 1]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithIndexFilePtr1^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('IndexFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithIndexFilePtr1', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithIndexFilePtr1: ^IndexFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;',
+    lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('d2e3edde032d4e85a275132862d7aba8b5a2e4f306f83cb66e3d09c13989efb4',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual('422:1-432:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('d2e3edde032d4e85a275132862d7aba8b5a2e4f306f83cb66e3d09c13989efb4',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('IndFiles[indiziert + 1]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithIndexFilePtr1^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('IndexFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithIndexFilePtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithIndexFilePtr1: ^IndexFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('d2e3edde032d4e85a275132862d7aba8b5a2e4f306f83cb66e3d09c13989efb4',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 388, 7, lOwnerStatement));
+  Assert.AreEqual('planned', lOwnerStatement.Status);
+  Assert.AreEqual('', lOwnerStatement.Reason);
+  Assert.AreEqual('', lOwnerStatement.SafetyReason);
+  Assert.AreEqual('IndexNummer', lOwnerStatement.RoutineName);
+  Assert.AreEqual('388:7-410:12', SourceRangeText(lOwnerStatement.Range));
+  Assert.AreEqual('388:7-410:12', SourceRangeText(lOwnerStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lOwnerStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH IndFiles[I]^ DO' + #13#10 +
+    '        IF CheckIndexOpen(D, I, TRUE) THEN' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          j := 1;' + #13#10 +
+    '          REPEAT' + #13#10 +
+    '            IF (t_IV[j].Feld = 0) AND (NOT exakt OR (IV[j].Feld = 0))' + #13#10 +
+    '            THEN' + #13#10 +
+    '            BEGIN' + #13#10 +
+    '              IndexNummer := I;' + #13#10 +
+    '              EXIT' + #13#10 +
+    '            END; { Index passt }' + #13#10 +
+    '            IF (t_IV[j].Feld = IV[j].Feld) AND' + #13#10 +
+    '              (t_IV[j].Anzahl = IV[j].Anzahl)' + #13#10 +
+    '            THEN' + #13#10 +
+    '              INC(j)' + #13#10 +
+    '            ELSE' + #13#10 +
+    '              j := 0;' + #13#10 +
+    '            IF (j = 2) AND (IV[1].Feld = $FFFF) AND NOT GleicheFormel(D, IV[3], t_IV[3])' + #13#10 +
+    '            { (StrCmp(IV[3],t_IV[3])<>0) }' + #13#10 +
+    '            THEN' + #13#10 +
+    '              j := 0;' + #13#10 +
+    '          UNTIL j = 0;' + #13#10 +
+    '        END;', lOwnerStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      begin' + #13#10 +
+    '        lWithIndexFilePtr := @IndFiles[I]^;' + #13#10 +
+    '        IF CheckIndexOpen(D, I, TRUE) THEN' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          j := 1;' + #13#10 +
+    '          REPEAT' + #13#10 +
+    '            IF (t_IV[j].Feld = 0) AND (NOT exakt OR (lWithIndexFilePtr^.IV[j].Feld = 0))' + #13#10 +
+    '            THEN' + #13#10 +
+    '            BEGIN' + #13#10 +
+    '              IndexNummer := I;' + #13#10 +
+    '              EXIT' + #13#10 +
+    '            END; { Index passt }' + #13#10 +
+    '            IF (t_IV[j].Feld = lWithIndexFilePtr^.IV[j].Feld) AND' + #13#10 +
+    '              (t_IV[j].Anzahl = lWithIndexFilePtr^.IV[j].Anzahl)' + #13#10 +
+    '            THEN' + #13#10 +
+    '              INC(j)' + #13#10 +
+    '            ELSE' + #13#10 +
+    '              j := 0;' + #13#10 +
+    '            IF (j = 2) AND (lWithIndexFilePtr^.IV[1].Feld = $FFFF) AND NOT GleicheFormel(D, lWithIndexFilePtr^.IV[3], t_IV[3])' + #13#10 +
+    '            { (StrCmp(IV[3],t_IV[3])<>0) }' + #13#10 +
+    '            THEN' + #13#10 +
+    '              j := 0;' + #13#10 +
+    '          UNTIL j = 0;' + #13#10 +
+    '        END;' + #13#10 +
+    '      end;', lOwnerStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.Temps)));
+  Assert.AreEqual('IndFiles[I]^', lOwnerStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithIndexFilePtr^', lOwnerStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[0].Strategy);
+  Assert.AreEqual('IndexFile', lOwnerStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithIndexFilePtr', lOwnerStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lOwnerStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithIndexFilePtr := @IndFiles[I]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
+  Assert.AreEqual('4bb9ae5472cece5f7883f141f8ac333803563a35a94fc5f14a6068d8f45d43d4',
+    lOwnerStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
+  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
+  Assert.AreEqual('383:1-383:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithIndexFilePtr: ^IndexFile;' + #13#10 +
+    '  lWithIndexFilePtr1: ^IndexFile;' + #13#10, lOwnerStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
+  Assert.AreEqual('388:1-410:12', SourceRangeText(lOwnerStatement.Edits[1].Range));
+  Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('4bb9ae5472cece5f7883f141f8ac333803563a35a94fc5f14a6068d8f45d43d4',
+    lOwnerStatement.SemanticId);
+  Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('IndFiles[I]^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithIndexFilePtr^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('IndexFile', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithIndexFilePtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithIndexFilePtr := @IndFiles[I]^;',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('4bb9ae5472cece5f7883f141f8ac333803563a35a94fc5f14a6068d8f45d43d4',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
+  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
+  lDeclarationCount := 0;
+  for i := 0 to High(lPlan.FinalStatements) do
+    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
+      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
+        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
+        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
+        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
+        Inc(lDeclarationCount);
+  Assert.AreEqual(1, lDeclarationCount);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 385, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsGenIndexSkip;
@@ -9404,38 +10787,147 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsGetTreeParamReplacement;
 var
+  i: Integer;
+  lCoveredFinal: TDelphiSemanticRemoveWithFinalStatement;
+  lCoveredStatement: TDelphiSemanticRemoveWithStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 679, 3, lStatement),
-    'Expected maxTdb indexUtils GetTreeParam DF[D]^, IndFiles[I]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(679, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(697, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(19, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  IF CheckIndexOpen(D, I, FALSE) THEN' + sLineBreak +
-    '    BEGIN' + sLineBreak +
-    '            BEGIN' + sLineBreak +
-    '        Str(DF[D]^.IndFiles[I]^.IndFile^.pagesize, tmp);' + sLineBreak +
-    '        Result:= ''page='' + tmp;' + sLineBreak +
-    '        Str(DF[D]^.IndFiles[I]^.IndFile^.MinKeysPerNode, tmp);' + sLineBreak +
-    '        Result := Result + '', n='' + tmp;' + sLineBreak +
-    '        Str(DF[D]^.IndFiles[I]^.IndFile^.Height, tmp);' + sLineBreak +
-    '        Result := Result + '', h='' + tmp;' + sLineBreak +
-    '        Str(DF[D]^.IndFiles[I]^.IndFile^.pages, tmp);' + sLineBreak +
-    '        Result := Result + '', p='' + tmp;' + sLineBreak +
-    '        Str(DF[D]^.IndFiles[I]^.nn, tmp);' + sLineBreak +
-    '        Result := Result + '', nn='' + tmp;' + sLineBreak +
-    '      END' + sLineBreak +
-    '    END' + sLineBreak +
-    '    ELSE' + sLineBreak +
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 679, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('GetTreeParam', lStatement.RoutineName);
+  Assert.AreEqual('679:3-697:19', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('679:3-697:19', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[D]^, IndFiles[I]^ Do' + #13#10 +
+    '    IF CheckIndexOpen(D, I, FALSE) THEN' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '      WITH IndFile^ DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        Str(pagesize, tmp);' + #13#10 +
+    '        Result:= ''page='' + tmp;' + #13#10 +
+    '        Str(MinKeysPerNode, tmp);' + #13#10 +
+    '        Result := Result + '', n='' + tmp;' + #13#10 +
+    '        Str(Height, tmp);' + #13#10 +
+    '        Result := Result + '', h='' + tmp;' + #13#10 +
+    '        Str(pages, tmp);' + #13#10 +
+    '        Result := Result + '', p='' + tmp;' + #13#10 +
+    '        Str(nn, tmp);' + #13#10 +
+    '        Result := Result + '', nn='' + tmp;' + #13#10 +
+    '      END' + #13#10 +
+    '    END' + #13#10 +
+    '    ELSE' + #13#10 +
+    '      Result := '''';', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+    '  lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[I]^;' + #13#10 +
+    '  IF CheckIndexOpen(D, I, FALSE) THEN' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '            lWithBTreePtr := @lWithIndexFilePtr^.IndFile^;' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        Str(lWithBTreePtr^.pagesize, tmp);' + #13#10 +
+    '        Result:= ''page='' + tmp;' + #13#10 +
+    '        Str(lWithBTreePtr^.MinKeysPerNode, tmp);' + #13#10 +
+    '        Result := Result + '', n='' + tmp;' + #13#10 +
+    '        Str(lWithBTreePtr^.Height, tmp);' + #13#10 +
+    '        Result := Result + '', h='' + tmp;' + #13#10 +
+    '        Str(lWithBTreePtr^.pages, tmp);' + #13#10 +
+    '        Result := Result + '', p='' + tmp;' + #13#10 +
+    '        Str(lWithIndexFilePtr^.nn, tmp);' + #13#10 +
+    '        Result := Result + '', nn='' + tmp;' + #13#10 +
+    '      END' + #13#10 +
+    '    END' + #13#10 +
+    '    ELSE' + #13#10 +
     '      Result := '''';', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(3, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('06e046f45a912fcfc4508d358511ab1742d15a2055179e11c77015f548c3e1ac',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('IndFiles[I]^', lStatement.Temps[1].SelectorText);
+  Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
+  Assert.AreEqual('IndexFile', lStatement.Temps[1].ReceiverType);
+  Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[1].TempName);
+  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
+  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[I]^;',
+    lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
+  Assert.AreEqual('06e046f45a912fcfc4508d358511ab1742d15a2055179e11c77015f548c3e1ac',
+    lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('IndFile^', lStatement.Temps[2].SelectorText);
+  Assert.AreEqual('lWithBTreePtr^', lStatement.Temps[2].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[2].Strategy);
+  Assert.AreEqual('TBTree', lStatement.Temps[2].ReceiverType);
+  Assert.AreEqual('lWithBTreePtr', lStatement.Temps[2].TempName);
+  Assert.AreEqual('lWithBTreePtr: ^TBTree;', lStatement.Temps[2].DeclarationText);
+  Assert.AreEqual('lWithBTreePtr := @lWithIndexFilePtr^.IndFile^;', lStatement.Temps[2].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
+  Assert.AreEqual('79e02d2ac74104916b263f5d08a280b9de67f447ad73c3636d348a399f4bc367',
+    lStatement.Temps[2].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('678:1-678:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithDatFilePtr: ^DatFile;' + #13#10 +
+    '  lWithIndexFilePtr: ^IndexFile;' + #13#10 +
+    '  lWithBTreePtr: ^TBTree;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('679:1-697:19', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('06e046f45a912fcfc4508d358511ab1742d15a2055179e11c77015f548c3e1ac',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[D]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('06e046f45a912fcfc4508d358511ab1742d15a2055179e11c77015f548c3e1ac',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual('IndFiles[I]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
+  Assert.AreEqual('lWithIndexFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
+  Assert.AreEqual('IndexFile', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
+  Assert.AreEqual('lWithIndexFilePtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
+  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
+  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[I]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
+  Assert.AreEqual('06e046f45a912fcfc4508d358511ab1742d15a2055179e11c77015f548c3e1ac',
+    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
+
+  Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 682, 7, lCoveredFinal));
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '79e02d2ac74104916b263f5d08a280b9de67f447ad73c3636d348a399f4bc367',
+    lCoveredStatement));
+  Assert.AreEqual('with-77', lCoveredStatement.StatementId);
+  Assert.AreEqual('79e02d2ac74104916b263f5d08a280b9de67f447ad73c3636d348a399f4bc367',
+    lCoveredStatement.SemanticId);
+  Assert.AreEqual('planned', lCoveredStatement.Status);
+  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
+  Assert.AreEqual('', lCoveredStatement.SafetyReason);
+  Assert.AreEqual('with-76', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('682:7-694:9', SourceRangeText(lCoveredStatement.Range));
+  Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
+  for i := 0 to High(lPlan.SkippedStatements) do
+    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsNewTreeUniqueReplacement;
@@ -9445,21 +10937,65 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 755, 7, lStatement),
-    'Expected maxTdb indexUtils Oeffne_Index IV[cMaxIndex] with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(755, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(760, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(10, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('      BEGIN' + sLineBreak +
-    '        IV[cMaxIndex].Feld := 0;' + sLineBreak +
-    '        IV[cMaxIndex].Anzahl := 0;' + sLineBreak +
-    '        IV[cMaxIndex].IV_Art := $FF' + sLineBreak +
-    '      END;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 755, 7, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('Erzeuge_Index', lStatement.RoutineName);
+  Assert.AreEqual('755:7-760:10', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('755:7-760:10', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH IV[cMaxIndex] DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        Feld := 0;' + #13#10 +
+    '        Anzahl := 0;' + #13#10 +
+    '        IV_Art := $FF' + #13#10 +
+    '      END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      begin' + #13#10 +
+    '        lWithIndexVektorItemPtr := @IV[cMaxIndex];' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '        lWithIndexVektorItemPtr^.Feld := 0;' + #13#10 +
+    '        lWithIndexVektorItemPtr^.Anzahl := 0;' + #13#10 +
+    '        lWithIndexVektorItemPtr^.IV_Art := $FF' + #13#10 +
+    '      END;' + #13#10 +
+    '      end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('IV[cMaxIndex]', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithIndexVektorItemPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('TIndexVektorItem', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithIndexVektorItemPtr: ^TIndexVektorItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithIndexVektorItemPtr := @IV[cMaxIndex];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('c4805868cc7cdcb473234d0bfaa54db769a32f23b585b74bebe7ee7eb2429b41',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('737:1-737:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithIndexVektorItemPtr: ^TIndexVektorItem;' + #13#10,
+    lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('755:1-760:10', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('c4805868cc7cdcb473234d0bfaa54db769a32f23b585b74bebe7ee7eb2429b41',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('IV[cMaxIndex]', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithIndexVektorItemPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TIndexVektorItem', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithIndexVektorItemPtr: ^TIndexVektorItem;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithIndexVektorItemPtr := @IV[cMaxIndex];',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('c4805868cc7cdcb473234d0bfaa54db769a32f23b585b74bebe7ee7eb2429b41',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsEqualIndexPointerTemp;
@@ -9730,41 +11266,243 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsPufferLeerenSkip;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsPufferLeerenCaptures;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1203, 5, lStatement),
-    'Expected maxTdb indexUtils PufferLeeren DF[D]^, IndFiles[Nr]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1203, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('PufferLeeren', lStatement.RoutineName);
+  Assert.AreEqual('1203:5-1214:7', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('1203:5-1214:7', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[D]^, IndFiles[Nr]^ DO' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '      WHILE ImPuffer > 0 DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        Pop(Ind, IndSize);' + #13#10 +
+    '        einfuegen;' + #13#10 +
+    '        {$IFDEF NET} SendFiles {$ENDIF};' + #13#10 +
+    '        DEC(ImPuffer);' + #13#10 +
+    '        IF ErrorFlag THEN' + #13#10 +
+    '          EXIT' + #13#10 +
+    '      END { WHILE }' + #13#10 +
+    '    END', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('    lWithDatFilePtr := @DF[D]^;' + #13#10 +
+    '    lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '      WHILE ImPuffer > 0 DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        Pop(lWithDatFilePtr^.Ind, lWithIndexFilePtr^.IndSize);' + #13#10 +
+    '        einfuegen;' + #13#10 +
+    '        {$IFDEF NET} SendFiles {$ENDIF};' + #13#10 +
+    '        DEC(ImPuffer);' + #13#10 +
+    '        IF ErrorFlag THEN' + #13#10 +
+    '          EXIT' + #13#10 +
+    '      END { WHILE }' + #13#10 +
+    '    END', lStatement.ReplacementText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('80665b5b58bed7d3d1f626021f22fbf69027c9dd8e8f9d3c5ebcc1c759302ccc',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('IndFiles[Nr]^', lStatement.Temps[1].SelectorText);
+  Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
+  Assert.AreEqual('IndexFile', lStatement.Temps[1].ReceiverType);
+  Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[1].TempName);
+  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
+  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;',
+    lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
+  Assert.AreEqual('80665b5b58bed7d3d1f626021f22fbf69027c9dd8e8f9d3c5ebcc1c759302ccc',
+    lStatement.Temps[1].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('1202:1-1202:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithDatFilePtr: ^DatFile;' + #13#10 +
+    '  lWithIndexFilePtr: ^IndexFile;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('1203:1-1214:7', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('80665b5b58bed7d3d1f626021f22fbf69027c9dd8e8f9d3c5ebcc1c759302ccc',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[D]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('80665b5b58bed7d3d1f626021f22fbf69027c9dd8e8f9d3c5ebcc1c759302ccc',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual('IndFiles[Nr]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
+  Assert.AreEqual('lWithIndexFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
+  Assert.AreEqual('IndexFile', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
+  Assert.AreEqual('lWithIndexFilePtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
+  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
+  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
+  Assert.AreEqual('80665b5b58bed7d3d1f626021f22fbf69027c9dd8e8f9d3c5ebcc1c759302ccc',
+    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsIndFormelSkipCluster;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsIndFormelCapturedParentAndChild;
 var
+  i: Integer;
+  lCoveredFinal: TDelphiSemanticRemoveWithFinalStatement;
+  lCoveredStatement: TDelphiSemanticRemoveWithStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1420, 3, lStatement),
-    'Expected maxTdb indexUtils IndFormel DF[D]^, IndFiles[ID]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1420, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('IndFormel', lStatement.RoutineName);
+  Assert.AreEqual('1420:3-1433:7', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('1420:3-1433:7', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[D]^, IndFiles[ID]^ DO' + #13#10 +
+    '    IF CheckIndexOpen(D, ID, TRUE) THEN' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '      WITH IV[1] DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        IF IV_Art = A_STRING THEN' + #13#10 +
+    '          temp := TI0.Schluessel' + #13#10 +
+    '        ELSE' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          move(TI0.Schluessel, r, SizeOf(r));' + #13#10 +
+    '          Str(VeryOldReal(r): 1: 4, temp)' + #13#10 +
+    '        END;' + #13#10 +
+    '      END' + #13#10 +
+    '    END', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+    '  lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[ID]^;' + #13#10 +
+    '  IF CheckIndexOpen(D, ID, TRUE) THEN' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '            lWithIndexVektorItemPtr := @lWithIndexFilePtr^.IV[1];' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        IF lWithIndexVektorItemPtr^.IV_Art = A_STRING THEN' + #13#10 +
+    '          temp := TI0.Schluessel' + #13#10 +
+    '        ELSE' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          move(TI0.Schluessel, r, SizeOf(r));' + #13#10 +
+    '          Str(VeryOldReal(r): 1: 4, temp)' + #13#10 +
+    '        END;' + #13#10 +
+    '      END' + #13#10 +
+    '    END', lStatement.ReplacementText);
+  Assert.AreEqual(3, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('87fc2fd44dae26b6ebe09db93da0380c79954bc34a8d3d57e31d620deb047ece',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('IndFiles[ID]^', lStatement.Temps[1].SelectorText);
+  Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
+  Assert.AreEqual('IndexFile', lStatement.Temps[1].ReceiverType);
+  Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[1].TempName);
+  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
+  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[ID]^;',
+    lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
+  Assert.AreEqual('87fc2fd44dae26b6ebe09db93da0380c79954bc34a8d3d57e31d620deb047ece',
+    lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('IV[1]', lStatement.Temps[2].SelectorText);
+  Assert.AreEqual('lWithIndexVektorItemPtr^', lStatement.Temps[2].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[2].Strategy);
+  Assert.AreEqual('TIndexVektorItem', lStatement.Temps[2].ReceiverType);
+  Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.Temps[2].TempName);
+  Assert.AreEqual('lWithIndexVektorItemPtr: ^TIndexVektorItem;', lStatement.Temps[2].DeclarationText);
+  Assert.AreEqual('lWithIndexVektorItemPtr := @lWithIndexFilePtr^.IV[1];',
+    lStatement.Temps[2].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
+  Assert.AreEqual('c65c41109ff7af3ff98a69c93de3606852203b16f864f2f682acb3f78201393f',
+    lStatement.Temps[2].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('1419:1-1419:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithDatFilePtr: ^DatFile;' + #13#10 +
+    '  lWithIndexFilePtr: ^IndexFile;' + #13#10 +
+    '  lWithIndexVektorItemPtr: ^TIndexVektorItem;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('1420:1-1433:7', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('87fc2fd44dae26b6ebe09db93da0380c79954bc34a8d3d57e31d620deb047ece',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[D]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('87fc2fd44dae26b6ebe09db93da0380c79954bc34a8d3d57e31d620deb047ece',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual('IndFiles[ID]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
+  Assert.AreEqual('lWithIndexFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
+  Assert.AreEqual('IndexFile', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
+  Assert.AreEqual('lWithIndexFilePtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
+  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
+  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[ID]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
+  Assert.AreEqual('87fc2fd44dae26b6ebe09db93da0380c79954bc34a8d3d57e31d620deb047ece',
+    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1423, 7, lStatement),
-    'Expected maxTdb indexUtils IndFormel IV[1] with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1423, 7, lCoveredFinal));
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'c65c41109ff7af3ff98a69c93de3606852203b16f864f2f682acb3f78201393f',
+    lCoveredStatement));
+  Assert.AreEqual('with-108', lCoveredStatement.StatementId);
+  Assert.AreEqual('c65c41109ff7af3ff98a69c93de3606852203b16f864f2f682acb3f78201393f',
+    lCoveredStatement.SemanticId);
+  Assert.AreEqual('planned', lCoveredStatement.Status);
+  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
+  Assert.AreEqual('', lCoveredStatement.SafetyReason);
+  Assert.AreEqual('with-107', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('1423:7-1432:9', SourceRangeText(lCoveredStatement.Range));
+  Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
+  for i := 0 to High(lPlan.SkippedStatements) do
+    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsCountRecsIvReplacement;
@@ -9774,25 +11512,71 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1698, 7, lStatement),
-    'Expected maxTdb indexUtils CountRecs IV[I] with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(1698, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(1707, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(10, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('      BEGIN' + sLineBreak +
-    '        IF IV[I].Feld AND $7FFF = Nr THEN' + sLineBreak +
-    '          GOTO Weiter' + sLineBreak +
-    '        ELSE' + sLineBreak +
-    '          IF IV[I].Feld = 0 THEN' + sLineBreak +
-    '          EXIT' + sLineBreak +
-    '        ELSE' + sLineBreak +
-    '          INC(Sum, IV[I].Anzahl);' + sLineBreak +
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1698, 7, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('GetFromIndex', lStatement.RoutineName);
+  Assert.AreEqual('1698:7-1707:10', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('1698:7-1707:10', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH IV[I] DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        IF Feld AND $7FFF = Nr THEN' + #13#10 +
+    '          GOTO Weiter' + #13#10 +
+    '        ELSE' + #13#10 +
+    '          IF Feld = 0 THEN' + #13#10 +
+    '          EXIT' + #13#10 +
+    '        ELSE' + #13#10 +
+    '          INC(Sum, Anzahl);' + #13#10 +
+    '      END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      lWithIndexVektorItemPtr := @IV[I];' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        IF lWithIndexVektorItemPtr^.Feld AND $7FFF = Nr THEN' + #13#10 +
+    '          GOTO Weiter' + #13#10 +
+    '        ELSE' + #13#10 +
+    '          IF lWithIndexVektorItemPtr^.Feld = 0 THEN' + #13#10 +
+    '          EXIT' + #13#10 +
+    '        ELSE' + #13#10 +
+    '          INC(Sum, lWithIndexVektorItemPtr^.Anzahl);' + #13#10 +
     '      END;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('IV[I]', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithIndexVektorItemPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('TIndexVektorItem', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithIndexVektorItemPtr: ^TIndexVektorItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('925e567411a84b7c2891a338b69a7cda8a2fb5432e751d554d1b78214ac987c4',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('1676:1-1676:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithIndexVektorItemPtr: ^TIndexVektorItem;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('1698:1-1707:10', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('925e567411a84b7c2891a338b69a7cda8a2fb5432e751d554d1b78214ac987c4',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('IV[I]', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithIndexVektorItemPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TIndexVektorItem', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithIndexVektorItemPtr: ^TIndexVektorItem;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('925e567411a84b7c2891a338b69a7cda8a2fb5432e751d554d1b78214ac987c4',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsPushPopFileReplacementRanges;
@@ -9802,45 +11586,137 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 2061, 3, lStatement),
-    'Expected maxTdb indexUtils PushFile DF[D]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(2061, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(2071, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  BEGIN' + sLineBreak +
-    '    Push(DF[D]^.DateiZeiger, SizeOf(DF[D]^.DateiZeiger));' + sLineBreak +
-    '    Push(DF[D]^.Dat^, DF[D]^.SatzGroesse);' + sLineBreak +
-    '    Push(DF[D]^.Zugriff, SizeOf(DF[D]^.Zugriff));' + sLineBreak +
-    '    Push(DF[D]^.AktIndex, SizeOf(DF[D]^.AktIndex));' + sLineBreak +
-    '    Push(DF[D]^.LinkIndex, SizeOf(DF[D]^.LinkIndex));' + sLineBreak +
-    '    Push(DF[D]^.LinkFile, SizeOf(DF[D]^.LinkFile));' + sLineBreak +
-    '    Push(DF[D]^.Ind, SizeOf(DF[D]^.Ind));' + sLineBreak +
-    '  END' + sLineBreak, lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 2061, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('PushFile', lStatement.RoutineName);
+  Assert.AreEqual('2061:3-2070:5', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('2061:3-2070:5', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[D]^ DO' + #13#10 +
+    '  BEGIN' + #13#10 +
+    '    Push(DateiZeiger, SizeOf(DateiZeiger));' + #13#10 +
+    '    Push(Dat^, SatzGroesse);' + #13#10 +
+    '    Push(Zugriff, SizeOf(Zugriff));' + #13#10 +
+    '    Push(AktIndex, SizeOf(AktIndex));' + #13#10 +
+    '    Push(LinkIndex, SizeOf(LinkIndex));' + #13#10 +
+    '    Push(LinkFile, SizeOf(LinkFile));' + #13#10 +
+    '    Push(Ind, SizeOf(Ind));' + #13#10 +
+    '  END', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+    '  BEGIN' + #13#10 +
+    '    Push(lWithDatFilePtr^.DateiZeiger, SizeOf(lWithDatFilePtr^.DateiZeiger));' + #13#10 +
+    '    Push(lWithDatFilePtr^.Dat^, lWithDatFilePtr^.SatzGroesse);' + #13#10 +
+    '    Push(lWithDatFilePtr^.Zugriff, SizeOf(lWithDatFilePtr^.Zugriff));' + #13#10 +
+    '    Push(lWithDatFilePtr^.AktIndex, SizeOf(lWithDatFilePtr^.AktIndex));' + #13#10 +
+    '    Push(lWithDatFilePtr^.LinkIndex, SizeOf(lWithDatFilePtr^.LinkIndex));' + #13#10 +
+    '    Push(lWithDatFilePtr^.LinkFile, SizeOf(lWithDatFilePtr^.LinkFile));' + #13#10 +
+    '    Push(lWithDatFilePtr^.Ind, SizeOf(lWithDatFilePtr^.Ind));' + #13#10 +
+    '  END', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('76bd56a2c55c8103fb7411e45350906ce4fbb450a18e6069955715dc44f900c0',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('2058:1-2058:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('2061:1-2070:5', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('76bd56a2c55c8103fb7411e45350906ce4fbb450a18e6069955715dc44f900c0',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[D]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('76bd56a2c55c8103fb7411e45350906ce4fbb450a18e6069955715dc44f900c0',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 2077, 3, lStatement),
-    'Expected maxTdb indexUtils PopFile DF[D]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(2077, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(2087, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  BEGIN' + sLineBreak +
-    '    Pop(DF[D]^.Ind, SizeOf(DF[D]^.Ind));' + sLineBreak +
-    '    Pop(DF[D]^.LinkFile, SizeOf(DF[D]^.LinkFile));' + sLineBreak +
-    '    Pop(DF[D]^.LinkIndex, SizeOf(DF[D]^.LinkIndex));' + sLineBreak +
-    '    Pop(DF[D]^.AktIndex, SizeOf(DF[D]^.AktIndex));' + sLineBreak +
-    '    Pop(DF[D]^.Zugriff, SizeOf(DF[D]^.Zugriff));' + sLineBreak +
-    '    Pop(DF[D]^.Dat^, DF[D]^.SatzGroesse);' + sLineBreak +
-    '    Pop(DF[D]^.DateiZeiger, SizeOf(DF[D]^.DateiZeiger));' + sLineBreak +
-    '  END' + sLineBreak, lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 2077, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('PopFile', lStatement.RoutineName);
+  Assert.AreEqual('2077:3-2086:5', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('2077:3-2086:5', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH DF[D]^ DO' + #13#10 +
+    '  BEGIN' + #13#10 +
+    '    Pop(Ind, SizeOf(Ind));' + #13#10 +
+    '    Pop(LinkFile, SizeOf(LinkFile));' + #13#10 +
+    '    Pop(LinkIndex, SizeOf(LinkIndex));' + #13#10 +
+    '    Pop(AktIndex, SizeOf(AktIndex));' + #13#10 +
+    '    Pop(Zugriff, SizeOf(Zugriff));' + #13#10 +
+    '    Pop(Dat^, SatzGroesse);' + #13#10 +
+    '    Pop(DateiZeiger, SizeOf(DateiZeiger));' + #13#10 +
+    '  END', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+    '  BEGIN' + #13#10 +
+    '    Pop(lWithDatFilePtr^.Ind, SizeOf(lWithDatFilePtr^.Ind));' + #13#10 +
+    '    Pop(lWithDatFilePtr^.LinkFile, SizeOf(lWithDatFilePtr^.LinkFile));' + #13#10 +
+    '    Pop(lWithDatFilePtr^.LinkIndex, SizeOf(lWithDatFilePtr^.LinkIndex));' + #13#10 +
+    '    Pop(lWithDatFilePtr^.AktIndex, SizeOf(lWithDatFilePtr^.AktIndex));' + #13#10 +
+    '    Pop(lWithDatFilePtr^.Zugriff, SizeOf(lWithDatFilePtr^.Zugriff));' + #13#10 +
+    '    Pop(lWithDatFilePtr^.Dat^, lWithDatFilePtr^.SatzGroesse);' + #13#10 +
+    '    Pop(lWithDatFilePtr^.DateiZeiger, SizeOf(lWithDatFilePtr^.DateiZeiger));' + #13#10 +
+    '  END', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('b38fdf8192103be34814ecfcb896976e26d017fc4e0d0ecf68496e354ebb46c1',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('2074:1-2074:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('2077:1-2086:5', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('b38fdf8192103be34814ecfcb896976e26d017fc4e0d0ecf68496e354ebb46c1',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('DF[D]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('b38fdf8192103be34814ecfcb896976e26d017fc4e0d0ecf68496e354ebb46c1',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01InitCacheReplacementRange;
@@ -11292,60 +13168,183 @@ begin
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01LiesSekLocalInitPointerTemps;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01NextRecInitPointerCaptures;
 var
+  i, j: Integer;
+  lDeclarationCount: Integer;
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 986, 5, lStatement),
-    'Expected maxTdb tdb01 LiesSek init RelRec, w[i] with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 986, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('init', lStatement.RoutineName);
+  Assert.AreEqual('986:5-991:10', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('986:5-991:10', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('29f244ab68fb92522262b36bb725dc627d9a7142071d7f4a0e1207c75659b118',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with RelRec, w[i] do' + #13#10 +
+    '      if ReadDat(lf) <> 0 then' + #13#10 +
+    '      begin' + #13#10 +
+    '        init := False;' + #13#10 +
+    '        exit' + #13#10 +
+    '      end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('    lWithRelRecPtr := @RelRec;' + #13#10 +
+    '    lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];' + #13#10 +
+    '  if ReadDat(lWithRelRecSubRecPtr^.lf) <> 0 then' + #13#10 +
+    '      begin' + #13#10 +
+    '        init := False;' + #13#10 +
+    '        exit' + #13#10 +
+    '      end;', lStatement.ReplacementText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('RelRec', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithRelRecPtr^', lStatement.Temps[0].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('4a6c58cbbb48cfb15999e2e4ab06a2345bef46612660307ea7472b89eba4590b',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('w[i]', lStatement.Temps[1].SelectorText);
+  Assert.AreEqual('lWithRelRecSubRecPtr^', lStatement.Temps[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
+  Assert.AreEqual('TRelRecSubRec', lStatement.Temps[1].ReceiverType);
+  Assert.AreEqual('lWithRelRecSubRecPtr', lStatement.Temps[1].TempName);
+  Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;', lStatement.Temps[1].DeclarationText);
+  Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
+  Assert.AreEqual('4a6c58cbbb48cfb15999e2e4ab06a2345bef46612660307ea7472b89eba4590b',
+    lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
-  Assert.AreEqual(985, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual('var' + sLineBreak +
-    '  lWithRelRecPtr: ^TRelRec;' + sLineBreak +
-    '  lWithRelRecSubRecPtr: ^TRelRecSubRec;' + sLineBreak,
-    lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('985:1-985:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithRelRecPtr: ^TRelRec;' + #13#10 +
+    '  lWithRelRecSubRecPtr: ^TRelRecSubRec;' + #13#10 +
+    '  lWithRelRecSubRecPtr1: ^TRelRecSubRec;' + #13#10, lStatement.Edits[0].ReplacementText);
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
-  Assert.AreEqual(986, lStatement.Edits[1].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
-  Assert.AreEqual(991, lStatement.Edits[1].Range.EndLine);
-  Assert.AreEqual(10, lStatement.Edits[1].Range.EndColumn);
-  Assert.AreEqual('    lWithRelRecPtr := @RelRec;' + sLineBreak +
-    '    if ReadDat(lWithRelRecPtr^.w[i].lf) <> 0 then' + sLineBreak +
-    '      begin' + sLineBreak +
-    '        init := False;' + sLineBreak +
-    '        exit' + sLineBreak +
-    '      end;', lStatement.ReplacementText);
+  Assert.AreEqual('986:1-991:10', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('4a6c58cbbb48cfb15999e2e4ab06a2345bef46612660307ea7472b89eba4590b',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('RelRec', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithRelRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TRelRec', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithRelRecPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithRelRecPtr: ^TRelRec;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithRelRecPtr := @RelRec;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('4a6c58cbbb48cfb15999e2e4ab06a2345bef46612660307ea7472b89eba4590b',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual('w[i]', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
+  Assert.AreEqual('lWithRelRecSubRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
+  Assert.AreEqual('TRelRecSubRec', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
+  Assert.AreEqual('lWithRelRecSubRecPtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
+  Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
+  Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];',
+    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
+  Assert.AreEqual('4a6c58cbbb48cfb15999e2e4ab06a2345bef46612660307ea7472b89eba4590b',
+    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 994, 7, lStatement),
-    'Expected maxTdb tdb01 LiesSek init RelRec.w[i] with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  lOwnerStatement := lStatement;
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 994, 7, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('init', lStatement.RoutineName);
+  Assert.AreEqual('994:7-1004:10', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('994:7-1004:10', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('29f244ab68fb92522262b36bb725dc627d9a7142071d7f4a0e1207c75659b118',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with RelRec.w[i] do' + #13#10 +
+    '      begin' + #13#10 +
+    '        hh := ReadLinkRec(lf) or ((i > 1) and InSet(Leaving, i));' + #13#10 +
+    '        if hh then' + #13#10 +
+    '          Inc(i)' + #13#10 +
+    '        else' + #13#10 +
+    '        begin' + #13#10 +
+    '          init := False;' + #13#10 +
+    '          exit' + #13#10 +
+    '        end;' + #13#10 +
+    '      end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      begin' + #13#10 +
+    '        lWithRelRecSubRecPtr1 := @RelRec.w[i];' + #13#10 +
+    '        begin' + #13#10 +
+    '        lWithRelRecSubRecPtr1^.hh := ReadLinkRec(lWithRelRecSubRecPtr1^.lf) or ((i > 1) and InSet(Leaving, i));' + #13#10 +
+    '        if lWithRelRecSubRecPtr1^.hh then' + #13#10 +
+    '          Inc(i)' + #13#10 +
+    '        else' + #13#10 +
+    '        begin' + #13#10 +
+    '          init := False;' + #13#10 +
+    '          exit' + #13#10 +
+    '        end;' + #13#10 +
+    '      end;' + #13#10 +
+    '      end;', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('RelRec.w[i]', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithRelRecSubRecPtr1^', lStatement.Temps[0].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('TRelRecSubRec', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithRelRecSubRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithRelRecSubRecPtr1', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithRelRecSubRecPtr1: ^TRelRecSubRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithRelRecSubRecPtr1 := @RelRec.w[i];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('ae54b8125a78af23f889200e26a9f4d1f24e75c85bca0d8332c3eb739999f20d',
+    lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(994, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(1004, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(10, lStatement.Edits[0].Range.EndColumn);
-  Assert.IsTrue(Pos('        lWithRelRecSubRecPtr := @RelRec.w[i];',
+  Assert.AreEqual('994:1-1004:10', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('ae54b8125a78af23f889200e26a9f4d1f24e75c85bca0d8332c3eb739999f20d',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('RelRec.w[i]', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithRelRecSubRecPtr1^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TRelRecSubRec', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithRelRecSubRecPtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithRelRecSubRecPtr1: ^TRelRecSubRec;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithRelRecSubRecPtr1 := @RelRec.w[i];',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('ae54b8125a78af23f889200e26a9f4d1f24e75c85bca0d8332c3eb739999f20d',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
+  Assert.IsTrue(Pos('        lWithRelRecSubRecPtr1 := @RelRec.w[i];',
     lStatement.ReplacementText) > 0);
-  Assert.IsTrue(Pos('        lWithRelRecSubRecPtr^.hh := ReadLinkRec(lWithRelRecSubRecPtr^.lf)',
+  Assert.IsTrue(Pos('        lWithRelRecSubRecPtr1^.hh := ReadLinkRec(lWithRelRecSubRecPtr1^.lf)',
     lStatement.ReplacementText) > 0);
   Assert.IsTrue(Pos('          Inc(i)', lStatement.ReplacementText) > 0);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
+  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
+  lDeclarationCount := 0;
+  for i := 0 to High(lPlan.FinalStatements) do
+    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
+      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
+        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
+        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
+        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
+        Inc(lDeclarationCount);
+  Assert.AreEqual(1, lDeclarationCount);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01LiesSekNextRecSkipReasons;
@@ -13934,151 +15933,705 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb06MaskeNormalizationReplacement;
 var
+  i, j: Integer;
+  lDeclarationCount: Integer;
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 156, 7, lStatement),
-    'Expected maxTdb TDB06 Maske[i]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 156, 7, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
+  Assert.AreEqual('156:7-173:10', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('156:7-173:10', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('a956b217f3513f14baed028661f837d6c9fb3dd10cf85e5dae4e7cfed42d514f',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH Maske[i]^ DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        CASE Art AND 15 OF' + #13#10 +
+    '          A_LONG:' + #13#10 +
+    '            IF sl <> 0 THEN' + #13#10 +
+    '              sl := sl AND 15;' + #13#10 +
+    '          A_REL:' + #13#10 +
+    '            IF sl = 0 THEN' + #13#10 +
+    '            BEGIN' + #13#10 +
+    '              l := 0;' + #13#10 +
+    '              IF DoExport THEN' + #13#10 +
+    '                Art := 0' + #13#10 +
+    '            END;' + #13#10 +
+    '          A_AUTO:' + #13#10 +
+    '            IF sl <> 0 THEN' + #13#10 +
+    '              A_Nr := i;' + #13#10 +
+    '        END;' + #13#10 +
+    '      END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      begin' + #13#10 +
+    '        lWithMaskEntryPtr := @Maske[i]^;' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '        CASE lWithMaskEntryPtr^.Art AND 15 OF' + #13#10 +
+    '          A_LONG:' + #13#10 +
+    '            IF lWithMaskEntryPtr^.sl <> 0 THEN' + #13#10 +
+    '              lWithMaskEntryPtr^.sl := lWithMaskEntryPtr^.sl AND 15;' + #13#10 +
+    '          A_REL:' + #13#10 +
+    '            IF lWithMaskEntryPtr^.sl = 0 THEN' + #13#10 +
+    '            BEGIN' + #13#10 +
+    '              lWithMaskEntryPtr^.l := 0;' + #13#10 +
+    '              IF DoExport THEN' + #13#10 +
+    '                lWithMaskEntryPtr^.Art := 0' + #13#10 +
+    '            END;' + #13#10 +
+    '          A_AUTO:' + #13#10 +
+    '            IF lWithMaskEntryPtr^.sl <> 0 THEN' + #13#10 +
+    '              A_Nr := i;' + #13#10 +
+    '        END;' + #13#10 +
+    '      END;' + #13#10 +
+    '      end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('Maske[i]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithMaskEntryPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('TMaskEntry', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithMaskEntryPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('4c6aa5d5567ca37d393e855be6aef02a3aafc9f92409a500732e9e757ad1e8af',
+    lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
-  Assert.AreEqual(118, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(118, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  lWithDatFilePtr: ^DatFile;' + sLineBreak, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('118:1-118:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithMaskEntryPtr: ^TMaskEntry;' + #13#10 +
+    '  lWithSelRecPtr: ^SelRec;' + #13#10 +
+    '  lWithSelektorPtr: ^Selektor;' + #13#10 +
+    '  lWithForRecPtr: ^ForRec;' + #13#10 +
+    '  lWithFormelPtr: ^Formel;' + #13#10 +
+    '  lWithBereichsRecPtr: ^BereichsRec;' + #13#10 +
+    '  lWithBereichPtr: ^Bereich;' + #13#10 +
+    '  lWithMaskEntryPtr1: ^TMaskEntry;' + #13#10 +
+    '  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
-  Assert.AreEqual(156, lStatement.Edits[1].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
-  Assert.AreEqual(173, lStatement.Edits[1].Range.EndLine);
-  Assert.AreEqual(10, lStatement.Edits[1].Range.EndColumn);
-  Assert.AreEqual('      BEGIN' + #10 +
-    '        CASE Maske[i]^.Art AND 15 OF' + #10 +
-    '          A_LONG:' + #10 +
-    '            IF Maske[i]^.sl <> 0 THEN' + #10 +
-    '              Maske[i]^.sl := Maske[i]^.sl AND 15;' + #10 +
-    '          A_REL:' + #10 +
-    '            IF Maske[i]^.sl = 0 THEN' + #10 +
-    '            BEGIN' + #10 +
-    '              Maske[i]^.l := 0;' + #10 +
-    '              IF DoExport THEN' + #10 +
-    '                Maske[i]^.Art := 0' + #10 +
-    '            END;' + #10 +
-    '          A_AUTO:' + #10 +
-    '            IF Maske[i]^.sl <> 0 THEN' + #10 +
-    '              D.A_Nr := i;' + #10 +
-    '        END;' + #10 +
-    '      END;', lStatement.ReplacementText);
+  Assert.AreEqual('156:1-173:10', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('4c6aa5d5567ca37d393e855be6aef02a3aafc9f92409a500732e9e757ad1e8af',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('Maske[i]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithMaskEntryPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TMaskEntry', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithMaskEntryPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('4c6aa5d5567ca37d393e855be6aef02a3aafc9f92409a500732e9e757ad1e8af',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
+  lOwnerStatement := lStatement;
+
+  lDeclarationCount := 0;
+  for i := 0 to High(lPlan.FinalStatements) do
+    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
+      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
+        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
+        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
+        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
+        Inc(lDeclarationCount);
+  Assert.AreEqual(1, lDeclarationCount);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 136, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb06ExportListReplacements;
 var
+  i, j: Integer;
+  lDeclarationCount: Integer;
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 185, 7, lStatement),
-    'Expected maxTdb TDB06 export SelList with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 185, 7, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
+  Assert.AreEqual('185:7-190:10', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('185:7-190:10', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('a956b217f3513f14baed028661f837d6c9fb3dd10cf85e5dae4e7cfed42d514f',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH p^, Sel DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        IF WriteFailed(M_Az * SizeOf(SelektString), Menu^) THEN' + #13#10 +
+    '          GOTO EXCEPTION;' + #13#10 +
+    '        p := p^.n;' + #13#10 +
+    '      END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      begin' + #13#10 +
+    '        lWithSelRecPtr := @p^;' + #13#10 +
+    '        lWithSelektorPtr := @lWithSelRecPtr^.Sel;' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '        IF WriteFailed(lWithSelektorPtr^.M_Az * SizeOf(SelektString), lWithSelektorPtr^.Menu^) THEN' + #13#10 +
+    '          GOTO EXCEPTION;' + #13#10 +
+    '        p := p^.n;' + #13#10 +
+    '      END;' + #13#10 +
+    '      end;', lStatement.ReplacementText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('p^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithSelRecPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('SelRec', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithSelRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithSelRecPtr: ^SelRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithSelRecPtr := @p^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('b2e06e54c6f331378ef0c6ac6f6d56ac8a0674d9bb58ed2064a1686877336318',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('Sel', lStatement.Temps[1].SelectorText);
+  Assert.AreEqual('lWithSelektorPtr^', lStatement.Temps[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
+  Assert.AreEqual('Selektor', lStatement.Temps[1].ReceiverType);
+  Assert.AreEqual('lWithSelektorPtr', lStatement.Temps[1].TempName);
+  Assert.AreEqual('lWithSelektorPtr: ^Selektor;', lStatement.Temps[1].DeclarationText);
+  Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
+  Assert.AreEqual('b2e06e54c6f331378ef0c6ac6f6d56ac8a0674d9bb58ed2064a1686877336318',
+    lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(185, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(190, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(10, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('      BEGIN' + #10 +
-    '        IF WriteFailed(p^.Sel.M_Az * SizeOf(SelektString), p^.Sel.Menu^) THEN' + #10 +
-    '          GOTO EXCEPTION;' + #10 +
-    '        p := p^.n;' + #10 +
-    '      END;', lStatement.ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual('185:1-190:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('b2e06e54c6f331378ef0c6ac6f6d56ac8a0674d9bb58ed2064a1686877336318',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('p^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithSelRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('SelRec', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithSelRecPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithSelRecPtr: ^SelRec;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithSelRecPtr := @p^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('b2e06e54c6f331378ef0c6ac6f6d56ac8a0674d9bb58ed2064a1686877336318',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual('Sel', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
+  Assert.AreEqual('lWithSelektorPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
+  Assert.AreEqual('Selektor', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
+  Assert.AreEqual('lWithSelektorPtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
+  Assert.AreEqual('lWithSelektorPtr: ^Selektor;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
+  Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
+  Assert.AreEqual('b2e06e54c6f331378ef0c6ac6f6d56ac8a0674d9bb58ed2064a1686877336318',
+    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 193, 7, lStatement),
-    'Expected maxTdb TDB06 export FormList with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 193, 7, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
+  Assert.AreEqual('193:7-198:10', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('193:7-198:10', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('a956b217f3513f14baed028661f837d6c9fb3dd10cf85e5dae4e7cfed42d514f',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH q^, Form DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        IF WriteFailed(SizeOf(Fml), Fml) THEN' + #13#10 +
+    '          GOTO EXCEPTION;' + #13#10 +
+    '        q := q^.n' + #13#10 +
+    '      END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      begin' + #13#10 +
+    '        lWithForRecPtr := @q^;' + #13#10 +
+    '        lWithFormelPtr := @lWithForRecPtr^.Form;' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '        IF WriteFailed(SizeOf(lWithFormelPtr^.Fml), lWithFormelPtr^.Fml) THEN' + #13#10 +
+    '          GOTO EXCEPTION;' + #13#10 +
+    '        q := q^.n' + #13#10 +
+    '      END;' + #13#10 +
+    '      end;', lStatement.ReplacementText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('q^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithForRecPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('ForRec', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithForRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithForRecPtr: ^ForRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithForRecPtr := @q^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('ad2bb7ce5ab98de4c8c044e4aeb0ca7c1cf526cd50889ef1eac0398fa29a2e8d',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('Form', lStatement.Temps[1].SelectorText);
+  Assert.AreEqual('lWithFormelPtr^', lStatement.Temps[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
+  Assert.AreEqual('Formel', lStatement.Temps[1].ReceiverType);
+  Assert.AreEqual('lWithFormelPtr', lStatement.Temps[1].TempName);
+  Assert.AreEqual('lWithFormelPtr: ^Formel;', lStatement.Temps[1].DeclarationText);
+  Assert.AreEqual('lWithFormelPtr := @lWithForRecPtr^.Form;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
+  Assert.AreEqual('ad2bb7ce5ab98de4c8c044e4aeb0ca7c1cf526cd50889ef1eac0398fa29a2e8d',
+    lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(193, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(198, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(10, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('      BEGIN' + #10 +
-    '        IF WriteFailed(SizeOf(q^.Form.Fml), q^.Form.Fml) THEN' + #10 +
-    '          GOTO EXCEPTION;' + #10 +
-    '        q := q^.n' + #10 +
-    '      END;', lStatement.ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual('193:1-198:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('ad2bb7ce5ab98de4c8c044e4aeb0ca7c1cf526cd50889ef1eac0398fa29a2e8d',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('q^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithForRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('ForRec', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithForRecPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithForRecPtr: ^ForRec;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithForRecPtr := @q^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('ad2bb7ce5ab98de4c8c044e4aeb0ca7c1cf526cd50889ef1eac0398fa29a2e8d',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual('Form', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
+  Assert.AreEqual('lWithFormelPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
+  Assert.AreEqual('Formel', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
+  Assert.AreEqual('lWithFormelPtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
+  Assert.AreEqual('lWithFormelPtr: ^Formel;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
+  Assert.AreEqual('lWithFormelPtr := @lWithForRecPtr^.Form;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
+  Assert.AreEqual('ad2bb7ce5ab98de4c8c044e4aeb0ca7c1cf526cd50889ef1eac0398fa29a2e8d',
+    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 201, 7, lStatement),
-    'Expected maxTdb TDB06 export BerList with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 201, 7, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
+  Assert.AreEqual('201:7-206:10', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('201:7-206:10', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('a956b217f3513f14baed028661f837d6c9fb3dd10cf85e5dae4e7cfed42d514f',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH r^, B DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        IF WriteFailed(2 * SizeOf(REAL), B_von) THEN' + #13#10 +
+    '          GOTO EXCEPTION;' + #13#10 +
+    '        r := r^.n' + #13#10 +
+    '      END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      begin' + #13#10 +
+    '        lWithBereichsRecPtr := @r^;' + #13#10 +
+    '        lWithBereichPtr := @lWithBereichsRecPtr^.B;' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '        IF WriteFailed(2 * SizeOf(REAL), lWithBereichPtr^.B_von) THEN' + #13#10 +
+    '          GOTO EXCEPTION;' + #13#10 +
+    '        r := r^.n' + #13#10 +
+    '      END;' + #13#10 +
+    '      end;', lStatement.ReplacementText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('r^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithBereichsRecPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('BereichsRec', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithBereichsRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithBereichsRecPtr: ^BereichsRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithBereichsRecPtr := @r^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('411f50a75bbc4963efafa9f6e8d5a3c8cebe582f6edf7b20dc78c20bffb194cf',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('B', lStatement.Temps[1].SelectorText);
+  Assert.AreEqual('lWithBereichPtr^', lStatement.Temps[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
+  Assert.AreEqual('Bereich', lStatement.Temps[1].ReceiverType);
+  Assert.AreEqual('lWithBereichPtr', lStatement.Temps[1].TempName);
+  Assert.AreEqual('lWithBereichPtr: ^Bereich;', lStatement.Temps[1].DeclarationText);
+  Assert.AreEqual('lWithBereichPtr := @lWithBereichsRecPtr^.B;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
+  Assert.AreEqual('411f50a75bbc4963efafa9f6e8d5a3c8cebe582f6edf7b20dc78c20bffb194cf',
+    lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(201, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(206, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(10, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('      BEGIN' + #10 +
-    '        IF WriteFailed(2 * SizeOf(REAL), r^.B.B_von) THEN' + #10 +
-    '          GOTO EXCEPTION;' + #10 +
-    '        r := r^.n' + #10 +
-    '      END;', lStatement.ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual('201:1-206:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('411f50a75bbc4963efafa9f6e8d5a3c8cebe582f6edf7b20dc78c20bffb194cf',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('r^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithBereichsRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('BereichsRec', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithBereichsRecPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithBereichsRecPtr: ^BereichsRec;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithBereichsRecPtr := @r^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('411f50a75bbc4963efafa9f6e8d5a3c8cebe582f6edf7b20dc78c20bffb194cf',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual('B', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
+  Assert.AreEqual('lWithBereichPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
+  Assert.AreEqual('Bereich', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
+  Assert.AreEqual('lWithBereichPtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
+  Assert.AreEqual('lWithBereichPtr: ^Bereich;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
+  Assert.AreEqual('lWithBereichPtr := @lWithBereichsRecPtr^.B;',
+    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
+  Assert.AreEqual('411f50a75bbc4963efafa9f6e8d5a3c8cebe582f6edf7b20dc78c20bffb194cf',
+    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 156, 7, lOwnerStatement));
+  Assert.AreEqual('planned', lOwnerStatement.Status);
+  Assert.AreEqual('', lOwnerStatement.Reason);
+  Assert.AreEqual('', lOwnerStatement.SafetyReason);
+  Assert.AreEqual('NeueDatei', lOwnerStatement.RoutineName);
+  Assert.AreEqual('156:7-173:10', SourceRangeText(lOwnerStatement.Range));
+  Assert.AreEqual('156:7-173:10', SourceRangeText(lOwnerStatement.Verification.Range));
+  Assert.AreEqual('a956b217f3513f14baed028661f837d6c9fb3dd10cf85e5dae4e7cfed42d514f',
+    lOwnerStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH Maske[i]^ DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        CASE Art AND 15 OF' + #13#10 +
+    '          A_LONG:' + #13#10 +
+    '            IF sl <> 0 THEN' + #13#10 +
+    '              sl := sl AND 15;' + #13#10 +
+    '          A_REL:' + #13#10 +
+    '            IF sl = 0 THEN' + #13#10 +
+    '            BEGIN' + #13#10 +
+    '              l := 0;' + #13#10 +
+    '              IF DoExport THEN' + #13#10 +
+    '                Art := 0' + #13#10 +
+    '            END;' + #13#10 +
+    '          A_AUTO:' + #13#10 +
+    '            IF sl <> 0 THEN' + #13#10 +
+    '              A_Nr := i;' + #13#10 +
+    '        END;' + #13#10 +
+    '      END;', lOwnerStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      begin' + #13#10 +
+    '        lWithMaskEntryPtr := @Maske[i]^;' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '        CASE lWithMaskEntryPtr^.Art AND 15 OF' + #13#10 +
+    '          A_LONG:' + #13#10 +
+    '            IF lWithMaskEntryPtr^.sl <> 0 THEN' + #13#10 +
+    '              lWithMaskEntryPtr^.sl := lWithMaskEntryPtr^.sl AND 15;' + #13#10 +
+    '          A_REL:' + #13#10 +
+    '            IF lWithMaskEntryPtr^.sl = 0 THEN' + #13#10 +
+    '            BEGIN' + #13#10 +
+    '              lWithMaskEntryPtr^.l := 0;' + #13#10 +
+    '              IF DoExport THEN' + #13#10 +
+    '                lWithMaskEntryPtr^.Art := 0' + #13#10 +
+    '            END;' + #13#10 +
+    '          A_AUTO:' + #13#10 +
+    '            IF lWithMaskEntryPtr^.sl <> 0 THEN' + #13#10 +
+    '              A_Nr := i;' + #13#10 +
+    '        END;' + #13#10 +
+    '      END;' + #13#10 +
+    '      end;', lOwnerStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.Temps)));
+  Assert.AreEqual('Maske[i]^', lOwnerStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithMaskEntryPtr^', lOwnerStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[0].Strategy);
+  Assert.AreEqual('TMaskEntry', lOwnerStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithMaskEntryPtr', lOwnerStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lOwnerStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
+  Assert.AreEqual('4c6aa5d5567ca37d393e855be6aef02a3aafc9f92409a500732e9e757ad1e8af',
+    lOwnerStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
+  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
+  Assert.AreEqual('118:1-118:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithMaskEntryPtr: ^TMaskEntry;' + #13#10 +
+    '  lWithSelRecPtr: ^SelRec;' + #13#10 +
+    '  lWithSelektorPtr: ^Selektor;' + #13#10 +
+    '  lWithForRecPtr: ^ForRec;' + #13#10 +
+    '  lWithFormelPtr: ^Formel;' + #13#10 +
+    '  lWithBereichsRecPtr: ^BereichsRec;' + #13#10 +
+    '  lWithBereichPtr: ^Bereich;' + #13#10 +
+    '  lWithMaskEntryPtr1: ^TMaskEntry;' + #13#10 +
+    '  lWithDatFilePtr: ^DatFile;' + #13#10, lOwnerStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
+  Assert.AreEqual('156:1-173:10', SourceRangeText(lOwnerStatement.Edits[1].Range));
+  Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('4c6aa5d5567ca37d393e855be6aef02a3aafc9f92409a500732e9e757ad1e8af',
+    lOwnerStatement.SemanticId);
+  Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('Maske[i]^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithMaskEntryPtr^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TMaskEntry', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithMaskEntryPtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('4c6aa5d5567ca37d393e855be6aef02a3aafc9f92409a500732e9e757ad1e8af',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
+  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
+  lDeclarationCount := 0;
+  for i := 0 to High(lPlan.FinalStatements) do
+    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
+      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
+        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
+        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
+        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
+        Inc(lDeclarationCount);
+  Assert.AreEqual(1, lDeclarationCount);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 136, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb06RelFileAndMaskRestoreReplacements;
 var
+  i, j: Integer;
+  lDeclarationCount: Integer;
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 256, 9, lStatement),
-    'Expected maxTdb TDB06 relation file Maske[i]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(256, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(268, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(6, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('        begin' + sLineBreak +
-    '          IF (Maske[i]^.Art AND 15 = A_REL) AND ((Base = 0) OR NOT IsRel(Base, Maske[i]^.m)) THEN' + #10 +
-    '          BEGIN' + #10 +
-    '            tfn := RelFileName(D.Pfad, Maske[i]^.m);' + #10 +
-    '            IF Base > 0 ' + #10 +
-    '            THEN' + #10 +
-    '              GenRel(DF[Base]^.DBName, GetRelLabel(i)^, tfn, 0)' + #10 +
-    '            ELSE' + #10 +
-    '              GenRel(fn, GetRelLabel(i)^, tfn, 0); ' + #10 +
-    '            IF IO_Error <> 0 THEN' + #10 +
-    '              GOTO EXCEPTION' + #10 +
-    '          END' + #10 +
-    '  END;' + sLineBreak +
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 256, 9, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
+  Assert.AreEqual('256:9-267:13', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('256:9-267:13', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('a956b217f3513f14baed028661f837d6c9fb3dd10cf85e5dae4e7cfed42d514f',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH Maske[i]^ DO' + #13#10 +
+    '          IF (Art AND 15 = A_REL) AND ((Base = 0) OR NOT IsRel(Base, m)) THEN' + #13#10 +
+    '          BEGIN' + #13#10 +
+    '            tfn := RelFileName(Pfad, m);' + #13#10 +
+    '            IF Base > 0 ' + #13#10 +
+    '            THEN' + #13#10 +
+    '              GenRel(DF[Base]^.DBName, GetRelLabel(i)^, tfn, 0)' + #13#10 +
+    '            ELSE' + #13#10 +
+    '              GenRel(fn, GetRelLabel(i)^, tfn, 0); ' + #13#10 +
+    '            IF IO_Error <> 0 THEN' + #13#10 +
+    '              GOTO EXCEPTION' + #13#10 +
+    '          END', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('        begin' + #13#10 +
+    '          lWithMaskEntryPtr1 := @Maske[i]^;' + #13#10 +
+    '          IF (lWithMaskEntryPtr1^.Art AND 15 = A_REL) AND ((Base = 0) OR NOT IsRel(Base, lWithMaskEntryPtr1^.m)) THEN' + #13#10 +
+    '          BEGIN' + #13#10 +
+    '            tfn := RelFileName(Pfad, lWithMaskEntryPtr1^.m);' + #13#10 +
+    '            IF Base > 0 ' + #13#10 +
+    '            THEN' + #13#10 +
+    '              GenRel(DF[Base]^.DBName, GetRelLabel(i)^, tfn, 0)' + #13#10 +
+    '            ELSE' + #13#10 +
+    '              GenRel(fn, GetRelLabel(i)^, tfn, 0); ' + #13#10 +
+    '            IF IO_Error <> 0 THEN' + #13#10 +
+    '              GOTO EXCEPTION' + #13#10 +
+    '          END' + #13#10 +
     '        end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('Maske[i]^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithMaskEntryPtr1^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('TMaskEntry', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithMaskEntryPtr1', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithMaskEntryPtr1: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithMaskEntryPtr1 := @Maske[i]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('575ebc62c088c025596f6b0d22a7e3b2efc17527bfb19ce19d78b83bf7e552a1',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual('256:1-267:13', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('575ebc62c088c025596f6b0d22a7e3b2efc17527bfb19ce19d78b83bf7e552a1',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('Maske[i]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithMaskEntryPtr1^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TMaskEntry', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithMaskEntryPtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithMaskEntryPtr1: ^TMaskEntry;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithMaskEntryPtr1 := @Maske[i]^;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('575ebc62c088c025596f6b0d22a7e3b2efc17527bfb19ce19d78b83bf7e552a1',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 272, 5, lStatement),
-    'Expected maxTdb TDB06 mask restore D with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 272, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
+  Assert.AreEqual('272:5-273:23', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('272:5-273:23', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('a956b217f3513f14baed028661f837d6c9fb3dd10cf85e5dae4e7cfed42d514f',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH D DO' + #13#10 +
+    '      Maske:= MaskSave;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('    lWithDatFilePtr := @D;' + #13#10 +
+    '  lWithDatFilePtr^.Maske:= MaskSave;', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('D', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('f6b50c3686c9e0a4a2222e06ec1a2cda45a768f53e5a19c828266db849623003',
+    lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(272, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(273, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(23, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('    lWithDatFilePtr := @D;' + sLineBreak +
-    '    lWithDatFilePtr^.Maske:= MaskSave;', lStatement.ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual('272:1-273:23', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('f6b50c3686c9e0a4a2222e06ec1a2cda45a768f53e5a19c828266db849623003',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('D', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @D;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('f6b50c3686c9e0a4a2222e06ec1a2cda45a768f53e5a19c828266db849623003',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 156, 7, lOwnerStatement));
+  Assert.AreEqual('planned', lOwnerStatement.Status);
+  Assert.AreEqual('', lOwnerStatement.Reason);
+  Assert.AreEqual('', lOwnerStatement.SafetyReason);
+  Assert.AreEqual('NeueDatei', lOwnerStatement.RoutineName);
+  Assert.AreEqual('156:7-173:10', SourceRangeText(lOwnerStatement.Range));
+  Assert.AreEqual('156:7-173:10', SourceRangeText(lOwnerStatement.Verification.Range));
+  Assert.AreEqual('a956b217f3513f14baed028661f837d6c9fb3dd10cf85e5dae4e7cfed42d514f',
+    lOwnerStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH Maske[i]^ DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        CASE Art AND 15 OF' + #13#10 +
+    '          A_LONG:' + #13#10 +
+    '            IF sl <> 0 THEN' + #13#10 +
+    '              sl := sl AND 15;' + #13#10 +
+    '          A_REL:' + #13#10 +
+    '            IF sl = 0 THEN' + #13#10 +
+    '            BEGIN' + #13#10 +
+    '              l := 0;' + #13#10 +
+    '              IF DoExport THEN' + #13#10 +
+    '                Art := 0' + #13#10 +
+    '            END;' + #13#10 +
+    '          A_AUTO:' + #13#10 +
+    '            IF sl <> 0 THEN' + #13#10 +
+    '              A_Nr := i;' + #13#10 +
+    '        END;' + #13#10 +
+    '      END;', lOwnerStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      begin' + #13#10 +
+    '        lWithMaskEntryPtr := @Maske[i]^;' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '        CASE lWithMaskEntryPtr^.Art AND 15 OF' + #13#10 +
+    '          A_LONG:' + #13#10 +
+    '            IF lWithMaskEntryPtr^.sl <> 0 THEN' + #13#10 +
+    '              lWithMaskEntryPtr^.sl := lWithMaskEntryPtr^.sl AND 15;' + #13#10 +
+    '          A_REL:' + #13#10 +
+    '            IF lWithMaskEntryPtr^.sl = 0 THEN' + #13#10 +
+    '            BEGIN' + #13#10 +
+    '              lWithMaskEntryPtr^.l := 0;' + #13#10 +
+    '              IF DoExport THEN' + #13#10 +
+    '                lWithMaskEntryPtr^.Art := 0' + #13#10 +
+    '            END;' + #13#10 +
+    '          A_AUTO:' + #13#10 +
+    '            IF lWithMaskEntryPtr^.sl <> 0 THEN' + #13#10 +
+    '              A_Nr := i;' + #13#10 +
+    '        END;' + #13#10 +
+    '      END;' + #13#10 +
+    '      end;', lOwnerStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.Temps)));
+  Assert.AreEqual('Maske[i]^', lOwnerStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithMaskEntryPtr^', lOwnerStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[0].Strategy);
+  Assert.AreEqual('TMaskEntry', lOwnerStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithMaskEntryPtr', lOwnerStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lOwnerStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
+  Assert.AreEqual('4c6aa5d5567ca37d393e855be6aef02a3aafc9f92409a500732e9e757ad1e8af',
+    lOwnerStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
+  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
+  Assert.AreEqual('118:1-118:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithMaskEntryPtr: ^TMaskEntry;' + #13#10 +
+    '  lWithSelRecPtr: ^SelRec;' + #13#10 +
+    '  lWithSelektorPtr: ^Selektor;' + #13#10 +
+    '  lWithForRecPtr: ^ForRec;' + #13#10 +
+    '  lWithFormelPtr: ^Formel;' + #13#10 +
+    '  lWithBereichsRecPtr: ^BereichsRec;' + #13#10 +
+    '  lWithBereichPtr: ^Bereich;' + #13#10 +
+    '  lWithMaskEntryPtr1: ^TMaskEntry;' + #13#10 +
+    '  lWithDatFilePtr: ^DatFile;' + #13#10, lOwnerStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
+  Assert.AreEqual('156:1-173:10', SourceRangeText(lOwnerStatement.Edits[1].Range));
+  Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('4c6aa5d5567ca37d393e855be6aef02a3aafc9f92409a500732e9e757ad1e8af',
+    lOwnerStatement.SemanticId);
+  Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('Maske[i]^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithMaskEntryPtr^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TMaskEntry', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithMaskEntryPtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('4c6aa5d5567ca37d393e855be6aef02a3aafc9f92409a500732e9e757ad1e8af',
+    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
+  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
+  lDeclarationCount := 0;
+  for i := 0 to High(lPlan.FinalStatements) do
+    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
+      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
+        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
+        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
+        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
+        Inc(lDeclarationCount);
+  Assert.AreEqual(1, lDeclarationCount);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 136, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsProgramBlockReplacements;
@@ -14371,34 +16924,154 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsInitVarSkipReason;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsInitVarCapture;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1214, 15, lStatement),
-    'Expected maxTdb TDBJOBS InitVar with statement.');
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1214, 15, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('CheckVarFiles', lStatement.RoutineName);
+  Assert.AreEqual('1214:15-1224:18', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('1214:15-1224:18', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('d6609c449e39d8abfb9954a1e1910f6aae84ab6504056f22f3ebc105275d25fa',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH InitVar DO' + #13#10 +
+    '              BEGIN' + #13#10 +
+    '                V_Name := ADDR(Name);' + #13#10 +
+    '                V_NewName := TRUE;' + #13#10 +
+    '                V_IsRef := FALSE;' + #13#10 +
+    '                V_ArrayVar := FALSE;' + #13#10 +
+    '                V_Art := Art;' + #13#10 +
+    '                V_StatFun := FALSE;' + #13#10 +
+    '                V_vFiles := vF;' + #13#10 +
+    '                VNr := NewVar;' + #13#10 +
+    '              END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('              begin' + #13#10 +
+    '                lWithVarInitRecPtr := @InitVar;' + #13#10 +
+    '                BEGIN' + #13#10 +
+    '                lWithVarInitRecPtr^.V_Name := ADDR(Name);' + #13#10 +
+    '                lWithVarInitRecPtr^.V_NewName := TRUE;' + #13#10 +
+    '                lWithVarInitRecPtr^.V_IsRef := FALSE;' + #13#10 +
+    '                lWithVarInitRecPtr^.V_ArrayVar := FALSE;' + #13#10 +
+    '                lWithVarInitRecPtr^.V_Art := Art;' + #13#10 +
+    '                lWithVarInitRecPtr^.V_StatFun := FALSE;' + #13#10 +
+    '                lWithVarInitRecPtr^.V_vFiles := vF;' + #13#10 +
+    '                VNr := NewVar;' + #13#10 +
+    '              END;' + #13#10 +
+    '              end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('InitVar', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithVarInitRecPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('VarInitRec', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithVarInitRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithVarInitRecPtr: ^VarInitRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithVarInitRecPtr := @InitVar;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('02ea418f20e0f1d3061bc7c2120cd39f029fa5092e32cc9152516fa6b7b4780e',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('1142:1-1142:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithVarInitRecPtr: ^VarInitRec;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('1214:1-1224:18', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('02ea418f20e0f1d3061bc7c2120cd39f029fa5092e32cc9152516fa6b7b4780e',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('InitVar', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithVarInitRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('VarInitRec', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithVarInitRecPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithVarInitRecPtr: ^VarInitRec;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithVarInitRecPtr := @InitVar;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('02ea418f20e0f1d3061bc7c2120cd39f029fa5092e32cc9152516fa6b7b4780e',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1204, 5, lStatement));
   Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1209, 11, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsJumpTempDeclarationSkip;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsJumpCaptureDeclaration;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1778, 15, lStatement),
-    'Expected maxTdb TDBJOBS Jump[Jumps] with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('temp-declaration-requires-routine-var-section', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1778, 15, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('Compile', lStatement.RoutineName);
+  Assert.AreEqual('1778:15-1782:18', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('1778:15-1782:18', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('d6609c449e39d8abfb9954a1e1910f6aae84ab6504056f22f3ebc105275d25fa',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH Jump[Jumps] DO' + #13#10 +
+    '              BEGIN' + #13#10 +
+    '                PC0 := gPC;' + #13#10 +
+    '                K0 := k' + #13#10 +
+    '              END;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('              lWithJumpItemPtr := @Jump[Jumps];' + #13#10 +
+    '              BEGIN' + #13#10 +
+    '                lWithJumpItemPtr^.PC0 := gPC;' + #13#10 +
+    '                lWithJumpItemPtr^.K0 := k' + #13#10 +
+    '              END;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('Jump[Jumps]', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithJumpItemPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('TJumpItem', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithJumpItemPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithJumpItemPtr: ^TJumpItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithJumpItemPtr := @Jump[Jumps];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('8f0819b6d7bcc93327f9104cb22f0e51fa65a7a51212a967e5abd200b9ab4db7',
+    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('854:1-854:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithJumpItemPtr: ^TJumpItem;' + #13#10, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('1778:1-1782:18', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('8f0819b6d7bcc93327f9104cb22f0e51fa65a7a51212a967e5abd200b9ab4db7',
+    lStatement.SemanticId);
+  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual('Jump[Jumps]', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
+  Assert.AreEqual('lWithJumpItemPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
+  Assert.AreEqual('TJumpItem', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
+  Assert.AreEqual('lWithJumpItemPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithJumpItemPtr: ^TJumpItem;',
+    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
+  Assert.AreEqual('lWithJumpItemPtr := @Jump[Jumps];',
+    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
+  Assert.AreEqual('8f0819b6d7bcc93327f9104cb22f0e51fa65a7a51212a967e5abd200b9ab4db7',
+    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsSubRZeroSkipReason;
