@@ -13,7 +13,10 @@ param(
   [switch]$AllowHistoricalSummary,
   [switch]$AllowHistoricalPromotion,
   [switch]$PromoteBaseline,
-  [switch]$NoBaselineCopy
+  [switch]$NoBaselineCopy,
+  [string]$Platform = '',
+  [string]$Config = '',
+  [string]$DelphiVersion = ''
 )
 
 Set-StrictMode -Version Latest
@@ -1018,11 +1021,24 @@ function Get-BenchmarkArgument {
   param(
     [object]$Benchmark,
     [string]$CacheMode,
-    [string]$SemanticCacheFile
+    [string]$SemanticCacheFile,
+    [string]$Platform = '',
+    [string]$Config = '',
+    [string]$DelphiVersion = ''
   )
 
   $lArguments = New-Object System.Collections.Generic.List[string]
   $lArguments.AddRange([string[]]$Benchmark.Arguments)
+  foreach ($lOption in ([ordered]@{
+    '--platform' = $Platform
+    '--config' = $Config
+    '--delphi' = $DelphiVersion
+  }).GetEnumerator()) {
+    if (-not [string]::IsNullOrWhiteSpace($lOption.Value)) {
+      $lArguments.Add($lOption.Key)
+      $lArguments.Add($lOption.Value)
+    }
+  }
   if (Test-RequiresPlannerPhaseMetric -Row $Benchmark) {
     $lDiagnosticsIndex = $lArguments.IndexOf('--diagnostics')
     if ($lDiagnosticsIndex -lt 0) {
@@ -1079,19 +1095,25 @@ if ($lWorkflowFilter.Count -gt 0) {
   $lBenchmarks = @($lBenchmarks | Where-Object { $lWorkflowFilter -contains $_.Id })
 }
 
+$lOutputDir = Resolve-OutputPath $OutputDir
 if ($List) {
-  $lBenchmarks | ForEach-Object {
-    [pscustomobject]@{
-      Id = $_.Id
-      Feature = $_.Feature
-      Description = $_.Description
-      Command = ('{0} {1}' -f $DakExe, ($_.Arguments -join ' '))
+  $lCacheModes | ForEach-Object {
+    $lListCacheMode = $_
+    $lBenchmarks | ForEach-Object {
+      $lListCacheFile = Join-Path $lOutputDir ('semantic-cache\{0}\unit-models.sqlite3' -f $_.Id)
+      $lListArguments = @(Get-BenchmarkArgument -Benchmark $_ -CacheMode $lListCacheMode `
+        -SemanticCacheFile $lListCacheFile -Platform $Platform -Config $Config -DelphiVersion $DelphiVersion)
+      'Id: {0}' -f $_.Id
+      'Feature: {0}' -f $_.Feature
+      'Description: {0}' -f $_.Description
+      'CacheMode: {0}' -f $lListCacheMode
+      'Command: {0} {1}' -f $DakExe, ($lListArguments -join ' ')
+      ''
     }
-  } | Format-Table -AutoSize
+  }
   exit 0
 }
 
-$lOutputDir = Resolve-OutputPath $OutputDir
 New-Item -ItemType Directory -Force -Path $lOutputDir | Out-Null
 $lJsonPath = Join-Path $lOutputDir 'baseline.json'
 $lMarkdownPath = Join-Path $lOutputDir 'baseline.md'
@@ -1224,7 +1246,8 @@ if ($SummarizeOnly) {
         $lWarmupStderr = Join-Path $lOutputDir ($lWarmupId + '.stderr.txt')
         $env:DELPHISEMANTICS_BENCHMARK_CACHE_DIR = $lWorkflowCacheDirectory
         $env:DELPHISEMANTICS_BENCHMARK_CACHE_MODE = $lCacheMode
-        $lWarmupArguments = @(Get-BenchmarkArgument -Benchmark $lBenchmark -CacheMode $lCacheMode -SemanticCacheFile $lSemanticCacheFile)
+        $lWarmupArguments = @(Get-BenchmarkArgument -Benchmark $lBenchmark -CacheMode $lCacheMode `
+          -SemanticCacheFile $lSemanticCacheFile -Platform $Platform -Config $Config -DelphiVersion $DelphiVersion)
         $lWarmupSourceSnapshot = Get-SourceSnapshot -ProjectPath $Project
         & $DakExe @($lWarmupArguments) 1> $lWarmupStdout 2> $lWarmupStderr
         $lWarmupExitCode = $LASTEXITCODE
@@ -1261,7 +1284,8 @@ if ($SummarizeOnly) {
         $env:DELPHISEMANTICS_BENCHMARK_CACHE_DIR = $lWorkflowCacheDirectory
         $env:DELPHISEMANTICS_BENCHMARK_CACHE_MODE = $lCacheMode
         $lStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-        $lArguments = @(Get-BenchmarkArgument -Benchmark $lBenchmark -CacheMode $lCacheMode -SemanticCacheFile $lSemanticCacheFile)
+        $lArguments = @(Get-BenchmarkArgument -Benchmark $lBenchmark -CacheMode $lCacheMode `
+          -SemanticCacheFile $lSemanticCacheFile -Platform $Platform -Config $Config -DelphiVersion $DelphiVersion)
         $lSourceSnapshot = Get-SourceSnapshot -ProjectPath $Project
         & $DakExe @($lArguments) 1> $lStdout 2> $lStderr
         $lExitCode = $LASTEXITCODE

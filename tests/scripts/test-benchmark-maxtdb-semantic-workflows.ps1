@@ -1008,4 +1008,81 @@ end.
   Assert-Equal $lBefore $lAfter 'Benchmark mutation guard must restore search-path source.'
 }
 
+function Test-BenchmarkExplicitContextArgument {
+  $lTokens = $null
+  $lErrors = $null
+  $lAst = [System.Management.Automation.Language.Parser]::ParseFile(
+    $BenchmarkScript, [ref]$lTokens, [ref]$lErrors)
+  Assert-Equal 0 @($lErrors).Count 'The benchmark script must parse.'
+  foreach ($lName in @('Get-BenchmarkDefinition', 'Test-RequiresPlannerPhaseMetric', 'Get-BenchmarkArgument')) {
+    $lDefinition = @($lAst.FindAll({
+      param($Node)
+      $Node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+    }, $false) | Where-Object Name -EQ $lName)
+    Assert-Equal 1 $lDefinition.Count "Expected the real function $lName."
+    . ([scriptblock]::Create($lDefinition[0].Extent.Text))
+  }
+
+  $lBenchmarks = @(Get-BenchmarkDefinition -ProjectPath 'C:\fixture\sample.dproj' |
+    Where-Object Id -In @('remove-with-plan-all', 'rename-dry-run-allfiles'))
+  Assert-Equal 2 $lBenchmarks.Count 'Both certified workflows must be checked.'
+  foreach ($lBenchmark in $lBenchmarks) {
+    foreach ($lCacheMode in @('default', 'cold', 'warm')) {
+      foreach ($lExplicit in @($false, $true)) {
+        $lContext = if ($lExplicit) {
+          @{ Platform = 'Win64'; Config = 'Release'; DelphiVersion = '23.0' }
+        } else { @{} }
+        $lArguments = @(Get-BenchmarkArgument -Benchmark $lBenchmark -CacheMode $lCacheMode `
+          -SemanticCacheFile 'C:\fixture\cache.sqlite3' @lContext)
+        $lLabel = "$($lBenchmark.Id)/$lCacheMode/explicit=$lExplicit"
+        foreach ($lOption in @('--platform', '--config', '--delphi')) {
+          $lCount = @($lArguments | Where-Object { $_ -eq $lOption }).Count
+          Assert-Equal ([int]$lExplicit) $lCount "$lLabel must emit $lOption exactly when requested."
+        }
+        if ($lExplicit) {
+          Assert-Equal 'Win64' $lArguments[([array]::IndexOf($lArguments, '--platform') + 1)] $lLabel
+          Assert-Equal 'Release' $lArguments[([array]::IndexOf($lArguments, '--config') + 1)] $lLabel
+          Assert-Equal '23.0' $lArguments[([array]::IndexOf($lArguments, '--delphi') + 1)] $lLabel
+        }
+        Assert-Equal ($lBenchmark.Arguments -join '|') `
+          ($lArguments[0..($lBenchmark.Arguments.Count - 1)] -join '|') `
+          "$lLabel must preserve project, mode, symbol and new-name arguments."
+        Assert-True ($lArguments -notcontains '--apply') "$lLabel must remain report-only."
+        if ($lBenchmark.Id -eq 'remove-with-plan-all') {
+          Assert-Equal 1 @($lArguments | Where-Object { $_ -eq '--diagnostics' }).Count $lLabel
+          Assert-Equal 'true' $lArguments[([array]::IndexOf($lArguments, '--diagnostics') + 1)] $lLabel
+        }
+        Assert-Equal ([int]($lCacheMode -ne 'default')) `
+          @($lArguments | Where-Object { $_ -eq '--semantic-cache' }).Count $lLabel
+        if ($lCacheMode -ne 'default') {
+          Assert-Equal 'C:\fixture\cache.sqlite3' `
+            $lArguments[([array]::IndexOf($lArguments, '--semantic-cache') + 1)] $lLabel
+        }
+      }
+    }
+  }
+}
+
+function Test-BenchmarkListShowsExplicitContextWithoutRunning {
+  $lDakExe = Join-Path (Split-Path $RepoRoot -Parent) 'DelphiAiKit\bin\DelphiAIKit.exe'
+  $lProject = Join-Path $RepoRoot 'tests\fixtures\RemoveWithInlinePrecedence\InlineHeader.dproj'
+  $lOutputDir = Join-Path $TempRoot ('list-context-' + [guid]::NewGuid().ToString('N'))
+  $lBefore = (Get-FileHash -LiteralPath $lProject -Algorithm SHA256).Hash
+  $lOutput = (& pwsh -NoProfile -File $BenchmarkScript -DakExe $lDakExe -Project $lProject `
+    -Workflow 'remove-with-plan-all,rename-dry-run-allfiles' -CacheMode 'cold,warm' `
+    -Platform Win64 -Config Release -DelphiVersion 23.0 -OutputDir $lOutputDir -List 2>&1) -join "`n"
+  Assert-Equal 0 $LASTEXITCODE 'List must accept explicit semantic context.'
+  foreach ($lPattern in @('--platform\s+Win64', '--config\s+Release', '--delphi\s+23\.0')) {
+    Assert-Equal 4 ([regex]::Matches($lOutput, $lPattern).Count) `
+      "Both workflows and cache modes must display $lPattern. Output: $lOutput"
+  }
+  Assert-Equal 4 ([regex]::Matches($lOutput, '--semantic-cache').Count) `
+    'Every cold/warm command must show its actual cache argument.'
+  Assert-Equal 2 ([regex]::Matches($lOutput, '--diagnostics\s+true').Count) `
+    'Both remove-with commands must show diagnostics.'
+  Assert-True (-not (Test-Path -LiteralPath $lOutputDir)) 'List must not create benchmark output.'
+  Assert-Equal $lBefore (Get-FileHash -LiteralPath $lProject -Algorithm SHA256).Hash `
+    'List must not modify the project.'
+}
+
 Invoke-ScriptTests
