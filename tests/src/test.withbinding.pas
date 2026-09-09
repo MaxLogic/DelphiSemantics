@@ -24,6 +24,13 @@ type
       aClassification: string): Boolean;
   public
     [Test]
+    [TestCase('LF', 'LF,False,False')]
+    [TestCase('LF with comment', 'LF,False,True')]
+    [TestCase('LF with blank lines', 'LF,True,True')]
+    [TestCase('CRLF with blank lines', 'CRLF,True,True')]
+    procedure WithBodyReferencesKeepSourceCoordinates(const aLineEnding: string;
+      const aBlankLines, aComment: Boolean);
+    [Test]
     procedure IndexedDeclarationsPreserveBindingPrecedence;
     [Test]
     procedure IndexedDeclarationCandidatesPreserveDuplicatesAndRefresh;
@@ -67,9 +74,98 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Model, DelphiSemantics.ProjectContext, maxLogic.IOUtils,
+  DelphiSemantics.Api.RemoveWith.Compatibility, DelphiSemantics.Model,
+  DelphiSemantics.ProjectContext, maxLogic.IOUtils,
   Test.Support;
 
+
+procedure TProjectWithBindingTests.WithBodyReferencesKeepSourceCoordinates(
+  const aLineEnding: string; const aBlankLines, aComment: Boolean);
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lLineBreak: string;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lReference: TDelphiSemanticBoundReference;
+  lSource: string;
+  lSourceLines: TArray<string>;
+  lValueLine: Integer;
+begin
+  if aLineEnding = 'LF' then
+    lLineBreak := #10
+  else
+    lLineBreak := #13#10;
+  lSource := 'unit WithBodyCoordinates;' + lLineBreak +
+    'interface' + lLineBreak +
+    'type' + lLineBreak +
+    '  PChild = ^TChild;' + lLineBreak +
+    '  TChild = record' + lLineBreak +
+    '    Value: Integer;' + lLineBreak +
+    '  end;' + lLineBreak +
+    '  TContainer = record' + lLineBreak +
+    '    Child: PChild;' + lLineBreak +
+    '  end;' + lLineBreak +
+    'function ReadValue(var aContainer: TContainer): Integer;' + lLineBreak +
+    'implementation' + lLineBreak +
+    'function ReadValue(var aContainer: TContainer): Integer;' + lLineBreak +
+    'begin' + lLineBreak +
+    '  if aContainer.Child <> nil then' + lLineBreak +
+    '    with aContainer do' + lLineBreak;
+  lValueLine := 18;
+  if aBlankLines then
+  begin
+    lSource := lSource + lLineBreak + lLineBreak;
+    Inc(lValueLine, 2);
+  end;
+  if aComment then
+  begin
+    lSource := lSource + '      // a comment before the qualified access' + lLineBreak;
+    Inc(lValueLine);
+  end;
+  lSource := lSource + '    begin' + lLineBreak +
+    '      ReadValue := Child^.Value;' + lLineBreak +
+    '    end' + lLineBreak +
+    '  else' + lLineBreak +
+    '    ReadValue := 0;' + lLineBreak +
+    'end;' + lLineBreak +
+    'end.' + lLineBreak;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(RepoRoot,
+    'tests\.dak\delphiSemanticsTests\t276-with-body-' + aLineEnding + '-' +
+    BoolToStr(aBlankLines, True) + '-' + BoolToStr(aComment, True) + '.pas');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lOptions.SourceFileName));
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lFacts := TDelphiSemanticWithBinder.BindProject('with-body-coordinates', nil, [lModel]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  lBinding := lFacts.Bindings[0];
+  Assert.AreEqual(16, lBinding.Line);
+  Assert.AreEqual(5, lBinding.Column);
+  Assert.AreEqual(16, lBinding.BodyLine);
+  Assert.AreEqual(23, lBinding.BodyColumn);
+  lSourceLines := StringReplace(lSource, #13#10, #10, [rfReplaceAll]).Split([#10]);
+  Assert.IsTrue(Length(lBinding.References) > 0);
+  for lReference in lBinding.References do
+  begin
+    Assert.AreEqual(lValueLine, lReference.Line, lReference.Name);
+    Assert.AreEqual(lValueLine, lReference.EndLine, lReference.Name);
+    Assert.AreEqual(lReference.Name, Copy(lSourceLines[lReference.Line - 1],
+      lReference.Column, Length(lReference.Name)));
+  end;
+  Assert.IsTrue(HasReference(lBinding, 'Child', 'member'), 'Expected the receiver member.');
+  Assert.IsTrue(HasReference(lBinding, 'ReadValue', 'lexical'),
+    'Expected the named function result.');
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+    lPlan.FinalStatements[0].Reason);
+  Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
+    'lWithContainerPtr^.Child^.Value'), lPlan.FinalStatements[0].ReplacementText);
+end;
 
 function LoadIndexedBindingModel(const aFileName: string): TDelphiSemanticUnitModel;
 var

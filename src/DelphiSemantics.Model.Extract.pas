@@ -2273,8 +2273,15 @@ begin
     lItem.Column := ColumnOfOffset(aText, lMatch.Index);
     lItem.EndLine := LineOfOffset(aText, lEndOffset);
     lItem.EndColumn := ColumnOfOffset(aText, lEndOffset);
-    lItem.BodyLine := LineOfOffset(aText, lBodyStartOffset);
-    lItem.BodyColumn := ColumnOfOffset(aText, lBodyStartOffset);
+    if (lBodyStartOffset <= Length(aText)) and (aText[lBodyStartOffset] = #10) then
+    begin
+      // The body retains this LF; its relative line index counts it once.
+      lItem.BodyLine := LineOfOffset(aText, lBodyStartOffset - 1);
+      lItem.BodyColumn := ColumnOfOffset(aText, lBodyStartOffset - 1) + 1;
+    end else begin
+      lItem.BodyLine := LineOfOffset(aText, lBodyStartOffset);
+      lItem.BodyColumn := ColumnOfOffset(aText, lBodyStartOffset);
+    end;
     lItem.BodyEndLine := lItem.EndLine;
     lItem.BodyEndColumn := lItem.EndColumn;
     lItem.SelectorText := Copy(aText, lMatch.Groups[1].Index,
