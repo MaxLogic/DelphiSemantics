@@ -14,6 +14,13 @@ type
     function LoadModel: TDelphiSemanticUnitModel;
   public
     [Test]
+    [TestCase('inline forward', '0')]
+    [TestCase('next-line forward', '1')]
+    [TestCase('split parameters', '2')]
+    [TestCase('implemented comment control', '3')]
+    [TestCase('external declaration', '4')]
+    procedure PreservesOuterRoutineAfterNestedForward(const aCase: Integer);
+    [Test]
     procedure HandlesClassMethodsAndNonBeginBlocks;
     [Test]
     procedure ResolvesNestedRoutineParentChainsFromIndex;
@@ -232,6 +239,104 @@ begin
     'Line-limited scope index builds should stop after the highest requested line.');
   Assert.IsTrue(ContainsText(lBuildText, 'Break'),
     'Line-limited scope index builds should break instead of scanning the whole file.');
+end;
+
+function NestedForwardSource(const aCase: Integer): string;
+begin
+  Result := TFile.ReadAllText(FixturePath('RemoveWithNestedForwardCapture',
+    'NestedForwardCaptureUnit.pas'), TEncoding.UTF8);
+  case aCase of
+    1: Result := StringReplace(Result, '  procedure Touch; forward;' + sLineBreak,
+      '  procedure Touch;' + sLineBreak + '  forward;', []);
+    2:
+      begin
+        Result := StringReplace(Result, '  procedure Touch; forward;' + sLineBreak,
+          '  procedure Touch(aFirst: Integer;' + sLineBreak +
+          '    aSecond: Integer); forward;', []);
+        Result := StringReplace(Result, '  procedure Touch;' + sLineBreak,
+          '  procedure Touch(aFirst: Integer; aSecond: Integer);' + sLineBreak, []);
+        Result := StringReplace(Result, 'Inc(lItem.Value);',
+          'Inc(lItem.Value, aFirst + aSecond);', []);
+        Result := StringReplace(Result, '  Touch;' + sLineBreak,
+          '  Touch(1, 0);' + sLineBreak, []);
+      end;
+    3:
+      begin
+        Result := StringReplace(Result, '  procedure Touch; forward;',
+          '  { An implemented routine follows. }', []);
+        Result := StringReplace(Result, '  procedure Touch;' + sLineBreak,
+          '  procedure Touch; { forward; }' + sLineBreak, []);
+      end;
+    4:
+      begin
+        Result := StringReplace(Result, '  procedure Touch; forward;',
+          '  { The nested implementation follows. }', []);
+        Result := StringReplace(Result, '  PItem = ^TItem;' + sLineBreak + sLineBreak,
+          '  PItem = ^TItem;' + sLineBreak +
+          'function ReadTick: UInt64; stdcall; external ''kernel32.dll'' name ''GetTickCount64'';' +
+          sLineBreak, []);
+      end;
+  else
+    if aCase <> 0 then
+      raise Exception.Create('Unexpected nested forward test case.');
+  end;
+end;
+
+procedure AssertNestedForwardReferenceScopes(const aModel: TDelphiSemanticUnitModel);
+var
+  lNestedScope: string;
+  lOuterScope: string;
+  lReference: TDelphiSemanticReference;
+begin
+  lNestedScope := '';
+  lOuterScope := '';
+  for lReference in aModel.References do
+    if SameText(lReference.Name, 'lItem') then
+    begin
+      if lReference.Line = 24 then
+      begin
+        Assert.AreEqual('Touch', lReference.RoutineName);
+        lNestedScope := lReference.RoutineScopeId;
+      end else if lReference.Line = 35 then
+      begin
+        Assert.AreEqual('Observe', lReference.RoutineName);
+        lOuterScope := lReference.RoutineScopeId;
+      end;
+    end;
+  Assert.IsNotEmpty(lNestedScope);
+  Assert.IsNotEmpty(lOuterScope);
+  Assert.AreNotEqual(lNestedScope, lOuterScope);
+end;
+
+procedure TScopeResolverTests.PreservesOuterRoutineAfterNestedForward(const aCase: Integer);
+var
+  i: Integer;
+  lBounded: TDelphiSemanticRoutineScopeIndex;
+  lIndex: TDelphiSemanticRoutineScopeIndex;
+  lModel: TDelphiSemanticUnitModel;
+  lSource: string;
+  lSourceModel: TDelphiSemanticUnitModel;
+begin
+  lSource := NestedForwardSource(aCase);
+  lModel := ExtractSource('nested-forward-' + aCase.ToString + '.pas', lSource);
+  lIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel);
+  lSourceModel := Default(TDelphiSemanticUnitModel);
+  lSourceModel.SourceText := lSource;
+  lBounded := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lSourceModel, [24, 30, 33, 35]);
+  Assert.AreEqual('Touch', lIndex.RoutineNameForLine(24));
+  Assert.AreEqual('Touch', lBounded.RoutineNameForLine(24));
+  Assert.AreEqual(1, Integer(Length(lIndex.ParentRoutineNamesForLine('Touch', 24))));
+  Assert.AreEqual('Observe', lIndex.ParentRoutineNamesForLine('Touch', 24)[0]);
+  Assert.AreEqual(1, Integer(Length(lBounded.ParentRoutineNamesForLine('Touch', 24))));
+  Assert.AreEqual('Observe', lBounded.ParentRoutineNamesForLine('Touch', 24)[0]);
+  for i in [30, 33, 35] do
+  begin
+    Assert.AreEqual('Observe', lIndex.RoutineNameForLine(i), 'Full index line ' + i.ToString);
+    Assert.AreEqual('Observe', lBounded.RoutineNameForLine(i), 'Bounded index line ' + i.ToString);
+    Assert.AreEqual(0, Integer(Length(lIndex.ParentRoutineNamesForLine('Observe', i))));
+    Assert.AreEqual(0, Integer(Length(lBounded.ParentRoutineNamesForLine('Observe', i))));
+  end;
+  AssertNestedForwardReferenceScopes(lModel);
 end;
 
 initialization

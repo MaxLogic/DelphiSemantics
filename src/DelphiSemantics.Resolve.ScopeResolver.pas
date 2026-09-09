@@ -28,7 +28,8 @@ implementation
 
 uses
   System.Classes, System.Generics.Collections, System.IOUtils, System.Math,
-  System.RegularExpressions, System.StrUtils, System.SysUtils;
+  System.RegularExpressions, System.StrUtils, System.SysUtils,
+  SimpleParser.Lexer, SimpleParser.Lexer.Types;
 
 type
   TRoutineFrame = record
@@ -116,7 +117,52 @@ begin
   end;
 end;
 
-procedure ApplyRoutineDeclaration(const aLine: string; const aFrames: TList<TRoutineFrame>);
+function RoutineHasNoBody(const aLexer: TmwBasePasLex; const aLineNumber,
+  aLastLine: Integer): Boolean;
+var
+  lDepth: Integer;
+begin
+  Result := False;
+  while (aLexer.TokenID <> ptNull) and (aLexer.PosXY.Y < aLineNumber) do
+    aLexer.NextNoJunk;
+  if aLexer.PosXY.Y <> aLineNumber then
+    Exit;
+
+  lDepth := 0;
+  while (aLexer.TokenID <> ptNull) and (aLexer.PosXY.Y <= aLastLine) do
+  begin
+    if aLexer.TokenID = ptRoundOpen then
+      Inc(lDepth)
+    else if aLexer.TokenID = ptRoundClose then
+      Dec(lDepth)
+    else if (aLexer.TokenID = ptSemiColon) and (lDepth = 0) then
+      Break;
+    aLexer.NextNoJunk;
+  end;
+  if aLexer.TokenID <> ptSemiColon then
+    Exit;
+  aLexer.NextNoJunk;
+
+  while (aLexer.TokenID <> ptNull) and (aLexer.PosXY.Y <= aLastLine) do
+  begin
+    if aLexer.ExID in [ptForward, ptExternal] then
+      Exit(True);
+    if not (aLexer.ExID in [ptAbstract, ptCdecl, ptDynamic, ptExport, ptDelayed,
+      ptFar, ptMessage, ptNear, ptOverload, ptOverride, ptPascal, ptRegister,
+      ptReintroduce, ptSafeCall, ptStdCall, ptVirtual, ptLibrary, ptPlatform,
+      ptLocal, ptVarargs, ptAssembler, ptStatic, ptInline, ptExperimental,
+      ptDeprecated, ptNoreturn]) then
+      Exit;
+    repeat
+      aLexer.NextNoJunk;
+    until (aLexer.TokenID in [ptNull, ptSemiColon]) or (aLexer.PosXY.Y > aLastLine);
+    if aLexer.TokenID = ptSemiColon then
+      aLexer.NextNoJunk;
+  end;
+end;
+
+procedure ApplyRoutineDeclaration(const aLine: string; const aFrames: TList<TRoutineFrame>;
+  const aLexer: TmwBasePasLex; const aLineNumber, aLastLine: Integer);
 var
   lFrame: TRoutineFrame;
   lMatch: TMatch;
@@ -126,6 +172,8 @@ begin
     '(?:[A-Za-z_][A-Za-z0-9_]*\.)?' +
     '([A-Za-z_][A-Za-z0-9_]*)\b', [roIgnoreCase]);
   if not lMatch.Success then
+    Exit;
+  if RoutineHasNoBody(aLexer, aLineNumber, aLastLine) then
     Exit;
 
   lFrame := Default(TRoutineFrame);
@@ -263,6 +311,7 @@ var
   lCaptureLines: TArray<Boolean>;
   lFrames: TList<TRoutineFrame>;
   lInImplementation: Boolean;
+  lLexer: TmwBasePasLex;
   lLine: string;
   lLineNumber: Integer;
   lLines: TStringList;
@@ -272,6 +321,7 @@ begin
   Result := Default(TDelphiSemanticRoutineScopeIndex);
   lFrames := TList<TRoutineFrame>.Create;
   lLines := TStringList.Create;
+  lLexer := nil;
   try
     lSourceText := aModel.SourceText;
     if lSourceText = '' then
@@ -301,6 +351,11 @@ begin
             lMaxCaptureLine := lLineNumber;
         end;
     end;
+    if lCaptureAll then
+      lMaxCaptureLine := lLines.Count;
+    lLexer := TmwBasePasLex.Create;
+    lLexer.UseDefines := False;
+    lLexer.Origin := lSourceText;
     lInImplementation := False;
     for i := 0 to lLines.Count - 1 do
     begin
@@ -330,11 +385,12 @@ begin
             Result.fParentNamesByLine[i + 1] := FrameParentNames(lFrames,
               Result.fRoutineNamesByLine[i + 1]);
         end;
-        ApplyRoutineDeclaration(lLine, lFrames);
+        ApplyRoutineDeclaration(lLine, lFrames, lLexer, i + 1, lMaxCaptureLine);
         ApplyBlockTokens(lLine, lFrames);
       end;
     end;
   finally
+    lLexer.Free;
     lLines.Free;
     lFrames.Free;
   end;

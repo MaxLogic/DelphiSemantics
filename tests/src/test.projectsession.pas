@@ -26,6 +26,8 @@ type
       TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
   public
     [Test]
+    procedure RebuildsRemoveWithFactsWithOlderSchemaMarker;
+    [Test]
     procedure ProjectSessionOpensFromProjectFileName;
     [Test]
     procedure EmptyProjectPathReturnsStructuredSessionDiagnostic;
@@ -122,25 +124,14 @@ type
 implementation
 
 uses
-  System.Classes,
-  System.IOUtils,
-  System.StrUtils,
-  System.SysUtils,
+  System.Classes, System.IOUtils, System.JSON.Serializers, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite,
   maxLogic.IOUtils,
-  DelphiSemantics.Api,
-  DelphiSemantics.Api.RemoveWith.Compatibility,
-  DelphiSemantics.Cache,
-  DelphiSemantics.GlobalVars,
-  DelphiSemantics.IdentifierScope,
-  DelphiSemantics.Index,
-  DelphiSemantics.Model,
-  DelphiSemantics.ProjectContext,
-  DelphiSemantics.ProjectSession,
-  DelphiSemantics.Query,
-  DelphiSemantics.Refactor,
-  Test.Support;
+  DelphiSemantics.Api, DelphiSemantics.Api.RemoveWith.Compatibility, DelphiSemantics.Cache,
+  DelphiSemantics.GlobalVars, DelphiSemantics.IdentifierScope, DelphiSemantics.Index,
+  DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
+  DelphiSemantics.Query, DelphiSemantics.Refactor, Test.Support;
 
 var
   GProjectSessionTempRoot: string;
@@ -3599,6 +3590,65 @@ begin
   lOptions.ForceFullIdentifierAnalysis := True;
   lExpected := BuildIdentifierScopePlan(lOptions);
   AssertRenamePlansEqual(lExpected.Plan, lInline.Plan);
+end;
+
+procedure TProjectSessionTests.RebuildsRemoveWithFactsWithOlderSchemaMarker;
+var
+  i: Integer;
+  lExpectedPlan: string;
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lOpened: TDelphiSemanticProjectSessionResult;
+  lOptions: TDelphiSemanticOptions;
+  lSerializer: TJsonSerializer;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath(
+    'RemoveWithNestedForwardCapture\NestedForwardCapture.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Debug';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.SqliteCacheFileName := ProjectSessionTempPath('older-remove-with-facts.sqlite3');
+  lOptions.SkipWithBindingSemanticGraph := True;
+  lSerializer := TJsonSerializer.Create;
+  try
+    for i := 0 to 3 do
+    begin
+      if i = 2 then
+        ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
+          'update snapshot_project_remove_with_facts ' +
+          'set schema_version = ''project-session-remove-with-facts-v2''');
+      lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+      try
+        Assert.IsTrue(lOpened.Success);
+        lBuild := lOpened.Session.PlanRemoveWithResult;
+      finally
+        lOpened.Session.Free;
+      end;
+      Assert.AreEqual(1, lBuild.SnapshotMetrics.SnapshotCacheProbes);
+      Assert.AreEqual(i mod 2, lBuild.SnapshotMetrics.SnapshotCacheHits,
+        'An older producer marker must miss without changing fixture sources.');
+      Assert.AreEqual(1 - (i mod 2), lBuild.SnapshotMetrics.SnapshotCacheMisses);
+      Assert.AreEqual(2, Integer(Length(lBuild.Plan.FinalStatements)));
+      for lStatement in lBuild.Plan.FinalStatements do
+      begin
+        Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+        Assert.AreEqual('Observe', lStatement.RoutineName);
+      end;
+      Assert.AreEqual('declare-temp', lBuild.Plan.FinalStatements[0].Edits[0].Kind);
+      Assert.AreEqual(20, lBuild.Plan.FinalStatements[0].Edits[0].Range.StartLine);
+      Assert.AreEqual(1, lBuild.Plan.FinalStatements[0].Edits[0].Range.StartColumn);
+      Assert.AreEqual(20, lBuild.Plan.FinalStatements[0].Edits[0].Range.EndLine);
+      Assert.AreEqual(1, lBuild.Plan.FinalStatements[0].Edits[0].Range.EndColumn);
+      if i = 0 then
+        lExpectedPlan := lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lBuild.Plan)
+      else
+        Assert.AreEqual(lExpectedPlan,
+          lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lBuild.Plan));
+    end;
+  finally
+    lSerializer.Free;
+  end;
 end;
 
 initialization

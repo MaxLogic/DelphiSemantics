@@ -30,6 +30,8 @@ type
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
     [Test]
+    procedure FinalDtoKeepsOuterCapturesAfterNestedForward;
+    [Test]
     procedure PlansDeterministicDryRunDtoWithVerificationAndProvenance;
     [Test]
     procedure CombinedApiReturnsFactsAndCanonicalPlanFromOneSession;
@@ -10550,6 +10552,62 @@ begin
     'remove-with plan DTO should use the shared source-context cache while building edits');
   Assert.IsTrue(ContainsText(lSourceText, 'TDictionary<string, string>'),
     'remove-with plan DTO should cache source hashes per file while building edits');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoKeepsOuterCapturesAfterNestedForward;
+var
+  i: Integer;
+  lExpected: string;
+  lFirst: TDelphiSemanticRemoveWithFinalStatement;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lTempName: string;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithNestedForwardCapture\NestedForwardCapture.dproj'));
+  for i := 0 to 1 do
+  begin
+    Assert.IsTrue(FindFinalStatementAt(lPlan, 'NestedForwardCaptureUnit.pas',
+      30 + i * 3, 3, lStatement));
+    Assert.AreEqual('Observe', lStatement.RoutineName);
+    Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+    Assert.AreEqual(30 + i * 3, lStatement.Range.StartLine);
+    Assert.AreEqual(3, lStatement.Range.StartColumn);
+    Assert.AreEqual(31 + i * 3, lStatement.Range.EndLine);
+    Assert.AreEqual(15, lStatement.Range.EndColumn);
+    if i = 0 then
+    begin
+      lTempName := 'lWithItemPtr';
+      lExpected := '  lWithItemPtr := @lPointer^;' + sLineBreak +
+        '  lWithItemPtr^.Value := 1;';
+      lFirst := lStatement;
+    end else begin
+      lTempName := 'lWithItemPtr1';
+      lExpected := '  lWithItemPtr1 := @lPointer^;' + sLineBreak +
+        '  Inc(lWithItemPtr1^.Value);';
+    end;
+    Assert.AreEqual(lExpected, lStatement.ReplacementText);
+    Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual(lTempName + ': ^TItem;', lStatement.Temps[0].DeclarationText);
+    Assert.AreEqual(lTempName + ' := @lPointer^;', lStatement.Temps[0].InitializationText);
+    Assert.AreEqual(2 - i, Integer(Length(lStatement.Edits)));
+    Assert.AreEqual('replace-statement', lStatement.Edits[1 - i].Kind);
+    Assert.AreEqual(lExpected, lStatement.Edits[1 - i].ReplacementText);
+    Assert.AreEqual(30 + i * 3, lStatement.Edits[1 - i].Range.StartLine);
+    Assert.AreEqual(1, lStatement.Edits[1 - i].Range.StartColumn);
+    Assert.AreEqual(31 + i * 3, lStatement.Edits[1 - i].Range.EndLine);
+    Assert.AreEqual(15, lStatement.Edits[1 - i].Range.EndColumn);
+    Assert.AreEqual(lExpected, lStatement.RewriteRecipe.ReplacementText);
+    Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
+    Assert.AreEqual(2 - i, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
+  end;
+  Assert.AreEqual('declare-temp', lFirst.Edits[0].Kind);
+  Assert.AreEqual(20, lFirst.Edits[0].Range.StartLine);
+  Assert.AreEqual(20, lFirst.Edits[0].Range.EndLine);
+  Assert.AreEqual(1, lFirst.Edits[0].Range.StartColumn);
+  Assert.AreEqual(1, lFirst.Edits[0].Range.EndColumn);
+  Assert.AreEqual('  lWithItemPtr: ^TItem;' + sLineBreak +
+    '  lWithItemPtr1: ^TItem;' + sLineBreak, lFirst.Edits[0].ReplacementText);
 end;
 
 initialization
