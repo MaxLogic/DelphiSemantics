@@ -30,6 +30,27 @@ type
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
     [Test]
+    procedure FinalDtoCapturesVisibleImportedPointerCast;
+    [Test]
+    [TestCase('comma callable', '0')]
+    [TestCase('nested outer', '1')]
+    [TestCase('nested callable', '2')]
+    [TestCase('local callable', '3')]
+    [TestCase('indirect target', '4')]
+    [TestCase('target collision', '5')]
+    [TestCase('imported callable', '6')]
+    [TestCase('repeated outer', '7')]
+    [TestCase('repeated callable', '8')]
+    procedure PointerCastReceiverPreservesExclusions(const aCase: Integer);
+    [Test]
+    [TestCase('direct', '0')]
+    [TestCase('guarded', '1')]
+    [TestCase('loop', '2')]
+    [TestCase('indexed argument', '3')]
+    procedure FinalDtoCapturesPointerCastReceiverOnce(const aCase: Integer);
+    [Test]
+    procedure PointerCastReceiverKeepsOrdinaryPointerAndRoutineShadowControls;
+    [Test]
     [TestCase('Double writable', '0')]
     [TestCase('Pointer writable', '1')]
     [TestCase('Integer control', '2')]
@@ -19473,12 +19494,14 @@ end;
 procedure TRemoveWithPlanTests.FinalDtoPreservesNestedAndConditionalBodyRanges(
   const aCase: Integer);
 const
-  cStartLines: array[0..2] of Integer = (23, 25, 35);
-  cColumns: array[0..2] of Integer = (5, 7, 3);
-  cEndLines: array[0..2] of Integer = (29, 28, 42);
-  cEndColumns: array[0..2] of Integer = (7, 9, 17);
+  cStartLines: array[0..2] of Integer = (23, 23, 35);
+  cColumns: array[0..2] of Integer = (5, 5, 3);
+  cEndLines: array[0..2] of Integer = (29, 29, 42);
+  cEndColumns: array[0..2] of Integer = (7, 7, 17);
 var
   i: Integer;
+  lChild: TDelphiSemanticRemoveWithStatement;
+  lChildFinal: TDelphiSemanticRemoveWithFinalStatement;
   lExpected: string;
   lLines: TArray<string>;
   lPlan: TDelphiSemanticRemoveWithPlan;
@@ -19492,7 +19515,6 @@ begin
     cEndLines[aCase], cEndColumns[aCase]]);
   Assert.AreEqual(lRange, SourceRangeText(lStatement.Range));
   Assert.AreEqual(lRange, SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual(lRange, SourceRangeText(lStatement.RewriteRecipe.ReplacementRange));
   lLines := TFile.ReadAllLines(lStatement.FileName, TEncoding.UTF8);
   lExpected := Copy(lLines[cStartLines[aCase] - 1], cColumns[aCase], MaxInt);
   for i := cStartLines[aCase] to cEndLines[aCase] - 2 do
@@ -19500,21 +19522,57 @@ begin
   lExpected := lExpected + sLineBreak +
     Copy(lLines[cEndLines[aCase] - 1], 1, cEndColumns[aCase]);
   Assert.AreEqual(lExpected, lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('9ed4dd49c56864b2850a869a7e95b55fb2b7824ebdb3636138ffb43287c007c6', lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('cast-selector', lStatement.Reason);
-  Assert.AreEqual('cast-selector', lStatement.SafetyReason);
-  Assert.AreEqual('', lStatement.ReplacementText);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
-  Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('cast-selector', lStatement.RewriteRecipe.Reason);
-  Assert.AreEqual('cast-selector', lStatement.RewriteRecipe.SafetyReason);
-  Assert.AreEqual('', lStatement.RewriteRecipe.ReplacementText);
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
+  Assert.AreEqual('9ed4dd49c56864b2850a869a7e95b55fb2b7824ebdb3636138ffb43287c007c6',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  if aCase < 2 then
+  begin
+    Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual('lWithItemPtr := @aOuter;', lStatement.Temps[0].InitializationText);
+    Assert.AreEqual('lWithItemPtr1 := @PItem(aPointer)^;', lStatement.Temps[1].InitializationText);
+    Assert.AreEqual('lWithItemPtr1: ^TItem;', lStatement.Temps[1].DeclarationText);
+    Assert.AreEqual('21:1-21:1', SourceRangeText(lStatement.Edits[0].Range));
+    Assert.AreEqual('var' + sLineBreak + '  lWithItemPtr: ^TItem;' + sLineBreak +
+      '  lWithItemPtr1: ^TItem;' + sLineBreak, lStatement.Edits[0].ReplacementText);
+    Assert.AreEqual('23:1-29:7', SourceRangeText(lStatement.Edits[1].Range));
+    lExpected := '    begin' + sLineBreak +
+      '      lWithItemPtr := @aOuter;' + sLineBreak +
+      '      begin' + sLineBreak +
+      '      lWithItemPtr1 := @PItem(aPointer)^;' + sLineBreak +
+      '      begin' + sLineBreak +
+      '        lWithItemPtr1^.Value := lWithItemPtr1^.Value + 1' + sLineBreak +
+      '      end' + sLineBreak + '    end' + sLineBreak + '    end';
+    if aCase = 1 then
+    begin
+      Assert.IsTrue(FindStatementBySemanticId(lPlan, lStatement.Temps[1].SemanticId, lChild));
+      Assert.AreEqual('25:7-28:9', SourceRangeText(lChild.Range));
+      Assert.AreEqual('planned', lChild.Status);
+      Assert.AreEqual('covered-by-parent-rewrite', lChild.Reason);
+      Assert.AreEqual(lStatement.StatementId, lChild.CoveredByStatementId);
+      Assert.IsFalse(FindFinalStatement(lPlan, lChild.StatementId,
+        lChildFinal));
+    end;
+  end else begin
+    Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual('lWithItemPtr := @PItem(aPointer)^;', lStatement.Temps[0].InitializationText);
+    Assert.AreEqual('34:1-34:1', SourceRangeText(lStatement.Edits[0].Range));
+    Assert.AreEqual('var' + sLineBreak + '  lWithItemPtr: ^TItem;' + sLineBreak,
+      lStatement.Edits[0].ReplacementText);
+    Assert.AreEqual('35:1-42:17', SourceRangeText(lStatement.Edits[1].Range));
+    lExpected := '  lWithItemPtr := @PItem(aPointer)^;' + sLineBreak +
+      '  if lWithItemPtr^.Value < 0 then' + sLineBreak +
+      '      Result := -1' + sLineBreak + '    else if aFlag then' + sLineBreak +
+      '    begin' + sLineBreak + '      Result := lWithItemPtr^.Value' + sLineBreak +
+      '    end else' + sLineBreak + '      Result := 0';
+  end;
+  Assert.AreEqual('lWithItemPtr: ^TItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual(SourceRangeText(lStatement.Edits[1].Range),
+    SourceRangeText(lStatement.RewriteRecipe.ReplacementRange));
+  AssertCapturedRecipe(lStatement);
 end;
 
 procedure TRemoveWithPlanTests.SnapshotPreservesControlledCompoundBeforeOuterElse(
@@ -19737,6 +19795,177 @@ begin
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
   AssertCapturedRecipe(lStatement);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoCapturesPointerCastReceiverOnce(const aCase: Integer);
+const
+  cRoutines: array[0..3] of string = ('ExecuteDirect', 'ExecuteGuarded', 'ExecuteLoop', 'ExecuteIndexed');
+  cStartLines: array[0..3] of Integer = (26, 37, 48, 59);
+  cEndLines: array[0..3] of Integer = (31, 42, 54, 64);
+  cDeclarationLines: array[0..3] of Integer = (25, 35, 46, 58);
+  cColumns: array[0..3] of Integer = (3, 5, 5, 3);
+  cArguments: array[0..3] of string = ('aSlot.fData', 'aSlot.fData', 'aSlot.fData', 'aSlots[0].fData');
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lBody, lExpected, lIndent, lSelector: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lMatches: Integer;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('RemoveWithPointerCastReceiver\PointerCastReceiver.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Release';
+  lOptions.DelphiVersion := '23.0';
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lMatches := 0;
+  lSelector := 'PItem(' + cArguments[aCase] + ')^';
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.RoutineName, cRoutines[aCase]) then
+    begin
+      Inc(lMatches);
+      Assert.AreEqual(1, Integer(Length(lBinding.Selectors)));
+      Assert.AreEqual(lSelector, lBinding.Selectors[0].SelectorText);
+      Assert.AreEqual('resolved', lBinding.Selectors[0].Status);
+      Assert.AreEqual('TItem', lBinding.Selectors[0].TypeName);
+      Assert.AreEqual('', lBinding.Selectors[0].ReasonCode);
+    end;
+  Assert.AreEqual(1, lMatches);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'PointerCastReceiverUnit.pas',
+    cStartLines[aCase], cColumns[aCase], lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual(Format('%d:%d-%d:%d', [cStartLines[aCase], cColumns[aCase],
+    cEndLines[aCase], cColumns[aCase] + 3]), SourceRangeText(lStatement.Range));
+  Assert.AreEqual(SourceRangeText(lStatement.Range), SourceRangeText(lStatement.Verification.Range));
+  lIndent := StringOfChar(' ', cColumns[aCase] - 1);
+  lBody := lIndent + 'begin' + sLineBreak +
+    lIndent + '  fValue := fValue + 1;' + sLineBreak +
+    lIndent + '  ' + cArguments[aCase] + ' := @aOther;' + sLineBreak +
+    lIndent + '  fValue := fValue + 10;' + sLineBreak;
+  if aCase = 2 then
+    lBody := lBody + lIndent + '  Dec(aCount);' + sLineBreak;
+  lBody := lBody + lIndent + 'end;';
+  Assert.AreEqual('with ' + lSelector + ' do' + sLineBreak + lBody,
+    lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('36b4a0ebf76e6e00d49a96224124b9acc7c9156d2b6de818a53f17273ae78c83',
+    lStatement.Verification.ExpectedFileHash);
+  lBody := StringReplace(lBody, 'fValue', 'lWithItemPtr^.fValue', [rfReplaceAll]);
+  if (aCase = 1) or (aCase = 2) then
+    lExpected := lIndent + 'begin' + sLineBreak + lIndent +
+      '  lWithItemPtr := @' + lSelector + ';' + sLineBreak + '  ' + lBody +
+      sLineBreak + lIndent + 'end;'
+  else
+    lExpected := lIndent + 'lWithItemPtr := @' + lSelector + ';' + sLineBreak + lBody;
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('lWithItemPtr: ^TItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithItemPtr := @' + lSelector + ';', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual(Format('%d:1-%d:1', [cDeclarationLines[aCase], cDeclarationLines[aCase]]),
+    SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + sLineBreak + '  lWithItemPtr: ^TItem;' + sLineBreak,
+    lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(Format('%d:1-%d:%d', [cStartLines[aCase], cEndLines[aCase],
+    cColumns[aCase] + 3]), SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+end;
+
+procedure TRemoveWithPlanTests.PointerCastReceiverKeepsOrdinaryPointerAndRoutineShadowControls;
+var
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('RemoveWithPointerCastReceiver\PointerCastReceiver.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Release';
+  lOptions.DelphiVersion := '23.0';
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'PointerCastReceiverUnit.pas', 69, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('lWithItemPtr := @aReceiver^;', lStatement.Temps[0].InitializationText);
+  AssertCapturedRecipe(lStatement);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'PointerCastReceiverUnit.pas', 89, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('89:3-94:6', SourceRangeText(lStatement.Range));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoCapturesVisibleImportedPointerCast;
+var
+  lExpected: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('RemoveWithPointerCastReceiver\PointerCastReceiver.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Release';
+  lOptions.DelphiVersion := '23.0';
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'PointerCastVisible.pas', 19, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('19:3-24:6', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('with PForeignItem(aSlot.fData)^ do' + sLineBreak +
+    '  begin' + sLineBreak + '    fValue := fValue + 1;' + sLineBreak +
+    '    aSlot.fData := aOther;' + sLineBreak + '    fValue := fValue + 10;' +
+    sLineBreak + '  end;', lStatement.Verification.ExpectedSourceText);
+  lExpected := '  lWithForeignItemPtr := @PForeignItem(aSlot.fData)^;' + sLineBreak +
+    '  begin' + sLineBreak + '    lWithForeignItemPtr^.fValue := lWithForeignItemPtr^.fValue + 1;' +
+    sLineBreak + '    aSlot.fData := aOther;' + sLineBreak +
+    '    lWithForeignItemPtr^.fValue := lWithForeignItemPtr^.fValue + 10;' + sLineBreak + '  end;';
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('lWithForeignItemPtr: ^TForeignItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithForeignItemPtr := @PForeignItem(aSlot.fData)^;',
+    lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('18:1-18:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + sLineBreak + '  lWithForeignItemPtr: ^TForeignItem;' + sLineBreak,
+    lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('19:1-24:6', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+end;
+
+procedure TRemoveWithPlanTests.PointerCastReceiverPreservesExclusions(const aCase: Integer);
+const
+  cFiles: array[0..8] of string = ('PointerCastReceiverShadows.pas', 'PointerCastReceiverShadows.pas',
+    'PointerCastReceiverShadows.pas', 'PointerCastReceiverShadows.pas',
+    'PointerCastIndirect.pas', 'PointerCastVisible.pas', 'PointerCastImported.pas',
+    'PointerCastRepeated.pas', 'PointerCastRepeated.pas');
+  cLines: array[0..8] of Integer = (29, 39, 40, 60, 17, 33, 20, 20, 21);
+  cColumns: array[0..8] of Integer = (3, 3, 5, 3, 3, 3, 3, 3, 5);
+  cRanges: array[0..8] of string = ('29:3-34:6', '39:3-45:8', '40:5-45:8',
+    '60:3-65:6', '17:3-22:6', '33:3-38:6', '20:3-25:6', '20:3-26:8', '21:5-26:8');
+var
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('RemoveWithPointerCastReceiver\PointerCastReceiver.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Release';
+  lOptions.DelphiVersion := '23.0';
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, cFiles[aCase], cLines[aCase], cColumns[aCase], lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual(cRanges[aCase], SourceRangeText(lStatement.Range));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 initialization

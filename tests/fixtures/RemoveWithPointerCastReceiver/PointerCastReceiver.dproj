@@ -1,0 +1,28 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{19490BDB-8678-42C9-A94E-89948806D161}</ProjectGuid>
+    <ProjectVersion>20.3</ProjectVersion>
+    <MainSource>PointerCastReceiver.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Release</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <AppType>Console</AppType>
+    <DCC_ExeOutput>.dak\PointerCastReceiver\bin\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>.dak\PointerCastReceiver\dcu\$(Platform)</DCC_DcuOutput>
+    <DCC_Namespace>System;Winapi;$(DCC_Namespace)</DCC_Namespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="PointerCastReceiverShadows.pas"/>
+    <DCCReference Include="PointerCastReceiverUnit.pas"/>
+    <DCCReference Include="PointerCastAliases.pas"/>
+    <DCCReference Include="PointerCastCallable.pas"/>
+    <DCCReference Include="PointerCastImported.pas"/>
+    <DCCReference Include="PointerCastIndirect.pas"/>
+    <DCCReference Include="PointerCastRepeated.pas"/>
+    <DCCReference Include="PointerCastRepeatedTarget.pas"/>
+    <DCCReference Include="PointerCastTarget.pas"/>
+    <DCCReference Include="PointerCastVisible.pas"/>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>

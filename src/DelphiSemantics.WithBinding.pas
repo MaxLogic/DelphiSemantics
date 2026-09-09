@@ -207,6 +207,7 @@ implementation
 uses
   System.Classes, System.Diagnostics, System.Generics.Collections, System.Hash, System.Math,
   System.RegularExpressions, System.StrUtils, System.SysUtils,
+  SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.CompilerProfile, DelphiSemantics.ProjectContext,
   DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.WithBinding.Inventory,
   MaxLogic.StrUtils;
@@ -282,6 +283,8 @@ type
   TWithBindingProjectMemberIndex = class
   private
     fIntrinsicTypes: TDictionary<string, TDelphiSemanticIntrinsicSymbol>;
+    fLookupIndex: TDelphiSemanticRemoveWithLookupIndex;
+    fTypeIndex: TDelphiSemanticTypeIdentityIndex;
     fModels: TArray<TDelphiSemanticUnitModel>;
     fDeclarationCandidates: TObjectDictionary<string, TList<TIndexedDeclarationCandidate>>;
     fDeclarationModels: TDictionary<string, TArray<TDelphiSemanticUnitModel>>;
@@ -324,10 +327,13 @@ type
       out aResult: TDelphiSemanticResolveResult): Boolean;
   public
     constructor Create(const aModels: TArray<TDelphiSemanticUnitModel>;
-      const aGraph: TDelphiSemanticSemanticGraph);
+      const aGraph: TDelphiSemanticSemanticGraph;
+      const aLookupIndex: TDelphiSemanticRemoveWithLookupIndex);
     destructor Destroy; override;
     function TryResolveIntrinsicType(const aName: string;
       out aResult: TDelphiSemanticResolveResult): Boolean;
+    function TryResolvePointerCastType(const aModel: TDelphiSemanticUnitModel;
+      const aName: string; const aLine: Integer; out aTypeName: string): Boolean;
     function ContextForName(const aContext: TDelphiSemanticResolveContext;
       const aName: string): TDelphiSemanticResolveContext;
     function TryResolveDirectMember(const aCurrentUnitName, aCurrentTypeName, aOwnerName,
@@ -1070,18 +1076,19 @@ end;
 
 constructor TWithBindingProjectMemberIndex.Create(
   const aModels: TArray<TDelphiSemanticUnitModel>;
-  const aGraph: TDelphiSemanticSemanticGraph);
+  const aGraph: TDelphiSemanticSemanticGraph;
+  const aLookupIndex: TDelphiSemanticRemoveWithLookupIndex);
 var
   lGraph: TDelphiSemanticSemanticGraph;
   lIndex: Integer;
   lMember: TDelphiSemanticMember;
   lModel: TDelphiSemanticUnitModel;
   lOwnGraph: Boolean;
-  lTypeIndex: TDelphiSemanticTypeIdentityIndex;
 begin
   inherited Create;
   try
     fModels := aModels;
+    fLookupIndex := aLookupIndex;
     BuildDeclarationIndex;
     fByUnitOwnerName := TDictionary<string, TList<TDelphiSemanticResolveResult>>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -1102,8 +1109,8 @@ begin
       lOwnGraph := True;
     end;
     try
-      lTypeIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
-      fSemanticMemberIndex := TDelphiSemanticMemberResolver.BuildIndex(lGraph, lTypeIndex);
+      fTypeIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+      fSemanticMemberIndex := TDelphiSemanticMemberResolver.BuildIndex(lGraph, fTypeIndex);
       fSemanticMemberIndexAvailable := True;
     finally
       if lOwnGraph then
@@ -1601,14 +1608,194 @@ begin
   aResult.Kind := 'property';
 end;
 
+function PointerCastName(const aText: string; out aName: string): Boolean;
+var
+  lDepth: Integer;
+  lHasArgument: Boolean;
+  lLexer: TmwBasePasLex;
+begin
+  Result := False;
+  aName := '';
+  if (Pos('(', aText) = 0) or (not EndsText('^', Trim(aText))) then
+    Exit;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := Trim(aText);
+    if lLexer.TokenID <> ptIdentifier then
+      Exit;
+    aName := lLexer.Token;
+    lLexer.NextNoJunk;
+    if lLexer.TokenID <> ptRoundOpen then
+      Exit;
+    lDepth := 1;
+    lHasArgument := False;
+    lLexer.NextNoJunk;
+    while (lLexer.TokenID <> ptNull) and (lDepth > 0) do
+    begin
+      if lLexer.TokenID = ptRoundOpen then
+        Inc(lDepth)
+      else if lLexer.TokenID = ptRoundClose then
+        Dec(lDepth);
+      if lDepth > 0 then
+        lHasArgument := True;
+      lLexer.NextNoJunk;
+    end;
+    if (lDepth <> 0) or (not lHasArgument) or
+      (lLexer.TokenID <> ptPointerSymbol) then
+      Exit;
+    lLexer.NextNoJunk;
+    Result := lLexer.TokenID = ptNull;
+  finally
+    lLexer.Free;
+  end;
+end;
+
+function RoutineScopeAtLine(const aModel: TDelphiSemanticUnitModel;
+  const aLine: Integer): string;
+var
+  lBestLine: Integer;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  Result := '';
+  lBestLine := 0;
+  for lRoutine in aModel.Routines do
+    if (lRoutine.Line < aLine) and (lRoutine.EndLine >= aLine) and
+      (lRoutine.Line > lBestLine) then
+    begin
+      lBestLine := lRoutine.Line;
+      Result := lRoutine.ScopeId;
+    end;
+end;
+
+function ScopeEncloses(const aScope, aChildScope: string): Boolean;
+begin
+  Result := (aScope <> '') and (SameText(aScope, aChildScope) or
+    StartsText(aScope + '/', aChildScope));
+end;
+
+function PointerCastNameHasLexicalShadow(const aModel: TDelphiSemanticUnitModel;
+  const aName, aScope: string; const aLine: Integer): Boolean;
+var
+  lLocal: TDelphiSemanticLocal;
+  lParameter: TDelphiSemanticParameter;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  for lRoutine in aModel.Routines do
+  begin
+    if SameText(lRoutine.Name, aName) and (lRoutine.Line < aLine) and
+      ((lRoutine.ParentScopeId = '') or ScopeEncloses(lRoutine.ParentScopeId, aScope)) then
+      Exit(True);
+    if ScopeEncloses(lRoutine.ScopeId, aScope) then
+      for lParameter in lRoutine.Parameters do
+        if SameText(lParameter.Name, aName) then
+          Exit(True);
+  end;
+  for lLocal in aModel.Locals do
+    if SameText(lLocal.Name, aName) and (lLocal.Line < aLine) and
+      ScopeEncloses(lLocal.RoutineScopeId, aScope) then
+      Exit(True);
+  Result := False;
+end;
+
+function TWithBindingProjectMemberIndex.TryResolvePointerCastType(
+  const aModel: TDelphiSemanticUnitModel; const aName: string;
+  const aLine: Integer; out aTypeName: string): Boolean;
+var
+  lAlias: TDelphiSemanticTypeLookupResult;
+  lAliasModel: TDelphiSemanticUnitModel;
+  lCapture: TDelphiSemanticTypeLookupResult;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lScope: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbolScope: string;
+  lTarget: TDelphiSemanticTypeLookupResult;
+  lTargetName: string;
+  lVisibleUnits: TArray<string>;
+begin
+  Result := False;
+  aTypeName := '';
+  lScope := RoutineScopeAtLine(aModel, aLine);
+  if PointerCastNameHasLexicalShadow(aModel, aName, lScope, aLine) then
+    Exit;
+  fVisibleUnitsByUnit.TryGetValue(aModel.UnitName, lVisibleUnits);
+  lAlias := fTypeIndex.ResolveVisibleName(aName, aModel.UnitName,
+    lVisibleUnits, 'implementation');
+  if (not lAlias.Found) or (not SameText(lAlias.Identity.Kind, 'type-alias')) then
+    Exit;
+  for lSymbol in fLookupIndex.FindSymbolsByName(aName) do
+    if (not SameText(lSymbol.FileName, aModel.FileName)) and
+      MatchText(lSymbol.UnitName, lVisibleUnits) and
+      SameText(lSymbol.SectionKind, 'interface') and
+      (SameText(lSymbol.SymbolClass, 'declaration') or
+      SameText(lSymbol.SymbolClass, 'unit-global')) and
+      (not SameText(lSymbol.Kind, 'type')) and
+      (not SameText(lSymbol.Kind, 'type-alias')) then
+      Exit;
+  for lAliasModel in fModels do
+  begin
+    if not SameText(lAliasModel.UnitName, lAlias.Identity.UnitName) then
+      Continue;
+    for lDeclaration in lAliasModel.Declarations do
+    begin
+      if (lDeclaration.Line <> lAlias.Identity.SourceRange.Line) or
+        (lDeclaration.Column <> lAlias.Identity.SourceRange.Column) then
+        Continue;
+      // Only a direct source pointer declaration establishes storage identity.
+      if RoutineScopeAtLine(lAliasModel, lDeclaration.Line) <> '' then
+        Exit;
+      lTargetName := Trim(lDeclaration.TypeName);
+      if not StartsText('^', lTargetName) then
+        Exit;
+      lTargetName := Trim(Copy(lTargetName, 2, MaxInt));
+      if not TRegEx.IsMatch(lTargetName, '^[A-Za-z_][A-Za-z0-9_]*$') then
+        Exit;
+      lTarget := fTypeIndex.ResolveVisibleName(lTargetName, lAliasModel.UnitName,
+        CombineUnitUses(lAliasModel.InterfaceUses, lAliasModel.ImplementationUses),
+        lDeclaration.SectionKind);
+      if (not lTarget.Found) or ((not SameText(lTarget.Identity.Kind, 'type')) or
+        (not SameText(lTarget.Identity.CanonicalName, 'record'))) then
+        Exit;
+      lCapture := fTypeIndex.ResolveVisibleName(lTargetName, aModel.UnitName,
+        lVisibleUnits, 'implementation');
+      if (not lCapture.Found) or
+        (lCapture.Identity.DeclaredId.Value <> lTarget.Identity.DeclaredId.Value) then
+        Exit;
+      // Fast models can omit local types. The existing expanded inventory retains them.
+      for lSymbol in fLookupIndex.FindSymbolsByName(aName) +
+        fLookupIndex.FindSymbolsByName(lTargetName) do
+      begin
+        if not SameText(lSymbol.FileName, aModel.FileName) then
+          Continue;
+        if lSymbol.Line > aLine then
+          Continue;
+        lSymbolScope := RoutineScopeAtLine(aModel, lSymbol.Line);
+        if ScopeEncloses(lSymbolScope, lScope) then
+          Exit;
+        if (lSymbolScope = '') and SameText(lSymbol.Name, aName) and
+          ((lSymbol.Line <> lAlias.Identity.SourceRange.Line) or
+          (lSymbol.Column <> lAlias.Identity.SourceRange.Column) or
+          (not SameText(lSymbol.FileName, lAlias.Identity.SourceRange.FileName))) then
+          Exit;
+      end;
+      aTypeName := lTargetName;
+      Exit(True);
+    end;
+  end;
+end;
+
 function MakeSelectorBinding(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName,
   aCurrentTypeName, aSelectorText: string; const aParentRoutineNames: TArray<string>;
-  const aPreviousSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aPreviousSelectors, aParentSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aLine: Integer;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
   TDelphiSemanticWithSelectorBinding;
 var
+  lCastName: string;
+  lCastResult: TDelphiSemanticResolveResult;
+  lCastType: string;
   lContext: TDelphiSemanticResolveContext;
   lResult: TDelphiSemanticResolveResult;
   lSelectorText: string;
@@ -1627,6 +1814,24 @@ begin
     aCurrentTypeName, ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
     aPreviousSelectors), lSelectorText, aProjectMemberIndex, aMemberCache, lResult)) then
     lResult := ResolveNameThroughWithBindingAuthority(aModel, lContext, lSelectorText);
+  if PointerCastName(lSelectorText, lCastName) and
+    (not TryResolveReceiverMember(aModel, aProjectModels, aPreviousSelectors,
+    aCurrentTypeName, ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+    aPreviousSelectors), lCastName, aProjectMemberIndex, aMemberCache, lCastResult)) and
+    (not TryResolveReceiverMember(aModel, aProjectModels, aParentSelectors,
+    aCurrentTypeName, ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+    aParentSelectors), lCastName, aProjectMemberIndex, aMemberCache, lCastResult)) and
+    ((aCurrentTypeName = '') or
+    (not aProjectMemberIndex.TryResolveDirectMember(aModel.UnitName, aCurrentTypeName,
+    aCurrentTypeName, lCastName, True, lCastResult))) and
+    aProjectMemberIndex.TryResolvePointerCastType(aModel, lCastName, aLine, lCastType) then
+  begin
+    lResult := Default(TDelphiSemanticResolveResult);
+    lResult.Found := True;
+    lResult.Status := 'resolved';
+    lResult.Kind := 'record';
+    lResult.TypeName := lCastType;
+  end;
   if lResult.Found and SelectorUsesUnsafeProperty(aModel, lContext, lSelectorText) then
     MarkPropertySelectorUnsupported(lSelectorText, lResult);
   Result.SelectorText := lSelectorText;
@@ -2328,6 +2533,8 @@ end;
 function BindSelectors(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName,
   aCurrentTypeName, aSelectorText: string; const aParentRoutineNames: TArray<string>;
+  const aParentSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aLine: Integer;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
   TArray<TDelphiSemanticWithSelectorBinding>;
@@ -2339,7 +2546,7 @@ begin
   try
     for lPart in SplitSelectors(aSelectorText) do
       lSelectors.Add(MakeSelectorBinding(aModel, aProjectModels, aRoutineName,
-        aCurrentTypeName, lPart, aParentRoutineNames, lSelectors.ToArray, aProjectMemberIndex,
+        aCurrentTypeName, lPart, aParentRoutineNames, lSelectors.ToArray, aParentSelectors, aLine, aProjectMemberIndex,
         aMemberCache));
     Result := lSelectors.ToArray;
   finally
@@ -2666,6 +2873,7 @@ var
   lDirectSelectors: TWithSelectorBindingArray;
   lParentIndexes: TArray<Integer>;
   lParentIndex: Integer;
+  lParentSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   lParentRoutineNames: TArray<string>;
   lRoutineLookupName: string;
   lRoutineName: string;
@@ -2681,10 +2889,13 @@ begin
       lParentRoutineNames, aStatements[i].Line);
     lRoutineLookupName := RoutineLookupNameForRoutineContext(aModel, lRoutineName,
       aStatements[i].Line);
+    lParentIndex := lParentIndexes[i];
+    lParentSelectors := nil;
+    if lParentIndex >= 0 then
+      lParentSelectors := Result[lParentIndex];
     lDirectSelectors := BindSelectors(aModel, aProjectModels, lRoutineLookupName,
       lCurrentTypeName, aStatements[i].SelectorText, lParentRoutineNames,
-      aProjectMemberIndex, aMemberCache);
-    lParentIndex := lParentIndexes[i];
+      lParentSelectors, aStatements[i].Line, aProjectMemberIndex, aMemberCache);
     if lParentIndex >= 0 then
       Result[i] := MergeSelectorStacks(Result[lParentIndex], lDirectSelectors)
     else
@@ -2771,7 +2982,7 @@ begin
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lMemberCache := TDictionary<string, TDelphiSemanticResolveResult>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
-  lProjectMemberIndex := TWithBindingProjectMemberIndex.Create(aModels, aGraph);
+  lProjectMemberIndex := nil;
   try
     for lModel in aModels do
     begin
@@ -2780,6 +2991,23 @@ begin
         lSymbols.Add(lSymbol);
       lStopwatch.Stop;
       Inc(lInventoryBuildMs, lStopwatch.ElapsedMilliseconds);
+    end;
+    TDelphiSemanticWithBindingInventory.AddCompilerProfileCompatibilitySymbols(lSymbols);
+    TDelphiSemanticWithBindingInventory.AddProjectExternalUnitSymbols(aModels, lSymbols);
+    lStopwatch := TStopwatch.StartNew;
+    Result.Symbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lSymbols.ToArray);
+    lStopwatch.Stop;
+    lInventoryExpansionMs := lStopwatch.ElapsedMilliseconds;
+    Result.UnitModels := Copy(aModels);
+    lStopwatch := TStopwatch.StartNew;
+    Result.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(Result.UnitModels,
+      Result.Symbols);
+    lStopwatch.Stop;
+    lLookupIndexBuildMs := lStopwatch.ElapsedMilliseconds;
+    lProjectMemberIndex := TWithBindingProjectMemberIndex.Create(aModels, aGraph,
+      Result.LookupIndex);
+    for lModel in aModels do
+    begin
       if Length(lModel.WithStatements) = 0 then
         Continue;
       SetLength(lWithStatementLines, Length(lModel.WithStatements));
@@ -2840,18 +3068,6 @@ begin
       lBindingStopwatch.Stop;
       Inc(lBindingBuildMs, lBindingStopwatch.ElapsedMilliseconds);
     end;
-    TDelphiSemanticWithBindingInventory.AddCompilerProfileCompatibilitySymbols(lSymbols);
-    TDelphiSemanticWithBindingInventory.AddProjectExternalUnitSymbols(aModels, lSymbols);
-    lStopwatch := TStopwatch.StartNew;
-    Result.Symbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lSymbols.ToArray);
-    lStopwatch.Stop;
-    lInventoryExpansionMs := lStopwatch.ElapsedMilliseconds;
-    Result.UnitModels := Copy(aModels);
-    lStopwatch := TStopwatch.StartNew;
-    Result.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(Result.UnitModels,
-      Result.Symbols);
-    lStopwatch.Stop;
-    lLookupIndexBuildMs := lStopwatch.ElapsedMilliseconds;
     Result.Bindings := lBindings.ToArray;
     Result.Metrics.SemanticGraphUsed := aGraph <> nil;
     Result.Metrics.BuildUnitIndexUsed := False;

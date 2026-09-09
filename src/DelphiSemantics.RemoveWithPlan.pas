@@ -1711,10 +1711,31 @@ begin
   end;
 end;
 
+function ResolvedPointerCastSelector(const aBinding: TDelphiSemanticWithBinding;
+  const aSelectorText: string): Boolean;
+var
+  i: Integer;
+  lSelector: TDelphiSemanticWithSelectorBinding;
+begin
+  // The binder proves the whole cast and its declaration. Argument postfixes
+  // must not be applied again to the resolved record receiver type.
+  Result := False;
+  if (Pos('(', aSelectorText) = 0) or (not EndsText(')^', Trim(aSelectorText))) then
+    Exit;
+  for i := High(aBinding.Selectors) downto 0 do
+  begin
+    lSelector := aBinding.Selectors[i];
+    if SameText(lSelector.SelectorText, aSelectorText) then
+      Exit(SameText(lSelector.Status, 'resolved') and
+        (lSelector.ReasonCode = '') and (lSelector.TypeName <> ''));
+  end;
+end;
+
 function SelectorTypeName(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aSelectorText: string): string;
 var
+  i: Integer;
   lBracketPos: Integer;
   lMember: TDelphiSemanticInventorySymbol;
   lHasEarlierSelector: Boolean;
@@ -1725,6 +1746,10 @@ var
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
   Result := '';
+  if ResolvedPointerCastSelector(aBinding, aSelectorText) then
+    for i := High(aBinding.Selectors) downto 0 do
+      if SameText(aBinding.Selectors[i].SelectorText, aSelectorText) then
+        Exit(aBinding.Selectors[i].TypeName);
   lHasEarlierSelector := False;
   lSelectorName := Trim(aSelectorText);
   if EndsText('^', lSelectorName) then
@@ -2909,6 +2934,10 @@ begin
     if (not SameText(aTypeName, lDeclaration.Name)) and
       (not SameText(aTypeName, lDeclaration.UnitName + '.' + lDeclaration.Name)) then
       Continue;
+    // Only cast binding has already checked the target's declaration identity.
+    if ResolvedPointerCastSelector(aBinding, aBinding.SelectorText) and
+      (not CaptureDeclarationIsVisible(aFacts, aBinding, lDeclaration, aLineCache)) then
+      Continue;
     if Result and ((not SameText(lSelected.FileName, lDeclaration.FileName)) or
       (lSelected.Line <> lDeclaration.Line) or
       (lSelected.Column <> lDeclaration.Column)) then
@@ -2935,9 +2964,11 @@ var
   lHasNestedWith: Boolean;
   lOpenParen: Integer;
   lPrefixText: string;
+  lPointerCast: Boolean;
 begin
   Result := False;
   aReason := '';
+  lPointerCast := ResolvedPointerCastSelector(aBinding, aSelectorText);
   aDecision := Default(TFinalSelectorDecision);
   aDecision.SelectorText := aSelectorText;
   aDecision.ReceiverType := SelectorTypeName(aFacts, aBinding, aSelectorText);
@@ -2950,7 +2981,7 @@ begin
     Exit;
   end;
   lOpenParen := Pos('(', aSelectorText);
-  if lOpenParen > 0 then
+  if (lOpenParen > 0) and (not lPointerCast) then
   begin
     lPrefixText := Trim(Copy(aSelectorText, 1, lOpenParen - 1));
     if Length(aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(lPrefixText)) > 0 then
@@ -2961,7 +2992,8 @@ begin
     aReason := 'call-selector';
     Exit;
   end;
-  if ContainsText(aSelectorText, '.') and (not lHasDependentReceiver) then
+  if ContainsText(aSelectorText, '.') and (not lHasDependentReceiver) and
+    (not lPointerCast) then
   begin
     lHasNestedWith := BindingBodyContainsNestedWith(aBinding, aLineCache);
     if ((not lHasNestedWith) or (Length(aBinding.Selectors) > 1)) and
@@ -2975,7 +3007,7 @@ begin
       Exit;
     end;
   end;
-  if IndexedPointerSelectorBaseRequiresTypeResolutionSkip(aFacts, aBinding,
+  if (not lPointerCast) and IndexedPointerSelectorBaseRequiresTypeResolutionSkip(aFacts, aBinding,
     aSelectorText) and (not IndexedPointerSelectorBaseHasSkippedParentMember(aFacts,
     aPriorDecisions, aSelectorText)) then
   begin
