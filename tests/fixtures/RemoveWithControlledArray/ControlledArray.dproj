@@ -1,0 +1,21 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{B0817FB1-FC88-432C-B123-D741D6D53BA1}</ProjectGuid>
+    <ProjectVersion>20.3</ProjectVersion>
+    <MainSource>ControlledArray.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Release</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <AppType>Console</AppType>
+    <DCC_ExeOutput>.dak\ControlledArray\bin\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>.dak\ControlledArray\dcu\$(Platform)</DCC_DcuOutput>
+    <DCC_Namespace>System;Winapi;$(DCC_Namespace)</DCC_Namespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="ControlledArrayShadowUnit.pas"/>
+    <DCCReference Include="ControlledArrayUnit.pas"/>
+    <DCCReference Include="ControlledArrayUnsafeUnit.pas"/>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>

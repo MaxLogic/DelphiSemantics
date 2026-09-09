@@ -269,6 +269,7 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- Remove-with captures unambiguous global record-array fields at each controlled statement entry, preserving index mutation and skipped guards. Getter and shadowed receivers remain excluded.
 - Remove-with keeps reference coordinates correct when a body starts with LF after DO, preventing false unresolved-symbol skips. Cached models from the older parser are rebuilt.
 - Semantic benchmarks accept explicit platform, configuration and compiler options; List displays the complete commands for each cache mode without running them.
 - Remove-with preserves receiver-member precedence across inline declarations, including initializer expressions and loop bodies, without qualifying declaration identifiers.

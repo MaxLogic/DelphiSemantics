@@ -4655,6 +4655,123 @@ begin
   end;
 end;
 
+function SameStorageDeclaration(const aLeft, aRight:
+  TDelphiSemanticInventorySymbol): Boolean;
+begin
+  Result := SameText(aLeft.FileName, aRight.FileName) and
+    (aLeft.Line = aRight.Line) and (aLeft.Column = aRight.Column) and
+    SameText(aLeft.TypeName, aRight.TypeName);
+end;
+
+function IsSameUnitRecordDeclaration(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aTypeName: string): Boolean;
+var
+  lDeclaration: TDelphiSemanticInventorySymbol;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  lDeclaration := Default(TDelphiSemanticInventorySymbol);
+  if not IsSimpleIdentifier(aTypeName) then
+    Exit;
+  for lSymbol in aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(aTypeName) do
+  begin
+    if not SameText(lSymbol.SymbolClass, 'declaration') then
+      Continue;
+    if (not SameText(lSymbol.FileName, aBinding.FileName)) or
+      (not SameText(lSymbol.TypeName, 'record')) or
+      (lSymbol.RoutineName <> '') or (lSymbol.Line <= 0) or
+      (lSymbol.Line >= aBinding.Line) then
+      Exit(False);
+    if Result and (not SameStorageDeclaration(lDeclaration, lSymbol)) then
+      Exit(False);
+    lDeclaration := lSymbol;
+    Result := True;
+  end;
+end;
+
+function ControlledRecordArraySelectorIsEligible(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  lArrayType: string;
+  lBracket: Integer;
+  lElementType: string;
+  lField: TDelphiSemanticInventorySymbol;
+  lFieldName: string;
+  lIndexName: string;
+  lParts: TArray<string>;
+  lReceiverType: string;
+  lRoot: TDelphiSemanticInventorySymbol;
+  lRootClass: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if (aBinding.RoutineName = '') or (Length(aBinding.Selectors) <> 1) or
+    BindingBodyContainsNestedWith(aBinding, aLineCache) or
+    (not TrySplitSelectorChainParts(aBinding.SelectorText, lParts)) then
+    Exit;
+  if (Length(lParts) <> 2) or (not IsSimpleIdentifier(lParts[0])) then
+    Exit;
+  lBracket := Pos('[', lParts[1]);
+  if (lBracket <= 1) or (not EndsText(']', lParts[1])) then
+    Exit;
+  lFieldName := Trim(Copy(lParts[1], 1, lBracket - 1));
+  lIndexName := Trim(Copy(lParts[1], lBracket + 1,
+    Length(lParts[1]) - lBracket - 1));
+  if (not IsSimpleIdentifier(lFieldName)) or (not IsSimpleIdentifier(lIndexName)) then
+    Exit;
+  if TryFindRoutineScopedSymbolForBinding(aFacts, aBinding, lParts[0], lSymbol) then
+    Exit;
+
+  lRoot := Default(TDelphiSemanticInventorySymbol);
+  for lSymbol in aFacts.LookupIndex.FindUnitOrGlobalByName(lParts[0]) do
+  begin
+    if not SameText(lSymbol.SymbolClass, 'unit-global') then
+      Continue;
+    if (not SameText(lSymbol.FileName, aBinding.FileName)) or
+      (not SameText(lSymbol.Kind, 'unit-global')) or (lSymbol.Line <= 0) or
+      (lSymbol.Line >= aBinding.Line) then
+      Exit;
+    if (lRoot.Line > 0) and (not SameStorageDeclaration(lRoot, lSymbol)) then
+      Exit;
+    lRoot := lSymbol;
+  end;
+  if (lRoot.Line = 0) or
+    (not IsSameUnitRecordDeclaration(aFacts, aBinding, lRoot.TypeName)) then
+    Exit;
+  // Require one storage declaration; member and routine shadows remain excluded.
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(lParts[0]) do
+  begin
+    if (not MatchText(lSymbol.SymbolClass, ['declaration', 'unit-global'])) or
+      (not MatchText(lSymbol.Kind, ['var', 'unit-global'])) or
+      (not SameStorageDeclaration(lRoot, lSymbol)) then
+      Exit;
+  end;
+
+  lField := Default(TDelphiSemanticInventorySymbol);
+  for lSymbol in aFacts.LookupIndex.FindMembersByOwnerAndName(lRoot.TypeName,
+    lFieldName) do
+  begin
+    if (not SameText(lSymbol.Kind, 'field')) or
+      (not SameText(lSymbol.FileName, aBinding.FileName)) or
+      (lSymbol.Line <= 0) or (lSymbol.Line >= aBinding.Line) then
+      Exit;
+    if (lField.Line > 0) and (not SameStorageDeclaration(lField, lSymbol)) then
+      Exit;
+    lField := lSymbol;
+  end;
+  lArrayType := Trim(lField.TypeName);
+  if (not StartsText('array[', lArrayType)) or (Pos('] of ', lArrayType) = 0) then
+    Exit;
+  lElementType := ArrayElementTypeText(lArrayType);
+  if not IsSameUnitRecordDeclaration(aFacts, aBinding, lElementType) then
+    Exit;
+  // Type inference also accepts getters; storage evidence above is required first.
+  Result := TryResolveSourceBackedSelectorChainType(aFacts, aBinding,
+    aBinding.SelectorText, lReceiverType, lRootClass) and
+    SameText(lReceiverType, lElementType) and SameText(lRootClass, 'unit-global');
+end;
+
 function BindingFactSkipReason(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aLineCache: TDelphiSemanticSourceContextCache;
@@ -4686,7 +4803,8 @@ begin
 
   if ContainsText(aBinding.SelectorText, '.') and
     (Pos('^', aBinding.SelectorText) = 0) and
-    BindingFollowsControlStatement(aBinding, aLineCache) then
+    BindingFollowsControlStatement(aBinding, aLineCache) and
+    (not ControlledRecordArraySelectorIsEligible(aFacts, aBinding, aLineCache)) then
   begin
     aReason := 'controlled-with-statement';
     Exit;

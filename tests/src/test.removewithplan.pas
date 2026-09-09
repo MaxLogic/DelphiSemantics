@@ -30,6 +30,20 @@ type
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
     [Test]
+    [TestCase('while field array', '0')]
+    [TestCase('if field array', '1')]
+    [TestCase('plain field array', '2')]
+    [TestCase('pointer control', '3')]
+    procedure FinalDtoCapturesControlledRecordArrayReceiver(const aCase: Integer);
+    [Test]
+    [TestCase('parameterless method', '0')]
+    [TestCase('default indexer', '1')]
+    procedure FinalDtoRejectsControlledArrayGetters(const aCase: Integer);
+    [Test]
+    procedure FinalDtoRejectsControlledArraySelfShadow;
+    [Test]
+    procedure FinalDtoRejectsControlledArrayRoutineShadow;
+    [Test]
     [TestCase('contextual On field', '0')]
     [TestCase('unit conditional declaration', '1')]
     procedure FinalDtoKeepsInlineLexerBoundaries(const aCase: Integer);
@@ -16320,6 +16334,142 @@ begin
     'remove-with plan DTO should use the shared source-context cache while building edits');
   Assert.IsTrue(ContainsText(lSourceText, 'TDictionary<string, string>'),
     'remove-with plan DTO should cache source hashes per file while building edits');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoRejectsControlledArrayRoutineShadow;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithControlledArray\ControlledArray.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ControlledArrayShadowUnit.pas', 115, 7,
+    lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('controlled-with-statement', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('', lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoRejectsControlledArraySelfShadow;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithControlledArray\ControlledArray.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ControlledArrayShadowUnit.pas', 71, 5,
+    lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('controlled-with-statement', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('', lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoRejectsControlledArrayGetters(const aCase: Integer);
+const
+  cLines: array[0..1] of Integer = (47, 60);
+  cColumns: array[0..1] of Integer = (5, 7);
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithControlledArray\ControlledArray.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ControlledArrayUnsafeUnit.pas',
+    cLines[aCase], cColumns[aCase], lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('controlled-with-statement', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('', lStatement.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoCapturesControlledRecordArrayReceiver(
+  const aCase: Integer);
+const
+  cStartLines: array[0..3] of Integer = (34, 50, 60, 73);
+  cEndLines: array[0..3] of Integer = (39, 55, 65, 78);
+  cColumns: array[0..3] of Integer = (7, 5, 3, 3);
+  cDeclarationLines: array[0..3] of Integer = (31, 48, 59, 71);
+var
+  lDeclaration: string;
+  lExpected: string;
+  lIndent: string;
+  lIndexName: string;
+  lInnerIndent: string;
+  lOriginal: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lSelector: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithControlledArray\ControlledArray.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ControlledArrayUnit.pas',
+    cStartLines[aCase], cColumns[aCase], lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  if aCase = 0 then
+    lIndexName := 'i'
+  else
+    lIndexName := 'aIndex';
+  if aCase = 3 then
+    lSelector := 'p^'
+  else
+    lSelector := 'Container.Items[' + lIndexName + ']';
+  lIndent := StringOfChar(' ', cColumns[aCase] - 1);
+  lOriginal := 'with ' + lSelector + ' do' + sLineBreak +
+    lIndent + 'begin' + sLineBreak +
+    lIndent + '  Inc(Value);' + sLineBreak +
+    lIndent + '  Inc(' + lIndexName + ');' + sLineBreak +
+    lIndent + '  Inc(Value, 10);' + sLineBreak +
+    lIndent + 'end;';
+  Assert.AreEqual(lOriginal, lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('72a275095b5e9223723eec85a77264821414a4bb89bcff92f65a2ed4355b1cde',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual(Format('%d:%d-%d:%d', [cStartLines[aCase], cColumns[aCase],
+    cEndLines[aCase], cColumns[aCase] + 3]), SourceRangeText(lStatement.Range));
+  Assert.AreEqual(SourceRangeText(lStatement.Range),
+    SourceRangeText(lStatement.Verification.Range));
+  lInnerIndent := lIndent;
+  lExpected := '';
+  if aCase < 2 then
+  begin
+    lExpected := lIndent + 'begin' + sLineBreak;
+    lInnerIndent := lIndent + '  ';
+  end;
+  lExpected := lExpected + lInnerIndent + 'lWithItemPtr := @' + lSelector + ';' +
+    sLineBreak + lInnerIndent + 'begin' + sLineBreak +
+    lIndent + '  Inc(lWithItemPtr^.Value);' + sLineBreak +
+    lIndent + '  Inc(' + lIndexName + ');' + sLineBreak +
+    lIndent + '  Inc(lWithItemPtr^.Value, 10);' + sLineBreak +
+    lIndent + 'end;';
+  if aCase < 2 then
+    lExpected := lExpected + sLineBreak + lIndent + 'end;';
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('TItem', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual(lSelector, lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithItemPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithItemPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('lWithItemPtr: ^TItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithItemPtr := @' + lSelector + ';',
+    lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual(Format('%d:1-%d:1', [cDeclarationLines[aCase],
+    cDeclarationLines[aCase]]), SourceRangeText(lStatement.Edits[0].Range));
+  if aCase = 0 then
+    lDeclaration := '  lWithItemPtr: ^TItem;' + sLineBreak
+  else if aCase = 3 then
+    lDeclaration := '  lWithItemPtr: ^TItem;' + sLineBreak
+  else
+    lDeclaration := 'var' + sLineBreak + '  lWithItemPtr: ^TItem;' + sLineBreak;
+  Assert.AreEqual(lDeclaration, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(Format('%d:1-%d:%d', [cStartLines[aCase], cEndLines[aCase],
+    cColumns[aCase] + 3]), SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lStatement);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoKeepsInlineLexerBoundaries(const aCase: Integer);
