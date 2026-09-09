@@ -30,6 +30,16 @@ type
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
     [Test]
+    [TestCase('contextual On field', '0')]
+    [TestCase('unit conditional declaration', '1')]
+    procedure FinalDtoKeepsInlineLexerBoundaries(const aCase: Integer);
+    [Test]
+    [TestCase('typed array', '0')]
+    [TestCase('initializer rhs', '1')]
+    [TestCase('for variable', '2')]
+    [TestCase('unsupported handler', '3')]
+    procedure FinalDtoPreservesInlineDeclarationAndMemberExpressions(const aCase: Integer);
+    [Test]
     [TestCase('controlled', '0')]
     [TestCase('spaced', '1')]
     [TestCase('case-insensitive', '2')]
@@ -136,9 +146,9 @@ type
     [Test]
     procedure FinalDtoBlocksDakCombinedSelectorAmbiguousHelperCall;
     [Test]
-    procedure FinalDtoDoesNotTreatNestedInlineLocalAsOuterMember;
+    procedure FinalDtoPreservesMemberPrecedenceWithNestedInlineDeclaration;
     [Test]
-    procedure FinalDtoKeepsOuterInlineLocalVisibleAcrossNestedBlocks;
+    procedure FinalDtoPreservesMemberPrecedenceAcrossInlineBlocks;
     [Test]
     procedure FinalDtoKeepsResolvedNonMemberReferencesAndBlocksUnknownRoutine;
     [Test]
@@ -2938,8 +2948,8 @@ begin
     'var Name := ''local'';'), 'Expected inline local declaration to remain local: ' +
     lStatement.ReplacementText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    '.Count := Length(Name);'),
-    'Expected receiver member assignment to be qualified while local Name remains unqualified.');
+    'lWithBoundRewriteRecordPtr1^.Count := Length(lWithBoundRewriteRecordPtr1^.Name);'),
+    'Expected compiler-proven WITH member precedence while preserving the inline declaration.');
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'BoundRewriteUnit.pas', 53, 3,
     lStatement), 'Expected compact else-if statement.');
@@ -3635,7 +3645,7 @@ begin
   Assert.AreEqual('multiple-member-candidates', lStatement.Reason);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoDoesNotTreatNestedInlineLocalAsOuterMember;
+procedure TRemoveWithPlanTests.FinalDtoPreservesMemberPrecedenceWithNestedInlineDeclaration;
 var
   lFixtureDir: string;
   lPlan: TDelphiSemanticRemoveWithPlan;
@@ -3659,6 +3669,7 @@ begin
     '  end;' + sLineBreak +
     'procedure Run(var aRecord: TInlineLocalRecord);' + sLineBreak +
     'implementation' + sLineBreak +
+    'uses System.SysUtils;' + sLineBreak +
     'procedure Run(var aRecord: TInlineLocalRecord);' + sLineBreak +
     'begin' + sLineBreak +
     '  with aRecord do' + sLineBreak +
@@ -3702,22 +3713,21 @@ begin
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     'var Name := ''local'';'), 'Expected nested inline local declaration to remain local.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    '.Count := Length(Name);'),
-    'Expected nested local reference to remain unqualified inside its block.');
+    '.Count := Length(lWithInlineLocalRecordPtr^.Name);'),
+    'Expected compiler-proven WITH member precedence inside the inline declaration block.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     'lWithInlineLocalRecordPtr^.Name := IntToStr(lWithInlineLocalRecordPtr^.Count);'),
     'Expected receiver member after the nested local block to stay qualified: ' +
     lStatement.ReplacementText);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoKeepsOuterInlineLocalVisibleAcrossNestedBlocks;
+procedure TRemoveWithPlanTests.FinalDtoPreservesMemberPrecedenceAcrossInlineBlocks;
 var
   lFixtureDir: string;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lProjectPath: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
   lDprPath: string;
-  lLocalUsePos: Integer;
   lUnitPath: string;
 begin
   lFixtureDir := TempPath('dto-inline-local-nested-visibility');
@@ -3743,8 +3753,8 @@ begin
     '    if Count > 0 then' + sLineBreak +
     '    begin' + sLineBreak +
     '      Count := Length(Name);' + sLineBreak +
-    '      var Name := ''inner'';' + sLineBreak +
-    '      Count := Count + Length(Name);' + sLineBreak +
+    '      var lInner := ''inner'';' + sLineBreak +
+    '      Count := Count + Length(lInner);' + sLineBreak +
     '    end;' + sLineBreak +
     '    try' + sLineBreak +
     '      Count := Count + 1;' + sLineBreak +
@@ -3784,29 +3794,23 @@ begin
     'Expected inline-local nested visibility statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'lWithInlineLocalRecordPtr^.Count := Length(Name);'),
-    'Expected outer inline local to remain visible inside nested block: ' +
-    lStatement.ReplacementText);
+    'var Name := ''outer'';'), 'Preserve the declaration identifier.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'lWithInlineLocalRecordPtr^.Count := lWithInlineLocalRecordPtr^.Count + Length(Name);'),
-    'Expected inner inline local to remain visible inside nested block: ' +
-    lStatement.ReplacementText);
-  lLocalUsePos := Pos(
-    'lWithInlineLocalRecordPtr^.Count := lWithInlineLocalRecordPtr^.Count + Length(Name);',
-    lStatement.ReplacementText);
-  Assert.IsTrue(PosEx(
-    'lWithInlineLocalRecordPtr^.Count := lWithInlineLocalRecordPtr^.Count + Length(Name);',
-    lStatement.ReplacementText, lLocalUsePos + 1) > 0,
-    'Expected outer inline local to be restored after the nested block: ' +
-    lStatement.ReplacementText);
+    'var lInner := ''inner'';'), 'Preserve the unrelated nested declaration.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'Name := Name + ''x'';'),
-    'Expected outer inline local to remain visible after a nested try block: ' +
-    lStatement.ReplacementText);
-  Assert.IsFalse(ContainsText(lStatement.ReplacementText,
+    'lWithInlineLocalRecordPtr^.Count := Length(lWithInlineLocalRecordPtr^.Name);'),
+    'The WITH member wins over the outer inline local inside the nested block.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithInlineLocalRecordPtr^.Count := lWithInlineLocalRecordPtr^.Count + Length(lInner);'),
+    'The unrelated nested inline local remains lexical.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithInlineLocalRecordPtr^.Count := lWithInlineLocalRecordPtr^.Count + Length(lWithInlineLocalRecordPtr^.Name);'),
+    'The WITH member still wins after nested blocks.');
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     'lWithInlineLocalRecordPtr^.Name := lWithInlineLocalRecordPtr^.Name + ''x'';'),
-    'Nested try blocks must not end the inline local range too early: ' +
-    lStatement.ReplacementText);
+    'Both sides of the assignment refer to the WITH member after try/finally.');
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText,
+    'var lWithInlineLocalRecordPtr^.Name'), 'Never qualify a declaration identifier.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoKeepsResolvedNonMemberReferencesAndBlocksUnknownRoutine;
@@ -10605,6 +10609,108 @@ begin
     'remove-with plan DTO should use the shared source-context cache while building edits');
   Assert.IsTrue(ContainsText(lSourceText, 'TDictionary<string, string>'),
     'remove-with plan DTO should cache source hashes per file while building edits');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoKeepsInlineLexerBoundaries(const aCase: Integer);
+const
+  cStartLines: array[0..1] of Integer = (14, 23);
+  cEndLines: array[0..1] of Integer = (19, 29);
+var
+  lExpected: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithInlineLexerBoundary\InlineLexer.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'InlineLexerUnit.pas', cStartLines[aCase], 3,
+    lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  lExpected := '  lWithItemPtr := @aValue;' + sLineBreak + '  begin' + sLineBreak;
+  if aCase = 0 then
+    lExpected := lExpected +
+      '    lWithItemPtr^.n := 1;' + sLineBreak +
+      '    lWithItemPtr^.On := 2;' + sLineBreak +
+      '    lWithItemPtr^.n := lWithItemPtr^.On + 3;' + sLineBreak
+  else
+    lExpected := lExpected +
+      '{$IFDEF INLINE_DECL_ACTIVE}' + sLineBreak +
+      '    var n: Integer;' + sLineBreak +
+      '{$ENDIF}' + sLineBreak +
+      '    lWithItemPtr^.n := lWithItemPtr^.n + 1;' + sLineBreak;
+  lExpected := lExpected + '  end;';
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('lWithItemPtr: ^TItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithItemPtr := @aValue;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(cStartLines[aCase] - 1, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(cStartLines[aCase] - 1, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual(cStartLines[aCase], lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(cEndLines[aCase], lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(6, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual(lExpected, lStatement.RewriteRecipe.ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPreservesInlineDeclarationAndMemberExpressions(
+  const aCase: Integer);
+const
+  cStartLines: array[0..3] of Integer = (18, 27, 37, 45);
+  cEndLines: array[0..2] of Integer = (23, 33, 41);
+var
+  lExpected: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithInlinePrecedence\InlineHeader.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'InlineHeaderUnit.pas',
+    cStartLines[aCase], 3, lStatement));
+  if aCase = 3 then
+  begin
+    Assert.AreEqual('skipped', lStatement.Status);
+    Assert.AreEqual('symbol-not-found', lStatement.Reason);
+    Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+    Exit;
+  end;
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  lExpected := '  lWithVectorPtr := @aValue;' + sLineBreak +
+    '  begin' + sLineBreak;
+  case aCase of
+    0: lExpected := lExpected +
+      '    var v: TMatrix;' + sLineBreak +
+      '    lWithVectorPtr^.v := Default(TMatrix);' + sLineBreak +
+      '    lWithVectorPtr^.v[1, 1] := 17;' + sLineBreak;
+    1: lExpected := lExpected +
+      '    var n := lWithVectorPtr^.n + 2;' + sLineBreak +
+      '    lWithVectorPtr^.n := lWithVectorPtr^.n + 1;' + sLineBreak +
+      '    var lLocal := lWithVectorPtr^.n;' + sLineBreak +
+      '    lWithVectorPtr^.v[1, 1] := lLocal;' + sLineBreak;
+    2: lExpected := lExpected +
+      '    for var n := 1 to 2 do' + sLineBreak +
+      '      Inc(lWithVectorPtr^.v[1, 1], lWithVectorPtr^.n);' + sLineBreak;
+  end;
+  lExpected := lExpected + '  end;';
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('lWithVectorPtr: ^TVector;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithVectorPtr := @aValue;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual(cStartLines[aCase] - 1, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(cStartLines[aCase] - 1, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
+  Assert.AreEqual('var' + sLineBreak + '  lWithVectorPtr: ^TVector;' + sLineBreak,
+    lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(cStartLines[aCase], lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(cEndLines[aCase], lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(6, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual(lExpected, lStatement.RewriteRecipe.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoQualifiesIndexedMemberNamedLikeReceiver(

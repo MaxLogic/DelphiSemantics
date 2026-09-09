@@ -217,6 +217,7 @@ implementation
 uses
   System.Diagnostics, System.Generics.Collections, System.Generics.Defaults,
   System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
+  SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.RemoveWithPlan.FinalBodyRenderer,
   DelphiSemantics.RemoveWithPlan.FinalRewrite,
   DelphiSemantics.SourceConditionals, DelphiSemantics.SourceContext,
@@ -2040,6 +2041,77 @@ begin
   end;
 end;
 
+function InlineDeclarationPositions(const aText: string): TArray<Boolean>;
+var
+  i: Integer;
+  lDepth: Integer;
+  lHandler: Boolean;
+  lLexer: TmwBasePasLex;
+  lPrevious: TptTokenKind;
+  lStart: Integer;
+begin
+  Result := nil;
+  if (not ContainsText(aText, 'var')) and (not ContainsText(aText, 'on')) then
+    Exit;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aText;
+    lPrevious := ptNull;
+    while lLexer.TokenID <> ptNull do
+    begin
+      lStart := lLexer.TokenPos + 1;
+      lHandler := (lLexer.GenID = ptOn) and SameText(lLexer.Token, 'on') and
+        (lPrevious in [ptExcept, ptSemiColon, ptEnd]);
+      if lHandler then
+      begin
+        lLexer.NextNoJunk;
+        lHandler := lLexer.TokenID = ptIdentifier;
+        if lHandler then
+        begin
+          lLexer.NextNoJunk;
+          lHandler := lLexer.TokenID in [ptColon, ptDo];
+        end;
+      end;
+      if (lLexer.TokenID = ptVar) or lHandler then
+      begin
+        lDepth := 0;
+        if lLexer.TokenID <> ptDo then
+          lLexer.NextNoJunk;
+        while lLexer.TokenID <> ptNull do
+        begin
+          if (lDepth = 0) and
+            ((lHandler and (lLexer.TokenID = ptDo)) or
+            ((not lHandler) and (lLexer.TokenID in [ptAssign, ptSemiColon, ptIn]))) then
+            Break;
+          if lLexer.TokenID in [ptRoundOpen, ptSquareOpen] then
+            Inc(lDepth)
+          else if (lDepth > 0) and
+            (lLexer.TokenID in [ptRoundClose, ptSquareClose]) then
+            Dec(lDepth);
+          lLexer.NextNoJunk;
+        end;
+        if Length(Result) = 0 then
+          SetLength(Result, Length(aText) + 1);
+        for i := lStart to lLexer.TokenPos do
+          Result[i] := True;
+      end;
+      lPrevious := lLexer.TokenID;
+      if lLexer.TokenID <> ptNull then
+        lLexer.NextNoJunk;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
+function BodyOffsetIsDeclaration(const aDeclarations: TArray<Boolean>;
+  const aOffset: Integer): Boolean;
+begin
+  Result := (aOffset > 0) and (aOffset < Length(aDeclarations)) and
+    aDeclarations[aOffset];
+end;
+
 function ReferenceIsCompilerIntrinsicTypeName(
   const aReference: TDelphiSemanticBoundReference): Boolean;
 var
@@ -3115,7 +3187,7 @@ function SimpleSelectorHasMember(const aFacts: TRemoveWithPlanFacts;
 procedure AddIndexedMemberBodyEdits(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>; const aBodyText: string;
-  var aBodyEdits: TArray<TFinalBodyEdit>);
+  const aDeclarations: TArray<Boolean>; var aBodyEdits: TArray<TFinalBodyEdit>);
 var
   i: Integer;
   lDecision: TFinalSelectorDecision;
@@ -3140,7 +3212,8 @@ begin
       Continue;
 
     lName := Copy(aBodyText, lStartOffset, i - lStartOffset);
-    if BodyOffsetInsideLiteralOrComment(aBodyText, lStartOffset) then
+    if BodyOffsetIsDeclaration(aDeclarations, lStartOffset) or
+      BodyOffsetInsideLiteralOrComment(aBodyText, lStartOffset) then
       Continue;
     lSelectorMember := SimpleSelectorHasMember(aFacts, aBinding, aDecisions, lName);
     if RoutineScopeSymbolNamed(aFacts, aBinding, lName) and
@@ -3670,13 +3743,10 @@ begin
 end;
 
 function ReferenceNameWithQualifiedArguments(const aFacts: TRemoveWithPlanFacts;
-  const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>;
-  const aReference: TDelphiSemanticBoundReference;
-  const aLineCache: TDelphiSemanticSourceContextCache): string;
+  const aReference: TDelphiSemanticBoundReference): string;
 var
   i: Integer;
-  lArgumentReference: TDelphiSemanticBoundReference;
   lName: string;
   lNextChar: Char;
   lQualifierText: string;
@@ -3706,54 +3776,21 @@ begin
     if i <= Length(lReferenceName) then
       lNextChar := lReferenceName[i];
 
-    lArgumentReference := aReference;
-    lArgumentReference.Name := lName;
     if (lStartOffset > 1) and
       (not BodyOffsetAppearsQualified(lReferenceName, lStartOffset)) and
       (lNextChar <> '(') and
       (BodyOffsetInsideCallOrCastArgument(lReferenceName, lStartOffset) or
       BodyOffsetInsideIndexArgument(lReferenceName, lStartOffset)) and
-      (not ReferenceIsInlineLocalDeclaredInBinding(aBinding, lArgumentReference,
-      aLineCache)) and
       QualifierForMemberName(aFacts, aDecisions, lName, lQualifierText) then
       lReplacementText := lQualifierText + '.' + lName;
     Result := Result + lReplacementText;
   end;
 end;
 
-function BodyDeclaresInlineVarName(const aText, aName: string): Boolean;
-var
-  lName: string;
-  lNameStart: Integer;
-  lOffset: Integer;
-  lText: string;
-begin
-  Result := False;
-  lText := LowerCase(aText);
-  lOffset := Pos('var', lText);
-  while lOffset > 0 do
-  begin
-    if BodyTextIdentifierAt(aText, 'var', lOffset) then
-    begin
-      lNameStart := lOffset + Length('var');
-      while (lNameStart <= Length(aText)) and
-        CharInSet(aText[lNameStart], [#9, #10, #13, ' ']) do
-        Inc(lNameStart);
-      lOffset := lNameStart;
-      while (lOffset <= Length(aText)) and IsIdentifierTextChar(aText[lOffset]) do
-        Inc(lOffset);
-      lName := Copy(aText, lNameStart, lOffset - lNameStart);
-      if SameText(lName, aName) then
-        Exit(True);
-    end;
-    lOffset := PosEx('var', lText, lOffset + 1);
-  end;
-end;
-
 procedure AddSimpleMemberBodyEdits(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>; const aBodyText: string;
-  var aBodyEdits: TArray<TFinalBodyEdit>);
+  const aDeclarations: TArray<Boolean>; var aBodyEdits: TArray<TFinalBodyEdit>);
 var
   i: Integer;
   lName: string;
@@ -3781,7 +3818,7 @@ begin
       BodyOffsetAppearsQualified(aBodyText, lStartOffset) or
       BodyOffsetInsideLiteralOrComment(aBodyText, lStartOffset) or
       (RoutineScopeSymbolNamed(aFacts, aBinding, lName) and (not lSelectorMember)) or
-      BodyDeclaresInlineVarName(aBodyText, lName) then
+      BodyOffsetIsDeclaration(aDeclarations, lStartOffset) then
       Continue;
 
     if not QualifierForMemberName(aFacts, aDecisions, lName, lQualifierText) then
@@ -3884,6 +3921,7 @@ var
   lQualified: Boolean;
   lReference: TDelphiSemanticBoundReference;
   lName: string;
+  lDeclarations: TArray<Boolean>;
   lRequiresQualification: Boolean;
   lSelectorMember: Boolean;
   lStartOffset: Integer;
@@ -3920,6 +3958,7 @@ var
   end;
 begin
   Result := False;
+  lDeclarations := InlineDeclarationPositions(aBodyText);
   i := 1;
   while i <= Length(aBodyText) do
   begin
@@ -3938,7 +3977,7 @@ begin
     if BodyOffsetInsideLiteralOrComment(aBodyText, lStartOffset) or
       BodyOffsetAppearsQualified(aBodyText, lStartOffset) or
       (RoutineScopeSymbolNamed(aFacts, aBinding, lName) and (not lSelectorMember)) or
-      BodyDeclaresInlineVarName(aBodyText, lName) then
+      BodyOffsetIsDeclaration(lDeclarations, lStartOffset) then
       Continue;
 
     lReference := Default(TDelphiSemanticBoundReference);
@@ -3979,6 +4018,7 @@ function PrepareFinalBodyText(const aFacts: TRemoveWithPlanFacts;
   Boolean;
 var
   lBodyEdits: TArray<TFinalBodyEdit>;
+  lDeclarations: TArray<Boolean>;
   lBodyRange: TDelphiSemanticRemoveWithSourceRange;
   lBodyStartsWithBegin: Boolean;
   lLineBreak: string;
@@ -4023,9 +4063,14 @@ begin
       lNestedReplacement.ReplacementText);
   end;
 
+  lDeclarations := InlineDeclarationPositions(aReplacementText);
   for lReference in aBinding.References do
   begin
     if not ReferenceInsideRange(lReference, lBodyRange) then
+      Continue;
+    lOffset := RangeRelativeOffset(lBodyRange, lLines, lReference.Line,
+      lReference.Column, lLineBreak);
+    if BodyOffsetIsDeclaration(lDeclarations, lOffset) then
       Continue;
     if ReferenceBlocksFinalRewrite(aFacts, aBinding, aEditDecisions, lReference,
       aLineCache, aReason) then
@@ -4034,8 +4079,8 @@ begin
       ReferenceInsideInactiveNeverConditionalRegion(aBinding, lReference,
       aLineCache) then
       Continue;
-    if ReferenceIsInlineLocalDeclaredInBinding(aBinding, lReference,
-      aLineCache) then
+    if (not ActiveDecisionHasMember(aFacts, aEditDecisions, lReference.Name)) and
+      ReferenceIsInlineLocalDeclaredInBinding(aBinding, lReference, aLineCache) then
       Continue;
     if ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
       Continue;
@@ -4096,15 +4141,14 @@ begin
       if lOffset <= 0 then
         Continue;
     end;
-    lReferenceName := ReferenceNameWithQualifiedArguments(aFacts, aBinding,
-      aEditDecisions, lReference, aLineCache);
+    lReferenceName := ReferenceNameWithQualifiedArguments(aFacts, aEditDecisions, lReference);
     AddFinalBodyEdit(lBodyEdits, lOffset, Length(lReference.Name),
       lReference.Name, lQualifierText + '.' + lReferenceName);
   end;
   AddSimpleMemberBodyEdits(aFacts, aBinding, aEditDecisions, aReplacementText,
-    lBodyEdits);
+    lDeclarations, lBodyEdits);
   AddIndexedMemberBodyEdits(aFacts, aBinding, aEditDecisions, aReplacementText,
-    lBodyEdits);
+    lDeclarations, lBodyEdits);
   AddDependentSelectorBodyEdits(aEditDecisions, aReplacementText, lBodyEdits);
   ApplyFinalBodyEdits(lBodyEdits, aReplacementText);
   if FinalBodyHasIncompleteReceiverReference(aFacts, aBinding, aValidationDecisions,
