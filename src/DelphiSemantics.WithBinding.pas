@@ -294,6 +294,7 @@ type
     fUnitNames: TArray<string>;
     fVisibleUnitsByUnit: TDictionary<string, TArray<string>>;
     procedure BuildDeclarationIndex;
+    procedure BuildIntrinsicTypeIndex;
     function DeclarationModelsForName(const aName: string): TArray<TDelphiSemanticUnitModel>;
     class function Key(const aUnitName, aOwnerName, aName: string): string; static;
     class function KeyMemberName(const aKey: string): string; static;
@@ -325,8 +326,8 @@ type
     constructor Create(const aModels: TArray<TDelphiSemanticUnitModel>;
       const aGraph: TDelphiSemanticSemanticGraph);
     destructor Destroy; override;
-    function TryGetIntrinsicType(const aName: string;
-      out aSymbol: TDelphiSemanticIntrinsicSymbol): Boolean;
+    function TryResolveIntrinsicType(const aName: string;
+      out aResult: TDelphiSemanticResolveResult): Boolean;
     function ContextForName(const aContext: TDelphiSemanticResolveContext;
       const aName: string): TDelphiSemanticResolveContext;
     function TryResolveDirectMember(const aCurrentUnitName, aCurrentTypeName, aOwnerName,
@@ -1054,21 +1055,17 @@ begin
   Result.IndexedUnitModels := DeclarationModelsForName(aName);
 end;
 
-function TWithBindingProjectMemberIndex.TryGetIntrinsicType(const aName: string;
-  out aSymbol: TDelphiSemanticIntrinsicSymbol): Boolean;
+procedure TWithBindingProjectMemberIndex.BuildIntrinsicTypeIndex;
 var
+  lProfile: TDelphiSemanticCompilerProfile;
   lSymbol: TDelphiSemanticIntrinsicSymbol;
 begin
-  if fIntrinsicTypes = nil then
-  begin
-    var lProfile := TDelphiSemanticCompilerProfileBuilder.DefaultProfile('');
-    fIntrinsicTypes := TDictionary<string, TDelphiSemanticIntrinsicSymbol>.Create(
-      TFastCaseAwareComparer.OrdinalIgnoreCase);
-    for lSymbol in lProfile.IntrinsicSymbols do
-      if SameText(lSymbol.Kind, 'intrinsic-type') and SameText(lSymbol.OwnerName, 'compiler') then
-        fIntrinsicTypes.Add(lSymbol.Name, lSymbol);
-  end;
-  Result := fIntrinsicTypes.TryGetValue(aName, aSymbol);
+  lProfile := TDelphiSemanticCompilerProfileBuilder.DefaultProfile('');
+  fIntrinsicTypes := TDictionary<string, TDelphiSemanticIntrinsicSymbol>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  for lSymbol in lProfile.IntrinsicSymbols do
+    if SameText(lSymbol.Kind, 'intrinsic-type') and SameText(lSymbol.OwnerName, 'compiler') then
+      fIntrinsicTypes.Add(lSymbol.Name, lSymbol);
 end;
 
 constructor TWithBindingProjectMemberIndex.Create(
@@ -1812,6 +1809,21 @@ begin
   Result.ReasonCode := aReasonCode;
 end;
 
+function TWithBindingProjectMemberIndex.TryResolveIntrinsicType(const aName: string;
+  out aResult: TDelphiSemanticResolveResult): Boolean;
+var
+  lSymbol: TDelphiSemanticIntrinsicSymbol;
+begin
+  if fIntrinsicTypes = nil then
+    BuildIntrinsicTypeIndex;
+  Result := fIntrinsicTypes.TryGetValue(aName, lSymbol);
+  if Result then
+    aResult := MakeSyntheticResolveResult(aName, lSymbol.Kind, lSymbol.TypeName,
+      lSymbol.OwnerName, '')
+  else
+    aResult := Default(TDelphiSemanticResolveResult);
+end;
+
 function TryExtractCallName(const aName: string; out aCallName: string): Boolean;
 var
   lBracketPos: Integer;
@@ -2180,13 +2192,11 @@ begin
       Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(lCallName, 'unsupported',
         MakeSyntheticResolveResult(lCallName, lResult.Kind, lResult.TypeName, lResult.OwnerName,
         'CALL_SELECTOR_UNSUPPORTED'))));
-    var lIntrinsicType: TDelphiSemanticIntrinsicSymbol;
     if SameText(lResult.Status, 'unresolved') and
       SameText(lResult.ReasonCode, 'NAME_NOT_FOUND') and Assigned(aProjectMemberIndex) and
-      aProjectMemberIndex.TryGetIntrinsicType(lCallName, lIntrinsicType) then
+      aProjectMemberIndex.TryResolveIntrinsicType(lCallName, lResult) then
       Exit(CacheBoundReference(aReferenceCache, lKey,
-        MakeBoundReference(lCallName, 'intrinsic', MakeSyntheticResolveResult(lCallName,
-        lIntrinsicType.Kind, lIntrinsicType.TypeName, lIntrinsicType.OwnerName, ''))));
+        MakeBoundReference(lCallName, 'intrinsic', lResult)));
     Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(lCallName, 'external',
       MakeSyntheticResolveResult(lCallName, 'routine', '', '', 'UNKNOWN_ROUTINE_CALL'))));
   end;
