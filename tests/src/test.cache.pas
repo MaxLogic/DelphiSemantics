@@ -86,6 +86,7 @@ type
     [TestCase('Before initialized variable types', '8')]
     [TestCase('Before program body references', '9')]
     [TestCase('Before LF body coordinates', '10')]
+    [TestCase('Before owned WITH body ends', '11')]
     procedure DefaultParserInvalidatesObsoleteModels(const aVersion: string);
     [Test]
     procedure ModelVersionChangeInvalidatesCachedUnitModel;
@@ -369,7 +370,7 @@ begin
 
     Assert.AreEqual('9', lIdentity.SchemaVersion,
       'Lexical ownership fields changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.11', lIdentity.ParserVersion,
+    Assert.AreEqual('DelphiSemantics.Model.Parser.12', lIdentity.ParserVersion,
       'Inline section declarations changed parser semantics.');
   finally
     lCache.Free;

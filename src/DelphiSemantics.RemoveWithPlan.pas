@@ -1559,20 +1559,57 @@ function RangeIsFollowedByOuterElse(const aBinding: TDelphiSemanticWithBinding;
   const aLineCache: TDelphiSemanticSourceContextCache;
   const aRange: TDelphiSemanticRemoveWithSourceRange): Boolean;
 var
+  lColumn: Integer;
+  lCommentEnd: string;
+  lEndColumn: Integer;
   lLineIndex: Integer;
   lLineText: string;
   lLines: TArray<string>;
+  lSuffix: string;
 begin
   Result := False;
   if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
     Exit;
+  if (aRange.EndLine < 1) or (aRange.EndLine > Length(lLines)) then
+    Exit;
 
-  for lLineIndex := aRange.EndLine + 1 to Length(lLines) do
+  lCommentEnd := '';
+  lColumn := aRange.EndColumn + 1;
+  for lLineIndex := aRange.EndLine to Length(lLines) do
   begin
-    lLineText := Trim(lLines[lLineIndex - 1]);
-    if LineIsOuterElseTrivia(lLineText) then
-      Continue;
-    Exit(LineStartsOuterElse(lLines[lLineIndex - 1], aBinding.Column));
+    lLineText := lLines[lLineIndex - 1];
+    while lColumn <= Length(lLineText) do
+    begin
+      if lCommentEnd <> '' then
+      begin
+        lEndColumn := PosEx(lCommentEnd, lLineText, lColumn);
+        if lEndColumn = 0 then
+          Break;
+        lColumn := lEndColumn + Length(lCommentEnd);
+        lCommentEnd := '';
+      end else if CharInSet(lLineText[lColumn], [#9, ' ']) then
+        Inc(lColumn)
+      else if lLineText[lColumn] = '{' then
+      begin
+        lCommentEnd := '}';
+        Inc(lColumn);
+      end else if Copy(lLineText, lColumn, 2) = '(*' then
+      begin
+        lCommentEnd := '*)';
+        Inc(lColumn, 2);
+      end else if Copy(lLineText, lColumn, 2) = '//' then
+        Break
+      else begin
+        lSuffix := Copy(lLineText, lColumn, MaxInt);
+        if StartsText('else', lSuffix) and
+          ((Length(lSuffix) = 4) or
+          (not CharInSet(lSuffix[5], ['A'..'Z', 'a'..'z', '0'..'9', '_']))) then
+          Exit(True);
+        Exit((lLineIndex > aRange.EndLine) and
+          LineStartsOuterElse(lLineText, aBinding.Column));
+      end;
+    end;
+    lColumn := 1;
   end;
 end;
 

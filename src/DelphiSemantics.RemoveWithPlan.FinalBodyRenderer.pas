@@ -285,7 +285,8 @@ begin
     aReplacementText := lStatementIndent + 'begin' + sLineBreak +
       aReplacementText + sLineBreak + lStatementIndent + 'end;';
   end;
-  if ((lTempText <> '') or (lControlledStatement and
+  if (not lNeedsControlledWrapper) and
+    ((lTempText <> '') or (lControlledStatement and
     StartsText('begin', LowerCase(Trim(aRequest.BodyText))))) and
     TrimTrailingEnclosingRoutineEnd(aReplacementText, lBinding.Column,
     aRequest.UseArchitectureStableRoutineEndTrim) then
@@ -302,7 +303,7 @@ begin
       aReplacementText := aReplacementText + sLineBreak + ';';
     end;
   end;
-  if (lTempText = '') and
+  if (not lNeedsControlledWrapper) and (lTempText = '') and
     (not IsSimplePointerDereferenceSelector(lBinding.SelectorText)) and
     (not ((Pos('[', lBinding.SelectorText) > 0) and
     ContainsText(lBinding.SelectorText, '^'))) and
@@ -315,7 +316,8 @@ begin
       aReplacementRange.EndColumn := 1;
     aReplacementText := aReplacementText + IndentText(aReplacementRange.EndColumn);
   end;
-  if (lTempText = '') and (lBinding.Column > 3) and
+  if (not lNeedsControlledWrapper) and (lTempText = '') and
+    (lBinding.Column > 3) and
     EndsText(sLineBreak + IndentText(lBinding.Column - 2) + 'END;',
     aReplacementText) then
   begin

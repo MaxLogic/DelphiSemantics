@@ -2216,12 +2216,10 @@ begin
         PopBlockKind;
       end else if SameText(lToken, 'end') then
       begin
-        lClosedBlockKind := '';
-        if lBlockDepth > 0 then
-        begin
-          Dec(lBlockDepth);
-          lClosedBlockKind := PopBlockKind;
-        end;
+        if lBlockDepth = 0 then
+          Exit(PreviousNonWhitespaceOffset(lTokenStartOffset - 1));
+        Dec(lBlockDepth);
+        lClosedBlockKind := PopBlockKind;
         if lBlockDepth = 0 then
         begin
           if NextCodeTokenEquals(i + 1, 'else') then
@@ -2233,8 +2231,6 @@ begin
               Inc(i);
               Continue;
             end;
-            if lClosedBlockKind = '' then
-              Exit(PreviousNonWhitespaceOffset(lTokenStartOffset - 1));
             Exit(i);
           end;
           if NextCodeTokenEquals(i + 1, 'end') then

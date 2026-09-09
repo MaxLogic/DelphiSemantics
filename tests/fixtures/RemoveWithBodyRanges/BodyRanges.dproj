@@ -1,0 +1,20 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{D91D55F9-C378-437C-BCAA-80E371E2D9D3}</ProjectGuid>
+    <ProjectVersion>20.3</ProjectVersion>
+    <MainSource>BodyRanges.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Release</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <AppType>Console</AppType>
+    <DCC_ExeOutput>.dak\BodyRanges\bin\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>.dak\BodyRanges\dcu\$(Platform)</DCC_DcuOutput>
+    <DCC_Namespace>System;Winapi;$(DCC_Namespace)</DCC_Namespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="BodyRangesControlsUnit.pas"/>
+    <DCCReference Include="BodyRangesUnit.pas"/>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>
