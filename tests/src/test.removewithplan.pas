@@ -365,7 +365,7 @@ type
     procedure FinalDtoMatchesMaxTdbLowFilesCopyLowFileReplacement;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbMakeIvIndexedVectorReplacement;
+    procedure FinalDtoMatchesMaxTdbMakeIvIndexedVectorReceiverTypeSkip;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbMd5ContextReplacement;
@@ -647,7 +647,7 @@ type
     procedure FinalDtoMatchesMaxTdbTdb02SetByteSkipReasons;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbTdb02FindDirektReplacement;
+    procedure FinalDtoMatchesMaxTdbTdb02FindDirektReceiverTypeSkip;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbDtoPrimaryPlanCountParity;
@@ -716,10 +716,10 @@ type
     procedure FinalDtoMatchesMaxTdbTdbUtilsRelationSkipReasons;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbTdbUtilsGenRelMaskReplacement;
+    procedure FinalDtoMatchesMaxTdbTdbUtilsGenRelMaskReceiverTypeSkip;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbTdbUtilsGenListReplacement;
+    procedure FinalDtoMatchesMaxTdbTdbUtilsGenListReceiverTypeSkip;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsGlobalStatLineReplacement;
@@ -746,7 +746,7 @@ type
     procedure FinalDtoMatchesMaxTdbTdbUtilsDdatSkipReason;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbTdbUtilsDdatMaskReplacement;
+    procedure FinalDtoMatchesMaxTdbTdbUtilsDdatMaskReceiverTypeSkip;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsDdatStringMaskReplacement;
@@ -758,7 +758,7 @@ type
     procedure FinalDtoMatchesMaxTdbTdbUtilsDdatFormSkipReason;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbTdbUtilsGetStructureReplacement;
+    procedure FinalDtoMatchesMaxTdbTdbUtilsGetStructureReceiverTypeSkip;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdbUtilsFormListSkipReason;
@@ -869,6 +869,48 @@ function SourceRangeText(const aRange: TDelphiSemanticRemoveWithSourceRange): st
 begin
   Result := Format('%d:%d-%d:%d', [aRange.StartLine, aRange.StartColumn,
     aRange.EndLine, aRange.EndColumn]);
+end;
+
+procedure AssertHiddenReceiverSkip(
+  const aStatement: TDelphiSemanticRemoveWithFinalStatement;
+  const aExpectedRange, aExpectedHash: string);
+var
+  i: Integer;
+  lExpectedSource, lLineBreak, lSource: string;
+  lLines: TArray<string>;
+begin
+  Assert.AreEqual('skipped', aStatement.Status);
+  Assert.AreEqual('receiver-type-not-visible', aStatement.Reason);
+  Assert.AreEqual('receiver-type-not-visible', aStatement.SafetyReason);
+  Assert.AreEqual(aExpectedRange, SourceRangeText(aStatement.Range));
+  Assert.AreEqual(aExpectedRange, SourceRangeText(aStatement.Verification.Range));
+  Assert.AreEqual(aExpectedHash, aStatement.Verification.ExpectedFileHash);
+  lSource := TFile.ReadAllText(aStatement.FileName, TEncoding.UTF8);
+  lLines := TFile.ReadAllLines(aStatement.FileName, TEncoding.UTF8);
+  if Pos(#13#10, lSource) > 0 then
+    lLineBreak := #13#10
+  else
+    lLineBreak := #10;
+  Assert.IsTrue(aStatement.Range.EndLine > aStatement.Range.StartLine);
+  lExpectedSource := Copy(lLines[aStatement.Range.StartLine - 1],
+    aStatement.Range.StartColumn, MaxInt);
+  for i := aStatement.Range.StartLine to aStatement.Range.EndLine - 2 do
+    lExpectedSource := lExpectedSource + lLineBreak + lLines[i];
+  lExpectedSource := lExpectedSource + lLineBreak +
+    Copy(lLines[aStatement.Range.EndLine - 1], 1, aStatement.Range.EndColumn);
+  Assert.AreEqual(lExpectedSource, aStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('', aStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(aStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(aStatement.Edits)));
+  Assert.AreEqual('skipped', aStatement.RewriteRecipe.Status);
+  Assert.AreEqual('skip-final-statement', aStatement.RewriteRecipe.RenderInstruction);
+  Assert.AreEqual('receiver-type-not-visible', aStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('receiver-type-not-visible', aStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual(aExpectedRange, SourceRangeText(aStatement.RewriteRecipe.ReplacementRange));
+  Assert.AreEqual('', aStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(aStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual(0, Integer(Length(aStatement.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(0, Integer(Length(aStatement.RewriteRecipe.TextEdits)));
 end;
 
 procedure AppendStringArray(const aBuilder: TStringBuilder; const aName: string;
@@ -5479,17 +5521,13 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 446, 7, lStatement),
     'Expected maxTdb linkfile CheckIndirekt DF[D]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  AssertHiddenReceiverSkip(lStatement, '446:7-493:12',
+    '79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb');
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 450, 13, lStatement),
     'Expected maxTdb linkfile CheckIndirekt Maske[j]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  AssertHiddenReceiverSkip(lStatement, '450:13-481:18',
+    '79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileCheckStatLinksPointerSkip;
@@ -5836,7 +5874,7 @@ begin
   Assert.AreEqual(710, lStatement.Edits[1].Range.EndLine);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbMakeIvIndexedVectorReplacement;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbMakeIvIndexedVectorReceiverTypeSkip;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -5845,26 +5883,8 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'makeiv.pas', 65, 7, lStatement),
     'Expected maxTdb makeiv IV[h] with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('lWithIndexVektorItemPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual(2372, Integer(Length(lStatement.ReplacementText)));
-  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'lWithIndexVektorItemPtr^.Feld := lWithIndexVektorItemPtr^.Feld OR $4000'),
-    lStatement.ReplacementText);
-  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'lWithIndexVektorItemPtr^.IV_Art := DF[D]^.Maske[lWithIndexVektorItemPtr^.Feld]^.Art AND 15'),
-    lStatement.ReplacementText);
-  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'lWithIndexVektorItemPtr^.Anzahl := 1 + DF[D]^.Maske[lWithIndexVektorItemPtr^.Feld]^.l'),
-    lStatement.ReplacementText);
-  Assert.AreEqual(25, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual('var' + sLineBreak +
-    '  lWithIndexVektorItemPtr: ^TIndexVektorItem;' + sLineBreak,
-    lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual(65, lStatement.Edits[1].Range.StartLine);
-  Assert.AreEqual(128, lStatement.Edits[1].Range.EndLine);
+  AssertHiddenReceiverSkip(lStatement, '65:7-127:9',
+    '57f1209f46a38b865c8821c7428a0e83547cc54bc09e500afea96bf1d962d723');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbMd5ContextReplacement;
@@ -6612,10 +6632,8 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 806, 5, lStatement),
     'Expected maxTdb strfuncs Maske[1]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  AssertHiddenReceiverSkip(lStatement, '806:5-808:29',
+    'f30b4af544f722d0d558b70afcc6c89bba04c4432ff1e296901d83cc25415689');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsAutoEntrySkip;
@@ -8720,17 +8738,13 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 7892, 5, lStatement),
     'Expected maxTdb TDB02 CheckSelStr DF[d]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  AssertHiddenReceiverSkip(lStatement, '7892:5-7906:8',
+    '138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce');
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 7897, 9, lStatement),
     'Expected maxTdb TDB02 CheckSelStr Maske[n]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  AssertHiddenReceiverSkip(lStatement, '7897:9-7903:14',
+    '138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02SetByteSkipReasons;
@@ -8755,7 +8769,7 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02FindDirektReplacement;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02FindDirektReceiverTypeSkip;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -8764,49 +8778,8 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8286, 7, lStatement),
     'Expected maxTdb TDB02 FindDirekt DF[f1]^.Maske[N1]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
-
-  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
-  Assert.AreEqual(8229, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(8229, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  lWithDirektChainItemPtr: ^TDirektChainItem;' + sLineBreak,
-    lStatement.Edits[0].ReplacementText);
-
-  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
-  Assert.AreEqual(8286, lStatement.Edits[1].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
-  Assert.AreEqual(8311, lStatement.Edits[1].Range.EndLine);
-  Assert.AreEqual(12, lStatement.Edits[1].Range.EndColumn);
-  Assert.AreEqual('      case DF[f1]^.Maske[N1]^.Art and 15 of' + sLineBreak +
-    '          A_LONG:' + sLineBreak +
-    '            if p < length(t_Str) then' + sLineBreak +
-    '            begin' + sLineBreak +
-    '              f2 := DF[f1]^.Maske[N1]^.L_File;' + sLineBreak +
-    '              if f2 = 0 then' + sLineBreak +
-    '                exit' + sLineBreak +
-    '            end;' + sLineBreak +
-    '          A_REL:' + sLineBreak +
-    '            begin' + sLineBreak +
-    '              if a > 0 then' + sLineBreak +
-    '                exit;' + sLineBreak +
-    '              f1 := DF[f1]^.Maske[N1]^.L_File;' + sLineBreak +
-    '              if DF[f1]^.Maske[N1]^.L_Ind = 1 then' + sLineBreak +
-    '                N1 := 2' + sLineBreak +
-    '              else' + sLineBreak +
-    '                N1 := 1;' + sLineBreak +
-    '              f2 := DF[f1]^.Maske[N1]^.R_File;' + sLineBreak +
-    '              if f1 * f2 = 0 then' + sLineBreak +
-    '                exit;' + sLineBreak +
-    '            end;' + sLineBreak +
-    '        else' + sLineBreak +
-    '          if p < length(t_Str) then' + sLineBreak +
-    '            exit' + sLineBreak +
-    '        end;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  AssertHiddenReceiverSkip(lStatement, '8286:7-8311:12',
+    '138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbDtoPrimaryPlanCountParity;
@@ -9608,20 +9581,16 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 295, 3, lStatement),
     'Expected maxTdb tdbutils DRel^.Maske[mm]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  AssertHiddenReceiverSkip(lStatement, '295:3-305:6',
+    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 322, 3, lStatement),
     'Expected maxTdb tdbutils DRel^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  AssertHiddenReceiverSkip(lStatement, '322:3-352:6',
+    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGenRelMaskReplacement;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGenRelMaskReceiverTypeSkip;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -9630,27 +9599,11 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 343, 7, lStatement),
     'Expected maxTdb tdbutils GenRel Maske[3]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(343, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(352, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(3, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('      begin' + sLineBreak +
-    '        Maske[3]^.m := ''Maske'';' + sLineBreak +
-    '        Maske[3]^.Art := A_REAL;' + sLineBreak +
-    '        Maske[3]^.sl := 1;' + sLineBreak +
-    '        Maske[3]^.l := 3;' + sLineBreak +
-    '        Maske[3]^.X := 1;' + sLineBreak +
-    '        Maske[3]^.y := 3' + sLineBreak +
-    '      end' + sLineBreak +
-    '  ;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  AssertHiddenReceiverSkip(lStatement, '343:7-351:9',
+    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGenListReplacement;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGenListReceiverTypeSkip;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -9659,26 +9612,8 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 373, 3, lStatement),
     'Expected maxTdb tdbutils GenList DDat^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(373, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(440, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(6, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual(1748, Integer(Length(lStatement.ReplacementText)));
-  Assert.IsTrue(Pos('    DDat^.RecZahl := rz;', lStatement.ReplacementText) > 0);
-  Assert.IsTrue(Pos('      fillchar(DDat^.Maske[1]^.m, SizeOf(DDat^.Maske[1]^.m), 0);',
-    lStatement.ReplacementText) > 0);
-  Assert.IsTrue(Pos('        DDat^.Maske[2]^.Art := A_Int16;', lStatement.ReplacementText) > 0);
-  Assert.IsTrue(Pos('      DDat^.Maske[rz]^.m := ''Laufende_Nummer: '';',
-    lStatement.ReplacementText) > 0);
-  Assert.IsTrue(Pos('      DDat^.ID_IV[1].Feld := 1;', lStatement.ReplacementText) > 0);
-  Assert.IsTrue(Pos('        DDat^.ID_IV[3].IV_Art := A_Int16', lStatement.ReplacementText) > 0);
-  Assert.IsTrue(EndsText('    DDat^.AutoNum := 1;' + sLineBreak + '  end;',
-    lStatement.ReplacementText));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  AssertHiddenReceiverSkip(lStatement, '373:3-440:6',
+    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGlobalStatLineReplacement;
@@ -9928,13 +9863,11 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1485, 3, lStatement),
     'Expected maxTdb tdbutils GenDS DDat^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  AssertHiddenReceiverSkip(lStatement, '1485:3-1808:6',
+    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsDdatMaskReplacement;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsDdatMaskReceiverTypeSkip;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -9943,20 +9876,8 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1500, 9, lStatement),
     'Expected maxTdb tdbutils GenDS Maske[RecZahl]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(1500, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(1505, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(12, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('        begin' + sLineBreak +
-    '          Maske[RecZahl]^.m := GetNext(s, error_ofs);' + sLineBreak +
-    '          Maske[RecZahl]^.X := 1;' + sLineBreak +
-    '          Maske[RecZahl]^.y := DDat^.RecZahl;' + sLineBreak +
-    '        end;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  AssertHiddenReceiverSkip(lStatement, '1500:9-1505:12',
+    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsDdatStringMaskReplacement;
@@ -10028,7 +9949,7 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGetStructureReplacement;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGetStructureReceiverTypeSkip;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -10037,68 +9958,8 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1835, 5, lStatement),
     'Expected maxTdb tdbutils getstructure DF[d]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(1835, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(1888, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(3, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('    begin' + sLineBreak +
-    '      begin' + sLineBreak +
-    '        p_result := VLabString(DF[d]^.Maske[n]^.m);' + sLineBreak +
-    '        if DF[d]^.Maske[n]^.Art and 15 = A_BLOB then' + sLineBreak +
-    '          Str(DF[d]^.BlobBlockSize, TempStr)' + sLineBreak +
-    '        else' + sLineBreak +
-    '          if DF[d]^.Maske[n]^.Art and 15 = A_STRING then' + sLineBreak +
-    '          Str(DF[d]^.Maske[n]^.l, TempStr)' + sLineBreak +
-    '        else' + sLineBreak +
-    '          Str(2 * ((DF[d]^.Maske[n]^.l + 1) div 2), TempStr);' + sLineBreak +
-    '        if (DF[d]^.Maske[n]^.Art and 15 = A_REAL) and (DF[d]^.Maske[n]^.l > 4) then' + sLineBreak +
-    '          TempStr := TempStr + '','' + NumToStr(DF[d]^.Maske[n]^.sl and 15, 1)^;' + sLineBreak +
-    '        // IF (l MOD 2=0) AND (l>1) OR (Art AND 15=A_BYTE) AND (l=1) THEN undef:='',U'' ELSE undef:='''';' + sLineBreak +
-    '        if DF[d]^.Maske[n]^.Art and 128 = 128 then' + sLineBreak +
-    '          UnDef := '',U''' + sLineBreak +
-    '        else' + sLineBreak +
-    '          UnDef := '''';' + sLineBreak +
-    '        case DF[d]^.Maske[n]^.Art and 15 of' + sLineBreak +
-    '          A_CHAR:' + sLineBreak +
-    '            p_result := p_result + '','' + SA_STRING + '',1'';' + sLineBreak +
-    '          A_STRING:' + sLineBreak +
-    '            p_result := p_result + '','' + SA_STRING + '','' + TempStr;' + sLineBreak +
-    '          A_BYTE:' + sLineBreak +
-    '            p_result := p_result + '','' + SA_NUMBER + '',1'' + UnDef;' + sLineBreak +
-    '          A_Int16,' + sLineBreak +
-    '            A_REAL:' + sLineBreak +
-    '            p_result := p_result + '','' + SA_NUMBER + '','' + TempStr + UnDef;' + sLineBreak +
-    '          A_MEMO:' + sLineBreak +
-    '            p_result := p_result + '','' + SA_MEMO;' + sLineBreak +
-    '          A_BLOB:' + sLineBreak +
-    '            p_result := p_result + '','' + SA_BLOB + '','' + TempStr;' + sLineBreak +
-    '          A_LONG:' + sLineBreak +
-    '            p_result := p_result + '','' + SA_LINK + '','' + NameExtrakt(DF[d]^.Maske[n]^.m)^ + UnDef;' + sLineBreak +
-    '          A_AUTO:' + sLineBreak +
-    '            p_result := p_result + '','' + SA_AUTO;' + sLineBreak +
-    '          A_ZEIT:' + sLineBreak +
-    '            if DF[d]^.Maske[n]^.l > 2 then' + sLineBreak +
-    '              p_result := p_result + '','' + SA_UTIME + UnDef' + sLineBreak +
-    '            else' + sLineBreak +
-    '              p_result := p_result + '','' + SA_TIME + UnDef;' + sLineBreak +
-    '          A_DATUM:' + sLineBreak +
-    '            p_result := p_result + '','' + SA_DATE + UnDef;' + sLineBreak +
-    '          A_SELEKT:' + sLineBreak +
-    '            p_result := p_result + '','' + SA_SELECT + '','' + GetSelStr(d, n);' + sLineBreak +
-    '          A_REL:' + sLineBreak +
-    '            p_result := p_result + '','' + SA_REL;' + sLineBreak +
-    '          A_BOOLEAN:' + sLineBreak +
-    '            p_result := p_result + '','' + SA_BOOLEAN;' + sLineBreak +
-    '        end;' + sLineBreak +
-    '      end;' + sLineBreak +
-    '    end' + sLineBreak +
-    '  ', lStatement.ReplacementText);
-  Assert.AreEqual(2078, Integer(Length(lStatement.ReplacementText)));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  AssertHiddenReceiverSkip(lStatement, '1835:5-1886:10',
+    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsFormListSkipReason;
@@ -10125,10 +9986,8 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2054, 3, lStatement),
     'Expected maxTdb tdbutils GenSH DF[nach]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('type-source-not-indexed', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  AssertHiddenReceiverSkip(lStatement, '2054:3-2083:12',
+    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGenshNestedSkipReasons;
@@ -10240,10 +10099,8 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2765, 3, lStatement),
     'Expected maxTdb tdbutils CopyMemoDirekt DF[d]^, Maske[Nr]^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  AssertHiddenReceiverSkip(lStatement, '2765:3-2774:8',
+    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsCopyMemoLastMbRecReplacement;
