@@ -26,7 +26,9 @@ type
       TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
   public
     [Test]
-    procedure RebuildsRemoveWithFactsWithOlderSchemaMarker;
+    [TestCase('Before receiver member scopes', '2')]
+    [TestCase('Before compiler body casts', '3')]
+    procedure RebuildsRemoveWithFactsWithOlderSchemaMarker(const aVersion: string);
     [Test]
     procedure ProjectSessionOpensFromProjectFileName;
     [Test]
@@ -3592,7 +3594,8 @@ begin
   AssertRenamePlansEqual(lExpected.Plan, lInline.Plan);
 end;
 
-procedure TProjectSessionTests.RebuildsRemoveWithFactsWithOlderSchemaMarker;
+procedure TProjectSessionTests.RebuildsRemoveWithFactsWithOlderSchemaMarker(
+  const aVersion: string);
 var
   i: Integer;
   lExpectedPlan: string;
@@ -3608,7 +3611,7 @@ begin
   lOptions.Platform := 'Win64';
   lOptions.Configuration := 'Debug';
   lOptions.DelphiVersion := '23.0';
-  lOptions.SqliteCacheFileName := ProjectSessionTempPath('older-remove-with-facts.sqlite3');
+  lOptions.SqliteCacheFileName := ProjectSessionTempPath('older-remove-with-facts-' + aVersion + '.sqlite3');
   lOptions.SkipWithBindingSemanticGraph := True;
   lSerializer := TJsonSerializer.Create;
   try
@@ -3617,7 +3620,7 @@ begin
       if i = 2 then
         ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
           'update snapshot_project_remove_with_facts ' +
-          'set schema_version = ''project-session-remove-with-facts-v2''');
+          'set schema_version = ' + QuotedStr('project-session-remove-with-facts-v' + aVersion));
       lOpened := TDelphiSemanticProjectSession.Open(lOptions);
       try
         Assert.IsTrue(lOpened.Success);

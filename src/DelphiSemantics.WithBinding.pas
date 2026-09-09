@@ -207,7 +207,7 @@ implementation
 uses
   System.Classes, System.Diagnostics, System.Generics.Collections, System.Hash, System.Math,
   System.RegularExpressions, System.StrUtils, System.SysUtils,
-  DelphiSemantics.ProjectContext,
+  DelphiSemantics.CompilerProfile, DelphiSemantics.ProjectContext,
   DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.WithBinding.Inventory,
   MaxLogic.StrUtils;
 
@@ -281,6 +281,7 @@ type
 
   TWithBindingProjectMemberIndex = class
   private
+    fIntrinsicTypes: TDictionary<string, TDelphiSemanticIntrinsicSymbol>;
     fModels: TArray<TDelphiSemanticUnitModel>;
     fDeclarationCandidates: TObjectDictionary<string, TList<TIndexedDeclarationCandidate>>;
     fDeclarationModels: TDictionary<string, TArray<TDelphiSemanticUnitModel>>;
@@ -324,6 +325,8 @@ type
     constructor Create(const aModels: TArray<TDelphiSemanticUnitModel>;
       const aGraph: TDelphiSemanticSemanticGraph);
     destructor Destroy; override;
+    function TryGetIntrinsicType(const aName: string;
+      out aSymbol: TDelphiSemanticIntrinsicSymbol): Boolean;
     function ContextForName(const aContext: TDelphiSemanticResolveContext;
       const aName: string): TDelphiSemanticResolveContext;
     function TryResolveDirectMember(const aCurrentUnitName, aCurrentTypeName, aOwnerName,
@@ -1051,6 +1054,23 @@ begin
   Result.IndexedUnitModels := DeclarationModelsForName(aName);
 end;
 
+function TWithBindingProjectMemberIndex.TryGetIntrinsicType(const aName: string;
+  out aSymbol: TDelphiSemanticIntrinsicSymbol): Boolean;
+var
+  lSymbol: TDelphiSemanticIntrinsicSymbol;
+begin
+  if fIntrinsicTypes = nil then
+  begin
+    var lProfile := TDelphiSemanticCompilerProfileBuilder.DefaultProfile('');
+    fIntrinsicTypes := TDictionary<string, TDelphiSemanticIntrinsicSymbol>.Create(
+      TFastCaseAwareComparer.OrdinalIgnoreCase);
+    for lSymbol in lProfile.IntrinsicSymbols do
+      if SameText(lSymbol.Kind, 'intrinsic-type') and SameText(lSymbol.OwnerName, 'compiler') then
+        fIntrinsicTypes.Add(lSymbol.Name, lSymbol);
+  end;
+  Result := fIntrinsicTypes.TryGetValue(aName, aSymbol);
+end;
+
 constructor TWithBindingProjectMemberIndex.Create(
   const aModels: TArray<TDelphiSemanticUnitModel>;
   const aGraph: TDelphiSemanticSemanticGraph);
@@ -1115,6 +1135,7 @@ var
   lList: TList<TDelphiSemanticResolveResult>;
   lStringList: TList<string>;
 begin
+  FreeAndNil(fIntrinsicTypes);
   FreeAndNil(fDeclarationModels);
   FreeAndNil(fDeclarationCandidates);
   fModels := nil;
@@ -2159,6 +2180,13 @@ begin
       Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(lCallName, 'unsupported',
         MakeSyntheticResolveResult(lCallName, lResult.Kind, lResult.TypeName, lResult.OwnerName,
         'CALL_SELECTOR_UNSUPPORTED'))));
+    var lIntrinsicType: TDelphiSemanticIntrinsicSymbol;
+    if SameText(lResult.Status, 'unresolved') and
+      SameText(lResult.ReasonCode, 'NAME_NOT_FOUND') and Assigned(aProjectMemberIndex) and
+      aProjectMemberIndex.TryGetIntrinsicType(lCallName, lIntrinsicType) then
+      Exit(CacheBoundReference(aReferenceCache, lKey,
+        MakeBoundReference(lCallName, 'intrinsic', MakeSyntheticResolveResult(lCallName,
+        lIntrinsicType.Kind, lIntrinsicType.TypeName, lIntrinsicType.OwnerName, ''))));
     Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(lCallName, 'external',
       MakeSyntheticResolveResult(lCallName, 'routine', '', '', 'UNKNOWN_ROUTINE_CALL'))));
   end;

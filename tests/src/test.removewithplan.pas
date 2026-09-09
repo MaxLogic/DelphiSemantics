@@ -30,6 +30,17 @@ type
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
     [Test]
+    [TestCase('Double writable', '0')]
+    [TestCase('Pointer writable', '1')]
+    [TestCase('Integer control', '2')]
+    [TestCase('Pointer value', '3')]
+    procedure FinalDtoPreservesIntrinsicBodyCasts(const aCase: Integer);
+    [Test]
+    [TestCase('routine', '0')]
+    [TestCase('type', '1')]
+    [TestCase('member', '2')]
+    procedure BodyCastShadowKeepsDeclarationIdentity(const aCase: Integer);
+    [Test]
     [TestCase('brace comment', '0')]
     [TestCase('paren comment', '1')]
     [TestCase('multiline comment', '2')]
@@ -19586,6 +19597,143 @@ begin
   Assert.AreEqual(lExpected, lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithItemPtr := @aItem;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPreservesIntrinsicBodyCasts(
+  const aCase: Integer);
+const
+  cRoutines: array[0..3] of string = ('WriteDouble', 'WritePointer', 'WriteInteger', 'ReadPointer');
+  cTypes: array[0..3] of string = ('Double', 'Pointer', 'Integer', 'Pointer');
+  cBodies: array[0..3] of string = ('Double(aValue) := Number', 'Pointer(aValue) := Ptr',
+    'Integer(aValue) := IntValue', 'aResult := Pointer(Ptr)');
+  cRewrittenBodies: array[0..3] of string = (
+    'Double(aValue) := lWithBodyCastRecordPtr^.Number',
+    'Pointer(aValue) := lWithBodyCastRecordPtr^.Ptr',
+    'Integer(aValue) := lWithBodyCastRecordPtr^.IntValue',
+    'aResult := Pointer(lWithBodyCastRecordPtr^.Ptr)');
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lExpected: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lMatches: Integer;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStartLine: Integer;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('RemoveWithIntrinsicBodyCasts\IntrinsicBodyCasts.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Release';
+  lOptions.DelphiVersion := '23.0';
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lMatches := 0;
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.RoutineName, cRoutines[aCase]) then
+      for i := 0 to High(lBinding.References) do
+        if SameText(lBinding.References[i].Name, cTypes[aCase]) then
+        begin
+          Inc(lMatches);
+          Assert.AreEqual('intrinsic-type', lBinding.References[i].Kind);
+          Assert.AreEqual('intrinsic', lBinding.References[i].Classification);
+          Assert.AreEqual('intrinsic', lBinding.References[i].LookupSource);
+          Assert.AreEqual('compiler', lBinding.References[i].ReceiverTypeName);
+          Assert.AreEqual(cTypes[aCase], lBinding.References[i].TypeName);
+          Assert.AreEqual('', lBinding.References[i].ReasonCode);
+        end;
+  Assert.AreEqual(1, lMatches);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lStartLine := 22 + aCase * 9;
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'IntrinsicBodyCastsUnit.pas', lStartLine, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual(Format('%d:5-%d:8', [lStartLine, lStartLine + 3]), SourceRangeText(lStatement.Range));
+  Assert.AreEqual(SourceRangeText(lStatement.Range), SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('with aReceiver do' + sLineBreak + '    begin' + sLineBreak +
+    '      ' + cBodies[aCase] + sLineBreak + '    end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('698cfab2b68fe50acdf9b30a389b27fcab867dc0ee047be1c7e9749db8ae5e6f',
+    lStatement.Verification.ExpectedFileHash);
+  lExpected := '    begin' + sLineBreak +
+    '      lWithBodyCastRecordPtr := @aReceiver;' + sLineBreak +
+    '      begin' + sLineBreak + '      ' + cRewrittenBodies[aCase] + sLineBreak +
+    '    end;' + sLineBreak + '    end;';
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('lWithBodyCastRecordPtr: ^TBodyCastRecord;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithBodyCastRecordPtr := @aReceiver;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual(Format('%d:1-%d:1', [lStartLine - 2, lStartLine - 2]),
+    SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + sLineBreak + '  lWithBodyCastRecordPtr: ^TBodyCastRecord;' + sLineBreak,
+    lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(Format('%d:1-%d:8', [lStartLine, lStartLine + 3]),
+    SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+end;
+
+procedure TRemoveWithPlanTests.BodyCastShadowKeepsDeclarationIdentity(
+  const aCase: Integer);
+const
+  cRoutines: array[0..2] of string = ('ObserveRoutine', 'ObserveType', 'ObserveMember');
+  cUnits: array[0..2] of string = ('IntrinsicCastRoutineShadow.pas',
+    'IntrinsicCastTypeShadow.pas', 'IntrinsicCastMemberShadow.pas');
+  cKinds: array[0..2] of string = ('routine', 'type-alias', 'method');
+  cClassifications: array[0..2] of string = ('external', 'unsupported', 'member');
+  cTypeNames: array[0..2] of string = ('Integer', 'type Integer', 'Integer');
+  cStartLines: array[0..2] of Integer = (19, 17, 25);
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lExpected: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lMatches: Integer;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('RemoveWithIntrinsicBodyCasts\IntrinsicBodyCasts.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Release';
+  lOptions.DelphiVersion := '23.0';
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lMatches := 0;
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.RoutineName, cRoutines[aCase]) then
+      for i := 0 to High(lBinding.References) do
+        if SameText(lBinding.References[i].Name, 'Double') then
+        begin
+          Inc(lMatches);
+          Assert.AreEqual(cKinds[aCase], lBinding.References[i].Kind);
+          Assert.AreEqual(cClassifications[aCase], lBinding.References[i].Classification);
+          Assert.AreEqual(cTypeNames[aCase], lBinding.References[i].TypeName);
+          Assert.AreNotEqual('compiler', lBinding.References[i].ReceiverTypeName);
+        end;
+  Assert.AreEqual(1, lMatches);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, cUnits[aCase], cStartLines[aCase], 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual(Format('%d:3-%d:6', [cStartLines[aCase], cStartLines[aCase] + 3]),
+    SourceRangeText(lStatement.Range));
+  if aCase < 2 then
+    lExpected := '  lWithBodyCastRecordPtr := @aReceiver;' + sLineBreak +
+      '  begin' + sLineBreak + '    aResult := Double(lWithBodyCastRecordPtr^.IntValue)' +
+      sLineBreak + '  end;'
+  else
+    lExpected := '  lWithShadowRecordPtr := @lReceiver;' + sLineBreak +
+      '  begin' + sLineBreak +
+      '    aResult := lWithShadowRecordPtr^.Double(lWithShadowRecordPtr^.IntValue)' +
+      sLineBreak + '  end;';
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
   AssertCapturedRecipe(lStatement);

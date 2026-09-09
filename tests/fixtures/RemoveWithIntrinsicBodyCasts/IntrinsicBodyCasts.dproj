@@ -1,0 +1,22 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{30CA2EE3-8D29-4787-BB79-A08D23FAF798}</ProjectGuid>
+    <ProjectVersion>20.3</ProjectVersion>
+    <MainSource>IntrinsicBodyCasts.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Release</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <AppType>Console</AppType>
+    <DCC_ExeOutput>.dak\IntrinsicBodyCasts\bin\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>.dak\IntrinsicBodyCasts\dcu\$(Platform)</DCC_DcuOutput>
+    <DCC_Namespace>System;Winapi;$(DCC_Namespace)</DCC_Namespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="IntrinsicBodyCastsUnit.pas"/>
+    <DCCReference Include="IntrinsicCastMemberShadow.pas"/>
+    <DCCReference Include="IntrinsicCastRoutineShadow.pas"/>
+    <DCCReference Include="IntrinsicCastTypeShadow.pas"/>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>
