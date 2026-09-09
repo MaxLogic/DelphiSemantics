@@ -2072,7 +2072,7 @@ begin
   if lColumn > Length(lLine) then
     Exit;
   lSelectorColumn := PosEx(aBinding.SelectorText, lLine);
-  while lSelectorColumn > 0 do
+  while (lSelectorColumn > 0) and (not IsSimpleIdentifier(aBinding.SelectorText)) do
   begin
     if (aReference.Column >= lSelectorColumn) and
       (aReference.Column < lSelectorColumn + Length(aBinding.SelectorText)) then
@@ -3108,6 +3108,10 @@ begin
   Result := MatchText(lSymbol.SymbolClass, ['local', 'parameter']);
 end;
 
+function SimpleSelectorHasMember(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aName: string): Boolean; forward;
+
 procedure AddIndexedMemberBodyEdits(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>; const aBodyText: string;
@@ -3117,6 +3121,7 @@ var
   lDecision: TFinalSelectorDecision;
   lName: string;
   lOffset: Integer;
+  lSelectorMember: Boolean;
   lStartOffset: Integer;
 begin
   i := 1;
@@ -3137,9 +3142,11 @@ begin
     lName := Copy(aBodyText, lStartOffset, i - lStartOffset);
     if BodyOffsetInsideLiteralOrComment(aBodyText, lStartOffset) then
       Continue;
-    if RoutineScopeSymbolNamed(aFacts, aBinding, lName) then
+    lSelectorMember := SimpleSelectorHasMember(aFacts, aBinding, aDecisions, lName);
+    if RoutineScopeSymbolNamed(aFacts, aBinding, lName) and
+      (not lSelectorMember) then
       Continue;
-    if (lStartOffset > 1) and (aBodyText[lStartOffset - 1] = '.') then
+    if BodyOffsetAppearsQualified(aBodyText, lStartOffset) then
       Continue;
 
     for lDecision in aDecisions do
@@ -3149,8 +3156,8 @@ begin
         (not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lName)) then
         Continue;
       lOffset := lStartOffset;
-      if BodyOffsetInsideTextOccurrence(aBodyText, aBinding.SelectorText,
-        lOffset) or BodyOffsetHasTextQualifier(aBodyText,
+      if (BodyOffsetInsideTextOccurrence(aBodyText, aBinding.SelectorText,
+        lOffset) and (not lSelectorMember)) or BodyOffsetHasTextQualifier(aBodyText,
         lDecision.QualifierText, lOffset) or
         BodyEditOffsetUsed(aBodyEdits, lOffset, lName) then
         Continue;
@@ -3417,6 +3424,22 @@ begin
     if OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lReferenceName) then
       Exit(True);
   end;
+end;
+
+function SimpleSelectorHasMember(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aName: string): Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  if (not IsSimpleIdentifier(aBinding.SelectorText)) or
+    (not SameText(aBinding.SelectorText, ReferenceLookupName(aName))) then
+    Exit;
+  for i := High(aDecisions) downto 0 do
+    if SameText(aDecisions[i].SelectorText, aBinding.SelectorText) then
+      Exit(OwnerHasMemberNamed(aFacts, aDecisions[i].ReceiverType,
+        aBinding.SelectorText));
 end;
 
 function HasHiddenUnresolvedPointerSelectorDecision(
@@ -3698,25 +3721,6 @@ begin
   end;
 end;
 
-function BindingHasQualifyingReferenceName(const aFacts: TRemoveWithPlanFacts;
-  const aBinding: TDelphiSemanticWithBinding;
-  const aDecisions: TArray<TFinalSelectorDecision>; const aName: string):
-  Boolean;
-var
-  lQualifierText: string;
-  lReference: TDelphiSemanticBoundReference;
-begin
-  Result := False;
-  for lReference in aBinding.References do
-  begin
-    if not SameText(ReferenceLookupName(lReference.Name), aName) then
-      Continue;
-    if QualifierForReference(aFacts, aBinding, aDecisions, lReference,
-      lQualifierText) then
-      Exit(True);
-  end;
-end;
-
 function BodyDeclaresInlineVarName(const aText, aName: string): Boolean;
 var
   lName: string;
@@ -3752,11 +3756,10 @@ procedure AddSimpleMemberBodyEdits(const aFacts: TRemoveWithPlanFacts;
   var aBodyEdits: TArray<TFinalBodyEdit>);
 var
   i: Integer;
-  lCanQualifyMember: Boolean;
   lName: string;
-  lHasQualifyingReference: Boolean;
   lNextChar: Char;
   lQualifierText: string;
+  lSelectorMember: Boolean;
   lStartOffset: Integer;
 begin
   i := 1;
@@ -3773,30 +3776,24 @@ begin
       Inc(i);
     lName := Copy(aBodyText, lStartOffset, i - lStartOffset);
 
+    lSelectorMember := SimpleSelectorHasMember(aFacts, aBinding, aDecisions, lName);
     if ((i <= Length(aBodyText)) and (aBodyText[i] = '[')) or
-      ((lStartOffset > 1) and (aBodyText[lStartOffset - 1] = '.')) or
+      BodyOffsetAppearsQualified(aBodyText, lStartOffset) or
       BodyOffsetInsideLiteralOrComment(aBodyText, lStartOffset) or
-      RoutineScopeSymbolNamed(aFacts, aBinding, lName) or
+      (RoutineScopeSymbolNamed(aFacts, aBinding, lName) and (not lSelectorMember)) or
       BodyDeclaresInlineVarName(aBodyText, lName) then
       Continue;
 
-    lHasQualifyingReference := BindingHasQualifyingReferenceName(aFacts,
-      aBinding, aDecisions, lName);
-    lCanQualifyMember := QualifierForMemberName(aFacts, aDecisions, lName,
-      lQualifierText);
+    if not QualifierForMemberName(aFacts, aDecisions, lName, lQualifierText) then
+      Continue;
+
     lNextChar := BodyNextNonWhitespaceChar(aBodyText, i);
-
-    if (not lHasQualifyingReference) and (not lCanQualifyMember) then
-      Continue;
-
-    if (lNextChar = '^') and (not lCanQualifyMember) then
-      Continue;
     if lNextChar = '(' then
       Continue;
-    if (not lCanQualifyMember) or
-      BodyOffsetInsideTextOccurrence(aBodyText, aBinding.SelectorText,
-      lStartOffset) or BodyOffsetHasTextQualifier(aBodyText, lQualifierText,
-      lStartOffset) or BodyEditOffsetUsed(aBodyEdits, lStartOffset, lName) then
+    if (BodyOffsetInsideTextOccurrence(aBodyText, aBinding.SelectorText,
+      lStartOffset) and (not lSelectorMember)) or
+      BodyOffsetHasTextQualifier(aBodyText, lQualifierText, lStartOffset) or
+      BodyEditOffsetUsed(aBodyEdits, lStartOffset, lName) then
       Continue;
 
     AddFinalBodyEdit(aBodyEdits, lStartOffset, Length(lName), lName,
@@ -3888,6 +3885,7 @@ var
   lReference: TDelphiSemanticBoundReference;
   lName: string;
   lRequiresQualification: Boolean;
+  lSelectorMember: Boolean;
   lStartOffset: Integer;
 
   procedure BodyOffsetToReferenceLocation(var aReference:
@@ -3936,16 +3934,18 @@ begin
       Inc(i);
     lName := Copy(aBodyText, lStartOffset, i - lStartOffset);
 
+    lSelectorMember := SimpleSelectorHasMember(aFacts, aBinding, aDecisions, lName);
     if BodyOffsetInsideLiteralOrComment(aBodyText, lStartOffset) or
       BodyOffsetAppearsQualified(aBodyText, lStartOffset) or
-      RoutineScopeSymbolNamed(aFacts, aBinding, lName) or
+      (RoutineScopeSymbolNamed(aFacts, aBinding, lName) and (not lSelectorMember)) or
       BodyDeclaresInlineVarName(aBodyText, lName) then
       Continue;
 
     lReference := Default(TDelphiSemanticBoundReference);
     lReference.Name := lName;
     BodyOffsetToReferenceLocation(lReference, lStartOffset);
-    if ReferenceCanRemainUnchanged(aFacts, aBinding, lReference) or
+    if (ReferenceCanRemainUnchanged(aFacts, aBinding, lReference) and
+      (not lSelectorMember)) or
       ReferenceLooksLikeLocalLabel(aBinding, lReference, aLineCache) then
       Continue;
 
@@ -4080,9 +4080,10 @@ begin
       aReason := 'reference-offset-not-resolved';
       Exit;
     end;
-    if BodyOffsetInsideTextOccurrence(aReplacementText, aBinding.SelectorText,
-      lOffset) or BodyOffsetHasTextQualifier(aReplacementText,
-      aBinding.SelectorText, lOffset) then
+    if (BodyOffsetInsideTextOccurrence(aReplacementText, aBinding.SelectorText,
+      lOffset) and (not SimpleSelectorHasMember(aFacts, aBinding,
+      aEditDecisions, lReference.Name))) or
+      BodyOffsetHasTextQualifier(aReplacementText, aBinding.SelectorText, lOffset) then
       Continue;
     if BodyEditOffsetUsed(lBodyEdits, lOffset, lReference.Name) then
     begin

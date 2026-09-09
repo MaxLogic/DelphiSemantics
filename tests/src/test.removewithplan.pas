@@ -30,6 +30,16 @@ type
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
     [Test]
+    [TestCase('controlled', '0')]
+    [TestCase('spaced', '1')]
+    [TestCase('case-insensitive', '2')]
+    [TestCase('distinct-receiver', '3')]
+    [TestCase('lexical-and-qualified', '4')]
+    [TestCase('inline-array', '5')]
+    procedure FinalDtoQualifiesIndexedMemberNamedLikeReceiver(const aCase: Integer);
+    [Test]
+    procedure FinalDtoKeepsAnonymousMemberQualifierUnderSkippedParent;
+    [Test]
     procedure FinalDtoKeepsOuterCapturesAfterNestedForward;
     [Test]
     procedure PlansDeterministicDryRunDtoWithVerificationAndProvenance;
@@ -10595,6 +10605,137 @@ begin
     'remove-with plan DTO should use the shared source-context cache while building edits');
   Assert.IsTrue(ContainsText(lSourceText, 'TDictionary<string, string>'),
     'remove-with plan DTO should cache source hashes per file while building edits');
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoQualifiesIndexedMemberNamedLikeReceiver(
+  const aCase: Integer);
+const
+  cStartLines: array[0..5] of Integer = (24, 34, 44, 54, 70, 85);
+  cEndLines: array[0..5] of Integer = (29, 39, 49, 59, 78, 95);
+  cDeclarationLines: array[0..5] of Integer = (22, 33, 43, 53, 67, 84);
+  cRoutines: array[0..5] of string = ('Fill', 'FillSpaced', 'FillCase',
+    'FillNamed', 'FillLexical', 'FillInline');
+var
+  lColumn: Integer;
+  lDeclaration: string;
+  lExpected: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lReceiver: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithReceiverMemberCollision\ReceiverMemberCollision.dproj'));
+  lColumn := 3;
+  if aCase = 0 then
+    lColumn := 5;
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ReceiverMemberCollisionUnit.pas',
+    cStartLines[aCase], lColumn, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(cRoutines[aCase], lStatement.RoutineName);
+  lReceiver := 'v';
+  if aCase in [3, 5] then
+    lReceiver := 'aValue';
+  lExpected := '  lWithVectorPtr := @' + lReceiver + ';' + sLineBreak +
+    '  begin' + sLineBreak;
+  case aCase of
+    0: lExpected := '    begin' + sLineBreak +
+      '      lWithVectorPtr := @v;' + sLineBreak +
+      '      begin' + sLineBreak +
+      '      Inc(lWithVectorPtr^.n);' + sLineBreak +
+      '      lWithVectorPtr^.v[1, lWithVectorPtr^.n] := 7;' + sLineBreak +
+      '      lWithVectorPtr^.v[2, lWithVectorPtr^.n] := 9;' + sLineBreak +
+      '    end;' + sLineBreak +
+      '    end;';
+    1: lExpected := lExpected +
+      '    Inc(lWithVectorPtr^.n);' + sLineBreak +
+      '    lWithVectorPtr^.v [1, lWithVectorPtr^.n] := 7;' + sLineBreak +
+      '    lWithVectorPtr^.v [2, lWithVectorPtr^.n] := 9;' + sLineBreak +
+      '  end;';
+    2: lExpected := lExpected +
+      '    Inc(lWithVectorPtr^.n);' + sLineBreak +
+      '    lWithVectorPtr^.V[1, lWithVectorPtr^.N] := 7;' + sLineBreak +
+      '    lWithVectorPtr^.V[2, lWithVectorPtr^.N] := 9;' + sLineBreak +
+      '  end;';
+    3: lExpected := lExpected +
+      '    Inc(lWithVectorPtr^.n);' + sLineBreak +
+      '    lWithVectorPtr^.v[1, lWithVectorPtr^.n] := 7;' + sLineBreak +
+      '    lWithVectorPtr^.v[2, lWithVectorPtr^.n] := 9;' + sLineBreak +
+      '  end;';
+    4: lExpected := lExpected +
+      '    lWithVectorPtr^.n := 1;' + sLineBreak +
+      '    xy[1, lWithVectorPtr^.n] := 11;' + sLineBreak +
+      '    lOther.v[2, lWithVectorPtr^.n] := 13;' + sLineBreak +
+      '    lWithVectorPtr^.v[1, lWithVectorPtr^.n] := xy[1, lWithVectorPtr^.n];' + sLineBreak +
+      '    lWithVectorPtr^.v[2, lWithVectorPtr^.n] := lOther. v[2, lWithVectorPtr^.n];' + sLineBreak +
+      '    s := ''v[1, n]''; { v[2, n] is a comment here. }' + sLineBreak +
+      '  end;';
+    5: lExpected := lExpected +
+      '    lWithVectorPtr^.n := 1;' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      var lLocal: TMatrix;' + sLineBreak +
+      '      lLocal := Default(TMatrix);' + sLineBreak +
+      '      lLocal[1, 1] := 17;' + sLineBreak +
+      '      if lLocal[1, 1] <> 17 then' + sLineBreak +
+      '        Halt(3);' + sLineBreak +
+      '    end;' + sLineBreak +
+      '  end;';
+  end;
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(cStartLines[aCase], lStatement.Range.StartLine);
+  Assert.AreEqual(lColumn, lStatement.Range.StartColumn);
+  Assert.AreEqual(cEndLines[aCase], lStatement.Range.EndLine);
+  Assert.AreEqual(lColumn + 3, lStatement.Range.EndColumn);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('lWithVectorPtr: ^TVector;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithVectorPtr := @' + lReceiver + ';',
+    lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual(cDeclarationLines[aCase], lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(cDeclarationLines[aCase], lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
+  lDeclaration := '  lWithVectorPtr: ^TVector;' + sLineBreak;
+  if aCase <> 4 then
+    lDeclaration := 'var' + sLineBreak + lDeclaration;
+  Assert.AreEqual(lDeclaration, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(cStartLines[aCase], lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(cEndLines[aCase], lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(lColumn + 3, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual(lExpected, lStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoKeepsAnonymousMemberQualifierUnderSkippedParent;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath(
+    'RemoveWithNestedMemberQualifier\NestedMemberQualifier.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'NestedMemberQualifierUnit.pas',
+    17, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'NestedMemberQualifierUnit.pas',
+    20, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('  Struktur.Count := 3;', lStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(20, lStatement.Edits[0].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
+  Assert.AreEqual(21, lStatement.Edits[0].Range.EndLine);
+  Assert.AreEqual(17, lStatement.Edits[0].Range.EndColumn);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoKeepsOuterCapturesAfterNestedForward;
