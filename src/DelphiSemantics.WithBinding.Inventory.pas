@@ -2421,6 +2421,11 @@ begin
       lSymbol.Column := lRoutine.Column;
       lSymbol.EndLine := lRoutine.Line;
       lSymbol.EndColumn := lRoutine.Column;
+      if lRoutine.EndLine > 0 then
+      begin
+        lSymbol.EndLine := lRoutine.EndLine;
+        lSymbol.EndColumn := lRoutine.EndColumn;
+      end;
       AddInventorySymbol(lSymbols, lSymbol);
 
       for lParameter in lRoutine.Parameters do

@@ -75,6 +75,12 @@ type
     [Test]
     procedure ExtractsUntypedRoutineParameters;
     [Test]
+    [TestCase('missing terminator', '0')]
+    [TestCase('unclosed parameters', '1')]
+    procedure IncompleteRoutineHeaderPreservesFollowingDeclaration(const aCase: Integer);
+    [Test]
+    procedure RoutineHeaderExtentPreservesDelimitersAndCommentBoundaries;
+    [Test]
     procedure ExtractsRoutineAfterSingleLineGuidInterface;
     [Test]
     procedure ExtractsAnonymousNestedRecordMembers;
@@ -917,7 +923,11 @@ begin
 end;
 
 procedure TUnitModelTests.ExtractsUntypedRoutineParameters;
+const
+  cSections: array[0..1] of string = ('interface', 'implementation');
+  cLines: array[0..1] of Integer = (12, 26);
 var
+  i: Integer;
   lInventory: TDelphiSemanticRemoveWithInventory;
   lModel: TDelphiSemanticUnitModel;
   lOptions: TDelphiSemanticModelOptions;
@@ -974,6 +984,95 @@ begin
       lSymbolFound := True;
     end;
   Assert.IsTrue(lSymbolFound, 'Expected multiline untyped inventory parameter symbol.');
+
+  for i := Low(cSections) to High(cSections) do
+  begin
+    Assert.IsTrue(FindRoutine(lModel, 'RunInventory', cSections[i], lRoutine),
+      'Expected multiline ' + cSections[i] + ' routine model.');
+    Assert.AreEqual('', lRoutine.OwnerName);
+    Assert.AreEqual('Integer', lRoutine.ReturnType);
+    Assert.AreEqual(cLines[i], lRoutine.Line);
+    Assert.AreEqual(10, lRoutine.Column);
+    Assert.AreEqual('(aFirst: Integer;' + sLineBreak +
+      '  var aInventoryUntyped; aLast: Integer)', lRoutine.Signature);
+    Assert.AreEqual(3, Integer(Length(lRoutine.Parameters)));
+    Assert.AreEqual('aFirst', lRoutine.Parameters[0].Name);
+    Assert.AreEqual('Integer', lRoutine.Parameters[0].TypeName);
+    Assert.AreEqual('', lRoutine.Parameters[0].Modifier);
+    Assert.AreEqual(cLines[i], lRoutine.Parameters[0].Line);
+    Assert.AreEqual(23, lRoutine.Parameters[0].Column);
+    Assert.AreEqual('aInventoryUntyped', lRoutine.Parameters[1].Name);
+    Assert.AreEqual('', lRoutine.Parameters[1].TypeName);
+    Assert.AreEqual('var', lRoutine.Parameters[1].Modifier);
+    Assert.AreEqual(cLines[i] + 1, lRoutine.Parameters[1].Line);
+    Assert.AreEqual(7, lRoutine.Parameters[1].Column);
+    Assert.AreEqual('aLast', lRoutine.Parameters[2].Name);
+    Assert.AreEqual('Integer', lRoutine.Parameters[2].TypeName);
+    Assert.AreEqual('', lRoutine.Parameters[2].Modifier);
+    Assert.AreEqual(cLines[i] + 1, lRoutine.Parameters[2].Line);
+    Assert.AreEqual(26, lRoutine.Parameters[2].Column);
+  end;
+end;
+
+procedure TUnitModelTests.IncompleteRoutineHeaderPreservesFollowingDeclaration(
+  const aCase: Integer);
+const
+  cBrokenHeaders: array[0..1] of string = ('function Broken: Integer', 'procedure Broken(');
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('incomplete-header-' + IntToStr(aCase) + '.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, 'unit IncompleteHeader;' + sLineBreak +
+    'interface' + sLineBreak + cBrokenHeaders[aCase] + sLineBreak +
+    'procedure Following;' + sLineBreak + 'implementation' + sLineBreak +
+    'procedure Following;' + sLineBreak + 'begin' + sLineBreak + 'end;' + sLineBreak +
+    'end.', TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(FindRoutine(lModel, 'Following', 'interface', lRoutine),
+    'An incomplete header must not consume the following declaration.');
+  Assert.AreEqual(4, lRoutine.Line);
+  Assert.AreEqual(11, lRoutine.Column);
+  Assert.AreEqual('', lRoutine.Signature);
+  Assert.AreEqual('', lRoutine.ReturnType);
+  Assert.IsTrue(HasRoutine(lModel, 'Following', 'implementation'));
+  Assert.IsFalse(HasRoutine(lModel, 'Broken', 'interface'),
+    'An incomplete header must not create a routine model.');
+end;
+
+procedure TUnitModelTests.RoutineHeaderExtentPreservesDelimitersAndCommentBoundaries;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('RemoveWithMultilineHeaders', 'MultilineHeadersUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindRoutine(lModel, 'HeaderExtent', 'interface', lRoutine));
+  Assert.AreEqual('(aCount: Integer = (1 + (2));' + sLineBreak +
+    '  aText: string = ''(x)''' + sLineBreak + '  {' + sLineBreak +
+    'procedure Fake;' + sLineBreak + '  }' + sLineBreak + '  )', lRoutine.Signature);
+  Assert.AreEqual('Integer', lRoutine.ReturnType);
+  Assert.IsFalse(HasReference(lModel, 'x'), 'A string default is not a type reference.');
+  Assert.IsFalse(HasReference(lModel, 'Fake'), 'A comment is not a type reference.');
+  Assert.AreEqual(2, Integer(Length(lRoutine.Parameters)));
+  Assert.AreEqual('aCount', lRoutine.Parameters[0].Name);
+  Assert.AreEqual('Integer', lRoutine.Parameters[0].TypeName);
+  Assert.AreEqual('aText', lRoutine.Parameters[1].Name);
+  Assert.AreEqual('string', lRoutine.Parameters[1].TypeName);
+  Assert.AreEqual(18, lRoutine.Parameters[0].Line);
+  Assert.AreEqual(23, lRoutine.Parameters[0].Column);
+  Assert.AreEqual(19, lRoutine.Parameters[1].Line);
+  Assert.AreEqual(3, lRoutine.Parameters[1].Column);
+  Assert.IsFalse(HasRoutine(lModel, 'Fake', 'interface'));
+  Assert.IsTrue(HasRoutine(lModel, 'SingleLine', 'implementation'));
+  Assert.IsTrue(HasRoutine(lModel, 'HeaderExtent', 'implementation'));
 end;
 
 procedure TUnitModelTests.ExtractsRoutineAfterSingleLineGuidInterface;

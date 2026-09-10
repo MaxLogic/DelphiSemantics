@@ -29,6 +29,7 @@ type
     [TestCase('Before receiver member scopes', '2')]
     [TestCase('Before compiler body casts', '3')]
     [TestCase('Before pointer cast receivers', '4')]
+    [TestCase('Before routine body extents', '5')]
     procedure RebuildsRemoveWithFactsWithOlderSchemaMarker(const aVersion: string);
     [Test]
     procedure ProjectSessionOpensFromProjectFileName;

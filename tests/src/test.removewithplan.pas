@@ -30,6 +30,13 @@ type
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
     [Test]
+    [TestCase('single line', '0')]
+    [TestCase('wrapped', '1')]
+    [TestCase('parameter shadows type', '2')]
+    procedure FinalDtoPreservesMultilineRoutineScope(const aCase: Integer);
+    [Test]
+    procedure MultilineOuterRoutinePreservesSiblingCallVisibility;
+    [Test]
     procedure FinalDtoCapturesVisibleImportedPointerCast;
     [Test]
     [TestCase('comma callable', '0')]
@@ -19489,6 +19496,55 @@ begin
   Assert.AreEqual(1, lFirst.Edits[0].Range.EndColumn);
   Assert.AreEqual('  lWithItemPtr: ^TItem;' + sLineBreak +
     '  lWithItemPtr1: ^TItem;' + sLineBreak, lFirst.Edits[0].ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPreservesMultilineRoutineScope(const aCase: Integer);
+const
+  cLines: array[0..2] of Integer = (31, 41, 51);
+  cRoutineNames: array[0..2] of string = ('SingleLine', 'Wrapped', 'Shadowed');
+var
+  lExpected: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithMultilineHeaders\MultilineHeaders.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'MultilineHeadersUnit.pas',
+    cLines[aCase], 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('lWithItemPtr := @aItem;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('lWithItemPtr: ^TItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  if aCase < 2 then
+  begin
+    lExpected := '  lWithItemPtr := @aItem;' + sLineBreak +
+      '  begin' + sLineBreak +
+      '    Integer(aRaw) := lWithItemPtr^.Value + aAdd;' + sLineBreak +
+      '    ' + cRoutineNames[aCase] + ' := Later(lWithItemPtr^.Value, aAdd);' + sLineBreak +
+      '  end;';
+  end else
+    lExpected := '  lWithItemPtr := @aItem;' + sLineBreak +
+      '  Shadowed := lWithItemPtr^.Value + aShadow;';
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+end;
+
+procedure TRemoveWithPlanTests.MultilineOuterRoutinePreservesSiblingCallVisibility;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithMultilineHeaders\MultilineHeaders.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'MultilineHeadersUnit.pas', 76, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('lWithItemPtr := @aItem;', lStatement.Temps[0].InitializationText);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'Bump(aAdd);'));
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'Inner := lWithItemPtr^.Value > 0;'));
+  AssertCapturedRecipe(lStatement);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoPreservesNestedAndConditionalBodyRanges(

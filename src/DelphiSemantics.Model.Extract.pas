@@ -28,6 +28,13 @@ type
     EndOffset: Integer;
   end;
 
+  TRoutineHeader = record
+    Signature: string;
+    SignatureOffset: Integer;
+    ReturnType: string;
+    ReturnTypeOffset: Integer;
+  end;
+
   TWritableConstantSwitch = record
     EndOffset: Integer;
     Enabled: Boolean;
@@ -1721,11 +1728,12 @@ begin
       lText := Copy(lText, 2, Length(lText) - 2);
 
     lParameterOffset := aSignatureOffset + Pos(lText, aParameterText) - 1;
+    lText := SanitizeCodeText(lText);
     for lParameter in lText.Split([';']) do
     begin
       lMatch := TRegEx.Match(lParameter.Trim,
-        '^(?:(const|var|out)\s+)?([A-Za-z_][A-Za-z0-9_,\s]*)\s*:\s*(.+)$',
-        [roIgnoreCase]);
+        '^(?:(const|var|out)\s+)?([A-Za-z_][A-Za-z0-9_,\s]*)\s*:\s*([^=]+?)(?:\s*=.*)?$',
+        [roIgnoreCase, roSingleLine]);
       if not lMatch.Success then
         lMatch := TRegEx.Match(lParameter.Trim,
           '^(?:(const|var|out)\s+)([A-Za-z_][A-Za-z0-9_,\s]*)$',
@@ -1771,8 +1779,9 @@ begin
   if (lParameterText <> '') and CharInSet(lParameterText[Length(lParameterText)], [')', ']']) then
     Delete(lParameterText, Length(lParameterText), 1);
 
+  lParameterText := SanitizeCodeText(lParameterText);
   lMatch := TRegEx.Match(lParameterText,
-    '(?:(?:const|var|out)\s+)?[A-Za-z_][A-Za-z0-9_,\s]*\s*:\s*([^;\)\r\n]+)',
+    '(?:(?:const|var|out)\s+)?[A-Za-z_][A-Za-z0-9_,\s]*\s*:\s*([^;=\)\r\n]+)',
     [roIgnoreCase]);
   while lMatch.Success do
   begin
@@ -1806,47 +1815,123 @@ begin
   Result := ActiveExtractionContext.IsOffsetInsideTypeBlock(aText, aOffset);
 end;
 
+function AtFollowingRoutine(const aLexer: TmwBasePasLex; var aNextMatch: TMatch): Boolean;
+begin
+  while aNextMatch.Success and (MatchGroupIndex(aNextMatch, 1) < aLexer.TokenPos + 1) do
+    aNextMatch := aNextMatch.NextMatch;
+  Result := aNextMatch.Success and (MatchGroupIndex(aNextMatch, 1) = aLexer.TokenPos + 1) and
+    (aLexer.TokenID in [ptProcedure, ptFunction, ptConstructor, ptDestructor]);
+end;
+
+function TryReadRoutineHeader(const aText: string; const aLexer: TmwBasePasLex;
+  var aNextMatch: TMatch; out aHeader: TRoutineHeader): Boolean;
+var
+  lDepth: Integer;
+begin
+  Result := False;
+  aHeader := Default(TRoutineHeader);
+  if aLexer.TokenID = ptRoundOpen then
+  begin
+    aHeader.SignatureOffset := aLexer.TokenPos + 1;
+    lDepth := 1;
+    repeat
+      aLexer.NextNoJunk;
+      if AtFollowingRoutine(aLexer, aNextMatch) then
+        Exit;
+      if aLexer.TokenID in [ptNull, ptBegin, ptEnd] then
+        Exit;
+      if aLexer.TokenID = ptRoundOpen then
+        Inc(lDepth)
+      else if aLexer.TokenID = ptRoundClose then
+        Dec(lDepth);
+    until lDepth = 0;
+    aHeader.Signature := Copy(aText, aHeader.SignatureOffset,
+      aLexer.TokenPos + aLexer.TokenLen - aHeader.SignatureOffset + 1);
+    aLexer.NextNoJunk;
+  end;
+  if aLexer.TokenID = ptColon then
+  begin
+    aLexer.NextNoJunk;
+    aHeader.ReturnTypeOffset := aLexer.TokenPos + 1;
+    while not (aLexer.TokenID in [ptSemiColon, ptNull, ptBegin, ptEnd]) do
+    begin
+      if AtFollowingRoutine(aLexer, aNextMatch) then
+        Exit;
+      aLexer.NextNoJunk;
+    end;
+    if (aLexer.TokenID <> ptSemiColon) or
+      (aLexer.TokenPos + 1 = aHeader.ReturnTypeOffset) then
+      Exit;
+    aHeader.ReturnType := Trim(Copy(aText, aHeader.ReturnTypeOffset,
+      aLexer.TokenPos - aHeader.ReturnTypeOffset + 1));
+  end;
+  Result := aLexer.TokenID = ptSemiColon;
+end;
+
 procedure ExtractRoutines(const aText: string; const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aRoutines: TList<TDelphiSemanticRoutine>;
   const aReferences: TList<TDelphiSemanticReference>);
 var
+  lHeader: TRoutineHeader;
+  lLexer: TmwBasePasLex;
   lMatch: TMatch;
   lNameOffset: Integer;
+  lNextMatch: TMatch;
   lOwnerName: string;
   lPrefix: string;
   lRoutineName: string;
   lSection: string;
 begin
-  lMatch := TRegEx.Match(aText,
-    '^\s*(?:class\s+)?(procedure|function|constructor|destructor)\s+' +
-    '((?:[A-Za-z_][A-Za-z0-9_]*\.)?)' +
-    '([A-Za-z_][A-Za-z0-9_]*)\s*(\([^\r\n]*\))?\s*(?::\s*([^;\r\n]+))?\s*;',
-    [roIgnoreCase, roMultiLine]);
-  while lMatch.Success do
-  begin
-    if IsOffsetInsideTypeBlock(aText, lMatch.Index + 1) then
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aText;
+    lMatch := TRegEx.Match(aText,
+      '^\s*(?:class\s+)?(procedure|function|constructor|destructor)\s+' +
+      '((?:[A-Za-z_][A-Za-z0-9_]*\.)?)' +
+      '([A-Za-z_][A-Za-z0-9_]*)\s*', [roIgnoreCase, roMultiLine]);
+    while lMatch.Success do
     begin
-      lMatch := lMatch.NextMatch;
-      Continue;
+      lNextMatch := lMatch.NextMatch;
+      // Advance once through the unit so comment/string matches cannot become routines.
+      while (lLexer.TokenID <> ptNull) and
+        (lLexer.TokenPos + 1 < MatchGroupIndex(lMatch, 1)) do
+        lLexer.NextNoJunk;
+      if (lLexer.TokenPos + 1 <> MatchGroupIndex(lMatch, 1)) or
+        (not (lLexer.TokenID in [ptProcedure, ptFunction, ptConstructor, ptDestructor])) or
+        IsOffsetInsideTypeBlock(aText, lMatch.Index + 1) then
+      begin
+        lMatch := lNextMatch;
+        Continue;
+      end;
+      while (lLexer.TokenID <> ptNull) and
+        (lLexer.TokenPos + 1 < lMatch.Index + lMatch.Length) do
+        lLexer.NextNoJunk;
+      if not TryReadRoutineHeader(aText, lLexer, lNextMatch, lHeader) then
+      begin
+        lMatch := lNextMatch;
+        Continue;
+      end;
+      lPrefix := lMatch.Groups[2].Value;
+      lRoutineName := lMatch.Groups[3].Value;
+      lOwnerName := lPrefix.Trim;
+      if EndsText('.', lOwnerName) then
+        lOwnerName := Copy(lOwnerName, 1, Length(lOwnerName) - 1);
+      lNameOffset := lMatch.Index + Pos(lRoutineName, lMatch.Value) - 1;
+      lSection := SectionForOffset(aText, lMatch.Index + 1);
+      AddRoutine(aRoutines, lRoutineName, lOwnerName, lSection, lHeader.Signature,
+        lHeader.ReturnType, aText, lNameOffset, lHeader.SignatureOffset);
+      AddParameterTypeReferences(aReferences, QualifiedRoutineName(lOwnerName, lRoutineName),
+        lHeader.Signature, aText, lHeader.SignatureOffset);
+      AddTypeReferences(aReferences, QualifiedRoutineName(lOwnerName, lRoutineName),
+        lHeader.ReturnType, aText, lHeader.ReturnTypeOffset);
+      if lOwnerName = '' then
+        AddDeclaration(aDeclarations, lRoutineName, 'routine', lHeader.ReturnType,
+          lSection, aText, lNameOffset);
+      lMatch := lNextMatch;
     end;
-
-    lPrefix := lMatch.Groups[2].Value;
-    lRoutineName := lMatch.Groups[3].Value;
-    lOwnerName := lPrefix.Trim;
-    if EndsText('.', lOwnerName) then
-      lOwnerName := Copy(lOwnerName, 1, Length(lOwnerName) - 1);
-    lNameOffset := lMatch.Index + Pos(lRoutineName, lMatch.Value) - 1;
-    lSection := SectionForOffset(aText, lMatch.Index + 1);
-    AddRoutine(aRoutines, lRoutineName, lOwnerName, lSection, MatchGroupValue(lMatch, 4),
-      MatchGroupValue(lMatch, 5), aText, lNameOffset, MatchGroupIndex(lMatch, 4));
-    AddParameterTypeReferences(aReferences, QualifiedRoutineName(lOwnerName, lRoutineName),
-      MatchGroupValue(lMatch, 4), aText, MatchGroupIndex(lMatch, 4));
-    AddTypeReferences(aReferences, QualifiedRoutineName(lOwnerName, lRoutineName),
-      MatchGroupValue(lMatch, 5).Trim, aText, MatchGroupIndex(lMatch, 5));
-    if lOwnerName = '' then
-      AddDeclaration(aDeclarations, lRoutineName, 'routine', MatchGroupValue(lMatch, 5).Trim,
-        lSection, aText, lNameOffset);
-    lMatch := lMatch.NextMatch;
+  finally
+    lLexer.Free;
   end;
 end;
 
