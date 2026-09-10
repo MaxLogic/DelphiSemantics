@@ -14591,66 +14591,143 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2352, 3, lStatement),
     'Expected maxTdb TDB02 GetVar VarList[X].VarCont^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(2352, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(2405, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  begin' + sLineBreak +
-    '    case VarList[X].VarCont^.Art of' + sLineBreak +
-    '      A_DEF:' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          n := 1;' + sLineBreak +
-    '          tFun := Funktion;' + sLineBreak +
-    '          Funktion := False;' + sLineBreak +
-    '          GetVar := BERECHNE(VarList[X].VarCont^.S_Wert^, n, Test, v, t_Art, h);' + sLineBreak +
-    '          Funktion := tFun;' + sLineBreak +
-    '        end;' + sLineBreak +
-    '      A_BROWSER,' + sLineBreak +
-    '        A_REAL:' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          t_Art := A_REAL;' + sLineBreak +
-    '          h := 0;' + sLineBreak +
-    '          double(v) := VarList[X].VarCont^.R_Wert' + sLineBreak +
-    '        end;' + sLineBreak +
-    '      A_STRING:' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          t_Art := A_STRING;' + sLineBreak +
-    '          h := 0;' + sLineBreak +
-    '          if VarList[X].VarCont^.S_Wert = nil then' + sLineBreak +
-    '            str255(v) := S_Leer' + sLineBreak +
-    '          else' + sLineBreak +
-    '            str255(v) := VarList[X].VarCont^.S_Wert^;' + sLineBreak +
-    '        end;' + sLineBreak +
-    '      A_Int16:' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          t_Art := A_REAL;' + sLineBreak +
-    '          h := 0;' + sLineBreak +
-    '          double(v) := VarList[X].VarCont^.I_Wert' + sLineBreak +
-    '        end;' + sLineBreak +
-    '      A_BIT:' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          t_Art := A_BIT;' + sLineBreak +
-    '          h := 0;' + sLineBreak +
-    '          Pointer(v) := VarList[X].VarCont^.S_Wert' + sLineBreak +
-    '        end;' + sLineBreak +
-    '      A_BYTE:' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          t_Art := A_REAL;' + sLineBreak +
-    '          h := 0;' + sLineBreak +
-    '          double(v) := VarList[X].VarCont^.B_Wert' + sLineBreak +
-    '        end;' + sLineBreak +
-    '      A_CHAR:' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          t_Art := A_STRING;' + sLineBreak +
-    '          h := 0;' + sLineBreak +
-    '          str255(v) := VarList[X].VarCont^.P_Wert' + sLineBreak +
-    '        end;' + sLineBreak +
-    '    end;' + sLineBreak +
-    '  end' + sLineBreak, lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(2352, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(2404, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(5, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual('  lWithVarRecPtr := @VarList[X].VarCont^;' + #13#10 +
+    '  begin' + #13#10 +
+    '    case lWithVarRecPtr^.Art of' + #13#10 +
+    '      A_DEF:' + #13#10 +
+    '        begin' + #13#10 +
+    '          n := 1;' + #13#10 +
+    '          tFun := Funktion;' + #13#10 +
+    '          Funktion := False;' + #13#10 +
+    '          GetVar := BERECHNE(lWithVarRecPtr^.S_Wert^, n, Test, v, t_Art, h);' + #13#10 +
+    '          Funktion := tFun;' + #13#10 +
+    '        end;' + #13#10 +
+    '      A_BROWSER,' + #13#10 +
+    '        A_REAL:' + #13#10 +
+    '        begin' + #13#10 +
+    '          t_Art := A_REAL;' + #13#10 +
+    '          h := 0;' + #13#10 +
+    '          double(v) := lWithVarRecPtr^.R_Wert' + #13#10 +
+    '        end;' + #13#10 +
+    '      A_STRING:' + #13#10 +
+    '        begin' + #13#10 +
+    '          t_Art := A_STRING;' + #13#10 +
+    '          h := 0;' + #13#10 +
+    '          if lWithVarRecPtr^.S_Wert = nil then' + #13#10 +
+    '            str255(v) := S_Leer' + #13#10 +
+    '          else' + #13#10 +
+    '            str255(v) := lWithVarRecPtr^.S_Wert^;' + #13#10 +
+    '        end;' + #13#10 +
+    '      A_Int16:' + #13#10 +
+    '        begin' + #13#10 +
+    '          t_Art := A_REAL;' + #13#10 +
+    '          h := 0;' + #13#10 +
+    '          double(v) := lWithVarRecPtr^.I_Wert' + #13#10 +
+    '        end;' + #13#10 +
+    '      A_BIT:' + #13#10 +
+    '        begin' + #13#10 +
+    '          t_Art := A_BIT;' + #13#10 +
+    '          h := 0;' + #13#10 +
+    '          Pointer(v) := lWithVarRecPtr^.S_Wert' + #13#10 +
+    '        end;' + #13#10 +
+    '      A_BYTE:' + #13#10 +
+    '        begin' + #13#10 +
+    '          t_Art := A_REAL;' + #13#10 +
+    '          h := 0;' + #13#10 +
+    '          double(v) := lWithVarRecPtr^.B_Wert' + #13#10 +
+    '        end;' + #13#10 +
+    '      A_CHAR:' + #13#10 +
+    '        begin' + #13#10 +
+    '          t_Art := A_STRING;' + #13#10 +
+    '          h := 0;' + #13#10 +
+    '          str255(v) := lWithVarRecPtr^.P_Wert' + #13#10 +
+    '        end;' + #13#10 +
+    '    end;' + #13#10 +
+    '  end', lStatement.ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('GetVar', lStatement.RoutineName);
+  Assert.AreEqual('267517c62d057bad038b17d4fbef16b736a7860e1131fc0efae7786f2bc2f314', lStatement.SemanticId);
+  Assert.AreEqual('2352:3-2404:5', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('2352:3-2404:5', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with VarList[X].VarCont^ do' + #13#10 +
+    '  begin' + #13#10 +
+    '    case Art of' + #13#10 +
+    '      A_DEF:' + #13#10 +
+    '        begin' + #13#10 +
+    '          n := 1;' + #13#10 +
+    '          tFun := Funktion;' + #13#10 +
+    '          Funktion := False;' + #13#10 +
+    '          GetVar := BERECHNE(S_Wert^, n, Test, v, t_Art, h);' + #13#10 +
+    '          Funktion := tFun;' + #13#10 +
+    '        end;' + #13#10 +
+    '      A_BROWSER,' + #13#10 +
+    '        A_REAL:' + #13#10 +
+    '        begin' + #13#10 +
+    '          t_Art := A_REAL;' + #13#10 +
+    '          h := 0;' + #13#10 +
+    '          double(v) := R_Wert' + #13#10 +
+    '        end;' + #13#10 +
+    '      A_STRING:' + #13#10 +
+    '        begin' + #13#10 +
+    '          t_Art := A_STRING;' + #13#10 +
+    '          h := 0;' + #13#10 +
+    '          if S_Wert = nil then' + #13#10 +
+    '            str255(v) := S_Leer' + #13#10 +
+    '          else' + #13#10 +
+    '            str255(v) := S_Wert^;' + #13#10 +
+    '        end;' + #13#10 +
+    '      A_Int16:' + #13#10 +
+    '        begin' + #13#10 +
+    '          t_Art := A_REAL;' + #13#10 +
+    '          h := 0;' + #13#10 +
+    '          double(v) := I_Wert' + #13#10 +
+    '        end;' + #13#10 +
+    '      A_BIT:' + #13#10 +
+    '        begin' + #13#10 +
+    '          t_Art := A_BIT;' + #13#10 +
+    '          h := 0;' + #13#10 +
+    '          Pointer(v) := S_Wert' + #13#10 +
+    '        end;' + #13#10 +
+    '      A_BYTE:' + #13#10 +
+    '        begin' + #13#10 +
+    '          t_Art := A_REAL;' + #13#10 +
+    '          h := 0;' + #13#10 +
+    '          double(v) := B_Wert' + #13#10 +
+    '        end;' + #13#10 +
+    '      A_CHAR:' + #13#10 +
+    '        begin' + #13#10 +
+    '          t_Art := A_STRING;' + #13#10 +
+    '          h := 0;' + #13#10 +
+    '          str255(v) := P_Wert' + #13#10 +
+    '        end;' + #13#10 +
+    '    end;' + #13#10 +
+    '  end', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('VarList[X].VarCont^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithVarRecPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('VarRec', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithVarRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithVarRecPtr: ^VarRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithVarRecPtr := @VarList[X].VarCont^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('267517c62d057bad038b17d4fbef16b736a7860e1131fc0efae7786f2bc2f314', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('2344:1-2344:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithVarRecPtr: ^VarRec;' + #13#10 +
+    '', lStatement.Edits[0].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+
+
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02ToDbfReplacement;
@@ -14748,46 +14825,114 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2755, 3, lStatement),
     'Expected maxTdb TDB02 DoMarkBits ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(2755, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(2766, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(8, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art <> A_BIT then' + sLineBreak +
-    '    begin' + sLineBreak +
-    '      DoMarkBits := -52;' + sLineBreak +
-    '      exit' + sLineBreak +
-    '    end' + sLineBreak +
-    '    else' + sLineBreak +
-    '    begin' + sLineBreak +
-    '      B1.MaxBytes := ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize;' + sLineBreak +
-    '      B1.Cont := ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory;' + sLineBreak +
-    '      DoMarkBits := MarkBits(d, IndexFile, searchStr, EStr, Ops, RelFiles, Mask, B1);' + sLineBreak +
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(2755, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(2766, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(8, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual('  lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;' + #13#10 +
+    '  if lWithArrayVarRecPtr^.Art <> A_BIT then' + #13#10 +
+    '    begin' + #13#10 +
+    '      DoMarkBits := -52;' + #13#10 +
+    '      exit' + #13#10 +
+    '    end' + #13#10 +
+    '    else' + #13#10 +
+    '    begin' + #13#10 +
+    '      B1.MaxBytes := lWithArrayVarRecPtr^.ArrayVar.gsize;' + #13#10 +
+    '      B1.Cont := lWithArrayVarRecPtr^.Memory;' + #13#10 +
+    '      DoMarkBits := MarkBits(d, IndexFile, searchStr, EStr, Ops, RelFiles, Mask, B1);' + #13#10 +
     '    end;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('DoMarkBits', lStatement.RoutineName);
+  Assert.AreEqual('5b9c3c19088a13cf868379a9ea8d6ff00f280585582b3a584f0f9bfe8bd1e0e1', lStatement.SemanticId);
+  Assert.AreEqual('2755:3-2766:8', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('2755:3-2766:8', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with ArrayVarRecPtr(VarList[Nr].VarCont)^ do' + #13#10 +
+    '    if Art <> A_BIT then' + #13#10 +
+    '    begin' + #13#10 +
+    '      DoMarkBits := -52;' + #13#10 +
+    '      exit' + #13#10 +
+    '    end' + #13#10 +
+    '    else' + #13#10 +
+    '    begin' + #13#10 +
+    '      B1.MaxBytes := ArrayVar.gsize;' + #13#10 +
+    '      B1.Cont := Memory;' + #13#10 +
+    '      DoMarkBits := MarkBits(d, IndexFile, searchStr, EStr, Ops, RelFiles, Mask, B1);' + #13#10 +
+    '    end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('ArrayVarRecPtr(VarList[Nr].VarCont)^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithArrayVarRecPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('ArrayVarRec', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithArrayVarRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('5b9c3c19088a13cf868379a9ea8d6ff00f280585582b3a584f0f9bfe8bd1e0e1', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('2754:1-2754:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
+    '', lStatement.Edits[0].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2771, 3, lStatement),
     'Expected maxTdb TDB02 GetBitArrayVar ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(2771, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(2780, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(4, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art <> A_BIT then' + sLineBreak +
-    '      GetBitArrayVar := 52' + sLineBreak +
-    '    else' + sLineBreak +
-    '    begin' + sLineBreak +
-    '      b.MaxBytes := ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize;' + sLineBreak +
-    '      b.Cont := ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory;' + sLineBreak +
-    '      GetBitArrayVar := 0' + sLineBreak +
-    '    end' + sLineBreak +
-    'end;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(2771, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(2779, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(7, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual('  lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;' + #13#10 +
+    '  if lWithArrayVarRecPtr^.Art <> A_BIT then' + #13#10 +
+    '      GetBitArrayVar := 52' + #13#10 +
+    '    else' + #13#10 +
+    '    begin' + #13#10 +
+    '      b.MaxBytes := lWithArrayVarRecPtr^.ArrayVar.gsize;' + #13#10 +
+    '      b.Cont := lWithArrayVarRecPtr^.Memory;' + #13#10 +
+    '      GetBitArrayVar := 0' + #13#10 +
+    '    end', lStatement.ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('GetBitArrayVar', lStatement.RoutineName);
+  Assert.AreEqual('5beb52475cc87f7faf7a7c80060e67d7ecd38a53ddb60853de45e7a0b6fd56bc', lStatement.SemanticId);
+  Assert.AreEqual('2771:3-2779:7', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('2771:3-2779:7', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with ArrayVarRecPtr(VarList[Nr].VarCont)^ do' + #13#10 +
+    '    if Art <> A_BIT then' + #13#10 +
+    '      GetBitArrayVar := 52' + #13#10 +
+    '    else' + #13#10 +
+    '    begin' + #13#10 +
+    '      b.MaxBytes := ArrayVar.gsize;' + #13#10 +
+    '      b.Cont := Memory;' + #13#10 +
+    '      GetBitArrayVar := 0' + #13#10 +
+    '    end', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('ArrayVarRecPtr(VarList[Nr].VarCont)^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithArrayVarRecPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('ArrayVarRec', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithArrayVarRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('5beb52475cc87f7faf7a7c80060e67d7ecd38a53ddb60853de45e7a0b6fd56bc', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('2770:1-2770:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
+    '', lStatement.Edits[0].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+
+
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02BitArrayOpReplacement;
@@ -14807,24 +14952,60 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2811, 3, lStatement),
     'Expected maxTdb TDB02 BitArrayOp second ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(2811, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(2821, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(8, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  if ArrayVarRecPtr(VarList[Nr2].VarCont)^.Art <> A_BIT then' + sLineBreak +
-    '    begin' + sLineBreak +
-    '      BitArrayOp := -52;' + sLineBreak +
-    '      goto Error' + sLineBreak +
-    '    end' + sLineBreak +
-    '    else' + sLineBreak +
-    '    begin' + sLineBreak +
-    '      B2.MaxBytes := ArrayVarRecPtr(VarList[Nr2].VarCont)^.ArrayVar.gsize;' + sLineBreak +
-    '      B2.Cont := ArrayVarRecPtr(VarList[Nr2].VarCont)^.Memory;' + sLineBreak +
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(2811, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(2821, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(8, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual('  lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr2].VarCont)^;' + #13#10 +
+    '  if lWithArrayVarRecPtr^.Art <> A_BIT then' + #13#10 +
+    '    begin' + #13#10 +
+    '      BitArrayOp := -52;' + #13#10 +
+    '      goto Error' + #13#10 +
+    '    end' + #13#10 +
+    '    else' + #13#10 +
+    '    begin' + #13#10 +
+    '      B2.MaxBytes := lWithArrayVarRecPtr^.ArrayVar.gsize;' + #13#10 +
+    '      B2.Cont := lWithArrayVarRecPtr^.Memory;' + #13#10 +
     '    end;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('BitArrayOp', lStatement.RoutineName);
+  Assert.AreEqual('bf543d23987bfca934034a603a3c1a23b354c9eabcf69e953edf1b8c1be05c98', lStatement.SemanticId);
+  Assert.AreEqual('2811:3-2821:8', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('2811:3-2821:8', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with ArrayVarRecPtr(VarList[Nr2].VarCont)^ do' + #13#10 +
+    '    if Art <> A_BIT then' + #13#10 +
+    '    begin' + #13#10 +
+    '      BitArrayOp := -52;' + #13#10 +
+    '      goto Error' + #13#10 +
+    '    end' + #13#10 +
+    '    else' + #13#10 +
+    '    begin' + #13#10 +
+    '      B2.MaxBytes := ArrayVar.gsize;' + #13#10 +
+    '      B2.Cont := Memory;' + #13#10 +
+    '    end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('ArrayVarRecPtr(VarList[Nr2].VarCont)^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithArrayVarRecPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('ArrayVarRec', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithArrayVarRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr2].VarCont)^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('bf543d23987bfca934034a603a3c1a23b354c9eabcf69e953edf1b8c1be05c98', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('2783:1-2783:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + #13#10 +
+    '  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
+    '', lStatement.Edits[0].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+
+
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02ReverseMarksReplacement;
@@ -15058,127 +15239,289 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3342, 3, lStatement),
     'Expected maxTdb TDB02 InArray ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(3342, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(3370, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(8, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art = A_REAL then' + sLineBreak +
-    '    begin' + sLineBreak +
-    '      r := ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory;' + sLineBreak +
-    '      for i := 0 to ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize div SizeOf(double) do' + sLineBreak +
-    '        if Round(r^) = n then' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          InArray := True;' + sLineBreak +
-    '          exit' + sLineBreak +
-    '        end' + sLineBreak +
-    '        else if r^ = 0.0 then' + sLineBreak +
-    '          exit' + sLineBreak +
-    '        else' + sLineBreak +
-    '          Inc(pByte(r), SizeOf(r^));' + sLineBreak +
-    '    end' + sLineBreak +
-    '    else if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art = A_Int16 then' + sLineBreak +
-    '    begin' + sLineBreak +
-    '      IP := ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory;' + sLineBreak +
-    '      for i := 0 to ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize div SizeOf(Int32) do' + sLineBreak +
-    '        if IP^ = n then' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          InArray := True;' + sLineBreak +
-    '          exit' + sLineBreak +
-    '        end' + sLineBreak +
-    '        else if IP^ = 0 then' + sLineBreak +
-    '          exit' + sLineBreak +
-    '        else' + sLineBreak +
-    '          Inc(pByte(IP), SizeOf(IP^));' + sLineBreak +
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(3342, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(3370, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(8, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual('  lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;' + #13#10 +
+    '  if lWithArrayVarRecPtr^.Art = A_REAL then' + #13#10 +
+    '    begin' + #13#10 +
+    '      r := lWithArrayVarRecPtr^.Memory;' + #13#10 +
+    '      for i := 0 to lWithArrayVarRecPtr^.ArrayVar.gsize div SizeOf(double) do' + #13#10 +
+    '        if Round(r^) = n then' + #13#10 +
+    '        begin' + #13#10 +
+    '          InArray := True;' + #13#10 +
+    '          exit' + #13#10 +
+    '        end' + #13#10 +
+    '        else if r^ = 0.0 then' + #13#10 +
+    '          exit' + #13#10 +
+    '        else' + #13#10 +
+    '          Inc(pByte(r), SizeOf(r^));' + #13#10 +
+    '    end' + #13#10 +
+    '    else if lWithArrayVarRecPtr^.Art = A_Int16 then' + #13#10 +
+    '    begin' + #13#10 +
+    '      IP := lWithArrayVarRecPtr^.Memory;' + #13#10 +
+    '      for i := 0 to lWithArrayVarRecPtr^.ArrayVar.gsize div SizeOf(Int32) do' + #13#10 +
+    '        if IP^ = n then' + #13#10 +
+    '        begin' + #13#10 +
+    '          InArray := True;' + #13#10 +
+    '          exit' + #13#10 +
+    '        end' + #13#10 +
+    '        else if IP^ = 0 then' + #13#10 +
+    '          exit' + #13#10 +
+    '        else' + #13#10 +
+    '          Inc(pByte(IP), SizeOf(IP^));' + #13#10 +
     '    end;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('InArray', lStatement.RoutineName);
+  Assert.AreEqual('c5efa418c102951037c6a262a80a4965265583eea3175bc3f3047c0ff9d12571', lStatement.SemanticId);
+  Assert.AreEqual('3342:3-3370:8', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('3342:3-3370:8', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with ArrayVarRecPtr(VarList[Nr].VarCont)^ do' + #13#10 +
+    '    if Art = A_REAL then' + #13#10 +
+    '    begin' + #13#10 +
+    '      r := Memory;' + #13#10 +
+    '      for i := 0 to ArrayVar.gsize div SizeOf(double) do' + #13#10 +
+    '        if Round(r^) = n then' + #13#10 +
+    '        begin' + #13#10 +
+    '          InArray := True;' + #13#10 +
+    '          exit' + #13#10 +
+    '        end' + #13#10 +
+    '        else if r^ = 0.0 then' + #13#10 +
+    '          exit' + #13#10 +
+    '        else' + #13#10 +
+    '          Inc(pByte(r), SizeOf(r^));' + #13#10 +
+    '    end' + #13#10 +
+    '    else if Art = A_Int16 then' + #13#10 +
+    '    begin' + #13#10 +
+    '      IP := Memory;' + #13#10 +
+    '      for i := 0 to ArrayVar.gsize div SizeOf(Int32) do' + #13#10 +
+    '        if IP^ = n then' + #13#10 +
+    '        begin' + #13#10 +
+    '          InArray := True;' + #13#10 +
+    '          exit' + #13#10 +
+    '        end' + #13#10 +
+    '        else if IP^ = 0 then' + #13#10 +
+    '          exit' + #13#10 +
+    '        else' + #13#10 +
+    '          Inc(pByte(IP), SizeOf(IP^));' + #13#10 +
+    '    end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('ArrayVarRecPtr(VarList[Nr].VarCont)^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithArrayVarRecPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('ArrayVarRec', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithArrayVarRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('c5efa418c102951037c6a262a80a4965265583eea3175bc3f3047c0ff9d12571', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('3340:1-3340:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
+    '', lStatement.Edits[0].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3380, 3, lStatement),
     'Expected maxTdb TDB02 InArrayPos ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(3380, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(3404, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(8, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art = A_REAL then' + sLineBreak +
-    '    begin' + sLineBreak +
-    '      r := ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory;' + sLineBreak +
-    '      for i := 0 to ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize div SizeOf(double) do' + sLineBreak +
-    '        if Round(r^) = n then' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          InArrayPos := i;' + sLineBreak +
-    '          exit' + sLineBreak +
-    '        end' + sLineBreak +
-    '        else' + sLineBreak +
-    '          Inc(pByte(r), SizeOf(r^));' + sLineBreak +
-    '    end' + sLineBreak +
-    '    else if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art = A_Int16 then' + sLineBreak +
-    '    begin' + sLineBreak +
-    '      IP := ArrayVarRecPtr(VarList[Nr].VarCont)^.Memory;' + sLineBreak +
-    '      for i := 0 to ArrayVarRecPtr(VarList[Nr].VarCont)^.ArrayVar.gsize div SizeOf(Int32) do' + sLineBreak +
-    '        if IP^ = n then' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          InArrayPos := i;' + sLineBreak +
-    '          exit' + sLineBreak +
-    '        end' + sLineBreak +
-    '        else' + sLineBreak +
-    '          Inc(pByte(IP), SizeOf(IP^));' + sLineBreak +
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(3380, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(3404, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(8, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual('  lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;' + #13#10 +
+    '  if lWithArrayVarRecPtr^.Art = A_REAL then' + #13#10 +
+    '    begin' + #13#10 +
+    '      r := lWithArrayVarRecPtr^.Memory;' + #13#10 +
+    '      for i := 0 to lWithArrayVarRecPtr^.ArrayVar.gsize div SizeOf(double) do' + #13#10 +
+    '        if Round(r^) = n then' + #13#10 +
+    '        begin' + #13#10 +
+    '          InArrayPos := i;' + #13#10 +
+    '          exit' + #13#10 +
+    '        end' + #13#10 +
+    '        else' + #13#10 +
+    '          Inc(pByte(r), SizeOf(r^));' + #13#10 +
+    '    end' + #13#10 +
+    '    else if lWithArrayVarRecPtr^.Art = A_Int16 then' + #13#10 +
+    '    begin' + #13#10 +
+    '      IP := lWithArrayVarRecPtr^.Memory;' + #13#10 +
+    '      for i := 0 to lWithArrayVarRecPtr^.ArrayVar.gsize div SizeOf(Int32) do' + #13#10 +
+    '        if IP^ = n then' + #13#10 +
+    '        begin' + #13#10 +
+    '          InArrayPos := i;' + #13#10 +
+    '          exit' + #13#10 +
+    '        end' + #13#10 +
+    '        else' + #13#10 +
+    '          Inc(pByte(IP), SizeOf(IP^));' + #13#10 +
     '    end;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('InArrayPos', lStatement.RoutineName);
+  Assert.AreEqual('116df9e4accea6bf01812c73d0ee922bdd342313ab158e67a4d77d2bbc793ba3', lStatement.SemanticId);
+  Assert.AreEqual('3380:3-3404:8', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('3380:3-3404:8', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with ArrayVarRecPtr(VarList[Nr].VarCont)^ do' + #13#10 +
+    '    if Art = A_REAL then' + #13#10 +
+    '    begin' + #13#10 +
+    '      r := Memory;' + #13#10 +
+    '      for i := 0 to ArrayVar.gsize div SizeOf(double) do' + #13#10 +
+    '        if Round(r^) = n then' + #13#10 +
+    '        begin' + #13#10 +
+    '          InArrayPos := i;' + #13#10 +
+    '          exit' + #13#10 +
+    '        end' + #13#10 +
+    '        else' + #13#10 +
+    '          Inc(pByte(r), SizeOf(r^));' + #13#10 +
+    '    end' + #13#10 +
+    '    else if Art = A_Int16 then' + #13#10 +
+    '    begin' + #13#10 +
+    '      IP := Memory;' + #13#10 +
+    '      for i := 0 to ArrayVar.gsize div SizeOf(Int32) do' + #13#10 +
+    '        if IP^ = n then' + #13#10 +
+    '        begin' + #13#10 +
+    '          InArrayPos := i;' + #13#10 +
+    '          exit' + #13#10 +
+    '        end' + #13#10 +
+    '        else' + #13#10 +
+    '          Inc(pByte(IP), SizeOf(IP^));' + #13#10 +
+    '    end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('ArrayVarRecPtr(VarList[Nr].VarCont)^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithArrayVarRecPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('ArrayVarRec', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithArrayVarRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('116df9e4accea6bf01812c73d0ee922bdd342313ab158e67a4d77d2bbc793ba3', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('3378:1-3378:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
+    '', lStatement.Edits[0].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3412, 3, lStatement),
     'Expected maxTdb TDB02 andmarks ArrayVarRecPtr with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(3412, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(3449, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(8, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('  if ArrayVarRecPtr(VarList[Nr].VarCont)^.Art <> A_REAL then' + sLineBreak +
-    '      andmarks := 44' + sLineBreak +
-    '    else if em then' + sLineBreak +
-    '    begin' + sLineBreak +
-    '      if (d = 0) or (d > FilesOffen) or (DF[d] = nil) then' + sLineBreak +
-    '      begin' + sLineBreak +
-    '        andmarks := 25;' + sLineBreak +
-    '        exit' + sLineBreak +
-    '      end;' + sLineBreak +
-    '      p := DF[d]^.MarkListe.Anfang;' + sLineBreak +
-    '      q := nil;' + sLineBreak +
-    '      while p <> nil do' + sLineBreak +
-    '      begin' + sLineBreak +
-    '        if not InArray(p^.DV, Nr) then' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          if q = nil then' + sLineBreak +
-    '          begin' + sLineBreak +
-    '            DF[d]^.MarkListe.Anfang := p^.Rest;' + sLineBreak +
-    '            dispose(p);' + sLineBreak +
-    '            p := DF[d]^.MarkListe.Anfang' + sLineBreak +
-    '          end' + sLineBreak +
-    '          else' + sLineBreak +
-    '          begin' + sLineBreak +
-    '            q^.Rest := p^.Rest;' + sLineBreak +
-    '            dispose(p);' + sLineBreak +
-    '            p := q^.Rest' + sLineBreak +
-    '          end;' + sLineBreak +
-    '          Dec(DF[d]^.MarkListe.AnzMarkiert);' + sLineBreak +
-    '        end' + sLineBreak +
-    '        else' + sLineBreak +
-    '        begin' + sLineBreak +
-    '          q := p;' + sLineBreak +
-    '          p := p^.Rest' + sLineBreak +
-    '        end' + sLineBreak +
-    '      end;' + sLineBreak +
-    '      DF[d]^.MarkListe.Ende := q;' + sLineBreak +
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(3412, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(3449, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(8, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual('  lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;' + #13#10 +
+    '  if lWithArrayVarRecPtr^.Art <> A_REAL then' + #13#10 +
+    '      andmarks := 44' + #13#10 +
+    '    else if em then' + #13#10 +
+    '    begin' + #13#10 +
+    '      if (d = 0) or (d > FilesOffen) or (DF[d] = nil) then' + #13#10 +
+    '      begin' + #13#10 +
+    '        andmarks := 25;' + #13#10 +
+    '        exit' + #13#10 +
+    '      end;' + #13#10 +
+    '      p := DF[d]^.MarkListe.Anfang;' + #13#10 +
+    '      q := nil;' + #13#10 +
+    '      while p <> nil do' + #13#10 +
+    '      begin' + #13#10 +
+    '        if not InArray(p^.DV, Nr) then' + #13#10 +
+    '        begin' + #13#10 +
+    '          if q = nil then' + #13#10 +
+    '          begin' + #13#10 +
+    '            DF[d]^.MarkListe.Anfang := p^.Rest;' + #13#10 +
+    '            dispose(p);' + #13#10 +
+    '            p := DF[d]^.MarkListe.Anfang' + #13#10 +
+    '          end' + #13#10 +
+    '          else' + #13#10 +
+    '          begin' + #13#10 +
+    '            q^.Rest := p^.Rest;' + #13#10 +
+    '            dispose(p);' + #13#10 +
+    '            p := q^.Rest' + #13#10 +
+    '          end;' + #13#10 +
+    '          Dec(DF[d]^.MarkListe.AnzMarkiert);' + #13#10 +
+    '        end' + #13#10 +
+    '        else' + #13#10 +
+    '        begin' + #13#10 +
+    '          q := p;' + #13#10 +
+    '          p := p^.Rest' + #13#10 +
+    '        end' + #13#10 +
+    '      end;' + #13#10 +
+    '      DF[d]^.MarkListe.Ende := q;' + #13#10 +
     '    end;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('andmarks', lStatement.RoutineName);
+  Assert.AreEqual('ee3f08b96a8716b3b43550b6af10d6edc2519e733e5a533597f2c827c13d796e', lStatement.SemanticId);
+  Assert.AreEqual('3412:3-3449:8', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('3412:3-3449:8', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with ArrayVarRecPtr(VarList[Nr].VarCont)^ do' + #13#10 +
+    '    if Art <> A_REAL then' + #13#10 +
+    '      andmarks := 44' + #13#10 +
+    '    else if em then' + #13#10 +
+    '    begin' + #13#10 +
+    '      if (d = 0) or (d > FilesOffen) or (DF[d] = nil) then' + #13#10 +
+    '      begin' + #13#10 +
+    '        andmarks := 25;' + #13#10 +
+    '        exit' + #13#10 +
+    '      end;' + #13#10 +
+    '      p := DF[d]^.MarkListe.Anfang;' + #13#10 +
+    '      q := nil;' + #13#10 +
+    '      while p <> nil do' + #13#10 +
+    '      begin' + #13#10 +
+    '        if not InArray(p^.DV, Nr) then' + #13#10 +
+    '        begin' + #13#10 +
+    '          if q = nil then' + #13#10 +
+    '          begin' + #13#10 +
+    '            DF[d]^.MarkListe.Anfang := p^.Rest;' + #13#10 +
+    '            dispose(p);' + #13#10 +
+    '            p := DF[d]^.MarkListe.Anfang' + #13#10 +
+    '          end' + #13#10 +
+    '          else' + #13#10 +
+    '          begin' + #13#10 +
+    '            q^.Rest := p^.Rest;' + #13#10 +
+    '            dispose(p);' + #13#10 +
+    '            p := q^.Rest' + #13#10 +
+    '          end;' + #13#10 +
+    '          Dec(DF[d]^.MarkListe.AnzMarkiert);' + #13#10 +
+    '        end' + #13#10 +
+    '        else' + #13#10 +
+    '        begin' + #13#10 +
+    '          q := p;' + #13#10 +
+    '          p := p^.Rest' + #13#10 +
+    '        end' + #13#10 +
+    '      end;' + #13#10 +
+    '      DF[d]^.MarkListe.Ende := q;' + #13#10 +
+    '    end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('ArrayVarRecPtr(VarList[Nr].VarCont)^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithArrayVarRecPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('ArrayVarRec', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithArrayVarRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('ee3f08b96a8716b3b43550b6af10d6edc2519e733e5a533597f2c827c13d796e', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('3410:1-3410:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
+    '', lStatement.Edits[0].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+
+
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02FilterAndSetMarksParity;
@@ -16275,19 +16618,41 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 9659, 5, lStatement),
     'Expected maxTdb TDB02 KonvertVarNr VarList[VN].VarCont^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual(9659, lStatement.Edits[0].Range.StartLine);
-  Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
-  Assert.AreEqual(9663, lStatement.Edits[0].Range.EndLine);
-  Assert.AreEqual(13, lStatement.Edits[0].Range.EndColumn);
-  Assert.AreEqual('    AppendLokalParameter(ActProcNr, VarList[VN].VarCont^.Name^, ' +
-    'VarList[VN].VarCont^.Art, VarList[VN].VarCont^.V_Files, False, False, ar)' + sLineBreak +
-    '  end' + sLineBreak +
-    '  else' + sLineBreak +
-    '    nn := VN;', lStatement.ReplacementText);
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(9659, lStatement.Edits[1].Range.StartLine);
+  Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
+  Assert.AreEqual(9660, lStatement.Edits[1].Range.EndLine);
+  Assert.AreEqual(76, lStatement.Edits[1].Range.EndColumn);
+  Assert.AreEqual('    lWithVarRecPtr := @VarList[VN].VarCont^;' + #13#10 +
+    '    AppendLokalParameter(ActProcNr, lWithVarRecPtr^.Name^, lWithVarRecPtr^.Art, lWithVarRecPtr^.V_Files, False, False, ar)', lStatement.ReplacementText);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('KonvertVarNr', lStatement.RoutineName);
+  Assert.AreEqual('033ab88e100784611e2186bcd70fba00439b2deb00e9c106959aca344594cb56', lStatement.SemanticId);
+  Assert.AreEqual('9659:5-9660:76', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('9659:5-9660:76', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with VarList[VN].VarCont^ do' + #13#10 +
+    '      AppendLokalParameter(ActProcNr, Name^, Art, V_Files, False, False, ar)', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('VarList[VN].VarCont^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('lWithVarRecPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('VarRec', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithVarRecPtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithVarRecPtr: ^VarRec;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithVarRecPtr := @VarList[VN].VarCont^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual('033ab88e100784611e2186bcd70fba00439b2deb00e9c106959aca344594cb56', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('9655:1-9655:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('  lWithVarRecPtr: ^VarRec;' + #13#10 +
+    '', lStatement.Edits[0].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+
+
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb06WriteFailedReplacement;
