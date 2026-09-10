@@ -933,37 +933,48 @@ exit 0
 }
 
 function Test-ReportOnlyBenchmarkExternalProjectSourceMutationFailsClosed {
-  $lWorkspace = New-TestWorkspace 'external-source-mutation'
-  $lProjectDir = Join-Path $lWorkspace 'project'
-  $lExternalDir = Join-Path $lWorkspace 'external'
-  New-Item -ItemType Directory -Force -Path $lProjectDir, $lExternalDir | Out-Null
-  $lProject = Join-Path $lProjectDir 'project.dpr'
-  $lExternalSource = Join-Path $lExternalDir 'ExternalUnit.pas'
-  $lDak = Join-Path $lWorkspace 'dak.ps1'
-  Set-Content -LiteralPath $lProject -Value @"
+  foreach ($lCacheMode in @('cold', 'warm')) {
+    $lWorkspace = New-TestWorkspace ('external-source-mutation-' + $lCacheMode)
+    $lProjectDir = Join-Path $lWorkspace 'project'
+    $lExternalDir = Join-Path $lWorkspace 'external'
+    New-Item -ItemType Directory -Force -Path $lProjectDir, $lExternalDir | Out-Null
+    $lProject = Join-Path $lProjectDir 'project.dpr'
+    $lExternalSource = Join-Path $lExternalDir 'ExternalUnit.pas'
+    $lDak = Join-Path $lWorkspace 'dak.ps1'
+    Set-Content -LiteralPath $lProject -Value @"
 program project;
 uses
   ExternalUnit in '..\external\ExternalUnit.pas';
 begin
 end.
 "@ -Encoding UTF8
-  Set-Content -LiteralPath $lExternalSource -Value 'unit ExternalUnit; interface implementation end.' `
-    -Encoding UTF8
-  $lBefore = Get-Content -LiteralPath $lExternalSource -Raw
-  New-MutatingDakScript -Path $lDak -SourceFile $lExternalSource
+    Set-Content -LiteralPath $lExternalSource -Value 'unit ExternalUnit; interface implementation end.' `
+      -Encoding UTF8
+    $lBefore = Get-Content -LiteralPath $lExternalSource -Raw
+    New-MutatingDakScript -Path $lDak -SourceFile $lExternalSource
 
-  & pwsh -NoProfile -ExecutionPolicy Bypass -File $BenchmarkScript `
-    -DakExe $lDak -Project $lProject -Workflow remove-with-scan-all `
-    -Repeat 1 -CacheMode cold -OutDir $lWorkspace -NoBaselineCopy `
-    1> (Join-Path $lWorkspace 'external.stdout.txt') `
-    2> (Join-Path $lWorkspace 'external.stderr.txt')
-  $lExit = $LASTEXITCODE
-  if ($lExit -eq 0) {
-    throw 'Benchmark must fail when an externally referenced project source mutates.'
+    & pwsh -NoProfile -ExecutionPolicy Bypass -File $BenchmarkScript `
+      -DakExe $lDak -Project $lProject -Workflow remove-with-scan-all `
+      -Repeat 1 -CacheMode $lCacheMode -OutDir $lWorkspace -NoBaselineCopy `
+      1> (Join-Path $lWorkspace 'external.stdout.txt') `
+      2> (Join-Path $lWorkspace 'external.stderr.txt')
+    $lExit = $LASTEXITCODE
+    if ($lExit -eq 0) {
+      throw 'Benchmark must fail when an externally referenced project source mutates.'
+    }
+
+    $lAfter = Get-Content -LiteralPath $lExternalSource -Raw
+    Assert-True ($lBefore -ne $lAfter) 'External source changes must remain untouched by restoration.'
+    Assert-True ($lAfter.Contains('// mutated by fake DAK')) 'The external edit must remain intact.'
+    $lRunSuffix = if ($lCacheMode -eq 'warm') { 'warmup' } else { 'run1' }
+    $lEvidencePath = Join-Path $lWorkspace ('remove-with-scan-all-{0}-{1}.source-mutations.json' -f $lCacheMode, $lRunSuffix)
+    $lEvidence = Get-Content -LiteralPath $lEvidencePath -Raw | ConvertFrom-Json
+    Assert-Equal $lExternalSource $lEvidence.Changes[0].Path 'Evidence must identify the external changed path.'
+    Assert-Equal 'unknown' $lEvidence.Actor 'The guard must not attribute the change to DAK.'
+    Assert-Equal 'modified' $lEvidence.Changes[0].Change 'Evidence must classify the changed source.'
+    Assert-Equal $false $lEvidence.Changes[0].Restorable 'External source must be ineligible for restoration.'
+    Assert-Equal (Get-FileHash -LiteralPath $lExternalSource -Algorithm SHA256).Hash $lEvidence.Changes[0].AfterHash 'Evidence must retain the observed changed hash.'
   }
-
-  $lAfter = Get-Content -LiteralPath $lExternalSource -Raw
-  Assert-Equal $lBefore $lAfter 'Benchmark mutation guard must restore externally referenced source.'
 }
 
 function Test-ReportOnlyBenchmarkSearchPathSourceMutationFailsClosed {
@@ -1005,7 +1016,8 @@ end.
   }
 
   $lAfter = Get-Content -LiteralPath $lSearchPathSource -Raw
-  Assert-Equal $lBefore $lAfter 'Benchmark mutation guard must restore search-path source.'
+  Assert-True ($lBefore -ne $lAfter) 'Search-path source changes must remain untouched by restoration.'
+  Assert-True ($lAfter.Contains('// mutated by fake DAK')) 'The search-path edit must remain intact.'
 }
 
 function Test-BenchmarkExplicitContextArgument {
@@ -1083,6 +1095,74 @@ function Test-BenchmarkListShowsExplicitContextWithoutRunning {
   Assert-True (-not (Test-Path -LiteralPath $lOutputDir)) 'List must not create benchmark output.'
   Assert-Equal $lBefore (Get-FileHash -LiteralPath $lProject -Algorithm SHA256).Hash `
     'List must not modify the project.'
+}
+
+
+function Test-SourceRestorationPreservesExternalState {
+  $lTokens = $null
+  $lErrors = $null
+  $lAst = [System.Management.Automation.Language.Parser]::ParseFile(
+    $BenchmarkScript, [ref]$lTokens, [ref]$lErrors)
+  Assert-Equal 0 @($lErrors).Count 'The benchmark script must parse.'
+  foreach ($lDefinition in $lAst.FindAll({
+      param($Node)
+      $Node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+    }, $false)) {
+    . ([scriptblock]::Create($lDefinition.Extent.Text))
+  }
+
+  $lWorkspace = New-TestWorkspace 'source-restoration-boundaries'
+  $lProjectDir = Join-Path $lWorkspace 'project'
+  $lExternalDir = Join-Path $lWorkspace 'project-external'
+  New-Item -ItemType Directory -Path $lProjectDir, $lExternalDir | Out-Null
+  $lProject = Join-Path $lProjectDir 'project.dpr'
+  Set-Content -LiteralPath $lProject -Value 'program project; begin end.'
+  Set-Content -LiteralPath (Join-Path $lProjectDir 'project.dproj') -Value '<Project><DCC_UnitSearchPath>..\project-external</DCC_UnitSearchPath></Project>'
+  $lLocal = Join-Path $lProjectDir 'Local.pas'
+  $lExternal = Join-Path $lExternalDir 'External.pas'
+  Set-Content -LiteralPath $lLocal -Value 'local before'
+  Set-Content -LiteralPath $lExternal -Value 'external before'
+  $lSnapshot = Get-SourceSnapshot -ProjectPath $lProject
+  Remove-Item -LiteralPath $lLocal, $lExternal
+  $lLocalAdded = Join-Path $lProjectDir 'Added.pas'
+  $lExternalAdded = Join-Path $lExternalDir 'Added.pas'
+  Set-Content -LiteralPath $lLocalAdded -Value 'local added'
+  Set-Content -LiteralPath $lExternalAdded -Value 'external added'
+  Assert-True (Test-SourceSnapshotChanged -ProjectPath $lProject -Snapshot $lSnapshot) 'All source changes must still be detected.'
+  Restore-SourceSnapshot -ProjectPath $lProject -Snapshot $lSnapshot
+  Assert-Equal 'local before' (Get-Content -LiteralPath $lLocal) 'Local deleted source must be restored.'
+  Assert-True (-not (Test-Path -LiteralPath $lLocalAdded)) 'Local added source must be removed.'
+  Assert-True (-not (Test-Path -LiteralPath $lExternal)) 'External deleted source must not be recreated.'
+  Assert-Equal 'external added' (Get-Content -LiteralPath $lExternalAdded) 'External added source must not be deleted.'
+
+  # A lexical descendant can still redirect writes outside the isolated root.
+  $lLink = Join-Path $lProjectDir 'linked'
+  New-Item -ItemType Junction -Path $lLink -Target $lExternalDir | Out-Null
+  try {
+    $lLinkedSource = Join-Path $lLink 'Added.pas'
+    Set-Content -LiteralPath $lProject -Value "program project; uses Added in 'linked\Added.pas'; begin end."
+    $lSnapshot = Get-SourceSnapshot -ProjectPath $lProject
+    Set-Content -LiteralPath $lExternalAdded -Value 'external changed through junction'
+    Assert-True (Test-SourceSnapshotChanged -ProjectPath $lProject -Snapshot $lSnapshot) 'Junction target change must be detected.'
+    Assert-True $lSnapshot.ContainsKey($lLinkedSource) 'The real snapshot must contain the linked source.'
+    Restore-SourceSnapshot -ProjectPath $lProject -Snapshot $lSnapshot
+    Assert-Equal 'external changed through junction' (Get-Content -LiteralPath $lExternalAdded) 'Junction targets must not be restored.'
+  } finally {
+    # Remove only the link, never its target or contents.
+    [System.IO.Directory]::Delete($lLink)
+  }
+
+  $lHardLink = Join-Path $lProjectDir 'Shared.pas'
+  New-Item -ItemType HardLink -Path $lHardLink -Target $lExternalAdded | Out-Null
+  try {
+    $lSnapshot = Get-SourceSnapshot -ProjectPath $lProject
+    Set-Content -LiteralPath $lExternalAdded -Value 'external changed through hard link'
+    Restore-SourceSnapshot -ProjectPath $lProject -Snapshot $lSnapshot
+    Assert-Equal 'external changed through hard link' (Get-Content -LiteralPath $lExternalAdded) `
+      'Hard-linked source must not be overwritten through a project-local name.'
+  } finally {
+    Remove-Item -LiteralPath $lHardLink
+  }
 }
 
 Invoke-ScriptTests

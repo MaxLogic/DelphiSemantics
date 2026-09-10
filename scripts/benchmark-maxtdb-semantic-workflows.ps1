@@ -859,28 +859,72 @@ function Get-SourceSnapshot {
   return $lSnapshot
 }
 
-function Test-SourceSnapshotChanged {
-  param(
-    [string]$ProjectPath,
-    [hashtable]$Snapshot
-  )
+function Test-RestorableSourcePath {
+  param([string]$ProjectPath, [string]$Path)
 
+  $lRoot = (Get-ProjectSourceRoot -ProjectPath $ProjectPath).TrimEnd('\', '/') +
+    [System.IO.Path]::DirectorySeparatorChar
+  $lFullPath = [System.IO.Path]::GetFullPath($Path)
+  if (-not $lFullPath.StartsWith($lRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    return $false
+  }
+
+  # A path inside the project can redirect to external source through a junction.
+  $lAncestor = $lFullPath
+  while (-not [string]::IsNullOrEmpty($lAncestor)) {
+    if (Test-Path -LiteralPath $lAncestor) {
+      $lItem = Get-Item -LiteralPath $lAncestor -Force
+      if ((($lItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) -or
+          ($lItem.LinkType -eq 'HardLink')) {
+        return $false
+      }
+    }
+    $lAncestor = Split-Path -Parent $lAncestor
+  }
+  return $true
+}
+
+function Get-SourceSnapshotChange {
+  param([string]$ProjectPath, [hashtable]$Snapshot)
+
+  $lPaths = [System.Collections.Generic.HashSet[string]]::new(
+    [System.StringComparer]::OrdinalIgnoreCase)
   foreach ($lPath in Get-ProjectSourceFile -ProjectPath $ProjectPath) {
-    if (-not $Snapshot.ContainsKey($lPath)) {
-      return $true
-    }
+    [void]$lPaths.Add($lPath)
   }
-
   foreach ($lPath in $Snapshot.Keys) {
-    if (-not (Test-Path -LiteralPath $lPath -PathType Leaf)) {
-      return $true
-    }
-    if ((Get-FileHash -LiteralPath $lPath -Algorithm SHA256).Hash -ne $Snapshot[$lPath].Hash) {
-      return $true
+    [void]$lPaths.Add($lPath)
+  }
+  foreach ($lPath in ($lPaths | Sort-Object)) {
+    $lBefore = if ($Snapshot.ContainsKey($lPath)) { $Snapshot[$lPath].Hash } else { '' }
+    $lAfter = if (Test-Path -LiteralPath $lPath -PathType Leaf) {
+      (Get-FileHash -LiteralPath $lPath -Algorithm SHA256).Hash
+    } else { '' }
+    if ($lBefore -ne $lAfter) {
+      [pscustomobject]@{
+        Path = $lPath
+        Change = if ($lBefore -eq '') { 'added' } elseif ($lAfter -eq '') { 'deleted' } else { 'modified' }
+        BeforeHash = $lBefore
+        AfterHash = $lAfter
+        Restorable = Test-RestorableSourcePath -ProjectPath $ProjectPath -Path $lPath
+      }
     }
   }
+}
 
-  return $false
+function Test-SourceSnapshotChanged {
+  param([string]$ProjectPath, [hashtable]$Snapshot)
+
+  return @(Get-SourceSnapshotChange -ProjectPath $ProjectPath -Snapshot $Snapshot).Count -gt 0
+}
+
+function Write-SourceMutationEvidence {
+  param([string]$Path, [object[]]$Changes)
+
+  [pscustomobject]@{
+    Actor = 'unknown'
+    Changes = @($Changes)
+  } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
 function Restore-SourceSnapshot {
@@ -890,6 +934,9 @@ function Restore-SourceSnapshot {
   )
 
   foreach ($lPath in $Snapshot.Keys) {
+    if (-not (Test-RestorableSourcePath -ProjectPath $ProjectPath -Path $lPath)) {
+      continue
+    }
     $lExpected = $Snapshot[$lPath]
     if ((-not (Test-Path -LiteralPath $lPath -PathType Leaf)) -or
         ((Get-FileHash -LiteralPath $lPath -Algorithm SHA256).Hash -ne $lExpected.Hash)) {
@@ -898,7 +945,8 @@ function Restore-SourceSnapshot {
   }
 
   foreach ($lPath in Get-ProjectSourceFile -ProjectPath $ProjectPath) {
-    if (-not $Snapshot.ContainsKey($lPath)) {
+    if ((-not $Snapshot.ContainsKey($lPath)) -and
+        (Test-RestorableSourcePath -ProjectPath $ProjectPath -Path $lPath)) {
       Remove-Item -LiteralPath $lPath -Force
     }
   }
@@ -1253,9 +1301,12 @@ if ($SummarizeOnly) {
         $lWarmupExitCode = $LASTEXITCODE
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_DIR -ErrorAction SilentlyContinue
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_MODE -ErrorAction SilentlyContinue
-        if (Test-SourceSnapshotChanged -ProjectPath $Project -Snapshot $lWarmupSourceSnapshot) {
+        $lChanges = @(Get-SourceSnapshotChange -ProjectPath $Project -Snapshot $lWarmupSourceSnapshot)
+        if ($lChanges.Count -gt 0) {
+          $lEvidencePath = Join-Path $lOutputDir ($lWarmupId + '.source-mutations.json')
+          Write-SourceMutationEvidence -Path $lEvidencePath -Changes $lChanges
           Restore-SourceSnapshot -ProjectPath $Project -Snapshot $lWarmupSourceSnapshot
-          throw "Warm-cache priming mutated source files for $($lBenchmark.Id). Source was restored."
+          throw "Source changed during warm-cache priming for $($lBenchmark.Id); actor unknown. Only project-local source restoration was attempted. See: $lEvidencePath"
         }
         if ($lWarmupExitCode -ne 0) {
           throw "Warm-cache priming failed for $($lBenchmark.Id). See: $lWarmupStderr"
@@ -1293,13 +1344,16 @@ if ($SummarizeOnly) {
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_DIR -ErrorAction SilentlyContinue
         Remove-Item Env:\DELPHISEMANTICS_BENCHMARK_CACHE_MODE -ErrorAction SilentlyContinue
         $lSourceMutationStatus = 'clean'
-        if (Test-SourceSnapshotChanged -ProjectPath $Project -Snapshot $lSourceSnapshot) {
+        $lChanges = @(Get-SourceSnapshotChange -ProjectPath $Project -Snapshot $lSourceSnapshot)
+        if ($lChanges.Count -gt 0) {
+          $lEvidencePath = Join-Path $lOutputDir ($lRunId + '.source-mutations.json')
+          Write-SourceMutationEvidence -Path $lEvidencePath -Changes $lChanges
           Restore-SourceSnapshot -ProjectPath $Project -Snapshot $lSourceSnapshot
           $lSourceMutationStatus = 'mutated'
           if ($lExitCode -eq 0) {
             $lExitCode = 1
           }
-          Add-Content -LiteralPath $lStderr -Value 'Report-only benchmark mutated source files; source was restored.'
+          Add-Content -LiteralPath $lStderr -Value "Source changed during the report-only benchmark; actor unknown. Only project-local source restoration was attempted. See: $lEvidencePath"
         }
         $lReferenceFallbackCount = Read-ReferenceFallbackCount -Path $lStdout
         $lSemanticCacheHits = Read-SemanticCacheMetric -Path $lStdout -Name 'semanticCacheHits'
