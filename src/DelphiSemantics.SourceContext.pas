@@ -25,8 +25,13 @@ type
   TDelphiSemanticSourceContextCache = class
   private
     type
+{$IFDEF MSWINDOWS}
+      TSourceTimestamp = UInt64;
+{$ELSE}
+      TSourceTimestamp = TDateTime;
+{$ENDIF}
       TCacheEntry = record
-        LastWriteTimeUtc: TDateTime;
+        LastWriteTimeUtc: TSourceTimestamp;
         Size: Int64;
         Source: TDelphiSemanticSourceFile;
       end;
@@ -80,6 +85,9 @@ implementation
 uses
   System.Classes, System.IOUtils, System.Math,
   System.SysUtils,
+{$IFDEF MSWINDOWS}
+  Winapi.Windows,
+{$ENDIF}
   DelphiSemantics.Source, DelphiSemantics.SourceConditionals,
   DelphiSemantics.SourceContext.Candidates;
 
@@ -196,6 +204,74 @@ begin
   inherited;
 end;
 
+function TryReadSourceMetadata(const aFileName: string;
+  out aTimestampUtc: TDelphiSemanticSourceContextCache.TSourceTimestamp;
+  out aSize: Int64): Boolean;
+{$IFDEF MSWINDOWS}
+var
+  h: THandle;
+  lHandleInfo: TByHandleFileInformation;
+  lInfo: TWin32FileAttributeData;
+  lPath: string;
+begin
+  aTimestampUtc := 0;
+  aSize := 0;
+  if aFileName = '' then
+    Exit(False);
+  lPath := aFileName;
+  if (Length(lPath) >= MAX_PATH) and not TPath.IsExtendedPrefixed(lPath) then
+  begin
+    try
+      lPath := TPath.GetFullPath(lPath);
+    except
+      on E: EArgumentException do
+        Exit(False); // Invalid paths remain failed lookups, as with FileExists.
+    end;
+    if lPath.StartsWith('\\') then
+      lPath := '\\?\UNC\' + Copy(lPath, 3, MaxInt)
+    else
+      lPath := '\\?\' + lPath;
+  end;
+  if not GetFileAttributesEx(PChar(lPath), GetFileExInfoStandard, @lInfo) then
+    Exit(False);
+  if (lInfo.dwFileAttributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+    Exit(False);
+  if (lInfo.dwFileAttributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0 then
+  begin
+    // Observe the opened target, so editing it invalidates cached linked source.
+    h := CreateFile(PChar(lPath), FILE_READ_ATTRIBUTES,
+      FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE, nil,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    if h = INVALID_HANDLE_VALUE then
+      Exit(False);
+    try
+      if not GetFileInformationByHandle(h, lHandleInfo) then
+        Exit(False);
+      lInfo.ftLastWriteTime := lHandleInfo.ftLastWriteTime;
+      lInfo.nFileSizeHigh := lHandleInfo.nFileSizeHigh;
+      lInfo.nFileSizeLow := lHandleInfo.nFileSizeLow;
+    finally
+      CloseHandle(h);
+    end;
+  end;
+  aTimestampUtc := (UInt64(lInfo.ftLastWriteTime.dwHighDateTime) shl 32) or
+    lInfo.ftLastWriteTime.dwLowDateTime;
+  aSize := (Int64(lInfo.nFileSizeHigh) shl 32) or lInfo.nFileSizeLow;
+  Result := True;
+end;
+{$ELSE}
+begin
+  aTimestampUtc := 0;
+  aSize := 0;
+  Result := (aFileName <> '') and TFile.Exists(aFileName);
+  if Result then
+  begin
+    aTimestampUtc := TFile.GetLastWriteTimeUtc(aFileName);
+    aSize := TFile.GetSize(aFileName);
+  end;
+end;
+{$ENDIF}
+
 function TDelphiSemanticSourceContextCache.TryLoad(const aFileName: string;
   out aSource: TDelphiSemanticSourceFile; out aError: string): Boolean;
 var
@@ -204,19 +280,17 @@ var
   lLines: TStringList;
   lResult: TDelphiSemanticSourceLoadResult;
   lSize: Int64;
-  lTimestampUtc: TDateTime;
+  lTimestampUtc: TSourceTimestamp;
 begin
   aSource := Default(TDelphiSemanticSourceFile);
   aError := '';
-  if (aFileName = '') or not TFile.Exists(aFileName) then
+  if not TryReadSourceMetadata(aFileName, lTimestampUtc, lSize) then
   begin
     aError := 'Source file not found: ' + aFileName;
     Exit(False);
   end;
 
   lKey := CacheKey(aFileName);
-  lTimestampUtc := TFile.GetLastWriteTimeUtc(aFileName);
-  lSize := TFile.GetSize(aFileName);
   if fFiles.TryGetValue(lKey, lEntry) and
     (lEntry.LastWriteTimeUtc = lTimestampUtc) and (lEntry.Size = lSize) then
   begin

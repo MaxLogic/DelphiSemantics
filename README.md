@@ -75,6 +75,10 @@ only, not production modes or fixed-count contracts.
 
 ## Smoke Tests
 
+The Windows source-context cache tests use precise file timestamps and real
+symbolic links. Their test filesystem must retain 100 ns timestamp differences;
+link creation requires Windows Developer Mode or the symbolic-link privilege.
+
 - [proprietary fixture remove-with smoke](docs/smoke-tests.md#proprietary-fixture-remove-with-smoke)
   documents the clone-based DAK verification command. It must never run apply
   mode against the original read-only fixture.

@@ -269,6 +269,9 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- Source-context caching preserves native Windows timestamp precision, so
+  same-size edits within a millisecond refresh cached source. Ordinary files
+  use one metadata query; file links use their target's timestamp and size.
 - Semantic benchmark workflow timings now exclude argument construction and source snapshot setup. Earlier measurements retain their original timing boundary.
 - Semantic benchmark mutation checks now retain changed paths and hashes and preserve external dependency edits. Automatic restoration is restricted to project-local files without linked paths.
 - Remove-with preserves compiler type casts inside statement bodies, including writable Double and Pointer casts, while retaining user declarations and receiver-member precedence. Older cached planning facts are rebuilt.

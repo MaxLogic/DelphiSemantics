@@ -26,6 +26,12 @@ type
     [Test]
     procedure SourceContextCacheRefreshesWhenFileChanges;
     [Test]
+    procedure SourceContextCacheDetectsSubmillisecondChanges;
+    [Test]
+    procedure SourceContextCacheRejectsNonFilesAndMalformedPaths;
+    [Test]
+    procedure SourceContextCacheRefreshesWhenLinkTargetChanges;
+    [Test]
     procedure ParseFindingLocationExtractsColumn;
     [Test]
     procedure SourceContextCandidateUsesTokenAtColumn;
@@ -245,6 +251,143 @@ begin
     Assert.IsFalse(Pos('StaleValue := 1;', String.Join(sLineBreak, lContext.Lines)) > 0);
   finally
     lCache.Free;
+  end;
+end;
+
+procedure SetSourceContextFileTime(const aFileName: string;
+  const aTimestamp: UInt64);
+var
+  h: THandle;
+  lFileTime: TFileTime;
+  lInfo: TWin32FileAttributeData;
+begin
+  lFileTime.dwLowDateTime := Cardinal(aTimestamp);
+  lFileTime.dwHighDateTime := Cardinal(aTimestamp shr 32);
+  h := CreateFile(PChar(aFileName), FILE_WRITE_ATTRIBUTES,
+    FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE, nil,
+    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+  Assert.IsTrue(h <> INVALID_HANDLE_VALUE, 'Open fixture timestamp handle');
+  try
+    Assert.IsTrue(SetFileTime(h, nil, nil, @lFileTime), 'Set exact fixture timestamp');
+  finally
+    CloseHandle(h);
+  end;
+  Assert.IsTrue(GetFileAttributesEx(PChar(aFileName), GetFileExInfoStandard,
+    @lInfo), 'Read fixture metadata');
+  Assert.AreEqual(aTimestamp, (UInt64(lInfo.ftLastWriteTime.dwHighDateTime) shl 32) or
+    lInfo.ftLastWriteTime.dwLowDateTime, 'Filesystem must retain the exact timestamp');
+end;
+
+procedure TSourceContextTests.SourceContextCacheDetectsSubmillisecondChanges;
+var
+  lCache: TDelphiSemanticSourceContextCache;
+  lCoarseTimestamp: TDateTime;
+  lFileName: string;
+  lFileTime: TFileTime;
+  lLine: string;
+  lSystemTime: TSystemTime;
+  lTimestamp: UInt64;
+begin
+  lFileName := CombinePath([SourceContextTempPath('precise-cache-refresh'),
+    'PreciseCacheUnit.pas']);
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lFileName));
+  lCoarseTimestamp := EncodeDateTime(2026, 9, 10, 8, 0, 0, 0);
+  DateTimeToSystemTime(lCoarseTimestamp, lSystemTime);
+  Assert.IsTrue(SystemTimeToFileTime(lSystemTime, lFileTime));
+  lTimestamp := (UInt64(lFileTime.dwHighDateTime) shl 32) or lFileTime.dwLowDateTime;
+  WriteSourceContextRefreshFixture(lFileName, #13#10, 'OldValue := 1;', False,
+    lCoarseTimestamp);
+  SetSourceContextFileTime(lFileName, lTimestamp + 1);
+  lCache := TDelphiSemanticSourceContextCache.Create;
+  try
+    Assert.IsTrue(lCache.TryGetLine(lFileName, 4, lLine));
+    Assert.AreEqual('  OldValue := 1;', lLine);
+    WriteSourceContextRefreshFixture(lFileName, #13#10, 'NewValue := 2;', False,
+      lCoarseTimestamp);
+    SetSourceContextFileTime(lFileName, lTimestamp + 2);
+    Assert.AreEqual(lCoarseTimestamp, TFile.GetLastWriteTimeUtc(lFileName),
+      'The old millisecond timestamp representation cannot distinguish this update');
+    Assert.IsTrue(lCache.TryGetLine(lFileName, 4, lLine));
+    Assert.AreEqual('  NewValue := 2;', lLine,
+      'Distinct native timestamps must invalidate same-size cached source');
+    TFile.Delete(lFileName);
+    Assert.IsFalse(lCache.TryGetLine(lFileName, 4, lLine),
+      'A deleted source file must not return cached text');
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TSourceContextTests.SourceContextCacheRejectsNonFilesAndMalformedPaths;
+var
+  lCache: TDelphiSemanticSourceContextCache;
+  lDirectory: string;
+  lError: string;
+  lFileName: string;
+  lSource: TDelphiSemanticSourceFile;
+begin
+  lDirectory := SourceContextTempPath('invalid-cache-path');
+  TDirectory.CreateDirectory(lDirectory);
+  lCache := TDelphiSemanticSourceContextCache.Create;
+  try
+    Assert.IsFalse(lCache.TryLoad('', lSource, lError));
+    Assert.IsFalse(lCache.TryLoad(lDirectory, lSource, lError));
+    Assert.IsFalse(lCache.TryLoad(CombinePath([lDirectory, 'Missing.pas']),
+      lSource, lError));
+    lFileName := CombinePath([lDirectory, StringOfChar('x', MAX_PATH) + '.pas']);
+    lFileName[Length(lFileName)] := '|';
+    Assert.IsFalse(lCache.TryLoad(lFileName, lSource, lError),
+      'Malformed paths must remain a failed lookup');
+  finally
+    lCache.Free;
+  end;
+end;
+
+// Delphi 12's TFile.CreateSymLink cannot pass the developer-mode creation flag.
+function CreateSourceContextSymbolicLink(const aLink, aTarget: PWideChar;
+  const aFlags: DWORD): ByteBool; stdcall; external kernel32 name 'CreateSymbolicLinkW';
+
+procedure TSourceContextTests.SourceContextCacheRefreshesWhenLinkTargetChanges;
+const
+  cAllowUnprivilegedCreate = $2;
+var
+  lCache: TDelphiSemanticSourceContextCache;
+  lDirectory: string;
+  lLine: string;
+  lLink: string;
+  lTarget: string;
+  lTimestamp: TDateTime;
+begin
+  lDirectory := SourceContextTempPath('linked-cache-refresh');
+  TDirectory.CreateDirectory(lDirectory);
+  lTarget := CombinePath([lDirectory, 'Target.pas']);
+  lLink := CombinePath([lDirectory, 'Linked.pas']);
+  lTimestamp := EncodeDateTime(2026, 9, 10, 8, 0, 0, 0);
+  WriteSourceContextRefreshFixture(lTarget, #13#10, 'OldValue := 1;', False,
+    lTimestamp);
+  Assert.IsTrue(CreateSourceContextSymbolicLink(PWideChar(lLink), PWideChar(lTarget),
+    cAllowUnprivilegedCreate), 'Create real source link');
+  try
+    lCache := TDelphiSemanticSourceContextCache.Create;
+    try
+      Assert.IsTrue(lCache.TryGetLine(lLink, 4, lLine));
+      Assert.AreEqual('  OldValue := 1;', lLine);
+      WriteSourceContextRefreshFixture(lTarget, #13#10, 'NewValue := 2;', False,
+        IncSecond(lTimestamp));
+      Assert.IsTrue(lCache.TryGetLine(lLink, 4, lLine));
+      Assert.AreEqual('  NewValue := 2;', lLine,
+        'A same-size target edit must invalidate cached text through its link');
+      TFile.Delete(lTarget);
+      Assert.IsFalse(lCache.TryGetLine(lLink, 4, lLine),
+        'A dangling link must not return cached source');
+    finally
+      lCache.Free;
+    end;
+  finally
+    Assert.IsTrue(Winapi.Windows.DeleteFile(PChar(lLink)), 'Remove source link');
+    if TFile.Exists(lTarget) then
+      TFile.Delete(lTarget);
+    TDirectory.Delete(lDirectory);
   end;
 end;
 
