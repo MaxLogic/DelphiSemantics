@@ -269,6 +269,7 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- Semantic benchmark workflow timings now exclude argument construction and source snapshot setup. Earlier measurements retain their original timing boundary.
 - Semantic benchmark mutation checks now retain changed paths and hashes and preserve external dependency edits. Automatic restoration is restricted to project-local files without linked paths.
 - Remove-with preserves compiler type casts inside statement bodies, including writable Double and Pointer casts, while retaining user declarations and receiver-member precedence. Older cached planning facts are rebuilt.
 - Remove-with keeps nested and conditional body boundaries intact, preserves generated capture wrappers, and retains outer ELSE branches across whitespace and comments.

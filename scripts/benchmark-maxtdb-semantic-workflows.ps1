@@ -1334,10 +1334,10 @@ if ($SummarizeOnly) {
 
         $env:DELPHISEMANTICS_BENCHMARK_CACHE_DIR = $lWorkflowCacheDirectory
         $env:DELPHISEMANTICS_BENCHMARK_CACHE_MODE = $lCacheMode
-        $lStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         $lArguments = @(Get-BenchmarkArgument -Benchmark $lBenchmark -CacheMode $lCacheMode `
           -SemanticCacheFile $lSemanticCacheFile -Platform $Platform -Config $Config -DelphiVersion $DelphiVersion)
         $lSourceSnapshot = Get-SourceSnapshot -ProjectPath $Project
+        $lStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         & $DakExe @($lArguments) 1> $lStdout 2> $lStderr
         $lExitCode = $LASTEXITCODE
         $lStopwatch.Stop()
