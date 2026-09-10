@@ -30,6 +30,55 @@ type
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
     [Test]
+    [TestCase('indexed retained member', '0')]
+    [TestCase('nearest own member', '1')]
+    [TestCase('ordinary retained member', '2')]
+    [TestCase('selector initializer', '3')]
+    [TestCase('packed retained member', '4')]
+    procedure FinalDtoKeepsRetainedParentMemberScope(const aCase: Integer);
+    [Test]
+    [TestCase('missing own selector', '0')]
+    [TestCase('partial selector list', '1')]
+    [TestCase('ordinary selector', '2')]
+    procedure FinalDtoPreservesOwnSelectorCoverage(const aCase: Integer);
+    [Test]
+    [TestCase('single indexed selector', '0')]
+    [TestCase('partial selector list', '1')]
+    procedure BindingKeepsIndexedSelectorWhole(const aCase: Integer);
+    [Test]
+    [TestCase('missing own binding', '0')]
+    [TestCase('partial own bindings', '1')]
+    procedure FinalDtoRejectsMissingOwnBindings(const aCase: Integer);
+    [Test]
+    [TestCase('inherited same spelling', '0')]
+    [TestCase('reordered own bindings', '1')]
+    procedure FinalDtoRequiresOrderedOwnBindingTail(const aCase: Integer);
+
+    [Test]
+    procedure FinalDtoAllowsVisibleImportedProcedure;
+    [Test]
+    [TestCase('qualified', '0')]
+    [TestCase('value return', '1')]
+    procedure FinalDtoPreservesImportedCallControls(const aCase: Integer);
+    [Test]
+    procedure FinalDtoRejectsUnimportedProcedure;
+    [Test]
+    [TestCase('local', '0')]
+    [TestCase('member', '1')]
+    procedure ImportedProcedureKeepsShadowPrecedence(const aCase: Integer);
+    [Test]
+    [TestCase('private', '0')]
+    [TestCase('overloaded', '1')]
+    procedure ImportedProcedureKeepsUnresolvedCalls(const aCase: Integer);
+    [Test]
+    [TestCase('visible', '0')]
+    [TestCase('unimported', '1')]
+    procedure ImportedProcedurePlansSurviveCaches(const aCase: Integer);
+    [Test]
+    [TestCase('complete indexed selector', '0')]
+    [TestCase('retained parent scope', '1')]
+    procedure NestedSelectorPlansSurviveCaches(const aCase: Integer);
+    [Test]
     [TestCase('single line', '0')]
     [TestCase('wrapped', '1')]
     [TestCase('parameter shadows type', '2')]
@@ -896,9 +945,10 @@ type
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils,
+  System.IOUtils, System.JSON.Serializers, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  DelphiSemantics.Model.Json, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.RemoveWith,
+  DelphiSemantics.Model.Json, DelphiSemantics.RemoveWithPlan, DelphiSemantics.Snapshot,
+  DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding,
   Test.Support;
 
 var
@@ -4743,7 +4793,7 @@ begin
   Assert.AreEqual('planned', lChild.Status, lChild.Reason);
   Assert.AreEqual(1, Integer(Length(lChild.Temps)));
   Assert.AreEqual('lWithNodePtr: ^TNode;', lChild.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithNodePtr := @lHolder.Current^;', lChild.Temps[0].InitializationText);
+  Assert.AreEqual('lWithNodePtr := @Current^;', lChild.Temps[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lChild.Edits)));
   Assert.AreEqual('declare-temp', lChild.Edits[0].Kind);
   Assert.AreEqual('replace-statement', lChild.Edits[1].Kind);
@@ -4752,8 +4802,8 @@ begin
   Assert.AreEqual(lChild.Temps[0].InitializationText,
     lChild.RewriteRecipe.TempDeclarations[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lChild.RewriteRecipe.TextEdits)));
-  Assert.IsTrue(Pos('lWithNodePtr := @lHolder.Current^;', lChild.ReplacementText) > 0);
-  Assert.IsTrue(Pos('lWithNodePtr := @lHolder.Current^;', lChild.ReplacementText) <
+  Assert.IsTrue(Pos('lWithNodePtr := @Current^;', lChild.ReplacementText) > 0);
+  Assert.IsTrue(Pos('lWithNodePtr := @Current^;', lChild.ReplacementText) <
     Pos('lWithNodePtr^.Value := 1;', lChild.ReplacementText));
   Assert.IsFalse(ContainsText(lChild.ReplacementText, 'lWithHolderPtr'));
   Assert.IsFalse(ContainsText(lChild.Edits[0].ReplacementText, 'lWithHolderPtr'));
@@ -19955,6 +20005,596 @@ begin
   Assert.AreEqual('89:3-94:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoKeepsRetainedParentMemberScope(const aCase: Integer);
+const
+  cParentLines: array[0..4] of Integer = (39, 59, 78, 101, 124);
+  cInitialization: array[0..4] of string = (
+    'lWithInnerPtr := @lInner;', 'lWithShadowPtr := @lInner;',
+    'lWithInnerPtr := @lInner;', 'lWithInnerPtr := @lItems[v[0]]^;',
+    'lWithInnerPtr := @lInner;');
+  cBody: array[0..4] of string = (
+    '  lWithInnerPtr^.Count := v[0];',
+    '  lWithShadowPtr^.Count := lWithShadowPtr^.v[0];',
+    '  lWithInnerPtr^.Count := Value;',
+    '    Inc(lWithInnerPtr^.Count);',
+    '  lWithInnerPtr^.Count := Value;');
+var
+  lExpected: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithRetainedParentScope\RetainedParentScope.dproj'));
+  Assert.AreEqual(10, Integer(Length(lPlan.FinalStatements)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RetainedParentScopeUnit.pas',
+    cParentLines[aCase], 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RetainedParentScopeUnit.pas',
+    cParentLines[aCase] + 3, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  lExpected := '    ' + cInitialization[aCase] + sLineBreak + cBody[aCase];
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(cInitialization[aCase], lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+end;
+
+function SelectorCoverageFacts: TDelphiSemanticProjectWithBindingFacts;
+var
+  lOptions: TDelphiSemanticApiOptions;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('RemoveWithSelectorCoverage\SelectorCoverage.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Release';
+  lOptions.DelphiVersion := '23.0';
+  Result := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPreservesOwnSelectorCoverage(const aCase: Integer);
+const
+  cLines: array[0..2] of Integer = (43, 50, 57);
+  cRoutines: array[0..2] of string = ('RunNested', 'RunPartial', 'RunNormal');
+var
+  lExpected: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(SelectorCoverageFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'SelectorCoverageUnit.pas', cLines[aCase], 3, lStatement));
+  Assert.AreEqual(cRoutines[aCase], lStatement.RoutineName);
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  if aCase < 2 then
+  begin
+    lExpected := '  lWithOuterPtr := @aOuter;' + sLineBreak +
+      '      begin' + sLineBreak;
+    if aCase = 1 then
+      lExpected := lExpected + '      lWithItemPtr := @aKnown;' + sLineBreak +
+        '      lWithItemPtr1 := @gOwners[0]^.Items[lWithOuterPtr^.Indexes[0, 0]]^;' + sLineBreak +
+        '      AdvanceCount(lWithItemPtr1^.Value);' + sLineBreak
+    else
+      lExpected := lExpected +
+        '      lWithItemPtr := @gOwners[0]^.Items[lWithOuterPtr^.Indexes[0, 0]]^;' + sLineBreak +
+        '      AdvanceCount(lWithItemPtr^.Value);' + sLineBreak;
+    lExpected := lExpected + '    end;';
+    Assert.AreEqual(2 + aCase, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual('aOuter', lStatement.Temps[0].SelectorText);
+    if aCase = 1 then
+      Assert.AreEqual('aKnown', lStatement.Temps[1].SelectorText);
+    Assert.AreEqual('gOwners[0]^.Items[Indexes[0, 0]]^',
+      lStatement.Temps[High(lStatement.Temps)].SelectorText);
+    Assert.AreEqual('TItem', lStatement.Temps[High(lStatement.Temps)].ReceiverType);
+  end else begin
+    lExpected := '  lWithItemPtr := @aKnown;' + sLineBreak +
+      '  AdvanceCount(lWithItemPtr^.Value);';
+    Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  end;
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+end;
+
+procedure TRemoveWithPlanTests.BindingKeepsIndexedSelectorWhole(const aCase: Integer);
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lMatches: Integer;
+begin
+  lFacts := SelectorCoverageFacts;
+  lMatches := 0;
+  for lBinding in lFacts.Bindings do
+    if SameText(ExtractFileName(lBinding.FileName), 'SelectorCoverageUnit.pas') and
+      (lBinding.Line = 44 + aCase * 7) then
+    begin
+      Inc(lMatches);
+      Assert.AreEqual(2 + aCase, Integer(Length(lBinding.Selectors)),
+        'An index comma is part of one own selector, not a selector separator.');
+      Assert.AreEqual('aOuter', lBinding.Selectors[0].SelectorText);
+      if aCase = 1 then
+        Assert.AreEqual('aKnown', lBinding.Selectors[1].SelectorText);
+      Assert.AreEqual('gOwners[0]^.Items[Indexes[0, 0]]^',
+        lBinding.Selectors[High(lBinding.Selectors)].SelectorText);
+      Assert.AreEqual('resolved', lBinding.Selectors[High(lBinding.Selectors)].Status);
+      Assert.AreEqual('TItem', lBinding.Selectors[High(lBinding.Selectors)].TypeName);
+    end;
+  Assert.AreEqual(1, lMatches);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoRejectsMissingOwnBindings(const aCase: Integer);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  i: Integer;
+begin
+  lFacts := SelectorCoverageFacts;
+  for i := 0 to High(lFacts.Bindings) do
+    if SameText(ExtractFileName(lFacts.Bindings[i].FileName), 'SelectorCoverageUnit.pas') and
+      (lFacts.Bindings[i].Line = 44 + aCase * 7) then
+      lFacts.Bindings[i].Selectors := Copy(lFacts.Bindings[i].Selectors, 0, 1 + aCase);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'SelectorCoverageUnit.pas', 43 + aCase * 7, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  for lStatement in lPlan.FinalStatements do
+    if ((aCase = 0) and (lStatement.RoutineName = 'RunNested')) or
+      ((aCase = 1) and (lStatement.RoutineName = 'RunPartial')) then
+    begin
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.AreEqual('', lStatement.ReplacementText);
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+    end;
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoRequiresOrderedOwnBindingTail(const aCase: Integer);
+var
+  lBinding: TDelphiSemanticWithSelectorBinding;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lMatches: Integer;
+  i: Integer;
+begin
+  lFacts := SelectorCoverageFacts;
+  lMatches := 0;
+  for i := 0 to High(lFacts.Bindings) do
+    if SameText(ExtractFileName(lFacts.Bindings[i].FileName), 'SelectorCoverageUnit.pas') and
+      (((aCase = 0) and (lFacts.Bindings[i].Line = 64)) or
+      ((aCase = 1) and (lFacts.Bindings[i].Line = 70))) then
+    begin
+      Inc(lMatches);
+      Assert.AreEqual(2, Integer(Length(lFacts.Bindings[i].Selectors)));
+      if aCase = 0 then
+        lFacts.Bindings[i].Selectors := Copy(lFacts.Bindings[i].Selectors, 0, 1)
+      else begin
+        lBinding := lFacts.Bindings[i].Selectors[0];
+        lFacts.Bindings[i].Selectors[0] := lFacts.Bindings[i].Selectors[1];
+        lFacts.Bindings[i].Selectors[1] := lBinding;
+      end;
+    end;
+  Assert.AreEqual(1, lMatches);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lMatches := 0;
+  for lStatement in lPlan.FinalStatements do
+    if ((aCase = 0) and (lStatement.RoutineName = 'RunSame')) or
+      ((aCase = 1) and (lStatement.RoutineName = 'RunPair')) then
+    begin
+      Inc(lMatches);
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.AreEqual('selector-binding-incomplete', lStatement.Reason);
+      Assert.AreEqual('', lStatement.ReplacementText);
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+    end;
+  Assert.IsTrue(lMatches > 0);
+end;
+
+function ImportedProcedureFacts(const aImported: Boolean): TDelphiSemanticProjectWithBindingFacts;
+var
+  lOptions: TDelphiSemanticApiOptions;
+  lPrefix: string;
+begin
+  if aImported then
+    lPrefix := 'ImportedProcedure'
+  else
+    lPrefix := 'UnimportedProcedure';
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('RemoveWith' + lPrefix + '\' + lPrefix + '.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Release';
+  lOptions.DelphiVersion := '23.0';
+  Result := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+end;
+
+procedure AssertImportedProcedureBinding(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aPrefix: string; const aLine: Integer; const aImported: Boolean);
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lDeclarations: Integer;
+  lMatches: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lUses: Boolean;
+begin
+  lMatches := 0;
+  for lBinding in aFacts.Bindings do
+    if SameText(ExtractFileName(lBinding.FileName), aPrefix + 'Consumer.pas') and
+      SameText(lBinding.RoutineName, 'RunImported') then
+      for i := 0 to High(lBinding.References) do
+        if SameText(lBinding.References[i].Name, 'AdvanceCount') then
+        begin
+          Inc(lMatches);
+          Assert.AreEqual('external', lBinding.References[i].Classification);
+          Assert.AreEqual('routine', lBinding.References[i].Kind);
+          Assert.AreEqual('EXTERNAL_ROUTINE_CALL', lBinding.References[i].ReasonCode);
+          Assert.AreEqual('', lBinding.References[i].TypeName);
+          Assert.AreEqual(aPrefix + 'Provider', lBinding.References[i].ReceiverTypeName);
+          Assert.AreEqual(aLine, lBinding.References[i].Line);
+          Assert.AreEqual(5, lBinding.References[i].Column);
+        end;
+  Assert.AreEqual(1, lMatches);
+  lDeclarations := 0;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName('AdvanceCount') do
+    if SameText(lSymbol.SymbolClass, 'declaration') and
+      SameText(lSymbol.SectionKind, 'interface') then
+    begin
+      Inc(lDeclarations);
+      Assert.AreEqual('routine', lSymbol.Kind);
+      Assert.AreEqual(aPrefix + 'Provider', lSymbol.UnitName);
+      Assert.AreEqual(aPrefix + 'Provider.pas', ExtractFileName(lSymbol.FileName));
+      Assert.AreEqual(5, lSymbol.Line);
+      Assert.AreEqual(11, lSymbol.Column);
+    end;
+  Assert.AreEqual(1, lDeclarations);
+  lMatches := 0;
+  for lModel in aFacts.UnitModels do
+    if SameText(ExtractFileName(lModel.FileName), aPrefix + 'Consumer.pas') then
+    begin
+      Inc(lMatches);
+      lUses := MatchText(aPrefix + 'Provider', lModel.InterfaceUses) or
+        MatchText(aPrefix + 'Provider', lModel.ImplementationUses);
+      Assert.AreEqual(aImported, lUses);
+    end;
+  Assert.AreEqual(1, lMatches);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoAllowsVisibleImportedProcedure;
+var
+  lExpected: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lFacts := ImportedProcedureFacts(True);
+  AssertImportedProcedureBinding(lFacts, 'ImportedProcedure', 23, True);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ImportedProcedureConsumer.pas', 21, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('21:3-24:6', SourceRangeText(lStatement.Range));
+  Assert.AreEqual(SourceRangeText(lStatement.Range), SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('with aValue do' + sLineBreak + '  begin' + sLineBreak +
+    '    AdvanceCount(Count);' + sLineBreak + '  end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('6b05b5cd1ff270a1e660f17e40ff532abaec11dabf9afd462eb5d83a0d82a560',
+    lStatement.Verification.ExpectedFileHash);
+  lExpected := '  lWithImportedRecordPtr := @aValue;' + sLineBreak + '  begin' + sLineBreak +
+    '    AdvanceCount(lWithImportedRecordPtr^.Count);' + sLineBreak + '  end;';
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('lWithImportedRecordPtr: ^TImportedRecord;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithImportedRecordPtr := @aValue;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('TImportedRecord', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('aValue', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('20:1-20:1', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('var' + sLineBreak + '  lWithImportedRecordPtr: ^TImportedRecord;' + sLineBreak,
+    lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('21:1-24:6', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPreservesImportedCallControls(const aCase: Integer);
+const
+  cLines: array[0..1] of Integer = (29, 37);
+  cBodies: array[0..1] of string = (
+    'ImportedProcedureProvider.AdvanceCount(lWithImportedRecordPtr^.Count);',
+    'lWithImportedRecordPtr^.Count := AdvancedCount(lWithImportedRecordPtr^.Count);');
+var
+  lExpected: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(ImportedProcedureFacts(True));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ImportedProcedureConsumer.pas', cLines[aCase], 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  lExpected := '  lWithImportedRecordPtr := @aValue;' + sLineBreak + '  begin' + sLineBreak +
+    '    ' + cBodies[aCase] + sLineBreak + '  end;';
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoRejectsUnimportedProcedure;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lFacts := ImportedProcedureFacts(False);
+  AssertImportedProcedureBinding(lFacts, 'UnimportedProcedure', 18, False);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'UnimportedProcedureConsumer.pas', 16, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual('16:3-19:6', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('with aValue do' + sLineBreak + '  begin' + sLineBreak +
+    '    AdvanceCount(Count);' + sLineBreak + '  end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('b49ee9d7c5f223582b9167172f9d550c5b9f2db92f7c383723c258a573c0f904',
+    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements)));
+  for lStatement in lPlan.FinalStatements do
+  begin
+    Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  end;
+end;
+
+procedure TRemoveWithPlanTests.ImportedProcedureKeepsShadowPrecedence(const aCase: Integer);
+const
+  cRoutines: array[0..1] of string = ('RunLocal', 'RunMember');
+  cLines: array[0..1] of Integer = (36, 44);
+  cKinds: array[0..1] of string = ('routine', 'method');
+  cClassifications: array[0..1] of string = ('external', 'member');
+  cOwners: array[0..1] of string = ('', 'TMethodRecord');
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lExpected: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lMatches: Integer;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lFacts := ImportedProcedureFacts(True);
+  lMatches := 0;
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.RoutineName, cRoutines[aCase]) then
+      for i := 0 to High(lBinding.References) do
+        if SameText(lBinding.References[i].Name, 'AdvanceCount') then
+        begin
+          Inc(lMatches);
+          Assert.AreEqual(cKinds[aCase], lBinding.References[i].Kind);
+          Assert.AreEqual(cClassifications[aCase], lBinding.References[i].Classification);
+          Assert.AreEqual(cOwners[aCase], lBinding.References[i].ReceiverTypeName);
+          Assert.AreEqual(cLines[aCase] + 2, lBinding.References[i].Line);
+        end;
+  Assert.AreEqual(1, lMatches);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'ImportedProcedureControls.pas', cLines[aCase], 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  if aCase = 0 then
+  begin
+    lExpected := '  lWithImportedRecordPtr := @aValue;' + sLineBreak + '  begin' + sLineBreak +
+      '    AdvanceCount(lWithImportedRecordPtr^.Count);' + sLineBreak + '  end;';
+    Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+    AssertCapturedRecipe(lStatement);
+  end else begin
+    lExpected := '  begin' + sLineBreak + '    aValue.AdvanceCount(aValue.Count);' + sLineBreak + '  end;';
+    Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+  end;
+  Assert.AreEqual(lExpected, lStatement.ReplacementText);
+  Assert.AreEqual(lExpected, lStatement.Edits[High(lStatement.Edits)].ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.ImportedProcedureKeepsUnresolvedCalls(const aCase: Integer);
+const
+  cRoutines: array[0..1] of string = ('RunPrivate', 'RunAmbiguous');
+  cNames: array[0..1] of string = ('HiddenAdvanceCount', 'AmbiguousAdvance');
+  cFiles: array[0..1] of string = ('PrivateProcedureConsumer.pas', 'ImportedProcedureControls.pas');
+  cLines: array[0..1] of Integer = (19, 52);
+  cInterfaceCounts: array[0..1] of Integer = (0, 2);
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lInterfaceCount: Integer;
+  lMatches: Integer;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lFacts := ImportedProcedureFacts(aCase = 1);
+  lMatches := 0;
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.RoutineName, cRoutines[aCase]) then
+      for i := 0 to High(lBinding.References) do
+        if SameText(lBinding.References[i].Name, cNames[aCase]) then
+        begin
+          Inc(lMatches);
+          Assert.AreEqual('external', lBinding.References[i].Classification);
+          Assert.AreEqual('routine', lBinding.References[i].Kind);
+          Assert.AreEqual('UNKNOWN_ROUTINE_CALL', lBinding.References[i].ReasonCode);
+          Assert.AreEqual('', lBinding.References[i].ReceiverTypeName);
+          Assert.AreEqual(cLines[aCase] + 2, lBinding.References[i].Line);
+        end;
+  Assert.AreEqual(1, lMatches);
+  lMatches := 0;
+  lInterfaceCount := 0;
+  for lSymbol in lFacts.LookupIndex.FindSymbolsByName(cNames[aCase]) do
+    if SameText(lSymbol.SymbolClass, 'declaration') then
+    begin
+      Inc(lMatches);
+      if SameText(lSymbol.SectionKind, 'interface') then
+        Inc(lInterfaceCount);
+    end;
+  Assert.IsTrue(lMatches > 0, 'The source declaration must be indexed.');
+  Assert.AreEqual(cInterfaceCounts[aCase], lInterfaceCount);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, cFiles[aCase], cLines[aCase], 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+end;
+
+procedure AssertCompleteCachedPlan(const aExpected, aActual: TDelphiSemanticRemoveWithPlan);
+var
+  lActual: TDelphiSemanticRemoveWithPlan;
+  lSerializer: TJsonSerializer;
+begin
+  Assert.AreEqual('project-snapshot-v1', aActual.BaselineSemanticModelVersion);
+  lActual := aActual;
+  // Fact and snapshot entry points identify their model producer differently.
+  lActual.BaselineSemanticModelVersion := aExpected.BaselineSemanticModelVersion;
+  lSerializer := TJsonSerializer.Create;
+  try
+    Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(aExpected),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lActual));
+  finally
+    lSerializer.Free;
+  end;
+end;
+
+procedure AssertStoredPlanningFacts(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aFileName: string; const aExpected: TDelphiSemanticRemoveWithPlan);
+var
+  lActual: TDelphiSemanticRemoveWithPlan;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded: TDelphiProjectSnapshot;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+  lIdentity.CacheKey := 'planning-proof-' + aFacts.ContextFingerprint;
+  lIdentity.IdentityKey := lIdentity.CacheKey;
+  lIdentity.SourceFileName := aFileName;
+  lIdentity.FileHash := aFacts.ContextFingerprint;
+  lIdentity.ContextHash := aFacts.ContextFingerprint;
+  lIdentity.IncludeGraphHash := 'no-includes-v1';
+  lIdentity.SchemaVersion := 'planning-proof-v1';
+  lSnapshot := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(aFacts);
+  try
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(aFileName);
+    try
+      lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lSnapshot, aFacts.Symbols);
+    finally
+      lCache.Free;
+    end;
+  finally
+    lSnapshot.Free;
+  end;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(aFileName);
+  try
+    Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+    try
+      lActual := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+      AssertCompleteCachedPlan(aExpected, lActual);
+    finally
+      lLoaded.Free;
+    end;
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TRemoveWithPlanTests.ImportedProcedurePlansSurviveCaches(const aCase: Integer);
+var
+  i: Integer;
+  lActual: TDelphiSemanticRemoveWithPlan;
+  lExpected: TDelphiSemanticRemoveWithPlan;
+  lFactResult: TDelphiSemanticRemoveWithFactBuildResult;
+  lOptions: TDelphiSemanticApiOptions;
+  lPrefix: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  if aCase = 0 then
+    lPrefix := 'ImportedProcedure'
+  else
+    lPrefix := 'UnimportedProcedure';
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('RemoveWith' + lPrefix + '\' + lPrefix + '.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Release';
+  lOptions.DelphiVersion := '23.0';
+  lFactResult := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult(lOptions);
+  Assert.IsTrue(lFactResult.Success);
+  lExpected := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFactResult.Facts);
+  Assert.IsTrue(FindFinalStatementAt(lExpected, lPrefix + 'Consumer.pas', 21 - aCase * 5, 3, lStatement));
+  if aCase = 0 then
+    Assert.AreEqual('planned', lStatement.Status, lStatement.Reason)
+  else
+    Assert.AreEqual('skipped', lStatement.Status);
+  AssertStoredPlanningFacts(lFactResult.Facts, TempPath(lPrefix + '-standalone.sqlite3'), lExpected);
+  // The options API adds session diagnostics to the raw-facts planner result.
+  lExpected.Diagnostics := Copy(lFactResult.Diagnostics);
+  lOptions.Cache.SqliteCacheFileName := TempPath(lPrefix + '-session.sqlite3');
+  for i := 0 to 1 do
+  begin
+    Assert.AreEqual(i > 0, TFile.Exists(lOptions.Cache.SqliteCacheFileName),
+      'The first pass starts without a cache; the second uses the persisted file.');
+    lActual := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+    AssertCompleteCachedPlan(lExpected, lActual);
+  end;
+end;
+
+procedure TRemoveWithPlanTests.NestedSelectorPlansSurviveCaches(const aCase: Integer);
+const
+  cPrefixes: array[0..1] of string = ('SelectorCoverage', 'RetainedParentScope');
+  cLines: array[0..1] of Integer = (50, 127);
+  cColumns: array[0..1] of Integer = (3, 5);
+var
+  i: Integer;
+  lActual: TDelphiSemanticRemoveWithPlan;
+  lExpected: TDelphiSemanticRemoveWithPlan;
+  lFactResult: TDelphiSemanticRemoveWithFactBuildResult;
+  lOptions: TDelphiSemanticApiOptions;
+  lPrefix: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPrefix := cPrefixes[aCase];
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('RemoveWith' + lPrefix + '\' + lPrefix + '.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Release';
+  lOptions.DelphiVersion := '23.0';
+  lFactResult := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult(lOptions);
+  Assert.IsTrue(lFactResult.Success);
+  lExpected := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFactResult.Facts);
+  Assert.IsTrue(FindFinalStatementAt(lExpected, lPrefix + 'Unit.pas',
+    cLines[aCase], cColumns[aCase], lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  AssertStoredPlanningFacts(lFactResult.Facts, TempPath(lPrefix + '-standalone.sqlite3'), lExpected);
+  // Session diagnostics belong to the options API, not the raw-facts planner.
+  lExpected.Diagnostics := Copy(lFactResult.Diagnostics);
+  lOptions.Cache.SqliteCacheFileName := TempPath(lPrefix + '-session.sqlite3');
+  for i := 0 to 1 do
+  begin
+    Assert.AreEqual(i > 0, TFile.Exists(lOptions.Cache.SqliteCacheFileName),
+      'The first pass starts without a cache; the second uses the persisted file.');
+    lActual := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+    AssertCompleteCachedPlan(lExpected, lActual);
+  end;
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoCapturesVisibleImportedPointerCast;

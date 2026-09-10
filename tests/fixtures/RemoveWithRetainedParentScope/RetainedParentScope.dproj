@@ -1,0 +1,20 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{C2E56E3A-72C5-42CF-95B5-FECCEDFA00F4}</ProjectGuid>
+    <ProjectVersion>20.3</ProjectVersion>
+    <MainSource>RetainedParentScope.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <AppType>Console</AppType>
+    <DCC_ExeOutput>.dak\RetainedParentScope\bin\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>.dak\RetainedParentScope\dcu\$(Platform)</DCC_DcuOutput>
+    <DCC_Namespace>System;$(DCC_Namespace)</DCC_Namespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="RetainedParentScopeProvider.pas"/>
+    <DCCReference Include="RetainedParentScopeUnit.pas"/>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>

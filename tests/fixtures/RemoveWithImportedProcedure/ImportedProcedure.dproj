@@ -1,0 +1,21 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{24E68BFB-F1C4-4881-B097-1356E9DA480C}</ProjectGuid>
+    <ProjectVersion>20.3</ProjectVersion>
+    <MainSource>ImportedProcedure.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Release</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <AppType>Console</AppType>
+    <DCC_ExeOutput>.dak\ImportedProcedure\bin\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>.dak\ImportedProcedure\dcu\$(Platform)</DCC_DcuOutput>
+    <DCC_Namespace>System;Winapi;$(DCC_Namespace)</DCC_Namespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="ImportedProcedureConsumer.pas"/>
+    <DCCReference Include="ImportedProcedureProvider.pas"/>
+    <DCCReference Include="ImportedProcedureControls.pas"/>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>

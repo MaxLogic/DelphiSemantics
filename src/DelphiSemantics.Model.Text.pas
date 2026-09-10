@@ -8,11 +8,90 @@ function IsWordAt(const aText: string; const aOffset: Integer; const aWord: stri
 function IsWordAt(const aText, aWord: string; const aIndex: Integer): Boolean; overload;
 function TextContainsIdentifier(const aText, aIdentifier: string): Boolean;
 function SanitizeCodeText(const aText: string): string;
+function TrySplitTopLevelCommaList(const aText: string; out aParts: TArray<string>): Boolean;
 
 implementation
 
 uses
-  System.StrUtils, System.SysUtils;
+  System.Generics.Collections, System.StrUtils, System.SysUtils,
+  AutoFree, SimpleParser.Lexer, SimpleParser.Lexer.Types;
+
+type
+  TCommaListLexer = class(TmwBasePasLex)
+  private
+    fFailed: Boolean;
+    procedure HandleMessage(aSender: TObject; const aKind: TMessageEventType;
+      const aMessage: string; x, y: Integer);
+  end;
+
+procedure TCommaListLexer.HandleMessage(aSender: TObject;
+  const aKind: TMessageEventType; const aMessage: string; x, y: Integer);
+begin
+  fFailed := True;
+end;
+
+function TrySplitTopLevelCommaList(const aText: string; out aParts: TArray<string>): Boolean;
+var
+  g: TGarbos;
+  lDepth: Integer;
+  lHasToken: Boolean;
+  lLexer: TCommaListLexer;
+  lParts: TList<string>;
+  lStack: TArray<TptTokenKind>;
+  lStart: Integer;
+begin
+  Result := False;
+  aParts := nil;
+  if Pos(#0, aText) > 0 then
+    Exit;
+  g := Default(TGarbos);
+  GC(lLexer, TCommaListLexer.Create, g);
+  GC(lParts, TList<string>.Create, g);
+  lLexer.OnMessage := lLexer.HandleMessage;
+  lLexer.UseDefines := False;
+  lLexer.Origin := aText;
+  SetLength(lStack, Length(aText));
+  lDepth := 0;
+  lStart := 1;
+  lHasToken := False;
+  while (lLexer.TokenID <> ptNull) and not lLexer.fFailed do
+  begin
+    if not IsTokenIDJunk(lLexer.TokenID) then
+    begin
+      if lLexer.TokenID in [ptUnknown, ptError] then
+        Exit;
+      if lLexer.TokenID in [ptRoundOpen, ptSquareOpen] then
+      begin
+        lStack[lDepth] := lLexer.TokenID;
+        Inc(lDepth);
+      end else if lLexer.TokenID in [ptRoundClose, ptSquareClose] then
+      begin
+        if lDepth = 0 then
+          Exit;
+        Dec(lDepth);
+        if ((lLexer.TokenID = ptRoundClose) and (lStack[lDepth] <> ptRoundOpen)) or
+          ((lLexer.TokenID = ptSquareClose) and (lStack[lDepth] <> ptSquareOpen)) then
+          Exit;
+      end else if (lLexer.TokenID = ptComma) and (lDepth = 0) then
+      begin
+        if not lHasToken then
+          Exit;
+        lParts.Add(Trim(Copy(aText, lStart, lLexer.TokenPos + 1 - lStart)));
+        lStart := lLexer.TokenPos + lLexer.TokenLen + 1;
+        lHasToken := False;
+        lLexer.Next;
+        Continue;
+      end;
+      lHasToken := True;
+    end;
+    lLexer.Next;
+  end;
+  if lLexer.fFailed or (lDepth <> 0) or not lHasToken then
+    Exit;
+  lParts.Add(Trim(Copy(aText, lStart, MaxInt)));
+  aParts := lParts.ToArray;
+  Result := True;
+end;
 
 function IsIdentifierStart(const aChar: Char): Boolean;
 begin

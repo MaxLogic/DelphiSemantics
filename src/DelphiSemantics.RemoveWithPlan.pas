@@ -218,7 +218,7 @@ uses
   System.Diagnostics, System.Generics.Collections, System.Generics.Defaults,
   System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.RemoveWithPlan.FinalBodyRenderer,
+  DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.RemoveWithPlan.FinalBodyRenderer,
   DelphiSemantics.RemoveWithPlan.FinalRewrite,
   DelphiSemantics.SourceConditionals, DelphiSemantics.SourceContext,
   MaxLogic.StrUtils;
@@ -292,6 +292,8 @@ type
     function ResultReuseCount: Int64;
   end;
 
+  TFinalReferenceQualification = (NoMatch, RetainedMember, QualifiedMember);
+
   TFinalSelectorDecision = record
     SelectorText: string;
     QualifierText: string;
@@ -359,6 +361,7 @@ type
   TFinalBindingChildIndexArray = TArray<TFinalBindingIndexArray>;
 
   TFinalBindingTree = record
+    ParentIndexes: TFinalBindingIndexArray;
     RootIndexes: TFinalBindingIndexArray;
     ChildIndexes: TFinalBindingChildIndexArray;
   end;
@@ -1316,32 +1319,15 @@ end;
 function SelectorTextOccurrenceCount(const aBindingSelectorText,
   aSelectorText: string): Integer;
 var
-  lBracketDepth: Integer;
   lPart: string;
-  lText: string;
-  i: Integer;
+  lParts: TArray<string>;
 begin
   Result := 0;
-  lText := Trim(aBindingSelectorText);
-  lPart := '';
-  lBracketDepth := 0;
-  for i := 1 to Length(lText) do
-  begin
-    if lText[i] = '[' then
-      Inc(lBracketDepth)
-    else if (lText[i] = ']') and (lBracketDepth > 0) then
-      Dec(lBracketDepth);
-
-    if (lText[i] = ',') and (lBracketDepth = 0) then
-    begin
-      if SameText(Trim(lPart), Trim(aSelectorText)) then
-        Inc(Result);
-      lPart := '';
-    end else
-      lPart := lPart + lText[i];
-  end;
-  if SameText(Trim(lPart), Trim(aSelectorText)) then
-    Inc(Result);
+  if not TrySplitTopLevelCommaList(aBindingSelectorText, lParts) then
+    Exit;
+  for lPart in lParts do
+    if SameText(lPart, Trim(aSelectorText)) then
+      Inc(Result);
 end;
 
 function SelectorTextDeclaredInBinding(const aBindingSelectorText,
@@ -3253,6 +3239,11 @@ function SimpleSelectorHasMember(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>; const aName: string): Boolean; forward;
 
+function DecisionKeepsWithMemberScope(const aDecision: TFinalSelectorDecision): Boolean;
+begin
+  Result := SameText(aDecision.Reason, 'skipped-parent-context');
+end;
+
 procedure AddIndexedMemberBodyEdits(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>; const aBodyText: string;
@@ -3260,6 +3251,7 @@ procedure AddIndexedMemberBodyEdits(const aFacts: TRemoveWithPlanFacts;
 var
   i: Integer;
   lDecision: TFinalSelectorDecision;
+  lDecisionIndex: Integer;
   lName: string;
   lOffset: Integer;
   lSelectorMember: Boolean;
@@ -3291,12 +3283,15 @@ begin
     if BodyOffsetAppearsQualified(aBodyText, lStartOffset) then
       Continue;
 
-    for lDecision in aDecisions do
+    for lDecisionIndex := High(aDecisions) downto 0 do
     begin
+      lDecision := aDecisions[lDecisionIndex];
       if (Trim(lDecision.QualifierText) = '') or
         (Trim(lDecision.ReceiverType) = '') or
         (not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lName)) then
         Continue;
+      if DecisionKeepsWithMemberScope(lDecision) then
+        Break;
       lOffset := lStartOffset;
       if (BodyOffsetInsideTextOccurrence(aBodyText, aBinding.SelectorText,
         lOffset) and (not lSelectorMember)) or BodyOffsetHasTextQualifier(aBodyText,
@@ -3602,13 +3597,14 @@ end;
 
 function QualifierForReference(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aDecisions: TArray<TFinalSelectorDecision>;
-  const aReference: TDelphiSemanticBoundReference; out aQualifierText: string): Boolean;
+  const aReference: TDelphiSemanticBoundReference; out aQualifierText: string):
+  TFinalReferenceQualification;
 var
   i: Integer;
   lDecision: TFinalSelectorDecision;
   lReferenceName: string;
 begin
-  Result := False;
+  Result := TFinalReferenceQualification.NoMatch;
   aQualifierText := '';
   lReferenceName := ReferenceLookupName(aReference.Name);
   for i := High(aDecisions) downto 0 do
@@ -3619,8 +3615,10 @@ begin
       Continue;
     if OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lReferenceName) then
     begin
+      if DecisionKeepsWithMemberScope(lDecision) then
+        Exit(TFinalReferenceQualification.RetainedMember);
       aQualifierText := lDecision.QualifierText;
-      Exit(True);
+      Exit(TFinalReferenceQualification.QualifiedMember);
     end;
   end;
   if aReference.ReceiverTypeName = '' then
@@ -3629,8 +3627,10 @@ begin
   begin
     if SameText(lDecision.ReceiverType, aReference.ReceiverTypeName) then
     begin
+      if DecisionKeepsWithMemberScope(lDecision) then
+        Exit(TFinalReferenceQualification.RetainedMember);
       aQualifierText := lDecision.QualifierText;
-      Exit(True);
+      Exit(TFinalReferenceQualification.QualifiedMember);
     end;
   end;
 end;
@@ -3798,6 +3798,8 @@ begin
       (Trim(lDecision.ReceiverType) = '') or
       (not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, aName)) then
       Continue;
+    if DecisionKeepsWithMemberScope(lDecision) then
+      Exit;
     aQualifierText := lDecision.QualifierText;
     Exit(True);
   end;
@@ -3907,6 +3909,43 @@ begin
   end;
 end;
 
+function ReferenceHasVisibleImportedProcedure(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  lDeclaration: TDelphiSemanticInventorySymbol;
+  lSelected: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if (aFacts.UnitVisibility = nil) or
+    (not SameText(aReference.Classification, 'external')) or
+    (not SameText(aReference.Kind, 'routine')) or
+    (not SameText(aReference.ReasonCode, 'EXTERNAL_ROUTINE_CALL')) or
+    (Trim(aReference.TypeName) <> '') or (Trim(aReference.ReceiverTypeName) = '') or
+    (not IsSimpleIdentifier(aReference.Name)) then
+    Exit;
+  lSelected := Default(TDelphiSemanticInventorySymbol);
+  for lDeclaration in aFacts.LookupIndex.FindSymbolsByName(aReference.Name) do
+  begin
+    if (not SameText(lDeclaration.SymbolClass, 'declaration')) or
+      (not SameText(lDeclaration.Kind, 'routine')) or
+      (not SameText(lDeclaration.SectionKind, 'interface')) or
+      (not SameText(lDeclaration.UnitName, aReference.ReceiverTypeName)) or
+      (lDeclaration.FileName = '') or SameText(lDeclaration.FileName, aBinding.FileName) or
+      (lDeclaration.Line <= 0) or (lDeclaration.Column <= 0) or
+      (lDeclaration.UnsupportedReason <> '') or (Trim(lDeclaration.TypeName) <> '') then
+      Continue;
+    if (lSelected.FileName <> '') and
+      ((not SameText(lSelected.FileName, lDeclaration.FileName)) or
+      (lSelected.Line <> lDeclaration.Line) or (lSelected.Column <> lDeclaration.Column)) then
+      Exit;
+    lSelected := lDeclaration;
+  end;
+  Result := (lSelected.FileName <> '') and
+    CaptureDeclarationIsVisible(aFacts, aBinding, lSelected, aLineCache);
+end;
+
 function ReferenceBlocksFinalRewrite(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>;
@@ -3939,7 +3978,8 @@ begin
     (not ReferenceQualifiedPrefixIsRoutineScopeValue(aFacts, aBinding, aReference)) and
     (not ReferenceQualifiedPrefixCanRemainUnchanged(aFacts, aBinding, aReference)) and
     (not ReferenceLooksLikeLocalLabel(aBinding, aReference, aLineCache)) and
-    (not ReferenceHasKnownRoutineSymbol(aFacts, aReference)) then
+    (not ReferenceHasKnownRoutineSymbol(aFacts, aReference)) and
+    (not ReferenceHasVisibleImportedProcedure(aFacts, aBinding, aReference, aLineCache)) then
   begin
     aReason := 'symbol-not-found';
     Exit(True);
@@ -3987,6 +4027,7 @@ function FinalBodyHasIncompleteReceiverReference(const aFacts: TRemoveWithPlanFa
 var
   i: Integer;
   lDecision: TFinalSelectorDecision;
+  lDecisionIndex: Integer;
   lQualified: Boolean;
   lReference: TDelphiSemanticBoundReference;
   lName: string;
@@ -4059,19 +4100,23 @@ begin
 
     lQualified := False;
     lRequiresQualification := False;
-    for lDecision in aDecisions do
+    for lDecisionIndex := High(aDecisions) downto 0 do
     begin
+      lDecision := aDecisions[lDecisionIndex];
       if (Trim(lDecision.QualifierText) = '') or
         (Trim(lDecision.ReceiverType) = '') then
         Continue;
       if not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lName) then
         Continue;
 
+      if DecisionKeepsWithMemberScope(lDecision) then
+        Break;
       lRequiresQualification := True;
       if BodyOffsetInsideTextOccurrence(aBodyText, lDecision.QualifierText,
         lStartOffset) or BodyOffsetHasTextQualifier(aBodyText,
         lDecision.QualifierText, lStartOffset) then
         lQualified := True;
+      Break;
     end;
     if lRequiresQualification and (not lQualified) then
       Exit(True);
@@ -4095,6 +4140,7 @@ var
   lNestedRange: TDelphiSemanticRemoveWithSourceRange;
   lNestedReplacement: TFinalNestedReplacement;
   lOffset: Integer;
+  lQualification: TFinalReferenceQualification;
   lQualifierText: string;
   lReference: TDelphiSemanticBoundReference;
   lReferenceName: string;
@@ -4159,7 +4205,11 @@ begin
         (not ActiveDecisionHasMember(aFacts, aEditDecisions, lReference.Name)) then
         Continue;
     end;
-    if not QualifierForReference(aFacts, aBinding, aEditDecisions, lReference, lQualifierText) then
+    lQualification := QualifierForReference(aFacts, aBinding, aEditDecisions,
+      lReference, lQualifierText);
+    if lQualification = TFinalReferenceQualification.RetainedMember then
+      Continue;
+    if lQualification = TFinalReferenceQualification.NoMatch then
     begin
       if HasHiddenUnresolvedPointerSelectorDecision(aEditDecisions,
         aValidationDecisions) and
@@ -4964,7 +5014,8 @@ begin
           (Trim(lDecision.ReceiverType) = '') or
           (not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lName)) then
           Continue;
-        lReplacementText := lDecision.QualifierText + '.' + lName;
+        if not DecisionKeepsWithMemberScope(lDecision) then
+          lReplacementText := lDecision.QualifierText + '.' + lName;
         Break;
       end;
     end;
@@ -5005,6 +5056,8 @@ var
   lInheritedDecisions: TArray<TFinalSelectorDecision>;
 begin
   SetLength(lBindingList, 1);
+  SetLength(lBindingTree.ParentIndexes, 1);
+  lBindingTree.ParentIndexes[0] := -1;
   SetLength(lBindingTree.RootIndexes, 1);
   SetLength(lBindingTree.ChildIndexes, 1);
   SetLength(lCandidateEdits, 1);
@@ -5065,6 +5118,10 @@ var
   lChildIndex: Integer;
   i: Integer;
   lOwnTempIndex: Integer;
+  lOwnSelectors: TArray<string>;
+  lOwnStart: Integer;
+  lSelectorIndex: Integer;
+  lParentBinding: TDelphiSemanticWithBinding;
   lTempIndex: Integer;
   lVisibleDecisions: TArray<TFinalSelectorDecision>;
   lBinding: TDelphiSemanticWithBinding;
@@ -5088,12 +5145,36 @@ begin
     Exit;
   end;
 
-  for lSelector in lBinding.Selectors do
+  lOwnStart := 0;
+  if aBindingTree.ParentIndexes[aBindingIndex] >= 0 then
   begin
-    lSelectorOccurrences := SelectorTextOccurrenceCount(lBinding.SelectorText,
-      lSelector.SelectorText);
-    if lSelectorOccurrences = 0 then
-      Continue;
+    lParentBinding := aBindingSource.BindingByIndex(aBindingTree.ParentIndexes[aBindingIndex]);
+    lOwnStart := Length(lParentBinding.Selectors);
+  end;
+  lReason := 'selector-binding-incomplete';
+  if TrySplitTopLevelCommaList(lBinding.SelectorText, lOwnSelectors) and
+    (Length(lBinding.Selectors) = lOwnStart + Length(lOwnSelectors)) then
+  begin
+    lReason := '';
+    for i := 0 to High(lOwnSelectors) do
+      if not SameText(lOwnSelectors[i], lBinding.Selectors[lOwnStart + i].SelectorText) then
+        lReason := 'selector-binding-incomplete';
+  end;
+  if lReason <> '' then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := lReason;
+    Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
+
+  for lSelectorIndex := lOwnStart to High(lBinding.Selectors) do
+  begin
+    lSelector := lBinding.Selectors[lSelectorIndex];
+    lSelectorOccurrences := 0;
+    for i := 0 to High(lOwnSelectors) do
+      if SameText(lOwnSelectors[i], lSelector.SelectorText) then
+        Inc(lSelectorOccurrences);
     if lSelectorOccurrences > 1 then
     begin
       RollbackReservedTempNamesForDecisions(aReservedNames,
@@ -5875,6 +5956,7 @@ begin
   lBindingCount := aBindingSource.BindingCount;
   lBindingInfos := BuildFinalBindingInfos(aBindingSource, aLineCache);
   lParentIndexes := BuildFinalBindingParentIndexes(lBindingInfos);
+  Result.ParentIndexes := lParentIndexes;
   SetLength(Result.ChildIndexes, lBindingCount);
   for lBindingIndex := 0 to lBindingCount - 1 do
   begin

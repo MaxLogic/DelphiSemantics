@@ -24,6 +24,29 @@ type
       aClassification: string): Boolean;
   public
     [Test]
+    [TestCase('ordinary list', '0')]
+    [TestCase('nested index', '1')]
+    [TestCase('round arguments', '2')]
+    [TestCase('mixed nesting', '3')]
+    [TestCase('string comma', '4')]
+    [TestCase('doubled quote', '5')]
+    [TestCase('brace comment', '6')]
+    [TestCase('round comment', '7')]
+    [TestCase('line comment', '8')]
+    [TestCase('directive', '9')]
+    [TestCase('repeated list', '10')]
+    [TestCase('empty', '11')]
+    [TestCase('empty first', '12')]
+    [TestCase('empty middle', '13')]
+    [TestCase('empty last', '14')]
+    [TestCase('unclosed index', '15')]
+    [TestCase('misnested', '16')]
+    [TestCase('unmatched close', '17')]
+    [TestCase('unclosed string', '18')]
+    [TestCase('unclosed brace', '19')]
+    [TestCase('unclosed comment', '20')]
+    procedure SelectorPartitionPreservesCompleteParts(const aCase: Integer);
+    [Test]
     [TestCase('LF', 'LF,False,False')]
     [TestCase('LF with comment', 'LF,False,True')]
     [TestCase('LF with blank lines', 'LF,True,True')]
@@ -965,6 +988,137 @@ begin
   Assert.IsTrue(ContainsText(lInventorySource, 'aModel.SourceText') or
     ContainsText(lInventorySource, 'TDelphiSemanticSourceLoader'),
     'Compatibility inventory source fallback should use model source text or the shared source loader.');
+end;
+
+procedure TProjectWithBindingTests.SelectorPartitionPreservesCompleteParts(const aCase: Integer);
+var
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lExpected: TArray<string>;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lText: string;
+  i: Integer;
+begin
+  case aCase of
+    0:
+    begin
+      lText := 'aKnown, aOuter';
+      lExpected := ['aKnown', 'aOuter'];
+    end;
+    1:
+    begin
+      lText := 'gOwners[Indexes[0, 0]]^';
+      lExpected := ['gOwners[Indexes[0, 0]]^'];
+    end;
+    2:
+    begin
+      lText := 'Choose(aKnown, aOuter)';
+      lExpected := ['Choose(aKnown, aOuter)'];
+    end;
+    3:
+    begin
+      lText := 'gOwners[Choose(Indexes[0, 0], 1)]^, aKnown';
+      lExpected := ['gOwners[Choose(Indexes[0, 0], 1)]^', 'aKnown'];
+    end;
+    4:
+    begin
+      lText := 'Choose(''a,b'', aKnown)';
+      lExpected := ['Choose(''a,b'', aKnown)'];
+    end;
+    5:
+    begin
+      lText := 'Choose(''a''''b,c'', aKnown)';
+      lExpected := ['Choose(''a''''b,c'', aKnown)'];
+    end;
+    6:
+    begin
+      lText := 'aKnown { [,)] }, aOuter';
+      lExpected := ['aKnown { [,)] }', 'aOuter'];
+    end;
+    7:
+    begin
+      lText := 'aKnown (* [,)] *), aOuter';
+      lExpected := ['aKnown (* [,)] *)', 'aOuter'];
+    end;
+    8:
+    begin
+      lText := 'aKnown // [,)]' + #13#10 + ', aOuter';
+      lExpected := ['aKnown // [,)]', 'aOuter'];
+    end;
+    9:
+    begin
+      lText := 'aKnown {$IFDEF UNUSED} {$ENDIF}, aOuter';
+      lExpected := ['aKnown {$IFDEF UNUSED} {$ENDIF}', 'aOuter'];
+    end;
+    10:
+    begin
+      lText := 'aKnown, aKnown';
+      lExpected := ['aKnown', 'aKnown'];
+    end;
+    11:
+    begin
+      lText := '';
+      lExpected := [];
+    end;
+    12:
+    begin
+      lText := ', aKnown';
+      lExpected := [];
+    end;
+    13:
+    begin
+      lText := 'aKnown, , aOuter';
+      lExpected := [];
+    end;
+    14:
+    begin
+      lText := 'aKnown,';
+      lExpected := [];
+    end;
+    15:
+    begin
+      lText := 'aKnown[0';
+      lExpected := [];
+    end;
+    16:
+    begin
+      lText := 'aKnown[(0])';
+      lExpected := [];
+    end;
+    17:
+    begin
+      lText := 'aKnown)';
+      lExpected := [];
+    end;
+    18:
+    begin
+      lText := 'aKnown[''x';
+      lExpected := [];
+    end;
+    19:
+    begin
+      lText := 'aKnown { x';
+      lExpected := [];
+    end;
+    20:
+    begin
+      lText := 'aKnown (* x';
+      lExpected := [];
+    end;
+  end;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('RemoveWithSelectorCoverage\SelectorCoverageUnit.pas');
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(8, Integer(Length(lModel.WithStatements)));
+  // Exercise the binder's model boundary, including malformed incoming selector text.
+  lModel.WithStatements := [lModel.WithStatements[4]];
+  lModel.WithStatements[0].SelectorText := lText;
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  Assert.AreEqual(1, Integer(Length(lBindings)));
+  Assert.AreEqual(Length(lExpected), Length(lBindings[0].Selectors));
+  for i := 0 to High(lExpected) do
+    Assert.AreEqual(lExpected[i], lBindings[0].Selectors[i].SelectorText);
 end;
 
 initialization

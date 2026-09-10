@@ -208,7 +208,7 @@ uses
   System.Classes, System.Diagnostics, System.Generics.Collections, System.Hash, System.Math,
   System.RegularExpressions, System.StrUtils, System.SysUtils,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.CompilerProfile, DelphiSemantics.ProjectContext,
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Model.Text, DelphiSemantics.ProjectContext,
   DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.WithBinding.Inventory,
   MaxLogic.StrUtils;
 
@@ -2514,22 +2514,6 @@ begin
   end;
 end;
 
-function SplitSelectors(const aSelectorText: string): TArray<string>;
-var
-  lPart: string;
-  lParts: TList<string>;
-begin
-  lParts := TList<string>.Create;
-  try
-    for lPart in aSelectorText.Split([',']) do
-      if lPart.Trim <> '' then
-        lParts.Add(lPart.Trim);
-    Result := lParts.ToArray;
-  finally
-    lParts.Free;
-  end;
-end;
-
 function BindSelectors(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName,
   aCurrentTypeName, aSelectorText: string; const aParentRoutineNames: TArray<string>;
@@ -2541,10 +2525,13 @@ function BindSelectors(const aModel: TDelphiSemanticUnitModel;
 var
   lPart: string;
   lSelectors: TList<TDelphiSemanticWithSelectorBinding>;
+  lParts: TArray<string>;
 begin
+  if not TrySplitTopLevelCommaList(aSelectorText, lParts) then
+    Exit(nil);
   lSelectors := TList<TDelphiSemanticWithSelectorBinding>.Create;
   try
-    for lPart in SplitSelectors(aSelectorText) do
+    for lPart in lParts do
       lSelectors.Add(MakeSelectorBinding(aModel, aProjectModels, aRoutineName,
         aCurrentTypeName, lPart, aParentRoutineNames, lSelectors.ToArray, aParentSelectors, aLine, aProjectMemberIndex,
         aMemberCache));

@@ -1,0 +1,20 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{65964164-4549-4D54-82FD-4BFB737F0359}</ProjectGuid>
+    <ProjectVersion>20.3</ProjectVersion>
+    <MainSource>SelectorCoverage.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Release</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <AppType>Console</AppType>
+    <DCC_ExeOutput>.dak\SelectorCoverage\bin\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>.dak\SelectorCoverage\dcu\$(Platform)</DCC_DcuOutput>
+    <DCC_Namespace>System;Winapi;$(DCC_Namespace)</DCC_Namespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="SelectorCoverageUnit.pas"/>
+    <DCCReference Include="SelectorCoverageProvider.pas"/>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>
