@@ -79,6 +79,15 @@ The Windows source-context cache tests use precise file timestamps and real
 symbolic links. Their test filesystem must retain 100 ns timestamp differences;
 link creation requires Windows Developer Mode or the symbolic-link privilege.
 
+The separate `MaxTdbProof` category directly selects the sibling DAK
+`tests/fixtures/test-projects/maxTdb` fixture; it does not read
+`DAK_MAXTDB_FIXTURE`. Its Foundation, JEDI and FastMM search paths must use the
+pinned DAK-local copies. Search paths contribute to semantic identities, so
+fixture relocation requires explicit identity review while preserving body,
+range, replacement and ordering assertions. The DAK
+[performance report](../DelphiAiKit/docs/remove-with-performance.md) records the
+current isolation and retained-producer comparison.
+
 - [proprietary fixture remove-with smoke](docs/smoke-tests.md#proprietary-fixture-remove-with-smoke)
   documents the clone-based DAK verification command. It must never run apply
   mode against the original read-only fixture.
