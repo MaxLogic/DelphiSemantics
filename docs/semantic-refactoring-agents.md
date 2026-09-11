@@ -15,8 +15,8 @@ bin\DelphiAIKit.exe find-usages --project F:\path\to\App.dproj --file F:\path\to
 ```
 
 Use symbol-position lookup when a name is overloaded, shadowed, or repeated in
-multiple units. Treat ambiguous or unresolved results as blockers for automated
-refactoring.
+multiple units. Stop automated refactoring when results are ambiguous or
+unresolved.
 
 ## Rename
 
@@ -40,7 +40,7 @@ fixtures to a temp workspace before any apply-mode test.
 
 ## Dead-Code Reports
 
-Dead-code findings are review evidence, not automatic deletion proof.
+Review dead-code findings before deciding whether to delete code.
 
 Expected report statuses:
 
@@ -53,8 +53,8 @@ Review RTTI, DFM event handlers, published members, exports, message methods,
 resourcestrings, initialization/finalization hooks, registration calls, package
 boundaries, and external callers before deleting anything.
 
-Removal apply mode is not approved unless the maintainer explicitly approves it
-for the current run. Keep report-only behavior as the default.
+Removal apply mode requires explicit maintainer approval for the current run.
+Keep report-only behavior as the default.
 
 ## Agent Checklist
 

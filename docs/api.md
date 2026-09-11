@@ -1,9 +1,8 @@
 # DelphiSemantics API
 
-`DelphiSemantics.Api` is the small facade intended for DAK and later tool
-integrations. It keeps callers on one stable unit for common project and
-semantic-index workflows while the lower-level units remain available for
-focused tests and internal implementation.
+Use `DelphiSemantics.Api` for common project and semantic-index operations.
+It gives DAK and future integrations one stable entry unit. Lower-level units
+remain available for focused tests and internal implementation.
 
 ## Stable Facade
 
@@ -26,34 +25,31 @@ focused tests and internal implementation.
 
 The default cache is in-memory. Set
 `TDelphiSemanticApiOptions.Cache.SqliteCacheFileName` to a non-empty path when a
-caller wants persistent SQLite-backed reuse.
+caller needs a persistent SQLite cache.
 
 ## LSP Enrichment
 
-`UseLspEnrichment` is an explicit opt-in boundary, but LSP enrichment is
-currently unsupported in this DelphiSemantics build. Setting the flag returns
-the warning diagnostic `lsp.enrichment.unsupported`; leaving it false keeps the
+This DelphiSemantics build does not support LSP enrichment. Setting
+`UseLspEnrichment` returns the warning diagnostic `lsp.enrichment.unsupported`; leaving it false keeps the
 semantic-model-only behavior and emits no LSP diagnostic. The reusable LSP unit
 still owns settings JSON construction and result normalization helpers for a
 later adapter, but no production path performs enrichment today.
 
 ## Remove-With Planning
 
-`TDelphiSemanticRemoveWithApi.PlanRemoveWith` is the stable primary planning
-route. It is generic best-effort planning for any Delphi project: every
-discovered `with` statement is represented in the result as either planned or
-skipped. The facade-owned DTO includes operation status, diagnostics, required
-verification, a complete statement ledger, candidate edits, and skipped
-statements. `Statements` has one row for every discovered `with` statement with
+Use `TDelphiSemanticRemoveWithApi.PlanRemoveWith` as the stable planning
+entry point. It reports every discovered `with` statement in a Delphi project
+as either planned or skipped. The facade-owned DTO includes operation status,
+diagnostics, required verification, a complete statement ledger, candidate
+edits, and skipped statements. `Statements` has one row for every discovered `with` statement with
 `planned` or `skipped` status, stable reason fields, source range, semantic ID,
 and `CoveredByStatementId` when a nested statement is rewritten as part of a
 parent replacement. `SkippedStatements` mirrors the skipped ledger rows for
 report consumers that only need unresolved statements. It does not expose final
 statement DTOs, rewrite recipes, parity helpers, or planner internals.
 
-Specific projects and fixtures can be used as dogfood evidence, but they must
-not become production profiles, filename/line behavior selectors, or fixed-count
-correctness gates for the planner.
+Use project fixtures to check the planner on real code. Do not make production
+behavior depend on fixture profiles, filenames, line numbers, or fixed counts.
 
 `TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult`
 is the failure-aware fact-build entry point. It returns `Success`, structured

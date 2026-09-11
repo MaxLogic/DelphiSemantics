@@ -1,9 +1,8 @@
 # DelphiSemantics
 
-DelphiSemantics is a project-scoped semantic layer for Delphi source analysis.
-It sits above `DelphiAST` and provides project-wide symbol indexing, scope
-resolution, and lookup data for refactoring tools such as remove-with,
-definition search, and reference search.
+DelphiSemantics uses `DelphiAST` to index Delphi symbols and resolve names
+across a project. Refactoring tools use its scope and lookup data for
+remove-with, definition search, and reference search.
 
 ## Goals
 
@@ -14,17 +13,17 @@ definition search, and reference search.
 
 ## Dead-Code Reports
 
-Dead-code findings are review evidence, not proof that deleting code is always
-behavior-preserving. Treat `definitely-unused`, `maybe-unused`,
-`externally-visible`, and `blocked` results as an inspection report first,
-especially around RTTI, DFM event handlers, exports, message methods,
+Review dead-code findings before deleting code. The `definitely-unused`,
+`maybe-unused`, `externally-visible`, and `blocked` classifications do not
+guarantee that removal preserves behavior, especially around RTTI, DFM event
+handlers, exports, message methods,
 initialization/finalization hooks, registration calls, package boundaries, and
 external callers.
 
 ## Semantic Refactoring
 
 Use DAK for project-scoped semantic refactoring commands. Start with dry-run
-commands and review the report before allowing any source rewrite.
+commands and review the report before applying source changes.
 
 ```powershell
 Set-Location F:\projects\MaxLogic\DelphiAiKit
@@ -39,16 +38,15 @@ do not add removal apply mode without explicit maintainer approval.
 
 ### Compile Gate For Refactorings
 
-Semantic refactoring assumes the project starts from parseable, compileable
-source. Broken code can prevent DelphiSemantics from building a complete and
-trustworthy project model.
+Semantic refactoring requires source that parses and compiles. Broken code
+can leave the project model incomplete or unreliable.
 
 Any source-changing consumer of DelphiSemantics should compile the project
 before applying edits, refuse apply mode when the baseline compile fails,
 compile again after edits, and roll back the edit transaction if the post-edit
 compile fails. DAK is the current orchestration layer for that gate. Dry-run
-analysis may still be useful for investigation, but it is not an apply-safe
-proof unless the compile gate has passed.
+analysis can still help investigate broken code. The compile gate must pass
+before applying edits.
 
 Agent workflow guidance lives in
 [`docs/semantic-refactoring-agents.md`](docs/semantic-refactoring-agents.md).
@@ -61,10 +59,10 @@ primary remove-with DTO, and compatibility final DTOs. DAK owns command
 orchestration, source rewrite, apply/rollback, verification, reporting, and
 operator-facing telemetry.
 
-Remove-with planning is generic best-effort behavior for any Delphi project:
-every discovered `with` statement is reported as planned or skipped with stable
-reason fields, and project-specific fixtures are dogfood proof
-only, not production modes or fixed-count contracts.
+Remove-with planning attempts rewrites in any Delphi project. It reports each
+discovered `with` statement as planned or skipped, with stable reason fields. Project
+fixtures provide integration evidence; they do not define production modes or
+fixed-count contracts.
 
 ## Layout
 

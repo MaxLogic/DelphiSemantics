@@ -23,11 +23,11 @@ The gate runs, in order:
 5. DelphiAIKit CLI build.
 6. A cloned proprietary fixture smoke using `remove-with --mode apply`.
 
-The final summary prints per-phase seconds and a sorted
-`Dominant migration gate phases` table so the current bottleneck is explicit.
+The final summary shows each phase's duration in seconds. The sorted
+`Dominant migration gate phases` table identifies the slowest phases.
 
-The default DAK RemoveWith proof uses the `Gate` profile to reduce wall-clock
-time while keeping DUnitX execution sequential. The profile excludes
+By default, DAK RemoveWith tests use the shorter `Gate` profile and run
+sequentially. The profile excludes
 `TRemoveWithProprietaryProjectTests` because the cloned proprietary fixture smoke covers that
 path immediately afterward. Use `--dak-test-profile Full` to include every DAK
 RemoveWith fixture in the gate.
@@ -42,11 +42,11 @@ safe default.
 
 The proprietary fixture smoke never edits the original fixture. By default it copies
 `F:\projects\MaxLogic\DelphiAiKit\tests\fixtures\test-projects\<proprietary-fixture>` to a
-unique run-scoped directory under `%TEMP%\delphi-semantics-migration-gate\` and
+unique directory for each run under `%TEMP%\delphi-semantics-migration-gate\` and
 writes plan/apply JSON reports plus `migration-gate-manifest.json` there. The
-manifest records DelphiSemantics and DAK branch, commit, and dirty-state
-provenance for the run, plus each proof step's working directory, command,
-exit code, elapsed seconds, and stdout/stderr artifact paths.
+manifest records each repository's branch, commit, and dirty state, plus each
+proof step's working directory, command, exit code, elapsed seconds, and
+stdout/stderr artifact paths.
 
 The gate fails on dirty DelphiSemantics or DAK worktrees by default. Use
 `-AllowDirty` only when intentionally collecting local proof before a commit;
