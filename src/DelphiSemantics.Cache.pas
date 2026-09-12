@@ -172,7 +172,7 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.13';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.20';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;

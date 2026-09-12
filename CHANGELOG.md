@@ -269,6 +269,10 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- Routine header references keep their own lexical scope at adjacent and same-line routine boundaries.
+- Indented type aliases remain visible to snapshot-backed find-usages and rename.
+- Declaration extraction excludes assignments and keeps variables declared after class method declarations in unit scope.
+- Record models include packed-record fields and every name in multiline field lists, with source locations preserved. Variant labels and quoted field types retain their existing meaning; obsolete cached models are rebuilt.
 - Source-context caching preserves native Windows timestamp precision, so
   same-size edits within a millisecond refresh cached source. Ordinary files
   use one metadata query; file links use their target's timestamp and size.

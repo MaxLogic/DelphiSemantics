@@ -88,6 +88,13 @@ type
     [TestCase('Before LF body coordinates', '10')]
     [TestCase('Before owned WITH body ends', '11')]
     [TestCase('Before multiline routine headers', '12')]
+    [TestCase('Before assignment exclusion', '13')]
+    [TestCase('Before class declaration scope exclusion', '14')]
+    [TestCase('Before packed record fields', '15')]
+    [TestCase('Before multiline record fields', '16')]
+    [TestCase('Before split variant field recovery', '17')]
+    [TestCase('Before indented alias coordinates', '18')]
+    [TestCase('Before exclusive routine scope positions', '19')]
     procedure DefaultParserInvalidatesObsoleteModels(const aVersion: string);
     [Test]
     procedure ModelVersionChangeInvalidatesCachedUnitModel;
@@ -371,7 +378,7 @@ begin
 
     Assert.AreEqual('9', lIdentity.SchemaVersion,
       'Lexical ownership fields changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.13', lIdentity.ParserVersion,
+    Assert.AreEqual('DelphiSemantics.Model.Parser.20', lIdentity.ParserVersion,
       'Multiline routine headers changed parser semantics.');
   finally
     lCache.Free;

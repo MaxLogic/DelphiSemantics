@@ -91,6 +91,26 @@ type
     [Test]
     procedure InitializedVariablesRetainOnlyDeclaredTypes;
     [Test]
+    procedure AssignmentsDoNotBecomeDeclarations;
+    [Test]
+    [TestCase('Globals first', 'True')]
+    [TestCase('Globals after class', 'False')]
+    procedure GlobalsAroundClassDeclarationsKeepTheirScope(const aGlobalsFirst: Boolean);
+    [Test]
+    [TestCase('Packed record', 'True')]
+    [TestCase('Ordinary record', 'False')]
+    procedure PackedAndOrdinaryFieldsKeepModelAndBindingIdentity(const aPacked: Boolean);
+    [Test]
+    [TestCase('Line comments', 'True')]
+    [TestCase('Block comments', 'False')]
+    procedure MultilineFieldsKeepSourceAndBindingIdentity(const aLineComment: Boolean);
+    [Test]
+    procedure LiteralFieldTypesKeepOriginalText;
+    [Test]
+    [TestCase('Split variant labels', 'True')]
+    [TestCase('Inline variant labels', 'False')]
+    procedure VariantLabelsKeepFollowingFields(const aSplit: Boolean);
+    [Test]
     procedure ProgramBodyReferencesUseActualSyntaxScope;
     [Test]
     procedure InlineConstSectionEndsTypeDeclarations;
@@ -186,6 +206,16 @@ type
     procedure RoutineReconciliationUsesOffsetMapBeforeFallback;
     [Test]
     procedure ModelJsonPreservesDeclarationRolesAndLexicalOwnership;
+    [Test]
+    [TestCase('FlushLeftFull', 'False,False')]
+    [TestCase('IndentedFull', 'True,False')]
+    [TestCase('FlushLeftLean', 'False,True')]
+    [TestCase('IndentedLean', 'True,True')]
+    procedure PointerAliasRetainsUnitDeclarationScope(const aIndented, aLean: Boolean);
+    [Test]
+    procedure AdjacentRoutineHeadersKeepTheirOwnTypeReferenceScope;
+    [Test]
+    procedure SameLineNestedRoutineEndRestoresOuterReferenceScope;
     [Test]
     procedure PascalLexicalHelpersAreCentralized;
     [Test]
@@ -2989,6 +3019,105 @@ begin
     'Source-context candidate extraction should use the shared Pascal lexical helper.');
 end;
 
+procedure TUnitModelTests.SameLineNestedRoutineEndRestoresOuterReferenceScope;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lReference: TDelphiSemanticReference;
+  lSource: string;
+begin
+  lPath := UnitModelTempPath('same-line-nested-scope.pas');
+  lSource := 'unit SameLineNestedScope;' + sLineBreak +
+    'interface' + sLineBreak + 'procedure Outer;' + sLineBreak +
+    'implementation' + sLineBreak + 'procedure Outer;' + sLineBreak +
+    'var lValue: Integer;' + sLineBreak +
+    '  procedure Inner;' + sLineBreak +
+    '  begin lValue := 1; end; begin lValue := 2; Inner; end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindReferenceAtOffset(lModel, 'lValue',
+    Pos('lValue := 1', lSource), lReference));
+  Assert.AreEqual('Inner', lReference.RoutineName);
+  Assert.AreEqual('samelinenestedscope|outer()/inner()', lReference.RoutineScopeId);
+  Assert.IsTrue(FindReferenceAtOffset(lModel, 'lValue',
+    Pos('lValue := 2', lSource), lReference));
+  Assert.AreEqual('Outer', lReference.RoutineName);
+  Assert.AreEqual('samelinenestedscope|outer()', lReference.RoutineScopeId);
+end;
+
+procedure TUnitModelTests.AdjacentRoutineHeadersKeepTheirOwnTypeReferenceScope;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lReference: TDelphiSemanticReference;
+  lSource: string;
+begin
+  lPath := UnitModelTempPath('adjacent-routine-headers.pas');
+  lSource := 'unit AdjacentRoutineHeaders;' + sLineBreak +
+    'interface' + sLineBreak + 'type PAliasValue = ^Integer;' + sLineBreak +
+    'procedure Previous(var aText: string);' + sLineBreak +
+    'procedure Following(var aValue: PAliasValue);' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Previous(var aText: string);' + sLineBreak +
+    'begin end;' + sLineBreak +
+    'procedure Following(var aValue: PAliasValue);' + sLineBreak +
+    'begin end;' + sLineBreak + 'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindReferenceAtOffset(lModel, 'PAliasValue',
+    Pos('PAliasValue);', lSource), lReference));
+  Assert.AreEqual('Following', lReference.RoutineName);
+  Assert.AreEqual('adjacentroutineheaders|following(var:paliasvalue)',
+    lReference.RoutineScopeId);
+end;
+
+procedure TUnitModelTests.PointerAliasRetainsUnitDeclarationScope(const aIndented,
+  aLean: Boolean);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lIndent: string;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lIndent := '';
+  if aIndented then
+    lIndent := '  ';
+  lPath := UnitModelTempPath('pointer-alias-scope.pas');
+  TFile.WriteAllText(lPath, 'unit PointerAliasScope;' + sLineBreak +
+    'interface' + sLineBreak + 'type' + sLineBreak +
+    '  TAliasRecord = packed record' + sLineBreak +
+    '    Value: Integer;' + sLineBreak + '  end;' + sLineBreak +
+    lIndent + 'PAliasRecord = ^TAliasRecord;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lOptions.SkipBodyAnalysis := aLean;
+  lOptions.SkipReferenceExtraction := aLean;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.IsTrue(FindDeclaration(lModel, 'PAliasRecord', 'type-alias',
+    'interface', lDeclaration));
+  Assert.AreEqual(7, lDeclaration.Line);
+  Assert.AreEqual(Length(lIndent) + 1, lDeclaration.Column);
+  Assert.AreEqual('declaration', lDeclaration.DeclarationRole);
+  Assert.AreEqual('unit', lDeclaration.ScopeKind);
+  Assert.AreEqual('PointerAliasScope', lDeclaration.OwnerName);
+end;
+
 procedure TUnitModelTests.ModelJsonPreservesDeclarationRolesAndLexicalOwnership;
 var
   lJson: string;
@@ -3184,6 +3313,346 @@ begin
     end;
   end;
 end;
+
+procedure TUnitModelTests.VariantLabelsKeepFollowingFields(const aSplit: Boolean);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticBoundReference;
+  lSeparator: string;
+  lSource: string;
+begin
+  lSeparator := ' ';
+  if aSplit then
+    lSeparator := sLineBreak + '      ';
+  lSource := 'unit VariantLabelFields;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TVariant = record' + sLineBreak +
+    '    case Boolean of' + sLineBreak +
+    '      True:' + lSeparator + '(Handle: Integer);' + sLineBreak +
+    '      False:' + lSeparator + '(Other: Integer);' + sLineBreak +
+    '  end;' + sLineBreak + 'procedure AssignFields(var aValue: TVariant);' + sLineBreak +
+    'implementation' + sLineBreak + 'procedure AssignFields(var aValue: TVariant);' + sLineBreak +
+    'begin' + sLineBreak + '  with aValue do' + sLineBreak + '  begin' + sLineBreak +
+    '    Handle := 1;' + sLineBreak + '    Other := Handle + 1;' + sLineBreak +
+    '  end;' + sLineBreak + 'end;' + sLineBreak + 'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('VariantLabelFields.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindMember(lModel, 'TVariant', 'Handle', 'field', lMember),
+    'A variant label must not consume the following field.');
+  Assert.AreEqual('Integer', lMember.TypeName);
+  Assert.AreEqual(Pos('Handle:', lSource), lMember.Offset);
+  Assert.IsTrue(FindMember(lModel, 'TVariant', 'Other', 'field', lMember));
+  Assert.AreEqual('Integer', lMember.TypeName);
+  Assert.AreEqual(Pos('Other:', lSource), lMember.Offset);
+  Assert.AreEqual(2, Integer(Length(lModel.Members)));
+  lFacts := TDelphiSemanticWithBinder.BindProject('variant-label-fields', nil, [lModel]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  Assert.AreEqual(3, Integer(Length(lFacts.Bindings[0].References)));
+  for lReference in lFacts.Bindings[0].References do
+  begin
+    Assert.AreEqual('member', lReference.Classification);
+    Assert.AreEqual('TVariant', lReference.ReceiverTypeName);
+    Assert.AreEqual('Integer', lReference.TypeName);
+    Assert.AreEqual('', lReference.ReasonCode);
+  end;
+end;
+
+procedure TUnitModelTests.LiteralFieldTypesKeepOriginalText;
+var
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSource: string;
+begin
+  lSource := 'unit LiteralFieldTypes;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TLetters = record' + sLineBreak +
+    '    Letter: ''a''..''z'';' + sLineBreak +
+    '    Letters: array[''a''..''z''] of Integer;' + sLineBreak +
+    '  end;' + sLineBreak + 'implementation' + sLineBreak + 'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('LiteralFieldTypes.pas');
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindMember(lModel, 'TLetters', 'Letter', 'field', lMember));
+  Assert.AreEqual('''a''..''z''', lMember.TypeName);
+  Assert.AreEqual(Pos('Letter:', lSource), lMember.Offset);
+  Assert.IsTrue(FindMember(lModel, 'TLetters', 'Letters', 'field', lMember));
+  Assert.AreEqual('array[''a''..''z''] of Integer', lMember.TypeName);
+  Assert.AreEqual(Pos('Letters:', lSource), lMember.Offset);
+end;
+
+procedure TUnitModelTests.MultilineFieldsKeepSourceAndBindingIdentity(const aLineComment: Boolean);
+const
+  cNames: array[0..5] of string = ('r', 'v', 'w', 's', 'ValueLong', 'Value');
+  cSpellings: array[0..5] of string = ('r,', 'v:', 'w,', 's:', 'ValueLong,', 'Value:');
+  cTypes: array[0..5] of string = ('PAnsiChar', 'PAnsiChar', 'Int32', 'Int32', 'Integer', 'Integer');
+var
+  i: Integer;
+  lCount: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticBoundReference;
+  lSource: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lSource := 'unit MultilineFieldNames;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TFields = record' + sLineBreak +
+    '    r,' + sLineBreak + '      v: PAnsiChar;' + sLineBreak + '    w, ';
+  if aLineComment then
+    lSource := lSource + '// HiddenField: Boolean;' + sLineBreak
+  else
+    lSource := lSource + '{ HiddenField: Boolean; }' + sLineBreak +
+      '      (* HiddenOther: Byte; *)' + sLineBreak;
+  lSource := lSource + '      s: Int32;' + sLineBreak +
+    '    ValueLong, Value: Integer;' + sLineBreak + '  end;' + sLineBreak +
+    'procedure AssignFields(var aFields: TFields);' + sLineBreak + 'implementation' + sLineBreak +
+    'procedure AssignFields(var aFields: TFields);' + sLineBreak + 'begin' + sLineBreak +
+    '  with aFields do' + sLineBreak + '  begin' + sLineBreak +
+    '    r := nil;' + sLineBreak + '    v := r;' + sLineBreak +
+    '    w := 1;' + sLineBreak + '    s := w;' + sLineBreak +
+    '    ValueLong := s;' + sLineBreak + '    Value := ValueLong;' + sLineBreak +
+    '  end;' + sLineBreak + 'end;' + sLineBreak + 'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('MultilineFieldNames.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(6, Integer(Length(lModel.Members)),
+    'Each real field appears once; commented names are not fields.');
+  lFacts := TDelphiSemanticWithBinder.BindProject('multiline-field-identity', nil, [lModel]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  for i := Low(cNames) to High(cNames) do
+  begin
+    Assert.IsTrue(FindMember(lModel, 'TFields', cNames[i], 'field', lMember), cNames[i]);
+    Assert.AreEqual(cTypes[i], lMember.TypeName, cNames[i]);
+    Assert.AreEqual(Pos(cSpellings[i], lSource), lMember.Offset, cNames[i]);
+    Assert.AreEqual(lMember.Offset + Length(cNames[i]), lMember.EndOffset, cNames[i]);
+    Assert.AreEqual(LineContaining(lSource, cSpellings[i]), lMember.Line, cNames[i]);
+    Assert.AreEqual(ColumnOfSourceOffset(lSource, lMember.Offset), lMember.Column, cNames[i]);
+    lCount := 0;
+    for lSymbol in lFacts.Symbols do
+      if (lSymbol.Name = cNames[i]) and (lSymbol.SymbolClass = 'member') then
+      begin
+        Inc(lCount);
+        Assert.AreEqual('TFields', lSymbol.OwnerType);
+        Assert.AreEqual('TFields', lSymbol.OwnerName);
+        Assert.AreEqual('field', lSymbol.Kind);
+        Assert.AreEqual(cTypes[i], lSymbol.TypeName);
+        Assert.AreEqual(lMember.Line, lSymbol.Line);
+        Assert.AreEqual(lMember.Column, lSymbol.Column);
+        Assert.AreEqual(lMember.Line, lSymbol.EndLine);
+        Assert.AreEqual(lMember.Column, lSymbol.EndColumn);
+      end;
+    Assert.AreEqual(1, lCount, cNames[i]);
+    lCount := 0;
+    for lReference in lFacts.Bindings[0].References do
+      if lReference.Name = cNames[i] then
+      begin
+        Inc(lCount);
+        Assert.AreEqual('member', lReference.Classification, cNames[i]);
+        Assert.AreEqual('TFields', lReference.ReceiverTypeName, cNames[i]);
+        Assert.AreEqual(cTypes[i], lReference.TypeName, cNames[i]);
+        Assert.AreEqual('', lReference.ReasonCode, cNames[i]);
+      end;
+    Assert.IsTrue(lCount > 0, cNames[i]);
+  end;
+end;
+
+procedure TUnitModelTests.PackedAndOrdinaryFieldsKeepModelAndBindingIdentity(const aPacked: Boolean);
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lCount: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticBoundReference;
+  lSource: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lSource := 'unit RecordFieldIdentity;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TContainer = ';
+  if aPacked then
+    lSource := lSource + 'packed ';
+  lSource := lSource + 'record' + sLineBreak + '    Value: Integer;' + sLineBreak +
+    '  end;' + sLineBreak + 'procedure Bump(var aContainer: TContainer);' + sLineBreak +
+    'implementation' + sLineBreak + 'procedure Bump(var aContainer: TContainer);' + sLineBreak +
+    'begin' + sLineBreak + '  with aContainer do' + sLineBreak +
+    '    Value := Value + 1;' + sLineBreak + 'end;' + sLineBreak + 'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('RecordFieldIdentity.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindMember(lModel, 'TContainer', 'Value', 'field', lMember),
+    'Packing changes storage layout, not whether the record declares its field.');
+  Assert.AreEqual('Integer', lMember.TypeName);
+  Assert.AreEqual(Pos('Value: Integer', lSource), lMember.Offset);
+  Assert.AreEqual(lMember.Offset + Length('Value'), lMember.EndOffset);
+  Assert.AreEqual(5, lMember.Line, 'Model line');
+  Assert.AreEqual(5, lMember.Column, 'Model column');
+  lFacts := TDelphiSemanticWithBinder.BindProject('record-field-identity', nil, [lModel]);
+  lCount := 0;
+  for lSymbol in lFacts.Symbols do
+    if (lSymbol.SymbolClass = 'member') and (lSymbol.OwnerName = 'TContainer') and
+      (lSymbol.Name = 'Value') then
+    begin
+      Inc(lCount);
+      Assert.AreEqual('field', lSymbol.Kind);
+      Assert.AreEqual('TContainer', lSymbol.OwnerType);
+      Assert.AreEqual('Integer', lSymbol.TypeName);
+      Assert.AreEqual(5, lSymbol.Line, 'Inventory line');
+      Assert.AreEqual(5, lSymbol.Column, 'Inventory column');
+      Assert.AreEqual(lSymbol.Line, lSymbol.EndLine);
+      Assert.AreEqual(lSymbol.Column, lSymbol.EndColumn);
+    end;
+  Assert.AreEqual(1, lCount);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  lBinding := lFacts.Bindings[0];
+  lCount := 0;
+  for lReference in lBinding.References do
+    if lReference.Name = 'Value' then
+    begin
+      Inc(lCount);
+      Assert.AreEqual('member', lReference.Classification);
+      Assert.AreEqual('TContainer', lReference.ReceiverTypeName);
+      Assert.AreEqual('Integer', lReference.TypeName);
+      Assert.AreEqual('', lReference.ReasonCode);
+      Assert.AreEqual(12, lReference.Line);
+      Assert.AreEqual(12, lReference.EndLine);
+      Assert.AreEqual(Length('Value'), lReference.EndColumn - lReference.Column + 1, 'Inclusive reference name span');
+    end;
+  Assert.AreEqual(2, lCount, 'Both the read and write must bind to the declared field.');
+end;
+
+procedure TUnitModelTests.GlobalsAroundClassDeclarationsKeepTheirScope(const aGlobalsFirst: Boolean);
+const
+  cGlobals = 'var' + sLineBreak + '    ShadowContainer: Integer;' + sLineBreak;
+  cClass = 'type' + sLineBreak + '  TReader = class' + sLineBreak +
+    '    function ReadValue: Integer;' + sLineBreak + '  end;' + sLineBreak;
+var
+  i: Integer;
+  lCount: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lInventory: TDelphiSemanticRemoveWithInventory;
+  lLocal: TDelphiSemanticLocal;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSource: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lSource := 'unit GlobalAfterClass;' + sLineBreak + 'interface' + sLineBreak;
+  if aGlobalsFirst then
+    lSource := lSource + cGlobals + cClass
+  else
+    lSource := lSource + cClass + cGlobals;
+  lSource := lSource + 'implementation' + sLineBreak +
+    'function TReader.ReadValue: Integer;' + sLineBreak +
+    'var' + sLineBreak + '    lValue: Integer;' + sLineBreak + 'begin' + sLineBreak +
+    '  lValue := ShadowContainer;' + sLineBreak + '  Result := lValue;' + sLineBreak +
+    'end;' + sLineBreak + 'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('GlobalAfterClass.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindDeclaration(lModel, 'ShadowContainer', 'var', 'interface', lDeclaration));
+  Assert.AreEqual('Integer', lDeclaration.TypeName);
+  Assert.AreEqual(Pos('ShadowContainer:', lSource), lDeclaration.Offset);
+  Assert.AreEqual(LineContaining(lSource, 'ShadowContainer:'), lDeclaration.Line);
+  Assert.AreEqual(5, lDeclaration.Column);
+  for i := 0 to High(lModel.Locals) do
+    Assert.IsFalse(SameText('ShadowContainer', lModel.Locals[i].Name),
+      'A class method declaration cannot own a later unit variable.');
+  Assert.IsTrue(FindLocal(lModel, 'TReader.ReadValue', 'lValue', lLocal));
+  Assert.AreEqual('Integer', lLocal.TypeName);
+  Assert.AreEqual(Pos('lValue: Integer', lSource), lLocal.Offset);
+  Assert.AreEqual(LineContaining(lSource, 'lValue:'), lLocal.Line);
+  Assert.AreEqual(5, lLocal.Column);
+  lInventory := TDelphiSemanticWithBinder.BuildInventory(lModel);
+  lCount := 0;
+  for lSymbol in lInventory.Symbols do
+    if SameText('ShadowContainer', lSymbol.Name) then
+    begin
+      Inc(lCount);
+      Assert.IsTrue(MatchText(lSymbol.SymbolClass, ['declaration', 'unit-global']),
+        'Only the model and source-backed global projections are valid.');
+      if lSymbol.SymbolClass = 'declaration' then
+        Assert.AreEqual('var', lSymbol.Kind)
+      else
+        Assert.AreEqual('unit-global', lSymbol.Kind);
+      Assert.AreEqual('', lSymbol.RoutineName);
+      Assert.AreEqual('Integer', lSymbol.TypeName);
+      Assert.AreEqual('GlobalAfterClass', lSymbol.UnitName);
+      if lSymbol.SymbolClass = 'declaration' then
+        Assert.AreEqual('interface', lSymbol.SectionKind)
+      else
+        Assert.AreEqual('', lSymbol.SectionKind);
+      Assert.AreEqual(lDeclaration.Line, lSymbol.Line);
+      Assert.AreEqual(lDeclaration.Column, lSymbol.Column);
+      Assert.AreEqual(lDeclaration.Line, lSymbol.EndLine);
+      if lSymbol.SymbolClass = 'unit-global' then
+        Assert.AreEqual(lDeclaration.Column + Length('ShadowContainer'), lSymbol.EndColumn)
+      else
+        Assert.AreEqual(lDeclaration.Column, lSymbol.EndColumn);
+    end;
+  Assert.AreEqual(2, lCount, 'Both projections must identify the same single global source declaration.');
+end;
+
+
+procedure TUnitModelTests.AssignmentsDoNotBecomeDeclarations;
+var
+  lCount: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSource: string;
+begin
+  // The nested routine ends before the outer VAR section, as in LINKFILE.
+  lSource := 'unit AssignmentDeclarations;' + sLineBreak + 'interface' + sLineBreak +
+    'var RestFiles: Integer = 3;' + sLineBreak +
+    'procedure CheckLinkFiles;' + sLineBreak + 'implementation' + sLineBreak +
+    'procedure CheckLinkFiles;' + sLineBreak +
+    '  procedure Touch;' + sLineBreak + '  begin' + sLineBreak + '  end;' + sLineBreak +
+    'var' + sLineBreak + '  i: Integer;' + sLineBreak + 'begin' + sLineBreak +
+    '  Touch;' + sLineBreak + '  i := 1;' + sLineBreak +
+    '  RestFiles := i;' + sLineBreak + '  RestFiles := 0;' + sLineBreak +
+    'end;' + sLineBreak + 'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('AssignmentDeclarations.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lCount := 0;
+  for lDeclaration in lModel.Declarations do
+    if SameText(lDeclaration.Name, 'RestFiles') then
+    begin
+      Inc(lCount);
+      Assert.AreEqual(Pos('RestFiles: Integer', lSource), lDeclaration.Offset,
+        'An assignment site must not create a competing declaration.');
+      Assert.AreEqual('var', lDeclaration.Kind);
+      Assert.AreEqual('Integer', lDeclaration.TypeName);
+      Assert.AreEqual('interface', lDeclaration.SectionKind);
+      Assert.AreEqual(LineContaining(lSource, 'var RestFiles:'), lDeclaration.Line);
+      Assert.AreEqual(ColumnOfSourceOffset(lSource, lDeclaration.Offset), lDeclaration.Column);
+      Assert.AreEqual(lDeclaration.Offset + Length('RestFiles'), lDeclaration.EndOffset);
+    end;
+  Assert.AreEqual(1, lCount, 'Only the initialized global declaration belongs in the model.');
+end;
+
 
 procedure TUnitModelTests.InitializedVariablesRetainOnlyDeclaredTypes;
 var
