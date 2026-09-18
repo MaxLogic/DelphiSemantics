@@ -1787,6 +1787,17 @@ begin
   end;
   if lHasEarlierSelector then
     Exit;
+  // Unit-level typed constants are not in the unit/global index, but an element of a typed-constant
+  // array is an addressable selector like the element of a variable array (T-290: TDB02 ResWords[m]).
+  // Only a first selector may resolve here: in "with A, B do" a member of A hides a global B.
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(lSelectorName) do
+    if SameText(lSymbol.SymbolClass, 'constant') and (Trim(lSymbol.RoutineName) = '') and
+      (Trim(lSymbol.TypeName) <> '') then
+    begin
+      Result := SelectorShapeType(aFacts, lSymbol.TypeName, aSelectorText);
+      if Result <> '' then
+        Exit;
+    end;
 end;
 
 function ReferenceIsRoutineSymbol(const aFacts: TRemoveWithPlanFacts;

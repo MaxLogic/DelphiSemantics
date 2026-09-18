@@ -1,0 +1,19 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{5C3E8B21-7D4A-4F6E-9B12-3A8D6E2F4C71}</ProjectGuid>
+    <ProjectVersion>20.3</ProjectVersion>
+    <MainSource>TypedConstArray.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Release</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <AppType>Console</AppType>
+    <DCC_ExeOutput>.dak\TypedConstArray\bin\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>.dak\TypedConstArray\dcu\$(Platform)</DCC_DcuOutput>
+    <DCC_Namespace>System;Winapi;$(DCC_Namespace)</DCC_Namespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="TypedConstArrayUnit.pas"/>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>

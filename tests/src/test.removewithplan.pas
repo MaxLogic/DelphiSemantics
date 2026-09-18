@@ -147,6 +147,8 @@ type
     [Test]
     procedure FinalDtoRejectsControlledArrayRoutineShadow;
     [Test]
+    procedure FinalDtoPlansTypedConstArrayElementSelector;
+    [Test]
     [TestCase('contextual On field', '0')]
     [TestCase('unit conditional declaration', '1')]
     procedure FinalDtoKeepsInlineLexerBoundaries(const aCase: Integer);
@@ -761,7 +763,10 @@ type
     procedure FinalDtoMatchesMaxTdbTdb02CheckSelStrSkips;
     [Test]
     [Category('MaxTdbProof')]
-    procedure FinalDtoMatchesMaxTdbTdb02SetByteSkipReasons;
+    procedure FinalDtoMatchesMaxTdbTdb02SetByteStatements;
+    [Test]
+    [Category('MaxTdbProof')]
+    procedure FinalDtoTypesMaxTdbFieldSelectorsBeforeTypedConstants;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbTdb02FindDirektReceiverTypeSkip;
@@ -18497,7 +18502,7 @@ begin
     '138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce');
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02SetByteSkipReasons;
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02SetByteStatements;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -18506,10 +18511,13 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8046, 11, lStatement),
     'Expected maxTdb TDB02 SetByte ResWords[m] with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  // T-290: the element of the typed-constant array ResWords is captured by address, like the element
+  // of a variable array; the body only reads p and l.
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('TReservedKeyWordsItem', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithReservedKeyWordsItemPtr := @ResWords[m];', lStatement.Temps[0].InitializationText);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8101, 7, lStatement),
     'Expected maxTdb TDB02 SetByte VarList[NormVarNr(n)] with statement.');
@@ -18517,6 +18525,36 @@ begin
   Assert.AreEqual('call-selector', lStatement.Reason);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+end;
+
+// T-290 guard: in "with qb^, b do" and "WITH r^, B DO" the second selector is a field of the first.
+// Resolving typed constants ahead of those fields typed b/B from an unrelated global and skipped both.
+procedure TRemoveWithPlanTests.FinalDtoTypesMaxTdbFieldSelectorsBeforeTypedConstants;
+const
+  cFiles: array[0..1] of string = ('TDB01.pas', 'TDB06.pas');
+  cLines: array[0..1] of Integer = (496, 201);
+  cFields: array[0..1] of string = ('b', 'B');
+var
+  lFound: Boolean;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  i, j: Integer;
+begin
+  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+  for i := 0 to High(cFiles) do
+  begin
+    Assert.IsTrue(FindFinalStatementAt(lPlan, cFiles[i], cLines[i], 7, lStatement),
+      'Expected maxTdb with statement at ' + cFiles[i] + ':' + cLines[i].ToString);
+    Assert.AreEqual('planned', lStatement.Status, cFiles[i] + ': ' + lStatement.Reason);
+    lFound := False;
+    for j := 0 to High(lStatement.Temps) do
+      if lStatement.Temps[j].SelectorText = cFields[i] then
+      begin
+        lFound := True;
+        Assert.AreEqual('Bereich', lStatement.Temps[j].ReceiverType, cFiles[i]);
+      end;
+    Assert.IsTrue(lFound, 'Expected a temp for the field selector in ' + cFiles[i]);
+  end;
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02FindDirektReceiverTypeSkip;
@@ -23098,6 +23136,47 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('', lStatement.ReplacementText);
+end;
+
+// T-290: TDB02 ResWords shape. The binder resolves ResWords[m] to TReservedItem; the planner must not
+// lose that selector type. Words[m] is the same shape over a variable, as a control.
+procedure TRemoveWithPlanTests.FinalDtoPlansTypedConstArrayElementSelector;
+const
+  // The nested "with q^, B do" at 131 is rewritten by its parent at 127, which owns its temps.
+  cMultiLines: array[0..1] of Integer = (116, 127);
+  cMultiColumns: array[0..1] of Integer = (3, 5);
+var
+  lConst: TDelphiSemanticRemoveWithFinalStatement;
+  lMember: TDelphiSemanticRemoveWithFinalStatement;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lVar: TDelphiSemanticRemoveWithFinalStatement;
+  i, j: Integer;
+begin
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithTypedConstArray\TypedConstArray.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TypedConstArrayUnit.pas', 99, 9, lVar),
+    'Expected the Words[m] control with statement.');
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TypedConstArrayUnit.pas', 70, 9, lConst),
+    'Expected the ResWords[m] with statement.');
+  Assert.AreEqual('planned', lVar.Status, 'control: ' + lVar.Reason);
+  Assert.AreEqual('planned', lConst.Status, 'typed constant: ' + lConst.Reason);
+  Assert.AreEqual(1, Integer(Length(lConst.Temps)));
+  Assert.AreEqual(lVar.Temps[0].Strategy, lConst.Temps[0].Strategy,
+    'The element of a typed-constant array is captured like the element of a variable array.');
+  Assert.IsTrue(lConst.ReplacementText.Contains('@ResWords[m]'), lConst.ReplacementText);
+
+  // In "with Pair, B do" and "with q^, B do" the field B hides the unit-level typed constant B.
+  for j := 0 to High(cMultiLines) do
+  begin
+    Assert.IsTrue(FindFinalStatementAt(lPlan, 'TypedConstArrayUnit.pas', cMultiLines[j], cMultiColumns[j], lMember),
+      'Expected the multi-selector with statement at line ' + cMultiLines[j].ToString);
+    for i := 0 to High(lMember.Temps) do
+      Assert.AreNotEqual('TReservedItem', lMember.Temps[i].ReceiverType,
+        'The second selector must not resolve to the typed constant B: ' + lMember.Temps[i].SelectorText);
+    Assert.AreNotEqual('type-source-not-indexed', lMember.Reason,
+      'A field selector must not be typed from an unrelated global at line ' + cMultiLines[j].ToString);
+    if lMember.Status = 'planned' then
+      Assert.IsFalse(lMember.ReplacementText.Contains('@B;'), lMember.ReplacementText);
+  end;
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoRejectsControlledArraySelfShadow;
