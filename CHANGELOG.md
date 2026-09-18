@@ -269,6 +269,7 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- Remove-with planning now types a `with` selector that indexes a unit-level typed-constant array, such as `with ResWords[m] do`, and captures the element by address like the element of a variable array. It was skipped as `selector-type-not-resolved`. In a multi-selector `with A, B do`, a field of `A` still takes precedence over a same-named global `B`.
 - Routine header references keep their own lexical scope at adjacent and same-line routine boundaries.
 - Indented type aliases remain visible to snapshot-backed find-usages and rename.
 - Declaration extraction excludes assignments and keeps variables declared after class method declarations in unit scope.
