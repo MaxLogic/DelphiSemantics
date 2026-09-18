@@ -269,6 +269,7 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- A with-body call reference now spans the complete balanced call. Nested calls such as `FillChar(Buffer, SizeOf(TMD5Buffer), 0)` used to end at the first inner closing parenthesis. The rest of the argument list was then scanned as separate top-level tokens; those identifiers are now arguments of the outer call. Cached remove-with project facts are rebuilt. Index suffixes keep their current extent.
 - Remove-with planning now types a `with` selector that indexes a unit-level typed-constant array, such as `with ResWords[m] do`, and captures the element by address like the element of a variable array. It was skipped as `selector-type-not-resolved`. In a multi-selector `with A, B do`, a field of `A` still takes precedence over a same-named global `B`.
 - Routine header references keep their own lexical scope at adjacent and same-line routine boundaries.
 - Indented type aliases remain visible to snapshot-backed find-usages and rename.

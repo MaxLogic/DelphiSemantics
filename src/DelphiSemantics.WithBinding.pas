@@ -2595,16 +2595,33 @@ function ReadReferenceSuffix(const aText: string; var aIndex: Integer;
   const aOpenChar, aCloseChar: Char; const aRequireContent: Boolean): Boolean;
 var
   lCloseIndex: Integer;
+  lDepth: Integer;
   lOpenIndex: Integer;
 begin
   Result := False;
   if (aIndex > Length(aText)) or (aText[aIndex] <> aOpenChar) then
     Exit;
 
+  // A call suffix ends at its matching parenthesis, so a nested call such as
+  // FillChar(Buffer, SizeOf(TMD5Buffer), 0) keeps its complete extent; its arguments are bound
+  // separately (T-277). The body text is sanitized, so string literals and comments cannot unbalance
+  // the count. An index suffix keeps ending at its first ']': index contents are not extracted as
+  // references, so balancing them would hide the identifiers after a nested index.
   lOpenIndex := aIndex;
   lCloseIndex := lOpenIndex + 1;
-  while (lCloseIndex <= Length(aText)) and (aText[lCloseIndex] <> aCloseChar) do
+  lDepth := 1;
+  while lCloseIndex <= Length(aText) do
+  begin
+    if (aOpenChar = '(') and (aText[lCloseIndex] = aOpenChar) then
+      Inc(lDepth)
+    else if aText[lCloseIndex] = aCloseChar then
+    begin
+      Dec(lDepth);
+      if lDepth = 0 then
+        Break;
+    end;
     Inc(lCloseIndex);
+  end;
   if lCloseIndex > Length(aText) then
     Exit;
   if aRequireContent and (lCloseIndex = lOpenIndex + 1) then

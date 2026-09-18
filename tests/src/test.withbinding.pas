@@ -54,6 +54,8 @@ type
     procedure WithBodyReferencesKeepSourceCoordinates(const aLineEnding: string;
       const aBlankLines, aComment: Boolean);
     [Test]
+    procedure CallReferencesSpanTheCompleteBalancedCall;
+    [Test]
     procedure IndexedDeclarationsPreserveBindingPrecedence;
     [Test]
     procedure IndexedDeclarationCandidatesPreserveDuplicatesAndRefresh;
@@ -188,6 +190,70 @@ begin
     lPlan.FinalStatements[0].Reason);
   Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
     'lWithContainerPtr^.Child^.Value'), lPlan.FinalStatements[0].ReplacementText);
+end;
+
+// T-277: a call-shaped reference spans the complete balanced call, not the text up to the first
+// inner closing parenthesis (maxTdb md5.pas:245 recorded `FillChar(Buffer, SizeOf(TMD5Buffer)`).
+procedure TProjectWithBindingTests.CallReferencesSpanTheCompleteBalancedCall;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lCalls: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticBoundReference;
+  lSource: string;
+  lSourceLines: TArray<string>;
+  lSpan: string;
+begin
+  lSource := 'unit NestedCallExtents;'#13#10 +
+    'interface'#13#10 +
+    'type'#13#10 +
+    '  TMD5Buffer = array[0..63] of Byte;'#13#10 +
+    '  TContext = record'#13#10 +
+    '    Buffer: TMD5Buffer;'#13#10 +
+    '    Count: Integer;'#13#10 +
+    '  end;'#13#10 +
+    'procedure Reset(var aContext: TContext);'#13#10 +
+    'implementation'#13#10 +
+    'procedure Reset(var aContext: TContext);'#13#10 +
+    'begin'#13#10 +
+    '  with aContext do'#13#10 +
+    '  begin'#13#10 +
+    '    FillChar(Buffer, SizeOf(TMD5Buffer), 0);'#13#10 +
+    '    Count := Length(Buffer);'#13#10 +
+    '    Inc(Count, SizeOf(Buffer) + Count);'#13#10 +
+    '  end;'#13#10 +
+    'end;'#13#10 +
+    'end.'#13#10;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(RepoRoot,
+    'tests\.dak\delphiSemanticsTests\t277-nested-call-extents.pas');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lOptions.SourceFileName));
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lFacts := TDelphiSemanticWithBinder.BindProject('nested-call-extents', nil, [lModel]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  lBinding := lFacts.Bindings[0];
+  lSourceLines := StringReplace(lSource, #13#10, #10, [rfReplaceAll]).Split([#10]);
+  lCalls := '|';
+  for lReference in lBinding.References do
+  begin
+    // The name starts at the recorded column; the recorded span runs to EndColumn on the same line.
+    Assert.AreEqual(lReference.Name, Copy(lSourceLines[lReference.Line - 1], lReference.Column,
+      Length(lReference.Name)), lReference.Name);
+    Assert.AreEqual(lReference.Line, lReference.EndLine, lReference.Name);
+    lSpan := Copy(lSourceLines[lReference.Line - 1], lReference.Column,
+      lReference.EndColumn - lReference.Column + 1);
+    if Pos('(', lSpan) > 0 then
+      lCalls := lCalls + lSpan + '|';
+  end;
+  Assert.IsTrue(lCalls.Contains('|FillChar(Buffer, SizeOf(TMD5Buffer), 0)|'), lCalls);
+  Assert.IsTrue(lCalls.Contains('|Inc(Count, SizeOf(Buffer) + Count)|'), lCalls);
+  Assert.IsTrue(lCalls.Contains('|Length(Buffer)|'), 'ordinary call control: ' + lCalls);
+  Assert.IsTrue(HasReference(lBinding, 'Count', 'member'), 'Expected the Count member references.');
 end;
 
 function LoadIndexedBindingModel(const aFileName: string): TDelphiSemanticUnitModel;
