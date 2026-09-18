@@ -405,6 +405,27 @@ function Test-BenchmarkDoesNotPromoteBaselineByDefault {
     'Default benchmark run must not promote artifacts to docs\benchmarks.'
 }
 
+# T-320: invoked from a directory outside this repository (as DAK does), the summary still names the
+# DelphiSemantics revision and records the measured working directory separately.
+function Test-BenchmarkIdentifiesDelphiSemanticsFromForeignWorkingDirectory {
+  $lWorkspace = Join-Path ([IO.Path]::GetTempPath()) ('dsem-benchmark-foreign-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+  New-Item -ItemType Directory -Force -Path $lWorkspace | Out-Null
+  try {
+    Set-Content -LiteralPath (Join-Path $lWorkspace 'project.dpr') -Value 'program project;' -Encoding UTF8
+    New-CleanDakScript -Path (Join-Path $lWorkspace 'dak.ps1')
+
+    $lExit = Invoke-BenchmarkRun -Workspace $lWorkspace
+    Assert-Equal 0 $lExit 'Benchmark run from a foreign directory should pass.'
+    $lSummary = Get-Content -LiteralPath (Join-Path $lWorkspace 'out\baseline.json') -Raw | ConvertFrom-Json
+    $lExpected = [string](git -C $RepoRoot rev-parse HEAD)
+    Assert-Equal $lExpected $lSummary.delphiSemanticsSha 'The summary must name the DelphiSemantics revision.'
+    Assert-Equal ([IO.Path]::GetFullPath($lWorkspace).TrimEnd('\')) ([string]$lSummary.workingDirectory).TrimEnd('\') `
+      'The measured working directory is recorded separately.'
+  } finally {
+    Remove-Item -LiteralPath $lWorkspace -Recurse -Force
+  }
+}
+
 function Test-RemoveWithPlanBenchmarkRequestsDiagnosticForPlannerMetric {
   $lWorkspace = New-TestWorkspace 'plan-diagnostics-for-metrics'
   $lDak = Join-Path $lWorkspace 'dak.ps1'

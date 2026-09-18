@@ -22,6 +22,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# The DelphiSemantics revision comes from this script's repository, not from the caller's working
+# directory: DAK and other callers run the benchmark from their own checkouts (T-320).
+$DelphiSemanticsRoot = Split-Path -Parent $PSScriptRoot
+
 function Resolve-OutputPath {
   param([string]$Path)
 
@@ -1240,7 +1244,7 @@ if ($SummarizeOnly) {
     }
   }
   $lResultRows = Get-SummaryRow -RunRows $lRunRows
-  $lCurrentDelphiSemanticsSha = Get-GitSha -Path (Get-Location)
+  $lCurrentDelphiSemanticsSha = Get-GitSha -Path $DelphiSemanticsRoot
   $lCurrentDakSha = Get-GitSha -Path (Split-Path (Split-Path $DakExe -Parent) -Parent)
   $lStoredDelphiSemanticsSha = [string](Get-ObjectPropertyValue -Object $lExistingSummary `
     -Name 'delphiSemanticsSha' -Default $lCurrentDelphiSemanticsSha)
@@ -1401,7 +1405,7 @@ if ($SummarizeOnly) {
   $lRunRows = @($lRows.ToArray())
   $lResultRows = Get-SummaryRow -RunRows $lRunRows
   $lDakRoot = Split-Path (Split-Path $DakExe -Parent) -Parent
-  $lDelphiSemanticsSha = Get-GitSha -Path (Get-Location)
+  $lDelphiSemanticsSha = Get-GitSha -Path $DelphiSemanticsRoot
   $lDakSha = Get-GitSha -Path $lDakRoot
   $lProvenance = Test-BenchmarkProvenance `
     -StoredDelphiSemanticsSha $lDelphiSemanticsSha `
@@ -1420,6 +1424,7 @@ if ($SummarizeOnly) {
     warmTargetSeconds = $WarmTargetSeconds
     cacheDirectory = $lCacheDirectory
     machine = $env:COMPUTERNAME
+    workingDirectory = (Get-Location).Path
     delphiSemanticsSha = $lDelphiSemanticsSha
     dakSha = $lDakSha
     provenance = $lProvenance
