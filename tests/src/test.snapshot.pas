@@ -607,6 +607,34 @@ begin
   end;
 end;
 
+procedure ApplySignatureDistinctionCase(var aModel: TDelphiSemanticUnitModel;
+  const aCase: Integer);
+begin
+  // Synthetic signature facts deliberately isolate safety distinctions, not valid overloads.
+  case aCase of
+    0: begin
+      aModel.Routines[0].Signature := 'DoWork(aValue: string = ''A B'')';
+      aModel.Routines[1].Signature := 'DoWork(aValue: string = ''AB'')';
+    end;
+    1: begin
+      aModel.Routines[0].Signature := 'DoWork(aValue: string = ''A'')';
+      aModel.Routines[1].Signature := 'DoWork(aValue: string = ''a'')';
+    end;
+    2: begin
+      aModel.Routines[0].Signature := 'DoWork(aValue: string = ''A'''' B'')';
+      aModel.Routines[1].Signature := 'DoWork(aValue: string = ''A''''B'')';
+    end;
+    3: begin
+      aModel.Routines[0].Signature := 'DoWork(const aValue: Integer)';
+      aModel.Routines[1].Signature := 'DoWork(constaValue: Integer)';
+    end;
+    4: begin
+      aModel.Routines[0].Signature := 'DoWork(aValue: string = ''A B';
+      aModel.Routines[1].Signature := 'DoWork(aValue: string = ''AB';
+    end;
+  end;
+end;
+
 procedure TSnapshotTests.SnapshotReferenceTargetsPreserveSignatureDistinctions(const aCase: Integer);
 var
   lMetrics: TDelphiSnapshotBuilderMetrics;
@@ -626,29 +654,7 @@ begin
   lModel.Routines[0].Column := 11;
   lModel.Routines[1].Name := 'DoWork';
   lModel.Routines[1].Signature := 'DoWork(string)';
-  // Synthetic signature facts deliberately isolate safety distinctions, not valid overloads.
-  case aCase of
-    0: begin
-      lModel.Routines[0].Signature := 'DoWork(aValue: string = ''A B'')';
-      lModel.Routines[1].Signature := 'DoWork(aValue: string = ''AB'')';
-    end;
-    1: begin
-      lModel.Routines[0].Signature := 'DoWork(aValue: string = ''A'')';
-      lModel.Routines[1].Signature := 'DoWork(aValue: string = ''a'')';
-    end;
-    2: begin
-      lModel.Routines[0].Signature := 'DoWork(aValue: string = ''A'''' B'')';
-      lModel.Routines[1].Signature := 'DoWork(aValue: string = ''A''''B'')';
-    end;
-    3: begin
-      lModel.Routines[0].Signature := 'DoWork(const aValue: Integer)';
-      lModel.Routines[1].Signature := 'DoWork(constaValue: Integer)';
-    end;
-    4: begin
-      lModel.Routines[0].Signature := 'DoWork(aValue: string = ''A B';
-      lModel.Routines[1].Signature := 'DoWork(aValue: string = ''AB';
-    end;
-  end;
+  ApplySignatureDistinctionCase(lModel, aCase);
   lModel.Routines[1].Line := 20;
   lModel.Routines[1].Column := 11;
   SetLength(lModel.Locals, 1);

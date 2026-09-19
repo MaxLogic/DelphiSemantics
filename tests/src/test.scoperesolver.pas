@@ -69,6 +69,60 @@ uses
   maxLogic.IOUtils,
   Test.Support;
 
+const
+  cQualifiedMethodScopeSource =
+    'unit QualifiedMethodScopeUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TDataA = record' + sLineBreak +
+    '    Count: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TDataB = record' + sLineBreak +
+    '    Count: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TA = class' + sLineBreak +
+    '    FData: TDataA;' + sLineBreak +
+    '    procedure Run;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TB = class' + sLineBreak +
+    '    FData: TDataB;' + sLineBreak +
+    '    procedure Run;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'var' + sLineBreak +
+    '  gVisible: Integer;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure TA.Run;' + sLineBreak +
+    'const' + sLineBreak +
+    '  cKept = 1;' + sLineBreak +
+    'type' + sLineBreak +
+    '  TKept = (keOne, keTwo);' + sLineBreak +
+    'var' + sLineBreak +
+    '  lCaptured: Integer;' + sLineBreak +
+    '  lOnlyA: Integer;' + sLineBreak +
+    '  procedure Inner;' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    with FData do' + sLineBreak +
+    '      Count := lCaptured;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  lOnlyA := cKept;' + sLineBreak +
+    '  lCaptured := lOnlyA;' + sLineBreak +
+    '  Inner;' + sLineBreak +
+    'end;' + sLineBreak +
+    'procedure TB.Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lCaptured: string;' + sLineBreak +
+    '  procedure Inner;' + sLineBreak +
+    '  begin' + sLineBreak +
+    '    with FData do' + sLineBreak +
+    '      Count := Length(lCaptured);' + sLineBreak +
+    '  end;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  lCaptured := ''B'';' + sLineBreak +
+    '  Inner;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+
 var
   GScopeResolverTempRoot: string;
 
@@ -364,65 +418,9 @@ begin
   AssertNestedForwardReferenceScopes(lModel);
 end;
 
-function QualifiedMethodScopeSource: string;
-begin
-  Result :=
-    'unit QualifiedMethodScopeUnit;' + sLineBreak +
-    'interface' + sLineBreak +
-    'type' + sLineBreak +
-    '  TDataA = record' + sLineBreak +
-    '    Count: Integer;' + sLineBreak +
-    '  end;' + sLineBreak +
-    '  TDataB = record' + sLineBreak +
-    '    Count: Integer;' + sLineBreak +
-    '  end;' + sLineBreak +
-    '  TA = class' + sLineBreak +
-    '    FData: TDataA;' + sLineBreak +
-    '    procedure Run;' + sLineBreak +
-    '  end;' + sLineBreak +
-    '  TB = class' + sLineBreak +
-    '    FData: TDataB;' + sLineBreak +
-    '    procedure Run;' + sLineBreak +
-    '  end;' + sLineBreak +
-    'var' + sLineBreak +
-    '  gVisible: Integer;' + sLineBreak +
-    'implementation' + sLineBreak +
-    'procedure TA.Run;' + sLineBreak +
-    'const' + sLineBreak +
-    '  cKept = 1;' + sLineBreak +
-    'type' + sLineBreak +
-    '  TKept = (keOne, keTwo);' + sLineBreak +
-    'var' + sLineBreak +
-    '  lCaptured: Integer;' + sLineBreak +
-    '  lOnlyA: Integer;' + sLineBreak +
-    '  procedure Inner;' + sLineBreak +
-    '  begin' + sLineBreak +
-    '    with FData do' + sLineBreak +
-    '      Count := lCaptured;' + sLineBreak +
-    '  end;' + sLineBreak +
-    'begin' + sLineBreak +
-    '  lOnlyA := cKept;' + sLineBreak +
-    '  lCaptured := lOnlyA;' + sLineBreak +
-    '  Inner;' + sLineBreak +
-    'end;' + sLineBreak +
-    'procedure TB.Run;' + sLineBreak +
-    'var' + sLineBreak +
-    '  lCaptured: string;' + sLineBreak +
-    '  procedure Inner;' + sLineBreak +
-    '  begin' + sLineBreak +
-    '    with FData do' + sLineBreak +
-    '      Count := Length(lCaptured);' + sLineBreak +
-    '  end;' + sLineBreak +
-    'begin' + sLineBreak +
-    '  lCaptured := ''B'';' + sLineBreak +
-    '  Inner;' + sLineBreak +
-    'end;' + sLineBreak +
-    'end.';
-end;
-
 function QualifiedConstructorScopeSource: string;
 begin
-  Result := StringReplace(QualifiedMethodScopeSource, 'procedure Run;', 'constructor Run;', [rfReplaceAll]);
+  Result := StringReplace(cQualifiedMethodScopeSource, 'procedure Run;', 'constructor Run;', [rfReplaceAll]);
   Result := StringReplace(Result, 'procedure TA.Run;', 'constructor TA.Run;', []);
   Result := StringReplace(Result, 'procedure TB.Run;', 'constructor TB.Run;', []);
 end;
@@ -445,7 +443,7 @@ var
   lResult: TDelphiSemanticResolveResult;
 begin
   lModel := ExtractSource('qualified-captures-' + BoolToStr(aBounded, True) + '.pas',
-    QualifiedMethodScopeSource);
+    cQualifiedMethodScopeSource);
   Assert.AreEqual('ast', lModel.ScopeModelStatus);
   if aBounded then
     lIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel, [32, 45])
@@ -547,7 +545,7 @@ var
   lBindings: TArray<TDelphiSemanticWithBinding>;
   lModel: TDelphiSemanticUnitModel;
 begin
-  lModel := ExtractSource('qualified-with-parent.pas', QualifiedMethodScopeSource);
+  lModel := ExtractSource('qualified-with-parent.pas', cQualifiedMethodScopeSource);
   lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
   Assert.AreEqual(2, Integer(Length(lBindings)));
   Assert.AreEqual(31, lBindings[0].Line);
@@ -635,7 +633,6 @@ procedure TScopeResolverTests.ResumedLocalsKeepQualifiedOwnership(const aCase: I
 var
   lContext: TDelphiSemanticResolveContext;
   lDeclarationLine: Integer;
-  lIndex: TDelphiSemanticRoutineScopeIndex;
   lModel: TDelphiSemanticUnitModel;
   lOwner: string;
   lQueryLine: Integer;
@@ -665,8 +662,8 @@ begin
     else
       lQueryLine := 37;
   end;
-  lIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel, [lQueryLine]);
-  lContext := QualifiedMethodContext(lIndex, lQueryLine);
+  lContext := QualifiedMethodContext(
+    TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel, [lQueryLine]), lQueryLine);
   if Odd(aCase) then
   begin
     Assert.AreEqual('Observe', lContext.RoutineName);
@@ -743,13 +740,29 @@ begin
     'end.';
 end;
 
+procedure AssertResumedOverloadScopeIdentity(const aModel: TDelphiSemanticUnitModel);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFirstScope: string;
+  lLocal: TDelphiSemanticLocal;
+begin
+  lFirstScope := '';
+  for lDeclaration in aModel.Declarations do
+    if SameText(lDeclaration.Name, 'lLate') and (lDeclaration.Line = 17) then
+      lFirstScope := lDeclaration.OwnerScopeId;
+  Assert.IsNotEmpty(lFirstScope);
+  for lDeclaration in aModel.Declarations do
+    if SameText(lDeclaration.Name, 'lLate') and (lDeclaration.Line = 26) then
+      Assert.AreNotEqual(lFirstScope, lDeclaration.OwnerScopeId);
+  for lLocal in aModel.Locals do
+    Assert.IsFalse(SameText(lLocal.Name, 'lLate'),
+      'This fixture must exercise resumed declaration fallback, not existing Locals');
+end;
+
 procedure TScopeResolverTests.ResumedOverloadLocalsAreAmbiguous(const aSameType: Boolean);
 var
   lContext: TDelphiSemanticResolveContext;
-  lDeclaration: TDelphiSemanticDeclaration;
-  lFirstScope: string;
   lIndex: TDelphiSemanticRoutineScopeIndex;
-  lLocal: TDelphiSemanticLocal;
   lModel: TDelphiSemanticUnitModel;
   lResult: TDelphiSemanticResolveResult;
   lSecondType: string;
@@ -767,17 +780,7 @@ begin
   Assert.AreEqual('ast', lModel.ScopeModelStatus);
   AssertResumedDeclaration(lModel, 'TA.Run', 'Integer', 17);
   AssertResumedDeclaration(lModel, 'TA.Run', lSecondType, 26);
-  lFirstScope := '';
-  for lDeclaration in lModel.Declarations do
-    if SameText(lDeclaration.Name, 'lLate') and (lDeclaration.Line = 17) then
-      lFirstScope := lDeclaration.OwnerScopeId;
-  Assert.IsNotEmpty(lFirstScope);
-  for lDeclaration in lModel.Declarations do
-    if SameText(lDeclaration.Name, 'lLate') and (lDeclaration.Line = 26) then
-      Assert.AreNotEqual(lFirstScope, lDeclaration.OwnerScopeId);
-  for lLocal in lModel.Locals do
-    Assert.IsFalse(SameText(lLocal.Name, 'lLate'),
-      'This fixture must exercise resumed declaration fallback, not existing Locals');
+  AssertResumedOverloadScopeIdentity(lModel);
   lIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel);
   lContext := QualifiedMethodContext(lIndex, 19);
   Assert.AreEqual('TA.Run', lContext.RoutineName);

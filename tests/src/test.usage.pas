@@ -849,47 +849,37 @@ begin
   Assert.IsTrue(lFound[0] and lFound[1] and lFound[2]);
 end;
 
-procedure TUsageTests.SnapshotBackedUsagesPairLineWrappedRoutineDeclarations(const aWrapInterface: Boolean);
+procedure WriteWrappedRoutineFixture(const aWrapInterface: Boolean;
+  out aOptions: TDelphiSemanticOptions; out aUnitPath: string;
+  out aImplementationLine: Integer);
 const
   cSingle = 'function SharedRoutine(const aValue: Integer; aScale: Integer): Integer;';
   cWrapped = 'function SharedRoutine(const aValue: Integer;' + #13#10 + #9 + '  aScale: Integer): Integer;';
 var
-  lCacheMetrics: TDelphiSemanticCacheMetrics;
-  lContext: TDelphiSemanticSymbolQueryContext;
   lDprPath: string;
-  lDprojPath: string;
-  lExtractionMilliseconds: Int64;
   lInterfaceHeader: string;
   lImplementationHeader: string;
-  lOptions: TDelphiSemanticOptions;
-  lResult: TDelphiSemanticUsageResult;
   lRootPath: string;
-  lSessionResult: TDelphiSemanticProjectSessionResult;
-  lUnitPath: string;
-  lPass: Integer;
-  lImplementationLine: Integer;
-  lOverloadLine: Integer;
-  lRenamePlan: TDelphiSemanticRenamePlan;
-
 begin
   if aWrapInterface then
   begin
-    lImplementationLine := 6;
+    aImplementationLine := 6;
     lInterfaceHeader := cWrapped;
     lImplementationHeader := cSingle;
   end else begin
-    lImplementationLine := 5;
+    aImplementationLine := 5;
     lInterfaceHeader := cSingle;
     lImplementationHeader := cWrapped;
   end;
   lRootPath := UsageTempPath('snapshot-wrapped-routine-' + BoolToStr(aWrapInterface, True));
   TDirectory.CreateDirectory(lRootPath);
   lDprPath := TPath.Combine(lRootPath, 'WrappedRoutineProject.dpr');
-  lDprojPath := TPath.Combine(lRootPath, 'WrappedRoutineProject.dproj');
-  lUnitPath := TPath.Combine(lRootPath, 'WrappedRoutineUnit.pas');
+  aOptions := Default(TDelphiSemanticOptions);
+  aOptions.ProjectPath := TPath.Combine(lRootPath, 'WrappedRoutineProject.dproj');
+  aUnitPath := TPath.Combine(lRootPath, 'WrappedRoutineUnit.pas');
   TFile.WriteAllText(lDprPath, 'program WrappedRoutineProject;' + #13#10 + 'uses WrappedRoutineUnit;' + #13#10 +
     'begin' + #13#10 + 'end.', TEncoding.UTF8);
-  TFile.WriteAllText(lUnitPath, 'unit WrappedRoutineUnit;' + #13#10 + 'interface' + #13#10 +
+  TFile.WriteAllText(aUnitPath, 'unit WrappedRoutineUnit;' + #13#10 + 'interface' + #13#10 +
     lInterfaceHeader + #13#10 + 'implementation' + #13#10 + lImplementationHeader + #13#10 +
     'begin' + #13#10 + '  Result := aValue * aScale;' + #13#10 + 'end;' + #13#10 + #13#10 +
     'procedure Touch;' + #13#10 + 'begin' + #13#10 + '  SharedRoutine(1, 2);' + #13#10 + 'end;' + #13#10 +
@@ -898,7 +888,7 @@ begin
     'procedure OverloadedRoutine(aValue: string); overload;' + #13#10 +
     'begin' + #13#10 + 'end;' + #13#10 +
     'end.', TEncoding.UTF8);
-  TFile.WriteAllText(lDprojPath,
+  TFile.WriteAllText(aOptions.ProjectPath,
     '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + #13#10 +
     '  <PropertyGroup>' + #13#10 +
     '    <ProjectGuid>{0B8C6E2A-3D4F-4A51-9E7B-6C2D1F3A5B90}</ProjectGuid>' + #13#10 +
@@ -907,57 +897,90 @@ begin
     '    <DCCReference Include="WrappedRoutineUnit.pas"/>' + #13#10 +
     '  </ItemGroup>' + #13#10 + '</Project>', TEncoding.UTF8);
 
-  lOptions := Default(TDelphiSemanticOptions);
-  lOptions.ProjectPath := lDprojPath;
-  lOptions.SqliteCacheFileName := TPath.Combine(lRootPath, 'snapshot.sqlite');
-  for lPass := 0 to 1 do
+  aOptions.SqliteCacheFileName := TPath.Combine(lRootPath, 'snapshot.sqlite');
+end;
+
+procedure AssertDistinctWrappedOverloads(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aUnitPath: string);
+var
+  lOverloadLine: Integer;
+  lRenamePlan: TDelphiSemanticRenamePlan;
+  lResult: TDelphiSemanticUsageResult;
+begin
+  lResult := TDelphiSemanticUsageFinder.FindUsagesByName(aContext, 'OverloadedRoutine');
+  Assert.AreEqual('unresolved', lResult.Status, 'Snapshot name lookup must reject distinct overloads');
+  Assert.AreEqual(0, Integer(Length(lResult.Usages)));
+  lRenamePlan := TDelphiSemanticRenamePlanner.PlanRename(aContext,
+    'OverloadedRoutine', 'RenamedOverload');
+  Assert.AreEqual('blocked', lRenamePlan.Status);
+  Assert.AreEqual(0, Integer(Length(lRenamePlan.Edits)));
+  for lOverloadLine in [15, 18] do
   begin
-    lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
-    try
-      Assert.IsTrue(lSessionResult.Success);
-      lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
-        lExtractionMilliseconds);
-      try
-        if lPass = 1 then
-          Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Reopened session must use the persisted snapshot');
-        lResult := TDelphiSemanticUsageFinder.FindUsagesByName(lContext, 'SharedRoutine');
-        AssertWrappedRoutineUsages(lUnitPath, lImplementationLine, lResult);
-        lResult := TDelphiSemanticUsageFinder.FindUsagesByName(lContext, 'OverloadedRoutine');
-        Assert.AreEqual('unresolved', lResult.Status, 'Snapshot name lookup must reject distinct overloads');
-        Assert.AreEqual(0, Integer(Length(lResult.Usages)));
-        lRenamePlan := TDelphiSemanticRenamePlanner.PlanRename(lContext,
-          'OverloadedRoutine', 'RenamedOverload');
-        Assert.AreEqual('blocked', lRenamePlan.Status);
-        Assert.AreEqual(0, Integer(Length(lRenamePlan.Edits)));
-        for lOverloadLine in [15, 18] do
-        begin
-          lResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lContext, lUnitPath,
-            lOverloadLine, 11);
-          Assert.AreEqual('resolved', lResult.Status, lResult.Diagnostic);
-          Assert.AreEqual(1, Integer(Length(lResult.Usages)), 'Real overloads must remain distinct');
-          Assert.AreEqual(lUnitPath, lResult.Usages[0].FileName);
-          Assert.AreEqual('declaration', lResult.Usages[0].Role);
-          Assert.AreEqual(lOverloadLine, lResult.Usages[0].Line);
-          Assert.AreEqual(11, lResult.Usages[0].Column);
-        end;
-        AssertWrappedRoutineUsages(lUnitPath, lImplementationLine, TDelphiSemanticUsageFinder.FindUsagesAtPosition(lContext, lUnitPath, 3, 10));
-        AssertWrappedRoutineUsages(lUnitPath, lImplementationLine, TDelphiSemanticUsageFinder.FindUsagesAtPosition(lContext, lUnitPath,
-          lImplementationLine, 10));
-        AssertWrappedRoutineUsages(lUnitPath, lImplementationLine, TDelphiSemanticUsageFinder.FindUsagesAtPosition(lContext, lUnitPath, 13, 3));
-        AssertWrappedRoutineRename(lUnitPath, lImplementationLine, TDelphiSemanticRenamePlanner.PlanRename(lContext, 'SharedRoutine', 'RenamedRoutine'));
-        AssertWrappedRoutineRename(lUnitPath, lImplementationLine, TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext, lUnitPath,
-          3, 10, 'RenamedRoutine'));
-        AssertWrappedRoutineRename(lUnitPath, lImplementationLine, TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext, lUnitPath,
-          lImplementationLine, 10, 'RenamedRoutine'));
-        AssertWrappedRoutineRename(lUnitPath, lImplementationLine, TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext, lUnitPath,
-          13, 3, 'RenamedRoutine'));
-      finally
-        lContext.ProjectSnapshot := nil;
-      end;
-    finally
-      lSessionResult.Session.Free;
-    end;
+    lResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(aContext, aUnitPath,
+      lOverloadLine, 11);
+    Assert.AreEqual('resolved', lResult.Status, lResult.Diagnostic);
+    Assert.AreEqual(1, Integer(Length(lResult.Usages)), 'Real overloads must remain distinct');
+    Assert.AreEqual(aUnitPath, lResult.Usages[0].FileName);
+    Assert.AreEqual('declaration', lResult.Usages[0].Role);
+    Assert.AreEqual(lOverloadLine, lResult.Usages[0].Line);
+    Assert.AreEqual(11, lResult.Usages[0].Column);
   end;
+end;
+
+procedure AssertWrappedRoutineQueries(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aUnitPath: string; const aImplementationLine: Integer);
+begin
+  AssertWrappedRoutineUsages(aUnitPath, aImplementationLine,
+    TDelphiSemanticUsageFinder.FindUsagesByName(aContext, 'SharedRoutine'));
+  AssertDistinctWrappedOverloads(aContext, aUnitPath);
+  AssertWrappedRoutineUsages(aUnitPath, aImplementationLine, TDelphiSemanticUsageFinder.FindUsagesAtPosition(aContext, aUnitPath, 3, 10));
+  AssertWrappedRoutineUsages(aUnitPath, aImplementationLine, TDelphiSemanticUsageFinder.FindUsagesAtPosition(aContext, aUnitPath,
+    aImplementationLine, 10));
+  AssertWrappedRoutineUsages(aUnitPath, aImplementationLine, TDelphiSemanticUsageFinder.FindUsagesAtPosition(aContext, aUnitPath, 13, 3));
+  AssertWrappedRoutineRename(aUnitPath, aImplementationLine, TDelphiSemanticRenamePlanner.PlanRename(aContext, 'SharedRoutine', 'RenamedRoutine'));
+  AssertWrappedRoutineRename(aUnitPath, aImplementationLine, TDelphiSemanticRenamePlanner.PlanRenameAtPosition(aContext, aUnitPath,
+    3, 10, 'RenamedRoutine'));
+  AssertWrappedRoutineRename(aUnitPath, aImplementationLine, TDelphiSemanticRenamePlanner.PlanRenameAtPosition(aContext, aUnitPath,
+    aImplementationLine, 10, 'RenamedRoutine'));
+  AssertWrappedRoutineRename(aUnitPath, aImplementationLine, TDelphiSemanticRenamePlanner.PlanRenameAtPosition(aContext, aUnitPath,
+    13, 3, 'RenamedRoutine'));
+end;
+
+procedure AssertWrappedRoutineSession(const aOptions: TDelphiSemanticOptions;
+  const aUnitPath: string; const aImplementationLine: Integer; const aRequireCacheHit: Boolean);
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+begin
+  lSessionResult := TDelphiSemanticProjectSession.Open(aOptions);
+  try
+    Assert.IsTrue(lSessionResult.Success);
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      if aRequireCacheHit then
+        Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Reopened session must use the persisted snapshot');
+      AssertWrappedRoutineQueries(lContext, aUnitPath, aImplementationLine);
+    finally
+      lContext.ProjectSnapshot := nil;
+    end;
+  finally
+    lSessionResult.Session.Free;
+  end;
+end;
+
+procedure TUsageTests.SnapshotBackedUsagesPairLineWrappedRoutineDeclarations(const aWrapInterface: Boolean);
+var
+  lImplementationLine: Integer;
+  lOptions: TDelphiSemanticOptions;
+  lPass: Integer;
+  lUnitPath: string;
+begin
+  WriteWrappedRoutineFixture(aWrapInterface, lOptions, lUnitPath, lImplementationLine);
+  for lPass := 0 to 1 do
+    AssertWrappedRoutineSession(lOptions, lUnitPath, lImplementationLine, lPass = 1);
 end;
 
 initialization
