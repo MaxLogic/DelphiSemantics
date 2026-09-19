@@ -3346,7 +3346,7 @@ function ReferenceTextMatchesAt(const aBodyText: string;
   Boolean;
 begin
   Result := (aOffset > 0) and
-    (Copy(aBodyText, aOffset, Length(aReference.Name)) = aReference.Name);
+    SameText(Copy(aBodyText, aOffset, Length(aReference.Name)), aReference.Name);
 end;
 
 function ReferenceLineOccurrenceRelativeOffset(
@@ -3368,7 +3368,7 @@ begin
 
   lLineText := aLines[aLine - 1];
   lBestDistance := MaxInt;
-  lSearchOffset := PosEx(aReference.Name, lLineText);
+  lSearchOffset := PosEx(LowerCase(aReference.Name), LowerCase(lLineText));
   while lSearchOffset > 0 do
   begin
     if BodyTextIdentifierAt(lLineText, aReference.Name, lSearchOffset) and
@@ -3386,7 +3386,7 @@ begin
         end;
       end;
     end;
-    lSearchOffset := PosEx(aReference.Name, lLineText,
+    lSearchOffset := PosEx(LowerCase(aReference.Name), LowerCase(lLineText),
       lSearchOffset + Length(aReference.Name));
   end;
 end;
@@ -3430,7 +3430,7 @@ begin
 
   lLineText := aLines[aLine - 1];
   lBestDistance := MaxInt;
-  lSearchOffset := PosEx(aReference.Name, lLineText);
+  lSearchOffset := PosEx(LowerCase(aReference.Name), LowerCase(lLineText));
   while lSearchOffset > 0 do
   begin
     if BodyTextIdentifierAt(lLineText, aReference.Name, lSearchOffset) and
@@ -3450,7 +3450,7 @@ begin
         end;
       end;
     end;
-    lSearchOffset := PosEx(aReference.Name, lLineText,
+    lSearchOffset := PosEx(LowerCase(aReference.Name), LowerCase(lLineText),
       lSearchOffset + Length(aReference.Name));
   end;
 end;
@@ -3471,7 +3471,7 @@ begin
     Exit;
 
   lLineText := aLines[aLine - 1];
-  lSearchOffset := PosEx(aReference.Name, lLineText);
+  lSearchOffset := PosEx(LowerCase(aReference.Name), LowerCase(lLineText));
   while lSearchOffset > 0 do
   begin
     if BodyTextIdentifierAt(lLineText, aReference.Name, lSearchOffset) and
@@ -3482,7 +3482,7 @@ begin
       if ReferenceTextMatchesAt(aBodyText, aReference, lCandidateOffset) then
         Exit(True);
     end;
-    lSearchOffset := PosEx(aReference.Name, lLineText,
+    lSearchOffset := PosEx(LowerCase(aReference.Name), LowerCase(lLineText),
       lSearchOffset + Length(aReference.Name));
   end;
 end;
@@ -4155,6 +4155,7 @@ var
   lQualifierText: string;
   lReference: TDelphiSemanticBoundReference;
   lReferenceName: string;
+  lSourceReference: TDelphiSemanticBoundReference;
 begin
   Result := False;
   aReason := '';
@@ -4271,9 +4272,13 @@ begin
       if lOffset <= 0 then
         Continue;
     end;
-    lReferenceName := ReferenceNameWithQualifiedArguments(aFacts, aEditDecisions, lReference);
+    // Cached binding names may have another occurrence's casing. Keep this source spelling
+    // for replacement text and the exact edit guard after case-insensitive lookup (T-350).
+    lSourceReference := lReference;
+    lSourceReference.Name := Copy(aReplacementText, lOffset, Length(lReference.Name));
+    lReferenceName := ReferenceNameWithQualifiedArguments(aFacts, aEditDecisions, lSourceReference);
     AddFinalBodyEdit(lBodyEdits, lOffset, Length(lReference.Name),
-      lReference.Name, lQualifierText + '.' + lReferenceName);
+      lSourceReference.Name, lQualifierText + '.' + lReferenceName);
   end;
   AddSimpleMemberBodyEdits(aFacts, aBinding, aEditDecisions, aReplacementText,
     lDeclarations, lBodyEdits);
