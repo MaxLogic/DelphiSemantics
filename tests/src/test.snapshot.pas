@@ -34,6 +34,13 @@ type
     [Test]
     procedure SnapshotReferenceTargetsKeepOverloadedRoutineLocalAmbiguityUnresolved;
     [Test]
+    [TestCase('literal whitespace', '0')]
+    [TestCase('literal case', '1')]
+    [TestCase('escaped quote whitespace', '2')]
+    [TestCase('word boundary', '3')]
+    [TestCase('unterminated literal', '4')]
+    procedure SnapshotReferenceTargetsPreserveSignatureDistinctions(const aCase: Integer);
+    [Test]
     procedure SnapshotReferenceTargetsUseLineQualifiedRoutineForWeakOwners;
     [Test]
     procedure SnapshotReferenceTargetsResolveExtractedClassMethodShadows;
@@ -566,6 +573,82 @@ begin
   lModel.Routines[0].Column := 11;
   lModel.Routines[1].Name := 'DoWork';
   lModel.Routines[1].Signature := 'DoWork(string)';
+  lModel.Routines[1].Line := 20;
+  lModel.Routines[1].Column := 11;
+  SetLength(lModel.Locals, 1);
+  lModel.Locals[0].RoutineName := 'DoWork';
+  lModel.Locals[0].Name := 'LocalOnlyInOneOverload';
+  lModel.Locals[0].Kind := 'local';
+  lModel.Locals[0].Line := 12;
+  lModel.Locals[0].Column := 5;
+  SetLength(lModel.References, 1);
+  lModel.References[0].RoutineName := 'DoWork';
+  lModel.References[0].Name := 'LocalOnlyInOneOverload';
+  lModel.References[0].SectionKind := 'implementation';
+  lModel.References[0].Line := 13;
+  lModel.References[0].Column := 3;
+  lModel.References[0].EndLine := 13;
+  lModel.References[0].EndColumn := 24;
+
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lOptions.WorkerCount := 1;
+  lSnapshot := BuildProjectSnapshotFromModels([lModel], Default(TDelphiSemanticProjectWithBindingFacts),
+    lOptions, lMetrics);
+  try
+    lUnit := lSnapshot.UnitByIndex(0);
+    lReference := lUnit.ReferenceById(1);
+    Assert.AreEqual(0, Integer(lReference.TargetUnitId),
+      'Ambiguous overloaded routine owner must not resolve a local target.');
+    Assert.AreEqual(0, Integer(lReference.TargetSymbolId),
+      'Ambiguous overloaded routine owner must not resolve a local target.');
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.SnapshotReferenceTargetsPreserveSignatureDistinctions(const aCase: Integer);
+var
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lReference: TSemanticReferenceFact;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.UnitName := 'SnapshotOverloadUnit';
+  lModel.FileName := 'SnapshotOverloadUnit.pas';
+  SetLength(lModel.Routines, 2);
+  lModel.Routines[0].Name := 'DoWork';
+  lModel.Routines[0].Signature := 'DoWork(Integer)';
+  lModel.Routines[0].Line := 10;
+  lModel.Routines[0].Column := 11;
+  lModel.Routines[1].Name := 'DoWork';
+  lModel.Routines[1].Signature := 'DoWork(string)';
+  // Synthetic signature facts deliberately isolate safety distinctions, not valid overloads.
+  case aCase of
+    0: begin
+      lModel.Routines[0].Signature := 'DoWork(aValue: string = ''A B'')';
+      lModel.Routines[1].Signature := 'DoWork(aValue: string = ''AB'')';
+    end;
+    1: begin
+      lModel.Routines[0].Signature := 'DoWork(aValue: string = ''A'')';
+      lModel.Routines[1].Signature := 'DoWork(aValue: string = ''a'')';
+    end;
+    2: begin
+      lModel.Routines[0].Signature := 'DoWork(aValue: string = ''A'''' B'')';
+      lModel.Routines[1].Signature := 'DoWork(aValue: string = ''A''''B'')';
+    end;
+    3: begin
+      lModel.Routines[0].Signature := 'DoWork(const aValue: Integer)';
+      lModel.Routines[1].Signature := 'DoWork(constaValue: Integer)';
+    end;
+    4: begin
+      lModel.Routines[0].Signature := 'DoWork(aValue: string = ''A B';
+      lModel.Routines[1].Signature := 'DoWork(aValue: string = ''AB';
+    end;
+  end;
   lModel.Routines[1].Line := 20;
   lModel.Routines[1].Column := 11;
   SetLength(lModel.Locals, 1);

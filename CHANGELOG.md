@@ -269,6 +269,7 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- Snapshot-backed find-usages and rename pair routine declarations across line breaks and tabs, while preserving overload and default-value distinctions. Persisted snapshots with older pairing rules are rebuilt.
 - Remove-with reference occurrence matching ignores identifier case while preserving the source spelling in replacements. Mixed-case index members no longer cause a `reference-offset-not-resolved` skip.
 - A with-body index reference now spans its complete balanced index, such as `Values[Lookup[Index]]`, and the identifiers inside an index are bound as references of their own, as call arguments are. Parentheses inside an index no longer count as call arguments. Cached remove-with project facts are rebuilt.
 - A with-body call reference now spans the complete balanced call. Nested calls such as `FillChar(Buffer, SizeOf(TMD5Buffer), 0)` used to end at the first inner closing parenthesis. The rest of the argument list was then scanned as separate top-level tokens; those identifiers are now arguments of the outer call. Cached remove-with project facts are rebuilt. Index suffixes keep their current extent.

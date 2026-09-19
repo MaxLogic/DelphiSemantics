@@ -54,7 +54,7 @@ uses
   System.Diagnostics, System.Generics.Collections, System.IOUtils,
   System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils,
-  DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Snapshot.RemoveWith;
+  DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Snapshot.RemoveWith;
 
 const
   cSnapshotDeclarationKindAlias = 'alias';
@@ -425,7 +425,7 @@ end;
 
 function NormalizeSnapshotSignature(const aSignature: string): string;
 begin
-  Result := LowerCase(StringReplace(aSignature.Trim, ' ', '', [rfReplaceAll]));
+  Result := NormalizeRoutineSignature(aSignature);
 end;
 
 function SnapshotLocalSymbolMatchesReference(const aModel: TDelphiSemanticUnitModel;
@@ -440,8 +440,7 @@ begin
   else if Result then
     Result := SameText(aSymbol.OwnerName, aReference.RoutineName);
   if Result and (aRoutineSignature <> '') and (aSymbol.Signature <> '') then
-    Result := SameText(NormalizeSnapshotSignature(aSymbol.Signature),
-      aRoutineSignature);
+    Result := (NormalizeSnapshotSignature(aSymbol.Signature) = aRoutineSignature);
 end;
 
 function SnapshotLocalSymbolPrecedesReference(
@@ -490,7 +489,7 @@ begin
     SameText(aRight.Kind, cSnapshotSymbolKindRoutine)) then
     Exit(False);
 
-  Result := SameText(NormalizeSnapshotSignature(aLeft.Signature),
+  Result := (NormalizeSnapshotSignature(aLeft.Signature) =
     NormalizeSnapshotSignature(aRight.Signature)) or
     ((aLeft.Line > 0) and (aLeft.Line = aRight.Line) and
     (aLeft.Column = aRight.Column));
@@ -543,8 +542,7 @@ begin
         aRoutineRef := lSymbol.Ref;
         lSignature := NormalizeSnapshotSignature(lSymbol.Signature);
         aRoutineSignature := lSignature;
-      end else if not SameText(lSignature,
-        NormalizeSnapshotSignature(lSymbol.Signature)) then
+      end else if (lSignature <> NormalizeSnapshotSignature(lSymbol.Signature)) then
       begin
         Inc(lCount);
         aRoutineRef := Default(TSemanticSymbolRef);

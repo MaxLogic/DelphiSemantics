@@ -2,6 +2,7 @@ unit DelphiSemantics.Model.Text;
 
 interface
 
+function NormalizeRoutineSignature(const aSignature: string): string;
 function IsIdentifierStart(const aChar: Char): Boolean;
 function IsIdentifierChar(const aChar: Char): Boolean;
 function IsWordAt(const aText: string; const aOffset: Integer; const aWord: string): Boolean; overload;
@@ -28,6 +29,38 @@ procedure TCommaListLexer.HandleMessage(aSender: TObject;
   const aKind: TMessageEventType; const aMessage: string; x, y: Integer);
 begin
   fFailed := True;
+end;
+
+function NormalizeRoutineSignature(const aSignature: string): string;
+var
+  g: TGarbos;
+  lBuilder: TStringBuilder;
+  lLexer: TCommaListLexer;
+  lToken: string;
+begin
+  g := Default(TGarbos);
+  GC(lBuilder, TStringBuilder.Create, g);
+  GC(lLexer, TCommaListLexer.Create, g);
+  lLexer.OnMessage := lLexer.HandleMessage;
+  lLexer.UseDefines := False;
+  lLexer.Origin := aSignature;
+  while (lLexer.TokenID <> ptNull) and not lLexer.fFailed do
+  begin
+    if not IsTokenIDJunk(lLexer.TokenID) then
+    begin
+      if lLexer.TokenID in [ptUnknown, ptError] then
+        Exit('invalid:' + aSignature);
+      lToken := lLexer.Token;
+      // Literal contents retain case and spacing; length framing preserves token boundaries.
+      if Pos('''', lToken) = 0 then
+        lToken := LowerCase(lToken);
+      lBuilder.Append(Length(lToken)).Append(':').Append(lToken);
+    end;
+    lLexer.Next;
+  end;
+  if lLexer.fFailed then
+    Exit('invalid:' + aSignature);
+  Result := lBuilder.ToString;
 end;
 
 function TrySplitTopLevelCommaList(const aText: string; out aParts: TArray<string>): Boolean;

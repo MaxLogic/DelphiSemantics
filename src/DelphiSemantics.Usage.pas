@@ -46,7 +46,7 @@ implementation
 
 uses
   System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.PositionResolver,
+  DelphiSemantics.Model.Text, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.PositionResolver,
   DelphiSemantics.Snapshot.QuerySupport;
 
 function MakeDiagnosticResult(const aStatus, aDiagnostic: string): TDelphiSemanticUsageResult;
@@ -296,8 +296,7 @@ begin
   if (aLeft = '') or (aRight = '') then
     Exit(True);
 
-  Result := SameText(NormalizedSymbolSignature(aLeft),
-    NormalizedSymbolSignature(aRight));
+  Result := NormalizedSymbolSignature(aLeft) = NormalizedSymbolSignature(aRight);
 end;
 
 function TryFindSnapshotRoutineForParameter(const aSnapshot: TDelphiProjectSnapshot;
@@ -598,7 +597,7 @@ end;
 
 function NormalizedSymbolSignature(const aSignature: string): string;
 begin
-  Result := LowerCase(StringReplace(aSignature.Trim, ' ', '', [rfReplaceAll]));
+  Result := NormalizeRoutineSignature(aSignature);
 end;
 
 function SymbolIsMethodPair(const aLeft, aRight: TDelphiSemanticIndexedSymbol): Boolean;
@@ -612,7 +611,7 @@ begin
     Exit(True);
 
   Result := SameText(aLeft.Kind, 'routine') and SameText(aRight.Kind, 'routine') and
-    (SameText(NormalizedSymbolSignature(aLeft.Signature),
+    ((NormalizedSymbolSignature(aLeft.Signature) =
     NormalizedSymbolSignature(aRight.Signature)) or
     ((aLeft.Line > 0) and (aLeft.Line = aRight.Line) and
     (aLeft.Column = aRight.Column)));
