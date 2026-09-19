@@ -2086,7 +2086,10 @@ var
     Result := '';
     lBestLine := -1;
     for lRoutine in aModel.Routines do
-      if SameText(lRoutine.Name, aName) and (lRoutine.Line > 0) and
+      if (SameText(lRoutine.Name, aName) or
+        ((lRoutine.OwnerName <> '') and
+        SameText(lRoutine.OwnerName + '.' + lRoutine.Name, aName))) and
+        (lRoutine.Line > 0) and
         (lRoutine.Line <= aLine) and (lRoutine.Line > lBestLine) then
       begin
         if aRequireOwner and (lRoutine.OwnerName = '') then

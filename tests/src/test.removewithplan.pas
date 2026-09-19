@@ -245,7 +245,11 @@ type
     [Test]
     procedure FinalDtoMatchesDakExternalRoutineFixture;
     [Test]
-    procedure FinalDtoMatchesDakRewriteShapeElseBoundaries;
+    [TestCase('class procedure', 'False,False')]
+    [TestCase('constructor', 'True,False')]
+    [TestCase('class procedure owner contains name', 'False,True')]
+    [TestCase('constructor owner contains name', 'True,True')]
+    procedure FinalDtoMatchesDakRewriteShapeElseBoundaries(const aConstructor, aOwnerContainsName: Boolean);
     [Test]
     procedure FinalDtoTrimsControlledWrapperBeforeCommentedOuterElse;
     [Test]
@@ -3244,7 +3248,8 @@ begin
     ']ternalRoutineRecordPtr'), lStatement.ReplacementText);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesDakRewriteShapeElseBoundaries;
+procedure TRemoveWithPlanTests.FinalDtoMatchesDakRewriteShapeElseBoundaries(const aConstructor,
+  aOwnerContainsName: Boolean);
 var
   lFixtureDir: string;
   lPlan: TDelphiSemanticRemoveWithPlan;
@@ -3254,6 +3259,23 @@ var
 begin
   lFixtureDir := CopyDakFixtureToTemp('RemoveWithRewriteShapeFixture',
     'dto-rewrite-shape-else-boundaries');
+  if aConstructor or aOwnerContainsName then
+  begin
+    var lUnitPath := TPath.Combine(lFixtureDir, 'RewriteShapeUnit.pas');
+    var lUnitText := TFile.ReadAllText(lUnitPath);
+    if aConstructor then
+    begin
+      lUnitText := StringReplace(lUnitText, 'class procedure RunAnonymousNestedSelector',
+        'constructor RunAnonymousNestedSelector', []);
+      lUnitText := StringReplace(lUnitText,
+        'class procedure TRewriteShapeScope.RunAnonymousNestedSelector',
+        'constructor TRewriteShapeScope.RunAnonymousNestedSelector', []);
+    end;
+    if aOwnerContainsName then
+      lUnitText := StringReplace(lUnitText, 'TRewriteShapeScope',
+        'TRunAnonymousNestedSelector', [rfReplaceAll]);
+    TFile.WriteAllText(lUnitPath, lUnitText, TEncoding.UTF8);
+  end;
   lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithRewriteShapeFixture.dproj');
   lPlan := BuildPlanForProject(lProjectPath);
 
@@ -3327,7 +3349,7 @@ begin
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-21', lStatement),
     'Expected anonymous nested multi-selector statement.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('planned', lStatement.Status, 'anonymous nested selector: ' + lStatement.Reason);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     'lWithRewriteShapeAnonymousOuterPtr^.Struktur.InnerOnly := ' +
     'lWithRewriteShapeAnonymousOuterPtr^.OuterOnly;'),

@@ -3043,7 +3043,8 @@ begin
       Exit(True);
     end else if SelectorIsByReferenceParameter(aFacts, aBinding, aSelectorText) and
       SelectorHasDependentSelector(aFacts, aBinding, aSelectorText,
-      aDecision.ReceiverType) and (Pos('.', aBinding.RoutineName) > 0) then
+      aDecision.ReceiverType) and (Pos('.', aBinding.RoutineName) > 0) and
+      (not RoutineDeclarationIsMethod(aBinding, aLineCache)) then
     begin
       aReason := 'selector-type-not-resolved';
       Exit;
@@ -4480,7 +4481,7 @@ var
   lDeclarationName: string;
   lLineIndex: Integer;
   lLines: TArray<string>;
-  lMemberPos: Integer;
+  lNameLength: Integer;
   lRoutineName: string;
   lText: string;
 begin
@@ -4505,13 +4506,27 @@ begin
       lDeclarationName := Trim(Copy(lText, Length('class function ') + 1,
         MaxInt))
     else if StartsText('function ', lText) then
-      lDeclarationName := Trim(Copy(lText, Length('function ') + 1, MaxInt));
+      lDeclarationName := Trim(Copy(lText, Length('function ') + 1, MaxInt))
+    else if StartsText('constructor ', lText) then
+      lDeclarationName := Trim(Copy(lText, Length('constructor ') + 1, MaxInt))
+    else if StartsText('destructor ', lText) then
+      lDeclarationName := Trim(Copy(lText, Length('destructor ') + 1, MaxInt));
     if lDeclarationName = '' then
       Continue;
-    lMemberPos := Pos(lRoutineName, lDeclarationName);
-    if (lMemberPos > 1) and (lDeclarationName[lMemberPos - 1] = '.') then
-      Exit(True);
-    Exit(False);
+    lNameLength := 0;
+    while (lNameLength < Length(lDeclarationName)) and
+      (IsIdentifierChar(lDeclarationName[lNameLength + 1]) or
+      (lDeclarationName[lNameLength + 1] = '.')) do
+      Inc(lNameLength);
+    lDeclarationName := Copy(lDeclarationName, 1, lNameLength);
+    // Match the declared name, not an occurrence of the method name inside its owner.
+    if Pos('.', aBinding.RoutineName) > 0 then
+    begin
+      if not SameText(lDeclarationName, aBinding.RoutineName) then
+        Continue;
+    end else if not SameText(RoutineLeafName(lDeclarationName), lRoutineName) then
+      Continue;
+    Exit(Pos('.', lDeclarationName) > 0);
   end;
 end;
 

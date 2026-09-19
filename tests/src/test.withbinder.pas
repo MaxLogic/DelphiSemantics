@@ -363,7 +363,7 @@ begin
 
     Assert.AreEqual(1, Integer(Length(lBindings)));
     lBinding := lBindings[0];
-    Assert.AreEqual('Run', lBinding.RoutineName);
+    Assert.AreEqual('TChild.Run', lBinding.RoutineName);
     Assert.IsTrue(HasReference(lBinding, 'BaseValue', 'member'),
       'Inherited protected receiver members need the owned routine type as access context.');
     Assert.AreEqual('TBase', ReceiverOf(lBinding, 'BaseValue', 'member'));

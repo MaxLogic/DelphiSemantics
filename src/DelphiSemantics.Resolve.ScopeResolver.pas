@@ -169,8 +169,7 @@ var
 begin
   lMatch := TRegEx.Match(aLine,
     '^\s*(?:class\s+)?(?:procedure|function|constructor|destructor)\s+' +
-    '(?:[A-Za-z_][A-Za-z0-9_]*\.)?' +
-    '([A-Za-z_][A-Za-z0-9_]*)\b', [roIgnoreCase]);
+    '([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\b', [roIgnoreCase]);
   if not lMatch.Success then
     Exit;
   if RoutineHasNoBody(aLexer, aLineNumber, aLastLine) then

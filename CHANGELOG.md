@@ -269,6 +269,7 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- Captured locals retain their qualified parent method owner. Variables declared after nested routines resolve within that owner, sibling routine variables cannot escape through unit lookup, and conflicting declaration identities stop resolution as ambiguous. Remove-with planning preserves method and constructor captures after the owner correction; older planning facts are rebuilt.
 - Snapshot-backed find-usages and rename pair routine declarations across line breaks and tabs, while preserving overload and default-value distinctions. Persisted snapshots with older pairing rules are rebuilt.
 - Remove-with reference occurrence matching ignores identifier case while preserving the source spelling in replacements. Mixed-case index members no longer cause a `reference-offset-not-resolved` skip.
 - A with-body index reference now spans its complete balanced index, such as `Values[Lookup[Index]]`, and the identifiers inside an index are bound as references of their own, as call arguments are. Parentheses inside an index no longer count as call arguments. Cached remove-with project facts are rebuilt.

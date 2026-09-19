@@ -311,10 +311,19 @@ begin
   Result := False;
 end;
 
+function IsRoutineVariableDeclaration(const aDeclaration: TDelphiSemanticDeclaration): Boolean;
+begin
+  // Locals are resolved through lexical owners; retain legacy const/type/enum fallback.
+  Result := SameText(aDeclaration.Kind, 'var') and SameText(aDeclaration.ScopeKind, 'routine');
+end;
+
 function TryResolveLocal(const aModel: TDelphiSemanticUnitModel;
   const aRoutineName, aName, aSectionKind: string;
   out aResult: TDelphiSemanticResolveResult): Boolean;
 var
+  lCandidate: TDelphiSemanticDeclaration;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFound: Boolean;
   lLocal: TDelphiSemanticLocal;
 begin
   for lLocal in aModel.Locals do
@@ -324,6 +333,37 @@ begin
         aSectionKind, lLocal.Line, lLocal.Column);
       Exit(True);
     end;
+
+  // The body extractor can omit VAR sections resumed after a nested routine.
+  // AST declarations retain their lexical owner, so never use unit-wide fallback.
+  lFound := False;
+  lCandidate := Default(TDelphiSemanticDeclaration);
+  if aRoutineName <> '' then
+    for lDeclaration in aModel.Declarations do
+      if IsRoutineVariableDeclaration(lDeclaration) and (lDeclaration.OwnerName <> '') and
+        SameText(lDeclaration.OwnerName, aRoutineName) and SameText(lDeclaration.Name, aName) then
+      begin
+        if lFound and ((lCandidate.OwnerScopeId <> lDeclaration.OwnerScopeId) or
+          (lCandidate.SymbolId <> lDeclaration.SymbolId) or
+          (lCandidate.Line <> lDeclaration.Line) or (lCandidate.Column <> lDeclaration.Column) or
+          (lCandidate.Offset <> lDeclaration.Offset) or
+          (lCandidate.EndOffset <> lDeclaration.EndOffset) or
+          not SameText(lCandidate.TypeName, lDeclaration.TypeName)) then
+        begin
+          aResult := AmbiguousResult(aName, 'MULTIPLE_LEXICAL_DECLARATIONS',
+            'Multiple distinct local declarations match the requested routine owner.');
+          Exit(True);
+        end;
+        lCandidate := lDeclaration;
+        lFound := True;
+      end;
+
+  if lFound then
+  begin
+    aResult := ResolvedResult(lCandidate.Name, 'local', lCandidate.TypeName,
+      lCandidate.OwnerName, aSectionKind, lCandidate.Line, lCandidate.Column);
+    Exit(True);
+  end;
 
   aResult := Default(TDelphiSemanticResolveResult);
   Result := False;
@@ -428,6 +468,7 @@ begin
   lCount := 0;
   for lDeclaration in aModel.Declarations do
     if SameText(lDeclaration.Name, aName) and
+      not IsRoutineVariableDeclaration(lDeclaration) and
       IsVisibleSection(aContext.SectionKind, lDeclaration.SectionKind) then
     begin
       lKey := LowerCase(lDeclaration.Kind) + '|' + LowerCase(lDeclaration.TypeName);
@@ -468,7 +509,9 @@ begin
   lCount := 0;
   for lModel in aContext.IndexedUnitModels do
     for lDeclaration in lModel.Declarations do
-      if SameText(lDeclaration.Name, aName) and SameText(lDeclaration.SectionKind, 'interface') then
+      if SameText(lDeclaration.Name, aName) and
+        not IsRoutineVariableDeclaration(lDeclaration) and
+        SameText(lDeclaration.SectionKind, 'interface') then
       begin
         Inc(lCount);
         aResult := ResolvedResult(lDeclaration.Name, lDeclaration.Kind, lDeclaration.TypeName,
