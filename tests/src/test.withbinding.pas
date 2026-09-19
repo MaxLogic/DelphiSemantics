@@ -56,6 +56,8 @@ type
     [Test]
     procedure CallReferencesSpanTheCompleteBalancedCall;
     [Test]
+    procedure IndexReferencesSpanTheIndexAndBindItsIdentifiers;
+    [Test]
     procedure IndexedDeclarationsPreserveBindingPrecedence;
     [Test]
     procedure IndexedDeclarationCandidatesPreserveDuplicatesAndRefresh;
@@ -254,6 +256,79 @@ begin
   Assert.IsTrue(lCalls.Contains('|Inc(Count, SizeOf(Buffer) + Count)|'), lCalls);
   Assert.IsTrue(lCalls.Contains('|Length(Buffer)|'), 'ordinary call control: ' + lCalls);
   Assert.IsTrue(HasReference(lBinding, 'Count', 'member'), 'Expected the Count member references.');
+end;
+
+// T-350: an index reference spans its complete balanced index, and the identifiers inside the index
+// are bound references of their own, as call arguments are (tdbutils.pas:2069, tdbvars.pas:1130).
+procedure TProjectWithBindingTests.IndexReferencesSpanTheIndexAndBindItsIdentifiers;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticBoundReference;
+  lSource: string;
+  lSourceLines: TArray<string>;
+  lSpans: string;
+  lInner: string;
+  lSpan: string;
+begin
+  lSource := 'unit NestedIndexExtents;'#13#10 +
+    'interface'#13#10 +
+    'type'#13#10 +
+    '  TContext = record'#13#10 +
+    '    Values: array[0..9] of Integer;'#13#10 +
+    '    Lookup: array[0..9] of Integer;'#13#10 +
+    '    Index: Integer;'#13#10 +
+    '    Total: Integer;'#13#10 +
+    '    Name: string;'#13#10 +
+    '  end;'#13#10 +
+    'procedure Sum(var aContext: TContext);'#13#10 +
+    'implementation'#13#10 +
+    'procedure Sum(var aContext: TContext);'#13#10 +
+    'begin'#13#10 +
+    '  with aContext do'#13#10 +
+    '  begin'#13#10 +
+    '    Total := Values[Index];'#13#10 +
+    '    Total := Total + Values[Lookup[Index]];'#13#10 +
+    '    Total := Total + Values[Length(Name)];'#13#10 +
+    '  end;'#13#10 +
+    'end;'#13#10 +
+    'end.'#13#10;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(RepoRoot,
+    'tests\.dak\delphiSemanticsTests\t350-nested-index-extents.pas');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lOptions.SourceFileName));
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lFacts := TDelphiSemanticWithBinder.BindProject('nested-index-extents', nil, [lModel]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  lBinding := lFacts.Bindings[0];
+  lSourceLines := StringReplace(lSource, #13#10, #10, [rfReplaceAll]).Split([#10]);
+  lSpans := '|';
+  lInner := '|';
+  for lReference in lBinding.References do
+  begin
+    Assert.AreEqual(lReference.Name, Copy(lSourceLines[lReference.Line - 1], lReference.Column,
+      Length(lReference.Name)), lReference.Name);
+    lSpan := Copy(lSourceLines[lReference.Line - 1], lReference.Column,
+      lReference.EndColumn - lReference.Column + 1);
+    lSpans := lSpans + lSpan + '|';
+    // Identifiers bound inside an index: the column lies after the first '[' of the line.
+    if lReference.Column > Pos('[', lSourceLines[lReference.Line - 1]) then
+      lInner := lInner + lReference.Line.ToString + ':' + lReference.Name + ':' + lReference.Classification + '|';
+  end;
+  Assert.IsTrue(lSpans.Contains('|Values[Lookup[Index]]|'), 'complete nested index: ' + lSpans);
+  Assert.IsTrue(lSpans.Contains('|Values[Index]|'), 'simple index control: ' + lSpans);
+  Assert.IsTrue(lInner.Contains('|17:Index:member|'), 'simple index identifier: ' + lInner);
+  // An indexed reference keeps its index in its name, as Values[Index] does at top level.
+  Assert.IsTrue(lInner.Contains('|18:Lookup[Index]:'), 'nested index receiver: ' + lInner);
+  Assert.IsTrue(lInner.Contains('|18:Index:member|'), 'nested index identifier: ' + lInner);
+  Assert.IsTrue(lInner.Contains('|19:Name:member|'), 'call inside an index: ' + lInner);
+  // Each identifier inside an index is bound once.
+  Assert.AreEqual(Pos('|19:Name:member|', lInner), lInner.LastIndexOf('|19:Name:member|') + 1, lInner);
 end;
 
 function LoadIndexedBindingModel(const aFileName: string): TDelphiSemanticUnitModel;

@@ -2045,12 +2045,16 @@ end;
 
 function TryExtractCallArguments(const aName: string; out aArguments: string): Boolean;
 var
+  lBracketPos: Integer;
   lClosePos: Integer;
   lParenPos: Integer;
 begin
+  // Only a call suffix has arguments; parentheses inside an index such as Values[Length(Name)] belong
+  // to the index contents, which AddIndexReferences binds (T-350), as TryExtractCallName decides.
+  lBracketPos := Pos('[', aName);
   lParenPos := Pos('(', aName);
   lClosePos := LastDelimiter(')', aName);
-  Result := (lParenPos > 1) and (lClosePos > lParenPos);
+  Result := (lParenPos > 1) and (lClosePos > lParenPos) and ((lBracketPos = 0) or (lParenPos < lBracketPos));
   if Result then
     aArguments := Copy(aName, lParenPos + 1, lClosePos - lParenPos - 1)
   else
@@ -2602,17 +2606,16 @@ begin
   if (aIndex > Length(aText)) or (aText[aIndex] <> aOpenChar) then
     Exit;
 
-  // A call suffix ends at its matching parenthesis, so a nested call such as
-  // FillChar(Buffer, SizeOf(TMD5Buffer), 0) keeps its complete extent; its arguments are bound
-  // separately (T-277). The body text is sanitized, so string literals and comments cannot unbalance
-  // the count. An index suffix keeps ending at its first ']': index contents are not extracted as
-  // references, so balancing them would hide the identifiers after a nested index.
+  // A suffix ends at its matching close character, so a nested call such as
+  // FillChar(Buffer, SizeOf(TMD5Buffer), 0) (T-277) or a nested index such as Values[Lookup[Index]]
+  // (T-350) keeps its complete extent; call arguments and index contents are bound separately. The
+  // body text is sanitized, so string literals and comments cannot unbalance the count.
   lOpenIndex := aIndex;
   lCloseIndex := lOpenIndex + 1;
   lDepth := 1;
   while lCloseIndex <= Length(aText) do
   begin
-    if (aOpenChar = '(') and (aText[lCloseIndex] = aOpenChar) then
+    if aText[lCloseIndex] = aOpenChar then
       Inc(lDepth)
     else if aText[lCloseIndex] = aCloseChar then
     begin
@@ -2680,6 +2683,69 @@ begin
   Result := True;
 end;
 
+// The identifiers inside a token's index suffix, such as Index and Lookup in Values[Lookup[Index]],
+// are bound as references of their own, like call arguments; nested indexes are followed (T-350).
+procedure AddIndexReferences(const aReferences: TList<TDelphiSemanticBoundReference>;
+  const aModel: TDelphiSemanticUnitModel;
+  const aProjectModels: TArray<TDelphiSemanticUnitModel>;
+  const aRoutineName, aCurrentTypeName: string;
+  const aParentRoutineNames: TArray<string>;
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aReferenceCachePrefix, aResolveCachePrefix, aMemberCachePrefix: string;
+  const aStatement: TDelphiSemanticWithStatement; const aToken: string;
+  const aTokenStartOffset: Integer; const aBodyLineStarts: TArray<Integer>;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
+  const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  var aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
+  aReferenceCacheMisses: Int64);
+var
+  lCloseIndex: Integer;
+  lContent: string;
+  lInnerIndex: Integer;
+  lInnerStart: Integer;
+  lInnerStartOffset: Integer;
+  lInnerToken: string;
+  lOpenIndex: Integer;
+  lReference: TDelphiSemanticBoundReference;
+  lResolveContext: TDelphiSemanticResolveContext;
+begin
+  lOpenIndex := Pos('[', aToken);
+  lCloseIndex := LastDelimiter(']', aToken);
+  if (lOpenIndex <= 1) or (lCloseIndex <= lOpenIndex) then
+    Exit;
+  lResolveContext := Default(TDelphiSemanticResolveContext);
+  lResolveContext.RoutineName := aRoutineName;
+  lResolveContext.CurrentTypeName := aCurrentTypeName;
+  lResolveContext.ParentRoutineNames := aParentRoutineNames;
+  lResolveContext.SectionKind := 'implementation';
+  lResolveContext.ConformanceLevel := 3;
+  lResolveContext.IndexedUnitModels := aProjectModels;
+  lContent := SanitizeBodyText(Copy(aToken, lOpenIndex + 1, lCloseIndex - lOpenIndex - 1));
+  lInnerIndex := 1;
+  while ReadReferenceToken(lContent, lInnerIndex, False, lInnerToken, lInnerStart) do
+  begin
+    if IsBinderKeyword(lInnerToken) or IsSelectorName(aSelectors, lInnerToken) then
+      Continue;
+    lReference := BindReference(aModel, aProjectModels, aRoutineName, aCurrentTypeName,
+      aParentRoutineNames, aSelectors, aReferenceCachePrefix, aResolveCachePrefix,
+      aMemberCachePrefix, lInnerToken, aProjectMemberIndex, aReferenceCache, aResolveCache,
+      aMemberCache, aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
+      aReferenceCacheMisses);
+    lInnerStartOffset := aTokenStartOffset + lOpenIndex + lInnerStart - 1;
+    ApplyBodyRange(lReference, aStatement, lInnerStartOffset, Length(lInnerToken), aBodyLineStarts);
+    ApplyScopeConflictFact(aModel, lResolveContext, aResolveCache, aResolveCachePrefix,
+      aProjectMemberIndex, lReference, aLexicalResolveMs);
+    AddReference(aReferences, lReference);
+    AddIndexReferences(aReferences, aModel, aProjectModels, aRoutineName, aCurrentTypeName,
+      aParentRoutineNames, aSelectors, aReferenceCachePrefix, aResolveCachePrefix, aMemberCachePrefix,
+      aStatement, lInnerToken, lInnerStartOffset, aBodyLineStarts, aProjectMemberIndex, aReferenceCache,
+      aResolveCache, aMemberCache, aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
+      aReferenceCacheMisses);
+  end;
+end;
+
 procedure AddArgumentReferences(const aReferences: TList<TDelphiSemanticBoundReference>;
   const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
@@ -2735,6 +2801,11 @@ begin
       ApplyScopeConflictFact(aModel, lResolveContext, aResolveCache, aResolveCachePrefix,
         aProjectMemberIndex, lReference, aLexicalResolveMs);
       AddReference(aReferences, lReference);
+      AddIndexReferences(aReferences, aModel, aProjectModels, aRoutineName, aCurrentTypeName,
+        aParentRoutineNames, aSelectors, aReferenceCachePrefix, aResolveCachePrefix, aMemberCachePrefix,
+        aStatement, lArgumentToken, lArgumentStartOffset, aBodyLineStarts, aProjectMemberIndex,
+        aReferenceCache, aResolveCache, aMemberCache, aReceiverMemberResolveMs, aLexicalResolveMs,
+        aReferenceCacheHits, aReferenceCacheMisses);
     end;
   end;
 end;
@@ -2800,6 +2871,12 @@ begin
         AddReference(lReferences, lReference);
         AddArgumentReferences(lReferences, aModel, aProjectModels, aRoutineName,
           aCurrentTypeName,
+          aParentRoutineNames, aSelectors, lReferenceCachePrefix, lResolveCachePrefix,
+          lMemberCachePrefix, aStatement, lToken, lTokenStart, lBodyLineStarts,
+          aProjectMemberIndex, aReferenceCache, aResolveCache, aMemberCache,
+          aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
+          aReferenceCacheMisses);
+        AddIndexReferences(lReferences, aModel, aProjectModels, aRoutineName, aCurrentTypeName,
           aParentRoutineNames, aSelectors, lReferenceCachePrefix, lResolveCachePrefix,
           lMemberCachePrefix, aStatement, lToken, lTokenStart, lBodyLineStarts,
           aProjectMemberIndex, aReferenceCache, aResolveCache, aMemberCache,
