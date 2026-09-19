@@ -43,6 +43,7 @@ TASKS.ARCHIVE.md
 TASKS.ARCHIVED.md
 todo.md
 .agents/
+CLAUDE.md
 
 # Local/generated outputs
 *.log
