@@ -18,9 +18,25 @@ type
     LineBreak: string;
   end;
 
+  IDelphiSemanticSourceObservations = interface
+    ['{BA062585-D84D-49B0-8A9F-D181E24259F6}']
+    function GetCount: Integer;
+    function GetItem(const aIndex: Integer): TDelphiSemanticSourceText;
+    function TryFind(const aFileName: string; out aSource: TDelphiSemanticSourceText): Boolean;
+    property Count: Integer read GetCount;
+    property Items[const aIndex: Integer]: TDelphiSemanticSourceText read GetItem;
+  end;
+
+  TDelphiSemanticSourceEvidence = record
+  public
+    class function TryMerge(const aLeft, aRight: IDelphiSemanticSourceObservations;
+      out aCombined: IDelphiSemanticSourceObservations; out aError: string): Boolean; static;
+  end;
+
   TDelphiSemanticSourceLoadResult = record
     Success: Boolean;
     Source: TDelphiSemanticSourceText;
+    SourceObservations: IDelphiSemanticSourceObservations;
     Diagnostics: TArray<TDelphiSemanticSourceDiagnostic>;
   end;
 
@@ -32,7 +48,106 @@ type
 implementation
 
 uses
-  System.Classes, System.Hash, System.IOUtils, System.SysUtils;
+  System.Classes, System.Generics.Collections, System.Generics.Defaults, System.Hash,
+  System.IOUtils, System.SysUtils,
+  AutoFree, MaxLogic.StrUtils;
+
+type
+  TSourceObservations = class(TInterfacedObject, IDelphiSemanticSourceObservations)
+  private
+    fItems: TArray<TDelphiSemanticSourceText>;
+  public
+    constructor Create(const aItems: TArray<TDelphiSemanticSourceText>);
+    function GetCount: Integer;
+    function GetItem(const aIndex: Integer): TDelphiSemanticSourceText;
+    function TryFind(const aFileName: string; out aSource: TDelphiSemanticSourceText): Boolean;
+  end;
+
+constructor TSourceObservations.Create(const aItems: TArray<TDelphiSemanticSourceText>);
+var
+  lPathComparer: IComparer<string>;
+begin
+  inherited Create;
+  fItems := Copy(aItems);
+  lPathComparer := TStringComparer.Ordinal;
+  TArray.Sort<TDelphiSemanticSourceText>(fItems,
+    TComparer<TDelphiSemanticSourceText>.Construct(
+      function(const aLeft, aRight: TDelphiSemanticSourceText): Integer
+      begin
+        Result := lPathComparer.Compare(aLeft.FileName,
+          aRight.FileName);
+      end));
+end;
+
+function TSourceObservations.GetCount: Integer;
+begin
+  Result := Length(fItems);
+end;
+
+function TSourceObservations.GetItem(const aIndex: Integer): TDelphiSemanticSourceText;
+begin
+  Result := fItems[aIndex];
+end;
+
+function TSourceObservations.TryFind(const aFileName: string;
+  out aSource: TDelphiSemanticSourceText): Boolean;
+var
+  lItem: TDelphiSemanticSourceText;
+  lFileName: string;
+begin
+  aSource := Default(TDelphiSemanticSourceText);
+  lFileName := TPath.GetFullPath(aFileName);
+  for lItem in fItems do
+    if TFastCaseAwareComparer.OrdinalIgnoreCase.Equals(lItem.FileName, lFileName) then
+    begin
+      aSource := lItem;
+      Exit(True);
+    end;
+  Result := False;
+end;
+
+class function TDelphiSemanticSourceEvidence.TryMerge(
+  const aLeft, aRight: IDelphiSemanticSourceObservations;
+  out aCombined: IDelphiSemanticSourceObservations; out aError: string): Boolean;
+var
+  g: TGarbos;
+  i: Integer;
+  lItem, lPrevious: TDelphiSemanticSourceText;
+  lItems: TList<TDelphiSemanticSourceText>;
+  lKnown: TDictionary<string, TDelphiSemanticSourceText>;
+  lObservations: IDelphiSemanticSourceObservations;
+begin
+  aCombined := nil;
+  aError := 'source.missing-observations';
+  Result := False;
+  if (aLeft = nil) or (aRight = nil) then
+    Exit;
+  g := Default(TGarbos);
+  GC(lItems, TList<TDelphiSemanticSourceText>.Create, g);
+  GC(lKnown, TDictionary<string, TDelphiSemanticSourceText>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase), g);
+  for lObservations in [aLeft, aRight] do
+    for i := 0 to lObservations.Count - 1 do
+    begin
+      lItem := lObservations.Items[i];
+      lItem.FileName := TPath.GetFullPath(lItem.FileName);
+      if lKnown.TryGetValue(lItem.FileName, lPrevious) then
+      begin
+        if (lPrevious.ContentHash <> lItem.ContentHash) or
+          (lPrevious.Text <> lItem.Text) then
+        begin
+          aError := 'source.conflicting-observations';
+          Exit;
+        end;
+      end else begin
+        lKnown.Add(lItem.FileName, lItem);
+        lItems.Add(lItem);
+      end;
+    end;
+  aCombined := TSourceObservations.Create(lItems.ToArray);
+  aError := '';
+  Result := True;
+end;
 
 function HashBytes(const aBytes: TBytes): string;
 var
@@ -208,6 +323,7 @@ var
   lEncoding: TEncoding;
   lFileName: string;
 begin
+  Result := Default(TDelphiSemanticSourceLoadResult);
   lFileName := TPath.GetFullPath(aFileName);
   Result.Source.FileName := lFileName;
 
@@ -251,6 +367,7 @@ begin
     Result.Source.EncodingName := 'windows-1252';
   end;
   AssignLineEndingProvenance(Result.Source);
+  Result.SourceObservations := TSourceObservations.Create([Result.Source]);
   Result.Success := True;
 end;
 

@@ -7,6 +7,13 @@ uses
   DelphiSemantics.WithBinding;
 
 type
+  TDelphiSnapshotImportBindingComparison = record
+    Complete: Boolean;
+    Preserved: Boolean;
+    ReferenceCount: Integer;
+    Reason: string;
+  end;
+
   TDelphiSnapshotBuildOptions = record
     ResolveReferenceTargets: Boolean;
     WorkerCount: Integer;
@@ -30,6 +37,12 @@ function BuildProjectSnapshotFromModels(
   const aRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
   const aOptions: TDelphiSnapshotBuildOptions;
   out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
+function BuildProjectSnapshotFromModelsWithExtension(
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aOptions: TDelphiSnapshotBuildOptions;
+  const aExtensionName: string; var aOwnedExtension: TObject;
+  out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
 function BuildProjectSnapshotFromUnitSnapshots(
   const aSnapshots: TArray<TDelphiProjectSnapshot>;
   out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
@@ -47,6 +60,14 @@ function BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(
 function BuildSnapshotReferenceTargets(
   const aModels: TArray<TDelphiSemanticUnitModel>):
   TSnapshotReferenceTargetLookup;
+
+function ResolveSnapshotReferenceTargets(const aSnapshot: TDelphiProjectSnapshot;
+  const aModel: TDelphiSemanticUnitModel): TArray<TSemanticSymbolRef>;
+
+function CompareSnapshotImportBindings(const aSnapshot: TDelphiProjectSnapshot;
+  const aModel: TDelphiSemanticUnitModel;
+  const aInterfaceImports, aImplementationImports: TArray<string>):
+  TDelphiSnapshotImportBindingComparison;
 
 implementation
 
@@ -327,7 +348,7 @@ begin
       lKind := aSnapshot.TextOf(lFact.KindId);
       lSymbol.Kind := lKind;
       lSymbol.OwnerName := aSnapshot.TextOf(lFact.OwnerTypeId);
-      if lSymbol.OwnerName = '' then
+      if (lSymbol.OwnerName = '') and not SameText(lKind, cSnapshotSymbolKindRoutine) then
         lSymbol.OwnerName := aSnapshot.TextOf(lFact.RoutineId);
       lSymbol.UnitName := aSnapshot.TextOf(lUnit.UnitNameId);
       lSymbol.SectionKind := aSnapshot.TextOf(lFact.SectionKindId);
@@ -436,7 +457,7 @@ begin
     SnapshotLocalSymbolKind(aSymbol.Kind);
   if Result and (aReference.RoutineScopeId <> '') and
     (aSymbol.RoutineScopeId <> '') then
-    Result := SameText(aSymbol.RoutineScopeId, aReference.RoutineScopeId)
+    Exit(SameText(aSymbol.RoutineScopeId, aReference.RoutineScopeId))
   else if Result then
     Result := SameText(aSymbol.OwnerName, aReference.RoutineName);
   if Result and (aRoutineSignature <> '') and (aSymbol.Signature <> '') then
@@ -489,6 +510,9 @@ begin
     SameText(aRight.Kind, cSnapshotSymbolKindRoutine)) then
     Exit(False);
 
+  if (aLeft.RoutineScopeId <> '') and (aRight.RoutineScopeId <> '') then
+    Exit(SameText(aLeft.RoutineScopeId, aRight.RoutineScopeId));
+
   Result := (NormalizeSnapshotSignature(aLeft.Signature) =
     NormalizeSnapshotSignature(aRight.Signature)) or
     ((aLeft.Line > 0) and (aLeft.Line = aRight.Line) and
@@ -515,6 +539,7 @@ function TryResolveUniqueSnapshotRoutineRef(
   out aAmbiguous: Boolean): Boolean;
 var
   lCount: Integer;
+  lScopeId: string;
   lSignature: string;
   lSymbol: TSnapshotTargetSymbol;
   lSymbols: TSnapshotTargetSymbolList;
@@ -524,6 +549,7 @@ begin
   aAmbiguous := False;
   lCount := 0;
   lSignature := '';
+  lScopeId := '';
   if not aSymbolsByName.TryGetValue(SnapshotRoutineSimpleName(aRoutineName),
     lSymbols) then
     Exit(False);
@@ -540,15 +566,21 @@ begin
       begin
         Inc(lCount);
         aRoutineRef := lSymbol.Ref;
+        lScopeId := lSymbol.RoutineScopeId;
         lSignature := NormalizeSnapshotSignature(lSymbol.Signature);
         aRoutineSignature := lSignature;
-      end else if (lSignature <> NormalizeSnapshotSignature(lSymbol.Signature)) then
+      end else if (lSignature <> NormalizeSnapshotSignature(lSymbol.Signature)) and
+        not ((aRoutineScopeId <> '') and (lScopeId <> '') and
+        (lSymbol.RoutineScopeId <> '') and
+        SameText(lScopeId, lSymbol.RoutineScopeId)) then
       begin
         Inc(lCount);
         aRoutineRef := Default(TSemanticSymbolRef);
         aAmbiguous := True;
         Exit(False);
       end;
+      if lSymbol.RoutineScopeId = '' then
+        lScopeId := '';
     end;
 
   Result := lCount = 1;
@@ -612,6 +644,35 @@ end;
 function ModelUsesUnitInSection(const aModel: TDelphiSemanticUnitModel;
   const aSectionKind, aUnitName: string): Boolean; forward;
 
+function IsPotentialIdentifierCharacter(const c: Char): Boolean;
+begin
+  // Retain non-ASCII code units so unsupported Unicode cannot become an ASCII suffix.
+  Result := IsIdentifierChar(c) or (Ord(c) > 127);
+end;
+
+function ReferenceIsPartialIdentifier(const aModel: TDelphiSemanticUnitModel;
+  const aReference: TDelphiSemanticReference): Boolean;
+var
+  lStart, lAfter: Integer;
+begin
+  Result := False;
+  if aReference.Name = '' then
+    Exit;
+  lStart := aReference.Offset;
+  if lStart < 0 then
+    Exit;
+  if lStart = 0 then
+    lStart := 1;
+  if not SameText(Copy(aModel.SourceText, lStart, Length(aReference.Name)), aReference.Name) then
+    if SameText(Copy(aModel.SourceText, lStart + 1, Length(aReference.Name)), aReference.Name) then
+      Inc(lStart)
+    else
+      Exit;
+  lAfter := lStart + Length(aReference.Name);
+  Result := ((lStart > 1) and IsPotentialIdentifierCharacter(aModel.SourceText[lStart - 1])) or
+    ((lAfter <= Length(aModel.SourceText)) and IsPotentialIdentifierCharacter(aModel.SourceText[lAfter]));
+end;
+
 function ReferenceReceiverName(const aModel: TDelphiSemanticUnitModel;
   const aReference: TDelphiSemanticReference): string;
 var
@@ -630,16 +691,15 @@ begin
       Exit;
 
   i := lStart - 1;
-  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, ' ']) do
+  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
     Dec(i);
   if (i <= 0) or (aModel.SourceText[i] <> '.') then
     Exit;
   Dec(i);
-  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, ' ']) do
+  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
     Dec(i);
   lEnd := i;
-  while (i > 0) and CharInSet(aModel.SourceText[i],
-    ['A'..'Z', 'a'..'z', '0'..'9', '_']) do
+  while (i > 0) and IsPotentialIdentifierCharacter(aModel.SourceText[i]) do
     Dec(i);
   Result := Copy(aModel.SourceText, i + 1, lEnd - i);
 end;
@@ -795,6 +855,11 @@ begin
   end;
 end;
 
+function ReferenceHasQualifier(const aModel: TDelphiSemanticUnitModel;
+  const aReference: TDelphiSemanticReference): Boolean; forward;
+function TryResolveQualifiedReference(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  out aTarget: TSemanticSymbolRef): Boolean; forward;
 function TryResolveSnapshotReferenceTarget(const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
   out aTargetRef: TSemanticSymbolRef): Boolean;
@@ -802,6 +867,10 @@ var
   lCandidateRefs: TList<TSemanticSymbolRef>;
 begin
   aTargetRef := Default(TSemanticSymbolRef);
+  if ReferenceIsPartialIdentifier(aModel, aReference) then
+    Exit(False);
+  if ReferenceHasQualifier(aModel, aReference) then
+    Exit(TryResolveQualifiedReference(aSymbolsByName, aModel, aReference, aTargetRef));
   lCandidateRefs := TList<TSemanticSymbolRef>.Create;
   try
     if not AddLocalReferenceCandidates(aSymbolsByName, aModel, aReference,
@@ -821,6 +890,31 @@ begin
   end;
 end;
 
+procedure AddModelReferenceTargets(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel;
+  const aRoutineNamesByLine: TDictionary<Integer, string>;
+  const aTargets: TSnapshotReferenceTargetMap);
+var
+  lReference: TDelphiSemanticReference;
+  lResolutionReference: TDelphiSemanticReference;
+  lResolutionModel: TDelphiSemanticUnitModel;
+  lTargetRef: TSemanticSymbolRef;
+begin
+  lResolutionModel := aModel;
+  lResolutionModel.SourceText := SanitizeCodeText(aModel.SourceText);
+  for lReference in aModel.References do
+  begin
+    lResolutionReference := lReference;
+    lResolutionReference.RoutineName := SnapshotReferenceRoutineNameForResolution(
+      aModel, aRoutineNamesByLine, lReference);
+    if TryResolveSnapshotReferenceTarget(aSymbolsByName, lResolutionModel,
+      lResolutionReference, lTargetRef) then
+      aTargets.AddOrSetValue(SnapshotReferenceMatchKey(aModel.UnitName,
+        lReference.RoutineName, lReference.Name, lReference.Line,
+        lReference.Column), lTargetRef);
+  end;
+end;
+
 function BuildSnapshotReferenceTargetsForModelsAndSnapshots(
   const aModels: TArray<TDelphiSemanticUnitModel>;
   const aModelUnitIds: TArray<TSemanticUnitId>;
@@ -828,12 +922,9 @@ function BuildSnapshotReferenceTargetsForModelsAndSnapshots(
   TSnapshotReferenceTargetLookup;
 var
   lTargets: TSnapshotReferenceTargetMap;
-  lReference: TDelphiSemanticReference;
-  lResolutionReference: TDelphiSemanticReference;
   lRoutineNamesByLine: TDictionary<Integer, string>;
   lSymbols: TSnapshotTargetSymbolList;
   lSymbolsByName: TSnapshotTargetSymbolsByName;
-  lTargetRef: TSemanticSymbolRef;
   lUnitModel: TDelphiSemanticUnitModel;
 begin
   lTargets := TSnapshotReferenceTargetMap.Create(
@@ -845,17 +936,7 @@ begin
     for lUnitModel in aModels do
     begin
       lRoutineNamesByLine.Clear;
-      for lReference in lUnitModel.References do
-      begin
-        lResolutionReference := lReference;
-        lResolutionReference.RoutineName := SnapshotReferenceRoutineNameForResolution(
-          lUnitModel, lRoutineNamesByLine, lReference);
-        if TryResolveSnapshotReferenceTarget(lSymbolsByName, lUnitModel,
-          lResolutionReference, lTargetRef) then
-          lTargets.AddOrSetValue(SnapshotReferenceMatchKey(lUnitModel.UnitName,
-            lReference.RoutineName, lReference.Name, lReference.Line,
-            lReference.Column), lTargetRef);
-      end;
+      AddModelReferenceTargets(lSymbolsByName, lUnitModel, lRoutineNamesByLine, lTargets);
     end;
     Result := TSnapshotReferenceTargetLookup.FromMap(lTargets);
   finally
@@ -871,6 +952,283 @@ function BuildSnapshotReferenceTargets(
   TSnapshotReferenceTargetLookup;
 begin
   Result := BuildSnapshotReferenceTargetsForModelsAndSnapshots(aModels, [], []);
+end;
+
+function ReferenceHasQualifier(const aModel: TDelphiSemanticUnitModel;
+  const aReference: TDelphiSemanticReference): Boolean;
+var
+  i: Integer;
+begin
+  i := aReference.Offset;
+  if not SameText(Copy(aModel.SourceText, i, Length(aReference.Name)),
+    aReference.Name) then
+    if SameText(Copy(aModel.SourceText, i + 1, Length(aReference.Name)),
+      aReference.Name) then
+      Inc(i)
+    else
+      Exit(False);
+  Dec(i);
+  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
+    Dec(i);
+  Result := (i > 0) and (aModel.SourceText[i] = '.');
+end;
+
+function SimpleUnitReceiver(const aModel: TDelphiSemanticUnitModel;
+  const aReference: TDelphiSemanticReference): string;
+var
+  i: Integer;
+begin
+  Result := ReferenceReceiverName(aModel, aReference);
+  if Result = '' then
+    Exit;
+  i := aReference.Offset;
+  if not SameText(Copy(aModel.SourceText, i, Length(aReference.Name)), aReference.Name) then
+    Inc(i);
+  Dec(i);
+  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
+    Dec(i);
+  Dec(i);
+  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
+    Dec(i);
+  Dec(i, Length(Result));
+  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
+    Dec(i);
+  if (i > 0) and (aModel.SourceText[i] = '.') then
+    Result := '';
+end;
+
+function TryResolveQualifiedUnitReference(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  out aTarget: TSemanticSymbolRef): Boolean;
+var
+  lReceiver: string;
+  lSymbols: TSnapshotTargetSymbolList;
+  lSymbol: TSnapshotTargetSymbol;
+  lCount: Integer;
+begin
+  aTarget := Default(TSemanticSymbolRef);
+  lSymbols := nil;
+  lReceiver := SimpleUnitReceiver(aModel, aReference);
+  if (lReceiver = '') or
+    not ModelUsesUnitInSection(aModel, aReference.SectionKind, lReceiver) then
+    Exit(False);
+  // A same-named declaration may shadow the unit qualifier. Keep that case unknown.
+  if aSymbolsByName.TryGetValue(lReceiver, lSymbols) then
+    for lSymbol in lSymbols do
+      if not SameText(lSymbol.Kind, 'unit') then
+        Exit(False);
+  if not aSymbolsByName.TryGetValue(aReference.Name, lSymbols) then
+    Exit(False);
+  lCount := 0;
+  for lSymbol in lSymbols do
+    if SameText(lSymbol.UnitName, lReceiver) and
+      TopLevelSymbolIsVisibleFromReference(aModel, aReference.SectionKind, lSymbol) then
+    begin
+      Inc(lCount);
+      aTarget := lSymbol.Ref;
+    end;
+  Result := lCount = 1;
+  if not Result then
+    aTarget := Default(TSemanticSymbolRef);
+end;
+
+function TryResolveClassVariableReference(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  const aReceiver: string; out aTarget: TSemanticSymbolRef): Boolean;
+var
+  lReceiverReference: TDelphiSemanticReference;
+  lCandidates: TList<TSemanticSymbolRef>;
+  lSymbols: TSnapshotTargetSymbolList;
+  lSymbol: TSnapshotTargetSymbol;
+  lOwnerUnit: string;
+  lCount: Integer;
+begin
+  aTarget := Default(TSemanticSymbolRef);
+  if aReceiver = '' then
+    Exit(False);
+  lReceiverReference := aReference;
+  lReceiverReference.Name := aReceiver;
+  lCandidates := TList<TSemanticSymbolRef>.Create;
+  try
+    // A local receiver may shadow the class name; it does not prove a type qualifier.
+    if AddLocalReferenceCandidates(aSymbolsByName, aModel, lReceiverReference, lCandidates) then
+      Exit(False);
+    AddTopLevelReferenceCandidates(aSymbolsByName, aModel, lReceiverReference, lCandidates);
+    if lCandidates.Count <> 1 then
+      Exit(False);
+    if not aSymbolsByName.TryGetValue(aReceiver, lSymbols) then
+      Exit(False);
+    lOwnerUnit := '';
+    for lSymbol in lSymbols do
+      if (lSymbol.Ref.UnitId = lCandidates[0].UnitId) and
+        (lSymbol.Ref.SymbolId = lCandidates[0].SymbolId) and SameText(lSymbol.Kind, 'type') then
+        lOwnerUnit := lSymbol.UnitName;
+  finally
+    lCandidates.Free;
+  end;
+  if (lOwnerUnit = '') or not aSymbolsByName.TryGetValue(aReference.Name, lSymbols) then
+    Exit(False);
+  lCount := 0;
+  for lSymbol in lSymbols do
+    if SameText(lSymbol.UnitName, lOwnerUnit) and SameText(lSymbol.OwnerName, aReceiver) and
+      SameText(lSymbol.Kind, 'class-var') then
+    begin
+      Inc(lCount);
+      aTarget := lSymbol.Ref;
+    end;
+  Result := lCount = 1;
+  if not Result then
+    aTarget := Default(TSemanticSymbolRef);
+end;
+function TryResolveQualifiedReference(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  out aTarget: TSemanticSymbolRef): Boolean;
+var
+  lReceiver, lOwner: string;
+  lSymbols: TSnapshotTargetSymbolList;
+  lSymbol: TSnapshotTargetSymbol;
+  lCount: Integer;
+begin
+  aTarget := Default(TSemanticSymbolRef);
+  lReceiver := SimpleUnitReceiver(aModel, aReference);
+  if not SameText(lReceiver, 'Self') then
+  begin
+    if TryResolveQualifiedUnitReference(aSymbolsByName, aModel, aReference, aTarget) then
+      Exit(True);
+    Exit(TryResolveClassVariableReference(aSymbolsByName, aModel, aReference, lReceiver, aTarget));
+  end;
+  lOwner := Copy(aReference.RoutineName, 1, LastDelimiter('.', aReference.RoutineName) - 1);
+  lSymbols := nil;
+  if (lOwner = '') or not aSymbolsByName.TryGetValue(aReference.Name, lSymbols) then
+    Exit(False);
+  lCount := 0;
+  for lSymbol in lSymbols do
+    if SameText(lSymbol.UnitName, aModel.UnitName) and SameText(lSymbol.OwnerName, lOwner) and
+      MatchText(lSymbol.Kind, ['field', 'property', 'class-var', 'method']) then
+    begin
+      Inc(lCount);
+      aTarget := lSymbol.Ref;
+    end;
+  Result := lCount = 1;
+  if not Result then
+    aTarget := Default(TSemanticSymbolRef);
+end;
+
+function TryResolveResultReference(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  out aTarget: TSemanticSymbolRef): Boolean;
+var
+  lSignature: string;
+  lAmbiguous: Boolean;
+  lUnit: TUnitSnapshot;
+  lOwner: TSemanticSymbolFact;
+begin
+  aTarget := Default(TSemanticSymbolRef);
+  if (aReference.RoutineScopeId = '') or
+    not TryResolveUniqueSnapshotRoutineRef(aSymbolsByName, aModel,
+      aReference.RoutineName, aReference.RoutineScopeId, aTarget, lSignature,
+      lAmbiguous) then
+    Exit(False);
+  if not aSnapshot.TryFindUnitById(aTarget.UnitId, lUnit) then
+    Exit(False);
+  lOwner := lUnit.SymbolById(aTarget.SymbolId);
+  if aSnapshot.TextOf(lOwner.TypeId) <> '' then
+    Exit(True);
+  // Procedures have no implicit result; ordinary locals/imports still apply.
+  Result := TryResolveSnapshotReferenceTarget(aSymbolsByName, aModel, aReference, aTarget);
+end;
+
+function TryResolveAlternateReference(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  out aTarget: TSemanticSymbolRef): Boolean;
+begin
+  if ReferenceIsPartialIdentifier(aModel, aReference) then
+  begin
+    aTarget := Default(TSemanticSymbolRef);
+    Exit(False);
+  end;
+  if ReferenceHasQualifier(aModel, aReference) then
+    Result := TryResolveQualifiedReference(aSymbolsByName, aModel, aReference, aTarget)
+  else if SameText(aReference.Name, 'Result') and (aReference.RoutineName <> '') then
+    Result := TryResolveResultReference(aSnapshot, aSymbolsByName, aModel, aReference, aTarget)
+  else
+    Result := TryResolveSnapshotReferenceTarget(aSymbolsByName, aModel, aReference, aTarget);
+end;
+
+function ResolveSnapshotReferenceTargets(const aSnapshot: TDelphiProjectSnapshot;
+  const aModel: TDelphiSemanticUnitModel): TArray<TSemanticSymbolRef>;
+var
+  lSymbols: TSnapshotTargetSymbolList;
+  lSymbolsByName: TSnapshotTargetSymbolsByName;
+  lRoutineNames: TDictionary<Integer, string>;
+  lReference: TDelphiSemanticReference;
+  i: Integer;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  SetLength(Result, Length(aModel.References));
+  if aSnapshot = nil then
+    Exit;
+  lModel := aModel;
+  lModel.SourceText := SanitizeCodeText(aModel.SourceText);
+  lSymbolsByName := BuildSnapshotTargetSymbolsByName([], [], [aSnapshot], lSymbols);
+  lRoutineNames := nil;
+  try
+    lRoutineNames := TDictionary<Integer, string>.Create;
+    for i := 0 to High(aModel.References) do
+    begin
+      lReference := aModel.References[i];
+      lReference.RoutineName := SnapshotReferenceRoutineNameForResolution(
+        lModel, lRoutineNames, lReference);
+      if not TryResolveAlternateReference(aSnapshot, lSymbolsByName, lModel,
+        lReference, Result[i]) then
+        Result[i] := Default(TSemanticSymbolRef);
+    end;
+  finally
+    lRoutineNames.Free;
+    lSymbolsByName.Free;
+    lSymbols.Free;
+  end;
+end;
+
+function CompareSnapshotImportBindings(const aSnapshot: TDelphiProjectSnapshot;
+  const aModel: TDelphiSemanticUnitModel;
+  const aInterfaceImports, aImplementationImports: TArray<string>):
+  TDelphiSnapshotImportBindingComparison;
+var
+  lBefore: TArray<TSemanticSymbolRef>;
+  lAfter: TArray<TSemanticSymbolRef>;
+  lModel: TDelphiSemanticUnitModel;
+  lPreserved: Boolean;
+  i: Integer;
+begin
+  Result := Default(TDelphiSnapshotImportBindingComparison);
+  Result.Reason := 'uses.reference-binding-unknown';
+  if (aSnapshot = nil) or (Length(aModel.References) = 0) then
+    Exit;
+  lBefore := ResolveSnapshotReferenceTargets(aSnapshot, aModel);
+  lModel := aModel;
+  lModel.InterfaceUses := aInterfaceImports;
+  lModel.ImplementationUses := aImplementationImports;
+  lAfter := ResolveSnapshotReferenceTargets(aSnapshot, lModel);
+  lPreserved := True;
+  for i := 0 to High(lBefore) do
+  begin
+    if (lBefore[i].UnitId = 0) or (lBefore[i].SymbolId = 0) or
+      (lAfter[i].UnitId = 0) or (lAfter[i].SymbolId = 0) then
+      Exit;
+    if (lBefore[i].UnitId <> lAfter[i].UnitId) or
+      (lBefore[i].SymbolId <> lAfter[i].SymbolId) then
+      lPreserved := False;
+    Inc(Result.ReferenceCount);
+  end;
+  Result.Complete := True;
+  Result.Preserved := lPreserved;
+  if lPreserved then
+    Result.Reason := ''
+  else
+    Result.Reason := 'uses.reference-binding-changed';
 end;
 
 procedure AddSnapshotWithStatement(const aStrings: TSemanticStringPool;
@@ -1628,6 +1986,7 @@ function BuildSequentialProjectSnapshotFromModels(
   const aModels: TArray<TDelphiSemanticUnitModel>;
   const aRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
   const aReferenceTargetLookup: TSnapshotReferenceTargetLookup;
+  const aExtensionName: string; var aOwnedExtension: TObject;
   var aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
 var
   i: Integer;
@@ -1638,6 +1997,11 @@ var
 begin
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
   try
+    if aOwnedExtension <> nil then
+    begin
+      lBuilder.SetExtensionOwned(aExtensionName, aOwnedExtension);
+      aOwnedExtension := nil;
+    end;
     aMetrics.WorkerCount := 0;
     if Length(aModels) > 0 then
       aMetrics.WorkerCount := 1;
@@ -1715,6 +2079,7 @@ function MergeUnitResults(
   const aResults: TArray<TSnapshotUnitBuildResult>;
   const aModels: TArray<TDelphiSemanticUnitModel>;
   const aRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aExtensionName: string; var aOwnedExtension: TObject;
   var aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
 var
   i: Integer;
@@ -1726,6 +2091,11 @@ begin
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
   lStopwatch := TStopwatch.StartNew;
   try
+    if aOwnedExtension <> nil then
+    begin
+      lBuilder.SetExtensionOwned(aExtensionName, aOwnedExtension);
+      aOwnedExtension := nil;
+    end;
     for i := 0 to High(aResults) do
     begin
       lMergedUnit := RemapUnitSnapshot(aResults[i].Strings, lBuilder.Strings,
@@ -1762,10 +2132,26 @@ function BuildProjectSnapshotFromModels(
   const aOptions: TDelphiSnapshotBuildOptions;
   out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
 var
+  lOwnedExtension: TObject;
+begin
+  lOwnedExtension := nil;
+  Result := BuildProjectSnapshotFromModelsWithExtension(aModels, aRemoveWithFacts,
+    aOptions, '', lOwnedExtension, aMetrics);
+end;
+
+function BuildProjectSnapshotFromModelsWithExtension(
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aRemoveWithFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aOptions: TDelphiSnapshotBuildOptions;
+  const aExtensionName: string; var aOwnedExtension: TObject;
+  out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot;
+var
+  lOwnedExtension: TObject;
   lReferenceTargetLookup: TSnapshotReferenceTargetLookup;
   lResults: TArray<TSnapshotUnitBuildResult>;
   lStopwatch: TStopwatch;
 begin
+  lOwnedExtension := aOwnedExtension;
   aMetrics := Default(TDelphiSnapshotBuilderMetrics);
   lReferenceTargetLookup := Default(TSnapshotReferenceTargetLookup);
   lResults := nil;
@@ -1775,16 +2161,19 @@ begin
       lReferenceTargetLookup := BuildSnapshotReferenceTargets(aModels);
     if aOptions.WorkerCount <= 1 then
       Result := BuildSequentialProjectSnapshotFromModels(aModels, aRemoveWithFacts,
-        lReferenceTargetLookup, aMetrics)
+        lReferenceTargetLookup, aExtensionName, lOwnedExtension, aMetrics)
     else begin
       lResults := BuildUnitResults(aModels, lReferenceTargetLookup,
         aOptions.WorkerCount, aMetrics);
-      Result := MergeUnitResults(lResults, aModels, aRemoveWithFacts, aMetrics);
+      Result := MergeUnitResults(lResults, aModels, aRemoveWithFacts,
+        aExtensionName, lOwnedExtension, aMetrics);
     end;
   finally
     lStopwatch.Stop;
     aMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;
     FreeSnapshotUnitBuildResults(lResults);
+    lOwnedExtension.Free;
+    aOwnedExtension := nil;
   end;
 end;
 
@@ -1795,12 +2184,14 @@ function BuildProjectUnitSnapshotFromModels(
   out aMetrics: TDelphiSnapshotBuilderMetrics): TDelphiProjectSnapshot; overload;
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOwnedExtension: TObject;
   lReferenceTargetLookup: TSnapshotReferenceTargetLookup;
   lResults: TArray<TSnapshotUnitBuildResult>;
   lStopwatch: TStopwatch;
 begin
   aMetrics := Default(TDelphiSnapshotBuilderMetrics);
   lFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+  lOwnedExtension := nil;
   lReferenceTargetLookup := Default(TSnapshotReferenceTargetLookup);
   lResults := nil;
   lStopwatch := TStopwatch.StartNew;
@@ -1810,7 +2201,8 @@ begin
     SetLength(lResults, 1);
     lResults[0] := BuildUnitResult(aModels[aModelIndex],
       ModelUnitIdAt(aModelUnitIds, aModelIndex), lReferenceTargetLookup);
-    Result := MergeUnitResults(lResults, [aModels[aModelIndex]], lFacts, aMetrics);
+    Result := MergeUnitResults(lResults, [aModels[aModelIndex]], lFacts, '',
+      lOwnedExtension, aMetrics);
   finally
     lStopwatch.Stop;
     aMetrics.BuildMilliseconds := lStopwatch.ElapsedMilliseconds;

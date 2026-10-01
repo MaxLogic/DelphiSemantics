@@ -28,6 +28,14 @@ type
     EndOffset: Integer;
   end;
 
+  TSemanticSyntaxTreeBuilder = class(TPasSyntaxTreeBuilder)
+  protected
+    procedure ClassForward; override;
+    procedure InterfaceForward; override;
+    procedure DispInterfaceForward; override;
+    procedure ProceduralDirectiveOf; override;
+  end;
+
   TRoutineHeader = record
     Signature: string;
     SignatureOffset: Integer;
@@ -43,6 +51,13 @@ type
   TAstDeclarationScopeFact = record
     Name: string;
     Kind: string;
+    InterfaceGuid: string;
+    ProcedureSignature: TDelphiSemanticProcedureSignature;
+    IsDispInterface: Boolean;
+    IsForward: Boolean;
+    ScopedEnum: Boolean;
+    EnumTypeName: string;
+    TypeOwnerPath: string;
     Line: Integer;
     Column: Integer;
     ScopeIndex: Integer;
@@ -52,6 +67,8 @@ type
     Name: string;
     ScopeId: string;
     ParentScopeId: string;
+    CallingConvention: string;
+    ProcedureSignature: TDelphiSemanticProcedureSignature;
     StartLine: Integer;
     StartColumn: Integer;
     EndLine: Integer;
@@ -90,6 +107,10 @@ var
 threadvar
   GExtractionContext: TDelphiSemanticExtractionContext;
 
+procedure ExtractMembers(const aText: string; const aNode: TSyntaxNode;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aMembers: TList<TDelphiSemanticMember>;
+  const aReferences: TList<TDelphiSemanticReference>); forward;
 function ActiveExtractionContext: TDelphiSemanticExtractionContext; forward;
 function BuildTypeBlockRanges(const aText: string): TArray<TOffsetRange>; forward;
 
@@ -182,6 +203,19 @@ end;
 function NormalizeTypeName(const aTypeName: string): string; forward;
 function StripTrailingDeclarationComment(const aLine: string): string; forward;
 
+procedure ConsumeTypeKeyword(var aLine, aBlockKind: string);
+var
+  lMatch: TMatch;
+begin
+  if not StartsText('type', aLine) then
+    Exit;
+  lMatch := TRegEx.Match(aLine, '^type\b\s*', [roIgnoreCase]);
+  if not lMatch.Success then
+    Exit;
+  aBlockKind := 'type';
+  Delete(aLine, 1, lMatch.Length);
+end;
+
 function BuildTypeBlockRanges(const aText: string): TArray<TOffsetRange>;
 var
   i: Integer;
@@ -207,6 +241,7 @@ begin
     begin
       lLine := lLines[i].Trim;
       lScopeLine := StripTrailingDeclarationComment(lLine);
+      ConsumeTypeKeyword(lScopeLine, lBlockKind);
       if lTypeDepth > 0 then
       begin
         lRange.StartOffset := lOffset + 1;
@@ -221,15 +256,12 @@ begin
       begin
         lBlockKind := '';
         lTypeDepth := 0;
-      end else if SameText(lScopeLine, 'type') then
-      begin
-        lBlockKind := 'type';
       end else if SameText(lScopeLine, 'const') or SameText(lScopeLine, 'var') then
       begin
         lBlockKind := '';
       end else if lBlockKind = 'type' then
       begin
-        lTypeMatch := TRegEx.Match(lLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\r\n]+)',
+        lTypeMatch := TRegEx.Match(lScopeLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\r\n]+)',
           [roIgnoreCase]);
         if lTypeMatch.Success then
         begin
@@ -621,9 +653,396 @@ begin
     end;
 end;
 
+procedure TSemanticSyntaxTreeBuilder.ClassForward;
+begin
+  FStack.Peek.SetAttribute(anType, 'class');
+  inherited;
+end;
+
+procedure TSemanticSyntaxTreeBuilder.InterfaceForward;
+begin
+  FStack.Peek.SetAttribute(anType, 'interface');
+  inherited;
+end;
+
+procedure TSemanticSyntaxTreeBuilder.DispInterfaceForward;
+begin
+  FStack.Peek.SetAttribute(anType, 'dispinterface');
+  inherited;
+end;
+procedure TSemanticSyntaxTreeBuilder.ProceduralDirectiveOf;
+begin
+  FStack.Peek.SetAttribute(anType, 'method-pointer');
+  inherited;
+end;
+
+function AstProcedureSignature(const aNode: TSyntaxNode): TDelphiSemanticProcedureSignature;
+var
+  lParameters: TSyntaxNode;
+  lParameter: TSyntaxNode;
+  lTypeNode: TSyntaxNode;
+  lReturnNode: TSyntaxNode;
+  lItems: TList<TDelphiSemanticSignatureParameter>;
+  lItem: TDelphiSemanticSignatureParameter;
+begin
+  Result := Default(TDelphiSemanticProcedureSignature);
+  if not Assigned(aNode) then
+    Exit;
+  Result.Kind := LowerCase(aNode.GetAttribute(anName));
+  if aNode.Typ = ntMethod then
+    Result.Kind := LowerCase(aNode.GetAttribute(anKind));
+  if not MatchText(Result.Kind, ['procedure', 'function']) then
+    Exit;
+  Result.Known := True;
+  Result.OfObject := aNode.GetAttribute(anType) = 'method-pointer';
+  Result.CallingConvention := LowerCase(aNode.GetAttribute(anCallingConvention));
+  lReturnNode := aNode.FindNode(ntReturnType);
+  if Assigned(lReturnNode) then
+  begin
+    lTypeNode := lReturnNode.FindNode(ntType);
+    if Assigned(lTypeNode) then
+      Result.ReturnType := lTypeNode.GetAttribute(anName)
+    else
+      Result.Known := False;
+  end;
+
+  lItems := TList<TDelphiSemanticSignatureParameter>.Create;
+  try
+    lParameters := aNode.FindNode(ntParameters);
+    if Assigned(lParameters) then
+      for lParameter in lParameters.ChildNodes do
+      begin
+        if lParameter.Typ <> ntParameter then
+        begin
+          Result.Known := False;
+          Continue;
+        end;
+        lItem := Default(TDelphiSemanticSignatureParameter);
+        lItem.Name := AstNodeName(lParameter);
+        lItem.Modifier := LowerCase(lParameter.GetAttribute(anKind));
+        lTypeNode := lParameter.FindNode(ntType);
+        if Assigned(lTypeNode) then
+          lItem.TypeName := lTypeNode.GetAttribute(anName);
+        if lItem.TypeName = '' then
+          Result.Known := False;
+        lItems.Add(lItem);
+      end;
+    Result.Parameters := lItems.ToArray;
+  finally
+    lItems.Free;
+  end;
+end;
+
+function AstInputText(const aText: string; const aSkipBodyAnalysis: Boolean): string;
+var
+  lOffset: Integer;
+begin
+  Result := aText;
+  if not aSkipBodyAnalysis then
+    Exit;
+  lOffset := FindSectionKeywordOffset(LowerCase(aText), 'implementation');
+  if lOffset > 0 then
+    Result := Copy(aText, 1, lOffset - 1) + 'implementation' + sLineBreak + 'end.';
+end;
+function ParseModelSyntaxTree(const aText: string): TSyntaxNode;
+var
+  lBuilder: TPasSyntaxTreeBuilder;
+  lStream: TStringStream;
+begin
+  lBuilder := TSemanticSyntaxTreeBuilder.Create;
+  lStream := nil;
+  try
+    lStream := TStringStream.Create(aText, TEncoding.UTF8);
+    Result := lBuilder.Run(lStream);
+  finally
+    lStream.Free;
+    lBuilder.Free;
+  end;
+end;
+
+function BuildModelSyntaxTree(const aText: string; const aSkipBodyAnalysis: Boolean;
+  out aComplete: Boolean): TSyntaxNode;
+begin
+  aComplete := True;
+  try
+    Result := ParseModelSyntaxTree(aText);
+  except
+    on EParserException do
+    begin
+      if not aSkipBodyAnalysis then
+        raise;
+      // Interface-only RTL projections may intentionally omit valid bodies.
+      aComplete := False;
+      Result := ParseModelSyntaxTree(AstInputText(aText, True));
+    end;
+  end;
+end;
+function AstOrderedImports(const aSection: TSyntaxNode; var aKnown: Boolean): TArray<string>;
+var
+  lUses: TSyntaxNode;
+  i: Integer;
+begin
+  Result := nil;
+  if not Assigned(aSection) then
+    Exit;
+  lUses := aSection.FindNode(ntUses);
+  if not Assigned(lUses) then
+    Exit;
+  SetLength(Result, Length(lUses.ChildNodes));
+  for i := 0 to High(lUses.ChildNodes) do
+  begin
+    Result[i] := lUses.ChildNodes[i].GetAttribute(anName);
+    if (lUses.ChildNodes[i].Typ <> ntUnit) or (Result[i] = '') then
+      aKnown := False;
+  end;
+end;
+
+function AstDependencyFacts(const aRoot: TSyntaxNode): TDelphiSemanticUnitDependencyFacts;
+var
+  lImplementation: TSyntaxNode;
+begin
+  Result := Default(TDelphiSemanticUnitDependencyFacts);
+  Result.Known := not Assigned(aRoot.FindNode(ntRequires)) and
+    not Assigned(aRoot.FindNode(ntContains));
+  Result.InterfaceImports := AstOrderedImports(aRoot.FindNode(ntInterface), Result.Known);
+  lImplementation := aRoot.FindNode(ntImplementation);
+  Result.ImplementationImports := AstOrderedImports(lImplementation, Result.Known);
+  Result.RootImports := AstOrderedImports(aRoot, Result.Known);
+  Result.HasInitialization := Assigned(aRoot.FindNode(ntInitialization));
+  Result.HasFinalization := Assigned(aRoot.FindNode(ntFinalization));
+  if Assigned(lImplementation) then
+  begin
+    Result.HasInitialization := Result.HasInitialization or
+      Assigned(lImplementation.FindNode(ntInitialization));
+    Result.HasFinalization := Result.HasFinalization or
+      Assigned(lImplementation.FindNode(ntFinalization));
+  end;
+end;
+procedure AddReference(const aReferences: TList<TDelphiSemanticReference>; const aRoutineName,
+  aName, aText: string; const aOffset: Integer); forward;
+
+procedure AddDefaultExpressionIdentifier(const aText: string; const aNode: TSyntaxNode;
+  const aReferences: TList<TDelphiSemanticReference>);
+var
+  lName: string;
+  lOffset: Integer;
+  lReference: TDelphiSemanticReference;
+begin
+  lName := aNode.GetAttribute(anName);
+  lOffset := OffsetOfLineColumn(aText, aNode.Line, aNode.Col);
+  if (lName = '') or (lOffset < 1) or
+    not SameText(Copy(aText, lOffset, Length(lName)), lName) then
+    raise EInvalidOpException.Create('Default parameter identifier does not match source');
+  // The AST clones a shared default expression for grouped parameter names.
+  for lReference in aReferences do
+    if (lReference.Offset = lOffset) and SameText(lReference.Name, lName) then
+      Exit;
+  AddReference(aReferences, '', lName, aText, lOffset);
+end;
+
+procedure ExtractDefaultExpressionReferences(const aText: string;
+  const aExpression: TSyntaxNode; const aReferences: TList<TDelphiSemanticReference>);
+var
+  lNode: TSyntaxNode;
+  lNodes: TStack<TSyntaxNode>;
+  i: Integer;
+begin
+  if not Assigned(aExpression) then
+    Exit;
+  lNodes := TStack<TSyntaxNode>.Create;
+  try
+    lNodes.Push(aExpression);
+    while lNodes.Count > 0 do
+    begin
+      lNode := lNodes.Pop;
+      if lNode.Typ = ntIdentifier then
+        AddDefaultExpressionIdentifier(aText, lNode, aReferences);
+      for i := High(lNode.ChildNodes) downto 0 do
+        lNodes.Push(lNode.ChildNodes[i]);
+    end;
+  finally
+    lNodes.Free;
+  end;
+end;
+
+procedure EnsureForwardTypeDeclaration(const aText, aName, aTypeName: string;
+  const aNode: TSyntaxNode; const aDeclarations: TList<TDelphiSemanticDeclaration>);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lOffset: Integer;
+begin
+  lOffset := OffsetOfLineColumn(aText, aNode.Line, aNode.Col);
+  if (aName = '') or (lOffset < 1) or
+    not SameText(Copy(aText, lOffset, Length(aName)), aName) then
+    raise EInvalidOpException.Create('Forward type identifier does not match source');
+  for lDeclaration in aDeclarations do
+    if (lDeclaration.Offset = lOffset) and SameText(lDeclaration.Name, aName) then
+      Exit;
+  // AST facts also cover a forward declaration beside its type keyword.
+  lDeclaration := Default(TDelphiSemanticDeclaration);
+  lDeclaration.Name := aName;
+  lDeclaration.Kind := 'type';
+  lDeclaration.TypeName := aTypeName;
+  lDeclaration.SectionKind := SectionForOffset(aText, lOffset);
+  lDeclaration.Line := aNode.Line;
+  lDeclaration.Column := aNode.Col;
+  lDeclaration.Offset := lOffset;
+  lDeclaration.EndOffset := lOffset + Length(aName);
+  aDeclarations.Add(lDeclaration);
+end;
+procedure EnsureUnitConstantDeclaration(const aText: string; const aNode: TSyntaxNode;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lName: string;
+  lNameNode: TSyntaxNode;
+  lOffset: Integer;
+begin
+  // Lexical line scanning can miss constants beside section keywords or peers.
+  // Add only declarations proven by the AST; typed constants retain their own path.
+  if Assigned(aNode.FindNode(ntType)) then
+    Exit;
+  lNameNode := aNode.FindNode(ntName);
+  if not Assigned(lNameNode) then
+    Exit;
+  lName := AstNodeName(aNode);
+  lOffset := OffsetOfLineColumn(aText, lNameNode.Line, lNameNode.Col);
+  if (lName = '') or (lOffset < 1) or
+    not SameText(Copy(aText, lOffset, Length(lName)), lName) then
+    raise EInvalidOpException.Create('Constant identifier does not match source');
+  for lDeclaration in aDeclarations do
+    if (lDeclaration.Offset = lOffset) and SameText(lDeclaration.Name, lName) then
+      Exit;
+  lDeclaration := Default(TDelphiSemanticDeclaration);
+  lDeclaration.Name := lName;
+  lDeclaration.Kind := 'const';
+  lDeclaration.SectionKind := SectionForOffset(aText, lOffset);
+  lDeclaration.Line := lNameNode.Line;
+  lDeclaration.Column := lNameNode.Col;
+  lDeclaration.Offset := lOffset;
+  lDeclaration.EndOffset := lOffset + Length(lName);
+  aDeclarations.Add(lDeclaration);
+end;
+
+function AstEnumValueDeclaration(const aText, aTypeName: string;
+  const aNode: TSyntaxNode): TDelphiSemanticDeclaration;
+begin
+  Result := Default(TDelphiSemanticDeclaration);
+  Result.Name := aNode.GetAttribute(anName);
+  Result.Offset := OffsetOfLineColumn(aText, aNode.Line, aNode.Col);
+  if (Result.Name = '') or (Result.Offset < 1) or
+    not SameText(Copy(aText, Result.Offset, Length(Result.Name)), Result.Name) then
+    raise EInvalidOpException.Create('Enum value identifier does not match source');
+  Result.Kind := 'enum-value';
+  Result.TypeName := aTypeName;
+  Result.SectionKind := SectionForOffset(aText, Result.Offset);
+  Result.Line := aNode.Line;
+  Result.Column := aNode.Col;
+  Result.EndOffset := Result.Offset + Length(Result.Name);
+end;
+
+procedure CollectEnumDeclarations(const aText: string; const aTypeDeclaration: TSyntaxNode;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aFacts: TList<TAstDeclarationScopeFact>; const aScopeIndex: Integer;
+  const aTypeOwnerPath: string);
+var
+  lTypeNode, lNode: TSyntaxNode;
+  lName: string;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFact: TAstDeclarationScopeFact;
+  i: NativeInt;
+begin
+  lTypeNode := aTypeDeclaration.FindNode(ntType);
+  if not Assigned(lTypeNode) or not SameText(lTypeNode.GetAttribute(anName), 'enum') then
+    Exit;
+  lName := AstNodeName(aTypeDeclaration);
+  // Replace only this declaration's legacy line-based enum entries.
+  for i := aDeclarations.Count - 1 downto 0 do
+    if SameText(aDeclarations[i].Kind, 'enum-value') and
+      SameText(aDeclarations[i].TypeName, lName) and
+      (aDeclarations[i].Line = aTypeDeclaration.Line) then
+      aDeclarations.Delete(i);
+  for lNode in lTypeNode.ChildNodes do
+    if lNode.Typ = ntIdentifier then
+    begin
+      lDeclaration := AstEnumValueDeclaration(aText, lName, lNode);
+      aDeclarations.Add(lDeclaration);
+      lFact := Default(TAstDeclarationScopeFact);
+      lFact.Name := lDeclaration.Name;
+      lFact.Kind := 'enum-value';
+      lFact.Line := lDeclaration.Line;
+      lFact.Column := lDeclaration.Column;
+      lFact.ScopeIndex := aScopeIndex;
+      lFact.ScopedEnum := SameText(lTypeNode.GetAttribute(anVisibility), 'scoped');
+      lFact.EnumTypeName := lName;
+      // Unscoped enum values retain unit/routine scope even for nested types.
+      if lFact.ScopedEnum then
+        lFact.TypeOwnerPath := aTypeOwnerPath;
+      aFacts.Add(lFact);
+    end;
+end;
+
+function AppendTypeOwnerPath(const aOwnerPath, aTypeName: string): string;
+begin
+  if aOwnerPath = '' then
+    Exit(aTypeName);
+  Result := aOwnerPath + '.' + aTypeName;
+end;
+
+procedure ApplyTypeScope(var aDeclaration: TDelphiSemanticDeclaration;
+  const aFact: TAstDeclarationScopeFact);
+var
+  lOwnerPath: string;
+begin
+  lOwnerPath := aFact.TypeOwnerPath;
+  if aFact.ScopedEnum then
+    lOwnerPath := AppendTypeOwnerPath(lOwnerPath, aFact.EnumTypeName);
+  if lOwnerPath = '' then
+    Exit;
+  aDeclaration.ScopeKind := 'type';
+  aDeclaration.OwnerName := lOwnerPath;
+  aDeclaration.OwnerScopeId := aDeclaration.OwnerScopeId + '|type|' +
+    StringReplace(LowerCase(lOwnerPath), '.', '|type|', [rfReplaceAll]);
+end;
+
+function IsMutableDeclaration(const aKind: string;
+  const aWritableSwitches: TArray<TWritableConstantSwitch>; const aOffset: Integer;
+  const aDefaultWritable: Boolean): Boolean;
+begin
+  Result := not MatchText(aKind, ['const', 'enum-value']) and
+    (not SameText(aKind, 'typed-const') or
+    WritableTypedConstantsAtOffset(aWritableSwitches, aOffset, aDefaultWritable));
+end;
+function NestedRoutineDeclarationFact(const aNode: TSyntaxNode;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aParentScopeIndex: Integer): TAstDeclarationScopeFact;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lName: string;
+begin
+  Result := Default(TAstDeclarationScopeFact);
+  lName := AstNodeName(aNode);
+  // DelphiAST folds the routine name into an attribute and removes its name node.
+  // Require a unique matching source declaration on the AST header line.
+  for lDeclaration in aDeclarations do
+    if SameText(lDeclaration.Kind, 'routine') and SameText(lDeclaration.Name, lName) and
+      (lDeclaration.Line = aNode.Line) then
+    begin
+      if Result.Name <> '' then
+        Exit(Default(TAstDeclarationScopeFact));
+      Result.Name := lName;
+      Result.Kind := 'routine';
+      Result.Line := lDeclaration.Line;
+      Result.Column := lDeclaration.Column;
+      Result.ScopeIndex := aParentScopeIndex;
+      Result.ProcedureSignature := AstProcedureSignature(aNode);
+    end;
+end;
+
 procedure EnrichLexicalScopeFacts(const aText, aUnitName: string;
   const aWritableSwitches: TArray<TWritableConstantSwitch>;
-  const aWritableTypedConstants, aExtractBodyReferences: Boolean;
+  const aOptions: TDelphiSemanticModelOptions;
+  const aMembers: TList<TDelphiSemanticMember>;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aRoutines: TList<TDelphiSemanticRoutine>;
   const aLocals: TList<TDelphiSemanticLocal>;
@@ -632,7 +1051,7 @@ procedure EnrichLexicalScopeFacts(const aText, aUnitName: string;
   var aModel: TDelphiSemanticUnitModel);
 var
   i: Integer;
-  lBuilder: TPasSyntaxTreeBuilder;
+  lComplete: Boolean;
   lDeclaration: TDelphiSemanticDeclaration;
   lDeclarationFacts: TList<TAstDeclarationScopeFact>;
   lFact: TAstDeclarationScopeFact;
@@ -641,7 +1060,6 @@ var
   lRoutine: TDelphiSemanticRoutine;
   lScopeIndex: Integer;
   lScopes: TList<TAstRoutineScope>;
-  lStream: TStringStream;
   lSyntaxTree: TSyntaxNode;
 
   function FindScopeForPosition(const aLine, aColumn: Integer): Integer;
@@ -660,17 +1078,28 @@ var
         Result := lIndex;
   end;
 
-  procedure CollectFacts(const aNode: TSyntaxNode; const aParentScopeIndex: Integer);
+  procedure CollectFacts(const aNode: TSyntaxNode; const aParentScopeIndex: Integer;
+    const aTypeOwnerPath: string);
   var
     lChild: TSyntaxNode;
     lCurrentScopeIndex: Integer;
+    lChildTypeOwnerPath: string;
+    lGuidNode: TSyntaxNode;
+    lLiteralNode: TSyntaxNode;
     lScope: TAstRoutineScope;
+    lTypeNode: TSyntaxNode;
   begin
     lCurrentScopeIndex := aParentScopeIndex;
+    lChildTypeOwnerPath := aTypeOwnerPath;
     if aNode.Typ = ntMethod then
     begin
+      // The nested routine declaration belongs to its enclosing scope.
+      if aParentScopeIndex >= 0 then
+        lDeclarationFacts.Add(NestedRoutineDeclarationFact(aNode, aDeclarations, aParentScopeIndex));
       lScope := Default(TAstRoutineScope);
       lScope.Name := AstNodeName(aNode);
+      lScope.CallingConvention := aNode.GetAttribute(anCallingConvention);
+      lScope.ProcedureSignature := AstProcedureSignature(aNode);
       lScope.StartLine := aNode.Line;
       lScope.StartColumn := aNode.Col;
       lScope.EndLine := aNode.Line;
@@ -691,18 +1120,55 @@ var
     end else if (aNode.Typ = ntTypeDecl) or
       MatchText(SyntaxNodeNames[aNode.Typ], ['variable', 'constant']) then
     begin
+      if (aNode.Typ = ntConstant) and (lCurrentScopeIndex < 0) and (aTypeOwnerPath = '') then
+        EnsureUnitConstantDeclaration(aText, aNode, aDeclarations);
       lFact := Default(TAstDeclarationScopeFact);
       lFact.Name := AstNodeName(aNode);
       lFact.Kind := SyntaxNodeNames[aNode.Typ];
       lFact.Line := aNode.Line;
       lFact.Column := aNode.Col;
       lFact.ScopeIndex := lCurrentScopeIndex;
+      if aNode.Typ = ntTypeDecl then
+      begin
+        lFact.TypeOwnerPath := aTypeOwnerPath;
+        lTypeNode := aNode.FindNode(ntType);
+        lFact.ProcedureSignature := AstProcedureSignature(lTypeNode);
+        lFact.IsForward := SameText(aNode.GetAttribute(anForwarded), 'true');
+        if lFact.IsForward then
+        begin
+          EnsureForwardTypeDeclaration(aText, lFact.Name, aNode.GetAttribute(anType),
+            aNode, aDeclarations);
+          lFact.IsDispInterface := SameText(aNode.GetAttribute(anType), 'dispinterface');
+        end;
+        if Assigned(lTypeNode) and
+          MatchText(lTypeNode.GetAttribute(anType), ['interface', 'dispinterface']) then
+        begin
+          lFact.IsDispInterface := SameText(lTypeNode.GetAttribute(anType),
+            'dispinterface');
+          lGuidNode := lTypeNode.FindNode(ntGuid);
+          if Assigned(lGuidNode) then
+          begin
+            lLiteralNode := lGuidNode.FindNode(ntLiteral);
+            if Assigned(lLiteralNode) and (lLiteralNode is TValuedSyntaxNode) then
+              lFact.InterfaceGuid := (lLiteralNode as TValuedSyntaxNode).Value;
+          end;
+        end;
+      end;
       if lFact.Name <> '' then
         lDeclarationFacts.Add(lFact);
+      if aNode.Typ = ntTypeDecl then
+      begin
+        lChildTypeOwnerPath := AppendTypeOwnerPath(aTypeOwnerPath, lFact.Name);
+        CollectEnumDeclarations(aText, aNode, aDeclarations, lDeclarationFacts, lCurrentScopeIndex,
+          aTypeOwnerPath);
+      end;
     end;
 
+    if (aNode.Typ = ntParameter) and not aOptions.SkipReferenceExtraction then
+      ExtractDefaultExpressionReferences(aText, aNode.FindNode(ntExpression), aReferences);
+
     for lChild in aNode.ChildNodes do
-      CollectFacts(lChild, lCurrentScopeIndex);
+      CollectFacts(lChild, lCurrentScopeIndex, lChildTypeOwnerPath);
   end;
 
   function FindDeclarationFact(const aDeclaration: TDelphiSemanticDeclaration;
@@ -742,16 +1208,21 @@ begin
   end;
   lDeclarationFacts := TList<TAstDeclarationScopeFact>.Create;
   lScopes := TList<TAstRoutineScope>.Create;
-  lBuilder := nil;
-  lStream := nil;
   lSyntaxTree := nil;
   try
     try
-      lStream := TStringStream.Create(aText, TEncoding.UTF8);
-      lBuilder := TPasSyntaxTreeBuilder.Create;
-      lSyntaxTree := lBuilder.Run(lStream);
-      CollectFacts(lSyntaxTree, -1);
-      aModel.ScopeModelStatus := 'ast';
+      lSyntaxTree := BuildModelSyntaxTree(aText, aOptions.SkipBodyAnalysis, lComplete);
+      if lComplete then
+        aModel.DependencyFacts := AstDependencyFacts(lSyntaxTree);
+      CollectFacts(lSyntaxTree, -1, '');
+      if not aOptions.SkipReferenceExtraction then
+        ExtractMembers(aText, lSyntaxTree, aDeclarations, aMembers, aReferences)
+      else
+        ExtractMembers(aText, lSyntaxTree, aDeclarations, aMembers, nil);
+      if lComplete then
+        aModel.ScopeModelStatus := 'ast'
+      else
+        aModel.ScopeModelStatus := 'ast-interface-only';
       aModel.RejectedDeclarationCount := 0;
     except
       on e: Exception do
@@ -766,7 +1237,7 @@ begin
       lDeclaration := aDeclarations[i];
       if FindDeclarationFact(lDeclaration, lFact) then
       begin
-        lDeclaration.DeclarationRole := 'declaration';
+        lDeclaration.DeclarationRole := IfThen(lFact.IsForward, 'forward', 'declaration');
         if lFact.ScopeIndex < 0 then
         begin
           lDeclaration.ScopeKind := 'unit';
@@ -778,12 +1249,15 @@ begin
           lDeclaration.OwnerName := lScopes[lFact.ScopeIndex].Name;
           lDeclaration.OwnerScopeId := lScopes[lFact.ScopeIndex].ScopeId;
         end;
+        ApplyTypeScope(lDeclaration, lFact);
         lDeclaration.SymbolId := lDeclaration.OwnerScopeId + '|' +
           LowerCase(lDeclaration.Kind) + '|' + LowerCase(lDeclaration.Name);
-        lDeclaration.Mutable := not SameText(lDeclaration.Kind, 'typed-const') or
-          WritableTypedConstantsAtOffset(aWritableSwitches,
+        lDeclaration.InterfaceGuid := lFact.InterfaceGuid;
+        lDeclaration.ProcedureSignature := lFact.ProcedureSignature;
+        lDeclaration.IsDispInterface := lFact.IsDispInterface;
+        lDeclaration.Mutable := IsMutableDeclaration(lDeclaration.Kind, aWritableSwitches,
           OffsetOfLineColumn(aText, lDeclaration.Line, lDeclaration.Column),
-          aWritableTypedConstants);
+          aOptions.WritableTypedConstants);
       end else
       begin
         lDeclaration.DeclarationRole := 'invalid';
@@ -803,6 +1277,8 @@ begin
         begin
           lRoutine.ScopeId := lScopes[lScopeIndex].ScopeId;
           lRoutine.ParentScopeId := lScopes[lScopeIndex].ParentScopeId;
+          lRoutine.CallingConvention := lScopes[lScopeIndex].CallingConvention;
+          lRoutine.ProcedureSignature := lScopes[lScopeIndex].ProcedureSignature;
           lRoutine.EndLine := lScopes[lScopeIndex].EndLine;
           lRoutine.EndColumn := lScopes[lScopeIndex].EndColumn;
           Break;
@@ -833,12 +1309,10 @@ begin
       end;
       aReferences[i] := lReference;
     end;
-    if aExtractBodyReferences then
+    if not aOptions.SkipBodyAnalysis and not aOptions.SkipReferenceExtraction then
       ExtractProgramBodyReferences(aText, lSyntaxTree, aReferences);
   finally
     lSyntaxTree.Free;
-    lBuilder.Free;
-    lStream.Free;
     lScopes.Free;
     lDeclarationFacts.Free;
   end;
@@ -906,6 +1380,7 @@ procedure AddMember(const aMembers: TList<TDelphiSemanticMember>; const aOwnerNa
 var
   lMember: TDelphiSemanticMember;
 begin
+  lMember := Default(TDelphiSemanticMember);
   lMember.OwnerName := aOwnerName;
   lMember.Name := aName;
   lMember.Kind := aKind;
@@ -1166,6 +1641,21 @@ begin
   end;
 end;
 
+procedure AddTypeDeclaration(const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aText, aLine, aName, aTypeName, aTypeText: string; const aLineOffset: Integer);
+var
+  lNameOffset: Integer;
+  lSection: string;
+begin
+  lNameOffset := TextOffsetInLine(aLine, aName, aLineOffset) + 1;
+  lSection := SectionForOffset(aText, lNameOffset);
+  if MatchText(aTypeName, ['enum', 'class', 'interface', 'record']) then
+    AddDeclaration(aDeclarations, aName, 'type', aTypeName, lSection, aText,
+      lNameOffset, ExtractBaseTypeName(aTypeText), ExtractHelperTargetName(aTypeText))
+  else
+    AddDeclaration(aDeclarations, aName, 'type-alias', aTypeName, lSection, aText, lNameOffset);
+end;
+
 procedure ExtractTypeDeclarations(const aText: string;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aReferences: TList<TDelphiSemanticReference>);
@@ -1239,9 +1729,8 @@ begin
         lInRoutine := False;
       end else if not lInRoutine then
       begin
-        if SameText(lScopeLine, 'type') then
-          lBlockKind := 'type'
-        else if TRegEx.IsMatch(lScopeLine, '^(const|resourcestring|var|threadvar)\b',
+        ConsumeTypeKeyword(lScopeLine, lBlockKind);
+        if TRegEx.IsMatch(lScopeLine, '^(const|resourcestring|var|threadvar)\b',
           [roIgnoreCase]) then
           lBlockKind := ''
         else if lBlockKind = 'type' then
@@ -1257,14 +1746,7 @@ begin
             lTypeName := NormalizeTypeName(lTypeText);
             lSection := SectionForOffset(aText, lOffset + 1);
             if not SameText(lName, 'Result') then
-            begin
-              if MatchText(lTypeName, ['enum', 'class', 'interface', 'record']) then
-                AddDeclaration(aDeclarations, lName, 'type', lTypeName, lSection, aText,
-                  lOffset + 1, ExtractBaseTypeName(lTypeText), ExtractHelperTargetName(lTypeText))
-              else
-                AddDeclaration(aDeclarations, lName, 'type-alias', lTypeName, lSection, aText,
-                  TextOffsetInLine(lLines[i], lName, lOffset) + 1);
-            end;
+              AddTypeDeclaration(aDeclarations, aText, lLines[i], lName, lTypeName, lTypeText, lOffset);
 
             if lTypeName = 'enum' then
             begin
@@ -1534,6 +2016,43 @@ begin
   end;
 end;
 
+function MaskMemberVisibility(var aLine, aCleanBody, aVisibility: string;
+  const aBodyStart: Integer): Boolean;
+var
+  i: Integer;
+  lMatch: TMatch;
+begin
+  lMatch := TRegEx.Match(aLine,
+    '^[ \t]*((?:strict[ \t]+)?(?:private|protected)|public|published)\b', [roIgnoreCase]);
+  Result := lMatch.Success and (aBodyStart > 0) and
+    (aBodyStart + lMatch.Length - 1 <= Length(aCleanBody));
+  if not Result then
+    Exit;
+  aVisibility := TRegEx.Replace(lMatch.Groups[1].Value, '[ \t]+', ' ').ToLower;
+  // Mask only the prefix so anchored member extraction retains original source coordinates.
+  for i := 1 to lMatch.Length do
+  begin
+    aLine[i] := ' ';
+    aCleanBody[aBodyStart + i - 1] := ' ';
+  end;
+end;
+const
+  // Capture groups are shared by ordinary and normalized variant-field scans.
+  cMemberFieldPrefix =
+    '(?:(strict[ \t]+(?:private|protected)|private|protected|public|published)[ \t]+)?' +
+    '(class\s+var\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)';
+
+procedure UpdateFieldSection(const aMatch: TMatch; var aVisibility: string;
+  var aClassVariables: Boolean);
+begin
+  if aMatch.Groups[1].Value <> '' then
+  begin
+    aVisibility := TRegEx.Replace(aMatch.Groups[1].Value, '[ \t]+', ' ').ToLower;
+    aClassVariables := False;
+  end;
+  if aMatch.Groups[2].Value <> '' then
+    aClassVariables := True;
+end;
 procedure ExtractMembersFromBody(const aText, aOwnerName, aBody: string; const aBodyOffset: Integer;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>;
@@ -1568,8 +2087,7 @@ begin
   try
     lLines.Text := aBody;
     lCleanBody := SanitizeCodeText(aBody);
-    lFieldRegex := TRegEx.Create(
-      '\G[ \t]*(class\s+var\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)' +
+    lFieldRegex := TRegEx.Create('\G[ \t]*' + cMemberFieldPrefix +
       '\s*:([^;\r\n]+);', [roIgnoreCase]);
     lConsumedEnd := 0;
     lOffset := aBodyOffset;
@@ -1585,7 +2103,12 @@ begin
         Inc(lOffset, Length(lLines[i]) + Length(sLineBreak));
         Continue;
       end;
-      lLine := NormalizeVariantMemberLine(lLines[i].Trim);
+      lLine := lLines[i];
+      if (lNestedOwnerName = '') and
+        MaskMemberVisibility(lLine, lCleanBody, lVisibility, lOffset - aBodyOffset + 1) then
+        lInClassVarSection := False;
+      lLines[i] := lLine;
+      lLine := NormalizeVariantMemberLine(lLine.Trim);
       if lNestedOwnerName <> '' then
       begin
         if TRegEx.IsMatch(lLine, '^end\s*;', [roIgnoreCase]) then
@@ -1593,15 +2116,9 @@ begin
           ExtractMembersFromBody(aText, lNestedOwnerName, lNestedBody, lNestedBodyOffset,
             aDeclarations, aMembers, aReferences);
           lNestedBody := '';
-          lNestedBodyOffset := 0;
           lNestedOwnerName := '';
         end else
           lNestedBody := lNestedBody + lLines[i] + sLineBreak;
-      end else if MatchText(lLine, ['private', 'protected', 'public', 'published', 'strict private',
-        'strict protected']) then
-      begin
-        lInClassVarSection := False;
-        lVisibility := lLine;
       end else if SameText(lLine, 'class var') then
       begin
         lInClassVarSection := True;
@@ -1663,30 +2180,30 @@ begin
                 lFieldMatch := lFieldRegex.Match(lCleanBody, lOffset - aBodyOffset + 1)
               else
                 // Variant labels and closing parentheses use the existing normalized form.
-                lFieldMatch := TRegEx.Match(lLine,
-                  '^(class\s+var\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:\s*([^;]+);',
-                  [roIgnoreCase]);
-              if lFieldMatch.Success then
+                lFieldMatch := TRegEx.Match(lLine, '^' + cMemberFieldPrefix +
+                  '\s*:\s*([^;]+);', [roIgnoreCase]);
+              while lFieldMatch.Success do
               begin
+                UpdateFieldSection(lFieldMatch, lVisibility, lInClassVarSection);
                 if lLine = lLines[i].Trim then
                 begin
-                  lNamesOffset := aBodyOffset + lFieldMatch.Groups[2].Index - 1;
-                  lTypeOffset := aBodyOffset + lFieldMatch.Groups[3].Index - 1;
-                  lTypeName := Copy(aBody, lFieldMatch.Groups[3].Index,
-                    lFieldMatch.Groups[3].Length);
+                  lNamesOffset := aBodyOffset + lFieldMatch.Groups[3].Index - 1;
+                  lTypeOffset := aBodyOffset + lFieldMatch.Groups[4].Index - 1;
+                  lTypeName := Copy(aBody, lFieldMatch.Groups[4].Index,
+                    lFieldMatch.Groups[4].Length);
                   Inc(lTypeOffset, Length(lTypeName) - Length(lTypeName.TrimLeft));
                   lTypeName := lTypeName.Trim;
                   lConsumedEnd := aBodyOffset + lFieldMatch.Index + lFieldMatch.Length - 1;
                 end else begin
-                  lNamesOffset := lOffset + Pos(lFieldMatch.Groups[2].Value, lLines[i]) - 1;
-                  lTypeName := lFieldMatch.Groups[3].Value.Trim;
+                  lNamesOffset := lOffset + Pos(lFieldMatch.Groups[3].Value, lLines[i]) - 1;
+                  lTypeName := lFieldMatch.Groups[4].Value.Trim;
                   lTypeOffset := TextOffsetInLine(lLines[i], lTypeName, lOffset);
                 end;
-                lNameMatch := TRegEx.Match(lFieldMatch.Groups[2].Value, '[A-Za-z_][A-Za-z0-9_]*');
+                lNameMatch := TRegEx.Match(lFieldMatch.Groups[3].Value, '[A-Za-z_][A-Za-z0-9_]*');
                 while lNameMatch.Success do
                 begin
                   lNameOffset := lNamesOffset + lNameMatch.Index - 1;
-                  if lInClassVarSection or (MatchGroupValue(lFieldMatch, 1).Trim <> '') then
+                  if lInClassVarSection then
                     AddMember(aMembers, aOwnerName, lNameMatch.Value, 'class-var',
                       lTypeName, lVisibility, '', aText, False, False, lNameOffset)
                   else
@@ -1695,6 +2212,7 @@ begin
                   lNameMatch := lNameMatch.NextMatch;
                 end;
                 AddTypeReferences(aReferences, '', lTypeName, aText, lTypeOffset);
+                lFieldMatch := lFieldMatch.NextMatch;
               end;
             end;
           end;
@@ -1710,24 +2228,107 @@ begin
   end;
 end;
 
-procedure ExtractMembers(const aText: string; const aDeclarations: TList<TDelphiSemanticDeclaration>;
-  const aMembers: TList<TDelphiSemanticMember>;
-  const aReferences: TList<TDelphiSemanticReference>);
+procedure EnrichMemberMethods(const aOwner: string; const aType: TSyntaxNode;
+  const aMembers: TList<TDelphiSemanticMember>);
 var
-  lMatch: TMatch;
+  lPending: TStack<TSyntaxNode>;
+  lEnriched: TList<Integer>;
+  lNode: TSyntaxNode;
+  lMember: TDelphiSemanticMember;
+  i: Integer;
 begin
-  lMatch := TRegEx.Match(aText,
-    '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*((?:class|interface)(?:\s*\([^)]+\))?|' +
-    '(?:class|record)\s+helper\s+for\s+[A-Za-z_][A-Za-z0-9_]*|(?:packed\s+)?record)\b(.*?)^\s*end\s*;',
-    [roIgnoreCase, roMultiLine, roSingleLine]);
-  while lMatch.Success do
-  begin
-    ExtractMembersFromBody(aText, lMatch.Groups[1].Value, lMatch.Groups[3].Value,
-      lMatch.Groups[3].Index, aDeclarations, aMembers, aReferences);
-    lMatch := lMatch.NextMatch;
+  lPending := TStack<TSyntaxNode>.Create;
+  lEnriched := nil;
+  try
+    lEnriched := TList<Integer>.Create;
+    lPending.Push(aType);
+    while lPending.Count > 0 do
+    begin
+      lNode := lPending.Pop;
+      if lNode.Typ = ntMethod then
+        for i := 0 to aMembers.Count - 1 do
+        begin
+          lMember := aMembers[i];
+          if SameText(lMember.OwnerName, aOwner) and
+            SameText(lMember.Name, AstNodeName(lNode)) and (lMember.Line = lNode.Line) then
+          begin
+            lMember.ProcedureSignature := AstProcedureSignature(lNode);
+            // A line-based member scan may collapse same-line overloads.
+            if lEnriched.Contains(i) or SameText(lNode.GetAttribute(anClass), 'true') then
+              lMember.ProcedureSignature.Known := False;
+            lEnriched.Add(i);
+            aMembers[i] := lMember;
+          end;
+        end;
+      for i := High(lNode.ChildNodes) downto 0 do
+        if lNode.ChildNodes[i].Typ <> ntTypeDecl then
+          lPending.Push(lNode.ChildNodes[i]);
+    end;
+  finally
+    lEnriched.Free;
+    lPending.Free;
   end;
 end;
 
+function ExtractTypeMembers(const aText: string; const aNode: TSyntaxNode;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aMembers: TList<TDelphiSemanticMember>;
+  const aReferences: TList<TDelphiSemanticReference>): Boolean;
+var
+  lTypeNode: TSyntaxNode;
+  lStart, lEnd: Integer;
+  lText: string;
+  lHeader: TMatch;
+begin
+  Result := False;
+  if (aNode.Typ <> ntTypeDecl) or not (aNode is TCompoundSyntaxNode) then
+    Exit;
+  lTypeNode := aNode.FindNode(ntType);
+  if not Assigned(lTypeNode) or not MatchText(lTypeNode.GetAttribute(anType),
+    ['class', 'interface', 'record']) then
+    Exit;
+  Result := True;
+  // The AST bounds the declaration, including same-line end tokens.
+  lStart := OffsetOfLineColumn(aText, aNode.Line, aNode.Col);
+  lEnd := OffsetOfLineColumn(aText, TCompoundSyntaxNode(aNode).EndLine,
+    TCompoundSyntaxNode(aNode).EndCol);
+  lText := Copy(aText, lStart, lEnd - lStart);
+  lHeader := TRegEx.Match(lText,
+    '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*((?:class|record)\s+helper\s+for\s+' +
+    '[A-Za-z_][A-Za-z0-9_.]*|(?:class|interface)(?:\s*\([^)]+\))?|' +
+    '(?:packed\s+)?record)\b', [roIgnoreCase]);
+  if lHeader.Success then
+  begin
+    ExtractMembersFromBody(aText, lHeader.Groups[1].Value,
+      Copy(lText, lHeader.Length + 1, MaxInt), lStart + lHeader.Length,
+      aDeclarations, aMembers, aReferences);
+    EnrichMemberMethods(lHeader.Groups[1].Value, lTypeNode, aMembers);
+  end;
+end;
+
+procedure ExtractMembers(const aText: string; const aNode: TSyntaxNode;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aMembers: TList<TDelphiSemanticMember>;
+  const aReferences: TList<TDelphiSemanticReference>);
+var
+  lPending: TStack<TSyntaxNode>;
+  lNode: TSyntaxNode;
+  i: Integer;
+begin
+  lPending := TStack<TSyntaxNode>.Create;
+  try
+    lPending.Push(aNode);
+    while lPending.Count > 0 do
+    begin
+      lNode := lPending.Pop;
+      if not ExtractTypeMembers(aText, lNode, aDeclarations, aMembers, aReferences) then
+        for i := High(lNode.ChildNodes) downto 0 do
+          lPending.Push(lNode.ChildNodes[i]);
+    end;
+  finally
+    lPending.Free;
+  end;
+end;
 procedure AddRoutineParameter(const aParameters: TList<TDelphiSemanticParameter>;
   const aRoutineName, aName, aTypeName, aModifier, aText: string; const aNameOffset: Integer);
 var
@@ -1834,6 +2435,7 @@ procedure AddRoutine(const aRoutines: TList<TDelphiSemanticRoutine>; const aName
 var
   lRoutine: TDelphiSemanticRoutine;
 begin
+  lRoutine := Default(TDelphiSemanticRoutine);
   lRoutine.Name := aName;
   lRoutine.OwnerName := aOwnerName;
   lRoutine.SectionKind := aSection;
@@ -2492,10 +3094,12 @@ var
   lDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   lImplementationUses: TList<string>;
   lInterfaceUses: TList<string>;
+  i: Integer;
   lLocals: TList<TDelphiSemanticLocal>;
   lMatch: TMatch;
   lMembers: TList<TDelphiSemanticMember>;
   lOffsetMap: TArray<Integer>;
+  lObservationError: string;
   lPreprocessOptions: TDelphiSemanticPreprocessOptions;
   lPreprocessResult: TDelphiSemanticPreprocessResult;
   lReferenceSink: TList<TDelphiSemanticReference>;
@@ -2536,6 +3140,7 @@ begin
     Result.Success := lSourceResult.Success;
     Result.FileName := lSourceResult.Source.FileName;
     Result.SourceText := lSourceResult.Source.Text;
+    Result.SourceObservations := lSourceResult.SourceObservations;
     Result.EncodingName := lSourceResult.Source.EncodingName;
     Result.LineEndingName := lSourceResult.Source.LineEndingName;
     Result.LineBreak := lSourceResult.Source.LineBreak;
@@ -2554,6 +3159,17 @@ begin
     lPreprocessOptions.SearchPaths := aOptions.SearchPaths;
     lPreprocessResult := TDelphiSemanticPreprocessor.PreprocessFile(lPreprocessOptions);
     Result.Success := lPreprocessResult.Success;
+    SetLength(Result.IncludeFileNames, Length(lPreprocessResult.Includes));
+    for i := 0 to High(lPreprocessResult.Includes) do
+      Result.IncludeFileNames[i] := lPreprocessResult.Includes[i].FileName;
+    if (lPreprocessResult.SourceObservations <> nil) and
+      not TDelphiSemanticSourceEvidence.TryMerge(lSourceResult.SourceObservations,
+        lPreprocessResult.SourceObservations, Result.SourceObservations, lObservationError) then
+    begin
+      Result.Success := False;
+      AddDiagnostic(lDiagnostics, lObservationError,
+        'Source bytes changed during extraction.', aOptions.SourceFileName, 0);
+    end;
     AddPreprocessDiagnostics(lDiagnostics, lPreprocessResult.Diagnostics);
     lText := lPreprocessResult.OutputText;
     if lText = '' then
@@ -2590,7 +3206,6 @@ begin
     ExtractTypeDeclarations(lText, lDeclarations, lReferenceSink);
     ExtractConstVarDeclarations(lDeclarationText, Result.UnitName, lDeclarations, lMembers,
       lReferenceSink);
-    ExtractMembers(lText, lDeclarations, lMembers, lReferenceSink);
     ExtractRoutines(lText, lDeclarations, lRoutines, lReferenceSink);
     if not aOptions.SkipBodyAnalysis then
     begin
@@ -2598,8 +3213,7 @@ begin
       ExtractWithStatements(lText, lWithStatements);
     end;
     EnrichLexicalScopeFacts(lText, Result.UnitName, lWritableSwitches,
-      aOptions.WritableTypedConstants,
-      not aOptions.SkipBodyAnalysis and not aOptions.SkipReferenceExtraction,
+      aOptions, lMembers,
       lDeclarations, lRoutines, lLocals, lReferences, lDiagnostics, Result);
     lOffsetMap := BuildOutputToSourceOffsetMap(lSourceResult.Source.Text, lText);
     if lReferences.Count > 0 then

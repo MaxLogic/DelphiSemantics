@@ -11,6 +11,7 @@ type
   [TestFixture]
   TUnitModelTests = class
   private
+    function DefaultParameterSource(const aShape: string): string;
     function HasDeclaration(const aModel: TDelphiSemanticUnitModel; const aName, aKind,
       aSection: string): Boolean;
     function HasDiagnostic(const aModel: TDelphiSemanticUnitModel; const aCode: string): Boolean;
@@ -54,6 +55,19 @@ type
     procedure ExtractReentrantLoop(const aPath, aUnitName, aTypeName, aRoutineName,
       aReferenceName: string; out aError: string);
   public
+    [Test] procedure NestedRoutineDeclarationHasEnclosingScope;
+    [Test]
+    [TestCase('Multiple ordinary fields', 'ordinary')]
+    [TestCase('Visibility changes on one line', 'visibility')]
+    [TestCase('Persistent class var section', 'class-var')]
+    procedure ExtractsCompoundVisibilityFields(const aLayout: string);
+    [Test]
+    [TestCase('Public inline', 'public,field,True')]
+    [TestCase('Private inline', 'private,field,True')]
+    [TestCase('Strict protected inline', 'strict protected,field,True')]
+    [TestCase('Class variable inline', 'public,class-var,True')]
+    [TestCase('Public multiline', 'public,field,False')]
+    procedure ExtractsFieldAfterVisibility(const aVisibility, aKind: string; const aInline: Boolean);
     [Test]
     procedure SourceLoaderUsesAnsiFallbackForInvalidUtf8;
     [Test]
@@ -73,6 +87,18 @@ type
     [Test]
     procedure SkipReferenceExtractionKeepsSymbolsAndOmitsReferences;
     [Test]
+    [TestCase('Interface', 'global,False')]
+    [TestCase('Interface lean', 'global,True')]
+    [TestCase('Method', 'method,False')]
+    [TestCase('Method lean', 'method,True')]
+    [TestCase('Implementation', 'private,False')]
+    [TestCase('Implementation lean', 'private,True')]
+    procedure ExtractsDefaultParameterReferences(const aShape: string; const aLean: Boolean);
+    [Test]
+    procedure DefaultParameterStringsAndCommentsDoNotCreateReferences;
+    [Test]
+    procedure SkipsDefaultParameterReferencesWhenExtractionDisabled;
+    [Test]
     procedure ExtractsUntypedRoutineParameters;
     [Test]
     [TestCase('missing terminator', '0')]
@@ -88,6 +114,11 @@ type
     procedure ExtractsUnprefixedConstVarAndTypedConstDeclarations;
     [Test]
     procedure ExtractsInlineConstVarSections;
+    [Test]
+    [Category('CompactConstantFacts')]
+    [TestCase('Compact', 'True')]
+    [TestCase('Multiline', 'False')]
+    procedure PreservesUnitConstantsAcrossLineLayouts(const aCompact: Boolean);
     [Test]
     procedure InitializedVariablesRetainOnlyDeclaredTypes;
     [Test]
@@ -931,6 +962,113 @@ begin
   Assert.IsTrue(HasLocal(lModel, 'Run', 'lOtherPtr', 'PChar'));
 end;
 
+function TUnitModelTests.DefaultParameterSource(const aShape: string): string;
+const
+  cHeader = 'procedure Run(aValue: Integer = ProviderAlpha.AlphaOnlyValue);';
+begin
+  Result := 'unit ParameterDefaults;' + sLineBreak + 'interface' + sLineBreak +
+    'uses ProviderAlpha;' + sLineBreak;
+  if aShape = 'method' then
+    Result := Result + 'type TWorker = class' + sLineBreak + cHeader + sLineBreak +
+      'end;' + sLineBreak
+  else if aShape = 'global' then
+    Result := Result + cHeader + sLineBreak;
+  Result := Result + 'implementation' + sLineBreak;
+  if aShape = 'method' then
+    Result := Result + 'procedure TWorker.Run(aValue: Integer);'
+  else if aShape = 'private' then
+    Result := Result + cHeader
+  else
+    Result := Result + 'procedure Run(aValue: Integer);';
+  Result := Result + sLineBreak + 'begin end;' + sLineBreak + 'end.';
+end;
+
+procedure TUnitModelTests.ExtractsDefaultParameterReferences(
+  const aShape: string; const aLean: Boolean);
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lText: string;
+  lReference: TDelphiSemanticReference;
+  lOffset: Integer;
+  lCount: Integer;
+begin
+  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\.dak\delphiSemanticsTests\refactoring-light-default-references\' + aShape + '.pas');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lPath));
+  lText := DefaultParameterSource(aShape);
+  TFile.WriteAllText(lPath, lText, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lOptions.SkipBodyAnalysis := aLean;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  lOffset := Pos('AlphaOnlyValue', lText);
+  Assert.IsTrue(FindReferenceAtOffset(lModel, 'AlphaOnlyValue', lOffset, lReference),
+    'The default expression reference must retain its original offset');
+  Assert.AreEqual(ColumnOfSourceOffset(lText, lOffset), lReference.Column);
+  Assert.AreEqual(lOffset + Length('AlphaOnlyValue'), lReference.EndOffset);
+  Assert.AreEqual(LineContaining(lText, 'ProviderAlpha.AlphaOnlyValue'), lReference.Line);
+  Assert.IsNotEmpty(lReference.RoutineScopeId);
+  if aShape = 'private' then
+    Assert.AreEqual('implementation', lReference.SectionKind)
+  else
+    Assert.AreEqual('interface', lReference.SectionKind);
+  lCount := 0;
+  for lReference in lModel.References do
+    if lReference.Name = 'AlphaOnlyValue' then
+      Inc(lCount);
+  Assert.AreEqual(1, lCount, 'A default expression has one source occurrence');
+end;
+
+procedure TUnitModelTests.DefaultParameterStringsAndCommentsDoNotCreateReferences;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\.dak\delphiSemanticsTests\refactoring-light-default-references\literals.pas');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lPath));
+  TFile.WriteAllText(lPath, 'unit DefaultLiterals; interface' + sLineBreak +
+    'procedure Run(aText: string = ''FakeValue'';' + sLineBreak +
+    'aValue: Integer = 1 {CommentValue}; aPointer: Pointer = nil);' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure Run(aText: string; aValue: Integer; aPointer: Pointer);' +
+    sLineBreak + 'begin end; end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsFalse(HasReference(lModel, 'FakeValue'));
+  Assert.IsFalse(HasReference(lModel, 'CommentValue'));
+  Assert.IsFalse(HasReference(lModel, 'nil'));
+end;
+
+procedure TUnitModelTests.SkipsDefaultParameterReferencesWhenExtractionDisabled;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)),
+    '..\.dak\delphiSemanticsTests\refactoring-light-default-references\skipped.pas');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lPath));
+  TFile.WriteAllText(lPath, DefaultParameterSource('global'), TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lOptions.SkipReferenceExtraction := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(HasRoutine(lModel, 'Run', 'interface'));
+  Assert.AreEqual(0, Integer(Length(lModel.References)));
+end;
+
 procedure TUnitModelTests.SkipReferenceExtractionKeepsSymbolsAndOmitsReferences;
 var
   lModel: TDelphiSemanticUnitModel;
@@ -1155,6 +1293,44 @@ begin
   Assert.IsTrue(HasDeclaration(lModel, 'TypedSemanticConst', 'typed-const', 'interface'));
   Assert.IsFalse(HasDeclaration(lModel, 'PlainSemanticConst', 'type-alias', 'interface'));
   Assert.IsTrue(HasDeclaration(lModel, 'SemanticGlobal', 'var', 'interface'));
+end;
+
+procedure TUnitModelTests.PreservesUnitConstantsAcrossLineLayouts(const aCompact: Boolean);
+var
+  lPath, lSource: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lCount: Integer;
+begin
+  lSource := 'unit CompactConstantFacts; interface const Alpha = 1; Beta = -2; ' +
+    'implementation const Gamma = 3; end.';
+  if not aCompact then
+    lSource := lSource.Replace('; ', ';' + sLineBreak).Replace('interface const ',
+      'interface' + sLineBreak + 'const' + sLineBreak).Replace('implementation const ',
+      'implementation' + sLineBreak + 'const' + sLineBreak);
+  lPath := UnitModelTempPath('compact-constant-facts-' + BoolToStr(aCompact, True) + '.pas');
+  TFile.WriteAllText(lPath, lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindDeclaration(lModel, 'Alpha', 'const', 'interface', lDeclaration), 'Alpha');
+  Assert.IsTrue(FindDeclaration(lModel, 'Beta', 'const', 'interface', lDeclaration), 'Beta');
+  Assert.IsTrue(FindDeclaration(lModel, 'Gamma', 'const', 'implementation', lDeclaration), 'Gamma');
+  lCount := 0;
+  for lDeclaration in lModel.Declarations do
+    if SameText(lDeclaration.Kind, 'const') then
+    begin
+      Inc(lCount);
+      Assert.AreEqual('unit', lDeclaration.ScopeKind);
+      Assert.AreEqual('declaration', lDeclaration.DeclarationRole);
+      Assert.AreEqual(lDeclaration.Name, Copy(lSource, lDeclaration.Offset, Length(lDeclaration.Name)));
+      Assert.AreEqual(lDeclaration.Offset + Length(lDeclaration.Name), lDeclaration.EndOffset);
+      Assert.IsFalse(lDeclaration.Mutable);
+    end;
+  Assert.AreEqual(3, lCount, 'Each syntax-backed constant must occur once');
 end;
 
 procedure TUnitModelTests.MigratedSymbolMapExtractsUnitNameAndUsesSections;
@@ -3100,7 +3276,8 @@ begin
     '  TAliasRecord = packed record' + sLineBreak +
     '    Value: Integer;' + sLineBreak + '  end;' + sLineBreak +
     lIndent + 'PAliasRecord = ^TAliasRecord;' + sLineBreak +
-    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+    'implementation' + sLineBreak + 'type' + sLineBreak +
+    '  PPrivateAlias = ^TAliasRecord;' + sLineBreak + 'end.', TEncoding.UTF8);
   lOptions := Default(TDelphiSemanticModelOptions);
   lOptions.SourceFileName := lPath;
   lOptions.ProjectContextApplied := True;
@@ -3116,6 +3293,11 @@ begin
   Assert.AreEqual('declaration', lDeclaration.DeclarationRole);
   Assert.AreEqual('unit', lDeclaration.ScopeKind);
   Assert.AreEqual('PointerAliasScope', lDeclaration.OwnerName);
+  Assert.IsTrue(FindDeclaration(lModel, 'PPrivateAlias', 'type-alias',
+    'implementation', lDeclaration));
+  Assert.AreEqual('declaration', lDeclaration.DeclarationRole,
+    'Skipping routine bodies must preserve implementation declaration facts');
+  Assert.AreEqual('unit', lDeclaration.ScopeKind);
 end;
 
 procedure TUnitModelTests.ModelJsonPreservesDeclarationRolesAndLexicalOwnership;
@@ -3786,6 +3968,114 @@ begin
   Assert.IsTrue(lModel.Success);
   Assert.IsTrue(HasDeclaration(lModel, 'Value', 'var', 'interface'),
     'Commented header text must not consume the next real declaration.');
+end;
+
+procedure TUnitModelTests.NestedRoutineDeclarationHasEnclosingScope;
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lOuter, lNested: TDelphiSemanticRoutine;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('nested-routine-declaration-scope.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit NestedRoutineDeclarationScope;'#13#10'interface'#13#10 +
+    'type TSubject = class procedure Execute; end;'#13#10'implementation'#13#10 +
+    'procedure TSubject.Execute;'#13#10'  procedure Nested;'#13#10 +
+    '  begin end;'#13#10'begin Nested; end;'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.IsTrue(FindRoutine(lModel, 'Execute', 'implementation', lOuter));
+  Assert.IsTrue(FindRoutine(lModel, 'Nested', 'implementation', lNested));
+  Assert.IsTrue(FindDeclaration(lModel, 'Nested', 'routine', 'implementation', lDeclaration));
+  Assert.AreEqual('declaration', lDeclaration.DeclarationRole);
+  Assert.AreEqual('routine', lDeclaration.ScopeKind);
+  Assert.AreEqual(lOuter.ScopeId, lDeclaration.OwnerScopeId);
+  Assert.AreEqual(lOuter.ScopeId, lNested.ParentScopeId);
+  Assert.AreEqual(0, lModel.RejectedDeclarationCount);
+  lModel := JsonToModel(ModelToJson(lModel));
+  Assert.IsTrue(FindDeclaration(lModel, 'Nested', 'routine', 'implementation', lDeclaration));
+  Assert.AreEqual(lOuter.ScopeId, lDeclaration.OwnerScopeId, 'JSON retains lexical owner');
+end;
+
+procedure TUnitModelTests.ExtractsFieldAfterVisibility(const aVisibility, aKind: string;
+  const aInline: Boolean);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lMember: TDelphiSemanticMember;
+  lSource, lField: string;
+begin
+  lField := 'fValue: Integer;';
+  if aKind = 'class-var' then
+    lField := 'class var ' + lField;
+  if aInline then
+    lField := aVisibility + ' ' + lField
+  else
+    lField := aVisibility + #13#10'  ' + lField;
+  lSource := 'unit VisibilityFields;'#13#10'interface'#13#10 +
+    'type'#13#10'  TSubject = class'#13#10'  ' + lField + #13#10 +
+    '  end;'#13#10'implementation'#13#10'end.'#13#10;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('visibility-fields.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual(0, lModel.RejectedDeclarationCount);
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'fValue', aKind, lMember));
+  Assert.AreEqual(aVisibility, lMember.Visibility);
+  Assert.AreEqual('Integer', lMember.TypeName);
+  Assert.AreEqual(Pos('fValue', lSource), lMember.Offset);
+  Assert.AreEqual(lMember.Offset + Length('fValue'), lMember.EndOffset);
+  Assert.AreEqual(ColumnOfSourceOffset(lSource, lMember.Offset), lMember.Column);
+  Assert.AreEqual('fValue', Copy(lSource, lMember.Offset, lMember.EndOffset - lMember.Offset));
+  lModel := JsonToModel(ModelToJson(lModel));
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'fValue', aKind, lMember));
+  Assert.AreEqual(aVisibility, lMember.Visibility);
+end;
+
+procedure TUnitModelTests.ExtractsCompoundVisibilityFields(const aLayout: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lMember: TDelphiSemanticMember;
+  lSource, lFields, lKind, lVisibility: string;
+begin
+  lFields := 'public fFirst: Integer; fSecond: Integer;';
+  lKind := 'field';
+  lVisibility := 'public';
+  if aLayout = 'visibility' then
+  begin
+    lFields := 'public fFirst: Integer; private fSecond: Integer;';
+    lVisibility := 'private';
+  end else if aLayout = 'class-var' then
+  begin
+    lFields := 'public class var fFirst: Integer; fSecond: Integer;';
+    lKind := 'class-var';
+  end;
+  lSource := 'unit CompoundVisibility;'#13#10'interface'#13#10 +
+    'type'#13#10'  TSubject = class'#13#10'  ' + lFields + #13#10 +
+    '  end;'#13#10'implementation'#13#10'end.'#13#10;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('compound-visibility.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'fFirst', lKind, lMember));
+  Assert.AreEqual('public', lMember.Visibility);
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'fSecond', lKind, lMember));
+  Assert.AreEqual(lVisibility, lMember.Visibility);
+  Assert.AreEqual('Integer', lMember.TypeName);
+  Assert.AreEqual(Pos('fSecond', lSource), lMember.Offset);
+  Assert.AreEqual(ColumnOfSourceOffset(lSource, lMember.Offset), lMember.Column);
+  Assert.AreEqual('fSecond', Copy(lSource, lMember.Offset, lMember.EndOffset - lMember.Offset));
 end;
 
 initialization

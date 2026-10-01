@@ -16,6 +16,7 @@ type
       const aCode: string): Boolean;
     function HasDeclaration(const aModel: TDelphiSemanticUnitModel; const aName: string):
       Boolean;
+    procedure AssertReuseModelFacts(const aModel: TDelphiSemanticUnitModel);
     procedure AssertUnitCacheRetention(const aCacheFileName: string);
     procedure CorruptStoredModelJson(const aFileName: string);
     procedure AwaitUnitCacheConcurrencyStart;
@@ -110,6 +111,7 @@ uses
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   FireDAC.Stan.Error,
   DelphiSemantics.Api, DelphiSemantics.Api.WithBinding, DelphiSemantics.CompilerProfile,
+  DelphiSemantics.Model.Json,
   maxLogic.IOUtils, Test.Support;
 
 type
@@ -896,12 +898,54 @@ begin
   end;
 end;
 
+procedure TCacheSqliteTests.AssertReuseModelFacts(const aModel: TDelphiSemanticUnitModel);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lForward: Boolean;
+  lEnumCount: Integer;
+begin
+  Assert.IsTrue(aModel.Success);
+  lForward := False;
+  lEnumCount := 0;
+  for lDeclaration in aModel.Declarations do
+  begin
+    if lDeclaration.Name = 'TPending' then
+    begin
+      lForward := True;
+      Assert.AreEqual('forward', lDeclaration.DeclarationRole);
+    end;
+    if lDeclaration.Kind = 'enum-value' then
+    begin
+      Inc(lEnumCount);
+      Assert.AreEqual('declaration', lDeclaration.DeclarationRole);
+      Assert.AreEqual('type', lDeclaration.ScopeKind);
+      Assert.AreEqual('TMode', lDeclaration.OwnerName);
+      Assert.IsFalse(lDeclaration.Mutable);
+      Assert.AreEqual(lDeclaration.Name,
+        Copy(aModel.SourceText, lDeclaration.Offset, Length(lDeclaration.Name)));
+    end;
+  end;
+  Assert.IsTrue(lForward);
+  Assert.AreEqual(2, lEnumCount);
+  Assert.IsTrue(aModel.Declarations[0].ProcedureSignature.Known);
+  Assert.AreEqual(1, Integer(Length(aModel.Members)));
+  Assert.IsTrue(aModel.Members[0].ProcedureSignature.Known);
+  Assert.AreEqual('stdcall', aModel.Members[0].ProcedureSignature.CallingConvention);
+  Assert.IsTrue(aModel.DependencyFacts.Known);
+  Assert.AreEqual('BetaUnit', aModel.DependencyFacts.InterfaceImports[0]);
+  Assert.AreEqual('AlphaUnit', aModel.DependencyFacts.InterfaceImports[1]);
+  Assert.AreEqual('LeafUnit', aModel.DependencyFacts.ImplementationImports[0]);
+  Assert.IsTrue(aModel.DependencyFacts.HasInitialization);
+  Assert.IsTrue(aModel.DependencyFacts.HasFinalization);
+end;
+
 procedure TCacheSqliteTests.SecondCacheInstanceReusesStoredUnitModel;
 var
   lCache: TDelphiSemanticSqliteUnitCache;
   lCacheOptions: TDelphiSemanticCacheOptions;
   lModel: TDelphiSemanticUnitModel;
   lModelOptions: TDelphiSemanticModelOptions;
+  lFreshJson: string;
 begin
   lCacheOptions := Default(TDelphiSemanticCacheOptions);
   lCacheOptions.SqliteCacheFileName := TempPath('reuse-cache.sqlite3');
@@ -909,11 +953,27 @@ begin
     TFile.Delete(lCacheOptions.SqliteCacheFileName);
   lModelOptions := Default(TDelphiSemanticModelOptions);
   lModelOptions.SourceFileName := WriteUnitFile('SqliteReuseUnit', 'TSqliteReuseType');
+  TFile.WriteAllText(lModelOptions.SourceFileName,
+    'unit SqliteReuseUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'uses BetaUnit, AlphaUnit;' + sLineBreak + '{$SCOPEDENUMS ON}' + sLineBreak +
+    'type' + sLineBreak +
+    '  TSqliteReuseType = procedure(var aValue: TObject) of object; stdcall;' + sLineBreak +
+    '  THandler = class' + sLineBreak + '  published' + sLineBreak +
+    '    procedure Handle(var aValue: TObject); stdcall;' + sLineBreak + '  end;' + sLineBreak +
+    '  IService = interface' + sLineBreak +
+    '    [''{11111111-2222-3333-4444-555555555555}'']' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TMode = (first, second);' + sLineBreak +
+    '  TPending = class;' + sLineBreak +
+    'implementation' + sLineBreak + 'uses LeafUnit;' + sLineBreak +
+    'initialization' + sLineBreak + 'finalization' + sLineBreak + 'end.', TEncoding.UTF8);
   lModelOptions.ProjectContextApplied := True;
 
   lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
   try
-    lCache.GetOrExtractUnitModel(lModelOptions);
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    AssertReuseModelFacts(lModel);
+    lFreshJson := ModelToJson(lModel);
     Assert.AreEqual(1, lCache.Metrics.CacheMisses);
   finally
     lCache.Free;
@@ -924,6 +984,7 @@ begin
     lModel := lCache.GetOrExtractUnitModel(lModelOptions);
 
     Assert.IsTrue(HasDeclaration(lModel, 'TSqliteReuseType'));
+    Assert.AreEqual(lFreshJson, ModelToJson(lModel), 'Persistent facts must equal fresh extraction');
     Assert.AreEqual(1, lCache.Metrics.CacheHits);
     Assert.AreEqual(0, lCache.Metrics.CacheMisses);
   finally

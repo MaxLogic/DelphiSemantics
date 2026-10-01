@@ -4477,7 +4477,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @IndFiles[AktIndex]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('468af126dccde8ecfd5799cf211eda4eb1ce4f94a6a2f04e66bbdfd37c5dbed6',
+  Assert.AreEqual('c72d4f190e01a34214c362f554ea5de09a082eb15237570b9de0b59ad2d5083b',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -4539,7 +4539,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @fptr^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('a76ffe20d9df2f1335917cf3e390e78ba1a2fb8add9290db55b17c66a423ad38',
+  Assert.AreEqual('72ee8674b1bb6ec76fa79dcd3bae5ebb8882035ae99635c5f10dbbf1268660a7',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -4549,7 +4549,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('173:1-183:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('a76ffe20d9df2f1335917cf3e390e78ba1a2fb8add9290db55b17c66a423ad38',
+  Assert.AreEqual('72ee8674b1bb6ec76fa79dcd3bae5ebb8882035ae99635c5f10dbbf1268660a7',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -4564,7 +4564,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @fptr^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('a76ffe20d9df2f1335917cf3e390e78ba1a2fb8add9290db55b17c66a423ad38',
+  Assert.AreEqual('72ee8674b1bb6ec76fa79dcd3bae5ebb8882035ae99635c5f10dbbf1268660a7',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
@@ -5148,7 +5148,7 @@ begin
   Assert.AreEqual('lWithBitArrayPtr: ^TBitArray;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithBitArrayPtr := @BitArrayListPtr^[c];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('6ef3f10ef3743b11031f526de1db82036a5b271ae8c4a2d5754c699f499c8ce7',
+  Assert.AreEqual('2e80da4fcc9c7323e21651da74d4257f763a0128bf863b79e3c3c7fe3da32e5b',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -5157,7 +5157,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('225:1-238:7', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('6ef3f10ef3743b11031f526de1db82036a5b271ae8c4a2d5754c699f499c8ce7',
+  Assert.AreEqual('2e80da4fcc9c7323e21651da74d4257f763a0128bf863b79e3c3c7fe3da32e5b',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -5172,7 +5172,7 @@ begin
   Assert.AreEqual('lWithBitArrayPtr := @BitArrayListPtr^[c];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('6ef3f10ef3743b11031f526de1db82036a5b271ae8c4a2d5754c699f499c8ce7',
+  Assert.AreEqual('2e80da4fcc9c7323e21651da74d4257f763a0128bf863b79e3c3c7fe3da32e5b',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -5217,7 +5217,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('d5599931e317dc96302bd3cc2d14b0c065781003b683b77bab207969e0389ff7',
+  Assert.AreEqual('0260b34e4baecdb11ad74e915fbc641f27de6a36d1083c7d40d1e5ed8ff46675',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('Maske[i]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithMaskEntryPtr^', lStatement.Temps[1].QualifierText);
@@ -5228,7 +5228,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr := @lWithDatFilePtr^.Maske[i]^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('9485cf72b649e1266545350ca8f82b4ffd70d56e99d895e0aa306df22f8d75b9',
+  Assert.AreEqual('019ad39be2146029b3531e464e97dd43180e56c1faca35794b3fdb90ecf689b1',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -5238,7 +5238,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('94:1-98:17', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('d5599931e317dc96302bd3cc2d14b0c065781003b683b77bab207969e0389ff7',
+  Assert.AreEqual('0260b34e4baecdb11ad74e915fbc641f27de6a36d1083c7d40d1e5ed8ff46675',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -5253,11 +5253,11 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('d5599931e317dc96302bd3cc2d14b0c065781003b683b77bab207969e0389ff7',
+  Assert.AreEqual('0260b34e4baecdb11ad74e915fbc641f27de6a36d1083c7d40d1e5ed8ff46675',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 96, 7, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    '9485cf72b649e1266545350ca8f82b4ffd70d56e99d895e0aa306df22f8d75b9', lCoveredStatement));
+    '019ad39be2146029b3531e464e97dd43180e56c1faca35794b3fdb90ecf689b1', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
@@ -5534,7 +5534,7 @@ begin
   Assert.AreEqual('lWithLabelRec_newPtr: ^LabelRec_new;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLabelRec_newPtr := @p^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('2bfee3c6a4e9b9a0c394d3cd4738cbc75aa90735c6c0d8f28ebaf0fa27a2d0bc',
+  Assert.AreEqual('63598d016adf0cadadad8fc96206c6286f01c7f95c55ec5b9bc89763d2a68529',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -5543,7 +5543,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('450:1-537:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('b872682551efd756cc83a5d59cf58ce105c5585a1f203be4c49600039f86280a',
+  Assert.AreEqual('15af39cb809ee268db74f7fc0ed9cef77f673aa0b4dfd983f1ee6f44d5b3ba09',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -5557,11 +5557,11 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('local-record-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('b872682551efd756cc83a5d59cf58ce105c5585a1f203be4c49600039f86280a',
+  Assert.AreEqual('15af39cb809ee268db74f7fc0ed9cef77f673aa0b4dfd983f1ee6f44d5b3ba09',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 467, 9, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    '2bfee3c6a4e9b9a0c394d3cd4738cbc75aa90735c6c0d8f28ebaf0fa27a2d0bc', lCoveredStatement));
+    '63598d016adf0cadadad8fc96206c6286f01c7f95c55ec5b9bc89763d2a68529', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
@@ -5681,7 +5681,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr := @Mask[Nr]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('d848194d5b09047f9ad343da52d1443a3313624346b9e88feeece9018fe726fb',
+  Assert.AreEqual('36c79f922f16a801b236e4e154ad4d9197c52d345691e90e98c457f62bd867da',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -5690,7 +5690,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1369:1-1374:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('d848194d5b09047f9ad343da52d1443a3313624346b9e88feeece9018fe726fb',
+  Assert.AreEqual('36c79f922f16a801b236e4e154ad4d9197c52d345691e90e98c457f62bd867da',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -5705,7 +5705,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr := @Mask[Nr]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('d848194d5b09047f9ad343da52d1443a3313624346b9e88feeece9018fe726fb',
+  Assert.AreEqual('36c79f922f16a801b236e4e154ad4d9197c52d345691e90e98c457f62bd867da',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -5724,7 +5724,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('PutData', lStatement.RoutineName);
-  Assert.AreEqual('8dc80f558c3b6bd60f314217c626a530cef1dbb604b8eae41966a9aca8573f47', lStatement.SemanticId);
+  Assert.AreEqual('3a19a0fd7acc79eaf9731ee934e6122d1fc29dd0c2a61146bff75c7f19fc269b', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1417:3-1451:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1417:3-1451:6', SourceRangeText(lStatement.Verification.Range));
@@ -5808,7 +5808,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr := @Mask[Nr]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('8dc80f558c3b6bd60f314217c626a530cef1dbb604b8eae41966a9aca8573f47', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('3a19a0fd7acc79eaf9731ee934e6122d1fc29dd0c2a61146bff75c7f19fc269b', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('1416:1-1416:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -5872,7 +5872,7 @@ begin
   Assert.AreEqual('lWithSelRecPtr: ^SelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithSelRecPtr := @sl^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5ad3c4497390613032e82c928fdcc9a2e37b8a723919657ebc3187bddf682752',
+  Assert.AreEqual('60dfd00ba1c7f757d820e3c4b424ab4c6e14e89b3714da309be6ccd294802697',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('Sel', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithSelektorPtr^', lStatement.Temps[1].QualifierText);
@@ -5882,7 +5882,7 @@ begin
   Assert.AreEqual('lWithSelektorPtr: ^Selektor;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('5ad3c4497390613032e82c928fdcc9a2e37b8a723919657ebc3187bddf682752',
+  Assert.AreEqual('60dfd00ba1c7f757d820e3c4b424ab4c6e14e89b3714da309be6ccd294802697',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -5892,7 +5892,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1491:1-1493:33', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('5ad3c4497390613032e82c928fdcc9a2e37b8a723919657ebc3187bddf682752',
+  Assert.AreEqual('60dfd00ba1c7f757d820e3c4b424ab4c6e14e89b3714da309be6ccd294802697',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -5907,7 +5907,7 @@ begin
   Assert.AreEqual('lWithSelRecPtr := @sl^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5ad3c4497390613032e82c928fdcc9a2e37b8a723919657ebc3187bddf682752',
+  Assert.AreEqual('60dfd00ba1c7f757d820e3c4b424ab4c6e14e89b3714da309be6ccd294802697',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('Sel', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithSelektorPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -5919,7 +5919,7 @@ begin
   Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('5ad3c4497390613032e82c928fdcc9a2e37b8a723919657ebc3187bddf682752',
+  Assert.AreEqual('60dfd00ba1c7f757d820e3c4b424ab4c6e14e89b3714da309be6ccd294802697',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 end;
 
@@ -5960,7 +5960,7 @@ begin
   Assert.AreEqual('lWithSelRecPtr: ^SelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithSelRecPtr := @sl^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('63310732028bf2807c9c9301924a04ab103285774e39ef1f940a758bec7a672d',
+  Assert.AreEqual('9bf1fac2695d3689652095c75d61e171820619a2efe60cd20d93843653abbd08',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('Sel', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithSelektorPtr^', lStatement.Temps[1].QualifierText);
@@ -5970,7 +5970,7 @@ begin
   Assert.AreEqual('lWithSelektorPtr: ^Selektor;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('63310732028bf2807c9c9301924a04ab103285774e39ef1f940a758bec7a672d',
+  Assert.AreEqual('9bf1fac2695d3689652095c75d61e171820619a2efe60cd20d93843653abbd08',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -5980,7 +5980,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1503:1-1506:18', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('63310732028bf2807c9c9301924a04ab103285774e39ef1f940a758bec7a672d',
+  Assert.AreEqual('9bf1fac2695d3689652095c75d61e171820619a2efe60cd20d93843653abbd08',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -5995,7 +5995,7 @@ begin
   Assert.AreEqual('lWithSelRecPtr := @sl^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('63310732028bf2807c9c9301924a04ab103285774e39ef1f940a758bec7a672d',
+  Assert.AreEqual('9bf1fac2695d3689652095c75d61e171820619a2efe60cd20d93843653abbd08',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('Sel', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithSelektorPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -6007,7 +6007,7 @@ begin
   Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('63310732028bf2807c9c9301924a04ab103285774e39ef1f940a758bec7a672d',
+  Assert.AreEqual('9bf1fac2695d3689652095c75d61e171820619a2efe60cd20d93843653abbd08',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 end;
 
@@ -6046,7 +6046,7 @@ begin
   Assert.AreEqual('lWithSelRecPtr: ^SelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithSelRecPtr := @sl^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('75445a15c9b8cad8cb8d161cccaefd3ee82af3568a834a6e059f727c2c4d518d',
+  Assert.AreEqual('69b5b8d810b94c5f5246f18a93c3064f1c2f363a0272d6bdc686c376fd42282d',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('Sel', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithSelektorPtr^', lStatement.Temps[1].QualifierText);
@@ -6056,7 +6056,7 @@ begin
   Assert.AreEqual('lWithSelektorPtr: ^Selektor;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('75445a15c9b8cad8cb8d161cccaefd3ee82af3568a834a6e059f727c2c4d518d',
+  Assert.AreEqual('69b5b8d810b94c5f5246f18a93c3064f1c2f363a0272d6bdc686c376fd42282d',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -6066,7 +6066,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1518:1-1520:48', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('75445a15c9b8cad8cb8d161cccaefd3ee82af3568a834a6e059f727c2c4d518d',
+  Assert.AreEqual('69b5b8d810b94c5f5246f18a93c3064f1c2f363a0272d6bdc686c376fd42282d',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -6081,7 +6081,7 @@ begin
   Assert.AreEqual('lWithSelRecPtr := @sl^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('75445a15c9b8cad8cb8d161cccaefd3ee82af3568a834a6e059f727c2c4d518d',
+  Assert.AreEqual('69b5b8d810b94c5f5246f18a93c3064f1c2f363a0272d6bdc686c376fd42282d',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('Sel', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithSelektorPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -6093,7 +6093,7 @@ begin
   Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('75445a15c9b8cad8cb8d161cccaefd3ee82af3568a834a6e059f727c2c4d518d',
+  Assert.AreEqual('69b5b8d810b94c5f5246f18a93c3064f1c2f363a0272d6bdc686c376fd42282d',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 end;
 
@@ -6156,7 +6156,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr := @DF[d]^.Maske[Nr]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('9ee9d3ffc26d66bfbdbe11de83d2028021aeda86123ccc5289732748f2bd6ffd',
+  Assert.AreEqual('5e039ddc457634516dd88bb03d6e2171df645046baa7d876cf5161f079a12eef',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -6165,7 +6165,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1614:1-1622:30', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('9ee9d3ffc26d66bfbdbe11de83d2028021aeda86123ccc5289732748f2bd6ffd',
+  Assert.AreEqual('5e039ddc457634516dd88bb03d6e2171df645046baa7d876cf5161f079a12eef',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -6180,7 +6180,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr := @DF[d]^.Maske[Nr]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('9ee9d3ffc26d66bfbdbe11de83d2028021aeda86123ccc5289732748f2bd6ffd',
+  Assert.AreEqual('5e039ddc457634516dd88bb03d6e2171df645046baa7d876cf5161f079a12eef',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -6270,7 +6270,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr: ^MarkList;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMarkListPtr := @DF[d]^.MarkListe;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('ca5e4eceec38798a783cbe9d5883d29748bbd25336e2d1e584421031924d915a',
+  Assert.AreEqual('2116b6cfc6cba1e76dba0b3cc023c69c93171154106da484e3f3d3c8223e8ffb',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -6279,7 +6279,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2106:1-2128:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('ca5e4eceec38798a783cbe9d5883d29748bbd25336e2d1e584421031924d915a',
+  Assert.AreEqual('2116b6cfc6cba1e76dba0b3cc023c69c93171154106da484e3f3d3c8223e8ffb',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -6294,7 +6294,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr := @DF[d]^.MarkListe;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('ca5e4eceec38798a783cbe9d5883d29748bbd25336e2d1e584421031924d915a',
+  Assert.AreEqual('2116b6cfc6cba1e76dba0b3cc023c69c93171154106da484e3f3d3c8223e8ffb',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -6352,7 +6352,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr: ^MarkList;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMarkListPtr := @DF[d]^.MarkListe;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('b7dc9f17c83e8cd6625532ebc5a25902ebe5337a8cf355dbb7d059bf0494eebe',
+  Assert.AreEqual('23c40fb87117f77eae9a3d56ffa0934a4b4959441e016815b9e96692f5d11764',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -6362,7 +6362,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2197:1-2209:9', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('b7dc9f17c83e8cd6625532ebc5a25902ebe5337a8cf355dbb7d059bf0494eebe',
+  Assert.AreEqual('23c40fb87117f77eae9a3d56ffa0934a4b4959441e016815b9e96692f5d11764',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -6377,7 +6377,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr := @DF[d]^.MarkListe;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('b7dc9f17c83e8cd6625532ebc5a25902ebe5337a8cf355dbb7d059bf0494eebe',
+  Assert.AreEqual('23c40fb87117f77eae9a3d56ffa0934a4b4959441e016815b9e96692f5d11764',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -6479,7 +6479,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('715:1-732:9', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('c4e9a4b2d2e55e9d135738e4abd8c4b3b22daf1a2a31f0e75f9e12952f694c50',
+  Assert.AreEqual('aa22829f824ba5825c0b92847f063b1ed1ab7153752af5d1be514993f7d985c8',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -6492,7 +6492,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('simple-selector', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('c4e9a4b2d2e55e9d135738e4abd8c4b3b22daf1a2a31f0e75f9e12952f694c50',
+  Assert.AreEqual('aa22829f824ba5825c0b92847f063b1ed1ab7153752af5d1be514993f7d985c8',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -6566,7 +6566,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('dfb5b122bf1274722c92b431fd9ffe29397375ace4c34bd4a67ccf5ead88a145',
+  Assert.AreEqual('4d5e2c539a34c60d2f684d0b03c650bfe0482fd8d980f0ee3a62e5a745f6614d',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -6575,7 +6575,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('164:1-173:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('dfb5b122bf1274722c92b431fd9ffe29397375ace4c34bd4a67ccf5ead88a145',
+  Assert.AreEqual('4d5e2c539a34c60d2f684d0b03c650bfe0482fd8d980f0ee3a62e5a745f6614d',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -6590,7 +6590,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('dfb5b122bf1274722c92b431fd9ffe29397375ace4c34bd4a67ccf5ead88a145',
+  Assert.AreEqual('4d5e2c539a34c60d2f684d0b03c650bfe0482fd8d980f0ee3a62e5a745f6614d',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -6674,7 +6674,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('6cd0134e9ca4b2b0696dffc467745240ae72a537d6f3c01ced3af5c1c9889d60',
+  Assert.AreEqual('0bab8fd768832932f9857aca9861ec595a5ba737ab62383c527a7c8e8ce185d6',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -6683,7 +6683,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('204:1-211:16', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('6cd0134e9ca4b2b0696dffc467745240ae72a537d6f3c01ced3af5c1c9889d60',
+  Assert.AreEqual('0bab8fd768832932f9857aca9861ec595a5ba737ab62383c527a7c8e8ce185d6',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -6698,7 +6698,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('6cd0134e9ca4b2b0696dffc467745240ae72a537d6f3c01ced3af5c1c9889d60',
+  Assert.AreEqual('0bab8fd768832932f9857aca9861ec595a5ba737ab62383c527a7c8e8ce185d6',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
@@ -6766,7 +6766,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('SetStatLink', lStatement.RoutineName);
-  Assert.AreEqual('5ca9e16582e20e7598019bf19a375bc777b78ad51b1c91f0f3189746a9b92903', lStatement.SemanticId);
+  Assert.AreEqual('e0e8820edec708efa0eed23eb196a9cdc01ddf3d79b0645ca730089efb89571d', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('322:5-330:19', SourceRangeText(lStatement.Range));
   Assert.AreEqual('322:5-330:19', SourceRangeText(lStatement.Verification.Range));
@@ -6798,7 +6798,7 @@ begin
   Assert.AreEqual('lWithStatLinkTypePtr: ^StatLinkType;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithStatLinkTypePtr := @p^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5ca9e16582e20e7598019bf19a375bc777b78ad51b1c91f0f3189746a9b92903', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('e0e8820edec708efa0eed23eb196a9cdc01ddf3d79b0645ca730089efb89571d', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('316:1-316:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -6878,7 +6878,7 @@ begin
   Assert.AreEqual('lWithStatLinkTypePtr: ^StatLinkType;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithStatLinkTypePtr := @StatLinks[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('04067f778d5c04fe3c78a9defce074534d9d1a6434bf205d5535a7e7d3008f4c',
+  Assert.AreEqual('587dc8f74c850deb0ac78bc08ee6b25e7ca531555d792cc3d282fbaaeb8ee631',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -6887,7 +6887,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('368:1-380:15', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('04067f778d5c04fe3c78a9defce074534d9d1a6434bf205d5535a7e7d3008f4c',
+  Assert.AreEqual('587dc8f74c850deb0ac78bc08ee6b25e7ca531555d792cc3d282fbaaeb8ee631',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -6902,7 +6902,7 @@ begin
   Assert.AreEqual('lWithStatLinkTypePtr := @StatLinks[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('04067f778d5c04fe3c78a9defce074534d9d1a6434bf205d5535a7e7d3008f4c',
+  Assert.AreEqual('587dc8f74c850deb0ac78bc08ee6b25e7ca531555d792cc3d282fbaaeb8ee631',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -6951,7 +6951,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('91483da6209ac76337191fe392d81291eb1769e00c67a75545a3214fb474f468',
+  Assert.AreEqual('a6ed8695935ec6a41bf9a2f80b56638c53fd430d46d128b77ec332bce8174504',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -6961,7 +6961,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('413:1-421:10', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('91483da6209ac76337191fe392d81291eb1769e00c67a75545a3214fb474f468',
+  Assert.AreEqual('a6ed8695935ec6a41bf9a2f80b56638c53fd430d46d128b77ec332bce8174504',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -6976,7 +6976,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('91483da6209ac76337191fe392d81291eb1769e00c67a75545a3214fb474f468',
+  Assert.AreEqual('a6ed8695935ec6a41bf9a2f80b56638c53fd430d46d128b77ec332bce8174504',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   lMatchCount := 0;
@@ -7068,13 +7068,13 @@ begin
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr1 := @DF[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('45bb0784cbc2264e3ce5ffea31d30ee640369be7c22bfb9f3bb4b0e5062a080c',
+  Assert.AreEqual('79298bb68260ed7551cf3141434ed21e4288e995b64a3d3c38b2bf1a1c28329d',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('682:1-687:14', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('45bb0784cbc2264e3ce5ffea31d30ee640369be7c22bfb9f3bb4b0e5062a080c',
+  Assert.AreEqual('79298bb68260ed7551cf3141434ed21e4288e995b64a3d3c38b2bf1a1c28329d',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -7089,7 +7089,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr1 := @DF[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('45bb0784cbc2264e3ce5ffea31d30ee640369be7c22bfb9f3bb4b0e5062a080c',
+  Assert.AreEqual('79298bb68260ed7551cf3141434ed21e4288e995b64a3d3c38b2bf1a1c28329d',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.AreEqual(250, Integer(Length(lStatement.ReplacementText)));
@@ -7147,7 +7147,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('11c94c9a8ade7b7111a46ccfcf5d469b9ab06292c1290457772422f14ec0e47a',
+  Assert.AreEqual('9bee43b46be06b0eea5f24bfab7fab34fa7baa6dfdbf0e2c9e4bf4b89a6597c7',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -7158,7 +7158,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('646:1-656:12', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('11c94c9a8ade7b7111a46ccfcf5d469b9ab06292c1290457772422f14ec0e47a',
+  Assert.AreEqual('9bee43b46be06b0eea5f24bfab7fab34fa7baa6dfdbf0e2c9e4bf4b89a6597c7',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -7173,7 +7173,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('11c94c9a8ade7b7111a46ccfcf5d469b9ab06292c1290457772422f14ec0e47a',
+  Assert.AreEqual('9bee43b46be06b0eea5f24bfab7fab34fa7baa6dfdbf0e2c9e4bf4b89a6597c7',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
@@ -7240,7 +7240,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('8cd5fec0ee54138d7542b044fbbd28af0392ef23f976a490058b39b9dd12e9f8',
+  Assert.AreEqual('245cbab25077b547bc0c3cc26614bc06a1b620956e7fa4c094a086e23eec025d',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -7249,7 +7249,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('138:1-150:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('8cd5fec0ee54138d7542b044fbbd28af0392ef23f976a490058b39b9dd12e9f8',
+  Assert.AreEqual('245cbab25077b547bc0c3cc26614bc06a1b620956e7fa4c094a086e23eec025d',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -7264,7 +7264,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('8cd5fec0ee54138d7542b044fbbd28af0392ef23f976a490058b39b9dd12e9f8',
+  Assert.AreEqual('245cbab25077b547bc0c3cc26614bc06a1b620956e7fa4c094a086e23eec025d',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -7322,7 +7322,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @fptr^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('38fe74a49a8f410e5ad72418da8d027492a1f61418ab92b7e4a14b89492a4a27',
+  Assert.AreEqual('84e843f81f14cdffa0a39503f8ee233954dcd84a1a313c2e44430883c46c92aa',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -7332,7 +7332,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('155:1-168:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('38fe74a49a8f410e5ad72418da8d027492a1f61418ab92b7e4a14b89492a4a27',
+  Assert.AreEqual('84e843f81f14cdffa0a39503f8ee233954dcd84a1a313c2e44430883c46c92aa',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -7347,7 +7347,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @fptr^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('38fe74a49a8f410e5ad72418da8d027492a1f61418ab92b7e4a14b89492a4a27',
+  Assert.AreEqual('84e843f81f14cdffa0a39503f8ee233954dcd84a1a313c2e44430883c46c92aa',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 173, 3, lStatement),
@@ -7391,7 +7391,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @fptr^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('a76ffe20d9df2f1335917cf3e390e78ba1a2fb8add9290db55b17c66a423ad38',
+  Assert.AreEqual('72ee8674b1bb6ec76fa79dcd3bae5ebb8882035ae99635c5f10dbbf1268660a7',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -7401,7 +7401,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('173:1-183:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('a76ffe20d9df2f1335917cf3e390e78ba1a2fb8add9290db55b17c66a423ad38',
+  Assert.AreEqual('72ee8674b1bb6ec76fa79dcd3bae5ebb8882035ae99635c5f10dbbf1268660a7',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -7416,7 +7416,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @fptr^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('a76ffe20d9df2f1335917cf3e390e78ba1a2fb8add9290db55b17c66a423ad38',
+  Assert.AreEqual('72ee8674b1bb6ec76fa79dcd3bae5ebb8882035ae99635c5f10dbbf1268660a7',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -7457,7 +7457,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @FileQueue^.last^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('fd5b926da6754094425a97154424991f991ebda4f4649414ae01d7b99e967006',
+  Assert.AreEqual('ea6634c93b9e0c835903d018154b210d9a3e3ca3093f60f20b17781df0d67da6',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -7468,7 +7468,7 @@ begin
   Assert.AreEqual('200:1-204:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
   Assert.AreEqual(157, Integer(Length(lStatement.ReplacementText)));
-  Assert.AreEqual('fd5b926da6754094425a97154424991f991ebda4f4649414ae01d7b99e967006',
+  Assert.AreEqual('ea6634c93b9e0c835903d018154b210d9a3e3ca3093f60f20b17781df0d67da6',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -7483,7 +7483,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @FileQueue^.last^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('fd5b926da6754094425a97154424991f991ebda4f4649414ae01d7b99e967006',
+  Assert.AreEqual('ea6634c93b9e0c835903d018154b210d9a3e3ca3093f60f20b17781df0d67da6',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 235, 5, lStatement),
@@ -7515,7 +7515,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @FileQueue^.last^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5c1783b8cd0915402f66783fe14de3f1bffadec1a45929d05b9dc924b92a6956',
+  Assert.AreEqual('aa53e479f97760660e57dc715b9782551c85e8b2e8d1f5ec228d3f6026005baf',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -7525,7 +7525,7 @@ begin
   Assert.AreEqual('235:1-239:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
   Assert.AreEqual(157, Integer(Length(lStatement.ReplacementText)));
-  Assert.AreEqual('5c1783b8cd0915402f66783fe14de3f1bffadec1a45929d05b9dc924b92a6956',
+  Assert.AreEqual('aa53e479f97760660e57dc715b9782551c85e8b2e8d1f5ec228d3f6026005baf',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -7540,7 +7540,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @FileQueue^.last^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5c1783b8cd0915402f66783fe14de3f1bffadec1a45929d05b9dc924b92a6956',
+  Assert.AreEqual('aa53e479f97760660e57dc715b9782551c85e8b2e8d1f5ec228d3f6026005baf',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -7586,7 +7586,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('CloseLowFile', lStatement.RoutineName);
-  Assert.AreEqual('984d5feef0dea41bab9d3ebcf9086c76e51b59cd5bee9555af9126aedade3427', lStatement.SemanticId);
+  Assert.AreEqual('ced9908b0f8a1a3cd676ec6c0be418972e8b157eef0056baf074e39ff4aa827a', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('266:5-281:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('266:5-281:8', SourceRangeText(lStatement.Verification.Range));
@@ -7634,7 +7634,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('984d5feef0dea41bab9d3ebcf9086c76e51b59cd5bee9555af9126aedade3427', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('ced9908b0f8a1a3cd676ec6c0be418972e8b157eef0056baf074e39ff4aa827a', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -7643,7 +7643,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('e41b52af53cc3811135e0c843b21fea0522315e5e0efd49e37957cd543f34931', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('d06246e555ef5fd0da36cd2db8f94daa45441e3d26d3d30d4139a6a69917458d', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('264:1-264:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -7657,11 +7657,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 272, 9, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    'e41b52af53cc3811135e0c843b21fea0522315e5e0efd49e37957cd543f34931', lCoveredStatement));
+    'd06246e555ef5fd0da36cd2db8f94daa45441e3d26d3d30d4139a6a69917458d', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('e41b52af53cc3811135e0c843b21fea0522315e5e0efd49e37957cd543f34931', lCoveredStatement.SemanticId);
+  Assert.AreEqual('d06246e555ef5fd0da36cd2db8f94daa45441e3d26d3d30d4139a6a69917458d', lCoveredStatement.SemanticId);
   Assert.AreEqual('272:9-273:33', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -7694,7 +7694,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('ResetLowFile', lStatement.RoutineName);
-  Assert.AreEqual('ae1597a7aff18aeced8f2db2aaac8690fb9c67ade7b2c89a6db716f21635817d', lStatement.SemanticId);
+  Assert.AreEqual('70f3d6ea637336d468e49533923aaa7322bdd124a123c1dbce9676d3b3d62227', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('315:5-345:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('315:5-345:8', SourceRangeText(lStatement.Verification.Range));
@@ -7770,7 +7770,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('ae1597a7aff18aeced8f2db2aaac8690fb9c67ade7b2c89a6db716f21635817d', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('70f3d6ea637336d468e49533923aaa7322bdd124a123c1dbce9676d3b3d62227', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -7779,7 +7779,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('2304e0a7fc14931a945140466b632b702c24742240c34d2802cf3c8c2582408a', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('a6eef84d043cbc95c7f632b43b58406cf4a33a8d1855bbc87322956a73c260ab', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('311:1-311:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -7793,11 +7793,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 330, 13, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    '2304e0a7fc14931a945140466b632b702c24742240c34d2802cf3c8c2582408a', lCoveredStatement));
+    'a6eef84d043cbc95c7f632b43b58406cf4a33a8d1855bbc87322956a73c260ab', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('2304e0a7fc14931a945140466b632b702c24742240c34d2802cf3c8c2582408a', lCoveredStatement.SemanticId);
+  Assert.AreEqual('a6eef84d043cbc95c7f632b43b58406cf4a33a8d1855bbc87322956a73c260ab', lCoveredStatement.SemanticId);
   Assert.AreEqual('330:13-337:16', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -7836,7 +7836,7 @@ begin
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
   Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
   Assert.AreEqual('ResetLowFile', lStatement.RoutineName);
-  Assert.AreEqual('0fee0266e4330a9ddcffd74754ea30a362a2858e02a5f08a51d5f5e00b5f7135', lStatement.SemanticId);
+  Assert.AreEqual('70c1e9d46b322c4ce4210bd2cc6644bb8bbee6ecd38a5c50d668e109598377f6', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('351:7-364:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('351:7-364:10', SourceRangeText(lStatement.Verification.Range));
@@ -7876,7 +7876,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('RewriteLowFile', lStatement.RoutineName);
-  Assert.AreEqual('d4e690a6d96d418d90a2823fdf2ec679dc7f4bd5177330ff5a06a3efaa1cef84', lStatement.SemanticId);
+  Assert.AreEqual('7e556090803aa8253963c4715fac4d6a1da31d8472447cca20dc7b1dd1ea629f', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('382:5-395:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('382:5-395:8', SourceRangeText(lStatement.Verification.Range));
@@ -7920,7 +7920,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('d4e690a6d96d418d90a2823fdf2ec679dc7f4bd5177330ff5a06a3efaa1cef84', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('7e556090803aa8253963c4715fac4d6a1da31d8472447cca20dc7b1dd1ea629f', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -7929,7 +7929,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('029ad623b744612e94c6adf1cfe47880573402be3278f8adb262cd31be263cdc', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('b72c19c21bffdba540adcbcf2b22e492891426e7898dfbba8a7b559423f18c7c', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('379:1-379:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -7943,11 +7943,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 386, 7, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    '029ad623b744612e94c6adf1cfe47880573402be3278f8adb262cd31be263cdc', lCoveredStatement));
+    'b72c19c21bffdba540adcbcf2b22e492891426e7898dfbba8a7b559423f18c7c', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('029ad623b744612e94c6adf1cfe47880573402be3278f8adb262cd31be263cdc', lCoveredStatement.SemanticId);
+  Assert.AreEqual('b72c19c21bffdba540adcbcf2b22e492891426e7898dfbba8a7b559423f18c7c', lCoveredStatement.SemanticId);
   Assert.AreEqual('386:7-392:10', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -7992,7 +7992,7 @@ begin
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
   Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
   Assert.AreEqual('RewriteLowFile', lStatement.RoutineName);
-  Assert.AreEqual('d31eaa1b127917dfd47b91be58ce482613deed718118e9b548e77d327d8f6820', lStatement.SemanticId);
+  Assert.AreEqual('46380c25b44c85b4d66b29d272b066e2a379b94bd327037323c292b095bdfdee', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('398:5-425:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('398:5-425:8', SourceRangeText(lStatement.Verification.Range));
@@ -8119,7 +8119,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('d56e023ce483467ceed625797113b409f8473ce0598b80d461627b4bc35f5b2c',
+  Assert.AreEqual('add496492324851573235cf7f41d35709ebe8f4e6039c995cb5bcf67d621cf80',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
@@ -8130,7 +8130,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('b27097a94ed729ff5a11b05d134b3d7cc4bfdc2dc55d360c880e488aaa3c0be5',
+  Assert.AreEqual('0f7d0f75e1f7fe99480e133d333dcb46787c3d9fbd2bf004b74c8e5fb6bb88f9',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -8140,7 +8140,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('434:1-455:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('d56e023ce483467ceed625797113b409f8473ce0598b80d461627b4bc35f5b2c',
+  Assert.AreEqual('add496492324851573235cf7f41d35709ebe8f4e6039c995cb5bcf67d621cf80',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -8155,14 +8155,14 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('d56e023ce483467ceed625797113b409f8473ce0598b80d461627b4bc35f5b2c',
+  Assert.AreEqual('add496492324851573235cf7f41d35709ebe8f4e6039c995cb5bcf67d621cf80',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(665, Integer(Length(lStatement.ReplacementText)));
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 440, 9, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'b27097a94ed729ff5a11b05d134b3d7cc4bfdc2dc55d360c880e488aaa3c0be5',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '0f7d0f75e1f7fe99480e133d333dcb46787c3d9fbd2bf004b74c8e5fb6bb88f9',
     lCoveredStatement));
   Assert.AreEqual('with-49', lCoveredStatement.StatementId);
-  Assert.AreEqual('b27097a94ed729ff5a11b05d134b3d7cc4bfdc2dc55d360c880e488aaa3c0be5',
+  Assert.AreEqual('0f7d0f75e1f7fe99480e133d333dcb46787c3d9fbd2bf004b74c8e5fb6bb88f9',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
@@ -8271,7 +8271,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5b36f5ebf31024698cc96f3f0191e0d5a74b88fba46cff64dc8c7fdf8e382f91',
+  Assert.AreEqual('5904df15ecf131763bcc69a85d71355595b280bd68f4506e8d74aa0f4995bd5a',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
@@ -8282,7 +8282,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('42d089eca8fb01b25a977eadb26ca89665f1c0adad5118db6e3d14b4d510c964',
+  Assert.AreEqual('ac5288288ee1b9c7708935fba48cb0d2fa8d189b81192122a36d30e5ef1f4352',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -8292,7 +8292,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('484:1-515:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('5b36f5ebf31024698cc96f3f0191e0d5a74b88fba46cff64dc8c7fdf8e382f91',
+  Assert.AreEqual('5904df15ecf131763bcc69a85d71355595b280bd68f4506e8d74aa0f4995bd5a',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -8307,14 +8307,14 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5b36f5ebf31024698cc96f3f0191e0d5a74b88fba46cff64dc8c7fdf8e382f91',
+  Assert.AreEqual('5904df15ecf131763bcc69a85d71355595b280bd68f4506e8d74aa0f4995bd5a',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(1168, Integer(Length(lStatement.ReplacementText)));
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 490, 9, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '42d089eca8fb01b25a977eadb26ca89665f1c0adad5118db6e3d14b4d510c964',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'ac5288288ee1b9c7708935fba48cb0d2fa8d189b81192122a36d30e5ef1f4352',
     lCoveredStatement));
   Assert.AreEqual('with-51', lCoveredStatement.StatementId);
-  Assert.AreEqual('42d089eca8fb01b25a977eadb26ca89665f1c0adad5118db6e3d14b4d510c964',
+  Assert.AreEqual('ac5288288ee1b9c7708935fba48cb0d2fa8d189b81192122a36d30e5ef1f4352',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
@@ -8396,7 +8396,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('c0f911a4a9c12c78fc92f68d3bff44f98899b31a348d20119e472b321e0d0590',
+  Assert.AreEqual('c71031f4131d1379274c8cd79c0d205001241e068dde4a7c0111114ffd2c9673',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -8406,7 +8406,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('545:1-554:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('c0f911a4a9c12c78fc92f68d3bff44f98899b31a348d20119e472b321e0d0590',
+  Assert.AreEqual('c71031f4131d1379274c8cd79c0d205001241e068dde4a7c0111114ffd2c9673',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -8421,7 +8421,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('c0f911a4a9c12c78fc92f68d3bff44f98899b31a348d20119e472b321e0d0590',
+  Assert.AreEqual('c71031f4131d1379274c8cd79c0d205001241e068dde4a7c0111114ffd2c9673',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 603, 5, lStatement),
@@ -8467,7 +8467,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('1425983af30c899bee55614711fd9356a5cdb2d518122372e022fdbd851646ba',
+  Assert.AreEqual('5ff43a7ff63551887a27b8eae3b8c08140f4cf4cfd4a1bc8c1fa8bcce4bb3e00',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
@@ -8478,7 +8478,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('210c394d21ccdffe99443588c1401016c5749aaab15b4c44857d56909480d0ad',
+  Assert.AreEqual('71466505cd14f4e3a55cf662b818c807013167808c6f136fcfd5736a40a21ec5',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -8489,7 +8489,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('603:1-612:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('1425983af30c899bee55614711fd9356a5cdb2d518122372e022fdbd851646ba',
+  Assert.AreEqual('5ff43a7ff63551887a27b8eae3b8c08140f4cf4cfd4a1bc8c1fa8bcce4bb3e00',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -8504,13 +8504,13 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('1425983af30c899bee55614711fd9356a5cdb2d518122372e022fdbd851646ba',
+  Assert.AreEqual('5ff43a7ff63551887a27b8eae3b8c08140f4cf4cfd4a1bc8c1fa8bcce4bb3e00',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 608, 9, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '210c394d21ccdffe99443588c1401016c5749aaab15b4c44857d56909480d0ad',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '71466505cd14f4e3a55cf662b818c807013167808c6f136fcfd5736a40a21ec5',
     lCoveredStatement));
   Assert.AreEqual('with-54', lCoveredStatement.StatementId);
-  Assert.AreEqual('210c394d21ccdffe99443588c1401016c5749aaab15b4c44857d56909480d0ad',
+  Assert.AreEqual('71466505cd14f4e3a55cf662b818c807013167808c6f136fcfd5736a40a21ec5',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
@@ -8585,7 +8585,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('7263b038393a849871e1757d0bbc9ed97a0ef9dfb495036efe0b678f69cad87d',
+  Assert.AreEqual('5a785591f6517a74689059285de5a5006e4efdece315978e9de0ac0bad003ec8',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
@@ -8596,7 +8596,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('d7e42f8024e687d06b9baa7721aa20a7f40626ff027435fc9a65a4264e8e1de7',
+  Assert.AreEqual('4cd5e6aff260594781b29c0090bab1d58e066c150e5d4a02c358bd44f23f57b9',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -8606,7 +8606,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('696:1-710:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('7263b038393a849871e1757d0bbc9ed97a0ef9dfb495036efe0b678f69cad87d',
+  Assert.AreEqual('5a785591f6517a74689059285de5a5006e4efdece315978e9de0ac0bad003ec8',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -8621,14 +8621,14 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('7263b038393a849871e1757d0bbc9ed97a0ef9dfb495036efe0b678f69cad87d',
+  Assert.AreEqual('5a785591f6517a74689059285de5a5006e4efdece315978e9de0ac0bad003ec8',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(556, Integer(Length(lStatement.ReplacementText)));
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 699, 9, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'd7e42f8024e687d06b9baa7721aa20a7f40626ff027435fc9a65a4264e8e1de7',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '4cd5e6aff260594781b29c0090bab1d58e066c150e5d4a02c358bd44f23f57b9',
     lCoveredStatement));
   Assert.AreEqual('with-56', lCoveredStatement.StatementId);
-  Assert.AreEqual('d7e42f8024e687d06b9baa7721aa20a7f40626ff027435fc9a65a4264e8e1de7',
+  Assert.AreEqual('4cd5e6aff260594781b29c0090bab1d58e066c150e5d4a02c358bd44f23f57b9',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
@@ -8698,7 +8698,7 @@ begin
   Assert.AreEqual('lWithMD5ContextPtr: ^TMD5Context;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMD5ContextPtr := @Context;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('1f773a40465f298452bfcbc9181b515c48fe8a97b598759313e40d068829f7e3',
+  Assert.AreEqual('e62e70c124a8796594e5eb1169e80c35f6d7654fb89cf3ec5f78830730c18157',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -8708,7 +8708,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('237:1-246:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('1f773a40465f298452bfcbc9181b515c48fe8a97b598759313e40d068829f7e3',
+  Assert.AreEqual('e62e70c124a8796594e5eb1169e80c35f6d7654fb89cf3ec5f78830730c18157',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -8723,7 +8723,7 @@ begin
   Assert.AreEqual('lWithMD5ContextPtr := @Context;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('1f773a40465f298452bfcbc9181b515c48fe8a97b598759313e40d068829f7e3',
+  Assert.AreEqual('e62e70c124a8796594e5eb1169e80c35f6d7654fb89cf3ec5f78830730c18157',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.AreEqual(380, Integer(Length(lStatement.ReplacementText)));
@@ -8782,7 +8782,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('147:1-162:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('ba929f4d416831402995e57b2eb52ce75d4088f374b361e94c41ebd3f3d907fd',
+  Assert.AreEqual('b063dae0e9f73da5adeb704e47408c413ce9d4f3bfb8b7d8997d86f3e5a7e263',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -8796,7 +8796,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('ba929f4d416831402995e57b2eb52ce75d4088f374b361e94c41ebd3f3d907fd',
+  Assert.AreEqual('b063dae0e9f73da5adeb704e47408c413ce9d4f3bfb8b7d8997d86f3e5a7e263',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -8849,7 +8849,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('249:1-262:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('f8103cd2e2d34ae416c099494ddffffa4e2e59ba395646e2104b2605647b8df7',
+  Assert.AreEqual('dea5baedfbf7685cd987afe4b6c31947f6edd3967934a47b018ebdca5408f357',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -8863,7 +8863,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('f8103cd2e2d34ae416c099494ddffffa4e2e59ba395646e2104b2605647b8df7',
+  Assert.AreEqual('dea5baedfbf7685cd987afe4b6c31947f6edd3967934a47b018ebdca5408f357',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(331, Integer(Length(lStatement.ReplacementText)));
 end;
@@ -8919,7 +8919,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('267:1-281:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('a8b23c01c86bfc20feb6a9b990f554fa946f9e9406f8fcade1f03d4bd524fc5a',
+  Assert.AreEqual('f39f98f460500da5aeaee7cd505baa5f243e599e38b38aa7df9a96fedf5e6d6f',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -8933,7 +8933,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('a8b23c01c86bfc20feb6a9b990f554fa946f9e9406f8fcade1f03d4bd524fc5a',
+  Assert.AreEqual('f39f98f460500da5aeaee7cd505baa5f243e599e38b38aa7df9a96fedf5e6d6f',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -8979,7 +8979,7 @@ begin
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamTextPtr := @CGIBuffer;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('d77f16580135f6eac339970e3ad0d01a660bf2e3bc57897645982eb410edc689',
+  Assert.AreEqual('1bec5498e35c2fd4432d3f52892d885e19a38150a52e797b019203919f9d783c',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -8989,7 +8989,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('295:1-302:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('d77f16580135f6eac339970e3ad0d01a660bf2e3bc57897645982eb410edc689',
+  Assert.AreEqual('1bec5498e35c2fd4432d3f52892d885e19a38150a52e797b019203919f9d783c',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -9004,7 +9004,7 @@ begin
   Assert.AreEqual('lWithRamTextPtr := @CGIBuffer;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('d77f16580135f6eac339970e3ad0d01a660bf2e3bc57897645982eb410edc689',
+  Assert.AreEqual('1bec5498e35c2fd4432d3f52892d885e19a38150a52e797b019203919f9d783c',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -9053,7 +9053,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('307:1-318:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('9bf2d33d0b95f337cf2ac0a8efb7a49390d05aba3cd63971bd2a92ec83df687e',
+  Assert.AreEqual('5ef2d5282fb3b0424c1127a3e0d65eac0bde362b035fdf9b7aeae52fc6417aa6',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -9067,7 +9067,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('9bf2d33d0b95f337cf2ac0a8efb7a49390d05aba3cd63971bd2a92ec83df687e',
+  Assert.AreEqual('5ef2d5282fb3b0424c1127a3e0d65eac0bde362b035fdf9b7aeae52fc6417aa6',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -9118,7 +9118,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('323:1-335:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('6a635593286902803c62e91394f0a0f1eae959fb589a01a9aa4eaed06b70a839',
+  Assert.AreEqual('ef1c9eedef65defb5e61064c6b0653d1494834fb2604a488f0931139de9ecd15',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -9132,7 +9132,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('6a635593286902803c62e91394f0a0f1eae959fb589a01a9aa4eaed06b70a839',
+  Assert.AreEqual('ef1c9eedef65defb5e61064c6b0653d1494834fb2604a488f0931139de9ecd15',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -9178,7 +9178,7 @@ begin
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamTextPtr := @rt^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('b5475d9e2ba72fe80ee5cb0db1809fa01765e74b07fa723e39ceb527304f278f',
+  Assert.AreEqual('6b68394a8339ee1ef6b6d9d1d721fd2e01ed83e4bbcdd2ce6eeb419138f81484',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -9187,7 +9187,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('434:1-440:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('b5475d9e2ba72fe80ee5cb0db1809fa01765e74b07fa723e39ceb527304f278f',
+  Assert.AreEqual('6b68394a8339ee1ef6b6d9d1d721fd2e01ed83e4bbcdd2ce6eeb419138f81484',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -9202,7 +9202,7 @@ begin
   Assert.AreEqual('lWithRamTextPtr := @rt^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('b5475d9e2ba72fe80ee5cb0db1809fa01765e74b07fa723e39ceb527304f278f',
+  Assert.AreEqual('6b68394a8339ee1ef6b6d9d1d721fd2e01ed83e4bbcdd2ce6eeb419138f81484',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -9263,7 +9263,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('456:1-473:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('d750feac9e5754190032e747e26e87d8f3437dc5949bc7caad883f36e3ab08ac',
+  Assert.AreEqual('356e48cc603cd8082bb2efd1f154c8df8a753fda8ba74d04087cd08671c31971',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -9277,7 +9277,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('d750feac9e5754190032e747e26e87d8f3437dc5949bc7caad883f36e3ab08ac',
+  Assert.AreEqual('356e48cc603cd8082bb2efd1f154c8df8a753fda8ba74d04087cd08671c31971',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -9339,7 +9339,7 @@ begin
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamTextPtr := @CGIBuffer;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('8a4931f185b7d3dfdc78b16184d501a93c8b62dd0b467bc34ef9f3a8093a1ae8',
+  Assert.AreEqual('49cec3b9bd81782dab6fb50bffa4e69869a7c5355175e335acabf9c16fd6d00b',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -9349,7 +9349,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('478:1-493:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('8a4931f185b7d3dfdc78b16184d501a93c8b62dd0b467bc34ef9f3a8093a1ae8',
+  Assert.AreEqual('49cec3b9bd81782dab6fb50bffa4e69869a7c5355175e335acabf9c16fd6d00b',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -9364,7 +9364,7 @@ begin
   Assert.AreEqual('lWithRamTextPtr := @CGIBuffer;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('8a4931f185b7d3dfdc78b16184d501a93c8b62dd0b467bc34ef9f3a8093a1ae8',
+  Assert.AreEqual('49cec3b9bd81782dab6fb50bffa4e69869a7c5355175e335acabf9c16fd6d00b',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -9423,7 +9423,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('544:1-560:6', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('0825f380e94469444562f6db675bfd346ef277a2a74cbc2ed93fdb1b50213142',
+  Assert.AreEqual('e32949c176ad057f49e98364c7686285b9f22bab30cb3b9d9222e3bbe89bf99b',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -9437,7 +9437,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('0825f380e94469444562f6db675bfd346ef277a2a74cbc2ed93fdb1b50213142',
+  Assert.AreEqual('e32949c176ad057f49e98364c7686285b9f22bab30cb3b9d9222e3bbe89bf99b',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -9490,7 +9490,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('586:1-599:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('d07abb25fbfda80dbff8917942be3908241e1f72da9fc6a7b41c01b6b0b73549',
+  Assert.AreEqual('90e646b970c08e732a3f4edab3c1072ca3bc94f0dd7c12cb1366a579d788d22f',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -9504,7 +9504,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('d07abb25fbfda80dbff8917942be3908241e1f72da9fc6a7b41c01b6b0b73549',
+  Assert.AreEqual('90e646b970c08e732a3f4edab3c1072ca3bc94f0dd7c12cb1366a579d788d22f',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -9623,7 +9623,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('608:1-654:6', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('ec64bee8e2b8a951d5d228320e43a8a7947f85197d9ee1615d7d8d2708ef814f',
+  Assert.AreEqual('e9af535677be62f7eee617de37578e66b4d59b1357bdb8b31286788725abf858',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -9637,7 +9637,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('ec64bee8e2b8a951d5d228320e43a8a7947f85197d9ee1615d7d8d2708ef814f',
+  Assert.AreEqual('e9af535677be62f7eee617de37578e66b4d59b1357bdb8b31286788725abf858',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -9670,7 +9670,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('666:1-669:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('aaeb13066e9617ba49aca0d41822e8a641618cf7693c38efbd2fb7374dfdaa7d',
+  Assert.AreEqual('b710337a479db670487ca947bb2105030c77935c22698e13c18fd9ae40cf470b',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -9684,7 +9684,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('aaeb13066e9617ba49aca0d41822e8a641618cf7693c38efbd2fb7374dfdaa7d',
+  Assert.AreEqual('b710337a479db670487ca947bb2105030c77935c22698e13c18fd9ae40cf470b',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -9736,7 +9736,7 @@ begin
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('c66bd7ca441ad16f966330d96e223819aaea71dcaf0d2d8fc1418dc1d2729055',
+  Assert.AreEqual('165239e1fabd96c29e0eb6f99fc9e2c975b785cc9cbb7baa32cf6539130feb8f',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -9745,7 +9745,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('688:1-698:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('c66bd7ca441ad16f966330d96e223819aaea71dcaf0d2d8fc1418dc1d2729055',
+  Assert.AreEqual('165239e1fabd96c29e0eb6f99fc9e2c975b785cc9cbb7baa32cf6539130feb8f',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -9760,7 +9760,7 @@ begin
   Assert.AreEqual('lWithRamFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('c66bd7ca441ad16f966330d96e223819aaea71dcaf0d2d8fc1418dc1d2729055',
+  Assert.AreEqual('165239e1fabd96c29e0eb6f99fc9e2c975b785cc9cbb7baa32cf6539130feb8f',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -9822,7 +9822,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('ReadRamFile', lStatement.RoutineName);
-  Assert.AreEqual('3f1b09fa49fca445835ef7e6d7af5a32f4608b0fe903ea76ed1c2c892e34b111', lStatement.SemanticId);
+  Assert.AreEqual('388e63092ffe9dc50ca8b9be2c933d5218b7fbde024b580dee1517e85878b75b', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('704:3-714:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('704:3-714:6', SourceRangeText(lStatement.Verification.Range));
@@ -9858,7 +9858,7 @@ begin
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('3f1b09fa49fca445835ef7e6d7af5a32f4608b0fe903ea76ed1c2c892e34b111', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('388e63092ffe9dc50ca8b9be2c933d5218b7fbde024b580dee1517e85878b75b', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('703:1-703:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -9892,7 +9892,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('RewriteRamFile', lStatement.RoutineName);
-  Assert.AreEqual('bde81a98c2a91c699d6ff668b0317646330f16ecb8c6911db5eef524dfc1648c', lStatement.SemanticId);
+  Assert.AreEqual('ffca7276f04a917ed3d36aee7d6c2267c35cf6a8d4971072c40ad508ee7c1dfe', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('719:3-729:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('719:3-729:6', SourceRangeText(lStatement.Verification.Range));
@@ -9928,7 +9928,7 @@ begin
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('bde81a98c2a91c699d6ff668b0317646330f16ecb8c6911db5eef524dfc1648c', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('ffca7276f04a917ed3d36aee7d6c2267c35cf6a8d4971072c40ad508ee7c1dfe', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('718:1-718:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -9962,7 +9962,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('CloseRamFile', lStatement.RoutineName);
-  Assert.AreEqual('5a40261037689921b92bffcc3c6c901781a79468dbaecd8a46d9199396b20b11', lStatement.SemanticId);
+  Assert.AreEqual('6765b1e86a623a63e3ed3214aec919ab56c778cb3068fd8fe71a978b3e38d430', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('737:5-752:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('737:5-752:8', SourceRangeText(lStatement.Verification.Range));
@@ -10010,7 +10010,7 @@ begin
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5a40261037689921b92bffcc3c6c901781a79468dbaecd8a46d9199396b20b11', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('6765b1e86a623a63e3ed3214aec919ab56c778cb3068fd8fe71a978b3e38d430', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('735:1-735:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -10043,7 +10043,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('SeekRamFile', lStatement.RoutineName);
-  Assert.AreEqual('9a7cc0357bb7d1c931adf2d7dfe6c20e903f360f9ed2a524c08675f9006fddbb', lStatement.SemanticId);
+  Assert.AreEqual('9a30bf8421cf2fe01b6834ed0a33a6c30405b7114efef57b98a6f5fed3a63c51', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('757:3-764:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('757:3-764:6', SourceRangeText(lStatement.Verification.Range));
@@ -10073,7 +10073,7 @@ begin
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('9a7cc0357bb7d1c931adf2d7dfe6c20e903f360f9ed2a524c08675f9006fddbb', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('9a30bf8421cf2fe01b6834ed0a33a6c30405b7114efef57b98a6f5fed3a63c51', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('756:1-756:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -10107,7 +10107,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('WriteRamFile', lStatement.RoutineName);
-  Assert.AreEqual('5a5bb4272021dc60dc127b4274d037d3010fbb26e7f5955237d99dc6c571d760', lStatement.SemanticId);
+  Assert.AreEqual('e98868c0b6a1dd2b571e85fa84a2d482d1994817db351288ed681e99878f1b04', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('774:3-784:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('774:3-784:6', SourceRangeText(lStatement.Verification.Range));
@@ -10143,7 +10143,7 @@ begin
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5a5bb4272021dc60dc127b4274d037d3010fbb26e7f5955237d99dc6c571d760', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('e98868c0b6a1dd2b571e85fa84a2d482d1994817db351288ed681e99878f1b04', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('773:1-773:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -10318,7 +10318,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1049:1-1055:6', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('5483c062e67eff2d95d14448218f35e7431b04a118125166f6a67261a52b597d',
+  Assert.AreEqual('7ec4733d9e9c053091737ff3fa5d184b4d78135ab8443a0007a68b43c556060b',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -10332,7 +10332,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5483c062e67eff2d95d14448218f35e7431b04a118125166f6a67261a52b597d',
+  Assert.AreEqual('7ec4733d9e9c053091737ff3fa5d184b4d78135ab8443a0007a68b43c556060b',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -10375,7 +10375,7 @@ begin
   Assert.AreEqual('lWithRamTextSaveItemPtr := @RamTextSave[1 + i];',
     lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('f76367217d697836b8ed5a6387dd0505b28b54ef901ff1e4e42ceafbf6350013',
+  Assert.AreEqual('7f304cc3f53a0c32821f89c3bc3445b15ce88e2c6ca96fdab86d11d628f86f07',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -10385,7 +10385,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1116:1-1120:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('f76367217d697836b8ed5a6387dd0505b28b54ef901ff1e4e42ceafbf6350013',
+  Assert.AreEqual('7f304cc3f53a0c32821f89c3bc3445b15ce88e2c6ca96fdab86d11d628f86f07',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -10400,7 +10400,7 @@ begin
   Assert.AreEqual('lWithRamTextSaveItemPtr := @RamTextSave[1 + i];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('f76367217d697836b8ed5a6387dd0505b28b54ef901ff1e4e42ceafbf6350013',
+  Assert.AreEqual('7f304cc3f53a0c32821f89c3bc3445b15ce88e2c6ca96fdab86d11d628f86f07',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -10455,7 +10455,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1398:1-1412:8', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('dd952b57488566c39f93f8812a0453894e01ade50d44b7a4b3c09a853dca227d',
+  Assert.AreEqual('39918586a7ef47ea4e9099745f7b106c7374cb01619fba71ce02fc623b2d7eee',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -10469,7 +10469,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('dd952b57488566c39f93f8812a0453894e01ade50d44b7a4b3c09a853dca227d',
+  Assert.AreEqual('39918586a7ef47ea4e9099745f7b106c7374cb01619fba71ce02fc623b2d7eee',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -10520,7 +10520,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1421:1-1433:8', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('08ac003025bd4f1b2cd2ee56fea83b4f90bc1ae45d383ff6b514b5e8ed662992',
+  Assert.AreEqual('b69d55c6cad4d87efc42ad9f813db5630605c622bf4142e6e734793f7b3dcad5',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -10534,7 +10534,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('08ac003025bd4f1b2cd2ee56fea83b4f90bc1ae45d383ff6b514b5e8ed662992',
+  Assert.AreEqual('b69d55c6cad4d87efc42ad9f813db5630605c622bf4142e6e734793f7b3dcad5',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -10569,7 +10569,7 @@ begin
   Assert.AreEqual('lWithRamTextSaveItemPtr: ^TRamTextSaveItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamTextSaveItemPtr := @RamTextSave[1];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('7318965d501409486332a55e2998f3b75104eef7a1daa2012669b51934d1263e',
+  Assert.AreEqual('13e7705ecbcc19594c56ba31f5cef64b9b5fda7caa9712b89947bc285b73fd24',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('rt', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithRamTextPtr^', lStatement.Temps[1].QualifierText);
@@ -10580,7 +10580,7 @@ begin
   Assert.AreEqual('lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('7318965d501409486332a55e2998f3b75104eef7a1daa2012669b51934d1263e',
+  Assert.AreEqual('13e7705ecbcc19594c56ba31f5cef64b9b5fda7caa9712b89947bc285b73fd24',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -10591,7 +10591,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1602:1-1603:19', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('7318965d501409486332a55e2998f3b75104eef7a1daa2012669b51934d1263e',
+  Assert.AreEqual('13e7705ecbcc19594c56ba31f5cef64b9b5fda7caa9712b89947bc285b73fd24',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -10606,7 +10606,7 @@ begin
   Assert.AreEqual('lWithRamTextSaveItemPtr := @RamTextSave[1];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('7318965d501409486332a55e2998f3b75104eef7a1daa2012669b51934d1263e',
+  Assert.AreEqual('13e7705ecbcc19594c56ba31f5cef64b9b5fda7caa9712b89947bc285b73fd24',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('rt', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithRamTextPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -10618,7 +10618,7 @@ begin
   Assert.AreEqual('lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('7318965d501409486332a55e2998f3b75104eef7a1daa2012669b51934d1263e',
+  Assert.AreEqual('13e7705ecbcc19594c56ba31f5cef64b9b5fda7caa9712b89947bc285b73fd24',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 end;
 
@@ -10717,7 +10717,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('e289fa208c5f47d618ae420bbaa12f7a96ada59a2a6f05ef1a0310ef4768155e',
+  Assert.AreEqual('4c032fa9aa0b4a09bc1cf13f0ec5f95a5a978142f2dda25c40c166146ef8a5e9',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('Ind', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexPtr^', lStatement.Temps[1].QualifierText);
@@ -10727,7 +10727,7 @@ begin
   Assert.AreEqual('lWithIndexPtr: ^Index;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithIndexPtr := @lWithDatFilePtr^.Ind;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('e289fa208c5f47d618ae420bbaa12f7a96ada59a2a6f05ef1a0310ef4768155e',
+  Assert.AreEqual('4c032fa9aa0b4a09bc1cf13f0ec5f95a5a978142f2dda25c40c166146ef8a5e9',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -10737,7 +10737,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('830:1-843:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('e289fa208c5f47d618ae420bbaa12f7a96ada59a2a6f05ef1a0310ef4768155e',
+  Assert.AreEqual('4c032fa9aa0b4a09bc1cf13f0ec5f95a5a978142f2dda25c40c166146ef8a5e9',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -10752,7 +10752,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('e289fa208c5f47d618ae420bbaa12f7a96ada59a2a6f05ef1a0310ef4768155e',
+  Assert.AreEqual('4c032fa9aa0b4a09bc1cf13f0ec5f95a5a978142f2dda25c40c166146ef8a5e9',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('Ind', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithIndexPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -10763,7 +10763,7 @@ begin
   Assert.AreEqual('lWithIndexPtr := @lWithDatFilePtr^.Ind;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('e289fa208c5f47d618ae420bbaa12f7a96ada59a2a6f05ef1a0310ef4768155e',
+  Assert.AreEqual('4c032fa9aa0b4a09bc1cf13f0ec5f95a5a978142f2dda25c40c166146ef8a5e9',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 end;
 
@@ -10808,13 +10808,13 @@ begin
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr1 := @DF[RelFile]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('539cc4c3e8729ba767320fa45938af860d3dae331773092674e80a1f52baabf2',
+  Assert.AreEqual('26cc3e752612accd73b09bab32fa29a9c64bcf9d8e859c4655ccb9b18f7f8a75',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1495:1-1500:6', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('539cc4c3e8729ba767320fa45938af860d3dae331773092674e80a1f52baabf2',
+  Assert.AreEqual('26cc3e752612accd73b09bab32fa29a9c64bcf9d8e859c4655ccb9b18f7f8a75',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -10829,7 +10829,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr1 := @DF[RelFile]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('539cc4c3e8729ba767320fa45938af860d3dae331773092674e80a1f52baabf2',
+  Assert.AreEqual('26cc3e752612accd73b09bab32fa29a9c64bcf9d8e859c4655ccb9b18f7f8a75',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1232, 3, lOwnerStatement));
@@ -10854,7 +10854,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('73c1e2679f2d2a7b538328388da42e1bca2c783094d4273c76a7823fbc0d6932',
+  Assert.AreEqual('33edd5a02ff06871b11576d994f2d0b04139da0cd437625b477ef03bb564015b',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -10866,7 +10866,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('1232:1-1233:66', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('73c1e2679f2d2a7b538328388da42e1bca2c783094d4273c76a7823fbc0d6932',
+  Assert.AreEqual('33edd5a02ff06871b11576d994f2d0b04139da0cd437625b477ef03bb564015b',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -10881,7 +10881,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('73c1e2679f2d2a7b538328388da42e1bca2c783094d4273c76a7823fbc0d6932',
+  Assert.AreEqual('33edd5a02ff06871b11576d994f2d0b04139da0cd437625b477ef03bb564015b',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
@@ -10941,13 +10941,13 @@ begin
   Assert.AreEqual('lWithDatFilePtr2: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr2 := @DF[IndexFile]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('56dbd85ea669fb6ba21dcab6f8782dc56affe6c91e211da096d9c4bb94394716',
+  Assert.AreEqual('a6a8e63f07e3fd1ffdd547706a5b0c5d5967b0bd682e7347c540d1dc078d6d31',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1501:1-1508:6', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('56dbd85ea669fb6ba21dcab6f8782dc56affe6c91e211da096d9c4bb94394716',
+  Assert.AreEqual('a6a8e63f07e3fd1ffdd547706a5b0c5d5967b0bd682e7347c540d1dc078d6d31',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -10962,7 +10962,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr2 := @DF[IndexFile]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('56dbd85ea669fb6ba21dcab6f8782dc56affe6c91e211da096d9c4bb94394716',
+  Assert.AreEqual('a6a8e63f07e3fd1ffdd547706a5b0c5d5967b0bd682e7347c540d1dc078d6d31',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1232, 3, lOwnerStatement));
@@ -10987,7 +10987,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('73c1e2679f2d2a7b538328388da42e1bca2c783094d4273c76a7823fbc0d6932',
+  Assert.AreEqual('33edd5a02ff06871b11576d994f2d0b04139da0cd437625b477ef03bb564015b',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -10999,7 +10999,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('1232:1-1233:66', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('73c1e2679f2d2a7b538328388da42e1bca2c783094d4273c76a7823fbc0d6932',
+  Assert.AreEqual('33edd5a02ff06871b11576d994f2d0b04139da0cd437625b477ef03bb564015b',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -11014,7 +11014,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('73c1e2679f2d2a7b538328388da42e1bca2c783094d4273c76a7823fbc0d6932',
+  Assert.AreEqual('33edd5a02ff06871b11576d994f2d0b04139da0cd437625b477ef03bb564015b',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
@@ -11081,7 +11081,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[g_Index_File]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('cc7243033ce826665078405692e7e56d5bc32f73afe474d7f7644662dc8bab51',
+  Assert.AreEqual('50217258890cbb06e7126c69a6896f4a6bddf6a18495fb8b6ac937a504077302',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -11090,7 +11090,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2717:1-2722:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('cc7243033ce826665078405692e7e56d5bc32f73afe474d7f7644662dc8bab51',
+  Assert.AreEqual('50217258890cbb06e7126c69a6896f4a6bddf6a18495fb8b6ac937a504077302',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -11105,7 +11105,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[g_Index_File]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('cc7243033ce826665078405692e7e56d5bc32f73afe474d7f7644662dc8bab51',
+  Assert.AreEqual('50217258890cbb06e7126c69a6896f4a6bddf6a18495fb8b6ac937a504077302',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -11126,7 +11126,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('build_str_array', lStatement.RoutineName);
-  Assert.AreEqual('862c295e20050be45ac73fb7b32a4c8bd038be5addd946f5d2517562214904f9', lStatement.SemanticId);
+  Assert.AreEqual('81cc484ea9c3dfb1d9fb788a1d23e78c411c800caf93e36c10da9e6b73485fcc', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('2794:3-2806:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2794:3-2806:6', SourceRangeText(lStatement.Verification.Range));
@@ -11167,7 +11167,7 @@ begin
   Assert.AreEqual('lWithEasyVarPtr: ^EasyVar;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithEasyVarPtr := @VarList[Vnr];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('862c295e20050be45ac73fb7b32a4c8bd038be5addd946f5d2517562214904f9', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('81cc484ea9c3dfb1d9fb788a1d23e78c411c800caf93e36c10da9e6b73485fcc', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('p^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithArrayVarRecPtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -11176,7 +11176,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @p^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('821585c93c19ebfd38f34270cc172341986ff22c6009b1a5e605eea2cdc8995b', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('d0786a615bd605363db8b022a82c80376fca83df21bc764a320c25703328efa3', lStatement.Temps[1].SemanticId);
   Assert.AreEqual('ArrayVar', lStatement.Temps[2].SelectorText);
   Assert.AreEqual('lWithArrayRecPtr^', lStatement.Temps[2].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[2].Strategy);
@@ -11185,7 +11185,7 @@ begin
   Assert.AreEqual('lWithArrayRecPtr: ^ArrayRec;', lStatement.Temps[2].DeclarationText);
   Assert.AreEqual('lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;', lStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
-  Assert.AreEqual('821585c93c19ebfd38f34270cc172341986ff22c6009b1a5e605eea2cdc8995b', lStatement.Temps[2].SemanticId);
+  Assert.AreEqual('d0786a615bd605363db8b022a82c80376fca83df21bc764a320c25703328efa3', lStatement.Temps[2].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('2786:1-2786:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -11214,11 +11214,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'strfuncs.pas', 2799, 7, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    '821585c93c19ebfd38f34270cc172341986ff22c6009b1a5e605eea2cdc8995b', lCoveredStatement));
+    'd0786a615bd605363db8b022a82c80376fca83df21bc764a320c25703328efa3', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('821585c93c19ebfd38f34270cc172341986ff22c6009b1a5e605eea2cdc8995b', lCoveredStatement.SemanticId);
+  Assert.AreEqual('d0786a615bd605363db8b022a82c80376fca83df21bc764a320c25703328efa3', lCoveredStatement.SemanticId);
   Assert.AreEqual('2799:7-2802:9', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -11264,7 +11264,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('7bb3dc5c1c0d5db2f69caf27f7ef1184587c457baa0db316f8a2be5e6540fde5',
+  Assert.AreEqual('7c7a5d68480b0b4e75f394bc57666c707acd0dc42e38e4e4baf0cf0731b82c08',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -11274,7 +11274,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('107:1-108:38', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('7bb3dc5c1c0d5db2f69caf27f7ef1184587c457baa0db316f8a2be5e6540fde5',
+  Assert.AreEqual('7c7a5d68480b0b4e75f394bc57666c707acd0dc42e38e4e4baf0cf0731b82c08',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -11289,7 +11289,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('7bb3dc5c1c0d5db2f69caf27f7ef1184587c457baa0db316f8a2be5e6540fde5',
+  Assert.AreEqual('7c7a5d68480b0b4e75f394bc57666c707acd0dc42e38e4e4baf0cf0731b82c08',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 113, 3, lStatement));
@@ -11314,7 +11314,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('2e3cdf1d59ca34b96421358d3dccd8f3e3c9f1be06ce92b88c74ec38632d7c80',
+  Assert.AreEqual('488484e1c5975b68a46a26e5cd9c5e3cb2018a41d75249816aa1bd506c8ea70e',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -11324,7 +11324,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('113:1-114:39', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('2e3cdf1d59ca34b96421358d3dccd8f3e3c9f1be06ce92b88c74ec38632d7c80',
+  Assert.AreEqual('488484e1c5975b68a46a26e5cd9c5e3cb2018a41d75249816aa1bd506c8ea70e',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -11339,7 +11339,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('2e3cdf1d59ca34b96421358d3dccd8f3e3c9f1be06ce92b88c74ec38632d7c80',
+  Assert.AreEqual('488484e1c5975b68a46a26e5cd9c5e3cb2018a41d75249816aa1bd506c8ea70e',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -11358,7 +11358,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NewInd', lStatement.RoutineName);
-  Assert.AreEqual('3b9ccd554074b95c26fff6cf4610a95a262533c0f2ba361d3814139ae7e3318a', lStatement.SemanticId);
+  Assert.AreEqual('b8228e84fbf24cff96b6e266e00089625ccfaade7bbd9840ce7521c1d846ad8d', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('195:3-213:5', SourceRangeText(lStatement.Range));
   Assert.AreEqual('195:3-213:5', SourceRangeText(lStatement.Verification.Range));
@@ -11410,7 +11410,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('3b9ccd554074b95c26fff6cf4610a95a262533c0f2ba361d3814139ae7e3318a', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('b8228e84fbf24cff96b6e266e00089625ccfaade7bbd9840ce7521c1d846ad8d', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IndFiles[INr]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -11419,7 +11419,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('cec278073bd9f691ba833527a23c91915e09524822bd01ef5cb56fc23238afe3', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('e54326eb1e269a2ade24e5cc9b02ea3e6c7a08dee26801734eb1b05f469d1070', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('194:1-194:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -11459,7 +11459,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NewInd', lStatement.RoutineName);
-  Assert.AreEqual('3b9ccd554074b95c26fff6cf4610a95a262533c0f2ba361d3814139ae7e3318a', lStatement.SemanticId);
+  Assert.AreEqual('b8228e84fbf24cff96b6e266e00089625ccfaade7bbd9840ce7521c1d846ad8d', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('195:3-213:5', SourceRangeText(lStatement.Range));
   Assert.AreEqual('195:3-213:5', SourceRangeText(lStatement.Verification.Range));
@@ -11511,7 +11511,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('3b9ccd554074b95c26fff6cf4610a95a262533c0f2ba361d3814139ae7e3318a', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('b8228e84fbf24cff96b6e266e00089625ccfaade7bbd9840ce7521c1d846ad8d', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IndFiles[INr]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -11520,7 +11520,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('cec278073bd9f691ba833527a23c91915e09524822bd01ef5cb56fc23238afe3', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('e54326eb1e269a2ade24e5cc9b02ea3e6c7a08dee26801734eb1b05f469d1070', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('194:1-194:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -11535,11 +11535,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 208, 5, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    'cec278073bd9f691ba833527a23c91915e09524822bd01ef5cb56fc23238afe3', lCoveredStatement));
+    'e54326eb1e269a2ade24e5cc9b02ea3e6c7a08dee26801734eb1b05f469d1070', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('cec278073bd9f691ba833527a23c91915e09524822bd01ef5cb56fc23238afe3', lCoveredStatement.SemanticId);
+  Assert.AreEqual('e54326eb1e269a2ade24e5cc9b02ea3e6c7a08dee26801734eb1b05f469d1070', lCoveredStatement.SemanticId);
   Assert.AreEqual('208:5-212:8', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -11578,7 +11578,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('GetIndPath', lStatement.RoutineName);
-  Assert.AreEqual('cfe512bc3833009c5e5e215acb0fe6c1c880630e10951cf65de00f597fc98d20', lStatement.SemanticId);
+  Assert.AreEqual('cfa1d6d78ee46805424b9f6990f264cbf8e03bad7982d4e64512dcb52256dd87', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('223:3-241:5', SourceRangeText(lStatement.Range));
   Assert.AreEqual('223:3-241:5', SourceRangeText(lStatement.Verification.Range));
@@ -11631,7 +11631,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('cfe512bc3833009c5e5e215acb0fe6c1c880630e10951cf65de00f597fc98d20', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('cfa1d6d78ee46805424b9f6990f264cbf8e03bad7982d4e64512dcb52256dd87', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IndFiles[INr]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -11640,7 +11640,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('cfe512bc3833009c5e5e215acb0fe6c1c880630e10951cf65de00f597fc98d20', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('cfa1d6d78ee46805424b9f6990f264cbf8e03bad7982d4e64512dcb52256dd87', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('222:1-222:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -11660,7 +11660,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('cfe512bc3833009c5e5e215acb0fe6c1c880630e10951cf65de00f597fc98d20', lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual('cfa1d6d78ee46805424b9f6990f264cbf8e03bad7982d4e64512dcb52256dd87', lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('IndFiles[INr]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
@@ -11669,7 +11669,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;', lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('cfe512bc3833009c5e5e215acb0fe6c1c880630e10951cf65de00f597fc98d20', lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
+  Assert.AreEqual('cfa1d6d78ee46805424b9f6990f264cbf8e03bad7982d4e64512dcb52256dd87', lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
   lDeclarationCount := 0;
   lReplacementCount := 0;
   for i := 0 to High(lPlan.FinalStatements) do
@@ -11765,7 +11765,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('7f925810c5820ea1072df4ec0867c13d592fa14b8b71326ec6fa1734908633df',
+  Assert.AreEqual('513f00f0be84a6316f88ec9c8eb1ba1a6c54b0558cb3e7fe8f8878409ea49da1',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IV[I]', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexVektorItemPtr^', lStatement.Temps[1].QualifierText);
@@ -11775,7 +11775,7 @@ begin
   Assert.AreEqual('lWithIndexVektorItemPtr: ^TIndexVektorItem;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('318ec59405ebe796a6157079cbe78b0112fd397ffe2f8c701ccbc117af4adc34',
+  Assert.AreEqual('ed88d36c4c38c4e0fe5e55c2160b7afcf80ac994634d721e86339241e51d060a',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -11785,7 +11785,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('255:1-277:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('7f925810c5820ea1072df4ec0867c13d592fa14b8b71326ec6fa1734908633df',
+  Assert.AreEqual('513f00f0be84a6316f88ec9c8eb1ba1a6c54b0558cb3e7fe8f8878409ea49da1',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -11800,14 +11800,14 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('7f925810c5820ea1072df4ec0867c13d592fa14b8b71326ec6fa1734908633df',
+  Assert.AreEqual('513f00f0be84a6316f88ec9c8eb1ba1a6c54b0558cb3e7fe8f8878409ea49da1',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 260, 7, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '318ec59405ebe796a6157079cbe78b0112fd397ffe2f8c701ccbc117af4adc34',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'ed88d36c4c38c4e0fe5e55c2160b7afcf80ac994634d721e86339241e51d060a',
     lCoveredStatement));
   Assert.AreEqual('with-66', lCoveredStatement.StatementId);
-  Assert.AreEqual('318ec59405ebe796a6157079cbe78b0112fd397ffe2f8c701ccbc117af4adc34',
+  Assert.AreEqual('ed88d36c4c38c4e0fe5e55c2160b7afcf80ac994634d721e86339241e51d060a',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
@@ -11860,7 +11860,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('4a9b5acb4b23f55e054eb934020f1bcb87718bb77ba73600550ca1e95e1a1320',
+  Assert.AreEqual('f8925365c1b165ff6b4e7116f1ea3bd3d0f1fcebe7bc21a4aab21bc57d1781eb',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -11869,7 +11869,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('298:1-305:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('4a9b5acb4b23f55e054eb934020f1bcb87718bb77ba73600550ca1e95e1a1320',
+  Assert.AreEqual('f8925365c1b165ff6b4e7116f1ea3bd3d0f1fcebe7bc21a4aab21bc57d1781eb',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -11884,7 +11884,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('4a9b5acb4b23f55e054eb934020f1bcb87718bb77ba73600550ca1e95e1a1320',
+  Assert.AreEqual('f8925365c1b165ff6b4e7116f1ea3bd3d0f1fcebe7bc21a4aab21bc57d1781eb',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -11925,7 +11925,7 @@ begin
   Assert.AreEqual('lWithIndexVektorItemPtr: ^TIndexVektorItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5221ff09a6b77f413e07fca6446651ad340ae79e7c1999f361407c172f1ba1ba',
+  Assert.AreEqual('92d5933c882f3d19de26b98d8fa2128a0c559802c3bd83f110e5bd230bb73eff',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -11935,7 +11935,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('365:1-367:33', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('5221ff09a6b77f413e07fca6446651ad340ae79e7c1999f361407c172f1ba1ba',
+  Assert.AreEqual('92d5933c882f3d19de26b98d8fa2128a0c559802c3bd83f110e5bd230bb73eff',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -11950,7 +11950,7 @@ begin
   Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5221ff09a6b77f413e07fca6446651ad340ae79e7c1999f361407c172f1ba1ba',
+  Assert.AreEqual('92d5933c882f3d19de26b98d8fa2128a0c559802c3bd83f110e5bd230bb73eff',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   lOwnerStatement := lStatement;
@@ -11976,13 +11976,13 @@ begin
   Assert.AreEqual('lWithIndexVektorItemPtr1: ^TIndexVektorItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexVektorItemPtr1 := @IV[cMaxIndex];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('0972404641c64897ca35e62eb2c5d2331f7fe41b5f137fdd31af2844b486b201',
+  Assert.AreEqual('9c32859bceadecae6591604f35962c12b643ce2e0bdb51467d875492a6203b00',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('368:1-369:73', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('0972404641c64897ca35e62eb2c5d2331f7fe41b5f137fdd31af2844b486b201',
+  Assert.AreEqual('9c32859bceadecae6591604f35962c12b643ce2e0bdb51467d875492a6203b00',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -11997,7 +11997,7 @@ begin
   Assert.AreEqual('lWithIndexVektorItemPtr1 := @IV[cMaxIndex];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('0972404641c64897ca35e62eb2c5d2331f7fe41b5f137fdd31af2844b486b201',
+  Assert.AreEqual('9c32859bceadecae6591604f35962c12b643ce2e0bdb51467d875492a6203b00',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
@@ -12069,13 +12069,13 @@ begin
   Assert.AreEqual('lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;',
     lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('11dc5b70338c24a4abe8936f1f550f60e2cf96cb590e60cf7ef46e7fd2fbfb1c',
+  Assert.AreEqual('071015492cf41e5a522c68acea6a6c231707e826481b1a85ed177311d72151ed',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('422:1-432:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('11dc5b70338c24a4abe8936f1f550f60e2cf96cb590e60cf7ef46e7fd2fbfb1c',
+  Assert.AreEqual('071015492cf41e5a522c68acea6a6c231707e826481b1a85ed177311d72151ed',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -12090,7 +12090,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('11dc5b70338c24a4abe8936f1f550f60e2cf96cb590e60cf7ef46e7fd2fbfb1c',
+  Assert.AreEqual('071015492cf41e5a522c68acea6a6c231707e826481b1a85ed177311d72151ed',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 388, 7, lOwnerStatement));
@@ -12159,7 +12159,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @IndFiles[I]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('0b5247abe06d14054c58de6d7db536e4f8e66983dd3234b7f803ea16793bba02',
+  Assert.AreEqual('a048220084cc56e2719d9fb894dc7b9eee168c2e4ce98d7343e082dc0b5b6633',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -12169,7 +12169,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('388:1-410:12', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('0b5247abe06d14054c58de6d7db536e4f8e66983dd3234b7f803ea16793bba02',
+  Assert.AreEqual('a048220084cc56e2719d9fb894dc7b9eee168c2e4ce98d7343e082dc0b5b6633',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -12184,7 +12184,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @IndFiles[I]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('0b5247abe06d14054c58de6d7db536e4f8e66983dd3234b7f803ea16793bba02',
+  Assert.AreEqual('a048220084cc56e2719d9fb894dc7b9eee168c2e4ce98d7343e082dc0b5b6633',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
@@ -12218,7 +12218,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('IndProc', lStatement.RoutineName);
-  Assert.AreEqual('3f1c70f77b8d4f394896cb06706d584fb8345f8fc8771f807cb83f88be28bdac', lStatement.SemanticId);
+  Assert.AreEqual('5c655cb7703f995b05b3360f258ea9d9d42e54806147b65b7781483ab06fff9e', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('648:5-669:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('648:5-669:10', SourceRangeText(lStatement.Verification.Range));
@@ -12278,7 +12278,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @g^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('3f1c70f77b8d4f394896cb06706d584fb8345f8fc8771f807cb83f88be28bdac', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('5c655cb7703f995b05b3360f258ea9d9d42e54806147b65b7781483ab06fff9e', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('635:1-635:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -12367,7 +12367,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('16d5ccbd24a19ef1bbc19719c71af98792eead8bda0f67a818c97cfe62c15f89',
+  Assert.AreEqual('5b160a1c366edf39c06209fba93f1f98ee7d2752c5308fdbcff878baec8b9e28',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IndFiles[I]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
@@ -12378,7 +12378,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[I]^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('16d5ccbd24a19ef1bbc19719c71af98792eead8bda0f67a818c97cfe62c15f89',
+  Assert.AreEqual('5b160a1c366edf39c06209fba93f1f98ee7d2752c5308fdbcff878baec8b9e28',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual('IndFile^', lStatement.Temps[2].SelectorText);
   Assert.AreEqual('lWithBTreePtr^', lStatement.Temps[2].QualifierText);
@@ -12388,7 +12388,7 @@ begin
   Assert.AreEqual('lWithBTreePtr: ^TBTree;', lStatement.Temps[2].DeclarationText);
   Assert.AreEqual('lWithBTreePtr := @lWithIndexFilePtr^.IndFile^;', lStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
-  Assert.AreEqual('40a0acf962a60d581169bd2a6525ad67d1a2012147e8a165cc04079b49ce6677',
+  Assert.AreEqual('d7eac6b12519351eb18c3329b5bf72724644887e7831e59462bddccfd443f4c0',
     lStatement.Temps[2].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -12399,7 +12399,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('679:1-697:19', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('16d5ccbd24a19ef1bbc19719c71af98792eead8bda0f67a818c97cfe62c15f89',
+  Assert.AreEqual('5b160a1c366edf39c06209fba93f1f98ee7d2752c5308fdbcff878baec8b9e28',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -12414,7 +12414,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('16d5ccbd24a19ef1bbc19719c71af98792eead8bda0f67a818c97cfe62c15f89',
+  Assert.AreEqual('5b160a1c366edf39c06209fba93f1f98ee7d2752c5308fdbcff878baec8b9e28',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('IndFiles[I]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -12426,14 +12426,14 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[I]^;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('16d5ccbd24a19ef1bbc19719c71af98792eead8bda0f67a818c97cfe62c15f89',
+  Assert.AreEqual('5b160a1c366edf39c06209fba93f1f98ee7d2752c5308fdbcff878baec8b9e28',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 682, 7, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '40a0acf962a60d581169bd2a6525ad67d1a2012147e8a165cc04079b49ce6677',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'd7eac6b12519351eb18c3329b5bf72724644887e7831e59462bddccfd443f4c0',
     lCoveredStatement));
   Assert.AreEqual('with-77', lCoveredStatement.StatementId);
-  Assert.AreEqual('40a0acf962a60d581169bd2a6525ad67d1a2012147e8a165cc04079b49ce6677',
+  Assert.AreEqual('d7eac6b12519351eb18c3329b5bf72724644887e7831e59462bddccfd443f4c0',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
@@ -12484,7 +12484,7 @@ begin
   Assert.AreEqual('lWithIndexVektorItemPtr: ^TIndexVektorItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexVektorItemPtr := @IV[cMaxIndex];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('7322b3e7bb96c4f7581937650016b4ae690efb7408d4f5516a75d0386f7acb40',
+  Assert.AreEqual('e01b31c8101f974c0445ea2dc85b9a953599bc9a5a17b1da304510e2c5c3d8f8',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -12494,7 +12494,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('755:1-760:10', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('7322b3e7bb96c4f7581937650016b4ae690efb7408d4f5516a75d0386f7acb40',
+  Assert.AreEqual('e01b31c8101f974c0445ea2dc85b9a953599bc9a5a17b1da304510e2c5c3d8f8',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -12509,7 +12509,7 @@ begin
   Assert.AreEqual('lWithIndexVektorItemPtr := @IV[cMaxIndex];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('7322b3e7bb96c4f7581937650016b4ae690efb7408d4f5516a75d0386f7acb40',
+  Assert.AreEqual('e01b31c8101f974c0445ea2dc85b9a953599bc9a5a17b1da304510e2c5c3d8f8',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -12621,7 +12621,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @IndFiles[Ind0]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('0fc894f9f5e7e1523d7f183daa2fac5e9a193a51b2af61054d3df78e097e4f5c',
+  Assert.AreEqual('8c4a0525c6a07ef61de48e4065e173690d4ce8c2485f1f84c1a5f65e2938a809',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IV[1]', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexVektorItemPtr^', lStatement.Temps[1].QualifierText);
@@ -12632,7 +12632,7 @@ begin
   Assert.AreEqual('lWithIndexVektorItemPtr := @lWithIndexFilePtr^.IV[1];',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('becd5cab57e4bfbdcd31001c908a37cf13c774f2a11d9402d1c10aaa1e44ab05',
+  Assert.AreEqual('2375b649f8fa46d4fa3ddc32082a09733a465317e89426a2308d7f13d58fb5c3',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -12701,7 +12701,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr1: ^IndexFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr1 := @IndFiles[0]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('0c8b8c6529158430506d25cd2200ce111ec492156b0d53fe5b3294ab54726617',
+  Assert.AreEqual('7a1c3f09c696024a92f61282b2c5946e9522e96c12e3258fc54512c355c03d94',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IV[1]', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexVektorItemPtr1^', lStatement.Temps[1].QualifierText);
@@ -12712,7 +12712,7 @@ begin
   Assert.AreEqual('lWithIndexVektorItemPtr1 := @lWithIndexFilePtr1^.IV[1];',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('03f980b3cf79b4b87c101ed8c1fc90a8747bb96d45082e2e3d5059e43c5b3381',
+  Assert.AreEqual('bce58567a5e61a00bed14fc383fb47430c2cd8549a195dc5d1b545d0be928c92',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
@@ -12755,7 +12755,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr2: ^IndexFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr2 := @IndFiles[1]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('4f8fd4492e2a9bd85765e6474d7a76d01a42a7e237081a0a20505591d971cd3c',
+  Assert.AreEqual('273f7f8d5c159e21fb310b5702d1a75ebadaafee7fd59f8a15d417de9cdb495f',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
@@ -12829,7 +12829,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('17da5ca7d58ccfa975f78057d09bde70956bcaf43e8a59a970666d6a8b4ff44b',
+  Assert.AreEqual('54785453bed0db34b65ac76909ea651f2228bda279d927e6edebda3ee8d90645',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IndFiles[Nr]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
@@ -12840,7 +12840,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('17da5ca7d58ccfa975f78057d09bde70956bcaf43e8a59a970666d6a8b4ff44b',
+  Assert.AreEqual('54785453bed0db34b65ac76909ea651f2228bda279d927e6edebda3ee8d90645',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -12851,7 +12851,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1203:1-1214:7', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('17da5ca7d58ccfa975f78057d09bde70956bcaf43e8a59a970666d6a8b4ff44b',
+  Assert.AreEqual('54785453bed0db34b65ac76909ea651f2228bda279d927e6edebda3ee8d90645',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -12866,7 +12866,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('17da5ca7d58ccfa975f78057d09bde70956bcaf43e8a59a970666d6a8b4ff44b',
+  Assert.AreEqual('54785453bed0db34b65ac76909ea651f2228bda279d927e6edebda3ee8d90645',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('IndFiles[Nr]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -12878,7 +12878,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('17da5ca7d58ccfa975f78057d09bde70956bcaf43e8a59a970666d6a8b4ff44b',
+  Assert.AreEqual('54785453bed0db34b65ac76909ea651f2228bda279d927e6edebda3ee8d90645',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 end;
 
@@ -12939,7 +12939,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('1ce55b9a81fae5eec67c74d2872e881044400c44d87fd28b0105dfa7a3720822',
+  Assert.AreEqual('2aabf00a9c749523bbe6f1e1b87470ba3bb33d6594041623d1407dbdd480b506',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IndFiles[ID]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
@@ -12950,7 +12950,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[ID]^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('1ce55b9a81fae5eec67c74d2872e881044400c44d87fd28b0105dfa7a3720822',
+  Assert.AreEqual('2aabf00a9c749523bbe6f1e1b87470ba3bb33d6594041623d1407dbdd480b506',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual('IV[1]', lStatement.Temps[2].SelectorText);
   Assert.AreEqual('lWithIndexVektorItemPtr^', lStatement.Temps[2].QualifierText);
@@ -12961,7 +12961,7 @@ begin
   Assert.AreEqual('lWithIndexVektorItemPtr := @lWithIndexFilePtr^.IV[1];',
     lStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
-  Assert.AreEqual('3f4d11f09c7b189dfe8593d51242fb3f4e31f8d2cb40db4cc585dde0222b363e',
+  Assert.AreEqual('85a4f9368a56d37a10967926ba71a85f44a03f3da56cb19d2fed0d9470057a47',
     lStatement.Temps[2].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -12972,7 +12972,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1420:1-1433:7', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('1ce55b9a81fae5eec67c74d2872e881044400c44d87fd28b0105dfa7a3720822',
+  Assert.AreEqual('2aabf00a9c749523bbe6f1e1b87470ba3bb33d6594041623d1407dbdd480b506',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -12987,7 +12987,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('1ce55b9a81fae5eec67c74d2872e881044400c44d87fd28b0105dfa7a3720822',
+  Assert.AreEqual('2aabf00a9c749523bbe6f1e1b87470ba3bb33d6594041623d1407dbdd480b506',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('IndFiles[ID]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -12999,14 +12999,14 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[ID]^;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('1ce55b9a81fae5eec67c74d2872e881044400c44d87fd28b0105dfa7a3720822',
+  Assert.AreEqual('2aabf00a9c749523bbe6f1e1b87470ba3bb33d6594041623d1407dbdd480b506',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1423, 7, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '3f4d11f09c7b189dfe8593d51242fb3f4e31f8d2cb40db4cc585dde0222b363e',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '85a4f9368a56d37a10967926ba71a85f44a03f3da56cb19d2fed0d9470057a47',
     lCoveredStatement));
   Assert.AreEqual('with-108', lCoveredStatement.StatementId);
-  Assert.AreEqual('3f4d11f09c7b189dfe8593d51242fb3f4e31f8d2cb40db4cc585dde0222b363e',
+  Assert.AreEqual('85a4f9368a56d37a10967926ba71a85f44a03f3da56cb19d2fed0d9470057a47',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
@@ -13063,7 +13063,7 @@ begin
   Assert.AreEqual('lWithIndexVektorItemPtr: ^TIndexVektorItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('f193427682e3adb15e47ff788979a59c65b7de0d556619ad9c4a0aa07e348ca2',
+  Assert.AreEqual('ba7fd54997e7af8bd6daae24f181febd75c06195433d0f92cdab19ff9a0fe8f0',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -13073,7 +13073,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1698:1-1707:10', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('f193427682e3adb15e47ff788979a59c65b7de0d556619ad9c4a0aa07e348ca2',
+  Assert.AreEqual('ba7fd54997e7af8bd6daae24f181febd75c06195433d0f92cdab19ff9a0fe8f0',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -13088,7 +13088,7 @@ begin
   Assert.AreEqual('lWithIndexVektorItemPtr := @IV[I];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('f193427682e3adb15e47ff788979a59c65b7de0d556619ad9c4a0aa07e348ca2',
+  Assert.AreEqual('ba7fd54997e7af8bd6daae24f181febd75c06195433d0f92cdab19ff9a0fe8f0',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -13137,7 +13137,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('423e4db83981de2533b3f404a4a75a739c439cc75d6367d538e5927f60767f25',
+  Assert.AreEqual('6c5351e3e91314f534e59aabcd5dafea9724f1745aa77749aa35ce74ea406cea',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -13147,7 +13147,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2061:1-2070:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('423e4db83981de2533b3f404a4a75a739c439cc75d6367d538e5927f60767f25',
+  Assert.AreEqual('6c5351e3e91314f534e59aabcd5dafea9724f1745aa77749aa35ce74ea406cea',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -13162,7 +13162,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('423e4db83981de2533b3f404a4a75a739c439cc75d6367d538e5927f60767f25',
+  Assert.AreEqual('6c5351e3e91314f534e59aabcd5dafea9724f1745aa77749aa35ce74ea406cea',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 2077, 3, lStatement));
@@ -13203,7 +13203,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('849d33fb4c01d84d88e6c1a835db1aeaa2803feffb7762089534273cbac98587',
+  Assert.AreEqual('696107b9e04838df9758fd3c41a01add56cf6df8814f68b106063875e4518b0b',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -13213,7 +13213,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2077:1-2086:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('849d33fb4c01d84d88e6c1a835db1aeaa2803feffb7762089534273cbac98587',
+  Assert.AreEqual('696107b9e04838df9758fd3c41a01add56cf6df8814f68b106063875e4518b0b',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -13228,7 +13228,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('849d33fb4c01d84d88e6c1a835db1aeaa2803feffb7762089534273cbac98587',
+  Assert.AreEqual('696107b9e04838df9758fd3c41a01add56cf6df8814f68b106063875e4518b0b',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -13278,7 +13278,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('6535736c4b3ddbc2fbb7c1070c4362c8f8eea87202ef0e45db23eba179c27fd0',
+  Assert.AreEqual('6269110b87fdee3419d994f55f3595ca7a9cc55a53bd825dcd18888bfeb8630e',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -13334,7 +13334,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5302634de6d6d0b39081718b87eb4cb95450138f4c40684a2f071a194ae8c4da',
+  Assert.AreEqual('940df851bf658db37cb473c9f91bd02fb09e21974897fd8489258c98c21df7f2',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -13394,7 +13394,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('aee41cb3b45eddbc28e3170551fc339c0dd3f9a1821dd6e68ac4e1f08074b8ca',
+  Assert.AreEqual('bd6799d319085b7b95fc8758f95fb2a0cc8f38323c4315381f2c10600f6c4c76',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -13414,7 +13414,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('333:1-340:12', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('aee41cb3b45eddbc28e3170551fc339c0dd3f9a1821dd6e68ac4e1f08074b8ca',
+  Assert.AreEqual('bd6799d319085b7b95fc8758f95fb2a0cc8f38323c4315381f2c10600f6c4c76',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -13429,7 +13429,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('aee41cb3b45eddbc28e3170551fc339c0dd3f9a1821dd6e68ac4e1f08074b8ca',
+  Assert.AreEqual('bd6799d319085b7b95fc8758f95fb2a0cc8f38323c4315381f2c10600f6c4c76',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 333, 9, lOwnerStatement));
@@ -13468,7 +13468,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('aee41cb3b45eddbc28e3170551fc339c0dd3f9a1821dd6e68ac4e1f08074b8ca',
+  Assert.AreEqual('bd6799d319085b7b95fc8758f95fb2a0cc8f38323c4315381f2c10600f6c4c76',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -13488,7 +13488,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('333:1-340:12', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('aee41cb3b45eddbc28e3170551fc339c0dd3f9a1821dd6e68ac4e1f08074b8ca',
+  Assert.AreEqual('bd6799d319085b7b95fc8758f95fb2a0cc8f38323c4315381f2c10600f6c4c76',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -13503,7 +13503,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('aee41cb3b45eddbc28e3170551fc339c0dd3f9a1821dd6e68ac4e1f08074b8ca',
+  Assert.AreEqual('bd6799d319085b7b95fc8758f95fb2a0cc8f38323c4315381f2c10600f6c4c76',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   lDeclarationCount := 0;
   for i := 0 to High(lPlan.FinalStatements) do
@@ -13678,7 +13678,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('be42f31caa12b71e9e1ae4480b907ce072176630706028812da2c62b01a7ad53',
+  Assert.AreEqual('00d1fde8872e5fd55fdc167b135686342848f58c6bbfb0b99dda2dfa8fd60492',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('qs^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithSelRecPtr^', lStatement.Temps[1].QualifierText);
@@ -13688,7 +13688,7 @@ begin
   Assert.AreEqual('lWithSelRecPtr: ^SelRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithSelRecPtr := @qs^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('531dce57fad1eeda60337206523a28e8d4444c2c1e268056e620a9c985e05a89',
+  Assert.AreEqual('cdefe9a705a86d305414663f1fd7dcd3014d8b754a4b90e6036a17a45346464d',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual('Sel', lStatement.Temps[2].SelectorText);
   Assert.AreEqual('lWithSelektorPtr^', lStatement.Temps[2].QualifierText);
@@ -13698,13 +13698,13 @@ begin
   Assert.AreEqual('lWithSelektorPtr: ^Selektor;', lStatement.Temps[2].DeclarationText);
   Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;', lStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
-  Assert.AreEqual('531dce57fad1eeda60337206523a28e8d4444c2c1e268056e620a9c985e05a89',
+  Assert.AreEqual('cdefe9a705a86d305414663f1fd7dcd3014d8b754a4b90e6036a17a45346464d',
     lStatement.Temps[2].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('419:1-469:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('be42f31caa12b71e9e1ae4480b907ce072176630706028812da2c62b01a7ad53',
+  Assert.AreEqual('00d1fde8872e5fd55fdc167b135686342848f58c6bbfb0b99dda2dfa8fd60492',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -13719,7 +13719,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('be42f31caa12b71e9e1ae4480b907ce072176630706028812da2c62b01a7ad53',
+  Assert.AreEqual('00d1fde8872e5fd55fdc167b135686342848f58c6bbfb0b99dda2dfa8fd60492',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsTrue(Pos('        Inc(V_Nr, Ord(Maske[i].ShowLabel));',
     lStatement.ReplacementText) > 0);
@@ -13735,10 +13735,10 @@ begin
     'Unqualified dependent selector sibling field n does not compile after rewrite.');
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 449, 15, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '531dce57fad1eeda60337206523a28e8d4444c2c1e268056e620a9c985e05a89',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'cdefe9a705a86d305414663f1fd7dcd3014d8b754a4b90e6036a17a45346464d',
     lCoveredStatement));
   Assert.AreEqual('with-146', lCoveredStatement.StatementId);
-  Assert.AreEqual('531dce57fad1eeda60337206523a28e8d4444c2c1e268056e620a9c985e05a89',
+  Assert.AreEqual('cdefe9a705a86d305414663f1fd7dcd3014d8b754a4b90e6036a17a45346464d',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
@@ -13785,7 +13785,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('aee41cb3b45eddbc28e3170551fc339c0dd3f9a1821dd6e68ac4e1f08074b8ca',
+  Assert.AreEqual('bd6799d319085b7b95fc8758f95fb2a0cc8f38323c4315381f2c10600f6c4c76',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -13805,7 +13805,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('333:1-340:12', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('aee41cb3b45eddbc28e3170551fc339c0dd3f9a1821dd6e68ac4e1f08074b8ca',
+  Assert.AreEqual('bd6799d319085b7b95fc8758f95fb2a0cc8f38323c4315381f2c10600f6c4c76',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -13820,7 +13820,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('aee41cb3b45eddbc28e3170551fc339c0dd3f9a1821dd6e68ac4e1f08074b8ca',
+  Assert.AreEqual('bd6799d319085b7b95fc8758f95fb2a0cc8f38323c4315381f2c10600f6c4c76',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   lDeclarationCount := 0;
   for i := 0 to High(lPlan.FinalStatements) do
@@ -13922,7 +13922,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr1: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr1 := @Maske[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('1469ea6b7b317ac50ebf20059cc6733fc6ea0ef86880941d45d0d6d7f5c69dcf',
+  Assert.AreEqual('d6fbf48d47ebba3f82a741e0c5d1003ae6f30403147cb6e851aeb156808f0a8e',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('qf^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithForRecPtr^', lStatement.Temps[1].QualifierText);
@@ -13932,7 +13932,7 @@ begin
   Assert.AreEqual('lWithForRecPtr: ^ForRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithForRecPtr := @qf^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('9befda720aa80bc2591160237f219341d172d833343dc9099558c2ff5b4fb5c0',
+  Assert.AreEqual('aa6b8bb4a18f8d895449088cc98e89b98aedac03fce550c228b5939902de08cd',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual('Form', lStatement.Temps[2].SelectorText);
   Assert.AreEqual('lWithFormelPtr^', lStatement.Temps[2].QualifierText);
@@ -13942,13 +13942,13 @@ begin
   Assert.AreEqual('lWithFormelPtr: ^Formel;', lStatement.Temps[2].DeclarationText);
   Assert.AreEqual('lWithFormelPtr := @lWithForRecPtr^.Form;', lStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
-  Assert.AreEqual('9befda720aa80bc2591160237f219341d172d833343dc9099558c2ff5b4fb5c0',
+  Assert.AreEqual('aa6b8bb4a18f8d895449088cc98e89b98aedac03fce550c228b5939902de08cd',
     lStatement.Temps[2].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('473:1-493:12', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('1469ea6b7b317ac50ebf20059cc6733fc6ea0ef86880941d45d0d6d7f5c69dcf',
+  Assert.AreEqual('d6fbf48d47ebba3f82a741e0c5d1003ae6f30403147cb6e851aeb156808f0a8e',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -13963,7 +13963,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr1 := @Maske[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('1469ea6b7b317ac50ebf20059cc6733fc6ea0ef86880941d45d0d6d7f5c69dcf',
+  Assert.AreEqual('d6fbf48d47ebba3f82a741e0c5d1003ae6f30403147cb6e851aeb156808f0a8e',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsTrue(Pos('          if FormList = nil then',
     lStatement.ReplacementText) > 0);
@@ -13973,10 +13973,10 @@ begin
 
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 477, 11, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '9befda720aa80bc2591160237f219341d172d833343dc9099558c2ff5b4fb5c0',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'aa6b8bb4a18f8d895449088cc98e89b98aedac03fce550c228b5939902de08cd',
     lCoveredStatement));
   Assert.AreEqual('with-148', lCoveredStatement.StatementId);
-  Assert.AreEqual('9befda720aa80bc2591160237f219341d172d833343dc9099558c2ff5b4fb5c0',
+  Assert.AreEqual('aa6b8bb4a18f8d895449088cc98e89b98aedac03fce550c228b5939902de08cd',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
@@ -14051,7 +14051,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr2: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr2 := @Maske[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('d731cdff62a635655996515729e12475a246fa2a0d4d4f724bc27b89a0453e95',
+  Assert.AreEqual('6137d8f2431c0fe86684103b06c0209ebad50be3e894f05535c23170bf1ae41e',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('qb^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithBereichsRecPtr^', lStatement.Temps[1].QualifierText);
@@ -14061,7 +14061,7 @@ begin
   Assert.AreEqual('lWithBereichsRecPtr: ^BereichsRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithBereichsRecPtr := @qb^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('bb5f99b6e2863033ce57329407b610b5f479e7452741c25aa93e4e6f0b2a0d29',
+  Assert.AreEqual('6f8310f41fef8cc5cae91a28dd7f6f17894dd184cb9ed15251e4c2351d0f00b5',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual('b', lStatement.Temps[2].SelectorText);
   Assert.AreEqual('lWithBereichPtr^', lStatement.Temps[2].QualifierText);
@@ -14071,13 +14071,13 @@ begin
   Assert.AreEqual('lWithBereichPtr: ^Bereich;', lStatement.Temps[2].DeclarationText);
   Assert.AreEqual('lWithBereichPtr := @lWithBereichsRecPtr^.b;', lStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
-  Assert.AreEqual('bb5f99b6e2863033ce57329407b610b5f479e7452741c25aa93e4e6f0b2a0d29',
+  Assert.AreEqual('6f8310f41fef8cc5cae91a28dd7f6f17894dd184cb9ed15251e4c2351d0f00b5',
     lStatement.Temps[2].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('496:1-516:12', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('d731cdff62a635655996515729e12475a246fa2a0d4d4f724bc27b89a0453e95',
+  Assert.AreEqual('6137d8f2431c0fe86684103b06c0209ebad50be3e894f05535c23170bf1ae41e',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -14092,7 +14092,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr2 := @Maske[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('d731cdff62a635655996515729e12475a246fa2a0d4d4f724bc27b89a0453e95',
+  Assert.AreEqual('6137d8f2431c0fe86684103b06c0209ebad50be3e894f05535c23170bf1ae41e',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsTrue(Pos('          if BerList = nil then',
     lStatement.ReplacementText) > 0);
@@ -14100,10 +14100,10 @@ begin
     lStatement.ReplacementText) > 0);
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 500, 11, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'bb5f99b6e2863033ce57329407b610b5f479e7452741c25aa93e4e6f0b2a0d29',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '6f8310f41fef8cc5cae91a28dd7f6f17894dd184cb9ed15251e4c2351d0f00b5',
     lCoveredStatement));
   Assert.AreEqual('with-150', lCoveredStatement.StatementId);
-  Assert.AreEqual('bb5f99b6e2863033ce57329407b610b5f479e7452741c25aa93e4e6f0b2a0d29',
+  Assert.AreEqual('6f8310f41fef8cc5cae91a28dd7f6f17894dd184cb9ed15251e4c2351d0f00b5',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
@@ -14150,7 +14150,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('aee41cb3b45eddbc28e3170551fc339c0dd3f9a1821dd6e68ac4e1f08074b8ca',
+  Assert.AreEqual('bd6799d319085b7b95fc8758f95fb2a0cc8f38323c4315381f2c10600f6c4c76',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -14170,7 +14170,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('333:1-340:12', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('aee41cb3b45eddbc28e3170551fc339c0dd3f9a1821dd6e68ac4e1f08074b8ca',
+  Assert.AreEqual('bd6799d319085b7b95fc8758f95fb2a0cc8f38323c4315381f2c10600f6c4c76',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -14185,7 +14185,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('aee41cb3b45eddbc28e3170551fc339c0dd3f9a1821dd6e68ac4e1f08074b8ca',
+  Assert.AreEqual('bd6799d319085b7b95fc8758f95fb2a0cc8f38323c4315381f2c10600f6c4c76',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   lDeclarationCount := 0;
   for i := 0 to High(lPlan.FinalStatements) do
@@ -14267,7 +14267,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('a495d65537d93c66dfe6092279eb65e99048774ca8df905bf24b59073ec4171b',
+  Assert.AreEqual('701298e74e6df3e42db10fed72d4e89d6338c47e74ea09fa6af208ebe62f2d08',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IndFiles[i]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
@@ -14278,7 +14278,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[i]^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('879f16b02327879ee5b91c9b9cfd8df57ace9968c161cc07b864082b8673b0b5',
+  Assert.AreEqual('e1f97992dc449390da8ad8bfc15ac6afada30030c6c8e104231e14d2e4389b72',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -14288,7 +14288,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('656:1-668:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('a495d65537d93c66dfe6092279eb65e99048774ca8df905bf24b59073ec4171b',
+  Assert.AreEqual('701298e74e6df3e42db10fed72d4e89d6338c47e74ea09fa6af208ebe62f2d08',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -14303,13 +14303,13 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('a495d65537d93c66dfe6092279eb65e99048774ca8df905bf24b59073ec4171b',
+  Assert.AreEqual('701298e74e6df3e42db10fed72d4e89d6338c47e74ea09fa6af208ebe62f2d08',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 662, 11, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '879f16b02327879ee5b91c9b9cfd8df57ace9968c161cc07b864082b8673b0b5',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'e1f97992dc449390da8ad8bfc15ac6afada30030c6c8e104231e14d2e4389b72',
     lCoveredStatement));
   Assert.AreEqual('with-154', lCoveredStatement.StatementId);
-  Assert.AreEqual('879f16b02327879ee5b91c9b9cfd8df57ace9968c161cc07b864082b8673b0b5',
+  Assert.AreEqual('e1f97992dc449390da8ad8bfc15ac6afada30030c6c8e104231e14d2e4389b72',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
@@ -14427,7 +14427,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5ec345fbf90c7838595a8891500a9706e55fd2a8d177e6b9d99b6610fca51afd',
+  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('w[0]', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithRelRecSubRecPtr^', lStatement.Temps[1].QualifierText);
@@ -14437,7 +14437,7 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('5ec345fbf90c7838595a8891500a9706e55fd2a8d177e6b9d99b6610fca51afd',
+  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -14450,7 +14450,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('914:1-920:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('5ec345fbf90c7838595a8891500a9706e55fd2a8d177e6b9d99b6610fca51afd',
+  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -14465,7 +14465,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr := @RelRec;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5ec345fbf90c7838595a8891500a9706e55fd2a8d177e6b9d99b6610fca51afd',
+  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('w[0]', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithRelRecSubRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -14477,7 +14477,7 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('5ec345fbf90c7838595a8891500a9706e55fd2a8d177e6b9d99b6610fca51afd',
+  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 914, 3, lOwnerStatement));
@@ -14513,7 +14513,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('5ec345fbf90c7838595a8891500a9706e55fd2a8d177e6b9d99b6610fca51afd',
+  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual('w[0]', lOwnerStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithRelRecSubRecPtr^', lOwnerStatement.Temps[1].QualifierText);
@@ -14523,7 +14523,7 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;', lOwnerStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];', lOwnerStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[1].Reason);
-  Assert.AreEqual('5ec345fbf90c7838595a8891500a9706e55fd2a8d177e6b9d99b6610fca51afd',
+  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
     lOwnerStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -14536,7 +14536,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('914:1-920:6', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('5ec345fbf90c7838595a8891500a9706e55fd2a8d177e6b9d99b6610fca51afd',
+  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -14551,7 +14551,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr := @RelRec;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5ec345fbf90c7838595a8891500a9706e55fd2a8d177e6b9d99b6610fca51afd',
+  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('w[0]', lOwnerStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithRelRecSubRecPtr^', lOwnerStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -14563,7 +14563,7 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('5ec345fbf90c7838595a8891500a9706e55fd2a8d177e6b9d99b6610fca51afd',
+  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 934, 11, lStatement));
   Assert.AreEqual('planned', lStatement.Status);
@@ -14628,7 +14628,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr1: ^TRelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecPtr1 := @RelRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('a1d9bc7be5610b541859850e3769fc6e6fd5fd0571b3dd4a9041be7a652c32c1',
+  Assert.AreEqual('e568ff0fe90915b58eac1fc689cf0ed658167a8ece086ef5b7396f2e9afaf55c',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('w[n]', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithRelRecSubRecPtr1^', lStatement.Temps[1].QualifierText);
@@ -14639,13 +14639,13 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('a1d9bc7be5610b541859850e3769fc6e6fd5fd0571b3dd4a9041be7a652c32c1',
+  Assert.AreEqual('e568ff0fe90915b58eac1fc689cf0ed658167a8ece086ef5b7396f2e9afaf55c',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('934:1-955:13', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('a1d9bc7be5610b541859850e3769fc6e6fd5fd0571b3dd4a9041be7a652c32c1',
+  Assert.AreEqual('e568ff0fe90915b58eac1fc689cf0ed658167a8ece086ef5b7396f2e9afaf55c',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -14660,7 +14660,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr1 := @RelRec;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('a1d9bc7be5610b541859850e3769fc6e6fd5fd0571b3dd4a9041be7a652c32c1',
+  Assert.AreEqual('e568ff0fe90915b58eac1fc689cf0ed658167a8ece086ef5b7396f2e9afaf55c',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('w[n]', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithRelRecSubRecPtr1^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -14672,7 +14672,7 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('a1d9bc7be5610b541859850e3769fc6e6fd5fd0571b3dd4a9041be7a652c32c1',
+  Assert.AreEqual('e568ff0fe90915b58eac1fc689cf0ed658167a8ece086ef5b7396f2e9afaf55c',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
@@ -14698,7 +14698,7 @@ begin
     'Expected maxTdb tdb01 LiesSek DF[i]^ with statement.');
   // T-209: Preserved NET text still needs its enclosing WITH scope.
   Assert.AreEqual('LiesSek', lStatement.RoutineName);
-  Assert.AreEqual('864ad2a92acbe2378eff7be24d080eb305dc2ece2787b25e45b1a4c110762ba5', lStatement.SemanticId);
+  Assert.AreEqual('3aaba18c2ac845e798870de268aa70dbf28a521b2e0e9097040e0e6671be7c21', lStatement.SemanticId);
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
   Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
@@ -14804,7 +14804,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('02c39dbbbff960480fb924c7403ca9138cb6f97c8ed65155ebbbe5b75c136f4d',
+  Assert.AreEqual('116c4c15cc3599010e0876f61dc2c8a666bfff37a175b5ee423856dea214f0e4',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('w[i]', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithRelRecSubRecPtr^', lStatement.Temps[1].QualifierText);
@@ -14814,7 +14814,7 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('02c39dbbbff960480fb924c7403ca9138cb6f97c8ed65155ebbbe5b75c136f4d',
+  Assert.AreEqual('116c4c15cc3599010e0876f61dc2c8a666bfff37a175b5ee423856dea214f0e4',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -14826,7 +14826,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('986:1-991:10', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('02c39dbbbff960480fb924c7403ca9138cb6f97c8ed65155ebbbe5b75c136f4d',
+  Assert.AreEqual('116c4c15cc3599010e0876f61dc2c8a666bfff37a175b5ee423856dea214f0e4',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -14841,7 +14841,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr := @RelRec;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('02c39dbbbff960480fb924c7403ca9138cb6f97c8ed65155ebbbe5b75c136f4d',
+  Assert.AreEqual('116c4c15cc3599010e0876f61dc2c8a666bfff37a175b5ee423856dea214f0e4',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('w[i]', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithRelRecSubRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -14853,7 +14853,7 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('02c39dbbbff960480fb924c7403ca9138cb6f97c8ed65155ebbbe5b75c136f4d',
+  Assert.AreEqual('116c4c15cc3599010e0876f61dc2c8a666bfff37a175b5ee423856dea214f0e4',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
   lOwnerStatement := lStatement;
@@ -14900,13 +14900,13 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr1: ^TRelRecSubRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecSubRecPtr1 := @RelRec.w[i];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('e8f80b88ec5e86c0c9d6df0eee4f67f2cad3c8a2cf323aad477ac1b33b6221ca',
+  Assert.AreEqual('ad360bd283ea49898051f7d392287eb0c599bfb8120c836499c7ee429843c27d',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('994:1-1004:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('e8f80b88ec5e86c0c9d6df0eee4f67f2cad3c8a2cf323aad477ac1b33b6221ca',
+  Assert.AreEqual('ad360bd283ea49898051f7d392287eb0c599bfb8120c836499c7ee429843c27d',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -14921,7 +14921,7 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr1 := @RelRec.w[i];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('e8f80b88ec5e86c0c9d6df0eee4f67f2cad3c8a2cf323aad477ac1b33b6221ca',
+  Assert.AreEqual('ad360bd283ea49898051f7d392287eb0c599bfb8120c836499c7ee429843c27d',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(Pos('        lWithRelRecSubRecPtr1 := @RelRec.w[i];',
@@ -14959,7 +14959,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NextRec', lStatement.RoutineName);
-  Assert.AreEqual('3677ac634fb7ac16fd5bea3521fdcb80461e2c7ab36d5612f7c2c6b09409ba38', lStatement.SemanticId);
+  Assert.AreEqual('4d97c731cad1d859804cf29f50d0022625f3fa573f791c16829c805bf7cb7b9f', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1015:3-1064:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1015:3-1064:10', SourceRangeText(lStatement.Verification.Range));
@@ -15077,7 +15077,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('3677ac634fb7ac16fd5bea3521fdcb80461e2c7ab36d5612f7c2c6b09409ba38', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('4d97c731cad1d859804cf29f50d0022625f3fa573f791c16829c805bf7cb7b9f', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('w[h]', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithRelRecSubRecPtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -15086,7 +15086,7 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[h];', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('e298bae02fb1349448ef2a98768088202ca2a965a39fe25e01a4db189a52c76a', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('fb232aecdb27940b790e9dc84406a6b5541a4b4f56db0bfd25d45351e55bbb13', lStatement.Temps[1].SemanticId);
   Assert.AreEqual('DF[lf]^', lStatement.Temps[2].SelectorText);
   Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[2].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[2].Strategy);
@@ -15095,7 +15095,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[2].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[lWithRelRecSubRecPtr^.lf]^;', lStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
-  Assert.AreEqual('4255cb41c0fdb26d6afb628054daffc4c1bfb5ba78f96d88bb332d08b8c4e68d', lStatement.Temps[2].SemanticId);
+  Assert.AreEqual('efad578a8244f9c55631fe2ea8979bf9a6e8cf792b8e39fae2e9218b5e9feaac', lStatement.Temps[2].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('984:1-984:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -15110,11 +15110,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 1017, 7, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    'e298bae02fb1349448ef2a98768088202ca2a965a39fe25e01a4db189a52c76a', lCoveredStatement));
+    'fb232aecdb27940b790e9dc84406a6b5541a4b4f56db0bfd25d45351e55bbb13', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('e298bae02fb1349448ef2a98768088202ca2a965a39fe25e01a4db189a52c76a', lCoveredStatement.SemanticId);
+  Assert.AreEqual('fb232aecdb27940b790e9dc84406a6b5541a4b4f56db0bfd25d45351e55bbb13', lCoveredStatement.SemanticId);
   Assert.AreEqual('1017:7-1064:10', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -15173,11 +15173,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 1022, 11, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    '4255cb41c0fdb26d6afb628054daffc4c1bfb5ba78f96d88bb332d08b8c4e68d', lCoveredStatement));
+    'efad578a8244f9c55631fe2ea8979bf9a6e8cf792b8e39fae2e9218b5e9feaac', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('4255cb41c0fdb26d6afb628054daffc4c1bfb5ba78f96d88bb332d08b8c4e68d', lCoveredStatement.SemanticId);
+  Assert.AreEqual('efad578a8244f9c55631fe2ea8979bf9a6e8cf792b8e39fae2e9218b5e9feaac', lCoveredStatement.SemanticId);
   Assert.AreEqual('1022:11-1063:14', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -15279,7 +15279,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('524611f826c66d3bc8d9207ed537e66ab879a2f3f6ad1d12f2ebb61db785cfd7',
+  Assert.AreEqual('f1dcc6ddc0fac620bfcbc47f7760ed2b6242ae558189a6f9ded56b65bf7ce8d8',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -15289,7 +15289,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1158:1-1160:119', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('524611f826c66d3bc8d9207ed537e66ab879a2f3f6ad1d12f2ebb61db785cfd7',
+  Assert.AreEqual('f1dcc6ddc0fac620bfcbc47f7760ed2b6242ae558189a6f9ded56b65bf7ce8d8',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -15304,7 +15304,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('524611f826c66d3bc8d9207ed537e66ab879a2f3f6ad1d12f2ebb61db785cfd7',
+  Assert.AreEqual('f1dcc6ddc0fac620bfcbc47f7760ed2b6242ae558189a6f9ded56b65bf7ce8d8',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -15323,7 +15323,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NaechsteRecNr', lStatement.RoutineName);
-  Assert.AreEqual('105c573870d321e3ed38463f49f4d01793546118f1eb7978908d43d5700ffbff', lStatement.SemanticId);
+  Assert.AreEqual('eef226e9763f937c1ef6e311158368ab0dec9741c1ea1667beffd70fed01440e', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1515:3-1560:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1515:3-1560:8', SourceRangeText(lStatement.Verification.Range));
@@ -15429,7 +15429,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('105c573870d321e3ed38463f49f4d01793546118f1eb7978908d43d5700ffbff', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('eef226e9763f937c1ef6e311158368ab0dec9741c1ea1667beffd70fed01440e', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('1511:1-1511:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -15507,7 +15507,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('4c2444a3157b55815d5e10764ad559a785f22f600cb44ae76f2401a706c9faf7',
+  Assert.AreEqual('3dc81f7cad19cd93114f2761b38299b018b8f50c489e2d15587dd42dab02a5e1',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -15535,7 +15535,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('GetChain', lStatement.RoutineName);
-  Assert.AreEqual('5657159e1aaf0eebecc05199e0268c3ff69df117078c3d3632aae33c45cb5013', lStatement.SemanticId);
+  Assert.AreEqual('a8f8a603a576aae1834f25ab302e9eac80c28f49d03faff4531370e22ae8a46c', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1859:3-1860:37', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1859:3-1860:37', SourceRangeText(lStatement.Verification.Range));
@@ -15554,7 +15554,7 @@ begin
   Assert.AreEqual('lWithDirektChainItemPtr: ^TDirektChainItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDirektChainItemPtr := @DirektChain[0];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5657159e1aaf0eebecc05199e0268c3ff69df117078c3d3632aae33c45cb5013', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('a8f8a603a576aae1834f25ab302e9eac80c28f49d03faff4531370e22ae8a46c', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('DF[fd]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -15563,7 +15563,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('5657159e1aaf0eebecc05199e0268c3ff69df117078c3d3632aae33c45cb5013', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('a8f8a603a576aae1834f25ab302e9eac80c28f49d03faff4531370e22ae8a46c', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('1856:1-1856:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -15584,7 +15584,7 @@ begin
   Assert.AreEqual('lWithDirektChainItemPtr: ^TDirektChainItem;', lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
   Assert.AreEqual('lWithDirektChainItemPtr := @DirektChain[0];', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5657159e1aaf0eebecc05199e0268c3ff69df117078c3d3632aae33c45cb5013', lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual('a8f8a603a576aae1834f25ab302e9eac80c28f49d03faff4531370e22ae8a46c', lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('DF[fd]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
@@ -15593,7 +15593,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;', lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('5657159e1aaf0eebecc05199e0268c3ff69df117078c3d3632aae33c45cb5013', lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
+  Assert.AreEqual('a8f8a603a576aae1834f25ab302e9eac80c28f49d03faff4531370e22ae8a46c', lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
   lDeclarationCount := 0;
   lReplacementCount := 0;
   for i := 0 to High(lPlan.FinalStatements) do
@@ -15616,7 +15616,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('GetChain', lStatement.RoutineName);
-  Assert.AreEqual('5b999c6e2ff5e199ba28e0156c718ac8ddae58c04b8e75ba12bd4bdb18928914', lStatement.SemanticId);
+  Assert.AreEqual('044670c2557ff29d923d91c891efebb1d165f1809c19c66af8bb3a47bbc0a106', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1862:5-1896:7', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1862:5-1896:7', SourceRangeText(lStatement.Verification.Range));
@@ -15703,7 +15703,7 @@ begin
   Assert.AreEqual('lWithDirektChainItemPtr1: ^TDirektChainItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDirektChainItemPtr1 := @DirektChain[i];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5b999c6e2ff5e199ba28e0156c718ac8ddae58c04b8e75ba12bd4bdb18928914', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('044670c2557ff29d923d91c891efebb1d165f1809c19c66af8bb3a47bbc0a106', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('DF[fd]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithDatFilePtr1^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -15712,7 +15712,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('5b999c6e2ff5e199ba28e0156c718ac8ddae58c04b8e75ba12bd4bdb18928914', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('044670c2557ff29d923d91c891efebb1d165f1809c19c66af8bb3a47bbc0a106', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1862:1-1896:7', SourceRangeText(lStatement.Edits[0].Range));
@@ -15727,7 +15727,7 @@ begin
   Assert.AreEqual('lWithDirektChainItemPtr1: ^TDirektChainItem;', lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
   Assert.AreEqual('lWithDirektChainItemPtr1 := @DirektChain[i];', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5b999c6e2ff5e199ba28e0156c718ac8ddae58c04b8e75ba12bd4bdb18928914', lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual('044670c2557ff29d923d91c891efebb1d165f1809c19c66af8bb3a47bbc0a106', lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('DF[fd]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithDatFilePtr1^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
@@ -15736,9 +15736,9 @@ begin
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;', lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('5b999c6e2ff5e199ba28e0156c718ac8ddae58c04b8e75ba12bd4bdb18928914', lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
+  Assert.AreEqual('044670c2557ff29d923d91c891efebb1d165f1809c19c66af8bb3a47bbc0a106', lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 1859, 3, lOwnerStatement));
-  Assert.AreEqual('5657159e1aaf0eebecc05199e0268c3ff69df117078c3d3632aae33c45cb5013', lOwnerStatement.SemanticId);
+  Assert.AreEqual('a8f8a603a576aae1834f25ab302e9eac80c28f49d03faff4531370e22ae8a46c', lOwnerStatement.SemanticId);
   Assert.AreEqual('GetChain', lOwnerStatement.RoutineName);
   Assert.AreEqual('planned', lOwnerStatement.Status);
   Assert.AreEqual('  lWithDirektChainItemPtr: ^TDirektChainItem;' + #13#10 +
@@ -15770,7 +15770,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('FN_Max', lStatement.RoutineName);
-  Assert.AreEqual('3a31e6aecce6f181c6e566caecfc16a74ae853b78fba3e281783fe6b137383fe', lStatement.SemanticId);
+  Assert.AreEqual('a165e2a3b5dfa272a88c372952db75ac7cac3a20eaa0767a616066d496e8c95f', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1909:3-1919:9', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1909:3-1919:9', SourceRangeText(lStatement.Verification.Range));
@@ -15806,7 +15806,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('3a31e6aecce6f181c6e566caecfc16a74ae853b78fba3e281783fe6b137383fe', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('a165e2a3b5dfa272a88c372952db75ac7cac3a20eaa0767a616066d496e8c95f', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('1907:1-1907:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -15886,7 +15886,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('83063d1eca123ff701e0babbbcd951ec57d91c4de7ed65acf456e5eb8fa31467',
+  Assert.AreEqual('41be53745ac45abade9dc33681fefc10137ca356c93ad46f460f3054b3d81038',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -15896,7 +15896,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2094:1-2106:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('83063d1eca123ff701e0babbbcd951ec57d91c4de7ed65acf456e5eb8fa31467',
+  Assert.AreEqual('41be53745ac45abade9dc33681fefc10137ca356c93ad46f460f3054b3d81038',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -15911,7 +15911,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('83063d1eca123ff701e0babbbcd951ec57d91c4de7ed65acf456e5eb8fa31467',
+  Assert.AreEqual('41be53745ac45abade9dc33681fefc10137ca356c93ad46f460f3054b3d81038',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -15967,7 +15967,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('e4d70030c421ca40fbf9fe66a9b9cfbf7a644efb332f4bb4bc4fd6d82c3dd807',
+  Assert.AreEqual('8ce7c6181861ad2a16c096dc54fbcf71f05b821c5f074bcc55e62a014d42a3b9',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -16021,7 +16021,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr := @DF[d]^.Maske[Nr]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('4855d2d77de388c792b0d09f8bde1e3a9c2102526cc4ea939c17b515def23363',
+  Assert.AreEqual('63ee470ee8a9ead5fad750a44ee69632506d87904e3600a93f940166955ec559',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -16130,7 +16130,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('126ab13f0e8f3cd88d9fe3d69a3b35c45ebb188be224144c484c77b1136419a9',
+  Assert.AreEqual('839292b6b61f8ccb07c6b067934c44b178f2d62760e596c3a1a1053a24d08fe3',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('Maske[j]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithMaskEntryPtr^', lStatement.Temps[1].QualifierText);
@@ -16141,7 +16141,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr := @lWithDatFilePtr^.Maske[j]^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('fa7d5272fe0b38069064920664807a17f29e62dfe7c260224e52edd2cc090af0',
+  Assert.AreEqual('df02c73bd121e93640c8814eabade3e6f9f37dc0ba696620dbd170dc2905c102',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -16151,7 +16151,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2320:1-2351:10', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('126ab13f0e8f3cd88d9fe3d69a3b35c45ebb188be224144c484c77b1136419a9',
+  Assert.AreEqual('839292b6b61f8ccb07c6b067934c44b178f2d62760e596c3a1a1053a24d08fe3',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -16166,13 +16166,13 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('126ab13f0e8f3cd88d9fe3d69a3b35c45ebb188be224144c484c77b1136419a9',
+  Assert.AreEqual('839292b6b61f8ccb07c6b067934c44b178f2d62760e596c3a1a1053a24d08fe3',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 2323, 11, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'fa7d5272fe0b38069064920664807a17f29e62dfe7c260224e52edd2cc090af0',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'df02c73bd121e93640c8814eabade3e6f9f37dc0ba696620dbd170dc2905c102',
     lCoveredStatement));
   Assert.AreEqual('with-208', lCoveredStatement.StatementId);
-  Assert.AreEqual('fa7d5272fe0b38069064920664807a17f29e62dfe7c260224e52edd2cc090af0',
+  Assert.AreEqual('df02c73bd121e93640c8814eabade3e6f9f37dc0ba696620dbd170dc2905c102',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
@@ -16226,7 +16226,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[DB]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('0a694ad2ce32b83194368ed827f86fb9956377ed90fb64d9e59f00f30891e3ed',
+  Assert.AreEqual('9c16fbc8153e07094cdabfa8e3751e14d11adc54abca4b9454fe246557131f88',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -16236,7 +16236,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1532:1-1539:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('0a694ad2ce32b83194368ed827f86fb9956377ed90fb64d9e59f00f30891e3ed',
+  Assert.AreEqual('9c16fbc8153e07094cdabfa8e3751e14d11adc54abca4b9454fe246557131f88',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -16251,7 +16251,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[DB]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('0a694ad2ce32b83194368ed827f86fb9956377ed90fb64d9e59f00f30891e3ed',
+  Assert.AreEqual('9c16fbc8153e07094cdabfa8e3751e14d11adc54abca4b9454fe246557131f88',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -16393,7 +16393,7 @@ begin
   Assert.AreEqual('lWithSourceVarRecPtr: ^SourceVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithSourceVarRecPtr := @SVR^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('be1d85aa5c4047a86ec2020e56c5e956db85eb79e7700665cba466af201587dc',
+  Assert.AreEqual('03ba2b5d83e3f3c4e93c3c7ad6abd5a3bd0571e5da3df0ebed6c1f1a752ff7c8',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('InitVar', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVarInitRecPtr^', lStatement.Temps[1].QualifierText);
@@ -16403,7 +16403,7 @@ begin
   Assert.AreEqual('lWithVarInitRecPtr: ^VarInitRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithVarInitRecPtr := @InitVar;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('f48b863a81a99d016311660ea0c8acb6e7a635879a312bc31c36e3ab7fdca444',
+  Assert.AreEqual('23bc2f50c9e8f13069655aadaf98807dd0eab44184c594ed4ab9b1d66264e6e4',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -16413,7 +16413,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2313:1-2335:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('be1d85aa5c4047a86ec2020e56c5e956db85eb79e7700665cba466af201587dc',
+  Assert.AreEqual('03ba2b5d83e3f3c4e93c3c7ad6abd5a3bd0571e5da3df0ebed6c1f1a752ff7c8',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -16428,11 +16428,11 @@ begin
   Assert.AreEqual('lWithSourceVarRecPtr := @SVR^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('be1d85aa5c4047a86ec2020e56c5e956db85eb79e7700665cba466af201587dc',
+  Assert.AreEqual('03ba2b5d83e3f3c4e93c3c7ad6abd5a3bd0571e5da3df0ebed6c1f1a752ff7c8',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB02.pas', 2318, 9, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    'f48b863a81a99d016311660ea0c8acb6e7a635879a312bc31c36e3ab7fdca444', lCoveredStatement));
+    '23bc2f50c9e8f13069655aadaf98807dd0eab44184c594ed4ab9b1d66264e6e4', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
@@ -16517,7 +16517,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('GetVar', lStatement.RoutineName);
-  Assert.AreEqual('bc8e7e7d89ee0197b0d0519b02cac7ce0e0f72dd66607063d93ca6c336a42cb8', lStatement.SemanticId);
+  Assert.AreEqual('642c2bd7399be1cd262bef2fb8427516836d0fbedf109232dad8e32ee65fb164', lStatement.SemanticId);
   Assert.AreEqual('2352:3-2404:5', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2352:3-2404:5', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -16582,7 +16582,7 @@ begin
   Assert.AreEqual('lWithVarRecPtr: ^VarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithVarRecPtr := @VarList[X].VarCont^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('bc8e7e7d89ee0197b0d0519b02cac7ce0e0f72dd66607063d93ca6c336a42cb8', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('642c2bd7399be1cd262bef2fb8427516836d0fbedf109232dad8e32ee65fb164', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('2344:1-2344:1', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual('  lWithVarRecPtr: ^VarRec;' + #13#10 +
@@ -16626,7 +16626,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[c]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('c5e62f880bce9afe4a625b2ca480405394a090bccc8c6eb2ea84a91b7f980adc',
+  Assert.AreEqual('ae2db9536dd4a6a60a0d7de6daa09c9f1f131c249de1c8afa1c1fa8a547b52e1',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -16636,7 +16636,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2430:1-2433:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('c5e62f880bce9afe4a625b2ca480405394a090bccc8c6eb2ea84a91b7f980adc',
+  Assert.AreEqual('ae2db9536dd4a6a60a0d7de6daa09c9f1f131c249de1c8afa1c1fa8a547b52e1',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -16651,7 +16651,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[c]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('c5e62f880bce9afe4a625b2ca480405394a090bccc8c6eb2ea84a91b7f980adc',
+  Assert.AreEqual('ae2db9536dd4a6a60a0d7de6daa09c9f1f131c249de1c8afa1c1fa8a547b52e1',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -16675,7 +16675,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('SortArrayVar_2', lStatement.RoutineName);
-  Assert.AreEqual('32743dabcd0c11cfe53075b590c1a9d2846a2d062c27b5507dbec368120761d8', lStatement.SemanticId);
+  Assert.AreEqual('3c7066a9b99b6cb5ba206047ac9feeada9ab82fd638851584b16c7f1e64f0ebe', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('2703:3-2730:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2703:3-2730:10', SourceRangeText(lStatement.Verification.Range));
@@ -16745,7 +16745,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('32743dabcd0c11cfe53075b590c1a9d2846a2d062c27b5507dbec368120761d8', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('3c7066a9b99b6cb5ba206047ac9feeada9ab82fd638851584b16c7f1e64f0ebe', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('2701:1-2701:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -16792,7 +16792,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('DoMarkBits', lStatement.RoutineName);
-  Assert.AreEqual('b21d2e0bbb6a9c36af76e841829ca9bf8b92387f0e7d71e649cf97d701fb733e', lStatement.SemanticId);
+  Assert.AreEqual('3efabce2865472b9f3728671cdaefc1e374eae577c9bfcc7095cb38f5c8564dd', lStatement.SemanticId);
   Assert.AreEqual('2755:3-2766:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2755:3-2766:8', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -16816,7 +16816,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('b21d2e0bbb6a9c36af76e841829ca9bf8b92387f0e7d71e649cf97d701fb733e', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('3efabce2865472b9f3728671cdaefc1e374eae577c9bfcc7095cb38f5c8564dd', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('2754:1-2754:1', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual('  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
@@ -16847,7 +16847,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('GetBitArrayVar', lStatement.RoutineName);
-  Assert.AreEqual('2486da8b696d50d292d40b3a7d0d67e6fe6b5a67f191b2160e25c69c8292ff69', lStatement.SemanticId);
+  Assert.AreEqual('3232b20eb5a92c5217630cb40a7ca4d42ef0b3ced007f5f50a57faf257a506fe', lStatement.SemanticId);
   Assert.AreEqual('2771:3-2779:7', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2771:3-2779:7', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -16868,7 +16868,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('2486da8b696d50d292d40b3a7d0d67e6fe6b5a67f191b2160e25c69c8292ff69', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('3232b20eb5a92c5217630cb40a7ca4d42ef0b3ced007f5f50a57faf257a506fe', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('2770:1-2770:1', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual('var' + #13#10 +
@@ -16918,7 +16918,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('BitArrayOp', lStatement.RoutineName);
-  Assert.AreEqual('41ab1665d11b6a29e288cec03fe3ee749ab3dbc0cfa191b3fae6ec31987fd43c', lStatement.SemanticId);
+  Assert.AreEqual('79a192cd9d0f187f09a164d99dd5379a735cbd138a1551dfe88cf452e73d9085', lStatement.SemanticId);
   Assert.AreEqual('2811:3-2821:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2811:3-2821:8', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -16941,7 +16941,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr2].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('41ab1665d11b6a29e288cec03fe3ee749ab3dbc0cfa191b3fae6ec31987fd43c', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('79a192cd9d0f187f09a164d99dd5379a735cbd138a1551dfe88cf452e73d9085', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('2783:1-2783:1', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual('var' + #13#10 +
@@ -17022,7 +17022,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr: ^MarkList;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMarkListPtr := @DF[d]^.MarkListe;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('c231b903d0a4bd9caf0042059077b8d37f6efc552af3d0b4e20e7854e77f7474',
+  Assert.AreEqual('c41d93abeabec2b052dc0bc756009ecb92878f94ff4548c460e4244a9fe16391',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -17031,7 +17031,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2839:1-2860:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('c231b903d0a4bd9caf0042059077b8d37f6efc552af3d0b4e20e7854e77f7474',
+  Assert.AreEqual('c41d93abeabec2b052dc0bc756009ecb92878f94ff4548c460e4244a9fe16391',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -17046,7 +17046,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr := @DF[d]^.MarkListe;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('c231b903d0a4bd9caf0042059077b8d37f6efc552af3d0b4e20e7854e77f7474',
+  Assert.AreEqual('c41d93abeabec2b052dc0bc756009ecb92878f94ff4548c460e4244a9fe16391',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -17085,7 +17085,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('GetAuto', lStatement.RoutineName);
-  Assert.AreEqual('7a698d1e14de4335bd3814cb3b9ee3bd3832d413b867f4d5f38d9f95bba29404', lStatement.SemanticId);
+  Assert.AreEqual('7a59cdd9f25a2b7a49d339c00c7b2aa7fb3d2deb81f34788d2703a1f7bcab996', lStatement.SemanticId);
   Assert.AreEqual('2866:5-2875:7', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2866:5-2875:7', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -17107,7 +17107,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('7a698d1e14de4335bd3814cb3b9ee3bd3832d413b867f4d5f38d9f95bba29404', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('7a59cdd9f25a2b7a49d339c00c7b2aa7fb3d2deb81f34788d2703a1f7bcab996', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('ArrayVarRecPtr(VarList[Nr].VarCont)^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithArrayVarRecPtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -17116,7 +17116,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('011f3909fecb7e7bcfbc58581057866d766197ffc6d498c7aeb174d8eafe3c2b', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('cb6dc4db831a6e024a43264187b06fb24a3b48424437bb5a672e5ecb48b693c3', lStatement.Temps[1].SemanticId);
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('2864:1-2864:1', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual('var' + #13#10 +
@@ -17126,7 +17126,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   AssertCapturedRecipe(lStatement);
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB02.pas', 2868, 7, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '011f3909fecb7e7bcfbc58581057866d766197ffc6d498c7aeb174d8eafe3c2b', lCoveredStatement));
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'cb6dc4db831a6e024a43264187b06fb24a3b48424437bb5a672e5ecb48b693c3', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
@@ -17149,7 +17149,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('nDat2Marks', lStatement.RoutineName);
-  Assert.AreEqual('87a0b047f96193ce6fe24d0328a0db1aa3dea030a6beddb2a42ed26b92d4e8b7', lStatement.SemanticId);
+  Assert.AreEqual('7d864e16ca264ca7de4f4b0ca15b7f7debae85a375df122a2e28ceae8ab17828', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('2883:3-2900:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2883:3-2900:6', SourceRangeText(lStatement.Verification.Range));
@@ -17199,7 +17199,7 @@ begin
   Assert.AreEqual('lWithVarRecPtr: ^VarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithVarRecPtr := @VarList[Nr].VarCont^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('87a0b047f96193ce6fe24d0328a0db1aa3dea030a6beddb2a42ed26b92d4e8b7', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('7d864e16ca264ca7de4f4b0ca15b7f7debae85a375df122a2e28ceae8ab17828', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('2881:1-2881:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -17218,7 +17218,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('nMarks2Dat', lStatement.RoutineName);
-  Assert.AreEqual('21adb5af77100f4841ef3fb7290e11ec8ec56caf0c488bb479fe46a2fd3930da', lStatement.SemanticId);
+  Assert.AreEqual('e1a6175075023c68a9698969dbf0b328da8604845273916ad93a4891eaac2344', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('2906:3-2923:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2906:3-2923:6', SourceRangeText(lStatement.Verification.Range));
@@ -17268,7 +17268,7 @@ begin
   Assert.AreEqual('lWithVarRecPtr: ^VarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithVarRecPtr := @VarList[Nr].VarCont^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('21adb5af77100f4841ef3fb7290e11ec8ec56caf0c488bb479fe46a2fd3930da', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('e1a6175075023c68a9698969dbf0b328da8604845273916ad93a4891eaac2344', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('2904:1-2904:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -17304,7 +17304,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('Marks2Auto', lStatement.RoutineName);
-  Assert.AreEqual('e67f559fc1f260b6a00d8c045b427faf000a18ef054174497d0eb09438295ab9', lStatement.SemanticId);
+  Assert.AreEqual('5c90a976c01cd2e54b0125ab32e69e4c448f5df79206ba12607bf939a709f926', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('3107:3-3119:21', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3107:3-3119:21', SourceRangeText(lStatement.Verification.Range));
@@ -17344,7 +17344,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('e67f559fc1f260b6a00d8c045b427faf000a18ef054174497d0eb09438295ab9', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('5c90a976c01cd2e54b0125ab32e69e4c448f5df79206ba12607bf939a709f926', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('3106:1-3106:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -17375,7 +17375,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('Dat2Var', lStatement.RoutineName);
-  Assert.AreEqual('2b4d620b61647e14aa00d3c0bb1b8a6bc5c15a4ab13e98a151367f0d349f15ef', lStatement.SemanticId);
+  Assert.AreEqual('c23b45391b7faa04fa9527ecda27cddcc8581973a015e61cac51e982175918d6', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('3128:3-3150:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3128:3-3150:8', SourceRangeText(lStatement.Verification.Range));
@@ -17435,7 +17435,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('2b4d620b61647e14aa00d3c0bb1b8a6bc5c15a4ab13e98a151367f0d349f15ef', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('c23b45391b7faa04fa9527ecda27cddcc8581973a015e61cac51e982175918d6', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('3126:1-3126:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -17466,7 +17466,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('CompRec', lStatement.RoutineName);
-  Assert.AreEqual('e480edcdd0ab3febcc20830068f44f21f940a2cfc5bfced515d82e4f9989c555', lStatement.SemanticId);
+  Assert.AreEqual('df5d85aa4a93ae0e5b1cf60b553d73e3cc7528485a3c37f5bcaf14421729d686', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('3168:3-3181:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3168:3-3181:8', SourceRangeText(lStatement.Verification.Range));
@@ -17508,7 +17508,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('e480edcdd0ab3febcc20830068f44f21f940a2cfc5bfced515d82e4f9989c555', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('df5d85aa4a93ae0e5b1cf60b553d73e3cc7528485a3c37f5bcaf14421729d686', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('3167:1-3167:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -17586,7 +17586,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('InArray', lStatement.RoutineName);
-  Assert.AreEqual('3a1968db47d5258e70c7b1969cee2ee6eb9967175eac03f6eec295b4878b506a', lStatement.SemanticId);
+  Assert.AreEqual('d8046aa13b16b5172e76c6aaf40047131a64335ede47e8072edc99c113d562d2', lStatement.SemanticId);
   Assert.AreEqual('3342:3-3370:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3342:3-3370:8', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -17627,7 +17627,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('3a1968db47d5258e70c7b1969cee2ee6eb9967175eac03f6eec295b4878b506a', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('d8046aa13b16b5172e76c6aaf40047131a64335ede47e8072edc99c113d562d2', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('3340:1-3340:1', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual('  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
@@ -17674,7 +17674,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('InArrayPos', lStatement.RoutineName);
-  Assert.AreEqual('79feb9ee72afc6e5a0f1fb1a6906861ee3f9898b5d0838b6fbb78d2c322ad2c2', lStatement.SemanticId);
+  Assert.AreEqual('e6aef4378051b654967e0147b845c77cac1f230e90a577113378c1adb080c5c4', lStatement.SemanticId);
   Assert.AreEqual('3380:3-3404:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3380:3-3404:8', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -17711,7 +17711,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('79feb9ee72afc6e5a0f1fb1a6906861ee3f9898b5d0838b6fbb78d2c322ad2c2', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('e6aef4378051b654967e0147b845c77cac1f230e90a577113378c1adb080c5c4', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('3378:1-3378:1', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual('  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
@@ -17771,7 +17771,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('andmarks', lStatement.RoutineName);
-  Assert.AreEqual('927b52a4d76b78b1de809f58f56fb5b68cfbf72f4ad38e77565113612a9e882d', lStatement.SemanticId);
+  Assert.AreEqual('6601b25e8bc2a8bdeef701c9b4805e4927ce6e31bd671dad024645e0e4ee06ab', lStatement.SemanticId);
   Assert.AreEqual('3412:3-3449:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3412:3-3449:8', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -17821,7 +17821,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('927b52a4d76b78b1de809f58f56fb5b68cfbf72f4ad38e77565113612a9e882d', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('6601b25e8bc2a8bdeef701c9b4805e4927ce6e31bd671dad024645e0e4ee06ab', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('3410:1-3410:1', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual('  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
@@ -17879,7 +17879,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('94899ced3d3df5bb0fe576dd300c2d5006a673ff7dc64e5f4770de31f3089790',
+  Assert.AreEqual('f347b5064b8730a50b5fcfe8c7448b57af28ed34a2bac73d7f1db34b3d92c332',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -17888,7 +17888,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('3470:1-3479:9', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('94899ced3d3df5bb0fe576dd300c2d5006a673ff7dc64e5f4770de31f3089790',
+  Assert.AreEqual('f347b5064b8730a50b5fcfe8c7448b57af28ed34a2bac73d7f1db34b3d92c332',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -17903,7 +17903,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('94899ced3d3df5bb0fe576dd300c2d5006a673ff7dc64e5f4770de31f3089790',
+  Assert.AreEqual('f347b5064b8730a50b5fcfe8c7448b57af28ed34a2bac73d7f1db34b3d92c332',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3491, 3, lStatement),
@@ -17912,7 +17912,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NotMarks', lStatement.RoutineName);
-  Assert.AreEqual('08f3955707992e69f1b9f3a4e9b68a842d111d2272199df38e6023d0f3cc1d2d', lStatement.SemanticId);
+  Assert.AreEqual('485d004dc0e42024506dfeb93ffd89ee070fdb39ebc3c0f032c0948c4b07b839', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('3491:3-3513:7', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3491:3-3513:7', SourceRangeText(lStatement.Verification.Range));
@@ -17972,7 +17972,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[Nr].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('08f3955707992e69f1b9f3a4e9b68a842d111d2272199df38e6023d0f3cc1d2d', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('485d004dc0e42024506dfeb93ffd89ee070fdb39ebc3c0f032c0948c4b07b839', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('3489:1-3489:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -18028,7 +18028,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('ffb1a1756db22676d392019d282f838edfcff9c921b412eb9d39e68694542041',
+  Assert.AreEqual('cf5e4fc1c849f0a22ecc807526bb896b032c31349a4ae0213468868941c53e73',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -18037,7 +18037,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('3521:1-3526:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('ffb1a1756db22676d392019d282f838edfcff9c921b412eb9d39e68694542041',
+  Assert.AreEqual('cf5e4fc1c849f0a22ecc807526bb896b032c31349a4ae0213468868941c53e73',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -18052,7 +18052,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('ffb1a1756db22676d392019d282f838edfcff9c921b412eb9d39e68694542041',
+  Assert.AreEqual('cf5e4fc1c849f0a22ecc807526bb896b032c31349a4ae0213468868941c53e73',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -18126,7 +18126,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @WorkArray^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('c4eea47ed05675dd59db58e1b5c174546ab5acd2adee4d050c7a78ba874bd385',
+  Assert.AreEqual('9bc0fd8c7797d9e251ff8ea0538e22964f2a2829636002de22a5c8dcc4c871a1',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('ArrayVar', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithArrayRecPtr^', lStatement.Temps[1].QualifierText);
@@ -18137,7 +18137,7 @@ begin
   Assert.AreEqual('lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('c4eea47ed05675dd59db58e1b5c174546ab5acd2adee4d050c7a78ba874bd385',
+  Assert.AreEqual('9bc0fd8c7797d9e251ff8ea0538e22964f2a2829636002de22a5c8dcc4c871a1',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -18147,7 +18147,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('3751:1-3770:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('c4eea47ed05675dd59db58e1b5c174546ab5acd2adee4d050c7a78ba874bd385',
+  Assert.AreEqual('9bc0fd8c7797d9e251ff8ea0538e22964f2a2829636002de22a5c8dcc4c871a1',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -18162,7 +18162,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr := @WorkArray^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('c4eea47ed05675dd59db58e1b5c174546ab5acd2adee4d050c7a78ba874bd385',
+  Assert.AreEqual('9bc0fd8c7797d9e251ff8ea0538e22964f2a2829636002de22a5c8dcc4c871a1',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('ArrayVar', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithArrayRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -18174,7 +18174,7 @@ begin
   Assert.AreEqual('lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('c4eea47ed05675dd59db58e1b5c174546ab5acd2adee4d050c7a78ba874bd385',
+  Assert.AreEqual('9bc0fd8c7797d9e251ff8ea0538e22964f2a2829636002de22a5c8dcc4c871a1',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 end;
 
@@ -18302,7 +18302,7 @@ begin
   Assert.AreEqual('lWithJobListRecPtr: ^JobListRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithJobListRecPtr := @JobListe[n]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('11dc70428f8974d1e17b0b4627159586d4ebc4b275a8373ad9b80c3d2e693604',
+  Assert.AreEqual('ac4e07657458cf959726d8bafddd5f5809b253c07f8128cc0de91468bf2e8b64',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -18312,7 +18312,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('4122:1-4170:16', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('11dc70428f8974d1e17b0b4627159586d4ebc4b275a8373ad9b80c3d2e693604',
+  Assert.AreEqual('ac4e07657458cf959726d8bafddd5f5809b253c07f8128cc0de91468bf2e8b64',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -18327,7 +18327,7 @@ begin
   Assert.AreEqual('lWithJobListRecPtr := @JobListe[n]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('11dc70428f8974d1e17b0b4627159586d4ebc4b275a8373ad9b80c3d2e693604',
+  Assert.AreEqual('ac4e07657458cf959726d8bafddd5f5809b253c07f8128cc0de91468bf2e8b64',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -18344,7 +18344,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('DoMiscOp', lStatement.RoutineName);
-  Assert.AreEqual('f885a394dc625df514edb262fd84eedf1a6a7a02beb2365d42f684953a2cba3c', lStatement.SemanticId);
+  Assert.AreEqual('a55c61dae0566b51ca7dcbdd8cd60ba931626590df041076d7712e6efc58e629', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('5902:19-5903:78', SourceRangeText(lStatement.Range));
   Assert.AreEqual('5902:19-5903:78', SourceRangeText(lStatement.Verification.Range));
@@ -18364,7 +18364,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[n].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('f885a394dc625df514edb262fd84eedf1a6a7a02beb2365d42f684953a2cba3c', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('a55c61dae0566b51ca7dcbdd8cd60ba931626590df041076d7712e6efc58e629', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('4697:1-4697:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -18406,7 +18406,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('DoDataOp', lStatement.RoutineName);
-  Assert.AreEqual('0fab4065de490af7c45d8eedf79cc8bcc3efcbfec67e3135679eab69648817c1', lStatement.SemanticId);
+  Assert.AreEqual('90e5ef7b50bfb453cfebede4dbaf6fd74b783f447457499b918b8a82f4418198', lStatement.SemanticId);
   Assert.AreEqual('6022:23-6026:25', SourceRangeText(lStatement.Range));
   Assert.AreEqual('6022:23-6026:25', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -18423,7 +18423,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @ArrayVarRecPtr(VarList[h1].VarCont)^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('0fab4065de490af7c45d8eedf79cc8bcc3efcbfec67e3135679eab69648817c1', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('90e5ef7b50bfb453cfebede4dbaf6fd74b783f447457499b918b8a82f4418198', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('5924:1-5924:1', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual('  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
@@ -18477,7 +18477,7 @@ begin
   Assert.AreEqual('lWithVarRecPtr: ^VarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithVarRecPtr := @VarList[h1].VarCont^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('a2024d664ac503d4e833f14939cdca645c79f947b705911879a99088920ec423',
+  Assert.AreEqual('b74ba4b523192231ce9fa7d8bd18ccac387b2312c49c37176c13c43f2eee103e',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -18487,7 +18487,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('7551:1-7559:26', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('a2024d664ac503d4e833f14939cdca645c79f947b705911879a99088920ec423',
+  Assert.AreEqual('b74ba4b523192231ce9fa7d8bd18ccac387b2312c49c37176c13c43f2eee103e',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -18502,7 +18502,7 @@ begin
   Assert.AreEqual('lWithVarRecPtr := @VarList[h1].VarCont^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('a2024d664ac503d4e833f14939cdca645c79f947b705911879a99088920ec423',
+  Assert.AreEqual('b74ba4b523192231ce9fa7d8bd18ccac387b2312c49c37176c13c43f2eee103e',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -18608,7 +18608,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NewDATFile', lStatement.RoutineName);
-  Assert.AreEqual('1e0f4b11ff9e64214c48d9a11abdc99d3e3af85bee251cdcff4df82c90a80041', lStatement.SemanticId);
+  Assert.AreEqual('06c8b86c4d3596a473981a526668aff68e46154fc94b8438cec414e158a0a91e', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('942:5-943:50', SourceRangeText(lStatement.Range));
   Assert.AreEqual('942:5-943:50', SourceRangeText(lStatement.Verification.Range));
@@ -18626,7 +18626,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @D^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('1e0f4b11ff9e64214c48d9a11abdc99d3e3af85bee251cdcff4df82c90a80041', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('06c8b86c4d3596a473981a526668aff68e46154fc94b8438cec414e158a0a91e', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('940:1-940:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -18659,7 +18659,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NewDATFile', lStatement.RoutineName);
-  Assert.AreEqual('9248e6e842a13b9c2be74453058d2fd59154f861824035c95d942db31930bc57', lStatement.SemanticId);
+  Assert.AreEqual('7b3dd9f87a9675e6ec038a9582ccfa4687149708c2accc448e782d46956f504c', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('945:5-946:17', SourceRangeText(lStatement.Range));
   Assert.AreEqual('945:5-946:17', SourceRangeText(lStatement.Verification.Range));
@@ -18677,14 +18677,14 @@ begin
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr1 := @D^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('9248e6e842a13b9c2be74453058d2fd59154f861824035c95d942db31930bc57', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('7b3dd9f87a9675e6ec038a9582ccfa4687149708c2accc448e782d46956f504c', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('945:1-946:17', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
   AssertCapturedRecipe(lStatement);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 942, 5, lOwnerStatement));
-  Assert.AreEqual('1e0f4b11ff9e64214c48d9a11abdc99d3e3af85bee251cdcff4df82c90a80041', lOwnerStatement.SemanticId);
+  Assert.AreEqual('06c8b86c4d3596a473981a526668aff68e46154fc94b8438cec414e158a0a91e', lOwnerStatement.SemanticId);
   Assert.AreEqual('NewDATFile', lOwnerStatement.RoutineName);
   Assert.AreEqual('planned', lOwnerStatement.Status);
   Assert.AreEqual('var' + #13#10 +
@@ -18715,7 +18715,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('DirektAutoNum', lStatement.RoutineName);
-  Assert.AreEqual('e2c7fb7e35e6e5ecec4847580e5dec149fda19a61a9952dcfa0924b09f7d7fb4', lStatement.SemanticId);
+  Assert.AreEqual('df0bf431ab9d936cc1a4424e1f424ee16d2afea61638c3c215c698529b88757e', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('2411:5-2425:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2411:5-2425:10', SourceRangeText(lStatement.Verification.Range));
@@ -18761,7 +18761,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[aDb]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('e2c7fb7e35e6e5ecec4847580e5dec149fda19a61a9952dcfa0924b09f7d7fb4', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('df0bf431ab9d936cc1a4424e1f424ee16d2afea61638c3c215c698529b88757e', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('2408:1-2408:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -18793,7 +18793,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('SetIndOp', lStatement.RoutineName);
-  Assert.AreEqual('f8591d6ea0d7153e7d209dce334c67c2c0d119b0cefebf7c308537d86dd72992', lStatement.SemanticId);
+  Assert.AreEqual('e994416b900a148aa350c15d0dd39df7bf0ec06b3d68596ee013d3c63b49f35c', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('4347:9-4369:16', SourceRangeText(lStatement.Range));
   Assert.AreEqual('4347:9-4369:16', SourceRangeText(lStatement.Verification.Range));
@@ -18853,7 +18853,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[c]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('f8591d6ea0d7153e7d209dce334c67c2c0d119b0cefebf7c308537d86dd72992', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('e994416b900a148aa350c15d0dd39df7bf0ec06b3d68596ee013d3c63b49f35c', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('4345:1-4345:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -18885,7 +18885,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('FindVar', lStatement.RoutineName);
-  Assert.AreEqual('56751a6099cef8edeabfe79e63c5082b23443043f8842802883d52d40e820cf5', lStatement.SemanticId);
+  Assert.AreEqual('38d0c371fb57d6d18504982eb63afed261722bb11fce22466b07319a100b1481', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('8109:11-8114:13', SourceRangeText(lStatement.Range));
   Assert.AreEqual('8109:11-8114:13', SourceRangeText(lStatement.Verification.Range));
@@ -18913,7 +18913,7 @@ begin
   Assert.AreEqual('lWithVarRecPtr: ^VarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithVarRecPtr := @VarCont^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('56751a6099cef8edeabfe79e63c5082b23443043f8842802883d52d40e820cf5', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('38d0c371fb57d6d18504982eb63afed261722bb11fce22466b07319a100b1481', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('8092:1-8092:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -18941,7 +18941,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8101, 7, lOwnerStatement));
   Assert.AreEqual('skipped', lOwnerStatement.Status);
   Assert.AreEqual('call-selector', lOwnerStatement.Reason);
-  Assert.AreEqual('9c507b64d3c7c4b5683cd6833b201ff06a315f29debb95908aa07ae24f57e42c', lOwnerStatement.SemanticId);
+  Assert.AreEqual('756fc0653b47ae1722ddf1d270b707ca4760b808c24a870d17fa85829843005a', lOwnerStatement.SemanticId);
   Assert.AreEqual(0, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual(0, Integer(Length(lOwnerStatement.Temps)));
   Assert.IsTrue(lOwnerStatement.Range.StartLine < lStatement.Range.StartLine);
@@ -18953,7 +18953,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('FindDirekt', lStatement.RoutineName);
-  Assert.AreEqual('7074276b9f4f52b2ee8774cc01dd77cb310202a689de4d0d9b37f9fa86238143', lStatement.SemanticId);
+  Assert.AreEqual('d2f346d2c840993c4f7757bd3ca6a84562569a4eb6af0e7c3ab2c530d5eadb59', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('8312:7-8316:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('8312:7-8316:10', SourceRangeText(lStatement.Verification.Range));
@@ -18977,7 +18977,7 @@ begin
   Assert.AreEqual('lWithDirektChainItemPtr: ^TDirektChainItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDirektChainItemPtr := @DirektChain[a];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('7074276b9f4f52b2ee8774cc01dd77cb310202a689de4d0d9b37f9fa86238143', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('d2f346d2c840993c4f7757bd3ca6a84562569a4eb6af0e7c3ab2c530d5eadb59', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('8229:1-8229:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -19010,7 +19010,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('FindDirekt', lStatement.RoutineName);
-  Assert.AreEqual('a3efd6f6c1feb602a6b1e88b272316e7ff59e21a9a07eb211316e24193f6dad9', lStatement.SemanticId);
+  Assert.AreEqual('4d8767069a6e83d87def121c61877c9460a9892cb2c5dbe55e0a307cdc544dc9', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('8332:5-8336:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('8332:5-8336:8', SourceRangeText(lStatement.Verification.Range));
@@ -19034,14 +19034,14 @@ begin
   Assert.AreEqual('lWithDirektChainItemPtr1: ^TDirektChainItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDirektChainItemPtr1 := @DirektChain[0];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('a3efd6f6c1feb602a6b1e88b272316e7ff59e21a9a07eb211316e24193f6dad9', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('4d8767069a6e83d87def121c61877c9460a9892cb2c5dbe55e0a307cdc544dc9', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('8332:1-8336:8', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
   AssertCapturedRecipe(lStatement);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8312, 7, lOwnerStatement));
-  Assert.AreEqual('7074276b9f4f52b2ee8774cc01dd77cb310202a689de4d0d9b37f9fa86238143', lOwnerStatement.SemanticId);
+  Assert.AreEqual('d2f346d2c840993c4f7757bd3ca6a84562569a4eb6af0e7c3ab2c530d5eadb59', lOwnerStatement.SemanticId);
   Assert.AreEqual('FindDirekt', lOwnerStatement.RoutineName);
   Assert.AreEqual('planned', lOwnerStatement.Status);
   Assert.AreEqual('  lWithDirektChainItemPtr: ^TDirektChainItem;' + #13#10 +
@@ -19072,7 +19072,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('FindDirekt', lStatement.RoutineName);
-  Assert.AreEqual('946740187e2953a448f4d1a400d8f7c7d89be0e8b08292b231622c1e6a3f5b77', lStatement.SemanticId);
+  Assert.AreEqual('fbead08b7585956f3c5f7e89733bced36a4fe86b15b7921b5f7d60ed60c898c9', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('8339:9-8340:22', SourceRangeText(lStatement.Range));
   Assert.AreEqual('8339:9-8340:22', SourceRangeText(lStatement.Verification.Range));
@@ -19092,14 +19092,14 @@ begin
   Assert.AreEqual('lWithDirektChainItemPtr2: ^TDirektChainItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDirektChainItemPtr2 := @DirektChain[i];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('946740187e2953a448f4d1a400d8f7c7d89be0e8b08292b231622c1e6a3f5b77', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('fbead08b7585956f3c5f7e89733bced36a4fe86b15b7921b5f7d60ed60c898c9', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('8339:1-8340:22', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
   AssertCapturedRecipe(lStatement);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8312, 7, lOwnerStatement));
-  Assert.AreEqual('7074276b9f4f52b2ee8774cc01dd77cb310202a689de4d0d9b37f9fa86238143', lOwnerStatement.SemanticId);
+  Assert.AreEqual('d2f346d2c840993c4f7757bd3ca6a84562569a4eb6af0e7c3ab2c530d5eadb59', lOwnerStatement.SemanticId);
   Assert.AreEqual('FindDirekt', lOwnerStatement.RoutineName);
   Assert.AreEqual('planned', lOwnerStatement.Status);
   Assert.AreEqual('  lWithDirektChainItemPtr: ^TDirektChainItem;' + #13#10 +
@@ -19130,7 +19130,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('ExitVars', lStatement.RoutineName);
-  Assert.AreEqual('04f25afe46d0b3dc1814bb0d5b4e561701ae8e79987e1ca8664f7626819732d3', lStatement.SemanticId);
+  Assert.AreEqual('173a35031f18a5732d2b41a50a9382519148671b5339a094904ae22c5a3d0736', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('592:5-601:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('592:5-601:8', SourceRangeText(lStatement.Verification.Range));
@@ -19166,7 +19166,7 @@ begin
   Assert.AreEqual('lWithParamRecPtr: ^ParamRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithParamRecPtr := @pl^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('04f25afe46d0b3dc1814bb0d5b4e561701ae8e79987e1ca8664f7626819732d3', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('173a35031f18a5732d2b41a50a9382519148671b5339a094904ae22c5a3d0736', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('590:1-590:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -19197,7 +19197,7 @@ begin
   Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
   Assert.AreEqual('receiver-type-not-visible', lStatement.SafetyReason);
   Assert.AreEqual('StringToIndex', lStatement.RoutineName);
-  Assert.AreEqual('1d78aabea8bc637a62ada2a148bfbc0a931d51d749bfb08b350584ac9993a8c3', lStatement.SemanticId);
+  Assert.AreEqual('ac00c778161ee3ca02e4f41e1165fe3d68f8ef085d2107cbace02e782d1173d9', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1587:11-1611:14', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1587:11-1611:14', SourceRangeText(lStatement.Verification.Range));
@@ -19295,7 +19295,7 @@ begin
   Assert.AreEqual('lWithVarInitRecPtr: ^VarInitRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithVarInitRecPtr := @InitVar;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('47593f0021d0e385e962032681a79f2422717142a372abd2b2d737f66798f6fb',
+  Assert.AreEqual('14af91eb8da1186c414e663be6eba850e4b453e2a0257ac4459bfb2e50c494c5',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -19304,7 +19304,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('8478:1-8488:24', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('47593f0021d0e385e962032681a79f2422717142a372abd2b2d737f66798f6fb',
+  Assert.AreEqual('14af91eb8da1186c414e663be6eba850e4b453e2a0257ac4459bfb2e50c494c5',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -19319,7 +19319,7 @@ begin
   Assert.AreEqual('lWithVarInitRecPtr := @InitVar;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('47593f0021d0e385e962032681a79f2422717142a372abd2b2d737f66798f6fb',
+  Assert.AreEqual('14af91eb8da1186c414e663be6eba850e4b453e2a0257ac4459bfb2e50c494c5',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -19375,7 +19375,7 @@ begin
   Assert.AreEqual('lWithVarRecPtr: ^VarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithVarRecPtr := @VarList[i].VarCont^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('25099e65603c0ff5b8b93ca032fb9f307eb92974f421a7b779ebe93ad58e5259',
+  Assert.AreEqual('1671a68960445d290c82c7eef84f66acc0eec39c54154a3aa1ef94105b4011d3',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -19384,7 +19384,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('8969:1-8980:10', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('25099e65603c0ff5b8b93ca032fb9f307eb92974f421a7b779ebe93ad58e5259',
+  Assert.AreEqual('1671a68960445d290c82c7eef84f66acc0eec39c54154a3aa1ef94105b4011d3',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -19399,7 +19399,7 @@ begin
   Assert.AreEqual('lWithVarRecPtr := @VarList[i].VarCont^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('25099e65603c0ff5b8b93ca032fb9f307eb92974f421a7b779ebe93ad58e5259',
+  Assert.AreEqual('1671a68960445d290c82c7eef84f66acc0eec39c54154a3aa1ef94105b4011d3',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8996, 7, lStatement),
@@ -19489,7 +19489,7 @@ begin
   Assert.AreEqual('lWithVarRecPtr: ^VarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithVarRecPtr := @VarList[i].VarCont^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('2d96ad10ade5c68185fb2502786b5d3ff299143781c5d27d6abe2e72e276f876',
+  Assert.AreEqual('0c13a278eea189b5a28fb29c56af5d519f46c0779b11c98f0ba2ccb1a31e61fa',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -19498,7 +19498,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('8996:1-9028:10', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('2d96ad10ade5c68185fb2502786b5d3ff299143781c5d27d6abe2e72e276f876',
+  Assert.AreEqual('0c13a278eea189b5a28fb29c56af5d519f46c0779b11c98f0ba2ccb1a31e61fa',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -19513,7 +19513,7 @@ begin
   Assert.AreEqual('lWithVarRecPtr := @VarList[i].VarCont^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('2d96ad10ade5c68185fb2502786b5d3ff299143781c5d27d6abe2e72e276f876',
+  Assert.AreEqual('0c13a278eea189b5a28fb29c56af5d519f46c0779b11c98f0ba2ccb1a31e61fa',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -19547,7 +19547,7 @@ begin
   Assert.AreEqual('lWithMBRecPtr: ^MBRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMBRecPtr := @LastMBRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('843b7c80ecb14c8d96a4c0f3178fac40d437030ac8308a3544868e95b34f469d',
+  Assert.AreEqual('7033c421e036256134a88c66c4025d1b2fdde0b9c8eed75981f0e3b6dc59542c',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -19558,7 +19558,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('9267:1-9268:38', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('843b7c80ecb14c8d96a4c0f3178fac40d437030ac8308a3544868e95b34f469d',
+  Assert.AreEqual('7033c421e036256134a88c66c4025d1b2fdde0b9c8eed75981f0e3b6dc59542c',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -19572,7 +19572,7 @@ begin
   Assert.AreEqual('lWithMBRecPtr := @LastMBRec;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('843b7c80ecb14c8d96a4c0f3178fac40d437030ac8308a3544868e95b34f469d',
+  Assert.AreEqual('7033c421e036256134a88c66c4025d1b2fdde0b9c8eed75981f0e3b6dc59542c',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 9375, 15, lStatement),
@@ -19598,13 +19598,13 @@ begin
   Assert.AreEqual('lWithMBRecPtr1: ^MBRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMBRecPtr1 := @LastMBRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('fe7d597593929de0560d2fb8f31b6b6d3a97d0fb2b44cd60b8f48be68f91e08e',
+  Assert.AreEqual('4c2624c06a836781ca158aa9355794f383472e8f10ee4be7a768db37bf6d276e',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('9375:1-9376:36', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('fe7d597593929de0560d2fb8f31b6b6d3a97d0fb2b44cd60b8f48be68f91e08e',
+  Assert.AreEqual('4c2624c06a836781ca158aa9355794f383472e8f10ee4be7a768db37bf6d276e',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -19618,7 +19618,7 @@ begin
   Assert.AreEqual('lWithMBRecPtr1 := @LastMBRec;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('fe7d597593929de0560d2fb8f31b6b6d3a97d0fb2b44cd60b8f48be68f91e08e',
+  Assert.AreEqual('4c2624c06a836781ca158aa9355794f383472e8f10ee4be7a768db37bf6d276e',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -19645,7 +19645,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('KonvertVarNr', lStatement.RoutineName);
-  Assert.AreEqual('cb6c56cdb32e4a702410d6bd99977efd50236c60c0236d19268b13d24df48e29', lStatement.SemanticId);
+  Assert.AreEqual('1b3cec0c0829ac7671ea69648924dc1433b5ca32bce7c3d030b2c7a919fc9c2d', lStatement.SemanticId);
   Assert.AreEqual('9659:5-9660:76', SourceRangeText(lStatement.Range));
   Assert.AreEqual('9659:5-9660:76', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -19659,7 +19659,7 @@ begin
   Assert.AreEqual('lWithVarRecPtr: ^VarRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithVarRecPtr := @VarList[VN].VarCont^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('cb6c56cdb32e4a702410d6bd99977efd50236c60c0236d19268b13d24df48e29', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('1b3cec0c0829ac7671ea69648924dc1433b5ca32bce7c3d030b2c7a919fc9c2d', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('9655:1-9655:1', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual('  lWithVarRecPtr: ^VarRec;' + #13#10 +
@@ -19792,7 +19792,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('7e96a00898de4fe07de42e353c38b58d2a1dd0aa028d70fdfd2c4170873265aa',
+  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -19810,7 +19810,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('156:1-173:10', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('7e96a00898de4fe07de42e353c38b58d2a1dd0aa028d70fdfd2c4170873265aa',
+  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -19825,7 +19825,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('7e96a00898de4fe07de42e353c38b58d2a1dd0aa028d70fdfd2c4170873265aa',
+  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   lOwnerStatement := lStatement;
@@ -19900,7 +19900,7 @@ begin
   Assert.AreEqual('lWithSelRecPtr: ^SelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithSelRecPtr := @p^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('2515e8f271e090f27f0b713ec686120d37bab3c4c6e3214c7903dbbe4d2f787c',
+  Assert.AreEqual('fe9566d15e3524d718fe11f72d4947e183b5b4d7617700e291ccc114b4a9ab7b',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('Sel', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithSelektorPtr^', lStatement.Temps[1].QualifierText);
@@ -19910,13 +19910,13 @@ begin
   Assert.AreEqual('lWithSelektorPtr: ^Selektor;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('2515e8f271e090f27f0b713ec686120d37bab3c4c6e3214c7903dbbe4d2f787c',
+  Assert.AreEqual('fe9566d15e3524d718fe11f72d4947e183b5b4d7617700e291ccc114b4a9ab7b',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('185:1-190:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('2515e8f271e090f27f0b713ec686120d37bab3c4c6e3214c7903dbbe4d2f787c',
+  Assert.AreEqual('fe9566d15e3524d718fe11f72d4947e183b5b4d7617700e291ccc114b4a9ab7b',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -19931,7 +19931,7 @@ begin
   Assert.AreEqual('lWithSelRecPtr := @p^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('2515e8f271e090f27f0b713ec686120d37bab3c4c6e3214c7903dbbe4d2f787c',
+  Assert.AreEqual('fe9566d15e3524d718fe11f72d4947e183b5b4d7617700e291ccc114b4a9ab7b',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('Sel', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithSelektorPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -19943,7 +19943,7 @@ begin
   Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('2515e8f271e090f27f0b713ec686120d37bab3c4c6e3214c7903dbbe4d2f787c',
+  Assert.AreEqual('fe9566d15e3524d718fe11f72d4947e183b5b4d7617700e291ccc114b4a9ab7b',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 193, 7, lStatement));
@@ -19979,7 +19979,7 @@ begin
   Assert.AreEqual('lWithForRecPtr: ^ForRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithForRecPtr := @q^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('b0b823964241e48a786196e8bc217eb64cef330eec76f95537bf4d96d6115f8f',
+  Assert.AreEqual('1070d6494d7c913dbd2ee052aa5f4df3a47d4bc3bd2d8afcd66f0ab34720a983',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('Form', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithFormelPtr^', lStatement.Temps[1].QualifierText);
@@ -19989,13 +19989,13 @@ begin
   Assert.AreEqual('lWithFormelPtr: ^Formel;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithFormelPtr := @lWithForRecPtr^.Form;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('b0b823964241e48a786196e8bc217eb64cef330eec76f95537bf4d96d6115f8f',
+  Assert.AreEqual('1070d6494d7c913dbd2ee052aa5f4df3a47d4bc3bd2d8afcd66f0ab34720a983',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('193:1-198:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('b0b823964241e48a786196e8bc217eb64cef330eec76f95537bf4d96d6115f8f',
+  Assert.AreEqual('1070d6494d7c913dbd2ee052aa5f4df3a47d4bc3bd2d8afcd66f0ab34720a983',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -20010,7 +20010,7 @@ begin
   Assert.AreEqual('lWithForRecPtr := @q^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('b0b823964241e48a786196e8bc217eb64cef330eec76f95537bf4d96d6115f8f',
+  Assert.AreEqual('1070d6494d7c913dbd2ee052aa5f4df3a47d4bc3bd2d8afcd66f0ab34720a983',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('Form', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithFormelPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -20022,7 +20022,7 @@ begin
   Assert.AreEqual('lWithFormelPtr := @lWithForRecPtr^.Form;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('b0b823964241e48a786196e8bc217eb64cef330eec76f95537bf4d96d6115f8f',
+  Assert.AreEqual('1070d6494d7c913dbd2ee052aa5f4df3a47d4bc3bd2d8afcd66f0ab34720a983',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 201, 7, lStatement));
@@ -20058,7 +20058,7 @@ begin
   Assert.AreEqual('lWithBereichsRecPtr: ^BereichsRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithBereichsRecPtr := @r^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('f4f62b136cbc5d664716b95eb1cc3ef035ab0584444e178615d39ec0ba5fecaf',
+  Assert.AreEqual('699108f2c581ae881f29bab8ef6dc8fb34ee7069811ddb133e21418cce12c33c',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('B', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithBereichPtr^', lStatement.Temps[1].QualifierText);
@@ -20068,13 +20068,13 @@ begin
   Assert.AreEqual('lWithBereichPtr: ^Bereich;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithBereichPtr := @lWithBereichsRecPtr^.B;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('f4f62b136cbc5d664716b95eb1cc3ef035ab0584444e178615d39ec0ba5fecaf',
+  Assert.AreEqual('699108f2c581ae881f29bab8ef6dc8fb34ee7069811ddb133e21418cce12c33c',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('201:1-206:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('f4f62b136cbc5d664716b95eb1cc3ef035ab0584444e178615d39ec0ba5fecaf',
+  Assert.AreEqual('699108f2c581ae881f29bab8ef6dc8fb34ee7069811ddb133e21418cce12c33c',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -20089,7 +20089,7 @@ begin
   Assert.AreEqual('lWithBereichsRecPtr := @r^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('f4f62b136cbc5d664716b95eb1cc3ef035ab0584444e178615d39ec0ba5fecaf',
+  Assert.AreEqual('699108f2c581ae881f29bab8ef6dc8fb34ee7069811ddb133e21418cce12c33c',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('B', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithBereichPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -20101,7 +20101,7 @@ begin
   Assert.AreEqual('lWithBereichPtr := @lWithBereichsRecPtr^.B;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('f4f62b136cbc5d664716b95eb1cc3ef035ab0584444e178615d39ec0ba5fecaf',
+  Assert.AreEqual('699108f2c581ae881f29bab8ef6dc8fb34ee7069811ddb133e21418cce12c33c',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 156, 7, lOwnerStatement));
@@ -20160,7 +20160,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('7e96a00898de4fe07de42e353c38b58d2a1dd0aa028d70fdfd2c4170873265aa',
+  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -20178,7 +20178,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('156:1-173:10', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('7e96a00898de4fe07de42e353c38b58d2a1dd0aa028d70fdfd2c4170873265aa',
+  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -20193,7 +20193,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('7e96a00898de4fe07de42e353c38b58d2a1dd0aa028d70fdfd2c4170873265aa',
+  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
@@ -20278,13 +20278,13 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr1: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr1 := @Maske[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('0d1b0892ee7af73a35b8aa6643fb92cce8340630961cdcc9ad46e24f22a0e2c6',
+  Assert.AreEqual('05991a81cc22ab5c907a4e605e2247524e8895fb3998da957df68254666eddb6',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('256:1-267:13', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('0d1b0892ee7af73a35b8aa6643fb92cce8340630961cdcc9ad46e24f22a0e2c6',
+  Assert.AreEqual('05991a81cc22ab5c907a4e605e2247524e8895fb3998da957df68254666eddb6',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -20299,7 +20299,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr1 := @Maske[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('0d1b0892ee7af73a35b8aa6643fb92cce8340630961cdcc9ad46e24f22a0e2c6',
+  Assert.AreEqual('05991a81cc22ab5c907a4e605e2247524e8895fb3998da957df68254666eddb6',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 272, 5, lStatement));
@@ -20324,13 +20324,13 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('9b73ce2825e9f88a83d6562a61b7cb4b7b18871153185c67810dec31626306ae',
+  Assert.AreEqual('c5752e013a882b01aca9ca016e99ac0e6bd997249ec28a76b32367a7081ecef1',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('272:1-273:23', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('9b73ce2825e9f88a83d6562a61b7cb4b7b18871153185c67810dec31626306ae',
+  Assert.AreEqual('c5752e013a882b01aca9ca016e99ac0e6bd997249ec28a76b32367a7081ecef1',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -20345,7 +20345,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @D;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('9b73ce2825e9f88a83d6562a61b7cb4b7b18871153185c67810dec31626306ae',
+  Assert.AreEqual('c5752e013a882b01aca9ca016e99ac0e6bd997249ec28a76b32367a7081ecef1',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 156, 7, lOwnerStatement));
@@ -20404,7 +20404,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('7e96a00898de4fe07de42e353c38b58d2a1dd0aa028d70fdfd2c4170873265aa',
+  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -20422,7 +20422,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('156:1-173:10', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('7e96a00898de4fe07de42e353c38b58d2a1dd0aa028d70fdfd2c4170873265aa',
+  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -20437,7 +20437,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('7e96a00898de4fe07de42e353c38b58d2a1dd0aa028d70fdfd2c4170873265aa',
+  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
@@ -20510,7 +20510,7 @@ begin
   Assert.AreEqual('lWithPrgBlockPtr: ^PrgBlock;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithPrgBlockPtr := @PB;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('ee1abec9a7c621c67e96b7baf8ac76e3675e8d0a78bea0c8e9e3d8fcb1af29ec',
+  Assert.AreEqual('8f5dd0f2e983fae8ad08dd29d90926f3fa225556df098a0bcc6db53254efc2f8',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -20519,7 +20519,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('395:1-402:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('ee1abec9a7c621c67e96b7baf8ac76e3675e8d0a78bea0c8e9e3d8fcb1af29ec',
+  Assert.AreEqual('8f5dd0f2e983fae8ad08dd29d90926f3fa225556df098a0bcc6db53254efc2f8',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -20534,7 +20534,7 @@ begin
   Assert.AreEqual('lWithPrgBlockPtr := @PB;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('ee1abec9a7c621c67e96b7baf8ac76e3675e8d0a78bea0c8e9e3d8fcb1af29ec',
+  Assert.AreEqual('8f5dd0f2e983fae8ad08dd29d90926f3fa225556df098a0bcc6db53254efc2f8',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 411, 3, lStatement),
@@ -20572,7 +20572,7 @@ begin
   Assert.AreEqual('lWithPrgBlockPtr: ^PrgBlock;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithPrgBlockPtr := @PB;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('be1d658129e89deec0490d7634879d1abecf585a39a82ad28bcd3d993eeeda64',
+  Assert.AreEqual('3fe8bdc3de766bb5055e5dee37b26735c8f04ad510b3452d83ed2c100b599c80',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -20581,7 +20581,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('411:1-418:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('be1d658129e89deec0490d7634879d1abecf585a39a82ad28bcd3d993eeeda64',
+  Assert.AreEqual('3fe8bdc3de766bb5055e5dee37b26735c8f04ad510b3452d83ed2c100b599c80',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -20596,7 +20596,7 @@ begin
   Assert.AreEqual('lWithPrgBlockPtr := @PB;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('be1d658129e89deec0490d7634879d1abecf585a39a82ad28bcd3d993eeeda64',
+  Assert.AreEqual('3fe8bdc3de766bb5055e5dee37b26735c8f04ad510b3452d83ed2c100b599c80',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -20707,7 +20707,7 @@ begin
   Assert.AreEqual('lWithESubTypePtr: ^ESubType;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithESubTypePtr := @SubR[SubCount]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('473c5d24bdadbebbe584fb96fb3a05787d9e9a6a2fecdb3f6428ffa941cc390d',
+  Assert.AreEqual('46bfe469bd4a632f55cf5232dfa2ff5d1303fa00edbe9d68877ad7f899510174',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -20717,7 +20717,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1068:1-1069:37', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('473c5d24bdadbebbe584fb96fb3a05787d9e9a6a2fecdb3f6428ffa941cc390d',
+  Assert.AreEqual('46bfe469bd4a632f55cf5232dfa2ff5d1303fa00edbe9d68877ad7f899510174',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -20732,7 +20732,7 @@ begin
   Assert.AreEqual('lWithESubTypePtr := @SubR[SubCount]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('473c5d24bdadbebbe584fb96fb3a05787d9e9a6a2fecdb3f6428ffa941cc390d',
+  Assert.AreEqual('46bfe469bd4a632f55cf5232dfa2ff5d1303fa00edbe9d68877ad7f899510174',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -20807,7 +20807,7 @@ begin
   Assert.AreEqual('lWithVarInitRecPtr: ^VarInitRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithVarInitRecPtr := @InitVar;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('9635f07ea383281693602e7f460625fe048766c6b34d16a97dc10e52c8ef865d',
+  Assert.AreEqual('4c35c0f829896245e25f2a593d10161d64a402a160b7740491d3f14982586074',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -20816,7 +20816,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1214:1-1224:18', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('9635f07ea383281693602e7f460625fe048766c6b34d16a97dc10e52c8ef865d',
+  Assert.AreEqual('4c35c0f829896245e25f2a593d10161d64a402a160b7740491d3f14982586074',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -20831,7 +20831,7 @@ begin
   Assert.AreEqual('lWithVarInitRecPtr := @InitVar;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('9635f07ea383281693602e7f460625fe048766c6b34d16a97dc10e52c8ef865d',
+  Assert.AreEqual('4c35c0f829896245e25f2a593d10161d64a402a160b7740491d3f14982586074',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1204, 5, lStatement));
@@ -20882,13 +20882,13 @@ begin
   Assert.AreEqual('lWithJumpItemPtr2: ^TJumpItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithJumpItemPtr2 := @Jump[Jumps];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('49b9ad9e75375ff3ca674018a1bf7688c20999475dc1e05db8948a0020c55d4f',
+  Assert.AreEqual('3dd8caa12c6d0bb4047c67bb99b5b16fc497463201f09dcccc01a70908eded90',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1778:1-1782:18', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('49b9ad9e75375ff3ca674018a1bf7688c20999475dc1e05db8948a0020c55d4f',
+  Assert.AreEqual('3dd8caa12c6d0bb4047c67bb99b5b16fc497463201f09dcccc01a70908eded90',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -20903,12 +20903,12 @@ begin
   Assert.AreEqual('lWithJumpItemPtr2 := @Jump[Jumps];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('49b9ad9e75375ff3ca674018a1bf7688c20999475dc1e05db8948a0020c55d4f',
+  Assert.AreEqual('3dd8caa12c6d0bb4047c67bb99b5b16fc497463201f09dcccc01a70908eded90',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1742, 15, lOwnerStatement));
   Assert.AreEqual('planned', lOwnerStatement.Status);
   Assert.AreEqual('Compile', lOwnerStatement.RoutineName);
-  Assert.AreEqual('0618d5a260e71395c0caa502e8b9d13bcc4069048995eecc75cd4d68519046a0', lOwnerStatement.SemanticId);
+  Assert.AreEqual('0678da334b44bb388fd5384c5bc77e1240030170ea9e2e708ef5e4a46c685096', lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.Reason);
   Assert.AreEqual('', lOwnerStatement.SafetyReason);
   Assert.AreEqual('1742:15-1756:18', SourceRangeText(lOwnerStatement.Range));
@@ -20941,7 +20941,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1763, 15, lStatement));
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('Compile', lStatement.RoutineName);
-  Assert.AreEqual('ca2c5ef14ef520b54538c8403dcfb8e9c3e14472e623a93a97ef15b12efe55a1', lStatement.SemanticId);
+  Assert.AreEqual('56a899144138896c28a21065008a84cffa6891435b7d85a2a5d692224aad900d', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('1763:15-1774:18', SourceRangeText(lStatement.Range));
@@ -20985,7 +20985,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('Compile', lStatement.RoutineName);
-  Assert.AreEqual('61e751f4c7f1eead7d3c6f942c69d42c83f23239aeb8fe9862700e9587ed4a77', lStatement.SemanticId);
+  Assert.AreEqual('8972937c636cf695faa953c13bf425deae51bb99ce344932b0702827ba57e9e7', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1937:15-1958:18', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1937:15-1958:18', SourceRangeText(lStatement.Verification.Range));
@@ -21045,7 +21045,7 @@ begin
   Assert.AreEqual('lWithESubTypePtr1: ^ESubType;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithESubTypePtr1 := @SubR[0]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('61e751f4c7f1eead7d3c6f942c69d42c83f23239aeb8fe9862700e9587ed4a77', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('8972937c636cf695faa953c13bf425deae51bb99ce344932b0702827ba57e9e7', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1937:1-1958:18', SourceRangeText(lStatement.Edits[0].Range));
@@ -21111,7 +21111,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('Compile', lStatement.RoutineName);
-  Assert.AreEqual('39f777bb6f848aecc014dfd2c034eadf415cbd1196e858dc812d6d397af1d082', lStatement.SemanticId);
+  Assert.AreEqual('21f13b8d77e551ccf6ce200e0f6f7b66b7fac62b4cbc734920164d602ce8ea61', lStatement.SemanticId);
   Assert.AreEqual('2295:9-2311:11', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2295:9-2311:11', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('d6609c449e39d8abfb9954a1e1910f6aae84ab6504056f22f3ebc105275d25fa', lStatement.Verification.ExpectedFileHash);
@@ -21140,7 +21140,7 @@ begin
   Assert.AreEqual('lWithESubTypePtr3: ^ESubType;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithESubTypePtr3 := @SubR[0]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('39f777bb6f848aecc014dfd2c034eadf415cbd1196e858dc812d6d397af1d082', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('21f13b8d77e551ccf6ce200e0f6f7b66b7fac62b4cbc734920164d602ce8ea61', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   AssertCapturedRecipe(lStatement);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1742, 15, lOwnerStatement));
@@ -21194,7 +21194,7 @@ begin
   Assert.AreEqual('lWithParaTypePtr: ^ParaType;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithParaTypePtr := @Parameter;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('60471da4cd69cfa989855d33616429de9990f24dd7e8bafc3545cb0cfe1cbbf7',
+  Assert.AreEqual('5f72f7db1769f8e7e194b01950901e9bdb12e38f67e82e7b0829f826dc07619e',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -21204,7 +21204,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2357:1-2359:18', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('60471da4cd69cfa989855d33616429de9990f24dd7e8bafc3545cb0cfe1cbbf7',
+  Assert.AreEqual('5f72f7db1769f8e7e194b01950901e9bdb12e38f67e82e7b0829f826dc07619e',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -21219,7 +21219,7 @@ begin
   Assert.AreEqual('lWithParaTypePtr := @Parameter;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('60471da4cd69cfa989855d33616429de9990f24dd7e8bafc3545cb0cfe1cbbf7',
+  Assert.AreEqual('5f72f7db1769f8e7e194b01950901e9bdb12e38f67e82e7b0829f826dc07619e',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -21321,7 +21321,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[DB]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('a64e48422d6d9ff1980c319cc855772e0598f3eb4b9eedd9a458363ae778c83b',
+  Assert.AreEqual('3f13a621fd9f438fa3616b73527d20c777ff8efd1736656745b40104b617c6c5',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -21429,7 +21429,7 @@ begin
   Assert.AreEqual('lWithLinkedLineListPtr: ^TLinkedLineList;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLinkedLineListPtr := @TL^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('2c9bdd14594da600910c02b8ba0b68ce64c15aab0a4bcd1808798c2612439717',
+  Assert.AreEqual('5fc19c6ff7df73e0ac848545d4c1c17db9d73905d2ddb968b9e3f72228d50ca7',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -21480,7 +21480,7 @@ begin
   Assert.AreEqual('lWithLinkedLineListPtr: ^TLinkedLineList;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLinkedLineListPtr := @TL^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('27921a0ccce6c67bbab2b57d86a5d4a35d3042d757f2cb8c75760869e2bf33ab',
+  Assert.AreEqual('66b8fadfe91468b7c2ba826efd02d0dbee398531e75469774d145eec2898e3b6',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -21563,7 +21563,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr: ^MarkList;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMarkListPtr := @ml;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('1823231a34f8843bd85a63c1f997aede98eb789bdb283ae5e8806a4ac128bbc6',
+  Assert.AreEqual('38a353e5b0b26cf96d04acef3ace9486347631274d36134e3056ad532dbcca66',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -21572,7 +21572,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1059:1-1080:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('1823231a34f8843bd85a63c1f997aede98eb789bdb283ae5e8806a4ac128bbc6',
+  Assert.AreEqual('38a353e5b0b26cf96d04acef3ace9486347631274d36134e3056ad532dbcca66',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -21587,7 +21587,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr := @ml;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('1823231a34f8843bd85a63c1f997aede98eb789bdb283ae5e8806a4ac128bbc6',
+  Assert.AreEqual('38a353e5b0b26cf96d04acef3ace9486347631274d36134e3056ad532dbcca66',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1087, 3, lStatement),
@@ -21633,7 +21633,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr: ^MarkList;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMarkListPtr := @ml;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('b6f660cc2746f4d96e734ff5ce5505cebe2f8436fcb5cde56149e725483c2d59',
+  Assert.AreEqual('c81c0b91004e4fc2a914d08b6725ec57564a0790dc26d9874e5108462a110ce7',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -21642,7 +21642,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1087:1-1098:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('b6f660cc2746f4d96e734ff5ce5505cebe2f8436fcb5cde56149e725483c2d59',
+  Assert.AreEqual('c81c0b91004e4fc2a914d08b6725ec57564a0790dc26d9874e5108462a110ce7',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -21657,7 +21657,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr := @ml;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('b6f660cc2746f4d96e734ff5ce5505cebe2f8436fcb5cde56149e725483c2d59',
+  Assert.AreEqual('c81c0b91004e4fc2a914d08b6725ec57564a0790dc26d9874e5108462a110ce7',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1105, 3, lStatement),
@@ -21703,7 +21703,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr: ^MarkList;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMarkListPtr := @ml;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('6617a673b1234702b4795882e9f2952e0316219d9201a13c200e2fcaf85ceec9',
+  Assert.AreEqual('af84c0a290209c201a752de143e26e1ceac9273fb99db81380f27869c80297b6',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -21712,7 +21712,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1105:1-1116:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('6617a673b1234702b4795882e9f2952e0316219d9201a13c200e2fcaf85ceec9',
+  Assert.AreEqual('af84c0a290209c201a752de143e26e1ceac9273fb99db81380f27869c80297b6',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -21727,7 +21727,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr := @ml;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('6617a673b1234702b4795882e9f2952e0316219d9201a13c200e2fcaf85ceec9',
+  Assert.AreEqual('af84c0a290209c201a752de143e26e1ceac9273fb99db81380f27869c80297b6',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -21771,7 +21771,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr: ^MarkList;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMarkListPtr := @ml;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('6f23af60f273ffc81c0c1e46da7d9665a1b57bd2d70af11ad71af422307dc322',
+  Assert.AreEqual('b16210601821206ec274518cd89ed90e86f49e6699c789192dd48fb8b7b8d03d',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -21781,7 +21781,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1121:1-1127:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('6f23af60f273ffc81c0c1e46da7d9665a1b57bd2d70af11ad71af422307dc322',
+  Assert.AreEqual('b16210601821206ec274518cd89ed90e86f49e6699c789192dd48fb8b7b8d03d',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -21796,7 +21796,7 @@ begin
   Assert.AreEqual('lWithMarkListPtr := @ml;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('6f23af60f273ffc81c0c1e46da7d9665a1b57bd2d70af11ad71af422307dc322',
+  Assert.AreEqual('b16210601821206ec274518cd89ed90e86f49e6699c789192dd48fb8b7b8d03d',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -21929,7 +21929,7 @@ begin
   Assert.AreEqual('lWithSelektorPtr: ^Selektor;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithSelektorPtr := @p^.Sel;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('4b8778f7b5f9e1d9a82d0e8bf1bb1f220ebead7708b79fa586cdbf1d1d8d6de5',
+  Assert.AreEqual('2a48d9ad609326c1b989a819b1b9dc7fa02fc16b66658eeb6862928941246552',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -21973,7 +21973,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d1]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('37ef26b39b86e271c46dac7dcbd0ace5e9e0e478e7b0e4ab98535930e956e25d',
+  Assert.AreEqual('90eb8a7c628e9952ee9cc48e8f6eab554318ed6c82a9d226bbe4d3439d1a81d2',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -22022,7 +22022,7 @@ begin
     'Expected maxTdb tdbutils GenDS string Maske[RecZahl]^ with statement.');
   // T-209: The capture type is not visible through the transitive import.
   Assert.AreEqual('GenTable', lStatement.RoutineName);
-  Assert.AreEqual('96238064b520433df8de3707e91e667521ad5b6d7f78bf08f11ba6496cf94455', lStatement.SemanticId);
+  Assert.AreEqual('b5e51526227532435c3ebd66e4609fb9672bc117229f709d921673f53c421995', lStatement.SemanticId);
   AssertHiddenReceiverSkip(lStatement, '1513:13-1525:16',
     '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
   Assert.AreEqual('with Maske[RecZahl]^ do' + #13#10 +
@@ -22052,7 +22052,7 @@ begin
     'Expected maxTdb tdbutils GenDS solve Maske[i]^ with statement.');
   // T-209: The capture type is not visible through the transitive import.
   Assert.AreEqual('GenTable', lStatement.RoutineName);
-  Assert.AreEqual('d1f45221097bea69972d89a5b0a7367c9f7ef1a4f84669ccc87fbe0f8225200e', lStatement.SemanticId);
+  Assert.AreEqual('045ede6bdc0213d3d296daf06ef44864600a35b174c8ff75efa3900d8867d7db', lStatement.SemanticId);
   AssertHiddenReceiverSkip(lStatement, '1724:13-1725:31',
     '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
   Assert.AreEqual('with Maske[i]^ do' + #13#10 +
@@ -22102,13 +22102,13 @@ begin
   Assert.AreEqual('lWithFormelPtr: ^Formel;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithFormelPtr := @FL^.Form;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('c38a7bafeff778308f32c6313b93c587643bd7aad768dffb6b6ca601b648c041',
+  Assert.AreEqual('2b8a1468c42160d87ea4168706ddb2e4032ea5f5719b27f847f24c92f0d2381f',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1727:1-1732:16', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('c38a7bafeff778308f32c6313b93c587643bd7aad768dffb6b6ca601b648c041',
+  Assert.AreEqual('2b8a1468c42160d87ea4168706ddb2e4032ea5f5719b27f847f24c92f0d2381f',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -22123,7 +22123,7 @@ begin
   Assert.AreEqual('lWithFormelPtr := @FL^.Form;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('c38a7bafeff778308f32c6313b93c587643bd7aad768dffb6b6ca601b648c041',
+  Assert.AreEqual('2b8a1468c42160d87ea4168706ddb2e4032ea5f5719b27f847f24c92f0d2381f',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1707, 13, lOwnerStatement));
@@ -22156,7 +22156,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @pre_index[pre_ind]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('e2ab7d09bd44ed5bd2aaa191b8745a59edb64cd62473b90fe78660ab78e6f9ce',
+  Assert.AreEqual('fb3a8b5ec363db4a9db2e1d66f37f4ae93b2250c137d8081032cbceeadbdf6ee',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -22167,7 +22167,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('1707:1-1712:16', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('e2ab7d09bd44ed5bd2aaa191b8745a59edb64cd62473b90fe78660ab78e6f9ce',
+  Assert.AreEqual('fb3a8b5ec363db4a9db2e1d66f37f4ae93b2250c137d8081032cbceeadbdf6ee',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -22182,7 +22182,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @pre_index[pre_ind]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('e2ab7d09bd44ed5bd2aaa191b8745a59edb64cd62473b90fe78660ab78e6f9ce',
+  Assert.AreEqual('fb3a8b5ec363db4a9db2e1d66f37f4ae93b2250c137d8081032cbceeadbdf6ee',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lStatement.FileName, lOwnerStatement.FileName);
   Assert.AreEqual(lStatement.RoutineName, lOwnerStatement.RoutineName);
@@ -22237,7 +22237,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('getdef', lStatement.RoutineName);
-  Assert.AreEqual('3316acbe42b9332adf925adbf119f983345a2a74d94212b5d3073722b6c0543f', lStatement.SemanticId);
+  Assert.AreEqual('42b9634f40d251fa71e843b598ee5238a991a6e0a72688e8bc49de6e1892d596', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1939:9-1947:12', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1939:9-1947:12', SourceRangeText(lStatement.Verification.Range));
@@ -22270,7 +22270,7 @@ begin
   Assert.AreEqual('lWithForRecPtr: ^ForRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithForRecPtr := @FL^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('3316acbe42b9332adf925adbf119f983345a2a74d94212b5d3073722b6c0543f', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('42b9634f40d251fa71e843b598ee5238a991a6e0a72688e8bc49de6e1892d596', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('Form', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithFormelPtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -22279,7 +22279,7 @@ begin
   Assert.AreEqual('lWithFormelPtr: ^Formel;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithFormelPtr := @lWithForRecPtr^.Form;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('3316acbe42b9332adf925adbf119f983345a2a74d94212b5d3073722b6c0543f', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('42b9634f40d251fa71e843b598ee5238a991a6e0a72688e8bc49de6e1892d596', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('1902:1-1902:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -22388,7 +22388,7 @@ begin
   Assert.AreEqual('lWithO_VektorPtr: ^TO_Vektor;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithO_VektorPtr := @v;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('94431708e23f7620c0af51e8386ae21a425e441f05bc84be4f23bce4d7bfc037',
+  Assert.AreEqual('fdfd31feb4428b53e41eebdfd38c59d2d4fcb342c5ba381e30f80f084f953452',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -22411,7 +22411,7 @@ begin
     'Expected maxTdb tdbutils is_empty Maske[field]^ with statement.');
   // T-209: The capture type is not visible through the transitive import.
   Assert.AreEqual('is_empty', lStatement.RoutineName);
-  Assert.AreEqual('c64998f19572dd2a569742bdbc73d01efa3b8d5b0d83175382e1abbac3b370d3', lStatement.SemanticId);
+  Assert.AreEqual('77d516b0b74c7636b66d921519641906f35712521b90afaa5c91398ea7c31aea', lStatement.SemanticId);
   AssertHiddenReceiverSkip(lStatement, '2104:5-2137:8',
     '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
   Assert.AreEqual('with Maske[field]^ do' + #13#10 +
@@ -22487,13 +22487,13 @@ begin
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr1 := @DF[nach]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('ded123982b99a5de1d9f9970691838f4fc99b823530c0814ac4fa76e90337574',
+  Assert.AreEqual('4af61c62678a19ec792005005d826ab2b0ce82564f20a6e1d82a4bf478c5878b',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('2272:1-2274:82', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('ded123982b99a5de1d9f9970691838f4fc99b823530c0814ac4fa76e90337574',
+  Assert.AreEqual('4af61c62678a19ec792005005d826ab2b0ce82564f20a6e1d82a4bf478c5878b',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -22508,7 +22508,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr1 := @DF[nach]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('ded123982b99a5de1d9f9970691838f4fc99b823530c0814ac4fa76e90337574',
+  Assert.AreEqual('4af61c62678a19ec792005005d826ab2b0ce82564f20a6e1d82a4bf478c5878b',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(249, Integer(Length(lStatement.ReplacementText)));
 
@@ -22542,7 +22542,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[von]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('e61958b2fdfa23834897f3a6c397a1a718292ccdbad3feaa5eea2d358b1bd164',
+  Assert.AreEqual('047e3d334e3e2d606566ac944648cd84cb29539148d48d24f472bd2feac0725b',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -22553,7 +22553,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('2264:1-2269:6', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('e61958b2fdfa23834897f3a6c397a1a718292ccdbad3feaa5eea2d358b1bd164',
+  Assert.AreEqual('047e3d334e3e2d606566ac944648cd84cb29539148d48d24f472bd2feac0725b',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -22568,7 +22568,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[von]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('e61958b2fdfa23834897f3a6c397a1a718292ccdbad3feaa5eea2d358b1bd164',
+  Assert.AreEqual('047e3d334e3e2d606566ac944648cd84cb29539148d48d24f472bd2feac0725b',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lStatement.FileName, lOwnerStatement.FileName);
   Assert.AreEqual(lStatement.RoutineName, lOwnerStatement.RoutineName);
@@ -22626,7 +22626,7 @@ begin
   Assert.AreEqual('lWithMBRecPtr: ^MBRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMBRecPtr := @LastMBRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('06f44603e3552f7c95583110b9e1c943af638a089d6e04bdf54a5bf0d96dc1ee',
+  Assert.AreEqual('338069dbb59e263bd228fcafa0b2c6b27a9a131495a0f15263a19f93c6e2c69a',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -22635,7 +22635,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2768:1-2769:28', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('06f44603e3552f7c95583110b9e1c943af638a089d6e04bdf54a5bf0d96dc1ee',
+  Assert.AreEqual('338069dbb59e263bd228fcafa0b2c6b27a9a131495a0f15263a19f93c6e2c69a',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -22649,7 +22649,7 @@ begin
   Assert.AreEqual('lWithMBRecPtr := @LastMBRec;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('06f44603e3552f7c95583110b9e1c943af638a089d6e04bdf54a5bf0d96dc1ee',
+  Assert.AreEqual('338069dbb59e263bd228fcafa0b2c6b27a9a131495a0f15263a19f93c6e2c69a',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(88, Integer(Length(lStatement.ReplacementText)));
 end;
@@ -22709,7 +22709,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('0f2d43b6dd07e4d4fdca92af43ac81b5acdae0b475e28941d634826e2a990986',
+  Assert.AreEqual('84a6d842680f5c942f74458e870d80c23747f455951524d5f30226a30a96b08a',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -22719,7 +22719,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2779:1-2785:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('0f2d43b6dd07e4d4fdca92af43ac81b5acdae0b475e28941d634826e2a990986',
+  Assert.AreEqual('84a6d842680f5c942f74458e870d80c23747f455951524d5f30226a30a96b08a',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -22734,7 +22734,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('0f2d43b6dd07e4d4fdca92af43ac81b5acdae0b475e28941d634826e2a990986',
+  Assert.AreEqual('84a6d842680f5c942f74458e870d80c23747f455951524d5f30226a30a96b08a',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(231, Integer(Length(lStatement.ReplacementText)));
 end;
@@ -22805,7 +22805,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('1a1ec1332fb1439962293539cdc7c209002ceb9807191086ddf529151910fcba',
+  Assert.AreEqual('95fac69d8b8a0de50138bd9ee9688a8dc96a34f229b3a26b3cb3d4ba72cbf388',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -22815,7 +22815,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('3076:1-3095:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('1a1ec1332fb1439962293539cdc7c209002ceb9807191086ddf529151910fcba',
+  Assert.AreEqual('95fac69d8b8a0de50138bd9ee9688a8dc96a34f229b3a26b3cb3d4ba72cbf388',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -22830,7 +22830,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('1a1ec1332fb1439962293539cdc7c209002ceb9807191086ddf529151910fcba',
+  Assert.AreEqual('95fac69d8b8a0de50138bd9ee9688a8dc96a34f229b3a26b3cb3d4ba72cbf388',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(566, Integer(Length(lStatement.ReplacementText)));
 end;

@@ -12,6 +12,20 @@ type
     [Test]
     procedure MemberKeyPacksOwnerAndNameIds;
     [Test]
+    [TestCase('Self member', 'Self,field')]
+    [TestCase('Unknown receiver', 'aOther,unknown')]
+    [TestCase('Comment after dot', 'Self.{receiver},field')]
+    [TestCase('Explicit class variable', 'TSubject,class-var')]
+    [TestCase('Unicode receiver member', 'unicode-member,unknown')]
+    [TestCase('Unicode receiver token', 'unicode-token,unknown')]
+    procedure QualifiedReferenceDoesNotBindParameter(const aReceiver, aKind: string);
+    [Test]
+    procedure SnapshotReindexKeepsGlobalRoutineOwnership;
+    [Test]
+    [TestCase('Known routine scope', 'True')]
+    [TestCase('Missing routine scope', 'False')]
+    procedure DefaultDeclarationPairUsesKnownScope(const aKnownScope: Boolean);
+    [Test]
     procedure ProjectSnapshotIndexesMembersPositionsAndReferences;
     [Test]
     procedure ProjectSnapshotIndexesOnlyExplicitTypeFacts;
@@ -80,6 +94,283 @@ const
     'DELPHI_SEMANTICS_TEST_SNAPSHOT_WORKER_STALL_FILE';
   cSnapshotWorkerTestStallMsEnv =
     'DELPHI_SEMANTICS_TEST_SNAPSHOT_WORKER_STALL_MS';
+
+function QualifiedFixtureReceiver(const aReceiver: string): string;
+begin
+  Result := aReceiver;
+  if StartsText('unicode-', aReceiver) then
+    Result := #196'TSubject';
+  if not ContainsText(Result, '.') then
+    Result := Result + '.';
+end;
+
+function ExtractQualifiedReferenceModel(const aReceiver, aKind: string): TDelphiSemanticUnitModel;
+var
+  id: TGUID;
+  lDirectory, lReceiver, lSource: string;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  CreateGUID(id);
+  lDirectory := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+    '..', '.dak', 'delphiSemanticsTests', 'qualified-reference', GUIDToString(id)]));
+  TDirectory.CreateDirectory(lDirectory);
+  lReceiver := QualifiedFixtureReceiver(aReceiver);
+  lSource := 'unit QualifiedSubject;'#13#10'interface'#13#10'type'#13#10 +
+    '  TValue = (one, two);'#13#10'  TSubject = class'#13#10'  public'#13#10 +
+    '    aOldValue: TValue;'#13#10 +
+    '    procedure SetValue(var aOldValue: TValue; aOther: TObject);'#13#10 +
+    '  end;'#13#10'implementation'#13#10 +
+    'procedure TSubject.SetValue(var aOldValue: TValue; aOther: TObject);'#13#10 +
+    'begin'#13#10'  aOldValue := two;'#13#10 +
+    '  ' + lReceiver + 'aOldValue := aOldValue;'#13#10'end;'#13#10'end.'#13#10;
+  if (aKind = 'class-var') or StartsText('unicode-', aReceiver) then
+    lSource := StringReplace(lSource, '    aOldValue: TValue;',
+      '    class var aOldValue: TValue;', []);
+  if StartsText('unicode-', aReceiver) then
+  begin
+    lSource := StringReplace(lSource, 'aOther: TObject', #196'TSubject: TOther', [rfReplaceAll]);
+    lSource := StringReplace(lSource, '  TValue = (one, two);',
+      '  TValue = (one, two); TOther = class public aOldValue: TValue; end;', []);
+  end;
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := TPath.Combine(lDirectory, 'QualifiedSubject.pas');
+  TFile.WriteAllText(lModelOptions.SourceFileName, lSource, TEncoding.UTF8);
+  Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  Assert.IsTrue(Result.Success);
+  Assert.AreEqual('ast', Result.ScopeModelStatus);
+end;
+
+procedure AssertQualifiedBodyReference(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aReference: TSemanticReferenceFact;
+  const aReceiver, aKind: string);
+var
+  lReceiver: string;
+  lSymbol: TSemanticSymbolFact;
+begin
+  lReceiver := QualifiedFixtureReceiver(aReceiver);
+  if (aReference.Line = 14) and (aReference.Column = Length(lReceiver) + 3) then
+  begin
+    if aKind = 'unknown' then
+      Assert.AreEqual(0, Integer(aReference.TargetSymbolId), 'Unknown receiver must not bind parameter')
+    else begin
+      Assert.IsTrue(aReference.TargetSymbolId <> 0, 'Proven member must resolve');
+      lSymbol := aUnit.SymbolById(aReference.TargetSymbolId);
+      Assert.AreEqual(aKind, aSnapshot.TextOf(lSymbol.KindId), 'Qualified target');
+      Assert.AreEqual(7, lSymbol.Line, 'Field declaration');
+    end;
+  end else begin
+    Assert.IsTrue(aReference.TargetSymbolId <> 0, 'Unqualified parameter must resolve');
+    lSymbol := aUnit.SymbolById(aReference.TargetSymbolId);
+    Assert.AreEqual('parameter', aSnapshot.TextOf(lSymbol.KindId));
+    Assert.AreEqual(11, lSymbol.Line);
+  end;
+end;
+
+procedure AssertQualifiedSnapshotFacts(const aSnapshot: TDelphiProjectSnapshot;
+  const aModel: TDelphiSemanticUnitModel; const aReceiver, aKind: string);
+var
+  i, j: Integer;
+  lUnit: TUnitSnapshot;
+  lReference: TSemanticReferenceFact;
+  lSeen, lReceiverSeen: Integer;
+  lTargets: TArray<TSemanticSymbolRef>;
+begin
+  lUnit := aSnapshot.UnitByIndex(0);
+  lTargets := ResolveSnapshotReferenceTargets(aSnapshot, aModel);
+  Assert.AreEqual(Length(aModel.References), Length(lTargets));
+  lSeen := 0;
+  lReceiverSeen := 0;
+  for i := 1 to lUnit.ReferenceCount do
+  begin
+    lReference := lUnit.ReferenceById(i);
+    if (aReceiver = 'unicode-token') and (lReference.Line = 14) and
+      (lReference.Column <= 4) then
+    begin
+      Inc(lReceiverSeen);
+      if lReference.TargetSymbolId <> 0 then
+        Assert.AreEqual('parameter', aSnapshot.TextOf(
+          lUnit.SymbolById(lReference.TargetSymbolId).KindId), 'Receiver must not bind a suffix class');
+    end;
+    if (aSnapshot.TextOf(lReference.NameId) <> 'aOldValue') or
+      (lReference.Line < 13) then
+      Continue;
+    Inc(lSeen);
+    for j := 0 to High(aModel.References) do
+      if (aModel.References[j].Line = lReference.Line) and
+        (aModel.References[j].Column = lReference.Column) then
+      begin
+        Assert.AreEqual(Integer(lReference.TargetUnitId), Integer(lTargets[j].UnitId), 'Retained unit parity');
+        Assert.AreEqual(Integer(lReference.TargetSymbolId), Integer(lTargets[j].SymbolId), 'Retained symbol parity');
+      end;
+    AssertQualifiedBodyReference(aSnapshot, lUnit, lReference, aReceiver, aKind);
+  end;
+  Assert.AreEqual(3, lSeen, 'All three same-name body references discovered');
+  if aReceiver = 'unicode-token' then
+    Assert.AreEqual(1, lReceiverSeen, 'Receiver reference discovered');
+end;
+
+procedure TSnapshotTests.QualifiedReferenceDoesNotBindParameter(const aReceiver, aKind: string);
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lModel := ExtractQualifiedReferenceModel(aReceiver, aKind);
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+  try
+    AssertQualifiedSnapshotFacts(lSnapshot, lModel, aReceiver, aKind);
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+function DefaultDeclarationConsumer(const aKnownScope: Boolean): TDelphiSemanticUnitModel;
+var
+  i: Integer;
+begin
+  Result := Default(TDelphiSemanticUnitModel);
+  Result.UnitName := 'Consumer';
+  Result.FileName := 'Consumer.pas';
+  Result.InterfaceUses := ['Provider'];
+  SetLength(Result.Routines, 2);
+  for i := 0 to 1 do
+  begin
+    Result.Routines[i].Name := 'ReadValue';
+    Result.Routines[i].ReturnType := 'Integer';
+    Result.Routines[i].Line := 4 + i * 2;
+    Result.Routines[i].Column := 1;
+    if aKnownScope then
+      Result.Routines[i].ScopeId := 'consumer|readvalue(integer)';
+    SetLength(Result.Routines[i].Parameters, 1);
+    Result.Routines[i].Parameters[0].RoutineName := 'ReadValue';
+    Result.Routines[i].Parameters[0].Name := 'aValue';
+    Result.Routines[i].Parameters[0].TypeName := 'Integer';
+    Result.Routines[i].Parameters[0].Line := Result.Routines[i].Line;
+    Result.Routines[i].Parameters[0].Column := 10;
+  end;
+  Result.Routines[0].Signature := '(aValue: Integer = AlphaOnlyValue)';
+  Result.Routines[0].SectionKind := 'interface';
+  Result.Routines[1].Signature := '(aValue: Integer)';
+  Result.Routines[1].SectionKind := 'implementation';
+  SetLength(Result.References, 4);
+  for i := 0 to 2 do
+  begin
+    Result.References[i].RoutineName := 'ReadValue';
+    Result.References[i].RoutineScopeId := Result.Routines[0].ScopeId;
+    Result.References[i].SectionKind := 'implementation';
+    Result.References[i].Line := 8;
+    Result.References[i].Column := i * 10 + 1;
+    Result.References[i].Name := 'AlphaOnlyValue';
+  end;
+  Result.References[0].Name := 'aValue';
+  Result.References[2].SectionKind := 'interface';
+  Result.References[2].Line := 4;
+  Result.References[3].Name := 'ReadValue';
+  Result.References[3].SectionKind := 'implementation';
+  Result.References[3].Line := 12;
+  Result.References[3].Column := 1;
+end;
+
+function DefaultDeclarationProvider: TDelphiSemanticUnitModel;
+begin
+  Result := Default(TDelphiSemanticUnitModel);
+  Result.UnitName := 'Provider';
+  Result.FileName := 'Provider.pas';
+  SetLength(Result.Declarations, 1);
+  Result.Declarations[0].Name := 'AlphaOnlyValue';
+  Result.Declarations[0].Kind := 'const';
+  Result.Declarations[0].SectionKind := 'interface';
+  Result.Declarations[0].DeclarationRole := 'declaration';
+  Result.Declarations[0].ScopeKind := 'unit';
+end;
+
+procedure TSnapshotTests.DefaultDeclarationPairUsesKnownScope(const aKnownScope: Boolean);
+var
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+  lTargets: TArray<TSemanticSymbolRef>;
+  i: Integer;
+begin
+  lModels := [DefaultDeclarationConsumer(aKnownScope), DefaultDeclarationProvider];
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lOptions.WorkerCount := 1;
+  lSnapshot := BuildProjectSnapshotFromModels(lModels,
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+  try
+    lUnit := lSnapshot.UnitByIndex(0);
+    lTargets := ResolveSnapshotReferenceTargets(lSnapshot, lModels[0]);
+    Assert.AreEqual(4, Integer(Length(lTargets)));
+    for i := 0 to High(lTargets) do
+      if aKnownScope then
+      begin
+        Assert.IsTrue(lUnit.ReferenceById(i + 1).TargetSymbolId <> 0,
+          'Known scope must resolve original reference ' + IntToStr(i));
+        Assert.AreEqual(lUnit.ReferenceById(i + 1).TargetSymbolId, lTargets[i].SymbolId);
+        Assert.AreEqual(lUnit.ReferenceById(i + 1).TargetUnitId, lTargets[i].UnitId);
+      end else
+      begin
+        Assert.AreEqual(0, Integer(lUnit.ReferenceById(i + 1).TargetSymbolId));
+        Assert.AreEqual(0, Integer(lTargets[i].SymbolId));
+      end;
+    if aKnownScope then
+    begin
+      Assert.AreEqual(4, Integer(lTargets[0].SymbolId), 'Implementation parameter is closest');
+      Assert.AreEqual(2, Integer(lTargets[1].UnitId), 'Body uses the imported constant');
+      Assert.AreEqual(2, Integer(lTargets[2].UnitId), 'Default uses the imported constant');
+      Assert.AreEqual(1, Integer(lTargets[3].UnitId), 'Call uses the paired routine');
+    end;
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.SnapshotReindexKeepsGlobalRoutineOwnership;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lTargets: TArray<TSemanticSymbolRef>;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.UnitName := 'OwnerUnit';
+  lModel.FileName := 'OwnerUnit.pas';
+  SetLength(lModel.Routines, 1);
+  lModel.Routines[0].Name := 'ReadValue';
+  lModel.Routines[0].ReturnType := 'Integer';
+  lModel.Routines[0].ScopeId := 'OwnerUnit|ReadValue()';
+  SetLength(lModel.Locals, 1);
+  lModel.Locals[0].Name := 'LocalValue';
+  lModel.Locals[0].Kind := 'local';
+  lModel.Locals[0].RoutineName := 'ReadValue';
+  lModel.Locals[0].RoutineScopeId := lModel.Routines[0].ScopeId;
+  SetLength(lModel.References, 2);
+  lModel.References[0].Name := 'Result';
+  lModel.References[0].RoutineName := 'ReadValue';
+  lModel.References[0].RoutineScopeId := lModel.Routines[0].ScopeId;
+  lModel.References[0].SectionKind := 'implementation';
+  lModel.References[1] := lModel.References[0];
+  lModel.References[1].Name := 'LocalValue';
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.WorkerCount := 1;
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+  try
+    lTargets := ResolveSnapshotReferenceTargets(lSnapshot, lModel);
+    Assert.AreEqual(1, Integer(lTargets[0].SymbolId), 'Result belongs to global ReadValue');
+    Assert.AreEqual(2, Integer(lTargets[1].SymbolId), 'Local retains enclosing routine ownership');
+  finally
+    lSnapshot.Free;
+  end;
+end;
 
 procedure TSnapshotTests.MemberKeyPacksOwnerAndNameIds;
 var

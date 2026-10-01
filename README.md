@@ -53,6 +53,11 @@ Agent workflow guidance lives in
 
 ## API Boundary
 
+The in-progress read-only event comparison APIs and their limitations are
+described in [Consistency facts](docs/consistency-facts.md).
+The initial class declaration/implementation comparison API and its unfinished
+edit-planning boundaries are described in [Signature alignment](docs/signature-alignment.md).
+
 DelphiSemantics owns project/compiler context, semantic models, resolver
 behavior, with-binding classification, semantic remove-with planning, the
 primary remove-with DTO, and compatibility final DTOs. DAK owns command

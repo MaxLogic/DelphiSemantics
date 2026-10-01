@@ -378,8 +378,8 @@ begin
 
     Assert.AreEqual('9', lIdentity.SchemaVersion,
       'Lexical ownership fields changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.20', lIdentity.ParserVersion,
-      'Multiline routine headers changed parser semantics.');
+    Assert.AreEqual('DelphiSemantics.Model.Parser.31', lIdentity.ParserVersion,
+      'Syntax-backed constant declarations and immutability require fresh facts.');
   finally
     lCache.Free;
   end;
@@ -461,7 +461,9 @@ var
 begin
   lPath := TempPath('IndependentCopyUnit.pas');
   TFile.WriteAllText(lPath, 'unit IndependentCopyUnit;' + sLineBreak + 'interface' + sLineBreak +
-    'type' + sLineBreak + '  TOriginalCachedType = class end;' + sLineBreak +
+    'type' + sLineBreak + '  TOriginalCachedType = procedure(aValue: TObject) of object;' + sLineBreak +
+    '  THandler = class' + sLineBreak + '  published' + sLineBreak +
+    '    procedure Handle(aValue: TObject);' + sLineBreak + '  end;' + sLineBreak +
     'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
   lCacheOptions := Default(TDelphiSemanticCacheOptions);
   lModelOptions := Default(TDelphiSemanticModelOptions);
@@ -472,11 +474,20 @@ begin
     lModel := lCache.GetOrExtractUnitModel(lModelOptions);
     Assert.IsTrue(Length(lModel.Declarations) > 0);
     lModel.Declarations[0].Name := 'TCorruptedCachedType';
+    Assert.IsTrue(lModel.Declarations[0].ProcedureSignature.Known);
+    lModel.Declarations[0].ProcedureSignature.Parameters[0].TypeName := 'TCorruptedType';
+    Assert.AreEqual(1, Integer(Length(lModel.Members)));
+    Assert.IsTrue(lModel.Members[0].ProcedureSignature.Known);
+    lModel.Members[0].ProcedureSignature.Parameters[0].TypeName := 'TCorruptedMemberType';
 
     lModel := lCache.GetOrExtractUnitModel(lModelOptions);
 
     Assert.IsTrue(HasDeclaration(lModel, 'TOriginalCachedType'));
     Assert.IsFalse(HasDeclaration(lModel, 'TCorruptedCachedType'));
+    Assert.AreEqual('TObject', lModel.Declarations[0].ProcedureSignature.Parameters[0].TypeName,
+      'Nested signature arrays must be independent of cached storage');
+    Assert.AreEqual('TObject', lModel.Members[0].ProcedureSignature.Parameters[0].TypeName,
+      'Member signature arrays must be independent of cached storage');
     Assert.AreEqual(1, lCache.Metrics.CacheHits);
   finally
     lCache.Free;
@@ -1342,6 +1353,8 @@ begin
 
     Assert.AreEqual('Delphi-12-RTL-Source', lProfile.Name);
     Assert.AreEqual(1, Integer(Length(lProfile.RtlSourceUnitModels)));
+    Assert.AreEqual('ast', lProfile.RtlSourceUnitModels[0].ScopeModelStatus,
+      'Valid source retains complete syntax facts');
     Assert.IsTrue(lResult.Found);
     Assert.AreEqual('CachedRtlSourceUnit', lResult.OwnerName);
     Assert.AreEqual('type', lResult.Kind);
@@ -1521,6 +1534,8 @@ begin
       'TSecurityAttributes', 'nLength', 3);
 
     Assert.AreEqual(1, Integer(Length(lProfile.RtlSourceUnitModels)));
+    Assert.AreEqual('ast-interface-only', lProfile.RtlSourceUnitModels[0].ScopeModelStatus,
+      'A projection recovered from an invalid body must not claim complete syntax facts');
     Assert.IsTrue(HasDeclaration(lProfile.RtlSourceUnitModels[0], 'TFastRtlRecord'),
       'Expected the fast RTL profile to keep interface record declarations.');
     AssertIndexedProfileNameKind(lProfile, 'freOne', 'enum-value');

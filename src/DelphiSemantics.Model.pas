@@ -2,6 +2,9 @@ unit DelphiSemantics.Model;
 
 interface
 
+uses
+  DelphiSemantics.Source;
+
 type
   TDelphiSemanticModelOptions = record
     SourceFileName: string;
@@ -21,10 +24,27 @@ type
     Line: Integer;
   end;
 
+  TDelphiSemanticSignatureParameter = record
+    Name: string;
+    TypeName: string;
+    Modifier: string;
+  end;
+
+  TDelphiSemanticProcedureSignature = record
+    Known: Boolean;
+    OfObject: Boolean;
+    Kind: string;
+    CallingConvention: string;
+    ReturnType: string;
+    Parameters: TArray<TDelphiSemanticSignatureParameter>;
+  end;
   TDelphiSemanticDeclaration = record
     Name: string;
     Kind: string;
     TypeName: string;
+    InterfaceGuid: string;
+    ProcedureSignature: TDelphiSemanticProcedureSignature;
+    IsDispInterface: Boolean;
     BaseTypeName: string;
     HelperTargetName: string;
     SectionKind: string;
@@ -46,6 +66,7 @@ type
     Kind: string;
     TypeName: string;
     Visibility: string;
+    ProcedureSignature: TDelphiSemanticProcedureSignature;
     Signature: string;
     IsIndexed: Boolean;
     IsDefault: Boolean;
@@ -71,6 +92,7 @@ type
     OwnerName: string;
     SectionKind: string;
     Signature: string;
+    CallingConvention: string;
     ReturnType: string;
     Line: Integer;
     Column: Integer;
@@ -80,6 +102,7 @@ type
     EndColumn: Integer;
     ScopeId: string;
     ParentScopeId: string;
+    ProcedureSignature: TDelphiSemanticProcedureSignature;
     Parameters: TArray<TDelphiSemanticParameter>;
   end;
 
@@ -133,6 +156,16 @@ type
     FinalizationOffset: Integer;
   end;
 
+  TDelphiSemanticUnitDependencyFacts = record
+    Known: Boolean;
+    InterfaceImports: TArray<string>;
+    ImplementationImports: TArray<string>;
+    RootImports: TArray<string>;
+    HasInitialization: Boolean;
+    HasFinalization: Boolean;
+    function Clone: TDelphiSemanticUnitDependencyFacts;
+  end;
+
   TDelphiSemanticUnitModelMetrics = record
     ReferenceReconciliationFallbackCount: Integer;
     ReferenceReconciliationNameScanCount: Integer;
@@ -144,10 +177,13 @@ type
     FileName: string;
     UnitName: string;
     SourceText: string;
+    SourceObservations: IDelphiSemanticSourceObservations;
+    IncludeFileNames: TArray<string>;
     EncodingName: string;
     LineEndingName: string;
     LineBreak: string;
     SourceSections: TDelphiSemanticSourceSections;
+    DependencyFacts: TDelphiSemanticUnitDependencyFacts;
     InterfaceUses: TArray<string>;
     ImplementationUses: TArray<string>;
     Declarations: TArray<TDelphiSemanticDeclaration>;
@@ -168,7 +204,9 @@ type
     class function TypeBlockAnalysisBuildCount: Integer; static;
     class procedure ResetTypeBlockAnalysisBuildCount; static;
     class function ExtractFromFile(const aOptions: TDelphiSemanticModelOptions):
-      TDelphiSemanticUnitModel; static;
+      TDelphiSemanticUnitModel; overload; static;
+    class function ExtractFromFile(const aOptions: TDelphiSemanticModelOptions;
+      out aObservations: IDelphiSemanticSourceObservations): TDelphiSemanticUnitModel; overload; static;
   end;
 
 implementation
@@ -176,10 +214,26 @@ implementation
 uses
   DelphiSemantics.Model.Extract;
 
+function TDelphiSemanticUnitDependencyFacts.Clone: TDelphiSemanticUnitDependencyFacts;
+begin
+  Result := Self;
+  Result.InterfaceImports := Copy(InterfaceImports);
+  Result.ImplementationImports := Copy(ImplementationImports);
+  Result.RootImports := Copy(RootImports);
+end;
+
 class function TDelphiSemanticUnitModelExtractor.ExtractFromFile(
   const aOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel;
 begin
   Result := TDelphiSemanticUnitModelExtractorImpl.ExtractFromFile(aOptions);
+end;
+
+class function TDelphiSemanticUnitModelExtractor.ExtractFromFile(
+  const aOptions: TDelphiSemanticModelOptions;
+  out aObservations: IDelphiSemanticSourceObservations): TDelphiSemanticUnitModel;
+begin
+  Result := ExtractFromFile(aOptions);
+  aObservations := Result.SourceObservations;
 end;
 
 class function TDelphiSemanticUnitModelExtractor.TypeBlockAnalysisBuildCount: Integer;

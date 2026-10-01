@@ -80,7 +80,14 @@
     <DCCReference Include="src\test.projectmsbuild.pas"/>
     <DCCReference Include="src\test.projectsession.pas"/>
     <DCCReference Include="src\test.preprocess.pas"/>
+    <DCCReference Include="src\test.refactor.consistency.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Consistency.EventSignatures.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Consistency.EventBindings.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Consistency.Types.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Refactor.SignatureAlignment.pas"/>
+    <DCCReference Include="src\test.refactor.signaturealignment.pas"/>
     <DCCReference Include="src\test.refactor.rename.pas"/>
+    <DCCReference Include="src\test.refactor.usesplanner.pas"/>
     <DCCReference Include="src\test.refactor.removedeadcode.pas"/>
     <DCCReference Include="src\test.removewithplan.pas"/>
     <DCCReference Include="src\test.resolverlevel1.pas"/>
@@ -126,6 +133,10 @@
     <DCCReference Include="..\src\DelphiSemantics.ProjectSession.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Query.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Refactor.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Refactor.Binding.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Refactor.Plan.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Refactor.UnitOrder.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Refactor.UsesPlanner.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.RemoveWithPlan.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.RemoveWithPlan.FinalBodyRenderer.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.RemoveWithPlan.FinalRewrite.pas"/>
@@ -140,6 +151,7 @@
     <DCCReference Include="..\src\DelphiSemantics.SourceContext.Candidates.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.SourceContext.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.Builder.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Snapshot.ContextEvidence.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.Workers.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.PositionResolver.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.QuerySupport.pas"/>

@@ -172,7 +172,7 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.20';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.31';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -413,13 +413,25 @@ var
   i: Integer;
 begin
   Result := aModel;
+  Result.DependencyFacts := aModel.DependencyFacts.Clone;
+  Result.IncludeFileNames := Copy(aModel.IncludeFileNames);
   Result.InterfaceUses := Copy(aModel.InterfaceUses);
   Result.ImplementationUses := Copy(aModel.ImplementationUses);
   Result.Declarations := Copy(aModel.Declarations);
+  for i := 0 to High(Result.Declarations) do
+    Result.Declarations[i].ProcedureSignature.Parameters :=
+      Copy(aModel.Declarations[i].ProcedureSignature.Parameters);
   Result.Members := Copy(aModel.Members);
+  for i := 0 to High(Result.Members) do
+    Result.Members[i].ProcedureSignature.Parameters :=
+      Copy(aModel.Members[i].ProcedureSignature.Parameters);
   Result.Routines := Copy(aModel.Routines);
   for i := 0 to Pred(Length(Result.Routines)) do
+  begin
     Result.Routines[i].Parameters := Copy(aModel.Routines[i].Parameters);
+    Result.Routines[i].ProcedureSignature.Parameters :=
+      Copy(aModel.Routines[i].ProcedureSignature.Parameters);
+  end;
   Result.Locals := Copy(aModel.Locals);
   Result.References := Copy(aModel.References);
   Result.WithStatements := Copy(aModel.WithStatements);
@@ -458,13 +470,14 @@ end;
 
 function BuildLoadedUnitIdentity(const aOptions: TDelphiSemanticModelOptions;
   const aCompilerProfileName, aParserVersion, aModelVersion, aDelphiVersion, aConfiguration,
-  aPlatform: string):
+  aPlatform: string; out aObservations: IDelphiSemanticSourceObservations):
   TDelphiSemanticUnitCacheIdentity;
 var
   lContext: TDelphiSemanticCacheIdentityContext;
   lPreprocessResult: TDelphiSemanticPreprocessResult;
   lSourceFileName: string;
   lSourceResult: TDelphiSemanticSourceLoadResult;
+  lObservationError: string;
 begin
   lSourceFileName := CanonicalIdentityPath(aOptions.SourceFileName);
   lSourceResult := TDelphiSemanticSourceLoader.LoadFile(lSourceFileName);
@@ -472,6 +485,12 @@ begin
     lPreprocessResult := BuildPreprocessResult(lSourceResult, aOptions)
   else
     lPreprocessResult := Default(TDelphiSemanticPreprocessResult);
+
+  aObservations := lSourceResult.SourceObservations;
+  if lPreprocessResult.SourceObservations <> nil then
+    if not TDelphiSemanticSourceEvidence.TryMerge(lSourceResult.SourceObservations,
+      lPreprocessResult.SourceObservations, aObservations, lObservationError) then
+      aObservations := nil;
 
   Result := Default(TDelphiSemanticUnitCacheIdentity);
   Result.SourceFileName := lSourceFileName;
@@ -498,6 +517,27 @@ begin
     False, True));
   Result.ExtractionOptionsHash := lContext.ExtractionOptionsHash;
   Result.UnitCacheKey := BuildUnitCacheKey(Result);
+end;
+
+function SourceObservationsMatch(const aExpected,
+  aActual: IDelphiSemanticSourceObservations): Boolean;
+var
+  i: Integer;
+  lExpected, lActual: TDelphiSemanticSourceText;
+begin
+  Result := False;
+  if (aExpected = nil) or (aActual = nil) then
+    Exit;
+  if aExpected.Count <> aActual.Count then
+    Exit;
+  for i := 0 to aExpected.Count - 1 do
+  begin
+    lExpected := aExpected.Items[i];
+    if not aActual.TryFind(lExpected.FileName, lActual) or
+      (lExpected.ContentHash <> lActual.ContentHash) then
+      Exit;
+  end;
+  Result := True;
 end;
 
 procedure TDelphiSemanticUnitCache.AddDiagnostic(const aCode, aMessage, aFileName: string);
@@ -619,11 +659,13 @@ end;
 
 function TDelphiSemanticUnitCache.BuildIdentity(
   const aOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitCacheIdentity;
+var
+  lObservations: IDelphiSemanticSourceObservations;
 begin
   EnterAccess(False);
   try
     Result := BuildLoadedUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
-      fModelVersion, fDelphiVersion, fConfiguration, fPlatform);
+      fModelVersion, fDelphiVersion, fConfiguration, fPlatform, lObservations);
   finally
     LeaveAccess(False);
   end;
@@ -663,18 +705,20 @@ var
   lEntry: TCacheEntry;
   lIdentity: string;
   lKey: string;
+  lObservations: IDelphiSemanticSourceObservations;
 begin
   EnterAccess(True);
   try
     Result := Default(TDelphiSemanticUnitCacheAccessResult);
     Result.Identity := BuildLoadedUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
-      fModelVersion, fDelphiVersion, fConfiguration, fPlatform);
+      fModelVersion, fDelphiVersion, fConfiguration, fPlatform, lObservations);
     lIdentity := CanonicalIdentityPath(aOptions.SourceFileName);
     lKey := Result.Identity.UnitCacheKey;
     lDictionary := fEntries;
     if lDictionary.TryGetValue(lIdentity, lEntry) then
     begin
-      if lEntry.Key = lKey then
+      if (lEntry.Key = lKey) and ((lEntry.Model.SourceObservations = nil) or
+        SourceObservationsMatch(lObservations, lEntry.Model.SourceObservations)) then
       begin
         Inc(fMetrics.CacheHits);
         Result.CacheHit := True;
@@ -703,6 +747,14 @@ begin
 
     Inc(fMetrics.CacheMisses);
     Result.Model := aBuilder(aOptions);
+    if (Result.Model.SourceObservations <> nil) and
+      not SourceObservationsMatch(lObservations, Result.Model.SourceObservations) then
+    begin
+      AddDiagnostic('CACHE_SOURCE_OBSERVATION_CHANGED',
+        'Source bytes changed between cache identity and extraction; model was not cached.',
+        aOptions.SourceFileName);
+      Exit;
+    end;
     lEntry.Key := lKey;
     lEntry.Model := CloneUnitModel(Result.Model);
     lDictionary.AddOrSetValue(lIdentity, lEntry);

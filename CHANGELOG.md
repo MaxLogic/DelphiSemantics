@@ -2,7 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+- Unit-level untyped constants retain syntax-backed declarations when section keywords and multiple declarations share a line. Ordinary constants are marked immutable, and affected cache identities are advanced so previous incomplete facts are rebuilt.
+
 ### Added
+- Initial source-backed class declaration/implementation comparison distinguishes parameter-name drift, shape mismatches and ambiguous pairs. Read-only parameter mappings validate source positions and refuse incomplete inventories; body-edit planning and CLI integration remain in progress.
+- Source-backed consistency comparison follows supported unit-scoped type aliases in their declaring import context, preserves strong type identity and original event declaration evidence, and refuses incomplete or stale facts.
 - Remove-with compatibility fact building now exposes an explicit result record
   with success, diagnostics, facts, and metrics for callers that need
   structured failure handling.
@@ -269,6 +274,15 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- Snapshot reference binding distinguishes tested Self members and explicit class variables from same-named parameters. Partial Unicode identifier matches are refused and old snapshot cache entries are rebuilt; full Unicode parsing remains unproven.
+- Treat omitted and explicit register calling conventions as equivalent in
+  source-backed event signature comparisons.
+- Preserve nested type and enum ownership, including unscoped enum visibility,
+  and correct declaration positions for types written beside the type keyword.
+- Project context now tracks runtime-package controls and raw compiler switches
+  in its identity, diagnoses unresolved inputs, and preserves MSBuild's empty
+  defaults for optional link settings. Regenerate saved plans whose semantic
+  IDs were derived from the previous context identity.
 - Captured locals retain their qualified parent method owner. Variables declared after nested routines resolve within that owner, sibling routine variables cannot escape through unit lookup, and conflicting declaration identities stop resolution as ambiguous. Remove-with planning preserves method and constructor captures after the owner correction; older planning facts are rebuilt.
 - Snapshot-backed find-usages and rename pair routine declarations across line breaks and tabs, while preserving overload and default-value distinctions. Persisted snapshots with older pairing rules are rebuilt.
 - Remove-with reference occurrence matching ignores identifier case while preserving the source spelling in replacements. Mixed-case index members no longer cause a `reference-offset-not-resolved` skip.

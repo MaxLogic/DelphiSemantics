@@ -35,6 +35,8 @@ type
     procedure OwnsOfficialSettingsJsonConstruction;
     [Test]
     procedure BuildsOfficialSettingsJsonFromSemanticDto;
+    [Test]
+    procedure OfficialSettingsJsonNamesCompilerDll;
   end;
 
 implementation
@@ -326,6 +328,26 @@ begin
     Assert.AreEqual('file:///C:/Repo/Source', lBrowsingPaths.Items[0].Value);
     Assert.AreEqual('file:///C:/Shared%20Units', lBrowsingPaths.Items[1].Value);
     Assert.AreEqual('file:///C:/Lib', lBrowsingPaths.Items[2].Value);
+    Assert.IsNull(lSettingsJson.Values['dllname'], 'Expected no dllname when the caller supplies none.');
+  finally
+    lJson.Free;
+  end;
+end;
+
+procedure TLspBoundaryTests.OfficialSettingsJsonNamesCompilerDll;
+var
+  lJson: TJSONObject;
+  lSettings: TDelphiSemanticLspSettings;
+begin
+  // DelphiLSP answers hover and most definitions only through the platform
+  // compiler DLL named by "dllname"; without it those requests return null.
+  lSettings := TDelphiSemanticLspBoundary.BuildSettings('C:\Repo\Project1.dpr', [], [], [], [], []);
+  lSettings.CompilerDllName := 'dcc64290.dll';
+  lJson := TJSONObject.ParseJSONValue(
+    TDelphiSemanticLspBoundary.BuildOfficialSettingsJson(lSettings)) as TJSONObject;
+  try
+    Assert.IsNotNull(lJson, 'Expected settings JSON to parse.');
+    Assert.AreEqual('dcc64290.dll', lJson.GetValue<TJSONObject>('settings').GetValue<string>('dllname', ''));
   finally
     lJson.Free;
   end;

@@ -2,6 +2,11 @@ unit DelphiSemantics.ProjectContext;
 
 interface
 
+const
+  cDelphiSemanticCompilerLinkPropertyNames: array[0..4] of string = (
+    'DCC_UsePackage', 'UsePackages', 'DCC_EnabledPackages', '_UsePackage',
+    'DCC_AdditionalSwitches');
+
 type
   TDelphiSemanticDiagnosticSeverity = (dsInfo, dsWarning, dsError);
 
@@ -36,6 +41,30 @@ type
     Severity: TDelphiSemanticDiagnosticSeverity;
   end;
 
+  TDelphiSemanticProjectContextObservationKind = (pckoInput, pckoPresence,
+    pckoSearchCandidate);
+
+  TDelphiSemanticProjectContextObservation = record
+    Kind: TDelphiSemanticProjectContextObservationKind;
+    FileName: string;
+    ContentHash: string;
+    Role: string;
+    Exists: Boolean;
+    Selected: Boolean;
+  end;
+
+  IDelphiSemanticProjectContextObservations = interface
+    ['{9BC8154A-8D58-4C50-B83B-BF6477A0C3E8}']
+    function GetCount: Integer;
+    function GetItem(const aIndex: Integer): TDelphiSemanticProjectContextObservation;
+    function GetEvidenceFingerprint: string;
+    function GetConfigurationIdentity: string;
+    property Count: Integer read GetCount;
+    property Items[const aIndex: Integer]: TDelphiSemanticProjectContextObservation read GetItem;
+    property EvidenceFingerprint: string read GetEvidenceFingerprint;
+    property ConfigurationIdentity: string read GetConfigurationIdentity;
+  end;
+
   TDelphiSemanticProjectInfo = record
     ProjectFileName: string;
     ProjectDirectory: string;
@@ -53,6 +82,7 @@ type
     Properties: TArray<TDelphiSemanticProperty>;
     CompilerProfileName: string;
     ContextFingerprint: string;
+    ContextObservations: IDelphiSemanticProjectContextObservations;
     function PropertyValue(const aName: string): string;
     function SourceLookupPaths: TArray<string>;
   end;
@@ -82,6 +112,7 @@ implementation
 
 uses
   System.Generics.Collections,
+  System.Generics.Defaults,
   System.Hash,
   System.IOUtils,
   System.RegularExpressions,
@@ -92,10 +123,242 @@ uses
   Xml.XMLIntf,
   Xml.xmldom,
   DelphiSemantics.Cache,
-  DelphiSemantics.CompilerProfile, DelphiSemantics.Lsp;
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Lsp,
+  MaxLogic.StrUtils;
 
 type
   TPropertyMap = TDictionary<string, string>;
+
+  IProjectContextObservationsBuilder = interface
+    ['{319C9185-AD19-4EE7-A1AA-09D9FBDEAC58}']
+    procedure AddInput(const aFileName, aContentHash, aRole: string);
+    procedure AddPresence(const aFileName, aRole: string; const aExists: Boolean);
+    procedure AddSearchCandidate(const aFileName, aRole: string; const aExists,
+      aSelected: Boolean);
+    procedure MarkIncomplete;
+    function Build(const aConfigurationIdentity: string):
+      IDelphiSemanticProjectContextObservations;
+  end;
+
+  TProjectContextObservations = class(TInterfacedObject,
+    IDelphiSemanticProjectContextObservations)
+  private
+    fConfigurationIdentity: string;
+    fEvidenceFingerprint: string;
+    fItems: TArray<TDelphiSemanticProjectContextObservation>;
+  public
+    constructor Create(const aItems: TArray<TDelphiSemanticProjectContextObservation>;
+      const aConfigurationIdentity, aEvidenceFingerprint: string);
+    function GetCount: Integer;
+    function GetItem(const aIndex: Integer): TDelphiSemanticProjectContextObservation;
+    function GetEvidenceFingerprint: string;
+    function GetConfigurationIdentity: string;
+  end;
+
+  TProjectContextObservationsBuilder = class(TInterfacedObject,
+    IProjectContextObservationsBuilder)
+  private
+    fConsistent: Boolean;
+    fInputHashes: TDictionary<string, string>;
+    fItems: TList<TDelphiSemanticProjectContextObservation>;
+    function CanonicalPath(const aFileName: string): string;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure AddInput(const aFileName, aContentHash, aRole: string);
+    procedure AddPresence(const aFileName, aRole: string; const aExists: Boolean);
+    procedure AddSearchCandidate(const aFileName, aRole: string; const aExists,
+      aSelected: Boolean);
+    procedure MarkIncomplete;
+    function Build(const aConfigurationIdentity: string):
+      IDelphiSemanticProjectContextObservations;
+  end;
+
+procedure AppendFingerprintItem(const aBuilder: TStringBuilder; const aName,
+  aValue: string); forward;
+
+constructor TProjectContextObservations.Create(
+  const aItems: TArray<TDelphiSemanticProjectContextObservation>;
+  const aConfigurationIdentity, aEvidenceFingerprint: string);
+begin
+  inherited Create;
+  fItems := Copy(aItems);
+  fConfigurationIdentity := aConfigurationIdentity;
+  fEvidenceFingerprint := aEvidenceFingerprint;
+end;
+
+function TProjectContextObservations.GetCount: Integer;
+begin
+  Result := Length(fItems);
+end;
+
+function TProjectContextObservations.GetItem(
+  const aIndex: Integer): TDelphiSemanticProjectContextObservation;
+begin
+  Result := fItems[aIndex];
+end;
+
+function TProjectContextObservations.GetEvidenceFingerprint: string;
+begin
+  Result := fEvidenceFingerprint;
+end;
+
+function TProjectContextObservations.GetConfigurationIdentity: string;
+begin
+  Result := fConfigurationIdentity;
+end;
+
+constructor TProjectContextObservationsBuilder.Create;
+begin
+  inherited Create;
+  fConsistent := True;
+  fInputHashes := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fItems := TList<TDelphiSemanticProjectContextObservation>.Create;
+end;
+
+destructor TProjectContextObservationsBuilder.Destroy;
+begin
+  fItems.Free;
+  fInputHashes.Free;
+  inherited Destroy;
+end;
+
+function TProjectContextObservationsBuilder.CanonicalPath(const aFileName: string): string;
+begin
+  try
+    Result := TPath.GetFullPath(aFileName);
+  except
+    fConsistent := False;
+    Result := aFileName;
+  end;
+end;
+
+procedure TProjectContextObservationsBuilder.AddInput(const aFileName, aContentHash,
+  aRole: string);
+var
+  lCanonicalFileName: string;
+  lExistingHash: string;
+  lObservation: TDelphiSemanticProjectContextObservation;
+begin
+  if (Trim(aFileName) = '') or (Trim(aContentHash) = '') then
+  begin
+    MarkIncomplete;
+    Exit;
+  end;
+
+  lCanonicalFileName := CanonicalPath(aFileName);
+  if fInputHashes.TryGetValue(lCanonicalFileName, lExistingHash) then
+  begin
+    if not SameText(lExistingHash, aContentHash) then
+      MarkIncomplete;
+    Exit;
+  end;
+
+  fInputHashes.Add(lCanonicalFileName, aContentHash);
+  lObservation := Default(TDelphiSemanticProjectContextObservation);
+  lObservation.Kind := TDelphiSemanticProjectContextObservationKind.pckoInput;
+  lObservation.FileName := lCanonicalFileName;
+  lObservation.ContentHash := aContentHash;
+  lObservation.Role := aRole;
+  lObservation.Exists := True;
+  fItems.Add(lObservation);
+end;
+
+procedure TProjectContextObservationsBuilder.AddPresence(const aFileName, aRole: string;
+  const aExists: Boolean);
+var
+  lObservation: TDelphiSemanticProjectContextObservation;
+begin
+  lObservation := Default(TDelphiSemanticProjectContextObservation);
+  lObservation.Kind := TDelphiSemanticProjectContextObservationKind.pckoPresence;
+  lObservation.FileName := CanonicalPath(aFileName);
+  lObservation.Role := aRole;
+  lObservation.Exists := aExists;
+  fItems.Add(lObservation);
+end;
+
+procedure TProjectContextObservationsBuilder.AddSearchCandidate(const aFileName, aRole: string;
+  const aExists, aSelected: Boolean);
+var
+  lObservation: TDelphiSemanticProjectContextObservation;
+begin
+  lObservation := Default(TDelphiSemanticProjectContextObservation);
+  lObservation.Kind := TDelphiSemanticProjectContextObservationKind.pckoSearchCandidate;
+  lObservation.FileName := CanonicalPath(aFileName);
+  lObservation.Role := aRole;
+  lObservation.Exists := aExists;
+  lObservation.Selected := aSelected;
+  fItems.Add(lObservation);
+end;
+
+procedure TProjectContextObservationsBuilder.MarkIncomplete;
+begin
+  fConsistent := False;
+end;
+
+function TProjectContextObservationsBuilder.Build(
+  const aConfigurationIdentity: string): IDelphiSemanticProjectContextObservations;
+var
+  lBuilder: TStringBuilder;
+  lFingerprint: string;
+  lIndex: Integer;
+  lObservation: TDelphiSemanticProjectContextObservation;
+begin
+  lFingerprint := '';
+  if fConsistent then
+  begin
+    lBuilder := TStringBuilder.Create;
+    try
+      lBuilder.AppendLine('schema=project-context-observations-v1');
+      AppendFingerprintItem(lBuilder, 'configuration', aConfigurationIdentity);
+      lIndex := 0;
+      for lObservation in fItems do
+      begin
+        AppendFingerprintItem(lBuilder, 'sequence', IntToStr(lIndex));
+        AppendFingerprintItem(lBuilder, 'kind', IntToStr(Ord(lObservation.Kind)));
+        AppendFingerprintItem(lBuilder, 'file',
+          TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lObservation.FileName));
+        AppendFingerprintItem(lBuilder, 'hash', lObservation.ContentHash);
+        AppendFingerprintItem(lBuilder, 'role', lObservation.Role);
+        AppendFingerprintItem(lBuilder, 'exists', BoolToStr(lObservation.Exists, True));
+        AppendFingerprintItem(lBuilder, 'selected', BoolToStr(lObservation.Selected, True));
+        Inc(lIndex);
+      end;
+      lFingerprint := THashSHA2.GetHashString(lBuilder.ToString);
+    finally
+      lBuilder.Free;
+    end;
+  end;
+
+  Result := TProjectContextObservations.Create(fItems.ToArray, aConfigurationIdentity,
+    lFingerprint);
+end;
+
+function HashProjectContextBytes(const aBytes: TBytes): string;
+var
+  lHash: THashSHA2;
+begin
+  lHash := THashSHA2.Create;
+  if Length(aBytes) > 0 then
+    lHash.Update(aBytes);
+  Result := lHash.HashAsString;
+end;
+
+procedure ReadProjectContextInput(const aFileName, aRole: string;
+  const aObservations: IProjectContextObservationsBuilder; out aText: string);
+var
+  lBytes: TBytes;
+  lEncoding: TEncoding;
+  lPreambleLength: Integer;
+begin
+  lBytes := TFile.ReadAllBytes(aFileName);
+  if aObservations <> nil then
+    aObservations.AddInput(aFileName, HashProjectContextBytes(lBytes), aRole);
+
+  lEncoding := TEncoding.UTF8;
+  lPreambleLength := TEncoding.GetBufferEncoding(lBytes, lEncoding, TEncoding.UTF8);
+  aText := lEncoding.GetString(lBytes, lPreambleLength, Length(lBytes) - lPreambleLength);
+end;
 
 function TDelphiSemanticProjectInfo.PropertyValue(const aName: string): string;
 var
@@ -163,7 +426,12 @@ function TryGetPropertyValue(const aProperties: TPropertyMap; const aName: strin
 begin
   Result := aProperties.TryGetValue(PropertyKey(aName), aValue);
   if not Result then
+  begin
     aValue := '';
+    // Delphi's generated configuration selectors are intentionally absent for
+    // inactive configurations; MSBuild compares those unset values as empty.
+    Result := StartsText('Base_', aName) or StartsText('Cfg_', aName);
+  end;
 end;
 
 function TryGetMacroValue(const aProperties, aEnvironment: TPropertyMap; const aName: string;
@@ -193,7 +461,8 @@ procedure AddDiagnostic(const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
   const aDiagnostic: TDelphiSemanticDiagnostic); forward;
 function TryEvaluateConditionExpression(const aCondition, aFileName, aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
-  out aActive: Boolean): Boolean; forward;
+  out aActive: Boolean;
+  const aObservations: IProjectContextObservationsBuilder = nil): Boolean; forward;
 
 function ExpandMacroText(const aValue: string; const aProperties, aEnvironment: TPropertyMap;
   const aDiagnostics: TList<TDelphiSemanticDiagnostic>; const aUnknownAsEmpty: Boolean;
@@ -500,7 +769,8 @@ end;
 
 function TryEvaluateConditionFunction(const aCondition, aFileName, aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
-  out aActive: Boolean): Boolean;
+  out aActive: Boolean;
+  const aObservations: IProjectContextObservationsBuilder = nil): Boolean;
 var
   lArgument: string;
   lFunctionName: string;
@@ -526,11 +796,18 @@ begin
 
   if SameText(lFunctionName, 'Exists') then
   begin
-    if TPath.IsPathRooted(lArgument) then
-      lPath := TPath.GetFullPath(lArgument)
+    if lArgument.Trim = '' then
+      aActive := False
     else
-      lPath := NormalizeProjectPath(aBaseDirectory, lArgument);
-    aActive := TFile.Exists(lPath) or TDirectory.Exists(lPath);
+    begin
+      if TPath.IsPathRooted(lArgument) then
+        lPath := TPath.GetFullPath(lArgument)
+      else
+        lPath := NormalizeProjectPath(aBaseDirectory, lArgument);
+      aActive := TFile.Exists(lPath) or TDirectory.Exists(lPath);
+      if aObservations <> nil then
+        aObservations.AddPresence(lPath, 'exists-condition', aActive);
+    end;
   end else
     aActive := EndsText('\', lArgument) or EndsText('/', lArgument);
 
@@ -542,7 +819,8 @@ end;
 
 function TryEvaluateConditionClause(const aCondition, aFileName, aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
-  out aActive: Boolean): Boolean;
+  out aActive: Boolean;
+  const aObservations: IProjectContextObservationsBuilder = nil): Boolean;
 var
   lActualValue: string;
   lExpectedValue: string;
@@ -553,7 +831,7 @@ begin
   lText := StripOuterParentheses(aCondition);
 
   if TryEvaluateConditionFunction(lText, aFileName, aBaseDirectory, aProperties,
-    aDiagnostics, aActive) then
+    aDiagnostics, aActive, aObservations) then
     Exit(True);
 
   lMatch := TRegEx.Match(lText, '^(.+?)\s*(==|!=)\s*(.+)$', [roIgnoreCase, roSingleLine]);
@@ -631,7 +909,8 @@ end;
 
 function TryEvaluateConditionExpression(const aCondition, aFileName, aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
-  out aActive: Boolean): Boolean;
+  out aActive: Boolean;
+  const aObservations: IProjectContextObservationsBuilder = nil): Boolean;
 var
   lLeft: string;
   lLeftActive: Boolean;
@@ -656,7 +935,7 @@ begin
   if TrySplitTopLevelCondition(lText, 'or', lLeft, lRight) then
   begin
     if not TryEvaluateConditionExpression(lLeft, aFileName, aBaseDirectory, aProperties,
-      aDiagnostics, lLeftActive) then
+      aDiagnostics, lLeftActive, aObservations) then
       Exit(False);
 
     if lLeftActive then
@@ -666,7 +945,7 @@ begin
     end;
 
     if not TryEvaluateConditionExpression(lRight, aFileName, aBaseDirectory, aProperties,
-      aDiagnostics, lRightActive) then
+      aDiagnostics, lRightActive, aObservations) then
       Exit(False);
 
     aActive := lRightActive;
@@ -676,7 +955,7 @@ begin
   if TrySplitTopLevelCondition(lText, 'and', lLeft, lRight) then
   begin
     if not TryEvaluateConditionExpression(lLeft, aFileName, aBaseDirectory, aProperties,
-      aDiagnostics, lLeftActive) then
+      aDiagnostics, lLeftActive, aObservations) then
       Exit(False);
 
     if not lLeftActive then
@@ -686,7 +965,7 @@ begin
     end;
 
     if not TryEvaluateConditionExpression(lRight, aFileName, aBaseDirectory, aProperties,
-      aDiagnostics, lRightActive) then
+      aDiagnostics, lRightActive, aObservations) then
       Exit(False);
 
     aActive := lRightActive;
@@ -696,14 +975,14 @@ begin
   if StartsText('!', lText) and (not StartsText('!=', lText)) then
   begin
     if not TryEvaluateConditionExpression(Copy(lText, 2, MaxInt), aFileName, aBaseDirectory,
-      aProperties, aDiagnostics, aActive) then
+      aProperties, aDiagnostics, aActive, aObservations) then
       Exit(False);
     aActive := not aActive;
     Exit(True);
   end;
 
   Result := TryEvaluateConditionClause(lText, aFileName, aBaseDirectory, aProperties,
-    aDiagnostics, aActive);
+    aDiagnostics, aActive, aObservations);
 end;
 
 function StripOuterParentheses(const aValue: string): string;
@@ -736,7 +1015,8 @@ begin
 end;
 
 function IsConditionActive(const aCondition, aFileName, aBaseDirectory: string;
-  const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>): Boolean;
+  const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  const aObservations: IProjectContextObservationsBuilder = nil): Boolean;
 var
   lActive: Boolean;
 begin
@@ -744,7 +1024,7 @@ begin
     Exit(True);
 
   if not TryEvaluateConditionExpression(aCondition, aFileName, aBaseDirectory, aProperties,
-    aDiagnostics, lActive) then
+    aDiagnostics, lActive, aObservations) then
   begin
     AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('INVALID_MSBUILD_CONDITION',
       'Unsupported or invalid Condition: ' + aCondition, aFileName));
@@ -752,6 +1032,53 @@ begin
   end;
 
   Result := lActive;
+end;
+
+function HasDiagnosticCode(const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  const aCode: string): Boolean;
+var
+  lDiagnostic: TDelphiSemanticDiagnostic;
+begin
+  for lDiagnostic in aDiagnostics do
+    if SameText(lDiagnostic.Code, aCode) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function HasDiagnosticCodeSince(const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  const aStartIndex: Integer; const aCode: string): Boolean;
+var
+  i: Integer;
+begin
+  for i := aStartIndex to aDiagnostics.Count - 1 do
+    if SameText(aDiagnostics[i].Code, aCode) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function IsConditionActiveForNonSemanticProperty(const aCondition, aFileName,
+  aBaseDirectory: string; const aProperties: TPropertyMap;
+  const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  const aObservations: IProjectContextObservationsBuilder;
+  out aHasUnresolvedMacro: Boolean): Boolean;
+var
+  lConditionDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  lDiagnostic: TDelphiSemanticDiagnostic;
+begin
+  lConditionDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
+  try
+    Result := IsConditionActive(aCondition, aFileName, aBaseDirectory, aProperties,
+      lConditionDiagnostics, aObservations);
+    aHasUnresolvedMacro := HasDiagnosticCode(lConditionDiagnostics,
+      'UNRESOLVED_MSBUILD_MACRO');
+    for lDiagnostic in lConditionDiagnostics do
+      if not SameText(lDiagnostic.Code, 'UNRESOLVED_MSBUILD_MACRO') then
+        AddDiagnostic(aDiagnostics, lDiagnostic);
+  finally
+    lConditionDiagnostics.Free;
+  end;
 end;
 
 function HasUnresolvedPropertyReference(const aValue: string; const aProperties: TPropertyMap): Boolean;
@@ -810,6 +1137,94 @@ begin
   end;
 end;
 
+function ExpandSemanticProjectProperty(const aValue, aFileName: string;
+  const aProperties: TPropertyMap;
+  const aDiagnostics: TList<TDelphiSemanticDiagnostic>): string;
+const
+  cMaximumExpansionPasses = 64;
+var
+  lExpansionPass: Integer;
+  lMacroName: string;
+  lMacroStart: Integer;
+  lMacroStop: Integer;
+  lPreviousValue: string;
+begin
+  Result := aValue;
+  lExpansionPass := 0;
+  while lExpansionPass < cMaximumExpansionPasses do
+  begin
+    lPreviousValue := Result;
+    Result := ExpandProperties(Result, aFileName, aProperties, aDiagnostics);
+    lMacroStart := Pos('$(', Result);
+    if lMacroStart = 0 then
+      Exit;
+
+    if Result = lPreviousValue then
+    begin
+      lMacroStop := PosEx(')', Result, lMacroStart + 2);
+      if lMacroStop = 0 then
+        lMacroName := Copy(Result, lMacroStart + 2,
+          Length(Result) - lMacroStart - 1)
+      else
+        lMacroName := Copy(Result, lMacroStart + 2,
+          lMacroStop - lMacroStart - 2);
+      AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('UNRESOLVED_MSBUILD_MACRO',
+        'Unresolved or cyclic MSBuild macro: $(' + lMacroName + ')', aFileName));
+      Exit;
+    end;
+    Inc(lExpansionPass);
+  end;
+
+  lMacroStart := Pos('$(', Result);
+  if lMacroStart > 0 then
+  begin
+    lMacroStop := PosEx(')', Result, lMacroStart + 2);
+    if lMacroStop = 0 then
+      lMacroName := Copy(Result, lMacroStart + 2, Length(Result) - lMacroStart - 1)
+    else
+      lMacroName := Copy(Result, lMacroStart + 2,
+        lMacroStop - lMacroStart - 2);
+    AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('UNRESOLVED_MSBUILD_MACRO',
+      'MSBuild macro expansion exceeded the safe limit at $(' + lMacroName + ')',
+      aFileName));
+  end;
+end;
+
+function ExpandPropertiesPreservingUnresolved(const aValue, aPropertyName: string;
+  const aProperties: TPropertyMap): string;
+var
+  lMacroName: string;
+  lMacroStart: Integer;
+  lMacroStop: Integer;
+  lReplacement: string;
+begin
+  Result := aValue;
+  lMacroStart := Pos('$(', Result);
+  while lMacroStart > 0 do
+  begin
+    lMacroStop := PosEx(')', Result, lMacroStart + 2);
+    if lMacroStop = 0 then
+      Break;
+
+    lMacroName := Copy(Result, lMacroStart + 2, lMacroStop - lMacroStart - 2);
+    if not TryGetPropertyValue(aProperties, lMacroName, lReplacement) then
+    begin
+      if SameText(lMacroName, aPropertyName) then
+      begin
+        Delete(Result, lMacroStart, lMacroStop - lMacroStart + 1);
+        lMacroStart := PosEx('$(', Result, lMacroStart);
+      end else
+        lMacroStart := PosEx('$(', Result, lMacroStop + 1);
+    end
+    else
+    begin
+      Delete(Result, lMacroStart, lMacroStop - lMacroStart + 1);
+      Insert(lReplacement, Result, lMacroStart);
+      lMacroStart := PosEx('$(', Result, lMacroStart + Length(lReplacement));
+    end;
+  end;
+end;
+
 procedure AddUniqueText(const aItems: TList<string>; const aValue: string);
 var
   lItem: string;
@@ -854,6 +1269,45 @@ begin
     AddUniqueText(aItems, lPart);
 end;
 
+function IsSemanticProjectProperty(const aName: string): Boolean;
+begin
+  Result := SameText(aName, 'MainSource') or SameText(aName, 'Config') or
+    SameText(aName, 'Platform') or SameText(aName, 'DCC_Define') or
+    SameText(aName, 'DCC_IncludePath') or SameText(aName, 'DCC_UnitSearchPath') or
+    SameText(aName, 'DCC_UnitScopeNames') or SameText(aName, 'DCC_Namespace') or
+    SameText(aName, 'DCC_UnitAlias') or SameText(aName, 'DCC_UnitAliases') or
+    SameText(aName, 'CfgDependentOn') or MatchText(aName, cDelphiSemanticCompilerLinkPropertyNames);
+end;
+
+function PropertyGroupContainsSemanticProjectProperty(const aNode: IXMLNode): Boolean;
+var
+  i: Integer;
+  lChild: IXMLNode;
+begin
+  for i := 0 to aNode.ChildNodes.Count - 1 do
+  begin
+    lChild := aNode.ChildNodes[i];
+    if IsXmlElement(lChild) and IsSemanticProjectProperty(XmlNodeName(lChild)) then
+      Exit(True);
+  end;
+
+  Result := False;
+end;
+
+procedure RemoveNonSemanticPropertyGroupValues(const aNode: IXMLNode;
+  const aProperties: TPropertyMap);
+var
+  i: Integer;
+  lChild: IXMLNode;
+begin
+  for i := 0 to aNode.ChildNodes.Count - 1 do
+  begin
+    lChild := aNode.ChildNodes[i];
+    if IsXmlElement(lChild) and not IsSemanticProjectProperty(XmlNodeName(lChild)) then
+      aProperties.Remove(PropertyKey(XmlNodeName(lChild)));
+  end;
+end;
+
 procedure AddDelimitedPaths(const aItems: TList<string>; const aBaseDirectory, aValue: string);
 var
   lPart: string;
@@ -882,18 +1336,20 @@ begin
 end;
 
 procedure ApplyPropertyFile(const aFileName, aBaseDirectory: string; const aProperties: TPropertyMap;
-  const aDiagnostics: TList<TDelphiSemanticDiagnostic>; const aLockPlatform: Boolean); forward;
+  const aDiagnostics: TList<TDelphiSemanticDiagnostic>; const aLockPlatform: Boolean;
+  const aObservations: IProjectContextObservationsBuilder = nil); forward;
 
 procedure ApplyImport(const aNode: IXMLNode; const aFileName, aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
-  const aLockPlatform: Boolean);
+  const aLockPlatform: Boolean; const aObservations: IProjectContextObservationsBuilder);
 var
   lCondition: string;
   lImportFileName: string;
   lProject: string;
 begin
   lCondition := XmlNodeAttributeValue(aNode, 'Condition');
-  if IsConditionActive(lCondition, aFileName, aBaseDirectory, aProperties, aDiagnostics) then
+  if IsConditionActive(lCondition, aFileName, aBaseDirectory, aProperties, aDiagnostics,
+    aObservations) then
   begin
     lProject := XmlNodeAttributeValue(aNode, 'Project');
     lProject := ExpandProperties(lProject, aFileName, aProperties, aDiagnostics);
@@ -901,19 +1357,23 @@ begin
     begin
       lImportFileName := NormalizeProjectPath(aBaseDirectory, lProject);
       ApplyPropertyFile(lImportFileName, ExtractFilePath(lImportFileName), aProperties,
-        aDiagnostics, aLockPlatform);
+        aDiagnostics, aLockPlatform, aObservations);
     end;
   end;
 end;
 
 procedure ApplyPropertyGroup(const aNode: IXMLNode; const aFileName, aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
-  const aLockPlatform: Boolean);
+  const aLockPlatform: Boolean; const aObservations: IProjectContextObservationsBuilder);
 var
   i: Integer;
   lChild: IXMLNode;
+  lConditionActive: Boolean;
+  lConditionIsUnknown: Boolean;
   lCondition: string;
+  lDiagnosticCount: Integer;
   lExpandedValue: string;
+  lGroupHasSemanticProperty: Boolean;
   lName: string;
   lOptsetPath: string;
   lPart: string;
@@ -921,7 +1381,24 @@ var
   lValue: string;
 begin
   lCondition := XmlNodeAttributeValue(aNode, 'Condition');
-  if IsConditionActive(lCondition, aFileName, aBaseDirectory, aProperties, aDiagnostics) then
+  lGroupHasSemanticProperty := PropertyGroupContainsSemanticProjectProperty(aNode);
+  if lGroupHasSemanticProperty then
+  begin
+    lDiagnosticCount := aDiagnostics.Count;
+    lConditionActive := IsConditionActive(lCondition, aFileName, aBaseDirectory,
+      aProperties, aDiagnostics, aObservations);
+    lConditionIsUnknown := HasDiagnosticCodeSince(aDiagnostics, lDiagnosticCount,
+      'UNRESOLVED_MSBUILD_MACRO');
+  end else
+    lConditionActive := IsConditionActiveForNonSemanticProperty(lCondition, aFileName,
+      aBaseDirectory, aProperties, aDiagnostics, aObservations, lConditionIsUnknown);
+
+  if lConditionIsUnknown then
+  begin
+    RemoveNonSemanticPropertyGroupValues(aNode, aProperties);
+    Exit;
+  end;
+  if lConditionActive then
   begin
     for i := 0 to aNode.ChildNodes.Count - 1 do
     begin
@@ -931,10 +1408,32 @@ begin
 
       lName := XmlNodeName(lChild);
       lCondition := XmlNodeAttributeValue(lChild, 'Condition');
-      if IsConditionActive(lCondition, aFileName, aBaseDirectory, aProperties, aDiagnostics) then
+      if IsSemanticProjectProperty(lName) then
+      begin
+        lDiagnosticCount := aDiagnostics.Count;
+        lConditionActive := IsConditionActive(lCondition, aFileName, aBaseDirectory,
+          aProperties, aDiagnostics, aObservations);
+        lConditionIsUnknown := HasDiagnosticCodeSince(aDiagnostics, lDiagnosticCount,
+          'UNRESOLVED_MSBUILD_MACRO');
+      end else
+        lConditionActive := IsConditionActiveForNonSemanticProperty(lCondition, aFileName,
+          aBaseDirectory, aProperties, aDiagnostics, aObservations, lConditionIsUnknown);
+
+      if lConditionIsUnknown then
+      begin
+        if not IsSemanticProjectProperty(lName) then
+          aProperties.Remove(PropertyKey(lName));
+        Continue;
+      end;
+      if lConditionActive then
       begin
         lValue := lChild.Text.Trim;
-        lExpandedValue := ExpandProperties(lValue, aFileName, aProperties, aDiagnostics);
+        if IsSemanticProjectProperty(lName) then
+          lExpandedValue := ExpandSemanticProjectProperty(lValue, aFileName, aProperties,
+            aDiagnostics)
+        else
+          lExpandedValue := ExpandPropertiesPreservingUnresolved(lValue, lName,
+            aProperties);
         if SameText(lName, 'CfgDependentOn') then
         begin
           lParts := lExpandedValue.Split([';']);
@@ -945,7 +1444,7 @@ begin
 
             lOptsetPath := NormalizeProjectPath(aBaseDirectory, lPart.Trim);
             ApplyPropertyFile(lOptsetPath, ExtractFilePath(lOptsetPath), aProperties,
-              aDiagnostics, aLockPlatform);
+              aDiagnostics, aLockPlatform, aObservations);
           end;
         end;
         if (not aLockPlatform) or (not SameText(lName, 'Platform')) then
@@ -958,7 +1457,7 @@ end;
 procedure ApplyPropertyDocument(const aDocument: IXMLDocument; const aFileName,
   aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
-  const aLockPlatform: Boolean);
+  const aLockPlatform: Boolean; const aObservations: IProjectContextObservationsBuilder);
 var
   i: Integer;
   lNode: IXMLNode;
@@ -976,38 +1475,44 @@ begin
     lNode := lRoot.ChildNodes[i];
     if IsXmlElementNamed(lNode, 'PropertyGroup') then
       ApplyPropertyGroup(lNode, aFileName, aBaseDirectory, aProperties, aDiagnostics,
-        aLockPlatform)
+        aLockPlatform, aObservations)
     else if IsXmlElementNamed(lNode, 'Import') then
-      ApplyImport(lNode, aFileName, aBaseDirectory, aProperties, aDiagnostics, aLockPlatform);
+      ApplyImport(lNode, aFileName, aBaseDirectory, aProperties, aDiagnostics, aLockPlatform,
+        aObservations);
   end;
 end;
 
 procedure ApplyPropertyFile(const aFileName, aBaseDirectory: string; const aProperties: TPropertyMap;
-  const aDiagnostics: TList<TDelphiSemanticDiagnostic>; const aLockPlatform: Boolean);
+  const aDiagnostics: TList<TDelphiSemanticDiagnostic>; const aLockPlatform: Boolean;
+  const aObservations: IProjectContextObservationsBuilder);
 var
   lDocument: IXMLDocument;
   lText: string;
 begin
   if not TFile.Exists(aFileName) then
   begin
+    if aObservations <> nil then
+      aObservations.AddPresence(aFileName, 'property-file', False);
     AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('OPTSET_FILE_NOT_FOUND',
       'Optset file not found: ' + aFileName, aFileName));
     Exit;
   end;
 
-  lText := TFile.ReadAllText(aFileName, TEncoding.UTF8);
+  ReadProjectContextInput(aFileName, 'property-file', aObservations, lText);
   lDocument := LoadProjectXml(lText);
   ApplyPropertyDocument(lDocument, aFileName, aBaseDirectory, aProperties, aDiagnostics,
-    aLockPlatform);
+    aLockPlatform, aObservations);
 end;
 
 function TryResolveDccReferenceDirectory(const aProjectDirectory, aInclude: string;
-  const aSearchPaths: TList<string>; out aDirectory: string): Boolean;
+  const aSearchPaths: TList<string>; out aDirectory: string;
+  const aObservations: IProjectContextObservationsBuilder = nil): Boolean;
 var
   lCandidate: string;
   lFileName: string;
   lIncludeFileName: string;
   lSearchPath: string;
+  lExists: Boolean;
 begin
   aDirectory := '';
   if aInclude.Trim = '' then
@@ -1017,10 +1522,15 @@ begin
     lIncludeFileName := NormalizeProjectPath(aProjectDirectory, aInclude);
     lFileName := TPath.GetFileName(aInclude);
   except
+    if aObservations <> nil then
+      aObservations.MarkIncomplete;
     Exit(False);
   end;
 
-  if TFile.Exists(lIncludeFileName) then
+  lExists := TFile.Exists(lIncludeFileName);
+  if aObservations <> nil then
+    aObservations.AddSearchCandidate(lIncludeFileName, 'dcc-reference-directory', lExists, lExists);
+  if lExists then
   begin
     aDirectory := ExtractFilePath(lIncludeFileName);
     Exit(True);
@@ -1031,7 +1541,10 @@ begin
     for lSearchPath in aSearchPaths do
     begin
       lCandidate := TPath.Combine(lSearchPath, lFileName);
-      if TFile.Exists(lCandidate) then
+      lExists := TFile.Exists(lCandidate);
+      if aObservations <> nil then
+        aObservations.AddSearchCandidate(lCandidate, 'dcc-reference-directory', lExists, lExists);
+      if lExists then
       begin
         aDirectory := lSearchPath;
         Exit(True);
@@ -1044,11 +1557,13 @@ begin
 end;
 
 function TryResolveDccReferenceFileName(const aProjectDirectory, aInclude: string;
-  const aSearchPaths: TList<string>; out aFileName: string): Boolean;
+  const aSearchPaths: TList<string>; out aFileName: string;
+  const aObservations: IProjectContextObservationsBuilder = nil): Boolean;
 var
   lCandidate: string;
   lIncludeFileName: string;
   lSearchPath: string;
+  lExists: Boolean;
 begin
   aFileName := '';
   if aInclude.Trim = '' then
@@ -1057,10 +1572,15 @@ begin
   try
     lIncludeFileName := NormalizeProjectPath(aProjectDirectory, aInclude);
   except
+    if aObservations <> nil then
+      aObservations.MarkIncomplete;
     Exit(False);
   end;
 
-  if TFile.Exists(lIncludeFileName) then
+  lExists := TFile.Exists(lIncludeFileName);
+  if aObservations <> nil then
+    aObservations.AddSearchCandidate(lIncludeFileName, 'dcc-reference-file', lExists, lExists);
+  if lExists then
   begin
     aFileName := lIncludeFileName;
     Exit(True);
@@ -1069,7 +1589,10 @@ begin
   for lSearchPath in aSearchPaths do
   begin
     lCandidate := TPath.Combine(lSearchPath, TPath.GetFileName(aInclude));
-    if TFile.Exists(lCandidate) then
+    lExists := TFile.Exists(lCandidate);
+    if aObservations <> nil then
+      aObservations.AddSearchCandidate(lCandidate, 'dcc-reference-file', lExists, lExists);
+    if lExists then
     begin
       aFileName := TPath.GetFullPath(lCandidate);
       Exit(True);
@@ -1082,7 +1605,8 @@ end;
 procedure AddReferenceDirectories(const aDocument: IXMLDocument; const aProjectFileName,
   aProjectDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
-  const aSearchPaths, aItems, aSourceFiles: TList<string>);
+  const aSearchPaths, aItems, aSourceFiles: TList<string>;
+  const aObservations: IProjectContextObservationsBuilder);
 var
   i: Integer;
   j: Integer;
@@ -1109,7 +1633,7 @@ begin
 
     lCondition := XmlNodeAttributeValue(lGroup, 'Condition');
     if IsConditionActive(lCondition, aProjectFileName, aProjectDirectory, aProperties,
-      aDiagnostics) then
+      aDiagnostics, aObservations) then
     begin
       for j := 0 to lGroup.ChildNodes.Count - 1 do
       begin
@@ -1119,7 +1643,7 @@ begin
 
         lCondition := XmlNodeAttributeValue(lReference, 'Condition');
         if IsConditionActive(lCondition, aProjectFileName, aProjectDirectory, aProperties,
-          aDiagnostics) then
+          aDiagnostics, aObservations) then
         begin
           lInclude := XmlNodeAttributeValue(lReference, 'Include');
           if HasUnresolvedPropertyReference(lInclude, aProperties) then
@@ -1130,10 +1654,10 @@ begin
 
           lInclude := ExpandProperties(lInclude, aProjectFileName, aProperties, aDiagnostics);
           if TryResolveDccReferenceFileName(aProjectDirectory, lInclude, aSearchPaths,
-            lFileName) then
+            lFileName, aObservations) then
             AddUniquePath(aSourceFiles, aProjectDirectory, lFileName);
           if not TryResolveDccReferenceDirectory(aProjectDirectory, lInclude, aSearchPaths,
-            lDirectory) then
+            lDirectory, aObservations) then
             AddUniquePath(aItems, aProjectDirectory, '.')
           else
             AddUniquePath(aItems, aProjectDirectory, lDirectory);
@@ -1146,7 +1670,8 @@ end;
 procedure PopulateProjectSemanticContext(var aProject: TDelphiSemanticProjectInfo;
   const aDocument: IXMLDocument; const aProperties: TPropertyMap;
   const aOptions: TDelphiSemanticOptions;
-  const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
+  const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  const aObservations: IProjectContextObservationsBuilder);
 var
   lDefine: string;
   lDefines: TList<string>;
@@ -1189,7 +1714,7 @@ begin
     AddDelimitedTexts(lUnitAliases, GetPropertyValue(aProperties, 'DCC_UnitAlias'));
     AddDelimitedTexts(lUnitAliases, GetPropertyValue(aProperties, 'DCC_UnitAliases'));
     AddReferenceDirectories(aDocument, aProject.ProjectFileName, aProject.ProjectDirectory,
-      aProperties, aDiagnostics, lSearchPaths, lReferenceDirectories, lSourceFiles);
+      aProperties, aDiagnostics, lSearchPaths, lReferenceDirectories, lSourceFiles, aObservations);
 
     aProject.Defines := lDefines.ToArray;
     aProject.IncludePaths := lIncludePaths.ToArray;
@@ -1291,9 +1816,10 @@ var
   lBuilder: TStringBuilder;
   lContext: TDelphiSemanticCacheIdentityContext;
   lProjectIdentity: TDelphiSemanticProjectCacheIdentity;
+  lPropertyName: string;
 begin
   lContext := Default(TDelphiSemanticCacheIdentityContext);
-  lContext.SchemaVersion := 'project-context-fingerprint-v2';
+  lContext.SchemaVersion := 'project-context-fingerprint-v3';
   lContext.ProjectPath := aProject.ProjectFileName;
   lContext.Configuration := aProject.Configuration;
   lContext.Platform := aProject.Platform;
@@ -1318,6 +1844,39 @@ begin
     AppendFingerprintItems(lBuilder, 'includePaths', aProject.IncludePaths, True);
     AppendFingerprintItems(lBuilder, 'references', aProject.ReferenceDirectories, True);
     AppendFingerprintItems(lBuilder, 'sourceFiles', aProject.SourceFileNames, True);
+    // Hash raw switch values without case folding or delimiter ambiguity.
+    for lPropertyName in cDelphiSemanticCompilerLinkPropertyNames do
+      AppendFingerprintItem(lBuilder, lPropertyName,
+        THashSHA2.GetHashString(aProject.PropertyValue(lPropertyName)));
+    Result := THashSHA2.GetHashString(lBuilder.ToString);
+  finally
+    lBuilder.Free;
+  end;
+end;
+
+function BuildConfigurationIdentity(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions): string;
+var
+  i: Integer;
+  lBuilder: TStringBuilder;
+begin
+  lBuilder := TStringBuilder.Create;
+  try
+    lBuilder.AppendLine('schema=semantic-project-configuration-v1');
+    AppendFingerprintItem(lBuilder, 'configuration', aProject.Configuration);
+    AppendFingerprintItem(lBuilder, 'platform', aProject.Platform);
+    AppendFingerprintItem(lBuilder, 'delphiVersion', aOptions.DelphiVersion);
+    AppendFingerprintItem(lBuilder, 'rsvarsPath',
+      TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.RsVarsPath));
+    AppendFingerprintItem(lBuilder, 'environmentOptionsPath',
+      TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.EnvOptionsPath));
+    for i := 0 to High(aOptions.EnvironmentVariables) do
+    begin
+      AppendFingerprintItem(lBuilder, 'environmentName',
+        aOptions.EnvironmentVariables[i].Name);
+      AppendFingerprintItem(lBuilder, 'environmentValue',
+        aOptions.EnvironmentVariables[i].Value);
+    end;
     Result := THashSHA2.GetHashString(lBuilder.ToString);
   finally
     lBuilder.Free;
@@ -1352,6 +1911,7 @@ var
   lProjectDirectory: string;
   lProjectFile: string;
   lProjectName: string;
+  lPropertyName: string;
 begin
   Result := TPropertyMap.Create;
   lProjectDirectory := TPath.GetDirectoryName(aProjectFileName);
@@ -1370,6 +1930,16 @@ begin
   for lEnvironmentProperty in aOptions.EnvironmentVariables do
     if not Result.ContainsKey(PropertyKey(lEnvironmentProperty.Name)) then
       SetPropertyValue(Result, lEnvironmentProperty.Name, lEnvironmentProperty.Value);
+  // Optional CodeGear target properties follow MSBuild's unset-as-empty behavior.
+  for lPropertyName in cDelphiSemanticCompilerLinkPropertyNames do
+    if not Result.ContainsKey(PropertyKey(lPropertyName)) then
+      SetPropertyValue(Result, lPropertyName, '');
+  if not Result.ContainsKey(PropertyKey('PlatformSDK')) then
+    SetPropertyValue(Result, 'PlatformSDK', '');
+  if not Result.ContainsKey(PropertyKey('DefaultPlatformSDK')) then
+    SetPropertyValue(Result, 'DefaultPlatformSDK', '');
+  if not Result.ContainsKey(PropertyKey('GlobalOptionFile')) then
+    SetPropertyValue(Result, 'GlobalOptionFile', '');
   if GetPropertyValue(Result, 'Config') = '' then
     SetPropertyValue(Result, 'Config', XmlElementText(aDocument, 'Config'));
   if GetPropertyValue(Result, 'Platform') = '' then
@@ -1441,20 +2011,27 @@ function LoadProjectInfo(const aProjectFileName: string; const aOptions: TDelphi
   const aDiagnostics: TList<TDelphiSemanticDiagnostic>): TDelphiSemanticProjectInfo;
 var
   lDocument: IXMLDocument;
+  lContextObservations: IDelphiSemanticProjectContextObservations;
+  lObservations: IProjectContextObservationsBuilder;
   lProperties: TPropertyMap;
   lText: string;
 begin
-  lText := TFile.ReadAllText(aProjectFileName, TEncoding.UTF8);
+  lObservations := TProjectContextObservationsBuilder.Create;
+  ReadProjectContextInput(aProjectFileName, 'project', lObservations, lText);
   lDocument := LoadProjectXml(lText);
   lProperties := CreateInitialProperties(aProjectFileName, lDocument, aOptions);
   try
     ApplyPropertyDocument(lDocument, aProjectFileName, TPath.GetDirectoryName(aProjectFileName),
-      lProperties, aDiagnostics, Trim(aOptions.Platform) <> '');
+      lProperties, aDiagnostics, Trim(aOptions.Platform) <> '', lObservations);
     Result := CreateProjectInfoFromProperties(aProjectFileName, lDocument, lProperties);
-    PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics);
+    PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics,
+      lObservations);
     AddAdditionalSourceFiles(Result, aOptions);
     Result.CompilerProfileName := BuildCompilerProfileName(Result, aOptions);
     Result.ContextFingerprint := BuildContextFingerprint(Result, aOptions);
+    lContextObservations := lObservations.Build(
+      BuildConfigurationIdentity(Result, aOptions));
+    Result.ContextObservations := lContextObservations;
   finally
     lProperties.Free;
   end;

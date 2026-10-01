@@ -59,7 +59,16 @@ type
     [Test]
     procedure InlineSectionRenameProducesThreeEdits;
     [Test]
+    [Category('RefactoringLightReuse')]
     procedure IdentifierScopedRenameMatchesColdWarmAndInvalidatedCache;
+    [Test]
+    [Category('RefactoringLightReuse')]
+    [TestCase('No persistent cache', 'False')]
+    [TestCase('SQLite cache', 'True')]
+    procedure TenAlternativePlansReuseOwnedContext(const aPersistent: Boolean);
+    [Test]
+    [Category('RefactoringLightReuse')]
+    procedure ChangedCompilerContextInvalidatesSnapshotCache;
     [Test]
     procedure ProjectSessionSnapshotIdentityReusesUnitCacheIdentityRecord;
     [Test]
@@ -113,6 +122,7 @@ type
     [Test]
     procedure ProjectSessionDiscoversAnsiDprInReferencesThroughSourceLoader;
     [Test]
+    [Category('RefactoringLightReuse')]
     procedure ProjectSessionSnapshotCacheRebuildsIncludedFileChanges;
     [Test]
     procedure ProjectSessionAssociatesNestedWithReferencesWithInnermostSnapshotFact;
@@ -1479,6 +1489,109 @@ begin
   end;
 end;
 
+procedure TProjectSessionTests.TenAlternativePlansReuseOwnedContext(const aPersistent: Boolean);
+var
+  i, j: Integer;
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext, lRetainedContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lOptions: TDelphiSemanticOptions;
+  lPlan: TDelphiSemanticRenamePlan;
+  lPlans: array[0..9] of TDelphiSemanticRenamePlan;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRoot: string;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lRoot := ProjectSessionTempPath('refactoring-light-reuse-' + BoolToStr(aPersistent, True));
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := CreateIdentifierScopeProject(lRoot);
+  lOptions.Platform := 'Win64';
+  if aPersistent then
+    lOptions.SqliteCacheFileName := CombinePath([lRoot, '.dak', 'IdentifierScopeProject',
+      'semantic-cache.sqlite3']);
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lContext := lResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    lSnapshot := lContext.ProjectSnapshot.Snapshot;
+    for i := 0 to High(lPlans) do
+    begin
+      lPlans[i] := TDelphiSemanticRenamePlanner.PlanRename(lContext,
+        'ScopeTarget', 'Alternative' + IntToStr(i));
+      Assert.AreEqual('planned', lPlans[i].Status, lPlans[i].Diagnostic);
+      Assert.AreEqual(3, Integer(Length(lPlans[i].Edits)));
+      Assert.AreEqual(0, lPlans[i].IndexMetrics.BuildInvocationCount);
+      Assert.AreEqual(0, lPlans[i].IndexMetrics.ReferenceResolutionSymbolScanCount);
+      Assert.IsTrue(lSnapshot = lContext.ProjectSnapshot.Snapshot);
+    end;
+    lRetainedContext := lContext;
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    Assert.IsTrue(lContext.ProjectSnapshot = nil);
+  finally
+    lResult.Session.Free;
+  end;
+  // A copied context owns the immutable snapshot independently of its session.
+  for i := High(lPlans) downto 0 do
+  begin
+    lPlan := TDelphiSemanticRenamePlanner.PlanRename(lRetainedContext,
+      'ScopeTarget', 'Alternative' + IntToStr(i));
+    AssertRenamePlansEqual(lPlans[i], lPlan);
+    Assert.AreEqual(lPlans[i].BaselineSemanticModelVersion, lPlan.BaselineSemanticModelVersion);
+    Assert.AreEqual(Length(lPlans[i].RequiredVerification), Length(lPlan.RequiredVerification));
+    for j := 0 to High(lPlan.RequiredVerification) do
+    begin
+      Assert.AreEqual(lPlans[i].RequiredVerification[j].Kind, lPlan.RequiredVerification[j].Kind);
+      Assert.AreEqual(lPlans[i].RequiredVerification[j].Description,
+        lPlan.RequiredVerification[j].Description);
+    end;
+    Assert.AreEqual(0, lPlan.IndexMetrics.BuildInvocationCount);
+    Assert.IsTrue(lSnapshot = lRetainedContext.ProjectSnapshot.Snapshot);
+  end;
+end;
+
+procedure TProjectSessionTests.ChangedCompilerContextInvalidatesSnapshotCache;
+var
+  i: Integer;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lExtractionMilliseconds: Int64;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRoot, lUnitFileName: string;
+begin
+  lRoot := ProjectSessionTempPath('refactoring-light-context');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := CreateIdentifierScopeProject(lRoot);
+  lOptions.SqliteCacheFileName := CombinePath([lRoot, '.dak', 'IdentifierScopeProject',
+    'semantic-cache.sqlite3']);
+  lUnitFileName := TPath.Combine(lRoot, 'IdentifierScopeProvider.pas');
+  TFile.WriteAllText(lUnitFileName, 'unit IdentifierScopeProvider;' + sLineBreak +
+    'interface' + sLineBreak + '{$IFDEF WIN64}' + sLineBreak +
+    'var Context64: Integer;' + sLineBreak + '{$ELSE}' + sLineBreak +
+    'var Context32: Integer;' + sLineBreak + '{$ENDIF}' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  for i := 0 to 2 do
+  begin
+    if i = 1 then
+      lOptions.Platform := 'Win32'
+    else
+      lOptions.Platform := 'Win64';
+    lResult := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lResult.Success);
+      lContext := lResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+        lExtractionMilliseconds);
+      Assert.AreEqual(i <> 1,
+        TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext, 'Context64').Found);
+      Assert.AreEqual(i = 1,
+        TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext, 'Context32').Found);
+    finally
+      lResult.Session.Free;
+    end;
+  end;
+end;
+
 procedure TProjectSessionTests.ProjectSessionBuildsOwnedSnapshotQueryContext;
 var
   lCacheMetrics: TDelphiSemanticCacheMetrics;
@@ -1526,36 +1639,17 @@ begin
   end;
 end;
 
-procedure TProjectSessionTests.TypedConstantsRemainQueryableAcrossSnapshotCacheModes;
+function CreateTypedConstantQueryFixture: string;
 var
-  lAnalysis: TDelphiSemanticGlobalAnalysis;
-  lCacheMetrics: TDelphiSemanticCacheMetrics;
-  lContext: TDelphiSemanticSymbolQueryContext;
-  lDeclaration: TDelphiSemanticGlobalDeclaration;
-  lDefinition: TDelphiSemanticSymbolQueryResult;
-  lExtractionMilliseconds: Int64;
-  lFoundWritable: Boolean;
-  lIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
-  lName: string;
-  lOptions: TDelphiSemanticOptions;
-  lReference: TSemanticReferenceFact;
-  lReferenceRef: TSemanticReferenceRef;
-  lResult: TDelphiSemanticProjectSessionResult;
-  lRootPath: string;
-  lSnapshot: TDelphiProjectSnapshot;
-  lSymbol: TSemanticSymbolFact;
-  lUnit: TUnitSnapshot;
   lUnitPath: string;
-  i: Integer;
-  j: Integer;
 begin
-  lRootPath := ProjectSessionTempPath('typed-constant-query-cache');
-  TDirectory.CreateDirectory(lRootPath);
-  lUnitPath := TPath.Combine(lRootPath, 'TypedValues.pas');
-  TFile.WriteAllText(TPath.Combine(lRootPath, 'TypedValuesProject.dpr'),
+  Result := ProjectSessionTempPath('typed-constant-query-cache');
+  TDirectory.CreateDirectory(Result);
+  lUnitPath := TPath.Combine(Result, 'TypedValues.pas');
+  TFile.WriteAllText(TPath.Combine(Result, 'TypedValuesProject.dpr'),
     'program TypedValuesProject;' + sLineBreak + 'uses TypedValues;' +
     sLineBreak + 'begin end.', TEncoding.UTF8);
-  TFile.WriteAllText(TPath.Combine(lRootPath, 'TypedValuesProject.dproj'),
+  TFile.WriteAllText(TPath.Combine(Result, 'TypedValuesProject.dproj'),
     '<Project><PropertyGroup><MainSource>TypedValuesProject.dpr</MainSource>' +
     '</PropertyGroup><ItemGroup><DCCReference Include="TypedValues.pas"/>' +
     '</ItemGroup></Project>', TEncoding.UTF8);
@@ -1568,15 +1662,97 @@ begin
     '  Result := ReadOnlyValue;' + sLineBreak +
     '  Result := Result + WritableValue;' + sLineBreak + 'end;' + sLineBreak +
     'end.', TEncoding.UTF8);
+end;
+
+procedure AssertTypedConstantQuery(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aUnitPath: string; j: Integer);
+var
+  lDefinition: TDelphiSemanticSymbolQueryResult;
+  lName: string;
+  lReference: TSemanticReferenceFact;
+  lReferenceRef: TSemanticReferenceRef;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSymbol: TSemanticSymbolFact;
+  lUnit: TUnitSnapshot;
+begin
+  lSnapshot := aContext.ProjectSnapshot.Snapshot;
+  if j = 0 then
+    lName := 'ReadOnlyValue'
+  else
+    lName := 'WritableValue';
+  lDefinition := TDelphiSemanticSymbolQuery.FindDefinitionByName(aContext, lName);
+  Assert.IsTrue(lDefinition.Found, lName + ' must remain in shared symbols.');
+  lDefinition := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(aContext,
+    aUnitPath, 13 + j, 13 + j * 9);
+  Assert.IsTrue(lDefinition.Found, lName + ' must resolve at its read site.');
+  Assert.IsTrue(lSnapshot.TryReferenceAt(aUnitPath, 13 + j, 13 + j * 9,
+    lReferenceRef));
+  Assert.IsTrue(lSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit));
+  lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
+  Assert.AreNotEqual(0, Integer(lReference.TargetSymbolId),
+    lName + ' must have a resolved reference target.');
+  Assert.IsTrue(lSnapshot.TryFindUnitById(lReference.TargetUnitId, lUnit));
+  lSymbol := lUnit.SymbolById(lReference.TargetSymbolId);
+  Assert.AreEqual(lName, lSnapshot.TextOf(lSymbol.NameId));
+end;
+
+procedure SetTypedConstantCacheMode(var aOptions: TDelphiSemanticOptions;
+  const aRootPath: string; i: Integer);
+begin
+  if i > 0 then
+    aOptions.SqliteCacheFileName := TPath.Combine(aRootPath, 'snapshot.sqlite');
+  if i = 3 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v6''');
+  if i = 4 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v9''');
+  if i = 5 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v10''');
+  if i = 6 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v11''');
+  if i = 7 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v12''');
+  if i = 8 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v13''');
+  if i = 9 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v14''');
+  if i = 10 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v15''');
+  if i = 11 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v16''');
+end;
+
+procedure TProjectSessionTests.TypedConstantsRemainQueryableAcrossSnapshotCacheModes;
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lDeclaration: TDelphiSemanticGlobalDeclaration;
+  lExtractionMilliseconds: Int64;
+  lFoundWritable: Boolean;
+  lIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lUnitPath: string;
+  i: Integer;
+  j: Integer;
+begin
+  lRootPath := CreateTypedConstantQueryFixture;
+  lUnitPath := TPath.Combine(lRootPath, 'TypedValues.pas');
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := TPath.Combine(lRootPath, 'TypedValuesProject.dproj');
-  for i := 0 to 3 do
+  for i := 0 to 11 do
   begin
-    if i > 0 then
-      lOptions.SqliteCacheFileName := TPath.Combine(lRootPath, 'snapshot.sqlite');
-    if i = 3 then
-      ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
-        'update snapshot_units set schema_version = ''project-session-snapshot-v6''');
+    SetTypedConstantCacheMode(lOptions, lRootPath, i);
     lResult := TDelphiSemanticProjectSession.Open(lOptions);
     try
       Assert.IsTrue(lResult.Success);
@@ -1590,28 +1766,10 @@ begin
         Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Warm snapshot must hit.');
         Assert.AreEqual(0, lCacheMetrics.CacheMisses);
       end;
-      lSnapshot := lContext.ProjectSnapshot.Snapshot;
+      if i >= 3 then
+        Assert.IsTrue(lCacheMetrics.CacheMisses > 0, 'Older snapshot semantics must be rebuilt.');
       for j := 0 to 1 do
-      begin
-        if j = 0 then
-          lName := 'ReadOnlyValue'
-        else
-          lName := 'WritableValue';
-        lDefinition := TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext, lName);
-        Assert.IsTrue(lDefinition.Found, lName + ' must remain in shared symbols.');
-        lDefinition := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext,
-          lUnitPath, 13 + j, 13 + j * 9);
-        Assert.IsTrue(lDefinition.Found, lName + ' must resolve at its read site.');
-        Assert.IsTrue(lSnapshot.TryReferenceAt(lUnitPath, 13 + j, 13 + j * 9,
-          lReferenceRef));
-        Assert.IsTrue(lSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit));
-        lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
-        Assert.AreNotEqual(0, Integer(lReference.TargetSymbolId),
-          lName + ' must have a resolved reference target.');
-        Assert.IsTrue(lSnapshot.TryFindUnitById(lReference.TargetUnitId, lUnit));
-        lSymbol := lUnit.SymbolById(lReference.TargetSymbolId);
-        Assert.AreEqual(lName, lSnapshot.TextOf(lSymbol.NameId));
-      end;
+        AssertTypedConstantQuery(lContext, lUnitPath, j);
       lAnalysis := lResult.Session.BuildGlobalAnalysis(lIdentities, lCacheMetrics,
         lExtractionMilliseconds);
       lFoundWritable := False;

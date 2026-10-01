@@ -101,6 +101,9 @@ type
     LibraryPath: TArray<string>;
     UnitScopes: TArray<string>;
     UnitAliases: TArray<string>;
+    // DelphiLSP "dllname": the platform compiler DLL (for example dcc64290.dll).
+    // Without it DelphiLSP returns null for hover and most definitions.
+    CompilerDllName: string;
   end;
 
   TDelphiSemanticLspBoundary = record
@@ -252,6 +255,8 @@ begin
   try
     lSettings := TJSONObject.Create;
     lSettings.AddPair('project', FilePathToUri(aSettings.MainSourcePath));
+    if aSettings.CompilerDllName <> '' then
+      lSettings.AddPair('dllname', aSettings.CompilerDllName);
     lSettings.AddPair('dccOptions', BuildDccOptions(aSettings));
     lSettings.AddPair('projectFiles', TJSONArray.Create);
     lSettings.AddPair('includeDCUsInUsesCompletion', TJSONBool.Create(True));

@@ -207,13 +207,14 @@ uses
   DelphiSemantics.Cache.Sqlite, DelphiSemantics.CompilerProfile,
   DelphiSemantics.IdentifierScope, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite,
-  DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Source,
+  DelphiSemantics.Snapshot.ContextEvidence, DelphiSemantics.Snapshot.RemoveWith,
+  DelphiSemantics.Source, DelphiSemantics.Version,
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v9';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v18';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v10';
+    'project-session-remove-with-facts-v13';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -949,6 +950,101 @@ begin
   ApplySnapshotBuilderMetrics(aMetrics, lBuilderMetrics);
 end;
 
+function BuildSnapshotFromModelsWithContextEvidence(
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aWorkerCount: Integer; var aOwnedEvidence: TObject;
+  var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot;
+var
+  lBuilderMetrics: TDelphiSnapshotBuilderMetrics;
+  lOptions: TDelphiSnapshotBuildOptions;
+begin
+  aMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lOptions.WorkerCount := aWorkerCount;
+  Result := BuildProjectSnapshotFromModelsWithExtension(aModels,
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions,
+    cDelphiSemanticContextEvidenceExtensionName, aOwnedEvidence, lBuilderMetrics);
+  ApplySnapshotBuilderMetrics(aMetrics, lBuilderMetrics);
+end;
+
+function ModelAnalysisIncluded(const aFileName: string;
+  const aScopedSourceFileNames: TArray<string>): Boolean;
+var
+  lScopeFileName: string;
+begin
+  if Length(aScopedSourceFileNames) = 0 then
+    Exit(True);
+
+  for lScopeFileName in aScopedSourceFileNames do
+    if SameText(TPath.GetFullPath(aFileName), TPath.GetFullPath(lScopeFileName)) then
+      Exit(True);
+
+  Result := False;
+end;
+
+function TryCreateContextEvidenceExtension(
+  const aProject: TDelphiSemanticProjectInfo;
+  const aProjectDiagnostics: TArray<TDelphiSemanticDiagnostic>;
+  const aExpectedRootFileNames: TArray<string>;
+  const aProjectObservations: IDelphiSemanticProjectContextObservations;
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aScopedSourceFileNames: TArray<string>; const aSessionOpen: Boolean): TObject;
+var
+  i: Integer;
+  lContext: TDelphiSemanticContextEvidenceContext;
+  lEvidence: TDelphiSemanticContextEvidenceExtension;
+  lModelEvidence: TArray<TDelphiSemanticContextModelEvidence>;
+begin
+  Result := nil;
+  if (not Assigned(aProjectObservations)) or
+    (aProjectObservations.EvidenceFingerprint = '') or (Length(aModels) = 0) then
+    Exit;
+
+  SetLength(lModelEvidence, Length(aModels));
+  for i := 0 to High(aModels) do
+  begin
+    if not Assigned(aModels[i].SourceObservations) then
+      Exit;
+    lModelEvidence[i].SourceFileName := aModels[i].FileName;
+    lModelEvidence[i].SourceObservations := aModels[i].SourceObservations;
+    lModelEvidence[i].ModelSucceeded := aModels[i].Success;
+    lModelEvidence[i].BodyAnalysisIncluded := ModelAnalysisIncluded(
+      aModels[i].FileName, aScopedSourceFileNames);
+    lModelEvidence[i].ReferenceExtractionIncluded := lModelEvidence[i].BodyAnalysisIncluded;
+    lModelEvidence[i].IncludeFileNames := Copy(aModels[i].IncludeFileNames);
+    lModelEvidence[i].ModelDiagnostics := Copy(aModels[i].Diagnostics);
+    lModelEvidence[i].DependencyFacts := aModels[i].DependencyFacts.Clone;
+    lModelEvidence[i].References := Copy(aModels[i].References);
+    lModelEvidence[i].SemanticModelFingerprint :=
+      TDelphiSemanticContextEvidenceExtension.FingerprintModel(aModels[i]);
+  end;
+
+  lContext := Default(TDelphiSemanticContextEvidenceContext);
+  lContext.SessionOpen := aSessionOpen;
+  lContext.ProjectFileName := aProject.ProjectFileName;
+  lContext.MainSourceFileName := aProject.MainSourceFileName;
+  SetLength(lContext.CompilerLinkProperties, Length(cDelphiSemanticCompilerLinkPropertyNames));
+  for i := 0 to High(cDelphiSemanticCompilerLinkPropertyNames) do
+  begin
+    lContext.CompilerLinkProperties[i].Name := cDelphiSemanticCompilerLinkPropertyNames[i];
+    lContext.CompilerLinkProperties[i].Value :=
+      aProject.PropertyValue(cDelphiSemanticCompilerLinkPropertyNames[i]);
+  end;
+  lContext.CompilerIdentity := aProject.CompilerProfileName;
+  lContext.ModelVersion := DelphiSemanticsVersionText;
+  lContext.ProjectContextFingerprint := aProject.ContextFingerprint;
+  lContext.ExpectedRootFileNames := Copy(aExpectedRootFileNames);
+  lContext.RequestedAnalysisFileNames := Copy(aScopedSourceFileNames);
+  lContext.ProjectDiagnostics := Copy(aProjectDiagnostics);
+  lEvidence := TDelphiSemanticContextEvidenceExtension.Create(lContext,
+    aProjectObservations, lModelEvidence);
+  if lEvidence.HasCoProducedEvidence then
+    Result := lEvidence
+  else
+    lEvidence.Free;
+end;
+
 function BuildSnapshotFromModels(const aModels: TArray<TDelphiSemanticUnitModel>;
   const aWorkerCount: Integer;
   var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics): TDelphiProjectSnapshot; overload;
@@ -1544,6 +1640,7 @@ var
   lCacheMetrics: TDelphiSemanticSnapshotCacheMetrics;
   lCacheSnapshot: TDelphiProjectSnapshot;
   lCacheSnapshotMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lContextEvidence: TObject;
   lExtractionModelIndex: Integer;
   lExtractionModelUnitIds: TArray<TSemanticUnitId>;
   lExtractionSourceFileNames: TArray<string>;
@@ -1569,6 +1666,7 @@ begin
   SetLength(lMissingSourceFileNames, 0);
   SetLength(lStoreUnitFlags, 0);
   lCacheHadPartialHit := False;
+  lContextEvidence := nil;
   lCacheSnapshotMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
   SetLength(lUnitSnapshots, 0);
   if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
@@ -1658,9 +1756,21 @@ begin
       FreeSnapshots(lUnitSnapshots);
     end;
     ApplySnapshotBuilderMetrics(Result.Metrics, lBuilderMetrics);
-  end else
-    lSnapshot := BuildSnapshotFromModels(lExtraction.Models, fOptions.SnapshotBuildWorkerCount,
-      Result.Metrics);
+  end else begin
+    lContextEvidence := TryCreateContextEvidenceExtension(fProject, fDiagnostics,
+      lSourceFileNames, fProject.ContextObservations, lExtraction.Models,
+      aScopedSourceFileNames, fStatus = TDelphiSemanticProjectSessionStatus.psOpen);
+    try
+      if lContextEvidence <> nil then
+        lSnapshot := BuildSnapshotFromModelsWithContextEvidence(lExtraction.Models,
+          fOptions.SnapshotBuildWorkerCount, lContextEvidence, Result.Metrics)
+      else
+        lSnapshot := BuildSnapshotFromModels(lExtraction.Models,
+          fOptions.SnapshotBuildWorkerCount, Result.Metrics);
+    finally
+      lContextEvidence.Free;
+    end;
+  end;
   try
     AddSnapshotCacheMetricTotals(Result.Metrics, lCacheSnapshotMetrics);
     if Length(lUnitSnapshots) > 0 then

@@ -87,12 +87,115 @@ begin
     Result[i] := aArray.Items[i].Value;
 end;
 
+function DependencyFactsToJson(const aFacts: TDelphiSemanticUnitDependencyFacts): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('Known', TJSONBool.Create(aFacts.Known));
+  Result.AddPair('InterfaceImports', StringArrayToJson(aFacts.InterfaceImports));
+  Result.AddPair('ImplementationImports', StringArrayToJson(aFacts.ImplementationImports));
+  Result.AddPair('RootImports', StringArrayToJson(aFacts.RootImports));
+  Result.AddPair('HasInitialization', TJSONBool.Create(aFacts.HasInitialization));
+  Result.AddPair('HasFinalization', TJSONBool.Create(aFacts.HasFinalization));
+end;
+
+function IsImportArray(const aValue: TJSONValue): Boolean;
+var
+  lItem: TJSONValue;
+begin
+  Result := False;
+  if not (aValue is TJSONArray) then
+    Exit;
+  for lItem in (aValue as TJSONArray) do
+    if (lItem.ClassType <> TJSONString) or (Trim(lItem.Value) = '') then
+      Exit;
+  Result := True;
+end;
+function JsonToDependencyFacts(const aValue: TJSONValue): TDelphiSemanticUnitDependencyFacts;
+var
+  lObject: TJSONObject;
+begin
+  Result := Default(TDelphiSemanticUnitDependencyFacts);
+  if not (aValue is TJSONObject) then
+    Exit;
+  lObject := aValue as TJSONObject;
+  Result.Known := (lObject.GetValue('Known') is TJSONBool) and
+    JsonBool(lObject, 'Known') and
+    IsImportArray(lObject.GetValue('InterfaceImports')) and
+    IsImportArray(lObject.GetValue('ImplementationImports')) and
+    IsImportArray(lObject.GetValue('RootImports')) and
+    (lObject.GetValue('HasInitialization') is TJSONBool) and
+    (lObject.GetValue('HasFinalization') is TJSONBool);
+  if not Result.Known then
+    Exit;
+  Result.InterfaceImports := JsonToStringArray(lObject.GetValue('InterfaceImports') as TJSONArray);
+  Result.ImplementationImports := JsonToStringArray(lObject.GetValue('ImplementationImports') as TJSONArray);
+  Result.RootImports := JsonToStringArray(lObject.GetValue('RootImports') as TJSONArray);
+  Result.HasInitialization := JsonBool(lObject, 'HasInitialization');
+  Result.HasFinalization := JsonBool(lObject, 'HasFinalization');
+end;
+function SignatureToJson(const aSignature: TDelphiSemanticProcedureSignature): TJSONObject;
+var
+  lParameters: TJSONArray;
+  lParameter: TDelphiSemanticSignatureParameter;
+  lItem: TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('Known', TJSONBool.Create(aSignature.Known));
+  Result.AddPair('OfObject', TJSONBool.Create(aSignature.OfObject));
+  Result.AddPair('Kind', aSignature.Kind);
+  Result.AddPair('CallingConvention', aSignature.CallingConvention);
+  Result.AddPair('ReturnType', aSignature.ReturnType);
+  lParameters := TJSONArray.Create;
+  Result.AddPair('Parameters', lParameters);
+  for lParameter in aSignature.Parameters do
+  begin
+    lItem := TJSONObject.Create;
+    lParameters.AddElement(lItem);
+    lItem.AddPair('Name', lParameter.Name);
+    lItem.AddPair('TypeName', lParameter.TypeName);
+    lItem.AddPair('Modifier', lParameter.Modifier);
+  end;
+end;
+
+function JsonToSignature(const aObject: TJSONObject): TDelphiSemanticProcedureSignature;
+var
+  i: Integer;
+  lParameters: TJSONArray;
+  lItem: TJSONObject;
+begin
+  Result := Default(TDelphiSemanticProcedureSignature);
+  if not Assigned(aObject) then
+    Exit;
+  Result.Known := JsonBool(aObject, 'Known');
+  Result.OfObject := JsonBool(aObject, 'OfObject');
+  Result.Kind := JsonString(aObject, 'Kind');
+  Result.CallingConvention := JsonString(aObject, 'CallingConvention');
+  Result.ReturnType := JsonString(aObject, 'ReturnType');
+  lParameters := aObject.GetValue('Parameters') as TJSONArray;
+  if not Assigned(lParameters) then
+  begin
+    Result.Known := False;
+    Exit;
+  end;
+  SetLength(Result.Parameters, lParameters.Count);
+  for i := 0 to Pred(lParameters.Count) do
+  begin
+    lItem := lParameters.Items[i] as TJSONObject;
+    Result.Parameters[i].Name := JsonString(lItem, 'Name');
+    Result.Parameters[i].TypeName := JsonString(lItem, 'TypeName');
+    Result.Parameters[i].Modifier := JsonString(lItem, 'Modifier');
+  end;
+end;
+
 function DeclarationToJson(const aDeclaration: TDelphiSemanticDeclaration): TJSONObject;
 begin
   Result := TJSONObject.Create;
   Result.AddPair('Name', aDeclaration.Name);
   Result.AddPair('Kind', aDeclaration.Kind);
   Result.AddPair('TypeName', aDeclaration.TypeName);
+  Result.AddPair('InterfaceGuid', aDeclaration.InterfaceGuid);
+  Result.AddPair('IsDispInterface', TJSONBool.Create(aDeclaration.IsDispInterface));
+  Result.AddPair('ProcedureSignature', SignatureToJson(aDeclaration.ProcedureSignature));
   Result.AddPair('BaseTypeName', aDeclaration.BaseTypeName);
   Result.AddPair('HelperTargetName', aDeclaration.HelperTargetName);
   Result.AddPair('SectionKind', aDeclaration.SectionKind);
@@ -110,6 +213,10 @@ end;
 
 function JsonToDeclaration(const aObject: TJSONObject): TDelphiSemanticDeclaration;
 begin
+  Result := Default(TDelphiSemanticDeclaration);
+  Result.InterfaceGuid := JsonString(aObject, 'InterfaceGuid');
+  Result.IsDispInterface := JsonBool(aObject, 'IsDispInterface');
+  Result.ProcedureSignature := JsonToSignature(aObject.GetValue('ProcedureSignature') as TJSONObject);
   Result.Name := JsonString(aObject, 'Name');
   Result.Kind := JsonString(aObject, 'Kind');
   Result.TypeName := JsonString(aObject, 'TypeName');
@@ -159,6 +266,7 @@ begin
   Result.AddPair('Kind', aMember.Kind);
   Result.AddPair('TypeName', aMember.TypeName);
   Result.AddPair('Visibility', aMember.Visibility);
+  Result.AddPair('ProcedureSignature', SignatureToJson(aMember.ProcedureSignature));
   Result.AddPair('Signature', aMember.Signature);
   Result.AddPair('IsIndexed', TJSONBool.Create(aMember.IsIndexed));
   Result.AddPair('IsDefault', TJSONBool.Create(aMember.IsDefault));
@@ -170,6 +278,8 @@ end;
 
 function JsonToMember(const aObject: TJSONObject): TDelphiSemanticMember;
 begin
+  Result := Default(TDelphiSemanticMember);
+  Result.ProcedureSignature := JsonToSignature(aObject.GetValue('ProcedureSignature') as TJSONObject);
   Result.OwnerName := JsonString(aObject, 'OwnerName');
   Result.Name := JsonString(aObject, 'Name');
   Result.Kind := JsonString(aObject, 'Kind');
@@ -262,6 +372,8 @@ begin
   Result.AddPair('OwnerName', aRoutine.OwnerName);
   Result.AddPair('SectionKind', aRoutine.SectionKind);
   Result.AddPair('Signature', aRoutine.Signature);
+  Result.AddPair('CallingConvention', aRoutine.CallingConvention);
+  Result.AddPair('ProcedureSignature', SignatureToJson(aRoutine.ProcedureSignature));
   Result.AddPair('ReturnType', aRoutine.ReturnType);
   Result.AddPair('Line', TJSONNumber.Create(aRoutine.Line));
   Result.AddPair('Column', TJSONNumber.Create(aRoutine.Column));
@@ -276,6 +388,9 @@ end;
 
 function JsonToRoutine(const aObject: TJSONObject): TDelphiSemanticRoutine;
 begin
+  Result := Default(TDelphiSemanticRoutine);
+  Result.CallingConvention := JsonString(aObject, 'CallingConvention');
+  Result.ProcedureSignature := JsonToSignature(aObject.GetValue('ProcedureSignature') as TJSONObject);
   Result.Name := JsonString(aObject, 'Name');
   Result.OwnerName := JsonString(aObject, 'OwnerName');
   Result.SectionKind := JsonString(aObject, 'SectionKind');
@@ -533,6 +648,7 @@ begin
     lObject.AddPair('LineBreak', aModel.LineBreak);
     lObject.AddPair('SourceText', aModel.SourceText);
     lObject.AddPair('SourceSections', SourceSectionsToJson(aModel.SourceSections));
+    lObject.AddPair('DependencyFacts', DependencyFactsToJson(aModel.DependencyFacts));
     lObject.AddPair('InterfaceUses', StringArrayToJson(aModel.InterfaceUses));
     lObject.AddPair('ImplementationUses', StringArrayToJson(aModel.ImplementationUses));
     lObject.AddPair('Declarations', DeclarationsToJson(aModel.Declarations));
@@ -571,6 +687,7 @@ begin
     Result.LineBreak := JsonString(lObject, 'LineBreak');
     Result.SourceText := JsonString(lObject, 'SourceText');
     Result.SourceSections := JsonToSourceSections(lObject.GetValue('SourceSections') as TJSONObject);
+    Result.DependencyFacts := JsonToDependencyFacts(lObject.GetValue('DependencyFacts'));
     Result.InterfaceUses := JsonToStringArray(lObject.GetValue('InterfaceUses') as TJSONArray);
     Result.ImplementationUses := JsonToStringArray(lObject.GetValue('ImplementationUses') as TJSONArray);
     Result.Declarations := JsonToDeclarations(lObject.GetValue('Declarations') as TJSONArray);

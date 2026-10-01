@@ -2,6 +2,9 @@ unit DelphiSemantics.Preprocess;
 
 interface
 
+uses
+  DelphiSemantics.Source;
+
 type
   TDelphiSemanticPreprocessOptions = record
     SourceFileName: string;
@@ -34,6 +37,7 @@ type
     Success: Boolean;
     OutputText: string;
     IncludeGraphHash: string;
+    SourceObservations: IDelphiSemanticSourceObservations;
     Regions: TArray<TDelphiSemanticSourceRegion>;
     Includes: TArray<TDelphiSemanticIncludeFile>;
     Diagnostics: TArray<TDelphiSemanticPreprocessDiagnostic>;
@@ -49,12 +53,11 @@ implementation
 
 uses
   System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
-  MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.Source;
+  MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types;
 
 type
   TDefineMap = TDictionary<string, Boolean>;
-  TSourceTextCache = TDictionary<string, string>;
+  TSourceTextCache = TDictionary<string, TDelphiSemanticSourceLoadResult>;
 
   TPreprocessFrame = record
     ParentActive: Boolean;
@@ -116,8 +119,11 @@ var
   lSourceLoad: TDelphiSemanticSourceLoadResult;
 begin
   lFileName := TPath.GetFullPath(aFileName);
-  if aSourceCache.TryGetValue(lFileName, aSourceText) then
+  if aSourceCache.TryGetValue(lFileName, lSourceLoad) then
+  begin
+    aSourceText := lSourceLoad.Source.Text;
     Exit(True);
+  end;
 
   lSourceLoad := TDelphiSemanticSourceLoader.LoadFile(lFileName);
   if not lSourceLoad.Success then
@@ -135,7 +141,7 @@ begin
   end;
 
   aSourceText := lSourceLoad.Source.Text;
-  aSourceCache.Add(lFileName, aSourceText);
+  aSourceCache.Add(lFileName, lSourceLoad);
   Result := True;
 end;
 
@@ -946,9 +952,13 @@ var
   lOutput: TStringBuilder;
   lRegions: TList<TDelphiSemanticSourceRegion>;
   lSourceCache: TSourceTextCache;
+  lSourceLoad: TDelphiSemanticSourceLoadResult;
+  lCombined: IDelphiSemanticSourceObservations;
+  lObservationError: string;
   lStack: TList<TPreprocessFrame>;
   lSuccess: Boolean;
 begin
+  Result := Default(TDelphiSemanticPreprocessResult);
   lDefines := nil;
   lDiagnostics := nil;
   lIncludes := nil;
@@ -977,6 +987,19 @@ begin
         'Unterminated conditional directive stack.', aOptions.SourceFileName, 0);
       lSuccess := False;
     end;
+    for lSourceLoad in lSourceCache.Values do
+      if Result.SourceObservations = nil then
+        Result.SourceObservations := lSourceLoad.SourceObservations
+      else if TDelphiSemanticSourceEvidence.TryMerge(Result.SourceObservations,
+        lSourceLoad.SourceObservations, lCombined, lObservationError) then
+        Result.SourceObservations := lCombined
+      else begin
+        AddDiagnostic(lDiagnostics, lObservationError,
+          'Source bytes changed during preprocessing.', aOptions.SourceFileName, 0);
+        Result.SourceObservations := nil;
+        lSuccess := False;
+        Break;
+      end;
     Result.Success := lSuccess;
     Result.OutputText := lOutput.ToString;
     Result.IncludeGraphHash := CalculateIncludeGraphHash(lIncludes);
