@@ -55,6 +55,17 @@ type
     [Test]
     procedure RefusesSameLineHandlerOverloads;
     [Test]
+    [TestCase('Second of two handlers', 'two-methods,HandleData')]
+    [TestCase('First of two handlers', 'two-methods,HandleOther')]
+    [TestCase('Handler after field and visibility', 'field-visibility,HandleOther')]
+    [TestCase('Next-line handler after mixed line', 'field-visibility,HandleData')]
+    procedure ResolvesHandlersSharingOnePhysicalLine(const aLayout, aHandler: string);
+    [Test]
+    [TestCase('Unsupported procedural field layout', 'True,unknown')]
+    [TestCase('Supported control layout', 'False,match')]
+    procedure RefusesUnitWithIncompleteMembers(const aProceduralField: Boolean;
+      const aStatus: string);
+    [Test]
     [TestCase('Direct parameter alias', 'direct,match')]
     [TestCase('Chained parameter alias', 'chain,match')]
     [TestCase('Distinct parameter type', 'distinct,mismatch')]
@@ -1131,6 +1142,114 @@ begin
     lGraph.Free;
   end;
 end;
+
+procedure TRefactorConsistencyTests.ResolvesHandlersSharingOnePhysicalLine(const aLayout,
+  aHandler: string);
+var
+  lBinding: TDelphiSemanticEventBinding;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lLine: string;
+  lModel: TDelphiSemanticUnitModel;
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticEventBindingResult;
+begin
+  if aLayout = 'two-methods' then
+    lLine := '  published procedure HandleOther(aValue: TValue); ' +
+      'procedure HandleData(aValue: TValue);'
+  else
+    lLine := '  private FOther: TEvent; published procedure HandleOther(aValue: TValue);' +
+      sLineBreak + '    procedure HandleData(aValue: TValue);';
+  lModel := ExtractModel('SameLineEvents', 'unit SameLineEvents;' + sLineBreak +
+    'interface' + sLineBreak + 'type' + sLineBreak +
+    '  TValue = class end;' + sLineBreak +
+    '  TEvent = procedure(aValue: TValue) of object;' + sLineBreak +
+    '  TControl = class' + sLineBreak +
+    '  private' + sLineBreak + '    FEvent: TEvent;' + sLineBreak +
+    '  published' + sLineBreak +
+    '    property OnData: TEvent read FEvent write FEvent;' + sLineBreak + '  end;' + sLineBreak +
+    '  TForm = class' + sLineBreak + lLine + sLineBreak + '  end;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure TForm.HandleOther(aValue: TValue); begin end;' + sLineBreak +
+    'procedure TForm.HandleData(aValue: TValue); begin end;' + sLineBreak + 'end.');
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lModel]);
+  try
+    lBinding := Default(TDelphiSemanticEventBinding);
+    lBinding.UnitName := lModel.UnitName;
+    lBinding.FormClassName := 'TForm';
+    lBinding.ComponentClassName := 'TControl';
+    lBinding.EventName := 'OnData';
+    lBinding.HandlerName := aHandler;
+    lResult := TDelphiSemanticEventBindingResolver.Resolve([lModel],
+      TDelphiSemanticTypeResolver.BuildIndex(lGraph), lBinding);
+    Assert.AreEqual('match', lResult.Status, lResult.Reason + sLineBreak + ModelToJson(lModel));
+    Assert.AreEqual(aHandler, lResult.Handler.Name);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+// The line scan cannot read an inline procedural field type, so the syntax tree reconciliation
+// records MEMBERS_INCOMPLETE and consistency refuses the whole unit instead of trusting it.
+procedure TRefactorConsistencyTests.RefusesUnitWithIncompleteMembers(
+  const aProceduralField: Boolean; const aStatus: string);
+var
+  lBinding: TDelphiSemanticEventBinding;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lField: string;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIncomplete: string;
+  lModel: TDelphiSemanticUnitModel;
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticEventBindingResult;
+begin
+  lField := '    FOnX: TEvent;';
+  if aProceduralField then
+    lField := '    FOnX: procedure(a: Integer) of object;';
+  lModel := ExtractModel('IncompleteEvents', 'unit IncompleteEvents;' + sLineBreak +
+    'interface' + sLineBreak + 'type' + sLineBreak +
+    '  TValue = class end;' + sLineBreak +
+    '  TEvent = procedure(aValue: TValue) of object;' + sLineBreak +
+    '  TControl = class' + sLineBreak +
+    '  private' + sLineBreak + '    FEvent: TEvent;' + sLineBreak +
+    '  published' + sLineBreak +
+    '    property OnData: TEvent read FEvent write FEvent;' + sLineBreak + '  end;' + sLineBreak +
+    '  TForm = class' + sLineBreak + '  private' + sLineBreak + lField + sLineBreak +
+    '  published' + sLineBreak + '    procedure HandleData(aValue: TValue);' + sLineBreak +
+    '  end;' + sLineBreak + 'implementation' + sLineBreak +
+    'procedure TForm.HandleData(aValue: TValue); begin end;' + sLineBreak + 'end.');
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  lIncomplete := '';
+  for lDiagnostic in lModel.Diagnostics do
+    if SameText(lDiagnostic.Code, 'MEMBERS_INCOMPLETE') then
+      lIncomplete := lDiagnostic.Message;
+  if aProceduralField then
+  begin
+    // The diagnostic names the type and the member the scan missed.
+    Assert.IsTrue(Pos('TForm', lIncomplete) > 0, lIncomplete);
+    Assert.IsTrue(Pos('FOnX', lIncomplete) > 0, lIncomplete);
+  end else
+    Assert.AreEqual('', lIncomplete);
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lModel]);
+  try
+    lBinding := Default(TDelphiSemanticEventBinding);
+    lBinding.UnitName := lModel.UnitName;
+    lBinding.FormClassName := 'TForm';
+    lBinding.ComponentClassName := 'TControl';
+    lBinding.EventName := 'OnData';
+    lBinding.HandlerName := 'HandleData';
+    lResult := TDelphiSemanticEventBindingResolver.Resolve([lModel],
+      TDelphiSemanticTypeResolver.BuildIndex(lGraph), lBinding);
+    Assert.AreEqual(aStatus, lResult.Status, lResult.Reason);
+  finally
+    lGraph.Free;
+  end;
+end;
+
 procedure TRefactorConsistencyTests.DistinguishesMissingHandlerFromUnknownAncestry(
   const aShape, aStatus: string);
 var

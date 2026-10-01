@@ -1210,7 +1210,8 @@ begin
     Exit;
   end;
 
-  lUsageResult := TDelphiSemanticUsageFinder.FindUsagesByName(lIndex, aName);
+  lUsageResult := TDelphiSemanticUsageFinder.RequireVerifiedDeclaringUnit(aContext,
+    TDelphiSemanticUsageFinder.FindUsagesByName(lIndex, aName));
   Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
   Result.IndexMetrics := lIndex.Metrics;
 end;
@@ -1244,8 +1245,9 @@ begin
   end;
 
   lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
-  lUsageResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lIndex, aContext, aFileName,
-    aLine, aColumn);
+  lUsageResult := TDelphiSemanticUsageFinder.RequireVerifiedDeclaringUnit(aContext,
+    TDelphiSemanticUsageFinder.FindUsagesAtPosition(lIndex, aContext, aFileName, aLine,
+    aColumn));
   if lUsageResult.Status <> 'resolved' then
   begin
     Result := MakeBlockedPlan(lUsageResult.Diagnostic);

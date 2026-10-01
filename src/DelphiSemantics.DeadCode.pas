@@ -58,6 +58,7 @@ implementation
 uses
   System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
   DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.QuerySupport,
+  DelphiSemantics.Usage,
   MaxLogic.StrUtils;
 
 const
@@ -636,6 +637,8 @@ var
   lReferenceCount: Integer;
   lSourceIndex: TDeadCodeSourceIndex;
   lSymbol: TDelphiSemanticIndexedSymbol;
+  lUnverifiedScopeStatus: string;
+  lUnverifiedUnitName: string;
 begin
   lSafetyProfile := aProfile;
   lProfile := TDelphiSemanticDeadCodeProfiles.ToName(lSafetyProfile);
@@ -674,7 +677,15 @@ begin
         if (lReferenceCount > 0) and (lBlockers.Count = 0) then
         Continue;
 
-        if lBlockers.Count > 0 then
+        // Members and references of a unit without verified syntax facts may be missing or
+        // misowned, so a zero reference count proves nothing there.
+        if TDelphiSemanticUsageFinder.TryFindUnverifiedDeclaringUnit(aContext, lSymbol,
+          lUnverifiedUnitName, lUnverifiedScopeStatus) then
+        begin
+          AddBlocker(lBlockers, 'unverified-scope-facts');
+          lCandidate := MakeCandidate(lSymbol, 'blocked', 'unverified-scope-facts', lProfile,
+            lReferenceCount, lBlockers.ToArray);
+        end else if lBlockers.Count > 0 then
           lCandidate := MakeCandidate(lSymbol, 'blocked', 'dynamic-or-unresolved-risk',
             lProfile, lReferenceCount, lBlockers.ToArray)
         else if ExternallyVisible(lSymbol) then

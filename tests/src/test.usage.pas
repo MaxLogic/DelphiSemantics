@@ -39,12 +39,22 @@ type
     procedure SnapshotBackedUsagesResolveInterfaceImplementationParameterAtPosition;
     [Test]
     procedure BlocksAmbiguousUsageTargets;
+    [Test]
+    [TestCase('Snapshot, failed syntax tree', 'True,True')]
+    [TestCase('Snapshot, verified control', 'True,False')]
+    [TestCase('Unit models, failed syntax tree', 'False,True')]
+    [TestCase('Unit models, verified control', 'False,False')]
+    procedure RefusesSymbolsDeclaredInUnverifiedUnits(const aSnapshot, aFailed: Boolean);
+    [Test]
+    [TestCase('Failed syntax tree', 'True')]
+    [TestCase('Verified control', 'False')]
+    procedure RefusesSymbolsDeclaredInUnverifiedProgram(const aFailed: Boolean);
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
   Test.Support;
@@ -771,6 +781,119 @@ begin
   Assert.AreEqual('ambiguous', lResult.Status);
   Assert.IsTrue(lResult.Diagnostic <> '');
   Assert.AreEqual(0, Integer(Length(lResult.Usages)));
+end;
+
+// A program model has no unit name, so the declaring file identifies it.
+procedure TUsageTests.RefusesSymbolsDeclaredInUnverifiedProgram(const aFailed: Boolean);
+var
+  lBroken: string;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lResult: TDelphiSemanticUsageResult;
+begin
+  lPath := UsageTempPath('unverified-program-' + BoolToStr(aFailed, True) + '.dpr');
+  lBroken := '';
+  if aFailed then
+    lBroken := '  if ('#13#10;
+  TFile.WriteAllText(lPath, 'program PFail;'#13#10'var'#13#10'  GValue: Integer;'#13#10 +
+    'procedure Touch;'#13#10'begin'#13#10 + lBroken + 'end;'#13#10'begin'#13#10 +
+    '  GValue := 1;'#13#10'end.'#13#10, TEncoding.ASCII);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  Assert.AreEqual('', lContext.UnitModel.UnitName, 'A program model carries no unit name.');
+
+  lResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lContext, lPath, 3, 3);
+  if aFailed then
+  begin
+    Assert.AreEqual('ast-failed', lContext.UnitModel.ScopeModelStatus);
+    Assert.AreEqual('unknown', lResult.Status, lResult.Diagnostic);
+    Assert.IsTrue(ContainsText(lResult.Diagnostic, 'ast-failed'), lResult.Diagnostic);
+  end else
+  begin
+    Assert.AreEqual('ast', lContext.UnitModel.ScopeModelStatus);
+    Assert.AreEqual('resolved', lResult.Status, lResult.Diagnostic);
+    Assert.AreEqual('GValue', lResult.Symbol.Name);
+  end;
+end;
+
+// The one-character deprecation message compiles, but the syntax tree builder rejects it,
+// so the unit is ast-failed and FCounter exists only as an unverified fallback member.
+procedure TUsageTests.RefusesSymbolsDeclaredInUnverifiedUnits(const aSnapshot,
+  aFailed: Boolean);
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lDeprecation: string;
+  lExtractionMilliseconds: Int64;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lOptions: TDelphiSemanticOptions;
+  lPlan: TDelphiSemanticRenamePlan;
+  lResult: TDelphiSemanticUsageResult;
+  lRootPath: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+  lUnitPath: string;
+begin
+  lRootPath := UsageTempPath('unverified-' + BoolToStr(aSnapshot, True) + '-' +
+    BoolToStr(aFailed, True));
+  TDirectory.CreateDirectory(lRootPath);
+  lUnitPath := TPath.Combine(lRootPath, 'UProv.pas');
+  lDeprecation := '';
+  if aFailed then
+    lDeprecation := ' deprecated ''z'';';
+  TFile.WriteAllText(lUnitPath, 'unit UProv;'#13#10'interface'#13#10'type'#13#10 +
+    '  TA = class'#13#10'  public'#13#10'    FCounter: Integer;'#13#10 +
+    '    procedure Y;' + lDeprecation + #13#10'  end;'#13#10'implementation'#13#10 +
+    'procedure TA.Y;'#13#10'begin'#13#10'  FCounter := 1;'#13#10'end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'Prov.dpr'),
+    'program Prov;'#13#10'uses UProv;'#13#10'begin'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'Prov.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>Prov.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="UProv.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+
+  lSessionResult := Default(TDelphiSemanticProjectSessionResult);
+  if aSnapshot then
+  begin
+    lOptions := Default(TDelphiSemanticOptions);
+    lOptions.ProjectPath := TPath.Combine(lRootPath, 'Prov.dproj');
+    lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+    Assert.IsTrue(lSessionResult.Success);
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+  end else
+  begin
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := lUnitPath;
+    lModelOptions.ProjectContextApplied := True;
+    lContext.UnitModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  end;
+  try
+    lResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lContext, lUnitPath, 6, 5);
+    lPlan := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext, lUnitPath, 6, 5,
+      'FTally');
+    if aFailed then
+    begin
+      Assert.AreEqual('unknown', lResult.Status, 'Unverified members must not resolve usages.');
+      Assert.IsTrue(ContainsText(lResult.Diagnostic, 'ast-failed'), lResult.Diagnostic);
+      Assert.AreEqual(0, Integer(Length(lResult.Usages)));
+      Assert.AreEqual('blocked', lPlan.Status, 'Unverified members must not be renamed.');
+      Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+    end else
+    begin
+      Assert.AreEqual('resolved', lResult.Status, lResult.Diagnostic);
+      Assert.AreEqual('FCounter', lResult.Symbol.Name);
+      Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+    end;
+  finally
+    lContext.ProjectSnapshot := nil;
+    lSessionResult.Session.Free;
+  end;
 end;
 
 // T-319: compiler-equivalent interface and implementation headers that differ only by line wrapping

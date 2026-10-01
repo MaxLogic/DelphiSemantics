@@ -86,13 +86,14 @@ why complete AST status alone is insufficient. T640 now retains the tested field
 alignment preservation case leaves comments, literals and the qualified field
 unchanged. Unknown qualified targets remain refused; full feature acceptance is open.
 
-Field-layout coverage currently includes consecutive ordinary fields, visibility
-changes between fields, and a persistent `class var` section on one physical
-line. Source coordinates are retained for each tested field. Mixed method,
-property and field declarations on one line, and compound variant-record layouts,
-are not certified by this coverage. Consumers must not treat a missing member or
-`ScopeModelStatus=ast` as proof of absence. Automatic alignment remains unavailable
-until the remaining binding and mutation gates pass.
+Members are checked against the syntax tree. Several members on one physical
+line are supported, including fields, methods and properties mixed with
+visibility keywords, and nested types use qualified owners. If the line scan
+misses a member the syntax tree declares, the unit gets `MEMBERS_INCOMPLETE`
+naming the missed members, and consumers refuse that unit. An `ast-failed` unit
+has only unverified fallback members marked by `MEMBERS_UNVERIFIED`. Consumers
+must not treat a missing member as proof of absence. Automatic alignment remains
+unavailable until the remaining binding and mutation gates pass.
 The provisional planner supports multiple parameter-name changes, including a
 simultaneous swap. It first requires a complete set of edits bound to the original
 snapshot. An existing name is exempt from capture checks only at a declaration or
@@ -103,6 +104,6 @@ already changed text. These are repair-plan facts, not evidence of a successful
 compiler baseline or authorization to apply.
 
 A mixed `procedure Other; private aOldValue: TValue;` declaration on one physical
-line has native Win64 legality/runtime proof. Its missing field reference causes
-`alignment.reference-proof-unavailable` and no plan in the current extractor.
-This explicit refusal does not certify all mixed member layouts.
+line has native Win64 legality/runtime proof. The field is now extracted, so the
+planner changes only the unqualified parameter use and leaves `Self.aOldValue`
+untouched.

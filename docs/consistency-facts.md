@@ -18,7 +18,7 @@ and a published handler through source-defined component and form ancestors.
 It returns declaration file, unit, owner, name, line and column evidence.
 Ancestor traversal detects cycles and does not fall back to a global simple-name
 match. Missing or ambiguous models, unavailable ancestry, unresolved event
-types and collapsed same-line handler overloads produce `unknown`.
+types and handler overloads produce `unknown`.
 
 Current limitations:
 
@@ -38,11 +38,26 @@ Current limitations:
 The model stores method declaration signatures on members and implementation
 signatures on routines. JSON persistence and cache copies retain structured
 signatures, including independently owned parameter arrays. The default parser
-cache identity is version 27; older default entries require fresh extraction.
+cache identity is version 33; older default entries require fresh extraction.
+
+Member extraction:
+
+- Class, record and interface members are checked against the syntax tree.
+  Several members on one physical line are supported, and visibility comes from
+  the syntax tree.
+- Members of nested types use the qualified owner, such as `TForm.TInner`.
+- If the line scan misses a member the syntax tree declares, the unit gets a
+  `MEMBERS_INCOMPLETE` diagnostic that names the missed members. Consistency
+  then refuses the whole unit, not only that type.
+- If the syntax tree cannot be built, the unit stays `ast-failed` and its members
+  come from a bounded line scan. They are unverified, carry one
+  `MEMBERS_UNVERIFIED` diagnostic, and leave out class variables.
+- find-usages does not yet find nested-type implementation headers or calls.
 
 `SkipBodyAnalysis` preserves declarations from valid implementation sections.
 If full parsing fails and this option is enabled, extraction may recover an
-interface projection. Its `ScopeModelStatus` is `ast-interface-only`, not `ast`.
+interface projection. Its `ScopeModelStatus` is `ast-interface-only`, not `ast`,
+and an `AST_BODY_PARSE_FAILED` diagnostic keeps the original parser message.
 Consumers must not treat that projection as complete project/refactoring proof.
 
 Current tests and evidence live under

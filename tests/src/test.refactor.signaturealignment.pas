@@ -38,8 +38,8 @@ type
     [Test]
     [TestCase('Unextracted parameter use', 'assembler-old')]
     [TestCase('Unextracted replacement-name use', 'assembler-new')]
-    [TestCase('Field after method and visibility on one line', 'mixed-method-field')]
     procedure RefusesUncoveredBodyTokens(const aShape: string);
+    [Test] procedure AlignsBesideFieldAfterMethodOnOneLine;
     [Test]
     [TestCase('Missing reference inventory', 'references')]
     [TestCase('Altered declaration signature', 'signature')]
@@ -743,6 +743,42 @@ begin
         'A complete AST does not prove extracted body token coverage: ' + aShape);
       Assert.AreEqual('alignment.reference-proof-unavailable', lResult.Reason);
       Assert.IsNull(lResult.Plan);
+    finally
+      lResult.Free;
+    end;
+  finally
+    lGraph.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+// `public procedure Other; private aOldValue: TValue;` was refused while the field was missing
+// from the model. With every member on the line extracted, only the unqualified parameter use
+// changes and Self.aOldValue stays untouched.
+procedure TSignatureAlignmentTests.AlignsBesideFieldAfterMethodOnOneLine;
+var
+  lBody: string;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lLines: TArray<string>;
+  lModel: TDelphiSemanticUnitModel;
+  lResult: TDelphiSemanticBoundPlanResult;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  CreateAlignmentProject('mixed-method-field', lModel, lSnapshot);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(Default(TDelphiSemanticProjectInfo), [lModel]);
+  try
+    lResult := TDelphiSemanticSignatureAlignment.PlanAlignment([lModel],
+      TDelphiSemanticTypeResolver.BuildIndex(lGraph), lSnapshot, lModel.FileName,
+      AlignmentDeclarationOffset(lModel));
+    try
+      Assert.IsTrue(lResult.Status = TSemanticPlanStatus.Complete, lResult.Reason);
+      Assert.AreEqual(2, lResult.Plan.EditCount, 'Only the parameter header and assignment');
+      lLines := lModel.SourceText.Split([#10]);
+      lBody := lLines[lResult.Plan.Edits[1].StartLine - 1];
+      Assert.IsTrue(Pos('begin aOldValue := Self.aOldValue;', lBody) > 0, lBody);
+      Assert.AreEqual(Pos('begin aOldValue', lBody) + 6, lResult.Plan.Edits[1].StartColumn);
+      Assert.AreEqual('aOldValue', lResult.Plan.Edits[1].ExpectedText);
+      Assert.AreEqual('aValue', lResult.Plan.Edits[1].ReplacementText);
     finally
       lResult.Free;
     end;

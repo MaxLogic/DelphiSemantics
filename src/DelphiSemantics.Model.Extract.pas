@@ -107,10 +107,16 @@ var
 threadvar
   GExtractionContext: TDelphiSemanticExtractionContext;
 
-procedure ExtractMembers(const aText: string; const aNode: TSyntaxNode;
+procedure ExtractMembers(const aText, aFileName: string; const aNode: TSyntaxNode;
+  const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>;
   const aReferences: TList<TDelphiSemanticReference>); forward;
+function ExtractFallbackMembers(const aText: string;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aMembers: TList<TDelphiSemanticMember>;
+  const aReferences: TList<TDelphiSemanticReference>;
+  out aOmittedClassVariables: Integer): Integer; forward;
 function ActiveExtractionContext: TDelphiSemanticExtractionContext; forward;
 function BuildTypeBlockRanges(const aText: string): TArray<TOffsetRange>; forward;
 
@@ -789,20 +795,31 @@ begin
 end;
 
 function BuildModelSyntaxTree(const aText: string; const aSkipBodyAnalysis: Boolean;
-  out aComplete: Boolean): TSyntaxNode;
+  out aComplete: Boolean; out aOriginalError: string): TSyntaxNode;
 begin
+  Result := nil;
   aComplete := True;
+  aOriginalError := '';
   try
     Result := ParseModelSyntaxTree(aText);
   except
-    on EParserException do
+    on e: EParserException do
     begin
       if not aSkipBodyAnalysis then
         raise;
-      // Interface-only RTL projections may intentionally omit valid bodies.
+      // Interface-only RTL projections may intentionally omit valid bodies. The full-text
+      // message names the real defect, so the retry must not replace it.
       aComplete := False;
-      Result := ParseModelSyntaxTree(AstInputText(aText, True));
+      aOriginalError := e.Message;
     end;
+  end;
+  if aComplete then
+    Exit;
+  try
+    Result := ParseModelSyntaxTree(AstInputText(aText, True));
+  except
+    on e: EParserException do
+      raise EParserException.Create(e.Line, e.Col, e.FileName, aOriginalError);
   end;
 end;
 function AstOrderedImports(const aSection: TSyntaxNode; var aKnown: Boolean): TArray<string>;
@@ -1081,14 +1098,22 @@ var
   i: Integer;
   lComplete: Boolean;
   lDeclaration: TDelphiSemanticDeclaration;
+  lDeclarationCount: Integer;
   lDeclarationFacts: TList<TAstDeclarationScopeFact>;
+  lDiagnosticCount: Integer;
   lFact: TAstDeclarationScopeFact;
   lLocal: TDelphiSemanticLocal;
+  lMemberCount: Integer;
+  lMemberReferences: TList<TDelphiSemanticReference>;
+  lOmittedClassVariables: Integer;
+  lOriginalError: string;
   lReference: TDelphiSemanticReference;
+  lReferenceCount: Integer;
   lRoutine: TDelphiSemanticRoutine;
   lScopeIndex: Integer;
   lScopes: TList<TAstRoutineScope>;
   lSyntaxTree: TSyntaxNode;
+  lTypeCount: Integer;
 
   function FindScopeForPosition(const aLine, aColumn: Integer): Integer;
   var
@@ -1237,25 +1262,55 @@ begin
   lDeclarationFacts := TList<TAstDeclarationScopeFact>.Create;
   lScopes := TList<TAstRoutineScope>.Create;
   lSyntaxTree := nil;
+  lMemberReferences := nil;
+  if not aOptions.SkipReferenceExtraction then
+    lMemberReferences := aReferences;
+  lDeclarationCount := aDeclarations.Count;
+  lDiagnosticCount := aDiagnostics.Count;
+  lMemberCount := aMembers.Count;
+  lReferenceCount := aReferences.Count;
   try
     try
-      lSyntaxTree := BuildModelSyntaxTree(aText, aOptions.SkipBodyAnalysis, lComplete);
+      lSyntaxTree := BuildModelSyntaxTree(aText, aOptions.SkipBodyAnalysis, lComplete,
+        lOriginalError);
       if lComplete then
         aModel.DependencyFacts := AstDependencyFacts(lSyntaxTree);
       CollectFacts(lSyntaxTree, -1, '');
-      if not aOptions.SkipReferenceExtraction then
-        ExtractMembers(aText, lSyntaxTree, aDeclarations, aMembers, aReferences)
-      else
-        ExtractMembers(aText, lSyntaxTree, aDeclarations, aMembers, nil);
+      ExtractMembers(aText, aModel.FileName, lSyntaxTree, aDiagnostics, aDeclarations, aMembers,
+        lMemberReferences);
       if lComplete then
         aModel.ScopeModelStatus := 'ast'
       else
+      begin
         aModel.ScopeModelStatus := 'ast-interface-only';
+        AddDiagnostic(aDiagnostics, 'AST_BODY_PARSE_FAILED', lOriginalError, aModel.FileName, 0);
+      end;
       aModel.RejectedDeclarationCount := 0;
     except
       on e: Exception do
       begin
+        // Drop partial syntax-backed facts; the bounded line scan below replaces them.
+        aDeclarations.Count := lDeclarationCount;
+        aDiagnostics.Count := lDiagnosticCount;
+        aMembers.Count := lMemberCount;
+        aReferences.Count := lReferenceCount;
         AddDiagnostic(aDiagnostics, 'SCOPE_MODEL_FAILED', e.Message, aModel.FileName, 0);
+        lTypeCount := ExtractFallbackMembers(aText, aDeclarations, aMembers, lMemberReferences,
+          lOmittedClassVariables);
+        for i := lDeclarationCount to Pred(aDeclarations.Count) do
+        begin
+          lDeclaration := aDeclarations[i];
+          lDeclaration.DeclarationRole := 'invalid';
+          lDeclaration.ScopeKind := 'unknown';
+          aDeclarations[i] := lDeclaration;
+          Inc(aModel.RejectedDeclarationCount);
+        end;
+        if lTypeCount > 0 then
+          AddDiagnostic(aDiagnostics, 'MEMBERS_UNVERIFIED', Format(
+            'Members of %d class, record or interface types come from a line scan because ' +
+            'the syntax tree is unavailable; they are unverified and every type is incomplete. ' +
+            '%d class variables were left out.', [lTypeCount, lOmittedClassVariables]),
+            aModel.FileName, 0);
         Exit;
       end;
     end;
@@ -2068,7 +2123,7 @@ const
   // Capture groups are shared by ordinary and normalized variant-field scans.
   cMemberFieldPrefix =
     '(?:(strict[ \t]+(?:private|protected)|private|protected|public|published)[ \t]+)?' +
-    '(class\s+var\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)';
+    '(class\s+var\s+)?(&?[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*&?[A-Za-z_][A-Za-z0-9_]*)*)';
 
 procedure UpdateFieldSection(const aMatch: TMatch; var aVisibility: string;
   var aClassVariables: Boolean);
@@ -2081,10 +2136,78 @@ begin
   if aMatch.Groups[2].Value <> '' then
     aClassVariables := True;
 end;
+function PreviousCodeChar(const aCleanText: string; const aIndex: Integer): Char;
+var
+  i: Integer;
+begin
+  i := aIndex - 1;
+  while (i >= 1) and (aCleanText[i] <= ' ') do
+    Dec(i);
+  if i < 1 then
+    Exit(#0);
+  Result := aCleanText[i];
+end;
+
+// Splits physical body lines where the syntax tree starts another member, so every member
+// on a line gets its own scan. Continuations of a comma-separated field list stay whole.
+procedure BuildMemberSegments(const aBody, aCleanBody: string; const aBodyOffset: Integer;
+  const aSplitOffsets: TArray<Integer>; const aSegments: TStringList;
+  const aSegmentOffsets: TList<Integer>);
+var
+  i: Integer;
+  lLine: string;
+  lLineEnd: Integer;
+  lLines: TStringList;
+  lOffset: Integer;
+  lSplit: Integer;
+  lSplitIndex: Integer;
+  lStart: Integer;
+begin
+  lLines := TStringList.Create;
+  try
+    lLines.Text := aBody;
+    lOffset := aBodyOffset;
+    lSplitIndex := 0;
+    for i := 0 to Pred(lLines.Count) do
+    begin
+      lLine := lLines[i];
+      lLineEnd := lOffset + Length(lLine);
+      lStart := lOffset;
+      while (lSplitIndex <= High(aSplitOffsets)) and (aSplitOffsets[lSplitIndex] < lLineEnd) do
+      begin
+        lSplit := aSplitOffsets[lSplitIndex];
+        Inc(lSplitIndex);
+        if (lSplit <= lStart) or
+          (Trim(Copy(aCleanBody, lStart - aBodyOffset + 1, lSplit - lStart)) = '') or
+          (PreviousCodeChar(aCleanBody, lSplit - aBodyOffset + 1) = ',') then
+          Continue;
+        aSegments.Add(Copy(lLine, lStart - lOffset + 1, lSplit - lStart));
+        aSegmentOffsets.Add(lStart);
+        lStart := lSplit;
+      end;
+      aSegments.Add(Copy(lLine, lStart - lOffset + 1, MaxInt));
+      aSegmentOffsets.Add(lStart);
+      Inc(lOffset, Length(lLine) + Length(sLineBreak));
+    end;
+  finally
+    lLines.Free;
+  end;
+end;
+
+// Returns the exact name offset so coordinate reconciliation never has to search for it.
+function MemberNameOffset(const aText, aSegment, aName: string; const aSegmentOffset,
+  aNameIndex: Integer): Integer;
+begin
+  Result := aSegmentOffset + Length(aSegment) - Length(TrimLeft(aSegment)) + aNameIndex - 1;
+  if not IsWordAt(aText, Result, aName) then
+    Result := aSegmentOffset + 1;
+end;
+
 procedure ExtractMembersFromBody(const aText, aOwnerName, aBody: string; const aBodyOffset: Integer;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>;
-  const aReferences: TList<TDelphiSemanticReference>);
+  const aReferences: TList<TDelphiSemanticReference>;
+  const aSplitOffsets: TArray<Integer>);
 var
   lCleanBody: string;
   lConsumedEnd: Integer;
@@ -2095,7 +2218,6 @@ var
   lInClassVarSection: Boolean;
   lIndexedProperty: Boolean;
   lLine: string;
-  lLines: TStringList;
   lMethodMatch: TMatch;
   lName: string;
   lNameOffset: Integer;
@@ -2107,46 +2229,50 @@ var
   lNestedRecordMatch: TMatch;
   lOffset: Integer;
   lPropertyMatch: TMatch;
+  lSearchFrom: Integer;
+  lSegment: string;
+  lSegmentOffsets: TList<Integer>;
+  lSegments: TStringList;
   lTypeName: string;
   lTypeOffset: Integer;
   lVisibility: string;
 begin
-  lLines := TStringList.Create;
+  lSegments := TStringList.Create;
+  lSegmentOffsets := nil;
   try
-    lLines.Text := aBody;
+    lSegmentOffsets := TList<Integer>.Create;
     lCleanBody := SanitizeCodeText(aBody);
+    BuildMemberSegments(aBody, lCleanBody, aBodyOffset, aSplitOffsets, lSegments,
+      lSegmentOffsets);
     lFieldRegex := TRegEx.Create('\G[ \t]*' + cMemberFieldPrefix +
       '\s*:([^;\r\n]+);', [roIgnoreCase]);
     lConsumedEnd := 0;
-    lOffset := aBodyOffset;
     lInClassVarSection := False;
     lNestedBody := '';
     lNestedBodyOffset := 0;
     lNestedOwnerName := '';
     lVisibility := 'public';
-    for i := 0 to Pred(lLines.Count) do
+    for i := 0 to Pred(lSegments.Count) do
     begin
+      lOffset := lSegmentOffsets[i];
       if lOffset < lConsumedEnd then
-      begin
-        Inc(lOffset, Length(lLines[i]) + Length(sLineBreak));
         Continue;
-      end;
-      lLine := lLines[i];
+      lLine := lSegments[i];
       if (lNestedOwnerName = '') and
         MaskMemberVisibility(lLine, lCleanBody, lVisibility, lOffset - aBodyOffset + 1) then
         lInClassVarSection := False;
-      lLines[i] := lLine;
+      lSegment := lLine;
       lLine := NormalizeVariantMemberLine(lLine.Trim);
       if lNestedOwnerName <> '' then
       begin
         if TRegEx.IsMatch(lLine, '^end\s*;', [roIgnoreCase]) then
         begin
           ExtractMembersFromBody(aText, lNestedOwnerName, lNestedBody, lNestedBodyOffset,
-            aDeclarations, aMembers, aReferences);
+            aDeclarations, aMembers, aReferences, nil);
           lNestedBody := '';
           lNestedOwnerName := '';
         end else
-          lNestedBody := lNestedBody + lLines[i] + sLineBreak;
+          lNestedBody := lNestedBody + lSegment + sLineBreak;
       end else if SameText(lLine, 'class var') then
       begin
         lInClassVarSection := True;
@@ -2158,7 +2284,7 @@ begin
         begin
           lInClassVarSection := False;
           lName := lNestedRecordMatch.Groups[1].Value;
-          lNameOffset := Pos(LowerCase(lName), LowerCase(lLines[i]));
+          lNameOffset := Pos(LowerCase(lName), LowerCase(lSegment));
           if lNameOffset <= 0 then
             lNameOffset := 1;
           lNestedOwnerName := aOwnerName + '.' + lName;
@@ -2166,11 +2292,11 @@ begin
             SectionForOffset(aText, lOffset + lNameOffset), aText, lOffset + lNameOffset);
           AddMember(aMembers, aOwnerName, lName, 'field', lNestedOwnerName, lVisibility, '',
             aText, False, False, lOffset + lNameOffset);
-          lNestedBodyOffset := lOffset + Length(lLines[i]) + Length(sLineBreak);
+          lNestedBodyOffset := lOffset + Length(lSegment) + Length(sLineBreak);
         end else
         begin
           lPropertyMatch := TRegEx.Match(lLine,
-          '^property\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\[[^\]]+\])?\s*:\s*([^;]+)',
+          '^(?:class\s+)?property\s+&?([A-Za-z_][A-Za-z0-9_]*)\s*(\[[^\]]+\])?\s*:\s*([^;]+)',
           [roIgnoreCase]);
           if lPropertyMatch.Success then
           begin
@@ -2181,15 +2307,16 @@ begin
             AddMember(aMembers, aOwnerName, lPropertyMatch.Groups[1].Value, 'property',
               lPropertyMatch.Groups[3].Value.Trim.Split([' '])[0], lVisibility,
               MatchGroupValue(lPropertyMatch, 2).Trim, aText, lIndexedProperty, lDefaultProperty,
-              lOffset + 1);
+              MemberNameOffset(aText, lSegment, lPropertyMatch.Groups[1].Value, lOffset,
+              lPropertyMatch.Groups[1].Index));
             AddParameterTypeReferences(aReferences, '', MatchGroupValue(lPropertyMatch, 2),
-              aText, TextOffsetInLine(lLines[i], MatchGroupValue(lPropertyMatch, 2), lOffset));
+              aText, TextOffsetInLine(lSegment, MatchGroupValue(lPropertyMatch, 2), lOffset));
             AddTypeReferences(aReferences, '', lPropertyMatch.Groups[3].Value.Trim, aText,
-              TextOffsetInLine(lLines[i], lPropertyMatch.Groups[3].Value.Trim, lOffset));
+              TextOffsetInLine(lSegment, lPropertyMatch.Groups[3].Value.Trim, lOffset));
           end else
           begin
             lMethodMatch := TRegEx.Match(lLine,
-              '^(?:class\s+)?(procedure|function|constructor|destructor)\s+' +
+              '^(?:class\s+)?(procedure|function|constructor|destructor)\s+&?' +
               '([A-Za-z_][A-Za-z0-9_]*)\s*(\([^\r\n]*\))?\s*(?::\s*([^;]+))?',
               [roIgnoreCase]);
             if lMethodMatch.Success then
@@ -2197,23 +2324,25 @@ begin
               lInClassVarSection := False;
               AddMember(aMembers, aOwnerName, lMethodMatch.Groups[2].Value, 'method',
                 MatchGroupValue(lMethodMatch, 4).Trim, lVisibility, MatchGroupValue(lMethodMatch, 3),
-                aText, False, False, lOffset + 1);
+                aText, False, False, MemberNameOffset(aText, lSegment,
+                lMethodMatch.Groups[2].Value, lOffset, lMethodMatch.Groups[2].Index));
               AddParameterTypeReferences(aReferences, '', MatchGroupValue(lMethodMatch, 3),
-                aText, TextOffsetInLine(lLines[i], MatchGroupValue(lMethodMatch, 3), lOffset));
+                aText, TextOffsetInLine(lSegment, MatchGroupValue(lMethodMatch, 3), lOffset));
               AddTypeReferences(aReferences, '', MatchGroupValue(lMethodMatch, 4).Trim, aText,
                 lOffset + MatchGroupIndex(lMethodMatch, 4) - 1);
             end else
             begin
-              if lLine = lLines[i].Trim then
+              lSearchFrom := 1;
+              if lLine = lSegment.Trim then
                 lFieldMatch := lFieldRegex.Match(lCleanBody, lOffset - aBodyOffset + 1)
               else
                 // Variant labels and closing parentheses use the existing normalized form.
-                lFieldMatch := TRegEx.Match(lLine, '^' + cMemberFieldPrefix +
+                lFieldMatch := TRegEx.Match(lLine, '\G\s*' + cMemberFieldPrefix +
                   '\s*:\s*([^;]+);', [roIgnoreCase]);
               while lFieldMatch.Success do
               begin
                 UpdateFieldSection(lFieldMatch, lVisibility, lInClassVarSection);
-                if lLine = lLines[i].Trim then
+                if lLine = lSegment.Trim then
                 begin
                   lNamesOffset := aBodyOffset + lFieldMatch.Groups[3].Index - 1;
                   lTypeOffset := aBodyOffset + lFieldMatch.Groups[4].Index - 1;
@@ -2223,9 +2352,19 @@ begin
                   lTypeName := lTypeName.Trim;
                   lConsumedEnd := aBodyOffset + lFieldMatch.Index + lFieldMatch.Length - 1;
                 end else begin
-                  lNamesOffset := lOffset + Pos(lFieldMatch.Groups[3].Value, lLines[i]) - 1;
+                  // Search forward so later variant fields never reuse an earlier position.
+                  lNamesOffset := PosEx(lFieldMatch.Groups[3].Value, lSegment, lSearchFrom);
+                  if lNamesOffset <= 0 then
+                    lNamesOffset := 1;
+                  lSearchFrom := lNamesOffset + lFieldMatch.Groups[3].Length;
+                  lNamesOffset := lOffset + lNamesOffset - 1;
                   lTypeName := lFieldMatch.Groups[4].Value.Trim;
-                  lTypeOffset := TextOffsetInLine(lLines[i], lTypeName, lOffset);
+                  lTypeOffset := PosEx(lTypeName, lSegment, lSearchFrom);
+                  if lTypeOffset <= 0 then
+                    lTypeOffset := 1
+                  else
+                    lSearchFrom := lTypeOffset + Length(lTypeName);
+                  lTypeOffset := lOffset + lTypeOffset - 1;
                 end;
                 lNameMatch := TRegEx.Match(lFieldMatch.Groups[3].Value, '[A-Za-z_][A-Za-z0-9_]*');
                 while lNameMatch.Success do
@@ -2246,67 +2385,242 @@ begin
           end;
         end;
       end;
-      Inc(lOffset, Length(lLines[i]) + Length(sLineBreak));
     end;
     if lNestedOwnerName <> '' then
       ExtractMembersFromBody(aText, lNestedOwnerName, lNestedBody, lNestedBodyOffset,
-        aDeclarations, aMembers, aReferences);
+        aDeclarations, aMembers, aReferences, nil);
   finally
-    lLines.Free;
+    lSegmentOffsets.Free;
+    lSegments.Free;
   end;
 end;
 
-procedure EnrichMemberMethods(const aOwner: string; const aType: TSyntaxNode;
-  const aMembers: TList<TDelphiSemanticMember>);
+type
+  // One member as the syntax tree declares it; the line scan supplies its detailed facts.
+  TAstMemberFact = record
+    Category: string;
+    Name: string;
+    Visibility: string;
+    Offset: Integer;
+    Node: TSyntaxNode;
+  end;
+
+  TFallbackTypeBlock = record
+    OwnerName: string;
+    HeaderOffset: Integer;
+    BodyOffset: Integer;
+    AnonymousRecordDepth: Integer;
+    NestedRanges: TArray<TOffsetRange>;
+  end;
+
+function AstVisibilityName(const aNode: TSyntaxNode; out aVisibility: string): Boolean;
+begin
+  Result := True;
+  case aNode.Typ of
+    ntPrivate:
+      aVisibility := 'private';
+    ntProtected:
+      aVisibility := 'protected';
+    ntPublic:
+      aVisibility := 'public';
+    ntPublished:
+      aVisibility := 'published';
+    ntStrictPrivate:
+      aVisibility := 'strict private';
+    ntStrictProtected:
+      aVisibility := 'strict protected';
+  else
+    Result := False;
+  end;
+end;
+
+function IsAstMemberStart(const aNode: TSyntaxNode): Boolean;
+begin
+  Result := (aNode.Typ = ntField) or (aNode.Typ = ntMethod) or (aNode.Typ = ntProperty);
+end;
+
+// Collects the members a type declares, in source order. Operators, method resolution clauses
+// and property redeclarations without a type only split the scan; they were never member facts.
+procedure CollectAstTypeMembers(const aText: string; const aParent: TSyntaxNode;
+  const aVisibility: string; const aFacts: TList<TAstMemberFact>;
+  const aSplitOffsets: TList<Integer>; const aNestedTypes: TList<TSyntaxNode>);
 var
-  lPending: TStack<TSyntaxNode>;
-  lEnriched: TList<Integer>;
-  lNode: TSyntaxNode;
+  lChild: TSyntaxNode;
+  lFact: TAstMemberFact;
+  lNested: TSyntaxNode;
+  lVisibility: string;
+begin
+  for lChild in aParent.ChildNodes do
+  begin
+    if AstVisibilityName(lChild, lVisibility) then
+    begin
+      CollectAstTypeMembers(aText, lChild, lVisibility, aFacts, aSplitOffsets, aNestedTypes);
+      Continue;
+    end;
+    lFact := Default(TAstMemberFact);
+    lFact.Visibility := aVisibility;
+    lFact.Node := lChild;
+    case lChild.Typ of
+      ntField:
+        begin
+          lFact.Category := 'field';
+          lFact.Name := AstNodeName(lChild);
+        end;
+      ntName:
+        // Variant-part fields stay plain names in the syntax tree.
+        if lChild is TValuedSyntaxNode then
+        begin
+          lFact.Category := 'field';
+          lFact.Name := TValuedSyntaxNode(lChild).Value;
+        end;
+      ntMethod:
+        if MatchText(lChild.GetAttribute(anKind),
+          ['procedure', 'function', 'constructor', 'destructor']) and
+          not Assigned(lChild.FindNode(ntResolutionClause)) then
+        begin
+          lFact.Category := 'method';
+          lFact.Name := AstNodeName(lChild);
+          if Pos('<', lFact.Name) > 0 then
+            lFact.Name := Copy(lFact.Name, 1, Pos('<', lFact.Name) - 1);
+        end;
+      ntProperty:
+        if Assigned(lChild.FindNode(ntType)) then
+        begin
+          lFact.Category := 'property';
+          lFact.Name := lChild.GetAttribute(anName);
+        end;
+      ntTypeSection:
+        for lNested in lChild.ChildNodes do
+          if lNested.Typ = ntTypeDecl then
+            aNestedTypes.Add(lNested);
+    end;
+    if IsAstMemberStart(lChild) then
+      aSplitOffsets.Add(OffsetOfLineColumn(aText, lChild.Line, lChild.Col));
+    if lFact.Category <> '' then
+    begin
+      // An escaped identifier (&Label) names the member Label.
+      if StartsText('&', lFact.Name) then
+        Delete(lFact.Name, 1, 1);
+      lFact.Offset := OffsetOfLineColumn(aText, lChild.Line, lChild.Col);
+      aFacts.Add(lFact);
+    end;
+  end;
+end;
+
+function NextSplitOffset(const aSplitOffsets: TArray<Integer>; const aOffset: Integer): Integer;
+var
+  lHigh: Integer;
+  lLow: Integer;
+  lMiddle: Integer;
+begin
+  Result := MaxInt;
+  lLow := 0;
+  lHigh := High(aSplitOffsets);
+  while lLow <= lHigh do
+  begin
+    lMiddle := (lLow + lHigh) div 2;
+    if aSplitOffsets[lMiddle] > aOffset then
+    begin
+      Result := aSplitOffsets[lMiddle];
+      lHigh := lMiddle - 1;
+    end else
+      lLow := lMiddle + 1;
+  end;
+end;
+
+function MemberCategory(const aKind: string): string;
+begin
+  if SameText(aKind, 'class-var') then
+    Exit('field');
+  Result := LowerCase(aKind);
+end;
+
+// Pairs each syntax member with one scanned member of the same owner, name and category inside
+// the member's own source span. Visibility and method signatures come from the syntax tree.
+// A scanned member without a syntax counterpart was invented by the line scan (for example a
+// parameter on a method's continuation line) and is removed. A syntax member the scan missed
+// makes the type incomplete; its names are returned in aUnscanned.
+function ReconcileTypeMembers(const aOwnerName: string; const aFacts: TList<TAstMemberFact>;
+  const aSplitOffsets: TArray<Integer>; const aMembers: TList<TDelphiSemanticMember>;
+  const aFirstMember: Integer; out aUnscanned: string): Boolean;
+var
+  j: Integer;
+  lEnd: Integer;
+  lFact: TAstMemberFact;
+  lFound: Integer;
+  lMatched: TArray<Boolean>;
   lMember: TDelphiSemanticMember;
+begin
+  Result := True;
+  aUnscanned := '';
+  SetLength(lMatched, aMembers.Count - aFirstMember);
+  for lFact in aFacts do
+  begin
+    lEnd := NextSplitOffset(aSplitOffsets, lFact.Offset);
+    lFound := -1;
+    for j := aFirstMember to Pred(aMembers.Count) do
+    begin
+      lMember := aMembers[j];
+      if not lMatched[j - aFirstMember] and (lMember.Offset >= lFact.Offset) and
+        (lMember.Offset < lEnd) and SameText(lMember.OwnerName, aOwnerName) and
+        SameText(lMember.Name, lFact.Name) and (MemberCategory(lMember.Kind) = lFact.Category) then
+      begin
+        lFound := j;
+        Break;
+      end;
+    end;
+    if lFound < 0 then
+    begin
+      Result := False;
+      aUnscanned := aUnscanned + IfThen(aUnscanned <> '', ', ') + lFact.Name;
+      Continue;
+    end;
+    lMatched[lFound - aFirstMember] := True;
+    lMember := aMembers[lFound];
+    lMember.Visibility := lFact.Visibility;
+    if lFact.Category = 'method' then
+    begin
+      lMember.ProcedureSignature := AstProcedureSignature(lFact.Node);
+      if SameText(lFact.Node.GetAttribute(anClass), 'true') then
+        lMember.ProcedureSignature.Known := False;
+    end;
+    aMembers[lFound] := lMember;
+  end;
+  for j := Pred(aMembers.Count) downto aFirstMember do
+    if not lMatched[j - aFirstMember] and SameText(aMembers[j].OwnerName, aOwnerName) then
+      aMembers.Delete(j);
+end;
+
+procedure BlankRange(var aText: string; const aStartIndex, aEndIndex: Integer);
+var
   i: Integer;
 begin
-  lPending := TStack<TSyntaxNode>.Create;
-  lEnriched := nil;
-  try
-    lEnriched := TList<Integer>.Create;
-    lPending.Push(aType);
-    while lPending.Count > 0 do
-    begin
-      lNode := lPending.Pop;
-      if lNode.Typ = ntMethod then
-        for i := 0 to aMembers.Count - 1 do
-        begin
-          lMember := aMembers[i];
-          if SameText(lMember.OwnerName, aOwner) and
-            SameText(lMember.Name, AstNodeName(lNode)) and (lMember.Line = lNode.Line) then
-          begin
-            lMember.ProcedureSignature := AstProcedureSignature(lNode);
-            // A line-based member scan may collapse same-line overloads.
-            if lEnriched.Contains(i) or SameText(lNode.GetAttribute(anClass), 'true') then
-              lMember.ProcedureSignature.Known := False;
-            lEnriched.Add(i);
-            aMembers[i] := lMember;
-          end;
-        end;
-      for i := High(lNode.ChildNodes) downto 0 do
-        if lNode.ChildNodes[i].Typ <> ntTypeDecl then
-          lPending.Push(lNode.ChildNodes[i]);
-    end;
-  finally
-    lEnriched.Free;
-    lPending.Free;
-  end;
+  for i := aStartIndex to aEndIndex do
+    if (i >= 1) and (i <= Length(aText)) and not CharInSet(aText[i], [#10, #13]) then
+      aText[i] := ' ';
 end;
 
-function ExtractTypeMembers(const aText: string; const aNode: TSyntaxNode;
+function ExtractTypeMembers(const aText, aOwnerPrefix, aFileName: string;
+  const aNode: TSyntaxNode; const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>;
   const aReferences: TList<TDelphiSemanticReference>): Boolean;
 var
-  lTypeNode: TSyntaxNode;
-  lStart, lEnd: Integer;
-  lText: string;
+  lBody: string;
+  lBodyOffset: Integer;
+  lEnd: Integer;
+  lFacts: TList<TAstMemberFact>;
+  lFirstMember: Integer;
   lHeader: TMatch;
+  lNested: TList<TSyntaxNode>;
+  lNestedNode: TSyntaxNode;
+  lOwnerName: string;
+  lSplitOffsets: TArray<Integer>;
+  lSplits: TList<Integer>;
+  lStart: Integer;
+  lText: string;
+  lTypeNode: TSyntaxNode;
+  lUnscanned: string;
 begin
   Result := False;
   if (aNode.Typ <> ntTypeDecl) or not (aNode is TCompoundSyntaxNode) then
@@ -2325,16 +2639,50 @@ begin
     '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*((?:class|record)\s+helper\s+for\s+' +
     '[A-Za-z_][A-Za-z0-9_.]*|(?:class|interface)(?:\s*\([^)]+\))?|' +
     '(?:packed\s+)?record)\b', [roIgnoreCase]);
-  if lHeader.Success then
-  begin
-    ExtractMembersFromBody(aText, lHeader.Groups[1].Value,
-      Copy(lText, lHeader.Length + 1, MaxInt), lStart + lHeader.Length,
-      aDeclarations, aMembers, aReferences);
-    EnrichMemberMethods(lHeader.Groups[1].Value, lTypeNode, aMembers);
+  // An unreadable header (a generic type, for example) has no type declaration either.
+  if not lHeader.Success then
+    Exit;
+  lOwnerName := lHeader.Groups[1].Value;
+  if aOwnerPrefix <> '' then
+    lOwnerName := aOwnerPrefix + '.' + lOwnerName;
+  lFacts := TList<TAstMemberFact>.Create;
+  lSplits := nil;
+  lNested := nil;
+  try
+    lSplits := TList<Integer>.Create;
+    lNested := TList<TSyntaxNode>.Create;
+    CollectAstTypeMembers(aText, lTypeNode, 'public', lFacts, lSplits, lNested);
+    lSplits.Sort;
+    lSplitOffsets := lSplits.ToArray;
+    lBodyOffset := lStart + lHeader.Length;
+    lBody := Copy(lText, lHeader.Length + 1, MaxInt);
+    // Nested declarations get their own owner; blanking them keeps the outer offsets unchanged.
+    for lNestedNode in lNested do
+      if lNestedNode is TCompoundSyntaxNode then
+        BlankRange(lBody, OffsetOfLineColumn(aText, lNestedNode.Line, lNestedNode.Col) -
+          lBodyOffset + 1, OffsetOfLineColumn(aText, TCompoundSyntaxNode(lNestedNode).EndLine,
+          TCompoundSyntaxNode(lNestedNode).EndCol) - lBodyOffset);
+    lFirstMember := aMembers.Count;
+    ExtractMembersFromBody(aText, lOwnerName, lBody, lBodyOffset, aDeclarations, aMembers,
+      aReferences, lSplitOffsets);
+    // Missed names are listed so an unsupported layout is recorded, not just refused later.
+    if not ReconcileTypeMembers(lOwnerName, lFacts, lSplitOffsets, aMembers, lFirstMember,
+      lUnscanned) then
+      AddDiagnostic(aDiagnostics, 'MEMBERS_INCOMPLETE', Format('Members of %s could not be ' +
+        'reconciled with the syntax tree; its member facts are incomplete. Not scanned: %s.',
+        [lOwnerName, lUnscanned]), aFileName, aNode.Line);
+    for lNestedNode in lNested do
+      ExtractTypeMembers(aText, lOwnerName, aFileName, lNestedNode, aDiagnostics, aDeclarations,
+        aMembers, aReferences);
+  finally
+    lNested.Free;
+    lSplits.Free;
+    lFacts.Free;
   end;
 end;
 
-procedure ExtractMembers(const aText: string; const aNode: TSyntaxNode;
+procedure ExtractMembers(const aText, aFileName: string; const aNode: TSyntaxNode;
+  const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>;
   const aReferences: TList<TDelphiSemanticReference>);
@@ -2349,12 +2697,160 @@ begin
     while lPending.Count > 0 do
     begin
       lNode := lPending.Pop;
-      if not ExtractTypeMembers(aText, lNode, aDeclarations, aMembers, aReferences) then
+      if not ExtractTypeMembers(aText, '', aFileName, lNode, aDiagnostics, aDeclarations,
+        aMembers, aReferences) then
         for i := High(lNode.ChildNodes) downto 0 do
           lPending.Push(lNode.ChildNodes[i]);
     end;
   finally
     lPending.Free;
+  end;
+end;
+
+// A block header opens a body unless it is a forward, class-of, empty-descendant or one-line
+// declaration.
+function FallbackHeaderOpensBody(const aRest: string): Boolean;
+var
+  lRest: string;
+begin
+  lRest := Trim(aRest);
+  Result := not (StartsText(';', lRest) or TRegEx.IsMatch(lRest, '^of\b', [roIgnoreCase]) or
+    TRegEx.IsMatch(lRest, '^\([^)]*\)\s*;', [roIgnoreCase]) or
+    TRegEx.IsMatch(lRest, '\bend\s*;', [roIgnoreCase]));
+end;
+
+// Without a syntax tree, a parameter on a heading's continuation line would read as a field.
+procedure BlankHeadingContinuations(var aBody: string);
+var
+  i: Integer;
+  lClean: string;
+  lDepth: Integer;
+  lLine: string;
+  lLineEnd: Integer;
+  lLineStart: Integer;
+begin
+  lClean := SanitizeCodeText(aBody);
+  lDepth := 0;
+  lLineStart := 1;
+  while lLineStart <= Length(lClean) do
+  begin
+    lLineEnd := lLineStart;
+    while (lLineEnd <= Length(lClean)) and not CharInSet(lClean[lLineEnd], [#10, #13]) do
+      Inc(lLineEnd);
+    lLine := Copy(lClean, lLineStart, lLineEnd - lLineStart);
+    if lDepth > 0 then
+      BlankRange(aBody, lLineStart, lLineEnd - 1);
+    if (lDepth > 0) or TRegEx.IsMatch(lLine, '^\s*(?:(?:strict\s+)?(?:private|protected|' +
+      'public|published)\s+)?(?:class\s+)?(?:procedure|function|constructor|destructor|' +
+      'property)\b', [roIgnoreCase]) then
+    begin
+      for i := 1 to Length(lLine) do
+        if CharInSet(lLine[i], ['(', '[']) then
+          Inc(lDepth)
+        else if CharInSet(lLine[i], [')', ']']) and (lDepth > 0) then
+          Dec(lDepth);
+    end;
+    lLineStart := lLineEnd;
+    while (lLineStart <= Length(lClean)) and CharInSet(lClean[lLineStart], [#10, #13]) do
+      Inc(lLineStart);
+  end;
+end;
+
+// Bounded member scan for a unit whose syntax tree is unavailable. Each block ends at its own
+// `end;` line, so members never leak into later types; nested named types get qualified owners
+// and are blanked from their parent. Class variables are left out: global-vars reports every
+// class-var member as a verified declaration. Returns the number of scanned types.
+function ExtractFallbackMembers(const aText: string;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aMembers: TList<TDelphiSemanticMember>;
+  const aReferences: TList<TDelphiSemanticReference>;
+  out aOmittedClassVariables: Integer): Integer;
+var
+  i: Integer;
+  j: Integer;
+  lBlock: TFallbackTypeBlock;
+  lBlocks: TList<TFallbackTypeBlock>;
+  lBody: string;
+  lCleanLine: string;
+  lFirstMember: Integer;
+  lHeader: TMatch;
+  lLines: TStringList;
+  lOffset: Integer;
+  lParent: TFallbackTypeBlock;
+  lRange: TOffsetRange;
+begin
+  Result := 0;
+  aOmittedClassVariables := 0;
+  lLines := TStringList.Create;
+  lBlocks := nil;
+  try
+    lBlocks := TList<TFallbackTypeBlock>.Create;
+    lLines.Text := SanitizeCodeText(aText);
+    lOffset := 1;
+    for i := 0 to Pred(lLines.Count) do
+    begin
+      lCleanLine := lLines[i];
+      lHeader := TRegEx.Match(lCleanLine, '^\s*(?:type\s+)?([A-Za-z_][A-Za-z0-9_]*)' +
+        '(?:\s*<[^>]*>)?\s*=\s*(?:packed\s+)?(?:class|record|interface)\b(?:\s*\([^)]*\))?',
+        [roIgnoreCase]);
+      if lHeader.Success and FallbackHeaderOpensBody(Copy(lCleanLine,
+        lHeader.Index + lHeader.Length, MaxInt)) then
+      begin
+        lBlock := Default(TFallbackTypeBlock);
+        lBlock.OwnerName := lHeader.Groups[1].Value;
+        if lBlocks.Count > 0 then
+          lBlock.OwnerName := lBlocks[lBlocks.Count - 1].OwnerName + '.' + lBlock.OwnerName;
+        lBlock.HeaderOffset := lOffset + lHeader.Groups[1].Index - 1;
+        lBlock.BodyOffset := lOffset + lHeader.Index + lHeader.Length - 1;
+        lBlocks.Add(lBlock);
+      end else if lBlocks.Count > 0 then
+      begin
+        lBlock := lBlocks[lBlocks.Count - 1];
+        if TRegEx.IsMatch(lCleanLine, '^\s*[A-Za-z_][A-Za-z0-9_]*\s*:\s*(?:packed\s+)?record\b',
+          [roIgnoreCase]) and not TRegEx.IsMatch(lCleanLine, '\bend\s*;', [roIgnoreCase]) then
+        begin
+          Inc(lBlock.AnonymousRecordDepth);
+          lBlocks[lBlocks.Count - 1] := lBlock;
+        end else if TRegEx.IsMatch(lCleanLine, '^\s*end\s*;', [roIgnoreCase]) then
+        begin
+          if lBlock.AnonymousRecordDepth > 0 then
+          begin
+            Dec(lBlock.AnonymousRecordDepth);
+            lBlocks[lBlocks.Count - 1] := lBlock;
+          end else
+          begin
+            lBlocks.Delete(lBlocks.Count - 1);
+            lBody := Copy(aText, lBlock.BodyOffset, lOffset - lBlock.BodyOffset);
+            for lRange in lBlock.NestedRanges do
+              BlankRange(lBody, lRange.StartOffset - lBlock.BodyOffset + 1,
+                lRange.EndOffset - lBlock.BodyOffset);
+            BlankHeadingContinuations(lBody);
+            lFirstMember := aMembers.Count;
+            ExtractMembersFromBody(aText, lBlock.OwnerName, lBody, lBlock.BodyOffset,
+              aDeclarations, aMembers, aReferences, nil);
+            for j := Pred(aMembers.Count) downto lFirstMember do
+              if SameText(aMembers[j].Kind, 'class-var') then
+              begin
+                aMembers.Delete(j);
+                Inc(aOmittedClassVariables);
+              end;
+            Inc(Result);
+            if lBlocks.Count > 0 then
+            begin
+              lParent := lBlocks[lBlocks.Count - 1];
+              lRange.StartOffset := lBlock.HeaderOffset;
+              lRange.EndOffset := lOffset + Length(lCleanLine);
+              lParent.NestedRanges := lParent.NestedRanges + [lRange];
+              lBlocks[lBlocks.Count - 1] := lParent;
+            end;
+          end;
+        end;
+      end;
+      Inc(lOffset, Length(lCleanLine) + Length(sLineBreak));
+    end;
+  finally
+    lBlocks.Free;
+    lLines.Free;
   end;
 end;
 procedure AddRoutineParameter(const aParameters: TList<TDelphiSemanticParameter>;

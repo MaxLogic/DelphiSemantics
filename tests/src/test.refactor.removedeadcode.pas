@@ -37,6 +37,12 @@ type
     procedure UnknownProfileBlocksRemovalWithDiagnostic;
     [Test]
     procedure UnsupportedSyntaxBlocksUnsafeLineDeletion;
+    [Test]
+    [TestCase('Snapshot, failed syntax tree', 'True,True')]
+    [TestCase('Snapshot, verified control', 'True,False')]
+    [TestCase('Unit model, failed syntax tree', 'False,True')]
+    [TestCase('Unit model, verified control', 'False,False')]
+    procedure UnverifiedUnitMembersAreNotDeadCode(const aSnapshot, aFailed: Boolean);
   end;
 
 implementation
@@ -45,6 +51,7 @@ uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
+  DelphiSemantics.DeadCode, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
   Test.Support;
 
 var
@@ -136,6 +143,86 @@ begin
     Result.CacheMetrics := lCache.Metrics;
   finally
     lCache.Free;
+  end;
+end;
+
+// UProv compiles, but the syntax tree builder rejects the one-character deprecation message, so
+// FUnused is only an unverified fallback member. A zero reference count proves nothing there.
+procedure TRemoveDeadCodePlannerTests.UnverifiedUnitMembersAreNotDeadCode(const aSnapshot,
+  aFailed: Boolean);
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lCandidate: TDelphiSemanticDeadCodeCandidate;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lDeprecation: string;
+  lExtractionMilliseconds: Int64;
+  lFound: Boolean;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lOptions: TDelphiSemanticOptions;
+  lProfile: string;
+  lReport: TDelphiSemanticDeadCodeReport;
+  lRootPath: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+  lUnitPath: string;
+begin
+  lRootPath := RemoveDeadCodeTempPath('unverified-' + BoolToStr(aSnapshot, True) + '-' +
+    BoolToStr(aFailed, True));
+  TDirectory.CreateDirectory(lRootPath);
+  lUnitPath := TPath.Combine(lRootPath, 'UProv.pas');
+  lDeprecation := '';
+  if aFailed then
+    lDeprecation := ' deprecated ''z'';';
+  TFile.WriteAllText(lUnitPath, 'unit UProv;'#13#10'interface'#13#10'type'#13#10 +
+    '  TA = class'#13#10'  private'#13#10'    FUnused: Integer;'#13#10'  public'#13#10 +
+    '    FCounter: Integer;'#13#10'    procedure Y;' + lDeprecation + #13#10'  end;'#13#10 +
+    'implementation'#13#10'procedure TA.Y;'#13#10'begin'#13#10'  FCounter := 1;'#13#10 +
+    'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'Prov.dpr'),
+    'program Prov;'#13#10'uses UProv;'#13#10'begin'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'Prov.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>Prov.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="UProv.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+
+  lSessionResult := Default(TDelphiSemanticProjectSessionResult);
+  if aSnapshot then
+  begin
+    lOptions := Default(TDelphiSemanticOptions);
+    lOptions.ProjectPath := TPath.Combine(lRootPath, 'Prov.dproj');
+    lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+    Assert.IsTrue(lSessionResult.Success);
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+  end else
+  begin
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := lUnitPath;
+    lModelOptions.ProjectContextApplied := True;
+    lContext.UnitModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  end;
+  try
+    for lProfile in TArray<string>.Create('legacy-static', 'conservative') do
+    begin
+      lReport := TDelphiSemanticDeadCodeReporter.Report(lContext, lProfile);
+      lFound := False;
+      for lCandidate in lReport.Candidates do
+        if SameText(lCandidate.Name, 'FUnused') then
+        begin
+          lFound := True;
+          if aFailed then
+          begin
+            Assert.AreEqual('blocked', lCandidate.Status, lProfile);
+            Assert.AreEqual('unverified-scope-facts', lCandidate.Reason, lProfile);
+            Assert.IsTrue(MatchText('unverified-scope-facts', lCandidate.Blockers), lProfile);
+          end else
+            Assert.AreEqual('definitely-unused', lCandidate.Status, lProfile);
+        end;
+      Assert.IsTrue(lFound, 'The private field must stay visible as a candidate: ' + lProfile);
+    end;
+  finally
+    lContext.ProjectSnapshot := nil;
+    lSessionResult.Session.Free;
   end;
 end;
 

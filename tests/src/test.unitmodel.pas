@@ -55,6 +55,20 @@ type
     procedure ExtractReentrantLoop(const aPath, aUnitName, aTypeName, aRoutineName,
       aReferenceName: string; out aError: string);
   public
+    [Test]
+    [TestCase('Two methods', 'two-methods')]
+    [TestCase('Field, visibility and method', 'field-visibility-method')]
+    procedure ExtractsEveryMemberOnOnePhysicalLine(const aLayout: string);
+    [Test]
+    procedure MethodContinuationParametersAreNotFields;
+    [Test]
+    procedure EscapedIdentifierMembersAreKept;
+    [Test]
+    procedure NestedTypeMembersKeepQualifiedOwnerAndVisibility;
+    [Test]
+    procedure AstFailedUnitKeepsUnverifiedMembers;
+    [Test]
+    procedure InterfaceOnlyRetryKeepsOriginalParserMessage;
     [Test] procedure NestedRoutineDeclarationHasEnclosingScope;
     [Test]
     [TestCase('Multiple ordinary fields', 'ordinary')]
@@ -4076,6 +4090,250 @@ begin
   Assert.AreEqual(Pos('fSecond', lSource), lMember.Offset);
   Assert.AreEqual(ColumnOfSourceOffset(lSource, lMember.Offset), lMember.Column);
   Assert.AreEqual('fSecond', Copy(lSource, lMember.Offset, lMember.EndOffset - lMember.Offset));
+end;
+
+function ExtractUnitSource(const aFileName, aSource: string;
+  const aSkipBodyAnalysis: Boolean): TDelphiSemanticUnitModel;
+var
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath(aFileName);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SkipBodyAnalysis := aSkipBodyAnalysis;
+  TFile.WriteAllText(lOptions.SourceFileName, aSource, TEncoding.ASCII);
+  Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+end;
+
+// Lists an owner's members in model order so tests assert the exact member set.
+function OwnerMemberNames(const aModel: TDelphiSemanticUnitModel; const aOwnerName: string): string;
+var
+  lMember: TDelphiSemanticMember;
+begin
+  Result := '';
+  for lMember in aModel.Members do
+    if SameText(lMember.OwnerName, aOwnerName) then
+      Result := Result + lMember.Name + ',';
+end;
+
+function DiagnosticCodes(const aModel: TDelphiSemanticUnitModel): string;
+var
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+begin
+  Result := '';
+  for lDiagnostic in aModel.Diagnostics do
+    Result := Result + lDiagnostic.Code + ',';
+end;
+
+function DiagnosticMessage(const aModel: TDelphiSemanticUnitModel; const aCode: string): string;
+var
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+begin
+  for lDiagnostic in aModel.Diagnostics do
+    if SameText(lDiagnostic.Code, aCode) then
+      Exit(lDiagnostic.Message);
+  Result := '';
+end;
+
+procedure TUnitModelTests.ExtractsEveryMemberOnOnePhysicalLine(const aLayout: string);
+var
+  lExpectedNames: string;
+  lLine: string;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lName: string;
+  lNames: TArray<string>;
+  lSource: string;
+begin
+  if aLayout = 'two-methods' then
+  begin
+    lLine := '  published procedure HandleOther(aValue: TValue); ' +
+      'procedure HandleData(aValue: TValue);';
+    lExpectedNames := 'HandleOther,HandleData,';
+  end else
+  begin
+    // The next-line method must keep the visibility opened on the previous line.
+    lLine := '  private FX: Integer; published procedure HandleOther(aValue: TValue);'#13#10 +
+      '    procedure HandleData(aValue: TValue);';
+    lExpectedNames := 'FX,HandleOther,HandleData,';
+  end;
+  lSource := 'unit SameLineMembers;'#13#10'interface'#13#10'type'#13#10 +
+    '  TValue = class end;'#13#10'  TSubject = class'#13#10 + lLine + #13#10'  end;'#13#10 +
+    'implementation'#13#10 +
+    'procedure TSubject.HandleOther(aValue: TValue); begin end;'#13#10 +
+    'procedure TSubject.HandleData(aValue: TValue); begin end;'#13#10'end.'#13#10;
+  lModel := ExtractUnitSource('same-line-members.pas', lSource, False);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual('', DiagnosticCodes(lModel), 'Reconciled members must not be marked incomplete.');
+  Assert.AreEqual(lExpectedNames, OwnerMemberNames(lModel, 'TSubject'));
+  lNames := ['HandleOther', 'HandleData'];
+  for lName in lNames do
+  begin
+    Assert.IsTrue(FindMember(lModel, 'TSubject', lName, 'method', lMember), lName);
+    Assert.AreEqual('published', lMember.Visibility, lName);
+    Assert.AreEqual(Pos(lName, lSource), lMember.Offset, lName);
+    Assert.AreEqual(ColumnOfSourceOffset(lSource, lMember.Offset), lMember.Column, lName);
+    Assert.IsTrue(lMember.ProcedureSignature.Known, lName);
+    Assert.AreEqual(1, Integer(Length(lMember.ProcedureSignature.Parameters)), lName);
+    Assert.AreEqual('TValue', lMember.ProcedureSignature.Parameters[0].TypeName, lName);
+  end;
+  if aLayout <> 'two-methods' then
+  begin
+    Assert.IsTrue(FindMember(lModel, 'TSubject', 'FX', 'field', lMember));
+    Assert.AreEqual('private', lMember.Visibility);
+    Assert.AreEqual('Integer', lMember.TypeName);
+    Assert.AreEqual(Pos('FX', lSource), lMember.Offset);
+  end;
+end;
+
+procedure TUnitModelTests.MethodContinuationParametersAreNotFields;
+var
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lSource: string;
+begin
+  lSource := 'unit ContinuationMembers;'#13#10'interface'#13#10'type'#13#10 +
+    '  TSubject = class'#13#10'  public'#13#10 +
+    '    procedure Run(aFirst: Integer;'#13#10'      aSecond: Integer);'#13#10 +
+    '    property Count: Integer read GetCount;'#13#10 +
+    '    function GetCount: Integer;'#13#10'  end;'#13#10 +
+    'implementation'#13#10 +
+    'procedure TSubject.Run(aFirst: Integer; aSecond: Integer); begin end;'#13#10 +
+    'function TSubject.GetCount: Integer; begin Result := 0; end;'#13#10'end.'#13#10;
+  lModel := ExtractUnitSource('continuation-members.pas', lSource, False);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual('', DiagnosticCodes(lModel));
+  Assert.AreEqual('Run,Count,GetCount,', OwnerMemberNames(lModel, 'TSubject'),
+    'A parameter on a continuation line is not a field.');
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'Run', 'method', lMember));
+  Assert.AreEqual(2, Integer(Length(lMember.ProcedureSignature.Parameters)));
+end;
+
+procedure TUnitModelTests.EscapedIdentifierMembersAreKept;
+var
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lSource: string;
+begin
+  lSource := 'unit EscapedMembers;'#13#10'interface'#13#10'type'#13#10 +
+    '  TSubject = class'#13#10'  public'#13#10'    &Type: Integer;'#13#10 +
+    '    procedure &Label(aValue: Integer);'#13#10 +
+    '    property &End: Integer read &Type;'#13#10'  end;'#13#10 +
+    'implementation'#13#10'procedure TSubject.&Label(aValue: Integer); begin end;'#13#10 +
+    'end.'#13#10;
+  lModel := ExtractUnitSource('escaped-members.pas', lSource, False);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual('', DiagnosticCodes(lModel));
+  Assert.AreEqual('Type,Label,End,', OwnerMemberNames(lModel, 'TSubject'));
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'Label', 'method', lMember));
+  Assert.AreEqual(Pos('Label', lSource), lMember.Offset);
+  Assert.IsTrue(lMember.ProcedureSignature.Known);
+end;
+
+procedure TUnitModelTests.NestedTypeMembersKeepQualifiedOwnerAndVisibility;
+var
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lSource: string;
+begin
+  // The nested class ends in a private section; the outer method after it stays public.
+  lSource := 'unit NestedMembers;'#13#10'interface'#13#10'type'#13#10 +
+    '  TValue = class end;'#13#10 +
+    '  TBindingForm = class'#13#10 +
+    '  public'#13#10 +
+    '    type'#13#10 +
+    '      TInner = class'#13#10 +
+    '      public'#13#10 +
+    '        procedure HandleData(aValue: TValue);'#13#10 +
+    '      private'#13#10 +
+    '        FHidden: Integer;'#13#10 +
+    '      end;'#13#10 +
+    '    procedure OuterAfter;'#13#10 +
+    '  published'#13#10 +
+    '    procedure HandleOther(aValue: TValue);'#13#10 +
+    '  end;'#13#10 +
+    'implementation'#13#10 +
+    'procedure TBindingForm.TInner.HandleData(aValue: TValue); begin end;'#13#10 +
+    'procedure TBindingForm.OuterAfter; begin end;'#13#10 +
+    'procedure TBindingForm.HandleOther(aValue: TValue); begin end;'#13#10'end.'#13#10;
+  lModel := ExtractUnitSource('nested-members.pas', lSource, False);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual('', DiagnosticCodes(lModel));
+  Assert.AreEqual('OuterAfter,HandleOther,', OwnerMemberNames(lModel, 'TBindingForm'));
+  Assert.AreEqual('HandleData,FHidden,', OwnerMemberNames(lModel, 'TBindingForm.TInner'));
+  Assert.IsTrue(FindMember(lModel, 'TBindingForm.TInner', 'HandleData', 'method', lMember));
+  Assert.AreEqual('public', lMember.Visibility);
+  Assert.AreEqual(Pos('HandleData', lSource), lMember.Offset);
+  Assert.IsTrue(lMember.ProcedureSignature.Known);
+  Assert.IsTrue(FindMember(lModel, 'TBindingForm.TInner', 'FHidden', 'field', lMember));
+  Assert.AreEqual('private', lMember.Visibility);
+  Assert.IsTrue(FindMember(lModel, 'TBindingForm', 'OuterAfter', 'method', lMember));
+  Assert.AreEqual('public', lMember.Visibility, 'Nested visibility must not leak into the outer class.');
+  Assert.IsTrue(FindMember(lModel, 'TBindingForm', 'HandleOther', 'method', lMember));
+  Assert.AreEqual('published', lMember.Visibility);
+end;
+
+procedure TUnitModelTests.AstFailedUnitKeepsUnverifiedMembers;
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lSource: string;
+begin
+  lSource := 'unit FailedMembers;'#13#10'interface'#13#10'type'#13#10 +
+    '  TSubject = class'#13#10'  private'#13#10'    FValue: Integer;'#13#10 +
+    '    class var FShared: Integer;'#13#10 +
+    '  public'#13#10'    procedure Run(aFirst: Integer;'#13#10'      aSecond: Integer);'#13#10 +
+    '    property Value: Integer read FValue;'#13#10'  end;'#13#10 +
+    '  TOther = class end;'#13#10 +
+    'implementation'#13#10'procedure TSubject.Run(aFirst: Integer; aSecond: Integer);'#13#10 +
+    'begin'#13#10'  if ('#13#10'end;'#13#10'end.'#13#10;
+  lModel := ExtractUnitSource('failed-members.pas', lSource, False);
+  lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits([lModel]);
+  Assert.AreEqual('ast-failed', lModel.ScopeModelStatus);
+  Assert.IsTrue(HasDiagnostic(lModel, 'SCOPE_MODEL_FAILED'));
+  Assert.IsTrue(HasDiagnostic(lModel, 'MEMBERS_UNVERIFIED'),
+    'Fallback members must be reported as unverified.');
+  Assert.AreEqual(0, Integer(Length(lAnalysis.Declarations)),
+    'Unverified class variables must not become global candidates.');
+  Assert.AreEqual('', OwnerMemberNames(lModel, 'TOther'), 'A one-line class ends its own block.');
+  Assert.AreEqual('FValue,Run,Value,', OwnerMemberNames(lModel, 'TSubject'));
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'FValue', 'field', lMember));
+  Assert.AreEqual('private', lMember.Visibility);
+  Assert.AreEqual(Pos('FValue', lSource), lMember.Offset);
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'Run', 'method', lMember));
+  Assert.AreEqual('public', lMember.Visibility);
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'Value', 'property', lMember));
+  Assert.AreEqual('Integer', lMember.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'TSubject', 'type', 'interface', lDeclaration));
+  Assert.AreEqual('invalid', lDeclaration.DeclarationRole,
+    'A fallback type must not claim a complete declaration.');
+  lModel := JsonToModel(ModelToJson(lModel));
+  Assert.IsTrue(HasDiagnostic(lModel, 'MEMBERS_UNVERIFIED'), 'JSON keeps the unverified marker.');
+  Assert.AreEqual('FValue,Run,Value,', OwnerMemberNames(lModel, 'TSubject'));
+end;
+
+procedure TUnitModelTests.InterfaceOnlyRetryKeepsOriginalParserMessage;
+var
+  lExpected: string;
+  lModel: TDelphiSemanticUnitModel;
+  lSource: string;
+begin
+  lSource := 'unit RetryMembers;'#13#10'interface'#13#10'type'#13#10 +
+    '  TSubject = class'#13#10'  public'#13#10'    procedure Run;'#13#10'  end;'#13#10 +
+    'implementation'#13#10'procedure TSubject.Run;'#13#10'begin'#13#10'  if ('#13#10 +
+    'end;'#13#10'end.'#13#10;
+  lExpected := DiagnosticMessage(ExtractUnitSource('retry-members-full.pas', lSource, False),
+    'SCOPE_MODEL_FAILED');
+  Assert.AreNotEqual('', lExpected);
+  lModel := ExtractUnitSource('retry-members.pas', lSource, True);
+  Assert.AreEqual('ast-interface-only', lModel.ScopeModelStatus);
+  Assert.AreEqual(lExpected, DiagnosticMessage(lModel, 'AST_BODY_PARSE_FAILED'),
+    'The interface-only retry must keep the original parser message.');
+  Assert.AreEqual('Run,', OwnerMemberNames(lModel, 'TSubject'));
 end;
 
 initialization

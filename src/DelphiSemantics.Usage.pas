@@ -40,13 +40,23 @@ type
       const aName: string): TDelphiSemanticUsageResult; overload; static;
     class function FindUsagesByName(const aIndex: TDelphiSemanticProjectSymbolIndex;
       const aName: string): TDelphiSemanticUsageResult; overload; static;
+    // Refuses a resolved result whose declaring unit lacks syntax-verified facts.
+    class function RequireVerifiedDeclaringUnit(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aResult: TDelphiSemanticUsageResult): TDelphiSemanticUsageResult; static;
+    // True when the symbol's declaring unit (matched by file, else by unit name) has a scope
+    // status other than ast, so its member and reference facts are unverified.
+    class function TryFindUnverifiedDeclaringUnit(
+      const aContext: TDelphiSemanticSymbolQueryContext;
+      const aSymbol: TDelphiSemanticIndexedSymbol; out aUnitName, aScopeStatus: string):
+      Boolean; static;
   end;
 
 implementation
 
 uses
   System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Model.Text, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.PositionResolver,
+  DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot,
+  DelphiSemantics.Snapshot.PositionResolver,
   DelphiSemantics.Snapshot.QuerySupport;
 
 function MakeDiagnosticResult(const aStatus, aDiagnostic: string): TDelphiSemanticUsageResult;
@@ -54,6 +64,42 @@ begin
   Result := Default(TDelphiSemanticUsageResult);
   Result.Status := aStatus;
   Result.Diagnostic := aDiagnostic;
+end;
+
+// Usages and renames need complete syntax facts for the declaring unit. A unit whose syntax
+// tree failed (members from an unverified line scan) or covers only the interface cannot
+// prove its member ownership or every reference, so the result becomes unknown.
+function UnverifiedDeclarationResult(const aSymbolName, aUnitName,
+  aScopeStatus: string): TDelphiSemanticUsageResult;
+begin
+  Result := MakeDiagnosticResult('unknown', 'Symbol "' + aSymbolName + '" is declared in unit "' +
+    aUnitName + '" whose syntax facts are unverified (scope status: ' + aScopeStatus +
+    '); its usages cannot be proven.');
+end;
+
+// Extraction always records a scope status. Only hand-built facts without scope metadata
+// (an empty status) are left to their builder.
+function IsVerifiedScopeStatus(const aScopeStatus: string): Boolean;
+begin
+  Result := (aScopeStatus = '') or SameText(aScopeStatus, 'ast');
+end;
+
+function GateSnapshotDeclaringUnit(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aResult: TDelphiSemanticUsageResult):
+  TDelphiSemanticUsageResult;
+var
+  lStatus: string;
+begin
+  Result := aResult;
+  if (aUnit = nil) or (aResult.Status <> 'resolved') then
+    Exit;
+  lStatus := SnapshotText(aSnapshot, aUnit.ScopeModelStatusId);
+  if not IsVerifiedScopeStatus(lStatus) then
+  begin
+    Result := UnverifiedDeclarationResult(aResult.Symbol.Name,
+      SnapshotText(aSnapshot, aUnit.UnitNameId), lStatus);
+    Result.IndexMetrics := aResult.IndexMetrics;
+  end;
 end;
 
 function FindSymbolById(const aIndex: TDelphiSemanticProjectSymbolIndex;
@@ -564,6 +610,7 @@ var
   lSnapshot: TDelphiProjectSnapshot;
   lSymbol: TDelphiSemanticIndexedSymbol;
   lSymbolRef: TSemanticSymbolRef;
+  lUnit: TUnitSnapshot;
 begin
   lSnapshot := ContextProjectSnapshot(aContext);
   if lSnapshot = nil then
@@ -574,6 +621,8 @@ begin
       '" was found.'));
 
   Result := BuildSnapshotResultForSymbol(lSnapshot, lSymbolRef, lSymbol);
+  if lSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit) then
+    Result := GateSnapshotDeclaringUnit(lSnapshot, lUnit, Result);
 end;
 
 function FindSnapshotUsagesAtPosition(const aContext: TDelphiSemanticSymbolQueryContext;
@@ -593,6 +642,7 @@ begin
   lSymbol := SnapshotIndexedSymbol(lSnapshot, lPositionResolution.SymbolUnit,
     lPositionResolution.SymbolRef, lPositionResolution.Symbol);
   Result := BuildSnapshotResultForSymbol(lSnapshot, lPositionResolution.SymbolRef, lSymbol);
+  Result := GateSnapshotDeclaringUnit(lSnapshot, lPositionResolution.SymbolUnit, Result);
 end;
 
 function NormalizedSymbolSignature(const aSignature: string): string;
@@ -736,7 +786,8 @@ begin
     Exit(FindSnapshotUsagesAtPosition(aContext, aFileName, aLine, aColumn));
 
   lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
-  Result := FindUsagesAtPosition(lIndex, aContext, aFileName, aLine, aColumn);
+  Result := RequireVerifiedDeclaringUnit(aContext,
+    FindUsagesAtPosition(lIndex, aContext, aFileName, aLine, aColumn));
   Result.IndexMetrics := lIndex.Metrics;
 end;
 
@@ -780,8 +831,71 @@ begin
     Exit(FindSnapshotUsagesByName(aContext, aName));
 
   lIndex := TDelphiSemanticProjectSymbolIndexer.Build(aContext);
-  Result := FindUsagesByName(lIndex, aName);
+  Result := RequireVerifiedDeclaringUnit(aContext, FindUsagesByName(lIndex, aName));
   Result.IndexMetrics := lIndex.Metrics;
+end;
+
+class function TDelphiSemanticUsageFinder.RequireVerifiedDeclaringUnit(
+  const aContext: TDelphiSemanticSymbolQueryContext;
+  const aResult: TDelphiSemanticUsageResult): TDelphiSemanticUsageResult;
+var
+  lScopeStatus: string;
+  lUnitName: string;
+begin
+  Result := aResult;
+  if (aResult.Status = 'resolved') and TryFindUnverifiedDeclaringUnit(aContext, aResult.Symbol,
+    lUnitName, lScopeStatus) then
+  begin
+    Result := UnverifiedDeclarationResult(aResult.Symbol.Name, lUnitName, lScopeStatus);
+    Result.IndexMetrics := aResult.IndexMetrics;
+  end;
+end;
+
+// File identity also covers a program file, whose model has no unit name.
+function DeclaresSymbol(const aSymbol: TDelphiSemanticIndexedSymbol; const aFileName,
+  aUnitName: string): Boolean;
+begin
+  if (aSymbol.FileName <> '') and (aFileName <> '') then
+    Exit(SameText(aSymbol.FileName, aFileName));
+  Result := (aUnitName <> '') and SameText(aUnitName, aSymbol.UnitName);
+end;
+
+class function TDelphiSemanticUsageFinder.TryFindUnverifiedDeclaringUnit(
+  const aContext: TDelphiSemanticSymbolQueryContext;
+  const aSymbol: TDelphiSemanticIndexedSymbol; out aUnitName, aScopeStatus: string): Boolean;
+var
+  i: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+begin
+  aUnitName := '';
+  aScopeStatus := '';
+  lSnapshot := ContextProjectSnapshot(aContext);
+  if lSnapshot <> nil then
+    for i := 0 to Pred(lSnapshot.UnitCount) do
+    begin
+      lUnit := lSnapshot.UnitByIndex(i);
+      if DeclaresSymbol(aSymbol, SnapshotText(lSnapshot, lUnit.FileNameId),
+        SnapshotText(lSnapshot, lUnit.UnitNameId)) then
+      begin
+        aUnitName := SnapshotText(lSnapshot, lUnit.UnitNameId);
+        aScopeStatus := SnapshotText(lSnapshot, lUnit.ScopeModelStatusId);
+        Exit(not IsVerifiedScopeStatus(aScopeStatus));
+      end;
+    end;
+  lModels := [aContext.UnitModel] + aContext.IndexedUnitModels;
+  for lModel in lModels do
+    if DeclaresSymbol(aSymbol, lModel.FileName, lModel.UnitName) then
+    begin
+      aUnitName := lModel.UnitName;
+      if aUnitName = '' then
+        aUnitName := ExtractFileName(lModel.FileName);
+      aScopeStatus := lModel.ScopeModelStatus;
+      Exit(not IsVerifiedScopeStatus(aScopeStatus));
+    end;
+  Result := False;
 end;
 
 class function TDelphiSemanticUsageFinder.FindUsagesByName(
