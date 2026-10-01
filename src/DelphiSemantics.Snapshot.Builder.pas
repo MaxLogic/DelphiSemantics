@@ -693,7 +693,7 @@ begin
   i := lStart - 1;
   while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
     Dec(i);
-  if (i <= 0) or (aModel.SourceText[i] <> '.') then
+  if not IsMemberAccessDot(aModel.SourceText, i) then
     Exit;
   Dec(i);
   while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
@@ -970,7 +970,7 @@ begin
   Dec(i);
   while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
     Dec(i);
-  Result := (i > 0) and (aModel.SourceText[i] = '.');
+  Result := IsMemberAccessDot(aModel.SourceText, i);
 end;
 
 function SimpleUnitReceiver(const aModel: TDelphiSemanticUnitModel;
@@ -993,7 +993,7 @@ begin
   Dec(i, Length(Result));
   while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
     Dec(i);
-  if (i > 0) and (aModel.SourceText[i] = '.') then
+  if IsMemberAccessDot(aModel.SourceText, i) then
     Result := '';
 end;
 

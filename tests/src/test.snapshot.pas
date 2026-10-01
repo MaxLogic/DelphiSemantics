@@ -26,6 +26,20 @@ type
     [TestCase('Missing routine scope', 'False')]
     procedure DefaultDeclarationPairUsesKnownScope(const aKnownScope: Boolean);
     [Test]
+    [TestCase('Open-array element types', 'array of Integer,array of string')]
+    [TestCase('Generic arguments', 'TList<Integer>,TList<string>')]
+    procedure OverloadCallsNeverBindToOtherOverload(const aFirstType, aSecondType: string);
+    [Test]
+    [TestCase('Open-array parameter', 'array of Integer')]
+    [TestCase('Generic-argument parameter', 'TList<Integer>')]
+    procedure DefaultOnlyDeclarationDifferenceStillPairs(const aParameterType: string);
+    [Test]
+    [TestCase('Subrange type', '7')]
+    [TestCase('Array bound', '8')]
+    [TestCase('Set bound', '13')]
+    [TestCase('Case label', '16')]
+    procedure RangeUpperBoundIsNotQualified(const aLine: Integer);
+    [Test]
     procedure ProjectSnapshotIndexesMembersPositionsAndReferences;
     [Test]
     procedure ProjectSnapshotIndexesOnlyExplicitTypeFacts;
@@ -330,6 +344,161 @@ begin
   finally
     lSnapshot.Free;
   end;
+end;
+
+function ExtractSourceFixtureModel(const aUnitName, aSource: string): TDelphiSemanticUnitModel;
+var
+  id: TGUID;
+  lDirectory: string;
+  lModelOptions: TDelphiSemanticModelOptions;
+begin
+  CreateGUID(id);
+  lDirectory := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
+    '..', '.dak', 'delphiSemanticsTests', 'source-fixture', GUIDToString(id)]));
+  TDirectory.CreateDirectory(lDirectory);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := TPath.Combine(lDirectory, aUnitName + '.pas');
+  TFile.WriteAllText(lModelOptions.SourceFileName, aSource, TEncoding.UTF8);
+  Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  Assert.IsTrue(Result.Success, aUnitName + ' extraction');
+  Assert.AreEqual('ast', Result.ScopeModelStatus, aUnitName + ' scope model');
+end;
+
+// Returns the declaration line of the one reference named aName on aLine, or 0
+// when unresolved, from the snapshot fact and from the alternate resolver.
+procedure SourceReferenceTargetLines(const aModel: TDelphiSemanticUnitModel;
+  const aName: string; const aLine: Integer; out aFactLine, aResolvedLine: Integer);
+var
+  i, j: Integer;
+  lFound: Integer;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lReference: TSemanticReferenceFact;
+  lSnapshot: TDelphiProjectSnapshot;
+  lTargets: TArray<TSemanticSymbolRef>;
+  lUnit: TUnitSnapshot;
+begin
+  aFactLine := -1;
+  aResolvedLine := -1;
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lOptions.WorkerCount := 1;
+  lSnapshot := BuildProjectSnapshotFromModels([aModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+  try
+    lUnit := lSnapshot.UnitByIndex(0);
+    lTargets := ResolveSnapshotReferenceTargets(lSnapshot, aModel);
+    lFound := 0;
+    for i := 1 to lUnit.ReferenceCount do
+    begin
+      lReference := lUnit.ReferenceById(i);
+      if not SameText(lSnapshot.TextOf(lReference.NameId), aName) or
+        (lReference.Line <> aLine) then
+        Continue;
+      Inc(lFound);
+      aFactLine := 0;
+      if lReference.TargetSymbolId <> 0 then
+        aFactLine := lUnit.SymbolById(lReference.TargetSymbolId).Line;
+      for j := 0 to High(aModel.References) do
+        if (aModel.References[j].Line = lReference.Line) and
+          (aModel.References[j].Column = lReference.Column) then
+        begin
+          aResolvedLine := 0;
+          if lTargets[j].SymbolId <> 0 then
+            aResolvedLine := lUnit.SymbolById(lTargets[j].SymbolId).Line;
+        end;
+    end;
+    Assert.AreEqual(1, lFound, Format('One %s reference on line %d', [aName, aLine]));
+    Assert.IsTrue(aResolvedLine >= 0, Format('Model reference %s on line %d', [aName, aLine]));
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.OverloadCallsNeverBindToOtherOverload(const aFirstType,
+  aSecondType: string);
+var
+  lFactLine, lResolvedLine: Integer;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  // Line layout: overload declarations 4/5, implementations 8/11, calls 16/17.
+  lModel := ExtractSourceFixtureModel('OverloadSubject',
+    'unit OverloadSubject;'#13#10'interface'#13#10 +
+    'uses System.Generics.Collections;'#13#10 +
+    'procedure Add(const A: ' + aFirstType + '); overload;'#13#10 +
+    'procedure Add(const A: ' + aSecondType + '); overload;'#13#10 +
+    'procedure Run(const aFirst: ' + aFirstType + '; const aSecond: ' + aSecondType + ');'#13#10 +
+    'implementation'#13#10 +
+    'procedure Add(const A: ' + aFirstType + ');'#13#10'begin'#13#10'end;'#13#10 +
+    'procedure Add(const A: ' + aSecondType + ');'#13#10'begin'#13#10'end;'#13#10 +
+    'procedure Run(const aFirst: ' + aFirstType + '; const aSecond: ' + aSecondType + ');'#13#10 +
+    'begin'#13#10'  Add(aFirst);'#13#10'  Add(aSecond);'#13#10'end;'#13#10'end.'#13#10);
+  // Without argument types the calls may stay ambiguous; they must never cross overloads.
+  SourceReferenceTargetLines(lModel, 'Add', 16, lFactLine, lResolvedLine);
+  Assert.IsTrue(MatchText(IntToStr(lFactLine), ['0', '4', '8']),
+    'First call snapshot target line ' + IntToStr(lFactLine));
+  Assert.IsTrue(MatchText(IntToStr(lResolvedLine), ['0', '4', '8']),
+    'First call resolved target line ' + IntToStr(lResolvedLine));
+  SourceReferenceTargetLines(lModel, 'Add', 17, lFactLine, lResolvedLine);
+  Assert.IsTrue(MatchText(IntToStr(lFactLine), ['0', '5', '11']),
+    'Second call snapshot target line ' + IntToStr(lFactLine));
+  Assert.IsTrue(MatchText(IntToStr(lResolvedLine), ['0', '5', '11']),
+    'Second call resolved target line ' + IntToStr(lResolvedLine));
+end;
+
+procedure TSnapshotTests.DefaultOnlyDeclarationDifferenceStillPairs(
+  const aParameterType: string);
+var
+  lFactLine, lResolvedLine: Integer;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  // Line layout: constant 4, declaration 5, implementation 8, body 10, call 14.
+  lModel := ExtractSourceFixtureModel('PairSubject',
+    'unit PairSubject;'#13#10'interface'#13#10 +
+    'uses System.Generics.Collections;'#13#10'const cDefault = 3;'#13#10 +
+    'function Fill(const A: ' + aParameterType + '; aCount: Integer = cDefault): Integer;'#13#10 +
+    'procedure Run(const aValues: ' + aParameterType + ');'#13#10 +
+    'implementation'#13#10 +
+    'function Fill(const A: ' + aParameterType + '; aCount: Integer): Integer;'#13#10 +
+    'begin'#13#10'  Result := aCount;'#13#10'end;'#13#10 +
+    'procedure Run(const aValues: ' + aParameterType + ');'#13#10 +
+    'begin'#13#10'  Fill(aValues);'#13#10'end;'#13#10'end.'#13#10);
+  // The declaration and its implementation differ only by the default value,
+  // so the call has one routine target instead of two unpaired candidates.
+  SourceReferenceTargetLines(lModel, 'Fill', 14, lFactLine, lResolvedLine);
+  Assert.IsTrue(MatchText(IntToStr(lFactLine), ['5', '8']),
+    'Call snapshot target line ' + IntToStr(lFactLine));
+  Assert.AreEqual(lFactLine, lResolvedLine, 'Call resolver parity');
+  SourceReferenceTargetLines(lModel, 'aCount', 10, lFactLine, lResolvedLine);
+  Assert.AreEqual(8, lFactLine, 'Body parameter snapshot target');
+  Assert.AreEqual(8, lResolvedLine, 'Body parameter resolved target');
+  SourceReferenceTargetLines(lModel, 'cDefault', 5, lFactLine, lResolvedLine);
+  Assert.AreEqual(4, lFactLine, 'Default value snapshot target');
+  Assert.AreEqual(4, lResolvedLine, 'Default value resolved target');
+end;
+
+procedure TSnapshotTests.RangeUpperBoundIsNotQualified(const aLine: Integer);
+var
+  lFactLine, lResolvedLine: Integer;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := ExtractSourceFixtureModel('RangeSubject',
+    'unit RangeSubject;'#13#10'interface'#13#10'const'#13#10 +
+    '  cMin = 1;'#13#10'  cMax = 5;'#13#10'type'#13#10 +
+    '  TRange = cMin..cMax;'#13#10 +
+    '  TValues = array[cMin..cMax] of Integer;'#13#10 +
+    'procedure Run(X: Integer);'#13#10'implementation'#13#10 +
+    'procedure Run(X: Integer);'#13#10'begin'#13#10 +
+    '  if X in [cMin..cMax] then'#13#10'    WriteLn(X);'#13#10 +
+    '  case X of'#13#10'    cMin..cMax: WriteLn(X);'#13#10'  end;'#13#10 +
+    'end;'#13#10'end.'#13#10);
+  // A range separator is not a member-access dot; both bounds bind to their constants.
+  SourceReferenceTargetLines(lModel, 'cMin', aLine, lFactLine, lResolvedLine);
+  Assert.AreEqual(4, lFactLine, 'Lower bound snapshot target');
+  Assert.AreEqual(4, lResolvedLine, 'Lower bound resolved target');
+  SourceReferenceTargetLines(lModel, 'cMax', aLine, lFactLine, lResolvedLine);
+  Assert.AreEqual(5, lFactLine, 'Upper bound snapshot target');
+  Assert.AreEqual(5, lResolvedLine, 'Upper bound resolved target');
 end;
 
 procedure TSnapshotTests.SnapshotReindexKeepsGlobalRoutineOwnership;

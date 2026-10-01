@@ -2213,7 +2213,7 @@ begin
   end;
   while (lColumn > 0) and CharInSet(lLine[lColumn], [#9, ' ']) do
     Dec(lColumn);
-  Result := (lColumn > 0) and (lLine[lColumn] = '.');
+  Result := IsMemberAccessDot(lLine, lColumn);
 end;
 
 function ReferenceLineHasConditionalDirective(const aBinding: TDelphiSemanticWithBinding;
@@ -3190,7 +3190,7 @@ begin
   lOffset := aOffset - 1;
   while (lOffset > 0) and CharInSet(aBodyText[lOffset], [#9, #10, #13, ' ']) do
     Dec(lOffset);
-  Result := (lOffset > 0) and (aBodyText[lOffset] = '.');
+  Result := IsMemberAccessDot(aBodyText, lOffset);
 end;
 
 function LineOffsetAppearsQualified(const aLineText: string;
@@ -3202,7 +3202,7 @@ begin
   lOffset := aOffset - 1;
   while (lOffset > 0) and CharInSet(aLineText[lOffset], [#9, ' ']) do
     Dec(lOffset);
-  Result := (lOffset > 0) and (aLineText[lOffset] = '.');
+  Result := IsMemberAccessDot(aLineText, lOffset);
 end;
 
 function BodyOffsetInsideLiteralOrComment(const aText: string;

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Remove-with planning qualifies every record or class constant declared on a shared line (`const CLo = 1; CHi = 5;`) and class properties. Previously a constant after the first, or a class property, stayed bare when an outer declaration had the same name, so the rewritten code compiled but used the outer value. Cached remove-with facts are rebuilt.
 - Unit-level untyped constants retain syntax-backed declarations when section keywords and multiple declarations share a line. Ordinary constants are marked immutable, and affected cache identities are advanced so previous incomplete facts are rebuilt.
 
 ### Added
@@ -274,6 +275,7 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- Snapshot reference binding no longer sends a call to the wrong overload when overloads differ only by an open-array element type or generic arguments; such calls stay unresolved. Range bounds such as `cMin..cMax` in subranges, case labels, set and array bounds bind their upper bound again, and signature alignment detects a parameter rename that would capture such a bound. Remove-with planning now qualifies a with-member used after `..` instead of leaving it to bind to an outer declaration. The parser cache version is advanced so earlier facts are rebuilt.
 - Snapshot reference binding distinguishes tested Self members and explicit class variables from same-named parameters. Partial Unicode identifier matches are refused and old snapshot cache entries are rebuilt; full Unicode parsing remains unproven.
 - Treat omitted and explicit register calling conventions as equivalent in
   source-backed event signature comparisons.

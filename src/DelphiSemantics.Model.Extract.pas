@@ -507,6 +507,34 @@ begin
       Exit(TValuedSyntaxNode(lChild).Value);
 end;
 
+// Overloads may differ only inside a type (open-array element, generic arguments),
+// so the scope key renders the whole parameter type tree, not just its head name.
+function AstTypeText(const aTypeNode: TSyntaxNode): string;
+var
+  lArgument: TSyntaxNode;
+  lArguments: string;
+  lChild: TSyntaxNode;
+begin
+  Result := LowerCase(aTypeNode.GetAttribute(anName));
+  if aTypeNode.HasAttribute(anType) then
+    Result := Trim(LowerCase(aTypeNode.GetAttribute(anType)) + ' ' + Result);
+  for lChild in aTypeNode.ChildNodes do
+    if lChild.Typ = ntType then
+      Result := Result + ' of ' + AstTypeText(lChild)
+    else if lChild.Typ = ntTypeArgs then
+    begin
+      lArguments := '';
+      for lArgument in lChild.ChildNodes do
+        if lArgument.Typ = ntType then
+        begin
+          if lArguments <> '' then
+            lArguments := lArguments + ',';
+          lArguments := lArguments + AstTypeText(lArgument);
+        end;
+      Result := Result + '<' + lArguments + '>';
+    end;
+end;
+
 function AstMethodSignature(const aNode: TSyntaxNode): string;
 var
   lBuilder: TStringBuilder;
@@ -533,8 +561,8 @@ begin
           if lParameter.HasAttribute(anKind) then
             lBuilder.Append(LowerCase(lParameter.GetAttribute(anKind))).Append(':');
           lTypeNode := lParameter.FindNode(ntType);
-          if Assigned(lTypeNode) and lTypeNode.HasAttribute(anName) then
-            lBuilder.Append(LowerCase(lTypeNode.GetAttribute(anName)));
+          if Assigned(lTypeNode) then
+            lBuilder.Append(AstTypeText(lTypeNode));
         end;
     Result := lBuilder.ToString;
   finally

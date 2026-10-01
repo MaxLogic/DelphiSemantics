@@ -257,6 +257,21 @@ type
     [Test]
     procedure FinalDtoPlansSemicolonlessBlockBeforeRoutineEnd;
     [Test]
+    [TestCase('Set member to shadowed const name', 'set-member-member')]
+    [TestCase('Set member to outer const', 'set-member-const')]
+    [TestCase('Set outer const to member', 'set-const-member')]
+    [TestCase('Case label outer consts', 'case-label')]
+    procedure FinalDtoRewritesRangeBoundMembers(const aShape: string);
+    [Test]
+    [TestCase('Record const shadowing an outer const', 'expr-shadowed')]
+    [TestCase('Record const after another on one line', 'expr-unshadowed')]
+    [TestCase('Record consts as set bounds', 'set-bound')]
+    [TestCase('Record consts as case labels', 'case-label')]
+    [TestCase('Class const shadowing an outer const', 'class-const')]
+    [TestCase('Class var shadowing an outer var', 'class-var')]
+    [TestCase('Class property shadowing an outer function', 'class-prop')]
+    procedure FinalDtoQualifiesShadowingTypeMembers(const aShape: string);
+    [Test]
     procedure FinalDtoPlansCompleteRepeatUntilControlBody;
     [Test]
     procedure FinalDtoPlansCompleteLoopBranchControlBody;
@@ -3510,6 +3525,186 @@ begin
     'lWithRangeRecordPtr^.Last := lWithRangeRecordPtr^.Queue;'), lStatement.ReplacementText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     'lWithRangeRecordPtr^.Queue := 3;'), lStatement.ReplacementText);
+end;
+
+function RangeBoundWithBody(const aShape: string): string;
+begin
+  if aShape = 'set-member-member' then
+    Result := '    if X in [Lo..Hi] then'
+  else if aShape = 'set-member-const' then
+    Result := '    if X in [Lo..cHigh] then'
+  else if aShape = 'set-const-member' then
+    Result := '    if X in [cLow..Hi] then'
+  else
+    Exit('    case Lo of' + sLineBreak + '      cLow..cHigh: Hi := 2;' + sLineBreak +
+      '    end;');
+  Result := Result + sLineBreak + '      Lo := 1;';
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoRewritesRangeBoundMembers(const aShape: string);
+var
+  lExpected: TArray<string>;
+  lFixtureDir: string;
+  lFragment: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lText: string;
+begin
+  lFixtureDir := TempPath('remove-with-range-bound-' + aShape);
+  if TDirectory.Exists(lFixtureDir) then
+    TDirectory.Delete(lFixtureDir, True);
+  TDirectory.CreateDirectory(lFixtureDir);
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithRangeFixture.dproj');
+  TFile.WriteAllText(TPath.Combine(lFixtureDir, 'RemoveWithRangeFixture.dpr'),
+    'program RemoveWithRangeFixture;' + sLineBreak +
+    'uses RemoveWithRangeUnit in ''RemoveWithRangeUnit.pas'';' + sLineBreak +
+    'begin' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>RemoveWithRangeFixture.dpr</MainSource>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '  <ItemGroup>' + sLineBreak +
+    '    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>' +
+    sLineBreak +
+    '    <DCCReference Include="RemoveWithRangeUnit.pas" />' + sLineBreak +
+    '  </ItemGroup>' + sLineBreak +
+    '</Project>', TEncoding.UTF8);
+  // The unit-level Hi is shadowed by the record member inside the with body; a bare Hi
+  // after the rewrite would silently bind to the constant and still compile.
+  TFile.WriteAllText(TPath.Combine(lFixtureDir, 'RemoveWithRangeUnit.pas'),
+    'unit RemoveWithRangeUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TR = record' + sLineBreak + '    Lo, Hi: Integer;' + sLineBreak +
+    '  end;' + sLineBreak + 'procedure P(var R: TR; X: Integer);' + sLineBreak +
+    'implementation' + sLineBreak + 'const' + sLineBreak + '  Hi = 100;' + sLineBreak +
+
+    '  cLow = 1;' + sLineBreak + '  cHigh = 50;' + sLineBreak +
+    'procedure P(var R: TR; X: Integer);' + sLineBreak + 'begin' + sLineBreak +
+    '  with R do' + sLineBreak + '  begin' + sLineBreak + RangeBoundWithBody(aShape) + sLineBreak +
+    '  end;' + sLineBreak + 'end;' + sLineBreak + 'end.', TEncoding.UTF8);
+
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithRangeUnit.pas', 15, 3, lStatement),
+    'Expected range-bound with statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)), lStatement.ReplacementText);
+  lText := lStatement.ReplacementText;
+  if aShape = 'set-member-member' then
+    lExpected := ['[%0:s^.Lo..%0:s^.Hi]']
+  else if aShape = 'set-member-const' then
+    lExpected := ['[%0:s^.Lo..cHigh]']
+  else if aShape = 'set-const-member' then
+    lExpected := ['[cLow..%0:s^.Hi]']
+  else
+    lExpected := ['case %0:s^.Lo of', 'cLow..cHigh: %0:s^.Hi := 2;'];
+  for lFragment in lExpected do
+    Assert.IsTrue(ContainsText(lText, Format(lFragment, [lStatement.Temps[0].TempName])),
+      Format(lFragment, [lStatement.Temps[0].TempName]) + ' in ' + lText);
+end;
+
+function ShadowingTypeMemberBody(const aShape: string; out aExpected: TArray<string>): string;
+begin
+  // %0:s is the receiver qualifier; every with-member must keep binding to the type member.
+  if aShape = 'expr-shadowed' then
+  begin
+    Result := '    X := CHi + CLo;';
+    aExpected := ['X := %0:s.CHi + %0:s.CLo;'];
+  end else if aShape = 'expr-unshadowed' then
+  begin
+    Result := '    X := CMid;';
+    aExpected := ['X := %0:s.CMid;'];
+  end else if aShape = 'set-bound' then
+  begin
+    Result := '    if X in [CLo..CHi] then Lo := 2;';
+    aExpected := ['if X in [%0:s.CLo..%0:s.CHi] then %0:s.Lo := 2;'];
+  end else if aShape = 'case-label' then
+  begin
+    Result := '    case X of CLo..CHi: Lo := 2; end;';
+    aExpected := ['case X of %0:s.CLo..%0:s.CHi: %0:s.Lo := 2; end;'];
+  end else if aShape = 'class-const' then
+  begin
+    Result := '    X := KC + KA;';
+    aExpected := ['X := %0:s.KC + %0:s.KA;'];
+  end else if aShape = 'class-var' then
+  begin
+    Result := '    CV := X;';
+    aExpected := ['%0:s.CV := X;'];
+  end else
+  begin
+    Result := '    X := CP;';
+    aExpected := ['X := %0:s.CP;'];
+  end;
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoQualifiesShadowingTypeMembers(const aShape: string);
+var
+  lBody: string;
+  lExpected: TArray<string>;
+  lFixtureDir: string;
+  lFragment: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProjectPath: string;
+  lSelector: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lFixtureDir := TempPath('remove-with-shadowing-type-member-' + aShape);
+  if TDirectory.Exists(lFixtureDir) then
+    TDirectory.Delete(lFixtureDir, True);
+  TDirectory.CreateDirectory(lFixtureDir);
+  lProjectPath := TPath.Combine(lFixtureDir, 'RemoveWithTypeMemberFixture.dproj');
+  TFile.WriteAllText(TPath.Combine(lFixtureDir, 'RemoveWithTypeMemberFixture.dpr'),
+    'program RemoveWithTypeMemberFixture;' + sLineBreak +
+    'uses RemoveWithTypeMemberUnit in ''RemoveWithTypeMemberUnit.pas'';' + sLineBreak +
+    'begin' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' + sLineBreak +
+    '  <PropertyGroup>' + sLineBreak +
+    '    <MainSource>RemoveWithTypeMemberFixture.dpr</MainSource>' + sLineBreak +
+    '  </PropertyGroup>' + sLineBreak +
+    '  <ItemGroup>' + sLineBreak +
+    '    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>' +
+    sLineBreak +
+    '    <DCCReference Include="RemoveWithTypeMemberUnit.pas" />' + sLineBreak +
+    '  </ItemGroup>' + sLineBreak +
+    '</Project>', TEncoding.UTF8);
+  lBody := ShadowingTypeMemberBody(aShape, lExpected);
+  if StartsText('class-', aShape) then
+    lSelector := 'C'
+  else
+    lSelector := 'R';
+  // Delphi binds a name inside "with" to the selector type's member first, so the record and
+  // class constants, class var and class property hide the unit-level CHi, KC, CV and CP. A
+  // bare name after the rewrite would silently bind to the outer declaration and still compile.
+  TFile.WriteAllText(TPath.Combine(lFixtureDir, 'RemoveWithTypeMemberUnit.pas'),
+    'unit RemoveWithTypeMemberUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TR = record' + sLineBreak + '    Lo, Hi: Integer;' + sLineBreak +
+    '    const CLo = 1; CHi = 5; CMid = 3;' + sLineBreak + '  end;' + sLineBreak +
+    '  TC = class' + sLineBreak + '  public' + sLineBreak + '    const KA = 1; KC = 7;' +
+    sLineBreak + '    class var CA, CV: Integer;' + sLineBreak +
+    '    class function GetCP: Integer; static;' + sLineBreak +
+    '    class property CP: Integer read GetCP;' + sLineBreak + '  end;' + sLineBreak +
+    'implementation' + sLineBreak + 'const' + sLineBreak + '  CHi = 300;' + sLineBreak +
+    '  KC = 900;' + sLineBreak + 'var' + sLineBreak + '  CV: Integer = 800;' + sLineBreak +
+    'function CP: Integer;' + sLineBreak + 'begin' + sLineBreak + '  Result := 700;' +
+    sLineBreak + 'end;' + sLineBreak + 'class function TC.GetCP: Integer;' + sLineBreak +
+    'begin' + sLineBreak + '  Result := 70;' + sLineBreak + 'end;' + sLineBreak +
+    'procedure P(var R: TR; C: TC; X: Integer);' + sLineBreak + 'begin' + sLineBreak +
+    '  with ' + lSelector + ' do' + sLineBreak + lBody + sLineBreak + 'end;' + sLineBreak +
+    'end.', TEncoding.UTF8);
+
+  lPlan := BuildPlanForProject(lProjectPath);
+
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithTypeMemberUnit.pas', 31, 3, lStatement),
+    'Expected shadowing type-member with statement.');
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)), lStatement.ReplacementText);
+  for lFragment in lExpected do
+    Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+      Format(lFragment, [lStatement.Temps[0].QualifierText])),
+      Format(lFragment, [lStatement.Temps[0].QualifierText]) + ' in ' +
+      lStatement.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoPlansSemicolonlessBlockBeforeRoutineEnd;

@@ -378,8 +378,8 @@ begin
 
     Assert.AreEqual('9', lIdentity.SchemaVersion,
       'Lexical ownership fields changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.31', lIdentity.ParserVersion,
-      'Syntax-backed constant declarations and immutability require fresh facts.');
+    Assert.AreEqual('DelphiSemantics.Model.Parser.32', lIdentity.ParserVersion,
+      'Routine scope IDs now include full parameter type text and require fresh facts.');
   finally
     lCache.Free;
   end;

@@ -5,6 +5,7 @@ interface
 function NormalizeRoutineSignature(const aSignature: string): string;
 function IsIdentifierStart(const aChar: Char): Boolean;
 function IsIdentifierChar(const aChar: Char): Boolean;
+function IsMemberAccessDot(const aText: string; const aIndex: Integer): Boolean;
 function IsWordAt(const aText: string; const aOffset: Integer; const aWord: string): Boolean; overload;
 function IsWordAt(const aText, aWord: string; const aIndex: Integer): Boolean; overload;
 function TextContainsIdentifier(const aText, aIdentifier: string): Boolean;
@@ -134,6 +135,15 @@ end;
 function IsIdentifierChar(const aChar: Char): Boolean;
 begin
   Result := IsIdentifierStart(aChar) or CharInSet(aChar, ['0'..'9']);
+end;
+
+function IsMemberAccessDot(const aText: string; const aIndex: Integer): Boolean;
+begin
+  // Either dot of a range separator `..` (subranges, case labels, set and array bounds)
+  // is not a member access.
+  Result := (aIndex > 0) and (aIndex <= Length(aText)) and (aText[aIndex] = '.') and
+    not ((aIndex > 1) and (aText[aIndex - 1] = '.')) and
+    not ((aIndex < Length(aText)) and (aText[aIndex + 1] = '.'));
 end;
 
 function IsWordAt(const aText: string; const aOffset: Integer; const aWord: string): Boolean; overload;

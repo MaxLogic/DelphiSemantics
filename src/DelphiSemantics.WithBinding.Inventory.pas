@@ -306,6 +306,54 @@ begin
   Result := aName <> '';
 end;
 
+// Splits "A = 1; B: TPoint = (X: 1; Y: 2); C = 'x;y'" at the semicolons that end a declaration,
+// ignoring those inside string literals and parentheses or brackets.
+function InventorySplitTopLevelDeclarations(const aText: string): TArray<string>;
+var
+  i: Integer;
+  lDepth: Integer;
+  lInString: Boolean;
+  lParts: TList<string>;
+  lStart: Integer;
+
+  procedure AddPart(const aEndExclusive: Integer);
+  var
+    lPart: string;
+  begin
+    lPart := Trim(Copy(aText, lStart, aEndExclusive - lStart));
+    if lPart <> '' then
+      lParts.Add(lPart);
+  end;
+
+begin
+  lParts := TList<string>.Create;
+  try
+    lDepth := 0;
+    lInString := False;
+    lStart := 1;
+    for i := 1 to Length(aText) do
+    begin
+      if aText[i] = '''' then
+        lInString := not lInString
+      else if lInString then
+        Continue
+      else if CharInSet(aText[i], ['(', '[']) then
+        Inc(lDepth)
+      else if CharInSet(aText[i], [')', ']']) and (lDepth > 0) then
+        Dec(lDepth)
+      else if (aText[i] = ';') and (lDepth = 0) then
+      begin
+        AddPart(i);
+        lStart := i + 1;
+      end;
+    end;
+    AddPart(Length(aText) + 1);
+    Result := lParts.ToArray;
+  finally
+    lParts.Free;
+  end;
+end;
+
 function InventoryTryEnumValues(const aTypeText: string; out aNames: TArray<string>): Boolean;
 var
   i: Integer;
@@ -1417,11 +1465,18 @@ begin
 
     if lInConst and InventoryTryConstDeclaration(lLine, lConstName, lTypeName) then
     begin
-      AddDakInventorySymbol(aSymbols, lConstName, lTypeName, lCurrentType, '', aUnitName,
-        aFileName, i + 1, aLines[i], 'constant');
+      // DS-646: every constant of "const CLo = 1; CHi = 5;" is a member; a missed one would
+      // let an outer same-name declaration capture it after the with is removed.
+      for lDeclaration in InventorySplitTopLevelDeclarations(lLine) do
+        if InventoryTryConstDeclaration(lDeclaration, lConstName, lTypeName) then
+          AddDakInventorySymbol(aSymbols, lConstName, lTypeName, lCurrentType, '', aUnitName,
+            aFileName, i + 1, aLines[i], 'constant');
       Continue;
     end;
 
+    // DS-646: a class property is a with-member like an instance property.
+    if StartsText('class property ', lLower) then
+      lLine := Trim(Copy(lLine, Length('class ') + 1, MaxInt));
     if InventoryTryPropertyDeclaration(lLine, lMemberName, lPropertyType, lPropertyIsDefault,
       lPropertyIndexed, lPropertyIndexParameterCount) then
     begin

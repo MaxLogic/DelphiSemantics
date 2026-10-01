@@ -553,7 +553,7 @@ begin
     Exit(False);
   while (i > 0) and CharInSet(aCode[i], [#9, #10, #13, ' ']) do
     Dec(i);
-  Result := (i > 0) and (aCode[i] = '.');
+  Result := IsMemberAccessDot(aCode, i);
 end;
 
 function IsMovingAlignmentName(const aEdits: TArray<TSemanticPlanEdit>;

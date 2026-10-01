@@ -52,6 +52,7 @@ type
     [TestCase('Nested capture during simultaneous swap', 'swap-capture')]
     [TestCase('Previously bound field', 'capture-field')]
     [TestCase('Previously unresolved name', 'capture-unknown')]
+    [TestCase('Range bound constant', 'capture-range')]
     procedure RefusesParameterNameCapture(const aShape: string);
     [Test]
     [TestCase('Already aligned', 'aligned,aligned')]
@@ -126,7 +127,13 @@ begin
     lBody := 'procedure Nested(aValue: TValue);'#13#10 +
       'begin aOldValue := aValue; end;'#13#10'begin end;'
   else if (aShape = 'capture-field') or (aShape = 'capture-unknown') then
-    lBody := 'begin aOldValue := aValue; end;';
+    lBody := 'begin aOldValue := aValue; end;'
+  else if aShape = 'capture-range' then
+    // A range separator is not a qualifier: the renamed parameter would capture aValue.
+    lBody := 'begin if aOldValue in [one..aValue] then aOldValue := one; end;';
+  if aShape = 'capture-range' then
+    Result := StringReplace(Result, 'implementation'#13#10,
+      'const aValue = two;'#13#10'implementation'#13#10, []);
   if aShape = 'qualified-literals' then
     Result := StringReplace(Result, '  public', '  public aOldValue: TValue;', []);
   if aShape = 'capture-field' then
