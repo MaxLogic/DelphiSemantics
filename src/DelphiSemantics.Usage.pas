@@ -18,6 +18,8 @@ type
     Column: Integer;
     EndLine: Integer;
     EndColumn: Integer;
+    // Why an occurrence in Unresolved could not be classified; empty for proven usages.
+    Reason: string;
   end;
 
   TDelphiSemanticUsageResult = record
@@ -25,6 +27,9 @@ type
     Diagnostic: string;
     Symbol: TDelphiSemanticIndexedSymbol;
     Usages: TArray<TDelphiSemanticUsage>;
+    // Same-name occurrences that are proven neither to be nor not to be the symbol (role
+    // 'unresolved'). Filled for project-snapshot results.
+    Unresolved: TArray<TDelphiSemanticUsage>;
     IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
   end;
 
@@ -531,6 +536,356 @@ begin
   Result := lCount = 1;
 end;
 
+function SnapshotPositionKey(const aFileName: string; const aLine, aColumn: Integer): string;
+begin
+  Result := LowerCase(aFileName) + '|' + aLine.ToString + '|' + aColumn.ToString;
+end;
+
+function SameSnapshotSymbolRef(const aLeft, aRight: TSemanticSymbolRef): Boolean;
+begin
+  Result := (aLeft.UnitId = aRight.UnitId) and (aLeft.SymbolId = aRight.SymbolId);
+end;
+
+procedure AddUnresolvedUsage(const aUnresolved: TList<TDelphiSemanticUsage>;
+  const aSnapshot: TDelphiProjectSnapshot; const aUnit: TUnitSnapshot; const aName,
+  aRoutineName, aSectionKind: string; const aLine, aColumn: Integer; const aReason: string);
+var
+  lUsage: TDelphiSemanticUsage;
+begin
+  lUsage := Default(TDelphiSemanticUsage);
+  lUsage.Name := aName;
+  lUsage.RoutineName := aRoutineName;
+  lUsage.Role := 'unresolved';
+  lUsage.SectionKind := aSectionKind;
+  lUsage.SourceKind := 'project-snapshot';
+  lUsage.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
+  lUsage.UnitName := SnapshotText(aSnapshot, aUnit.UnitNameId);
+  lUsage.Line := aLine;
+  lUsage.Column := aColumn;
+  lUsage.EndLine := aLine;
+  lUsage.EndColumn := aColumn + Length(aName) - 1;
+  lUsage.Reason := aReason;
+  aUnresolved.Add(lUsage);
+end;
+
+function SnapshotOffsetOfPosition(const aText: string; const aLine, aColumn: Integer): Integer;
+var
+  i: Integer;
+  lLine: Integer;
+begin
+  Result := 0;
+  if (aLine <= 0) or (aColumn <= 0) then
+    Exit;
+  lLine := 1;
+  i := 1;
+  while (lLine < aLine) and (i <= Length(aText)) do
+  begin
+    if aText[i] = #10 then
+      Inc(lLine);
+    Inc(i);
+  end;
+  if (lLine = aLine) and (i + aColumn - 1 <= Length(aText)) then
+    Result := i + aColumn - 1;
+end;
+
+// Walks a sanitized method declaration from its name over the header and the directive list
+// after it. Only these directives let a same-named method in another type override, implement
+// or reintroduce it.
+function MethodDeclarationIsVirtual(const aSanitized: string; const aOffset: Integer): Boolean;
+var
+  i: Integer;
+  lDepth: Integer;
+  lStart: Integer;
+  lWord: string;
+begin
+  Result := False;
+  if aOffset <= 0 then
+    Exit;
+  i := aOffset;
+  lDepth := 0;
+  while i <= Length(aSanitized) do
+  begin
+    if CharInSet(aSanitized[i], ['(', '[']) then
+      Inc(lDepth)
+    else if CharInSet(aSanitized[i], [')', ']']) then
+      Dec(lDepth)
+    else if (aSanitized[i] = ';') and (lDepth <= 0) then
+      Break;
+    Inc(i);
+  end;
+  while i <= Length(aSanitized) do
+  begin
+    Inc(i);
+    while (i <= Length(aSanitized)) and CharInSet(aSanitized[i], [#9, #10, #13, ' ']) do
+      Inc(i);
+    lStart := i;
+    while (i <= Length(aSanitized)) and IsIdentifierChar(aSanitized[i]) do
+      Inc(i);
+    lWord := Copy(aSanitized, lStart, i - lStart);
+    if MatchText(lWord, ['virtual', 'dynamic', 'override', 'abstract', 'reintroduce',
+      'message', 'final']) then
+      Exit(True);
+    if not MatchText(lWord, ['overload', 'static', 'inline', 'cdecl', 'stdcall', 'register',
+      'pascal', 'safecall', 'varargs', 'deprecated', 'platform', 'library', 'experimental',
+      'assembler', 'export', 'far', 'near', 'unsafe']) then
+      Exit;
+    while (i <= Length(aSanitized)) and (aSanitized[i] <> ';') do
+      Inc(i);
+  end;
+end;
+
+function SnapshotOwnerIsInterface(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aSymbol: TSemanticSymbolFact): Boolean;
+var
+  i: Integer;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
+  lType: TSemanticSymbolFact;
+  lTypeRef: TSemanticSymbolRef;
+begin
+  Result := False;
+  if (aSymbol.OwnerTypeId = 0) or
+    not aSnapshot.TrySymbolsByName(aSymbol.OwnerTypeId, lLowIndex, lHighIndex) then
+    Exit;
+  for i := lLowIndex to lHighIndex do
+  begin
+    lTypeRef := aSnapshot.SymbolRefByNameIndex(i);
+    if lTypeRef.UnitId <> aUnit.UnitId then
+      Continue;
+    lType := aUnit.SymbolById(lTypeRef.SymbolId);
+    if SameText(SnapshotText(aSnapshot, lType.KindId), 'type') and
+      SameText(SnapshotText(aSnapshot, lType.TypeId), 'interface') then
+      Exit(True);
+  end;
+end;
+
+// True unless the method's own declaration proves it static: unreadable source counts as
+// virtual, and interface methods are implemented by same-named class methods.
+function SnapshotMethodMayBeVirtual(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aSymbol: TSemanticSymbolFact): Boolean;
+var
+  lOffset: Integer;
+  lSanitized: string;
+begin
+  if SnapshotOwnerIsInterface(aSnapshot, aUnit, aSymbol) then
+    Exit(True);
+  lSanitized := SanitizeCodeText(aSnapshot.ExactTextOf(aUnit.SourceTextId));
+  lOffset := SnapshotOffsetOfPosition(lSanitized, aSymbol.Line, aSymbol.Column);
+  Result := (lOffset = 0) or MethodDeclarationIsVirtual(lSanitized, lOffset);
+end;
+
+// Overrides are not linked to their base method, so a same-named method of another type is
+// proven unrelated only when neither declaration is virtual.
+procedure AddPossibleOverrideUsages(const aUnresolved: TList<TDelphiSemanticUsage>;
+  const aSnapshot: TDelphiProjectSnapshot; const aSymbol: TDelphiSemanticIndexedSymbol;
+  const aEquivalentRefs: TList<TSemanticSymbolRef>; const aNameId: TSemanticStringId);
+var
+  i: Integer;
+  lCandidate: TSemanticSymbolFact;
+  lCandidateRef: TSemanticSymbolRef;
+  lCandidateUnit: TUnitSnapshot;
+  lHighIndex: Integer;
+  lLowIndex: Integer;
+  lRef: TSemanticSymbolRef;
+  lRenamed: TSemanticSymbolFact;
+  lRenamedUnit: TUnitSnapshot;
+  lRenamedVirtual: Boolean;
+begin
+  if aSymbol.OwnerName = '' then
+    Exit;
+  lRenamedVirtual := False;
+  for lRef in aEquivalentRefs do
+    if aSnapshot.TryFindUnitById(lRef.UnitId, lRenamedUnit) then
+    begin
+      lRenamed := lRenamedUnit.SymbolById(lRef.SymbolId);
+      if SameText(SnapshotText(aSnapshot, lRenamed.KindId), 'method') and
+        SnapshotMethodMayBeVirtual(aSnapshot, lRenamedUnit, lRenamed) then
+        lRenamedVirtual := True;
+    end;
+  if not aSnapshot.TrySymbolsByName(aNameId, lLowIndex, lHighIndex) then
+    Exit;
+  for i := lLowIndex to lHighIndex do
+  begin
+    lCandidateRef := aSnapshot.SymbolRefByNameIndex(i);
+    if SnapshotSymbolRefInList(aEquivalentRefs, lCandidateRef) or
+      not aSnapshot.TryFindUnitById(lCandidateRef.UnitId, lCandidateUnit) then
+      Continue;
+    lCandidate := lCandidateUnit.SymbolById(lCandidateRef.SymbolId);
+    if not SameText(SnapshotText(aSnapshot, lCandidate.KindId), 'method') or
+      SameText(SnapshotText(aSnapshot, lCandidate.OwnerTypeId), aSymbol.OwnerName) then
+      Continue;
+    if lRenamedVirtual or SnapshotMethodMayBeVirtual(aSnapshot, lCandidateUnit, lCandidate) then
+      AddUnresolvedUsage(aUnresolved, aSnapshot, lCandidateUnit, aSymbol.Name, '',
+        SnapshotText(aSnapshot, lCandidate.SectionKindId), lCandidate.Line, lCandidate.Column,
+        'possible-override');
+  end;
+end;
+
+// DS-652/DAK-392: every same-name occurrence that is proven neither to be nor not to be the
+// symbol. Proven usages, declarations and references bound to other symbols are skipped. Listed:
+// unresolved references, facts that contradict each other, methods that may override or
+// implement it, any occurrence in a unit whose syntax facts are unverified, and occurrences no
+// fact describes at all.
+function CollectSnapshotUnresolvedUsages(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbol: TDelphiSemanticIndexedSymbol; const aEquivalentRefs: TList<TSemanticSymbolRef>;
+  const aUsages: TList<TDelphiSemanticUsage>): TArray<TDelphiSemanticUsage>;
+var
+  i: Integer;
+  lColumn: Integer;
+  lCovered: TDictionary<string, Byte>;
+  lDeclarations: TDictionary<string, TSemanticSymbolRef>;
+  lDeclaredRef: TSemanticSymbolRef;
+  lFileName: string;
+  lHandled: TDictionary<string, Byte>;
+  lHighIndex: Integer;
+  lIsEquivalentTarget: Boolean;
+  lKey: string;
+  lLine: Integer;
+  lLineStart: Integer;
+  lLowIndex: Integer;
+  lName: string;
+  lNameId: TSemanticStringId;
+  lNameKnown: Boolean;
+  lNeedle: string;
+  lPosition: Integer;
+  lReference: TSemanticReferenceFact;
+  lReferenceRef: TSemanticReferenceRef;
+  lScanned: Integer;
+  lSource: string;
+  lSymbol: TSemanticSymbolFact;
+  lSymbolRef: TSemanticSymbolRef;
+  lTarget: TSemanticSymbolRef;
+  lUnit: TUnitSnapshot;
+  lUnresolved: TList<TDelphiSemanticUsage>;
+  lUpperSource: string;
+  lUsage: TDelphiSemanticUsage;
+  lVerified: Boolean;
+begin
+  lCovered := TDictionary<string, Byte>.Create;
+  lDeclarations := TDictionary<string, TSemanticSymbolRef>.Create;
+  lHandled := TDictionary<string, Byte>.Create;
+  lUnresolved := TList<TDelphiSemanticUsage>.Create;
+  try
+    for lUsage in aUsages do
+      lCovered.AddOrSetValue(SnapshotPositionKey(lUsage.FileName, lUsage.Line, lUsage.Column), 0);
+    lName := aSymbol.Name;
+    lNameKnown := aSnapshot.TryFindStringId(lName, lNameId);
+    if lNameKnown then
+      AddPossibleOverrideUsages(lUnresolved, aSnapshot, aSymbol, aEquivalentRefs, lNameId);
+
+    // Two different symbols declared at one position means the facts contradict each other.
+    if lNameKnown and aSnapshot.TrySymbolsByName(lNameId, lLowIndex, lHighIndex) then
+      for i := lLowIndex to lHighIndex do
+      begin
+        lSymbolRef := aSnapshot.SymbolRefByNameIndex(i);
+        if not aSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit) then
+          Continue;
+        lSymbol := lUnit.SymbolById(lSymbolRef.SymbolId);
+        if (lSymbol.Line <= 0) or (lSymbol.Column <= 0) then
+          Continue;
+        lKey := SnapshotPositionKey(SnapshotText(aSnapshot, lUnit.FileNameId), lSymbol.Line,
+          lSymbol.Column);
+        if not lDeclarations.TryGetValue(lKey, lDeclaredRef) then
+          lDeclarations.Add(lKey, lSymbolRef)
+        else if not SameSnapshotSymbolRef(lDeclaredRef, lSymbolRef) and
+          (SnapshotSymbolRefInList(aEquivalentRefs, lDeclaredRef) or
+          SnapshotSymbolRefInList(aEquivalentRefs, lSymbolRef)) then
+          AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, lName,
+            SnapshotText(aSnapshot, lSymbol.RoutineId), SnapshotText(aSnapshot,
+            lSymbol.SectionKindId), lSymbol.Line, lSymbol.Column, 'conflicting-facts');
+      end;
+
+    if lNameKnown and aSnapshot.TryReferencesByName(lNameId, lLowIndex, lHighIndex) then
+      for i := lLowIndex to lHighIndex do
+      begin
+        lReferenceRef := aSnapshot.ReferenceRefByNameIndex(i);
+        if not aSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit) then
+          Continue;
+        lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
+        if (lReference.Line <= 0) or (lReference.Column <= 0) then
+          Continue;
+        lKey := SnapshotPositionKey(SnapshotText(aSnapshot, lUnit.FileNameId), lReference.Line,
+          lReference.Column);
+        lHandled.AddOrSetValue(lKey, 0);
+        lTarget.UnitId := lReference.TargetUnitId;
+        lTarget.SymbolId := lReference.TargetSymbolId;
+        lIsEquivalentTarget := (lTarget.SymbolId <> 0) and
+          SnapshotSymbolRefInList(aEquivalentRefs, lTarget);
+        if not IsVerifiedScopeStatus(SnapshotText(aSnapshot, lUnit.ScopeModelStatusId)) then
+        begin
+          if not lCovered.ContainsKey(lKey) then
+            AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, lName,
+              SnapshotText(aSnapshot, lReference.RoutineId), SnapshotText(aSnapshot,
+              lReference.SectionKindId), lReference.Line, lReference.Column, 'unverified-unit');
+        end else if lDeclarations.TryGetValue(lKey, lDeclaredRef) and
+          not SameSnapshotSymbolRef(lDeclaredRef, lTarget) and (lIsEquivalentTarget or
+          SnapshotSymbolRefInList(aEquivalentRefs, lDeclaredRef)) then
+          AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, lName,
+            SnapshotText(aSnapshot, lReference.RoutineId), SnapshotText(aSnapshot,
+            lReference.SectionKindId), lReference.Line, lReference.Column, 'conflicting-facts')
+        else if lTarget.SymbolId = 0 then
+          AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, lName,
+            SnapshotText(aSnapshot, lReference.RoutineId), SnapshotText(aSnapshot,
+            lReference.SectionKindId), lReference.Line, lReference.Column,
+            'unresolved-reference');
+      end;
+
+    // Occurrences no fact describes: extraction gaps, unverified units, inactive code.
+    lNeedle := UpperCase(lName);
+    for i := 0 to Pred(aSnapshot.UnitCount) do
+    begin
+      lUnit := aSnapshot.UnitByIndex(i);
+      lSource := aSnapshot.ExactTextOf(lUnit.SourceTextId);
+      if (lSource = '') or not ContainsText(lSource, lName) then
+        Continue;
+      lVerified := IsVerifiedScopeStatus(SnapshotText(aSnapshot, lUnit.ScopeModelStatusId));
+      lFileName := SnapshotText(aSnapshot, lUnit.FileNameId);
+      lUpperSource := UpperCase(SanitizeCodeText(lSource));
+      lLine := 1;
+      lLineStart := 1;
+      lScanned := 1;
+      lPosition := Pos(lNeedle, lUpperSource);
+      while lPosition > 0 do
+      begin
+        while lScanned < lPosition do
+        begin
+          if lUpperSource[lScanned] = #10 then
+          begin
+            Inc(lLine);
+            lLineStart := lScanned + 1;
+          end;
+          Inc(lScanned);
+        end;
+        if IsWordAt(lUpperSource, lPosition, lNeedle) then
+        begin
+          lColumn := lPosition - lLineStart + 1;
+          lKey := SnapshotPositionKey(lFileName, lLine, lColumn);
+          if not lCovered.ContainsKey(lKey) and not lHandled.ContainsKey(lKey) and
+            not (lVerified and lDeclarations.ContainsKey(lKey)) then
+          begin
+            if lVerified then
+              AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit,
+                Copy(lSource, lPosition, Length(lName)), '', '', lLine, lColumn,
+                'unclassified-occurrence')
+            else
+              AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit,
+                Copy(lSource, lPosition, Length(lName)), '', '', lLine, lColumn,
+                'unverified-unit');
+          end;
+        end;
+        lPosition := PosEx(lNeedle, lUpperSource, lPosition + 1);
+      end;
+    end;
+
+    Result := SortedUsages(lUnresolved);
+  finally
+    lUnresolved.Free;
+    lHandled.Free;
+    lDeclarations.Free;
+    lCovered.Free;
+  end;
+end;
+
 function BuildSnapshotResultForSymbol(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbolRef: TSemanticSymbolRef; const aSymbol: TDelphiSemanticIndexedSymbol):
   TDelphiSemanticUsageResult;
@@ -589,6 +944,10 @@ begin
           lReferenceRef := aSnapshot.ReferenceRefBySymbolIndex(i);
           if not aSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit) then
             Continue;
+          // A unit with unverified syntax facts proves no reference; the completeness scan
+          // lists its occurrences instead.
+          if not IsVerifiedScopeStatus(SnapshotText(aSnapshot, lUnit.ScopeModelStatusId)) then
+            Continue;
           lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
           lUsages.Add(MakeSnapshotReferenceUsage(aSnapshot, lUnit, lReference));
         end;
@@ -597,6 +956,8 @@ begin
     Result.Status := 'resolved';
     Result.Symbol := aSymbol;
     Result.Usages := SortedUsages(lUsages);
+    Result.Unresolved := CollectSnapshotUnresolvedUsages(aSnapshot, aSymbol, lEquivalentRefs,
+      lUsages);
     Result.IndexMetrics.BuildInvocationCount := 0;
   finally
     lUsages.Free;
@@ -625,9 +986,56 @@ begin
     Result := GateSnapshotDeclaringUnit(lSnapshot, lUnit, Result);
 end;
 
+function UsagesCoverPosition(const aUsages: TArray<TDelphiSemanticUsage>;
+  const aFileName: string; const aLine, aColumn: Integer): Boolean;
+var
+  lFileName: string;
+  lUsage: TDelphiSemanticUsage;
+begin
+  lFileName := ExpandFileName(aFileName);
+  for lUsage in aUsages do
+    if (lUsage.Line = aLine) and (lUsage.Column <= aColumn) and
+      ((aColumn <= lUsage.EndColumn) or (aColumn = lUsage.Column)) and
+      SameText(ExpandFileName(lUsage.FileName), lFileName) then
+      Exit(True);
+  Result := False;
+end;
+
+// The identifier covering aLine:aColumn in the unit's snapshot source, if the unit is known.
+function TryReadSnapshotIdentifierAt(const aSnapshot: TDelphiProjectSnapshot;
+  const aFileName: string; const aLine, aColumn: Integer; out aIdentifier: string): Boolean;
+var
+  lEnd: Integer;
+  lOffset: Integer;
+  lSource: string;
+  lStart: Integer;
+  lUnit: TUnitSnapshot;
+  lUnitId: TSemanticUnitId;
+begin
+  aIdentifier := '';
+  Result := False;
+  if not (aSnapshot.TryFindUnitByFileName(aFileName, lUnitId) or
+    aSnapshot.TryFindUnitByFileName(ExpandFileName(aFileName), lUnitId)) or
+    not aSnapshot.TryFindUnitById(lUnitId, lUnit) then
+    Exit;
+  lSource := aSnapshot.ExactTextOf(lUnit.SourceTextId);
+  lOffset := SnapshotOffsetOfPosition(lSource, aLine, aColumn);
+  if (lOffset = 0) or not IsIdentifierChar(lSource[lOffset]) then
+    Exit;
+  lStart := lOffset;
+  while (lStart > 1) and IsIdentifierChar(lSource[lStart - 1]) do
+    Dec(lStart);
+  lEnd := lOffset;
+  while (lEnd < Length(lSource)) and IsIdentifierChar(lSource[lEnd + 1]) do
+    Inc(lEnd);
+  aIdentifier := Copy(lSource, lStart, lEnd - lStart + 1);
+  Result := True;
+end;
+
 function FindSnapshotUsagesAtPosition(const aContext: TDelphiSemanticSymbolQueryContext;
   const aFileName: string; const aLine, aColumn: Integer): TDelphiSemanticUsageResult;
 var
+  lIdentifier: string;
   lPositionResolution: TDelphiSemanticSnapshotPositionResolution;
   lSnapshot: TDelphiProjectSnapshot;
   lSymbol: TDelphiSemanticIndexedSymbol;
@@ -641,8 +1049,21 @@ begin
 
   lSymbol := SnapshotIndexedSymbol(lSnapshot, lPositionResolution.SymbolUnit,
     lPositionResolution.SymbolRef, lPositionResolution.Symbol);
+  // A declaration or reference of a symbol always spells its name, so a different identifier
+  // at the position means the resolver matched an enclosing range (a routine body), not it.
+  if TryReadSnapshotIdentifierAt(lSnapshot, aFileName, aLine, aColumn, lIdentifier) and
+    not SameText(lIdentifier, lSymbol.Name) then
+    Exit(MakeDiagnosticResult('unknown', 'The identifier "' + lIdentifier +
+      '" at the requested position was resolved to "' + lSymbol.Name +
+      '"; its own symbol cannot be proven.'));
   Result := BuildSnapshotResultForSymbol(lSnapshot, lPositionResolution.SymbolRef, lSymbol);
   Result := GateSnapshotDeclaringUnit(lSnapshot, lPositionResolution.SymbolUnit, Result);
+  // The requested position must be one of the symbol's own declarations or proven references;
+  // whitespace or punctuation in a routine body only matched the routine's range.
+  if (Result.Status = 'resolved') and not UsagesCoverPosition(Result.Usages, aFileName, aLine,
+    aColumn) then
+    Result := MakeDiagnosticResult('unknown', 'The requested position is not a declaration ' +
+      'or proven reference of "' + lSymbol.Name + '".');
 end;
 
 function NormalizedSymbolSignature(const aSignature: string): string;

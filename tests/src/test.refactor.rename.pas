@@ -71,13 +71,61 @@ type
     procedure PlansCrossUnitAliasRenameInsideNestedRoutineLocals;
   end;
 
+  // DS-652/DAK-392: a rename plan holds every reference DelphiSemantics can prove, and a
+  // same-name occurrence it cannot classify makes the plan incomplete instead of planned.
+  [TestFixture]
+  TRenameCompletenessTests = class
+  public
+    [Test]
+    procedure PlansQualifiedMemberReferencesInConsumerUnit;
+    [Test]
+    procedure PlansSelfAndInheritedMemberReferencesInDescendantUnit;
+    [Test]
+    procedure BindsWithBodyNamesToSelectorMembers;
+    [Test]
+    procedure PlansProgramMainBlockReferences;
+    [Test]
+    procedure RefusesContradictoryProgramFacts;
+    [Test]
+    procedure RefusesPositionResolvedToEnclosingRoutine;
+    [Test]
+    [TestCase('Class constant Limit', 'True')]
+    [TestCase('No member named Limit', 'False')]
+    procedure ListsWithBodyNameThatMayBeAnUnmodelledMember(const aHasConstant: Boolean);
+    [Test]
+    [TestCase('Ancestor outside the project', 'True')]
+    [TestCase('Implicit TObject ancestor', 'False')]
+    procedure ListsMethodNameThatMayBeAnUnprovenAncestorMember(const aRtlAncestor: Boolean);
+    [Test]
+    [TestCase('Member from an include file', 'include')]
+    [TestCase('Member in a conditional branch', 'conditional')]
+    [TestCase('Ancestor with an include file', 'ancestor-include')]
+    [TestCase('I/O checking switch is not an include', 'switch')]
+    procedure ListsWithBodyNameHiddenFromTheDeclarationText(const aShape: string);
+    [Test]
+    [TestCase('Class reference selector', 'class-of')]
+    [TestCase('Forward-declared class selector control', 'forward')]
+    procedure ListsWithBodyNameOfUndelimitedSelectorType(const aShape: string);
+    [Test]
+    procedure ListsUnresolvedOverloadCallsAndRefusesPlan;
+    [Test]
+    procedure ListsReferencesInAstFailedConsumerUnit;
+    [Test]
+    procedure VerifiedClassVariableControlPlansFully;
+    [Test]
+    [TestCase('Virtual base and override', 'True')]
+    [TestCase('Static methods control', 'False')]
+    procedure ListsPossibleOverridesOfVirtualMethods(const aVirtual: Boolean);
+  end;
+
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
-  Test.Support;
+  DelphiSemantics.Model.Text, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
+  DelphiSemantics.Usage, Test.Support;
 
 var
   GRenameTempRoot: string;
@@ -1093,7 +1141,614 @@ begin
   Assert.AreEqual(1, lLine16Count, 'Expected nested routine local type reference edit.');
 end;
 
+const
+  // Line 8 col 5 declares FCounter; line 9 col 15 declares the class var FTotal.
+  cCompletenessProvider =
+    'unit UProv;'#13#10 + #13#10 + 'interface'#13#10 + #13#10 + 'type'#13#10 +
+    '  TA = class'#13#10 + '  public'#13#10 + '    FCounter: Integer;'#13#10 +
+    '    class var FTotal: Integer;'#13#10 + '    procedure Bump;'#13#10 + '  end;'#13#10 +
+    #13#10 + 'implementation'#13#10 + #13#10 + 'procedure TA.Bump;'#13#10 + 'begin'#13#10 +
+    '  Self.FCounter := Self.FCounter + 1;'#13#10 + '  FCounter := FCounter + 1;'#13#10 +
+    'end;'#13#10 + #13#10 + 'end.'#13#10;
+  cCompletenessProgram =
+    'program P;'#13#10 + #13#10 + 'uses'#13#10 + '  UProv in ''UProv.pas'','#13#10 +
+    '  UCons in ''UCons.pas'';'#13#10 + #13#10 + 'begin'#13#10 + 'end.'#13#10;
+
+type
+  TCompletenessFile = record
+    Name: string;
+    Text: string;
+  end;
+
+function CompletenessFile(const aName, aText: string): TCompletenessFile;
+begin
+  Result.Name := aName;
+  Result.Text := aText;
+end;
+
+// Writes P.dpr plus the units into a fresh folder and returns that folder.
+function WriteCompletenessProject(const aFolder, aProgramText: string;
+  const aUnits: array of TCompletenessFile): string;
+var
+  lReferences: string;
+  lUnit: TCompletenessFile;
+begin
+  Result := RenameTempPath(aFolder);
+  TDirectory.CreateDirectory(Result);
+  TFile.WriteAllText(TPath.Combine(Result, 'P.dpr'), aProgramText, TEncoding.ASCII);
+  lReferences := '';
+  for lUnit in aUnits do
+  begin
+    TFile.WriteAllText(TPath.Combine(Result, lUnit.Name), lUnit.Text, TEncoding.ASCII);
+    lReferences := lReferences + '<DCCReference Include="' + lUnit.Name + '"/>';
+  end;
+  TFile.WriteAllText(TPath.Combine(Result, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>P.dpr</MainSource></PropertyGroup><ItemGroup>' + lReferences +
+    '</ItemGroup></Project>', TEncoding.ASCII);
+end;
+
+function PlanCompletenessRename(const aRoot, aFileName: string; const aLine, aColumn: Integer;
+  const aNewName: string): TDelphiSemanticRenamePlan;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lOptions: TDelphiSemanticOptions;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(aRoot, 'P.dproj');
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lSessionResult.Success, 'Project session must open.');
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      Assert.IsNotNull(lContext.ProjectSnapshot, 'Rename must run on the project snapshot.');
+      Result := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext,
+        TPath.Combine(aRoot, aFileName), aLine, aColumn, aNewName);
+    finally
+      lContext.ProjectSnapshot := nil;
+    end;
+  finally
+    lSessionResult.Session.Free;
+  end;
+end;
+
+function CompletenessKey(const aFileName: string; const aLine, aColumn: Integer): string;
+begin
+  Result := LowerCase(ExtractFileName(aFileName)) + ':' + aLine.ToString + ':' + aColumn.ToString;
+end;
+
+function SortedKeysText(const aKeys: TArray<string>): string;
+var
+  lKeys: TArray<string>;
+begin
+  lKeys := Copy(aKeys);
+  TArray.Sort<string>(lKeys);
+  Result := string.Join(' ', lKeys);
+end;
+
+// Every whole-word occurrence of aName in the listed fixture files, as file:line:column.
+function OccurrenceKeys(const aRoot: string; const aFileNames: array of string;
+  const aName: string): TArray<string>;
+var
+  lColumn: Integer;
+  lFileName: string;
+  lLine: Integer;
+  lText: string;
+  i: Integer;
+begin
+  Result := [];
+  for lFileName in aFileNames do
+  begin
+    lText := SanitizeCodeText(TFile.ReadAllText(TPath.Combine(aRoot, lFileName)));
+    lLine := 1;
+    lColumn := 1;
+    for i := 1 to Length(lText) do
+    begin
+      if IsWordAt(lText, i, aName) then
+        Result := Result + [CompletenessKey(lFileName, lLine, lColumn)];
+      if lText[i] = #10 then
+      begin
+        Inc(lLine);
+        lColumn := 1;
+      end else if lText[i] <> #13 then
+        Inc(lColumn);
+    end;
+  end;
+end;
+
+function OccurrenceKeysExcept(const aKeys, aExcluded: TArray<string>): TArray<string>;
+var
+  lKey: string;
+begin
+  Result := [];
+  for lKey in aKeys do
+    if IndexText(lKey, aExcluded) < 0 then
+      Result := Result + [lKey];
+end;
+
+function PlanEditKeys(const aPlan: TDelphiSemanticRenamePlan): TArray<string>;
+var
+  lEdit: TDelphiSemanticTextEdit;
+begin
+  Result := [];
+  for lEdit in aPlan.Edits do
+    Result := Result + [CompletenessKey(lEdit.FileName, lEdit.StartLine, lEdit.StartColumn)];
+end;
+
+function PlanUnresolvedKeys(const aPlan: TDelphiSemanticRenamePlan): TArray<string>;
+var
+  lUsage: TDelphiSemanticUsage;
+begin
+  Result := [];
+  for lUsage in aPlan.UnresolvedReferences do
+    Result := Result + [CompletenessKey(lUsage.FileName, lUsage.Line, lUsage.Column)];
+end;
+
+procedure AssertCompletePlan(const aPlan: TDelphiSemanticRenamePlan;
+  const aExpectedKeys: TArray<string>; const aExpectedCount: Integer);
+begin
+  Assert.AreEqual('planned', aPlan.Status, aPlan.Diagnostic);
+  // The literal count guards the occurrence scan itself against an empty or short fixture.
+  Assert.AreEqual(aExpectedCount, Integer(Length(aExpectedKeys)), 'Fixture occurrence count');
+  Assert.AreEqual(SortedKeysText(aExpectedKeys), SortedKeysText(PlanEditKeys(aPlan)));
+  Assert.AreEqual(0, Integer(Length(aPlan.UnresolvedReferences)),
+    'A complete plan lists no unresolved references: ' + SortedKeysText(PlanUnresolvedKeys(aPlan)));
+end;
+
+procedure TRenameCompletenessTests.PlansQualifiedMemberReferencesInConsumerUnit;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-qualified', cCompletenessProgram,
+    [CompletenessFile('UProv.pas', cCompletenessProvider), CompletenessFile('UCons.pas',
+    'unit UCons;'#13#10'interface'#13#10'procedure Run;'#13#10'implementation'#13#10 +
+    'uses'#13#10'  UProv;'#13#10'procedure Run;'#13#10'var'#13#10'  a: TA;'#13#10'begin'#13#10 +
+    '  a := TA.Create;'#13#10'  try'#13#10'    a.FCounter := 5;'#13#10 +
+    '    WriteLn(a.FCounter);'#13#10'  finally'#13#10'    a.Free;'#13#10'  end;'#13#10 +
+    'end;'#13#10'end.'#13#10)]);
+
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'FTally');
+
+  AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['UProv.pas', 'UCons.pas'], 'FCounter'), 7);
+end;
+
+procedure TRenameCompletenessTests.PlansSelfAndInheritedMemberReferencesInDescendantUnit;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-self', cCompletenessProgram,
+    [CompletenessFile('UProv.pas', cCompletenessProvider), CompletenessFile('UCons.pas',
+    'unit UCons;'#13#10'interface'#13#10'uses'#13#10'  UProv;'#13#10'type'#13#10 +
+    '  TB = class(TA)'#13#10'  public'#13#10'    procedure Touch;'#13#10'  end;'#13#10 +
+    'implementation'#13#10'procedure TB.Touch;'#13#10'begin'#13#10 +
+    '  Self.FCounter := 3;'#13#10'  FCounter := FCounter + 1;'#13#10'end;'#13#10 +
+    'end.'#13#10)]);
+
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'FTally');
+
+  AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['UProv.pas', 'UCons.pas'], 'FCounter'), 8);
+end;
+
+// The with body binds FCounter to TA.FCounter, not to the unit-level FCounter of UCons. Renaming
+// either symbol must plan exactly its own occurrences.
+procedure TRenameCompletenessTests.BindsWithBodyNamesToSelectorMembers;
+var
+  lAll: TArray<string>;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-with', cCompletenessProgram,
+    [CompletenessFile('UProv.pas', cCompletenessProvider), CompletenessFile('UCons.pas',
+    'unit UCons;'#13#10'interface'#13#10'implementation'#13#10 +
+    'uses'#13#10'  UProv;'#13#10'var'#13#10'  FCounter: Integer;'#13#10 +
+    'procedure Other;'#13#10'begin'#13#10'  FCounter := 7;'#13#10'end;'#13#10 +
+    'procedure Run;'#13#10'var'#13#10'  a: TA;'#13#10'begin'#13#10'  a := TA.Create;'#13#10 +
+    '  with a do'#13#10'    FCounter := FCounter + 10;'#13#10'  a.Free;'#13#10'end;'#13#10 +
+    'end.'#13#10)]);
+  lAll := OccurrenceKeys(lRoot, ['UProv.pas', 'UCons.pas'], 'FCounter');
+
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'FTally');
+  AssertCompletePlan(lPlan, OccurrenceKeysExcept(lAll, ['ucons.pas:7:3', 'ucons.pas:10:3']), 7);
+
+  lPlan := PlanCompletenessRename(lRoot, 'UCons.pas', 7, 3, 'GTally');
+  AssertCompletePlan(lPlan, ['ucons.pas:7:3', 'ucons.pas:10:3'], 2);
+end;
+
+// The line-based body extraction lets a program routine's span run to the end of the file, so
+// the global var declared after Touch and its main-block use carry Touch's facts. Contradictory
+// facts (a reference sitting on another symbol's declaration) must not yield a planned rename.
+procedure TRenameCompletenessTests.RefusesContradictoryProgramFacts;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-contradiction',
+    'program P;'#13#10 + #13#10 + 'procedure Touch;'#13#10'var'#13#10'  GValue: Integer;'#13#10 +
+    'begin'#13#10'  GValue := 2;'#13#10'end;'#13#10 + #13#10 + 'var'#13#10 +
+    '  GValue: Integer;'#13#10'begin'#13#10'  GValue := 1;'#13#10'end.'#13#10, []);
+
+  lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 11, 3, 'GTally');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.IsTrue(IndexText('p.dpr:11:3', PlanUnresolvedKeys(lPlan)) >= 0,
+    SortedKeysText(PlanUnresolvedKeys(lPlan)));
+
+  lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 5, 3, 'LTally');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.IsTrue(IndexText('p.dpr:11:3', PlanUnresolvedKeys(lPlan)) >= 0,
+    SortedKeysText(PlanUnresolvedKeys(lPlan)));
+end;
+
+// Line 10 declares GValue after a program routine; the main block uses it on lines 13 and 15.
+procedure TRenameCompletenessTests.PlansProgramMainBlockReferences;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-program',
+    'program P;'#13#10 + #13#10 + 'uses'#13#10 + '  UProv in ''UProv.pas'';'#13#10 + #13#10 +
+    'procedure Touch;'#13#10'begin'#13#10'end;'#13#10'var'#13#10'  GValue: Integer;'#13#10 +
+    '  GObj: TA;'#13#10'begin'#13#10'  GValue := 1;'#13#10'  GObj := TA.Create;'#13#10 +
+    '  GObj.FCounter := GValue;'#13#10'  GObj.Free;'#13#10'end.'#13#10,
+    [CompletenessFile('UProv.pas', cCompletenessProvider)]);
+
+  lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 10, 3, 'GTally');
+  AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['P.dpr'], 'GValue'), 3);
+
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'FTally');
+  AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['UProv.pas', 'P.dpr'], 'FCounter'), 6);
+end;
+
+// The local GValue on line 8 sits inside Touch's extracted range; resolving that position to
+// Touch would rename the routine instead of the local.
+procedure TRenameCompletenessTests.RefusesPositionResolvedToEnclosingRoutine;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-enclosing-routine',
+    'program P;'#13#10#13#10'var'#13#10'  GValue: Integer;'#13#10#13#10'procedure Touch;'#13#10 +
+    'var'#13#10'  GValue: Integer;'#13#10'begin'#13#10'  GValue := 2;'#13#10'end;'#13#10#13#10 +
+    'begin'#13#10'  GValue := 1;'#13#10'  Touch;'#13#10'end.'#13#10, []);
+
+  lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 8, 3, 'LTally');
+
+  Assert.AreEqual('blocked', lPlan.Status, 'A position must not rename an enclosing routine.');
+  Assert.IsTrue(ContainsText(lPlan.Diagnostic, '"GValue"'), lPlan.Diagnostic);
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+
+  // Whitespace inside Touch's body names no symbol at all.
+  lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 10, 1, 'LTally');
+  Assert.AreEqual('blocked', lPlan.Status, 'Whitespace must not rename the enclosing routine.');
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+end;
+
+// DS-652 review: the model records no class constants, so TA.Limit may own Limit in the with
+// body. Renaming the local must list 20:14 instead of editing it; without such a member the
+// local plans fully.
+procedure TRenameCompletenessTests.ListsWithBodyNameThatMayBeAnUnmodelledMember(
+  const aHasConstant: Boolean);
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lConstant: string;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lListed: Boolean;
+  lOptions: TDelphiSemanticOptions;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+  lUsage: TDelphiSemanticUsage;
+  lUsages: TDelphiSemanticUsageResult;
+begin
+  lConstant := '';
+  if aHasConstant then
+    lConstant := '  public const'#13#10'    Limit = 5;'#13#10;
+  // UCons line 15 declares the local Limit; line 20 is "    Count := Limit;" in "with a do".
+  lRoot := WriteCompletenessProject('completeness-with-constant-' + BoolToStr(aHasConstant, True),
+    cCompletenessProgram, [CompletenessFile('UProv.pas', 'unit UProv;'#13#10#13#10 +
+    'interface'#13#10#13#10'type'#13#10'  TA = class'#13#10 + lConstant + '  public'#13#10 +
+    '    Count: Integer;'#13#10'  end;'#13#10#13#10'implementation'#13#10#13#10'end.'#13#10),
+    CompletenessFile('UCons.pas', 'unit UCons;'#13#10#13#10'interface'#13#10#13#10 +
+    'procedure Run;'#13#10#13#10'implementation'#13#10#13#10'uses'#13#10'  UProv;'#13#10#13#10 +
+    'procedure Run;'#13#10'var'#13#10'  a: TA;'#13#10'  Limit: Integer;'#13#10'begin'#13#10 +
+    '  Limit := 100;'#13#10'  a := TA.Create;'#13#10'  with a do'#13#10 +
+    '    Count := Limit;'#13#10'  WriteLn(a.Count);'#13#10'end;'#13#10#13#10'end.'#13#10)]);
+
+  lPlan := PlanCompletenessRename(lRoot, 'UCons.pas', 15, 3, 'LimX');
+
+  if not aHasConstant then
+  begin
+    AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['UCons.pas'], 'Limit'), 3);
+    Exit;
+  end;
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(SortedKeysText(['ucons.pas:15:3', 'ucons.pas:17:3']),
+    SortedKeysText(PlanEditKeys(lPlan)), 'The with-body Limit must not be edited.');
+  Assert.AreEqual('ucons.pas:20:14', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+
+  // Find-usages on the name cannot claim the with-body use either.
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      lUsages := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lContext,
+        TPath.Combine(lRoot, 'UCons.pas'), 15, 3);
+      Assert.AreEqual('resolved', lUsages.Status, lUsages.Diagnostic);
+      for lUsage in lUsages.Usages do
+        Assert.IsFalse(lUsage.Line = 20, 'The with-body Limit is not a proven usage.');
+      lListed := False;
+      for lUsage in lUsages.Unresolved do
+        lListed := lListed or ((lUsage.Line = 20) and (lUsage.Column = 14));
+      Assert.IsTrue(lListed, 'The with-body Limit is listed as unresolved.');
+    finally
+      lContext.ProjectSnapshot := nil;
+    end;
+  finally
+    lSessionResult.Session.Free;
+  end;
+end;
+
+// DS-652 review round 2: ti.inc adds "public const ILimit = 7;" to TI, so the with-body ILimit
+// binds to TI.ILimit although the unit text never spells it. A conditional branch keeps its
+// member in the text; {$I+} is the I/O checking switch and includes nothing, so the local plans.
+procedure TRenameCompletenessTests.ListsWithBodyNameHiddenFromTheDeclarationText(
+  const aShape: string);
+var
+  lAncestor: string;
+  lBody: string;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lAncestor := '';
+  lBody := '{$I ti.inc}';
+  if aShape = 'conditional' then
+    lBody := '{$IFDEF NEVER_DEFINED}'#13#10'  public const'#13#10'    ILimit = 7;'#13#10'{$ENDIF}'
+  else if aShape = 'switch' then
+    lBody := '{$I+}';
+  if aShape = 'ancestor-include' then
+  begin
+    lAncestor := '(TBase)';
+    lBody := '';
+  end;
+  // UCons line 15 declares the local ILimit; line 20 is "    Count := ILimit;" in "with i do".
+  lRoot := WriteCompletenessProject('completeness-hidden-member-' + aShape, cCompletenessProgram,
+    [CompletenessFile('UProv.pas', 'unit UProv;'#13#10#13#10'interface'#13#10#13#10 +
+    'type'#13#10'  TBase = class'#13#10'  public'#13#10'{$I ti.inc}'#13#10'  end;'#13#10#13#10 +
+    '  TI = class' + lAncestor + #13#10'  public'#13#10'    Count: Integer;'#13#10 + lBody +
+    #13#10'  end;'#13#10#13#10'implementation'#13#10#13#10'end.'#13#10),
+    CompletenessFile('UCons.pas', 'unit UCons;'#13#10#13#10'interface'#13#10#13#10 +
+    'procedure Run;'#13#10#13#10'implementation'#13#10#13#10'uses'#13#10'  UProv;'#13#10#13#10 +
+    'procedure Run;'#13#10'var'#13#10'  i: TI;'#13#10'  ILimit: Integer;'#13#10'begin'#13#10 +
+    '  ILimit := 200;'#13#10'  i := TI.Create;'#13#10'  with i do'#13#10 +
+    '    Count := ILimit;'#13#10'  WriteLn(i.Count);'#13#10'end;'#13#10#13#10'end.'#13#10)]);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'ti.inc'), '  public const'#13#10'    ILimit = 7;'#13#10,
+    TEncoding.ASCII);
+
+  lPlan := PlanCompletenessRename(lRoot, 'UCons.pas', 15, 3, 'LimX');
+
+  if aShape = 'switch' then
+  begin
+    AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['UCons.pas'], 'ILimit'), 3);
+    Exit;
+  end;
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(SortedKeysText(['ucons.pas:15:3', 'ucons.pas:17:3']),
+    SortedKeysText(PlanEditKeys(lPlan)), 'The with-body ILimit must not be edited.');
+  Assert.AreEqual('ucons.pas:20:14', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+end;
+
+// DS-652 review round 4: "with c do X := CVar" over c: TAClass (class of TA) binds CVar to
+// TA.CVar. A class reference type has no body the scan can delimit, so the with-body name stays
+// unresolved instead of binding the local. A forward declaration before TF's body must not hide
+// the body (control).
+procedure TRenameCompletenessTests.ListsWithBodyNameOfUndelimitedSelectorType(
+  const aShape: string);
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  // UCons line 16 declares the locals CVar (col 3) and FVar (col 9), assigned on lines 18 and
+  // 19 (the rename targets); lines 23 and 26 are the with bodies "    X := CVar;" and
+  // "    X := FVar;".
+  lRoot := WriteCompletenessProject('completeness-undelimited-' + aShape, cCompletenessProgram,
+    [CompletenessFile('UProv.pas', 'unit UProv;'#13#10#13#10'interface'#13#10#13#10'type'#13#10 +
+    '  TF = class;'#13#10#13#10'  TA = class'#13#10'  public'#13#10 +
+    '    class var CVar: Integer;'#13#10'  end;'#13#10#13#10'  TAClass = class of TA;'#13#10 +
+    #13#10'  TF = class'#13#10'  public'#13#10'    class var FVar: Integer;'#13#10'  end;'#13#10 +
+    #13#10'implementation'#13#10#13#10'end.'#13#10),
+    CompletenessFile('UCons.pas', 'unit UCons;'#13#10#13#10'interface'#13#10#13#10 +
+    'procedure Run;'#13#10#13#10'implementation'#13#10#13#10'uses'#13#10'  UProv;'#13#10#13#10 +
+    'procedure Run;'#13#10'var'#13#10'  c: TAClass;'#13#10'  f: TF;'#13#10 +
+    '  CVar, FVar, X: Integer;'#13#10'begin'#13#10'  CVar := 300;'#13#10'  FVar := 400;'#13#10 +
+    '  TA.CVar := 3;'#13#10'  c := TA;'#13#10'  with c do'#13#10'    X := CVar;'#13#10 +
+    '  f := TF.Create;'#13#10'  with f do'#13#10'    X := FVar;'#13#10'  WriteLn(X);'#13#10 +
+    'end;'#13#10#13#10'end.'#13#10)]);
+
+  if aShape = 'class-of' then
+  begin
+    lPlan := PlanCompletenessRename(lRoot, 'UCons.pas', 18, 3, 'CTally');
+    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual(SortedKeysText(['ucons.pas:16:3', 'ucons.pas:18:3']),
+      SortedKeysText(PlanEditKeys(lPlan)), 'The with-body CVar must not be edited.');
+    Assert.AreEqual('ucons.pas:23:10', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  end else
+  begin
+    // The forward declaration is no type fact of its own, so TF resolves to its full body and
+    // the with-body FVar is proven to be TF.FVar: the local plans without it.
+    lPlan := PlanCompletenessRename(lRoot, 'UCons.pas', 19, 3, 'FTally');
+    AssertCompletePlan(lPlan, ['ucons.pas:16:9', 'ucons.pas:19:3'], 2);
+  end;
+end;
+
+// DS-652 review: TComponent may declare Name, so WriteLn(Name) in TK.Go is not proven to use
+// the global. Renaming the global must list it; with an implicit TObject ancestor it binds.
+procedure TRenameCompletenessTests.ListsMethodNameThatMayBeAnUnprovenAncestorMember(
+  const aRtlAncestor: Boolean);
+var
+  lAncestor: string;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lAncestor := '';
+  if aRtlAncestor then
+    lAncestor := '(TComponent)';
+  // UK line 11 declares the global Name; line 15 is "  WriteLn(Name);" in TK.Go.
+  lRoot := WriteCompletenessProject('completeness-rtl-ancestor-' + BoolToStr(aRtlAncestor, True),
+    'program P;'#13#10'uses'#13#10'  UK in ''UK.pas'';'#13#10'begin'#13#10'end.'#13#10,
+    [CompletenessFile('UK.pas', 'unit UK;'#13#10'interface'#13#10'uses'#13#10 +
+    '  System.Classes;'#13#10'type'#13#10'  TK = class' + lAncestor + #13#10'  public'#13#10 +
+    '    procedure Go;'#13#10'  end;'#13#10'var'#13#10'  Name: string = ''global'';'#13#10 +
+    'implementation'#13#10'procedure TK.Go;'#13#10'begin'#13#10'  WriteLn(Name);'#13#10 +
+    'end;'#13#10'end.'#13#10)]);
+
+  lPlan := PlanCompletenessRename(lRoot, 'UK.pas', 11, 3, 'GName');
+
+  if not aRtlAncestor then
+  begin
+    AssertCompletePlan(lPlan, ['uk.pas:11:3', 'uk.pas:15:11'], 2);
+    Exit;
+  end;
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual('uk.pas:11:3', SortedKeysText(PlanEditKeys(lPlan)),
+    'The method-body Name must not be edited.');
+  Assert.AreEqual('uk.pas:15:11', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  Assert.AreEqual('unresolved-reference', lPlan.UnresolvedReferences[0].Reason);
+end;
+
+// Without argument types the open-array calls on lines 42 and 43 cannot be bound to an overload.
+procedure TRenameCompletenessTests.ListsUnresolvedOverloadCallsAndRefusesPlan;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+  lUsage: TDelphiSemanticUsage;
+begin
+  lRoot := WriteCompletenessProject('completeness-overload',
+    'program P;'#13#10'uses'#13#10'  OverloadRange in ''OverloadRange.pas'';'#13#10 +
+    'begin'#13#10'  Run(1);'#13#10'end.'#13#10, [CompletenessFile('OverloadRange.pas',
+    'unit OverloadRange;'#13#10#13#10'interface'#13#10#13#10'const'#13#10'  cMin = 1;'#13#10 +
+    '  cMax = 5;'#13#10#13#10'type'#13#10'  TR = cMin..cMax;'#13#10#13#10 +
+    'procedure Add(const A: array of Integer); overload;'#13#10 +
+    'procedure Add(const A: array of string); overload;'#13#10 +
+    'procedure Put(const A: Integer); overload;'#13#10 +
+    'procedure Put(const A: string); overload;'#13#10'procedure Run(X: Integer);'#13#10#13#10 +
+    'implementation'#13#10#13#10'procedure Add(const A: array of Integer);'#13#10'begin'#13#10 +
+    '  WriteLn(Length(A));'#13#10'end;'#13#10#13#10'procedure Add(const A: array of string);'#13#10 +
+    'begin'#13#10'  WriteLn(Length(A));'#13#10'end;'#13#10#13#10 +
+    'procedure Put(const A: Integer);'#13#10'begin'#13#10'  WriteLn(A);'#13#10'end;'#13#10#13#10 +
+    'procedure Put(const A: string);'#13#10'begin'#13#10'  WriteLn(A);'#13#10'end;'#13#10#13#10 +
+    'procedure Run(X: Integer);'#13#10'begin'#13#10'  Add([1, 2]);'#13#10'  Add([''x'']);'#13#10 +
+    '  Put(1);'#13#10'  Put(''x'');'#13#10'  case X of'#13#10 +
+    '    cMin..cMax: WriteLn(cMax);'#13#10'  end;'#13#10'end;'#13#10#13#10'end.'#13#10)]);
+
+  lPlan := PlanCompletenessRename(lRoot, 'OverloadRange.pas', 12, 11, 'AddInts');
+
+  Assert.AreEqual('incomplete', lPlan.Status, 'Unprovable calls must not yield a planned rename.');
+  Assert.IsTrue(ContainsText(lPlan.Diagnostic, '2 same-name'), lPlan.Diagnostic);
+  Assert.AreEqual(SortedKeysText(['overloadrange.pas:12:11', 'overloadrange.pas:20:11']),
+    SortedKeysText(PlanEditKeys(lPlan)), 'Proven overload declarations stay in the plan.');
+  Assert.AreEqual(SortedKeysText(['overloadrange.pas:42:3', 'overloadrange.pas:43:3']),
+    SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  for lUsage in lPlan.UnresolvedReferences do
+  begin
+    Assert.AreEqual('unresolved', lUsage.Role);
+    Assert.AreEqual('unresolved-reference', lUsage.Reason);
+    Assert.AreEqual('Add', lUsage.Name);
+    Assert.AreEqual(lUsage.Column + 2, lUsage.EndColumn);
+  end;
+  Assert.AreEqual('', lPlan.ContextFingerprint, 'An incomplete plan carries no apply fingerprint.');
+end;
+
+// UBad compiles, but its syntax tree fails (one-character deprecation message), so its use of
+// a.FCounter cannot be proven either way.
+procedure TRenameCompletenessTests.ListsReferencesInAstFailedConsumerUnit;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-ast-failed',
+    'program P;'#13#10'uses'#13#10'  UProv in ''UProv.pas'','#13#10 +
+    '  UBad in ''UBad.pas'';'#13#10'begin'#13#10'end.'#13#10,
+    [CompletenessFile('UProv.pas', cCompletenessProvider), CompletenessFile('UBad.pas',
+    'unit UBad;'#13#10'interface'#13#10'uses'#13#10'  UProv;'#13#10'type'#13#10 +
+    '  TBad = class'#13#10'  public'#13#10'    procedure Y; deprecated ''z'';'#13#10 +
+    '  end;'#13#10'procedure UseIt(a: TA);'#13#10'implementation'#13#10 +
+    'procedure TBad.Y;'#13#10'begin'#13#10'end;'#13#10'procedure UseIt(a: TA);'#13#10 +
+    'begin'#13#10'  a.FCounter := 9;'#13#10'end;'#13#10'end.'#13#10)]);
+
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'FTally');
+
+  Assert.AreEqual('incomplete', lPlan.Status, 'An ast-failed consumer must not yield a planned rename.');
+  Assert.AreEqual(SortedKeysText(OccurrenceKeys(lRoot, ['UProv.pas'], 'FCounter')),
+    SortedKeysText(PlanEditKeys(lPlan)));
+  Assert.AreEqual('ubad.pas:17:5', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  Assert.AreEqual('unverified-unit', lPlan.UnresolvedReferences[0].Reason);
+end;
+
+procedure TRenameCompletenessTests.VerifiedClassVariableControlPlansFully;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-control', cCompletenessProgram,
+    [CompletenessFile('UProv.pas', cCompletenessProvider), CompletenessFile('UCons.pas',
+    'unit UCons;'#13#10'interface'#13#10'procedure Run;'#13#10'implementation'#13#10 +
+    'uses'#13#10'  UProv;'#13#10'procedure Run;'#13#10'begin'#13#10'  TA.FTotal := 1;'#13#10 +
+    '  WriteLn(TA.FTotal);'#13#10'end;'#13#10'end.'#13#10)]);
+
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 9, 15, 'FSum');
+
+  AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['UProv.pas', 'UCons.pas'], 'FTotal'), 3);
+end;
+
+// Overrides are not linked to their base method, so renaming a virtual TA.Bump cannot be proven
+// complete while TB declares a Bump. Two static methods only hide each other: the control plans.
+procedure TRenameCompletenessTests.ListsPossibleOverridesOfVirtualMethods(
+  const aVirtual: Boolean);
+var
+  lBaseDirective: string;
+  lDescendantDirective: string;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lBaseDirective := '';
+  lDescendantDirective := '';
+  if aVirtual then
+  begin
+    lBaseDirective := ' virtual;';
+    lDescendantDirective := ' override;';
+  end;
+  lRoot := WriteCompletenessProject('completeness-override-' + BoolToStr(aVirtual, True),
+    cCompletenessProgram, [CompletenessFile('UProv.pas', StringReplace(cCompletenessProvider,
+    '    procedure Bump;', '    procedure Bump;' + lBaseDirective, [])),
+    CompletenessFile('UCons.pas', 'unit UCons;'#13#10'interface'#13#10'uses'#13#10 +
+    '  UProv;'#13#10'type'#13#10'  TB = class(TA)'#13#10'  public'#13#10 +
+    '    procedure Bump;' + lDescendantDirective + #13#10'  end;'#13#10'implementation'#13#10 +
+    'procedure TB.Bump;'#13#10'begin'#13#10'end;'#13#10'end.'#13#10)]);
+
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 10, 15, 'Pump');
+
+  Assert.AreEqual(SortedKeysText(OccurrenceKeys(lRoot, ['UProv.pas'], 'Bump')),
+    SortedKeysText(PlanEditKeys(lPlan)), 'Only TA.Bump sites are proven.');
+  if aVirtual then
+  begin
+    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual('ucons.pas:8:15', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+    Assert.AreEqual('possible-override', lPlan.UnresolvedReferences[0].Reason);
+  end else
+    AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['UProv.pas'], 'Bump'), 2);
+end;
+
 initialization
   TDUnitX.RegisterTestFixture(TRenamePlannerTests);
+  TDUnitX.RegisterTestFixture(TRenameCompletenessTests);
 
 end.

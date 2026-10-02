@@ -31,6 +31,9 @@ type
     Diagnostic: string;
     RequiredVerification: TArray<TDelphiSemanticRenameVerification>;
     Edits: TArray<TDelphiSemanticTextEdit>;
+    // Status 'incomplete': these same-name occurrences could not be classified, so the edits
+    // are a review aid only and must not be applied.
+    UnresolvedReferences: TArray<TDelphiSemanticUsage>;
     IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
   end;
 
@@ -259,6 +262,8 @@ begin
     'DAK must verify planned source file hashes before apply.');
   AddRenameVerification(aPlan, 'source-text-range',
     'DAK must verify each planned source range before apply.');
+  AddRenameVerification(aPlan, 'project-build',
+    'DAK must build the owning project after apply and roll back every edit if it fails.');
   aPlan.ContextFingerprint := RenamePlanFingerprint(aPlan);
 end;
 
@@ -1172,6 +1177,16 @@ begin
     Result := Default(TDelphiSemanticRenamePlan);
     Result.Status := 'planned';
     Result.Edits := lEdits.ToArray;
+    // DS-652/DAK-392: an occurrence we cannot classify may be a missed reference or a wrong
+    // edit, so the plan is a review aid without the apply provenance.
+    if Length(aUsageResult.Unresolved) > 0 then
+    begin
+      Result.Status := 'incomplete';
+      Result.UnresolvedReferences := Copy(aUsageResult.Unresolved);
+      Result.Diagnostic := Format('Rename plan is incomplete: %d same-name occurrence(s) ' +
+        'cannot be proven to be or not to be "%s"; see the unresolved references.',
+        [Length(aUsageResult.Unresolved), aUsageResult.Symbol.Name]);
+    end;
     FinalizeRenamePlan(Result, aContext);
   finally
     lEdits.Free;

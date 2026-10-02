@@ -87,6 +87,11 @@ const
   cSnapshotSymbolKindRoutine = 'routine';
   cSnapshotSourceKindProject = 'project-source';
   cSnapshotWithFlagHasScopedDeclaration = 1;
+  // Pseudo entries in the by-name map; '#' never starts a Delphi identifier.
+  cSnapshotUsesKeyPrefix = '#uses|';
+  cSnapshotHelperKeyPrefix = '#helper|';
+  cSnapshotMaxNameResolutionDepth = 8;
+  cSnapshotMaxTypeChainDepth = 32;
 
 type
   TSnapshotTargetSymbol = record
@@ -101,7 +106,24 @@ type
     Line: Integer;
     Column: Integer;
     IsRoutineFact: Boolean;
+    // Declared type text of a variable, parameter, field or property; the type kind
+    // (class, record, interface, ...) of a type declaration.
+    TypeName: string;
+    // Declared ancestor of a class or interface type. Only unit models carry it, so BaseKnown
+    // stays False for symbols read back from a snapshot.
+    BaseTypeName: string;
+    BaseKnown: Boolean;
+    // False when the declaring unit's syntax facts are unverified (scope status other than ast).
+    UnitVerified: Boolean;
+    // Sanitized source of a class, record or interface type from its name to its matching end.
+    // Members the model does not record (constants, nested types) can only occur in it, so a
+    // name absent from this text is proven not to be declared by the type. Empty when unknown.
+    DeclarationText: string;
   end;
+
+  // DS-652: proves member access through a typed receiver, Self, an ancestor or a with selector.
+  // smlAbsent is returned only when the complete member set of the type chain is known.
+  TSnapshotMemberLookup = (smlFound, smlAbsent, smlUnknown);
 
   TSnapshotTargetSymbolList = TList<TSnapshotTargetSymbol>;
   TSnapshotTargetSymbolsByName = TObjectDictionary<string, TSnapshotTargetSymbolList>;
@@ -232,12 +254,42 @@ begin
   lSymbols.Add(aSymbol);
 end;
 
+function SnapshotUnitStatusVerified(const aScopeStatus: string): Boolean;
+begin
+  // Hand-built facts without scope metadata are left to their builder, as in Usage.
+  Result := (aScopeStatus = '') or SameText(aScopeStatus, 'ast');
+end;
+
+procedure AddSnapshotPseudoSymbol(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aKey, aName, aSectionKind: string);
+var
+  lSymbol: TSnapshotTargetSymbol;
+  lSymbols: TSnapshotTargetSymbolList;
+begin
+  if aName = '' then
+    Exit;
+  lSymbol := Default(TSnapshotTargetSymbol);
+  lSymbol.Name := aName;
+  lSymbol.SectionKind := aSectionKind;
+  if not aSymbolsByName.TryGetValue(aKey, lSymbols) then
+  begin
+    lSymbols := TSnapshotTargetSymbolList.Create;
+    try
+      aSymbolsByName.Add(aKey, lSymbols);
+    except
+      lSymbols.Free;
+      raise;
+    end;
+  end;
+  lSymbols.Add(lSymbol);
+end;
+
 procedure AddSnapshotTargetSymbol(const aSymbols: TSnapshotTargetSymbolList;
   const aSymbolsByName: TSnapshotTargetSymbolsByName; const aUnitName, aKind,
-  aOwnerName, aName, aSectionKind, aSignature, aRoutineScopeId: string;
-  const aUnitId: TSemanticUnitId;
-  const aLine, aColumn: Integer; const aIsRoutineFact: Boolean;
-  var aNextSymbolId: TSemanticSymbolId);
+  aOwnerName, aName, aSectionKind, aSignature, aRoutineScopeId, aTypeName,
+  aBaseTypeName, aDeclarationText: string; const aUnitVerified: Boolean;
+  const aUnitId: TSemanticUnitId; const aLine, aColumn: Integer;
+  const aIsRoutineFact: Boolean; var aNextSymbolId: TSemanticSymbolId);
 var
   lSymbol: TSnapshotTargetSymbol;
 begin
@@ -246,6 +298,11 @@ begin
     Exit;
 
   lSymbol := Default(TSnapshotTargetSymbol);
+  lSymbol.DeclarationText := aDeclarationText;
+  lSymbol.TypeName := Trim(aTypeName);
+  lSymbol.BaseTypeName := Trim(aBaseTypeName);
+  lSymbol.BaseKnown := True;
+  lSymbol.UnitVerified := aUnitVerified;
   lSymbol.Ref.UnitId := aUnitId;
   lSymbol.Ref.SymbolId := aNextSymbolId;
   lSymbol.Name := aName;
@@ -262,6 +319,123 @@ begin
   AddTargetSymbolByName(aSymbolsByName, lSymbol);
 end;
 
+function SnapshotTextOffset(const aText: string; const aLine, aColumn: Integer): Integer;
+var
+  i: Integer;
+  lLine: Integer;
+begin
+  Result := 0;
+  if (aLine <= 0) or (aColumn <= 0) then
+    Exit;
+  lLine := 1;
+  i := 1;
+  while (lLine < aLine) and (i <= Length(aText)) do
+  begin
+    if aText[i] = #10 then
+      Inc(lLine);
+    Inc(i);
+  end;
+  if (lLine = aLine) and (i + aColumn - 1 <= Length(aText)) then
+    Result := i + aColumn - 1;
+end;
+
+function SnapshotNextWord(const aText: string; aIndex: Integer): string;
+var
+  lStart: Integer;
+begin
+  while (aIndex <= Length(aText)) and CharInSet(aText[aIndex], [#9, #10, #13, ' ']) do
+    Inc(aIndex);
+  lStart := aIndex;
+  while (aIndex <= Length(aText)) and IsIdentifierChar(aText[aIndex]) do
+    Inc(aIndex);
+  Result := Copy(aText, lStart, aIndex - lStart);
+end;
+
+// The sanitized text of a structured type from its name to the end that closes it. A body the
+// scan cannot delimit (class of, a forward declaration, a statement ending before any body
+// opens, an unmatched end) yields '' so member absence stays unknown.
+function SnapshotTypeBodyText(const aSanitized: string; const aOffset: Integer): string;
+var
+  i: Integer;
+  lDepth: Integer;
+  lOpened: Boolean;
+  lPrevious: string;
+  lStart: Integer;
+  lWord: string;
+begin
+  Result := '';
+  if aOffset <= 0 then
+    Exit;
+  i := aOffset;
+  lDepth := 0;
+  lOpened := False;
+  lPrevious := '';
+  while i <= Length(aSanitized) do
+  begin
+    if not IsIdentifierStart(aSanitized[i]) then
+    begin
+      // The declaration ended before a body opened: class of, a forward or an alias.
+      if (aSanitized[i] = ';') and not lOpened then
+        Exit('');
+      Inc(i);
+      Continue;
+    end;
+    lStart := i;
+    while (i <= Length(aSanitized)) and IsIdentifierChar(aSanitized[i]) do
+      Inc(i);
+    // An escaped identifier (&End) is never a keyword.
+    if (lStart > 1) and (aSanitized[lStart - 1] = '&') then
+      Continue;
+    lWord := Copy(aSanitized, lStart, i - lStart);
+    if SameText(lWord, 'end') then
+    begin
+      if not lOpened then
+        Exit('');
+      Dec(lDepth);
+      if lOpened and (lDepth <= 0) then
+        Exit(Copy(aSanitized, aOffset, i - aOffset));
+    end else if MatchText(lWord, ['record', 'interface', 'dispinterface']) or
+      (SameText(lWord, 'object') and not SameText(lPrevious, 'of')) or
+      (SameText(lWord, 'class') and not MatchText(SnapshotNextWord(aSanitized, i),
+      ['function', 'procedure', 'var', 'threadvar', 'property', 'operator', 'constructor',
+      'destructor', 'of']) and not ((SnapshotNextWord(aSanitized, i) = '') and
+      (Pos(';', TrimLeft(Copy(aSanitized, i, 8))) = 1))) then
+    begin
+      Inc(lDepth);
+      lOpened := True;
+    end;
+    lPrevious := lWord;
+  end;
+  // The body never closed.
+  Result := '';
+end;
+
+// True when the raw text holds an include directive ({$I file}, {$INCLUDE file}, or the (*$ *)
+// form). {$I+} and {$I-} are the I/O checking switch, not includes.
+function SnapshotTextHasIncludeDirective(const aRawText: string): Boolean;
+var
+  i: Integer;
+  lAfter: Integer;
+  lUpper: string;
+begin
+  lUpper := UpperCase(aRawText);
+  i := PosEx('$I', lUpper, 1);
+  while i > 0 do
+  begin
+    if ((i > 1) and (lUpper[i - 1] = '{')) or ((i > 2) and (lUpper[i - 1] = '*') and
+      (lUpper[i - 2] = '(')) then
+    begin
+      lAfter := i + 2;
+      if Copy(lUpper, lAfter, 6) = 'NCLUDE' then
+        Inc(lAfter, 6);
+      if (lAfter <= Length(lUpper)) and CharInSet(lUpper[lAfter], [#9, #10, #13, ' ', '''']) then
+        Exit(True);
+    end;
+    i := PosEx('$I', lUpper, i + 2);
+  end;
+  Result := False;
+end;
+
 procedure AddModelSnapshotTargetSymbols(const aSymbols: TSnapshotTargetSymbolList;
   const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aUnitId: TSemanticUnitId);
@@ -271,41 +445,77 @@ var
   lMember: TDelphiSemanticMember;
   lParameter: TDelphiSemanticParameter;
   lRoutine: TDelphiSemanticRoutine;
+  lDeclarationOffset: Integer;
+  lDeclarationText: string;
+  lSanitized: string;
   lSymbolId: TSemanticSymbolId;
+  lUsedUnit: string;
+  lVerified: Boolean;
 begin
   lSymbolId := 0;
+  lSanitized := '';
+  lVerified := SnapshotUnitStatusVerified(aModel.ScopeModelStatus);
   for lDeclaration in aModel.Declarations do
   begin
     if not SnapshotIncludesDeclaration(lDeclaration) then
       Continue;
     if SameText(SnapshotDeclarationKind(lDeclaration.Kind), cSnapshotSymbolKindRoutine) then
       Continue;
+    lDeclarationText := '';
+    if SameText(lDeclaration.Kind, 'type') and MatchText(lDeclaration.TypeName,
+      ['class', 'record', 'interface']) then
+    begin
+      if lSanitized = '' then
+        lSanitized := SanitizeCodeText(aModel.SourceText);
+      lDeclarationOffset := SnapshotTextOffset(lSanitized, lDeclaration.Line,
+        lDeclaration.Column);
+      lDeclarationText := SnapshotTypeBodyText(lSanitized, lDeclarationOffset);
+      // Sanitizing keeps both branches of conditional code, but an included file's members
+      // are not in this text at all, so their absence cannot be proven.
+      if SnapshotTextHasIncludeDirective(Copy(aModel.SourceText, lDeclarationOffset,
+        Length(lDeclarationText))) then
+        lDeclarationText := '';
+    end;
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
       SnapshotDeclarationKind(lDeclaration.Kind), '', lDeclaration.Name,
-      lDeclaration.SectionKind, '', '', aUnitId, lDeclaration.Line, lDeclaration.Column,
-      False, lSymbolId);
+      lDeclaration.SectionKind, '', '', lDeclaration.TypeName, lDeclaration.BaseTypeName,
+      lDeclarationText, lVerified, aUnitId, lDeclaration.Line, lDeclaration.Column, False,
+      lSymbolId);
+    // A helper adds members to its target, so member absence on that target is unprovable.
+    if lDeclaration.HelperTargetName <> '' then
+      AddSnapshotPseudoSymbol(aSymbolsByName, cSnapshotHelperKeyPrefix +
+        lDeclaration.HelperTargetName, lDeclaration.Name, lDeclaration.SectionKind);
   end;
   for lMember in aModel.Members do
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
       lMember.Kind, lMember.OwnerName, lMember.Name, '', lMember.Signature, '',
-      aUnitId, lMember.Line, lMember.Column, False, lSymbolId);
+      lMember.TypeName, '', '', lVerified, aUnitId, lMember.Line, lMember.Column, False,
+      lSymbolId);
   for lRoutine in aModel.Routines do
   begin
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
       cSnapshotSymbolKindRoutine, lRoutine.OwnerName, lRoutine.Name,
-      lRoutine.SectionKind, lRoutine.Signature, lRoutine.ScopeId, aUnitId, lRoutine.Line,
-      lRoutine.Column, True, lSymbolId);
+      lRoutine.SectionKind, lRoutine.Signature, lRoutine.ScopeId, lRoutine.ReturnType, '',
+      '', lVerified, aUnitId, lRoutine.Line, lRoutine.Column, True, lSymbolId);
     for lParameter in lRoutine.Parameters do
       AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
         cSnapshotSymbolKindParameter, SnapshotRoutineName(lRoutine),
-        lParameter.Name, lRoutine.SectionKind, lRoutine.Signature, lRoutine.ScopeId, aUnitId,
-        lParameter.Line, lParameter.Column, False, lSymbolId);
+        lParameter.Name, lRoutine.SectionKind, lRoutine.Signature, lRoutine.ScopeId,
+        lParameter.TypeName, '', '', lVerified, aUnitId, lParameter.Line, lParameter.Column,
+        False, lSymbolId);
   end;
   for lLocal in aModel.Locals do
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
       lLocal.Kind, lLocal.RoutineName, lLocal.Name, '', '', lLocal.RoutineScopeId,
-      aUnitId, lLocal.Line,
-      lLocal.Column, False, lSymbolId);
+      lLocal.TypeName, '', '', lVerified, aUnitId, lLocal.Line, lLocal.Column, False,
+      lSymbolId);
+  // Type names in this unit resolve through its own uses clauses.
+  for lUsedUnit in aModel.InterfaceUses do
+    AddSnapshotPseudoSymbol(aSymbolsByName, cSnapshotUsesKeyPrefix + aModel.UnitName,
+      lUsedUnit, 'interface');
+  for lUsedUnit in aModel.ImplementationUses do
+    AddSnapshotPseudoSymbol(aSymbolsByName, cSnapshotUsesKeyPrefix + aModel.UnitName,
+      lUsedUnit, 'implementation');
 end;
 
 function ModelUnitIdAt(const aModelUnitIds: TArray<TSemanticUnitId>;
@@ -357,6 +567,9 @@ begin
       lSymbol.Line := lFact.Line;
       lSymbol.Column := lFact.Column;
       lSymbol.IsRoutineFact := SameText(lKind, cSnapshotSymbolKindRoutine);
+      lSymbol.TypeName := Trim(aSnapshot.TextOf(lFact.TypeId));
+      lSymbol.UnitVerified := SnapshotUnitStatusVerified(
+        aSnapshot.TextOf(lUnit.ScopeModelStatusId));
       aSymbols.Add(lSymbol);
       AddTargetSymbolByName(aSymbolsByName, lSymbol);
     end;
@@ -855,6 +1068,489 @@ begin
   end;
 end;
 
+function IsSnapshotPlainIdentifier(const aText: string): Boolean;
+var
+  c: Char;
+begin
+  if (aText = '') or not IsIdentifierStart(aText[1]) then
+    Exit(False);
+  for c in aText do
+    if not IsIdentifierChar(c) then
+      Exit(False);
+  Result := True;
+end;
+
+function IsSnapshotMemberKind(const aKind: string): Boolean;
+begin
+  Result := MatchText(aKind, ['field', 'property', 'class-var', 'method']);
+end;
+
+function IsSnapshotStructuredTypeKind(const aTypeKind: string): Boolean;
+begin
+  Result := MatchText(aTypeKind, ['class', 'record', 'interface']);
+end;
+
+// Members every class inherits from TObject (or every interface from IInterface). A chain that
+// ends at the implicit root proves only other names absent.
+function IsImplicitRootMemberName(const aTypeKind, aName: string): Boolean;
+begin
+  if SameText(aTypeKind, 'interface') then
+    Exit(MatchText(aName, ['QueryInterface', '_AddRef', '_Release']));
+  Result := MatchText(aName, ['Create', 'Free', 'DisposeOf', 'Destroy', 'InitInstance',
+    'CleanupInstance', 'ClassType', 'ClassName', 'ClassNameIs', 'ClassParent', 'ClassInfo',
+    'InstanceSize', 'InheritsFrom', 'MethodAddress', 'MethodName', 'QualifiedClassName',
+    'FieldAddress', 'GetInterface', 'GetInterfaceEntry', 'GetInterfaceTable', 'UnitName',
+    'UnitScope', 'Equals', 'GetHashCode', 'ToString', 'SafeCallException',
+    'AfterConstruction', 'BeforeDestruction', 'Dispatch', 'DefaultHandler', 'NewInstance',
+    'FreeInstance', 'CheckDisposed', 'Disposed', 'GetDisposed']);
+end;
+
+function SnapshotSectionForSymbol(const aSymbol: TSnapshotTargetSymbol): string;
+begin
+  if SameText(aSymbol.SectionKind, 'interface') then
+    Exit('interface');
+  Result := 'implementation';
+end;
+
+function SnapshotSectionForReference(const aReference: TDelphiSemanticReference): string;
+begin
+  if SameText(aReference.SectionKind, 'interface') then
+    Exit('interface');
+  Result := 'implementation';
+end;
+
+// Unit models and snapshot facts can both describe one declaration.
+function SnapshotSameDeclaration(const aLeft, aRight: TSnapshotTargetSymbol): Boolean;
+begin
+  Result := SameText(aLeft.UnitName, aRight.UnitName) and SameText(aLeft.Name, aRight.Name) and
+    (aLeft.Line = aRight.Line) and (aLeft.Column = aRight.Column);
+end;
+
+function SnapshotRoutineOwnerName(const aRoutineName: string): string;
+begin
+  Result := Copy(aRoutineName, 1, LastDelimiter('.', aRoutineName) - 1);
+end;
+
+function SnapshotUnitUsesUnit(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aUnitName, aSectionKind, aUsedUnitName: string): Boolean;
+var
+  lUse: TSnapshotTargetSymbol;
+  lUses: TSnapshotTargetSymbolList;
+begin
+  Result := False;
+  if not aSymbolsByName.TryGetValue(cSnapshotUsesKeyPrefix + aUnitName, lUses) then
+    Exit;
+  for lUse in lUses do
+    if SameText(lUse.Name, aUsedUnitName) and (SameText(lUse.SectionKind, 'interface') or
+      SameText(aSectionKind, 'implementation')) then
+      Exit(True);
+end;
+
+// Resolves a structured type name as unit aUnitName sees it: its own declarations win, else
+// exactly one interface-section type of a project unit it uses. Types outside the project stay
+// unresolved, so nothing is proven about their members.
+function TryResolveSnapshotTypeFromUnit(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aUnitName, aSectionKind, aTypeName: string; out aType: TSnapshotTargetSymbol): Boolean;
+var
+  lLocal: TSnapshotTargetSymbol;
+  lLocalCount: Integer;
+  lSymbol: TSnapshotTargetSymbol;
+  lSymbols: TSnapshotTargetSymbolList;
+  lUsed: TSnapshotTargetSymbol;
+  lUsedCount: Integer;
+begin
+  Result := False;
+  aType := Default(TSnapshotTargetSymbol);
+  if not IsSnapshotPlainIdentifier(aTypeName) or
+    not aSymbolsByName.TryGetValue(aTypeName, lSymbols) then
+    Exit;
+
+  lLocal := Default(TSnapshotTargetSymbol);
+  lUsed := Default(TSnapshotTargetSymbol);
+  lLocalCount := 0;
+  lUsedCount := 0;
+  for lSymbol in lSymbols do
+  begin
+    if not SameText(lSymbol.Kind, 'type') or (lSymbol.OwnerName <> '') or
+      not IsSnapshotStructuredTypeKind(lSymbol.TypeName) then
+      Continue;
+    if SameText(lSymbol.UnitName, aUnitName) then
+    begin
+      if (lLocalCount = 0) or not SnapshotSameDeclaration(lLocal, lSymbol) then
+      begin
+        Inc(lLocalCount);
+        lLocal := lSymbol;
+      end;
+    end else if SameText(lSymbol.SectionKind, 'interface') and
+      SnapshotUnitUsesUnit(aSymbolsByName, aUnitName, aSectionKind, lSymbol.UnitName) then
+    begin
+      if (lUsedCount = 0) or not SnapshotSameDeclaration(lUsed, lSymbol) then
+      begin
+        Inc(lUsedCount);
+        lUsed := lSymbol;
+      end;
+    end;
+  end;
+
+  if lLocalCount > 0 then
+  begin
+    Result := lLocalCount = 1;
+    if Result then
+      aType := lLocal;
+    Exit;
+  end;
+  Result := lUsedCount = 1;
+  if Result then
+    aType := lUsed;
+end;
+
+// Finds aName on aType or its project ancestors. Unverified units, helpers, overloads, types
+// outside the project and inherited root members leave the answer unknown.
+function LookupSnapshotTypeMember(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aType: TSnapshotTargetSymbol; const aName: string;
+  out aTarget: TSemanticSymbolRef): TSnapshotMemberLookup;
+var
+  lBase: TSnapshotTargetSymbol;
+  lCount: Integer;
+  lCurrent: TSnapshotTargetSymbol;
+  lDepth: Integer;
+  lFound: TSnapshotTargetSymbol;
+  lSymbol: TSnapshotTargetSymbol;
+  lSymbols: TSnapshotTargetSymbolList;
+begin
+  aTarget := Default(TSemanticSymbolRef);
+  if not aSymbolsByName.TryGetValue(aName, lSymbols) then
+    lSymbols := nil;
+  lFound := Default(TSnapshotTargetSymbol);
+  lCurrent := aType;
+  for lDepth := 1 to cSnapshotMaxTypeChainDepth do
+  begin
+    if not lCurrent.UnitVerified or
+      aSymbolsByName.ContainsKey(cSnapshotHelperKeyPrefix + lCurrent.Name) then
+      Exit(smlUnknown);
+
+    lCount := 0;
+    if lSymbols <> nil then
+      for lSymbol in lSymbols do
+        if IsSnapshotMemberKind(lSymbol.Kind) and SameText(lSymbol.OwnerName, lCurrent.Name) and
+          SameText(lSymbol.UnitName, lCurrent.UnitName) and
+          ((lCount = 0) or not SnapshotSameDeclaration(lFound, lSymbol)) then
+        begin
+          Inc(lCount);
+          lFound := lSymbol;
+        end;
+    if lCount = 1 then
+    begin
+      aTarget := lFound.Ref;
+      Exit(smlFound);
+    end;
+    if lCount > 1 then
+      Exit(smlUnknown);
+    // The model records fields, properties, methods and class vars only. A constant, nested
+    // type or anything else the type declares still spells the name in its declaration.
+    if (lCurrent.DeclarationText = '') or
+      TextContainsIdentifier(lCurrent.DeclarationText, aName) then
+      Exit(smlUnknown);
+
+    if not lCurrent.BaseKnown then
+      Exit(smlUnknown);
+    if (lCurrent.BaseTypeName = '') or MatchText(lCurrent.BaseTypeName, ['TObject',
+      'System.TObject', 'IInterface', 'System.IInterface', 'IUnknown', 'System.IUnknown']) then
+    begin
+      if SameText(lCurrent.TypeName, 'record') or
+        not IsImplicitRootMemberName(lCurrent.TypeName, aName) then
+        Exit(smlAbsent);
+      Exit(smlUnknown);
+    end;
+    if not TryResolveSnapshotTypeFromUnit(aSymbolsByName, lCurrent.UnitName,
+      SnapshotSectionForSymbol(lCurrent), lCurrent.BaseTypeName, lBase) or
+      SnapshotSameDeclaration(lBase, lCurrent) then
+      Exit(smlUnknown);
+    lCurrent := lBase;
+  end;
+  Result := smlUnknown;
+end;
+
+function TryFindSnapshotTargetSymbol(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aName: string; const aRef: TSemanticSymbolRef;
+  out aSymbol: TSnapshotTargetSymbol): Boolean;
+var
+  lSymbol: TSnapshotTargetSymbol;
+  lSymbols: TSnapshotTargetSymbolList;
+begin
+  aSymbol := Default(TSnapshotTargetSymbol);
+  if aSymbolsByName.TryGetValue(aName, lSymbols) then
+    for lSymbol in lSymbols do
+      if (lSymbol.Ref.UnitId = aRef.UnitId) and (lSymbol.Ref.SymbolId = aRef.SymbolId) then
+      begin
+        aSymbol := lSymbol;
+        Exit(True);
+      end;
+  Result := False;
+end;
+
+// The structured type a resolved symbol denotes: a type itself, or the declared type of a
+// variable, parameter, field or property, resolved where that symbol is declared.
+function TryResolveSnapshotSymbolType(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aName: string; const aRef: TSemanticSymbolRef;
+  out aType: TSnapshotTargetSymbol): Boolean;
+var
+  lSymbol: TSnapshotTargetSymbol;
+begin
+  Result := False;
+  aType := Default(TSnapshotTargetSymbol);
+  if not TryFindSnapshotTargetSymbol(aSymbolsByName, aName, aRef, lSymbol) then
+    Exit;
+  if SameText(lSymbol.Kind, 'type') then
+  begin
+    Result := IsSnapshotStructuredTypeKind(lSymbol.TypeName);
+    if Result then
+      aType := lSymbol;
+    Exit;
+  end;
+  if not MatchText(lSymbol.Kind, ['var', 'threadvar', cSnapshotSymbolKindLocal,
+    cSnapshotSymbolKindParameter, 'field', 'class-var', 'property']) then
+    Exit;
+  Result := TryResolveSnapshotTypeFromUnit(aSymbolsByName, lSymbol.UnitName,
+    SnapshotSectionForSymbol(lSymbol), lSymbol.TypeName, aType);
+end;
+
+function TryResolveSnapshotNameCandidates(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  const aDepth: Integer; out aTargetRef: TSemanticSymbolRef): Boolean; forward;
+
+function SnapshotPositionInWith(const aWith: TDelphiSemanticWithStatement;
+  const aLine, aColumn: Integer): Boolean;
+var
+  lEndColumn: Integer;
+  lEndLine: Integer;
+  lStartColumn: Integer;
+  lStartLine: Integer;
+begin
+  if aWith.BodyLine > 0 then
+  begin
+    lStartLine := aWith.BodyLine;
+    lStartColumn := aWith.BodyColumn;
+    lEndLine := aWith.BodyEndLine;
+    lEndColumn := aWith.BodyEndColumn;
+  end else begin
+    lStartLine := aWith.Line;
+    lStartColumn := aWith.Column;
+    lEndLine := aWith.EndLine;
+    lEndColumn := aWith.EndColumn;
+  end;
+  if (lStartLine <= 0) or (aLine < lStartLine) or
+    ((aLine = lStartLine) and (aColumn < lStartColumn)) then
+    Exit(False);
+  if lEndLine <= 0 then
+    Exit(aLine = lStartLine);
+  if (aLine > lEndLine) or ((aLine = lEndLine) and (lEndColumn > 0) and (aColumn > lEndColumn)) then
+    Exit(False);
+  Result := True;
+end;
+
+function TryResolveWithSelectorType(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  const aWith: TDelphiSemanticWithStatement; const aSelector: string; const aDepth: Integer;
+  out aType: TSnapshotTargetSymbol): Boolean;
+var
+  lSelectorReference: TDelphiSemanticReference;
+  lSelectorRef: TSemanticSymbolRef;
+begin
+  aType := Default(TSnapshotTargetSymbol);
+  if SameText(aSelector, 'Self') then
+    Exit(TryResolveSnapshotTypeFromUnit(aSymbolsByName, aModel.UnitName,
+      SnapshotSectionForReference(aReference), SnapshotRoutineOwnerName(aReference.RoutineName),
+      aType));
+  if not IsSnapshotPlainIdentifier(aSelector) then
+    Exit(False);
+
+  // The selector is resolved where the with statement starts, in the same routine.
+  lSelectorReference := aReference;
+  lSelectorReference.Name := aSelector;
+  lSelectorReference.Line := aWith.Line;
+  lSelectorReference.Column := aWith.Column;
+  lSelectorReference.Offset := 0;
+  lSelectorReference.EndOffset := 0;
+  lSelectorReference.EndLine := 0;
+  lSelectorReference.EndColumn := 0;
+  Result := TryResolveSnapshotNameCandidates(aSymbolsByName, aModel, lSelectorReference,
+    aDepth + 1, lSelectorRef) and TryResolveSnapshotSymbolType(aSymbolsByName, aSelector,
+    lSelectorRef, aType);
+end;
+
+// Delphi binds a name in a with body to the innermost selector, last selector first, before any
+// lexical scope. smlAbsent means no selector has the member, so lexical resolution applies.
+function ResolveWithScopedSnapshotName(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  const aDepth: Integer; out aTarget: TSemanticSymbolRef): TSnapshotMemberLookup;
+var
+  i: Integer;
+  j: Integer;
+  lIndex: Integer;
+  lIndexes: TArray<Integer>;
+  lSelectors: TArray<string>;
+  lType: TSnapshotTargetSymbol;
+  lWith: TDelphiSemanticWithStatement;
+begin
+  Result := smlAbsent;
+  aTarget := Default(TSemanticSymbolRef);
+  if aReference.Line <= 0 then
+    Exit;
+  lIndexes := [];
+  for i := 0 to High(aModel.WithStatements) do
+    if SnapshotPositionInWith(aModel.WithStatements[i], aReference.Line, aReference.Column) then
+      lIndexes := lIndexes + [i];
+  if Length(lIndexes) = 0 then
+    Exit;
+  if aDepth > cSnapshotMaxNameResolutionDepth then
+    Exit(smlUnknown);
+
+  // Innermost first: a nested body starts after the bodies that contain it.
+  for i := 1 to High(lIndexes) do
+  begin
+    lIndex := lIndexes[i];
+    j := i - 1;
+    while (j >= 0) and ((aModel.WithStatements[lIndexes[j]].BodyLine <
+      aModel.WithStatements[lIndex].BodyLine) or
+      ((aModel.WithStatements[lIndexes[j]].BodyLine = aModel.WithStatements[lIndex].BodyLine) and
+      (aModel.WithStatements[lIndexes[j]].BodyColumn <
+      aModel.WithStatements[lIndex].BodyColumn))) do
+    begin
+      lIndexes[j + 1] := lIndexes[j];
+      Dec(j);
+    end;
+    lIndexes[j + 1] := lIndex;
+  end;
+
+  for lIndex in lIndexes do
+  begin
+    lWith := aModel.WithStatements[lIndex];
+    if Pos(',', lWith.SelectorText) = 0 then
+      lSelectors := [Trim(lWith.SelectorText)]
+    else if not TrySplitTopLevelCommaList(lWith.SelectorText, lSelectors) then
+      Exit(smlUnknown);
+    for j := High(lSelectors) downto 0 do
+    begin
+      if not TryResolveWithSelectorType(aSymbolsByName, aModel, aReference, lWith,
+        Trim(lSelectors[j]), aDepth, lType) then
+        Exit(smlUnknown);
+      Result := LookupSnapshotTypeMember(aSymbolsByName, lType, aReference.Name, aTarget);
+      if Result <> smlAbsent then
+        Exit;
+    end;
+  end;
+  Result := smlAbsent;
+end;
+
+// The class whose members an unqualified name in a method body can denote: the owner of the
+// method, also for a routine nested inside it. Empty outside methods.
+function SnapshotMethodOwnerName(const aModel: TDelphiSemanticUnitModel;
+  const aReference: TDelphiSemanticReference): string;
+var
+  lBestLine: Integer;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  Result := SnapshotRoutineOwnerName(aReference.RoutineName);
+  if (Result <> '') or (aReference.Line <= 0) then
+    Exit;
+  lBestLine := 0;
+  for lRoutine in aModel.Routines do
+    if (lRoutine.OwnerName <> '') and (lRoutine.Line > lBestLine) and
+      (lRoutine.Line <= aReference.Line) and (lRoutine.EndLine >= aReference.Line) then
+    begin
+      lBestLine := lRoutine.Line;
+      Result := lRoutine.OwnerName;
+    end;
+end;
+
+// An unqualified name in a method may denote a member of the class or a project ancestor. Outside
+// a method the lookup is smlAbsent; an owner chain that cannot be proven complete (an ancestor
+// outside the project, a helper, an inherited TObject name) is smlUnknown.
+function ResolveInheritedReferenceCandidate(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  const aCandidateRefs: TList<TSemanticSymbolRef>): TSnapshotMemberLookup;
+var
+  lOwner: string;
+  lTarget: TSemanticSymbolRef;
+  lType: TSnapshotTargetSymbol;
+begin
+  lOwner := SnapshotMethodOwnerName(aModel, aReference);
+  if lOwner = '' then
+    Exit(smlAbsent);
+  if not TryResolveSnapshotTypeFromUnit(aSymbolsByName, aModel.UnitName,
+    SnapshotSectionForReference(aReference), lOwner, lType) then
+    Exit(smlUnknown);
+  Result := LookupSnapshotTypeMember(aSymbolsByName, lType, aReference.Name, lTarget);
+  if (Result = smlFound) and not SymbolRefInList(aCandidateRefs, lTarget) then
+    aCandidateRefs.Add(lTarget);
+end;
+
+function TryResolveSnapshotNameCandidates(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  const aDepth: Integer; out aTargetRef: TSemanticSymbolRef): Boolean;
+var
+  lCandidateRefs: TList<TSemanticSymbolRef>;
+  lWithLookup: TSnapshotMemberLookup;
+begin
+  lWithLookup := ResolveWithScopedSnapshotName(aSymbolsByName, aModel, aReference, aDepth,
+    aTargetRef);
+  if lWithLookup = smlFound then
+    Exit(True);
+  aTargetRef := Default(TSemanticSymbolRef);
+  // An unprovable with selector may own the name, so no lexical binding is proven.
+  if lWithLookup = smlUnknown then
+    Exit(False);
+
+  lCandidateRefs := TList<TSemanticSymbolRef>.Create;
+  try
+    if not AddLocalReferenceCandidates(aSymbolsByName, aModel, aReference,
+      lCandidateRefs) and not AddOwnedReferenceCandidates(aSymbolsByName, aModel, aReference,
+      lCandidateRefs) then
+      case ResolveInheritedReferenceCandidate(aSymbolsByName, aModel, aReference,
+        lCandidateRefs) of
+        smlAbsent:
+          AddTopLevelReferenceCandidates(aSymbolsByName, aModel, aReference, lCandidateRefs);
+        // A member of an unproven ancestor may own the name, as with an unprovable selector.
+        smlUnknown:
+          Exit(False);
+      end;
+
+    Result := lCandidateRefs.Count = 1;
+    if Result then
+      aTargetRef := lCandidateRefs[0];
+  finally
+    lCandidateRefs.Free;
+  end;
+end;
+
+// receiver.Name where receiver is a variable, parameter, field, property or type whose declared
+// type is a project class, record or interface.
+function TryResolveTypedReceiverReference(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  const aReceiver: string; out aTarget: TSemanticSymbolRef): Boolean;
+var
+  lReceiverReference: TDelphiSemanticReference;
+  lReceiverRef: TSemanticSymbolRef;
+  lType: TSnapshotTargetSymbol;
+begin
+  aTarget := Default(TSemanticSymbolRef);
+  if not IsSnapshotPlainIdentifier(aReceiver) then
+    Exit(False);
+  lReceiverReference := aReference;
+  lReceiverReference.Name := aReceiver;
+  lReceiverReference.Offset := 0;
+  lReceiverReference.EndOffset := 0;
+  lReceiverReference.EndLine := 0;
+  lReceiverReference.EndColumn := 0;
+  Result := TryResolveSnapshotNameCandidates(aSymbolsByName, aModel, lReceiverReference, 1,
+    lReceiverRef) and TryResolveSnapshotSymbolType(aSymbolsByName, aReceiver, lReceiverRef,
+    lType) and (LookupSnapshotTypeMember(aSymbolsByName, lType, aReference.Name,
+    aTarget) = smlFound);
+  if not Result then
+    aTarget := Default(TSemanticSymbolRef);
+end;
+
 function ReferenceHasQualifier(const aModel: TDelphiSemanticUnitModel;
   const aReference: TDelphiSemanticReference): Boolean; forward;
 function TryResolveQualifiedReference(const aSymbolsByName: TSnapshotTargetSymbolsByName;
@@ -863,31 +1559,13 @@ function TryResolveQualifiedReference(const aSymbolsByName: TSnapshotTargetSymbo
 function TryResolveSnapshotReferenceTarget(const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
   out aTargetRef: TSemanticSymbolRef): Boolean;
-var
-  lCandidateRefs: TList<TSemanticSymbolRef>;
 begin
   aTargetRef := Default(TSemanticSymbolRef);
   if ReferenceIsPartialIdentifier(aModel, aReference) then
     Exit(False);
   if ReferenceHasQualifier(aModel, aReference) then
     Exit(TryResolveQualifiedReference(aSymbolsByName, aModel, aReference, aTargetRef));
-  lCandidateRefs := TList<TSemanticSymbolRef>.Create;
-  try
-    if not AddLocalReferenceCandidates(aSymbolsByName, aModel, aReference,
-      lCandidateRefs) then
-    begin
-      if not AddOwnedReferenceCandidates(aSymbolsByName, aModel, aReference,
-        lCandidateRefs) then
-        AddTopLevelReferenceCandidates(aSymbolsByName, aModel, aReference,
-          lCandidateRefs);
-    end;
-
-    Result := lCandidateRefs.Count = 1;
-    if Result then
-      aTargetRef := lCandidateRefs[0];
-  finally
-    lCandidateRefs.Free;
-  end;
+  Result := TryResolveSnapshotNameCandidates(aSymbolsByName, aModel, aReference, 0, aTargetRef);
 end;
 
 procedure AddModelReferenceTargets(const aSymbolsByName: TSnapshotTargetSymbolsByName;
@@ -1085,6 +1763,7 @@ function TryResolveQualifiedReference(const aSymbolsByName: TSnapshotTargetSymbo
   out aTarget: TSemanticSymbolRef): Boolean;
 var
   lReceiver, lOwner: string;
+  lOwnerType: TSnapshotTargetSymbol;
   lSymbols: TSnapshotTargetSymbolList;
   lSymbol: TSnapshotTargetSymbol;
   lCount: Integer;
@@ -1095,9 +1774,13 @@ begin
   begin
     if TryResolveQualifiedUnitReference(aSymbolsByName, aModel, aReference, aTarget) then
       Exit(True);
-    Exit(TryResolveClassVariableReference(aSymbolsByName, aModel, aReference, lReceiver, aTarget));
+    if TryResolveClassVariableReference(aSymbolsByName, aModel, aReference, lReceiver,
+      aTarget) then
+      Exit(True);
+    Exit(TryResolveTypedReceiverReference(aSymbolsByName, aModel, aReference, lReceiver,
+      aTarget));
   end;
-  lOwner := Copy(aReference.RoutineName, 1, LastDelimiter('.', aReference.RoutineName) - 1);
+  lOwner := SnapshotRoutineOwnerName(aReference.RoutineName);
   lSymbols := nil;
   if (lOwner = '') or not aSymbolsByName.TryGetValue(aReference.Name, lSymbols) then
     Exit(False);
@@ -1110,6 +1793,14 @@ begin
       aTarget := lSymbol.Ref;
     end;
   Result := lCount = 1;
+  if Result then
+    Exit;
+  aTarget := Default(TSemanticSymbolRef);
+  // Self.Member may name a member inherited from a class in another unit.
+  if (lCount = 0) and TryResolveSnapshotTypeFromUnit(aSymbolsByName, aModel.UnitName,
+    SnapshotSectionForReference(aReference), lOwner, lOwnerType) then
+    Result := LookupSnapshotTypeMember(aSymbolsByName, lOwnerType, aReference.Name,
+      aTarget) = smlFound;
   if not Result then
     aTarget := Default(TSemanticSymbolRef);
 end;
