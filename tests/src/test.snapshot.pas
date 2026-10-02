@@ -73,6 +73,10 @@ type
     [Test]
     procedure SnapshotReferenceTargetsResolveExtractedClassMethodShadows;
     [Test]
+    procedure SnapshotGlobalIsNotShadowedByVarSectionAfterRoutineHeader;
+    [Test]
+    procedure SnapshotPositionPrefersInnermostSymbol;
+    [Test]
     procedure SnapshotReferenceTargetsResolveSymbolMapFixtureShadows;
     [Test]
     procedure ProjectSnapshotMergePreservesCrossUnitDuplicateTargetReferences;
@@ -1293,6 +1297,113 @@ begin
     Assert.AreEqual('field', lSnapshot.TextOf(lMemberResolution.Symbol.KindId));
   finally
     lSnapshot.Free;
+  end;
+end;
+
+// DS-653: the implementation var section after the interface header of Work used to become a
+// local of Work, so Work's use of the global Counter bound to that phantom local.
+procedure TSnapshotTests.SnapshotGlobalIsNotShadowedByVarSectionAfterRoutineHeader;
+var
+  lLine: Integer;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lResolution: TDelphiSemanticSnapshotPositionResolution;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSourceFileName: string;
+begin
+  lSourceFileName := TPath.Combine(TPath.GetTempPath,
+    TPath.ChangeExtension(TPath.GetRandomFileName, '.pas'));
+  TFile.WriteAllText(lSourceFileName, 'unit SnapshotBodyBoundsUnit;'#13#10 + // 1
+    'interface'#13#10'procedure Work;'#13#10'implementation'#13#10 + // 2-4
+    'var'#13#10'  Counter: Integer;'#13#10 + // 5-6
+    'procedure Helper;'#13#10'var'#13#10'  Counter: Integer;'#13#10 + // 7-9
+    'begin'#13#10'  Counter := 5;'#13#10'end;'#13#10 + // 10-12
+    'procedure Work;'#13#10'begin'#13#10'  Counter := 1;'#13#10'end;'#13#10 + // 13-16
+    'initialization'#13#10'  Counter := 2;'#13#10'end.'#13#10, TEncoding.UTF8); // 17-19
+  try
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := lSourceFileName;
+    lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+    Assert.IsTrue(lModel.Success, 'Expected fixture model extraction to succeed.');
+
+    lOptions := Default(TDelphiSnapshotBuildOptions);
+    lOptions.ResolveReferenceTargets := True;
+    lOptions.WorkerCount := 1;
+    lSnapshot := BuildProjectSnapshotFromModels([lModel],
+      Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+    try
+      for lLine in [15, 18] do
+      begin
+        Assert.IsTrue(TryResolveSnapshotPosition(lSnapshot, lSourceFileName, lLine, 3,
+          'Counter', lResolution), 'Counter must resolve on line ' + lLine.ToString);
+        Assert.AreEqual(6, lResolution.Symbol.Line, 'Line ' + lLine.ToString +
+          ' must bind to the unit variable.');
+        Assert.AreEqual('', lSnapshot.TextOf(lResolution.Symbol.RoutineId));
+      end;
+      Assert.IsTrue(TryResolveSnapshotPosition(lSnapshot, lSourceFileName, 11, 3, 'Counter',
+        lResolution));
+      Assert.AreEqual(9, lResolution.Symbol.Line, 'Helper keeps its own local.');
+      Assert.AreEqual('Helper', lSnapshot.TextOf(lResolution.Symbol.RoutineId));
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    TFile.Delete(lSourceFileName);
+  end;
+end;
+
+// DS-653 review probe rn652: a local declared on a line inside Run's range must win over Run,
+// whatever order the line index holds them in.
+procedure TSnapshotTests.SnapshotPositionPrefersInnermostSymbol;
+var
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lResolution: TDelphiSemanticSnapshotPositionResolution;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSourceFileName: string;
+begin
+  lSourceFileName := TPath.Combine(TPath.GetTempPath,
+    TPath.ChangeExtension(TPath.GetRandomFileName, '.pas'));
+  TFile.WriteAllText(lSourceFileName,
+    'unit UC;'#13#10#13#10'interface'#13#10#13#10'procedure Run;'#13#10#13#10 + // 1-6
+    'implementation'#13#10#13#10'uses'#13#10'  UA;'#13#10#13#10 + // 7-11
+    'const'#13#10'  Limit = 100;'#13#10#13#10'var'#13#10'  Tag2: Integer = 7;'#13#10#13#10 + // 12-17
+    'procedure Run;'#13#10'var'#13#10'  a: TA;'#13#10'  b: TB;'#13#10'  r: TR;'#13#10 + // 18-22
+    'begin'#13#10'  b := TB.Create;'#13#10'  a := b;'#13#10'  a.FCounter := 1;'#13#10 + // 23-26
+    '  with a do'#13#10'    FCounter := FCounter + Limit;'#13#10 + // 27-28
+    '  WriteLn(a.FCounter);'#13#10'  b.Tag2 := ''x'';'#13#10'  a.Tag2 := 3;'#13#10 + // 29-31
+    '  with a, b do'#13#10'    Tag2 := ''z'';'#13#10'  with b, a do'#13#10 + // 32-34
+    '    Tag2 := 4;'#13#10'  with a do'#13#10'    with b do'#13#10 + // 35-37
+    '      FCounter := FCounter + 1;'#13#10 + // 38
+    '  WriteLn(a.FCounter, '' '', a.Tag2, '' '', b.Tag2, '' '', Tag2);'#13#10 + // 39
+    '  r.X := 2;'#13#10'  with r do'#13#10'    WriteLn(Twice, '' '', X);'#13#10 + // 40-42
+    '  a.Bump;'#13#10'  b.UseIt;'#13#10'  WriteLn(a.FCounter);'#13#10 + // 43-45
+    'end;'#13#10#13#10'end.'#13#10, TEncoding.UTF8); // 46-48
+  try
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := lSourceFileName;
+    lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+    Assert.AreEqual('ast', lModel.ScopeModelStatus);
+
+    lOptions := Default(TDelphiSnapshotBuildOptions);
+    lOptions.ResolveReferenceTargets := True;
+    lOptions.WorkerCount := 1;
+    lSnapshot := BuildProjectSnapshotFromModels([lModel],
+      Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+    try
+      Assert.IsTrue(TryResolveSnapshotPosition(lSnapshot, lSourceFileName, 20, 3, '',
+        lResolution));
+      Assert.AreEqual('a', lSnapshot.TextOf(lResolution.Symbol.NameId));
+      Assert.AreEqual(20, lResolution.Symbol.Line);
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    TFile.Delete(lSourceFileName);
   end;
 end;
 

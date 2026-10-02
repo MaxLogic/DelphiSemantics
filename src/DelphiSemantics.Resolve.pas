@@ -325,17 +325,33 @@ var
   lDeclaration: TDelphiSemanticDeclaration;
   lFound: Boolean;
   lLocal: TDelphiSemanticLocal;
+  lLocalCandidate: TDelphiSemanticLocal;
 begin
+  // Overloads share a routine name, so a name match in two routine scopes is ambiguous.
+  lFound := False;
+  lLocalCandidate := Default(TDelphiSemanticLocal);
   for lLocal in aModel.Locals do
     if SameText(lLocal.RoutineName, aRoutineName) and SameText(lLocal.Name, aName) then
     begin
-      aResult := ResolvedResult(lLocal.Name, 'local', lLocal.TypeName, lLocal.RoutineName,
-        aSectionKind, lLocal.Line, lLocal.Column);
-      Exit(True);
+      if lFound and ((lLocalCandidate.RoutineScopeId <> lLocal.RoutineScopeId) or
+        (lLocalCandidate.Line <> lLocal.Line) or (lLocalCandidate.Column <> lLocal.Column)) then
+      begin
+        aResult := AmbiguousResult(aName, 'MULTIPLE_LEXICAL_DECLARATIONS',
+          'Multiple distinct local declarations match the requested routine owner.');
+        Exit(True);
+      end;
+      lLocalCandidate := lLocal;
+      lFound := True;
     end;
+  if lFound then
+  begin
+    aResult := ResolvedResult(lLocalCandidate.Name, 'local', lLocalCandidate.TypeName,
+      lLocalCandidate.RoutineName, aSectionKind, lLocalCandidate.Line, lLocalCandidate.Column);
+    Exit(True);
+  end;
 
-  // The body extractor can omit VAR sections resumed after a nested routine.
-  // AST declarations retain their lexical owner, so never use unit-wide fallback.
+  // A model without extracted locals (for example one built from declarations only) still has
+  // AST declarations with their lexical owner, so never use unit-wide fallback.
   lFound := False;
   lCandidate := Default(TDelphiSemanticDeclaration);
   if aRoutineName <> '' then

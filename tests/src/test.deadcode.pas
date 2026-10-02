@@ -43,6 +43,8 @@ type
     procedure UnknownReportProfileReturnsDiagnostic;
     [Test]
     procedure SnapshotReferenceCountsMatchModelBackedReport;
+    [Test]
+    procedure InitializerAndInactiveUsesAreNeverUnused;
   end;
 
 implementation
@@ -50,6 +52,7 @@ implementation
 uses
   System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
+  DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
   DelphiSemantics.Snapshot.Builder, DelphiSemantics.WithBinding,
   maxLogic.IOUtils,
   Test.Support;
@@ -151,6 +154,51 @@ begin
       Exit(lCandidate.ReferenceCount);
 
   Result := -1;
+end;
+
+// DS-653 review: UMain.GLimit is used only by `PLimit: PInteger = @GLimit` and CLimit only by
+// `CDouble = CLimit * 2`, both after a routine. Removing GLimit still compiles because
+// UOther.GLimit then takes over, so the program would print 99 instead of 10. GHidden is used
+// only in inactive code, which no reference fact covers.
+procedure TDeadCodeTests.InitializerAndInactiveUsesAreNeverUnused;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lOptions: TDelphiSemanticOptions;
+  lReport: TDelphiSemanticDeadCodeReport;
+  lRootPath: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+begin
+  lRootPath := DeadCodeTempPath('initializer-uses');
+  TDirectory.Copy(FixturePath('DeadCodeInitializers', ''), lRootPath);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'P.dproj');
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+  Assert.IsTrue(lSessionResult.Success);
+  try
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      lReport := TDelphiSemanticDeadCodeReporter.Report(lContext, 'legacy-static');
+      Assert.AreNotEqual('definitely-unused', CandidateStatusInUnit(lReport, 'GLimit', 'UMain',
+        'var'), DescribeCandidates(lReport));
+      Assert.AreNotEqual('definitely-unused', CandidateStatusInUnit(lReport, 'CLimit', 'UMain',
+        'const'), DescribeCandidates(lReport));
+      Assert.AreEqual('blocked', CandidateStatusInUnit(lReport, 'GHidden', 'UMain', 'var'),
+        DescribeCandidates(lReport));
+      Assert.IsTrue(CandidateHasBlockerInUnit(lReport, 'GHidden', 'UMain', 'var',
+        'unclassified-occurrence'), DescribeCandidates(lReport));
+      // Control: GOther is used in a body, so it is no candidate at all.
+      Assert.AreEqual('', CandidateStatusInUnit(lReport, 'GOther', 'UMain', 'var'),
+        DescribeCandidates(lReport));
+    finally
+      // Release the session-owned snapshot before the session.
+      lContext := Default(TDelphiSemanticSymbolQueryContext);
+    end;
+  finally
+    lSessionResult.Session.Free;
+  end;
 end;
 
 procedure TDeadCodeTests.DeadCodeProfilesParseFormatAndRejectUnknown;

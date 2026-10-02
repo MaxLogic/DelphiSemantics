@@ -1186,6 +1186,7 @@ function TDelphiProjectSnapshot.TrySymbolAt(const aFileName: string; const aLine
   aColumn: Integer; out aSymbolRef: TSemanticSymbolRef): Boolean;
 var
   i: Integer;
+  lBest: TSemanticSymbolFact;
   lHighIndex: Integer;
   lLowIndex: Integer;
   lSymbol: TSemanticSymbolFact;
@@ -1194,6 +1195,7 @@ var
   lUnitId: TSemanticUnitId;
 begin
   Result := False;
+  lBest := Default(TSemanticSymbolFact);
   if not TryFindUnitByFileName(aFileName, lUnitId) then
     Exit;
   if not fUnitsById.TryGetValue(lUnitId, lUnit) then
@@ -1203,16 +1205,23 @@ begin
     lLowIndex, lHighIndex) then
     Exit;
 
+  // A line can index a symbol and its enclosing routine in either order. The innermost symbol
+  // starts last; on a tie the one that ends first wins (DS-653).
   for i := lLowIndex to lHighIndex do
   begin
     lSymbolRef := fSymbolsByFileAndLine[i];
     if not fUnitsById.TryGetValue(lSymbolRef.UnitId, lUnit) then
       Continue;
     lSymbol := lUnit.SymbolById(lSymbolRef.SymbolId);
-    if SymbolContainsPosition(lSymbol, aLine, aColumn) then
+    if SymbolContainsPosition(lSymbol, aLine, aColumn) and (not Result or
+      (lSymbol.Line > lBest.Line) or ((lSymbol.Line = lBest.Line) and
+      ((lSymbol.Column > lBest.Column) or ((lSymbol.Column = lBest.Column) and
+      ((lSymbol.EndLine < lBest.EndLine) or ((lSymbol.EndLine = lBest.EndLine) and
+      (lSymbol.EndColumn < lBest.EndColumn))))))) then
     begin
       aSymbolRef := lSymbolRef;
-      Exit(True);
+      lBest := lSymbol;
+      Result := True;
     end;
   end;
 end;

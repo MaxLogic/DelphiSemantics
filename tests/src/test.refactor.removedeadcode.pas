@@ -43,6 +43,8 @@ type
     [TestCase('Unit model, failed syntax tree', 'False,True')]
     [TestCase('Unit model, verified control', 'False,False')]
     procedure UnverifiedUnitMembersAreNotDeadCode(const aSnapshot, aFailed: Boolean);
+    [Test]
+    procedure LegacyStaticNeverRemovesInitializerOrInactiveUses;
   end;
 
 implementation
@@ -222,6 +224,47 @@ begin
     end;
   finally
     lContext.ProjectSnapshot := nil;
+    lSessionResult.Session.Free;
+  end;
+end;
+
+// DS-653 review: removing UMain.GLimit (used by `@GLimit`) still compiles and changes the
+// output from 10 to 99; CLimit is used by a later constant and GHidden only in inactive code.
+procedure TRemoveDeadCodePlannerTests.LegacyStaticNeverRemovesInitializerOrInactiveUses;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lEdit: TDelphiSemanticTextEdit;
+  lEdits: string;
+  lExtractionMilliseconds: Int64;
+  lOptions: TDelphiSemanticOptions;
+  lPlan: TDelphiSemanticDeadCodeRemovalPlan;
+  lRootPath: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+begin
+  lRootPath := RemoveDeadCodeTempPath('initializer-uses');
+  TDirectory.Copy(FixturePath('DeadCodeInitializers', ''), lRootPath);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'P.dproj');
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+  Assert.IsTrue(lSessionResult.Success);
+  try
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      lPlan := TDelphiSemanticApi.PlanDeadCodeRemoval(lContext, 'legacy-static');
+      lEdits := '';
+      for lEdit in lPlan.Edits do
+        lEdits := lEdits + ExtractFileName(lEdit.FileName) + ':' + lEdit.StartLine.ToString + ' ';
+      // UMain.pas lines 20, 23, 26 and 27 declare GLimit, GHidden, CLimit and CDouble.
+      Assert.IsFalse(ContainsText(' ' + lEdits, ' UMain.pas:20 '), lEdits);
+      Assert.IsFalse(ContainsText(' ' + lEdits, ' UMain.pas:23 '), lEdits);
+      Assert.IsFalse(ContainsText(' ' + lEdits, ' UMain.pas:26 '), lEdits);
+      Assert.IsFalse(ContainsText(' ' + lEdits, ' UMain.pas:27 '), lEdits);
+    finally
+      lContext.ProjectSnapshot := nil;
+    end;
+  finally
     lSessionResult.Session.Free;
   end;
 end;

@@ -95,6 +95,9 @@ type
     class function BuildUnitIdentity(const aSourceFileName: string;
       const aContext: TDelphiSemanticCacheIdentityContext):
       TDelphiSemanticUnitCacheIdentity; static;
+    // Version of the extracted unit-model facts. Caches that store projections of those facts
+    // under their own parser version must include it so a fact change invalidates them.
+    class function ModelParserVersion: string; static;
   end;
 
   TDelphiSemanticUnitCache = class
@@ -172,7 +175,7 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.33';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.34';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -406,6 +409,11 @@ begin
     '|' + Result.FileHash + '|' + Result.IncludeGraphHash + '|' + Result.ContextHash + '|' +
     Result.SearchPathHash + '|' + Result.ExtractionOptionsHash + '|' +
     CanonicalIdentityText(Result.Configuration));
+end;
+
+class function TDelphiSemanticCacheIdentityBuilder.ModelParserVersion: string;
+begin
+  Result := cDefaultParserVersion;
 end;
 
 function CloneUnitModel(const aModel: TDelphiSemanticUnitModel): TDelphiSemanticUnitModel;

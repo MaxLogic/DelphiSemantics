@@ -85,9 +85,13 @@ type
     [Test]
     procedure PlansProgramMainBlockReferences;
     [Test]
-    procedure RefusesContradictoryProgramFacts;
+    procedure PlansProgramGlobalDeclaredAfterRoutineWithSameNamedLocal;
     [Test]
-    procedure RefusesPositionResolvedToEnclosingRoutine;
+    procedure ListsInjectedConflictingFacts;
+    [Test]
+    procedure PositionResolvesLocalNotEnclosingRoutine;
+    [Test]
+    procedure PlansGlobalWhoseNameIsALocalElsewhere;
     [Test]
     [TestCase('Class constant Limit', 'True')]
     [TestCase('No member named Limit', 'False')]
@@ -125,7 +129,8 @@ uses
   Winapi.Windows,
   maxLogic.IOUtils,
   DelphiSemantics.Model.Text, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
-  DelphiSemantics.Usage, Test.Support;
+  DelphiSemantics.Snapshot.Builder, DelphiSemantics.Usage, DelphiSemantics.WithBinding,
+  Test.Support;
 
 var
   GRenameTempRoot: string;
@@ -1360,28 +1365,83 @@ begin
   AssertCompletePlan(lPlan, ['ucons.pas:7:3', 'ucons.pas:10:3'], 2);
 end;
 
-// The line-based body extraction lets a program routine's span run to the end of the file, so
-// the global var declared after Touch and its main-block use carry Touch's facts. Contradictory
-// facts (a reference sitting on another symbol's declaration) must not yield a planned rename.
-procedure TRenameCompletenessTests.RefusesContradictoryProgramFacts;
+const
+  cProgramGlobalAfterRoutine = 'program P;'#13#10 + #13#10 + // 1-2
+    'procedure Touch;'#13#10'var'#13#10'  GValue: Integer;'#13#10 + // 3-5
+    'begin'#13#10'  GValue := 2;'#13#10'end;'#13#10 + #13#10 + // 6-9
+    'var'#13#10'  GValue: Integer;'#13#10'begin'#13#10'  GValue := 1;'#13#10'end.'#13#10; // 10-14
+
+// DS-653: Touch's body ends at its own "end;", so the global declared after it and its main-block
+// use belong to no routine. DS-652 refused both renames while those facts contradicted each other.
+procedure TRenameCompletenessTests.PlansProgramGlobalDeclaredAfterRoutineWithSameNamedLocal;
 var
   lPlan: TDelphiSemanticRenamePlan;
   lRoot: string;
 begin
-  lRoot := WriteCompletenessProject('completeness-contradiction',
-    'program P;'#13#10 + #13#10 + 'procedure Touch;'#13#10'var'#13#10'  GValue: Integer;'#13#10 +
-    'begin'#13#10'  GValue := 2;'#13#10'end;'#13#10 + #13#10 + 'var'#13#10 +
-    '  GValue: Integer;'#13#10'begin'#13#10'  GValue := 1;'#13#10'end.'#13#10, []);
+  lRoot := WriteCompletenessProject('completeness-contradiction', cProgramGlobalAfterRoutine, []);
 
   lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 11, 3, 'GTally');
-  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
-  Assert.IsTrue(IndexText('p.dpr:11:3', PlanUnresolvedKeys(lPlan)) >= 0,
-    SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  AssertCompletePlan(lPlan, ['p.dpr:11:3', 'p.dpr:13:3'], 2);
 
   lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 5, 3, 'LTally');
-  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
-  Assert.IsTrue(IndexText('p.dpr:11:3', PlanUnresolvedKeys(lPlan)) >= 0,
-    SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  AssertCompletePlan(lPlan, ['p.dpr:5:3', 'p.dpr:7:3'], 2);
+end;
+
+// DS-652 safety net: a reference fact sitting on another symbol's declaration contradicts it, so
+// the plan lists that position instead of planning. The source no longer yields such facts, so
+// the test injects one where the line scan used to put it.
+procedure TRenameCompletenessTests.ListsInjectedConflictingFacts;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lFileName: string;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lPlan: TDelphiSemanticRenamePlan;
+  lReference: TDelphiSemanticReference;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUsage: TDelphiSemanticUsage;
+  lReasons: string;
+begin
+  lFileName := TPath.Combine(WriteCompletenessProject('completeness-injected-conflict',
+    cProgramGlobalAfterRoutine, []), 'P.dpr');
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lFileName;
+  lModelOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  // A main-block reference to GValue placed on the local declaration at 5:3.
+  lReference := Default(TDelphiSemanticReference);
+  lReference.Name := 'GValue';
+  lReference.Role := 'reference';
+  lReference.SectionKind := 'interface';
+  lReference.Line := 5;
+  lReference.Column := 3;
+  lReference.EndLine := 5;
+  lReference.EndColumn := 8;
+  lModel.References := lModel.References + [lReference];
+
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lOptions.WorkerCount := 1;
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+  try
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    lContext.ProjectSnapshot := BorrowProjectSnapshot(lSnapshot);
+    lPlan := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext, lFileName, 11, 3,
+      'GTally');
+    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    lReasons := '';
+    for lUsage in lPlan.UnresolvedReferences do
+      lReasons := lReasons + CompletenessKey(lUsage.FileName, lUsage.Line, lUsage.Column) + '=' +
+        lUsage.Reason + ' ';
+    Assert.AreEqual('p.dpr:5:3=conflicting-facts ', lReasons);
+  finally
+    lContext.ProjectSnapshot := nil;
+    lSnapshot.Free;
+  end;
 end;
 
 // Line 10 declares GValue after a program routine; the main block uses it on lines 13 and 15.
@@ -1404,9 +1464,9 @@ begin
   AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['UProv.pas', 'P.dpr'], 'FCounter'), 6);
 end;
 
-// The local GValue on line 8 sits inside Touch's extracted range; resolving that position to
-// Touch would rename the routine instead of the local.
-procedure TRenameCompletenessTests.RefusesPositionResolvedToEnclosingRoutine;
+// The local GValue on line 8 sits inside Touch's range; resolving that position to Touch would
+// rename the routine instead of the local. A position naming no symbol stays refused (DS-652).
+procedure TRenameCompletenessTests.PositionResolvesLocalNotEnclosingRoutine;
 var
   lPlan: TDelphiSemanticRenamePlan;
   lRoot: string;
@@ -1416,16 +1476,45 @@ begin
     'var'#13#10'  GValue: Integer;'#13#10'begin'#13#10'  GValue := 2;'#13#10'end;'#13#10#13#10 +
     'begin'#13#10'  GValue := 1;'#13#10'  Touch;'#13#10'end.'#13#10, []);
 
+  // DS-653: the line index prefers the innermost symbol, so the position names the local.
   lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 8, 3, 'LTally');
-
-  Assert.AreEqual('blocked', lPlan.Status, 'A position must not rename an enclosing routine.');
-  Assert.IsTrue(ContainsText(lPlan.Diagnostic, '"GValue"'), lPlan.Diagnostic);
-  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+  AssertCompletePlan(lPlan, ['p.dpr:8:3', 'p.dpr:10:3'], 2);
 
   // Whitespace inside Touch's body names no symbol at all.
   lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 10, 1, 'LTally');
   Assert.AreEqual('blocked', lPlan.Status, 'Whitespace must not rename the enclosing routine.');
   Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+end;
+
+// DS-653: the forward header of Work used to own the var section after it, so Work's uses of
+// the global Counter bound to a phantom local. Each rename plans exactly its own occurrences.
+procedure TRenameCompletenessTests.PlansGlobalWhoseNameIsALocalElsewhere;
+var
+  lAll: TArray<string>;
+  lLocalKeys: TArray<string>;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-body-bounds',
+    'program P;'#13#10 + #13#10 + // 1-2
+    'procedure Work; forward;'#13#10 + #13#10 + // 3-4
+    'var'#13#10'  Counter: Integer;'#13#10 + #13#10 + // 5-7
+    'procedure Helper;'#13#10'var'#13#10'  Counter: Integer;'#13#10 + // 8-10
+    'begin'#13#10'  Counter := 5;'#13#10'  WriteLn(Counter);'#13#10'end;'#13#10 + #13#10 + // 11-15
+    'procedure Work;'#13#10'begin'#13#10'  Counter := Counter + 1;'#13#10'end;'#13#10 + // 16-19
+    #13#10'begin'#13#10'  Counter := 10;'#13#10'  Helper;'#13#10'  Work;'#13#10 + // 20-24
+    '  WriteLn(Counter);'#13#10'end.'#13#10, []); // 25-26
+  lAll := OccurrenceKeys(lRoot, ['P.dpr'], 'Counter');
+  lLocalKeys := ['p.dpr:10:3', 'p.dpr:12:3', 'p.dpr:13:11'];
+
+  lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 6, 3, 'Total');
+  AssertCompletePlan(lPlan, OccurrenceKeysExcept(lAll, lLocalKeys), 5);
+
+  lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 22, 3, 'Total');
+  AssertCompletePlan(lPlan, OccurrenceKeysExcept(lAll, lLocalKeys), 5);
+
+  lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 10, 3, 'Own');
+  AssertCompletePlan(lPlan, lLocalKeys, 3);
 end;
 
 // DS-652 review: the model records no class constants, so TA.Limit may own Limit in the with

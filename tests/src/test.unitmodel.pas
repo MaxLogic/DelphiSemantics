@@ -265,6 +265,14 @@ type
     procedure PascalLexicalHelpersAreCentralized;
     [Test]
     procedure UnitModelImplementationIsSplitIntoFocusedUnits;
+    [Test]
+    procedure ProgramRoutineBodiesEndBeforeVarSectionsAndMainBlock;
+    [Test]
+    procedure InterfaceHeadersAndInitializationGetNoRoutineBody;
+    [Test]
+    procedure NestedAnonymousAsmAndLocalTypeBodiesAreBounded;
+    [Test]
+    procedure DeclarationExpressionsAreReferences;
   end;
 
 implementation
@@ -4334,6 +4342,243 @@ begin
   Assert.AreEqual(lExpected, DiagnosticMessage(lModel, 'AST_BODY_PARSE_FAILED'),
     'The interface-only retry must keep the original parser message.');
   Assert.AreEqual('Run,', OwnerMemberNames(lModel, 'TSubject'));
+end;
+
+// Lists the locals and references named in aNames as sorted "L:Routine.Name@line" and
+// "R:Name@line>Routine" keys, so a test asserts the exact owner of every fact.
+function BodyFactsText(const aModel: TDelphiSemanticUnitModel;
+  const aNames: array of string): string;
+var
+  lKeys: TStringList;
+  lLocal: TDelphiSemanticLocal;
+  lReference: TDelphiSemanticReference;
+begin
+  lKeys := TStringList.Create;
+  try
+    lKeys.Sorted := True;
+    lKeys.Duplicates := dupAccept;
+    for lLocal in aModel.Locals do
+      if MatchText(lLocal.Name, aNames) then
+        lKeys.Add(Format('L:%s.%s@%d', [lLocal.RoutineName, lLocal.Name, lLocal.Line]));
+    for lReference in aModel.References do
+      if MatchText(lReference.Name, aNames) then
+        lKeys.Add(Format('R:%s@%d>%s', [lReference.Name, lReference.Line,
+          lReference.RoutineName]));
+    Result := string.Join(' ', lKeys.ToStringArray);
+  finally
+    lKeys.Free;
+  end;
+end;
+
+function SortedFactKeys(const aKeys: array of string): string;
+var
+  lKeys: TStringList;
+  lKey: string;
+begin
+  lKeys := TStringList.Create;
+  try
+    lKeys.Sorted := True;
+    lKeys.Duplicates := dupAccept;
+    for lKey in aKeys do
+      lKeys.Add(lKey);
+    Result := string.Join(' ', lKeys.ToStringArray);
+  finally
+    lKeys.Free;
+  end;
+end;
+
+// DS-653: First's body ends at its own "end;" even when "begin" shares the line. The var section
+// after it and the program main block belong to no routine; the global Shared is not First's local.
+procedure TUnitModelTests.ProgramRoutineBodiesEndBeforeVarSectionsAndMainBlock;
+var
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := ExtractUnitSource('body-bounds-program.dpr',
+    'program BodyBounds;'#13#10 + // 1
+    'var'#13#10 + // 2
+    '  Shared: Integer;'#13#10 + // 3
+    'procedure First;'#13#10 + // 4
+    'var'#13#10 + // 5
+    '  Shared: Integer;'#13#10 + // 6
+    'begin Shared := 1; end;'#13#10 + // 7
+    'var'#13#10 + // 8
+    '  Between: Integer;'#13#10 + // 9
+    'procedure Second;'#13#10 + // 10
+    'begin'#13#10 + // 11
+    '  Shared := 2;'#13#10 + // 12
+    '  Between := 3;'#13#10 + // 13
+    'end;'#13#10 + // 14
+    'begin'#13#10 + // 15
+    '  Shared := 4;'#13#10 + // 16
+    '  Second;'#13#10 + // 17
+    'end.'#13#10, False);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual(SortedFactKeys(['L:First.Shared@6', 'R:Shared@7>First', 'R:Shared@12>Second',
+    'R:Between@13>Second', 'R:Shared@16>']), BodyFactsText(lModel, ['Shared', 'Between']));
+end;
+
+// DS-653: an interface header owns no body, so the implementation var section is no local of
+// Work; initialization and finalization statements belong to no routine.
+procedure TUnitModelTests.InterfaceHeadersAndInitializationGetNoRoutineBody;
+var
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := ExtractUnitSource('body-bounds-unit.pas',
+    'unit BodyBoundsUnit;'#13#10 + // 1
+    'interface'#13#10 + // 2
+    'procedure Work;'#13#10 + // 3
+    'implementation'#13#10 + // 4
+    'var'#13#10 + // 5
+    '  Counter: Integer;'#13#10 + // 6
+    'procedure Helper;'#13#10 + // 7
+    'var'#13#10 + // 8
+    '  Counter: Integer;'#13#10 + // 9
+    'begin'#13#10 + // 10
+    '  Counter := 5;'#13#10 + // 11
+    'end;'#13#10 + // 12
+    'procedure Work;'#13#10 + // 13
+    'begin'#13#10 + // 14
+    '  Counter := 1;'#13#10 + // 15
+    'end;'#13#10 + // 16
+    'initialization'#13#10 + // 17
+    '  Counter := 2;'#13#10 + // 18
+    'finalization'#13#10 + // 19
+    '  Counter := 3;'#13#10 + // 20
+    'end.'#13#10, False);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual(SortedFactKeys(['L:Helper.Counter@9', 'R:Counter@11>Helper',
+    'R:Counter@15>Work', 'R:Counter@18>', 'R:Counter@20>']),
+    BodyFactsText(lModel, ['Counter']));
+end;
+
+// DS-653: nested routines, an anonymous method, a local record type and an asm body each end
+// where the syntax tree ends them; declarations after them are neither locals nor references.
+// Assembler operands are not classified, so aValue on line 35 yields no reference.
+procedure TUnitModelTests.NestedAnonymousAsmAndLocalTypeBodiesAreBounded;
+var
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := ExtractUnitSource('body-bounds-nested.pas',
+    'unit BodyBoundsNested;'#13#10 + // 1
+    'interface'#13#10 + // 2
+    'procedure Outer;'#13#10 + // 3
+    'function Asmy(aValue: Integer): Integer;'#13#10 + // 4
+    'implementation'#13#10 + // 5
+    'uses System.SysUtils;'#13#10 + // 6
+    'procedure Outer;'#13#10 + // 7
+    'var'#13#10 + // 8
+    '  lCount: Integer;'#13#10 + // 9
+    'type'#13#10 + // 10
+    '  TLocalRec = record'#13#10 + // 11
+    '    Field: Integer;'#13#10 + // 12
+    '  end;'#13#10 + // 13
+    'var'#13#10 + // 14
+    '  lRec: TLocalRec;'#13#10 + // 15
+    '  procedure Inner;'#13#10 + // 16
+    '  var'#13#10 + // 17
+    '    lInner: Integer;'#13#10 + // 18
+    '  begin'#13#10 + // 19
+    '    lInner := lRec.Field + lCount;'#13#10 + // 20
+    '  end;'#13#10 + // 21
+    'var'#13#10 + // 22
+    '  lProc: TProc;'#13#10 + // 23
+    'begin'#13#10 + // 24
+    '  lProc := procedure'#13#10 + // 25
+    '    begin'#13#10 + // 26
+    '      lRec.Field := lCount;'#13#10 + // 27
+    '    end;'#13#10 + // 28
+    '  Inner;'#13#10 + // 29
+    'end;'#13#10 + // 30
+    'var'#13#10 + // 31
+    '  Tail: Integer;'#13#10 + // 32
+    'function Asmy(aValue: Integer): Integer;'#13#10 + // 33
+    'asm'#13#10 + // 34
+    '  MOV EAX, aValue'#13#10 + // 35
+    'end;'#13#10 + // 36
+    'var'#13#10 + // 37
+    '  AfterAsm: Integer;'#13#10 + // 38
+    'initialization'#13#10 + // 39
+    '  Tail := 1;'#13#10 + // 40
+    '  AfterAsm := 2;'#13#10 + // 41
+    'end.'#13#10, False);
+
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual(SortedFactKeys(['L:Outer.lCount@9', 'L:Outer.lRec@15', 'L:Inner.lInner@18',
+    'L:Outer.lProc@23', 'R:lInner@20>Inner', 'R:lRec@20>Inner', 'R:Field@20>Inner',
+    'R:lCount@20>Inner', 'R:lProc@25>Outer', 'R:lRec@27>Outer', 'R:Field@27>Outer',
+    'R:lCount@27>Outer', 'R:Inner@29>Outer', 'R:Tail@40>',
+    'R:AfterAsm@41>']), BodyFactsText(lModel, ['lCount', 'lRec', 'Field', 'lInner', 'lProc',
+    'Inner', 'Tail', 'AfterAsm', 'aValue']));
+end;
+
+// DS-653/DS-657: names used by declarations are references wherever the declaration sits:
+// absolute targets, address-of and constant initializers, array bounds, default values and
+// the types of a class-method heading after an interface header. Declaring positions are not.
+procedure TUnitModelTests.DeclarationExpressionsAreReferences;
+var
+  i: Integer;
+  lFacts: string;
+  lKey: string;
+  lKeys: TStringList;
+  lModel: TDelphiSemanticUnitModel;
+  lReference: TDelphiSemanticReference;
+begin
+  lModel := ExtractUnitSource('declaration-references.pas',
+    'unit DeclRefs;'#13#10 + // 1
+    'interface'#13#10 + // 2
+    'type'#13#10 + // 3
+    '  TSizeKind = (skSmall, skLarge);'#13#10 + // 4
+    '  TResultKind = Integer;'#13#10 + // 5
+    'const'#13#10 + // 6
+    '  MaxItems = 4;'#13#10 + // 7
+    'procedure Api;'#13#10 + // 8
+    'type'#13#10 + // 9
+    '  TItem = class'#13#10 + // 10
+    '    function Make(aSize: TSizeKind = skSmall): TResultKind;'#13#10 + // 11
+    '  end;'#13#10 + // 12
+    '  TItems = array[0..MaxItems] of TItem;'#13#10 + // 13
+    'implementation'#13#10 + // 14
+    'var'#13#10 + // 15
+    '  GBase: Integer;'#13#10 + // 16
+    '  GAlias: Integer absolute GBase;'#13#10 + // 17
+    '  GPtr: PInteger = @GBase;'#13#10 + // 18
+    'const'#13#10 + // 19
+    '  CTwice = MaxItems * 2;'#13#10 + // 20
+    'procedure Api;'#13#10 + // 21
+    'begin'#13#10 + // 22
+    'end;'#13#10 + // 23
+    'function TItem.Make(aSize: TSizeKind): TResultKind;'#13#10 + // 24
+    'begin'#13#10 + // 25
+    '  Result := Ord(aSize) + CTwice;'#13#10 + // 26
+    'end;'#13#10 + // 27
+    'end.'#13#10, False);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+
+  lKeys := TStringList.Create;
+  try
+    lKeys.Sorted := True;
+    lKeys.Duplicates := dupAccept;
+    for lReference in lModel.References do
+      if MatchText(lReference.Name, ['GBase', 'MaxItems', 'TSizeKind', 'TResultKind', 'skSmall',
+        'TItem']) then
+        lKeys.Add(Format('%s@%d:%d', [lReference.Name, lReference.Line, lReference.Column]));
+    lFacts := string.Join(' ', lKeys.ToStringArray);
+    for lKey in ['GBase@17:28', 'GBase@18:21', 'MaxItems@13:21', 'MaxItems@20:12',
+      'TSizeKind@11:26', 'skSmall@11:38', 'TResultKind@11:48', 'TItem@13:34'] do
+      Assert.IsTrue(lKeys.IndexOf(lKey) >= 0, 'Missing ' + lKey + ' in ' + lFacts);
+    // The enum type scan already records its values as type references (not this slice).
+    for lKey in ['GBase@16:3', 'MaxItems@7:3', 'TItem@10:3'] do
+      Assert.IsTrue(lKeys.IndexOf(lKey) < 0, 'A declaration is no reference: ' + lKey);
+    for i := 1 to lKeys.Count - 1 do
+      Assert.AreNotEqual(lKeys[i - 1], lKeys[i], 'Duplicate reference in ' + lFacts);
+  finally
+    lKeys.Free;
+  end;
 end;
 
 initialization

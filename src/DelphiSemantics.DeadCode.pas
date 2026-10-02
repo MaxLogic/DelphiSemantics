@@ -107,6 +107,23 @@ type
       Boolean;
   end;
 
+  // Finds whole-word source occurrences of a name that no declaration or reference fact covers.
+  // Such an occurrence (inactive code, assembler, an extraction gap) may be a use, so a symbol
+  // with one is never reported unused (DS-653).
+  TDeadCodeOccurrenceScanner = class
+  private
+    fCovered: TDictionary<string, Boolean>;
+    fResults: TDictionary<string, Boolean>;
+    fTexts: TList<TPair<string, string>>;
+    class function PositionKey(const aFileName: string; const aLine, aColumn: Integer): string;
+      static;
+  public
+    constructor Create(const aIndex: TDelphiSemanticProjectSymbolIndex;
+      const aSourceIndex: TDeadCodeSourceIndex);
+    destructor Destroy; override;
+    function HasUnclassifiedOccurrence(const aName: string): Boolean;
+  end;
+
 class function TDelphiSemanticDeadCodeProfiles.AllowedNamesText: string;
 begin
   Result := cDeadCodeProfileAudit + ', ' + cDeadCodeProfileConservative + ', or ' +
@@ -327,6 +344,86 @@ class function TDeadCodeReferenceIndex.SymbolKey(const aId: TDelphiSemanticSymbo
   string;
 begin
   Result := aId.Value;
+end;
+
+constructor TDeadCodeOccurrenceScanner.Create(const aIndex: TDelphiSemanticProjectSymbolIndex;
+  const aSourceIndex: TDeadCodeSourceIndex);
+var
+  lEntry: TPair<string, TDeadCodeSourceEntry>;
+  lReference: TDelphiSemanticIndexedReference;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+begin
+  inherited Create;
+  fCovered := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fResults := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fTexts := TList<TPair<string, string>>.Create;
+  for lSymbol in aIndex.Symbols do
+    fCovered.AddOrSetValue(PositionKey(lSymbol.FileName, lSymbol.Line, lSymbol.Column), True);
+  for lReference in aIndex.References do
+    fCovered.AddOrSetValue(PositionKey(lReference.FileName, lReference.Line, lReference.Column),
+      True);
+  // Comments and strings never use a symbol; the scan runs on the sanitized text.
+  for lEntry in aSourceIndex.fEntries do
+    fTexts.Add(TPair<string, string>.Create(lEntry.Key,
+      LowerCase(SanitizeCodeText(lEntry.Value.Text))));
+end;
+
+destructor TDeadCodeOccurrenceScanner.Destroy;
+begin
+  fTexts.Free;
+  fResults.Free;
+  fCovered.Free;
+  inherited;
+end;
+
+class function TDeadCodeOccurrenceScanner.PositionKey(const aFileName: string; const aLine,
+  aColumn: Integer): string;
+begin
+  Result := aFileName + #1 + IntToStr(aLine) + #1 + IntToStr(aColumn);
+end;
+
+function TDeadCodeOccurrenceScanner.HasUnclassifiedOccurrence(const aName: string): Boolean;
+var
+  lAfter: Integer;
+  lColumnStart: Integer;
+  lLine: Integer;
+  lName: string;
+  lPosition: Integer;
+  lScanned: Integer;
+  lText: TPair<string, string>;
+begin
+  if fResults.TryGetValue(aName, Result) then
+    Exit;
+  Result := False;
+  lName := LowerCase(aName);
+  for lText in fTexts do
+  begin
+    lLine := 1;
+    lColumnStart := 1;
+    lScanned := 1;
+    lPosition := Pos(lName, lText.Value);
+    while (lPosition > 0) and not Result do
+    begin
+      while lScanned < lPosition do
+      begin
+        if lText.Value[lScanned] = #10 then
+        begin
+          Inc(lLine);
+          lColumnStart := lScanned + 1;
+        end;
+        Inc(lScanned);
+      end;
+      lAfter := lPosition + Length(lName);
+      if ((lPosition = 1) or not IsIdentifierChar(lText.Value[lPosition - 1])) and
+        ((lAfter > Length(lText.Value)) or not IsIdentifierChar(lText.Value[lAfter])) and
+        not fCovered.ContainsKey(PositionKey(lText.Key, lLine, lPosition - lColumnStart + 1)) then
+        Result := True;
+      lPosition := Pos(lName, lText.Value, lPosition + 1);
+    end;
+    if Result then
+      Break;
+  end;
+  fResults.Add(aName, Result);
 end;
 
 function SameSymbolId(const aLeft, aRight: TDelphiSemanticSymbolId): Boolean;
@@ -630,6 +727,7 @@ var
   lCandidate: TDelphiSemanticDeadCodeCandidate;
   lCandidates: TList<TDelphiSemanticDeadCodeCandidate>;
   lIndex: TDelphiSemanticProjectSymbolIndex;
+  lOccurrences: TDeadCodeOccurrenceScanner;
   lProfile: string;
   lSafetyProfile: TDelphiSemanticDeadCodeSafetyProfile;
   lReferenceIndex: TDeadCodeReferenceIndex;
@@ -649,6 +747,7 @@ begin
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lReferenceIndex := TDeadCodeReferenceIndex.Create(lIndex);
   lSourceIndex := TDeadCodeSourceIndex.Create(aContext);
+  lOccurrences := TDeadCodeOccurrenceScanner.Create(lIndex, lSourceIndex);
   try
     for lSymbol in lIndex.Symbols do
     begin
@@ -676,6 +775,8 @@ begin
         lReferenceCount := lReferenceIndex.CountSameUnitNameReferences(lSymbol);
         if (lReferenceCount > 0) and (lBlockers.Count = 0) then
         Continue;
+        if (lReferenceCount = 0) and lOccurrences.HasUnclassifiedOccurrence(lSymbol.Name) then
+          AddBlocker(lBlockers, 'unclassified-occurrence');
 
         // Members and references of a unit without verified syntax facts may be missing or
         // misowned, so a zero reference count proves nothing there.
@@ -741,6 +842,7 @@ begin
     Result.Candidates := lCandidates.ToArray;
     Result.IndexMetrics := lIndex.Metrics;
   finally
+    lOccurrences.Free;
     lSourceIndex.Free;
     lReferenceIndex.Free;
     lBlockedUnresolvedReferenceKeys.Free;

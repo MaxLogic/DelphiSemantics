@@ -745,6 +745,7 @@ var
   lDeclaration: TDelphiSemanticDeclaration;
   lFirstScope: string;
   lLocal: TDelphiSemanticLocal;
+  lLocalScopes: string;
 begin
   lFirstScope := '';
   for lDeclaration in aModel.Declarations do
@@ -754,9 +755,14 @@ begin
   for lDeclaration in aModel.Declarations do
     if SameText(lDeclaration.Name, 'lLate') and (lDeclaration.Line = 26) then
       Assert.AreNotEqual(lFirstScope, lDeclaration.OwnerScopeId);
+  // DS-653: the var section resumed after a nested routine is extracted as a local of each
+  // overload; the declarations keep covering the fallback when locals are absent.
+  lLocalScopes := '';
   for lLocal in aModel.Locals do
-    Assert.IsFalse(SameText(lLocal.Name, 'lLate'),
-      'This fixture must exercise resumed declaration fallback, not existing Locals');
+    if SameText(lLocal.Name, 'lLate') then
+      lLocalScopes := lLocalScopes + lLocal.Line.ToString + '=' +
+        BoolToStr(lLocal.RoutineScopeId = lFirstScope, True) + ' ';
+  Assert.AreEqual('17=True 26=False ', lLocalScopes);
 end;
 
 procedure TScopeResolverTests.ResumedOverloadLocalsAreAmbiguous(const aSameType: Boolean);
@@ -767,6 +773,7 @@ var
   lResult: TDelphiSemanticResolveResult;
   lSecondType: string;
   lSource: string;
+  lWithLocals: Boolean;
 begin
   lSource := ResumedOverloadScopeSource;
   lSecondType := 'string';
@@ -781,17 +788,24 @@ begin
   AssertResumedDeclaration(lModel, 'TA.Run', 'Integer', 17);
   AssertResumedDeclaration(lModel, 'TA.Run', lSecondType, 26);
   AssertResumedOverloadScopeIdentity(lModel);
-  lIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel);
-  lContext := QualifiedMethodContext(lIndex, 19);
-  Assert.AreEqual('TA.Run', lContext.RoutineName);
-  // Case-insensitive exact owner matching must still detect both overload scopes.
-  lContext.RoutineName := 'ta.run';
-  lContext.CurrentTypeName := 'TData';
-  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'LLATE');
-  Assert.AreEqual('ambiguous', lResult.Status,
-    'Distinct overload declarations must block competing current-member fallback');
-  Assert.IsFalse(lResult.Found);
-  Assert.AreNotEqual('field', lResult.Kind);
+  for lWithLocals := True downto False do
+  begin
+    // Without extracted locals the resolver falls back to the routine-scoped declarations.
+    if not lWithLocals then
+      lModel.Locals := nil;
+    lIndex := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel);
+    lContext := QualifiedMethodContext(lIndex, 19);
+    Assert.AreEqual('TA.Run', lContext.RoutineName);
+    // Case-insensitive exact owner matching must still detect both overload scopes.
+    lContext.RoutineName := 'ta.run';
+    lContext.CurrentTypeName := 'TData';
+    lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'LLATE');
+    Assert.AreEqual('ambiguous', lResult.Status,
+      'Distinct overload declarations must block competing current-member fallback; locals: ' +
+      BoolToStr(lWithLocals, True));
+    Assert.IsFalse(lResult.Found);
+    Assert.AreNotEqual('field', lResult.Kind);
+  end;
 end;
 
 procedure TScopeResolverTests.ResumedDeclarationsRequireRoutineContext;
