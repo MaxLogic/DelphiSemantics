@@ -42,6 +42,13 @@ begin
     Result := '';
 end;
 
+// DS-659: written only for facts from an include file, so other models serialize unchanged.
+procedure AddFactFileName(const aObject: TJSONObject; const aFileName: string);
+begin
+  if aFileName <> '' then
+    aObject.AddPair('FileName', aFileName);
+end;
+
 function SourceSectionsToJson(const aSections: TDelphiSemanticSourceSections):
   TJSONObject;
 begin
@@ -209,6 +216,7 @@ begin
   Result.AddPair('OwnerScopeId', aDeclaration.OwnerScopeId);
   Result.AddPair('SymbolId', aDeclaration.SymbolId);
   Result.AddPair('Mutable', TJSONBool.Create(aDeclaration.Mutable));
+  AddFactFileName(Result, aDeclaration.FileName);
 end;
 
 function JsonToDeclaration(const aObject: TJSONObject): TDelphiSemanticDeclaration;
@@ -233,6 +241,7 @@ begin
   Result.OwnerScopeId := JsonString(aObject, 'OwnerScopeId');
   Result.SymbolId := JsonString(aObject, 'SymbolId');
   Result.Mutable := JsonBool(aObject, 'Mutable');
+  Result.FileName := JsonString(aObject, 'FileName');
 end;
 
 function DeclarationsToJson(const aDeclarations: TArray<TDelphiSemanticDeclaration>): TJSONArray;
@@ -274,6 +283,7 @@ begin
   Result.AddPair('Column', TJSONNumber.Create(aMember.Column));
   Result.AddPair('Offset', TJSONNumber.Create(aMember.Offset));
   Result.AddPair('EndOffset', TJSONNumber.Create(aMember.EndOffset));
+  AddFactFileName(Result, aMember.FileName);
 end;
 
 function JsonToMember(const aObject: TJSONObject): TDelphiSemanticMember;
@@ -292,6 +302,7 @@ begin
   Result.Column := JsonInt(aObject, 'Column');
   Result.Offset := JsonInt(aObject, 'Offset');
   Result.EndOffset := JsonInt(aObject, 'EndOffset');
+  Result.FileName := JsonString(aObject, 'FileName');
 end;
 
 function MembersToJson(const aMembers: TArray<TDelphiSemanticMember>): TJSONArray;
@@ -328,6 +339,7 @@ begin
   Result.AddPair('Column', TJSONNumber.Create(aParameter.Column));
   Result.AddPair('Offset', TJSONNumber.Create(aParameter.Offset));
   Result.AddPair('EndOffset', TJSONNumber.Create(aParameter.EndOffset));
+  AddFactFileName(Result, aParameter.FileName);
 end;
 
 function JsonToParameter(const aObject: TJSONObject): TDelphiSemanticParameter;
@@ -340,6 +352,7 @@ begin
   Result.Column := JsonInt(aObject, 'Column');
   Result.Offset := JsonInt(aObject, 'Offset');
   Result.EndOffset := JsonInt(aObject, 'EndOffset');
+  Result.FileName := JsonString(aObject, 'FileName');
 end;
 
 function ParametersToJson(const aParameters: TArray<TDelphiSemanticParameter>): TJSONArray;
@@ -384,6 +397,7 @@ begin
   Result.AddPair('ScopeId', aRoutine.ScopeId);
   Result.AddPair('ParentScopeId', aRoutine.ParentScopeId);
   Result.AddPair('Parameters', ParametersToJson(aRoutine.Parameters));
+  AddFactFileName(Result, aRoutine.FileName);
 end;
 
 function JsonToRoutine(const aObject: TJSONObject): TDelphiSemanticRoutine;
@@ -405,6 +419,7 @@ begin
   Result.ScopeId := JsonString(aObject, 'ScopeId');
   Result.ParentScopeId := JsonString(aObject, 'ParentScopeId');
   Result.Parameters := JsonToParameters(aObject.GetValue('Parameters') as TJSONArray);
+  Result.FileName := JsonString(aObject, 'FileName');
 end;
 
 function RoutinesToJson(const aRoutines: TArray<TDelphiSemanticRoutine>): TJSONArray;
@@ -442,6 +457,7 @@ begin
   Result.AddPair('Offset', TJSONNumber.Create(aLocal.Offset));
   Result.AddPair('EndOffset', TJSONNumber.Create(aLocal.EndOffset));
   Result.AddPair('RoutineScopeId', aLocal.RoutineScopeId);
+  AddFactFileName(Result, aLocal.FileName);
 end;
 
 function JsonToLocal(const aObject: TJSONObject): TDelphiSemanticLocal;
@@ -455,6 +471,7 @@ begin
   Result.Offset := JsonInt(aObject, 'Offset');
   Result.EndOffset := JsonInt(aObject, 'EndOffset');
   Result.RoutineScopeId := JsonString(aObject, 'RoutineScopeId');
+  Result.FileName := JsonString(aObject, 'FileName');
 end;
 
 function LocalsToJson(const aLocals: TArray<TDelphiSemanticLocal>): TJSONArray;
@@ -494,6 +511,7 @@ begin
   Result.AddPair('EndLine', TJSONNumber.Create(aReference.EndLine));
   Result.AddPair('EndColumn', TJSONNumber.Create(aReference.EndColumn));
   Result.AddPair('RoutineScopeId', aReference.RoutineScopeId);
+  AddFactFileName(Result, aReference.FileName);
 end;
 
 function JsonToReference(const aObject: TJSONObject): TDelphiSemanticReference;
@@ -509,6 +527,7 @@ begin
   Result.EndLine := JsonInt(aObject, 'EndLine');
   Result.EndColumn := JsonInt(aObject, 'EndColumn');
   Result.RoutineScopeId := JsonString(aObject, 'RoutineScopeId');
+  Result.FileName := JsonString(aObject, 'FileName');
 end;
 
 function ReferencesToJson(const aReferences: TArray<TDelphiSemanticReference>): TJSONArray;

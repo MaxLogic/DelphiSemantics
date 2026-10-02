@@ -176,6 +176,23 @@ begin
   aDiagnostics.Add(lDiagnostic);
 end;
 
+const
+  // DS-659: preprocessed lines could not be traced to their files, so no fact is verified.
+  cIncludeLineMapFailedStatus = 'include-line-map-failed';
+
+// The preprocessor ends every output line with a line break.
+function OutputLineCount(const aOutputText: string): Integer;
+var
+  i: Integer;
+begin
+  Result := 0;
+  for i := 1 to Length(aOutputText) do
+    if aOutputText[i] = #10 then
+      Inc(Result);
+  if (aOutputText <> '') and (aOutputText[Length(aOutputText)] <> #10) then
+    Inc(Result);
+end;
+
 procedure AddSourceDiagnostics(const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   const aSourceDiagnostics: TArray<TDelphiSemanticSourceDiagnostic>);
 var
@@ -3798,8 +3815,8 @@ begin
     lKeptCount := 0;
     for i := 0 to Pred(aReferences.Count) do
     begin
-      lKey := LowerCase(aReferences[i].Name) + #1 + IntToStr(aReferences[i].Line) + #1 +
-        IntToStr(aReferences[i].Column);
+      lKey := LowerCase(aReferences[i].Name) + #1 + LowerCase(aReferences[i].FileName) + #1 +
+        IntToStr(aReferences[i].Line) + #1 + IntToStr(aReferences[i].Column);
       // A reference without a position is never merged with another one.
       if (aReferences[i].Line > 0) and (aReferences[i].Column > 0) then
       begin
@@ -3962,6 +3979,22 @@ begin
     EnrichLexicalScopeFacts(lText, Result.UnitName, lWritableSwitches,
       aOptions, lMembers,
       lDeclarations, lRoutines, lLocals, lReferences, lDiagnostics, Result);
+    // DS-659: with includes, output lines no longer match source lines. Each fact moves to the
+    // file and line its text came from; include facts are never mapped onto this unit.
+    if Length(lPreprocessResult.Includes) > 0 then
+    begin
+      if (Length(lPreprocessResult.LineOrigins) <> OutputLineCount(lPreprocessResult.OutputText))
+        or not AttributeLineOrigins(TPath.GetFullPath(aOptions.SourceFileName),
+        lPreprocessResult.LineOrigins, lReferences, lDeclarations, lMembers, lRoutines,
+        lLocals) then
+      begin
+        // Without a line map no fact position can be trusted, so the unit is unverified.
+        AddDiagnostic(lDiagnostics, 'INCLUDE_LINE_MAP_FAILED',
+          'Preprocessed lines could not be traced to their source files.',
+          aOptions.SourceFileName, 0);
+        Result.ScopeModelStatus := cIncludeLineMapFailedStatus;
+      end;
+    end;
     lOffsetMap := BuildOutputToSourceOffsetMap(lSourceResult.Source.Text, lText);
     if lReferences.Count > 0 then
       ApplyReferenceSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lReferences);

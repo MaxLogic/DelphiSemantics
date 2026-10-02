@@ -45,6 +45,18 @@ type
     procedure SnapshotReferenceCountsMatchModelBackedReport;
     [Test]
     procedure InitializerAndInactiveUsesAreNeverUnused;
+    [Test]
+    procedure EntryPointUsesAreNeverUnused;
+    [Test]
+    procedure IncludeDeclaredRoutineIsReportedAtIncludeAndBlocked;
+    [Test]
+    procedure OverloadedAndShortFormRoutinesUsedElsewhereAreNeverUnused;
+    [Test]
+    procedure OverloadBodiesWithRespelledHeadersAreNeverUnused;
+    [Test]
+    procedure UnpairedImplementationOfUsedInterfaceIsBlocked;
+    [Test]
+    procedure MidLineIncludeRoutinesAreBlocked;
   end;
 
 implementation
@@ -199,6 +211,259 @@ begin
   finally
     lSessionResult.Session.Free;
   end;
+end;
+
+function CandidateInUnit(const aReport: TDelphiSemanticDeadCodeReport;
+  const aName, aUnitName: string; out aCandidate: TDelphiSemanticDeadCodeCandidate): Boolean;
+var
+  lCandidate: TDelphiSemanticDeadCodeCandidate;
+begin
+  for lCandidate in aReport.Candidates do
+    if SameText(lCandidate.Name, aName) and SameText(lCandidate.UnitName, aUnitName) then
+    begin
+      aCandidate := lCandidate;
+      Exit(True);
+    end;
+  aCandidate := Default(TDelphiSemanticDeadCodeCandidate);
+  Result := False;
+end;
+
+function EntryPointsReport(const aFolder: string): TDelphiSemanticDeadCodeReport;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lOptions: TDelphiSemanticOptions;
+  lRootPath: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+begin
+  lRootPath := DeadCodeTempPath(aFolder);
+  TDirectory.Copy(FixturePath('DeadCodeEntryPoints', ''), lRootPath);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'P.dproj');
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+  Assert.IsTrue(lSessionResult.Success);
+  try
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      Result := TDelphiSemanticDeadCodeReporter.Report(lContext, 'legacy-static');
+    finally
+      // Release the session-owned snapshot before the session.
+      lContext := Default(TDelphiSemanticSymbolQueryContext);
+    end;
+  finally
+    lSessionResult.Session.Free;
+  end;
+end;
+
+// DS-660: a call from the program main block or from another unit's initialization or
+// finalization block binds the interface declaration; its implementation is used as well.
+procedure TDeadCodeTests.EntryPointUsesAreNeverUnused;
+var
+  lCandidate: TDelphiSemanticDeadCodeCandidate;
+  lControlReported: Boolean;
+  lReport: TDelphiSemanticDeadCodeReport;
+begin
+  lReport := EntryPointsReport('entry-points');
+  Assert.IsFalse(CandidateInUnit(lReport, 'Value', 'UEntry', lCandidate),
+    'Value is used by the main block: ' + DescribeCandidates(lReport));
+  Assert.IsFalse(CandidateInUnit(lReport, 'InitUsed', 'UEntry', lCandidate),
+    'InitUsed is used by an initialization block: ' + DescribeCandidates(lReport));
+  Assert.IsFalse(CandidateInUnit(lReport, 'FinalUsed', 'UEntry', lCandidate),
+    'FinalUsed is used by a finalization block: ' + DescribeCandidates(lReport));
+  // Control: the unused implementation of NeverUsed is still reported.
+  lControlReported := False;
+  for lCandidate in lReport.Candidates do
+    if SameText(lCandidate.Name, 'NeverUsed') and SameText(lCandidate.UnitName, 'UEntry') and
+      SameText(lCandidate.Status, 'definitely-unused') then
+      lControlReported := True;
+  Assert.IsTrue(lControlReported, DescribeCandidates(lReport));
+end;
+
+// DS-660 review: Ov(1) and Ov2(5) stay unresolved in the program and in UE, and the short-form
+// body "procedure Helper;" shares its name with a nested Helper in Other. None of the called
+// routines' bodies may be reported unused; the uncalled Other is the control.
+procedure TDeadCodeTests.OverloadedAndShortFormRoutinesUsedElsewhereAreNeverUnused;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lCandidate: TDelphiSemanticDeadCodeCandidate;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lControlReported: Boolean;
+  lExtractionMilliseconds: Int64;
+  lOptions: TDelphiSemanticOptions;
+  lReport: TDelphiSemanticDeadCodeReport;
+  lRootPath: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+begin
+  lRootPath := DeadCodeTempPath('overloads');
+  TDirectory.Copy(FixturePath('DeadCodeOverloads', ''), lRootPath);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'P.dproj');
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+  Assert.IsTrue(lSessionResult.Success);
+  try
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      lReport := TDelphiSemanticDeadCodeReporter.Report(lContext, 'legacy-static');
+    finally
+      // Release the session-owned snapshot before the session.
+      lContext := Default(TDelphiSemanticSymbolQueryContext);
+    end;
+  finally
+    lSessionResult.Session.Free;
+  end;
+
+  lControlReported := False;
+  for lCandidate in lReport.Candidates do
+  begin
+    if not SameText(lCandidate.UnitName, 'UD') or not SameText(lCandidate.Kind, 'routine') then
+      Continue;
+    // UD line 33 is the nested Helper inside Other; it is unused.
+    if MatchText(lCandidate.Name, ['Ov', 'Ov2', 'Lone']) or
+      (SameText(lCandidate.Name, 'Helper') and (lCandidate.Line <> 33)) then
+      Assert.AreNotEqual('definitely-unused', lCandidate.Status, lCandidate.Name + ':' +
+        IntToStr(lCandidate.Line) + ' is called. ' + DescribeCandidates(lReport));
+    if SameText(lCandidate.Name, 'Other') and SameText(lCandidate.Status, 'definitely-unused') then
+      lControlReported := True;
+  end;
+  Assert.IsTrue(lControlReported, DescribeCandidates(lReport));
+end;
+
+function LegacyStaticReport(const aFixture, aFolder: string): TDelphiSemanticDeadCodeReport;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lOptions: TDelphiSemanticOptions;
+  lRootPath: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+begin
+  lRootPath := DeadCodeTempPath(aFolder);
+  TDirectory.Copy(FixturePath(aFixture, ''), lRootPath);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'P.dproj');
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+  Assert.IsTrue(lSessionResult.Success);
+  try
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      Result := TDelphiSemanticDeadCodeReporter.Report(lContext, 'legacy-static');
+    finally
+      // Release the session-owned snapshot before the session.
+      lContext := Default(TDelphiSemanticSymbolQueryContext);
+    end;
+  finally
+    lSessionResult.Session.Free;
+  end;
+end;
+
+function CandidateStatusAt(const aReport: TDelphiSemanticDeadCodeReport; const aName: string;
+  const aLine: Integer): string;
+var
+  lCandidate: TDelphiSemanticDeadCodeCandidate;
+begin
+  for lCandidate in aReport.Candidates do
+    if SameText(lCandidate.Name, aName) and (lCandidate.Line = aLine) then
+      Exit(lCandidate.Status);
+  Result := '';
+end;
+
+// DS-660 review round 2: UO line 10 spells the header of Ov4(a, b: Integer) as
+// "Ov4(a: Integer; b: Integer)" and line 18 drops Ov6's default value; both are called from UP.
+// Lonely (line 26) is the control.
+procedure TDeadCodeTests.OverloadBodiesWithRespelledHeadersAreNeverUnused;
+var
+  lReport: TDelphiSemanticDeadCodeReport;
+begin
+  lReport := LegacyStaticReport('DeadCodeOverloadHeaders', 'overload-headers');
+  // Paired with their interface declarations, the bodies share their references: no candidate.
+  Assert.AreEqual('', CandidateStatusAt(lReport, 'Ov4', 10), DescribeCandidates(lReport));
+  Assert.AreEqual('', CandidateStatusAt(lReport, 'Ov6', 18), DescribeCandidates(lReport));
+  Assert.AreEqual('definitely-unused', CandidateStatusAt(lReport, 'Lonely', 26),
+    DescribeCandidates(lReport));
+end;
+
+// DS-660 review round 2: a body whose header pairs with no interface declaration must not be
+// reported unused while a same-named interface declaration is used. The header of the body on
+// UO line 10 is replaced with one that matches nothing.
+procedure TDeadCodeTests.UnpairedImplementationOfUsedInterfaceIsBlocked;
+var
+  i: Integer;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lFileName: string;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lReport: TDelphiSemanticDeadCodeReport;
+  lRootPath: string;
+  lScopedContext: TScopedSnapshotQueryContext;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lRootPath := DeadCodeTempPath('unpaired-implementation');
+  TDirectory.Copy(FixturePath('DeadCodeOverloadHeaders', ''), lRootPath);
+  lModels := [];
+  for lFileName in ['P.dpr', 'UO.pas', 'UP.pas'] do
+  begin
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := TPath.Combine(lRootPath, lFileName);
+    lModelOptions.ProjectContextApplied := True;
+    lModels := lModels + [TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions)];
+  end;
+  for i := 0 to High(lModels[1].Routines) do
+    if SameText(lModels[1].Routines[i].Name, 'Ov4') and (lModels[1].Routines[i].Line = 10) then
+      lModels[1].Routines[i].Signature := '(z: TNoSuchType)';
+
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lOptions.WorkerCount := 1;
+  lSnapshot := BuildProjectSnapshotFromModels(lModels,
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+  lScopedContext := TScopedSnapshotQueryContext.Create(lSnapshot);
+  try
+    lContext := lScopedContext.Context;
+    lReport := TDelphiSemanticDeadCodeReporter.Report(lContext, 'legacy-static');
+    Assert.AreEqual('blocked', CandidateStatusAt(lReport, 'Ov4', 10), DescribeCandidates(lReport));
+    Assert.IsTrue(CandidateHasBlocker(lReport, 'Ov4', 'unpaired-implementation'),
+      DescribeCandidates(lReport));
+    Assert.AreEqual('definitely-unused', CandidateStatusAt(lReport, 'Lonely', 26),
+      DescribeCandidates(lReport));
+  finally
+    lScopedContext.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+// DS-659 review round 2: dead.inc is included on a line with a comment, so its routines sit on
+// the directive (UM line 9) of the unit file.
+procedure TDeadCodeTests.MidLineIncludeRoutinesAreBlocked;
+var
+  lReport: TDelphiSemanticDeadCodeReport;
+begin
+  lReport := LegacyStaticReport('DeadCodeMidLineIncludes', 'mid-line-includes');
+  Assert.AreEqual('blocked', CandidateStatusAt(lReport, 'DeadTwo', 9), DescribeCandidates(lReport));
+  Assert.IsTrue(CandidateHasBlockerInUnit(lReport, 'DeadTwo', 'UM', 'routine',
+    'declared-in-include'), DescribeCandidates(lReport));
+end;
+
+// DS-659: a routine declared in an include file is reported at that file and never removed.
+procedure TDeadCodeTests.IncludeDeclaredRoutineIsReportedAtIncludeAndBlocked;
+var
+  lCandidate: TDelphiSemanticDeadCodeCandidate;
+  lReport: TDelphiSemanticDeadCodeReport;
+begin
+  lReport := EntryPointsReport('include-declaration');
+  Assert.IsTrue(CandidateInUnit(lReport, 'IncludedUnused', 'UEntry', lCandidate),
+    DescribeCandidates(lReport));
+  Assert.AreEqual('entry.inc', LowerCase(ExtractFileName(lCandidate.FileName)));
+  Assert.AreEqual(1, lCandidate.Line);
+  Assert.AreEqual(10, lCandidate.Column);
+  Assert.AreEqual('blocked', lCandidate.Status, DescribeCandidates(lReport));
+  Assert.IsTrue(CandidateHasBlockerInUnit(lReport, 'IncludedUnused', 'UEntry', 'routine',
+    'declared-in-include'), DescribeCandidates(lReport));
 end;
 
 procedure TDeadCodeTests.DeadCodeProfilesParseFormatAndRejectUnknown;

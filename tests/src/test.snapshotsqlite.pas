@@ -1356,6 +1356,7 @@ begin
     lSymbol.KindId := lTypeKindId;
     lSymbol.SectionKindId := lInterfaceId;
     lSymbol.SourceKindId := lProjectSourceId;
+    lSymbol.FileId := lBuilder.Strings.Intern('DemoTypes.inc');
     lSymbol.Line := 4;
     lSymbol.Column := 3;
     lSymbol.EndLine := 8;
@@ -1399,6 +1400,8 @@ begin
     lReference.SectionKindId := lImplementationId;
     lReference.SourceKindId := lProjectSourceId;
     lReference.ClassificationId := lMemberKindId;
+    // DS-659: a reference from an include file keeps that file through the cache.
+    lReference.FileId := lBuilder.Strings.Intern('DemoBody.inc');
     lReference.Line := 22;
     lReference.Column := 7;
     lReference.EndLine := 22;
@@ -1837,6 +1840,9 @@ begin
       Assert.AreEqual(Integer(lRoutineId), Integer(lReference.RoutineId));
       Assert.AreEqual(Integer(lImplementationId), Integer(lReference.SectionKindId));
       Assert.AreEqual(Integer(lProjectSourceId), Integer(lReference.SourceKindId));
+      Assert.AreEqual('DemoBody.inc', lProject.TextOf(lReference.FileId));
+      Assert.AreEqual('DemoTypes.inc', lProject.TextOf(lUnit.SymbolById(1).FileId));
+      Assert.AreEqual(0, Integer(lUnit.SymbolById(2).FileId));
     finally
       lProject.Free;
     end;

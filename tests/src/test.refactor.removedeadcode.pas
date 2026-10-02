@@ -45,6 +45,10 @@ type
     procedure UnverifiedUnitMembersAreNotDeadCode(const aSnapshot, aFailed: Boolean);
     [Test]
     procedure LegacyStaticNeverRemovesInitializerOrInactiveUses;
+    // DS-659 review round 2: a routine fact placed on the line of the used DeadOneWrap, whose
+    // name contains it, never removes that line.
+    [Test]
+    procedure LegacyStaticRemovesOnlyAtTheDeclaredName;
   end;
 
 implementation
@@ -54,6 +58,7 @@ uses
   Winapi.Windows,
   maxLogic.IOUtils,
   DelphiSemantics.DeadCode, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
+  DelphiSemantics.Snapshot.Builder, DelphiSemantics.WithBinding,
   Test.Support;
 
 var
@@ -266,6 +271,61 @@ begin
     end;
   finally
     lSessionResult.Session.Free;
+  end;
+end;
+
+procedure TRemoveDeadCodePlannerTests.LegacyStaticRemovesOnlyAtTheDeclaredName;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lEdit: TDelphiSemanticTextEdit;
+  lEdits: string;
+  lFileName: string;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lPlan: TDelphiSemanticDeadCodeRemovalPlan;
+  lRootPath: string;
+  lRoutine: TDelphiSemanticRoutine;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lRootPath := RemoveDeadCodeTempPath('declared-name');
+  TDirectory.Copy(FixturePath('DeadCodeMidLineIncludes', ''), lRootPath);
+  lModels := [];
+  for lFileName in ['P.dpr', 'UM.pas'] do
+  begin
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := TPath.Combine(lRootPath, lFileName);
+    lModelOptions.SearchPaths := [lRootPath];
+    lModelOptions.ProjectContextApplied := True;
+    lModels := lModels + [TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions)];
+  end;
+  // An unused routine DeadOne whose position is column 1 of "procedure DeadOneWrap;" (UM line
+  // 11), followed by "begin" and "end;". Only its exact name at that position may be removed.
+  lRoutine := Default(TDelphiSemanticRoutine);
+  lRoutine.Name := 'DeadOne';
+  lRoutine.SectionKind := 'implementation';
+  lRoutine.Line := 11;
+  lRoutine.Column := 1;
+  lModels[1].Routines := lModels[1].Routines + [lRoutine];
+
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lOptions.WorkerCount := 1;
+  lSnapshot := BuildProjectSnapshotFromModels(lModels,
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+  try
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    lContext.ProjectSnapshot := BorrowProjectSnapshot(lSnapshot);
+    lPlan := TDelphiSemanticApi.PlanDeadCodeRemoval(lContext, 'legacy-static');
+    lEdits := '';
+    for lEdit in lPlan.Edits do
+      lEdits := lEdits + ExtractFileName(lEdit.FileName) + ':' + lEdit.StartLine.ToString + ' ';
+    Assert.IsFalse(ContainsText(' ' + lEdits, ' UM.pas:11 '), lEdits);
+    Assert.AreEqual('unsupported-syntax', BlockerReason(lPlan, 'DeadOne'), lEdits);
+  finally
+    lContext.ProjectSnapshot := nil;
+    lSnapshot.Free;
   end;
 end;
 

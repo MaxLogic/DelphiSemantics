@@ -4,8 +4,18 @@ interface
 
 uses
   System.Generics.Collections,
-  DelphiSemantics.Model;
+  DelphiSemantics.Model, DelphiSemantics.Preprocess;
 
+// DS-659: moves every fact from preprocessed-output lines to the file and line its text came
+// from. Facts from the root file get their source line; facts from an include file get that
+// file and its own line (line 0 when the origin is unknown), so no later pass maps them onto
+// the including unit.
+function AttributeLineOrigins(const aRootFileName: string;
+  const aOrigins: TArray<TDelphiSemanticSourceLineOrigin>;
+  const aReferences: TList<TDelphiSemanticReference>;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aMembers: TList<TDelphiSemanticMember>; const aRoutines: TList<TDelphiSemanticRoutine>;
+  const aLocals: TList<TDelphiSemanticLocal>): Boolean;
 procedure ReconcileDeclarationCoordinates(const aSourceText: string;
   const aDeclarations: TList<TDelphiSemanticDeclaration>);
 function BuildOutputToSourceOffsetMap(const aSourceText, aOutputText: string): TArray<Integer>;
@@ -147,6 +157,175 @@ begin
     Result := lStartOffset + aColumn - 1;
 end;
 
+type
+  TLineOriginMapper = record
+  private
+    fOrigins: TArray<TDelphiSemanticSourceLineOrigin>;
+    fRootFileName: string;
+  public
+    procedure Initialize(const aRootFileName: string;
+      const aOrigins: TArray<TDelphiSemanticSourceLineOrigin>);
+    // Maps an output position. aFileName becomes '' for the root file, otherwise the origin
+    // file. A fact on a mixed line keeps its file (even the root file) and the position of the
+    // include directive; an unknown origin gives the root file with line and column 0.
+    procedure Map(var aFileName: string; var aLine, aColumn: Integer);
+    // Maps an end line that must lie in aFileName; 0 when it does not.
+    function MapEndLine(const aFileName: string; const aEndLine: Integer): Integer;
+  end;
+
+procedure TLineOriginMapper.Initialize(const aRootFileName: string;
+  const aOrigins: TArray<TDelphiSemanticSourceLineOrigin>);
+begin
+  fRootFileName := aRootFileName;
+  fOrigins := aOrigins;
+end;
+
+procedure TLineOriginMapper.Map(var aFileName: string; var aLine, aColumn: Integer);
+var
+  lOrigin: TDelphiSemanticSourceLineOrigin;
+begin
+  aFileName := '';
+  if aLine <= 0 then
+    Exit;
+  if aLine > Length(fOrigins) then
+    lOrigin := Default(TDelphiSemanticSourceLineOrigin)
+  else
+    lOrigin := fOrigins[aLine - 1];
+  if lOrigin.Mixed and (lOrigin.Line > 0) and (lOrigin.FileName <> '') then
+  begin
+    aFileName := lOrigin.FileName;
+    aLine := lOrigin.Line;
+    aColumn := lOrigin.Column;
+    Exit;
+  end;
+  if (lOrigin.Line > 0) and SameText(lOrigin.FileName, fRootFileName) then
+  begin
+    aLine := lOrigin.Line;
+    Exit;
+  end;
+  if (lOrigin.Line > 0) and (lOrigin.FileName <> '') then
+  begin
+    aFileName := lOrigin.FileName;
+    aLine := lOrigin.Line;
+    Exit;
+  end;
+  aFileName := fRootFileName;
+  aLine := 0;
+  aColumn := 0;
+end;
+
+function TLineOriginMapper.MapEndLine(const aFileName: string; const aEndLine: Integer):
+  Integer;
+var
+  lColumn: Integer;
+  lFileName: string;
+begin
+  Result := aEndLine;
+  lColumn := 1;
+  Map(lFileName, Result, lColumn);
+  if not SameText(lFileName, aFileName) then
+    Result := 0;
+end;
+
+function AttributeLineOrigins(const aRootFileName: string;
+  const aOrigins: TArray<TDelphiSemanticSourceLineOrigin>;
+  const aReferences: TList<TDelphiSemanticReference>;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aMembers: TList<TDelphiSemanticMember>; const aRoutines: TList<TDelphiSemanticRoutine>;
+  const aLocals: TList<TDelphiSemanticLocal>): Boolean;
+var
+  i: Integer;
+  j: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lLocal: TDelphiSemanticLocal;
+  lMapper: TLineOriginMapper;
+  lMember: TDelphiSemanticMember;
+  lParameters: TArray<TDelphiSemanticParameter>;
+  lReference: TDelphiSemanticReference;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  Result := Length(aOrigins) > 0;
+  if not Result then
+    Exit;
+  lMapper.Initialize(aRootFileName, aOrigins);
+  for i := 0 to Pred(aReferences.Count) do
+  begin
+    lReference := aReferences[i];
+    lMapper.Map(lReference.FileName, lReference.Line, lReference.Column);
+    lReference.EndLine := lMapper.MapEndLine(lReference.FileName, lReference.EndLine);
+    if lReference.EndLine <= 0 then
+      lReference.EndLine := lReference.Line;
+    if lReference.FileName <> '' then
+    begin
+      // Include text has no offset in the unit source.
+      lReference.Offset := 0;
+      lReference.EndOffset := 0;
+      lReference.EndColumn := 0;
+      if lReference.Column > 0 then
+        lReference.EndColumn := lReference.Column + Length(lReference.Name) - 1;
+    end;
+    aReferences[i] := lReference;
+  end;
+  for i := 0 to Pred(aDeclarations.Count) do
+  begin
+    lDeclaration := aDeclarations[i];
+    lMapper.Map(lDeclaration.FileName, lDeclaration.Line, lDeclaration.Column);
+    if lDeclaration.FileName <> '' then
+    begin
+      lDeclaration.Offset := 0;
+      lDeclaration.EndOffset := 0;
+    end;
+    aDeclarations[i] := lDeclaration;
+  end;
+  for i := 0 to Pred(aMembers.Count) do
+  begin
+    lMember := aMembers[i];
+    lMapper.Map(lMember.FileName, lMember.Line, lMember.Column);
+    if lMember.FileName <> '' then
+    begin
+      lMember.Offset := 0;
+      lMember.EndOffset := 0;
+    end;
+    aMembers[i] := lMember;
+  end;
+  for i := 0 to Pred(aRoutines.Count) do
+  begin
+    lRoutine := aRoutines[i];
+    lMapper.Map(lRoutine.FileName, lRoutine.Line, lRoutine.Column);
+    lRoutine.EndLine := lMapper.MapEndLine(lRoutine.FileName, lRoutine.EndLine);
+    if lRoutine.EndLine <= 0 then
+      lRoutine.EndColumn := 0;
+    if lRoutine.FileName <> '' then
+    begin
+      lRoutine.Offset := 0;
+      lRoutine.EndOffset := 0;
+    end;
+    lParameters := Copy(lRoutine.Parameters);
+    for j := 0 to High(lParameters) do
+    begin
+      lMapper.Map(lParameters[j].FileName, lParameters[j].Line, lParameters[j].Column);
+      if lParameters[j].FileName <> '' then
+      begin
+        lParameters[j].Offset := 0;
+        lParameters[j].EndOffset := 0;
+      end;
+    end;
+    lRoutine.Parameters := lParameters;
+    aRoutines[i] := lRoutine;
+  end;
+  for i := 0 to Pred(aLocals.Count) do
+  begin
+    lLocal := aLocals[i];
+    lMapper.Map(lLocal.FileName, lLocal.Line, lLocal.Column);
+    if lLocal.FileName <> '' then
+    begin
+      lLocal.Offset := 0;
+      lLocal.EndOffset := 0;
+    end;
+    aLocals[i] := lLocal;
+  end;
+end;
+
 function FindSectionKeywordOffset(const aLowerText, aKeyword: string): Integer;
 var
   lAfter: Integer;
@@ -216,6 +395,8 @@ begin
   for i := 0 to Pred(aDeclarations.Count) do
   begin
     lDeclaration := aDeclarations[i];
+    if lDeclaration.FileName <> '' then
+      Continue;
     if (lDeclaration.Offset >= 1) and (lDeclaration.Offset + Length(lDeclaration.Name) - 1 <=
       Length(aSourceText)) and SameText(Copy(aSourceText, lDeclaration.Offset,
       Length(lDeclaration.Name)), lDeclaration.Name) then
@@ -312,6 +493,8 @@ begin
   for i := 0 to Pred(aReferences.Count) do
   begin
     lReference := aReferences[i];
+    if lReference.FileName <> '' then
+      Continue;
     lMappedOffset := lCoordinates.OffsetOfLineColumn(lReference.Line, lReference.Column);
     if ((lMappedOffset <= 0) or (lMappedOffset + Length(lReference.Name) - 1 >
       Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
@@ -366,6 +549,8 @@ begin
   for i := 0 to Pred(aRoutines.Count) do
   begin
     lRoutine := aRoutines[i];
+    if lRoutine.FileName <> '' then
+      Continue;
     lMappedOffset := lCoordinates.OffsetOfLineColumn(lRoutine.Line, lRoutine.Column);
     if ((lMappedOffset <= 0) or (lMappedOffset + Length(lRoutine.Name) - 1 >
       Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
@@ -397,6 +582,8 @@ begin
   for i := 0 to Pred(aDeclarations.Count) do
   begin
     lDeclaration := aDeclarations[i];
+    if lDeclaration.FileName <> '' then
+      Continue;
     lMappedOffset := lCoordinates.OffsetOfLineColumn(lDeclaration.Line,
       lDeclaration.Column);
     if ((lMappedOffset <= 0) or (lMappedOffset + Length(lDeclaration.Name) - 1 >
@@ -432,6 +619,8 @@ begin
   for i := 0 to Pred(aMembers.Count) do
   begin
     lMember := aMembers[i];
+    if lMember.FileName <> '' then
+      Continue;
     lMappedOffset := lCoordinates.OffsetOfLineColumn(lMember.Line, lMember.Column);
     if ((lMappedOffset <= 0) or (lMappedOffset + Length(lMember.Name) - 1 >
       Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
@@ -466,6 +655,8 @@ begin
   for i := 0 to Pred(aLocals.Count) do
   begin
     lLocal := aLocals[i];
+    if lLocal.FileName <> '' then
+      Continue;
     lMappedOffset := lCoordinates.OffsetOfLineColumn(lLocal.Line, lLocal.Column);
     if ((lMappedOffset <= 0) or (lMappedOffset + Length(lLocal.Name) - 1 >
       Length(aSourceText)) or not SameText(Copy(aSourceText, lMappedOffset,
@@ -595,6 +786,8 @@ begin
     for i := 0 to Pred(aReferences.Count) do
     begin
       lReference := aReferences[i];
+      if lReference.FileName <> '' then
+        Continue;
       if SourceRangeMatchesReference(lReference.Offset, lReference) then
       begin
         AssignReferenceSourceRange(lReference, lReference.Offset);
@@ -658,6 +851,8 @@ begin
   for i := 0 to Pred(aMembers.Count) do
   begin
     lMember := aMembers[i];
+    if lMember.FileName <> '' then
+      Continue;
     if (lMember.Offset >= 1) and (lMember.Offset + Length(lMember.Name) - 1 <=
       Length(aSourceText)) and SameText(Copy(aSourceText, lMember.Offset,
       Length(lMember.Name)), lMember.Name) then
@@ -724,6 +919,8 @@ begin
   for i := 0 to Pred(aRoutines.Count) do
   begin
     lRoutine := aRoutines[i];
+    if lRoutine.FileName <> '' then
+      Continue;
     if SourceRangeMatchesRoutine(aSourceText, lRoutine) then
     begin
       AssignRoutineSourceRange(lRoutine, lCoordinates, lRoutine.Offset);
@@ -787,6 +984,8 @@ begin
   for i := 0 to Pred(aLocals.Count) do
   begin
     lLocal := aLocals[i];
+    if lLocal.FileName <> '' then
+      Continue;
     if (lLocal.Offset >= 1) and (lLocal.Offset + Length(lLocal.Name) - 1 <=
       Length(aSourceText)) and SameText(Copy(aSourceText, lLocal.Offset,
       Length(lLocal.Name)), lLocal.Name) then

@@ -379,6 +379,25 @@ begin
   end;
 end;
 
+// DS-659 review round 2: the candidate's own name, as a whole identifier, at its declared
+// position. A name inside a longer identifier or elsewhere on the line is not its declaration.
+function DeclaresNameAt(const aLines: TArray<string>;
+  const aCandidate: TDelphiSemanticDeadCodeCandidate): Boolean;
+var
+  lAfter: Integer;
+  lLine: string;
+begin
+  Result := False;
+  if (aCandidate.Line <= 0) or (aCandidate.Line > Length(aLines)) or
+    (aCandidate.Column <= 0) or (aCandidate.Name = '') then
+    Exit;
+  lLine := aLines[aCandidate.Line - 1];
+  lAfter := aCandidate.Column + Length(aCandidate.Name);
+  Result := SameText(Copy(lLine, aCandidate.Column, Length(aCandidate.Name)), aCandidate.Name) and
+    ((aCandidate.Column = 1) or not IsIdentifierChar(lLine[aCandidate.Column - 1])) and
+    ((lAfter > Length(lLine)) or not IsIdentifierChar(lLine[lAfter]));
+end;
+
 function MakeRemovalEdit(const aCandidate: TDelphiSemanticDeadCodeCandidate;
   const aEndLine: Integer): TDelphiSemanticTextEdit;
 begin
@@ -406,8 +425,7 @@ begin
     Exit(False);
 
   lLines := TFile.ReadAllLines(aCandidate.FileName);
-  if (aCandidate.Line > Length(lLines)) or not ContainsText(lLines[aCandidate.Line - 1],
-    aCandidate.Name) then
+  if not DeclaresNameAt(lLines, aCandidate) then
     Exit(False);
 
   lLineText := Trim(lLines[aCandidate.Line - 1]);
@@ -439,8 +457,7 @@ begin
     Exit(False);
 
   lLines := TFile.ReadAllLines(aCandidate.FileName);
-  if (aCandidate.Line > Length(lLines)) or not ContainsText(lLines[aCandidate.Line - 1],
-    aCandidate.Name) then
+  if not DeclaresNameAt(lLines, aCandidate) then
     Exit(False);
 
   if (aCandidate.Line + 1) > Length(lLines) then
@@ -1146,30 +1163,64 @@ begin
   Result := False;
 end;
 
+// True when aFileName is a unit or program file of the context, not an include file.
+function IsUnitSourceFile(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aFileName: string): Boolean;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lResolvedFileName: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+begin
+  Result := TryFindSnapshotUnitByFile(aContext, aFileName, lSnapshot, lUnit,
+    lResolvedFileName) or TryFindModelByFile(aContext, aFileName, lModel);
+end;
+
 function BuildRenamePlanFromUsages(const aContext: TDelphiSemanticSymbolQueryContext;
   const aUsageResult: TDelphiSemanticUsageResult; const aNewName: string):
   TDelphiSemanticRenamePlan;
 var
   lEdit: TDelphiSemanticTextEdit;
   lEdits: TList<TDelphiSemanticTextEdit>;
+  lListed: TDelphiSemanticUsage;
+  lUnresolved: TList<TDelphiSemanticUsage>;
   lUsage: TDelphiSemanticUsage;
 begin
   if aUsageResult.Status <> 'resolved' then
     Exit(MakeBlockedPlan(aUsageResult.Diagnostic));
 
+  lUnresolved := nil;
   lEdits := TList<TDelphiSemanticTextEdit>.Create;
   try
+    lUnresolved := TList<TDelphiSemanticUsage>.Create;
+    lUnresolved.AddRange(aUsageResult.Unresolved);
     for lUsage in aUsageResult.Usages do
     begin
       if not IsProjectUsage(lUsage) then
         Exit(MakeBlockedPlan('Rename contains non-project usage in "' + lUsage.FileName + '".'));
       if (aUsageResult.Symbol.OwnerName = '') and IsShadowedByLocal(aContext, lUsage) then
         Continue;
+      // DS-659: an include file can be shared by several units and its other occurrences are
+      // not scanned, so its usages are listed for review instead of edited.
+      if (lUsage.FileName <> '') and not IsUnitSourceFile(aContext, lUsage.FileName) then
+      begin
+        lListed := lUsage;
+        lListed.Role := 'unresolved';
+        lListed.Reason := 'include-file';
+        lUnresolved.Add(lListed);
+        Continue;
+      end;
       if (lUsage.FileName = '') or (lUsage.Line <= 0) or (lUsage.Column <= 0) or
         (lUsage.EndLine <= 0) or (lUsage.EndColumn <= 0) or
         ((lUsage.EndLine = lUsage.Line) and (lUsage.EndColumn < lUsage.Column)) then
         Exit(MakeBlockedPlan('Rename range is missing for usage "' + lUsage.Name + '".'));
       lEdit := MakeEdit(lUsage, aNewName);
+      // DS-659: every edit must replace the old name itself. Any other text at the position
+      // means the facts are wrong, so the whole plan is refused.
+      if not SameText(lEdit.ExpectedSourceText, aUsageResult.Symbol.Name) then
+        Exit(MakeBlockedPlan(Format('Rename refused: the edit planned at %s:%d:%d holds "%s", ' +
+          'not "%s".', [lEdit.FileName, lEdit.StartLine, lEdit.StartColumn,
+          lEdit.ExpectedSourceText, aUsageResult.Symbol.Name])));
       if not EditAlreadyPlanned(lEdits, lEdit) then
         lEdits.Add(lEdit);
     end;
@@ -1179,16 +1230,17 @@ begin
     Result.Edits := lEdits.ToArray;
     // DS-652/DAK-392: an occurrence we cannot classify may be a missed reference or a wrong
     // edit, so the plan is a review aid without the apply provenance.
-    if Length(aUsageResult.Unresolved) > 0 then
+    if lUnresolved.Count > 0 then
     begin
       Result.Status := 'incomplete';
-      Result.UnresolvedReferences := Copy(aUsageResult.Unresolved);
+      Result.UnresolvedReferences := lUnresolved.ToArray;
       Result.Diagnostic := Format('Rename plan is incomplete: %d same-name occurrence(s) ' +
         'cannot be proven to be or not to be "%s"; see the unresolved references.',
-        [Length(aUsageResult.Unresolved), aUsageResult.Symbol.Name]);
+        [lUnresolved.Count, aUsageResult.Symbol.Name]);
     end;
     FinalizeRenamePlan(Result, aContext);
   finally
+    lUnresolved.Free;
     lEdits.Free;
   end;
 end;

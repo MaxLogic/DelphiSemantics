@@ -94,15 +94,19 @@ type
     procedure UnitSnapshotReturnsReferencesForWithWithoutReferenceScan;
     [Test]
     procedure UnitSnapshotStoresFactsAsRecords;
+    // DS-659: facts from include text keep the include file and its own position.
+    [Test]
+    procedure IncludeFactsKeepIncludeFileAndPosition;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
   maxLogic.IOUtils,
   DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
-  DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.WithBinding,
+  DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.Snapshot.QuerySupport,
+  DelphiSemantics.Symbols, DelphiSemantics.WithBinding,
   Test.Support;
 
 const
@@ -1825,6 +1829,94 @@ begin
     Assert.IsFalse(lSnapshot.TryReferencesForWith(999, lLowIndex, lHighIndex));
   finally
     lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.IncludeFactsKeepIncludeFileAndPosition;
+var
+  i: Integer;
+  lFileName: string;
+  lHighIndex: Integer;
+  lKeys: TStringList;
+  lLowIndex: Integer;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lNameId: TSemanticStringId;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lReference: TDelphiSemanticIndexedReference;
+  lReferenceRef: TSemanticReferenceRef;
+  lReferenceRefAt: TSemanticReferenceRef;
+  lRoot: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+  lSymbolRef: TSemanticSymbolRef;
+  lUnit: TUnitSnapshot;
+begin
+  lRoot := TPath.Combine(TPath.GetTempPath, 'ds659-snapshot-' + IntToStr(TThread.GetTickCount));
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'body.inc'), '  GA := GB + 1;'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'decl.inc'),
+    'function Helper: Integer;'#13#10'begin'#13#10'  Result := GA;'#13#10'end;'#13#10,
+    TEncoding.ASCII);
+  lFileName := TPath.Combine(lRoot, 'IncSnap.pas');
+  TFile.WriteAllText(lFileName,
+    'unit IncSnap;'#13#10 + 'interface'#13#10 + 'var'#13#10 + '  GA, GB: Integer;'#13#10 + // 1-4
+    'procedure Foo;'#13#10 + 'implementation'#13#10 + '{$I decl.inc}'#13#10 + // 5-7
+    'procedure Foo;'#13#10 + 'begin'#13#10 + '{$IFDEF NEVER_DEFINED}'#13#10 + // 8-10
+    '  GA := 99;'#13#10 + '{$ELSE}'#13#10 + '{$I body.inc}'#13#10 + '{$ENDIF}'#13#10 + // 11-14
+    '  GA := Helper;'#13#10 + 'end;'#13#10 + 'end.'#13#10, TEncoding.ASCII); // 15-17
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lFileName;
+  lModelOptions.SearchPaths := [lRoot];
+  lModelOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lOptions.WorkerCount := 1;
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+  lKeys := TStringList.Create;
+  try
+    lKeys.Sorted := True;
+    lKeys.Duplicates := dupAccept;
+    Assert.IsTrue(lSnapshot.TryFindStringId('GA', lNameId));
+    Assert.IsTrue(lSnapshot.TryReferencesByName(lNameId, lLowIndex, lHighIndex));
+    for i := lLowIndex to lHighIndex do
+    begin
+      lReferenceRef := lSnapshot.ReferenceRefByNameIndex(i);
+      Assert.IsTrue(lSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit));
+      lReference := SnapshotIndexedReference(lSnapshot, lUnit,
+        lUnit.ReferenceById(lReferenceRef.ReferenceId));
+      lKeys.Add(LowerCase(ExtractFileName(lReference.FileName)) + ':' +
+        lReference.Line.ToString + ':' + lReference.Column.ToString + '=' + lReference.Status);
+    end;
+    lKeys.Delimiter := ' ';
+    // Include occurrences keep their files and stay unresolved: no unit position stands in.
+    Assert.AreEqual('body.inc:1:3=unresolved decl.inc:3:13=unresolved incsnap.pas:15:3=resolved',
+      lKeys.DelimitedText);
+    // The inactive GA on line 11 is no fact.
+    Assert.IsFalse(lSnapshot.TryReferenceAt(lFileName, 11, 3, lReferenceRefAt));
+    // The include directive on line 7 is no declaration of Helper.
+    Assert.IsTrue(lSnapshot.TryFindStringId('Helper', lNameId));
+    Assert.IsTrue(lSnapshot.TrySymbolsByName(lNameId, lLowIndex, lHighIndex));
+    lKeys.Clear;
+    for i := lLowIndex to lHighIndex do
+    begin
+      lSymbolRef := lSnapshot.SymbolRefByNameIndex(i);
+      Assert.IsTrue(lSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit));
+      lSymbol := SnapshotIndexedSymbol(lSnapshot, lUnit, lSymbolRef,
+        lUnit.SymbolById(lSymbolRef.SymbolId));
+      lKeys.Add(LowerCase(ExtractFileName(lSymbol.FileName)) + ':' + lSymbol.Line.ToString +
+        ':' + lSymbol.Column.ToString);
+    end;
+    Assert.AreEqual('decl.inc:1:10', lKeys.DelimitedText);
+  finally
+    lKeys.Free;
+    lSnapshot.Free;
+    TDirectory.Delete(lRoot, True);
   end;
 end;
 

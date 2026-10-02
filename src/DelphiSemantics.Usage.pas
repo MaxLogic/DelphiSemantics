@@ -286,7 +286,7 @@ begin
   Result.SourceKind := SnapshotText(aSnapshot, aReference.SourceKindId);
   if Result.SourceKind = '' then
     Result.SourceKind := 'project-snapshot';
-  Result.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
+  Result.FileName := SnapshotFactFileName(aSnapshot, aUnit, aReference.FileId);
   Result.UnitName := SnapshotText(aSnapshot, aUnit.UnitNameId);
   Result.Line := aReference.Line;
   Result.Column := aReference.Column;
@@ -546,9 +546,11 @@ begin
   Result := (aLeft.UnitId = aRight.UnitId) and (aLeft.SymbolId = aRight.SymbolId);
 end;
 
+// aFileId names the include file that holds the occurrence; 0 for the unit's own file.
 procedure AddUnresolvedUsage(const aUnresolved: TList<TDelphiSemanticUsage>;
   const aSnapshot: TDelphiProjectSnapshot; const aUnit: TUnitSnapshot; const aName,
-  aRoutineName, aSectionKind: string; const aLine, aColumn: Integer; const aReason: string);
+  aRoutineName, aSectionKind: string; const aLine, aColumn: Integer; const aReason: string;
+  const aFileId: TSemanticStringId = 0);
 var
   lUsage: TDelphiSemanticUsage;
 begin
@@ -558,7 +560,7 @@ begin
   lUsage.Role := 'unresolved';
   lUsage.SectionKind := aSectionKind;
   lUsage.SourceKind := 'project-snapshot';
-  lUsage.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
+  lUsage.FileName := SnapshotFactFileName(aSnapshot, aUnit, aFileId);
   lUsage.UnitName := SnapshotText(aSnapshot, aUnit.UnitNameId);
   lUsage.Line := aLine;
   lUsage.Column := aColumn;
@@ -717,7 +719,7 @@ begin
     if lRenamedVirtual or SnapshotMethodMayBeVirtual(aSnapshot, lCandidateUnit, lCandidate) then
       AddUnresolvedUsage(aUnresolved, aSnapshot, lCandidateUnit, aSymbol.Name, '',
         SnapshotText(aSnapshot, lCandidate.SectionKindId), lCandidate.Line, lCandidate.Column,
-        'possible-override');
+        'possible-override', lCandidate.FileId);
   end;
 end;
 
@@ -783,8 +785,8 @@ begin
         lSymbol := lUnit.SymbolById(lSymbolRef.SymbolId);
         if (lSymbol.Line <= 0) or (lSymbol.Column <= 0) then
           Continue;
-        lKey := SnapshotPositionKey(SnapshotText(aSnapshot, lUnit.FileNameId), lSymbol.Line,
-          lSymbol.Column);
+        lKey := SnapshotPositionKey(SnapshotFactFileName(aSnapshot, lUnit, lSymbol.FileId),
+          lSymbol.Line, lSymbol.Column);
         if not lDeclarations.TryGetValue(lKey, lDeclaredRef) then
           lDeclarations.Add(lKey, lSymbolRef)
         else if not SameSnapshotSymbolRef(lDeclaredRef, lSymbolRef) and
@@ -792,7 +794,8 @@ begin
           SnapshotSymbolRefInList(aEquivalentRefs, lSymbolRef)) then
           AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, lName,
             SnapshotText(aSnapshot, lSymbol.RoutineId), SnapshotText(aSnapshot,
-            lSymbol.SectionKindId), lSymbol.Line, lSymbol.Column, 'conflicting-facts');
+            lSymbol.SectionKindId), lSymbol.Line, lSymbol.Column, 'conflicting-facts',
+            lSymbol.FileId);
       end;
 
     if lNameKnown and aSnapshot.TryReferencesByName(lNameId, lLowIndex, lHighIndex) then
@@ -802,10 +805,22 @@ begin
         if not aSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit) then
           Continue;
         lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
+        // DS-659: an include fact without a position is still listed, never dropped.
+        if (lReference.FileId <> 0) and ((lReference.Line <= 0) or (lReference.Column <= 0) or
+          (lReference.FileId = lUnit.FileNameId)) then
+        begin
+          if not lCovered.ContainsKey(SnapshotPositionKey(SnapshotFactFileName(aSnapshot, lUnit,
+            lReference.FileId), lReference.Line, lReference.Column)) then
+            AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, lName,
+              SnapshotText(aSnapshot, lReference.RoutineId), SnapshotText(aSnapshot,
+              lReference.SectionKindId), lReference.Line, lReference.Column,
+              'include-position-unknown', lReference.FileId);
+          Continue;
+        end;
         if (lReference.Line <= 0) or (lReference.Column <= 0) then
           Continue;
-        lKey := SnapshotPositionKey(SnapshotText(aSnapshot, lUnit.FileNameId), lReference.Line,
-          lReference.Column);
+        lKey := SnapshotPositionKey(SnapshotFactFileName(aSnapshot, lUnit, lReference.FileId),
+          lReference.Line, lReference.Column);
         lHandled.AddOrSetValue(lKey, 0);
         lTarget.UnitId := lReference.TargetUnitId;
         lTarget.SymbolId := lReference.TargetSymbolId;
@@ -816,18 +831,20 @@ begin
           if not lCovered.ContainsKey(lKey) then
             AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, lName,
               SnapshotText(aSnapshot, lReference.RoutineId), SnapshotText(aSnapshot,
-              lReference.SectionKindId), lReference.Line, lReference.Column, 'unverified-unit');
+              lReference.SectionKindId), lReference.Line, lReference.Column, 'unverified-unit',
+              lReference.FileId);
         end else if lDeclarations.TryGetValue(lKey, lDeclaredRef) and
           not SameSnapshotSymbolRef(lDeclaredRef, lTarget) and (lIsEquivalentTarget or
           SnapshotSymbolRefInList(aEquivalentRefs, lDeclaredRef)) then
           AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, lName,
             SnapshotText(aSnapshot, lReference.RoutineId), SnapshotText(aSnapshot,
-            lReference.SectionKindId), lReference.Line, lReference.Column, 'conflicting-facts')
+            lReference.SectionKindId), lReference.Line, lReference.Column, 'conflicting-facts',
+            lReference.FileId)
         else if lTarget.SymbolId = 0 then
           AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, lName,
             SnapshotText(aSnapshot, lReference.RoutineId), SnapshotText(aSnapshot,
             lReference.SectionKindId), lReference.Line, lReference.Column,
-            'unresolved-reference');
+            'unresolved-reference', lReference.FileId);
       end;
 
     // Occurrences no fact describes: extraction gaps, unverified units, inactive code.
@@ -1272,11 +1289,12 @@ begin
   end;
 end;
 
-// File identity also covers a program file, whose model has no unit name.
+// File identity also covers a program file, whose model has no unit name. A symbol declared in
+// an include file (DS-659) matches its unit by name only (aByUnitName).
 function DeclaresSymbol(const aSymbol: TDelphiSemanticIndexedSymbol; const aFileName,
-  aUnitName: string): Boolean;
+  aUnitName: string; const aByUnitName: Boolean): Boolean;
 begin
-  if (aSymbol.FileName <> '') and (aFileName <> '') then
+  if not aByUnitName and (aSymbol.FileName <> '') and (aFileName <> '') then
     Exit(SameText(aSymbol.FileName, aFileName));
   Result := (aUnitName <> '') and SameText(aUnitName, aSymbol.UnitName);
 end;
@@ -1286,6 +1304,7 @@ class function TDelphiSemanticUsageFinder.TryFindUnverifiedDeclaringUnit(
   const aSymbol: TDelphiSemanticIndexedSymbol; out aUnitName, aScopeStatus: string): Boolean;
 var
   i: Integer;
+  lByUnitName: Boolean;
   lModel: TDelphiSemanticUnitModel;
   lModels: TArray<TDelphiSemanticUnitModel>;
   lSnapshot: TDelphiProjectSnapshot;
@@ -1294,28 +1313,32 @@ begin
   aUnitName := '';
   aScopeStatus := '';
   lSnapshot := ContextProjectSnapshot(aContext);
-  if lSnapshot <> nil then
-    for i := 0 to Pred(lSnapshot.UnitCount) do
-    begin
-      lUnit := lSnapshot.UnitByIndex(i);
-      if DeclaresSymbol(aSymbol, SnapshotText(lSnapshot, lUnit.FileNameId),
-        SnapshotText(lSnapshot, lUnit.UnitNameId)) then
+  lModels := [aContext.UnitModel] + aContext.IndexedUnitModels;
+  // The second pass finds the unit of a symbol whose file is an include, not a unit.
+  for lByUnitName := False to True do
+  begin
+    if lSnapshot <> nil then
+      for i := 0 to Pred(lSnapshot.UnitCount) do
       begin
-        aUnitName := SnapshotText(lSnapshot, lUnit.UnitNameId);
-        aScopeStatus := SnapshotText(lSnapshot, lUnit.ScopeModelStatusId);
+        lUnit := lSnapshot.UnitByIndex(i);
+        if DeclaresSymbol(aSymbol, SnapshotText(lSnapshot, lUnit.FileNameId),
+          SnapshotText(lSnapshot, lUnit.UnitNameId), lByUnitName) then
+        begin
+          aUnitName := SnapshotText(lSnapshot, lUnit.UnitNameId);
+          aScopeStatus := SnapshotText(lSnapshot, lUnit.ScopeModelStatusId);
+          Exit(not IsVerifiedScopeStatus(aScopeStatus));
+        end;
+      end;
+    for lModel in lModels do
+      if DeclaresSymbol(aSymbol, lModel.FileName, lModel.UnitName, lByUnitName) then
+      begin
+        aUnitName := lModel.UnitName;
+        if aUnitName = '' then
+          aUnitName := ExtractFileName(lModel.FileName);
+        aScopeStatus := lModel.ScopeModelStatus;
         Exit(not IsVerifiedScopeStatus(aScopeStatus));
       end;
-    end;
-  lModels := [aContext.UnitModel] + aContext.IndexedUnitModels;
-  for lModel in lModels do
-    if DeclaresSymbol(aSymbol, lModel.FileName, lModel.UnitName) then
-    begin
-      aUnitName := lModel.UnitName;
-      if aUnitName = '' then
-        aUnitName := ExtractFileName(lModel.FileName);
-      aScopeStatus := lModel.ScopeModelStatus;
-      Exit(not IsVerifiedScopeStatus(aScopeStatus));
-    end;
+  end;
   Result := False;
 end;
 

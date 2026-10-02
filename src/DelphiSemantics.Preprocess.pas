@@ -28,6 +28,16 @@ type
     Active: Boolean;
   end;
 
+  // DS-659: where one output line came from. A Mixed line holds text of an include expanded
+  // inside a source line; it has no exact position, so FileName, Line and Column name that
+  // include directive. Line 0 means the origin is unknown.
+  TDelphiSemanticSourceLineOrigin = record
+    FileName: string;
+    Line: Integer;
+    Column: Integer;
+    Mixed: Boolean;
+  end;
+
   TDelphiSemanticIncludeFile = record
     FileName: string;
     ContentHash: string;
@@ -40,6 +50,8 @@ type
     SourceObservations: IDelphiSemanticSourceObservations;
     Regions: TArray<TDelphiSemanticSourceRegion>;
     Includes: TArray<TDelphiSemanticIncludeFile>;
+    // One entry per OutputText line, in order.
+    LineOrigins: TArray<TDelphiSemanticSourceLineOrigin>;
     Diagnostics: TArray<TDelphiSemanticPreprocessDiagnostic>;
   end;
 
@@ -58,6 +70,7 @@ uses
 type
   TDefineMap = TDictionary<string, Boolean>;
   TSourceTextCache = TDictionary<string, TDelphiSemanticSourceLoadResult>;
+  TLineOriginList = TList<TDelphiSemanticSourceLineOrigin>;
 
   TPreprocessFrame = record
     ParentActive: Boolean;
@@ -512,6 +525,17 @@ begin
   aStack[Pred(aStack.Count)] := lFrame;
 end;
 
+procedure AddLineOrigin(const aOrigins: TLineOriginList; const aFileName: string;
+  const aLine: Integer);
+var
+  lOrigin: TDelphiSemanticSourceLineOrigin;
+begin
+  lOrigin := Default(TDelphiSemanticSourceLineOrigin);
+  lOrigin.FileName := aFileName;
+  lOrigin.Line := aLine;
+  aOrigins.Add(lOrigin);
+end;
+
 function IsFileInStack(const aStack: TList<string>; const aFileName: string): Boolean;
 var
   lFileName: string;
@@ -528,7 +552,8 @@ function ProcessDirective(const aDirective, aFileName: string; const aLine: Inte
   const aStack: TList<TPreprocessFrame>; const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>;
   const aOutput: TStringBuilder; const aRegions: TList<TDelphiSemanticSourceRegion>;
   const aIncludes: TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>;
-  const aSourceCache: TSourceTextCache; var aOutputLineWritten: Boolean): Boolean; forward;
+  const aSourceCache: TSourceTextCache; const aOrigins: TLineOriginList;
+  var aOutputLineWritten: Boolean): Boolean; forward;
 
 function IsRootSourceFile(const aFileName: string;
   const aOptions: TDelphiSemanticPreprocessOptions): Boolean;
@@ -591,16 +616,21 @@ function ProcessInlineDirectiveLine(const aLine, aDirectiveLine, aFileName: stri
   TList<TDelphiSemanticPreprocessDiagnostic>; const aOutput: TStringBuilder;
   const aRegions: TList<TDelphiSemanticSourceRegion>; const aIncludes:
   TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>;
-  const aSourceCache: TSourceTextCache): Boolean;
+  const aSourceCache: TSourceTextCache; const aOrigins: TLineOriginList): Boolean;
 var
   lDirective: string;
   lDirectiveStart: Integer;
   lDirectiveStop: Integer;
+  lIncludeColumn: Integer;
   lLineOutput: TStringBuilder;
+  lOrigin: TDelphiSemanticSourceLineOrigin;
+  lOriginCount: Integer;
   lOutputLineWritten: Boolean;
   lPos: Integer;
 begin
   Result := True;
+  lOriginCount := aOrigins.Count;
+  lIncludeColumn := 0;
   lLineOutput := TStringBuilder.Create;
   try
     lPos := 1;
@@ -635,8 +665,11 @@ begin
         lOutputLineWritten := False;
         if not ProcessDirective(lDirective, aFileName, aLineNumber, aOptions, aDefines,
           aStack, aDiagnostics, lLineOutput, aRegions, aIncludes, aIncludeStack, aSourceCache,
-          lOutputLineWritten) then
+          aOrigins, lOutputLineWritten) then
           Result := False;
+        // The first directive that expanded an include names the mixed lines.
+        if (lIncludeColumn = 0) and (aOrigins.Count > lOriginCount) then
+          lIncludeColumn := lDirectiveStart;
         lLineOutput.Append(StringOfChar(' ', lDirectiveStop - lDirectiveStart + 1));
       end;
       lPos := lDirectiveStop + 1;
@@ -648,6 +681,19 @@ begin
     else
       lLineOutput.Append(StringOfChar(' ', Length(aLine) - lPos + 1));
     aOutput.AppendLine(lLineOutput.ToString);
+    // An include expanded inside this line mixes its text with the line's own text, so none of
+    // the resulting lines has an exact position; all of them point at the include directive.
+    if aOrigins.Count = lOriginCount then
+      AddLineOrigin(aOrigins, aFileName, aLineNumber)
+    else begin
+      lOrigin.FileName := aFileName;
+      lOrigin.Line := aLineNumber;
+      lOrigin.Column := lIncludeColumn;
+      lOrigin.Mixed := True;
+      for lPos := lOriginCount to aOrigins.Count - 1 do
+        aOrigins[lPos] := lOrigin;
+      aOrigins.Add(lOrigin);
+    end;
   finally
     lLineOutput.Free;
   end;
@@ -659,7 +705,7 @@ procedure ProcessLoadedSourceFile(const aFileName, aSourceText: string;
   const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>; const aOutput: TStringBuilder;
   const aRegions: TList<TDelphiSemanticSourceRegion>; const aIncludes: TList<TDelphiSemanticIncludeFile>;
   const aIncludeStack: TList<string>; const aSourceCache: TSourceTextCache;
-  var aSuccess: Boolean);
+  const aOrigins: TLineOriginList; var aSuccess: Boolean);
 var
   i: Integer;
   lDirective: string;
@@ -692,6 +738,7 @@ begin
       begin
         lPendingDirectiveCloseBrace := False;
         aOutput.AppendLine('');
+        AddLineOrigin(aOrigins, aFileName, i + 1);
         Continue;
       end;
 
@@ -706,18 +753,21 @@ begin
           AddRegion(aRegions, aFileName, i + 1, CurrentActive(aStack));
           if not ProcessInlineDirectiveLine(lLines[i], lDirectiveLines[i], aFileName, i + 1, aOptions, aDefines,
             aStack, aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack,
-            aSourceCache) then
+            aSourceCache, aOrigins) then
             aSuccess := False;
           Continue;
         end;
 
         lOutputLineWritten := False;
         if not ProcessDirective(lDirective, aFileName, i + 1, aOptions, aDefines, aStack,
-          aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache,
+          aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache, aOrigins,
           lOutputLineWritten) then
           aSuccess := False;
         if not lOutputLineWritten then
+        begin
           aOutput.AppendLine('');
+          AddLineOrigin(aOrigins, aFileName, i + 1);
+        end;
       end else
       begin
         AddRegion(aRegions, aFileName, i + 1, CurrentActive(aStack));
@@ -725,6 +775,7 @@ begin
           aOutput.AppendLine(lLines[i])
         else
           aOutput.AppendLine('');
+        AddLineOrigin(aOrigins, aFileName, i + 1);
       end;
     end;
   finally
@@ -740,7 +791,7 @@ procedure ProcessSourceFile(const aFileName: string; const aOptions: TDelphiSema
   const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>; const aOutput: TStringBuilder;
   const aRegions: TList<TDelphiSemanticSourceRegion>; const aIncludes: TList<TDelphiSemanticIncludeFile>;
   const aIncludeStack: TList<string>; const aSourceCache: TSourceTextCache;
-  var aSuccess: Boolean);
+  const aOrigins: TLineOriginList; var aSuccess: Boolean);
 var
   lText: string;
 begin
@@ -753,7 +804,7 @@ begin
   end;
 
   ProcessLoadedSourceFile(aFileName, lText, aOptions, aDefines, aStack, aDiagnostics,
-    aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache, aSuccess);
+    aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache, aOrigins, aSuccess);
 end;
 
 function ProcessDirective(const aDirective, aFileName: string; const aLine: Integer;
@@ -761,7 +812,8 @@ function ProcessDirective(const aDirective, aFileName: string; const aLine: Inte
   const aStack: TList<TPreprocessFrame>; const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>;
   const aOutput: TStringBuilder; const aRegions: TList<TDelphiSemanticSourceRegion>;
   const aIncludes: TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>;
-  const aSourceCache: TSourceTextCache; var aOutputLineWritten: Boolean): Boolean;
+  const aSourceCache: TSourceTextCache; const aOrigins: TLineOriginList;
+  var aOutputLineWritten: Boolean): Boolean;
 var
   lActive: Boolean;
   lInclude: TDelphiSemanticIncludeFile;
@@ -888,7 +940,7 @@ begin
     try
       ProcessLoadedSourceFile(lIncludeFileName, lIncludeText, aOptions, aDefines,
         aStack, aDiagnostics, lIncludeOutput, aRegions, aIncludes, aIncludeStack,
-        aSourceCache, lSuccess);
+        aSourceCache, aOrigins, lSuccess);
       aOutput.Append(lIncludeOutput.ToString);
       aOutputLineWritten := True;
     finally
@@ -910,6 +962,7 @@ begin
     if CurrentActive(aStack) then
     begin
       aOutput.AppendLine('{$' + lText + '}');
+      AddLineOrigin(aOrigins, aFileName, aLine);
       aOutputLineWritten := True;
     end;
     Exit(True);
@@ -949,6 +1002,7 @@ var
   lDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>;
   lIncludeStack: TList<string>;
   lIncludes: TList<TDelphiSemanticIncludeFile>;
+  lOrigins: TLineOriginList;
   lOutput: TStringBuilder;
   lRegions: TList<TDelphiSemanticSourceRegion>;
   lSourceCache: TSourceTextCache;
@@ -963,6 +1017,7 @@ begin
   lDiagnostics := nil;
   lIncludes := nil;
   lIncludeStack := nil;
+  lOrigins := nil;
   lOutput := nil;
   lRegions := nil;
   lSourceCache := nil;
@@ -972,6 +1027,7 @@ begin
     lDiagnostics := TList<TDelphiSemanticPreprocessDiagnostic>.Create;
     lIncludes := TList<TDelphiSemanticIncludeFile>.Create;
     lIncludeStack := TList<string>.Create;
+    lOrigins := TLineOriginList.Create;
     lOutput := TStringBuilder.Create;
     lRegions := TList<TDelphiSemanticSourceRegion>.Create;
     lSourceCache := TSourceTextCache.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -979,7 +1035,7 @@ begin
 
     lSuccess := True;
     ProcessSourceFile(TPath.GetFullPath(aOptions.SourceFileName), aOptions, lDefines, lStack,
-      lDiagnostics, lOutput, lRegions, lIncludes, lIncludeStack, lSourceCache,
+      lDiagnostics, lOutput, lRegions, lIncludes, lIncludeStack, lSourceCache, lOrigins,
       lSuccess);
     if lStack.Count > 0 then
     begin
@@ -1005,6 +1061,7 @@ begin
     Result.IncludeGraphHash := CalculateIncludeGraphHash(lIncludes);
     Result.Regions := lRegions.ToArray;
     Result.Includes := lIncludes.ToArray;
+    Result.LineOrigins := lOrigins.ToArray;
     Result.Diagnostics := lDiagnostics.ToArray;
   finally
     lStack.Free;
@@ -1012,6 +1069,7 @@ begin
     lRegions.Free;
     lOutput.Free;
     lIncludeStack.Free;
+    lOrigins.Free;
     lIncludes.Free;
     lDiagnostics.Free;
     lDefines.Free;

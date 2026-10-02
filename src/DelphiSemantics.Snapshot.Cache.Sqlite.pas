@@ -129,7 +129,8 @@ uses
   DelphiSemantics.Snapshot.RemoveWith;
 
 const
-  cSnapshotCacheSchemaVersion = '10';
+  // 11: DS-659 file_id on symbols and references; 12: mid-line include facts on the directive.
+  cSnapshotCacheSchemaVersion = '12';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -412,6 +413,7 @@ begin
       'symbol.semantic_symbol_id');
     ValidateStringId(aStrings, lSymbol.RoutineScopeId,
       'symbol.routine_scope_id');
+    ValidateStringId(aStrings, lSymbol.FileId, 'symbol.file_id');
   end;
 
   for i := 1 to aUnit.WithStatementCount do
@@ -434,6 +436,7 @@ begin
     ValidateStringId(aStrings, lReference.ClassificationId, 'reference.classification_id');
     ValidateStringId(aStrings, lReference.LookupSourceId, 'reference.lookup_source_id');
     ValidateStringId(aStrings, lReference.ReasonId, 'reference.reason_id');
+    ValidateStringId(aStrings, lReference.FileId, 'reference.file_id');
   end;
 end;
 
@@ -607,7 +610,7 @@ begin
       'visibility_id integer not null, signature_id integer not null, ' +
       'declaration_role_id integer not null, scope_kind_id integer not null, ' +
       'owner_scope_id integer not null, semantic_symbol_id integer not null, ' +
-      'routine_scope_id integer not null, ' +
+      'routine_scope_id integer not null, file_id integer not null, ' +
       'line integer not null, column integer not null, end_line integer not null, ' +
       'end_column integer not null, primary key(cache_key, unit_id, symbol_id))');
     lConnection.ExecSQL('create table if not exists snapshot_with_statements (' +
@@ -627,7 +630,7 @@ begin
       'source_kind_id integer not null, ' +
       'classification_id integer not null, lookup_source_id integer not null, ' +
       'reason_id integer not null, line integer not null, column integer not null, ' +
-      'end_line integer not null, end_column integer not null, ' +
+      'end_line integer not null, end_column integer not null, file_id integer not null, ' +
       'primary key(cache_key, unit_id, reference_id))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_facts (' +
       'cache_key text primary key not null, context_fingerprint_id integer not null, ' +
@@ -841,6 +844,7 @@ var
   lReferenceIdField: TField;
   lReferenceId: TSemanticReferenceId;
   lRoutineIdField: TField;
+  lFileIdField: TField;
   lRoutineScopeIdField: TField;
   lSectionKindIdField: TField;
   lSourceKindIdField: TField;
@@ -854,8 +858,8 @@ begin
   lQuery := NewQuery(aConnection as TFDConnection, 'select reference_id, with_id, ' +
     'target_unit_id, target_symbol_id, name_id, receiver_type_id, type_id, classification_id, ' +
     'routine_id, section_kind_id, source_kind_id, lookup_source_id, reason_id, line, column, ' +
-    'end_line, end_column, routine_scope_id from snapshot_references where cache_key = ? ' +
-    'order by reference_id');
+    'end_line, end_column, routine_scope_id, file_id from snapshot_references ' +
+    'where cache_key = ? order by reference_id');
   try
     lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
@@ -880,6 +884,7 @@ begin
     lEndLineField := lQuery.Fields[15];
     lEndColumnField := lQuery.Fields[16];
     lRoutineScopeIdField := lQuery.Fields[17];
+    lFileIdField := lQuery.Fields[18];
     lStopwatch := TStopwatch.StartNew;
     while not lQuery.Eof do
     begin
@@ -901,6 +906,7 @@ begin
       lReference.ReasonId := TSemanticStringId(lReasonIdField.AsInteger);
       lReference.RoutineScopeId :=
         TSemanticStringId(lRoutineScopeIdField.AsInteger);
+      lReference.FileId := TSemanticStringId(lFileIdField.AsInteger);
       lReference.Line := lLineField.AsInteger;
       lReference.Column := lColumnField.AsInteger;
       lReference.EndLine := lEndLineField.AsInteger;
@@ -972,6 +978,7 @@ var
   lQuery: TFDQuery;
   lOwnerTypeIdField: TField;
   lRoutineIdField: TField;
+  lFileIdField: TField;
   lRoutineScopeIdField: TField;
   lScopeKindIdField: TField;
   lSectionKindIdField: TField;
@@ -989,8 +996,8 @@ begin
   lQuery := NewQuery(aConnection as TFDConnection, 'select symbol_id, name_id, owner_type_id, ' +
     'type_id, routine_id, kind_id, section_kind_id, source_kind_id, visibility_id, ' +
     'signature_id, declaration_role_id, scope_kind_id, owner_scope_id, semantic_symbol_id, ' +
-    'routine_scope_id, flags, line, column, end_line, end_column from snapshot_symbols ' +
-    'where cache_key = ? order by symbol_id');
+    'routine_scope_id, flags, line, column, end_line, end_column, file_id ' +
+    'from snapshot_symbols where cache_key = ? order by symbol_id');
   try
     lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
@@ -1017,6 +1024,7 @@ begin
     lColumnField := lQuery.Fields[17];
     lEndLineField := lQuery.Fields[18];
     lEndColumnField := lQuery.Fields[19];
+    lFileIdField := lQuery.Fields[20];
     lStopwatch := TStopwatch.StartNew;
     while not lQuery.Eof do
     begin
@@ -1042,6 +1050,7 @@ begin
       lSymbol.RoutineScopeId :=
         TSemanticStringId(lRoutineScopeIdField.AsInteger);
       lSymbol.Flags := Cardinal(lFlagsField.AsInteger);
+      lSymbol.FileId := TSemanticStringId(lFileIdField.AsInteger);
       lSymbol.Line := lLineField.AsInteger;
       lSymbol.Column := lColumnField.AsInteger;
       lSymbol.EndLine := lEndLineField.AsInteger;
@@ -1814,11 +1823,11 @@ begin
   lQuery := NewQuery(lConnection, 'insert into snapshot_references(cache_key, unit_id, ' +
     'reference_id, with_id, target_unit_id, target_symbol_id, name_id, receiver_type_id, ' +
     'type_id, routine_id, section_kind_id, source_kind_id, classification_id, ' +
-    'lookup_source_id, reason_id, line, column, end_line, end_column, routine_scope_id) ' +
-    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    'lookup_source_id, reason_id, line, column, end_line, end_column, routine_scope_id, ' +
+    'file_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
     lQuery.Params[0].DataType := ftWideString;
-    for lParamIndex := 1 to 19 do
+    for lParamIndex := 1 to 20 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
     for i := 1 to aUnit.ReferenceCount do
@@ -1844,6 +1853,7 @@ begin
       lQuery.Params[17].AsInteger := lReference.EndLine;
       lQuery.Params[18].AsInteger := lReference.EndColumn;
       lQuery.Params[19].AsInteger := Integer(lReference.RoutineScopeId);
+      lQuery.Params[20].AsInteger := Integer(lReference.FileId);
       lQuery.ExecSQL;
     end;
   finally
@@ -2101,11 +2111,11 @@ begin
     'symbol_id, name_id, owner_type_id, type_id, routine_id, kind_id, flags, line, column, ' +
     'end_line, end_column, section_kind_id, source_kind_id, visibility_id, signature_id, ' +
     'declaration_role_id, scope_kind_id, owner_scope_id, semantic_symbol_id, ' +
-    'routine_scope_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ' +
-    '?, ?, ?)');
+    'routine_scope_id, file_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ' +
+    '?, ?, ?, ?, ?, ?)');
   try
     lQuery.Params[0].DataType := ftWideString;
-    for lParamIndex := 1 to 21 do
+    for lParamIndex := 1 to 22 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
     for i := 1 to aUnit.SymbolCount do
@@ -2133,6 +2143,7 @@ begin
       lQuery.Params[19].AsInteger := Integer(lSymbol.OwnerScopeId);
       lQuery.Params[20].AsInteger := Integer(lSymbol.SemanticSymbolId);
       lQuery.Params[21].AsInteger := Integer(lSymbol.RoutineScopeId);
+      lQuery.Params[22].AsInteger := Integer(lSymbol.FileId);
       lQuery.ExecSQL;
     end;
   finally
@@ -2189,6 +2200,7 @@ begin
     aTargetStrings, aSymbol.SemanticSymbolId);
   Result.RoutineScopeId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
     aSymbol.RoutineScopeId);
+  Result.FileId := RemapSnapshotStringId(aSnapshot, aTargetStrings, aSymbol.FileId);
 end;
 
 function RemapSnapshotWithFact(const aSnapshot: TDelphiProjectSnapshot;
@@ -2223,6 +2235,7 @@ begin
     aReference.ReasonId);
   Result.RoutineScopeId := RemapSnapshotStringId(aSnapshot, aTargetStrings,
     aReference.RoutineScopeId);
+  Result.FileId := RemapSnapshotStringId(aSnapshot, aTargetStrings, aReference.FileId);
 end;
 
 function BuildLocalUnitSnapshot(const aSnapshot: TDelphiProjectSnapshot;

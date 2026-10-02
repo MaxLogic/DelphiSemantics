@@ -43,6 +43,9 @@ type
     OwnerScopeId: TSemanticStringId;
     SemanticSymbolId: TSemanticStringId;
     RoutineScopeId: TSemanticStringId;
+    // DS-659: the include file whose text holds the fact; 0 for the unit's own file. Line and
+    // Column refer to that file.
+    FileId: TSemanticStringId;
     Flags: Cardinal;
     Line: Integer;
     Column: Integer;
@@ -79,6 +82,8 @@ type
     LookupSourceId: TSemanticStringId;
     ReasonId: TSemanticStringId;
     RoutineScopeId: TSemanticStringId;
+    // DS-659: the include file whose text holds the reference; 0 for the unit's own file.
+    FileId: TSemanticStringId;
     Line: Integer;
     Column: Integer;
     EndLine: Integer;
@@ -204,6 +209,9 @@ type
     fUnitsById: TDictionary<TSemanticUnitId, TUnitSnapshot>;
     function GetExactStringCount: Cardinal;
     function GetStringCount: Cardinal;
+    // The file key of a position query: a unit file (aUnitId set) or an include file.
+    function TryFindPositionFile(const aFileName: string; out aFileId: TSemanticStringId;
+      out aUnitId: TSemanticUnitId): Boolean;
     constructor Create(const aStrings, aExactStrings: TSemanticStringPool;
       const aUnits: TObjectList<TUnitSnapshot>;
       var aExtensions: TObjectDictionary<string, TObject>);
@@ -355,6 +363,15 @@ end;
 function SymbolRefKeyOf(const aSymbolRef: TSemanticSymbolRef): UInt64; inline;
 begin
   Result := SymbolRefKey(aSymbolRef.UnitId, aSymbolRef.SymbolId);
+end;
+
+// The file that holds a fact: its include file, or else its unit's own file.
+function FactFileId(const aUnit: TUnitSnapshot; const aFileId: TSemanticStringId):
+  TSemanticStringId; inline;
+begin
+  Result := aFileId;
+  if Result = 0 then
+    Result := aUnit.FileNameId;
 end;
 
 function SourceLineKey(const aFileNameId: TSemanticStringId; const aLine: Integer): UInt64; inline;
@@ -925,11 +942,11 @@ begin
       lEndLine := lSymbol.EndLine;
       if lEndLine < lStartLine then
         lEndLine := lStartLine;
-      if (lUnit.FileNameId <> 0) and (lStartLine > 0) then
+      if (FactFileId(lUnit, lSymbol.FileId) <> 0) and (lStartLine > 0) then
         for lLine := lStartLine to lEndLine do
         begin
           fSymbolsByFileAndLine.Insert(fSymbolsByFileAndLine.Count, lSymbolRef,
-            SourceLineKey(lUnit.FileNameId, lLine));
+            SourceLineKey(FactFileId(lUnit, lSymbol.FileId), lLine));
         end;
 
       if lSymbol.NameId <> 0 then
@@ -961,11 +978,11 @@ begin
       lEndLine := lReference.EndLine;
       if lEndLine < lStartLine then
         lEndLine := lStartLine;
-      if (lUnit.FileNameId <> 0) and (lStartLine > 0) then
+      if (FactFileId(lUnit, lReference.FileId) <> 0) and (lStartLine > 0) then
         for lLine := lStartLine to lEndLine do
         begin
           fReferencesByFileAndLine.Insert(fReferencesByFileAndLine.Count,
-            lReferenceRef, SourceLineKey(lUnit.FileNameId, lLine));
+            lReferenceRef, SourceLineKey(FactFileId(lUnit, lReference.FileId), lLine));
         end;
       if lReference.NameId <> 0 then
         fReferencesByName.Insert(fReferencesByName.Count,
@@ -1130,6 +1147,7 @@ var
   lLowIndex: Integer;
   lReference: TSemanticReferenceFact;
   lReferenceRef: TSemanticReferenceRef;
+  lFileId: TSemanticStringId;
   lUnit: TUnitSnapshot;
   lUnitId: TSemanticUnitId;
 begin
@@ -1137,19 +1155,18 @@ begin
   aReferenceRef := Default(TSemanticReferenceRef);
   if (aLine <= 0) or (aColumn <= 0) then
     Exit;
-  if not TryFindUnitByFileName(aFileName, lUnitId) then
-    Exit;
-  if not fUnitsById.TryGetValue(lUnitId, lUnit) then
+  if not TryFindPositionFile(aFileName, lFileId, lUnitId) then
     Exit;
 
-  if not fReferencesByFileAndLine.FindMinMaxIndex(SourceLineKey(lUnit.FileNameId, aLine),
+  if not fReferencesByFileAndLine.FindMinMaxIndex(SourceLineKey(lFileId, aLine),
     lLowIndex, lHighIndex) then
     Exit;
 
   for i := lLowIndex to lHighIndex do
   begin
     lReferenceRef := fReferencesByFileAndLine[i];
-    if lReferenceRef.UnitId <> lUnitId then
+    if ((lUnitId <> 0) and (lReferenceRef.UnitId <> lUnitId)) or
+      not fUnitsById.TryGetValue(lReferenceRef.UnitId, lUnit) then
       Continue;
     lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
     if (lReference.Line <= 0) or (lReference.Column <= 0) then
@@ -1182,6 +1199,24 @@ begin
   Result := fSymbolsByName.FindMinMaxIndex(aNameId, aLowIndex, aHighIndex);
 end;
 
+function TDelphiProjectSnapshot.TryFindPositionFile(const aFileName: string;
+  out aFileId: TSemanticStringId; out aUnitId: TSemanticUnitId): Boolean;
+var
+  lUnit: TUnitSnapshot;
+begin
+  aFileId := 0;
+  aUnitId := 0;
+  if TryFindUnitByFileName(aFileName, aUnitId) then
+  begin
+    Result := fUnitsById.TryGetValue(aUnitId, lUnit);
+    if Result then
+      aFileId := lUnit.FileNameId;
+    Exit;
+  end;
+  // DS-659: an include file is no unit; its facts are indexed under its own name.
+  Result := fStrings.TryFindId(aFileName, aFileId) and (aFileId <> 0);
+end;
+
 function TDelphiProjectSnapshot.TrySymbolAt(const aFileName: string; const aLine,
   aColumn: Integer; out aSymbolRef: TSemanticSymbolRef): Boolean;
 var
@@ -1191,17 +1226,16 @@ var
   lLowIndex: Integer;
   lSymbol: TSemanticSymbolFact;
   lSymbolRef: TSemanticSymbolRef;
+  lFileId: TSemanticStringId;
   lUnit: TUnitSnapshot;
   lUnitId: TSemanticUnitId;
 begin
   Result := False;
   lBest := Default(TSemanticSymbolFact);
-  if not TryFindUnitByFileName(aFileName, lUnitId) then
-    Exit;
-  if not fUnitsById.TryGetValue(lUnitId, lUnit) then
+  if not TryFindPositionFile(aFileName, lFileId, lUnitId) then
     Exit;
 
-  if not fSymbolsByFileAndLine.FindMinMaxIndex(SourceLineKey(lUnit.FileNameId, aLine),
+  if not fSymbolsByFileAndLine.FindMinMaxIndex(SourceLineKey(lFileId, aLine),
     lLowIndex, lHighIndex) then
     Exit;
 
@@ -1210,7 +1244,8 @@ begin
   for i := lLowIndex to lHighIndex do
   begin
     lSymbolRef := fSymbolsByFileAndLine[i];
-    if not fUnitsById.TryGetValue(lSymbolRef.UnitId, lUnit) then
+    if ((lUnitId <> 0) and (lSymbolRef.UnitId <> lUnitId)) or
+      not fUnitsById.TryGetValue(lSymbolRef.UnitId, lUnit) then
       Continue;
     lSymbol := lUnit.SymbolById(lSymbolRef.SymbolId);
     if SymbolContainsPosition(lSymbol, aLine, aColumn) and (not Result or

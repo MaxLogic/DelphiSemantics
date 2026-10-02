@@ -96,7 +96,8 @@ end;
 
 procedure AddSymbol(const aSymbols: TDelphiSemanticSymbolList;
   const aModel: TDelphiSemanticUnitModel; const aSourceKind, aKind, aOwnerName, aName: string;
-  const aSectionKind, aVisibility, aSignature: string; const aLine, aColumn: Integer);
+  const aSectionKind, aVisibility, aSignature: string; const aLine, aColumn: Integer;
+  const aFileName: string = ''; const aScopeId: string = '');
 var
   lSymbol: TDelphiSemanticIndexedSymbol;
 begin
@@ -114,7 +115,12 @@ begin
   lSymbol.SourceKind := aSourceKind;
   lSymbol.Visibility := aVisibility;
   lSymbol.Signature := aSignature;
+  // DS-659: a fact from an include file is reported at that file.
   lSymbol.FileName := aModel.FileName;
+  if aFileName <> '' then
+    lSymbol.FileName := aFileName;
+  lSymbol.FromInclude := aFileName <> '';
+  lSymbol.ScopeId := aScopeId;
   lSymbol.Line := aLine;
   lSymbol.Column := aColumn;
   aSymbols.Add(lSymbol);
@@ -133,19 +139,22 @@ begin
   for lDeclaration in aModel.Declarations do
     if not SameText(lDeclaration.Kind, 'routine') then
       AddSymbol(aSymbols, aModel, aSourceKind, lDeclaration.Kind, '', lDeclaration.Name,
-        lDeclaration.SectionKind, '', '', lDeclaration.Line, lDeclaration.Column);
+        lDeclaration.SectionKind, '', '', lDeclaration.Line, lDeclaration.Column,
+        lDeclaration.FileName);
 
   for lRoutine in aModel.Routines do
     AddSymbol(aSymbols, aModel, aSourceKind, 'routine', lRoutine.OwnerName, lRoutine.Name,
-      lRoutine.SectionKind, '', lRoutine.Signature, lRoutine.Line, lRoutine.Column);
+      lRoutine.SectionKind, '', lRoutine.Signature, lRoutine.Line, lRoutine.Column,
+      lRoutine.FileName, lRoutine.ScopeId);
 
   for lMember in aModel.Members do
     AddSymbol(aSymbols, aModel, aSourceKind, lMember.Kind, lMember.OwnerName, lMember.Name,
-      '', lMember.Visibility, lMember.Signature, lMember.Line, lMember.Column);
+      '', lMember.Visibility, lMember.Signature, lMember.Line, lMember.Column,
+      lMember.FileName);
 
   for lLocal in aModel.Locals do
     AddSymbol(aSymbols, aModel, aSourceKind, lLocal.Kind, lLocal.RoutineName, lLocal.Name,
-      '', '', '', lLocal.Line, lLocal.Column);
+      '', '', '', lLocal.Line, lLocal.Column, lLocal.FileName);
 end;
 
 function UnitNameIsUsedBySection(const aModel: TDelphiSemanticUnitModel; const aSourceKind,
@@ -160,7 +169,8 @@ begin
     if SameText(s, aTargetUnitName) then
       Exit(True);
 
-  if SameText(aSourceKind, 'implementation') then
+  // DS-660: initialization and finalization blocks see the implementation uses clause too.
+  if MatchText(aSourceKind, ['implementation', 'initialization', 'finalization']) then
     for s in aModel.ImplementationUses do
       if SameText(s, aTargetUnitName) then
         Exit(True);
@@ -413,6 +423,8 @@ begin
     lIndexedReference.UnitName := aModel.UnitName;
     lIndexedReference.SourceKind := aSourceKind;
     lIndexedReference.FileName := aModel.FileName;
+    if lReference.FileName <> '' then
+      lIndexedReference.FileName := lReference.FileName;
     lIndexedReference.SectionKind := lReference.SectionKind;
     if lIndexedReference.SectionKind = '' then
       lIndexedReference.SectionKind := 'implementation';
@@ -424,7 +436,13 @@ begin
     lIndexedReference.EndColumn := lReference.EndColumn;
     if lIndexedReference.EndColumn = 0 then
       lIndexedReference.EndColumn := lReference.Column + Length(lReference.Name) - 1;
-    ResolveReference(aIndex, aModel, lReference, lIndexedReference);
+    // DS-659: an include reference stays unresolved, as in the project snapshot.
+    if lReference.FileName = '' then
+      ResolveReference(aIndex, aModel, lReference, lIndexedReference)
+    else begin
+      lIndexedReference.Status := 'unresolved';
+      lIndexedReference.Confidence := 'no-candidates';
+    end;
     aReferences.Add(lIndexedReference);
   end;
 end;

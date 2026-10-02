@@ -156,6 +156,15 @@ begin
   Result := TPath.GetFullPath(aFileName);
 end;
 
+// DS-659: the string id of a fact's include file; 0 for the unit's own file.
+function SnapshotFactFileId(const aStrings: TSemanticStringPool; const aFileName: string):
+  TSemanticStringId;
+begin
+  if aFileName = '' then
+    Exit(0);
+  Result := aStrings.Intern(SnapshotFullPath(aFileName));
+end;
+
 function SnapshotRoutineName(const aRoutine: TDelphiSemanticRoutine): string;
 begin
   if aRoutine.OwnerName <> '' then
@@ -177,7 +186,8 @@ begin
 
   for lRoutine in aModel.Routines do
   begin
-    if (lRoutine.Line <= 0) or (lRoutine.Line > aLine) or
+    // DS-659: an include routine's lines belong to its include file.
+    if (lRoutine.FileName <> '') or (lRoutine.Line <= 0) or (lRoutine.Line > aLine) or
       ((lRoutine.EndLine > 0) and (aLine > lRoutine.EndLine)) then
       Continue;
     if lRoutine.Line < lBestLine then
@@ -209,7 +219,7 @@ var
 begin
   Result := aReference.RoutineName;
   if (Result = '') or SnapshotRoutineNameHasOwner(Result) or
-    (aReference.Line <= 0) then
+    (aReference.Line <= 0) or (aReference.FileName <> '') then
     Exit;
 
   if not aRoutineNamesByLine.TryGetValue(aReference.Line, lLineRoutineName) then
@@ -436,6 +446,14 @@ begin
   Result := False;
 end;
 
+// DS-659: resolution compares positions within this unit; an include fact has none here.
+function UnitLine(const aFileName: string; const aValue: Integer): Integer;
+begin
+  if aFileName <> '' then
+    Exit(0);
+  Result := aValue;
+end;
+
 procedure AddModelSnapshotTargetSymbols(const aSymbols: TSnapshotTargetSymbolList;
   const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aUnitId: TSemanticUnitId);
@@ -462,8 +480,10 @@ begin
     if SameText(SnapshotDeclarationKind(lDeclaration.Kind), cSnapshotSymbolKindRoutine) then
       Continue;
     lDeclarationText := '';
+    // DS-659: a type declared in an include file has no body text in this unit, so member
+    // absence stays unprovable.
     if SameText(lDeclaration.Kind, 'type') and MatchText(lDeclaration.TypeName,
-      ['class', 'record', 'interface']) then
+      ['class', 'record', 'interface']) and (lDeclaration.FileName = '') then
     begin
       if lSanitized = '' then
         lSanitized := SanitizeCodeText(aModel.SourceText);
@@ -479,8 +499,8 @@ begin
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
       SnapshotDeclarationKind(lDeclaration.Kind), '', lDeclaration.Name,
       lDeclaration.SectionKind, '', '', lDeclaration.TypeName, lDeclaration.BaseTypeName,
-      lDeclarationText, lVerified, aUnitId, lDeclaration.Line, lDeclaration.Column, False,
-      lSymbolId);
+      lDeclarationText, lVerified, aUnitId, UnitLine(lDeclaration.FileName, lDeclaration.Line),
+      UnitLine(lDeclaration.FileName, lDeclaration.Column), False, lSymbolId);
     // A helper adds members to its target, so member absence on that target is unprovable.
     if lDeclaration.HelperTargetName <> '' then
       AddSnapshotPseudoSymbol(aSymbolsByName, cSnapshotHelperKeyPrefix +
@@ -489,26 +509,28 @@ begin
   for lMember in aModel.Members do
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
       lMember.Kind, lMember.OwnerName, lMember.Name, '', lMember.Signature, '',
-      lMember.TypeName, '', '', lVerified, aUnitId, lMember.Line, lMember.Column, False,
-      lSymbolId);
+      lMember.TypeName, '', '', lVerified, aUnitId, UnitLine(lMember.FileName, lMember.Line),
+      UnitLine(lMember.FileName, lMember.Column), False, lSymbolId);
   for lRoutine in aModel.Routines do
   begin
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
       cSnapshotSymbolKindRoutine, lRoutine.OwnerName, lRoutine.Name,
       lRoutine.SectionKind, lRoutine.Signature, lRoutine.ScopeId, lRoutine.ReturnType, '',
-      '', lVerified, aUnitId, lRoutine.Line, lRoutine.Column, True, lSymbolId);
+      '', lVerified, aUnitId, UnitLine(lRoutine.FileName, lRoutine.Line),
+      UnitLine(lRoutine.FileName, lRoutine.Column), True, lSymbolId);
     for lParameter in lRoutine.Parameters do
       AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
         cSnapshotSymbolKindParameter, SnapshotRoutineName(lRoutine),
         lParameter.Name, lRoutine.SectionKind, lRoutine.Signature, lRoutine.ScopeId,
-        lParameter.TypeName, '', '', lVerified, aUnitId, lParameter.Line, lParameter.Column,
-        False, lSymbolId);
+        lParameter.TypeName, '', '', lVerified, aUnitId,
+        UnitLine(lParameter.FileName, lParameter.Line),
+        UnitLine(lParameter.FileName, lParameter.Column), False, lSymbolId);
   end;
   for lLocal in aModel.Locals do
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
       lLocal.Kind, lLocal.RoutineName, lLocal.Name, '', '', lLocal.RoutineScopeId,
-      lLocal.TypeName, '', '', lVerified, aUnitId, lLocal.Line, lLocal.Column, False,
-      lSymbolId);
+      lLocal.TypeName, '', '', lVerified, aUnitId, UnitLine(lLocal.FileName, lLocal.Line),
+      UnitLine(lLocal.FileName, lLocal.Column), False, lSymbolId);
   // Type names in this unit resolve through its own uses clauses.
   for lUsedUnit in aModel.InterfaceUses do
     AddSnapshotPseudoSymbol(aSymbolsByName, cSnapshotUsesKeyPrefix + aModel.UnitName,
@@ -1029,7 +1051,8 @@ begin
     if SameText(s, aUnitName) then
       Exit(True);
 
-  if SameText(aSectionKind, 'implementation') then
+  // DS-660: initialization and finalization blocks see the implementation uses clause too.
+  if SectionCanSeeImplementationSymbols(aSectionKind) then
     for s in aModel.ImplementationUses do
       if SameText(s, aUnitName) then
         Exit(True);
@@ -1456,8 +1479,9 @@ begin
     Exit;
   lBestLine := 0;
   for lRoutine in aModel.Routines do
-    if (lRoutine.OwnerName <> '') and (lRoutine.Line > lBestLine) and
-      (lRoutine.Line <= aReference.Line) and (lRoutine.EndLine >= aReference.Line) then
+    if (lRoutine.OwnerName <> '') and (lRoutine.FileName = '') and
+      (lRoutine.Line > lBestLine) and (lRoutine.Line <= aReference.Line) and
+      (lRoutine.EndLine >= aReference.Line) then
     begin
       lBestLine := lRoutine.Line;
       Result := lRoutine.OwnerName;
@@ -1582,6 +1606,10 @@ begin
   lResolutionModel.SourceText := SanitizeCodeText(aModel.SourceText);
   for lReference in aModel.References do
   begin
+    // DS-659: an include reference stays unresolved and is listed at its own file; the
+    // receiver and qualifier checks read this unit's text, which does not hold it.
+    if lReference.FileName <> '' then
+      Continue;
     lResolutionReference := lReference;
     lResolutionReference.RoutineName := SnapshotReferenceRoutineNameForResolution(
       aModel, aRoutineNamesByLine, lReference);
@@ -1870,6 +1898,8 @@ begin
     for i := 0 to High(aModel.References) do
     begin
       lReference := aModel.References[i];
+      if lReference.FileName <> '' then
+        Continue;
       lReference.RoutineName := SnapshotReferenceRoutineNameForResolution(
         lModel, lRoutineNames, lReference);
       if not TryResolveAlternateReference(aSnapshot, lSymbolsByName, lModel,
@@ -1966,6 +1996,7 @@ begin
   lSymbol.SemanticSymbolId := aStrings.Intern(aDeclaration.SymbolId);
   if SameText(aDeclaration.Kind, 'typed-const') and not aDeclaration.Mutable then
     lSymbol.Flags := lSymbol.Flags or cSnapshotSymbolFlagImmutableTypedConstant;
+  lSymbol.FileId := SnapshotFactFileId(aStrings, aDeclaration.FileName);
   lSymbol.Line := aDeclaration.Line;
   lSymbol.Column := aDeclaration.Column;
   lSymbol.EndLine := aDeclaration.Line;
@@ -1999,6 +2030,7 @@ begin
     lSymbol.SemanticSymbolId := aStrings.Intern(aStrings.TextOf(
       lSymbol.OwnerScopeId) + '|classvar|' + LowerCase(aMember.Name));
   end;
+  lSymbol.FileId := SnapshotFactFileId(aStrings, aMember.FileName);
   lSymbol.Line := aMember.Line;
   lSymbol.Column := aMember.Column;
   lSymbol.EndLine := aMember.Line;
@@ -2028,6 +2060,7 @@ begin
   lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
   lSymbol.SignatureId := aStrings.Intern(aRoutineSignature);
   lSymbol.RoutineScopeId := aStrings.Intern(aRoutineScopeId);
+  lSymbol.FileId := SnapshotFactFileId(aStrings, aParameter.FileName);
   lSymbol.Line := aParameter.Line;
   lSymbol.Column := aParameter.Column;
   lSymbol.EndLine := aParameter.Line;
@@ -2055,6 +2088,7 @@ begin
   lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
   lSymbol.SignatureId := aStrings.Intern(aRoutine.Signature);
   lSymbol.RoutineScopeId := aStrings.Intern(aRoutine.ScopeId);
+  lSymbol.FileId := SnapshotFactFileId(aStrings, aRoutine.FileName);
   lSymbol.Line := aRoutine.Line;
   lSymbol.Column := aRoutine.Column;
   lSymbol.EndLine := aRoutine.EndLine;
@@ -2088,6 +2122,7 @@ begin
   lSymbol.KindId := aStrings.Intern(lKind);
   lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
   lSymbol.RoutineScopeId := aStrings.Intern(aLocal.RoutineScopeId);
+  lSymbol.FileId := SnapshotFactFileId(aStrings, aLocal.FileName);
   lSymbol.Line := aLocal.Line;
   lSymbol.Column := aLocal.Column;
   lSymbol.EndLine := aLocal.Line;
@@ -2106,7 +2141,10 @@ var
   lTarget: TSemanticSymbolRef;
 begin
   lReference := Default(TSemanticReferenceFact);
-  lReference.WithId := SnapshotWithIdForLine(aUnit, aReference.Line);
+  lReference.FileId := SnapshotFactFileId(aStrings, aReference.FileName);
+  // DS-659: with statements are located by unit lines; an include reference has none.
+  if lReference.FileId = 0 then
+    lReference.WithId := SnapshotWithIdForLine(aUnit, aReference.Line);
   lReference.NameId := aStrings.Intern(aReference.Name);
   lReference.RoutineId := aStrings.Intern(aReference.RoutineName);
   lReference.SectionKindId := aStrings.Intern(aReference.SectionKind);
@@ -2121,7 +2159,8 @@ begin
   lReference.EndColumn := aReference.EndColumn;
   if lReference.EndColumn <= 0 then
     lReference.EndColumn := SnapshotEndColumn(aReference.Column, aReference.Name);
-  if aReferenceTargetLookup.TryGetValue(
+  // The target lookup is keyed by unit positions, which an include reference does not have.
+  if (lReference.FileId = 0) and aReferenceTargetLookup.TryGetValue(
     SnapshotReferenceMatchKey(aUnitName, aReference.RoutineName, aReference.Name,
     aReference.Line, aReference.Column), lTarget) then
   begin
@@ -2355,6 +2394,7 @@ begin
     aSymbol.SemanticSymbolId);
   Result.RoutineScopeId := RemapStringId(aSourceStrings, aTargetStrings,
     aSymbol.RoutineScopeId);
+  Result.FileId := RemapStringId(aSourceStrings, aTargetStrings, aSymbol.FileId);
 end;
 
 function RemapWithFact(const aSourceStrings, aTargetStrings: TSemanticStringPool;
@@ -2385,6 +2425,7 @@ begin
   Result.ReasonId := RemapStringId(aSourceStrings, aTargetStrings, aReference.ReasonId);
   Result.RoutineScopeId := RemapStringId(aSourceStrings, aTargetStrings,
     aReference.RoutineScopeId);
+  Result.FileId := RemapStringId(aSourceStrings, aTargetStrings, aReference.FileId);
 end;
 
 function TargetNameKey(const aUnitId: TSemanticUnitId; const aName: string): string;

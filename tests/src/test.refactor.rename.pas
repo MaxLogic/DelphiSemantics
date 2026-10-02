@@ -120,6 +120,18 @@ type
     [TestCase('Virtual base and override', 'True')]
     [TestCase('Static methods control', 'False')]
     procedure ListsPossibleOverridesOfVirtualMethods(const aVirtual: Boolean);
+    // DS-659: an include file's occurrences are listed at their own file and position; the
+    // plan never edits the including unit in their place.
+    [Test]
+    procedure ListsIncludeBodyOccurrencesAndRefusesPlan;
+    [Test]
+    procedure ListsRoutineDeclaredInIncludeAndRefusesPlan;
+    // DS-659 review: a mid-line include is listed at its directive, never dropped.
+    [Test]
+    procedure ListsMidLineIncludeOccurrenceAtDirective;
+    // DS-659: every planned edit position must spell the old name.
+    [Test]
+    procedure RefusesEditAtPositionThatDoesNotHoldTheName;
   end;
 
 implementation
@@ -1632,7 +1644,13 @@ begin
   Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(SortedKeysText(['ucons.pas:15:3', 'ucons.pas:17:3']),
     SortedKeysText(PlanEditKeys(lPlan)), 'The with-body ILimit must not be edited.');
-  Assert.AreEqual('ucons.pas:20:14', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  // DS-659: the inactive ILimit on UProv line 16 is an occurrence no fact describes. TBase's
+  // included ILimit used to be mapped onto it, which hid it.
+  if aShape = 'conditional' then
+    Assert.AreEqual(SortedKeysText(['ucons.pas:20:14', 'uprov.pas:16:5']),
+      SortedKeysText(PlanUnresolvedKeys(lPlan)))
+  else
+    Assert.AreEqual('ucons.pas:20:14', SortedKeysText(PlanUnresolvedKeys(lPlan)));
 end;
 
 // DS-652 review round 4: "with c do X := CVar" over c: TAClass (class of TA) binds CVar to
@@ -1834,6 +1852,150 @@ begin
     Assert.AreEqual('possible-override', lPlan.UnresolvedReferences[0].Reason);
   end else
     AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['UProv.pas'], 'Bump'), 2);
+end;
+
+const
+  // Line 4 declares GA (col 3) and GB (col 7). Line 13 is inactive; line 15 includes body.inc,
+  // which includes inner.inc. Line 9 includes decl.inc, which declares Helper.
+  cIncludeUnit =
+    'unit UInc;'#13#10 + 'interface'#13#10 + 'var'#13#10 + '  GA, GB: Integer;'#13#10 + // 1-4
+    'procedure Foo;'#13#10 + 'procedure Bar;'#13#10 + 'function Twice: Integer;'#13#10 + // 5-7
+    'implementation'#13#10 + '{$I decl.inc}'#13#10 + 'procedure Foo;'#13#10 + // 8-10
+    'begin'#13#10 + '{$IFDEF NEVER_DEFINED}'#13#10 + '  GA := 99;'#13#10 + // 11-13
+    '{$ELSE}'#13#10 + '{$I body.inc}'#13#10 + '{$ENDIF}'#13#10 + // 14-16
+    '  WriteLn(GA);'#13#10 + 'end;'#13#10 + 'procedure Bar;'#13#10 + 'begin'#13#10 + // 17-20
+    '  GB := 5;'#13#10 + 'end;'#13#10 + 'function Twice: Integer;'#13#10 + // 21-23
+    'begin'#13#10 + '  Result := Helper(GA) * 2;'#13#10 + 'end;'#13#10 + 'end.'#13#10; // 24-27
+  cIncludeProgram =
+    'program P;'#13#10 + #13#10 + 'uses'#13#10 + '  UInc in ''UInc.pas'';'#13#10 + #13#10 +
+    'begin'#13#10 + '  Foo;'#13#10 + '  Bar;'#13#10 + '  WriteLn(Twice);'#13#10 + 'end.'#13#10;
+
+function WriteIncludeProject(const aFolder: string): string;
+begin
+  Result := WriteCompletenessProject(aFolder, cIncludeProgram,
+    [CompletenessFile('UInc.pas', cIncludeUnit)]);
+  TFile.WriteAllText(TPath.Combine(Result, 'decl.inc'),
+    'function Helper(aValue: Integer): Integer;'#13#10'begin'#13#10 +
+    '  Result := aValue + GB;'#13#10'end;'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(Result, 'body.inc'),
+    '  GA := GB + 1;'#13#10'{$I inner.inc}'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(Result, 'inner.inc'), '  GA := GA + GB;'#13#10,
+    TEncoding.ASCII);
+end;
+
+procedure TRenameCompletenessTests.ListsIncludeBodyOccurrencesAndRefusesPlan;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteIncludeProject('completeness-include-body');
+
+  lPlan := PlanCompletenessRename(lRoot, 'UInc.pas', 4, 3, 'GAlpha');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(SortedKeysText(['uinc.pas:4:3', 'uinc.pas:17:11', 'uinc.pas:25:20']),
+    SortedKeysText(PlanEditKeys(lPlan)), 'Only the unit''s own GA occurrences are edits.');
+  Assert.AreEqual(SortedKeysText(['body.inc:1:3', 'inner.inc:1:3', 'inner.inc:1:9',
+    'uinc.pas:13:3']), SortedKeysText(PlanUnresolvedKeys(lPlan)));
+
+  lPlan := PlanCompletenessRename(lRoot, 'UInc.pas', 4, 7, 'GBeta');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(SortedKeysText(['uinc.pas:4:7', 'uinc.pas:21:3']),
+    SortedKeysText(PlanEditKeys(lPlan)));
+  Assert.AreEqual(SortedKeysText(['body.inc:1:9', 'decl.inc:3:22', 'inner.inc:1:14']),
+    SortedKeysText(PlanUnresolvedKeys(lPlan)));
+end;
+
+procedure TRenameCompletenessTests.ListsMidLineIncludeOccurrenceAtDirective;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lReasons: string;
+  lRoot: string;
+  lUsage: TDelphiSemanticUsage;
+begin
+  // UMid line 4 declares GF at column 3; line 9 holds "  WriteLn(1); {$I midf.inc}" with the
+  // directive at column 15; line 10 assigns GF.
+  lRoot := WriteCompletenessProject('completeness-include-mid-line',
+    'program P;'#13#10#13#10'uses'#13#10'  UMid in ''UMid.pas'';'#13#10#13#10 +
+    'begin'#13#10'  Foo;'#13#10'end.'#13#10,
+    [CompletenessFile('UMid.pas', 'unit UMid;'#13#10'interface'#13#10'var'#13#10 +
+    '  GF: Integer;'#13#10'procedure Foo;'#13#10'implementation'#13#10'procedure Foo;'#13#10 +
+    'begin'#13#10'  WriteLn(1); {$I midf.inc}'#13#10'  GF := 3;'#13#10'end;'#13#10'end.'#13#10)]);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'midf.inc'), 'GF := GF + 1;'#13#10, TEncoding.ASCII);
+
+  lPlan := PlanCompletenessRename(lRoot, 'UMid.pas', 4, 3, 'GPhi');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(SortedKeysText(['umid.pas:4:3', 'umid.pas:10:3']),
+    SortedKeysText(PlanEditKeys(lPlan)));
+  lReasons := '';
+  for lUsage in lPlan.UnresolvedReferences do
+    lReasons := lReasons + CompletenessKey(lUsage.FileName, lUsage.Line, lUsage.Column) + '=' +
+      lUsage.Reason + ' ';
+  Assert.AreEqual('umid.pas:9:15=include-position-unknown ', lReasons);
+end;
+
+procedure TRenameCompletenessTests.ListsRoutineDeclaredInIncludeAndRefusesPlan;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteIncludeProject('completeness-include-declaration');
+
+  // Line 25 calls Helper at column 13; decl.inc declares it at 1:10.
+  lPlan := PlanCompletenessRename(lRoot, 'UInc.pas', 25, 13, 'Assist');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual('uinc.pas:25:13', SortedKeysText(PlanEditKeys(lPlan)),
+    'The include directive on line 9 must never be edited.');
+  Assert.AreEqual('decl.inc:1:10', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+end;
+
+procedure TRenameCompletenessTests.RefusesEditAtPositionThatDoesNotHoldTheName;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lFileName: string;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lPlan: TDelphiSemanticRenamePlan;
+  lReference: TDelphiSemanticReference;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lFileName := TPath.Combine(WriteCompletenessProject('completeness-edit-guard',
+    cProgramGlobalAfterRoutine, []), 'P.dpr');
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lFileName;
+  lModelOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  // A main-block reference to the global GValue placed on "begin" (12:1), which does not hold
+  // the name. Its own resolution is correct, so only the edit-position guard can refuse it.
+  lReference := Default(TDelphiSemanticReference);
+  lReference.Name := 'GValue';
+  lReference.Role := 'reference';
+  lReference.SectionKind := 'interface';
+  lReference.Line := 12;
+  lReference.Column := 1;
+  lReference.EndLine := 12;
+  lReference.EndColumn := 6;
+  lModel.References := lModel.References + [lReference];
+
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lOptions.WorkerCount := 1;
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+  try
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    lContext.ProjectSnapshot := BorrowProjectSnapshot(lSnapshot);
+    lPlan := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext, lFileName, 11, 3,
+      'GTally');
+    Assert.AreEqual('blocked', lPlan.Status, lPlan.Diagnostic + ' edits: ' +
+      SortedKeysText(PlanEditKeys(lPlan)));
+    Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+    Assert.IsTrue(ContainsText(lPlan.Diagnostic, 'P.dpr:12:1'), lPlan.Diagnostic);
+  finally
+    lContext.ProjectSnapshot := nil;
+    lSnapshot.Free;
+  end;
 end;
 
 initialization

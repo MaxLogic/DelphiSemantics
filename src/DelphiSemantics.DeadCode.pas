@@ -75,6 +75,8 @@ type
   TDeadCodeSourceIndex = class
   private
     fEntries: TDictionary<string, TDeadCodeSourceEntry>;
+    // Every unit and program file, with or without known text (DS-659).
+    fUnitFiles: TDictionary<string, Boolean>;
     procedure AddEntry(const aFileName, aText: string);
     procedure AddModel(const aModel: TDelphiSemanticUnitModel);
     procedure AddSnapshot(const aSnapshot: TDelphiProjectSnapshot);
@@ -83,6 +85,7 @@ type
     destructor Destroy; override;
     function TryGetEntry(const aFileName: string; out aEntry: TDeadCodeSourceEntry):
       Boolean;
+    function IsUnitFile(const aFileName: string): Boolean;
   end;
 
   TDeadCodeReferenceIndex = class
@@ -193,6 +196,7 @@ begin
   inherited Create;
   fEntries := TDictionary<string, TDeadCodeSourceEntry>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fUnitFiles := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   lSnapshot := ContextProjectSnapshot(aContext);
   AddSnapshot(lSnapshot);
   AddModel(aContext.UnitModel);
@@ -202,14 +206,22 @@ end;
 
 destructor TDeadCodeSourceIndex.Destroy;
 begin
+  fUnitFiles.Free;
   fEntries.Free;
   inherited;
+end;
+
+function TDeadCodeSourceIndex.IsUnitFile(const aFileName: string): Boolean;
+begin
+  Result := (aFileName <> '') and fUnitFiles.ContainsKey(aFileName);
 end;
 
 procedure TDeadCodeSourceIndex.AddEntry(const aFileName, aText: string);
 var
   lEntry: TDeadCodeSourceEntry;
 begin
+  if aFileName <> '' then
+    fUnitFiles.AddOrSetValue(aFileName, True);
   if (aFileName = '') or (aText = '') then
     Exit;
 
@@ -695,6 +707,217 @@ begin
     SameText(aSymbol.Visibility, 'private') or SameText(aSymbol.Visibility, 'strict private');
 end;
 
+type
+  TDeadCodeRoutineGroups = TObjectDictionary<string, TList<TDelphiSemanticIndexedSymbol>>;
+
+function RoutineGroupKey(const aSymbol: TDelphiSemanticIndexedSymbol): string;
+begin
+  Result := aSymbol.UnitName + #1 + aSymbol.Name;
+end;
+
+// A nested routine's scope id continues its parent's: "unit|outer(...)/inner(...)".
+function IsNestedRoutine(const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
+begin
+  Result := Pos(')/', aSymbol.ScopeId) > 0;
+end;
+
+// Unit-level routines only: a nested routine of the same name is another symbol.
+function IsOwnerlessProjectRoutine(const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
+begin
+  Result := IsProjectSymbol(aSymbol) and SameText(aSymbol.Kind, 'routine') and
+    (aSymbol.OwnerName = '') and not IsNestedRoutine(aSymbol);
+end;
+
+function CountInSection(const aGroup: TList<TDelphiSemanticIndexedSymbol>;
+  const aSectionKind: string): Integer;
+var
+  lSymbol: TDelphiSemanticIndexedSymbol;
+begin
+  Result := 0;
+  for lSymbol in aGroup do
+    if SameText(lSymbol.SectionKind, aSectionKind) then
+      Inc(Result);
+end;
+
+// Splits aText at aSeparator outside parentheses and brackets.
+function SplitTopLevel(const aText: string; const aSeparator: Char): TArray<string>;
+var
+  i: Integer;
+  lDepth: Integer;
+  lStart: Integer;
+begin
+  Result := [];
+  lDepth := 0;
+  lStart := 1;
+  for i := 1 to Length(aText) do
+    if CharInSet(aText[i], ['(', '[']) then
+      Inc(lDepth)
+    else if CharInSet(aText[i], [')', ']']) then
+      Dec(lDepth)
+    else if (aText[i] = aSeparator) and (lDepth = 0) then
+    begin
+      Result := Result + [Copy(aText, lStart, i - lStart)];
+      lStart := i + 1;
+    end;
+  Result := Result + [Copy(aText, lStart, MaxInt)];
+end;
+
+function WithoutWhitespace(const aText: string): string;
+var
+  c: Char;
+begin
+  Result := '';
+  for c in aText do
+    if not CharInSet(c, [#9, #10, #13, ' ']) then
+      Result := Result + c;
+end;
+
+// DS-660 review round 2: a parameter list by meaning. Grouped names are expanded ("a, b: T" is
+// "a: T; b: T"); names, default values, case and spacing are ignored; the modifier and the type
+// of every parameter are kept. A list that cannot be read keeps its normalized text.
+function RoutineParameterKey(const aSignature: string): string;
+var
+  lColon: Integer;
+  lDefault: TArray<string>;
+  lGroup: string;
+  lModifier: string;
+  lName: string;
+  lNames: string;
+  lText: string;
+  lType: string;
+  lWords: TArray<string>;
+begin
+  lText := Trim(SanitizeCodeText(aSignature));
+  if (lText <> '') and (lText[1] = '(') and (lText[Length(lText)] = ')') then
+    lText := Copy(lText, 2, Length(lText) - 2);
+  Result := '';
+  for lGroup in SplitTopLevel(lText, ';') do
+  begin
+    if Trim(lGroup) = '' then
+      Continue;
+    lDefault := SplitTopLevel(lGroup, '=');
+    lText := Trim(lDefault[0]);
+    lColon := Pos(':', lText);
+    if lColon > 0 then
+    begin
+      lNames := Trim(Copy(lText, 1, lColon - 1));
+      lType := LowerCase(WithoutWhitespace(Copy(lText, lColon + 1, MaxInt)));
+    end else begin
+      lNames := lText;
+      lType := '';
+    end;
+    lModifier := '';
+    lWords := lNames.Split([' ', #9, #10, #13], TStringSplitOptions.ExcludeEmpty);
+    if (Length(lWords) > 1) and MatchText(lWords[0], ['const', 'var', 'out', 'constref']) then
+    begin
+      lModifier := LowerCase(lWords[0]);
+      lNames := Trim(Copy(lNames, Length(lWords[0]) + 1, MaxInt));
+    end;
+    if lNames = '' then
+      Exit('text:' + NormalizeRoutineSignature(aSignature));
+    for lName in lNames.Split([',']) do
+    begin
+      if Trim(lName) = '' then
+        Exit('text:' + NormalizeRoutineSignature(aSignature));
+      Result := Result + lModifier + ':' + lType + ';';
+    end;
+  end;
+end;
+
+// Two declarations of one routine: equal parameter lists (overloads repeat them), a lone pair, or
+// the only declaration of each section (an interface header and its short-form body).
+function RoutineDeclarationsPair(const aGroup: TList<TDelphiSemanticIndexedSymbol>;
+  const aLeft, aRight: TDelphiSemanticIndexedSymbol): Boolean;
+begin
+  Result := (aGroup.Count = 2) or (RoutineParameterKey(aLeft.Signature) =
+    RoutineParameterKey(aRight.Signature)) or
+    (not SameText(aLeft.SectionKind, aRight.SectionKind) and
+    (CountInSection(aGroup, aLeft.SectionKind) = 1) and
+    (CountInSection(aGroup, aRight.SectionKind) = 1));
+end;
+
+// DS-660 review: a call that stays unresolved (an overload set without argument types) may bind
+// any visible routine of its name, also in another unit, so a routine with an interface
+// declaration is never unused while such a call exists anywhere in the project.
+// DS-660 review round 2: an implementation body that pairs with no interface declaration of
+// its name, while one of them is used, may be that declaration's body with a header the pairing
+// cannot read. It is never reported unused.
+function IsUnpairedBodyOfUsedInterfaceRoutine(const aGroups: TObjectDictionary<string,
+  TList<TDelphiSemanticIndexedSymbol>>; const aReferenceIndex: TDeadCodeReferenceIndex;
+  const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
+var
+  lGroup: TList<TDelphiSemanticIndexedSymbol>;
+  lOther: TDelphiSemanticIndexedSymbol;
+  lUsed: Boolean;
+begin
+  Result := False;
+  if not IsOwnerlessProjectRoutine(aSymbol) or SameText(aSymbol.SectionKind, 'interface') or
+    not aGroups.TryGetValue(RoutineGroupKey(aSymbol), lGroup) then
+    Exit;
+  lUsed := False;
+  for lOther in lGroup do
+    if SameText(lOther.SectionKind, 'interface') then
+    begin
+      if RoutineDeclarationsPair(lGroup, aSymbol, lOther) then
+        Exit(False);
+      if aReferenceIndex.CountResolvedReferences(lOther) > 0 then
+        lUsed := True;
+    end;
+  Result := lUsed;
+end;
+
+function HasUnresolvedCallOfInterfaceRoutine(const aGroups: TObjectDictionary<string,
+  TList<TDelphiSemanticIndexedSymbol>>; const aUnresolvedNames: TDictionary<string, Boolean>;
+  const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
+var
+  lGroup: TList<TDelphiSemanticIndexedSymbol>;
+begin
+  Result := IsOwnerlessProjectRoutine(aSymbol) and aUnresolvedNames.ContainsKey(aSymbol.Name) and
+    aGroups.TryGetValue(RoutineGroupKey(aSymbol), lGroup) and
+    (CountInSection(lGroup, 'interface') > 0);
+end;
+
+// DS-660: the interface or forward declaration of a routine and its implementation are
+// separate symbols. A call from another unit or a program main block binds the declaration,
+// so each one's references count for the other.
+function BuildRoutineGroups(const aIndex: TDelphiSemanticProjectSymbolIndex):
+  TDeadCodeRoutineGroups;
+var
+  lGroup: TList<TDelphiSemanticIndexedSymbol>;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+begin
+  Result := TDeadCodeRoutineGroups.Create([doOwnsValues],
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  for lSymbol in aIndex.Symbols do
+    if IsOwnerlessProjectRoutine(lSymbol) then
+    begin
+      if not Result.TryGetValue(RoutineGroupKey(lSymbol), lGroup) then
+      begin
+        lGroup := TList<TDelphiSemanticIndexedSymbol>.Create;
+        Result.Add(RoutineGroupKey(lSymbol), lGroup);
+      end;
+      lGroup.Add(lSymbol);
+    end;
+end;
+
+// References to the other declarations of the same routine (RoutineDeclarationsPair).
+function PairedRoutineReferenceCount(const aGroups: TDeadCodeRoutineGroups;
+  const aReferenceIndex: TDeadCodeReferenceIndex;
+  const aSymbol: TDelphiSemanticIndexedSymbol): Integer;
+var
+  lGroup: TList<TDelphiSemanticIndexedSymbol>;
+  lOther: TDelphiSemanticIndexedSymbol;
+begin
+  Result := 0;
+  if not IsOwnerlessProjectRoutine(aSymbol) or
+    not aGroups.TryGetValue(RoutineGroupKey(aSymbol), lGroup) then
+    Exit;
+  for lOther in lGroup do
+    if not SameSymbolId(lOther.Id, aSymbol.Id) and
+      RoutineDeclarationsPair(lGroup, aSymbol, lOther) then
+      Inc(Result, aReferenceIndex.CountResolvedReferences(lOther));
+end;
+
 class function TDelphiSemanticDeadCodeReporter.Report(
   const aContext: TDelphiSemanticSymbolQueryContext; const aProfile: string):
   TDelphiSemanticDeadCodeReport;
@@ -725,6 +948,8 @@ var
   lBlockers: TList<string>;
   lBlockedUnresolvedReferenceKeys: TDictionary<string, Boolean>;
   lCandidate: TDelphiSemanticDeadCodeCandidate;
+  lRoutineGroups: TDeadCodeRoutineGroups;
+  lUnresolvedNames: TDictionary<string, Boolean>;
   lCandidates: TList<TDelphiSemanticDeadCodeCandidate>;
   lIndex: TDelphiSemanticProjectSymbolIndex;
   lOccurrences: TDeadCodeOccurrenceScanner;
@@ -748,7 +973,14 @@ begin
   lReferenceIndex := TDeadCodeReferenceIndex.Create(lIndex);
   lSourceIndex := TDeadCodeSourceIndex.Create(aContext);
   lOccurrences := TDeadCodeOccurrenceScanner.Create(lIndex, lSourceIndex);
+  lRoutineGroups := BuildRoutineGroups(lIndex);
+  lUnresolvedNames := TDictionary<string, Boolean>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
   try
+    for lReference in lIndex.References do
+      if SameText(lReference.Status, 'unresolved') and
+        SameText(lReference.SourceKind, 'project-source') then
+        lUnresolvedNames.AddOrSetValue(lReference.Name, True);
     for lSymbol in lIndex.Symbols do
     begin
       if not IsProjectSymbol(lSymbol) or not IsCandidateKind(lSymbol) then
@@ -766,15 +998,24 @@ begin
           AddBlocker(lBlockers, 'initialization-hook');
         if lReferenceIndex.HasAmbiguousReference(lSymbol) then
           AddBlocker(lBlockers, 'ambiguous-reference');
-        if lReferenceIndex.HasUnresolvedReferenceInScope(lSymbol) then
+        if lReferenceIndex.HasUnresolvedReferenceInScope(lSymbol) or
+          HasUnresolvedCallOfInterfaceRoutine(lRoutineGroups, lUnresolvedNames, lSymbol) then
           AddBlocker(lBlockers, 'unresolved-reference');
 
-      lReferenceCount := lReferenceIndex.CountResolvedReferences(lSymbol);
+      lReferenceCount := lReferenceIndex.CountResolvedReferences(lSymbol) +
+        PairedRoutineReferenceCount(lRoutineGroups, lReferenceIndex, lSymbol);
       if (lReferenceCount = 0) and not lReferenceIndex.HasAmbiguousReference(lSymbol) and
         not lReferenceIndex.HasUnresolvedReferenceInScope(lSymbol) then
         lReferenceCount := lReferenceIndex.CountSameUnitNameReferences(lSymbol);
         if (lReferenceCount > 0) and (lBlockers.Count = 0) then
         Continue;
+        // DS-659: an unused declaration from an include file is never removed through its unit,
+        // also when an include expanded inside a line puts it on the unit's directive.
+        if lSymbol.FromInclude or ((lSymbol.FileName <> '') and
+          not lSourceIndex.IsUnitFile(lSymbol.FileName)) then
+          AddBlocker(lBlockers, 'declared-in-include');
+        if IsUnpairedBodyOfUsedInterfaceRoutine(lRoutineGroups, lReferenceIndex, lSymbol) then
+          AddBlocker(lBlockers, 'unpaired-implementation');
         if (lReferenceCount = 0) and lOccurrences.HasUnclassifiedOccurrence(lSymbol.Name) then
           AddBlocker(lBlockers, 'unclassified-occurrence');
 
@@ -842,6 +1083,8 @@ begin
     Result.Candidates := lCandidates.ToArray;
     Result.IndexMetrics := lIndex.Metrics;
   finally
+    lUnresolvedNames.Free;
+    lRoutineGroups.Free;
     lOccurrences.Free;
     lSourceIndex.Free;
     lReferenceIndex.Free;

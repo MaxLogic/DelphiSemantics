@@ -58,6 +58,9 @@ type
     OwnerScopeId: string;
     SymbolId: string;
     Mutable: Boolean;
+    // DS-659: the include file whose text holds this fact; empty for the unit's own source.
+    // Line and Column then refer to that file (Line 0: the position is unknown).
+    FileName: string;
   end;
 
   TDelphiSemanticMember = record
@@ -74,6 +77,9 @@ type
     Column: Integer;
     Offset: Integer;
     EndOffset: Integer;
+    // DS-659: the include file whose text holds this fact; empty for the unit's own source.
+    // Line and Column then refer to that file (Line 0: the position is unknown).
+    FileName: string;
   end;
 
   TDelphiSemanticParameter = record
@@ -85,6 +91,9 @@ type
     Column: Integer;
     Offset: Integer;
     EndOffset: Integer;
+    // DS-659: the include file whose text holds this fact; empty for the unit's own source.
+    // Line and Column then refer to that file (Line 0: the position is unknown).
+    FileName: string;
   end;
 
   TDelphiSemanticRoutine = record
@@ -104,6 +113,9 @@ type
     ParentScopeId: string;
     ProcedureSignature: TDelphiSemanticProcedureSignature;
     Parameters: TArray<TDelphiSemanticParameter>;
+    // DS-659: the include file whose text holds this fact; empty for the unit's own source.
+    // Line and Column then refer to that file (Line 0: the position is unknown).
+    FileName: string;
   end;
 
   TDelphiSemanticLocal = record
@@ -116,6 +128,9 @@ type
     Offset: Integer;
     EndOffset: Integer;
     RoutineScopeId: string;
+    // DS-659: the include file whose text holds this fact; empty for the unit's own source.
+    // Line and Column then refer to that file (Line 0: the position is unknown).
+    FileName: string;
   end;
 
   TDelphiSemanticReference = record
@@ -130,6 +145,9 @@ type
     EndLine: Integer;
     EndColumn: Integer;
     RoutineScopeId: string;
+    // DS-659: the include file whose text holds this fact; empty for the unit's own source.
+    // Line and Column then refer to that file (Line 0: the position is unknown).
+    FileName: string;
   end;
 
   TDelphiSemanticWithStatement = record

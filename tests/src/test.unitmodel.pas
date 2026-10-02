@@ -203,6 +203,16 @@ type
     procedure IncludeExpansionPreservesMultiLineIncludedDeclarations;
     [Test]
     procedure IncludeExpansionDoesNotShiftFollowingParentWithRanges;
+    // DS-659: facts whose text comes from an include file carry that file and its own
+    // position; they are never mapped onto an unrelated position of the including unit.
+    [Test]
+    procedure IncludeInRoutineBodyAttributesReferencesToIncludeFiles;
+    [Test]
+    procedure IncludeBetweenDeclarationsAttributesFactsToIncludeFile;
+    // DS-659 review: an include expanded inside a line has no exact position; its facts are kept
+    // at the directive's own position instead of being dropped.
+    [Test]
+    procedure MidLineIncludeFactsStayAtTheDirective;
     [Test]
     procedure ModelUsesSourceLoaderFallbackWhenExtractingAnsiSource;
     [Test]
@@ -1931,6 +1941,203 @@ begin
   Assert.IsTrue(Pos('Value := 1', StatementText(lSource, lModel.WithStatements[0].Line,
     lModel.WithStatements[0].Column, lModel.WithStatements[0].EndLine,
     lModel.WithStatements[0].EndColumn)) > 0);
+end;
+
+// "file:line:column" of every fact named aName; the file is the include file that holds the
+// text, or the unit itself. The source text at each position must spell the name.
+function IncludeFactKeys(const aModel: TDelphiSemanticUnitModel; const aRoot, aName: string):
+  string;
+var
+  lKeys: TStringList;
+
+  procedure AddKey(const aFileName: string; const aLine, aColumn: Integer);
+  var
+    lFileName: string;
+    lLines: TArray<string>;
+  begin
+    lFileName := aFileName;
+    if lFileName = '' then
+      lFileName := aModel.FileName;
+    lKeys.Add(LowerCase(ExtractFileName(lFileName)) + ':' + aLine.ToString + ':' +
+      aColumn.ToString);
+    lLines := TFile.ReadAllLines(TPath.Combine(aRoot, ExtractFileName(lFileName)));
+    Assert.IsTrue((aLine >= 1) and (aLine <= Length(lLines)), 'Line out of range: ' +
+      lKeys[lKeys.Count - 1]);
+    Assert.AreEqual(LowerCase(aName), LowerCase(Copy(lLines[aLine - 1], aColumn, Length(aName))),
+      'The source text at ' + lKeys[lKeys.Count - 1] + ' must spell the name.');
+  end;
+
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lLocal: TDelphiSemanticLocal;
+  lReference: TDelphiSemanticReference;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  lKeys := TStringList.Create;
+  try
+    lKeys.Sorted := True;
+    lKeys.Duplicates := dupAccept;
+    for lReference in aModel.References do
+      if SameText(lReference.Name, aName) then
+        AddKey(lReference.FileName, lReference.Line, lReference.Column);
+    for lDeclaration in aModel.Declarations do
+      if SameText(lDeclaration.Name, aName) then
+        AddKey(lDeclaration.FileName, lDeclaration.Line, lDeclaration.Column);
+    for lRoutine in aModel.Routines do
+      if SameText(lRoutine.Name, aName) then
+        AddKey(lRoutine.FileName, lRoutine.Line, lRoutine.Column);
+    for lLocal in aModel.Locals do
+      if SameText(lLocal.Name, aName) then
+        AddKey(lLocal.FileName, lLocal.Line, lLocal.Column);
+    lKeys.Delimiter := ' ';
+    Result := lKeys.DelimitedText;
+  finally
+    lKeys.Free;
+  end;
+end;
+
+procedure TUnitModelTests.IncludeInRoutineBodyAttributesReferencesToIncludeFiles;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoot: string;
+begin
+  lRoot := UnitModelTempPath('unit-model-include-body');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'body.inc'),
+    '  GA := GB + 1;'#13#10'{$I inner.inc}'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'inner.inc'), '  GA := GA + GB;'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'IncBody.pas'),
+    'unit IncBody;'#13#10 + // 1
+    'interface'#13#10 + // 2
+    'var'#13#10 + // 3
+    '  GA, GB: Integer;'#13#10 + // 4
+    'procedure Foo;'#13#10 + // 5
+    'procedure Bar;'#13#10 + // 6
+    'implementation'#13#10 + // 7
+    'procedure Foo;'#13#10 + // 8
+    'begin'#13#10 + // 9
+    '{$IFDEF NEVER_DEFINED}'#13#10 + // 10
+    '  GA := 99;'#13#10 + // 11: inactive
+    '{$ELSE}'#13#10 + // 12
+    '{$I body.inc}'#13#10 + // 13
+    '{$ENDIF}'#13#10 + // 14
+    '  WriteLn(GA);'#13#10 + // 15
+    'end;'#13#10 + // 16
+    'procedure Bar;'#13#10 + // 17
+    'begin'#13#10 + // 18
+    '  GB := 5;'#13#10 + // 19
+    'end;'#13#10 + // 20
+    'end.'#13#10, TEncoding.ASCII);
+
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'IncBody.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  // The inactive GA on line 11 is no fact; the include occurrences keep their own files,
+  // including the nested include.
+  Assert.AreEqual('body.inc:1:3 incbody.pas:15:11 incbody.pas:4:3 inner.inc:1:3 inner.inc:1:9',
+    IncludeFactKeys(lModel, lRoot, 'GA'));
+  Assert.AreEqual('body.inc:1:9 incbody.pas:19:3 incbody.pas:4:7 inner.inc:1:14',
+    IncludeFactKeys(lModel, lRoot, 'GB'));
+end;
+
+procedure TUnitModelTests.MidLineIncludeFactsStayAtTheDirective;
+var
+  lKeys: string;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticReference;
+  lRoot: string;
+begin
+  lRoot := UnitModelTempPath('unit-model-include-mid-line');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'midf.inc'), 'GF := GF + 1;'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'IncMid.pas'),
+    'unit IncMid;'#13#10 + // 1
+    'interface'#13#10 + // 2
+    'var'#13#10 + // 3
+    '  GF: Integer;'#13#10 + // 4
+    'procedure Foo;'#13#10 + // 5
+    'implementation'#13#10 + // 6
+    'procedure Foo;'#13#10 + // 7
+    'begin'#13#10 + // 8
+    '  WriteLn(1); {$I midf.inc}'#13#10 + // 9: the directive starts at column 15
+    '  GF := 3;'#13#10 + // 10
+    'end;'#13#10 + // 11
+    'end.'#13#10, TEncoding.ASCII);
+
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'IncMid.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  lKeys := '';
+  for lReference in lModel.References do
+    if SameText(lReference.Name, 'GF') then
+      lKeys := lKeys + LowerCase(ExtractFileName(lReference.FileName)) + ':' +
+        lReference.Line.ToString + ':' + lReference.Column.ToString + ' ';
+  // The unit's own GF on line 10 has no FileName; the included GF facts sit on the directive and
+  // name the unit file, which marks them as not positioned in this unit's text.
+  Assert.AreEqual('incmid.pas:9:15 :10:3 ', lKeys);
+end;
+
+procedure TUnitModelTests.IncludeBetweenDeclarationsAttributesFactsToIncludeFile;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoot: string;
+begin
+  lRoot := UnitModelTempPath('unit-model-include-declarations');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'decl.inc'),
+    'function Helper(aValue: Integer): Integer;'#13#10 + // 1
+    'var'#13#10 + // 2
+    '  lBase: Integer;'#13#10 + // 3
+    'begin'#13#10 + // 4
+    '  lBase := GB;'#13#10 + // 5
+    '  Result := aValue + lBase;'#13#10 + // 6
+    'end;'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'IncDecl.pas'),
+    'unit IncDecl;'#13#10 + // 1
+    'interface'#13#10 + // 2
+    'var'#13#10 + // 3
+    '  GA, GB: Integer;'#13#10 + // 4
+    'function Twice: Integer;'#13#10 + // 5
+    'implementation'#13#10 + // 6
+    '{$I decl.inc}'#13#10 + // 7
+    'function Twice: Integer;'#13#10 + // 8
+    'var'#13#10 + // 9
+    '  lBase: Integer;'#13#10 + // 10
+    'begin'#13#10 + // 11
+    '  lBase := GA;'#13#10 + // 12
+    '  Result := Helper(lBase) * 2;'#13#10 + // 13
+    'end;'#13#10 + // 14
+    'end.'#13#10, TEncoding.ASCII);
+
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'IncDecl.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success);
+  // Helper is both a routine declaration and a routine fact.
+  Assert.AreEqual('decl.inc:1:10 decl.inc:1:10 incdecl.pas:13:13',
+    IncludeFactKeys(lModel, lRoot, 'Helper'));
+  Assert.AreEqual('decl.inc:3:3 decl.inc:5:3 decl.inc:6:22 incdecl.pas:10:3 incdecl.pas:12:3 ' +
+    'incdecl.pas:13:20', IncludeFactKeys(lModel, lRoot, 'lBase'));
+  Assert.AreEqual('decl.inc:5:12 incdecl.pas:4:7', IncludeFactKeys(lModel, lRoot, 'GB'));
+  Assert.AreEqual('incdecl.pas:12:12 incdecl.pas:4:3', IncludeFactKeys(lModel, lRoot, 'GA'));
 end;
 
 procedure TUnitModelTests.ModelUsesSourceLoaderFallbackWhenExtractingAnsiSource;

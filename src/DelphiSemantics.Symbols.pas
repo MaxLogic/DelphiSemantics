@@ -20,6 +20,11 @@ type
     FileName: string;
     Line: Integer;
     Column: Integer;
+    // A routine's own syntax scope id (DS-660); a nested routine's id holds its parent's.
+    ScopeId: string;
+    // DS-659: the text comes from an include file, so the position is not a declaration in the
+    // unit's own text (it is the include file's, or the include directive's).
+    FromInclude: Boolean;
   end;
 
   TDelphiSemanticIndexedReference = record

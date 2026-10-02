@@ -26,6 +26,9 @@ function SnapshotIndexedReference(const aSnapshot: TDelphiProjectSnapshot;
   TDelphiSemanticIndexedReference;
 function SnapshotSymbolOwnerName(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbol: TSemanticSymbolFact; const aKind: string): string;
+// DS-659: the file that holds a fact: its include file, or else its unit's file.
+function SnapshotFactFileName(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aFileId: TSemanticStringId): string;
 function SnapshotSymbolVisibleToPublicNameQuery(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbol: TSemanticSymbolFact): Boolean;
 
@@ -126,9 +129,12 @@ begin
     Result.SourceKind := 'project-snapshot';
   Result.Visibility := SnapshotText(aSnapshot, aSymbol.VisibilityId);
   Result.Signature := SnapshotText(aSnapshot, aSymbol.SignatureId);
-  Result.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
+  Result.FileName := SnapshotFactFileName(aSnapshot, aUnit, aSymbol.FileId);
   Result.Line := aSymbol.Line;
   Result.Column := aSymbol.Column;
+  if SameText(lKind, 'routine') then
+    Result.ScopeId := SnapshotText(aSnapshot, aSymbol.RoutineScopeId);
+  Result.FromInclude := aSymbol.FileId <> 0;
 end;
 
 function SnapshotIndexedReference(const aSnapshot: TDelphiProjectSnapshot;
@@ -144,7 +150,7 @@ begin
   Result.SourceKind := SnapshotText(aSnapshot, aReference.SourceKindId);
   if Result.SourceKind = '' then
     Result.SourceKind := 'project-snapshot';
-  Result.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
+  Result.FileName := SnapshotFactFileName(aSnapshot, aUnit, aReference.FileId);
   Result.SectionKind := SnapshotText(aSnapshot, aReference.SectionKindId);
   if Result.SectionKind = '' then
     Result.SectionKind := 'implementation';
@@ -177,6 +183,14 @@ begin
     Exit(aSnapshot.TextOf(aSymbol.RoutineId));
 
   Result := '';
+end;
+
+function SnapshotFactFileName(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aFileId: TSemanticStringId): string;
+begin
+  if aFileId <> 0 then
+    Exit(SnapshotText(aSnapshot, aFileId));
+  Result := SnapshotText(aSnapshot, aUnit.FileNameId);
 end;
 
 function SnapshotSymbolVisibleToPublicNameQuery(const aSnapshot: TDelphiProjectSnapshot;
