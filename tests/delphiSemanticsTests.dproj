@@ -142,6 +142,7 @@
     <DCCReference Include="..\src\DelphiSemantics.RemoveWithPlan.FinalRewrite.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.MemberResolver.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Resolve.SelectorTypes.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.ScopeResolver.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.TypeResolver.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Resolve.UnitResolver.pas"/>
@@ -161,6 +162,21 @@
     <DCCReference Include="..\src\DelphiSemantics.WithScan.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.WithBinding.Inventory.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.WithBinding.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Consistency.GuidInventory.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.IdentifierScope.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Model.Coordinates.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Model.Extract.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Model.Json.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Model.Text.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.RemoveWith.Visibility.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Snapshot.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Snapshot.Cache.Sqlite.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.Snapshot.RemoveWith.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.SourceConditionals.pas"/>
+    <DCCReference Include="src\test.refactor.functionresult.pas"/>
+    <DCCReference Include="src\test.refactor.plan.pas"/>
+    <DCCReference Include="src\test.snapshot.pas"/>
+    <DCCReference Include="src\test.snapshotsqlite.pas"/>
   </ItemGroup>
   <ItemGroup>
     <BuildConfiguration Include="Base">

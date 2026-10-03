@@ -60,6 +60,25 @@ type
     [Test]
     procedure IndexedDeclarationsPreserveBindingPrecedence;
     [Test]
+    procedure CrossUnitPointerArrayWithBodiesBindMembers;
+    [Test]
+    [TestCase('declared local label', '0')]
+    [TestCase('label and receiver field share a name', '1')]
+    [TestCase('missing label declaration', '2')]
+    [TestCase('label belongs to another routine', '3')]
+    [TestCase('declared label without a definition', '4')]
+    [TestCase('case alternative is not a label definition', '5')]
+    [TestCase('same line label after a member edit', '6')]
+    [TestCase('goto before end without a semicolon', '7')]
+    [TestCase('include before root labels preserves coordinates', '8')]
+    [TestCase('included label declaration is unverified', '9')]
+    [TestCase('escaped goto field is not a keyword', '10')]
+    [TestCase('numeric label', '11')]
+    [TestCase('missing numeric label declaration', '12')]
+    [TestCase('numeric label belongs to another routine', '13')]
+    [TestCase('duplicate label definition', '14')]
+    procedure LocalLabelsPreserveSyntaxRoleAndRoutineScope(const aCase: Integer);
+    [Test]
     procedure IndexedDeclarationCandidatesPreserveDuplicatesAndRefresh;
     [Test]
     procedure ProjectSessionBuildsProjectLevelWithBindingFacts;
@@ -101,7 +120,7 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Api.RemoveWith.Compatibility, DelphiSemantics.Model,
+  DelphiSemantics.Api.RemoveWith.Compatibility, DelphiSemantics.Model, DelphiSemantics.Model.Json,
   DelphiSemantics.ProjectContext, maxLogic.IOUtils,
   Test.Support;
 
@@ -374,6 +393,189 @@ begin
   Assert.AreEqual(aExpected.Column, aActual.Column);
   Assert.AreEqual(aExpected.EndLine, aActual.EndLine);
   Assert.AreEqual(aExpected.EndColumn, aActual.EndColumn);
+end;
+
+procedure TProjectWithBindingTests.CrossUnitPointerArrayWithBodiesBindMembers;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lConsumer: TDelphiSemanticUnitModel;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticModelOptions;
+  lProvider: TDelphiSemanticUnitModel;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := FixturePath('Resolver', 'SelectorAliasConsumer.pas');
+  lConsumer := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lConsumer.Success);
+  lOptions.SourceFileName := FixturePath('Resolver', 'SelectorAliasProvider.pas');
+  lProvider := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lProvider.Success);
+
+  lFacts := TDelphiSemanticWithBinder.BindProject('selector-alias', nil,
+    [lConsumer, lProvider]);
+  Assert.AreEqual(3, Integer(Length(lFacts.Bindings)));
+  for lBinding in lFacts.Bindings do
+  begin
+    Assert.AreEqual('resolved', lBinding.Selectors[0].Status,
+      lBinding.Selectors[0].SelectorText + ': ' + lBinding.Selectors[0].ReasonCode);
+    Assert.AreEqual('TSelectorRecord', lBinding.Selectors[0].TypeName);
+    Assert.IsTrue(HasReference(lBinding, 'Value', 'member'),
+      lBinding.Selectors[0].SelectorText + ': Value did not bind to a member.');
+  end;
+end;
+
+procedure TProjectWithBindingTests.LocalLabelsPreserveSyntaxRoleAndRoutineScope(
+  const aCase: Integer);
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lConsumer: TDelphiSemanticUnitModel;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lGuid: TGUID;
+  lLabelName: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProvider: TDelphiSemanticUnitModel;
+  lProviderSource: string;
+  lRootPath: string;
+  lSessionOptions: TDelphiSemanticOptions;
+  lSessionPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+  lSource: string;
+begin
+  lLabelName := 'Finished';
+  if aCase in [1, 6] then
+    lLabelName := 'Value';
+  if aCase in [11, 12, 13] then
+    lLabelName := '123';
+  lSource := 'unit WithLocalLabels;'#13#10 +
+    'interface'#13#10 +
+    'uses SelectorAliasProvider;'#13#10 +
+    'implementation'#13#10;
+  if aCase = 8 then
+    lSource := lSource + '{$I LabelPadding.inc}'#13#10;
+  if aCase in [3, 13] then
+    lSource := lSource + 'procedure Other;'#13#10 +
+      'label ' + lLabelName + ';'#13#10 +
+      'begin goto ' + lLabelName + '; ' + lLabelName + ': end;'#13#10;
+  lSource := lSource + 'procedure Touch(aRecord: TSelectorPointer);'#13#10;
+  if aCase in [0, 1, 4, 5, 6, 7, 8, 10, 11, 14] then
+    lSource := lSource + 'label ' + lLabelName + ';'#13#10;
+  if aCase = 9 then
+    lSource := lSource + '{$I LabelPadding.inc}'#13#10;
+  lSource := lSource + 'begin'#13#10 +
+    '  with aRecord^ do'#13#10 +
+    '  begin'#13#10 +
+    '    Value := 1;'#13#10 +
+    '    goto ' + lLabelName + ';'#13#10;
+  if aCase = 5 then
+    lSource := lSource + '    case 1 of Finished: Value := 2; end;'#13#10
+  else if aCase = 6 then
+    lSource := lSource + '    Value := 3; ' + lLabelName + ':'#13#10
+  else if not (aCase in [4, 7]) then
+    lSource := lSource + '    ' + lLabelName + ':'#13#10;
+  if aCase = 7 then
+    lSource := lSource + '    ' + lLabelName + ':'#13#10 +
+      '    if Value = 0 then begin goto ' + lLabelName + ' end;'#13#10;
+  if aCase = 10 then
+    lSource := lSource + '    &Goto := Value;'#13#10;
+  if aCase = 14 then
+    lSource := lSource + '    Value := 3; ' + lLabelName + ':'#13#10;
+  lSource := lSource + '    Value := 2;'#13#10 +
+    '  end;'#13#10 +
+    'end;'#13#10 +
+    'end.'#13#10;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  CreateGUID(lGuid);
+  lRootPath := TPath.Combine(RepoRoot,
+    'tests\.dak\delphiSemanticsTests\ds-670-label-' + GUIDToString(lGuid));
+  lOptions.SourceFileName := TPath.Combine(lRootPath, 'WithLocalLabels.pas');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lOptions.SourceFileName));
+  if aCase = 8 then
+    TFile.WriteAllText(TPath.Combine(lRootPath, 'LabelPadding.inc'),
+      '// first padding line'#13#10 + '// second padding line'#13#10, TEncoding.UTF8)
+  else if aCase = 9 then
+    TFile.WriteAllText(TPath.Combine(lRootPath, 'LabelPadding.inc'),
+      'label Finished;'#13#10, TEncoding.UTF8);
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lConsumer := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lConsumer.Success);
+  Assert.AreEqual('ast', lConsumer.ScopeModelStatus);
+  Assert.IsTrue(Length(lConsumer.LocalLabelReferences) > 0);
+  lConsumer := JsonToModel(ModelToJson(lConsumer));
+  lProviderSource := TFile.ReadAllText(FixturePath('Resolver', 'SelectorAliasProvider.pas'));
+  if aCase = 10 then
+    lProviderSource := StringReplace(lProviderSource, 'Value: Integer;',
+      'Value: Integer;'#13#10 + '    &Goto: Integer;', []);
+  lOptions.SourceFileName := TPath.Combine(lRootPath, 'SelectorAliasProvider.pas');
+  TFile.WriteAllText(lOptions.SourceFileName, lProviderSource, TEncoding.UTF8);
+  lProvider := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lProvider.Success);
+  lFacts := TDelphiSemanticWithBinder.BindProject('local-labels', nil,
+    [lConsumer, lProvider]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  lBinding := lFacts.Bindings[0];
+  Assert.AreEqual('resolved', lBinding.Selectors[0].Status);
+  Assert.IsTrue(HasReference(lBinding, 'Value', 'member'));
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+  if aCase in [0, 1, 6, 7, 8, 11] then
+  begin
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+      lPlan.FinalStatements[0].Reason);
+    Assert.IsTrue(HasReference(lBinding, lLabelName, 'lexical'));
+    Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
+      'goto ' + lLabelName + ';'), lPlan.FinalStatements[0].ReplacementText);
+    Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
+      lLabelName + ':'), lPlan.FinalStatements[0].ReplacementText);
+    Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
+      '.Value := 1;'), lPlan.FinalStatements[0].ReplacementText);
+    Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
+      '.Value := 2;'), lPlan.FinalStatements[0].ReplacementText);
+  end else
+  begin
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+    if aCase = 10 then
+      Assert.AreEqual('escaped-identifier-unsupported', lPlan.FinalStatements[0].Reason)
+    else
+      Assert.AreEqual('local-label-not-resolved', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+  end;
+
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'SelectorAliasProvider.pas'),
+    lProvider.SourceText, TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'LabelCache.dpr'),
+    'program LabelCache;'#13#10 +
+    'uses WithLocalLabels, SelectorAliasProvider;'#13#10 +
+    'begin end.'#13#10, TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'LabelCache.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">'#13#10 +
+    '<PropertyGroup><MainSource>LabelCache.dpr</MainSource></PropertyGroup>'#13#10 +
+    '<ItemGroup><DCCReference Include="WithLocalLabels.pas"/>'#13#10 +
+    '<DCCReference Include="SelectorAliasProvider.pas"/></ItemGroup>'#13#10 +
+    '</Project>'#13#10, TEncoding.UTF8);
+  lSessionOptions := Default(TDelphiSemanticOptions);
+  lSessionOptions.ProjectPath := TPath.Combine(lRootPath, 'LabelCache.dproj');
+  lSessionOptions.SqliteCacheFileName := TPath.Combine(lRootPath, '.dak\label-cache.sqlite3');
+  lSessionOptions.SkipWithBindingSemanticGraph := True;
+  for i := 0 to 1 do
+  begin
+    lSessionResult := TDelphiSemanticProjectSession.Open(lSessionOptions);
+    try
+      Assert.IsTrue(lSessionResult.Success);
+      lSessionPlan := lSessionResult.Session.PlanRemoveWithResult;
+      Assert.AreEqual(i, lSessionPlan.SnapshotMetrics.SnapshotCacheHits);
+      Assert.AreEqual(1, Integer(Length(lSessionPlan.Plan.FinalStatements)));
+      Assert.AreEqual(lPlan.FinalStatements[0].Status,
+        lSessionPlan.Plan.FinalStatements[0].Status);
+      Assert.AreEqual(lPlan.FinalStatements[0].ReplacementText,
+        lSessionPlan.Plan.FinalStatements[0].ReplacementText);
+    finally
+      lSessionResult.Session.Free;
+    end;
+  end;
 end;
 
 procedure TProjectWithBindingTests.IndexedDeclarationsPreserveBindingPrecedence;

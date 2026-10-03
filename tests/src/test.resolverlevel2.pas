@@ -20,6 +20,10 @@ type
     [Test]
     procedure ResolvesArrayPointerAndIndexedSelectors;
     [Test]
+    procedure ResolvesCrossUnitPointerArraySelectorsWithoutGuessing;
+    [Test]
+    procedure ResolvesSourceBackedCrossUnitSelectors;
+    [Test]
     procedure ResolvesIndexedDefaultProperties;
     [Test]
     procedure NestedRoutineScopesSearchParentRoutines;
@@ -189,6 +193,166 @@ begin
     lResult.ReasonCode);
   Assert.AreEqual('field', lResult.Kind);
   Assert.AreEqual('Integer', lResult.TypeName);
+end;
+
+procedure TResolverLevel2Tests.ResolvesCrossUnitPointerArraySelectorsWithoutGuessing;
+var
+  lConsumer: TDelphiSemanticUnitModel;
+  lContext: TDelphiSemanticResolveContext;
+  lOther: TDelphiSemanticUnitModel;
+  lProvider: TDelphiSemanticUnitModel;
+  lResult: TDelphiSemanticResolveResult;
+begin
+  lConsumer := Default(TDelphiSemanticUnitModel);
+  lConsumer.UnitName := 'Consumer';
+  lConsumer.ImplementationUses := ['Provider'];
+  SetLength(lConsumer.Declarations, 4);
+  lConsumer.Declarations[0].Name := 'DF';
+  lConsumer.Declarations[0].Kind := 'var';
+  lConsumer.Declarations[0].TypeName := 'array of TPtr';
+  lConsumer.Declarations[0].SectionKind := 'implementation';
+  lConsumer.Declarations[1] := lConsumer.Declarations[0];
+  lConsumer.Declarations[1].Name := 'X';
+  lConsumer.Declarations[1].TypeName := 'TPtr';
+  lConsumer.Declarations[2] := lConsumer.Declarations[0];
+  lConsumer.Declarations[2].Name := 'A';
+  lConsumer.Declarations[2].TypeName := 'TArrayAlias';
+  lConsumer.Declarations[3] := lConsumer.Declarations[0];
+  lConsumer.Declarations[3].Name := 'P';
+  lConsumer.Declarations[3].TypeName := '^array[0..1] of TRec';
+
+  lProvider := Default(TDelphiSemanticUnitModel);
+  lProvider.UnitName := 'Provider';
+  SetLength(lProvider.Declarations, 3);
+  lProvider.Declarations[0].Name := 'TPtr';
+  lProvider.Declarations[0].Kind := 'type-alias';
+  lProvider.Declarations[0].TypeName := '^TRec';
+  lProvider.Declarations[0].SectionKind := 'interface';
+  lProvider.Declarations[1] := lProvider.Declarations[0];
+  lProvider.Declarations[1].Name := 'TArrayAlias';
+  lProvider.Declarations[1].TypeName := 'array of TRec';
+  lProvider.Declarations[2] := lProvider.Declarations[0];
+  lProvider.Declarations[2].Name := 'TRec';
+  lProvider.Declarations[2].Kind := 'type';
+  lProvider.Declarations[2].TypeName := 'record';
+  SetLength(lProvider.Members, 1);
+  lProvider.Members[0].OwnerName := 'TRec';
+  lProvider.Members[0].Name := 'Value';
+  lProvider.Members[0].Kind := 'field';
+  lProvider.Members[0].TypeName := 'Integer';
+
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.SectionKind := 'implementation';
+  lContext.ConformanceLevel := 3;
+  lContext.IndexedUnitModels := [lProvider];
+  for var lSelector in ['X^.Value', 'A[0].Value', 'DF[0]^.Value', 'P^[0].Value'] do
+  begin
+    lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, lSelector);
+    Assert.IsTrue(lResult.Found, lSelector + ': ' + lResult.ReasonCode);
+    Assert.AreEqual('TRec', lResult.OwnerName);
+    Assert.AreEqual('Integer', lResult.TypeName);
+  end;
+
+  lProvider.Members[0].TypeName := 'TMissingResult';
+  lContext.IndexedUnitModels := [lProvider];
+  lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'X^.Value');
+  Assert.IsTrue(lResult.Found, 'A bound terminal member keeps its unknown result type.');
+  Assert.AreEqual('TMissingResult', lResult.TypeName);
+  lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'X^.Value.Other');
+  Assert.IsFalse(lResult.Found, 'An unknown result type cannot justify another member hop.');
+  Assert.AreEqual('SELECTOR_TYPE_NOT_RESOLVED', lResult.ReasonCode);
+  lProvider.Members[0].TypeName := 'Integer';
+
+  lOther := lProvider;
+  lOther.UnitName := 'OtherProvider';
+  lConsumer.ImplementationUses := ['Provider', 'OtherProvider'];
+  lContext.IndexedUnitModels := [lProvider, lOther];
+  lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'DF[0]^.Value');
+  Assert.IsFalse(lResult.Found, 'Duplicate provider aliases must stay unresolved.');
+
+  lConsumer.ImplementationUses := ['Provider'];
+  lProvider.Declarations[0].SectionKind := 'implementation';
+  lContext.IndexedUnitModels := [lProvider];
+  lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'X^.Value');
+  Assert.IsFalse(lResult.Found, 'Private provider aliases must stay unresolved.');
+
+  lProvider.Declarations[0].SectionKind := 'interface';
+  lProvider.Declarations[0].TypeName := 'TCycle';
+  lProvider.Declarations[1].Name := 'TCycle';
+  lProvider.Declarations[1].TypeName := 'TPtr';
+  lContext.IndexedUnitModels := [lProvider];
+  lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'X^.Value');
+  Assert.IsFalse(lResult.Found, 'Cyclic aliases must stay unresolved.');
+
+  lProvider.Declarations[0].TypeName := '^TRec';
+  lConsumer.ImplementationUses := nil;
+  lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'DF[0]^.Value');
+  Assert.IsFalse(lResult.Found, 'An unimported provider variable must stay invisible.');
+  lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'X^.Value');
+  Assert.IsFalse(lResult.Found, 'A project model alone does not establish visibility.');
+
+  lConsumer.ImplementationUses := ['Provider'];
+  lConsumer.Declarations[1].SectionKind := 'interface';
+  lContext.SectionKind := 'interface';
+  lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'X^.Value');
+  Assert.IsFalse(lResult.Found, 'An implementation import is invisible to interface declarations.');
+  lConsumer.InterfaceUses := ['Provider'];
+  lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'X^.Value');
+  Assert.IsTrue(lResult.Found, 'An interface import is visible to interface declarations.');
+  lConsumer.InterfaceUses := nil;
+  lConsumer.Declarations[1].SectionKind := 'implementation';
+  lContext.SectionKind := 'implementation';
+
+  lConsumer.ImplementationUses := ['Provider'];
+  SetLength(lConsumer.Declarations, 5);
+  lConsumer.Declarations[3] := lProvider.Declarations[0];
+  lConsumer.Declarations[3].TypeName := '^TLocal';
+  lConsumer.Declarations[4] := lProvider.Declarations[2];
+  lConsumer.Declarations[4].Name := 'TLocal';
+  SetLength(lConsumer.Members, 1);
+  lConsumer.Members[0] := lProvider.Members[0];
+  lConsumer.Members[0].OwnerName := 'TLocal';
+  lConsumer.Members[0].Name := 'LocalValue';
+  lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'X^.LocalValue');
+  Assert.IsTrue(lResult.Found, 'The local alias should shadow the import.');
+  Assert.AreEqual('TLocal', lResult.OwnerName);
+  lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'X^.Value');
+  Assert.IsFalse(lResult.Found, 'Shadowing must not capture provider members.');
+end;
+
+procedure TResolverLevel2Tests.ResolvesSourceBackedCrossUnitSelectors;
+var
+  lConsumer: TDelphiSemanticUnitModel;
+  lContext: TDelphiSemanticResolveContext;
+  lOptions: TDelphiSemanticModelOptions;
+  lProvider: TDelphiSemanticUnitModel;
+  lResult: TDelphiSemanticResolveResult;
+  lSelector: string;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := FixturePath('Resolver', 'SelectorAliasConsumer.pas');
+  lConsumer := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lConsumer.Success);
+  lOptions.SourceFileName := FixturePath('Resolver', 'SelectorAliasProvider.pas');
+  lProvider := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lProvider.Success);
+
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.SectionKind := 'implementation';
+  lContext.ConformanceLevel := 3;
+  lContext.IndexedUnitModels := [lConsumer, lProvider];
+  for lSelector in ['DF[0]^.Value', 'X^.Value', 'A[0].Value'] do
+  begin
+    lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, lSelector);
+    Assert.IsTrue(lResult.Found, lSelector + ': ' + lResult.ReasonCode);
+    Assert.AreEqual('field', lResult.Kind);
+    Assert.AreEqual('TSelectorRecord', lResult.OwnerName);
+    Assert.AreEqual('Integer', lResult.TypeName);
+  end;
+  lConsumer.InterfaceUses := nil;
+  lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'DF[0]^.Value');
+  Assert.IsFalse(lResult.Found, 'A project-indexed variable without an import is invisible.');
 end;
 
 procedure TResolverLevel2Tests.ResolvesIndexedDefaultProperties;

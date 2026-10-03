@@ -675,6 +675,7 @@ begin
     lObject.AddPair('Routines', RoutinesToJson(aModel.Routines));
     lObject.AddPair('Locals', LocalsToJson(aModel.Locals));
     lObject.AddPair('References', ReferencesToJson(aModel.References));
+    lObject.AddPair('LocalLabelReferences', ReferencesToJson(aModel.LocalLabelReferences));
     lObject.AddPair('WithStatements', WithStatementsToJson(aModel.WithStatements));
     lObject.AddPair('Diagnostics', DiagnosticsToJson(aModel.Diagnostics));
     lObject.AddPair('ScopeModelStatus', aModel.ScopeModelStatus);
@@ -714,6 +715,7 @@ begin
     Result.Routines := JsonToRoutines(lObject.GetValue('Routines') as TJSONArray);
     Result.Locals := JsonToLocals(lObject.GetValue('Locals') as TJSONArray);
     Result.References := JsonToReferences(lObject.GetValue('References') as TJSONArray);
+    Result.LocalLabelReferences := JsonToReferences(lObject.GetValue('LocalLabelReferences') as TJSONArray);
     Result.WithStatements := JsonToWithStatements(lObject.GetValue('WithStatements') as TJSONArray);
     Result.Diagnostics := JsonToDiagnostics(lObject.GetValue('Diagnostics') as TJSONArray);
     Result.ScopeModelStatus := JsonString(lObject, 'ScopeModelStatus');

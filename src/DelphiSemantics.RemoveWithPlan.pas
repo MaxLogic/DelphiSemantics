@@ -218,7 +218,7 @@ uses
   System.Diagnostics, System.Generics.Collections, System.Generics.Defaults,
   System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.RemoveWithPlan.FinalBodyRenderer,
+  DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.RemoveWithPlan.FinalBodyRenderer,
   DelphiSemantics.RemoveWithPlan.FinalRewrite,
   DelphiSemantics.SourceConditionals, DelphiSemantics.SourceContext,
   MaxLogic.StrUtils;
@@ -3967,6 +3967,14 @@ function ReferenceBlocksFinalRewrite(const aFacts: TRemoveWithPlanFacts;
 begin
   Result := False;
   aReason := '';
+  if aReference.Kind = 'unverified-label' then
+  begin
+    aReason := 'local-label-not-resolved';
+    Exit(True);
+  end;
+  if MatchText(aReference.Kind, ['label', 'goto-keyword']) and
+    (aReference.LookupSource = 'syntax') then
+    Exit;
   if ReferenceHasAmbiguousReceiverRoutineMember(aFacts, aDecisions,
     aReference) then
   begin
@@ -3998,13 +4006,27 @@ begin
   end;
 end;
 
-procedure ApplyFinalBodyEdits(const aEdits: TArray<TFinalBodyEdit>;
-  var aText: string);
+function ProtectedBodySpanAt(const aSpans: TArray<TFinalBodyEdit>;
+  const aOffset: Integer; const aName: string): Boolean;
+var
+  lSpan: TFinalBodyEdit;
+begin
+  Result := False;
+  for lSpan in aSpans do
+    if (lSpan.Offset = aOffset) and (lSpan.Length = Length(aName)) and
+      (lSpan.ExpectedText = aName) then
+      Exit(True);
+end;
+
+function ApplyFinalBodyEdits(const aEdits: TArray<TFinalBodyEdit>;
+  var aProtectedSpans: TArray<TFinalBodyEdit>; var aText: string): Boolean;
 var
   lApplied: TArray<Boolean>;
   lBestIndex: Integer;
   i: Integer;
+  j: Integer;
 begin
+  Result := False;
   SetLength(lApplied, Length(aEdits));
   while True do
   begin
@@ -4025,16 +4047,38 @@ begin
       Length(aEdits[lBestIndex].ExpectedText)) <>
       aEdits[lBestIndex].ExpectedText) then
       Continue;
+    for j := 0 to High(aProtectedSpans) do
+    begin
+      if (aEdits[lBestIndex].Offset = aProtectedSpans[j].Offset) and
+        (aEdits[lBestIndex].ExpectedText = aProtectedSpans[j].ExpectedText) and
+        (aEdits[lBestIndex].ReplacementText = aProtectedSpans[j].ExpectedText) then
+        Continue;
+      if aEdits[lBestIndex].Offset + aEdits[lBestIndex].Length <=
+        aProtectedSpans[j].Offset then
+        Inc(aProtectedSpans[j].Offset, Length(aEdits[lBestIndex].ReplacementText) -
+          aEdits[lBestIndex].Length)
+      else if aEdits[lBestIndex].Offset < aProtectedSpans[j].Offset +
+        aProtectedSpans[j].Length then
+        Exit;
+    end;
     Delete(aText, aEdits[lBestIndex].Offset, aEdits[lBestIndex].Length);
     Insert(aEdits[lBestIndex].ReplacementText, aText, aEdits[lBestIndex].Offset);
   end;
+  for i := 0 to High(aProtectedSpans) do
+    if not BodyTextIdentifierAt(aText, aProtectedSpans[i].ExpectedText,
+      aProtectedSpans[i].Offset) or
+      (Copy(aText, aProtectedSpans[i].Offset, aProtectedSpans[i].Length) <>
+      aProtectedSpans[i].ExpectedText) then
+      Exit;
+  Result := True;
 end;
 
 function FinalBodyHasIncompleteReceiverReference(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>;
   const aLineCache: TDelphiSemanticSourceContextCache;
-  const aBodyRange: TDelphiSemanticRemoveWithSourceRange; const aBodyText: string):
+  const aBodyRange: TDelphiSemanticRemoveWithSourceRange; const aBodyText: string;
+  const aProtectedSpans: TArray<TFinalBodyEdit>):
   Boolean;
 var
   i: Integer;
@@ -4095,6 +4139,9 @@ begin
       Inc(i);
     lName := Copy(aBodyText, lStartOffset, i - lStartOffset);
 
+    if ProtectedBodySpanAt(aProtectedSpans, lStartOffset, lName) then
+      Continue;
+
     lSelectorMember := SimpleSelectorHasMember(aFacts, aBinding, aDecisions, lName);
     if BodyOffsetInsideLiteralOrComment(aBodyText, lStartOffset) or
       BodyOffsetAppearsQualified(aBodyText, lStartOffset) or
@@ -4135,6 +4182,17 @@ begin
   end;
 end;
 
+function BodyHasEscapedIdentifier(const aText: string): Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  for i := 1 to Length(aText) - 1 do
+    if (aText[i] = '&') and CharInSet(aText[i + 1], ['A'..'Z', 'a'..'z', '_']) and
+      not BodyOffsetInsideLiteralOrComment(aText, i) then
+      Exit(True);
+end;
+
 function PrepareFinalBodyText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aEditDecisions, aValidationDecisions: TArray<TFinalSelectorDecision>;
@@ -4144,6 +4202,7 @@ function PrepareFinalBodyText(const aFacts: TRemoveWithPlanFacts;
   Boolean;
 var
   lBodyEdits: TArray<TFinalBodyEdit>;
+  lProtectedSpans: TArray<TFinalBodyEdit>;
   lDeclarations: TArray<Boolean>;
   lBodyRange: TDelphiSemanticRemoveWithSourceRange;
   lBodyStartsWithBegin: Boolean;
@@ -4166,6 +4225,13 @@ begin
   if aReplacementText = '' then
   begin
     aReason := 'body-range-not-resolved';
+    Exit;
+  end;
+  // DS-671: qualification must include the escape in its replacement range.
+  // Until that route is proven, never emit &receiver.Member from &Member.
+  if BodyHasEscapedIdentifier(aReplacementText) then
+  begin
+    aReason := 'escaped-identifier-unsupported';
     Exit;
   end;
   if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
@@ -4192,6 +4258,25 @@ begin
   end;
 
   lDeclarations := InlineDeclarationPositions(aReplacementText);
+  // Seed identity edits so fallback member scans cannot rewrite proven label tokens.
+  for lReference in aBinding.References do
+    if (lReference.LookupSource = 'syntax') and
+      MatchText(lReference.Kind, ['label', 'goto-keyword']) and
+      ReferenceInsideRange(lReference, lBodyRange) then
+    begin
+      lOffset := RangeRelativeOffset(lBodyRange, lLines, lReference.Line,
+        lReference.Column, lLineBreak);
+      if not BodyTextIdentifierAt(aReplacementText, lReference.Name, lOffset) then
+      begin
+        aReason := 'label-source-range-not-resolved';
+        Exit;
+      end;
+      lReferenceName := Copy(aReplacementText, lOffset, Length(lReference.Name));
+      AddFinalBodyEdit(lProtectedSpans, lOffset, Length(lReferenceName),
+        lReferenceName, lReferenceName);
+      AddFinalBodyEdit(lBodyEdits, lOffset, Length(lReferenceName),
+        lReferenceName, lReferenceName);
+    end;
   for lReference in aBinding.References do
   begin
     if not ReferenceInsideRange(lReference, lBodyRange) then
@@ -4199,6 +4284,9 @@ begin
     lOffset := RangeRelativeOffset(lBodyRange, lLines, lReference.Line,
       lReference.Column, lLineBreak);
     if BodyOffsetIsDeclaration(lDeclarations, lOffset) then
+      Continue;
+    if (lReference.LookupSource = 'syntax') and
+      MatchText(lReference.Kind, ['label', 'goto-keyword']) then
       Continue;
     if ReferenceBlocksFinalRewrite(aFacts, aBinding, aEditDecisions, lReference,
       aLineCache, aReason) then
@@ -4286,9 +4374,13 @@ begin
   AddIndexedMemberBodyEdits(aFacts, aBinding, aEditDecisions, aReplacementText,
     lDeclarations, lBodyEdits);
   AddDependentSelectorBodyEdits(aEditDecisions, aReplacementText, lBodyEdits);
-  ApplyFinalBodyEdits(lBodyEdits, aReplacementText);
+  if not ApplyFinalBodyEdits(lBodyEdits, lProtectedSpans, aReplacementText) then
+  begin
+    aReason := 'label-source-range-overlap';
+    Exit;
+  end;
   if FinalBodyHasIncompleteReceiverReference(aFacts, aBinding, aValidationDecisions,
-    aLineCache, lBodyRange, aReplacementText) then
+    aLineCache, lBodyRange, aReplacementText, lProtectedSpans) then
   begin
     aReason := 'semantic-rewrite-incomplete';
     Exit;
@@ -5168,6 +5260,15 @@ begin
   Result.Verification := FinalVerification(aCandidateEdits[aBindingIndex]);
   Result.ReferenceIds := aCandidateEdits[aBindingIndex].ReferenceIds;
   lVisibleDecisions := Copy(aInheritedDecisions);
+  if SameText(lBinding.SkipReason, 'MEMBERS_UNVERIFIED') or
+    SameText(lBinding.SkipReason, 'MEMBERS_INCOMPLETE') or
+    SameText(lBinding.SkipReason, 'SCOPE_UNVERIFIED') then
+  begin
+    Result.Status := 'skipped';
+    Result.Reason := LowerCase(StringReplace(lBinding.SkipReason, '_', '-', [rfReplaceAll]));
+    Result.SafetyReason := lBinding.SkipReason;
+    Exit;
+  end;
   if BindingFactSkipReason(aFacts, lBinding, aLineCache, lReason) then
   begin
     Result.Status := 'skipped';
@@ -6004,6 +6105,7 @@ procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aBindingSource: TRemoveWithPlanBindingSource;
   const aBindingTree: TFinalBindingTree;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
+  const aSafetyReasons: TArray<string>;
   const aBindingIndex: Integer;
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDelphiSemanticSourceContextCache;
@@ -6018,9 +6120,15 @@ var
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lBinding := aBindingSource.BindingByIndex(aBindingIndex);
-  lStatement := BuildFinalStatement(aFacts, aBindingSource, aBindingTree,
-    aBindingIndex, FinalStatementId(aBindingIndex + 1), aCandidateEdits,
-    aReservedNames, aLineCache, aInheritedDecisions);
+  if aSafetyReasons[aBindingIndex] <> '' then
+    lStatement := BuildSkippedFinalStatement(lBinding,
+      FinalStatementId(aBindingIndex + 1),
+      LowerCase(StringReplace(aSafetyReasons[aBindingIndex], '_', '-',
+      [rfReplaceAll])), aSafetyReasons[aBindingIndex])
+  else
+    lStatement := BuildFinalStatement(aFacts, aBindingSource, aBindingTree,
+      aBindingIndex, FinalStatementId(aBindingIndex + 1), aCandidateEdits,
+      aReservedNames, aLineCache, aInheritedDecisions);
   AddFinalStatement(aPlan, lStatement);
   if SameText(lStatement.Status, 'planned') then
     Exit;
@@ -6058,9 +6166,10 @@ begin
 
   for lChildIndex in aBindingTree.ChildIndexes[aBindingIndex] do
   begin
-    if aBindingSource.BindingHasStableSourceRange(lChildIndex) then
+    if (aSafetyReasons[lChildIndex] <> '') or
+      aBindingSource.BindingHasStableSourceRange(lChildIndex) then
       AddFinalStatementTree(aPlan, aFacts, aBindingSource, aBindingTree,
-        aCandidateEdits, lChildIndex, aReservedNames, aLineCache,
+        aCandidateEdits, aSafetyReasons, lChildIndex, aReservedNames, aLineCache,
         lChildInheritedDecisions);
   end;
 end;
@@ -6290,13 +6399,18 @@ var
   lBindingIndex: Integer;
   lCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   lEdit: TDelphiSemanticRemoveWithEdit;
+  lFinalStatement: TDelphiSemanticRemoveWithFinalStatement;
   lHashCache: TDictionary<string, string>;
+  lHasPlannedStatement: Boolean;
   lInheritedDecisions: TArray<TFinalSelectorDecision>;
   lLineCache: TDelphiSemanticSourceContextCache;
+  lParentIndex: Integer;
   lCoreStopwatch: TStopwatch;
   lPhaseStopwatch: TStopwatch;
   lReservedNames: TDictionary<string, Integer>;
   lRootIndex: Integer;
+  lSafetyReasons: TArray<string>;
+  lSafetyReason: string;
   lStatementIndex: Integer;
 begin
   lCoreStopwatch := TStopwatch.StartNew;
@@ -6329,16 +6443,44 @@ begin
     lLineCache := TDelphiSemanticSourceContextCache.Create;
     lReservedNames := TDictionary<string, Integer>.Create;
     try
+      lBindingCount := aBindingSource.BindingCount;
+      lPhaseStopwatch := TStopwatch.StartNew;
+      try
+        lBindingTree := BuildFinalBindingTree(aBindingSource, lLineCache);
+      finally
+        lPhaseStopwatch.Stop;
+        aMetrics.BindingTreeMilliseconds :=
+          lPhaseStopwatch.ElapsedMilliseconds;
+      end;
+      SetLength(lSafetyReasons, lBindingCount);
+      for lBindingIndex := 0 to lBindingCount - 1 do
+      begin
+        lBinding := aBindingSource.BindingByIndex(lBindingIndex);
+        if not (SameText(lBinding.SkipReason, 'MEMBERS_UNVERIFIED') or
+          SameText(lBinding.SkipReason, 'MEMBERS_INCOMPLETE') or
+          SameText(lBinding.SkipReason, 'SCOPE_UNVERIFIED')) then
+          Continue;
+        lSafetyReasons[lBindingIndex] := lBinding.SkipReason;
+        lParentIndex := lBindingTree.ParentIndexes[lBindingIndex];
+        while lParentIndex >= 0 do
+        begin
+          // A parent rewrite owns its nested source, so it cannot cover an
+          // unverified child even when the parent's selector is verified.
+          lSafetyReasons[lParentIndex] := lBinding.SkipReason;
+          lParentIndex := lBindingTree.ParentIndexes[lParentIndex];
+        end;
+      end;
       lPhaseStopwatch := TStopwatch.StartNew;
       try
         lStatementIndex := 0;
-        lBindingCount := aBindingSource.BindingCount;
         SetLength(lCandidateEdits, lBindingCount);
         for lBindingIndex := 0 to lBindingCount - 1 do
         begin
           lBinding := aBindingSource.BindingByIndex(lBindingIndex);
           Inc(lStatementIndex);
-          if aBindingSource.BindingHasStableSourceRange(lBindingIndex) then
+          if lSafetyReasons[lBindingIndex] <> '' then
+            Continue
+          else if aBindingSource.BindingHasStableSourceRange(lBindingIndex) then
           begin
             lEdit := AddEdit(Result, lBinding, lHashCache, lLineCache);
             lCandidateEdits[lBindingIndex] := lEdit;
@@ -6356,22 +6498,15 @@ begin
       end;
       lPhaseStopwatch := TStopwatch.StartNew;
       try
-        lBindingTree := BuildFinalBindingTree(aBindingSource, lLineCache);
-      finally
-        lPhaseStopwatch.Stop;
-        aMetrics.BindingTreeMilliseconds :=
-          lPhaseStopwatch.ElapsedMilliseconds;
-      end;
-      lPhaseStopwatch := TStopwatch.StartNew;
-      try
         for lRootIndex in lBindingTree.RootIndexes do
         begin
           lBinding := aBindingSource.BindingByIndex(lRootIndex);
-          if aBindingSource.BindingHasStableSourceRange(lRootIndex) then
+          if (lSafetyReasons[lRootIndex] <> '') or
+            aBindingSource.BindingHasStableSourceRange(lRootIndex) then
           begin
             lInheritedDecisions := nil;
             AddFinalStatementTree(Result, aFacts, aBindingSource, lBindingTree,
-              lCandidateEdits, lRootIndex, lReservedNames, lLineCache,
+              lCandidateEdits, lSafetyReasons, lRootIndex, lReservedNames, lLineCache,
               lInheritedDecisions);
           end;
         end;
@@ -6391,6 +6526,22 @@ begin
       try
         RefreshStatementsFromBindings(Result, aBindingSource, lBindingTree);
         RefreshSkippedStatementsFromStatements(Result);
+        lHasPlannedStatement := False;
+        lSafetyReason := '';
+        for lFinalStatement in Result.FinalStatements do
+        begin
+          if SameText(lFinalStatement.Status, 'planned') then
+            lHasPlannedStatement := True;
+          if (lSafetyReason = '') and
+            (SameText(lFinalStatement.SafetyReason, 'MEMBERS_UNVERIFIED') or
+            SameText(lFinalStatement.SafetyReason, 'MEMBERS_INCOMPLETE')) then
+            lSafetyReason := lFinalStatement.SafetyReason;
+        end;
+        if (not lHasPlannedStatement) and (lSafetyReason <> '') then
+        begin
+          Result.Status := 'blocked';
+          Result.Diagnostic := lSafetyReason + ': no verified WITH statement can be planned.';
+        end;
       finally
         lPhaseStopwatch.Stop;
         aMetrics.StatementRefreshMilliseconds :=
@@ -6408,13 +6559,57 @@ begin
   end;
 end;
 
+function UnverifiedFactsReason(const aFacts: TDelphiSemanticProjectWithBindingFacts): string;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lModel: TDelphiSemanticUnitModel;
+  lUnsafeCount: Integer;
+begin
+  Result := '';
+  lUnsafeCount := 0;
+  for lModel in aFacts.UnitModels do
+    if SameText(lModel.ScopeModelStatus, 'include-with-unverified') and
+      (Length(aFacts.Bindings) = 0) then
+      Exit('WITH_IN_INCLUDE_UNVERIFIED: ' + lModel.FileName);
+  for lBinding in aFacts.Bindings do
+    for lModel in aFacts.UnitModels do
+      if SameText(lBinding.FileName, lModel.FileName) and
+        not SameText(lModel.ScopeModelStatus, 'ast') then
+      begin
+        Inc(lUnsafeCount);
+        if Result = '' then
+          Result := 'SCOPE_UNVERIFIED: ' + lModel.FileName + ' (' +
+            lModel.ScopeModelStatus + ')';
+        Break;
+      end;
+  if lUnsafeCount <> Length(aFacts.Bindings) then
+    Result := '';
+end;
+
 class function TDelphiSemanticRemoveWithPlanner.Plan(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiSemanticRemoveWithPlan;
 var
+  i: Integer;
+  j: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
   lBindingSource: TArrayRemoveWithPlanBindingSource;
   lMetrics: TDelphiSemanticRemoveWithPlannerMetrics;
+  lModel: TDelphiSemanticUnitModel;
   lPlanFacts: TRemoveWithPlanFacts;
+  lSafetyReason: string;
 begin
+  lSafetyReason := UnverifiedFactsReason(aFacts);
+  if lSafetyReason <> '' then
+  begin
+    Result := Default(TDelphiSemanticRemoveWithPlan);
+    Result.Operation := 'remove-with';
+    Result.Status := 'blocked';
+    Result.Diagnostic := lSafetyReason;
+    Result.ContextFingerprint := aFacts.ContextFingerprint;
+    Result.BaselineSemanticModelVersion := 'project-with-binding-v1';
+    Exit;
+  end;
   lMetrics := Default(TDelphiSemanticRemoveWithPlannerMetrics);
   lPlanFacts := Default(TRemoveWithPlanFacts);
   lPlanFacts.ContextFingerprint := aFacts.ContextFingerprint;
@@ -6425,9 +6620,33 @@ begin
     lPlanFacts.LookupIndex := TPlannerLookupMemo.Create;
     lPlanFacts.LookupIndex.Initialize(aFacts.LookupIndex);
     lPlanFacts.UnitVisibility := TRemoveWithUnitVisibility.Create(aFacts.UnitModels);
-    lBindingSource := TArrayRemoveWithPlanBindingSource.Create(aFacts.Bindings);
+    lBindings := Copy(aFacts.Bindings);
+    for i := 0 to High(lBindings) do
+    begin
+      lBinding := lBindings[i];
+      for j := 0 to High(aFacts.UnitModels) do
+      begin
+        lModel := aFacts.UnitModels[j];
+        if SameText(lBinding.FileName, lModel.FileName) and
+          not SameText(lModel.ScopeModelStatus, 'ast') then
+        begin
+          lBinding.Status := 'skipped';
+          lBinding.SkipReason := 'SCOPE_UNVERIFIED';
+          Break;
+        end;
+      end;
+      lBindings[i] := lBinding;
+    end;
+    lBindingSource := TArrayRemoveWithPlanBindingSource.Create(lBindings);
     Result := PlanFromBindingSource(lPlanFacts, lBindingSource,
       'project-with-binding-v1', lMetrics);
+    if SameText(Result.Status, 'planned') then
+      for lModel in aFacts.UnitModels do
+        if SameText(lModel.ScopeModelStatus, 'include-with-unverified') then
+        begin
+          Result.Diagnostic := 'WITH_IN_INCLUDE_UNVERIFIED: ' + lModel.FileName;
+          Break;
+        end;
   finally
     lPlanFacts.UnitVisibility.Free;
     lBindingSource.Free;
@@ -6548,13 +6767,30 @@ constructor TSnapshotRemoveWithPlanBindingSource.Create(
   const aSnapshot: TDelphiProjectSnapshot);
 var
   i: Integer;
+  j: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lUnit: TUnitSnapshot;
 begin
   inherited Create;
   fSnapshot := aSnapshot;
   SetLength(fBindings, fSnapshot.RemoveWithPlanningBindingCount);
   for i := 0 to High(fBindings) do
-    fBindings[i] := SnapshotWithBinding(fSnapshot,
+  begin
+    lBinding := SnapshotWithBinding(fSnapshot,
       fSnapshot.RemoveWithPlanningBindingByIndex(i));
+    for j := 0 to fSnapshot.UnitCount - 1 do
+    begin
+      lUnit := fSnapshot.UnitByIndex(j);
+      if SameText(lBinding.FileName, fSnapshot.TextOf(lUnit.FileNameId)) and
+        not SameText(fSnapshot.TextOf(lUnit.ScopeModelStatusId), 'ast') then
+      begin
+        lBinding.Status := 'skipped';
+        lBinding.SkipReason := 'SCOPE_UNVERIFIED';
+        Break;
+      end;
+    end;
+    fBindings[i] := lBinding;
+  end;
 end;
 
 function TSnapshotRemoveWithPlanBindingSource.BindingByIndex(
@@ -6648,10 +6884,16 @@ class function TDelphiSemanticRemoveWithPlanner.Plan(
   TDelphiSemanticRemoveWithPlan;
 var
   i: Integer;
+  j: Integer;
+  lBinding: TSemanticRemoveWithBindingFact;
   lBindingSource: TSnapshotRemoveWithPlanBindingSource;
   lMaterializationStopwatch: TStopwatch;
   lPlanFacts: TRemoveWithPlanFacts;
   lRoutineOwnerCount: Integer;
+  lScopeStatus: string;
+  lUnit: TUnitSnapshot;
+  lUnsafeCount: Integer;
+  lSafetyReason: string;
 begin
   aMetrics := Default(TDelphiSemanticRemoveWithPlannerMetrics);
   Result := Default(TDelphiSemanticRemoveWithPlan);
@@ -6666,6 +6908,41 @@ begin
   if not aSnapshot.HasRemoveWithPlanningFacts then
   begin
     Result.Diagnostic := 'Project snapshot has no remove-with planning facts.';
+    Exit;
+  end;
+
+  lUnsafeCount := 0;
+  lSafetyReason := '';
+  for i := 0 to aSnapshot.UnitCount - 1 do
+  begin
+    lUnit := aSnapshot.UnitByIndex(i);
+    lScopeStatus := aSnapshot.TextOf(lUnit.ScopeModelStatusId);
+    if SameText(lScopeStatus, 'include-with-unverified') then
+    begin
+      if lSafetyReason = '' then
+        lSafetyReason := 'WITH_IN_INCLUDE_UNVERIFIED: ' +
+          aSnapshot.TextOf(lUnit.FileNameId);
+    end;
+    for j := 0 to aSnapshot.RemoveWithPlanningBindingCount - 1 do
+    begin
+      lBinding := aSnapshot.RemoveWithPlanningBindingByIndex(j);
+      if not SameText(aSnapshot.ExactTextOf(lBinding.FileNameId),
+        aSnapshot.TextOf(lUnit.FileNameId)) then
+        Continue;
+      if not SameText(lScopeStatus, 'ast') then
+      begin
+        Inc(lUnsafeCount);
+        if lSafetyReason = '' then
+          lSafetyReason := 'SCOPE_UNVERIFIED: ' +
+            aSnapshot.TextOf(lUnit.FileNameId) + ' (' + lScopeStatus + ')';
+      end;
+    end;
+  end;
+  if (lSafetyReason <> '') and
+    ((aSnapshot.RemoveWithPlanningBindingCount = 0) or
+    (lUnsafeCount = aSnapshot.RemoveWithPlanningBindingCount)) then
+  begin
+    Result.Diagnostic := lSafetyReason;
     Exit;
   end;
 
@@ -6694,6 +6971,8 @@ begin
     end;
     Result := PlanFromBindingSource(lPlanFacts, lBindingSource,
       'project-snapshot-v1', aMetrics);
+    if (lSafetyReason <> '') and SameText(Result.Status, 'planned') then
+      Result.Diagnostic := lSafetyReason;
   finally
     lBindingSource.Free;
     lPlanFacts.LookupIndex.Free;

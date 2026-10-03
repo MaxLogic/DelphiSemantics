@@ -83,6 +83,8 @@ type
     [Test]
     procedure BindsWithBodyNamesToSelectorMembers;
     [Test]
+    procedure PlansCrossUnitPointerArrayWithMembers;
+    [Test]
     procedure PlansProgramMainBlockReferences;
     [Test]
     procedure PlansProgramGlobalDeclaredAfterRoutineWithSameNamedLocal;
@@ -1375,6 +1377,71 @@ begin
 
   lPlan := PlanCompletenessRename(lRoot, 'UCons.pas', 7, 3, 'GTally');
   AssertCompletePlan(lPlan, ['ucons.pas:7:3', 'ucons.pas:10:3'], 2);
+end;
+
+procedure TRenameCompletenessTests.PlansCrossUnitPointerArrayWithMembers;
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lKeys: TArray<string>;
+  lOptions: TDelphiSemanticOptions;
+  lPlan: TDelphiSemanticRenamePlan;
+  lReasons: string;
+  lRoot: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+  lUsage: TDelphiSemanticUsage;
+  lUsages: TDelphiSemanticUsageResult;
+begin
+  lRoot := WriteCompletenessProject('completeness-selector-alias',
+    'program P;'#13#10'uses'#13#10 +
+    '  SelectorAliasProvider in ''SelectorAliasProvider.pas'','#13#10 +
+    '  SelectorAliasConsumer in ''SelectorAliasConsumer.pas'';'#13#10 +
+    'begin'#13#10'end.'#13#10,
+    [CompletenessFile('SelectorAliasProvider.pas', TFile.ReadAllText(
+      FixturePath('Resolver', 'SelectorAliasProvider.pas'))),
+     CompletenessFile('SelectorAliasConsumer.pas', TFile.ReadAllText(
+      FixturePath('Resolver', 'SelectorAliasConsumer.pas')))]);
+
+  lPlan := PlanCompletenessRename(lRoot, 'SelectorAliasProvider.pas', 7, 5,
+    'RenamedValue');
+  lReasons := '';
+  for lUsage in lPlan.UnresolvedReferences do
+    lReasons := lReasons + CompletenessKey(lUsage.FileName, lUsage.Line,
+      lUsage.Column) + '=' + lUsage.Reason + ' ';
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic + ' ' + lReasons);
+  AssertCompletePlan(lPlan, OccurrenceKeys(lRoot,
+    ['SelectorAliasProvider.pas', 'SelectorAliasConsumer.pas'], 'Value'), 4);
+  lPlan := PlanCompletenessRename(lRoot, 'SelectorAliasProvider.pas', 7, 5,
+    'RenamedValue');
+  AssertCompletePlan(lPlan, OccurrenceKeys(lRoot,
+    ['SelectorAliasProvider.pas', 'SelectorAliasConsumer.pas'], 'Value'), 4);
+
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lSessionResult.Success, 'Find-usages project session must open.');
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      lUsages := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lContext,
+        TPath.Combine(lRoot, 'SelectorAliasProvider.pas'), 7, 5);
+      Assert.AreEqual('resolved', lUsages.Status, lUsages.Diagnostic);
+      lKeys := [];
+      for lUsage in lUsages.Usages do
+        lKeys := lKeys + [CompletenessKey(lUsage.FileName, lUsage.Line, lUsage.Column)];
+      Assert.AreEqual(4, Integer(Length(lKeys)));
+      Assert.AreEqual(SortedKeysText(OccurrenceKeys(lRoot,
+        ['SelectorAliasProvider.pas', 'SelectorAliasConsumer.pas'], 'Value')),
+        SortedKeysText(lKeys), 'Find-usages must identify all three selector members.');
+      Assert.AreEqual(0, Integer(Length(lUsages.Unresolved)));
+    finally
+      lContext.ProjectSnapshot := nil;
+    end;
+  finally
+    lSessionResult.Session.Free;
+  end;
 end;
 
 const

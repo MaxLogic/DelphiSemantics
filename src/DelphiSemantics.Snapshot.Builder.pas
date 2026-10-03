@@ -75,7 +75,8 @@ uses
   System.Diagnostics, System.Generics.Collections, System.IOUtils,
   System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils,
-  DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Snapshot.RemoveWith;
+  DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Resolve,
+  DelphiSemantics.Resolve.SelectorTypes, DelphiSemantics.Snapshot.RemoveWith;
 
 const
   cSnapshotDeclarationKindAlias = 'alias';
@@ -126,7 +127,11 @@ type
   TSnapshotMemberLookup = (smlFound, smlAbsent, smlUnknown);
 
   TSnapshotTargetSymbolList = TList<TSnapshotTargetSymbol>;
-  TSnapshotTargetSymbolsByName = TObjectDictionary<string, TSnapshotTargetSymbolList>;
+  TSnapshotTargetSymbolsByName = class(TObjectDictionary<string, TSnapshotTargetSymbolList>)
+  public
+    Models: TArray<TDelphiSemanticUnitModel>;
+    ModelUnitIds: TArray<TSemanticUnitId>;
+  end;
   TOriginalTargetUnit = record
     Snapshot: TDelphiProjectSnapshot;
     UnitSnapshot: TUnitSnapshot;
@@ -612,6 +617,8 @@ begin
     Result := TSnapshotTargetSymbolsByName.Create([doOwnsValues],
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     try
+      Result.Models := Copy(aModels);
+      Result.ModelUnitIds := Copy(aModelUnitIds);
       for i := 0 to High(aModels) do
         AddModelSnapshotTargetSymbols(aSymbols, Result, aModels[i],
           ModelUnitIdAt(aModelUnitIds, i));
@@ -1169,10 +1176,10 @@ begin
       Exit(True);
 end;
 
-// Resolves a structured type name as unit aUnitName sees it: its own declarations win, else
-// exactly one interface-section type of a project unit it uses. Types outside the project stay
-// unresolved, so nothing is proven about their members.
-function TryResolveSnapshotTypeFromUnit(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+// Preserve the declaring unit when walking aliases; same-named types in other units are not
+// interchangeable. A local declaration wins, while duplicate visible imports remain unknown.
+function TryResolveSnapshotDeclaredTypeFromUnit(
+  const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aUnitName, aSectionKind, aTypeName: string; out aType: TSnapshotTargetSymbol): Boolean;
 var
   lLocal: TSnapshotTargetSymbol;
@@ -1194,10 +1201,12 @@ begin
   lUsedCount := 0;
   for lSymbol in lSymbols do
   begin
-    if not SameText(lSymbol.Kind, 'type') or (lSymbol.OwnerName <> '') or
-      not IsSnapshotStructuredTypeKind(lSymbol.TypeName) then
+    if not MatchText(lSymbol.Kind, ['type', cSnapshotDeclarationKindAlias]) or
+      (lSymbol.OwnerName <> '') then
       Continue;
-    if SameText(lSymbol.UnitName, aUnitName) then
+    if SameText(lSymbol.UnitName, aUnitName) and
+      (SameText(aSectionKind, 'implementation') or
+      SameText(lSymbol.SectionKind, 'interface')) then
     begin
       if (lLocalCount = 0) or not SnapshotSameDeclaration(lLocal, lSymbol) then
       begin
@@ -1225,6 +1234,16 @@ begin
   Result := lUsedCount = 1;
   if Result then
     aType := lUsed;
+end;
+
+function TryResolveSnapshotTypeFromUnit(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aUnitName, aSectionKind, aTypeName: string; out aType: TSnapshotTargetSymbol): Boolean;
+begin
+  Result := TryResolveSnapshotDeclaredTypeFromUnit(aSymbolsByName, aUnitName,
+    aSectionKind, aTypeName, aType) and SameText(aType.Kind, 'type') and
+    IsSnapshotStructuredTypeKind(aType.TypeName);
+  if not Result then
+    aType := Default(TSnapshotTargetSymbol);
 end;
 
 // Finds aName on aType or its project ancestors. Unverified units, helpers, overloads, types
@@ -1372,6 +1391,100 @@ begin
   Result := True;
 end;
 
+function TryResolveSnapshotPostfixedSelectorType(
+  const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  const aWith: TDelphiSemanticWithStatement; const aSelector: string; const aDepth: Integer;
+  out aType: TSnapshotTargetSymbol): Boolean;
+var
+  i: Integer;
+  lBaseName: string;
+  lCurrentModel: TDelphiSemanticUnitModel;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lDereferenced: Boolean;
+  lIndexBeforeDereference: Boolean;
+  lIndexed: Boolean;
+  lModelIndex: Integer;
+  lSectionKind: string;
+  lSelectorContext: TDelphiSemanticResolveContext;
+  lSelectorReference: TDelphiSemanticReference;
+  lSelectorRef: TSemanticSymbolRef;
+  lSymbol: TSnapshotTargetSymbol;
+  lSymbols: TSnapshotTargetSymbolList;
+  lTypeName: string;
+begin
+  Result := False;
+  aType := Default(TSnapshotTargetSymbol);
+  if (Pos('.', aSelector) > 0) or not ParseSelectorToken(aSelector, lBaseName,
+    lIndexed, lDereferenced, lIndexBeforeDereference) or
+    not (lIndexed or lDereferenced) or not IsSnapshotPlainIdentifier(lBaseName) then
+    Exit;
+
+  lSelectorReference := aReference;
+  lSelectorReference.Name := lBaseName;
+  lSelectorReference.Line := aWith.Line;
+  lSelectorReference.Column := aWith.Column;
+  lSelectorReference.Offset := 0;
+  lSelectorReference.EndOffset := 0;
+  lSelectorReference.EndLine := 0;
+  lSelectorReference.EndColumn := 0;
+  if not TryResolveSnapshotNameCandidates(aSymbolsByName, aModel,
+    lSelectorReference, aDepth + 1, lSelectorRef) or
+    not TryFindSnapshotTargetSymbol(aSymbolsByName, lBaseName, lSelectorRef, lSymbol) then
+    Exit;
+  if not lSymbol.UnitVerified or
+    not MatchText(lSymbol.Kind, ['var', 'threadvar', cSnapshotSymbolKindLocal,
+      cSnapshotSymbolKindParameter, 'field', 'class-var', 'property']) then
+    Exit;
+
+  lModelIndex := -1;
+  for i := 0 to High(aSymbolsByName.Models) do
+    if (ModelUnitIdAt(aSymbolsByName.ModelUnitIds, i) = lSymbol.Ref.UnitId) and
+      SameText(aSymbolsByName.Models[i].UnitName, lSymbol.UnitName) then
+    begin
+      if lModelIndex >= 0 then
+        Exit;
+      lModelIndex := i;
+    end;
+  if lModelIndex < 0 then
+    Exit;
+
+  lCurrentModel := aSymbolsByName.Models[lModelIndex];
+  lSectionKind := SnapshotSectionForSymbol(lSymbol);
+  lSelectorContext := Default(TDelphiSemanticResolveContext);
+  lSelectorContext.IndexedUnitModels := aSymbolsByName.Models;
+  if not TryApplySelectorPostfix(lSelectorContext, lCurrentModel, lSectionKind,
+    lSymbol.TypeName, lIndexed, lDereferenced, lIndexBeforeDereference, lTypeName) or
+    not TryFindSelectorTypeDeclaration(lCurrentModel, lSectionKind, lTypeName,
+      lDeclaration) or (lDeclaration.FileName <> '') or
+    not IsSnapshotStructuredTypeKind(lDeclaration.TypeName) or
+    not aSymbolsByName.TryGetValue(lDeclaration.Name, lSymbols) then
+    Exit;
+
+  lModelIndex := -1;
+  for i := 0 to High(aSymbolsByName.Models) do
+    if SameText(aSymbolsByName.Models[i].FileName, lCurrentModel.FileName) and
+      SameText(aSymbolsByName.Models[i].UnitName, lCurrentModel.UnitName) then
+    begin
+      if lModelIndex >= 0 then
+        Exit;
+      lModelIndex := i;
+    end;
+  if lModelIndex < 0 then
+    Exit;
+
+  for lSymbol in lSymbols do
+    if (lSymbol.Ref.UnitId = ModelUnitIdAt(aSymbolsByName.ModelUnitIds, lModelIndex)) and
+      SameText(lSymbol.Kind, 'type') and (lSymbol.Line = lDeclaration.Line) and
+      (lSymbol.Column = lDeclaration.Column) then
+    begin
+      if Result then
+        Exit(False);
+      aType := lSymbol;
+      Result := True;
+    end;
+end;
+
 function TryResolveWithSelectorType(const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
   const aWith: TDelphiSemanticWithStatement; const aSelector: string; const aDepth: Integer;
@@ -1386,7 +1499,8 @@ begin
       SnapshotSectionForReference(aReference), SnapshotRoutineOwnerName(aReference.RoutineName),
       aType));
   if not IsSnapshotPlainIdentifier(aSelector) then
-    Exit(False);
+    Exit(TryResolveSnapshotPostfixedSelectorType(aSymbolsByName, aModel, aReference,
+      aWith, aSelector, aDepth, aType));
 
   // The selector is resolved where the with statement starts, in the same routine.
   lSelectorReference := aReference;
@@ -3028,8 +3142,13 @@ end;
 function BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TDelphiProjectSnapshot;
 var
+  i: Integer;
   lBuilder: TDelphiProjectSnapshotBuilder;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lDiagnosticText: string;
+  lModel: TDelphiSemanticUnitModel;
   lPlanningFacts: TSemanticRemoveWithPlanningFacts;
+  lUnit: TUnitSnapshot;
 begin
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
   try
@@ -3037,6 +3156,30 @@ begin
       aFacts);
     lBuilder.SetRemoveWithPlanningFactsOwned(lPlanningFacts);
     AttachRemoveWithVisibility(lBuilder, aFacts.UnitModels);
+    for i := 0 to High(aFacts.UnitModels) do
+    begin
+      lModel := aFacts.UnitModels[i];
+      lDiagnosticText := '';
+      for lDiagnostic in lModel.Diagnostics do
+        if SameText(lDiagnostic.Code, 'SCOPE_MODEL_FAILED') or
+          SameText(lDiagnostic.Code, 'WITH_IN_INCLUDE_UNVERIFIED') then
+        begin
+          lDiagnosticText := lDiagnostic.Code + ': ' + lDiagnostic.Message;
+          Break;
+        end;
+      lUnit := TUnitSnapshot.Create(TSemanticUnitId(i + 1),
+        lBuilder.Strings.Intern(SnapshotFullPath(lModel.FileName)),
+        lBuilder.Strings.Intern(lModel.UnitName));
+      try
+        lUnit.SetScopeModelMetadata(lBuilder.Strings.Intern(lModel.ScopeModelStatus),
+          lBuilder.Strings.Intern(lModel.ScopeModelVersion),
+          lBuilder.Strings.Intern(lDiagnosticText), lModel.RejectedDeclarationCount);
+        lBuilder.AddUnit(lUnit);
+        lUnit := nil;
+      finally
+        lUnit.Free;
+      end;
+    end;
     Result := lBuilder.Build;
   finally
     lBuilder.Free;

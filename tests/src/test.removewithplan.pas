@@ -30,6 +30,24 @@ type
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
     [Test]
+    procedure PlansCrossUnitPointerArraySelectorMembersAndRefusesUnknown;
+    [Test]
+    procedure RefusesUnverifiedWithUnitAndMemberFacts;
+    [Test]
+    procedure MemberDiagnosticsOnlyRejectTheirSelectorType;
+    [Test]
+    procedure InheritedIncompleteMemberRefusesDerivedAndAliasSelectors;
+    [Test]
+    procedure TransitiveAliasRefusesIncompleteBaseInImportedUnit;
+    [Test]
+    procedure ProfileTypeAliasAvoidsFalseProjectMemberRefusal;
+    [Test]
+    procedure ProfileTerminalDoesNotOverrideProjectOrUnresolvedAliases;
+    [Test]
+    procedure BrokenRoutineProjectRefusesSnapshotAndCompatibilityPlans;
+    [Test]
+    procedure IncludeWithRefusesWithoutRangeCheckError;
+    [Test]
     [TestCase('indexed retained member', '0')]
     [TestCase('nearest own member', '1')]
     [TestCase('ordinary retained member', '2')]
@@ -297,6 +315,8 @@ type
     procedure FinalDtoUsesFocusedFinalRewriteUnit;
     [Test]
     procedure FinalDtoMatchesNestedRewriteOrdering;
+    [Test]
+    procedure NestedSafetySkipHasOneFinalStatementPerBinding;
     [Test]
     procedure FinalDtoMatchesTempPolicyCollisionRules;
     [Test]
@@ -971,7 +991,7 @@ implementation
 uses
   System.IOUtils, System.JSON.Serializers, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  DelphiSemantics.Model.Json, DelphiSemantics.RemoveWithPlan, DelphiSemantics.Snapshot,
+  DelphiSemantics.Model, DelphiSemantics.Model.Json, DelphiSemantics.RemoveWithPlan, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding,
   Test.Support;
 
@@ -1565,6 +1585,614 @@ begin
     GMaxTdbProjectPath := lFullProjectPath;
     GMaxTdbPlanCached := True;
   end;
+end;
+
+procedure TRemoveWithPlanTests.PlansCrossUnitPointerArraySelectorMembersAndRefusesUnknown;
+const
+  cLines: array[0..2] of Integer = (18, 20, 22);
+  cSelectors: array[0..2] of string = ('DF[0]^', 'X^', 'A[0]');
+var
+  i: Integer;
+  lConsumerPath: string;
+  lConsumerText: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lRoot := TempPath('remove-with-cross-unit-selector-alias');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.Copy(FixturePath('Resolver\SelectorAliasProvider.pas'),
+    TPath.Combine(lRoot, 'SelectorAliasProvider.pas'), True);
+  lConsumerPath := TPath.Combine(lRoot, 'SelectorAliasConsumer.pas');
+  lConsumerText := TFile.ReadAllText(FixturePath('Resolver\SelectorAliasConsumer.pas'));
+  TFile.WriteAllText(lConsumerPath, lConsumerText, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P;'#13#10'uses'#13#10 +
+    '  SelectorAliasProvider in ''SelectorAliasProvider.pas'','#13#10 +
+    '  SelectorAliasConsumer in ''SelectorAliasConsumer.pas'';'#13#10 +
+    'begin'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="SelectorAliasProvider.pas"/>' +
+    '<DCCReference Include="SelectorAliasConsumer.pas"/></ItemGroup></Project>',
+    TEncoding.ASCII);
+
+  lPlan := BuildPlanForProject(TPath.Combine(lRoot, 'P.dproj'));
+  for i := 0 to High(cLines) do
+  begin
+    Assert.IsTrue(FindFinalStatementAt(lPlan, 'SelectorAliasConsumer.pas', cLines[i], 3,
+      lStatement), 'Expected source-backed selector at line ' + cLines[i].ToString);
+    Assert.AreEqual('planned', lStatement.Status, cSelectors[i] + ': ' + lStatement.Reason);
+    Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual(cSelectors[i], lStatement.Temps[0].SelectorText);
+    Assert.AreEqual('TSelectorRecord', lStatement.Temps[0].ReceiverType);
+    Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+      lStatement.Temps[0].QualifierText + '.Value := ' + (i + 1).ToString),
+      'The replacement must qualify the provider record member: ' +
+      lStatement.ReplacementText);
+  end;
+
+  Assert.IsTrue(ContainsText(lConsumerText, 'X: TSelectorPointer;'));
+  TFile.WriteAllText(lConsumerPath, StringReplace(lConsumerText,
+    'X: TSelectorPointer;', 'X: TMissingPointer;', []), TEncoding.ASCII);
+  lPlan := BuildPlanForProject(TPath.Combine(lRoot, 'P.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'SelectorAliasConsumer.pas', 20, 3,
+    lStatement), 'Expected X^ statement after removing its type proof.');
+  Assert.AreEqual('skipped', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual('', lStatement.ReplacementText,
+    'An unknown alias must not produce a rewrite.');
+end;
+
+procedure TRemoveWithPlanTests.RefusesUnverifiedWithUnitAndMemberFacts;
+var
+  i: Integer;
+  lEdit: TDelphiSemanticRemoveWithEdit;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lFoundUnsafe: Boolean;
+  lModelIndex: Integer;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.IsTrue(Length(lFacts.Bindings) > 0);
+  Assert.AreEqual('planned', TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts).Status);
+  lModelIndex := -1;
+  for i := 0 to High(lFacts.UnitModels) do
+    if SameText(lFacts.UnitModels[i].FileName, lFacts.Bindings[0].FileName) then
+    begin
+      lModelIndex := i;
+      Break;
+    end;
+  Assert.IsTrue(lModelIndex >= 0, 'Expected a declaring unit for the first binding.');
+  lFacts.UnitModels[lModelIndex].ScopeModelStatus := 'ast-failed';
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  lFoundUnsafe := False;
+  for i := 0 to High(lPlan.FinalStatements) do
+    if SameText(lPlan.FinalStatements[i].FileName, lFacts.Bindings[0].FileName) and
+      SameText(lPlan.FinalStatements[i].SafetyReason, 'SCOPE_UNVERIFIED') then
+      lFoundUnsafe := True;
+  Assert.IsTrue(lFoundUnsafe, 'Expected named skip for the unverified unit.');
+  for lEdit in lPlan.Edits do
+    Assert.IsFalse(SameText(lEdit.FileName, lFacts.Bindings[0].FileName),
+      'Unverified unit must have no planned edit.');
+  lFacts.UnitModels[lModelIndex].ScopeModelStatus := 'ast';
+  SetLength(lFacts.UnitModels[lModelIndex].Diagnostics, 1);
+  lFacts.UnitModels[lModelIndex].Diagnostics[0].Code := 'MEMBERS_UNVERIFIED';
+  lFacts.Bindings[0].SkipReason := 'MEMBERS_UNVERIFIED';
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.IsTrue(Length(lPlan.FinalStatements) > 0);
+  Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+  Assert.AreEqual('MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason);
+end;
+
+procedure TRemoveWithPlanTests.MemberDiagnosticsOnlyRejectTheirSelectorType;
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lDuplicate: TDelphiSemanticDeclaration;
+  lClassLine: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModelIndex: Integer;
+  lOptions: TDelphiSemanticApiOptions;
+  lRebound: TDelphiSemanticProjectWithBindingFacts;
+  lRecordLine: Integer;
+  lSeen: Integer;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lModelIndex := -1;
+  for i := 0 to High(lFacts.UnitModels) do
+    if SameText(ExtractFileName(lFacts.UnitModels[i].FileName), 'ProjectWithUnit.pas') then
+      lModelIndex := i;
+  Assert.IsTrue(lModelIndex >= 0);
+  lRecordLine := 0;
+  lClassLine := 0;
+  for lDeclaration in lFacts.UnitModels[lModelIndex].Declarations do
+  begin
+    if SameText(lDeclaration.Name, 'TProjectUnitRecord') then
+      lRecordLine := lDeclaration.Line;
+    if SameText(lDeclaration.Name, 'TProjectUnitScope') then
+      lClassLine := lDeclaration.Line;
+  end;
+  Assert.IsTrue((lRecordLine > 0) and (lClassLine > 0) and
+    (lRecordLine <> lClassLine), 'Test types need distinct structured source lines.');
+  SetLength(lFacts.UnitModels[lModelIndex].Diagnostics, 1);
+  lFacts.UnitModels[lModelIndex].Diagnostics[0].Code := 'MEMBERS_INCOMPLETE';
+  lFacts.UnitModels[lModelIndex].Diagnostics[0].FileName :=
+    lFacts.UnitModels[lModelIndex].FileName;
+  lFacts.UnitModels[lModelIndex].Diagnostics[0].Line := lClassLine;
+  lRebound := TDelphiSemanticWithBinder.BindProject(lFacts.ContextFingerprint,
+    nil, lFacts.UnitModels);
+  lSeen := 0;
+  for lBinding in lRebound.Bindings do
+    if SameText(ExtractFileName(lBinding.FileName), 'ProjectWithUnit.pas') then
+    begin
+      Inc(lSeen);
+      Assert.AreNotEqual('MEMBERS_INCOMPLETE', lBinding.SkipReason,
+        'Other type in the same unit must retain verified selector facts.');
+    end;
+  Assert.IsTrue(lSeen > 0);
+  lFacts.UnitModels[lModelIndex].Diagnostics[0].Line := lRecordLine;
+  lRebound := TDelphiSemanticWithBinder.BindProject(lFacts.ContextFingerprint,
+    nil, lFacts.UnitModels);
+  lSeen := 0;
+  for lBinding in lRebound.Bindings do
+    if SameText(ExtractFileName(lBinding.FileName), 'ProjectWithUnit.pas') then
+    begin
+      Inc(lSeen);
+      Assert.AreEqual('MEMBERS_INCOMPLETE', lBinding.SkipReason);
+    end;
+  Assert.IsTrue(lSeen > 0);
+  lFacts.UnitModels[lModelIndex].Diagnostics[0].Line := 0;
+  lRebound := TDelphiSemanticWithBinder.BindProject(lFacts.ContextFingerprint,
+    nil, lFacts.UnitModels);
+  for lBinding in lRebound.Bindings do
+    if SameText(ExtractFileName(lBinding.FileName), 'ProjectWithUnit.pas') then
+      Assert.AreEqual('MEMBERS_INCOMPLETE', lBinding.SkipReason,
+        'Unknown diagnostic coordinates must fail closed.');
+  lFacts.UnitModels[lModelIndex].Diagnostics[0].Line := lClassLine;
+  lDuplicate := Default(TDelphiSemanticDeclaration);
+  lDuplicate.Name := 'TAmbiguousRecord';
+  lDuplicate.Kind := 'type';
+  lDuplicate.TypeName := 'record';
+  lDuplicate.Line := lClassLine;
+  lDuplicate.FileName := lFacts.UnitModels[lModelIndex].FileName;
+  i := Length(lFacts.UnitModels[lModelIndex].Declarations);
+  SetLength(lFacts.UnitModels[lModelIndex].Declarations, i + 1);
+  lFacts.UnitModels[lModelIndex].Declarations[i] := lDuplicate;
+  lRebound := TDelphiSemanticWithBinder.BindProject(lFacts.ContextFingerprint,
+    nil, lFacts.UnitModels);
+  for lBinding in lRebound.Bindings do
+    if SameText(ExtractFileName(lBinding.FileName), 'ProjectWithUnit.pas') then
+      Assert.AreEqual('MEMBERS_INCOMPLETE', lBinding.SkipReason,
+        'Two declarations at the diagnostic coordinate must fail closed.');
+end;
+
+procedure TRemoveWithPlanTests.InheritedIncompleteMemberRefusesDerivedAndAliasSelectors;
+var
+  lBaseLine: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lCombined: TDelphiSemanticRemoveWithDetailedCombinedResult;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lDiagnosticFound: Boolean;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+  lSafeFound: Boolean;
+  lReasons: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lRoot := TempPath('remove-with-inherited-incomplete');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>WithProj.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="WithUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dpr'),
+    'program WithProj;'#13#10'uses WithUnit in ''WithUnit.pas'';'#13#10 +
+    'begin TScope.Run; end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithUnit.pas'),
+    'unit WithUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TBase = class'#13#10'  public'#13#10 +
+    '    FOnX: procedure(a: Integer) of object;'#13#10'  end;'#13#10 +
+    '  TChild = class(TBase) end;'#13#10 +
+    '  TAlias = TChild;'#13#10 +
+    '  TAlias2 = TAlias;'#13#10 +
+    '  TSafe = record Value: Integer; end;'#13#10 +
+    '  TScope = class public class procedure Run; end;'#13#10 +
+    'implementation'#13#10'class procedure TScope.Run;'#13#10 +
+    'var'#13#10'  lBase: TBase;'#13#10'  lChild: TChild;'#13#10 +
+    '  lAlias: TAlias;'#13#10'  lAlias2: TAlias2;'#13#10 +
+    '  lSafe: TSafe;'#13#10 +
+    '  FOnX: procedure(a: Integer) of object;'#13#10 +
+    'begin'#13#10'  lBase := TBase.Create;'#13#10 +
+    '  lChild := TChild.Create;'#13#10 +
+    '  lAlias := lChild;'#13#10 +
+    '  lAlias2 := lAlias;'#13#10 +
+    '  with lBase do FOnX := nil;'#13#10 +
+    '  with lChild do FOnX := nil;'#13#10 +
+    '  with lAlias do FOnX := nil;'#13#10 +
+    '  with lAlias2 do FOnX := nil;'#13#10 +
+    '  with lSafe do Value := 1;'#13#10 +
+    '  lChild.Free;'#13#10'  lBase.Free;'#13#10'end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'WithProj.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lDiagnosticFound := False;
+  lBaseLine := 0;
+  for lModel in lFacts.UnitModels do
+    if SameText(ExtractFileName(lModel.FileName), 'WithUnit.pas') then
+    begin
+      Assert.AreEqual('ast', lModel.ScopeModelStatus);
+      for lDeclaration in lModel.Declarations do
+        if SameText(lDeclaration.Name, 'TBase') then
+          lBaseLine := lDeclaration.Line;
+      for lDiagnostic in lModel.Diagnostics do
+        if SameText(lDiagnostic.Code, 'MEMBERS_INCOMPLETE') and
+          (lDiagnostic.Line = lBaseLine) then
+            lDiagnosticFound := True;
+    end;
+  Assert.IsTrue((lBaseLine > 0) and lDiagnosticFound,
+    'The parser must attribute the incomplete member to TBase.');
+  Assert.AreEqual(5, Integer(Length(lFacts.Bindings)));
+  lSafeFound := False;
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.SelectorText, 'lSafe') then
+    begin
+      lSafeFound := True;
+      Assert.AreEqual('TSafe', lBinding.Selectors[0].TypeName);
+      Assert.AreEqual('', lBinding.SkipReason);
+    end
+    else
+    begin
+      if SameText(lBinding.SelectorText, 'lBase') then
+        Assert.AreEqual('TBase', lBinding.Selectors[0].TypeName)
+      else if SameText(lBinding.SelectorText, 'lChild') then
+        Assert.AreEqual('TChild', lBinding.Selectors[0].TypeName)
+      else if SameText(lBinding.SelectorText, 'lAlias2') then
+        Assert.AreEqual('TAlias2', lBinding.Selectors[0].TypeName)
+      else
+        Assert.AreEqual('TAlias', lBinding.Selectors[0].TypeName);
+      Assert.AreEqual('MEMBERS_INCOMPLETE', lBinding.SkipReason,
+        'Derived or aliased selector must refuse the inherited incomplete member.');
+    end;
+  Assert.IsTrue(lSafeFound);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lReasons := lPlan.Diagnostic;
+  for lBinding in lFacts.Bindings do
+    lReasons := lReasons + ' ' + lBinding.SelectorText + ':' +
+      lBinding.Selectors[0].TypeName + ':' + lBinding.SkipReason;
+  for lStatement in lPlan.FinalStatements do
+    lReasons := lReasons + ' ' + lStatement.StatementId + ':' +
+      lStatement.Status + ':' + lStatement.Reason;
+  Assert.AreEqual(1, Integer(Length(lPlan.Edits)), lReasons);
+  Assert.AreEqual('MEMBERS_INCOMPLETE', lPlan.FinalStatements[0].SafetyReason);
+  Assert.AreEqual('MEMBERS_INCOMPLETE', lPlan.FinalStatements[1].SafetyReason);
+  Assert.AreEqual('MEMBERS_INCOMPLETE', lPlan.FinalStatements[2].SafetyReason);
+  Assert.AreEqual('MEMBERS_INCOMPLETE', lPlan.FinalStatements[3].SafetyReason);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+  Assert.AreEqual(1, Integer(Length(lPlan.Edits)), lPlan.Diagnostic);
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := lOptions;
+  lRequest.RemoveWithOptions.SkipSemanticGraph := True;
+  lRequest.BodyAnalysisSourceFileNames := [];
+  lCombined := TDelphiSemanticRemoveWithCompatibilityApi.
+    BuildProjectWithBindingFactsAndPlanDetailedResult(lRequest);
+  Assert.AreEqual(1, Integer(Length(lCombined.CombinedResult.Plan.Edits)),
+    lCombined.CombinedResult.Plan.Diagnostic);
+end;
+
+procedure TRemoveWithPlanTests.TransitiveAliasRefusesIncompleteBaseInImportedUnit;
+var
+  lBaseDiagnosticFound: Boolean;
+  lBinding: TDelphiSemanticWithBinding;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+begin
+  lRoot := TempPath('remove-with-transitive-alias-incomplete');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>WithProj.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="BaseUnit.pas"/>' +
+    '<DCCReference Include="AliasBUnit.pas"/>' +
+    '<DCCReference Include="AliasUnit.pas"/>' +
+    '<DCCReference Include="WithUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dpr'),
+    'program WithProj;'#13#10'uses WithUnit in ''WithUnit.pas'';'#13#10 +
+    'begin UsePoint; end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'BaseUnit.pas'),
+    'unit BaseUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TBase = class'#13#10'  public'#13#10 +
+    '    FOnX: procedure(a: Integer) of object;'#13#10'  end;'#13#10 +
+    '  TChild = class(TBase) end;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'AliasBUnit.pas'),
+    'unit AliasBUnit;'#13#10'interface'#13#10'uses BaseUnit;'#13#10 +
+    'type TAlias3 = TChild;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'AliasUnit.pas'),
+    'unit AliasUnit;'#13#10'interface'#13#10'uses AliasBUnit;'#13#10 +
+    'type TAlias2 = TAlias3;'#13#10'  TAlias1 = TAlias2;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithUnit.pas'),
+    'unit WithUnit;'#13#10'interface'#13#10'procedure UsePoint;'#13#10 +
+    'implementation'#13#10'uses AliasUnit;'#13#10 +
+    'procedure UsePoint;'#13#10'var'#13#10 +
+    '  lChild: TAlias1;'#13#10 +
+    '  FOnX: procedure(a: Integer) of object;'#13#10 +
+    'begin'#13#10'  with lChild do FOnX := nil;'#13#10'end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'WithProj.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lBaseDiagnosticFound := False;
+  for lModel in lFacts.UnitModels do
+    if SameText(lModel.UnitName, 'BaseUnit') then
+    begin
+      Assert.AreEqual('ast', lModel.ScopeModelStatus);
+      for lDiagnostic in lModel.Diagnostics do
+        if SameText(lDiagnostic.Code, 'MEMBERS_INCOMPLETE') then
+          lBaseDiagnosticFound := True;
+    end;
+  Assert.IsTrue(lBaseDiagnosticFound, 'BaseUnit must own the incomplete member diagnostic.');
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  lBinding := lFacts.Bindings[0];
+  Assert.AreEqual('TAlias1', lBinding.Selectors[0].TypeName);
+  Assert.AreEqual('MEMBERS_INCOMPLETE', lBinding.SkipReason);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual('blocked', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+  Assert.AreEqual('blocked', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+end;
+
+procedure TRemoveWithPlanTests.ProfileTypeAliasAvoidsFalseProjectMemberRefusal;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lDiagnosticFound: Boolean;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticApiOptions;
+  lRoot: string;
+begin
+  lRoot := TempPath('remove-with-profile-terminal');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>WithProj.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="WithUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dpr'),
+    'program WithProj;'#13#10'uses WithUnit in ''WithUnit.pas'';'#13#10 +
+    'begin TScope.Run; end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithUnit.pas'),
+    'unit WithUnit;'#13#10'interface'#13#10'uses System.SysUtils;'#13#10 +
+    'type'#13#10'  TBad = class'#13#10'  public'#13#10 +
+    '    FOnX: procedure(a: Integer) of object;'#13#10'  end;'#13#10 +
+    '  TAlias1 = TSearchRec;'#13#10'  TAlias2 = TAlias1;'#13#10 +
+    '  TScope = class public class procedure Run; end;'#13#10 +
+    'implementation'#13#10'class procedure TScope.Run;'#13#10 +
+    'var lRec: TAlias2;'#13#10'begin'#13#10 +
+    '  with lRec do Name := ''file'';'#13#10'end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'WithProj.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lDiagnosticFound := False;
+  for lModel in lFacts.UnitModels do
+    if SameText(ExtractFileName(lModel.FileName), 'WithUnit.pas') then
+    begin
+      Assert.AreEqual('ast', lModel.ScopeModelStatus);
+      for lDiagnostic in lModel.Diagnostics do
+        if SameText(lDiagnostic.Code, 'MEMBERS_INCOMPLETE') then
+          lDiagnosticFound := True;
+    end;
+  Assert.IsTrue(lDiagnosticFound, 'Unrelated project member diagnostic is required.');
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  lBinding := lFacts.Bindings[0];
+  Assert.AreEqual('TAlias2', lBinding.Selectors[0].TypeName);
+  Assert.AreEqual('UNRESOLVED_REFERENCE', lBinding.SkipReason,
+    'Exact profile type must terminate project safety before member binding.');
+end;
+
+procedure TRemoveWithPlanTests.ProfileTerminalDoesNotOverrideProjectOrUnresolvedAliases;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lRoot: string;
+
+  procedure CheckAlias(const aDeclarations, aMemberName: string);
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'WithUnit.pas'),
+      'unit WithUnit;'#13#10'interface'#13#10'type'#13#10 +
+      aDeclarations +
+      '  TScope = class public class procedure Run; end;'#13#10 +
+      'implementation'#13#10'class procedure TScope.Run;'#13#10 +
+      'var lRec: TAlias2;'#13#10'begin'#13#10 +
+      '  with lRec do ' + aMemberName + ';'#13#10'end;'#13#10'end.'#13#10,
+      TEncoding.ASCII);
+    lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+    Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+    Assert.AreEqual('TAlias2', lFacts.Bindings[0].Selectors[0].TypeName);
+    Assert.AreEqual('MEMBERS_INCOMPLETE', lFacts.Bindings[0].SkipReason);
+  end;
+
+begin
+  lRoot := TempPath('remove-with-profile-collision');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>WithProj.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="WithUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dpr'),
+    'program WithProj;'#13#10'uses WithUnit in ''WithUnit.pas'';'#13#10 +
+    'begin TScope.Run; end.'#13#10, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'WithProj.dproj');
+  CheckAlias('  TSearchRec = class'#13#10'  public'#13#10 +
+    '    FOnX: procedure(a: Integer) of object;'#13#10'  end;'#13#10 +
+    '  TAlias1 = TSearchRec;'#13#10'  TAlias2 = TAlias1;'#13#10,
+    'FOnX := nil');
+  CheckAlias('  TBad = class'#13#10'  public'#13#10 +
+    '    FOnX: procedure(a: Integer) of object;'#13#10'  end;'#13#10 +
+    '  TAlias1 = TNotInProject;'#13#10'  TAlias2 = TAlias1;'#13#10,
+    'Name := ''file''');
+  CheckAlias('  TBad = class'#13#10'  public'#13#10 +
+    '    FOnX: procedure(a: Integer) of object;'#13#10'  end;'#13#10 +
+    '  TAlias1 = Unknown.TSearchRec;'#13#10'  TAlias2 = TAlias1;'#13#10,
+    'Name := ''file''');
+  CheckAlias('  TBad = class'#13#10'  public'#13#10 +
+    '    FOnX: procedure(a: Integer) of object;'#13#10'  end;'#13#10 +
+    '  TAlias1 = TAlias2;'#13#10'  TAlias2 = TAlias1;'#13#10,
+    'Name := ''file''');
+end;
+
+procedure TRemoveWithPlanTests.BrokenRoutineProjectRefusesSnapshotAndCompatibilityPlans;
+var
+  lCombined: TDelphiSemanticRemoveWithDetailedCombinedResult;
+  lEdit: TDelphiSemanticRemoveWithEdit;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRoot := TempPath('remove-with-broken-routine');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>WithProj.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="WithUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dpr'),
+    'program WithProj;'#13#10'uses WithUnit in ''WithUnit.pas'';'#13#10'begin UsePoint; end.'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithUnit.pas'),
+    'unit WithUnit;'#13#10'interface'#13#10'type TPoint2 = record X, Y: Integer; end;'#13#10 +
+    'procedure UsePoint;'#13#10'implementation'#13#10'procedure Broken;'#13#10 +
+    'begin if ( end;'#13#10'procedure UsePoint;'#13#10'var lPoint: TPoint2;'#13#10 +
+    'begin with lPoint do begin X := 1; Y := 2; end; end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'WithProj.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.IsTrue(Length(lFacts.Bindings) > 0, 'The broken unit must still expose its with statement.');
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual('blocked', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+  Assert.AreEqual('blocked', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := lOptions;
+  lRequest.RemoveWithOptions.SkipSemanticGraph := True;
+  lRequest.BodyAnalysisSourceFileNames := [];
+  lCombined := TDelphiSemanticRemoveWithCompatibilityApi.
+    BuildProjectWithBindingFactsAndPlanDetailedResult(lRequest);
+  Assert.AreEqual('blocked', lCombined.CombinedResult.Plan.Status,
+    lCombined.CombinedResult.Plan.Diagnostic);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'SafeUnit.pas'),
+    'unit SafeUnit;'#13#10'interface'#13#10'procedure UseSafe;'#13#10 +
+    'implementation'#13#10'type TSafe = record X, Y: Integer; end;'#13#10 +
+    'procedure UseSafe;'#13#10'var lPoint: TSafe;'#13#10 +
+    'begin with lPoint do begin X := 1; Y := 2; end; end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>WithProj.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="WithUnit.pas"/>' +
+    '<DCCReference Include="SafeUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dpr'),
+    'program WithProj;'#13#10'uses WithUnit in ''WithUnit.pas'', SafeUnit in ''SafeUnit.pas'';' +
+    #13#10'begin UsePoint; UseSafe; end.'#13#10, TEncoding.ASCII);
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.IsTrue(Length(lPlan.Edits) > 0, 'Verified unit must retain safe edits.');
+  for lEdit in lPlan.Edits do
+    Assert.IsTrue(SameText(ExtractFileName(lEdit.FileName), 'SafeUnit.pas'),
+      'Unsafe unit must have no edit: ' + lEdit.FileName);
+end;
+
+procedure TRemoveWithPlanTests.IncludeWithRefusesWithoutRangeCheckError;
+var
+  lCombined: TDelphiSemanticRemoveWithDetailedCombinedResult;
+  lEdit: TDelphiSemanticRemoveWithEdit;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRoot := TempPath('remove-with-include-statement');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>WithProj.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="WithUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dpr'),
+    'program WithProj;'#13#10'uses WithUnit in ''WithUnit.pas'';'#13#10'begin UsePoint; end.'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithUnit.pas'),
+    'unit WithUnit;'#13#10'interface'#13#10'type TPoint2 = record X, Y: Integer; end;'#13#10 +
+    'procedure UsePoint;'#13#10'implementation'#13#10'procedure UsePoint;'#13#10 +
+    'var lPoint: TPoint2;'#13#10'begin'#13#10'  {$I Body.inc}'#13#10'end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Body.inc'),
+    'with lPoint do'#13#10'begin'#13#10'  X := 1;'#13#10'  Y := 2;'#13#10'end;'#13#10,
+    TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'WithProj.dproj');
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+  Assert.AreEqual('blocked', lPlan.Status, lPlan.Diagnostic);
+  Assert.IsTrue(ContainsText(lPlan.Diagnostic, 'WITH_IN_INCLUDE_UNVERIFIED'), lPlan.Diagnostic);
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options := lOptions;
+  lRequest.RemoveWithOptions.SkipSemanticGraph := True;
+  lRequest.BodyAnalysisSourceFileNames := [TPath.Combine(lRoot, 'WithUnit.pas')];
+  lCombined := TDelphiSemanticRemoveWithCompatibilityApi.
+    BuildProjectWithBindingFactsAndPlanDetailedResult(lRequest);
+  Assert.AreEqual('blocked', lCombined.CombinedResult.Plan.Status,
+    lCombined.CombinedResult.Plan.Diagnostic);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'SafeUnit.pas'),
+    'unit SafeUnit;'#13#10'interface'#13#10'procedure UseSafe;'#13#10 +
+    'implementation'#13#10'type TSafe = record X, Y: Integer; end;'#13#10 +
+    'procedure UseSafe;'#13#10'var lPoint: TSafe;'#13#10 +
+    'begin with lPoint do begin X := 1; Y := 2; end; end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>WithProj.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="WithUnit.pas"/>' +
+    '<DCCReference Include="SafeUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dpr'),
+    'program WithProj;'#13#10'uses WithUnit in ''WithUnit.pas'', SafeUnit in ''SafeUnit.pas'';' +
+    #13#10'begin UsePoint; UseSafe; end.'#13#10, TEncoding.ASCII);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.IsTrue(ContainsText(lPlan.Diagnostic, 'WITH_IN_INCLUDE_UNVERIFIED'),
+    'Mixed project must retain an explicit include refusal.');
+  Assert.IsTrue(Length(lPlan.Edits) > 0, 'Verified unit must retain safe edits.');
+  for lEdit in lPlan.Edits do
+    Assert.IsTrue(SameText(ExtractFileName(lEdit.FileName), 'SafeUnit.pas'),
+      'Include unit must have no edit: ' + lEdit.FileName);
 end;
 
 function TRemoveWithPlanTests.MaxTdbBodyAnalysisSourceFileNames: TArray<string>;
@@ -4510,6 +5138,36 @@ begin
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     'lWithNestedOuter.OuterOnly := ''outer-from-inner'''),
     'Expected inner body to preserve outer receiver qualification.');
+end;
+
+procedure TRemoveWithPlanTests.NestedSafetySkipHasOneFinalStatementPerBinding;
+var
+  i: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lOtherStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := DakFixturePath(
+    'RemoveWithNestedRewriteFixture\RemoveWithNestedRewriteFixture.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.AreEqual(2, Integer(Length(lFacts.Bindings)));
+  lFacts.Bindings[1].SkipReason := 'MEMBERS_INCOMPLETE';
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  for i := 0 to High(lPlan.FinalStatements) do
+    for lOtherStatement in Copy(lPlan.FinalStatements, i + 1,
+      Length(lPlan.FinalStatements) - i - 1) do
+      Assert.IsFalse(SameText(lPlan.FinalStatements[i].StatementId,
+        lOtherStatement.StatementId), 'Each binding must emit once: ' +
+        lPlan.FinalStatements[i].StatementId);
+  Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements)));
+  for i := 0 to High(lPlan.FinalStatements) do
+  begin
+    Assert.AreEqual('skipped', lPlan.FinalStatements[i].Status);
+    Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[i].Edits)));
+  end;
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesTempPolicyCollisionRules;
@@ -22030,7 +22688,8 @@ begin
   lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1134, 3, lStatement),
-    'Expected maxTdb tdbutils FlipMark ml with statement.');
+    'Expected maxTdb tdbutils FlipMark ml with statement. Plan: ' +
+    lPlan.Status + ' ' + lPlan.Diagnostic);
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('ml', lStatement.Temps[0].SelectorText);
@@ -23243,7 +23902,8 @@ begin
       Inc(lMatchCount);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 805, 3, lStatement),
-    'Expected cloned maxTdb L_Nr DF[d]^ with statement.');
+    'Expected cloned maxTdb L_Nr DF[d]^ with statement. Plan: ' +
+    lPlan.Status + ' ' + lPlan.Diagnostic);
   Assert.AreEqual(1, lMatchCount, 'Expected only one final DTO for the with-47 range.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));

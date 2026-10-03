@@ -34,6 +34,7 @@ type
     procedure InterfaceForward; override;
     procedure DispInterfaceForward; override;
     procedure ProceduralDirectiveOf; override;
+    procedure LabeledStatement; override;
   end;
 
   TRoutineHeader = record
@@ -745,6 +746,13 @@ begin
   inherited;
 end;
 
+procedure TSemanticSyntaxTreeBuilder.LabeledStatement;
+begin
+  // DelphiAST retains label declarations and goto targets, but drops definitions.
+  FStack.AddValuedChild(ntLabel, Lexer.Token).SetAttribute(anType, 'definition');
+  inherited;
+end;
+
 function AstProcedureSignature(const aNode: TSyntaxNode): TDelphiSemanticProcedureSignature;
 var
   lParameters: TSyntaxNode;
@@ -1169,7 +1177,7 @@ var
         Result := lIndex;
   end;
 
-  procedure CollectFacts(const aNode: TSyntaxNode; const aParentScopeIndex: Integer;
+  procedure CollectFacts(const aNode, aParentNode: TSyntaxNode; const aParentScopeIndex: Integer;
     const aTypeOwnerPath: string);
   var
     lChild: TSyntaxNode;
@@ -1177,6 +1185,7 @@ var
     lChildTypeOwnerPath: string;
     lGuidNode: TSyntaxNode;
     lLiteralNode: TSyntaxNode;
+    lLabelReference: TDelphiSemanticReference;
     lScope: TAstRoutineScope;
     lStatements: TSyntaxNode;
     lTypeNode: TSyntaxNode;
@@ -1278,8 +1287,37 @@ var
     if (aNode.Typ = ntParameter) and not aOptions.SkipReferenceExtraction then
       ExtractDefaultExpressionReferences(aText, aNode.FindNode(ntExpression), aReferences);
 
+    if (lCurrentScopeIndex >= 0) and not aOptions.SkipBodyAnalysis and
+      (aNode.Typ in [ntLabel, ntGoto]) then
+    begin
+      lLabelReference := Default(TDelphiSemanticReference);
+      lLabelReference.Role := 'local-label-declaration';
+      if aNode.Typ = ntGoto then
+      begin
+        lLabelReference.Name := 'goto';
+        lLabelReference.Role := 'local-goto-keyword';
+      end else if aNode is TValuedSyntaxNode then
+      begin
+        lLabelReference.Name := TValuedSyntaxNode(aNode).Value;
+        if SameText(aNode.GetAttribute(anType), 'definition') then
+          lLabelReference.Role := 'local-label-definition'
+        else if Assigned(aParentNode) and (aParentNode.Typ = ntGoto) then
+          lLabelReference.Role := 'local-label-target';
+      end;
+      lLabelReference.Line := aNode.Line;
+      lLabelReference.Column := aNode.Col;
+      lLabelReference.EndLine := aNode.Line;
+      lLabelReference.EndColumn := aNode.Col + Length(lLabelReference.Name) - 1;
+      lLabelReference.Offset := OffsetOfLineColumn(aText, aNode.Line, aNode.Col);
+      lLabelReference.EndOffset := lLabelReference.Offset + Length(lLabelReference.Name);
+      lLabelReference.RoutineName := lScopes[lCurrentScopeIndex].Name;
+      lLabelReference.RoutineScopeId := lScopes[lCurrentScopeIndex].ScopeId;
+      // Keep the syntax role even when source verification fails; consumers must refuse it.
+      aReferences.Add(lLabelReference);
+    end;
+
     for lChild in aNode.ChildNodes do
-      CollectFacts(lChild, lCurrentScopeIndex, lChildTypeOwnerPath);
+      CollectFacts(lChild, aNode, lCurrentScopeIndex, lChildTypeOwnerPath);
   end;
 
   function FindDeclarationFact(const aDeclaration: TDelphiSemanticDeclaration;
@@ -1458,7 +1496,7 @@ begin
         lOriginalError);
       if lComplete then
         aModel.DependencyFacts := AstDependencyFacts(lSyntaxTree);
-      CollectFacts(lSyntaxTree, -1, '');
+      CollectFacts(lSyntaxTree, nil, -1, '');
       ExtractMembers(aText, aModel.FileName, lSyntaxTree, aDiagnostics, aDeclarations, aMembers,
         lMemberReferences);
       if not aOptions.SkipBodyAnalysis then
@@ -1586,6 +1624,9 @@ begin
     for i := 0 to Pred(aReferences.Count) do
     begin
       lReference := aReferences[i];
+      if StartsText('local-label-', lReference.Role) or
+        (lReference.Role = 'local-goto-keyword') then
+        Continue;
       lFact.ScopeIndex := FindScopeForPosition(lReference.Line, lReference.Column);
       if lFact.ScopeIndex >= 0 then
       begin
@@ -3833,6 +3874,44 @@ begin
   end;
 end;
 
+procedure SeparateLocalLabelReferences(var aModel: TDelphiSemanticUnitModel;
+  const aReferences: TList<TDelphiSemanticReference>);
+var
+  i: Integer;
+  lKeptCount: Integer;
+  lLabels: TList<TDelphiSemanticReference>;
+  lReference: TDelphiSemanticReference;
+begin
+  lLabels := TList<TDelphiSemanticReference>.Create;
+  try
+    lKeptCount := 0;
+    for i := 0 to Pred(aReferences.Count) do
+    begin
+      lReference := aReferences[i];
+      if StartsText('local-label-', lReference.Role) or
+        (lReference.Role = 'local-goto-keyword') then
+      begin
+        // Never apply the ordinary name-search coordinate repair to syntax safety facts.
+        // Included labels retain provenance but cannot authorize a root-file rewrite.
+        if (lReference.FileName = '') and
+          ((lReference.Offset <= 0) or (lReference.Name = '') or
+          not SameText(Copy(aModel.SourceText, lReference.Offset,
+          Length(lReference.Name)), lReference.Name)) then
+          aModel.ScopeModelStatus := 'label-source-map-failed';
+        lLabels.Add(lReference);
+      end else
+      begin
+        aReferences[lKeptCount] := lReference;
+        Inc(lKeptCount);
+      end;
+    end;
+    aReferences.Count := lKeptCount;
+    aModel.LocalLabelReferences := lLabels.ToArray;
+  finally
+    lLabels.Free;
+  end;
+end;
+
 procedure AssignModelArrays(var aModel: TDelphiSemanticUnitModel;
   const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>; const aInterfaceUses,
   aImplementationUses: TList<string>; const aDeclarations: TList<TDelphiSemanticDeclaration>;
@@ -3861,11 +3940,13 @@ var
   lImplementationUses: TList<string>;
   lInterfaceUses: TList<string>;
   i: Integer;
+  j: Integer;
   lLocals: TList<TDelphiSemanticLocal>;
   lMatch: TMatch;
   lMembers: TList<TDelphiSemanticMember>;
   lOffsetMap: TArray<Integer>;
   lObservationError: string;
+  lOrigin: TDelphiSemanticSourceLineOrigin;
   lPreprocessOptions: TDelphiSemanticPreprocessOptions;
   lPreprocessResult: TDelphiSemanticPreprocessResult;
   lReferenceSink: TList<TDelphiSemanticReference>;
@@ -3875,6 +3956,7 @@ var
   lText: string;
   lPreviousExtractionContext: TDelphiSemanticExtractionContext;
   lWithStatements: TList<TDelphiSemanticWithStatement>;
+  lWithStatement: TDelphiSemanticWithStatement;
   lWritableSwitches: TArray<TWritableConstantSwitch>;
 begin
   Result := Default(TDelphiSemanticUnitModel);
@@ -3954,6 +4036,31 @@ begin
     if lMatch.Success then
       Result.UnitName := lMatch.Groups[1].Value;
 
+    if Length(lPreprocessResult.Includes) > 0 then
+    begin
+      ExtractWithStatements(lText, lWithStatements);
+      for lWithStatement in lWithStatements do
+        for j := lWithStatement.Line to lWithStatement.EndLine do
+        begin
+          if (j <= 0) or (j > Length(lPreprocessResult.LineOrigins)) then
+            Continue;
+          lOrigin := lPreprocessResult.LineOrigins[j - 1];
+          if lOrigin.Mixed or ((lOrigin.FileName <> '') and
+            not SameText(lOrigin.FileName, lSourceResult.Source.FileName)) then
+          begin
+            Result.ScopeModelStatus := 'include-with-unverified';
+            AddDiagnostic(lDiagnostics, 'WITH_IN_INCLUDE_UNVERIFIED',
+              'A with statement crosses or comes from an include file; its source range is unverified.',
+              lOrigin.FileName, lOrigin.Line);
+            lWithStatements.Clear;
+            AssignModelArrays(Result, lDiagnostics, lInterfaceUses, lImplementationUses,
+              lDeclarations, lMembers, lRoutines, lLocals, lReferences, lWithStatements);
+            Exit;
+          end;
+        end;
+      lWithStatements.Clear;
+    end;
+
     if aOptions.WithStatementsOnly then
     begin
       ExtractWithStatements(lText, lWithStatements);
@@ -4006,6 +4113,7 @@ begin
     ReconcileWithStatementCoordinates(lSourceResult.Source.Text, lWithStatements);
     if lReferences.Count > 0 then
     begin
+      SeparateLocalLabelReferences(Result, lReferences);
       ReconcileReferencesCoordinates(lSourceResult.Source.Text, lReferences, Result.Metrics);
       RemoveDuplicateReferences(lReferences);
     end;

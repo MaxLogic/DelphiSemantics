@@ -378,8 +378,8 @@ begin
 
     Assert.AreEqual('9', lIdentity.SchemaVersion,
       'Lexical ownership fields changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.36', lIdentity.ParserVersion,
-      'Facts attributed to include files require fresh facts.');
+    Assert.AreEqual('DelphiSemantics.Model.Parser.38', lIdentity.ParserVersion,
+      'Syntax-backed local label occurrences require fresh facts.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,
       'Dependent caches chain to the unit-model parser version.');

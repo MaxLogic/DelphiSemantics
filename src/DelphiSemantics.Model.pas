@@ -209,6 +209,8 @@ type
     Routines: TArray<TDelphiSemanticRoutine>;
     Locals: TArray<TDelphiSemanticLocal>;
     References: TArray<TDelphiSemanticReference>;
+    // Syntax occurrences in the routine label namespace, never value-symbol references.
+    LocalLabelReferences: TArray<TDelphiSemanticReference>;
     WithStatements: TArray<TDelphiSemanticWithStatement>;
     Diagnostics: TArray<TDelphiSemanticModelDiagnostic>;
     Metrics: TDelphiSemanticUnitModelMetrics;

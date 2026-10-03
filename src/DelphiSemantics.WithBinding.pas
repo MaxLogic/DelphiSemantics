@@ -280,6 +280,15 @@ type
     DeclarationIndex: Integer;
   end;
 
+  TMemberSafetyDiagnostic = record
+    Code: string;
+    UnitName: string;
+    FileName: string;
+    Line: Integer;
+    OwnerName: string;
+    OwnerResolved: Boolean;
+  end;
+
   TWithBindingProjectMemberIndex = class
   private
     fIntrinsicTypes: TDictionary<string, TDelphiSemanticIntrinsicSymbol>;
@@ -296,6 +305,18 @@ type
     fSemanticMemberResultsByOwnerName: TDictionary<string, TDelphiSemanticResolveResult>;
     fUnitNames: TArray<string>;
     fVisibleUnitsByUnit: TDictionary<string, TArray<string>>;
+    fMemberSafetyDiagnostics: TArray<TMemberSafetyDiagnostic>;
+    fSafetyDeclarationsByName: TObjectDictionary<string, TList<TIndexedDeclarationCandidate>>;
+    fSafetyModelsByUnit: TDictionary<string, TArray<Integer>>;
+    fSafetyProfileTypes: TDictionary<string, Byte>;
+    procedure BuildMemberSafetyDiagnostics;
+    function IsKnownSafetyProfileTerminal(const aName: string;
+      const aLookup: TDelphiSemanticTypeLookupResult): Boolean;
+    function TryBuildMemberSafetyLineage(const aBinding: TDelphiSemanticWithBinding;
+      const aSelectorTypeName: string;
+      out aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
+    function TrySafetyDeclarationModel(const aIdentity: TDelphiSemanticTypeIdentity;
+      out aModel: TDelphiSemanticUnitModel): Boolean;
     procedure BuildDeclarationIndex;
     procedure BuildIntrinsicTypeIndex;
     function DeclarationModelsForName(const aName: string): TArray<TDelphiSemanticUnitModel>;
@@ -334,6 +355,7 @@ type
       out aResult: TDelphiSemanticResolveResult): Boolean;
     function TryResolvePointerCastType(const aModel: TDelphiSemanticUnitModel;
       const aName: string; const aLine: Integer; out aTypeName: string): Boolean;
+    function MemberSafetyReason(const aBinding: TDelphiSemanticWithBinding): string;
     function ContextForName(const aContext: TDelphiSemanticResolveContext;
       const aName: string): TDelphiSemanticResolveContext;
     function TryResolveDirectMember(const aCurrentUnitName, aCurrentTypeName, aOwnerName,
@@ -1127,6 +1149,7 @@ begin
       fVisibleUnitsByUnit.AddOrSetValue(lModel.UnitName,
         CombineUnitUses(lModel.InterfaceUses, lModel.ImplementationUses));
     end;
+    BuildMemberSafetyDiagnostics;
     BuildContextMemberIndex;
   except
     ClearOwnedState;
@@ -1139,6 +1162,9 @@ var
   lList: TList<TDelphiSemanticResolveResult>;
   lStringList: TList<string>;
 begin
+  FreeAndNil(fSafetyDeclarationsByName);
+  FreeAndNil(fSafetyModelsByUnit);
+  FreeAndNil(fSafetyProfileTypes);
   FreeAndNil(fIntrinsicTypes);
   FreeAndNil(fDeclarationModels);
   FreeAndNil(fDeclarationCandidates);
@@ -1997,6 +2023,60 @@ begin
     aReference.EndColumn := lEndColumn;
 end;
 
+procedure ApplyLocalLabelFact(const aModel: TDelphiSemanticUnitModel;
+  var aReference: TDelphiSemanticBoundReference);
+var
+  lDeclarationCount: Integer;
+  lDefinitionCount: Integer;
+  lFact: TDelphiSemanticReference;
+  lRelated: TDelphiSemanticReference;
+begin
+  if not SameText(aModel.ScopeModelStatus, 'ast') then
+    Exit;
+  for lFact in aModel.LocalLabelReferences do
+  begin
+    if (lFact.FileName <> '') or (lFact.Line <> aReference.Line) or
+      (lFact.Column <> aReference.Column) or
+      not SameText(lFact.Name, aReference.Name) or
+      not MatchText(lFact.Role, ['local-label-target', 'local-label-definition',
+      'local-goto-keyword']) then
+      Continue;
+    // Occurrence-specific facts must never enter the name-only binding cache.
+    aReference.Classification := 'lexical';
+    aReference.Kind := 'label';
+    aReference.LookupSource := 'syntax';
+    aReference.ReceiverTypeName := '';
+    aReference.TypeName := '';
+    aReference.ReasonCode := '';
+    aReference.ScopeConflictKind := '';
+    aReference.ScopeConflictName := '';
+    if lFact.Role = 'local-goto-keyword' then
+    begin
+      aReference.Kind := 'goto-keyword';
+      Exit;
+    end;
+    lDeclarationCount := 0;
+    lDefinitionCount := 0;
+    for lRelated in aModel.LocalLabelReferences do
+      if (lRelated.FileName = '') and (lFact.RoutineScopeId <> '') and
+        SameText(lRelated.RoutineScopeId, lFact.RoutineScopeId) and
+        SameText(lRelated.Name, lFact.Name) then
+      begin
+        if lRelated.Role = 'local-label-declaration' then
+          Inc(lDeclarationCount)
+        else if lRelated.Role = 'local-label-definition' then
+          Inc(lDefinitionCount);
+      end;
+    if (lDeclarationCount <> 1) or (lDefinitionCount <> 1) then
+    begin
+      aReference.Classification := 'unsupported';
+      aReference.Kind := 'unverified-label';
+      aReference.ReasonCode := 'LOCAL_LABEL_NOT_RESOLVED';
+    end;
+    Exit;
+  end;
+end;
+
 function MakeSyntheticResolveResult(const aName, aKind, aTypeName, aOwnerName,
   aReasonCode: string): TDelphiSemanticResolveResult;
 begin
@@ -2740,6 +2820,7 @@ begin
     ApplyBodyRange(lReference, aStatement, lInnerStartOffset, Length(lInnerToken), aBodyLineStarts);
     ApplyScopeConflictFact(aModel, lResolveContext, aResolveCache, aResolveCachePrefix,
       aProjectMemberIndex, lReference, aLexicalResolveMs);
+    ApplyLocalLabelFact(aModel, lReference);
     AddReference(aReferences, lReference);
     AddIndexReferences(aReferences, aModel, aProjectModels, aRoutineName, aCurrentTypeName,
       aParentRoutineNames, aSelectors, aReferenceCachePrefix, aResolveCachePrefix, aMemberCachePrefix,
@@ -2803,6 +2884,7 @@ begin
         aBodyLineStarts);
       ApplyScopeConflictFact(aModel, lResolveContext, aResolveCache, aResolveCachePrefix,
         aProjectMemberIndex, lReference, aLexicalResolveMs);
+      ApplyLocalLabelFact(aModel, lReference);
       AddReference(aReferences, lReference);
       AddIndexReferences(aReferences, aModel, aProjectModels, aRoutineName, aCurrentTypeName,
         aParentRoutineNames, aSelectors, aReferenceCachePrefix, aResolveCachePrefix, aMemberCachePrefix,
@@ -2810,6 +2892,40 @@ begin
         aReferenceCache, aResolveCache, aMemberCache, aReceiverMemberResolveMs, aLexicalResolveMs,
         aReferenceCacheHits, aReferenceCacheMisses);
     end;
+  end;
+end;
+
+procedure AppendNumericLabelReferences(const aModel: TDelphiSemanticUnitModel;
+  const aStatement: TDelphiSemanticWithStatement; const aBodyText: string;
+  const aBodyLineStarts: TArray<Integer>;
+  const aReferences: TList<TDelphiSemanticBoundReference>);
+var
+  lFact: TDelphiSemanticReference;
+  lLineIndex: Integer;
+  lOffset: Integer;
+  lReference: TDelphiSemanticBoundReference;
+begin
+  // Numeric labels are grammar tokens, but the ordinary identifier scanner skips them.
+  for lFact in aModel.LocalLabelReferences do
+  begin
+    if (lFact.FileName <> '') or (lFact.Name = '') or
+      not CharInSet(lFact.Name[1], ['0'..'9']) or
+      not MatchText(lFact.Role, ['local-label-target', 'local-label-definition']) then
+      Continue;
+    lLineIndex := lFact.Line - aStatement.BodyLine;
+    if (lLineIndex < 0) or (lLineIndex >= Length(aBodyLineStarts)) then
+      Continue;
+    lOffset := aBodyLineStarts[lLineIndex] + lFact.Column - 1;
+    if lLineIndex = 0 then
+      Dec(lOffset, aStatement.BodyColumn - 1);
+    // Nested with bodies and non-code have already been blanked without moving text.
+    if (lOffset <= 0) or (Copy(aBodyText, lOffset, Length(lFact.Name)) <> lFact.Name) then
+      Continue;
+    lReference := Default(TDelphiSemanticBoundReference);
+    lReference.Name := lFact.Name;
+    ApplyBodyRange(lReference, aStatement, lOffset, Length(lFact.Name), aBodyLineStarts);
+    ApplyLocalLabelFact(aModel, lReference);
+    AddReference(aReferences, lReference);
   end;
 end;
 
@@ -2871,6 +2987,7 @@ begin
         ApplyBodyRange(lReference, aStatement, lTokenStart, Length(lToken), lBodyLineStarts);
         ApplyScopeConflictFact(aModel, lResolveContext, aResolveCache, lResolveCachePrefix,
           aProjectMemberIndex, lReference, aLexicalResolveMs);
+        ApplyLocalLabelFact(aModel, lReference);
         AddReference(lReferences, lReference);
         AddArgumentReferences(lReferences, aModel, aProjectModels, aRoutineName,
           aCurrentTypeName,
@@ -2887,6 +3004,7 @@ begin
           aReferenceCacheMisses);
       end;
     end;
+    AppendNumericLabelReferences(aModel, aStatement, lBodyText, lBodyLineStarts, lReferences);
     Result := lReferences.ToArray;
   finally
     lReferences.Free;
@@ -2987,6 +3105,262 @@ begin
   end;
 end;
 
+procedure TWithBindingProjectMemberIndex.BuildMemberSafetyDiagnostics;
+var
+  i: Integer;
+  j: Integer;
+  lCandidate: TIndexedDeclarationCandidate;
+  lCandidates: TList<TIndexedDeclarationCandidate>;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lFact: TMemberSafetyDiagnostic;
+  lIndex: Integer;
+  lModelIndexes: TArray<Integer>;
+  lModel: TDelphiSemanticUnitModel;
+  lOwnerFileName: string;
+  lProfile: TDelphiSemanticCompilerProfile;
+  lSymbol: TDelphiSemanticIntrinsicSymbol;
+begin
+  fMemberSafetyDiagnostics := nil;
+  fSafetyDeclarationsByName := TObjectDictionary<string,
+    TList<TIndexedDeclarationCandidate>>.Create([doOwnsValues],
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fSafetyModelsByUnit := TDictionary<string, TArray<Integer>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fSafetyProfileTypes := TDictionary<string, Byte>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lProfile := TDelphiSemanticCompilerProfileBuilder.DefaultProfile('');
+  for lSymbol in lProfile.IntrinsicSymbols do
+    if SameText(lSymbol.Kind, 'intrinsic-type') and
+      (SameText(lSymbol.OwnerName, 'compiler') or
+      SameText(lSymbol.OwnerName, 'rtl')) then
+      fSafetyProfileTypes.AddOrSetValue(lSymbol.Name, 0);
+  for i := 0 to High(fModels) do
+  begin
+    lModel := fModels[i];
+    lModelIndexes := nil;
+    fSafetyModelsByUnit.TryGetValue(lModel.UnitName, lModelIndexes);
+    lIndex := Length(lModelIndexes);
+    SetLength(lModelIndexes, lIndex + 1);
+    lModelIndexes[lIndex] := i;
+    fSafetyModelsByUnit.AddOrSetValue(lModel.UnitName, lModelIndexes);
+    for j := 0 to High(lModel.Declarations) do
+    begin
+      lDeclaration := lModel.Declarations[j];
+      if not fSafetyDeclarationsByName.TryGetValue(lDeclaration.Name, lCandidates) then
+      begin
+        lCandidates := TList<TIndexedDeclarationCandidate>.Create;
+        fSafetyDeclarationsByName.Add(lDeclaration.Name, lCandidates);
+      end;
+      lCandidate.ModelIndex := i;
+      lCandidate.DeclarationIndex := j;
+      lCandidates.Add(lCandidate);
+    end;
+  end;
+  for lModel in fModels do
+    for lDiagnostic in lModel.Diagnostics do
+    begin
+      if not (SameText(lDiagnostic.Code, 'MEMBERS_UNVERIFIED') or
+        SameText(lDiagnostic.Code, 'MEMBERS_INCOMPLETE')) then
+        Continue;
+      lFact := Default(TMemberSafetyDiagnostic);
+      lFact.Code := lDiagnostic.Code;
+      lFact.UnitName := lModel.UnitName;
+      lFact.FileName := lDiagnostic.FileName;
+      lFact.Line := lDiagnostic.Line;
+      if SameText(lDiagnostic.Code, 'MEMBERS_INCOMPLETE') and
+        (lDiagnostic.FileName <> '') and (lDiagnostic.Line > 0) then
+        for lDeclaration in lModel.Declarations do
+        begin
+          lOwnerFileName := lDeclaration.FileName;
+          if lOwnerFileName = '' then
+            lOwnerFileName := lModel.FileName;
+          if SameText(lDiagnostic.FileName, lOwnerFileName) and
+            (lDiagnostic.Line = lDeclaration.Line) and
+            SameText(lDeclaration.Kind, 'type') and
+            (SameText(lDeclaration.TypeName, 'record') or
+            SameText(lDeclaration.TypeName, 'class') or
+            SameText(lDeclaration.TypeName, 'interface')) then
+          begin
+            if lFact.OwnerName <> '' then
+              lFact.OwnerResolved := False
+            else
+            begin
+              lFact.OwnerName := lDeclaration.Name;
+              lFact.OwnerResolved := True;
+            end;
+          end;
+        end;
+      lIndex := Length(fMemberSafetyDiagnostics);
+      SetLength(fMemberSafetyDiagnostics, lIndex + 1);
+      fMemberSafetyDiagnostics[lIndex] := lFact;
+    end;
+end;
+
+function TWithBindingProjectMemberIndex.IsKnownSafetyProfileTerminal(
+  const aName: string; const aLookup: TDelphiSemanticTypeLookupResult): Boolean;
+begin
+  Result := (Pos('.', aName) = 0) and (not aLookup.Found) and
+    (not aLookup.Ambiguous) and SameText(aLookup.ReasonCode, 'TYPE_NOT_FOUND') and
+    (not fSafetyDeclarationsByName.ContainsKey(aName)) and
+    fSafetyProfileTypes.ContainsKey(aName);
+end;
+
+function TWithBindingProjectMemberIndex.TrySafetyDeclarationModel(
+  const aIdentity: TDelphiSemanticTypeIdentity;
+  out aModel: TDelphiSemanticUnitModel): Boolean;
+var
+  lCandidate: TIndexedDeclarationCandidate;
+  lCandidates: TList<TIndexedDeclarationCandidate>;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFileName: string;
+  lMatchCount: Integer;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  Result := False;
+  aModel := Default(TDelphiSemanticUnitModel);
+  if not fSafetyDeclarationsByName.TryGetValue(aIdentity.Name, lCandidates) then
+    Exit;
+  lMatchCount := 0;
+  for lCandidate in lCandidates do
+  begin
+    lModel := fModels[lCandidate.ModelIndex];
+    lDeclaration := lModel.Declarations[lCandidate.DeclarationIndex];
+    lFileName := lDeclaration.FileName;
+    if lFileName = '' then
+      lFileName := lModel.FileName;
+    if SameText(lModel.UnitName, aIdentity.UnitName) and
+      SameText(lFileName, aIdentity.SourceRange.FileName) and
+      (lDeclaration.Line = aIdentity.SourceRange.Line) and
+      (lDeclaration.Column = aIdentity.SourceRange.Column) and
+      SameText(lDeclaration.SectionKind, aIdentity.SectionKind) then
+    begin
+      Inc(lMatchCount);
+      aModel := lModel;
+    end;
+  end;
+  Result := lMatchCount = 1;
+end;
+
+function TWithBindingProjectMemberIndex.TryBuildMemberSafetyLineage(
+  const aBinding: TDelphiSemanticWithBinding;
+  const aSelectorTypeName: string;
+  out aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
+var
+  lCurrent: TDelphiSemanticTypeIdentity;
+  lIdentityId: string;
+  lIndex: Integer;
+  lLookup: TDelphiSemanticTypeLookupResult;
+  lModel: TDelphiSemanticUnitModel;
+  lModelIndex: Integer;
+  lModelIndexes: TArray<Integer>;
+  lSeenIds: TDictionary<string, Byte>;
+  lTargetName: string;
+  lVisibleUnits: TArray<string>;
+begin
+  Result := False;
+  aLineage := nil;
+  if not fSafetyModelsByUnit.TryGetValue(aBinding.UnitName, lModelIndexes) then
+    Exit;
+  lIndex := -1;
+  for lModelIndex in lModelIndexes do
+    if SameText(fModels[lModelIndex].FileName, aBinding.FileName) then
+    begin
+      if lIndex >= 0 then
+        Exit;
+      lIndex := lModelIndex;
+    end;
+  if lIndex < 0 then
+    Exit;
+  lModel := fModels[lIndex];
+  lVisibleUnits := CombineUnitUses(lModel.InterfaceUses, lModel.ImplementationUses);
+  lLookup := fTypeIndex.ResolveVisibleName(aSelectorTypeName,
+    lModel.UnitName, lVisibleUnits, 'implementation');
+  if (not lLookup.Found) or lLookup.Ambiguous then
+    Exit(IsKnownSafetyProfileTerminal(aSelectorTypeName, lLookup));
+  lCurrent := lLookup.Identity;
+  lSeenIds := TDictionary<string, Byte>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  try
+    while True do
+    begin
+      lIdentityId := lCurrent.DeclaredId.Value;
+      if (lIdentityId = '') or lSeenIds.ContainsKey(lIdentityId) or
+        (not TrySafetyDeclarationModel(lCurrent, lModel)) then
+        Exit;
+      lSeenIds.Add(lIdentityId, 0);
+      lIndex := Length(aLineage);
+      SetLength(aLineage, lIndex + 1);
+      aLineage[lIndex] := lCurrent;
+      if SameText(lCurrent.Kind, 'type-alias') then
+        lTargetName := lCurrent.CanonicalName
+      else
+        lTargetName := lCurrent.BaseTypeName;
+      if lTargetName = '' then
+      begin
+        Result := not SameText(lCurrent.Kind, 'type-alias');
+        Exit;
+      end;
+      if Pos('.', lTargetName) > 0 then
+        lLookup := fTypeIndex.ResolveQualifiedName(lTargetName)
+      else
+      begin
+        if SameText(lCurrent.SectionKind, 'interface') then
+          lVisibleUnits := Copy(lModel.InterfaceUses)
+        else if SameText(lCurrent.SectionKind, 'implementation') then
+          lVisibleUnits := CombineUnitUses(lModel.InterfaceUses,
+            lModel.ImplementationUses)
+        else
+          Exit;
+        lLookup := fTypeIndex.ResolveVisibleName(lTargetName,
+          lCurrent.UnitName, lVisibleUnits, lCurrent.SectionKind);
+      end;
+      if (not lLookup.Found) or lLookup.Ambiguous then
+        Exit(IsKnownSafetyProfileTerminal(lTargetName, lLookup));
+      lCurrent := lLookup.Identity;
+    end;
+  finally
+    lSeenIds.Free;
+  end;
+end;
+
+function TWithBindingProjectMemberIndex.MemberSafetyReason(
+  const aBinding: TDelphiSemanticWithBinding): string;
+var
+  lFact: TMemberSafetyDiagnostic;
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lLineage: TArray<TDelphiSemanticTypeIdentity>;
+  lLineageComplete: Boolean;
+  lSelector: TDelphiSemanticWithSelectorBinding;
+begin
+  Result := '';
+  if Length(fMemberSafetyDiagnostics) = 0 then
+    Exit;
+  for lSelector in aBinding.Selectors do
+  begin
+    lLineageComplete := TryBuildMemberSafetyLineage(aBinding,
+      lSelector.TypeName, lLineage);
+    if not lLineageComplete then
+      Exit('MEMBERS_INCOMPLETE');
+    for lFact in fMemberSafetyDiagnostics do
+    begin
+      for lIdentity in lLineage do
+      begin
+        if not SameText(lIdentity.UnitName, lFact.UnitName) then
+          Continue;
+        if SameText(lFact.Code, 'MEMBERS_UNVERIFIED') then
+          Exit('MEMBERS_UNVERIFIED');
+        if not lFact.OwnerResolved then
+          Exit('MEMBERS_INCOMPLETE');
+        if SameText(lIdentity.Name, lFact.OwnerName) and
+          (lIdentity.SourceRange.Line = lFact.Line) and
+          SameText(lIdentity.SourceRange.FileName, lFact.FileName) then
+          Exit('MEMBERS_INCOMPLETE');
+      end;
+    end;
+  end;
+end;
+
 class function TDelphiSemanticWithBinder.BindModel(const aModel: TDelphiSemanticUnitModel):
   TArray<TDelphiSemanticWithBinding>;
 begin
@@ -3023,6 +3397,7 @@ var
   lRoutineName: string;
   lScopeIndexBuildMs: Int64;
   lSelectorBindingMs: Int64;
+  lSkipReason: string;
   lSelectorStacks: TWithSelectorStackArray;
   lScopeIndex: TDelphiSemanticRoutineScopeIndex;
   lStatement: TDelphiSemanticWithStatement;
@@ -3147,6 +3522,12 @@ begin
         Inc(lReferenceBindingMs, lSubphaseStopwatch.ElapsedMilliseconds);
         ApplyBindingReferenceIds(lBinding);
         FinalizeBinding(lBinding, lStatement);
+        lSkipReason := lProjectMemberIndex.MemberSafetyReason(lBinding);
+        if lSkipReason <> '' then
+        begin
+          lBinding.Status := 'skipped';
+          lBinding.SkipReason := lSkipReason;
+        end;
         lBindings.Add(lBinding);
       end;
       lBindingStopwatch.Stop;
