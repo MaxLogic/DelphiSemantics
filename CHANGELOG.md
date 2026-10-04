@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Fixed
+- Snapshot SQLite caches now open absolute database paths beyond 300 characters, allowing DAK position queries to reuse the persisted snapshot at a deep semantic-unit-cache.sqlite3 path.
+- Semantic-unit SQLite caches now persist at deep project cache paths beyond 300 characters and remain reusable by a fresh cache instance.
 - Remove-with preserves syntax-proven local labels and `goto` targets, including numeric labels and labels sharing a receiver field's name. Missing, duplicate, out-of-scope or unverified labels are refused. Protected occurrences retain their positions through member qualification and cached planning. Bodies containing escaped identifiers are conservatively refused to avoid malformed qualification.
 - Pointer and array `with` selectors now follow aliases through the declaring unit, so member binding and rename planning include provable cross-unit references. Unimported, private, ambiguous and cyclic types remain unresolved; snapshot and remove-with caches refresh for the corrected binding.
 - Remove-with refuses edits in units with unverified scope facts, skips selectors whose declaring type has unverified or incomplete members, and names the reason. Include-expanded `with` statements are refused when their original source range cannot be verified; other verified units can still be planned. Unit-model and remove-with cache identities are refreshed.

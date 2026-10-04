@@ -48,6 +48,10 @@ type
     [Test]
     procedure NonEmptySqliteFileNameCreatesPersistentCacheFile;
     [Test]
+    procedure DeepSqliteFileNamePersistsAndReusesAcrossInstances;
+    [Test]
+    procedure DeepSqliteIncompatibleSchemaRebuildsPhysicalFile;
+    [Test]
     procedure SqliteMetricsExposeCacheFileName;
     [Test]
     procedure UnavailableSqlitePathFallsBackToInMemoryWithoutDeletion;
@@ -351,6 +355,145 @@ begin
     Assert.AreEqual('sqlite', lCache.Metrics.CacheKind);
     Assert.IsTrue(TFile.Exists(lCacheOptions.SqliteCacheFileName));
     Assert.IsTrue(HasDeclaration(lModel, 'TSqliteCreateType'));
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.DeepSqliteFileNamePersistsAndReusesAcrossInstances;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lCacheRoot: string;
+  lGuid: TGUID;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPhysicalFileName: string;
+begin
+  CreateGUID(lGuid);
+  lCacheRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '.dak', 'delphiSemanticsSqliteTests', 'ds-672-long-paths',
+    'run-' + GetCurrentProcessId.ToString + '-' + GUIDToString(lGuid)]));
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TPath.GetFullPath(CombinePath([lCacheRoot,
+    StringOfChar('a', 110), StringOfChar('b', 110), 'symbol-map', 'v2',
+    'semantic-unit-cache.sqlite3']));
+  Assert.IsTrue(Length(lCacheOptions.SqliteCacheFileName) > 300,
+    'The semantic-unit database path must exceed 300 characters.');
+  lPhysicalFileName := '\\?\' + lCacheOptions.SqliteCacheFileName;
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := WriteUnitFile('SqliteDeepCacheUnit',
+    'TSqliteDeepCacheType');
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Assert.IsTrue(HasDeclaration(lModel, 'TSqliteDeepCacheType'));
+    Assert.AreEqual('sqlite', lCache.Metrics.CacheKind);
+    Assert.AreEqual(lCacheOptions.SqliteCacheFileName, lCache.Metrics.CacheFileName);
+    Assert.IsFalse(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_UNAVAILABLE'));
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+  finally
+    lCache.Free;
+  end;
+  Assert.IsTrue(TFile.Exists(lPhysicalFileName),
+    'A memory fallback cannot substitute for the deep SQLite database.');
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Assert.IsTrue(HasDeclaration(lModel, 'TSqliteDeepCacheType'));
+    Assert.AreEqual('sqlite', lCache.Metrics.CacheKind);
+    Assert.AreEqual(lCacheOptions.SqliteCacheFileName, lCache.Metrics.CacheFileName);
+    Assert.IsFalse(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_UNAVAILABLE'));
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.DeepSqliteIncompatibleSchemaRebuildsPhysicalFile;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lCacheRoot: string;
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+  lGuid: TGUID;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPhysicalFileName: string;
+begin
+  CreateGUID(lGuid);
+  lCacheRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), '..',
+    '.dak', 'delphiSemanticsSqliteTests', 'ds-672-long-paths',
+    'rebuild-' + GetCurrentProcessId.ToString + '-' + GUIDToString(lGuid)]));
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TPath.GetFullPath(CombinePath([lCacheRoot,
+    StringOfChar('a', 110), StringOfChar('b', 110), 'symbol-map', 'v2',
+    'semantic-unit-cache.sqlite3']));
+  Assert.IsTrue(Length(lCacheOptions.SqliteCacheFileName) > 300);
+  lPhysicalFileName := '\\?\' + lCacheOptions.SqliteCacheFileName;
+  WriteIncompatibleSchema(lPhysicalFileName);
+  Assert.IsTrue(TFile.Exists(lPhysicalFileName));
+
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := lPhysicalFileName;
+    lConnection.Connected := True;
+    lConnection.ExecSQL('create table legacy_sentinel (id integer)');
+  finally
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := WriteUnitFile('SqliteDeepRebuildUnit',
+    'TSqliteDeepRebuildType');
+  lModelOptions.ProjectContextApplied := True;
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Assert.IsTrue(HasDeclaration(lModel, 'TSqliteDeepRebuildType'));
+    Assert.IsTrue(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_SCHEMA_REBUILT'));
+    Assert.IsFalse(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_UNAVAILABLE'));
+    Assert.AreEqual('sqlite', lCache.Metrics.CacheKind);
+    Assert.AreEqual(lCacheOptions.SqliteCacheFileName, lCache.Metrics.CacheFileName);
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+  finally
+    lCache.Free;
+  end;
+  Assert.IsTrue(TFile.Exists(lPhysicalFileName));
+
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := lPhysicalFileName;
+    lConnection.Connected := True;
+    Assert.AreEqual(0, Integer(lConnection.ExecSQLScalar(
+      'select count(*) from sqlite_master where type = ''table'' and name = ''legacy_sentinel''')),
+      'Rebuilding the schema must delete the old physical database file.');
+  finally
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Assert.IsTrue(HasDeclaration(lModel, 'TSqliteDeepRebuildType'));
+    Assert.IsFalse(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_UNAVAILABLE'));
+    Assert.AreEqual('sqlite', lCache.Metrics.CacheKind);
+    Assert.AreEqual(lCacheOptions.SqliteCacheFileName, lCache.Metrics.CacheFileName);
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    Assert.AreEqual(0, lCache.Metrics.CacheMisses);
   finally
     lCache.Free;
   end;
@@ -858,7 +1001,8 @@ begin
 
   Assert.IsTrue((lStartIndex > 0) and (lBody <> ''),
     'Expected the SQLite rebuild failure boundary.');
-  Assert.IsTrue(ContainsText(lBody, 'not DeleteFile'),
+  Assert.IsTrue(ContainsText(lBody,
+    'not System.SysUtils.DeleteFile(lPhysicalFileName)'),
     'Rebuild must detect a cache file that cannot be deleted.');
   Assert.IsTrue(ContainsText(lBody, 'except') and
     ContainsText(lBody, 'DisablePersistence'),

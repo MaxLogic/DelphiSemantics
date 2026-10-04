@@ -40,7 +40,8 @@ type
 implementation
 
 uses
-  System.Classes, System.DateUtils,
+  System.Classes, System.DateUtils, System.IOUtils,
+  Winapi.Windows,
   Data.DB,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   FireDAC.Stan.Error;
@@ -60,6 +61,18 @@ const
   cUnitCacheSqliteLockingMode = 'Normal';
   cUnitCacheSqliteTestBusyTimeoutEnv =
     'DELPHI_SEMANTICS_TEST_UNIT_CACHE_BUSY_TIMEOUT_MS';
+
+function PhysicalUnitCachePath(const aPath: string): string;
+begin
+  Result := aPath;
+  if (Length(Result) < MAX_PATH) or TPath.IsExtendedPrefixed(Result) then
+    Exit;
+  Result := TPath.GetFullPath(Result);
+  if Result.StartsWith('\\') then
+    Result := '\\?\UNC\' + Copy(Result, 3, MaxInt)
+  else
+    Result := '\\?\' + Result;
+end;
 
 function UnitCacheSqliteBusyTimeoutMs: UInt64;
 var
@@ -454,6 +467,7 @@ var
   lConnection: TFDConnection;
   lDriverLink: TFDPhysSQLiteDriverLink;
   lDirectory: string;
+  lPhysicalFileName: string;
 begin
   Result := False;
   aConnection := nil;
@@ -464,12 +478,13 @@ begin
   lConnection := nil;
   lDriverLink := nil;
   try
-    lDirectory := ExtractFilePath(fCacheFileName);
+    lPhysicalFileName := PhysicalUnitCachePath(fCacheFileName);
+    lDirectory := ExtractFilePath(lPhysicalFileName);
     if lDirectory <> '' then
       ForceDirectories(lDirectory);
     lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
     lConnection := TFDConnection.Create(nil);
-    ConfigureUnitCacheSqliteConnection(lConnection, fCacheFileName);
+    ConfigureUnitCacheSqliteConnection(lConnection, lPhysicalFileName);
     lConnection.Connected := True;
     aConnection := lConnection;
     aDriverLink := lDriverLink;
@@ -545,10 +560,12 @@ var
   lCorrupt: Boolean;
   lDriverLinkObject: TObject;
   lError: string;
+  lPhysicalFileName: string;
 begin
   CloseSharedConnection;
   try
-    if FileExists(fCacheFileName) and not DeleteFile(fCacheFileName) then
+    lPhysicalFileName := PhysicalUnitCachePath(fCacheFileName);
+    if FileExists(lPhysicalFileName) and not System.SysUtils.DeleteFile(lPhysicalFileName) then
       raise Exception.Create('Could not delete the prior SQLite cache file.');
     if not OpenConnection(lConnectionObject, lDriverLinkObject, lError, lBusy, lCorrupt) then
       raise Exception.Create('Could not reopen the SQLite cache database: ' + lError);

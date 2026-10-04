@@ -38,6 +38,8 @@ type
     [Test]
     procedure DefaultSnapshotBuildDoesNotRequireSqliteCache;
     [Test]
+    procedure DeepSnapshotCachePersistsAndReusesAcrossInstances;
+    [Test]
     procedure BuildProjectSnapshotFromUnitSnapshotsDoesNotPromoteProjectRemoveWithPlanningFacts;
     [Test]
     procedure BuildProjectSnapshotFromMixedUnitSnapshotsDropsProjectRemoveWithPlanningFacts;
@@ -620,6 +622,51 @@ begin
     Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lSnapshot));
     try
       Assert.AreEqual(1, lSnapshot.UnitCount);
+    finally
+      lSnapshot.Free;
+    end;
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.DeepSnapshotCachePersistsAndReusesAcrossInstances;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheFileName: string;
+  lDirectory: string;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+  lUnitId: TSemanticUnitId;
+begin
+  lDirectory := TempPath('deep-snapshot-cache');
+  lDirectory := TPath.Combine(lDirectory, StringOfChar('a', 70));
+  lDirectory := TPath.Combine(lDirectory, StringOfChar('b', 70));
+  lDirectory := TPath.Combine(lDirectory, StringOfChar('c', 70));
+  lDirectory := TPath.Combine(lDirectory, StringOfChar('d', 70));
+  lCacheFileName := TPath.Combine(lDirectory, 'semantic-unit-cache.sqlite3');
+  Assert.IsTrue(TPath.IsPathRooted(lCacheFileName));
+  Assert.IsTrue(Length(lCacheFileName) > 300);
+  Assert.IsFalse(TPath.IsExtendedPrefixed(lCacheFileName));
+  lIdentity := CreateIdentity('DeepSnapshotCacheUnit', 'file-a', 'context-a',
+    'include-a', 'snapshot-v1');
+
+  StoreDemoUnit(lCacheFileName, lIdentity);
+  Assert.IsTrue(GetFileAttributes(PChar('\\?\' + lCacheFileName)) <>
+    INVALID_FILE_ATTRIBUTES, 'The SQLite database must exist at the requested deep path.');
+
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+  try
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lSnapshot));
+    try
+      Assert.IsTrue(lSnapshot.TryFindUnitByFileName('demounit.pas', lUnitId));
+      Assert.IsTrue(lSnapshot.TryFindUnitById(lUnitId, lUnit));
+      Assert.AreEqual(2, lUnit.SymbolCount);
+      Assert.AreEqual(1, lUnit.ReferenceCount);
+      Assert.AreEqual('DemoTypes.inc', lSnapshot.TextOf(lUnit.SymbolById(1).FileId));
     finally
       lSnapshot.Free;
     end;

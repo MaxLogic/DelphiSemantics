@@ -121,7 +121,8 @@ type
 implementation
 
 uses
-  System.Classes, System.DateUtils, System.Diagnostics, System.SysUtils,
+  System.Classes, System.DateUtils, System.Diagnostics, System.IOUtils, System.SysUtils,
+  Winapi.Windows,
   Data.DB,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
   FireDAC.Stan.Def,
@@ -136,6 +137,19 @@ const
   cSnapshotSqliteBusyRetryDelayMs = 50;
   cSnapshotSqliteJournalMode = 'WAL';
   cSnapshotSqliteLockingMode = 'Normal';
+
+function PhysicalSnapshotCachePath(const aPath: string): string;
+begin
+  Result := aPath;
+  if (Length(Result) < MAX_PATH) or not TPath.IsPathRooted(Result) or
+    TPath.IsExtendedPrefixed(Result) then
+    Exit;
+  Result := TPath.GetFullPath(Result);
+  if Result.StartsWith('\\') then
+    Result := '\\?\UNC\' + Copy(Result, 3, MaxInt)
+  else
+    Result := '\\?\' + Result;
+end;
 
 function SameCanonicalIdentityPath(const aLeft, aRight: string): Boolean;
 begin
@@ -1689,6 +1703,7 @@ var
   lConnection: TFDConnection;
   lDirectory: string;
   lDriverLink: TFDPhysSQLiteDriverLink;
+  lPhysicalFileName: string;
   lStopwatch: TStopwatch;
 begin
   Result := False;
@@ -1696,7 +1711,8 @@ begin
   aDriverLink := nil;
   aError := '';
 
-  lDirectory := ExtractFilePath(fCacheFileName);
+  lPhysicalFileName := PhysicalSnapshotCachePath(fCacheFileName);
+  lDirectory := ExtractFilePath(lPhysicalFileName);
   if lDirectory <> '' then
     ForceDirectories(lDirectory);
 
@@ -1706,7 +1722,7 @@ begin
     lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
     lConnection := TFDConnection.Create(nil);
     try
-      ConfigureSnapshotSqliteConnection(lConnection, fCacheFileName);
+      ConfigureSnapshotSqliteConnection(lConnection, lPhysicalFileName);
       lConnection.Connected := True;
       aConnection := lConnection;
       aDriverLink := lDriverLink;
