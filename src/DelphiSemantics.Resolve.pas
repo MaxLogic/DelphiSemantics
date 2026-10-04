@@ -41,6 +41,11 @@ type
     class function ResolveName(const aModel: TDelphiSemanticUnitModel;
       const aContext: TDelphiSemanticResolveContext; const aName: string):
       TDelphiSemanticResolveResult; static;
+    class function ResolveSelectorFromBoundBase(const aModel: TDelphiSemanticUnitModel;
+      const aContext: TDelphiSemanticResolveContext; const aSelector: string;
+      const aBaseResult: TDelphiSemanticResolveResult;
+      const aBaseDeclaringModel: TDelphiSemanticUnitModel;
+      const aBaseDeclaringSectionKind: string): TDelphiSemanticResolveResult; static;
   end;
 
 implementation
@@ -493,9 +498,12 @@ begin
   Result := aResult.Found or (aResult.Status = 'ambiguous') or (aResult.Status = 'unsupported');
 end;
 
-function TryResolveLevel2Selector(const aModel: TDelphiSemanticUnitModel;
+procedure ContinueLevel2Selector(const aModel: TDelphiSemanticUnitModel;
   const aContext: TDelphiSemanticResolveContext; const aSelector: string;
-  out aResult: TDelphiSemanticResolveResult): Boolean;
+  const aParts: TArray<string>; const aFirstIndexed, aFirstDereferenced,
+  aFirstIndexBeforeDereference: Boolean; var aResult: TDelphiSemanticResolveResult;
+  const aBaseDeclaringModel: TDelphiSemanticUnitModel;
+  const aBaseDeclaringSectionKind: string);
 var
   i: Integer;
   lCurrentTypeName: string;
@@ -507,32 +515,21 @@ var
   lIndexed: Boolean;
   lMemberName: string;
   lPart: string;
-  lParts: TArray<string>;
   lResolvedTypeName: string;
   lIndexedModel: TDelphiSemanticUnitModel;
 begin
-  aResult := Default(TDelphiSemanticResolveResult);
-  if (EffectiveConformanceLevel(aContext) < 2) or
-    ((Pos('.', aSelector) = 0) and (Pos('[', aSelector) = 0) and (Pos('^', aSelector) = 0)) then
-    Exit(False);
-
-  lParts := aSelector.Split(['.']);
-  if Length(lParts) = 0 then
-    Exit(False);
-
-  if not ParseSelectorToken(lParts[0], lMemberName, lIndexed, lDereferenced,
-    lIndexBeforeDereference) then
-    Exit(False);
-
   lLookupContext := aContext;
   lLookupContext.IndexedUnitModels := VisibleSelectorModels(aModel, aContext);
-  aResult := TDelphiSemanticResolver.ResolveName(aModel, lLookupContext, lMemberName);
   if not aResult.Found then
-    Exit(True);
+    Exit;
 
   lCurrentModel := aModel;
   lCurrentSection := aContext.SectionKind;
-  if (aResult.OwnerName <> '') and SameText(aResult.SectionKind, 'interface') then
+  if aBaseDeclaringModel.UnitName <> '' then
+  begin
+    lCurrentModel := aBaseDeclaringModel;
+    lCurrentSection := aBaseDeclaringSectionKind;
+  end else if (aResult.OwnerName <> '') and SameText(aResult.SectionKind, 'interface') then
     for lIndexedModel in lLookupContext.IndexedUnitModels do
       if SameText(lIndexedModel.UnitName, aResult.OwnerName) then
       begin
@@ -542,24 +539,24 @@ begin
       end;
 
   if not TryApplySelectorPostfix(aContext, lCurrentModel, lCurrentSection,
-    aResult.TypeName, lIndexed, lDereferenced,
-    lIndexBeforeDereference, lCurrentTypeName) then
+    aResult.TypeName, aFirstIndexed, aFirstDereferenced,
+    aFirstIndexBeforeDereference, lCurrentTypeName) then
   begin
     aResult := UnresolvedResult(aSelector, 'SELECTOR_TYPE_NOT_RESOLVED',
       'The selector receiver type could not be resolved.');
-    Exit(True);
+    Exit;
   end;
   aResult.TypeName := lCurrentTypeName;
 
-  for i := 1 to High(lParts) do
+  for i := 1 to High(aParts) do
   begin
-    lPart := lParts[i];
+    lPart := aParts[i];
     if not ParseSelectorToken(lPart, lMemberName, lIndexed, lDereferenced,
       lIndexBeforeDereference) then
     begin
       aResult := UnresolvedResult(aSelector, 'SELECTOR_TOKEN_NOT_RESOLVED',
         'The selector token could not be resolved.');
-      Exit(True);
+      Exit;
     end;
 
     if not TryResolveSelectorType(aContext, lCurrentModel, lCurrentSection,
@@ -567,12 +564,12 @@ begin
     begin
       aResult := UnresolvedResult(aSelector, 'SELECTOR_TYPE_NOT_RESOLVED',
         'The selector receiver type could not be resolved.');
-      Exit(True);
+      Exit;
     end;
     aResult := TDelphiSemanticResolver.ResolveMemberAtLevel(lCurrentModel,
       lCurrentTypeName, lMemberName, EffectiveConformanceLevel(aContext));
     if not aResult.Found then
-      Exit(True);
+      Exit;
 
     if lIndexed and SameText(aResult.Kind, 'property') then
     begin
@@ -582,7 +579,7 @@ begin
       begin
         aResult := UnresolvedResult(aSelector, 'SELECTOR_TYPE_NOT_RESOLVED',
           'The selector receiver type could not be resolved.');
-        Exit(True);
+        Exit;
       end;
     end else if not TryApplySelectorPostfix(aContext, lCurrentModel, lCurrentSection,
       aResult.TypeName, lIndexed, lDereferenced,
@@ -590,13 +587,77 @@ begin
     begin
       aResult := UnresolvedResult(aSelector, 'SELECTOR_TYPE_NOT_RESOLVED',
         'The selector receiver type could not be resolved.');
-      Exit(True);
+      Exit;
     end;
     lCurrentTypeName := lResolvedTypeName;
     aResult.TypeName := lCurrentTypeName;
   end;
 
+end;
+
+function TryResolveLevel2Selector(const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext; const aSelector: string;
+  out aResult: TDelphiSemanticResolveResult): Boolean;
+var
+  lDereferenced: Boolean;
+  lIndexBeforeDereference: Boolean;
+  lIndexed: Boolean;
+  lLookupContext: TDelphiSemanticResolveContext;
+  lMemberName: string;
+  lParts: TArray<string>;
+begin
+  aResult := Default(TDelphiSemanticResolveResult);
+  if (EffectiveConformanceLevel(aContext) < 2) or
+    ((Pos('.', aSelector) = 0) and (Pos('[', aSelector) = 0) and (Pos('^', aSelector) = 0)) then
+    Exit(False);
+  lParts := aSelector.Split(['.']);
+  if (Length(lParts) = 0) or
+    not ParseSelectorToken(lParts[0], lMemberName, lIndexed, lDereferenced,
+      lIndexBeforeDereference) then
+    Exit(False);
+  lLookupContext := aContext;
+  lLookupContext.IndexedUnitModels := VisibleSelectorModels(aModel, aContext);
+  aResult := TDelphiSemanticResolver.ResolveName(aModel, lLookupContext, lMemberName);
+  ContinueLevel2Selector(aModel, aContext, aSelector, lParts, lIndexed,
+    lDereferenced, lIndexBeforeDereference, aResult,
+    Default(TDelphiSemanticUnitModel), '');
   Result := True;
+end;
+
+class function TDelphiSemanticResolver.ResolveSelectorFromBoundBase(
+  const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext; const aSelector: string;
+  const aBaseResult: TDelphiSemanticResolveResult;
+  const aBaseDeclaringModel: TDelphiSemanticUnitModel;
+  const aBaseDeclaringSectionKind: string): TDelphiSemanticResolveResult;
+var
+  lDereferenced: Boolean;
+  lIndexBeforeDereference: Boolean;
+  lIndexed: Boolean;
+  lMemberName: string;
+  lParts: TArray<string>;
+begin
+  Result := aBaseResult;
+  if not Result.Found then
+    Exit;
+  if (aBaseDeclaringModel.UnitName = '') or
+    ((not SameText(aBaseDeclaringSectionKind, 'interface')) and
+    (not SameText(aBaseDeclaringSectionKind, 'implementation'))) then
+    Exit(UnresolvedResult(aSelector, 'SELECTOR_TYPE_NOT_RESOLVED',
+      'The bound selector declaring type could not be identified.'));
+  if (EffectiveConformanceLevel(aContext) < 2) or
+    ((Pos('.', aSelector) = 0) and (Pos('[', aSelector) = 0) and (Pos('^', aSelector) = 0)) then
+    Exit(UnresolvedResult(aSelector, 'SELECTOR_TOKEN_NOT_RESOLVED',
+      'The selector token could not be resolved.'));
+  lParts := aSelector.Split(['.']);
+  if (Length(lParts) = 0) or
+    not ParseSelectorToken(lParts[0], lMemberName, lIndexed, lDereferenced,
+      lIndexBeforeDereference) or not SameText(lMemberName, aBaseResult.Name) then
+    Exit(UnresolvedResult(aSelector, 'SELECTOR_TOKEN_NOT_RESOLVED',
+      'The selector token could not be resolved.'));
+  ContinueLevel2Selector(aModel, aContext, aSelector, lParts, lIndexed,
+    lDereferenced, lIndexBeforeDereference, Result, aBaseDeclaringModel,
+    aBaseDeclaringSectionKind);
 end;
 
 class function TDelphiSemanticResolver.ResolveMember(const aModel: TDelphiSemanticUnitModel;

@@ -49,6 +49,7 @@
     <Base>true</Base>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Base)'!=''">
+    <DCC_Define>DS_PROJECT_SESSION_TEST_SUPPORT;$(DCC_Define)</DCC_Define>
     <DCC_ImageBase>00400000</DCC_ImageBase>
     <SanitizedProjectName>delphiSemanticsTests</SanitizedProjectName>
     <VerInfo_Locale>1045</VerInfo_Locale>

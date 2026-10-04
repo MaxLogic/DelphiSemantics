@@ -3,10 +3,20 @@ unit DelphiSemantics.ProjectSession;
 interface
 
 uses
-  DelphiSemantics.Cache, DelphiSemantics.GlobalVars, DelphiSemantics.Model,
-  DelphiSemantics.ProjectContext, DelphiSemantics.Query, DelphiSemantics.RemoveWithPlan,
-  DelphiSemantics.Graph, DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot,
+  DelphiSemantics.Cache, DelphiSemantics.GlobalVars, DelphiSemantics.Graph,
+  DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.Query,
+  DelphiSemantics.RemoveWithPlan, DelphiSemantics.SemanticGraph,
+  DelphiSemantics.Snapshot,
+  {$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  DelphiSemantics.Snapshot.Cache.Sqlite,
+  {$ENDIF}
   DelphiSemantics.WithBinding;
+
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+function RekeyProjectRemoveWithFactsIdentityForTest(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  const aSchemaVersion: string): TDelphiSemanticSnapshotCacheIdentity;
+{$ENDIF}
 
 type
   TDelphiSemanticProjectSession = class;
@@ -206,7 +216,10 @@ uses
   DelphiAST.ProjectIndexer,
   DelphiSemantics.Cache.Sqlite, DelphiSemantics.CompilerProfile,
   DelphiSemantics.IdentifierScope, DelphiSemantics.RemoveWith.Visibility,
-  DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite,
+  DelphiSemantics.Snapshot.Builder,
+  {$IFNDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  DelphiSemantics.Snapshot.Cache.Sqlite,
+  {$ENDIF}
   DelphiSemantics.Snapshot.ContextEvidence, DelphiSemantics.Snapshot.RemoveWith,
   DelphiSemantics.Source, DelphiSemantics.Version,
   MaxLogic.StrUtils;
@@ -214,7 +227,7 @@ uses
 const
   cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v26';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v22';
+    'project-session-remove-with-facts-v23';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -504,6 +517,26 @@ begin
     Result.IncludeGraphHash);
 end;
 
+function ProjectRemoveWithFactsCacheKey(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity): string;
+begin
+  Result := THashSHA2.GetHashString('project-remove-with-facts|' +
+    aIdentity.SchemaVersion + '|' + aIdentity.SourceFileName + '|' +
+    aIdentity.FileHash + '|' + aIdentity.ContextHash + '|' +
+    aIdentity.IncludeGraphHash);
+end;
+
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+function RekeyProjectRemoveWithFactsIdentityForTest(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  const aSchemaVersion: string): TDelphiSemanticSnapshotCacheIdentity;
+begin
+  Result := aIdentity;
+  Result.SchemaVersion := aSchemaVersion;
+  Result.CacheKey := ProjectRemoveWithFactsCacheKey(Result);
+end;
+{$ENDIF}
+
 function ProjectRemoveWithFactsCacheIdentity(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions; const aSourceFileNames,
   aScopedSourceFileNames: TArray<string>;
@@ -564,9 +597,7 @@ begin
     Result.IncludeGraphHash := THashSHA2.GetHashString(lIncludeGraphText);
   Result.SchemaVersion := cProjectRemoveWithFactsCacheIdentitySchemaVersion;
   Result.ParseAvoidedEstimateMilliseconds := 0;
-  Result.CacheKey := THashSHA2.GetHashString('project-remove-with-facts|' +
-    Result.SchemaVersion + '|' + Result.SourceFileName + '|' + Result.FileHash + '|' +
-    Result.ContextHash + '|' + Result.IncludeGraphHash);
+  Result.CacheKey := ProjectRemoveWithFactsCacheKey(Result);
 end;
 
 procedure AccumulateSnapshotCacheMetrics(var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;

@@ -4,6 +4,8 @@ interface
 
 uses
   DUnitX.TestFramework,
+  DelphiSemantics.Api, DelphiSemantics.Api.RemoveWith,
+  DelphiSemantics.Api.RemoveWith.Compatibility,
   DelphiSemantics.Model, DelphiSemantics.WithBinding;
 
 type
@@ -89,6 +91,14 @@ type
     procedure GlobalAnonymousRecordSelectorUsesSyntheticOwner;
     [Test]
     procedure DefaultIndexedPropertyPointerSelectorDereferencesToRecord;
+    [Test]
+    procedure NestedParentDefaultIndexedPropertyPointerSelectorDereferencesToRecord;
+    [Test]
+    procedure NestedParentIndexedSelectorPreservesPrecedenceAndSafety;
+    [Test]
+    procedure NestedUnresolvedSelectorRefusesFinalRewrite;
+    [Test]
+    procedure NestedIndexedSelectorPreservesBoundTypeDeclaringUnit;
   end;
 
 implementation
@@ -1240,6 +1250,337 @@ begin
   Assert.AreEqual('TDefaultRecord', lBindings[0].Selectors[0].TypeName);
   Assert.IsTrue(HasReference(lBindings[0], 'Value', 'member'));
   Assert.AreEqual('TDefaultRecord', ReceiverOf(lBindings[0], 'Value', 'member'));
+end;
+
+procedure TWithBinderTests.NestedParentDefaultIndexedPropertyPointerSelectorDereferencesToRecord;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lCount: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('WithBinder',
+    'NestedParentDefaultPointerWithUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  lCount := 0;
+  for lBinding in lBindings do
+    if SameText(lBinding.RoutineName, 'RunNested') and
+      SameText(lBinding.SelectorText, 'Maske[i]^') then
+    begin
+      Inc(lCount);
+      Assert.AreEqual(2, Integer(Length(lBinding.Selectors)));
+      Assert.AreEqual('TDatFile', lBinding.Selectors[0].TypeName);
+      Assert.AreEqual('resolved', lBinding.Selectors[1].Status);
+      Assert.AreEqual('TMaskEntry', lBinding.Selectors[1].TypeName);
+      Assert.IsTrue(HasReference(lBinding, 'Value', 'member'));
+      Assert.AreEqual('TMaskEntry', ReceiverOf(lBinding, 'Value', 'member'));
+    end;
+  Assert.AreEqual(1, lCount);
+end;
+
+procedure TWithBinderTests.NestedParentIndexedSelectorPreservesPrecedenceAndSafety;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lFoundAmbiguous: Boolean;
+  lFoundIncomplete: Boolean;
+  lFallbackCount: Integer;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lNearestCount: Integer;
+  lOptions: TDelphiSemanticModelOptions;
+  lShadowCount: Integer;
+  lUnresolvedCount: Integer;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('WithBinder',
+    'NestedParentDefaultPointerWithUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  lShadowCount := 0;
+  lNearestCount := 0;
+  lFallbackCount := 0;
+  lUnresolvedCount := 0;
+  for lBinding in lBindings do
+  begin
+    if not SameText(lBinding.SelectorText, 'Maske[0]^') then
+      Continue;
+    if SameText(lBinding.RoutineName, 'RunShadow') then
+    begin
+      Inc(lShadowCount);
+      Assert.AreEqual('TMaskEntry', lBinding.Selectors[1].TypeName);
+      Assert.IsTrue(HasReference(lBinding, 'Value', 'member'));
+    end else if SameText(lBinding.RoutineName, 'RunNearestParent') then
+    begin
+      Inc(lNearestCount);
+      Assert.AreEqual(3, Integer(Length(lBinding.Selectors)));
+      Assert.AreEqual('TAltEntry', lBinding.Selectors[2].TypeName);
+      Assert.IsTrue(HasReference(lBinding, 'AltValue', 'member'));
+    end else if SameText(lBinding.RoutineName, 'RunLexicalFallback') then
+    begin
+      Inc(lFallbackCount);
+      Assert.AreEqual('TAltEntry', lBinding.Selectors[1].TypeName);
+      Assert.IsTrue(HasReference(lBinding, 'AltValue', 'member'));
+    end;
+  end;
+  for lBinding in lBindings do
+    if SameText(lBinding.RoutineName, 'RunUnresolved') and
+      SameText(lBinding.SelectorText, 'Missing[0]^') then
+    begin
+      Inc(lUnresolvedCount);
+      Assert.AreEqual('unresolved', lBinding.Selectors[1].Status,
+        'RunUnresolved selector status');
+      Assert.AreEqual('NAME_NOT_FOUND', lBinding.Selectors[1].ReasonCode,
+        'RunUnresolved selector reason');
+      Assert.AreEqual('planned', lBinding.Status,
+        'RunUnresolved raw binding summarizes body references; final plan must refuse selector');
+    end;
+  Assert.AreEqual(1, lShadowCount);
+  Assert.AreEqual(1, lNearestCount);
+  Assert.AreEqual(1, lFallbackCount);
+  Assert.AreEqual(1, lUnresolvedCount);
+
+  lFoundAmbiguous := False;
+  for lMember in lModel.Members do
+    if SameText(lMember.OwnerName, 'TDatFile') and
+      SameText(lMember.Name, 'Maske') then
+    begin
+      lFoundAmbiguous := True;
+      Break;
+    end;
+  Assert.IsTrue(lFoundAmbiguous);
+  SetLength(lModel.Members, Length(lModel.Members) + 1);
+  lModel.Members[High(lModel.Members)] := lMember;
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  lFoundAmbiguous := False;
+  for lBinding in lBindings do
+    if SameText(lBinding.RoutineName, 'RunNested') and
+      SameText(lBinding.SelectorText, 'Maske[i]^') then
+    begin
+      Assert.AreEqual('ambiguous', lBinding.Selectors[1].Status,
+        'RunNested duplicate member selector status');
+      Assert.AreEqual('MULTIPLE_MEMBER_CANDIDATES',
+        lBinding.Selectors[1].ReasonCode,
+        'RunNested duplicate member selector reason');
+      Assert.AreEqual('skipped', lBinding.Status,
+        'RunNested duplicate member raw body-reference status');
+      lFoundAmbiguous := True;
+    end;
+  Assert.IsTrue(lFoundAmbiguous);
+  SetLength(lModel.Members, Length(lModel.Members) - 1);
+
+  lFoundIncomplete := False;
+  for lDeclaration in lModel.Declarations do
+    if SameText(lDeclaration.Name, 'TMaskEntry') and
+      SameText(lDeclaration.Kind, 'type') and
+      SameText(lDeclaration.TypeName, 'record') then
+    begin
+      lDiagnostic := Default(TDelphiSemanticModelDiagnostic);
+      lDiagnostic.Code := 'MEMBERS_INCOMPLETE';
+      lDiagnostic.FileName := lDeclaration.FileName;
+      if lDiagnostic.FileName = '' then
+        lDiagnostic.FileName := lModel.FileName;
+      lDiagnostic.Line := lDeclaration.Line;
+      SetLength(lModel.Diagnostics, Length(lModel.Diagnostics) + 1);
+      lModel.Diagnostics[High(lModel.Diagnostics)] := lDiagnostic;
+      lFoundIncomplete := True;
+      Break;
+    end;
+  Assert.IsTrue(lFoundIncomplete);
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  for lBinding in lBindings do
+    if SameText(lBinding.RoutineName, 'RunNested') and
+      SameText(lBinding.SelectorText, 'Maske[i]^') then
+    begin
+      Assert.AreEqual('resolved', lBinding.Selectors[1].Status,
+        'RunNested injected incomplete-owner selector status');
+      Assert.AreEqual('TMaskEntry', lBinding.Selectors[1].TypeName);
+      Assert.AreEqual('skipped', lBinding.Status,
+        'RunNested injected incomplete-owner binding status');
+      Assert.AreEqual('MEMBERS_INCOMPLETE', lBinding.SkipReason,
+        'RunNested injected incomplete-owner safety reason');
+      Exit;
+    end;
+  Assert.Fail('Expected nested selector binding with incomplete owner.');
+end;
+
+procedure TWithBinderTests.NestedUnresolvedSelectorRefusesFinalRewrite;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lBindingCount: Integer;
+  lEdit: TDelphiSemanticRemoveWithEdit;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lStatementCount: Integer;
+  lTarget: TDelphiSemanticWithBinding;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('WithBinder',
+    'NestedParentDefaultPointerWith.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lBindingCount := 0;
+  lTarget := Default(TDelphiSemanticWithBinding);
+  for lBinding in lFacts.Bindings do
+    if SameText(ExtractFileName(lBinding.FileName),
+      'NestedParentDefaultPointerWithUnit.pas') and
+      SameText(lBinding.UnitName, 'NestedParentDefaultPointerWithUnit') and
+      SameText(lBinding.RoutineName, 'RunUnresolved') and
+      SameText(lBinding.SelectorText, 'Missing[0]^') then
+    begin
+      Inc(lBindingCount);
+      lTarget := lBinding;
+      Assert.AreEqual(2, Integer(Length(lBinding.Selectors)),
+        'RunUnresolved project binding selector stack');
+      Assert.AreEqual('unresolved', lBinding.Selectors[1].Status,
+        'RunUnresolved project selector status');
+      Assert.AreEqual('NAME_NOT_FOUND', lBinding.Selectors[1].ReasonCode,
+        'RunUnresolved project selector reason');
+    end;
+  Assert.AreEqual(1, lBindingCount,
+    'RunUnresolved must identify exactly one source binding');
+
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lStatementCount := 0;
+  for lStatement in lPlan.FinalStatements do
+    if SameText(ExtractFileName(lStatement.FileName),
+      'NestedParentDefaultPointerWithUnit.pas') and
+      SameText(lStatement.RoutineName, 'RunUnresolved') and
+      (lStatement.Range.StartLine = lTarget.Line) and
+      (lStatement.Range.StartColumn = lTarget.Column) then
+    begin
+      Inc(lStatementCount);
+      Assert.AreEqual('skipped', lStatement.Status,
+        'RunUnresolved final statement status');
+      Assert.AreEqual('selector-type-not-resolved', lStatement.Reason,
+        'RunUnresolved final selector refusal');
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)),
+        'RunUnresolved final statement edits');
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
+        'RunUnresolved final statement temps');
+      for lEdit in lPlan.Edits do
+        Assert.AreNotEqual(lStatement.StatementId, lEdit.StatementId,
+          'RunUnresolved must have no plan edit');
+    end;
+  Assert.AreEqual(1, lStatementCount,
+    'RunUnresolved must identify exactly one final source statement');
+end;
+
+procedure TWithBinderTests.NestedIndexedSelectorPreservesBoundTypeDeclaringUnit;
+var
+  lAMaskTypeCount: Integer;
+  lAValueCount: Integer;
+  lBMaskTypeCount: Integer;
+  lBAltValueCount: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lBindingCount: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticApiOptions;
+  lRepeatedCount: Integer;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('WithBinder',
+    'NestedParentDefaultPointerWith.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lAMaskTypeCount := 0;
+  lAValueCount := 0;
+  lBMaskTypeCount := 0;
+  lBAltValueCount := 0;
+  for lModel in lFacts.UnitModels do
+  begin
+    for lDeclaration in lModel.Declarations do
+      if SameText(lDeclaration.Name, 'TMaskType') and
+        SameText(lDeclaration.Kind, 'type') then
+      begin
+        if SameText(lModel.UnitName, 'NestedParentBoundTypeOwnerA') then
+          Inc(lAMaskTypeCount)
+        else if SameText(lModel.UnitName, 'NestedParentBoundTypeOwnerB') then
+          Inc(lBMaskTypeCount);
+      end;
+    for lMember in lModel.Members do
+    begin
+      if SameText(lModel.UnitName, 'NestedParentBoundTypeOwnerA') and
+        SameText(lMember.OwnerName, 'TMaskEntry') and
+        SameText(lMember.Name, 'Value') then
+        Inc(lAValueCount);
+      if SameText(lModel.UnitName, 'NestedParentBoundTypeOwnerB') and
+        SameText(lMember.OwnerName, 'TAltEntry') and
+        SameText(lMember.Name, 'AltValue') then
+        Inc(lBAltValueCount);
+    end;
+  end;
+  Assert.AreEqual(1, lAMaskTypeCount,
+    'Imported owner A must declare one TMaskType');
+  Assert.AreEqual(1, lBMaskTypeCount,
+    'Caller B must declare a colliding local TMaskType');
+  Assert.AreEqual(1, lAValueCount,
+    'Value must belong to A.TMaskEntry');
+  Assert.AreEqual(1, lBAltValueCount,
+    'AltValue must belong to B.TAltEntry');
+
+  lBindingCount := 0;
+  for lBinding in lFacts.Bindings do
+    if SameText(ExtractFileName(lBinding.FileName),
+      'NestedParentBoundTypeOwnerB.pas') and
+      SameText(lBinding.UnitName, 'NestedParentBoundTypeOwnerB') and
+      SameText(lBinding.RoutineName, 'RunImportedBoundType') and
+      SameText(lBinding.SelectorText, 'Maske[0]^') then
+    begin
+      Inc(lBindingCount);
+      Assert.AreEqual(2, Integer(Length(lBinding.Selectors)),
+        'Imported nested selector must retain outer D');
+      Assert.AreEqual('resolved', lBinding.Selectors[1].Status,
+        'Imported A.Maske selector status');
+      Assert.AreEqual('TMaskEntry', lBinding.Selectors[1].TypeName,
+        'A.TDatFile.Maske must retain A.TMaskType despite caller B homonym');
+      Assert.IsTrue(HasReference(lBinding, 'Value', 'member'),
+        'Value must bind to A.TMaskEntry member');
+      Assert.AreEqual('TMaskEntry', ReceiverOf(lBinding, 'Value', 'member'),
+        'Value receiver must retain A.TMaskEntry type');
+    end;
+  Assert.AreEqual(1, lBindingCount,
+    'Expected one nested imported A.Maske binding in B');
+
+  lRepeatedCount := 0;
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.UnitName, 'NestedParentBoundTypeOwnerB') and
+      (SameText(lBinding.RoutineName, 'RunLocalThenImported') or
+      SameText(lBinding.RoutineName, 'RunImportedThenLocal')) and
+      SameText(lBinding.SelectorText, 'Maske[0]^') then
+    begin
+      Inc(lRepeatedCount);
+      Assert.AreEqual(2, Integer(Length(lBinding.Selectors)),
+        'Repeated two-owner selector stack');
+      if SameText(lBinding.Selectors[0].SelectorText, 'D') then
+      begin
+        Assert.AreEqual('TMaskEntry', lBinding.Selectors[1].TypeName,
+          'Imported A receiver must retain A type in either order');
+        Assert.IsTrue(HasReference(lBinding, 'Value', 'member'),
+          'Imported A receiver must bind A.Value in either order');
+      end else if SameText(lBinding.Selectors[0].SelectorText, 'L') then
+      begin
+        Assert.AreEqual('TAltEntry', lBinding.Selectors[1].TypeName,
+          'Local B receiver must retain B type in either order');
+        Assert.IsTrue(HasReference(lBinding, 'AltValue', 'member'),
+          'Local B receiver must bind B.AltValue in either order');
+      end else
+        Assert.Fail('Unexpected outer receiver in repeated two-owner case.');
+    end;
+  Assert.AreEqual(4, lRepeatedCount,
+    'Both receiver orders must produce two distinct inner bindings');
 end;
 
 initialization

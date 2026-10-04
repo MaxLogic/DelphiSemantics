@@ -293,6 +293,7 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- Nested indexed default-property and pointer selectors inside an enclosing `with` now bind through the parent receiver using the member type's declaring unit. Unknown or ambiguous declaring-unit provenance refuses the binding.
 - Snapshot reference binding no longer sends a call to the wrong overload when overloads differ only by an open-array element type or generic arguments; such calls stay unresolved. Range bounds such as `cMin..cMax` in subranges, case labels, set and array bounds bind their upper bound again, and signature alignment detects a parameter rename that would capture such a bound. Remove-with planning now qualifies a with-member used after `..` instead of leaving it to bind to an outer declaration. The parser cache version is advanced so earlier facts are rebuilt.
 - Snapshot reference binding distinguishes tested Self members and explicit class variables from same-named parameters. Partial Unicode identifier matches are refused and old snapshot cache entries are rebuilt; full Unicode parsing remains unproven.
 - Treat omitted and explicit register calling conventions as equivalent in

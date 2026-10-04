@@ -11,10 +11,22 @@ type
   TRemoveWithPlanTests = class
   private
     function DakFixturePath(const aRelativePath: string): string;
+    function SelectedMaxTdbProjectPath(const aDefaultProjectPath: string): string;
+    function SelectedMaxTdbRawGraphId(
+      const aFileName, aRoutineName, aRange, aBodyRange, aSelector: string;
+      const aSelectorCount: Integer): string;
+    procedure AssertSelectedMaxTdbPrimaryIdsDistinct;
+    procedure AssertCanonicalCompileCaptureAndDeclaration(
+      const aPlan: TDelphiSemanticRemoveWithPlan);
+    function AssertSelectedMaxTdbStatement(const aPlan: TDelphiSemanticRemoveWithPlan;
+      const aFileName, aRoutineName, aRange, aBodyRange, aSelector: string;
+      const aSelectorCount: Integer;
+      out aStatement: TDelphiSemanticRemoveWithFinalStatement): string;
     function TempPath(const aRelativePath: string): string;
     function CopyDakFixtureToTemp(const aRelativePath, aTempName: string): string;
     function BuildPlan: TDelphiSemanticRemoveWithPlan;
-    function BuildPlanForProject(const aProjectPath: string): TDelphiSemanticRemoveWithPlan;
+    function BuildPlanForProject(const aProjectPath: string;
+      const aSelectedCanonical: Boolean = False): TDelphiSemanticRemoveWithPlan;
     function MaxTdbBodyAnalysisSourceFileNames: TArray<string>;
     function FindStatement(const aPlan: TDelphiSemanticRemoveWithPlan;
       const aStatementId: string; out aStatement: TDelphiSemanticRemoveWithStatement): Boolean;
@@ -989,9 +1001,10 @@ type
 implementation
 
 uses
-  System.IOUtils, System.JSON.Serializers, System.StrUtils, System.SysUtils,
+  System.Classes, System.Hash, System.IOUtils, System.JSON.Serializers, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  DelphiSemantics.Model, DelphiSemantics.Model.Json, DelphiSemantics.RemoveWithPlan, DelphiSemantics.Snapshot,
+  DelphiSemantics.Model, DelphiSemantics.Model.Json, DelphiSemantics.RemoveWithPlan,
+  DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.ScopeResolver, DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding,
   Test.Support;
 
@@ -999,6 +1012,10 @@ var
   GMaxTdbPlanCached: Boolean;
   GMaxTdbProjectPath: string;
   GMaxTdbPlan: TDelphiSemanticRemoveWithPlan;
+  GMaxTdbFacts: TDelphiSemanticProjectWithBindingFacts;
+  GMaxTdbGraph: TDelphiSemanticSemanticGraph;
+  GMaxTdbInputIdentity: string;
+  GMaxTdbPrimaryIdsChecked: Boolean;
   GRemoveWithPlanTempRoot: string;
 
 function RemoveWithPlanTempRoot: string;
@@ -1027,10 +1044,82 @@ begin
   Result := SameText(lFileName, 'maxtdb.dpr') or SameText(lFileName, 'maxtdb.dproj');
 end;
 
+function MaxTdbConsumedInputIdentity(const aProjectPath: string;
+  const aModels: TArray<TDelphiSemanticUnitModel>): string;
+var
+  i: Integer;
+  lBuilder: TStringBuilder;
+  lBytes: TBytes;
+  lContext: TDelphiSemanticContextResult;
+  lFileName: string;
+  lFiles: TStringList;
+  lHash: THashSHA2;
+  lIncludeFileName: string;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  // Re-read project metadata and every extracted source/include byte on each canonical cache hit.
+  lContext := TDelphiSemanticProject.Load(aProjectPath);
+  Assert.IsTrue(lContext.Success, 'Cannot refresh selected MaxTdb project context.');
+  Assert.IsTrue(Assigned(lContext.Project.ContextObservations),
+    'Selected MaxTdb project has no source observations.');
+  Assert.IsTrue(lContext.Project.ContextObservations.EvidenceFingerprint <> '',
+    'Selected MaxTdb project observations are incomplete.');
+  lFiles := TStringList.Create;
+  lBuilder := TStringBuilder.Create;
+  try
+    lFiles.Sorted := True;
+    lFiles.Duplicates := dupIgnore;
+    for lModel in aModels do
+    begin
+      Assert.IsTrue(lModel.FileName <> '', 'Selected MaxTdb source model has no file name.');
+      lFiles.Add(TPath.GetFullPath(lModel.FileName));
+      for lIncludeFileName in lModel.IncludeFileNames do
+        lFiles.Add(TPath.GetFullPath(lIncludeFileName));
+    end;
+    Assert.IsTrue(lFiles.Count > 0, 'Selected MaxTdb source model set is empty.');
+    lBuilder.Append('project=').Append(TPath.GetFullPath(aProjectPath)).AppendLine;
+    lBuilder.Append('context=').Append(lContext.Project.ContextFingerprint).AppendLine;
+    lBuilder.Append('projectBytes=').Append(
+      lContext.Project.ContextObservations.EvidenceFingerprint).AppendLine;
+    for i := 0 to lFiles.Count - 1 do
+    begin
+      lFileName := lFiles[i];
+      Assert.IsTrue(TFile.Exists(lFileName), 'Selected MaxTdb source is missing: ' + lFileName);
+      lBytes := TFile.ReadAllBytes(lFileName);
+      lHash := THashSHA2.Create;
+      if Length(lBytes) > 0 then
+        lHash.Update(lBytes);
+      lBuilder.Append(lFileName).Append('=').Append(lHash.HashAsString).AppendLine;
+    end;
+    Result := THashSHA2.GetHashString(lBuilder.ToString);
+  finally
+    lBuilder.Free;
+    lFiles.Free;
+  end;
+end;
+
 function SourceRangeText(const aRange: TDelphiSemanticRemoveWithSourceRange): string;
 begin
   Result := Format('%d:%d-%d:%d', [aRange.StartLine, aRange.StartColumn,
     aRange.EndLine, aRange.EndColumn]);
+end;
+
+function GraphRangeText(const aRange: TDelphiSemanticSourceRange): string;
+begin
+  Result := Format('%d:%d-%d:%d', [aRange.Line, aRange.Column,
+    aRange.EndLine, aRange.EndColumn]);
+end;
+
+function RawWithRangeText(const aWith: TDelphiSemanticWithStatement): string;
+begin
+  Result := Format('%d:%d-%d:%d', [aWith.Line, aWith.Column,
+    aWith.EndLine, aWith.EndColumn]);
+end;
+
+function RawWithBodyRangeText(const aWith: TDelphiSemanticWithStatement): string;
+begin
+  Result := Format('%d:%d-%d:%d', [aWith.BodyLine, aWith.BodyColumn,
+    aWith.BodyEndLine, aWith.BodyEndColumn]);
 end;
 
 procedure AssertHiddenReceiverSkip(
@@ -1541,6 +1630,204 @@ begin
     '..\..\..\DelphiAiKit\tests\fixtures'), aRelativePath));
 end;
 
+function TRemoveWithPlanTests.SelectedMaxTdbProjectPath(
+  const aDefaultProjectPath: string): string;
+var
+  lRoot: string;
+begin
+  lRoot := GetEnvironmentVariable('DELPHISEMANTICS_MAXTDB_FIXTURE_ROOT');
+  if lRoot = '' then
+    Exit(DakFixturePath(aDefaultProjectPath));
+  Result := TPath.GetFullPath(TPath.Combine(lRoot, 'src\maxtdb.dproj'));
+  Assert.IsTrue(TFile.Exists(Result), 'Configured MaxTdb project is missing: ' + Result);
+end;
+
+function TRemoveWithPlanTests.SelectedMaxTdbRawGraphId(
+  const aFileName, aRoutineName, aRange, aBodyRange, aSelector: string;
+  const aSelectorCount: Integer): string;
+var
+  lCandidateGraphUnit: TDelphiSemanticGraphUnit;
+  lCandidateGraphWith: TDelphiSemanticGraphWithStatement;
+  lCandidateModel: TDelphiSemanticUnitModel;
+  lCandidateRoutine: TDelphiSemanticRoutine;
+  lCandidateWith: TDelphiSemanticWithStatement;
+  lContext: TDelphiSemanticContextResult;
+  lExpectedFile: string;
+  lGraphRoutine: TDelphiSemanticGraphRoutine;
+  lGraphRoutineCount: Integer;
+  lGraphUnit: TDelphiSemanticGraphUnit;
+  lGraphUnitCount: Integer;
+  lGraphWith: TDelphiSemanticGraphWithStatement;
+  lGraphWithCount: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lModelCount: Integer;
+  lRawRoutine: TDelphiSemanticRoutine;
+  lRawRoutineCount: Integer;
+  lRawWith: TDelphiSemanticWithStatement;
+  lRawWithCount: Integer;
+  lScope: TDelphiSemanticRoutineScopeIndex;
+begin
+  Assert.IsTrue(IsMaxTdbProjectPath(GMaxTdbProjectPath),
+    'Selected MaxTdb facts must match a MaxTdb project.');
+  lExpectedFile := TPath.GetFullPath(TPath.Combine(ExtractFilePath(GMaxTdbProjectPath), aFileName));
+  lModelCount := 0;
+  for lCandidateModel in GMaxTdbFacts.UnitModels do
+    if lCandidateModel.Success and SameText(TPath.GetFullPath(lCandidateModel.FileName), lExpectedFile) then
+    begin
+      Inc(lModelCount);
+      lModel := lCandidateModel;
+    end;
+  Assert.AreEqual(1, lModelCount, 'Expected one successful raw model for ' + lExpectedFile);
+
+  lRawWithCount := 0;
+  for lCandidateWith in lModel.WithStatements do
+    if (RawWithRangeText(lCandidateWith) = aRange) and
+      SameText(lCandidateWith.SelectorText, aSelector) and
+      (lCandidateWith.SelectorCount = aSelectorCount) then
+    begin
+      Inc(lRawWithCount);
+      lRawWith := lCandidateWith;
+      Assert.AreEqual(aBodyRange, RawWithBodyRangeText(lCandidateWith),
+        'Raw body span for ' + aFileName + ' ' + aRange);
+    end;
+  Assert.AreEqual(1, lRawWithCount, 'Expected one raw WITH at ' + aFileName + ' ' + aRange);
+  lScope := TDelphiSemanticScopeResolver.BuildRoutineScopeIndex(lModel, [lRawWith.Line]);
+  Assert.AreEqual(aRoutineName, lScope.RoutineNameForLine(lRawWith.Line),
+    'Raw source routine for ' + aFileName + ' ' + aRange);
+  lRawRoutineCount := 0;
+  for lCandidateRoutine in lModel.Routines do
+    if SameText(lCandidateRoutine.Name, aRoutineName) and
+      (lCandidateRoutine.Line <= lRawWith.Line) then
+    begin
+      if (lRawRoutineCount = 0) or (lCandidateRoutine.Line > lRawRoutine.Line) then
+      begin
+        lRawRoutine := lCandidateRoutine;
+        lRawRoutineCount := 1;
+      end else if lCandidateRoutine.Line = lRawRoutine.Line then
+        Inc(lRawRoutineCount);
+    end;
+  Assert.AreEqual(1, lRawRoutineCount,
+    'Expected one nearest raw routine declaration: ' + aRoutineName);
+
+  if GMaxTdbGraph = nil then
+  begin
+    lContext := TDelphiSemanticProject.Load(GMaxTdbProjectPath);
+    Assert.IsTrue(lContext.Success, 'Cannot load canonical project context.');
+    GMaxTdbGraph := TDelphiSemanticSemanticGraphBuilder.Build(lContext.Project,
+      GMaxTdbFacts.UnitModels);
+  end;
+  lGraphUnitCount := 0;
+  for lCandidateGraphUnit in GMaxTdbGraph.Units do
+    if SameText(TPath.GetFullPath(lCandidateGraphUnit.FileName), lExpectedFile) then
+    begin
+      Inc(lGraphUnitCount);
+      lGraphUnit := lCandidateGraphUnit;
+    end;
+  Assert.AreEqual(1, lGraphUnitCount, 'Expected one graph unit: ' + lExpectedFile);
+  lGraphRoutineCount := 0;
+  for lGraphRoutine in GMaxTdbGraph.Routines do
+    if (lGraphRoutine.UnitId.Value = lGraphUnit.Id.Value) and
+      SameText(lGraphRoutine.Name, aRoutineName) and
+      (lGraphRoutine.SourceRange.Line = lRawRoutine.Line) and
+      (lGraphRoutine.SourceRange.Column = lRawRoutine.Column) and
+      (lGraphRoutine.SourceRange.Offset = lRawRoutine.Offset) then
+      Inc(lGraphRoutineCount);
+  Assert.AreEqual(1, lGraphRoutineCount, 'Expected one graph routine declaration: ' + aRoutineName);
+  lGraphWithCount := 0;
+  for lCandidateGraphWith in GMaxTdbGraph.WithStatements do
+    if (lCandidateGraphWith.UnitId.Value = lGraphUnit.Id.Value) and
+      (GraphRangeText(lCandidateGraphWith.SourceRange) = aRange) and
+      (GraphRangeText(lCandidateGraphWith.BodyRange) = aBodyRange) and
+      SameText(lCandidateGraphWith.SelectorText, aSelector) and
+      (lCandidateGraphWith.SelectorCount = aSelectorCount) then
+    begin
+      Inc(lGraphWithCount);
+      lGraphWith := lCandidateGraphWith;
+    end;
+  Assert.AreEqual(1, lGraphWithCount, 'Expected one graph WITH: ' + aFileName + ' ' + aRange);
+  Result := lGraphWith.Id.Value;
+  Assert.IsTrue(Result <> '', 'Graph WITH ID is empty.');
+end;
+
+procedure TRemoveWithPlanTests.AssertSelectedMaxTdbPrimaryIdsDistinct;
+var
+  i, j: Integer;
+  lIds: array[0..7] of string;
+begin
+  if GMaxTdbPrimaryIdsChecked then
+    Exit;
+  // Every primary anchor is resolved from raw source and the graph, even for one selected case.
+  lIds[0] := SelectedMaxTdbRawGraphId('FileIO.pas', 'MakeDirStr',
+    '715:7-732:9', '715:18-732:9', '_SR', 1);
+  lIds[1] := SelectedMaxTdbRawGraphId('TDB06.pas', 'NeueDatei',
+    '185:7-190:10', '185:22-190:10', 'p^, Sel', 2);
+  lIds[2] := SelectedMaxTdbRawGraphId('TDBJOBS.pas', 'SavePrg',
+    '395:3-402:6', '395:13-402:6', 'PB', 1);
+  lIds[3] := SelectedMaxTdbRawGraphId('TDBJOBS.pas', 'AddFiles',
+    '1068:9-1069:37', '1068:32-1069:37', 'SubR[SubCount]^', 1);
+  lIds[4] := SelectedMaxTdbRawGraphId('TDBJOBS.pas', 'Compile',
+    '1778:15-1782:18', '1778:34-1782:18', 'Jump[Jumps]', 1);
+  lIds[5] := SelectedMaxTdbRawGraphId('TDBJOBS.pas', 'Compile',
+    '1937:15-1958:18', '1937:31-1958:18', 'SubR[0]^', 1);
+  lIds[6] := SelectedMaxTdbRawGraphId('TDBJOBS.pas', 'Compile',
+    '2295:9-2311:11', '2295:25-2311:11', 'SubR[0]^', 1);
+  lIds[7] := SelectedMaxTdbRawGraphId('TDBJOBS.pas', 'InitCompiler',
+    '2357:3-2359:18', '2357:20-2359:18', 'Parameter', 1);
+  for i := Low(lIds) to High(lIds) do
+    for j := i + 1 to High(lIds) do
+      Assert.IsFalse(SameText(lIds[i], lIds[j]),
+        Format('Primary MaxTdb graph WITH ID collision: anchors %d and %d', [i, j]));
+  GMaxTdbPrimaryIdsChecked := True;
+end;
+
+function TRemoveWithPlanTests.AssertSelectedMaxTdbStatement(
+  const aPlan: TDelphiSemanticRemoveWithPlan;
+  const aFileName, aRoutineName, aRange, aBodyRange, aSelector: string;
+  const aSelectorCount: Integer;
+  out aStatement: TDelphiSemanticRemoveWithFinalStatement): string;
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lBindingCount: Integer;
+  lExpectedFile: string;
+  lFinalStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lStatementCount: Integer;
+begin
+  AssertSelectedMaxTdbPrimaryIdsDistinct;
+  Result := SelectedMaxTdbRawGraphId(aFileName, aRoutineName, aRange,
+    aBodyRange, aSelector, aSelectorCount);
+  lExpectedFile := TPath.GetFullPath(TPath.Combine(ExtractFilePath(GMaxTdbProjectPath), aFileName));
+
+  lBindingCount := 0;
+  for lBinding in GMaxTdbFacts.Bindings do
+    if SameText(TPath.GetFullPath(lBinding.FileName), lExpectedFile) and
+      (Format('%d:%d-%d:%d', [lBinding.Line, lBinding.Column,
+        lBinding.EndLine, lBinding.EndColumn]) = aRange) and
+      (Format('%d:%d-%d:%d', [lBinding.BodyLine, lBinding.BodyColumn,
+        lBinding.BodyEndLine, lBinding.BodyEndColumn]) = aBodyRange) and
+      SameText(lBinding.SelectorText, aSelector) then
+    begin
+      Inc(lBindingCount);
+      Assert.AreEqual(aRoutineName, lBinding.RoutineName);
+      Assert.AreEqual(Result, lBinding.SemanticId);
+    end;
+  Assert.AreEqual(1, lBindingCount, 'Expected one binding: ' + aFileName + ' ' + aRange);
+  lStatementCount := 0;
+  for lFinalStatement in aPlan.FinalStatements do
+    if SameText(TPath.GetFullPath(lFinalStatement.FileName), lExpectedFile) and
+      (SourceRangeText(lFinalStatement.Range) = aRange) then
+    begin
+      Inc(lStatementCount);
+      aStatement := lFinalStatement;
+      Assert.AreEqual(Result, lFinalStatement.SemanticId);
+      for i := 0 to High(lFinalStatement.Temps) do
+        Assert.AreEqual(Result, lFinalStatement.Temps[i].SemanticId);
+      for i := 0 to High(lFinalStatement.RewriteRecipe.SelectorDecisions) do
+        Assert.AreEqual(Result, lFinalStatement.RewriteRecipe.SelectorDecisions[i].SemanticId);
+    end;
+  Assert.AreEqual(1, lStatementCount, 'Expected one final statement: ' + aFileName + ' ' + aRange);
+end;
+
 function TRemoveWithPlanTests.TempPath(const aRelativePath: string): string;
 begin
   Result := TPath.GetFullPath(TPath.Combine(RemoveWithPlanTempRoot, aRelativePath));
@@ -1563,17 +1850,31 @@ begin
   Result := BuildPlanForProject(FixturePath('ProjectWithBinding\ProjectWithBinding.dproj'));
 end;
 
-function TRemoveWithPlanTests.BuildPlanForProject(const aProjectPath: string):
-  TDelphiSemanticRemoveWithPlan;
+function TRemoveWithPlanTests.BuildPlanForProject(const aProjectPath: string;
+  const aSelectedCanonical: Boolean): TDelphiSemanticRemoveWithPlan;
 var
+  lCanonical: Boolean;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lFullProjectPath: string;
+  lInputIdentity: string;
   lOptions: TDelphiSemanticApiOptions;
 begin
   lFullProjectPath := TPath.GetFullPath(aProjectPath);
+  lCanonical := aSelectedCanonical and
+    (GetEnvironmentVariable('DELPHISEMANTICS_MAXTDB_FIXTURE_ROOT') <> '');
   if IsMaxTdbProjectPath(lFullProjectPath) and
     GMaxTdbPlanCached and SameText(GMaxTdbProjectPath, lFullProjectPath) then
-    Exit(GMaxTdbPlan);
+  begin
+    if not lCanonical then
+      Exit(GMaxTdbPlan);
+    if GMaxTdbInputIdentity <> '' then
+    begin
+      lInputIdentity := MaxTdbConsumedInputIdentity(lFullProjectPath,
+        GMaxTdbFacts.UnitModels);
+      if SameText(lInputIdentity, GMaxTdbInputIdentity) then
+        Exit(GMaxTdbPlan);
+    end;
+  end;
 
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := lFullProjectPath;
@@ -1581,7 +1882,14 @@ begin
   Result := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
   if IsMaxTdbProjectPath(lFullProjectPath) then
   begin
+    lInputIdentity := '';
+    if lCanonical then
+      lInputIdentity := MaxTdbConsumedInputIdentity(lFullProjectPath, lFacts.UnitModels);
+    FreeAndNil(GMaxTdbGraph);
     GMaxTdbPlan := Result;
+    GMaxTdbFacts := lFacts;
+    GMaxTdbInputIdentity := lInputIdentity;
+    GMaxTdbPrimaryIdsChecked := False;
     GMaxTdbProjectPath := lFullProjectPath;
     GMaxTdbPlanCached := True;
   end;
@@ -7282,12 +7590,13 @@ end;
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbFileIoSearchRecordReplacement;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
+  lSemanticId: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
+  lPlan := BuildPlanForProject(SelectedMaxTdbProjectPath('test-projects\maxTdb\src\maxtdb.dproj'), True);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'FileIO.pas', 715, 7, lStatement),
-    'Expected maxTdb FileIO _SR with statement.');
+  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'FileIO.pas', 'MakeDirStr',
+    '715:7-732:9', '715:18-732:9', '_SR', 1, lStatement);
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
@@ -7332,8 +7641,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('715:1-732:9', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('aa22829f824ba5825c0b92847f063b1ed1ab7153752af5d1be514993f7d985c8',
-    lStatement.SemanticId);
+  Assert.AreEqual(lSemanticId, lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
   Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -7345,8 +7653,7 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('simple-selector', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('aa22829f824ba5825c0b92847f063b1ed1ab7153752af5d1be514993f7d985c8',
-    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual(lSemanticId, lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbFileIoSecurityTypeSourceSkip;
@@ -20714,13 +21021,16 @@ procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb06ExportListReplacements;
 var
   i, j: Integer;
   lDeclarationCount: Integer;
+  lOwnerSemanticId: string;
   lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
+  lSemanticId: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+  lPlan := BuildPlanForProject(SelectedMaxTdbProjectPath('test-projects\maxTdb\src\maxtdb.dpr'), True);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 185, 7, lStatement));
+  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDB06.pas', 'NeueDatei',
+    '185:7-190:10', '185:22-190:10', 'p^, Sel', 2, lStatement);
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
@@ -20753,7 +21063,7 @@ begin
   Assert.AreEqual('lWithSelRecPtr: ^SelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithSelRecPtr := @p^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('fe9566d15e3524d718fe11f72d4947e183b5b4d7617700e291ccc114b4a9ab7b',
+  Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('Sel', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithSelektorPtr^', lStatement.Temps[1].QualifierText);
@@ -20763,13 +21073,13 @@ begin
   Assert.AreEqual('lWithSelektorPtr: ^Selektor;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('fe9566d15e3524d718fe11f72d4947e183b5b4d7617700e291ccc114b4a9ab7b',
+  Assert.AreEqual(lSemanticId,
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('185:1-190:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('fe9566d15e3524d718fe11f72d4947e183b5b4d7617700e291ccc114b4a9ab7b',
+  Assert.AreEqual(lSemanticId,
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -20784,7 +21094,7 @@ begin
   Assert.AreEqual('lWithSelRecPtr := @p^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('fe9566d15e3524d718fe11f72d4947e183b5b4d7617700e291ccc114b4a9ab7b',
+  Assert.AreEqual(lSemanticId,
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('Sel', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithSelektorPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -20796,10 +21106,11 @@ begin
   Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('fe9566d15e3524d718fe11f72d4947e183b5b4d7617700e291ccc114b4a9ab7b',
+  Assert.AreEqual(lSemanticId,
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 193, 7, lStatement));
+  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDB06.pas', 'NeueDatei',
+    '193:7-198:10', '193:23-198:10', 'q^, Form', 2, lStatement);
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
@@ -20832,7 +21143,7 @@ begin
   Assert.AreEqual('lWithForRecPtr: ^ForRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithForRecPtr := @q^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('1070d6494d7c913dbd2ee052aa5f4df3a47d4bc3bd2d8afcd66f0ab34720a983',
+  Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('Form', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithFormelPtr^', lStatement.Temps[1].QualifierText);
@@ -20842,13 +21153,13 @@ begin
   Assert.AreEqual('lWithFormelPtr: ^Formel;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithFormelPtr := @lWithForRecPtr^.Form;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('1070d6494d7c913dbd2ee052aa5f4df3a47d4bc3bd2d8afcd66f0ab34720a983',
+  Assert.AreEqual(lSemanticId,
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('193:1-198:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('1070d6494d7c913dbd2ee052aa5f4df3a47d4bc3bd2d8afcd66f0ab34720a983',
+  Assert.AreEqual(lSemanticId,
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -20863,7 +21174,7 @@ begin
   Assert.AreEqual('lWithForRecPtr := @q^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('1070d6494d7c913dbd2ee052aa5f4df3a47d4bc3bd2d8afcd66f0ab34720a983',
+  Assert.AreEqual(lSemanticId,
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('Form', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithFormelPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -20875,10 +21186,11 @@ begin
   Assert.AreEqual('lWithFormelPtr := @lWithForRecPtr^.Form;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('1070d6494d7c913dbd2ee052aa5f4df3a47d4bc3bd2d8afcd66f0ab34720a983',
+  Assert.AreEqual(lSemanticId,
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 201, 7, lStatement));
+  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDB06.pas', 'NeueDatei',
+    '201:7-206:10', '201:20-206:10', 'r^, B', 2, lStatement);
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
@@ -20911,7 +21223,7 @@ begin
   Assert.AreEqual('lWithBereichsRecPtr: ^BereichsRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithBereichsRecPtr := @r^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('699108f2c581ae881f29bab8ef6dc8fb34ee7069811ddb133e21418cce12c33c',
+  Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('B', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithBereichPtr^', lStatement.Temps[1].QualifierText);
@@ -20921,13 +21233,13 @@ begin
   Assert.AreEqual('lWithBereichPtr: ^Bereich;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithBereichPtr := @lWithBereichsRecPtr^.B;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('699108f2c581ae881f29bab8ef6dc8fb34ee7069811ddb133e21418cce12c33c',
+  Assert.AreEqual(lSemanticId,
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('201:1-206:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('699108f2c581ae881f29bab8ef6dc8fb34ee7069811ddb133e21418cce12c33c',
+  Assert.AreEqual(lSemanticId,
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -20942,7 +21254,7 @@ begin
   Assert.AreEqual('lWithBereichsRecPtr := @r^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('699108f2c581ae881f29bab8ef6dc8fb34ee7069811ddb133e21418cce12c33c',
+  Assert.AreEqual(lSemanticId,
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('B', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithBereichPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -20954,10 +21266,11 @@ begin
   Assert.AreEqual('lWithBereichPtr := @lWithBereichsRecPtr^.B;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('699108f2c581ae881f29bab8ef6dc8fb34ee7069811ddb133e21418cce12c33c',
+  Assert.AreEqual(lSemanticId,
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 156, 7, lOwnerStatement));
+  lOwnerSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDB06.pas', 'NeueDatei',
+    '156:7-173:10', '156:24-173:10', 'Maske[i]^', 1, lOwnerStatement);
   Assert.AreEqual('planned', lOwnerStatement.Status);
   Assert.AreEqual('', lOwnerStatement.Reason);
   Assert.AreEqual('', lOwnerStatement.SafetyReason);
@@ -21013,7 +21326,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
+  Assert.AreEqual(lOwnerSemanticId,
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -21031,7 +21344,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('156:1-173:10', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
+  Assert.AreEqual(lOwnerSemanticId,
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -21046,7 +21359,7 @@ begin
   Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
+  Assert.AreEqual(lOwnerSemanticId,
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
@@ -21324,12 +21637,13 @@ end;
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsProgramBlockReplacements;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
+  lSemanticId: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+  lPlan := BuildPlanForProject(SelectedMaxTdbProjectPath('test-projects\maxTdb\src\maxtdb.dpr'), True);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 395, 3, lStatement),
-    'Expected maxTdb TDBJOBS SavePrg PB with statement.');
+  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDBJOBS.pas', 'SavePrg',
+    '395:3-402:6', '395:13-402:6', 'PB', 1, lStatement);
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
@@ -21363,7 +21677,7 @@ begin
   Assert.AreEqual('lWithPrgBlockPtr: ^PrgBlock;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithPrgBlockPtr := @PB;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('8f5dd0f2e983fae8ad08dd29d90926f3fa225556df098a0bcc6db53254efc2f8',
+  Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -21372,7 +21686,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('395:1-402:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('8f5dd0f2e983fae8ad08dd29d90926f3fa225556df098a0bcc6db53254efc2f8',
+  Assert.AreEqual(lSemanticId,
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -21387,11 +21701,11 @@ begin
   Assert.AreEqual('lWithPrgBlockPtr := @PB;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('8f5dd0f2e983fae8ad08dd29d90926f3fa225556df098a0bcc6db53254efc2f8',
+  Assert.AreEqual(lSemanticId,
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 411, 3, lStatement),
-    'Expected maxTdb TDBJOBS RestorePrg PB with statement.');
+  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDBJOBS.pas', 'RestorePrg',
+    '411:3-418:6', '411:13-418:6', 'PB', 1, lStatement);
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
@@ -21425,7 +21739,7 @@ begin
   Assert.AreEqual('lWithPrgBlockPtr: ^PrgBlock;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithPrgBlockPtr := @PB;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('3fe8bdc3de766bb5055e5dee37b26735c8f04ad510b3452d83ed2c100b599c80',
+  Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -21434,7 +21748,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('411:1-418:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('3fe8bdc3de766bb5055e5dee37b26735c8f04ad510b3452d83ed2c100b599c80',
+  Assert.AreEqual(lSemanticId,
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -21449,7 +21763,7 @@ begin
   Assert.AreEqual('lWithPrgBlockPtr := @PB;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('3fe8bdc3de766bb5055e5dee37b26735c8f04ad510b3452d83ed2c100b599c80',
+  Assert.AreEqual(lSemanticId,
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -21533,12 +21847,13 @@ end;
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsSubRoutineFileReplacement;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
+  lSemanticId: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+  lPlan := BuildPlanForProject(SelectedMaxTdbProjectPath('test-projects\maxTdb\src\maxtdb.dpr'), True);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1068, 9, lStatement),
-    'Expected maxTdb TDBJOBS SubR[SubCount]^ with statement.');
+  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDBJOBS.pas', 'AddFiles',
+    '1068:9-1069:37', '1068:32-1069:37', 'SubR[SubCount]^', 1, lStatement);
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
@@ -21560,7 +21875,7 @@ begin
   Assert.AreEqual('lWithESubTypePtr: ^ESubType;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithESubTypePtr := @SubR[SubCount]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('46bfe469bd4a632f55cf5232dfa2ff5d1303fa00edbe9d68877ad7f899510174',
+  Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -21570,7 +21885,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1068:1-1069:37', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('46bfe469bd4a632f55cf5232dfa2ff5d1303fa00edbe9d68877ad7f899510174',
+  Assert.AreEqual(lSemanticId,
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -21585,7 +21900,7 @@ begin
   Assert.AreEqual('lWithESubTypePtr := @SubR[SubCount]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('46bfe469bd4a632f55cf5232dfa2ff5d1303fa00edbe9d68877ad7f899510174',
+  Assert.AreEqual(lSemanticId,
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -21697,17 +22012,223 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsJumpCaptureDeclaration;
+procedure TRemoveWithPlanTests.AssertCanonicalCompileCaptureAndDeclaration(
+  const aPlan: TDelphiSemanticRemoveWithPlan);
+const
+  cDeclaration = 'var' + #13#10 +
+    '  lWithJumpItemPtr: ^TJumpItem;' + #13#10 +
+    '  lWithJumpItemPtr1: ^TJumpItem;' + #13#10 +
+    '  lWithJumpItemPtr2: ^TJumpItem;' + #13#10 +
+    '  lWithJumpItemPtr3: ^TJumpItem;' + #13#10 +
+    '  lWithJumpItemPtr4: ^TJumpItem;' + #13#10 +
+    '  lWithJumpItemPtr5: ^TJumpItem;' + #13#10 +
+    '  lWithJumpItemPtr6: ^TJumpItem;' + #13#10 +
+    '  lWithESubTypePtr: ^ESubType;' + #13#10 +
+    '  lWithESubTypePtr1: ^ESubType;' + #13#10 +
+    '  lWithESubTypePtr2: ^ESubType;' + #13#10 +
+    '  lWithJumpItemPtr7: ^TJumpItem;' + #13#10 +
+    '  lWithESubTypePtr3: ^ESubType;' + #13#10 +
+    '  lWithESubTypePtr4: ^ESubType;' + #13#10;
 var
   i, j: Integer;
   lDeclarationCount: Integer;
+  lOwnerId: string;
   lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lPredecessorId: string;
+  lPredecessorStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lSecondId: string;
+  lSecondStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lTargetId: string;
+  lTargetStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lOwnerId := AssertSelectedMaxTdbStatement(aPlan, 'TDBJOBS.pas', 'Compile',
+    '1673:7-1691:10', '1673:26-1691:10', 'Jump[Jumps]', 1, lOwnerStatement);
+  lPredecessorId := AssertSelectedMaxTdbStatement(aPlan, 'TDBJOBS.pas', 'Compile',
+    '1742:15-1756:18', '1742:34-1756:18', 'Jump[Jumps]', 1,
+    lPredecessorStatement);
+  lSecondId := AssertSelectedMaxTdbStatement(aPlan, 'TDBJOBS.pas', 'Compile',
+    '1763:15-1774:18', '1763:34-1774:18', 'Jump[Jumps]', 1, lSecondStatement);
+  lTargetId := AssertSelectedMaxTdbStatement(aPlan, 'TDBJOBS.pas', 'Compile',
+    '1778:15-1782:18', '1778:34-1782:18', 'Jump[Jumps]', 1, lTargetStatement);
+  Assert.IsFalse(SameText(lOwnerId, lPredecessorId));
+  Assert.IsFalse(SameText(lOwnerId, lSecondId));
+  Assert.IsFalse(SameText(lOwnerId, lTargetId));
+  Assert.IsFalse(SameText(lPredecessorId, lSecondId));
+  Assert.IsFalse(SameText(lPredecessorId, lTargetId));
+  Assert.IsFalse(SameText(lSecondId, lTargetId));
+
+  Assert.AreEqual('planned', lOwnerStatement.Status);
+  Assert.AreEqual('planned', lPredecessorStatement.Status);
+  Assert.AreEqual('planned', lSecondStatement.Status);
+  Assert.AreEqual('planned', lTargetStatement.Status);
+  Assert.AreEqual('', lOwnerStatement.Reason);
+  Assert.AreEqual('', lOwnerStatement.SafetyReason);
+  Assert.AreEqual('', lPredecessorStatement.Reason);
+  Assert.AreEqual('', lPredecessorStatement.SafetyReason);
+  Assert.AreEqual('', lSecondStatement.Reason);
+  Assert.AreEqual('', lSecondStatement.SafetyReason);
+  Assert.AreEqual('', lTargetStatement.Reason);
+  Assert.AreEqual('', lTargetStatement.SafetyReason);
+  Assert.AreEqual('d6609c449e39d8abfb9954a1e1910f6aae84ab6504056f22f3ebc105275d25fa',
+    lOwnerStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual(lOwnerStatement.Verification.ExpectedFileHash,
+    lPredecessorStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual(lOwnerStatement.Verification.ExpectedFileHash,
+    lSecondStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual(lOwnerStatement.Verification.ExpectedFileHash,
+    lTargetStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH Jump[Jumps] DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        PC0 := gPC;' + #13#10 +
+    '        k_Offset := m + 1;' + #13#10 +
+    '        m := n;' + #13#10 +
+    '        CheckSel([]);' + #13#10 +
+    '        K0 := k;' + #13#10 +
+    '        SetCommand(P_JZ);' + #13#10 +
+    '        InsPos := gPC;' + #13#10 +
+    '        SetZero;' + #13#10 +
+    '        K0 := _FALLS;' + #13#10 +
+    '        IF fc > 0 THEN' + #13#10 +
+    '          GOTO weiter' + #13#10 +
+    '        ELSE' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          s_Offset := m;' + #13#10 +
+    '          ShortSel := TRUE' + #13#10 +
+    '        END;' + #13#10 +
+    '      END;', lOwnerStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('      lWithJumpItemPtr := @Jump[Jumps];' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        lWithJumpItemPtr^.PC0 := gPC;' + #13#10 +
+    '        k_Offset := m + 1;' + #13#10 +
+    '        m := n;' + #13#10 +
+    '        CheckSel([]);' + #13#10 +
+    '        lWithJumpItemPtr^.K0 := k;' + #13#10 +
+    '        SetCommand(P_JZ);' + #13#10 +
+    '        lWithJumpItemPtr^.InsPos := gPC;' + #13#10 +
+    '        SetZero;' + #13#10 +
+    '        lWithJumpItemPtr^.K0 := _FALLS;' + #13#10 +
+    '        IF fc > 0 THEN' + #13#10 +
+    '          GOTO weiter' + #13#10 +
+    '        ELSE' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          s_Offset := m;' + #13#10 +
+    '          ShortSel := TRUE' + #13#10 +
+    '        END;' + #13#10 +
+    '      END;', lOwnerStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lOwnerStatement.Temps)));
+  Assert.AreEqual('Jump[Jumps]', lOwnerStatement.Temps[0].SelectorText);
+  Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[0].Strategy);
+  Assert.AreEqual('TJumpItem', lOwnerStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithJumpItemPtr', lOwnerStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithJumpItemPtr: ^TJumpItem;', lOwnerStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithJumpItemPtr := @Jump[Jumps];',
+    lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
+  Assert.AreEqual(lOwnerId, lOwnerStatement.Temps[0].SemanticId);
+  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
+  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
+  Assert.AreEqual('854:1-854:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
+  Assert.AreEqual(cDeclaration, lOwnerStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
+  Assert.AreEqual('1673:1-1691:10', SourceRangeText(lOwnerStatement.Edits[1].Range));
+  Assert.AreEqual(lOwnerStatement.ReplacementText,
+    lOwnerStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lOwnerStatement);
+
+  Assert.AreEqual(1, Integer(Length(lPredecessorStatement.Temps)));
+  Assert.AreEqual('lWithJumpItemPtr1', lPredecessorStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithJumpItemPtr1: ^TJumpItem;',
+    lPredecessorStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithJumpItemPtr1 := @Jump[Jumps];',
+    lPredecessorStatement.Temps[0].InitializationText);
+  Assert.AreEqual('TJumpItem', lPredecessorStatement.Temps[0].ReceiverType);
+  Assert.AreEqual(lPredecessorId, lPredecessorStatement.Temps[0].SemanticId);
+  Assert.AreEqual(1, Integer(Length(lPredecessorStatement.Edits)));
+  Assert.AreEqual('replace-statement', lPredecessorStatement.Edits[0].Kind);
+  Assert.AreEqual('1742:1-1756:18',
+    SourceRangeText(lPredecessorStatement.Edits[0].Range));
+  Assert.AreEqual(lPredecessorStatement.ReplacementText,
+    lPredecessorStatement.Edits[0].ReplacementText);
+  AssertCapturedRecipe(lPredecessorStatement);
+
+  Assert.AreEqual('WITH Jump[Jumps] DO' + #13#10 +
+    '              BEGIN' + #13#10 +
+    '                expected[Jumps] := [s_then, s_else, s_elsif, s_end];' + #13#10 +
+    '                SetCommand(P_JMP);' + #13#10 +
+    '                SetWord(EndPos);' + #13#10 +
+    '                EndPos := gPC - 2 - PC0;' + #13#10 +
+    '                SetJump(InsPos, gPC);' + #13#10 +
+    '                CheckSel(expected[Jumps]);' + #13#10 +
+    '                SetCommand(P_JZ);' + #13#10 +
+    '                InsPos := gPC;' + #13#10 +
+    '                SetZero;' + #13#10 +
+    '              END;', lSecondStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('              begin' + #13#10 +
+    '                lWithJumpItemPtr2 := @Jump[Jumps];' + #13#10 +
+    '                BEGIN' + #13#10 +
+    '                expected[Jumps] := [s_then, s_else, s_elsif, s_end];' + #13#10 +
+    '                SetCommand(P_JMP);' + #13#10 +
+    '                SetWord(lWithJumpItemPtr2^.EndPos);' + #13#10 +
+    '                lWithJumpItemPtr2^.EndPos := gPC - 2 - lWithJumpItemPtr2^.PC0;' + #13#10 +
+    '                SetJump(lWithJumpItemPtr2^.InsPos, gPC);' + #13#10 +
+    '                CheckSel(expected[Jumps]);' + #13#10 +
+    '                SetCommand(P_JZ);' + #13#10 +
+    '                lWithJumpItemPtr2^.InsPos := gPC;' + #13#10 +
+    '                SetZero;' + #13#10 +
+    '              END;' + #13#10 +
+    '              end;', lSecondStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lSecondStatement.Temps)));
+  Assert.AreEqual('lWithJumpItemPtr2', lSecondStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithJumpItemPtr2: ^TJumpItem;', lSecondStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithJumpItemPtr2 := @Jump[Jumps];',
+    lSecondStatement.Temps[0].InitializationText);
+  Assert.AreEqual('TJumpItem', lSecondStatement.Temps[0].ReceiverType);
+  Assert.AreEqual(lSecondId, lSecondStatement.Temps[0].SemanticId);
+  Assert.AreEqual(1, Integer(Length(lSecondStatement.Edits)));
+  Assert.AreEqual('replace-statement', lSecondStatement.Edits[0].Kind);
+  Assert.AreEqual('1763:1-1774:18', SourceRangeText(lSecondStatement.Edits[0].Range));
+  Assert.AreEqual(lSecondStatement.ReplacementText,
+    lSecondStatement.Edits[0].ReplacementText);
+  AssertCapturedRecipe(lSecondStatement);
+  Assert.AreEqual(1, Integer(Length(lTargetStatement.Temps)));
+  Assert.AreEqual('lWithJumpItemPtr3', lTargetStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithJumpItemPtr3: ^TJumpItem;',
+    lTargetStatement.Temps[0].DeclarationText);
+  Assert.AreEqual(lTargetId, lTargetStatement.Temps[0].SemanticId);
+  Assert.AreEqual(1, Integer(Length(lTargetStatement.Edits)));
+  Assert.AreEqual('replace-statement', lTargetStatement.Edits[0].Kind);
+  Assert.AreEqual('1778:1-1782:18', SourceRangeText(lTargetStatement.Edits[0].Range));
+  Assert.AreEqual(lTargetStatement.ReplacementText,
+    lTargetStatement.Edits[0].ReplacementText);
+
+  lDeclarationCount := 0;
+  for i := 0 to High(aPlan.FinalStatements) do
+    if SameFileName(aPlan.FinalStatements[i].FileName, lOwnerStatement.FileName) and
+      SameText(aPlan.FinalStatements[i].RoutineName, 'Compile') then
+      for j := 0 to High(aPlan.FinalStatements[i].Edits) do
+        if aPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp' then
+        begin
+          Inc(lDeclarationCount);
+          Assert.AreEqual(lOwnerStatement.StatementId,
+            aPlan.FinalStatements[i].StatementId);
+          Assert.AreEqual('854:1-854:1',
+            SourceRangeText(aPlan.FinalStatements[i].Edits[j].Range));
+          Assert.AreEqual(cDeclaration,
+            aPlan.FinalStatements[i].Edits[j].ReplacementText);
+        end;
+  Assert.AreEqual(1, lDeclarationCount);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsJumpCaptureDeclaration;
+var
   lPlan: TDelphiSemanticRemoveWithPlan;
+  lSemanticId: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+  lPlan := BuildPlanForProject(SelectedMaxTdbProjectPath('test-projects\maxTdb\src\maxtdb.dpr'), True);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1778, 15, lStatement));
+  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDBJOBS.pas', 'Compile',
+    '1778:15-1782:18', '1778:34-1782:18', 'Jump[Jumps]', 1, lStatement);
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
@@ -21721,124 +22242,61 @@ begin
     '                PC0 := gPC;' + #13#10 +
     '                K0 := k' + #13#10 +
     '              END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('              lWithJumpItemPtr2 := @Jump[Jumps];' + #13#10 +
+  Assert.AreEqual('              lWithJumpItemPtr3 := @Jump[Jumps];' + #13#10 +
     '              BEGIN' + #13#10 +
-    '                lWithJumpItemPtr2^.PC0 := gPC;' + #13#10 +
-    '                lWithJumpItemPtr2^.K0 := k' + #13#10 +
+    '                lWithJumpItemPtr3^.PC0 := gPC;' + #13#10 +
+    '                lWithJumpItemPtr3^.K0 := k' + #13#10 +
     '              END;', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('Jump[Jumps]', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithJumpItemPtr2^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('lWithJumpItemPtr3^', lStatement.Temps[0].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('TJumpItem', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithJumpItemPtr2', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithJumpItemPtr2: ^TJumpItem;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithJumpItemPtr2 := @Jump[Jumps];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('lWithJumpItemPtr3', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithJumpItemPtr3: ^TJumpItem;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithJumpItemPtr3 := @Jump[Jumps];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('3dd8caa12c6d0bb4047c67bb99b5b16fc497463201f09dcccc01a70908eded90',
+  Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1778:1-1782:18', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('3dd8caa12c6d0bb4047c67bb99b5b16fc497463201f09dcccc01a70908eded90',
+  Assert.AreEqual(lSemanticId,
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
   Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual('Jump[Jumps]', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithJumpItemPtr2^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
+  Assert.AreEqual('lWithJumpItemPtr3^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
   Assert.AreEqual('TJumpItem', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithJumpItemPtr2', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithJumpItemPtr2: ^TJumpItem;',
+  Assert.AreEqual('lWithJumpItemPtr3', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
+  Assert.AreEqual('lWithJumpItemPtr3: ^TJumpItem;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithJumpItemPtr2 := @Jump[Jumps];',
+  Assert.AreEqual('lWithJumpItemPtr3 := @Jump[Jumps];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('3dd8caa12c6d0bb4047c67bb99b5b16fc497463201f09dcccc01a70908eded90',
+  Assert.AreEqual(lSemanticId,
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1742, 15, lOwnerStatement));
-  Assert.AreEqual('planned', lOwnerStatement.Status);
-  Assert.AreEqual('Compile', lOwnerStatement.RoutineName);
-  Assert.AreEqual('0678da334b44bb388fd5384c5bc77e1240030170ea9e2e708ef5e4a46c685096', lOwnerStatement.SemanticId);
-  Assert.AreEqual('', lOwnerStatement.Reason);
-  Assert.AreEqual('', lOwnerStatement.SafetyReason);
-  Assert.AreEqual('1742:15-1756:18', SourceRangeText(lOwnerStatement.Range));
-  Assert.AreEqual(lStatement.Verification.ExpectedFileHash, lOwnerStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual(1, Integer(Length(lOwnerStatement.Temps)));
-  Assert.AreEqual('lWithJumpItemPtr', lOwnerStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithJumpItemPtr: ^TJumpItem;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithJumpItemPtr := @Jump[Jumps];', lOwnerStatement.Temps[0].InitializationText);
-  Assert.AreEqual('TJumpItem', lOwnerStatement.Temps[0].ReceiverType);
-  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
-  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
-  Assert.AreEqual('854:1-854:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
-  Assert.AreEqual('var' + #13#10 +
-    '  lWithJumpItemPtr: ^TJumpItem;' + #13#10 +
-    '  lWithJumpItemPtr1: ^TJumpItem;' + #13#10 +
-    '  lWithJumpItemPtr2: ^TJumpItem;' + #13#10 +
-    '  lWithJumpItemPtr3: ^TJumpItem;' + #13#10 +
-    '  lWithESubTypePtr: ^ESubType;' + #13#10 +
-    '  lWithESubTypePtr1: ^ESubType;' + #13#10 +
-    '  lWithESubTypePtr2: ^ESubType;' + #13#10 +
-    '  lWithJumpItemPtr4: ^TJumpItem;' + #13#10 +
-    '  lWithESubTypePtr3: ^ESubType;' + #13#10 +
-    '  lWithESubTypePtr4: ^ESubType;' + #13#10 +
-    '', lOwnerStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
-  Assert.AreEqual('1742:1-1756:18', SourceRangeText(lOwnerStatement.Edits[1].Range));
-  Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  AssertCapturedRecipe(lOwnerStatement);
-
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1763, 15, lStatement));
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual('Compile', lStatement.RoutineName);
-  Assert.AreEqual('56a899144138896c28a21065008a84cffa6891435b7d85a2a5d692224aad900d', lStatement.SemanticId);
-  Assert.AreEqual('', lStatement.Reason);
-  Assert.AreEqual('', lStatement.SafetyReason);
-  Assert.AreEqual('1763:15-1774:18', SourceRangeText(lStatement.Range));
-  Assert.AreEqual(lOwnerStatement.Verification.ExpectedFileHash, lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('lWithJumpItemPtr1', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithJumpItemPtr1: ^TJumpItem;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithJumpItemPtr1 := @Jump[Jumps];', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual('TJumpItem', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  AssertCapturedRecipe(lStatement);
-
-  lDeclarationCount := 0;
-  for i := 0 to High(lPlan.FinalStatements) do
-    if SameFileName(lPlan.FinalStatements[i].FileName, lOwnerStatement.FileName) and
-      SameText(lPlan.FinalStatements[i].RoutineName, lOwnerStatement.RoutineName) then
-      for j := 0 to High(lPlan.FinalStatements[i].Edits) do
-        if lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp' then
-        begin
-          Inc(lDeclarationCount);
-          Assert.AreEqual(lOwnerStatement.StatementId, lPlan.FinalStatements[i].StatementId);
-          Assert.AreEqual(lOwnerStatement.Edits[0].ReplacementText,
-            lPlan.FinalStatements[i].Edits[j].ReplacementText);
-        end;
-  Assert.AreEqual(1, lDeclarationCount);
-
+  AssertCanonicalCompileCaptureAndDeclaration(lPlan);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsSubRZeroSkipReason;
 var
-  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
+  lSemanticId: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+  lPlan := BuildPlanForProject(SelectedMaxTdbProjectPath('test-projects\maxTdb\src\maxtdb.dpr'), True);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1937, 15, lStatement),
-    'Expected maxTdb TDBJOBS SubR[0]^ with statement.');
+  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDBJOBS.pas', 'Compile',
+    '1937:15-1958:18', '1937:31-1958:18', 'SubR[0]^', 1, lStatement);
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('Compile', lStatement.RoutineName);
-  Assert.AreEqual('8972937c636cf695faa953c13bf425deae51bb99ce344932b0702827ba57e9e7', lStatement.SemanticId);
+  Assert.AreEqual(lSemanticId, lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1937:15-1958:18', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1937:15-1958:18', SourceRangeText(lStatement.Verification.Range));
@@ -21898,42 +22356,25 @@ begin
   Assert.AreEqual('lWithESubTypePtr1: ^ESubType;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithESubTypePtr1 := @SubR[0]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('8972937c636cf695faa953c13bf425deae51bb99ce344932b0702827ba57e9e7', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(lSemanticId, lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1937:1-1958:18', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
   AssertCapturedRecipe(lStatement);
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1742, 15, lOwnerStatement));
-  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
-  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
-  Assert.AreEqual('854:1-854:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
-  Assert.AreEqual('var' + #13#10 +
-    '  lWithJumpItemPtr: ^TJumpItem;' + #13#10 +
-    '  lWithJumpItemPtr1: ^TJumpItem;' + #13#10 +
-    '  lWithJumpItemPtr2: ^TJumpItem;' + #13#10 +
-    '  lWithJumpItemPtr3: ^TJumpItem;' + #13#10 +
-    '  lWithESubTypePtr: ^ESubType;' + #13#10 +
-    '  lWithESubTypePtr1: ^ESubType;' + #13#10 +
-    '  lWithESubTypePtr2: ^ESubType;' + #13#10 +
-    '  lWithJumpItemPtr4: ^TJumpItem;' + #13#10 +
-    '  lWithESubTypePtr3: ^ESubType;' + #13#10 +
-    '  lWithESubTypePtr4: ^ESubType;' + #13#10 +
-    '', lOwnerStatement.Edits[0].ReplacementText);
-
-
+  AssertCanonicalCompileCaptureAndDeclaration(lPlan);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsReportSubRReplacement;
 var
-  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
+  lSemanticId: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+  lPlan := BuildPlanForProject(SelectedMaxTdbProjectPath('test-projects\maxTdb\src\maxtdb.dpr'), True);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 2295, 9, lStatement),
-    'Expected maxTdb TDBJOBS report SubR[0]^ with statement.');
+  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDBJOBS.pas', 'Compile',
+    '2295:9-2311:11', '2295:25-2311:11', 'SubR[0]^', 1, lStatement);
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
@@ -21964,7 +22405,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('Compile', lStatement.RoutineName);
-  Assert.AreEqual('21f13b8d77e551ccf6ce200e0f6f7b66b7fac62b4cbc734920164d602ce8ea61', lStatement.SemanticId);
+  Assert.AreEqual(lSemanticId, lStatement.SemanticId);
   Assert.AreEqual('2295:9-2311:11', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2295:9-2311:11', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('d6609c449e39d8abfb9954a1e1910f6aae84ab6504056f22f3ebc105275d25fa', lStatement.Verification.ExpectedFileHash);
@@ -21993,37 +22434,22 @@ begin
   Assert.AreEqual('lWithESubTypePtr3: ^ESubType;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithESubTypePtr3 := @SubR[0]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('21f13b8d77e551ccf6ce200e0f6f7b66b7fac62b4cbc734920164d602ce8ea61', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(lSemanticId, lStatement.Temps[0].SemanticId);
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   AssertCapturedRecipe(lStatement);
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1742, 15, lOwnerStatement));
-  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
-  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
-  Assert.AreEqual('854:1-854:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
-  Assert.AreEqual('var' + #13#10 +
-    '  lWithJumpItemPtr: ^TJumpItem;' + #13#10 +
-    '  lWithJumpItemPtr1: ^TJumpItem;' + #13#10 +
-    '  lWithJumpItemPtr2: ^TJumpItem;' + #13#10 +
-    '  lWithJumpItemPtr3: ^TJumpItem;' + #13#10 +
-    '  lWithESubTypePtr: ^ESubType;' + #13#10 +
-    '  lWithESubTypePtr1: ^ESubType;' + #13#10 +
-    '  lWithESubTypePtr2: ^ESubType;' + #13#10 +
-    '  lWithJumpItemPtr4: ^TJumpItem;' + #13#10 +
-    '  lWithESubTypePtr3: ^ESubType;' + #13#10 +
-    '  lWithESubTypePtr4: ^ESubType;' + #13#10 +
-    '', lOwnerStatement.Edits[0].ReplacementText);
-
+  AssertCanonicalCompileCaptureAndDeclaration(lPlan);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbJobsParameterDirectReplacement;
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
+  lSemanticId: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+  lPlan := BuildPlanForProject(SelectedMaxTdbProjectPath('test-projects\maxTdb\src\maxtdb.dpr'), True);
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 2357, 3, lStatement),
-    'Expected maxTdb TDBJOBS Parameter with statement.');
+  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDBJOBS.pas', 'InitCompiler',
+    '2357:3-2359:18', '2357:20-2359:18', 'Parameter', 1, lStatement);
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
@@ -22047,7 +22473,7 @@ begin
   Assert.AreEqual('lWithParaTypePtr: ^ParaType;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithParaTypePtr := @Parameter;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5f72f7db1769f8e7e194b01950901e9bdb12e38f67e82e7b0829f826dc07619e',
+  Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -22057,7 +22483,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2357:1-2359:18', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('5f72f7db1769f8e7e194b01950901e9bdb12e38f67e82e7b0829f826dc07619e',
+  Assert.AreEqual(lSemanticId,
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -22072,7 +22498,7 @@ begin
   Assert.AreEqual('lWithParaTypePtr := @Parameter;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5f72f7db1769f8e7e194b01950901e9bdb12e38f67e82e7b0829f826dc07619e',
+  Assert.AreEqual(lSemanticId,
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -25584,5 +26010,8 @@ end;
 
 initialization
   TDUnitX.RegisterTestFixture(TRemoveWithPlanTests);
+
+finalization
+  GMaxTdbGraph.Free;
 
 end.

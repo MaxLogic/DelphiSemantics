@@ -102,6 +102,8 @@ type
     [Test]
     procedure ProjectSessionPlanRemoveWithCachesProjectFactsByProjectIdentity;
     [Test]
+    procedure ProjectSessionPlanRemoveWithInvalidatesLegacyParentSelectorFacts;
+    [Test]
     procedure ProjectSessionSnapshotMetricsExposeCacheUsefulnessTelemetry;
     [Test]
     procedure ProjectSessionReusesUnchangedMultiUnitSnapshotCacheEntries;
@@ -139,14 +141,17 @@ type
 implementation
 
 uses
-  System.Classes, System.IOUtils, System.JSON.Serializers, System.StrUtils, System.SysUtils,
+  System.Classes, System.Hash, System.IOUtils, System.JSON.Serializers, System.StrUtils,
+  System.SysUtils,
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite,
   maxLogic.IOUtils,
   DelphiSemantics.Api, DelphiSemantics.Api.RemoveWith.Compatibility, DelphiSemantics.Cache,
   DelphiSemantics.GlobalVars, DelphiSemantics.IdentifierScope, DelphiSemantics.Index,
   DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
-  DelphiSemantics.Query, DelphiSemantics.Refactor, Test.Support;
+  DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Snapshot.Cache.Sqlite,
+  DelphiSemantics.WithBinding,
+  Test.Support;
 
 var
   GProjectSessionTempRoot: string;
@@ -325,6 +330,133 @@ begin
     lConnection.Connected := True;
     lConnection.ExecSQL(aSql);
   finally
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+end;
+
+function ReadProjectRemoveWithFactsIdentity(const aCacheFileName: string):
+  TDelphiSemanticSnapshotCacheIdentity;
+var
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+  lQuery: TFDQuery;
+begin
+  Result := Default(TDelphiSemanticSnapshotCacheIdentity);
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  lQuery := TFDQuery.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := aCacheFileName;
+    lConnection.Connected := True;
+    lQuery.Connection := lConnection;
+    lQuery.SQL.Text := 'select cache_key, identity_key, source_file_name, file_hash, ' +
+      'context_hash, include_graph_hash, schema_version from ' +
+      'snapshot_project_remove_with_facts';
+    lQuery.Open;
+    Assert.IsFalse(lQuery.Eof, 'Expected a persisted project remove-with facts row.');
+    Result.CacheKey := lQuery.FieldByName('cache_key').AsWideString;
+    Result.IdentityKey := lQuery.FieldByName('identity_key').AsWideString;
+    Result.SourceFileName := lQuery.FieldByName('source_file_name').AsWideString;
+    Result.FileHash := lQuery.FieldByName('file_hash').AsWideString;
+    Result.ContextHash := lQuery.FieldByName('context_hash').AsWideString;
+    Result.IncludeGraphHash := lQuery.FieldByName('include_graph_hash').AsWideString;
+    Result.SchemaVersion := lQuery.FieldByName('schema_version').AsWideString;
+    lQuery.Next;
+    Assert.IsTrue(lQuery.Eof, 'Expected exactly one project remove-with facts row.');
+  finally
+    lQuery.Free;
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+end;
+
+procedure SeedLegacyParentSelectorFacts(const aCacheFileName: string;
+  const aCurrentIdentity, aLegacyIdentity: TDelphiSemanticSnapshotCacheIdentity);
+const
+  cProjectFactTables: array[0..8] of string = (
+    'snapshot_exact_strings', 'snapshot_remove_with_facts',
+    'snapshot_remove_with_visibility', 'snapshot_remove_with_visible_units',
+    'snapshot_remove_with_routine_owners', 'snapshot_remove_with_symbols',
+    'snapshot_remove_with_bindings', 'snapshot_remove_with_binding_selectors',
+    'snapshot_remove_with_binding_references');
+var
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+  lMissingBindingIndex: Integer;
+  lMissingReasonId: Integer;
+  lMissingStatusId: Integer;
+  lMissingTypeId: Integer;
+  lQuery: TFDQuery;
+  lRunNestedBindingIndex: Integer;
+  lTableName: string;
+begin
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  lQuery := TFDQuery.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := aCacheFileName;
+    lConnection.Connected := True;
+    lQuery.Connection := lConnection;
+    lQuery.SQL.Text := 'select b.binding_index, s.status_id, s.reason_code_id, ' +
+      's.type_name_id from snapshot_remove_with_bindings b ' +
+      'join snapshot_exact_strings r on r.cache_key = b.cache_key and ' +
+      'r.string_id = b.routine_name_id ' +
+      'join snapshot_remove_with_binding_selectors s on ' +
+      's.cache_key = b.cache_key and s.binding_index = b.binding_index and ' +
+      's.selector_index = 1 where b.cache_key = :cache_key and ' +
+      'r.text_value = :routine';
+    lQuery.ParamByName('cache_key').AsWideString := aCurrentIdentity.CacheKey;
+    lQuery.ParamByName('routine').AsWideString := 'RunUnresolved';
+    lQuery.Open;
+    Assert.IsFalse(lQuery.Eof, 'Expected unresolved control selector.');
+    lMissingBindingIndex := lQuery.FieldByName('binding_index').AsInteger;
+    lMissingStatusId := lQuery.FieldByName('status_id').AsInteger;
+    lMissingReasonId := lQuery.FieldByName('reason_code_id').AsInteger;
+    lMissingTypeId := lQuery.FieldByName('type_name_id').AsInteger;
+    lQuery.Next;
+    Assert.IsTrue(lQuery.Eof, 'Expected one unresolved control selector.');
+    lQuery.Close;
+    lQuery.ParamByName('routine').AsWideString := 'RunNested';
+    lQuery.Open;
+    Assert.IsFalse(lQuery.Eof, 'Expected nested parent selector.');
+    lRunNestedBindingIndex := lQuery.FieldByName('binding_index').AsInteger;
+    lQuery.Next;
+    Assert.IsTrue(lQuery.Eof, 'Expected one nested parent selector.');
+    lQuery.Close;
+    Assert.AreNotEqual(lMissingBindingIndex, lRunNestedBindingIndex);
+
+    lConnection.StartTransaction;
+    try
+      if aCurrentIdentity.CacheKey <> aLegacyIdentity.CacheKey then
+      begin
+        for lTableName in cProjectFactTables do
+          lConnection.ExecSQL('update ' + lTableName + ' set cache_key = ' +
+            QuotedStr(aLegacyIdentity.CacheKey) + ' where cache_key = ' +
+            QuotedStr(aCurrentIdentity.CacheKey));
+        lConnection.ExecSQL('update snapshot_project_remove_with_facts set ' +
+          'cache_key = ' + QuotedStr(aLegacyIdentity.CacheKey) +
+          ', schema_version = ' + QuotedStr(aLegacyIdentity.SchemaVersion) +
+          ' where cache_key = ' + QuotedStr(aCurrentIdentity.CacheKey));
+      end;
+      lConnection.ExecSQL('update snapshot_remove_with_binding_selectors set ' +
+        'status_id = ' + IntToStr(lMissingStatusId) + ', reason_code_id = ' +
+        IntToStr(lMissingReasonId) + ', type_name_id = ' +
+        IntToStr(lMissingTypeId) + ' where cache_key = ' +
+        QuotedStr(aLegacyIdentity.CacheKey) + ' and binding_index = ' +
+        IntToStr(lRunNestedBindingIndex) + ' and selector_index = 1');
+      lConnection.Commit;
+    except
+      if lConnection.InTransaction then
+        lConnection.Rollback;
+      raise;
+    end;
+  finally
+    lQuery.Free;
     lConnection.Free;
     lDriverLink.Free;
   end;
@@ -2317,6 +2449,140 @@ begin
     'Expected changed remove-with fixture to produce a final statement.');
   Assert.IsTrue(Pos('OtherValue', lThirdPlan.FinalStatements[0].ReplacementText) > 0,
     'Changed remove-with plan should reference OtherValue, not stale Value facts.');
+end;
+
+procedure TProjectSessionTests.ProjectSessionPlanRemoveWithInvalidatesLegacyParentSelectorFacts;
+const
+  cLegacySchemaVersion = 'project-session-remove-with-facts-v22';
+  cRunNestedInnerSelectorLine = 60;
+  cRunNestedInnerSelectorColumn = 5;
+  cFixtureFiles: array[0..4] of string = (
+    'NestedParentDefaultPointerWith.dproj',
+    'NestedParentDefaultPointerWith.dpr',
+    'NestedParentDefaultPointerWithUnit.pas',
+    'NestedParentBoundTypeOwnerA.pas',
+    'NestedParentBoundTypeOwnerB.pas');
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lBindingCount: Integer;
+  lCachePath: string;
+  lColdPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lCurrentIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lFixtureHashes: TArray<string>;
+  lLegacyIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lOptions: TDelphiSemanticOptions;
+  lRebuiltPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lSerializer: TJsonSerializer;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lStatementCount: Integer;
+  lTargetColumn: Integer;
+  lTargetLine: Integer;
+  lWarmPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('WithBinder', cFixtureFiles[0]);
+  lCachePath := ProjectSessionTempPath('legacy-parent-selector-facts.sqlite3');
+  lOptions.SqliteCacheFileName := lCachePath;
+  lOptions.SkipWithBindingSemanticGraph := True;
+  SetLength(lFixtureHashes, Length(cFixtureFiles));
+  for i := 0 to High(cFixtureFiles) do
+    lFixtureHashes[i] := THashSHA2.GetHashStringFromFile(
+      FixturePath('WithBinder', cFixtureFiles[i]));
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lColdPlan := lResult.Session.PlanRemoveWithResult;
+  finally
+    lResult.Session.Free;
+  end;
+  Assert.AreEqual(1, lColdPlan.SnapshotMetrics.SnapshotCacheProbes);
+  Assert.AreEqual(1, lColdPlan.SnapshotMetrics.SnapshotCacheMisses);
+  lCurrentIdentity := ReadProjectRemoveWithFactsIdentity(lCachePath);
+  lLegacyIdentity := RekeyProjectRemoveWithFactsIdentityForTest(lCurrentIdentity,
+    cLegacySchemaVersion);
+  Assert.AreEqual(lCurrentIdentity.IdentityKey, lLegacyIdentity.IdentityKey);
+  Assert.AreEqual(lCurrentIdentity.FileHash, lLegacyIdentity.FileHash);
+  Assert.AreEqual(lCurrentIdentity.ContextHash, lLegacyIdentity.ContextHash);
+  Assert.AreEqual(lCurrentIdentity.IncludeGraphHash, lLegacyIdentity.IncludeGraphHash);
+  SeedLegacyParentSelectorFacts(lCachePath, lCurrentIdentity, lLegacyIdentity);
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lRebuiltPlan := lResult.Session.PlanRemoveWithResult;
+    Assert.AreEqual(1, lRebuiltPlan.SnapshotMetrics.SnapshotCacheProbes);
+    Assert.AreEqual(0, lRebuiltPlan.SnapshotMetrics.SnapshotCacheHits,
+      'Current project facts must not reuse the persisted v22 unresolved selector.');
+    Assert.AreEqual(1, lRebuiltPlan.SnapshotMetrics.SnapshotCacheMisses);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+  finally
+    lResult.Session.Free;
+  end;
+  lBindingCount := 0;
+  lTargetLine := 0;
+  lTargetColumn := 0;
+  for lBinding in lFacts.Bindings do
+    if SameText(ExtractFileName(lBinding.FileName), cFixtureFiles[2]) and
+      SameText(lBinding.RoutineName, 'RunNested') and
+      SameText(lBinding.SelectorText, 'Maske[i]^') then
+    begin
+      Inc(lBindingCount);
+      Assert.AreEqual(cRunNestedInnerSelectorLine, lBinding.Line,
+        'RunNested inner selector source line changed.');
+      Assert.AreEqual(cRunNestedInnerSelectorColumn, lBinding.Column,
+        'RunNested inner selector source column changed.');
+      lTargetLine := lBinding.Line;
+      lTargetColumn := lBinding.Column;
+      Assert.AreEqual('resolved', lBinding.Selectors[1].Status);
+      Assert.AreEqual('TMaskEntry', lBinding.Selectors[1].TypeName);
+    end;
+  Assert.AreEqual(1, lBindingCount, 'Expected one rebound nested selector.');
+  lStatementCount := 0;
+  for lStatement in lRebuiltPlan.Plan.FinalStatements do
+    if SameText(lStatement.RoutineName, 'RunNested') and
+      SameText(ExtractFileName(lStatement.FileName), cFixtureFiles[2]) and
+      (lStatement.Range.StartLine = lTargetLine) and
+      (lStatement.Range.StartColumn = lTargetColumn) then
+    begin
+      Inc(lStatementCount);
+      Assert.AreEqual('skipped', lStatement.Status,
+        'RunNested must retain its independent receiver-visibility refusal.');
+      Assert.AreEqual('receiver-type-not-visible', lStatement.Reason,
+        'A rebound selector must not retain the stale selector-type refusal.');
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)),
+        'A receiver-visibility refusal must not publish edits.');
+    end;
+  Assert.AreEqual(1, lStatementCount);
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lWarmPlan := lResult.Session.PlanRemoveWithResult;
+  finally
+    lResult.Session.Free;
+  end;
+  Assert.AreEqual(1, lWarmPlan.SnapshotMetrics.SnapshotCacheProbes);
+  Assert.AreEqual(1, lWarmPlan.SnapshotMetrics.SnapshotCacheHits);
+  Assert.AreEqual(0, lWarmPlan.SnapshotMetrics.SnapshotCacheMisses);
+  lSerializer := TJsonSerializer.Create;
+  try
+    Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lColdPlan.Plan),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lRebuiltPlan.Plan),
+      'Rebound project facts must match the uncached current plan.');
+    Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lRebuiltPlan.Plan),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lWarmPlan.Plan),
+      'Fresh warm project facts must preserve the rebound plan exactly.');
+  finally
+    lSerializer.Free;
+  end;
+  for i := 0 to High(cFixtureFiles) do
+    Assert.AreEqual(lFixtureHashes[i], THashSHA2.GetHashStringFromFile(
+      FixturePath('WithBinder', cFixtureFiles[i])),
+      'The analyzed application input must remain byte-identical: ' + cFixtureFiles[i]);
 end;
 
 procedure TProjectSessionTests.ProjectSessionAssociatesNestedWithReferencesWithInnermostSnapshotFact;

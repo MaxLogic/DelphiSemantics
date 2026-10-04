@@ -209,7 +209,8 @@ uses
   System.RegularExpressions, System.StrUtils, System.SysUtils,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.CompilerProfile, DelphiSemantics.Model.Text, DelphiSemantics.ProjectContext,
-  DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.WithBinding.Inventory,
+  DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.SelectorTypes,
+  DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.WithBinding.Inventory,
   MaxLogic.StrUtils;
 
 type
@@ -289,6 +290,11 @@ type
     OwnerResolved: Boolean;
   end;
 
+  TBoundMemberResolution = record
+    Value: TDelphiSemanticResolveResult;
+    DeclaringUnitName: string;
+  end;
+
   TWithBindingProjectMemberIndex = class
   private
     fIntrinsicTypes: TDictionary<string, TDelphiSemanticIntrinsicSymbol>;
@@ -297,12 +303,12 @@ type
     fModels: TArray<TDelphiSemanticUnitModel>;
     fDeclarationCandidates: TObjectDictionary<string, TList<TIndexedDeclarationCandidate>>;
     fDeclarationModels: TDictionary<string, TArray<TDelphiSemanticUnitModel>>;
-    fByUnitOwnerName: TDictionary<string, TList<TDelphiSemanticResolveResult>>;
-    fDirectMembersByContextOwnerName: TDictionary<string, TList<TDelphiSemanticResolveResult>>;
+    fByUnitOwnerName: TDictionary<string, TList<TBoundMemberResolution>>;
+    fDirectMembersByContextOwnerName: TDictionary<string, TList<TBoundMemberResolution>>;
     fMemberKeysByUnit: TDictionary<string, TList<string>>;
     fSemanticMemberIndex: TDelphiSemanticMemberIdentityIndex;
     fSemanticMemberIndexAvailable: Boolean;
-    fSemanticMemberResultsByOwnerName: TDictionary<string, TDelphiSemanticResolveResult>;
+    fSemanticMemberResultsByOwnerName: TDictionary<string, TBoundMemberResolution>;
     fUnitNames: TArray<string>;
     fVisibleUnitsByUnit: TDictionary<string, TArray<string>>;
     fMemberSafetyDiagnostics: TArray<TMemberSafetyDiagnostic>;
@@ -333,19 +339,19 @@ type
     procedure AddMember(const aUnitName: string; const aMember: TDelphiSemanticMember);
     procedure AddMemberKey(const aUnitName, aKey: string);
     class procedure AddResultToMap(const aMap: TDictionary<string,
-      TList<TDelphiSemanticResolveResult>>; const aKey: string;
-      const aResult: TDelphiSemanticResolveResult); static;
+      TList<TBoundMemberResolution>>; const aKey: string;
+      const aResult: TBoundMemberResolution); static;
     procedure BuildContextMemberIndex;
     class function ResolveMemberList(const aOwnerName, aName: string;
-      const aList: TList<TDelphiSemanticResolveResult>;
-      out aResult: TDelphiSemanticResolveResult): Boolean; static;
+      const aList: TList<TBoundMemberResolution>;
+      out aResult: TBoundMemberResolution): Boolean; static;
     class function ResolveResultIsUsable(
       const aResult: TDelphiSemanticResolveResult): Boolean; static;
     procedure ClearOwnedState;
     function TryResolveContextMember(const aContextUnitName, aOwnerName, aName: string;
-      out aResult: TDelphiSemanticResolveResult): Boolean;
+      out aResult: TBoundMemberResolution): Boolean;
     function TryResolveUnitMember(const aUnitName, aOwnerName, aName: string;
-      out aResult: TDelphiSemanticResolveResult): Boolean;
+      out aResult: TBoundMemberResolution): Boolean;
   public
     constructor Create(const aModels: TArray<TDelphiSemanticUnitModel>;
       const aGraph: TDelphiSemanticSemanticGraph;
@@ -360,7 +366,10 @@ type
       const aName: string): TDelphiSemanticResolveContext;
     function TryResolveDirectMember(const aCurrentUnitName, aCurrentTypeName, aOwnerName,
       aName: string; const aAllowSemanticFallback: Boolean;
-      out aResult: TDelphiSemanticResolveResult): Boolean;
+      out aResult: TDelphiSemanticResolveResult): Boolean; overload;
+    function TryResolveDirectMember(const aCurrentUnitName, aCurrentTypeName, aOwnerName,
+      aName: string; const aAllowSemanticFallback: Boolean;
+      out aResult: TBoundMemberResolution): Boolean; overload;
   end;
 
   TWithSelectorBindingArray = TArray<TDelphiSemanticWithSelectorBinding>;
@@ -1112,14 +1121,14 @@ begin
     fModels := aModels;
     fLookupIndex := aLookupIndex;
     BuildDeclarationIndex;
-    fByUnitOwnerName := TDictionary<string, TList<TDelphiSemanticResolveResult>>.Create(
+    fByUnitOwnerName := TDictionary<string, TList<TBoundMemberResolution>>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     fDirectMembersByContextOwnerName := TDictionary<string,
-      TList<TDelphiSemanticResolveResult>>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+      TList<TBoundMemberResolution>>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
     fMemberKeysByUnit := TDictionary<string, TList<string>>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     fSemanticMemberResultsByOwnerName := TDictionary<string,
-      TDelphiSemanticResolveResult>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+      TBoundMemberResolution>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
     fVisibleUnitsByUnit := TDictionary<string, TArray<string>>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     lGraph := aGraph;
@@ -1159,7 +1168,7 @@ end;
 
 procedure TWithBindingProjectMemberIndex.ClearOwnedState;
 var
-  lList: TList<TDelphiSemanticResolveResult>;
+  lList: TList<TBoundMemberResolution>;
   lStringList: TList<string>;
 begin
   FreeAndNil(fSafetyDeclarationsByName);
@@ -1197,10 +1206,10 @@ var
   lContextKey: string;
   lMemberName: string;
   lOwnerName: string;
-  lSourceList: TList<TDelphiSemanticResolveResult>;
-  lSourceResult: TDelphiSemanticResolveResult;
+  lSourceList: TList<TBoundMemberResolution>;
+  lSourceResult: TBoundMemberResolution;
   lSourceUnitName: string;
-  lTargetList: TList<TDelphiSemanticResolveResult>;
+  lTargetList: TList<TBoundMemberResolution>;
 begin
   lSourceUnitName := KeyUnitName(aMemberKey);
   lOwnerName := KeyOwnerName(aMemberKey);
@@ -1215,7 +1224,7 @@ begin
   if not fByUnitOwnerName.TryGetValue(aMemberKey, lSourceList) then
     Exit;
 
-  lTargetList := TList<TDelphiSemanticResolveResult>.Create;
+  lTargetList := TList<TBoundMemberResolution>.Create;
   try
     for lSourceResult in lSourceList do
       lTargetList.Add(lSourceResult);
@@ -1242,10 +1251,14 @@ end;
 procedure TWithBindingProjectMemberIndex.AddMember(const aUnitName: string;
   const aMember: TDelphiSemanticMember);
 var
+  lBound: TBoundMemberResolution;
   lKey: string;
 begin
   lKey := Key(aUnitName, aMember.OwnerName, aMember.Name);
-  AddResultToMap(fByUnitOwnerName, lKey, MemberResult(aMember));
+  lBound := Default(TBoundMemberResolution);
+  lBound.Value := MemberResult(aMember);
+  lBound.DeclaringUnitName := aUnitName;
+  AddResultToMap(fByUnitOwnerName, lKey, lBound);
   AddMemberKey(aUnitName, lKey);
 end;
 
@@ -1267,15 +1280,15 @@ begin
 end;
 
 class procedure TWithBindingProjectMemberIndex.AddResultToMap(
-  const aMap: TDictionary<string, TList<TDelphiSemanticResolveResult>>;
+  const aMap: TDictionary<string, TList<TBoundMemberResolution>>;
   const aKey: string;
-  const aResult: TDelphiSemanticResolveResult);
+  const aResult: TBoundMemberResolution);
 var
-  lList: TList<TDelphiSemanticResolveResult>;
+  lList: TList<TBoundMemberResolution>;
 begin
   if not aMap.TryGetValue(aKey, lList) then
   begin
-    lList := TList<TDelphiSemanticResolveResult>.Create;
+    lList := TList<TBoundMemberResolution>.Create;
     try
       aMap.Add(aKey, lList);
     except
@@ -1306,16 +1319,16 @@ begin
 end;
 
 class function TWithBindingProjectMemberIndex.ResolveMemberList(const aOwnerName, aName: string;
-  const aList: TList<TDelphiSemanticResolveResult>;
-  out aResult: TDelphiSemanticResolveResult): Boolean;
+  const aList: TList<TBoundMemberResolution>;
+  out aResult: TBoundMemberResolution): Boolean;
 begin
   if aList.Count > 1 then
   begin
-    aResult := Default(TDelphiSemanticResolveResult);
-    aResult.Status := 'ambiguous';
-    aResult.Name := aName;
-    aResult.ReasonCode := 'MULTIPLE_MEMBER_CANDIDATES';
-    aResult.Reason := 'Multiple direct members named "' + aName + '" were found on ' +
+    aResult := Default(TBoundMemberResolution);
+    aResult.Value.Status := 'ambiguous';
+    aResult.Value.Name := aName;
+    aResult.Value.ReasonCode := 'MULTIPLE_MEMBER_CANDIDATES';
+    aResult.Value.Reason := 'Multiple direct members named "' + aName + '" were found on ' +
       aOwnerName + '.';
     Exit(True);
   end;
@@ -1326,14 +1339,14 @@ end;
 
 function TWithBindingProjectMemberIndex.TryResolveContextMember(
   const aContextUnitName, aOwnerName, aName: string;
-  out aResult: TDelphiSemanticResolveResult): Boolean;
+  out aResult: TBoundMemberResolution): Boolean;
 var
-  lList: TList<TDelphiSemanticResolveResult>;
+  lList: TList<TBoundMemberResolution>;
 begin
   if not fDirectMembersByContextOwnerName.TryGetValue(Key(aContextUnitName, aOwnerName,
     aName), lList) then
   begin
-    aResult := Default(TDelphiSemanticResolveResult);
+    aResult := Default(TBoundMemberResolution);
     Exit(False);
   end;
 
@@ -1348,13 +1361,13 @@ begin
 end;
 
 function TWithBindingProjectMemberIndex.TryResolveUnitMember(const aUnitName, aOwnerName,
-  aName: string; out aResult: TDelphiSemanticResolveResult): Boolean;
+  aName: string; out aResult: TBoundMemberResolution): Boolean;
 var
-  lList: TList<TDelphiSemanticResolveResult>;
+  lList: TList<TBoundMemberResolution>;
 begin
   if not fByUnitOwnerName.TryGetValue(Key(aUnitName, aOwnerName, aName), lList) then
   begin
-    aResult := Default(TDelphiSemanticResolveResult);
+    aResult := Default(TBoundMemberResolution);
     Exit(False);
   end;
 
@@ -1365,6 +1378,17 @@ function TWithBindingProjectMemberIndex.TryResolveDirectMember(const aCurrentUni
   aCurrentTypeName, aOwnerName, aName: string; const aAllowSemanticFallback: Boolean;
   out aResult: TDelphiSemanticResolveResult): Boolean;
 var
+  lBound: TBoundMemberResolution;
+begin
+  Result := TryResolveDirectMember(aCurrentUnitName, aCurrentTypeName, aOwnerName,
+    aName, aAllowSemanticFallback, lBound);
+  aResult := lBound.Value;
+end;
+
+function TWithBindingProjectMemberIndex.TryResolveDirectMember(const aCurrentUnitName,
+  aCurrentTypeName, aOwnerName, aName: string; const aAllowSemanticFallback: Boolean;
+  out aResult: TBoundMemberResolution): Boolean;
+var
   lContext: TDelphiSemanticMemberLookupContext;
   lLookup: TDelphiSemanticMemberLookupResult;
   lSemanticKey: string;
@@ -1374,13 +1398,13 @@ begin
 
   if not aAllowSemanticFallback then
   begin
-    aResult := Default(TDelphiSemanticResolveResult);
+    aResult := Default(TBoundMemberResolution);
     Exit(False);
   end;
 
   lSemanticKey := Key(aCurrentUnitName + #30 + aCurrentTypeName, aOwnerName, aName);
   if fSemanticMemberResultsByOwnerName.TryGetValue(lSemanticKey, aResult) then
-    Exit(ResolveResultIsUsable(aResult));
+    Exit(ResolveResultIsUsable(aResult.Value));
 
   if fSemanticMemberIndexAvailable then
   begin
@@ -1389,14 +1413,17 @@ begin
     lContext.CurrentTypeName := aCurrentTypeName;
     lContext.InstanceContext := True;
     lLookup := fSemanticMemberIndex.ResolveMember(lContext, aOwnerName, aName);
-    if ResolveResultFromMemberLookup(aName, lLookup, aResult) then
+    aResult := Default(TBoundMemberResolution);
+    if ResolveResultFromMemberLookup(aName, lLookup, aResult.Value) then
     begin
+      if lLookup.Found then
+        aResult.DeclaringUnitName := lLookup.Member.UnitName;
       fSemanticMemberResultsByOwnerName.AddOrSetValue(lSemanticKey, aResult);
       Exit(True);
     end;
   end;
 
-  aResult := Default(TDelphiSemanticResolveResult);
+  aResult := Default(TBoundMemberResolution);
   fSemanticMemberResultsByOwnerName.AddOrSetValue(lSemanticKey, aResult);
   Result := False;
 end;
@@ -1536,7 +1563,8 @@ function CallerTypeNameForRoutineContext(const aModel: TDelphiSemanticUnitModel;
 function RoutineLookupNameForRoutineContext(const aModel: TDelphiSemanticUnitModel;
   const aRoutineName: string; const aLine: Integer): string; forward;
 
-function ReceiverMemberCachePrefix(const aUnitName, aCurrentTypeName: string;
+function ReceiverMemberCachePrefix(const aUnitName, aCurrentTypeName,
+  aRoutineName: string; const aLine, aColumn: Integer;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>): string; forward;
 
 function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
@@ -1544,8 +1572,16 @@ function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aCurrentTypeName, aMemberCachePrefix, aName: string;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  out aResult: TDelphiSemanticResolveResult): Boolean; forward;
+  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  out aResult: TDelphiSemanticResolveResult): Boolean; overload; forward;
+
+function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
+  const aProjectModels: TArray<TDelphiSemanticUnitModel>;
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aCurrentTypeName, aMemberCachePrefix, aName: string;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  out aResult: TBoundMemberResolution): Boolean; overload; forward;
 
 function SelectorDereferencesAfterIndex(const aSelectorText: string;
   const aBracketPos: Integer): Boolean;
@@ -1814,17 +1850,29 @@ function MakeSelectorBinding(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName,
   aCurrentTypeName, aSelectorText: string; const aParentRoutineNames: TArray<string>;
   const aPreviousSelectors, aParentSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
-  const aLine: Integer;
+  const aLine, aColumn: Integer;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
+  const aMemberCache: TDictionary<string, TBoundMemberResolution>):
   TDelphiSemanticWithSelectorBinding;
 var
+  lBaseName: string;
+  lBound: TBoundMemberResolution;
   lCastName: string;
   lCastResult: TDelphiSemanticResolveResult;
   lCastType: string;
+  lComplex: Boolean;
   lContext: TDelphiSemanticResolveContext;
+  lDereferenced: Boolean;
+  lDeclaringModel: TDelphiSemanticUnitModel;
+  lDeclaringModelCount: Integer;
+  lDeclaringSection: string;
+  lIndexBeforeDereference: Boolean;
+  lIndexed: Boolean;
+  lParts: TArray<string>;
+  lProjectModel: TDelphiSemanticUnitModel;
   lResult: TDelphiSemanticResolveResult;
   lSelectorText: string;
+  lWithBase: Boolean;
 begin
   lSelectorText := aSelectorText.Trim;
   lContext := Default(TDelphiSemanticResolveContext);
@@ -1834,18 +1882,78 @@ begin
   lContext.SectionKind := 'implementation';
   lContext.ConformanceLevel := 3;
   lContext.IndexedUnitModels := aProjectModels;
-  if not ((Length(aPreviousSelectors) > 0) and TRegEx.IsMatch(lSelectorText,
-    '^[A-Za-z_][A-Za-z0-9_]*$') and
-    TryResolveReceiverMember(aModel, aProjectModels, aPreviousSelectors,
-    aCurrentTypeName, ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
-    aPreviousSelectors), lSelectorText, aProjectMemberIndex, aMemberCache, lResult)) then
+  lComplex := (Pos('.', lSelectorText) > 0) or (Pos('[', lSelectorText) > 0) or
+    (Pos('^', lSelectorText) > 0);
+  lBaseName := '';
+  if lComplex then
+  begin
+    lParts := lSelectorText.Split(['.']);
+    if Length(lParts) > 0 then
+      ParseSelectorToken(lParts[0], lBaseName, lIndexed, lDereferenced,
+        lIndexBeforeDereference);
+  end else
+    lBaseName := lSelectorText;
+  lWithBase := False;
+  if TRegEx.IsMatch(lBaseName, '^[A-Za-z_][A-Za-z0-9_]*$') then
+  begin
+    if Length(aPreviousSelectors) > 0 then
+      lWithBase := TryResolveReceiverMember(aModel, aProjectModels,
+        aPreviousSelectors, aCurrentTypeName,
+        ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+        aRoutineName, aLine, aColumn,
+        aPreviousSelectors), lBaseName, aProjectMemberIndex, aMemberCache,
+        lBound);
+    if (not lWithBase) and lComplex and (Length(aParentSelectors) > 0) then
+      lWithBase := TryResolveReceiverMember(aModel, aProjectModels,
+        aParentSelectors, aCurrentTypeName,
+        ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+        aRoutineName, aLine, aColumn,
+        aParentSelectors), lBaseName, aProjectMemberIndex, aMemberCache,
+        lBound);
+  end;
+  if lWithBase then
+  begin
+    lResult := lBound.Value;
+    if lComplex and lResult.Found then
+    begin
+      lDeclaringModel := Default(TDelphiSemanticUnitModel);
+      lDeclaringModelCount := 0;
+      for lProjectModel in aProjectModels do
+        if SameText(lProjectModel.UnitName, lBound.DeclaringUnitName) and
+          (lBound.DeclaringUnitName <> '') then
+        begin
+          Inc(lDeclaringModelCount);
+          lDeclaringModel := lProjectModel;
+        end;
+      if lDeclaringModelCount <> 1 then
+        lResult := Default(TDelphiSemanticResolveResult)
+      else
+      begin
+        if SameText(lDeclaringModel.UnitName, aModel.UnitName) then
+          lDeclaringSection := lContext.SectionKind
+        else
+          lDeclaringSection := 'interface';
+        lResult := TDelphiSemanticResolver.ResolveSelectorFromBoundBase(aModel,
+          lContext, lSelectorText, lResult, lDeclaringModel, lDeclaringSection);
+      end;
+      if lDeclaringModelCount <> 1 then
+      begin
+        lResult.Status := 'unsupported';
+        lResult.Name := lSelectorText;
+        lResult.ReasonCode := 'SELECTOR_TYPE_NOT_RESOLVED';
+        lResult.Reason := 'The bound selector declaring type could not be identified.';
+      end;
+    end;
+  end else
     lResult := ResolveNameThroughWithBindingAuthority(aModel, lContext, lSelectorText);
   if PointerCastName(lSelectorText, lCastName) and
     (not TryResolveReceiverMember(aModel, aProjectModels, aPreviousSelectors,
     aCurrentTypeName, ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+    aRoutineName, aLine, aColumn,
     aPreviousSelectors), lCastName, aProjectMemberIndex, aMemberCache, lCastResult)) and
     (not TryResolveReceiverMember(aModel, aProjectModels, aParentSelectors,
     aCurrentTypeName, ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+    aRoutineName, aLine, aColumn,
     aParentSelectors), lCastName, aProjectMemberIndex, aMemberCache, lCastResult)) and
     ((aCurrentTypeName = '') or
     (not aProjectMemberIndex.TryResolveDirectMember(aModel.UnitName, aCurrentTypeName,
@@ -2223,7 +2331,8 @@ begin
     (Pos('^', aSelector.SelectorText) = 0);
 end;
 
-function ReceiverMemberCachePrefix(const aUnitName, aCurrentTypeName: string;
+function ReceiverMemberCachePrefix(const aUnitName, aCurrentTypeName,
+  aRoutineName: string; const aLine, aColumn: Integer;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>): string;
 var
   lBuilder: TStringBuilder;
@@ -2231,9 +2340,12 @@ var
 begin
   lBuilder := TStringBuilder.Create;
   try
-    lBuilder.Append(aUnitName).Append(#31).Append(aCurrentTypeName).Append(#31);
+    lBuilder.Append(aUnitName).Append(#31).Append(aCurrentTypeName).Append(#31)
+      .Append(aRoutineName).Append(#31).Append(aLine).Append(#31)
+      .Append(aColumn).Append(#31);
     for lSelector in aSelectors do
-      lBuilder.Append(lSelector.Status).Append(#30).Append(lSelector.TypeName).Append(#30).
+      lBuilder.Append(lSelector.SelectorText).Append(#30).Append(lSelector.Status).
+        Append(#30).Append(lSelector.TypeName).Append(#30).
         Append(Ord(SelectorAllowsReceiverMemberLookup(lSelector))).Append(#29);
     lBuilder.Append(#31);
     Result := lBuilder.ToString;
@@ -2252,16 +2364,32 @@ function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aCurrentTypeName, aMemberCachePrefix, aName: string;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
   out aResult: TDelphiSemanticResolveResult): Boolean;
+var
+  lBound: TBoundMemberResolution;
+begin
+  Result := TryResolveReceiverMember(aModel, aProjectModels, aSelectors,
+    aCurrentTypeName, aMemberCachePrefix, aName, aProjectMemberIndex,
+    aMemberCache, lBound);
+  aResult := lBound.Value;
+end;
+
+function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
+  const aProjectModels: TArray<TDelphiSemanticUnitModel>;
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aCurrentTypeName, aMemberCachePrefix, aName: string;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  out aResult: TBoundMemberResolution): Boolean;
 var
   i: Integer;
   lKey: string;
 begin
   lKey := ReceiverMemberCacheKey(aMemberCachePrefix, aName);
   if Assigned(aMemberCache) and aMemberCache.TryGetValue(lKey, aResult) then
-    Exit(aResult.Found or SameText(aResult.Status, 'ambiguous') or
-      SameText(aResult.Status, 'unsupported'));
+    Exit(aResult.Value.Found or SameText(aResult.Value.Status, 'ambiguous') or
+      SameText(aResult.Value.Status, 'unsupported'));
 
   for i := High(aSelectors) downto 0 do
     if SameText(aSelectors[i].Status, 'resolved') then
@@ -2276,7 +2404,7 @@ begin
       end;
     end;
 
-  aResult := Default(TDelphiSemanticResolveResult);
+  aResult := Default(TBoundMemberResolution);
   if Assigned(aMemberCache) then
     aMemberCache.AddOrSetValue(lKey, aResult);
   Result := False;
@@ -2421,7 +2549,7 @@ function BindReference(const aModel: TDelphiSemanticUnitModel;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
   var aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
   aReferenceCacheMisses: Int64):
   TDelphiSemanticBoundReference;
@@ -2605,9 +2733,9 @@ function BindSelectors(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName,
   aCurrentTypeName, aSelectorText: string; const aParentRoutineNames: TArray<string>;
   const aParentSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
-  const aLine: Integer;
+  const aLine, aColumn: Integer;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
+  const aMemberCache: TDictionary<string, TBoundMemberResolution>):
   TArray<TDelphiSemanticWithSelectorBinding>;
 var
   lPart: string;
@@ -2620,7 +2748,8 @@ begin
   try
     for lPart in lParts do
       lSelectors.Add(MakeSelectorBinding(aModel, aProjectModels, aRoutineName,
-        aCurrentTypeName, lPart, aParentRoutineNames, lSelectors.ToArray, aParentSelectors, aLine, aProjectMemberIndex,
+        aCurrentTypeName, lPart, aParentRoutineNames, lSelectors.ToArray,
+        aParentSelectors, aLine, aColumn, aProjectMemberIndex,
         aMemberCache));
     Result := lSelectors.ToArray;
   finally
@@ -2780,7 +2909,7 @@ procedure AddIndexReferences(const aReferences: TList<TDelphiSemanticBoundRefere
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
   var aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
   aReferenceCacheMisses: Int64);
 var
@@ -2842,7 +2971,7 @@ procedure AddArgumentReferences(const aReferences: TList<TDelphiSemanticBoundRef
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
   var aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
   aReferenceCacheMisses: Int64);
 var
@@ -2940,7 +3069,7 @@ function BindReferences(const aModel: TDelphiSemanticUnitModel;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
   var aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
   aReferenceCacheMisses: Int64):
   TArray<TDelphiSemanticBoundReference>;
@@ -2963,7 +3092,7 @@ begin
       aCurrentTypeName,
       aParentRoutineNames, aSelectors);
     lMemberCachePrefix := ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
-      aSelectors);
+      aRoutineName, aStatement.Line, aStatement.Column, aSelectors);
     lResolveContext := Default(TDelphiSemanticResolveContext);
     lResolveContext.RoutineName := aRoutineName;
     lResolveContext.CurrentTypeName := aCurrentTypeName;
@@ -3067,7 +3196,7 @@ function BuildSelectorStackCache(const aModel: TDelphiSemanticUnitModel;
   const aStatements: TArray<TDelphiSemanticWithStatement>;
   const aScopeIndex: TDelphiSemanticRoutineScopeIndex;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TDelphiSemanticResolveResult>):
+  const aMemberCache: TDictionary<string, TBoundMemberResolution>):
   TWithSelectorStackArray;
 var
   i: Integer;
@@ -3097,7 +3226,8 @@ begin
       lParentSelectors := Result[lParentIndex];
     lDirectSelectors := BindSelectors(aModel, aProjectModels, lRoutineLookupName,
       lCurrentTypeName, aStatements[i].SelectorText, lParentRoutineNames,
-      lParentSelectors, aStatements[i].Line, aProjectMemberIndex, aMemberCache);
+      lParentSelectors, aStatements[i].Line, aStatements[i].Column,
+      aProjectMemberIndex, aMemberCache);
     if lParentIndex >= 0 then
       Result[i] := MergeSelectorStacks(Result[lParentIndex], lDirectSelectors)
     else
@@ -3383,7 +3513,7 @@ var
   lLookupIndexBuildMs: Int64;
   lLexicalResolveMs: Int64;
   lModel: TDelphiSemanticUnitModel;
-  lMemberCache: TDictionary<string, TDelphiSemanticResolveResult>;
+  lMemberCache: TDictionary<string, TBoundMemberResolution>;
   lParentRoutineNames: TArray<string>;
   lProjectMemberIndex: TWithBindingProjectMemberIndex;
   lReferenceCacheHits: Int64;
@@ -3439,7 +3569,7 @@ begin
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lResolveCache := TDictionary<string, TDelphiSemanticResolveResult>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
-  lMemberCache := TDictionary<string, TDelphiSemanticResolveResult>.Create(
+  lMemberCache := TDictionary<string, TBoundMemberResolution>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lProjectMemberIndex := nil;
   try
