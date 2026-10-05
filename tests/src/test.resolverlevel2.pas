@@ -24,6 +24,12 @@ type
     [Test]
     procedure ResolvesSourceBackedCrossUnitSelectors;
     [Test]
+    procedure FinalSelectorOriginSurvivesHiddenAliasAndRefusesMissingProvenance;
+    [Test]
+    procedure BareImportedOriginKeepsDeclaringUnitWithoutMovingCallerOwners;
+    [Test]
+    procedure BareImportedOriginRequiresVisibleDeclaration;
+    [Test]
     procedure ResolvesIndexedDefaultProperties;
     [Test]
     procedure NestedRoutineScopesSearchParentRoutines;
@@ -353,6 +359,181 @@ begin
   lConsumer.InterfaceUses := nil;
   lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'DF[0]^.Value');
   Assert.IsFalse(lResult.Found, 'A project-indexed variable without an import is invisible.');
+end;
+
+procedure TResolverLevel2Tests.FinalSelectorOriginSurvivesHiddenAliasAndRefusesMissingProvenance;
+var
+  i: Integer;
+  lContext: TDelphiSemanticResolveContext;
+  lFinalModel: TDelphiSemanticUnitModel;
+  lFinalSection: string;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSemanticModelOptions;
+  lOwnerUses: TArray<string>;
+  lResult: TDelphiSemanticResolveResult;
+  lUnitName: string;
+begin
+  SetLength(lModels, 4);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  for i := 0 to 3 do
+  begin
+    case i of
+      0: lUnitName := 'ReceiverSafetyHidden';
+      1: lUnitName := 'ReceiverSafetyAlias';
+      2: lUnitName := 'ReceiverSafetyOwner';
+    else
+      lUnitName := 'ReceiverSafetyCaller';
+    end;
+    lOptions.SourceFileName := FixturePath('WithBinder\ReceiverSafetyIdentity',
+      lUnitName + '.pas');
+    lModels[i] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModels[i].Success, lUnitName + ' source model');
+  end;
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.RoutineName := 'Run';
+  lContext.SectionKind := 'implementation';
+  lContext.ConformanceLevel := 3;
+  lContext.IndexedUnitModels := lModels;
+  lResult := ResolveNameWithFinalTypeOrigin(lModels[3], lContext,
+    'lOuter.Item^', lFinalModel, lFinalSection);
+  Assert.IsTrue(lResult.Found, lResult.ReasonCode);
+  Assert.AreEqual('THiddenEntry', lResult.TypeName);
+  Assert.AreEqual('ReceiverSafetyHidden', lFinalModel.UnitName,
+    'Final type belongs to the hidden declaration, beyond owner and alias units');
+  Assert.AreEqual('interface', lFinalSection);
+
+  lOwnerUses := lModels[2].InterfaceUses;
+  lModels[2].InterfaceUses := nil;
+  lContext.IndexedUnitModels := lModels;
+  lResult := ResolveNameWithFinalTypeOrigin(lModels[3], lContext,
+    'lOuter.Item^', lFinalModel, lFinalSection);
+  Assert.IsFalse(lResult.Found, 'Missing alias import must refuse the selector');
+  Assert.AreEqual('', lFinalModel.UnitName,
+    'Failed selector cannot carry a stale final identity');
+  lModels[2].InterfaceUses := lOwnerUses;
+end;
+
+procedure TResolverLevel2Tests.BareImportedOriginKeepsDeclaringUnitWithoutMovingCallerOwners;
+var
+  i: Integer;
+  lContext: TDelphiSemanticResolveContext;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFinalModel: TDelphiSemanticUnitModel;
+  lFinalSection: string;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSemanticModelOptions;
+  lResult: TDelphiSemanticResolveResult;
+  lUnitName: string;
+begin
+  SetLength(lModels, 3);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  for i := 0 to 2 do
+  begin
+    case i of
+      0: lUnitName := 'ReceiverSafetyHidden';
+      1: lUnitName := 'ReceiverSafetyBareOwner';
+    else
+      lUnitName := 'ReceiverSafetyBareCaller';
+    end;
+    lOptions.SourceFileName := FixturePath('WithBinder\ReceiverSafetyIdentity',
+      lUnitName + '.pas');
+    lModels[i] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModels[i].Success, lUnitName + ' source model');
+  end;
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.SectionKind := 'implementation';
+  lContext.ConformanceLevel := 3;
+  lContext.IndexedUnitModels := lModels;
+  lContext.RoutineName := 'RunBare';
+  lResult := ResolveNameWithFinalTypeOrigin(lModels[2], lContext, 'G',
+    lFinalModel, lFinalSection);
+  Assert.IsTrue(lResult.Found, 'Imported G must resolve');
+  Assert.AreEqual('ReceiverSafetyBareOwner', lResult.OwnerName);
+  Assert.AreEqual('ReceiverSafetyBareOwner', lFinalModel.UnitName,
+    'Bare imported variable type belongs to its declaring unit context');
+  Assert.AreEqual('interface', lFinalSection);
+
+  lContext.RoutineName := 'RunLocal';
+  lResult := ResolveNameWithFinalTypeOrigin(lModels[2], lContext, 'lLocal',
+    lFinalModel, lFinalSection);
+  Assert.IsTrue(lResult.Found, 'Caller local must resolve');
+  Assert.AreEqual('ReceiverSafetyBareCaller', lFinalModel.UnitName);
+  lContext.RoutineName := 'RunParameter';
+  lResult := ResolveNameWithFinalTypeOrigin(lModels[2], lContext, 'aValue',
+    lFinalModel, lFinalSection);
+  Assert.IsTrue(lResult.Found, 'Caller parameter must resolve');
+  Assert.AreEqual('ReceiverSafetyBareCaller', lFinalModel.UnitName);
+  lContext.RoutineName := 'TContainer.RunMember';
+  lContext.CurrentTypeName := 'TContainer';
+  lResult := ResolveNameWithFinalTypeOrigin(lModels[2], lContext, 'FValue',
+    lFinalModel, lFinalSection);
+  Assert.IsTrue(lResult.Found, 'Caller class member must resolve');
+  Assert.AreEqual('ReceiverSafetyBareCaller', lFinalModel.UnitName);
+
+  lContext.RoutineName := 'RunBare';
+  lContext.CurrentTypeName := '';
+  for lDeclaration in lModels[1].Declarations do
+    if SameText(lDeclaration.Name, 'G') then
+    begin
+      SetLength(lModels[1].Declarations, Length(lModels[1].Declarations) + 1);
+      lModels[1].Declarations[High(lModels[1].Declarations)] := lDeclaration;
+      Break;
+    end;
+  lContext.IndexedUnitModels := lModels;
+  lResult := ResolveNameWithFinalTypeOrigin(lModels[2], lContext, 'G',
+    lFinalModel, lFinalSection);
+  Assert.IsFalse(lResult.Found, 'Ambiguous imported G must refuse');
+  Assert.AreEqual('', lFinalModel.UnitName,
+    'Ambiguous result cannot retain a source origin');
+end;
+
+procedure TResolverLevel2Tests.BareImportedOriginRequiresVisibleDeclaration;
+var
+  i: Integer;
+  lContext: TDelphiSemanticResolveContext;
+  lFinalModel: TDelphiSemanticUnitModel;
+  lFinalSection: string;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSemanticModelOptions;
+  lResult: TDelphiSemanticResolveResult;
+  lUnitName: string;
+begin
+  SetLength(lModels, 3);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  for i := 0 to 2 do
+  begin
+    case i of
+      0: lUnitName := 'ReceiverSafetyHidden';
+      1: lUnitName := 'ReceiverSafetyBareOwner';
+    else
+      lUnitName := 'ReceiverSafetyBareCaller';
+    end;
+    lOptions.SourceFileName := FixturePath('WithBinder\ReceiverSafetyIdentity',
+      lUnitName + '.pas');
+    lModels[i] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModels[i].Success, lUnitName + ' source model');
+  end;
+  lModels[2].InterfaceUses := nil;
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.SectionKind := 'implementation';
+  lContext.ConformanceLevel := 3;
+  lContext.IndexedUnitModels := lModels;
+  lContext.RoutineName := 'RunBare';
+
+  lResult := TDelphiSemanticResolver.ResolveName(lModels[2], lContext, 'G');
+  Assert.IsTrue(lResult.Found,
+    'Public ResolveName retains its indexed lookup behavior');
+  lResult := ResolveNameWithFinalTypeOrigin(lModels[2], lContext, 'G',
+    lFinalModel, lFinalSection);
+  Assert.IsFalse(lResult.Found,
+    'Companion must refuse indexed G without a visible declaring unit');
+  Assert.AreEqual('unresolved', lResult.Status);
+  Assert.AreEqual('SELECTOR_TYPE_NOT_RESOLVED', lResult.ReasonCode);
+  Assert.AreEqual('', lFinalModel.UnitName);
+  Assert.AreEqual('', lFinalSection);
 end;
 
 procedure TResolverLevel2Tests.ResolvesIndexedDefaultProperties;

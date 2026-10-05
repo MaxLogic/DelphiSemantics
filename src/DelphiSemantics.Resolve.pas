@@ -48,6 +48,17 @@ type
       const aBaseDeclaringSectionKind: string): TDelphiSemanticResolveResult; static;
   end;
 
+function ResolveNameWithFinalTypeOrigin(const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext; const aName: string;
+  out aFinalModel: TDelphiSemanticUnitModel; out aFinalSectionKind: string):
+  TDelphiSemanticResolveResult;
+function ResolveBoundSelectorWithFinalTypeOrigin(const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext; const aSelector: string;
+  const aBaseResult: TDelphiSemanticResolveResult;
+  const aBaseDeclaringModel: TDelphiSemanticUnitModel;
+  const aBaseDeclaringSectionKind: string; out aFinalModel: TDelphiSemanticUnitModel;
+  out aFinalSectionKind: string): TDelphiSemanticResolveResult;
+
 implementation
 
 uses
@@ -503,7 +514,8 @@ procedure ContinueLevel2Selector(const aModel: TDelphiSemanticUnitModel;
   const aParts: TArray<string>; const aFirstIndexed, aFirstDereferenced,
   aFirstIndexBeforeDereference: Boolean; var aResult: TDelphiSemanticResolveResult;
   const aBaseDeclaringModel: TDelphiSemanticUnitModel;
-  const aBaseDeclaringSectionKind: string);
+  const aBaseDeclaringSectionKind: string; out aFinalModel: TDelphiSemanticUnitModel;
+  out aFinalSectionKind: string);
 var
   i: Integer;
   lCurrentTypeName: string;
@@ -518,6 +530,8 @@ var
   lResolvedTypeName: string;
   lIndexedModel: TDelphiSemanticUnitModel;
 begin
+  aFinalModel := Default(TDelphiSemanticUnitModel);
+  aFinalSectionKind := '';
   lLookupContext := aContext;
   lLookupContext.IndexedUnitModels := VisibleSelectorModels(aModel, aContext);
   if not aResult.Found then
@@ -592,12 +606,14 @@ begin
     lCurrentTypeName := lResolvedTypeName;
     aResult.TypeName := lCurrentTypeName;
   end;
-
+  aFinalModel := lCurrentModel;
+  aFinalSectionKind := lCurrentSection;
 end;
 
 function TryResolveLevel2Selector(const aModel: TDelphiSemanticUnitModel;
   const aContext: TDelphiSemanticResolveContext; const aSelector: string;
-  out aResult: TDelphiSemanticResolveResult): Boolean;
+  out aResult: TDelphiSemanticResolveResult; out aFinalModel: TDelphiSemanticUnitModel;
+  out aFinalSectionKind: string): Boolean;
 var
   lDereferenced: Boolean;
   lIndexBeforeDereference: Boolean;
@@ -607,6 +623,8 @@ var
   lParts: TArray<string>;
 begin
   aResult := Default(TDelphiSemanticResolveResult);
+  aFinalModel := Default(TDelphiSemanticUnitModel);
+  aFinalSectionKind := '';
   if (EffectiveConformanceLevel(aContext) < 2) or
     ((Pos('.', aSelector) = 0) and (Pos('[', aSelector) = 0) and (Pos('^', aSelector) = 0)) then
     Exit(False);
@@ -620,16 +638,79 @@ begin
   aResult := TDelphiSemanticResolver.ResolveName(aModel, lLookupContext, lMemberName);
   ContinueLevel2Selector(aModel, aContext, aSelector, lParts, lIndexed,
     lDereferenced, lIndexBeforeDereference, aResult,
-    Default(TDelphiSemanticUnitModel), '');
+    Default(TDelphiSemanticUnitModel), '', aFinalModel, aFinalSectionKind);
   Result := True;
 end;
 
-class function TDelphiSemanticResolver.ResolveSelectorFromBoundBase(
+function TryProveIndexedDeclarationOrigin(const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext;
+  const aResult: TDelphiSemanticResolveResult;
+  out aFinalModel: TDelphiSemanticUnitModel): Boolean;
+var
+  lCount: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lIndexedModel: TDelphiSemanticUnitModel;
+  lVisibleModels: TArray<TDelphiSemanticUnitModel>;
+begin
+  Result := False;
+  aFinalModel := Default(TDelphiSemanticUnitModel);
+  lCount := 0;
+  lVisibleModels := VisibleSelectorModels(aModel, aContext);
+  for lIndexedModel in lVisibleModels do
+    if SameText(lIndexedModel.UnitName, aResult.OwnerName) then
+      for lDeclaration in lIndexedModel.Declarations do
+        if SameText(lDeclaration.Name, aResult.Name) and
+          SameText(lDeclaration.Kind, aResult.Kind) and
+          SameText(lDeclaration.TypeName, aResult.TypeName) and
+          SameText(lDeclaration.SectionKind, aResult.SectionKind) and
+          ((lDeclaration.ScopeKind = '') or SameText(lDeclaration.ScopeKind, 'unit')) and
+          (lDeclaration.Line = aResult.Line) and
+          (lDeclaration.Column = aResult.Column) then
+        begin
+          Inc(lCount);
+          aFinalModel := lIndexedModel;
+        end;
+  if lCount <> 1 then
+    aFinalModel := Default(TDelphiSemanticUnitModel)
+  else
+    Result := True;
+end;
+
+function ResolveNameWithFinalTypeOrigin(const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext; const aName: string;
+  out aFinalModel: TDelphiSemanticUnitModel; out aFinalSectionKind: string):
+  TDelphiSemanticResolveResult;
+begin
+  if TryResolveLevel2Selector(aModel, aContext, aName, Result, aFinalModel,
+    aFinalSectionKind) then
+    Exit;
+  Result := TDelphiSemanticResolver.ResolveName(aModel, aContext, aName);
+  if Result.Found then
+  begin
+    if (Result.OwnerName <> '') and SameText(Result.SectionKind, 'interface') and
+      (not MatchText(Result.Kind, ['local', 'parameter'])) then
+    begin
+      if TryProveIndexedDeclarationOrigin(aModel, aContext, Result, aFinalModel) then
+        aFinalSectionKind := Result.SectionKind
+      else
+        Result := UnresolvedResult(aName, 'SELECTOR_TYPE_NOT_RESOLVED',
+          'The selector declaring unit could not be identified.');
+      Exit;
+    end;
+    if SameText(Result.SectionKind, 'intrinsic') then
+      Exit;
+    aFinalModel := aModel;
+    aFinalSectionKind := aContext.SectionKind;
+  end;
+end;
+
+function ResolveBoundSelectorWithFinalTypeOrigin(
   const aModel: TDelphiSemanticUnitModel;
   const aContext: TDelphiSemanticResolveContext; const aSelector: string;
   const aBaseResult: TDelphiSemanticResolveResult;
   const aBaseDeclaringModel: TDelphiSemanticUnitModel;
-  const aBaseDeclaringSectionKind: string): TDelphiSemanticResolveResult;
+  const aBaseDeclaringSectionKind: string; out aFinalModel: TDelphiSemanticUnitModel;
+  out aFinalSectionKind: string): TDelphiSemanticResolveResult;
 var
   lDereferenced: Boolean;
   lIndexBeforeDereference: Boolean;
@@ -637,6 +718,8 @@ var
   lMemberName: string;
   lParts: TArray<string>;
 begin
+  aFinalModel := Default(TDelphiSemanticUnitModel);
+  aFinalSectionKind := '';
   Result := aBaseResult;
   if not Result.Found then
     Exit;
@@ -657,7 +740,22 @@ begin
       'The selector token could not be resolved.'));
   ContinueLevel2Selector(aModel, aContext, aSelector, lParts, lIndexed,
     lDereferenced, lIndexBeforeDereference, Result, aBaseDeclaringModel,
-    aBaseDeclaringSectionKind);
+    aBaseDeclaringSectionKind, aFinalModel, aFinalSectionKind);
+end;
+
+class function TDelphiSemanticResolver.ResolveSelectorFromBoundBase(
+  const aModel: TDelphiSemanticUnitModel;
+  const aContext: TDelphiSemanticResolveContext; const aSelector: string;
+  const aBaseResult: TDelphiSemanticResolveResult;
+  const aBaseDeclaringModel: TDelphiSemanticUnitModel;
+  const aBaseDeclaringSectionKind: string): TDelphiSemanticResolveResult;
+var
+  lFinalModel: TDelphiSemanticUnitModel;
+  lFinalSectionKind: string;
+begin
+  Result := ResolveBoundSelectorWithFinalTypeOrigin(aModel, aContext, aSelector,
+    aBaseResult, aBaseDeclaringModel, aBaseDeclaringSectionKind, lFinalModel,
+    lFinalSectionKind);
 end;
 
 class function TDelphiSemanticResolver.ResolveMember(const aModel: TDelphiSemanticUnitModel;
@@ -735,8 +833,12 @@ end;
 class function TDelphiSemanticResolver.ResolveName(const aModel: TDelphiSemanticUnitModel;
   const aContext: TDelphiSemanticResolveContext; const aName: string):
   TDelphiSemanticResolveResult;
+var
+  lFinalModel: TDelphiSemanticUnitModel;
+  lFinalSectionKind: string;
 begin
-  if TryResolveLevel2Selector(aModel, aContext, aName, Result) then
+  if TryResolveLevel2Selector(aModel, aContext, aName, Result, lFinalModel,
+    lFinalSectionKind) then
     Exit;
 
   if TryUnsupportedSelector(aName, Result) then

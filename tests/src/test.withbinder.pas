@@ -13,6 +13,8 @@ type
   TWithBinderTests = class
   private
     function LoadModel: TDelphiSemanticUnitModel;
+    function LoadBareReceiverSafetyModels: TArray<TDelphiSemanticUnitModel>;
+    function LoadReceiverSafetyModels: TArray<TDelphiSemanticUnitModel>;
     function HasReference(const aBinding: TDelphiSemanticWithBinding; const aName,
       aClassification: string): Boolean;
     function HasAnyReference(const aBinding: TDelphiSemanticWithBinding; const aName: string):
@@ -99,6 +101,14 @@ type
     procedure NestedUnresolvedSelectorRefusesFinalRewrite;
     [Test]
     procedure NestedIndexedSelectorPreservesBoundTypeDeclaringUnit;
+    [Test]
+    procedure HiddenCompleteReceiverIgnoresUnrelatedDiagnostics;
+    [Test]
+    procedure HiddenReceiverExactOwnerDiagnosticsRefuse;
+    [Test]
+    procedure BareImportedReceiverUsesActualOwnerForSafety;
+    [Test]
+    procedure BareImportedReceiverWithoutVisibleOwnerIsRefused;
   end;
 
 implementation
@@ -139,6 +149,55 @@ begin
   lOptions.ProjectContextApplied := True;
   Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(Result.Success);
+end;
+
+function TWithBinderTests.LoadBareReceiverSafetyModels: TArray<TDelphiSemanticUnitModel>;
+var
+  i: Integer;
+  lOptions: TDelphiSemanticModelOptions;
+  lUnitName: string;
+begin
+  SetLength(Result, 3);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  for i := 0 to 2 do
+  begin
+    case i of
+      0: lUnitName := 'ReceiverSafetyHidden';
+      1: lUnitName := 'ReceiverSafetyBareOwner';
+    else
+      lUnitName := 'ReceiverSafetyBareCaller';
+    end;
+    lOptions.SourceFileName := FixturePath('WithBinder\ReceiverSafetyIdentity',
+      lUnitName + '.pas');
+    Result[i] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(Result[i].Success, lUnitName + ' source model');
+  end;
+end;
+
+function TWithBinderTests.LoadReceiverSafetyModels: TArray<TDelphiSemanticUnitModel>;
+var
+  i: Integer;
+  lOptions: TDelphiSemanticModelOptions;
+  lUnitName: string;
+begin
+  SetLength(Result, 4);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  for i := 0 to 3 do
+  begin
+    case i of
+      0: lUnitName := 'ReceiverSafetyHidden';
+      1: lUnitName := 'ReceiverSafetyAlias';
+      2: lUnitName := 'ReceiverSafetyOwner';
+    else
+      lUnitName := 'ReceiverSafetyCaller';
+    end;
+    lOptions.SourceFileName := FixturePath('WithBinder\ReceiverSafetyIdentity',
+      lUnitName + '.pas');
+    Result[i] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(Result[i].Success, lUnitName + ' source model');
+  end;
 end;
 
 function TWithBinderTests.HasReference(const aBinding: TDelphiSemanticWithBinding;
@@ -1581,6 +1640,196 @@ begin
     end;
   Assert.AreEqual(4, lRepeatedCount,
     'Both receiver orders must produce two distinct inner bindings');
+end;
+
+procedure TWithBinderTests.HiddenCompleteReceiverIgnoresUnrelatedDiagnostics;
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lCount: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+begin
+  lModels := LoadReceiverSafetyModels;
+  Assert.AreEqual(1, Integer(Length(lModels[3].InterfaceUses)),
+    'Caller imports only the intermediate owner');
+  Assert.IsTrue(SameText(lModels[3].InterfaceUses[0], 'ReceiverSafetyOwner'),
+    'Caller import must be the intermediate owner');
+  for i := 0 to 3 do
+    for lDeclaration in lModels[i].Declarations do
+      if ((i = 0) and SameText(lDeclaration.Name, 'TUnrelated')) or
+        ((i = 2) and SameText(lDeclaration.Name, 'TOther')) or
+        ((i = 3) and SameText(lDeclaration.Name, 'THiddenEntry')) then
+      begin
+        lDiagnostic := Default(TDelphiSemanticModelDiagnostic);
+        lDiagnostic.Code := 'MEMBERS_INCOMPLETE';
+        lDiagnostic.FileName := lModels[i].FileName;
+        lDiagnostic.Line := lDeclaration.Line;
+        SetLength(lModels[i].Diagnostics, Length(lModels[i].Diagnostics) + 1);
+        lModels[i].Diagnostics[High(lModels[i].Diagnostics)] := lDiagnostic;
+      end;
+  Assert.AreEqual(1, Integer(Length(lModels[0].Diagnostics)),
+    'Hidden unit has one unrelated diagnostic');
+  Assert.AreEqual(1, Integer(Length(lModels[2].Diagnostics)),
+    'Intermediate owner has one unrelated diagnostic');
+  Assert.AreEqual(1, Integer(Length(lModels[3].Diagnostics)),
+    'Caller homonym has one unrelated diagnostic');
+  lFacts := TDelphiSemanticWithBinder.BindProject('', nil, lModels);
+  lCount := 0;
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.UnitName, 'ReceiverSafetyCaller') and
+      SameText(lBinding.SelectorText, 'Item^') then
+    begin
+      Inc(lCount);
+      Assert.AreEqual(2, Integer(Length(lBinding.Selectors)),
+        'Nested selector keeps its parent');
+      Assert.AreEqual('resolved', lBinding.Selectors[1].Status);
+      Assert.AreEqual('THiddenEntry', lBinding.Selectors[1].TypeName);
+      Assert.AreNotEqual('MEMBERS_INCOMPLETE', lBinding.SkipReason,
+        'Complete hidden receiver must ignore unrelated diagnostics');
+      Assert.AreNotEqual('MEMBERS_UNVERIFIED', lBinding.SkipReason,
+        'No hidden owner has unverified members');
+    end;
+  Assert.AreEqual(1, lCount, 'Expected one nested hidden receiver');
+end;
+
+procedure TWithBinderTests.HiddenReceiverExactOwnerDiagnosticsRefuse;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lFound: Boolean;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOwnerLine: Integer;
+  lReason: string;
+begin
+  lModels := LoadReceiverSafetyModels;
+  lOwnerLine := 0;
+  for lDeclaration in lModels[0].Declarations do
+    if SameText(lDeclaration.Name, 'THiddenEntry') and
+      SameText(lDeclaration.Kind, 'type') then
+      lOwnerLine := lDeclaration.Line;
+  Assert.IsTrue(lOwnerLine > 0, 'Hidden receiver declaration must be source backed');
+  for lReason in ['MEMBERS_INCOMPLETE', 'MEMBERS_UNVERIFIED'] do
+  begin
+    lDiagnostic := Default(TDelphiSemanticModelDiagnostic);
+    lDiagnostic.Code := lReason;
+    lDiagnostic.FileName := lModels[0].FileName;
+    if SameText(lReason, 'MEMBERS_INCOMPLETE') then
+      lDiagnostic.Line := lOwnerLine;
+    lModels[0].Diagnostics := [lDiagnostic];
+    lFacts := TDelphiSemanticWithBinder.BindProject('', nil, lModels);
+    lFound := False;
+    for lBinding in lFacts.Bindings do
+      if SameText(lBinding.UnitName, 'ReceiverSafetyCaller') and
+        SameText(lBinding.SelectorText, 'Item^') then
+      begin
+        lFound := True;
+        Assert.AreEqual('resolved', lBinding.Selectors[1].Status);
+        Assert.AreEqual(lReason, lBinding.SkipReason,
+          'Exact hidden owner diagnostic must refuse the binding');
+      end;
+    Assert.IsTrue(lFound, 'Expected one nested hidden receiver');
+  end;
+end;
+
+procedure TWithBinderTests.BareImportedReceiverUsesActualOwnerForSafety;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lFound: Boolean;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOwnerLine: Integer;
+  lReason: string;
+begin
+  lModels := LoadBareReceiverSafetyModels;
+  Assert.AreEqual(1, Integer(Length(lModels[2].InterfaceUses)),
+    'Caller imports only the variable owner');
+  Assert.IsTrue(SameText(lModels[2].InterfaceUses[0], 'ReceiverSafetyBareOwner'));
+  lOwnerLine := 0;
+  for lDeclaration in lModels[0].Declarations do
+    if SameText(lDeclaration.Name, 'THiddenEntry') and
+      SameText(lDeclaration.Kind, 'type') then
+      lOwnerLine := lDeclaration.Line;
+  Assert.IsTrue(lOwnerLine > 0, 'Hidden receiver declaration must be source backed');
+  for lReason in ['MEMBERS_INCOMPLETE', 'MEMBERS_UNVERIFIED'] do
+  begin
+    lDiagnostic := Default(TDelphiSemanticModelDiagnostic);
+    lDiagnostic.Code := lReason;
+    lDiagnostic.FileName := lModels[0].FileName;
+    if SameText(lReason, 'MEMBERS_INCOMPLETE') then
+      lDiagnostic.Line := lOwnerLine;
+    lModels[0].Diagnostics := [lDiagnostic];
+    lFacts := TDelphiSemanticWithBinder.BindProject('', nil, lModels);
+    lFound := False;
+    for lBinding in lFacts.Bindings do
+      if SameText(lBinding.UnitName, 'ReceiverSafetyBareCaller') and
+        SameText(lBinding.SelectorText, 'G') then
+      begin
+        lFound := True;
+        Assert.AreEqual('resolved', lBinding.Selectors[0].Status);
+        Assert.AreEqual('THiddenEntry', lBinding.Selectors[0].TypeName);
+        Assert.AreEqual(lReason, lBinding.SkipReason,
+          'Bare imported receiver must refuse exact hidden owner diagnostic');
+      end;
+    Assert.IsTrue(lFound, 'Expected bare imported G binding');
+  end;
+  lModels[0].Diagnostics := nil;
+  for lDeclaration in lModels[2].Declarations do
+    if SameText(lDeclaration.Name, 'THiddenEntry') and
+      SameText(lDeclaration.Kind, 'type') then
+    begin
+      lDiagnostic := Default(TDelphiSemanticModelDiagnostic);
+      lDiagnostic.Code := 'MEMBERS_INCOMPLETE';
+      lDiagnostic.FileName := lModels[2].FileName;
+      lDiagnostic.Line := lDeclaration.Line;
+      lModels[2].Diagnostics := [lDiagnostic];
+    end;
+  Assert.AreEqual(1, Integer(Length(lModels[2].Diagnostics)),
+    'Caller homonym diagnostic must be source backed');
+  lFacts := TDelphiSemanticWithBinder.BindProject('', nil, lModels);
+  lFound := False;
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.UnitName, 'ReceiverSafetyBareCaller') and
+      SameText(lBinding.SelectorText, 'G') then
+    begin
+      lFound := True;
+      Assert.AreNotEqual('MEMBERS_INCOMPLETE', lBinding.SkipReason,
+        'Caller homonym diagnostic cannot refuse imported G');
+    end;
+  Assert.IsTrue(lFound, 'Expected bare imported G binding');
+end;
+
+procedure TWithBinderTests.BareImportedReceiverWithoutVisibleOwnerIsRefused;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lFound: Boolean;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+begin
+  lModels := LoadBareReceiverSafetyModels;
+  lModels[2].InterfaceUses := nil;
+  Assert.AreEqual(0, Integer(Length(lModels[2].InterfaceUses)));
+  lFacts := TDelphiSemanticWithBinder.BindProject('', nil, lModels);
+  lFound := False;
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.UnitName, 'ReceiverSafetyBareCaller') and
+      SameText(lBinding.SelectorText, 'G') then
+    begin
+      lFound := True;
+      Assert.AreEqual('unresolved', lBinding.Selectors[0].Status,
+        'Indexed G without a visible declaring unit must not bind');
+      Assert.AreEqual('SELECTOR_TYPE_NOT_RESOLVED',
+        lBinding.Selectors[0].ReasonCode);
+      Assert.AreNotEqual('', lBinding.SkipReason,
+        'Missing receiver provenance must refuse the binding without diagnostics');
+    end;
+  Assert.IsTrue(lFound, 'Expected bare imported G binding');
 end;
 
 initialization

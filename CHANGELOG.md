@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Remove-with member-safety checks now follow the proven declaration of imported and nested `with` receivers. Unrelated incomplete-member diagnostics no longer mask complete receiver types; diagnostics on the actual type still refuse edits.
 - Snapshot SQLite caches now open absolute database paths beyond 300 characters, allowing DAK position queries to reuse the persisted snapshot at a deep semantic-unit-cache.sqlite3 path.
 - Semantic-unit SQLite caches now persist at deep project cache paths beyond 300 characters and remain reusable by a fresh cache instance.
 - Remove-with preserves syntax-proven local labels and `goto` targets, including numeric labels and labels sharing a receiver field's name. Missing, duplicate, out-of-scope or unverified labels are refused. Protected occurrences retain their positions through member qualification and cached planning. Bodies containing escaped identifiers are conservatively refused to avoid malformed qualification.
