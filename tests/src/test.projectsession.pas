@@ -104,6 +104,8 @@ type
     [Test]
     procedure ProjectSessionPlanRemoveWithInvalidatesLegacyParentSelectorFacts;
     [Test]
+    procedure ProjectSessionPlanRemoveWithInvalidatesLegacyReceiverSafetyFacts;
+    [Test]
     procedure ProjectSessionSnapshotMetricsExposeCacheUsefulnessTelemetry;
     [Test]
     procedure ProjectSessionReusesUnchangedMultiUnitSnapshotCacheEntries;
@@ -449,6 +451,86 @@ begin
         IntToStr(lMissingTypeId) + ' where cache_key = ' +
         QuotedStr(aLegacyIdentity.CacheKey) + ' and binding_index = ' +
         IntToStr(lRunNestedBindingIndex) + ' and selector_index = 1');
+      lConnection.Commit;
+    except
+      if lConnection.InTransaction then
+        lConnection.Rollback;
+      raise;
+    end;
+  finally
+    lQuery.Free;
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+end;
+
+procedure SeedLegacyReceiverSafetyFacts(const aCacheFileName: string;
+  const aCurrentIdentity, aLegacyIdentity: TDelphiSemanticSnapshotCacheIdentity);
+const
+  cProjectFactTables: array[0..8] of string = (
+    'snapshot_exact_strings', 'snapshot_remove_with_facts',
+    'snapshot_remove_with_visibility', 'snapshot_remove_with_visible_units',
+    'snapshot_remove_with_routine_owners', 'snapshot_remove_with_symbols',
+    'snapshot_remove_with_bindings', 'snapshot_remove_with_binding_selectors',
+    'snapshot_remove_with_binding_references');
+var
+  lBindingIndex: Integer;
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+  lQuery: TFDQuery;
+  lReasonId: Integer;
+  lTableName: string;
+begin
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  lQuery := TFDQuery.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := aCacheFileName;
+    lConnection.Connected := True;
+    lQuery.Connection := lConnection;
+    lQuery.SQL.Text := 'select b.binding_index from snapshot_remove_with_bindings b ' +
+      'join snapshot_exact_strings r on r.cache_key = b.cache_key and ' +
+      'r.string_id = b.routine_name_id join snapshot_exact_strings s on ' +
+      's.cache_key = b.cache_key and s.string_id = b.selector_text_id ' +
+      'where b.cache_key = :cache_key and r.text_value = :routine and ' +
+      's.text_value = :selector';
+    lQuery.ParamByName('cache_key').AsWideString := aCurrentIdentity.CacheKey;
+    lQuery.ParamByName('routine').AsWideString := 'Run';
+    lQuery.ParamByName('selector').AsWideString := 'Item^';
+    lQuery.Open;
+    Assert.IsFalse(lQuery.Eof, 'Expected the nested hidden receiver binding.');
+    lBindingIndex := lQuery.FieldByName('binding_index').AsInteger;
+    lQuery.Next;
+    Assert.IsTrue(lQuery.Eof, 'Expected exactly one hidden receiver binding.');
+    lQuery.Close;
+
+    lQuery.SQL.Text := 'select coalesce(max(string_id), 0) + 1 as next_id ' +
+      'from snapshot_exact_strings where cache_key = :cache_key';
+    lQuery.ParamByName('cache_key').AsWideString := aCurrentIdentity.CacheKey;
+    lQuery.Open;
+    lReasonId := lQuery.FieldByName('next_id').AsInteger;
+    lQuery.Close;
+
+    lConnection.StartTransaction;
+    try
+      for lTableName in cProjectFactTables do
+        lConnection.ExecSQL('update ' + lTableName + ' set cache_key = ' +
+          QuotedStr(aLegacyIdentity.CacheKey) + ' where cache_key = ' +
+          QuotedStr(aCurrentIdentity.CacheKey));
+      lConnection.ExecSQL('update snapshot_project_remove_with_facts set ' +
+        'cache_key = ' + QuotedStr(aLegacyIdentity.CacheKey) +
+        ', schema_version = ' + QuotedStr(aLegacyIdentity.SchemaVersion) +
+        ' where cache_key = ' + QuotedStr(aCurrentIdentity.CacheKey));
+      lConnection.ExecSQL('insert into snapshot_exact_strings ' +
+        '(cache_key, string_id, text_value) values (' +
+        QuotedStr(aLegacyIdentity.CacheKey) + ', ' + IntToStr(lReasonId) +
+        ', ''MEMBERS_INCOMPLETE'')');
+      lConnection.ExecSQL('update snapshot_remove_with_bindings set ' +
+        'skip_reason_id = ' + IntToStr(lReasonId) + ' where cache_key = ' +
+        QuotedStr(aLegacyIdentity.CacheKey) + ' and binding_index = ' +
+        IntToStr(lBindingIndex));
       lConnection.Commit;
     except
       if lConnection.InTransaction then
@@ -2583,6 +2665,170 @@ begin
     Assert.AreEqual(lFixtureHashes[i], THashSHA2.GetHashStringFromFile(
       FixturePath('WithBinder', cFixtureFiles[i])),
       'The analyzed application input must remain byte-identical: ' + cFixtureFiles[i]);
+end;
+
+procedure TProjectSessionTests.ProjectSessionPlanRemoveWithInvalidatesLegacyReceiverSafetyFacts;
+const
+  cLegacySchemaVersion = 'project-session-remove-with-facts-v23';
+  cFixtureFiles: array[0..3] of string = (
+    'ReceiverSafetyHidden.pas', 'ReceiverSafetyAlias.pas',
+    'ReceiverSafetyOwner.pas', 'ReceiverSafetyCaller.pas');
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lCachePath: string;
+  lColdFacts: TDelphiSemanticProjectWithBindingFacts;
+  lColdPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lCurrentIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lFixtureHashes: TArray<string>;
+  lLegacyIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLegacyPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lOptions: TDelphiSemanticOptions;
+  lProjectHash: string;
+  lRebuiltPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lSerializer: TJsonSerializer;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lTargetCount: Integer;
+  lWarmPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+begin
+  lRootPath := ProjectSessionTempPath('legacy-receiver-safety-facts');
+  TDirectory.CreateDirectory(lRootPath);
+  SetLength(lFixtureHashes, Length(cFixtureFiles));
+  for i := 0 to High(cFixtureFiles) do
+  begin
+    lFixtureHashes[i] := THashSHA2.GetHashStringFromFile(
+      FixturePath('WithBinder\ReceiverSafetyIdentity', cFixtureFiles[i]));
+    TFile.Copy(FixturePath('WithBinder\ReceiverSafetyIdentity', cFixtureFiles[i]),
+      TPath.Combine(lRootPath, cFixtureFiles[i]), True);
+  end;
+  WriteTextFile(TPath.Combine(lRootPath, 'ReceiverSafetyFacts.dpr'),
+    'program ReceiverSafetyFacts;' + sLineBreak +
+    'uses ReceiverSafetyCaller;' + sLineBreak + 'begin end.');
+  WriteTextFile(TPath.Combine(lRootPath, 'ReceiverSafetyFacts.dproj'),
+    '<Project><PropertyGroup><MainSource>ReceiverSafetyFacts.dpr</MainSource>' +
+    '</PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="ReceiverSafetyHidden.pas"/>' +
+    '<DCCReference Include="ReceiverSafetyAlias.pas"/>' +
+    '<DCCReference Include="ReceiverSafetyOwner.pas"/>' +
+    '<DCCReference Include="ReceiverSafetyCaller.pas"/>' +
+    '</ItemGroup></Project>');
+  lCachePath := TPath.Combine(lRootPath, 'semantic-cache.sqlite3');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'ReceiverSafetyFacts.dproj');
+  lOptions.SqliteCacheFileName := lCachePath;
+  lOptions.SkipWithBindingSemanticGraph := True;
+  lProjectHash := THashSHA2.GetHashStringFromFile(lOptions.ProjectPath);
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lColdPlan := lResult.Session.PlanRemoveWithResult;
+    lColdFacts := lResult.Session.BuildWithBindingFacts;
+  finally
+    lResult.Session.Free;
+  end;
+  Assert.AreEqual(1, lColdPlan.SnapshotMetrics.SnapshotCacheProbes);
+  Assert.AreEqual(1, lColdPlan.SnapshotMetrics.SnapshotCacheMisses);
+  lTargetCount := 0;
+  for lBinding in lColdFacts.Bindings do
+    if SameText(ExtractFileName(lBinding.FileName), cFixtureFiles[3]) and
+      SameText(lBinding.RoutineName, 'Run') and
+      SameText(lBinding.SelectorText, 'Item^') then
+    begin
+      Inc(lTargetCount);
+      Assert.AreEqual(22, lBinding.Line);
+      Assert.AreEqual(5, lBinding.Column);
+      Assert.AreEqual(2, Integer(Length(lBinding.Selectors)));
+      Assert.AreEqual('resolved', lBinding.Selectors[1].Status);
+      Assert.AreEqual('THiddenEntry', lBinding.Selectors[1].TypeName);
+      Assert.AreNotEqual('MEMBERS_INCOMPLETE', lBinding.SkipReason);
+    end;
+  Assert.AreEqual(1, lTargetCount, 'Expected the cold hidden receiver fact.');
+  lCurrentIdentity := ReadProjectRemoveWithFactsIdentity(lCachePath);
+  lLegacyIdentity := RekeyProjectRemoveWithFactsIdentityForTest(lCurrentIdentity,
+    cLegacySchemaVersion);
+  if lCurrentIdentity.SchemaVersion <> cLegacySchemaVersion then
+    Assert.AreNotEqual(lCurrentIdentity.CacheKey, lLegacyIdentity.CacheKey);
+  Assert.AreEqual(lCurrentIdentity.IdentityKey, lLegacyIdentity.IdentityKey);
+  Assert.AreEqual(lCurrentIdentity.FileHash, lLegacyIdentity.FileHash);
+  Assert.AreEqual(lCurrentIdentity.ContextHash, lLegacyIdentity.ContextHash);
+  Assert.AreEqual(lCurrentIdentity.IncludeGraphHash, lLegacyIdentity.IncludeGraphHash);
+  SeedLegacyReceiverSafetyFacts(lCachePath, lCurrentIdentity, lLegacyIdentity);
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lLegacyPlan := lResult.Session.PlanRemoveWithResult;
+  finally
+    lResult.Session.Free;
+  end;
+  if lLegacyPlan.SnapshotMetrics.SnapshotCacheHits = 1 then
+  begin
+    lTargetCount := 0;
+    for lStatement in lLegacyPlan.Plan.FinalStatements do
+      if SameText(ExtractFileName(lStatement.FileName), cFixtureFiles[3]) and
+        SameText(lStatement.RoutineName, 'Run') and
+        (lStatement.Range.StartLine = 22) then
+      begin
+        Inc(lTargetCount);
+        Assert.AreEqual('skipped', lStatement.Status);
+        Assert.AreEqual('members-incomplete', lStatement.Reason);
+        Assert.AreEqual('MEMBERS_INCOMPLETE', lStatement.SafetyReason,
+          'A matching controlled v23 row must expose the stale refusal.');
+        Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+      end;
+    Assert.AreEqual(1, lTargetCount, 'Expected one nested hidden receiver.');
+  end;
+  Assert.AreEqual(0, lLegacyPlan.SnapshotMetrics.SnapshotCacheHits,
+    'Corrected receiver safety must not consume a controlled stale v23 row.');
+  Assert.AreEqual(1, lLegacyPlan.SnapshotMetrics.SnapshotCacheMisses);
+  lRebuiltPlan := lLegacyPlan;
+  lTargetCount := 0;
+  for lStatement in lRebuiltPlan.Plan.FinalStatements do
+    if SameText(ExtractFileName(lStatement.FileName), cFixtureFiles[3]) and
+      SameText(lStatement.RoutineName, 'Run') and
+      (lStatement.Range.StartLine = 22) then
+    begin
+      Inc(lTargetCount);
+      Assert.AreNotEqual('MEMBERS_INCOMPLETE', lStatement.SafetyReason,
+        'A rebuilt complete hidden receiver must lose the stale refusal.');
+    end;
+  Assert.AreEqual(1, lTargetCount, 'Expected one rebuilt hidden receiver.');
+
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lWarmPlan := lResult.Session.PlanRemoveWithResult;
+  finally
+    lResult.Session.Free;
+  end;
+  Assert.AreEqual(1, lWarmPlan.SnapshotMetrics.SnapshotCacheProbes);
+  Assert.AreEqual(1, lWarmPlan.SnapshotMetrics.SnapshotCacheHits);
+  Assert.AreEqual(0, lWarmPlan.SnapshotMetrics.SnapshotCacheMisses);
+  lSerializer := TJsonSerializer.Create;
+  try
+    Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lColdPlan.Plan),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lRebuiltPlan.Plan),
+      'Cold and rebuilt plans must agree for the current producer.');
+    Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lRebuiltPlan.Plan),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lWarmPlan.Plan),
+      'New warm facts must preserve the rebuilt plan exactly.');
+  finally
+    lSerializer.Free;
+  end;
+  for i := 0 to High(cFixtureFiles) do
+  begin
+    Assert.AreEqual(lFixtureHashes[i], THashSHA2.GetHashStringFromFile(
+      FixturePath('WithBinder\ReceiverSafetyIdentity', cFixtureFiles[i])),
+      'The original receiver fixture must remain byte-identical.');
+    Assert.AreEqual(lFixtureHashes[i], THashSHA2.GetHashStringFromFile(
+      TPath.Combine(lRootPath, cFixtureFiles[i])),
+      'The test-local receiver input must remain byte-identical.');
+  end;
+  Assert.AreEqual(lProjectHash, THashSHA2.GetHashStringFromFile(lOptions.ProjectPath),
+    'The test-local project input must remain byte-identical.');
 end;
 
 procedure TProjectSessionTests.ProjectSessionAssociatesNestedWithReferencesWithInnermostSnapshotFact;

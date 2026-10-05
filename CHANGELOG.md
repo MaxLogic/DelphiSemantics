@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Persisted project remove-with facts now refresh after corrected receiver-safety lineage, so older cached member-safety refusals cannot mask the current receiver classification.
 - Remove-with member-safety checks now follow the proven declaration of imported and nested `with` receivers. Unrelated incomplete-member diagnostics no longer mask complete receiver types; diagnostics on the actual type still refuse edits.
 - Snapshot SQLite caches now open absolute database paths beyond 300 characters, allowing DAK position queries to reuse the persisted snapshot at a deep semantic-unit-cache.sqlite3 path.
 - Semantic-unit SQLite caches now persist at deep project cache paths beyond 300 characters and remain reusable by a fresh cache instance.
