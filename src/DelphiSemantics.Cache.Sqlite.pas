@@ -63,15 +63,21 @@ const
     'DELPHI_SEMANTICS_TEST_UNIT_CACHE_BUSY_TIMEOUT_MS';
 
 function PhysicalUnitCachePath(const aPath: string): string;
+var
+  lFullPath: string;
 begin
   Result := aPath;
-  if (Length(Result) < MAX_PATH) or TPath.IsExtendedPrefixed(Result) then
+  if (Result = '') or (Result = ':memory:') or
+    SameText(Copy(Result, 1, 5), 'file:') or TPath.IsExtendedPrefixed(Result) then
     Exit;
-  Result := TPath.GetFullPath(Result);
-  if Result.StartsWith('\\') then
-    Result := '\\?\UNC\' + Copy(Result, 3, MaxInt)
+  lFullPath := TPath.GetFullPath(Result);
+  // SQLite adds -wal, -shm, or -journal to the database path after opening it.
+  if Length(lFullPath) + Length('-journal') < MAX_PATH then
+    Exit;
+  if lFullPath.StartsWith('\\') then
+    Result := '\\?\UNC\' + Copy(lFullPath, 3, MaxInt)
   else
-    Result := '\\?\' + Result;
+    Result := '\\?\' + lFullPath;
 end;
 
 function UnitCacheSqliteBusyTimeoutMs: UInt64;

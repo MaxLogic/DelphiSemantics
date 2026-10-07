@@ -42,6 +42,9 @@ type
     procedure VerifyConcurrencyUnitHit(const aCacheFileName, aSourceFileName,
       aExpectedTypeName: string);
     procedure WriteIncompatibleSchema(const aFileName: string);
+    function BoundaryDirectory(const aTargetLength: Integer): string;
+    function RecordBoundaryObservation(const aPhase, aRawFileName,
+      aResolvedFileName: string; const aCache: TDelphiSemanticSqliteUnitCache): string;
     function TempPath(const aName: string): string;
     function WriteUnitFile(const aName, aTypeName: string): string;
   public
@@ -49,6 +52,15 @@ type
     procedure NonEmptySqliteFileNameCreatesPersistentCacheFile;
     [Test]
     procedure DeepSqliteFileNamePersistsAndReusesAcrossInstances;
+
+    [Test]
+    procedure RelativeSqliteFileNamePersistsBeyondMaxPath;
+
+    [Test]
+    procedure NearMaxPathSqliteFileNamePersistsWithSidecars;
+
+    [Test]
+    procedure SqliteMemoryNameStaysSpecialUnderDeepCurrentDirectory;
     [Test]
     procedure DeepSqliteIncompatibleSchemaRebuildsPhysicalFile;
     [Test]
@@ -247,6 +259,87 @@ begin
   end;
 end;
 
+function TCacheSqliteTests.BoundaryDirectory(const aTargetLength: Integer): string;
+var
+  i: Integer;
+  lBase: string;
+  lCandidate: string;
+  lGuid: TGUID;
+  lPadding: Integer;
+  lParent: string;
+  lProbe: string;
+begin
+  CreateGUID(lGuid);
+  lCandidate := GetCurrentDir;
+  lBase := '';
+  while lCandidate <> '' do
+  begin
+    for i := 0 to 1 do
+    begin
+      lProbe := lCandidate;
+      if i = 1 then
+        lProbe := CombinePath([lCandidate, 'DelphiSemantics']);
+      if TFile.Exists(CombinePath([lProbe, 'tests', 'delphiSemanticsSqliteTests.dproj'])) and
+        TFile.Exists(CombinePath([lProbe, 'src', 'DelphiSemantics.Cache.Sqlite.pas'])) then
+      begin
+        lBase := CombinePath([lProbe, 'tests', '.dak', 'delphiSemanticsSqliteTests',
+          'ds673-boundaries-r1']);
+        Break;
+      end;
+    end;
+    if lBase <> '' then
+      Break;
+    lParent := TPath.GetDirectoryName(lCandidate);
+    if SameText(lParent, lCandidate) then
+      Break;
+    lCandidate := lParent;
+  end;
+  if lBase = '' then
+    raise Exception.Create('DS-673 boundary tests could not locate DelphiSemantics.');
+  lBase := TPath.GetFullPath(CombinePath([lBase,
+    'run-' + GetCurrentProcessId.ToString + '-' + GUIDToString(lGuid)]));
+  lPadding := aTargetLength - Length(lBase) - 1;
+  if (lPadding < 1) or (lPadding > 200) then
+    raise Exception.CreateFmt('Invalid DS-673 boundary directory padding: %d', [lPadding]);
+  Result := CombinePath([lBase, StringOfChar('d', lPadding)]);
+  TDirectory.CreateDirectory(Result);
+  Assert.AreEqual(aTargetLength, Length(Result));
+end;
+
+function TCacheSqliteTests.RecordBoundaryObservation(const aPhase, aRawFileName,
+  aResolvedFileName: string; const aCache: TDelphiSemanticSqliteUnitCache): string;
+var
+  lDiagnostic: TDelphiSemanticCacheDiagnostic;
+  lPhysicalFileName: string;
+  lReceiptFileName: string;
+begin
+  lPhysicalFileName := '\\?\' + aResolvedFileName;
+  lReceiptFileName := CombinePath([TPath.GetDirectoryName(
+    TPath.GetDirectoryName(aResolvedFileName)), aPhase + '.txt']);
+  Result := 'phase=' + aPhase + sLineBreak +
+    'raw=' + aRawFileName + sLineBreak +
+    'raw-length=' + IntToStr(Length(aRawFileName)) + sLineBreak +
+    'cwd=' + GetCurrentDir + sLineBreak +
+    'cwd-length=' + IntToStr(Length(GetCurrentDir)) + sLineBreak +
+    'resolved=' + aResolvedFileName + sLineBreak +
+    'resolved-length=' + IntToStr(Length(aResolvedFileName)) + sLineBreak +
+    'physical=' + lPhysicalFileName + sLineBreak +
+    'database-exists=' + BoolToStr(TFile.Exists(lPhysicalFileName), True) + sLineBreak +
+    'wal-exists=' + BoolToStr(TFile.Exists(lPhysicalFileName + '-wal'), True) + sLineBreak +
+    'shm-exists=' + BoolToStr(TFile.Exists(lPhysicalFileName + '-shm'), True) + sLineBreak +
+    'journal-exists=' + BoolToStr(TFile.Exists(lPhysicalFileName + '-journal'), True) +
+      sLineBreak +
+    'cache-kind=' + aCache.Metrics.CacheKind + sLineBreak +
+    'cache-file-name=' + aCache.Metrics.CacheFileName + sLineBreak +
+    'cache-hits=' + IntToStr(aCache.Metrics.CacheHits) + sLineBreak +
+    'cache-misses=' + IntToStr(aCache.Metrics.CacheMisses) + sLineBreak +
+    'diagnostic-count=' + IntToStr(Length(aCache.Diagnostics)) + sLineBreak;
+  for lDiagnostic in aCache.Diagnostics do
+    Result := Result + 'diagnostic=' + lDiagnostic.Code + ' | ' +
+      lDiagnostic.Message + ' | ' + lDiagnostic.FileName + sLineBreak;
+  TFile.WriteAllText(lReceiptFileName, Result, TEncoding.UTF8);
+end;
+
 function TCacheSqliteTests.TempPath(const aName: string): string;
 begin
   Result := TPath.GetFullPath(CombinePath([CacheSqliteTempRoot, aName]));
@@ -411,6 +504,161 @@ begin
     Assert.AreEqual(0, lCache.Metrics.CacheMisses);
   finally
     lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.RelativeSqliteFileNamePersistsBeyondMaxPath;
+const
+  cDatabaseName = 'semantic-unit-cache.sqlite3';
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lDirectory: string;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lObservation: string;
+  lOriginalDirectory: string;
+  lResolvedFileName: string;
+begin
+  lDirectory := BoundaryDirectory(MAX_PATH - 15);
+  lResolvedFileName := TPath.GetFullPath(CombinePath([lDirectory, cDatabaseName]));
+  Writeln(Format('DS-673 relative SQLite raw=%s raw-length=%d cwd=%s cwd-length=%d ' +
+    'resolved=%s resolved-length=%d', [cDatabaseName, Length(cDatabaseName), lDirectory,
+    Length(lDirectory), lResolvedFileName, Length(lResolvedFileName)]));
+  Assert.IsTrue(Length(cDatabaseName) < MAX_PATH);
+  Assert.IsTrue(Length(lDirectory) < MAX_PATH);
+  Assert.IsTrue(Length(lResolvedFileName) > MAX_PATH);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := cDatabaseName;
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := WriteUnitFile('SqliteRelativeBoundaryUnit',
+    'TSqliteRelativeBoundaryType');
+  lModelOptions.ProjectContextApplied := True;
+
+  lOriginalDirectory := GetCurrentDir;
+  Assert.IsTrue(SetCurrentDir(lDirectory), 'The disposable test process must enter its deep CWD.');
+  try
+    Assert.AreEqual(lResolvedFileName, TPath.GetFullPath(cDatabaseName));
+    lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+    try
+      lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+      lObservation := RecordBoundaryObservation('initial', cDatabaseName,
+        lResolvedFileName, lCache);
+      Assert.IsTrue(HasDeclaration(lModel, 'TSqliteRelativeBoundaryType'));
+      Assert.AreEqual('sqlite', lCache.Metrics.CacheKind, lObservation);
+      Assert.AreEqual(cDatabaseName, lCache.Metrics.CacheFileName);
+      Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+      Assert.AreEqual(0, lCache.Metrics.CacheHits);
+    finally
+      lCache.Free;
+    end;
+    Assert.IsTrue(TFile.Exists('\\?\' + lResolvedFileName),
+      'The resolved physical SQLite database must exist after the first cache closes.');
+
+    lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+    try
+      lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+      lObservation := RecordBoundaryObservation('reopen', cDatabaseName,
+        lResolvedFileName, lCache);
+      Assert.IsTrue(HasDeclaration(lModel, 'TSqliteRelativeBoundaryType'));
+      Assert.AreEqual('sqlite', lCache.Metrics.CacheKind, lObservation);
+      Assert.AreEqual(cDatabaseName, lCache.Metrics.CacheFileName);
+      Assert.AreEqual(1, lCache.Metrics.CacheHits);
+      Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+    finally
+      lCache.Free;
+    end;
+  finally
+    if not SetCurrentDir(lOriginalDirectory) then
+      raise Exception.Create('DS-673 test could not restore the original process directory.');
+  end;
+end;
+
+procedure TCacheSqliteTests.NearMaxPathSqliteFileNamePersistsWithSidecars;
+const
+  cDatabaseName = 'semantic-unit-cache.sqlite3';
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lDatabaseFileName: string;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lObservation: string;
+  lPhysicalFileName: string;
+begin
+  lDatabaseFileName := CombinePath([
+    BoundaryDirectory(MAX_PATH - 2 - Length(cDatabaseName) - 1), cDatabaseName]);
+  lPhysicalFileName := '\\?\' + lDatabaseFileName;
+  Writeln(Format('DS-673 near-limit SQLite db=%s db-length=%d wal=%d shm=%d journal=%d',
+    [lDatabaseFileName, Length(lDatabaseFileName), Length(lDatabaseFileName + '-wal'),
+    Length(lDatabaseFileName + '-shm'), Length(lDatabaseFileName + '-journal')]));
+  Assert.AreEqual(MAX_PATH - 2, Length(lDatabaseFileName));
+  Assert.IsTrue(Length(lDatabaseFileName + '-wal') >= MAX_PATH);
+  Assert.IsTrue(Length(lDatabaseFileName + '-shm') >= MAX_PATH);
+  Assert.IsTrue(Length(lDatabaseFileName + '-journal') >= MAX_PATH);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := lDatabaseFileName;
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := WriteUnitFile('SqliteNearBoundaryUnit',
+    'TSqliteNearBoundaryType');
+  lModelOptions.ProjectContextApplied := True;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    lObservation := RecordBoundaryObservation('initial', lDatabaseFileName,
+      lDatabaseFileName, lCache);
+    Assert.IsTrue(HasDeclaration(lModel, 'TSqliteNearBoundaryType'));
+    Assert.AreEqual('sqlite', lCache.Metrics.CacheKind, lObservation);
+    Assert.AreEqual(lDatabaseFileName, lCache.Metrics.CacheFileName);
+    Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+    Assert.IsTrue(TFile.Exists(lPhysicalFileName), 'The physical SQLite database must exist.');
+    Assert.IsTrue(TFile.Exists(lPhysicalFileName + '-wal'),
+      'The live cache connection must create its WAL sidecar past MAX_PATH.');
+    Assert.IsTrue(TFile.Exists(lPhysicalFileName + '-shm'),
+      'The live cache connection must create its SHM sidecar past MAX_PATH.');
+  finally
+    lCache.Free;
+  end;
+
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    lObservation := RecordBoundaryObservation('reopen', lDatabaseFileName,
+      lDatabaseFileName, lCache);
+    Assert.IsTrue(HasDeclaration(lModel, 'TSqliteNearBoundaryType'));
+    Assert.AreEqual('sqlite', lCache.Metrics.CacheKind, lObservation);
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.SqliteMemoryNameStaysSpecialUnderDeepCurrentDirectory;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lDirectory: string;
+  lOriginalDirectory: string;
+begin
+  lDirectory := BoundaryDirectory(MAX_PATH - 15);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := ':memory:';
+  lOriginalDirectory := GetCurrentDir;
+  Assert.IsTrue(SetCurrentDir(lDirectory), 'The disposable test process must enter its deep CWD.');
+  try
+    lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+    try
+      Assert.AreEqual('sqlite', lCache.Metrics.CacheKind);
+      Assert.AreEqual(':memory:', lCache.Metrics.CacheFileName);
+      Assert.IsFalse(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_UNAVAILABLE'));
+    finally
+      lCache.Free;
+    end;
+  finally
+    if not SetCurrentDir(lOriginalDirectory) then
+      raise Exception.Create('DS-673 test could not restore the original process directory.');
   end;
 end;
 
