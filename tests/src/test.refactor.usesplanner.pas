@@ -106,6 +106,16 @@ type
     [TestCase('Disabled packages', 'disabled')]
     [TestCase('Inactive package list', 'inactive-list')]
     procedure ReportsInterfaceImportMoveAsCandidateOnly(const aLinkMode: string);
+
+    [Test]
+
+    [TestCase('Active conditional clause', 'conditional')]
+
+    [TestCase('Real class helper provider', 'helper')]
+
+    [TestCase('Real record operator provider', 'operator')]
+
+    procedure BlocksInterfaceImportMoveForConditionalOrLookupProvider(const aCase: string);
     [Test]
     [TestCase('Runtime packages', 'UsePackages,true,uses.runtime-packages-unsupported')]
     [TestCase('Enabled packages', 'DCC_EnabledPackages,true,uses.runtime-packages-unsupported')]
@@ -115,6 +125,10 @@ type
     procedure BlocksMoveWithUnsupportedCompilerLinkSettings(const aName, aValue, aReason: string);
     [Test]
     procedure BlocksMoveWithUnresolvedUnrelatedReference;
+
+    [Test]
+
+    procedure BlocksMoveWithUnresolvedIntrinsicReference;
     [Test]
     procedure BlocksInterfaceDefaultReferenceMove;
     [Test]
@@ -1184,6 +1198,99 @@ begin
   end;
 end;
 
+procedure TRefactoringUsesTests.BlocksInterfaceImportMoveForConditionalOrLookupProvider(
+  const aCase: string);
+var
+  lBinding: TDelphiSemanticBoundPlanResult;
+  lConsumerFileName: string;
+  lConsumerText: string;
+  lEvidence: TDelphiSemanticContextModelEvidence;
+  lExpectedClassification: TDelphiSemanticUsesClassification;
+  lExpectedReason: string;
+  lImportText: string;
+  lLeafText: string;
+  lPlanResult: TDelphiSemanticUsesPlanningResult;
+  lRoot: string;
+  lSession: TDelphiSemanticProjectSession;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lRoot := NewProjectRoot;
+  lImportText := 'uses QuietLeaf;' + sLineBreak;
+  lLeafText := 'unit QuietLeaf;' + sLineBreak + 'interface' + sLineBreak +
+    'const QuietValue = 7;' + sLineBreak;
+  if aCase = 'conditional' then
+  begin
+    lImportText := '{$IFDEF MSWINDOWS}' + sLineBreak + lImportText +
+      '{$ENDIF}' + sLineBreak;
+    lExpectedClassification := TDelphiSemanticUsesClassification.ucConditionalClause;
+    lExpectedReason := 'uses.conditional-clause';
+  end else if aCase = 'helper' then
+  begin
+    lLeafText := lLeafText + 'type TQuietTarget = class end;' + sLineBreak +
+      'TQuietHelper = class helper for TQuietTarget' + sLineBreak +
+      'procedure Touch;' + sLineBreak + 'end;' + sLineBreak +
+      'implementation' + sLineBreak +
+      'procedure TQuietHelper.Touch;' + sLineBreak +
+      'begin' + sLineBreak + 'end;' + sLineBreak;
+    lExpectedClassification :=
+      TDelphiSemanticUsesClassification.ucHelperOrOperatorVisibilityUnknown;
+    lExpectedReason := 'uses.helper-or-operator-visibility-unknown';
+  end else begin
+    Assert.AreEqual('operator', aCase, 'Unknown refusal fixture case');
+    lLeafText := lLeafText + 'type TOperatorValue = record' + sLineBreak +
+      'Value: Integer;' + sLineBreak +
+      'class operator Implicit(const aValue: Integer): TOperatorValue;' + sLineBreak +
+      'end;' + sLineBreak + 'implementation' + sLineBreak +
+      'class operator TOperatorValue.Implicit(const aValue: Integer): TOperatorValue;' +
+      sLineBreak + 'begin' + sLineBreak + 'Result.Value := aValue;' +
+      sLineBreak + 'end;' + sLineBreak;
+    lExpectedClassification :=
+      TDelphiSemanticUsesClassification.ucHelperOrOperatorVisibilityUnknown;
+    lExpectedReason := 'uses.helper-or-operator-visibility-unknown';
+  end;
+  if aCase = 'conditional' then
+    lLeafText := lLeafText + 'implementation' + sLineBreak;
+  lLeafText := lLeafText + 'end.';
+  lConsumerText := 'unit UsesConsumer;' + sLineBreak + 'interface' +
+    sLineBreak + lImportText + 'function ReadValue: Integer;' + sLineBreak +
+    'implementation' + sLineBreak + 'function ReadValue: Integer;' +
+    sLineBreak + 'begin' + sLineBreak + 'Result := QuietValue;' +
+    sLineBreak + 'end;' + sLineBreak + 'end.';
+  lSession := nil;
+  lSnapshot := nil;
+  lBinding := nil;
+  try
+    CreateBoundContextForOperation(lRoot, lConsumerText, lLeafText, False,
+      'uses.analyze-interface-import-move', True, lSession, lSnapshot,
+      lBinding, lConsumerFileName);
+    lEvidence := ModelEvidence(lSnapshot, lConsumerFileName);
+    Assert.IsTrue(lEvidence.ModelSucceeded, 'Consumer model must succeed: ' + aCase);
+    Assert.IsTrue(lEvidence.DependencyFacts.Known, 'Consumer imports must be retained');
+    Assert.AreEqual(1, Integer(Length(lEvidence.DependencyFacts.InterfaceImports)));
+    Assert.AreEqual('QuietLeaf', lEvidence.DependencyFacts.InterfaceImports[0]);
+    lEvidence := ModelEvidence(lSnapshot, TPath.Combine(lRoot, 'QuietLeaf.pas'));
+    Assert.IsTrue(lEvidence.ModelSucceeded, 'Provider model must succeed: ' + aCase);
+    Assert.AreEqual(TSemanticPlanStatus.NoChange, lBinding.Status,
+      'The fixture must bind a no-change request: ' + lBinding.Reason);
+    lPlanResult := TDelphiSemanticUsesPlanner.AnalyzeInterfaceImportMoveCandidate(
+      lSnapshot, lBinding, lConsumerFileName, 'QuietLeaf');
+    try
+      Assert.AreEqual(lExpectedClassification, lPlanResult.Classification,
+        lPlanResult.Reason);
+      Assert.AreEqual(lExpectedReason, lPlanResult.Reason);
+      Assert.IsNotNull(lPlanResult.Plan);
+      Assert.AreEqual(TSemanticPlanStatus.Blocked, lPlanResult.Plan.Status);
+      Assert.AreEqual(0, lPlanResult.Plan.EditCount);
+    finally
+      lPlanResult.Plan.Free;
+    end;
+  finally
+    lBinding.Free;
+    lSnapshot.Free;
+    lSession.Free;
+  end;
+end;
+
 procedure TRefactoringUsesTests.BlocksInterfaceDefaultReferenceMove;
 var
   lBinding: TDelphiSemanticBoundPlanResult;
@@ -1257,6 +1364,84 @@ begin
     try
       Assert.AreEqual('uses.reference-binding-unknown', lPlanResult.Reason);
       Assert.AreEqual(TDelphiSemanticUsesClassification.ucUnknown, lPlanResult.Classification);
+      Assert.AreEqual(TSemanticPlanStatus.Blocked, lPlanResult.Plan.Status);
+      Assert.AreEqual(0, lPlanResult.Plan.EditCount);
+    finally
+      lPlanResult.Plan.Free;
+    end;
+  finally
+    lBinding.Free;
+    lSnapshot.Free;
+    lSession.Free;
+  end;
+end;
+
+procedure TRefactoringUsesTests.BlocksMoveWithUnresolvedIntrinsicReference;
+var
+  lBinding: TDelphiSemanticBoundPlanResult;
+  lConsumerFileName: string;
+  lEvidence: TDelphiSemanticContextModelEvidence;
+  lIntrinsicIndex: Integer;
+  lPlanResult: TDelphiSemanticUsesPlanningResult;
+  lRoot: string;
+  lSession: TDelphiSemanticProjectSession;
+  lSnapshot: TDelphiProjectSnapshot;
+  lValueIndex: Integer;
+  i: Integer;
+begin
+  lRoot := NewProjectRoot;
+  lSession := nil;
+  lSnapshot := nil;
+  lBinding := nil;
+  try
+    CreateBoundContextForOperation(lRoot,
+      'unit UsesConsumer;' + sLineBreak + 'interface' + sLineBreak +
+      'uses QuietLeaf;' + sLineBreak +
+      'function ReadValue: Integer;' + sLineBreak +
+      'implementation' + sLineBreak +
+      'function ReadValue: Integer;' + sLineBreak + 'begin' + sLineBreak +
+      'Result := SizeOf(QuietValue);' + sLineBreak + 'end;' + sLineBreak + 'end.',
+      'unit QuietLeaf;' + sLineBreak + 'interface' + sLineBreak +
+      'const QuietValue = 7;' + sLineBreak + 'implementation' + sLineBreak +
+      'end.', False, 'uses.analyze-interface-import-move', True,
+      lSession, lSnapshot, lBinding, lConsumerFileName);
+    lEvidence := ModelEvidence(lSnapshot, lConsumerFileName);
+    Assert.IsTrue(lEvidence.ModelSucceeded, 'Consumer model must succeed');
+    Assert.IsTrue(lEvidence.ReferenceExtractionIncluded,
+      'The intrinsic and provider references must be extracted');
+    Assert.IsTrue(lEvidence.DependencyFacts.Known);
+    Assert.AreEqual(1, Integer(Length(lEvidence.DependencyFacts.InterfaceImports)));
+    Assert.AreEqual('QuietLeaf', lEvidence.DependencyFacts.InterfaceImports[0]);
+    lEvidence := ModelEvidence(lSnapshot, TPath.Combine(lRoot, 'QuietLeaf.pas'));
+    Assert.IsTrue(lEvidence.ModelSucceeded, 'Provider model must succeed');
+    lEvidence := ModelEvidence(lSnapshot, lConsumerFileName);
+    lIntrinsicIndex := -1;
+    lValueIndex := -1;
+    for i := 0 to High(lEvidence.References) do
+    begin
+      if SameText(lEvidence.References[i].Name, 'SizeOf') then
+        lIntrinsicIndex := i
+      else if SameText(lEvidence.References[i].Name, 'QuietValue') then
+        lValueIndex := i;
+    end;
+    Assert.IsTrue(lIntrinsicIndex >= 0, 'SizeOf reference must be extracted');
+    Assert.IsTrue(lValueIndex >= 0, 'QuietValue reference must be extracted');
+    Assert.AreEqual('implementation', lEvidence.References[lIntrinsicIndex].SectionKind);
+    Assert.AreEqual('implementation', lEvidence.References[lValueIndex].SectionKind);
+    Assert.AreEqual('ReadValue', lEvidence.References[lIntrinsicIndex].RoutineName);
+    Assert.AreEqual('ReadValue', lEvidence.References[lValueIndex].RoutineName);
+    Assert.IsTrue(lEvidence.References[lIntrinsicIndex].RoutineScopeId <> '');
+    Assert.AreEqual(lEvidence.References[lIntrinsicIndex].RoutineScopeId,
+      lEvidence.References[lValueIndex].RoutineScopeId);
+    Assert.AreEqual(TSemanticPlanStatus.NoChange, lBinding.Status,
+      'The fixture must first bind an observed no-change request: ' + lBinding.Reason);
+    lPlanResult := TDelphiSemanticUsesPlanner.AnalyzeInterfaceImportMoveCandidate(
+      lSnapshot, lBinding, lConsumerFileName, 'QuietLeaf');
+    try
+      Assert.AreEqual(TDelphiSemanticUsesClassification.ucUnknown,
+        lPlanResult.Classification, lPlanResult.Reason);
+      Assert.AreEqual('uses.reference-binding-unknown', lPlanResult.Reason);
+      Assert.IsNotNull(lPlanResult.Plan);
       Assert.AreEqual(TSemanticPlanStatus.Blocked, lPlanResult.Plan.Status);
       Assert.AreEqual(0, lPlanResult.Plan.EditCount);
     finally
