@@ -2640,6 +2640,7 @@ procedure ExtractMembersFromBody(const aText, aOwnerName, aBody: string; const a
   const aSplitOffsets: TArray<Integer>);
 var
   lCleanBody: string;
+  lCleanSegment: string;
   lConsumedEnd: Integer;
   lDefaultProperty: Boolean;
   lFieldMatch: TMatch;
@@ -2692,7 +2693,12 @@ begin
         MaskMemberVisibility(lLine, lCleanBody, lVisibility, lOffset - aBodyOffset + 1) then
         lInClassVarSection := False;
       lSegment := lLine;
-      lLine := NormalizeVariantMemberLine(lLine.Trim);
+      // Comments never shape a member: a trailing comment with a colon and a parenthesis must
+      // not turn an ordinary member line into a variant field list.
+      lCleanSegment := Copy(lCleanBody, lOffset - aBodyOffset + 1, Length(lSegment)).Trim;
+      lLine := NormalizeVariantMemberLine(lCleanSegment);
+      if lLine = lCleanSegment then
+        lLine := lSegment.Trim;
       if lNestedOwnerName <> '' then
       begin
         if TRegEx.IsMatch(lLine, '^end\s*;', [roIgnoreCase]) then
@@ -2965,60 +2971,150 @@ begin
   Result := LowerCase(aKind);
 end;
 
+// A field the line scan cannot read (a final field without `;`, or a type on the next line) is
+// rebuilt from the syntax tree only when the tree proves every fact: an instance field whose
+// name and single plain type identifier sit at the tree's own source positions. Inline types
+// (array, record, set, enumeration) carry child nodes or an anType, and pointer types carry
+// anType, so the tree rejects them. A generic type is rejected by IsWordAt, not by those two
+// checks: DelphiAST collapses `TArray<Integer>` into the single name `TArray.Integer`, which
+// the dotted-identifier pattern accepts but the source text at that position contradicts -
+// IsWordAt is the proof that the name we store is the text the source declares, so it must
+// not be relaxed. A procedural type is refused by its stored name, and a body with class
+// variables leaves the member kind unproven; both are refused below.
+function TryAstFieldMember(const aText, aOwnerName: string; const aFact: TAstMemberFact;
+  const aHasClassVariables: Boolean; const aMembers: TList<TDelphiSemanticMember>;
+  const aReferences: TList<TDelphiSemanticReference>): Boolean;
+var
+  lNameOffset: Integer;
+  lTypeName: string;
+  lTypeNode: TSyntaxNode;
+  lTypeOffset: Integer;
+begin
+  Result := False;
+  if aHasClassVariables or (aFact.Category <> 'field') or (aFact.Node.Typ <> ntField) then
+    Exit;
+  lTypeNode := aFact.Node.FindNode(ntType);
+  if not Assigned(lTypeNode) or lTypeNode.HasChildren or lTypeNode.HasAttribute(anType) then
+    Exit;
+  lTypeName := lTypeNode.GetAttribute(anName);
+  if not TRegEx.IsMatch(lTypeName, '^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$') then
+    Exit;
+  // A procedural type would be stored as the type named `procedure`, which is never a real type.
+  // We refuse on the stored name text, so every procedural form is refused whatever node shape
+  // the parser produced - `procedure`, `procedure of object` and their parameter lists alike.
+  // Observed on the bare form before this guard existed: ds706\focused-red3.log.
+  if MatchText(lTypeName, ['procedure', 'function']) then
+    Exit;
+  lNameOffset := aFact.Offset;
+  if (lNameOffset >= 1) and (lNameOffset <= Length(aText)) and (aText[lNameOffset] = '&') then
+    Inc(lNameOffset);
+  lTypeOffset := OffsetOfLineColumn(aText, lTypeNode.Line, lTypeNode.Col);
+  if not IsWordAt(aText, lNameOffset, aFact.Name) or
+    not IsWordAt(aText, lTypeOffset, lTypeName) then
+    Exit;
+  AddMember(aMembers, aOwnerName, aFact.Name, 'field', lTypeName, aFact.Visibility, '', aText,
+    False, False, lNameOffset);
+  AddTypeReferences(aReferences, '', lTypeName, aText, lTypeOffset);
+  Result := True;
+end;
+
 // Pairs each syntax member with one scanned member of the same owner, name and category inside
 // the member's own source span. Visibility and method signatures come from the syntax tree.
 // A scanned member without a syntax counterpart was invented by the line scan (for example a
-// parameter on a method's continuation line) and is removed. A syntax member the scan missed
-// makes the type incomplete; its names are returned in aUnscanned.
-function ReconcileTypeMembers(const aOwnerName: string; const aFacts: TList<TAstMemberFact>;
-  const aSplitOffsets: TArray<Integer>; const aMembers: TList<TDelphiSemanticMember>;
-  const aFirstMember: Integer; out aUnscanned: string): Boolean;
+// parameter on a method's continuation line) and is removed. A syntax member the scan missed is
+// rebuilt from the tree when TryAstFieldMember proves it; otherwise it makes the type
+// incomplete, and its names are returned in aUnscanned.
+function ReconcileTypeMembers(const aText, aBody, aOwnerName: string;
+  const aFacts: TList<TAstMemberFact>; const aSplitOffsets: TArray<Integer>;
+  const aMembers: TList<TDelphiSemanticMember>;
+  const aReferences: TList<TDelphiSemanticReference>; const aFirstMember: Integer;
+  out aUnscanned: string): Boolean;
 var
   j: Integer;
   lEnd: Integer;
   lFact: TAstMemberFact;
   lFound: Integer;
+  lHasClassVariables: Boolean;
   lMatched: TArray<Boolean>;
   lMember: TDelphiSemanticMember;
+  lMissing: TList<TAstMemberFact>;
+  lRebuilt: Integer;
 begin
   Result := True;
   aUnscanned := '';
   SetLength(lMatched, aMembers.Count - aFirstMember);
-  for lFact in aFacts do
-  begin
-    lEnd := NextSplitOffset(aSplitOffsets, lFact.Offset);
-    lFound := -1;
-    for j := aFirstMember to Pred(aMembers.Count) do
+  lMissing := TList<TAstMemberFact>.Create;
+  try
+    for lFact in aFacts do
     begin
-      lMember := aMembers[j];
-      if not lMatched[j - aFirstMember] and (lMember.Offset >= lFact.Offset) and
-        (lMember.Offset < lEnd) and SameText(lMember.OwnerName, aOwnerName) and
-        SameText(lMember.Name, lFact.Name) and (MemberCategory(lMember.Kind) = lFact.Category) then
+      lEnd := NextSplitOffset(aSplitOffsets, lFact.Offset);
+      lFound := -1;
+      for j := aFirstMember to Pred(aMembers.Count) do
       begin
-        lFound := j;
-        Break;
+        lMember := aMembers[j];
+        if not lMatched[j - aFirstMember] and (lMember.Offset >= lFact.Offset) and
+          (lMember.Offset < lEnd) and SameText(lMember.OwnerName, aOwnerName) and
+          SameText(lMember.Name, lFact.Name) and
+          (MemberCategory(lMember.Kind) = lFact.Category) then
+        begin
+          lFound := j;
+          Break;
+        end;
+      end;
+      if lFound < 0 then
+      begin
+        lMissing.Add(lFact);
+        Continue;
+      end;
+      lMatched[lFound - aFirstMember] := True;
+      lMember := aMembers[lFound];
+      lMember.Visibility := lFact.Visibility;
+      if lFact.Category = 'method' then
+      begin
+        lMember.ProcedureSignature := AstProcedureSignature(lFact.Node);
+        if SameText(lFact.Node.GetAttribute(anClass), 'true') then
+          lMember.ProcedureSignature.Known := False;
+      end;
+      aMembers[lFound] := lMember;
+    end;
+    for j := Pred(aMembers.Count) downto aFirstMember do
+      if not lMatched[j - aFirstMember] and SameText(aMembers[j].OwnerName, aOwnerName) then
+        aMembers.Delete(j);
+    if lMissing.Count = 0 then
+      Exit;
+    // The syntax tree does not mark class variables, so their presence leaves the kind unproven.
+    // Class constants are deliberately not covered here. In their common form the parser gives
+    // them a constant node, not a member fact, so they never reach this rebuild. One form does:
+    // a typed class constant whose name is a soft keyword (`class const Name: Integer = 1;`)
+    // leaves the parser's constant loop immediately and is parsed as a class field, so it
+    // becomes an ntField fact with a clean type node and is rebuilt here as a plain `field`.
+    // Its name, type, offset and visibility are right and nothing can misbind, so this is kind
+    // imprecision rather than a safety hole; DS-710 owns the proper accounting.
+    // TUnitModelTests.ClassConstantIsNotAMemberFact pins both forms.
+    lHasClassVariables := TRegEx.IsMatch(SanitizeCodeText(aBody),
+      '\bclass\s+(?:thread)?var\b', [roIgnoreCase]);
+    for lFact in lMissing do
+    begin
+      lRebuilt := aMembers.Count;
+      if TryAstFieldMember(aText, aOwnerName, lFact, lHasClassVariables, aMembers,
+        aReferences) then
+      begin
+        // Keep source order so consumers see the member where the scan would have placed it.
+        lMember := aMembers[lRebuilt];
+        aMembers.Delete(lRebuilt);
+        j := aFirstMember;
+        while (j < aMembers.Count) and (aMembers[j].Offset < lMember.Offset) do
+          Inc(j);
+        aMembers.Insert(j, lMember);
+      end else
+      begin
+        Result := False;
+        aUnscanned := aUnscanned + IfThen(aUnscanned <> '', ', ') + lFact.Name;
       end;
     end;
-    if lFound < 0 then
-    begin
-      Result := False;
-      aUnscanned := aUnscanned + IfThen(aUnscanned <> '', ', ') + lFact.Name;
-      Continue;
-    end;
-    lMatched[lFound - aFirstMember] := True;
-    lMember := aMembers[lFound];
-    lMember.Visibility := lFact.Visibility;
-    if lFact.Category = 'method' then
-    begin
-      lMember.ProcedureSignature := AstProcedureSignature(lFact.Node);
-      if SameText(lFact.Node.GetAttribute(anClass), 'true') then
-        lMember.ProcedureSignature.Known := False;
-    end;
-    aMembers[lFound] := lMember;
+  finally
+    lMissing.Free;
   end;
-  for j := Pred(aMembers.Count) downto aFirstMember do
-    if not lMatched[j - aFirstMember] and SameText(aMembers[j].OwnerName, aOwnerName) then
-      aMembers.Delete(j);
 end;
 
 procedure BlankRange(var aText: string; const aStartIndex, aEndIndex: Integer);
@@ -3096,8 +3192,8 @@ begin
     ExtractMembersFromBody(aText, lOwnerName, lBody, lBodyOffset, aDeclarations, aMembers,
       aReferences, lSplitOffsets);
     // Missed names are listed so an unsupported layout is recorded, not just refused later.
-    if not ReconcileTypeMembers(lOwnerName, lFacts, lSplitOffsets, aMembers, lFirstMember,
-      lUnscanned) then
+    if not ReconcileTypeMembers(aText, lBody, lOwnerName, lFacts, lSplitOffsets, aMembers,
+      aReferences, lFirstMember, lUnscanned) then
       AddDiagnostic(aDiagnostics, 'MEMBERS_INCOMPLETE', Format('Members of %s could not be ' +
         'reconciled with the syntax tree; its member facts are incomplete. Not scanned: %s.',
         [lOwnerName, lUnscanned]), aFileName, aNode.Line);

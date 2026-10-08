@@ -382,7 +382,7 @@ begin
 
     Assert.AreEqual('9', lIdentity.SchemaVersion,
       'Lexical ownership fields changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.44', lIdentity.ParserVersion,
+    Assert.AreEqual('DelphiSemantics.Model.Parser.45', lIdentity.ParserVersion,
       'Physical reference occurrences require a fresh model extraction.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,

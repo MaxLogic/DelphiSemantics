@@ -65,6 +65,29 @@ type
     [Test]
     procedure EscapedIdentifierMembersAreKept;
     [Test]
+    [TestCase('Last field without semicolon', 'last-field-no-semicolon')]
+    [TestCase('Qualified last field type without semicolon', 'qualified-no-semicolon')]
+    [TestCase('Field type on the next line', 'split-field')]
+    [TestCase('Field type on the next line with semicolon', 'split-field-semicolon')]
+    [TestCase('Trailing comment with colon and parenthesis', 'comment-colon-paren')]
+    [TestCase('Array field with trailing comment', 'comment-array-field')]
+    [TestCase('Property with trailing comment', 'comment-property')]
+    [TestCase('Comma group without semicolon', 'comma-group-no-semicolon')]
+    [TestCase('Strict private field without semicolon', 'strict-private-no-semicolon')]
+    procedure ReconcilesValidMemberLayouts(const aLayout: string);
+    [Test]
+    [TestCase('Array last field without semicolon', 'array-no-semicolon')]
+    [TestCase('Generic last field without semicolon', 'generic-no-semicolon')]
+    [TestCase('Array field type on the next line', 'split-array-field')]
+    [TestCase('Class variable without semicolon', 'class-var-no-semicolon')]
+    [TestCase('Procedural field without semicolon', 'procedural-no-semicolon')]
+    [TestCase('Bare procedural field without semicolon', 'procedural-bare-no-semicolon')]
+    [TestCase('Pointer field without semicolon', 'pointer-no-semicolon')]
+    [TestCase('Property type on the next line', 'split-property')]
+    procedure UnprovableMemberLayoutsStayIncomplete(const aLayout: string);
+    [Test]
+    procedure ClassConstantIsNotAMemberFact;
+    [Test]
     procedure NestedTypeMembersKeepQualifiedOwnerAndVisibility;
     [Test]
     procedure AstFailedUnitKeepsUnverifiedMembers;
@@ -5243,6 +5266,255 @@ begin
   Assert.IsTrue(FindMember(lModel, 'TSubject', 'Label', 'method', lMember));
   Assert.AreEqual(Pos('Label', lSource), lMember.Offset);
   Assert.IsTrue(lMember.ProcedureSignature.Known);
+end;
+
+function MemberLayoutSource(const aTypeText: string): string;
+begin
+  Result := 'unit MemberLayouts;'#13#10'interface'#13#10'type'#13#10 +
+    '  TSubjectList = ^TSubject;'#13#10 + aTypeText + #13#10 +
+    'implementation'#13#10'end.'#13#10;
+end;
+
+// Valid layouts the line scan cannot read alone; the syntax tree proves each exact member.
+procedure TUnitModelTests.ReconcilesValidMemberLayouts(const aLayout: string);
+var
+  lAnchor: string;
+  lCount: Integer;
+  lExpectedNames: string;
+  lKind: string;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lName: string;
+  lReference: TDelphiSemanticReference;
+  lSource: string;
+  lTypeName: string;
+  lVisibility: string;
+begin
+  lKind := 'field';
+  if aLayout = 'last-field-no-semicolon' then
+  begin
+    lSource := MemberLayoutSource('  TSubject = packed record'#13#10 +
+      '    First, Second: Integer;'#13#10'    Data: Pointer'#13#10'    END;');
+    lExpectedNames := 'First,Second,Data,';
+    lName := 'Data';
+    lTypeName := 'Pointer';
+    lAnchor := 'Data: Pointer';
+  end else if aLayout = 'qualified-no-semicolon' then
+  begin
+    lSource := MemberLayoutSource('  TSubject = record'#13#10 +
+      '    Count: Integer;'#13#10'    Data: System.Pointer'#13#10'  end;');
+    lExpectedNames := 'Count,Data,';
+    lName := 'Data';
+    lTypeName := 'System.Pointer';
+    lAnchor := 'Data: System';
+  end else if aLayout = 'split-field' then
+  begin
+    lSource := MemberLayoutSource('  TSubject = record'#13#10 +
+      '    Count: Integer;'#13#10'    Next:'#13#10'    TSubjectList'#13#10'  end;');
+    lExpectedNames := 'Count,Next,';
+    lName := 'Next';
+    lTypeName := 'TSubjectList';
+    lAnchor := 'Next:';
+  end else if aLayout = 'split-field-semicolon' then
+  begin
+    lSource := MemberLayoutSource('  TSubject = record'#13#10 +
+      '    Name: string[20];'#13#10'    Value:'#13#10'    Integer;'#13#10'  end;');
+    lExpectedNames := 'Name,Value,';
+    lName := 'Value';
+    lTypeName := 'Integer';
+    lAnchor := 'Value:';
+  end else if aLayout = 'comment-colon-paren' then
+  begin
+    lSource := MemberLayoutSource('  TSubject = packed record'#13#10 +
+      '    Kind, Index: Word; // Kind: a code (A_ONE, A_TWO). Index: a number.'#13#10 +
+      '    Flags: Integer;'#13#10'  end;');
+    lExpectedNames := 'Kind,Index,Flags,';
+    lName := 'Index';
+    lTypeName := 'Word';
+    lAnchor := 'Index: Word';
+  end else if aLayout = 'comment-array-field' then
+  begin
+    // An array type is never rebuilt from the syntax tree, so only the line scan can read it.
+    lSource := MemberLayoutSource('  TSubject = record'#13#10 +
+      '    Values: array[0..1] of Word; // Values: the codes (see Note: below)'#13#10 +
+      '    Count: Integer;'#13#10'  end;');
+    lExpectedNames := 'Values,Count,';
+    lName := 'Values';
+    lTypeName := 'array[0..1] of Word';
+    lAnchor := 'Values: array';
+  end else if aLayout = 'comment-property' then
+  begin
+    lSource := MemberLayoutSource('  TSubject = class'#13#10'  private'#13#10 +
+      '    FCount: Integer;'#13#10'  public'#13#10 +
+      '    property Count: Integer read FCount; // Count: items (see Note: below)'#13#10 +
+      '  end;');
+    lExpectedNames := 'FCount,Count,';
+    lName := 'Count';
+    lKind := 'property';
+    lTypeName := 'Integer';
+    lAnchor := 'Count: Integer read';
+  end else if aLayout = 'comma-group-no-semicolon' then
+  begin
+    // Two facts share one declaration, so both are rebuilt and each keeps its own reference.
+    lSource := MemberLayoutSource('  TSubject = record'#13#10 +
+      '    Count: Integer;'#13#10'    First, Second: TSubjectList'#13#10'  end;');
+    lExpectedNames := 'Count,First,Second,';
+    lName := 'Second';
+    lTypeName := 'TSubjectList';
+    lAnchor := 'Second: TSubjectList';
+  end else
+  begin
+    // The scanned field is public and the rebuilt one is strict private, so the visibility we
+    // assert is the rebuilt fact's own, not a section default shared by both.
+    lSource := MemberLayoutSource('  TSubject = class'#13#10'  public'#13#10 +
+      '    FCount: Integer;'#13#10'  strict private'#13#10 +
+      '    FData: TSubjectList'#13#10'  end;');
+    lExpectedNames := 'FCount,FData,';
+    lName := 'FData';
+    lTypeName := 'TSubjectList';
+    lAnchor := 'FData: TSubjectList';
+  end;
+  lVisibility := 'public';
+  if aLayout = 'strict-private-no-semicolon' then
+    lVisibility := 'strict private';
+  lModel := ExtractUnitSource('member-layout-' + aLayout + '.pas', lSource, False);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual('', DiagnosticCodes(lModel), DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'));
+  Assert.AreEqual(lExpectedNames, OwnerMemberNames(lModel, 'TSubject'));
+  Assert.IsTrue(FindMember(lModel, 'TSubject', lName, lKind, lMember), lName);
+  Assert.AreEqual(lTypeName, lMember.TypeName);
+  Assert.AreEqual(lVisibility, lMember.Visibility);
+  Assert.AreEqual(Pos(lAnchor, lSource), lMember.Offset);
+  Assert.AreEqual(ColumnOfSourceOffset(lSource, lMember.Offset), lMember.Column);
+  if aLayout = 'strict-private-no-semicolon' then
+  begin
+    Assert.IsTrue(FindMember(lModel, 'TSubject', 'FCount', 'field', lMember));
+    Assert.AreEqual('public', lMember.Visibility,
+      'The scanned field keeps its own section, so the rebuilt one proves its own visibility.');
+  end;
+  if aLayout = 'split-field' then
+    Assert.IsTrue(HasReferenceAtOffset(lModel, 'TSubjectList',
+      Pos('Next:'#13#10'    TSubjectList', lSource) + Length('Next:'#13#10'    ')),
+      'The type on the continuation line stays a type reference.');
+  if aLayout = 'comma-group-no-semicolon' then
+  begin
+    // ClassField clones the same type node per name, so the rebuild calls AddTypeReferences once
+    // per fact and both land on the one type occurrence. Staying at one reference is therefore an
+    // outcome of RemoveDuplicateReferences, not of the rebuild: this pins that dedupe.
+    lCount := 0;
+    for lReference in lModel.References do
+      if SameText(lReference.Name, 'TSubjectList') and
+        (lReference.Offset = Pos('TSubjectList'#13#10'  end', lSource)) then
+        Inc(lCount);
+    Assert.AreEqual(1, lCount, 'A rebuilt comma group must not duplicate its type reference.');
+  end;
+end;
+
+// A member the syntax tree cannot rebuild exactly keeps the type marked incomplete.
+procedure TUnitModelTests.UnprovableMemberLayoutsStayIncomplete(const aLayout: string);
+var
+  lModel: TDelphiSemanticUnitModel;
+  lName: string;
+  lSource: string;
+begin
+  lName := 'Items';
+  if aLayout = 'array-no-semicolon' then
+    lSource := MemberLayoutSource('  TSubject = record'#13#10 +
+      '    Count: Integer;'#13#10'    Items: array[0..1] of Integer'#13#10'  end;')
+  else if aLayout = 'generic-no-semicolon' then
+    lSource := MemberLayoutSource('  TSubject = record'#13#10 +
+      '    Count: Integer;'#13#10'    Items: TArray<Integer>'#13#10'  end;')
+  else if aLayout = 'split-array-field' then
+    lSource := MemberLayoutSource('  TSubject = record'#13#10 +
+      '    Items:'#13#10'    array[0..1] of Integer;'#13#10'    Count: Integer;'#13#10'  end;')
+  else if aLayout = 'class-var-no-semicolon' then
+  begin
+    // The syntax tree does not mark class variables, so it cannot prove the member kind.
+    lSource := MemberLayoutSource('  TSubject = class'#13#10'  public'#13#10 +
+      '    Count: Integer;'#13#10'    class var'#13#10'      Items: Integer'#13#10'  end;');
+  end else if aLayout = 'procedural-no-semicolon' then
+  begin
+    // A parameterless procedural type is only the keyword in the tree; its real type is unproven.
+    lSource := MemberLayoutSource('  TSubject = record'#13#10 +
+      '    Count: Integer;'#13#10'    Items: procedure of object'#13#10'  end;');
+  end else if aLayout = 'procedural-bare-no-semicolon' then
+  begin
+    lSource := MemberLayoutSource('  TSubject = record'#13#10 +
+      '    Count: Integer;'#13#10'    Items: procedure'#13#10'  end;');
+  end else if aLayout = 'pointer-no-semicolon' then
+  begin
+    lSource := MemberLayoutSource('  TSubject = record'#13#10 +
+      '    Count: Integer;'#13#10'    Items: ^TSubject'#13#10'  end;');
+  end else
+  begin
+    lSource := MemberLayoutSource('  TSubject = class'#13#10'  private'#13#10 +
+      '    FItems: Integer;'#13#10'  public'#13#10'    property Items:'#13#10 +
+      '      Integer read FItems;'#13#10'  end;');
+  end;
+  lModel := ExtractUnitSource('member-layout-' + aLayout + '.pas', lSource, False);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual('MEMBERS_INCOMPLETE,', DiagnosticCodes(lModel));
+  Assert.EndsWith('Not scanned: ' + lName + '.', DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'));
+  Assert.IsFalse(HasMemberOfOwner(lModel, 'TSubject', lName));
+end;
+
+// An ordinarily named class constant reaches the syntax tree as a constant, not as a member
+// fact, so reconciliation never rebuilds it and it stays out of the member list. A typed class
+// constant named with a soft keyword (`Name`) leaves the parser's constant loop at once and is
+// parsed as a class field, so it does become a fact and is recorded as a plain field. Both forms
+// are pinned here; the kind imprecision of the second is deliberate and owned by DS-710.
+procedure TUnitModelTests.ClassConstantIsNotAMemberFact;
+var
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lSource: string;
+begin
+  // DelphiAST reads a class-const section to the end of the member list, so the constant stays
+  // last here; the split field before it still needs the rebuild.
+  lSource := MemberLayoutSource('  TSubject = class'#13#10'  public'#13#10 +
+    '    Count: Integer;'#13#10'    Data:'#13#10'    TSubjectList;'#13#10 +
+    '    class const Items: Integer = 1'#13#10'  end;');
+  lModel := ExtractUnitSource('member-layout-class-const.pas', lSource, False);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual('', DiagnosticCodes(lModel), DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'));
+  Assert.AreEqual('Count,Data,', OwnerMemberNames(lModel, 'TSubject'),
+    'A class constant is not a member fact, and the field before it still reconciles.');
+  Assert.IsFalse(HasMemberOfOwner(lModel, 'TSubject', 'Items'));
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'Data', 'field', lMember));
+  Assert.AreEqual('TSubjectList', lMember.TypeName);
+  Assert.AreEqual(Pos('Data:', lSource), lMember.Offset);
+
+  // The soft-keyword form is parsed as a class field, so it is a member fact and is recorded as
+  // a plain field. With its semicolon the line scan reads it and keeps the initializer in the
+  // type text, which is the scan's own long-standing imprecision.
+  lSource := MemberLayoutSource('  TSubject = class'#13#10'  public'#13#10 +
+    '    Count: Integer;'#13#10'    class const Name: Integer = 1;'#13#10 +
+    '    Data: TSubjectList'#13#10'  end;');
+  lModel := ExtractUnitSource('member-layout-class-const-soft.pas', lSource, False);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual('', DiagnosticCodes(lModel), DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'));
+  Assert.AreEqual('Count,Name,Data,', OwnerMemberNames(lModel, 'TSubject'));
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'Name', 'field', lMember));
+  Assert.AreEqual('Integer = 1', lMember.TypeName);
+  Assert.AreEqual('public', lMember.Visibility);
+  Assert.AreEqual(Pos('Name: Integer', lSource), lMember.Offset);
+
+  // Without its semicolon the same constant is the member our rebuild has to supply, and the
+  // syntax tree gives it the plain type - still as kind 'field'.
+  lSource := MemberLayoutSource('  TSubject = class'#13#10'  public'#13#10 +
+    '    Count: Integer;'#13#10'    class const Name: Integer = 1'#13#10'  end;');
+  lModel := ExtractUnitSource('member-layout-class-const-rebuilt.pas', lSource, False);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual('', DiagnosticCodes(lModel), DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'));
+  Assert.AreEqual('Count,Name,', OwnerMemberNames(lModel, 'TSubject'));
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'Name', 'field', lMember));
+  Assert.AreEqual('Integer', lMember.TypeName);
+  Assert.AreEqual(Pos('Name: Integer', lSource), lMember.Offset);
 end;
 
 procedure TUnitModelTests.NestedTypeMembersKeepQualifiedOwnerAndVisibility;
