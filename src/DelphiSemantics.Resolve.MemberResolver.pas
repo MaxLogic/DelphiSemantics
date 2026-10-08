@@ -11,6 +11,9 @@ type
     UnitId: TDelphiSemanticUnitGraphId;
     UnitName: string;
     OwnerName: string;
+    OwnerDeclaredId: TDelphiSemanticGraphTypeId;
+    OwnerScopeId: string;
+    OwnerSymbolId: string;
     Name: string;
     Kind: string;
     TypeName: string;
@@ -43,6 +46,8 @@ type
     ['{32617718-D2C0-4FB7-B8AF-935F8CC3466B}']
     function ResolveDirectMember(const aOwnerTypeName, aMemberName: string):
       TDelphiSemanticMemberLookupResult;
+    function ResolveDirectMemberByOwnerId(const aOwnerDeclaredId: TDelphiSemanticGraphTypeId;
+      const aMemberName: string): TDelphiSemanticMemberLookupResult;
     function ResolveMember(const aOwnerTypeName, aMemberName: string):
       TDelphiSemanticMemberLookupResult; overload;
     function ResolveMember(const aContext: TDelphiSemanticMemberLookupContext;
@@ -55,6 +60,8 @@ type
   public
     function ResolveDirectMember(const aOwnerTypeName, aMemberName: string):
       TDelphiSemanticMemberLookupResult;
+    function ResolveDirectMemberByOwnerId(const aOwnerDeclaredId: TDelphiSemanticGraphTypeId;
+      const aMemberName: string): TDelphiSemanticMemberLookupResult;
     function ResolveMember(const aOwnerTypeName, aMemberName: string):
       TDelphiSemanticMemberLookupResult; overload;
     function ResolveMember(const aContext: TDelphiSemanticMemberLookupContext;
@@ -98,6 +105,7 @@ type
   private
     fByOwnerAndName: TDictionary<TDelphiSemanticMemberNameKey,
       TDelphiSemanticMemberIdentityList>;
+    fByOwnerIdAndName: TDictionary<string, TDelphiSemanticMemberIdentityList>;
     fExpandedByOwnerType: TDictionary<string, TArray<TDelphiSemanticTypeIdentity>>;
     fTypeIndex: TDelphiSemanticTypeIdentityIndex;
     fUnitNamesById: TDictionary<string, string>;
@@ -147,6 +155,8 @@ type
     destructor Destroy; override;
     function ResolveDirectMember(const aOwnerTypeName, aMemberName: string):
       TDelphiSemanticMemberLookupResult;
+    function ResolveDirectMemberByOwnerId(const aOwnerDeclaredId: TDelphiSemanticGraphTypeId;
+      const aMemberName: string): TDelphiSemanticMemberLookupResult;
     function ResolveMember(const aOwnerTypeName, aMemberName: string):
       TDelphiSemanticMemberLookupResult; overload;
     function ResolveMember(const aContext: TDelphiSemanticMemberLookupContext;
@@ -241,6 +251,9 @@ constructor TDelphiSemanticMemberIdentityIndexData.Create(
   const aTypeIndex: TDelphiSemanticTypeIdentityIndex);
 var
   lGraphMember: TDelphiSemanticGraphMember;
+  lGraphType: TDelphiSemanticGraphType;
+  lGraphRoutine: TDelphiSemanticGraphRoutine;
+  lPossiblyLocal: Boolean;
   lMember: TDelphiSemanticMemberIdentity;
   lUnit: TDelphiSemanticGraphUnit;
 begin
@@ -248,6 +261,8 @@ begin
   fTypeIndex := aTypeIndex;
   fByOwnerAndName := TDictionary<TDelphiSemanticMemberNameKey,
     TDelphiSemanticMemberIdentityList>.Create(TDelphiSemanticMemberNameKeyComparer.Create);
+  fByOwnerIdAndName := TDictionary<string, TDelphiSemanticMemberIdentityList>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
   fExpandedByOwnerType := TDictionary<string, TArray<TDelphiSemanticTypeIdentity>>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fUnitNamesById := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -262,6 +277,18 @@ begin
     lMember.UnitId := lGraphMember.UnitId;
     fUnitNamesById.TryGetValue(lMember.UnitId.Value, lMember.UnitName);
     lMember.OwnerName := lGraphMember.OwnerName;
+    lMember.OwnerScopeId := lGraphMember.OwnerScopeId;
+    lMember.OwnerSymbolId := lGraphMember.OwnerSemanticSymbolId;
+    if lMember.OwnerScopeId <> '' then
+      for lGraphType in aGraph.Types do
+        if SameText(lGraphType.UnitId.Value, lMember.UnitId.Value) and
+          SameText(lGraphType.ScopeKind, 'routine') and
+          SameText(lGraphType.OwnerScopeId, lMember.OwnerScopeId) and
+          SameText(lGraphType.SemanticSymbolId, lMember.OwnerSymbolId) then
+        begin
+          lMember.OwnerDeclaredId := lGraphType.DeclaredId;
+          Break;
+        end;
     lMember.Name := lGraphMember.Name;
     lMember.Kind := lGraphMember.Kind;
     lMember.TypeName := lGraphMember.TypeName;
@@ -270,6 +297,20 @@ begin
     lMember.IsIndexed := lGraphMember.IsIndexed;
     lMember.IsDefault := lGraphMember.IsDefault;
     lMember.SourceRange := lGraphMember.SourceRange;
+    lPossiblyLocal := False;
+    if lMember.OwnerScopeId = '' then
+      for lGraphType in aGraph.Types do
+        if SameText(lGraphType.ScopeKind, 'routine') and
+          SameText(lGraphType.UnitId.Value, lMember.UnitId.Value) and
+          SameText(lGraphType.Name, lMember.OwnerName) and
+          (lGraphType.SourceRange.Line <= lMember.SourceRange.Line) then
+          for lGraphRoutine in aGraph.Routines do
+            if SameText(lGraphRoutine.UnitId.Value, lMember.UnitId.Value) and
+              SameText(lGraphRoutine.ScopeId, lGraphType.OwnerScopeId) and
+              (lGraphRoutine.SourceRange.EndLine >= lMember.SourceRange.Line) then
+              lPossiblyLocal := True;
+    if lPossiblyLocal then
+      Continue;
     AddMember(lMember);
   end;
 end;
@@ -280,6 +321,9 @@ var
 begin
   for lList in fByOwnerAndName.Values do
     lList.Free;
+  for lList in fByOwnerIdAndName.Values do
+    lList.Free;
+  fByOwnerIdAndName.Free;
   fUnitNamesById.Free;
   fExpandedByOwnerType.Free;
   fByOwnerAndName.Free;
@@ -294,6 +338,26 @@ var
 begin
   if (aMember.OwnerName = '') or (aMember.Name = '') then
     Exit;
+
+  if aMember.OwnerScopeId <> '' then
+  begin
+    if (aMember.OwnerDeclaredId.Value = '') or (aMember.OwnerSymbolId = '') then
+      Exit;
+    if not fByOwnerIdAndName.TryGetValue(aMember.OwnerDeclaredId.Value + #31 +
+      aMember.Name, lList) then
+    begin
+      lList := TDelphiSemanticMemberIdentityList.Create;
+      try
+        fByOwnerIdAndName.Add(aMember.OwnerDeclaredId.Value + #31 +
+          aMember.Name, lList);
+      except
+        lList.Free;
+        raise;
+      end;
+    end;
+    lList.Add(aMember);
+    Exit;
+  end;
 
   lKey.UnitId := aMember.UnitId.Value;
   lKey.OwnerName := aMember.OwnerName;
@@ -322,6 +386,22 @@ begin
     end;
   end;
   lList.Add(aMember);
+end;
+
+function TDelphiSemanticMemberIdentityIndexData.ResolveDirectMemberByOwnerId(
+  const aOwnerDeclaredId: TDelphiSemanticGraphTypeId;
+  const aMemberName: string): TDelphiSemanticMemberLookupResult;
+var
+  lList: TDelphiSemanticMemberIdentityList;
+begin
+  if (aOwnerDeclaredId.Value = '') or not fByOwnerIdAndName.TryGetValue(
+    aOwnerDeclaredId.Value + #31 + aMemberName, lList) then
+    Exit(UnresolvedResult(aOwnerDeclaredId.Value, aMemberName));
+  if lList.Count <> 1 then
+    Exit(AmbiguousResult(aOwnerDeclaredId.Value, aMemberName, lList.ToArray));
+  if lList[0].IsIndexed or lList[0].IsDefault then
+    Exit(UnsupportedResult(aMemberName, lList.ToArray));
+  Result := ResolvedResult(lList[0]);
 end;
 
 procedure TDelphiSemanticMemberIdentityIndexData.AddIdentityOwnerProbes(
@@ -739,6 +819,21 @@ begin
   end;
 
   Result := fData.ResolveDirectMember(aOwnerTypeName, aMemberName);
+end;
+
+function TDelphiSemanticMemberIdentityIndex.ResolveDirectMemberByOwnerId(
+  const aOwnerDeclaredId: TDelphiSemanticGraphTypeId;
+  const aMemberName: string): TDelphiSemanticMemberLookupResult;
+begin
+  if fData = nil then
+  begin
+    Result := Default(TDelphiSemanticMemberLookupResult);
+    Result.Status := 'unresolved';
+    Result.ReasonCode := 'INDEX_NOT_BUILT';
+    Result.Reason := 'The member identity index has not been built.';
+    Exit;
+  end;
+  Result := fData.ResolveDirectMemberByOwnerId(aOwnerDeclaredId, aMemberName);
 end;
 
 function TDelphiSemanticMemberIdentityIndex.ResolveMember(const aOwnerTypeName,

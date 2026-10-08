@@ -46,6 +46,7 @@ type
     UnitName: string;
     FileName: string;
     SourceKind: string;
+    ScopeModelStatus: string;
     SourceRange: TDelphiSemanticSourceRange;
   end;
 
@@ -64,6 +65,9 @@ type
     Name: string;
     Kind: string;
     TypeName: string;
+    ScopeKind: string;
+    OwnerScopeId: string;
+    SemanticSymbolId: string;
     SourceRange: TDelphiSemanticSourceRange;
   end;
 
@@ -80,6 +84,9 @@ type
     BaseTypeName: string;
     HelperTargetName: string;
     SectionKind: string;
+    ScopeKind: string;
+    OwnerScopeId: string;
+    SemanticSymbolId: string;
     SourceRange: TDelphiSemanticSourceRange;
   end;
 
@@ -87,6 +94,8 @@ type
     SymbolId: TDelphiSemanticGraphSymbolId;
     UnitId: TDelphiSemanticUnitGraphId;
     OwnerName: string;
+    OwnerScopeId: string;
+    OwnerSemanticSymbolId: string;
     Name: string;
     Kind: string;
     TypeName: string;
@@ -101,6 +110,7 @@ type
     SymbolId: TDelphiSemanticGraphSymbolId;
     UnitId: TDelphiSemanticUnitGraphId;
     RoutineName: string;
+    RoutineScopeId: string;
     Name: string;
     TypeName: string;
     Modifier: string;
@@ -112,8 +122,15 @@ type
     UnitId: TDelphiSemanticUnitGraphId;
     Name: string;
     OwnerName: string;
+    SectionKind: string;
     Signature: string;
     ReturnType: string;
+    ScopeId: string;
+    ParentScopeId: string;
+    AstScopeKind: string;
+    AstSemanticSignature: string;
+    AstSourceSignature: string;
+    AstSourceSignatureVerified: Boolean;
     SourceRange: TDelphiSemanticSourceRange;
   end;
 
@@ -121,6 +138,7 @@ type
     SymbolId: TDelphiSemanticGraphSymbolId;
     UnitId: TDelphiSemanticUnitGraphId;
     RoutineName: string;
+    RoutineScopeId: string;
     Name: string;
     Kind: string;
     TypeName: string;
@@ -132,6 +150,7 @@ type
     UnitId: TDelphiSemanticUnitGraphId;
     Name: string;
     RoutineName: string;
+    RoutineScopeId: string;
     Role: string;
     SectionKind: string;
     SourceRange: TDelphiSemanticSourceRange;
@@ -271,6 +290,16 @@ begin
     LowerCase(aName));
 end;
 
+function MakeScopedTypeId(const aUnitId: TDelphiSemanticUnitGraphId; const aRole,
+  aOwnerScopeId, aSemanticSymbolId: string): TDelphiSemanticGraphTypeId;
+begin
+  Result := Default(TDelphiSemanticGraphTypeId);
+  if (aOwnerScopeId = '') or (aSemanticSymbolId = '') then
+    Exit;
+  Result.Value := StableHash('local-type|' + aUnitId.Value + '|' + LowerCase(aRole) +
+    '|' + LowerCase(aOwnerScopeId) + '|' + LowerCase(aSemanticSymbolId));
+end;
+
 function MakeReferenceId(const aUnitId: TDelphiSemanticUnitGraphId;
   const aReference: TDelphiSemanticReference; const aOrdinal: Integer):
   TDelphiSemanticGraphReferenceId;
@@ -316,6 +345,7 @@ begin
   Result.UnitName := aModel.UnitName;
   Result.FileName := aModel.FileName;
   Result.SourceKind := 'project';
+  Result.ScopeModelStatus := aModel.ScopeModelStatus;
   Result.SourceRange := UnitSourceRange(aModel);
 end;
 
@@ -347,11 +377,18 @@ function RoutineSourceRange(const aModel: TDelphiSemanticUnitModel;
   const aRoutine: TDelphiSemanticRoutine): TDelphiSemanticSourceRange;
 begin
   Result := Default(TDelphiSemanticSourceRange);
-  Result.FileName := aModel.FileName;
+  if aRoutine.FileName <> '' then
+    Result.FileName := aRoutine.FileName
+  else
+    Result.FileName := aModel.FileName;
   Result.Line := aRoutine.Line;
   Result.Column := aRoutine.Column;
   Result.Offset := aRoutine.Offset;
   Result.EndOffset := aRoutine.EndOffset;
+  if aRoutine.EndLine > 0 then
+    Result.EndLine := aRoutine.EndLine;
+  if aRoutine.EndColumn > 0 then
+    Result.EndColumn := aRoutine.EndColumn;
   Result := CompleteNameRange(Result, aRoutine.Name);
 end;
 
@@ -446,6 +483,9 @@ begin
     lDeclarationDto.Name := lDeclaration.Name;
     lDeclarationDto.Kind := lDeclaration.Kind;
     lDeclarationDto.TypeName := lDeclaration.TypeName;
+    lDeclarationDto.ScopeKind := lDeclaration.ScopeKind;
+    lDeclarationDto.OwnerScopeId := lDeclaration.OwnerScopeId;
+    lDeclarationDto.SemanticSymbolId := lDeclaration.SymbolId;
     lDeclarationDto.SourceRange := lSymbol.SourceRange;
     aDeclarations.Add(lDeclarationDto);
 
@@ -464,9 +504,23 @@ begin
       lType.BaseTypeName := lDeclaration.BaseTypeName;
       lType.HelperTargetName := lDeclaration.HelperTargetName;
       lType.SectionKind := lDeclaration.SectionKind;
-      lType.DeclaredId := MakeTypeId(aUnit.Id, 'declared', lDeclaration.Name);
-      lType.CanonicalId := MakeTypeId(aUnit.Id, 'canonical', lType.CanonicalName);
-      lType.UnderlyingId := MakeTypeId(aUnit.Id, 'underlying', lType.UnderlyingName);
+      lType.ScopeKind := lDeclaration.ScopeKind;
+      lType.OwnerScopeId := lDeclaration.OwnerScopeId;
+      lType.SemanticSymbolId := lDeclaration.SymbolId;
+      if SameText(lDeclaration.ScopeKind, 'routine') then
+      begin
+        lType.DeclaredId := MakeScopedTypeId(aUnit.Id, 'declared',
+          lDeclaration.OwnerScopeId, lDeclaration.SymbolId);
+        lType.CanonicalId := MakeScopedTypeId(aUnit.Id, 'canonical',
+          lDeclaration.OwnerScopeId, lDeclaration.SymbolId);
+        lType.UnderlyingId := MakeScopedTypeId(aUnit.Id, 'underlying',
+          lDeclaration.OwnerScopeId, lDeclaration.SymbolId);
+      end else
+      begin
+        lType.DeclaredId := MakeTypeId(aUnit.Id, 'declared', lDeclaration.Name);
+        lType.CanonicalId := MakeTypeId(aUnit.Id, 'canonical', lType.CanonicalName);
+        lType.UnderlyingId := MakeTypeId(aUnit.Id, 'underlying', lType.UnderlyingName);
+      end;
       lType.SourceRange := lSymbol.SourceRange;
       aTypes.Add(lType);
     end;
@@ -499,6 +553,8 @@ begin
     lMemberDto := Default(TDelphiSemanticGraphMember);
     lMemberDto.SymbolId := lSymbol.Id;
     lMemberDto.UnitId := aUnit.Id;
+    lMemberDto.OwnerScopeId := lMember.OwnerScopeId;
+    lMemberDto.OwnerSemanticSymbolId := lMember.OwnerSymbolId;
     lMemberDto.OwnerName := lMember.OwnerName;
     lMemberDto.Name := lMember.Name;
     lMemberDto.Kind := lMember.Kind;
@@ -543,8 +599,15 @@ begin
     lRoutineDto.UnitId := aUnit.Id;
     lRoutineDto.Name := lRoutine.Name;
     lRoutineDto.OwnerName := lRoutine.OwnerName;
+    lRoutineDto.SectionKind := lRoutine.SectionKind;
     lRoutineDto.Signature := lRoutine.Signature;
     lRoutineDto.ReturnType := lRoutine.ReturnType;
+    lRoutineDto.ScopeId := lRoutine.ScopeId;
+    lRoutineDto.ParentScopeId := lRoutine.ParentScopeId;
+    lRoutineDto.AstScopeKind := lRoutine.AstScopeKind;
+    lRoutineDto.AstSemanticSignature := lRoutine.AstSemanticSignature;
+    lRoutineDto.AstSourceSignature := lRoutine.AstSourceSignature;
+    lRoutineDto.AstSourceSignatureVerified := lRoutine.AstSourceSignatureVerified;
     lRoutineDto.SourceRange := lSymbol.SourceRange;
     aRoutines.Add(lRoutineDto);
 
@@ -564,6 +627,7 @@ begin
       lParameterDto.SymbolId := lSymbol.Id;
       lParameterDto.UnitId := aUnit.Id;
       lParameterDto.RoutineName := lParameter.RoutineName;
+      lParameterDto.RoutineScopeId := lRoutine.ScopeId;
       lParameterDto.Name := lParameter.Name;
       lParameterDto.TypeName := lParameter.TypeName;
       lParameterDto.Modifier := lParameter.Modifier;
@@ -600,6 +664,7 @@ begin
     lLocalDto.SymbolId := lSymbol.Id;
     lLocalDto.UnitId := aUnit.Id;
     lLocalDto.RoutineName := lLocal.RoutineName;
+    lLocalDto.RoutineScopeId := lLocal.RoutineScopeId;
     lLocalDto.Name := lLocal.Name;
     lLocalDto.Kind := lLocal.Kind;
     lLocalDto.TypeName := lLocal.TypeName;
@@ -626,6 +691,7 @@ begin
     lReferenceDto.UnitId := aUnit.Id;
     lReferenceDto.Name := lReference.Name;
     lReferenceDto.RoutineName := lReference.RoutineName;
+    lReferenceDto.RoutineScopeId := lReference.RoutineScopeId;
     lReferenceDto.Role := lReference.Role;
     lReferenceDto.SectionKind := lReference.SectionKind;
     lReferenceDto.SourceRange := ReferenceSourceRange(aModel, lReference);

@@ -76,7 +76,8 @@ uses
   System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils,
   DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Resolve,
-  DelphiSemantics.Resolve.SelectorTypes, DelphiSemantics.Snapshot.RemoveWith;
+  DelphiSemantics.Resolve.SelectorTypes, DelphiSemantics.Resolve.TypeResolver,
+  DelphiSemantics.Snapshot.RemoveWith;
 
 const
   cSnapshotDeclarationKindAlias = 'alias';
@@ -212,7 +213,11 @@ function SnapshotIncludesDeclaration(
   const aDeclaration: TDelphiSemanticDeclaration): Boolean;
 begin
   Result := SameText(aDeclaration.DeclarationRole, 'declaration') and
-    SameText(aDeclaration.ScopeKind, 'unit');
+    (SameText(aDeclaration.ScopeKind, 'unit') or
+      (SameText(aDeclaration.ScopeKind, 'routine') and
+        (aDeclaration.OwnerScopeId <> '') and
+        (aDeclaration.SymbolId <> '') and
+        MatchText(aDeclaration.Kind, ['type', 'type-alias'])));
 end;
 
 function SnapshotReferenceRoutineNameForResolution(
@@ -2338,6 +2343,42 @@ begin
     aFlags := aFlags or aFlag;
 end;
 
+function SnapshotTypeIdentity(const aExactStrings: TSemanticStringPool;
+  const aIdentity: TDelphiSemanticTypeIdentity):
+  TSemanticRemoveWithTypeIdentityFact;
+begin
+  Result := Default(TSemanticRemoveWithTypeIdentityFact);
+  if SameText(aIdentity.ScopeKind, 'routine') and
+    ((aIdentity.OwnerScopeId = '') or (aIdentity.SemanticSymbolId = '') or
+      (aIdentity.CanonicalId.Value = '') or
+      (aIdentity.UnderlyingId.Value = '')) then
+    raise EInvalidOpException.Create('Local type identity has incomplete declaring scope.');
+  if (aIdentity.DeclaredId.Value = '') or
+    (aIdentity.SourceRange.FileName = '') or
+    (aIdentity.SourceRange.Line <= 0) then
+    Exit;
+  Result.UnitIdId := aExactStrings.Intern(aIdentity.UnitId.Value);
+  Result.UnitNameId := aExactStrings.Intern(aIdentity.UnitName);
+  Result.NameId := aExactStrings.Intern(aIdentity.Name);
+  Result.KindId := aExactStrings.Intern(aIdentity.Kind);
+  Result.DeclaredIdId := aExactStrings.Intern(aIdentity.DeclaredId.Value);
+  Result.CanonicalIdId := aExactStrings.Intern(aIdentity.CanonicalId.Value);
+  Result.UnderlyingIdId := aExactStrings.Intern(aIdentity.UnderlyingId.Value);
+  Result.CanonicalNameId := aExactStrings.Intern(aIdentity.CanonicalName);
+  Result.UnderlyingNameId := aExactStrings.Intern(aIdentity.UnderlyingName);
+  Result.BaseTypeNameId := aExactStrings.Intern(aIdentity.BaseTypeName);
+  Result.HelperTargetNameId := aExactStrings.Intern(aIdentity.HelperTargetName);
+  Result.SectionKindId := aExactStrings.Intern(aIdentity.SectionKind);
+  Result.ScopeKindId := aExactStrings.Intern(aIdentity.ScopeKind);
+  Result.OwnerScopeIdId := aExactStrings.Intern(aIdentity.OwnerScopeId);
+  Result.SemanticSymbolIdId := aExactStrings.Intern(aIdentity.SemanticSymbolId);
+  Result.FileNameId := aExactStrings.Intern(aIdentity.SourceRange.FileName);
+  Result.Line := aIdentity.SourceRange.Line;
+  Result.Column := aIdentity.SourceRange.Column;
+  Result.EndLine := aIdentity.SourceRange.EndLine;
+  Result.EndColumn := aIdentity.SourceRange.EndColumn;
+end;
+
 function SnapshotInventorySymbol(const aExactStrings: TSemanticStringPool;
   const aSymbol: TDelphiSemanticInventorySymbol): TSemanticRemoveWithInventorySymbolFact;
 begin
@@ -2352,6 +2393,10 @@ begin
   Result.SourceOwnerTypeId := aExactStrings.Intern(aSymbol.SourceOwnerType);
   Result.RelatedTypeNameId := aExactStrings.Intern(aSymbol.RelatedTypeName);
   Result.RoutineNameId := aExactStrings.Intern(aSymbol.RoutineName);
+  Result.RoutineScopeIdId := aExactStrings.Intern(aSymbol.RoutineScopeId);
+  Result.ParentScopeIdId := aExactStrings.Intern(aSymbol.ParentScopeId);
+  Result.OwnerScopeIdId := aExactStrings.Intern(aSymbol.OwnerScopeId);
+  Result.OwnerSymbolIdId := aExactStrings.Intern(aSymbol.OwnerSymbolId);
   Result.UnitNameId := aExactStrings.Intern(aSymbol.UnitName);
   Result.FileNameId := aExactStrings.Intern(aSymbol.FileName);
   Result.SectionKindId := aExactStrings.Intern(aSymbol.SectionKind);
@@ -2370,6 +2415,9 @@ begin
     aSymbol.IsIndexed);
   Result.IndexParameterCount := aSymbol.IndexParameterCount;
   Result.TypeCategoryId := aExactStrings.Intern(aSymbol.TypeCategory);
+  Result.OwnerIdentity := SnapshotTypeIdentity(aExactStrings, aSymbol.OwnerIdentity);
+  Result.AccessOwnerIdentity := SnapshotTypeIdentity(aExactStrings,
+    aSymbol.AccessOwnerIdentity);
 end;
 
 function SnapshotSelectorBinding(const aExactStrings: TSemanticStringPool;
@@ -2381,6 +2429,7 @@ begin
   Result.StatusId := aExactStrings.Intern(aSelector.Status);
   Result.ReasonCodeId := aExactStrings.Intern(aSelector.ReasonCode);
   Result.TypeNameId := aExactStrings.Intern(aSelector.TypeName);
+  Result.TypeIdentity := SnapshotTypeIdentity(aExactStrings, aSelector.TypeIdentity);
 end;
 
 function SnapshotBoundReference(const aExactStrings: TSemanticStringPool;
@@ -2415,6 +2464,7 @@ begin
   Result.FileNameId := aExactStrings.Intern(aBinding.FileName);
   Result.UnitNameId := aExactStrings.Intern(aBinding.UnitName);
   Result.RoutineNameId := aExactStrings.Intern(aBinding.RoutineName);
+  Result.RoutineScopeIdId := aExactStrings.Intern(aBinding.RoutineScopeId);
   Result.Line := aBinding.Line;
   Result.Column := aBinding.Column;
   Result.EndLine := aBinding.EndLine;

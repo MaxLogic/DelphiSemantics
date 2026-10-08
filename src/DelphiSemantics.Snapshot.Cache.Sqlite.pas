@@ -121,17 +121,20 @@ type
 implementation
 
 uses
-  System.Classes, System.DateUtils, System.Diagnostics, System.IOUtils, System.SysUtils,
+  System.Classes, System.DateUtils, System.Diagnostics, System.Generics.Collections,
+  System.IOUtils, System.SysUtils,
   Winapi.Windows,
   Data.DB,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
   FireDAC.Stan.Def,
   DelphiSemantics.Cache, DelphiSemantics.RemoveWith.Visibility,
+  DelphiSemantics.Resolve.TypeResolver,
   DelphiSemantics.Snapshot.RemoveWith;
 
 const
-  // 11: DS-659 file_id on symbols and references; 12: mid-line include facts on the directive.
-  cSnapshotCacheSchemaVersion = '12';
+  // 11: DS-659 file_id; 12: include facts; 13: receiver identities;
+  // 14: expected identity row count for complete project planning facts.
+  cSnapshotCacheSchemaVersion = '16';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -304,6 +307,69 @@ begin
     raise Exception.Create('Snapshot string ID resolves to empty text: ' + aFieldName);
 end;
 
+function LoadedTypeIdentity(const aExactStrings: TSemanticStringPool;
+  const aFact: TSemanticRemoveWithTypeIdentityFact): TDelphiSemanticTypeIdentity;
+begin
+  Result := Default(TDelphiSemanticTypeIdentity);
+  if aFact.DeclaredIdId = 0 then
+    Exit;
+  Result.UnitId.Value := aExactStrings.TextOf(aFact.UnitIdId);
+  Result.UnitName := aExactStrings.TextOf(aFact.UnitNameId);
+  Result.Name := aExactStrings.TextOf(aFact.NameId);
+  Result.Kind := aExactStrings.TextOf(aFact.KindId);
+  Result.DeclaredId.Value := aExactStrings.TextOf(aFact.DeclaredIdId);
+  Result.CanonicalId.Value := aExactStrings.TextOf(aFact.CanonicalIdId);
+  Result.UnderlyingId.Value := aExactStrings.TextOf(aFact.UnderlyingIdId);
+  Result.CanonicalName := aExactStrings.TextOf(aFact.CanonicalNameId);
+  Result.UnderlyingName := aExactStrings.TextOf(aFact.UnderlyingNameId);
+  Result.BaseTypeName := aExactStrings.TextOf(aFact.BaseTypeNameId);
+  Result.HelperTargetName := aExactStrings.TextOf(aFact.HelperTargetNameId);
+  Result.SectionKind := aExactStrings.TextOf(aFact.SectionKindId);
+  Result.ScopeKind := aExactStrings.TextOf(aFact.ScopeKindId);
+  Result.OwnerScopeId := aExactStrings.TextOf(aFact.OwnerScopeIdId);
+  Result.SemanticSymbolId := aExactStrings.TextOf(aFact.SemanticSymbolIdId);
+  Result.SourceRange.FileName := aExactStrings.TextOf(aFact.FileNameId);
+  Result.SourceRange.Line := aFact.Line;
+  Result.SourceRange.Column := aFact.Column;
+  Result.SourceRange.EndLine := aFact.EndLine;
+  Result.SourceRange.EndColumn := aFact.EndColumn;
+end;
+
+function StoredTypeIdentity(const aExactStrings: TSemanticStringPool;
+  const aIdentity: TDelphiSemanticTypeIdentity): TSemanticRemoveWithTypeIdentityFact;
+begin
+  Result := Default(TSemanticRemoveWithTypeIdentityFact);
+  if SameText(aIdentity.ScopeKind, 'routine') and
+    ((aIdentity.OwnerScopeId = '') or (aIdentity.SemanticSymbolId = '') or
+      (aIdentity.CanonicalId.Value = '') or
+      (aIdentity.UnderlyingId.Value = '')) then
+    raise Exception.Create('Local type identity has incomplete declaring scope.');
+  if (aIdentity.DeclaredId.Value = '') or
+    (aIdentity.SourceRange.FileName = '') or
+    (aIdentity.SourceRange.Line <= 0) then
+    Exit;
+  Result.UnitIdId := aExactStrings.Intern(aIdentity.UnitId.Value);
+  Result.UnitNameId := aExactStrings.Intern(aIdentity.UnitName);
+  Result.NameId := aExactStrings.Intern(aIdentity.Name);
+  Result.KindId := aExactStrings.Intern(aIdentity.Kind);
+  Result.DeclaredIdId := aExactStrings.Intern(aIdentity.DeclaredId.Value);
+  Result.CanonicalIdId := aExactStrings.Intern(aIdentity.CanonicalId.Value);
+  Result.UnderlyingIdId := aExactStrings.Intern(aIdentity.UnderlyingId.Value);
+  Result.CanonicalNameId := aExactStrings.Intern(aIdentity.CanonicalName);
+  Result.UnderlyingNameId := aExactStrings.Intern(aIdentity.UnderlyingName);
+  Result.BaseTypeNameId := aExactStrings.Intern(aIdentity.BaseTypeName);
+  Result.HelperTargetNameId := aExactStrings.Intern(aIdentity.HelperTargetName);
+  Result.SectionKindId := aExactStrings.Intern(aIdentity.SectionKind);
+  Result.ScopeKindId := aExactStrings.Intern(aIdentity.ScopeKind);
+  Result.OwnerScopeIdId := aExactStrings.Intern(aIdentity.OwnerScopeId);
+  Result.SemanticSymbolIdId := aExactStrings.Intern(aIdentity.SemanticSymbolId);
+  Result.FileNameId := aExactStrings.Intern(aIdentity.SourceRange.FileName);
+  Result.Line := aIdentity.SourceRange.Line;
+  Result.Column := aIdentity.SourceRange.Column;
+  Result.EndLine := aIdentity.SourceRange.EndLine;
+  Result.EndColumn := aIdentity.SourceRange.EndColumn;
+end;
+
 function LoadedInventorySymbol(const aExactStrings: TSemanticStringPool;
   const aSymbol: TSemanticRemoveWithInventorySymbolFact): TDelphiSemanticInventorySymbol;
 begin
@@ -318,6 +384,10 @@ begin
   Result.SourceOwnerType := aExactStrings.TextOf(aSymbol.SourceOwnerTypeId);
   Result.RelatedTypeName := aExactStrings.TextOf(aSymbol.RelatedTypeNameId);
   Result.RoutineName := aExactStrings.TextOf(aSymbol.RoutineNameId);
+  Result.RoutineScopeId := aExactStrings.TextOf(aSymbol.RoutineScopeIdId);
+  Result.ParentScopeId := aExactStrings.TextOf(aSymbol.ParentScopeIdId);
+  Result.OwnerScopeId := aExactStrings.TextOf(aSymbol.OwnerScopeIdId);
+  Result.OwnerSymbolId := aExactStrings.TextOf(aSymbol.OwnerSymbolIdId);
   Result.UnitName := aExactStrings.TextOf(aSymbol.UnitNameId);
   Result.FileName := aExactStrings.TextOf(aSymbol.FileNameId);
   Result.SectionKind := aExactStrings.TextOf(aSymbol.SectionKindId);
@@ -332,6 +402,9 @@ begin
   Result.IsIndexed := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsIndexed) <> 0;
   Result.IndexParameterCount := aSymbol.IndexParameterCount;
   Result.TypeCategory := aExactStrings.TextOf(aSymbol.TypeCategoryId);
+  Result.OwnerIdentity := LoadedTypeIdentity(aExactStrings, aSymbol.OwnerIdentity);
+  Result.AccessOwnerIdentity := LoadedTypeIdentity(aExactStrings,
+    aSymbol.AccessOwnerIdentity);
 end;
 
 function LoadedInventorySymbols(const aExactStrings: TSemanticStringPool;
@@ -359,6 +432,10 @@ begin
   Result.SourceOwnerTypeId := aExactStrings.Intern(aSymbol.SourceOwnerType);
   Result.RelatedTypeNameId := aExactStrings.Intern(aSymbol.RelatedTypeName);
   Result.RoutineNameId := aExactStrings.Intern(aSymbol.RoutineName);
+  Result.RoutineScopeIdId := aExactStrings.Intern(aSymbol.RoutineScopeId);
+  Result.ParentScopeIdId := aExactStrings.Intern(aSymbol.ParentScopeId);
+  Result.OwnerScopeIdId := aExactStrings.Intern(aSymbol.OwnerScopeId);
+  Result.OwnerSymbolIdId := aExactStrings.Intern(aSymbol.OwnerSymbolId);
   Result.UnitNameId := aExactStrings.Intern(aSymbol.UnitName);
   Result.FileNameId := aExactStrings.Intern(aSymbol.FileName);
   Result.SectionKindId := aExactStrings.Intern(aSymbol.SectionKind);
@@ -377,6 +454,9 @@ begin
     Result.Flags := Result.Flags or cSemanticRemoveWithSymbolFlagIsIndexed;
   Result.IndexParameterCount := aSymbol.IndexParameterCount;
   Result.TypeCategoryId := aExactStrings.Intern(aSymbol.TypeCategory);
+  Result.OwnerIdentity := StoredTypeIdentity(aExactStrings, aSymbol.OwnerIdentity);
+  Result.AccessOwnerIdentity := StoredTypeIdentity(aExactStrings,
+    aSymbol.AccessOwnerIdentity);
 end;
 
 function StoredInventorySymbols(const aExactStrings: TSemanticStringPool;
@@ -530,6 +610,8 @@ begin
     'delete from snapshot_remove_with_binding_references where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection,
     'delete from snapshot_remove_with_binding_selectors where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection,
+    'delete from snapshot_remove_with_type_identities where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_remove_with_bindings where cache_key = ?',
     aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_remove_with_symbols where cache_key = ?',
@@ -649,7 +731,7 @@ begin
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_facts (' +
       'cache_key text primary key not null, context_fingerprint_id integer not null, ' +
       'routine_owner_count integer not null, symbol_count integer not null, ' +
-      'binding_count integer not null)');
+      'binding_count integer not null, type_identity_count integer not null)');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_visibility (' +
       'cache_key text primary key not null, unit_count integer not null, row_count integer not null)');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_visible_units (' +
@@ -664,6 +746,8 @@ begin
       'section_kind_id integer not null, line integer not null, column integer not null, ' +
       'end_line integer not null, end_column integer not null, unsupported_reason_id integer not null, ' +
       'flags integer not null, index_parameter_count integer not null, type_category_id integer not null, ' +
+      'routine_scope_id_id integer not null, parent_scope_id_id integer not null, ' +
+      'owner_scope_id_id integer not null, owner_symbol_id_id integer not null, ' +
       'primary key(cache_key, item_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_symbols (' +
       'cache_key text not null, item_index integer not null, name_id integer not null, ' +
@@ -674,6 +758,8 @@ begin
       'section_kind_id integer not null, line integer not null, column integer not null, ' +
       'end_line integer not null, end_column integer not null, unsupported_reason_id integer not null, ' +
       'flags integer not null, index_parameter_count integer not null, type_category_id integer not null, ' +
+      'routine_scope_id_id integer not null, parent_scope_id_id integer not null, ' +
+      'owner_scope_id_id integer not null, owner_symbol_id_id integer not null, ' +
       'primary key(cache_key, item_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_bindings (' +
       'cache_key text not null, binding_index integer not null, semantic_id_id integer not null, ' +
@@ -685,11 +771,24 @@ begin
       'flags integer not null, member_reference_count integer not null, lexical_reference_count integer not null, ' +
       'external_reference_count integer not null, intrinsic_reference_count integer not null, ' +
       'unsupported_reference_count integer not null, unresolved_reference_count integer not null, ' +
-      'selector_count integer not null, reference_count integer not null, primary key(cache_key, binding_index))');
+      'selector_count integer not null, reference_count integer not null, ' +
+      'routine_scope_id_id integer not null, primary key(cache_key, binding_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_binding_selectors (' +
       'cache_key text not null, binding_index integer not null, selector_index integer not null, ' +
       'selector_text_id integer not null, status_id integer not null, reason_code_id integer not null, ' +
       'type_name_id integer not null, primary key(cache_key, binding_index, selector_index))');
+    lConnection.ExecSQL('create table if not exists snapshot_remove_with_type_identities (' +
+      'cache_key text not null, entity_kind text not null, item_index integer not null, ' +
+      'sub_index integer not null, unit_id_id integer not null, unit_name_id integer not null, ' +
+      'name_id integer not null, kind_id integer not null, declared_id_id integer not null, ' +
+      'canonical_id_id integer not null, underlying_id_id integer not null, ' +
+      'canonical_name_id integer not null, underlying_name_id integer not null, ' +
+      'base_type_name_id integer not null, helper_target_name_id integer not null, ' +
+      'section_kind_id integer not null, file_name_id integer not null, line integer not null, ' +
+      'column integer not null, end_line integer not null, end_column integer not null, ' +
+      'scope_kind_id integer not null, owner_scope_id_id integer not null, ' +
+      'semantic_symbol_id_id integer not null, ' +
+      'primary key(cache_key, entity_kind, item_index, sub_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_binding_references (' +
       'cache_key text not null, binding_index integer not null, reference_index integer not null, ' +
       'semantic_id_id integer not null, name_id integer not null, classification_id integer not null, ' +
@@ -1213,6 +1312,7 @@ procedure TDelphiSemanticSnapshotSqliteCache.LoadRemoveWithPlanningFacts(
   const aBuilder: TDelphiProjectSnapshotBuilder);
 var
   i: Integer;
+  lEntityKind: string;
   lBinding: TSemanticRemoveWithBindingFact;
   lBindingIndexField: TField;
   lBodyColumnField: TField;
@@ -1225,6 +1325,7 @@ var
   lEndLineField: TField;
   lExternalReferenceCountField: TField;
   lExpectedBindingCount: Integer;
+  lExpectedIdentityCount: Integer;
   lExpectedReferenceCount: Integer;
   lExpectedRoutineOwnerCount: Integer;
   lExpectedSelectorCount: Integer;
@@ -1234,10 +1335,12 @@ var
   lFileNameIdField: TField;
   lFlagsField: TField;
   lIntrinsicReferenceCountField: TField;
+  lIdentity: TSemanticRemoveWithTypeIdentityFact;
   lItemIndex: Integer;
   lLexicalReferenceCountField: TField;
   lLineField: TField;
   lLoadedBindingCount: Integer;
+  lLoadedIdentityCount: Integer;
   lMemberReferenceCountField: TField;
   lProvenanceIdField: TField;
   lQuery: TFDQuery;
@@ -1245,6 +1348,7 @@ var
   lRoutineNameIdField: TField;
   lSelectorCountField: TField;
   lSelectorIndex: Integer;
+  lSubIndex: Integer;
   lSelectorTextIdField: TField;
   lSemanticIdIdField: TField;
   lSkipReasonIdField: TField;
@@ -1258,9 +1362,54 @@ var
   lUnresolvedReferenceCountField: TField;
   lUnsupportedReferenceCountField: TField;
   lReferenceIndex: Integer;
+
+  function VerifiedLocalBindingScope(const aBinding: TSemanticRemoveWithBindingFact;
+    const aOwnerScopeId: TSemanticStringId): Boolean;
+  var
+    lCurrentScopeId: TSemanticStringId;
+    lMatchCount: Integer;
+    lOwnerFound: Boolean;
+    lRoutineOwner: TSemanticRemoveWithInventorySymbolFact;
+    lSeen: TDictionary<TSemanticStringId, Byte>;
+    lSelected: TSemanticRemoveWithInventorySymbolFact;
+  begin
+    Result := False;
+    if (aBinding.RoutineScopeIdId = 0) or (aOwnerScopeId = 0) then
+      Exit;
+    lSeen := TDictionary<TSemanticStringId, Byte>.Create;
+    try
+      lCurrentScopeId := aBinding.RoutineScopeIdId;
+      lOwnerFound := False;
+      while lCurrentScopeId <> 0 do
+      begin
+        if lSeen.ContainsKey(lCurrentScopeId) then
+          Exit;
+        lSeen.Add(lCurrentScopeId, 0);
+        lMatchCount := 0;
+        lSelected := Default(TSemanticRemoveWithInventorySymbolFact);
+        for lRoutineOwner in lFacts.RoutineOwners do
+          if (lRoutineOwner.RoutineScopeIdId = lCurrentScopeId) and
+            (lRoutineOwner.FileNameId = aBinding.FileNameId) and
+            (lRoutineOwner.UnitNameId = aBinding.UnitNameId) then
+          begin
+            Inc(lMatchCount);
+            lSelected := lRoutineOwner;
+          end;
+        if lMatchCount <> 1 then
+          Exit;
+        if lCurrentScopeId = aOwnerScopeId then
+          lOwnerFound := True;
+        lCurrentScopeId := lSelected.ParentScopeIdId;
+      end;
+      Result := lOwnerFound;
+    finally
+      lSeen.Free;
+    end;
+  end;
 begin
   lQuery := NewQuery(aConnection as TFDConnection, 'select context_fingerprint_id, ' +
-    'routine_owner_count, symbol_count, binding_count from snapshot_remove_with_facts ' +
+    'routine_owner_count, symbol_count, binding_count, type_identity_count ' +
+    'from snapshot_remove_with_facts ' +
     'where cache_key = ?');
   try
     lQuery.Params[0].AsWideString := aCacheKey;
@@ -1275,6 +1424,9 @@ begin
     lExpectedRoutineOwnerCount := lQuery.Fields[1].AsInteger;
     lExpectedSymbolCount := lQuery.Fields[2].AsInteger;
     lExpectedBindingCount := lQuery.Fields[3].AsInteger;
+    lExpectedIdentityCount := lQuery.Fields[4].AsInteger;
+    if lExpectedIdentityCount < 0 then
+      raise Exception.Create('Snapshot remove-with type identity row count is negative.');
     lFacts := Default(TSemanticRemoveWithPlanningFacts);
     lFacts.ContextFingerprintId := TSemanticStringId(lContextFingerprintIdField.AsInteger);
     SetLength(lFacts.RoutineOwners, lExpectedRoutineOwnerCount);
@@ -1288,7 +1440,9 @@ begin
     'type_name_id, modifier_id, owner_name_id, owner_type_id, source_owner_type_id, ' +
     'related_type_name_id, routine_name_id, unit_name_id, file_name_id, section_kind_id, ' +
     'line, column, end_line, end_column, unsupported_reason_id, flags, ' +
-    'index_parameter_count, type_category_id, item_index from snapshot_remove_with_routine_owners ' +
+    'index_parameter_count, type_category_id, item_index, routine_scope_id_id, ' +
+    'parent_scope_id_id, owner_scope_id_id, owner_symbol_id_id ' +
+    'from snapshot_remove_with_routine_owners ' +
     'where cache_key = ? order by item_index');
   try
     lQuery.Params[0].AsWideString := aCacheKey;
@@ -1324,6 +1478,10 @@ begin
       lFacts.RoutineOwners[lItemIndex].Flags := Cardinal(lFields[18].AsInteger);
       lFacts.RoutineOwners[lItemIndex].IndexParameterCount := lFields[19].AsInteger;
       lFacts.RoutineOwners[lItemIndex].TypeCategoryId := TSemanticStringId(lFields[20].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].RoutineScopeIdId := TSemanticStringId(lFields[22].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].ParentScopeIdId := TSemanticStringId(lFields[23].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].OwnerScopeIdId := TSemanticStringId(lFields[24].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].OwnerSymbolIdId := TSemanticStringId(lFields[25].AsInteger);
       Inc(lLoadedRoutineOwnerCount);
       lQuery.Next;
     end;
@@ -1337,7 +1495,9 @@ begin
     'type_name_id, modifier_id, owner_name_id, owner_type_id, source_owner_type_id, ' +
     'related_type_name_id, routine_name_id, unit_name_id, file_name_id, section_kind_id, ' +
     'line, column, end_line, end_column, unsupported_reason_id, flags, ' +
-    'index_parameter_count, type_category_id, item_index from snapshot_remove_with_symbols ' +
+    'index_parameter_count, type_category_id, item_index, routine_scope_id_id, ' +
+    'parent_scope_id_id, owner_scope_id_id, owner_symbol_id_id ' +
+    'from snapshot_remove_with_symbols ' +
     'where cache_key = ? order by item_index');
   try
     lQuery.Params[0].AsWideString := aCacheKey;
@@ -1369,6 +1529,19 @@ begin
       lFacts.Symbols[lItemIndex].Column := lFields[14].AsInteger;
       lFacts.Symbols[lItemIndex].EndLine := lFields[15].AsInteger;
       lFacts.Symbols[lItemIndex].EndColumn := lFields[16].AsInteger;
+      lFacts.Symbols[lItemIndex].RoutineScopeIdId := TSemanticStringId(lFields[22].AsInteger);
+      lFacts.Symbols[lItemIndex].ParentScopeIdId := TSemanticStringId(lFields[23].AsInteger);
+      lFacts.Symbols[lItemIndex].OwnerScopeIdId := TSemanticStringId(lFields[24].AsInteger);
+      lFacts.Symbols[lItemIndex].OwnerSymbolIdId := TSemanticStringId(lFields[25].AsInteger);
+      if SameText(aBuilder.ExactStrings.TextOf(lFacts.Symbols[lItemIndex].SymbolClassId),
+        'local') or SameText(aBuilder.ExactStrings.TextOf(
+        lFacts.Symbols[lItemIndex].SymbolClassId), 'parameter') then
+        if lFacts.Symbols[lItemIndex].RoutineScopeIdId = 0 then
+          raise Exception.Create('Snapshot routine symbol has no source scope.');
+      if SameText(aBuilder.ExactStrings.TextOf(lFacts.Symbols[lItemIndex].SymbolClassId),
+        'declaration') and (lFacts.Symbols[lItemIndex].OwnerScopeIdId <> 0) and
+        (lFacts.Symbols[lItemIndex].OwnerSymbolIdId = 0) then
+        raise Exception.Create('Snapshot local declaration has no source symbol.');
       lFacts.Symbols[lItemIndex].UnsupportedReasonId := TSemanticStringId(lFields[17].AsInteger);
       lFacts.Symbols[lItemIndex].Flags := Cardinal(lFields[18].AsInteger);
       lFacts.Symbols[lItemIndex].IndexParameterCount := lFields[19].AsInteger;
@@ -1387,7 +1560,8 @@ begin
     'end_column, body_line, body_column, body_end_line, body_end_column, selector_text_id, ' +
     'status_id, skip_reason_id, flags, member_reference_count, lexical_reference_count, ' +
     'external_reference_count, intrinsic_reference_count, unsupported_reference_count, ' +
-    'unresolved_reference_count, selector_count, reference_count from snapshot_remove_with_bindings ' +
+    'unresolved_reference_count, selector_count, reference_count, routine_scope_id_id ' +
+    'from snapshot_remove_with_bindings ' +
     'where cache_key = ? order by binding_index');
   try
     lQuery.Params[0].AsWideString := aCacheKey;
@@ -1435,6 +1609,7 @@ begin
       lBinding.FileNameId := TSemanticStringId(lFileNameIdField.AsInteger);
       lBinding.UnitNameId := TSemanticStringId(lUnitNameIdField.AsInteger);
       lBinding.RoutineNameId := TSemanticStringId(lRoutineNameIdField.AsInteger);
+      lBinding.RoutineScopeIdId := TSemanticStringId(lQuery.Fields[26].AsInteger);
       lBinding.Line := lLineField.AsInteger;
       lBinding.Column := lColumnField.AsInteger;
       lBinding.EndLine := lEndLineField.AsInteger;
@@ -1548,6 +1723,100 @@ begin
   end;
   if lLoadedReferenceCount <> lExpectedReferenceCount then
     raise Exception.Create('Snapshot remove-with reference row count mismatch.');
+
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'select entity_kind, item_index, sub_index, unit_id_id, unit_name_id, ' +
+    'name_id, kind_id, declared_id_id, canonical_id_id, underlying_id_id, ' +
+    'canonical_name_id, underlying_name_id, base_type_name_id, helper_target_name_id, ' +
+    'section_kind_id, file_name_id, line, column, end_line, end_column, ' +
+    'scope_kind_id, owner_scope_id_id, semantic_symbol_id_id from ' +
+    'snapshot_remove_with_type_identities where cache_key = ?');
+  try
+    lQuery.Params[0].AsWideString := aCacheKey;
+    lStopwatch := TStopwatch.StartNew;
+    lQuery.Open;
+    lQuery.FetchAll;
+    Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
+    CacheQueryFields(lQuery, lFields);
+    lLoadedIdentityCount := 0;
+    while not lQuery.Eof do
+    begin
+      lEntityKind := lFields[0].AsWideString;
+      lItemIndex := lFields[1].AsInteger;
+      lSubIndex := lFields[2].AsInteger;
+      lIdentity := Default(TSemanticRemoveWithTypeIdentityFact);
+      lIdentity.UnitIdId := TSemanticStringId(lFields[3].AsInteger);
+      lIdentity.UnitNameId := TSemanticStringId(lFields[4].AsInteger);
+      lIdentity.NameId := TSemanticStringId(lFields[5].AsInteger);
+      lIdentity.KindId := TSemanticStringId(lFields[6].AsInteger);
+      lIdentity.DeclaredIdId := TSemanticStringId(lFields[7].AsInteger);
+      lIdentity.CanonicalIdId := TSemanticStringId(lFields[8].AsInteger);
+      lIdentity.UnderlyingIdId := TSemanticStringId(lFields[9].AsInteger);
+      lIdentity.CanonicalNameId := TSemanticStringId(lFields[10].AsInteger);
+      lIdentity.UnderlyingNameId := TSemanticStringId(lFields[11].AsInteger);
+      lIdentity.BaseTypeNameId := TSemanticStringId(lFields[12].AsInteger);
+      lIdentity.HelperTargetNameId := TSemanticStringId(lFields[13].AsInteger);
+      lIdentity.SectionKindId := TSemanticStringId(lFields[14].AsInteger);
+      lIdentity.FileNameId := TSemanticStringId(lFields[15].AsInteger);
+      lIdentity.Line := lFields[16].AsInteger;
+      lIdentity.Column := lFields[17].AsInteger;
+      lIdentity.EndLine := lFields[18].AsInteger;
+      lIdentity.EndColumn := lFields[19].AsInteger;
+      lIdentity.ScopeKindId := TSemanticStringId(lFields[20].AsInteger);
+      lIdentity.OwnerScopeIdId := TSemanticStringId(lFields[21].AsInteger);
+      lIdentity.SemanticSymbolIdId := TSemanticStringId(lFields[22].AsInteger);
+      ValidateStringId(aBuilder.ExactStrings, lIdentity.ScopeKindId,
+        'remove-with scope kind');
+      ValidateStringId(aBuilder.ExactStrings, lIdentity.OwnerScopeIdId,
+        'remove-with owner scope');
+      ValidateStringId(aBuilder.ExactStrings, lIdentity.SemanticSymbolIdId,
+        'remove-with declaration symbol');
+      if (lIdentity.UnitIdId = 0) or (lIdentity.UnitNameId = 0) or
+        (lIdentity.NameId = 0) or (lIdentity.DeclaredIdId = 0) or
+        (lIdentity.CanonicalIdId = 0) or (lIdentity.FileNameId = 0) or
+        (lIdentity.Line <= 0) or (lIdentity.Column <= 0) then
+        raise Exception.Create('Snapshot remove-with type identity is incomplete.');
+      if SameText(aBuilder.ExactStrings.TextOf(lIdentity.ScopeKindId), 'routine') and
+        ((lIdentity.OwnerScopeIdId = 0) or
+          (lIdentity.SemanticSymbolIdId = 0) or
+          (lIdentity.UnderlyingIdId = 0)) then
+        raise Exception.Create('Snapshot local type identity has no declaring scope.');
+      if SameText(lEntityKind, 'routine-owner') and (lSubIndex = 0) and
+        (lItemIndex >= 0) and (lItemIndex < Length(lFacts.RoutineOwners)) and
+        (lFacts.RoutineOwners[lItemIndex].OwnerIdentity.DeclaredIdId = 0) then
+        lFacts.RoutineOwners[lItemIndex].OwnerIdentity := lIdentity
+      else if SameText(lEntityKind, 'symbol') and (lSubIndex = 0) and
+        (lItemIndex >= 0) and (lItemIndex < Length(lFacts.Symbols)) and
+        (lFacts.Symbols[lItemIndex].OwnerIdentity.DeclaredIdId = 0) then
+        lFacts.Symbols[lItemIndex].OwnerIdentity := lIdentity
+      else if SameText(lEntityKind, 'symbol-access-owner') and (lSubIndex = 0) and
+        (lItemIndex >= 0) and (lItemIndex < Length(lFacts.Symbols)) and
+        (lFacts.Symbols[lItemIndex].AccessOwnerIdentity.DeclaredIdId = 0) then
+        lFacts.Symbols[lItemIndex].AccessOwnerIdentity := lIdentity
+      else if SameText(lEntityKind, 'selector') and
+        (lItemIndex >= 0) and (lItemIndex < Length(lFacts.Bindings)) and
+        (lSubIndex >= 0) and (lSubIndex < Length(lFacts.Bindings[lItemIndex].Selectors)) and
+        (lFacts.Bindings[lItemIndex].Selectors[lSubIndex].TypeIdentity.DeclaredIdId = 0) then
+        lFacts.Bindings[lItemIndex].Selectors[lSubIndex].TypeIdentity := lIdentity
+      else
+        raise Exception.Create('Snapshot remove-with type identity row is unexpected.');
+      Inc(lLoadedIdentityCount);
+      lQuery.Next;
+    end;
+  finally
+    lQuery.Free;
+  end;
+  if lLoadedIdentityCount <> lExpectedIdentityCount then
+    raise Exception.Create('Snapshot remove-with type identity row count mismatch.');
+
+  for i := 0 to High(lFacts.Bindings) do
+    for lSelectorIndex := 0 to High(lFacts.Bindings[i].Selectors) do
+    begin
+      lIdentity := lFacts.Bindings[i].Selectors[lSelectorIndex].TypeIdentity;
+      if SameText(aBuilder.ExactStrings.TextOf(lIdentity.ScopeKindId), 'routine') and
+        not VerifiedLocalBindingScope(lFacts.Bindings[i], lIdentity.OwnerScopeIdId) then
+        raise Exception.Create('Snapshot local receiver scope chain is incomplete.');
+    end;
 
   if not lFacts.LookupIndex.IsAvailable then
     lFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build([],
@@ -1751,6 +2020,7 @@ begin
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_visibility');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_binding_references');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_binding_selectors');
+  lConnection.ExecSQL('drop table if exists snapshot_remove_with_type_identities');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_bindings');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_symbols');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_routine_owners');
@@ -1887,12 +2157,47 @@ var
   lBinding: TSemanticRemoveWithBindingFact;
   lConnection: TFDConnection;
   lFacts: TSemanticRemoveWithPlanningFacts;
+  lIdentityCount: Integer;
+  lIdentityQuery: TFDQuery;
   lLookupSymbols: TArray<TSemanticRemoveWithInventorySymbolFact>;
   lParamIndex: Integer;
   lQuery: TFDQuery;
   lReference: TSemanticRemoveWithBoundReferenceFact;
   lSelector: TSemanticRemoveWithSelectorBindingFact;
   lSymbol: TSemanticRemoveWithInventorySymbolFact;
+
+  procedure StoreTypeIdentity(const aKind: string; const aItemIndex,
+    aSubIndex: Integer; const aFact: TSemanticRemoveWithTypeIdentityFact);
+  begin
+    if aFact.DeclaredIdId = 0 then
+      Exit;
+    lIdentityQuery.Params[0].AsWideString := aIdentity.CacheKey;
+    lIdentityQuery.Params[1].AsWideString := aKind;
+    lIdentityQuery.Params[2].AsInteger := aItemIndex;
+    lIdentityQuery.Params[3].AsInteger := aSubIndex;
+    lIdentityQuery.Params[4].AsInteger := Integer(aFact.UnitIdId);
+    lIdentityQuery.Params[5].AsInteger := Integer(aFact.UnitNameId);
+    lIdentityQuery.Params[6].AsInteger := Integer(aFact.NameId);
+    lIdentityQuery.Params[7].AsInteger := Integer(aFact.KindId);
+    lIdentityQuery.Params[8].AsInteger := Integer(aFact.DeclaredIdId);
+    lIdentityQuery.Params[9].AsInteger := Integer(aFact.CanonicalIdId);
+    lIdentityQuery.Params[10].AsInteger := Integer(aFact.UnderlyingIdId);
+    lIdentityQuery.Params[11].AsInteger := Integer(aFact.CanonicalNameId);
+    lIdentityQuery.Params[12].AsInteger := Integer(aFact.UnderlyingNameId);
+    lIdentityQuery.Params[13].AsInteger := Integer(aFact.BaseTypeNameId);
+    lIdentityQuery.Params[14].AsInteger := Integer(aFact.HelperTargetNameId);
+    lIdentityQuery.Params[15].AsInteger := Integer(aFact.SectionKindId);
+    lIdentityQuery.Params[16].AsInteger := Integer(aFact.FileNameId);
+    lIdentityQuery.Params[17].AsInteger := aFact.Line;
+    lIdentityQuery.Params[18].AsInteger := aFact.Column;
+    lIdentityQuery.Params[19].AsInteger := aFact.EndLine;
+    lIdentityQuery.Params[20].AsInteger := aFact.EndColumn;
+    lIdentityQuery.Params[21].AsInteger := Integer(aFact.ScopeKindId);
+    lIdentityQuery.Params[22].AsInteger := Integer(aFact.OwnerScopeIdId);
+    lIdentityQuery.Params[23].AsInteger := Integer(aFact.SemanticSymbolIdId);
+    lIdentityQuery.ExecSQL;
+    Inc(lIdentityCount);
+  end;
 
   procedure StoreInventoryFacts(const aTableName: string;
     const aSymbols: TArray<TSemanticRemoveWithInventorySymbolFact>);
@@ -1906,11 +2211,12 @@ var
       '(cache_key, item_index, name_id, symbol_class_id, kind_id, type_name_id, ' +
       'modifier_id, owner_name_id, owner_type_id, source_owner_type_id, related_type_name_id, ' +
       'routine_name_id, unit_name_id, file_name_id, section_kind_id, line, column, end_line, ' +
-      'end_column, unsupported_reason_id, flags, index_parameter_count, type_category_id) ' +
-      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      'end_column, unsupported_reason_id, flags, index_parameter_count, type_category_id, ' +
+      'routine_scope_id_id, parent_scope_id_id, owner_scope_id_id, owner_symbol_id_id) ' +
+      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     try
       lInventoryQuery.Params[0].DataType := ftWideString;
-      for lParamIndex := 1 to 22 do
+      for lParamIndex := 1 to 26 do
         lInventoryQuery.Params[lParamIndex].DataType := ftInteger;
       lInventoryQuery.Prepare;
       for lIndex := 0 to High(aSymbols) do
@@ -1939,6 +2245,10 @@ var
         lInventoryQuery.Params[20].AsInteger := Integer(lStoredSymbol.Flags);
         lInventoryQuery.Params[21].AsInteger := lStoredSymbol.IndexParameterCount;
         lInventoryQuery.Params[22].AsInteger := Integer(lStoredSymbol.TypeCategoryId);
+        lInventoryQuery.Params[23].AsInteger := Integer(lStoredSymbol.RoutineScopeIdId);
+        lInventoryQuery.Params[24].AsInteger := Integer(lStoredSymbol.ParentScopeIdId);
+        lInventoryQuery.Params[25].AsInteger := Integer(lStoredSymbol.OwnerScopeIdId);
+        lInventoryQuery.Params[26].AsInteger := Integer(lStoredSymbol.OwnerSymbolIdId);
         lInventoryQuery.ExecSQL;
       end;
     finally
@@ -1952,12 +2262,13 @@ begin
   lConnection := aConnection as TFDConnection;
   lFacts := aSnapshot.RemoveWithPlanningFacts;
   lLookupSymbols := StoredInventorySymbols(aExactStrings, aLookupSymbols);
+  lIdentityCount := 0;
   lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_facts(cache_key, ' +
-    'context_fingerprint_id, routine_owner_count, symbol_count, binding_count) values ' +
-    '(?, ?, ?, ?, ?)');
+    'context_fingerprint_id, routine_owner_count, symbol_count, binding_count, ' +
+    'type_identity_count) values (?, ?, ?, ?, ?, ?)');
   try
     lQuery.Params[0].DataType := ftWideString;
-    for lParamIndex := 1 to 4 do
+    for lParamIndex := 1 to 5 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
     lQuery.Params[0].AsWideString := aIdentity.CacheKey;
@@ -1965,6 +2276,7 @@ begin
     lQuery.Params[2].AsInteger := Length(lFacts.RoutineOwners);
     lQuery.Params[3].AsInteger := Length(lLookupSymbols);
     lQuery.Params[4].AsInteger := Length(lFacts.Bindings);
+    lQuery.Params[5].AsInteger := 0;
     lQuery.ExecSQL;
   finally
     lQuery.Free;
@@ -1973,16 +2285,56 @@ begin
   StoreInventoryFacts('snapshot_remove_with_routine_owners', lFacts.RoutineOwners);
   StoreInventoryFacts('snapshot_remove_with_symbols', lLookupSymbols);
 
+  lIdentityQuery := NewQuery(lConnection,
+    'insert into snapshot_remove_with_type_identities(cache_key, entity_kind, ' +
+    'item_index, sub_index, unit_id_id, unit_name_id, name_id, kind_id, ' +
+    'declared_id_id, canonical_id_id, underlying_id_id, canonical_name_id, ' +
+    'underlying_name_id, base_type_name_id, helper_target_name_id, ' +
+    'section_kind_id, file_name_id, line, column, end_line, end_column, ' +
+    'scope_kind_id, owner_scope_id_id, semantic_symbol_id_id) ' +
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  try
+    for lParamIndex := 0 to 1 do
+      lIdentityQuery.Params[lParamIndex].DataType := ftWideString;
+    for lParamIndex := 2 to 23 do
+      lIdentityQuery.Params[lParamIndex].DataType := ftInteger;
+    lIdentityQuery.Prepare;
+    for i := 0 to High(lFacts.RoutineOwners) do
+      StoreTypeIdentity('routine-owner', i, 0, lFacts.RoutineOwners[i].OwnerIdentity);
+    for i := 0 to High(lLookupSymbols) do
+    begin
+      StoreTypeIdentity('symbol', i, 0, lLookupSymbols[i].OwnerIdentity);
+      StoreTypeIdentity('symbol-access-owner', i, 0,
+        lLookupSymbols[i].AccessOwnerIdentity);
+    end;
+    for i := 0 to High(lFacts.Bindings) do
+      for j := 0 to High(lFacts.Bindings[i].Selectors) do
+        StoreTypeIdentity('selector', i, j,
+          lFacts.Bindings[i].Selectors[j].TypeIdentity);
+  finally
+    lIdentityQuery.Free;
+  end;
+  lQuery := NewQuery(lConnection, 'update snapshot_remove_with_facts ' +
+    'set type_identity_count = ? where cache_key = ?');
+  try
+    lQuery.Params[0].AsInteger := lIdentityCount;
+    lQuery.Params[1].AsWideString := aIdentity.CacheKey;
+    lQuery.ExecSQL;
+  finally
+    lQuery.Free;
+  end;
+
   lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_bindings(cache_key, ' +
     'binding_index, semantic_id_id, provenance_id, file_name_id, unit_name_id, routine_name_id, ' +
     'line, column, end_line, end_column, body_line, body_column, body_end_line, body_end_column, ' +
     'selector_text_id, status_id, skip_reason_id, flags, member_reference_count, ' +
     'lexical_reference_count, external_reference_count, intrinsic_reference_count, ' +
-    'unsupported_reference_count, unresolved_reference_count, selector_count, reference_count) ' +
-    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    'unsupported_reference_count, unresolved_reference_count, selector_count, reference_count, ' +
+    'routine_scope_id_id) ' +
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
     lQuery.Params[0].DataType := ftWideString;
-    for lParamIndex := 1 to 26 do
+    for lParamIndex := 1 to 27 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
     for i := 0 to High(lFacts.Bindings) do
@@ -2015,6 +2367,7 @@ begin
       lQuery.Params[24].AsInteger := lBinding.UnresolvedReferenceCount;
       lQuery.Params[25].AsInteger := Length(lBinding.Selectors);
       lQuery.Params[26].AsInteger := Length(lBinding.References);
+      lQuery.Params[27].AsInteger := Integer(lBinding.RoutineScopeIdId);
       lQuery.ExecSQL;
     end;
   finally

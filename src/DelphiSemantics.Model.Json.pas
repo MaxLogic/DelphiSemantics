@@ -271,6 +271,8 @@ function MemberToJson(const aMember: TDelphiSemanticMember): TJSONObject;
 begin
   Result := TJSONObject.Create;
   Result.AddPair('OwnerName', aMember.OwnerName);
+  Result.AddPair('OwnerScopeId', aMember.OwnerScopeId);
+  Result.AddPair('OwnerSymbolId', aMember.OwnerSymbolId);
   Result.AddPair('Name', aMember.Name);
   Result.AddPair('Kind', aMember.Kind);
   Result.AddPair('TypeName', aMember.TypeName);
@@ -291,6 +293,8 @@ begin
   Result := Default(TDelphiSemanticMember);
   Result.ProcedureSignature := JsonToSignature(aObject.GetValue('ProcedureSignature') as TJSONObject);
   Result.OwnerName := JsonString(aObject, 'OwnerName');
+  Result.OwnerScopeId := JsonString(aObject, 'OwnerScopeId');
+  Result.OwnerSymbolId := JsonString(aObject, 'OwnerSymbolId');
   Result.Name := JsonString(aObject, 'Name');
   Result.Kind := JsonString(aObject, 'Kind');
   Result.TypeName := JsonString(aObject, 'TypeName');
@@ -396,6 +400,11 @@ begin
   Result.AddPair('EndColumn', TJSONNumber.Create(aRoutine.EndColumn));
   Result.AddPair('ScopeId', aRoutine.ScopeId);
   Result.AddPair('ParentScopeId', aRoutine.ParentScopeId);
+  Result.AddPair('AstScopeKind', aRoutine.AstScopeKind);
+  Result.AddPair('AstSemanticSignature', aRoutine.AstSemanticSignature);
+  Result.AddPair('AstSourceSignature', aRoutine.AstSourceSignature);
+  Result.AddPair('AstSourceSignatureVerified',
+    TJSONBool.Create(aRoutine.AstSourceSignatureVerified));
   Result.AddPair('Parameters', ParametersToJson(aRoutine.Parameters));
   AddFactFileName(Result, aRoutine.FileName);
 end;
@@ -418,6 +427,10 @@ begin
   Result.EndColumn := JsonInt(aObject, 'EndColumn');
   Result.ScopeId := JsonString(aObject, 'ScopeId');
   Result.ParentScopeId := JsonString(aObject, 'ParentScopeId');
+  Result.AstScopeKind := JsonString(aObject, 'AstScopeKind');
+  Result.AstSemanticSignature := JsonString(aObject, 'AstSemanticSignature');
+  Result.AstSourceSignature := JsonString(aObject, 'AstSourceSignature');
+  Result.AstSourceSignatureVerified := JsonBool(aObject, 'AstSourceSignatureVerified');
   Result.Parameters := JsonToParameters(aObject.GetValue('Parameters') as TJSONArray);
   Result.FileName := JsonString(aObject, 'FileName');
 end;
@@ -553,6 +566,106 @@ begin
     Result[i] := JsonToReference(aArray.Items[i] as TJSONObject);
 end;
 
+function PhysicalOccurrenceToJson(
+  const aOccurrence: TDelphiSemanticPhysicalReferenceOccurrence): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('Name', aOccurrence.Name);
+  Result.AddPair('Role', aOccurrence.Role);
+  Result.AddPair('RoutineName', aOccurrence.RoutineName);
+  Result.AddPair('RoutineScopeId', aOccurrence.RoutineScopeId);
+  Result.AddPair('OutputStartOffset', TJSONNumber.Create(aOccurrence.OutputStartOffset));
+  Result.AddPair('OutputEndOffset', TJSONNumber.Create(aOccurrence.OutputEndOffset));
+  Result.AddPair('FileName', aOccurrence.FileName);
+  Result.AddPair('Line', TJSONNumber.Create(aOccurrence.Line));
+  Result.AddPair('Column', TJSONNumber.Create(aOccurrence.Column));
+  Result.AddPair('EndLine', TJSONNumber.Create(aOccurrence.EndLine));
+  Result.AddPair('EndColumn', TJSONNumber.Create(aOccurrence.EndColumn));
+  Result.AddPair('ExpansionId', aOccurrence.ExpansionId);
+  Result.AddPair('Verified', TJSONBool.Create(aOccurrence.Verified));
+end;
+
+function PhysicalOccurrencesToJson(
+  const aOccurrences: TArray<TDelphiSemanticPhysicalReferenceOccurrence>): TJSONArray;
+var
+  lOccurrence: TDelphiSemanticPhysicalReferenceOccurrence;
+begin
+  Result := TJSONArray.Create;
+  for lOccurrence in aOccurrences do
+    Result.AddElement(PhysicalOccurrenceToJson(lOccurrence));
+end;
+
+function JsonToPhysicalOccurrences(const aArray: TJSONArray;
+  out aStructurallyValid: Boolean; out aInvalidCount: Integer):
+  TArray<TDelphiSemanticPhysicalReferenceOccurrence>;
+var
+  i: Integer;
+  lObject: TJSONObject;
+  lOccurrence: TDelphiSemanticPhysicalReferenceOccurrence;
+  lOccurrenceValid: Boolean;
+  lStructurallyInvalid: Boolean;
+  lWasVerified: Boolean;
+begin
+  aStructurallyValid := Assigned(aArray);
+  aInvalidCount := 0;
+  if not Assigned(aArray) then
+  begin
+    SetLength(Result, 0);
+    Exit;
+  end;
+  SetLength(Result, aArray.Count);
+  for i := 0 to Pred(aArray.Count) do
+  begin
+    lOccurrence := Default(TDelphiSemanticPhysicalReferenceOccurrence);
+    if not (aArray.Items[i] is TJSONObject) then
+    begin
+      aStructurallyValid := False;
+      Inc(aInvalidCount);
+      Result[i] := lOccurrence;
+      Continue;
+    end;
+    lObject := aArray.Items[i] as TJSONObject;
+    lOccurrence.Name := JsonString(lObject, 'Name');
+    lOccurrence.Role := JsonString(lObject, 'Role');
+    lOccurrence.RoutineName := JsonString(lObject, 'RoutineName');
+    lOccurrence.RoutineScopeId := JsonString(lObject, 'RoutineScopeId');
+    lOccurrence.OutputStartOffset := JsonInt(lObject, 'OutputStartOffset');
+    lOccurrence.OutputEndOffset := JsonInt(lObject, 'OutputEndOffset');
+    lOccurrence.FileName := JsonString(lObject, 'FileName');
+    lOccurrence.Line := JsonInt(lObject, 'Line');
+    lOccurrence.Column := JsonInt(lObject, 'Column');
+    lOccurrence.EndLine := JsonInt(lObject, 'EndLine');
+    lOccurrence.EndColumn := JsonInt(lObject, 'EndColumn');
+    lOccurrence.ExpansionId := JsonString(lObject, 'ExpansionId');
+    lOccurrence.Verified := (lObject.GetValue('Verified') is TJSONBool) and
+      JsonBool(lObject, 'Verified');
+    lWasVerified := lOccurrence.Verified;
+    lOccurrenceValid := True;
+    lStructurallyInvalid := (lOccurrence.Name = '') or
+      (lOccurrence.OutputStartOffset <= 0) or
+      (lOccurrence.OutputEndOffset <= lOccurrence.OutputStartOffset);
+    if lStructurallyInvalid then
+    begin
+      aStructurallyValid := False;
+      lOccurrenceValid := False;
+    end;
+    if (lOccurrence.Role = '') or
+      (lOccurrence.FileName = '') or (lOccurrence.Line <= 0) or
+      (lOccurrence.Column <= 0) or (lOccurrence.EndLine <> lOccurrence.Line) or
+      (lOccurrence.EndColumn - lOccurrence.Column + 1 <>
+        lOccurrence.OutputEndOffset - lOccurrence.OutputStartOffset) or
+      (lOccurrence.ExpansionId = '') then
+      lOccurrenceValid := False;
+    if not lOccurrenceValid then
+    begin
+      lOccurrence.Verified := False;
+      if lWasVerified or lStructurallyInvalid then
+        Inc(aInvalidCount);
+    end;
+    Result[i] := lOccurrence;
+  end;
+end;
+
 function WithStatementToJson(const aStatement: TDelphiSemanticWithStatement): TJSONObject;
 begin
   Result := TJSONObject.Create;
@@ -675,6 +788,10 @@ begin
     lObject.AddPair('Routines', RoutinesToJson(aModel.Routines));
     lObject.AddPair('Locals', LocalsToJson(aModel.Locals));
     lObject.AddPair('References', ReferencesToJson(aModel.References));
+    lObject.AddPair('PhysicalReferenceOccurrences',
+      PhysicalOccurrencesToJson(aModel.PhysicalReferenceOccurrences));
+    lObject.AddPair('PhysicalReferenceOccurrencesAvailable',
+      TJSONBool.Create(aModel.PhysicalReferenceOccurrencesAvailable));
     lObject.AddPair('LocalLabelReferences', ReferencesToJson(aModel.LocalLabelReferences));
     lObject.AddPair('WithStatements', WithStatementsToJson(aModel.WithStatements));
     lObject.AddPair('Diagnostics', DiagnosticsToJson(aModel.Diagnostics));
@@ -690,6 +807,9 @@ end;
 
 function JsonToModel(const aJson: string): TDelphiSemanticUnitModel;
 var
+  lInvalidOccurrenceCount: Integer;
+  lOccurrencesValid: Boolean;
+  lOccurrencesValue: TJSONValue;
   lObject: TJSONObject;
   lValue: TJSONValue;
 begin
@@ -715,9 +835,29 @@ begin
     Result.Routines := JsonToRoutines(lObject.GetValue('Routines') as TJSONArray);
     Result.Locals := JsonToLocals(lObject.GetValue('Locals') as TJSONArray);
     Result.References := JsonToReferences(lObject.GetValue('References') as TJSONArray);
+    lOccurrencesValue := lObject.GetValue('PhysicalReferenceOccurrences');
+    if lOccurrencesValue is TJSONArray then
+      Result.PhysicalReferenceOccurrences := JsonToPhysicalOccurrences(
+        lOccurrencesValue as TJSONArray, lOccurrencesValid, lInvalidOccurrenceCount)
+    else begin
+      lOccurrencesValid := False;
+      lInvalidOccurrenceCount := Ord(Assigned(lOccurrencesValue));
+    end;
+    Result.PhysicalReferenceOccurrencesAvailable := lOccurrencesValid and
+      (lObject.GetValue('PhysicalReferenceOccurrencesAvailable') is TJSONBool) and
+      JsonBool(lObject, 'PhysicalReferenceOccurrencesAvailable');
     Result.LocalLabelReferences := JsonToReferences(lObject.GetValue('LocalLabelReferences') as TJSONArray);
     Result.WithStatements := JsonToWithStatements(lObject.GetValue('WithStatements') as TJSONArray);
     Result.Diagnostics := JsonToDiagnostics(lObject.GetValue('Diagnostics') as TJSONArray);
+    if lInvalidOccurrenceCount > 0 then
+    begin
+      SetLength(Result.Diagnostics, Length(Result.Diagnostics) + 1);
+      Result.Diagnostics[High(Result.Diagnostics)].Code :=
+        'PHYSICAL_REFERENCE_JSON_UNVERIFIED';
+      Result.Diagnostics[High(Result.Diagnostics)].Message :=
+        IntToStr(lInvalidOccurrenceCount) + ' malformed physical occurrence(s) stayed unverified.';
+      Result.Diagnostics[High(Result.Diagnostics)].FileName := Result.FileName;
+    end;
     Result.ScopeModelStatus := JsonString(lObject, 'ScopeModelStatus');
     Result.ScopeModelVersion := JsonString(lObject, 'ScopeModelVersion');
     Result.RejectedDeclarationCount := JsonInt(lObject, 'RejectedDeclarationCount');

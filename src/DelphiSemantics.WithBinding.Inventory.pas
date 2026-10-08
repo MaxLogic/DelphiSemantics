@@ -23,13 +23,18 @@ implementation
 
 uses
   System.Classes, System.RegularExpressions, System.StrUtils, System.SysUtils,
-  DelphiSemantics.CompilerProfile,
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve.TypeResolver,
   MaxLogic.StrUtils;
 
 type
   TRelatedInventoryMemberRelation = record
     SourceOwnerType: string;
     TargetOwnerType: string;
+    TargetOwnerUnitName: string;
+    TargetOwnerFileName: string;
+    TargetOwnerSectionKind: string;
+    TargetOwnerLine: Integer;
+    TargetOwnerColumn: Integer;
     IsHelper: Boolean;
   end;
 
@@ -195,6 +200,33 @@ begin
   Result := Pos(aName, aLine);
   if Result = 0 then
     Result := 1;
+end;
+
+// Returns the 1-based column of aName as a whole, case-insensitive identifier
+// at or after aFromColumn, or 0. A plain Pos would match "Value" inside
+// "SetValue" or "i" inside "lList".
+function InventoryFindIdentifierColumn(const aLine, aName: string;
+  const aFromColumn: Integer): Integer;
+var
+  lEnd: Integer;
+  lLine: string;
+  lName: string;
+  lPos: Integer;
+begin
+  Result := 0;
+  if (aName = '') or (aFromColumn < 1) then
+    Exit;
+  lLine := UpperCase(aLine);
+  lName := UpperCase(aName);
+  lPos := PosEx(lName, lLine, aFromColumn);
+  while lPos > 0 do
+  begin
+    lEnd := lPos + Length(lName);
+    if ((lPos = 1) or (not InventoryIsIdentifierChar(aLine[lPos - 1]))) and
+      ((lEnd > Length(aLine)) or (not InventoryIsIdentifierChar(aLine[lEnd]))) then
+      Exit(lPos);
+    lPos := PosEx(lName, lLine, lPos + 1);
+  end;
 end;
 
 function InventorySimpleTypeName(const aTypeName: string): string;
@@ -800,18 +832,20 @@ begin
 end;
 
 function InventoryCollectTypeStartText(const aLines: TArray<string>;
-  const aStartLine: Integer): string;
+  const aStartLine: Integer; out aEndLine: Integer): string;
 var
   i: Integer;
   lLine: string;
   lText: string;
 begin
   Result := '';
+  aEndLine := aStartLine;
   for i := aStartLine to High(aLines) do
   begin
     lLine := InventoryCleanLine(aLines[i]);
     if lLine <> '' then
     begin
+      aEndLine := i;
       if Result <> '' then
         Result := Result + ' ';
       Result := Result + lLine;
@@ -821,6 +855,185 @@ begin
         Exit;
     end;
   end;
+end;
+
+const
+  // Text up to a closing "end" followed only by hint directives.
+  cInventoryTrailingHintsPattern = '^(.*\bend)(\s+(deprecated(\s*''(?:[^'']|'''')*'')?|' +
+    'platform|library|experimental))+\s*$';
+
+type
+  // DS-684: how a class, record or interface header continues after its keyword.
+  TInventoryTypeStartShape = (
+    itsOpensBody,     // members follow on later lines up to "end;"
+    itsComplete,      // "class;", "class(TBase);", "class of TBase;", "class end;"
+    itsInlineBody,    // "record X: Integer; end;" with the members on the header line
+    itsBodyWithInlineFields, // "record X: Integer;" whose body continues on later lines
+    itsUnrecognized); // anything else; the caller fails closed
+
+// Consumes aWord when it is the next whole word of aText.
+function InventoryTryConsumeWord(var aText: string; const aWord: string): Boolean;
+begin
+  Result := StartsText(aWord, aText) and ((Length(aText) = Length(aWord)) or
+    (not InventoryIsIdentifierChar(aText[Length(aWord) + 1])));
+  if Result then
+    aText := Trim(Copy(aText, Length(aWord) + 1, MaxInt));
+end;
+
+// Returns aText without a leading optional word such as "packed" or "sealed".
+function InventorySkipOptionalWord(const aText, aWord: string): string;
+begin
+  Result := aText;
+  if not InventoryTryConsumeWord(Result, aWord) then
+    Result := aText;
+end;
+
+// Consumes a leading bracketed list such as a heritage list or an interface GUID.
+// Returns False when the list does not close in aText.
+function InventoryTryConsumeBracketed(var aText: string; const aOpen, aClose: Char): Boolean;
+var
+  lClosePos: Integer;
+begin
+  if (aText = '') or (aText[1] <> aOpen) then
+    Exit(True);
+  lClosePos := Pos(aClose, aText);
+  if lClosePos = 0 then
+    Exit(False);
+  aText := Trim(Copy(aText, lClosePos + 1, MaxInt));
+  Result := True;
+end;
+
+// DS-684: a type header may complete on its own line, as in "class(TBase) end;",
+// "class;", "class of TBase;" or "record X: Integer; end;". Treating such a header as
+// an open body attributed the following unit declarations to that type, so we classify
+// the text after the keyword first. aInlineBody receives the members of a one-line body.
+function InventoryClassifyTypeStart(const aTypeText: string; out aInlineBody: string):
+  TInventoryTypeStartShape;
+var
+  lBodyLength: Integer;
+  lCanForward: Boolean;
+  lEndsWithSemicolon: Boolean;
+  lEqualsPos: Integer;
+  lHintMatch: TMatch;
+  lIsInterface: Boolean;
+  lText: string;
+begin
+  aInlineBody := '';
+  Result := itsUnrecognized;
+  lEqualsPos := Pos('=', aTypeText);
+  if lEqualsPos = 0 then
+    Exit;
+  lText := Trim(Copy(aTypeText, lEqualsPos + 1, MaxInt));
+  lText := InventorySkipOptionalWord(lText, 'packed');
+  lIsInterface := False;
+  if InventoryTryConsumeWord(lText, 'class') then
+  begin
+    if InventoryTryConsumeWord(lText, 'of') then
+    begin
+      // A metaclass has no body of its own.
+      if EndsText(';', lText) and
+        IsValidIdent(Trim(Copy(lText, 1, Length(lText) - 1)), True) then
+        Result := itsComplete;
+      Exit;
+    end;
+    lText := InventorySkipOptionalWord(InventorySkipOptionalWord(lText, 'abstract'), 'sealed');
+    lCanForward := True;
+  end else if InventoryTryConsumeWord(lText, 'record') then
+    lCanForward := False
+  else if InventoryTryConsumeWord(lText, 'interface') then
+  begin
+    lCanForward := True;
+    lIsInterface := True;
+  end else
+    Exit;
+
+  // Helpers keep their established multi-line handling; a one-line helper fails closed.
+  if InventoryTryConsumeWord(lText, 'helper') then
+  begin
+    if not (EndsText(' end;', lText) or EndsText(' end', lText)) then
+      Result := itsOpensBody;
+    Exit;
+  end;
+  // A heritage list that continues on the next line still opens a body.
+  if not InventoryTryConsumeBracketed(lText, '(', ')') then
+    Exit(itsOpensBody);
+  if lIsInterface and (not InventoryTryConsumeBracketed(lText, '[', ']')) then
+    Exit;
+
+  if lText = '' then
+    Exit(itsOpensBody);
+  if lText = ';' then
+  begin
+    // "class;" and "interface;" are forward declarations; "class(TBase);" is a complete
+    // class without members of its own.
+    if lCanForward then
+      Result := itsComplete;
+    Exit;
+  end;
+  lEndsWithSemicolon := EndsText(';', lText);
+  if lEndsWithSemicolon then
+    lText := TrimRight(Copy(lText, 1, Length(lText) - 1));
+  // Hint directives may follow the closing "end", as in "end deprecated 'Use X';".
+  lHintMatch := TRegEx.Match(lText, cInventoryTrailingHintsPattern, [roIgnoreCase]);
+  if lHintMatch.Success then
+    lText := lHintMatch.Groups[1].Value;
+  lBodyLength := Length(lText) - Length('end');
+  if (not EndsText('end', lText)) or
+    ((lBodyLength > 0) and InventoryIsIdentifierChar(lText[lBodyLength])) then
+  begin
+    // Members start on the header line and the body continues to a later "end;".
+    // Any other "end" on the header line closes the type there, so an unknown
+    // trailer stays unsupported instead of opening a body over the next types.
+    if lEndsWithSemicolon and (not TRegEx.IsMatch(lText, '\bend\b', [roIgnoreCase])) then
+    begin
+      aInlineBody := lText;
+      Result := itsBodyWithInlineFields;
+    end;
+    Exit;
+  end;
+  aInlineBody := Trim(Copy(lText, 1, lBodyLength));
+  if aInlineBody = '' then
+    Result := itsComplete
+  else
+    Result := itsInlineBody;
+end;
+
+// Splits a one-line body into plain field declarations. Returns False when any part is
+// not a plain field (visibility, routine, property, nested record, variant part), so the
+// caller marks the type unsupported instead of guessing its members.
+function InventoryTryParseInlineFields(const aInlineBody: string;
+  out aFieldNames: TArray<TArray<string>>; out aFieldTypes: TArray<string>): Boolean;
+var
+  lDeclaration: string;
+  lName: string;
+  lNames: TArray<string>;
+  lRawDeclaration: string;
+  lTypeName: string;
+begin
+  aFieldNames := nil;
+  aFieldTypes := nil;
+  for lRawDeclaration in aInlineBody.Split([';']) do
+  begin
+    lDeclaration := Trim(lRawDeclaration);
+    if lDeclaration = '' then
+      Continue;
+    if StartsText('case ', lDeclaration) or
+      (not InventoryTryDeclaration(lDeclaration + ';', lNames, lTypeName)) then
+      Exit(False);
+    for lName in lNames do
+      if not IsValidIdent(Trim(lName)) then
+        Exit(False);
+    if (Pos('(', lTypeName) > 0) or (Pos('=', lTypeName) > 0) or (Pos(':', lTypeName) > 0) or
+      (InventorySkipOptionalWord(lTypeName, 'record') <> lTypeName) or
+      (InventorySkipOptionalWord(lTypeName, 'packed') <> lTypeName) or
+      (InventorySkipOptionalWord(lTypeName, 'class') <> lTypeName) then
+      Exit(False);
+    SetLength(aFieldNames, Length(aFieldNames) + 1);
+    aFieldNames[High(aFieldNames)] := lNames;
+    SetLength(aFieldTypes, Length(aFieldTypes) + 1);
+    aFieldTypes[High(aFieldTypes)] := lTypeName;
+  end;
+  Result := Length(aFieldNames) > 0;
 end;
 
 function InventoryUnsupportedReasonForTypeStart(const aTypeName, aPendingReason: string;
@@ -850,34 +1063,40 @@ begin
   end;
 end;
 
-function InventoryFindNameSource(const aLines: TArray<string>; const aStartIndex,
-  aEndIndex: Integer; const aName: string; out aLineNumber: Integer;
-  out aLineText: string): Boolean;
+function InventoryFindIdentifierSource(const aLines: TArray<string>; const aEndIndex: Integer;
+  const aName: string; const aFromLine, aFromColumn: Integer; out aLineIndex,
+  aColumn: Integer): Boolean;
 var
   i: Integer;
   lEndIndex: Integer;
+  lFromColumn: Integer;
 begin
   Result := False;
-  aLineNumber := 0;
-  aLineText := '';
+  aLineIndex := -1;
+  aColumn := 0;
   lEndIndex := aEndIndex;
   if lEndIndex > High(aLines) then
     lEndIndex := High(aLines);
-  for i := aStartIndex to lEndIndex do
+  lFromColumn := aFromColumn;
+  for i := aFromLine to lEndIndex do
   begin
-    if Pos(aName, aLines[i]) > 0 then
+    if i >= 0 then
     begin
-      aLineNumber := i + 1;
-      aLineText := aLines[i];
-      Exit(True);
+      aColumn := InventoryFindIdentifierColumn(aLines[i], Trim(aName), lFromColumn);
+      if aColumn > 0 then
+      begin
+        aLineIndex := i;
+        Exit(True);
+      end;
     end;
+    lFromColumn := 1;
   end;
 end;
 
 procedure AddDakInventorySymbol(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
   const aName, aTypeName, aOwnerType, aRoutineName, aUnitName, aFileName: string;
   const aLineNumber: Integer; const aLineText, aKind: string;
-  const aModifier: string = '');
+  const aModifier: string = ''; const aColumn: Integer = 0);
 var
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
@@ -894,7 +1113,10 @@ begin
   lSymbol.FileName := aFileName;
   lSymbol.Line := aLineNumber;
   lSymbol.EndLine := aLineNumber;
-  lSymbol.Column := InventoryFindColumn(aLineText, aName);
+  if aColumn > 0 then
+    lSymbol.Column := aColumn
+  else
+    lSymbol.Column := InventoryFindColumn(aLineText, aName);
   lSymbol.EndColumn := lSymbol.Column + Length(aName);
   AddInventorySymbol(aSymbols, lSymbol);
 end;
@@ -923,17 +1145,28 @@ end;
 procedure AddDakInventorySymbolsFromSource(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
   const aNames: TArray<string>; const aTypeName, aOwnerType, aRoutineName, aUnitName,
   aFileName: string; const aLines: TArray<string>; const aStartIndex, aEndIndex: Integer;
-  const aKind: string; const aModifier: string = '');
+  var aCursorLine, aCursorColumn: Integer; const aKind: string; const aModifier: string = '');
 var
+  lColumn: Integer;
+  lLineIndex: Integer;
   lLineNumber: Integer;
   lLineText: string;
   lName: string;
 begin
+  // The cursor walks the declaration in source order, so each name is found
+  // after the previous one instead of at its first textual occurrence.
   for lName in aNames do
   begin
-    if not InventoryFindNameSource(aLines, aStartIndex, aEndIndex, lName, lLineNumber,
-      lLineText) then
+    if InventoryFindIdentifierSource(aLines, aEndIndex, lName, aCursorLine, aCursorColumn,
+      lLineIndex, lColumn) then
     begin
+      lLineNumber := lLineIndex + 1;
+      lLineText := aLines[lLineIndex];
+      aCursorLine := lLineIndex;
+      aCursorColumn := lColumn + Length(Trim(lName));
+    end else
+    begin
+      lColumn := 0;
       lLineNumber := aStartIndex + 1;
       if (aStartIndex >= 0) and (aStartIndex <= High(aLines)) then
         lLineText := aLines[aStartIndex]
@@ -941,7 +1174,7 @@ begin
         lLineText := lName;
     end;
     AddDakInventorySymbol(aSymbols, lName, aTypeName, aOwnerType, aRoutineName, aUnitName,
-      aFileName, lLineNumber, lLineText, aKind, aModifier);
+      aFileName, lLineNumber, lLineText, aKind, aModifier, lColumn);
   end;
 end;
 
@@ -1042,7 +1275,10 @@ procedure ParseDakInventoryParams(const aSymbols: TList<TDelphiSemanticInventory
   const aLines: TArray<string>; const aStartIndex: Integer; const aSignature, aRoutineName,
   aUnitName, aFileName: string);
 var
+  i: Integer;
   lClosePos: Integer;
+  lCursorColumn: Integer;
+  lCursorLine: Integer;
   lEndIndex: Integer;
   lModifier: string;
   lNames: TArray<string>;
@@ -1055,6 +1291,20 @@ begin
   lOpenPos := Pos('(', aSignature);
   lClosePos := LastDelimiter(')', aSignature);
   if (lOpenPos = 0) or (lClosePos <= lOpenPos) then
+    Exit;
+  lEndIndex := aStartIndex + 20;
+  // Parameter names start after the list's "(" so routine name text such as
+  // "SetValue" cannot supply a parameter position.
+  lCursorLine := -1;
+  lCursorColumn := 0;
+  for i := aStartIndex to lEndIndex do
+    if (i >= 0) and (i <= High(aLines)) and (Pos('(', aLines[i]) > 0) then
+    begin
+      lCursorLine := i;
+      lCursorColumn := Pos('(', aLines[i]) + 1;
+      Break;
+    end;
+  if lCursorLine < 0 then
     Exit;
 
   lParts := Copy(aSignature, lOpenPos + 1, lClosePos - lOpenPos - 1).Split([';']);
@@ -1077,18 +1327,41 @@ begin
     end;
 
     if InventoryTryDeclaration(lText, lNames, lTypeName) then
-    begin
-      lEndIndex := aStartIndex + 20;
       AddDakInventorySymbolsFromSource(aSymbols, lNames, lTypeName, '', aRoutineName, aUnitName,
-        aFileName, aLines, aStartIndex, lEndIndex, 'parameter', lModifier);
-    end else if (lModifier <> '') and (Pos(':', lText) = 0) and (lText <> '') then
+        aFileName, aLines, aStartIndex, lEndIndex, lCursorLine, lCursorColumn, 'parameter',
+        lModifier)
+    else if (lModifier <> '') and (Pos(':', lText) = 0) and (lText <> '') then
     begin
       lNames := lText.Split([',']);
-      lEndIndex := aStartIndex + 20;
       AddDakInventorySymbolsFromSource(aSymbols, lNames, '', '', aRoutineName, aUnitName,
-        aFileName, aLines, aStartIndex, lEndIndex, 'parameter', lModifier);
+        aFileName, aLines, aStartIndex, lEndIndex, lCursorLine, lCursorColumn, 'parameter',
+        lModifier);
     end;
   end;
+end;
+
+// DS-684: adds the plain fields of a one-line type body. The cursor starts at the body
+// so a field named like its type or heritage is located at its own source column.
+procedure AddDakInventoryInlineFields(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
+  const aLines: TArray<string>; const aStartIndex, aEndIndex: Integer;
+  const aFieldNames: TArray<TArray<string>>; const aFieldTypes: TArray<string>;
+  const aInlineBody, aOwnerType, aUnitName, aFileName: string);
+var
+  i: Integer;
+  lCursorColumn: Integer;
+  lCursorLine: Integer;
+begin
+  lCursorLine := aEndIndex;
+  lCursorColumn := Pos(aInlineBody, aLines[aEndIndex]);
+  if lCursorColumn = 0 then
+  begin
+    lCursorLine := aStartIndex;
+    lCursorColumn := Pos('=', aLines[aStartIndex]) + 1;
+  end;
+  for i := 0 to High(aFieldNames) do
+    AddDakInventorySymbolsFromSource(aSymbols, aFieldNames[i], aFieldTypes[i], aOwnerType, '',
+      aUnitName, aFileName, aLines, aStartIndex, aEndIndex, lCursorLine, lCursorColumn,
+      'field');
 end;
 
 procedure ParseDakInventoryLocals(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
@@ -1100,6 +1373,8 @@ var
   lAnonymousEndLine: Integer;
   lConstName: string;
   lCurrentType: string;
+  lCursorColumn: Integer;
+  lCursorLine: Integer;
   lDeclaration: string;
   lDeclarationLine: Integer;
   lEnumMatch: TMatch;
@@ -1107,12 +1382,20 @@ var
   lInType: Boolean;
   lInConst: Boolean;
   lInVar: Boolean;
+  lFieldNames: TArray<TArray<string>>;
+  lFieldTypes: TArray<string>;
+  lInlineBody: string;
   lLine: string;
   lNames: TArray<string>;
   lRawTypeName: string;
   lSkipUntilLine: Integer;
+  lSymbol: TDelphiSemanticInventorySymbol;
   lTypeCategory: string;
+  lTypeIndex: Integer;
+  lTypeOpensBody: Boolean;
+  lTypeShape: TInventoryTypeStartShape;
   lTypeText: string;
+  lTypeTextEndLine: Integer;
   lTypeName: string;
 begin
   lCurrentType := '';
@@ -1179,15 +1462,43 @@ begin
 
       if lCurrentType = '' then
       begin
-        lTypeText := InventoryCollectTypeStartText(aLines, i);
+        lTypeText := InventoryCollectTypeStartText(aLines, i, lTypeTextEndLine);
         if InventoryTryTypeStart(lTypeText, lRawTypeName, lTypeCategory) then
         begin
           lCurrentType := InventorySimpleTypeName(lRawTypeName);
-          AddDakInventoryTypeSymbol(aSymbols, lCurrentType, '', lTypeCategory, aUnitName,
-            aFileName, i + 1, InventoryFindTypeEndLine(aLines, i), aLines[i]);
+          lTypeShape := InventoryClassifyTypeStart(lTypeText, lInlineBody);
+          lTypeIndex := aSymbols.Count;
+          lTypeOpensBody := (lTypeShape in [itsOpensBody, itsBodyWithInlineFields]) or
+            ((lTypeShape = itsUnrecognized) and (not EndsText(';', lTypeText)));
+          if lTypeOpensBody then
+            AddDakInventoryTypeSymbol(aSymbols, lCurrentType, '', lTypeCategory, aUnitName,
+              aFileName, i + 1, InventoryFindTypeEndLine(aLines, i), aLines[i])
+          else
+            AddDakInventoryTypeSymbol(aSymbols, lCurrentType, '', lTypeCategory, aUnitName,
+              aFileName, i + 1, lTypeTextEndLine + 1, aLines[i]);
           if InventoryTryEnumValues(lTypeText, lEnumNames) then
             AddDakTypedSymbols(aSymbols, lEnumNames, lCurrentType, '', aRoutineName, aUnitName,
               aFileName, i + 1, aLines[i], 'constant');
+          // DS-684: a one-line declaration has no body to collect; an unrecognized header
+          // or inline body fails closed as unsupported.
+          if (lTypeShape = itsUnrecognized) or
+            ((lTypeShape in [itsInlineBody, itsBodyWithInlineFields]) and
+            (not InventoryTryParseInlineFields(lInlineBody, lFieldNames, lFieldTypes))) then
+          begin
+            if lTypeIndex < aSymbols.Count then
+            begin
+              lSymbol := aSymbols[lTypeIndex];
+              lSymbol.UnsupportedReason := 'unsupported-source-model-type-header';
+              aSymbols[lTypeIndex] := lSymbol;
+            end;
+          end else if lTypeShape in [itsInlineBody, itsBodyWithInlineFields] then
+            AddDakInventoryInlineFields(aSymbols, aLines, i, lTypeTextEndLine, lFieldNames,
+              lFieldTypes, lInlineBody, lCurrentType, aUnitName, aFileName);
+          if not lTypeOpensBody then
+          begin
+            lCurrentType := '';
+            lSkipUntilLine := lTypeTextEndLine + 1;
+          end;
         end else if InventoryTryTypeAlias(lTypeText, lCurrentType, lTypeName) then
         begin
           AddDakInventorySymbol(aSymbols, lCurrentType, lTypeName, '', '', aUnitName,
@@ -1236,8 +1547,11 @@ begin
       begin
         if InventoryTryDeclaration(lDeclaration, lNames, lTypeName) then
         begin
+          lCursorLine := lDeclarationLine - 1;
+          lCursorColumn := 1;
           AddDakInventorySymbolsFromSource(aSymbols, lNames, lTypeName, '', aRoutineName,
-            aUnitName, aFileName, aLines, lDeclarationLine - 1, i, 'local');
+            aUnitName, aFileName, aLines, lDeclarationLine - 1, i, lCursorLine, lCursorColumn,
+            'local');
           lEnumMatch := TRegEx.Match(lDeclaration, ':\s*\(([^)]*)\)');
           if lEnumMatch.Success and
             InventoryTryEnumValues('TAnonymousEnum = (' + lEnumMatch.Groups[1].Value + ')', lEnumNames) then
@@ -1267,8 +1581,12 @@ var
   lDeclarationParts: TArray<string>;
   lEnumMatch: TMatch;
   lEnumNames: TArray<string>;
+  lFieldNames: TArray<TArray<string>>;
+  lFieldTypes: TArray<string>;
   lInClassVar: Boolean;
   lInConst: Boolean;
+  lInlineBody: string;
+  lInlineFieldsParsed: Boolean;
   lInTypeSection: Boolean;
   lLine: string;
   lLower: string;
@@ -1288,7 +1606,10 @@ var
   lTypeCategory: string;
   lTypeIsHelper: Boolean;
   lTypeName: string;
+  lTypeOpensBody: Boolean;
+  lTypeShape: TInventoryTypeStartShape;
   lTypeText: string;
+  lTypeTextEndLine: Integer;
 begin
   lConditionalDepth := 0;
   lCurrentType := '';
@@ -1358,12 +1679,23 @@ begin
     begin
       if not lInTypeSection then
         Continue;
-      lTypeText := InventoryCollectTypeStartText(aLines, i);
+      lTypeText := InventoryCollectTypeStartText(aLines, i, lTypeTextEndLine);
       if InventoryTryTypeStart(lTypeText, lRawTypeName, lTypeCategory) then
       begin
         lCurrentType := InventorySimpleTypeName(lRawTypeName);
         lCurrentTypeUnsupportedReason := InventoryUnsupportedReasonForTypeStart(lRawTypeName,
           lPendingUnsupportedReason, lConditionalDepth);
+        // DS-684: a one-line declaration has no body to collect; an unrecognized header
+        // or inline body fails closed as unsupported.
+        lTypeShape := InventoryClassifyTypeStart(lTypeText, lInlineBody);
+        lTypeOpensBody := (lTypeShape in [itsOpensBody, itsBodyWithInlineFields]) or
+          ((lTypeShape = itsUnrecognized) and (not EndsText(';', lTypeText)));
+        lInlineFieldsParsed := (lTypeShape in [itsInlineBody, itsBodyWithInlineFields]) and
+          InventoryTryParseInlineFields(lInlineBody, lFieldNames, lFieldTypes);
+        if (lCurrentTypeUnsupportedReason = '') and ((lTypeShape = itsUnrecognized) or
+          ((lTypeShape in [itsInlineBody, itsBodyWithInlineFields]) and
+          (not lInlineFieldsParsed))) then
+          lCurrentTypeUnsupportedReason := 'unsupported-source-model-type-header';
         lInClassVar := False;
         lInConst := False;
         InventoryTryTypeRelation(lTypeText, lRelatedTypeName, lTypeIsHelper);
@@ -1377,7 +1709,10 @@ begin
         lSymbol.UnitName := aUnitName;
         lSymbol.FileName := aFileName;
         lSymbol.Line := i + 1;
-        lSymbol.EndLine := InventoryFindTypeEndLine(aLines, i);
+        if lTypeOpensBody then
+          lSymbol.EndLine := InventoryFindTypeEndLine(aLines, i)
+        else
+          lSymbol.EndLine := lTypeTextEndLine + 1;
         lSymbol.Column := InventoryFindColumn(aLines[i], lCurrentType);
         lSymbol.EndColumn := lSymbol.Column + Length(lCurrentType);
         lSymbol.UnsupportedReason := lCurrentTypeUnsupportedReason;
@@ -1386,6 +1721,15 @@ begin
           AddDakTypedSymbols(aSymbols, lEnumNames, lCurrentType, '', '', aUnitName, aFileName,
             i + 1, aLines[i], 'constant');
         lPendingUnsupportedReason := '';
+        if lInlineFieldsParsed and (lCurrentTypeUnsupportedReason = '') then
+          AddDakInventoryInlineFields(aSymbols, aLines, i, lTypeTextEndLine, lFieldNames,
+            lFieldTypes, lInlineBody, lCurrentType, aUnitName, aFileName);
+        if not lTypeOpensBody then
+        begin
+          lCurrentType := '';
+          lCurrentTypeUnsupportedReason := '';
+          lSkipUntilLine := lTypeTextEndLine + 1;
+        end;
       end else if InventoryTryTypeAlias(lTypeText, lMemberName, lTypeName) then
       begin
         AddDakInventorySymbol(aSymbols, lMemberName, lTypeName, '', '', aUnitName, aFileName,
@@ -1838,8 +2182,17 @@ begin
     SameText(aLeft.OwnerType, aRight.OwnerType) and SameText(aLeft.SourceOwnerType, aRight.SourceOwnerType) and
     SameText(aLeft.RelatedTypeName, aRight.RelatedTypeName) and
     SameText(aLeft.RoutineName, aRight.RoutineName) and SameText(aLeft.UnitName, aRight.UnitName) and
+    SameText(aLeft.RoutineScopeId, aRight.RoutineScopeId) and
+    SameText(aLeft.ParentScopeId, aRight.ParentScopeId) and
+    SameText(aLeft.OwnerScopeId, aRight.OwnerScopeId) and
+    SameText(aLeft.OwnerSymbolId, aRight.OwnerSymbolId) and
     SameText(aLeft.FileName, aRight.FileName) and (aLeft.Line = aRight.Line) and
     (aLeft.Column = aRight.Column) and SameText(aLeft.UnsupportedReason, aRight.UnsupportedReason) and
+    SameText(aLeft.AccessOwnerUnitName, aRight.AccessOwnerUnitName) and
+    SameText(aLeft.AccessOwnerFileName, aRight.AccessOwnerFileName) and
+    SameText(aLeft.AccessOwnerSectionKind, aRight.AccessOwnerSectionKind) and
+    (aLeft.AccessOwnerLine = aRight.AccessOwnerLine) and
+    (aLeft.AccessOwnerColumn = aRight.AccessOwnerColumn) and
     (aLeft.IsHelper = aRight.IsHelper) and (aLeft.IsOverride = aRight.IsOverride) and
     (aLeft.IsDefault = aRight.IsDefault) and SameText(aLeft.TypeCategory, aRight.TypeCategory);
 end;
@@ -1853,7 +2206,13 @@ begin
     aSymbol.OwnerType + cSeparator + aSymbol.SourceOwnerType + cSeparator + aSymbol.RelatedTypeName +
     cSeparator + aSymbol.RoutineName + cSeparator + aSymbol.UnitName +
     cSeparator + aSymbol.FileName + cSeparator + IntToStr(aSymbol.Line) +
+    cSeparator + aSymbol.RoutineScopeId + cSeparator + aSymbol.ParentScopeId +
+    cSeparator + aSymbol.OwnerScopeId + cSeparator + aSymbol.OwnerSymbolId +
     cSeparator + IntToStr(aSymbol.Column) + cSeparator + aSymbol.UnsupportedReason +
+    cSeparator + aSymbol.AccessOwnerUnitName + cSeparator +
+    aSymbol.AccessOwnerFileName + cSeparator + aSymbol.AccessOwnerSectionKind +
+    cSeparator + IntToStr(aSymbol.AccessOwnerLine) + cSeparator +
+    IntToStr(aSymbol.AccessOwnerColumn) +
     cSeparator + IntToStr(Ord(aSymbol.IsHelper)) + cSeparator +
     IntToStr(Ord(aSymbol.IsOverride)) + cSeparator + IntToStr(Ord(aSymbol.IsDefault)) +
     cSeparator + aSymbol.TypeCategory;
@@ -1903,7 +2262,8 @@ begin
   for i := 0 to aSymbolCount - 1 do
   begin
     lSymbol := aSymbols[i];
-    if (lSymbol.OwnerType <> '') and (lSymbol.SourceOwnerType = '') and
+    if (lSymbol.OwnerType <> '') and (lSymbol.OwnerScopeId = '') and
+      (lSymbol.SourceOwnerType = '') and
       InventoryIsDirectMemberKind(lSymbol.SymbolClass) then
       Result.AddOrSetValue(InventoryOwnMemberKey(lSymbol.OwnerType, lSymbol.Name), 1);
   end;
@@ -1982,6 +2342,11 @@ begin
     begin
       lRelation.SourceOwnerType := lTypeSymbol.RelatedTypeName;
       lRelation.TargetOwnerType := lTypeSymbol.Name;
+      lRelation.TargetOwnerUnitName := lTypeSymbol.UnitName;
+      lRelation.TargetOwnerFileName := lTypeSymbol.FileName;
+      lRelation.TargetOwnerSectionKind := lTypeSymbol.SectionKind;
+      lRelation.TargetOwnerLine := lTypeSymbol.Line;
+      lRelation.TargetOwnerColumn := lTypeSymbol.Column;
     end;
     AddRelatedInventoryMemberRelation(Result, lRelation);
   end;
@@ -2017,7 +2382,8 @@ begin
     for i := 0 to aSymbols.Count - 1 do
     begin
       lMember := aSymbols[i];
-      if (lMember.RoutineName <> '') or (not InventoryIsDirectMemberKind(lMember.SymbolClass)) then
+      if (lMember.RoutineName <> '') or (lMember.OwnerScopeId <> '') or
+        (not InventoryIsDirectMemberKind(lMember.SymbolClass)) then
         Continue;
       AddRelatedInventoryMemberOwnerIndex(lMembersByOwner, lMember.OwnerType, lMember);
     end;
@@ -2051,6 +2417,11 @@ begin
             if lMemberSourceOwnerType = '' then
               lMemberSourceOwnerType := lMember.OwnerType;
             lSymbol.SourceOwnerType := lMemberSourceOwnerType;
+            lSymbol.AccessOwnerUnitName := lRelation.TargetOwnerUnitName;
+            lSymbol.AccessOwnerFileName := lRelation.TargetOwnerFileName;
+            lSymbol.AccessOwnerSectionKind := lRelation.TargetOwnerSectionKind;
+            lSymbol.AccessOwnerLine := lRelation.TargetOwnerLine;
+            lSymbol.AccessOwnerColumn := lRelation.TargetOwnerColumn;
           end;
 
           if lOwnMemberKeys.ContainsKey(InventoryOwnMemberKey(lSymbol.OwnerType,
@@ -2101,6 +2472,7 @@ begin
     begin
       lMember := aSymbols[i];
       if (lMember.OwnerType = '') or (lMember.RoutineName <> '') or
+        (lMember.OwnerScopeId <> '') or
         (not InventoryIsDirectMemberKind(lMember.SymbolClass)) then
         Continue;
       lOwnerKey := lMember.UnitName + #31 + lMember.FileName + #31 +
@@ -2380,10 +2752,152 @@ begin
   end;
 end;
 
+function IsVerifiedLexicalRoutineBody(const aModel: TDelphiSemanticUnitModel;
+  const aRoutine: TDelphiSemanticRoutine): Boolean;
+var
+  lCandidate: TDelphiSemanticRoutine;
+  lMatchingCount: Integer;
+  lOther: TDelphiSemanticRoutine;
+  lSourceFileName: string;
+  lVerifiedBody: TDelphiSemanticRoutine;
+begin
+  Result := False;
+  if (not SameText(aRoutine.AstScopeKind, 'body')) or
+    (aRoutine.ScopeId = '') or (aRoutine.Name = '') then
+    Exit;
+  lSourceFileName := aRoutine.FileName;
+  if lSourceFileName = '' then
+    lSourceFileName := aModel.FileName;
+  if (lSourceFileName = '') or (aRoutine.Line <= 0) or
+    (aRoutine.EndLine < aRoutine.Line) then
+    Exit;
+  lMatchingCount := 0;
+  lOther := Default(TDelphiSemanticRoutine);
+  for lCandidate in aModel.Routines do
+    if SameText(lCandidate.ScopeId, aRoutine.ScopeId) then
+    begin
+      Inc(lMatchingCount);
+      if (lCandidate.Line <> aRoutine.Line) or
+        (lCandidate.Column <> aRoutine.Column) or
+        (not SameText(lCandidate.AstScopeKind, aRoutine.AstScopeKind)) then
+        lOther := lCandidate;
+    end;
+  if lMatchingCount = 1 then
+    Exit(True);
+  if lMatchingCount <> 2 then
+    Exit(False);
+  Result := TDelphiSemanticTypeResolver.VerifiedRoutineBody(aModel,
+    aRoutine, lOther, lVerifiedBody) and
+    (lVerifiedBody.Line = aRoutine.Line) and
+    (lVerifiedBody.Column = aRoutine.Column);
+end;
+
+function InventoryIsRoutineSymbolClass(const aSymbolClass: string): Boolean;
+begin
+  Result := SameText(aSymbolClass, 'local') or SameText(aSymbolClass, 'parameter');
+end;
+
+function InventoryRoutineSymbolPositionKey(const aSymbol: TDelphiSemanticInventorySymbol): string;
+const
+  cSeparator = #31;
+begin
+  Result := aSymbol.SymbolClass + cSeparator + aSymbol.FileName + cSeparator +
+    IntToStr(aSymbol.Line) + cSeparator + IntToStr(aSymbol.Column) + cSeparator + aSymbol.Name;
+end;
+
+function InventoryRoutineSymbolScopeKey(const aSymbol: TDelphiSemanticInventorySymbol;
+  const aScopeId: string): string;
+const
+  cSeparator = #31;
+begin
+  Result := aSymbol.SymbolClass + cSeparator + aSymbol.FileName + cSeparator + aScopeId +
+    cSeparator + Trim(aSymbol.Name);
+end;
+
+// Returns the scope of the innermost AST routine whose source range holds the
+// line, or '' when no routine of that file encloses it.
+function InventoryInnermostRoutineScopeAt(const aModel: TDelphiSemanticUnitModel;
+  const aFileName: string; const aLine: Integer): string;
+var
+  lBestSpan: Integer;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  Result := '';
+  lBestSpan := MaxInt;
+  for lRoutine in aModel.Routines do
+    if (lRoutine.ScopeId <> '') and (lRoutine.Line <= aLine) and (aLine <= lRoutine.EndLine) and
+      ((lRoutine.FileName = '') or SameText(lRoutine.FileName, aFileName)) and
+      (lRoutine.EndLine - lRoutine.Line < lBestSpan) then
+    begin
+      lBestSpan := lRoutine.EndLine - lRoutine.Line;
+      Result := lRoutine.ScopeId;
+    end;
+end;
+
+// Source-text compatibility locals and parameters duplicate AST symbols but
+// carry no routine scope. A text twin takes the scope of the AST symbol that
+// declares the same name at the same file, line and column. A text twin whose
+// position the scanner could not place (for example a name repeated in a
+// comment) is redundant when the innermost AST routine enclosing its line
+// declares a symbol of the same class and name; we drop it rather than guess a
+// scope. Any other text symbol stays scope-less, so a persisted snapshot fails
+// closed on reload and the facts are rebuilt from source.
+procedure AssignTextInventoryRoutineScopes(const aModel: TDelphiSemanticUnitModel;
+  const aSymbols: TList<TDelphiSemanticInventorySymbol>; const aFirstTextIndex: NativeInt);
+var
+  i: NativeInt;
+  lAstScopedNames: TDictionary<string, Byte>;
+  lKey: string;
+  lScopeId: string;
+  lScopes: TDictionary<string, string>;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lAstScopedNames := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lScopes := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  try
+    for i := 0 to aFirstTextIndex - 1 do
+    begin
+      lSymbol := aSymbols[i];
+      if (lSymbol.RoutineScopeId = '') or
+        (not InventoryIsRoutineSymbolClass(lSymbol.SymbolClass)) then
+        Continue;
+      lAstScopedNames.AddOrSetValue(InventoryRoutineSymbolScopeKey(lSymbol,
+        lSymbol.RoutineScopeId), 1);
+      lKey := InventoryRoutineSymbolPositionKey(lSymbol);
+      if not lScopes.TryGetValue(lKey, lScopeId) then
+        lScopes.Add(lKey, lSymbol.RoutineScopeId)
+      else if not SameText(lScopeId, lSymbol.RoutineScopeId) then
+        lScopes[lKey] := ''; // Conflicting AST twins: no scope is proven.
+    end;
+    for i := aSymbols.Count - 1 downto aFirstTextIndex do
+    begin
+      lSymbol := aSymbols[i];
+      if (lSymbol.RoutineScopeId <> '') or
+        (not InventoryIsRoutineSymbolClass(lSymbol.SymbolClass)) then
+        Continue;
+      if lScopes.TryGetValue(InventoryRoutineSymbolPositionKey(lSymbol), lScopeId) and
+        (lScopeId <> '') then
+      begin
+        lSymbol.RoutineScopeId := lScopeId;
+        aSymbols[i] := lSymbol;
+        Continue;
+      end;
+      lScopeId := InventoryInnermostRoutineScopeAt(aModel, lSymbol.FileName, lSymbol.Line);
+      if (lScopeId <> '') and
+        lAstScopedNames.ContainsKey(InventoryRoutineSymbolScopeKey(lSymbol, lScopeId)) then
+        aSymbols.Delete(i);
+    end;
+  finally
+    lScopes.Free;
+    lAstScopedNames.Free;
+  end;
+end;
+
 class function TDelphiSemanticWithBindingInventory.BuildInventorySymbols(const aModel: TDelphiSemanticUnitModel):
   TArray<TDelphiSemanticInventorySymbol>;
 var
   lDeclaration: TDelphiSemanticDeclaration;
+  lFirstTextIndex: NativeInt;
   lLocal: TDelphiSemanticLocal;
   lMember: TDelphiSemanticMember;
   lParameter: TDelphiSemanticParameter;
@@ -2431,6 +2945,9 @@ begin
       lSymbol.UnitName := aModel.UnitName;
       lSymbol.FileName := aModel.FileName;
       lSymbol.SectionKind := lDeclaration.SectionKind;
+      lSymbol.RoutineScopeId := lDeclaration.OwnerScopeId;
+      lSymbol.OwnerScopeId := lDeclaration.OwnerScopeId;
+      lSymbol.OwnerSymbolId := lDeclaration.SymbolId;
       lSymbol.Line := lDeclaration.Line;
       lSymbol.Column := lDeclaration.Column;
       lSymbol.EndLine := lDeclaration.Line;
@@ -2447,6 +2964,8 @@ begin
       lSymbol.TypeName := lMember.TypeName;
       lSymbol.OwnerName := lMember.OwnerName;
       lSymbol.OwnerType := lMember.OwnerName;
+      lSymbol.OwnerScopeId := lMember.OwnerScopeId;
+      lSymbol.OwnerSymbolId := lMember.OwnerSymbolId;
       lSymbol.UnitName := aModel.UnitName;
       lSymbol.FileName := aModel.FileName;
       lSymbol.Line := lMember.Line;
@@ -2458,20 +2977,40 @@ begin
       if lMember.IsIndexed then
         lSymbol.IndexParameterCount := 1;
       AddInventorySymbol(lSymbols, lSymbol);
+      // A routine-owned field has an AST owner even when the compatibility
+      // source scanner cannot read an inline record declaration.
+      if SameText(lMember.Kind, 'field') and (lMember.OwnerScopeId <> '') and
+        (lMember.OwnerSymbolId <> '') and (lMember.FileName = '') and
+        (lMember.Line > 0) and (lMember.Column > 0) then
+      begin
+        lSymbol.SymbolClass := 'field';
+        AddInventorySymbol(lSymbols, lSymbol);
+      end;
     end;
 
     for lRoutine in aModel.Routines do
     begin
       lSymbol := Default(TDelphiSemanticInventorySymbol);
       lSymbol.Name := lRoutine.Name;
-      lSymbol.SymbolClass := 'routine';
+      // Only an AST-proven body can own lexical declarations. Keep the other
+      // declarations in inventory without letting them validate a scope chain.
+      if IsVerifiedLexicalRoutineBody(aModel, lRoutine) then
+        lSymbol.SymbolClass := 'routine'
+      else if SameText(lRoutine.AstScopeKind, 'header') then
+        lSymbol.SymbolClass := 'routine-header'
+      else
+        lSymbol.SymbolClass := 'routine-unverified';
       lSymbol.Kind := 'routine';
       lSymbol.TypeName := lRoutine.ReturnType;
       lSymbol.OwnerName := lRoutine.OwnerName;
       lSymbol.OwnerType := lRoutine.OwnerName;
       lSymbol.UnitName := aModel.UnitName;
-      lSymbol.FileName := aModel.FileName;
+      lSymbol.FileName := lRoutine.FileName;
+      if lSymbol.FileName = '' then
+        lSymbol.FileName := aModel.FileName;
       lSymbol.SectionKind := lRoutine.SectionKind;
+      lSymbol.RoutineScopeId := lRoutine.ScopeId;
+      lSymbol.ParentScopeId := lRoutine.ParentScopeId;
       lSymbol.Line := lRoutine.Line;
       lSymbol.Column := lRoutine.Column;
       lSymbol.EndLine := lRoutine.Line;
@@ -2497,6 +3036,7 @@ begin
           lSymbol.RoutineName := lParameter.RoutineName;
         lSymbol.UnitName := aModel.UnitName;
         lSymbol.FileName := aModel.FileName;
+        lSymbol.RoutineScopeId := lRoutine.ScopeId;
         lSymbol.Line := lParameter.Line;
         lSymbol.Column := lParameter.Column;
         lSymbol.EndLine := lParameter.Line;
@@ -2513,6 +3053,7 @@ begin
       lSymbol.Kind := lLocal.Kind;
       lSymbol.TypeName := lLocal.TypeName;
       lSymbol.RoutineName := lLocal.RoutineName;
+      lSymbol.RoutineScopeId := lLocal.RoutineScopeId;
       lSymbol.UnitName := aModel.UnitName;
       lSymbol.FileName := aModel.FileName;
       lSymbol.Line := lLocal.Line;
@@ -2522,7 +3063,9 @@ begin
       AddInventorySymbol(lSymbols, lSymbol);
     end;
 
+    lFirstTextIndex := lSymbols.Count;
     AddDakCompatibleInventorySymbols(aModel, lSymbols);
+    AssignTextInventoryRoutineScopes(aModel, lSymbols, lFirstTextIndex);
     Result := lSymbols.ToArray;
   finally
     lSymbols.Free;

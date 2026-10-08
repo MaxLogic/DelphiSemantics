@@ -23,6 +23,8 @@ type
     procedure ResolvesAliasOwnerThroughCanonicalType;
     [Test]
     procedure ReportsAmbiguousUnresolvedAndUnsupportedOutcomes;
+    [Test]
+    procedure HomonymousLocalMembersRequireExactOwnerIdentity;
   end;
 
 implementation
@@ -124,6 +126,73 @@ begin
   Result.Members[3].IsDefault := True;
   Result.Members[3].Line := 9;
   Result.Members[3].Column := 5;
+end;
+
+procedure TMemberResolverTests.HomonymousLocalMembersRequireExactOwnerIdentity;
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticMemberIdentityIndex;
+  lModel: TDelphiSemanticUnitModel;
+  lResult: TDelphiSemanticMemberLookupResult;
+  lTypes: TArray<TDelphiSemanticGraphType>;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.Success := True;
+  lModel.UnitName := 'LocalMembers';
+  lModel.FileName := 'LocalMembers.pas';
+  lModel.ScopeModelStatus := 'ast';
+  SetLength(lModel.Routines, 2);
+  lModel.Routines[0].Name := 'First';
+  lModel.Routines[0].ScopeId := 'first';
+  lModel.Routines[0].Line := 5;
+  lModel.Routines[0].Column := 1;
+  lModel.Routines[1].Name := 'Second';
+  lModel.Routines[1].ScopeId := 'second';
+  lModel.Routines[1].Line := 15;
+  lModel.Routines[1].Column := 1;
+  SetLength(lModel.Declarations, 2);
+  lModel.Declarations[0].Name := 'TItem';
+  lModel.Declarations[0].Kind := 'type';
+  lModel.Declarations[0].TypeName := 'record';
+  lModel.Declarations[0].ScopeKind := 'routine';
+  lModel.Declarations[0].OwnerScopeId := 'first';
+  lModel.Declarations[0].SymbolId := 'first|type|titem';
+  lModel.Declarations[0].SectionKind := 'implementation';
+  lModel.Declarations[0].Line := 7;
+  lModel.Declarations[0].Column := 3;
+  lModel.Declarations[1] := lModel.Declarations[0];
+  lModel.Declarations[1].OwnerScopeId := 'second';
+  lModel.Declarations[1].SymbolId := 'second|type|titem';
+  lModel.Declarations[1].Line := 17;
+  SetLength(lModel.Members, 2);
+  lModel.Members[0].OwnerName := 'TItem';
+  lModel.Members[0].OwnerScopeId := 'first';
+  lModel.Members[0].OwnerSymbolId := 'first|type|titem';
+  lModel.Members[0].Name := 'OnlyFirst';
+  lModel.Members[0].Kind := 'field';
+  lModel.Members[0].TypeName := 'Integer';
+  lModel.Members[0].Line := 8;
+  lModel.Members[0].Column := 5;
+  lModel.Members[1] := lModel.Members[0];
+  lModel.Members[1].OwnerScopeId := 'second';
+  lModel.Members[1].OwnerSymbolId := 'second|type|titem';
+  lModel.Members[1].Name := 'OnlySecond';
+  lModel.Members[1].Line := 18;
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    lTypes := lGraph.Types;
+    lIndex := MemberIndex(lGraph);
+    lResult := lIndex.ResolveDirectMemberByOwnerId(lTypes[0].DeclaredId, 'OnlyFirst');
+    Assert.IsTrue(lResult.Found, lResult.Reason);
+    lResult := lIndex.ResolveDirectMemberByOwnerId(lTypes[0].DeclaredId, 'OnlySecond');
+    Assert.IsFalse(lResult.Found, 'Another routine cannot supply a member.');
+    lResult := lIndex.ResolveDirectMemberByOwnerId(lTypes[1].DeclaredId, 'OnlySecond');
+    Assert.IsTrue(lResult.Found, lResult.Reason);
+    lResult := lIndex.ResolveDirectMember('LocalMembers.TItem', 'OnlyFirst');
+    Assert.IsFalse(lResult.Found, 'Context-free member lookup excludes locals.');
+  finally
+    lGraph.Free;
+  end;
 end;
 
 procedure TMemberResolverTests.ReportsAmbiguousUnresolvedAndUnsupportedOutcomes;

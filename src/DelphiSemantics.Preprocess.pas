@@ -43,6 +43,19 @@ type
     ContentHash: string;
   end;
 
+  // A copied segment of expanded text and its in-memory source witness.
+  TDelphiSemanticCopiedSourceSpan = record
+    OutputStartOffset: Integer;
+    OutputEndOffset: Integer;
+    FileName: string;
+    Line: Integer;
+    Column: Integer;
+    SourceLineStartOffset: Integer;
+    SourceStartOffset: Integer;
+    SourceText: string;
+    ExpansionId: string;
+  end;
+
   TDelphiSemanticPreprocessResult = record
     Success: Boolean;
     OutputText: string;
@@ -52,6 +65,7 @@ type
     Includes: TArray<TDelphiSemanticIncludeFile>;
     // One entry per OutputText line, in order.
     LineOrigins: TArray<TDelphiSemanticSourceLineOrigin>;
+    CopiedSourceSpans: TArray<TDelphiSemanticCopiedSourceSpan>;
     Diagnostics: TArray<TDelphiSemanticPreprocessDiagnostic>;
   end;
 
@@ -72,11 +86,93 @@ type
   TSourceTextCache = TDictionary<string, TDelphiSemanticSourceLoadResult>;
   TLineOriginList = TList<TDelphiSemanticSourceLineOrigin>;
 
+  TPreprocessCapture = class
+    Spans: TList<TDelphiSemanticCopiedSourceSpan>;
+    NextId: Integer;
+    constructor Create;
+    destructor Destroy; override;
+    function NewExpansionId: string;
+  end;
+
+  TPreprocessOutputContext = record
+    Capture: TPreprocessCapture;
+    BaseOffset: Integer;
+    ExpansionId: string;
+  end;
+
   TPreprocessFrame = record
     ParentActive: Boolean;
     Active: Boolean;
     BranchTaken: Boolean;
   end;
+
+constructor TPreprocessCapture.Create;
+begin
+  inherited Create;
+  Spans := TList<TDelphiSemanticCopiedSourceSpan>.Create;
+end;
+
+destructor TPreprocessCapture.Destroy;
+begin
+  Spans.Free;
+  inherited;
+end;
+
+function TPreprocessCapture.NewExpansionId: string;
+begin
+  Inc(NextId);
+  Result := IntToStr(NextId);
+end;
+
+function SourceLineStarts(const aText: string): TArray<Integer>;
+var
+  i: Integer;
+  lStarts: TList<Integer>;
+begin
+  lStarts := TList<Integer>.Create;
+  try
+    lStarts.Add(1);
+    i := 1;
+    while i <= Length(aText) do
+    begin
+      if aText[i] = #13 then
+      begin
+        if i < Length(aText) then
+          if aText[i + 1] = #10 then
+            Inc(i);
+        lStarts.Add(i + 1);
+      end else if aText[i] = #10 then
+        lStarts.Add(i + 1);
+      Inc(i);
+    end;
+    Result := lStarts.ToArray;
+  finally
+    lStarts.Free;
+  end;
+end;
+
+procedure AppendCopiedText(const aOutput: TStringBuilder;
+  const aContext: TPreprocessOutputContext; const aText, aSourceText, aFileName: string;
+  const aLine, aColumn, aLineStartOffset: Integer);
+var
+  lSpan: TDelphiSemanticCopiedSourceSpan;
+begin
+  if aText = '' then
+    Exit;
+  lSpan := Default(TDelphiSemanticCopiedSourceSpan);
+  lSpan.OutputStartOffset := aContext.BaseOffset + aOutput.Length + 1;
+  lSpan.OutputEndOffset := lSpan.OutputStartOffset + Length(aText);
+  lSpan.FileName := aFileName;
+  lSpan.Line := aLine;
+  lSpan.Column := aColumn;
+  lSpan.SourceLineStartOffset := aLineStartOffset;
+  if aLineStartOffset > 0 then
+    lSpan.SourceStartOffset := aLineStartOffset + aColumn - 1;
+  lSpan.SourceText := aSourceText;
+  lSpan.ExpansionId := aContext.ExpansionId;
+  aContext.Capture.Spans.Add(lSpan);
+  aOutput.Append(aText);
+end;
 
 function CreateDiagnostic(const aCode, aMessage, aFileName: string;
   const aLine: Integer): TDelphiSemanticPreprocessDiagnostic;
@@ -553,7 +649,7 @@ function ProcessDirective(const aDirective, aFileName: string; const aLine: Inte
   const aOutput: TStringBuilder; const aRegions: TList<TDelphiSemanticSourceRegion>;
   const aIncludes: TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>;
   const aSourceCache: TSourceTextCache; const aOrigins: TLineOriginList;
-  var aOutputLineWritten: Boolean): Boolean; forward;
+  const aContext: TPreprocessOutputContext; var aOutputLineWritten: Boolean): Boolean; forward;
 
 function IsRootSourceFile(const aFileName: string;
   const aOptions: TDelphiSemanticPreprocessOptions): Boolean;
@@ -610,18 +706,21 @@ begin
   Result := Result + Copy(aLine, lPos, MaxInt);
 end;
 
-function ProcessInlineDirectiveLine(const aLine, aDirectiveLine, aFileName: string; const aLineNumber: Integer;
+function ProcessInlineDirectiveLine(const aLine, aDirectiveLine, aFileName, aSourceText: string;
+  const aLineNumber, aSourceLineStartOffset: Integer;
   const aOptions: TDelphiSemanticPreprocessOptions; const aDefines: TDefineMap;
   const aStack: TList<TPreprocessFrame>; const aDiagnostics:
   TList<TDelphiSemanticPreprocessDiagnostic>; const aOutput: TStringBuilder;
   const aRegions: TList<TDelphiSemanticSourceRegion>; const aIncludes:
   TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>;
-  const aSourceCache: TSourceTextCache; const aOrigins: TLineOriginList): Boolean;
+  const aSourceCache: TSourceTextCache; const aOrigins: TLineOriginList;
+  const aContext: TPreprocessOutputContext): Boolean;
 var
   lDirective: string;
   lDirectiveStart: Integer;
   lDirectiveStop: Integer;
   lIncludeColumn: Integer;
+  lLineContext: TPreprocessOutputContext;
   lLineOutput: TStringBuilder;
   lOrigin: TDelphiSemanticSourceLineOrigin;
   lOriginCount: Integer;
@@ -633,12 +732,16 @@ begin
   lIncludeColumn := 0;
   lLineOutput := TStringBuilder.Create;
   try
+    lLineContext := aContext;
+    lLineContext.BaseOffset := aContext.BaseOffset + aOutput.Length;
     lPos := 1;
     lDirectiveStart := FindNextDirectiveStart(aDirectiveLine, lPos);
     while lDirectiveStart > 0 do
     begin
       if CurrentActive(aStack) then
-        lLineOutput.Append(Copy(aLine, lPos, lDirectiveStart - lPos))
+        AppendCopiedText(lLineOutput, lLineContext,
+          Copy(aLine, lPos, lDirectiveStart - lPos), aSourceText, aFileName,
+          aLineNumber, lPos, aSourceLineStartOffset)
       else
         lLineOutput.Append(StringOfChar(' ', lDirectiveStart - lPos));
 
@@ -657,7 +760,10 @@ begin
       if IsCompilerSwitchDirective(lDirective) then
       begin
         if CurrentActive(aStack) then
-          lLineOutput.Append(Copy(aLine, lDirectiveStart, lDirectiveStop - lDirectiveStart + 1))
+          AppendCopiedText(lLineOutput, lLineContext,
+            Copy(aLine, lDirectiveStart, lDirectiveStop - lDirectiveStart + 1),
+            aSourceText, aFileName, aLineNumber, lDirectiveStart,
+            aSourceLineStartOffset)
         else
           lLineOutput.Append(StringOfChar(' ', lDirectiveStop - lDirectiveStart + 1));
       end else
@@ -665,7 +771,7 @@ begin
         lOutputLineWritten := False;
         if not ProcessDirective(lDirective, aFileName, aLineNumber, aOptions, aDefines,
           aStack, aDiagnostics, lLineOutput, aRegions, aIncludes, aIncludeStack, aSourceCache,
-          aOrigins, lOutputLineWritten) then
+          aOrigins, lLineContext, lOutputLineWritten) then
           Result := False;
         // The first directive that expanded an include names the mixed lines.
         if (lIncludeColumn = 0) and (aOrigins.Count > lOriginCount) then
@@ -677,7 +783,8 @@ begin
     end;
 
     if CurrentActive(aStack) then
-      lLineOutput.Append(Copy(aLine, lPos, MaxInt))
+      AppendCopiedText(lLineOutput, lLineContext, Copy(aLine, lPos, MaxInt),
+        aSourceText, aFileName, aLineNumber, lPos, aSourceLineStartOffset)
     else
       lLineOutput.Append(StringOfChar(' ', Length(aLine) - lPos + 1));
     aOutput.AppendLine(lLineOutput.ToString);
@@ -705,7 +812,8 @@ procedure ProcessLoadedSourceFile(const aFileName, aSourceText: string;
   const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>; const aOutput: TStringBuilder;
   const aRegions: TList<TDelphiSemanticSourceRegion>; const aIncludes: TList<TDelphiSemanticIncludeFile>;
   const aIncludeStack: TList<string>; const aSourceCache: TSourceTextCache;
-  const aOrigins: TLineOriginList; var aSuccess: Boolean);
+  const aOrigins: TLineOriginList; const aContext: TPreprocessOutputContext;
+  var aSuccess: Boolean);
 var
   i: Integer;
   lDirective: string;
@@ -713,6 +821,7 @@ var
   lDirectiveStart: Integer;
   lDirectiveStop: Integer;
   lLines: TStringList;
+  lLineStarts: TArray<Integer>;
   lOutputLineWritten: Boolean;
   lPendingDirectiveCloseBrace: Boolean;
 begin
@@ -731,6 +840,9 @@ begin
     lDirectiveLines.Text := MaskDirectiveLookalikes(aSourceText);
     aIncludeStack.Add(aFileName);
     lLines.Text := aSourceText;
+    lLineStarts := SourceLineStarts(aSourceText);
+    if Length(lLineStarts) < lLines.Count then
+      SetLength(lLineStarts, lLines.Count);
     lPendingDirectiveCloseBrace := False;
     for i := 0 to Pred(lLines.Count) do
     begin
@@ -751,9 +863,10 @@ begin
           (FindNextDirectiveStart(lDirectiveLines[i], lDirectiveStop + 1) > 0)) then
         begin
           AddRegion(aRegions, aFileName, i + 1, CurrentActive(aStack));
-          if not ProcessInlineDirectiveLine(lLines[i], lDirectiveLines[i], aFileName, i + 1, aOptions, aDefines,
+          if not ProcessInlineDirectiveLine(lLines[i], lDirectiveLines[i], aFileName,
+            aSourceText, i + 1, lLineStarts[i], aOptions, aDefines,
             aStack, aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack,
-            aSourceCache, aOrigins) then
+            aSourceCache, aOrigins, aContext) then
             aSuccess := False;
           Continue;
         end;
@@ -761,7 +874,7 @@ begin
         lOutputLineWritten := False;
         if not ProcessDirective(lDirective, aFileName, i + 1, aOptions, aDefines, aStack,
           aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache, aOrigins,
-          lOutputLineWritten) then
+          aContext, lOutputLineWritten) then
           aSuccess := False;
         if not lOutputLineWritten then
         begin
@@ -772,7 +885,11 @@ begin
       begin
         AddRegion(aRegions, aFileName, i + 1, CurrentActive(aStack));
         if CurrentActive(aStack) then
-          aOutput.AppendLine(lLines[i])
+        begin
+          AppendCopiedText(aOutput, aContext, lLines[i], aSourceText, aFileName,
+            i + 1, 1, lLineStarts[i]);
+          aOutput.AppendLine;
+        end
         else
           aOutput.AppendLine('');
         AddLineOrigin(aOrigins, aFileName, i + 1);
@@ -791,7 +908,8 @@ procedure ProcessSourceFile(const aFileName: string; const aOptions: TDelphiSema
   const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>; const aOutput: TStringBuilder;
   const aRegions: TList<TDelphiSemanticSourceRegion>; const aIncludes: TList<TDelphiSemanticIncludeFile>;
   const aIncludeStack: TList<string>; const aSourceCache: TSourceTextCache;
-  const aOrigins: TLineOriginList; var aSuccess: Boolean);
+  const aOrigins: TLineOriginList; const aContext: TPreprocessOutputContext;
+  var aSuccess: Boolean);
 var
   lText: string;
 begin
@@ -804,7 +922,8 @@ begin
   end;
 
   ProcessLoadedSourceFile(aFileName, lText, aOptions, aDefines, aStack, aDiagnostics,
-    aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache, aOrigins, aSuccess);
+    aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache, aOrigins, aContext,
+    aSuccess);
 end;
 
 function ProcessDirective(const aDirective, aFileName: string; const aLine: Integer;
@@ -813,10 +932,11 @@ function ProcessDirective(const aDirective, aFileName: string; const aLine: Inte
   const aOutput: TStringBuilder; const aRegions: TList<TDelphiSemanticSourceRegion>;
   const aIncludes: TList<TDelphiSemanticIncludeFile>; const aIncludeStack: TList<string>;
   const aSourceCache: TSourceTextCache; const aOrigins: TLineOriginList;
-  var aOutputLineWritten: Boolean): Boolean;
+  const aContext: TPreprocessOutputContext; var aOutputLineWritten: Boolean): Boolean;
 var
   lActive: Boolean;
   lInclude: TDelphiSemanticIncludeFile;
+  lIncludeContext: TPreprocessOutputContext;
   lIncludeFileName: string;
   lIncludeName: string;
   lIncludeOutput: TStringBuilder;
@@ -938,9 +1058,12 @@ begin
     lSuccess := True;
     lIncludeOutput := TStringBuilder.Create;
     try
+      lIncludeContext := aContext;
+      lIncludeContext.BaseOffset := aContext.BaseOffset + aOutput.Length;
+      lIncludeContext.ExpansionId := aContext.Capture.NewExpansionId;
       ProcessLoadedSourceFile(lIncludeFileName, lIncludeText, aOptions, aDefines,
         aStack, aDiagnostics, lIncludeOutput, aRegions, aIncludes, aIncludeStack,
-        aSourceCache, aOrigins, lSuccess);
+        aSourceCache, aOrigins, lIncludeContext, lSuccess);
       aOutput.Append(lIncludeOutput.ToString);
       aOutputLineWritten := True;
     finally
@@ -998,6 +1121,8 @@ end;
 class function TDelphiSemanticPreprocessor.PreprocessFile(
   const aOptions: TDelphiSemanticPreprocessOptions): TDelphiSemanticPreprocessResult;
 var
+  lCapture: TPreprocessCapture;
+  lContext: TPreprocessOutputContext;
   lDefines: TDefineMap;
   lDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>;
   lIncludeStack: TList<string>;
@@ -1013,6 +1138,7 @@ var
   lSuccess: Boolean;
 begin
   Result := Default(TDelphiSemanticPreprocessResult);
+  lCapture := nil;
   lDefines := nil;
   lDiagnostics := nil;
   lIncludes := nil;
@@ -1023,6 +1149,7 @@ begin
   lSourceCache := nil;
   lStack := nil;
   try
+    lCapture := TPreprocessCapture.Create;
     lDefines := CreateDefineMap(aOptions.Defines);
     lDiagnostics := TList<TDelphiSemanticPreprocessDiagnostic>.Create;
     lIncludes := TList<TDelphiSemanticIncludeFile>.Create;
@@ -1033,10 +1160,14 @@ begin
     lSourceCache := TSourceTextCache.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
     lStack := TList<TPreprocessFrame>.Create;
 
+    lContext.Capture := lCapture;
+    lContext.BaseOffset := 0;
+    lContext.ExpansionId := lCapture.NewExpansionId;
+
     lSuccess := True;
     ProcessSourceFile(TPath.GetFullPath(aOptions.SourceFileName), aOptions, lDefines, lStack,
       lDiagnostics, lOutput, lRegions, lIncludes, lIncludeStack, lSourceCache, lOrigins,
-      lSuccess);
+      lContext, lSuccess);
     if lStack.Count > 0 then
     begin
       AddDiagnostic(lDiagnostics, 'UNTERMINATED_PREPROCESS_CONDITIONAL',
@@ -1062,8 +1193,10 @@ begin
     Result.Regions := lRegions.ToArray;
     Result.Includes := lIncludes.ToArray;
     Result.LineOrigins := lOrigins.ToArray;
+    Result.CopiedSourceSpans := lCapture.Spans.ToArray;
     Result.Diagnostics := lDiagnostics.ToArray;
   finally
+    lCapture.Free;
     lStack.Free;
     lSourceCache.Free;
     lRegions.Free;

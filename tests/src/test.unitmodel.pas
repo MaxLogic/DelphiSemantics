@@ -11,6 +11,7 @@ type
   [TestFixture]
   TUnitModelTests = class
   private
+    function AnonymousRecordLocalModel(out aSource: string): TDelphiSemanticUnitModel;
     function DefaultParameterSource(const aShape: string): string;
     function HasDeclaration(const aModel: TDelphiSemanticUnitModel; const aName, aKind,
       aSection: string): Boolean;
@@ -71,6 +72,10 @@ type
     procedure InterfaceOnlyRetryKeepsOriginalParserMessage;
     [Test] procedure NestedRoutineDeclarationHasEnclosingScope;
     [Test]
+    procedure RoutineLocalTypesRetainTheirDeclaringScope;
+    [Test]
+    procedure HomonymousAndDistinctRoutineLocalTypesKeepSourceIdentity;
+    [Test]
     [TestCase('Multiple ordinary fields', 'ordinary')]
     [TestCase('Visibility changes on one line', 'visibility')]
     [TestCase('Persistent class var section', 'class-var')]
@@ -98,6 +103,14 @@ type
     procedure ExtractsConstructorAndDestructorScopesAndLocals;
     [Test]
     procedure ExtractsCommaDeclaredRoutineLocals;
+    [Test]
+    procedure RoutineLocalsSurviveSameLineVarSections;
+    [Test]
+    procedure RoutineProceduralObjectLocalsKeepAstScopeModel;
+    [Test]
+    procedure RoutineAnonymousRecordLocalsUseSyntheticOwnerType;
+    [Test]
+    procedure RoutineAnonymousRecordLocalsKeepSyntheticInventoryOwner;
     [Test]
     procedure SkipReferenceExtractionKeepsSymbolsAndOmitsReferences;
     [Test]
@@ -214,6 +227,10 @@ type
     [Test]
     procedure MidLineIncludeFactsStayAtTheDirective;
     [Test]
+    procedure MidLineIncludesKeepDistinctPhysicalReferenceOccurrences;
+    [Test]
+    procedure RepeatedNestedAndInactiveIncludesKeepPhysicalOccurrences;
+    [Test]
     procedure ModelUsesSourceLoaderFallbackWhenExtractingAnsiSource;
     [Test]
     procedure WithStatementsExposeSourceRanges;
@@ -262,6 +279,10 @@ type
     [Test]
     procedure ModelJsonPreservesDeclarationRolesAndLexicalOwnership;
     [Test]
+    procedure PhysicalOccurrencesJsonRoundTripRetainsStatusAndIndependentArray;
+    [Test]
+    procedure PhysicalOccurrencesAvailabilityDistinguishesOldAndEmptyModels;
+    [Test]
     [TestCase('FlushLeftFull', 'False,False')]
     [TestCase('IndentedFull', 'True,False')]
     [TestCase('FlushLeftLean', 'False,True')]
@@ -288,10 +309,12 @@ type
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Classes, System.Generics.Collections, System.IOUtils, System.JSON, System.StrUtils,
+  System.SysUtils,
   Winapi.Windows,
   AutoFree, maxLogic.IOUtils,
   DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Json,
+  DelphiSemantics.WithBinding.Inventory,
   Test.Support;
 
 var
@@ -376,18 +399,37 @@ begin
   end;
 end;
 
-procedure AssertUnitModelDeclarationKeysExactly(const aModel: TDelphiSemanticUnitModel;
+procedure AssertTopLevelDeclarationKeysExactly(const aModel: TDelphiSemanticUnitModel;
   const aExpectedKeys: array of string);
 var
   lActualKeys: TStringList;
   lDeclaration: TDelphiSemanticDeclaration;
   lKey: string;
+  lRoutine: TDelphiSemanticRoutine;
+  lTopLevelRoutine: Boolean;
 begin
   lActualKeys := TStringList.Create;
   try
     lActualKeys.Sorted := True;
     for lDeclaration in aModel.Declarations do
     begin
+      if SameText(lDeclaration.Kind, 'routine') then
+      begin
+        lTopLevelRoutine := False;
+        for lRoutine in aModel.Routines do
+          if (lRoutine.Offset = lDeclaration.Offset) and
+            SameText(lRoutine.Name, lDeclaration.Name) and
+            SameText(lRoutine.SectionKind, lDeclaration.SectionKind) and
+            (lRoutine.OwnerName = '') and (lRoutine.ScopeId <> '') and
+            (lRoutine.ParentScopeId = '') then
+          begin
+            lTopLevelRoutine := True;
+            Break;
+          end;
+        if not lTopLevelRoutine then
+          Continue;
+      end else if not SameText(lDeclaration.ScopeKind, 'unit') then
+        Continue;
       lKey := UnitModelDeclarationKey(lDeclaration.Name, lDeclaration.Kind,
         lDeclaration.SectionKind);
       Assert.IsTrue(lActualKeys.IndexOf(lKey) < 0, 'Duplicate declaration key: ' + lKey);
@@ -994,6 +1036,261 @@ begin
   Assert.IsTrue(HasLocal(lModel, 'Run', 'lOtherPtr', 'PChar'));
 end;
 
+procedure TUnitModelTests.RoutineLocalsSurviveSameLineVarSections;
+var
+  lInner: TDelphiSemanticRoutine;
+  lLocal: TDelphiSemanticLocal;
+  lModel: TDelphiSemanticUnitModel;
+  lName: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lOuter: TDelphiSemanticRoutine;
+  lPath: string;
+  lSource: string;
+begin
+  lPath := UnitModelTempPath('unit-model-same-line-locals.pas');
+  lSource :=
+    'unit SameLineLocalsUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'type TNode = record Value: Integer; end;' + sLineBreak +
+    'procedure Outer;' + sLineBreak +
+    'type TLocalRecord = record lField: Integer; end;' + sLineBreak +
+    'const cText = ''var lString: Integer;'';' + sLineBreak +
+    'label 1;' + sLineBreak +
+    'var lNode: TNode; lPointer: ^TNode; lLeft, lRight, lThird: Integer;' + sLineBreak +
+    '// var lComment: Integer;' + sLineBreak +
+    'procedure Inner;' + sLineBreak +
+    'var lInner: TNode;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  lInner.Value := 1;' + sLineBreak +
+    'end;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  1: lPointer := @lNode;' + sLineBreak +
+    '  lLeft := lRight + lThird;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success, 'The source-backed unit must parse.');
+  Assert.IsTrue(FindRoutine(lModel, 'Outer', 'implementation', lOuter),
+    'Outer routine must be extracted from the fixture.');
+  Assert.IsTrue(FindRoutine(lModel, 'Inner', 'implementation', lInner),
+    'Nested Inner routine must be extracted from the fixture.');
+  Assert.IsNotEmpty(lOuter.ScopeId, 'Outer AST scope must be verified.');
+  Assert.IsNotEmpty(lInner.ScopeId, 'Inner AST scope must be verified.');
+  Assert.AreEqual(lOuter.ScopeId, lInner.ParentScopeId,
+    'Inner must belong to Outer AST scope.');
+  Assert.AreNotEqual(lOuter.ScopeId, lInner.ScopeId,
+    'Nested routine must have its own AST scope.');
+  Assert.IsTrue(FindLocal(lModel, 'Outer', 'lNode', lLocal),
+    'Outer lNode declaration must be extracted.');
+  Assert.AreEqual('TNode', lLocal.TypeName, 'Outer lNode declared type.');
+  Assert.AreEqual(Pos('lNode: TNode', lSource), lLocal.Offset);
+  Assert.AreEqual(lLocal.Offset + Length(lLocal.Name), lLocal.EndOffset);
+  Assert.AreEqual(9, lLocal.Line);
+  Assert.AreEqual(ColumnOfSourceOffset(lSource, lLocal.Offset), lLocal.Column);
+  Assert.AreEqual(lOuter.ScopeId, lLocal.RoutineScopeId);
+  Assert.IsTrue(FindLocal(lModel, 'Outer', 'lPointer', lLocal),
+    'Outer lPointer declaration must be extracted.');
+  Assert.AreEqual('^TNode', lLocal.TypeName, 'Outer lPointer declared type.');
+  Assert.AreEqual(Pos('lPointer: ^TNode', lSource), lLocal.Offset);
+  Assert.AreEqual(lLocal.Offset + Length(lLocal.Name), lLocal.EndOffset);
+  Assert.AreEqual(9, lLocal.Line);
+  Assert.AreEqual(ColumnOfSourceOffset(lSource, lLocal.Offset), lLocal.Column);
+  Assert.AreEqual(lOuter.ScopeId, lLocal.RoutineScopeId);
+  for lName in ['lLeft', 'lRight', 'lThird'] do
+  begin
+    Assert.IsTrue(FindLocal(lModel, 'Outer', lName, lLocal),
+      'Outer comma declaration must include ' + lName);
+    Assert.AreEqual('Integer', lLocal.TypeName, 'Declared type of ' + lName);
+    Assert.AreEqual(Pos(lName, lSource), lLocal.Offset);
+    Assert.AreEqual(lLocal.Offset + Length(lName), lLocal.EndOffset);
+    Assert.AreEqual(9, lLocal.Line);
+    Assert.AreEqual(ColumnOfSourceOffset(lSource, lLocal.Offset), lLocal.Column);
+    Assert.AreEqual(lOuter.ScopeId, lLocal.RoutineScopeId);
+  end;
+  Assert.IsTrue(FindLocal(lModel, 'Inner', 'lInner', lLocal),
+    'Inner lInner declaration must be extracted.');
+  Assert.AreEqual('TNode', lLocal.TypeName, 'Inner lInner declared type.');
+  Assert.AreEqual(Pos('lInner: TNode', lSource), lLocal.Offset);
+  Assert.AreEqual(12, lLocal.Line);
+  Assert.AreEqual(ColumnOfSourceOffset(lSource, lLocal.Offset), lLocal.Column);
+  Assert.AreEqual(lInner.ScopeId, lLocal.RoutineScopeId);
+  Assert.IsFalse(FindLocal(lModel, 'Outer', 'lInner', lLocal),
+    'Nested local must not leak into Outer.');
+  Assert.IsFalse(FindLocal(lModel, 'Outer', 'lField', lLocal),
+    'Record field must not become a routine local.');
+  Assert.IsFalse(FindLocal(lModel, 'Outer', 'lString', lLocal),
+    'String content must not become a routine local.');
+  Assert.IsFalse(FindLocal(lModel, 'Outer', 'lComment', lLocal),
+    'Comment content must not become a routine local.');
+end;
+
+procedure TUnitModelTests.RoutineProceduralObjectLocalsKeepAstScopeModel;
+var
+  lLocal: TDelphiSemanticLocal;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lRoutine: TDelphiSemanticRoutine;
+  lSource: string;
+begin
+  // "of object" ends a procedural type; it opens no structure that a later "end" closes.
+  lPath := UnitModelTempPath('unit-model-procedural-object-locals.pas');
+  lSource :=
+    'unit ProceduralObjectLocalsUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'procedure UsePoint;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure UsePoint;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lEvent: procedure(a: Integer) of object;' + sLineBreak +
+    '  lQuery: function: Integer of object;' + sLineBreak +
+    '  lAfter: Integer;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  lEvent := nil;' + sLineBreak +
+    '  lQuery := nil;' + sLineBreak +
+    '  lAfter := 0;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+
+  Assert.IsTrue(lModel.Success, 'The source-backed unit must parse.');
+  Assert.IsFalse(HasDiagnostic(lModel, 'SCOPE_MODEL_FAILED'),
+    'Procedural object locals must not abandon the AST scope model.');
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.IsTrue(FindRoutine(lModel, 'UsePoint', 'implementation', lRoutine));
+  Assert.IsNotEmpty(lRoutine.ScopeId, 'UsePoint AST scope must be verified.');
+  Assert.IsTrue(FindLocal(lModel, 'UsePoint', 'lEvent', lLocal), 'lEvent must be extracted.');
+  Assert.AreEqual('procedure(a: Integer) of object', lLocal.TypeName);
+  Assert.AreEqual(Pos('lEvent:', lSource), lLocal.Offset);
+  Assert.AreEqual(lRoutine.ScopeId, lLocal.RoutineScopeId);
+  Assert.IsTrue(FindLocal(lModel, 'UsePoint', 'lQuery', lLocal), 'lQuery must be extracted.');
+  Assert.AreEqual('function: Integer of object', lLocal.TypeName);
+  Assert.AreEqual(lRoutine.ScopeId, lLocal.RoutineScopeId);
+  Assert.IsTrue(FindLocal(lModel, 'UsePoint', 'lAfter', lLocal), 'lAfter must be extracted.');
+  Assert.AreEqual('Integer', lLocal.TypeName);
+  Assert.AreEqual(lRoutine.ScopeId, lLocal.RoutineScopeId);
+end;
+
+function TUnitModelTests.AnonymousRecordLocalModel(out aSource: string): TDelphiSemanticUnitModel;
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := UnitModelTempPath('unit-model-anonymous-record-locals.pas');
+  aSource :=
+    'unit AnonymousRecordLocalsUnit;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TChild = record' + sLineBreak +
+    '    Name: string;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TScope = class' + sLineBreak +
+    '  public' + sLineBreak +
+    '    class procedure Run;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'class procedure TScope.Run;' + sLineBreak +
+    'var' + sLineBreak +
+    '  lAnonymous: packed record' + sLineBreak +
+    '    Value: TChild;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  lInline: record Count: Integer; end; lAfter: Integer;' + sLineBreak +
+    'begin' + sLineBreak +
+    '  lAnonymous.Value.Name := '''';' + sLineBreak +
+    '  lInline.Count := lAfter;' + sLineBreak +
+    'end;' + sLineBreak +
+    'end.';
+  TFile.WriteAllText(lPath, aSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+end;
+
+procedure TUnitModelTests.RoutineAnonymousRecordLocalsUseSyntheticOwnerType;
+var
+  lLocal: TDelphiSemanticLocal;
+  lModel: TDelphiSemanticUnitModel;
+  lRoutine: TDelphiSemanticRoutine;
+  lSource: string;
+begin
+  // An anonymous record has no declaration of its own; like a unit-level one, it is named after
+  // its owner, here the routine that declares the local.
+  lModel := AnonymousRecordLocalModel(lSource);
+
+  Assert.IsTrue(lModel.Success, 'The source-backed unit must parse.');
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.IsTrue(FindRoutine(lModel, 'Run', 'implementation', lRoutine));
+  Assert.IsNotEmpty(lRoutine.ScopeId, 'TScope.Run AST scope must be verified.');
+  Assert.IsTrue(FindLocal(lModel, 'TScope.Run', 'lAnonymous', lLocal),
+    'lAnonymous must be extracted.');
+  Assert.AreEqual('TScope.Run.lAnonymous', lLocal.TypeName,
+    'An anonymous record local is typed by its synthetic owner name.');
+  Assert.AreEqual(Pos('lAnonymous:', lSource), lLocal.Offset);
+  Assert.AreEqual(lRoutine.ScopeId, lLocal.RoutineScopeId);
+  Assert.IsTrue(FindLocal(lModel, 'TScope.Run', 'lInline', lLocal), 'lInline must be extracted.');
+  Assert.AreEqual('TScope.Run.lInline', lLocal.TypeName);
+  Assert.AreEqual(Pos('lInline:', lSource), lLocal.Offset);
+  Assert.AreEqual(lRoutine.ScopeId, lLocal.RoutineScopeId);
+  Assert.IsTrue(FindLocal(lModel, 'TScope.Run', 'lAfter', lLocal),
+    'A declaration after an inline record on the same line must be extracted.');
+  Assert.AreEqual('Integer', lLocal.TypeName);
+  Assert.AreEqual(Pos('lAfter:', lSource), lLocal.Offset);
+  Assert.AreEqual(lRoutine.ScopeId, lLocal.RoutineScopeId);
+  Assert.IsFalse(FindLocal(lModel, 'TScope.Run', 'Value', lLocal),
+    'A record field must not become a routine local.');
+  Assert.IsFalse(FindLocal(lModel, 'TScope.Run', 'Count', lLocal),
+    'An inline record field must not become a routine local.');
+end;
+
+procedure TUnitModelTests.RoutineAnonymousRecordLocalsKeepSyntheticInventoryOwner;
+var
+  lIndex: TDelphiSemanticRemoveWithLookupIndex;
+  lLocalCount: Integer;
+  lMembers: TArray<TDelphiSemanticInventorySymbol>;
+  lModel: TDelphiSemanticUnitModel;
+  lSource: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+begin
+  // WITH consumers resolve the local through the lookup index; its type must name the
+  // synthetic owner that carries the record fields.
+  lModel := AnonymousRecordLocalModel(lSource);
+  Assert.IsTrue(lModel.Success, 'The source-backed unit must parse.');
+  lSymbols := TDelphiSemanticWithBindingInventory.BuildInventorySymbols(lModel);
+  lIndex := TDelphiSemanticRemoveWithLookupIndex.Build([lModel], lSymbols);
+
+  // Consumers may pick any of the local's inventory symbols, so none may disagree.
+  lLocalCount := 0;
+  for lSymbol in lSymbols do
+    if SameText(lSymbol.SymbolClass, 'local') and SameText(lSymbol.Name, 'lAnonymous') then
+    begin
+      Inc(lLocalCount);
+      Assert.AreEqual('TScope.Run.lAnonymous', lSymbol.TypeName,
+        'Every inventory symbol of lAnonymous must name its synthetic owner.');
+    end;
+  Assert.IsTrue(lLocalCount > 0, 'lAnonymous must have an inventory symbol.');
+  Assert.IsTrue(lIndex.FindRoutineSymbol('TScope.Run', 'lAnonymous', lSymbol),
+    'lAnonymous must be visible to the routine lookup.');
+  Assert.AreEqual('TScope.Run.lAnonymous', lSymbol.TypeName,
+    'The routine lookup must type lAnonymous by its synthetic owner.');
+  Assert.IsTrue(Length(lIndex.FindDeclarationOrTypeAliasByName('TScope.Run.lAnonymous')) > 0,
+    'The synthetic owner type must be indexed.');
+  lMembers := lIndex.FindMembersByOwnerAndName('TScope.Run.lAnonymous', 'Value');
+  Assert.IsTrue(Length(lMembers) > 0, 'The synthetic owner must carry the Value field.');
+  Assert.AreEqual('TChild', lMembers[0].TypeName);
+end;
+
 function TUnitModelTests.DefaultParameterSource(const aShape: string): string;
 const
   cHeader = 'procedure Run(aValue: Integer = ProviderAlpha.AlphaOnlyValue);';
@@ -1120,6 +1417,8 @@ begin
   Assert.IsTrue(HasLocal(lModel, 'SemanticProcedure', 'lRecord', 'TSemanticRecord'));
   Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
   Assert.AreEqual(0, Integer(Length(lModel.References)));
+  Assert.IsFalse(lModel.PhysicalReferenceOccurrencesAvailable,
+    'Skipped extraction cannot prove there are no physical references');
 end;
 
 procedure TUnitModelTests.ExtractsUntypedRoutineParameters;
@@ -1424,7 +1723,7 @@ begin
 
   Assert.IsTrue(lModel.Success);
   Assert.AreEqual('SymbolMapDeclarations', lModel.UnitName);
-  AssertUnitModelDeclarationKeysExactly(lModel, [
+  AssertTopLevelDeclarationKeysExactly(lModel, [
     'TDeclarationEnum:type:interface',
     'deOne:enum-value:interface',
     'deTwo:enum-value:interface',
@@ -1480,12 +1779,20 @@ begin
   Assert.IsTrue(Pos('const aName: string; const aValue: Integer', lRoutine.Signature) > 0);
   Assert.IsTrue(FindDeclaration(lModel, 'ImplementationOnlyProcedure', 'routine',
     'implementation', lDeclaration));
+  Assert.IsTrue(FindRoutine(lModel, 'ImplementationOnlyProcedure', 'implementation',
+    lRoutine));
+  Assert.IsNotEmpty(lRoutine.ScopeId);
   Assert.IsTrue(FindDeclaration(lModel, 'cImplementationConst', 'const', 'implementation',
     lDeclaration));
   Assert.IsTrue(FindDeclaration(lModel, 'GImplementationGlobal', 'var', 'implementation',
     lDeclaration));
   Assert.IsFalse(HasDeclaration(lModel, 'cLocalConst', 'const', 'implementation'));
-  Assert.IsFalse(HasDeclaration(lModel, 'TLocalType', 'type-alias', 'implementation'));
+  Assert.IsTrue(FindDeclaration(lModel, 'TLocalType', 'type-alias', 'implementation',
+    lDeclaration));
+  Assert.AreEqual('Integer', lDeclaration.TypeName);
+  Assert.AreEqual('declaration', lDeclaration.DeclarationRole);
+  Assert.AreEqual('routine', lDeclaration.ScopeKind);
+  Assert.AreEqual(lRoutine.ScopeId, lDeclaration.OwnerScopeId);
   Assert.IsFalse(HasDeclaration(lModel, 'lLocalValue', 'var', 'implementation'));
 end;
 
@@ -1827,6 +2134,8 @@ begin
   lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits([lModel]);
 
   Assert.AreEqual('ast-failed', lModel.ScopeModelStatus);
+  Assert.IsFalse(lModel.PhysicalReferenceOccurrencesAvailable,
+    'A failed scope capture cannot prove the reference set complete');
   Assert.IsTrue(HasDiagnostic(lModel, 'SCOPE_MODEL_FAILED'));
   Assert.IsTrue(lModel.RejectedDeclarationCount > 0);
   for lDeclaration in lModel.Declarations do
@@ -2088,6 +2397,201 @@ begin
   // The unit's own GF on line 10 has no FileName; the included GF facts sit on the directive and
   // name the unit file, which marks them as not positioned in this unit's text.
   Assert.AreEqual('incmid.pas:9:15 :10:3 ', lKeys);
+end;
+
+procedure TUnitModelTests.MidLineIncludesKeepDistinctPhysicalReferenceOccurrences;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoot: string;
+
+  procedure AssertOccurrences(const aJson: string);
+  var
+    i: Integer;
+    lDocument: TJSONValue;
+    lEntry: TJSONObject;
+    lFacts: TJSONArray;
+    lFileName: string;
+    lFirstExpansion: string;
+    lKeys: TStringList;
+    lOffsets: TStringList;
+    lSecondExpansion: string;
+  begin
+    lDocument := TJSONObject.ParseJSONValue(aJson);
+    lKeys := TStringList.Create;
+    lOffsets := TStringList.Create;
+    try
+      Assert.IsTrue(lDocument is TJSONObject);
+      lFacts := (lDocument as TJSONObject).GetValue('PhysicalReferenceOccurrences') as TJSONArray;
+      Assert.IsTrue(Assigned(lFacts), 'Missing physical occurrence sidecar');
+      for i := 0 to Pred(lFacts.Count) do
+      begin
+        lEntry := lFacts.Items[i] as TJSONObject;
+        if lEntry.GetValue('Name').Value <> 'GF' then
+          Continue;
+        lFileName := LowerCase(ExtractFileName(lEntry.GetValue('FileName').Value));
+        if (lFileName <> 'first.inc') and (lFileName <> 'second.inc') then
+          Continue;
+        Assert.IsTrue(SameText(lEntry.GetValue('Verified').Value, 'true'));
+        Assert.AreEqual('Foo', lEntry.GetValue('RoutineName').Value);
+        Assert.AreNotEqual('', lEntry.GetValue('RoutineScopeId').Value);
+        Assert.AreEqual('reference', lEntry.GetValue('Role').Value);
+        Assert.AreEqual('1', lEntry.GetValue('Line').Value);
+        Assert.AreEqual('1', lEntry.GetValue('EndLine').Value);
+        Assert.AreEqual(IntToStr(StrToInt(lEntry.GetValue('Column').Value) + 1),
+          lEntry.GetValue('EndColumn').Value,
+          'Both GF tokens must retain their own physical span');
+        lKeys.Add(lFileName + ':' + lEntry.GetValue('Column').Value);
+        lOffsets.Add(lEntry.GetValue('OutputStartOffset').Value + ':' +
+          lEntry.GetValue('OutputEndOffset').Value);
+        if lFileName = 'first.inc' then
+        begin
+          if lFirstExpansion = '' then
+            lFirstExpansion := lEntry.GetValue('ExpansionId').Value
+          else
+            Assert.AreEqual(lFirstExpansion, lEntry.GetValue('ExpansionId').Value);
+        end else begin
+          if lSecondExpansion = '' then
+            lSecondExpansion := lEntry.GetValue('ExpansionId').Value
+          else
+            Assert.AreEqual(lSecondExpansion, lEntry.GetValue('ExpansionId').Value);
+        end;
+      end;
+      Assert.AreEqual(4, lKeys.Count, 'Two includes must retain four GF tokens');
+      Assert.IsTrue(lKeys.IndexOf('first.inc:1') >= 0);
+      Assert.IsTrue(lKeys.IndexOf('first.inc:7') >= 0);
+      Assert.IsTrue(lKeys.IndexOf('second.inc:1') >= 0);
+      Assert.IsTrue(lKeys.IndexOf('second.inc:7') >= 0);
+      Assert.AreNotEqual('', lFirstExpansion);
+      Assert.AreNotEqual('', lSecondExpansion);
+      Assert.AreNotEqual(lFirstExpansion, lSecondExpansion);
+      for i := 0 to Pred(lOffsets.Count) do
+        Assert.AreEqual(i, lOffsets.IndexOf(lOffsets[i]), 'Expanded token spans must be distinct');
+    finally
+      lOffsets.Free;
+      lKeys.Free;
+      lDocument.Free;
+    end;
+  end;
+
+begin
+  lRoot := UnitModelTempPath('unit-model-two-mid-line-includes');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'first.inc'), 'GF := GF + 1;'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'second.inc'), 'GF := GF + 1;'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'IncPhysical.pas'),
+    'unit IncPhysical;'#13#10 +
+    'interface'#13#10 +
+    'var GF: Integer;'#13#10 +
+    'procedure Foo;'#13#10 +
+    'implementation'#13#10 +
+    'procedure Foo;'#13#10 +
+    'begin'#13#10 +
+    '  WriteLn(1); {$I first.inc} {$I second.inc} GF := 3;'#13#10 +
+    'end;'#13#10 +
+    'end.'#13#10, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'IncPhysical.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(lModel.PhysicalReferenceOccurrencesAvailable);
+  AssertOccurrences(ModelToJson(lModel));
+  AssertOccurrences(ModelToJson(JsonToModel(ModelToJson(lModel))));
+end;
+
+procedure TUnitModelTests.RepeatedNestedAndInactiveIncludesKeepPhysicalOccurrences;
+var
+  i: Integer;
+  lDocument: TJSONValue;
+  lEntry: TJSONObject;
+  lFacts: TJSONArray;
+  lFileName: string;
+  lInnerCount: Integer;
+  lInnerExpansions: TStringList;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lOuterCount: Integer;
+  lOuterExpansions: TStringList;
+  lRoot: string;
+  lRootCount: Integer;
+begin
+  lRoot := UnitModelTempPath('unit-model-nested-repeated-includes');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'inner.inc'), 'GF := GF + 1;'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'outer.inc'),
+    '{$I inner.inc}'#13#10 + 'GF := GF + 1;'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'inactive.inc'), 'GF := GF + 1;'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'IncNested.pas'),
+    'unit IncNested;'#13#10 +
+    'interface'#13#10 +
+    'var GF: Integer;'#13#10 +
+    'procedure Foo;'#13#10 +
+    'implementation'#13#10 +
+    'procedure Foo;'#13#10 +
+    'begin'#13#10 +
+    '  {$I outer.inc}'#13#10 +
+    '  {$I outer.inc} GF := GF + 1;'#13#10 +
+    '  {$IFDEF NEVER}{$I inactive.inc}{$ENDIF}'#13#10 +
+    'end;'#13#10 +
+    'end.'#13#10, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'IncNested.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(lModel.PhysicalReferenceOccurrencesAvailable);
+  lDocument := TJSONObject.ParseJSONValue(ModelToJson(lModel));
+  lInnerExpansions := TStringList.Create;
+  lOuterExpansions := TStringList.Create;
+  try
+    Assert.IsTrue(lDocument is TJSONObject);
+    lFacts := (lDocument as TJSONObject).GetValue('PhysicalReferenceOccurrences') as TJSONArray;
+    Assert.IsTrue(Assigned(lFacts), 'Missing physical occurrence sidecar');
+    lInnerCount := 0;
+    lOuterCount := 0;
+    lRootCount := 0;
+    for i := 0 to Pred(lFacts.Count) do
+    begin
+      lEntry := lFacts.Items[i] as TJSONObject;
+      if lEntry.GetValue('Name').Value <> 'GF' then
+        Continue;
+      lFileName := LowerCase(ExtractFileName(lEntry.GetValue('FileName').Value));
+      if lFileName = 'inner.inc' then
+      begin
+        Inc(lInnerCount);
+        Assert.AreEqual('1', lEntry.GetValue('Line').Value);
+        if lInnerExpansions.IndexOf(lEntry.GetValue('ExpansionId').Value) < 0 then
+          lInnerExpansions.Add(lEntry.GetValue('ExpansionId').Value);
+      end else if lFileName = 'outer.inc' then
+      begin
+        Inc(lOuterCount);
+        Assert.AreEqual('2', lEntry.GetValue('Line').Value);
+        if lOuterExpansions.IndexOf(lEntry.GetValue('ExpansionId').Value) < 0 then
+          lOuterExpansions.Add(lEntry.GetValue('ExpansionId').Value);
+      end else if lFileName = 'incnested.pas' then
+      begin
+        Inc(lRootCount);
+        Assert.AreEqual('9', lEntry.GetValue('Line').Value);
+      end else
+        Assert.AreNotEqual('inactive.inc', lFileName, 'Inactive text has no occurrence');
+    end;
+    Assert.AreEqual(4, lInnerCount);
+    Assert.AreEqual(4, lOuterCount);
+    Assert.AreEqual(2, lRootCount, 'The parent tail must keep its own source');
+    Assert.AreEqual(2, lInnerExpansions.Count, 'Repeated nested includes need distinct identities');
+    Assert.AreEqual(2, lOuterExpansions.Count, 'Repeated includes need distinct identities');
+  finally
+    lOuterExpansions.Free;
+    lInnerExpansions.Free;
+    lDocument.Free;
+  end;
 end;
 
 procedure TUnitModelTests.IncludeBetweenDeclarationsAttributesFactsToIncludeFile;
@@ -3580,6 +4084,120 @@ begin
   Assert.AreEqual('routine:scopefixture.run', lRestored.References[0].RoutineScopeId);
 end;
 
+procedure TUnitModelTests.PhysicalOccurrencesJsonRoundTripRetainsStatusAndIndependentArray;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lRestored: TDelphiSemanticUnitModel;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.PhysicalReferenceOccurrencesAvailable := True;
+  SetLength(lModel.PhysicalReferenceOccurrences, 1);
+  lModel.PhysicalReferenceOccurrences[0].Name := 'GF';
+  lModel.PhysicalReferenceOccurrences[0].Role := 'reference';
+  lModel.PhysicalReferenceOccurrences[0].RoutineName := 'Foo';
+  lModel.PhysicalReferenceOccurrences[0].RoutineScopeId := 'routine:foo';
+  lModel.PhysicalReferenceOccurrences[0].OutputStartOffset := 17;
+  lModel.PhysicalReferenceOccurrences[0].OutputEndOffset := 19;
+  lModel.PhysicalReferenceOccurrences[0].FileName := 'first.inc';
+  lModel.PhysicalReferenceOccurrences[0].Line := 1;
+  lModel.PhysicalReferenceOccurrences[0].Column := 7;
+  lModel.PhysicalReferenceOccurrences[0].EndLine := 1;
+  lModel.PhysicalReferenceOccurrences[0].EndColumn := 8;
+  lModel.PhysicalReferenceOccurrences[0].ExpansionId := '2';
+  lModel.PhysicalReferenceOccurrences[0].Verified := True;
+
+  lRestored := JsonToModel(ModelToJson(lModel));
+  Assert.IsTrue(lRestored.PhysicalReferenceOccurrencesAvailable);
+  Assert.AreEqual(1, Integer(Length(lRestored.PhysicalReferenceOccurrences)));
+  Assert.AreEqual('GF', lRestored.PhysicalReferenceOccurrences[0].Name);
+  Assert.AreEqual('reference', lRestored.PhysicalReferenceOccurrences[0].Role);
+  Assert.AreEqual('Foo', lRestored.PhysicalReferenceOccurrences[0].RoutineName);
+  Assert.AreEqual('routine:foo', lRestored.PhysicalReferenceOccurrences[0].RoutineScopeId);
+  Assert.AreEqual(17, lRestored.PhysicalReferenceOccurrences[0].OutputStartOffset);
+  Assert.AreEqual(19, lRestored.PhysicalReferenceOccurrences[0].OutputEndOffset);
+  Assert.AreEqual('first.inc', lRestored.PhysicalReferenceOccurrences[0].FileName);
+  Assert.AreEqual(1, lRestored.PhysicalReferenceOccurrences[0].Line);
+  Assert.AreEqual(7, lRestored.PhysicalReferenceOccurrences[0].Column);
+  Assert.AreEqual(1, lRestored.PhysicalReferenceOccurrences[0].EndLine);
+  Assert.AreEqual(8, lRestored.PhysicalReferenceOccurrences[0].EndColumn);
+  Assert.AreEqual('2', lRestored.PhysicalReferenceOccurrences[0].ExpansionId);
+  Assert.IsTrue(lRestored.PhysicalReferenceOccurrences[0].Verified);
+  lRestored.PhysicalReferenceOccurrences[0].Name := 'Changed';
+  Assert.AreEqual('GF', lModel.PhysicalReferenceOccurrences[0].Name);
+
+  lModel.PhysicalReferenceOccurrences[0].Verified := False;
+  lRestored := JsonToModel(ModelToJson(lModel));
+  Assert.IsFalse(lRestored.PhysicalReferenceOccurrences[0].Verified,
+    'JSON must not promote an unverified origin');
+end;
+
+procedure TUnitModelTests.PhysicalOccurrencesAvailabilityDistinguishesOldAndEmptyModels;
+var
+  lDocument: TJSONObject;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPair: TJSONPair;
+  lRestored: TDelphiSemanticUnitModel;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('EmptyPhysicalUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit EmptyPhysicalUnit;'#13#10 + 'interface'#13#10 +
+    'implementation'#13#10 + 'end.'#13#10, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(lModel.PhysicalReferenceOccurrencesAvailable);
+  Assert.AreEqual(0, Integer(Length(lModel.PhysicalReferenceOccurrences)));
+  lRestored := JsonToModel(ModelToJson(lModel));
+  Assert.IsTrue(lRestored.PhysicalReferenceOccurrencesAvailable);
+
+  lDocument := TJSONObject.ParseJSONValue(ModelToJson(lModel)) as TJSONObject;
+  try
+    lPair := lDocument.RemovePair('PhysicalReferenceOccurrences');
+    lPair.Free;
+    lPair := lDocument.RemovePair('PhysicalReferenceOccurrencesAvailable');
+    lPair.Free;
+    lRestored := JsonToModel(lDocument.ToJSON);
+    Assert.IsFalse(lRestored.PhysicalReferenceOccurrencesAvailable,
+      'Legacy JSON with no sidecar cannot prove an empty reference set');
+    Assert.AreEqual(0, Integer(Length(lRestored.PhysicalReferenceOccurrences)));
+  finally
+    lDocument.Free;
+  end;
+
+  lModel.PhysicalReferenceOccurrencesAvailable := True;
+  SetLength(lModel.PhysicalReferenceOccurrences, 1);
+  lModel.PhysicalReferenceOccurrences[0].Name := 'GF';
+  lModel.PhysicalReferenceOccurrences[0].OutputStartOffset := 20;
+  lModel.PhysicalReferenceOccurrences[0].OutputEndOffset := 19;
+  lModel.PhysicalReferenceOccurrences[0].Verified := True;
+  lRestored := JsonToModel(ModelToJson(lModel));
+  Assert.IsFalse(lRestored.PhysicalReferenceOccurrencesAvailable);
+  Assert.IsFalse(lRestored.PhysicalReferenceOccurrences[0].Verified);
+  Assert.IsTrue(HasDiagnostic(lRestored, 'PHYSICAL_REFERENCE_JSON_UNVERIFIED'));
+
+  lModel.PhysicalReferenceOccurrences[0].Role := 'reference';
+  lModel.PhysicalReferenceOccurrences[0].OutputStartOffset := 17;
+  lModel.PhysicalReferenceOccurrences[0].OutputEndOffset := 19;
+  lModel.PhysicalReferenceOccurrences[0].FileName := 'first.inc';
+  lModel.PhysicalReferenceOccurrences[0].Line := 1;
+  lModel.PhysicalReferenceOccurrences[0].Column := 7;
+  lModel.PhysicalReferenceOccurrences[0].EndLine := 1;
+  lModel.PhysicalReferenceOccurrences[0].EndColumn := 8;
+  lModel.PhysicalReferenceOccurrences[0].ExpansionId := '';
+  lRestored := JsonToModel(ModelToJson(lModel));
+  Assert.IsTrue(lRestored.PhysicalReferenceOccurrencesAvailable,
+    'An unverified origin does not erase an enumerated token');
+  Assert.IsFalse(lRestored.PhysicalReferenceOccurrences[0].Verified);
+
+  lModel.PhysicalReferenceOccurrences[0].ExpansionId := '2';
+  lModel.PhysicalReferenceOccurrences[0].EndColumn := 9;
+  lRestored := JsonToModel(ModelToJson(lModel));
+  Assert.IsFalse(lRestored.PhysicalReferenceOccurrences[0].Verified,
+    'A physical span width mismatch cannot stay verified');
+end;
+
 procedure TUnitModelTests.UnitModelImplementationIsSplitIntoFocusedUnits;
 var
   lCoordinateSource: string;
@@ -4230,6 +4848,187 @@ begin
   Assert.AreEqual(lOuter.ScopeId, lDeclaration.OwnerScopeId, 'JSON retains lexical owner');
 end;
 
+procedure TUnitModelTests.RoutineLocalTypesRetainTheirDeclaringScope;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lNested, lRunLocal, lRunNested: TDelphiSemanticRoutine;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath(
+    'RemoveWithLocalCaptureType\LocalConsumer.pas');
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.IsTrue(FindRoutine(lModel, 'RunLocal', 'implementation', lRunLocal));
+  Assert.IsTrue(FindRoutine(lModel, 'RunNested', 'implementation', lRunNested));
+  Assert.IsTrue(FindRoutine(lModel, 'IncrementItem', 'implementation', lNested));
+  Assert.AreEqual(lRunNested.ScopeId, lNested.ParentScopeId);
+  Assert.AreNotEqual(lRunLocal.ScopeId, lRunNested.ScopeId);
+  Assert.IsTrue(FindDeclaration(lModel, 'TLocal', 'type', 'implementation',
+    lDeclaration), 'The source-backed local record must be materialized.');
+  Assert.AreEqual('routine', lDeclaration.ScopeKind);
+  Assert.AreEqual(lRunLocal.ScopeId, lDeclaration.OwnerScopeId);
+  Assert.IsNotEmpty(lDeclaration.SymbolId);
+  Assert.AreEqual(12, lDeclaration.Line);
+  Assert.IsTrue(FindDeclaration(lModel, 'TOuter', 'type', 'implementation',
+    lDeclaration), 'The enclosing local record must be materialized.');
+  Assert.AreEqual('routine', lDeclaration.ScopeKind);
+  Assert.AreEqual(lRunNested.ScopeId, lDeclaration.OwnerScopeId);
+  Assert.IsNotEmpty(lDeclaration.SymbolId);
+  Assert.AreEqual(28, lDeclaration.Line);
+  lModel := JsonToModel(ModelToJson(lModel));
+  Assert.IsTrue(FindDeclaration(lModel, 'TOuter', 'type', 'implementation',
+    lDeclaration));
+  Assert.AreEqual(lRunNested.ScopeId, lDeclaration.OwnerScopeId,
+    'JSON must retain the lexical declaration owner.');
+end;
+
+procedure TUnitModelTests.HomonymousAndDistinctRoutineLocalTypesKeepSourceIdentity;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lMember: TDelphiSemanticMember;
+  lFirst, lNested, lSecond: TDelphiSemanticRoutine;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lSeenAlias, lSeenFirst, lSeenNested, lSeenOther, lSeenPointer, lSeenSecond: Boolean;
+  lSource: string;
+  lFirstSymbol, lNestedSymbol, lOtherSymbol, lSecondSymbol: string;
+begin
+  lPath := UnitModelTempPath('routine-local-type-identity.pas');
+  lSource := 'unit RoutineLocalTypeIdentity;'#13#10 +
+    'interface'#13#10 +
+    'procedure First;'#13#10 +
+    'procedure Second;'#13#10 +
+    'implementation'#13#10 +
+    'procedure First;'#13#10 +
+    'type TItem = record FirstValue: Integer; end;'#13#10 +
+    '     TOther = record OtherValue: Integer; end;'#13#10 +
+    '     TAlias = TItem;'#13#10 +
+    '     PItem = ^TItem;'#13#10 +
+    '  procedure Nested;'#13#10 +
+    '  type TItem = record NestedValue: Integer; end;'#13#10 +
+    '  begin end;'#13#10 +
+    'begin Nested; end;'#13#10 +
+    'procedure Second;'#13#10 +
+    'type TItem = record SecondValue: Integer; end;'#13#10 +
+    'begin end;'#13#10 +
+    'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.IsTrue(FindRoutine(lModel, 'First', 'implementation', lFirst));
+  Assert.IsTrue(FindRoutine(lModel, 'Nested', 'implementation', lNested));
+  Assert.IsTrue(FindRoutine(lModel, 'Second', 'implementation', lSecond));
+  Assert.AreEqual(lFirst.ScopeId, lNested.ParentScopeId);
+  lSeenAlias := False;
+  lSeenFirst := False;
+  lSeenNested := False;
+  lSeenSecond := False;
+  lSeenOther := False;
+  lSeenPointer := False;
+  lFirstSymbol := '';
+  lNestedSymbol := '';
+  lSecondSymbol := '';
+  lOtherSymbol := '';
+  for lDeclaration in lModel.Declarations do
+  begin
+    if not SameText(lDeclaration.ScopeKind, 'routine') then
+      Continue;
+    if SameText(lDeclaration.Name, 'TItem') and SameText(lDeclaration.Kind, 'type') and
+      (lDeclaration.OwnerScopeId = lFirst.ScopeId) then
+    begin
+      lSeenFirst := True;
+      Assert.AreEqual(7, lDeclaration.Line);
+      lFirstSymbol := lDeclaration.SymbolId;
+    end else if SameText(lDeclaration.Name, 'TItem') and SameText(lDeclaration.Kind, 'type') and
+      (lDeclaration.OwnerScopeId = lNested.ScopeId) then
+    begin
+      lSeenNested := True;
+      Assert.AreEqual(12, lDeclaration.Line);
+      lNestedSymbol := lDeclaration.SymbolId;
+    end else if SameText(lDeclaration.Name, 'TItem') and
+      SameText(lDeclaration.Kind, 'type') and
+      (lDeclaration.OwnerScopeId = lSecond.ScopeId) then
+    begin
+      lSeenSecond := True;
+      Assert.AreEqual(16, lDeclaration.Line);
+      lSecondSymbol := lDeclaration.SymbolId;
+    end else if SameText(lDeclaration.Name, 'TOther') and
+      SameText(lDeclaration.Kind, 'type') and
+      (lDeclaration.OwnerScopeId = lFirst.ScopeId) then
+    begin
+      lSeenOther := True;
+      Assert.AreEqual(8, lDeclaration.Line);
+      lOtherSymbol := lDeclaration.SymbolId;
+    end else if SameText(lDeclaration.Name, 'TAlias') and
+      SameText(lDeclaration.Kind, 'type-alias') and
+      (lDeclaration.OwnerScopeId = lFirst.ScopeId) then
+    begin
+      lSeenAlias := True;
+      Assert.AreEqual('TItem', lDeclaration.TypeName);
+      Assert.AreEqual(9, lDeclaration.Line);
+      Assert.IsNotEmpty(lDeclaration.SymbolId);
+    end else if SameText(lDeclaration.Name, 'PItem') and
+      SameText(lDeclaration.Kind, 'type-alias') and
+      (lDeclaration.OwnerScopeId = lFirst.ScopeId) then
+    begin
+      lSeenPointer := True;
+      Assert.AreEqual('^TItem', lDeclaration.TypeName);
+      Assert.AreEqual(10, lDeclaration.Line);
+      Assert.IsNotEmpty(lDeclaration.SymbolId);
+    end;
+  end;
+  Assert.IsTrue(lSeenFirst, 'First.TItem must retain its source scope.');
+  Assert.IsTrue(lSeenNested, 'Nested.TItem must shadow its enclosing type.');
+  Assert.IsTrue(lSeenSecond, 'Second.TItem must retain its source scope.');
+  Assert.IsTrue(lSeenOther, 'First.TOther must retain its source scope.');
+  Assert.IsTrue(lSeenAlias, 'The alias must retain its declaration scope.');
+  Assert.IsTrue(lSeenPointer, 'The pointer must retain its declaration scope.');
+  Assert.IsNotEmpty(lFirstSymbol);
+  Assert.IsNotEmpty(lNestedSymbol);
+  Assert.IsNotEmpty(lSecondSymbol);
+  Assert.IsNotEmpty(lOtherSymbol);
+  Assert.AreNotEqual(lFirstSymbol, lSecondSymbol);
+  Assert.AreNotEqual(lFirstSymbol, lNestedSymbol);
+  Assert.AreNotEqual(lFirstSymbol, lOtherSymbol);
+  lSeenFirst := False;
+  lSeenSecond := False;
+  for lMember in lModel.Members do
+  begin
+    if SameText(lMember.Name, 'FirstValue') then
+    begin
+      Assert.AreEqual(lFirst.ScopeId, lMember.OwnerScopeId);
+      Assert.AreEqual(lFirstSymbol, lMember.OwnerSymbolId);
+      lSeenFirst := True;
+    end else if SameText(lMember.Name, 'SecondValue') then
+    begin
+      Assert.AreEqual(lSecond.ScopeId, lMember.OwnerScopeId);
+      Assert.AreEqual(lSecondSymbol, lMember.OwnerSymbolId);
+      lSeenSecond := True;
+    end;
+  end;
+  Assert.IsTrue(lSeenFirst and lSeenSecond,
+    'AST members must retain their exact local owning type.');
+  lModel := JsonToModel(ModelToJson(lModel));
+  lSeenFirst := False;
+  for lMember in lModel.Members do
+    if SameText(lMember.Name, 'FirstValue') then
+    begin
+      Assert.AreEqual(lFirst.ScopeId, lMember.OwnerScopeId);
+      Assert.AreEqual(lFirstSymbol, lMember.OwnerSymbolId);
+      lSeenFirst := True;
+    end;
+  Assert.IsTrue(lSeenFirst, 'Model JSON must retain local member ownership.');
+end;
+
 procedure TUnitModelTests.ExtractsFieldAfterVisibility(const aVisibility, aKind: string;
   const aInline: Boolean);
 var
@@ -4631,6 +5430,8 @@ end;
 procedure TUnitModelTests.InterfaceHeadersAndInitializationGetNoRoutineBody;
 var
   lModel: TDelphiSemanticUnitModel;
+  lRoutine: TDelphiSemanticRoutine;
+  lVerifiedWorkDeclarations: Integer;
 begin
   lModel := ExtractUnitSource('body-bounds-unit.pas',
     'unit BodyBoundsUnit;'#13#10 + // 1
@@ -4657,6 +5458,17 @@ begin
 
   Assert.IsTrue(lModel.Success);
   Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  lVerifiedWorkDeclarations := 0;
+  for lRoutine in lModel.Routines do
+    if SameText(lRoutine.Name, 'Work') then
+    begin
+      Assert.AreEqual('()', lRoutine.AstSemanticSignature);
+      Assert.AreEqual('', lRoutine.AstSourceSignature);
+      Assert.IsTrue(lRoutine.AstSourceSignatureVerified);
+      Inc(lVerifiedWorkDeclarations);
+    end;
+  Assert.AreEqual(2, lVerifiedWorkDeclarations,
+    'An empty-arity interface header and body retain separate AST evidence.');
   Assert.AreEqual(SortedFactKeys(['L:Helper.Counter@9', 'R:Counter@11>Helper',
     'R:Counter@15>Work', 'R:Counter@18>', 'R:Counter@20>']),
     BodyFactsText(lModel, ['Counter']));

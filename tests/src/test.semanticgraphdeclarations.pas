@@ -21,6 +21,8 @@ type
     procedure ExtractedParameterRangesFeedGraphDtos;
     [Test]
     procedure RoutineSourceRangesPreserveModelCoordinates;
+    [Test]
+    procedure LocalNominalTypesKeepDistinctIdsAcrossAndWithinRoutines;
   end;
 
 implementation
@@ -157,6 +159,53 @@ begin
     Assert.AreNotEqual('', lType.UnderlyingId.Value);
     Assert.AreNotEqual(lType.DeclaredId.Value, lType.CanonicalId.Value);
     Assert.AreNotEqual(lType.CanonicalId.Value, lType.UnderlyingId.Value);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TSemanticGraphDeclarationTests.LocalNominalTypesKeepDistinctIdsAcrossAndWithinRoutines;
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lModel: TDelphiSemanticUnitModel;
+  lTypes: TArray<TDelphiSemanticGraphType>;
+begin
+  // Model facts are injected here to isolate the graph contract from AST extraction.
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.Success := True;
+  lModel.UnitName := 'LocalNominalGraph';
+  lModel.FileName := FixturePath('ProjectContext\Basic\BasicProject.dpr');
+  SetLength(lModel.Declarations, 3);
+  lModel.Declarations[0].Name := 'TItem';
+  lModel.Declarations[0].Kind := 'type';
+  lModel.Declarations[0].TypeName := 'record';
+  lModel.Declarations[0].ScopeKind := 'routine';
+  lModel.Declarations[0].OwnerScopeId := 'localnominalgraph|first()';
+  lModel.Declarations[0].SymbolId := 'localnominalgraph|first()|type|titem';
+  lModel.Declarations[0].Line := 8;
+  lModel.Declarations[0].Column := 3;
+  lModel.Declarations[1] := lModel.Declarations[0];
+  lModel.Declarations[1].OwnerScopeId := 'localnominalgraph|second()';
+  lModel.Declarations[1].SymbolId := 'localnominalgraph|second()|type|titem';
+  lModel.Declarations[1].Line := 18;
+  lModel.Declarations[2] := lModel.Declarations[0];
+  lModel.Declarations[2].Name := 'TOther';
+  lModel.Declarations[2].SymbolId := 'localnominalgraph|first()|type|tother';
+  lModel.Declarations[2].Line := 9;
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    lTypes := lGraph.Types;
+    Assert.AreEqual(3, Integer(Length(lTypes)));
+    Assert.AreEqual(8, lTypes[0].SourceRange.Line);
+    Assert.AreEqual(18, lTypes[1].SourceRange.Line);
+    Assert.AreEqual(9, lTypes[2].SourceRange.Line);
+    Assert.AreNotEqual(lTypes[0].DeclaredId.Value, lTypes[1].DeclaredId.Value,
+      'Homonymous routine-local types must keep separate declarations.');
+    Assert.AreNotEqual(lTypes[0].CanonicalId.Value, lTypes[1].CanonicalId.Value);
+    Assert.AreNotEqual(lTypes[0].UnderlyingId.Value, lTypes[1].UnderlyingId.Value);
+    Assert.AreNotEqual(lTypes[0].CanonicalId.Value, lTypes[2].CanonicalId.Value,
+      'Distinct nominal records in the same routine cannot collapse to record.');
+    Assert.AreNotEqual(lTypes[0].UnderlyingId.Value, lTypes[2].UnderlyingId.Value);
   finally
     lGraph.Free;
   end;

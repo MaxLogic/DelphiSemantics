@@ -104,7 +104,13 @@ type
     [Test]
     procedure ProjectSessionPlanRemoveWithInvalidatesLegacyParentSelectorFacts;
     [Test]
+    procedure ProjectSessionPlanRemoveWithInvalidatesLegacySimpleInheritedChildFacts;
+    [Test]
     procedure ProjectSessionPlanRemoveWithInvalidatesLegacyReceiverSafetyFacts;
+    [Test]
+    procedure ProjectSessionPlanRemoveWithInvalidatesPreCorrectionV29ReceiverSafetyFacts;
+    [Test]
+    procedure ProjectSessionPreservesInheritedAccessIdentityColdAndWarm;
     [Test]
     procedure ProjectSessionSnapshotMetricsExposeCacheUsefulnessTelemetry;
     [Test]
@@ -152,6 +158,7 @@ uses
   DelphiSemantics.GlobalVars, DelphiSemantics.IdentifierScope, DelphiSemantics.Index,
   DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
   DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Snapshot.Cache.Sqlite,
+  DelphiSemantics.Snapshot.RemoveWith,
   DelphiSemantics.WithBinding,
   Test.Support;
 
@@ -451,6 +458,139 @@ begin
         IntToStr(lMissingTypeId) + ' where cache_key = ' +
         QuotedStr(aLegacyIdentity.CacheKey) + ' and binding_index = ' +
         IntToStr(lRunNestedBindingIndex) + ' and selector_index = 1');
+      lConnection.Commit;
+    except
+      if lConnection.InTransaction then
+        lConnection.Rollback;
+      raise;
+    end;
+  finally
+    lQuery.Free;
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+end;
+
+procedure SeedLegacySimpleInheritedChildFacts(const aCacheFileName: string;
+  const aCurrentIdentity, aLegacyIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  const aUnitFileName: string; const aRunALine, aRunAColumn,
+  aUnknownLine, aUnknownColumn: Integer);
+const
+  cProjectFactTables: array[0..9] of string = (
+    'snapshot_exact_strings', 'snapshot_remove_with_facts',
+    'snapshot_remove_with_visibility', 'snapshot_remove_with_visible_units',
+    'snapshot_remove_with_routine_owners', 'snapshot_remove_with_symbols',
+    'snapshot_remove_with_bindings', 'snapshot_remove_with_binding_selectors',
+    'snapshot_remove_with_binding_references', 'snapshot_remove_with_type_identities');
+var
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+  lQuery: TFDQuery;
+  lRunABindingIndex: Integer;
+  lRunAIdentityCount: Integer;
+  lTableName: string;
+  lUnknownBindingIndex: Integer;
+  lUnknownReasonId: Integer;
+  lUnknownStatusId: Integer;
+  lUnknownTypeId: Integer;
+begin
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  lQuery := TFDQuery.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := aCacheFileName;
+    lConnection.Connected := True;
+    lQuery.Connection := lConnection;
+    lQuery.SQL.Text := 'select b.binding_index, s.status_id, ' +
+      's.reason_code_id, s.type_name_id from snapshot_remove_with_bindings b ' +
+      'join snapshot_exact_strings f on f.cache_key = b.cache_key and ' +
+      'f.string_id = b.file_name_id ' +
+      'join snapshot_exact_strings u on u.cache_key = b.cache_key and ' +
+      'u.string_id = b.unit_name_id ' +
+      'join snapshot_exact_strings r on r.cache_key = b.cache_key and ' +
+      'r.string_id = b.routine_name_id ' +
+      'join snapshot_exact_strings t on t.cache_key = b.cache_key and ' +
+      't.string_id = b.selector_text_id ' +
+      'join snapshot_remove_with_binding_selectors s on ' +
+      's.cache_key = b.cache_key and s.binding_index = b.binding_index and ' +
+      's.selector_index = 1 where b.cache_key = :cache_key and ' +
+      'f.text_value = :file_name and u.text_value = ''AUnit'' and ' +
+      'r.text_value = :routine and t.text_value = ''Child'' and ' +
+      'b.line = :line and b.column = :column';
+    lQuery.ParamByName('cache_key').AsWideString := aCurrentIdentity.CacheKey;
+    lQuery.ParamByName('file_name').AsWideString := aUnitFileName;
+    lQuery.ParamByName('routine').AsWideString := 'RunA';
+    lQuery.ParamByName('line').AsInteger := aRunALine;
+    lQuery.ParamByName('column').AsInteger := aRunAColumn;
+    lQuery.Open;
+    Assert.IsFalse(lQuery.Eof, 'Expected exact RunA.Child source binding.');
+    lRunABindingIndex := lQuery.FieldByName('binding_index').AsInteger;
+    lQuery.Next;
+    Assert.IsTrue(lQuery.Eof, 'Expected one exact RunA.Child source binding.');
+    lQuery.Close;
+    lQuery.ParamByName('routine').AsWideString := 'RunUnknown';
+    lQuery.ParamByName('line').AsInteger := aUnknownLine;
+    lQuery.ParamByName('column').AsInteger := aUnknownColumn;
+    lQuery.Open;
+    Assert.IsFalse(lQuery.Eof, 'Expected exact RunUnknown.Child control binding.');
+    lUnknownBindingIndex := lQuery.FieldByName('binding_index').AsInteger;
+    lUnknownStatusId := lQuery.FieldByName('status_id').AsInteger;
+    lUnknownReasonId := lQuery.FieldByName('reason_code_id').AsInteger;
+    lUnknownTypeId := lQuery.FieldByName('type_name_id').AsInteger;
+    lQuery.Next;
+    Assert.IsTrue(lQuery.Eof, 'Expected one exact RunUnknown.Child control binding.');
+    lQuery.Close;
+    Assert.AreNotEqual(lRunABindingIndex, lUnknownBindingIndex);
+    lQuery.SQL.Text := 'select count(*) as identity_count from ' +
+      'snapshot_remove_with_type_identities where cache_key = :cache_key and ' +
+      'entity_kind = ''selector'' and item_index = :binding_index and sub_index = 1';
+    lQuery.ParamByName('cache_key').AsWideString := aCurrentIdentity.CacheKey;
+    lQuery.ParamByName('binding_index').AsInteger := lRunABindingIndex;
+    lQuery.Open;
+    lRunAIdentityCount := lQuery.FieldByName('identity_count').AsInteger;
+    lQuery.Close;
+    Assert.AreEqual(1, lRunAIdentityCount, 'Resolved RunA.Child must own one identity.');
+    lQuery.ParamByName('binding_index').AsInteger := lUnknownBindingIndex;
+    lQuery.Open;
+    Assert.AreEqual(0, lQuery.FieldByName('identity_count').AsInteger,
+      'Unknown Child must have no persisted selector identity.');
+    lQuery.Close;
+
+    lConnection.StartTransaction;
+    try
+      for lTableName in cProjectFactTables do
+        lConnection.ExecSQL('update ' + lTableName + ' set cache_key = ' +
+          QuotedStr(aLegacyIdentity.CacheKey) + ' where cache_key = ' +
+          QuotedStr(aCurrentIdentity.CacheKey));
+      lConnection.ExecSQL('update snapshot_project_remove_with_facts set ' +
+        'cache_key = ' + QuotedStr(aLegacyIdentity.CacheKey) +
+        ', schema_version = ' + QuotedStr(aLegacyIdentity.SchemaVersion) +
+        ' where cache_key = ' + QuotedStr(aCurrentIdentity.CacheKey));
+      lConnection.ExecSQL('update snapshot_remove_with_binding_selectors set ' +
+        'status_id = ' + IntToStr(lUnknownStatusId) + ', reason_code_id = ' +
+        IntToStr(lUnknownReasonId) + ', type_name_id = ' +
+        IntToStr(lUnknownTypeId) + ' where cache_key = ' +
+        QuotedStr(aLegacyIdentity.CacheKey) + ' and binding_index = ' +
+        IntToStr(lRunABindingIndex) + ' and selector_index = 1');
+      lConnection.ExecSQL('delete from snapshot_remove_with_type_identities ' +
+        'where cache_key = ' + QuotedStr(aLegacyIdentity.CacheKey) +
+        ' and entity_kind = ''selector'' and item_index = ' +
+        IntToStr(lRunABindingIndex) + ' and sub_index = 1');
+      lConnection.ExecSQL('update snapshot_remove_with_facts set ' +
+        'type_identity_count = type_identity_count - 1 where cache_key = ' +
+        QuotedStr(aLegacyIdentity.CacheKey));
+      lConnection.ExecSQL('update snapshot_remove_with_bindings set ' +
+        'status_id = (select status_id from snapshot_remove_with_bindings ' +
+        'where cache_key = ' + QuotedStr(aLegacyIdentity.CacheKey) +
+        ' and binding_index = ' + IntToStr(lUnknownBindingIndex) + '), ' +
+        'skip_reason_id = (select skip_reason_id from ' +
+        'snapshot_remove_with_bindings where cache_key = ' +
+        QuotedStr(aLegacyIdentity.CacheKey) + ' and binding_index = ' +
+        IntToStr(lUnknownBindingIndex) + ') where cache_key = ' +
+        QuotedStr(aLegacyIdentity.CacheKey) + ' and binding_index = ' +
+        IntToStr(lRunABindingIndex));
       lConnection.Commit;
     except
       if lConnection.InTransaction then
@@ -2538,6 +2678,8 @@ const
   cLegacySchemaVersion = 'project-session-remove-with-facts-v22';
   cRunNestedInnerSelectorLine = 60;
   cRunNestedInnerSelectorColumn = 5;
+  cRunNestedOuterWithLine = 59;
+  cRunNestedOuterWithColumn = 3;
   cFixtureFiles: array[0..4] of string = (
     'NestedParentDefaultPointerWith.dproj',
     'NestedParentDefaultPointerWith.dpr',
@@ -2548,22 +2690,39 @@ var
   i: Integer;
   lBinding: TDelphiSemanticWithBinding;
   lBindingCount: Integer;
+  lBoundDeclaredId: string;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
   lCachePath: string;
   lColdPlan: TDelphiSemanticRemoveWithPlanBuildResult;
   lCurrentIdentity: TDelphiSemanticSnapshotCacheIdentity;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lFixtureHashes: TArray<string>;
+  lImportedDeclaredId: string;
+  lImportedBindingCount: Integer;
+  lImportedSnapshotCount: Integer;
   lLegacyIdentity: TDelphiSemanticSnapshotCacheIdentity;
   lOptions: TDelphiSemanticOptions;
+  lOwnerDeclaredId: string;
+  lOwnerSymbol: TDelphiSemanticInventorySymbol;
+  lOwnerSymbolCount: Integer;
+  lPlannedStatementCount: Integer;
   lRebuiltPlan: TDelphiSemanticRemoveWithPlanBuildResult;
   lResult: TDelphiSemanticProjectSessionResult;
   lSerializer: TJsonSerializer;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSnapshotBinding: TSemanticRemoveWithBindingFact;
+  lSnapshotBindingCount: Integer;
+  lSnapshotOwnerSymbol: TSemanticRemoveWithInventorySymbolFact;
+  lSnapshotOwnerSymbolCount: Integer;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
   lStatementCount: Integer;
   lTargetColumn: Integer;
   lTargetLine: Integer;
   lWarmPlan: TDelphiSemanticRemoveWithPlanBuildResult;
 begin
+  lBoundDeclaredId := '';
+  lImportedDeclaredId := '';
+  lOwnerDeclaredId := '';
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := FixturePath('WithBinder', cFixtureFiles[0]);
   lCachePath := ProjectSessionTempPath('legacy-parent-selector-facts.sqlite3');
@@ -2605,9 +2764,21 @@ begin
     lResult.Session.Free;
   end;
   lBindingCount := 0;
+  lImportedBindingCount := 0;
   lTargetLine := 0;
   lTargetColumn := 0;
   for lBinding in lFacts.Bindings do
+  begin
+    if SameText(ExtractFileName(lBinding.FileName), cFixtureFiles[4]) and
+      SameText(lBinding.RoutineName, 'RunImportedBoundType') and
+      SameText(lBinding.SelectorText, 'Maske[0]^') then
+    begin
+      Inc(lImportedBindingCount);
+      Assert.AreEqual('NestedParentBoundTypeOwnerA',
+        lBinding.Selectors[1].TypeIdentity.UnitName);
+      lImportedDeclaredId := lBinding.Selectors[1].TypeIdentity.DeclaredId.Value;
+      Assert.IsTrue(lImportedDeclaredId <> '');
+    end;
     if SameText(ExtractFileName(lBinding.FileName), cFixtureFiles[2]) and
       SameText(lBinding.RoutineName, 'RunNested') and
       SameText(lBinding.SelectorText, 'Maske[i]^') then
@@ -2621,24 +2792,134 @@ begin
       lTargetColumn := lBinding.Column;
       Assert.AreEqual('resolved', lBinding.Selectors[1].Status);
       Assert.AreEqual('TMaskEntry', lBinding.Selectors[1].TypeName);
+      Assert.AreEqual('NestedParentDefaultPointerWithUnit',
+        lBinding.Selectors[1].TypeIdentity.UnitName);
+      lBoundDeclaredId := lBinding.Selectors[1].TypeIdentity.DeclaredId.Value;
+      Assert.IsTrue(lBoundDeclaredId <> '');
     end;
+  end;
   Assert.AreEqual(1, lBindingCount, 'Expected one rebound nested selector.');
+  Assert.AreEqual(1, lImportedBindingCount,
+    'Expected one imported owner A selector despite caller owner B homonym.');
+  lOwnerSymbolCount := 0;
+  for lOwnerSymbol in lFacts.Symbols do
+    if SameText(lOwnerSymbol.SymbolClass, 'member') and
+      SameText(lOwnerSymbol.Name, 'Maske') and
+      SameText(lOwnerSymbol.OwnerName, 'TDatFile') and
+      SameText(lOwnerSymbol.UnitName, 'NestedParentBoundTypeOwnerA') then
+    begin
+      Inc(lOwnerSymbolCount);
+      Assert.AreEqual('NestedParentBoundTypeOwnerA',
+        lOwnerSymbol.OwnerIdentity.UnitName);
+      Assert.AreEqual('TDatFile', lOwnerSymbol.OwnerIdentity.Name);
+      Assert.AreEqual(cFixtureFiles[3],
+        ExtractFileName(lOwnerSymbol.OwnerIdentity.SourceRange.FileName));
+      Assert.IsTrue(lOwnerSymbol.OwnerIdentity.DeclaredId.Value <> '');
+      lOwnerDeclaredId := lOwnerSymbol.OwnerIdentity.DeclaredId.Value;
+    end;
+  Assert.IsTrue(lOwnerSymbolCount > 0,
+    'Direct facts must retain the imported Maske member declaring owner.');
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCachePath);
+  try
+    lSnapshot := nil;
+    Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lCurrentIdentity,
+      lSnapshot));
+    try
+      lSnapshotBindingCount := 0;
+      lImportedSnapshotCount := 0;
+      lSnapshotOwnerSymbolCount := 0;
+      for i := 0 to lSnapshot.RemoveWithPlanningSymbolCount - 1 do
+      begin
+        lSnapshotOwnerSymbol := lSnapshot.RemoveWithPlanningSymbolByIndex(i);
+        if SameText(lSnapshot.ExactTextOf(lSnapshotOwnerSymbol.SymbolClassId), 'member') and
+          SameText(lSnapshot.ExactTextOf(lSnapshotOwnerSymbol.NameId), 'Maske') and
+          SameText(lSnapshot.ExactTextOf(lSnapshotOwnerSymbol.OwnerNameId), 'TDatFile') and
+          SameText(lSnapshot.ExactTextOf(lSnapshotOwnerSymbol.UnitNameId),
+            'NestedParentBoundTypeOwnerA') then
+        begin
+          Inc(lSnapshotOwnerSymbolCount);
+          Assert.AreEqual(lOwnerDeclaredId, lSnapshot.ExactTextOf(
+            lSnapshotOwnerSymbol.OwnerIdentity.DeclaredIdId));
+          Assert.AreEqual('NestedParentBoundTypeOwnerA', lSnapshot.ExactTextOf(
+            lSnapshotOwnerSymbol.OwnerIdentity.UnitNameId));
+          Assert.AreEqual(cFixtureFiles[3], ExtractFileName(lSnapshot.ExactTextOf(
+            lSnapshotOwnerSymbol.OwnerIdentity.FileNameId)));
+        end;
+      end;
+      Assert.IsTrue(lSnapshotOwnerSymbolCount > 0,
+        'SQLite reload must retain the imported member declaring owner.');
+      for i := 0 to lSnapshot.RemoveWithPlanningBindingCount - 1 do
+      begin
+        lSnapshotBinding := lSnapshot.RemoveWithPlanningBindingByIndex(i);
+        if SameText(lSnapshot.ExactTextOf(lSnapshotBinding.RoutineNameId),
+          'RunImportedBoundType') and
+          SameText(lSnapshot.ExactTextOf(lSnapshotBinding.SelectorTextId),
+          'Maske[0]^') then
+        begin
+          Inc(lImportedSnapshotCount);
+          Assert.AreEqual(lImportedDeclaredId,
+            lSnapshot.ExactTextOf(lSnapshotBinding.Selectors[1].TypeIdentity.DeclaredIdId));
+          Assert.AreEqual('NestedParentBoundTypeOwnerA',
+            lSnapshot.ExactTextOf(lSnapshotBinding.Selectors[1].TypeIdentity.UnitNameId));
+        end;
+        if SameText(lSnapshot.ExactTextOf(lSnapshotBinding.RoutineNameId),
+          'RunNested') and
+          SameText(lSnapshot.ExactTextOf(lSnapshotBinding.SelectorTextId),
+          'Maske[i]^') then
+        begin
+          Inc(lSnapshotBindingCount);
+          Assert.AreEqual(lBoundDeclaredId,
+            lSnapshot.ExactTextOf(lSnapshotBinding.Selectors[1].TypeIdentity.DeclaredIdId));
+          Assert.AreEqual('NestedParentDefaultPointerWithUnit',
+            lSnapshot.ExactTextOf(lSnapshotBinding.Selectors[1].TypeIdentity.UnitNameId));
+          Assert.AreEqual(cFixtureFiles[2], ExtractFileName(lSnapshot.ExactTextOf(
+            lSnapshotBinding.Selectors[1].TypeIdentity.FileNameId)));
+        end;
+      end;
+      Assert.AreEqual(1, lSnapshotBindingCount,
+        'Fresh SQLite reload must retain the bound nested receiver declaration.');
+      Assert.AreEqual(1, lImportedSnapshotCount,
+        'SQLite reload must retain imported owner A despite the B homonym.');
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    lCache.Free;
+  end;
+  // The rebound inner receiver is the unit's own TMaskEntry (the unit has no uses
+  // clause, so the unimported OwnerA homonym cannot hide it). RunNested is therefore
+  // one planned statement at the outer WITH; dcc64 compiled this exact rewrite.
   lStatementCount := 0;
+  lPlannedStatementCount := 0;
   for lStatement in lRebuiltPlan.Plan.FinalStatements do
     if SameText(lStatement.RoutineName, 'RunNested') and
-      SameText(ExtractFileName(lStatement.FileName), cFixtureFiles[2]) and
-      (lStatement.Range.StartLine = lTargetLine) and
-      (lStatement.Range.StartColumn = lTargetColumn) then
+      SameText(ExtractFileName(lStatement.FileName), cFixtureFiles[2]) then
     begin
-      Inc(lStatementCount);
-      Assert.AreEqual('skipped', lStatement.Status,
-        'RunNested must retain its independent receiver-visibility refusal.');
-      Assert.AreEqual('receiver-type-not-visible', lStatement.Reason,
-        'A rebound selector must not retain the stale selector-type refusal.');
-      Assert.AreEqual(0, Integer(Length(lStatement.Edits)),
-        'A receiver-visibility refusal must not publish edits.');
+      if (lStatement.Range.StartLine = lTargetLine) and
+        (lStatement.Range.StartColumn = lTargetColumn) then
+        Inc(lStatementCount);
+      if (lStatement.Range.StartLine = cRunNestedOuterWithLine) and
+        (lStatement.Range.StartColumn = cRunNestedOuterWithColumn) then
+      begin
+        Inc(lPlannedStatementCount);
+        Assert.AreEqual('planned', lStatement.Status,
+          'A rebound selector must not retain the stale selector-type refusal.');
+        Assert.AreEqual('', lStatement.Reason);
+        Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+        Assert.AreEqual('lWithDatFilePtr: ^TDatFile;',
+          lStatement.Temps[0].DeclarationText);
+        Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
+        Assert.AreEqual('TMaskEntry', lStatement.Temps[1].ReceiverType);
+        Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;',
+          lStatement.Temps[1].DeclarationText);
+        Assert.AreEqual('lWithMaskEntryPtr := @lWithDatFilePtr^.Maske[i]^;',
+          lStatement.Temps[1].InitializationText);
+      end;
     end;
-  Assert.AreEqual(1, lStatementCount);
+  Assert.AreEqual(0, lStatementCount,
+    'The rebound inner selector must not remain a separate refused statement.');
+  Assert.AreEqual(1, lPlannedStatementCount,
+    'Expected one planned RunNested statement at the outer WITH.');
 
   lResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
@@ -2667,9 +2948,485 @@ begin
       'The analyzed application input must remain byte-identical: ' + cFixtureFiles[i]);
 end;
 
-procedure TProjectSessionTests.ProjectSessionPlanRemoveWithInvalidatesLegacyReceiverSafetyFacts;
+procedure TProjectSessionTests.ProjectSessionPreservesInheritedAccessIdentityColdAndWarm;
+var
+  i: Integer;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCachePath: string;
+  lColdPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lColdCount: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSnapshotCount: Integer;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSnapshotSymbol: TSemanticRemoveWithInventorySymbolFact;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lPlannedCount: Integer;
+  lVisibleCompetingCount: Integer;
+  lWarmPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lWarmCount: Integer;
+begin
+  lRootPath := ProjectSessionTempPath('inherited-access-owner');
+  TDirectory.CreateDirectory(lRootPath);
+  WriteTextFile(TPath.Combine(lRootPath, 'P.dpr'),
+    'program P;'#13#10'uses AUnit, BUnit;'#13#10'begin end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="BaseUnit.pas"/>' +
+    '<DCCReference Include="MidUnit.pas"/>' +
+    '<DCCReference Include="AUnit.pas"/>' +
+    '<DCCReference Include="BUnit.pas"/></ItemGroup></Project>');
+  WriteTextFile(TPath.Combine(lRootPath, 'BaseUnit.pas'),
+    'unit BaseUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TLeaf = record'#13#10'    Value: Integer;'#13#10'  end;'#13#10 +
+    '  TBase = class'#13#10'  public'#13#10'    Child: TLeaf;'#13#10 +
+    '  end;'#13#10'implementation'#13#10'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'MidUnit.pas'),
+    'unit MidUnit;'#13#10'interface'#13#10'uses BaseUnit;'#13#10'type'#13#10 +
+    '  TIntermediate = class(TBase) end;'#13#10 +
+    'implementation'#13#10'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'AUnit.pas'),
+    'unit AUnit;'#13#10'interface'#13#10'uses BaseUnit, MidUnit;'#13#10'type'#13#10 +
+    '  TDerived = class(TIntermediate) end;'#13#10 +
+    'procedure RunA(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'implementation'#13#10 +
+    'procedure RunA(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'begin'#13#10'  with aDerived do'#13#10'    with Child do'#13#10 +
+    '      aValue := Value;'#13#10'end;'#13#10'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'BUnit.pas'),
+    'unit BUnit;'#13#10'interface'#13#10'uses BaseUnit, MidUnit;'#13#10'type'#13#10 +
+    '  TDerived = class(TIntermediate) end;'#13#10 +
+    'procedure RunB(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'implementation'#13#10 +
+    'procedure RunB(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'begin'#13#10'  with aDerived do'#13#10'    with Child do'#13#10 +
+    '      aValue := Value;'#13#10'end;'#13#10'end.'#13#10);
+  lCachePath := TPath.Combine(lRootPath, 'semantic-cache.sqlite3');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'P.dproj');
+  lOptions.SqliteCacheFileName := lCachePath;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lColdPlan := lResult.Session.PlanRemoveWithResult;
+    Assert.AreEqual(1, lColdPlan.SnapshotMetrics.SnapshotCacheMisses);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+  finally
+    lResult.Session.Free;
+  end;
+  lColdCount := 0;
+  for lSymbol in lFacts.Symbols do
+    if SameText(lSymbol.Name, 'Child') and
+      SameText(lSymbol.SymbolClass, 'field') and
+      SameText(lSymbol.OwnerName, 'TDerived') then
+    begin
+      Inc(lColdCount);
+      Assert.AreEqual('BaseUnit', lSymbol.OwnerIdentity.UnitName);
+      Assert.IsTrue(MatchText(lSymbol.AccessOwnerIdentity.UnitName, ['AUnit', 'BUnit']));
+      Assert.AreEqual('TDerived', lSymbol.AccessOwnerIdentity.Name);
+    end;
+  Assert.AreEqual(2, lColdCount);
+  lPlannedCount := 0;
+  for lStatement in lColdPlan.Plan.FinalStatements do
+    if MatchText(lStatement.RoutineName, ['RunA', 'RunB']) and
+      (lStatement.Range.StartLine = 10) then
+    begin
+      Inc(lPlannedCount);
+      Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+      Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+    end;
+  Assert.AreEqual(2, lPlannedCount);
+  lIdentity := ReadProjectRemoveWithFactsIdentity(lCachePath);
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCachePath);
+  try
+    lSnapshot := nil;
+    Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lSnapshot));
+    try
+      lSnapshotCount := 0;
+      for i := 0 to lSnapshot.RemoveWithPlanningSymbolCount - 1 do
+      begin
+        lSnapshotSymbol := lSnapshot.RemoveWithPlanningSymbolByIndex(i);
+        if SameText(lSnapshot.ExactTextOf(lSnapshotSymbol.NameId), 'Child') and
+          SameText(lSnapshot.ExactTextOf(lSnapshotSymbol.SymbolClassId), 'field') and
+          SameText(lSnapshot.ExactTextOf(lSnapshotSymbol.OwnerNameId), 'TDerived') then
+        begin
+          Inc(lSnapshotCount);
+          Assert.AreEqual('BaseUnit', lSnapshot.ExactTextOf(
+            lSnapshotSymbol.OwnerIdentity.UnitNameId));
+          Assert.IsTrue(MatchText(lSnapshot.ExactTextOf(
+            lSnapshotSymbol.AccessOwnerIdentity.UnitNameId), ['AUnit', 'BUnit']));
+        end;
+      end;
+      Assert.AreEqual(2, lSnapshotCount);
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    lCache.Free;
+  end;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lWarmPlan := lResult.Session.PlanRemoveWithResult;
+    Assert.AreEqual(1, lWarmPlan.SnapshotMetrics.SnapshotCacheHits);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+  finally
+    lResult.Session.Free;
+  end;
+  lWarmCount := 0;
+  for lSymbol in lFacts.Symbols do
+    if SameText(lSymbol.Name, 'Child') and
+      SameText(lSymbol.SymbolClass, 'field') and
+      SameText(lSymbol.OwnerName, 'TDerived') and
+      MatchText(lSymbol.AccessOwnerIdentity.UnitName, ['AUnit', 'BUnit']) and
+      SameText(lSymbol.OwnerIdentity.UnitName, 'BaseUnit') then
+      Inc(lWarmCount);
+  Assert.AreEqual(2, lWarmCount);
+  lPlannedCount := 0;
+  for lStatement in lWarmPlan.Plan.FinalStatements do
+    if MatchText(lStatement.RoutineName, ['RunA', 'RunB']) and
+      (lStatement.Range.StartLine = 10) then
+    begin
+      Inc(lPlannedCount);
+      Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+      Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+    end;
+  Assert.AreEqual(2, lPlannedCount);
+  WriteTextFile(TPath.Combine(lRootPath, 'AUnit.pas'),
+    StringReplace(TFile.ReadAllText(TPath.Combine(lRootPath, 'AUnit.pas')),
+      'uses BaseUnit, MidUnit;', 'uses BaseUnit, MidUnit, BUnit;', []));
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lColdPlan := lResult.Session.PlanRemoveWithResult;
+  finally
+    lResult.Session.Free;
+  end;
+  lVisibleCompetingCount := 0;
+  for lStatement in lColdPlan.Plan.FinalStatements do
+    if SameText(lStatement.RoutineName, 'RunA') and
+      (lStatement.Range.StartLine = 10) then
+    begin
+      Inc(lVisibleCompetingCount);
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+    end;
+  Assert.AreEqual(1, lVisibleCompetingCount);
+end;
+
+procedure TProjectSessionTests.ProjectSessionPlanRemoveWithInvalidatesLegacySimpleInheritedChildFacts;
 const
-  cLegacySchemaVersion = 'project-session-remove-with-facts-v23';
+  cLegacySchemaVersion = 'project-session-remove-with-facts-v26';
+  cFixtureFiles: array[0..5] of string = (
+    'P.dproj', 'P.dpr', 'BaseUnit.pas', 'MidUnit.pas', 'AUnit.pas', 'BUnit.pas');
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCachePath: string;
+  lColdPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lCurrentIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lFixtureHashes: TArray<string>;
+  lGuid: TGUID;
+  lLegacyIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lOptions: TDelphiSemanticOptions;
+  lRebuiltPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lRunAColumn: Integer;
+  lRunADeclaredId: string;
+  lRunALine: Integer;
+  lRunACount: Integer;
+  lNearestCount: Integer;
+  lOtherUnitCount: Integer;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSnapshotBinding: TSemanticRemoveWithBindingFact;
+  lSnapshotCount: Integer;
+  lUnknownColumn: Integer;
+  lUnknownCount: Integer;
+  lUnknownLine: Integer;
+  lUnknownReason: string;
+  lWarmPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+
+  procedure AssertChildFacts(const aFacts: TDelphiSemanticProjectWithBindingFacts);
+  var
+    lBinding: TDelphiSemanticWithBinding;
+  begin
+    lRunACount := 0;
+    lNearestCount := 0;
+    lOtherUnitCount := 0;
+    lUnknownCount := 0;
+    for lBinding in aFacts.Bindings do
+      if SameText(lBinding.SelectorText, 'Child') then
+      begin
+        if SameText(lBinding.UnitName, 'AUnit') and
+          SameText(lBinding.RoutineName, 'RunA') then
+        begin
+          Inc(lRunACount);
+          Assert.AreEqual(2, Integer(Length(lBinding.Selectors)));
+          Assert.AreEqual('resolved', lBinding.Selectors[1].Status,
+            lBinding.Selectors[1].ReasonCode);
+          Assert.AreEqual('TLeaf', lBinding.Selectors[1].TypeName);
+          Assert.AreEqual('BaseUnit', lBinding.Selectors[1].TypeIdentity.UnitName);
+          Assert.AreEqual('TLeaf', lBinding.Selectors[1].TypeIdentity.Name);
+          Assert.AreEqual(TPath.Combine(lRootPath, 'BaseUnit.pas'),
+            lBinding.Selectors[1].TypeIdentity.SourceRange.FileName);
+          Assert.AreEqual(lRunADeclaredId,
+            lBinding.Selectors[1].TypeIdentity.DeclaredId.Value);
+          Assert.AreEqual(lRunALine, lBinding.Line);
+          Assert.AreEqual(lRunAColumn, lBinding.Column);
+        end else if SameText(lBinding.UnitName, 'BUnit') and
+          SameText(lBinding.RoutineName, 'RunB') then
+        begin
+          Inc(lOtherUnitCount);
+          Assert.AreEqual(2, Integer(Length(lBinding.Selectors)));
+          Assert.AreEqual('resolved', lBinding.Selectors[1].Status);
+          Assert.AreEqual('BaseUnit', lBinding.Selectors[1].TypeIdentity.UnitName);
+          Assert.AreEqual('TLeaf', lBinding.Selectors[1].TypeIdentity.Name);
+        end else if SameText(lBinding.UnitName, 'AUnit') and
+          SameText(lBinding.RoutineName, 'RunNearest') then
+        begin
+          Inc(lNearestCount);
+          Assert.AreEqual(3, Integer(Length(lBinding.Selectors)));
+          Assert.AreEqual('resolved', lBinding.Selectors[2].Status);
+          Assert.AreEqual('AUnit', lBinding.Selectors[2].TypeIdentity.UnitName);
+          Assert.AreEqual('TWrongLeaf', lBinding.Selectors[2].TypeIdentity.Name);
+        end else if SameText(lBinding.UnitName, 'AUnit') and
+          SameText(lBinding.RoutineName, 'RunUnknown') then
+        begin
+          Inc(lUnknownCount);
+          Assert.AreEqual(2, Integer(Length(lBinding.Selectors)));
+          Assert.AreNotEqual('resolved', lBinding.Selectors[0].Status);
+          Assert.AreNotEqual('resolved', lBinding.Selectors[1].Status,
+            'Unknown parent must not borrow the global Child namesake.');
+          Assert.AreEqual(lUnknownReason, lBinding.Selectors[1].ReasonCode);
+          Assert.AreEqual(lUnknownLine, lBinding.Line);
+          Assert.AreEqual(lUnknownColumn, lBinding.Column);
+        end;
+      end;
+    Assert.AreEqual(1, lRunACount);
+    Assert.AreEqual(1, lOtherUnitCount);
+    Assert.AreEqual(1, lNearestCount);
+    Assert.AreEqual(1, lUnknownCount);
+  end;
+
+  procedure AssertSnapshotChild(const aSnapshot: TDelphiProjectSnapshot;
+    const aExpectStale: Boolean);
+  var
+    i: Integer;
+  begin
+    lSnapshotCount := 0;
+    for i := 0 to aSnapshot.RemoveWithPlanningBindingCount - 1 do
+    begin
+      lSnapshotBinding := aSnapshot.RemoveWithPlanningBindingByIndex(i);
+      if SameText(aSnapshot.ExactTextOf(lSnapshotBinding.FileNameId),
+        TPath.Combine(lRootPath, 'AUnit.pas')) and
+        SameText(aSnapshot.ExactTextOf(lSnapshotBinding.RoutineNameId), 'RunA') and
+        SameText(aSnapshot.ExactTextOf(lSnapshotBinding.SelectorTextId), 'Child') and
+        (lSnapshotBinding.Line = lRunALine) and
+        (lSnapshotBinding.Column = lRunAColumn) then
+      begin
+        Inc(lSnapshotCount);
+        Assert.AreEqual(2, Integer(Length(lSnapshotBinding.Selectors)));
+        if aExpectStale then
+        begin
+          Assert.AreNotEqual('resolved', aSnapshot.ExactTextOf(
+            lSnapshotBinding.Selectors[1].StatusId));
+          Assert.AreEqual(lUnknownReason, aSnapshot.ExactTextOf(
+            lSnapshotBinding.Selectors[1].ReasonCodeId));
+          Assert.AreEqual(0, Integer(
+            lSnapshotBinding.Selectors[1].TypeIdentity.DeclaredIdId));
+        end else
+        begin
+          Assert.AreEqual('resolved', aSnapshot.ExactTextOf(
+            lSnapshotBinding.Selectors[1].StatusId));
+          Assert.AreEqual('BaseUnit', aSnapshot.ExactTextOf(
+            lSnapshotBinding.Selectors[1].TypeIdentity.UnitNameId));
+          Assert.AreEqual(lRunADeclaredId, aSnapshot.ExactTextOf(
+            lSnapshotBinding.Selectors[1].TypeIdentity.DeclaredIdId));
+          Assert.AreEqual(TPath.Combine(lRootPath, 'BaseUnit.pas'),
+            aSnapshot.ExactTextOf(
+              lSnapshotBinding.Selectors[1].TypeIdentity.FileNameId));
+        end;
+      end;
+    end;
+    Assert.AreEqual(1, lSnapshotCount);
+  end;
+begin
+  CreateGUID(lGuid);
+  lRootPath := ProjectSessionTempPath('simple-inherited-child-' +
+    GUIDToString(lGuid));
+  TDirectory.CreateDirectory(lRootPath);
+  WriteTextFile(TPath.Combine(lRootPath, 'P.dpr'),
+    'program P;'#13#10'uses AUnit in ''AUnit.pas'', BUnit in ''BUnit.pas'';'#13#10 +
+    'begin'#13#10'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="BaseUnit.pas"/><DCCReference Include="MidUnit.pas"/>' +
+    '<DCCReference Include="AUnit.pas"/><DCCReference Include="BUnit.pas"/>' +
+    '</ItemGroup></Project>');
+  WriteTextFile(TPath.Combine(lRootPath, 'BaseUnit.pas'),
+    'unit BaseUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TLeaf = record'#13#10'    Value: Integer;'#13#10'  end;'#13#10 +
+    '  TBase = class'#13#10'  public'#13#10'    Child: TLeaf;'#13#10 +
+    '  end;'#13#10'implementation'#13#10'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'MidUnit.pas'),
+    'unit MidUnit;'#13#10'interface'#13#10'uses BaseUnit;'#13#10'type'#13#10 +
+    '  TIntermediate = class(TBase) end;'#13#10 +
+    'implementation'#13#10'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'AUnit.pas'),
+    'unit AUnit;'#13#10'interface'#13#10'uses MidUnit;'#13#10'type'#13#10 +
+    '  TDerived = class(TIntermediate) end;'#13#10 +
+    '  TWrongLeaf = record OtherValue: Integer; end;'#13#10 +
+    '  TGlobalLeaf = record GlobalValue: Integer; end;'#13#10 +
+    '  TNearest = record Child: TWrongLeaf; end;'#13#10 +
+    'var'#13#10'  Child: TGlobalLeaf;'#13#10 +
+    'procedure RunA;'#13#10'procedure RunNearest;'#13#10 +
+    'procedure RunUnknown;'#13#10 +
+    'implementation'#13#10 +
+    'procedure RunA;'#13#10'var'#13#10'  lDerived: TDerived;'#13#10 +
+    'begin with lDerived do with Child do Value := 1; end;'#13#10 +
+    'procedure RunNearest;'#13#10 +
+    'var'#13#10'  lDerived: TDerived;'#13#10 +
+    '  lNearest: TNearest;'#13#10 +
+    'begin with lDerived do with lNearest do with Child do OtherValue := 1; end;'#13#10 +
+    'procedure RunUnknown;'#13#10 +
+    'begin with Missing do with Child do Value := 1; end;'#13#10 +
+    'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'BUnit.pas'),
+    'unit BUnit;'#13#10'interface'#13#10'uses MidUnit;'#13#10'type'#13#10 +
+    '  TDerived = class(TIntermediate) end;'#13#10 +
+    'procedure RunB;'#13#10'implementation'#13#10 +
+    'procedure RunB;'#13#10'var'#13#10'  lDerived: TDerived;'#13#10 +
+    'begin with lDerived do with Child do Value := 2; end;'#13#10 +
+    'end.'#13#10);
+  SetLength(lFixtureHashes, Length(cFixtureFiles));
+  for i := 0 to High(cFixtureFiles) do
+    lFixtureHashes[i] := THashSHA2.GetHashStringFromFile(
+      TPath.Combine(lRootPath, cFixtureFiles[i]));
+  lCachePath := TPath.Combine(lRootPath, 'semantic-cache.sqlite3');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'P.dproj');
+  lOptions.SqliteCacheFileName := lCachePath;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lColdPlan := lResult.Session.PlanRemoveWithResult;
+    Assert.AreEqual(1, lColdPlan.SnapshotMetrics.SnapshotCacheMisses);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+  finally
+    lResult.Session.Free;
+  end;
+  lRunAColumn := 0;
+  lRunALine := 0;
+  lRunADeclaredId := '';
+  lUnknownColumn := 0;
+  lUnknownLine := 0;
+  lUnknownReason := '';
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.UnitName, 'AUnit') and
+      SameText(lBinding.SelectorText, 'Child') then
+    begin
+      if SameText(lBinding.RoutineName, 'RunA') then
+      begin
+        lRunADeclaredId := lBinding.Selectors[1].TypeIdentity.DeclaredId.Value;
+        lRunALine := lBinding.Line;
+        lRunAColumn := lBinding.Column;
+      end else if SameText(lBinding.RoutineName, 'RunUnknown') then
+      begin
+        lUnknownReason := lBinding.Selectors[1].ReasonCode;
+        lUnknownLine := lBinding.Line;
+        lUnknownColumn := lBinding.Column;
+      end;
+    end;
+  Assert.IsTrue(lRunADeclaredId <> '', 'Expected source-backed BaseUnit leaf identity.');
+  Assert.IsTrue(lUnknownReason <> '', 'Expected source-backed unknown-parent reason.');
+  AssertChildFacts(lFacts);
+  lCurrentIdentity := ReadProjectRemoveWithFactsIdentity(lCachePath);
+  lLegacyIdentity := RekeyProjectRemoveWithFactsIdentityForTest(lCurrentIdentity,
+    cLegacySchemaVersion);
+  Assert.AreEqual(lCurrentIdentity.IdentityKey, lLegacyIdentity.IdentityKey);
+  Assert.AreEqual(lCurrentIdentity.FileHash, lLegacyIdentity.FileHash);
+  Assert.AreEqual(lCurrentIdentity.ContextHash, lLegacyIdentity.ContextHash);
+  Assert.AreEqual(lCurrentIdentity.IncludeGraphHash, lLegacyIdentity.IncludeGraphHash);
+  Assert.AreNotEqual(lCurrentIdentity.CacheKey, lLegacyIdentity.CacheKey);
+  SeedLegacySimpleInheritedChildFacts(lCachePath, lCurrentIdentity,
+    lLegacyIdentity, TPath.Combine(lRootPath, 'AUnit.pas'), lRunALine,
+    lRunAColumn, lUnknownLine, lUnknownColumn);
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCachePath);
+  try
+    lSnapshot := nil;
+    Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(
+      lLegacyIdentity, lSnapshot), 'The stale v26 facts must be loadable.');
+    try
+      AssertSnapshotChild(lSnapshot, True);
+    finally
+      lSnapshot.Free;
+    end;
+    lSnapshot := nil;
+    Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(
+      lCurrentIdentity, lSnapshot), 'The current key must not hit v26 facts.');
+    lSnapshot.Free;
+  finally
+    lCache.Free;
+  end;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lRebuiltPlan := lResult.Session.PlanRemoveWithResult;
+    Assert.AreEqual(1, lRebuiltPlan.SnapshotMetrics.SnapshotCacheProbes);
+    Assert.AreEqual(0, lRebuiltPlan.SnapshotMetrics.SnapshotCacheHits);
+    Assert.AreEqual(1, lRebuiltPlan.SnapshotMetrics.SnapshotCacheMisses);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+  finally
+    lResult.Session.Free;
+  end;
+  AssertChildFacts(lFacts);
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCachePath);
+  try
+    lSnapshot := nil;
+    Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(
+      lCurrentIdentity, lSnapshot));
+    try
+      AssertSnapshotChild(lSnapshot, False);
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    lCache.Free;
+  end;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lWarmPlan := lResult.Session.PlanRemoveWithResult;
+    Assert.AreEqual(1, lWarmPlan.SnapshotMetrics.SnapshotCacheProbes);
+    Assert.AreEqual(1, lWarmPlan.SnapshotMetrics.SnapshotCacheHits);
+    Assert.AreEqual(0, lWarmPlan.SnapshotMetrics.SnapshotCacheMisses);
+    lFacts := lResult.Session.BuildWithBindingFacts;
+  finally
+    lResult.Session.Free;
+  end;
+  AssertChildFacts(lFacts);
+  for i := 0 to High(cFixtureFiles) do
+    Assert.AreEqual(lFixtureHashes[i], THashSHA2.GetHashStringFromFile(
+      TPath.Combine(lRootPath, cFixtureFiles[i])),
+      'The generated project sources must remain unchanged.');
+end;
+
+function VerifyLegacyReceiverSafetyFactsMiss(const aLegacySchemaVersion: string): string;
+// The legacy rows are a controlled rekey of rows that the current producer wrote,
+// with the stale MEMBERS_INCOMPLETE refusal injected. They stand in for an older
+// producer; they are not a database written by one. Returns the schema version of
+// the current rows, which the warm open hits.
+const
   cFixtureFiles: array[0..3] of string = (
     'ReceiverSafetyHidden.pas', 'ReceiverSafetyAlias.pas',
     'ReceiverSafetyOwner.pas', 'ReceiverSafetyCaller.pas');
@@ -2693,7 +3450,7 @@ var
   lTargetCount: Integer;
   lWarmPlan: TDelphiSemanticRemoveWithPlanBuildResult;
 begin
-  lRootPath := ProjectSessionTempPath('legacy-receiver-safety-facts');
+  lRootPath := ProjectSessionTempPath('legacy-receiver-safety-facts-' + aLegacySchemaVersion);
   TDirectory.CreateDirectory(lRootPath);
   SetLength(lFixtureHashes, Length(cFixtureFiles));
   for i := 0 to High(cFixtureFiles) do
@@ -2748,9 +3505,7 @@ begin
   Assert.AreEqual(1, lTargetCount, 'Expected the cold hidden receiver fact.');
   lCurrentIdentity := ReadProjectRemoveWithFactsIdentity(lCachePath);
   lLegacyIdentity := RekeyProjectRemoveWithFactsIdentityForTest(lCurrentIdentity,
-    cLegacySchemaVersion);
-  if lCurrentIdentity.SchemaVersion <> cLegacySchemaVersion then
-    Assert.AreNotEqual(lCurrentIdentity.CacheKey, lLegacyIdentity.CacheKey);
+    aLegacySchemaVersion);
   Assert.AreEqual(lCurrentIdentity.IdentityKey, lLegacyIdentity.IdentityKey);
   Assert.AreEqual(lCurrentIdentity.FileHash, lLegacyIdentity.FileHash);
   Assert.AreEqual(lCurrentIdentity.ContextHash, lLegacyIdentity.ContextHash);
@@ -2776,14 +3531,19 @@ begin
         Assert.AreEqual('skipped', lStatement.Status);
         Assert.AreEqual('members-incomplete', lStatement.Reason);
         Assert.AreEqual('MEMBERS_INCOMPLETE', lStatement.SafetyReason,
-          'A matching controlled v23 row must expose the stale refusal.');
+          'A matching controlled ' + aLegacySchemaVersion +
+          ' row must expose the stale refusal.');
         Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
       end;
     Assert.AreEqual(1, lTargetCount, 'Expected one nested hidden receiver.');
   end;
   Assert.AreEqual(0, lLegacyPlan.SnapshotMetrics.SnapshotCacheHits,
-    'Corrected receiver safety must not consume a controlled stale v23 row.');
+    'Corrected receiver safety must not consume a controlled stale ' +
+    aLegacySchemaVersion + ' row.');
   Assert.AreEqual(1, lLegacyPlan.SnapshotMetrics.SnapshotCacheMisses);
+  Assert.AreNotEqual(aLegacySchemaVersion, lCurrentIdentity.SchemaVersion,
+    'The current producer must not write rows under the legacy identity.');
+  Assert.AreNotEqual(lCurrentIdentity.CacheKey, lLegacyIdentity.CacheKey);
   lRebuiltPlan := lLegacyPlan;
   lTargetCount := 0;
   for lStatement in lRebuiltPlan.Plan.FinalStatements do
@@ -2829,6 +3589,21 @@ begin
   end;
   Assert.AreEqual(lProjectHash, THashSHA2.GetHashStringFromFile(lOptions.ProjectPath),
     'The test-local project input must remain byte-identical.');
+  Result := lCurrentIdentity.SchemaVersion;
+end;
+
+procedure TProjectSessionTests.ProjectSessionPlanRemoveWithInvalidatesLegacyReceiverSafetyFacts;
+begin
+  Assert.AreNotEqual('project-session-remove-with-facts-v23',
+    VerifyLegacyReceiverSafetyFactsMiss('project-session-remove-with-facts-v23'));
+end;
+
+procedure TProjectSessionTests.ProjectSessionPlanRemoveWithInvalidatesPreCorrectionV29ReceiverSafetyFacts;
+begin
+  // DS-682: v29 rows predate the corrected receiver-safety lineage (DS-681), so the
+  // current identity must not match them; the current v30 rows must still hit warm.
+  Assert.AreEqual('project-session-remove-with-facts-v30',
+    VerifyLegacyReceiverSafetyFactsMiss('project-session-remove-with-facts-v29'));
 end;
 
 procedure TProjectSessionTests.ProjectSessionAssociatesNestedWithReferencesWithInnermostSnapshotFact;

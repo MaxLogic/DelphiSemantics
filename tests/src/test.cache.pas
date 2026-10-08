@@ -44,6 +44,8 @@ type
     [Test]
     procedure CacheHitReturnsIndependentUnitModelCopy;
     [Test]
+    procedure CacheHitKeepsPhysicalIncludeReferenceOccurrences;
+    [Test]
     procedure SourceChangeInvalidatesCachedUnitModel;
     [Test]
     procedure SourceTimestampChangeReusesCachedUnitModel;
@@ -95,6 +97,8 @@ type
     [TestCase('Before split variant field recovery', '17')]
     [TestCase('Before indented alias coordinates', '18')]
     [TestCase('Before exclusive routine scope positions', '19')]
+    [TestCase('Previous AST pair producer without source signature witnesses', '40')]
+    [TestCase('Same-line routine locals absent from previous producer', '41')]
     procedure DefaultParserInvalidatesObsoleteModels(const aVersion: string);
     [Test]
     procedure ModelVersionChangeInvalidatesCachedUnitModel;
@@ -121,10 +125,10 @@ type
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils,
+  System.IOUtils, System.JSON, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
-  DelphiSemantics.Resolve, Test.Support;
+  DelphiSemantics.Model.Json, DelphiSemantics.Resolve, Test.Support;
 
 var
   GCacheTempRoot: string;
@@ -378,8 +382,8 @@ begin
 
     Assert.AreEqual('9', lIdentity.SchemaVersion,
       'Lexical ownership fields changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.38', lIdentity.ParserVersion,
-      'Syntax-backed local label occurrences require fresh facts.');
+    Assert.AreEqual('DelphiSemantics.Model.Parser.44', lIdentity.ParserVersion,
+      'Physical reference occurrences require a fresh model extraction.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,
       'Dependent caches chain to the unit-model parser version.');
@@ -492,6 +496,75 @@ begin
     Assert.AreEqual('TObject', lModel.Members[0].ProcedureSignature.Parameters[0].TypeName,
       'Member signature arrays must be independent of cached storage');
     Assert.AreEqual(1, lCache.Metrics.CacheHits);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.CacheHitKeepsPhysicalIncludeReferenceOccurrences;
+var
+  i: Integer;
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lDocument: TJSONValue;
+  lEntry: TJSONObject;
+  lFacts: TJSONArray;
+  lIncludeCount: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lOriginalName: string;
+  lRoot: string;
+begin
+  lRoot := TPath.GetDirectoryName(TempPath('CachedPhysicalUnit.pas'));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'physical.inc'), 'GF := GF + 1;'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'CachedPhysicalUnit.pas'),
+    'unit CachedPhysicalUnit;'#13#10 +
+    'interface'#13#10 +
+    'var GF: Integer;'#13#10 +
+    'procedure Foo;'#13#10 +
+    'implementation'#13#10 +
+    'procedure Foo;'#13#10 +
+    'begin'#13#10 +
+    '  {$I physical.inc}'#13#10 +
+    'end;'#13#10 +
+    'end.'#13#10, TEncoding.ASCII);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := TPath.Combine(lRoot, 'CachedPhysicalUnit.pas');
+  lModelOptions.SearchPaths := [lRoot];
+  lModelOptions.ProjectContextApplied := True;
+  lCache := TDelphiSemanticUnitCache.Create(lCacheOptions);
+  try
+    lCache.GetOrExtractUnitModel(lModelOptions);
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Assert.IsTrue(lModel.Success);
+    Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    lDocument := TJSONObject.ParseJSONValue(ModelToJson(lModel));
+    try
+      Assert.IsTrue(lDocument is TJSONObject);
+      lFacts := (lDocument as TJSONObject).GetValue('PhysicalReferenceOccurrences') as TJSONArray;
+      Assert.IsTrue(Assigned(lFacts), 'Cache hit lost physical occurrences');
+      lIncludeCount := 0;
+      for i := 0 to Pred(lFacts.Count) do
+      begin
+        lEntry := lFacts.Items[i] as TJSONObject;
+        if (lEntry.GetValue('Name').Value = 'GF') and
+          SameText(ExtractFileName(lEntry.GetValue('FileName').Value), 'physical.inc') then
+          Inc(lIncludeCount);
+      end;
+      Assert.AreEqual(2, lIncludeCount);
+    finally
+      lDocument.Free;
+    end;
+    Assert.IsTrue(Length(lModel.PhysicalReferenceOccurrences) > 0);
+    Assert.IsTrue(lModel.PhysicalReferenceOccurrencesAvailable);
+    lOriginalName := lModel.PhysicalReferenceOccurrences[0].Name;
+    lModel.PhysicalReferenceOccurrences[0].Name := 'Corrupted';
+    lModel := lCache.GetOrExtractUnitModel(lModelOptions);
+    Assert.AreEqual(lOriginalName, lModel.PhysicalReferenceOccurrences[0].Name,
+      'A returned model must not alias the cached occurrence array');
+    Assert.AreEqual(2, lCache.Metrics.CacheHits);
   finally
     lCache.Free;
   end;
@@ -1641,21 +1714,48 @@ var
   lAccess: TDelphiSemanticUnitCacheAccessResult;
   lCache: TDelphiSemanticSqliteUnitCache;
   lCacheOptions: TDelphiSemanticCacheOptions;
+  lLocal: TDelphiSemanticLocal;
   lModelOptions: TDelphiSemanticModelOptions;
 begin
   lModelOptions := Default(TDelphiSemanticModelOptions);
-  lModelOptions.SourceFileName := TempPath('InlineSectionCacheUnit.pas');
   lModelOptions.ProjectContextApplied := True;
-  TFile.WriteAllText(lModelOptions.SourceFileName,
-    'unit InlineSectionCacheUnit;' + sLineBreak + 'interface' + sLineBreak +
-    'var ScopeTarget: Integer;' + sLineBreak + 'implementation' + sLineBreak +
-    'end.', TEncoding.UTF8);
+  if aVersion = '41' then
+  begin
+    lModelOptions.SourceFileName := TempPath('SameLineLocalsCacheUnit.pas');
+    TFile.WriteAllText(lModelOptions.SourceFileName,
+      'unit SameLineLocalsCacheUnit;' + sLineBreak + 'interface' + sLineBreak +
+      'implementation' + sLineBreak +
+      'type TNode = record Value: Integer; end;' + sLineBreak +
+      'procedure Run;' + sLineBreak +
+      'var lNode: TNode; lPointer: ^TNode;' + sLineBreak +
+      'begin' + sLineBreak + '  lPointer := @lNode;' + sLineBreak +
+      'end;' + sLineBreak + 'end.', TEncoding.UTF8);
+  end else begin
+    lModelOptions.SourceFileName := TempPath('InlineSectionCacheUnit.pas');
+    TFile.WriteAllText(lModelOptions.SourceFileName,
+      'unit InlineSectionCacheUnit;' + sLineBreak + 'interface' + sLineBreak +
+      'var ScopeTarget: Integer;' + sLineBreak + 'implementation' + sLineBreak +
+      'end.', TEncoding.UTF8);
+  end;
   lCacheOptions := Default(TDelphiSemanticCacheOptions);
   lCacheOptions.SqliteCacheFileName := TempPath('obsolete-parser-' + aVersion + '.sqlite3');
   lCacheOptions.ParserVersion := 'DelphiSemantics.Model.Parser.' + aVersion;
   lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
   try
-    lCache.GetOrExtractUnitModel(lModelOptions);
+    if aVersion = '41' then
+      lAccess := lCache.GetOrBuildUnitModelWithStatus(lModelOptions,
+        function(const aBuildOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel
+        begin
+          Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(aBuildOptions);
+          Assert.IsTrue(Result.Success, 'The seeded row must come from valid Delphi source.');
+          Result.Locals := nil;
+        end)
+    else
+      lAccess := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+    Assert.IsFalse(lAccess.CacheHit);
+    if aVersion = '41' then
+      Assert.AreEqual<NativeInt>(NativeInt(0), Length(lAccess.Model.Locals),
+        'The persisted old-producer row must lack the same-line locals.');
   finally
     lCache.Free;
   end;
@@ -1665,8 +1765,20 @@ begin
     lAccess := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
     Assert.IsFalse(lAccess.CacheHit,
       'The default parser must reject persisted models from obsolete extraction rules.');
+    if aVersion = '41' then
+    begin
+      Assert.IsTrue(FindLocal(lAccess.Model, 'Run', 'lNode', lLocal));
+      Assert.AreEqual('TNode', lLocal.TypeName);
+      Assert.IsTrue(FindLocal(lAccess.Model, 'Run', 'lPointer', lLocal));
+      Assert.AreEqual('^TNode', lLocal.TypeName);
+    end;
     lAccess := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
     Assert.IsTrue(lAccess.CacheHit, 'The rebuilt model must remain reusable.');
+    if aVersion = '41' then
+    begin
+      Assert.IsTrue(FindLocal(lAccess.Model, 'Run', 'lPointer', lLocal));
+      Assert.AreEqual('^TNode', lLocal.TypeName);
+    end;
   finally
     lCache.Free;
   end;

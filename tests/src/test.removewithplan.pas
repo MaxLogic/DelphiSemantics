@@ -374,6 +374,41 @@ type
     procedure FinalDtoKeepsTempNameWhenQualifyingSelectorInitializer;
     [Test]
     procedure FinalDtoCapturesShadowedNestedReceiverWithDependentType;
+    [TestCase('multiple source-backed hops', '0')]
+    [TestCase('inherited declaring owner', '1')]
+    [TestCase('missing inherited access origin', '2')]
+    [TestCase('contradictory inherited access declaration', '3')]
+    [TestCase('stale inherited access location', '4')]
+    procedure FinalDtoUsesDeclaringIdentityAcrossDependentSelectorChain(
+      const aCase: Integer);
+    [Test]
+    procedure FinalDtoRefusesChildUnderAmbiguousParentWithGlobalHomonym;
+    [Test]
+    [TestCase('Missing origin', '0')]
+    [TestCase('Contradictory declaration', '1')]
+    [TestCase('Contradictory source', '2')]
+    [TestCase('Stale source coordinate', '3')]
+    [TestCase('Ambiguous origin status', '4')]
+    procedure FinalDtoRefusesDependentReceiverWithUnprovenParentIdentity(
+      const aCase: Integer);
+    [Test]
+    [TestCase('unique visible unit type', '0')]
+    [TestCase('unimported homonym', '1')]
+    [TestCase('imported homonym', '2')]
+    [TestCase('routine-local type', '3')]
+    procedure FinalDtoChecksReceiverWithoutDeclaredIdentityByUniqueUnitDeclaration(
+      const aCase: Integer);
+    [Test]
+    procedure FinalDtoPersistsAnonymousRecordMemberIdentity;
+    [Test]
+    [TestCase('nested record member', '0')]
+    [TestCase('array of record member', '1')]
+    [TestCase('flat member shadows owner', '2')]
+    procedure FinalDtoRequiresCompleteAnonymousRecordMembers(const aCase: Integer);
+    [Test]
+    [TestCase('unique element type', '0')]
+    [TestCase('unimported element homonym', '1')]
+    procedure FinalDtoChecksIndexedReceiverWithoutBinderIdentity(const aCase: Integer);
     [Test]
     [TestCase('hexadecimal index', 'with-1,Items[$AB]^')]
     [TestCase('character index', 'with-2,Letters[''X'']^')]
@@ -473,6 +508,9 @@ type
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbFileIoSearchRecordReplacement;
+    [Test]
+    [Category('MaxTdbProof')]
+    procedure FinalDtoMatchesMaxTdbDeclaringScopePointerTemps;
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbFileIoSecurityTypeSourceSkip;
@@ -1004,8 +1042,10 @@ uses
   System.Classes, System.Hash, System.IOUtils, System.JSON.Serializers, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   DelphiSemantics.Model, DelphiSemantics.Model.Json, DelphiSemantics.RemoveWithPlan,
-  DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.ScopeResolver, DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot,
+  DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.ScopeResolver,
+  DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding,
+  DelphiSemantics.WithBinding.Inventory,
   Test.Support;
 
 var
@@ -6062,6 +6102,359 @@ begin
     lStatement.Temps[0].TempName + '^.Current^;', lStatement.Temps[1].InitializationText);
 end;
 
+procedure TRemoveWithPlanTests.FinalDtoUsesDeclaringIdentityAcrossDependentSelectorChain(
+  const aCase: Integer);
+var
+  i: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lIndexedChild: TDelphiSemanticInventorySymbol;
+  lIndexedCount: Integer;
+  lExpectedAccess: TDelphiSemanticTypeIdentity;
+  lTargetCount: Integer;
+begin
+  lRoot := TempPath('ds683-dependent-declaring-chain');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P;'#13#10'uses ChainOwnerUnit in ''ChainOwnerUnit.pas'';'#13#10 +
+    'begin'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="ChainOwnerUnit.pas"/></ItemGroup></Project>',
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'ChainOwnerUnit.pas'),
+    'unit ChainOwnerUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TLeaf = record'#13#10'    Value: Integer;'#13#10'  end;'#13#10 +
+    '  TMiddle = record'#13#10'    Second: ^TLeaf;'#13#10'  end;'#13#10 +
+    '  TOuter = record'#13#10'    First: TMiddle;'#13#10'  end;'#13#10 +
+    '  TBase = class'#13#10'  public'#13#10'    Child: TLeaf;'#13#10 +
+    '  end;'#13#10'  TDerived = class(TBase) end;'#13#10 +
+    'procedure RunChain(var aOuter: TOuter; var aValue: Integer);'#13#10 +
+    'procedure RunInherited(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'implementation'#13#10 +
+    'procedure RunChain(var aOuter: TOuter; var aValue: Integer);'#13#10 +
+    'begin'#13#10'  with aOuter do'#13#10'    with First.Second^ do'#13#10 +
+    '      aValue := Value;'#13#10'end;'#13#10 +
+    'procedure RunInherited(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'begin'#13#10'  with aDerived do'#13#10'    with Child do'#13#10 +
+    '      aValue := Value;'#13#10'end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  if aCase >= 2 then
+  begin
+    lTargetCount := 0;
+    for i := 0 to High(lFacts.Symbols) do
+      if SameText(lFacts.Symbols[i].Name, 'Child') and
+        SameText(lFacts.Symbols[i].SymbolClass, 'field') and
+        SameText(lFacts.Symbols[i].OwnerName, 'TDerived') then
+      begin
+        Inc(lTargetCount);
+        Assert.AreEqual('TBase', lFacts.Symbols[i].OwnerIdentity.Name);
+        Assert.AreEqual('TDerived', lFacts.Symbols[i].AccessOwnerIdentity.Name);
+        case aCase of
+          2: lFacts.Symbols[i].AccessOwnerIdentity :=
+            Default(TDelphiSemanticTypeIdentity);
+          3: lFacts.Symbols[i].AccessOwnerIdentity.DeclaredId.Value :=
+            'contradictory-access-declaration';
+          4: lFacts.Symbols[i].AccessOwnerIdentity.SourceRange.Line := 0;
+        end;
+        lExpectedAccess := lFacts.Symbols[i].AccessOwnerIdentity;
+      end;
+    Assert.AreEqual(1, lTargetCount, 'Expected one proven inherited field projection.');
+    lFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(
+      lFacts.UnitModels, lFacts.Symbols);
+    lIndexedCount := 0;
+    for lIndexedChild in lFacts.LookupIndex.FindMembersByOwnerAndName(
+      'TDerived', 'Child') do
+      if SameText(lIndexedChild.SymbolClass, 'field') then
+      begin
+        Inc(lIndexedCount);
+        Assert.AreEqual(lExpectedAccess.DeclaredId.Value,
+          lIndexedChild.AccessOwnerIdentity.DeclaredId.Value);
+        Assert.AreEqual(lExpectedAccess.SourceRange.Line,
+          lIndexedChild.AccessOwnerIdentity.SourceRange.Line);
+      end;
+    Assert.AreEqual(1, lIndexedCount,
+      'The planner lookup must contain the mutated inherited projection.');
+  end;
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  if aCase = 0 then
+    Assert.IsTrue(FindFinalStatementAt(lPlan, 'ChainOwnerUnit.pas', 23, 3,
+      lStatement), 'Expected the parent to capture the two-hop dependent receiver.')
+  else
+    Assert.IsTrue(FindFinalStatementAt(lPlan, 'ChainOwnerUnit.pas', 29, 3,
+      lStatement), 'Expected the parent recipe containing the inherited receiver.');
+  if aCase >= 2 then
+  begin
+    Assert.AreEqual('skipped', lStatement.Status);
+    Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+    Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+    Exit;
+  end;
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('TLeaf', lStatement.Temps[1].ReceiverType);
+  if aCase = 0 then
+    Assert.IsTrue(ContainsText(lStatement.Temps[1].InitializationText,
+      lStatement.Temps[0].TempName + '^.First.Second^'),
+      'The nested receiver must retain the complete selected chain.')
+  else
+  begin
+    Assert.AreEqual('TDerived', lStatement.Temps[0].ReceiverType);
+    // A class receiver is captured by a reference temp, so the dependent Child is
+    // reached through the temp itself, not through a dereferenced pointer.
+    Assert.AreEqual('reference-temp', lStatement.Temps[0].Strategy);
+    Assert.AreEqual(lStatement.Temps[0].TempName, lStatement.Temps[0].QualifierText);
+    Assert.AreEqual(lStatement.Temps[1].TempName + ' := @' +
+      lStatement.Temps[0].QualifierText + '.Child;', lStatement.Temps[1].InitializationText,
+      'The parent recipe must capture the inherited Child from its selected receiver.');
+  end;
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoRefusesDependentReceiverWithUnprovenParentIdentity(
+  const aCase: Integer);
+var
+  i: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lParentCount: Integer;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath(
+    'RemoveWithPointerEvaluation\PointerReceiver.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lParentCount := 0;
+  for i := 0 to High(lFacts.Bindings) do
+    if SameText(ExtractFileName(lFacts.Bindings[i].FileName),
+      'PointerReceiverUnit.pas') and
+      SameText(lFacts.Bindings[i].RoutineName,
+      'RunShadowedReceiverObservation') and
+      (lFacts.Bindings[i].Line = 190) then
+    begin
+      Inc(lParentCount);
+      Assert.AreEqual(1, Integer(Length(lFacts.Bindings[i].Selectors)));
+      Assert.IsTrue(lFacts.Bindings[i].Selectors[0].TypeIdentity.DeclaredId.Value <> '');
+      case aCase of
+        0: lFacts.Bindings[i].Selectors[0].TypeIdentity :=
+          Default(TDelphiSemanticTypeIdentity);
+        1: lFacts.Bindings[i].Selectors[0].TypeIdentity.DeclaredId.Value :=
+          'contradictory-declaration';
+        2: lFacts.Bindings[i].Selectors[0].TypeIdentity.SourceRange.FileName :=
+          'ContradictoryOwner.pas';
+        3: lFacts.Bindings[i].Selectors[0].TypeIdentity.SourceRange.Line := 0;
+        4: lFacts.Bindings[i].Selectors[0].Status := 'ambiguous';
+      end;
+    end;
+  Assert.AreEqual(1, lParentCount, 'Expected one outer Current receiver.');
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-11', lStatement));
+  // with-11 is the outer parent statement; it carries the earliest failing gate.
+  Assert.AreEqual(190, lStatement.Range.StartLine);
+  Assert.AreEqual(3, lStatement.Range.StartColumn);
+  Assert.AreEqual('skipped', lStatement.Status);
+  // DS-680 decision: the earliest failing gate is reported. A non-empty parent identity
+  // that contradicts its source or points at a stale coordinate fails the parent capture
+  // gate; in the other cases that gate passes and the dependent child gate fails first.
+  if aCase in [2, 3] then
+    Assert.AreEqual('receiver-type-not-visible', lStatement.Reason)
+  else
+    Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  // The nested Current depends on the skipped, unproven parent in every case.
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-12', lStatement));
+  Assert.AreEqual(191, lStatement.Range.StartLine);
+  Assert.AreEqual(5, lStatement.Range.StartColumn);
+  Assert.AreEqual('skipped', lStatement.Status, 'Child must not plan under the parent.');
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoRefusesChildUnderAmbiguousParentWithGlobalHomonym;
+var
+  lChildSelectorCount: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lParentCount: Integer;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lTemp: TDelphiSemanticRemoveWithFinalTempDecision;
+  i: Integer;
+begin
+  lRoot := TempPath('ds683-ambiguous-parent-global-homonym');
+  if TDirectory.Exists(lRoot) then
+    TDirectory.Delete(lRoot, True);
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P;'#13#10'uses AmbUnit in ''AmbUnit.pas'';'#13#10 +
+    'begin'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="AmbUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  // Amb is an overloaded function, so the binder cannot prove the parent receiver.
+  // Child is a member of the parent's record and also a unit global; with the parent
+  // kept, the child must not be rewritten against the global namesake.
+  TFile.WriteAllText(TPath.Combine(lRoot, 'AmbUnit.pas'),
+    'unit AmbUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TLeaf = record'#13#10'    X: Integer;'#13#10'  end;'#13#10 +
+    '  PLeaf = ^TLeaf;'#13#10 +
+    '  TGlobalLeaf = record'#13#10'    X: Integer;'#13#10'  end;'#13#10 +
+    '  PGlobalLeaf = ^TGlobalLeaf;'#13#10 +
+    '  TAmbRec = record'#13#10'    Child: PLeaf;'#13#10'  end;'#13#10 +
+    '  PAmbRec = ^TAmbRec;'#13#10 +
+    'var'#13#10'  Child: PGlobalLeaf;'#13#10 +
+    'function Amb: PAmbRec; overload;'#13#10 +
+    'function Amb(aIndex: Integer): PLeaf; overload;'#13#10 +
+    'procedure Run;'#13#10 +
+    'implementation'#13#10 +
+    'var'#13#10'  GAmb: TAmbRec;'#13#10 +
+    'function Amb: PAmbRec;'#13#10'begin'#13#10'  Result := @GAmb;'#13#10'end;'#13#10 +
+    'function Amb(aIndex: Integer): PLeaf;'#13#10'begin'#13#10 +
+    '  Result := GAmb.Child;'#13#10'end;'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10'  with Amb^ do'#13#10 +
+    '    with Child^ do'#13#10'      X := 1;'#13#10'end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lParentCount := 0;
+  lChildSelectorCount := 0;
+  for i := 0 to High(lFacts.Bindings) do
+    if SameText(ExtractFileName(lFacts.Bindings[i].FileName), 'AmbUnit.pas') then
+    begin
+      if lFacts.Bindings[i].Line = 34 then
+      begin
+        Inc(lParentCount);
+        Assert.AreEqual(1, Integer(Length(lFacts.Bindings[i].Selectors)));
+        // Precondition from the real binder: the parent receiver is not proven.
+        Assert.AreNotEqual('resolved', lFacts.Bindings[i].Selectors[0].Status,
+          'The overloaded Amb parent must stay unproven.');
+      end else if lFacts.Bindings[i].Line = 35 then
+        Inc(lChildSelectorCount);
+    end;
+  Assert.AreEqual(1, lParentCount, 'Expected the Amb parent binding.');
+  Assert.AreEqual(1, lChildSelectorCount, 'Expected the Child binding.');
+
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'AmbUnit.pas', 34, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'AmbUnit.pas', 35, 5, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status,
+    'The child receiver depends on an unproven parent: ' + lStatement.ReplacementText);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  for lStatement in lPlan.FinalStatements do
+    if SameText(ExtractFileName(lStatement.FileName), 'AmbUnit.pas') then
+      for lTemp in lStatement.Temps do
+        Assert.IsFalse(ContainsText(lTemp.InitializationText, 'Child^'),
+          'No plan may capture the global Child: ' + lTemp.InitializationText);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoChecksReceiverWithoutDeclaredIdentityByUniqueUnitDeclaration(
+  const aCase: Integer);
+var
+  i: Integer;
+  lBlankedCount: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lLine: Integer;
+  lOptions: TDelphiSemanticApiOptions;
+  lOtherType: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lUses: string;
+begin
+  lRoot := TempPath('ds683-receiver-without-identity-' + IntToStr(aCase));
+  if TDirectory.Exists(lRoot) then
+    TDirectory.Delete(lRoot, True);
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P;'#13#10'uses AUnit in ''AUnit.pas'', BUnit in ''BUnit.pas'';'#13#10 +
+    'begin'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="AUnit.pas"/><DCCReference Include="BUnit.pas"/>' +
+    '</ItemGroup></Project>', TEncoding.ASCII);
+  // Cases 1 and 2 add a same-named class in another unit, imported only in case 2.
+  lOtherType := 'TOther';
+  if aCase in [1, 2] then
+    lOtherType := 'TC';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'BUnit.pas'),
+    'unit BUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  ' + lOtherType + ' = class'#13#10'  public'#13#10'    X: Integer;'#13#10 +
+    '  end;'#13#10'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  lUses := '{ no imports }';
+  if aCase = 2 then
+    lUses := 'uses BUnit;';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'AUnit.pas'),
+    'unit AUnit;'#13#10'interface'#13#10 + lUses + #13#10'type'#13#10 +
+    '  TC = class'#13#10'  public'#13#10'    X: Integer;'#13#10'  end;'#13#10 +
+    'procedure Run(C: TC);'#13#10'procedure RunLocal;'#13#10 +
+    'implementation'#13#10 +
+    'procedure Run(C: TC);'#13#10'begin'#13#10'  with C do'#13#10 +
+    '    X := 1;'#13#10'end;'#13#10 +
+    'procedure RunLocal;'#13#10'type'#13#10'  TLocalRec = record'#13#10 +
+    '    Y: Integer;'#13#10'  end;'#13#10'var'#13#10'  L: TLocalRec;'#13#10 +
+    'begin'#13#10'  L := Default(TLocalRec);'#13#10'  with L do'#13#10 +
+    '    Y := 2;'#13#10'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  lLine := 14;
+  if aCase = 3 then
+    lLine := 26;
+
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lBlankedCount := 0;
+  for i := 0 to High(lFacts.Bindings) do
+    if SameText(ExtractFileName(lFacts.Bindings[i].FileName), 'AUnit.pas') and
+      (lFacts.Bindings[i].Line = lLine) then
+    begin
+      Inc(lBlankedCount);
+      Assert.AreEqual(1, Integer(Length(lFacts.Bindings[i].Selectors)));
+      if aCase in [0, 3] then
+        Assert.IsTrue(lFacts.Bindings[i].Selectors[0].TypeIdentity.DeclaredId.Value <> '',
+          'The control must start from a binder-proven receiver identity.');
+      if aCase = 3 then
+        Assert.AreEqual('routine', lFacts.Bindings[i].Selectors[0].TypeIdentity.ScopeKind);
+      // The planner must decide visibility without the binder's declaration identity.
+      lFacts.Bindings[i].Selectors[0].TypeIdentity := Default(TDelphiSemanticTypeIdentity);
+    end;
+  Assert.AreEqual(1, lBlankedCount, 'Expected one selected receiver binding.');
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'AUnit.pas', lLine, 3, lStatement));
+  if aCase = 0 then
+  begin
+    Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+    Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual('lWithC: TC;', lStatement.Temps[0].DeclarationText);
+    Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'lWithC.X := 1;'),
+      lStatement.ReplacementText);
+    Exit;
+  end;
+  Assert.AreEqual('skipped', lStatement.Status,
+    'A homonym or routine-local type needs a declaration identity before capture.');
+  Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+end;
+
 procedure TRemoveWithPlanTests.FinalDtoPreservesLiteralsInDependentReceiver(
   const aStatementId, aSelectorText: string);
 var
@@ -6143,10 +6536,173 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoChecksTypeVisibilityAtCaptureInsertion;
 var
+  lBody: TDelphiSemanticRoutine;
+  lBodyCount: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lHeader: TDelphiSemanticRoutine;
+  lHeaderCount: Integer;
+  lInventoryBodyCount: Integer;
+  lInventoryHeaderCount: Integer;
+  lMalformedFacts: TDelphiSemanticProjectWithBindingFacts;
+  lMalformedModel: TDelphiSemanticUnitModel;
+  lMalformedSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lModel: TDelphiSemanticUnitModel;
+  lModelCount: Integer;
+  lOptions: TDelphiSemanticApiOptions;
   lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoutine: TDelphiSemanticRoutine;
+  lSnapshot: TDelphiProjectSnapshot;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lSymbol: TDelphiSemanticInventorySymbol;
 begin
-  lPlan := BuildPlanForProject(FixturePath('RemoveWithLocalCaptureType\LocalReceiver.dproj'));
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('RemoveWithLocalCaptureType\LocalReceiver.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lModelCount := 0;
+  lModel := Default(TDelphiSemanticUnitModel);
+  for lMalformedModel in lFacts.UnitModels do
+    if SameText(ExtractFileName(lMalformedModel.FileName), 'LocalConsumer.pas') then
+    begin
+      Inc(lModelCount);
+      lModel := lMalformedModel;
+    end;
+  Assert.AreEqual(1, lModelCount, 'The source-backed consumer model must be unique.');
+  lBodyCount := 0;
+  lHeaderCount := 0;
+  lBody := Default(TDelphiSemanticRoutine);
+  lHeader := Default(TDelphiSemanticRoutine);
+  for lRoutine in lModel.Routines do
+    if SameText(lRoutine.Name, 'RunNested') then
+      if SameText(lRoutine.AstScopeKind, 'header') then
+      begin
+        Inc(lHeaderCount);
+        lHeader := lRoutine;
+      end else if SameText(lRoutine.AstScopeKind, 'body') then
+      begin
+        Inc(lBodyCount);
+        lBody := lRoutine;
+      end;
+  Assert.AreEqual(1, lHeaderCount);
+  Assert.AreEqual(1, lBodyCount);
+  Assert.AreEqual(6, lHeader.Line);
+  Assert.AreEqual(26, lBody.Line);
+  Assert.AreEqual(lHeader.ScopeId, lBody.ScopeId);
+  Assert.IsNotEmpty(lBody.ScopeId);
+  Assert.AreEqual(lHeader.ParentScopeId, lBody.ParentScopeId);
+  Assert.AreEqual(lHeader.Signature, lBody.Signature);
+  Assert.AreEqual('', lBody.Signature,
+    'A no-parameter routine carries its semantic empty-arity signature in ScopeId.');
+  Assert.IsTrue(Copy(lBody.ScopeId, Length(lBody.ScopeId) - 1, 2) = '()');
+  Assert.AreEqual('interface', lHeader.SectionKind);
+  Assert.AreEqual('implementation', lBody.SectionKind);
+  lInventoryBodyCount := 0;
+  lInventoryHeaderCount := 0;
+  for lSymbol in lFacts.Symbols do
+    if SameText(lSymbol.FileName, lModel.FileName) and
+      SameText(lSymbol.RoutineScopeId, lBody.ScopeId) and
+      SameText(lSymbol.Name, 'RunNested') then
+    begin
+      if SameText(lSymbol.SymbolClass, 'routine') then
+      begin
+        Inc(lInventoryBodyCount);
+        Assert.AreEqual(lBody.Line, lSymbol.Line);
+        Assert.AreEqual(lBody.ParentScopeId, lSymbol.ParentScopeId);
+      end else if SameText(lSymbol.SymbolClass, 'routine-header') then
+      begin
+        Inc(lInventoryHeaderCount);
+        Assert.AreEqual(lHeader.Line, lSymbol.Line);
+      end;
+    end;
+  Assert.AreEqual(1, lInventoryBodyCount,
+    'One AST-proven lexical body must own the local type.');
+  Assert.AreEqual(1, lInventoryHeaderCount,
+    'The interface declaration remains non-lexical inventory evidence.');
+  lMalformedModel := lModel;
+  lMalformedModel.Routines := Copy(lModel.Routines);
+  SetLength(lMalformedModel.Routines, Length(lMalformedModel.Routines) + 1);
+  lMalformedModel.Routines[High(lMalformedModel.Routines)] := lBody;
+  lMalformedSymbols := TDelphiSemanticWithBindingInventory.BuildInventorySymbols(
+    lMalformedModel);
+  lInventoryBodyCount := 0;
+  for lSymbol in lMalformedSymbols do
+    if SameText(lSymbol.RoutineScopeId, lBody.ScopeId) and
+      SameText(lSymbol.SymbolClass, 'routine') then
+      Inc(lInventoryBodyCount);
+  Assert.AreEqual(0, lInventoryBodyCount,
+    'A second implementation body must invalidate lexical ownership.');
+  lMalformedFacts := lFacts;
+  lMalformedFacts.Symbols := Copy(lFacts.Symbols);
+  SetLength(lMalformedFacts.Symbols, Length(lMalformedFacts.Symbols) + 1);
+  for lSymbol in lFacts.Symbols do
+    if SameText(lSymbol.FileName, lModel.FileName) and
+      SameText(lSymbol.RoutineScopeId, lBody.ScopeId) and
+      SameText(lSymbol.SymbolClass, 'routine') then
+      lMalformedFacts.Symbols[High(lMalformedFacts.Symbols)] := lSymbol;
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lMalformedFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'LocalConsumer.pas', 37, 5, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status,
+    'A repeated body owner must not authorize nested local capture.');
+  Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
+  lMalformedModel := lModel;
+  lMalformedModel.Routines := Copy(lModel.Routines);
+  for lBodyCount := 0 to High(lMalformedModel.Routines) do
+    if SameText(lMalformedModel.Routines[lBodyCount].Name, 'RunNested') and
+      SameText(lMalformedModel.Routines[lBodyCount].AstScopeKind, 'body') then
+      lMalformedModel.Routines[lBodyCount].AstScopeKind := '';
+  lMalformedSymbols := TDelphiSemanticWithBindingInventory.BuildInventorySymbols(
+    lMalformedModel);
+  lInventoryBodyCount := 0;
+  for lSymbol in lMalformedSymbols do
+    if SameText(lSymbol.RoutineScopeId, lBody.ScopeId) and
+      SameText(lSymbol.SymbolClass, 'routine') then
+      Inc(lInventoryBodyCount);
+  Assert.AreEqual(0, lInventoryBodyCount,
+    'Missing AST body evidence must invalidate lexical ownership.');
+  lMalformedModel := lModel;
+  lMalformedModel.Routines := Copy(lModel.Routines);
+  for lBodyCount := 0 to High(lMalformedModel.Routines) do
+    if SameText(lMalformedModel.Routines[lBodyCount].Name, 'RunNested') then
+      lMalformedModel.Routines[lBodyCount].ScopeId := 'missing-semantic-signature';
+  lMalformedSymbols := TDelphiSemanticWithBindingInventory.BuildInventorySymbols(
+    lMalformedModel);
+  lInventoryBodyCount := 0;
+  for lSymbol in lMalformedSymbols do
+    if SameText(lSymbol.RoutineScopeId, 'missing-semantic-signature') and
+      SameText(lSymbol.SymbolClass, 'routine') then
+      Inc(lInventoryBodyCount);
+  Assert.AreEqual(0, lInventoryBodyCount,
+    'Matching empty raw signatures cannot replace lost semantic signature evidence.');
+  lMalformedModel := lModel;
+  lMalformedModel.Routines := Copy(lModel.Routines);
+  for lBodyCount := 0 to High(lMalformedModel.Routines) do
+    if SameText(lMalformedModel.Routines[lBodyCount].Name, 'RunNested') then
+      lMalformedModel.Routines[lBodyCount].Signature := '(aBogus: Integer)';
+  lMalformedSymbols := TDelphiSemanticWithBindingInventory.BuildInventorySymbols(
+    lMalformedModel);
+  lInventoryBodyCount := 0;
+  for lSymbol in lMalformedSymbols do
+    if SameText(lSymbol.RoutineScopeId, lBody.ScopeId) and
+      SameText(lSymbol.SymbolClass, 'routine') then
+      Inc(lInventoryBodyCount);
+  Assert.AreEqual(0, lInventoryBodyCount,
+    'Raw parameter claims inconsistent with the AST scope signature must fail.');
+  lMalformedFacts := lFacts;
+  lMalformedFacts.Symbols := Copy(lFacts.Symbols);
+  for lInventoryBodyCount := 0 to High(lMalformedFacts.Symbols) do
+    if SameText(lMalformedFacts.Symbols[lInventoryBodyCount].FileName,
+      lModel.FileName) and
+      SameText(lMalformedFacts.Symbols[lInventoryBodyCount].RoutineScopeId,
+        lBody.ScopeId) and
+      SameText(lMalformedFacts.Symbols[lInventoryBodyCount].SymbolClass,
+        'routine') then
+      lMalformedFacts.Symbols[lInventoryBodyCount].SymbolClass :=
+        'routine-unverified';
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lMalformedFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'LocalConsumer.pas', 37, 5, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status,
+    'Missing AST body evidence must not authorize nested local capture.');
+  Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'LocalConsumer.pas', 21, 3, lStatement));
   Assert.AreEqual('skipped', lStatement.Status,
     'The current temporary insertion point precedes the routine-local type declaration.');
@@ -6159,6 +6715,17 @@ begin
   Assert.AreEqual(lStatement.Temps[0].TempName + ': ^TOuter;',
     lStatement.Temps[0].DeclarationText,
     'An outer local type remains visible at the nested routine capture declaration.');
+  AssertCapturedRecipe(lStatement);
+  lSnapshot := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+  try
+    lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
+    Assert.IsTrue(FindFinalStatementAt(lPlan, 'LocalConsumer.pas', 37, 5,
+      lStatement));
+    Assert.AreEqual('planned', lStatement.Status,
+      'The compact snapshot must retain the verified lexical body owner.');
+  finally
+    lSnapshot.Free;
+  end;
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoPreservesUnsupportedReceiverAliasSkip;
@@ -7585,6 +8152,232 @@ begin
   Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbDeclaringScopePointerTemps;
+var
+  lCount: Integer;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lPos: Integer;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+
+  // aTemps entries: selector|strategy|receiver type|temp name|declaration|initialization.
+  procedure AssertMaxTdbNewlyPlanned(const aPlan: TDelphiSemanticRemoveWithPlan;
+    const aFileName: string; const aLine, aColumn: Integer; const aRoutineName: string;
+    const aTemps: array of string; const aDeclarationText, aReplacementText: string);
+  var
+    i: Integer;
+    lCase: string;
+    lFields: TArray<string>;
+    lDeclarationEdits: Integer;
+    lEdit: TDelphiSemanticRemoveWithFinalTextEdit;
+  begin
+    lCase := aFileName + ':' + aLine.ToString;
+    Assert.IsTrue(FindFinalStatementAt(aPlan, aFileName, aLine, aColumn, lStatement),
+      'Expected maxTdb with statement ' + lCase);
+    Assert.AreEqual('planned', lStatement.Status, lCase + ' ' + lStatement.Reason);
+    Assert.AreEqual('', lStatement.SafetyReason, lCase);
+    Assert.AreEqual(aRoutineName, lStatement.RoutineName, lCase);
+    Assert.AreEqual(Integer(Length(aTemps)), Integer(Length(lStatement.Temps)), lCase);
+    for i := 0 to High(aTemps) do
+    begin
+      lFields := aTemps[i].Split(['|']);
+      Assert.AreEqual(lFields[0], lStatement.Temps[i].SelectorText, lCase);
+      Assert.AreEqual(lFields[1], lStatement.Temps[i].Strategy, lCase);
+      Assert.AreEqual(lFields[2], lStatement.Temps[i].ReceiverType, lCase);
+      Assert.AreEqual(lFields[3], lStatement.Temps[i].TempName, lCase);
+      Assert.AreEqual(lFields[4], lStatement.Temps[i].DeclarationText, lCase);
+      Assert.AreEqual(lFields[5], lStatement.Temps[i].InitializationText, lCase);
+    end;
+    lDeclarationEdits := 0;
+    for lEdit in lStatement.Edits do
+      if SameText(lEdit.Kind, 'declare-temp') then
+      begin
+        Inc(lDeclarationEdits);
+        Assert.AreEqual(aDeclarationText, lEdit.ReplacementText, lCase);
+      end;
+    // A routine's first planned statement carries the routine's temp declarations.
+    Assert.AreEqual(Integer(Ord(aDeclarationText <> '')), lDeclarationEdits, lCase);
+    Assert.AreEqual(aReplacementText, lStatement.ReplacementText, lCase);
+  end;
+
+begin
+  // DS-685: these selectors bind through fields or parameters declared in another unit
+  // than their final record type (DatFile.Maske, DatFile.IndFiles, EasyVar.VarCont).
+  // Each golden was spot-checked against the fixture source: every rewritten name is a
+  // field of the temp's record type and no outer or local name changes meaning.
+  lPlan := BuildPlanForProject(SelectedMaxTdbProjectPath('test-projects\maxTdb\src\maxtdb.dproj'), True);
+
+  // tdb01.pas:1252:9 DelRecord
+  AssertMaxTdbNewlyPlanned(lPlan, 'tdb01.pas', 1252, 9, 'DelRecord', [
+    'Maske[j]^|record-pointer-temp|TMaskEntry|lWithMaskEntryPtr|lWithMaskEntryPtr: ^TMaskEntry;|lWithMaskEntryPtr := @Maske[j]^;'],
+    'var' + #13#10 +
+    '  lWithMaskEntryPtr: ^TMaskEntry;' + #13#10 +
+    '  lWithMaskEntryPtr1: ^TMaskEntry;' + #13#10 +
+    '  lWithIndexFilePtr: ^IndexFile;' + #13#10,
+    '        begin' + #13#10 +
+    '          lWithMaskEntryPtr := @Maske[j]^;' + #13#10 +
+    '          if lWithMaskEntryPtr^.Art and 15 = A_MEMO then' + #13#10 +
+    '          begin' + #13#10 +
+    '            mn := 0;' + #13#10 +
+    '            CopyRecTemp(j, Dat^, mn, Maske);' + #13#10 +
+    '            if mn <> 0 then' + #13#10 +
+    '            begin' + #13#10 +
+    '              {$IFDEF NET}SetFlag(d, F_Memo, True, False);' + #13#10 +
+    '              {$ENDIF}' + #13#10 +
+    '              KillMemoNew(d, mn);' + #13#10 +
+    '              {$IFDEF NET}SetFlag(d, F_Memo, False, False);' + #13#10 +
+    '              (*' + #13#10 +
+    '                IF Transaction THEN BEGIN' + #13#10 +
+    '                mn:=0; CopyTempRec(j,Dat^,mn,Maske);' + #13#10 +
+    '                WriteNBytes(f^,FileOffset+pred(n)*SatzGroesse,SatzGroesse,Dat^,Code);' + #13#10 +
+    '                ToCache(D,n,Dat^);' + #13#10 +
+    '                END;' + #13#10 +
+    '              *)' + #13#10 +
+    '              {$ENDIF}' + #13#10 +
+    '            end;' + #13#10 +
+    '          end;' + #13#10 +
+    '        end;');
+  // tdb01.pas:1277:9 DelRecord
+  AssertMaxTdbNewlyPlanned(lPlan, 'tdb01.pas', 1277, 9, 'DelRecord', [
+    'Maske[j]^|record-pointer-temp|TMaskEntry|lWithMaskEntryPtr1|lWithMaskEntryPtr1: ^TMaskEntry;|lWithMaskEntryPtr1 := @Maske[j]^;'],
+    '',
+    '        begin' + #13#10 +
+    '          lWithMaskEntryPtr1 := @Maske[j]^;' + #13#10 +
+    '          if lWithMaskEntryPtr1^.Art and 15 = A_BLOB then' + #13#10 +
+    '          begin' + #13#10 +
+    '            mn := 0;' + #13#10 +
+    '            CopyRecTemp(j, Dat^, mn, Maske);' + #13#10 +
+    '            if mn <> 0 then' + #13#10 +
+    '            begin' + #13#10 +
+    '              {$IFDEF NET}SetFlag(d, F_Blob, True, False);' + #13#10 +
+    '              {$ENDIF}' + #13#10 +
+    '              KillBlob(d, mn);' + #13#10 +
+    '              {$IFDEF NET}SetFlag(d, F_Blob, False, False);' + #13#10 +
+    '              (*' + #13#10 +
+    '                IF Transaction THEN BEGIN' + #13#10 +
+    '                mn:=0; CopyTempRec(j,Dat^,mn,Maske);' + #13#10 +
+    '                WriteNBytes(f^,FileOffset+pred(n)*SatzGroesse,SatzGroesse,Dat^,Code);' + #13#10 +
+    '                ToCache(D,n,Dat^);' + #13#10 +
+    '                END;' + #13#10 +
+    '              *)' + #13#10 +
+    '              {$ENDIF}' + #13#10 +
+    '            end' + #13#10 +
+    '          end;' + #13#10 +
+    '        end;');
+  // tdb01.pas:1308:9 DelRecord
+  AssertMaxTdbNewlyPlanned(lPlan, 'tdb01.pas', 1308, 9, 'DelRecord', [
+    'IndFiles[i]^|record-pointer-temp|IndexFile|lWithIndexFilePtr|lWithIndexFilePtr: ^IndexFile;|lWithIndexFilePtr := @IndFiles[i]^;'],
+    '',
+    '        begin' + #13#10 +
+    '          lWithIndexFilePtr := @IndFiles[i]^;' + #13#10 +
+    '          begin' + #13#10 +
+    '          MachIndex(d, i, Dat^, lWithIndexFilePtr^.IV, FileSize, Ind);' + #13#10 +
+    '          loesche_Index(d, i);' + #13#10 +
+    '          if TestError(IndexError, 5) then' + #13#10 +
+    '            goto Ende;' + #13#10 +
+    '          MachIndex(d, i, Dat^, lWithIndexFilePtr^.IV, n, Ind);' + #13#10 +
+    '          add_Index(d, i);' + #13#10 +
+    '          if TestError(IndexError, 4) then' + #13#10 +
+    '            goto Ende;' + #13#10 +
+    '        end;' + #13#10 +
+    '        end;');
+  // tdb01.pas:1789:7 AppendRec
+  AssertMaxTdbNewlyPlanned(lPlan, 'tdb01.pas', 1789, 7, 'AppendRec', [
+    'IndFiles[i]^|record-pointer-temp|IndexFile|lWithIndexFilePtr|lWithIndexFilePtr: ^IndexFile;|lWithIndexFilePtr := @IndFiles[i]^;'],
+    '  lWithIndexFilePtr: ^IndexFile;' + #13#10,
+    '      begin' + #13#10 +
+    '        lWithIndexFilePtr := @IndFiles[i]^;' + #13#10 +
+    '        begin' + #13#10 +
+    '        if not CheckIndexOpen(d, i, True) then' + #13#10 +
+    '        begin' + #13#10 +
+    '          IResult := 3;' + #13#10 +
+    '          goto x_EXIT' + #13#10 +
+    '        end;' + #13#10 +
+    '        if lWithIndexFilePtr^.MustBeUnique then' + #13#10 +
+    '        begin' + #13#10 +
+    '          MachIndex(d, i, Dat^, lWithIndexFilePtr^.IV, 0, lIndex);' + #13#10 +
+    '          if doppelt(d, i, lIndex) then' + #13#10 +
+    '          begin' + #13#10 +
+    '            IResult := 30;' + #13#10 +
+    '            DoError(30, lWithIndexFilePtr^.IndexName);' + #13#10 +
+    '            Flush := False;' + #13#10 +
+    '            errorPos := i;' + #13#10 +
+    '            goto Ende' + #13#10 +
+    '          end' + #13#10 +
+    '        end' + #13#10 +
+    '      end;' + #13#10 +
+    '      end;');
+  // tdb01.pas:1994:9 ReplaceRecord
+  AssertMaxTdbNewlyPlanned(lPlan, 'tdb01.pas', 1994, 9, 'ReplaceRecord', [
+    'IndFiles[i]^|record-pointer-temp|IndexFile|lWithIndexFilePtr|lWithIndexFilePtr: ^IndexFile;|lWithIndexFilePtr := @IndFiles[i]^;'],
+    'var' + #13#10 +
+    '  lWithIndexFilePtr: ^IndexFile;' + #13#10,
+    '        begin' + #13#10 +
+    '          lWithIndexFilePtr := @IndFiles[i]^;' + #13#10 +
+    '          begin' + #13#10 +
+    '          if not CheckIndexOpen(d, i, True) then' + #13#10 +
+    '          begin' + #13#10 +
+    '            fc := 3;' + #13#10 +
+    '            goto x_EXIT' + #13#10 +
+    '          end;' + #13#10 +
+    '          if lWithIndexFilePtr^.MustBeUnique then' + #13#10 +
+    '          begin' + #13#10 +
+    '            move(Ind, v, SizeOf(Index));' + #13#10 +
+    '            MachIndex(d, i, Dat^, lWithIndexFilePtr^.IV, 0, i1);' + #13#10 +
+    '            move(i1, Ind, SizeOf(Index));' + #13#10 +
+    '            suche_Index(d, i);' + #13#10 +
+    '            if Gleicher_Index(i1, Ind, lWithIndexFilePtr^.IV) and (Ind.DateiVerweis <> DateiZeiger) then' + #13#10 +
+    '            begin' + #13#10 +
+    '              fc := 30;' + #13#10 +
+    '              move(v, Ind, SizeOf(Index));' + #13#10 +
+    '              errorPos := i;' + #13#10 +
+    '              goto Ende' + #13#10 +
+    '            end;' + #13#10 +
+    '            move(v, Ind, SizeOf(Index))' + #13#10 +
+    '          end;' + #13#10 +
+    '        end;' + #13#10 +
+    '        end;');
+  // tdbvars.pas:1648:3 GetArrayVarPtr
+  AssertMaxTdbNewlyPlanned(lPlan, 'tdbvars.pas', 1648, 3, 'GetArrayVarPtr', [
+    'VarList[n]|record-pointer-temp|EasyVar|lWithEasyVarPtr|lWithEasyVarPtr: ^EasyVar;|lWithEasyVarPtr := @VarList[n];',
+    'p^|record-pointer-temp|ArrayVarRec|lWithArrayVarRecPtr|lWithArrayVarRecPtr: ^ArrayVarRec;|lWithArrayVarRecPtr := @p^;',
+    'ArrayVar|record-pointer-temp|ArrayRec|lWithArrayRecPtr|lWithArrayRecPtr: ^ArrayRec;|lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;'],
+    '  lWithEasyVarPtr: ^EasyVar;' + #13#10 +
+    '  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
+    '  lWithArrayRecPtr: ^ArrayRec;' + #13#10,
+    '  lWithEasyVarPtr := @VarList[n];' + #13#10 +
+    '  begin' + #13#10 +
+    '    if TestFlags(lWithEasyVarPtr^.tFlags, TArray) then' + #13#10 +
+    '    begin' + #13#10 +
+    '      p := Pointer(lWithEasyVarPtr^.VarCont);' + #13#10 +
+    '      lWithArrayVarRecPtr := @p^;' + #13#10 +
+    '      lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;' + #13#10 +
+    '      begin' + #13#10 +
+    '        if (nmax = 0) or (nmax + offset > lWithArrayVarRecPtr^.ArrayVar.gSize) then' + #13#10 +
+    '          nmax := lWithArrayVarRecPtr^.ArrayVar.gSize - offset;' + #13#10 +
+    '        Ptr := lWithArrayVarRecPtr^.Memory;' + #13#10 +
+    '        Inc(pByte(Ptr), offset)' + #13#10 +
+    '      end;' + #13#10 +
+    '      GetArrayVarPtr := True;' + #13#10 +
+    '    end' + #13#10 +
+    '  end');
+
+  // GetArrayVarPtr: 'with p^, ArrayVar' gets a temp for ArrayVar, but the body only
+  // names ArrayVar.gSize (a field of p^) and Memory (a field of ArrayVarRec), so the
+  // ArrayVar temp is assigned and never read. Its initializer only takes an address,
+  // as the original WITH did on entry, so it is harmless (at most a compiler hint).
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbvars.pas', 1648, 3, lStatement));
+  Assert.AreEqual(0, Pos('lWithArrayRecPtr^', lStatement.ReplacementText),
+    'The unused ArrayVar temp is never dereferenced.');
+  lCount := 0;
+  lPos := Pos('lWithArrayRecPtr', lStatement.ReplacementText);
+  while lPos > 0 do
+  begin
+    Inc(lCount);
+    lPos := Pos('lWithArrayRecPtr', lStatement.ReplacementText, lPos + 1);
+  end;
+  Assert.AreEqual(1, lCount, 'The unused ArrayVar temp is only assigned.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbFileIoSearchRecordReplacement;
@@ -25939,6 +26732,302 @@ begin
     lActual := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
     AssertCompleteCachedPlan(lExpected, lActual);
   end;
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPersistsAnonymousRecordMemberIdentity;
+var
+  i: Integer;
+  j: Integer;
+  lActual: TDelphiSemanticRemoveWithPlan;
+  lBinding: TSemanticRemoveWithBindingFact;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lExpected: TDelphiSemanticRemoveWithPlan;
+  lFactResult: TDelphiSemanticRemoveWithFactBuildResult;
+  lLoaded: TDelphiProjectSnapshot;
+  lLoadedCount: Integer;
+  lMember: TDelphiSemanticTypeIdentity;
+  lMemberCount: Integer;
+  lOptions: TDelphiSemanticApiOptions;
+  lRoot: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lRoot := TempPath('ds683-anonymous-member-identity');
+  if TDirectory.Exists(lRoot) then
+    TDirectory.Delete(lRoot, True);
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'AnonMember.dpr'),
+    'program AnonMember;'#13#10'uses AnonUnit in ''AnonUnit.pas'';'#13#10 +
+    'begin'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'AnonMember.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>AnonMember.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="AnonUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'AnonUnit.pas'),
+    'unit AnonUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TOuter = record'#13#10'    OuterOnly: Integer;'#13#10 +
+    '    Struktur: packed record'#13#10'      InnerOnly: Integer;'#13#10 +
+    '    end;'#13#10'  end;'#13#10'procedure Run;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'var'#13#10'  lOuter: TOuter;'#13#10'begin'#13#10 +
+    '  lOuter := Default(TOuter);'#13#10'  with lOuter, Struktur do'#13#10 +
+    '    InnerOnly := OuterOnly;'#13#10'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'AnonMember.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Release';
+  lOptions.DelphiVersion := '23.0';
+  lFactResult := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult(lOptions);
+  Assert.IsTrue(lFactResult.Success);
+  lMemberCount := 0;
+  for i := 0 to High(lFactResult.Facts.Bindings) do
+    if SameText(ExtractFileName(lFactResult.Facts.Bindings[i].FileName), 'AnonUnit.pas') and
+      (lFactResult.Facts.Bindings[i].Line = 17) then
+    begin
+      Inc(lMemberCount);
+      Assert.AreEqual(2, Integer(Length(lFactResult.Facts.Bindings[i].Selectors)));
+      lMember := lFactResult.Facts.Bindings[i].Selectors[1].TypeIdentity;
+      Assert.AreEqual('TOuter.Struktur', lFactResult.Facts.Bindings[i].Selectors[1].TypeName);
+      Assert.IsTrue(lMember.DeclaredId.Value <> '',
+        'The anonymous member type needs a declaration identity of its own.');
+      Assert.AreNotEqual(lFactResult.Facts.Bindings[i].Selectors[0].TypeIdentity.DeclaredId.Value,
+        lMember.DeclaredId.Value, 'The member must not reuse its owner identity.');
+      Assert.AreEqual('AnonUnit', lMember.UnitName);
+      Assert.AreEqual('TOuter.Struktur', lMember.Name);
+      Assert.AreNotEqual('routine', lMember.ScopeKind);
+      Assert.AreEqual('AnonUnit.pas', ExtractFileName(lMember.SourceRange.FileName));
+      Assert.AreEqual(6, lMember.SourceRange.Line, 'The identity uses the member declaration.');
+      // The extracted declaration starts on the 'Struktur' name token at 6:5.
+      Assert.IsTrue((lMember.SourceRange.Column >= 5) and
+        (lMember.SourceRange.Column < 5 + Length('Struktur')),
+        'The identity column must lie on the member name.');
+    end;
+  Assert.AreEqual(1, lMemberCount, 'Expected one anonymous nested multi-selector binding.');
+  lExpected := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFactResult.Facts);
+  Assert.IsTrue(FindFinalStatementAt(lExpected, 'AnonUnit.pas', 17, 3, lStatement));
+  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+    'lWithOuterPtr^.Struktur.InnerOnly := lWithOuterPtr^.OuterOnly;'),
+    lStatement.ReplacementText);
+
+  // The member identity itself must survive the SQLite store and reload.
+  lCacheIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+  lCacheIdentity.CacheKey := 'anonymous-member-' + lFactResult.Facts.ContextFingerprint;
+  lCacheIdentity.IdentityKey := lCacheIdentity.CacheKey;
+  lCacheIdentity.SourceFileName := TempPath('ds683-anonymous-member-identity.sqlite3');
+  lCacheIdentity.FileHash := lFactResult.Facts.ContextFingerprint;
+  lCacheIdentity.ContextHash := lFactResult.Facts.ContextFingerprint;
+  lCacheIdentity.IncludeGraphHash := 'no-includes-v1';
+  lCacheIdentity.SchemaVersion := 'anonymous-member-v1';
+  if TFile.Exists(lCacheIdentity.SourceFileName) then
+    TFile.Delete(lCacheIdentity.SourceFileName);
+  lSnapshot := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFactResult.Facts);
+  try
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheIdentity.SourceFileName);
+    try
+      lCache.StoreProjectRemoveWithPlanningFacts(lCacheIdentity, lSnapshot,
+        lFactResult.Facts.Symbols);
+    finally
+      lCache.Free;
+    end;
+  finally
+    lSnapshot.Free;
+  end;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheIdentity.SourceFileName);
+  try
+    Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lCacheIdentity, lLoaded));
+    try
+      lLoadedCount := 0;
+      for i := 0 to lLoaded.RemoveWithPlanningBindingCount - 1 do
+      begin
+        lBinding := lLoaded.RemoveWithPlanningBindingByIndex(i);
+        for j := 0 to High(lBinding.Selectors) do
+          if SameText(lLoaded.ExactTextOf(lBinding.Selectors[j].SelectorTextId), 'Struktur') then
+          begin
+            Inc(lLoadedCount);
+            Assert.AreEqual(lMember.DeclaredId.Value,
+              lLoaded.ExactTextOf(lBinding.Selectors[j].TypeIdentity.DeclaredIdId));
+            Assert.AreEqual(lMember.CanonicalId.Value,
+              lLoaded.ExactTextOf(lBinding.Selectors[j].TypeIdentity.CanonicalIdId));
+            Assert.AreEqual(lMember.SourceRange.Line, lBinding.Selectors[j].TypeIdentity.Line);
+            Assert.AreEqual(lMember.SourceRange.Column,
+              lBinding.Selectors[j].TypeIdentity.Column);
+          end;
+      end;
+      Assert.AreEqual(1, lLoadedCount, 'Expected the reloaded anonymous member selector.');
+      lActual := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+      AssertCompleteCachedPlan(lExpected, lActual);
+    finally
+      lLoaded.Free;
+    end;
+  finally
+    lCache.Free;
+  end;
+  lExpected.Diagnostics := Copy(lFactResult.Diagnostics);
+  lOptions.Cache.SqliteCacheFileName := TempPath('ds683-anonymous-member-session.sqlite3');
+  if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
+    TFile.Delete(lOptions.Cache.SqliteCacheFileName);
+  for i := 0 to 1 do
+  begin
+    Assert.AreEqual(i > 0, TFile.Exists(lOptions.Cache.SqliteCacheFileName),
+      'The first pass starts without a cache; the second uses the persisted file.');
+    lActual := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+    AssertCompleteCachedPlan(lExpected, lActual);
+  end;
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoRequiresCompleteAnonymousRecordMembers(
+  const aCase: Integer);
+var
+  i: Integer;
+  lBody: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lLines: TArray<string>;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+  lSelectorCount: Integer;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lUnitText: string;
+  lWithLine: Integer;
+begin
+  // Cases 0 and 1 hide Struktur.Count behind a nested end; the line-based member
+  // scan then misses it, so Count must never fall through to TOuter.Count.
+  case aCase of
+    0: lBody := '      Inner: record'#13#10'        A: Integer;'#13#10'      end;'#13#10 +
+      '      Count: Integer;'#13#10;
+    1: lBody := '      Arr: array[0..1] of record'#13#10'        A: Integer;'#13#10 +
+      '      end;'#13#10'      Count: Integer;'#13#10;
+  else
+    lBody := '      Count: Integer;'#13#10;
+  end;
+  lUnitText := 'unit AnonUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TOuter = record'#13#10'    Count: Integer;'#13#10 +
+    '    Struktur: record'#13#10 + lBody + '    end;'#13#10'  end;'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'var'#13#10'  lOuter: TOuter;'#13#10'begin'#13#10 +
+    '  lOuter := Default(TOuter);'#13#10'  with lOuter, Struktur do'#13#10 +
+    '    Count := 1;'#13#10'end;'#13#10'end.'#13#10;
+  lLines := lUnitText.Split([#13#10]);
+  lWithLine := 0;
+  for i := 0 to High(lLines) do
+    if Trim(lLines[i]) = 'with lOuter, Struktur do' then
+      lWithLine := i + 1;
+  lRoot := TempPath('ds683-anonymous-member-complete-' + IntToStr(aCase));
+  if TDirectory.Exists(lRoot) then
+    TDirectory.Delete(lRoot, True);
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'AnonMember.dpr'),
+    'program AnonMember;'#13#10'uses AnonUnit in ''AnonUnit.pas'';'#13#10 +
+    'begin'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'AnonMember.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>AnonMember.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="AnonUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'AnonUnit.pas'), lUnitText, TEncoding.ASCII);
+
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'AnonMember.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lSelectorCount := 0;
+  for i := 0 to High(lFacts.Bindings) do
+    if SameText(ExtractFileName(lFacts.Bindings[i].FileName), 'AnonUnit.pas') and
+      (lFacts.Bindings[i].Line = lWithLine) then
+    begin
+      Inc(lSelectorCount);
+      Assert.AreEqual(2, Integer(Length(lFacts.Bindings[i].Selectors)));
+      if aCase = 2 then
+        Assert.IsTrue(lFacts.Bindings[i].Selectors[1].TypeIdentity.DeclaredId.Value <> '',
+          'A flat anonymous record has a proven member list.')
+      else
+        Assert.AreEqual('', lFacts.Bindings[i].Selectors[1].TypeIdentity.DeclaredId.Value,
+          'An anonymous record with nested structure has no proven member list.');
+    end;
+  Assert.AreEqual(1, lSelectorCount, 'Expected one anonymous nested multi-selector binding.');
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'AnonUnit.pas', lWithLine, 3, lStatement));
+  Assert.IsFalse(ContainsText(lStatement.ReplacementText, 'lWithOuterPtr^.Count'),
+    'Count belongs to Struktur, never to the outer receiver: ' + lStatement.ReplacementText);
+  if aCase = 2 then
+  begin
+    Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+    Assert.IsTrue(ContainsText(lStatement.ReplacementText,
+      'lWithOuterPtr^.Struktur.Count := 1;'), lStatement.ReplacementText);
+    Exit;
+  end;
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoChecksIndexedReceiverWithoutBinderIdentity(
+  const aCase: Integer);
+var
+  i: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lOtherType: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+  lSelectorCount: Integer;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lRoot := TempPath('ds683-indexed-receiver-' + IntToStr(aCase));
+  if TDirectory.Exists(lRoot) then
+    TDirectory.Delete(lRoot, True);
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P;'#13#10'uses AUnit in ''AUnit.pas'', BUnit in ''BUnit.pas'';'#13#10 +
+    'begin'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="AUnit.pas"/><DCCReference Include="BUnit.pas"/>' +
+    '</ItemGroup></Project>', TEncoding.ASCII);
+  // Case 1 declares an unimported namesake of the element type in another unit.
+  lOtherType := 'TOther';
+  if aCase = 1 then
+    lOtherType := 'TItem';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'BUnit.pas'),
+    'unit BUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  ' + lOtherType + ' = record'#13#10'    X: Integer;'#13#10'  end;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'AUnit.pas'),
+    'unit AUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TItem = record'#13#10'    X: Integer;'#13#10'  end;'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'var'#13#10'  lIndex: Integer;'#13#10 +
+    '  lItems: TArray<TItem>;'#13#10'begin'#13#10'  lIndex := 0;'#13#10 +
+    '  SetLength(lItems, 1);'#13#10'  with lItems[lIndex] do'#13#10 +
+    '    X := 1;'#13#10'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lSelectorCount := 0;
+  for i := 0 to High(lFacts.Bindings) do
+    if SameText(ExtractFileName(lFacts.Bindings[i].FileName), 'AUnit.pas') and
+      (lFacts.Bindings[i].Line = 16) then
+    begin
+      Inc(lSelectorCount);
+      Assert.AreEqual(1, Integer(Length(lFacts.Bindings[i].Selectors)));
+      Assert.AreEqual('', lFacts.Bindings[i].Selectors[0].TypeIdentity.DeclaredId.Value,
+        'The binder itself leaves the indexed receiver without an identity.');
+    end;
+  Assert.AreEqual(1, lSelectorCount, 'Expected one indexed receiver binding.');
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'AUnit.pas', 16, 3, lStatement));
+  if aCase = 0 then
+  begin
+    Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+    Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'lWithItemPtr^.X := 1;'),
+      lStatement.ReplacementText);
+    Exit;
+  end;
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoCapturesVisibleImportedPointerCast;

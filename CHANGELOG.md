@@ -5,6 +5,8 @@
 ### Fixed
 - Semantic-unit SQLite caches now open relative database paths that resolve beyond the Windows path limit and near-limit paths whose SQLite sidecars cross it, while reporting the configured filename.
 - The migration gate builds DelphiSemantics and DAK directly through the native DAK executable, with private per-run outputs consumed by the corresponding tests and CLI smoke steps.
+- Source-backed routine-local record, alias and pointer types now keep their declaring scope and distinct identities through member binding, capture planning and persisted snapshots. Enclosing local types remain available to nested routines while hidden or unverifiable declarations refuse edits.
+- Remove-with planning now carries the proven declaring identity of nested `with` receivers and their members through project facts and SQLite snapshots. Dependent selectors refuse edits when that origin is missing or inconsistent, while visible same-named types remain distinct; older snapshot caches rebuild for the new identity facts.
 - Persisted project remove-with facts now refresh after corrected receiver-safety lineage, so older cached member-safety refusals cannot mask the current receiver classification.
 - Remove-with member-safety checks now follow the proven declaration of imported and nested `with` receivers. Unrelated incomplete-member diagnostics no longer mask complete receiver types; diagnostics on the actual type still refuse edits.
 - Snapshot SQLite caches now open absolute database paths beyond 300 characters, allowing DAK position queries to reuse the persisted snapshot at a deep semantic-unit-cache.sqlite3 path.

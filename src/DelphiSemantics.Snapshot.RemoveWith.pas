@@ -6,6 +6,29 @@ uses
   DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
 
 type
+  TSemanticRemoveWithTypeIdentityFact = record
+    UnitIdId: TSemanticStringId;
+    UnitNameId: TSemanticStringId;
+    NameId: TSemanticStringId;
+    KindId: TSemanticStringId;
+    DeclaredIdId: TSemanticStringId;
+    CanonicalIdId: TSemanticStringId;
+    UnderlyingIdId: TSemanticStringId;
+    CanonicalNameId: TSemanticStringId;
+    UnderlyingNameId: TSemanticStringId;
+    BaseTypeNameId: TSemanticStringId;
+    HelperTargetNameId: TSemanticStringId;
+    SectionKindId: TSemanticStringId;
+    ScopeKindId: TSemanticStringId;
+    OwnerScopeIdId: TSemanticStringId;
+    SemanticSymbolIdId: TSemanticStringId;
+    FileNameId: TSemanticStringId;
+    Line: Integer;
+    Column: Integer;
+    EndLine: Integer;
+    EndColumn: Integer;
+  end;
+
   TSemanticRemoveWithInventorySymbolFact = record
     NameId: TSemanticStringId;
     SymbolClassId: TSemanticStringId;
@@ -17,6 +40,10 @@ type
     SourceOwnerTypeId: TSemanticStringId;
     RelatedTypeNameId: TSemanticStringId;
     RoutineNameId: TSemanticStringId;
+    RoutineScopeIdId: TSemanticStringId;
+    ParentScopeIdId: TSemanticStringId;
+    OwnerScopeIdId: TSemanticStringId;
+    OwnerSymbolIdId: TSemanticStringId;
     UnitNameId: TSemanticStringId;
     FileNameId: TSemanticStringId;
     SectionKindId: TSemanticStringId;
@@ -28,6 +55,8 @@ type
     Flags: Cardinal;
     IndexParameterCount: Integer;
     TypeCategoryId: TSemanticStringId;
+    OwnerIdentity: TSemanticRemoveWithTypeIdentityFact;
+    AccessOwnerIdentity: TSemanticRemoveWithTypeIdentityFact;
   end;
 
   TSemanticRemoveWithSelectorBindingFact = record
@@ -35,6 +64,7 @@ type
     StatusId: TSemanticStringId;
     ReasonCodeId: TSemanticStringId;
     TypeNameId: TSemanticStringId;
+    TypeIdentity: TSemanticRemoveWithTypeIdentityFact;
   end;
 
   TSemanticRemoveWithBoundReferenceFact = record
@@ -60,6 +90,7 @@ type
     FileNameId: TSemanticStringId;
     UnitNameId: TSemanticStringId;
     RoutineNameId: TSemanticStringId;
+    RoutineScopeIdId: TSemanticStringId;
     Line: Integer;
     Column: Integer;
     EndLine: Integer;

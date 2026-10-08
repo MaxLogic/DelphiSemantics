@@ -65,6 +65,8 @@ type
 
   TDelphiSemanticMember = record
     OwnerName: string;
+    OwnerScopeId: string;
+    OwnerSymbolId: string;
     Name: string;
     Kind: string;
     TypeName: string;
@@ -111,6 +113,10 @@ type
     EndColumn: Integer;
     ScopeId: string;
     ParentScopeId: string;
+    AstScopeKind: string;
+    AstSemanticSignature: string;
+    AstSourceSignature: string;
+    AstSourceSignatureVerified: Boolean;
     ProcedureSignature: TDelphiSemanticProcedureSignature;
     Parameters: TArray<TDelphiSemanticParameter>;
     // DS-659: the include file whose text holds this fact; empty for the unit's own source.
@@ -148,6 +154,23 @@ type
     // DS-659: the include file whose text holds this fact; empty for the unit's own source.
     // Line and Column then refer to that file (Line 0: the position is unknown).
     FileName: string;
+  end;
+
+  // DS-694: one expanded token, independent of legacy directive attribution.
+  TDelphiSemanticPhysicalReferenceOccurrence = record
+    Name: string;
+    Role: string;
+    RoutineName: string;
+    RoutineScopeId: string;
+    OutputStartOffset: Integer;
+    OutputEndOffset: Integer;
+    FileName: string;
+    Line: Integer;
+    Column: Integer;
+    EndLine: Integer;
+    EndColumn: Integer;
+    ExpansionId: string;
+    Verified: Boolean;
   end;
 
   TDelphiSemanticWithStatement = record
@@ -209,6 +232,8 @@ type
     Routines: TArray<TDelphiSemanticRoutine>;
     Locals: TArray<TDelphiSemanticLocal>;
     References: TArray<TDelphiSemanticReference>;
+    PhysicalReferenceOccurrences: TArray<TDelphiSemanticPhysicalReferenceOccurrence>;
+    PhysicalReferenceOccurrencesAvailable: Boolean;
     // Syntax occurrences in the routine label namespace, never value-symbol references.
     LocalLabelReferences: TArray<TDelphiSemanticReference>;
     WithStatements: TArray<TDelphiSemanticWithStatement>;

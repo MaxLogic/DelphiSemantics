@@ -68,6 +68,7 @@ type
     Name: string;
     ScopeId: string;
     ParentScopeId: string;
+    SemanticSignature: string;
     CallingConvention: string;
     ProcedureSignature: TDelphiSemanticProcedureSignature;
     StartLine: Integer;
@@ -608,6 +609,36 @@ begin
     AstMethodSignature(aNode) + ')';
 end;
 
+function TryReadRoutineHeader(const aText: string; const aLexer: TmwBasePasLex;
+  var aNextMatch: TMatch; out aHeader: TRoutineHeader): Boolean; forward;
+
+// Read the source again at the lexical name matched to exactly one AST method.
+function TryReadMatchedSourceHeader(const aText: string;
+  const aRoutine: TDelphiSemanticRoutine; out aHeader: TRoutineHeader): Boolean;
+var
+  lLexer: TmwBasePasLex;
+  lNextMatch: TMatch;
+begin
+  Result := False;
+  aHeader := Default(TRoutineHeader);
+  if (aRoutine.Offset < 1) or (aRoutine.Offset > Length(aText)) then
+    Exit;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aText;
+    lLexer.RunPos := aRoutine.Offset - 1;
+    if (lLexer.TokenPos + 1 <> aRoutine.Offset) or
+      not SameText(lLexer.Token, aRoutine.Name) then
+      Exit;
+    lLexer.NextNoJunk;
+    lNextMatch := Default(TMatch);
+    Result := TryReadRoutineHeader(aText, lLexer, lNextMatch, aHeader);
+  finally
+    lLexer.Free;
+  end;
+end;
+
 function CollectWritableConstantSwitches(const aText: string;
   out aDeclarationText: string): TArray<TWritableConstantSwitch>;
 var
@@ -673,6 +704,8 @@ begin
   end;
 end;
 
+procedure AddLocal(const aLocals: TList<TDelphiSemanticLocal>; const aRoutineName, aName, aKind,
+  aTypeName, aText: string; const aOffset: Integer); forward;
 procedure ExtractReferencesFromBody(const aText, aBody: string; const aBodyOffset: Integer;
   const aRoutineName: string; const aReferences: TList<TDelphiSemanticReference>); forward;
 procedure ExtractLocalsFromRoutine(const aText, aRoutineName: string;
@@ -708,6 +741,52 @@ begin
   if (Result.StartOffset < 1) or (Result.EndOffset < Result.StartOffset) then
     raise EInvalidOpException.CreateFmt('Syntax node range %d:%d-%d:%d does not match source',
       [lNode.Line, lNode.Col, lNode.EndLine, lNode.EndCol]);
+end;
+
+// The AST owns the declaration and its type start; the lexer only retains source spelling.
+function AstLocalTypeText(const aText: string; const aTypeNode: TSyntaxNode;
+  const aBodyOffset: Integer; const aLexer: TmwBasePasLex): string;
+var
+  lAfterOf: Boolean;
+  lOffset: Integer;
+  lRecordDepth: Integer;
+  lRoundDepth: Integer;
+  lSquareDepth: Integer;
+begin
+  lOffset := OffsetOfLineColumn(aText, aTypeNode.Line, aTypeNode.Col);
+  if (lOffset < 1) or (lOffset >= aBodyOffset) then
+    raise EInvalidOpException.Create('Routine-local AST type has no source position');
+  aLexer.RunPos := lOffset - 1;
+  if aLexer.TokenPos + 1 <> lOffset then
+    raise EInvalidOpException.Create('Routine-local AST type does not start at a source token');
+  lAfterOf := False;
+  lRecordDepth := 0;
+  lRoundDepth := 0;
+  lSquareDepth := 0;
+  while (aLexer.TokenID <> ptNull) and (aLexer.TokenPos + 1 < aBodyOffset) do
+  begin
+    if (lRecordDepth = 0) and (lRoundDepth = 0) and (lSquareDepth = 0) and
+      (aLexer.TokenID in [ptSemiColon, ptEqual, ptAbsolute]) then
+    begin
+      Result := Trim(Copy(aText, lOffset, aLexer.TokenPos + 1 - lOffset));
+      if Result = '' then
+        raise EInvalidOpException.Create('Routine-local AST type has empty source text');
+      Exit;
+    end;
+    // "of object" ends a procedural type; only a record or object type body closes with "end".
+    case aLexer.TokenID of
+      ptRecord: Inc(lRecordDepth);
+      ptObject: if not lAfterOf then Inc(lRecordDepth);
+      ptEnd: if lRecordDepth > 0 then Dec(lRecordDepth);
+      ptRoundOpen: Inc(lRoundDepth);
+      ptRoundClose: if lRoundDepth > 0 then Dec(lRoundDepth);
+      ptSquareOpen: Inc(lSquareDepth);
+      ptSquareClose: if lSquareDepth > 0 then Dec(lSquareDepth);
+    end;
+    lAfterOf := aLexer.TokenID = ptOf;
+    aLexer.NextNoJunk;
+  end;
+  raise EInvalidOpException.Create('Routine-local AST type has no source terminator');
 end;
 
 // A begin/asm block must close with its own "end"; a range that falls short of it raises.
@@ -978,6 +1057,52 @@ begin
   lDeclaration.EndOffset := lOffset + Length(aName);
   aDeclarations.Add(lDeclaration);
 end;
+
+procedure EnsureRoutineTypeDeclaration(const aText: string; const aNode: TSyntaxNode;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lEquals: Integer;
+  lName: string;
+  lOffset: Integer;
+  lRange: TOffsetRange;
+  lText: string;
+  lTypeName: string;
+  lTypeText: string;
+begin
+  lName := AstNodeName(aNode);
+  lRange := AstNodeRange(aText, aNode);
+  lOffset := lRange.StartOffset;
+  if (lName = '') or not TextHasWordAt(aText, lOffset, lName) then
+    raise EInvalidOpException.Create('Routine-local type identifier does not match source');
+  for lDeclaration in aDeclarations do
+    if (lDeclaration.Offset = lOffset) and SameText(lDeclaration.Name, lName) then
+      Exit;
+  lText := Copy(aText, lRange.StartOffset, lRange.EndOffset - lRange.StartOffset);
+  lEquals := Pos('=', lText);
+  if lEquals < 1 then
+    Exit;
+  lTypeText := Trim(Copy(lText, lEquals + 1, MaxInt));
+  if EndsText(';', lTypeText) then
+    SetLength(lTypeText, Length(lTypeText) - 1);
+  lTypeName := NormalizeTypeName(lTypeText);
+  // Retain unsupported AST declarations as lexical shadows, without inventing an identity.
+  lDeclaration := Default(TDelphiSemanticDeclaration);
+  lDeclaration.Name := lName;
+  if SameText(lTypeName, 'record') then
+    lDeclaration.Kind := 'type'
+  else if TRegEx.IsMatch(lTypeName, '^\^?[A-Za-z_][A-Za-z0-9_.]*$') then
+    lDeclaration.Kind := 'type-alias'
+  else
+    lDeclaration.Kind := 'unsupported-local-type';
+  lDeclaration.TypeName := lTypeName;
+  lDeclaration.SectionKind := SectionForOffset(aText, lOffset);
+  lDeclaration.Line := aNode.Line;
+  lDeclaration.Column := aNode.Col;
+  lDeclaration.Offset := lOffset;
+  lDeclaration.EndOffset := lOffset + Length(lName);
+  aDeclarations.Add(lDeclaration);
+end;
 procedure EnsureUnitConstantDeclaration(const aText: string; const aNode: TSyntaxNode;
   const aDeclarations: TList<TDelphiSemanticDeclaration>);
 var
@@ -1146,12 +1271,19 @@ var
   lDeclarationFacts: TList<TAstDeclarationScopeFact>;
   lDiagnosticCount: Integer;
   lFact: TAstDeclarationScopeFact;
+  lHeader: TRoutineHeader;
   lLocal: TDelphiSemanticLocal;
   lLocalCount: Integer;
+  lLocalTypeLexer: TmwBasePasLex;
+  lMatchedDeclCount: Integer;
+  lMatchedScopeCount: Integer;
+  lMatchedScopeIndex: Integer;
+  lMember: TDelphiSemanticMember;
   lMemberCount: Integer;
   lMemberReferences: TList<TDelphiSemanticReference>;
   lOmittedClassVariables: Integer;
   lOriginalError: string;
+  lOwnerScopeIndex: Integer;
   lReference: TDelphiSemanticReference;
   lReferenceCount: Integer;
   lRoutine: TDelphiSemanticRoutine;
@@ -1186,6 +1318,9 @@ var
     lGuidNode: TSyntaxNode;
     lLiteralNode: TSyntaxNode;
     lLabelReference: TDelphiSemanticReference;
+    lLocalTypeName: string;
+    lName: string;
+    lNameOffset: Integer;
     lScope: TAstRoutineScope;
     lStatements: TSyntaxNode;
     lTypeNode: TSyntaxNode;
@@ -1205,6 +1340,7 @@ var
         lDeclarationFacts.Add(NestedRoutineDeclarationFact(aNode, aDeclarations, aParentScopeIndex));
       lScope := Default(TAstRoutineScope);
       lScope.Name := AstNodeName(aNode);
+      lScope.SemanticSignature := '(' + AstMethodSignature(aNode) + ')';
       lScope.CallingConvention := aNode.GetAttribute(anCallingConvention);
       lScope.ProcedureSignature := AstProcedureSignature(aNode);
       lScope.StartLine := aNode.Line;
@@ -1219,9 +1355,9 @@ var
       end;
       // Interface headers, forward and external declarations have no statement block.
       lStatements := aNode.FindNode(ntStatements);
+      lScope.HasBody := Assigned(lStatements);
       if Assigned(lStatements) and not aOptions.SkipBodyAnalysis then
       begin
-        lScope.HasBody := True;
         lScope.Body := AstNodeRange(aText, lStatements);
         if not TextHasWordAt(aText, lScope.Body.StartOffset, 'begin') and
           not TextHasWordAt(aText, lScope.Body.StartOffset, 'asm') then
@@ -1240,6 +1376,38 @@ var
     end else if (aNode.Typ = ntTypeDecl) or
       MatchText(SyntaxNodeNames[aNode.Typ], ['variable', 'constant']) then
     begin
+      if (aNode.Typ = ntVariable) and Assigned(aParentNode) and
+        (aParentNode.Typ = ntVariables) and (lCurrentScopeIndex >= 0) and
+        (aTypeOwnerPath = '') and not aOptions.SkipBodyAnalysis and
+        lScopes[lCurrentScopeIndex].HasBody then
+      begin
+        lName := AstNodeName(aNode);
+        lNameOffset := OffsetOfLineColumn(aText, aNode.Line, aNode.Col);
+        if lNameOffset < 1 then
+          raise EInvalidOpException.Create('Routine-local AST name has no source position');
+        if lNameOffset < lScopes[lCurrentScopeIndex].Body.StartOffset then
+        begin
+          if (lName = '') or not TextHasWordAt(aText, lNameOffset, lName) then
+            raise EInvalidOpException.Create('Routine-local AST name does not match source');
+          lTypeNode := aNode.FindNode(ntType);
+          if not Assigned(lTypeNode) then
+            raise EInvalidOpException.Create('Routine-local AST variable has no type');
+          if not Assigned(lLocalTypeLexer) then
+          begin
+            lLocalTypeLexer := TmwBasePasLex.Create;
+            lLocalTypeLexer.UseDefines := False;
+            lLocalTypeLexer.Origin := aText;
+          end;
+          lLocalTypeName := AstLocalTypeText(aText, lTypeNode,
+            lScopes[lCurrentScopeIndex].Body.StartOffset, lLocalTypeLexer);
+          // An anonymous record declares no type name; like a unit-level one it is named after
+          // its owner, the routine, so consumers find the synthetic owner of its fields.
+          if SameText(lTypeNode.GetAttribute(anType), 'record') then
+            lLocalTypeName := lScopes[lCurrentScopeIndex].Name + '.' + lName;
+          AddLocal(aLocals, lScopes[lCurrentScopeIndex].Name, lName, 'var', lLocalTypeName, aText,
+            lNameOffset);
+        end;
+      end;
       if (aNode.Typ = ntConstant) and (lCurrentScopeIndex < 0) and (aTypeOwnerPath = '') then
         EnsureUnitConstantDeclaration(aText, aNode, aDeclarations);
       lFact := Default(TAstDeclarationScopeFact);
@@ -1250,6 +1418,8 @@ var
       lFact.ScopeIndex := lCurrentScopeIndex;
       if aNode.Typ = ntTypeDecl then
       begin
+        if (lCurrentScopeIndex >= 0) and (aTypeOwnerPath = '') then
+          EnsureRoutineTypeDeclaration(aText, aNode, aDeclarations);
         lFact.TypeOwnerPath := aTypeOwnerPath;
         lTypeNode := aNode.FindNode(ntType);
         lFact.ProcedureSignature := AstProcedureSignature(lTypeNode);
@@ -1340,14 +1510,6 @@ var
     Result := False;
   end;
 
-  function ScopeEndOffset(const aScope: TAstRoutineScope): Integer;
-  begin
-    Result := OffsetOfLineColumn(aText, aScope.EndLine, aScope.EndColumn);
-    if Result < 1 then
-      raise EInvalidOpException.CreateFmt('Routine %s at %d:%d has no end in the source',
-        [aScope.Name, aScope.StartLine, aScope.StartColumn]);
-  end;
-
   // DS-653/DS-657: names used by declarations outside statement blocks are references: const
   // and var initializers (`@GLimit`, `CLimit * 2`), absolute targets, array bounds, default
   // values and the types in headings, including class-method headings inside a type. The
@@ -1420,15 +1582,12 @@ var
   end;
 
   // DS-653: statements come only from each routine's own begin/asm block and from the main,
-  // initialization and finalization blocks; locals only from the declaration part outside
-  // nested routines. Text between routines belongs to no body.
+  // initialization and finalization blocks. AST variables already carry routine ownership.
   procedure ExtractAstBodies;
   var
     lBlock: TOffsetRange;
-    lChildIndex: Integer;
     lIndex: Integer;
     lScope: TAstRoutineScope;
-    lSegmentStart: Integer;
   begin
     for lIndex := 0 to Pred(lScopes.Count) do
     begin
@@ -1441,22 +1600,6 @@ var
         ExtractReferencesFromBody(aText, Copy(aText, lScope.Body.StartOffset,
           lScope.Body.EndOffset - lScope.Body.StartOffset), lScope.Body.StartOffset, lScope.Name,
           lMemberReferences);
-      lSegmentStart := OffsetOfLineColumn(aText, lScope.StartLine, lScope.StartColumn);
-      // Scopes are in document pre-order, so descendants follow their parent directly.
-      lChildIndex := lIndex + 1;
-      while (lChildIndex < lScopes.Count) and (lScopes[lChildIndex].Depth > lScope.Depth) do
-      begin
-        if lScopes[lChildIndex].ParentIndex = lIndex then
-        begin
-          ExtractLocalsFromRoutine(aText, lScope.Name, lSegmentStart,
-            OffsetOfLineColumn(aText, lScopes[lChildIndex].StartLine,
-            lScopes[lChildIndex].StartColumn), aLocals, lMemberReferences);
-          lSegmentStart := ScopeEndOffset(lScopes[lChildIndex]);
-        end;
-        Inc(lChildIndex);
-      end;
-      ExtractLocalsFromRoutine(aText, lScope.Name, lSegmentStart, lScope.Body.StartOffset,
-        aLocals, lMemberReferences);
     end;
     for lBlock in lUnownedBlocks do
       ExtractReferencesFromBody(aText, Copy(aText, lBlock.StartOffset,
@@ -1482,6 +1625,7 @@ begin
   lScopes := TList<TAstRoutineScope>.Create;
   lUnownedBlocks := TList<TOffsetRange>.Create;
   lSyntaxTree := nil;
+  lLocalTypeLexer := nil;
   lMemberReferences := nil;
   if not aOptions.SkipReferenceExtraction then
     lMemberReferences := aReferences;
@@ -1593,20 +1737,63 @@ begin
     for i := 0 to Pred(aRoutines.Count) do
     begin
       lRoutine := aRoutines[i];
+      lMatchedScopeCount := 0;
+      lMatchedScopeIndex := -1;
       for lScopeIndex := 0 to Pred(lScopes.Count) do
         if SameText(lScopes[lScopeIndex].Name,
           QualifiedRoutineName(lRoutine.OwnerName, lRoutine.Name)) and
           (lScopes[lScopeIndex].StartLine = lRoutine.Line) then
         begin
-          lRoutine.ScopeId := lScopes[lScopeIndex].ScopeId;
-          lRoutine.ParentScopeId := lScopes[lScopeIndex].ParentScopeId;
-          lRoutine.CallingConvention := lScopes[lScopeIndex].CallingConvention;
-          lRoutine.ProcedureSignature := lScopes[lScopeIndex].ProcedureSignature;
-          lRoutine.EndLine := lScopes[lScopeIndex].EndLine;
-          lRoutine.EndColumn := lScopes[lScopeIndex].EndColumn;
-          Break;
+          Inc(lMatchedScopeCount);
+          lMatchedScopeIndex := lScopeIndex;
         end;
+      if lMatchedScopeCount = 1 then
+      begin
+        lRoutine.ScopeId := lScopes[lMatchedScopeIndex].ScopeId;
+        lRoutine.ParentScopeId := lScopes[lMatchedScopeIndex].ParentScopeId;
+        lRoutine.CallingConvention := lScopes[lMatchedScopeIndex].CallingConvention;
+        lRoutine.ProcedureSignature := lScopes[lMatchedScopeIndex].ProcedureSignature;
+        lRoutine.EndLine := lScopes[lMatchedScopeIndex].EndLine;
+        lRoutine.EndColumn := lScopes[lMatchedScopeIndex].EndColumn;
+        if lScopes[lMatchedScopeIndex].HasBody then
+          lRoutine.AstScopeKind := 'body'
+        else
+          lRoutine.AstScopeKind := 'header';
+        lRoutine.AstSemanticSignature := lScopes[lMatchedScopeIndex].SemanticSignature;
+        if TryReadMatchedSourceHeader(aText, lRoutine, lHeader) and
+          SameText(lHeader.Signature, lRoutine.Signature) and
+          SameText(lHeader.ReturnType, lRoutine.ReturnType) then
+        begin
+          lRoutine.AstSourceSignature := lHeader.Signature;
+          lRoutine.AstSourceSignatureVerified := True;
+        end;
+      end;
       aRoutines[i] := lRoutine;
+    end;
+
+    for i := 0 to Pred(aMembers.Count) do
+    begin
+      lMember := aMembers[i];
+      lOwnerScopeIndex := FindScopeForPosition(lMember.Line, lMember.Column);
+      if lOwnerScopeIndex < 0 then
+        Continue;
+      lMatchedDeclCount := 0;
+      for lDeclaration in aDeclarations do
+        if SameText(lDeclaration.Name, lMember.OwnerName) and
+          SameText(lDeclaration.ScopeKind, 'routine') and
+          SameText(lDeclaration.OwnerScopeId, lScopes[lOwnerScopeIndex].ScopeId) and
+          (lDeclaration.Offset < lMember.Offset) then
+        begin
+          Inc(lMatchedDeclCount);
+          lMember.OwnerScopeId := lDeclaration.OwnerScopeId;
+          lMember.OwnerSymbolId := lDeclaration.SymbolId;
+        end;
+      if lMatchedDeclCount <> 1 then
+      begin
+        lMember.OwnerScopeId := '';
+        lMember.OwnerSymbolId := '';
+      end;
+      aMembers[i] := lMember;
     end;
 
     for i := 0 to Pred(aLocals.Count) do
@@ -1636,6 +1823,7 @@ begin
       aReferences[i] := lReference;
     end;
   finally
+    lLocalTypeLexer.Free;
     lSyntaxTree.Free;
     lUnownedBlocks.Free;
     lScopes.Free;
@@ -3844,6 +4032,145 @@ end;
 
 // Several extractors can describe one name at one source position (a line scan and the syntax
 // tree); one fact per position is kept, the first, so a consumer never edits a place twice.
+function CopiedSpanAtOffset(const aSpans: TArray<TDelphiSemanticCopiedSourceSpan>;
+  const aOffset: Integer): Integer;
+var
+  lHigh: Integer;
+  lLow: Integer;
+  lMiddle: Integer;
+begin
+  Result := -1;
+  lLow := 0;
+  lHigh := High(aSpans);
+  while lLow <= lHigh do
+  begin
+    lMiddle := lLow + (lHigh - lLow) div 2;
+    if aSpans[lMiddle].OutputStartOffset <= aOffset then
+    begin
+      Result := lMiddle;
+      lLow := lMiddle + 1;
+    end else
+      lHigh := lMiddle - 1;
+  end;
+end;
+
+procedure CapturePhysicalReferenceOccurrences(const aExpandedText: string;
+  const aSpans: TArray<TDelphiSemanticCopiedSourceSpan>;
+  const aReferences: TList<TDelphiSemanticReference>;
+  const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
+  const aRootFileName: string; const aOutputOffsetShift: Integer;
+  var aModel: TDelphiSemanticUnitModel);
+var
+  lExistingIndex: Integer;
+  lExistingOccurrence: TDelphiSemanticPhysicalReferenceOccurrence;
+  lKey: Int64;
+  lOccurrence: TDelphiSemanticPhysicalReferenceOccurrence;
+  lOccurrences: TList<TDelphiSemanticPhysicalReferenceOccurrence>;
+  lPhysicalLineStartValid: Boolean;
+  lReference: TDelphiSemanticReference;
+  lSeen: TDictionary<Int64, Integer>;
+  lSourceOffset: Integer;
+  lSpan: TDelphiSemanticCopiedSourceSpan;
+  lSpanIndex: Integer;
+  lTokenLength: Integer;
+  lWitnessOffset: Integer;
+begin
+  lOccurrences := TList<TDelphiSemanticPhysicalReferenceOccurrence>.Create;
+  lSeen := TDictionary<Int64, Integer>.Create;
+  try
+    for lReference in aReferences do
+    begin
+      lOccurrence := Default(TDelphiSemanticPhysicalReferenceOccurrence);
+      lOccurrence.Name := lReference.Name;
+      lOccurrence.Role := lReference.Role;
+      lOccurrence.RoutineName := lReference.RoutineName;
+      lOccurrence.RoutineScopeId := lReference.RoutineScopeId;
+      lOccurrence.OutputStartOffset := lReference.Offset;
+      lOccurrence.OutputEndOffset := lReference.EndOffset;
+      lTokenLength := lReference.EndOffset - lReference.Offset;
+      lWitnessOffset := lReference.Offset + aOutputOffsetShift;
+      lSpanIndex := CopiedSpanAtOffset(aSpans, lWitnessOffset);
+      if (lReference.Offset > 0) and (lTokenLength > 0) and
+        (lReference.EndOffset <= Length(aExpandedText) + 1) and
+        (lSpanIndex >= 0) then
+      begin
+        lSpan := aSpans[lSpanIndex];
+        lSourceOffset := lSpan.SourceStartOffset + lWitnessOffset - lSpan.OutputStartOffset;
+        lOccurrence.ExpansionId := lSpan.ExpansionId;
+        lOccurrence.FileName := lSpan.FileName;
+        lOccurrence.Line := lSpan.Line;
+        lOccurrence.Column := lSpan.Column + lWitnessOffset - lSpan.OutputStartOffset;
+        if (lSpan.Line = 1) and (lSpan.SourceText <> '') then
+          if lSpan.SourceText[1] = #$FEFF then
+            Dec(lOccurrence.Column);
+        lOccurrence.EndLine := lOccurrence.Line;
+        lOccurrence.EndColumn := lOccurrence.Column + lTokenLength - 1;
+        lPhysicalLineStartValid := (lSpan.Line = 1) and
+          (lSpan.SourceLineStartOffset = 1);
+        if (lSpan.Line > 1) and (lSpan.SourceLineStartOffset > 1) and
+          (lSpan.SourceLineStartOffset <= Length(lSpan.SourceText) + 1) then
+          lPhysicalLineStartValid :=
+            (lSpan.SourceText[lSpan.SourceLineStartOffset - 1] = #10) or
+            (lSpan.SourceText[lSpan.SourceLineStartOffset - 1] = #13);
+        lOccurrence.Verified := (lSpan.OutputStartOffset > 0) and
+          (lSpan.OutputEndOffset >= lWitnessOffset + lTokenLength) and
+          (lSpan.OutputEndOffset <= Length(aExpandedText) + aOutputOffsetShift + 1) and
+          (lSpan.ExpansionId <> '') and (lSpan.FileName <> '') and
+          (lSpan.Line > 0) and (lOccurrence.Column > 0) and
+          lPhysicalLineStartValid and
+          (lSpan.SourceStartOffset = lSpan.SourceLineStartOffset + lSpan.Column - 1) and
+          (lSourceOffset > 0) and
+          (lSourceOffset + lTokenLength - 1 <= Length(lSpan.SourceText));
+        if lOccurrence.Verified then
+          lOccurrence.Verified := Copy(aExpandedText, lReference.Offset, lTokenLength) =
+            Copy(lSpan.SourceText, lSourceOffset, lTokenLength);
+      end;
+      if not lOccurrence.Verified then
+        AddDiagnostic(aDiagnostics, 'PHYSICAL_REFERENCE_ORIGIN_UNVERIFIED',
+          'No matching copied-source witness for expanded reference ' +
+          lReference.Name + ' at offset ' + IntToStr(lReference.Offset) + '.',
+          aRootFileName, 0);
+      if lOccurrence.Verified then
+      begin
+        lKey := (Int64(lOccurrence.OutputStartOffset) shl 32) or
+          Cardinal(lOccurrence.OutputEndOffset);
+        if lSeen.TryGetValue(lKey, lExistingIndex) then
+        begin
+          lExistingOccurrence := lOccurrences[lExistingIndex];
+          if SameText(lExistingOccurrence.Name, lOccurrence.Name) and
+            SameText(lExistingOccurrence.Role, lOccurrence.Role) and
+            ((lExistingOccurrence.RoutineName = '') or (lOccurrence.RoutineName = '') or
+              SameText(lExistingOccurrence.RoutineName, lOccurrence.RoutineName)) and
+            ((lExistingOccurrence.RoutineScopeId = '') or
+              (lOccurrence.RoutineScopeId = '') or
+              SameText(lExistingOccurrence.RoutineScopeId,
+                lOccurrence.RoutineScopeId)) then
+          begin
+            if lExistingOccurrence.RoutineName = '' then
+              lExistingOccurrence.RoutineName := lOccurrence.RoutineName;
+            if lExistingOccurrence.RoutineScopeId = '' then
+              lExistingOccurrence.RoutineScopeId := lOccurrence.RoutineScopeId;
+            lOccurrences[lExistingIndex] := lExistingOccurrence;
+            Continue;
+          end;
+          lExistingOccurrence.Verified := False;
+          lOccurrences[lExistingIndex] := lExistingOccurrence;
+          AddDiagnostic(aDiagnostics, 'PHYSICAL_REFERENCE_DESCRIPTION_CONFLICT',
+            'Conflicting descriptions of one expanded reference token.',
+            aRootFileName, 0);
+          Continue;
+        end;
+        lSeen.Add(lKey, lOccurrences.Count);
+      end;
+      lOccurrences.Add(lOccurrence);
+    end;
+    aModel.PhysicalReferenceOccurrences := lOccurrences.ToArray;
+  finally
+    lSeen.Free;
+    lOccurrences.Free;
+  end;
+end;
+
 procedure RemoveDuplicateReferences(const aReferences: TList<TDelphiSemanticReference>);
 var
   i: Integer;
@@ -3945,6 +4272,7 @@ var
   lMatch: TMatch;
   lMembers: TList<TDelphiSemanticMember>;
   lOffsetMap: TArray<Integer>;
+  lOutputOffsetShift: Integer;
   lObservationError: string;
   lOrigin: TDelphiSemanticSourceLineOrigin;
   lPreprocessOptions: TDelphiSemanticPreprocessOptions;
@@ -4020,10 +4348,14 @@ begin
     end;
     AddPreprocessDiagnostics(lDiagnostics, lPreprocessResult.Diagnostics);
     lText := lPreprocessResult.OutputText;
+    lOutputOffsetShift := 0;
     if lText = '' then
       lText := lSourceResult.Source.Text;
     if (lText <> '') and (lText[1] = #$FEFF) then
+    begin
       Delete(lText, 1, 1);
+      lOutputOffsetShift := 1;
+    end;
 
     if not aOptions.ProjectContextApplied then
       AddDiagnostic(lDiagnostics, 'NO_PROJECT_CONTEXT',
@@ -4086,6 +4418,14 @@ begin
     EnrichLexicalScopeFacts(lText, Result.UnitName, lWritableSwitches,
       aOptions, lMembers,
       lDeclarations, lRoutines, lLocals, lReferences, lDiagnostics, Result);
+    if Result.Success and not aOptions.SkipReferenceExtraction and
+      (lPreprocessResult.OutputText <> '') then
+    begin
+      CapturePhysicalReferenceOccurrences(lText, lPreprocessResult.CopiedSourceSpans,
+        lReferences, lDiagnostics, Result.FileName, lOutputOffsetShift, Result);
+      Result.PhysicalReferenceOccurrencesAvailable :=
+        not aOptions.SkipBodyAnalysis and SameText(Result.ScopeModelStatus, 'ast');
+    end;
     // DS-659: with includes, output lines no longer match source lines. Each fact moves to the
     // file and line its text came from; include facts are never mapped onto this unit.
     if Length(lPreprocessResult.Includes) > 0 then

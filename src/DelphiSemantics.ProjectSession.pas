@@ -225,9 +225,9 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v26';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v27';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v24';
+    'project-session-remove-with-facts-v30';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -1100,6 +1100,10 @@ begin
   Result.SourceOwnerType := aExactStrings.TextOf(aSymbol.SourceOwnerTypeId);
   Result.RelatedTypeName := aExactStrings.TextOf(aSymbol.RelatedTypeNameId);
   Result.RoutineName := aExactStrings.TextOf(aSymbol.RoutineNameId);
+  Result.RoutineScopeId := aExactStrings.TextOf(aSymbol.RoutineScopeIdId);
+  Result.ParentScopeId := aExactStrings.TextOf(aSymbol.ParentScopeIdId);
+  Result.OwnerScopeId := aExactStrings.TextOf(aSymbol.OwnerScopeIdId);
+  Result.OwnerSymbolId := aExactStrings.TextOf(aSymbol.OwnerSymbolIdId);
   Result.UnitName := aExactStrings.TextOf(aSymbol.UnitNameId);
   Result.FileName := aExactStrings.TextOf(aSymbol.FileNameId);
   Result.SectionKind := aExactStrings.TextOf(aSymbol.SectionKindId);

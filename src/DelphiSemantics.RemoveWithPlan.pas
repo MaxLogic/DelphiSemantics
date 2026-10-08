@@ -220,6 +220,7 @@ uses
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.RemoveWithPlan.FinalBodyRenderer,
   DelphiSemantics.RemoveWithPlan.FinalRewrite,
+  DelphiSemantics.Resolve.TypeResolver,
   DelphiSemantics.SourceConditionals, DelphiSemantics.SourceContext,
   MaxLogic.StrUtils;
 
@@ -299,6 +300,7 @@ type
     QualifierText: string;
     Strategy: string;
     ReceiverType: string;
+    ReceiverIdentity: TDelphiSemanticTypeIdentity;
     TempName: string;
     DeclarationText: string;
     InitializationText: string;
@@ -2729,8 +2731,43 @@ begin
   end;
 end;
 
+function TypeIdentityHasVerifiedOrigin(const aIdentity: TDelphiSemanticTypeIdentity):
+  Boolean;
+begin
+  Result := (aIdentity.UnitName <> '') and (aIdentity.Name <> '') and
+    (aIdentity.DeclaredId.Value <> '') and (aIdentity.CanonicalId.Value <> '') and
+    (aIdentity.SectionKind <> '') and (aIdentity.SourceRange.FileName <> '') and
+    (aIdentity.SourceRange.Line > 0) and
+    (aIdentity.SourceRange.Column > 0) and
+    (not SameText(aIdentity.ScopeKind, 'routine') or
+      ((aIdentity.OwnerScopeId <> '') and
+        (aIdentity.SemanticSymbolId <> '')));
+end;
+
+function TypeIdentitiesAreSameDeclaration(const aLeft,
+  aRight: TDelphiSemanticTypeIdentity): Boolean;
+begin
+  Result := TypeIdentityHasVerifiedOrigin(aLeft) and
+    TypeIdentityHasVerifiedOrigin(aRight) and
+    SameText(aLeft.DeclaredId.Value, aRight.DeclaredId.Value) and
+    SameText(aLeft.CanonicalId.Value, aRight.CanonicalId.Value) and
+    SameText(aLeft.UnitName, aRight.UnitName) and
+    SameText(aLeft.Name, aRight.Name) and
+    SameText(aLeft.ScopeKind, aRight.ScopeKind) and
+    SameText(aLeft.OwnerScopeId, aRight.OwnerScopeId) and
+    SameText(aLeft.SemanticSymbolId, aRight.SemanticSymbolId) and
+    SameText(aLeft.SourceRange.FileName, aRight.SourceRange.FileName) and
+    SameText(aLeft.SectionKind, aRight.SectionKind) and
+    (aLeft.SourceRange.Line = aRight.SourceRange.Line) and
+    (aLeft.SourceRange.Column = aRight.SourceRange.Column) and
+    (aLeft.SourceRange.EndLine = aRight.SourceRange.EndLine) and
+    (aLeft.SourceRange.EndColumn = aRight.SourceRange.EndColumn);
+end;
+
 function TryResolveSelectorChainMemberType(const aFacts: TRemoveWithPlanFacts;
-  const aOwnerType, aSelectorPart: string; out aTypeName: string): Boolean;
+  const aOwnerType, aSelectorPart: string;
+  const aOwnerIdentity: TDelphiSemanticTypeIdentity;
+  out aTypeName: string): Boolean;
 var
   lMember: TDelphiSemanticInventorySymbol;
   lMemberName: string;
@@ -2746,6 +2783,17 @@ var
       Exit;
     if not SymbolIsMemberOfOwner(aMember, aOwnerType) then
       Exit;
+    if aOwnerIdentity.DeclaredId.Value <> '' then
+    begin
+      if (not TypeIdentityHasVerifiedOrigin(aMember.OwnerIdentity)) or
+        ((not TypeIdentitiesAreSameDeclaration(aMember.OwnerIdentity,
+          aOwnerIdentity)) and
+        ((not TypeIdentitiesAreSameDeclaration(aMember.AccessOwnerIdentity,
+          aOwnerIdentity)) or
+          (not SameText(aMember.AccessOwnerIdentity.Name,
+            aMember.OwnerName)))) then
+        Exit;
+    end;
     lShapeType := SelectorChainPartShapeType(aFacts, aMember.TypeName, aSelectorPart);
     if lShapeType = '' then
       Exit;
@@ -2795,7 +2843,7 @@ begin
   for lPartIndex := 1 to High(lParts) do
   begin
     if not TryResolveSelectorChainMemberType(aFacts, lCurrentType,
-      lParts[lPartIndex], lNextType) then
+      lParts[lPartIndex], Default(TDelphiSemanticTypeIdentity), lNextType) then
       Exit;
     lCurrentType := lNextType;
   end;
@@ -2840,11 +2888,11 @@ end;
 
 function TryResolveDependentSelectorType(const aFacts: TRemoveWithPlanFacts;
   const aDecisions: TArray<TFinalSelectorDecision>; const aSelectorText: string;
+  const aSelector: TDelphiSemanticWithSelectorBinding;
   out aHasDependentReceiver: Boolean; out aReceiverType: string): Boolean;
 var
   i: Integer;
   lNextType: string;
-  lPart: string;
   lParts: TArray<string>;
 begin
   Result := False;
@@ -2852,20 +2900,33 @@ begin
   aReceiverType := '';
   for i := High(aDecisions) downto 0 do
   begin
-    if not OwnerHasMemberNamed(aFacts, aDecisions[i].ReceiverType,
-      SelectorBaseIdentifier(aSelectorText)) then
-      Continue;
-    aHasDependentReceiver := True;
+    if not TypeIdentityHasVerifiedOrigin(aDecisions[i].ReceiverIdentity) then
+    begin
+      aHasDependentReceiver := True;
+      Exit;
+    end;
     if (not TrySplitSelectorChainParts(aSelectorText, lParts)) and
       (Length(lParts) <> 1) then
       Exit;
-    aReceiverType := aDecisions[i].ReceiverType;
-    for lPart in lParts do
+    if not OwnerHasMemberNamed(aFacts, aDecisions[i].ReceiverType,
+      SelectorBaseIdentifier(lParts[0])) then
+      Continue;
+    aHasDependentReceiver := True;
+    if not TryResolveSelectorChainMemberType(aFacts, aDecisions[i].ReceiverType,
+      lParts[0], aDecisions[i].ReceiverIdentity, lNextType) then
+      Exit;
+    if Length(lParts) = 1 then
+      aReceiverType := lNextType
+    else
     begin
-      if not TryResolveSelectorChainMemberType(aFacts, aReceiverType, lPart,
-        lNextType) then
+      // The binder resolved the complete chain from this receiver; do not reuse
+      // the parent's declaration identity for a later member's different owner.
+      if (not SameText(aSelector.SelectorText, aSelectorText)) or
+        (not SameText(aSelector.Status, 'resolved')) or
+        (aSelector.TypeName = '') or
+        (not TypeIdentityHasVerifiedOrigin(aSelector.TypeIdentity)) then
         Exit;
-      aReceiverType := lNextType;
+      aReceiverType := aSelector.TypeName;
     end;
     Exit(True);
   end;
@@ -2917,13 +2978,34 @@ begin
     aFacts.UnitVisibility.IsUnitVisible(aBinding.FileName, aDeclaration.UnitName);
 end;
 
-function CaptureTypeIsVisible(const aFacts: TRemoveWithPlanFacts;
+function DeclarationIsRoutineLocal(const aFacts: TRemoveWithPlanFacts;
+  const aDeclaration: TDelphiSemanticInventorySymbol): Boolean;
+var
+  lRoutine: TDelphiSemanticInventorySymbol;
+begin
+  // Unit-scope declarations carry the unit scope id; a local one carries the scope
+  // of a routine, or at least lies inside a routine body of its file.
+  for lRoutine in aFacts.Symbols do
+    if ((aDeclaration.RoutineScopeId <> '') and
+      SameText(lRoutine.SymbolClass, 'routine') and
+      SameText(lRoutine.RoutineScopeId, aDeclaration.RoutineScopeId)) or
+      (SameText(lRoutine.Kind, 'routine') and
+      SameText(lRoutine.FileName, aDeclaration.FileName) and
+      (lRoutine.Line < aDeclaration.Line) and
+      (lRoutine.EndLine >= aDeclaration.Line)) then
+      Exit(True);
+  Result := False;
+end;
+
+function UniqueUnitTypeDeclarationIsVisible(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aTypeName: string;
   const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
   lDeclaration: TDelphiSemanticInventorySymbol;
   lSelected: TDelphiSemanticInventorySymbol;
 begin
+  // Without a binder identity only a project-unique name proves which declaration
+  // the unqualified temp type denotes; any other declaration of it refuses.
   Result := False;
   lSelected := Default(TDelphiSemanticInventorySymbol);
   for lDeclaration in aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(aTypeName) do
@@ -2943,12 +3025,123 @@ begin
       lSelected := lDeclaration;
     Result := True;
   end;
-  if Result then
-    Result := CaptureDeclarationIsVisible(aFacts, aBinding, lSelected, aLineCache);
+  // A routine-local type is visible only through its scoped binder identity.
+  Result := Result and (not DeclarationIsRoutineLocal(aFacts, lSelected)) and
+    CaptureDeclarationIsVisible(aFacts, aBinding, lSelected, aLineCache);
+end;
+
+function CaptureTypeIsVisible(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aTypeName: string;
+  const aIdentity: TDelphiSemanticTypeIdentity;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  lDeclaration: TDelphiSemanticInventorySymbol;
+  lFoundSelected: Boolean;
+  lMatchingCount: Integer;
+  lRoutine: TDelphiSemanticInventorySymbol;
+  lRoutineCount: Integer;
+  lScopeId: string;
+  lSeenScopes: TDictionary<string, Byte>;
+  lSelected: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  // Without a DeclaredId (whatever else the identity holds) only the unique-name
+  // check can prove the type; any identity with a DeclaredId takes the strict path
+  // below, where an incomplete or conflicting one is refused.
+  if aIdentity.DeclaredId.Value = '' then
+    Exit((not SameText(aIdentity.ScopeKind, 'routine')) and
+      UniqueUnitTypeDeclarationIsVisible(aFacts, aBinding, aTypeName, aLineCache));
+  if not TypeIdentityHasVerifiedOrigin(aIdentity) then
+    Exit;
+  if SameText(aIdentity.ScopeKind, 'routine') then
+  begin
+    if (aBinding.RoutineScopeId = '') or (aIdentity.OwnerScopeId = '') or
+      (aIdentity.SemanticSymbolId = '') or
+      (not SameText(aBinding.UnitName, aIdentity.UnitName)) or
+      (not SameText(aBinding.FileName, aIdentity.SourceRange.FileName)) or
+      (not SameText(aTypeName, aIdentity.Name)) then
+      Exit;
+    lSeenScopes := TDictionary<string, Byte>.Create(
+      TFastCaseAwareComparer.OrdinalIgnoreCase);
+    try
+      lScopeId := aBinding.RoutineScopeId;
+      while lScopeId <> '' do
+      begin
+        if lSeenScopes.ContainsKey(lScopeId) then
+          Exit(False);
+        lSeenScopes.Add(lScopeId, 0);
+        lRoutineCount := 0;
+        lRoutine := Default(TDelphiSemanticInventorySymbol);
+        for lSelected in aFacts.Symbols do
+          if SameText(lSelected.SymbolClass, 'routine') and
+            SameText(lSelected.FileName, aBinding.FileName) and
+            SameText(lSelected.RoutineScopeId, lScopeId) then
+          begin
+            Inc(lRoutineCount);
+            lRoutine := lSelected;
+          end;
+        if lRoutineCount <> 1 then
+          Exit(False);
+        lMatchingCount := 0;
+        for lDeclaration in aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(
+          aTypeName) do
+          if SameText(lDeclaration.FileName, aBinding.FileName) and
+            SameText(lDeclaration.RoutineScopeId, lScopeId) and
+            SameText(lDeclaration.Name, aTypeName) then
+          begin
+            Inc(lMatchingCount);
+            if (not SameText(lDeclaration.OwnerSymbolId,
+              aIdentity.SemanticSymbolId)) or
+              (not SameText(lDeclaration.OwnerScopeId,
+                aIdentity.OwnerScopeId)) or
+              (lDeclaration.Line <> aIdentity.SourceRange.Line) or
+              (lDeclaration.Column <> aIdentity.SourceRange.Column) or
+              (not CaptureDeclarationIsVisible(aFacts, aBinding,
+                lDeclaration, aLineCache)) then
+              Exit(False);
+          end;
+        if lMatchingCount > 0 then
+          Exit(lMatchingCount = 1);
+        lScopeId := lRoutine.ParentScopeId;
+      end;
+    finally
+      lSeenScopes.Free;
+    end;
+    Exit(False);
+  end;
+  lFoundSelected := False;
+  lSelected := Default(TDelphiSemanticInventorySymbol);
+  for lDeclaration in aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(aTypeName) do
+  begin
+    if (not SameText(aTypeName, lDeclaration.Name)) and
+      (not SameText(aTypeName, lDeclaration.UnitName + '.' + lDeclaration.Name)) then
+      Continue;
+    if not CaptureDeclarationIsVisible(aFacts, aBinding, lDeclaration, aLineCache) then
+      Continue;
+    if Result and ((not SameText(lSelected.FileName, lDeclaration.FileName)) or
+      (lSelected.Line <> lDeclaration.Line) or
+      (lSelected.Column <> lDeclaration.Column)) then
+      Exit(False);
+    if not Result then
+      lSelected := lDeclaration;
+    if SameText(lDeclaration.UnitName, aIdentity.UnitName) and
+      SameText(lDeclaration.Name, aIdentity.Name) and
+      SameText(lDeclaration.FileName, aIdentity.SourceRange.FileName) and
+      SameText(lDeclaration.SectionKind, aIdentity.SectionKind) and
+      (lDeclaration.Line = aIdentity.SourceRange.Line) and
+      (lDeclaration.Column = aIdentity.SourceRange.Column) and
+      (lDeclaration.Line = aIdentity.SourceRange.EndLine) and
+      (lDeclaration.Column + Length(lDeclaration.Name) =
+        aIdentity.SourceRange.EndColumn) then
+      lFoundSelected := True;
+    Result := True;
+  end;
+  Result := Result and lFoundSelected;
 end;
 
 function BuildSelectorDecision(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
+  const aSelector: TDelphiSemanticWithSelectorBinding;
   const aReservedNames: TDictionary<string, Integer>;
   const aPriorDecisions: TArray<TFinalSelectorDecision>;
   const aLineCache: TDelphiSemanticSourceContextCache;
@@ -2969,9 +3162,23 @@ begin
   aDecision := Default(TFinalSelectorDecision);
   aDecision.SelectorText := aSelectorText;
   aDecision.ReceiverType := SelectorTypeName(aFacts, aBinding, aSelectorText);
-  if TryResolveDependentSelectorType(aFacts, aPriorDecisions, aSelectorText,
+  if SameText(aSelector.Status, 'resolved') and
+    (aSelector.TypeIdentity.DeclaredId.Value <> '') then
+  begin
+    aDecision.ReceiverType := aSelector.TypeName;
+    aDecision.ReceiverIdentity := aSelector.TypeIdentity;
+  end;
+  if TryResolveDependentSelectorType(aFacts, aPriorDecisions, aSelectorText, aSelector,
     lHasDependentReceiver, lChainReceiverType) then
-    aDecision.ReceiverType := lChainReceiverType
+  begin
+    if (aDecision.ReceiverIdentity.DeclaredId.Value = '') or
+      (not SameText(aDecision.ReceiverType, lChainReceiverType)) then
+    begin
+      aReason := 'dependent-selector-type-not-resolved';
+      Exit;
+    end;
+    aDecision.ReceiverType := lChainReceiverType;
+  end
   else if lHasDependentReceiver then
   begin
     aReason := 'dependent-selector-type-not-resolved';
@@ -3021,6 +3228,7 @@ begin
   if TypeIsClassLike(aFacts, aDecision.ReceiverType) then
   begin
     if not CaptureTypeIsVisible(aFacts, aBinding, aDecision.ReceiverType,
+      aDecision.ReceiverIdentity,
       aLineCache) then
     begin
       aReason := 'receiver-type-not-visible';
@@ -3075,6 +3283,7 @@ begin
     end else
     begin
       if not CaptureTypeIsVisible(aFacts, aBinding, aDecision.ReceiverType,
+        aDecision.ReceiverIdentity,
         aLineCache) then
       begin
         aReason := 'receiver-type-not-visible';
@@ -5328,7 +5537,7 @@ begin
       Result.SafetyReason := Result.Reason;
       Exit;
     end;
-    if not BuildSelectorDecision(aFacts, lBinding, lSelector.SelectorText,
+    if not BuildSelectorDecision(aFacts, lBinding, lSelector.SelectorText, lSelector,
       aReservedNames, lVisibleDecisions, aLineCache, lDecision, lReason) then
     begin
       RollbackReservedTempNamesForDecisions(aReservedNames,
@@ -6150,15 +6359,20 @@ begin
     if not SelectorTextDeclaredInBinding(lBinding.SelectorText,
       lSelector.SelectorText) then
       Continue;
-    if Trim(lSelector.TypeName) = '' then
-      Continue;
     lDecision := Default(TFinalSelectorDecision);
     lDecision.SelectorText := lSelector.SelectorText;
     lDecision.QualifierText := lSelector.SelectorText;
     lDecision.Strategy := 'direct-qualification';
-    lDecision.ReceiverType := SelectorShapeType(aFacts, lSelector.TypeName,
-      lSelector.SelectorText);
     lDecision.Reason := 'skipped-parent-context';
+    // An ambiguous, unresolved or untyped parent receiver may still own any name
+    // a child uses. It stays in the context without a receiver type or identity,
+    // so the dependent-selector gate refuses the children instead of letting a
+    // homonym outside the with bind their receivers.
+    if SameText(lSelector.Status, 'resolved') and (Trim(lSelector.TypeName) <> '') then
+    begin
+      lDecision.ReceiverType := lSelector.TypeName;
+      lDecision.ReceiverIdentity := lSelector.TypeIdentity;
+    end;
     lIndex := Length(lChildInheritedDecisions);
     SetLength(lChildInheritedDecisions, lIndex + 1);
     lChildInheritedDecisions[lIndex] := lDecision;
@@ -6659,6 +6873,34 @@ begin
   Result := (aFlags and aFlag) <> 0;
 end;
 
+function SnapshotTypeIdentity(const aSnapshot: TDelphiProjectSnapshot;
+  const aFact: TSemanticRemoveWithTypeIdentityFact): TDelphiSemanticTypeIdentity;
+begin
+  Result := Default(TDelphiSemanticTypeIdentity);
+  if aFact.DeclaredIdId = 0 then
+    Exit;
+  Result.UnitId.Value := aSnapshot.ExactTextOf(aFact.UnitIdId);
+  Result.UnitName := aSnapshot.ExactTextOf(aFact.UnitNameId);
+  Result.Name := aSnapshot.ExactTextOf(aFact.NameId);
+  Result.Kind := aSnapshot.ExactTextOf(aFact.KindId);
+  Result.DeclaredId.Value := aSnapshot.ExactTextOf(aFact.DeclaredIdId);
+  Result.CanonicalId.Value := aSnapshot.ExactTextOf(aFact.CanonicalIdId);
+  Result.UnderlyingId.Value := aSnapshot.ExactTextOf(aFact.UnderlyingIdId);
+  Result.CanonicalName := aSnapshot.ExactTextOf(aFact.CanonicalNameId);
+  Result.UnderlyingName := aSnapshot.ExactTextOf(aFact.UnderlyingNameId);
+  Result.BaseTypeName := aSnapshot.ExactTextOf(aFact.BaseTypeNameId);
+  Result.HelperTargetName := aSnapshot.ExactTextOf(aFact.HelperTargetNameId);
+  Result.SectionKind := aSnapshot.ExactTextOf(aFact.SectionKindId);
+  Result.ScopeKind := aSnapshot.ExactTextOf(aFact.ScopeKindId);
+  Result.OwnerScopeId := aSnapshot.ExactTextOf(aFact.OwnerScopeIdId);
+  Result.SemanticSymbolId := aSnapshot.ExactTextOf(aFact.SemanticSymbolIdId);
+  Result.SourceRange.FileName := aSnapshot.ExactTextOf(aFact.FileNameId);
+  Result.SourceRange.Line := aFact.Line;
+  Result.SourceRange.Column := aFact.Column;
+  Result.SourceRange.EndLine := aFact.EndLine;
+  Result.SourceRange.EndColumn := aFact.EndColumn;
+end;
+
 function SnapshotInventorySymbol(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbol: TSemanticRemoveWithInventorySymbolFact): TDelphiSemanticInventorySymbol;
 begin
@@ -6673,6 +6915,10 @@ begin
   Result.SourceOwnerType := aSnapshot.ExactTextOf(aSymbol.SourceOwnerTypeId);
   Result.RelatedTypeName := aSnapshot.ExactTextOf(aSymbol.RelatedTypeNameId);
   Result.RoutineName := aSnapshot.ExactTextOf(aSymbol.RoutineNameId);
+  Result.RoutineScopeId := aSnapshot.ExactTextOf(aSymbol.RoutineScopeIdId);
+  Result.ParentScopeId := aSnapshot.ExactTextOf(aSymbol.ParentScopeIdId);
+  Result.OwnerScopeId := aSnapshot.ExactTextOf(aSymbol.OwnerScopeIdId);
+  Result.OwnerSymbolId := aSnapshot.ExactTextOf(aSymbol.OwnerSymbolIdId);
   Result.UnitName := aSnapshot.ExactTextOf(aSymbol.UnitNameId);
   Result.FileName := aSnapshot.ExactTextOf(aSymbol.FileNameId);
   Result.SectionKind := aSnapshot.ExactTextOf(aSymbol.SectionKindId);
@@ -6691,6 +6937,9 @@ begin
     cSemanticRemoveWithSymbolFlagIsIndexed);
   Result.IndexParameterCount := aSymbol.IndexParameterCount;
   Result.TypeCategory := aSnapshot.ExactTextOf(aSymbol.TypeCategoryId);
+  Result.OwnerIdentity := SnapshotTypeIdentity(aSnapshot, aSymbol.OwnerIdentity);
+  Result.AccessOwnerIdentity := SnapshotTypeIdentity(aSnapshot,
+    aSymbol.AccessOwnerIdentity);
 end;
 
 function SnapshotSelectorBinding(const aSnapshot: TDelphiProjectSnapshot;
@@ -6702,6 +6951,7 @@ begin
   Result.Status := aSnapshot.ExactTextOf(aSelector.StatusId);
   Result.ReasonCode := aSnapshot.ExactTextOf(aSelector.ReasonCodeId);
   Result.TypeName := aSnapshot.ExactTextOf(aSelector.TypeNameId);
+  Result.TypeIdentity := SnapshotTypeIdentity(aSnapshot, aSelector.TypeIdentity);
 end;
 
 function SnapshotBoundReference(const aSnapshot: TDelphiProjectSnapshot;
@@ -6736,6 +6986,7 @@ begin
   Result.FileName := aSnapshot.ExactTextOf(aBinding.FileNameId);
   Result.UnitName := aSnapshot.ExactTextOf(aBinding.UnitNameId);
   Result.RoutineName := aSnapshot.ExactTextOf(aBinding.RoutineNameId);
+  Result.RoutineScopeId := aSnapshot.ExactTextOf(aBinding.RoutineScopeIdId);
   Result.Line := aBinding.Line;
   Result.Column := aBinding.Column;
   Result.EndLine := aBinding.EndLine;
