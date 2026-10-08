@@ -78,6 +78,15 @@ fixed-count contracts.
 
 ## Smoke Tests
 
+Build the Win64 Debug test runner directly through DAK from this repository root:
+
+```powershell
+& 'F:\projects\MaxLogic\DelphiAiKit\bin\DelphiAIKit.exe' build --project tests\delphiSemanticsTests.dproj --delphi 23.0 --platform Win64 --config Debug --ai
+```
+
+The migration gate uses the same native build command with explicit platforms
+and private per-run output directories for its three projects.
+
 The Windows source-context cache tests use precise file timestamps and real
 symbolic links. Their test filesystem must retain 100 ns timestamp differences;
 link creation requires Windows Developer Mode or the symbolic-link privilege.

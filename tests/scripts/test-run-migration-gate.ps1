@@ -8,9 +8,28 @@ $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $ScriptRoot)
 $GateScript = Join-Path $RepoRoot 'scripts\run-migration-gate.ps1'
 $TempRoot = Join-Path $RepoRoot 'tests\bin\migration-gate-script-tests'
+$ProcessTraceScript = Join-Path (Split-Path -Parent $RepoRoot) 'DelphiAiKit\tests\scripts\Dak.ProcessTrace.ps1'
 
 . (Join-Path $ScriptRoot 'test-support.ps1')
 . $GateScript -ImportOnly
+
+function Invoke-MigrationGateTestChild {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$CommandLine,
+    [Parameter(Mandatory = $true)][hashtable]$Environment,
+    [int]$TimeoutSeconds = 30
+  )
+
+  Assert-ExistingFile $ProcessTraceScript
+  . $ProcessTraceScript
+  $lBase = Join-Path $TempRoot $Name
+  $lResult = Invoke-TracedProcess -CommandLine $CommandLine -WorkingDirectory $TempRoot `
+    -Environment $Environment -LogPath "$lBase.process.json" -TimeoutSeconds $TimeoutSeconds `
+    -NoOutputText -StdoutPath "$lBase.stdout.txt" -StderrPath "$lBase.stderr.txt"
+  $lResult | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath "$lBase.process.json"
+  return $lResult
+}
 
 function Reset-TestWorkspace {
   $lExpectedRoot = [IO.Path]::GetFullPath((Join-Path $RepoRoot 'tests\bin\migration-gate-script-tests'))
@@ -586,6 +605,180 @@ function Test-MainScriptFailsBeforeWorkRootMutationWhenExplicitRootLocked {
   }
 }
 
+function Test-MainScriptValidatesDiagnosticPlanBeforeApply {
+  Reset-TestWorkspace
+  $lAmbientNames = @('DAK_GATE_TEST_TRACE', 'DAK_GATE_TEST_PLAN', 'DAK_GATE_TEST_APPLY')
+  $lAmbientBefore = @{}
+  foreach ($lName in $lAmbientNames) {
+    $lAmbientBefore[$lName] = [pscustomobject]@{
+      present = [Environment]::GetEnvironmentVariables().Contains($lName)
+      value = [Environment]::GetEnvironmentVariable($lName, 'Process')
+    }
+  }
+  $lSemanticsRepo = New-TestGitRepo 'boundary-semantics-repo'
+  Add-TestRepoFile -Repo $lSemanticsRepo -RelativePath 'tests\delphiSemanticsTests.dproj'
+  Add-TestRepoFile -Repo $lSemanticsRepo -RelativePath 'tests\bin\delphiSemanticsTests.exe'
+  Invoke-Git -Repo $lSemanticsRepo commit -m 'add semantics markers' | Out-Null
+
+  $lDakRepo = New-TestGitRepo 'boundary-dak-repo'
+  foreach ($lMarker in @(
+      'tests\DelphiAIKit.Tests.dproj', 'projects\DelphiAIKit.dproj',
+      'tests\DelphiAIKit.Tests.exe', 'bin\DelphiAIKit.exe',
+      'tests\fixtures\test-projects\maxTdb\src\maxtdb.dproj')) {
+    Add-TestRepoFile -Repo $lDakRepo -RelativePath $lMarker
+  }
+  foreach ($lUnit in @('symbolmap', 'deps', 'globalvars')) {
+    $lName = switch ($lUnit) {
+      'symbolmap' { 'SymbolMap' }
+      'deps' { 'Deps' }
+      'globalvars' { 'GlobalVars' }
+    }
+    Add-TestRepoFile -Repo $lDakRepo -RelativePath "tests\units\test.$lUnit.pas" `
+      -Value "unit Test.$lName;`n[TestFixture]`n[Test] procedure Check;`nTDUnitX.RegisterTestFixture(TCheck);"
+  }
+  Add-TestRepoFile -Repo $lDakRepo -RelativePath 'tests\units\test.removewith.pas' `
+    -Value 'TRemoveWithBoundaryTests = class'
+
+  $lTraceHelper = @'
+function Invoke-TracedProcess {
+  param($CommandLine, $WorkingDirectory, $Environment, $LogPath, $TimeoutSeconds,
+    [switch]$NoOutputText, $StdoutPath, $StderrPath)
+  Add-Content -LiteralPath $env:DAK_GATE_TEST_TRACE -Value $CommandLine
+  Set-Content -LiteralPath $StdoutPath -Value 'Tests Found: 1'
+  Set-Content -LiteralPath $StderrPath -Value ''
+  if ($CommandLine -match 'remove-with') {
+    $lOutput = [regex]::Match($CommandLine, '--output\s+(?:"([^"]+)"|(\S+))')
+    if (-not $lOutput.Success) { throw 'Mock process received no report output path.' }
+    $lPath = if ($lOutput.Groups[1].Success) { $lOutput.Groups[1].Value } else { $lOutput.Groups[2].Value }
+    $lFixture = if ($CommandLine -match '--mode\s+plan') {
+      $env:DAK_GATE_TEST_PLAN
+    } else {
+      $env:DAK_GATE_TEST_APPLY
+    }
+    Copy-Item -LiteralPath $lFixture -Destination $lPath
+  }
+  return [pscustomobject]@{ exit_code = 0; timed_out = $false; cleanup_complete = $true; processes = @() }
+}
+'@
+  Add-TestRepoFile -Repo $lDakRepo -RelativePath 'tests\scripts\Dak.ProcessTrace.ps1' -Value $lTraceHelper
+  Invoke-Git -Repo $lDakRepo commit -m 'add dak markers' | Out-Null
+
+  $lPlan = Get-TestAccountingReport
+  $lPlanFile = Join-Path $TempRoot 'boundary-plan.json'
+  $lApply = Get-TestAccountingReport
+  $lApply.PSObject.Properties.Remove('semanticDtoParity')
+  $lApply.status = 'applied'
+  $lApply.summary | Add-Member -NotePropertyName appliedEdits -NotePropertyValue 2
+  $lApply | Add-Member -NotePropertyName verification -NotePropertyValue ([pscustomobject]@{ status = 'passed' })
+  $lApplyFile = Join-Path $TempRoot 'boundary-apply.json'
+  $lApply | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $lApplyFile
+
+  foreach ($lCase in @('bad-accounting', 'bad-dto', 'valid')) {
+      $lCandidate = $lPlan | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+      switch ($lCase) {
+        'bad-accounting' { $lCandidate.summary.covered = '1' }
+        'bad-dto' { $lCandidate.semanticDtoParity.mismatchCount = 1 }
+      }
+      $lCandidate | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $lPlanFile
+      $lTrace = Join-Path $TempRoot "boundary-$lCase.trace.txt"
+      $lWorkRoot = Join-Path $TempRoot "boundary-$lCase-work"
+      $lHostPath = [Diagnostics.Process]::GetCurrentProcess().Path
+      $lCommandLine = ((@($lHostPath, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+          $GateScript, '-DelphiSemanticsRoot', $lSemanticsRepo, '-DakRoot', $lDakRepo,
+          '-WorkRoot', $lWorkRoot, '-SkipBuild') |
+        ForEach-Object { ConvertTo-WindowsCommandArgument $_ }) -join ' ')
+      $lChild = Invoke-MigrationGateTestChild -Name "boundary-$lCase" -CommandLine $lCommandLine `
+        -Environment @{
+          DAK_GATE_TEST_TRACE = $lTrace
+          DAK_GATE_TEST_PLAN = $lPlanFile
+          DAK_GATE_TEST_APPLY = $lApplyFile
+        }
+      $lOutput = [IO.File]::ReadAllText($lChild.stdout_path) + [IO.File]::ReadAllText($lChild.stderr_path)
+      Assert-True (-not $lChild.timed_out) "Mock gate timed out: $lCase; $($lChild.stdout_path); $($lChild.stderr_path)"
+      Assert-True ($lChild.cleanup_complete -and $lChild.complete) `
+        "Mock gate process cleanup incomplete: $lCase; $($lChild.stdout_path); $($lChild.stderr_path)"
+      $lExitCode = $lChild.exit_code
+      $lCommands = @(Get-Content -LiteralPath $lTrace)
+      $lPlanCommands = @($lCommands | Where-Object { $_ -match '--mode\s+plan' })
+      $lApplyCommands = @($lCommands | Where-Object { $_ -match '--mode\s+apply' })
+      Assert-Equal 1 $lPlanCommands.Count "Main gate must launch one plan: $lCase"
+      Assert-True ($lPlanCommands[0] -match '--diagnostics\s+true') `
+        "Main gate must request diagnostic parity: $lCase"
+      if ($lCase -eq 'valid') {
+        Assert-Equal 1 $lApplyCommands.Count 'Valid plan must reach apply.'
+        Assert-Equal 0 $lExitCode 'Valid plan and apply reports must complete the main gate.'
+        Assert-True ($lApplyCommands[0] -notmatch '--diagnostics') `
+          'Apply command must not request diagnostic DTO parity.'
+      } else {
+        Assert-True ($lExitCode -ne 0) "Invalid plan must fail: $lCase"
+        Assert-Equal 0 $lApplyCommands.Count "Invalid plan must fail before apply: $lCase"
+        $lReason = if ($lCase -eq 'bad-accounting') { 'Expected report property summary.covered to be a nonnegative integer.' } else { 'Expected semanticDtoParity.mismatchCount=0' }
+        Assert-True ($lOutput -like "*$lReason*") "Invalid plan failed for another reason: $lCase $lOutput"
+      }
+  }
+  foreach ($lName in $lAmbientNames) {
+    $lCurrentPresent = [Environment]::GetEnvironmentVariables().Contains($lName)
+    $lCurrentValue = [Environment]::GetEnvironmentVariable($lName, 'Process')
+    Assert-True (($lCurrentPresent -eq $lAmbientBefore[$lName].present) -and
+      ($lCurrentValue -ceq $lAmbientBefore[$lName].value)) `
+      "Main gate test changed ambient environment variable $lName."
+  }
+}
+
+function Test-ZBoundaryChildTimeoutCleansGrandchild {
+  Reset-TestWorkspace
+  $lChild = Join-Path $TempRoot 'boundary-hanging-child.ps1'
+  $lGrandchild = Join-Path $TempRoot 'boundary-hanging-grandchild.ps1'
+  $lIdentityFile = Join-Path $TempRoot 'boundary-owned-processes.txt'
+  $lChildSource = @'
+param([string]$Grandchild, [string]$IdentityFile)
+[IO.File]::AppendAllText($IdentityFile, "$PID|$((Get-Process -Id $PID).StartTime.Ticks)`n")
+$lInfo = New-Object Diagnostics.ProcessStartInfo
+$lInfo.FileName = (Get-Process -Id $PID).Path
+$lInfo.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $Grandchild + '" -IdentityFile "' + $IdentityFile + '"'
+$lInfo.UseShellExecute = $false
+$lInfo.CreateNoWindow = $true
+$lInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+$lProcess = [Diagnostics.Process]::Start($lInfo)
+$lWait = [Diagnostics.Stopwatch]::StartNew()
+while (([IO.File]::ReadAllLines($IdentityFile).Length -lt 2) -and $lWait.Elapsed.TotalSeconds -lt 3) { Start-Sleep -Milliseconds 20 }
+[Console]::Out.WriteLine('grandchild-started')
+[Console]::Out.Flush()
+Start-Sleep -Seconds 60
+'@
+  $lGrandchildSource = @'
+param([string]$IdentityFile)
+[IO.File]::AppendAllText($IdentityFile, "$PID|$((Get-Process -Id $PID).StartTime.Ticks)`n")
+Start-Sleep -Seconds 60
+'@
+  [IO.File]::WriteAllText($lChild, $lChildSource, (New-Object Text.UTF8Encoding $false))
+  [IO.File]::WriteAllText($lGrandchild, $lGrandchildSource, (New-Object Text.UTF8Encoding $false))
+  $lHostPath = [Diagnostics.Process]::GetCurrentProcess().Path
+  $lCommandLine = ((@($lHostPath, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+      $lChild, '-Grandchild', $lGrandchild, '-IdentityFile', $lIdentityFile) |
+    ForEach-Object { ConvertTo-WindowsCommandArgument $_ }) -join ' ')
+  $lTimer = [Diagnostics.Stopwatch]::StartNew()
+  $lResult = Invoke-MigrationGateTestChild -Name 'boundary-timeout' -CommandLine $lCommandLine `
+    -Environment @{} -TimeoutSeconds 5
+  $lTimer.Stop()
+  Assert-True ($lResult.timed_out -and ($lResult.exit_code -ne 0)) 'Hanging child must return a nonzero timeout.'
+  Assert-True ($lResult.cleanup_complete -and ($lResult.active_processes -eq 0)) `
+    'Timeout must finish whole job cleanup.'
+  Assert-True ($lTimer.Elapsed.TotalSeconds -lt 20) 'Timeout cleanup exceeded its bounded budget.'
+  Assert-True ([IO.File]::ReadAllText($lResult.stdout_path).Contains('grandchild-started')) `
+    'Timeout probe did not reach the grandchild.'
+  $lIdentities = @([IO.File]::ReadAllLines($lIdentityFile))
+  Assert-Equal 2 $lIdentities.Count 'Timeout probe must record parent and grandchild identities.'
+  foreach ($lIdentity in $lIdentities) {
+    $lFields = $lIdentity.Split('|')
+    Assert-True (@($lResult.processes | Where-Object { $_.pid -eq [int]$lFields[0] }).Count -eq 1) `
+      "Owned PID missing from job trace: $($lFields[0])"
+    $lLive = Get-Process -Id ([int]$lFields[0]) -ErrorAction SilentlyContinue
+    Assert-True (-not ($lLive -and $lLive.StartTime.Ticks -eq [long]$lFields[1])) `
+      "Timeout left an owned process alive: $($lFields[0])"
+  }
+}
+
 function Test-PlannedEditParityDetectsShapeMismatch {
   $lPlan = [pscustomobject]@{
     plannedEdits = @(
@@ -1098,6 +1291,104 @@ function Test-FailedPlanStillRecordsSourceMutationBeforeFailing {
     'Manifest must record the mutation check after the failed plan.'
   Assert-Equal 'mutated' $lSteps[1].sourceMutation.status `
     'Mutation check must record mutated status even when plan failed.'
+}
+
+function Get-TestAccountingReport {
+  return ('{"status":"ok","summary":{"withStatements":4,"plannedEdits":2,"skipped":1,"covered":1},"plannedEdits":[{"statementId":"with-1","file":"Unit.pas","status":"planned","edits":[{"kind":"replace-statement","statementId":"with-1","file":"Unit.pas","replacementText":"A"}]},{"statementId":"with-2","file":"Unit.pas","status":"planned","edits":[{"kind":"replace-statement","statementId":"with-2","file":"Unit.pas","replacementText":"B"}]}],"skipped":[{"statementId":"with-3","file":"Unit.pas","reason":"unresolved"}],"covered":[{"statementId":"with-4","file":"Unit.pas","status":"planned","reason":"covered-by-parent-rewrite","coveredByStatementId":"with-2"}],"semanticDtoParity":{"status":"passed","mismatchCount":0}}' | ConvertFrom-Json)
+}
+
+function Test-CurrentAccountingAcceptsCoveredWithoutHistoricCount {
+  $lPlan = Get-TestAccountingReport
+  Assert-MigrationGateReportAccounting -ReportJson $lPlan
+  Assert-MigrationGatePlanDtoParity -PlanJson $lPlan
+  $lApply = Get-TestAccountingReport
+  $lApply.PSObject.Properties.Remove('semanticDtoParity')
+  Assert-MigrationGateReportAccounting -ReportJson $lApply
+  Assert-MigrationGateAccountingParity -PlanJson $lPlan -ApplyJson $lApply
+}
+
+function Test-CurrentAccountingRejectsInvalidCountsAndIdentity {
+  foreach ($lCase in @('missing-count', 'string-count', 'negative-count', 'array-count', 'duplicate-id', 'blank-id', 'missing-reason', 'missing-array')) {
+    $lReport = Get-TestAccountingReport
+    switch ($lCase) {
+      'missing-count' { $lReport.summary.PSObject.Properties.Remove('covered') }
+      'string-count' { $lReport.summary.covered = '1' }
+      'negative-count' { $lReport.summary.covered = -1 }
+      'array-count' { $lReport.summary.covered = 2 }
+      'duplicate-id' { $lReport.covered[0].statementId = 'with-2' }
+      'blank-id' { $lReport.covered[0].statementId = ' ' }
+      'missing-reason' { $lReport.skipped[0].reason = '' }
+      'missing-array' { $lReport.PSObject.Properties.Remove('covered') }
+    }
+    $lFailed = $false
+    try { Assert-MigrationGateReportAccounting -ReportJson $lReport } catch {
+      Assert-True (($_.Exception.Message -like 'Expected *') -or
+        ($_.Exception.Message -like 'Duplicate statement identity*')) "Unexpected accounting failure for ${lCase}: $($_.Exception.Message)"
+      $lFailed = $true
+    }
+    Assert-True $lFailed "Invalid report accounting must fail: $lCase"
+  }
+}
+
+function Test-CurrentAccountingRejectsInvalidCoveredParent {
+  foreach ($lCase in @('missing', 'self', 'skipped', 'other-file', 'wrong-reason', 'wrong-status')) {
+    $lReport = Get-TestAccountingReport
+    switch ($lCase) {
+      'missing' { $lReport.covered[0].coveredByStatementId = 'absent' }
+      'self' { $lReport.covered[0].coveredByStatementId = 'with-4' }
+      'skipped' { $lReport.covered[0].coveredByStatementId = 'with-3' }
+      'other-file' { $lReport.covered[0].file = 'Other.pas' }
+      'wrong-reason' { $lReport.covered[0].reason = 'safe' }
+      'wrong-status' { $lReport.covered[0].status = 'skipped' }
+    }
+    $lFailed = $false
+    try { Assert-MigrationGateReportAccounting -ReportJson $lReport } catch {
+      Assert-True ($_.Exception.Message -like 'Invalid covered parent rewrite*') `
+        "Unexpected covered-parent failure for ${lCase}: $($_.Exception.Message)"
+      $lFailed = $true
+    }
+    Assert-True $lFailed "Invalid covered parent must fail: $lCase"
+  }
+}
+
+function Test-PlanDtoParityRequiresTypedPassedZero {
+  foreach ($lCase in @('missing', 'failed', 'missing-count', 'string-count', 'nonzero')) {
+    $lReport = Get-TestAccountingReport
+    switch ($lCase) {
+      'missing' { $lReport.PSObject.Properties.Remove('semanticDtoParity') }
+      'failed' { $lReport.semanticDtoParity.status = 'failed' }
+      'missing-count' { $lReport.semanticDtoParity.PSObject.Properties.Remove('mismatchCount') }
+      'string-count' { $lReport.semanticDtoParity.mismatchCount = '0' }
+      'nonzero' { $lReport.semanticDtoParity.mismatchCount = 1 }
+    }
+    $lFailed = $false
+    try { Assert-MigrationGatePlanDtoParity -PlanJson $lReport } catch {
+      Assert-True (($_.Exception.Message -like 'Expected semanticDtoParity*') -or
+        ($_.Exception.Message -like 'Expected report property semanticDtoParity*')) `
+        "Unexpected DTO parity failure for ${lCase}: $($_.Exception.Message)"
+      $lFailed = $true
+    }
+    Assert-True $lFailed "Invalid semantic DTO parity must fail: $lCase"
+  }
+}
+
+function Test-CurrentAccountingRejectsApplyDrift {
+  foreach ($lCase in @('count', 'covered-parent', 'covered-reason')) {
+    $lPlan = Get-TestAccountingReport
+    $lApply = Get-TestAccountingReport
+    switch ($lCase) {
+      'count' { $lApply.summary.withStatements = 5 }
+      'covered-parent' { $lApply.covered[0].coveredByStatementId = 'with-1' }
+      'covered-reason' { $lApply.covered[0].reason = 'different' }
+    }
+    $lFailed = $false
+    try { Assert-MigrationGateAccountingParity -PlanJson $lPlan -ApplyJson $lApply } catch {
+      Assert-True ($_.Exception.Message -like 'Expected plan/apply*') `
+        "Unexpected plan/apply failure for ${lCase}: $($_.Exception.Message)"
+      $lFailed = $true
+    }
+    Assert-True $lFailed "Apply accounting drift must fail: $lCase"
+  }
 }
 
 Invoke-ScriptTests

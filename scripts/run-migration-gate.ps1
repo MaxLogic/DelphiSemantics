@@ -5,6 +5,7 @@ param(
   [string]$WorkRoot = '',
   [ValidateRange(1, 16)][int]$DakTestShards = 1,
   [ValidateSet('Gate', 'Full')][string]$DakTestProfile = 'Gate',
+  [ValidateRange(1, 86400)][int]$StepTimeoutSeconds = 14400,
   [switch]$SkipBuild,
   [switch]$AllowDirty,
   [switch]$ImportOnly,
@@ -17,6 +18,7 @@ $ErrorActionPreference = 'Stop'
 if ($Help) {
   Write-Host 'Usage: run-migration-gate.ps1 [-DelphiSemanticsRoot <path>] [-DakRoot <path>] [-WorkRoot <path>] [-SkipBuild] [-AllowDirty]'
   Write-Host 'Runs the DelphiSemantics/DAK migration gate on a maxTdb clone.'
+  Write-Host 'Each native step has a finite deadline (-StepTimeoutSeconds, default 14400); timeout exits 124.'
   Write-Host 'The gate snapshots cloned Delphi source before report-only plan mode and records a sourceMutation manifest step before apply.'
   return
 }
@@ -28,6 +30,8 @@ if ([string]::IsNullOrWhiteSpace($DelphiSemanticsRoot)) {
   }
   $DelphiSemanticsRoot = Split-Path -Parent $lScriptRoot
 }
+$DelphiSemanticsRoot = [IO.Path]::GetFullPath($DelphiSemanticsRoot)
+$DakRoot = [IO.Path]::GetFullPath($DakRoot)
 
 function New-MigrationGateDefaultWorkRoot {
   $lBase = Join-Path $env:TEMP 'delphi-semantics-migration-gate'
@@ -224,6 +228,33 @@ function Close-MigrationGateWorkRootLock {
   }
 }
 
+function ConvertTo-WindowsCommandArgument {
+  param([AllowEmptyString()][string]$Value)
+
+  if (($Value.Length -gt 0) -and ($Value -notmatch '[\s"]')) {
+    return $Value
+  }
+  $lQuoted = New-Object Text.StringBuilder
+  [void]$lQuoted.Append('"')
+  $lBackslashes = 0
+  foreach ($lChar in $Value.ToCharArray()) {
+    if ($lChar -eq '\') {
+      $lBackslashes++
+    } elseif ($lChar -eq '"') {
+      [void]$lQuoted.Append(('\' * ($lBackslashes * 2 + 1)))
+      [void]$lQuoted.Append('"')
+      $lBackslashes = 0
+    } else {
+      [void]$lQuoted.Append(('\' * $lBackslashes))
+      [void]$lQuoted.Append($lChar)
+      $lBackslashes = 0
+    }
+  }
+  [void]$lQuoted.Append(('\' * ($lBackslashes * 2)))
+  [void]$lQuoted.Append('"')
+  return $lQuoted.ToString()
+}
+
 function Invoke-GateStep {
   param(
     [Parameter(Mandatory = $true)][string]$Name,
@@ -232,7 +263,8 @@ function Invoke-GateStep {
     [string[]]$Arguments = @(),
     [string]$ArtifactDirectory = '',
     [switch]$NoThrow,
-    [int]$MaxOutputLines = 400
+    [int]$MaxOutputLines = 400,
+    [ValidateRange(1, 86400)][int]$TimeoutSeconds = $StepTimeoutSeconds
   )
 
   Write-Host "== $Name"
@@ -250,33 +282,59 @@ function Invoke-GateStep {
     $lSafeName = 'step'
   }
   $lStamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+  $lStamp += '-' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
   $lStdout = Join-Path $ArtifactDirectory "$lStamp-$lSafeName.stdout.txt"
   $lStderr = Join-Path $ArtifactDirectory "$lStamp-$lSafeName.stderr.txt"
+  $lMetadata = Join-Path $ArtifactDirectory "$lStamp-$lSafeName.process.json"
+  $lTrace = $null
+  $lFailure = ''
+  $lExitCode = 125
+  $lNativeExitCode = $null
+  $lTimedOut = $false
+  $lCleanupComplete = $false
 
-  $lOldLocation = Get-Location
   $lTimer = [Diagnostics.Stopwatch]::StartNew()
   try {
-    Set-Location -LiteralPath $lWorkingDirectory
-    & $FilePath @Arguments 1> $lStdout 2> $lStderr
-    $lExitCode = $LASTEXITCODE
+    $lExecutable = if ([IO.Path]::IsPathRooted($FilePath)) {
+      $FilePath
+    } else {
+      Join-Path $lWorkingDirectory $FilePath
+    }
+    Assert-ExistingFile $lExecutable
+    # DS-687: the job owns descendants before the suspended root can launch them.
+    # Direct file handles also avoid an unbounded drain after a parent exits.
+    . (Join-Path $DakRoot 'tests\scripts\Dak.ProcessTrace.ps1')
+    $lCommandLine = ((@($lExecutable) + @($Arguments) | ForEach-Object { ConvertTo-WindowsCommandArgument $_ }) -join ' ')
+    $lTrace = Invoke-TracedProcess -CommandLine $lCommandLine -WorkingDirectory $lWorkingDirectory -Environment @{} -LogPath $lMetadata -TimeoutSeconds $TimeoutSeconds -NoOutputText -StdoutPath $lStdout -StderrPath $lStderr
+    $lNativeExitCode = $lTrace.exit_code
+    $lTimedOut = $lTrace.timed_out
+    $lCleanupComplete = $lTrace.cleanup_complete
+    if (-not $lCleanupComplete) {
+      $lFailure = 'Owned process supervision is incomplete.'
+    } elseif ($lTimedOut) {
+      $lExitCode = 124
+    } else {
+      $lExitCode = $lNativeExitCode
+    }
+  } catch {
+    $lFailure = $_.Exception.ToString()
   } finally {
-    Set-Location -LiteralPath $lOldLocation
     $lTimer.Stop()
   }
 
   $lOutputLines = @()
   if (Test-Path -LiteralPath $lStdout -PathType Leaf) {
-    $lOutputLines = @(Get-Content -LiteralPath $lStdout)
+    $lOutputLines = @(if ($MaxOutputLines -lt 0) { Get-Content -LiteralPath $lStdout } else { Get-Content -LiteralPath $lStdout -TotalCount ([Math]::Max(1, $MaxOutputLines + 1)) })
   }
   if (Test-Path -LiteralPath $lStderr -PathType Leaf) {
-    $lOutputLines += @(Get-Content -LiteralPath $lStderr)
+    $lOutputLines += @(if ($MaxOutputLines -lt 0) { Get-Content -LiteralPath $lStderr } else { Get-Content -LiteralPath $lStderr -TotalCount ([Math]::Max(1, $MaxOutputLines + 1)) })
   }
   if ($lOutputLines.Count -gt 0) {
     if ($MaxOutputLines -eq 0) {
       Write-Host "   output suppressed; see $lStdout and $lStderr."
     } elseif (($MaxOutputLines -gt 0) -and ($lOutputLines.Count -gt $MaxOutputLines)) {
       $lOutputLines | Select-Object -First $MaxOutputLines | ForEach-Object { Write-Host $_ }
-      Write-Host "   ... suppressed $($lOutputLines.Count - $MaxOutputLines) output line(s); see $lStdout and $lStderr."
+      Write-Host "   ... output truncated; see $lStdout and $lStderr."
     } else {
       $lOutputLines | ForEach-Object { Write-Host $_ }
     }
@@ -289,15 +347,23 @@ function Invoke-GateStep {
     arguments = @($Arguments)
     command = $lCommand
     exitCode = $lExitCode
+    nativeExitCode = $lNativeExitCode
+    timedOut = $lTimedOut
+    cleanupComplete = $lCleanupComplete
+    timeoutSeconds = $TimeoutSeconds
+    failure = $lFailure
+    processes = if ($null -eq $lTrace) { @() } else { @($lTrace.processes) }
     elapsedSeconds = [Math]::Round($lTimer.Elapsed.TotalSeconds, 1)
     stdout = $lStdout
     stderr = $lStderr
+    metadata = $lMetadata
   }
+  $lResult | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $lMetadata -Encoding UTF8
 
   if ($lExitCode -ne 0) {
     Write-Host "!! $Name failed in $($lResult.elapsedSeconds)s with exit code $lExitCode"
     if (-not $NoThrow) {
-      throw "$Name failed with exit code $lExitCode"
+      throw "$Name failed with exit code $lExitCode; details: $lMetadata; $lFailure"
     }
     return $lResult
   }
@@ -358,6 +424,7 @@ function Get-DakRemoveWithTestFilters {
 function Invoke-DakRemoveWithTests {
   param(
     [Parameter(Mandatory = $true)][string]$DakRoot,
+    [Parameter(Mandatory = $true)][string]$TestExecutable,
     [Parameter(Mandatory = $true)][string]$WorkRoot,
     [Parameter(Mandatory = $true)][int]$ShardCount,
     [Parameter(Mandatory = $true)][string]$Profile,
@@ -391,7 +458,7 @@ function Invoke-DakRemoveWithTests {
   return Invoke-GateStep `
     -Name 'Run DAK remove-with tests' `
     -WorkingDirectory $DakRoot `
-    -FilePath 'tests\DelphiAIKit.Tests.exe' `
+    -FilePath $TestExecutable `
     -Arguments @('--hidebanner', '--consolemode:quiet', "-r:$($lFilters -join ',')") `
     -ArtifactDirectory $ArtifactDirectory `
     -NoThrow:$NoThrow
@@ -492,6 +559,7 @@ function Set-GateStepFailure {
 function Invoke-DakSemanticConsumerTestFilter {
   param(
     [Parameter(Mandatory = $true)][string]$DakRoot,
+    [Parameter(Mandatory = $true)][string]$TestExecutable,
     [Parameter(Mandatory = $true)][string]$WorkRoot,
     [Parameter(Mandatory = $true)][string]$Profile,
     [Parameter(Mandatory = $true)][string]$Filter,
@@ -508,7 +576,7 @@ function Invoke-DakSemanticConsumerTestFilter {
   $lResult = Invoke-GateStep `
     -Name "Run DAK semantic-consumer tests $Filter" `
     -WorkingDirectory $DakRoot `
-    -FilePath 'tests\DelphiAIKit.Tests.exe' `
+    -FilePath $TestExecutable `
     -Arguments $lArguments `
     -ArtifactDirectory $ArtifactDirectory `
     -NoThrow:$NoThrow
@@ -707,15 +775,15 @@ function Get-MigrationGateArrayProperty {
 
   $lProperty = $Object.PSObject.Properties[$Name]
   if ($null -eq $lProperty) {
-    return @()
+    throw "Expected report array property $Name."
   }
 
   $lValue = $lProperty.Value
   if ($null -eq $lValue) {
-    return @()
+    throw "Expected report array property $Name to be non-null."
   }
   if ($lValue -isnot [array]) {
-    throw "Expected report property $Name to be a skipped array."
+    throw "Expected report property $Name to be a $Name array."
   }
   return @($lValue)
 }
@@ -731,7 +799,110 @@ function Get-MigrationGateNestedIntProperty {
   if (-not (Test-MigrationGateObjectProperty -Object $lParent -Name $Name)) {
     throw "Expected report property $ParentName.$Name."
   }
-  return [int](Get-MigrationGateObjectProperty -Object $lParent -Name $Name)
+  $lValue = Get-MigrationGateObjectProperty -Object $lParent -Name $Name
+  if ((($lValue -isnot [int]) -and ($lValue -isnot [long])) -or ($lValue -lt 0)) {
+    throw "Expected report property $ParentName.$Name to be a nonnegative integer."
+  }
+  return [long]$lValue
+}
+
+function Assert-MigrationGateNonblankStringProperty {
+  param([object]$Object, [string]$Name, [string]$Context)
+
+  $lValue = Get-MigrationGateObjectProperty -Object $Object -Name $Name
+  if (($lValue -isnot [string]) -or [string]::IsNullOrWhiteSpace($lValue)) {
+    throw "Expected $Context.$Name to be a nonblank string."
+  }
+  return $lValue
+}
+
+function Assert-MigrationGateReportAccounting {
+  param([Parameter(Mandatory = $true)][object]$ReportJson)
+
+  $lDiscovered = Get-MigrationGateNestedIntProperty -Object $ReportJson -ParentName 'summary' -Name 'withStatements'
+  $lPlannedCount = Get-MigrationGateNestedIntProperty -Object $ReportJson -ParentName 'summary' -Name 'plannedEdits'
+  $lSkippedCount = Get-MigrationGateNestedIntProperty -Object $ReportJson -ParentName 'summary' -Name 'skipped'
+  $lCoveredCount = Get-MigrationGateNestedIntProperty -Object $ReportJson -ParentName 'summary' -Name 'covered'
+  $lPlanned = @(Get-MigrationGateArrayProperty -Object $ReportJson -Name 'plannedEdits')
+  $lSkipped = @(Get-MigrationGateArrayProperty -Object $ReportJson -Name 'skipped')
+  $lCovered = @(Get-MigrationGateArrayProperty -Object $ReportJson -Name 'covered')
+  if (($lDiscovered -ne ($lPlannedCount + $lSkippedCount + $lCoveredCount)) -or
+      ($lPlanned.Count -ne $lPlannedCount) -or ($lSkipped.Count -ne $lSkippedCount) -or
+      ($lCovered.Count -ne $lCoveredCount)) {
+    throw 'Expected discovered statements and planned/skipped/covered summary counts to match report arrays.'
+  }
+
+  $lIds = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+  $lParents = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
+  foreach ($lEntry in $lPlanned) {
+    $lId = Assert-MigrationGateNonblankStringProperty -Object $lEntry -Name 'statementId' -Context 'planned edit'
+    Assert-MigrationGateNonblankStringProperty -Object $lEntry -Name 'file' -Context 'planned edit' | Out-Null
+    if (-not $lIds.Add($lId)) { throw "Duplicate statement identity $lId" }
+    if ((Get-MigrationGateObjectProperty -Object $lEntry -Name 'status') -ne 'planned') {
+      throw "Expected planned status for $lId"
+    }
+    $lEdits = @(Get-MigrationGateArrayProperty -Object $lEntry -Name 'edits')
+    if ($lEdits.Count -eq 0) { throw "Expected actionable edits for planned statement $lId" }
+    $lProvenRewrite = @($lEdits | Where-Object {
+      ($_.kind -eq 'replace-statement') -and ($_.statementId -ceq $lId) -and
+      ($_.file -ceq $lEntry.file) -and (-not [string]::IsNullOrWhiteSpace([string]$_.replacementText))
+    })
+    if ($lProvenRewrite.Count -eq 0) { throw "Expected a parent replacement edit for $lId" }
+    $lParents[$lId] = $lEntry
+  }
+  foreach ($lEntry in $lSkipped) {
+    $lId = Assert-MigrationGateNonblankStringProperty -Object $lEntry -Name 'statementId' -Context 'skipped statement'
+    Assert-MigrationGateNonblankStringProperty -Object $lEntry -Name 'file' -Context 'skipped statement' | Out-Null
+    Assert-MigrationGateNonblankStringProperty -Object $lEntry -Name 'reason' -Context 'skipped statement' | Out-Null
+    if (-not $lIds.Add($lId)) { throw "Duplicate statement identity $lId" }
+  }
+  foreach ($lEntry in $lCovered) {
+    $lId = Assert-MigrationGateNonblankStringProperty -Object $lEntry -Name 'statementId' -Context 'covered statement'
+    $lFile = Assert-MigrationGateNonblankStringProperty -Object $lEntry -Name 'file' -Context 'covered statement'
+    $lReason = Assert-MigrationGateNonblankStringProperty -Object $lEntry -Name 'reason' -Context 'covered statement'
+    $lParentId = Assert-MigrationGateNonblankStringProperty -Object $lEntry -Name 'coveredByStatementId' -Context 'covered statement'
+    if (-not $lIds.Add($lId)) { throw "Duplicate statement identity $lId" }
+    if (($lEntry.status -ne 'planned') -or ($lReason -ne 'covered-by-parent-rewrite') -or
+        (-not $lParents.ContainsKey($lParentId)) -or
+        ($lFile -ne (Get-MigrationGateObjectProperty -Object $lParents[$lParentId] -Name 'file'))) {
+      throw "Invalid covered parent rewrite for $lId ($lParentId)"
+    }
+  }
+}
+
+function Assert-MigrationGatePlanDtoParity {
+  param([Parameter(Mandatory = $true)][object]$PlanJson)
+
+  $lParity = Get-MigrationGateObjectProperty -Object $PlanJson -Name 'semanticDtoParity'
+  if ((Get-MigrationGateObjectProperty -Object $lParity -Name 'status') -cne 'passed') {
+    throw 'Expected semanticDtoParity.status=passed in report-only plan.'
+  }
+  $lMismatchCount = Get-MigrationGateNestedIntProperty -Object $PlanJson -ParentName 'semanticDtoParity' -Name 'mismatchCount'
+  if ($lMismatchCount -ne 0) { throw "Expected semanticDtoParity.mismatchCount=0, got $lMismatchCount" }
+}
+
+function Assert-MigrationGateAccountingParity {
+  param([Parameter(Mandatory = $true)][object]$PlanJson,
+    [Parameter(Mandatory = $true)][object]$ApplyJson)
+
+  foreach ($lName in @('withStatements', 'plannedEdits', 'skipped', 'covered')) {
+    $lPlanCount = Get-MigrationGateNestedIntProperty -Object $PlanJson -ParentName 'summary' -Name $lName
+    $lApplyCount = Get-MigrationGateNestedIntProperty -Object $ApplyJson -ParentName 'summary' -Name $lName
+    if ($lPlanCount -ne $lApplyCount) { throw "Expected plan/apply $lName parity: plan=$lPlanCount apply=$lApplyCount" }
+  }
+  $lPlanCovered = @((Get-MigrationGateArrayProperty -Object $PlanJson -Name 'covered') |
+    ForEach-Object { ConvertTo-MigrationGateStableJson ([ordered]@{
+      statementId = $_.statementId; file = $_.file; status = $_.status
+      reason = $_.reason; coveredByStatementId = $_.coveredByStatementId
+    }) } | Sort-Object)
+  $lApplyCovered = @((Get-MigrationGateArrayProperty -Object $ApplyJson -Name 'covered') |
+    ForEach-Object { ConvertTo-MigrationGateStableJson ([ordered]@{
+      statementId = $_.statementId; file = $_.file; status = $_.status
+      reason = $_.reason; coveredByStatementId = $_.coveredByStatementId
+    }) } | Sort-Object)
+  if (@(Compare-Object $lPlanCovered $lApplyCovered).Count -ne 0) {
+    throw 'Expected plan/apply covered statement shapes and parent relationships to match.'
+  }
 }
 
 function Assert-MigrationGateObjectRequiredProperty {
@@ -1039,6 +1210,9 @@ if ([string]::IsNullOrWhiteSpace($WorkRoot)) {
 Assert-ExistingFile (Join-Path $DelphiSemanticsRoot 'tests\delphiSemanticsTests.dproj')
 Assert-ExistingFile (Join-Path $DakRoot 'tests\DelphiAIKit.Tests.dproj')
 Assert-ExistingFile (Join-Path $DakRoot 'projects\DelphiAIKit.dproj')
+if (-not $SkipBuild) {
+  Assert-ExistingFile (Join-Path $DakRoot 'bin\DelphiAIKit.exe')
+}
 
 if ($DakTestShards -ne 1) {
   throw 'Parallel DAK RemoveWith shards are disabled. Isolated DAK_TEST_OUTPUT_ROOT was not sufficient; previous parallel runs failed through additional shared state/codepage sensitivity. Use -DakTestShards 1.'
@@ -1057,6 +1231,15 @@ $lPlanReport = Join-Path $WorkRoot 'maxTdb-plan-only.json'
 $lReport = Join-Path $WorkRoot 'maxTdb-remove-with.json'
 $lManifest = Join-Path $WorkRoot 'migration-gate-manifest.json'
 $lLogDir = Join-Path $WorkRoot 'logs'
+$lDakBuildHost = Join-Path $DakRoot 'bin\DelphiAIKit.exe'
+$lBuildRunId = 'ds642-' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
+$lSemanticsTestOutput = Join-Path $DelphiSemanticsRoot "tests\.dak\delphiSemanticsTests\build\$lBuildRunId"
+$lDakTestOutput = Join-Path $DakRoot "tests\.dak\DelphiAIKit.Tests\build\$lBuildRunId"
+$lDakCliOutput = Join-Path $DakRoot "projects\.dak\DelphiAIKit\build\$lBuildRunId"
+$lSemanticsPrivateExe = Join-Path $lSemanticsTestOutput 'delphiSemanticsTests.exe'
+$lSemanticsTestExe = if ($SkipBuild) { Join-Path $DelphiSemanticsRoot 'tests\bin\delphiSemanticsTests.exe' } else { Join-Path $DelphiSemanticsRoot "tests\bin\$lBuildRunId.exe" }
+$lDakTestExe = if ($SkipBuild) { Join-Path $DakRoot 'tests\DelphiAIKit.Tests.exe' } else { Join-Path $lDakTestOutput 'DelphiAIKit.Tests.exe' }
+$lDakCliExe = if ($SkipBuild) { $lDakBuildHost } else { Join-Path $lDakCliOutput 'DelphiAIKit.exe' }
 $lMaxTdbRemoveWithBuildArgs = @('--delphi', '23.0', '--platform', 'Win32', '--config', 'Debug')
 
 if (-not (Test-Path -LiteralPath $lFixture -PathType Container)) {
@@ -1084,16 +1267,37 @@ if (-not $SkipBuild) {
   Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
     -Name 'Build DelphiSemantics tests' `
     -WorkingDirectory $DelphiSemanticsRoot `
-    -FilePath 'cmd.exe' `
-    -Arguments @('/C', 'build-delphi.bat', 'tests\delphiSemanticsTests.dproj', '-config', 'Debug', '-platform', 'Win32', '-target', 'Rebuild', '-test-output-dir', 'tests\bin') `
+    -FilePath $lDakBuildHost `
+    -Arguments @('build', '--project', (Join-Path $DelphiSemanticsRoot 'tests\delphiSemanticsTests.dproj'), '--delphi', '23.0', '--config', 'Debug', '--platform', 'Win32', '--target', 'Rebuild', '--test-output-dir', $lSemanticsTestOutput, '--build-timeout-sec', '1800', '--ai', '--show-warnings', '--keep-logs') `
     -ArtifactDirectory $lLogDir `
     -NoThrow)
+
+  # The DelphiSemantics test support derives its repository root from the EXE's parent directories.
+  # Keep compiler outputs private and copy only the proven EXE into a unique tests\bin name.
+  Assert-ExistingFile $lSemanticsPrivateExe
+  if (Test-Path -LiteralPath $lSemanticsTestExe) {
+    throw "Refusing to overwrite an existing DelphiSemantics test EXE: $lSemanticsTestExe"
+  }
+  Copy-Item -LiteralPath $lSemanticsPrivateExe -Destination $lSemanticsTestExe -ErrorAction Stop
+  $lPrivateHash = (Get-FileHash -LiteralPath $lSemanticsPrivateExe -Algorithm SHA256).Hash
+  $lConsumerHash = (Get-FileHash -LiteralPath $lSemanticsTestExe -Algorithm SHA256).Hash
+  if ($lPrivateHash -cne $lConsumerHash) {
+    throw "DelphiSemantics test EXE copy differs from private build: $lSemanticsTestExe"
+  }
+  Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result ([pscustomobject]@{
+    name = 'Bind DelphiSemantics test executable'
+    filePath = $lSemanticsTestExe
+    privateExecutable = $lSemanticsPrivateExe
+    sha256 = $lConsumerHash
+    exitCode = 0
+    elapsedSeconds = 0
+  })
 }
 
 Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
   -Name 'Run DelphiSemantics tests' `
   -WorkingDirectory $DelphiSemanticsRoot `
-  -FilePath 'tests\bin\delphiSemanticsTests.exe' `
+  -FilePath $lSemanticsTestExe `
   -Arguments @('--hidebanner', '--consolemode:quiet') `
   -ArtifactDirectory $lLogDir `
   -NoThrow)
@@ -1102,14 +1306,15 @@ if (-not $SkipBuild) {
   Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
     -Name 'Build DAK tests' `
     -WorkingDirectory $DakRoot `
-    -FilePath 'cmd.exe' `
-    -Arguments @('/C', 'build-delphi.bat', 'tests\DelphiAIKit.Tests.dproj', '-config', 'Debug', '-platform', 'Win64', '-target', 'Rebuild') `
+    -FilePath $lDakBuildHost `
+    -Arguments @('build', '--project', (Join-Path $DakRoot 'tests\DelphiAIKit.Tests.dproj'), '--delphi', '23.0', '--config', 'Debug', '--platform', 'Win64', '--target', 'Rebuild', '--test-output-dir', $lDakTestOutput, '--build-timeout-sec', '1800', '--ai', '--show-warnings', '--keep-logs') `
     -ArtifactDirectory $lLogDir `
     -NoThrow)
 }
 
 Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-DakRemoveWithTests `
   -DakRoot $DakRoot `
+  -TestExecutable $lDakTestExe `
   -WorkRoot $WorkRoot `
   -ShardCount $DakTestShards `
   -Profile $DakTestProfile `
@@ -1120,6 +1325,7 @@ $lDakSemanticConsumerFilters = @(Get-DakSemanticConsumerTestFilters -DakRoot $Da
 foreach ($lDakSemanticConsumerFilter in $lDakSemanticConsumerFilters) {
   Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-DakSemanticConsumerTestFilter `
     -DakRoot $DakRoot `
+    -TestExecutable $lDakTestExe `
     -WorkRoot $WorkRoot `
     -Profile $DakTestProfile `
     -Filter $lDakSemanticConsumerFilter `
@@ -1131,8 +1337,8 @@ if (-not $SkipBuild) {
   Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
     -Name 'Build DAK CLI' `
     -WorkingDirectory $DakRoot `
-    -FilePath 'cmd.exe' `
-    -Arguments @('/C', 'build-delphi.bat', 'projects\DelphiAIKit.dproj', '-config', 'Debug', '-platform', 'Win64', '-target', 'Rebuild') `
+    -FilePath $lDakBuildHost `
+    -Arguments @('build', '--project', (Join-Path $DakRoot 'projects\DelphiAIKit.dproj'), '--delphi', '23.0', '--config', 'Debug', '--platform', 'Win64', '--target', 'Rebuild', '--test-output-dir', $lDakCliOutput, '--build-timeout-sec', '1800', '--ai', '--show-warnings', '--keep-logs') `
     -ArtifactDirectory $lLogDir `
     -NoThrow)
 }
@@ -1152,29 +1358,35 @@ $lPlanSourceSnapshot = New-MigrationGateSourceSnapshot -Root $lClone
 Add-MigrationGateReportOnlyPlanResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -MutationRoot $lClone -MutationSnapshot $lPlanSourceSnapshot -PlanResult (Invoke-GateStep `
   -Name 'Run cloned maxTdb report-only plan' `
   -WorkingDirectory $DakRoot `
-  -FilePath 'bin\DelphiAIKit.exe' `
-  -Arguments (@('remove-with', '--project', $lProject, '--all', '--mode', 'plan', '--format', 'json', '--output', $lPlanReport) + $lMaxTdbRemoveWithBuildArgs) `
-  -ArtifactDirectory $lLogDir `
-  -NoThrow `
-  -MaxOutputLines 0)
-
-Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
-  -Name 'Run cloned maxTdb smoke' `
-  -WorkingDirectory $DakRoot `
-  -FilePath 'bin\DelphiAIKit.exe' `
-  -Arguments (@('remove-with', '--project', $lProject, '--all', '--mode', 'apply', '--format', 'json', '--output', $lReport) + $lMaxTdbRemoveWithBuildArgs) `
+  -FilePath $lDakCliExe `
+  -Arguments (@('remove-with', '--project', $lProject, '--all', '--mode', 'plan', '--format', 'json', '--diagnostics', 'true', '--output', $lPlanReport) + $lMaxTdbRemoveWithBuildArgs) `
   -ArtifactDirectory $lLogDir `
   -NoThrow `
   -MaxOutputLines 0)
 
 Assert-ExistingFile $lPlanReport
-Assert-ExistingFile $lReport
 $lPlanJson = Get-Content -LiteralPath $lPlanReport -Raw | ConvertFrom-Json
+if ((Get-MigrationGateObjectProperty -Object $lPlanJson -Name 'status') -cne 'ok') {
+  throw 'Expected maxTdb report-only status ok.'
+}
+Assert-MigrationGateReportAccounting -ReportJson $lPlanJson
+Assert-MigrationGatePlanDtoParity -PlanJson $lPlanJson
+
+Add-GateStepResult -Results $lResults -ManifestPath $lManifest -WorkRoot $WorkRoot -DelphiSemanticsRoot $DelphiSemanticsRoot -DakRoot $DakRoot -Provenance $lGateProvenance -AllowDirty:$AllowDirty -Result (Invoke-GateStep `
+  -Name 'Run cloned maxTdb smoke' `
+  -WorkingDirectory $DakRoot `
+  -FilePath $lDakCliExe `
+  -Arguments (@('remove-with', '--project', $lProject, '--all', '--mode', 'apply', '--format', 'json', '--output', $lReport) + $lMaxTdbRemoveWithBuildArgs) `
+  -ArtifactDirectory $lLogDir `
+  -NoThrow `
+  -MaxOutputLines 0)
+
+Assert-ExistingFile $lReport
 $lJson = Get-Content -LiteralPath $lReport -Raw | ConvertFrom-Json
-$lPlanWithStatements = [int]$lPlanJson.summary.withStatements
-$lApplyWithStatements = [int]$lJson.summary.withStatements
-$lPlanPlannedEdits = [int]$lPlanJson.summary.plannedEdits
-$lApplyPlannedEdits = [int]$lJson.summary.plannedEdits
+Assert-MigrationGateReportAccounting -ReportJson $lJson
+Assert-MigrationGateAccountingParity -PlanJson $lPlanJson -ApplyJson $lJson
+$lApplyWithStatements = Get-MigrationGateNestedIntProperty -Object $lJson -ParentName 'summary' -Name 'withStatements'
+$lApplyPlannedEdits = Get-MigrationGateNestedIntProperty -Object $lJson -ParentName 'summary' -Name 'plannedEdits'
 $lAppliedEdits = [int]$lJson.summary.appliedEdits
 $lSkipped = [int]$lJson.summary.skipped
 $lVerification = [string]$lJson.verification.status
@@ -1189,12 +1401,6 @@ if ($lStatus -ne 'applied') {
 }
 if ($lVerification -ne 'passed') {
   throw "Expected maxTdb verification passed, got $lVerification"
-}
-if (($lPlanWithStatements -ne 667) -or ($lApplyWithStatements -ne 667)) {
-  throw "Expected maxTdb scan count 667 in plan/apply reports, got plan=$lPlanWithStatements apply=$lApplyWithStatements"
-}
-if (($lPlanPlannedEdits -ne 215) -or ($lApplyPlannedEdits -ne $lPlanPlannedEdits)) {
-  throw "Expected maxTdb planned edit parity at 215, got plan=$lPlanPlannedEdits apply=$lApplyPlannedEdits"
 }
 Assert-MigrationGatePlannedEditParity -PlanJson $lPlanJson -ApplyJson $lJson
 Assert-MigrationGateSkippedParity -PlanJson $lPlanJson -ApplyJson $lJson

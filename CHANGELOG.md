@@ -4,6 +4,7 @@
 
 ### Fixed
 - Semantic-unit SQLite caches now open relative database paths that resolve beyond the Windows path limit and near-limit paths whose SQLite sidecars cross it, while reporting the configured filename.
+- The migration gate builds DelphiSemantics and DAK directly through the native DAK executable, with private per-run outputs consumed by the corresponding tests and CLI smoke steps.
 - Persisted project remove-with facts now refresh after corrected receiver-safety lineage, so older cached member-safety refusals cannot mask the current receiver classification.
 - Remove-with member-safety checks now follow the proven declaration of imported and nested `with` receivers. Unrelated incomplete-member diagnostics no longer mask complete receiver types; diagnostics on the actual type still refuse edits.
 - Snapshot SQLite caches now open absolute database paths beyond 300 characters, allowing DAK position queries to reuse the persisted snapshot at a deep semantic-unit-cache.sqlite3 path.
@@ -296,6 +297,7 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+- Migration-gate steps have a configurable deadline, terminate owned descendants on timeout, and retain process logs and timeout metadata.
 - Nested indexed default-property and pointer selectors inside an enclosing `with` now bind through the parent receiver using the member type's declaring unit. Unknown or ambiguous declaring-unit provenance refuses the binding.
 - Snapshot reference binding no longer sends a call to the wrong overload when overloads differ only by an open-array element type or generic arguments; such calls stay unresolved. Range bounds such as `cMin..cMax` in subranges, case labels, set and array bounds bind their upper bound again, and signature alignment detects a parameter rename that would capture such a bound. Remove-with planning now qualifies a with-member used after `..` instead of leaving it to bind to an outer declaration. The parser cache version is advanced so earlier facts are rebuilt.
 - Snapshot reference binding distinguishes tested Self members and explicit class variables from same-named parameters. Partial Unicode identifier matches are refused and old snapshot cache entries are rebuilt; full Unicode parsing remains unproven.
