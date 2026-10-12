@@ -3,6 +3,30 @@
 ## [Unreleased]
 
 ### Fixed
+- Remove-with: known-inactive names stay outside rename/usage references; separate WITH verification preserves base refusals across cold and warm facts/snapshot planning.
+- Remove-with checks references in known-inactive statement bodies as before and retains raw-source suffix ranges. Unknown suffixes refuse edits; known-inactive suffixes preserve the established replacement. Uncovered source and inclusive range ends retain uncertainty. Model, snapshot and WITH-fact caches rebuild for these corrections.
+- WITH binding accepts optional exact-name implicit-root evidence while preserving indexed-lineage and helper safety checks. Failing providers retain diagnostics, and provider-backed requests bypass persistent WITH facts.
+- Root-member evidence requires complete imported source and verified routine omissions; unknown imports, helpers and incomplete models retain conservative refusals.
+- Implicit-root source closure uses verified AST kind and declaration identity to reject unindexed helpers and ambiguous or unsupported targets. Record receiver coverage remains a known gap tracked by DS-720.
+- Request-owned model source observations validate extraction, cache hits and result publication, refusing source drift before returning binding or planning results.
+- Rename retains calls under unverified compiler conditionals, and local pointer casts no longer borrow a same-named unit record's members.
+- RTL preprocessing recognizes C++ metadata directives and grouped compiler switches, preserving original delimiters and coordinates. Grouped J switches retain typed-constant mutability and their last active value; affected model caches rebuild.
+- Consistency and signature-alignment queries remain available for complete types beside a type with incomplete members. Queries involving the affected type still refuse; ambiguous diagnostic ownership and unit-wide uncertainty remain blocking.
+- Interface-only syntax retries locate section keywords through the native lexer, ignoring words in comments, strings and escaped identifiers. Original parser diagnostics remain visible, and affected model caches rebuild.
+
+- Remove-with rewrites preserve escaped identifiers in fields, indexes and supported call arguments. Qualification keeps the ampersand after the receiver, ordinary operators and block keywords retain their syntax role, and unsupported escaped shapes still refuse. Cached models and receiver facts rebuild.
+
+- Finalized routine-local WITH aliases bind through the target declaration and verified ancestors. Missing members still refuse unverified ancestry, and same-named classes in different units no longer share private or protected access. Cached receiver facts rebuild.
+
+- Unresolved or ambiguous WITH receivers shield outer and lexical homonyms. Nested selectors no longer acquire a global identity through an unverified parent; existing receiver-facts caches rebuild.
+
+- WITH binding refuses a missing member when the resolved receiver may inherit unindexed members, instead of binding a homonym from an outer WITH or lexical scope. Direct members and complete record receivers retain their proven bindings; cached receiver facts rebuild.
+
+- Rename plans exclude proven inactive conditional source, including calls after same-line directives. Active calls retain their original positions, and unsupported conditions still refuse incomplete plans. Model and snapshot caches rebuild for the activity evidence.
+- WITH receivers now resolve pointer, record and array aliases whose names start with `Array`. Existing receiver-facts caches rebuild for the corrected bindings.
+- Nested WITH plans retain the nearest proven pointer receiver when an enclosing WITH cannot be rewritten.
+- Types containing `class const` declarations now report incomplete member facts and refuse unsafe with-removal. Existing model caches rebuild for the corrected safety diagnostic.
+- Classes following a nested `const` section remain type declarations, and nested constants retain their declaring type. Existing model caches rebuild for the corrected declaration scopes.
 - Semantic-unit SQLite caches now open relative database paths that resolve beyond the Windows path limit and near-limit paths whose SQLite sidecars cross it, while reporting the configured filename.
 - The migration gate builds DelphiSemantics and DAK directly through the native DAK executable, with private per-run outputs consumed by the corresponding tests and CLI smoke steps.
 - Source-backed routine-local record, alias and pointer types now keep their declaring scope and distinct identities through member binding, capture planning and persisted snapshots. Enclosing local types remain available to nested routines while hidden or unverifiable declarations refuse edits.
@@ -299,6 +323,7 @@
   of the older placeholder diagnostic.
 
 ### Fixed
+
 - Migration-gate steps have a configurable deadline, terminate owned descendants on timeout, and retain process logs and timeout metadata.
 - Nested indexed default-property and pointer selectors inside an enclosing `with` now bind through the parent receiver using the member type's declaring unit. Unknown or ambiguous declaring-unit provenance refuses the binding.
 - Snapshot reference binding no longer sends a call to the wrong overload when overloads differ only by an open-array element type or generic arguments; such calls stay unresolved. Range bounds such as `cMin..cMax` in subranges, case labels, set and array bounds bind their upper bound again, and signature alignment detects a parameter rename that would capture such a bound. Remove-with planning now qualifies a with-member used after `..` instead of leaving it to bind to an outer declaration. The parser cache version is advanced so earlier facts are rebuilt.
