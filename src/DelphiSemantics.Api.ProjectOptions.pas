@@ -25,6 +25,7 @@ begin
   Result.SearchPaths := aOptions.SearchPaths;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;
   Result.UseLspEnrichment := aOptions.UseLspEnrichment;
+  Result.ImplicitRootMemberAbsence := aOptions.ImplicitRootMemberAbsence;
 end;
 
 end.

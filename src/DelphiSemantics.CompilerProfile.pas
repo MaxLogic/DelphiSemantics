@@ -581,9 +581,9 @@ end;
 function CompilerProfileDefinesForPlatform(const aPlatform: string): TArray<string>;
 begin
   if SameText(aPlatform, 'Win32') then
-    Exit(MakeCompilerProfileDefines(['MSWINDOWS', 'WINDOWS', 'WIN32', 'CPUX86']));
+    Exit(MakeCompilerProfileDefines(['MSWINDOWS', 'WIN32', 'CPUX86']));
   if SameText(aPlatform, 'Win64') then
-    Exit(MakeCompilerProfileDefines(['MSWINDOWS', 'WINDOWS', 'WIN64', 'CPUX64']));
+    Exit(MakeCompilerProfileDefines(['MSWINDOWS', 'WIN64', 'CPUX64']));
   if SameText(aPlatform, 'Linux64') then
     Exit(MakeCompilerProfileDefines(['POSIX', 'LINUX', 'CPUX64']));
   if SameText(aPlatform, 'OSX64') then

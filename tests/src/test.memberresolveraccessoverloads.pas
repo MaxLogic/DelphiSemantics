@@ -3,6 +3,7 @@ unit Test.MemberResolverAccessOverloads;
 interface
 
 uses
+  System.SysUtils,
   DUnitX.TestFramework,
   DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.MemberResolver,
   DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.SemanticGraph;
@@ -12,6 +13,7 @@ type
   TMemberResolverAccessOverloadTests = class
   private
     function Graph: TDelphiSemanticSemanticGraph;
+    function OtherUnitModel: TDelphiSemanticUnitModel;
     function MemberIndex(const aGraph: TDelphiSemanticSemanticGraph):
       TDelphiSemanticMemberIdentityIndex;
     function ProjectInfo: TDelphiSemanticProjectInfo;
@@ -21,13 +23,37 @@ type
     procedure ReportsInaccessibleHiddenAndResolvedMembers;
     [Test]
     procedure ReportsOverloadedAndResolvesByArgumentType;
+    [TestCase('Private', 'Secret,private')]
+    [TestCase('StrictPrivate', 'StrictSecret,strict private')]
+    [TestCase('Protected', 'ProtectedValue,protected')]
+    [TestCase('StrictProtected', 'ProtectedValue,strict protected')]
+    procedure UnindexedCallerHomonymDoesNotAcquireAccess(const aMemberName,
+      aVisibility: string);
+    [Test]
+    procedure ExplicitQualifiedCallerIdentityRetainsProtectedAccess;
   end;
 
 implementation
 
 function TMemberResolverAccessOverloadTests.Graph: TDelphiSemanticSemanticGraph;
 begin
-  Result := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [UnitModel]);
+  Result := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [UnitModel, OtherUnitModel]);
+end;
+
+function TMemberResolverAccessOverloadTests.OtherUnitModel: TDelphiSemanticUnitModel;
+begin
+  Result := Default(TDelphiSemanticUnitModel);
+  Result.Success := True;
+  Result.UnitName := 'OtherUnit';
+  Result.FileName := 'OtherUnit.pas';
+  SetLength(Result.Declarations, 1);
+  Result.Declarations[0].Name := 'TOtherChild';
+  Result.Declarations[0].Kind := 'type';
+  Result.Declarations[0].TypeName := 'class';
+  Result.Declarations[0].BaseTypeName := 'MemberAccessUnit.TBase';
+  Result.Declarations[0].SectionKind := 'interface';
+  Result.Declarations[0].Line := 4;
+  Result.Declarations[0].Column := 3;
 end;
 
 function TMemberResolverAccessOverloadTests.MemberIndex(
@@ -53,7 +79,7 @@ begin
   Result.UnitName := 'MemberAccessUnit';
   Result.FileName := 'MemberAccessUnit.pas';
 
-  SetLength(Result.Declarations, 3);
+  SetLength(Result.Declarations, 2);
   Result.Declarations[0].Name := 'TBase';
   Result.Declarations[0].Kind := 'type';
   Result.Declarations[0].TypeName := 'class';
@@ -67,13 +93,6 @@ begin
   Result.Declarations[1].SectionKind := 'interface';
   Result.Declarations[1].Line := 12;
   Result.Declarations[1].Column := 3;
-  Result.Declarations[2].Name := 'TOtherChild';
-  Result.Declarations[2].Kind := 'type';
-  Result.Declarations[2].TypeName := 'class';
-  Result.Declarations[2].BaseTypeName := 'TBase';
-  Result.Declarations[2].SectionKind := 'interface';
-  Result.Declarations[2].Line := 18;
-  Result.Declarations[2].Column := 3;
 
   SetLength(Result.Members, 10);
   Result.Members[0].OwnerName := 'TBase';
@@ -136,6 +155,60 @@ begin
   Result.Members[9].Name := 'Pair';
   Result.Members[9].Signature := 'Pair(const aLeft, aRight: Integer): string';
   Result.Members[9].Line := 14;
+end;
+
+procedure TMemberResolverAccessOverloadTests.UnindexedCallerHomonymDoesNotAcquireAccess(
+  const aMemberName, aVisibility: string);
+var
+  lContext: TDelphiSemanticMemberLookupContext;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticMemberIdentityIndex;
+  lModel: TDelphiSemanticUnitModel;
+  lResult: TDelphiSemanticMemberLookupResult;
+  i: Integer;
+begin
+  // DS-701 review: an incomplete index must not identify an unknown caller
+  // class by the one globally indexed class sharing its bare name.
+  lModel := UnitModel;
+  for i := 0 to High(lModel.Members) do
+    if SameText(lModel.Members[i].Name, aMemberName) then
+      lModel.Members[i].Visibility := aVisibility;
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    lIndex := MemberIndex(lGraph);
+    lContext := Default(TDelphiSemanticMemberLookupContext);
+    lContext.CallerUnitName := 'UnindexedCallerUnit';
+    lContext.CurrentTypeName := 'TBase';
+    lResult := lIndex.ResolveMember(lContext, 'MemberAccessUnit.TBase', aMemberName);
+    Assert.IsFalse(lResult.Found,
+      'The caller unit has no indexed TBase identity; the target homonym is not proof.');
+    Assert.AreEqual('inaccessible', lResult.Status);
+    Assert.AreEqual('MEMBER_INACCESSIBLE', lResult.ReasonCode);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TMemberResolverAccessOverloadTests.ExplicitQualifiedCallerIdentityRetainsProtectedAccess;
+var
+  lContext: TDelphiSemanticMemberLookupContext;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticMemberIdentityIndex;
+  lResult: TDelphiSemanticMemberLookupResult;
+begin
+  lGraph := Graph;
+  try
+    lIndex := MemberIndex(lGraph);
+    lContext := Default(TDelphiSemanticMemberLookupContext);
+    lContext.CallerUnitName := 'IndependentContextUnit';
+    lContext.CurrentTypeName := 'MemberAccessUnit.TChild';
+    lResult := lIndex.ResolveMember(lContext, 'MemberAccessUnit.TBase', 'ProtectedValue');
+    Assert.IsTrue(lResult.Found, lResult.Reason);
+    Assert.AreEqual('TBase', lResult.Member.OwnerName);
+    Assert.AreEqual('MemberAccessUnit', lResult.Member.UnitName);
+  finally
+    lGraph.Free;
+  end;
 end;
 
 procedure TMemberResolverAccessOverloadTests.ReportsInaccessibleHiddenAndResolvedMembers;

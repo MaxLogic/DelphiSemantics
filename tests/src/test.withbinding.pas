@@ -79,6 +79,19 @@ type
     [TestCase('duplicate label definition', '14')]
     procedure LocalLabelsPreserveSyntaxRoleAndRoutineScope(const aCase: Integer);
     [Test]
+    [TestCase('simple escaped field', '0')]
+    [TestCase('escaped indexed field and index', '1')]
+    [TestCase('escaped call argument', '2')]
+    [TestCase('escaped binder keyword', '3')]
+    [TestCase('escaped lexical control', '4')]
+    [TestCase('unresolved escaped field refuses', '5')]
+    [TestCase('unverified ordinary call remains refused', '6')]
+    [TestCase('already qualified escaped field', '7')]
+    [TestCase('ordinary index operator with escaped homonym', '8')]
+    [TestCase('ordinary call operator with escaped homonym', '9')]
+    [TestCase('escaped keyword inside index', '10')]
+    procedure EscapedIdentifiersKeepTheirQualifiedSpelling(const aCase: Integer);
+    [Test]
     procedure IndexedDeclarationCandidatesPreserveDuplicatesAndRefresh;
     [Test]
     procedure ProjectSessionBuildsProjectLevelWithBindingFacts;
@@ -521,7 +534,7 @@ begin
   Assert.IsTrue(HasReference(lBinding, 'Value', 'member'));
   lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
   Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
-  if aCase in [0, 1, 6, 7, 8, 11] then
+  if aCase in [0, 1, 6, 7, 8, 10, 11] then
   begin
     Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
       lPlan.FinalStatements[0].Reason);
@@ -534,13 +547,19 @@ begin
       '.Value := 1;'), lPlan.FinalStatements[0].ReplacementText);
     Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
       '.Value := 2;'), lPlan.FinalStatements[0].ReplacementText);
+    if aCase = 10 then
+    begin
+      Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements[0].Temps)));
+      Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
+        '.&Goto := ' + lPlan.FinalStatements[0].Temps[0].TempName + '^.Value;'),
+        lPlan.FinalStatements[0].ReplacementText);
+      Assert.IsFalse(ContainsText(lPlan.FinalStatements[0].ReplacementText,
+        '&' + lPlan.FinalStatements[0].Temps[0].TempName));
+    end;
   end else
   begin
     Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
-    if aCase = 10 then
-      Assert.AreEqual('escaped-identifier-unsupported', lPlan.FinalStatements[0].Reason)
-    else
-      Assert.AreEqual('local-label-not-resolved', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('local-label-not-resolved', lPlan.FinalStatements[0].Reason);
     Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
   end;
 
@@ -575,6 +594,140 @@ begin
     finally
       lSessionResult.Session.Free;
     end;
+  end;
+end;
+
+procedure TProjectWithBindingTests.EscapedIdentifiersKeepTheirQualifiedSpelling(
+  const aCase: Integer);
+var
+  lBody: string;
+  lCaptureName: string;
+  lExpected: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lGuid: TGUID;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lOriginalBlock: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+  lRewrittenSource: string;
+  lSource: string;
+begin
+  case aCase of
+    0: begin
+      lBody := '&Goto := Value;';
+      lExpected := 'aRecord^.&Goto := aRecord^.Value;';
+    end;
+    1: begin
+      lBody := '&Array[&Index] := &Goto;';
+      lExpected := 'aRecord^.&Array[aRecord^.&Index] := aRecord^.&Goto;';
+    end;
+    2: begin
+      lBody := 'Inc(&Goto);';
+      lExpected := 'Inc(aRecord^.&Goto);';
+    end;
+    3: begin
+      lBody := '&End := &Goto;';
+      lExpected := 'aRecord^.&End := aRecord^.&Goto;';
+    end;
+    4: begin
+      lBody := 'Value := &Outside;';
+      lExpected := 'aRecord^.Value := &Outside;';
+    end;
+    6: begin
+      lBody := 'Consume(&Goto);';
+      lExpected := '';
+    end;
+    7: begin
+      lBody := 'aRecord^.&Goto := Value;';
+      lExpected := 'aRecord^.&Goto := aRecord^.Value;';
+    end;
+    8: begin
+      lBody := '&Array[1 and 0] := &And;';
+      lExpected := 'aRecord^.&Array[1 and 0] := aRecord^.&And;';
+    end;
+    9: begin
+      lBody := 'Inc(&And, 1 and 0);';
+      lExpected := 'Inc(aRecord^.&And, 1 and 0);';
+    end;
+    10: begin
+      lBody := '&Array[&And] := &Goto;';
+      lExpected := 'aRecord^.&Array[aRecord^.&And] := aRecord^.&Goto;';
+    end;
+  else
+    lBody := '&Missing := Value;';
+    lExpected := '';
+  end;
+  CreateGUID(lGuid);
+  lRoot := TPath.Combine(RepoRoot, 'tests\.dak\delphiSemanticsTests\ds-671-' +
+    GUIDToString(lGuid));
+  TDirectory.CreateDirectory(lRoot);
+  lSource := 'unit EscapedWith;'#13#10 +
+    'interface'#13#10 +
+    'type'#13#10 +
+    '  TFields = record'#13#10 +
+    '    Value, &Goto, &Index, &End, &And: Integer;'#13#10 +
+    '    &Array: array[0..1] of Integer;'#13#10 +
+    '  end;'#13#10 +
+    '  PFields = ^TFields;'#13#10 +
+    'var Outside: Integer;'#13#10 +
+    'implementation'#13#10 +
+    'procedure Consume(aValue: Integer);'#13#10 +
+    'begin Outside := aValue; end;'#13#10 +
+    'procedure Touch(aRecord: PFields);'#13#10 +
+    'begin'#13#10 +
+    '  with aRecord^ do'#13#10 +
+    '  begin'#13#10 +
+    '    ' + lBody + #13#10 +
+    '  end;'#13#10 +
+    'end;'#13#10 +
+    'end.'#13#10;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'EscapedWith.pas');
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lOriginalBlock := 'with aRecord^ do'#13#10 +
+    '  begin'#13#10 + '    ' + lBody + #13#10 + '  end;';
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
+  Assert.AreEqual(lOriginalBlock, lModel.WithStatements[0].Text,
+    'Escaped words must not close the WITH statement or create another statement.');
+  lFacts := TDelphiSemanticWithBinder.BindProject('escaped-identifiers', nil, [lModel]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+  if aCase in [5, 6] then
+  begin
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+    Assert.AreNotEqual('', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+  end else
+  begin
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+      lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements[0].Temps)));
+    lCaptureName := lPlan.FinalStatements[0].Temps[0].TempName;
+    Assert.AreNotEqual('', lCaptureName);
+    lExpected := StringReplace(lExpected, 'aRecord^', lCaptureName + '^', [rfReplaceAll]);
+    if aCase = 7 then
+      lExpected := 'aRecord^.&Goto := ' + lCaptureName + '^.Value;';
+    lRewrittenSource := StringReplace(lSource, 'procedure Touch(aRecord: PFields);'#13#10 +
+      'begin', 'procedure Touch(aRecord: PFields);'#13#10 + 'var'#13#10 +
+      '  ' + lPlan.FinalStatements[0].Temps[0].DeclarationText + #13#10 + 'begin', []);
+    lRewrittenSource := StringReplace(lRewrittenSource, lOriginalBlock,
+      lPlan.FinalStatements[0].ReplacementText, []);
+    TDirectory.CreateDirectory(TPath.Combine(lRoot, 'rewritten'));
+    TFile.WriteAllText(TPath.Combine(lRoot, 'rewritten\EscapedWith.pas'),
+      lRewrittenSource, TEncoding.ASCII);
+    Assert.IsFalse(ContainsText(lPlan.FinalStatements[0].ReplacementText, '.end;'),
+      'Ordinary END remains a keyword: ' + lPlan.FinalStatements[0].ReplacementText);
+    Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText, lExpected),
+      lPlan.FinalStatements[0].ReplacementText);
+    Assert.IsFalse(ContainsText(lPlan.FinalStatements[0].ReplacementText, '&aRecord'),
+      lPlan.FinalStatements[0].ReplacementText);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'replacement.txt'),
+      lPlan.FinalStatements[0].ReplacementText, TEncoding.ASCII);
   end;
 end;
 

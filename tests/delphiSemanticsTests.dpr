@@ -53,6 +53,7 @@ uses
   DelphiSemantics.Resolve.UnitResolver in '..\src\DelphiSemantics.Resolve.UnitResolver.pas',
   DelphiSemantics.Search in '..\src\DelphiSemantics.Search.pas',
   DelphiSemantics.SemanticGraph in '..\src\DelphiSemantics.SemanticGraph.pas',
+  DelphiSemantics.RootMemberAbsence in '..\src\DelphiSemantics.RootMemberAbsence.pas',
   DelphiSemantics.Snapshot in '..\src\DelphiSemantics.Snapshot.pas',
   DelphiSemantics.Snapshot.Builder in '..\src\DelphiSemantics.Snapshot.Builder.pas',
   DelphiSemantics.Snapshot.Cache.Sqlite in '..\src\DelphiSemantics.Snapshot.Cache.Sqlite.pas',

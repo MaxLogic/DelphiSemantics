@@ -96,6 +96,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Resolve.UnitResolver.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Search.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.SemanticGraph.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.RootMemberAbsence.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.Builder.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.Cache.Sqlite.pas"/>

@@ -565,8 +565,14 @@ procedure AddSnapshotTargetSymbolsFromSnapshot(const aSymbols: TSnapshotTargetSy
   const aSnapshot: TDelphiProjectSnapshot);
 var
   i: Integer;
+  j: Integer;
+  lExisting: TSnapshotTargetSymbol;
+  lExistingSymbols: TSnapshotTargetSymbolList;
   lFact: TSemanticSymbolFact;
   lKind: string;
+  lModel: TDelphiSemanticUnitModel;
+  lModelMatches: Boolean;
+  lSourceText: string;
   lSymbol: TSnapshotTargetSymbol;
   lSymbolId: TSemanticSymbolId;
   lUnit: TUnitSnapshot;
@@ -577,6 +583,17 @@ begin
   for i := 0 to aSnapshot.UnitCount - 1 do
   begin
     lUnit := aSnapshot.UnitByIndex(i);
+    lModelMatches := False;
+    lSourceText := aSnapshot.ExactTextOf(lUnit.SourceTextId);
+    if lSourceText <> '' then
+      for lModel in aSymbolsByName.Models do
+        if SameText(lModel.FileName, aSnapshot.TextOf(lUnit.FileNameId)) and
+          SameText(lModel.UnitName, aSnapshot.TextOf(lUnit.UnitNameId)) and
+          (lModel.SourceText = lSourceText) then
+        begin
+          lModelMatches := True;
+          Break;
+        end;
     for lSymbolId := 1 to TSemanticSymbolId(lUnit.SymbolCount) do
     begin
       lFact := lUnit.SymbolById(lSymbolId);
@@ -602,6 +619,33 @@ begin
       lSymbol.TypeName := Trim(aSnapshot.TextOf(lFact.TypeId));
       lSymbol.UnitVerified := SnapshotUnitStatusVerified(
         aSnapshot.TextOf(lUnit.ScopeModelStatusId));
+      // DS-711: a partial rebuild also contains declaration-only descriptions of
+      // cached providers. Merge the same root declaration instead of counting it
+      // twice; the verified cached fact supplies its authoritative symbol ID.
+      // The matching model supplies type-body/base evidence used by the existing
+      // resolver. Foreign source, includes and distinct declarations stay separate.
+      if lModelMatches and lSymbol.UnitVerified and (lFact.FileId = 0) and
+        (lSymbol.Line > 0) and (lSymbol.Column > 0) and
+        aSymbolsByName.TryGetValue(lSymbol.Name, lExistingSymbols) then
+        for j := lExistingSymbols.Count - 1 downto 0 do
+        begin
+          lExisting := lExistingSymbols[j];
+          if SameText(lExisting.UnitName, lSymbol.UnitName) and
+            SameText(lExisting.Kind, lSymbol.Kind) and
+            SameText(lExisting.OwnerName, lSymbol.OwnerName) and
+            SameText(lExisting.Signature, lSymbol.Signature) and
+            SameText(lExisting.RoutineScopeId, lSymbol.RoutineScopeId) and
+            (lExisting.Line = lSymbol.Line) and (lExisting.Column = lSymbol.Column) then
+          begin
+            if lExisting.BaseKnown then
+            begin
+              lSymbol.BaseKnown := True;
+              lSymbol.BaseTypeName := lExisting.BaseTypeName;
+              lSymbol.DeclarationText := lExisting.DeclarationText;
+            end;
+            lExistingSymbols.Delete(j);
+          end;
+        end;
       aSymbols.Add(lSymbol);
       AddTargetSymbolByName(aSymbolsByName, lSymbol);
     end;
@@ -1396,14 +1440,52 @@ begin
   Result := True;
 end;
 
+function TryResolveWithSelectorType(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  const aWith: TDelphiSemanticWithStatement; const aSelector: string;
+  const aPriorSelectors: TArray<string>; const aDepth: Integer;
+  out aType: TSnapshotTargetSymbol): Boolean; forward;
+
+function TryResolveSnapshotSelectorName(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  const aWith: TDelphiSemanticWithStatement; const aPriorSelectors: TArray<string>;
+  const aDepth: Integer; out aTarget: TSemanticSymbolRef): Boolean;
+var
+  i: Integer;
+  lLookup: TSnapshotMemberLookup;
+  lType: TSnapshotTargetSymbol;
+begin
+  aTarget := Default(TSemanticSymbolRef);
+  if aDepth > cSnapshotMaxNameResolutionDepth then
+    Exit(False);
+  // Later WITH selectors can use fields supplied by earlier selectors.
+  // Preserve their shadowing precedence and refuse an unproven receiver.
+  for i := High(aPriorSelectors) downto 0 do
+  begin
+    if not TryResolveWithSelectorType(aSymbolsByName, aModel, aReference, aWith,
+      Trim(aPriorSelectors[i]), Copy(aPriorSelectors, 0, i), aDepth + 1, lType) then
+      Exit(False);
+    lLookup := LookupSnapshotTypeMember(aSymbolsByName, lType, aReference.Name, aTarget);
+    if lLookup = smlFound then
+      Exit(True);
+    if lLookup <> smlAbsent then
+      Exit(False);
+  end;
+  Result := TryResolveSnapshotNameCandidates(aSymbolsByName, aModel, aReference,
+    aDepth + 1, aTarget);
+end;
+
 function TryResolveSnapshotPostfixedSelectorType(
   const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
-  const aWith: TDelphiSemanticWithStatement; const aSelector: string; const aDepth: Integer;
+  const aWith: TDelphiSemanticWithStatement; const aSelector: string;
+  const aPriorSelectors: TArray<string>; const aDepth: Integer;
   out aType: TSnapshotTargetSymbol): Boolean;
 var
   i: Integer;
   lBaseName: string;
+  lCast: Boolean;
+  lCastDeclarationVerified: Boolean;
   lCurrentModel: TDelphiSemanticUnitModel;
   lDeclaration: TDelphiSemanticDeclaration;
   lDereferenced: Boolean;
@@ -1420,8 +1502,14 @@ var
 begin
   Result := False;
   aType := Default(TSnapshotTargetSymbol);
-  if (Pos('.', aSelector) > 0) or not ParseSelectorToken(aSelector, lBaseName,
-    lIndexed, lDereferenced, lIndexBeforeDereference) or
+  lCast := TryParsePointerCastName(aSelector, lBaseName);
+  if lCast then
+  begin
+    lIndexed := False;
+    lDereferenced := True;
+    lIndexBeforeDereference := False;
+  end else if (Pos('.', aSelector) > 0) or not ParseSelectorToken(aSelector,
+    lBaseName, lIndexed, lDereferenced, lIndexBeforeDereference) or
     not (lIndexed or lDereferenced) or not IsSnapshotPlainIdentifier(lBaseName) then
     Exit;
 
@@ -1433,13 +1521,19 @@ begin
   lSelectorReference.EndOffset := 0;
   lSelectorReference.EndLine := 0;
   lSelectorReference.EndColumn := 0;
-  if not TryResolveSnapshotNameCandidates(aSymbolsByName, aModel,
-    lSelectorReference, aDepth + 1, lSelectorRef) or
+  if not TryResolveSnapshotSelectorName(aSymbolsByName, aModel,
+    lSelectorReference, aWith, aPriorSelectors, aDepth + 1, lSelectorRef) or
     not TryFindSnapshotTargetSymbol(aSymbolsByName, lBaseName, lSelectorRef, lSymbol) then
     Exit;
-  if not lSymbol.UnitVerified or
-    not MatchText(lSymbol.Kind, ['var', 'threadvar', cSnapshotSymbolKindLocal,
-      cSnapshotSymbolKindParameter, 'field', 'class-var', 'property']) then
+  if not lSymbol.UnitVerified then
+    Exit;
+  if lCast then
+  begin
+    // Syntax alone cannot distinguish a type cast from a shadowing call.
+    if not MatchText(lSymbol.Kind, ['type', cSnapshotDeclarationKindAlias]) then
+      Exit;
+  end else if not MatchText(lSymbol.Kind, ['var', 'threadvar', cSnapshotSymbolKindLocal,
+    cSnapshotSymbolKindParameter, 'field', 'class-var', 'property']) then
     Exit;
 
   lModelIndex := -1;
@@ -1455,6 +1549,34 @@ begin
     Exit;
 
   lCurrentModel := aSymbolsByName.Models[lModelIndex];
+  if lCast then
+  begin
+    // The postfix resolver has unit scope only. Never erase a local cast's scope.
+    lCastDeclarationVerified := False;
+    for lDeclaration in lCurrentModel.Declarations do
+      if SameText(lDeclaration.Name, lSymbol.Name) and
+        (lDeclaration.Line = lSymbol.Line) and (lDeclaration.Column = lSymbol.Column) then
+      begin
+        if (lDeclaration.ScopeKind <> '') and
+          (not SameText(lDeclaration.ScopeKind, 'unit')) then
+          Exit;
+        lCastDeclarationVerified := True;
+      end;
+    if not lCastDeclarationVerified then
+      Exit;
+  end;
+  // Anonymous pointers keep the local pointee lookup scope. Our postfix
+  // resolver cannot prove a routine-local declaration identity by name.
+  if lDereferenced and (lSymbol.RoutineScopeId <> '') and
+    StartsText('^', Trim(lSymbol.TypeName)) then
+  begin
+    lTypeName := Trim(Copy(Trim(lSymbol.TypeName), 2, MaxInt));
+    for lDeclaration in lCurrentModel.Declarations do
+      if SameText(lDeclaration.Name, lTypeName) and
+        SameText(lDeclaration.ScopeKind, 'routine') and
+        SameText(lDeclaration.OwnerScopeId, lSymbol.RoutineScopeId) then
+        Exit;
+  end;
   lSectionKind := SnapshotSectionForSymbol(lSymbol);
   lSelectorContext := Default(TDelphiSemanticResolveContext);
   lSelectorContext.IndexedUnitModels := aSymbolsByName.Models;
@@ -1492,7 +1614,8 @@ end;
 
 function TryResolveWithSelectorType(const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
-  const aWith: TDelphiSemanticWithStatement; const aSelector: string; const aDepth: Integer;
+  const aWith: TDelphiSemanticWithStatement; const aSelector: string;
+  const aPriorSelectors: TArray<string>; const aDepth: Integer;
   out aType: TSnapshotTargetSymbol): Boolean;
 var
   lSelectorReference: TDelphiSemanticReference;
@@ -1505,7 +1628,7 @@ begin
       aType));
   if not IsSnapshotPlainIdentifier(aSelector) then
     Exit(TryResolveSnapshotPostfixedSelectorType(aSymbolsByName, aModel, aReference,
-      aWith, aSelector, aDepth, aType));
+      aWith, aSelector, aPriorSelectors, aDepth, aType));
 
   // The selector is resolved where the with statement starts, in the same routine.
   lSelectorReference := aReference;
@@ -1516,8 +1639,8 @@ begin
   lSelectorReference.EndOffset := 0;
   lSelectorReference.EndLine := 0;
   lSelectorReference.EndColumn := 0;
-  Result := TryResolveSnapshotNameCandidates(aSymbolsByName, aModel, lSelectorReference,
-    aDepth + 1, lSelectorRef) and TryResolveSnapshotSymbolType(aSymbolsByName, aSelector,
+  Result := TryResolveSnapshotSelectorName(aSymbolsByName, aModel, lSelectorReference,
+    aWith, aPriorSelectors, aDepth + 1, lSelectorRef) and TryResolveSnapshotSymbolType(aSymbolsByName, aSelector,
     lSelectorRef, aType);
 end;
 
@@ -1575,7 +1698,7 @@ begin
     for j := High(lSelectors) downto 0 do
     begin
       if not TryResolveWithSelectorType(aSymbolsByName, aModel, aReference, lWith,
-        Trim(lSelectors[j]), aDepth, lType) then
+        Trim(lSelectors[j]), Copy(lSelectors, 0, j), aDepth, lType) then
         Exit(smlUnknown);
       Result := LookupSnapshotTypeMember(aSymbolsByName, lType, aReference.Name, aTarget);
       if Result <> smlAbsent then
@@ -1696,6 +1819,80 @@ end;
 
 function ReferenceHasQualifier(const aModel: TDelphiSemanticUnitModel;
   const aReference: TDelphiSemanticReference): Boolean; forward;
+function TryResolvePointerCastMember(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
+  out aTarget: TSemanticSymbolRef): Boolean;
+var
+  i: Integer;
+  lCastEnd: Integer;
+  lCastStart: Integer;
+  lDepth: Integer;
+  lName: string;
+  lSelector: string;
+  lType: TSnapshotTargetSymbol;
+  lWith: TDelphiSemanticWithStatement;
+begin
+  Result := False;
+  aTarget := Default(TSemanticSymbolRef);
+  // The resolution model has sanitized source, so literals/comments cannot
+  // contribute parentheses to this bounded backwards receiver scan.
+  i := aReference.Offset;
+  if (i < 0) or (i > Length(aModel.SourceText)) then
+    Exit;
+  if not SameText(Copy(aModel.SourceText, i, Length(aReference.Name)), aReference.Name) then
+  begin
+    Inc(i);
+    if not SameText(Copy(aModel.SourceText, i, Length(aReference.Name)), aReference.Name) then
+      Exit;
+  end;
+  Dec(i);
+  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
+    Dec(i);
+  if not IsMemberAccessDot(aModel.SourceText, i) then
+    Exit;
+  Dec(i);
+  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
+    Dec(i);
+  if (i <= 0) or (aModel.SourceText[i] <> '^') then
+    Exit;
+  lCastEnd := i;
+  Dec(i);
+  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
+    Dec(i);
+  if (i <= 0) or (aModel.SourceText[i] <> ')') then
+    Exit;
+  lDepth := 1;
+  Dec(i);
+  while (i > 0) and (lDepth > 0) do
+  begin
+    if aModel.SourceText[i] = ')' then
+      Inc(lDepth)
+    else if aModel.SourceText[i] = '(' then
+      Dec(lDepth);
+    Dec(i);
+  end;
+  if lDepth <> 0 then
+    Exit;
+  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
+    Dec(i);
+  while (i > 0) and IsIdentifierChar(aModel.SourceText[i]) do
+    Dec(i);
+  lCastStart := i + 1;
+  while (i > 0) and CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) do
+    Dec(i);
+  if IsMemberAccessDot(aModel.SourceText, i) then
+    Exit;
+  lSelector := Copy(aModel.SourceText, lCastStart, lCastEnd - lCastStart + 1);
+  if not TryParsePointerCastName(lSelector, lName) then
+    Exit;
+  lWith := Default(TDelphiSemanticWithStatement);
+  lWith.Line := aReference.Line;
+  lWith.Column := aReference.Column;
+  Result := TryResolveSnapshotPostfixedSelectorType(aSymbolsByName, aModel,
+    aReference, lWith, lSelector, [], 0, lType) and
+    (LookupSnapshotTypeMember(aSymbolsByName, lType, aReference.Name, aTarget) = smlFound);
+end;
+
 function TryResolveQualifiedReference(const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
   out aTarget: TSemanticSymbolRef): Boolean; forward;
@@ -1916,6 +2113,8 @@ var
   lCount: Integer;
 begin
   aTarget := Default(TSemanticSymbolRef);
+  if TryResolvePointerCastMember(aSymbolsByName, aModel, aReference, aTarget) then
+    Exit(True);
   lReceiver := SimpleUnitReceiver(aModel, aReference);
   if not SameText(lReceiver, 'Self') then
   begin
@@ -2307,6 +2506,7 @@ begin
   Result := TUnitSnapshot.Create(aUnitId, aStrings.Intern(SnapshotFullPath(aModel.FileName)),
     aStrings.Intern(aModel.UnitName), aExactStrings.Intern(aModel.SourceText));
   try
+    Result.SetVerifiedActiveSourceTextId(aExactStrings.Intern(aModel.VerifiedActiveSourceText));
     lScopeDiagnostic := '';
     for lDiagnostic in aModel.Diagnostics do
       if SameText(lDiagnostic.Code, 'SCOPE_MODEL_FAILED') then
@@ -2476,8 +2676,11 @@ begin
   Result.SelectorTextId := aExactStrings.Intern(aBinding.SelectorText);
   Result.StatusId := aExactStrings.Intern(aBinding.Status);
   Result.SkipReasonId := aExactStrings.Intern(aBinding.SkipReason);
+  Result.InactiveSpanSkipReasonId := aExactStrings.Intern(aBinding.InactiveSpanSkipReason);
   AddSnapshotFlag(Result.Flags, cSemanticRemoveWithBindingFlagHasScopedDeclaration,
     aBinding.HasScopedDeclaration);
+  AddSnapshotFlag(Result.Flags, cSemanticRemoveWithBindingFlagActivityUnverified,
+    aBinding.ActivityUnverified);
   Result.MemberReferenceCount := aBinding.MemberReferenceCount;
   Result.LexicalReferenceCount := aBinding.LexicalReferenceCount;
   Result.ExternalReferenceCount := aBinding.ExternalReferenceCount;
@@ -2490,6 +2693,9 @@ begin
   SetLength(Result.References, Length(aBinding.References));
   for i := 0 to High(aBinding.References) do
     Result.References[i] := SnapshotBoundReference(aExactStrings, aBinding.References[i]);
+  SetLength(Result.InactiveSpanReferences, Length(aBinding.InactiveSpanReferences));
+  for i := 0 to High(aBinding.InactiveSpanReferences) do
+    Result.InactiveSpanReferences[i] := SnapshotBoundReference(aExactStrings, aBinding.InactiveSpanReferences[i]);
 end;
 
 function CreateRemoveWithPlanningFacts(const aExactStrings: TSemanticStringPool;
@@ -2771,6 +2977,8 @@ begin
     aTargetStrings, aUnit.UnitNameId), RemapStringId(aSourceExactStrings,
     aTargetExactStrings, aUnit.SourceTextId));
   try
+    Result.SetVerifiedActiveSourceTextId(RemapStringId(aSourceExactStrings,
+      aTargetExactStrings, aUnit.VerifiedActiveSourceTextId));
     Result.SetScopeModelMetadata(RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeModelStatusId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeModelVersionId), RemapStringId(aSourceStrings, aTargetStrings,
@@ -2806,6 +3014,8 @@ begin
     aTargetStrings, aUnit.UnitNameId), RemapStringId(aSourceExactStrings,
     aTargetExactStrings, aUnit.SourceTextId));
   try
+    Result.SetVerifiedActiveSourceTextId(RemapStringId(aSourceExactStrings,
+      aTargetExactStrings, aUnit.VerifiedActiveSourceTextId));
     Result.SetScopeModelMetadata(RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeModelStatusId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeModelVersionId), RemapStringId(aSourceStrings, aTargetStrings,

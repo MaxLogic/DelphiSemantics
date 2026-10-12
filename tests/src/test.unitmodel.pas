@@ -57,6 +57,18 @@ type
       aReferenceName: string; out aError: string);
   public
     [Test]
+    [TestCase('Class helper', 'class,class,TObject')]
+    [TestCase('Record helper', 'record,record,TMarker')]
+    [TestCase('Escaped class target', 'escaped,class,TObject')]
+    [TestCase('Comment separated helper', 'commented,class,TObject')]
+    [TestCase('Qualified escaped target', 'qualified,class,System.TObject')]
+    [TestCase('Ordinary record with decoy comment', 'ordinary,none,')]
+    procedure HelperDeclarationsCarryAstKindAndTarget(const aShape, aExpectedKind, aExpectedTarget: string);
+    [Test]
+    procedure ModelJsonRetainsAstHelperProof;
+    [Test]
+    procedure SameLineNestedNamesCannotSupplyUnitHelperProof;
+    [Test]
     [TestCase('Two methods', 'two-methods')]
     [TestCase('Field, visibility and method', 'field-visibility-method')]
     procedure ExtractsEveryMemberOnOnePhysicalLine(const aLayout: string);
@@ -88,11 +100,23 @@ type
     [Test]
     procedure ClassConstantIsNotAMemberFact;
     [Test]
+    procedure ClassConstantDiagnosticIdentifiesDeclaringType;
+    [Test]
+    procedure ClassConstantTextInTriviaDoesNotMarkTypeIncomplete;
+    [Test]
+    procedure FieldAfterClassConstantRetainsNamedParserFailure;
+    [Test]
     procedure NestedTypeMembersKeepQualifiedOwnerAndVisibility;
     [Test]
     procedure AstFailedUnitKeepsUnverifiedMembers;
     [Test]
     procedure InterfaceOnlyRetryKeepsOriginalParserMessage;
+    [Test]
+    [TestCase('Block-comment section word', 'block')]
+    [TestCase('Line-comment section word', 'line')]
+    [TestCase('Quoted section word', 'string')]
+    [TestCase('Escaped section-word field', 'escaped')]
+    procedure InterfaceOnlyRetryUsesRealSectionBoundary(const aShape: string);
     [Test] procedure NestedRoutineDeclarationHasEnclosingScope;
     [Test]
     procedure RoutineLocalTypesRetainTheirDeclaringScope;
@@ -196,6 +220,10 @@ type
     [Test]
     procedure InlineConstSectionEndsTypeDeclarations;
     [Test]
+    [TestCase('Record constant', 'record')]
+    [TestCase('Class constant', 'class')]
+    procedure NestedConstSectionKeepsFollowingTypeDeclaration(const aOwnerType: string);
+    [Test]
     procedure MultilineVarParametersAreNotUnitVariables;
     [Test]
     procedure CommentedRoutineHeaderDoesNotHideUnitVariables;
@@ -224,6 +252,15 @@ type
     procedure TypedConstantMutabilityIgnoresCommentedDirective(const aCase: Integer);
     [Test]
     procedure TypedConstantMutabilityRespectsInlineSwitchOrder;
+    [Test]
+    [TestCase('J in middle', '0,True')]
+    [TestCase('Last J disables', '1,False')]
+    [TestCase('Parenthesized group', '2,True')]
+    [TestCase('Grouped disable', '3,False')]
+    [TestCase('Last repeated J enables', '4,True')]
+    [TestCase('Inactive group', '5,False')]
+    procedure TypedConstantMutabilityUsesGroupedSwitches(const aCase: Integer;
+      const aEnabled: Boolean);
     [Test]
     [TestCase('Parenthesized pair', '0')]
     [TestCase('Brace then parenthesis', '1')]
@@ -2057,6 +2094,33 @@ begin
     Assert.AreEqual(4 + i, lDeclaration.Line, 'Original source line must be retained.');
     Assert.AreEqual(cColumns[i], lDeclaration.Column, 'Original source column must be retained.');
   end;
+end;
+
+procedure TUnitModelTests.TypedConstantMutabilityUsesGroupedSwitches(
+  const aCase: Integer; const aEnabled: Boolean);
+const
+  cSwitches: array[0..5] of string = ('{$H+,J+,R-}', '{$J+,H+,J-}',
+    '(*$H+,J+*)', '{$H+,J-}', '{$J+,J-,J+}', '{$IFDEF NEVER}{$H+,J+}{$ENDIF}');
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+begin
+  lPath := UnitModelTempPath('unit-model-grouped-j-' + IntToStr(aCase) + '.pas');
+  TFile.WriteAllText(lPath, 'unit GroupedJDirectiveUnit;' + sLineBreak +
+    'interface' + sLineBreak + cSwitches[aCase] + sLineBreak +
+    'const StoredValue: Integer = 1;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindDeclaration(lModel, 'StoredValue', 'typed-const', 'interface', lDeclaration));
+  Assert.AreEqual('declaration', lDeclaration.DeclarationRole);
+  Assert.AreEqual(aEnabled, lDeclaration.Mutable, 'Last active grouped J switch must win.');
+  Assert.AreEqual(4, lDeclaration.Line);
 end;
 
 procedure TUnitModelTests.TypedConstantMutabilityUsesLastStandaloneSwitch(const aCase: Integer);
@@ -4113,6 +4177,7 @@ var
   lRestored: TDelphiSemanticUnitModel;
 begin
   lModel := Default(TDelphiSemanticUnitModel);
+  lModel.VerifiedActiveSourceText := 'unit U;'#13#10'       '#13#10'end.';
   lModel.PhysicalReferenceOccurrencesAvailable := True;
   SetLength(lModel.PhysicalReferenceOccurrences, 1);
   lModel.PhysicalReferenceOccurrences[0].Name := 'GF';
@@ -4130,6 +4195,7 @@ begin
   lModel.PhysicalReferenceOccurrences[0].Verified := True;
 
   lRestored := JsonToModel(ModelToJson(lModel));
+  Assert.AreEqual(lModel.VerifiedActiveSourceText, lRestored.VerifiedActiveSourceText);
   Assert.IsTrue(lRestored.PhysicalReferenceOccurrencesAvailable);
   Assert.AreEqual(1, Integer(Length(lRestored.PhysicalReferenceOccurrences)));
   Assert.AreEqual('GF', lRestored.PhysicalReferenceOccurrences[0].Name);
@@ -4769,6 +4835,49 @@ begin
         Assert.IsFalse(MatchText(lReference.Name, ['aktiv', 'False', 'True', 'a', 'b']),
           'Initializer values and fields must not become type references.');
     end;
+end;
+
+procedure TUnitModelTests.NestedConstSectionKeepsFollowingTypeDeclaration(const aOwnerType: string);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSource: string;
+begin
+  lSource := 'unit NestedConstTypes;' + sLineBreak +
+    'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TR = ' + aOwnerType + sLineBreak +
+    '  public' + sLineBreak +
+    '    const' + sLineBreak +
+    '      cValue = 1;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TC = class' + sLineBreak +
+    '  public' + sLineBreak +
+    '    Value: Integer;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('nested-const-following-type-' + aOwnerType + '.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindDeclaration(lModel, 'TC', 'type', 'interface', lDeclaration),
+    'The nested const section must not consume the following top-level class.');
+  Assert.AreEqual('class', lDeclaration.TypeName);
+  Assert.AreEqual(9, lDeclaration.Line);
+  Assert.AreEqual(3, lDeclaration.Column);
+  Assert.AreEqual(Pos('TC = class', lSource), lDeclaration.Offset);
+  Assert.AreEqual('unit', lDeclaration.ScopeKind);
+  Assert.AreEqual('NestedConstTypes', lDeclaration.OwnerName);
+  Assert.IsFalse(HasDeclaration(lModel, 'TC', 'const', 'interface'));
+  Assert.IsTrue(FindDeclaration(lModel, 'TR', 'type', 'interface', lDeclaration));
+  Assert.AreEqual(aOwnerType, lDeclaration.TypeName);
+  Assert.IsTrue(FindDeclaration(lModel, 'cValue', 'const', 'interface', lDeclaration));
+  Assert.AreEqual('TR', lDeclaration.OwnerName,
+    'The nested constant must retain its declaring type.');
 end;
 
 procedure TUnitModelTests.InlineConstSectionEndsTypeDeclarations;
@@ -5479,7 +5588,9 @@ begin
   lModel := ExtractUnitSource('member-layout-class-const.pas', lSource, False);
   Assert.IsTrue(lModel.Success);
   Assert.AreEqual('ast', lModel.ScopeModelStatus);
-  Assert.AreEqual('', DiagnosticCodes(lModel), DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'));
+  Assert.AreEqual('MEMBERS_INCOMPLETE,', DiagnosticCodes(lModel),
+    DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'));
+  Assert.IsTrue(ContainsText(DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'), 'TSubject'));
   Assert.AreEqual('Count,Data,', OwnerMemberNames(lModel, 'TSubject'),
     'A class constant is not a member fact, and the field before it still reconciles.');
   Assert.IsFalse(HasMemberOfOwner(lModel, 'TSubject', 'Items'));
@@ -5496,7 +5607,9 @@ begin
   lModel := ExtractUnitSource('member-layout-class-const-soft.pas', lSource, False);
   Assert.IsTrue(lModel.Success);
   Assert.AreEqual('ast', lModel.ScopeModelStatus);
-  Assert.AreEqual('', DiagnosticCodes(lModel), DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'));
+  Assert.AreEqual('MEMBERS_INCOMPLETE,', DiagnosticCodes(lModel),
+    DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'));
+  Assert.IsTrue(ContainsText(DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'), 'TSubject'));
   Assert.AreEqual('Count,Name,Data,', OwnerMemberNames(lModel, 'TSubject'));
   Assert.IsTrue(FindMember(lModel, 'TSubject', 'Name', 'field', lMember));
   Assert.AreEqual('Integer = 1', lMember.TypeName);
@@ -5510,11 +5623,64 @@ begin
   lModel := ExtractUnitSource('member-layout-class-const-rebuilt.pas', lSource, False);
   Assert.IsTrue(lModel.Success);
   Assert.AreEqual('ast', lModel.ScopeModelStatus);
-  Assert.AreEqual('', DiagnosticCodes(lModel), DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'));
+  Assert.AreEqual('MEMBERS_INCOMPLETE,', DiagnosticCodes(lModel),
+    DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'));
+  Assert.IsTrue(ContainsText(DiagnosticMessage(lModel, 'MEMBERS_INCOMPLETE'), 'TSubject'));
   Assert.AreEqual('Count,Name,', OwnerMemberNames(lModel, 'TSubject'));
   Assert.IsTrue(FindMember(lModel, 'TSubject', 'Name', 'field', lMember));
   Assert.AreEqual('Integer', lMember.TypeName);
   Assert.AreEqual(Pos('Name: Integer', lSource), lMember.Offset);
+end;
+
+procedure TUnitModelTests.ClassConstantDiagnosticIdentifiesDeclaringType;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lSource: string;
+begin
+  lSource := MemberLayoutSource('  TSubject = class'#13#10'  public'#13#10 +
+    '    class const Items: Integer = 1;'#13#10'  end;'#13#10 +
+    '  TOther = class'#13#10'  public'#13#10'    Count: Integer;'#13#10'  end;');
+  lModel := ExtractUnitSource('class-constant-owner.pas', lSource, False);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual(1, Integer(Length(lModel.Diagnostics)));
+  Assert.AreEqual('MEMBERS_INCOMPLETE', lModel.Diagnostics[0].Code);
+  Assert.IsTrue(FindDeclaration(lModel, 'TSubject', 'type', 'interface', lDeclaration));
+  Assert.AreEqual(lDeclaration.Line, lModel.Diagnostics[0].Line);
+  Assert.AreEqual(lModel.FileName, lModel.Diagnostics[0].FileName);
+  Assert.IsTrue(ContainsText(lModel.Diagnostics[0].Message, 'TSubject'));
+  Assert.IsFalse(ContainsText(lModel.Diagnostics[0].Message, 'TOther'));
+  Assert.IsTrue(FindDeclaration(lModel, 'TOther', 'type', 'interface', lDeclaration));
+  Assert.AreEqual('class', lDeclaration.TypeName);
+  Assert.IsTrue(lDeclaration.Line > lModel.Diagnostics[0].Line);
+  lModel := JsonToModel(ModelToJson(lModel));
+  Assert.AreEqual('MEMBERS_INCOMPLETE', lModel.Diagnostics[0].Code);
+  Assert.IsTrue(ContainsText(lModel.Diagnostics[0].Message, 'TSubject'));
+end;
+
+procedure TUnitModelTests.ClassConstantTextInTriviaDoesNotMarkTypeIncomplete;
+var
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := ExtractUnitSource('class-constant-trivia.pas', MemberLayoutSource(
+    '  TSubject = class'#13#10'  public'#13#10 +
+    '    // class const Items: Integer = 1;'#13#10 +
+    '    procedure Mark(const aText: string = ''class const'');'#13#10'  end;'), False);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual('', DiagnosticCodes(lModel));
+end;
+
+procedure TUnitModelTests.FieldAfterClassConstantRetainsNamedParserFailure;
+var
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := ExtractUnitSource('class-constant-following-field.pas', MemberLayoutSource(
+    '  TSubject = class'#13#10'  public'#13#10 +
+    '    class const Items: Integer = 1;'#13#10 +
+    '    Count: Integer;'#13#10'  end;'), False);
+  Assert.AreEqual('ast-failed', lModel.ScopeModelStatus);
+  Assert.IsTrue(HasDiagnostic(lModel, 'SCOPE_MODEL_FAILED'));
+  Assert.IsTrue(HasDiagnostic(lModel, 'MEMBERS_UNVERIFIED'));
 end;
 
 procedure TUnitModelTests.NestedTypeMembersKeepQualifiedOwnerAndVisibility;
@@ -5620,6 +5786,55 @@ begin
   Assert.AreEqual(lExpected, DiagnosticMessage(lModel, 'AST_BODY_PARSE_FAILED'),
     'The interface-only retry must keep the original parser message.');
   Assert.AreEqual('Run,', OwnerMemberNames(lModel, 'TSubject'));
+end;
+
+procedure TUnitModelTests.InterfaceOnlyRetryUsesRealSectionBoundary(const aShape: string);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lExpected: string;
+  lFullModel: TDelphiSemanticUnitModel;
+  lModel: TDelphiSemanticUnitModel;
+  lSource: string;
+  lTrivia: string;
+begin
+  if aShape = 'block' then
+    lTrivia := '{ implementation in a comment }'
+  else if aShape = 'line' then
+    lTrivia := '// implementation in a comment'
+  else if aShape = 'string' then
+    lTrivia := 'const cText = ''implementation in a string'';'
+  else if aShape = 'escaped' then
+    lTrivia := ''
+  else
+    Assert.Fail('Unknown retry-boundary fixture shape');
+  lSource := 'unit RetryBoundary;'#13#10'interface'#13#10 + lTrivia + #13#10 +
+    'type'#13#10'  TSubject = class'#13#10'  public'#13#10'    procedure Run;'#13#10'  end;'#13#10 +
+    'implementation'#13#10'procedure TSubject.Run;'#13#10'begin'#13#10'  if ('#13#10 +
+    'end;'#13#10'end.'#13#10;
+  if aShape = 'escaped' then
+    lSource := StringReplace(lSource, '  public'#13#10,
+      '  public'#13#10'    &implementation: Integer;'#13#10, []);
+  lFullModel := ExtractUnitSource('retry-boundary-full-' + aShape + '.pas', lSource, False);
+  lExpected := DiagnosticMessage(lFullModel, 'SCOPE_MODEL_FAILED');
+  Assert.AreNotEqual('', lExpected);
+  Assert.AreEqual('ast-failed', lFullModel.ScopeModelStatus);
+  Assert.IsTrue(HasDiagnostic(lFullModel, 'MEMBERS_UNVERIFIED'));
+  Assert.IsTrue(lFullModel.RejectedDeclarationCount > 0);
+  Assert.IsFalse(lFullModel.PhysicalReferenceOccurrencesAvailable);
+  lModel := ExtractUnitSource('retry-boundary-' + aShape + '.pas', lSource, True);
+  Assert.AreEqual('ast-interface-only', lModel.ScopeModelStatus);
+  Assert.AreEqual(lExpected, DiagnosticMessage(lModel, 'AST_BODY_PARSE_FAILED'));
+  Assert.IsFalse(HasDiagnostic(lModel, 'SCOPE_MODEL_FAILED'));
+  Assert.IsFalse(HasDiagnostic(lModel, 'MEMBERS_UNVERIFIED'));
+  if aShape = 'escaped' then
+    Assert.AreEqual('implementation,Run,', OwnerMemberNames(lModel, 'TSubject'))
+  else
+    Assert.AreEqual('Run,', OwnerMemberNames(lModel, 'TSubject'));
+  Assert.IsTrue(FindDeclaration(lModel, 'TSubject', 'type', 'interface', lDeclaration));
+  Assert.AreEqual('unit', lDeclaration.ScopeKind);
+  Assert.AreNotEqual('', lDeclaration.SymbolId);
+  Assert.AreEqual(Pos('implementation'#13#10'procedure', lSource),
+    lModel.SourceSections.ImplementationOffset);
 end;
 
 // Lists the locals and references named in aNames as sorted "L:Routine.Name@line" and
@@ -5870,6 +6085,109 @@ begin
   finally
     lKeys.Free;
   end;
+end;
+
+procedure TUnitModelTests.HelperDeclarationsCarryAstKindAndTarget(
+  const aShape, aExpectedKind, aExpectedTarget: string);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFound: Boolean;
+  lHeader: string;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lText: string;
+begin
+  if aShape = 'record' then
+    lHeader := 'record helper for TMarker'
+  else if aShape = 'escaped' then
+    lHeader := 'class helper for &TObject'
+  else if aShape = 'qualified' then
+    lHeader := 'class helper for System.&TObject'
+  else if aShape = 'commented' then
+    lHeader := 'class {kind} helper {helper} for {target} TObject'
+  else
+    lHeader := 'class helper for TObject';
+  lText := 'unit HelperKinds;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak + '  TMarker = record Value: Integer; end;' + sLineBreak;
+  if aShape = 'ordinary' then
+    lText := lText + '  TProofHelper = record' + sLineBreak +
+      '    // class helper for TObject is only a comment.' + sLineBreak +
+      '    Value: Integer;' + sLineBreak + '  end;' + sLineBreak + 'implementation' + sLineBreak
+  else
+    lText := lText + '  TProofHelper = ' + lHeader + sLineBreak +
+      '    procedure Extra;' + sLineBreak + '  end;' + sLineBreak + 'implementation' + sLineBreak +
+      'procedure TProofHelper.Extra; begin end;' + sLineBreak;
+  lText := lText + 'end.' + sLineBreak;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := UnitModelTempPath('ast-helper-' + aShape + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName, lText, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lFound := False;
+  for lDeclaration in lModel.Declarations do
+    if SameText(lDeclaration.Name, 'TProofHelper') and SameText(lDeclaration.Kind, 'type') then
+    begin
+      lFound := True;
+      Assert.AreEqual('declaration', lDeclaration.DeclarationRole);
+      Assert.AreEqual('unit', lDeclaration.ScopeKind);
+      Assert.AreEqual(aExpectedKind, lDeclaration.AstHelperKind);
+      Assert.AreEqual(aExpectedTarget, lDeclaration.HelperTargetName);
+    end;
+  Assert.IsTrue(lFound);
+end;
+
+procedure TUnitModelTests.ModelJsonRetainsAstHelperProof;
+var
+  lDecoded: TDelphiSemanticUnitModel;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  SetLength(lModel.Declarations, 1);
+  lModel.Declarations[0].Name := 'TProofHelper';
+  lModel.Declarations[0].Kind := 'type';
+  lModel.Declarations[0].AstHelperKind := 'record';
+  lModel.Declarations[0].HelperTargetName := 'TMarker';
+  lDecoded := JsonToModel(ModelToJson(lModel));
+  Assert.AreEqual(NativeInt(1), Length(lDecoded.Declarations));
+  Assert.AreEqual('record', lDecoded.Declarations[0].AstHelperKind);
+  Assert.AreEqual('TMarker', lDecoded.Declarations[0].HelperTargetName);
+  lDecoded := JsonToModel('{"Declarations":[{"Name":"LegacyHelper","Kind":"type","HelperTargetName":"TObject"}]}');
+  Assert.AreEqual(NativeInt(1), Length(lDecoded.Declarations));
+  Assert.AreEqual('', lDecoded.Declarations[0].AstHelperKind,
+    'A missing legacy proof must stay unverified rather than infer a helper kind.');
+end;
+
+procedure TUnitModelTests.SameLineNestedNamesCannotSupplyUnitHelperProof;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lCount: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lOwners: string;
+  lSource: string;
+begin
+  lSource := 'unit SameLineHelpers;' + sLineBreak + 'interface' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure RunA; type TProofHelper = record First: Integer; end; begin end; ' +
+    'procedure RunB; type TProofHelper = record Second: Integer; end; begin end;' +
+    sLineBreak + 'end.';
+  lModel := ExtractUnitSource('same-line-helpers.pas', lSource, False);
+  Assert.IsTrue(lModel.Success);
+  lCount := 0;
+  lOwners := '';
+  for lDeclaration in lModel.Declarations do
+    if SameText(lDeclaration.Name, 'TProofHelper') and
+      SameText(lDeclaration.Kind, 'type') then
+    begin
+      Inc(lCount);
+      Assert.AreEqual('routine', lDeclaration.ScopeKind);
+      Assert.AreEqual('none', lDeclaration.AstHelperKind);
+      Assert.AreEqual('', lDeclaration.HelperTargetName);
+      lOwners := lOwners + lDeclaration.OwnerName + ',';
+    end;
+  Assert.AreEqual(2, lCount, 'Both same-line type declarations must reach AST fact matching.');
+  Assert.AreEqual('RunA,RunB,', lOwners,
+    'Each helper-absence fact must belong to the declaration at its exact column and scope.');
 end;
 
 initialization

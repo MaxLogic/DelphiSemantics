@@ -28,6 +28,16 @@ type
     function TempPath(const aName: string): string;
   public
     [Test]
+    [TestCase('Miss refusal', 'reject')]
+    [TestCase('Hit refusal', 'hit-reject')]
+    [TestCase('Exception refusal', 'raise')]
+    [TestCase('Source drift', 'drift')]
+    [TestCase('Include drift', 'include-drift')]
+    [TestCase('Miss accepted', 'accept')]
+    [TestCase('Hit accepted', 'hit-accept')]
+    [TestCase('Owner cannot detach during validation', 'reentrant')]
+    procedure RequestOwnerValidatesBeforeCachePublication(const aMode: string);
+    [Test]
     procedure DefaultOptionsUseInMemoryCache;
     [Test]
     procedure TempPathUsesPerRunRoot;
@@ -37,6 +47,8 @@ type
     procedure SharedUnitCacheRejectsReentrantAccess;
     [Test]
     procedure CacheIdentityIncludesLexicalOwnershipModelShape;
+    [Test]
+    procedure NoContextScanWitnessSurvivesSqliteWithoutActivityAuthority;
     [Test]
     procedure UnitCacheIdentityBuilderReusesSingleSourceLoad;
     [Test]
@@ -82,6 +94,7 @@ type
     [Test]
     procedure ParserVersionChangeInvalidatesCachedUnitModel;
     [Test]
+    [TestCase('Before raw WITH ranges and gap evidence', '63')]
     [TestCase('Before inline extraction', '4')]
     [TestCase('Before lexical directive handling', '5')]
     [TestCase('Before selector literal preservation', '6')]
@@ -99,6 +112,8 @@ type
     [TestCase('Before exclusive routine scope positions', '19')]
     [TestCase('Previous AST pair producer without source signature witnesses', '40')]
     [TestCase('Same-line routine locals absent from previous producer', '41')]
+    [TestCase('IFOPT erased by previous activity producer', '59')]
+    [TestCase('Evidence failure discarded by previous activity producer', '60')]
     procedure DefaultParserInvalidatesObsoleteModels(const aVersion: string);
     [Test]
     procedure ModelVersionChangeInvalidatesCachedUnitModel;
@@ -127,7 +142,7 @@ implementation
 uses
   System.IOUtils, System.JSON, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils,
+  AutoFree, maxLogic.IOUtils,
   DelphiSemantics.Model.Json, DelphiSemantics.Resolve, Test.Support;
 
 var
@@ -360,6 +375,50 @@ begin
   end;
 end;
 
+procedure TCacheTests.NoContextScanWitnessSurvivesSqliteWithoutActivityAuthority;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lFirst: TDelphiSemanticUnitCacheAccessResult;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lSecond: TDelphiSemanticUnitCacheAccessResult;
+begin
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := TempPath('NoContextWitness.pas');
+  TFile.WriteAllText(lModelOptions.SourceFileName,
+    'unit NoContextWitness;'#13#10 + 'interface'#13#10 +
+    'const ActiveName = 1;'#13#10 + '{$IFDEF RELEASE_TRACE}'#13#10 +
+    'const InactiveName = 2;'#13#10 + '{$ENDIF}'#13#10 +
+    '{$IF UseUnknown} const UnknownName = 3; {$IFEND}'#13#10 +
+    'implementation'#13#10 + 'end.', TEncoding.ASCII);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TempPath('no-context-witness.sqlite3');
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lFirst := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+  finally
+    lCache.Free;
+  end;
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lSecond := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+    Assert.IsFalse(lFirst.CacheHit);
+    Assert.IsTrue(lSecond.CacheHit);
+    Assert.IsNotEmpty(lFirst.Model.ReferenceScanSourceText);
+    Assert.AreEqual(lFirst.Model.ReferenceScanSourceText, lSecond.Model.ReferenceScanSourceText);
+    Assert.AreEqual(Length(lSecond.Model.SourceText), Length(lSecond.Model.ReferenceScanSourceText));
+    Assert.IsTrue(ContainsText(lSecond.Model.ReferenceScanSourceText, 'ActiveName'));
+    Assert.IsTrue(ContainsText(lSecond.Model.ReferenceScanSourceText, 'UnknownName'),
+      'An unknown region must remain in the conservative reference scan.');
+    Assert.IsFalse(ContainsText(lSecond.Model.ReferenceScanSourceText, 'InactiveName'));
+    Assert.AreEqual('', lFirst.Model.VerifiedActiveSourceText);
+    Assert.AreEqual('', lSecond.Model.VerifiedActiveSourceText,
+      'A warm scan witness must never become project activity authority.');
+  finally
+    lCache.Free;
+  end;
+end;
+
 procedure TCacheTests.CacheIdentityIncludesLexicalOwnershipModelShape;
 var
   lCache: TDelphiSemanticUnitCache;
@@ -382,8 +441,8 @@ begin
 
     Assert.AreEqual('9', lIdentity.SchemaVersion,
       'Lexical ownership fields changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.45', lIdentity.ParserVersion,
-      'Physical reference occurrences require a fresh model extraction.');
+    Assert.AreEqual('DelphiSemantics.Model.Parser.65', lIdentity.ParserVersion,
+      'Separate scan witnesses require fresh model extraction without edit authority.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,
       'Dependent caches chain to the unit-model parser version.');
@@ -1712,6 +1771,7 @@ end;
 procedure TCacheTests.DefaultParserInvalidatesObsoleteModels(const aVersion: string);
 var
   lAccess: TDelphiSemanticUnitCacheAccessResult;
+  lActivityEvidence: string;
   lCache: TDelphiSemanticSqliteUnitCache;
   lCacheOptions: TDelphiSemanticCacheOptions;
   lLocal: TDelphiSemanticLocal;
@@ -1719,7 +1779,24 @@ var
 begin
   lModelOptions := Default(TDelphiSemanticModelOptions);
   lModelOptions.ProjectContextApplied := True;
-  if aVersion = '41' then
+  if MatchText(aVersion, ['59', '60']) then
+  begin
+    lModelOptions.SourceFileName := TempPath('IfoptCacheUnit.pas');
+    TFile.WriteAllText(lModelOptions.SourceFileName,
+      'unit IfoptCacheUnit;' + sLineBreak + 'interface' + sLineBreak +
+      'function Fetch: Integer;' + sLineBreak + 'implementation' + sLineBreak +
+      'function Fetch: Integer; begin Result := 1; end;' + sLineBreak +
+      'procedure Run; begin {$IFOPT R+} WriteLn(Fetch); {$ENDIF} end;' +
+      sLineBreak + 'end.', TEncoding.UTF8);
+    if aVersion = '60' then
+      TFile.WriteAllText(lModelOptions.SourceFileName,
+        'unit EvidenceFailureCacheUnit;' + sLineBreak + 'interface' + sLineBreak +
+        'function Fetch: Integer;' + sLineBreak + 'implementation' + sLineBreak +
+        'function Fetch: Integer; begin Result := 1; end;' + sLineBreak +
+        '{$HINTS OFF}' + sLineBreak +
+        'procedure Run; begin {$IFNDEF LINUX} WriteLn(Fetch); {$ENDIF} end;' +
+        sLineBreak + 'end.', TEncoding.UTF8);
+  end else if aVersion = '41' then
   begin
     lModelOptions.SourceFileName := TempPath('SameLineLocalsCacheUnit.pas');
     TFile.WriteAllText(lModelOptions.SourceFileName,
@@ -1742,7 +1819,19 @@ begin
   lCacheOptions.ParserVersion := 'DelphiSemantics.Model.Parser.' + aVersion;
   lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
   try
-    if aVersion = '41' then
+    if MatchText(aVersion, ['59', '60']) then
+      lAccess := lCache.GetOrBuildUnitModelWithStatus(lModelOptions,
+        function(const aBuildOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel
+        begin
+          Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(aBuildOptions);
+          // Reproduce the old plain mask that falsely erased the unknown call.
+          if aVersion = '60' then
+            Result.VerifiedActiveSourceText := ''
+          else
+            Result.VerifiedActiveSourceText := StringReplace(Result.SourceText,
+              'WriteLn(Fetch);', StringOfChar(' ', Length('WriteLn(Fetch);')), []);
+        end)
+    else if aVersion = '41' then
       lAccess := lCache.GetOrBuildUnitModelWithStatus(lModelOptions,
         function(const aBuildOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel
         begin
@@ -1772,8 +1861,17 @@ begin
       Assert.IsTrue(FindLocal(lAccess.Model, 'Run', 'lPointer', lLocal));
       Assert.AreEqual('^TNode', lLocal.TypeName);
     end;
+    if MatchText(aVersion, ['59', '60']) then
+    begin
+      lActivityEvidence := lAccess.Model.VerifiedActiveSourceText;
+      Assert.AreEqual(1, Pos(#1'DS-ACTIVITY-1:', lActivityEvidence),
+        'The cold rebuild must retain unknown conditional activity.');
+    end;
     lAccess := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
     Assert.IsTrue(lAccess.CacheHit, 'The rebuilt model must remain reusable.');
+    if MatchText(aVersion, ['59', '60']) then
+      Assert.AreEqual(lActivityEvidence, lAccess.Model.VerifiedActiveSourceText,
+        'The warm model must preserve the rebuilt mixed evidence.');
     if aVersion = '41' then
     begin
       Assert.IsTrue(FindLocal(lAccess.Model, 'Run', 'lPointer', lLocal));
@@ -1782,6 +1880,114 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+type
+  TObservationOwnerStub = class(TInterfacedObject, IDelphiSemanticModelObservationOwner)
+  private
+    fMode: string;
+    fCache: TDelphiSemanticUnitCache;
+    fCalls: Integer;
+  public
+    constructor Create(const aMode: string; const aCache: TDelphiSemanticUnitCache);
+    function ValidateModelSources(const aObservation: TDelphiSemanticModelObservation;
+      out aReason: string): Boolean;
+  end;
+
+constructor TObservationOwnerStub.Create(const aMode: string; const aCache: TDelphiSemanticUnitCache);
+begin
+  inherited Create;
+  fMode := aMode;
+  fCache := aCache;
+end;
+
+function TObservationOwnerStub.ValidateModelSources(
+  const aObservation: TDelphiSemanticModelObservation; out aReason: string): Boolean;
+var
+  lPath: string;
+begin
+  Inc(fCalls);
+  Assert.AreEqual('test-project-context', aObservation.ProjectContextFingerprint);
+  Assert.IsNotNull(aObservation.SourceObservations);
+  Assert.IsTrue(aObservation.SourceObservations.Count > 0);
+  Assert.AreEqual(fMode.StartsWith('hit-'), aObservation.CacheHit);
+  Assert.AreEqual(1, Integer(Length(aObservation.IncludeFileNames)));
+  Assert.AreEqual(2, aObservation.SourceObservations.Count);
+  aReason := 'deliberate owner refusal';
+  if fMode = 'raise' then
+    raise EInvalidOpException.Create('deliberate owner exception');
+  if fMode = 'reentrant' then
+    fCache.ObservationOwner := nil;
+  if fMode.EndsWith('drift') then
+  begin
+    lPath := aObservation.ModelFileName;
+    if fMode = 'include-drift' then
+      lPath := aObservation.IncludeFileNames[0];
+    TFile.AppendAllText(lPath, sLineBreak + '// changed after consumed read', TEncoding.UTF8);
+  end;
+  Result := not fMode.EndsWith('reject');
+end;
+
+procedure TCacheTests.RequestOwnerValidatesBeforeCachePublication(const aMode: string);
+var
+  g: TGarbos;
+  lCache: TDelphiSemanticUnitCache;
+  lOptions: TDelphiSemanticModelOptions;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lFileName, lIncludeFileName, lCacheFileName: string;
+  lAccess: TDelphiSemanticUnitCacheAccessResult;
+  lRefused: Boolean;
+  lOwner: TObservationOwnerStub;
+begin
+  lFileName := TempPath('OwnerUnit.pas');
+  lIncludeFileName := TPath.Combine(TPath.GetDirectoryName(lFileName), 'Owner.inc');
+  lCacheFileName := TempPath('owner-' + aMode + '.sqlite');
+  TFile.WriteAllText(lFileName, 'unit OwnerUnit;' + sLineBreak + 'interface' + sLineBreak +
+    '{$I Owner.inc}' + sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lIncludeFileName, 'type TOwnerValue = record Value: Integer; end;', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFileName;
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := lCacheFileName;
+  GC(lCache, TDelphiSemanticSqliteUnitCache.Create(lCacheOptions), g);
+  if aMode.StartsWith('hit-') then
+  begin
+    lAccess := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+    Assert.IsTrue(lAccess.Model.Success);
+  end;
+  lCache.ProjectContextFingerprint := 'test-project-context';
+  lOwner := TObservationOwnerStub.Create(aMode, lCache);
+  lCache.ObservationOwner := lOwner;
+  lAccess := Default(TDelphiSemanticUnitCacheAccessResult);
+  lRefused := False;
+  try
+    lAccess := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+  except
+    on E: EInvalidOpException do
+    begin
+      Assert.IsTrue(E.Message.StartsWith('MODEL_SOURCE_VALIDATION_FAILED'), E.Message);
+      if aMode = 'reentrant' then
+        Assert.IsTrue(E.Message.Contains('single-threaded'), E.Message)
+      else if aMode.EndsWith('drift') then
+        Assert.IsTrue(E.Message.Contains('source drift'), E.Message)
+      else
+        Assert.IsTrue(E.Message.Contains('deliberate'), E.Message);
+      lRefused := True;
+    end;
+  end;
+  if aMode.EndsWith('accept') then
+    Assert.AreEqual(1, lOwner.fCalls, 'Accepted model requires an owner callback');
+  Assert.AreEqual(not aMode.EndsWith('accept'), lRefused);
+  if lRefused then
+    Assert.IsFalse(lAccess.Model.Success, 'Refusal must not publish a model')
+  else
+    Assert.IsTrue(lAccess.Model.Success);
+  // A cold owner request must leave no entry, whether accepted or refused.
+  lCache.ObservationOwner := nil;
+  g.Clear;
+  GC(lCache, TDelphiSemanticSqliteUnitCache.Create(lCacheOptions), g);
+  lAccess := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+  Assert.AreEqual(aMode.StartsWith('hit-'), lAccess.CacheHit);
 end;
 
 initialization

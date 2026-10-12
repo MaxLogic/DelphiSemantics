@@ -40,6 +40,13 @@ begin
   Result := SameText(aSymbolSection, 'interface') or IsImplementationLikeSection(aContextSection);
 end;
 
+function IsInlineArrayType(const aTypeName: string): Boolean;
+begin
+  // The keyword boundary distinguishes array declarations from names such as ArrayRecPtr.
+  Result := (Length(aTypeName) > 5) and StartsText('array', aTypeName) and
+    CharInSet(aTypeName[6], [' ', #9, #10, #13, '[']);
+end;
+
 function NormalizeTypeReference(const aTypeName: string): string;
 var
   lLower: string;
@@ -48,7 +55,7 @@ begin
   Result := aTypeName.Trim;
   lLower := LowerCase(Result);
   lPos := Pos(' of ', lLower);
-  if (Pos('array', lLower) = 1) and (lPos > 0) then
+  if IsInlineArrayType(Result) and (lPos > 0) then
     Result := Copy(Result, lPos + 4, MaxInt).Trim;
 end;
 
@@ -147,7 +154,7 @@ begin
   begin
     if (aTypeName = '') then
       Exit(False);
-    if (aTypeName[1] = '^') or StartsText('array', aTypeName) then
+    if (aTypeName[1] = '^') or IsInlineArrayType(aTypeName) then
       Exit(True);
     lKey := LowerCase(aCurrentModel.FileName + '|' + aCurrentModel.UnitName + '|' +
       aSectionKind + '|' + aTypeName);
@@ -200,13 +207,11 @@ end;
 function TryApplyIndexPostfix(const aContext: TDelphiSemanticResolveContext;
   var aCurrentModel: TDelphiSemanticUnitModel; var aSectionKind, aTypeName: string): Boolean;
 var
-  lLower: string;
   lMember: TDelphiSemanticMember;
 begin
   if not TryResolveSelectorType(aContext, aCurrentModel, aSectionKind, aTypeName) then
     Exit(False);
-  lLower := LowerCase(aTypeName);
-  if Pos('array', lLower) = 1 then
+  if IsInlineArrayType(aTypeName) then
   begin
     aTypeName := NormalizeTypeReference(aTypeName);
     Exit(TryResolveSelectorType(aContext, aCurrentModel, aSectionKind, aTypeName));

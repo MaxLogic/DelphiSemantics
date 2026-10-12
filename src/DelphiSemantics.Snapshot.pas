@@ -119,6 +119,7 @@ type
     fScopeModelStatusId: TSemanticStringId;
     fScopeModelVersionId: TSemanticStringId;
     fSourceTextId: TSemanticStringId;
+    fVerifiedActiveSourceTextId: TSemanticStringId;
     fSymbols: TSimpleList<TSemanticSymbolFact>;
     fUnitId: TSemanticUnitId;
     fUnitNameId: TSemanticStringId;
@@ -142,6 +143,7 @@ type
     function ReferenceById(const aId: TSemanticReferenceId): TSemanticReferenceFact;
     function ReferenceIdByWithIndex(const aIndex: Integer): TSemanticReferenceId;
     function SymbolById(const aId: TSemanticSymbolId): TSemanticSymbolFact;
+    procedure SetVerifiedActiveSourceTextId(const aId: TSemanticStringId);
     procedure SetScopeModelMetadata(const aStatusId, aVersionId,
       aDiagnosticId: TSemanticStringId; const aRejectedDeclarationCount: Integer);
     function TryFindInnermostWithStatementAtLine(const aLine: Integer;
@@ -159,6 +161,7 @@ type
     property ScopeModelStatusId: TSemanticStringId read fScopeModelStatusId;
     property ScopeModelVersionId: TSemanticStringId read fScopeModelVersionId;
     property SourceTextId: TSemanticStringId read fSourceTextId;
+    property VerifiedActiveSourceTextId: TSemanticStringId read fVerifiedActiveSourceTextId;
     property SymbolCount: Integer read GetSymbolCount;
     property UnitId: TSemanticUnitId read fUnitId;
     property UnitNameId: TSemanticStringId read fUnitNameId;
@@ -496,6 +499,12 @@ procedure TUnitSnapshot.CheckMutable;
 begin
   if fFrozen then
     raise Exception.Create('Cannot mutate a frozen unit snapshot.');
+end;
+
+procedure TUnitSnapshot.SetVerifiedActiveSourceTextId(const aId: TSemanticStringId);
+begin
+  CheckMutable;
+  fVerifiedActiveSourceTextId := aId;
 end;
 
 constructor TUnitSnapshot.Create(const aUnitId: TSemanticUnitId);

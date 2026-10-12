@@ -22,6 +22,8 @@ type
       const aFileName, aRoutineName, aRange, aBodyRange, aSelector: string;
       const aSelectorCount: Integer;
       out aStatement: TDelphiSemanticRemoveWithFinalStatement): string;
+    procedure AssertMaxTdbNeueDateiParent(const aPlan: TDelphiSemanticRemoveWithPlan;
+      out aStatement: TDelphiSemanticRemoveWithFinalStatement);
     function TempPath(const aRelativePath: string): string;
     function CopyDakFixtureToTemp(const aRelativePath, aTempName: string): string;
     function BuildPlan: TDelphiSemanticRemoveWithPlan;
@@ -42,11 +44,85 @@ type
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
     [Test]
+    [TestCase('b1-usefast', '0')]
+    [TestCase('b1-declared', '1')]
+    [TestCase('b1-malformed', '2')]
+    [TestCase('b1-linux', '3')]
+    [TestCase('b1-missing', '4')]
+    [TestCase('b1-include', '5')]
+    [TestCase('b1-ifdef-other', '6')]
+    [TestCase('b1-tainted', '7')]
+    [TestCase('b1-control-mixed', '8')]
+    [TestCase('m3-unresolved-act', '9')]
+    [TestCase('m3-unresolved-plain', '10')]
+    [TestCase('r2-selector', '11')]
+    [TestCase('r1-taint', '12')]
+    [TestCase('r1-restored', '13')]
+    [TestCase('ki-never', '14')]
+    [TestCase('ki-nested-unknown', '15')]
+    [TestCase('ki-else-active', '16')]
+    [TestCase('ki-after-taint', '17')]
+    [TestCase('ki-ifopt', '18')]
+    [TestCase('ki-elseif-unknown', '19')]
+    [TestCase('ki-and-false', '20')]
+    [TestCase('ki-or-unknown', '21')]
+    [TestCase('ki-multiline-dir', '22')]
+    [TestCase('ki-define-inactive', '23')]
+    [TestCase('ki-define-unknown', '24')]
+    [TestCase('gi-flag-nested-with', '25')]
+    [TestCase('gi-ifndef-debug-nested', '26')]
+    [TestCase('gi-flag-other', '27')]
+    [TestCase('gi-flag-missing', '28')]
+    [TestCase('gi-flag-local-count', '29')]
+    [TestCase('ki-mswindows', '30')]
+    [TestCase('ctx-prefix', '31')]
+    [TestCase('ctx-suffix-end', '32')]
+    [TestCase('ctx-suffix-semi', '33')]
+    [TestCase('ctx-suffix-else', '34')]
+    [TestCase('y-suffix-ki-end', '35')]
+    [TestCase('y-suffix-ki-else', '36')]
+    [TestCase('x-else-control', '37')]
+    [TestCase('x-nested-parent-unknown', '38')]
+    [TestCase('inc-active-body', '39')]
+    [TestCase('inc-shift-unknown', '40')]
+    [TestCase('inc-shift-known', '41')]
+    [TestCase('noctx-b1-linux', '42')]
+    procedure BaseParity(const aCase: Integer);
+
+    [Test]
     procedure PlansCrossUnitPointerArraySelectorMembersAndRefusesUnknown;
+
+    [TestCase('Skipped anonymous parent', 'RemoveWithNestedMemberQualifier\NestedMemberQualifier.dproj,False')]
+    [TestCase('Complex source refusals', 'RemoveWithComplexSourceModelFixture\RemoveWithComplexSourceModelFixture.dproj,True')]
+    [TestCase('Inline declaration refusals', 'RemoveWithInlinePrecedence\InlineHeader.dproj,False')]
+    procedure ActivityOverlayPreservesNonPlannedFinalDtos(const aFixture: string;
+      const aDakFixture: Boolean);
+    [Test]
+    procedure ActivitySkipKeepsFactsAndSnapshotApplyRangesSafe;
+    [TestCase('Activity binder tag ordinary refusal', 'ACTIVITY_UNVERIFIED,activity-unverified')]
+    [TestCase('Activity binder tag on skipped DTO', 'SKIPPED_ACTIVITY_UNVERIFIED,type-source-not-indexed')]
+    [TestCase('Unindexed type', 'MissingActivityReceiver,type-source-not-indexed')]
+    [TestCase('Generic type', 'MissingActivityReceiver<Integer>,unsupported-source-model-generic-declaration')]
+    [TestCase('Unresolved binder tag on planned DTO', 'UNRESOLVED_REFERENCE,activity-unverified')]
+    [TestCase('Unresolved binder tag on skipped DTO', 'SKIPPED_UNRESOLVED_REFERENCE,type-source-not-indexed')]
+    [TestCase('Unsupported binder tag on planned DTO', 'UNSUPPORTED_REFERENCE,activity-unverified')]
+    [TestCase('Unsupported binder tag on skipped DTO', 'SKIPPED_UNSUPPORTED_REFERENCE,type-source-not-indexed')]
+    [TestCase('Scoped binder tag on planned DTO', 'SCOPED_DECLARATION,activity-unverified')]
+    [TestCase('Scoped binder tag on skipped DTO', 'SKIPPED_SCOPED_DECLARATION,type-source-not-indexed')]
+    [TestCase('External binder tag on planned DTO', 'EXTERNAL_REFERENCE,activity-unverified')]
+    [TestCase('External binder tag on skipped DTO', 'SKIPPED_EXTERNAL_REFERENCE,type-source-not-indexed')]
+    procedure EstablishedSkipReasonPrecedesActivityInFactsAndSnapshot(
+      const aTypeName, aExpectedReason: string);
+    [Test]
+    procedure FinalDtoPlansIndependentPointerUnderVerifiedIndexedAncestor;
     [Test]
     procedure RefusesUnverifiedWithUnitAndMemberFacts;
     [Test]
     procedure MemberDiagnosticsOnlyRejectTheirSelectorType;
+    [Test]
+    [TestCase('Ordinary constant', 'Items')]
+    [TestCase('Soft keyword constant', 'Name')]
+    procedure ClassConstantRefusesOnlyItsOwningReceiver(const aName: string);
     [Test]
     procedure InheritedIncompleteMemberRefusesDerivedAndAliasSelectors;
     [Test]
@@ -1039,12 +1115,13 @@ type
 implementation
 
 uses
-  System.Classes, System.Hash, System.IOUtils, System.JSON.Serializers, System.StrUtils, System.SysUtils,
+  System.Classes, System.Hash, System.IOUtils, System.JSON, System.JSON.Serializers, System.StrUtils, System.SysUtils,
   Winapi.Windows,
+  maxLogic.IOUtils,
   DelphiSemantics.Model, DelphiSemantics.Model.Json, DelphiSemantics.RemoveWithPlan,
   DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.ScopeResolver,
-  DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot,
-  DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding,
+  DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.RootMemberAbsence,
+  DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding,
   DelphiSemantics.WithBinding.Inventory,
   Test.Support;
 
@@ -1665,9 +1742,33 @@ end;
 
 
 function TRemoveWithPlanTests.DakFixturePath(const aRelativePath: string): string;
+var
+  i: Integer;
+  lCandidate, lRoot, lParent: string;
 begin
-  Result := TPath.GetFullPath(TPath.Combine(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    '..\..\..\DelphiAiKit\tests\fixtures'), aRelativePath));
+  // The runner starts in DAK/tests; isolated test outputs can have any nesting depth.
+  // Search ancestry from both runtime locations and recognize the actual DAK project.
+  for i := 0 to 1 do
+  begin
+    if i = 0 then
+      lRoot := TPath.GetFullPath(GetCurrentDir)
+    else
+      lRoot := TPath.GetFullPath(ExtractFilePath(ParamStr(0)));
+    while lRoot <> '' do
+    begin
+      lCandidate := lRoot;
+      if not TFile.Exists(CombinePath([lCandidate, 'projects', 'DelphiAIKit.dproj'])) then
+        lCandidate := TPath.Combine(lRoot, 'DelphiAiKit');
+      if TFile.Exists(CombinePath([lCandidate, 'projects', 'DelphiAIKit.dproj'])) then
+        Exit(TPath.GetFullPath(CombinePath([lCandidate, 'tests', 'fixtures', aRelativePath])));
+      lParent := TPath.GetDirectoryName(lRoot);
+      if lParent = lRoot then
+        Break;
+      lRoot := lParent;
+    end;
+  end;
+  Assert.Fail('Cannot locate the DAK repository from the runtime directories.');
+  Result := '';
 end;
 
 function TRemoveWithPlanTests.SelectedMaxTdbProjectPath(
@@ -2123,6 +2224,49 @@ begin
         'Two declarations at the diagnostic coordinate must fail closed.');
 end;
 
+procedure TRemoveWithPlanTests.ClassConstantRefusesOnlyItsOwningReceiver(const aName: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+begin
+  lRoot := TempPath('class-constant-refusal-' + aName);
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>WithProj.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="WithUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dpr'),
+    'program WithProj;'#13#10'uses WithUnit in ''WithUnit.pas'';'#13#10 +
+    'begin Run; end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithUnit.pas'),
+    'unit WithUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TUnsafe = class'#13#10'  public'#13#10'    Value: Integer;'#13#10 +
+    '    class const ' + aName + ': Integer = 1;'#13#10'  end;'#13#10 +
+    '  TSafe = record Value: Integer; end;'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10'procedure Run;'#13#10 +
+    'var'#13#10'  lUnsafe: TUnsafe;'#13#10'  lSafe: TSafe;'#13#10 +
+    'begin'#13#10'  lUnsafe := TUnsafe.Create;'#13#10 +
+    '  with lUnsafe do Value := ' + aName + ';'#13#10 +
+    '  with lSafe do Value := 1;'#13#10'  lUnsafe.Free;'#13#10'end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'WithProj.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.AreEqual(2, Integer(Length(lFacts.Bindings)));
+  Assert.AreEqual('lUnsafe', lFacts.Bindings[0].SelectorText);
+  Assert.AreEqual('MEMBERS_INCOMPLETE', lFacts.Bindings[0].SkipReason);
+  Assert.AreEqual('lSafe', lFacts.Bindings[1].SelectorText);
+  Assert.AreEqual('', lFacts.Bindings[1].SkipReason);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual(1, Integer(Length(lPlan.Edits)), lPlan.Diagnostic);
+  Assert.AreEqual('MEMBERS_INCOMPLETE', lPlan.FinalStatements[0].SafetyReason);
+  Assert.AreEqual(19, lPlan.Edits[0].Range.StartLine);
+  Assert.AreEqual(3, lPlan.Edits[0].Range.StartColumn);
+  Assert.AreEqual('with lSafe do Value := 1;', lPlan.Edits[0].ReplacementText);
+end;
+
 procedure TRemoveWithPlanTests.InheritedIncompleteMemberRefusesDerivedAndAliasSelectors;
 var
   lBaseLine: Integer;
@@ -2357,8 +2501,13 @@ begin
   Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
   lBinding := lFacts.Bindings[0];
   Assert.AreEqual('TAlias2', lBinding.Selectors[0].TypeName);
-  Assert.AreEqual('UNRESOLVED_REFERENCE', lBinding.SkipReason,
-    'Exact profile type must terminate project safety before member binding.');
+  // DS-700: a profile type name cannot prove an absent member.
+  Assert.AreEqual('UNSUPPORTED_REFERENCE', lBinding.SkipReason,
+    'An unindexed profile receiver must refuse unverified members.');
+  Assert.AreEqual(1, Integer(Length(lBinding.References)));
+  Assert.AreEqual('Name', lBinding.References[0].Name);
+  Assert.AreEqual('unsupported', lBinding.References[0].Classification);
+  Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lBinding.References[0].ReasonCode);
 end;
 
 procedure TRemoveWithPlanTests.ProfileTerminalDoesNotOverrideProjectOrUnresolvedAliases;
@@ -2633,6 +2782,1457 @@ begin
       Exit(True);
     end;
   end;
+end;
+
+const
+  cCrLf = #13#10;
+  cHiddenWith = cCrLf + '    with Inner do Count := 5;' + cCrLf + '    ';
+
+type
+  TBaseParityShape = record
+    Name: string;
+    IfaceExtra: string;
+    Body: string;
+    IncName: string;
+    IncText: string;
+    NoContext: Boolean;
+  end;
+
+
+function BaseParityWithBody(const aHidden: string): string;
+begin
+  Result := '  with Rec do' + cCrLf + '  begin' + cCrLf + '    Count := 1;' + cCrLf +
+    '    ' + aHidden + cCrLf + '  end;';
+end;
+
+function BaseParityShape(const aName, aBody: string; const aIfaceExtra: string = '';
+  const aIncName: string = ''; const aIncText: string = ''): TBaseParityShape;
+begin
+  Result := Default(TBaseParityShape);
+  Result.Name := aName;
+  Result.Body := aBody;
+  Result.IfaceExtra := aIfaceExtra;
+  Result.IncName := aIncName;
+  Result.IncText := aIncText;
+end;
+
+procedure WriteBaseParityFixture(const aRoot: string; const aShape: TBaseParityShape);
+begin
+  TDirectory.CreateDirectory(aRoot);
+  TFile.WriteAllText(TPath.Combine(aRoot, 'P.dpr'), 'program P; uses Unit1, ControlUnit; begin end.',
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(aRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/><DCCReference Include="ControlUnit.pas"/>' +
+    '</ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(aRoot, 'Unit1.pas'),
+    'unit Unit1;' + cCrLf + 'interface' + cCrLf +
+    'type TRec = record Count: Integer; Other: Integer; end;' + cCrLf +
+    '  TInner = record Count: Integer; end;' + cCrLf +
+    'var Rec: TRec; Other: Integer; Inner: TInner; Ready: Boolean;' + cCrLf +
+    aShape.IfaceExtra + 'implementation' + cCrLf + 'procedure Run;' + cCrLf + 'begin' + cCrLf +
+    aShape.Body + cCrLf + 'end;' + cCrLf + 'end.' + cCrLf, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(aRoot, 'ControlUnit.pas'),
+    'unit ControlUnit;' + cCrLf + 'interface' + cCrLf +
+    'type TControlRec = record Count: Integer; end;' + cCrLf + 'var CRec: TControlRec;' + cCrLf +
+    'implementation' + cCrLf + 'procedure Run; begin with CRec do Count := Count + 1; end;' +
+    cCrLf + 'end.' + cCrLf, TEncoding.ASCII);
+  if aShape.IncName <> '' then
+    TFile.WriteAllText(TPath.Combine(aRoot, aShape.IncName), aShape.IncText, TEncoding.ASCII);
+end;
+
+function BaseParityShapes: TArray<TBaseParityShape>;
+begin
+  Result := [
+    // B1 / Opus round-13 scenarios
+    BaseParityShape('b1-usefast', BaseParityWithBody('{$IF UseFast}{$ELSE}' + cHiddenWith + '{$IFEND}')),
+    BaseParityShape('b1-declared', BaseParityWithBody('{$IF Declared(TFoo)}' + cHiddenWith + '{$IFEND}')),
+    BaseParityShape('b1-malformed', BaseParityWithBody('{$IFDEF MSWINDOWS trailing}' + cHiddenWith + '{$ENDIF}')),
+    BaseParityShape('b1-linux', BaseParityWithBody('{$IFDEF LINUX}' + cHiddenWith + '{$ENDIF}')),
+    BaseParityShape('b1-missing', BaseParityWithBody('{$IFNDEF LINUX}{$I Missing.inc}{$ENDIF}')),
+    BaseParityShape('b1-include', BaseParityWithBody('{$IFDEF LINUX}{$I Body.inc}{$ENDIF}'), '', 'Body.inc',
+      'with Inner do Count := 5;' + cCrLf),
+    BaseParityShape('b1-ifdef-other', BaseParityWithBody('{$IFDEF LINUX}' + cCrLf + '    Other := 2;' + cCrLf + '    {$ENDIF}')),
+    BaseParityShape('b1-tainted', BaseParityWithBody('{$IFDEF FOO}' + cCrLf + '    Other := 2;' + cCrLf + '    {$ENDIF}'),
+      '{$HINTS OFF}' + cCrLf),
+    BaseParityShape('b1-control-mixed', '  with Rec do' + cCrLf + '  begin' + cCrLf + '    {$IFNDEF LINUX}' + cCrLf +
+      '    Other := 2;' + cCrLf + '    {$ENDIF}' + cCrLf + '    Count := 1;' + cCrLf + '  end;'),
+    BaseParityShape('m3-unresolved-act', '  with Rec do' + cCrLf + '  begin' + cCrLf + '    Missing := 1;' + cCrLf +
+      '    {$IFNDEF LINUX}' + cCrLf + '    Count := 2;' + cCrLf + '    {$ENDIF}' + cCrLf + '  end;'),
+    BaseParityShape('m3-unresolved-plain', '  with Rec do' + cCrLf + '  begin' + cCrLf + '    Missing := 1;' + cCrLf +
+      '    Count := 2;' + cCrLf + '  end;'),
+    BaseParityShape('r2-selector', '  with {$IFDEF LINUX} Rec {$ELSE} Inner {$ENDIF} do Count := Count + 1;'),
+    BaseParityShape('r1-taint', BaseParityWithBody('{$UNDEF X}{$IFDEF LINUX}{$I Missing.inc}{$ENDIF}{$IFDEF X}' + cHiddenWith +
+      '{$ENDIF}')),
+    BaseParityShape('r1-restored', BaseParityWithBody('{$UNDEF X}{$IFDEF LINUX}{$I Missing.inc}{$ENDIF}{$UNDEF X}{$IFDEF X}' +
+      cHiddenWith + '{$ENDIF}')),
+    // Round 17 known-inactive contract
+    BaseParityShape('ki-never', BaseParityWithBody('{$IFDEF NEVER_DEFINED}' + cHiddenWith + '{$ENDIF}')),
+    BaseParityShape('ki-nested-unknown', BaseParityWithBody('{$IFDEF NEVER_DEFINED}{$IFDEF LINUX}' + cHiddenWith +
+      '{$ENDIF}{$ENDIF}')),
+    BaseParityShape('ki-else-active', BaseParityWithBody('{$IFDEF NEVER_DEFINED}' + cHiddenWith + '{$ELSE}' + cCrLf +
+      '    Other := 6;' + cCrLf + '    {$ENDIF}')),
+    BaseParityShape('ki-after-taint', BaseParityWithBody('{$IFDEF LINUX}{$I Missing.inc}{$ENDIF}{$IFDEF NEVER_DEFINED}' +
+      cHiddenWith + '{$ENDIF}')),
+    BaseParityShape('ki-ifopt', BaseParityWithBody('{$IFOPT R+}' + cHiddenWith + '{$ENDIF}')),
+    BaseParityShape('ki-elseif-unknown', BaseParityWithBody('{$IF Defined(NEVER_DEFINED)}' + cHiddenWith +
+      '{$ELSEIF Declared(TFoo)}' + cHiddenWith + '{$IFEND}')),
+    BaseParityShape('ki-and-false', BaseParityWithBody('{$IF Defined(NEVER_DEFINED) and Declared(TFoo)}' + cHiddenWith +
+      '{$IFEND}')),
+    BaseParityShape('ki-or-unknown', BaseParityWithBody('{$IF Defined(NEVER_DEFINED) or Declared(TFoo)}' + cHiddenWith +
+      '{$IFEND}')),
+    BaseParityShape('ki-multiline-dir', BaseParityWithBody('{$IFDEF LINUX' + cCrLf + '    }' + cHiddenWith + '{$ENDIF}')),
+    BaseParityShape('ki-define-inactive', BaseParityWithBody('{$IFDEF NEVER_DEFINED}{$DEFINE YY}{$ENDIF}{$IFDEF YY}' +
+      cHiddenWith + '{$ENDIF}')),
+    BaseParityShape('ki-define-unknown', BaseParityWithBody('{$IFDEF LINUX}{$DEFINE YY}{$ENDIF}{$IFDEF YY}' +
+      cHiddenWith + '{$ENDIF}')),
+    BaseParityShape('gi-flag-nested-with', BaseParityWithBody('{$IFDEF RELEASE_TRACE}' + cHiddenWith + '{$ENDIF}')),
+    BaseParityShape('gi-ifndef-debug-nested', BaseParityWithBody('{$IFNDEF DEBUG}' + cHiddenWith + '{$ENDIF}')),
+    BaseParityShape('gi-flag-other', BaseParityWithBody('{$IFDEF RELEASE_TRACE}' + cCrLf + '    Other := 2;' + cCrLf +
+      '    {$ENDIF}')),
+    BaseParityShape('gi-flag-missing', BaseParityWithBody('{$IFDEF RELEASE_TRACE}' + cCrLf + '    Count := Missing;' + cCrLf +
+      '    {$ENDIF}')),
+    BaseParityShape('gi-flag-local-count', BaseParityWithBody('{$IFDEF RELEASE_TRACE}' + cCrLf +
+      '    Ready := Count > 0;' + cCrLf + '    {$ENDIF}')),
+    BaseParityShape('ki-mswindows', BaseParityWithBody('{$IFDEF MSWINDOWS}' + cCrLf + '    Other := 2;' + cCrLf +
+      '    {$ENDIF}')),
+    // Unknown text adjacent to, but outside, the extracted statement range
+    BaseParityShape('ctx-prefix', '  {$IFDEF LINUX} if Ready then {$ENDIF}' + cCrLf + '  with Rec do' + cCrLf +
+      '  begin' + cCrLf + '    Count := 1;' + cCrLf + '    Other := 2;' + cCrLf + '  end;'),
+    BaseParityShape('ctx-suffix-end', '  with Rec do' + cCrLf + '    Count := Count {$IFDEF LINUX} + Other {$ENDIF}'),
+    BaseParityShape('ctx-suffix-semi', '  with Rec do' + cCrLf + '    Count := Count {$IFDEF LINUX} + Other {$ENDIF};'),
+    BaseParityShape('ctx-suffix-else', '  if Ready then' + cCrLf +
+      '    with Rec do Count := 1 {$IFDEF LINUX} + Other {$ENDIF}' + cCrLf + '  else' + cCrLf +
+      '    Other := 2;'),
+    BaseParityShape('y-suffix-ki-end', '  with Rec do' + cCrLf +
+      '    Count := Count {$IFDEF RELEASE_TRACE} + Other {$ENDIF}'),
+    BaseParityShape('y-suffix-ki-else', '  if Ready then' + cCrLf +
+      '    with Rec do Count := 1 {$IFDEF RELEASE_TRACE} + Other {$ENDIF}' + cCrLf + '  else' + cCrLf +
+      '    Other := 2;'),
+    BaseParityShape('x-else-control', '  if Ready then' + cCrLf + '    with Rec do Count := 1' + cCrLf + '  else' +
+      cCrLf + '    Other := 2;'),
+    BaseParityShape('x-nested-parent-unknown', '  with Rec do' + cCrLf + '  begin' + cCrLf +
+      '    {$IFDEF LINUX} Other := 9; {$ENDIF}' + cCrLf + '    with Inner do Count := 2;' + cCrLf + '  end;'),
+    // Includes in known-active code
+    BaseParityShape('inc-active-body', BaseParityWithBody('{$I Body.inc}'), '', 'Body.inc',
+      '{$IFDEF LINUX} with Inner do Count := 5; {$ENDIF}' + cCrLf),
+    BaseParityShape('inc-shift-unknown', BaseParityWithBody('{$IFDEF LINUX}' + cHiddenWith + '{$ENDIF}'), '{$I Decl.inc}' + cCrLf,
+      'Decl.inc', '// one' + cCrLf + '// two' + cCrLf + '// three' + cCrLf + '// four' + cCrLf),
+    BaseParityShape('inc-shift-known', BaseParityWithBody('Other := 3;'), '{$I Decl.inc}' + cCrLf,
+      'Decl.inc', '// one' + cCrLf + '// two' + cCrLf + '// three' + cCrLf + '// four' + cCrLf)
+  ,
+    BaseParityShape('noctx-b1-linux', BaseParityWithBody('{$IFDEF LINUX}' + cHiddenWith + '{$ENDIF}'))
+  ];
+  Result[High(Result)].NoContext := True;
+end;
+
+// P2 = base d308bc5 plus the approved compiler-profile correction (no implicit WINDOWS).
+// Pins come from the native Round 23 base export, not from the candidate planner.
+// Edits pin line:column ranges and verification hash/source; paths are checked against the owning statement.
+function BaseParityTempToJson(const aTemp: TDelphiSemanticRemoveWithFinalTempDecision): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('selectorText', aTemp.SelectorText);
+  Result.AddPair('receiverType', aTemp.ReceiverType);
+  Result.AddPair('qualifierText', aTemp.QualifierText);
+  Result.AddPair('strategy', aTemp.Strategy);
+  Result.AddPair('tempName', aTemp.TempName);
+  Result.AddPair('declarationText', aTemp.DeclarationText);
+  Result.AddPair('initializationText', aTemp.InitializationText);
+  Result.AddPair('reason', aTemp.Reason);
+  Result.AddPair('semanticId', '{statement-semantic-id}');
+end;
+
+function BaseParityEditsToJson(const aEdits: TArray<TDelphiSemanticRemoveWithFinalTextEdit>): TJSONArray;
+var
+  lEdit: TDelphiSemanticRemoveWithFinalTextEdit;
+  lJson: TJSONObject;
+begin
+  Result := TJSONArray.Create;
+  for lEdit in aEdits do
+  begin
+    lJson := TJSONObject.Create;
+    lJson.AddPair('kind', lEdit.Kind);
+    lJson.AddPair('fileName', ExtractFileName(lEdit.FileName));
+    lJson.AddPair('statementId', lEdit.StatementId);
+    lJson.AddPair('verificationRange', Format('%d:%d-%d:%d', [lEdit.Verification.Range.StartLine,
+      lEdit.Verification.Range.StartColumn, lEdit.Verification.Range.EndLine, lEdit.Verification.Range.EndColumn]));
+    lJson.AddPair('range', Format('%d:%d-%d:%d', [lEdit.Range.StartLine,
+      lEdit.Range.StartColumn, lEdit.Range.EndLine, lEdit.Range.EndColumn]));
+    lJson.AddPair('replacementText', lEdit.ReplacementText);
+    lJson.AddPair('semanticId', '{statement-semantic-id}');
+    lJson.AddPair('verificationHash', lEdit.Verification.ExpectedFileHash);
+    lJson.AddPair('verificationSource', lEdit.Verification.ExpectedSourceText);
+    Result.AddElement(lJson);
+  end;
+end;
+
+function BaseParityTempsToJson(const aTemps: TArray<TDelphiSemanticRemoveWithFinalTempDecision>): TJSONArray;
+var
+  lTemp: TDelphiSemanticRemoveWithFinalTempDecision;
+begin
+  Result := TJSONArray.Create;
+  for lTemp in aTemps do
+    Result.AddElement(BaseParityTempToJson(lTemp));
+end;
+
+procedure AssertBaseParityArrays(const aCase: Integer;
+  const aStatement: TDelphiSemanticRemoveWithFinalStatement);
+var
+  lExpectedTemps, lExpectedEdits: string;
+  lJson: TJSONArray;
+begin
+  case aCase of
+    5: // b1-include
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"408a22e0dfc407509d698f1badc2f12a0ea38280' +
+      'db8b9efc8581c460cad1af79","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-13:6","range":"9:1-13:6","repl' +
+      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
+      'FDEF LINUX}{$I Body.inc}{$ENDIF}\r\n  end;","semanticId":"{statement-semantic-id}","verifi' +
+      'cationHash":"408a22e0dfc407509d698f1badc2f12a0ea38280db8b9efc8581c460cad1af79","verificati' +
+      'onSource":"with Rec do\r\n  begin\r\n    Count := 1;\r\n    {$IFDEF LINUX}{$I Body.inc}{$E' +
+      'NDIF}\r\n  end;"}]';
+    end;
+    6: // b1-ifdef-other
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"16adf92f6064063ae8e25b0552c1cf2efbbc4b55' +
+      '7914f331fc81e404ef504396","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
+      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
+      'FDEF LINUX}\r\n    lWithRecPtr^.Other := 2;\r\n    {$ENDIF}\r\n  end;","semanticId":"{stat' +
+      'ement-semantic-id}","verificationHash":"16adf92f6064063ae8e25b0552c1cf2efbbc4b557914f331fc' +
+      '81e404ef504396","verificationSource":"with Rec do\r\n  begin\r\n    Count := 1;\r\n    {$I' +
+      'FDEF LINUX}\r\n    Other := 2;\r\n    {$ENDIF}\r\n  end;"}]';
+    end;
+    8: // b1-control-mixed
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"8ec72ef807830dd26a069d51df10d6142685815d' +
+      '63b6ef3d3a9914c0fa469d61","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
+      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    {$IFNDEF LINUX}\r\n    lWithRecPtr^' +
+      '.Other := 2;\r\n    {$ENDIF}\r\n    lWithRecPtr^.Count := 1;\r\n  end;","semanticId":"{sta' +
+      'tement-semantic-id}","verificationHash":"8ec72ef807830dd26a069d51df10d6142685815d63b6ef3d3' +
+      'a9914c0fa469d61","verificationSource":"with Rec do\r\n  begin\r\n    {$IFNDEF LINUX}\r\n  ' +
+      '  Other := 2;\r\n    {$ENDIF}\r\n    Count := 1;\r\n  end;"}]';
+    end;
+    14: // ki-never
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"3ac2ca159a8779a91f5e9a7e4a7b6f64a650b1a7' +
+      '32da6af64bb36875d8683f8f","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
+      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
+      'FDEF NEVER_DEFINED}\r\n    with Inner do lWithRecPtr^.Count := 5;\r\n    {$ENDIF}\r\n  end' +
+      ';","semanticId":"{statement-semantic-id}","verificationHash":"3ac2ca159a8779a91f5e9a7e4a7b' +
+      '6f64a650b1a732da6af64bb36875d8683f8f","verificationSource":"with Rec do\r\n  begin\r\n    ' +
+      'Count := 1;\r\n    {$IFDEF NEVER_DEFINED}\r\n    with Inner do Count := 5;\r\n    {$ENDIF}' +
+      '\r\n  end;"}]';
+    end;
+    15: // ki-nested-unknown
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"646ca39a1642c325c80b548f6777fb9cddf52c6a' +
+      '3dee2a448207374294eab826","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
+      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
+      'FDEF NEVER_DEFINED}{$IFDEF LINUX}\r\n    with Inner do lWithRecPtr^.Count := 5;\r\n    {$E' +
+      'NDIF}{$ENDIF}\r\n  end;","semanticId":"{statement-semantic-id}","verificationHash":"646ca3' +
+      '9a1642c325c80b548f6777fb9cddf52c6a3dee2a448207374294eab826","verificationSource":"with Rec' +
+      ' do\r\n  begin\r\n    Count := 1;\r\n    {$IFDEF NEVER_DEFINED}{$IFDEF LINUX}\r\n    with ' +
+      'Inner do Count := 5;\r\n    {$ENDIF}{$ENDIF}\r\n  end;"}]';
+    end;
+    16: // ki-else-active
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"6418f3fe27b20d1dd5d4fa85a73b433cae1ee032' +
+      '355fe1ca327aa03480763c0b","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-17:6","range":"9:1-17:6","repl' +
+      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
+      'FDEF NEVER_DEFINED}\r\n    with Inner do lWithRecPtr^.Count := 5;\r\n    {$ELSE}\r\n    lW' +
+      'ithRecPtr^.Other := 6;\r\n    {$ENDIF}\r\n  end;","semanticId":"{statement-semantic-id}","' +
+      'verificationHash":"6418f3fe27b20d1dd5d4fa85a73b433cae1ee032355fe1ca327aa03480763c0b","veri' +
+      'ficationSource":"with Rec do\r\n  begin\r\n    Count := 1;\r\n    {$IFDEF NEVER_DEFINED}\r' +
+      '\n    with Inner do Count := 5;\r\n    {$ELSE}\r\n    Other := 6;\r\n    {$ENDIF}\r\n  end' +
+      ';"}]';
+    end;
+    23: // ki-define-inactive
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"ad34d3a30193995c95616cb32b214831b98c1069' +
+      '73b812effe3fdefb76cd851b","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
+      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
+      'FDEF NEVER_DEFINED}{$DEFINE YY}{$ENDIF}{$IFDEF YY}\r\n    with Inner do lWithRecPtr^.Count' +
+      ' := 5;\r\n    {$ENDIF}\r\n  end;","semanticId":"{statement-semantic-id}","verificationHash' +
+      '":"ad34d3a30193995c95616cb32b214831b98c106973b812effe3fdefb76cd851b","verificationSource":' +
+      '"with Rec do\r\n  begin\r\n    Count := 1;\r\n    {$IFDEF NEVER_DEFINED}{$DEFINE YY}{$ENDI' +
+      'F}{$IFDEF YY}\r\n    with Inner do Count := 5;\r\n    {$ENDIF}\r\n  end;"}]';
+    end;
+    27: // gi-flag-other
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"6482aaba26060c0f22a7f35c20d3b635c37b0abe' +
+      '9bf099f26bc74d19e923c517","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
+      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
+      'FDEF RELEASE_TRACE}\r\n    lWithRecPtr^.Other := 2;\r\n    {$ENDIF}\r\n  end;","semanticId' +
+      '":"{statement-semantic-id}","verificationHash":"6482aaba26060c0f22a7f35c20d3b635c37b0abe9b' +
+      'f099f26bc74d19e923c517","verificationSource":"with Rec do\r\n  begin\r\n    Count := 1;\r\' +
+      'n    {$IFDEF RELEASE_TRACE}\r\n    Other := 2;\r\n    {$ENDIF}\r\n  end;"}]';
+    end;
+    30: // ki-mswindows
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"c5a7eb0a495fd6fb6521cf37b4c4559dea652770' +
+      'c0105a7d10a6254a787dd8ea","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
+      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
+      'FDEF MSWINDOWS}\r\n    lWithRecPtr^.Other := 2;\r\n    {$ENDIF}\r\n  end;","semanticId":"{' +
+      'statement-semantic-id}","verificationHash":"c5a7eb0a495fd6fb6521cf37b4c4559dea652770c0105a' +
+      '7d10a6254a787dd8ea","verificationSource":"with Rec do\r\n  begin\r\n    Count := 1;\r\n   ' +
+      ' {$IFDEF MSWINDOWS}\r\n    Other := 2;\r\n    {$ENDIF}\r\n  end;"}]';
+    end;
+    31: // ctx-prefix
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"9d19349284c50034f27672542ee919d59567e233' +
+      'cd8ef53df8d137cdad024b07","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"10:3-14:6","range":"10:1-14:6","re' +
+      'placementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    l' +
+      'WithRecPtr^.Other := 2;\r\n  end;","semanticId":"{statement-semantic-id}","verificationHas' +
+      'h":"9d19349284c50034f27672542ee919d59567e233cd8ef53df8d137cdad024b07","verificationSource"' +
+      ':"with Rec do\r\n  begin\r\n    Count := 1;\r\n    Other := 2;\r\n  end;"}]';
+    end;
+    32: // ctx-suffix-end
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"fc04a1b991b6d455f4c5fcb9cd3169df92e04775' +
+      'd1a2f04a5c2b2d58a6ffd2d3","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-10:50","range":"9:1-10:50","re' +
+      'placementText":"  lWithRecPtr := @Rec;\r\n  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFD' +
+      'EF LINUX} + lWithRecPtr^.Other {$ENDIF}","semanticId":"{statement-semantic-id}","verificat' +
+      'ionHash":"fc04a1b991b6d455f4c5fcb9cd3169df92e04775d1a2f04a5c2b2d58a6ffd2d3","verificationS' +
+      'ource":"with Rec do\r\n    Count := Count {$IFDEF LINUX} + Other {$ENDIF}"}]';
+    end;
+    33: // ctx-suffix-semi
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"bc147d7913cd961530489ab7c8518dc663da4b62' +
+      '7a4968d8dbb0f6c2353b6e32","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-10:51","range":"9:1-10:51","re' +
+      'placementText":"  lWithRecPtr := @Rec;\r\n  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFD' +
+      'EF LINUX} + lWithRecPtr^.Other {$ENDIF};","semanticId":"{statement-semantic-id}","verifica' +
+      'tionHash":"bc147d7913cd961530489ab7c8518dc663da4b627a4968d8dbb0f6c2353b6e32","verification' +
+      'Source":"with Rec do\r\n    Count := Count {$IFDEF LINUX} + Other {$ENDIF};"}]';
+    end;
+    34: // ctx-suffix-else
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"fc6b12678cc7456f8ee9335990f1179eb9c371df' +
+      '3720af91c8cadb2d2ace590b","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"10:5-10:58","range":"10:1-10:58","' +
+      'replacementText":"    begin\r\n      lWithRecPtr := @Rec;\r\n lWithRecPtr^.Count := 1 {$IF' +
+      'DEF LINUX} + lWithRecPtr^.Other {$ENDIF}\r\n    end","semanticId":"{statement-semantic-id}' +
+      '","verificationHash":"fc6b12678cc7456f8ee9335990f1179eb9c371df3720af91c8cadb2d2ace590b","v' +
+      'erificationSource":"with Rec do Count := 1 {$IFDEF LINUX} + Other {$ENDIF}"}]';
+    end;
+    35: // y-suffix-ki-end
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"ac6df9d8a2255c5174cbf50f3fa71f31446ad36b' +
+      'c812bdf84e1e6e51c27f001f","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-10:58","range":"9:1-10:58","re' +
+      'placementText":"  lWithRecPtr := @Rec;\r\n  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFD' +
+      'EF RELEASE_TRACE} + lWithRecPtr^.Other {$ENDIF}","semanticId":"{statement-semantic-id}","v' +
+      'erificationHash":"ac6df9d8a2255c5174cbf50f3fa71f31446ad36bc812bdf84e1e6e51c27f001f","verif' +
+      'icationSource":"with Rec do\r\n    Count := Count {$IFDEF RELEASE_TRACE} + Other {$ENDIF}"' +
+      '}]';
+    end;
+    36: // y-suffix-ki-else
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"2c3c760e90413d0521a48185840adb68aad8525d' +
+      'ce6c9ab6253072b88bc2c1db","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"10:5-10:66","range":"10:1-10:66","' +
+      'replacementText":"    begin\r\n      lWithRecPtr := @Rec;\r\n lWithRecPtr^.Count := 1 {$IF' +
+      'DEF RELEASE_TRACE} + lWithRecPtr^.Other {$ENDIF}\r\n    end","semanticId":"{statement-sema' +
+      'ntic-id}","verificationHash":"2c3c760e90413d0521a48185840adb68aad8525dce6c9ab6253072b88bc2' +
+      'c1db","verificationSource":"with Rec do Count := 1 {$IFDEF RELEASE_TRACE} + Other {$ENDIF}' +
+      '"}]';
+    end;
+    37: // x-else-control
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"c2645ebef6753c136ef435b36f3c31a340b84e44' +
+      'c62bae8b1c99c09b9e9e6437","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"10:5-10:26","range":"10:1-10:26","' +
+      'replacementText":"    begin\r\n      lWithRecPtr := @Rec;\r\n lWithRecPtr^.Count := 1\r\n ' +
+      '   end","semanticId":"{statement-semantic-id}","verificationHash":"c2645ebef6753c136ef435b' +
+      '36f3c31a340b84e44c62bae8b1c99c09b9e9e6437","verificationSource":"with Rec do Count := 1"}]';
+    end;
+    41: // inc-shift-known
+    begin
+      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
+      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
+      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'd":"{statement-semantic-id}"}]';
+      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
+      '"9:1-9:1","range":"9:1-9:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
+      'Id":"{statement-semantic-id}","verificationHash":"3384c4ba69355641deb2eed51fb59fb44d2c1d43' +
+      'd37ee1158073f16882f16470","verificationSource":""},{"kind":"replace-statement","fileName":' +
+      '"Unit1.pas","statementId":"with-1","verificationRange":"10:3-14:6","range":"10:1-14:6","re' +
+      'placementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    l' +
+      'WithRecPtr^.Other := 3;\r\n  end;","semanticId":"{statement-semantic-id}","verificationHas' +
+      'h":"3384c4ba69355641deb2eed51fb59fb44d2c1d43d37ee1158073f16882f16470","verificationSource"' +
+      ':"with Rec do\r\n  begin\r\n    Count := 1;\r\n    Other := 3;\r\n  end;"}]';
+    end;
+  else
+    Assert.Fail('P2 arrays requested for a base-refused shape.');
+  end;
+  // Native base pins tie every array identity to the owning statement. The exact
+  // ID varies with this test's isolated project root; preserve that relation.
+  Assert.AreNotEqual('', aStatement.SemanticId);
+  for var i := 0 to High(aStatement.Temps) do
+    Assert.AreEqual(aStatement.SemanticId, aStatement.Temps[i].SemanticId, 'P2 temp identity');
+  for var i := 0 to High(aStatement.Edits) do
+    Assert.AreEqual(aStatement.SemanticId, aStatement.Edits[i].SemanticId, 'P2 edit identity');
+  lJson := BaseParityTempsToJson(aStatement.Temps);
+  try
+    Assert.AreEqual(lExpectedTemps, lJson.ToJSON, 'P2 complete temp array');
+  finally
+    lJson.Free;
+  end;
+  lJson := BaseParityEditsToJson(aStatement.Edits);
+  try
+    Assert.AreEqual(lExpectedEdits, lJson.ToJSON, 'P2 complete edit array');
+  finally
+    lJson.Free;
+  end;
+  for var i := 0 to High(aStatement.Edits) do
+    Assert.AreEqual(aStatement.FileName, aStatement.Edits[i].FileName, 'P2 edit file owner');
+end;
+
+procedure TRemoveWithPlanTests.BaseParity(const aCase: Integer);
+var
+  lShapes: TArray<TBaseParityShape>;
+  lShape: TBaseParityShape;
+  lRoot, lBaseStatus, lBaseReason, lBaseSafety, lBaseReplacement, lOriginalSource: string;
+  lBaseRange: TDelphiSemanticRemoveWithSourceRange;
+  lBaseEdits, lBaseTemps, lPass: Integer;
+  lOptions: TDelphiSemanticApiOptions;
+  lResult: TDelphiSemanticRemoveWithDetailedCombinedResult;
+  lPlan, lSnapshot, lCold, lOrdinary: TDelphiSemanticRemoveWithPlan;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lStatement, lOrdinaryStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lBinding: TDelphiSemanticWithBinding;
+  lUnknown: Boolean;
+begin
+  lShapes := BaseParityShapes;
+  lShape := lShapes[aCase];
+  lRoot := TempPath('BaseParity-' + lShape.Name);
+  WriteBaseParityFixture(lRoot, lShape);
+  lOriginalSource := TFile.ReadAllText(TPath.Combine(lRoot, 'Unit1.pas'));
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  if not lShape.NoContext then
+  begin
+    lOptions.Configuration := 'Debug';
+    lOptions.Platform := 'Win64';
+    lOptions.DelphiVersion := '23.0';
+  end;
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
+    TFile.Delete(lOptions.Cache.SqliteCacheFileName);
+  lBaseRange := Default(TDelphiSemanticRemoveWithSourceRange);
+  lBaseStatus := '';
+  lBaseReason := '';
+  lBaseSafety := '';
+  lBaseReplacement := '';
+  lBaseEdits := 0;
+  lBaseTemps := 0;
+  // Literal d308bc5 probe observations; candidate output is never the oracle.
+  case aCase of
+    0:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'selector-type-not-resolved';
+      lBaseSafety := 'selector-type-not-resolved';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    1:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'receiver-type-not-visible';
+      lBaseSafety := 'receiver-type-not-visible';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    2:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'symbol-not-found';
+      lBaseSafety := 'symbol-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    3:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'symbol-not-found';
+      lBaseSafety := 'symbol-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    4:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'receiver-type-not-visible';
+      lBaseSafety := 'receiver-type-not-visible';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 13;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    5:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 13;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  begin' + #13#10 +
+        '    lWithRecPtr^.Count := 1;' + #13#10 +
+        '    {$IFDEF LINUX}{$I Body.inc}{$ENDIF}' + #13#10 +
+        '  end;';
+    end;
+    6:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  begin' + #13#10 +
+        '    lWithRecPtr^.Count := 1;' + #13#10 +
+        '    {$IFDEF LINUX}' + #13#10 +
+        '    lWithRecPtr^.Other := 2;' + #13#10 +
+        '    {$ENDIF}' + #13#10 +
+        '  end;';
+    end;
+    7:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'receiver-type-not-visible';
+      lBaseSafety := 'receiver-type-not-visible';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 10;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 16;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    8:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  begin' + #13#10 +
+        '    {$IFNDEF LINUX}' + #13#10 +
+        '    lWithRecPtr^.Other := 2;' + #13#10 +
+        '    {$ENDIF}' + #13#10 +
+        '    lWithRecPtr^.Count := 1;' + #13#10 +
+        '  end;';
+    end;
+    9:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'receiver-member-not-found';
+      lBaseSafety := 'receiver-member-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    10:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'receiver-member-not-found';
+      lBaseSafety := 'receiver-member-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 13;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    11:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'selector-type-not-resolved';
+      lBaseSafety := 'selector-type-not-resolved';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 9;
+      lBaseRange.EndColumn := 71;
+      lBaseReplacement := '';
+    end;
+    12:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'symbol-not-found';
+      lBaseSafety := 'symbol-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    13:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'symbol-not-found';
+      lBaseSafety := 'symbol-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    14:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  begin' + #13#10 +
+        '    lWithRecPtr^.Count := 1;' + #13#10 +
+        '    {$IFDEF NEVER_DEFINED}' + #13#10 +
+        '    with Inner do lWithRecPtr^.Count := 5;' + #13#10 +
+        '    {$ENDIF}' + #13#10 +
+        '  end;';
+    end;
+    15:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  begin' + #13#10 +
+        '    lWithRecPtr^.Count := 1;' + #13#10 +
+        '    {$IFDEF NEVER_DEFINED}{$IFDEF LINUX}' + #13#10 +
+        '    with Inner do lWithRecPtr^.Count := 5;' + #13#10 +
+        '    {$ENDIF}{$ENDIF}' + #13#10 +
+        '  end;';
+    end;
+    16:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 17;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  begin' + #13#10 +
+        '    lWithRecPtr^.Count := 1;' + #13#10 +
+        '    {$IFDEF NEVER_DEFINED}' + #13#10 +
+        '    with Inner do lWithRecPtr^.Count := 5;' + #13#10 +
+        '    {$ELSE}' + #13#10 +
+        '    lWithRecPtr^.Other := 6;' + #13#10 +
+        '    {$ENDIF}' + #13#10 +
+        '  end;';
+    end;
+    17:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'symbol-not-found';
+      lBaseSafety := 'symbol-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    18:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'receiver-type-not-visible';
+      lBaseSafety := 'receiver-type-not-visible';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    19:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'receiver-type-not-visible';
+      lBaseSafety := 'receiver-type-not-visible';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 17;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    20:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'symbol-not-found';
+      lBaseSafety := 'symbol-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    21:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'receiver-type-not-visible';
+      lBaseSafety := 'receiver-type-not-visible';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    22:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'symbol-not-found';
+      lBaseSafety := 'symbol-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 16;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    23:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  begin' + #13#10 +
+        '    lWithRecPtr^.Count := 1;' + #13#10 +
+        '    {$IFDEF NEVER_DEFINED}{$DEFINE YY}{$ENDIF}{$IFDEF YY}' + #13#10 +
+        '    with Inner do lWithRecPtr^.Count := 5;' + #13#10 +
+        '    {$ENDIF}' + #13#10 +
+        '  end;';
+    end;
+    24:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'symbol-not-found';
+      lBaseSafety := 'symbol-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    25:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'symbol-not-found';
+      lBaseSafety := 'symbol-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    26:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'selector-type-not-resolved';
+      lBaseSafety := 'selector-type-not-resolved';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    27:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  begin' + #13#10 +
+        '    lWithRecPtr^.Count := 1;' + #13#10 +
+        '    {$IFDEF RELEASE_TRACE}' + #13#10 +
+        '    lWithRecPtr^.Other := 2;' + #13#10 +
+        '    {$ENDIF}' + #13#10 +
+        '  end;';
+    end;
+    28:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'symbol-not-found';
+      lBaseSafety := 'symbol-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    29:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'receiver-member-not-found';
+      lBaseSafety := 'receiver-member-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    30:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  begin' + #13#10 +
+        '    lWithRecPtr^.Count := 1;' + #13#10 +
+        '    {$IFDEF MSWINDOWS}' + #13#10 +
+        '    lWithRecPtr^.Other := 2;' + #13#10 +
+        '    {$ENDIF}' + #13#10 +
+        '  end;';
+    end;
+    31:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 10;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 14;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  begin' + #13#10 +
+        '    lWithRecPtr^.Count := 1;' + #13#10 +
+        '    lWithRecPtr^.Other := 2;' + #13#10 +
+        '  end;';
+    end;
+    32:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 10;
+      lBaseRange.EndColumn := 50;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFDEF LINUX} + lWithRecPtr^.Other {$ENDIF}';
+    end;
+    33:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 10;
+      lBaseRange.EndColumn := 51;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFDEF LINUX} + lWithRecPtr^.Other {$ENDIF};';
+    end;
+    34:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 10;
+      lBaseRange.StartColumn := 5;
+      lBaseRange.EndLine := 10;
+      lBaseRange.EndColumn := 58;
+      lBaseReplacement := '    begin' + #13#10 +
+        '      lWithRecPtr := @Rec;' + #13#10 +
+        ' lWithRecPtr^.Count := 1 {$IFDEF LINUX} + lWithRecPtr^.Other {$ENDIF}' + #13#10 +
+        '    end';
+    end;
+    35:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 10;
+      lBaseRange.EndColumn := 58;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFDEF RELEASE_TRACE} + lWithRecPtr^.Other {$ENDIF}';
+    end;
+    36:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 10;
+      lBaseRange.StartColumn := 5;
+      lBaseRange.EndLine := 10;
+      lBaseRange.EndColumn := 66;
+      lBaseReplacement := '    begin' + #13#10 +
+        '      lWithRecPtr := @Rec;' + #13#10 +
+        ' lWithRecPtr^.Count := 1 {$IFDEF RELEASE_TRACE} + lWithRecPtr^.Other {$ENDIF}' + #13#10 +
+        '    end';
+    end;
+    37:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 10;
+      lBaseRange.StartColumn := 5;
+      lBaseRange.EndLine := 10;
+      lBaseRange.EndColumn := 26;
+      lBaseReplacement := '    begin' + #13#10 +
+        '      lWithRecPtr := @Rec;' + #13#10 +
+        ' lWithRecPtr^.Count := 1' + #13#10 +
+        '    end';
+    end;
+    38:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'selector-type-not-resolved';
+      lBaseSafety := 'selector-type-not-resolved';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 13;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    40:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'symbol-not-found';
+      lBaseSafety := 'symbol-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 10;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 16;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+    41:
+    begin
+      lBaseStatus := 'planned';
+      lBaseReason := '';
+      lBaseSafety := '';
+      lBaseEdits := 2;
+      lBaseTemps := 1;
+      lBaseRange.StartLine := 10;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 14;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+        '  begin' + #13#10 +
+        '    lWithRecPtr^.Count := 1;' + #13#10 +
+        '    lWithRecPtr^.Other := 3;' + #13#10 +
+        '  end;';
+    end;
+    42:
+    begin
+      lBaseStatus := 'skipped';
+      lBaseReason := 'symbol-not-found';
+      lBaseSafety := 'symbol-not-found';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
+      lBaseRange.StartLine := 9;
+      lBaseRange.StartColumn := 3;
+      lBaseRange.EndLine := 15;
+      lBaseRange.EndColumn := 6;
+      lBaseReplacement := '';
+    end;
+  end;
+  for lPass := 0 to 1 do
+  begin
+    Assert.AreEqual(lPass > 0, TFile.Exists(lOptions.Cache.SqliteCacheFileName));
+    lResult := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanDetailedResult(lOptions);
+    lPlan := lResult.CombinedResult.Plan;
+    Assert.AreEqual(lOriginalSource, TFile.ReadAllText(TPath.Combine(lRoot, 'Unit1.pas')));
+    if lShape.Name = 'inc-active-body' then
+    begin
+      Assert.IsTrue(lResult.CombinedResult.Success);
+      Assert.IsTrue(Pos('WITH_IN_INCLUDE_UNVERIFIED', lPlan.Diagnostic) > 0, lPlan.Diagnostic);
+      lSnapshot := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lResult.CombinedResult.Facts);
+      Assert.AreEqual(ComparableRemoveWithPlanText(lPlan), ComparableRemoveWithPlanText(lSnapshot));
+      if lPass = 0 then
+        lCold := lPlan
+      else
+        Assert.AreEqual(ComparableRemoveWithPlanText(lCold), ComparableRemoveWithPlanText(lPlan));
+      for lStatement in lPlan.FinalStatements do
+        if SameText(ExtractFileName(lStatement.FileName), 'Unit1.pas') then
+        begin
+          Assert.AreNotEqual('planned', lStatement.Status);
+          Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+        end;
+      for var lEdit in lPlan.Edits do
+        Assert.AreNotEqual('Unit1.pas', ExtractFileName(lEdit.FileName));
+      Continue;
+    end;
+    Assert.IsTrue(lResult.CombinedResult.Success, lPlan.Diagnostic);
+    lSnapshot := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lResult.CombinedResult.Facts);
+    Assert.AreEqual(ComparableRemoveWithPlanText(lPlan), ComparableRemoveWithPlanText(lSnapshot));
+    if lPass = 0 then
+      lCold := lPlan
+    else
+      Assert.AreEqual(ComparableRemoveWithPlanText(lCold), ComparableRemoveWithPlanText(lPlan));
+    Assert.IsTrue(FindFinalStatementAt(lPlan, 'Unit1.pas', lBaseRange.StartLine, lBaseRange.StartColumn, lStatement));
+    Assert.AreEqual(lBaseRange.EndLine, lStatement.Range.EndLine, 'P4 raw-source end line');
+    Assert.AreEqual(lBaseRange.EndColumn, lStatement.Range.EndColumn, 'P4 raw-source inclusive end column');
+    lFacts := lResult.CombinedResult.Facts;
+    lFacts.Bindings := Copy(lFacts.Bindings);
+    lUnknown := False;
+    for var i := 0 to High(lFacts.Bindings) do
+    begin
+      lBinding := lFacts.Bindings[i];
+      if SameText(lBinding.UnitName, 'Unit1') and (lBinding.Line = lBaseRange.StartLine) and
+        (lBinding.Column = lBaseRange.StartColumn) then
+        lUnknown := lBinding.ActivityUnverified;
+      lFacts.Bindings[i].ActivityUnverified := False;
+      if SameText(lFacts.Bindings[i].SkipReason, 'ACTIVITY_UNVERIFIED') then
+      begin
+        lFacts.Bindings[i].SkipReason := '';
+        lFacts.Bindings[i].Status := 'planned';
+      end;
+    end;
+    lOrdinary := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    Assert.IsTrue(FindFinalStatementAt(lOrdinary, 'Unit1.pas', lBaseRange.StartLine,
+      lBaseRange.StartColumn, lOrdinaryStatement));
+    if lBaseStatus = 'skipped' then
+    begin
+      Assert.AreEqual('skipped', lStatement.Status, 'P1 base refusal must never authorize edits');
+      if lOrdinaryStatement.Reason = lBaseReason then
+        Assert.AreEqual(lBaseReason, lStatement.Reason)
+      else if lOrdinaryStatement.Status = 'planned' then
+      begin
+        Assert.IsTrue(lUnknown, 'D3 changed refusal requires unknown source');
+        Assert.AreEqual('activity-unverified', lStatement.Reason);
+      end else
+        Assert.AreEqual(lOrdinaryStatement.Reason, lStatement.Reason, 'D3 ordinary refusal retained');
+    end else if lStatement.Status = 'planned' then
+    begin
+      Assert.AreEqual(lBaseReason, lStatement.Reason);
+      Assert.AreEqual(lBaseSafety, lStatement.SafetyReason);
+      Assert.AreEqual(lBaseReplacement, lStatement.ReplacementText, 'P2 exact base replacement');
+      Assert.AreEqual(lBaseEdits, Integer(Length(lStatement.Edits)), 'P2 edit count');
+      Assert.AreEqual(lBaseTemps, Integer(Length(lStatement.Temps)), 'P2 temp count');
+      AssertBaseParityArrays(aCase, lStatement);
+      Assert.IsTrue(FindFinalStatementAt(lSnapshot, 'Unit1.pas', lBaseRange.StartLine,
+        lBaseRange.StartColumn, lOrdinaryStatement));
+      AssertBaseParityArrays(aCase, lOrdinaryStatement);
+    end else begin
+      Assert.IsTrue(lUnknown, 'P3 tightening requires unknown source in full range');
+      Assert.IsTrue(MatchText(lShape.Name, ['b1-include', 'b1-ifdef-other', 'b1-control-mixed',
+        'ctx-suffix-end', 'ctx-suffix-semi', 'ctx-suffix-else']),
+        'The literal base-planned shape must contain an unknown body, include or suffix.');
+      Assert.AreEqual('activity-unverified', lStatement.Reason);
+      Assert.AreEqual('ACTIVITY_UNVERIFIED', lStatement.SafetyReason);
+    end;
+    if lStatement.Status <> 'planned' then
+    begin
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual('', lStatement.ReplacementText);
+    end;
+  end;
+end;
+
+procedure TRemoveWithPlanTests.ActivityOverlayPreservesNonPlannedFinalDtos(
+  const aFixture: string; const aDakFixture: Boolean);
+var
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lBaseline, lActivity, lSnapshotBaseline, lSnapshotActivity: TDelphiSemanticRemoveWithPlan;
+  lBefore, lAfter: TDelphiSemanticRemoveWithFinalStatement;
+  lCount: Integer;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  if aDakFixture then
+    lOptions.ProjectFileName := DakFixturePath(aFixture)
+  else
+    lOptions.ProjectFileName := FixturePath(aFixture);
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  for var i := 0 to High(lFacts.Bindings) do
+    lFacts.Bindings[i].ActivityUnverified := False;
+  lBaseline := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotBaseline := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  for var i := 0 to High(lFacts.Bindings) do
+    lFacts.Bindings[i].ActivityUnverified := True;
+  lActivity := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotActivity := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  lCount := 0;
+  for lBefore in lBaseline.FinalStatements do
+  begin
+    if SameText(lBefore.Status, 'planned') then
+      Continue;
+    Inc(lCount);
+    Assert.IsTrue(FindFinalStatement(lActivity, lBefore.StatementId, lAfter), lBefore.StatementId);
+    Assert.AreEqual(lBefore.Status, lAfter.Status, lBefore.StatementId);
+    Assert.AreEqual(lBefore.Reason, lAfter.Reason, lBefore.StatementId);
+    Assert.AreEqual(lBefore.SafetyReason, lAfter.SafetyReason, lBefore.StatementId);
+    Assert.AreEqual(lBefore.ReplacementText, lAfter.ReplacementText, lBefore.StatementId);
+    Assert.AreEqual(Length(lBefore.Edits), Length(lAfter.Edits), lBefore.StatementId);
+    Assert.AreEqual(Length(lBefore.Temps), Length(lAfter.Temps), lBefore.StatementId);
+    Assert.IsTrue(FindFinalStatement(lSnapshotActivity, lBefore.StatementId, lAfter), lBefore.StatementId);
+    Assert.AreEqual(lBefore.Status, lAfter.Status, lBefore.StatementId);
+    Assert.AreEqual(lBefore.Reason, lAfter.Reason, lBefore.StatementId);
+    Assert.AreEqual(lBefore.SafetyReason, lAfter.SafetyReason, lBefore.StatementId);
+    Assert.IsTrue(FindFinalStatement(lSnapshotBaseline, lBefore.StatementId, lAfter), lBefore.StatementId);
+    Assert.AreEqual(lBefore.Status, lAfter.Status, lBefore.StatementId);
+    Assert.AreEqual(lBefore.Reason, lAfter.Reason, lBefore.StatementId);
+    Assert.AreEqual(lBefore.SafetyReason, lAfter.SafetyReason, lBefore.StatementId);
+  end;
+  Assert.IsTrue(lCount > 0, 'This fixture must exercise ordinary final refusals.');
+  for lAfter in lActivity.FinalStatements do
+  begin
+    Assert.AreNotEqual('planned', lAfter.Status, lAfter.StatementId);
+    Assert.AreEqual(0, Integer(Length(lAfter.Edits)), lAfter.StatementId);
+  end;
+end;
+
+procedure TRemoveWithPlanTests.EstablishedSkipReasonPrecedesActivityInFactsAndSnapshot(
+  const aTypeName, aExpectedReason: string);
+var
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lSkippedId, lBinderTag: string;
+  lOrdinaryStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lBinderCase: Boolean;
+  lFound: Boolean;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.IsTrue(Length(lFacts.Bindings) > 1);
+  Assert.IsTrue(Length(lFacts.Bindings[0].Selectors) > 0);
+  lSkippedId := lFacts.Bindings[0].SemanticId;
+  lBinderTag := aTypeName;
+  if StartsText('SKIPPED_', lBinderTag) then
+  begin
+    Delete(lBinderTag, 1, Length('SKIPPED_'));
+    lFacts.Bindings[0].Selectors[0].TypeName := 'MissingActivityReceiver';
+  end;
+  lBinderCase := MatchText(lBinderTag, ['UNRESOLVED_REFERENCE', 'UNSUPPORTED_REFERENCE',
+    'SCOPED_DECLARATION', 'EXTERNAL_REFERENCE', 'ACTIVITY_UNVERIFIED']);
+  if lBinderCase then
+  begin
+    lFacts.Bindings[0].SkipReason := lBinderTag;
+    lFacts.Bindings[0].Status := 'skipped';
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    lFound := False;
+    for lStatement in lPlan.FinalStatements do
+      if lStatement.SemanticId = lSkippedId then
+      begin
+        lOrdinaryStatement := lStatement;
+        lFound := True;
+        Break;
+      end;
+    Assert.IsTrue(lFound, 'Expected the ordinary DTO for the tagged binding.');
+    if StartsText('SKIPPED_', aTypeName) then
+    begin
+      Assert.AreEqual('skipped', lOrdinaryStatement.Status);
+      Assert.AreEqual(aExpectedReason, lOrdinaryStatement.Reason);
+    end else if lBinderTag = 'ACTIVITY_UNVERIFIED' then
+    begin
+      Assert.AreEqual('skipped', lOrdinaryStatement.Status);
+      Assert.AreEqual('activity-unverified', lOrdinaryStatement.Reason);
+    end else
+      Assert.AreEqual('planned', lOrdinaryStatement.Status);
+    lFacts.Bindings[0].ActivityUnverified := True;
+  end else
+    lFacts.Bindings[0].Selectors[0].TypeName := aTypeName;
+  lFacts.Bindings[0].Status := 'skipped';
+  if not lFacts.Bindings[0].ActivityUnverified then
+    lFacts.Bindings[0].SkipReason := 'ACTIVITY_UNVERIFIED';
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(ComparableRemoveWithPlanText(lPlan), ComparableRemoveWithPlanText(lSnapshotPlan));
+  Assert.AreEqual(lPlan.ContextFingerprint, lSnapshotPlan.ContextFingerprint);
+  lFound := False;
+  for lStatement in lPlan.FinalStatements do
+    if lStatement.SemanticId = lSkippedId then
+    begin
+      lFound := True;
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.AreEqual(aExpectedReason, lStatement.Reason);
+      if aExpectedReason = 'activity-unverified' then
+        Assert.AreEqual('ACTIVITY_UNVERIFIED', lStatement.SafetyReason)
+      else
+        Assert.AreEqual(aExpectedReason, lStatement.SafetyReason);
+      if lBinderCase and StartsText('SKIPPED_', aTypeName) then
+      begin
+        Assert.AreEqual(lOrdinaryStatement.Status, lStatement.Status);
+        Assert.AreEqual(lOrdinaryStatement.Reason, lStatement.Reason);
+        Assert.AreEqual(lOrdinaryStatement.SafetyReason, lStatement.SafetyReason);
+      end;
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual('', lStatement.ReplacementText);
+    end;
+  Assert.IsTrue(lFound, 'Expected the activity-skipped statement in the final DTO.');
+  lFound := False;
+  // Dak.RemoveWith.Transaction.PlannedStatementIdsFromSemanticPlan consumes
+  // planned final DTOs with actionable Edits, not the candidate lPlan.Edits.
+  for lStatement in lPlan.FinalStatements do
+    if SameText(lStatement.Status, 'planned') and (Length(lStatement.Edits) > 0) then
+    begin
+      lFound := True;
+      Assert.AreNotEqual(lSkippedId, lStatement.SemanticId,
+        'Apply fingerprint input must not cover the skipped binding.');
+    end;
+  Assert.IsTrue(lFound, 'The independent statement must remain applicable.');
+end;
+
+procedure TRemoveWithPlanTests.ActivitySkipKeepsFactsAndSnapshotApplyRangesSafe;
+var
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lSkippedId: string;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.IsTrue(Length(lFacts.Bindings) > 1);
+  lSkippedId := lFacts.Bindings[0].SemanticId;
+  lFacts.Bindings[0].Status := 'skipped';
+  lFacts.Bindings[0].SkipReason := 'ACTIVITY_UNVERIFIED';
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(lFacts.ContextFingerprint, lPlan.ContextFingerprint);
+  Assert.AreEqual(ComparableRemoveWithPlanText(lPlan), ComparableRemoveWithPlanText(lSnapshotPlan));
+  Assert.AreEqual(lPlan.ContextFingerprint, lSnapshotPlan.ContextFingerprint);
+  for lStatement in lPlan.FinalStatements do
+    if lStatement.SemanticId = lSkippedId then
+    begin
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.AreEqual('activity-unverified', lStatement.Reason);
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+    end;
+  for lStatement in lPlan.FinalStatements do
+    if SameText(lStatement.Status, 'planned') and (Length(lStatement.Edits) > 0) then
+      Assert.AreNotEqual(lSkippedId, lStatement.SemanticId,
+        'Apply fingerprint input must not cover the skipped binding.');
 end;
 
 procedure TRemoveWithPlanTests.PlansDeterministicDryRunDtoWithVerificationAndProvenance;
@@ -5056,9 +6656,29 @@ begin
   Assert.AreEqual('with-1', lChildStatement.CoveredByStatementId);
 end;
 
+type
+  TCombinedFixtureRootAbsence = class(TInterfacedObject, IDelphiSemanticImplicitRootMemberAbsence)
+  public
+    function EvidenceFingerprint: string;
+    function IsNameAbsent(const aName: string): Boolean;
+  end;
+
+function TCombinedFixtureRootAbsence.EvidenceFingerprint: string;
+begin
+  Result := 'ds715-combined-fixture-exact-root-names-v1';
+end;
+
+function TCombinedFixtureRootAbsence.IsNameAbsent(const aName: string): Boolean;
+begin
+  Result := MatchText(aName, ['lInnerLeft', 'lInnerRight', 'lOuterRight', 'lSafeRight', 'lAmbiguous',
+    'LeftOuterOnly', 'RightOuterOnly', 'LeftInnerOnly', 'RightInnerOnly', 'Clash']);
+end;
+
 procedure TRemoveWithPlanTests.FinalDtoBlocksDakCombinedSelectorAmbiguousHelperCall;
 var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
   lFixtureDir: string;
+  lOptions: TDelphiSemanticApiOptions;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lProjectPath: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -5068,6 +6688,16 @@ begin
   lProjectPath := TPath.Combine(lFixtureDir,
     'RemoveWithCombinedSelectorRewriteFixture.dproj');
   lPlan := BuildPlanForProject(lProjectPath);
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+
+  // DS-715: retain the full positive contract under an explicit per-name root profile.
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := lProjectPath;
+  lOptions.ImplicitRootMemberAbsence := TCombinedFixtureRootAbsence.Create;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lStatement),
     'Expected ambiguous parent statement.');
@@ -7832,12 +9462,27 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1532, 5, lStatement),
-    'Expected maxTdb ForgetSelektList p^.Sel with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('property-selector', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1532, 5, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('1532:5-1533:49', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('8078c228cc3241793a5a607d9f0a16bbfa786a299e85e26e7a71f02fd73843eb', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with p^.Sel do' + #13#10 +
+    '      FreeMem(Menu, M_Az * SizeOf(SelektString));', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('    lWithSelektorPtr := @p^.Sel;' + #13#10 +
+    '    FreeMem(lWithSelektorPtr^.Menu, lWithSelektorPtr^.M_Az * SizeOf(SelektString));', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('p^.Sel', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('Selektor', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithSelektorPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('lWithSelektorPtr: ^Selektor;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithSelektorPtr := @p^.Sel;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lStatement);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLabelStringPropertyChainQualification;
@@ -8128,15 +9773,72 @@ procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbCheckMarkListNestedReceiverM
 var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 2296, 9, lStatement),
-    'Expected maxTdb CheckMarkList nested p^ with statement.');
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 2296, 9, lStatement));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('2296:9-2314:12', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('8078c228cc3241793a5a607d9f0a16bbfa786a299e85e26e7a71f02fd73843eb', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with p^ do' + #13#10 +
+    '        begin' + #13#10 +
+    '          if p^.DV > Max then' + #13#10 +
+    '          begin' + #13#10 +
+    '            X := p;' + #13#10 +
+    '            if q = nil then' + #13#10 +
+    '              Anfang := p^.Rest' + #13#10 +
+    '            else' + #13#10 +
+    '              q^.Rest := p^.Rest;' + #13#10 +
+    '            q := p;' + #13#10 +
+    '            p := p^.Rest;' + #13#10 +
+    '            dispose(X);' + #13#10 +
+    '          end' + #13#10 +
+    '          else' + #13#10 +
+    '          begin' + #13#10 +
+    '            q := p;' + #13#10 +
+    '            p := p^.Rest' + #13#10 +
+    '          end;' + #13#10 +
+    '        end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('        begin' + #13#10 +
+    '          lWith_MRPtr := @p^;' + #13#10 +
+    '          begin' + #13#10 +
+    '          if p^.DV > Max then' + #13#10 +
+    '          begin' + #13#10 +
+    '            X := p;' + #13#10 +
+    '            if q = nil then' + #13#10 +
+    '              Anfang := p^.Rest' + #13#10 +
+    '            else' + #13#10 +
+    '              q^.Rest := p^.Rest;' + #13#10 +
+    '            q := p;' + #13#10 +
+    '            p := p^.Rest;' + #13#10 +
+    '            dispose(X);' + #13#10 +
+    '          end' + #13#10 +
+    '          else' + #13#10 +
+    '          begin' + #13#10 +
+    '            q := p;' + #13#10 +
+    '            p := p^.Rest' + #13#10 +
+    '          end;' + #13#10 +
+    '        end;' + #13#10 +
+    '        end;', lStatement.ReplacementText);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('p^', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('_MR', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWith_MRPtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('lWith_MRPtr: ^_MR;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWith_MRPtr := @p^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  AssertCapturedRecipe(lStatement);
+  // The outer property receiver stays intact; explicit p^ accesses keep their lexical base.
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 2290, 5, lOwnerStatement));
+  Assert.AreEqual('skipped', lOwnerStatement.Status);
+  Assert.AreEqual('property-selector', lOwnerStatement.Reason);
+  Assert.AreEqual(0, Integer(Length(lOwnerStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbEasyTableMaskSymbolSkip;
@@ -13525,11 +15227,21 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
+  // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@6362, LokalPfad@6397.
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 223, 3, lStatement),
     'Expected maxTdb GetIndPath WITH at 223.');
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual('', lStatement.Reason);
-  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
+  Assert.AreEqual('', lStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
+
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
   Assert.AreEqual('GetIndPath', lStatement.RoutineName);
   Assert.AreEqual('cfa1d6d78ee46805424b9f6990f264cbf8e03bad7982d4e64512dcb52256dd87', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
@@ -13555,74 +15267,9 @@ begin
     '      fm := RW_Mode' + #13#10 +
     '    END;' + #13#10 +
     '  END', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
-    '  lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;' + #13#10 +
-    '  BEGIN' + #13#10 +
-    '    fm := lWithDatFilePtr^.FMode;' + #13#10 +
-    '    tFN := lWithDatFilePtr^.Pfad;' + #13#10 +
-    '    StrConcat(tFN, lWithIndexFilePtr^.IndexName);' + #13#10 +
-    '    IF TempInd(lWithIndexFilePtr^.IndexName) THEN' + #13#10 +
-    '    BEGIN' + #13#10 +
-    '      {$IFDEF OLD_NET}' + #13#10 +
-    '      IF (lWithDatFilePtr^.V_Base > 0) OR (NetDrive = 0) THEN' + #13#10 +
-    '        tFN := LokalPfad' + #13#10 +
-    '      ELSE' + #13#10 +
-    '        tFN := lWithDatFilePtr^.Pfad;' + #13#10 +
-    '       StrConcat(tFN, lWithIndexFilePtr^.IndexName);' + #13#10 +
-    '      {$ELSE}' + #13#10 +
-    '      tFN := ExpandFileName(lWithIndexFilePtr^.IndexName);' + #13#10 +
-    '      {$ENDIF}' + #13#10 +
-    '      fm := RW_Mode' + #13#10 +
-    '    END;' + #13#10 +
-    '  END', lStatement.ReplacementText);
-  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('cfa1d6d78ee46805424b9f6990f264cbf8e03bad7982d4e64512dcb52256dd87', lStatement.Temps[0].SemanticId);
-  Assert.AreEqual('IndFiles[INr]^', lStatement.Temps[1].SelectorText);
-  Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
-  Assert.AreEqual('IndexFile', lStatement.Temps[1].ReceiverType);
-  Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[1].TempName);
-  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;', lStatement.Temps[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('cfa1d6d78ee46805424b9f6990f264cbf8e03bad7982d4e64512dcb52256dd87', lStatement.Temps[1].SemanticId);
-  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
-  Assert.AreEqual('222:1-222:1', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual('var' + #13#10 +
-    '  lWithDatFilePtr: ^DatFile;' + #13#10 +
-    '  lWithIndexFilePtr: ^IndexFile;' + #13#10, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
-  Assert.AreEqual('223:1-241:5', SourceRangeText(lStatement.Edits[1].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  AssertFinalRecipe(lStatement, 'record-pointer-temp');
-  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('DF[D]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('cfa1d6d78ee46805424b9f6990f264cbf8e03bad7982d4e64512dcb52256dd87', lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.AreEqual('IndFiles[INr]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
-  Assert.AreEqual('lWithIndexFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
-  Assert.AreEqual('IndexFile', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
-  Assert.AreEqual('lWithIndexFilePtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
-  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;', lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('cfa1d6d78ee46805424b9f6990f264cbf8e03bad7982d4e64512dcb52256dd87', lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   lDeclarationCount := 0;
   lReplacementCount := 0;
   for i := 0 to High(lPlan.FinalStatements) do
@@ -13636,8 +15283,8 @@ begin
           (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) = '223:1-241:5') then
           Inc(lReplacementCount);
       end;
-  Assert.AreEqual(1, lDeclarationCount);
-  Assert.AreEqual(1, lReplacementCount);
+  Assert.AreEqual(0, lDeclarationCount);
+  Assert.AreEqual(0, lReplacementCount);
 
 end;
 
@@ -16335,27 +17982,164 @@ begin
   AssertCapturedRecipe(lStatement);
 end;
 
+function MaxTdbStatementMetadata(const aPlan: TDelphiSemanticRemoveWithPlan;
+  const aFileName, aRange: string): TDelphiSemanticRemoveWithStatement;
+var
+  lCount: Integer;
+  lStatement: TDelphiSemanticRemoveWithStatement;
+begin
+  Result := Default(TDelphiSemanticRemoveWithStatement);
+  lCount := 0;
+  for lStatement in aPlan.Statements do
+    if SameText(ExtractFileName(lStatement.FileName), aFileName) and
+      (SourceRangeText(lStatement.Range) = aRange) then
+    begin
+      Inc(lCount);
+      Result := lStatement;
+    end;
+  Assert.AreEqual(1, lCount, 'Expected one physical statement: ' + aFileName + ' ' + aRange);
+  Assert.IsTrue(Result.SemanticId <> '', 'Physical statement identity must be retained.');
+end;
+
+procedure AssertMaxTdbCoveredStatement(const aPlan: TDelphiSemanticRemoveWithPlan;
+  const aFileName, aRange, aSemanticId, aExpectedSourceText: string;
+  const aTempCount: Integer; out aOwner: TDelphiSemanticRemoveWithFinalStatement);
+var
+  lCount: Integer;
+  lFinal: TDelphiSemanticRemoveWithFinalStatement;
+  lMetadata: TDelphiSemanticRemoveWithStatement;
+  lTemp: TDelphiSemanticRemoveWithFinalTempDecision;
+begin
+  lMetadata := MaxTdbStatementMetadata(aPlan, aFileName, aRange);
+  Assert.AreEqual('planned', lMetadata.Status);
+  Assert.AreEqual('covered-by-parent-rewrite', lMetadata.Reason);
+  Assert.AreEqual('', lMetadata.SafetyReason);
+  Assert.AreEqual(aSemanticId, lMetadata.SemanticId);
+  Assert.IsTrue(lMetadata.CoveredByStatementId <> '', 'Expected an explicit covering parent.');
+  aOwner := Default(TDelphiSemanticRemoveWithFinalStatement);
+  lCount := 0;
+  for lFinal in aPlan.FinalStatements do
+  begin
+    Assert.IsFalse(SameText(lFinal.FileName, lMetadata.FileName) and
+      (SourceRangeText(lFinal.Range) = aRange), 'A covered child must not produce a second replacement.');
+    if SameText(lFinal.FileName, lMetadata.FileName) and
+      (lFinal.StatementId = lMetadata.CoveredByStatementId) then
+    begin
+      Inc(lCount);
+      aOwner := lFinal;
+    end;
+  end;
+  Assert.AreEqual(1, lCount);
+  Assert.AreEqual('planned', aOwner.Status);
+  Assert.IsTrue((aOwner.Range.StartLine < lMetadata.Range.StartLine) or
+    ((aOwner.Range.StartLine = lMetadata.Range.StartLine) and
+     (aOwner.Range.StartColumn <= lMetadata.Range.StartColumn)));
+  Assert.IsTrue((aOwner.Range.EndLine > lMetadata.Range.EndLine) or
+    ((aOwner.Range.EndLine = lMetadata.Range.EndLine) and
+     (aOwner.Range.EndColumn >= lMetadata.Range.EndColumn)));
+  Assert.IsTrue(Pos(aExpectedSourceText, aOwner.Verification.ExpectedSourceText) > 0,
+    'The complete original child source must be verified by its parent.');
+  lCount := 0;
+  for lTemp in aOwner.Temps do
+    if lTemp.SemanticId = lMetadata.SemanticId then
+      Inc(lCount);
+  Assert.AreEqual(aTempCount, lCount, 'Covered child captures must retain their own identity.');
+end;
+
+procedure AssertMaxTdbBaseUncoveredStatement(const aPlan: TDelphiSemanticRemoveWithPlan;
+  const aFileName, aRange, aSemanticId, aExpectedSourceText: string;
+  const aTempCount, aEditCount: Integer; const aReplacementText: string;
+  out aStatement: TDelphiSemanticRemoveWithFinalStatement);
+var
+  lMetadata: TDelphiSemanticRemoveWithStatement;
+  lCount: Integer;
+  lFinal: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  // fix-packet-22.md: these base-pinned children render independently after their parent refuses.
+  lMetadata := MaxTdbStatementMetadata(aPlan, aFileName, aRange);
+  Assert.AreEqual('planned', lMetadata.Status);
+  Assert.AreEqual('', lMetadata.Reason);
+  Assert.AreEqual('', lMetadata.SafetyReason);
+  Assert.AreEqual(aSemanticId, lMetadata.SemanticId);
+  Assert.AreEqual('', lMetadata.CoveredByStatementId);
+  lCount := 0;
+  aStatement := Default(TDelphiSemanticRemoveWithFinalStatement);
+  for lFinal in aPlan.FinalStatements do
+    if SameText(lFinal.FileName, lMetadata.FileName) and
+      (SourceRangeText(lFinal.Range) = aRange) then
+    begin
+      Inc(lCount);
+      aStatement := lFinal;
+    end;
+  Assert.AreEqual(1, lCount, 'The base-pinned child must have exactly one final replacement.');
+  Assert.AreEqual('planned', aStatement.Status);
+  Assert.AreEqual('', aStatement.Reason);
+  Assert.AreEqual('', aStatement.SafetyReason);
+  Assert.AreEqual(aSemanticId, aStatement.SemanticId);
+  Assert.AreEqual(aRange, SourceRangeText(aStatement.Range));
+  Assert.AreEqual(aRange, SourceRangeText(aStatement.Verification.Range));
+  Assert.AreEqual(aExpectedSourceText, aStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual(aReplacementText, aStatement.ReplacementText);
+  Assert.AreEqual(aTempCount, Integer(Length(aStatement.Temps)));
+  Assert.AreEqual(aEditCount, Integer(Length(aStatement.Edits)));
+  for var i := 0 to High(aStatement.Temps) do
+    Assert.AreEqual(aSemanticId, aStatement.Temps[i].SemanticId);
+  AssertFinalRecipe(aStatement, 'record-pointer-temp');
+  Assert.AreEqual(aTempCount, Integer(Length(aStatement.RewriteRecipe.SelectorDecisions)));
+  for var i := 0 to High(aStatement.Temps) do
+  begin
+    Assert.AreEqual(aStatement.Temps[i].SelectorText,
+      aStatement.RewriteRecipe.SelectorDecisions[i].SelectorText);
+    Assert.AreEqual(aStatement.Temps[i].InitializationText,
+      aStatement.RewriteRecipe.SelectorDecisions[i].InitializationText);
+    Assert.AreEqual(aSemanticId, aStatement.RewriteRecipe.SelectorDecisions[i].SemanticId);
+    Assert.AreEqual(aStatement.Temps[i].QualifierText,
+      aStatement.RewriteRecipe.SelectorDecisions[i].QualifierText);
+    Assert.AreEqual(aStatement.Temps[i].Strategy,
+      aStatement.RewriteRecipe.SelectorDecisions[i].Strategy);
+    Assert.AreEqual(aStatement.Temps[i].ReceiverType,
+      aStatement.RewriteRecipe.SelectorDecisions[i].ReceiverType);
+    Assert.AreEqual(aStatement.Temps[i].TempName,
+      aStatement.RewriteRecipe.SelectorDecisions[i].TempName);
+    Assert.AreEqual(aStatement.Temps[i].DeclarationText,
+      aStatement.RewriteRecipe.SelectorDecisions[i].DeclarationText);
+    Assert.AreEqual(aStatement.Temps[i].Reason,
+      aStatement.RewriteRecipe.SelectorDecisions[i].Reason);
+  end;
+end;
+
+procedure AssertMaxTdbRoutineDeclarationOwner(const aPlan: TDelphiSemanticRemoveWithPlan;
+  const aOwner: TDelphiSemanticRemoveWithFinalStatement);
+var
+  lCount: Integer;
+  lEdit: TDelphiSemanticRemoveWithFinalTextEdit;
+  lFinal: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lCount := 0;
+  for lFinal in aPlan.FinalStatements do
+    if SameText(lFinal.FileName, aOwner.FileName) and
+      (lFinal.RoutineName = aOwner.RoutineName) then
+      for lEdit in lFinal.Edits do
+        if lEdit.Kind = 'declare-temp' then
+          Inc(lCount);
+  Assert.AreEqual(1, lCount, 'One declaration group must own every capture in the routine.');
+end;
+
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01RelRecNestedSelectorPointerTemp;
 var
-  i: Integer;
-  j: Integer;
-  lDeclarationCount: Integer;
   lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
-
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 914, 3, lStatement),
-    'Expected maxTdb tdb01 LiesSek RelRec, w[0] with statement.');
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB01.pas', 914, 3, lStatement));
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('LiesSek', lStatement.RoutineName);
   Assert.AreEqual('914:3-920:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('914:3-920:6', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('29f244ab68fb92522262b36bb725dc627d9a7142071d7f4a0e1207c75659b118',
-    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('29f244ab68fb92522262b36bb725dc627d9a7142071d7f4a0e1207c75659b118', lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('with RelRec, w[0] do' + #13#10 +
     '  begin' + #13#10 +
     '    aktiv := True;' + #13#10 +
@@ -16373,82 +18157,35 @@ begin
     '  end;', lStatement.ReplacementText);
   Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('RelRec', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr^', lStatement.Temps[0].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
-    lStatement.Temps[0].SemanticId);
+  Assert.AreEqual(MaxTdbStatementMetadata(lPlan, 'tdb01.pas', '914:3-920:6').SemanticId, lStatement.Temps[0].SemanticId);
   Assert.AreEqual('w[0]', lStatement.Temps[1].SelectorText);
+  Assert.AreEqual('TRelRecSubRec', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithRelRecSubRecPtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
-  Assert.AreEqual('TRelRecSubRec', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithRelRecSubRecPtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
-    lStatement.Temps[1].SemanticId);
+  Assert.AreEqual(MaxTdbStatementMetadata(lPlan, 'tdb01.pas', '914:3-920:6').SemanticId, lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('882:1-882:1', SourceRangeText(lStatement.Edits[0].Range));
+  // fix-packet-22.md: inactive lock@23037/23096 refuses 929:7; base omits its declaration.
   Assert.AreEqual('var' + #13#10 +
     '  lWithRelRecPtr: ^TRelRec;' + #13#10 +
     '  lWithRelRecSubRecPtr: ^TRelRecSubRec;' + #13#10 +
     '  lWithRelRecPtr1: ^TRelRec;' + #13#10 +
-    '  lWithRelRecSubRecPtr1: ^TRelRecSubRec;' + #13#10, lStatement.Edits[0].ReplacementText);
+    '  lWithRelRecSubRecPtr1: ^TRelRecSubRec;' + #13#10 +
+    '', lStatement.Edits[0].ReplacementText);
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('914:1-920:6', SourceRangeText(lStatement.Edits[1].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
-    lStatement.SemanticId);
-  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lStatement, 'record-pointer-temp');
-  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('RelRec', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithRelRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('TRelRec', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithRelRecPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithRelRecPtr: ^TRelRec;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr := @RelRec;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
-    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.AreEqual('w[0]', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
-  Assert.AreEqual('lWithRelRecSubRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
-  Assert.AreEqual('TRelRecSubRec', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
-  Assert.AreEqual('lWithRelRecSubRecPtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
-  Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;',
-    lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];',
-    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
-    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
-
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 914, 3, lOwnerStatement));
-  Assert.AreEqual('planned', lOwnerStatement.Status);
-  Assert.AreEqual('', lOwnerStatement.Reason);
-  Assert.AreEqual('', lOwnerStatement.SafetyReason);
-  Assert.AreEqual('LiesSek', lOwnerStatement.RoutineName);
-  Assert.AreEqual('914:3-920:6', SourceRangeText(lOwnerStatement.Range));
-  Assert.AreEqual('914:3-920:6', SourceRangeText(lOwnerStatement.Verification.Range));
-  Assert.AreEqual('29f244ab68fb92522262b36bb725dc627d9a7142071d7f4a0e1207c75659b118',
-    lOwnerStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('with RelRec, w[0] do' + #13#10 +
-    '  begin' + #13#10 +
-    '    aktiv := True;' + #13#10 +
-    '    n := 0;' + #13#10 +
-    '    lf := d;' + #13#10 +
-    '    hh := True' + #13#10 +
-    '  end;', lOwnerStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('  lWithRelRecPtr := @RelRec;' + #13#10 +
     '  lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];' + #13#10 +
     '  begin' + #13#10 +
@@ -16456,78 +18193,12 @@ begin
     '    lWithRelRecPtr^.n := 0;' + #13#10 +
     '    lWithRelRecSubRecPtr^.lf := d;' + #13#10 +
     '    lWithRelRecSubRecPtr^.hh := True' + #13#10 +
-    '  end;', lOwnerStatement.ReplacementText);
-  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Temps)));
-  Assert.AreEqual('RelRec', lOwnerStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithRelRecPtr^', lOwnerStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[0].Strategy);
-  Assert.AreEqual('TRelRec', lOwnerStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithRelRecPtr', lOwnerStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr := @RelRec;', lOwnerStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
-    lOwnerStatement.Temps[0].SemanticId);
-  Assert.AreEqual('w[0]', lOwnerStatement.Temps[1].SelectorText);
-  Assert.AreEqual('lWithRelRecSubRecPtr^', lOwnerStatement.Temps[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[1].Strategy);
-  Assert.AreEqual('TRelRecSubRec', lOwnerStatement.Temps[1].ReceiverType);
-  Assert.AreEqual('lWithRelRecSubRecPtr', lOwnerStatement.Temps[1].TempName);
-  Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;', lOwnerStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];', lOwnerStatement.Temps[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[1].Reason);
-  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
-    lOwnerStatement.Temps[1].SemanticId);
-  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
-  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
-  Assert.AreEqual('882:1-882:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
-  Assert.AreEqual('var' + #13#10 +
-    '  lWithRelRecPtr: ^TRelRec;' + #13#10 +
-    '  lWithRelRecSubRecPtr: ^TRelRecSubRec;' + #13#10 +
-    '  lWithRelRecPtr1: ^TRelRec;' + #13#10 +
-    '  lWithRelRecSubRecPtr1: ^TRelRecSubRec;' + #13#10, lOwnerStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
-  Assert.AreEqual('914:1-920:6', SourceRangeText(lOwnerStatement.Edits[1].Range));
-  Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
-    lOwnerStatement.SemanticId);
-  Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
-  Assert.AreEqual(2, Integer(Length(lOwnerStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('RelRec', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithRelRecPtr^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('TRelRec', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithRelRecPtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithRelRecPtr: ^TRelRec;',
-    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr := @RelRec;',
-    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
-    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.AreEqual('w[0]', lOwnerStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
-  Assert.AreEqual('lWithRelRecSubRecPtr^', lOwnerStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lOwnerStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
-  Assert.AreEqual('TRelRecSubRec', lOwnerStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
-  Assert.AreEqual('lWithRelRecSubRecPtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[1].TempName);
-  Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;',
-    lOwnerStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];',
-    lOwnerStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('8274c9c64215cfbd8277bf3cacdd386d06ddeddf0d8ab256e39eef12249b98d5',
-    lOwnerStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 934, 11, lStatement));
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual('', lStatement.Reason);
-  Assert.AreEqual('', lStatement.SafetyReason);
-  Assert.AreEqual('LiesSek', lStatement.RoutineName);
-  Assert.AreEqual('934:11-955:13', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('934:11-955:13', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('29f244ab68fb92522262b36bb725dc627d9a7142071d7f4a0e1207c75659b118',
-    lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('with RelRec, w[n] do' + #13#10 +
+    '  end;', lStatement.Edits[1].ReplacementText);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
+  AssertMaxTdbRoutineDeclarationOwner(lPlan, lStatement);
+  // fix-packet-22.md: base d308bc5 refuses inactive lock@23037 and lock@23096 in parent 929:7; this child renders independently.
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB01.pas', '934:11-955:13',
+    'e568ff0fe90915b58eac1fc689cf0ed658167a8ece086ef5b7396f2e9afaf55c', 'with RelRec, w[n] do' + #13#10 +
     '          begin' + #13#10 +
     '            lf := i;' + #13#10 +
     '            Include(Gelesen, i);' + #13#10 +
@@ -16548,8 +18219,8 @@ begin
     '                  Include(Missing, i);' + #13#10 +
     '              end;' + #13#10 +
     '            end;' + #13#10 +
-    '          end', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('          lWithRelRecPtr1 := @RelRec;' + #13#10 +
+    '          end', 2, 1,
+    '          lWithRelRecPtr1 := @RelRec;' + #13#10 +
     '          lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];' + #13#10 +
     '          begin' + #13#10 +
     '            lWithRelRecSubRecPtr1^.lf := i;' + #13#10 +
@@ -16571,73 +18242,11 @@ begin
     '                  Include(Missing, i);' + #13#10 +
     '              end;' + #13#10 +
     '            end;' + #13#10 +
-    '          end', lStatement.ReplacementText);
-  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('RelRec', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithRelRecPtr1^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithRelRecPtr1', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithRelRecPtr1: ^TRelRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr1 := @RelRec;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('e568ff0fe90915b58eac1fc689cf0ed658167a8ece086ef5b7396f2e9afaf55c',
-    lStatement.Temps[0].SemanticId);
-  Assert.AreEqual('w[n]', lStatement.Temps[1].SelectorText);
-  Assert.AreEqual('lWithRelRecSubRecPtr1^', lStatement.Temps[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
-  Assert.AreEqual('TRelRecSubRec', lStatement.Temps[1].ReceiverType);
-  Assert.AreEqual('lWithRelRecSubRecPtr1', lStatement.Temps[1].TempName);
-  Assert.AreEqual('lWithRelRecSubRecPtr1: ^TRelRecSubRec;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];',
-    lStatement.Temps[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('e568ff0fe90915b58eac1fc689cf0ed658167a8ece086ef5b7396f2e9afaf55c',
-    lStatement.Temps[1].SemanticId);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual('934:1-955:13', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('e568ff0fe90915b58eac1fc689cf0ed658167a8ece086ef5b7396f2e9afaf55c',
-    lStatement.SemanticId);
-  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lStatement, 'record-pointer-temp');
-  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('RelRec', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithRelRecPtr1^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('TRelRec', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithRelRecPtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithRelRecPtr1: ^TRelRec;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr1 := @RelRec;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('e568ff0fe90915b58eac1fc689cf0ed658167a8ece086ef5b7396f2e9afaf55c',
-    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.AreEqual('w[n]', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
-  Assert.AreEqual('lWithRelRecSubRecPtr1^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
-  Assert.AreEqual('TRelRecSubRec', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
-  Assert.AreEqual('lWithRelRecSubRecPtr1', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
-  Assert.AreEqual('lWithRelRecSubRecPtr1: ^TRelRecSubRec;',
-    lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];',
-    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('e568ff0fe90915b58eac1fc689cf0ed658167a8ece086ef5b7396f2e9afaf55c',
-    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
-  Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
-  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
-  lDeclarationCount := 0;
-  for i := 0 to High(lPlan.FinalStatements) do
-    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
-      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
-        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
-        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
-        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
-        Inc(lDeclarationCount);
-  Assert.AreEqual(1, lDeclarationCount);
+    '          end', lOwnerStatement);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB01.pas', 929, 7, lOwnerStatement));
+  Assert.AreEqual('929:7-970:10', SourceRangeText(lOwnerStatement.Range));
+  Assert.AreEqual('', lOwnerStatement.ReplacementText);
+  Assert.AreEqual('', lOwnerStatement.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01LiesSekLinkFileReplacement;
@@ -16647,30 +18256,25 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 929, 7, lStatement),
-    'Expected maxTdb tdb01 LiesSek DF[i]^ with statement.');
-  // T-209: Preserved NET text still needs its enclosing WITH scope.
-  Assert.AreEqual('LiesSek', lStatement.RoutineName);
-  Assert.AreEqual('3aaba18c2ac845e798870de268aa70dbf28a521b2e0e9097040e0e6671be7c21', lStatement.SemanticId);
+  // fix-packet-22.md: base d308bc5 refuses inactive lock@23037, lock@23096.
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 929, 7, lStatement));
   Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
-  Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
   Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
   Assert.AreEqual('', lStatement.RewriteRecipe.ReplacementText);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
+
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
+  Assert.AreEqual('LiesSek', lStatement.RoutineName);
+  Assert.AreEqual('3aaba18c2ac845e798870de268aa70dbf28a521b2e0e9097040e0e6671be7c21', lStatement.SemanticId);
   Assert.AreEqual('929:7-970:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('929:7-970:10', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('929:7-970:10', SourceRangeText(lStatement.RewriteRecipe.ReplacementRange));
-  Assert.AreEqual('29f244ab68fb92522262b36bb725dc627d9a7142071d7f4a0e1207c75659b118',
-    lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('29f244ab68fb92522262b36bb725dc627d9a7142071d7f4a0e1207c75659b118', lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('with DF[i]^ do' + #13#10 +
     '      begin' + #13#10 +
     '        if (LinkFile = 0) or InSet(Gelesen, LinkFile) then' + #13#10 +
@@ -16712,8 +18316,11 @@ begin
     '          if InSet(Leaving, i) then' + #13#10 +
     '            Include(Leaving, LinkFile)' + #13#10 +
     '        end;' + #13#10 +
-    '      end;',
-    lStatement.Verification.ExpectedSourceText);
+    '      end;', lStatement.Verification.ExpectedSourceText);
+  // Known receiver members are qualified in both physical conditional branches.
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01NextRecInitPointerCaptures;
@@ -17200,65 +18807,85 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01DeleteDbRelationReplacement;
 var
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
-
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 1158, 9, lStatement),
-    'Expected maxTdb tdb01 DeleteDB relation Maske[i]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual('', lStatement.Reason);
-  Assert.AreEqual('', lStatement.SafetyReason);
-  Assert.AreEqual('LoescheDatei', lStatement.RoutineName);
-  Assert.AreEqual('1158:9-1160:119', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('1158:9-1160:119', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('29f244ab68fb92522262b36bb725dc627d9a7142071d7f4a0e1207c75659b118',
-    lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('with Maske[i]^ do' + #13#10 +
+  // fix-packet-22.md: base d308bc5 refuses inactive goto@26999 in parent 1123:3; this child renders independently.
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB01.pas', '1158:9-1160:119',
+    'f1dcc6ddc0fac620bfcbc47f7760ed2b6242ae558189a6f9ded56b65bf7ce8d8', 'with Maske[i]^ do' + #13#10 +
     '          if Art and 15 = A_REL then' + #13#10 +
-    '            done := done and ((Base = 0) or IsRel(Base, m) or LoescheDatei(RelFileName(Pfad, m), S_Leer, 0, 0, False));', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('        begin' + #13#10 +
+    '            done := done and ((Base = 0) or IsRel(Base, m) or LoescheDatei(RelFileName(Pfad, m), S_Leer, 0, 0, False));', 1, 2,
+    '        begin' + #13#10 +
     '          lWithMaskEntryPtr := @Maske[i]^;' + #13#10 +
     '          if lWithMaskEntryPtr^.Art and 15 = A_REL then' + #13#10 +
     '            done := done and ((Base = 0) or IsRel(Base, lWithMaskEntryPtr^.m) or LoescheDatei(RelFileName(Pfad, lWithMaskEntryPtr^.m), S_Leer, 0, 0, False));' + #13#10 +
-    '        end;', lStatement.ReplacementText);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('Maske[i]^', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithMaskEntryPtr^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('TMaskEntry', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithMaskEntryPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('f1dcc6ddc0fac620bfcbc47f7760ed2b6242ae558189a6f9ded56b65bf7ce8d8',
-    lStatement.Temps[0].SemanticId);
-  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
-  Assert.AreEqual('1084:1-1084:1', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual('var' + #13#10 +
-    '  lWithMaskEntryPtr: ^TMaskEntry;' + #13#10, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
-  Assert.AreEqual('1158:1-1160:119', SourceRangeText(lStatement.Edits[1].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('f1dcc6ddc0fac620bfcbc47f7760ed2b6242ae558189a6f9ded56b65bf7ce8d8',
-    lStatement.SemanticId);
-  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lStatement, 'record-pointer-temp');
-  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('Maske[i]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithMaskEntryPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('TMaskEntry', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithMaskEntryPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('f1dcc6ddc0fac620bfcbc47f7760ed2b6242ae558189a6f9ded56b65bf7ce8d8',
-    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+    '        end;', lOwnerStatement);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB01.pas', 1123, 3, lOwnerStatement));
+  // fix-packet-22.md: base d308bc5 refuses inactive goto@26999.
+  lStatement := lOwnerStatement;
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
+  Assert.AreEqual('', lStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
+
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
+  Assert.AreEqual('LoescheDatei', lStatement.RoutineName);
+  Assert.AreEqual('1123:3-1163:6', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('1123:3-1163:6', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('29f244ab68fb92522262b36bb725dc627d9a7142071d7f4a0e1207c75659b118', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with DF[FilesOffen]^ do' + #13#10 +
+    '  begin' + #13#10 +
+    '    {$IFDEF NET}' + #13#10 +
+    '    if not Check1Write(FilesOffen) then' + #13#10 +
+    '    begin' + #13#10 +
+    '      DoError(103, DBName);' + #13#10 +
+    '      goto Close' + #13#10 +
+    '    end;' + #13#10 +
+    '    {$ENDIF}' + #13#10 +
+    '    ReadIndNames(FilesOffen, 0, False);' + #13#10 +
+    '    for i := 1 to indiziert do' + #13#10 +
+    '    begin' + #13#10 +
+    '      MakeFileName(Pfad, S_Leer, IndFiles[i]^.IndexName, tfn);' + #13#10 +
+    '      DelFile(tfn);' + #13#10 +
+    '    end;' + #13#10 +
+    '    MakeFileName(Pfad, DBName, CinExt, tfn);' + #13#10 +
+    '    DelFile(tfn);' + #13#10 +
+    '    if HatAuto then' + #13#10 +
+    '    begin' + #13#10 +
+    '      MakeFileName(Pfad, DBName, InrExt, tfn);' + #13#10 +
+    '      DelFile(tfn);' + #13#10 +
+    '    end;' + #13#10 +
+    '    if HatMemo then' + #13#10 +
+    '    begin' + #13#10 +
+    '      MakeFileName(Pfad, DBName, MmoExt, tfn);' + #13#10 +
+    '      DelFile(tfn);' + #13#10 +
+    '    end;' + #13#10 +
+    '    if HatBlob then' + #13#10 +
+    '    begin' + #13#10 +
+    '      MakeFileName(Pfad, DBName, BlbExt, tfn);' + #13#10 +
+    '      DelFile(tfn);' + #13#10 +
+    '    end;' + #13#10 +
+    '    done := True;' + #13#10 +
+    '    if DelRel then' + #13#10 +
+    '      for i := 1 to RecZahl do' + #13#10 +
+    '        with Maske[i]^ do' + #13#10 +
+    '          if Art and 15 = A_REL then' + #13#10 +
+    '            done := done and ((Base = 0) or IsRel(Base, m) or LoescheDatei(RelFileName(Pfad, m), S_Leer, 0, 0, False));' + #13#10 +
+    '    {$IFDEF NET}EndWrite(FilesOffen);' + #13#10 +
+    '    {$ENDIF}' + #13#10 +
+    '  end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  AssertMaxTdbRoutineDeclarationOwner(lPlan, lStatement);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01NextRecordSkip;
@@ -18552,11 +20179,21 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
+  // fix-packet-22.md: base d308bc5 refuses inactive ProgressDefault@80258.
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2430, 3, lStatement),
     'Expected maxTdb TDB02 ToDBF DF[c]^ with statement.');
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual('', lStatement.Reason);
-  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
+  Assert.AreEqual('', lStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
+
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
   Assert.AreEqual('ToDBF', lStatement.RoutineName);
   Assert.AreEqual('2430:3-2433:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2430:3-2433:6', SourceRangeText(lStatement.Verification.Range));
@@ -18566,46 +20203,12 @@ begin
     '  begin' + #13#10 +
     '    ToDBF := Dat2DBF02(DBName, fn, {$IFDEF DLL}ProgressDefault, {$ENDIF}r2, r3 <> 0);' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[c]^;' + #13#10 +
-    '  begin' + #13#10 +
-    '    ToDBF := Dat2DBF02(lWithDatFilePtr^.DBName, fn, {$IFDEF DLL}ProgressDefault, {$ENDIF}r2, r3 <> 0);' + #13#10 +
-    '  end;', lStatement.ReplacementText);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('DF[c]^', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[c]^;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('ae2db9536dd4a6a60a0d7de6daa09c9f1f131c249de1c8afa1c1fa8a547b52e1',
-    lStatement.Temps[0].SemanticId);
-  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
-  Assert.AreEqual('2429:1-2429:1', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual('var' + #13#10 +
-    '  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
-  Assert.AreEqual('2430:1-2433:6', SourceRangeText(lStatement.Edits[1].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('ae2db9536dd4a6a60a0d7de6daa09c9f1f131c249de1c8afa1c1fa8a547b52e1',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lStatement, 'record-pointer-temp');
-  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('DF[c]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[c]^;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('ae2db9536dd4a6a60a0d7de6daa09c9f1f131c249de1c8afa1c1fa8a547b52e1',
-    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02ArrayVarSkipReasons;
@@ -20550,6 +22153,7 @@ const
   cLines: array[0..1] of Integer = (496, 201);
   cFields: array[0..1] of string = ('b', 'B');
 var
+  lCovered: TDelphiSemanticRemoveWithStatement;
   lFound: Boolean;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -20558,8 +22162,23 @@ begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
   for i := 0 to High(cFiles) do
   begin
-    Assert.IsTrue(FindFinalStatementAt(lPlan, cFiles[i], cLines[i], 7, lStatement),
-      'Expected maxTdb with statement at ' + cFiles[i] + ':' + cLines[i].ToString);
+    if not FindFinalStatementAt(lPlan, cFiles[i], cLines[i], 7, lStatement) then
+    begin
+      lFound := False;
+      for lCovered in lPlan.Statements do
+        if SameText(ExtractFileName(lCovered.FileName), cFiles[i]) and
+          (lCovered.Range.StartLine = cLines[i]) and (lCovered.Range.StartColumn = 7) then
+        begin
+          Assert.AreEqual('planned', lCovered.Status, cFiles[i]);
+          Assert.IsTrue(lCovered.CoveredByStatementId <> '',
+            'A planned child must identify its enclosing recipe.');
+          Assert.IsTrue(FindFinalStatement(lPlan, lCovered.CoveredByStatementId, lStatement));
+          Assert.IsTrue((lStatement.Range.StartLine <= cLines[i]) and
+            (lStatement.Range.EndLine >= cLines[i]), 'The recipe must cover the original source statement.');
+          lFound := True;
+        end;
+      Assert.IsTrue(lFound, 'Expected maxTdb with statement at ' + cFiles[i] + ':' + cLines[i].ToString);
+    end;
     Assert.AreEqual('planned', lStatement.Status, cFiles[i] + ': ' + lStatement.Reason);
     lFound := False;
     for j := 0 to High(lStatement.Temps) do
@@ -20567,9 +22186,102 @@ begin
       begin
         lFound := True;
         Assert.AreEqual('Bereich', lStatement.Temps[j].ReceiverType, cFiles[i]);
+        Assert.IsTrue(ContainsText(lStatement.RewriteRecipe.ReplacementText,
+          lStatement.Temps[j].QualifierText + '.B_von'),
+          'The planned recipe must qualify the field through its Bereich capture.');
       end;
     Assert.IsTrue(lFound, 'Expected a temp for the field selector in ' + cFiles[i]);
   end;
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoPlansIndependentPointerUnderVerifiedIndexedAncestor;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lInnerTemp: TDelphiSemanticRemoveWithFinalTempDecision;
+  lNativeFound: Boolean;
+  lNativePlan: DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithPlan;
+  lNativeStatement: DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithStatement;
+  lNodeQualifier: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lTemp: TDelphiSemanticRemoveWithFinalTempDecision;
+begin
+  lRoot := TempPath('verified-indexed-ancestor');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>WithProj.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="WithUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithProj.dpr'),
+    'program WithProj;'#13#10'uses WithUnit in ''WithUnit.pas'';'#13#10 +
+    'begin Run; end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'WithUnit.pas'),
+    'unit WithUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TInner = record'#13#10'    Value: Integer;'#13#10'  end;'#13#10 +
+    '  TNode = record'#13#10'    Inner: TInner;'#13#10'  end;'#13#10 +
+    '  PNode = ^TNode;'#13#10'var'#13#10'  Items: array[0..1] of PNode;'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10'procedure Run;'#13#10 +
+    'var'#13#10'  lNode: PNode;'#13#10'  lIndex: Integer;'#13#10'begin'#13#10 +
+    '  with Items[0]^ do'#13#10'  begin'#13#10'    MissingName := 0;'#13#10 +
+    '    with Items[lIndex]^ do'#13#10'    begin'#13#10 +
+    '      with lNode^, Inner do'#13#10'      begin'#13#10'        Value := 1;'#13#10 +
+    '      end;'#13#10'    end;'#13#10 +
+    '  end;'#13#10'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'WithProj.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.AreEqual(3, Integer(Length(lFacts.Bindings)));
+  Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].Status);
+  Assert.AreEqual('TNode', lFacts.Bindings[0].Selectors[0].TypeName);
+  Assert.AreEqual('planned', lFacts.Bindings[1].Status);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'WithUnit.pas',
+    lFacts.Bindings[0].Line, lFacts.Bindings[0].Column, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status, 'Unknown outer body still refuses edits.');
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'WithUnit.pas',
+    lFacts.Bindings[1].Line, lFacts.Bindings[1].Column, lStatement));
+  Assert.AreEqual('planned', lStatement.Status,
+    'A proven receiver must not make an independent pointer inherit an unknown body reference: ' +
+    lStatement.Reason);
+  Assert.IsTrue(Length(lStatement.Temps) >= 2, 'Nested record receivers require captures.');
+  lNodeQualifier := '';
+  lInnerTemp := Default(TDelphiSemanticRemoveWithFinalTempDecision);
+  for lTemp in lStatement.Temps do
+  begin
+    if SameText(lTemp.SelectorText, 'lNode^') then
+      lNodeQualifier := lTemp.QualifierText;
+    if SameText(lTemp.SelectorText, 'Inner') then
+      lInnerTemp := lTemp;
+  end;
+  Assert.IsTrue(lNodeQualifier <> '', 'The nearest pointer receiver requires a capture.');
+  Assert.IsTrue(lInnerTemp.TempName <> '', 'The field receiver requires its own capture.');
+  Assert.AreEqual(lInnerTemp.TempName + ' := @' + lNodeQualifier + '.Inner;',
+    lInnerTemp.InitializationText, 'The field must belong to the nearest pointer receiver.');
+  Assert.IsTrue(ContainsText(lStatement.RewriteRecipe.ReplacementText,
+    lInnerTemp.QualifierText + '.Value := 1;'));
+  lNativePlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lOptions);
+  lNativeFound := False;
+  for lNativeStatement in lNativePlan.Statements do
+    if SameText(ExtractFileName(lNativeStatement.FileName), 'WithUnit.pas') and
+      (lNativeStatement.Range.StartLine = lFacts.Bindings[1].Line) and
+      (lNativeStatement.Range.StartColumn = lFacts.Bindings[1].Column) then
+    begin
+      Assert.AreEqual('planned', lNativeStatement.Status,
+        'Native snapshot planning preserves the proven receiver.');
+      lNativeFound := True;
+    end;
+  Assert.IsTrue(lNativeFound, 'Native planning must retain the independently planned statement.');
+
+  lFacts.Bindings[0].Selectors[0].Status := 'unresolved';
+  lFacts.Bindings[0].Selectors[0].TypeName := '';
+  lFacts.Bindings[0].Selectors[0].TypeIdentity := Default(TDelphiSemanticTypeIdentity);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'WithUnit.pas',
+    lFacts.Bindings[1].Line, lFacts.Bindings[1].Column, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status, 'An unproven indexed ancestor still refuses children.');
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02FindDirektReceiverTypeSkip;
@@ -20780,11 +22492,21 @@ begin
   Assert.AreEqual(1, lDeclarationCount);
   Assert.AreEqual(1, lReplacementCount);
 
+  // fix-packet-22.md: base d308bc5 refuses inactive ProgressDefault@127728.
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 4347, 9, lStatement),
     'Expected maxTdb SetIndOp WITH at 4347.');
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual('', lStatement.Reason);
-  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
+  Assert.AreEqual('', lStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
+
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
   Assert.AreEqual('SetIndOp', lStatement.RoutineName);
   Assert.AreEqual('e994416b900a148aa350c15d0dd39df7bf0ec06b3d68596ee013d3c63b49f35c', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
@@ -20814,48 +22536,9 @@ begin
     '              fMarkIndex:' + #13#10 +
     '                SetLong(markindex(c, Nr));' + #13#10 +
     '            end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('        lWithDatFilePtr := @DF[c]^;' + #13#10 +
-    '        if (Nr >= Ord(not lWithDatFilePtr^.HatAuto)) and (Nr <= lWithDatFilePtr^.indiziert) then' + #13#10 +
-    '            case NextOp of' + #13#10 +
-    '              fIndexName:' + #13#10 +
-    '                SetStr(lWithDatFilePtr^.IndFiles[Nr]^.IndexName);' + #13#10 +
-    '              fIndexDef:' + #13#10 +
-    '                SetStr(IndDefStr(c, Nr, r2 and 1 = 0, r2 and 2 <> 0)^);' + #13#10 +
-    '              fRegenInd:' + #13#10 +
-    '                ErzeugeIndexFile(c, Nr, True{$IFDEF DLL}, ProgressDefault{$ENDIF}, 0, 0);' + #13#10 +
-    '              fTreeInfo:' + #13#10 +
-    '                SetStr(GetTreeParam(c, Nr));' + #13#10 +
-    '              fDelIndex:' + #13#10 +
-    '                SetLong(DelInd(c, Nr));' + #13#10 +
-    '              fAccess:' + #13#10 +
-    '                begin' + #13#10 +
-    '                  fc := SetAccess(c, Nr);' + #13#10 +
-    '                  SetLong(SetZgr(c))' + #13#10 +
-    '                end;' + #13#10 +
-    '              fMarkDoubles:' + #13#10 +
-    '                SetLong(markdoubles(c, Nr, r2 = 1));' + #13#10 +
-    '              fMarkIndex:' + #13#10 +
-    '                SetLong(markindex(c, Nr));' + #13#10 +
-    '            end;', lStatement.ReplacementText);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('DF[c]^', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[c]^;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('e994416b900a148aa350c15d0dd39df7bf0ec06b3d68596ee013d3c63b49f35c', lStatement.Temps[0].SemanticId);
-  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
-  Assert.AreEqual('4345:1-4345:1', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual('var' + #13#10 +
-    '  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
-  Assert.AreEqual('4347:1-4369:16', SourceRangeText(lStatement.Edits[1].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  AssertCapturedRecipe(lStatement);
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   lDeclarationCount := 0;
   lReplacementCount := 0;
   for i := 0 to High(lPlan.FinalStatements) do
@@ -20869,8 +22552,8 @@ begin
           (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) = '4347:1-4369:16') then
           Inc(lReplacementCount);
       end;
-  Assert.AreEqual(1, lDeclarationCount);
-  Assert.AreEqual(1, lReplacementCount);
+  Assert.AreEqual(0, lDeclarationCount);
+  Assert.AreEqual(0, lReplacementCount);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8109, 11, lStatement),
     'Expected maxTdb FindVar WITH at 8109.');
@@ -21127,7 +22810,7 @@ begin
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('592:5-601:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('592:5-601:8', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('fc28b24b01153a9275604f66fef0ae7384d7844c9a58a910551b85a955a171a9', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('d4defe269ea4532182e398889d70655d0107260c6cfd91d6fefc78a70dd9b83d', lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('with pl^ do' + #13#10 +
     '    begin' + #13#10 +
     '      if VNr <> nil then' + #13#10 +
@@ -21719,26 +23402,48 @@ begin
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
 end;
 
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb06MaskeNormalizationReplacement;
-var
-  i, j: Integer;
-  lDeclarationCount: Integer;
-  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
-  lPlan: TDelphiSemanticRemoveWithPlan;
-  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982.
+procedure TRemoveWithPlanTests.AssertMaxTdbNeueDateiParent(const aPlan: TDelphiSemanticRemoveWithPlan;
+  out aStatement: TDelphiSemanticRemoveWithFinalStatement);
 begin
-  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+  Assert.IsTrue(FindFinalStatementAt(aPlan, 'TDB06.pas', 136, 3, aStatement));
+  Assert.AreEqual('skipped', aStatement.Status);
+  Assert.AreEqual('skipped', aStatement.RewriteRecipe.Status);
+  Assert.AreEqual('receiver-member-not-found', aStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('receiver-member-not-found', aStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual('skip-final-statement', aStatement.RewriteRecipe.RenderInstruction);
+  Assert.AreEqual('', aStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(aStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual(0, Integer(Length(aStatement.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(0, Integer(Length(aStatement.RewriteRecipe.TextEdits)));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 156, 7, lStatement));
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual('', lStatement.Reason);
-  Assert.AreEqual('', lStatement.SafetyReason);
-  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
-  Assert.AreEqual('156:7-173:10', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('156:7-173:10', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('ccd8e2413bd463da755b9ce994dc164cb0bf2fe0706687f93c7f0d7257123db7',
-    lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('WITH Maske[i]^ DO' + #13#10 +
+  Assert.AreEqual('receiver-member-not-found', aStatement.Reason);
+  Assert.AreEqual('receiver-member-not-found', aStatement.SafetyReason);
+  Assert.AreEqual('NeueDatei', aStatement.RoutineName);
+  Assert.AreEqual('136:3-268:6', SourceRangeText(aStatement.Range));
+  Assert.AreEqual('136:3-268:6', SourceRangeText(aStatement.Verification.Range));
+  Assert.AreEqual('ccd8e2413bd463da755b9ce994dc164cb0bf2fe0706687f93c7f0d7257123db7', aStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH D DO' + #13#10 +
+    '  BEGIN' + #13#10 +
+    '    fn := STR255(XFN);' + #13#10 +
+    '    NEW(f);' + #13#10 +
+    ' TDB_FSplit(fn, Pfad, FName, E);' + #13#10 +
+    '    FMode := RW_Mode; ' + #13#10 +
+    '    GFName := fn;' + #13#10 +
+    '    FileOffset := 0; {$IFDEF NET} NetDrive := 0; {$ENDIF}' + #13#10 +
+    '    DBName := FName + E;  RewriteLowFile(f^, fn, RW_Mode); ' + #13#10 +
+    '    FileSize := 0;' + #13#10 +
+    '    IF IO_Error <> 0 THEN' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '      IO_Error := 9;' + #13#10 +
+    '      GOTO EXCEPTION' + #13#10 +
+    '    END;' + #13#10 +
+    '    PassWort := PW_STRING(pw);' + #13#10 +
+    '    Code := K_Code;' + #13#10 +
+    '    indiziert := 0;' + #13#10 +
+    '    MaskSave:= Maske.Clone;' + #13#10 +
+    '    FOR i := 1 TO RecZahl DO' + #13#10 +
+    '      WITH Maske[i]^ DO' + #13#10 +
     '      BEGIN' + #13#10 +
     '        CASE Art AND 15 OF' + #13#10 +
     '          A_LONG:' + #13#10 +
@@ -21755,494 +23460,90 @@ begin
     '            IF sl <> 0 THEN' + #13#10 +
     '              A_Nr := i;' + #13#10 +
     '        END;' + #13#10 +
-    '      END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('      begin' + #13#10 +
-    '        lWithMaskEntryPtr := @Maske[i]^;' + #13#10 +
-    '        BEGIN' + #13#10 +
-    '        CASE lWithMaskEntryPtr^.Art AND 15 OF' + #13#10 +
-    '          A_LONG:' + #13#10 +
-    '            IF lWithMaskEntryPtr^.sl <> 0 THEN' + #13#10 +
-    '              lWithMaskEntryPtr^.sl := lWithMaskEntryPtr^.sl AND 15;' + #13#10 +
-    '          A_REL:' + #13#10 +
-    '            IF lWithMaskEntryPtr^.sl = 0 THEN' + #13#10 +
-    '            BEGIN' + #13#10 +
-    '              lWithMaskEntryPtr^.l := 0;' + #13#10 +
-    '              IF DoExport THEN' + #13#10 +
-    '                lWithMaskEntryPtr^.Art := 0' + #13#10 +
-    '            END;' + #13#10 +
-    '          A_AUTO:' + #13#10 +
-    '            IF lWithMaskEntryPtr^.sl <> 0 THEN' + #13#10 +
-    '              A_Nr := i;' + #13#10 +
-    '        END;' + #13#10 +
     '      END;' + #13#10 +
-    '      end;', lStatement.ReplacementText);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('Maske[i]^', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithMaskEntryPtr^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('TMaskEntry', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithMaskEntryPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
-    lStatement.Temps[0].SemanticId);
-  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
-  Assert.AreEqual('118:1-118:1', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual('  lWithMaskEntryPtr: ^TMaskEntry;' + #13#10 +
-    '  lWithSelRecPtr: ^SelRec;' + #13#10 +
-    '  lWithSelektorPtr: ^Selektor;' + #13#10 +
-    '  lWithForRecPtr: ^ForRec;' + #13#10 +
-    '  lWithFormelPtr: ^Formel;' + #13#10 +
-    '  lWithBereichsRecPtr: ^BereichsRec;' + #13#10 +
-    '  lWithBereichPtr: ^Bereich;' + #13#10 +
-    '  lWithIndexFilePtr: ^IndexFile;' + #13#10 +
-    '  lWithMaskEntryPtr1: ^TMaskEntry;' + #13#10 +
-    '  lWithDatFilePtr: ^DatFile;' + #13#10, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
-  Assert.AreEqual('156:1-173:10', SourceRangeText(lStatement.Edits[1].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
-    lStatement.SemanticId);
-  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lStatement, 'record-pointer-temp');
-  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('Maske[i]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithMaskEntryPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('TMaskEntry', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithMaskEntryPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
-    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-
-  lOwnerStatement := lStatement;
-
-  lDeclarationCount := 0;
-  for i := 0 to High(lPlan.FinalStatements) do
-    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
-      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
-        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
-        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
-        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
-        Inc(lDeclarationCount);
-  Assert.AreEqual(1, lDeclarationCount);
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 136, 3, lStatement));
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
-
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 223, 9, lStatement));
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
-  Assert.AreEqual('223:9-228:12', SourceRangeText(lStatement.Range));
-  Assert.AreEqual(lOwnerStatement.Verification.ExpectedFileHash, lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @IndFiles[i]^;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  AssertCapturedRecipe(lStatement);
-end;
-
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb06ExportListReplacements;
-var
-  i, j: Integer;
-  lDeclarationCount: Integer;
-  lOwnerSemanticId: string;
-  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
-  lPlan: TDelphiSemanticRemoveWithPlan;
-  lSemanticId: string;
-  lStatement: TDelphiSemanticRemoveWithFinalStatement;
-begin
-  lPlan := BuildPlanForProject(SelectedMaxTdbProjectPath('test-projects\maxTdb\src\maxtdb.dpr'), True);
-
-  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDB06.pas', 'NeueDatei',
-    '185:7-190:10', '185:22-190:10', 'p^, Sel', 2, lStatement);
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual('', lStatement.Reason);
-  Assert.AreEqual('', lStatement.SafetyReason);
-  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
-  Assert.AreEqual('185:7-190:10', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('185:7-190:10', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('ccd8e2413bd463da755b9ce994dc164cb0bf2fe0706687f93c7f0d7257123db7',
-    lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('WITH p^, Sel DO' + #13#10 +
+    '    NormIndFiles(D);' + #13#10 +
+    '    IF WriteFailed(8, FileSize) THEN' + #13#10 +
+    '      GOTO EXCEPTION;' + #13#10 +
+    '    Dat := NIL;' + #13#10 +
+    '    FileOffset := 10 + 5 * SizeOf(IndNameStr);' + #13#10 +
+    '    IF WriteFailed(Maske.MemorySize(RecZahl), Maske.Memory^) OR WriteFailed(SizeOf(PassWort), PassWort)' + #13#10 +
+    '    THEN' + #13#10 +
+    '      GOTO EXCEPTION;' + #13#10 +
+    '    DF[1] := ADDR(D);' + #13#10 +
+    '    p := SelList;' + #13#10 +
+    '    WHILE p <> NIL DO' + #13#10 +
+    '      WITH p^, Sel DO' + #13#10 +
     '      BEGIN' + #13#10 +
     '        IF WriteFailed(M_Az * SizeOf(SelektString), Menu^) THEN' + #13#10 +
     '          GOTO EXCEPTION;' + #13#10 +
     '        p := p^.n;' + #13#10 +
-    '      END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('      begin' + #13#10 +
-    '        lWithSelRecPtr := @p^;' + #13#10 +
-    '        lWithSelektorPtr := @lWithSelRecPtr^.Sel;' + #13#10 +
-    '        BEGIN' + #13#10 +
-    '        IF WriteFailed(lWithSelektorPtr^.M_Az * SizeOf(SelektString), lWithSelektorPtr^.Menu^) THEN' + #13#10 +
-    '          GOTO EXCEPTION;' + #13#10 +
-    '        p := p^.n;' + #13#10 +
     '      END;' + #13#10 +
-    '      end;', lStatement.ReplacementText);
-  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('p^', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithSelRecPtr^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('SelRec', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithSelRecPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithSelRecPtr: ^SelRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithSelRecPtr := @p^;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual(lSemanticId,
-    lStatement.Temps[0].SemanticId);
-  Assert.AreEqual('Sel', lStatement.Temps[1].SelectorText);
-  Assert.AreEqual('lWithSelektorPtr^', lStatement.Temps[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
-  Assert.AreEqual('Selektor', lStatement.Temps[1].ReceiverType);
-  Assert.AreEqual('lWithSelektorPtr', lStatement.Temps[1].TempName);
-  Assert.AreEqual('lWithSelektorPtr: ^Selektor;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;', lStatement.Temps[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual(lSemanticId,
-    lStatement.Temps[1].SemanticId);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual('185:1-190:10', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual(lSemanticId,
-    lStatement.SemanticId);
-  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lStatement, 'record-pointer-temp');
-  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('p^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithSelRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('SelRec', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithSelRecPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithSelRecPtr: ^SelRec;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithSelRecPtr := @p^;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual(lSemanticId,
-    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.AreEqual('Sel', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
-  Assert.AreEqual('lWithSelektorPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
-  Assert.AreEqual('Selektor', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
-  Assert.AreEqual('lWithSelektorPtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
-  Assert.AreEqual('lWithSelektorPtr: ^Selektor;',
-    lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
-  Assert.AreEqual('lWithSelektorPtr := @lWithSelRecPtr^.Sel;',
-    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual(lSemanticId,
-    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
-
-  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDB06.pas', 'NeueDatei',
-    '193:7-198:10', '193:23-198:10', 'q^, Form', 2, lStatement);
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual('', lStatement.Reason);
-  Assert.AreEqual('', lStatement.SafetyReason);
-  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
-  Assert.AreEqual('193:7-198:10', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('193:7-198:10', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('ccd8e2413bd463da755b9ce994dc164cb0bf2fe0706687f93c7f0d7257123db7',
-    lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('WITH q^, Form DO' + #13#10 +
+    '    q := FormList;' + #13#10 +
+    '    WHILE q <> NIL DO' + #13#10 +
+    '      WITH q^, Form DO' + #13#10 +
     '      BEGIN' + #13#10 +
     '        IF WriteFailed(SizeOf(Fml), Fml) THEN' + #13#10 +
     '          GOTO EXCEPTION;' + #13#10 +
     '        q := q^.n' + #13#10 +
-    '      END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('      begin' + #13#10 +
-    '        lWithForRecPtr := @q^;' + #13#10 +
-    '        lWithFormelPtr := @lWithForRecPtr^.Form;' + #13#10 +
-    '        BEGIN' + #13#10 +
-    '        IF WriteFailed(SizeOf(lWithFormelPtr^.Fml), lWithFormelPtr^.Fml) THEN' + #13#10 +
-    '          GOTO EXCEPTION;' + #13#10 +
-    '        q := q^.n' + #13#10 +
     '      END;' + #13#10 +
-    '      end;', lStatement.ReplacementText);
-  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('q^', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithForRecPtr^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('ForRec', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithForRecPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithForRecPtr: ^ForRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithForRecPtr := @q^;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual(lSemanticId,
-    lStatement.Temps[0].SemanticId);
-  Assert.AreEqual('Form', lStatement.Temps[1].SelectorText);
-  Assert.AreEqual('lWithFormelPtr^', lStatement.Temps[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
-  Assert.AreEqual('Formel', lStatement.Temps[1].ReceiverType);
-  Assert.AreEqual('lWithFormelPtr', lStatement.Temps[1].TempName);
-  Assert.AreEqual('lWithFormelPtr: ^Formel;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithFormelPtr := @lWithForRecPtr^.Form;', lStatement.Temps[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual(lSemanticId,
-    lStatement.Temps[1].SemanticId);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual('193:1-198:10', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual(lSemanticId,
-    lStatement.SemanticId);
-  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lStatement, 'record-pointer-temp');
-  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('q^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithForRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('ForRec', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithForRecPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithForRecPtr: ^ForRec;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithForRecPtr := @q^;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual(lSemanticId,
-    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.AreEqual('Form', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
-  Assert.AreEqual('lWithFormelPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
-  Assert.AreEqual('Formel', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
-  Assert.AreEqual('lWithFormelPtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
-  Assert.AreEqual('lWithFormelPtr: ^Formel;',
-    lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
-  Assert.AreEqual('lWithFormelPtr := @lWithForRecPtr^.Form;',
-    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual(lSemanticId,
-    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
-
-  lSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDB06.pas', 'NeueDatei',
-    '201:7-206:10', '201:20-206:10', 'r^, B', 2, lStatement);
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual('', lStatement.Reason);
-  Assert.AreEqual('', lStatement.SafetyReason);
-  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
-  Assert.AreEqual('201:7-206:10', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('201:7-206:10', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('ccd8e2413bd463da755b9ce994dc164cb0bf2fe0706687f93c7f0d7257123db7',
-    lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('WITH r^, B DO' + #13#10 +
+    '    r := BerList;' + #13#10 +
+    '    WHILE r <> NIL DO' + #13#10 +
+    '      WITH r^, B DO' + #13#10 +
     '      BEGIN' + #13#10 +
     '        IF WriteFailed(2 * SizeOf(REAL), B_von) THEN' + #13#10 +
     '          GOTO EXCEPTION;' + #13#10 +
     '        r := r^.n' + #13#10 +
-    '      END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('      begin' + #13#10 +
-    '        lWithBereichsRecPtr := @r^;' + #13#10 +
-    '        lWithBereichPtr := @lWithBereichsRecPtr^.B;' + #13#10 +
-    '        BEGIN' + #13#10 +
-    '        IF WriteFailed(2 * SizeOf(REAL), lWithBereichPtr^.B_von) THEN' + #13#10 +
-    '          GOTO EXCEPTION;' + #13#10 +
-    '        r := r^.n' + #13#10 +
     '      END;' + #13#10 +
-    '      end;', lStatement.ReplacementText);
-  Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('r^', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithBereichsRecPtr^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('BereichsRec', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithBereichsRecPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithBereichsRecPtr: ^BereichsRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithBereichsRecPtr := @r^;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual(lSemanticId,
-    lStatement.Temps[0].SemanticId);
-  Assert.AreEqual('B', lStatement.Temps[1].SelectorText);
-  Assert.AreEqual('lWithBereichPtr^', lStatement.Temps[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
-  Assert.AreEqual('Bereich', lStatement.Temps[1].ReceiverType);
-  Assert.AreEqual('lWithBereichPtr', lStatement.Temps[1].TempName);
-  Assert.AreEqual('lWithBereichPtr: ^Bereich;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithBereichPtr := @lWithBereichsRecPtr^.B;', lStatement.Temps[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual(lSemanticId,
-    lStatement.Temps[1].SemanticId);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual('201:1-206:10', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual(lSemanticId,
-    lStatement.SemanticId);
-  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lStatement, 'record-pointer-temp');
-  Assert.AreEqual(2, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('r^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithBereichsRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('BereichsRec', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithBereichsRecPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithBereichsRecPtr: ^BereichsRec;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithBereichsRecPtr := @r^;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual(lSemanticId,
-    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.AreEqual('B', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
-  Assert.AreEqual('lWithBereichPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
-  Assert.AreEqual('Bereich', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
-  Assert.AreEqual('lWithBereichPtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
-  Assert.AreEqual('lWithBereichPtr: ^Bereich;',
-    lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
-  Assert.AreEqual('lWithBereichPtr := @lWithBereichsRecPtr^.B;',
-    lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual(lSemanticId,
-    lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
-
-  lOwnerSemanticId := AssertSelectedMaxTdbStatement(lPlan, 'TDB06.pas', 'NeueDatei',
-    '156:7-173:10', '156:24-173:10', 'Maske[i]^', 1, lOwnerStatement);
-  Assert.AreEqual('planned', lOwnerStatement.Status);
-  Assert.AreEqual('', lOwnerStatement.Reason);
-  Assert.AreEqual('', lOwnerStatement.SafetyReason);
-  Assert.AreEqual('NeueDatei', lOwnerStatement.RoutineName);
-  Assert.AreEqual('156:7-173:10', SourceRangeText(lOwnerStatement.Range));
-  Assert.AreEqual('156:7-173:10', SourceRangeText(lOwnerStatement.Verification.Range));
-  Assert.AreEqual('ccd8e2413bd463da755b9ce994dc164cb0bf2fe0706687f93c7f0d7257123db7',
-    lOwnerStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('WITH Maske[i]^ DO' + #13#10 +
+    '    DF[1] := D_Save;' + #13#10 +
+    '    IF HatAuto THEN' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '      IF WriteFailed(SizeOf(ID_IV), ID_IV) OR WriteFailed(4, AutoNum)' + #13#10 +
+    '      THEN' + #13#10 +
+    '        GOTO EXCEPTION;' + #13#10 +
+    '    END;' + #13#10 +
+    '    DF[1] := ADDR(D);' + #13#10 +
+    '    WriteIndNames(1);' + #13#10 +
+    '    IO_Error := IndexError;' + #13#10 +
+    '    DF[1] := D_Save;' + #13#10 +
+    '    IF IO_Error <> 0 THEN' + #13#10 +
+    '      GOTO EXCEPTION;' + #13#10 +
+    '    FOR i := ORD(NOT HatAuto) TO indiziert DO' + #13#10 +
+    '      IF IndFiles[i] <> NIL THEN' + #13#10 +
     '      BEGIN' + #13#10 +
-    '        CASE Art AND 15 OF' + #13#10 +
-    '          A_LONG:' + #13#10 +
-    '            IF sl <> 0 THEN' + #13#10 +
-    '              sl := sl AND 15;' + #13#10 +
-    '          A_REL:' + #13#10 +
-    '            IF sl = 0 THEN' + #13#10 +
-    '            BEGIN' + #13#10 +
-    '              l := 0;' + #13#10 +
-    '              IF DoExport THEN' + #13#10 +
-    '                Art := 0' + #13#10 +
-    '            END;' + #13#10 +
-    '          A_AUTO:' + #13#10 +
-    '            IF sl <> 0 THEN' + #13#10 +
-    '              A_Nr := i;' + #13#10 +
-    '        END;' + #13#10 +
-    '      END;', lOwnerStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('      begin' + #13#10 +
-    '        lWithMaskEntryPtr := @Maske[i]^;' + #13#10 +
+    '        WITH IndFiles[i]^ DO' + #13#10 +
     '        BEGIN' + #13#10 +
-    '        CASE lWithMaskEntryPtr^.Art AND 15 OF' + #13#10 +
-    '          A_LONG:' + #13#10 +
-    '            IF lWithMaskEntryPtr^.sl <> 0 THEN' + #13#10 +
-    '              lWithMaskEntryPtr^.sl := lWithMaskEntryPtr^.sl AND 15;' + #13#10 +
-    '          A_REL:' + #13#10 +
-    '            IF lWithMaskEntryPtr^.sl = 0 THEN' + #13#10 +
-    '            BEGIN' + #13#10 +
-    '              lWithMaskEntryPtr^.l := 0;' + #13#10 +
-    '              IF DoExport THEN' + #13#10 +
-    '                lWithMaskEntryPtr^.Art := 0' + #13#10 +
-    '            END;' + #13#10 +
-    '          A_AUTO:' + #13#10 +
-    '            IF lWithMaskEntryPtr^.sl <> 0 THEN' + #13#10 +
-    '              A_Nr := i;' + #13#10 +
+    '          eindeutig := TRUE;' + #13#10 +
+    '          CalcIndSize(IV, IndSize);' + #13#10 +
+    '          MustBeUnique := HatAuto AND (i = 1) AND IDUnique' + #13#10 +
     '        END;' + #13#10 +
+    '        DF[1] := ADDR(D);' + #13#10 +
+    '        Erzeuge_Index(1, i);' + #13#10 +
+    '        IF TreeError = 0 THEN' + #13#10 +
+    '          Schliesse_Index(1, i, TRUE)' + #13#10 +
+    '        ELSE' + #13#10 +
+    '          DoError(4, IndFiles[i]^.IndexName);' + #13#10 +
+    '        FreeMem(IndFiles[i], SizeOf(IndexFile));' + #13#10 +
+    '        DF[1] := D_Save;' + #13#10 +
     '      END;' + #13#10 +
-    '      end;', lOwnerStatement.ReplacementText);
-  Assert.AreEqual(1, Integer(Length(lOwnerStatement.Temps)));
-  Assert.AreEqual('Maske[i]^', lOwnerStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithMaskEntryPtr^', lOwnerStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[0].Strategy);
-  Assert.AreEqual('TMaskEntry', lOwnerStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithMaskEntryPtr', lOwnerStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lOwnerStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual(lOwnerSemanticId,
-    lOwnerStatement.Temps[0].SemanticId);
-  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
-  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
-  Assert.AreEqual('118:1-118:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
-  Assert.AreEqual('  lWithMaskEntryPtr: ^TMaskEntry;' + #13#10 +
-    '  lWithSelRecPtr: ^SelRec;' + #13#10 +
-    '  lWithSelektorPtr: ^Selektor;' + #13#10 +
-    '  lWithForRecPtr: ^ForRec;' + #13#10 +
-    '  lWithFormelPtr: ^Formel;' + #13#10 +
-    '  lWithBereichsRecPtr: ^BereichsRec;' + #13#10 +
-    '  lWithBereichPtr: ^Bereich;' + #13#10 +
-    '  lWithIndexFilePtr: ^IndexFile;' + #13#10 +
-    '  lWithMaskEntryPtr1: ^TMaskEntry;' + #13#10 +
-    '  lWithDatFilePtr: ^DatFile;' + #13#10, lOwnerStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
-  Assert.AreEqual('156:1-173:10', SourceRangeText(lOwnerStatement.Edits[1].Range));
-  Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual(lOwnerSemanticId,
-    lOwnerStatement.SemanticId);
-  Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
-  Assert.AreEqual(1, Integer(Length(lOwnerStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('Maske[i]^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithMaskEntryPtr^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('TMaskEntry', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithMaskEntryPtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;',
-    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
-    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual(lOwnerSemanticId,
-    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
-  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
-  lDeclarationCount := 0;
-  for i := 0 to High(lPlan.FinalStatements) do
-    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
-      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
-        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
-        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
-        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
-        Inc(lDeclarationCount);
-  Assert.AreEqual(1, lDeclarationCount);
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 136, 3, lStatement));
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
-
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 223, 9, lStatement));
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
-  Assert.AreEqual('223:9-228:12', SourceRangeText(lStatement.Range));
-  Assert.AreEqual(lOwnerStatement.Verification.ExpectedFileHash, lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @IndFiles[i]^;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  AssertCapturedRecipe(lStatement);
-end;
-
-procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb06RelFileAndMaskRestoreReplacements;
-var
-  i, j: Integer;
-  lDeclarationCount: Integer;
-  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
-  lPlan: TDelphiSemanticRemoveWithPlan;
-  lStatement: TDelphiSemanticRemoveWithFinalStatement;
-begin
-  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
-
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 256, 9, lStatement));
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual('', lStatement.Reason);
-  Assert.AreEqual('', lStatement.SafetyReason);
-  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
-  Assert.AreEqual('256:9-267:13', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('256:9-267:13', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('ccd8e2413bd463da755b9ce994dc164cb0bf2fe0706687f93c7f0d7257123db7',
-    lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('WITH Maske[i]^ DO' + #13#10 +
+    '    IF HatMemo THEN' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '      DF[1] := ADDR(D);' + #13#10 +
+    '      NewMemoFile(1);' + #13#10 +
+    '      DF[1] := D_Save;' + #13#10 +
+    '    END;' + #13#10 +
+    '    IF HatBlob THEN' + #13#10 +
+    '    BEGIN' + #13#10 +
+    '      DF[1] := ADDR(D);' + #13#10 +
+    '      NewBlobFile(1);' + #13#10 +
+    '      DF[1] := D_Save;' + #13#10 +
+    '    END;' + #13#10 +
+    '    CloseLowFile(f^, FALSE);' + #13#10 +
+    '    IF (IO_Error <> 0) THEN' + #13#10 +
+    '      GOTO EXCEPTION;' + #13#10 +
+    '' + #13#10 +
+    '    IF RelFiles THEN' + #13#10 +
+    '      FOR i := 1 TO RecZahl DO' + #13#10 +
+    '        WITH Maske[i]^ DO' + #13#10 +
     '          IF (Art AND 15 = A_REL) AND ((Base = 0) OR NOT IsRel(Base, m)) THEN' + #13#10 +
     '          BEGIN' + #13#10 +
     '            tfn := RelFileName(Pfad, m);' + #13#10 +
@@ -22253,8 +23554,170 @@ begin
     '              GenRel(fn, GetRelLabel(i)^, tfn, 0); ' + #13#10 +
     '            IF IO_Error <> 0 THEN' + #13#10 +
     '              GOTO EXCEPTION' + #13#10 +
-    '          END', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('        begin' + #13#10 +
+    '          END' + #13#10 +
+    '  END;', aStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('', aStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(aStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(aStatement.Edits)));
+  AssertMaxTdbRoutineDeclarationOwner(aPlan, aStatement);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb06MaskeNormalizationReplacement;
+var
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+  AssertMaxTdbNeueDateiParent(lPlan, lStatement);
+  // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '156:7-173:10',
+    '0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46', 'WITH Maske[i]^ DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        CASE Art AND 15 OF' + #13#10 +
+    '          A_LONG:' + #13#10 +
+    '            IF sl <> 0 THEN' + #13#10 +
+    '              sl := sl AND 15;' + #13#10 +
+    '          A_REL:' + #13#10 +
+    '            IF sl = 0 THEN' + #13#10 +
+    '            BEGIN' + #13#10 +
+    '              l := 0;' + #13#10 +
+    '              IF DoExport THEN' + #13#10 +
+    '                Art := 0' + #13#10 +
+    '            END;' + #13#10 +
+    '          A_AUTO:' + #13#10 +
+    '            IF sl <> 0 THEN' + #13#10 +
+    '              A_Nr := i;' + #13#10 +
+    '        END;' + #13#10 +
+    '      END;', 1, 2,
+    '      begin' + #13#10 +
+    '        lWithMaskEntryPtr := @Maske[i]^;' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '        CASE lWithMaskEntryPtr^.Art AND 15 OF' + #13#10 +
+    '          A_LONG:' + #13#10 +
+    '            IF lWithMaskEntryPtr^.sl <> 0 THEN' + #13#10 +
+    '              lWithMaskEntryPtr^.sl := lWithMaskEntryPtr^.sl AND 15;' + #13#10 +
+    '          A_REL:' + #13#10 +
+    '            IF lWithMaskEntryPtr^.sl = 0 THEN' + #13#10 +
+    '            BEGIN' + #13#10 +
+    '              lWithMaskEntryPtr^.l := 0;' + #13#10 +
+    '              IF DoExport THEN' + #13#10 +
+    '                lWithMaskEntryPtr^.Art := 0' + #13#10 +
+    '            END;' + #13#10 +
+    '          A_AUTO:' + #13#10 +
+    '            IF lWithMaskEntryPtr^.sl <> 0 THEN' + #13#10 +
+    '              A_Nr := i;' + #13#10 +
+    '        END;' + #13#10 +
+    '      END;' + #13#10 +
+    '      end;', lOwnerStatement);
+  // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '223:9-228:12',
+    'f3052484e21300db8e9c6ef5f8a86001c640d0dfdecec85b71e080a9029db365', 'WITH IndFiles[i]^ DO' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          eindeutig := TRUE;' + #13#10 +
+    '          CalcIndSize(IV, IndSize);' + #13#10 +
+    '          MustBeUnique := HatAuto AND (i = 1) AND IDUnique' + #13#10 +
+    '        END;', 1, 1,
+    '        lWithIndexFilePtr := @IndFiles[i]^;' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          lWithIndexFilePtr^.eindeutig := TRUE;' + #13#10 +
+    '          CalcIndSize(lWithIndexFilePtr^.IV, lWithIndexFilePtr^.IndSize);' + #13#10 +
+    '          lWithIndexFilePtr^.MustBeUnique := HatAuto AND (i = 1) AND IDUnique' + #13#10 +
+    '        END;', lOwnerStatement);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb06ExportListReplacements;
+var
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lSemanticId: string;
+begin
+  lPlan := BuildPlanForProject(SelectedMaxTdbProjectPath('test-projects\maxTdb\src\maxtdb.dpr'), True);
+  AssertSelectedMaxTdbPrimaryIdsDistinct;
+  AssertMaxTdbNeueDateiParent(lPlan, lStatement);
+  lSemanticId := SelectedMaxTdbRawGraphId('TDB06.pas', 'NeueDatei',
+    '185:7-190:10', '185:22-190:10', 'p^, Sel', 2);
+  // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '185:7-190:10',
+    lSemanticId, 'WITH p^, Sel DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        IF WriteFailed(M_Az * SizeOf(SelektString), Menu^) THEN' + #13#10 +
+    '          GOTO EXCEPTION;' + #13#10 +
+    '        p := p^.n;' + #13#10 +
+    '      END;', 2, 1,
+    '      begin' + #13#10 +
+    '        lWithSelRecPtr := @p^;' + #13#10 +
+    '        lWithSelektorPtr := @lWithSelRecPtr^.Sel;' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '        IF WriteFailed(lWithSelektorPtr^.M_Az * SizeOf(SelektString), lWithSelektorPtr^.Menu^) THEN' + #13#10 +
+    '          GOTO EXCEPTION;' + #13#10 +
+    '        p := p^.n;' + #13#10 +
+    '      END;' + #13#10 +
+    '      end;', lOwnerStatement);
+  lSemanticId := SelectedMaxTdbRawGraphId('TDB06.pas', 'NeueDatei',
+    '193:7-198:10', '193:23-198:10', 'q^, Form', 2);
+  // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '193:7-198:10',
+    lSemanticId, 'WITH q^, Form DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        IF WriteFailed(SizeOf(Fml), Fml) THEN' + #13#10 +
+    '          GOTO EXCEPTION;' + #13#10 +
+    '        q := q^.n' + #13#10 +
+    '      END;', 2, 1,
+    '      begin' + #13#10 +
+    '        lWithForRecPtr := @q^;' + #13#10 +
+    '        lWithFormelPtr := @lWithForRecPtr^.Form;' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '        IF WriteFailed(SizeOf(lWithFormelPtr^.Fml), lWithFormelPtr^.Fml) THEN' + #13#10 +
+    '          GOTO EXCEPTION;' + #13#10 +
+    '        q := q^.n' + #13#10 +
+    '      END;' + #13#10 +
+    '      end;', lOwnerStatement);
+  lSemanticId := SelectedMaxTdbRawGraphId('TDB06.pas', 'NeueDatei',
+    '201:7-206:10', '201:20-206:10', 'r^, B', 2);
+  // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '201:7-206:10',
+    lSemanticId, 'WITH r^, B DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        IF WriteFailed(2 * SizeOf(REAL), B_von) THEN' + #13#10 +
+    '          GOTO EXCEPTION;' + #13#10 +
+    '        r := r^.n' + #13#10 +
+    '      END;', 2, 1,
+    '      begin' + #13#10 +
+    '        lWithBereichsRecPtr := @r^;' + #13#10 +
+    '        lWithBereichPtr := @lWithBereichsRecPtr^.B;' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '        IF WriteFailed(2 * SizeOf(REAL), lWithBereichPtr^.B_von) THEN' + #13#10 +
+    '          GOTO EXCEPTION;' + #13#10 +
+    '        r := r^.n' + #13#10 +
+    '      END;' + #13#10 +
+    '      end;', lOwnerStatement);
+end;
+
+procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb06RelFileAndMaskRestoreReplacements;
+var
+  lOwnerStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
+  AssertMaxTdbNeueDateiParent(lPlan, lStatement);
+  // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '256:9-267:13',
+    '05991a81cc22ab5c907a4e605e2247524e8895fb3998da957df68254666eddb6', 'WITH Maske[i]^ DO' + #13#10 +
+    '          IF (Art AND 15 = A_REL) AND ((Base = 0) OR NOT IsRel(Base, m)) THEN' + #13#10 +
+    '          BEGIN' + #13#10 +
+    '            tfn := RelFileName(Pfad, m);' + #13#10 +
+    '            IF Base > 0 ' + #13#10 +
+    '            THEN' + #13#10 +
+    '              GenRel(DF[Base]^.DBName, GetRelLabel(i)^, tfn, 0)' + #13#10 +
+    '            ELSE' + #13#10 +
+    '              GenRel(fn, GetRelLabel(i)^, tfn, 0); ' + #13#10 +
+    '            IF IO_Error <> 0 THEN' + #13#10 +
+    '              GOTO EXCEPTION' + #13#10 +
+    '          END', 1, 1,
+    '        begin' + #13#10 +
     '          lWithMaskEntryPtr1 := @Maske[i]^;' + #13#10 +
     '          IF (lWithMaskEntryPtr1^.Art AND 15 = A_REL) AND ((Base = 0) OR NOT IsRel(Base, lWithMaskEntryPtr1^.m)) THEN' + #13#10 +
     '          BEGIN' + #13#10 +
@@ -22267,96 +23730,10 @@ begin
     '            IF IO_Error <> 0 THEN' + #13#10 +
     '              GOTO EXCEPTION' + #13#10 +
     '          END' + #13#10 +
-    '        end;', lStatement.ReplacementText);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('Maske[i]^', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithMaskEntryPtr1^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('TMaskEntry', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithMaskEntryPtr1', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithMaskEntryPtr1: ^TMaskEntry;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithMaskEntryPtr1 := @Maske[i]^;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('05991a81cc22ab5c907a4e605e2247524e8895fb3998da957df68254666eddb6',
-    lStatement.Temps[0].SemanticId);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual('256:1-267:13', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('05991a81cc22ab5c907a4e605e2247524e8895fb3998da957df68254666eddb6',
-    lStatement.SemanticId);
-  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lStatement, 'record-pointer-temp');
-  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('Maske[i]^', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithMaskEntryPtr1^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('TMaskEntry', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithMaskEntryPtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithMaskEntryPtr1: ^TMaskEntry;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithMaskEntryPtr1 := @Maske[i]^;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('05991a81cc22ab5c907a4e605e2247524e8895fb3998da957df68254666eddb6',
-    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 272, 5, lStatement));
-  Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual('', lStatement.Reason);
-  Assert.AreEqual('', lStatement.SafetyReason);
-  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
-  Assert.AreEqual('272:5-273:23', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('272:5-273:23', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('ccd8e2413bd463da755b9ce994dc164cb0bf2fe0706687f93c7f0d7257123db7',
-    lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('WITH D DO' + #13#10 +
-    '      Maske:= MaskSave;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('    lWithDatFilePtr := @D;' + #13#10 +
-    '  lWithDatFilePtr^.Maske:= MaskSave;', lStatement.ReplacementText);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('D', lStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('c5752e013a882b01aca9ca016e99ac0e6bd997249ec28a76b32367a7081ecef1',
-    lStatement.Temps[0].SemanticId);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  Assert.AreEqual('272:1-273:23', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('c5752e013a882b01aca9ca016e99ac0e6bd997249ec28a76b32367a7081ecef1',
-    lStatement.SemanticId);
-  Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lStatement, 'record-pointer-temp');
-  Assert.AreEqual(1, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('D', lStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @D;',
-    lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('c5752e013a882b01aca9ca016e99ac0e6bd997249ec28a76b32367a7081ecef1',
-    lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 156, 7, lOwnerStatement));
-  Assert.AreEqual('planned', lOwnerStatement.Status);
-  Assert.AreEqual('', lOwnerStatement.Reason);
-  Assert.AreEqual('', lOwnerStatement.SafetyReason);
-  Assert.AreEqual('NeueDatei', lOwnerStatement.RoutineName);
-  Assert.AreEqual('156:7-173:10', SourceRangeText(lOwnerStatement.Range));
-  Assert.AreEqual('156:7-173:10', SourceRangeText(lOwnerStatement.Verification.Range));
-  Assert.AreEqual('ccd8e2413bd463da755b9ce994dc164cb0bf2fe0706687f93c7f0d7257123db7',
-    lOwnerStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('WITH Maske[i]^ DO' + #13#10 +
+    '        end;', lOwnerStatement);
+  // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '156:7-173:10',
+    '0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46', 'WITH Maske[i]^ DO' + #13#10 +
     '      BEGIN' + #13#10 +
     '        CASE Art AND 15 OF' + #13#10 +
     '          A_LONG:' + #13#10 +
@@ -22373,8 +23750,8 @@ begin
     '            IF sl <> 0 THEN' + #13#10 +
     '              A_Nr := i;' + #13#10 +
     '        END;' + #13#10 +
-    '      END;', lOwnerStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('      begin' + #13#10 +
+    '      END;', 1, 2,
+    '      begin' + #13#10 +
     '        lWithMaskEntryPtr := @Maske[i]^;' + #13#10 +
     '        BEGIN' + #13#10 +
     '        CASE lWithMaskEntryPtr^.Art AND 15 OF' + #13#10 +
@@ -22393,77 +23770,50 @@ begin
     '              A_Nr := i;' + #13#10 +
     '        END;' + #13#10 +
     '      END;' + #13#10 +
-    '      end;', lOwnerStatement.ReplacementText);
-  Assert.AreEqual(1, Integer(Length(lOwnerStatement.Temps)));
-  Assert.AreEqual('Maske[i]^', lOwnerStatement.Temps[0].SelectorText);
-  Assert.AreEqual('lWithMaskEntryPtr^', lOwnerStatement.Temps[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[0].Strategy);
-  Assert.AreEqual('TMaskEntry', lOwnerStatement.Temps[0].ReceiverType);
-  Assert.AreEqual('lWithMaskEntryPtr', lOwnerStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;', lOwnerStatement.Temps[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
-    lOwnerStatement.Temps[0].SemanticId);
-  Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
-  Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
-  Assert.AreEqual('118:1-118:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
-  Assert.AreEqual('  lWithMaskEntryPtr: ^TMaskEntry;' + #13#10 +
-    '  lWithSelRecPtr: ^SelRec;' + #13#10 +
-    '  lWithSelektorPtr: ^Selektor;' + #13#10 +
-    '  lWithForRecPtr: ^ForRec;' + #13#10 +
-    '  lWithFormelPtr: ^Formel;' + #13#10 +
-    '  lWithBereichsRecPtr: ^BereichsRec;' + #13#10 +
-    '  lWithBereichPtr: ^Bereich;' + #13#10 +
-    '  lWithIndexFilePtr: ^IndexFile;' + #13#10 +
-    '  lWithMaskEntryPtr1: ^TMaskEntry;' + #13#10 +
-    '  lWithDatFilePtr: ^DatFile;' + #13#10, lOwnerStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
-  Assert.AreEqual('156:1-173:10', SourceRangeText(lOwnerStatement.Edits[1].Range));
-  Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
-    lOwnerStatement.SemanticId);
-  Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
-  AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
-  Assert.AreEqual(1, Integer(Length(lOwnerStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual('Maske[i]^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SelectorText);
-  Assert.AreEqual('lWithMaskEntryPtr^', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].QualifierText);
-  Assert.AreEqual('record-pointer-temp', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Strategy);
-  Assert.AreEqual('TMaskEntry', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
-  Assert.AreEqual('lWithMaskEntryPtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
-  Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;',
-    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithMaskEntryPtr := @Maske[i]^;',
-    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
-  Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('0bf988c1719b37d5c134a576d4e2c2dd202898f6c99b8819ff498cb0428bfd46',
-    lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
-  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
-  lDeclarationCount := 0;
-  for i := 0 to High(lPlan.FinalStatements) do
-    for j := 0 to High(lPlan.FinalStatements[i].Edits) do
-      if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
-        (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
-        (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
-        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
-        Inc(lDeclarationCount);
-  Assert.AreEqual(1, lDeclarationCount);
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 136, 3, lStatement));
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
-
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 223, 9, lStatement));
+    '      end;', lOwnerStatement);
+  // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '223:9-228:12',
+    'f3052484e21300db8e9c6ef5f8a86001c640d0dfdecec85b71e080a9029db365', 'WITH IndFiles[i]^ DO' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          eindeutig := TRUE;' + #13#10 +
+    '          CalcIndSize(IV, IndSize);' + #13#10 +
+    '          MustBeUnique := HatAuto AND (i = 1) AND IDUnique' + #13#10 +
+    '        END;', 1, 1,
+    '        lWithIndexFilePtr := @IndFiles[i]^;' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          lWithIndexFilePtr^.eindeutig := TRUE;' + #13#10 +
+    '          CalcIndSize(lWithIndexFilePtr^.IV, lWithIndexFilePtr^.IndSize);' + #13#10 +
+    '          lWithIndexFilePtr^.MustBeUnique := HatAuto AND (i = 1) AND IDUnique' + #13#10 +
+    '        END;', lOwnerStatement);
+  // fix-packet-22.md: inactive NetDrive@2982 refuses parent 136:3; base frees this temp name.
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB06.pas', 272, 5, lStatement));
   Assert.AreEqual('planned', lStatement.Status);
-  Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
-  Assert.AreEqual('223:9-228:12', SourceRangeText(lStatement.Range));
-  Assert.AreEqual(lOwnerStatement.Verification.ExpectedFileHash, lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('', lStatement.Reason);
+  Assert.AreEqual('', lStatement.SafetyReason);
+  Assert.AreEqual('NeueDatei', lStatement.RoutineName);
+  Assert.AreEqual('272:5-273:23', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('272:5-273:23', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('ccd8e2413bd463da755b9ce994dc164cb0bf2fe0706687f93c7f0d7257123db7', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH D DO' + #13#10 +
+    '      Maske:= MaskSave;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('    lWithDatFilePtr := @D;' + #13#10 +
+    '  lWithDatFilePtr^.Maske:= MaskSave;', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @IndFiles[i]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('D', lStatement.Temps[0].SelectorText);
+  Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
+  Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[0].QualifierText);
+  Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
+  Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
+  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
+  Assert.AreEqual(MaxTdbStatementMetadata(lPlan, 'TDB06.pas', '272:5-273:23').SemanticId, lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
+  Assert.AreEqual('272:1-273:23', SourceRangeText(lStatement.Edits[0].Range));
+  Assert.AreEqual('    lWithDatFilePtr := @D;' + #13#10 +
+    '  lWithDatFilePtr^.Maske:= MaskSave;', lStatement.Edits[0].ReplacementText);
+  AssertFinalRecipe(lStatement, 'record-pointer-temp');
   AssertCapturedRecipe(lStatement);
 end;
 
@@ -23342,10 +24692,108 @@ var
 begin
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
-  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 2704, 7, lStatement),
-    'Expected maxTdb TDBJOBS Sub^ with statement.');
+  // fix-packet-22.md: base d308bc5 refuses inactive LockedFiles@68026, LockedFiles@68079, LockedFiles@68479.
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbjobs.pas', 2704, 7, lStatement));
   Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
+  Assert.AreEqual('', lStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
+
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
+  Assert.AreEqual('SubReport', lStatement.RoutineName);
+  Assert.AreEqual('042cc0608d0fef3e8a91ff663e126c3fb3c463f0ac46db292d268a091e4ad812', lStatement.SemanticId);
+  Assert.AreEqual('2704:7-2784:10', SourceRangeText(lStatement.Range));
+  Assert.AreEqual('2704:7-2784:10', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('521b495ea0cb7e845af8a185479bf39e09498d449a79d31edf03d97aabb2a35f', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('WITH Sub^ DO' + #13#10 +
+    '      BEGIN' + #13#10 +
+    '        komplett := Alles;' + #13#10 +
+    '        IF ProgrammModus AND (sFiles <> 0) AND NOT InSet(sFiles, FileNo)' + #13#10 +
+    '        THEN' + #13#10 +
+    '          komplett := FALSE;' + #13#10 +
+    '        IF komplett THEN' + #13#10 +
+    '          sFiles := sFiles OR ShowFiles;' + #13#10 +
+    '        IF Dyn THEN' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          {$IFNDEF DLL}' + #13#10 +
+    '          IF L0 THEN' + #13#10 +
+    '            Argument := SelStr' + #13#10 +
+    '          ELSE' + #13#10 +
+    '            ToString(SelStr);' + #13#10 +
+    '          {$ELSE}' + #13#10 +
+    '          IF L0 THEN' + #13#10 +
+    '            Argument := Parameter.SelStr' + #13#10 +
+    '          ELSE' + #13#10 +
+    '            ToString(SelStr);' + #13#10 +
+    '          {$ENDIF}' + #13#10 +
+    '          // writeln(''Argument = '',Argument);' + #13#10 +
+    '          CheckExpression(Argument, ii, SelFile, fc, [s_return]);' + #13#10 +
+    '          // IF fc<=0 THEN Argument:=ReParse(Argument,SelFile);' + #13#10 +
+    '          IF fc = 0 THEN' + #13#10 +
+    '            x_passt(Argument, TestInd, fc, h);' + #13#10 +
+    '          IF fc <= 0 THEN' + #13#10 +
+    '            fc := 0;' + #13#10 +
+    '          // SelToToken(Argument,ii,SelFile,[]);' + #13#10 +
+    '          // Argument:=ReParse(Argument,SelFile);' + #13#10 +
+    '          // writeln(''now = ''+reconvert(Argument,1,0));' + #13#10 +
+    '          komplett := Alles;' + #13#10 +
+    '          IF (SelFile <> 0) AND NOT InSet(SelFile, FileNo) THEN' + #13#10 +
+    '            komplett := FALSE;' + #13#10 +
+    '          sFiles := SelFile;' + #13#10 +
+    '          IF fc = 0 THEN' + #13#10 +
+    '            MakeDynString(Argument, tSelStr)' + #13#10 +
+    '          ELSE' + #13#10 +
+    '          BEGIN' + #13#10 +
+    '            CTRLU := TRUE;' + #13#10 +
+    '            EXIT' + #13#10 +
+    '          END; { Illegale dynamische Zuweisung }' + #13#10 +
+    '        END' + #13#10 +
+    '        ELSE' + #13#10 +
+    '          tSelStr := ADDR(SelStr);' + #13#10 +
+    '        A_F := sFiles OR SelFile OR ShowFiles;' + #13#10 +
+    '        IF A_F = 0 THEN' + #13#10 +
+    '          GOTO OUT;' + #13#10 +
+    '        IF NOT TestFiles(A_F) THEN' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          fc := 58;' + #13#10 +
+    '          SetError;' + #13#10 +
+    '          CTRLU := TRUE;' + #13#10 +
+    '          GOTO OUT' + #13#10 +
+    '        END;' + #13#10 +
+    '        PushFileState;' + #13#10 +
+    '        ClearSummen(0, sFiles, FALSE);' + #13#10 +
+    '        {$IFDEF NET} LockedFiles := AllFiles(A_F);' + #13#10 +
+    '        WaitReadFiles(LockedFiles); {$ENDIF}' + #13#10 +
+    '        IF SORT THEN' + #13#10 +
+    '        BEGIN' + #13#10 +
+    '          InitSort;' + #13#10 +
+    '          InitSortVar(SortIV);' + #13#10 +
+    '          Work(TRUE, komplett);' + #13#10 +
+    '          IF NOT SortError THEN' + #13#10 +
+    '            SortStart(IndexLess)' + #13#10 +
+    '          ELSE' + #13#10 +
+    '            DoError(99, s_Leer);' + #13#10 +
+    '          SortOut;' + #13#10 +
+    '          ExitSort;' + #13#10 +
+    '        END' + #13#10 +
+    '        ELSE' + #13#10 +
+    '          Work(FALSE, komplett);' + #13#10 +
+    '        {$IFDEF NET} EndReadFiles(LockedFiles); {$ENDIF}' + #13#10 +
+    '        PopFileState;' + #13#10 +
+    '        CheckSummen(sFiles OR FileSet(1));' + #13#10 +
+    '        CTRLU := CTRLU AND MustBreak;' + #13#10 +
+    '      OUT :' + #13#10 +
+    '        IF Dyn THEN' + #13#10 +
+    '          ForgetDynString(tSelStr);' + #13#10 +
+    '      END;', lStatement.Verification.ExpectedSourceText);
+  // Known receiver members are qualified in both physical conditional branches.
+  Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
@@ -24283,9 +25731,9 @@ begin
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
   Assert.AreEqual('1469:1-1469:1', SourceRangeText(lOwnerStatement.Edits[0].Range));
+  // fix-packet-22.md: inactive ProgressDefault@46511 refuses 1787:15; base omits its declaration.
   Assert.AreEqual('  lWithIndexFilePtr: ^IndexFile;' + #13#10 +
-    '  lWithFormelPtr: ^Formel;' + #13#10 +
-    '  lWithDatFilePtr: ^DatFile;' + #13#10, lOwnerStatement.Edits[0].ReplacementText);
+    '  lWithFormelPtr: ^Formel;' + #13#10, lOwnerStatement.Edits[0].ReplacementText);
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('1707:1-1712:16', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
@@ -24318,17 +25766,26 @@ begin
         Inc(lDeclarationCount);
   Assert.AreEqual(1, lDeclarationCount);
 
+  // fix-packet-22.md: base d308bc5 refuses inactive ProgressDefault@46511.
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1787, 15, lStatement));
-  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
+  Assert.AreEqual('', lStatement.RewriteRecipe.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
+  Assert.AreEqual('', lStatement.ReplacementText);
+
+  Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
   Assert.AreEqual('1787:15-1798:18', SourceRangeText(lStatement.Range));
   Assert.AreEqual(lOwnerStatement.Verification.ExpectedFileHash, lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[FilesOffen]^;', lStatement.Temps[0].InitializationText);
-  Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
-  AssertCapturedRecipe(lStatement);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGetStructureReceiverTypeSkip;

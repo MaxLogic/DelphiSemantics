@@ -16,7 +16,46 @@ type
       const aActive: Boolean): Boolean;
   public
     [Test]
+    procedure ActivityEvidenceCoversGapsAndInclusiveEnd;
+    [Test]
     procedure ActiveDefinesSelectExpectedConditionalRegions;
+    [Test]
+    procedure MissingPossibleIncludeKeepsTheModelAndTaintsLaterConditions;
+    [TestCase('Earlier UNDEF invalidated', 'False')]
+    [TestCase('Later UNDEF restores witness', 'True')]
+    procedure GlobalTaintInvalidatesEarlierWitness(const aRestore: Boolean);
+    [Test]
+    procedure InvalidActivitySpanNeverDiscardsUncertainty;
+    [Test]
+    procedure PlainActivityBuilderWithoutRootWitnessRetainsUncertainty;
+    [TestCase('OR known true left', 'or-true')]
+    [TestCase('AND known false left', 'and-false')]
+    [TestCase('OR known true right', 'or-right')]
+    [TestCase('AND known false right', 'and-right')]
+    [TestCase('OR unknown', 'or-unknown')]
+    [TestCase('AND unknown', 'and-unknown')]
+    [TestCase('Bare identifier is a constant', 'bare')]
+    [TestCase('Malformed IFDEF', 'ifdef')]
+    [TestCase('Malformed IFNDEF', 'ifndef')]
+    procedure ConditionalExpressionsRetainTriStateShortCircuit(const aShape: string);
+    [Test]
+    [TestCase('Ordinary absent', 'ordinary')]
+    [TestCase('Ordinary Defined expression', 'ordinary-defined')]
+    [TestCase('Ordinary IFNDEF', 'ordinary-ifndef')]
+    [TestCase('Unicode absent', 'unicode')]
+    [TestCase('Defined Unicode absent', 'unicode-defined')]
+    [TestCase('Version family absent', 'version')]
+    [TestCase('Framework absent', 'framework')]
+    [TestCase('Simulator absent', 'IOSSIMULATOR')]
+    [TestCase('iOS32 absent', 'IOS32')]
+    [TestCase('OSX32 absent', 'OSX32')]
+    [TestCase('Managed records compiler symbol', 'MANAGED_RECORD')]
+    [TestCase('Weak nativeint compiler symbol', 'WEAK_NATIVEINT')]
+    [TestCase('LLVM compiler symbol', 'LLVM')]
+    [TestCase('Captured Unicode', 'captured')]
+    [TestCase('Source undef overrides captured Unicode', 'undef')]
+    procedure ConditionalStateDistinguishesOrdinaryAndCompilerSymbols(const aShape: string);
+
     [Test]
     procedure DefineAndUndefDirectivesAffectLaterRegions;
     [Test]
@@ -33,6 +72,20 @@ type
     procedure ConditionalDirectivesAllowLegacyMultilineCloseBrace;
     [Test]
     procedure CompilerSwitchDirectivesDoNotFailPreprocessing;
+    [Test]
+    [TestCase('External symbol metadata', '0,True')]
+    [TestCase('C++ header text', '1,True')]
+    [TestCase('C++ header type exclusion', '2,True')]
+    [TestCase('Object type name metadata', '3,True')]
+    [TestCase('Grouped short switches', '4,True')]
+    [TestCase('Unknown directive', '5,False')]
+    [TestCase('Mixed group with unknown item', '6,False')]
+    [TestCase('Metadata name lookalike', '7,False')]
+    [TestCase('Trailing group separator', '8,False')]
+    [TestCase('C++ closing brace in parenthesized directive', '9,True')]
+    [TestCase('Indented parenthesized switch group', '10,True')]
+    procedure RtlMetadataAndSwitchGroupsPreservePascalSource(const aCase: Integer;
+      const aSuccess: Boolean);
     [Test]
     procedure DirectivesInsideLineCommentsAreIgnored;
     [Test]
@@ -57,10 +110,11 @@ type
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
-  DelphiSemantics.ProjectContext,
+  DelphiSemantics.Model, DelphiSemantics.Model.Extract, DelphiSemantics.ProjectContext,
+  DelphiSemantics.SourceConditionals,
   Test.Support;
 
 function PreprocessTempRoot(const aName: string): string;
@@ -76,6 +130,159 @@ begin
   TDirectory.CreateDirectory(Result);
 end;
 
+
+procedure TPreprocessTests.ActivityEvidenceCoversGapsAndInclusiveEnd;
+var
+  lSpan: TDelphiSemanticActivitySpan;
+  lEvidence: string;
+begin
+  lSpan := Default(TDelphiSemanticActivitySpan);
+  lSpan.FileName := 'Unit1.pas';
+  lSpan.SourceText := 'AB';
+  lSpan.StartOffset := 1;
+  lSpan.EndOffset := 2;
+  lSpan.Activity := saActive;
+  lEvidence := TDelphiSemanticSourceConditionals.EncodeActivity('AB', 'Unit1.pas', [lSpan]);
+  Assert.IsFalse(TDelphiSemanticSourceConditionals.RangeIsKnownActive('AB', lEvidence, 1, 2),
+    'The inclusive last code offset lacks a witness.');
+  Assert.IsTrue(TDelphiSemanticSourceConditionals.UnknownAtOffset('AB', lEvidence, 2),
+    'Uncovered code is unknown, never proven inactive.');
+  lSpan.EndOffset := 3;
+  lEvidence := TDelphiSemanticSourceConditionals.EncodeActivity('AB', 'Unit1.pas', [lSpan]);
+  Assert.IsTrue(TDelphiSemanticSourceConditionals.RangeIsKnownActive('AB', lEvidence, 1, 2));
+end;
+
+procedure TPreprocessTests.ConditionalExpressionsRetainTriStateShortCircuit(const aShape: string);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lDirective, lEvidence: string;
+  lUnknown, lActive: Boolean;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := FixturePath('Preprocess', 'ConditionalUnit.pas');
+  lOptions.Defines := ['MSWINDOWS', 'X'];
+  lUnknown := False;
+  lActive := False;
+  if aShape = 'or-true' then
+  begin
+    lDirective := '{$IF Defined(MSWINDOWS) or (CompilerVersion >= 30)}';
+    lActive := True;
+  end else if aShape = 'and-false' then
+    lDirective := '{$IF Defined(NOPE) and (CompilerVersion >= 30)}'
+  else if aShape = 'or-right' then
+  begin
+    lDirective := '{$IF (CompilerVersion >= 30) or Defined(MSWINDOWS)}';
+    lActive := True;
+  end else if aShape = 'and-right' then
+    lDirective := '{$IF (CompilerVersion >= 30) and Defined(NOPE)}'
+  else begin
+    lUnknown := True;
+    if aShape = 'or-unknown' then
+      lDirective := '{$IF Defined(NOPE) or (CompilerVersion >= 30)}'
+    else if aShape = 'and-unknown' then
+      lDirective := '{$IF Defined(MSWINDOWS) and (CompilerVersion >= 30)}'
+    else if aShape = 'bare' then
+      lDirective := '{$IF X}'
+    else if aShape = 'ifdef' then
+      lDirective := '{$IFDEF MSWINDOWS trailing}'
+    else
+      lDirective := '{$IFNDEF MSWINDOWS trailing}';
+  end;
+  lOptions.SourceText := 'unit Expr;'#13#10'interface'#13#10'implementation'#13#10 +
+    lDirective + 'WriteLn(Fetch);{$ELSE}WriteLn(Other);{$ENDIF}'#13#10'end.';
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success, 'An unverified operand is a local unknown, not a model failure.');
+  Assert.IsTrue(lResult.ActivityEvidenceAvailable);
+  Assert.AreEqual(lUnknown, lResult.HasUnknownActivity);
+  lEvidence := TDelphiSemanticSourceConditionals.EncodeActivity(lOptions.SourceText,
+    lOptions.SourceFileName, lResult.ActivitySpans);
+  Assert.AreEqual(lUnknown, TDelphiSemanticSourceConditionals.UnknownAtOffset(
+    lOptions.SourceText, lEvidence, Pos('Fetch', lOptions.SourceText)));
+  if not lUnknown then
+    Assert.AreEqual(lActive, Pos('Fetch', TDelphiSemanticSourceConditionals.SourceForScan(
+      lOptions.SourceText, lEvidence)) > 0);
+end;
+
+procedure TPreprocessTests.MissingPossibleIncludeKeepsTheModelAndTaintsLaterConditions;
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lSpan: TDelphiSemanticActivitySpan;
+  lUnknown: Boolean;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('missing-possible'), 'Unit1.pas');
+  lOptions.SourceText := '{$IFDEF LINUX}{$I Missing.inc}{$ENDIF}'#13#10 +
+    '{$IFDEF FOO}WriteLn(Fetch);{$ENDIF}';
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success, 'A missing possible include must not fail the whole model.');
+  Assert.IsTrue(lResult.ActivityEvidenceAvailable);
+  Assert.IsTrue(lResult.HasUnknownActivity);
+  Assert.IsTrue(HasDiagnostic(lResult, 'INCLUDE_FILE_NOT_FOUND'));
+  lUnknown := False;
+  for lSpan in lResult.ActivitySpans do
+    if (lSpan.Activity = saUnknown) and
+      (Pos('Fetch', Copy(lSpan.SourceText, lSpan.StartOffset,
+        lSpan.EndOffset - lSpan.StartOffset)) > 0) then
+      lUnknown := True;
+  Assert.IsTrue(lUnknown, 'A possible include can define FOO, so the later region is unknown.');
+end;
+
+procedure TPreprocessTests.GlobalTaintInvalidatesEarlierWitness(const aRestore: Boolean);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lEvidence: string;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('earlier-witness'), 'Unit1.pas');
+  lOptions.SourceText := '{$UNDEF X}{$IFDEF LINUX}{$I Missing.inc}{$ENDIF}';
+  if aRestore then
+    lOptions.SourceText := lOptions.SourceText + '{$UNDEF X}';
+  lOptions.SourceText := lOptions.SourceText + '{$IFDEF X}Fetch;{$ENDIF}';
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success);
+  lEvidence := TDelphiSemanticSourceConditionals.EncodeActivity(lOptions.SourceText,
+    lOptions.SourceFileName, lResult.ActivitySpans);
+  Assert.AreEqual(not aRestore, TDelphiSemanticSourceConditionals.UnknownAtOffset(
+    lOptions.SourceText, lEvidence, Pos('Fetch;', lOptions.SourceText)),
+    'Only a later known-active directive can restore symbol certainty.');
+end;
+
+procedure TPreprocessTests.PlainActivityBuilderWithoutRootWitnessRetainsUncertainty;
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('plain-proof-failure'), 'Unit1.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    '{$IFDEF NET}unit Unit1; interface function Fetch: Integer; implementation end.{$ENDIF}',
+    TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(TDelphiSemanticSourceConditionals.UnknownAtOffset(lModel.SourceText,
+    lModel.VerifiedActiveSourceText, Pos('Fetch', lModel.SourceText)),
+    'A plain builder without a copied root witness must publish no partial inactivity proof.');
+end;
+
+procedure TPreprocessTests.InvalidActivitySpanNeverDiscardsUncertainty;
+var
+  lSpan: TDelphiSemanticActivitySpan;
+  lEvidence: string;
+begin
+  lSpan := Default(TDelphiSemanticActivitySpan);
+  lSpan.FileName := 'Unit1.pas';
+  lSpan.SourceText := 'different';
+  lSpan.StartOffset := 1;
+  lSpan.EndOffset := 6;
+  lSpan.Activity := saUnknown;
+  lEvidence := TDelphiSemanticSourceConditionals.EncodeActivity('Fetch', 'Unit1.pas', [lSpan]);
+  Assert.IsTrue(TDelphiSemanticSourceConditionals.UnknownAtOffset('Fetch', lEvidence, 1),
+    'A failed mixed builder must retain uncertainty instead of returning an empty proof.');
+  Assert.AreEqual('Fetch', TDelphiSemanticSourceConditionals.SourceForScan('Fetch', lEvidence));
+end;
 
 function TPreprocessTests.HasDiagnostic(const aResult: TDelphiSemanticPreprocessResult;
   const aCode: string): Boolean;
@@ -100,6 +307,63 @@ begin
       Exit(True);
 
   Result := False;
+end;
+
+procedure TPreprocessTests.ConditionalStateDistinguishesOrdinaryAndCompilerSymbols(
+  const aShape: string);
+var
+  lActive: Boolean;
+  lDirective: string;
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lPrefix: string;
+  lResult: TDelphiSemanticPreprocessResult;
+  lUnverified: Boolean;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := FixturePath('Preprocess', 'ConditionalUnit.pas');
+  lPrefix := '';
+  lDirective := '{$IFDEF UNKNOWN_FEATURE}';
+  lActive := False;
+  lUnverified := False;
+  if aShape = 'ordinary-defined' then
+    lDirective := '{$IF Defined(UNKNOWN_FEATURE)}'
+  else if aShape = 'ordinary-ifndef' then
+  begin
+    lDirective := '{$IFNDEF UNKNOWN_FEATURE}';
+    lActive := True;
+  end else if MatchText(aShape, ['unicode', 'unicode-defined', 'captured', 'undef']) then
+  begin
+    lDirective := '{$IFDEF UNICODE}';
+    if aShape = 'unicode-defined' then
+      lDirective := '{$IF Defined(UNICODE)}';
+    lUnverified := MatchText(aShape, ['unicode', 'unicode-defined']);
+    if MatchText(aShape, ['captured', 'undef']) then
+    begin
+      lOptions.Defines := ['UNICODE'];
+      lActive := aShape = 'captured';
+      if aShape = 'undef' then
+        lPrefix := '{$UNDEF UNICODE}'#13#10;
+    end;
+  end else if aShape = 'version' then
+  begin
+    lDirective := '{$IFDEF VER9999}';
+    lUnverified := True;
+  end else if MatchText(aShape, ['IOSSIMULATOR', 'IOS32', 'OSX32', 'MANAGED_RECORD', 'WEAK_NATIVEINT', 'LLVM']) then
+  begin
+    lDirective := '{$IFDEF ' + aShape + '}';
+    lUnverified := True;
+  end else if aShape = 'framework' then
+  begin
+    lDirective := '{$IFDEF FRAMEWORK_FMX}';
+    lUnverified := True;
+  end;
+  lOptions.SourceText := 'unit SymbolState;'#13#10'interface'#13#10 + lPrefix +
+    lDirective + #13#10'type TBranchMarker = record end;'#13#10 +
+    '{$ENDIF}'#13#10'implementation'#13#10'end.';
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success);
+  Assert.AreEqual(lActive, Pos('TBranchMarker', lResult.OutputText) > 0);
+  Assert.AreEqual(lUnverified, HasDiagnostic(lResult, 'UNVERIFIED_PREPROCESS_CONDITION'));
 end;
 
 procedure TPreprocessTests.ActiveDefinesSelectExpectedConditionalRegions;
@@ -278,6 +542,53 @@ begin
   Assert.IsTrue(lResult.Success);
   Assert.IsTrue(Pos('TAfterCompilerSwitch', lResult.OutputText) > 0);
   Assert.IsFalse(HasDiagnostic(lResult, 'UNSUPPORTED_PREPROCESS_DIRECTIVE'));
+end;
+
+procedure TPreprocessTests.RtlMetadataAndSwitchGroupsPreservePascalSource(
+  const aCase: Integer; const aSuccess: Boolean);
+const
+  cDirectives: array[0..10] of string = (
+    'EXTERNALSYM TNative ''NativeName''',
+    'HPPEMIT ''#define DAK_SAMPLE 1''',
+    'NODEFINE TNative ''NativeName'' ''NativeUnionName''',
+    'OBJTYPENAME TNative ''NTNative''',
+    'H+,I-,R-,O+,W-',
+    'UNKNOWN_NATIVE_DIRECTIVE',
+    'H+,UNKNOWN_NATIVE_DIRECTIVE',
+    'EXTERNALSYM_FAKE TNative',
+    'H+,I-,',
+    'HPPEMIT ''}''',
+    'H+,J+');
+var
+  lDirective: string;
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lSource: string;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('rtl-metadata-' + IntToStr(aCase)),
+    'RtlMetadata.pas');
+  lDirective := '{$' + cDirectives[aCase] + '}';
+  if aCase >= 9 then
+    lDirective := '(*$' + cDirectives[aCase] + '*)';
+  if aCase = 10 then
+    lDirective := '  ' + lDirective;
+  lSource := 'unit RtlMetadata;' + sLineBreak + 'interface' + sLineBreak +
+    'type TNative = type Integer;' + sLineBreak +
+    lDirective + sLineBreak +
+    'implementation' + sLineBreak + 'end.' + sLineBreak;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.AreEqual(aSuccess, lResult.Success);
+  Assert.AreEqual(not aSuccess, HasDiagnostic(lResult, 'UNSUPPORTED_PREPROCESS_DIRECTIVE'));
+  if aSuccess then
+  begin
+    Assert.AreEqual(lSource, lResult.OutputText, 'Recognized directives must remain in source.');
+    Assert.AreEqual<NativeInt>(6, Length(lResult.LineOrigins));
+    Assert.AreEqual(4, lResult.LineOrigins[3].Line);
+    Assert.IsTrue(SameText(lOptions.SourceFileName, lResult.LineOrigins[3].FileName));
+    Assert.IsFalse(lResult.LineOrigins[3].Mixed);
+  end;
 end;
 
 procedure TPreprocessTests.DirectivesInsideLineCommentsAreIgnored;

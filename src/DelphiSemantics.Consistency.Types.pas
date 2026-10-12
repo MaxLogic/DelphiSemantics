@@ -16,6 +16,8 @@ type
   TDelphiSemanticConsistencyTypeResolver = record
     class function FindCompleteModelIndex(const aModels: TArray<TDelphiSemanticUnitModel>;
       const aUnit: string): Integer; static;
+    class function HasCompleteTypeDeclaration(const aModel: TDelphiSemanticUnitModel;
+      const aDeclaration: Integer): Boolean; static;
     class function Resolve(const aModels: TArray<TDelphiSemanticUnitModel>;
       const aTypes: TDelphiSemanticTypeIdentityIndex; const aName, aUnit: string):
       TDelphiSemanticConsistencyType; static;
@@ -26,10 +28,69 @@ implementation
 uses
   System.Generics.Collections, System.RegularExpressions, System.StrUtils, System.SysUtils;
 
+function IncompleteMemberOwner(const aModel: TDelphiSemanticUnitModel;
+  const aDiagnostic: TDelphiSemanticModelDiagnostic): Integer;
+var
+  i, lOffset: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFileName, lName: string;
+begin
+  Result := -1;
+  if not SameText(aDiagnostic.Code, 'MEMBERS_INCOMPLETE') or
+    (aDiagnostic.FileName = '') or (aDiagnostic.Line < 1) then
+    Exit;
+  for i := 0 to High(aModel.Declarations) do
+  begin
+    lDeclaration := aModel.Declarations[i];
+    lFileName := lDeclaration.FileName;
+    if lFileName = '' then
+      lFileName := aModel.FileName;
+    if not SameText(lFileName, aDiagnostic.FileName) or
+      (lDeclaration.Line <> aDiagnostic.Line) or
+      not SameText(lDeclaration.Kind, 'type') or
+      not SameText(lDeclaration.DeclarationRole, 'declaration') or
+      not MatchText(lDeclaration.TypeName, ['class', 'record', 'interface']) then
+      Continue;
+    // DS-648: a line shared by multiple possible owners cannot isolate a diagnostic.
+    if Result >= 0 then
+      Exit(-1);
+    lName := Copy(lDeclaration.Name, LastDelimiter('.', lDeclaration.Name) + 1, MaxInt);
+    lOffset := lDeclaration.Offset;
+    if (lOffset > 0) and (lOffset <= Length(aModel.SourceText)) and
+      (aModel.SourceText[lOffset] = '&') then
+      Inc(lOffset);
+    if not SameText(lFileName, aModel.FileName) or (lName = '') or (lOffset < 1) or
+      not SameText(Copy(aModel.SourceText, lOffset, Length(lName)), lName) then
+      Exit(-1);
+    Result := i;
+  end;
+end;
+
+class function TDelphiSemanticConsistencyTypeResolver.HasCompleteTypeDeclaration(
+  const aModel: TDelphiSemanticUnitModel; const aDeclaration: Integer): Boolean;
+var
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lOwner: Integer;
+begin
+  Result := False;
+  if not aModel.Success or not SameText(aModel.ScopeModelStatus, 'ast') or
+    (aModel.RejectedDeclarationCount <> 0) or
+    (aDeclaration < 0) or (aDeclaration > High(aModel.Declarations)) then
+    Exit;
+  for lDiagnostic in aModel.Diagnostics do
+  begin
+    lOwner := IncompleteMemberOwner(aModel, lDiagnostic);
+    if (lOwner < 0) or (lOwner = aDeclaration) then
+      Exit;
+  end;
+  Result := True;
+end;
+
 class function TDelphiSemanticConsistencyTypeResolver.FindCompleteModelIndex(
   const aModels: TArray<TDelphiSemanticUnitModel>; const aUnit: string): Integer;
 var
   i: Integer;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
 begin
   Result := -1;
   for i := 0 to High(aModels) do
@@ -37,8 +98,12 @@ begin
     begin
       if (Result >= 0) or not aModels[i].Success or
         not SameText(aModels[i].ScopeModelStatus, 'ast') or
-        (aModels[i].RejectedDeclarationCount <> 0) or (Length(aModels[i].Diagnostics) <> 0) then
+        (aModels[i].RejectedDeclarationCount <> 0) then
         Exit(-1);
+      // Keep unit-wide uncertainty blocking; only uniquely owned member gaps are local.
+      for lDiagnostic in aModels[i].Diagnostics do
+        if IncompleteMemberOwner(aModels[i], lDiagnostic) < 0 then
+          Exit(-1);
       Result := i;
     end;
 end;
@@ -108,6 +173,9 @@ begin
     Exit;
   Result.DeclarationIndex := FindDeclarationIndex(aModels[Result.ModelIndex], lLookup.Identity);
   if Result.DeclarationIndex < 0 then
+    Exit;
+  if not TDelphiSemanticConsistencyTypeResolver.HasCompleteTypeDeclaration(
+    aModels[Result.ModelIndex], Result.DeclarationIndex) then
     Exit;
   Result.Identity := lLookup.Identity;
   Result.Known := True;

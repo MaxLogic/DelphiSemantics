@@ -82,6 +82,9 @@ type
     procedure PlansSelfAndInheritedMemberReferencesInDescendantUnit;
     [Test]
     procedure BindsWithBodyNamesToSelectorMembers;
+
+    [Test]
+    procedure InactiveWithHomonymNeverBecomesRenameOrUsageOccurrence;
     [Test]
     procedure PlansCrossUnitPointerArrayWithMembers;
     [Test]
@@ -134,6 +137,61 @@ type
     // DS-659: every planned edit position must spell the old name.
     [Test]
     procedure RefusesEditAtPositionThatDoesNotHoldTheName;
+    [Test]
+    [TestCase('Active same-line call', 'active')]
+    [TestCase('Inactive same-line call', 'inactive')]
+    [TestCase('Undefined ordinary symbol', 'undefined')]
+    [TestCase('Project define same-line call', 'project')]
+    [TestCase('Uncertain same-line call', 'uncertain')]
+    [TestCase('Unverified compiler symbol', 'unicode')]
+    [TestCase('Unsupported compiler expression', 'compiler-version')]
+    procedure PlansConditionalSameLineFunctionReference(const aShape: string);
+    [Test]
+    [TestCase('Separate known-inactive NET', 'separate')]
+    [TestCase('Unknown LINUX target', 'linux')]
+    [TestCase('Inner known-false wins', 'nested')]
+    [TestCase('Unknown DEFINE poisons later symbol', 'define')]
+    [TestCase('Unknown IFNDEF branch', 'ifndef')]
+    [TestCase('Unsupported IFOPT stays unknown', 'ifopt')]
+    [TestCase('Unsupported IFOPT ELSE stays unknown', 'ifopt-else')]
+    [TestCase('Unsupported IFEND expression stays unknown', 'expression-ifend')]
+    [TestCase('False NET inside IFOPT is inactive', 'ifopt-nested')]
+    [TestCase('Known true preceding ELSE', 'true-else')]
+    [TestCase('Known true preceding ELSEIF', 'true-elseif')]
+    [TestCase('Unknown preceding ELSEIF', 'unknown-elseif')]
+    [TestCase('Later true excludes ELSE', 'later-true')]
+    [TestCase('Unknown UNDEF poisons later symbol', 'undef')]
+    [TestCase('Unknown include poisons later symbol', 'include')]
+    [TestCase('Unknown include occurrence', 'include-target')]
+    [TestCase('Escaped unknown include occurrence', 'include-escaped')]
+    [TestCase('Windows is an ordinary symbol', 'windows-else')]
+    [TestCase('Missing possible include retains uncertainty', 'missing-include')]
+    [TestCase('Global taint invalidates earlier witness', 'earlier-witness')]
+    [TestCase('Later active UNDEF restores witness', 'restored-witness')]
+    [TestCase('Hints directive retains uncertainty', 'hints')]
+    [TestCase('Stackframes directive retains uncertainty', 'stackframes')]
+    [TestCase('False nested DEFINE does not poison', 'false-define')]
+    [TestCase('Unsupported expression still permits separate false region', 'expression')]
+    procedure ConditionalActivityIsProvenPerRegion(const aShape: string);
+    [Test]
+    procedure PlansPointerCastReferencesAndMembers;
+    [Test]
+    procedure LocalPointerCastNeverBorrowsUnitPointeeIdentity;
+    [TestCase('Local pointer alias', 'alias')]
+    [TestCase('Anonymous local pointer', 'anonymous')]
+    procedure LocalPointerDereferenceNeverBorrowsUnitPointeeIdentity(const aShape: string);
+    [Test]
+    procedure RefusesPointerCastMembersWhenCalleeIsShadowed;
+    [TestCase('Unknown cast callee', 'unknown')]
+    [TestCase('Ambiguous cast callee', 'ambiguous')]
+    [TestCase('Multiple cast arguments', 'multiple')]
+    [TestCase('Empty cast argument', 'empty')]
+    procedure RefusesUnprovablePointerCastMembers(const aCase: string);
+    [TestCase('Uncached dependent selectors', '0')]
+    [TestCase('Warm cached dependent selectors', '1')]
+    procedure PlansCastsInsideDependentWithSelectors(const aUseCache: Integer);
+    [Test]
+    procedure RebuildsPartialCacheCastTargetsFromUnchangedProvider;
   end;
 
 implementation
@@ -1208,7 +1266,8 @@ begin
 end;
 
 function PlanCompletenessRename(const aRoot, aFileName: string; const aLine, aColumn: Integer;
-  const aNewName: string): TDelphiSemanticRenamePlan;
+  const aNewName: string; const aCacheFileName: string = '';
+  const aExpectCacheHit: Boolean = False; const aPlatform: string = ''): TDelphiSemanticRenamePlan;
 var
   lCacheMetrics: TDelphiSemanticCacheMetrics;
   lContext: TDelphiSemanticSymbolQueryContext;
@@ -1218,11 +1277,15 @@ var
 begin
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := TPath.Combine(aRoot, 'P.dproj');
+  lOptions.Platform := aPlatform;
+  lOptions.SqliteCacheFileName := aCacheFileName;
   lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lSessionResult.Success, 'Project session must open.');
     lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
       lExtractionMilliseconds);
+    if aExpectCacheHit then
+      Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Warm control must actually reuse cached units.');
     try
       Assert.IsNotNull(lContext.ProjectSnapshot, 'Rename must run on the project snapshot.');
       Result := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext,
@@ -1318,6 +1381,423 @@ begin
     'A complete plan lists no unresolved references: ' + SortedKeysText(PlanUnresolvedKeys(aPlan)));
 end;
 
+// DS-667: effective directives determine whether the same-line call belongs in the plan.
+procedure TRenameCompletenessTests.PlansConditionalSameLineFunctionReference(const aShape: string);
+var
+  lDefine: string;
+  lDirective: string;
+  lExpectedCount: Integer;
+  lProjectText: string;
+  lExpectedKeys: TArray<string>;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lDefine := '';
+  lDirective := '{$IFDEF NET}';
+  if aShape = 'active' then
+    lDefine := '{$DEFINE NET}'
+  else if aShape = 'inactive' then
+    lDefine := '{$UNDEF NET}'
+  else if aShape = 'uncertain' then
+    lDirective := '{$IF UnknownCondition(1)}'
+  else if aShape = 'unicode' then
+    lDirective := '{$IFDEF UNICODE}'
+  else if aShape = 'compiler-version' then
+    lDirective := '{$IF CompilerVersion >= 30}';
+  lRoot := WriteCompletenessProject('completeness-conditional-' + aShape,
+    'program P;'#13#10'uses UProv;'#13#10'begin end.'#13#10,
+    [CompletenessFile('UProv.pas', lDefine + #13#10 +
+    'unit UProv;'#13#10'interface'#13#10'function Fetch: Integer;'#13#10 +
+    'implementation'#13#10'function Fetch: Integer;'#13#10 +
+    'begin Result := 1; end;'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    lDirective + ' WriteLn(Fetch); {$ENDIF}'#13#10'end;'#13#10'end.'#13#10)]);
+  if aShape = 'project' then
+  begin
+    lProjectText := TFile.ReadAllText(TPath.Combine(lRoot, 'P.dproj'));
+    lProjectText := StringReplace(lProjectText, '<MainSource>',
+      '<DCC_Define>NET</DCC_Define><MainSource>', []);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'), lProjectText, TEncoding.ASCII);
+  end;
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 4, 10, 'ReadValue');
+  lExpectedKeys := ['uprov.pas:4:10', 'uprov.pas:6:10'];
+  if MatchText(aShape, ['uncertain', 'unicode', 'compiler-version']) then
+  begin
+    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual(SortedKeysText(lExpectedKeys), SortedKeysText(PlanEditKeys(lPlan)));
+    Assert.AreEqual('uprov.pas:10:' + IntToStr(Length(lDirective) + 10),
+      SortedKeysText(PlanUnresolvedKeys(lPlan)));
+    Exit;
+  end;
+  lExpectedCount := 2;
+  if not MatchText(aShape, ['inactive', 'undefined']) then
+  begin
+    lExpectedKeys := lExpectedKeys + ['uprov.pas:10:22'];
+    lExpectedCount := 3;
+  end;
+  AssertCompletePlan(lPlan, lExpectedKeys, lExpectedCount);
+end;
+
+procedure TRenameCompletenessTests.ConditionalActivityIsProvenPerRegion(const aShape: string);
+var
+  lBlock: string;
+  lPlatform: string;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+  lLines: TArray<string>;
+  lLine, lColumn, i: Integer;
+  lWarmPlan: TDelphiSemanticRenamePlan;
+begin
+  if aShape = 'earlier-witness' then
+    lBlock := '{$UNDEF X}{$IFDEF LINUX}{$I Missing.inc}{$ENDIF}'#13#10 +
+      '{$IFDEF X} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'restored-witness' then
+    lBlock := '{$UNDEF X}{$IFDEF LINUX}{$I Missing.inc}{$ENDIF}{$UNDEF X}'#13#10 +
+      '{$IFDEF X} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'windows-else' then
+    lBlock := '{$IFDEF WINDOWS}WriteLn(0);{$ELSE}WriteLn(Fetch);{$ENDIF}'
+  else if aShape = 'missing-include' then
+    lBlock := '{$IFDEF LINUX}{$I Missing.inc}{$ENDIF}'#13#10 +
+      '{$IFNDEF LINUX} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'hints' then
+    lBlock := '{$HINTS OFF}'#13#10'{$IFNDEF LINUX} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'stackframes' then
+    lBlock := '{$STACKFRAMES ON}'#13#10'{$IFNDEF LINUX} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'separate' then
+    lBlock := '{$IFDEF LINUX} WriteLn(0); {$ENDIF}'#13#10 +
+      '{$IFDEF NET} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'linux' then
+    lBlock := '{$IFDEF LINUX} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'nested' then
+    lBlock := '{$IFDEF LINUX}{$IFDEF NET} WriteLn(Fetch); {$ENDIF}{$ENDIF}'
+  else if aShape = 'define' then
+    lBlock := '{$IFDEF LINUX}{$DEFINE FOO}{$ENDIF}'#13#10 +
+      '{$IFDEF FOO} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'true-else' then
+    lBlock := '{$IFDEF LINUX}{$IF True} WriteLn(0); {$ELSE} WriteLn(Fetch); {$ENDIF}{$ENDIF}'
+  else if aShape = 'true-elseif' then
+    lBlock := '{$IF True} WriteLn(0); {$ELSEIF Defined(LINUX)} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'unknown-elseif' then
+    lBlock := '{$IFDEF LINUX} WriteLn(0); {$ELSEIF True} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'later-true' then
+    lBlock := '{$IFDEF LINUX} WriteLn(0); {$ELSEIF True} WriteLn(0); {$ELSE} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'undef' then
+    lBlock := '{$DEFINE FOO}{$IFDEF LINUX}{$UNDEF FOO}{$ENDIF}'#13#10 +
+      '{$IFDEF FOO} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'ifopt' then
+    lBlock := '{$IFOPT R+} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'ifopt-else' then
+    lBlock := '{$IFOPT R+} WriteLn(0); {$ELSE} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'expression-ifend' then
+    lBlock := '{$IF CompilerVersion >= 36} WriteLn(Fetch); {$IFEND}'
+  else if aShape = 'ifopt-nested' then
+    lBlock := '{$IFOPT R+}{$IFDEF NET} WriteLn(Fetch); {$ENDIF}{$ENDIF}'
+  else if MatchText(aShape, ['include-target', 'include-escaped']) then
+    lBlock := '{$IFDEF LINUX}{$I Unknown.inc}{$ENDIF}'
+  else if aShape = 'include' then
+    lBlock := '{$IFDEF LINUX}{$I Unknown.inc}{$ENDIF}'#13#10 +
+      '{$IFDEF FOO} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'false-define' then
+    lBlock := '{$IFDEF LINUX}{$IFDEF NET}{$DEFINE FOO}{$ENDIF}{$ENDIF}'#13#10 +
+      '{$IFDEF FOO} WriteLn(Fetch); {$ENDIF}'
+  else if aShape = 'expression' then
+    lBlock := '{$IF CompilerVersion >= 30} WriteLn(0); {$ENDIF}'#13#10 +
+      '{$IFDEF NET} WriteLn(Fetch); {$ENDIF}'
+  else
+    lBlock := '{$IFNDEF LINUX} WriteLn(Fetch); {$ELSE} WriteLn(0); {$ENDIF}';
+  lRoot := WriteCompletenessProject('completeness-region-' + aShape,
+    'program P;'#13#10'uses UProv;'#13#10'begin end.'#13#10,
+    [CompletenessFile('UProv.pas', #13#10 +
+    'unit UProv;'#13#10'interface'#13#10'function Fetch: Integer;'#13#10 +
+    'implementation'#13#10'function Fetch: Integer;'#13#10 +
+    'begin Result := 1; end;'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    lBlock + #13#10'end;'#13#10'end.'#13#10)]);
+  if MatchText(aShape, ['include-target', 'include-escaped']) then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unknown.inc'), 'WriteLn(Fetch);'#13#10,
+      TEncoding.UTF8);
+  if aShape = 'include-escaped' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unknown.inc'), 'WriteLn(&Fetch);'#13#10,
+      TEncoding.UTF8);
+  if aShape = 'include' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unknown.inc'), '{$DEFINE FOO}'#13#10,
+      TEncoding.UTF8);
+  lPlatform := '';
+  if aShape = 'windows-else' then
+    lPlatform := 'Win64';
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 4, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'activity.sqlite3'), False, lPlatform);
+  lWarmPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 4, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'activity.sqlite3'), True, lPlatform);
+  Assert.AreEqual(lPlan.Status, lWarmPlan.Status, 'Persisted activity keeps the verdict.');
+  Assert.AreEqual(SortedKeysText(PlanEditKeys(lPlan)), SortedKeysText(PlanEditKeys(lWarmPlan)));
+  Assert.AreEqual(SortedKeysText(PlanUnresolvedKeys(lPlan)),
+    SortedKeysText(PlanUnresolvedKeys(lWarmPlan)));
+  if aShape = 'restored-witness' then
+  begin
+    AssertCompletePlan(lPlan, ['uprov.pas:4:10', 'uprov.pas:6:10'], 2);
+    Exit;
+  end;
+  if aShape = 'windows-else' then
+  begin
+    AssertCompletePlan(lPlan, ['uprov.pas:4:10', 'uprov.pas:6:10',
+      'uprov.pas:10:' + IntToStr(Pos('Fetch', lBlock))], 3);
+    Exit;
+  end;
+  if MatchText(aShape, ['separate', 'nested', 'true-else', 'true-elseif', 'later-true',
+    'false-define', 'expression', 'ifopt-nested']) then
+  begin
+    AssertCompletePlan(lPlan, ['uprov.pas:4:10', 'uprov.pas:6:10'], 2);
+    Exit;
+  end;
+  lLine := 0;
+  lColumn := 0;
+  lLines := lBlock.Split([#13#10]);
+  for i := 0 to High(lLines) do
+    if Pos('Fetch', lLines[i]) > 0 then
+    begin
+      lLine := 10 + i;
+      lColumn := Pos('Fetch', lLines[i]);
+    end;
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual('uprov.pas:4:10 uprov.pas:6:10', SortedKeysText(PlanEditKeys(lPlan)));
+  if MatchText(aShape, ['include-target', 'include-escaped']) then
+    Assert.AreEqual('unknown.inc:1:9', SortedKeysText(PlanUnresolvedKeys(lPlan)))
+  else
+    Assert.AreEqual('uprov.pas:' + IntToStr(lLine) + ':' + IntToStr(lColumn),
+      SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  Assert.AreEqual(1, Integer(Length(lPlan.UnresolvedReferences)));
+  Assert.AreEqual('unclassified-occurrence', lPlan.UnresolvedReferences[0].Reason);
+  Assert.AreEqual('', lPlan.ContextFingerprint, 'Unknown activity cannot authorize apply.');
+end;
+
+// DS-666: active cast headers and cast member chains retain both type and member identity.
+procedure TRenameCompletenessTests.LocalPointerCastNeverBorrowsUnitPointeeIdentity;
+const
+  cSource = 'unit LocalCast;'#13#10'interface'#13#10'type'#13#10 +
+    '  TRec = record'#13#10'    FieldValue: Integer;'#13#10'  end;'#13#10 +
+    'var'#13#10'  FieldValue: Integer;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'type'#13#10'  TRec = record'#13#10 +
+    '    OtherValue: Integer;'#13#10'  end;'#13#10'  PLocal = ^TRec;'#13#10 +
+    'var lLocal: TRec;'#13#10'begin'#13#10 +
+    '  with PLocal(@lLocal)^ do'#13#10'    FieldValue := 1;'#13#10 +
+    'end;'#13#10'end.'#13#10;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-local-cast-scope',
+    'program P;'#13#10'uses LocalCast;'#13#10'begin end.'#13#10,
+    [CompletenessFile('LocalCast.pas', cSource)]);
+  lPlan := PlanCompletenessRename(lRoot, 'LocalCast.pas', 5, 5, 'ReviewUnitField');
+  Assert.AreEqual('localcast.pas:5:5', SortedKeysText(PlanEditKeys(lPlan)),
+    'The local pointer cast cannot prove a unit-scoped field identity.');
+  Assert.AreEqual('incomplete', lPlan.Status);
+  Assert.AreEqual('localcast.pas:19:5', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+end;
+
+procedure TRenameCompletenessTests.LocalPointerDereferenceNeverBorrowsUnitPointeeIdentity(const aShape: string);
+const
+  cSource = 'unit LocalCast;'#13#10'interface'#13#10'type'#13#10 +
+    '  TRec = record'#13#10'    FieldValue: Integer;'#13#10'  end;'#13#10 +
+    'var'#13#10'  FieldValue: Integer;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'type'#13#10'  TRec = record'#13#10 +
+    '    OtherValue: Integer;'#13#10'  end;'#13#10'  PLocal = ^TRec;'#13#10 +
+    'var lLocal: TRec; lPointer: PLocal;'#13#10'begin'#13#10 +
+    '  with lPointer^ do'#13#10'    FieldValue := 1;'#13#10 +
+    'end;'#13#10'end.'#13#10;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot, lSource: string;
+begin
+  lSource := cSource;
+  if aShape = 'anonymous' then
+    lSource := StringReplace(lSource, 'lPointer: PLocal', 'lPointer: ^TRec', []);
+  lRoot := WriteCompletenessProject('completeness-local-dereference-scope',
+    'program P;'#13#10'uses LocalCast;'#13#10'begin end.'#13#10,
+    [CompletenessFile('LocalCast.pas', lSource)]);
+  lPlan := PlanCompletenessRename(lRoot, 'LocalCast.pas', 5, 5, 'ReviewUnitField');
+  Assert.AreEqual('localcast.pas:5:5', SortedKeysText(PlanEditKeys(lPlan)),
+    'The local pointer cast cannot prove a unit-scoped field identity.');
+  if lPlan.Status = 'incomplete' then
+  begin
+    Assert.AreEqual('localcast.pas:19:5', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+    Assert.AreEqual('', lPlan.ContextFingerprint);
+  end else begin
+    Assert.AreEqual('planned', lPlan.Status);
+    Assert.AreEqual(0, Integer(Length(lPlan.UnresolvedReferences)));
+  end;
+end;
+
+procedure TRenameCompletenessTests.PlansPointerCastReferencesAndMembers;
+const
+  cSource = 'unit CastProof;'#13#10'interface'#13#10'type'#13#10 +
+    '  TRec = record'#13#10'    FieldValue: Integer;'#13#10'  end;'#13#10 +
+    '  PRec = ^TRec;'#13#10'  TWrapper = record VarCont: Pointer; end;'#13#10 +
+    'var'#13#10'  G: TRec;'#13#10'  VarList: array[0..1] of TWrapper;'#13#10 +
+    '  Nr: Integer;'#13#10'procedure Run;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10 +
+    '  with PRec(VarList[Nr].VarCont)^ do'#13#10'    FieldValue := 1;'#13#10 +
+    '  PRec(VarList[Nr].VarCont)^.FieldValue := 2;'#13#10'end;'#13#10'end.'#13#10;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-cast-members',
+    'program P;'#13#10'uses CastProof;'#13#10'begin Run; end.'#13#10,
+    [CompletenessFile('CastProof.pas', cSource)]);
+  lPlan := PlanCompletenessRename(lRoot, 'CastProof.pas', 7, 3, 'ReviewPRec');
+  AssertCompletePlan(lPlan, ['castproof.pas:7:3', 'castproof.pas:17:8',
+    'castproof.pas:19:3'], 3);
+  lPlan := PlanCompletenessRename(lRoot, 'CastProof.pas', 5, 5, 'ReviewFieldValue');
+  AssertCompletePlan(lPlan, ['castproof.pas:5:5', 'castproof.pas:18:5',
+    'castproof.pas:19:30'], 3);
+end;
+
+procedure TRenameCompletenessTests.RefusesPointerCastMembersWhenCalleeIsShadowed;
+const
+  cSource = 'unit CastShadow;'#13#10'interface'#13#10'type'#13#10 +
+    '  TRec = record'#13#10'    FieldValue: Integer;'#13#10'  end;'#13#10 +
+    '  PRec = ^TRec;'#13#10'  PActualRec = PRec;'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10 +
+    '  function PRec(aValue: PActualRec): PActualRec;'#13#10 +
+    '  begin Result := aValue; end;'#13#10'begin'#13#10 +
+    '  with PRec(nil)^ do'#13#10'    FieldValue := 1;'#13#10 +
+    '  PRec(nil)^.FieldValue := 2;'#13#10'end;'#13#10'end.'#13#10;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-cast-shadow',
+    'program P;'#13#10'uses CastShadow;'#13#10'begin Run; end.'#13#10,
+    [CompletenessFile('CastShadow.pas', cSource)]);
+  lPlan := PlanCompletenessRename(lRoot, 'CastShadow.pas', 5, 5, 'ReviewFieldValue');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(1, Integer(Length(lPlan.Edits)));
+  Assert.AreEqual(2, Integer(Length(lPlan.UnresolvedReferences)));
+  Assert.AreEqual(SortedKeysText(['castshadow.pas:16:5', 'castshadow.pas:17:14']),
+    SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  Assert.AreEqual('unresolved-reference', lPlan.UnresolvedReferences[0].Reason);
+  Assert.AreEqual('unresolved-reference', lPlan.UnresolvedReferences[1].Reason);
+end;
+
+procedure TRenameCompletenessTests.RefusesUnprovablePointerCastMembers(const aCase: string);
+const
+  cProvider = 'unit CastA;'#13#10'interface'#13#10'type'#13#10 +
+    '  TRec = record'#13#10'    FieldValue: Integer;'#13#10'  end;'#13#10 +
+    '  PRec = ^TRec;'#13#10'implementation'#13#10'end.'#13#10;
+  cOther = 'unit CastB;'#13#10'interface'#13#10'uses CastA;'#13#10 +
+    'type PRec = ^TRec;'#13#10'implementation'#13#10'end.'#13#10;
+var
+  lExpression: string;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+  lUses: string;
+begin
+  lUses := 'CastA';
+  if aCase = 'unknown' then
+    lExpression := 'UnknownPtr(nil)^'
+  else if aCase = 'ambiguous' then
+  begin
+    lUses := 'CastA, CastB';
+    lExpression := 'PRec(nil)^';
+  end else if aCase = 'multiple' then
+    lExpression := 'PRec(nil, nil)^'
+  else
+    lExpression := 'PRec()^';
+  lRoot := WriteCompletenessProject('completeness-cast-' + aCase,
+    'program P;'#13#10'uses CastUse;'#13#10'begin Run; end.'#13#10,
+    [CompletenessFile('CastA.pas', cProvider), CompletenessFile('CastB.pas', cOther),
+     CompletenessFile('CastUse.pas', 'unit CastUse;'#13#10'interface'#13#10 +
+       'uses ' + lUses + ';'#13#10'procedure Run;'#13#10'implementation'#13#10 +
+       'procedure Run;'#13#10'begin'#13#10'  with ' + lExpression + ' do'#13#10 +
+       '    FieldValue := 1;'#13#10'  ' + lExpression + '.FieldValue := 2;'#13#10 +
+       'end;'#13#10'end.'#13#10)]);
+  lPlan := PlanCompletenessRename(lRoot, 'CastA.pas', 5, 5, 'ReviewFieldValue');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(1, Integer(Length(lPlan.Edits)));
+  Assert.AreEqual(2, Integer(Length(lPlan.UnresolvedReferences)));
+  Assert.AreEqual(SortedKeysText(['castuse.pas:9:5', 'castuse.pas:10:' + IntToStr(Length(lExpression) + 4)]),
+    SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  Assert.AreEqual('unresolved-reference', lPlan.UnresolvedReferences[0].Reason);
+  Assert.AreEqual('unresolved-reference', lPlan.UnresolvedReferences[1].Reason);
+end;
+
+procedure TRenameCompletenessTests.PlansCastsInsideDependentWithSelectors(const aUseCache: Integer);
+const
+  cSource = 'unit CastDependent;'#13#10'interface'#13#10'type'#13#10 +
+    '  TRec = record'#13#10'    FieldValue: Integer;'#13#10'  end;'#13#10 +
+    '  PRec = ^TRec;'#13#10'  PBaseRec = ^TRec;'#13#10 +
+    '  TWrapper = record VarCont: PBaseRec; end;'#13#10 +
+    'var'#13#10'  G: TRec;'#13#10'  VarList: array[0..1] of TWrapper;'#13#10 +
+    '  Nr: Integer;'#13#10'procedure Run;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10 +
+    '  with VarList[Nr], VarCont^ do'#13#10'  begin'#13#10 +
+    '    PRec(VarCont)^.FieldValue := 1;'#13#10 +
+    '    PRec(VarCont)^.FieldValue := 2;'#13#10'  end;'#13#10'end;'#13#10'end.'#13#10;
+var
+  lCacheFileName: string;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-cast-dependent',
+    'program P;'#13#10'uses CastDependent;'#13#10'begin Run; end.'#13#10,
+    [CompletenessFile('CastDependent.pas', cSource)]);
+  lCacheFileName := '';
+  if aUseCache <> 0 then
+    lCacheFileName := TPath.Combine(lRoot, 'cast-cache.sqlite3');
+  lPlan := PlanCompletenessRename(lRoot, 'CastDependent.pas', 7, 3, 'ReviewPRec', lCacheFileName);
+  AssertCompletePlan(lPlan, ['castdependent.pas:7:3',
+    'castdependent.pas:20:5', 'castdependent.pas:21:5'], 3);
+  lPlan := PlanCompletenessRename(lRoot, 'CastDependent.pas', 7, 3, 'ReviewPRec',
+    lCacheFileName, aUseCache <> 0);
+  AssertCompletePlan(lPlan, ['castdependent.pas:7:3',
+    'castdependent.pas:20:5', 'castdependent.pas:21:5'], 3);
+  lPlan := PlanCompletenessRename(lRoot, 'CastDependent.pas', 5, 5, 'ReviewFieldValue',
+    lCacheFileName, aUseCache <> 0);
+  AssertCompletePlan(lPlan, ['castdependent.pas:5:5', 'castdependent.pas:20:20',
+    'castdependent.pas:21:20'], 3);
+end;
+
+procedure TRenameCompletenessTests.RebuildsPartialCacheCastTargetsFromUnchangedProvider;
+const
+  cProvider = 'unit CastTypes;'#13#10'interface'#13#10'type'#13#10 +
+    '  TRec = record'#13#10'    FieldValue: Integer;'#13#10'  end;'#13#10 +
+    '  PRec = ^TRec;'#13#10'  TWrapper = record VarCont: Pointer; end;'#13#10 +
+    'implementation'#13#10'end.'#13#10;
+  cConsumer = 'unit CastUse;'#13#10'interface'#13#10'uses CastTypes;'#13#10 +
+    'var G: TWrapper;'#13#10'procedure Run;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10'  with G do'#13#10'  begin'#13#10 +
+    '    PRec(VarCont)^.FieldValue := 1;'#13#10 +
+    '    PRec(VarCont)^.FieldValue := 2;'#13#10'  end;'#13#10'end;'#13#10'end.'#13#10;
+var
+  lCacheFileName: string;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('completeness-cast-partial-cache',
+    'program P;'#13#10'uses CastUse;'#13#10'begin Run; end.'#13#10,
+    [CompletenessFile('CastTypes.pas', cProvider), CompletenessFile('CastUse.pas', cConsumer)]);
+  lCacheFileName := TPath.Combine(lRoot, 'cast-cache.sqlite3');
+  lPlan := PlanCompletenessRename(lRoot, 'CastTypes.pas', 5, 5, 'ReviewFieldValue');
+  Assert.AreEqual('planned', lPlan.Status, 'Uncached provider member control: ' + lPlan.Diagnostic);
+  AssertCompletePlan(lPlan, ['casttypes.pas:5:5', 'castuse.pas:11:20', 'castuse.pas:12:20'], 3);
+  lPlan := PlanCompletenessRename(lRoot, 'CastTypes.pas', 7, 3, 'ReviewPRec', lCacheFileName);
+  AssertCompletePlan(lPlan, ['casttypes.pas:7:3', 'castuse.pas:11:5', 'castuse.pas:12:5'], 3);
+  lPlan := PlanCompletenessRename(lRoot, 'CastTypes.pas', 5, 5, 'ReviewFieldValue',
+    lCacheFileName, True);
+  Assert.AreEqual('planned', lPlan.Status, 'Unchanged full-cache member control: ' + lPlan.Diagnostic);
+  AssertCompletePlan(lPlan, ['casttypes.pas:5:5', 'castuse.pas:11:20', 'castuse.pas:12:20'], 3);
+  // DS-711: only the consumer changes; provider snapshot reuse must preserve scope evidence.
+  TFile.AppendAllText(TPath.Combine(lRoot, 'CastUse.pas'), #13#10'// DS-711 partial refresh'#13#10,
+    TEncoding.UTF8);
+  lPlan := PlanCompletenessRename(lRoot, 'CastTypes.pas', 7, 3, 'ReviewPRec',
+    lCacheFileName, True);
+  AssertCompletePlan(lPlan, ['casttypes.pas:7:3', 'castuse.pas:11:5', 'castuse.pas:12:5'], 3);
+  lPlan := PlanCompletenessRename(lRoot, 'CastTypes.pas', 5, 5, 'ReviewFieldValue',
+    lCacheFileName, True);
+  AssertCompletePlan(lPlan, ['casttypes.pas:5:5', 'castuse.pas:11:20', 'castuse.pas:12:20'], 3);
+end;
+
 procedure TRenameCompletenessTests.PlansQualifiedMemberReferencesInConsumerUnit;
 var
   lPlan: TDelphiSemanticRenamePlan;
@@ -1377,6 +1857,89 @@ begin
 
   lPlan := PlanCompletenessRename(lRoot, 'UCons.pas', 7, 3, 'GTally');
   AssertCompletePlan(lPlan, ['ucons.pas:7:3', 'ucons.pas:10:3'], 2);
+end;
+
+procedure TRenameCompletenessTests.InactiveWithHomonymNeverBecomesRenameOrUsageOccurrence;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lReference: TDelphiSemanticBoundReference;
+  lActiveWithCount, lInactiveWithCount: Integer;
+  lCacheFileName: string;
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lKeys: TArray<string>;
+  lOptions: TDelphiSemanticOptions;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+  lSessionResult: TDelphiSemanticProjectSessionResult;
+  lUsage: TDelphiSemanticUsage;
+  lUsages: TDelphiSemanticUsageResult;
+begin
+  lRoot := WriteCompletenessProject('completeness-inactive-with-homonym', cCompletenessProgram,
+    [CompletenessFile('UProv.pas', cCompletenessProvider), CompletenessFile('UCons.pas',
+    'unit UCons;'#13#10'interface'#13#10'implementation'#13#10'uses UProv;'#13#10 +
+    'procedure Run;'#13#10'var a: TA;'#13#10'begin'#13#10'  with a do'#13#10 +
+    '  begin'#13#10'    FCounter := 1;'#13#10'    {$IFDEF RELEASE_TRACE}'#13#10 +
+    '    FCounter := 2;'#13#10'    {$ENDIF}'#13#10'  end;'#13#10'end;'#13#10'end.'#13#10)]);
+  lKeys := OccurrenceKeysExcept(OccurrenceKeys(lRoot, ['UProv.pas', 'UCons.pas'], 'FCounter'),
+    ['ucons.pas:12:5']);
+  lCacheFileName := TPath.Combine(lRoot, 'inactive.sqlite');
+  if TFile.Exists(lCacheFileName) then
+    TFile.Delete(lCacheFileName);
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'FTally', lCacheFileName);
+  AssertCompletePlan(lPlan, lKeys, 6);
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'FTally', lCacheFileName, True);
+  AssertCompletePlan(lPlan, lKeys, 6);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.SqliteCacheFileName := lCacheFileName;
+  lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lSessionResult.Success, 'Find-usages project session must open.');
+    // Exercise the binding partition that supplies general rename/usage references.
+    // The high-level scanner independently masks inactive text, so its result alone
+    // cannot detect a broken partition. Keep both contracts in this control.
+    lFacts := lSessionResult.Session.BuildWithBindingFacts;
+    lActiveWithCount := 0;
+    lInactiveWithCount := 0;
+    for lBinding in lFacts.Bindings do
+      if SameText(ExtractFileName(lBinding.FileName), 'UCons.pas') then
+      begin
+        for lReference in lBinding.References do
+          if SameText(lReference.Name, 'FCounter') then
+          begin
+            Assert.AreNotEqual(12, lReference.Line,
+              'Inactive homonym must not enter general rename/usage binding references.');
+            Inc(lActiveWithCount);
+          end;
+        for lReference in lBinding.InactiveSpanReferences do
+          if SameText(lReference.Name, 'FCounter') and (lReference.Line = 12) then
+            Inc(lInactiveWithCount);
+      end;
+    Assert.AreEqual(1, lActiveWithCount);
+    Assert.AreEqual(1, lInactiveWithCount);
+
+    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+      lExtractionMilliseconds);
+    try
+      lUsages := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lContext,
+        TPath.Combine(lRoot, 'UProv.pas'), 8, 5);
+      Assert.AreEqual('resolved', lUsages.Status, lUsages.Diagnostic);
+      lKeys := [];
+      for lUsage in lUsages.Usages do
+        lKeys := lKeys + [CompletenessKey(lUsage.FileName, lUsage.Line, lUsage.Column)];
+      Assert.AreEqual(6, Integer(Length(lKeys)));
+      Assert.IsFalse(SortedKeysText(lKeys).Contains('ucons.pas:12:5'),
+        'Known-inactive homonyms are not usage occurrences.');
+      Assert.AreEqual(0, Integer(Length(lUsages.Unresolved)));
+    finally
+      lContext.ProjectSnapshot := nil;
+    end;
+  finally
+    lSessionResult.Session.Free;
+  end;
 end;
 
 procedure TRenameCompletenessTests.PlansCrossUnitPointerArrayWithMembers;
@@ -1596,9 +2159,9 @@ begin
   AssertCompletePlan(lPlan, lLocalKeys, 3);
 end;
 
-// DS-652 review: the model records no class constants, so TA.Limit may own Limit in the with
-// body. Renaming the local must list 20:14 instead of editing it; without such a member the
-// local plans fully.
+// DS-652/DS-699: snapshots do not retain class constants yet (DS-710). Renaming
+// the local must list both the unclassified member declaration and the with-body
+// occurrence instead of editing either; without such a member the plan is complete.
 procedure TRenameCompletenessTests.ListsWithBodyNameThatMayBeAnUnmodelledMember(
   const aHasConstant: Boolean);
 var
@@ -1638,7 +2201,11 @@ begin
   Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(SortedKeysText(['ucons.pas:15:3', 'ucons.pas:17:3']),
     SortedKeysText(PlanEditKeys(lPlan)), 'The with-body Limit must not be edited.');
-  Assert.AreEqual('ucons.pas:20:14', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  Assert.AreEqual(SortedKeysText(['ucons.pas:20:14', 'uprov.pas:8:5']),
+    SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  for lUsage in lPlan.UnresolvedReferences do
+    if CompletenessKey(lUsage.FileName, lUsage.Line, lUsage.Column) = 'uprov.pas:8:5' then
+      Assert.AreEqual('unclassified-occurrence', lUsage.Reason);
 
   // Find-usages on the name cannot claim the with-body use either.
   lOptions := Default(TDelphiSemanticOptions);
@@ -1711,13 +2278,8 @@ begin
   Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(SortedKeysText(['ucons.pas:15:3', 'ucons.pas:17:3']),
     SortedKeysText(PlanEditKeys(lPlan)), 'The with-body ILimit must not be edited.');
-  // DS-659: the inactive ILimit on UProv line 16 is an occurrence no fact describes. TBase's
-  // included ILimit used to be mapped onto it, which hid it.
-  if aShape = 'conditional' then
-    Assert.AreEqual(SortedKeysText(['ucons.pas:20:14', 'uprov.pas:16:5']),
-      SortedKeysText(PlanUnresolvedKeys(lPlan)))
-  else
-    Assert.AreEqual('ucons.pas:20:14', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  // DS-667: NEVER_DEFINED is known false; the unsafe WITH-body name still refuses.
+  Assert.AreEqual('ucons.pas:20:14', SortedKeysText(PlanUnresolvedKeys(lPlan)));
 end;
 
 // DS-652 review round 4: "with c do X := CVar" over c: TAClass (class of TA) binds CVar to
@@ -1961,8 +2523,9 @@ begin
   Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(SortedKeysText(['uinc.pas:4:3', 'uinc.pas:17:11', 'uinc.pas:25:20']),
     SortedKeysText(PlanEditKeys(lPlan)), 'Only the unit''s own GA occurrences are edits.');
-  Assert.AreEqual(SortedKeysText(['body.inc:1:3', 'inner.inc:1:3', 'inner.inc:1:9',
-    'uinc.pas:13:3']), SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  // DS-667: an absent ordinary define proves line 13 inactive; active includes still refuse.
+  Assert.AreEqual(SortedKeysText(['body.inc:1:3', 'inner.inc:1:3', 'inner.inc:1:9']),
+    SortedKeysText(PlanUnresolvedKeys(lPlan)));
 
   lPlan := PlanCompletenessRename(lRoot, 'UInc.pas', 4, 7, 'GBeta');
   Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);

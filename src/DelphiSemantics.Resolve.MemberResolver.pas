@@ -142,7 +142,8 @@ type
       TArray<TDelphiSemanticMemberIdentity>;
     function MemberIsAccessible(const aContext: TDelphiSemanticMemberLookupContext;
       const aMember: TDelphiSemanticMemberIdentity): Boolean;
-    function TypeDerivesFrom(const aCurrentTypeName, aOwnerTypeName: string): Boolean;
+    function TypeDerivesFrom(const aContext: TDelphiSemanticMemberLookupContext;
+      const aMember: TDelphiSemanticMemberIdentity; const aRequireExactOwner: Boolean): Boolean;
     function ResolveCandidates(const aContext: TDelphiSemanticMemberLookupContext;
       const aMemberName, aResolvedStatus: string;
       const aCandidates: TArray<TDelphiSemanticMemberIdentity>):
@@ -607,37 +608,59 @@ function TDelphiSemanticMemberIdentityIndexData.MemberIsAccessible(
   const aMember: TDelphiSemanticMemberIdentity): Boolean;
 begin
   if SameText(aMember.Visibility, 'strict private') then
-    Exit(SameText(aContext.CurrentTypeName, aMember.OwnerName));
-
+    Exit(TypeDerivesFrom(aContext, aMember, True));
   if SameText(aMember.Visibility, 'private') then
     Exit(SameText(aContext.CallerUnitName, aMember.UnitName) or
-      SameText(aContext.CurrentTypeName, aMember.OwnerName));
-
+      TypeDerivesFrom(aContext, aMember, True));
   if SameText(aMember.Visibility, 'strict protected') or SameText(aMember.Visibility, 'protected')
     then
-    Exit(TypeDerivesFrom(aContext.CurrentTypeName, aMember.OwnerName));
-
+    Exit(TypeDerivesFrom(aContext, aMember, False));
   Result := True;
 end;
 
-function TDelphiSemanticMemberIdentityIndexData.TypeDerivesFrom(const aCurrentTypeName,
-  aOwnerTypeName: string): Boolean;
+function TDelphiSemanticMemberIdentityIndexData.TypeDerivesFrom(
+  const aContext: TDelphiSemanticMemberLookupContext;
+  const aMember: TDelphiSemanticMemberIdentity; const aRequireExactOwner: Boolean): Boolean;
 var
   lAncestor: TDelphiSemanticTypeIdentity;
   lCurrent: TDelphiSemanticTypeIdentity;
+  lCurrentLookup: TDelphiSemanticTypeLookupResult;
+  lOwner: TDelphiSemanticTypeIdentity;
 begin
-  if SameText(aCurrentTypeName, aOwnerTypeName) then
-    Exit(True);
-
-  if not ResolveOwnerType(aCurrentTypeName, lCurrent) then
-    Exit(False);
-
-  for lAncestor in fTypeIndex.FindAncestors(lCurrent) do
-    if SameText(lAncestor.Name, aOwnerTypeName) or
-      SameText(lAncestor.UnitName + '.' + lAncestor.Name, aOwnerTypeName) then
-      Exit(True);
-
   Result := False;
+  if aContext.CurrentTypeName = '' then
+    Exit;
+  // DS-701: caller and member owner names can coincide in different units.
+  // Bare names need the caller's unit identity. An independent context must
+  // supply an explicit qualified type when its lexical unit cannot prove it.
+  lCurrentLookup := fTypeIndex.ResolveQualifiedName(aContext.CallerUnitName + '.' +
+    aContext.CurrentTypeName);
+  if lCurrentLookup.Ambiguous then
+    Exit;
+  if lCurrentLookup.Found then
+    lCurrent := lCurrentLookup.Identity
+  else begin
+    if aContext.CallerUnitName <> '' then
+    begin
+      lCurrentLookup := fTypeIndex.ResolveQualifiedName(aContext.CurrentTypeName);
+      if (not lCurrentLookup.Found) or lCurrentLookup.Ambiguous or
+        (not SameText(aContext.CurrentTypeName, lCurrentLookup.Identity.UnitName + '.' +
+        lCurrentLookup.Identity.Name)) then
+        Exit;
+      lCurrent := lCurrentLookup.Identity;
+    end else if not ResolveOwnerType(aContext.CurrentTypeName, lCurrent) then
+      Exit;
+  end;
+  if not ResolveOwnerType(aMember.UnitName + '.' + aMember.OwnerName, lOwner) or
+    (lCurrent.DeclaredId.Value = '') or (lOwner.DeclaredId.Value = '') then
+    Exit;
+  if SameText(lCurrent.DeclaredId.Value, lOwner.DeclaredId.Value) then
+    Exit(True);
+  if aRequireExactOwner then
+    Exit;
+  for lAncestor in fTypeIndex.FindAncestors(lCurrent) do
+    if SameText(lAncestor.DeclaredId.Value, lOwner.DeclaredId.Value) then
+      Exit(True);
 end;
 
 function TDelphiSemanticMemberIdentityIndexData.ResolveCandidates(

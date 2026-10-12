@@ -429,6 +429,24 @@ begin
     AddDiagnostic(aTarget, lDiagnostic.Code);
 end;
 
+function HasBlockingModelDiagnostics(
+  const aModelEvidence: TDelphiSemanticContextModelEvidence;
+  const aRequest: TDelphiSemanticPlanBindingRequest): Boolean;
+var
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lUsesContextOnly: Boolean;
+begin
+  lUsesContextOnly := (aRequest.Status = TSemanticPlanStatus.NoChange) and
+    (Length(aRequest.Edits) = 0) and
+    (SameText(aRequest.OperationIdentity, 'uses.remove-implementation-import') or
+      SameText(aRequest.OperationIdentity, 'uses.add-explicit-import'));
+  for lDiagnostic in aModelEvidence.ModelDiagnostics do
+    if not lUsesContextOnly or
+      not SameText(lDiagnostic.Code, 'UNVERIFIED_PREPROCESS_CONDITION') then
+      Exit(True);
+  Result := False;
+end;
+
 procedure AppendModelDiagnosticCodes(const aModelEvidence: TDelphiSemanticContextModelEvidence;
   const aTarget: TList<string>);
 var
@@ -634,7 +652,8 @@ begin
     end;
     lModelEvidence := lContextEvidence.ModelEvidence[lModelIndex];
     AppendModelDiagnosticCodes(lModelEvidence, lDiagnostics);
-    if not lModelEvidence.ModelSucceeded or (Length(lModelEvidence.ModelDiagnostics) > 0) then
+    if not lModelEvidence.ModelSucceeded or
+      HasBlockingModelDiagnostics(lModelEvidence, aRequest) then
     begin
       if lModelEvidence.ModelSucceeded then
         lErrorCode := 'binding.model-diagnostic'

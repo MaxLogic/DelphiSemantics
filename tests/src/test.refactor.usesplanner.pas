@@ -92,6 +92,8 @@ type
     [Test]
     procedure BlocksConditionalUsesClause;
     [Test]
+    procedure UnverifiedProviderConditionCannotAuthorizeImportRemoval;
+    [Test]
     procedure BlocksSubsetAnalysisForProjectWideImportRemoval;
     [Test]
     procedure BlocksLeafWithTransitiveOrderUnknown;
@@ -993,6 +995,49 @@ begin
     'implementation' + sLineBreak + 'end.', False,
     TDelphiSemanticUsesClassification.ucConditionalClause,
     TSemanticPlanStatus.Blocked);
+end;
+
+procedure TRefactoringUsesTests.UnverifiedProviderConditionCannotAuthorizeImportRemoval;
+var
+  lBinding: TDelphiSemanticBoundPlanResult;
+  lConsumerFileName: string;
+  lPlanResult: TDelphiSemanticUsesPlanningResult;
+  lSession: TDelphiSemanticProjectSession;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lBinding := nil;
+  lSession := nil;
+  lSnapshot := nil;
+  try
+    CreateBoundContext(NewProjectRoot,
+      'unit UsesConsumer;' + sLineBreak + 'interface' + sLineBreak +
+      'implementation' + sLineBreak + 'uses QuietLeaf;' + sLineBreak + 'end.',
+      'unit QuietLeaf;' + sLineBreak + 'interface' + sLineBreak +
+      'implementation' + sLineBreak + '{$IFDEF UNICODE}' + sLineBreak +
+      'initialization' + sLineBreak + 'Assert(True);' + sLineBreak +
+      '{$ENDIF}' + sLineBreak + 'end.', False,
+      lSession, lSnapshot, lBinding, lConsumerFileName);
+    Assert.AreEqual(TSemanticPlanStatus.NoChange, lBinding.Status);
+    Assert.AreEqual('', lBinding.Reason,
+      'The context-only exception must reach the uses planner, rather than fail binding.');
+    Assert.IsNotNull(lBinding.Plan);
+    Assert.AreEqual(Integer(Length(lBinding.ExpectedRootFileNames)), lBinding.Plan.SourceCount);
+    Assert.IsTrue(lBinding.Plan.SourceCount > 0, 'The binding must carry real full-project evidence.');
+    lPlanResult := TDelphiSemanticUsesPlanner.PlanRemoveImplementationImport(
+      lSnapshot, lBinding, lConsumerFileName, 'QuietLeaf');
+    try
+      Assert.AreEqual(TDelphiSemanticUsesClassification.ucIncompleteScope, lPlanResult.Classification);
+      Assert.IsNotNull(lPlanResult.Plan);
+      Assert.AreEqual(TSemanticPlanStatus.Incomplete, lPlanResult.Plan.Status);
+      Assert.AreEqual(0, lPlanResult.Plan.EditCount);
+    finally
+      lPlanResult.Plan.Free;
+    end;
+  finally
+    lBinding.Free;
+    lSnapshot.Free;
+    lSession.Free;
+  end;
 end;
 
 procedure TRefactoringUsesTests.BlocksSubsetAnalysisForProjectWideImportRemoval;

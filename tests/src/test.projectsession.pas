@@ -10,6 +10,18 @@ uses
 
 type
   [TestFixture]
+  TRequestPublicationTests = class
+  public
+    [Test]
+    [TestCase('Facts', 'facts')]
+    [TestCase('Plan', 'plan')]
+    [TestCase('Combined', 'combined')]
+    procedure BindingCallbackDriftRefusesPublication(const aRoute: string);
+    [Test]
+    procedure OwnerBypassesPersistedWithFacts;
+  end;
+
+  [TestFixture]
   TProjectSessionTests = class
   private
     procedure AssertSnapshotFactsEqual(const aExpectedSnapshot,
@@ -26,11 +38,26 @@ type
       TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
   public
     [Test]
+    [TestCase('Referenced refusal', 'reject')]
+    [TestCase('Warm snapshot refusal', 'hit-reject')]
+    [TestCase('Owner exception', 'raise')]
+    [TestCase('Referenced drift', 'drift')]
+    [TestCase('Include drift', 'include-drift')]
+    [TestCase('Cold accepted', 'accept')]
+    [TestCase('Warm accepted', 'hit-accept')]
+    procedure RequestOwnerSealsEveryModelBeforePublication(const aMode: string);
+    [Test]
     [TestCase('Before receiver member scopes', '2')]
     [TestCase('Before compiler body casts', '3')]
     [TestCase('Before pointer cast receivers', '4')]
     [TestCase('Before routine body extents', '5')]
     [TestCase('Before balanced WITH selectors', '6')]
+    [TestCase('Round 14 M2 facts generation', '52')]
+    [TestCase('Before raw-source inactive reference parity', '54')]
+
+    [TestCase('Before public inactive-only refusal reason', '56')]
+    [TestCase('Before separate inactive-span verification', '55')]
+    [TestCase('Before known-inactive range restoration', '53')]
     procedure RebuildsRemoveWithFactsWithOlderSchemaMarker(const aVersion: string);
     [Test]
     procedure ProjectSessionOpensFromProjectFileName;
@@ -38,6 +65,14 @@ type
     procedure EmptyProjectPathReturnsStructuredSessionDiagnostic;
     [Test]
     procedure OpensProjectSessionThroughExistingProjectContext;
+    [Test]
+    [TestCase('Accepted actual profile', 'accept')]
+    [TestCase('Rejected profile', 'reject')]
+    [TestCase('Validator exception', 'raise')]
+    procedure RootAbsenceValidatesActualProjectProfile(const aMode: string);
+    [TestCase('Defines drift', 'defines')]
+    [TestCase('Search path drift', 'paths')]
+    procedure RootAbsenceRejectsSameLabelDifferentProfile(const aInput: string);
     [Test]
     procedure ProjectSessionModelExtractionUsesSingleResultRecord;
     [Test]
@@ -110,6 +145,12 @@ type
     [Test]
     procedure ProjectSessionPlanRemoveWithInvalidatesPreCorrectionV29ReceiverSafetyFacts;
     [Test]
+    procedure ProjectSessionPlanRemoveWithInvalidatesPreIntrinsicV30Facts;
+    [Test]
+    procedure ProjectSessionPlanRemoveWithInvalidatesPreArrayAliasV32Facts;
+    [Test]
+    procedure ProjectSessionPlanRemoveWithInvalidatesPreQualifiedV31Facts;
+    [Test]
     procedure ProjectSessionPreservesInheritedAccessIdentityColdAndWarm;
     [Test]
     procedure ProjectSessionSnapshotMetricsExposeCacheUsefulnessTelemetry;
@@ -155,9 +196,10 @@ uses
   FireDAC.Comp.Client, FireDAC.Phys.SQLite,
   maxLogic.IOUtils,
   DelphiSemantics.Api, DelphiSemantics.Api.RemoveWith.Compatibility, DelphiSemantics.Cache,
+  DelphiSemantics.Cache.Sqlite,
   DelphiSemantics.GlobalVars, DelphiSemantics.IdentifierScope, DelphiSemantics.Index,
   DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
-  DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Snapshot.Cache.Sqlite,
+  DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.RootMemberAbsence, DelphiSemantics.Snapshot.Cache.Sqlite,
   DelphiSemantics.Snapshot.RemoveWith,
   DelphiSemantics.WithBinding,
   Test.Support;
@@ -2082,6 +2124,12 @@ begin
   if i = 11 then
     ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
       'update snapshot_units set schema_version = ''project-session-snapshot-v16''');
+  if i = 12 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v40''');
+  if i = 13 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v41''');
 end;
 
 procedure TProjectSessionTests.TypedConstantsRemainQueryableAcrossSnapshotCacheModes;
@@ -2104,7 +2152,7 @@ begin
   lUnitPath := TPath.Combine(lRootPath, 'TypedValues.pas');
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := TPath.Combine(lRootPath, 'TypedValuesProject.dproj');
-  for i := 0 to 11 do
+  for i := 0 to 14 do
   begin
     SetTypedConstantCacheMode(lOptions, lRootPath, i);
     lResult := TDelphiSemanticProjectSession.Open(lOptions);
@@ -2115,12 +2163,12 @@ begin
       if (i = 1) or (i = 3) then
         Assert.IsTrue(lCacheMetrics.CacheMisses > 0,
           'Cold or pre-immutable-inventory snapshot must miss.');
-      if i = 2 then
+      if (i = 2) or (i = 14) then
       begin
         Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Warm snapshot must hit.');
         Assert.AreEqual(0, lCacheMetrics.CacheMisses);
       end;
-      if i >= 3 then
+      if (i >= 3) and (i <= 13) then
         Assert.IsTrue(lCacheMetrics.CacheMisses > 0, 'Older snapshot semantics must be rebuilt.');
       for j := 0 to 1 do
         AssertTypedConstantQuery(lContext, lUnitPath, j);
@@ -3120,6 +3168,23 @@ begin
   Assert.AreEqual(1, lVisibleCompetingCount);
 end;
 
+type
+  TNearestRootAbsenceStub = class(TInterfacedObject, IDelphiSemanticImplicitRootMemberAbsence)
+  public
+    function EvidenceFingerprint: string;
+    function IsNameAbsent(const aName: string): Boolean;
+  end;
+
+function TNearestRootAbsenceStub.EvidenceFingerprint: string;
+begin
+  Result := 'ds715-exact-lNearest-root-absence';
+end;
+
+function TNearestRootAbsenceStub.IsNameAbsent(const aName: string): Boolean;
+begin
+  Result := SameText(aName, 'lNearest');
+end;
+
 procedure TProjectSessionTests.ProjectSessionPlanRemoveWithInvalidatesLegacySimpleInheritedChildFacts;
 const
   cLegacySchemaVersion = 'project-session-remove-with-facts-v26';
@@ -3137,6 +3202,8 @@ var
   lGuid: TGUID;
   lLegacyIdentity: TDelphiSemanticSnapshotCacheIdentity;
   lOptions: TDelphiSemanticOptions;
+  lProofOptions: TDelphiSemanticOptions;
+  lProofPlan: TDelphiSemanticRemoveWithPlanBuildResult;
   lRebuiltPlan: TDelphiSemanticRemoveWithPlanBuildResult;
   lResult: TDelphiSemanticProjectSessionResult;
   lRootPath: string;
@@ -3155,7 +3222,46 @@ var
   lUnknownReason: string;
   lWarmPlan: TDelphiSemanticRemoveWithPlanBuildResult;
 
-  procedure AssertChildFacts(const aFacts: TDelphiSemanticProjectWithBindingFacts);
+  procedure AssertPlanDecisions(const aPlan: TDelphiSemanticRemoveWithPlan;
+    const aNearestStatus: string);
+  var
+    lInheritedCount: Integer;
+    lNearestCount: Integer;
+    lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  begin
+    lInheritedCount := 0;
+    lNearestCount := 0;
+    for lStatement in aPlan.FinalStatements do
+    begin
+      // Each fixture routine starts its outer WITH at column 7; refused nested statements have separate rows.
+      if lStatement.Range.StartColumn <> 7 then
+        Continue;
+      if SameText(lStatement.RoutineName, 'RunA') or SameText(lStatement.RoutineName, 'RunB') then
+      begin
+        Inc(lInheritedCount);
+        // TLeaf is not visible through AUnit/BUnit's direct uses; facts remain resolved but capture stays refused.
+        Assert.AreEqual('skipped', lStatement.Status,
+          lStatement.RoutineName + ': ' + lStatement.Reason + '; ' + lStatement.SafetyReason);
+        Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
+        Assert.AreEqual('', lStatement.ReplacementText);
+      end else if SameText(lStatement.RoutineName, 'RunNearest') then
+      begin
+        Inc(lNearestCount);
+        Assert.AreEqual(aNearestStatus, lStatement.Status,
+          lStatement.RoutineName + ': ' + lStatement.Reason + '; ' + lStatement.SafetyReason);
+        if aNearestStatus = 'planned' then
+          Assert.IsTrue(Pos('.OtherValue', lStatement.ReplacementText) > 0,
+            lStatement.ReplacementText)
+        else
+          Assert.AreEqual('', lStatement.ReplacementText);
+      end;
+    end;
+    Assert.AreEqual(2, lInheritedCount);
+    Assert.AreEqual(1, lNearestCount);
+  end;
+
+  procedure AssertChildFacts(const aFacts: TDelphiSemanticProjectWithBindingFacts;
+    const aNearestStatus: string);
   var
     lBinding: TDelphiSemanticWithBinding;
   begin
@@ -3190,14 +3296,28 @@ var
           Assert.AreEqual('resolved', lBinding.Selectors[1].Status);
           Assert.AreEqual('BaseUnit', lBinding.Selectors[1].TypeIdentity.UnitName);
           Assert.AreEqual('TLeaf', lBinding.Selectors[1].TypeIdentity.Name);
+          Assert.AreEqual(lRunADeclaredId, lBinding.Selectors[1].TypeIdentity.DeclaredId.Value);
+          Assert.AreEqual(TPath.Combine(lRootPath, 'BaseUnit.pas'),
+            lBinding.Selectors[1].TypeIdentity.SourceRange.FileName);
         end else if SameText(lBinding.UnitName, 'AUnit') and
           SameText(lBinding.RoutineName, 'RunNearest') then
         begin
           Inc(lNearestCount);
           Assert.AreEqual(3, Integer(Length(lBinding.Selectors)));
-          Assert.AreEqual('resolved', lBinding.Selectors[2].Status);
-          Assert.AreEqual('AUnit', lBinding.Selectors[2].TypeIdentity.UnitName);
-          Assert.AreEqual('TWrongLeaf', lBinding.Selectors[2].TypeIdentity.Name);
+          Assert.AreEqual(aNearestStatus, lBinding.Selectors[2].Status);
+          if aNearestStatus = 'resolved' then
+          begin
+            Assert.AreEqual('resolved', lBinding.Selectors[1].Status);
+            Assert.AreEqual('TNearest', lBinding.Selectors[1].TypeName);
+            Assert.AreEqual('AUnit', lBinding.Selectors[2].TypeIdentity.UnitName);
+            Assert.AreEqual('TWrongLeaf', lBinding.Selectors[2].TypeIdentity.Name);
+            Assert.IsTrue(lBinding.Selectors[2].TypeIdentity.DeclaredId.Value <> '');
+            Assert.AreEqual(TPath.Combine(lRootPath, 'AUnit.pas'),
+              lBinding.Selectors[2].TypeIdentity.SourceRange.FileName);
+          end else begin
+            Assert.AreEqual('unsupported', lBinding.Selectors[1].Status);
+            Assert.AreEqual('PARENT_SELECTOR_UNRESOLVED', lBinding.Selectors[1].ReasonCode);
+          end;
         end else if SameText(lBinding.UnitName, 'AUnit') and
           SameText(lBinding.RoutineName, 'RunUnknown') then
         begin
@@ -3320,6 +3440,7 @@ begin
   try
     Assert.IsTrue(lResult.Success);
     lColdPlan := lResult.Session.PlanRemoveWithResult;
+    AssertPlanDecisions(lColdPlan.Plan, 'skipped');
     Assert.AreEqual(1, lColdPlan.SnapshotMetrics.SnapshotCacheMisses);
     lFacts := lResult.Session.BuildWithBindingFacts;
   finally
@@ -3349,7 +3470,7 @@ begin
     end;
   Assert.IsTrue(lRunADeclaredId <> '', 'Expected source-backed BaseUnit leaf identity.');
   Assert.IsTrue(lUnknownReason <> '', 'Expected source-backed unknown-parent reason.');
-  AssertChildFacts(lFacts);
+  AssertChildFacts(lFacts, 'unsupported');
   lCurrentIdentity := ReadProjectRemoveWithFactsIdentity(lCachePath);
   lLegacyIdentity := RekeyProjectRemoveWithFactsIdentityForTest(lCurrentIdentity,
     cLegacySchemaVersion);
@@ -3382,6 +3503,7 @@ begin
   try
     Assert.IsTrue(lResult.Success);
     lRebuiltPlan := lResult.Session.PlanRemoveWithResult;
+    AssertPlanDecisions(lRebuiltPlan.Plan, 'skipped');
     Assert.AreEqual(1, lRebuiltPlan.SnapshotMetrics.SnapshotCacheProbes);
     Assert.AreEqual(0, lRebuiltPlan.SnapshotMetrics.SnapshotCacheHits);
     Assert.AreEqual(1, lRebuiltPlan.SnapshotMetrics.SnapshotCacheMisses);
@@ -3389,7 +3511,7 @@ begin
   finally
     lResult.Session.Free;
   end;
-  AssertChildFacts(lFacts);
+  AssertChildFacts(lFacts, 'unsupported');
   lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCachePath);
   try
     lSnapshot := nil;
@@ -3407,6 +3529,7 @@ begin
   try
     Assert.IsTrue(lResult.Success);
     lWarmPlan := lResult.Session.PlanRemoveWithResult;
+    AssertPlanDecisions(lWarmPlan.Plan, 'skipped');
     Assert.AreEqual(1, lWarmPlan.SnapshotMetrics.SnapshotCacheProbes);
     Assert.AreEqual(1, lWarmPlan.SnapshotMetrics.SnapshotCacheHits);
     Assert.AreEqual(0, lWarmPlan.SnapshotMetrics.SnapshotCacheMisses);
@@ -3414,7 +3537,26 @@ begin
   finally
     lResult.Session.Free;
   end;
-  AssertChildFacts(lFacts);
+  AssertChildFacts(lFacts, 'unsupported');
+  // DS-715: keep the default-session cache proof above separate from optional evidence.
+  lProofOptions := lOptions;
+  lProofOptions.ImplicitRootMemberAbsence := TNearestRootAbsenceStub.Create;
+  lResult := TDelphiSemanticProjectSession.Open(lProofOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lProofPlan := lResult.Session.PlanRemoveWithResult;
+    AssertPlanDecisions(lProofPlan.Plan, 'planned');
+    lFacts := lResult.Session.BuildWithBindingFacts;
+  finally
+    lResult.Session.Free;
+  end;
+  // Declaration IDs are scoped by compiler/proof context; compare A/B within this session.
+  lRunADeclaredId := '';
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.UnitName, 'AUnit') and SameText(lBinding.RoutineName, 'RunA') then
+      lRunADeclaredId := lBinding.Selectors[High(lBinding.Selectors)].TypeIdentity.DeclaredId.Value;
+  Assert.IsTrue(lRunADeclaredId <> '', 'Expected a source-backed leaf identity in the proof context.');
+  AssertChildFacts(lFacts, 'resolved');
   for i := 0 to High(cFixtureFiles) do
     Assert.AreEqual(lFixtureHashes[i], THashSHA2.GetHashStringFromFile(
       TPath.Combine(lRootPath, cFixtureFiles[i])),
@@ -3592,6 +3734,28 @@ begin
   Result := lCurrentIdentity.SchemaVersion;
 end;
 
+procedure TProjectSessionTests.ProjectSessionPlanRemoveWithInvalidatesPreArrayAliasV32Facts;
+begin
+  // DS-709: array-prefixed pointer aliases change persisted receiver bindings.
+  Assert.AreNotEqual('project-session-remove-with-facts-v32',
+    VerifyLegacyReceiverSafetyFactsMiss('project-session-remove-with-facts-v32'));
+end;
+
+procedure TProjectSessionTests.ProjectSessionPlanRemoveWithInvalidatesPreQualifiedV31Facts;
+begin
+  // DS-709: qualified components and compiler-active bodies change stored bindings.
+  Assert.AreNotEqual('project-session-remove-with-facts-v31',
+    VerifyLegacyReceiverSafetyFactsMiss('project-session-remove-with-facts-v31'));
+end;
+
+procedure TProjectSessionTests.ProjectSessionPlanRemoveWithInvalidatesPreIntrinsicV30Facts;
+begin
+  // DS-709: compiler routine fallback changes persisted WITH classifications.
+  // Reject v30 facts, rebuild once, then reuse the fresh facts on the warm query.
+  Assert.AreNotEqual('project-session-remove-with-facts-v30',
+    VerifyLegacyReceiverSafetyFactsMiss('project-session-remove-with-facts-v30'));
+end;
+
 procedure TProjectSessionTests.ProjectSessionPlanRemoveWithInvalidatesLegacyReceiverSafetyFacts;
 begin
   Assert.AreNotEqual('project-session-remove-with-facts-v23',
@@ -3601,8 +3765,8 @@ end;
 procedure TProjectSessionTests.ProjectSessionPlanRemoveWithInvalidatesPreCorrectionV29ReceiverSafetyFacts;
 begin
   // DS-682: v29 rows predate the corrected receiver-safety lineage (DS-681), so the
-  // current identity must not match them; the current v30 rows must still hit warm.
-  Assert.AreEqual('project-session-remove-with-facts-v30',
+  // current identity must not match them; current rows must still hit warm.
+  Assert.AreNotEqual('project-session-remove-with-facts-v29',
     VerifyLegacyReceiverSafetyFactsMiss('project-session-remove-with-facts-v29'));
 end;
 
@@ -5102,7 +5266,488 @@ begin
   end;
 end;
 
+type
+  TProjectProfileAbsenceStub = class(TInterfacedObject,
+    IDelphiSemanticImplicitRootMemberAbsence, IDelphiSemanticProjectProfileValidator)
+  private
+    fMode: string;
+    fExpectedProfile: string;
+    fValidationCallCount: Integer;
+    fAbsenceCallCount: Integer;
+    fLastProject: TDelphiSemanticProjectInfo;
+  public
+    constructor Create(const aMode: string; const aExpectedProfile: string = '');
+    function EvidenceFingerprint: string;
+    function IsNameAbsent(const aName: string): Boolean;
+    function ValidateProjectProfile(const aProject: TDelphiSemanticProjectInfo;
+      out aReason: string): Boolean;
+    property ValidationCallCount: Integer read fValidationCallCount;
+    property AbsenceCallCount: Integer read fAbsenceCallCount;
+    property LastProject: TDelphiSemanticProjectInfo read fLastProject;
+  end;
+
+constructor TProjectProfileAbsenceStub.Create(const aMode: string; const aExpectedProfile: string);
+begin
+  inherited Create;
+  fMode := aMode;
+  fExpectedProfile := aExpectedProfile;
+end;
+
+function TProjectProfileAbsenceStub.EvidenceFingerprint: string;
+begin
+  Result := 'project-profile-validation-test';
+end;
+
+function TProjectProfileAbsenceStub.IsNameAbsent(const aName: string): Boolean;
+begin
+  Inc(fAbsenceCallCount);
+  Result := False;
+end;
+
+function ReviewProfileKey(const aProject: TDelphiSemanticProjectInfo): string;
+begin
+  Result := aProject.Configuration + #31 + aProject.Platform + #31 +
+    string.Join(';', aProject.Defines) + #31 + string.Join(';', aProject.SearchPaths);
+end;
+
+function TProjectProfileAbsenceStub.ValidateProjectProfile(
+  const aProject: TDelphiSemanticProjectInfo; out aReason: string): Boolean;
+begin
+  Inc(fValidationCallCount);
+  fLastProject := aProject;
+  aReason := 'The native source profile does not match the semantic session.';
+  if fMode = 'raise' then
+    raise EInvalidOpException.Create('Profile validation failed deliberately');
+  if fMode = 'compare' then
+    Result := ReviewProfileKey(aProject) = fExpectedProfile
+  else
+    Result := fMode = 'accept';
+  if Result then
+    aReason := '';
+end;
+
+procedure TProjectSessionTests.RootAbsenceValidatesActualProjectProfile(const aMode: string);
+var
+  lOptions: TDelphiSemanticOptions;
+  lProvider: IDelphiSemanticImplicitRootMemberAbsence;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lFacts: TDelphiSemanticProjectWithBindingFactsBuildResult;
+  lRoot: string;
+  lStub: TProjectProfileAbsenceStub;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lRoot := ProjectSessionTempPath('profile-binding-' + aMode);
+  TDirectory.CreateDirectory(lRoot);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'BasicProject.dproj');
+  TFile.WriteAllText(lOptions.ProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>BasicProject.dpr</MainSource></PropertyGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'BasicProject.dpr'),
+    'program BasicProject; uses ProfileWith in ''ProfileWith.pas''; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'ProfileWith.pas'),
+    'unit ProfileWith;'#13#10'interface'#13#10'type TReceiver = class end;'#13#10 +
+    'var Receiver: TReceiver; Count: Integer;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10'  with Receiver do Count := 1;'#13#10 +
+    'end;'#13#10'end.', TEncoding.ASCII);
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lStub := TProjectProfileAbsenceStub.Create(aMode);
+  lProvider := lStub;
+  lOptions.ImplicitRootMemberAbsence := lProvider;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.AreEqual(1, lStub.ValidationCallCount);
+    Assert.AreEqual(0, lStub.AbsenceCallCount,
+      'Our session must validate the source profile before any absence query.');
+    Assert.AreEqual('BasicProject', lStub.LastProject.ProjectName);
+    Assert.AreEqual('Debug', lStub.LastProject.Configuration);
+    Assert.AreEqual('Win64', lStub.LastProject.Platform);
+    if aMode = 'accept' then
+    begin
+      Assert.IsTrue(lResult.Success);
+      Assert.IsNotNull(lResult.Session);
+      lFacts := lResult.Session.BuildWithBindingFactsResult;
+      Assert.AreEqual(1, Integer(Length(lFacts.Facts.Bindings)));
+      Assert.IsTrue(lStub.AbsenceCallCount > 0, 'Accepted binding must query absence evidence.');
+      Assert.AreEqual(lResult.Session.Project.ContextFingerprint,
+        lStub.LastProject.ContextFingerprint);
+      Assert.AreEqual(lResult.Session.Project.ProjectFileName,
+        lStub.LastProject.ProjectFileName);
+    end else
+    begin
+      Assert.IsFalse(lResult.Success);
+      Assert.IsNull(lResult.Session);
+      Assert.IsTrue(Length(lResult.Diagnostics) > 0);
+      Assert.AreEqual('PROJECT_PROFILE_VALIDATION_FAILED',
+        lResult.Diagnostics[High(lResult.Diagnostics)].Code);
+    end;
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.RootAbsenceRejectsSameLabelDifferentProfile(const aInput: string);
+var
+  lExpectedProfile: string;
+  lOptions: TDelphiSemanticOptions;
+  lProvider: IDelphiSemanticImplicitRootMemberAbsence;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRoot: string;
+  lText: string;
+begin
+  lRoot := ProjectSessionTempPath('same-label-profile-' + aInput);
+  TDirectory.CreateDirectory(lRoot);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Debug';
+  lText := '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource><DCC_Define>ORIGINAL</DCC_Define>' +
+    '<DCC_UnitSearchPath>original</DCC_UnitSearchPath></PropertyGroup></Project>';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'), 'program P; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(lOptions.ProjectPath, lText, TEncoding.ASCII);
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lExpectedProfile := ReviewProfileKey(lResult.Session.Project);
+  finally
+    lResult.Session.Free;
+  end;
+  lProvider := TProjectProfileAbsenceStub.Create('compare', lExpectedProfile);
+  lOptions.ImplicitRootMemberAbsence := lProvider;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success, 'Identical compiler inputs must pass the comparing validator.');
+  finally
+    lResult.Session.Free;
+  end;
+  if aInput = 'defines' then
+    lText := StringReplace(lText, '>ORIGINAL<', '>CHANGED<', [])
+  else
+    lText := StringReplace(lText, '>original<', '>changed<', []);
+  TFile.WriteAllText(lOptions.ProjectPath, lText, TEncoding.ASCII);
+  lOptions.ImplicitRootMemberAbsence := lProvider;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsFalse(lResult.Success, 'A configuration label does not verify compiler inputs.');
+    Assert.IsNull(lResult.Session);
+    Assert.AreEqual('PROJECT_PROFILE_VALIDATION_FAILED',
+      lResult.Diagnostics[High(lResult.Diagnostics)].Code);
+  finally
+    lResult.Session.Free;
+  end;
+end;
+
+type
+  TSessionObservationOwner = class(TInterfacedObject,
+    IDelphiSemanticImplicitRootMemberAbsence, IDelphiSemanticModelObservationOwner)
+  private
+    fMode: string;
+    fSource: string;
+  public
+    fCalls: Integer;
+    fNameCalls: Integer;
+    constructor Create(const aMode: string);
+    function EvidenceFingerprint: string;
+    function IsNameAbsent(const aName: string): Boolean;
+    function ValidateModelSources(const aObservation: TDelphiSemanticModelObservation;
+      out aReason: string): Boolean;
+  end;
+
+constructor TSessionObservationOwner.Create(const aMode: string);
+begin
+  inherited Create;
+  fMode := aMode;
+end;
+
+function TSessionObservationOwner.EvidenceFingerprint: string;
+begin
+  Result := 'session-observation-owner';
+end;
+
+function TSessionObservationOwner.IsNameAbsent(const aName: string): Boolean;
+begin
+  Inc(fNameCalls);
+  if (fMode = 'binding-drift') and (fNameCalls = 1) then
+    TFile.AppendAllText(fSource, sLineBreak + '// callback changed consumed bytes', TEncoding.UTF8);
+  Result := SameText(aName, 'lNearest');
+end;
+
+function TSessionObservationOwner.ValidateModelSources(
+  const aObservation: TDelphiSemanticModelObservation; out aReason: string): Boolean;
+var
+  lPath: string;
+begin
+  Inc(fCalls);
+  Assert.IsTrue(aObservation.ProjectContextFingerprint <> '');
+  if fMode.StartsWith('binding-') then
+  begin
+    fSource := aObservation.ModelFileName;
+    aReason := '';
+    Exit(True);
+  end;
+  aReason := 'deliberate referenced-model refusal';
+  if not SameText(TPath.GetFileName(aObservation.ModelFileName), 'OwnerUnit.pas') then
+    Exit(True);
+  Assert.AreEqual(fMode.StartsWith('hit-'), aObservation.CacheHit);
+  Assert.AreEqual(1, Integer(Length(aObservation.IncludeFileNames)));
+  Assert.AreEqual(2, aObservation.SourceObservations.Count);
+  if fMode = 'raise' then
+    raise EInvalidOpException.Create('deliberate owner exception');
+  if fMode.EndsWith('drift') then
+  begin
+    lPath := aObservation.ModelFileName;
+    if fMode = 'include-drift' then
+      lPath := aObservation.IncludeFileNames[0];
+    TFile.AppendAllText(lPath, sLineBreak + '// changed after read', TEncoding.UTF8);
+  end;
+  Result := not fMode.EndsWith('reject');
+end;
+
+procedure TProjectSessionTests.RequestOwnerSealsEveryModelBeforePublication(const aMode: string);
+var
+  lOptions: TDelphiSemanticOptions;
+  lProject: TDelphiSemanticProjectInfo;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lBuild: TDelphiSemanticProjectSnapshotBuildResult;
+  lRoot, lSource, lUnit, lInclude, lCacheFile, lRefusalReason: string;
+  lRefused: Boolean;
+  lOwner: TSessionObservationOwner;
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lAccess: TDelphiSemanticUnitCacheAccessResult;
+begin
+  lRoot := ProjectSessionTempPath('ds717-' + aMode);
+  TDirectory.CreateDirectory(lRoot);
+  lSource := TPath.Combine(lRoot, 'OwnerProject.dpr');
+  lUnit := TPath.Combine(lRoot, 'OwnerUnit.pas');
+  lInclude := TPath.Combine(lRoot, 'Owner.inc');
+  lCacheFile := TPath.Combine(lRoot, 'cache.sqlite');
+  TFile.WriteAllText(lSource, 'program OwnerProject;' + sLineBreak +
+    'uses OwnerUnit in ''OwnerUnit.pas'';' + sLineBreak + 'begin end.', TEncoding.UTF8);
+  TFile.WriteAllText(lUnit, 'unit OwnerUnit;' + sLineBreak + 'interface' + sLineBreak +
+    '{$I Owner.inc}' + sLineBreak + 'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(lInclude, 'type TOwnerValue = record Value: Integer; end;', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'OwnerProject.dproj');
+  TFile.WriteAllText(lOptions.ProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>OwnerProject.dpr</MainSource></PropertyGroup></Project>', TEncoding.UTF8);
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Debug';
+  lOptions.SqliteCacheFileName := lCacheFile;
+  if aMode.StartsWith('hit-') then
+  begin
+    lSession := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lSession.Success);
+      lBuild := lSession.Session.BuildSnapshotResult;
+      Assert.IsNotNull(lBuild.Snapshot);
+      lBuild.Snapshot.Free;
+    finally
+      lSession.Session.Free;
+    end;
+  end;
+  lOwner := TSessionObservationOwner.Create(aMode);
+  lOptions.ImplicitRootMemberAbsence := lOwner;
+  lSession := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lSession.Success);
+    lProject := lSession.Session.Project;
+    lRefused := False;
+    lRefusalReason := '';
+    lBuild := Default(TDelphiSemanticProjectSnapshotBuildResult);
+    try
+      lBuild := lSession.Session.BuildSnapshotResult;
+    except
+      on E: EInvalidOpException do
+      begin
+        Assert.IsTrue(E.Message.StartsWith('MODEL_SOURCE_VALIDATION_FAILED'), E.Message);
+        lRefused := True;
+        lRefusalReason := E.Message;
+        if aMode.EndsWith('drift') then
+          Assert.IsTrue(E.Message.Contains('source drift'), E.Message)
+        else
+          Assert.IsTrue(E.Message.Contains('deliberate'), E.Message);
+      end;
+    end;
+    if aMode.EndsWith('accept') then
+      Assert.AreEqual(2, lOwner.fCalls, 'Both models require an owner callback');
+    Assert.AreEqual(not aMode.EndsWith('accept'), lRefused, lRefusalReason);
+    if lRefused then
+      Assert.IsNull(lBuild.Snapshot)
+    else
+      Assert.IsNotNull(lBuild.Snapshot);
+    lBuild.Snapshot.Free;
+  finally
+    lSession.Session.Free;
+  end;
+  // Refusal of a later referenced model must not have persisted the main model.
+  if not aMode.StartsWith('hit-') then
+  begin
+    lCacheOptions := Default(TDelphiSemanticCacheOptions);
+    lCacheOptions.SqliteCacheFileName := lCacheFile;
+    lCacheOptions.CompilerProfileName := Format('ProjectSession-%s-%s-%s',
+      [lOptions.DelphiVersion, lOptions.Platform, lOptions.Configuration]);
+    lCacheOptions.DelphiVersion := lOptions.DelphiVersion;
+    lCacheOptions.Configuration := lOptions.Configuration;
+    lCacheOptions.Platform := lOptions.Platform;
+    lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+    try
+      lModelOptions := Default(TDelphiSemanticModelOptions);
+      lModelOptions.SourceFileName := lSource;
+      lModelOptions.ProjectContextApplied := True;
+      lModelOptions.Defines := lProject.Defines;
+      lModelOptions.SearchPaths := lProject.SourceLookupPaths;
+      lAccess := lCache.GetOrExtractUnitModelWithStatus(lModelOptions);
+      Assert.IsFalse(lAccess.CacheHit);
+    finally
+      lCache.Free;
+    end;
+  end;
+end;
+
+procedure RunBindingPublicationControl(const aRoute: string; const aDrift: Boolean);
+var
+  lOptions: TDelphiSemanticOptions;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lOwner: TSessionObservationOwner;
+  lProvider: IDelphiSemanticImplicitRootMemberAbsence;
+  lPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lFacts: TDelphiSemanticProjectWithBindingFactsBuildResult;
+  lCombined: TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
+  lRoot, lSource: string;
+  lRefused: Boolean;
+  lPersistedIdentity, lOwnerIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lFactsCache: TDelphiSemanticSnapshotSqliteCache;
+  lSeedSnapshot: TDelphiProjectSnapshot;
+begin
+  lRoot := ProjectSessionTempPath('binding-publication-' + aRoute);
+  TDirectory.CreateDirectory(lRoot);
+  lSource := TPath.Combine(lRoot, 'P.dpr');
+  TFile.WriteAllText(lSource, 'program P;' + sLineBreak +
+    'uses OwnerUnit in ''OwnerUnit.pas'';' + sLineBreak + 'begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'OwnerUnit.pas'),
+    'unit OwnerUnit;' + sLineBreak + 'interface' + sLineBreak +
+    'type' + sLineBreak +
+    '  TLeft = class' + sLineBreak + '  public LeftOnly: Integer;' + sLineBreak + '  end;' + sLineBreak +
+    '  TRight = class' + sLineBreak + '  public RightOnly: Integer;' + sLineBreak + '  end;' + sLineBreak +
+    'procedure Run;' + sLineBreak + 'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak + 'var lLeft: TLeft; lRight: TRight;' + sLineBreak +
+    'begin' + sLineBreak + '  with lLeft, lRight do' + sLineBreak +
+    '  begin' + sLineBreak + '    LeftOnly := 1;' + sLineBreak + '  end;' + sLineBreak +
+    'end;' + sLineBreak + 'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  TFile.WriteAllText(lOptions.ProjectPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup></Project>', TEncoding.ASCII);
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Debug';
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  if not aDrift then
+  begin
+    // Seed real WITH facts and verify their no-owner warm reuse.
+    lSession := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lSession.Success);
+      lPlan := lSession.Session.PlanRemoveWithResult;
+      Assert.AreEqual(1, lPlan.SnapshotMetrics.SnapshotCacheMisses);
+    finally
+      lSession.Session.Free;
+    end;
+    lSession := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      lPlan := lSession.Session.PlanRemoveWithResult;
+      Assert.AreEqual(1, lPlan.SnapshotMetrics.SnapshotCacheHits);
+    finally
+      lSession.Session.Free;
+    end;
+  end;
+  if aDrift then
+    lOwner := TSessionObservationOwner.Create('binding-drift')
+  else
+    lOwner := TSessionObservationOwner.Create('binding-accept');
+  lProvider := lOwner;
+  lOptions.ImplicitRootMemberAbsence := lProvider;
+  if not aDrift then
+  begin
+    lPersistedIdentity := ReadProjectRemoveWithFactsIdentity(lOptions.SqliteCacheFileName);
+    lSession := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lSession.Success);
+      lOwnerIdentity := ProjectRemoveWithFactsIdentityForTest(lSession.Session.Project, lOptions);
+    finally
+      lSession.Session.Free;
+    end;
+    // Match the owner context exactly, so identity mismatch cannot mask a missing bypass.
+    lFactsCache := TDelphiSemanticSnapshotSqliteCache.Create(lOptions.SqliteCacheFileName);
+    lSeedSnapshot := nil;
+    try
+      Assert.IsTrue(lFactsCache.TryLoadProjectRemoveWithPlanningFacts(lPersistedIdentity, lSeedSnapshot));
+      lFactsCache.StoreProjectRemoveWithPlanningFacts(lOwnerIdentity, lSeedSnapshot);
+      lSeedSnapshot.Free;
+      lSeedSnapshot := nil;
+      Assert.IsTrue(lFactsCache.TryLoadProjectRemoveWithPlanningFacts(lOwnerIdentity, lSeedSnapshot),
+        'An exact owner-context WITH-fact entry must exist before the request');
+    finally
+      lSeedSnapshot.Free;
+      lFactsCache.Free;
+    end;
+  end;
+  lSession := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lSession.Success);
+    lRefused := False;
+    lPlan := Default(TDelphiSemanticRemoveWithPlanBuildResult);
+    lFacts := Default(TDelphiSemanticProjectWithBindingFactsBuildResult);
+    lCombined := Default(TDelphiSemanticRemoveWithFactsAndPlanBuildResult);
+    try
+      if aRoute = 'facts' then
+        lFacts := lSession.Session.BuildWithBindingFactsResult
+      else if aRoute = 'combined' then
+        lCombined := lSession.Session.BuildRemoveWithFactsAndPlanResult
+      else
+        lPlan := lSession.Session.PlanRemoveWithResult;
+    except
+      on E: EInvalidOpException do
+      begin
+        Assert.IsTrue(E.Message.StartsWith('MODEL_SOURCE_VALIDATION_FAILED'), E.Message);
+        Assert.IsTrue(E.Message.Contains('source drift'), E.Message);
+        lRefused := True;
+      end;
+    end;
+    Assert.IsTrue(lOwner.fCalls > 0, 'Owner observations must execute');
+    Assert.IsTrue(lOwner.fNameCalls > 0, 'Binding must consume the provider');
+    Assert.AreEqual(aDrift, lRefused, 'Callback drift must refuse publication');
+    if aDrift then
+    begin
+      Assert.AreEqual<NativeInt>(0, Length(lPlan.Plan.FinalStatements));
+      Assert.AreEqual<NativeInt>(0, Length(lFacts.Facts.Bindings));
+      Assert.AreEqual<NativeInt>(0, Length(lCombined.Plan.FinalStatements));
+    end else begin
+      Assert.AreEqual(0, lPlan.SnapshotMetrics.SnapshotCacheProbes,
+        'Owner planning must bypass persisted WITH facts');
+      Assert.IsTrue(Length(lPlan.Plan.FinalStatements) > 0);
+    end;
+  finally
+    lSession.Session.Free;
+  end;
+end;
+
+procedure TRequestPublicationTests.BindingCallbackDriftRefusesPublication(const aRoute: string);
+begin
+  RunBindingPublicationControl(aRoute, True);
+end;
+
+procedure TRequestPublicationTests.OwnerBypassesPersistedWithFacts;
+begin
+  RunBindingPublicationControl('plan', False);
+end;
+
 initialization
+  TDUnitX.RegisterTestFixture(TRequestPublicationTests);
   TDUnitX.RegisterTestFixture(TProjectSessionTests);
 
 end.

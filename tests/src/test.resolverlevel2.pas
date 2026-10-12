@@ -259,6 +259,37 @@ begin
     Assert.AreEqual('Integer', lResult.TypeName);
   end;
 
+  // Array-prefixed identifiers are aliases, not inline array declarations.
+  lProvider.Declarations[0].Name := 'ArrayVarRecPtr';
+  lProvider.Declarations[0].TypeName := '^ArrayRec';
+  lProvider.Declarations[1].Name := 'ArrayValues';
+  lProvider.Declarations[1].TypeName := 'array of ArrayRec';
+  lProvider.Declarations[2].Name := 'ArrayRec';
+  lProvider.Members[0].OwnerName := 'ArrayRec';
+  lConsumer.Declarations[0].TypeName := 'array of ArrayVarRecPtr';
+  lConsumer.Declarations[1].TypeName := 'ArrayVarRecPtr';
+  lConsumer.Declarations[2].TypeName := 'ArrayValues';
+  lConsumer.Declarations[3].TypeName := '^array[0..1] of ArrayRec';
+  lContext.IndexedUnitModels := [lProvider];
+  for var lSelector in ['X^.Value', 'A[0].Value', 'DF[0]^.Value', 'P^[0].Value'] do
+  begin
+    lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, lSelector);
+    Assert.IsTrue(lResult.Found, lSelector + ': Array-prefixed alias: ' + lResult.ReasonCode);
+    Assert.AreEqual('ArrayRec', lResult.OwnerName);
+    Assert.AreEqual('Integer', lResult.TypeName);
+  end;
+
+  lProvider.Declarations[0].Name := 'TPtr';
+  lProvider.Declarations[0].TypeName := '^TRec';
+  lProvider.Declarations[1].Name := 'TArrayAlias';
+  lProvider.Declarations[1].TypeName := 'array of TRec';
+  lProvider.Declarations[2].Name := 'TRec';
+  lProvider.Members[0].OwnerName := 'TRec';
+  lConsumer.Declarations[0].TypeName := 'array of TPtr';
+  lConsumer.Declarations[1].TypeName := 'TPtr';
+  lConsumer.Declarations[2].TypeName := 'TArrayAlias';
+  lConsumer.Declarations[3].TypeName := '^array[0..1] of TRec';
+
   lProvider.Members[0].TypeName := 'TMissingResult';
   lContext.IndexedUnitModels := [lProvider];
   lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'X^.Value');

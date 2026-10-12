@@ -4,9 +4,24 @@ interface
 
 uses
   System.Generics.Collections,
-  DelphiSemantics.Model;
+  DelphiSemantics.Model, DelphiSemantics.Source;
 
 type
+  TDelphiSemanticModelObservation = record
+    ProjectContextFingerprint: string;
+    ModelFileName: string;
+    SourceObservations: IDelphiSemanticSourceObservations;
+    IncludeFileNames: TArray<string>;
+    CacheHit: Boolean;
+  end;
+
+  // DS-717: our request owner retains validated inputs until publication/use.
+  IDelphiSemanticModelObservationOwner = interface
+    ['{93B21CF0-78B5-41AD-AD4E-73A9208BFCA3}']
+    function ValidateModelSources(const aObservation: TDelphiSemanticModelObservation;
+      out aReason: string): Boolean;
+  end;
+
   TDelphiSemanticCacheOptions = record
     SqliteCacheFileName: string;
     CompilerProfileName: string;
@@ -120,6 +135,8 @@ type
     fParserVersion: string;
     fPlatform: string;
     fModelVersion: string;
+    fObservationOwner: IDelphiSemanticModelObservationOwner;
+    fProjectContextFingerprint: string;
     procedure EnterAccess(const aMarkActive: Boolean);
     procedure LeaveAccess(const aMarkedActive: Boolean);
     function GetCompilerProfileName: string;
@@ -127,6 +144,9 @@ type
     function GetMetrics: TDelphiSemanticCacheMetrics;
     function GetModelVersion: string;
     function GetParserVersion: string;
+    procedure ValidateOwnedModel(const aAccess: TDelphiSemanticUnitCacheAccessResult);
+    procedure SetObservationOwner(const aOwner: IDelphiSemanticModelObservationOwner);
+    procedure SetProjectContextFingerprint(const aFingerprint: string);
   protected
     procedure AddDiagnostic(const aCode, aMessage, aFileName: string);
     function CurrentCompilerProfileName: string;
@@ -153,6 +173,8 @@ type
       const aBuilder: TDelphiSemanticUnitModelBuilder): TDelphiSemanticUnitCacheAccessResult;
     function BuildIdentity(const aOptions: TDelphiSemanticModelOptions):
       TDelphiSemanticUnitCacheIdentity;
+    class procedure RequireCurrentSources(const aObservations:
+      IDelphiSemanticSourceObservations); static;
     property Diagnostics: TArray<TDelphiSemanticCacheDiagnostic> read GetDiagnostics;
     property Metrics: TDelphiSemanticCacheMetrics read GetMetrics;
     property CompilerProfileName: string read GetCompilerProfileName write SetCompilerProfileName;
@@ -161,13 +183,17 @@ type
     property ModelVersion: string read GetModelVersion write SetModelVersion;
     property ParserVersion: string read GetParserVersion write SetParserVersion;
     property Platform: string read fPlatform;
+    property ObservationOwner: IDelphiSemanticModelObservationOwner
+      read fObservationOwner write SetObservationOwner;
+    property ProjectContextFingerprint: string
+      read fProjectContextFingerprint write SetProjectContextFingerprint;
   end;
 
 implementation
 
 uses
   System.Classes, System.Hash, System.IOUtils, System.SysUtils,
-  DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.Version;
+  DelphiSemantics.Preprocess, DelphiSemantics.Version;
 
 const
   cCacheSchemaVersion = '9';
@@ -175,7 +201,7 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.45';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.65';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -550,6 +576,81 @@ begin
   Result := True;
 end;
 
+class procedure TDelphiSemanticUnitCache.RequireCurrentSources(
+  const aObservations: IDelphiSemanticSourceObservations);
+var
+  i: Integer;
+  lExpected: TDelphiSemanticSourceText;
+  lActualHash: string;
+begin
+  if (aObservations = nil) or (aObservations.Count = 0) then
+    raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: missing observations');
+  for i := 0 to aObservations.Count - 1 do
+  begin
+    lExpected := aObservations.Items[i];
+    try
+      lActualHash := THashSHA2.GetHashStringFromFile(lExpected.FileName);
+    except
+      on E: Exception do
+        raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: source unreadable: ' +
+          E.ClassName + ': ' + E.Message);
+    end;
+    if (lExpected.ContentHash = '') or (lActualHash <> lExpected.ContentHash) then
+      raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: source drift: ' +
+        lExpected.FileName);
+  end;
+end;
+
+procedure TDelphiSemanticUnitCache.ValidateOwnedModel(
+  const aAccess: TDelphiSemanticUnitCacheAccessResult);
+var
+  lObservation: TDelphiSemanticModelObservation;
+  lReason: string;
+  lAccepted: Boolean;
+begin
+  if fObservationOwner = nil then
+    Exit;
+  RequireCurrentSources(aAccess.Model.SourceObservations);
+  lObservation := Default(TDelphiSemanticModelObservation);
+  lObservation.ProjectContextFingerprint := fProjectContextFingerprint;
+  lObservation.ModelFileName := aAccess.Model.FileName;
+  lObservation.SourceObservations := aAccess.Model.SourceObservations;
+  lObservation.IncludeFileNames := Copy(aAccess.Model.IncludeFileNames);
+  lObservation.CacheHit := aAccess.CacheHit;
+  lReason := '';
+  try
+    lAccepted := fObservationOwner.ValidateModelSources(lObservation, lReason);
+  except
+    on E: Exception do
+      raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: owner exception: ' +
+        E.ClassName + ': ' + E.Message);
+  end;
+  if not lAccepted then
+    raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: ' + lReason);
+  RequireCurrentSources(aAccess.Model.SourceObservations);
+end;
+
+procedure TDelphiSemanticUnitCache.SetObservationOwner(
+  const aOwner: IDelphiSemanticModelObservationOwner);
+begin
+  EnterAccess(False);
+  try
+    fObservationOwner := aOwner;
+  finally
+    LeaveAccess(False);
+  end;
+end;
+
+procedure TDelphiSemanticUnitCache.SetProjectContextFingerprint(const aFingerprint: string);
+begin
+  EnterAccess(False);
+  try
+    fProjectContextFingerprint := aFingerprint;
+  finally
+    LeaveAccess(False);
+  end;
+end;
+
 procedure TDelphiSemanticUnitCache.AddDiagnostic(const aCode, aMessage, aFileName: string);
 var
   lDiagnostic: TDelphiSemanticCacheDiagnostic;
@@ -716,59 +817,89 @@ var
   lIdentity: string;
   lKey: string;
   lObservations: IDelphiSemanticSourceObservations;
+  i: Integer;
+  lSource: TDelphiSemanticSourceText;
 begin
   EnterAccess(True);
   try
-    Result := Default(TDelphiSemanticUnitCacheAccessResult);
-    Result.Identity := BuildLoadedUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
-      fModelVersion, fDelphiVersion, fConfiguration, fPlatform, lObservations);
-    lIdentity := CanonicalIdentityPath(aOptions.SourceFileName);
-    lKey := Result.Identity.UnitCacheKey;
-    lDictionary := fEntries;
-    if lDictionary.TryGetValue(lIdentity, lEntry) then
-    begin
-      if (lEntry.Key = lKey) and ((lEntry.Model.SourceObservations = nil) or
-        SourceObservationsMatch(lObservations, lEntry.Model.SourceObservations)) then
+    try
+      Result := Default(TDelphiSemanticUnitCacheAccessResult);
+      Result.Identity := BuildLoadedUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
+        fModelVersion, fDelphiVersion, fConfiguration, fPlatform, lObservations);
+      lIdentity := CanonicalIdentityPath(aOptions.SourceFileName);
+      lKey := Result.Identity.UnitCacheKey;
+      lDictionary := fEntries;
+      if lDictionary.TryGetValue(lIdentity, lEntry) then
+      begin
+        if (lEntry.Key = lKey) and ((lEntry.Model.SourceObservations = nil) or
+          SourceObservationsMatch(lObservations, lEntry.Model.SourceObservations)) then
+        begin
+          Inc(fMetrics.CacheHits);
+          Result.CacheHit := True;
+          Result.Model := CloneUnitModel(lEntry.Model);
+          ValidateOwnedModel(Result);
+          Exit;
+        end;
+        Inc(fMetrics.Invalidations);
+      end;
+
+      if TryLoadPersistentEntry(lIdentity, lKey, Result.Model) then
       begin
         Inc(fMetrics.CacheHits);
         Result.CacheHit := True;
-        Result.Model := CloneUnitModel(lEntry.Model);
+        // Persistent models are keyed by the observed source/include identity.
+        // Older JSON does not retain observations; attach this exact keyed read.
+        if (fObservationOwner <> nil) and (Result.Model.SourceObservations = nil) then
+        begin
+          Result.Model.SourceObservations := lObservations;
+          SetLength(Result.Model.IncludeFileNames, 0);
+          for i := 0 to lObservations.Count - 1 do
+          begin
+            lSource := lObservations.Items[i];
+            if not SameText(lSource.FileName, Result.Model.FileName) then
+              Result.Model.IncludeFileNames := Result.Model.IncludeFileNames + [lSource.FileName];
+          end;
+        end;
+        ValidateOwnedModel(Result);
+        lEntry.Key := lKey;
+        lEntry.Model := CloneUnitModel(Result.Model);
+        lDictionary.AddOrSetValue(lIdentity, lEntry);
+        Result.Model := CloneUnitModel(Result.Model);
         Exit;
       end;
-      Inc(fMetrics.Invalidations);
-    end;
 
-    if TryLoadPersistentEntry(lIdentity, lKey, Result.Model) then
-    begin
-      Inc(fMetrics.CacheHits);
-      Result.CacheHit := True;
+      if PersistentEntryExistsForIdentity(lIdentity) then
+      begin
+        Inc(fMetrics.Invalidations);
+        if fObservationOwner = nil then
+          RecordPersistentInvalidation(lIdentity, lKey);
+      end;
+
+      Inc(fMetrics.CacheMisses);
+      Result.Model := aBuilder(aOptions);
+      if (Result.Model.SourceObservations <> nil) and
+        not SourceObservationsMatch(lObservations, Result.Model.SourceObservations) then
+      begin
+        AddDiagnostic('CACHE_SOURCE_OBSERVATION_CHANGED',
+          'Source bytes changed between cache identity and extraction; model was not cached.',
+          aOptions.SourceFileName);
+        if fObservationOwner <> nil then
+          raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: extraction drift');
+        Exit;
+      end;
+      ValidateOwnedModel(Result);
+      // Owner-enabled requests read existing entries but never persist partial
+      // requests. Snapshot/facts caches are bypassed by our project session too.
+      if fObservationOwner <> nil then
+        Exit;
       lEntry.Key := lKey;
       lEntry.Model := CloneUnitModel(Result.Model);
       lDictionary.AddOrSetValue(lIdentity, lEntry);
-      Result.Model := CloneUnitModel(Result.Model);
-      Exit;
+      StorePersistentEntry(lIdentity, lKey, Result.Identity, Result.Model);
+    except
+      Result := Default(TDelphiSemanticUnitCacheAccessResult);
+      raise;
     end;
-
-    if PersistentEntryExistsForIdentity(lIdentity) then
-    begin
-      Inc(fMetrics.Invalidations);
-      RecordPersistentInvalidation(lIdentity, lKey);
-    end;
-
-    Inc(fMetrics.CacheMisses);
-    Result.Model := aBuilder(aOptions);
-    if (Result.Model.SourceObservations <> nil) and
-      not SourceObservationsMatch(lObservations, Result.Model.SourceObservations) then
-    begin
-      AddDiagnostic('CACHE_SOURCE_OBSERVATION_CHANGED',
-        'Source bytes changed between cache identity and extraction; model was not cached.',
-        aOptions.SourceFileName);
-      Exit;
-    end;
-    lEntry.Key := lKey;
-    lEntry.Model := CloneUnitModel(Result.Model);
-    lDictionary.AddOrSetValue(lIdentity, lEntry);
-    StorePersistentEntry(lIdentity, lKey, Result.Identity, Result.Model);
   finally
     LeaveAccess(True);
   end;

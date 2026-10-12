@@ -47,6 +47,8 @@ type
     IsDispInterface: Boolean;
     BaseTypeName: string;
     HelperTargetName: string;
+    // DS-716: empty means unverified; none, class or record comes from the active syntax tree.
+    AstHelperKind: string;
     SectionKind: string;
     Line: Integer;
     Column: Integer;
@@ -218,6 +220,11 @@ type
     FileName: string;
     UnitName: string;
     SourceText: string;
+    // DS-667: plain active text or internal per-span activity encoding, at source coordinates.
+    // Empty carries no inactivity proof; unknown spans never authorize a reference.
+    VerifiedActiveSourceText: string;
+    // Scan-only witness for degraded extraction; never grants edit activity evidence.
+    ReferenceScanSourceText: string;
     SourceObservations: IDelphiSemanticSourceObservations;
     IncludeFileNames: TArray<string>;
     EncodingName: string;

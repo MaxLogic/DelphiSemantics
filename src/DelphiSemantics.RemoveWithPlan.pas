@@ -609,7 +609,7 @@ end;
 function TArrayRemoveWithPlanBindingSource.BindingByIndex(
   const aIndex: Integer): TDelphiSemanticWithBinding;
 begin
-  Result := fBindings[aIndex];
+  Result := WithBindingForPlanning(fBindings[aIndex]);
 end;
 
 function TArrayRemoveWithPlanBindingSource.BindingCount: Integer;
@@ -1309,11 +1309,14 @@ function SkippedParentContextHasIndexedSelector(const aDecisions:
 var
   lDecision: TFinalSelectorDecision;
 begin
+  // An unproven receiver can hide the pointer name. An unknown body reference
+  // on a proven receiver does not invalidate independent nested selectors.
   Result := False;
   for lDecision in aDecisions do
   begin
     if SameText(lDecision.Reason, 'skipped-parent-context') and
-      (Pos('[', lDecision.SelectorText) > 0) then
+      (Pos('[', lDecision.SelectorText) > 0) and
+      (Trim(lDecision.ReceiverType) = '') then
       Exit(True);
   end;
 end;
@@ -2166,6 +2169,41 @@ begin
   end;
 end;
 
+function BodyNonReferencePositions(const aText: string;
+  const aRequireSyntaxMask: Boolean): TArray<Boolean>;
+var
+  i: Integer;
+  lLexer: TmwBasePasLex;
+  lStart: Integer;
+begin
+  Result := InlineDeclarationPositions(aText);
+  if (not aRequireSyntaxMask) and (Pos('&', aText) = 0) then
+    Exit;
+  // DS-671: the lexer distinguishes &End from the END control token.
+  // Compound reference names omit the leading escape, so their inner
+  // syntax always needs this mask. Ordinary unescaped bodies keep our
+  // existing declaration scan and its cost.
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aText;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID <> ptIdentifier then
+      begin
+        if Length(Result) = 0 then
+          SetLength(Result, Length(aText) + 1);
+        lStart := lLexer.TokenPos + 1;
+        for i := lStart to lStart + Length(lLexer.Token) - 1 do
+          Result[i] := True;
+      end;
+      lLexer.NextNoJunk;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
 function BodyOffsetIsDeclaration(const aDeclarations: TArray<Boolean>;
   const aOffset: Integer): Boolean;
 begin
@@ -2213,6 +2251,8 @@ begin
     lSelectorColumn := PosEx(aBinding.SelectorText, lLine,
       lSelectorColumn + Length(aBinding.SelectorText));
   end;
+  if (lColumn > 0) and (lLine[lColumn] = '&') then
+    Dec(lColumn);
   while (lColumn > 0) and CharInSet(lLine[lColumn], [#9, ' ']) do
     Dec(lColumn);
   Result := IsMemberAccessDot(lLine, lColumn);
@@ -3328,6 +3368,31 @@ begin
   aEdits[lIndex].ReplacementText := aReplacementText;
 end;
 
+procedure AddQualifiedBodyEdit(var aEdits: TArray<TFinalBodyEdit>;
+  const aBodyText: string; const aOffset, aLength: Integer;
+  const aExpectedText, aQualifierText, aMemberText: string);
+var
+  lExpectedText: string;
+  lLength: Integer;
+  lMemberText: string;
+  lOffset: Integer;
+begin
+  lOffset := aOffset;
+  lLength := aLength;
+  lExpectedText := aExpectedText;
+  lMemberText := aMemberText;
+  // DS-671: replace the escape with the member, after the new qualifier.
+  if (lOffset > 1) and (aBodyText[lOffset - 1] = '&') then
+  begin
+    Dec(lOffset);
+    Inc(lLength);
+    lExpectedText := '&' + lExpectedText;
+    lMemberText := '&' + lMemberText;
+  end;
+  AddFinalBodyEdit(aEdits, lOffset, lLength, lExpectedText,
+    aQualifierText + '.' + lMemberText);
+end;
+
 function IsIdentifierTextChar(const aChar: Char): Boolean;
 begin
   Result := CharInSet(aChar, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
@@ -3397,6 +3462,8 @@ var
 begin
   Result := False;
   lOffset := aOffset - 1;
+  if (lOffset > 0) and (aBodyText[lOffset] = '&') then
+    Dec(lOffset);
   while (lOffset > 0) and CharInSet(aBodyText[lOffset], [#9, #10, #13, ' ']) do
     Dec(lOffset);
   Result := IsMemberAccessDot(aBodyText, lOffset);
@@ -3409,6 +3476,8 @@ var
 begin
   Result := False;
   lOffset := aOffset - 1;
+  if (lOffset > 0) and (aLineText[lOffset] = '&') then
+    Dec(lOffset);
   while (lOffset > 0) and CharInSet(aLineText[lOffset], [#9, ' ']) do
     Dec(lOffset);
   Result := IsMemberAccessDot(aLineText, lOffset);
@@ -3519,8 +3588,8 @@ begin
         lDecision.QualifierText, lOffset) or
         BodyEditOffsetUsed(aBodyEdits, lOffset, lName) then
         Continue;
-      AddFinalBodyEdit(aBodyEdits, lOffset, Length(lName), lName,
-        lDecision.QualifierText + '.' + lName);
+      AddQualifiedBodyEdit(aBodyEdits, aBodyText, lOffset, Length(lName), lName,
+        lDecision.QualifierText, lName);
       Break;
     end;
   end;
@@ -4041,6 +4110,7 @@ var
   i: Integer;
   lName: string;
   lNextChar: Char;
+  lNonReferencePositions: TArray<Boolean>;
   lQualifierText: string;
   lReferenceName: string;
   lReplacementText: string;
@@ -4048,6 +4118,10 @@ var
 begin
   Result := '';
   lReferenceName := aReference.Name;
+  if (Pos('[', lReferenceName) > 0) or (Pos('(', lReferenceName) > 0) then
+    lNonReferencePositions := BodyNonReferencePositions(lReferenceName, True)
+  else
+    lNonReferencePositions := nil;
   i := 1;
   while i <= Length(lReferenceName) do
   begin
@@ -4069,12 +4143,20 @@ begin
       lNextChar := lReferenceName[i];
 
     if (lStartOffset > 1) and
+      (not BodyOffsetIsDeclaration(lNonReferencePositions, lStartOffset)) and
       (not BodyOffsetAppearsQualified(lReferenceName, lStartOffset)) and
       (lNextChar <> '(') and
       (BodyOffsetInsideCallOrCastArgument(lReferenceName, lStartOffset) or
       BodyOffsetInsideIndexArgument(lReferenceName, lStartOffset)) and
       QualifierForMemberName(aFacts, aDecisions, lName, lQualifierText) then
-      lReplacementText := lQualifierText + '.' + lName;
+    begin
+      if (lStartOffset > 1) and (lReferenceName[lStartOffset - 1] = '&') then
+      begin
+        Delete(Result, Length(Result), 1);
+        lReplacementText := lQualifierText + '.&' + lName;
+      end else
+        lReplacementText := lQualifierText + '.' + lName;
+    end;
     Result := Result + lReplacementText;
   end;
 end;
@@ -4125,8 +4207,8 @@ begin
       BodyEditOffsetUsed(aBodyEdits, lStartOffset, lName) then
       Continue;
 
-    AddFinalBodyEdit(aBodyEdits, lStartOffset, Length(lName), lName,
-      lQualifierText + '.' + lName);
+    AddQualifiedBodyEdit(aBodyEdits, aBodyText, lStartOffset, Length(lName), lName,
+      lQualifierText, lName);
   end;
 end;
 
@@ -4333,7 +4415,7 @@ var
   end;
 begin
   Result := False;
-  lDeclarations := InlineDeclarationPositions(aBodyText);
+  lDeclarations := BodyNonReferencePositions(aBodyText, False);
   i := 1;
   while i <= Length(aBodyText) do
   begin
@@ -4402,6 +4484,47 @@ begin
       Exit(True);
 end;
 
+function BodyHasUnverifiedEscapedIdentifier(const aText: string;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aBodyRange: TDelphiSemanticRemoveWithSourceRange;
+  const aLines: TArray<string>; const aLineBreak: string): Boolean;
+var
+  i: Integer;
+  lEndOffset: Integer;
+  lFound: Boolean;
+  lName: string;
+  lOffset: Integer;
+  lReference: TDelphiSemanticBoundReference;
+begin
+  Result := False;
+  for i := 1 to Length(aText) - 1 do
+  begin
+    if (aText[i] <> '&') or
+      (not CharInSet(aText[i + 1], ['A'..'Z', 'a'..'z', '_'])) or
+      BodyOffsetInsideLiteralOrComment(aText, i) or
+      BodyOffsetAppearsQualified(aText, i) then
+      Continue;
+    lEndOffset := i + 1;
+    while (lEndOffset <= Length(aText)) and IsIdentifierTextChar(aText[lEndOffset]) do
+      Inc(lEndOffset);
+    lName := Copy(aText, i + 1, lEndOffset - i - 1);
+    lFound := False;
+    for lReference in aBinding.References do
+    begin
+      lOffset := RangeRelativeOffset(aBodyRange, aLines, lReference.Line,
+        lReference.Column, aLineBreak);
+      if ((lOffset = i) or (lOffset = i + 1)) and
+        SameText(ReferenceLookupName(lReference.Name), lName) then
+      begin
+        lFound := True;
+        Break;
+      end;
+    end;
+    if not lFound then
+      Exit(True);
+  end;
+end;
+
 function PrepareFinalBodyText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aEditDecisions, aValidationDecisions: TArray<TFinalSelectorDecision>;
@@ -4413,6 +4536,7 @@ var
   lBodyEdits: TArray<TFinalBodyEdit>;
   lProtectedSpans: TArray<TFinalBodyEdit>;
   lDeclarations: TArray<Boolean>;
+  lDecision: TFinalSelectorDecision;
   lBodyRange: TDelphiSemanticRemoveWithSourceRange;
   lBodyStartsWithBegin: Boolean;
   lLineBreak: string;
@@ -4436,13 +4560,6 @@ begin
     aReason := 'body-range-not-resolved';
     Exit;
   end;
-  // DS-671: qualification must include the escape in its replacement range.
-  // Until that route is proven, never emit &receiver.Member from &Member.
-  if BodyHasEscapedIdentifier(aReplacementText) then
-  begin
-    aReason := 'escaped-identifier-unsupported';
-    Exit;
-  end;
   if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
   begin
     aReason := 'body-range-not-resolved';
@@ -4452,7 +4569,20 @@ begin
     (aBinding.Line < Length(lLines)) and SameText(Trim(lLines[aBinding.Line]),
     'begin');
   lLineBreak := SourceLineBreakForFile(aBinding.FileName, aLineCache);
-
+  if BodyHasUnverifiedEscapedIdentifier(aReplacementText, aBinding, lBodyRange,
+    lLines, lLineBreak) then
+  begin
+    aReason := 'escaped-identifier-unsupported';
+    Exit;
+  end;
+  // Dependent selector replacement needs a separate escaped-origin proof.
+  for lDecision in aEditDecisions do
+    if SameText(lDecision.Reason, 'dependent-selector-direct-qualification') and
+      BodyHasEscapedIdentifier(aReplacementText) then
+    begin
+      aReason := 'escaped-identifier-unsupported';
+      Exit;
+    end;
   for lNestedReplacement in aNestedReplacements do
   begin
     lNestedRange := lNestedReplacement.Range;
@@ -4466,7 +4596,7 @@ begin
       lNestedReplacement.ReplacementText);
   end;
 
-  lDeclarations := InlineDeclarationPositions(aReplacementText);
+  lDeclarations := BodyNonReferencePositions(aReplacementText, False);
   // Seed identity edits so fallback member scans cannot rewrite proven label tokens.
   for lReference in aBinding.References do
     if (lReference.LookupSource = 'syntax') and
@@ -4575,8 +4705,8 @@ begin
     lSourceReference := lReference;
     lSourceReference.Name := Copy(aReplacementText, lOffset, Length(lReference.Name));
     lReferenceName := ReferenceNameWithQualifiedArguments(aFacts, aEditDecisions, lSourceReference);
-    AddFinalBodyEdit(lBodyEdits, lOffset, Length(lReference.Name),
-      lSourceReference.Name, lQualifierText + '.' + lReferenceName);
+    AddQualifiedBodyEdit(lBodyEdits, aReplacementText, lOffset, Length(lReference.Name),
+      lSourceReference.Name, lQualifierText, lReferenceName);
   end;
   AddSimpleMemberBodyEdits(aFacts, aBinding, aEditDecisions, aReplacementText,
     lDeclarations, lBodyEdits);
@@ -5567,6 +5697,7 @@ begin
       lDecision.Reason := 'dependent-selector-direct-qualification';
     end else if (not SameText(lDecision.Strategy, 'direct-qualification')) and
       IsSimpleIdentifier(lSelector.SelectorText) and
+      (not ActiveDecisionHasMember(aFacts, lSelectorDecisions, lSelector.SelectorText)) and
       SkippedParentContextHasMember(aFacts, aInheritedDecisions, lSelector.SelectorText) then
     begin
       lDecision.Strategy := 'direct-qualification';
@@ -6315,6 +6446,7 @@ procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aBindingTree: TFinalBindingTree;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aSafetyReasons: TArray<string>;
+  const aActivityUnverified: TArray<Boolean>;
   const aBindingIndex: Integer;
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDelphiSemanticSourceContextCache;
@@ -6330,14 +6462,25 @@ var
 begin
   lBinding := aBindingSource.BindingByIndex(aBindingIndex);
   if aSafetyReasons[aBindingIndex] <> '' then
+  begin
     lStatement := BuildSkippedFinalStatement(lBinding,
       FinalStatementId(aBindingIndex + 1),
-      LowerCase(StringReplace(aSafetyReasons[aBindingIndex], '_', '-',
-      [rfReplaceAll])), aSafetyReasons[aBindingIndex])
-  else
+      LowerCase(StringReplace(aSafetyReasons[aBindingIndex], '_', '-', [rfReplaceAll])),
+      aSafetyReasons[aBindingIndex]);
+  end else
     lStatement := BuildFinalStatement(aFacts, aBindingSource, aBindingTree,
       aBindingIndex, FinalStatementId(aBindingIndex + 1), aCandidateEdits,
       aReservedNames, aLineCache, aInheritedDecisions);
+  // First compute the complete ordinary DTO, including nested rewrites.
+  // Activity changes only an otherwise applicable result; existing refusals
+  // retain exactly their own Status, Reason and SafetyReason.
+  if aActivityUnverified[aBindingIndex] and SameText(lStatement.Status, 'planned') then
+  begin
+    RollbackReservedTempNamesForFinalTemps(aReservedNames, lBinding.RoutineName,
+      lStatement.Temps);
+    lStatement := BuildSkippedFinalStatement(lBinding,
+      FinalStatementId(aBindingIndex + 1), 'activity-unverified', 'ACTIVITY_UNVERIFIED');
+  end;
   AddFinalStatement(aPlan, lStatement);
   if SameText(lStatement.Status, 'planned') then
     Exit;
@@ -6383,7 +6526,7 @@ begin
     if (aSafetyReasons[lChildIndex] <> '') or
       aBindingSource.BindingHasStableSourceRange(lChildIndex) then
       AddFinalStatementTree(aPlan, aFacts, aBindingSource, aBindingTree,
-        aCandidateEdits, aSafetyReasons, lChildIndex, aReservedNames, aLineCache,
+        aCandidateEdits, aSafetyReasons, aActivityUnverified, lChildIndex, aReservedNames, aLineCache,
         lChildInheritedDecisions);
   end;
 end;
@@ -6624,6 +6767,7 @@ var
   lReservedNames: TDictionary<string, Integer>;
   lRootIndex: Integer;
   lSafetyReasons: TArray<string>;
+  lActivityUnverified: TArray<Boolean>;
   lSafetyReason: string;
   lStatementIndex: Integer;
 begin
@@ -6667,20 +6811,33 @@ begin
           lPhaseStopwatch.ElapsedMilliseconds;
       end;
       SetLength(lSafetyReasons, lBindingCount);
+      SetLength(lActivityUnverified, lBindingCount);
       for lBindingIndex := 0 to lBindingCount - 1 do
       begin
         lBinding := aBindingSource.BindingByIndex(lBindingIndex);
-        if not (SameText(lBinding.SkipReason, 'MEMBERS_UNVERIFIED') or
-          SameText(lBinding.SkipReason, 'MEMBERS_INCOMPLETE') or
-          SameText(lBinding.SkipReason, 'SCOPE_UNVERIFIED')) then
+        if MatchText(lBinding.SkipReason,
+          ['MEMBERS_UNVERIFIED', 'MEMBERS_INCOMPLETE', 'SCOPE_UNVERIFIED']) then
+        begin
+          if lSafetyReasons[lBindingIndex] = '' then
+            lSafetyReasons[lBindingIndex] := lBinding.SkipReason;
+          lParentIndex := lBindingTree.ParentIndexes[lBindingIndex];
+          while lParentIndex >= 0 do
+          begin
+            if lSafetyReasons[lParentIndex] = '' then
+              lSafetyReasons[lParentIndex] := lBinding.SkipReason;
+            lParentIndex := lBindingTree.ParentIndexes[lParentIndex];
+          end;
+        end;
+        if not (lBinding.ActivityUnverified or
+          SameText(lBinding.SkipReason, 'ACTIVITY_UNVERIFIED')) then
           Continue;
-        lSafetyReasons[lBindingIndex] := lBinding.SkipReason;
+        lActivityUnverified[lBindingIndex] := True;
         lParentIndex := lBindingTree.ParentIndexes[lBindingIndex];
         while lParentIndex >= 0 do
         begin
-          // A parent rewrite owns its nested source, so it cannot cover an
-          // unverified child even when the parent's selector is verified.
-          lSafetyReasons[lParentIndex] := lBinding.SkipReason;
+          // A parent replacement covers its child's source, so activity is
+          // propagated independently of ordinary member/scope refusals.
+          lActivityUnverified[lParentIndex] := True;
           lParentIndex := lBindingTree.ParentIndexes[lParentIndex];
         end;
       end;
@@ -6698,6 +6855,10 @@ begin
           begin
             lEdit := AddEdit(Result, lBinding, lHashCache, lLineCache);
             lCandidateEdits[lBindingIndex] := lEdit;
+            // Keep the candidate for the ordinary decision, but never expose
+            // an activity-refused source range as candidate apply coverage.
+            if lActivityUnverified[lBindingIndex] then
+              SetLength(Result.Edits, Length(Result.Edits) - 1);
           end else
           begin
             AddFinalStatement(Result, BuildSkippedFinalStatement(lBinding,
@@ -6720,7 +6881,7 @@ begin
           begin
             lInheritedDecisions := nil;
             AddFinalStatementTree(Result, aFacts, aBindingSource, lBindingTree,
-              lCandidateEdits, lSafetyReasons, lRootIndex, lReservedNames, lLineCache,
+              lCandidateEdits, lSafetyReasons, lActivityUnverified, lRootIndex, lReservedNames, lLineCache,
               lInheritedDecisions);
           end;
         end;
@@ -7000,6 +7161,9 @@ begin
   Result.SkipReason := aSnapshot.ExactTextOf(aBinding.SkipReasonId);
   Result.HasScopedDeclaration := SnapshotHasFlag(aBinding.Flags,
     cSemanticRemoveWithBindingFlagHasScopedDeclaration);
+  Result.ActivityUnverified := SnapshotHasFlag(aBinding.Flags,
+    cSemanticRemoveWithBindingFlagActivityUnverified);
+  Result.InactiveSpanSkipReason := aSnapshot.ExactTextOf(aBinding.InactiveSpanSkipReasonId);
   Result.MemberReferenceCount := aBinding.MemberReferenceCount;
   Result.LexicalReferenceCount := aBinding.LexicalReferenceCount;
   Result.ExternalReferenceCount := aBinding.ExternalReferenceCount;
@@ -7012,6 +7176,9 @@ begin
   SetLength(Result.References, Length(aBinding.References));
   for i := 0 to High(aBinding.References) do
     Result.References[i] := SnapshotBoundReference(aSnapshot, aBinding.References[i]);
+  SetLength(Result.InactiveSpanReferences, Length(aBinding.InactiveSpanReferences));
+  for i := 0 to High(aBinding.InactiveSpanReferences) do
+    Result.InactiveSpanReferences[i] := SnapshotBoundReference(aSnapshot, aBinding.InactiveSpanReferences[i]);
 end;
 
 constructor TSnapshotRemoveWithPlanBindingSource.Create(
@@ -7040,7 +7207,8 @@ begin
         Break;
       end;
     end;
-    fBindings[i] := lBinding;
+    // Expand the private verification view once; hot-path access returns this cache.
+    fBindings[i] := WithBindingForPlanning(lBinding);
   end;
 end;
 

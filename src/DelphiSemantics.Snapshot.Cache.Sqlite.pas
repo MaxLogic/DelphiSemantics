@@ -134,7 +134,7 @@ uses
 const
   // 11: DS-659 file_id; 12: include facts; 13: receiver identities;
   // 14: expected identity row count for complete project planning facts.
-  cSnapshotCacheSchemaVersion = '16';
+  cSnapshotCacheSchemaVersion = '19';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -538,6 +538,7 @@ procedure ValidateUnitExactStringIds(const aExactStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot);
 begin
   ValidateStringId(aExactStrings, aUnit.SourceTextId, 'source_text_id');
+  ValidateStringId(aExactStrings, aUnit.VerifiedActiveSourceTextId, 'verified_active_source_text_id');
 end;
 
 procedure ValidateLoadedCounts(const aStrings: TSemanticStringPool; const aUnit: TUnitSnapshot;
@@ -678,6 +679,7 @@ begin
       'include_graph_hash text not null, schema_version text not null, ' +
       'stored_at_utc text not null, unit_id integer not null, file_name_id integer not null, ' +
       'unit_name_id integer not null, source_text_id integer not null, ' +
+      'verified_active_source_text_id integer not null, ' +
       'scope_model_status_id integer not null, scope_model_version_id integer not null, ' +
       'scope_diagnostic_id integer not null, rejected_declaration_count integer not null, ' +
       'string_count integer not null, ' +
@@ -772,6 +774,7 @@ begin
       'external_reference_count integer not null, intrinsic_reference_count integer not null, ' +
       'unsupported_reference_count integer not null, unresolved_reference_count integer not null, ' +
       'selector_count integer not null, reference_count integer not null, ' +
+    'inactive_reference_count integer not null, inactive_skip_reason_id integer not null, ' +
       'routine_scope_id_id integer not null, primary key(cache_key, binding_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_binding_selectors (' +
       'cache_key text not null, binding_index integer not null, selector_index integer not null, ' +
@@ -914,6 +917,8 @@ begin
   lQuery := NewQuery(aConnection as TFDConnection, 'select string_id, text_value from ' +
     'snapshot_exact_strings where cache_key = ? order by string_id');
   try
+    // DS-711: exact source and masks retain trailing spaces and CRLF on reload.
+    lQuery.FormatOptions.StrsTrim := False;
     lQuery.Params[0].AsWideString := aCacheKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
@@ -1362,6 +1367,7 @@ var
   lUnresolvedReferenceCountField: TField;
   lUnsupportedReferenceCountField: TField;
   lReferenceIndex: Integer;
+  lReference: TSemanticRemoveWithBoundReferenceFact;
 
   function VerifiedLocalBindingScope(const aBinding: TSemanticRemoveWithBindingFact;
     const aOwnerScopeId: TSemanticStringId): Boolean;
@@ -1560,7 +1566,8 @@ begin
     'end_column, body_line, body_column, body_end_line, body_end_column, selector_text_id, ' +
     'status_id, skip_reason_id, flags, member_reference_count, lexical_reference_count, ' +
     'external_reference_count, intrinsic_reference_count, unsupported_reference_count, ' +
-    'unresolved_reference_count, selector_count, reference_count, routine_scope_id_id ' +
+    'unresolved_reference_count, selector_count, reference_count, routine_scope_id_id, ' +
+    'inactive_reference_count, inactive_skip_reason_id ' +
     'from snapshot_remove_with_bindings ' +
     'where cache_key = ? order by binding_index');
   try
@@ -1630,8 +1637,10 @@ begin
       lBinding.UnresolvedReferenceCount := lUnresolvedReferenceCountField.AsInteger;
       SetLength(lBinding.Selectors, lSelectorCountField.AsInteger);
       SetLength(lBinding.References, lReferenceCountField.AsInteger);
+      SetLength(lBinding.InactiveSpanReferences, lQuery.Fields[27].AsInteger);
+      lBinding.InactiveSpanSkipReasonId := TSemanticStringId(lQuery.Fields[28].AsInteger);
       Inc(lExpectedSelectorCount, lSelectorCountField.AsInteger);
-      Inc(lExpectedReferenceCount, lReferenceCountField.AsInteger);
+      Inc(lExpectedReferenceCount, lReferenceCountField.AsInteger + lQuery.Fields[27].AsInteger);
       lFacts.Bindings[i] := lBinding;
       Inc(lLoadedBindingCount);
       lQuery.Next;
@@ -1691,30 +1700,35 @@ begin
     begin
       i := lFields[0].AsInteger;
       lReferenceIndex := lFields[1].AsInteger;
-      lFacts.Bindings[i].References[lReferenceIndex].SemanticIdId :=
+      lReference := Default(TSemanticRemoveWithBoundReferenceFact);
+      lReference.SemanticIdId :=
         TSemanticStringId(lFields[2].AsInteger);
-      lFacts.Bindings[i].References[lReferenceIndex].NameId :=
+      lReference.NameId :=
         TSemanticStringId(lFields[3].AsInteger);
-      lFacts.Bindings[i].References[lReferenceIndex].ClassificationId :=
+      lReference.ClassificationId :=
         TSemanticStringId(lFields[4].AsInteger);
-      lFacts.Bindings[i].References[lReferenceIndex].LookupSourceId :=
+      lReference.LookupSourceId :=
         TSemanticStringId(lFields[5].AsInteger);
-      lFacts.Bindings[i].References[lReferenceIndex].ReceiverTypeNameId :=
+      lReference.ReceiverTypeNameId :=
         TSemanticStringId(lFields[6].AsInteger);
-      lFacts.Bindings[i].References[lReferenceIndex].KindId :=
+      lReference.KindId :=
         TSemanticStringId(lFields[7].AsInteger);
-      lFacts.Bindings[i].References[lReferenceIndex].TypeNameId :=
+      lReference.TypeNameId :=
         TSemanticStringId(lFields[8].AsInteger);
-      lFacts.Bindings[i].References[lReferenceIndex].ReasonCodeId :=
+      lReference.ReasonCodeId :=
         TSemanticStringId(lFields[9].AsInteger);
-      lFacts.Bindings[i].References[lReferenceIndex].ScopeConflictKindId :=
+      lReference.ScopeConflictKindId :=
         TSemanticStringId(lFields[10].AsInteger);
-      lFacts.Bindings[i].References[lReferenceIndex].ScopeConflictNameId :=
+      lReference.ScopeConflictNameId :=
         TSemanticStringId(lFields[11].AsInteger);
-      lFacts.Bindings[i].References[lReferenceIndex].Line := lFields[12].AsInteger;
-      lFacts.Bindings[i].References[lReferenceIndex].Column := lFields[13].AsInteger;
-      lFacts.Bindings[i].References[lReferenceIndex].EndLine := lFields[14].AsInteger;
-      lFacts.Bindings[i].References[lReferenceIndex].EndColumn := lFields[15].AsInteger;
+      lReference.Line := lFields[12].AsInteger;
+      lReference.Column := lFields[13].AsInteger;
+      lReference.EndLine := lFields[14].AsInteger;
+      lReference.EndColumn := lFields[15].AsInteger;
+      if lReferenceIndex < 0 then
+        lFacts.Bindings[i].InactiveSpanReferences[-lReferenceIndex - 1] := lReference
+      else
+        lFacts.Bindings[i].References[lReferenceIndex] := lReference;
       Inc(lLoadedReferenceCount);
       lQuery.Next;
     end;
@@ -1854,7 +1868,8 @@ begin
   lQuery := NewQuery(aConnection as TFDConnection, 'select unit_id, file_name_id, unit_name_id, ' +
     'source_text_id, scope_model_status_id, scope_model_version_id, scope_diagnostic_id, ' +
     'rejected_declaration_count, string_count, symbol_count, with_statement_count, ' +
-    'reference_count, parse_avoided_estimate_ms from snapshot_units where cache_key = ? ' +
+    'reference_count, parse_avoided_estimate_ms, verified_active_source_text_id ' +
+    'from snapshot_units where cache_key = ? ' +
     'and identity_key = ?');
   try
     lQuery.Params[0].AsWideString := aIdentity.CacheKey;
@@ -1884,6 +1899,7 @@ begin
         TSemanticStringId(lFileNameIdField.AsInteger),
         TSemanticStringId(lUnitNameIdField.AsInteger),
         TSemanticStringId(lSourceTextIdField.AsInteger));
+      aUnit.SetVerifiedActiveSourceTextId(TSemanticStringId(lQuery.Fields[13].AsInteger));
       aUnit.SetScopeModelMetadata(
         TSemanticStringId(lScopeModelStatusIdField.AsInteger),
         TSemanticStringId(lScopeModelVersionIdField.AsInteger),
@@ -2079,6 +2095,8 @@ begin
   lQuery := NewQuery(lConnection, 'insert into snapshot_exact_strings(cache_key, ' +
     'string_id, text_value) values (?, ?, ?)');
   try
+    // DS-711: FireDAC's default binding conversion trims exact payloads too.
+    lQuery.FormatOptions.StrsTrim := False;
     lQuery.Params[0].DataType := ftWideString;
     lQuery.Params[1].DataType := ftInteger;
     lQuery.Params[2].DataType := ftWideString;
@@ -2330,11 +2348,11 @@ begin
     'selector_text_id, status_id, skip_reason_id, flags, member_reference_count, ' +
     'lexical_reference_count, external_reference_count, intrinsic_reference_count, ' +
     'unsupported_reference_count, unresolved_reference_count, selector_count, reference_count, ' +
-    'routine_scope_id_id) ' +
-    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    'routine_scope_id_id, inactive_reference_count, inactive_skip_reason_id) ' +
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
     lQuery.Params[0].DataType := ftWideString;
-    for lParamIndex := 1 to 27 do
+    for lParamIndex := 1 to 29 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
     for i := 0 to High(lFacts.Bindings) do
@@ -2368,6 +2386,8 @@ begin
       lQuery.Params[25].AsInteger := Length(lBinding.Selectors);
       lQuery.Params[26].AsInteger := Length(lBinding.References);
       lQuery.Params[27].AsInteger := Integer(lBinding.RoutineScopeIdId);
+      lQuery.Params[28].AsInteger := Length(lBinding.InactiveSpanReferences);
+      lQuery.Params[29].AsInteger := Integer(lBinding.InactiveSpanSkipReasonId);
       lQuery.ExecSQL;
     end;
   finally
@@ -2410,9 +2430,13 @@ begin
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
     for i := 0 to High(lFacts.Bindings) do
-      for j := 0 to High(lFacts.Bindings[i].References) do
+      // Negative indexes persist WITH-only inactive verification in a separate partition.
+      for j := -Length(lFacts.Bindings[i].InactiveSpanReferences) to High(lFacts.Bindings[i].References) do
       begin
-        lReference := lFacts.Bindings[i].References[j];
+        if j < 0 then
+          lReference := lFacts.Bindings[i].InactiveSpanReferences[-j - 1]
+        else
+          lReference := lFacts.Bindings[i].References[j];
         lQuery.Params[0].AsWideString := aIdentity.CacheKey;
         lQuery.Params[1].AsInteger := i;
         lQuery.Params[2].AsInteger := j;
@@ -2619,6 +2643,8 @@ begin
     aTargetStrings, aUnit.FileNameId), RemapSnapshotStringId(aSnapshot,
     aTargetStrings, aUnit.UnitNameId), RemapSnapshotExactStringId(aSnapshot,
     aTargetExactStrings, aUnit.SourceTextId));
+  Result.SetVerifiedActiveSourceTextId(RemapSnapshotExactStringId(aSnapshot,
+    aTargetExactStrings, aUnit.VerifiedActiveSourceTextId));
   Result.SetScopeModelMetadata(RemapSnapshotStringId(aSnapshot,
     aTargetStrings, aUnit.ScopeModelStatusId), RemapSnapshotStringId(aSnapshot,
     aTargetStrings, aUnit.ScopeModelVersionId), RemapSnapshotStringId(aSnapshot,
@@ -2831,8 +2857,9 @@ begin
     'stored_at_utc, unit_id, file_name_id, unit_name_id, source_text_id, string_count, ' +
     'scope_model_status_id, scope_model_version_id, scope_diagnostic_id, ' +
     'rejected_declaration_count, symbol_count, with_statement_count, reference_count, ' +
-    'parse_avoided_estimate_ms) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ' +
-    '?, ?, ?, ?, ?)');
+    'parse_avoided_estimate_ms, verified_active_source_text_id) ' +
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ' +
+    '?, ?, ?, ?, ?, ?)');
   try
     SetWideParam(lQuery, 0, aIdentity.CacheKey);
     SetWideParam(lQuery, 1, aIdentity.IdentityKey);
@@ -2868,6 +2895,8 @@ begin
     lQuery.Params[19].AsInteger := aUnit.ReferenceCount;
     lQuery.Params[20].DataType := ftLargeint;
     lQuery.Params[20].AsLargeInt := aIdentity.ParseAvoidedEstimateMilliseconds;
+    lQuery.Params[21].DataType := ftInteger;
+    lQuery.Params[21].AsInteger := Integer(aUnit.VerifiedActiveSourceTextId);
     lQuery.Prepare;
     lQuery.ExecSQL;
   finally

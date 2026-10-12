@@ -417,6 +417,23 @@ begin
   Result := True;
 end;
 
+function HasUnverifiedNoChangeContext(const aBinding: TDelphiSemanticBoundPlanResult;
+  const aOperationIdentity: string): Boolean;
+var
+  lDiagnostic: string;
+begin
+  Result := False;
+  if not Assigned(aBinding) or not Assigned(aBinding.Plan) or
+    (aBinding.Status <> TSemanticPlanStatus.NoChange) or
+    (aBinding.Plan.Status <> TSemanticPlanStatus.NoChange) or
+    (aBinding.Plan.EditCount <> 0) or
+    (aBinding.OperationIdentity <> aOperationIdentity) then
+    Exit;
+  for lDiagnostic in aBinding.Diagnostics do
+    if SameText(lDiagnostic, 'UNVERIFIED_PREPROCESS_CONDITION') then
+      Exit(True);
+end;
+
 function TryGetFullNoChangeContext(const aSnapshot: TDelphiProjectSnapshot;
   const aBinding: TDelphiSemanticBoundPlanResult; const aOperationIdentity: string;
   out aContextEvidence: TDelphiSemanticContextEvidenceExtension;
@@ -1023,6 +1040,13 @@ var
   lReason: string;
   lStatus: TSemanticPlanStatus;
 begin
+  // Raw conditional syntax can establish refusal, never an active-code proof.
+  if HasUnverifiedNoChangeContext(aBinding, cRemoveImplementationImportOperation) and
+    not TryCreateRemovalConsumerEdit(aSnapshot, aBinding, aConsumerFileName,
+      aUnitName, lStatus, lClassification, lReason, lEdit) and
+    (lClassification = TDelphiSemanticUsesClassification.ucConditionalClause) then
+    Exit(MakePlanResult(aBinding, TSemanticPlanStatus.Blocked,
+      lClassification, lReason));
   if not TryGetFullNoChangeContext(aSnapshot, aBinding,
     cRemoveImplementationImportOperation, lContextEvidence, lReason) then
     Exit(MakePlanResult(aBinding, TSemanticPlanStatus.Incomplete,
@@ -1263,6 +1287,12 @@ begin
     Exit(MakePlanResult(aBinding, TSemanticPlanStatus.Blocked,
       TDelphiSemanticUsesClassification.ucUnsupportedShape,
       'uses.import-request-shape-unsupported'));
+  if HasUnverifiedNoChangeContext(aBinding, cAddExplicitImportOperation) and
+    not TryGetExplicitImportInput(aSnapshot, aBinding, aConsumerFileName,
+      aIdentifier, aUnitName, lConsumerSource, lClauseMatch, lClassification, lReason) and
+    (lClassification = TDelphiSemanticUsesClassification.ucConditionalClause) then
+    Exit(MakePlanResult(aBinding, TSemanticPlanStatus.Blocked,
+      lClassification, lReason));
   if not TryGetFullNoChangeContext(aSnapshot, aBinding,
     cAddExplicitImportOperation, lContextEvidence, lReason) then
     Exit(MakePlanResult(aBinding, TSemanticPlanStatus.Incomplete,

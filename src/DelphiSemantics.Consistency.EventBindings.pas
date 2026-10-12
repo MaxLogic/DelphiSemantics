@@ -114,19 +114,20 @@ end;
 function HasCompleteClassDeclaration(const aModel: TDelphiSemanticUnitModel;
   const aName: string): Boolean;
 var
-  lDeclaration: TDelphiSemanticDeclaration;
-  lCount: Integer;
+  i, lDeclaration: Integer;
 begin
-  lCount := 0;
-  for lDeclaration in aModel.Declarations do
-    if SameText(lDeclaration.Name, aName) and SameText(lDeclaration.ScopeKind, 'unit') then
+  lDeclaration := -1;
+  for i := 0 to High(aModel.Declarations) do
+    if SameText(aModel.Declarations[i].Name, aName) and
+      SameText(aModel.Declarations[i].ScopeKind, 'unit') then
     begin
-      if not SameText(lDeclaration.Kind, 'type') or
-        not SameText(lDeclaration.DeclarationRole, 'declaration') then
+      if (lDeclaration >= 0) or not SameText(aModel.Declarations[i].Kind, 'type') or
+        not SameText(aModel.Declarations[i].DeclarationRole, 'declaration') then
         Exit(False);
-      Inc(lCount);
+      lDeclaration := i;
     end;
-  Result := lCount = 1;
+  Result := TDelphiSemanticConsistencyTypeResolver.HasCompleteTypeDeclaration(
+    aModel, lDeclaration);
 end;
 
 function TrySourceClass(const aModels: TArray<TDelphiSemanticUnitModel>;

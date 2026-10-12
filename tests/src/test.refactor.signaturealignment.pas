@@ -16,6 +16,10 @@ type
       out aSnapshot: TDelphiProjectSnapshot);
 
   public
+    [Test]
+    [TestCase('Neighbor with incomplete members', 'neighbor,name-drift')]
+    [TestCase('Selected owner with incomplete members', 'selected,unknown')]
+    procedure IsolatesSelectedOwnerCompleteness(const aOwner, aStatus: string);
     [Test] procedure BuildsBoundAlignmentSuggestion;
     [Test]
     [TestCase('Function result', 'function-drift')]
@@ -259,6 +263,15 @@ begin
   Result := CaptureAlignmentSource(AdjustAlignmentHeader(Result, aShape), aShape);
   Result := MultipleParameterSource(Result, aShape);
   Result := SignatureShapeSource(Result, aShape);
+  if aShape = 'neighbor-gap' then
+    Result := StringReplace(Result, 'implementation',
+      '  TBroken = class'#13#10 +
+      '    FUnscanned: procedure(aValue: Integer) of object;'#13#10 +
+      '  end;'#13#10 + 'implementation', [])
+  else if aShape = 'selected-gap' then
+    Result := StringReplace(Result, '    procedure SetValue',
+      '    FUnscanned: procedure(aValue: Integer) of object;'#13#10 +
+      '    procedure SetValue', []);
 end;
 
 function TSignatureAlignmentTests.ExtractModel(const aShape: string): TDelphiSemanticUnitModel;
@@ -306,6 +319,42 @@ begin
       Assert.AreEqual(1, lResult.ImplementationIndex)
     else
       Assert.AreEqual(0, lResult.ImplementationIndex);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TSignatureAlignmentTests.IsolatesSelectedOwnerCompleteness(
+  const aOwner, aStatus: string);
+var
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lModel: TDelphiSemanticUnitModel;
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticAlignmentComparison;
+  lCount: Integer;
+  lOwnerName: string;
+begin
+  lModel := ExtractModel(aOwner + '-gap');
+  lOwnerName := 'TBroken';
+  if aOwner = 'selected' then
+    lOwnerName := 'TSubject';
+  lCount := 0;
+  for lDiagnostic in lModel.Diagnostics do
+    if SameText(lDiagnostic.Code, 'MEMBERS_INCOMPLETE') then
+    begin
+      Inc(lCount);
+      Assert.IsTrue(Pos(lOwnerName, lDiagnostic.Message) > 0, lDiagnostic.Message);
+      Assert.IsTrue(SameText(lModel.FileName, lDiagnostic.FileName));
+    end;
+  Assert.AreEqual(1, lCount, 'The source must exercise incomplete member extraction.');
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lModel]);
+  try
+    lResult := TDelphiSemanticSignatureAlignment.Compare([lModel],
+      TDelphiSemanticTypeResolver.BuildIndex(lGraph), lModel.FileName,
+      AlignmentDeclarationOffset(lModel));
+    Assert.AreEqual(aStatus, lResult.Status, lResult.Reason);
   finally
     lGraph.Free;
   end;

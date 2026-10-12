@@ -20,7 +20,7 @@ uses
   System.StrUtils, System.SyncObjs, System.SysUtils,
   DelphiAST, DelphiAST.Classes, DelphiAST.Consts, SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Text,
-  DelphiSemantics.Preprocess, DelphiSemantics.Source;
+  DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
   TOffsetRange = record
@@ -53,6 +53,10 @@ type
     Name: string;
     Kind: string;
     InterfaceGuid: string;
+    AstHelperKind: string;
+    HelperTargetName: string;
+    IsHelper: Boolean;
+    HelperCovered: Boolean;
     ProcedureSignature: TDelphiSemanticProcedureSignature;
     IsDispInterface: Boolean;
     IsForward: Boolean;
@@ -126,39 +130,18 @@ function ExtractFallbackMembers(const aText: string;
 function ActiveExtractionContext: TDelphiSemanticExtractionContext; forward;
 function BuildTypeBlockRanges(const aText: string): TArray<TOffsetRange>; forward;
 
-function FindSectionKeywordOffset(const aLowerText, aKeyword: string): Integer;
-var
-  lAfter: Integer;
-  lOffset: Integer;
-begin
-  lOffset := PosEx(aKeyword, aLowerText, 1);
-  while lOffset > 0 do
-  begin
-    lAfter := lOffset + Length(aKeyword);
-    if ((lOffset = 1) or not IsIdentifierChar(aLowerText[lOffset - 1])) and
-      ((lAfter > Length(aLowerText)) or not IsIdentifierChar(aLowerText[lAfter])) then
-      Exit(lOffset);
-
-    lOffset := PosEx(aKeyword, aLowerText, lAfter);
-  end;
-
-  Result := 0;
-end;
-
 function BuildSourceSections(const aText: string): TDelphiSemanticSourceSections;
 var
-  lLowerText: string;
   lText: string;
 begin
   Result := Default(TDelphiSemanticSourceSections);
   lText := aText;
   if (lText <> '') and (lText[1] = #$FEFF) then
     Delete(lText, 1, 1);
-  lLowerText := LowerCase(SanitizeCodeText(lText));
-  Result.InterfaceOffset := FindSectionKeywordOffset(lLowerText, 'interface');
-  Result.ImplementationOffset := FindSectionKeywordOffset(lLowerText, 'implementation');
-  Result.InitializationOffset := FindSectionKeywordOffset(lLowerText, 'initialization');
-  Result.FinalizationOffset := FindSectionKeywordOffset(lLowerText, 'finalization');
+  Result.InterfaceOffset := FindSectionKeywordOffset(lText, 'interface');
+  Result.ImplementationOffset := FindSectionKeywordOffset(lText, 'implementation');
+  Result.InitializationOffset := FindSectionKeywordOffset(lText, 'initialization');
+  Result.FinalizationOffset := FindSectionKeywordOffset(lText, 'finalization');
 end;
 
 function LineIndexOfOffset(const aText: string; const aOffset: Integer): Integer;
@@ -281,6 +264,8 @@ begin
       if (lTypeDepth > 0) and SameText(lScopeLine, 'end;') then
       begin
         Dec(lTypeDepth);
+        // A nested const/var section ends with its type, not the enclosing type section.
+        lBlockKind := 'type';
       end else if SameText(lScopeLine, 'interface') or SameText(lScopeLine, 'implementation') then
       begin
         lBlockKind := '';
@@ -644,6 +629,7 @@ function CollectWritableConstantSwitches(const aText: string;
 var
   i: Integer;
   lLexer: TmwBasePasLex;
+  lEnabled: Boolean;
   lMatch: TMatch;
   lSwitch: TWritableConstantSwitch;
   lSwitches: TList<TWritableConstantSwitch>;
@@ -659,14 +645,22 @@ begin
     begin
       if lLexer.TokenID = ptCompDirect then
       begin
-        lMatch := TRegEx.Match(lLexer.Token,
-          '^\{\$J\s*([+-])\}|^\(\*\$J\s*([+-])\*\)', [roIgnoreCase]);
-        if lMatch.Success then
+        if TryReadShortCompilerSwitch(lLexer.Token, 'J', lEnabled) then
         begin
           lSwitch.EndOffset := lLexer.TokenPos + lLexer.TokenLen;
-          lSwitch.Enabled := (MatchGroupValue(lMatch, 1) = '+') or
-            (MatchGroupValue(lMatch, 2) = '+');
+          lSwitch.Enabled := lEnabled;
           lSwitches.Add(lSwitch);
+        end else
+        begin
+          lMatch := TRegEx.Match(lLexer.Token,
+            '^\{\$J\s*([+-])\}|^\(\*\$J\s*([+-])\*\)', [roIgnoreCase]);
+          if lMatch.Success then
+          begin
+            lSwitch.EndOffset := lLexer.TokenPos + lLexer.TokenLen;
+            lSwitch.Enabled := (MatchGroupValue(lMatch, 1) = '+') or
+              (MatchGroupValue(lMatch, 2) = '+');
+            lSwitches.Add(lSwitch);
+          end;
         end;
       end;
       if lLexer.IsCompilerDirective then
@@ -896,7 +890,8 @@ begin
   Result := aText;
   if not aSkipBodyAnalysis then
     Exit;
-  lOffset := FindSectionKeywordOffset(LowerCase(aText), 'implementation');
+  // DS-713: only the real section can end an interface projection.
+  lOffset := BuildSourceSections(aText).ImplementationOffset;
   if lOffset > 0 then
     Result := Copy(aText, 1, lOffset - 1) + 'implementation' + sLineBreak + 'end.';
 end;
@@ -1272,10 +1267,12 @@ var
   lDiagnosticCount: Integer;
   lFact: TAstDeclarationScopeFact;
   lHeader: TRoutineHeader;
+  lHelperCovered: Boolean;
   lLocal: TDelphiSemanticLocal;
   lLocalCount: Integer;
   lLocalTypeLexer: TmwBasePasLex;
   lMatchedDeclCount: Integer;
+  lMatchedFactIndex: Integer;
   lMatchedScopeCount: Integer;
   lMatchedScopeIndex: Integer;
   lMember: TDelphiSemanticMember;
@@ -1316,6 +1313,8 @@ var
     lCurrentScopeIndex: Integer;
     lChildTypeOwnerPath: string;
     lGuidNode: TSyntaxNode;
+    lHelperNode: TSyntaxNode;
+    lHelperTargetNode: TSyntaxNode;
     lLiteralNode: TSyntaxNode;
     lLabelReference: TDelphiSemanticReference;
     lLocalTypeName: string;
@@ -1416,12 +1415,35 @@ var
       lFact.Line := aNode.Line;
       lFact.Column := aNode.Col;
       lFact.ScopeIndex := lCurrentScopeIndex;
+      if aNode.Typ = ntConstant then
+        lFact.TypeOwnerPath := aTypeOwnerPath;
       if aNode.Typ = ntTypeDecl then
       begin
         if (lCurrentScopeIndex >= 0) and (aTypeOwnerPath = '') then
           EnsureRoutineTypeDeclaration(aText, aNode, aDeclarations);
         lFact.TypeOwnerPath := aTypeOwnerPath;
         lTypeNode := aNode.FindNode(ntType);
+        if Assigned(lTypeNode) then
+        begin
+          lHelperNode := lTypeNode.FindNode(ntHelper);
+          lFact.IsHelper := Assigned(lHelperNode);
+          if not Assigned(lHelperNode) then
+            lFact.AstHelperKind := 'none'
+          else
+          begin
+            lHelperTargetNode := lHelperNode.FindNode(ntType);
+            if Assigned(lHelperTargetNode) then
+            begin
+              // Only the matched active AST establishes helper kind and target.
+              lFact.HelperTargetName := StringReplace(
+                lHelperTargetNode.GetAttribute(anName), '&', '', [rfReplaceAll]);
+              if SameText(lTypeNode.GetAttribute(anType), 'class') then
+                lFact.AstHelperKind := 'class'
+              else if SameText(lTypeNode.GetAttribute(anType), 'record') then
+                lFact.AstHelperKind := 'record';
+            end;
+          end;
+        end;
         lFact.ProcedureSignature := AstProcedureSignature(lTypeNode);
         lFact.IsForward := SameText(aNode.GetAttribute(anForwarded), 'true');
         if lFact.IsForward then
@@ -1444,7 +1466,7 @@ var
           end;
         end;
       end;
-      if lFact.Name <> '' then
+      if (lFact.Name <> '') or lFact.IsHelper then
         lDeclarationFacts.Add(lFact);
       if aNode.Typ = ntTypeDecl then
       begin
@@ -1491,23 +1513,35 @@ var
   end;
 
   function FindDeclarationFact(const aDeclaration: TDelphiSemanticDeclaration;
-    out aFact: TAstDeclarationScopeFact): Boolean;
+    out aFact: TAstDeclarationScopeFact; out aFactIndex: Integer): Boolean;
   var
     lIndex: Integer;
   begin
+    aFact := Default(TAstDeclarationScopeFact);
+    aFactIndex := -1;
+    Result := False;
     for lIndex := 0 to Pred(lDeclarationFacts.Count) do
       if SameText(lDeclarationFacts[lIndex].Name, aDeclaration.Name) and
         (lDeclarationFacts[lIndex].Line = aDeclaration.Line) and
         ((lDeclarationFacts[lIndex].Column = aDeclaration.Column) or
-        SameText(aDeclaration.Kind, 'type') or
-        (MatchText(lDeclaration.Kind, ['const', 'typed-const']) and
-        SameText(lDeclarationFacts[lIndex].Kind, 'constant'))) then
+        (MatchText(aDeclaration.Kind, ['const', 'typed-const']) and
+        SameText(lDeclarationFacts[lIndex].Kind, 'constant'))) and
+        ((not lDeclarationFacts[lIndex].IsHelper) or
+        MatchText(aDeclaration.Kind, ['type', 'type-alias'])) and
+        ((not MatchText(aDeclaration.Kind, ['type', 'type-alias'])) or
+        SameText(lDeclarationFacts[lIndex].Kind, 'typedecl')) then
       begin
+        // DS-716: helper absence requires a unique AST declaration token, not a same-line name.
+        if Result then
+        begin
+          aFact := Default(TAstDeclarationScopeFact);
+          aFactIndex := -1;
+          Exit(False);
+        end;
         aFact := lDeclarationFacts[lIndex];
-        Exit(True);
+        aFactIndex := lIndex;
+        Result := True;
       end;
-    aFact := Default(TAstDeclarationScopeFact);
-    Result := False;
   end;
 
   // DS-653/DS-657: names used by declarations outside statement blocks are references: const
@@ -1614,6 +1648,7 @@ begin
   begin
     lDeclaration := aDeclarations[i];
     lDeclaration.DeclarationRole := 'invalid';
+    lDeclaration.AstHelperKind := '';
     lDeclaration.ScopeKind := 'unknown';
     lDeclaration.OwnerName := '';
     lDeclaration.OwnerScopeId := '';
@@ -1702,7 +1737,7 @@ begin
     for i := 0 to Pred(aDeclarations.Count) do
     begin
       lDeclaration := aDeclarations[i];
-      if FindDeclarationFact(lDeclaration, lFact) then
+      if FindDeclarationFact(lDeclaration, lFact, lMatchedFactIndex) then
       begin
         lDeclaration.DeclarationRole := IfThen(lFact.IsForward, 'forward', 'declaration');
         if lFact.ScopeIndex < 0 then
@@ -1720,8 +1755,17 @@ begin
         lDeclaration.SymbolId := lDeclaration.OwnerScopeId + '|' +
           LowerCase(lDeclaration.Kind) + '|' + LowerCase(lDeclaration.Name);
         lDeclaration.InterfaceGuid := lFact.InterfaceGuid;
+        lDeclaration.AstHelperKind := lFact.AstHelperKind;
+        if lFact.AstHelperKind <> '' then
+          lDeclaration.HelperTargetName := lFact.HelperTargetName;
         lDeclaration.ProcedureSignature := lFact.ProcedureSignature;
         lDeclaration.IsDispInterface := lFact.IsDispInterface;
+        if lFact.IsHelper then
+        begin
+          // Coverage is the exact unique fact actually assigned to this declaration.
+          lFact.HelperCovered := True;
+          lDeclarationFacts[lMatchedFactIndex] := lFact;
+        end;
         lDeclaration.Mutable := IsMutableDeclaration(lDeclaration.Kind, aWritableSwitches,
           OffsetOfLineColumn(aText, lDeclaration.Line, lDeclaration.Column),
           aOptions.WritableTypedConstants);
@@ -1733,6 +1777,32 @@ begin
       end;
       aDeclarations[i] := lDeclaration;
     end;
+
+    // DS-716: the line scanner can omit escaped or same-line helper declarations.
+    // Count their active AST facts as rejected rather than infer a helper-free context.
+    for lFact in lDeclarationFacts do
+      if lFact.IsHelper then
+      begin
+        lHelperCovered := lFact.HelperCovered;
+        if not lHelperCovered then
+          for lDeclaration in aDeclarations do
+            if SameText(lDeclaration.DeclarationRole, 'invalid') and
+              MatchText(lDeclaration.Kind, ['type', 'type-alias']) and
+              SameText(lDeclaration.Name, lFact.Name) and
+              (lDeclaration.Line = lFact.Line) and (lDeclaration.Column = lFact.Column) then
+            begin
+              lHelperCovered := True;
+              Break;
+            end;
+        if not lHelperCovered then
+        begin
+          Inc(aModel.RejectedDeclarationCount);
+          AddDiagnostic(aDiagnostics, 'AST_HELPER_DECLARATION_UNINDEXED',
+            Format('An active helper declaration at column %d has no indexed declaration; ' +
+              'helper absence is unverified.', [lFact.Column]),
+            aModel.FileName, lFact.Line);
+        end;
+      end;
 
     for i := 0 to Pred(aRoutines.Count) do
     begin
@@ -2221,6 +2291,8 @@ begin
       end else if (lTypeDepth > 0) and SameText(lScopeLine, 'end;') then
       begin
         Dec(lTypeDepth);
+        // Resume sibling type declarations after any nested declaration section.
+        lBlockKind := 'type';
       end else if SameText(lScopeLine, 'implementation') then
       begin
         lInImplementation := True;
@@ -2431,6 +2503,10 @@ begin
       end else if lInRoutine and SameText(lLine, 'end;') then
       begin
         lInRoutine := False;
+      end else if (not lInRoutine) and
+        SameText(StripTrailingDeclarationComment(lLine), 'end;') then
+      begin
+        lBlockKind := '';
       end else if not lInRoutine then
       begin
         lMatch := TRegEx.Match(lLine, '^(const|resourcestring|var|threadvar|type)\b\s*',
@@ -3197,6 +3273,11 @@ begin
       AddDiagnostic(aDiagnostics, 'MEMBERS_INCOMPLETE', Format('Members of %s could not be ' +
         'reconciled with the syntax tree; its member facts are incomplete. Not scanned: %s.',
         [lOwnerName, lUnscanned]), aFileName, aNode.Line);
+    // DelphiAST omits ordinary class constants and parses some soft-keyword names
+    // as fields. Neither shape establishes a complete, correctly classified member list.
+    if TRegEx.IsMatch(SanitizeCodeText(lBody), '\bclass\s+const\b', [roIgnoreCase]) then
+      AddDiagnostic(aDiagnostics, 'MEMBERS_INCOMPLETE', Format('Members of %s are incomplete: ' +
+        'class constants are not modelled reliably.', [lOwnerName]), aFileName, aNode.Line);
     for lNestedNode in lNested do
       ExtractTypeMembers(aText, lOwnerName, aFileName, lNestedNode, aDiagnostics, aDeclarations,
         aMembers, aReferences);
@@ -3976,6 +4057,14 @@ begin
       end;
       Dec(i);
       lTokenEndOffset := i;
+      // DS-671: escaped words are identifiers, never block/control tokens.
+      if (lTokenStartOffset > 1) and (aText[lTokenStartOffset - 1] = '&') then
+      begin
+        lPreviousCodeToken := '&' + lToken;
+        lLastCodeEndOffset := lTokenEndOffset;
+        Inc(i);
+        Continue;
+      end;
       if SameText(lToken, 'then') and (lBlockDepth = 0) then
         Inc(lTopLevelThenCount);
       if SameText(lToken, 'else') and (lBlockDepth = 0) then
@@ -4034,35 +4123,42 @@ begin
   Exit(Length(aText));
 end;
 
-procedure ExtractWithStatements(const aText: string; const aItems: TList<TDelphiSemanticWithStatement>);
+procedure ExtractWithStatements(const aText: string; const aItems: TList<TDelphiSemanticWithStatement>;
+  const aRangeText: string = '');
 var
   i: Integer;
   lBodyStartOffset: Integer;
   lCleanText: string;
+  lSourceText: string;
   lEndOffset: Integer;
   lItem: TDelphiSemanticWithStatement;
   lMatch: TMatch;
   lSelectorParts: TArray<string>;
 begin
+  // Active witnesses select headers; the raw source owns body text and statement ends.
+  // Inactive references retain base checking and unknown suffixes retain their apply barrier.
+  lSourceText := aRangeText;
+  if lSourceText = '' then
+    lSourceText := aText;
   lCleanText := SanitizeCodeText(aText);
-  lMatch := TRegEx.Match(lCleanText, '\bwith\b\s+(.*?)\s+\bdo\b', [roIgnoreCase, roSingleLine]);
+  lMatch := TRegEx.Match(lCleanText, '(?<!&)\bwith\b\s+(.*?)\s+(?<!&)\bdo\b', [roIgnoreCase, roSingleLine]);
   while lMatch.Success do
   begin
     lItem := Default(TDelphiSemanticWithStatement);
     lBodyStartOffset := lMatch.Index + lMatch.Length;
-    lEndOffset := FindWithStatementEndOffset(aText, lBodyStartOffset);
-    lItem.Line := LineOfOffset(aText, lMatch.Index);
-    lItem.Column := ColumnOfOffset(aText, lMatch.Index);
-    lItem.EndLine := LineOfOffset(aText, lEndOffset);
-    lItem.EndColumn := ColumnOfOffset(aText, lEndOffset);
-    if (lBodyStartOffset <= Length(aText)) and (aText[lBodyStartOffset] = #10) then
+    lEndOffset := FindWithStatementEndOffset(lSourceText, lBodyStartOffset);
+    lItem.Line := LineOfOffset(lSourceText, lMatch.Index);
+    lItem.Column := ColumnOfOffset(lSourceText, lMatch.Index);
+    lItem.EndLine := LineOfOffset(lSourceText, lEndOffset);
+    lItem.EndColumn := ColumnOfOffset(lSourceText, lEndOffset);
+    if (lBodyStartOffset <= Length(lSourceText)) and (lSourceText[lBodyStartOffset] = #10) then
     begin
       // The body retains this LF; its relative line index counts it once.
-      lItem.BodyLine := LineOfOffset(aText, lBodyStartOffset - 1);
-      lItem.BodyColumn := ColumnOfOffset(aText, lBodyStartOffset - 1) + 1;
+      lItem.BodyLine := LineOfOffset(lSourceText, lBodyStartOffset - 1);
+      lItem.BodyColumn := ColumnOfOffset(lSourceText, lBodyStartOffset - 1) + 1;
     end else begin
-      lItem.BodyLine := LineOfOffset(aText, lBodyStartOffset);
-      lItem.BodyColumn := ColumnOfOffset(aText, lBodyStartOffset);
+      lItem.BodyLine := LineOfOffset(lSourceText, lBodyStartOffset);
+      lItem.BodyColumn := ColumnOfOffset(lSourceText, lBodyStartOffset);
     end;
     lItem.BodyEndLine := lItem.EndLine;
     lItem.BodyEndColumn := lItem.EndColumn;
@@ -4075,18 +4171,54 @@ begin
       if (aItems[i].Line <= lItem.Line) and (aItems[i].EndLine >= lItem.Line) and
         (aItems[i].NestingDepth >= lItem.NestingDepth) then
         lItem.NestingDepth := aItems[i].NestingDepth + 1;
-    lItem.BodyText := Copy(aText, lBodyStartOffset, lEndOffset - lBodyStartOffset + 1);
+    lItem.BodyText := Copy(lSourceText, lBodyStartOffset, lEndOffset - lBodyStartOffset + 1);
     lItem.HasScopedDeclaration := TRegEx.IsMatch(lItem.BodyText,
       '^\s*(?:var|const|type)\b', [roIgnoreCase, roMultiLine]);
-    lItem.Text := Copy(aText, lMatch.Index, lEndOffset - lMatch.Index + 1);
+    lItem.Text := Copy(lSourceText, lMatch.Index, lEndOffset - lMatch.Index + 1);
     aItems.Add(lItem);
     lMatch := lMatch.NextMatch;
   end;
 end;
 
-procedure ReconcileWithStatementCoordinates(const aSourceText: string;
-  const aWithStatements: TList<TDelphiSemanticWithStatement>);
+function TryBuildActiveRootSource(const aSourceText, aFileName: string;
+  const aSpans: TArray<TDelphiSemanticCopiedSourceSpan>; out aActiveSource: string): Boolean;
 var
+  i, j: Integer;
+  lLength: Integer;
+  lRootWitnessVerified: Boolean;
+  lSpan: TDelphiSemanticCopiedSourceSpan;
+begin
+  aActiveSource := aSourceText;
+  for i := 1 to Length(aActiveSource) do
+    if not CharInSet(aActiveSource[i], [#13, #10]) then
+      aActiveSource[i] := ' ';
+  lRootWitnessVerified := False;
+  for lSpan in aSpans do
+  begin
+    if not SameText(lSpan.FileName, aFileName) then
+      Continue;
+    if not lRootWitnessVerified then
+    begin
+      if lSpan.SourceText <> aSourceText then
+        Exit(False);
+      lRootWitnessVerified := True;
+    end;
+    lLength := lSpan.OutputEndOffset - lSpan.OutputStartOffset;
+    if (lLength < 0) or (lSpan.SourceStartOffset <= 0) or
+      (lSpan.SourceStartOffset > Length(aSourceText) + 1) or
+      (lLength > Length(aSourceText) - lSpan.SourceStartOffset + 1) then
+      Exit(False);
+    for j := 0 to lLength - 1 do
+      aActiveSource[lSpan.SourceStartOffset + j] := aSourceText[lSpan.SourceStartOffset + j];
+  end;
+  Result := lRootWitnessVerified;
+end;
+
+function ReconcileWithStatementCoordinates(const aSourceText, aFileName: string;
+  const aSpans: TArray<TDelphiSemanticCopiedSourceSpan>;
+  const aWithStatements: TList<TDelphiSemanticWithStatement>): Boolean;
+var
+  lActiveSource: string;
   lBestDistance: Integer;
   lBestIndex: Integer;
   lCandidateDistance: Integer;
@@ -4095,9 +4227,19 @@ var
   lItem: TDelphiSemanticWithStatement;
   lRootStatements: TList<TDelphiSemanticWithStatement>;
 begin
+  Result := True;
+  if aWithStatements.Count = 0 then
+    Exit;
+  // Use the preprocessor's copied source witnesses to preserve physical offsets
+  // without restoring code excluded by the selected compiler configuration.
+  if not TryBuildActiveRootSource(aSourceText, aFileName, aSpans, lActiveSource) then
+  begin
+    aWithStatements.Clear;
+    Exit(False);
+  end;
   lRootStatements := TList<TDelphiSemanticWithStatement>.Create;
   try
-    ExtractWithStatements(aSourceText, lRootStatements);
+    ExtractWithStatements(lActiveSource, lRootStatements, aSourceText);
     for i := 0 to Pred(aWithStatements.Count) do
     begin
       lItem := aWithStatements[i];
@@ -4265,6 +4407,67 @@ begin
     lSeen.Free;
     lOccurrences.Free;
   end;
+end;
+
+procedure CaptureUnknownIncludeReferences(const aRootFileName: string;
+  const aSpans: TArray<TDelphiSemanticActivitySpan>;
+  const aReferences: TList<TDelphiSemanticReference>);
+var
+  i: Integer;
+  lLexer: TmwBasePasLex;
+  lLine: Integer;
+  lLineStart: Integer;
+  lOffset: Integer;
+  lReference: TDelphiSemanticReference;
+  lSpan: TDelphiSemanticActivitySpan;
+begin
+  // Possible include text must refuse rename even when absent from the chosen AST branch.
+  for lSpan in aSpans do
+    if (lSpan.Activity = saUnknown) and not SameText(lSpan.FileName, aRootFileName) then
+    begin
+      lLexer := TmwBasePasLex.Create;
+      try
+        lLexer.UseDefines := False;
+        lLexer.Origin := lSpan.SourceText;
+        lLexer.RunPos := lSpan.StartOffset - 1;
+        while (lLexer.TokenID <> ptNull) and
+          (lLexer.TokenPos + 1 < lSpan.EndOffset) do
+        begin
+          if lLexer.TokenID = ptIdentifier then
+          begin
+            lOffset := lLexer.TokenPos + 1;
+            lLine := 1;
+            lLineStart := 1;
+            for i := 1 to lOffset - 1 do
+              if lSpan.SourceText[i] = #10 then
+              begin
+                Inc(lLine);
+                lLineStart := i + 1;
+              end;
+            lReference := Default(TDelphiSemanticReference);
+            lReference.Name := lLexer.Token;
+            if StartsText('&', lReference.Name) then
+              Delete(lReference.Name, 1, 1);
+            lReference.FileName := lSpan.FileName;
+            lReference.Line := lLine;
+            lReference.Column := lOffset - lLineStart + 1;
+            lReference.Offset := lOffset;
+            lReference.EndOffset := lOffset + lLexer.TokenLen;
+            lReference.Role := 'unverified-condition';
+            // Replace a selected-branch AST reference at the same physical position.
+            for i := Pred(aReferences.Count) downto 0 do
+              if SameText(aReferences[i].FileName, lReference.FileName) and
+                (aReferences[i].Line = lReference.Line) and
+                (aReferences[i].Column = lReference.Column) then
+                aReferences.Delete(i);
+            aReferences.Add(lReference);
+          end;
+          lLexer.Next;
+        end;
+      finally
+        lLexer.Free;
+      end;
+    end;
 end;
 
 procedure RemoveDuplicateReferences(const aReferences: TList<TDelphiSemanticReference>);
@@ -4442,6 +4645,40 @@ begin
       AddDiagnostic(lDiagnostics, lObservationError,
         'Source bytes changed during extraction.', aOptions.SourceFileName, 0);
     end;
+    // Publication follows actual activity, including unsupported conditional frames.
+    // A structural/source failure cannot publish a partial inactivity proof.
+    if aOptions.ProjectContextApplied and (Result.SourceObservations <> nil) and
+      lPreprocessResult.ActivityEvidenceAvailable then
+    begin
+      if lPreprocessResult.HasUnknownActivity then
+        Result.VerifiedActiveSourceText := TDelphiSemanticSourceConditionals.EncodeActivity(
+          Result.SourceText, lSourceResult.Source.FileName, lPreprocessResult.ActivitySpans)
+      else begin
+        // A copied-text witness blanks directives even when their activity is known.
+        // Validate its root coverage, then publish activity independently of text.
+        if TryBuildActiveRootSource(Result.SourceText, lSourceResult.Source.FileName,
+          lPreprocessResult.CopiedSourceSpans, Result.VerifiedActiveSourceText) then
+          Result.VerifiedActiveSourceText := TDelphiSemanticSourceConditionals.EncodeActivity(
+            Result.SourceText, lSourceResult.Source.FileName, lPreprocessResult.ActivitySpans)
+        else
+          Result.VerifiedActiveSourceText :=
+            TDelphiSemanticSourceConditionals.UnavailableActivity;
+      end;
+    end else if aOptions.ProjectContextApplied then
+      Result.VerifiedActiveSourceText := TDelphiSemanticSourceConditionals.UnavailableActivity;
+    // No-context extraction still needs its active reference partition after JSON/cache
+    // round trips. Keep this witness separate from the project activity authority.
+    if not aOptions.ProjectContextApplied and (Result.SourceObservations <> nil) and
+      lPreprocessResult.ActivityEvidenceAvailable then
+    begin
+      if lPreprocessResult.HasUnknownActivity then
+        Result.ReferenceScanSourceText := TDelphiSemanticSourceConditionals.SourceForScan(
+          Result.SourceText, TDelphiSemanticSourceConditionals.EncodeActivity(
+          Result.SourceText, lSourceResult.Source.FileName, lPreprocessResult.ActivitySpans))
+      else if not TryBuildActiveRootSource(Result.SourceText, lSourceResult.Source.FileName,
+        lPreprocessResult.CopiedSourceSpans, Result.ReferenceScanSourceText) then
+        Result.ReferenceScanSourceText := '';
+    end;
     AddPreprocessDiagnostics(lDiagnostics, lPreprocessResult.Diagnostics);
     lText := lPreprocessResult.OutputText;
     lOutputOffsetShift := 0;
@@ -4492,7 +4729,14 @@ begin
     if aOptions.WithStatementsOnly then
     begin
       ExtractWithStatements(lText, lWithStatements);
-      ReconcileWithStatementCoordinates(lSourceResult.Source.Text, lWithStatements);
+      if not ReconcileWithStatementCoordinates(lSourceResult.Source.Text,
+        lSourceResult.Source.FileName, lPreprocessResult.CopiedSourceSpans, lWithStatements) then
+      begin
+        Result.Success := False;
+        Result.ScopeModelStatus := 'with-source-map-failed';
+        AddDiagnostic(lDiagnostics, 'WITH_SOURCE_MAP_FAILED',
+          'Active WITH source could not be traced to the original file.', aOptions.SourceFileName, 0);
+      end;
       AssignModelArrays(Result, lDiagnostics, lInterfaceUses, lImplementationUses, lDeclarations,
         lMembers, lRoutines, lLocals, lReferences, lWithStatements);
       Exit;
@@ -4546,7 +4790,14 @@ begin
     ApplyMemberSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lMembers);
     ApplyLocalSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lLocals);
     ReconcileDeclarationCoordinates(lSourceResult.Source.Text, lDeclarations);
-    ReconcileWithStatementCoordinates(lSourceResult.Source.Text, lWithStatements);
+    if not ReconcileWithStatementCoordinates(lSourceResult.Source.Text,
+      lSourceResult.Source.FileName, lPreprocessResult.CopiedSourceSpans, lWithStatements) then
+    begin
+      Result.Success := False;
+      Result.ScopeModelStatus := 'with-source-map-failed';
+      AddDiagnostic(lDiagnostics, 'WITH_SOURCE_MAP_FAILED',
+        'Active WITH source could not be traced to the original file.', aOptions.SourceFileName, 0);
+    end;
     if lReferences.Count > 0 then
     begin
       SeparateLocalLabelReferences(Result, lReferences);
@@ -4557,6 +4808,9 @@ begin
     ReconcileRoutineCoordinates(lSourceResult.Source.Text, lRoutines);
     ReconcileLocalCoordinates(lSourceResult.Source.Text, lLocals);
 
+    CaptureUnknownIncludeReferences(lSourceResult.Source.FileName,
+      lPreprocessResult.ActivitySpans, lReferences);
+    RemoveDuplicateReferences(lReferences);
     AssignModelArrays(Result, lDiagnostics, lInterfaceUses, lImplementationUses, lDeclarations,
       lMembers, lRoutines, lLocals, lReferences, lWithStatements);
   finally

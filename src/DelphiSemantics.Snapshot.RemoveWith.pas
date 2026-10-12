@@ -102,6 +102,7 @@ type
     SelectorTextId: TSemanticStringId;
     StatusId: TSemanticStringId;
     SkipReasonId: TSemanticStringId;
+    InactiveSpanSkipReasonId: TSemanticStringId;
     Flags: Cardinal;
     MemberReferenceCount: Integer;
     LexicalReferenceCount: Integer;
@@ -111,6 +112,7 @@ type
     UnresolvedReferenceCount: Integer;
     Selectors: TArray<TSemanticRemoveWithSelectorBindingFact>;
     References: TArray<TSemanticRemoveWithBoundReferenceFact>;
+    InactiveSpanReferences: TArray<TSemanticRemoveWithBoundReferenceFact>;
   end;
 
   TSemanticRemoveWithPlanningFacts = record
@@ -150,6 +152,7 @@ const
   cSemanticRemoveWithSymbolFlagIsDefault = 1 shl 2;
   cSemanticRemoveWithSymbolFlagIsIndexed = 1 shl 3;
   cSemanticRemoveWithBindingFlagHasScopedDeclaration = 1 shl 0;
+  cSemanticRemoveWithBindingFlagActivityUnverified = 1 shl 1;
 
 function CopyRemoveWithPlanningFacts(
   const aFacts: TSemanticRemoveWithPlanningFacts): TSemanticRemoveWithPlanningFacts;
@@ -189,6 +192,7 @@ begin
     Result.Bindings[i] := aFacts.Bindings[i];
     Result.Bindings[i].Selectors := Copy(aFacts.Bindings[i].Selectors);
     Result.Bindings[i].References := Copy(aFacts.Bindings[i].References);
+    Result.Bindings[i].InactiveSpanReferences := Copy(aFacts.Bindings[i].InactiveSpanReferences);
   end;
 end;
 

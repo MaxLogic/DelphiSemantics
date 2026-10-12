@@ -205,6 +205,7 @@ begin
   Result.AddPair('ProcedureSignature', SignatureToJson(aDeclaration.ProcedureSignature));
   Result.AddPair('BaseTypeName', aDeclaration.BaseTypeName);
   Result.AddPair('HelperTargetName', aDeclaration.HelperTargetName);
+  Result.AddPair('AstHelperKind', aDeclaration.AstHelperKind);
   Result.AddPair('SectionKind', aDeclaration.SectionKind);
   Result.AddPair('Line', TJSONNumber.Create(aDeclaration.Line));
   Result.AddPair('Column', TJSONNumber.Create(aDeclaration.Column));
@@ -230,6 +231,7 @@ begin
   Result.TypeName := JsonString(aObject, 'TypeName');
   Result.BaseTypeName := JsonString(aObject, 'BaseTypeName');
   Result.HelperTargetName := JsonString(aObject, 'HelperTargetName');
+  Result.AstHelperKind := JsonString(aObject, 'AstHelperKind');
   Result.SectionKind := JsonString(aObject, 'SectionKind');
   Result.Line := JsonInt(aObject, 'Line');
   Result.Column := JsonInt(aObject, 'Column');
@@ -779,6 +781,8 @@ begin
     lObject.AddPair('LineEndingName', aModel.LineEndingName);
     lObject.AddPair('LineBreak', aModel.LineBreak);
     lObject.AddPair('SourceText', aModel.SourceText);
+    lObject.AddPair('VerifiedActiveSourceText', aModel.VerifiedActiveSourceText);
+    lObject.AddPair('ReferenceScanSourceText', aModel.ReferenceScanSourceText);
     lObject.AddPair('SourceSections', SourceSectionsToJson(aModel.SourceSections));
     lObject.AddPair('DependencyFacts', DependencyFactsToJson(aModel.DependencyFacts));
     lObject.AddPair('InterfaceUses', StringArrayToJson(aModel.InterfaceUses));
@@ -826,6 +830,8 @@ begin
     Result.LineEndingName := JsonString(lObject, 'LineEndingName');
     Result.LineBreak := JsonString(lObject, 'LineBreak');
     Result.SourceText := JsonString(lObject, 'SourceText');
+    Result.VerifiedActiveSourceText := JsonString(lObject, 'VerifiedActiveSourceText');
+    Result.ReferenceScanSourceText := JsonString(lObject, 'ReferenceScanSourceText');
     Result.SourceSections := JsonToSourceSections(lObject.GetValue('SourceSections') as TJSONObject);
     Result.DependencyFacts := JsonToDependencyFacts(lObject.GetValue('DependencyFacts'));
     Result.InterfaceUses := JsonToStringArray(lObject.GetValue('InterfaceUses') as TJSONArray);

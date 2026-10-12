@@ -8,7 +8,7 @@ uses
   DelphiSemantics.Query, DelphiSemantics.Refactor,
   DelphiSemantics.Resolve.MemberResolver,
   DelphiSemantics.Resolve.ScopeResolver, DelphiSemantics.Resolve.TypeResolver,
-  DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Search, DelphiSemantics.SemanticGraph,
+  DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.RootMemberAbsence, DelphiSemantics.Search, DelphiSemantics.SemanticGraph,
   DelphiSemantics.Symbols, DelphiSemantics.Usage, DelphiSemantics.WithScan;
 
 type
@@ -141,6 +141,7 @@ type
     ProjectContextApplied: Boolean;
     Cache: TDelphiSemanticCacheOptions;
     UseLspEnrichment: Boolean;
+    ImplicitRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
   end;
 
   TDelphiSemanticApi = record

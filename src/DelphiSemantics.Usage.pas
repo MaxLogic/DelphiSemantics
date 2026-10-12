@@ -62,7 +62,19 @@ uses
   System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
   DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.PositionResolver,
-  DelphiSemantics.Snapshot.QuerySupport;
+  DelphiSemantics.Snapshot.QuerySupport, DelphiSemantics.SourceConditionals;
+
+function SnapshotUnknownActivity(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aFileId: TSemanticStringId;
+  const aLine, aColumn: Integer): Boolean;
+begin
+  Result := False;
+  if (aFileId <> 0) and (aFileId <> aUnit.FileNameId) then
+    Exit;
+  Result := TDelphiSemanticSourceConditionals.UnknownAtPosition(
+    aSnapshot.ExactTextOf(aUnit.SourceTextId),
+    aSnapshot.ExactTextOf(aUnit.VerifiedActiveSourceTextId), aLine, aColumn);
+end;
 
 function MakeDiagnosticResult(const aStatus, aDiagnostic: string): TDelphiSemanticUsageResult;
 begin
@@ -760,6 +772,7 @@ var
   lUnit: TUnitSnapshot;
   lUnresolved: TList<TDelphiSemanticUsage>;
   lUpperSource: string;
+  lActiveSource: string;
   lUsage: TDelphiSemanticUsage;
   lVerified: Boolean;
 begin
@@ -805,6 +818,18 @@ begin
         if not aSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit) then
           Continue;
         lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
+        if SameText(SnapshotText(aSnapshot, lReference.ClassificationId),
+          'unverified-condition') then
+        begin
+          AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, lName,
+            SnapshotText(aSnapshot, lReference.RoutineId), SnapshotText(aSnapshot,
+            lReference.SectionKindId), lReference.Line, lReference.Column,
+            'unclassified-occurrence', lReference.FileId);
+          Continue;
+        end;
+        if SnapshotUnknownActivity(aSnapshot, lUnit, lReference.FileId,
+          lReference.Line, lReference.Column) then
+          Continue;
         // DS-659: an include fact without a position is still listed, never dropped.
         if (lReference.FileId <> 0) and ((lReference.Line <= 0) or (lReference.Column <= 0) or
           (lReference.FileId = lUnit.FileNameId)) then
@@ -847,7 +872,7 @@ begin
             'unresolved-reference', lReference.FileId);
       end;
 
-    // Occurrences no fact describes: extraction gaps, unverified units, inactive code.
+    // Occurrences no fact describes: extraction gaps and unverified conditional activity.
     lNeedle := UpperCase(lName);
     for i := 0 to Pred(aSnapshot.UnitCount) do
     begin
@@ -857,7 +882,12 @@ begin
         Continue;
       lVerified := IsVerifiedScopeStatus(SnapshotText(aSnapshot, lUnit.ScopeModelStatusId));
       lFileName := SnapshotText(aSnapshot, lUnit.FileNameId);
-      lUpperSource := UpperCase(SanitizeCodeText(lSource));
+      lActiveSource := aSnapshot.ExactTextOf(lUnit.VerifiedActiveSourceTextId);
+      if lVerified then
+        lUpperSource := UpperCase(SanitizeCodeText(
+          TDelphiSemanticSourceConditionals.SourceForScan(lSource, lActiveSource)))
+      else
+        lUpperSource := UpperCase(SanitizeCodeText(lSource));
       lLine := 1;
       lLineStart := 1;
       lScanned := 1;
@@ -877,8 +907,9 @@ begin
         begin
           lColumn := lPosition - lLineStart + 1;
           lKey := SnapshotPositionKey(lFileName, lLine, lColumn);
-          if not lCovered.ContainsKey(lKey) and not lHandled.ContainsKey(lKey) and
-            not (lVerified and lDeclarations.ContainsKey(lKey)) then
+          if TDelphiSemanticSourceConditionals.UnknownAtOffset(lSource, lActiveSource,
+            lPosition) or (not lCovered.ContainsKey(lKey) and not lHandled.ContainsKey(lKey) and
+            not (lVerified and lDeclarations.ContainsKey(lKey))) then
           begin
             if lVerified then
               AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit,
@@ -951,7 +982,9 @@ begin
         lEquivalentSnapshotSymbol := lUnit.SymbolById(lEquivalentRef.SymbolId);
         lEquivalentSymbol := SnapshotIndexedSymbol(aSnapshot, lUnit, lEquivalentRef,
           lEquivalentSnapshotSymbol);
-        lUsages.Add(MakeDeclarationUsage(lEquivalentSymbol));
+        if not SnapshotUnknownActivity(aSnapshot, lUnit, lEquivalentSnapshotSymbol.FileId,
+          lEquivalentSnapshotSymbol.Line, lEquivalentSnapshotSymbol.Column) then
+          lUsages.Add(MakeDeclarationUsage(lEquivalentSymbol));
       end;
 
     for lEquivalentRef in lEquivalentRefs do
@@ -966,6 +999,10 @@ begin
           if not IsVerifiedScopeStatus(SnapshotText(aSnapshot, lUnit.ScopeModelStatusId)) then
             Continue;
           lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
+          if SameText(SnapshotText(aSnapshot, lReference.ClassificationId),
+            'unverified-condition') or SnapshotUnknownActivity(aSnapshot, lUnit,
+            lReference.FileId, lReference.Line, lReference.Column) then
+            Continue;
           lUsages.Add(MakeSnapshotReferenceUsage(aSnapshot, lUnit, lReference));
         end;
 

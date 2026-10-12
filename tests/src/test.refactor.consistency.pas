@@ -66,6 +66,13 @@ type
     procedure RefusesUnitWithIncompleteMembers(const aProceduralField: Boolean;
       const aStatus: string);
     [Test]
+    [TestCase('Unrelated incomplete class', 'unrelated,match')]
+    [TestCase('Unattributed file', 'file,unknown')]
+    [TestCase('Missing location', 'location,unknown')]
+    [TestCase('Unrelated diagnostic', 'other,unknown')]
+    [TestCase('Duplicate diagnostic owner', 'duplicate,unknown')]
+    procedure IsolatesIncompleteMemberOwners(const aFault, aStatus: string);
+    [Test]
     [TestCase('Direct parameter alias', 'direct,match')]
     [TestCase('Chained parameter alias', 'chain,match')]
     [TestCase('Distinct parameter type', 'distinct,mismatch')]
@@ -148,6 +155,7 @@ implementation
 uses
   System.IOUtils, System.SysUtils,
   DelphiSemantics.Consistency.EventBindings, DelphiSemantics.Consistency.EventSignatures,
+  DelphiSemantics.Consistency.Types,
   DelphiSemantics.Model.Extract, DelphiSemantics.Model.Json,
   DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.SemanticGraph;
 
@@ -1245,6 +1253,91 @@ begin
     lResult := TDelphiSemanticEventBindingResolver.Resolve([lModel],
       TDelphiSemanticTypeResolver.BuildIndex(lGraph), lBinding);
     Assert.AreEqual(aStatus, lResult.Status, lResult.Reason);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TRefactorConsistencyTests.IsolatesIncompleteMemberOwners(
+  const aFault, aStatus: string);
+var
+  lBinding: TDelphiSemanticEventBinding;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lModel: TDelphiSemanticUnitModel;
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticEventBindingResult;
+  lCount, i, lOwner: Integer;
+  lSource: string;
+begin
+  lSource := 'unit OwnerCompleteness;' + sLineBreak +
+    'interface' + sLineBreak + 'type' + sLineBreak +
+    '  TValue = class end;' + sLineBreak +
+    '  TEvent = procedure(aValue: TValue) of object;' + sLineBreak +
+    '  TControl = class' + sLineBreak +
+    '    FEvent: TEvent;' + sLineBreak +
+    '  published' + sLineBreak +
+    '    property OnData: TEvent read FEvent write FEvent;' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TForm = class' + sLineBreak +
+    '  published' + sLineBreak +
+    '    procedure HandleData(aValue: TValue);' + sLineBreak +
+    '  end;' + sLineBreak +
+    '  TBroken = class' + sLineBreak +
+    '    FUnscanned: procedure(aValue: Integer) of object;' + sLineBreak +
+    '  end;' + sLineBreak +
+    'implementation' + sLineBreak +
+    'procedure TForm.HandleData(aValue: TValue); begin end;' + sLineBreak + 'end.';
+  lModel := ExtractModel('OwnerCompleteness', lSource);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  Assert.AreEqual(0, lModel.RejectedDeclarationCount);
+  if aFault = 'duplicate' then
+  begin
+    lOwner := -1;
+    for i := 0 to High(lModel.Declarations) do
+      if SameText(lModel.Declarations[i].Name, 'TBroken') then
+        lOwner := i;
+    Assert.IsTrue(lOwner >= 0);
+    // Duplicate facts cannot establish one reliable diagnostic owner.
+    SetLength(lModel.Declarations, Length(lModel.Declarations) + 1);
+    lModel.Declarations[High(lModel.Declarations)] := lModel.Declarations[lOwner];
+  end;
+  lCount := 0;
+  for i := 0 to High(lModel.Diagnostics) do
+    if SameText(lModel.Diagnostics[i].Code, 'MEMBERS_INCOMPLETE') then
+    begin
+      Inc(lCount);
+      Assert.IsTrue(Pos('TBroken', lModel.Diagnostics[i].Message) > 0);
+      if aFault = 'file' then
+        lModel.Diagnostics[i].FileName := lModel.FileName + '.other'
+      else if aFault = 'location' then
+        lModel.Diagnostics[i].Line := 0
+      else if aFault = 'other' then
+        lModel.Diagnostics[i].Code := 'MEMBERS_UNVERIFIED';
+    end;
+  Assert.AreEqual(1, lCount, 'The source must actually exercise incomplete member extraction.');
+  if aFault = 'unrelated' then
+    Assert.AreEqual(0, TDelphiSemanticConsistencyTypeResolver.FindCompleteModelIndex(
+      [lModel], lModel.UnitName))
+  else
+    Assert.AreEqual(-1, TDelphiSemanticConsistencyTypeResolver.FindCompleteModelIndex(
+      [lModel], lModel.UnitName));
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lModel]);
+  try
+    lBinding := Default(TDelphiSemanticEventBinding);
+    lBinding.UnitName := lModel.UnitName;
+    lBinding.FormClassName := 'TForm';
+    lBinding.ComponentClassName := 'TControl';
+    lBinding.EventName := 'OnData';
+    lBinding.HandlerName := 'HandleData';
+    lResult := TDelphiSemanticEventBindingResolver.Resolve([lModel],
+      TDelphiSemanticTypeResolver.BuildIndex(lGraph), lBinding);
+    Assert.AreEqual(aStatus, lResult.Status, lResult.Reason);
+    lBinding.FormClassName := 'TBroken';
+    lResult := TDelphiSemanticEventBindingResolver.Resolve([lModel],
+      TDelphiSemanticTypeResolver.BuildIndex(lGraph), lBinding);
+    Assert.AreEqual('unknown', lResult.Status, lResult.Reason);
   finally
     lGraph.Free;
   end;

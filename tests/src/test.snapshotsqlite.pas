@@ -94,7 +94,11 @@ type
     [Test]
     procedure RemoveWithAccessOwnerIdentityReloadRejectsMissingRows;
     [Test]
-    procedure Schema13PlanningRowsRebuildWholeSnapshotCache;
+    [TestCase('Schema13', '13')]
+    [TestCase('Schema17', '17')]
+    procedure Schema13PlanningRowsRebuildWholeSnapshotCache(const aOldSchema: string);
+    [Test]
+    procedure CastMemberRefusesMismatchedSourceOffset;
     [Test]
     procedure ProjectPlanningCachePreservesDirectImportVisibility;
     [Test]
@@ -1112,10 +1116,10 @@ begin
   lSourceFileName := TempPath('Snapshot-' + lUnicodeText + '.pas');
   lTypeName := 'T' + lUnicodeText;
   lMemberName := 'Value' + lUnicodeText;
-  lExactContextText := 'Context-' + lUnicodeText;
+  lExactContextText := '  Context-' + lUnicodeText + #9 + sLineBreak + '  ';
   lSourceText := 'unit SnapshotUnicodeUnit;' + sLineBreak + 'interface' + sLineBreak +
     'implementation' + sLineBreak + '// ExactSource ' + lUnicodeText + ' Aa' + sLineBreak +
-    'end.';
+    'end.' + sLineBreak + '  ' + sLineBreak;
   lIdentity := CreateIdentity('SnapshotUnicodeUnit', 'file-unicode', 'context-unicode',
     'include-unicode', 'snapshot-v1');
   lIdentity.IdentityKey := 'SnapshotIdentity-' + lUnicodeText;
@@ -1142,6 +1146,8 @@ begin
     lMemberNameId := lBuilder.Strings.Intern(lMemberName);
     lSourceTextId := lBuilder.ExactStrings.Intern(lSourceText);
     lUnit := TUnitSnapshot.Create(19, lFileNameId, lUnitNameId, lSourceTextId);
+    lUnit.SetVerifiedActiveSourceTextId(lBuilder.ExactStrings.Intern(
+      '  ' + Copy(lSourceText, 3, MaxInt)));
 
     lSymbol := Default(TSemanticSymbolFact);
     lSymbol.NameId := lTypeNameId;
@@ -1188,6 +1194,8 @@ begin
         Assert.AreEqual(lMemberName,
           lLoadedSnapshot.TextOf(lLoadedUnit.SymbolById(TSemanticSymbolId(2)).NameId));
         Assert.AreEqual(lSourceText, lLoadedSnapshot.ExactTextOf(lLoadedUnit.SourceTextId));
+        Assert.AreEqual('  ' + Copy(lSourceText, 3, MaxInt),
+          lLoadedSnapshot.ExactTextOf(lLoadedUnit.VerifiedActiveSourceTextId));
         Assert.IsFalse(lLoadedSnapshot.HasRemoveWithPlanningFacts,
           'Unit cache entries must not carry project remove-with planning facts.');
       finally
@@ -2192,7 +2200,59 @@ begin
   end;
 end;
 
-procedure TSnapshotSqliteTests.Schema13PlanningRowsRebuildWholeSnapshotCache;
+procedure TSnapshotSqliteTests.CastMemberRefusesMismatchedSourceOffset;
+var
+  i: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TSemanticReferenceFact;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+  lFound: Integer;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TempPath('cast-offset.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit CastOffset;'#13#10'interface'#13#10'type'#13#10 +
+    '  TRec = record FieldValue: Integer; OtherValue: Integer; end;'#13#10 +
+    '  PRec = ^TRec;'#13#10'implementation'#13#10'procedure Run;'#13#10 +
+    'begin'#13#10'  PRec(nil)^.OtherValue := 1;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lFound := 0;
+  for i := 0 to High(lModel.References) do
+    if SameText(lModel.References[i].Name, 'OtherValue') then
+    begin
+      Inc(lFound);
+      lModel.References[i].Name := 'FieldValue';
+    end;
+  Assert.AreEqual(1, lFound, 'A real cast-member reference must reach the guard.');
+  lFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+  lSnapshot := BuildProjectSnapshotFromModels([lModel], lFacts,
+    Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    lUnit := lSnapshot.UnitByIndex(0);
+    lFound := 0;
+    for i := 1 to lUnit.ReferenceCount do
+    begin
+      lReference := lUnit.ReferenceById(i);
+      if (lSnapshot.TextOf(lReference.NameId) = 'FieldValue') and
+        (lReference.Line = 9) then
+      begin
+        Inc(lFound);
+        Assert.AreEqual<Cardinal>(0, lReference.TargetSymbolId,
+          'A mismatched source position cannot prove a cast-member target.');
+      end;
+    end;
+    Assert.AreEqual(1, lFound);
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.Schema13PlanningRowsRebuildWholeSnapshotCache(const aOldSchema: string);
 var
   lBuilder: TDelphiProjectSnapshotBuilder;
   lCache: TDelphiSemanticSnapshotSqliteCache;
@@ -2203,7 +2263,7 @@ var
   lSnapshot: TDelphiProjectSnapshot;
   lUnitIdentity: TDelphiSemanticSnapshotCacheIdentity;
 begin
-  lCacheFileName := TempPath('snapshot-schema-13-rebuild.sqlite3');
+  lCacheFileName := TempPath('snapshot-schema-' + aOldSchema + '-rebuild.sqlite3');
   lUnitIdentity := CreateIdentity('SnapshotSchema13Unit', 'file-a', 'context-a',
     'include-a', 'snapshot-v1');
   lProjectIdentity := CreateIdentity('SnapshotSchema13Project', 'file-a',
@@ -2241,7 +2301,8 @@ begin
   ExecCacheSql(lCacheFileName,
     'alter table old_remove_with_facts rename to snapshot_remove_with_facts');
   ExecCacheSql(lCacheFileName,
-    'update meta set value_text = ''13'' where key_name = ''snapshot_schema_version''');
+    'update meta set value_text = ' + QuotedStr(aOldSchema) +
+    ' where key_name = ''snapshot_schema_version''');
   Assert.AreEqual(1, TableRowCount(lCacheFileName, 'snapshot_remove_with_facts'));
   lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
   try

@@ -170,6 +170,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Model.Json.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Model.Text.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.RemoveWith.Visibility.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.RootMemberAbsence.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.Cache.Sqlite.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Snapshot.RemoveWith.pas"/>

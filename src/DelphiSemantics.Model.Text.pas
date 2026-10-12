@@ -10,7 +10,9 @@ function IsWordAt(const aText: string; const aOffset: Integer; const aWord: stri
 function IsWordAt(const aText, aWord: string; const aIndex: Integer): Boolean; overload;
 function TextContainsIdentifier(const aText, aIdentifier: string): Boolean;
 function SanitizeCodeText(const aText: string): string;
+function FindSectionKeywordOffset(const aText, aKeyword: string): Integer;
 function TrySplitTopLevelCommaList(const aText: string; out aParts: TArray<string>): Boolean;
+function TryParsePointerCastName(const aText: string; out aName: string): Boolean;
 
 implementation
 
@@ -26,10 +28,98 @@ type
       const aMessage: string; x, y: Integer);
   end;
 
+// DS-713: escaped identifiers and trivia cannot introduce a source section.
+function FindSectionKeywordOffset(const aText, aKeyword: string): Integer;
+var
+  lKind: TptTokenKind;
+  lLexer: TmwBasePasLex;
+begin
+  Result := 0;
+  if SameText(aKeyword, 'interface') then
+    lKind := ptInterface
+  else if SameText(aKeyword, 'implementation') then
+    lKind := ptImplementation
+  else if SameText(aKeyword, 'initialization') then
+    lKind := ptInitialization
+  else if SameText(aKeyword, 'finalization') then
+    lKind := ptFinalization
+  else
+    Exit;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aText;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID = lKind then
+        Exit(lLexer.TokenPos + 1);
+      lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
 procedure TCommaListLexer.HandleMessage(aSender: TObject;
   const aKind: TMessageEventType; const aMessage: string; x, y: Integer);
 begin
   fFailed := True;
+end;
+
+// DS-666: syntax alone does not prove a cast; consumers must resolve this name as a type.
+function TryParsePointerCastName(const aText: string; out aName: string): Boolean;
+var
+  lArgumentEnd: Integer;
+  lArgumentStart: Integer;
+  lDepth: Integer;
+  lLexer: TCommaListLexer;
+  lName: string;
+  lParts: TArray<string>;
+  lText: string;
+begin
+  Result := False;
+  aName := '';
+  lText := Trim(aText);
+  if (Pos('(', lText) = 0) or not EndsText('^', lText) then
+    Exit;
+  lLexer := TCommaListLexer.Create;
+  try
+    lLexer.OnMessage := lLexer.HandleMessage;
+    lLexer.UseDefines := False;
+    lLexer.Origin := lText;
+    if lLexer.TokenID <> ptIdentifier then
+      Exit;
+    lName := lLexer.Token;
+    lLexer.NextNoJunk;
+    if lLexer.TokenID <> ptRoundOpen then
+      Exit;
+    lArgumentStart := lLexer.TokenPos + 2;
+    lArgumentEnd := 0;
+    lDepth := 1;
+    lLexer.NextNoJunk;
+    while (lLexer.TokenID <> ptNull) and not lLexer.fFailed and (lDepth > 0) do
+    begin
+      if lLexer.TokenID = ptRoundOpen then
+        Inc(lDepth)
+      else if lLexer.TokenID = ptRoundClose then
+      begin
+        Dec(lDepth);
+        if lDepth = 0 then
+          lArgumentEnd := lLexer.TokenPos + 1;
+      end;
+      lLexer.NextNoJunk;
+    end;
+    if (lDepth <> 0) or lLexer.fFailed or (lLexer.TokenID <> ptPointerSymbol) or
+      not TrySplitTopLevelCommaList(Copy(lText, lArgumentStart,
+        lArgumentEnd - lArgumentStart), lParts) or (Length(lParts) <> 1) then
+      Exit;
+    lLexer.NextNoJunk;
+    Result := not lLexer.fFailed and (lLexer.TokenID = ptNull);
+    if Result then
+      aName := lName;
+  finally
+    lLexer.Free;
+  end;
 end;
 
 function NormalizeRoutineSignature(const aSignature: string): string;

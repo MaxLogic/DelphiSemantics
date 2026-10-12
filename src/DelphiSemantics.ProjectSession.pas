@@ -13,6 +13,9 @@ uses
   DelphiSemantics.WithBinding;
 
 {$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+function ProjectRemoveWithFactsIdentityForTest(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions): TDelphiSemanticSnapshotCacheIdentity;
+
 function RekeyProjectRemoveWithFactsIdentityForTest(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
   const aSchemaVersion: string): TDelphiSemanticSnapshotCacheIdentity;
@@ -225,9 +228,9 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v27';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v42';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v30';
+    'project-session-remove-with-facts-v57';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -304,6 +307,14 @@ begin
   Result.DelphiVersion := aOptions.DelphiVersion;
   Result.Configuration := aOptions.Configuration;
   Result.Platform := aOptions.Platform;
+end;
+
+function ModelObservationOwner(const aOptions: TDelphiSemanticOptions):
+  IDelphiSemanticModelObservationOwner;
+begin
+  if not Supports(aOptions.ImplicitRootMemberAbsence,
+    IDelphiSemanticModelObservationOwner, Result) then
+    Result := nil;
 end;
 
 function ExtractProjectUnitModel(const aProject: TDelphiSemanticProjectInfo;
@@ -750,6 +761,18 @@ begin
   end;
 end;
 
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+function ProjectRemoveWithFactsIdentityForTest(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions): TDelphiSemanticSnapshotCacheIdentity;
+var
+  lFiles: TArray<string>;
+begin
+  lFiles := ProjectModelFileNames(aProject);
+  Result := ProjectRemoveWithFactsCacheIdentity(aProject, aOptions, lFiles, [],
+    BuildProjectUnitCacheIdentities(aProject, aOptions, lFiles, []));
+end;
+{$ENDIF}
+
 type
   TProjectModelExtractionResult = record
     Models: TArray<TDelphiSemanticUnitModel>;
@@ -808,6 +831,14 @@ begin
       lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
     end;
 
+    if ModelObservationOwner(aOptions) <> nil then
+    begin
+      if lCache = nil then
+        lCache := TDelphiSemanticUnitCache.Create(CacheOptionsFromSessionOptions(aOptions));
+      lCache.ObservationOwner := ModelObservationOwner(aOptions);
+      lCache.ProjectContextFingerprint := aProject.ContextFingerprint;
+    end;
+
     SetLength(Result.CacheIdentities, Length(aSourceFileNames));
     if aUseScopedSourceFileNames then
     begin
@@ -831,6 +862,9 @@ begin
       lModels.Add(lModel);
     end;
 
+    if ModelObservationOwner(aOptions) <> nil then
+      for lModel in lModels do
+        TDelphiSemanticUnitCache.RequireCurrentSources(lModel.SourceObservations);
     Result.Models := lModels.ToArray;
   finally
     lStopwatch.Stop;
@@ -857,6 +891,16 @@ begin
     lSemanticCachePersistenceAvailable;
 end;
 
+procedure RequireCurrentRequestModels(const aOptions: TDelphiSemanticOptions;
+  const aModels: TArray<TDelphiSemanticUnitModel>);
+var
+  lModel: TDelphiSemanticUnitModel;
+begin
+  if ModelObservationOwner(aOptions) <> nil then
+    for lModel in aModels do
+      TDelphiSemanticUnitCache.RequireCurrentSources(lModel.SourceObservations);
+end;
+
 function BuildWithBindingFactsResultCore(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions;
   const aScopedSourceFileNames: TArray<string>;
@@ -864,6 +908,7 @@ function BuildWithBindingFactsResultCore(const aProject: TDelphiSemanticProjectI
   TProjectWithBindingFactsCoreResult; overload;
 var
   lExtraction: TProjectModelExtractionResult;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
   lGraph: TDelphiSemanticSemanticGraph;
 begin
   Result := Default(TProjectWithBindingFactsCoreResult);
@@ -884,8 +929,13 @@ begin
     else
       Result.BuildResult.SemanticGraphMetrics :=
         Default(TDelphiSemanticGraphBuildMetrics);
-    Result.BuildResult.Facts := TDelphiSemanticWithBinder.BindProject(
-      aProject.ContextFingerprint, lGraph, lExtraction.Models);
+    lFacts := TDelphiSemanticWithBinder.BindProject(
+      aProject.ContextFingerprint, lGraph, lExtraction.Models,
+      aOptions.ImplicitRootMemberAbsence);
+    // Binding invokes request callbacks. Seal the consumed bytes again before
+    // placing any facts in the public result.
+    RequireCurrentRequestModels(aOptions, lExtraction.Models);
+    Result.BuildResult.Facts := lFacts;
     Result.BuildResult.Facts.Metrics.ModelExtractionMilliseconds :=
       lExtraction.ExtractionMilliseconds;
     Result.BuildResult.Facts.Metrics.SemanticCacheHits :=
@@ -1704,7 +1754,8 @@ begin
   lContextEvidence := nil;
   lCacheSnapshotMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
   SetLength(lUnitSnapshots, 0);
-  if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
+  if (ModelObservationOwner(fOptions) = nil) and
+      (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
   begin
     lUnitCacheIdentities := BuildProjectUnitCacheIdentities(fProject, fOptions,
       lSourceFileNames, aScopedSourceFileNames);
@@ -1813,12 +1864,14 @@ begin
         Result.Metrics.SnapshotCachePartialHitCount := 1
       else
         Result.Metrics.SnapshotCacheMissRebuildCount := 1;
-    if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
+    if (ModelObservationOwner(fOptions) = nil) and
+      (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
       Result.Metrics.SnapshotCacheUnitMergeMilliseconds :=
         Result.Metrics.SnapshotBuilderMergeMilliseconds;
     Result.Metrics.SnapshotParseAvoidedEstimateMilliseconds :=
       lParseAvoidedEstimateMilliseconds;
-    if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
+    if (ModelObservationOwner(fOptions) = nil) and
+      (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
     begin
       lStoreCacheIdentities := lExtraction.CacheIdentities;
       if Length(lUnitCacheIdentities) = Length(lSourceFileNames) then
@@ -2001,7 +2054,8 @@ begin
   lCacheSnapshotMetrics := Default(TDelphiSemanticSnapshotCacheMetrics);
   lSourceFileNames := ProjectModelFileNames(fProject);
   SetLength(lUnitCacheIdentities, 0);
-  if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
+  if (fOptions.ImplicitRootMemberAbsence = nil) and
+    (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
   begin
     lUnitCacheIdentities := BuildProjectUnitCacheIdentities(fProject, fOptions,
       lSourceFileNames, aScopedSourceFileNames);
@@ -2040,7 +2094,7 @@ begin
           else
             Result.SemanticGraphMetrics := Default(TDelphiSemanticGraphBuildMetrics);
           lFacts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint,
-            lGraph, lExtraction.Models);
+            lGraph, lExtraction.Models, fOptions.ImplicitRootMemberAbsence);
           lSnapshot := BuildSnapshotFromModels(lExtraction.Models, lFacts, False,
             fOptions.SnapshotBuildWorkerCount, lFallbackMetrics);
           try
@@ -2076,7 +2130,8 @@ begin
       Result.SemanticGraphMetrics := Default(TDelphiSemanticGraphBuildMetrics);
 
     lFacts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint, lGraph,
-      lExtraction.Models);
+      lExtraction.Models, fOptions.ImplicitRootMemberAbsence);
+    RequireCurrentRequestModels(fOptions, lExtraction.Models);
     lFacts.Metrics.ModelExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
     lFacts.Metrics.SemanticCacheHits := lExtraction.CacheMetrics.CacheHits;
     lFacts.Metrics.SemanticCacheMisses := lExtraction.CacheMetrics.CacheMisses;
@@ -2087,7 +2142,8 @@ begin
     lSnapshot := BuildSnapshotFromModels(lExtraction.Models, lFacts, False,
       fOptions.SnapshotBuildWorkerCount, Result.SnapshotMetrics);
     try
-      if (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
+      if (fOptions.ImplicitRootMemberAbsence = nil) and
+        (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
       begin
         AccumulateProjectFactsCacheMetrics(Result.SnapshotMetrics,
           lCacheSnapshotMetrics);
@@ -2189,6 +2245,9 @@ class function TDelphiSemanticProjectSession.Open(const aOptions: TDelphiSemanti
   TDelphiSemanticProjectSessionResult;
 var
   lContext: TDelphiSemanticContextResult;
+  lProfileAccepted: Boolean;
+  lProfileReason: string;
+  lProfileValidator: IDelphiSemanticProjectProfileValidator;
 begin
   if Trim(aOptions.ProjectPath) = '' then
     Exit(MissingProjectPathFailure);
@@ -2196,6 +2255,32 @@ begin
   lContext := TDelphiSemanticProject.Load(aOptions.ProjectPath, aOptions);
   if not lContext.Success then
     Exit(SessionFailure(lContext));
+
+  if Supports(aOptions.ImplicitRootMemberAbsence, IDelphiSemanticProjectProfileValidator,
+    lProfileValidator) then
+  begin
+    lProfileAccepted := False;
+    lProfileReason := '';
+    try
+      // Validate the exact context our session will use, before any absence query.
+      lProfileAccepted := lProfileValidator.ValidateProjectProfile(lContext.Project, lProfileReason);
+    except
+      on E: Exception do
+        lProfileReason := Format('Source profile validation failed: %s', [E.Message]);
+    end;
+    if not lProfileAccepted then
+    begin
+      if lProfileReason = '' then
+        lProfileReason := 'The supplied source profile validator rejected the project context.';
+      lContext.Success := False;
+      SetLength(lContext.Diagnostics, Length(lContext.Diagnostics) + 1);
+      lContext.Diagnostics[High(lContext.Diagnostics)].Code := 'PROJECT_PROFILE_VALIDATION_FAILED';
+      lContext.Diagnostics[High(lContext.Diagnostics)].Message := lProfileReason;
+      lContext.Diagnostics[High(lContext.Diagnostics)].FileName := lContext.Project.ProjectFileName;
+      lContext.Diagnostics[High(lContext.Diagnostics)].Severity := dsError;
+      Exit(SessionFailure(lContext));
+    end;
+  end;
 
   Result := Default(TDelphiSemanticProjectSessionResult);
   Result.Success := True;

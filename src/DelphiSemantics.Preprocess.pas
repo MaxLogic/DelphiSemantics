@@ -3,7 +3,7 @@ unit DelphiSemantics.Preprocess;
 interface
 
 uses
-  DelphiSemantics.Source;
+  DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
   TDelphiSemanticPreprocessOptions = record
@@ -66,6 +66,9 @@ type
     // One entry per OutputText line, in order.
     LineOrigins: TArray<TDelphiSemanticSourceLineOrigin>;
     CopiedSourceSpans: TArray<TDelphiSemanticCopiedSourceSpan>;
+    ActivitySpans: TArray<TDelphiSemanticActivitySpan>;
+    HasUnknownActivity: Boolean;
+    ActivityEvidenceAvailable: Boolean;
     Diagnostics: TArray<TDelphiSemanticPreprocessDiagnostic>;
   end;
 
@@ -74,6 +77,9 @@ type
     class function PreprocessFile(const aOptions: TDelphiSemanticPreprocessOptions):
       TDelphiSemanticPreprocessResult; static;
   end;
+
+function TryReadShortCompilerSwitch(const aDirective: string; const aSwitch: Char;
+  out aEnabled: Boolean): Boolean;
 
 implementation
 
@@ -88,6 +94,11 @@ type
 
   TPreprocessCapture = class
     Spans: TList<TDelphiSemanticCopiedSourceSpan>;
+    ActivitySpans: TList<TDelphiSemanticActivitySpan>;
+    UnknownSymbols: TDictionary<string, Boolean>;
+    AllSymbolsUnknown: Boolean;
+    HasUnknownActivity: Boolean;
+    ActivityComplete: Boolean;
     NextId: Integer;
     constructor Create;
     destructor Destroy; override;
@@ -104,16 +115,24 @@ type
     ParentActive: Boolean;
     Active: Boolean;
     BranchTaken: Boolean;
+    ParentActivity: TDelphiSemanticSourceActivity;
+    Activity: TDelphiSemanticSourceActivity;
+    BranchCoverage: TDelphiSemanticSourceActivity;
   end;
 
 constructor TPreprocessCapture.Create;
 begin
   inherited Create;
+  ActivityComplete := True;
   Spans := TList<TDelphiSemanticCopiedSourceSpan>.Create;
+  ActivitySpans := TList<TDelphiSemanticActivitySpan>.Create;
+  UnknownSymbols := TDictionary<string, Boolean>.Create;
 end;
 
 destructor TPreprocessCapture.Destroy;
 begin
+  UnknownSymbols.Free;
+  ActivitySpans.Free;
   Spans.Free;
   inherited;
 end;
@@ -195,9 +214,57 @@ begin
   Result := UpperCase(aName.Trim);
 end;
 
+function IsCompilerPredefinedConditional(const aName: string): Boolean;
+var
+  i: Integer;
+  lName: string;
+begin
+  lName := DefineKey(aName);
+  // DS-667: names, not assumed values, from Embarcadero's predefined table:
+  // https://docwiki.embarcadero.com/RADStudio/Athens/en/Conditional_compilation_(Delphi)
+  // Includes documented legacy and framework symbols; VER versions remain unknown.
+  if (Length(lName) > 3) and StartsStr('VER', lName) then
+  begin
+    for i := 4 to Length(lName) do
+      if not CharInSet(lName[i], ['0'..'9']) then
+        Exit(False);
+    Exit(True);
+  end;
+  // Delphi 12 compiler probes across all nine installed targets also establish LLVM,
+  // MANAGED_RECORD and WEAK_NATIVEINT (round9-compiler-predefined-probe.json).
+  Result := MatchText(lName, ['ALIGN_STACK', 'ANDROID', 'ANDROID32', 'ANDROID64',
+    'ASSEMBLER', 'AUTOREFCOUNT', 'CONDITIONALEXPRESSIONS', 'CONSOLE', 'CPU386',
+    'CPU32BITS', 'CPU64BITS', 'CPUARM', 'CPUARM32', 'CPUARM64', 'CPUX64', 'CPUX86',
+    'DCC', 'ELF', 'EXTERNALLINKER', 'FRAMEWORK_FMX', 'FRAMEWORK_VCL', 'IOS', 'IOS32', 'IOS64',
+    'IOSSIMULATOR',
+    'LINUX', 'LINUX32', 'LINUX64', 'LLVM', 'MACOS', 'MACOS32', 'MACOS64', 'MANAGED_RECORD', 'MSWINDOWS',
+    'NATIVECODE', 'NEXTGEN', 'OSX', 'OSX32', 'OSX64', 'PC_MAPPED_EXCEPTIONS', 'PIC', 'POSIX',
+    'POSIX32', 'POSIX64', 'UNDERSCOREIMPORTNAME', 'UNICODE', 'WEAKINSTREF',
+    'WEAKINTFREF', 'WEAKREF', 'WEAK_NATIVEINT', 'WIN32', 'WIN64']);
+end;
+
+function IsConditionalStateKnown(const aDefines: TDefineMap; const aName: string;
+  const aCapture: TPreprocessCapture = nil): Boolean;
+var
+  lUnknown: Boolean;
+begin
+  // An ordinary absent define is false; captured DEFINE/UNDEF states also win
+  // for compiler symbols whose implicit value is otherwise not captured.
+  Result := aDefines.ContainsKey(DefineKey(aName)) or
+    not IsCompilerPredefinedConditional(aName);
+  if aCapture <> nil then
+  begin
+    if aCapture.UnknownSymbols.TryGetValue(DefineKey(aName), lUnknown) then
+      Result := not lUnknown
+    else if aCapture.AllSymbolsUnknown then
+      Result := False;
+  end;
+end;
+
 function IsDefined(const aDefines: TDefineMap; const aName: string): Boolean;
 begin
-  Result := aDefines.ContainsKey(DefineKey(aName));
+  if not aDefines.TryGetValue(DefineKey(aName), Result) then
+    Result := False;
 end;
 
 function CalculateTextHash(const aText: string): string;
@@ -260,6 +327,84 @@ begin
     Exit(True);
 
   Result := aStack[Pred(aStack.Count)].Active;
+end;
+
+function ActivityAnd(const aLeft, aRight: TDelphiSemanticSourceActivity):
+  TDelphiSemanticSourceActivity;
+begin
+  if (aLeft = saInactive) or (aRight = saInactive) then
+    Exit(saInactive);
+  if (aLeft = saUnknown) or (aRight = saUnknown) then
+    Exit(saUnknown);
+  Result := saActive;
+end;
+
+function ActivityNot(const aValue: TDelphiSemanticSourceActivity): TDelphiSemanticSourceActivity;
+begin
+  case aValue of
+    saInactive: Result := saActive;
+    saActive: Result := saInactive;
+  else
+    Result := saUnknown;
+  end;
+end;
+
+function ConditionActivity(const aActive, aKnown: Boolean): TDelphiSemanticSourceActivity;
+begin
+  if not aKnown then
+    Exit(saUnknown);
+  if aActive then
+    Result := saActive
+  else
+    Result := saInactive;
+end;
+
+function CurrentActivity(const aStack: TList<TPreprocessFrame>): TDelphiSemanticSourceActivity;
+begin
+  if aStack.Count = 0 then
+    Exit(saActive);
+  Result := aStack[Pred(aStack.Count)].Activity;
+end;
+
+procedure CaptureActivity(const aContext: TPreprocessOutputContext;
+  const aStack: TList<TPreprocessFrame>; const aSource, aFileName: string;
+  const aStart, aLength: Integer);
+var
+  lSpan: TDelphiSemanticActivitySpan;
+begin
+  if aLength <= 0 then
+    Exit;
+  lSpan.FileName := aFileName;
+  lSpan.SourceText := aSource;
+  lSpan.StartOffset := aStart;
+  lSpan.EndOffset := aStart + aLength;
+  lSpan.Activity := CurrentActivity(aStack);
+  if lSpan.Activity = saUnknown then
+    aContext.Capture.HasUnknownActivity := True;
+  aContext.Capture.ActivitySpans.Add(lSpan);
+end;
+
+procedure CaptureDirectiveActivity(const aContext: TPreprocessOutputContext;
+  const aBefore, aAfter: TDelphiSemanticSourceActivity;
+  const aSource, aFileName: string; const aStart, aLength: Integer);
+var
+  lSpan: TDelphiSemanticActivitySpan;
+begin
+  if aLength <= 0 then
+    Exit;
+  lSpan.FileName := aFileName;
+  lSpan.SourceText := aSource;
+  lSpan.StartOffset := aStart;
+  lSpan.EndOffset := aStart + aLength;
+  if (aBefore = saUnknown) or (aAfter = saUnknown) then
+  begin
+    lSpan.Activity := saUnknown;
+    aContext.Capture.HasUnknownActivity := True;
+  end else if (aBefore = saInactive) or (aAfter = saInactive) then
+    lSpan.Activity := saInactive
+  else
+    lSpan.Activity := saActive;
+  aContext.Capture.ActivitySpans.Add(lSpan);
 end;
 
 function IsConditionalDirectiveText(const aDirective: string): Boolean;
@@ -407,51 +552,73 @@ begin
   Result := False;
 end;
 
+function IsPlainConditionalIdentifier(const aText: string): Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  if (aText = '') or not CharInSet(aText[1], ['A'..'Z', 'a'..'z', '_']) then
+    Exit;
+  for i := 2 to Length(aText) do
+    if not CharInSet(aText[i], ['A'..'Z', 'a'..'z', '0'..'9', '_']) then
+      Exit;
+  Result := True;
+end;
+
 function TryEvaluateIfExpression(const aExpression: string; const aDefines: TDefineMap;
-  out aActive: Boolean): Boolean;
+  out aActive: Boolean; const aRequireKnownSymbols: Boolean = False;
+  const aCapture: TPreprocessCapture = nil): Boolean;
 var
   lLeft: string;
   lLeftActive: Boolean;
+  lLeftKnown: Boolean;
   lName: string;
   lRight: string;
   lRightActive: Boolean;
+  lRightKnown: Boolean;
   lText: string;
 begin
   lText := StripOuterParentheses(aExpression);
 
   if TrySplitTopLevelExpression(lText, 'or', lLeft, lRight) then
   begin
-    if not TryEvaluateIfExpression(lLeft, aDefines, lLeftActive) then
-      Exit(False);
-    if lLeftActive then
+    lLeftKnown := TryEvaluateIfExpression(lLeft, aDefines, lLeftActive, aRequireKnownSymbols, aCapture);
+    if lLeftKnown and lLeftActive then
     begin
       aActive := True;
       Exit(True);
     end;
-    if not TryEvaluateIfExpression(lRight, aDefines, lRightActive) then
-      Exit(False);
-    aActive := lRightActive;
-    Exit(True);
+    lRightKnown := TryEvaluateIfExpression(lRight, aDefines, lRightActive, aRequireKnownSymbols, aCapture);
+    if lRightKnown and lRightActive then
+    begin
+      aActive := True;
+      Exit(True);
+    end;
+    aActive := False;
+    Exit(lLeftKnown and lRightKnown);
   end;
 
   if TrySplitTopLevelExpression(lText, 'and', lLeft, lRight) then
   begin
-    if not TryEvaluateIfExpression(lLeft, aDefines, lLeftActive) then
-      Exit(False);
-    if not lLeftActive then
+    lLeftKnown := TryEvaluateIfExpression(lLeft, aDefines, lLeftActive, aRequireKnownSymbols, aCapture);
+    if lLeftKnown and not lLeftActive then
     begin
       aActive := False;
       Exit(True);
     end;
-    if not TryEvaluateIfExpression(lRight, aDefines, lRightActive) then
-      Exit(False);
-    aActive := lRightActive;
-    Exit(True);
+    lRightKnown := TryEvaluateIfExpression(lRight, aDefines, lRightActive, aRequireKnownSymbols, aCapture);
+    if lRightKnown and not lRightActive then
+    begin
+      aActive := False;
+      Exit(True);
+    end;
+    aActive := True;
+    Exit(lLeftKnown and lRightKnown);
   end;
 
   if StartsText('not ', lText) then
   begin
-    if not TryEvaluateIfExpression(Copy(lText, 5, MaxInt), aDefines, lLeftActive) then
+    if not TryEvaluateIfExpression(Copy(lText, 5, MaxInt), aDefines, lLeftActive, aRequireKnownSymbols, aCapture) then
       Exit(False);
     aActive := not lLeftActive;
     Exit(True);
@@ -459,7 +626,10 @@ begin
 
   if StartsText('Defined(', lText) and EndsText(')', lText) then
   begin
-    lName := Copy(lText, 9, Length(lText) - 9);
+    lName := Copy(lText, 9, Length(lText) - 9).Trim;
+    if not IsPlainConditionalIdentifier(lName) or
+      (aRequireKnownSymbols and not IsConditionalStateKnown(aDefines, lName, aCapture)) then
+      Exit(False);
     aActive := IsDefined(aDefines, lName);
     Exit(True);
   end;
@@ -479,12 +649,11 @@ begin
   if (Pos('(', lText) > 0) or (Pos(')', lText) > 0) then
     Exit(False);
 
-  if lText <> '' then
-  begin
-    aActive := IsDefined(aDefines, lText);
-    Exit(True);
-  end;
+  if MatchText(lText, ['CompilerVersion', 'RTLVersion']) then
+    Exit(False);
 
+  // IF identifiers denote Delphi constant expressions, not conditional define names.
+  // Without a verified constant evaluator they remain unknown, even when -D names them.
   Result := False;
 end;
 
@@ -551,30 +720,86 @@ begin
   Result := lText;
 end;
 
+function IsShortSwitchDirective(const aText: string): Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  i := 1;
+  if aText = '' then
+    Exit;
+  while i <= Length(aText) do
+  begin
+    if (i + 1 > Length(aText)) or not CharInSet(UpCase(aText[i]), ['A'..'Z']) or
+      not CharInSet(aText[i + 1], ['+', '-']) then
+      Exit;
+    Inc(i, 2);
+    if i > Length(aText) then
+      Exit(True);
+    if aText[i] <> ',' then
+      Exit;
+    Inc(i);
+    if i > Length(aText) then
+      Exit;
+  end;
+end;
+
+function TryReadShortCompilerSwitch(const aDirective: string; const aSwitch: Char;
+  out aEnabled: Boolean): Boolean;
+var
+  i: Integer;
+  lText: string;
+begin
+  Result := False;
+  aEnabled := False;
+  lText := aDirective.Trim;
+  if StartsText('{$', lText) and EndsText('}', lText) then
+    lText := Copy(lText, 3, Length(lText) - 3).Trim
+  else if StartsText('(*$', lText) and EndsText('*)', lText) then
+    lText := Copy(lText, 4, Length(lText) - 5).Trim;
+  if not IsShortSwitchDirective(lText) then
+    Exit;
+  i := 1;
+  while i <= Length(lText) do
+  begin
+    if UpCase(lText[i]) = UpCase(aSwitch) then
+    begin
+      // DS-714: compiler switch groups are applied from left to right.
+      aEnabled := lText[i + 1] = '+';
+      Result := True;
+    end;
+    Inc(i, 3);
+  end;
+end;
+
 function IsCompilerSwitchDirective(const aDirective: string): Boolean;
 var
   lText: string;
 begin
   lText := aDirective.Trim;
-  Result := ((Length(lText) = 2) and CharInSet(UpCase(lText[1]), ['A'..'Z']) and
-    CharInSet(lText[2], ['+', '-'])) or StartsText('APPTYPE ', lText) or
+  Result := IsShortSwitchDirective(lText) or StartsText('APPTYPE ', lText) or
     StartsText('LEGACYIFEND ', lText) or StartsText('M ', lText) or StartsText('MESSAGE ', lText) or
     StartsText('ENDREGION', lText) or StartsText('MINENUMSIZE ', lText) or StartsText('MODE ', lText) or
     StartsText('POINTERMATH ', lText) or StartsText('R ', lText) or StartsText('REGION', lText) or
     StartsText('RESOURCE ', lText) or StartsText('RANGECHECKS ', lText) or StartsText('RTTI ', lText) or
     StartsText('SCOPEDENUMS ', lText) or StartsText('SETPEFLAGS ', lText) or
     StartsText('STRONGLINKTYPES ', lText) or StartsText('WARN ', lText) or
-    StartsText('WARNINGS ', lText) or StartsText('WEAKLINKRTTI ', lText);
+    StartsText('WARNINGS ', lText) or StartsText('WEAKLINKRTTI ', lText) or
+    StartsText('EXTERNALSYM ', lText) or StartsText('HPPEMIT ', lText) or
+    StartsText('NODEFINE ', lText) or StartsText('OBJTYPENAME ', lText);
 end;
 
 procedure PushConditionalFrame(const aStack: TList<TPreprocessFrame>;
-  const aActive: Boolean);
+  const aActive: Boolean; const aKnown: Boolean = True);
 var
   lFrame: TPreprocessFrame;
 begin
   lFrame.ParentActive := CurrentActive(aStack);
   lFrame.Active := lFrame.ParentActive and aActive;
   lFrame.BranchTaken := aActive;
+  lFrame.ParentActivity := CurrentActivity(aStack);
+  lFrame.BranchCoverage := ConditionActivity(aActive, aKnown);
+  lFrame.Activity := ActivityAnd(lFrame.ParentActivity, lFrame.BranchCoverage);
   aStack.Add(lFrame);
 end;
 
@@ -585,6 +810,9 @@ begin
   lFrame.ParentActive := CurrentActive(aStack);
   lFrame.Active := False;
   lFrame.BranchTaken := True;
+  lFrame.ParentActivity := CurrentActivity(aStack);
+  lFrame.BranchCoverage := saUnknown;
+  lFrame.Activity := ActivityAnd(lFrame.ParentActivity, saUnknown);
   aStack.Add(lFrame);
 end;
 
@@ -598,6 +826,10 @@ begin
   lFrame := aStack[Pred(aStack.Count)];
   lFrame.Active := False;
   lFrame.BranchTaken := True;
+  lFrame.Activity := ActivityAnd(lFrame.ParentActivity,
+    ActivityAnd(ActivityNot(lFrame.BranchCoverage), saUnknown));
+  if lFrame.BranchCoverage <> saActive then
+    lFrame.BranchCoverage := saUnknown;
   aStack[Pred(aStack.Count)] := lFrame;
 end;
 
@@ -608,16 +840,23 @@ begin
   lFrame := aStack[Pred(aStack.Count)];
   lFrame.Active := lFrame.ParentActive and not lFrame.BranchTaken;
   lFrame.BranchTaken := True;
+  lFrame.Activity := ActivityAnd(lFrame.ParentActivity, ActivityNot(lFrame.BranchCoverage));
+  lFrame.BranchCoverage := saActive;
   aStack[Pred(aStack.Count)] := lFrame;
 end;
 
-procedure UpdateElseIfFrame(const aStack: TList<TPreprocessFrame>; const aActive: Boolean);
+procedure UpdateElseIfFrame(const aStack: TList<TPreprocessFrame>; const aActive: Boolean;
+  const aKnown: Boolean);
 var
   lFrame: TPreprocessFrame;
 begin
   lFrame := aStack[Pred(aStack.Count)];
   lFrame.Active := lFrame.ParentActive and not lFrame.BranchTaken and aActive;
   lFrame.BranchTaken := lFrame.BranchTaken or aActive;
+  lFrame.Activity := ActivityAnd(lFrame.ParentActivity,
+    ActivityAnd(ActivityNot(lFrame.BranchCoverage), ConditionActivity(aActive, aKnown)));
+  lFrame.BranchCoverage := ActivityNot(ActivityAnd(ActivityNot(lFrame.BranchCoverage),
+    ActivityNot(ConditionActivity(aActive, aKnown))));
   aStack[Pred(aStack.Count)] := lFrame;
 end;
 
@@ -717,6 +956,7 @@ function ProcessInlineDirectiveLine(const aLine, aDirectiveLine, aFileName, aSou
   const aContext: TPreprocessOutputContext): Boolean;
 var
   lDirective: string;
+  lDirectiveActivity: TDelphiSemanticSourceActivity;
   lDirectiveStart: Integer;
   lDirectiveStop: Integer;
   lIncludeColumn: Integer;
@@ -738,6 +978,8 @@ begin
     lDirectiveStart := FindNextDirectiveStart(aDirectiveLine, lPos);
     while lDirectiveStart > 0 do
     begin
+      CaptureActivity(aContext, aStack, aSourceText, aFileName,
+        aSourceLineStartOffset + lPos - 1, lDirectiveStart - lPos);
       if CurrentActive(aStack) then
         AppendCopiedText(lLineOutput, lLineContext,
           Copy(aLine, lPos, lDirectiveStart - lPos), aSourceText, aFileName,
@@ -757,6 +999,7 @@ begin
       else
         lDirective := Copy(aLine, lDirectiveStart + 2, lDirectiveStop - lDirectiveStart - 2).Trim;
 
+      lDirectiveActivity := CurrentActivity(aStack);
       if IsCompilerSwitchDirective(lDirective) then
       begin
         if CurrentActive(aStack) then
@@ -778,10 +1021,15 @@ begin
           lIncludeColumn := lDirectiveStart;
         lLineOutput.Append(StringOfChar(' ', lDirectiveStop - lDirectiveStart + 1));
       end;
+      CaptureDirectiveActivity(aContext, lDirectiveActivity, CurrentActivity(aStack),
+        aSourceText, aFileName, aSourceLineStartOffset + lDirectiveStart - 1,
+        lDirectiveStop - lDirectiveStart + 1);
       lPos := lDirectiveStop + 1;
       lDirectiveStart := FindNextDirectiveStart(aDirectiveLine, lPos);
     end;
 
+    CaptureActivity(aContext, aStack, aSourceText, aFileName,
+      aSourceLineStartOffset + lPos - 1, Length(aLine) - lPos + 1);
     if CurrentActive(aStack) then
       AppendCopiedText(lLineOutput, lLineContext, Copy(aLine, lPos, MaxInt),
         aSourceText, aFileName, aLineNumber, lPos, aSourceLineStartOffset)
@@ -817,6 +1065,7 @@ procedure ProcessLoadedSourceFile(const aFileName, aSourceText: string;
 var
   i: Integer;
   lDirective: string;
+  lDirectiveActivity: TDelphiSemanticSourceActivity;
   lDirectiveLines: TStringList;
   lDirectiveStart: Integer;
   lDirectiveStop: Integer;
@@ -827,6 +1076,7 @@ var
 begin
   if IsFileInStack(aIncludeStack, aFileName) then
   begin
+    aContext.Capture.ActivityComplete := False;
     AddDiagnostic(aDiagnostics, 'INCLUDE_CYCLE', 'Include cycle detected: ' + aFileName,
       aFileName, 0);
     aSuccess := False;
@@ -858,7 +1108,8 @@ begin
       begin
         lDirectiveStart := FindNextDirectiveStart(lDirectiveLines[i], 1);
         lDirectiveStop := FindDirectiveStop(lDirectiveLines[i], lDirectiveStart);
-        if (RemoveInlineDirectivesForDetection(lDirectiveLines[i]).Trim <> '') or
+        if IsCompilerSwitchDirective(lDirective) or
+          (RemoveInlineDirectivesForDetection(lDirectiveLines[i]).Trim <> '') or
           ((lDirectiveStop > 0) and
           (FindNextDirectiveStart(lDirectiveLines[i], lDirectiveStop + 1) > 0)) then
         begin
@@ -871,11 +1122,15 @@ begin
           Continue;
         end;
 
+        lDirectiveActivity := CurrentActivity(aStack);
         lOutputLineWritten := False;
         if not ProcessDirective(lDirective, aFileName, i + 1, aOptions, aDefines, aStack,
           aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache, aOrigins,
           aContext, lOutputLineWritten) then
           aSuccess := False;
+        CaptureDirectiveActivity(aContext, lDirectiveActivity, CurrentActivity(aStack),
+          aSourceText, aFileName, lLineStarts[i] + lDirectiveStart - 1,
+          lDirectiveStop - lDirectiveStart + 1);
         if not lOutputLineWritten then
         begin
           aOutput.AppendLine('');
@@ -884,6 +1139,8 @@ begin
       end else
       begin
         AddRegion(aRegions, aFileName, i + 1, CurrentActive(aStack));
+        CaptureActivity(aContext, aStack, aSourceText, aFileName,
+          lLineStarts[i], Length(lLines[i]));
         if CurrentActive(aStack) then
         begin
           AppendCopiedText(aOutput, aContext, lLines[i], aSourceText, aFileName,
@@ -917,6 +1174,7 @@ begin
     lText := aOptions.SourceText
   else if not TryLoadPreprocessSource(aFileName, aSourceCache, aDiagnostics, lText) then
   begin
+    aContext.Capture.ActivityComplete := False;
     aSuccess := False;
     Exit;
   end;
@@ -941,159 +1199,246 @@ var
   lIncludeName: string;
   lIncludeOutput: TStringBuilder;
   lIncludeText: string;
+  lKnown: Boolean;
+  lDiscardOrigins: TLineOriginList;
+  lOrigins: TLineOriginList;
+  lEmitInclude: Boolean;
   lSuccess: Boolean;
   lText: string;
 begin
-  aOutputLineWritten := False;
-  lText := aDirective.Trim;
+  try
+    aOutputLineWritten := False;
+    lText := aDirective.Trim;
 
-  if StartsText('IFDEF ', lText) then
-  begin
-    PushConditionalFrame(aStack, IsDefined(aDefines, Copy(lText, 7, MaxInt)));
-    Exit(True);
-  end;
+    if StartsText('IFDEF ', lText) then
+    begin
+      lKnown := IsPlainConditionalIdentifier(Copy(lText, 7, MaxInt).Trim) and
+        IsConditionalStateKnown(aDefines, Copy(lText, 7, MaxInt), aContext.Capture);
+      if not lKnown then
+        AddDiagnostic(aDiagnostics, 'UNVERIFIED_PREPROCESS_CONDITION',
+          'Conditional symbol has no verified definition state: ' + aDirective,
+          aFileName, aLine);
+      PushConditionalFrame(aStack, IsDefined(aDefines, Copy(lText, 7, MaxInt)), lKnown);
+      Exit(True);
+    end;
 
-  if StartsText('IFNDEF ', lText) then
-  begin
-    PushConditionalFrame(aStack, not IsDefined(aDefines, Copy(lText, 8, MaxInt)));
-    Exit(True);
-  end;
+    if StartsText('IFNDEF ', lText) then
+    begin
+      lKnown := IsPlainConditionalIdentifier(Copy(lText, 8, MaxInt).Trim) and
+        IsConditionalStateKnown(aDefines, Copy(lText, 8, MaxInt), aContext.Capture);
+      if not lKnown then
+        AddDiagnostic(aDiagnostics, 'UNVERIFIED_PREPROCESS_CONDITION',
+          'Conditional symbol has no verified definition state: ' + aDirective,
+          aFileName, aLine);
+      PushConditionalFrame(aStack, not IsDefined(aDefines, Copy(lText, 8, MaxInt)), lKnown);
+      Exit(True);
+    end;
 
-  if StartsText('IF ', lText) then
-  begin
-    if TryEvaluateIfExpression(Copy(lText, 4, MaxInt), aDefines, lActive) then
-      PushConditionalFrame(aStack, lActive)
-    else
+    if StartsText('IF ', lText) then
+    begin
+      lKnown := TryEvaluateIfExpression(Copy(lText, 4, MaxInt), aDefines, lActive, True,
+        aContext.Capture);
+      if not lKnown then
+        AddDiagnostic(aDiagnostics, 'UNVERIFIED_PREPROCESS_CONDITION',
+          'Conditional expression has no verified symbol state: ' + aDirective,
+          aFileName, aLine);
+      if lKnown then
+        PushConditionalFrame(aStack, lActive, True)
+      else if TryEvaluateIfExpression(Copy(lText, 4, MaxInt), aDefines, lActive) then
+        PushConditionalFrame(aStack, lActive, False)
+      else
+      begin
+        AddDiagnostic(aDiagnostics, 'UNSUPPORTED_PREPROCESS_DIRECTIVE',
+          'Unsupported conditional directive: ' + aDirective, aFileName, aLine);
+        PushUnsupportedConditionalFrame(aStack);
+        Exit(True);
+      end;
+      Exit(True);
+    end;
+
+    if StartsText('DEFINE ', lText) then
+    begin
+      // A possible DEFINE/UNDEF (including one in an unknown include) taints later
+      // conditions on that symbol. Only a known-active assignment restores certainty.
+      if CurrentActivity(aStack) <> saInactive then
+        aContext.Capture.UnknownSymbols.AddOrSetValue(DefineKey(Copy(lText, 8, MaxInt)),
+          CurrentActivity(aStack) = saUnknown);
+      if CurrentActive(aStack) then
+        aDefines.AddOrSetValue(DefineKey(Copy(lText, 8, MaxInt)), True);
+      Exit(True);
+    end;
+
+    if StartsText('UNDEF ', lText) then
+    begin
+      if CurrentActivity(aStack) <> saInactive then
+        aContext.Capture.UnknownSymbols.AddOrSetValue(DefineKey(Copy(lText, 7, MaxInt)),
+          CurrentActivity(aStack) = saUnknown);
+      if CurrentActive(aStack) then
+        aDefines.AddOrSetValue(DefineKey(Copy(lText, 7, MaxInt)), False);
+      Exit(True);
+    end;
+
+    if StartsText('ELSEIF ', lText) then
+    begin
+      if aStack.Count = 0 then
+      begin
+        aContext.Capture.ActivityComplete := False;
+        AddDiagnostic(aDiagnostics, 'UNMATCHED_PREPROCESS_DIRECTIVE',
+          'Unmatched conditional directive: ' + aDirective, aFileName, aLine);
+        Exit(False);
+      end;
+
+      lKnown := TryEvaluateIfExpression(Copy(lText, 8, MaxInt), aDefines, lActive, True,
+        aContext.Capture);
+      if not lKnown then
+        AddDiagnostic(aDiagnostics, 'UNVERIFIED_PREPROCESS_CONDITION',
+          'Conditional expression has no verified symbol state: ' + aDirective,
+          aFileName, aLine);
+      if lKnown then
+        UpdateElseIfFrame(aStack, lActive, True)
+      else if TryEvaluateIfExpression(Copy(lText, 8, MaxInt), aDefines, lActive) then
+        UpdateElseIfFrame(aStack, lActive, False)
+      else
+      begin
+        AddDiagnostic(aDiagnostics, 'UNSUPPORTED_PREPROCESS_DIRECTIVE',
+          'Unsupported conditional directive: ' + aDirective, aFileName, aLine);
+        DisableUnsupportedConditionalFrame(aStack);
+        Exit(True);
+      end;
+      Exit(True);
+    end;
+
+    if SameText(lText, 'ELSE') or StartsText('ELSE ', lText) then
+    begin
+      if aStack.Count = 0 then
+      begin
+        aContext.Capture.ActivityComplete := False;
+        AddDiagnostic(aDiagnostics, 'UNMATCHED_PREPROCESS_DIRECTIVE',
+          'Unmatched conditional directive: ' + aDirective, aFileName, aLine);
+        Exit(False);
+      end;
+
+      UpdateElseFrame(aStack);
+      Exit(True);
+    end;
+
+    if SameText(lText, 'ENDIF') or StartsText('ENDIF ', lText) or SameText(lText, 'IFEND') or
+      StartsText('IFEND ', lText) then
+    begin
+      if aStack.Count = 0 then
+      begin
+        aContext.Capture.ActivityComplete := False;
+        AddDiagnostic(aDiagnostics, 'UNMATCHED_PREPROCESS_DIRECTIVE',
+          'Unmatched conditional directive: ' + aDirective, aFileName, aLine);
+        Exit(False);
+      end;
+
+      aStack.Delete(Pred(aStack.Count));
+      Exit(True);
+    end;
+
+    lIncludeName := IncludeArgumentFromDirective(lText);
+    if lIncludeName <> '' then
+    begin
+      if CurrentActivity(aStack) = saInactive then
+        Exit(True);
+      lEmitInclude := CurrentActive(aStack);
+
+      if not ResolveIncludeFileName(lIncludeName, TPath.GetDirectoryName(aFileName), aOptions,
+        lIncludeFileName) then
+      begin
+        AddDiagnostic(aDiagnostics, 'INCLUDE_FILE_NOT_FOUND', 'Include file not found: ' +
+          lIncludeName, aFileName, aLine);
+        if CurrentActivity(aStack) = saUnknown then
+        begin
+          // A possible include may define any symbol; keep its local uncertainty and taint
+          // later conditions, rather than discarding the whole unit's activity evidence.
+          aContext.Capture.UnknownSymbols.Clear;
+          aContext.Capture.AllSymbolsUnknown := True;
+          Exit(True);
+        end;
+        aContext.Capture.ActivityComplete := False;
+        Exit(False);
+      end;
+
+      lInclude.FileName := lIncludeFileName;
+      if not TryLoadPreprocessSource(lIncludeFileName, aSourceCache, aDiagnostics,
+        lIncludeText) then
+      begin
+        if CurrentActivity(aStack) = saUnknown then
+        begin
+          aContext.Capture.UnknownSymbols.Clear;
+          aContext.Capture.AllSymbolsUnknown := True;
+          Exit(True);
+        end;
+        aContext.Capture.ActivityComplete := False;
+        Exit(False);
+      end;
+      lInclude.ContentHash := CalculateTextHash(lIncludeText);
+      aIncludes.Add(lInclude);
+      lSuccess := True;
+      lIncludeOutput := TStringBuilder.Create;
+      lDiscardOrigins := nil;
+      lOrigins := aOrigins;
+      if not lEmitInclude then
+      begin
+        // Walk possible includes for their symbol effects without inventing AST output.
+        lDiscardOrigins := TLineOriginList.Create;
+        lOrigins := lDiscardOrigins;
+      end;
+      try
+        lIncludeContext := aContext;
+        lIncludeContext.BaseOffset := aContext.BaseOffset + aOutput.Length;
+        lIncludeContext.ExpansionId := aContext.Capture.NewExpansionId;
+        ProcessLoadedSourceFile(lIncludeFileName, lIncludeText, aOptions, aDefines,
+          aStack, aDiagnostics, lIncludeOutput, aRegions, aIncludes, aIncludeStack,
+          aSourceCache, lOrigins, lIncludeContext, lSuccess);
+        if lEmitInclude then
+        begin
+          aOutput.Append(lIncludeOutput.ToString);
+          aOutputLineWritten := True;
+        end;
+      finally
+        lDiscardOrigins.Free;
+        lIncludeOutput.Free;
+      end;
+      Exit(lSuccess);
+    end;
+
+    if StartsText('IFOPT ', lText) then
     begin
       AddDiagnostic(aDiagnostics, 'UNSUPPORTED_PREPROCESS_DIRECTIVE',
         'Unsupported conditional directive: ' + aDirective, aFileName, aLine);
       PushUnsupportedConditionalFrame(aStack);
       Exit(False);
     end;
-    Exit(True);
-  end;
 
-  if StartsText('DEFINE ', lText) then
-  begin
-    if CurrentActive(aStack) then
-      aDefines.AddOrSetValue(DefineKey(Copy(lText, 8, MaxInt)), True);
-    Exit(True);
-  end;
-
-  if StartsText('UNDEF ', lText) then
-  begin
-    if CurrentActive(aStack) then
-      aDefines.Remove(DefineKey(Copy(lText, 7, MaxInt)));
-    Exit(True);
-  end;
-
-  if StartsText('ELSEIF ', lText) then
-  begin
-    if aStack.Count = 0 then
+    if IsCompilerSwitchDirective(lText) then
     begin
-      AddDiagnostic(aDiagnostics, 'UNMATCHED_PREPROCESS_DIRECTIVE',
-        'Unmatched conditional directive: ' + aDirective, aFileName, aLine);
-      Exit(False);
-    end;
-
-    if TryEvaluateIfExpression(Copy(lText, 8, MaxInt), aDefines, lActive) then
-      UpdateElseIfFrame(aStack, lActive)
-    else
-    begin
-      AddDiagnostic(aDiagnostics, 'UNSUPPORTED_PREPROCESS_DIRECTIVE',
-        'Unsupported conditional directive: ' + aDirective, aFileName, aLine);
-      DisableUnsupportedConditionalFrame(aStack);
-      Exit(False);
-    end;
-    Exit(True);
-  end;
-
-  if SameText(lText, 'ELSE') or StartsText('ELSE ', lText) then
-  begin
-    if aStack.Count = 0 then
-    begin
-      AddDiagnostic(aDiagnostics, 'UNMATCHED_PREPROCESS_DIRECTIVE',
-        'Unmatched conditional directive: ' + aDirective, aFileName, aLine);
-      Exit(False);
-    end;
-
-    UpdateElseFrame(aStack);
-    Exit(True);
-  end;
-
-  if SameText(lText, 'ENDIF') or StartsText('ENDIF ', lText) or SameText(lText, 'IFEND') or
-    StartsText('IFEND ', lText) then
-  begin
-    if aStack.Count = 0 then
-    begin
-      AddDiagnostic(aDiagnostics, 'UNMATCHED_PREPROCESS_DIRECTIVE',
-        'Unmatched conditional directive: ' + aDirective, aFileName, aLine);
-      Exit(False);
-    end;
-
-    aStack.Delete(Pred(aStack.Count));
-    Exit(True);
-  end;
-
-  lIncludeName := IncludeArgumentFromDirective(lText);
-  if lIncludeName <> '' then
-  begin
-    if not CurrentActive(aStack) then
+      if CurrentActive(aStack) then
+      begin
+        aOutput.AppendLine('{$' + lText + '}');
+        AddLineOrigin(aOrigins, aFileName, aLine);
+        aOutputLineWritten := True;
+      end;
       Exit(True);
+    end;
 
-    if not ResolveIncludeFileName(lIncludeName, TPath.GetDirectoryName(aFileName), aOptions,
-      lIncludeFileName) then
+    // An unmodeled directive may affect later conditions. It cannot erase already
+    // classified source regions and thereby make our selected AST branch into proof.
+    if CurrentActivity(aStack) <> saInactive then
     begin
-      AddDiagnostic(aDiagnostics, 'INCLUDE_FILE_NOT_FOUND', 'Include file not found: ' +
-        lIncludeName, aFileName, aLine);
-      Exit(False);
+      aContext.Capture.UnknownSymbols.Clear;
+      aContext.Capture.AllSymbolsUnknown := True;
     end;
-
-    lInclude.FileName := lIncludeFileName;
-    if not TryLoadPreprocessSource(lIncludeFileName, aSourceCache, aDiagnostics,
-      lIncludeText) then
-      Exit(False);
-    lInclude.ContentHash := CalculateTextHash(lIncludeText);
-    aIncludes.Add(lInclude);
-    lSuccess := True;
-    lIncludeOutput := TStringBuilder.Create;
-    try
-      lIncludeContext := aContext;
-      lIncludeContext.BaseOffset := aContext.BaseOffset + aOutput.Length;
-      lIncludeContext.ExpansionId := aContext.Capture.NewExpansionId;
-      ProcessLoadedSourceFile(lIncludeFileName, lIncludeText, aOptions, aDefines,
-        aStack, aDiagnostics, lIncludeOutput, aRegions, aIncludes, aIncludeStack,
-        aSourceCache, aOrigins, lIncludeContext, lSuccess);
-      aOutput.Append(lIncludeOutput.ToString);
-      aOutputLineWritten := True;
-    finally
-      lIncludeOutput.Free;
-    end;
-    Exit(lSuccess);
-  end;
-
-  if StartsText('IFOPT ', lText) then
-  begin
     AddDiagnostic(aDiagnostics, 'UNSUPPORTED_PREPROCESS_DIRECTIVE',
-      'Unsupported conditional directive: ' + aDirective, aFileName, aLine);
-    PushUnsupportedConditionalFrame(aStack);
+      'Unsupported preprocessing directive: ' + aDirective, aFileName, aLine);
     Exit(False);
+  finally
+    // Observe even empty unknown branches before their frame is popped.
+    if CurrentActivity(aStack) = saUnknown then
+      aContext.Capture.HasUnknownActivity := True;
   end;
-
-  if IsCompilerSwitchDirective(lText) then
-  begin
-    if CurrentActive(aStack) then
-    begin
-      aOutput.AppendLine('{$' + lText + '}');
-      AddLineOrigin(aOrigins, aFileName, aLine);
-      aOutputLineWritten := True;
-    end;
-    Exit(True);
-  end;
-
-  AddDiagnostic(aDiagnostics, 'UNSUPPORTED_PREPROCESS_DIRECTIVE',
-    'Unsupported preprocessing directive: ' + aDirective, aFileName, aLine);
-  Exit(False);
 end;
 
 function CreateDefineMap(const aDefines: TArray<string>): TDefineMap;
@@ -1170,6 +1515,7 @@ begin
       lContext, lSuccess);
     if lStack.Count > 0 then
     begin
+      lCapture.ActivityComplete := False;
       AddDiagnostic(lDiagnostics, 'UNTERMINATED_PREPROCESS_CONDITIONAL',
         'Unterminated conditional directive stack.', aOptions.SourceFileName, 0);
       lSuccess := False;
@@ -1184,6 +1530,7 @@ begin
         AddDiagnostic(lDiagnostics, lObservationError,
           'Source bytes changed during preprocessing.', aOptions.SourceFileName, 0);
         Result.SourceObservations := nil;
+        lCapture.ActivityComplete := False;
         lSuccess := False;
         Break;
       end;
@@ -1194,6 +1541,9 @@ begin
     Result.Includes := lIncludes.ToArray;
     Result.LineOrigins := lOrigins.ToArray;
     Result.CopiedSourceSpans := lCapture.Spans.ToArray;
+    Result.ActivitySpans := lCapture.ActivitySpans.ToArray;
+    Result.HasUnknownActivity := lCapture.HasUnknownActivity;
+    Result.ActivityEvidenceAvailable := lCapture.ActivityComplete;
     Result.Diagnostics := lDiagnostics.ToArray;
   finally
     lCapture.Free;

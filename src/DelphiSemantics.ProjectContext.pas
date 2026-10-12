@@ -2,6 +2,9 @@ unit DelphiSemantics.ProjectContext;
 
 interface
 
+uses
+  DelphiSemantics.RootMemberAbsence;
+
 const
   cDelphiSemanticCompilerLinkPropertyNames: array[0..4] of string = (
     'DCC_UsePackage', 'UsePackages', 'DCC_EnabledPackages', '_UsePackage',
@@ -29,6 +32,7 @@ type
     SnapshotBuildWorkerCount: Integer;
     UseLspEnrichment: Boolean;
     SkipWithBindingSemanticGraph: Boolean;
+    ImplicitRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
     ForceFullIdentifierAnalysis: Boolean;
   end;
 
@@ -85,6 +89,12 @@ type
     ContextObservations: IDelphiSemanticProjectContextObservations;
     function PropertyValue(const aName: string): string;
     function SourceLookupPaths: TArray<string>;
+  end;
+
+  IDelphiSemanticProjectProfileValidator = interface
+    ['{86A704A8-67F1-4E5F-B4DE-09751D1F370B}']
+    function ValidateProjectProfile(const aProject: TDelphiSemanticProjectInfo;
+      out aReason: string): Boolean;
   end;
 
   TDelphiSemanticContextResult = record
@@ -1811,7 +1821,7 @@ begin
 end;
 
 function BuildContextFingerprint(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions): string;
+  const aOptions: TDelphiSemanticOptions; const aRootAbsenceFingerprint: string): string;
 var
   lBuilder: TStringBuilder;
   lContext: TDelphiSemanticCacheIdentityContext;
@@ -1841,6 +1851,9 @@ begin
       TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.EnvOptionsPath));
     AppendFingerprintItem(lBuilder, 'compilerProfile',
       CanonicalFingerprintText(aProject.CompilerProfileName));
+    if aOptions.ImplicitRootMemberAbsence <> nil then
+      AppendFingerprintItem(lBuilder, 'implicitRootMemberAbsence',
+        aRootAbsenceFingerprint);
     AppendFingerprintItems(lBuilder, 'includePaths', aProject.IncludePaths, True);
     AppendFingerprintItems(lBuilder, 'references', aProject.ReferenceDirectories, True);
     AppendFingerprintItems(lBuilder, 'sourceFiles', aProject.SourceFileNames, True);
@@ -1855,7 +1868,7 @@ begin
 end;
 
 function BuildConfigurationIdentity(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions): string;
+  const aOptions: TDelphiSemanticOptions; const aRootAbsenceFingerprint: string): string;
 var
   i: Integer;
   lBuilder: TStringBuilder;
@@ -1866,6 +1879,9 @@ begin
     AppendFingerprintItem(lBuilder, 'configuration', aProject.Configuration);
     AppendFingerprintItem(lBuilder, 'platform', aProject.Platform);
     AppendFingerprintItem(lBuilder, 'delphiVersion', aOptions.DelphiVersion);
+    if aOptions.ImplicitRootMemberAbsence <> nil then
+      AppendFingerprintItem(lBuilder, 'implicitRootMemberAbsence',
+        aRootAbsenceFingerprint);
     AppendFingerprintItem(lBuilder, 'rsvarsPath',
       TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.RsVarsPath));
     AppendFingerprintItem(lBuilder, 'environmentOptionsPath',
@@ -2008,7 +2024,7 @@ begin
 end;
 
 function LoadProjectInfo(const aProjectFileName: string; const aOptions: TDelphiSemanticOptions;
-  const aDiagnostics: TList<TDelphiSemanticDiagnostic>): TDelphiSemanticProjectInfo;
+  const aRootAbsenceFingerprint: string; const aDiagnostics: TList<TDelphiSemanticDiagnostic>): TDelphiSemanticProjectInfo;
 var
   lDocument: IXMLDocument;
   lContextObservations: IDelphiSemanticProjectContextObservations;
@@ -2028,9 +2044,9 @@ begin
       lObservations);
     AddAdditionalSourceFiles(Result, aOptions);
     Result.CompilerProfileName := BuildCompilerProfileName(Result, aOptions);
-    Result.ContextFingerprint := BuildContextFingerprint(Result, aOptions);
+    Result.ContextFingerprint := BuildContextFingerprint(Result, aOptions, aRootAbsenceFingerprint);
     lContextObservations := lObservations.Build(
-      BuildConfigurationIdentity(Result, aOptions));
+      BuildConfigurationIdentity(Result, aOptions, aRootAbsenceFingerprint));
     Result.ContextObservations := lContextObservations;
   finally
     lProperties.Free;
@@ -2063,13 +2079,25 @@ var
   lFailure: TDelphiSemanticContextResult;
   lProject: TDelphiSemanticProjectInfo;
   lProjectFileName: string;
+  lRootAbsenceFingerprint: string;
 begin
   if not ResolveProjectFileName(aFileName, lProjectFileName, lFailure) then
     Exit(lFailure);
 
+  lRootAbsenceFingerprint := '';
+  if aOptions.ImplicitRootMemberAbsence <> nil then
+    try
+      // Capture the external getter once before constructing either identity. Every
+      // public project/session/planning path shares this containment boundary.
+      lRootAbsenceFingerprint := aOptions.ImplicitRootMemberAbsence.EvidenceFingerprint;
+    except
+      on E: Exception do
+        Exit(FailureResult(CreateErrorDiagnostic('IMPLICIT_ROOT_PROVIDER_FAILED',
+          'Implicit root-member provider fingerprint failed: ' + E.Message, lProjectFileName)));
+    end;
   lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
   try
-    lProject := LoadProjectInfo(lProjectFileName, aOptions, lDiagnostics);
+    lProject := LoadProjectInfo(lProjectFileName, aOptions, lRootAbsenceFingerprint, lDiagnostics);
     AddLspEnrichmentDiagnosticIfRequested(aOptions, lProjectFileName, lDiagnostics);
     Result := SuccessResult(lProject, lDiagnostics);
   finally

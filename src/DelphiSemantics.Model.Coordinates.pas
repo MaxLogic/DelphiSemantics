@@ -326,39 +326,18 @@ begin
   end;
 end;
 
-function FindSectionKeywordOffset(const aLowerText, aKeyword: string): Integer;
-var
-  lAfter: Integer;
-  lOffset: Integer;
-begin
-  lOffset := PosEx(aKeyword, aLowerText, 1);
-  while lOffset > 0 do
-  begin
-    lAfter := lOffset + Length(aKeyword);
-    if ((lOffset = 1) or not IsIdentifierChar(aLowerText[lOffset - 1])) and
-      ((lAfter > Length(aLowerText)) or not IsIdentifierChar(aLowerText[lAfter])) then
-      Exit(lOffset);
-
-    lOffset := PosEx(aKeyword, aLowerText, lAfter);
-  end;
-
-  Result := 0;
-end;
-
 function BuildSourceSections(const aText: string): TDelphiSemanticSourceSections;
 var
-  lLowerText: string;
   lText: string;
 begin
   Result := Default(TDelphiSemanticSourceSections);
   lText := aText;
   if (lText <> '') and (lText[1] = #$FEFF) then
     Delete(lText, 1, 1);
-  lLowerText := LowerCase(SanitizeCodeText(lText));
-  Result.InterfaceOffset := FindSectionKeywordOffset(lLowerText, 'interface');
-  Result.ImplementationOffset := FindSectionKeywordOffset(lLowerText, 'implementation');
-  Result.InitializationOffset := FindSectionKeywordOffset(lLowerText, 'initialization');
-  Result.FinalizationOffset := FindSectionKeywordOffset(lLowerText, 'finalization');
+  Result.InterfaceOffset := FindSectionKeywordOffset(lText, 'interface');
+  Result.ImplementationOffset := FindSectionKeywordOffset(lText, 'implementation');
+  Result.InitializationOffset := FindSectionKeywordOffset(lText, 'initialization');
+  Result.FinalizationOffset := FindSectionKeywordOffset(lText, 'finalization');
 end;
 
 function SectionForOffset(const aSections: TDelphiSemanticSourceSections;
