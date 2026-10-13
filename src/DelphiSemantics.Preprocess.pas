@@ -36,6 +36,7 @@ type
     Line: Integer;
     Column: Integer;
     Mixed: Boolean;
+    ExpansionId: string;
   end;
 
   TDelphiSemanticIncludeFile = record
@@ -374,6 +375,7 @@ var
 begin
   if aLength <= 0 then
     Exit;
+  lSpan.ExpansionId := aContext.ExpansionId;
   lSpan.FileName := aFileName;
   lSpan.SourceText := aSource;
   lSpan.StartOffset := aStart;
@@ -392,6 +394,7 @@ var
 begin
   if aLength <= 0 then
     Exit;
+  lSpan.ExpansionId := aContext.ExpansionId;
   lSpan.FileName := aFileName;
   lSpan.SourceText := aSource;
   lSpan.StartOffset := aStart;
@@ -861,11 +864,12 @@ begin
 end;
 
 procedure AddLineOrigin(const aOrigins: TLineOriginList; const aFileName: string;
-  const aLine: Integer);
+  const aLine: Integer; const aContext: TPreprocessOutputContext);
 var
   lOrigin: TDelphiSemanticSourceLineOrigin;
 begin
   lOrigin := Default(TDelphiSemanticSourceLineOrigin);
+  lOrigin.ExpansionId := aContext.ExpansionId;
   lOrigin.FileName := aFileName;
   lOrigin.Line := aLine;
   aOrigins.Add(lOrigin);
@@ -1039,8 +1043,9 @@ begin
     // An include expanded inside this line mixes its text with the line's own text, so none of
     // the resulting lines has an exact position; all of them point at the include directive.
     if aOrigins.Count = lOriginCount then
-      AddLineOrigin(aOrigins, aFileName, aLineNumber)
+      AddLineOrigin(aOrigins, aFileName, aLineNumber, aContext)
     else begin
+      lOrigin.ExpansionId := aContext.ExpansionId;
       lOrigin.FileName := aFileName;
       lOrigin.Line := aLineNumber;
       lOrigin.Column := lIncludeColumn;
@@ -1100,7 +1105,7 @@ begin
       begin
         lPendingDirectiveCloseBrace := False;
         aOutput.AppendLine('');
-        AddLineOrigin(aOrigins, aFileName, i + 1);
+        AddLineOrigin(aOrigins, aFileName, i + 1, aContext);
         Continue;
       end;
 
@@ -1134,7 +1139,7 @@ begin
         if not lOutputLineWritten then
         begin
           aOutput.AppendLine('');
-          AddLineOrigin(aOrigins, aFileName, i + 1);
+          AddLineOrigin(aOrigins, aFileName, i + 1, aContext);
         end;
       end else
       begin
@@ -1149,7 +1154,7 @@ begin
         end
         else
           aOutput.AppendLine('');
-        AddLineOrigin(aOrigins, aFileName, i + 1);
+        AddLineOrigin(aOrigins, aFileName, i + 1, aContext);
       end;
     end;
   finally
@@ -1418,7 +1423,7 @@ begin
       if CurrentActive(aStack) then
       begin
         aOutput.AppendLine('{$' + lText + '}');
-        AddLineOrigin(aOrigins, aFileName, aLine);
+        AddLineOrigin(aOrigins, aFileName, aLine, aContext);
         aOutputLineWritten := True;
       end;
       Exit(True);

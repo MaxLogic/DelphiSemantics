@@ -54,6 +54,9 @@ type
     Column: Integer;
     Offset: Integer;
     EndOffset: Integer;
+    // DS-721: AST declaration body endpoint in the declaration source file; zero is unverified.
+    TypeBodyEndLine: Integer;
+    TypeBodyEndColumn: Integer;
     DeclarationRole: string;
     ScopeKind: string;
     OwnerName: string;

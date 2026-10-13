@@ -211,6 +211,11 @@ begin
   Result.AddPair('Column', TJSONNumber.Create(aDeclaration.Column));
   Result.AddPair('Offset', TJSONNumber.Create(aDeclaration.Offset));
   Result.AddPair('EndOffset', TJSONNumber.Create(aDeclaration.EndOffset));
+  if aDeclaration.TypeBodyEndLine > 0 then
+  begin
+    Result.AddPair('TypeBodyEndLine', TJSONNumber.Create(aDeclaration.TypeBodyEndLine));
+    Result.AddPair('TypeBodyEndColumn', TJSONNumber.Create(aDeclaration.TypeBodyEndColumn));
+  end;
   Result.AddPair('DeclarationRole', aDeclaration.DeclarationRole);
   Result.AddPair('ScopeKind', aDeclaration.ScopeKind);
   Result.AddPair('OwnerName', aDeclaration.OwnerName);
@@ -237,6 +242,8 @@ begin
   Result.Column := JsonInt(aObject, 'Column');
   Result.Offset := JsonInt(aObject, 'Offset');
   Result.EndOffset := JsonInt(aObject, 'EndOffset');
+  Result.TypeBodyEndLine := JsonInt(aObject, 'TypeBodyEndLine');
+  Result.TypeBodyEndColumn := JsonInt(aObject, 'TypeBodyEndColumn');
   Result.DeclarationRole := JsonString(aObject, 'DeclarationRole');
   Result.ScopeKind := JsonString(aObject, 'ScopeKind');
   Result.OwnerName := JsonString(aObject, 'OwnerName');

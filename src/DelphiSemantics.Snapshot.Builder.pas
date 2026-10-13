@@ -2681,6 +2681,8 @@ begin
     aBinding.HasScopedDeclaration);
   AddSnapshotFlag(Result.Flags, cSemanticRemoveWithBindingFlagActivityUnverified,
     aBinding.ActivityUnverified);
+  AddSnapshotFlag(Result.Flags, cSemanticRemoveWithBindingFlagMemberActivityUnverified,
+    aBinding.MemberActivityUnverified);
   Result.MemberReferenceCount := aBinding.MemberReferenceCount;
   Result.LexicalReferenceCount := aBinding.LexicalReferenceCount;
   Result.ExternalReferenceCount := aBinding.ExternalReferenceCount;

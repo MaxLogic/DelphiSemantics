@@ -55,6 +55,9 @@ type
     [TestCase('Round 14 M2 facts generation', '52')]
     [TestCase('Before raw-source inactive reference parity', '54')]
 
+    [TestCase('Before declaration-identity lineage', '59')]
+    [TestCase('Before include body containment', '58')]
+    [TestCase('Before receiver owner identity and member activity', '57')]
     [TestCase('Before public inactive-only refusal reason', '56')]
     [TestCase('Before separate inactive-span verification', '55')]
     [TestCase('Before known-inactive range restoration', '53')]
@@ -2130,6 +2133,15 @@ begin
   if i = 13 then
     ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
       'update snapshot_units set schema_version = ''project-session-snapshot-v41''');
+  if i = 16 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v44''');
+  if i = 15 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v43''');
+  if i = 14 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v42''');
 end;
 
 procedure TProjectSessionTests.TypedConstantsRemainQueryableAcrossSnapshotCacheModes;
@@ -2152,7 +2164,7 @@ begin
   lUnitPath := TPath.Combine(lRootPath, 'TypedValues.pas');
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := TPath.Combine(lRootPath, 'TypedValuesProject.dproj');
-  for i := 0 to 14 do
+  for i := 0 to 17 do
   begin
     SetTypedConstantCacheMode(lOptions, lRootPath, i);
     lResult := TDelphiSemanticProjectSession.Open(lOptions);
@@ -2163,12 +2175,12 @@ begin
       if (i = 1) or (i = 3) then
         Assert.IsTrue(lCacheMetrics.CacheMisses > 0,
           'Cold or pre-immutable-inventory snapshot must miss.');
-      if (i = 2) or (i = 14) then
+      if (i = 2) or (i = 17) then
       begin
         Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Warm snapshot must hit.');
         Assert.AreEqual(0, lCacheMetrics.CacheMisses);
       end;
-      if (i >= 3) and (i <= 13) then
+      if (i >= 3) and (i <= 16) then
         Assert.IsTrue(lCacheMetrics.CacheMisses > 0, 'Older snapshot semantics must be rebuilt.');
       for j := 0 to 1 do
         AssertTypedConstantQuery(lContext, lUnitPath, j);

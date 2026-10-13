@@ -67,6 +67,14 @@ empty result. New callers should use `BuildProjectWithBindingFactsResult`.
 
 ## Boundary
 
+Type bodies containing unknown or unavailable conditional activity carry
+`MEMBERS_ACTIVITY_UNVERIFIED` at the declaring type's source position. The fact
+covers the whole type range, including nested bodies and members omitted by
+preprocessing. Known-active and known-inactive regions do not introduce this
+fact; legacy extraction without project context publishes no activity authority.
+The generic diagnostic array preserves it through model JSON and cache storage.
+
+
 Types containing `class const` declarations carry a `MEMBERS_INCOMPLETE`
 diagnostic at the declaring type's source position. The parser may omit an
 ordinary constant or misclassify a keyword-like name as a field, so partial
@@ -138,6 +146,43 @@ whether complete evidence was captured. `TDelphiSemanticActivitySpan.FileName`,
 `SourceText`, `StartOffset`, `EndOffset` and `Activity` identify each source span.
 
 `TDelphiSemanticWithBinding.ActivityUnverified` is an independent edit barrier.
+`TDelphiSemanticWithBinding.MemberActivityUnverified` carries the separate
+type-member activity barrier. Its public binding has `Status=skipped` and
+`SkipReason=MEMBERS_UNVERIFIED`; the planner evaluates ordinary refusals before
+applying the activity overlay to an otherwise planned result. Existing reasons
+such as `property-selector`, `receiver-type-not-visible` and
+`type-source-not-indexed` retain precedence. A newly refused activity result has
+`Reason=members-unverified`, `SafetyReason=MEMBERS_UNVERIFIED`, no final edits,
+temps or replacement. Member-activity ranges never remain candidate apply
+coverage, including when an ordinary final refusal retains its reason.
+
+An uncertain selector-path prefix can give a selector `Status=unsupported`,
+`ReasonCode=SELECTOR_MEMBERS_ACTIVITY_UNVERIFIED` and an empty `TypeIdentity`.
+Verified receiver identities constrain direct member lookup and its cache keys:
+another unit's same-named type cannot supply a direct member. Established
+ambiguity, helper and inheritance results keep their existing lookup contract.
+Identity-less selectors retain the existing name-based fallback.
+
+The final planner guard refuses a qualification of a `lexical` or `unresolved`
+reference when no same-name reference on that line is bound as `member` and
+the inventory qualification target is not source-contained in the AST declaration
+body of the verified receiver, or a declaration on the binder's verified access
+lineage. The inventory location must lie in the verified declaration body or a
+standalone include line anchored to that declaration. Owner names, owner IDs alone
+and the public type-name span are not containment evidence.
+Type declarations carry additive `TypeBodyEndLine`/`TypeBodyEndColumn` metadata;
+zero means unverified. Physical line origins and native AST columns establish
+these endpoints for both CRLF and LF inputs. `type-body-range` lookup metadata
+preserves them in existing snapshot inventory storage without changing the public
+name-span identity. Constants retain their existing binder classifications.
+Foreign homonyms, unit/global constants and unverified bodies do not authorize a
+qualification. The compatibility inventory masks block comments across physical
+lines and excludes routine signature parameters, including class operators; real
+fields, variant tags/parts, constants, properties and methods retain their facts.
+`receiver-member-owner-conflict` is the ordinary-path Reason and SafetyReason;
+its DTO has no edits, temps or replacement, and its candidate edit is removed.
+Earlier ordinary refusals retain their reasons and ordinary candidate behavior.
+
 `References` and their counts describe the general active reference partition.
 `InactiveSpanReferences` preserves the already-resolved inactive partition for
 remove-with verification; it must not become rename or usage occurrences.
@@ -152,9 +197,12 @@ names again; general reference consumers use `References` alone.
 its `InactiveSpanReferences` stores the inactive facts. The binding flag
 `cSemanticRemoveWithBindingFlagActivityUnverified` retains activity uncertainty.
 Snapshot copying and persistence preserve both partitions, and the planner builds
-one cached DTO view per snapshot binding source. Snapshot producer generation 42
-and WITH-fact generation 57 rebuild cached bindings written before the public
-inactive-only refusal reason was restored.
+one cached DTO view per snapshot binding source. Snapshot producer generation 45
+and WITH-fact generation 60 rebuild bindings written before receiver-owner
+identity and member-activity barriers. Model parser generation 68 rebuilds
+type activity diagnostics. `cSemanticRemoveWithBindingFlagMemberActivityUnverified`
+uses the existing binding flags field; the snapshot/cache SQLite schemas and
+`DS-ACTIVITY-1` wire format are unchanged.
 
 `TDelphiSemanticDeclaration.AstHelperKind` is empty when helper syntax is unverified,
 or `none`, `class` or `record` when the active syntax tree proves it. Root-member
@@ -165,3 +213,14 @@ lineage evidence keeps `AstHelperKind`, `HelperTargetName`, `IsHelper` and
 `ModelFileName`, `SourceObservations`, `IncludeFileNames` and `CacheHit` to the
 request-owned observation validator described above. These fields describe the
 actual model inputs and cache path; they are not caller-supplied edit authority.
+
+DS-721 preserves verified parent-file type body endpoints across standalone includes.
+Member activity is evaluated against each verified physical origin segment inside the
+type output range, including nested includes. Transient activity spans and line origins
+carry the copied-source ExpansionId, so repeated inclusions of the same file cannot
+share activity authority. Unavailable origin or occurrence evidence retains the
+conservative unit-wide activity fallback. Persisted layouts and generations are unchanged.
+Context member hits must have a declaration identity in the receiver lineage,
+including same-unit hits. A routine-local homonym cannot supply a unit-level member.
+Include-line containment authority and its persisted rows were removed after
+mutation proof left S1 and origin-activity behavior unchanged.

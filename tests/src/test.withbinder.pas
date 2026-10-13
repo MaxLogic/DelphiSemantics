@@ -33,6 +33,28 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [TestCase('Imported routine homonym', 'cross')]
+    [TestCase('Same unit routine homonym', 'direct')]
+    procedure RoutineTypeHomonymCannotSupplyReceiverMember(const aShape: string);
+    [TestCase('Operator local is an identifier', 'local')]
+    [TestCase('Operator field is an identifier', 'field')]
+    procedure OperatorIdentifierDoesNotHideDeclarations(const aShape: string);
+    [TestCase('Exact reviewer plain alias', 'alias-plain')]
+    [TestCase('Exact reviewer pointer alias', 'alias-ptr')]
+    [TestCase('Inherited indexed homonym', 'inherited-index')]
+    [TestCase('Inherited pointer homonym', 'inherited-pointer')]
+    [TestCase('Alias indexed homonym', 'alias-index')]
+    [TestCase('Alias pointer homonym', 'alias-pointer')]
+    procedure VerifiedCrossUnitReceiverKeepsMember(const aShape: string);
+    [TestCase('Selected unknown member', 'selected-unknown')]
+    [TestCase('Selected unknown selector path', 'selector-selected')]
+    [TestCase('Context index foreign owner', 'context-borrow')]
+    [TestCase('Lexical homonym retains lexical binding', 'homonym-lexical')]
+    [TestCase('Unit constant cannot borrow a foreign receiver member', 'homonym-constant')]
+    [TestCase('Routine-local unknown member', 'local-type')]
+    [TestCase('Unknown lexical without homonym stays planned', 'lexical-unknown-no-homonym')]
+    [TestCase('Known-inactive miss keeps ordinary candidate', 'known-inactive-member')]
+    procedure ReceiverOwnerIdentityAndMemberActivity(const aShape: string);
     [Test]
     procedure FieldSelectorsRetainTheirDeclaredKinds;
     [Test]
@@ -84,6 +106,21 @@ type
     [TestCase('Public project load', 'project')]
     [TestCase('Public project session', 'session')]
     procedure PublicProviderFingerprintFailureRefuses(const aPath: string);
+    [TestCase('Conditional ancestor declaration homonym', 'ancestor-declaration')]
+    [TestCase('Declared receiver borrows foreign member', 'declared-receiver')]
+    [TestCase('Unknown declaration in active WITH', 'declaration')]
+    [TestCase('Unknown selected field', 'selected-field')]
+    [TestCase('Unknown global', 'global')]
+    [TestCase('Unknown local', 'local')]
+    [TestCase('Unknown selector member', 'selector')]
+    [TestCase('Unknown nested statement blocks parent', 'nested')]
+    [TestCase('Known-active declaration control', 'active')]
+    [TestCase('Known-false declaration is absent', 'inactive')]
+    [TestCase('Unknown inner activity skips parent', 'activity-nested')]
+    [TestCase('Mixed unknown WITH', 'mixed')]
+    [TestCase('Missing unknown include WITH', 'missing')]
+    [TestCase('Unmodeled directive WITH', 'directive')]
+    procedure UnknownActivityCannotAuthorizeRemoveWith(const aShape: string);
     [TestCase('Hidden IF ELSE nested WITH', 'hidden-if')]
     [TestCase('Hidden Declared nested WITH', 'hidden-declared')]
     [TestCase('Malformed IFDEF nested WITH', 'hidden-malformed')]
@@ -633,6 +670,470 @@ begin
   Assert.AreEqual('unsupported', lFacts.Bindings[0].Selectors[1].Status);
   Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED',
     lFacts.Bindings[0].Selectors[1].ReasonCode);
+end;
+
+
+procedure TWithBinderTests.OperatorIdentifierDoesNotHideDeclarations(const aShape: string);
+var
+  lRoot, lBody, lLocal: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lBinding: TDelphiSemanticWithBinding;
+  lReference: TDelphiSemanticBoundReference;
+  lFound: Boolean;
+begin
+  lRoot := WithBinderTempPath('OperatorIdentifier-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lBody := 'Value: Integer;';
+  lLocal := 'var'#13#10'  Operator: Char;'#13#10'  Count: Integer;'#13#10;
+  if aShape = 'field' then
+  begin
+    lBody := 'Operator: Char;'#13#10'    Count: Integer;';
+    lLocal := '';
+  end;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'), 'program P; uses Unit1; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10'type'#13#10'  TR = record'#13#10 +
+    '    ' + lBody + #13#10'  end;'#13#10 + lLocal + 'implementation'#13#10 +
+    'procedure Run(var R: TR);'#13#10'begin'#13#10 +
+    '  with R do Count := Count + 1;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lFound := False;
+  for lBinding in lFacts.Bindings do
+    for lReference in lBinding.References do
+      if SameText(lReference.Name, 'Count') then
+      begin
+        lFound := True;
+        if aShape = 'local' then
+          Assert.AreEqual('lexical', lReference.Classification, lReference.ReasonCode)
+        else
+          Assert.AreEqual('member', lReference.Classification, lReference.ReasonCode);
+      end;
+  Assert.IsTrue(lFound);
+end;
+
+procedure TWithBinderTests.VerifiedCrossUnitReceiverKeepsMember(const aShape: string);
+var
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lBinding: TDelphiSemanticWithBinding;
+  lReference: TDelphiSemanticBoundReference;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lRoot, lType, lSelector, lVars, lControl, lExpectedClass, lExpectedReason: string;
+  lFound: Boolean;
+begin
+  lRoot := WithBinderTempPath('VerifiedCrossUnit-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lType := 'TFoo = class(ControlUnit.TFoo) end;';
+  lControl := 'TFoo = class Count: Integer; end;';
+  if StartsText('alias', aShape) then
+  begin
+    lType := 'TFoo = ControlUnit.TFoo;';
+    lControl := 'TFoo = record Count: Integer; end;';
+  end;
+  lExpectedClass := 'member';
+  lExpectedReason := 'receiver-type-not-visible';
+  if StartsText('alias', aShape) and (aShape <> 'alias-plain') then
+  begin
+    lExpectedClass := 'unsupported';
+    lExpectedReason := 'selector-type-not-resolved';
+  end;
+  lVars := 'var Arr: array[0..0] of TFoo;';
+  lSelector := 'Arr[0]';
+  if EndsText('pointer', aShape) then
+  begin
+    lVars := 'var Ptr: ^TFoo;';
+    lSelector := 'Ptr^';
+  end;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, ControlUnit; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'ControlUnit.pas'),
+    'unit ControlUnit;'#13#10'interface'#13#10'type ' + lControl +
+    #13#10'implementation'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10'uses ControlUnit;'#13#10'type ' + lType +
+    #13#10 + lVars + #13#10'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    '  with ' + lSelector + ' do Count := Count + 1;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/><DCCReference Include="ControlUnit.pas"/>' +
+    '</ItemGroup></Project>', TEncoding.ASCII);
+  if MatchText(aShape, ['alias-plain', 'alias-ptr']) then
+  begin
+    lType := '';
+    lVars := 'var R: TRec;';
+    lSelector := 'R';
+    if aShape = 'alias-ptr' then
+    begin
+      lType := '  PRec = ^TRec;'#13#10;
+      lVars := 'var P: PRec;';
+      lSelector := 'P^';
+    end;
+    TFile.WriteAllText(TPath.Combine(lRoot, 'ControlUnit.pas'),
+      'unit ControlUnit;'#13#10'interface'#13#10 +
+      'type TRec = record Count: Integer; end;'#13#10'implementation'#13#10#13#10'end.',
+      TEncoding.ASCII);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10'interface'#13#10'uses ControlUnit;'#13#10 +
+      'type TRec = ControlUnit.TRec;'#13#10 + lType + lVars +
+      #13#10'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+      '  with ' + lSelector + ' do Count := Count + 1;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  end;
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dpr');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lFound := False;
+  for lBinding in lFacts.Bindings do
+    if SameText(lBinding.UnitName, 'Unit1') then
+      for lReference in lBinding.References do
+        if SameText(lReference.Name, 'Count') then
+        begin
+          lFound := True;
+          Assert.AreEqual(lExpectedClass, lReference.Classification, aShape + ': ' + lReference.ReasonCode);
+        end;
+  Assert.IsTrue(lFound);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lFound := False;
+  for lStatement in lPlan.FinalStatements do
+    if SameText(ExtractFileName(lStatement.FileName), 'Unit1.pas') then
+    begin
+      lFound := True;
+      // Native base already refuses this homonymous receiver at final DTO publication.
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.AreEqual(lExpectedReason, lStatement.Reason);
+      Assert.AreEqual(lExpectedReason, lStatement.SafetyReason);
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual('', lStatement.ReplacementText);
+    end;
+  Assert.IsTrue(lFound);
+end;
+
+procedure TWithBinderTests.ReceiverOwnerIdentityAndMemberActivity(const aShape: string);
+var
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lEdit: TDelphiSemanticRemoveWithEdit;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lBinding: TDelphiSemanticWithBinding;
+  lReference: TDelphiSemanticBoundReference;
+  lRoot, lField, lExtra, lLocal, lBody, lControlType, lExpectedReason, lImports, lReceiverType: string;
+  lPass: Integer;
+  lFound, lFoundControl, lFoundReference, lCandidate: Boolean;
+begin
+  lRoot := WithBinderTempPath('ReceiverOwnerActivity-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lField := 'Other: Integer;';
+  lExtra := '';
+  lLocal := '';
+  lBody := 'with Rec do Count := Count + 1;';
+  lControlType := 'TRec';
+  lImports := '';
+  lReceiverType := 'TRec';
+  if aShape = 'context-borrow' then
+  begin
+    lImports := 'uses ControlUnit;'#13#10;
+  end;
+  lExpectedReason := 'receiver-member-owner-conflict';
+  if aShape = 'context-borrow' then
+    lExpectedReason := 'receiver-type-not-visible';
+  if aShape = 'selected-unknown' then
+  begin
+    lField := '{$IFNDEF LINUX} Count: Integer; {$ENDIF}';
+    lExpectedReason := 'members-unverified';
+  end else if aShape = 'selector-selected' then
+  begin
+    lExtra := 'type TOuter = record {$IFNDEF LINUX} Child: TRec; {$ENDIF} end;'#13#10 +
+      'var Outer: TOuter;'#13#10;
+    lBody := 'with Outer.Child do Count := Count + 1;';
+    lExpectedReason := 'property-selector';
+  end else if aShape = 'homonym-lexical' then
+    lExtra := 'var Count: Integer;'#13#10
+  else if aShape = 'homonym-constant' then
+  begin
+    lExtra := 'const Count = 10;'#13#10;
+    lBody := 'with Rec do Other := Count;';
+  end else if aShape = 'local-type' then
+  begin
+    lLocal := 'type TLocal = record {$IFDEF LINUX} Count: Integer; {$ENDIF} end;'#13#10 +
+      'var LocalRec: TLocal;'#13#10;
+    lBody := 'with LocalRec do Count := Count + 1;';
+    lExpectedReason := 'receiver-member-not-found';
+  end else if aShape = 'lexical-unknown-no-homonym' then
+  begin
+    lExtra := '{$IFNDEF LINUX} var Count: Integer; {$ENDIF}'#13#10;
+    lControlType := 'TControlRec';
+    lExpectedReason := '';
+  end else if aShape = 'known-inactive-member' then
+  begin
+    lField := '{$IFDEF NEVER_DEFINED} Count: Integer; {$ENDIF}';
+    lControlType := 'TControlRec';
+    lExpectedReason := 'receiver-member-not-found';
+  end;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, ControlUnit; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/>' +
+    '<DCCReference Include="ControlUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10 +
+    'type TRec = record ' + lField + ' end;'#13#10'var Rec: ' + lReceiverType + ';'#13#10 +
+    lExtra + 'implementation'#13#10 + lImports + 'procedure Run;'#13#10 +
+    lLocal + 'begin'#13#10 + lBody + #13#10'end;'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'ControlUnit.pas'),
+    'unit ControlUnit;'#13#10'interface'#13#10 +
+    'type ' + lControlType + ' = record Count: Integer; end;'#13#10 +
+    'var ControlRec: ' + lControlType + ';'#13#10 +
+    'implementation'#13#10'procedure Run; begin with ControlRec do Count := Count + 1; end;'#13#10 +
+    'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  if aShape = 'known-inactive-member' then
+  begin
+    lOptions.Configuration := 'Debug';
+    lOptions.Platform := 'Win64';
+    lOptions.DelphiVersion := '23.0';
+  end;
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'owner-activity.sqlite');
+  if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
+    TFile.Delete(lOptions.Cache.SqliteCacheFileName);
+  for lPass := 0 to 1 do
+  begin
+    lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    lFound := False;
+    lFoundControl := False;
+    for lStatement in lPlan.FinalStatements do
+      if SameText(ExtractFileName(lStatement.FileName), 'Unit1.pas') then
+      begin
+        lFound := True;
+        if lExpectedReason = '' then
+        begin
+          Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+          Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'Count := Count + 1'));
+          Assert.IsFalse(ContainsText(lStatement.ReplacementText, '.Count'));
+        end else begin
+          Assert.AreEqual('skipped', lStatement.Status, aShape);
+          Assert.AreEqual(lExpectedReason, lStatement.Reason);
+          Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+          Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+          Assert.AreEqual('', lStatement.ReplacementText);
+          lCandidate := False;
+          for lEdit in lPlan.Edits do
+            if lEdit.StatementId = lStatement.SemanticId then
+              lCandidate := True;
+          Assert.AreEqual(MatchText(aShape, ['known-inactive-member', 'context-borrow']), lCandidate,
+            'Only the ordinary known-inactive refusal keeps candidate coverage.');
+        end;
+      end else if SameText(ExtractFileName(lStatement.FileName), 'ControlUnit.pas') then
+      begin
+        lFoundControl := True;
+        Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+      end;
+    Assert.IsTrue(lFound);
+    Assert.IsTrue(lFoundControl);
+    if MatchText(aShape, ['selector-selected', 'local-type']) then
+      for lBinding in lFacts.Bindings do
+        if SameText(lBinding.UnitName, 'Unit1') then
+        begin
+          Assert.AreEqual('MEMBERS_UNVERIFIED', lBinding.SkipReason);
+        end;
+    if MatchText(aShape, ['context-borrow', 'homonym-lexical', 'homonym-constant']) then
+    begin
+      lFoundReference := False;
+      for lBinding in lFacts.Bindings do
+        if SameText(lBinding.UnitName, 'Unit1') then
+          for lReference in lBinding.References do
+            if SameText(lReference.Name, 'Count') then
+            begin
+              lFoundReference := True;
+              Assert.AreNotEqual('member', lReference.Classification);
+              if MatchText(aShape, ['homonym-lexical', 'homonym-constant']) then
+                Assert.AreEqual('lexical', lReference.Classification);
+            end;
+      Assert.IsTrue(lFoundReference);
+    end;
+  end;
+end;
+
+procedure TWithBinderTests.UnknownActivityCannotAuthorizeRemoveWith(const aShape: string);
+var
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lEdit: TDelphiSemanticRemoveWithEdit;
+  lRoot, lPrefix, lField, lBody, lExtra, lLocal: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lBinding: TDelphiSemanticWithBinding;
+  lReference: TDelphiSemanticBoundReference;
+  lPass, lAffectedCount: Integer;
+  lActive: Boolean;
+  lFoundSkipped, lFoundControl: Boolean;
+begin
+  lRoot := WithBinderTempPath('UnknownWith-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lPrefix := '';
+  if aShape = 'missing' then
+    lPrefix := '{$IFDEF LINUX}{$I Missing.inc}{$ENDIF}'#13#10
+  else if aShape = 'directive' then
+    lPrefix := '{$HINTS OFF}'#13#10;
+  lExtra := '';
+  lLocal := '';
+  lActive := aShape = 'active';
+  lField := 'Count: Integer;';
+  lBody := '{$IFNDEF LINUX} with Rec do Count := Count + 1; {$ENDIF}';
+  if aShape = 'declared-receiver' then
+  begin
+    lField := '{$IF Declared(TRec)} Count: Integer; {$IFEND}';
+    lBody := 'with Rec do Count := Count + 1;';
+  end;
+  if aShape = 'declaration' then
+  begin
+    lField := '{$IFDEF LINUX} Count: Integer; {$ENDIF}';
+    lBody := 'with Rec do Count := Count + 1;';
+  end;
+  if MatchText(aShape, ['selected-field', 'active', 'inactive']) then
+  begin
+    lField := '{$IFDEF MSWINDOWS} Count: Integer; {$ENDIF}';
+    if aShape = 'inactive' then
+      lField := '{$IFDEF LINUX} Count: Integer; {$ENDIF}';
+    lBody := 'with Rec do Count := Count + 1;';
+  end else if MatchText(aShape, ['global', 'local']) then
+  begin
+    lField := 'Other: Integer;';
+    if aShape = 'global' then
+      lExtra := '{$IFDEF MSWINDOWS} var Count: Integer; {$ENDIF}'#13#10
+    else
+      lLocal := '{$IFDEF MSWINDOWS} var Count: Integer; {$ENDIF}'#13#10;
+    lBody := 'with Rec do Count := Count + 1;';
+  end else if aShape = 'selector' then
+  begin
+    lExtra := 'type TOuter = record {$IFDEF MSWINDOWS} Child: TRec; {$ENDIF} end;'#13#10 +
+      'var Outer: TOuter;'#13#10;
+    lBody := 'with Outer.Child do Count := Count + 1;';
+  end else if aShape = 'activity-nested' then
+  begin
+    lBody := 'with Rec do begin {$IFNDEF LINUX} with Rec do Count := Count + 1; {$ENDIF} end;';
+  end else if aShape = 'nested' then
+  begin
+    lField := '{$IFDEF LINUX} Count: Integer; {$ENDIF}';
+    lBody := 'with Rec do begin with Rec do Count := Count + 1; end;';
+  end;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, ControlUnit; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/>' +
+    '<DCCReference Include="ControlUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10 +
+    'type TRec = record ' + lField + ' end;'#13#10'var Rec: TRec;'#13#10 +
+    lExtra + 'implementation'#13#10 + lPrefix + 'procedure Run;'#13#10 + lLocal + 'begin'#13#10 +
+    lBody + #13#10'end;'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'ControlUnit.pas'),
+    'unit ControlUnit;'#13#10'interface'#13#10 +
+    'type TRec = record Count: Integer; end;'#13#10'var Rec: TRec;'#13#10 +
+    'implementation'#13#10'procedure Run; begin with Rec do Count := Count + 1; end;'#13#10 +
+    'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  if aShape = 'ancestor-declaration' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10'interface'#13#10 +
+      'type TBase = class {$IF Declared(TBase)} Count: Integer; {$IFEND} end;'#13#10 +
+      'TRec = class(TBase) end;'#13#10'var Rec: TRec;'#13#10 +
+      'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+      'with Rec do begin Count := 1;'#13#10'end;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  if MatchText(aShape, ['active', 'inactive', 'ancestor-declaration']) then
+  begin
+    lOptions.Configuration := 'Debug';
+    lOptions.Platform := 'Win64';
+    lOptions.DelphiVersion := '23.0';
+  end;
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'round11-cache.sqlite');
+  if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
+    TFile.Delete(lOptions.Cache.SqliteCacheFileName);
+  for lPass := 0 to 1 do
+  begin
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+    if aShape = 'ancestor-declaration' then
+      Assert.AreEqual('blocked', lPlan.Status, lPlan.Diagnostic)
+    else
+      Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+    Assert.IsNotEmpty(lPlan.ContextFingerprint, 'Control statement retains its apply context.');
+    lAffectedCount := 0;
+    lFoundSkipped := False;
+    lFoundControl := False;
+    for lStatement in lPlan.FinalStatements do
+      if SameText(ExtractFileName(lStatement.FileName), 'Unit1.pas') then
+      begin
+        Inc(lAffectedCount);
+        if lActive then
+        begin
+          Assert.AreEqual('planned', lStatement.Status);
+          Assert.IsTrue(Length(lStatement.Edits) > 0);
+        end else begin
+          Assert.AreEqual('skipped', lStatement.Status, 'Unknown declaration/activity cannot authorize apply.');
+          if MatchText(aShape, ['mixed', 'missing', 'activity-nested']) then
+            Assert.AreEqual('activity-unverified', lStatement.Reason)
+          else if aShape = 'directive' then
+            Assert.AreEqual('receiver-type-not-visible', lStatement.Reason)
+          else if aShape = 'ancestor-declaration' then
+            Assert.AreEqual('members-unverified', lStatement.Reason);
+          Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+          Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+          Assert.AreEqual('', lStatement.ReplacementText);
+        end;
+        lFoundSkipped := True;
+      end else if SameText(ExtractFileName(lStatement.FileName), 'ControlUnit.pas') then
+      begin
+        if aShape = 'ancestor-declaration' then
+        begin
+          // Native base contract: ds-721/ancestor-exact-native-base.log.
+          Assert.AreEqual('skipped', lStatement.Status);
+          Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
+          Assert.AreEqual('receiver-type-not-visible', lStatement.SafetyReason);
+          Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+          Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+          Assert.AreEqual('', lStatement.ReplacementText);
+          for lEdit in lPlan.Edits do
+            if lEdit.StatementId = lStatement.SemanticId then
+              lFoundControl := True;
+          Assert.IsTrue(lFoundControl, 'The established refusal retains its candidate.');
+        end else begin
+          Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+          Assert.IsTrue(Length(lStatement.Edits) > 0);
+          lFoundControl := True;
+        end;
+      end;
+    Assert.IsTrue(lFoundSkipped, 'Expected affected statement DTO.');
+    Assert.IsTrue(lFoundControl, 'Expected unrelated known-active statement DTO.');
+    if MatchText(aShape, ['nested', 'activity-nested']) then
+      Assert.AreEqual(2, lAffectedCount, 'Inner unsafe statement must retain its parent.');
+    if not lActive then
+      for lEdit in lPlan.Edits do
+        Assert.IsFalse(SameText(ExtractFileName(lEdit.FileName), 'Unit1.pas'),
+          'Retained fingerprint cannot authorize any candidate edit in the skipped unit.');
+    if aShape = 'inactive' then
+    begin
+      lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+      for lBinding in lFacts.Bindings do
+        if SameText(lBinding.UnitName, 'Unit1') then
+          for lReference in lBinding.References do
+            Assert.AreNotEqual('member', lReference.Classification,
+              'Known-false field must not borrow a foreign member.');
+    end;
+  end;
 end;
 
 procedure TWithBinderTests.WholeWithSourceActivityIsRequired(const aShape: string);
@@ -4973,6 +5474,103 @@ begin
         'Missing receiver provenance must refuse the binding without diagnostics');
     end;
   Assert.IsTrue(lFound, 'Expected bare imported G binding');
+end;
+
+procedure TWithBinderTests.RoutineTypeHomonymCannotSupplyReceiverMember(const aShape: string);
+var
+  lRoot, lReceiver, lGlobals, lBody: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lBinding: TDelphiSemanticWithBinding;
+  lReference: TDelphiSemanticBoundReference;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lFound: Boolean;
+  i: Integer;
+begin
+  lRoot := WithBinderTempPath('routine-type-homonym-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lGlobals := '';
+  lReceiver := 'type TRec = ControlUnit.TRec;'#13#10'var R: TRec;'#13#10;
+  lBody := 'Count := Count + 1';
+  if aShape = 'direct' then
+  begin
+    lGlobals := 'var R: TRec;'#13#10'  Count: Integer;'#13#10;
+    lReceiver := '';
+    lBody := 'Other := Count';
+  end;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'ControlUnit.pas'),
+    'unit ControlUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TRec = record Other: Integer; end;'#13#10 + lGlobals +
+    'implementation'#13#10'procedure X;'#13#10'type'#13#10 +
+    '  TRec = record Count: Integer; end;'#13#10'var L: TRec;'#13#10 +
+    'begin'#13#10'  L.Count := 1;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10'uses ControlUnit;'#13#10 + lReceiver +
+    'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    '  with R do ' + lBody + ';'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, ControlUnit; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/>' +
+    '<DCCReference Include="ControlUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  for i := 0 to 1 do
+  begin
+    lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+    lFound := False;
+    for lBinding in lFacts.Bindings do
+      if SameText(lBinding.UnitName, 'Unit1') then
+        for lReference in lBinding.References do
+          if SameText(lReference.Name, 'Count') then
+          begin
+            lFound := True;
+            Assert.AreNotEqual('member', lReference.Classification,
+              'A routine-local declaration cannot supply a unit-level receiver member.');
+            if aShape = 'cross' then
+              Assert.AreEqual('unresolved', lReference.Classification, lReference.ReasonCode)
+            else
+              Assert.AreEqual('lexical', lReference.Classification, lReference.ReasonCode);
+          end;
+    Assert.IsTrue(lFound);
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    lFound := False;
+    for lStatement in lPlan.FinalStatements do
+      if SameText(ExtractFileName(lStatement.FileName), 'Unit1.pas') then
+      begin
+        lFound := True;
+        Assert.IsFalse(ContainsText(lStatement.ReplacementText, '.Count'));
+        if aShape = 'cross' then
+        begin
+          Assert.AreEqual('skipped', lStatement.Status);
+          Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+          Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+          Assert.AreEqual('', lStatement.ReplacementText);
+        end else begin
+          Assert.AreEqual('skipped', lStatement.Status);
+          Assert.AreEqual('receiver-member-owner-conflict', lStatement.Reason);
+          Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+          Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+          Assert.AreEqual('', lStatement.ReplacementText);
+        end;
+      end;
+    Assert.IsTrue(lFound);
+    for lStatement in lSnapshotPlan.FinalStatements do
+      if SameText(ExtractFileName(lStatement.FileName), 'Unit1.pas') then
+      begin
+        Assert.IsFalse(ContainsText(lStatement.ReplacementText, '.Count'));
+        if aShape = 'cross' then
+        begin
+          Assert.AreEqual('skipped', lStatement.Status);
+          Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+        end else
+          Assert.AreEqual('skipped', lStatement.Status, lStatement.Reason);
+      end;
+  end;
 end;
 
 initialization

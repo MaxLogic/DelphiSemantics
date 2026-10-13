@@ -12,6 +12,8 @@ type
     StartOffset: Integer;
     EndOffset: Integer;
     Activity: TDelphiSemanticSourceActivity;
+    // In-memory inclusion instance, shared with copied-source and line-origin evidence.
+    ExpansionId: string;
   end;
 
   TDelphiSemanticSourceConditionals = record

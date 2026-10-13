@@ -86,6 +86,16 @@ type
     Body: TOffsetRange;
   end;
 
+  TTypeMemberActivityRange = record
+    Range: TOffsetRange;
+    StartLine: Integer;
+    EndLine: Integer;
+    EndColumn: Integer;
+    FileName: string;
+    OwnerName: string;
+    DeclarationIndex: Integer;
+  end;
+
   TDelphiSemanticExtractionContext = class
   private
     fLineCacheLength: Integer;
@@ -95,6 +105,7 @@ type
     fSectionCacheLength: Integer;
     fSectionCacheText: string;
     fTypeBlockRanges: TArray<TOffsetRange>;
+    fTypeMemberActivityRanges: TArray<TTypeMemberActivityRange>;
     fTypeBlockRangesLength: Integer;
     fTypeBlockRangesText: string;
   public
@@ -108,6 +119,13 @@ type
     function LineOfOffset(const aText: string; const aOffset: Integer): Integer;
     function OffsetOfLineColumn(const aText: string; const aLine, aColumn: Integer): Integer;
     procedure ResetTypeBlockRanges;
+    procedure RecordTypeMemberActivity(const aRange: TTypeMemberActivityRange);
+    procedure PublishTypeBodyRanges(const aPreprocess: TDelphiSemanticPreprocessResult;
+      const aDeclarations: TList<TDelphiSemanticDeclaration>);
+    procedure PublishTypeMemberActivity(const aModel: TDelphiSemanticUnitModel;
+      const aPreprocess: TDelphiSemanticPreprocessResult; const aOffsetMap: TArray<Integer>;
+      const aDeclarations: TList<TDelphiSemanticDeclaration>;
+      const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>);
     function SectionForOffset(const aText: string; const aOffset: Integer): string;
   end;
 
@@ -2463,6 +2481,12 @@ begin
     begin
       lLine := lLines[i].Trim;
       lLineOffset := lOffset + Length(lLines[i]) - Length(lLines[i].TrimLeft);
+      // DS-730: a physical comment line cannot declare a symbol in an open section.
+      if Copy(lHeaderText, lOffset + 1, Length(lLines[i])).Trim = '' then
+      begin
+        Inc(lOffset, Length(lLines[i]) + Length(sLineBreak));
+        Continue;
+      end;
       if i < lSkipUntilLine then
       begin
         Inc(lOffset, Length(lLines[i]) + Length(sLineBreak));
@@ -2477,7 +2501,7 @@ begin
         lInImplementation := False;
         lBlockKind := '';
       end else if TRegEx.IsMatch(Copy(lHeaderText, lOffset + 1, Length(lLines[i])).Trim,
-        '^(?:class\s+)?(?:procedure|function|constructor|destructor)\b', [roIgnoreCase]) then
+        '^(?:(?:class\s+)?(?:procedure|function|constructor|destructor)|class\s+operator)\b', [roIgnoreCase]) then
       begin
         lBlockKind := '';
         // Header exclusion preserves the existing body-declaration inventory.
@@ -3202,6 +3226,162 @@ begin
       aText[i] := ' ';
 end;
 
+procedure TDelphiSemanticExtractionContext.RecordTypeMemberActivity(
+  const aRange: TTypeMemberActivityRange);
+var
+  lIndex: Integer;
+begin
+  lIndex := Length(fTypeMemberActivityRanges);
+  SetLength(fTypeMemberActivityRanges, lIndex + 1);
+  fTypeMemberActivityRanges[lIndex] := aRange;
+end;
+
+procedure TDelphiSemanticExtractionContext.PublishTypeBodyRanges(
+  const aPreprocess: TDelphiSemanticPreprocessResult;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>);
+var
+  i: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFirst, lLast, lOrigin: TDelphiSemanticSourceLineOrigin;
+  lRange: TTypeMemberActivityRange;
+  lVerified: Boolean;
+begin
+  for lRange in fTypeMemberActivityRanges do
+  begin
+    if (lRange.DeclarationIndex < 0) or (lRange.DeclarationIndex >= aDeclarations.Count) or
+      (lRange.StartLine <= 0) or (lRange.EndLine > Length(aPreprocess.LineOrigins)) then
+      Continue;
+    lFirst := aPreprocess.LineOrigins[lRange.StartLine - 1];
+    lLast := aPreprocess.LineOrigins[lRange.EndLine - 1];
+    lVerified := (lFirst.Line > 0) and (lLast.Line >= lFirst.Line) and
+      (lRange.EndColumn > 0) and (lFirst.FileName <> '') and
+      SameText(lFirst.FileName, lLast.FileName);
+    lDeclaration := aDeclarations[lRange.DeclarationIndex];
+    // Standalone includes do not destroy the parent's AST endpoints. Mixed inline
+    // origins still have no exact physical containment authority.
+    for i := lRange.StartLine - 1 to lRange.EndLine - 1 do
+    begin
+      lOrigin := aPreprocess.LineOrigins[i];
+      if lOrigin.Mixed or (lOrigin.Line <= 0) or (lOrigin.FileName = '') then
+      begin
+        lVerified := False;
+        Continue;
+      end;
+    end;
+    if not lVerified or (lDeclaration.Line <> lFirst.Line) then
+      Continue;
+    lDeclaration.TypeBodyEndLine := lLast.Line;
+    lDeclaration.TypeBodyEndColumn := lRange.EndColumn;
+    aDeclarations[lRange.DeclarationIndex] := lDeclaration;
+  end;
+end;
+
+procedure TDelphiSemanticExtractionContext.PublishTypeMemberActivity(
+  const aModel: TDelphiSemanticUnitModel;
+  const aPreprocess: TDelphiSemanticPreprocessResult; const aOffsetMap: TArray<Integer>;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>);
+var
+  i: Integer;
+  lRange: TTypeMemberActivityRange;
+  lOrigin, lSegmentFirst, lSegmentLast: TDelphiSemanticSourceLineOrigin;
+  lSpan: TDelphiSemanticActivitySpan;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFileName: string;
+  lLine, lRawStart, lRawEnd, lSpanStartLine, lSpanEndLine: Integer;
+  lMapped, lOriginsKnown, lUnverified: Boolean;
+begin
+  // No-context extraction publishes no project activity authority.
+  if aModel.VerifiedActiveSourceText = '' then
+    Exit;
+  for lRange in fTypeMemberActivityRanges do
+  begin
+    lMapped := (lRange.Range.StartOffset > 0) and
+      (lRange.Range.EndOffset > lRange.Range.StartOffset) and
+      (lRange.Range.EndOffset - 1 < Length(aOffsetMap));
+    lRawStart := 0;
+    lRawEnd := 0;
+    if lMapped then
+    begin
+      lRawStart := aOffsetMap[lRange.Range.StartOffset];
+      lRawEnd := aOffsetMap[lRange.Range.EndOffset - 1];
+      lMapped := (lRawStart > 0) and (lRawEnd >= lRawStart);
+    end;
+    lOriginsKnown := (lRange.StartLine > 0) and
+      (lRange.EndLine <= Length(aPreprocess.LineOrigins));
+    if lOriginsKnown then
+    begin
+      for i := lRange.StartLine - 1 to lRange.EndLine - 1 do
+      begin
+        lOrigin := aPreprocess.LineOrigins[i];
+        if lOrigin.Mixed or (lOrigin.Line <= 0) or
+          (not SameText(lOrigin.FileName, aModel.FileName)) then
+          lMapped := False;
+        if lOrigin.Mixed or (lOrigin.Line <= 0) or (lOrigin.FileName = '') or
+          (lOrigin.ExpansionId = '') then
+          lOriginsKnown := False;
+      end;
+    end;
+    if lMapped then
+      lUnverified := not TDelphiSemanticSourceConditionals.RangeIsKnownActive(
+        aModel.SourceText, aModel.VerifiedActiveSourceText, lRawStart, lRawEnd)
+    else if lOriginsKnown and aPreprocess.ActivityEvidenceAvailable then
+    begin
+      lUnverified := False;
+      // Partition only output lines inside this body by physical origin and inclusion
+      // instance. Reusing an include elsewhere cannot taint this occurrence.
+      i := lRange.StartLine - 1;
+      while (i < lRange.EndLine) and (not lUnverified) do
+      begin
+        lSegmentFirst := aPreprocess.LineOrigins[i];
+        lSegmentLast := lSegmentFirst;
+        Inc(i);
+        while i < lRange.EndLine do
+        begin
+          lOrigin := aPreprocess.LineOrigins[i];
+          if (not SameText(lOrigin.FileName, lSegmentFirst.FileName)) or
+            (lOrigin.ExpansionId <> lSegmentFirst.ExpansionId) or
+            (lOrigin.Line < lSegmentLast.Line) then
+            Break;
+          lSegmentLast := lOrigin;
+          Inc(i);
+        end;
+        for lSpan in aPreprocess.ActivitySpans do
+          if (lSpan.Activity = TDelphiSemanticSourceActivity.saUnknown) and
+            SameText(lSpan.FileName, lSegmentFirst.FileName) and
+            (lSpan.ExpansionId = lSegmentFirst.ExpansionId) then
+          begin
+            lSpanStartLine := LineOfOffset(lSpan.SourceText, lSpan.StartOffset);
+            lSpanEndLine := LineOfOffset(lSpan.SourceText, lSpan.EndOffset - 1);
+            if (lSpanStartLine <= lSegmentLast.Line) and
+              (lSpanEndLine >= lSegmentFirst.Line) then
+            begin
+              lUnverified := True;
+              Break;
+            end;
+          end;
+      end;
+    end else
+      lUnverified := aPreprocess.HasUnknownActivity or
+        (not aPreprocess.ActivityEvidenceAvailable);
+    if not lUnverified then
+      Continue;
+    lFileName := lRange.FileName;
+    lLine := lRange.StartLine;
+    if (lRange.DeclarationIndex >= 0) and
+      (lRange.DeclarationIndex < aDeclarations.Count) then
+    begin
+      lDeclaration := aDeclarations[lRange.DeclarationIndex];
+      if lDeclaration.FileName <> '' then
+        lFileName := lDeclaration.FileName;
+      lLine := lDeclaration.Line;
+    end;
+    AddDiagnostic(aDiagnostics, 'MEMBERS_ACTIVITY_UNVERIFIED', lRange.OwnerName +
+      ': declaration contains source whose conditional activity is unknown; ' +
+      'its members are unverified.', lFileName, lLine);
+  end;
+end;
+
 function ExtractTypeMembers(const aText, aOwnerPrefix, aFileName: string;
   const aNode: TSyntaxNode; const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
@@ -3211,6 +3391,10 @@ var
   lBody: string;
   lBodyOffset: Integer;
   lEnd: Integer;
+  lActivityRange: TTypeMemberActivityRange;
+  lDeclaration: TDelphiSemanticDeclaration;
+  i: Integer;
+  lMatchingDeclarations: Integer;
   lFacts: TList<TAstMemberFact>;
   lFirstMember: Integer;
   lHeader: TMatch;
@@ -3247,6 +3431,30 @@ begin
   lOwnerName := lHeader.Groups[1].Value;
   if aOwnerPrefix <> '' then
     lOwnerName := aOwnerPrefix + '.' + lOwnerName;
+  lActivityRange := Default(TTypeMemberActivityRange);
+  lActivityRange.Range.StartOffset := lStart;
+  lActivityRange.Range.EndOffset := lEnd;
+  lActivityRange.StartLine := aNode.Line;
+  lActivityRange.EndLine := TCompoundSyntaxNode(aNode).EndLine;
+  lActivityRange.EndColumn := TCompoundSyntaxNode(aNode).EndCol;
+  lActivityRange.FileName := aFileName;
+  lActivityRange.OwnerName := lOwnerName;
+  lActivityRange.DeclarationIndex := -1;
+  lMatchingDeclarations := 0;
+  for i := 0 to aDeclarations.Count - 1 do
+  begin
+    lDeclaration := aDeclarations[i];
+    if SameText(lDeclaration.Kind, 'type') and
+      SameText(lDeclaration.Name, lHeader.Groups[1].Value) and
+      (lDeclaration.Line = aNode.Line) then
+    begin
+      Inc(lMatchingDeclarations);
+      lActivityRange.DeclarationIndex := i;
+    end;
+  end;
+  if lMatchingDeclarations <> 1 then
+    lActivityRange.DeclarationIndex := -1;
+  ActiveExtractionContext.RecordTypeMemberActivity(lActivityRange);
   lFacts := TList<TAstMemberFact>.Create;
   lSplits := nil;
   lNested := nil;
@@ -4790,6 +4998,9 @@ begin
     ApplyMemberSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lMembers);
     ApplyLocalSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lLocals);
     ReconcileDeclarationCoordinates(lSourceResult.Source.Text, lDeclarations);
+    lExtractionContext.PublishTypeBodyRanges(lPreprocessResult, lDeclarations);
+    lExtractionContext.PublishTypeMemberActivity(Result, lPreprocessResult, lOffsetMap,
+      lDeclarations, lDiagnostics);
     if not ReconcileWithStatementCoordinates(lSourceResult.Source.Text,
       lSourceResult.Source.FileName, lPreprocessResult.CopiedSourceSpans, lWithStatements) then
     begin

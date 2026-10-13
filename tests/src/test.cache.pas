@@ -94,6 +94,9 @@ type
     [Test]
     procedure ParserVersionChangeInvalidatesCachedUnitModel;
     [Test]
+    [TestCase('Before origin-segment activity', '67')]
+    [TestCase('Before include body containment', '66')]
+    [TestCase('Before DS-730 inventory cleanup and DS-721 body proof', '65')]
     [TestCase('Before raw WITH ranges and gap evidence', '63')]
     [TestCase('Before inline extraction', '4')]
     [TestCase('Before lexical directive handling', '5')]
@@ -441,7 +444,7 @@ begin
 
     Assert.AreEqual('9', lIdentity.SchemaVersion,
       'Lexical ownership fields changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.65', lIdentity.ParserVersion,
+    Assert.AreEqual('DelphiSemantics.Model.Parser.68', lIdentity.ParserVersion,
       'Separate scan witnesses require fresh model extraction without edit authority.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,

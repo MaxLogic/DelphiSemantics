@@ -153,6 +153,7 @@ const
   cSemanticRemoveWithSymbolFlagIsIndexed = 1 shl 3;
   cSemanticRemoveWithBindingFlagHasScopedDeclaration = 1 shl 0;
   cSemanticRemoveWithBindingFlagActivityUnverified = 1 shl 1;
+  cSemanticRemoveWithBindingFlagMemberActivityUnverified = 1 shl 2;
 
 function CopyRemoveWithPlanningFacts(
   const aFacts: TSemanticRemoveWithPlanningFacts): TSemanticRemoveWithPlanningFacts;

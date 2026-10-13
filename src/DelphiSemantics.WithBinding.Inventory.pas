@@ -22,9 +22,9 @@ type
 implementation
 
 uses
-  System.Classes, System.RegularExpressions, System.StrUtils, System.SysUtils,
-  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve.TypeResolver,
-  MaxLogic.StrUtils;
+  System.Character, System.Classes, System.RegularExpressions, System.StrUtils, System.SysUtils,
+  MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types,
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve.TypeResolver;
 
 type
   TRelatedInventoryMemberRelation = record
@@ -45,58 +45,72 @@ begin
     aSymbols.Add(aSymbol);
 end;
 
-function InventoryCleanLine(const aLine: string): string;
+function InventoryMaskTrivia(const aText: string; const aMaskRoutineParameters: Boolean): string;
 var
-  lCommentPos: Integer;
-  lEndPos: Integer;
-  lStartPos: Integer;
+  i: Integer;
+  lLexer: TmwBasePasLex;
+  lDepth: Integer;
+  lInSignature, lClassPrefix: Boolean;
+  lMask: Boolean;
+  lStart: Integer;
+  lToken: string;
 begin
-  Result := Trim(aLine);
-  if Result = '' then
-    Exit;
-  if StartsText('{$', Result) or StartsText('(*$', Result) then
-    Exit;
-
-  repeat
-    lStartPos := Pos('{', Result);
-    if lStartPos = 0 then
-      Break;
-    if Copy(Result, lStartPos, 2) = '{$' then
-      Break;
-    lEndPos := PosEx('}', Result, lStartPos + 1);
-    if lEndPos = 0 then
+  // DS-730: token positions preserve columns, and the lexer carries block-comment state
+  // across physical lines. Strings and compiler directives remain source text.
+  Result := aText;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aText;
+    lDepth := 0;
+    lInSignature := False;
+    lClassPrefix := False;
+    while lLexer.TokenID <> ptNull do
     begin
-      Delete(Result, lStartPos, MaxInt);
-      Break;
+      lToken := lLexer.Token;
+      lMask := (lLexer.TokenID in [ptAnsiComment, ptBorComment, ptSlashesComment]) and
+        not StartsText('{$', lToken) and not StartsText('(*$', lToken);
+      if aMaskRoutineParameters and not lMask then
+      begin
+        if lLexer.TokenID in [ptProcedure, ptFunction, ptConstructor, ptDestructor] then
+          lInSignature := True;
+        if lClassPrefix and (lLexer.TokenID = ptIdentifier) and SameText(lToken, 'operator') then
+          lInSignature := True;
+        if lInSignature then
+        begin
+          if lLexer.TokenID = ptRoundOpen then
+            Inc(lDepth);
+          lMask := lDepth > 0;
+          if (lLexer.TokenID = ptRoundClose) and (lDepth > 0) then
+            Dec(lDepth);
+          if (lLexer.TokenID = ptSemiColon) and (lDepth = 0) then
+            lInSignature := False;
+        end;
+      end;
+      if lMask then
+      begin
+        lStart := lLexer.TokenPos + 1;
+        for i := lStart to lStart + Length(lToken) - 1 do
+          if not CharInSet(Result[i], [#13, #10]) then
+            Result[i] := ' ';
+      end;
+      if not (lLexer.TokenID in [ptSpace, ptCRLF, ptAnsiComment, ptBorComment, ptSlashesComment]) then
+        lClassPrefix := lLexer.TokenID = ptClass;
+      lLexer.Next;
     end;
-    Delete(Result, lStartPos, lEndPos - lStartPos + 1);
-    Result := Trim(Result);
-  until False;
+  finally
+    lLexer.Free;
+  end;
+end;
 
-  repeat
-    lStartPos := Pos('(*', Result);
-    if lStartPos = 0 then
-      Break;
-    if Copy(Result, lStartPos, 3) = '(*$' then
-      Break;
-    lEndPos := PosEx('*)', Result, lStartPos + 2);
-    if lEndPos = 0 then
-    begin
-      Delete(Result, lStartPos, MaxInt);
-      Break;
-    end;
-    Delete(Result, lStartPos, lEndPos - lStartPos + 2);
-    Result := Trim(Result);
-  until False;
-
-  lCommentPos := Pos('//', Result);
-  if lCommentPos > 0 then
-    Result := Trim(Copy(Result, 1, lCommentPos - 1));
+function InventoryCleanLine(const aLine: string): string;
+begin
+  Result := Trim(InventoryMaskTrivia(aLine, False));
 end;
 
 function InventoryIsIdentifierChar(const aValue: Char): Boolean;
 begin
-  Result := CharInSet(aValue, ['A'..'Z', 'a'..'z', '0'..'9', '_']);
+  Result := (aValue = '_') or aValue.IsLetterOrDigit;
 end;
 
 function InventoryRemoveInlineConditionalBlocks(const aText: string): string;
@@ -152,7 +166,9 @@ begin
   lText := LowerCase(Trim(aLine));
   Result := StartsText('procedure ', lText) or StartsText('function ', lText) or
     StartsText('class procedure ', lText) or StartsText('class function ', lText) or
-    StartsText('constructor ', lText) or StartsText('destructor ', lText);
+    StartsText('constructor ', lText) or StartsText('destructor ', lText) or
+    StartsText('class operator ', lText) or
+    StartsText('class constructor ', lText) or StartsText('class destructor ', lText);
 end;
 
 function InventoryIsAttributeLine(const aLine: string): Boolean;
@@ -301,8 +317,9 @@ begin
     for lRawPart in lParts do
     begin
       lPart := Trim(lRawPart);
-      if lPart <> '' then
-        lNames.Add(lPart);
+      if not TRegEx.IsMatch(lPart, '^&?[\p{L}_][\p{L}\p{Nd}_]*$') then
+        Exit;
+      lNames.Add(lPart);
     end;
     aNames := lNames.ToArray;
   finally
@@ -2147,7 +2164,7 @@ var
 begin
   lLines := TStringList.Create;
   try
-    lLines.Text := aSourceText;
+    lLines.Text := InventoryMaskTrivia(aSourceText, False);
     SetLength(Result, lLines.Count);
     for i := 0 to lLines.Count - 1 do
       Result[i] := lLines[i];
@@ -2162,7 +2179,9 @@ var
   lLines: TArray<string>;
 begin
   lLines := InventorySourceTextLines(aModel.SourceText);
-  ParseDakInventoryTypeMembers(aSymbols, lLines, aModel.UnitName, aModel.FileName);
+  ParseDakInventoryTypeMembers(aSymbols,
+    InventorySourceTextLines(InventoryMaskTrivia(aModel.SourceText, True)),
+    aModel.UnitName, aModel.FileName);
   ParseDakInventoryUnitGlobals(aSymbols, lLines, aModel.UnitName, aModel.FileName);
   ParseDakInventoryRoutines(aSymbols, lLines, aModel.UnitName, aModel.FileName);
 end;
@@ -2953,6 +2972,19 @@ begin
       lSymbol.EndLine := lDeclaration.Line;
       lSymbol.EndColumn := lDeclaration.Column;
       AddInventorySymbol(lSymbols, lSymbol);
+      if (lDeclaration.TypeBodyEndLine > 0) and (lDeclaration.TypeBodyEndColumn > 0) then
+      begin
+        // DS-721: separate AST metadata, not a member or a public name-span identity.
+        // Existing snapshot inventory storage preserves this endpoint without new columns.
+        lSymbol.SymbolClass := 'type-body-range';
+        lSymbol.Kind := 'type-body-range';
+        lSymbol.FileName := lDeclaration.FileName;
+        if lSymbol.FileName = '' then
+          lSymbol.FileName := aModel.FileName;
+        lSymbol.EndLine := lDeclaration.TypeBodyEndLine;
+        lSymbol.EndColumn := lDeclaration.TypeBodyEndColumn;
+        AddInventorySymbol(lSymbols, lSymbol);
+      end;
     end;
 
     for lMember in aModel.Members do

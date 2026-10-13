@@ -57,6 +57,15 @@ type
       aReferenceName: string; out aError: string);
   public
     [Test]
+    procedure MixedBodyOriginRetainsUnitActivityFallback;
+    [TestCase('Unknown omitted body', 'unknown')]
+    [TestCase('Unknown selected body', 'selected')]
+    [TestCase('Nested unknown body', 'nested')]
+    [TestCase('Known-active body', 'active')]
+    [TestCase('Known-inactive body', 'inactive')]
+    [TestCase('Legacy without project context', 'no-context')]
+    procedure TypeMemberActivityDiagnostics(const aShape: string);
+    [Test]
     [TestCase('Class helper', 'class,class,TObject')]
     [TestCase('Record helper', 'record,record,TMarker')]
     [TestCase('Escaped class target', 'escaped,class,TObject')]
@@ -4880,6 +4889,57 @@ begin
     'The nested constant must retain its declaring type.');
 end;
 
+procedure TUnitModelTests.TypeMemberActivityDiagnostics(const aShape: string);
+var
+  lModel, lRestored: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lBody: string;
+  lExpected, lCount, lPass: Integer;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('type-member-activity-' + aShape + '.pas');
+  lOptions.ProjectContextApplied := aShape <> 'no-context';
+  lBody := '{$IFDEF LINUX} Count: Integer; {$ENDIF}';
+  lExpected := 1;
+  if aShape = 'selected' then
+    lBody := '{$IFNDEF LINUX} Count: Integer; {$ENDIF}'
+  else if aShape = 'nested' then
+  begin
+    lBody := 'type TInner = record ' + lBody + ' end;';
+    lExpected := 2;
+  end else if MatchText(aShape, ['active', 'inactive']) then
+  begin
+    lOptions.Defines := ['MSWINDOWS'];
+    lExpected := 0;
+    if aShape = 'active' then
+      lBody := '{$IFDEF MSWINDOWS} Count: Integer; {$ENDIF}'
+    else
+      lBody := '{$IFDEF NEVER_DEFINED} Count: Integer; {$ENDIF}';
+  end else if aShape = 'no-context' then
+    lExpected := 0;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit MemberActivity;'#13#10'interface'#13#10 +
+    'type TOuter = record ' + lBody + ' end;'#13#10 +
+    'implementation'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lRestored := JsonToModel(ModelToJson(lModel));
+  for lPass := 0 to 1 do
+  begin
+    lCount := 0;
+    for lDiagnostic in lModel.Diagnostics do
+      if lDiagnostic.Code = 'MEMBERS_ACTIVITY_UNVERIFIED' then
+      begin
+        Inc(lCount);
+        Assert.AreEqual(lOptions.SourceFileName, lDiagnostic.FileName);
+        Assert.AreEqual(3, lDiagnostic.Line);
+      end;
+    Assert.AreEqual(lExpected, lCount, aShape);
+    lModel := lRestored;
+  end;
+end;
+
 procedure TUnitModelTests.InlineConstSectionEndsTypeDeclarations;
 var
   lModel: TDelphiSemanticUnitModel;
@@ -6188,6 +6248,29 @@ begin
   Assert.AreEqual(2, lCount, 'Both same-line type declarations must reach AST fact matching.');
   Assert.AreEqual('RunA,RunB,', lOwners,
     'Each helper-absence fact must belong to the declaration at its exact column and scope.');
+end;
+
+procedure TUnitModelTests.MixedBodyOriginRetainsUnitActivityFallback;
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lRoot: string;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := UnitModelTempPath(TPath.Combine('mixed-body-fallback', 'U.pas'));
+  lRoot := TPath.GetDirectoryName(lOptions.SourceFileName);
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'members.inc'), ' Count: Integer;', TEncoding.ASCII);
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit U;'#13#10'interface'#13#10'type TR = record {$I members.inc} end;'#13#10 +
+    '{$IFDEF LINUX} var Unrelated: Integer; {$ENDIF}'#13#10 +
+    'implementation'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(HasMemberOfOwner(lModel, 'TR', 'Count'));
+  Assert.IsTrue(HasDiagnostic(lModel, 'MEMBERS_ACTIVITY_UNVERIFIED'),
+    'Mixed origin cannot prove this body active; unit uncertainty must remain conservative.');
 end;
 
 initialization

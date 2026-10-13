@@ -1,4 +1,4 @@
-unit Test.WithBinding;
+﻿unit Test.WithBinding;
 
 interface
 
@@ -23,6 +23,17 @@ type
     function HasReference(const aBinding: TDelphiSemanticWithBinding; const aName,
       aClassification: string): Boolean;
   public
+    [TestCase('Unicode field', 'field')]
+    [TestCase('Unicode class var', 'class-var')]
+    [TestCase('Unicode constant', 'constant')]
+    procedure InventoryPreservesUnicodeDeclarations(const aShape: string);
+    [TestCase('Operator parameters on one line', 'operator')]
+    [TestCase('Operator parameters across lines', 'operator-multiline')]
+    [TestCase('Method parameters across lines', 'method-multiline')]
+    [TestCase('Brace comment constants', 'brace')]
+    [TestCase('Round comment constants', 'round')]
+    [TestCase('Real members and quoted comment tokens', 'real')]
+    procedure InventoryRejectsSignatureAndCommentArtifacts(const aShape: string);
     [Test]
     [TestCase('ordinary list', '0')]
     [TestCase('nested index', '1')]
@@ -134,7 +145,7 @@ implementation
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   DelphiSemantics.Api.RemoveWith.Compatibility, DelphiSemantics.Model, DelphiSemantics.Model.Json,
-  DelphiSemantics.ProjectContext, maxLogic.IOUtils,
+  DelphiSemantics.ProjectContext, DelphiSemantics.WithBinding.Inventory, maxLogic.IOUtils,
   Test.Support;
 
 
@@ -1615,6 +1626,143 @@ begin
   Assert.AreEqual(Length(lExpected), Length(lBindings[0].Selectors));
   for i := 0 to High(lExpected) do
     Assert.AreEqual(lExpected[i], lBindings[0].Selectors[i].SelectorText);
+end;
+
+procedure TProjectWithBindingTests.InventoryPreservesUnicodeDeclarations(const aShape: string);
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSource, lDeclaration: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lFound: Boolean;
+begin
+  lDeclaration := '    Żółć: Integer;';
+  if aShape = 'class-var' then
+    lDeclaration := '    class var Żółć: Integer;'
+  else if aShape = 'constant' then
+    lDeclaration := '    const Żółć = 7;';
+  lSource := 'unit UnicodeInventory;'#13#10'interface'#13#10'type'#13#10 +
+    '  TR = record'#13#10 + lDeclaration + #13#10'  end;'#13#10'implementation'#13#10'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(RepoRoot,
+    'tests/.dak/delphiSemanticsTests/ds-721/fix-1/unicode-' + aShape + '.pas');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lOptions.SourceFileName));
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, lModel.ScopeModelStatus);
+  lFound := False;
+  for lSymbol in TDelphiSemanticWithBindingInventory.BuildInventorySymbols(lModel) do
+    if SameText(lSymbol.Name, 'Żółć') and SameText(lSymbol.OwnerType, 'TR') and
+      SameText(lSymbol.SymbolClass, aShape) then
+    begin
+      Assert.AreEqual(5, lSymbol.Line);
+      if aShape = 'class-var' then
+        Assert.AreEqual(15, lSymbol.Column)
+      else if aShape = 'constant' then
+        Assert.AreEqual(11, lSymbol.Column)
+      else
+        Assert.AreEqual(5, lSymbol.Column);
+      lFound := True;
+    end;
+  Assert.IsTrue(lFound, 'Unicode ' + aShape + ' declaration must survive.');
+end;
+
+procedure TProjectWithBindingTests.InventoryRejectsSignatureAndCommentArtifacts(const aShape: string);
+var
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSource, lBody, lName: string;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lFound: Boolean;
+begin
+  lBody := '    Value: Integer;'#13#10;
+  if aShape = 'operator' then
+    lBody := lBody + '    class operator Equal(a, b: TR): Boolean;'#13#10
+  else if aShape = 'operator-multiline' then
+    lBody := lBody + '    class operator Equal('#13#10 +
+      '      a: TR;'#13#10 + '      b: TR): Boolean;'#13#10
+  else if aShape = 'method-multiline' then
+    lBody := lBody + '    procedure Touch('#13#10 +
+      '      a: Integer;'#13#10 + '      b: Integer);'#13#10
+  else if aShape = 'real' then
+    lBody := lBody + '    procedure Touch;'#13#10 +
+      '    property Data: Integer read Value;'#13#10 +
+      '    case Art: BYTE of'#13#10 + '      0: (Part: Integer);'#13#10
+  else begin
+    lBody := lBody + '    const K = 1;'#13#10;
+    if aShape = 'brace' then
+      lBody := lBody + '    {'#13#10
+    else
+      lBody := lBody + '    (*'#13#10;
+    lBody := lBody + '      B = 2;'#13#10 + '      I = 3;'#13#10 + '      F = 4;'#13#10;
+    if aShape = 'brace' then
+      lBody := lBody + '    }'#13#10
+    else
+      lBody := lBody + '    *)'#13#10;
+    lBody := lBody + '    const Text = ''{ not a comment } (* neither *) // text'';'#13#10;
+  end;
+  lSource := 'unit InventoryProof;'#13#10 + 'interface'#13#10 +
+    'type'#13#10 + '  TR = record'#13#10 + lBody + '  end;'#13#10 + 'implementation'#13#10 + 'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(RepoRoot,
+    'tests/.dak/delphiSemanticsTests/ds-721/ds730-inputs/' + aShape + '.pas');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(lOptions.SourceFileName));
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, lModel.ScopeModelStatus);
+  lSymbols := TDelphiSemanticWithBindingInventory.BuildInventorySymbols(lModel);
+  for lSymbol in lSymbols do
+    if SameText(lSymbol.OwnerType, 'TR') and
+      MatchText(lSymbol.SymbolClass, ['field', 'constant', 'member']) then
+    begin
+      Assert.IsFalse(MatchText(lSymbol.Name, ['a', 'b', 'B', 'I', 'F']),
+        aShape + ': fabricated ' + lSymbol.Name);
+      Assert.IsFalse(ContainsText(lSymbol.Name, '('), 'Signature is not a field name.');
+    end;
+  for lMember in lModel.Members do
+    Assert.IsFalse(MatchText(lMember.Name, ['a', 'b', 'B', 'I', 'F']),
+      'Model must not publish signature/comment artifacts.');
+  lFound := False;
+  for lSymbol in lSymbols do
+    if SameText(lSymbol.OwnerType, 'TR') and SameText(lSymbol.Name, 'Value') then
+      lFound := True;
+  Assert.IsTrue(lFound, 'Real Value field must survive.');
+  if MatchText(aShape, ['brace', 'round', 'real', 'method-multiline']) then
+  begin
+    if MatchText(aShape, ['brace', 'round']) then
+      lName := 'K'
+    else
+      lName := 'Touch';
+    lFound := False;
+    for lSymbol in lSymbols do
+      if SameText(lSymbol.OwnerType, 'TR') and SameText(lSymbol.Name, lName) then
+        lFound := True;
+    Assert.IsTrue(lFound, 'Real member must survive: ' + lName);
+  end;
+  if MatchText(aShape, ['brace', 'round']) then
+  begin
+    lFound := False;
+    for lSymbol in lSymbols do
+      if SameText(lSymbol.OwnerType, 'TR') and SameText(lSymbol.Name, 'Text') and
+        SameText(lSymbol.SymbolClass, 'constant') then
+      begin
+        Assert.AreEqual(12, lSymbol.Line);
+        Assert.AreEqual(11, lSymbol.Column);
+        lFound := True;
+      end;
+    Assert.IsTrue(lFound, 'Quoted comment tokens must preserve Text.');
+  end;
+  if aShape = 'real' then
+    for lName in ['Data', 'Art', 'Part'] do
+    begin
+      lFound := False;
+      for lSymbol in lSymbols do
+        if SameText(lSymbol.OwnerType, 'TR') and SameText(lSymbol.Name, lName) then
+          lFound := True;
+      Assert.IsTrue(lFound, 'Real member must survive: ' + lName);
+    end;
 end;
 
 initialization

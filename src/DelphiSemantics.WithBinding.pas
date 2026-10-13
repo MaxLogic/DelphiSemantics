@@ -91,6 +91,7 @@ type
     SkipReason: string;
     HasScopedDeclaration: Boolean;
     ActivityUnverified: Boolean;
+    MemberActivityUnverified: Boolean;
     InactiveSpanSkipReason: string;
     InactiveSpanReferences: TArray<TDelphiSemanticBoundReference>;
     MemberReferenceCount: Integer;
@@ -320,6 +321,7 @@ type
   TBoundMemberResolution = record
     Value: TDelphiSemanticResolveResult;
     DeclaringUnitName: string;
+    OwnerDeclaredId: TDelphiSemanticGraphTypeId;
   end;
 
   TWithBindingProjectMemberIndex = class
@@ -340,10 +342,14 @@ type
     fUnitNames: TArray<string>;
     fVisibleUnitsByUnit: TDictionary<string, TArray<string>>;
     fMemberSafetyDiagnostics: TArray<TMemberSafetyDiagnostic>;
+    fActivityMemberFacts: TArray<TMemberSafetyDiagnostic>;
     fSafetyDeclarationsByName: TObjectDictionary<string, TList<TIndexedDeclarationCandidate>>;
     fSafetyModelsByUnit: TDictionary<string, TArray<Integer>>;
     fSafetyProfileTypes: TDictionary<string, Byte>;
     procedure BuildMemberSafetyDiagnostics;
+    function LineageHasActivityFact(const aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
+    function MemberActivityIsUnverified(const aBinding: TDelphiSemanticWithBinding;
+      const aSelectorIdentities: TArray<TDelphiSemanticTypeIdentity>): Boolean;
     function IsKnownSafetyProfileTerminal(const aName: string;
       const aLookup: TDelphiSemanticTypeLookupResult): Boolean;
     function TryBuildMemberSafetyLineage(const aBinding: TDelphiSemanticWithBinding;
@@ -417,6 +423,8 @@ type
       out aResult: TDelphiSemanticResolveResult): Boolean;
     function TryResolvePointerCastType(const aModel: TDelphiSemanticUnitModel;
       const aName: string; const aLine: Integer; out aTypeName: string): Boolean;
+    function EstablishedMemberSafetyReason(const aBinding: TDelphiSemanticWithBinding;
+      const aSelectorIdentities: TArray<TDelphiSemanticTypeIdentity>): string;
     function MemberSafetyReason(const aBinding: TDelphiSemanticWithBinding;
       const aSelectorIdentities: TArray<TDelphiSemanticTypeIdentity>): string;
     function ContextForName(const aContext: TDelphiSemanticResolveContext;
@@ -426,6 +434,10 @@ type
       out aResult: TDelphiSemanticResolveResult): Boolean; overload;
     function TryResolveDirectMember(const aCurrentUnitName, aCurrentTypeName, aOwnerName,
       aName: string; const aAllowSemanticFallback: Boolean;
+      out aResult: TBoundMemberResolution): Boolean; overload;
+    function TryResolveDirectMember(const aCurrentUnitName, aCurrentTypeName, aOwnerName,
+      aName: string; const aAllowSemanticFallback: Boolean;
+      const aCurrentFileName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity;
       out aResult: TBoundMemberResolution): Boolean; overload;
     function TryResolveRoutineLocalMember(const aOwnerIdentity: TDelphiSemanticTypeIdentity;
       const aCurrentTypeName, aName: string; out aResult: TBoundMemberResolution): Boolean;
@@ -1315,11 +1327,26 @@ procedure TWithBindingProjectMemberIndex.AddMember(const aUnitName: string;
 var
   lBound: TBoundMemberResolution;
   lKey: string;
+  lOwner: TDelphiSemanticTypeLookupResult;
 begin
   lKey := Key(aUnitName, aMember.OwnerName, aMember.Name);
   lBound := Default(TBoundMemberResolution);
   lBound.Value := MemberResult(aMember);
   lBound.DeclaringUnitName := aUnitName;
+  if aMember.OwnerScopeId <> '' then
+  begin
+    lOwner := fTypeIndex.ResolveScopedName(aMember.OwnerName, aUnitName,
+      aMember.OwnerScopeId, [], 'implementation');
+    if lOwner.Found and (not lOwner.Ambiguous) and
+      SameText(lOwner.Identity.OwnerScopeId, aMember.OwnerScopeId) and
+      SameText(lOwner.Identity.SemanticSymbolId, aMember.OwnerSymbolId) then
+      lBound.OwnerDeclaredId := lOwner.Identity.DeclaredId;
+  end else begin
+    lOwner := fTypeIndex.ResolveQualifiedName(aUnitName + '.' + aMember.OwnerName);
+    if lOwner.Found and (not lOwner.Ambiguous) and
+      SameText(lOwner.Identity.ScopeKind, 'unit') then
+      lBound.OwnerDeclaredId := lOwner.Identity.DeclaredId;
+  end;
   AddResultToMap(fByUnitOwnerName, lKey, lBound);
   AddMemberKey(aUnitName, lKey);
 end;
@@ -1450,32 +1477,83 @@ end;
 function TWithBindingProjectMemberIndex.TryResolveDirectMember(const aCurrentUnitName,
   aCurrentTypeName, aOwnerName, aName: string; const aAllowSemanticFallback: Boolean;
   out aResult: TBoundMemberResolution): Boolean;
-var
-  lContext: TDelphiSemanticMemberLookupContext;
-  lLookup: TDelphiSemanticMemberLookupResult;
-  lSemanticKey: string;
 begin
+  Result := TryResolveDirectMember(aCurrentUnitName, aCurrentTypeName, aOwnerName,
+    aName, aAllowSemanticFallback, '', Default(TDelphiSemanticTypeIdentity), aResult);
+end;
+
+function TWithBindingProjectMemberIndex.TryResolveDirectMember(const aCurrentUnitName,
+  aCurrentTypeName, aOwnerName, aName: string; const aAllowSemanticFallback: Boolean;
+  const aCurrentFileName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity;
+  out aResult: TBoundMemberResolution): Boolean;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lContext: TDelphiSemanticMemberLookupContext;
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lLineage: TArray<TDelphiSemanticTypeIdentity>;
+  lLookup: TDelphiSemanticMemberLookupResult;
+  lTypeLookup: TDelphiSemanticTypeLookupResult;
+  lSemanticKey, lOwnerProbe: string;
+  lIdentityVerified, lOwnerVerified, lQualifiedProbe: Boolean;
+begin
+  lIdentityVerified := (aOwnerIdentity.UnitName <> '') and
+    (aOwnerIdentity.Name <> '') and SameText(aOwnerIdentity.ScopeKind, 'unit');
   if TryResolveContextMember(aCurrentUnitName, aOwnerName, aName, aResult) then
-    Exit(True);
-
-  if not aAllowSemanticFallback then
   begin
-    aResult := Default(TBoundMemberResolution);
-    Exit(False);
+    // Ambiguity and existing refusals retain the original lookup vocabulary.
+    if (not lIdentityVerified) or (not aResult.Value.Found) then
+      Exit(True);
+    lBinding := Default(TDelphiSemanticWithBinding);
+    lBinding.UnitName := aCurrentUnitName;
+    lBinding.FileName := aCurrentFileName;
+    TryBuildMemberSafetyLineage(lBinding, aOwnerName, aOwnerIdentity, lLineage);
+    lOwnerVerified := False;
+    for lIdentity in lLineage do
+      if (aResult.OwnerDeclaredId.Value <> '') and
+        SameText(lIdentity.DeclaredId.Value, aResult.OwnerDeclaredId.Value) then
+        lOwnerVerified := True;
+    if lOwnerVerified then
+      Exit(True);
   end;
+  aResult := Default(TBoundMemberResolution);
+  if not aAllowSemanticFallback then
+    Exit(False);
 
-  lSemanticKey := Key(aCurrentUnitName + #30 + aCurrentTypeName, aOwnerName, aName);
+  lSemanticKey := Key(aCurrentUnitName + #30 + aCurrentTypeName + #30 +
+    aOwnerIdentity.DeclaredId.Value, aOwnerName, aName);
   if fSemanticMemberResultsByOwnerName.TryGetValue(lSemanticKey, aResult) then
     Exit(ResolveResultIsUsable(aResult.Value));
-
   if fSemanticMemberIndexAvailable then
   begin
     lContext := Default(TDelphiSemanticMemberLookupContext);
     lContext.CallerUnitName := aCurrentUnitName;
     lContext.CurrentTypeName := aCurrentTypeName;
     lContext.InstanceContext := True;
-    lLookup := fSemanticMemberIndex.ResolveMember(lContext, aOwnerName, aName);
-    aResult := Default(TBoundMemberResolution);
+    lOwnerProbe := aOwnerName;
+    lQualifiedProbe := False;
+    if lIdentityVerified then
+    begin
+      lTypeLookup := fTypeIndex.ResolveQualifiedName(aOwnerIdentity.UnitName + '.' +
+        aOwnerIdentity.Name);
+      if lTypeLookup.Found and (not lTypeLookup.Ambiguous) and
+        (aOwnerIdentity.DeclaredId.Value <> '') and
+        SameText(lTypeLookup.Identity.DeclaredId.Value, aOwnerIdentity.DeclaredId.Value) then
+      begin
+        lOwnerProbe := aOwnerIdentity.UnitName + '.' + aOwnerIdentity.Name;
+        lQualifiedProbe := True;
+      end;
+    end;
+    lLookup := fSemanticMemberIndex.ResolveMember(lContext, lOwnerProbe, aName);
+    // Helpers and inherited results are intentionally outside this direct-owner filter.
+    if lIdentityVerified and (not lQualifiedProbe) and lLookup.Found and
+      (not MatchText(lLookup.Status, ['inherited', 'helper'])) and
+      (not SameText(lLookup.Member.UnitName, aOwnerIdentity.UnitName)) and
+      SameText(Copy(lLookup.Member.OwnerName, LastDelimiter('.', lLookup.Member.OwnerName) + 1,
+      MaxInt), Copy(aOwnerIdentity.Name, LastDelimiter('.', aOwnerIdentity.Name) + 1, MaxInt)) then
+    begin
+      fSemanticMemberResultsByOwnerName.AddOrSetValue(lSemanticKey, aResult);
+      Exit(False);
+    end;
     if ResolveResultFromMemberLookup(aName, lLookup, aResult.Value) then
     begin
       if lLookup.Found then
@@ -1484,7 +1562,6 @@ begin
       Exit(True);
     end;
   end;
-
   aResult := Default(TBoundMemberResolution);
   fSemanticMemberResultsByOwnerName.AddOrSetValue(lSemanticKey, aResult);
   Result := False;
@@ -1613,6 +1690,16 @@ begin
   // member" only for a plain local record: Delphi rejects local class,
   // interface, object and helper types (E2059) and local record methods
   // (E2433). Any other local type may inherit, so we refuse the name.
+  if (not Result) and RoutineLocalTypeHasOnlyDirectMembers(aOwnerIdentity) and
+    LineageHasActivityFact([aOwnerIdentity]) then
+  begin
+    aResult.Value.Status := 'unsupported';
+    aResult.Value.Name := aName;
+    aResult.Value.ReasonCode := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
+    aResult.Value.OwnerName := aOwnerIdentity.Name;
+    aResult.Value.Reason := 'The routine-local receiver member activity is unverified.';
+    Exit(True);
+  end;
   if (not Result) and (not RoutineLocalTypeHasOnlyDirectMembers(aOwnerIdentity)) then
   begin
     aResult := Default(TBoundMemberResolution);
@@ -2838,6 +2925,7 @@ begin
     for lSelector in aSelectors do
       lBuilder.Append(lSelector.SelectorText).Append(#30).Append(lSelector.Status).
         Append(#30).Append(lSelector.TypeName).Append(#30).
+        Append(lSelector.TypeIdentity.DeclaredId.Value).Append(#30).
         Append(Ord(SelectorAllowsReceiverMemberLookup(lSelector))).Append(#29);
     lBuilder.Append(#31);
     Result := lBuilder.ToString;
@@ -2928,7 +3016,8 @@ begin
       end;
       if Assigned(aProjectMemberIndex) and aProjectMemberIndex.TryResolveDirectMember(
         aModel.UnitName, aCurrentTypeName, aSelectors[i].TypeName, aName,
-        SelectorAllowsReceiverMemberLookup(aSelectors[i]), aResult) then
+        SelectorAllowsReceiverMemberLookup(aSelectors[i]), aModel.FileName,
+        aSelectors[i].TypeIdentity, aResult) then
       begin
         if Assigned(aMemberCache) then
           aMemberCache.AddOrSetValue(lKey, aResult);
@@ -2988,7 +3077,8 @@ begin
       lBuilder.Append(lParentRoutineName).Append(#30);
     lBuilder.Append(#31);
     for lSelector in aSelectors do
-      lBuilder.Append(lSelector.Status).Append(#30).Append(lSelector.TypeName).Append(#29);
+      lBuilder.Append(lSelector.Status).Append(#30).Append(lSelector.TypeName).Append(#30).
+        Append(lSelector.TypeIdentity.DeclaredId.Value).Append(#29);
     lBuilder.Append(#31);
     Result := lBuilder.ToString;
   finally
@@ -3410,7 +3500,11 @@ function BindSelectors(const aModel: TDelphiSemanticUnitModel;
   out aIdentities: TWithSelectorIdentityArray):
   TArray<TDelphiSemanticWithSelectorBinding>;
 var
-  lIdentity: TDelphiSemanticTypeIdentity;
+  lIdentity, lPrefixIdentity: TDelphiSemanticTypeIdentity;
+  lBinding, lPrefixBinding: TDelphiSemanticWithSelectorBinding;
+  lActivityBinding: TDelphiSemanticWithBinding;
+  lLineage: TArray<TDelphiSemanticTypeIdentity>;
+  i, lParenDepth, lBracketDepth: Integer;
   lIdentities: TList<TDelphiSemanticTypeIdentity>;
   lPart: string;
   lSelectors: TList<TDelphiSemanticWithSelectorBinding>;
@@ -3424,10 +3518,43 @@ begin
   try
     for lPart in lParts do
     begin
-      lSelectors.Add(MakeSelectorBinding(aModel, aProjectModels, aRoutineName,
+      lBinding := MakeSelectorBinding(aModel, aProjectModels, aRoutineName,
         aCurrentTypeName, lPart, aParentRoutineNames, lSelectors.ToArray,
         aParentSelectors, aLine, aColumn, aProjectMemberIndex,
-        aMemberCache, lIdentity));
+        aMemberCache, lIdentity);
+      lParenDepth := 0;
+      lBracketDepth := 0;
+      for i := 1 to Length(lPart) do
+      begin
+        case lPart[i] of
+          '(': Inc(lParenDepth);
+          ')': Dec(lParenDepth);
+          '[': Inc(lBracketDepth);
+          ']': Dec(lBracketDepth);
+        end;
+        if (lPart[i] <> '.') or (lParenDepth <> 0) or (lBracketDepth <> 0) or
+          (not Assigned(aProjectMemberIndex)) then
+          Continue;
+        lPrefixBinding := MakeSelectorBinding(aModel, aProjectModels, aRoutineName,
+          aCurrentTypeName, Copy(lPart, 1, i - 1), aParentRoutineNames, lSelectors.ToArray,
+          aParentSelectors, aLine, aColumn, aProjectMemberIndex, aMemberCache, lPrefixIdentity);
+        if not SameText(lPrefixBinding.Status, 'resolved') then
+          Break;
+        lActivityBinding := Default(TDelphiSemanticWithBinding);
+        lActivityBinding.UnitName := aModel.UnitName;
+        lActivityBinding.FileName := aModel.FileName;
+        aProjectMemberIndex.TryBuildMemberSafetyLineage(lActivityBinding,
+          lPrefixBinding.TypeName, lPrefixIdentity, lLineage);
+        if aProjectMemberIndex.LineageHasActivityFact(lLineage) then
+        begin
+          lBinding.Status := 'unsupported';
+          lBinding.ReasonCode := 'SELECTOR_MEMBERS_ACTIVITY_UNVERIFIED';
+          lIdentity := Default(TDelphiSemanticTypeIdentity);
+          lBinding.TypeIdentity := lIdentity;
+          Break;
+        end;
+      end;
+      lSelectors.Add(lBinding);
       lIdentities.Add(lIdentity);
     end;
     Result := lSelectors.ToArray;
@@ -3991,6 +4118,7 @@ var
   lSymbol: TDelphiSemanticIntrinsicSymbol;
 begin
   fMemberSafetyDiagnostics := nil;
+  fActivityMemberFacts := nil;
   fSafetyDeclarationsByName := TObjectDictionary<string,
     TList<TIndexedDeclarationCandidate>>.Create([doOwnsValues],
     TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -4030,14 +4158,15 @@ begin
     for lDiagnostic in lModel.Diagnostics do
     begin
       if not (SameText(lDiagnostic.Code, 'MEMBERS_UNVERIFIED') or
-        SameText(lDiagnostic.Code, 'MEMBERS_INCOMPLETE')) then
+        SameText(lDiagnostic.Code, 'MEMBERS_INCOMPLETE') or
+        SameText(lDiagnostic.Code, 'MEMBERS_ACTIVITY_UNVERIFIED')) then
         Continue;
       lFact := Default(TMemberSafetyDiagnostic);
       lFact.Code := lDiagnostic.Code;
       lFact.UnitName := lModel.UnitName;
       lFact.FileName := lDiagnostic.FileName;
       lFact.Line := lDiagnostic.Line;
-      if SameText(lDiagnostic.Code, 'MEMBERS_INCOMPLETE') and
+      if MatchText(lDiagnostic.Code, ['MEMBERS_INCOMPLETE', 'MEMBERS_ACTIVITY_UNVERIFIED']) and
         (lDiagnostic.FileName <> '') and (lDiagnostic.Line > 0) then
         for lDeclaration in lModel.Declarations do
         begin
@@ -4060,10 +4189,57 @@ begin
             end;
           end;
         end;
-      lIndex := Length(fMemberSafetyDiagnostics);
-      SetLength(fMemberSafetyDiagnostics, lIndex + 1);
-      fMemberSafetyDiagnostics[lIndex] := lFact;
+      if SameText(lFact.Code, 'MEMBERS_ACTIVITY_UNVERIFIED') then
+      begin
+        lIndex := Length(fActivityMemberFacts);
+        SetLength(fActivityMemberFacts, lIndex + 1);
+        fActivityMemberFacts[lIndex] := lFact;
+      end else begin
+        lIndex := Length(fMemberSafetyDiagnostics);
+        SetLength(fMemberSafetyDiagnostics, lIndex + 1);
+        fMemberSafetyDiagnostics[lIndex] := lFact;
+      end;
     end;
+end;
+
+function TWithBindingProjectMemberIndex.LineageHasActivityFact(
+  const aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
+var
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lFact: TMemberSafetyDiagnostic;
+begin
+  for lIdentity in aLineage do
+    for lFact in fActivityMemberFacts do
+      if SameText(lIdentity.UnitName, lFact.UnitName) and
+        ((not lFact.OwnerResolved) or
+        (SameText(lIdentity.Name, lFact.OwnerName) and
+        (lIdentity.SourceRange.Line = lFact.Line) and
+        SameText(lIdentity.SourceRange.FileName, lFact.FileName))) then
+        Exit(True);
+  Result := False;
+end;
+
+function TWithBindingProjectMemberIndex.MemberActivityIsUnverified(
+  const aBinding: TDelphiSemanticWithBinding;
+  const aSelectorIdentities: TArray<TDelphiSemanticTypeIdentity>): Boolean;
+var
+  i: Integer;
+  lLineage: TArray<TDelphiSemanticTypeIdentity>;
+begin
+  for i := 0 to High(aBinding.Selectors) do
+  begin
+    if SameText(aBinding.Selectors[i].ReasonCode,
+      'SELECTOR_MEMBERS_ACTIVITY_UNVERIFIED') then
+      Exit(True);
+    if i >= Length(aSelectorIdentities) then
+      Continue;
+    // A failed walk still supplies the verified prefix, which can carry a fact.
+    TryBuildMemberSafetyLineage(aBinding, aBinding.Selectors[i].TypeName,
+      aSelectorIdentities[i], lLineage);
+    if LineageHasActivityFact(lLineage) then
+      Exit(True);
+  end;
+  Result := False;
 end;
 
 function TWithBindingProjectMemberIndex.IsKnownSafetyProfileTerminal(
@@ -4392,7 +4568,9 @@ begin
   Result := False;
   aIdentity := Default(TDelphiSemanticTypeIdentity);
   aAccessIdentity := Default(TDelphiSemanticTypeIdentity);
-  if (not MatchText(aSymbol.SymbolClass, ['member', 'field'])) or
+  // Constants use the same declared-member origin proof for planner ownership;
+  // this inventory enrichment does not alter bound reference classification.
+  if (not MatchText(aSymbol.SymbolClass, ['member', 'field', 'constant'])) or
     aSymbol.IsHelper or
     (aSymbol.UnitName = '') or (aSymbol.OwnerName = '') or
     (aSymbol.FileName = '') or (aSymbol.Line <= 0) then
@@ -4454,6 +4632,24 @@ begin
     lAccessOwnerName := aSymbol.OwnerName;
     if Pos('.', lAccessOwnerName) = 0 then
       lAccessOwnerName := aSymbol.UnitName + '.' + lAccessOwnerName;
+  end;
+  if SameText(aSymbol.SymbolClass, 'constant') and
+    (aSymbol.SourceOwnerType = '') then
+  begin
+    // DS-710's declared constant facts are inventory members, not graph members.
+    // Anchor their explicit owner to the unique verified declaration before D4
+    // consumes them; unit/global constants have no type owner and fail here.
+    lAccessLookup := fTypeIndex.ResolveQualifiedName(lAccessOwnerName);
+    if (not lAccessLookup.Found) or lAccessLookup.Ambiguous or
+      (not TrySafetyDeclarationModel(lAccessLookup.Identity, lAccessModel)) or
+      (not SameText(lAccessLookup.Identity.UnitName, aSymbol.UnitName)) or
+      (not SameText(lAccessLookup.Identity.SourceRange.FileName, aSymbol.FileName)) or
+      ((aSymbol.SectionKind <> '') and
+        (not SameText(lAccessLookup.Identity.SectionKind, aSymbol.SectionKind))) then
+      Exit;
+    aIdentity := lAccessLookup.Identity;
+    aAccessIdentity := aIdentity;
+    Exit(True);
   end;
   lLookup := fSemanticMemberIndex.ResolveMember(lAccessOwnerName, aSymbol.Name);
   if (not lLookup.Found) or lLookup.Ambiguous or
@@ -4748,6 +4944,8 @@ begin
   if not TryBuildMemberSafetyLineage(lBinding, aSelector.TypeName,
     aSelector.TypeIdentity, lLineage) or (Length(lLineage) = 0) then
     Exit;
+  if LineageHasActivityFact(lLineage) then
+    Exit;
   for lIdentity in lLineage do
     for lFact in fMemberSafetyDiagnostics do
       if SameText(lIdentity.UnitName, lFact.UnitName) and
@@ -4948,7 +5146,7 @@ begin
   Result := False;
 end;
 
-function TWithBindingProjectMemberIndex.MemberSafetyReason(
+function TWithBindingProjectMemberIndex.EstablishedMemberSafetyReason(
   const aBinding: TDelphiSemanticWithBinding;
   const aSelectorIdentities: TArray<TDelphiSemanticTypeIdentity>): string;
 var
@@ -4986,6 +5184,15 @@ begin
       end;
     end;
   end;
+end;
+
+function TWithBindingProjectMemberIndex.MemberSafetyReason(
+  const aBinding: TDelphiSemanticWithBinding;
+  const aSelectorIdentities: TArray<TDelphiSemanticTypeIdentity>): string;
+begin
+  Result := EstablishedMemberSafetyReason(aBinding, aSelectorIdentities);
+  if (Result = '') and MemberActivityIsUnverified(aBinding, aSelectorIdentities) then
+    Result := 'MEMBERS_UNVERIFIED';
 end;
 
 class function TDelphiSemanticWithBinder.BindModel(const aModel: TDelphiSemanticUnitModel):
@@ -5188,6 +5395,10 @@ begin
         ApplyBindingActivity(lModel, lActivityLineStarts, lBinding);
         lSkipReason := lProjectMemberIndex.MemberSafetyReason(lBinding,
           lSelectorIdentityStacks[i]);
+        lBinding.MemberActivityUnverified :=
+          lProjectMemberIndex.MemberActivityIsUnverified(lBinding, lSelectorIdentityStacks[i]) and
+          (lProjectMemberIndex.EstablishedMemberSafetyReason(lBinding,
+          lSelectorIdentityStacks[i]) = '');
         if lSkipReason <> '' then
         begin
           lBinding.Status := 'skipped';

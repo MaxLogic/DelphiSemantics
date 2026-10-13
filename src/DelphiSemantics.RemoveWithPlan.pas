@@ -4525,6 +4525,135 @@ begin
   end;
 end;
 
+function ReferenceWasRoutineLocalRecordActivityMiss(
+  const aBinding: TDelphiSemanticWithBinding;
+  const aReference: TDelphiSemanticBoundReference): Boolean;
+var
+  lSelector: TDelphiSemanticWithSelectorBinding;
+begin
+  Result := False;
+  if (not aBinding.MemberActivityUnverified) or
+    (not SameText(aReference.Classification, 'unsupported')) or
+    (not SameText(aReference.ReasonCode, 'OWNER_INHERITED_MEMBERS_UNVERIFIED')) then
+    Exit;
+  for lSelector in aBinding.Selectors do
+    if SameText(lSelector.TypeIdentity.ScopeKind, 'routine') and
+      SameText(lSelector.TypeIdentity.Kind, 'type') and
+      (lSelector.TypeIdentity.BaseTypeName = '') and
+      (lSelector.TypeIdentity.HelperTargetName = '') and
+      MatchText(lSelector.TypeIdentity.UnderlyingName, ['record', 'packed record']) and
+      SameText(lSelector.TypeIdentity.Name, aReference.ReceiverTypeName) then
+      Exit(True);
+end;
+
+function InventoryFactIsInsideVerifiedTypeBody(const aFacts: TRemoveWithPlanFacts;
+  const aSymbol: TDelphiSemanticInventorySymbol;
+  const aIdentity: TDelphiSemanticTypeIdentity): Boolean;
+var
+  lBody: TDelphiSemanticInventorySymbol;
+  lMatchCount: Integer;
+begin
+  Result := False;
+  if not TypeIdentityHasVerifiedOrigin(aIdentity) then
+    Exit;
+  lMatchCount := 0;
+  for lBody in aFacts.LookupIndex.FindSymbolsByName(aIdentity.Name) do
+  begin
+    if not SameText(lBody.SymbolClass, 'type-body-range') or
+      not SameText(lBody.UnitName, aIdentity.UnitName) or
+      not SameText(lBody.FileName, aIdentity.SourceRange.FileName) or
+      (lBody.Line <> aIdentity.SourceRange.Line) or
+      (lBody.Column <> aIdentity.SourceRange.Column) or
+      not SameText(lBody.SectionKind, aIdentity.SectionKind) or
+      not SameText(lBody.OwnerScopeId, aIdentity.OwnerScopeId) or
+      not SameText(lBody.OwnerSymbolId, aIdentity.SemanticSymbolId) or
+      (lBody.EndLine < lBody.Line) or (lBody.EndColumn <= 0) then
+      Continue;
+    Inc(lMatchCount);
+    Result := SameText(aSymbol.FileName, lBody.FileName) and
+      ((aSymbol.Line > lBody.Line) or
+        ((aSymbol.Line = lBody.Line) and (aSymbol.Column >= lBody.Column))) and
+      ((aSymbol.Line < lBody.EndLine) or
+        ((aSymbol.Line = lBody.EndLine) and (aSymbol.Column < lBody.EndColumn)));
+  end;
+  if lMatchCount <> 1 then
+    Exit(False);
+
+end;
+
+function QualificationTargetsVerifiedOwnerMember(const aFacts: TRemoveWithPlanFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aEdit: TFinalBodyEdit): Boolean;
+var
+  lDecision: TFinalSelectorDecision;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  for lDecision in aDecisions do
+  begin
+    if not TypeIdentityHasVerifiedOrigin(lDecision.ReceiverIdentity) or
+      not SameText(aEdit.ReplacementText,
+        lDecision.QualifierText + '.' + aEdit.ExpectedText) then
+      Continue;
+    for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aEdit.ExpectedText) do
+    begin
+      if not InventorySymbolIsSourceBacked(lSymbol) or
+        not MatchText(lSymbol.SymbolClass,
+          ['member', 'field', 'property', 'method', 'constant', 'class-var']) or
+        not (TypeNameMatches(lSymbol.OwnerType, lDecision.ReceiverType) or
+          TypeNameMatches(lSymbol.OwnerName, lDecision.ReceiverType) or
+          TypeNameMatches(lSymbol.SourceOwnerType, lDecision.ReceiverType)) then
+        Continue;
+      if InventoryFactIsInsideVerifiedTypeBody(aFacts, lSymbol,
+        lDecision.ReceiverIdentity) then
+        Exit(True);
+      // Only the binder's verified access lineage permits a different declaration body.
+      if TypeIdentitiesAreSameDeclaration(lSymbol.AccessOwnerIdentity,
+        lDecision.ReceiverIdentity) and InventoryFactIsInsideVerifiedTypeBody(aFacts,
+          lSymbol, lSymbol.OwnerIdentity) then
+        Exit(True);
+    end;
+  end;
+end;
+
+function BodyEditsQualifyNonMemberReference(const aFacts: TRemoveWithPlanFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>; const aEdits: TArray<TFinalBodyEdit>;
+  const aBinding: TDelphiSemanticWithBinding; const aBodyText: string;
+  const aBodyStartLine: Integer): Boolean;
+var
+  lEdit: TFinalBodyEdit;
+  lReference: TDelphiSemanticBoundReference;
+  lLine, i: Integer;
+  lNonMember, lMember: Boolean;
+begin
+  for lEdit in aEdits do
+  begin
+    if (not IsSimpleIdentifier(lEdit.ExpectedText)) or
+      (lEdit.ExpectedText = lEdit.ReplacementText) then
+      Continue;
+    lLine := aBodyStartLine;
+    if (lEdit.Offset < 1) or (lEdit.Offset > Length(aBodyText) + 1) then
+      Continue;
+    for i := 1 to lEdit.Offset - 1 do
+      if (aBodyText[i] = #10) or ((aBodyText[i] = #13) and
+        ((i = Length(aBodyText)) or (aBodyText[i + 1] <> #10))) then
+        Inc(lLine);
+    lNonMember := False;
+    lMember := False;
+    for lReference in aBinding.References do
+      if (lReference.Line = lLine) and SameText(lReference.Name, lEdit.ExpectedText) then
+      begin
+        if MatchText(lReference.Classification, ['lexical', 'unresolved']) then
+          lNonMember := True;
+        if SameText(lReference.Classification, 'member') then
+          lMember := True;
+      end;
+    if lNonMember and (not lMember) and
+      (not QualificationTargetsVerifiedOwnerMember(aFacts, aDecisions, lEdit)) then
+      Exit(True);
+  end;
+  Result := False;
+end;
+
 function PrepareFinalBodyText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aEditDecisions, aValidationDecisions: TArray<TFinalSelectorDecision>;
@@ -4645,8 +4774,13 @@ begin
         (not ActiveDecisionHasMember(aFacts, aEditDecisions, lReference.Name)) then
         Continue;
     end;
+    lSourceReference := lReference;
+    // The new local-record barrier names its receiver for evidence, not as
+    // proof that this missing name is a member. Keep the ordinary miss path.
+    if ReferenceWasRoutineLocalRecordActivityMiss(aBinding, lReference) then
+      lSourceReference.ReceiverTypeName := '';
     lQualification := QualifierForReference(aFacts, aBinding, aEditDecisions,
-      lReference, lQualifierText);
+      lSourceReference, lQualifierText);
     if lQualification = TFinalReferenceQualification.RetainedMember then
       Continue;
     if lQualification = TFinalReferenceQualification.NoMatch then
@@ -4660,7 +4794,8 @@ begin
         aReason := 'semantic-rewrite-incomplete';
         Exit;
       end;
-      if SameText(lReference.Classification, 'unresolved') then
+      if SameText(lReference.Classification, 'unresolved') or
+        ReferenceWasRoutineLocalRecordActivityMiss(aBinding, lReference) then
       begin
         if ReferenceHasKnownRoutineSymbol(aFacts, lReference) or
           ReferenceIsKnownTypeName(aFacts, lReference) or
@@ -4713,6 +4848,12 @@ begin
   AddIndexedMemberBodyEdits(aFacts, aBinding, aEditDecisions, aReplacementText,
     lDeclarations, lBodyEdits);
   AddDependentSelectorBodyEdits(aEditDecisions, aReplacementText, lBodyEdits);
+  if BodyEditsQualifyNonMemberReference(aFacts, aEditDecisions, lBodyEdits, aBinding, aReplacementText,
+    lBodyRange.StartLine) then
+  begin
+    aReason := 'receiver-member-owner-conflict';
+    Exit;
+  end;
   if not ApplyFinalBodyEdits(lBodyEdits, lProtectedSpans, aReplacementText) then
   begin
     aReason := 'label-source-range-overlap';
@@ -5599,7 +5740,8 @@ begin
   Result.Verification := FinalVerification(aCandidateEdits[aBindingIndex]);
   Result.ReferenceIds := aCandidateEdits[aBindingIndex].ReferenceIds;
   lVisibleDecisions := Copy(aInheritedDecisions);
-  if SameText(lBinding.SkipReason, 'MEMBERS_UNVERIFIED') or
+  if (SameText(lBinding.SkipReason, 'MEMBERS_UNVERIFIED') and
+    (not lBinding.MemberActivityUnverified)) or
     SameText(lBinding.SkipReason, 'MEMBERS_INCOMPLETE') or
     SameText(lBinding.SkipReason, 'SCOPE_UNVERIFIED') then
   begin
@@ -6446,7 +6588,7 @@ procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aBindingTree: TFinalBindingTree;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aSafetyReasons: TArray<string>;
-  const aActivityUnverified: TArray<Boolean>;
+  const aActivityUnverified, aMemberActivityUnverified: TArray<Boolean>;
   const aBindingIndex: Integer;
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDelphiSemanticSourceContextCache;
@@ -6474,6 +6616,13 @@ begin
   // First compute the complete ordinary DTO, including nested rewrites.
   // Activity changes only an otherwise applicable result; existing refusals
   // retain exactly their own Status, Reason and SafetyReason.
+  if aMemberActivityUnverified[aBindingIndex] and SameText(lStatement.Status, 'planned') then
+  begin
+    RollbackReservedTempNamesForFinalTemps(aReservedNames, lBinding.RoutineName,
+      lStatement.Temps);
+    lStatement := BuildSkippedFinalStatement(lBinding, FinalStatementId(aBindingIndex + 1),
+      'members-unverified', 'MEMBERS_UNVERIFIED');
+  end;
   if aActivityUnverified[aBindingIndex] and SameText(lStatement.Status, 'planned') then
   begin
     RollbackReservedTempNamesForFinalTemps(aReservedNames, lBinding.RoutineName,
@@ -6526,7 +6675,8 @@ begin
     if (aSafetyReasons[lChildIndex] <> '') or
       aBindingSource.BindingHasStableSourceRange(lChildIndex) then
       AddFinalStatementTree(aPlan, aFacts, aBindingSource, aBindingTree,
-        aCandidateEdits, aSafetyReasons, aActivityUnverified, lChildIndex, aReservedNames, aLineCache,
+        aCandidateEdits, aSafetyReasons, aActivityUnverified, aMemberActivityUnverified,
+        lChildIndex, aReservedNames, aLineCache,
         lChildInheritedDecisions);
   end;
 end;
@@ -6766,8 +6916,10 @@ var
   lPhaseStopwatch: TStopwatch;
   lReservedNames: TDictionary<string, Integer>;
   lRootIndex: Integer;
+  lRetainedEditCount: Integer;
+  lRejectedCandidate: Boolean;
   lSafetyReasons: TArray<string>;
-  lActivityUnverified: TArray<Boolean>;
+  lActivityUnverified, lMemberActivityUnverified: TArray<Boolean>;
   lSafetyReason: string;
   lStatementIndex: Integer;
 begin
@@ -6812,11 +6964,23 @@ begin
       end;
       SetLength(lSafetyReasons, lBindingCount);
       SetLength(lActivityUnverified, lBindingCount);
+      SetLength(lMemberActivityUnverified, lBindingCount);
       for lBindingIndex := 0 to lBindingCount - 1 do
       begin
         lBinding := aBindingSource.BindingByIndex(lBindingIndex);
+        if lBinding.MemberActivityUnverified then
+        begin
+          lMemberActivityUnverified[lBindingIndex] := True;
+          lParentIndex := lBindingTree.ParentIndexes[lBindingIndex];
+          while lParentIndex >= 0 do
+          begin
+            lMemberActivityUnverified[lParentIndex] := True;
+            lParentIndex := lBindingTree.ParentIndexes[lParentIndex];
+          end;
+        end;
         if MatchText(lBinding.SkipReason,
-          ['MEMBERS_UNVERIFIED', 'MEMBERS_INCOMPLETE', 'SCOPE_UNVERIFIED']) then
+          ['MEMBERS_UNVERIFIED', 'MEMBERS_INCOMPLETE', 'SCOPE_UNVERIFIED']) and
+          (not lBinding.MemberActivityUnverified) then
         begin
           if lSafetyReasons[lBindingIndex] = '' then
             lSafetyReasons[lBindingIndex] := lBinding.SkipReason;
@@ -6857,7 +7021,7 @@ begin
             lCandidateEdits[lBindingIndex] := lEdit;
             // Keep the candidate for the ordinary decision, but never expose
             // an activity-refused source range as candidate apply coverage.
-            if lActivityUnverified[lBindingIndex] then
+            if lActivityUnverified[lBindingIndex] or lMemberActivityUnverified[lBindingIndex] then
               SetLength(Result.Edits, Length(Result.Edits) - 1);
           end else
           begin
@@ -6881,7 +7045,8 @@ begin
           begin
             lInheritedDecisions := nil;
             AddFinalStatementTree(Result, aFacts, aBindingSource, lBindingTree,
-              lCandidateEdits, lSafetyReasons, lActivityUnverified, lRootIndex, lReservedNames, lLineCache,
+              lCandidateEdits, lSafetyReasons, lActivityUnverified, lMemberActivityUnverified,
+              lRootIndex, lReservedNames, lLineCache,
               lInheritedDecisions);
           end;
         end;
@@ -6891,6 +7056,25 @@ begin
       end;
       lPhaseStopwatch := TStopwatch.StartNew;
       try
+        // Refused qualifications cannot remain as candidate apply coverage.
+        lRetainedEditCount := 0;
+        for lEdit in Result.Edits do
+        begin
+          lRejectedCandidate := False;
+          if SameText(lEdit.Kind, 'remove-with-candidate') then
+            for lFinalStatement in Result.FinalStatements do
+              if SameText(lFinalStatement.Reason, 'receiver-member-owner-conflict') and
+                (lFinalStatement.SemanticId = lEdit.StatementId) then
+              begin
+                lRejectedCandidate := True;
+                Break;
+              end;
+          if lRejectedCandidate then
+            Continue;
+          Result.Edits[lRetainedEditCount] := lEdit;
+          Inc(lRetainedEditCount);
+        end;
+        SetLength(Result.Edits, lRetainedEditCount);
         AddRoutineDeclarationEdits(Result, lLineCache, lHashCache);
       finally
         lPhaseStopwatch.Stop;
@@ -7163,6 +7347,8 @@ begin
     cSemanticRemoveWithBindingFlagHasScopedDeclaration);
   Result.ActivityUnverified := SnapshotHasFlag(aBinding.Flags,
     cSemanticRemoveWithBindingFlagActivityUnverified);
+  Result.MemberActivityUnverified := SnapshotHasFlag(aBinding.Flags,
+    cSemanticRemoveWithBindingFlagMemberActivityUnverified);
   Result.InactiveSpanSkipReason := aSnapshot.ExactTextOf(aBinding.InactiveSpanSkipReasonId);
   Result.MemberReferenceCount := aBinding.MemberReferenceCount;
   Result.LexicalReferenceCount := aBinding.LexicalReferenceCount;

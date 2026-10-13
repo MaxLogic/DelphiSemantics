@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Fixed
+- Member inventory no longer fabricates receiver fields or constants from routine signature parameters and block comments. Remove-with checks lexical qualifications against verified declaration bodies, preserving real variant tags and type constants.
+- WITH receiver lookup retains verified owner identity. Unknown type-member activity has a separate edit barrier that preserves earlier final refusals; non-member qualifications refuse apply coverage. Model, WITH-fact and snapshot generations rebuild the affected cached facts.
 - Remove-with: known-inactive names stay outside rename/usage references; separate WITH verification preserves base refusals across cold and warm facts/snapshot planning.
 - Remove-with checks references in known-inactive statement bodies as before and retains raw-source suffix ranges. Unknown suffixes refuse edits; known-inactive suffixes preserve the established replacement. Uncovered source and inclusive range ends retain uncertainty. Model, snapshot and WITH-fact caches rebuild for these corrections.
 - WITH binding accepts optional exact-name implicit-root evidence while preserving indexed-lineage and helper safety checks. Failing providers retain diagnostics, and provider-backed requests bypass persistent WITH facts.
