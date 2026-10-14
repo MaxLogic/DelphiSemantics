@@ -56,6 +56,8 @@ type
     [Test]
     procedure CacheHitReturnsIndependentUnitModelCopy;
     [Test]
+    procedure CacheHitReturnsIndependentUnindexedHelperFacts;
+    [Test]
     procedure CacheHitKeepsPhysicalIncludeReferenceOccurrences;
     [Test]
     procedure SourceChangeInvalidatesCachedUnitModel;
@@ -94,6 +96,7 @@ type
     [Test]
     procedure ParserVersionChangeInvalidatesCachedUnitModel;
     [Test]
+    [TestCase('Before unindexed helper model facts', '68')]
     [TestCase('Before origin-segment activity', '67')]
     [TestCase('Before include body containment', '66')]
     [TestCase('Before DS-730 inventory cleanup and DS-721 body proof', '65')]
@@ -444,7 +447,7 @@ begin
 
     Assert.AreEqual('9', lIdentity.SchemaVersion,
       'Lexical ownership fields changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.68', lIdentity.ParserVersion,
+    Assert.AreEqual('DelphiSemantics.Model.Parser.69', lIdentity.ParserVersion,
       'Separate scan witnesses require fresh model extraction without edit authority.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,
@@ -518,6 +521,39 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+procedure TCacheTests.CacheHitReturnsIndependentUnindexedHelperFacts;
+var
+  g: TGarbos;
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := TempPath('IndependentHelper.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit IndependentHelper;'#13#10'interface'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10 +
+    '  &THelp = record helper for TRec'#13#10 +
+    '    function Count: Integer;'#13#10'  end;'#13#10'implementation'#13#10 +
+    'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10'end.', TEncoding.ASCII);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  GC(lCache, TDelphiSemanticUnitCache.Create(lCacheOptions), g);
+  lModel := lCache.GetOrExtractUnitModel(lOptions);
+  Assert.AreEqual(1, Integer(Length(lModel.UnindexedHelpers)));
+  lModel.UnindexedHelpers[0].HelperKind := 'class';
+  lModel.UnindexedHelpers[0].TargetName := 'TObject';
+  lModel := lCache.GetOrExtractUnitModel(lOptions);
+  Assert.AreEqual('record', lModel.UnindexedHelpers[0].HelperKind,
+    'Caller mutation must not change the next cached helper fact.');
+  Assert.AreEqual('TRec', lModel.UnindexedHelpers[0].TargetName);
+  lModel.UnindexedHelpers[0].Name := 'Corrupted';
+  lModel := lCache.GetOrExtractUnitModel(lOptions);
+  Assert.AreEqual('THelp', lModel.UnindexedHelpers[0].Name);
+  Assert.AreEqual(2, lCache.Metrics.CacheHits);
 end;
 
 procedure TCacheTests.CacheHitReturnsIndependentUnitModelCopy;

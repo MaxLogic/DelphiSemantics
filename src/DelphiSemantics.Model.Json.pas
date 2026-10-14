@@ -11,7 +11,7 @@ function JsonToModel(const aJson: string): TDelphiSemanticUnitModel;
 implementation
 
 uses
-  System.JSON, System.SysUtils;
+  System.JSON, System.StrUtils, System.SysUtils;
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -775,6 +775,102 @@ begin
     Result[i] := JsonToDiagnostic(aArray.Items[i] as TJSONObject);
 end;
 
+function UnindexedHelpersToJson(
+  const aHelpers: TArray<TDelphiSemanticUnindexedHelperFact>): TJSONArray;
+var
+  lFact: TDelphiSemanticUnindexedHelperFact;
+  lObject: TJSONObject;
+begin
+  Result := TJSONArray.Create;
+  for lFact in aHelpers do
+  begin
+    lObject := TJSONObject.Create;
+    lObject.AddPair('Name', lFact.Name);
+    lObject.AddPair('HelperKind', lFact.HelperKind);
+    lObject.AddPair('TargetName', lFact.TargetName);
+    lObject.AddPair('SectionKind', lFact.SectionKind);
+    lObject.AddPair('ScopeKind', lFact.ScopeKind);
+    lObject.AddPair('OwnerScopeId', lFact.OwnerScopeId);
+    lObject.AddPair('FileName', lFact.FileName);
+    lObject.AddPair('Line', TJSONNumber.Create(lFact.Line));
+    lObject.AddPair('Column', TJSONNumber.Create(lFact.Column));
+    Result.AddElement(lObject);
+  end;
+end;
+
+function HelperFactStringIsPresent(const aObject: TJSONObject; const aName: string): Boolean;
+var
+  lValue: TJSONValue;
+begin
+  lValue := aObject.GetValue(aName);
+  // TJSONNumber inherits TJSONString. Only a JSON string has this exact class.
+  // Empty metadata is emitted for incomplete AST facts and must round-trip.
+  Result := Assigned(lValue) and (lValue.ClassType = TJSONString);
+end;
+
+function HelperFactCoordinate(const aObject: TJSONObject; const aName: string;
+  out aCoordinate: Integer): Boolean;
+var
+  lValue: TJSONValue;
+begin
+  aCoordinate := 0;
+  lValue := aObject.GetValue(aName);
+  // The writer emits Integer tokens, including zero for unknown positions.
+  // Reject coercions and out-of-range values rather than manufacturing zero.
+  Result := (lValue is TJSONNumber) and TryStrToInt(lValue.Value, aCoordinate) and
+    (aCoordinate >= 0);
+end;
+
+function JsonToUnindexedHelpers(const aValue: TJSONValue):
+  TArray<TDelphiSemanticUnindexedHelperFact>;
+var
+  lArray: TJSONArray;
+  lObject: TJSONObject;
+  i, lCount, lLine, lColumn: Integer;
+begin
+  Result := nil;
+  if not (aValue is TJSONArray) then
+    Exit;
+  lArray := TJSONArray(aValue);
+  SetLength(Result, lArray.Count);
+  lCount := 0;
+  for i := 0 to Pred(lArray.Count) do
+  begin
+    if not (lArray.Items[i] is TJSONObject) then
+      Continue;
+    lObject := TJSONObject(lArray.Items[i]);
+    // Invalid entries must leave the diagnostic/fact deficit visible to S3.
+    if not HelperFactStringIsPresent(lObject, 'Name') or
+      not HelperFactStringIsPresent(lObject, 'HelperKind') or
+      not HelperFactStringIsPresent(lObject, 'TargetName') or
+      not HelperFactStringIsPresent(lObject, 'SectionKind') or
+      not HelperFactStringIsPresent(lObject, 'ScopeKind') or
+      not HelperFactStringIsPresent(lObject, 'OwnerScopeId') or
+      not HelperFactStringIsPresent(lObject, 'FileName') then
+      Continue;
+    // These are the extractor's complete value sets. Unknown visibility values
+    // must not bypass S3 and then disappear in the binder's S4 filtering.
+    if not MatchStr(JsonString(lObject, 'HelperKind'), ['', 'record', 'class']) or
+      not MatchStr(JsonString(lObject, 'SectionKind'),
+        ['interface', 'implementation', 'initialization', 'finalization']) or
+      not MatchStr(JsonString(lObject, 'ScopeKind'), ['unit', 'routine']) or
+      not HelperFactCoordinate(lObject, 'Line', lLine) or
+      not HelperFactCoordinate(lObject, 'Column', lColumn) then
+      Continue;
+    Result[lCount].Name := JsonString(lObject, 'Name');
+    Result[lCount].HelperKind := JsonString(lObject, 'HelperKind');
+    Result[lCount].TargetName := JsonString(lObject, 'TargetName');
+    Result[lCount].SectionKind := JsonString(lObject, 'SectionKind');
+    Result[lCount].ScopeKind := JsonString(lObject, 'ScopeKind');
+    Result[lCount].OwnerScopeId := JsonString(lObject, 'OwnerScopeId');
+    Result[lCount].FileName := JsonString(lObject, 'FileName');
+    Result[lCount].Line := lLine;
+    Result[lCount].Column := lColumn;
+    Inc(lCount);
+  end;
+  SetLength(Result, lCount);
+end;
+
 function ModelToJson(const aModel: TDelphiSemanticUnitModel): string;
 var
   lObject: TJSONObject;
@@ -806,6 +902,8 @@ begin
     lObject.AddPair('LocalLabelReferences', ReferencesToJson(aModel.LocalLabelReferences));
     lObject.AddPair('WithStatements', WithStatementsToJson(aModel.WithStatements));
     lObject.AddPair('Diagnostics', DiagnosticsToJson(aModel.Diagnostics));
+    if Length(aModel.UnindexedHelpers) > 0 then
+      lObject.AddPair('UnindexedHelpers', UnindexedHelpersToJson(aModel.UnindexedHelpers));
     lObject.AddPair('ScopeModelStatus', aModel.ScopeModelStatus);
     lObject.AddPair('ScopeModelVersion', aModel.ScopeModelVersion);
     lObject.AddPair('RejectedDeclarationCount',
@@ -871,6 +969,7 @@ begin
         IntToStr(lInvalidOccurrenceCount) + ' malformed physical occurrence(s) stayed unverified.';
       Result.Diagnostics[High(Result.Diagnostics)].FileName := Result.FileName;
     end;
+    Result.UnindexedHelpers := JsonToUnindexedHelpers(lObject.GetValue('UnindexedHelpers'));
     Result.ScopeModelStatus := JsonString(lObject, 'ScopeModelStatus');
     Result.ScopeModelVersion := JsonString(lObject, 'ScopeModelVersion');
     Result.RejectedDeclarationCount := JsonInt(lObject, 'RejectedDeclarationCount');

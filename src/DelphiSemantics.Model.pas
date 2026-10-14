@@ -218,6 +218,19 @@ type
     ReferenceOccurrenceTableBuildCount: Integer;
   end;
 
+  // DS-720: syntax-backed helper whose declaration and members are not indexed.
+  TDelphiSemanticUnindexedHelperFact = record
+    Name: string;
+    HelperKind: string;
+    TargetName: string;
+    SectionKind: string;
+    ScopeKind: string;
+    OwnerScopeId: string;
+    FileName: string;
+    Line: Integer;
+    Column: Integer;
+  end;
+
   TDelphiSemanticUnitModel = record
     Success: Boolean;
     FileName: string;
@@ -248,6 +261,7 @@ type
     LocalLabelReferences: TArray<TDelphiSemanticReference>;
     WithStatements: TArray<TDelphiSemanticWithStatement>;
     Diagnostics: TArray<TDelphiSemanticModelDiagnostic>;
+    UnindexedHelpers: TArray<TDelphiSemanticUnindexedHelperFact>;
     Metrics: TDelphiSemanticUnitModelMetrics;
     ScopeModelStatus: string;
     ScopeModelVersion: string;

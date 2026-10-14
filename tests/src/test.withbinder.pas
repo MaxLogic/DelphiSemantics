@@ -33,6 +33,88 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [TestCase('Lost helper facts', 'lost')]
+    [TestCase('Overload visibility sites', 'overloads')]
+    [TestCase('Two routine visibility sites', 'routines')]
+    procedure UnindexedHelperCacheAndLostFacts(const aMode: string);
+    [Test]
+    procedure UnindexedHelperColdWarmSnapshot;
+    [TestCase('Null imported helper target', 'null-target')]
+    [TestCase('Null imported helper fact', 'null')]
+    [TestCase('Imported helper fact without target', 'missing-target')]
+    [TestCase('Name JSON number', 'Name:number')]
+    [TestCase('Name JSON bool', 'Name:bool')]
+    [TestCase('Name JSON null', 'Name:null')]
+    [TestCase('HelperKind JSON number', 'HelperKind:number')]
+    [TestCase('HelperKind JSON bool', 'HelperKind:bool')]
+    [TestCase('HelperKind JSON null', 'HelperKind:null')]
+    [TestCase('TargetName JSON number', 'TargetName:number')]
+    [TestCase('TargetName JSON bool', 'TargetName:bool')]
+    [TestCase('TargetName JSON null', 'TargetName:null')]
+    [TestCase('SectionKind JSON number', 'SectionKind:number')]
+    [TestCase('SectionKind JSON bool', 'SectionKind:bool')]
+    [TestCase('SectionKind JSON null', 'SectionKind:null')]
+    [TestCase('ScopeKind JSON number', 'ScopeKind:number')]
+    [TestCase('ScopeKind JSON bool', 'ScopeKind:bool')]
+    [TestCase('ScopeKind JSON null', 'ScopeKind:null')]
+    [TestCase('OwnerScopeId JSON number', 'OwnerScopeId:number')]
+    [TestCase('OwnerScopeId JSON bool', 'OwnerScopeId:bool')]
+    [TestCase('OwnerScopeId JSON null', 'OwnerScopeId:null')]
+    [TestCase('FileName JSON number', 'FileName:number')]
+    [TestCase('FileName JSON bool', 'FileName:bool')]
+    [TestCase('FileName JSON null', 'FileName:null')]
+    [TestCase('HelperKind unknown value', 'HelperKind:bogus')]
+    [TestCase('SectionKind unknown value', 'SectionKind:bogus')]
+    [TestCase('ScopeKind unknown value', 'ScopeKind:bogus')]
+    procedure MalformedImportedHelperFactsFailClosed(const aMode: string);
+    [TestCase('Empty writer helper kind', 'kind')]
+    [TestCase('Empty writer helper target', 'target')]
+    procedure UnindexedHelperWriterValuesRoundTrip(const aMode: string);
+    [TestCase('Line coordinate string', 'Line:string')]
+    [TestCase('Line coordinate float', 'Line:float')]
+    [TestCase('Line coordinate null', 'Line:null')]
+    [TestCase('Line coordinate missing', 'Line:missing')]
+    [TestCase('Line coordinate bool', 'Line:bool')]
+    [TestCase('Line coordinate array', 'Line:array')]
+    [TestCase('Line coordinate object', 'Line:object')]
+    [TestCase('Line coordinate negative', 'Line:negative')]
+    [TestCase('Line coordinate overflow', 'Line:overflow')]
+    [TestCase('Column coordinate string', 'Column:string')]
+    [TestCase('Column coordinate float', 'Column:float')]
+    [TestCase('Column coordinate null', 'Column:null')]
+    [TestCase('Column coordinate missing', 'Column:missing')]
+    [TestCase('Column coordinate bool', 'Column:bool')]
+    [TestCase('Column coordinate array', 'Column:array')]
+    [TestCase('Column coordinate object', 'Column:object')]
+    [TestCase('Column coordinate negative', 'Column:negative')]
+    [TestCase('Column coordinate overflow', 'Column:overflow')]
+    procedure MalformedHelperCoordinatesFailClosed(const aMode: string);
+    [TestCase('Writer coordinates position', 'position')]
+    [TestCase('Writer coordinates zero', 'zero')]
+    procedure HelperCoordinatesWriterRoundTrip(const aMode: string);
+    [TestCase('Duplicate unit site models', 'forward')]
+    [TestCase('Reversed duplicate unit site models', 'reverse')]
+    procedure UnindexedHelperCacheSeparatesSiteModels(const aOrder: string);
+    [TestCase('Root helper after include and site', 'after')]
+    [TestCase('Root helper before site after include', 'before')]
+    [TestCase('Helper inside include', 'included')]
+    procedure UnindexedHelperIncludeOrigins(const aMode: string);
+    [TestCase('unrelated', 'unrelated')]
+    [TestCase('same-name', 'same-name')]
+    [TestCase('private-import', 'private-import')]
+    [TestCase('after-site', 'after-site')]
+    [TestCase('class-helper', 'class-helper')]
+    [TestCase('indexed-import', 'indexed-import')]
+    [TestCase('import', 'import')]
+    [TestCase('call', 'call')]
+    [TestCase('alias-target', 'alias-target')]
+    [TestCase('alias-receiver', 'alias-receiver')]
+    [TestCase('local-alias', 'local-alias')]
+    [TestCase('nested', 'nested')]
+    [TestCase('intrinsic', 'intrinsic')]
+    [TestCase('local-array', 'local-array')]
+    [TestCase('no-helper', 'no-helper')]
+    procedure UnindexedRecordHelperRequiresVisibleMatchingIdentity(const aShape: string);
     [TestCase('Imported routine homonym', 'cross')]
     [TestCase('Same unit routine homonym', 'direct')]
     procedure RoutineTypeHomonymCannotSupplyReceiverMember(const aShape: string);
@@ -148,6 +230,11 @@ type
     [TestCase('Fingerprint failure', 'fingerprint')]
     [TestCase('Absence failure', 'absence')]
     procedure RootAbsenceProviderFailureKeepsBindingUnsupported(const aMode: string);
+    [TestCase('Record', 'record')]
+    [TestCase('Indexed record', 'indexed')]
+    [TestCase('Dereferenced record', 'pointer')]
+    [TestCase('Unindexed imported helper coverage', 'import')]
+    procedure UnindexedRecordHelperShieldsLexicalHomonym(const aShape: string);
     [TestCase('Ord', 'Ord')]
     [TestCase('SizeOf', 'SizeOf')]
     procedure CompilerRoutineInWithBodyUsesIntrinsicFallback(const aName: string);
@@ -284,10 +371,10 @@ type
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils,
+  System.IOUtils, System.JSON, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite,
-  maxLogic.IOUtils,
+  AutoFree, maxLogic.IOUtils,
   DelphiSemantics.Api.ProjectOptions, DelphiSemantics.Cache, DelphiSemantics.Model.Json,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan,
   DelphiSemantics.Snapshot,
@@ -1520,6 +1607,308 @@ begin
     'Provider-backed facts must never contaminate the default persistent cache.');
   Assert.AreEqual('skipped', lDefaultPlan.FinalStatements[0].Status);
   Assert.AreEqual('planned', lDefaultPlan.FinalStatements[1].Status);
+end;
+
+procedure TWithBinderTests.UnindexedRecordHelperRequiresVisibleMatchingIdentity(const aShape: string);
+var
+  lRoot: string;
+function Unit_(const aName, aText: string): TDelphiSemanticUnitModel;
+var
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := TPath.Combine(lRoot, aName + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName, aText, TEncoding.ASCII);
+  Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(Result.Success, aName);
+  Assert.AreEqual('ast', Result.ScopeModelStatus);
+end;
+procedure Report(const aCase: string; const aModels: TArray<TDelphiSemanticUnitModel>);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lReference: TDelphiSemanticBoundReference;
+  lEdit: TDelphiSemanticRemoveWithEdit;
+  lExpectedClass, lExpectedReason, lExpectedSafety, lExpectedStatus, lName: string;
+  lExpectedEdits, lBindingIndex, lStatementIndex, lExpectedCount: Integer;
+begin
+  lFacts := TDelphiSemanticWithBinder.BindProject('ds720-' + aShape, nil, aModels);
+  lExpectedCount := 1;
+  if aShape = 'nested' then
+  begin
+    lExpectedCount := 2;
+  end;
+  Assert.AreEqual(lExpectedCount, Integer(Length(lFacts.Bindings)));
+  lBindingIndex := lExpectedCount - 1;
+  Assert.AreEqual('resolved', lFacts.Bindings[lBindingIndex].Selectors[0].Status);
+  lExpectedClass := 'unsupported';
+  lExpectedStatus := 'skipped';
+  lExpectedReason := 'receiver-member-not-found';
+  lExpectedSafety := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
+  lExpectedEdits := 0;
+  lName := 'Count';
+  if MatchText(aShape, ['call', 'intrinsic']) then
+  begin
+    lExpectedReason := 'symbol-not-found';
+  end;
+  if MatchText(aShape, ['unrelated', 'class-helper', 'local-array', 'no-helper']) then
+  begin
+    lExpectedStatus := 'planned';
+    lExpectedReason := '';
+    lExpectedSafety := '';
+    lExpectedEdits := 2;
+    lExpectedClass := 'lexical';
+  end;
+  if MatchText(aShape, ['same-name', 'private-import', 'import', 'indexed-import']) then
+  begin
+    lExpectedReason := 'type-source-not-indexed';
+    lExpectedSafety := lExpectedReason;
+    if aShape <> 'import' then
+    begin
+      lExpectedClass := 'lexical';
+    end;
+  end;
+  if aShape = 'after-site' then
+  begin
+    lExpectedClass := 'lexical';
+    lExpectedReason := 'receiver-member-owner-conflict';
+    lExpectedSafety := lExpectedReason;
+  end;
+  if aShape = 'indexed-import' then
+  begin
+    lExpectedClass := 'member';
+  end;
+  if MatchText(aShape, ['intrinsic', 'no-helper']) then
+  begin
+    lName := 'FillChar';
+    if aShape = 'no-helper' then
+    begin
+      lExpectedClass := 'intrinsic';
+    end;
+  end;
+  if aShape = 'local-array' then
+  begin
+    lName := 'lArr[0]';
+    lExpectedClass := 'unsupported';
+  end;
+  Assert.IsTrue(HasReference(lFacts.Bindings[lBindingIndex], lName, lExpectedClass), aShape + ': ' + lName);
+  for lReference in lFacts.Bindings[lBindingIndex].References do
+  begin
+    if SameText(lReference.Name, lName) and (lExpectedClass = 'unsupported') then
+    begin
+      if aShape = 'local-array' then
+      begin
+        Assert.AreEqual('INDEXED_SELECTOR_UNSUPPORTED', lReference.ReasonCode);
+      end else begin
+        Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lReference.ReasonCode);
+      end;
+    end;
+  end;
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual(lExpectedCount, Integer(Length(lPlan.FinalStatements)));
+  for lStatementIndex := 0 to High(lPlan.FinalStatements) do
+  begin
+    Assert.AreEqual(lExpectedStatus, lPlan.FinalStatements[lStatementIndex].Status, aShape);
+    Assert.AreEqual(lExpectedReason, lPlan.FinalStatements[lStatementIndex].Reason, aShape);
+    Assert.AreEqual(lExpectedSafety, lPlan.FinalStatements[lStatementIndex].SafetyReason, aShape);
+    Assert.AreEqual(lExpectedEdits, Integer(Length(lPlan.FinalStatements[lStatementIndex].Edits)), aShape);
+    if lExpectedSafety = 'RECORD_HELPER_MEMBERS_UNVERIFIED' then
+    begin
+      Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[lStatementIndex].Temps)));
+      Assert.AreEqual('', lPlan.FinalStatements[lStatementIndex].ReplacementText);
+      for lEdit in lPlan.Edits do
+      begin
+        Assert.AreNotEqual('remove-with-candidate', lEdit.Kind);
+      end;
+    end;
+    lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    Assert.AreEqual(lPlan.FinalStatements[lStatementIndex].Status, lSnapshotPlan.FinalStatements[lStatementIndex].Status);
+    Assert.AreEqual(lPlan.FinalStatements[lStatementIndex].Reason, lSnapshotPlan.FinalStatements[lStatementIndex].Reason);
+    Assert.AreEqual(lPlan.FinalStatements[lStatementIndex].SafetyReason, lSnapshotPlan.FinalStatements[lStatementIndex].SafetyReason);
+    Assert.AreEqual(lPlan.FinalStatements[lStatementIndex].ReplacementText, lSnapshotPlan.FinalStatements[lStatementIndex].ReplacementText);
+  end;
+end;
+procedure ControlCase(const aShape: string);
+var
+  lHelper, lBody, lSource, lTarget: string;
+  lTypeA, lTypeB, lHelperModel, lConsumer: TDelphiSemanticUnitModel;
+begin
+  lHelper := '  &THelp = record helper for %s'#13#10 +
+    '    function Count: Integer;'#13#10'  end;'#13#10;
+  lBody := 'procedure Run;'#13#10'var'#13#10'  lRecord: %s;'#13#10'  Count: Integer;'#13#10 +
+    'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10;
+  if MatchText(aShape, ['same-name', 'private-import', 'import', 'indexed-import']) then
+  begin
+    lTypeA := Unit_('TypesA', 'unit TypesA;'#13#10'interface'#13#10 +
+      'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10'end.');
+    lTypeB := Unit_('TypesB', 'unit TypesB;'#13#10'interface'#13#10 +
+      'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10'end.');
+    if aShape = 'private-import' then
+      lSource := 'unit Helpers;'#13#10'interface'#13#10'implementation'#13#10 +
+        'uses TypesA;'#13#10'type'#13#10
+    else
+      lSource := 'unit Helpers;'#13#10'interface'#13#10'uses TypesA;'#13#10'type'#13#10;
+    if aShape = 'indexed-import' then
+      lSource := lSource + '  THelp = record helper for TypesA.TRec'#13#10 +
+        '    function Count: Integer;'#13#10'  end;'#13#10
+    else
+      lSource := lSource + Format(lHelper, ['TypesA.TRec']);
+    if aShape <> 'private-import' then
+      lSource := lSource + 'implementation'#13#10;
+    lHelperModel := Unit_('Helpers', lSource + 'function ' +
+      IfThen(aShape = 'indexed-import', '', '&') +
+      'THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10'end.');
+    lTarget := 'TypesA.TRec';
+    if aShape = 'same-name' then
+      lTarget := 'TypesB.TRec';
+    lConsumer := Unit_('Consumer', 'unit Consumer;'#13#10'interface'#13#10 +
+      'uses TypesA, TypesB, Helpers;'#13#10'implementation'#13#10 +
+      Format(lBody, [lTarget]) + 'end.');
+    Report(aShape, [lConsumer, lTypeA, lTypeB, lHelperModel]);
+  end else begin
+    lSource := 'unit Consumer;'#13#10'interface'#13#10'type'#13#10 +
+      '  TRec = record Value: Integer; end;'#13#10 +
+      '  TOther = record Value: Integer; end;'#13#10;
+    lTarget := 'TRec';
+    if aShape = 'unrelated' then
+      lTarget := 'TOther';
+    if not MatchText(aShape, ['after-site', 'no-helper']) then
+      lSource := lSource + Format(lHelper, [lTarget]);
+    lSource := lSource + 'implementation'#13#10;
+    if aShape = 'call' then
+      lSource := lSource + 'procedure Count;'#13#10'begin'#13#10'end;'#13#10 +
+        'procedure Run;'#13#10'var'#13#10'  lRecord: TRec;'#13#10'begin'#13#10 +
+        '  with lRecord do Count();'#13#10'end;'#13#10
+    else if MatchText(aShape, ['intrinsic', 'no-helper']) then
+      lSource := lSource + 'procedure Run;'#13#10'var'#13#10'  lRecord: TRec;'#13#10 +
+        '  lSize: Integer;'#13#10'begin'#13#10 +
+        '  with lRecord do begin FillChar(Value, SizeOf(Value), 0); lSize := SizeOf(TRec); end;'#13#10 +
+        'end;'#13#10
+    else if aShape = 'local-array' then
+      lSource := lSource + 'procedure Run;'#13#10'var'#13#10'  lRecord: TRec;'#13#10 +
+        '  lArr: array[0..1] of Integer;'#13#10'begin'#13#10 +
+        '  with lRecord do lArr[0] := Value;'#13#10 +
+        'end;'#13#10
+    else
+      lSource := lSource + Format(lBody, ['TRec']);
+    if aShape = 'after-site' then
+      lSource := lSource + 'type'#13#10 + Format(lHelper, [lTarget]);
+    lConsumer := Unit_('Consumer', lSource + IfThen(aShape = 'no-helper', '',
+      'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10) + 'end.');
+    Report(aShape, [lConsumer]);
+  end;
+end;
+
+
+procedure ExtraCase(const aShape: string);
+var
+  lSource: string;
+begin
+  lSource := 'unit Consumer;'#13#10'interface'#13#10'type'#13#10 +
+    '  TRec = record Value: Integer; end;'#13#10 +
+    '  TAlias = TRec;'#13#10;
+  if aShape = 'alias-receiver' then
+    lSource := lSource + '  &THelp = record helper for TRec'#13#10'    function Count: Integer;'#13#10'  end;'#13#10
+  else if aShape = 'alias-target' then
+    lSource := lSource + '  &THelp = record helper for TAlias'#13#10'    function Count: Integer;'#13#10'  end;'#13#10
+  else if aShape = 'class-helper' then
+    lSource := lSource + '  &THelp = class helper for TObject'#13#10'    function Count: Integer;'#13#10'  end;'#13#10
+  else
+    lSource := lSource + '  &THelp = record helper for TRec'#13#10'    function Count: Integer;'#13#10'  end;'#13#10;
+  lSource := lSource + 'implementation'#13#10;
+  if aShape = 'alias-receiver' then
+    lSource := lSource + 'procedure Run;'#13#10'var'#13#10'  lRecord: TAlias;'#13#10'  Count: Integer;'#13#10 +
+      'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10
+  else if aShape = 'local-alias' then
+    lSource := lSource + 'procedure Run;'#13#10'type'#13#10'  TLocal = TRec;'#13#10'var'#13#10 +
+      '  lRecord: TLocal;'#13#10'  Count: Integer;'#13#10 +
+      'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10
+  else if aShape = 'nested' then
+    lSource := lSource + 'type'#13#10'  TOuter = record Inner: TRec; Other: Integer; end;'#13#10 +
+      'procedure Run;'#13#10'var'#13#10'  lOuter: TOuter;'#13#10'  Count: Integer;'#13#10 +
+      'begin'#13#10'  with lOuter do with Inner do Count := Other;'#13#10'end;'#13#10
+  else
+    lSource := lSource + 'procedure Run;'#13#10'var'#13#10'  lRecord: TRec;'#13#10'  Count: Integer;'#13#10 +
+      'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10;
+  Report('extra-' + aShape, [Unit_('Consumer', lSource +
+    'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10'end.')]);
+end;
+begin
+  lRoot := WithBinderTempPath('DS720-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  if MatchText(aShape, ['alias-receiver', 'alias-target', 'local-alias', 'nested', 'class-helper']) then
+  begin
+    ExtraCase(aShape);
+  end else begin
+    ControlCase(aShape);
+  end;
+end;
+
+procedure TWithBinderTests.UnindexedRecordHelperShieldsLexicalHomonym(const aShape: string);
+var
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModel: TDelphiSemanticUnitModel;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticBoundReference;
+  lSelector: string;
+  lFound: Boolean;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := WithBinderTempPath('RecordHelper-' + aShape + '.pas');
+  lSelector := 'lRecord';
+  if aShape = 'indexed' then
+    lSelector := 'lItems[0]'
+  else if aShape = 'pointer' then
+    lSelector := 'lPointer^';
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit RecordHelper;'#13#10'interface'#13#10 +
+    IfThen(aShape = 'import', 'uses MissingHelperUnit;'#13#10, '') + 'type'#13#10 +
+    '  TRec = record Value: Integer; end;'#13#10'  PRec = ^TRec;'#13#10 +
+    '  &TRecHelper = record helper for TRec'#13#10 +
+    '    function Count: Integer;'#13#10'  end;'#13#10 +
+    'var Count: Integer;'#13#10'implementation'#13#10 +
+    'function &TRecHelper.Count: Integer;'#13#10'begin Result := 1; end;'#13#10 +
+    'procedure Run;'#13#10 +
+    'var'#13#10'  lRecord: TRec;'#13#10'  lItems: array[0..0] of TRec;'#13#10 +
+    '  lPointer: PRec;'#13#10'  Count: Integer;'#13#10 +
+    'begin'#13#10'  with ' + lSelector + ' do Count := 1;'#13#10 +
+    'end;'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  lFound := False;
+  for lDiagnostic in lModel.Diagnostics do
+    if lDiagnostic.Code = 'AST_HELPER_DECLARATION_UNINDEXED' then
+      lFound := True;
+  Assert.IsTrue(lFound, 'The regression requires a real unindexed record helper.');
+  lFacts := TDelphiSemanticWithBinder.BindProject('record-helper-' + aShape, nil, [lModel]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].Status);
+  Assert.AreEqual('unit', lFacts.Bindings[0].Selectors[0].TypeIdentity.ScopeKind);
+  TFile.WriteAllText(WithBinderTempPath('record-helper-model-' + aShape + '.json'),
+    ModelToJson(lModel), TEncoding.UTF8);
+  lFound := False;
+  for lReference in lFacts.Bindings[0].References do
+    if SameText(lReference.Name, 'Count') then
+    begin
+      lFound := True;
+      Assert.AreEqual('unsupported', lReference.Classification);
+      Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lReference.ReasonCode);
+    end;
+  Assert.IsTrue(lFound);
+  if aShape = 'record' then
+  begin
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status,
+      'An unindexed helper refusal must not bind the lexical Count in final planning.');
+    Assert.AreEqual('receiver-member-not-found', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Edits)));
+  end;
 end;
 
 procedure TWithBinderTests.RootAbsenceProviderFailureKeepsBindingUnsupported(const aMode: string);
@@ -5570,6 +5959,553 @@ begin
         end else
           Assert.AreEqual('skipped', lStatement.Status, lStatement.Reason);
       end;
+  end;
+end;
+
+procedure TWithBinderTests.UnindexedHelperCacheAndLostFacts(const aMode: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lObject: TJSONObject;
+  lValue: TJSONPair;
+  lBinding: TDelphiSemanticWithBinding;
+  lReference: TDelphiSemanticBoundReference;
+  lCount: Integer;
+  lExpected: string;
+  lSource: string;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := WithBinderTempPath('helper-cache-' + aMode + '.pas');
+  lSource :=
+    'unit HelperCache;'#13#10'interface'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10 +
+    'procedure BeforeHelper;'#13#10'var lRecord: TRec; Count: Integer;'#13#10 +
+    'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10 +
+    'type'#13#10'  &THelp = record helper for TRec'#13#10 +
+    '    function Count: Integer;'#13#10'  end;'#13#10 +
+    'procedure AfterHelper;'#13#10'var lRecord: TRec; Count: Integer;'#13#10 +
+    'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10 +
+    'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10'end.';
+  if aMode = 'overloads' then
+    lSource := 'unit HelperCache;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record Value: Integer; end;'#13#10 +
+      '  TAlias = TRec;'#13#10 +
+      'procedure Run; overload;'#13#10 +
+      'procedure Run(X: Integer); overload;'#13#10 +
+      'implementation'#13#10 +
+      'var'#13#10 +
+      '  GRec: TRec;'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with GRec do Count := 1;'#13#10 +
+      'end;'#13#10 +
+      'type'#13#10 +
+      '  &THelp = record helper for TAlias'#13#10 +
+      '    class var FCount: Integer;'#13#10 +
+      '    class property Count: Integer read FCount write FCount;'#13#10 +
+      '  end;'#13#10 +
+      'procedure Run(X: Integer);'#13#10 +
+      'begin'#13#10 +
+      '  with GRec do Count := 2;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  if aMode = 'lost' then
+  begin
+    lObject := TJSONObject.ParseJSONValue(ModelToJson(lModel)) as TJSONObject;
+    try
+      lValue := lObject.RemovePair('UnindexedHelpers');
+      lValue.Free;
+      lModel := JsonToModel(lObject.ToJSON);
+    finally
+      lObject.Free;
+    end;
+  end;
+  lFacts := TDelphiSemanticWithBinder.BindProject('helper-cache', nil, [lModel]);
+  Assert.AreEqual(2, Integer(Length(lFacts.Bindings)));
+  lCount := 0;
+  for lBinding in lFacts.Bindings do
+    for lReference in lBinding.References do
+      if SameText(lReference.Name, 'Count') then
+      begin
+        Inc(lCount);
+        lExpected := 'unsupported';
+        if (aMode <> 'lost') and
+          (lBinding.Line < lModel.UnindexedHelpers[0].Line) then
+          lExpected := 'lexical';
+        Assert.AreEqual(lExpected, lReference.Classification, lBinding.RoutineName);
+        if lExpected = 'unsupported' then
+          Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lReference.ReasonCode);
+      end;
+  Assert.AreEqual(2, lCount);
+end;
+
+procedure TWithBinderTests.MalformedImportedHelperFactsFailClosed(const aMode: string);
+var
+  g: TGarbos;
+  lOptions: TDelphiSemanticModelOptions;
+  lRecordModel, lHelperModel, lSiteModel: TDelphiSemanticUnitModel;
+  lObject, lEntry: TJSONObject;
+  lPair: TJSONPair;
+  lArray: TJSONArray;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lField, lKind: string;
+  lValue: TJSONValue;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := WithBinderTempPath('MalformedRecord-' + StringReplace(aMode, ':', '-', [rfReplaceAll]) + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit MalformedRecord;'#13#10'interface'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10'end.', TEncoding.ASCII);
+  lRecordModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  lOptions.SourceFileName := WithBinderTempPath('MalformedHelper-' + StringReplace(aMode, ':', '-', [rfReplaceAll]) + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit MalformedHelper;'#13#10'interface'#13#10'uses MalformedRecord;'#13#10 +
+    'type'#13#10'  &THelp = record helper for TRec'#13#10 +
+    '    function Count: Integer;'#13#10'  end;'#13#10'implementation'#13#10 +
+    'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10'end.', TEncoding.ASCII);
+  lHelperModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.AreEqual(1, Integer(Length(lHelperModel.UnindexedHelpers)));
+  lObject := TJSONObject.ParseJSONValue(ModelToJson(lHelperModel)) as TJSONObject;
+  GC(lObject, g);
+  lPair := lObject.RemovePair('UnindexedHelpers');
+  lPair.Free;
+  lArray := TJSONArray.Create;
+  lObject.AddPair('UnindexedHelpers', lArray);
+  lEntry := nil;
+  if aMode = 'null' then
+    lArray.AddElement(TJSONNull.Create)
+  else
+  begin
+    lEntry := TJSONObject.Create;
+    lArray.AddElement(lEntry);
+    lEntry.AddPair('Name', 'THelp');
+    if aMode = 'null-target' then
+      lEntry.AddPair('TargetName', TJSONNull.Create);
+    lEntry.AddPair('HelperKind', 'record');
+    lEntry.AddPair('SectionKind', 'interface');
+    lEntry.AddPair('ScopeKind', 'unit');
+    lEntry.AddPair('OwnerScopeId', 'malformedhelper');
+  end;
+  if Pos(':', aMode) > 0 then
+  begin
+    lField := Copy(aMode, 1, Pos(':', aMode) - 1);
+    lKind := Copy(aMode, Pos(':', aMode) + 1, MaxInt);
+    lEntry.AddPair('TargetName', 'TRec');
+    lEntry.AddPair('FileName', '');
+    lPair := lEntry.RemovePair(lField);
+    lPair.Free;
+    if lKind = 'number' then
+      lValue := TJSONNumber.Create(123)
+    else if lKind = 'bool' then
+      lValue := TJSONBool.Create(True)
+    else if lKind = 'null' then
+      lValue := TJSONNull.Create
+    else
+      lValue := TJSONString.Create('bogus');
+    lEntry.AddPair(lField, lValue);
+  end;
+  lHelperModel := JsonToModel(lObject.ToJSON);
+  lOptions.SourceFileName := WithBinderTempPath('MalformedSite-' + StringReplace(aMode, ':', '-', [rfReplaceAll]) + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit MalformedSite;'#13#10'interface'#13#10'uses MalformedRecord, MalformedHelper;'#13#10 +
+    'implementation'#13#10'procedure Run;'#13#10'var lRecord: TRec; Count: Integer;'#13#10 +
+    'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lSiteModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  lFacts := TDelphiSemanticWithBinder.BindProject('malformed-helper', nil,
+    [lRecordModel, lHelperModel, lSiteModel]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  Assert.IsTrue(HasReference(lFacts.Bindings[0], 'Count', 'unsupported'),
+    'Malformed imported helper facts cannot authorize lexical fallback.');
+  Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED',
+    ReasonOf(lFacts.Bindings[0], 'Count', 'unsupported'));
+  Assert.AreEqual(0, Integer(Length(lHelperModel.UnindexedHelpers)),
+    'Malformed entries must not count as valid helper facts.');
+end;
+
+
+procedure TWithBinderTests.MalformedHelperCoordinatesFailClosed(const aMode: string);
+var
+  g: TGarbos;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lObject, lEntry: TJSONObject;
+  lArray: TJSONArray;
+  lPair: TJSONPair;
+  lValue: TJSONValue;
+  lField, lKind: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := WithBinderTempPath('coordinates-' +
+    StringReplace(aMode, ':', '-', [rfReplaceAll]) + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit CoordinateHelper;'#13#10'interface'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10 +
+    'type'#13#10'  &THelp = record helper for TRec'#13#10 +
+    '    procedure Count;'#13#10'  end;'#13#10 +
+    'procedure Count;'#13#10'begin end;'#13#10 +
+    'procedure Run;'#13#10'var lRecord: TRec;'#13#10 +
+    'begin'#13#10'  with lRecord do Count();'#13#10'end;'#13#10 +
+    'procedure &THelp.Count;'#13#10'begin end;'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.AreEqual(1, Integer(Length(lModel.UnindexedHelpers)));
+  lFacts := TDelphiSemanticWithBinder.BindProject('coordinate-cold', nil, [lModel]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  Assert.IsTrue(HasReference(lFacts.Bindings[0], 'Count', 'unsupported'));
+  Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED',
+    ReasonOf(lFacts.Bindings[0], 'Count', 'unsupported'));
+  lObject := TJSONObject.ParseJSONValue(ModelToJson(lModel)) as TJSONObject;
+  GC(lObject, g);
+  lArray := lObject.GetValue('UnindexedHelpers') as TJSONArray;
+  lEntry := lArray.Items[0] as TJSONObject;
+  lField := Copy(aMode, 1, Pos(':', aMode) - 1);
+  lKind := Copy(aMode, Pos(':', aMode) + 1, MaxInt);
+  if lField = 'Column' then
+  begin
+    // A string column can move the helper past the WITH on the same physical line.
+    lPair := lEntry.RemovePair('Line');
+    lPair.Free;
+    lEntry.AddPair('Line', TJSONNumber.Create(lFacts.Bindings[0].Line));
+  end;
+  lPair := lEntry.RemovePair(lField);
+  lPair.Free;
+  lValue := nil;
+  if lKind = 'string' then
+    lValue := TJSONString.Create('999')
+  else if lKind = 'float' then
+    lValue := TJSONNumber.Create('999.5')
+  else if lKind = 'null' then
+    lValue := TJSONNull.Create
+  else if lKind = 'bool' then
+    lValue := TJSONBool.Create(True)
+  else if lKind = 'array' then
+    lValue := TJSONArray.Create
+  else if lKind = 'object' then
+    lValue := TJSONObject.Create
+  else if lKind = 'negative' then
+    lValue := TJSONNumber.Create(-1)
+  else if lKind = 'overflow' then
+    lValue := TJSONNumber.Create('2147483648');
+  if Assigned(lValue) then
+    lEntry.AddPair(lField, lValue);
+  lModel := JsonToModel(lObject.ToJSON);
+  lFacts := TDelphiSemanticWithBinder.BindProject('coordinate-reloaded', nil, [lModel]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  Assert.IsTrue(HasReference(lFacts.Bindings[0], 'Count', 'unsupported'),
+    'Malformed coordinates must refuse the helper call: ' + aMode);
+  Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED',
+    ReasonOf(lFacts.Bindings[0], 'Count', 'unsupported'));
+  Assert.AreEqual(0, Integer(Length(lModel.UnindexedHelpers)),
+    'Malformed coordinates must not count as valid facts: ' + aMode);
+end;
+
+procedure TWithBinderTests.HelperCoordinatesWriterRoundTrip(const aMode: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel, lDecoded: TDelphiSemanticUnitModel;
+  lCold, lReloaded: TDelphiSemanticProjectWithBindingFacts;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := WithBinderTempPath('writer-coordinate-' + aMode + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit WriterCoordinate;'#13#10'interface'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10 +
+    'type'#13#10'  &THelp = record helper for TRec'#13#10 +
+    '    procedure Count;'#13#10'  end;'#13#10 +
+    'procedure Run;'#13#10'var lRecord: TRec;'#13#10 +
+    'begin'#13#10'  with lRecord do Count();'#13#10'end;'#13#10 +
+    'procedure &THelp.Count;'#13#10'begin end;'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.AreEqual(1, Integer(Length(lModel.UnindexedHelpers)));
+  if aMode = 'zero' then
+  begin
+    lModel.UnindexedHelpers[0].Line := 0;
+    lModel.UnindexedHelpers[0].Column := 0;
+  end;
+  lDecoded := JsonToModel(ModelToJson(lModel));
+  Assert.AreEqual(ModelToJson(lModel), ModelToJson(lDecoded));
+  lCold := TDelphiSemanticWithBinder.BindProject('writer-coordinate-cold', nil, [lModel]);
+  lReloaded := TDelphiSemanticWithBinder.BindProject('writer-coordinate-reload', nil, [lDecoded]);
+  Assert.AreEqual(1, Integer(Length(lCold.Bindings)));
+  Assert.AreEqual(1, Integer(Length(lReloaded.Bindings)));
+  Assert.IsTrue(HasReference(lCold.Bindings[0], 'Count', 'unsupported'));
+  Assert.IsTrue(HasReference(lReloaded.Bindings[0], 'Count', 'unsupported'));
+  Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED',
+    ReasonOf(lReloaded.Bindings[0], 'Count', 'unsupported'));
+end;
+
+procedure TWithBinderTests.UnindexedHelperWriterValuesRoundTrip(const aMode: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel, lDecoded: TDelphiSemanticUnitModel;
+  lCold, lReloaded: TDelphiSemanticProjectWithBindingFacts;
+  lReference: TDelphiSemanticBoundReference;
+  lCount: Integer;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := WithBinderTempPath('writer-values-' + aMode + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit WriterValues;'#13#10'interface'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10 +
+    'type'#13#10'  &THelp = record helper for TRec'#13#10 +
+    '    function Count: Integer;'#13#10'  end;'#13#10 +
+    'procedure Run;'#13#10'var lRecord: TRec; Count: Integer;'#13#10 +
+    'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10 +
+    'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10'end.',
+    TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.AreEqual(1, Integer(Length(lModel.UnindexedHelpers)));
+  // These are legitimate writer values when AST helper metadata is incomplete.
+  if aMode = 'kind' then
+    lModel.UnindexedHelpers[0].HelperKind := ''
+  else
+    lModel.UnindexedHelpers[0].TargetName := '';
+  lDecoded := JsonToModel(ModelToJson(lModel));
+  Assert.AreEqual(1, Integer(Length(lDecoded.UnindexedHelpers)),
+    'Writer-produced empty metadata must survive JSON reload.');
+  Assert.AreEqual(ModelToJson(lModel), ModelToJson(lDecoded));
+  lCold := TDelphiSemanticWithBinder.BindProject('writer-cold', nil, [lModel]);
+  lReloaded := TDelphiSemanticWithBinder.BindProject('writer-reloaded', nil, [lDecoded]);
+  Assert.AreEqual(1, Integer(Length(lCold.Bindings)));
+  Assert.AreEqual(1, Integer(Length(lReloaded.Bindings)));
+  lCount := 0;
+  for lReference in lCold.Bindings[0].References do
+    if SameText(lReference.Name, 'Count') then
+    begin
+      Inc(lCount);
+      Assert.IsTrue(HasReference(lReloaded.Bindings[0], 'Count', lReference.Classification),
+        'Cold and JSON-reloaded models must make the same binding decision.');
+      Assert.AreEqual(lReference.ReasonCode,
+        ReasonOf(lReloaded.Bindings[0], 'Count', lReference.Classification));
+    end;
+  Assert.AreEqual(1, lCount);
+end;
+
+procedure TWithBinderTests.UnindexedHelperCacheSeparatesSiteModels(const aOrder: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lRecordModel, lHelperModel, lNoHelper, lHasHelper: TDelphiSemanticUnitModel;
+  lFacts, lAlone: TDelphiSemanticProjectWithBindingFacts;
+  lBinding: TDelphiSemanticWithBinding;
+  lSource, lExpected: string;
+  i: Integer;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := WithBinderTempPath('duplicate-record-' + aOrder + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit TypesA;'#13#10'interface'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10'end.',
+    TEncoding.ASCII);
+  lRecordModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  lOptions.SourceFileName := WithBinderTempPath('duplicate-helper-' + aOrder + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit Helpers;'#13#10'interface'#13#10'uses TypesA;'#13#10 +
+    'type'#13#10'  &THelp = record helper for TypesA.TRec'#13#10 +
+    '    function Count: Integer;'#13#10'  end;'#13#10'implementation'#13#10 +
+    'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10'end.',
+    TEncoding.ASCII);
+  lHelperModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.AreEqual(1, Integer(Length(lHelperModel.UnindexedHelpers)));
+  lSource := 'unit Consumer;'#13#10'interface'#13#10'uses TypesA%s;'#13#10 +
+    'implementation'#13#10'procedure Run;'#13#10 +
+    'var lRecord: TypesA.TRec; Count: Integer;'#13#10'begin'#13#10 +
+    '  with lRecord do Count := 1;'#13#10 +
+    '  with lRecord do Count := 2;'#13#10'end;'#13#10'end.';
+  lOptions.SourceFileName := WithBinderTempPath('duplicate-no-helper-' + aOrder + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName, Format(lSource, ['']), TEncoding.ASCII);
+  lNoHelper := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  lOptions.SourceFileName := WithBinderTempPath('duplicate-has-helper-' + aOrder + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName, Format(lSource, [', Helpers']), TEncoding.ASCII);
+  lHasHelper := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  // Alone controls also pin intra-model cache reuse for both visibility states.
+  for i := 0 to 1 do
+  begin
+    if i = 0 then
+    begin
+      lAlone := TDelphiSemanticWithBinder.BindProject('alone-no-helper', nil,
+        [lRecordModel, lHelperModel, lNoHelper]);
+      lExpected := 'lexical';
+    end else begin
+      lAlone := TDelphiSemanticWithBinder.BindProject('alone-has-helper', nil,
+        [lRecordModel, lHelperModel, lHasHelper]);
+      lExpected := 'unsupported';
+    end;
+    Assert.AreEqual(2, Integer(Length(lAlone.Bindings)));
+    Assert.AreEqual(Int64(1), lAlone.Metrics.ReferenceCacheHitCount);
+    Assert.AreEqual(Int64(1), lAlone.Metrics.ReferenceCacheMissCount);
+    for lBinding in lAlone.Bindings do
+      Assert.IsTrue(HasReference(lBinding, 'Count', lExpected), 'Isolated ' + lExpected);
+  end;
+  if aOrder = 'forward' then
+    lFacts := TDelphiSemanticWithBinder.BindProject('combined', nil,
+      [lRecordModel, lHelperModel, lNoHelper, lHasHelper])
+  else
+    lFacts := TDelphiSemanticWithBinder.BindProject('combined', nil,
+      [lRecordModel, lHelperModel, lHasHelper, lNoHelper]);
+  Assert.AreEqual(4, Integer(Length(lFacts.Bindings)));
+  for lBinding in lFacts.Bindings do
+  begin
+    if SameText(lBinding.FileName, lHasHelper.FileName) then
+      lExpected := 'unsupported'
+    else
+      lExpected := 'lexical';
+    Assert.IsTrue(HasReference(lBinding, 'Count', lExpected),
+      'Combined binding must match isolated site: ' + lExpected);
+    if lExpected = 'unsupported' then
+      Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED',
+        ReasonOf(lBinding, 'Count', lExpected));
+  end;
+  Assert.AreEqual(Int64(2), lFacts.Metrics.ReferenceCacheHitCount);
+  Assert.AreEqual(Int64(2), lFacts.Metrics.ReferenceCacheMissCount);
+end;
+
+procedure TWithBinderTests.UnindexedHelperIncludeOrigins(const aMode: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lSource, lHelper, lInclude, lIncludePath: string;
+  lExpectedLine: Integer;
+  i: Integer;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := WithBinderTempPath('HelperOrigin-' + aMode + '.pas');
+  lIncludePath := ChangeFileExt(lOptions.SourceFileName, '.inc');
+  lHelper := 'type'#13#10'  &THelp = record helper for TRec'#13#10 +
+    '    function Count: Integer;'#13#10'  end;'#13#10;
+  lInclude := '// padding'#13#10'// padding'#13#10'// padding'#13#10;
+  if aMode = 'included' then
+    lInclude := lHelper;
+  TFile.WriteAllText(lIncludePath, lInclude, TEncoding.ASCII);
+  lSource := 'unit HelperOrigin;'#13#10'interface'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10 +
+    '{$I ' + TPath.GetFileName(lIncludePath) + '}'#13#10;
+  if aMode = 'before' then
+    lSource := lSource + lHelper;
+  lSource := lSource + 'procedure Count;'#13#10'begin end;'#13#10 +
+    'procedure Run;'#13#10'var lRecord: TRec;'#13#10'begin'#13#10 +
+    '  with lRecord do Count();'#13#10'end;'#13#10;
+  if aMode = 'after' then
+    lSource := lSource + lHelper;
+  lSource := lSource + 'function &THelp.Count: Integer;'#13#10 +
+    'begin Result := 1; end;'#13#10'end.';
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(1, Integer(Length(lModel.UnindexedHelpers)));
+  if aMode = 'included' then
+  begin
+    Assert.IsTrue(SameFileName(lIncludePath, lModel.UnindexedHelpers[0].FileName));
+    Assert.AreEqual(0, lModel.UnindexedHelpers[0].Line);
+    Assert.AreEqual(0, lModel.UnindexedHelpers[0].Column);
+  end else begin
+    lExpectedLine := 1;
+    for i := 1 to Pos('&THelp =', lSource) - 1 do
+      if lSource[i] = #10 then
+        Inc(lExpectedLine);
+    Assert.AreEqual('', lModel.UnindexedHelpers[0].FileName);
+    Assert.AreEqual(lExpectedLine, lModel.UnindexedHelpers[0].Line,
+      'Root-origin helper must retain its physical line after include expansion.');
+    Assert.AreEqual(3, lModel.UnindexedHelpers[0].Column);
+  end;
+  lFacts := TDelphiSemanticWithBinder.BindProject('helper-origins', nil, [lModel]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+  if aMode = 'after' then
+  begin
+    Assert.IsTrue(HasReference(lFacts.Bindings[0], 'Count', 'external'));
+    Assert.AreEqual('UNKNOWN_ROUTINE_CALL', ReasonOf(lFacts.Bindings[0], 'Count', 'external'));
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements[0].Edits)));
+  end else begin
+    Assert.IsTrue(HasReference(lFacts.Bindings[0], 'Count', 'unsupported'));
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual('symbol-not-found', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason);
+    Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Edits)));
+  end;
+end;
+
+procedure TWithBinderTests.UnindexedHelperColdWarmSnapshot;
+var
+  lRoot: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lEdit: TDelphiSemanticRemoveWithEdit;
+  lPass, lAffected, lControls: Integer;
+begin
+  lRoot := WithBinderTempPath('helper-session-' + TPath.GetGUIDFileName);
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, ControlUnit; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/>' +
+    '<DCCReference Include="ControlUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10'type TRec = record Value: Integer; end;'#13#10 +
+    '  &THelp = record helper for TRec'#13#10'    function Count: Integer;'#13#10'  end;'#13#10 +
+    'implementation'#13#10'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10 +
+    'procedure Run;'#13#10'var lRecord: TRec; Count: Integer;'#13#10 +
+    'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'ControlUnit.pas'),
+    'unit ControlUnit;'#13#10'interface'#13#10'type TRec = record Count: Integer; end;'#13#10 +
+    'var Rec: TRec;'#13#10'implementation'#13#10 +
+    'procedure Run; begin with Rec do Count := Count + 1; end;'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'helper-session.sqlite');
+  for lPass := 0 to 1 do
+  begin
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lOptions);
+    lAffected := 0;
+    lControls := 0;
+    for lStatement in lPlan.FinalStatements do
+      if SameText(ExtractFileName(lStatement.FileName), 'Unit1.pas') then
+      begin
+        Inc(lAffected);
+        Assert.AreEqual('skipped', lStatement.Status);
+        Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+        Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
+        Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+        Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+        Assert.AreEqual('', lStatement.ReplacementText);
+      end else if SameText(ExtractFileName(lStatement.FileName), 'ControlUnit.pas') then
+      begin
+        Inc(lControls);
+        Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+      end;
+    Assert.AreEqual(1, lAffected);
+    Assert.AreEqual(1, lControls);
+    for lEdit in lPlan.Edits do
+      Assert.IsFalse(SameText(ExtractFileName(lEdit.FileName), 'Unit1.pas'));
+    lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+    lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    Assert.AreEqual(Integer(Length(lPlan.FinalStatements)), Integer(Length(lSnapshotPlan.FinalStatements)));
+    Assert.AreEqual(lPlan.FinalStatements[0].Status, lSnapshotPlan.FinalStatements[0].Status);
+    Assert.AreEqual(lPlan.FinalStatements[0].Reason, lSnapshotPlan.FinalStatements[0].Reason);
+    Assert.AreEqual(lPlan.FinalStatements[0].SafetyReason, lSnapshotPlan.FinalStatements[0].SafetyReason);
+    Assert.AreEqual(lPlan.FinalStatements[0].ReplacementText, lSnapshotPlan.FinalStatements[0].ReplacementText);
   end;
 end;
 

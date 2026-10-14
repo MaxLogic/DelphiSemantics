@@ -23,6 +23,11 @@ uses
   DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
+  TPendingUnindexedHelper = record
+    Fact: TDelphiSemanticUnindexedHelperFact;
+    OutputOffset: Integer;
+  end;
+
   TOffsetRange = record
     StartOffset: Integer;
     EndOffset: Integer;
@@ -1274,6 +1279,7 @@ procedure EnrichLexicalScopeFacts(const aText, aUnitName: string;
   const aLocals: TList<TDelphiSemanticLocal>;
   const aReferences: TList<TDelphiSemanticReference>;
   const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
+  const aUnindexedHelpers: TList<TPendingUnindexedHelper>;
   var aModel: TDelphiSemanticUnitModel);
 var
   i: Integer;
@@ -1286,6 +1292,7 @@ var
   lFact: TAstDeclarationScopeFact;
   lHeader: TRoutineHeader;
   lHelperCovered: Boolean;
+  lHelper: TPendingUnindexedHelper;
   lLocal: TDelphiSemanticLocal;
   lLocalCount: Integer;
   lLocalTypeLexer: TmwBasePasLex;
@@ -1819,9 +1826,25 @@ begin
             Format('An active helper declaration at column %d has no indexed declaration; ' +
               'helper absence is unverified.', [lFact.Column]),
             aModel.FileName, lFact.Line);
+          lHelper := Default(TPendingUnindexedHelper);
+          lHelper.Fact.Name := StringReplace(lFact.Name, '&', '', [rfReplaceAll]);
+          lHelper.Fact.HelperKind := lFact.AstHelperKind;
+          lHelper.Fact.TargetName := lFact.HelperTargetName;
+          lHelper.OutputOffset := OffsetOfLineColumn(aText, lFact.Line, lFact.Column);
+          lHelper.Fact.SectionKind := SectionForOffset(aText, lHelper.OutputOffset);
+          lHelper.Fact.Line := lFact.Line;
+          lHelper.Fact.Column := lFact.Column;
+          if lFact.ScopeIndex < 0 then
+          begin
+            lHelper.Fact.ScopeKind := 'unit';
+            lHelper.Fact.OwnerScopeId := LowerCase(aUnitName);
+          end else begin
+            lHelper.Fact.ScopeKind := 'routine';
+            lHelper.Fact.OwnerScopeId := lScopes[lFact.ScopeIndex].ScopeId;
+          end;
+          aUnindexedHelpers.Add(lHelper);
         end;
       end;
-
     for i := 0 to Pred(aRoutines.Count) do
     begin
       lRoutine := aRoutines[i];
@@ -4764,6 +4787,55 @@ begin
   aModel.Diagnostics := aDiagnostics.ToArray;
 end;
 
+function MapUnindexedHelpers(const aSourceText, aRootFileName: string;
+  const aPreprocess: TDelphiSemanticPreprocessResult; const aOffsetMap: TArray<Integer>;
+  const aPending: TList<TPendingUnindexedHelper>): TArray<TDelphiSemanticUnindexedHelperFact>;
+var
+  lHelper: TDelphiSemanticUnindexedHelperFact;
+  lOrigin: TDelphiSemanticSourceLineOrigin;
+  lMappedOffset: Integer;
+  i: Integer;
+  function NameMatches(const aOffset: Integer; const aName: string): Boolean;
+  begin
+    Result := (aOffset > 0) and
+      (SameText(Copy(aSourceText, aOffset, Length(aName)), aName) or
+      SameText(Copy(aSourceText, aOffset, Length(aName) + 1), '&' + aName));
+  end;
+begin
+  SetLength(Result, aPending.Count);
+  for i := 0 to Pred(aPending.Count) do
+  begin
+    lHelper := aPending[i].Fact;
+    lMappedOffset := 0;
+    if Length(aPreprocess.Includes) > 0 then
+    begin
+      // AST positions are in expanded output. A matching name on an unrelated
+      // physical line is not evidence of this helper's location.
+      if (lHelper.Line > 0) and (lHelper.Line <= Length(aPreprocess.LineOrigins)) then
+      begin
+        lOrigin := aPreprocess.LineOrigins[lHelper.Line - 1];
+        if lOrigin.Mixed or not SameText(lOrigin.FileName, aRootFileName) then
+          lHelper.FileName := lOrigin.FileName
+        else if lOrigin.Line > 0 then
+          lMappedOffset := OffsetOfLineColumn(aSourceText, lOrigin.Line, lHelper.Column);
+      end;
+    end else begin
+      lMappedOffset := OffsetOfLineColumn(aSourceText, lHelper.Line, lHelper.Column);
+      if not NameMatches(lMappedOffset, lHelper.Name) and
+        (aPending[i].OutputOffset > 0) and (aPending[i].OutputOffset <= High(aOffsetMap)) then
+        lMappedOffset := aOffsetMap[aPending[i].OutputOffset];
+    end;
+    lHelper.Line := 0;
+    lHelper.Column := 0;
+    if NameMatches(lMappedOffset, lHelper.Name) then
+    begin
+      lHelper.Line := LineOfOffset(aSourceText, lMappedOffset);
+      lHelper.Column := ColumnOfOffset(aSourceText, lMappedOffset);
+    end;
+    Result[i] := lHelper;
+  end;
+end;
+
 class function TDelphiSemanticUnitModelExtractorImpl.ExtractFromFile(
   const aOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel;
 var
@@ -4791,12 +4863,14 @@ var
   lText: string;
   lPreviousExtractionContext: TDelphiSemanticExtractionContext;
   lWithStatements: TList<TDelphiSemanticWithStatement>;
+  lUnindexedHelpers: TList<TPendingUnindexedHelper>;
   lWithStatement: TDelphiSemanticWithStatement;
   lWritableSwitches: TArray<TWritableConstantSwitch>;
 begin
   Result := Default(TDelphiSemanticUnitModel);
   lExtractionContext := nil;
   lDiagnostics := nil;
+  lUnindexedHelpers := nil;
   lInterfaceUses := nil;
   lImplementationUses := nil;
   lDeclarations := nil;
@@ -4818,6 +4892,7 @@ begin
     lLocals := TList<TDelphiSemanticLocal>.Create;
     lReferences := TList<TDelphiSemanticReference>.Create;
     lWithStatements := TList<TDelphiSemanticWithStatement>.Create;
+    lUnindexedHelpers := TList<TPendingUnindexedHelper>.Create;
 
     lSourceResult := TDelphiSemanticSourceLoader.LoadFile(aOptions.SourceFileName);
     Result.Success := lSourceResult.Success;
@@ -4965,7 +5040,7 @@ begin
       ExtractWithStatements(lText, lWithStatements);
     EnrichLexicalScopeFacts(lText, Result.UnitName, lWritableSwitches,
       aOptions, lMembers,
-      lDeclarations, lRoutines, lLocals, lReferences, lDiagnostics, Result);
+      lDeclarations, lRoutines, lLocals, lReferences, lDiagnostics, lUnindexedHelpers, Result);
     if Result.Success and not aOptions.SkipReferenceExtraction and
       (lPreprocessResult.OutputText <> '') then
     begin
@@ -4991,6 +5066,8 @@ begin
       end;
     end;
     lOffsetMap := BuildOutputToSourceOffsetMap(lSourceResult.Source.Text, lText);
+    Result.UnindexedHelpers := MapUnindexedHelpers(lSourceResult.Source.Text,
+      lSourceResult.Source.FileName, lPreprocessResult, lOffsetMap, lUnindexedHelpers);
     if lReferences.Count > 0 then
       ApplyReferenceSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lReferences);
     ApplyRoutineSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lRoutines);
@@ -5027,6 +5104,7 @@ begin
   finally
     GExtractionContext := lPreviousExtractionContext;
     lExtractionContext.Free;
+    lUnindexedHelpers.Free;
     lWithStatements.Free;
     lReferences.Free;
     lLocals.Free;

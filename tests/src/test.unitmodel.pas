@@ -56,6 +56,11 @@ type
     procedure ExtractReentrantLoop(const aPath, aUnitName, aTypeName, aRoutineName,
       aReferenceName: string; out aError: string);
   public
+    [TestCase('Record helper', 'record')]
+    [TestCase('Class helper', 'class')]
+    [TestCase('Implementation helper', 'implementation')]
+    [TestCase('Helper-free JSON', 'none')]
+    procedure UnindexedHelpersRetainJsonFacts(const aShape: string);
     [Test]
     procedure MixedBodyOriginRetainsUnitActivityFallback;
     [TestCase('Unknown omitted body', 'unknown')]
@@ -6271,6 +6276,74 @@ begin
   Assert.IsTrue(HasMemberOfOwner(lModel, 'TR', 'Count'));
   Assert.IsTrue(HasDiagnostic(lModel, 'MEMBERS_ACTIVITY_UNVERIFIED'),
     'Mixed origin cannot prove this body active; unit uncertainty must remain conservative.');
+end;
+
+procedure TUnitModelTests.UnindexedHelpersRetainJsonFacts(const aShape: string);
+var
+  lModel, lDecoded: TDelphiSemanticUnitModel;
+  lObject, lFact: TJSONObject;
+  lArray: TJSONArray;
+  lSource, lKind, lTarget, lSection: string;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lCount: Integer;
+begin
+  lKind := 'record';
+  lTarget := 'TRec';
+  lSection := 'interface';
+  if aShape = 'class' then
+  begin
+    lKind := 'class';
+    lTarget := 'TObject';
+  end;
+  lSource := 'unit HelperJson;'#13#10'interface'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10;
+  if aShape = 'implementation' then
+  begin
+    lSource := lSource + 'implementation'#13#10;
+    lSection := 'implementation';
+  end;
+  if aShape <> 'none' then
+    lSource := lSource + 'type'#13#10'  &THelp = ' + lKind + ' helper for ' + lTarget + #13#10 +
+      '    function Count: Integer;'#13#10'  end;'#13#10;
+  if aShape <> 'implementation' then
+    lSource := lSource + 'implementation'#13#10;
+  if aShape <> 'none' then
+    lSource := lSource + 'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10;
+  lSource := lSource + 'end.'#13#10;
+  lModel := ExtractUnitSource('helper-json-' + aShape + '.pas', lSource, False);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  lCount := 0;
+  for lDiagnostic in lModel.Diagnostics do
+    if lDiagnostic.Code = 'AST_HELPER_DECLARATION_UNINDEXED' then
+      Inc(lCount);
+  lObject := TJSONObject.ParseJSONValue(ModelToJson(lModel)) as TJSONObject;
+  try
+    lArray := lObject.GetValue('UnindexedHelpers') as TJSONArray;
+    if aShape = 'none' then
+    begin
+      Assert.AreEqual(0, lCount);
+      Assert.IsTrue(lArray = nil, 'Helper-free JSON must retain the old layout.');
+      Exit;
+    end;
+    Assert.IsTrue(lArray <> nil, 'Unindexed helper facts must survive model JSON.');
+    Assert.AreEqual(1, lCount);
+    Assert.AreEqual(lCount, lArray.Count);
+    lFact := lArray.Items[0] as TJSONObject;
+    Assert.AreEqual('THelp', lFact.GetValue<string>('Name'));
+    Assert.AreEqual(lKind, lFact.GetValue<string>('HelperKind'));
+    Assert.AreEqual(lTarget, lFact.GetValue<string>('TargetName'));
+    Assert.AreEqual(lSection, lFact.GetValue<string>('SectionKind'));
+    Assert.AreEqual('unit', lFact.GetValue<string>('ScopeKind'));
+    Assert.AreEqual('helperjson', lFact.GetValue<string>('OwnerScopeId'));
+    Assert.AreEqual('', lFact.GetValue<string>('FileName'));
+    Assert.AreEqual(LineContaining(lSource, '&THelp ='), lFact.GetValue<Integer>('Line'));
+    Assert.AreEqual(3, lFact.GetValue<Integer>('Column'));
+    lDecoded := JsonToModel(lObject.ToJSON);
+    Assert.AreEqual(ModelToJson(lModel), ModelToJson(lDecoded));
+  finally
+    lObject.Free;
+  end;
 end;
 
 initialization

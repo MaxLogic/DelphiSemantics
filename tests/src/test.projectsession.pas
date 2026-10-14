@@ -47,6 +47,7 @@ type
     [TestCase('Warm accepted', 'hit-accept')]
     procedure RequestOwnerSealsEveryModelBeforePublication(const aMode: string);
     [Test]
+    [TestCase('Before unindexed record helper refusal', '60')]
     [TestCase('Before receiver member scopes', '2')]
     [TestCase('Before compiler body casts', '3')]
     [TestCase('Before pointer cast receivers', '4')]
@@ -2133,6 +2134,9 @@ begin
   if i = 13 then
     ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
       'update snapshot_units set schema_version = ''project-session-snapshot-v41''');
+  if i = 17 then
+    ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
+      'update snapshot_units set schema_version = ''project-session-snapshot-v45''');
   if i = 16 then
     ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
       'update snapshot_units set schema_version = ''project-session-snapshot-v44''');
@@ -2164,7 +2168,7 @@ begin
   lUnitPath := TPath.Combine(lRootPath, 'TypedValues.pas');
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := TPath.Combine(lRootPath, 'TypedValuesProject.dproj');
-  for i := 0 to 17 do
+  for i := 0 to 18 do
   begin
     SetTypedConstantCacheMode(lOptions, lRootPath, i);
     lResult := TDelphiSemanticProjectSession.Open(lOptions);
@@ -2175,13 +2179,15 @@ begin
       if (i = 1) or (i = 3) then
         Assert.IsTrue(lCacheMetrics.CacheMisses > 0,
           'Cold or pre-immutable-inventory snapshot must miss.');
-      if (i = 2) or (i = 17) then
+      if (i = 2) or (i = 18) then
       begin
         Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Warm snapshot must hit.');
         Assert.AreEqual(0, lCacheMetrics.CacheMisses);
       end;
       if (i >= 3) and (i <= 16) then
         Assert.IsTrue(lCacheMetrics.CacheMisses > 0, 'Older snapshot semantics must be rebuilt.');
+      if i = 17 then
+        Assert.IsTrue(lCacheMetrics.CacheMisses > 0, 'Parser-69 helper refusal requires rebuilding snapshot-v45.');
       for j := 0 to 1 do
         AssertTypedConstantQuery(lContext, lUnitPath, j);
       lAnalysis := lResult.Session.BuildGlobalAnalysis(lIdentities, lCacheMetrics,

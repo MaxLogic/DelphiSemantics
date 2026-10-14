@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- WITH record-receiver misses refuse lexical or outer homonyms when a visible matching record helper has unindexed members. Refused plans retain a named safety reason and no candidate edits; affected model, WITH-fact and snapshot caches rebuild.
 - Member inventory no longer fabricates receiver fields or constants from routine signature parameters and block comments. Remove-with checks lexical qualifications against verified declaration bodies, preserving real variant tags and type constants.
 - WITH receiver lookup retains verified owner identity. Unknown type-member activity has a separate edit barrier that preserves earlier final refusals; non-member qualifications refuse apply coverage. Model, WITH-fact and snapshot generations rebuild the affected cached facts.
 - Remove-with: known-inactive names stay outside rename/usage references; separate WITH verification preserves base refusals across cold and warm facts/snapshot planning.

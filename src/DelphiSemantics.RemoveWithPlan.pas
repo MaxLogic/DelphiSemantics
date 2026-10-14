@@ -2390,6 +2390,22 @@ begin
     Result := 'symbol-not-found';
 end;
 
+function BindingHelperUnverifiedReason(const aBinding: TDelphiSemanticWithBinding;
+  const aLineCache: TDelphiSemanticSourceContextCache; out aReason: string): Boolean;
+var
+  lReference: TDelphiSemanticBoundReference;
+begin
+  aReason := '';
+  for lReference in aBinding.References do
+    if SameText(lReference.Classification, 'unsupported') and
+      SameText(lReference.ReasonCode, 'RECORD_HELPER_MEMBERS_UNVERIFIED') then
+    begin
+      aReason := ReceiverMemberMissReason(lReference, aBinding, aLineCache);
+      Exit(True);
+    end;
+  Result := False;
+end;
+
 function ExistingSymbolName(const aFacts: TRemoveWithPlanFacts;
   const aRoutineName, aName: string): Boolean;
 var
@@ -5924,6 +5940,20 @@ begin
     Exit;
   end;
 
+  // DS-720: defer helper refusal until established selector/renderer refusals finish.
+  if BindingHelperUnverifiedReason(lBinding, aLineCache, lReason) then
+  begin
+    RollbackReservedTempNamesForDecisions(aReservedNames,
+      lBinding.RoutineName, lSelectorDecisions);
+    RollbackReservedTempNamesForFinalTemps(aReservedNames,
+      lBinding.RoutineName, Result.Temps);
+    Result.Temps := nil;
+    Result.Status := 'skipped';
+    Result.Reason := lReason;
+    Result.SafetyReason := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
+    Exit;
+  end;
+
   Result.Status := 'planned';
   Result.ReplacementText := lReplacementText;
   lOwnTempIndex := 0;
@@ -7063,7 +7093,8 @@ begin
           lRejectedCandidate := False;
           if SameText(lEdit.Kind, 'remove-with-candidate') then
             for lFinalStatement in Result.FinalStatements do
-              if SameText(lFinalStatement.Reason, 'receiver-member-owner-conflict') and
+              if (SameText(lFinalStatement.Reason, 'receiver-member-owner-conflict') or
+                SameText(lFinalStatement.SafetyReason, 'RECORD_HELPER_MEMBERS_UNVERIFIED')) and
                 (lFinalStatement.SemanticId = lEdit.StatementId) then
               begin
                 lRejectedCandidate := True;

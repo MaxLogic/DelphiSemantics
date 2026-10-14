@@ -304,6 +304,13 @@ type
     function ActivityMetrics: TDelphiSemanticRemoveWithLookupActivityMetrics;
   end;
 
+  TReceiverLookupSite = record
+    UnitName: string;
+    FileName: string;
+    Line: Integer;
+    Column: Integer;
+  end;
+
   TIndexedDeclarationCandidate = record
     ModelIndex: Integer;
     DeclarationIndex: Integer;
@@ -346,6 +353,9 @@ type
     fSafetyDeclarationsByName: TObjectDictionary<string, TList<TIndexedDeclarationCandidate>>;
     fSafetyModelsByUnit: TDictionary<string, TArray<Integer>>;
     fSafetyProfileTypes: TDictionary<string, Byte>;
+    fUnindexedHelperModelIndexes: TArray<Integer>;
+    function UnindexedRecordHelperMayApply(const aSite: TReceiverLookupSite;
+      const aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
     procedure BuildMemberSafetyDiagnostics;
     function LineageHasActivityFact(const aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
     function MemberActivityIsUnverified(const aBinding: TDelphiSemanticWithBinding;
@@ -356,8 +366,10 @@ type
       const aSelectorTypeName: string; const aSelectorIdentity: TDelphiSemanticTypeIdentity;
       out aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
     function ReceiverMemberAbsenceIsVerified(const aModel: TDelphiSemanticUnitModel;
-      const aSelector: TDelphiSemanticWithSelectorBinding; const aName: string): Boolean;
+      const aSelector: TDelphiSemanticWithSelectorBinding; const aName: string;
+      const aSite: TReceiverLookupSite; out aRefusalCode: string): Boolean;
     function TryResolveVerifiedSimpleMember(const aModel: TDelphiSemanticUnitModel;
+      const aSite: TReceiverLookupSite;
       const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
       const aCurrentTypeName, aMemberCachePrefix, aName: string;
       const aMemberCache: TDictionary<string, TBoundMemberResolution>;
@@ -440,7 +452,8 @@ type
       const aCurrentFileName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity;
       out aResult: TBoundMemberResolution): Boolean; overload;
     function TryResolveRoutineLocalMember(const aOwnerIdentity: TDelphiSemanticTypeIdentity;
-      const aCurrentTypeName, aName: string; out aResult: TBoundMemberResolution): Boolean;
+      const aCurrentTypeName, aName: string; const aSite: TReceiverLookupSite;
+      out aResult: TBoundMemberResolution): Boolean;
   end;
 
   TWithSelectorBindingArray = TArray<TDelphiSemanticWithSelectorBinding>;
@@ -1575,9 +1588,18 @@ begin
     MatchText(aIdentity.UnderlyingName, ['record', 'packed record']);
 end;
 
+function ReceiverLookupSite(const aModel: TDelphiSemanticUnitModel;
+  const aLine, aColumn: Integer): TReceiverLookupSite;
+begin
+  Result.UnitName := aModel.UnitName;
+  Result.FileName := aModel.FileName;
+  Result.Line := aLine;
+  Result.Column := aColumn;
+end;
+
 function TWithBindingProjectMemberIndex.TryResolveRoutineLocalMember(
   const aOwnerIdentity: TDelphiSemanticTypeIdentity; const aCurrentTypeName, aName: string;
-  out aResult: TBoundMemberResolution): Boolean;
+  const aSite: TReceiverLookupSite; out aResult: TBoundMemberResolution): Boolean;
 var
   lBinding: TDelphiSemanticWithBinding;
   lContext: TDelphiSemanticMemberLookupContext;
@@ -1587,6 +1609,7 @@ var
   lModel: TDelphiSemanticUnitModel;
   lOwnerVerified: Boolean;
   lSelector: TDelphiSemanticWithSelectorBinding;
+  lRefusalCode: string;
   lValue: TDelphiSemanticResolveResult;
   lVerifiedIdentity: TDelphiSemanticTypeIdentity;
 begin
@@ -1672,10 +1695,15 @@ begin
     lSelector := Default(TDelphiSemanticWithSelectorBinding);
     lSelector.TypeName := aOwnerIdentity.Name;
     lSelector.TypeIdentity := aOwnerIdentity;
-    if ReceiverMemberAbsenceIsVerified(lModel, lSelector, aName) then
+    if ReceiverMemberAbsenceIsVerified(lModel, lSelector, aName, aSite, lRefusalCode) then
     begin
       aResult := Default(TBoundMemberResolution);
       Exit(False);
+    end;
+    if lRefusalCode = 'RECORD_HELPER_MEMBERS_UNVERIFIED' then
+    begin
+      aResult.Value.ReasonCode := lRefusalCode;
+      aResult.Value.Reason := 'A visible record helper of the receiver has members that are not indexed.';
     end;
     Exit(True);
   end;
@@ -1852,11 +1880,12 @@ function CallerTypeNameForRoutineContext(const aModel: TDelphiSemanticUnitModel;
 function RoutineLookupNameForRoutineContext(const aModel: TDelphiSemanticUnitModel;
   const aRoutineName: string; const aLine: Integer): string; forward;
 
-function ReceiverMemberCachePrefix(const aUnitName, aCurrentTypeName,
+function ReceiverMemberCachePrefix(const aUnitName, aFileName, aCurrentTypeName,
   aRoutineName: string; const aLine, aColumn: Integer;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>): string; forward;
 
 function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
+  const aSite: TReceiverLookupSite;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aCurrentTypeName, aMemberCachePrefix, aName: string;
@@ -1865,6 +1894,7 @@ function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
   out aResult: TDelphiSemanticResolveResult): Boolean; overload; forward;
 
 function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
+  const aSite: TReceiverLookupSite;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aCurrentTypeName, aMemberCachePrefix, aName: string;
@@ -2370,29 +2400,33 @@ begin
     begin
       if Length(aPreviousSelectors) > 0 then
         lWithBase := aProjectMemberIndex.TryResolveVerifiedSimpleMember(aModel,
+          ReceiverLookupSite(aModel, aLine, aColumn),
           aPreviousSelectors, aCurrentTypeName,
-          ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+          ReceiverMemberCachePrefix(aModel.UnitName, aModel.FileName, aCurrentTypeName,
           aRoutineName, aLine, aColumn, aPreviousSelectors), lBaseName,
           aMemberCache, lBound);
       if (not lWithBase) and (Length(aParentSelectors) > 0) then
         lWithBase := aProjectMemberIndex.TryResolveVerifiedSimpleMember(aModel,
+          ReceiverLookupSite(aModel, aLine, aColumn),
           aParentSelectors, aCurrentTypeName,
-          ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+          ReceiverMemberCachePrefix(aModel.UnitName, aModel.FileName, aCurrentTypeName,
           aRoutineName, aLine, aColumn, aParentSelectors), lBaseName,
           aMemberCache, lBound);
     end else
     begin
       if Length(aPreviousSelectors) > 0 then
-        lWithBase := TryResolveReceiverMember(aModel, aProjectModels,
+        lWithBase := TryResolveReceiverMember(aModel,
+          ReceiverLookupSite(aModel, aLine, aColumn), aProjectModels,
           aPreviousSelectors, aCurrentTypeName,
-          ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+          ReceiverMemberCachePrefix(aModel.UnitName, aModel.FileName, aCurrentTypeName,
           aRoutineName, aLine, aColumn,
           aPreviousSelectors), lBaseName, aProjectMemberIndex, aMemberCache,
           lBound);
       if (not lWithBase) and (Length(aParentSelectors) > 0) then
-        lWithBase := TryResolveReceiverMember(aModel, aProjectModels,
+        lWithBase := TryResolveReceiverMember(aModel,
+          ReceiverLookupSite(aModel, aLine, aColumn), aProjectModels,
           aParentSelectors, aCurrentTypeName,
-          ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+          ReceiverMemberCachePrefix(aModel.UnitName, aModel.FileName, aCurrentTypeName,
           aRoutineName, aLine, aColumn,
           aParentSelectors), lBaseName, aProjectMemberIndex, aMemberCache,
           lBound);
@@ -2474,12 +2508,14 @@ begin
     end;
   end;
   if (not lLexicalPointerBase) and TryParsePointerCastName(lSelectorText, lCastName) and
-    (not TryResolveReceiverMember(aModel, aProjectModels, aPreviousSelectors,
-    aCurrentTypeName, ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+    (not TryResolveReceiverMember(aModel,
+      ReceiverLookupSite(aModel, aLine, aColumn), aProjectModels, aPreviousSelectors,
+    aCurrentTypeName, ReceiverMemberCachePrefix(aModel.UnitName, aModel.FileName, aCurrentTypeName,
     aRoutineName, aLine, aColumn,
     aPreviousSelectors), lCastName, aProjectMemberIndex, aMemberCache, lCastResult)) and
-    (not TryResolveReceiverMember(aModel, aProjectModels, aParentSelectors,
-    aCurrentTypeName, ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+    (not TryResolveReceiverMember(aModel,
+      ReceiverLookupSite(aModel, aLine, aColumn), aProjectModels, aParentSelectors,
+    aCurrentTypeName, ReceiverMemberCachePrefix(aModel.UnitName, aModel.FileName, aCurrentTypeName,
     aRoutineName, aLine, aColumn,
     aParentSelectors), lCastName, aProjectMemberIndex, aMemberCache, lCastResult)) and
     ((aCurrentTypeName = '') or
@@ -2910,7 +2946,7 @@ begin
     (Pos('^', aSelector.SelectorText) = 0);
 end;
 
-function ReceiverMemberCachePrefix(const aUnitName, aCurrentTypeName,
+function ReceiverMemberCachePrefix(const aUnitName, aFileName, aCurrentTypeName,
   aRoutineName: string; const aLine, aColumn: Integer;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>): string;
 var
@@ -2919,7 +2955,8 @@ var
 begin
   lBuilder := TStringBuilder.Create;
   try
-    lBuilder.Append(aUnitName).Append(#31).Append(aCurrentTypeName).Append(#31)
+    lBuilder.Append(aUnitName).Append(#31).Append(aFileName).Append(#31)
+      .Append(aCurrentTypeName).Append(#31)
       .Append(aRoutineName).Append(#31).Append(aLine).Append(#31)
       .Append(aColumn).Append(#31);
     for lSelector in aSelectors do
@@ -2940,6 +2977,7 @@ begin
 end;
 
 function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
+  const aSite: TReceiverLookupSite;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aCurrentTypeName, aMemberCachePrefix, aName: string;
@@ -2949,13 +2987,14 @@ function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
 var
   lBound: TBoundMemberResolution;
 begin
-  Result := TryResolveReceiverMember(aModel, aProjectModels, aSelectors,
+  Result := TryResolveReceiverMember(aModel, aSite, aProjectModels, aSelectors,
     aCurrentTypeName, aMemberCachePrefix, aName, aProjectMemberIndex,
     aMemberCache, lBound);
   aResult := lBound.Value;
 end;
 
 function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
+  const aSite: TReceiverLookupSite;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aCurrentTypeName, aMemberCachePrefix, aName: string;
@@ -2965,6 +3004,7 @@ function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
 var
   i: Integer;
   lKey: string;
+  lRefusalCode: string;
 begin
   lKey := ReceiverMemberCacheKey(aMemberCachePrefix, aName);
   if Assigned(aMemberCache) and aMemberCache.TryGetValue(lKey, aResult) then
@@ -3006,7 +3046,7 @@ begin
         SameText(aSelectors[i].TypeIdentity.ScopeKind, 'routine') then
       begin
         if aProjectMemberIndex.TryResolveRoutineLocalMember(aSelectors[i].TypeIdentity,
-          aCurrentTypeName, aName, aResult) then
+          aCurrentTypeName, aName, aSite, aResult) then
         begin
           if Assigned(aMemberCache) then
             aMemberCache.AddOrSetValue(lKey, aResult);
@@ -3023,14 +3063,22 @@ begin
           aMemberCache.AddOrSetValue(lKey, aResult);
         Exit(True);
       end;
+      lRefusalCode := '';
       if (not Assigned(aProjectMemberIndex)) or
-        (not aProjectMemberIndex.ReceiverMemberAbsenceIsVerified(aModel, aSelectors[i], aName)) then
+        (not aProjectMemberIndex.ReceiverMemberAbsenceIsVerified(aModel, aSelectors[i], aName,
+        aSite, lRefusalCode)) then
       begin
         aResult := Default(TBoundMemberResolution);
         aResult.Value.Status := 'unsupported';
         aResult.Value.Name := aName;
-        aResult.Value.ReasonCode := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
-        aResult.Value.Reason := 'The receiver may inherit a member that is not indexed.';
+        if lRefusalCode = 'RECORD_HELPER_MEMBERS_UNVERIFIED' then
+        begin
+          aResult.Value.ReasonCode := lRefusalCode;
+          aResult.Value.Reason := 'A visible record helper of the receiver has members that are not indexed.';
+        end else begin
+          aResult.Value.ReasonCode := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
+          aResult.Value.Reason := 'The receiver may inherit a member that is not indexed.';
+        end;
         if Assigned(aMemberCache) then
           aMemberCache.AddOrSetValue(lKey, aResult);
         Exit(True);
@@ -3086,6 +3134,26 @@ begin
   end;
 end;
 
+function HelperVisibilityCacheSuffix(const aModel: TDelphiSemanticUnitModel;
+  const aStatement: TDelphiSemanticWithStatement): string;
+var
+  lHelper: TDelphiSemanticUnindexedHelperFact;
+  lVisibleCount: Integer;
+begin
+  Result := '';
+  if Length(aModel.UnindexedHelpers) = 0 then
+    Exit;
+  // Overloads share their lookup name. S4 visibility can still change between
+  // their WITH sites; the monotonically growing visible fact set separates them.
+  lVisibleCount := 0;
+  for lHelper in aModel.UnindexedHelpers do
+    if SameText(lHelper.SectionKind, 'interface') or (lHelper.FileName <> '') or
+      (lHelper.Line <= 0) or (lHelper.Line < aStatement.Line) or
+      ((lHelper.Line = aStatement.Line) and (lHelper.Column < aStatement.Column)) then
+      Inc(lVisibleCount);
+  Result := 'unindexed-helpers:' + IntToStr(lVisibleCount) + #31;
+end;
+
 function BoundReferenceCacheKey(const aPrefix, aName: string): string;
 begin
   Result := aPrefix + aName;
@@ -3101,7 +3169,7 @@ begin
     aReferenceCache.AddOrSetValue(aKey, Result);
 end;
 
-function ResolveNameCachePrefix(const aUnitName: string; const aContext:
+function ResolveNameCachePrefix(const aUnitName, aFileName: string; const aContext:
   TDelphiSemanticResolveContext): string;
 var
   lBuilder: TStringBuilder;
@@ -3109,7 +3177,8 @@ var
 begin
   lBuilder := TStringBuilder.Create;
   try
-    lBuilder.Append(aUnitName).Append(#31).Append(aContext.RoutineName).Append(#31)
+    lBuilder.Append(aUnitName).Append(#31).Append(aFileName).Append(#31)
+      .Append(aContext.RoutineName).Append(#31)
       .Append(aContext.CurrentTypeName).Append(#31).Append(aContext.SectionKind).Append(#31)
       .Append(aContext.ConformanceLevel).Append(#31);
     for lParentRoutineName in aContext.ParentRoutineNames do
@@ -3176,6 +3245,7 @@ begin
 end;
 
 function BindReference(const aModel: TDelphiSemanticUnitModel;
+  const aSite: TReceiverLookupSite;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
   const aRoutineName, aCurrentTypeName: string;
   const aParentRoutineNames: TArray<string>;
@@ -3215,11 +3285,15 @@ begin
   if TryExtractCallName(aName, lCallName) then
   begin
     lStopwatch := TStopwatch.StartNew;
-    if TryResolveReceiverMember(aModel, aProjectModels, aSelectors, aCurrentTypeName,
+    if TryResolveReceiverMember(aModel, aSite, aProjectModels, aSelectors, aCurrentTypeName,
       aMemberCachePrefix, lCallName, aProjectMemberIndex, aMemberCache, lResult) then
     begin
       lStopwatch.Stop;
       Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
+      if SameText(lResult.Status, 'unsupported') and
+        SameText(lResult.ReasonCode, 'RECORD_HELPER_MEMBERS_UNVERIFIED') then
+        Exit(CacheBoundReference(aReferenceCache, lKey,
+          MakeBoundReference(lCallName, 'unsupported', lResult)));
       if SameText(lResult.Kind, 'method') then
         Exit(CacheBoundReference(aReferenceCache, lKey,
           MakeBoundReference(lCallName, 'member', lResult)))
@@ -3261,7 +3335,7 @@ begin
   begin
     lStopwatch := TStopwatch.StartNew;
     lResult := ResolveNameCached(aModel, Default(TDelphiSemanticResolveContext),
-      aName, aResolveCache, ResolveNameCachePrefix(aModel.UnitName,
+      aName, aResolveCache, ResolveNameCachePrefix(aModel.UnitName, aModel.FileName,
       Default(TDelphiSemanticResolveContext)), aProjectMemberIndex);
     lStopwatch.Stop;
     Inc(aLexicalResolveMs, lStopwatch.ElapsedMilliseconds);
@@ -3270,7 +3344,7 @@ begin
   end;
 
   lStopwatch := TStopwatch.StartNew;
-  if TryResolveReceiverMember(aModel, aProjectModels, aSelectors, aCurrentTypeName,
+  if TryResolveReceiverMember(aModel, aSite, aProjectModels, aSelectors, aCurrentTypeName,
     aMemberCachePrefix, aName, aProjectMemberIndex, aMemberCache, lResult) then
   begin
     lStopwatch.Stop;
@@ -3776,7 +3850,8 @@ begin
       (not ReferenceTokenIsEscaped(lContent, lInnerStart))) or
       IsSelectorName(aSelectors, lInnerToken) then
       Continue;
-    lReference := BindReference(aModel, aProjectModels, aRoutineName, aCurrentTypeName,
+    lReference := BindReference(aModel, ReceiverLookupSite(aModel, aStatement.Line,
+      aStatement.Column), aProjectModels, aRoutineName, aCurrentTypeName,
       aParentRoutineNames, aSelectors, aReferenceCachePrefix, aResolveCachePrefix,
       aMemberCachePrefix, lInnerToken, aProjectMemberIndex, aReferenceCache, aResolveCache,
       aMemberCache, aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
@@ -3840,7 +3915,8 @@ begin
       ReferenceTokenIsEscaped(lArguments, lArgumentTokenStart)) and
       (not IsSelectorName(aSelectors, lArgumentToken)) then
     begin
-      lReference := BindReference(aModel, aProjectModels, aRoutineName, aCurrentTypeName,
+      lReference := BindReference(aModel, ReceiverLookupSite(aModel, aStatement.Line,
+        aStatement.Column), aProjectModels, aRoutineName, aCurrentTypeName,
         aParentRoutineNames, aSelectors, aReferenceCachePrefix, aResolveCachePrefix,
         aMemberCachePrefix, lArgumentToken, aProjectMemberIndex, aReferenceCache, aResolveCache,
         aMemberCache, aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
@@ -3925,10 +4001,13 @@ var
 begin
   lReferences := TList<TDelphiSemanticBoundReference>.Create;
   try
+    // Distinct site models can share unit/routine/receiver names while their
+    // uses lists differ. All three lookup caches retain the source model identity.
     lReferenceCachePrefix := BoundReferenceCachePrefix(aModel.UnitName, aRoutineName,
       aCurrentTypeName,
-      aParentRoutineNames, aSelectors);
-    lMemberCachePrefix := ReceiverMemberCachePrefix(aModel.UnitName, aCurrentTypeName,
+      aParentRoutineNames, aSelectors) + aModel.FileName + #31 +
+      HelperVisibilityCacheSuffix(aModel, aStatement);
+    lMemberCachePrefix := ReceiverMemberCachePrefix(aModel.UnitName, aModel.FileName, aCurrentTypeName,
       aRoutineName, aStatement.Line, aStatement.Column, aSelectors);
     lResolveContext := Default(TDelphiSemanticResolveContext);
     lResolveContext.RoutineName := aRoutineName;
@@ -3937,7 +4016,7 @@ begin
     lResolveContext.SectionKind := 'implementation';
     lResolveContext.ConformanceLevel := 3;
     lResolveContext.IndexedUnitModels := aProjectModels;
-    lResolveCachePrefix := ResolveNameCachePrefix(aModel.UnitName, lResolveContext);
+    lResolveCachePrefix := ResolveNameCachePrefix(aModel.UnitName, aModel.FileName, lResolveContext);
     lBodyText := ExtractWithBodyText(aStatement, aAllStatements, aStatementIndex);
     lBodyLineStarts := BuildBodyLineStarts(lBodyText);
     lTokenIndex := 1;
@@ -3947,7 +4026,8 @@ begin
         ReferenceTokenIsEscaped(lBodyText, lTokenStart)) and
         (not IsSelectorName(aSelectors, lToken)) then
       begin
-        lReference := BindReference(aModel, aProjectModels, aRoutineName, aCurrentTypeName,
+        lReference := BindReference(aModel, ReceiverLookupSite(aModel, aStatement.Line,
+          aStatement.Column), aProjectModels, aRoutineName, aCurrentTypeName,
           aParentRoutineNames, aSelectors, lReferenceCachePrefix, lResolveCachePrefix,
           lMemberCachePrefix, lToken, aProjectMemberIndex, aReferenceCache, aResolveCache,
           aMemberCache, aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
@@ -4118,6 +4198,7 @@ var
   lSymbol: TDelphiSemanticIntrinsicSymbol;
 begin
   fMemberSafetyDiagnostics := nil;
+  fUnindexedHelperModelIndexes := nil;
   fActivityMemberFacts := nil;
   fSafetyDeclarationsByName := TObjectDictionary<string,
     TList<TIndexedDeclarationCandidate>>.Create([doOwnsValues],
@@ -4135,6 +4216,14 @@ begin
   for i := 0 to High(fModels) do
   begin
     lModel := fModels[i];
+    for lDiagnostic in lModel.Diagnostics do
+      if SameText(lDiagnostic.Code, 'AST_HELPER_DECLARATION_UNINDEXED') then
+      begin
+        lIndex := Length(fUnindexedHelperModelIndexes);
+        SetLength(fUnindexedHelperModelIndexes, lIndex + 1);
+        fUnindexedHelperModelIndexes[lIndex] := i;
+        Break;
+      end;
     lModelIndexes := nil;
     fSafetyModelsByUnit.TryGetValue(lModel.UnitName, lModelIndexes);
     lIndex := Length(lModelIndexes);
@@ -4926,9 +5015,115 @@ begin
   Result := True;
 end;
 
+function TWithBindingProjectMemberIndex.UnindexedRecordHelperMayApply(
+  const aSite: TReceiverLookupSite; const aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
+var
+  lSiteModel, lHelperModel: TDelphiSemanticUnitModel;
+  lIndexes: TArray<Integer>;
+  lHelper: TDelphiSemanticUnindexedHelperFact;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lLookup: TDelphiSemanticTypeLookupResult;
+  lBinding: TDelphiSemanticWithBinding;
+  lTargetLineage: TArray<TDelphiSemanticTypeIdentity>;
+  lTargetIdentity, lReceiverIdentity: TDelphiSemanticTypeIdentity;
+  lUses: TArray<string>;
+  lUsedUnit, lTargetName: string;
+  lIndex, lMatches, lDiagnosticCount: Integer;
+  lSameUnit, lVisible: Boolean;
+  function LastName(const aName: string): string;
+  begin
+    Result := Copy(aName, LastDelimiter('.', aName) + 1, MaxInt);
+  end;
+begin
+  Result := False;
+  if Length(fUnindexedHelperModelIndexes) = 0 then
+    Exit;
+  if not fSafetyModelsByUnit.TryGetValue(aSite.UnitName, lIndexes) then
+    Exit(True);
+  lMatches := 0;
+  for lIndex in lIndexes do
+    if SameText(fModels[lIndex].FileName, aSite.FileName) then
+    begin
+      lSiteModel := fModels[lIndex];
+      Inc(lMatches);
+    end;
+  if lMatches <> 1 then
+    Exit(True);
+  for lIndex in fUnindexedHelperModelIndexes do
+  begin
+    lHelperModel := fModels[lIndex];
+    lSameUnit := SameText(lHelperModel.UnitName, aSite.UnitName);
+    lVisible := lSameUnit;
+    for lUsedUnit in lSiteModel.InterfaceUses + lSiteModel.ImplementationUses do
+      if SameText(lUsedUnit, lHelperModel.UnitName) or
+        EndsText('.' + lUsedUnit, lHelperModel.UnitName) then
+        lVisible := True;
+    if not lVisible then
+      Continue;
+    lDiagnosticCount := 0;
+    for lDiagnostic in lHelperModel.Diagnostics do
+      if SameText(lDiagnostic.Code, 'AST_HELPER_DECLARATION_UNINDEXED') then
+        Inc(lDiagnosticCount);
+    // Missing persisted facts cannot authorize member absence.
+    if Length(lHelperModel.UnindexedHelpers) < lDiagnosticCount then
+      Exit(True);
+    for lHelper in lHelperModel.UnindexedHelpers do
+    begin
+      if SameText(lHelper.HelperKind, 'class') then
+        Continue;
+      if lSameUnit then
+      begin
+        if not SameText(lHelper.SectionKind, 'interface') and (lHelper.FileName = '') and
+          (lHelper.Line > 0) and ((lHelper.Line > aSite.Line) or
+          ((lHelper.Line = aSite.Line) and (lHelper.Column >= aSite.Column))) then
+          Continue;
+      end else if not SameText(lHelper.SectionKind, 'interface') or
+        not SameText(lHelper.ScopeKind, 'unit') then
+        Continue;
+      if (lHelper.HelperKind = '') or (lHelper.TargetName = '') then
+        Exit(True);
+      lUses := lHelperModel.InterfaceUses;
+      if not SameText(lHelper.SectionKind, 'interface') then
+        lUses := lUses + lHelperModel.ImplementationUses;
+      if SameText(lHelper.ScopeKind, 'routine') then
+        lLookup := fTypeIndex.ResolveScopedName(lHelper.TargetName, lHelperModel.UnitName,
+          lHelper.OwnerScopeId, lHelperModel.InterfaceUses + lHelperModel.ImplementationUses,
+          'implementation')
+      else if Pos('.', lHelper.TargetName) > 0 then
+        lLookup := fTypeIndex.ResolveQualifiedName(lHelper.TargetName)
+      else
+        lLookup := fTypeIndex.ResolveVisibleName(lHelper.TargetName, lHelperModel.UnitName,
+          lUses, lHelper.SectionKind);
+      if lLookup.Ambiguous then
+        Exit(True);
+      if lLookup.Found then
+      begin
+        lBinding := Default(TDelphiSemanticWithBinding);
+        lBinding.UnitName := lHelperModel.UnitName;
+        lBinding.FileName := lHelperModel.FileName;
+        TryBuildMemberSafetyLineage(lBinding, lLookup.Identity.Name, lLookup.Identity,
+          lTargetLineage);
+        if Length(lTargetLineage) = 0 then
+          lTargetLineage := [lLookup.Identity];
+        for lTargetIdentity in lTargetLineage do
+          for lReceiverIdentity in aLineage do
+            if (lTargetIdentity.DeclaredId.Value <> '') and
+              (lTargetIdentity.DeclaredId.Value = lReceiverIdentity.DeclaredId.Value) then
+              Exit(True);
+      end else begin
+        lTargetName := LastName(lHelper.TargetName);
+        for lReceiverIdentity in aLineage do
+          if SameText(lTargetName, LastName(lReceiverIdentity.Name)) then
+            Exit(True);
+      end;
+    end;
+  end;
+end;
+
 function TWithBindingProjectMemberIndex.ReceiverMemberAbsenceIsVerified(
   const aModel: TDelphiSemanticUnitModel;
-  const aSelector: TDelphiSemanticWithSelectorBinding; const aName: string): Boolean;
+  const aSelector: TDelphiSemanticWithSelectorBinding; const aName: string;
+  const aSite: TReceiverLookupSite; out aRefusalCode: string): Boolean;
 var
   lBinding: TDelphiSemanticWithBinding;
   lDirectLookup: TDelphiSemanticMemberLookupResult;
@@ -4938,6 +5133,7 @@ var
   lOwnerModel: TDelphiSemanticUnitModel;
 begin
   Result := False;
+  aRefusalCode := '';
   lBinding := Default(TDelphiSemanticWithBinding);
   lBinding.UnitName := aModel.UnitName;
   lBinding.FileName := aModel.FileName;
@@ -4971,7 +5167,14 @@ begin
     (lIdentity.HelperTargetName = '') and
     MatchText(lIdentity.UnderlyingName, ['record', 'packed record']);
   if Result then
+  begin
+    if UnindexedRecordHelperMayApply(aSite, lLineage) then
+    begin
+      Result := False;
+      aRefusalCode := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
+    end;
     Exit;
+  end;
   if (fRootMemberAbsence = nil) or (aName = '') or
     (not HasClosedRootSourceContext(aModel)) or
     (not SameText(lIdentity.Kind, 'type')) or
@@ -4996,6 +5199,7 @@ end;
 
 function TWithBindingProjectMemberIndex.TryResolveVerifiedSimpleMember(
   const aModel: TDelphiSemanticUnitModel;
+  const aSite: TReceiverLookupSite;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aCurrentTypeName, aMemberCachePrefix, aName: string;
   const aMemberCache: TDictionary<string, TBoundMemberResolution>;
@@ -5006,6 +5210,7 @@ var
   lContext: TDelphiSemanticMemberLookupContext;
   lIdentity: TDelphiSemanticTypeIdentity;
   lKey: string;
+  lRefusalCode: string;
   lLineage: TArray<TDelphiSemanticTypeIdentity>;
   lLineageIdentity: TDelphiSemanticTypeIdentity;
   lLookup: TDelphiSemanticMemberLookupResult;
@@ -5126,7 +5331,7 @@ begin
     if SameText(lLookup.Status, 'unresolved') and
       SameText(lLookup.ReasonCode, 'DIRECT_MEMBER_NOT_FOUND') then
     begin
-      if not ReceiverMemberAbsenceIsVerified(aModel, aSelectors[i], aName) then
+      if not ReceiverMemberAbsenceIsVerified(aModel, aSelectors[i], aName, aSite, lRefusalCode) then
         Exit(Blocked);
       for lLineageIdentity in lLineage do
       begin

@@ -103,9 +103,13 @@ telemetry.
 class root. It does not certify an SDK inventory or indexed ancestors. Every
 indexed declaration must independently prove the name absent. Missing evidence,
 an empty fingerprint, a negative answer, or a provider exception retains the
-unsupported binding and its diagnostic. Record-helper coverage remains a known
-gap: an unindexed visible record helper can allow a lexical homonym to bind.
-The follow-up DS-720 owns that limitation and its four retained regression cases.
+unsupported binding and its diagnostic. A record-receiver miss refuses lexical and
+outer-receiver fallback when a visible, matching record helper has no indexed
+declaration. The binder reports `unsupported` with
+`RECORD_HELPER_MEMBERS_UNVERIFIED`, including compiler intrinsics, local names and
+call names that the helper could shadow. Helper-free and unrelated-helper receivers
+retain their established behavior. Missing or unindexed used units are not treated
+as possible helper sources; this remains a documented limitation.
 
 Provider-backed requests bypass persistent project WITH-fact reads and writes,
 even when an entry has the exact provider context. Ordinary requests retain
@@ -197,17 +201,52 @@ names again; general reference consumers use `References` alone.
 its `InactiveSpanReferences` stores the inactive facts. The binding flag
 `cSemanticRemoveWithBindingFlagActivityUnverified` retains activity uncertainty.
 Snapshot copying and persistence preserve both partitions, and the planner builds
-one cached DTO view per snapshot binding source. Snapshot producer generation 45
-and WITH-fact generation 60 rebuild bindings written before receiver-owner
-identity and member-activity barriers. Model parser generation 68 rebuilds
-type activity diagnostics. `cSemanticRemoveWithBindingFlagMemberActivityUnverified`
+one cached DTO view per snapshot binding source. Snapshot producer generation 46
+and WITH-fact generation 61 rebuild bindings
+written before unindexed-record-helper refusal. Model parser generation 69 rebuilds
+models with structured unindexed helper facts. `cSemanticRemoveWithBindingFlagMemberActivityUnverified`
 uses the existing binding flags field; the snapshot/cache SQLite schemas and
 `DS-ACTIVITY-1` wire format are unchanged.
+
+Reference, member and lexical lookup caches distinguish the source model's file
+identity as well as its unit and routine. Reference entries also distinguish the
+number of same-unit unindexed-helper facts visible at the WITH site, including
+overloads with the same lookup name. Reuse within one model is unchanged.
+Cached unit-model copies own independent helper-fact arrays. Helper JSON fields
+must be JSON strings rather than numbers, booleans or null. The reader accepts
+the extractor's helper kinds (empty, record, class), sections (interface,
+implementation, initialization, finalization) and scopes (unit, routine).
+Empty kind and target metadata round-trip unchanged; the binder applies its
+existing unknown-target rule. Malformed entries leave a diagnostic/fact deficit
+and fail closed. Line and Column must both be present as nonnegative JSON
+integer tokens in the Integer range, including zero for unknown positions;
+malformed coordinates drop the whole fact. Cache files are trusted: generation
+and value validation protect against format drift, not deliberate tampering,
+so a well-typed but wrong coordinate can still move a helper past a WITH site. After expansion, root-file helper positions use verified
+physical line origins; helpers in included files retain an unknown root position
+and their origin filename.
 
 `TDelphiSemanticDeclaration.AstHelperKind` is empty when helper syntax is unverified,
 or `none`, `class` or `record` when the active syntax tree proves it. Root-member
 lineage evidence keeps `AstHelperKind`, `HelperTargetName`, `IsHelper` and
 `HelperCovered` together; a helper name alone cannot prove complete coverage.
+
+`TDelphiSemanticUnitModel.UnindexedHelpers` contains one
+`TDelphiSemanticUnindexedHelperFact` per `AST_HELPER_DECLARATION_UNINDEXED`
+diagnostic. Each fact retains the helper name, kind, target, section, lexical scope,
+owner scope ID and physical source coordinates. `FileName` is empty for the unit's
+own file; include or unverified positions have zero line/column. Model JSON omits
+`UnindexedHelpers` when empty. Missing facts in a diagnostic-bearing model fail
+closed. Visibility uses the WITH site and helper declaration identity, including
+alias lineage; canonical type text does not establish matching identity.
+
+The final planner defers this refusal until established selector and renderer
+refusals have finished. It reports `skipped` with ordinary
+`receiver-member-not-found` for an assignment target or `symbol-not-found` for
+other references, and `SafetyReason=RECORD_HELPER_MEMBERS_UNVERIFIED`. Refused
+statements have no edits, temps, replacement text or `remove-with-candidate` edit.
+Independent earlier refusals retain their reasons. Nested child refusal propagates
+to its parent. Snapshot planning preserves the same result.
 
 `TDelphiSemanticModelObservation` carries `ProjectContextFingerprint`,
 `ModelFileName`, `SourceObservations`, `IncludeFileNames` and `CacheHit` to the

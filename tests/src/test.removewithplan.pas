@@ -43,6 +43,11 @@ type
     procedure AssertProjectFactsEqual(
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
+    [TestCase('Assignment refusal', 'assignment')]
+    [TestCase('Call refusal', 'call')]
+    [TestCase('Different unsupported reason', 'other-code')]
+    [TestCase('Lexical control', 'lexical')]
+    procedure HelperRefusalSurvivesHandBuiltBinding(const aMode: string);
     [TestCase('Same include unknown in later type', 'after')]
     [TestCase('Same include unknown in earlier type', 'before')]
     [TestCase('Same include unknown in var section', 'var')]
@@ -29067,6 +29072,65 @@ begin
       end;
     Assert.IsTrue(lFound);
   end;
+end;
+
+procedure TRemoveWithPlanTests.HelperRefusalSurvivesHandBuiltBinding(const aMode: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lBody, lReason: string;
+  lEdit: TDelphiSemanticRemoveWithEdit;
+  i: Integer;
+begin
+  lBody := 'Count := 1;';
+  lReason := 'receiver-member-not-found';
+  if aMode = 'call' then
+  begin
+    lBody := 'Count();';
+    lReason := 'symbol-not-found';
+  end;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := TempPath('helper-planner-' + aMode + '.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit HelperPlanner;'#13#10'interface'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10 +
+    'implementation'#13#10'procedure Count;'#13#10'begin end;'#13#10 +
+    'procedure Run;'#13#10'var lRecord: TRec;'#13#10 +
+    'begin'#13#10'  with lRecord do ' + lBody + #13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lFacts := TDelphiSemanticWithBinder.BindProject('helper-planner', nil, [lModel]);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  Assert.IsTrue(Length(lFacts.Bindings[0].References) > 0);
+  for i := 0 to High(lFacts.Bindings[0].References) do
+    if SameText(lFacts.Bindings[0].References[i].Name, 'Count') then
+    begin
+      lFacts.Bindings[0].References[i].Classification := 'unsupported';
+      lFacts.Bindings[0].References[i].ReasonCode := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
+      if aMode = 'other-code' then
+        lFacts.Bindings[0].References[i].ReasonCode := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
+      if aMode = 'lexical' then
+        lFacts.Bindings[0].References[i].Classification := 'lexical';
+    end;
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+  if MatchText(aMode, ['other-code', 'lexical']) then
+  begin
+    Assert.AreEqual('', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('', lPlan.FinalStatements[0].SafetyReason);
+    Exit;
+  end;
+  Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+  Assert.AreEqual(lReason, lPlan.FinalStatements[0].Reason);
+  Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason);
+  Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Edits)));
+  Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Temps)));
+  Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+  for lEdit in lPlan.Edits do
+    Assert.AreNotEqual('remove-with-candidate', lEdit.Kind);
 end;
 
 initialization
