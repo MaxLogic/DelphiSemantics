@@ -6618,7 +6618,8 @@ procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aBindingTree: TFinalBindingTree;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aSafetyReasons: TArray<string>;
-  const aActivityUnverified, aMemberActivityUnverified: TArray<Boolean>;
+  const aActivityUnverified, aMemberActivityUnverified,
+  aInactiveNestedWithShadow: TArray<Boolean>;
   const aBindingIndex: Integer;
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDelphiSemanticSourceContextCache;
@@ -6659,6 +6660,14 @@ begin
       lStatement.Temps);
     lStatement := BuildSkippedFinalStatement(lBinding,
       FinalStatementId(aBindingIndex + 1), 'activity-unverified', 'ACTIVITY_UNVERIFIED');
+  end;
+  // DS-724: established selector, renderer and activity refusals retain precedence.
+  if aInactiveNestedWithShadow[aBindingIndex] and SameText(lStatement.Status, 'planned') then
+  begin
+    RollbackReservedTempNamesForFinalTemps(aReservedNames, lBinding.RoutineName,
+      lStatement.Temps);
+    lStatement := BuildSkippedFinalStatement(lBinding, FinalStatementId(aBindingIndex + 1),
+      'inactive-nested-with-shadowing', 'INACTIVE_NESTED_WITH_SHADOW');
   end;
   AddFinalStatement(aPlan, lStatement);
   if SameText(lStatement.Status, 'planned') then
@@ -6706,7 +6715,7 @@ begin
       aBindingSource.BindingHasStableSourceRange(lChildIndex) then
       AddFinalStatementTree(aPlan, aFacts, aBindingSource, aBindingTree,
         aCandidateEdits, aSafetyReasons, aActivityUnverified, aMemberActivityUnverified,
-        lChildIndex, aReservedNames, aLineCache,
+        aInactiveNestedWithShadow, lChildIndex, aReservedNames, aLineCache,
         lChildInheritedDecisions);
   end;
 end;
@@ -6949,7 +6958,7 @@ var
   lRetainedEditCount: Integer;
   lRejectedCandidate: Boolean;
   lSafetyReasons: TArray<string>;
-  lActivityUnverified, lMemberActivityUnverified: TArray<Boolean>;
+  lActivityUnverified, lMemberActivityUnverified, lInactiveNestedWithShadow: TArray<Boolean>;
   lSafetyReason: string;
   lStatementIndex: Integer;
 begin
@@ -6995,9 +7004,20 @@ begin
       SetLength(lSafetyReasons, lBindingCount);
       SetLength(lActivityUnverified, lBindingCount);
       SetLength(lMemberActivityUnverified, lBindingCount);
+      SetLength(lInactiveNestedWithShadow, lBindingCount);
       for lBindingIndex := 0 to lBindingCount - 1 do
       begin
         lBinding := aBindingSource.BindingByIndex(lBindingIndex);
+        if lBinding.InactiveSpanSkipReason = 'INACTIVE_NESTED_WITH_SHADOW' then
+        begin
+          lInactiveNestedWithShadow[lBindingIndex] := True;
+          lParentIndex := lBindingTree.ParentIndexes[lBindingIndex];
+          while lParentIndex >= 0 do
+          begin
+            lInactiveNestedWithShadow[lParentIndex] := True;
+            lParentIndex := lBindingTree.ParentIndexes[lParentIndex];
+          end;
+        end;
         if lBinding.MemberActivityUnverified then
         begin
           lMemberActivityUnverified[lBindingIndex] := True;
@@ -7032,6 +7052,21 @@ begin
           // A parent replacement covers its child's source, so activity is
           // propagated independently of ordinary member/scope refusals.
           lActivityUnverified[lParentIndex] := True;
+          lParentIndex := lBindingTree.ParentIndexes[lParentIndex];
+        end;
+      end;
+      // A refused range retains its original scopes. No contained WITH may
+      // independently rewrite that text after the covering statement refuses.
+      for lBindingIndex := 0 to lBindingCount - 1 do
+      begin
+        lParentIndex := lBindingTree.ParentIndexes[lBindingIndex];
+        while lParentIndex >= 0 do
+        begin
+          if lInactiveNestedWithShadow[lParentIndex] then
+          begin
+            lInactiveNestedWithShadow[lBindingIndex] := True;
+            Break;
+          end;
           lParentIndex := lBindingTree.ParentIndexes[lParentIndex];
         end;
       end;
@@ -7076,7 +7111,7 @@ begin
             lInheritedDecisions := nil;
             AddFinalStatementTree(Result, aFacts, aBindingSource, lBindingTree,
               lCandidateEdits, lSafetyReasons, lActivityUnverified, lMemberActivityUnverified,
-              lRootIndex, lReservedNames, lLineCache,
+              lInactiveNestedWithShadow, lRootIndex, lReservedNames, lLineCache,
               lInheritedDecisions);
           end;
         end;
@@ -7094,7 +7129,8 @@ begin
           if SameText(lEdit.Kind, 'remove-with-candidate') then
             for lFinalStatement in Result.FinalStatements do
               if (SameText(lFinalStatement.Reason, 'receiver-member-owner-conflict') or
-                SameText(lFinalStatement.SafetyReason, 'RECORD_HELPER_MEMBERS_UNVERIFIED')) and
+                SameText(lFinalStatement.SafetyReason, 'RECORD_HELPER_MEMBERS_UNVERIFIED') or
+                SameText(lFinalStatement.SafetyReason, 'INACTIVE_NESTED_WITH_SHADOW')) and
                 (lFinalStatement.SemanticId = lEdit.StatementId) then
               begin
                 lRejectedCandidate := True;

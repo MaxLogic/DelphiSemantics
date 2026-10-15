@@ -47,6 +47,7 @@ type
     [TestCase('Warm accepted', 'hit-accept')]
     procedure RequestOwnerSealsEveryModelBeforePublication(const aMode: string);
     [Test]
+    [TestCase('Before inactive nested WITH shadow refusal', '61')]
     [TestCase('Before unindexed record helper refusal', '60')]
     [TestCase('Before receiver member scopes', '2')]
     [TestCase('Before compiler body casts', '3')]
@@ -65,6 +66,8 @@ type
     procedure RebuildsRemoveWithFactsWithOlderSchemaMarker(const aVersion: string);
     [Test]
     procedure ProjectSessionOpensFromProjectFileName;
+    [Test]
+    procedure RebuildsSnapshotBeforeInactiveNestedWithSafety;
     [Test]
     procedure EmptyProjectPathReturnsStructuredSessionDiagnostic;
     [Test]
@@ -2146,6 +2149,47 @@ begin
   if i = 14 then
     ExecProjectSessionCacheSql(aOptions.SqliteCacheFileName,
       'update snapshot_units set schema_version = ''project-session-snapshot-v42''');
+end;
+
+procedure TProjectSessionTests.RebuildsSnapshotBeforeInactiveNestedWithSafety;
+var
+  i: Integer;
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lOptions: TDelphiSemanticOptions;
+  lOpened: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+begin
+  lRootPath := CreateTypedConstantQueryFixture;
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'TypedValuesProject.dproj');
+  lOptions.SqliteCacheFileName := TPath.Combine(lRootPath, 'ds724-snapshot-v46.sqlite');
+  for i := 0 to 3 do
+  begin
+    if i = 2 then
+      ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
+        'update snapshot_units set schema_version = ''project-session-snapshot-v46''');
+    lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lOpened.Success);
+      lContext := lOpened.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+        lExtractionMilliseconds);
+      if (i = 0) or (i = 2) then
+      begin
+        Assert.IsTrue(lCacheMetrics.CacheMisses > 0, 'Snapshot-v46 must rebuild.');
+        Assert.AreEqual(0, lCacheMetrics.CacheHits);
+      end else begin
+        Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Fresh snapshot must hit.');
+        Assert.AreEqual(0, lCacheMetrics.CacheMisses);
+      end;
+      AssertTypedConstantQuery(lContext, TPath.Combine(lRootPath, 'TypedValues.pas'), 0);
+      AssertTypedConstantQuery(lContext, TPath.Combine(lRootPath, 'TypedValues.pas'), 1);
+    finally
+      lContext.ProjectSnapshot := nil;
+      lOpened.Session.Free;
+    end;
+  end;
 end;
 
 procedure TProjectSessionTests.TypedConstantsRemainQueryableAcrossSnapshotCacheModes;

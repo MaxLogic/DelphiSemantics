@@ -201,9 +201,9 @@ names again; general reference consumers use `References` alone.
 its `InactiveSpanReferences` stores the inactive facts. The binding flag
 `cSemanticRemoveWithBindingFlagActivityUnverified` retains activity uncertainty.
 Snapshot copying and persistence preserve both partitions, and the planner builds
-one cached DTO view per snapshot binding source. Snapshot producer generation 46
-and WITH-fact generation 61 rebuild bindings
-written before unindexed-record-helper refusal. Model parser generation 69 rebuilds
+one cached DTO view per snapshot binding source. Snapshot producer generation 47
+and WITH-fact generation 62 rebuild bindings
+written before inactive nested WITH safety verification. Model parser generation 69 rebuilds
 models with structured unindexed helper facts. `cSemanticRemoveWithBindingFlagMemberActivityUnverified`
 uses the existing binding flags field; the snapshot/cache SQLite schemas and
 `DS-ACTIVITY-1` wire format are unchanged.
@@ -245,8 +245,23 @@ refusals have finished. It reports `skipped` with ordinary
 `receiver-member-not-found` for an assignment target or `symbol-not-found` for
 other references, and `SafetyReason=RECORD_HELPER_MEMBERS_UNVERIFIED`. Refused
 statements have no edits, temps, replacement text or `remove-with-candidate` edit.
-Independent earlier refusals retain their reasons. Nested child refusal propagates
-to its parent. Snapshot planning preserves the same result.
+Independent earlier refusals retain their reasons. DS-724 v4 refuses an outer WITH
+when any known-inactive span inside its body contains a WITH header token:
+`Reason=inactive-nested-with-shadowing`, `SafetyReason=INACTIVE_NESTED_WITH_SHADOW`.
+The existing `InactiveSpanSkipReason` fact carries `INACTIVE_NESTED_WITH_SHADOW`
+independently of reference ownership; `SkipReason` retains established refusals.
+Detection skips comments and quoted strings (including doubled quotes),
+uses Unicode identifier boundaries, and excludes escaped `&with` identifiers.
+Activity comes only from stored evidence. No subject, type, absence or governed
+extent reasoning is performed. Bodies with no rewritten name also refuse.
+Real `{$I ...}` / `{$INCLUDE ...}` directives in known-inactive spans also refuse,
+since their contents can hide a WITH header. Compiler switches `{$I+}` / `{$I-}`
+are excluded. Other inactive spans without a WITH token keep existing behavior; unknown activity keeps
+`activity-unverified`. This refusal has
+zero edits, temps and replacement text, removes the candidate edit, preserves
+earlier refusal precedence and propagates to covering parents. Nested child refusal propagates
+to its parent; every contained WITH also receives the barrier, preventing independent
+child edits inside the refused range. Snapshot planning preserves the same result.
 
 `TDelphiSemanticModelObservation` carries `ProjectContextFingerprint`,
 `ModelFileName`, `SourceObservations`, `IncludeFileNames` and `CacheHit` to the

@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Fixed
+
+- Remove-with refuses an outer WITH when its body contains a known-inactive WITH token, even when the nested body has no rewritten name. Inactive includes also refuse, and contained WITH statements cannot retain independent edits. Comments, strings and escaped identifiers are excluded. Earlier refusals keep precedence; affected WITH facts and snapshot caches rebuild.
 - WITH record-receiver misses refuse lexical or outer homonyms when a visible matching record helper has unindexed members. Refused plans retain a named safety reason and no candidate edits; affected model, WITH-fact and snapshot caches rebuild.
 - Member inventory no longer fabricates receiver fields or constants from routine signature parameters and block comments. Remove-with checks lexical qualifications against verified declaration bodies, preserving real variant tags and type constants.
 - WITH receiver lookup retains verified owner identity. Unknown type-member activity has a separate edit barrier that preserves earlier final refusals; non-member qualifications refuse apply coverage. Model, WITH-fact and snapshot generations rebuild the affected cached facts.

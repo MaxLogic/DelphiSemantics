@@ -216,6 +216,196 @@ type
     [TestCase('Plannable scoped body is activity-unverified', 'binder-scoped')]
     procedure WholeWithSourceActivityIsRequired(const aShape: string);
 
+    [TestCase('same cold', 'same,cold')]
+    [TestCase('same warm', 'same,warm')]
+    [TestCase('same snapshot', 'same,snapshot')]
+    [TestCase('different cold', 'different,cold')]
+    [TestCase('different warm', 'different,warm')]
+    [TestCase('different snapshot', 'different,snapshot')]
+    [TestCase('absent cold', 'absent,cold')]
+    [TestCase('absent warm', 'absent,warm')]
+    [TestCase('absent snapshot', 'absent,snapshot')]
+    [TestCase('unresolved cold', 'unresolved,cold')]
+    [TestCase('unresolved warm', 'unresolved,warm')]
+    [TestCase('unresolved snapshot', 'unresolved,snapshot')]
+    [TestCase('block cold', 'block,cold')]
+    [TestCase('block warm', 'block,warm')]
+    [TestCase('block snapshot', 'block,snapshot')]
+    [TestCase('unknown cold', 'unknown,cold')]
+    [TestCase('unknown warm', 'unknown,warm')]
+    [TestCase('unknown snapshot', 'unknown,snapshot')]
+    [TestCase('active cold', 'active,cold')]
+    [TestCase('active warm', 'active,warm')]
+    [TestCase('active snapshot', 'active,snapshot')]
+    [TestCase('plain cold', 'plain,cold')]
+    [TestCase('plain warm', 'plain,warm')]
+    [TestCase('plain snapshot', 'plain,snapshot')]
+    [TestCase('multi cold', 'multi,cold')]
+    [TestCase('multi warm', 'multi,warm')]
+    [TestCase('multi snapshot', 'multi,snapshot')]
+    [TestCase('comment cold', 'comment,cold')]
+    [TestCase('comment warm', 'comment,warm')]
+    [TestCase('comment snapshot', 'comment,snapshot')]
+    [TestCase('string cold', 'string,cold')]
+    [TestCase('string warm', 'string,warm')]
+    [TestCase('string snapshot', 'string,snapshot')]
+    [TestCase('indexed cold', 'indexed,cold')]
+    [TestCase('indexed warm', 'indexed,warm')]
+    [TestCase('indexed snapshot', 'indexed,snapshot')]
+    [TestCase('deref cold', 'deref,cold')]
+    [TestCase('deref warm', 'deref,warm')]
+    [TestCase('deref snapshot', 'deref,snapshot')]
+    [TestCase('call cold', 'call,cold')]
+    [TestCase('call warm', 'call,warm')]
+    [TestCase('call snapshot', 'call,snapshot')]
+    [TestCase('split cold', 'split,cold')]
+    [TestCase('split warm', 'split,warm')]
+    [TestCase('split snapshot', 'split,snapshot')]
+    [TestCase('nested-span cold', 'nested-span,cold')]
+    [TestCase('nested-span warm', 'nested-span,warm')]
+    [TestCase('nested-span snapshot', 'nested-span,snapshot')]
+    [TestCase('nested-with cold', 'nested-with,cold')]
+    [TestCase('nested-with warm', 'nested-with,warm')]
+    [TestCase('nested-with snapshot', 'nested-with,snapshot')]
+    [TestCase('fix1 header-active cold', 'header-active,cold')]
+    [TestCase('fix1 header-active warm', 'header-active,warm')]
+    [TestCase('fix1 header-active snapshot', 'header-active,snapshot')]
+    [TestCase('fix1 header-active-ml cold', 'header-active-ml,cold')]
+    [TestCase('fix1 header-active-ml warm', 'header-active-ml,warm')]
+    [TestCase('fix1 header-active-ml snapshot', 'header-active-ml,snapshot')]
+    [TestCase('fix1 header-active-lf cold', 'header-active-lf,cold')]
+    [TestCase('fix1 header-active-lf warm', 'header-active-lf,warm')]
+    [TestCase('fix1 header-active-lf snapshot', 'header-active-lf,snapshot')]
+    [TestCase('fix1 inline-shadow cold', 'inline-shadow,cold')]
+    [TestCase('fix1 inline-shadow warm', 'inline-shadow,warm')]
+    [TestCase('fix1 inline-shadow snapshot', 'inline-shadow,snapshot')]
+    [TestCase('fix1 anonymous-shadow cold', 'anonymous-shadow,cold')]
+    [TestCase('fix1 anonymous-shadow warm', 'anonymous-shadow,warm')]
+    [TestCase('fix1 anonymous-shadow snapshot', 'anonymous-shadow,snapshot')]
+    [TestCase('fix1 safe-before cold', 'safe-before,cold')]
+    [TestCase('fix1 safe-before warm', 'safe-before,warm')]
+    [TestCase('fix1 safe-before snapshot', 'safe-before,snapshot')]
+    [TestCase('fix1 safe-after cold', 'safe-after,cold')]
+    [TestCase('fix1 safe-after warm', 'safe-after,warm')]
+    [TestCase('fix1 safe-after snapshot', 'safe-after,snapshot')]
+    [TestCase('fix1 safe-two-spans cold', 'safe-two-spans,cold')]
+    [TestCase('fix1 safe-two-spans warm', 'safe-two-spans,warm')]
+    [TestCase('fix1 safe-two-spans snapshot', 'safe-two-spans,snapshot')]
+    [TestCase('fix1 fake-brace cold', 'fake-brace,cold')]
+    [TestCase('fix1 fake-brace warm', 'fake-brace,warm')]
+    [TestCase('fix1 fake-brace snapshot', 'fake-brace,snapshot')]
+    [TestCase('fix1 fake-star cold', 'fake-star,cold')]
+    [TestCase('fix1 fake-star warm', 'fake-star,warm')]
+    [TestCase('fix1 fake-star snapshot', 'fake-star,snapshot')]
+    [TestCase('fix1 fake-line cold', 'fake-line,cold')]
+    [TestCase('fix1 fake-line warm', 'fake-line,warm')]
+    [TestCase('fix1 fake-line snapshot', 'fake-line,snapshot')]
+    [TestCase('fix1 fake-string cold', 'fake-string,cold')]
+    [TestCase('fix1 fake-string warm', 'fake-string,warm')]
+    [TestCase('fix1 fake-string snapshot', 'fake-string,snapshot')]
+    [TestCase('fix1 unicode-ident cold', 'unicode-ident,cold')]
+    [TestCase('fix1 unicode-ident warm', 'unicode-ident,warm')]
+    [TestCase('fix1 unicode-ident snapshot', 'unicode-ident,snapshot')]
+    [TestCase('fix1 suffix-ident cold', 'suffix-ident,cold')]
+    [TestCase('fix1 suffix-ident warm', 'suffix-ident,warm')]
+    [TestCase('fix1 suffix-ident snapshot', 'suffix-ident,snapshot')]
+    [TestCase('fix1 escaped-ident cold', 'escaped-ident,cold')]
+    [TestCase('fix1 escaped-ident warm', 'escaped-ident,warm')]
+    [TestCase('fix1 escaped-ident snapshot', 'escaped-ident,snapshot')]
+    [TestCase('fix2 v3-simple cold', 'v3-simple,cold')]
+    [TestCase('fix2 v3-simple warm', 'v3-simple,warm')]
+    [TestCase('fix2 v3-simple snapshot', 'v3-simple,snapshot')]
+    [TestCase('fix2 v3-if cold', 'v3-if,cold')]
+    [TestCase('fix2 v3-if warm', 'v3-if,warm')]
+    [TestCase('fix2 v3-if snapshot', 'v3-if,snapshot')]
+    [TestCase('fix2 v3-routine-var cold', 'v3-routine-var,cold')]
+    [TestCase('fix2 v3-routine-var warm', 'v3-routine-var,warm')]
+    [TestCase('fix2 v3-routine-var snapshot', 'v3-routine-var,snapshot')]
+    [TestCase('fix2 v3-global-else cold', 'v3-global-else,cold')]
+    [TestCase('fix2 v3-global-else warm', 'v3-global-else,warm')]
+    [TestCase('fix2 v3-global-else snapshot', 'v3-global-else,snapshot')]
+    [TestCase('fix2 v3-record-field cold', 'v3-record-field,cold')]
+    [TestCase('fix2 v3-record-field warm', 'v3-record-field,warm')]
+    [TestCase('fix2 v3-record-field snapshot', 'v3-record-field,snapshot')]
+    [TestCase('fix2 v3-inline-before cold', 'v3-inline-before,cold')]
+    [TestCase('fix2 v3-inline-before warm', 'v3-inline-before,warm')]
+    [TestCase('fix2 v3-inline-before snapshot', 'v3-inline-before,snapshot')]
+    [TestCase('fix2 v3-routine-before cold', 'v3-routine-before,cold')]
+    [TestCase('fix2 v3-routine-before warm', 'v3-routine-before,warm')]
+    [TestCase('fix2 v3-routine-before snapshot', 'v3-routine-before,snapshot')]
+    [TestCase('fix3 v4-sibling cold', 'v4-sibling,cold')]
+    [TestCase('fix3 v4-sibling warm', 'v4-sibling,warm')]
+    [TestCase('fix3 v4-sibling snapshot', 'v4-sibling,snapshot')]
+    [TestCase('fix3 v4-active-sub cold', 'v4-active-sub,cold')]
+    [TestCase('fix3 v4-active-sub warm', 'v4-active-sub,warm')]
+    [TestCase('fix3 v4-active-sub snapshot', 'v4-active-sub,snapshot')]
+    [TestCase('fix3 v4-sol-sibling cold', 'v4-sol-sibling,cold')]
+    [TestCase('fix3 v4-sol-sibling warm', 'v4-sol-sibling,warm')]
+    [TestCase('fix3 v4-sol-sibling snapshot', 'v4-sol-sibling,snapshot')]
+    [TestCase('fix3 v4-comma cold', 'v4-comma,cold')]
+    [TestCase('fix3 v4-comma warm', 'v4-comma,warm')]
+    [TestCase('fix3 v4-comma snapshot', 'v4-comma,snapshot')]
+    [TestCase('fix3 v4-comma-noref cold', 'v4-comma-noref,cold')]
+    [TestCase('fix3 v4-comma-noref warm', 'v4-comma-noref,warm')]
+    [TestCase('fix3 v4-comma-noref snapshot', 'v4-comma-noref,snapshot')]
+    [TestCase('fix3 v4-comma-absent cold', 'v4-comma-absent,cold')]
+    [TestCase('fix3 v4-comma-absent warm', 'v4-comma-absent,warm')]
+    [TestCase('fix3 v4-comma-absent snapshot', 'v4-comma-absent,snapshot')]
+    [TestCase('fix3 v4-no-outer-ref cold', 'v4-no-outer-ref,cold')]
+    [TestCase('fix3 v4-no-outer-ref warm', 'v4-no-outer-ref,warm')]
+    [TestCase('fix3 v4-no-outer-ref snapshot', 'v4-no-outer-ref,snapshot')]
+    [TestCase('fix3 v4-fake-brace cold', 'v4-fake-brace,cold')]
+    [TestCase('fix3 v4-fake-brace warm', 'v4-fake-brace,warm')]
+    [TestCase('fix3 v4-fake-brace snapshot', 'v4-fake-brace,snapshot')]
+    [TestCase('fix3 v4-fake-star cold', 'v4-fake-star,cold')]
+    [TestCase('fix3 v4-fake-star warm', 'v4-fake-star,warm')]
+    [TestCase('fix3 v4-fake-star snapshot', 'v4-fake-star,snapshot')]
+    [TestCase('fix3 v4-fake-line cold', 'v4-fake-line,cold')]
+    [TestCase('fix3 v4-fake-line warm', 'v4-fake-line,warm')]
+    [TestCase('fix3 v4-fake-line snapshot', 'v4-fake-line,snapshot')]
+    [TestCase('fix3 v4-fake-string cold', 'v4-fake-string,cold')]
+    [TestCase('fix3 v4-fake-string warm', 'v4-fake-string,warm')]
+    [TestCase('fix3 v4-fake-string snapshot', 'v4-fake-string,snapshot')]
+    [TestCase('fix3 v4-outside cold', 'v4-outside,cold')]
+    [TestCase('fix3 v4-outside warm', 'v4-outside,warm')]
+    [TestCase('fix3 v4-outside snapshot', 'v4-outside,snapshot')]
+    [TestCase('fix3 v4-prefix-ident cold', 'v4-prefix-ident,cold')]
+    [TestCase('fix3 v4-prefix-ident warm', 'v4-prefix-ident,warm')]
+    [TestCase('fix3 v4-prefix-ident snapshot', 'v4-prefix-ident,snapshot')]
+    [TestCase('fix4 v4-include-short cold', 'v4-include-short,cold')]
+    [TestCase('fix4 v4-include-short warm', 'v4-include-short,warm')]
+    [TestCase('fix4 v4-include-short snapshot', 'v4-include-short,snapshot')]
+    [TestCase('fix4 v4-include-long cold', 'v4-include-long,cold')]
+    [TestCase('fix4 v4-include-long warm', 'v4-include-long,warm')]
+    [TestCase('fix4 v4-include-long snapshot', 'v4-include-long,snapshot')]
+    [TestCase('fix4 v4-include-active cold', 'v4-include-active,cold')]
+    [TestCase('fix4 v4-include-active warm', 'v4-include-active,warm')]
+    [TestCase('fix4 v4-include-active snapshot', 'v4-include-active,snapshot')]
+    [TestCase('polish d-deep-sibling cold', 'v4-polish-d-deep-sibling,cold')]
+    [TestCase('polish d-deep-sibling warm', 'v4-polish-d-deep-sibling,warm')]
+    [TestCase('polish d-deep-sibling snapshot', 'v4-polish-d-deep-sibling,snapshot')]
+    [TestCase('polish i-lower cold', 'v4-polish-i-lower,cold')]
+    [TestCase('polish i-lower warm', 'v4-polish-i-lower,warm')]
+    [TestCase('polish i-lower snapshot', 'v4-polish-i-lower,snapshot')]
+    [TestCase('polish i-paren cold', 'v4-polish-i-paren,cold')]
+    [TestCase('polish i-paren warm', 'v4-polish-i-paren,warm')]
+    [TestCase('polish i-paren snapshot', 'v4-polish-i-paren,snapshot')]
+    [TestCase('polish i-quoted-space cold', 'v4-polish-i-quoted-space,cold')]
+    [TestCase('polish i-quoted-space warm', 'v4-polish-i-quoted-space,warm')]
+    [TestCase('polish i-quoted-space snapshot', 'v4-polish-i-quoted-space,snapshot')]
+    [TestCase('polish i-include-quoted-space cold', 'v4-polish-i-include-quoted-space,cold')]
+    [TestCase('polish i-include-quoted-space warm', 'v4-polish-i-include-quoted-space,warm')]
+    [TestCase('polish i-include-quoted-space snapshot', 'v4-polish-i-include-quoted-space,snapshot')]
+    [TestCase('polish x-switch-plus cold', 'v4-polish-x-switch-plus,cold')]
+    [TestCase('polish x-switch-plus warm', 'v4-polish-x-switch-plus,warm')]
+    [TestCase('polish x-switch-plus snapshot', 'v4-polish-x-switch-plus,snapshot')]
+    [TestCase('polish x-switch-minus cold', 'v4-polish-x-switch-minus,cold')]
+    [TestCase('polish x-switch-minus warm', 'v4-polish-x-switch-minus,warm')]
+    [TestCase('polish x-switch-minus snapshot', 'v4-polish-x-switch-minus,snapshot')]
+    [TestCase('polish x-inline cold', 'v4-polish-x-inline,cold')]
+    [TestCase('polish x-inline warm', 'v4-polish-x-inline,warm')]
+    [TestCase('polish x-inline snapshot', 'v4-polish-x-inline,snapshot')]
+    procedure InactiveNestedWithShadowing(const aShape, aMode: string);
     [TestCase('Known-inactive homonym preserves base replacement', 'known')]
     [TestCase('Unknown homonym refuses whole statement', 'unknown')]
     procedure WholeWithRangeRefusesOnlyUnknownActivity(const aShape: string);
@@ -1364,13 +1554,415 @@ begin
   end;
 end;
 
+procedure TWithBinderTests.InactiveNestedWithShadowing(const aShape, aMode: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan, lDiskPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement, lContainedStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lEdit: TDelphiSemanticRemoveWithEdit;
+  lRoot, lSource, lInnerType, lBody: string;
+begin
+  lRoot := WithBinderTempPath('InactiveNested-' + aShape + '-' + aMode);
+  TDirectory.CreateDirectory(lRoot);
+  lInnerType := 'TRec';
+  if MatchText(aShape, ['different', 'block']) then
+    lInnerType := 'TOther';
+  if MatchText(aShape, ['absent', 'multi', 'split', 'nested-span', 'nested-with']) then
+    lInnerType := 'TAbsent';
+  if aShape = 'unresolved' then
+    lInnerType := 'TMissing';
+  if aShape = 'call' then
+    lInnerType := 'TGetter';
+  lBody := 'with Inner do Count := 5;';
+  if aShape = 'block' then
+    lBody := 'with Inner do begin Other := 2; Count := 5; end;';
+  if aShape = 'plain' then
+    lBody := 'Count := 5;';
+  if aShape = 'multi' then
+    lBody := 'with Inner, Inner do Count := 5;';
+  if aShape = 'comment' then
+    lBody := '{ with Inner do Count := 99; } (* with Inner do *) Count := 5; // with Inner do';
+  if aShape = 'string' then
+    lBody := 'Count := Length(''with Inner do Count := 99;'');';
+  if aShape = 'indexed' then
+    lBody := 'with Inner[0] do Count := 5;';
+  if aShape = 'deref' then
+    lBody := 'with Inner^ do Count := 5;';
+  if aShape = 'call' then
+    lBody := 'with Inner() do Count := 5;';
+  if aShape = 'split' then
+    lBody := 'with'#13#10'      Inner do Count := 5;';
+  if aShape = 'nested-with' then
+    lBody := 'with Inner do with Inner do Count := 5;';
+  if aShape = 'nested-span' then
+    lBody := '{$IFDEF SECOND_TRACE} with Inner do Count := 5; {$ENDIF}';
+  // DS-724 v4: lexical boundaries and hidden declarations do not weaken token refusal.
+  if MatchText(aShape, ['inline-shadow', 'anonymous-shadow', 'fake-brace',
+    'fake-star', 'fake-line', 'fake-string']) then
+    lInnerType := 'TAbsent';
+  if MatchText(aShape, ['header-active', 'header-active-lf']) then
+    lBody := 'with Inner do {$ENDIF} Count := 5; {$IFDEF RELEASE_TRACE}';
+  if aShape = 'header-active-ml' then
+    lBody := 'with Inner do'#13#10'{$ENDIF}'#13#10'Count := 5; {$IFDEF RELEASE_TRACE}';
+  if aShape = 'inline-shadow' then
+    lBody := 'begin var Inner: TRec; with Inner do Count := 5; end;';
+  if aShape = 'anonymous-shadow' then
+    lBody := 'Action := procedure var Inner: TRec; begin with Inner do Count := 5; end;';
+  if aShape = 'safe-before' then
+    lBody := 'Count := 5; with Inner do Local := 2;';
+  if aShape = 'safe-after' then
+    lBody := 'with Inner do Local := 2; Count := 5;';
+  if aShape = 'safe-two-spans' then
+    lBody := 'Count := 5; {$ENDIF}{$IFDEF SECOND_TRACE} with Inner do Local := 2;';
+  if aShape = 'fake-brace' then
+    lBody := '{ literal {$IFDEF FAKE } with Inner do Count := 5;';
+  if aShape = 'fake-star' then
+    lBody := '(* literal {$IFDEF FAKE} *) with Inner do Count := 5;';
+  if aShape = 'fake-line' then
+    lBody := '// literal {$IFDEF FAKE}'#13#10'with Inner do Count := 5;';
+  if aShape = 'fake-string' then
+    lBody := 'Local := Length(''quote '''' {$IFDEF FAKE}''); with Inner do Count := 5;';
+  if aShape = 'unicode-ident' then
+    lBody := 'Count := '#$00D3'with;';
+  if aShape = 'suffix-ident' then
+    lBody := 'Count := withX;';
+  if aShape = 'escaped-ident' then
+    lBody := 'Count := &with;';
+  // DS-724 v4: absence (c) still refuses; an inactive WITH token is sufficient.
+  if StartsText('v3-', aShape) then
+    lInnerType := 'TAbsent';
+  if aShape = 'v3-simple' then
+    lBody := 'Count := 8; with Inner do Local := 2; Count := 9;';
+  if aShape = 'v3-if' then
+    lBody := 'Count := 8; with Inner do if Local = 0 then Local := 2 else Local := 3; Count := 9;';
+  lSource := 'unit Unit1;'#13#10'interface'#13#10 +
+    'type TRec = record Count: Integer; Other: Integer; end;'#13#10 +
+    'TOther = record Count: Integer; end;'#13#10 +
+    'TAbsent = record Value: Integer; end;'#13#10 +
+    'TGetter = function: TRec;'#13#10 +
+    'var Rec: TRec;'#13#10'Inner: ' + lInnerType + ';'#13#10 +
+    'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    '  with Rec do begin'#13#10'    Count := 1;'#13#10 +
+    '    {$IFDEF RELEASE_TRACE}'#13#10'    ' + lBody + #13#10 +
+    '    {$ENDIF}'#13#10'  end;'#13#10'end;'#13#10'end.'#13#10;
+  if StartsText('header-active', aShape) or MatchText(aShape,
+    ['inline-shadow', 'anonymous-shadow', 'safe-before', 'safe-after', 'safe-two-spans',
+    'fake-brace', 'fake-star', 'fake-line', 'fake-string', 'unicode-ident',
+    'suffix-ident', 'escaped-ident']) then
+    lSource := StringReplace(lSource, 'implementation',
+      'Local: Integer;'#13#10'Action: TProc;'#13#10 +
+      #$00D3'with: Integer;'#13#10'withX: Integer;'#13#10'&with: Integer;'#13#10 +
+      'implementation', []);
+  if StartsText('v3-', aShape) then
+    lSource := StringReplace(lSource, 'implementation', 'Local: Integer;'#13#10'implementation', []);
+  if aShape = 'v3-routine-var' then
+    lSource := StringReplace(lSource, 'procedure Run;'#13#10'begin',
+      'procedure Run;'#13#10'var {$IFDEF RELEASE_TRACE} Inner: TRec; {$ENDIF} Local2: Integer;'#13#10'begin', []);
+  if aShape = 'v3-global-else' then
+    lSource := StringReplace(lSource, 'Inner: TAbsent;',
+      '{$IFDEF RELEASE_TRACE} Inner: TRec; {$ELSE} Inner: TAbsent; {$ENDIF}', []);
+  if aShape = 'v3-record-field' then
+    lSource := StringReplace(lSource, 'TAbsent = record Value: Integer; end;',
+      'TAbsent = record Value: Integer; {$IFDEF RELEASE_TRACE} Count: Integer; {$ENDIF} end;', []);
+  if aShape = 'v3-inline-before' then
+    lSource := StringReplace(lSource, '  with Rec do begin',
+      '  {$IFDEF RELEASE_TRACE} var Inner: TRec; {$ENDIF}'#13#10'  with Rec do begin', []);
+  if aShape = 'v3-routine-before' then
+    lSource := StringReplace(lSource, 'procedure Run;'#13#10'begin',
+      'procedure Run;'#13#10'var {$IFDEF RELEASE_TRACE} Inner: TRec; {$ENDIF} Local2: Integer;'#13#10'begin', []);
+  if aShape = 'header-active-lf' then
+    lSource := StringReplace(lSource, #13#10, #10, [rfReplaceAll]);
+  if aShape = 'unknown' then
+    lSource := StringReplace(lSource, '{$IFDEF RELEASE_TRACE}', '{$IF UseFast}', []);
+  if aShape = 'active' then
+    lSource := StringReplace(lSource, '{$IFDEF RELEASE_TRACE}', '{$IFNDEF RELEASE_TRACE}', []);
+  // DS-724 v4: token presence refuses even when the nested body rewrites no name.
+  // safe-before/safe-after/safe-two-spans and v3-simple/v3-if now refuse.
+  if StartsText('v4-', aShape) then
+  begin
+    if aShape = 'v4-include-short' then
+      lBody := '{$IFDEF RELEASE_TRACE}{$I prefix.inc}{$ENDIF} Count := 5;';
+    if aShape = 'v4-include-long' then
+      lBody := '{$IFDEF RELEASE_TRACE}{$INCLUDE prefix.inc}{$ENDIF} Count := 5;';
+    if aShape = 'v4-include-active' then
+      lBody := 'Count := 5;';
+    if aShape = 'v4-sibling' then
+      lBody := '{$IFDEF RELEASE_TRACE} with Inner do {$ENDIF} with Absent do Count := 5;';
+    if aShape = 'v4-active-sub' then
+      lBody := '{$IFDEF RELEASE_TRACE} with Inner do {$ENDIF} with Sub do V := 1;';
+    if aShape = 'v4-sol-sibling' then
+      lBody := '{$IFDEF RELEASE_TRACE} with Hidden do {$ENDIF} with Inner do Count := 5;';
+    if aShape = 'v4-comma' then
+      lBody := '{$IFDEF RELEASE_TRACE} with Inner, Sub do Local := V; {$ENDIF}';
+    if aShape = 'v4-comma-noref' then
+      lBody := '{$IFDEF RELEASE_TRACE} with Inner, Sub do Local := 2; {$ENDIF}';
+    if aShape = 'v4-comma-absent' then
+      lBody := '{$IFDEF RELEASE_TRACE} with Absent, Sub do Local := 2; {$ENDIF}';
+    if aShape = 'v4-no-outer-ref' then
+      lBody := '{$IFDEF RELEASE_TRACE} with Inner do Local := 2; {$ENDIF}';
+    if aShape = 'v4-fake-brace' then
+      lBody := '{$IFDEF RELEASE_TRACE} { literal {$IFDEF FAKE } Local := 2; {$ENDIF} Count := 9;';
+    if aShape = 'v4-fake-star' then
+      lBody := '{$IFDEF RELEASE_TRACE} (* literal {$IFDEF FAKE} with Inner do *) Local := 2; {$ENDIF} Count := 9;';
+    if aShape = 'v4-fake-line' then
+      lBody := '{$IFDEF RELEASE_TRACE} // literal {$IFDEF FAKE} with Inner do'#13#10'Local := 2; {$ENDIF} Count := 9;';
+    if aShape = 'v4-fake-string' then
+      lBody := '{$IFDEF RELEASE_TRACE} Local := Length(''quote '''' {$IFDEF FAKE} with Inner do''); {$ENDIF} Count := 9;';
+    if aShape = 'v4-outside' then
+      lBody := 'Count := 9;';
+    if aShape = 'v4-prefix-ident' then
+      lBody := '{$IFDEF RELEASE_TRACE} Local := withdraw; {$ENDIF} Count := 9;';
+    lSource := 'unit Unit1;'#13#10'interface'#13#10 +
+      'type TSub = record V: Integer; end;'#13#10 +
+      'TRec = record Count: Integer; Other: Integer; Sub: TSub; end;'#13#10 +
+      'TOuter = record Count: Integer; Inner: TRec; end;'#13#10 +
+      'TAbsent = record Value: Integer; end;'#13#10 +
+      'var Rec: TRec;'#13#10'Inner: TRec;'#13#10'Hidden: TOuter;'#13#10 +
+      'Absent: TAbsent;'#13#10'Local: Integer;'#13#10'withdraw: Integer;'#13#10 +
+      'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+      '  with Rec do begin'#13#10'    Count := 1;'#13#10 +
+      '    ' + lBody + #13#10'  end;'#13#10'end;'#13#10'end.'#13#10;
+    if aShape = 'v4-sol-sibling' then
+      lSource := StringReplace(lSource, 'Rec: TRec;', 'Rec: TOuter;', []);
+    if aShape = 'v4-no-outer-ref' then
+      lSource := StringReplace(lSource, '    Count := 1;'#13#10, '', []);
+    if aShape = 'v4-outside' then
+      lSource := StringReplace(lSource, '  with Rec do begin',
+        '  {$IFDEF RELEASE_TRACE} with Inner do Local := 2; {$ENDIF}'#13#10 +
+        '  with Rec do begin', []);
+  end;
+  // DS-724 polish: retain the round-5 deep/sibling and directive fixtures.
+  if StartsText('v4-polish-', aShape) then
+  begin
+    if aShape = 'v4-polish-d-deep-sibling' then
+      lBody := '  with Oth do begin'#13#10 +
+        '    with Rec do begin'#13#10 +
+        '      with Absent do begin'#13#10 +
+        '        {$IFDEF RELEASE_TRACE} with Inner do {$ENDIF} Local := Value;'#13#10 +
+        '      end;'#13#10 +
+        '      with Absent do Count := 5;'#13#10 +
+        '      with Absent do begin with Absent do Count := 6; end;'#13#10 +
+        '    end;'#13#10 +
+        '  end;'#13#10;
+    if aShape = 'v4-polish-i-lower' then
+      lBody := '  with Rec do begin'#13#10 +
+        '    Count := 1;'#13#10 +
+        '    {$IFDEF RELEASE_TRACE}{$i x.inc}{$ENDIF} Count := 5;'#13#10 +
+        '  end;'#13#10;
+    if aShape = 'v4-polish-i-paren' then
+      lBody := '  with Rec do begin'#13#10 +
+        '    Count := 1;'#13#10 +
+        '    {$IFDEF RELEASE_TRACE}(*$I x.inc*){$ENDIF} Count := 5;'#13#10 +
+        '  end;'#13#10;
+    if aShape = 'v4-polish-i-quoted-space' then
+      lBody := '  with Rec do begin'#13#10 +
+        '    Count := 1;'#13#10 +
+        '    {$IFDEF RELEASE_TRACE}{$I ''my file.inc''}{$ENDIF} Count := 5;'#13#10 +
+        '  end;'#13#10;
+    if aShape = 'v4-polish-i-include-quoted-space' then
+      lBody := '  with Rec do begin'#13#10 +
+        '    Count := 1;'#13#10 +
+        '    {$IFDEF RELEASE_TRACE}{$INCLUDE ''my file.inc''}{$ENDIF} Count := 5;'#13#10 +
+        '  end;'#13#10;
+    if aShape = 'v4-polish-x-switch-plus' then
+      lBody := '  with Rec do begin'#13#10 +
+        '    Count := 1;'#13#10 +
+        '    {$IFDEF RELEASE_TRACE}{$I+}{$ENDIF} Count := 5;'#13#10 +
+        '  end;'#13#10;
+    if aShape = 'v4-polish-x-switch-minus' then
+      lBody := '  with Rec do begin'#13#10 +
+        '    Count := 1;'#13#10 +
+        '    {$IFDEF RELEASE_TRACE}{$I-}{$ENDIF} Count := 5;'#13#10 +
+        '  end;'#13#10;
+    if aShape = 'v4-polish-x-inline' then
+      lBody := '  with Rec do begin'#13#10 +
+        '    Count := 1;'#13#10 +
+        '    {$IFDEF RELEASE_TRACE}{$INLINE ON}{$ENDIF} Count := 5;'#13#10 +
+        '  end;'#13#10;
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type'#13#10 +
+      '  TSub = record V: Integer; end;'#13#10 +
+      '  TRec = record Count: Integer; Other: Integer; Sub: TSub; end;'#13#10 +
+      '  TInner = record Count: Integer; Sub: TSub; end;'#13#10 +
+      '  TOth = record Count: Integer; end;'#13#10 +
+      '  TAbsent = record Value: Integer; end;'#13#10 +
+      'var'#13#10 +
+      '  Rec: TRec;'#13#10 +
+      '  Inner: TInner;'#13#10 +
+      '  Oth: TOth;'#13#10 +
+      '  Absent: TAbsent;'#13#10 +
+      '  Local: Integer;'#13#10 +
+      '  Flag, Flag2: Boolean;'#13#10 +
+      ''#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      ''#13#10 +
+      'begin'#13#10 +
+      lBody + 'end;'#13#10 +
+      'end.'#13#10;
+    TFile.WriteAllText(TPath.Combine(lRoot, 'x.inc'), 'with Inner do', TEncoding.ASCII);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'my file.inc'), 'with Inner do', TEncoding.ASCII);
+  end;
+  // DS-724 fix4: inactive includes can hide a WITH header in another build.
+  TFile.WriteAllText(TPath.Combine(lRoot, 'prefix.inc'), 'with Inner do', TEncoding.ASCII);
+  if aShape = 'v4-include-active' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'active.inc'),
+      'const IncludedValue = 1;', TEncoding.ASCII);
+    lSource := StringReplace(lSource, 'procedure Run;',
+      '{$I active.inc}'#13#10'procedure Run;', []);
+  end;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
+    TFile.Delete(lOptions.Cache.SqliteCacheFileName);
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  if aMode = 'warm' then
+  begin
+    lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+    Assert.IsTrue(lFacts.Metrics.SemanticCacheHits > 0, 'Warm SQLite facts must hit.');
+  end;
+  if aMode = 'snapshot' then
+    lDiskPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts)
+  else
+    lDiskPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  // Rebind the same cold/reloaded models with the source absent. Discovery and
+  // the discovery pass must consume stored facts rather than reopen files.
+  TFile.Delete(TPath.Combine(lRoot, 'Unit1.pas'));
+  try
+    lFacts := TDelphiSemanticWithBinder.BindProject(lFacts.ContextFingerprint, nil, lFacts.UnitModels);
+  finally
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.UTF8);
+  end;
+  // The existing planner separately validates source ranges against the file.
+  if aMode = 'snapshot' then
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts)
+  else
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(Length(lDiskPlan.FinalStatements) > 0, aShape + ':' + aMode);
+  Assert.AreEqual(Length(lDiskPlan.FinalStatements), Length(lPlan.FinalStatements), aShape + ':' + aMode);
+  Assert.AreEqual(lDiskPlan.FinalStatements[0].Status, lPlan.FinalStatements[0].Status);
+  Assert.AreEqual(lDiskPlan.FinalStatements[0].Reason, lPlan.FinalStatements[0].Reason);
+  Assert.AreEqual(lDiskPlan.FinalStatements[0].SafetyReason, lPlan.FinalStatements[0].SafetyReason);
+  Assert.AreEqual(lDiskPlan.FinalStatements[0].ReplacementText, lPlan.FinalStatements[0].ReplacementText);
+  Assert.AreEqual(Length(lDiskPlan.FinalStatements), Length(lPlan.FinalStatements), aShape + ':' + aMode);
+  lStatement := lPlan.FinalStatements[0];
+  // DS-724 v4: all real inactive WITH tokens refuse, including absence (c),
+  // safe-before/after/two-spans, v3-simple and the round-2 sol v3-if control.
+  if MatchText(aShape, ['active', 'plain', 'comment', 'string', 'unicode-ident',
+    'suffix-ident', 'v4-prefix-ident', 'v4-fake-brace', 'v4-fake-star',
+    'v4-fake-line', 'v4-fake-string', 'v4-outside', 'v4-include-active',
+    'v4-polish-x-switch-plus', 'v4-polish-x-switch-minus', 'v4-polish-x-inline']) then
+  begin
+    Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+    Assert.AreEqual('', lStatement.Reason);
+    Assert.AreEqual('', lStatement.SafetyReason);
+    Assert.IsTrue(Length(lStatement.Edits) > 0);
+    Assert.IsTrue(Pos('lWithRecPtr^.Count := 1', lStatement.ReplacementText) > 0);
+    // Matched native 45b619b probes pin these negative controls exactly.
+    if aShape = 'v4-polish-x-switch-plus' then
+    begin
+      Assert.AreEqual('planned', lPlan.Status);
+      Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+      Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual('  lWithRecPtr := @Rec;'#13#10 +
+        ' begin'#13#10 +
+        '    lWithRecPtr^.Count := 1;'#13#10 +
+        '    {$IFDEF RELEASE_TRACE}{$I+}{$ENDIF} lWithRecPtr^.Count := 5;'#13#10 +
+        '  end;',
+        lStatement.ReplacementText);
+    end;
+    if aShape = 'v4-polish-x-switch-minus' then
+    begin
+      Assert.AreEqual('planned', lPlan.Status);
+      Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+      Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual('  lWithRecPtr := @Rec;'#13#10 +
+        ' begin'#13#10 +
+        '    lWithRecPtr^.Count := 1;'#13#10 +
+        '    {$IFDEF RELEASE_TRACE}{$I-}{$ENDIF} lWithRecPtr^.Count := 5;'#13#10 +
+        '  end;',
+        lStatement.ReplacementText);
+    end;
+    if aShape = 'v4-polish-x-inline' then
+    begin
+      Assert.AreEqual('planned', lPlan.Status);
+      Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+      Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual('  lWithRecPtr := @Rec;'#13#10 +
+        ' begin'#13#10 +
+        '    lWithRecPtr^.Count := 1;'#13#10 +
+        '    {$IFDEF RELEASE_TRACE}{$INLINE ON}{$ENDIF} lWithRecPtr^.Count := 5;'#13#10 +
+        '  end;',
+        lStatement.ReplacementText);
+    end;
+    if aShape = 'active' then
+      Assert.IsTrue(Pos('lWithRecPtr1^.Count := 5', lStatement.ReplacementText) > 0);
+    if MatchText(aShape, ['plain', 'comment']) then
+      Assert.IsTrue(Pos('lWithRecPtr^.Count := 5', lStatement.ReplacementText) > 0);
+  end else begin
+    Assert.AreEqual('skipped', lStatement.Status, aShape + ':' + aMode);
+    if aShape = 'escaped-ident' then
+      Assert.AreEqual('symbol-not-found', lStatement.Reason)
+    else if aShape = 'unknown' then
+    begin
+      Assert.AreEqual('activity-unverified', lStatement.Reason);
+      Assert.AreEqual('ACTIVITY_UNVERIFIED', lStatement.SafetyReason);
+    end else begin
+      Assert.AreEqual('inactive-nested-with-shadowing', lStatement.Reason);
+      Assert.AreEqual('INACTIVE_NESTED_WITH_SHADOW', lStatement.SafetyReason);
+    end;
+    Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+    Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual('', lStatement.ReplacementText);
+    if aShape <> 'escaped-ident' then
+    begin
+      for lEdit in lPlan.Edits do
+        Assert.IsFalse(lEdit.StatementId = lStatement.SemanticId, 'Refused candidate must be absent.');
+      if lStatement.SafetyReason = 'INACTIVE_NESTED_WITH_SHADOW' then
+        for lContainedStatement in lPlan.FinalStatements do
+        begin
+          Assert.AreEqual('skipped', lContainedStatement.Status, 'Contained WITH must refuse: ' + aShape);
+          Assert.AreEqual('inactive-nested-with-shadowing', lContainedStatement.Reason);
+          Assert.AreEqual('INACTIVE_NESTED_WITH_SHADOW', lContainedStatement.SafetyReason);
+          Assert.AreEqual(0, Integer(Length(lContainedStatement.Edits)));
+          Assert.AreEqual(0, Integer(Length(lContainedStatement.Temps)));
+          Assert.AreEqual('', lContainedStatement.ReplacementText);
+          for lEdit in lPlan.Edits do
+            Assert.IsFalse(lEdit.StatementId = lContainedStatement.SemanticId,
+              'Contained refusal must remove its candidate edit.');
+        end;
+      Assert.AreEqual(0, Integer(Length(lPlan.Edits)), 'Refused candidate must be absent.');
+    end;
+  end;
+  Assert.AreEqual(lSource, TFile.ReadAllText(TPath.Combine(lRoot, 'Unit1.pas')));
+end;
+
 procedure TWithBinderTests.WholeWithRangeRefusesOnlyUnknownActivity(const aShape: string);
 var
   lOptions: TDelphiSemanticApiOptions;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
-  lRoot, lSource, lExpectedReplacement: string;
+  lRoot, lSource: string;
   lPass: Integer;
 begin
   lRoot := WithBinderTempPath('RangeKnownOrUnknown-' + aShape);
@@ -1400,14 +1992,6 @@ begin
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'range-cache.sqlite');
   if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
     TFile.Delete(lOptions.Cache.SqliteCacheFileName);
-  // Native d308bc5 control pins this general known-inactive same-type shape under P2.
-  lExpectedReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
-    ' begin' + #13#10 +
-    '    lWithRecPtr^.Count := 1;' + #13#10 +
-    '    {$IFDEF RELEASE_TRACE}' + #13#10 +
-    '    with Inner do lWithRecPtr^.Count := 5;' + #13#10 +
-    '    {$ENDIF}' + #13#10 +
-    '  end;';
   for lPass := 0 to 1 do
   begin
     lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
@@ -1424,14 +2008,16 @@ begin
     Assert.AreEqual(Length(lStatement.Temps), Length(lSnapshotPlan.FinalStatements[0].Temps));
     if aShape = 'known' then
     begin
-      Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-      Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-      Assert.AreEqual('', lStatement.Reason);
-      Assert.AreEqual('', lStatement.SafetyReason);
-      Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-      Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
-      Assert.AreEqual(lExpectedReplacement, lStatement.ReplacementText);
+      Assert.AreEqual('planned', lPlan.Status);
+      Assert.AreEqual(lPlan.ContextFingerprint, lSnapshotPlan.ContextFingerprint);
       Assert.IsNotEmpty(lPlan.ContextFingerprint);
+      // DS-724 v4: an inactive WITH token refuses; enabling it can bind Count to Inner.
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.AreEqual('inactive-nested-with-shadowing', lStatement.Reason);
+      Assert.AreEqual('INACTIVE_NESTED_WITH_SHADOW', lStatement.SafetyReason);
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual('', lStatement.ReplacementText);
     end else begin
       Assert.AreEqual('skipped', lStatement.Status);
       Assert.AreEqual('activity-unverified', lStatement.Reason);

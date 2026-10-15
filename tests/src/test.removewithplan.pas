@@ -3069,78 +3069,25 @@ begin
       'a9914c0fa469d61","verificationSource":"with Rec do\r\n  begin\r\n    {$IFNDEF LINUX}\r\n  ' +
       '  Other := 2;\r\n    {$ENDIF}\r\n    Count := 1;\r\n  end;"}]';
     end;
-    14: // ki-never
+    14: // DS-724 v4: inactive WITH token refuses; Inner.Count must not target outer Rec.
     begin
-      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
-      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
-      'd":"{statement-semantic-id}"}]';
-      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
-      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
-      'Id":"{statement-semantic-id}","verificationHash":"3ac2ca159a8779a91f5e9a7e4a7b6f64a650b1a7' +
-      '32da6af64bb36875d8683f8f","verificationSource":""},{"kind":"replace-statement","fileName":' +
-      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
-      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
-      'FDEF NEVER_DEFINED}\r\n    with Inner do lWithRecPtr^.Count := 5;\r\n    {$ENDIF}\r\n  end' +
-      ';","semanticId":"{statement-semantic-id}","verificationHash":"3ac2ca159a8779a91f5e9a7e4a7b' +
-      '6f64a650b1a732da6af64bb36875d8683f8f","verificationSource":"with Rec do\r\n  begin\r\n    ' +
-      'Count := 1;\r\n    {$IFDEF NEVER_DEFINED}\r\n    with Inner do Count := 5;\r\n    {$ENDIF}' +
-      '\r\n  end;"}]';
+      lExpectedTemps := '[]';
+      lExpectedEdits := '[]';
     end;
-    15: // ki-nested-unknown
+    15: // DS-724 v4: inactive WITH token refuses; Inner.Count must not target outer Rec.
     begin
-      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
-      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
-      'd":"{statement-semantic-id}"}]';
-      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
-      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
-      'Id":"{statement-semantic-id}","verificationHash":"646ca39a1642c325c80b548f6777fb9cddf52c6a' +
-      '3dee2a448207374294eab826","verificationSource":""},{"kind":"replace-statement","fileName":' +
-      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
-      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
-      'FDEF NEVER_DEFINED}{$IFDEF LINUX}\r\n    with Inner do lWithRecPtr^.Count := 5;\r\n    {$E' +
-      'NDIF}{$ENDIF}\r\n  end;","semanticId":"{statement-semantic-id}","verificationHash":"646ca3' +
-      '9a1642c325c80b548f6777fb9cddf52c6a3dee2a448207374294eab826","verificationSource":"with Rec' +
-      ' do\r\n  begin\r\n    Count := 1;\r\n    {$IFDEF NEVER_DEFINED}{$IFDEF LINUX}\r\n    with ' +
-      'Inner do Count := 5;\r\n    {$ENDIF}{$ENDIF}\r\n  end;"}]';
+      lExpectedTemps := '[]';
+      lExpectedEdits := '[]';
     end;
-    16: // ki-else-active
+    16: // DS-724 v4: inactive WITH token refuses; Inner.Count must not target outer Rec.
     begin
-      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
-      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
-      'd":"{statement-semantic-id}"}]';
-      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
-      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
-      'Id":"{statement-semantic-id}","verificationHash":"6418f3fe27b20d1dd5d4fa85a73b433cae1ee032' +
-      '355fe1ca327aa03480763c0b","verificationSource":""},{"kind":"replace-statement","fileName":' +
-      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-17:6","range":"9:1-17:6","repl' +
-      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
-      'FDEF NEVER_DEFINED}\r\n    with Inner do lWithRecPtr^.Count := 5;\r\n    {$ELSE}\r\n    lW' +
-      'ithRecPtr^.Other := 6;\r\n    {$ENDIF}\r\n  end;","semanticId":"{statement-semantic-id}","' +
-      'verificationHash":"6418f3fe27b20d1dd5d4fa85a73b433cae1ee032355fe1ca327aa03480763c0b","veri' +
-      'ficationSource":"with Rec do\r\n  begin\r\n    Count := 1;\r\n    {$IFDEF NEVER_DEFINED}\r' +
-      '\n    with Inner do Count := 5;\r\n    {$ELSE}\r\n    Other := 6;\r\n    {$ENDIF}\r\n  end' +
-      ';"}]';
+      lExpectedTemps := '[]';
+      lExpectedEdits := '[]';
     end;
-    23: // ki-define-inactive
+    23: // DS-724 v4: inactive WITH token refuses; Inner.Count must not target outer Rec.
     begin
-      lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
-      'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
-      'd":"{statement-semantic-id}"}]';
-      lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
-      '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
-      'Id":"{statement-semantic-id}","verificationHash":"ad34d3a30193995c95616cb32b214831b98c1069' +
-      '73b812effe3fdefb76cd851b","verificationSource":""},{"kind":"replace-statement","fileName":' +
-      '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
-      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
-      'FDEF NEVER_DEFINED}{$DEFINE YY}{$ENDIF}{$IFDEF YY}\r\n    with Inner do lWithRecPtr^.Count' +
-      ' := 5;\r\n    {$ENDIF}\r\n  end;","semanticId":"{statement-semantic-id}","verificationHash' +
-      '":"ad34d3a30193995c95616cb32b214831b98c106973b812effe3fdefb76cd851b","verificationSource":' +
-      '"with Rec do\r\n  begin\r\n    Count := 1;\r\n    {$IFDEF NEVER_DEFINED}{$DEFINE YY}{$ENDI' +
-      'F}{$IFDEF YY}\r\n    with Inner do Count := 5;\r\n    {$ENDIF}\r\n  end;"}]';
+      lExpectedTemps := '[]';
+      lExpectedEdits := '[]';
     end;
     27: // gi-flag-other
     begin
@@ -3571,62 +3518,45 @@ begin
     end;
     14:
     begin
-      lBaseStatus := 'planned';
-      lBaseReason := '';
-      lBaseSafety := '';
-      lBaseEdits := 2;
-      lBaseTemps := 1;
+      // DS-724 v4: a known-inactive WITH token refuses; outer qualification can retarget Count.
+      lBaseStatus := 'skipped';
+      lBaseReason := 'inactive-nested-with-shadowing';
+      lBaseSafety := 'INACTIVE_NESTED_WITH_SHADOW';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
       lBaseRange.StartLine := 9;
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 15;
       lBaseRange.EndColumn := 6;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
-        '  begin' + #13#10 +
-        '    lWithRecPtr^.Count := 1;' + #13#10 +
-        '    {$IFDEF NEVER_DEFINED}' + #13#10 +
-        '    with Inner do lWithRecPtr^.Count := 5;' + #13#10 +
-        '    {$ENDIF}' + #13#10 +
-        '  end;';
+      lBaseReplacement := '';
     end;
     15:
     begin
-      lBaseStatus := 'planned';
-      lBaseReason := '';
-      lBaseSafety := '';
-      lBaseEdits := 2;
-      lBaseTemps := 1;
+      // DS-724 v4: a known-inactive WITH token refuses; outer qualification can retarget Count.
+      lBaseStatus := 'skipped';
+      lBaseReason := 'inactive-nested-with-shadowing';
+      lBaseSafety := 'INACTIVE_NESTED_WITH_SHADOW';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
       lBaseRange.StartLine := 9;
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 15;
       lBaseRange.EndColumn := 6;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
-        '  begin' + #13#10 +
-        '    lWithRecPtr^.Count := 1;' + #13#10 +
-        '    {$IFDEF NEVER_DEFINED}{$IFDEF LINUX}' + #13#10 +
-        '    with Inner do lWithRecPtr^.Count := 5;' + #13#10 +
-        '    {$ENDIF}{$ENDIF}' + #13#10 +
-        '  end;';
+      lBaseReplacement := '';
     end;
     16:
     begin
-      lBaseStatus := 'planned';
-      lBaseReason := '';
-      lBaseSafety := '';
-      lBaseEdits := 2;
-      lBaseTemps := 1;
+      // DS-724 v4: a known-inactive WITH token refuses; outer qualification can retarget Count.
+      lBaseStatus := 'skipped';
+      lBaseReason := 'inactive-nested-with-shadowing';
+      lBaseSafety := 'INACTIVE_NESTED_WITH_SHADOW';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
       lBaseRange.StartLine := 9;
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 17;
       lBaseRange.EndColumn := 6;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
-        '  begin' + #13#10 +
-        '    lWithRecPtr^.Count := 1;' + #13#10 +
-        '    {$IFDEF NEVER_DEFINED}' + #13#10 +
-        '    with Inner do lWithRecPtr^.Count := 5;' + #13#10 +
-        '    {$ELSE}' + #13#10 +
-        '    lWithRecPtr^.Other := 6;' + #13#10 +
-        '    {$ENDIF}' + #13#10 +
-        '  end;';
+      lBaseReplacement := '';
     end;
     17:
     begin
@@ -3708,22 +3638,17 @@ begin
     end;
     23:
     begin
-      lBaseStatus := 'planned';
-      lBaseReason := '';
-      lBaseSafety := '';
-      lBaseEdits := 2;
-      lBaseTemps := 1;
+      // DS-724 v4: a known-inactive WITH token refuses; outer qualification can retarget Count.
+      lBaseStatus := 'skipped';
+      lBaseReason := 'inactive-nested-with-shadowing';
+      lBaseSafety := 'INACTIVE_NESTED_WITH_SHADOW';
+      lBaseEdits := 0;
+      lBaseTemps := 0;
       lBaseRange.StartLine := 9;
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 15;
       lBaseRange.EndColumn := 6;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
-        '  begin' + #13#10 +
-        '    lWithRecPtr^.Count := 1;' + #13#10 +
-        '    {$IFDEF NEVER_DEFINED}{$DEFINE YY}{$ENDIF}{$IFDEF YY}' + #13#10 +
-        '    with Inner do lWithRecPtr^.Count := 5;' + #13#10 +
-        '    {$ENDIF}' + #13#10 +
-        '  end;';
+      lBaseReplacement := '';
     end;
     24:
     begin
@@ -4058,6 +3983,14 @@ begin
         Assert.AreEqual('activity-unverified', lStatement.Reason);
       end else
         Assert.AreEqual(lOrdinaryStatement.Reason, lStatement.Reason, 'D3 ordinary refusal retained');
+      if MatchText(lShape.Name, ['ki-never', 'ki-nested-unknown', 'ki-else-active', 'ki-define-inactive']) then
+      begin
+        Assert.AreEqual(lBaseReason, lStatement.Reason, 'DS-724 exact refusal');
+        Assert.AreEqual(lBaseSafety, lStatement.SafetyReason, 'DS-724 exact safety reason');
+        Assert.AreEqual(lBaseEdits, Integer(Length(lStatement.Edits)));
+        Assert.AreEqual(lBaseTemps, Integer(Length(lStatement.Temps)));
+        AssertBaseParityArrays(aCase, lStatement);
+      end;
     end else if lStatement.Status = 'planned' then
     begin
       Assert.AreEqual(lBaseReason, lStatement.Reason);

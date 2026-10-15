@@ -232,7 +232,7 @@ function WithBindingForPlanning(const aBinding: TDelphiSemanticWithBinding):
 implementation
 
 uses
-  System.Classes, System.Diagnostics, System.Generics.Collections, System.Hash, System.Math,
+  System.Character, System.Classes, System.Diagnostics, System.Generics.Collections, System.Hash, System.Math,
   System.RegularExpressions, System.StrUtils, System.SysUtils,
   AutoFree,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
@@ -3558,6 +3558,7 @@ begin
   for lReference in aBinding.InactiveSpanReferences do
     CountBindingReference(Result, lReference);
   if (aBinding.InactiveSpanSkipReason <> '') and
+    (aBinding.InactiveSpanSkipReason <> 'INACTIVE_NESTED_WITH_SHADOW') and
     ((Result.SkipReason = '') or
     MatchText(Result.SkipReason, ['ACTIVITY_UNVERIFIED', 'UNRESOLVED_REFERENCE',
       'UNSUPPORTED_REFERENCE', 'SCOPED_DECLARATION', 'EXTERNAL_REFERENCE'])) then
@@ -4178,6 +4179,130 @@ begin
       Result[i] := lDirectSelectors;
       aIdentityStacks[i] := lDirectIdentities;
     end;
+  end;
+end;
+
+function InactiveWithIdentifierChar(const aChar: Char): Boolean;
+begin
+  Result := (aChar = '_') or aChar.IsLetterOrDigit;
+end;
+
+function ContainsInactiveNestedWith(const aModel: TDelphiSemanticUnitModel;
+  const aStatement: TDelphiSemanticWithStatement; const aLineStarts: TArray<Integer>): Boolean;
+var
+  i: Integer;
+  lBodyOffset: Integer;
+  lEvidence: string;
+  lScanText: string;
+  lStart: Integer;
+  lText: string;
+  lDirectiveStart: Integer;
+  lDirectiveName: string;
+
+  function KnownInactiveAt(const aOffset: Integer): Boolean;
+  var
+    lOffset: Integer;
+  begin
+    lOffset := lBodyOffset + aOffset - 1;
+    Result := (lOffset > 0) and (lOffset <= Length(lScanText)) and
+      (lScanText[lOffset] = ' ') and
+      not TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
+        lEvidence, lOffset);
+  end;
+begin
+  Result := False;
+  lEvidence := aModel.ReferenceScanSourceText;
+  if lEvidence = '' then
+    lEvidence := aModel.VerifiedActiveSourceText;
+  lScanText := TDelphiSemanticSourceConditionals.SourceForScan(aModel.SourceText, lEvidence);
+  lBodyOffset := ActivityOffset(aLineStarts, Length(aModel.SourceText),
+    aStatement.BodyLine, aStatement.BodyColumn);
+  if lBodyOffset <= 0 then
+    Exit;
+  // DS-724 v4: only lexical token presence and stored activity matter.
+  // We never infer another build's subjects, types or governed statement extent.
+  lText := aStatement.BodyText;
+  i := 1;
+  while i <= Length(lText) do
+  begin
+    if lText[i] = '''' then
+    begin
+      Inc(i);
+      while i <= Length(lText) do
+      begin
+        if lText[i] = '''' then
+        begin
+          Inc(i);
+          if (i > Length(lText)) or (lText[i] <> '''') then
+            Break;
+        end;
+        Inc(i);
+      end;
+      Continue;
+    end;
+    if (lText[i] = '/') and (i < Length(lText)) and (lText[i + 1] = '/') then
+    begin
+      while (i <= Length(lText)) and not CharInSet(lText[i], [#10, #13]) do
+        Inc(i);
+      Continue;
+    end;
+    // Real include directives can hide a WITH header in another build.
+    // We use stored activity only; comments/strings never reach this check.
+    lDirectiveStart := 0;
+    if (lText[i] = '{') and (i < Length(lText)) and (lText[i + 1] = '$') then
+      lDirectiveStart := i + 2
+    else if (lText[i] = '(') and (i + 2 <= Length(lText)) and
+      (lText[i + 1] = '*') and (lText[i + 2] = '$') then
+      lDirectiveStart := i + 3;
+    if lDirectiveStart > 0 then
+    begin
+      lStart := lDirectiveStart;
+      while (lDirectiveStart <= Length(lText)) and
+        InactiveWithIdentifierChar(lText[lDirectiveStart]) do
+        Inc(lDirectiveStart);
+      lDirectiveName := Copy(lText, lStart, lDirectiveStart - lStart);
+      // {$I+}/{$I-} are compiler switches, not includes.
+      if MatchText(lDirectiveName, ['I', 'INCLUDE']) and
+        (lDirectiveStart <= Length(lText)) and
+        CharInSet(lText[lDirectiveStart], [#9, #10, #13, ' ']) and
+        KnownInactiveAt(lStart) then
+        Exit(True);
+    end;
+    if lText[i] = '{' then
+    begin
+      while (i <= Length(lText)) and (lText[i] <> '}') do
+        Inc(i);
+      Inc(i);
+      Continue;
+    end;
+    if (lText[i] = '(') and (i < Length(lText)) and (lText[i + 1] = '*') then
+    begin
+      Inc(i, 2);
+      while i < Length(lText) do
+      begin
+        if (lText[i] = '*') and (lText[i + 1] = ')') then
+          Break;
+        Inc(i);
+      end;
+      Inc(i, 2);
+      Continue;
+    end;
+    lStart := i;
+    // Include the escape in the token: &with is an identifier, never WITH.
+    if (lText[i] = '&') and (i < Length(lText)) and
+      InactiveWithIdentifierChar(lText[i + 1]) then
+      Inc(i);
+    if InactiveWithIdentifierChar(lText[i]) then
+    begin
+      while (i <= Length(lText)) and InactiveWithIdentifierChar(lText[i]) do
+        Inc(i);
+      if SameText(Copy(lText, lStart, i - lStart), 'with') then
+      begin
+        if KnownInactiveAt(lStart) then
+          Exit(True);
+      end;
+    end else
+      Inc(i);
   end;
 end;
 
@@ -5609,6 +5734,11 @@ begin
           lBinding.Status := 'skipped';
           lBinding.SkipReason := lSkipReason;
         end;
+        if ContainsInactiveNestedWith(lModel, lStatement, lActivityLineStarts) then
+          // The earlier inactive refusal has already been copied to SkipReason.
+          // Replacing this persisted barrier cannot overwrite its precedence.
+          // This late marker is independent of outer-owned references.
+          lBinding.InactiveSpanSkipReason := 'INACTIVE_NESTED_WITH_SHADOW';
         lBindings.Add(lBinding);
       end;
       lBindingStopwatch.Stop;
