@@ -103,6 +103,7 @@ type
 
   TDelphiSemanticExtractionContext = class
   private
+    fTypeValueMembers: TList<TDelphiSemanticMember>;
     fLineCacheLength: Integer;
     fLineCacheStarts: TArray<Integer>;
     fLineCacheText: string;
@@ -115,6 +116,9 @@ type
     fTypeBlockRangesText: string;
   public
     constructor Create;
+    destructor Destroy; override;
+    procedure RecordTypeValueMember(const aMember: TDelphiSemanticMember);
+    property TypeValueMembers: TList<TDelphiSemanticMember> read fTypeValueMembers;
     function ColumnOfOffset(const aText: string; const aOffset: Integer): Integer;
     procedure EnsureLineCache(const aText: string);
     procedure EnsureSectionCache(const aText: string);
@@ -329,9 +333,22 @@ end;
 constructor TDelphiSemanticExtractionContext.Create;
 begin
   inherited Create;
+  fTypeValueMembers := TList<TDelphiSemanticMember>.Create;
   fLineCacheLength := -1;
   fSectionCacheLength := -1;
   fTypeBlockRangesLength := -1;
+end;
+
+destructor TDelphiSemanticExtractionContext.Destroy;
+begin
+  fTypeValueMembers.Free;
+  inherited;
+end;
+
+procedure TDelphiSemanticExtractionContext.RecordTypeValueMember(
+  const aMember: TDelphiSemanticMember);
+begin
+  fTypeValueMembers.Add(aMember);
 end;
 
 procedure TDelphiSemanticExtractionContext.EnsureLineCache(const aText: string);
@@ -1300,8 +1317,8 @@ var
   lMatchedFactIndex: Integer;
   lMatchedScopeCount: Integer;
   lMatchedScopeIndex: Integer;
-  lMember: TDelphiSemanticMember;
   lMemberCount: Integer;
+  lValueMemberCount: Integer;
   lMemberReferences: TList<TDelphiSemanticReference>;
   lOmittedClassVariables: Integer;
   lOriginalError: string;
@@ -1665,6 +1682,41 @@ var
         lBlock.EndOffset - lBlock.StartOffset), lBlock.StartOffset, '', lMemberReferences);
   end;
 
+  procedure AttributeRoutineMemberOwners(const aTargetMembers: TList<TDelphiSemanticMember>);
+  var
+    i: Integer;
+    lDeclaration: TDelphiSemanticDeclaration;
+    lMatchedDeclCount: Integer;
+    lMember: TDelphiSemanticMember;
+    lOwnerScopeIndex: Integer;
+  begin
+    for i := 0 to Pred(aTargetMembers.Count) do
+    begin
+      lMember := aTargetMembers[i];
+      lOwnerScopeIndex := FindScopeForPosition(lMember.Line, lMember.Column);
+      if lOwnerScopeIndex < 0 then
+        Continue;
+      lMatchedDeclCount := 0;
+      for lDeclaration in aDeclarations do
+        if SameText(lDeclaration.Name, lMember.OwnerName) and
+          SameText(lDeclaration.ScopeKind, 'routine') and
+          SameText(lDeclaration.OwnerScopeId, lScopes[lOwnerScopeIndex].ScopeId) and
+          (lDeclaration.Offset < lMember.Offset) then
+        begin
+          Inc(lMatchedDeclCount);
+          lMember.OwnerScopeId := lDeclaration.OwnerScopeId;
+          lMember.OwnerSymbolId := lDeclaration.SymbolId;
+        end;
+      if lMatchedDeclCount <> 1 then
+      begin
+        lMember.OwnerScopeId := '';
+        lMember.OwnerSymbolId := '';
+      end;
+      aTargetMembers[i] := lMember;
+    end;
+
+  end;
+
 begin
   aModel.ScopeModelStatus := 'ast-failed';
   aModel.ScopeModelVersion := 'declaration-scope-v1';
@@ -1693,6 +1745,7 @@ begin
   lDiagnosticCount := aDiagnostics.Count;
   lLocalCount := aLocals.Count;
   lMemberCount := aMembers.Count;
+  lValueMemberCount := ActiveExtractionContext.TypeValueMembers.Count;
   lReferenceCount := aReferences.Count;
   try
     try
@@ -1732,6 +1785,7 @@ begin
         aDiagnostics.Count := lDiagnosticCount;
         aLocals.Count := lLocalCount;
         aMembers.Count := lMemberCount;
+        ActiveExtractionContext.TypeValueMembers.Count := lValueMemberCount;
         aReferences.Count := lReferenceCount;
         AddDiagnostic(aDiagnostics, 'SCOPE_MODEL_FAILED', e.Message, aModel.FileName, 0);
         lTypeCount := ExtractFallbackMembers(aText, aDeclarations, aMembers, lMemberReferences,
@@ -1794,8 +1848,7 @@ begin
         lDeclaration.Mutable := IsMutableDeclaration(lDeclaration.Kind, aWritableSwitches,
           OffsetOfLineColumn(aText, lDeclaration.Line, lDeclaration.Column),
           aOptions.WritableTypedConstants);
-      end else
-      begin
+      end else begin
         lDeclaration.DeclarationRole := 'invalid';
         lDeclaration.ScopeKind := 'unknown';
         Inc(aModel.RejectedDeclarationCount);
@@ -1882,30 +1935,8 @@ begin
       aRoutines[i] := lRoutine;
     end;
 
-    for i := 0 to Pred(aMembers.Count) do
-    begin
-      lMember := aMembers[i];
-      lOwnerScopeIndex := FindScopeForPosition(lMember.Line, lMember.Column);
-      if lOwnerScopeIndex < 0 then
-        Continue;
-      lMatchedDeclCount := 0;
-      for lDeclaration in aDeclarations do
-        if SameText(lDeclaration.Name, lMember.OwnerName) and
-          SameText(lDeclaration.ScopeKind, 'routine') and
-          SameText(lDeclaration.OwnerScopeId, lScopes[lOwnerScopeIndex].ScopeId) and
-          (lDeclaration.Offset < lMember.Offset) then
-        begin
-          Inc(lMatchedDeclCount);
-          lMember.OwnerScopeId := lDeclaration.OwnerScopeId;
-          lMember.OwnerSymbolId := lDeclaration.SymbolId;
-        end;
-      if lMatchedDeclCount <> 1 then
-      begin
-        lMember.OwnerScopeId := '';
-        lMember.OwnerSymbolId := '';
-      end;
-      aMembers[i] := lMember;
-    end;
+    AttributeRoutineMemberOwners(aMembers);
+    AttributeRoutineMemberOwners(ActiveExtractionContext.TypeValueMembers);
 
     for i := 0 to Pred(aLocals.Count) do
     begin
@@ -3229,8 +3260,7 @@ begin
         while (j < aMembers.Count) and (aMembers[j].Offset < lMember.Offset) do
           Inc(j);
         aMembers.Insert(j, lMember);
-      end else
-      begin
+      end else begin
         Result := False;
         aUnscanned := aUnscanned + IfThen(aUnscanned <> '', ', ') + lFact.Name;
       end;
@@ -3405,6 +3435,168 @@ begin
   end;
 end;
 
+procedure RecordTypeValueMember(const aText, aOwnerName, aName, aKind, aTypeName,
+  aVisibility: string; const aOffset: Integer);
+var
+  lMember: TDelphiSemanticMember;
+begin
+  lMember := Default(TDelphiSemanticMember);
+  lMember.OwnerName := aOwnerName;
+  lMember.Name := aName;
+  lMember.Kind := aKind;
+  lMember.TypeName := aTypeName;
+  lMember.Visibility := aVisibility;
+  lMember.Offset := aOffset;
+  lMember.EndOffset := aOffset + Length(aName);
+  lMember.Line := LineOfOffset(aText, aOffset);
+  lMember.Column := ColumnOfOffset(aText, aOffset);
+  ActiveExtractionContext.RecordTypeValueMember(lMember);
+end;
+
+function CollectTypeValueConstants(const aText, aOwnerName: string;
+  const aParent: TSyntaxNode; const aVisibility: string): Boolean;
+var
+  lChild: TSyntaxNode;
+  lName: string;
+  lNameNode: TSyntaxNode;
+  lOffset: Integer;
+  lTypeNode: TSyntaxNode;
+  lVisibility: string;
+begin
+  Result := True;
+  for lChild in aParent.ChildNodes do
+  begin
+    if AstVisibilityName(lChild, lVisibility) then
+    begin
+      if not CollectTypeValueConstants(aText, aOwnerName, lChild, lVisibility) then
+        Result := False;
+      Continue;
+    end;
+    if lChild.Typ <> ntConstant then
+      Continue;
+    lNameNode := lChild.FindNode(ntName);
+    if not Assigned(lNameNode) or not (lNameNode is TValuedSyntaxNode) then
+    begin
+      Result := False;
+      Continue;
+    end;
+    lName := TValuedSyntaxNode(lNameNode).Value;
+    if StartsText('&', lName) then
+      Delete(lName, 1, 1);
+    lOffset := OffsetOfLineColumn(aText, lNameNode.Line, lNameNode.Col);
+    if (lOffset > 0) and (Copy(aText, lOffset, 1) = '&') then
+      Inc(lOffset);
+    if (lOffset < 1) or (lName = '') or
+      not SameText(Copy(aText, lOffset, Length(lName)), lName) then
+    begin
+      Result := False;
+      Continue;
+    end;
+    lTypeNode := lChild.FindNode(ntType);
+    if Assigned(lTypeNode) then
+      RecordTypeValueMember(aText, aOwnerName, lName, 'typed-const',
+        lTypeNode.GetAttribute(anName), aVisibility, lOffset)
+    else
+      RecordTypeValueMember(aText, aOwnerName, lName, 'const', '', aVisibility, lOffset);
+  end;
+end;
+
+// DelphiAST consumes a variant tag without retaining its name. The selector type's
+// exact AST start anchors the lexer token; unanchored text cannot establish a member.
+function CollectVariantTagMembers(const aText, aOwnerName, aBody: string;
+  const aBodyOffset: Integer; const aTypeNode: TSyntaxNode): Boolean;
+var
+  lDepth: Integer;
+  lLexer: TmwBasePasLex;
+  lName: string;
+  lNameOffset: Integer;
+  lTypeName: string;
+  lVisibility: string;
+
+  function FindAnchor(const aParent: TSyntaxNode; const aOffset: Integer;
+    const aVisibility: string): Boolean;
+  var
+    lChild: TSyntaxNode;
+    lChildVisibility: string;
+  begin
+    Result := False;
+    for lChild in aParent.ChildNodes do
+    begin
+      if AstVisibilityName(lChild, lChildVisibility) then
+      begin
+        if FindAnchor(lChild, aOffset, lChildVisibility) then
+          Exit(True);
+      end else if OffsetOfLineColumn(aText, lChild.Line, lChild.Col) = aOffset then
+      begin
+        lVisibility := aVisibility;
+        lTypeName := '';
+        if lChild.Typ = ntType then
+          lTypeName := lChild.GetAttribute(anName);
+        Exit(True);
+      end;
+    end;
+  end;
+
+begin
+  Result := True;
+  if not SameText(aTypeNode.GetAttribute(anType), 'record') then
+    Exit;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aBody;
+    lLexer.NextNoJunk;
+    lDepth := 0;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID = ptRecord then
+        Inc(lDepth)
+      else if lLexer.TokenID = ptEnd then
+      begin
+        if lDepth = 0 then
+          Exit;
+        Dec(lDepth);
+      end else if (lDepth = 0) and (lLexer.TokenID = ptCase) then
+      begin
+        lLexer.NextNoJunk;
+        if lLexer.TokenID <> ptIdentifier then
+          Exit(False);
+        lName := lLexer.Token;
+        lNameOffset := aBodyOffset + lLexer.TokenPos;
+        if StartsText('&', lName) then
+        begin
+          Delete(lName, 1, 1);
+          Inc(lNameOffset);
+        end;
+        lLexer.NextNoJunk;
+        if lLexer.TokenID = ptColon then
+        begin
+          lLexer.NextNoJunk;
+          if not FindAnchor(aTypeNode, aBodyOffset + lLexer.TokenPos, 'public') then
+            Exit(False);
+          RecordTypeValueMember(aText, aOwnerName, lName, 'variant-tag', lTypeName,
+            lVisibility, lNameOffset);
+        end else begin
+          // An untagged variant selector can be a qualified type name.
+          while lLexer.TokenID = ptPoint do
+          begin
+            lLexer.NextNoJunk;
+            if lLexer.TokenID <> ptIdentifier then
+              Exit(False);
+            lLexer.NextNoJunk;
+          end;
+          if lLexer.TokenID <> ptOf then
+            Exit(False);
+        end;
+      end;
+      lLexer.NextNoJunk;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
+
 function ExtractTypeMembers(const aText, aOwnerPrefix, aFileName: string;
   const aNode: TSyntaxNode; const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
@@ -3495,6 +3687,11 @@ begin
         BlankRange(lBody, OffsetOfLineColumn(aText, lNestedNode.Line, lNestedNode.Col) -
           lBodyOffset + 1, OffsetOfLineColumn(aText, TCompoundSyntaxNode(lNestedNode).EndLine,
           TCompoundSyntaxNode(lNestedNode).EndCol) - lBodyOffset);
+    if not CollectTypeValueConstants(aText, lOwnerName, lTypeNode, 'public') or
+      not CollectVariantTagMembers(aText, lOwnerName, lBody, lBodyOffset, lTypeNode) then
+      AddDiagnostic(aDiagnostics, 'MEMBERS_INCOMPLETE', Format('Members of %s incomplete: ' +
+        'type constant or variant tag could not be verified.', [lOwnerName]), aFileName,
+        aNode.Line);
     lFirstMember := aMembers.Count;
     ExtractMembersFromBody(aText, lOwnerName, lBody, lBodyOffset, aDeclarations, aMembers,
       aReferences, lSplitOffsets);
@@ -4756,8 +4953,7 @@ begin
           Length(lReference.Name)), lReference.Name)) then
           aModel.ScopeModelStatus := 'label-source-map-failed';
         lLabels.Add(lReference);
-      end else
-      begin
+      end else begin
         aReferences[lKeptCount] := lReference;
         Inc(lKeptCount);
       end;
@@ -5056,7 +5252,8 @@ begin
       if (Length(lPreprocessResult.LineOrigins) <> OutputLineCount(lPreprocessResult.OutputText))
         or not AttributeLineOrigins(TPath.GetFullPath(aOptions.SourceFileName),
         lPreprocessResult.LineOrigins, lReferences, lDeclarations, lMembers, lRoutines,
-        lLocals) then
+        lLocals) or not AttributeLineOrigins(TPath.GetFullPath(aOptions.SourceFileName),
+        lPreprocessResult.LineOrigins, lExtractionContext.TypeValueMembers) then
       begin
         // Without a line map no fact position can be trusted, so the unit is unverified.
         AddDiagnostic(lDiagnostics, 'INCLUDE_LINE_MAP_FAILED',
@@ -5073,6 +5270,8 @@ begin
     ApplyRoutineSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lRoutines);
     ApplyDeclarationSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lDeclarations);
     ApplyMemberSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lMembers);
+    ApplyMemberSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap,
+      lExtractionContext.TypeValueMembers);
     ApplyLocalSourceOffsetMap(lSourceResult.Source.Text, lOffsetMap, lLocals);
     ReconcileDeclarationCoordinates(lSourceResult.Source.Text, lDeclarations);
     lExtractionContext.PublishTypeBodyRanges(lPreprocessResult, lDeclarations);
@@ -5093,6 +5292,7 @@ begin
       RemoveDuplicateReferences(lReferences);
     end;
     ReconcileMemberCoordinates(lSourceResult.Source.Text, lMembers);
+    ReconcileMemberCoordinates(lSourceResult.Source.Text, lExtractionContext.TypeValueMembers);
     ReconcileRoutineCoordinates(lSourceResult.Source.Text, lRoutines);
     ReconcileLocalCoordinates(lSourceResult.Source.Text, lLocals);
 
@@ -5101,6 +5301,7 @@ begin
     RemoveDuplicateReferences(lReferences);
     AssignModelArrays(Result, lDiagnostics, lInterfaceUses, lImplementationUses, lDeclarations,
       lMembers, lRoutines, lLocals, lReferences, lWithStatements);
+    Result.TypeValueMembers := lExtractionContext.TypeValueMembers.ToArray;
   finally
     GExtractionContext := lPreviousExtractionContext;
     lExtractionContext.Free;

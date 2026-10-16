@@ -3,7 +3,7 @@ unit DelphiSemantics.Snapshot.Cache.Sqlite;
 interface
 
 uses
-  DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
+  DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
 
 type
   TDelphiSemanticSnapshotCacheIdentity = record
@@ -50,6 +50,10 @@ type
       const aConnection: TObject; out aEntryBelongsToIdentity: Boolean): Boolean;
     procedure LoadReferences(const aCacheKey: string; const aConnection: TObject;
       const aUnit: TUnitSnapshot);
+    function LoadValueMemberEvidence(const aCacheKey: string; const aConnection: TObject):
+      TDelphiSemanticValueMemberEvidence;
+    procedure StoreValueMemberEvidence(const aCacheKey: string; const aConnection: TObject;
+      const aEvidence: TDelphiSemanticValueMemberEvidence);
     procedure LoadRemoveWithPlanningFacts(const aCacheKey: string; const aConnection: TObject;
       const aBuilder: TDelphiProjectSnapshotBuilder);
     procedure LoadRemoveWithVisibility(const aCacheKey: string; const aConnection: TObject;
@@ -122,7 +126,7 @@ implementation
 
 uses
   System.Classes, System.DateUtils, System.Diagnostics, System.Generics.Collections,
-  System.IOUtils, System.SysUtils,
+  System.Hash, System.IOUtils, System.SysUtils,
   Winapi.Windows,
   Data.DB,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
@@ -619,6 +623,8 @@ begin
     aCacheKey);
   ExecWideSql(lConnection,
     'delete from snapshot_remove_with_routine_owners where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection,
+    'delete from snapshot_remove_with_value_evidence where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_remove_with_facts where cache_key = ?',
     aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_exact_strings where cache_key = ?',
@@ -730,7 +736,17 @@ begin
       'reason_id integer not null, line integer not null, column integer not null, ' +
       'end_line integer not null, end_column integer not null, file_id integer not null, ' +
       'primary key(cache_key, unit_id, reference_id))');
-    lConnection.ExecSQL('create table if not exists snapshot_remove_with_facts (' +
+    lConnection.ExecSQL('create table if not exists snapshot_remove_with_value_evidence (' +
+      'cache_key text not null, row_kind integer not null, item_index integer not null, ' +
+      'owner_index integer not null, declared_id text not null, unit_name text not null, ' +
+      'file_name text not null, name text not null, next_id text not null, ' +
+      'complete integer not null, terminal_verified integer not null, source_text text not null, ' +
+      'active_source_text text not null, scope_status text not null, scope_version text not null, ' +
+      'rejected_count integer not null, count1 integer not null, count2 integer not null, ' +
+      'count3 integer not null, count4 integer not null, count5 integer not null, ' +
+      'count6 integer not null, evidence_version integer not null, ' +
+      'primary key(cache_key, row_kind, owner_index, item_index))');
+  lConnection.ExecSQL('create table if not exists snapshot_remove_with_facts (' +
       'cache_key text primary key not null, context_fingerprint_id integer not null, ' +
       'routine_owner_count integer not null, symbol_count integer not null, ' +
       'binding_count integer not null, type_identity_count integer not null)');
@@ -1312,6 +1328,224 @@ begin
   end;
 end;
 
+procedure TDelphiSemanticSnapshotSqliteCache.StoreValueMemberEvidence(
+  const aCacheKey: string; const aConnection: TObject;
+  const aEvidence: TDelphiSemanticValueMemberEvidence);
+var
+  i, j: Integer;
+  lCounts: TArray<Integer>;
+  lKind, lNameIndex, lOwnerNameIndex: Integer;
+  lOwner: TDelphiSemanticValueEvidenceOwner;
+  lQuery: TFDQuery;
+begin
+  lNameIndex := 0;
+  for lOwner in aEvidence.Owners do
+    Inc(lNameIndex, Length(lOwner.ValueNames));
+  lCounts := [1, Length(aEvidence.Units), Length(aEvidence.Owners), lNameIndex,
+    Length(aEvidence.Queries), Length(aEvidence.ValueNames), Length(aEvidence.UnverifiedOwnerKeys)];
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'insert into snapshot_remove_with_value_evidence(cache_key, row_kind, item_index, ' +
+    'owner_index, declared_id, unit_name, file_name, name, next_id, complete, terminal_verified, ' +
+    'source_text, active_source_text, scope_status, scope_version, rejected_count, ' +
+    'count1, count2, count3, count4, count5, count6, evidence_version) ' +
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  try
+    // Source/activity text is exact, including final whitespace and line breaks.
+    lQuery.FormatOptions.StrsTrim := False;
+    // Each kind has an explicit count witness, including every empty name set.
+    for lKind := 0 to 6 do
+    begin
+      lNameIndex := 0;
+      lOwnerNameIndex := 0;
+      for i := 0 to lCounts[lKind] - 1 do
+      begin
+        SetWideParam(lQuery, 0, aCacheKey);
+        lQuery.Params[1].AsInteger := lKind;
+        lQuery.Params[2].AsInteger := i;
+        lQuery.Params[3].AsInteger := -1;
+        for j := 4 to 8 do
+          SetWideParam(lQuery, j, '');
+        lQuery.Params[9].AsInteger := 0;
+        lQuery.Params[10].AsInteger := 0;
+        for j := 11 to 14 do
+          SetWideParam(lQuery, j, '');
+        for j := 15 to 22 do
+          lQuery.Params[j].AsInteger := 0;
+        case lKind of
+          0:
+            begin
+              lQuery.Params[9].AsInteger := Ord(aEvidence.Available);
+              for j := 1 to 6 do
+                lQuery.Params[15 + j].AsInteger := lCounts[j];
+              lQuery.Params[22].AsInteger := 1;
+            end;
+          1:
+            begin
+              SetWideParam(lQuery, 5, aEvidence.Units[i].UnitName);
+              SetWideParam(lQuery, 6, aEvidence.Units[i].FileName);
+              SetWideParam(lQuery, 11, aEvidence.Units[i].SourceText);
+              SetWideParam(lQuery, 12, aEvidence.Units[i].VerifiedActiveSourceText);
+              SetWideParam(lQuery, 13, aEvidence.Units[i].ScopeModelStatus);
+              SetWideParam(lQuery, 14, aEvidence.Units[i].ScopeModelVersion);
+              lQuery.Params[15].AsInteger := aEvidence.Units[i].RejectedDeclarationCount;
+            end;
+          2:
+            begin
+              lOwner := aEvidence.Owners[i];
+              SetWideParam(lQuery, 4, lOwner.DeclaredId);
+              SetWideParam(lQuery, 5, lOwner.UnitName);
+              SetWideParam(lQuery, 6, lOwner.FileName);
+              SetWideParam(lQuery, 7, lOwner.Name);
+              SetWideParam(lQuery, 8, lOwner.NextDeclaredId);
+              lQuery.Params[9].AsInteger := Ord(lOwner.Complete);
+              lQuery.Params[10].AsInteger := Ord(lOwner.TerminalVerified);
+              lQuery.Params[16].AsInteger := Length(lOwner.ValueNames);
+            end;
+          3:
+            begin
+              // The flat name sequence is partitioned by each owner's count.
+              while lNameIndex < Length(aEvidence.Owners) do
+              begin
+                if lOwnerNameIndex < Length(aEvidence.Owners[lNameIndex].ValueNames) then
+                  Break;
+                Inc(lNameIndex);
+                lOwnerNameIndex := 0;
+              end;
+              lQuery.Params[2].AsInteger := lOwnerNameIndex;
+              lQuery.Params[3].AsInteger := lNameIndex;
+              SetWideParam(lQuery, 7, aEvidence.Owners[lNameIndex].ValueNames[lOwnerNameIndex]);
+              Inc(lOwnerNameIndex);
+            end;
+          4:
+            begin
+              SetWideParam(lQuery, 7, aEvidence.Queries[i].Name);
+              SetWideParam(lQuery, 4, aEvidence.Queries[i].DeclaredId);
+            end;
+          5: SetWideParam(lQuery, 7, aEvidence.ValueNames[i]);
+          6: SetWideParam(lQuery, 7, aEvidence.UnverifiedOwnerKeys[i]);
+        end;
+        if not lQuery.Prepared then
+          lQuery.Prepare;
+        lQuery.ExecSQL;
+      end;
+    end;
+  finally
+    lQuery.Free;
+  end;
+end;
+
+function TDelphiSemanticSnapshotSqliteCache.LoadValueMemberEvidence(
+  const aCacheKey: string; const aConnection: TObject): TDelphiSemanticValueMemberEvidence;
+var
+  i, j: Integer;
+  lCounts, lLoaded, lNameCounts, lLoadedNames: TArray<Integer>;
+  lFields: TArray<TField>;
+  lKind, lItem, lOwner: Integer;
+  lQuery: TFDQuery;
+begin
+  Result := Default(TDelphiSemanticValueMemberEvidence);
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'select row_kind, item_index, owner_index, declared_id, unit_name, file_name, name, ' +
+    'next_id, complete, terminal_verified, source_text, active_source_text, scope_status, ' +
+    'scope_version, rejected_count, count1, count2, count3, count4, count5, count6, ' +
+    'evidence_version from snapshot_remove_with_value_evidence where cache_key = ? ' +
+    'order by row_kind, owner_index, item_index');
+  try
+    // Source/activity text is exact, including final whitespace and line breaks.
+    lQuery.FormatOptions.StrsTrim := False;
+    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Open;
+    lQuery.FetchAll;
+    SetLength(lFields, lQuery.FieldCount);
+    for i := 0 to High(lFields) do
+      lFields[i] := lQuery.Fields[i];
+    if lQuery.Eof or (lFields[0].AsInteger <> 0) or (lFields[1].AsInteger <> 0) or
+      (lFields[2].AsInteger <> -1) or (lFields[21].AsInteger <> 1) then
+      raise Exception.Create('Snapshot value evidence header is missing or obsolete.');
+    SetLength(lCounts, 7);
+    SetLength(lLoaded, 7);
+    lCounts[0] := 1;
+    for i := 1 to 6 do
+    begin
+      lCounts[i] := lFields[14 + i].AsInteger;
+      if (lCounts[i] < 0) or (lCounts[i] > lQuery.RecordCount) then
+        raise Exception.Create('Snapshot value evidence count is invalid.');
+    end;
+    Result.Available := lFields[8].AsInteger = 1;
+    if Result.Available and (lCounts[1] = 0) then
+      raise Exception.Create('Snapshot value evidence has no unit witnesses.');
+    SetLength(Result.Units, lCounts[1]);
+    SetLength(Result.Owners, lCounts[2]);
+    SetLength(Result.Queries, lCounts[4]);
+    SetLength(Result.ValueNames, lCounts[5]);
+    SetLength(Result.UnverifiedOwnerKeys, lCounts[6]);
+    SetLength(lNameCounts, lCounts[2]);
+    SetLength(lLoadedNames, lCounts[2]);
+    while not lQuery.Eof do
+    begin
+      lKind := lFields[0].AsInteger;
+      lItem := lFields[1].AsInteger;
+      lOwner := lFields[2].AsInteger;
+      if (lKind < 0) or (lKind > 6) then
+        raise Exception.Create('Snapshot value evidence row kind is invalid.');
+      if lKind = 3 then
+      begin
+        if (lOwner < 0) or (lOwner >= Length(Result.Owners)) then
+          raise Exception.Create('Snapshot value evidence name owner is missing.');
+        if (lItem <> lLoadedNames[lOwner]) or (lItem >= lNameCounts[lOwner]) then
+          raise Exception.Create('Snapshot value evidence names are incomplete.');
+        Result.Owners[lOwner].ValueNames[lItem] := lFields[6].AsWideString;
+        Inc(lLoadedNames[lOwner]);
+      end else if (lOwner <> -1) or (lItem <> lLoaded[lKind]) or
+        (lLoaded[lKind] >= lCounts[lKind]) then
+        raise Exception.Create('Snapshot value evidence rows are incomplete.');
+      case lKind of
+        1:
+          begin
+            Result.Units[lItem].UnitName := lFields[4].AsWideString;
+            Result.Units[lItem].FileName := lFields[5].AsWideString;
+            Result.Units[lItem].SourceText := lFields[10].AsWideString;
+            Result.Units[lItem].VerifiedActiveSourceText := lFields[11].AsWideString;
+            Result.Units[lItem].ScopeModelStatus := lFields[12].AsWideString;
+            Result.Units[lItem].ScopeModelVersion := lFields[13].AsWideString;
+            Result.Units[lItem].RejectedDeclarationCount := lFields[14].AsInteger;
+          end;
+        2:
+          begin
+            Result.Owners[lItem].DeclaredId := lFields[3].AsWideString;
+            Result.Owners[lItem].UnitName := lFields[4].AsWideString;
+            Result.Owners[lItem].FileName := lFields[5].AsWideString;
+            Result.Owners[lItem].Name := lFields[6].AsWideString;
+            Result.Owners[lItem].NextDeclaredId := lFields[7].AsWideString;
+            Result.Owners[lItem].Complete := lFields[8].AsInteger = 1;
+            Result.Owners[lItem].TerminalVerified := lFields[9].AsInteger = 1;
+            lNameCounts[lItem] := lFields[15].AsInteger;
+            if (lNameCounts[lItem] < 0) or (lNameCounts[lItem] > lCounts[3]) then
+              raise Exception.Create('Snapshot value evidence owner count is invalid.');
+            SetLength(Result.Owners[lItem].ValueNames, lNameCounts[lItem]);
+          end;
+        4:
+          begin
+            Result.Queries[lItem].Name := lFields[6].AsWideString;
+            Result.Queries[lItem].DeclaredId := lFields[3].AsWideString;
+          end;
+        5: Result.ValueNames[lItem] := lFields[6].AsWideString;
+        6: Result.UnverifiedOwnerKeys[lItem] := lFields[6].AsWideString;
+      end;
+      Inc(lLoaded[lKind]);
+      lQuery.Next;
+    end;
+    for i := 0 to 6 do
+      if lLoaded[i] <> lCounts[i] then
+        raise Exception.Create('Snapshot value evidence count mismatch.');
+    for j := 0 to High(lNameCounts) do
+      if lLoadedNames[j] <> lNameCounts[j] then
+        raise Exception.Create('Snapshot value evidence owner names are incomplete.');
+  finally
+    lQuery.Free;
+  end;
+end;
+
 procedure TDelphiSemanticSnapshotSqliteCache.LoadRemoveWithPlanningFacts(
   const aCacheKey: string; const aConnection: TObject;
   const aBuilder: TDelphiProjectSnapshotBuilder);
@@ -1336,6 +1570,10 @@ var
   lExpectedSelectorCount: Integer;
   lExpectedSymbolCount: Integer;
   lFacts: TSemanticRemoveWithPlanningFacts;
+  lEvidence: TDelphiSemanticValueMemberEvidence;
+  lEvidenceUnit: TDelphiSemanticValueEvidenceUnit;
+  lUnit: TUnitSnapshot;
+  lUnitId: Integer;
   lFields: TArray<TField>;
   lFileNameIdField: TField;
   lFlagsField: TField;
@@ -1832,9 +2070,29 @@ begin
         raise Exception.Create('Snapshot local receiver scope chain is incomplete.');
     end;
 
+  lEvidence := LoadValueMemberEvidence(aCacheKey, aConnection);
   if not lFacts.LookupIndex.IsAvailable then
     lFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build([],
       LoadedInventorySymbols(aBuilder.ExactStrings, lFacts.Symbols));
+  lFacts.LookupIndex.AttachValueMemberEvidence(lEvidence);
+  lUnitId := 0;
+  for lEvidenceUnit in lEvidence.Units do
+  begin
+    Inc(lUnitId);
+    lUnit := TUnitSnapshot.Create(TSemanticUnitId(lUnitId),
+      aBuilder.Strings.Intern(lEvidenceUnit.FileName), aBuilder.Strings.Intern(lEvidenceUnit.UnitName),
+      aBuilder.ExactStrings.Intern(lEvidenceUnit.SourceText));
+    try
+      lUnit.SetVerifiedActiveSourceTextId(
+        aBuilder.ExactStrings.Intern(lEvidenceUnit.VerifiedActiveSourceText));
+      lUnit.SetScopeModelMetadata(aBuilder.Strings.Intern(lEvidenceUnit.ScopeModelStatus),
+        aBuilder.Strings.Intern(lEvidenceUnit.ScopeModelVersion), 0, lEvidenceUnit.RejectedDeclarationCount);
+      aBuilder.AddUnit(lUnit);
+      lUnit := nil;
+    finally
+      lUnit.Free;
+    end;
+  end;
   aBuilder.SetRemoveWithPlanningFactsOwned(lFacts);
 end;
 
@@ -2040,6 +2298,7 @@ begin
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_bindings');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_symbols');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_routine_owners');
+  lConnection.ExecSQL('drop table if exists snapshot_remove_with_value_evidence');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_facts');
   lConnection.ExecSQL('drop table if exists snapshot_project_remove_with_facts');
   lConnection.ExecSQL('drop table if exists snapshot_exact_strings');
@@ -2825,6 +3084,8 @@ begin
         StoreExactStringPool(aIdentity, lConnection, lExactStrings);
         StoreRemoveWithPlanningFacts(aIdentity, lConnection, aSnapshot, lExactStrings,
           aLookupSymbols);
+        StoreValueMemberEvidence(aIdentity.CacheKey, lConnection,
+          aSnapshot.RemoveWithPlanningFacts.LookupIndex.ExportValueMemberEvidence);
         StoreRemoveWithVisibility(aIdentity.CacheKey, lConnection, aSnapshot);
         lConnection.Commit;
         Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));

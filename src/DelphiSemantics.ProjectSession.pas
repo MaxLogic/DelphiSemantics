@@ -228,9 +228,9 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v47';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v48';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v62';
+    'project-session-remove-with-facts-v63';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -1136,58 +1136,16 @@ begin
   Result := BuildSnapshotFromModels(aModels, lFacts, True, aWorkerCount, aMetrics);
 end;
 
-function CachedInventorySymbol(const aExactStrings: TSemanticStringPool;
-  const aSymbol: TSemanticRemoveWithInventorySymbolFact): TDelphiSemanticInventorySymbol;
-begin
-  Result := Default(TDelphiSemanticInventorySymbol);
-  Result.Name := aExactStrings.TextOf(aSymbol.NameId);
-  Result.SymbolClass := aExactStrings.TextOf(aSymbol.SymbolClassId);
-  Result.Kind := aExactStrings.TextOf(aSymbol.KindId);
-  Result.TypeName := aExactStrings.TextOf(aSymbol.TypeNameId);
-  Result.Modifier := aExactStrings.TextOf(aSymbol.ModifierId);
-  Result.OwnerName := aExactStrings.TextOf(aSymbol.OwnerNameId);
-  Result.OwnerType := aExactStrings.TextOf(aSymbol.OwnerTypeId);
-  Result.SourceOwnerType := aExactStrings.TextOf(aSymbol.SourceOwnerTypeId);
-  Result.RelatedTypeName := aExactStrings.TextOf(aSymbol.RelatedTypeNameId);
-  Result.RoutineName := aExactStrings.TextOf(aSymbol.RoutineNameId);
-  Result.RoutineScopeId := aExactStrings.TextOf(aSymbol.RoutineScopeIdId);
-  Result.ParentScopeId := aExactStrings.TextOf(aSymbol.ParentScopeIdId);
-  Result.OwnerScopeId := aExactStrings.TextOf(aSymbol.OwnerScopeIdId);
-  Result.OwnerSymbolId := aExactStrings.TextOf(aSymbol.OwnerSymbolIdId);
-  Result.UnitName := aExactStrings.TextOf(aSymbol.UnitNameId);
-  Result.FileName := aExactStrings.TextOf(aSymbol.FileNameId);
-  Result.SectionKind := aExactStrings.TextOf(aSymbol.SectionKindId);
-  Result.Line := aSymbol.Line;
-  Result.Column := aSymbol.Column;
-  Result.EndLine := aSymbol.EndLine;
-  Result.EndColumn := aSymbol.EndColumn;
-  Result.UnsupportedReason := aExactStrings.TextOf(aSymbol.UnsupportedReasonId);
-  Result.IsHelper := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsHelper) <> 0;
-  Result.IsOverride := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsOverride) <> 0;
-  Result.IsDefault := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsDefault) <> 0;
-  Result.IsIndexed := (aSymbol.Flags and cSemanticRemoveWithSymbolFlagIsIndexed) <> 0;
-  Result.IndexParameterCount := aSymbol.IndexParameterCount;
-  Result.TypeCategory := aExactStrings.TextOf(aSymbol.TypeCategoryId);
-end;
-
-function CachedRoutineOwnerSymbols(const aExactStrings: TSemanticStringPool;
-  const aFacts: TSemanticRemoveWithPlanningFacts): TArray<TDelphiSemanticInventorySymbol>;
-var
-  i: Integer;
-begin
-  SetLength(Result, Length(aFacts.RoutineOwners));
-  for i := 0 to High(aFacts.RoutineOwners) do
-    Result[i] := CachedInventorySymbol(aExactStrings, aFacts.RoutineOwners[i]);
-end;
-
 function BuildCachedRemoveWithSnapshotWithLookup(const aCachedSnapshot:
   TDelphiProjectSnapshot; const aModels: TArray<TDelphiSemanticUnitModel>):
   TDelphiProjectSnapshot;
 var
   i: Cardinal;
+  lUnitId: Integer;
   lBuilder: TDelphiProjectSnapshotBuilder;
   lFacts: TSemanticRemoveWithPlanningFacts;
-  lLookupSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lModel: TDelphiSemanticUnitModel;
+  lUnit: TUnitSnapshot;
 begin
   Result := nil;
   if (aCachedSnapshot = nil) or not aCachedSnapshot.HasRemoveWithPlanningFacts then
@@ -1198,14 +1156,32 @@ begin
     for i := 1 to aCachedSnapshot.ExactStringCount do
       lBuilder.ExactStrings.Intern(aCachedSnapshot.ExactTextOf(TSemanticStringId(i)));
     lFacts := aCachedSnapshot.RemoveWithPlanningFacts;
-    if not lFacts.LookupIndex.IsAvailable then
-    begin
-      lLookupSymbols := CachedRoutineOwnerSymbols(lBuilder.ExactStrings, lFacts);
-      lFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(aModels,
-        lLookupSymbols);
-    end;
+    // Keep the loaded inventory and value evidence in the original project identity
+    // domain. The cache loader already validated their source and activity witnesses.
     lBuilder.SetRemoveWithPlanningFactsOwned(lFacts);
     AttachRemoveWithVisibility(lBuilder, aModels);
+    lUnitId := 0;
+    // Project-facts cache entries contain no units. Restore the validated
+    // source/activity pair needed by anonymous-record refusal evidence.
+    for lModel in aModels do
+    begin
+      Inc(lUnitId);
+      lUnit := TUnitSnapshot.Create(TSemanticUnitId(lUnitId),
+        lBuilder.Strings.Intern(lModel.FileName),
+        lBuilder.Strings.Intern(lModel.UnitName),
+        lBuilder.ExactStrings.Intern(lModel.SourceText));
+      try
+        lUnit.SetVerifiedActiveSourceTextId(
+          lBuilder.ExactStrings.Intern(lModel.VerifiedActiveSourceText));
+        lUnit.SetScopeModelMetadata(lBuilder.Strings.Intern(lModel.ScopeModelStatus),
+          lBuilder.Strings.Intern(lModel.ScopeModelVersion), 0,
+          lModel.RejectedDeclarationCount);
+        lBuilder.AddUnit(lUnit);
+        lUnit := nil;
+      finally
+        lUnit.Free;
+      end;
+    end;
     Result := lBuilder.Build;
   finally
     lBuilder.Free;

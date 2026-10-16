@@ -4,6 +4,117 @@ Use `DelphiSemantics.Api` for common project and semantic-index operations.
 It gives DAK and future integrations one stable entry unit. Lower-level units
 remain available for focused tests and internal implementation.
 
+## Receiver-owned constants and variant tags
+
+Receiver-owned constants and variant-record tags are published in
+`TDelphiSemanticUnitModel.TypeValueMembers`, separately from ordinary `Members`.
+The JSON key is omitted when the array is empty. Facts carry the declaring type,
+scope and source coordinates; unverifiable extraction retains `MEMBERS_INCOMPLETE`.
+
+WITH binding resolves these facts by verified owner DeclaredId, nearest receiver
+lineage level first. Bound references use `Classification=member`,
+`LookupSource=receiver` and `Kind=const`, `typed-const` or `variant-tag`.
+For an inherited value member, `ReceiverTypeName` identifies the selected receiver
+type, while the owner DeclaredId identifies the declaring type. Name-set checks
+avoid value-member resolution for unrelated names. Ordinary nearer fields retain
+precedence. Helper-owned or unverified facts refuse with
+`TYPE_VALUE_MEMBERS_UNVERIFIED`; inaccessible constants use
+`TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED`. Cross-unit protected and strict visibility
+remain conservatively refused.
+
+Remove-with qualifies a value member only through its uniquely verified receiver.
+A missing qualification refuses with `receiver-member-unqualified`; unverified or
+inaccessible value members retain `SafetyReason=TYPE_VALUE_MEMBERS_UNVERIFIED`.
+A statement that qualifies a D2 value member or a D3 evidence-backed tag also
+refuses with `RECEIVER_MEMBERS_PARTIALLY_VERIFIED` if another bare unsupported,
+unresolved or lexical reference may belong to that receiver's indexed lineage:
+an unresolved or unverified receiver, alias or indexed ancestor, incomplete
+indexed coverage, or a matching indexed member, tag or constant not qualified
+by the plan. The guard combines qualification and bare-reference evidence over
+the receiver's complete body, including nested children and siblings at every
+depth. Qualifications retain their receiver DeclaredId and qualifier context.
+A refusal also rejects nested statements dependent on that body and removes
+their candidate edits. The model and persisted-evidence routes share the same DeclaredId
+walk. Complete, verified indexed levels with only an unindexed implicit or RTL
+root retain the existing root-absence handling and base plan behavior.
+A native lexical binding with `LookupSource=lexical` and no refusal reason
+already follows verified member absence on every receiver. It does not trigger
+this guard; syntax-only lexical references still require lineage verification.
+An anonymous record has no ancestors. Its anchored declaration can prove a bare
+name absent only after a complete record scan with known activity, matching
+source lines and no unverified include. The scan covers every field, tag and
+constant name; extra possible declaration names can only retain a refusal.
+Missing anchors, unfinished records, unknown activity and wildcard results
+never prove absence. Pointer or other anonymous forms without that complete
+record witness keep the existing conservative path. This absence proof only
+narrows the partial-receiver guard; it never authorizes a qualification.
+Statements without a value-member-path qualification retain their previous behavior.
+Both barriers preserve earlier refusals and remove edits, temporaries, replacement
+text and candidate edits. Inventory constants cannot authorize a qualification
+that the binder did not establish. Anonymous-record tag homonyms also refuse;
+already qualified no-homonym plans retain their prior behavior. Named receivers
+retain that path only when relevant value-member coverage is verified through
+the binder's DeclaredId lineage, or no unverified name is left bare. A source
+declaration with `=` or a selector identity alone does not establish coverage.
+For a lexical, unresolved or unsupported name that would stay unqualified, the
+planner refuses `TYPE_VALUE_MEMBERS_UNVERIFIED` if the receiver's type/alias
+chain declares that value name. Indexed levels are checked by DeclaredId, with
+member diagnostics scoped to the declaring receiver or lineage level. Unrelated
+types' diagnostics do not invalidate receiver coverage. A forward declaration and
+its full class declaration count as one owner. An unindexed class ancestor stays
+under the existing root-absence and `OWNER_INHERITED_MEMBERS_UNVERIFIED` handling;
+project value names do not describe RTL ancestors. Only an unresolvable receiver
+or alias uses the project's `TypeValueMembers` name set as collision evidence.
+This evidence never authorizes qualification. Verified member/helper references
+and existing qualified edits keep their paths. The shared lookup data retains
+this evidence for both facts and compatibility-snapshot planning. A model-free
+lookup cannot prove value-member absence. Session SQLite project-facts loads
+keep the loaded inventory and its validated value evidence in the original project
+identity domain, plus the validated source/activity pair and scope status for
+anonymous-record checks. A verified receiver queries coverage by its DeclaredId
+and unit/file context. Name-only queries remain uncertain when the name is ambiguous.
+
+Standalone SQLite project-facts entries persist typed relational value evidence
+in the same cache-key transaction: source/activity units, per-DeclaredId owner
+coverage and terminal/lineage flags, value names, unverified owner keys and type
+lookup keys. The binder exports this evidence from its existing native indexes;
+both model-backed and evidence-backed planner queries consume the same view.
+Header and per-owner counts explicitly witness empty sets. Missing, partial or
+obsolete row sets invalidate the project entry before planning. No complete
+models or serialized envelope are stored by the snapshot cache. Parser generation
+70, WITH-facts 63 and snapshot generation 48 invalidate earlier cache generations.
+Rename and find-usages retain their conservative behavior; member-correct
+type-value rename is tracked in DS-718.
+The anonymous `class var` refusal remains conservative: inventory may anchor
+the variable name at a use, and the required following `:` then fails (for
+example on `.`). This is not verified class-var declaration provenance. A
+`threadvar` inventoried as `unit-global` also remains refused when its anonymous
+declaration cannot be anchored; this round does not widen the anchor kinds.
+
+If corrupt or foreign model JSON loses `TypeValueMembers`, the fallback checks only
+constants represented in legacy `Declarations`. Variant tags and same-line/peer
+constants absent from `Declarations` can lose that protection. Parser generation
+guards format drift; cache contents remain trusted inputs, as in DS-720. This
+accepted integrity residual also applies to persisted value-evidence rows:
+coordinated, well-typed tampering can make a complete row set describe no value
+members. Cache files are trusted inputs. This residual does not authorize
+qualification of unverified facts.
+
+Anonymous-record scans use validated stored source activity. Known-inactive tags
+and includes do not count when a physical declaration anchor and its activity mask
+are usable. A missing anonymous anchor refuses only when the receiver type cannot
+be resolved to a named type. Missing activity evidence and missing or mismatched
+scan source refuse `TYPE_VALUE_MEMBERS_UNVERIFIED` when the body has a lexical,
+unresolved or unsupported reference that could name a hidden tag. Active or unknown
+includes before or inside the record also refuse. Raw physical text cannot prove
+the absence of active tags behind conditional directives. Bodies whose references
+all bind to verified fields retain their plans. Expanded anonymous declaration
+origins are not trusted. Stored and physical lines use the same splitting rules
+for CRLF and LF, including trailing line breaks. Split scan lines are cached per
+file for one planning call; each body scans each selected declaration once.
+Unrelated types' value-member names do not invalidate an otherwise verified direct
+helper member; a candidate on the actual receiver lineage requires proof or refusal.
+
 ## Stable Facade
 
 - `TDelphiSemanticApiOptions` configures project loading, source loading,

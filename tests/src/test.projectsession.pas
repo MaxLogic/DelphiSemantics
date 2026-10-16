@@ -47,6 +47,7 @@ type
     [TestCase('Warm accepted', 'hit-accept')]
     procedure RequestOwnerSealsEveryModelBeforePublication(const aMode: string);
     [Test]
+    [TestCase('Before receiver-owned value members', '62')]
     [TestCase('Before inactive nested WITH shadow refusal', '61')]
     [TestCase('Before unindexed record helper refusal', '60')]
     [TestCase('Before receiver member scopes', '2')]
@@ -68,6 +69,9 @@ type
     procedure ProjectSessionOpensFromProjectFileName;
     [Test]
     procedure RebuildsSnapshotBeforeInactiveNestedWithSafety;
+    [Test]
+    [Category('DS731Generations')]
+    procedure RebuildsSnapshotBeforeReceiverValueMembers;
     [Test]
     procedure EmptyProjectPathReturnsStructuredSessionDiagnostic;
     [Test]
@@ -141,6 +145,13 @@ type
     procedure ProjectSessionOperationResultsKeepMetricsStableAcrossLaterOperations;
     [Test]
     procedure ProjectSessionBuildWithBindingFactsDoesNotBuildDiscardedSnapshot;
+    [Test]
+    [TestCase('indexed-named-tag', 'indexed-named-tag')]
+    [TestCase('strong-alias-qualified-target', 'strong-alias-qualified-target')]
+    [TestCase('indexed-inline-cross-unit', 'indexed-inline-cross-unit')]
+    [TestCase('num-rec', 'num-rec')]
+    [Category('DS731SessionPersistence')]
+    procedure ValueMembersSessionColdWarm(const aShape: string);
     [Test]
     procedure ProjectSessionPlanRemoveWithCachesProjectFactsByProjectIdentity;
     [Test]
@@ -525,7 +536,8 @@ procedure SeedLegacySimpleInheritedChildFacts(const aCacheFileName: string;
   const aUnitFileName: string; const aRunALine, aRunAColumn,
   aUnknownLine, aUnknownColumn: Integer);
 const
-  cProjectFactTables: array[0..9] of string = (
+  cProjectFactTables: array[0..10] of string = (
+    'snapshot_remove_with_value_evidence',
     'snapshot_exact_strings', 'snapshot_remove_with_facts',
     'snapshot_remove_with_visibility', 'snapshot_remove_with_visible_units',
     'snapshot_remove_with_routine_owners', 'snapshot_remove_with_symbols',
@@ -2192,6 +2204,47 @@ begin
   end;
 end;
 
+procedure TProjectSessionTests.RebuildsSnapshotBeforeReceiverValueMembers;
+var
+  i: Integer;
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lOptions: TDelphiSemanticOptions;
+  lOpened: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+begin
+  lRootPath := CreateTypedConstantQueryFixture;
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'TypedValuesProject.dproj');
+  lOptions.SqliteCacheFileName := TPath.Combine(lRootPath, 'ds731-snapshot-v47.sqlite');
+  for i := 0 to 3 do
+  begin
+    if i = 2 then
+      ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
+        'update snapshot_units set schema_version = ''project-session-snapshot-v47''');
+    lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lOpened.Success);
+      lContext := lOpened.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+        lExtractionMilliseconds);
+      if (i = 0) or (i = 2) then
+      begin
+        Assert.IsTrue(lCacheMetrics.CacheMisses > 0, 'Snapshot-v47 must rebuild.');
+        Assert.AreEqual(0, lCacheMetrics.CacheHits);
+      end else begin
+        Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Fresh snapshot must hit.');
+        Assert.AreEqual(0, lCacheMetrics.CacheMisses);
+      end;
+      AssertTypedConstantQuery(lContext, TPath.Combine(lRootPath, 'TypedValues.pas'), 0);
+      AssertTypedConstantQuery(lContext, TPath.Combine(lRootPath, 'TypedValues.pas'), 1);
+    finally
+      lContext.ProjectSnapshot := nil;
+      lOpened.Session.Free;
+    end;
+  end;
+end;
+
 procedure TProjectSessionTests.TypedConstantsRemainQueryableAcrossSnapshotCacheModes;
 var
   lAnalysis: TDelphiSemanticGlobalAnalysis;
@@ -2666,6 +2719,97 @@ begin
       lFactsResult.Facts.Metrics.SnapshotIndexRebuildMilliseconds);
   finally
     lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.ValueMembersSessionColdWarm(const aShape: string);
+var
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lCold: TDelphiSemanticRemoveWithPlan;
+  lOpened: TDelphiSemanticProjectSessionResult;
+  lOptions: TDelphiSemanticOptions;
+  lRoot, lType, lGlobal, lLocal, lBody: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lRoot := ProjectSessionTempPath('DS731-session-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lType := 'type TItem = record A: Integer; case Count: Integer of 0: (X: Integer); end;';
+  lGlobal := 'var Count: Integer;';
+  lLocal := 'var lItems: TArray<TItem>; lIndex: Integer;';
+  lBody := '  with lItems[lIndex] do A := Count;';
+  if aShape = 'strong-alias-qualified-target' then
+  begin
+    lType := lType + #13#10'  TAlias = type TItem;'#13#10'var Rec: TAlias;';
+    lLocal := '';
+    lBody := '  with Rec do Rec.A := Count;';
+  end;
+  if aShape = 'indexed-inline-cross-unit' then
+  begin
+    lType := 'uses Unit2;'#13#10 + lType.Replace('case Count:',
+      'case {$IFDEF NEVER_DS731}RealTag{$ELSE}Count{$ENDIF}:');
+    lGlobal := '';
+  end;
+  if aShape = 'num-rec' then
+  begin
+    lType := '';
+    lGlobal := '';
+    lLocal := 'var'#13#10'  num_rec: packed record'#13#10'    ll: Integer;'#13#10 +
+      '    case n_id: Byte of'#13#10'      0: (r_b: Byte);'#13#10 +
+      '      1: (r_w: Word);'#13#10'  end;';
+    lBody := '  with num_rec do ll := n_id;';
+  end;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, Unit2; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/>' +
+    '<DCCReference Include="Unit2.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10 + lType + #13#10 + lGlobal +
+    #13#10'implementation'#13#10'procedure Run;'#13#10 + lLocal +
+    #13#10'begin'#13#10 + lBody + #13#10'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+    'unit Unit2;'#13#10'interface'#13#10'var Count: Integer;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  Assert.IsTrue(lOptions.ImplicitRootMemberAbsence = nil);
+  for var i := 0 to 1 do
+  begin
+    lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lOpened.Success);
+      lBuild := lOpened.Session.PlanRemoveWithResult;
+    finally
+      lOpened.Session.Free;
+    end;
+    Assert.AreEqual(Integer(i), Integer(lBuild.SnapshotMetrics.SnapshotCacheHits),
+      'Pass 1 must load the persisted project facts, not just warm unit models.');
+    Assert.AreEqual(1, Integer(Length(lBuild.Plan.FinalStatements)));
+    lStatement := lBuild.Plan.FinalStatements[0];
+    if aShape = 'num-rec' then
+    begin
+      Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+      Assert.AreEqual(' num_rec.ll := num_rec.n_id;', lStatement.ReplacementText);
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+    end else begin
+      Assert.AreEqual('skipped', lStatement.Status, aShape + ' pass ' + IntToStr(i));
+      Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
+      Assert.AreEqual('', lStatement.ReplacementText);
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual(0, Integer(Length(lBuild.Plan.Edits)));
+    end;
+    if i = 0 then
+      lCold := lBuild.Plan
+    else
+      Assert.AreEqual(lCold.FinalStatements[0].ReplacementText, lStatement.ReplacementText);
   end;
 end;
 

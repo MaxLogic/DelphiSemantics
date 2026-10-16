@@ -12,10 +12,13 @@ uses
 // the including unit.
 function AttributeLineOrigins(const aRootFileName: string;
   const aOrigins: TArray<TDelphiSemanticSourceLineOrigin>;
+  const aMembers: TList<TDelphiSemanticMember>): Boolean; overload;
+function AttributeLineOrigins(const aRootFileName: string;
+  const aOrigins: TArray<TDelphiSemanticSourceLineOrigin>;
   const aReferences: TList<TDelphiSemanticReference>;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>; const aRoutines: TList<TDelphiSemanticRoutine>;
-  const aLocals: TList<TDelphiSemanticLocal>): Boolean;
+  const aLocals: TList<TDelphiSemanticLocal>): Boolean; overload;
 procedure ReconcileDeclarationCoordinates(const aSourceText: string;
   const aDeclarations: TList<TDelphiSemanticDeclaration>);
 function BuildOutputToSourceOffsetMap(const aSourceText, aOutputText: string): TArray<Integer>;
@@ -229,17 +232,41 @@ end;
 
 function AttributeLineOrigins(const aRootFileName: string;
   const aOrigins: TArray<TDelphiSemanticSourceLineOrigin>;
+  const aMembers: TList<TDelphiSemanticMember>): Boolean; overload;
+var
+  i: Integer;
+  lMapper: TLineOriginMapper;
+  lMember: TDelphiSemanticMember;
+begin
+  Result := Length(aOrigins) > 0;
+  if not Result then
+    Exit;
+  lMapper.Initialize(aRootFileName, aOrigins);
+  for i := 0 to Pred(aMembers.Count) do
+  begin
+    lMember := aMembers[i];
+    lMapper.Map(lMember.FileName, lMember.Line, lMember.Column);
+    if lMember.FileName <> '' then
+    begin
+      lMember.Offset := 0;
+      lMember.EndOffset := 0;
+    end;
+    aMembers[i] := lMember;
+  end;
+end;
+
+function AttributeLineOrigins(const aRootFileName: string;
+  const aOrigins: TArray<TDelphiSemanticSourceLineOrigin>;
   const aReferences: TList<TDelphiSemanticReference>;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>; const aRoutines: TList<TDelphiSemanticRoutine>;
-  const aLocals: TList<TDelphiSemanticLocal>): Boolean;
+  const aLocals: TList<TDelphiSemanticLocal>): Boolean; overload;
 var
   i: Integer;
   j: Integer;
   lDeclaration: TDelphiSemanticDeclaration;
   lLocal: TDelphiSemanticLocal;
   lMapper: TLineOriginMapper;
-  lMember: TDelphiSemanticMember;
   lParameters: TArray<TDelphiSemanticParameter>;
   lReference: TDelphiSemanticReference;
   lRoutine: TDelphiSemanticRoutine;
@@ -277,17 +304,7 @@ begin
     end;
     aDeclarations[i] := lDeclaration;
   end;
-  for i := 0 to Pred(aMembers.Count) do
-  begin
-    lMember := aMembers[i];
-    lMapper.Map(lMember.FileName, lMember.Line, lMember.Column);
-    if lMember.FileName <> '' then
-    begin
-      lMember.Offset := 0;
-      lMember.EndOffset := 0;
-    end;
-    aMembers[i] := lMember;
-  end;
+  Result := AttributeLineOrigins(aRootFileName, aOrigins, aMembers) and Result;
   for i := 0 to Pred(aRoutines.Count) do
   begin
     lRoutine := aRoutines[i];

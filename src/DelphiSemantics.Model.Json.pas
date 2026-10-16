@@ -904,6 +904,8 @@ begin
     lObject.AddPair('Diagnostics', DiagnosticsToJson(aModel.Diagnostics));
     if Length(aModel.UnindexedHelpers) > 0 then
       lObject.AddPair('UnindexedHelpers', UnindexedHelpersToJson(aModel.UnindexedHelpers));
+    if Length(aModel.TypeValueMembers) > 0 then
+      lObject.AddPair('TypeValueMembers', MembersToJson(aModel.TypeValueMembers));
     lObject.AddPair('ScopeModelStatus', aModel.ScopeModelStatus);
     lObject.AddPair('ScopeModelVersion', aModel.ScopeModelVersion);
     lObject.AddPair('RejectedDeclarationCount',
@@ -970,6 +972,7 @@ begin
       Result.Diagnostics[High(Result.Diagnostics)].FileName := Result.FileName;
     end;
     Result.UnindexedHelpers := JsonToUnindexedHelpers(lObject.GetValue('UnindexedHelpers'));
+    Result.TypeValueMembers := JsonToMembers(lObject.GetValue('TypeValueMembers') as TJSONArray);
     Result.ScopeModelStatus := JsonString(lObject, 'ScopeModelStatus');
     Result.ScopeModelVersion := JsonString(lObject, 'ScopeModelVersion');
     Result.RejectedDeclarationCount := JsonInt(lObject, 'RejectedDeclarationCount');

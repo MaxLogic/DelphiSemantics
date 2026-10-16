@@ -56,6 +56,27 @@ type
     procedure ExtractReentrantLoop(const aPath, aUnitName, aTypeName, aRoutineName,
       aReferenceName: string; out aError: string);
   public
+    [TestCase('empty', 'empty')]
+    [TestCase('tagless', 'tagless')]
+    [TestCase('anonymous-field', 'anonymous-field')]
+    [TestCase('private', 'private')]
+    [TestCase('class-public', 'class-public')]
+    [TestCase('nested-owner', 'nested-owner')]
+    [TestCase('local-tag', 'local-tag')]
+    [TestCase('included', 'included')]
+    [TestCase('inactive', 'inactive')]
+    [Category('DS731Model')]
+    procedure TypeValueExtractionBoundaries(const aShape: string);
+    [TestCase('constant', 'constant')]
+    [TestCase('typed', 'typed')]
+    [TestCase('peers', 'peers')]
+    [TestCase('tag', 'tag')]
+    [TestCase('subrange', 'subrange')]
+    [TestCase('qualified', 'qualified')]
+    [TestCase('escaped', 'escaped')]
+    [TestCase('commented', 'commented')]
+    [TestCase('nested', 'nested')]
+    procedure TypeValueMembersSurviveJson(const aShape: string);
     [TestCase('Record helper', 'record')]
     [TestCase('Class helper', 'class')]
     [TestCase('Implementation helper', 'implementation')]
@@ -6344,6 +6365,160 @@ begin
   finally
     lObject.Free;
   end;
+end;
+
+procedure TUnitModelTests.TypeValueMembersSurviveJson(const aShape: string);
+var
+  lBody: string;
+  lExpectedKind: string;
+  lJson: string;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lBody := '';
+  lExpectedKind := '';
+  if aShape = 'constant' then
+  begin
+    lBody := 'const Count = 5; var Other: Integer;';
+    lExpectedKind := 'const';
+  end;
+  if aShape = 'typed' then
+  begin
+    lBody := 'const Count: Integer = 5; var Other: Integer;';
+    lExpectedKind := 'typed-const';
+  end;
+  if aShape = 'peers' then
+  begin
+    lBody := 'const First = 1; Count = 5; var Other: Integer;';
+    lExpectedKind := 'const';
+  end;
+  if aShape = 'tag' then
+  begin
+    lBody := 'case Count: Integer of 0: (Other: Integer);';
+    lExpectedKind := 'variant-tag';
+  end;
+  if aShape = 'subrange' then
+  begin
+    lBody := 'case Count: 0..1 of 0: (Other: Integer);';
+    lExpectedKind := 'variant-tag';
+  end;
+  if aShape = 'qualified' then
+  begin
+    lBody := 'case Count: System.Byte of 0: (Other: Integer);';
+    lExpectedKind := 'variant-tag';
+  end;
+  if aShape = 'escaped' then
+  begin
+    lBody := 'case &Count: Integer of 0: (Other: Integer);';
+    lExpectedKind := 'variant-tag';
+  end;
+  if aShape = 'commented' then
+  begin
+    lBody := 'case {tag} Count {name}: {type} Integer of 0: (Other: Integer);';
+    lExpectedKind := 'variant-tag';
+  end;
+  if aShape = 'nested' then
+  begin
+    lBody := 'case Tag: Integer of 0: (case Count: Integer of 0: (Other: Integer));';
+    lExpectedKind := 'variant-tag';
+  end;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('DS731-' + aShape + '.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit ValueFacts;'#13#10'interface'#13#10'type TRec = record ' + lBody +
+    ' end;'#13#10'implementation'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, aShape);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus, aShape);
+  lJson := ModelToJson(lModel);
+  Assert.IsTrue(ContainsText(lJson, '"TypeValueMembers"'), aShape);
+  Assert.IsTrue(ContainsText(lJson, '"Kind":"' + lExpectedKind + '"'), aShape);
+  Assert.IsTrue(ContainsText(lJson, '"Name":"Count"'), aShape);
+  if aShape = 'nested' then
+  begin
+    Assert.AreEqual(2, Integer(Length(lModel.TypeValueMembers)), aShape);
+    Assert.AreEqual('Tag', lModel.TypeValueMembers[0].Name);
+    Assert.AreEqual('Count', lModel.TypeValueMembers[1].Name);
+    for var lMember in lModel.TypeValueMembers do
+    begin
+      Assert.AreEqual('TRec', lMember.OwnerName);
+      Assert.AreEqual('variant-tag', lMember.Kind);
+      Assert.AreEqual('Integer', lMember.TypeName);
+      Assert.AreEqual('public', lMember.Visibility);
+    end;
+  end;
+  Assert.AreEqual(lJson, ModelToJson(JsonToModel(lJson)), aShape);
+end;
+
+procedure TUnitModelTests.TypeValueExtractionBoundaries(const aShape: string);
+var
+  lBody, lExpectedOwner, lExpectedVisibility, lRoot, lSource: string;
+  lExpectedCount: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  lRoot := UnitModelTempPath('DS731-boundary-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lExpectedCount := 1;
+  lExpectedOwner := 'TRec';
+  lExpectedVisibility := 'public';
+  lBody := 'type TRec = record Value: Integer; end;';
+  if aShape = 'tagless' then
+    lBody := 'type TRec = record case Integer of 0: (Value: Integer); end;';
+  if aShape = 'anonymous-field' then
+    lBody := 'type TRec = record Inner: record case Count: Integer of 0: (Value: Integer); end; end;';
+  if aShape = 'inactive' then
+    lBody := 'type TRec = record {$IFDEF DS731_NEVER} const Count = 5; {$ENDIF} var Value: Integer; end;';
+  if MatchText(aShape, ['empty', 'tagless', 'anonymous-field', 'inactive']) then
+    lExpectedCount := 0;
+  if aShape = 'private' then
+  begin
+    lBody := 'type TRec = record private const Count = 5; end;';
+    lExpectedVisibility := 'private';
+  end;
+  if aShape = 'class-public' then
+    lBody := 'type TRec = class public const Count = 5; end;';
+  if aShape = 'nested-owner' then
+  begin
+    lBody := 'type TRec = record type TInner = record const Count = 5; end; end;';
+    lExpectedOwner := 'TRec.TInner';
+  end;
+  if aShape = 'included' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'values.inc'), 'const Count = 5;', TEncoding.ASCII);
+    lBody := 'type TRec = record'#13#10'{$I values.inc}'#13#10'end;';
+  end;
+  lSource := 'unit ValueBoundary;'#13#10'interface'#13#10 + lBody +
+    #13#10'implementation'#13#10'end.';
+  if aShape = 'local-tag' then
+    lSource := 'unit ValueBoundary;'#13#10'interface'#13#10'implementation'#13#10 +
+      'procedure Run;'#13#10'type'#13#10'  TRec = record'#13#10 +
+      '    case Count: Integer of'#13#10'      0: (Value: Integer);'#13#10 +
+      '  end;'#13#10'begin end;'#13#10'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'ValueBoundary.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, aShape);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus, aShape);
+  Assert.AreEqual(lExpectedCount, Integer(Length(lModel.TypeValueMembers)), aShape);
+  if lExpectedCount = 0 then
+    Assert.IsFalse(ContainsText(ModelToJson(lModel), '"TypeValueMembers"'), aShape)
+  else begin
+    Assert.AreEqual('Count', lModel.TypeValueMembers[0].Name);
+    Assert.AreEqual(lExpectedOwner, lModel.TypeValueMembers[0].OwnerName);
+    Assert.AreEqual(lExpectedVisibility, lModel.TypeValueMembers[0].Visibility);
+    if aShape = 'local-tag' then
+    begin
+      Assert.IsNotEmpty(lModel.TypeValueMembers[0].OwnerScopeId);
+      Assert.IsNotEmpty(lModel.TypeValueMembers[0].OwnerSymbolId);
+    end;
+    if aShape = 'included' then
+      Assert.AreEqual(TPath.Combine(lRoot, 'values.inc'), lModel.TypeValueMembers[0].FileName);
+  end;
+  Assert.AreEqual(ModelToJson(lModel), ModelToJson(JsonToModel(ModelToJson(lModel))), aShape);
 end;
 
 initialization

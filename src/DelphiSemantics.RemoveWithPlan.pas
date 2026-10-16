@@ -215,7 +215,7 @@ type
 implementation
 
 uses
-  System.Diagnostics, System.Generics.Collections, System.Generics.Defaults,
+  System.Classes, System.Diagnostics, System.Generics.Collections, System.Generics.Defaults,
   System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.RemoveWithPlan.FinalBodyRenderer,
@@ -287,6 +287,10 @@ type
     function FindSymbolsByOwnerType(const aOwnerType: string):
       TArray<TDelphiSemanticInventorySymbol>;
     procedure Initialize(const aIndex: TDelphiSemanticRemoveWithLookupIndex);
+    function UnverifiedValueMemberMayApply(const aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function UnverifiedReceiverMemberMayApply(const aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
     function MaterializedSymbolCount: Int64;
     function RequestCount: Int64;
     function ResultMaterializationCount: Int64;
@@ -314,13 +318,22 @@ type
     ReplacementText: string;
   end;
 
+  TFinalReceiverBodyFacts = record
+    ValueQualifications: TArray<TFinalSelectorDecision>;
+    BareReferences: TArray<TDelphiSemanticBoundReference>;
+  end;
+
   TFinalNestedReplacement = record
+    ReceiverBodyFacts: TFinalReceiverBodyFacts;
     Range: TDelphiSemanticRemoveWithSourceRange;
     ReplacementText: string;
   end;
 
   TRemoveWithPlanFacts = record
     ContextFingerprint: string;
+    ScanSources: TDictionary<string, string>;
+    ScanLines: TDictionary<string, TArray<string>>;
+    ScanActivityKnown: TDictionary<string, Boolean>;
     LookupIndex: TPlannerLookupMemo;
     Symbols: TArray<TDelphiSemanticInventorySymbol>;
     UseArchitectureStableRoutineEndTrim: Boolean;
@@ -3901,6 +3914,13 @@ begin
   end;
 end;
 
+function IsReceiverValueMemberReference(const aReference: TDelphiSemanticBoundReference): Boolean;
+begin
+  Result := SameText(aReference.Classification, 'member') and
+    SameText(aReference.LookupSource, 'receiver') and
+    MatchText(aReference.Kind, ['const', 'typed-const', 'variant-tag']);
+end;
+
 function QualifierForReference(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aDecisions: TArray<TFinalSelectorDecision>;
   const aReference: TDelphiSemanticBoundReference; out aQualifierText: string):
@@ -3908,11 +3928,33 @@ function QualifierForReference(const aFacts: TRemoveWithPlanFacts;
 var
   i: Integer;
   lDecision: TFinalSelectorDecision;
+  lMatch: Integer;
   lReferenceName: string;
 begin
   Result := TFinalReferenceQualification.NoMatch;
   aQualifierText := '';
   lReferenceName := ReferenceLookupName(aReference.Name);
+  if IsReceiverValueMemberReference(aReference) then
+  begin
+    lMatch := -1;
+    for i := High(aDecisions) downto 0 do
+      if SameText(aDecisions[i].ReceiverType, aReference.ReceiverTypeName) then
+      begin
+        if lMatch < 0 then
+          lMatch := i
+        else if not SameText(aDecisions[lMatch].ReceiverIdentity.DeclaredId.Value,
+          aDecisions[i].ReceiverIdentity.DeclaredId.Value) then
+          Exit;
+      end;
+    if lMatch < 0 then
+      Exit;
+    if DecisionKeepsWithMemberScope(aDecisions[lMatch]) then
+      Exit(TFinalReferenceQualification.RetainedMember);
+    if Trim(aDecisions[lMatch].QualifierText) = '' then
+      Exit;
+    aQualifierText := aDecisions[lMatch].QualifierText;
+    Exit(TFinalReferenceQualification.QualifiedMember);
+  end;
   for i := High(aDecisions) downto 0 do
   begin
     lDecision := aDecisions[i];
@@ -4614,7 +4656,7 @@ begin
     begin
       if not InventorySymbolIsSourceBacked(lSymbol) or
         not MatchText(lSymbol.SymbolClass,
-          ['member', 'field', 'property', 'method', 'constant', 'class-var']) or
+          ['member', 'field', 'property', 'method', 'class-var']) or
         not (TypeNameMatches(lSymbol.OwnerType, lDecision.ReceiverType) or
           TypeNameMatches(lSymbol.OwnerName, lDecision.ReceiverType) or
           TypeNameMatches(lSymbol.SourceOwnerType, lDecision.ReceiverType)) then
@@ -4670,14 +4712,491 @@ begin
   Result := False;
 end;
 
+function BodyEditsQualifyReference(const aEdits: TArray<TFinalBodyEdit>;
+  const aOffset: Integer; const aName: string): Boolean;
+var
+  lEdit: TFinalBodyEdit;
+begin
+  Result := False;
+  if aOffset <= 0 then
+    Exit;
+  for lEdit in aEdits do
+    if ((lEdit.Offset = aOffset) and SameText(lEdit.ExpectedText, aName) or
+      (lEdit.Offset = aOffset - 1) and SameText(lEdit.ExpectedText, '&' + aName)) and
+      (lEdit.ReplacementText <> lEdit.ExpectedText) then
+      Exit(True);
+end;
+
+type
+  TAnonymousRecordIncludeGuard = class(TInterfacedObject, IIncludeHandler)
+  private
+    fSeen: PBoolean;
+  public
+    constructor Create(var aSeen: Boolean);
+    function GetIncludeFileContent(const aParentFileName, aIncludeName: string;
+      out aContent, aFileName: string): Boolean;
+  end;
+
+constructor TAnonymousRecordIncludeGuard.Create(var aSeen: Boolean);
+begin
+  inherited Create;
+  fSeen := @aSeen;
+end;
+
+function TAnonymousRecordIncludeGuard.GetIncludeFileContent(const aParentFileName,
+  aIncludeName: string; out aContent, aFileName: string): Boolean;
+begin
+  // SimpleParser consumes include tokens internally. Observe without expanding:
+  // we lack an anonymous owner identity and reliable expanded declaration origins.
+  fSeen^ := True;
+  aContent := '';
+  aFileName := '';
+  Result := False;
+end;
+
+function AnonymousRecordScanSource(const aSource, aEvidence: string): string;
+var
+  lPrefix: string;
+begin
+  Result := '';
+  lPrefix := TDelphiSemanticSourceConditionals.UnavailableActivity;
+  if StartsStr(lPrefix, aEvidence) then
+  begin
+    if Length(aEvidence) <> Length(lPrefix) + Length(aSource) then
+      Exit;
+  end else if (aEvidence = '') or (Length(aEvidence) <> Length(aSource)) then
+    Exit;
+  Result := TDelphiSemanticSourceConditionals.SourceForScan(aSource, aEvidence);
+end;
+
+function AnonymousRecordActivityIsKnown(const aSource, aEvidence: string): Boolean;
+var
+  lPrefix: string;
+begin
+  lPrefix := TDelphiSemanticSourceConditionals.UnavailableActivity;
+  if StartsStr(lPrefix, aEvidence) then
+    Exit((Length(aEvidence) = Length(lPrefix) + Length(aSource)) and
+      (Pos('?', aEvidence) = 0));
+  Result := (aEvidence <> '') and (Length(aEvidence) = Length(aSource));
+end;
+
+function TPlannerLookupMemo.UnverifiedValueMemberMayApply(
+  const aOwnerType, aName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+begin
+  if TypeIdentityHasVerifiedOrigin(aOwnerIdentity) then
+    Exit(fIndex.UnverifiedValueMemberMayApply(aOwnerType, aName, aOwnerIdentity));
+  Result := fIndex.UnverifiedValueMemberMayApply(aOwnerType, aName);
+end;
+
+function TPlannerLookupMemo.UnverifiedReceiverMemberMayApply(
+  const aOwnerType, aName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+begin
+  if TypeIdentityHasVerifiedOrigin(aOwnerIdentity) then
+    Exit(fIndex.UnverifiedReceiverMemberMayApply(aOwnerType, aName, aOwnerIdentity));
+  Result := fIndex.UnverifiedReceiverMemberMayApply(aOwnerType, aName,
+    Default(TDelphiSemanticTypeIdentity));
+end;
+
+function PlannerResolvesNamedReceiverType(const aFacts: TRemoveWithPlanFacts;
+  const aTypeName: string; const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  lIncludeSeen: Boolean;
+  lLexer: TmwBasePasLex;
+  lLines: TArray<string>;
+  lName, lText: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  for lSymbol in aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(aTypeName) do
+  begin
+    if (not MatchText(lSymbol.Kind, ['type', 'type-alias'])) or
+      (lSymbol.Line < 1) or (lSymbol.Column < 1) or
+      (not aLineCache.TryGetValue(lSymbol.FileName, lLines)) or
+      (lSymbol.Line > Length(lLines)) then
+      Continue;
+    if lSymbol.Column > Length(lLines[lSymbol.Line - 1]) then
+      Continue;
+    // Inventory also synthesizes type entries for anonymous variables. A real
+    // named type has a source declaration with '=', not the variable's ':'.
+    lName := Copy(lSymbol.Name, LastDelimiter('.', lSymbol.Name) + 1, MaxInt);
+    lText := string.Join(sLineBreak, Copy(lLines, lSymbol.Line - 1,
+      Length(lLines) - lSymbol.Line + 1));
+    lLexer := TmwBasePasLex.Create;
+    try
+      try
+        lIncludeSeen := False;
+        lLexer.UseDefines := False;
+        lLexer.IncludeHandler := TAnonymousRecordIncludeGuard.Create(lIncludeSeen);
+        lLexer.Origin := Copy(lText, lSymbol.Column, MaxInt);
+        if not SameText(lLexer.Token, lName) then
+          Continue;
+        lLexer.NextNoJunk;
+        if (lLexer.Token = '=') and (not lIncludeSeen) then
+          Exit(True);
+      except
+        on ERangeError do
+          // An unreadable header cannot establish a named type.
+          Exit(False);
+      end;
+    finally
+      lLexer.Free;
+    end;
+  end;
+end;
+
+function AnonymousRecordTagNames(const aFacts: TRemoveWithPlanFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
+  out aQualifiedFieldTags: TArray<string>;
+  out aAnonymousNames: TArray<TArray<string>>): TArray<string>;
+var
+  i: Integer;
+  lActivityKnown, lCaseSelector, lRecordScanned: Boolean;
+  lParenthesisDepth, lVariantBaseDepth: Integer;
+  lMemberNames: TList<string>;
+  lDecision: TFinalSelectorDecision;
+  lAnchored: Boolean;
+  lDepth: Integer;
+  lIncludeSeen: Boolean;
+  lLexer: TmwBasePasLex;
+  lLines: TArray<string>;
+  lNames, lFieldTags: TList<string>;
+  lSourceLines: TStringList;
+  lScanLines: TArray<string>;
+  lScanSource: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lTagName: string;
+  lText: string;
+begin
+  Result := nil;
+  aQualifiedFieldTags := nil;
+  SetLength(aAnonymousNames, Length(aDecisions));
+  for i := 0 to High(aAnonymousNames) do
+    aAnonymousNames[i] := TArray<string>.Create('*');
+  lMemberNames := TList<string>.Create;
+  lFieldTags := TList<string>.Create;
+  lNames := TList<string>.Create;
+  try
+    // Anonymous types have no verified type DeclaredId. Anchor at the selected
+    // declaration; only a complete active record scan can also prove absence.
+    for i := 0 to High(aDecisions) do
+    begin
+      lDecision := aDecisions[i];
+      lMemberNames.Clear;
+      lRecordScanned := False;
+      if TypeIdentityHasVerifiedOrigin(lDecision.ReceiverIdentity) then
+        Continue;
+      // A planner-resolved named type is handled by TypeValueMembers, even when
+      // the binder has no DeclaredId. Synthetic anonymous entries do not count.
+      if PlannerResolvesNamedReceiverType(aFacts, lDecision.ReceiverType, aLineCache) then
+        Continue;
+      lAnchored := False;
+      for lSymbol in aFacts.LookupIndex.FindSymbolsByName(lDecision.SelectorText) do
+      begin
+        if (not SameText(lSymbol.Name, lDecision.SelectorText)) or
+          (not SameText(lSymbol.TypeName, lDecision.ReceiverType)) or
+          (not MatchText(lSymbol.Kind, ['var', 'threadvar', 'field', 'class-var'])) then
+          Continue;
+        // Inventory can carry include-local coordinates with the root file name.
+        // Missing or unanchored provenance is refusal evidence, never absence.
+        if (lSymbol.Line < 1) or (lSymbol.Column < 1) or
+          (not aLineCache.TryGetValue(lSymbol.FileName, lLines)) or
+          (lSymbol.Line > Length(lLines)) then
+          Exit(TArray<string>.Create('*'));
+        if lSymbol.Column > Length(lLines[lSymbol.Line - 1]) then
+          Exit(TArray<string>.Create('*'));
+        if not aFacts.ScanLines.TryGetValue(lSymbol.FileName, lScanLines) then
+        begin
+          // Match SourceContext's TStringList.Text semantics, including final EOLs.
+          // Raw source cannot prove absence of an active tag behind conditionals.
+          if (not aFacts.ScanSources.TryGetValue(lSymbol.FileName, lScanSource)) or
+            (lScanSource = '') then
+            Exit(TArray<string>.Create('*'));
+          lSourceLines := TStringList.Create;
+          try
+            lSourceLines.Text := lScanSource;
+            lScanLines := lSourceLines.ToStringArray;
+          finally
+            lSourceLines.Free;
+          end;
+          if Length(lScanLines) <> Length(lLines) then
+            Exit(TArray<string>.Create('*'));
+          aFacts.ScanLines.Add(lSymbol.FileName, lScanLines);
+        end;
+        lText := string.Join(sLineBreak, Copy(lLines, lSymbol.Line - 1,
+          Length(lLines) - lSymbol.Line + 1));
+        // SetOrigin owns one buffer; use a fresh lexer for each declaration.
+        lLexer := TmwBasePasLex.Create;
+        try
+          try
+            lLexer.UseDefines := False;
+            lIncludeSeen := False;
+            lLexer.IncludeHandler := TAnonymousRecordIncludeGuard.Create(lIncludeSeen);
+            lLexer.Origin := Copy(lText, lSymbol.Column, MaxInt);
+            if not SameText(lLexer.Token, lSymbol.Name) then
+              Exit(TArray<string>.Create('*'));
+            lAnchored := True;
+            // Only a physically anchored name blanked by the activity mask is
+            // known inactive. A coordinate mismatch cannot establish inactivity.
+            if (Length(lScanLines[lSymbol.Line - 1]) >=
+              lSymbol.Column + Length(lSymbol.Name) - 1) and
+              (Trim(Copy(lScanLines[lSymbol.Line - 1], lSymbol.Column,
+                Length(lSymbol.Name))) = '') then
+              Continue;
+            lLexer.NextNoJunk;
+            // Class-var inventory can point at a use rather than a declaration.
+            // The name alone is not provenance: a following '.' (or any token
+            // other than ':') deliberately keeps the conservative refusal.
+            if lLexer.TokenID <> ptColon then
+              Exit(TArray<string>.Create('*'));
+            lText := string.Join(sLineBreak, Copy(lScanLines, lSymbol.Line - 1,
+              Length(lScanLines) - lSymbol.Line + 1));
+            // SetOrigin owns one buffer. Recreate instead of resetting it.
+            lLexer.Free;
+            lLexer := nil;
+            lLexer := TmwBasePasLex.Create;
+            lIncludeSeen := False;
+            lLexer.UseDefines := False;
+            lLexer.IncludeHandler := TAnonymousRecordIncludeGuard.Create(lIncludeSeen);
+            lLexer.Origin := Copy(lText, lSymbol.Column, MaxInt);
+            lLexer.NextNoJunk;
+            lLexer.NextNoJunk;
+            if lLexer.TokenID = ptPacked then
+              lLexer.NextNoJunk;
+            if lIncludeSeen then
+              Exit(TArray<string>.Create('*'));
+            if lLexer.TokenID <> ptRecord then
+              Continue;
+            if not aFacts.ScanActivityKnown.TryGetValue(
+              lSymbol.FileName, lActivityKnown) then
+              lActivityKnown := False;
+            lDepth := 1;
+            lParenthesisDepth := 0;
+            lVariantBaseDepth := -1;
+            lCaseSelector := False;
+            lLexer.NextNoJunk;
+            while (lLexer.TokenID <> ptNull) and (lDepth > 0) do
+            begin
+              if lLexer.TokenID = ptIdentifier then
+              begin
+                lTagName := lLexer.Token;
+                if StartsText('&', lTagName) then
+                  Delete(lTagName, 1, 1);
+                // Declaration names precede ':', ',' or '='. Exclude ': ('
+                // only at the proven outer variant-arm boundary: a field may
+                // itself declare an inline enum with that same token pair.
+                // Extra compound-type and nested-label names remain conservative.
+                lLexer.NextNoJunk;
+                if lLexer.TokenID = ptColon then
+                begin
+                  lLexer.NextNoJunk;
+                  if not ((lLexer.TokenID = ptRoundOpen) and (lDepth = 1) and
+                    (lVariantBaseDepth >= 0) and
+                    (lParenthesisDepth = lVariantBaseDepth)) then
+                    lMemberNames.Add(lTagName);
+                end else if lLexer.TokenID in [ptComma, ptEqual] then
+                  lMemberNames.Add(lTagName);
+              end;
+              if lLexer.TokenID = ptRecord then
+                Inc(lDepth)
+              else if lLexer.TokenID = ptEnd then
+                Dec(lDepth)
+              else if (lDepth = 1) and (lLexer.TokenID = ptCase) then
+              begin
+                lCaseSelector := True;
+                lLexer.NextNoJunk;
+                if lLexer.TokenID = ptIdentifier then
+                begin
+                  lTagName := lLexer.Token;
+                  if StartsText('&', lTagName) then
+                    Delete(lTagName, 1, 1);
+                  lLexer.NextNoJunk;
+                  if lLexer.TokenID = ptColon then
+                  begin
+                    lNames.Add(lTagName);
+                    lMemberNames.Add(lTagName);
+                    if SameText(lSymbol.Kind, 'field') then
+                      lFieldTags.Add(lDecision.QualifierText + '.' + lTagName);
+                  end;
+                end;
+              end;
+              if lCaseSelector and (lLexer.TokenID = ptOf) then
+              begin
+                if lVariantBaseDepth < 0 then
+                  lVariantBaseDepth := lParenthesisDepth;
+                lCaseSelector := False;
+              end;
+              if lLexer.TokenID = ptRoundOpen then
+                Inc(lParenthesisDepth)
+              else if lLexer.TokenID = ptRoundClose then
+              begin
+                if lParenthesisDepth <= 0 then
+                  lMemberNames.Add('*');
+                Dec(lParenthesisDepth);
+              end;
+              lLexer.NextNoJunk;
+            end;
+            if lIncludeSeen then
+              Exit(TArray<string>.Create('*'));
+            if (lDepth = 0) and (lParenthesisDepth = 0) and
+              (not lCaseSelector) and lActivityKnown then
+              lRecordScanned := True
+            else
+              lMemberNames.Add('*');
+          except
+            on ERangeError do
+              // SimpleParser's include-name reader assumes a '}' terminator and
+              // can overrun a (*$I ...*) token before the observer is called.
+              // An unreadable declaration explicitly refuses; it proves no absence.
+              Exit(TArray<string>.Create('*'));
+          end;
+        finally
+          lLexer.Free;
+        end;
+      end;
+      // Unsupported anonymous declarations and missing anchors prove no absence.
+      if not lAnchored then
+        Exit(TArray<string>.Create('*'));
+      if lRecordScanned and (not MatchText('*', lMemberNames.ToArray)) then
+        aAnonymousNames[i] := lMemberNames.ToArray;
+    end;
+    Result := lNames.ToArray;
+    aQualifiedFieldTags := lFieldTags.ToArray;
+  finally
+    lMemberNames.Free;
+    lNames.Free;
+    lFieldTags.Free;
+  end;
+end;
+
+function BodyFactsQualifyReceiver(const aBodyFacts: TFinalReceiverBodyFacts;
+  const aDecision: TFinalSelectorDecision): Boolean;
+var
+  lQualification: TFinalSelectorDecision;
+begin
+  Result := False;
+  for lQualification in aBodyFacts.ValueQualifications do
+    if SameText(lQualification.QualifierText, aDecision.QualifierText) and
+      SameText(lQualification.ReceiverType, aDecision.ReceiverType) and
+      SameText(lQualification.ReceiverIdentity.DeclaredId.Value, aDecision.ReceiverIdentity.DeclaredId.Value) then
+      Exit(True);
+end;
+
+function BodyHasPartiallyVerifiedValueReceiver(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aNestedReplacements: TArray<TFinalNestedReplacement>;
+  const aDecisions: TArray<TFinalSelectorDecision>;
+  const aBodyRange: TDelphiSemanticRemoveWithSourceRange;
+  const aLines: TArray<string>; const aBodyText, aLineBreak: string;
+  const aBodyEdits: TArray<TFinalBodyEdit>; const aAnonymousTagNames: TArray<string>;
+  const aAnonymousNames: TArray<TArray<string>>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
+  out aBodyFacts: TFinalReceiverBodyFacts): Boolean;
+var
+  i: Integer;
+  lEdit: TFinalBodyEdit;
+  lNestedReplacement: TFinalNestedReplacement;
+  lOffset: Integer;
+  lQualifier: string;
+  lReference: TDelphiSemanticBoundReference;
+begin
+  Result := False;
+  aBodyFacts := Default(TFinalReceiverBodyFacts);
+  // Child text replaces an entire span. Preserve the verified qualifications and
+  // remaining bare references before that replacement hides their source edits.
+  for lNestedReplacement in aNestedReplacements do
+  begin
+    aBodyFacts.ValueQualifications := aBodyFacts.ValueQualifications +
+      lNestedReplacement.ReceiverBodyFacts.ValueQualifications;
+    aBodyFacts.BareReferences := aBodyFacts.BareReferences +
+      lNestedReplacement.ReceiverBodyFacts.BareReferences;
+  end;
+  for lReference in aBinding.References do
+  begin
+    if (not ReferenceInsideRange(lReference, aBodyRange)) or
+      ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
+      Continue;
+    lOffset := ReferenceRelativeOffset(aBodyRange, aLines, aBodyText, lReference, aLineBreak);
+    if not BodyEditsQualifyReference(aBodyEdits, lOffset, lReference.Name) then
+      Continue;
+    if IsReceiverValueMemberReference(lReference) then
+    begin
+      if QualifierForReference(aFacts, aBinding, aDecisions, lReference, lQualifier) <>
+        TFinalReferenceQualification.QualifiedMember then
+        Continue;
+    end else if MatchText(lReference.Name, aAnonymousTagNames) then
+    begin
+      // D3 keeps an inventory qualification only with anonymous-tag evidence.
+      lQualifier := '';
+      for lEdit in aBodyEdits do
+        if (lEdit.Offset = lOffset) and SameText(lEdit.ExpectedText, lReference.Name) then
+          for i := 0 to High(aDecisions) do
+            if SameText(lEdit.ReplacementText,
+              aDecisions[i].QualifierText + '.' + lReference.Name) then
+              lQualifier := aDecisions[i].QualifierText;
+      if lQualifier = '' then
+        Continue;
+    end else
+      Continue;
+    for i := 0 to High(aDecisions) do
+      if SameText(aDecisions[i].QualifierText, lQualifier) then
+      begin
+        if not BodyFactsQualifyReceiver(aBodyFacts, aDecisions[i]) then
+          aBodyFacts.ValueQualifications := aBodyFacts.ValueQualifications + [aDecisions[i]];
+      end;
+  end;
+  for lReference in aBinding.References do
+  begin
+    // Bare references matter only when indexed lineage cannot prove absence.
+    // An unindexed class root alone retains base handling (DS-731 M3).
+    if not MatchText(lReference.Classification, ['unsupported', 'unresolved', 'lexical']) then
+      Continue;
+    // Native lexical binding follows verified absence on every receiver. A
+    // syntax-only lexical claim has no such provenance and still needs the guard.
+    if SameText(lReference.Classification, 'lexical') and
+      SameText(lReference.LookupSource, 'lexical') and (lReference.ReasonCode = '') then
+      Continue;
+    if (not ReferenceInsideRange(lReference, aBodyRange)) or
+      ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
+      Continue;
+    lOffset := ReferenceRelativeOffset(aBodyRange, aLines, aBodyText, lReference, aLineBreak);
+    if BodyEditsQualifyReference(aBodyEdits, lOffset, lReference.Name) then
+      Continue;
+    aBodyFacts.BareReferences := aBodyFacts.BareReferences + [lReference];
+  end;
+  if Length(aBodyFacts.ValueQualifications) = 0 then
+    Exit;
+  // Combine evidence across the whole receiver body, including sibling and
+  // deeper child WITHs. Each child already excluded its own qualified tokens.
+  for lReference in aBodyFacts.BareReferences do
+  begin
+    if not ReferenceInsideRange(lReference, aBodyRange) then
+      Continue;
+    for i := 0 to High(aDecisions) do
+      if BodyFactsQualifyReceiver(aBodyFacts, aDecisions[i]) and
+        ((lReference.ReceiverTypeName = '') or
+        SameText(lReference.ReceiverTypeName, aDecisions[i].ReceiverType)) and
+        // A complete anonymous record has no ancestors. The declaration-wide
+        // identifier census contains every field, tag and constant, plus a
+        // conservative superset of type/label names; it proves absence only.
+        (MatchText('*', aAnonymousNames[i]) or
+          MatchText(lReference.Name, aAnonymousNames[i])) and
+        aFacts.LookupIndex.UnverifiedReceiverMemberMayApply(aDecisions[i].ReceiverType,
+          lReference.Name, aDecisions[i].ReceiverIdentity) then
+        Exit(True);
+  end;
+end;
+
 function PrepareFinalBodyText(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aEditDecisions, aValidationDecisions: TArray<TFinalSelectorDecision>;
   const aNestedReplacements: TArray<TFinalNestedReplacement>;
   const aLineCache: TDelphiSemanticSourceContextCache;
-  const aPreserveLeadingIndent: Boolean; out aReplacementText, aReason: string):
-  Boolean;
+  const aPreserveLeadingIndent: Boolean; out aReplacementText, aReason: string;
+  out aBodyFacts: TFinalReceiverBodyFacts): Boolean;
 var
+  lAnonymousTagNames, lQualifiedFieldTags: TArray<string>;
+  lAnonymousNames: TArray<TArray<string>>;
   lBodyEdits: TArray<TFinalBodyEdit>;
   lProtectedSpans: TArray<TFinalBodyEdit>;
   lDeclarations: TArray<Boolean>;
@@ -4784,7 +5303,8 @@ begin
       Continue;
     if ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
       Continue;
-    if ReferenceShouldRemainUnchanged(aFacts, aBinding, lReference) then
+    if (not IsReceiverValueMemberReference(lReference)) and
+      ReferenceShouldRemainUnchanged(aFacts, aBinding, lReference) then
     begin
       if SameText(lReference.Kind, 'routine') or
         (not ActiveDecisionHasMember(aFacts, aEditDecisions, lReference.Name)) then
@@ -4868,6 +5388,79 @@ begin
     lBodyRange.StartLine) then
   begin
     aReason := 'receiver-member-owner-conflict';
+    Exit;
+  end;
+  // A value member must have an actual source edit, not just a successful name lookup.
+  // Scan each anonymous declaration once per body, rather than per reference.
+  lAnonymousTagNames := AnonymousRecordTagNames(aFacts, aEditDecisions, aLineCache,
+    lQualifiedFieldTags, lAnonymousNames);
+  for lReference in aBinding.References do
+  begin
+    if (not ReferenceInsideRange(lReference, lBodyRange)) or
+      ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
+      Continue;
+    if IsReceiverValueMemberReference(lReference) then
+    begin
+      lQualification := QualifierForReference(aFacts, aBinding, aEditDecisions,
+        lReference, lQualifierText);
+      if lQualification = TFinalReferenceQualification.RetainedMember then
+        Continue;
+      lOffset := ReferenceRelativeOffset(lBodyRange, lLines, aReplacementText, lReference,
+        lLineBreak);
+      if (lQualification <> TFinalReferenceQualification.QualifiedMember) or
+        (not BodyEditsQualifyReference(lBodyEdits, lOffset, lReference.Name)) then
+      begin
+        aReason := 'receiver-member-unqualified';
+        Exit;
+      end;
+    end;
+    // A named declaration or selector DeclaredId alone is not value-member coverage.
+    // Verified member/helper references keep their path. A bare unverified name
+    // needs collision evidence from the receiver/alias chain, or the project set
+    // when that chain cannot be verified (including indexed receiver fallbacks).
+    if MatchText(lReference.Classification, ['lexical', 'unresolved', 'unsupported']) then
+    begin
+      lOffset := ReferenceRelativeOffset(lBodyRange, lLines, aReplacementText, lReference,
+        lLineBreak);
+      if not BodyEditsQualifyReference(lBodyEdits, lOffset, lReference.Name) then
+        for lDecision in aEditDecisions do
+          if (TypeIdentityHasVerifiedOrigin(lDecision.ReceiverIdentity) or
+            PlannerResolvesNamedReceiverType(aFacts, lDecision.ReceiverType, aLineCache)) and
+            aFacts.LookupIndex.UnverifiedValueMemberMayApply(lDecision.ReceiverType,
+              lReference.Name, lDecision.ReceiverIdentity) then
+          begin
+            aReason := 'TYPE_VALUE_MEMBERS_UNVERIFIED';
+            Exit;
+          end;
+    end;
+    if MatchText(lReference.Classification, ['lexical', 'unresolved', 'unsupported']) and
+      (MatchText('*', lAnonymousTagNames) or
+        MatchText(lReference.Name, lAnonymousTagNames)) then
+    begin
+      // DS-731 option (b): preserve inventory-qualified no-homonym plans (num_rec),
+      // but never emit a bare lexical/global homonym of an anonymous-record tag.
+      // An anchored field receiver may already have its exact tag qualification.
+      lOffset := ReferenceRelativeOffset(lBodyRange, lLines, aReplacementText, lReference,
+        lLineBreak);
+      lQualifierText := '';
+      for var lEdit in lBodyEdits do
+        if (lEdit.Offset = lOffset) and SameText(lEdit.ExpectedText, lReference.Name) then
+          lQualifierText := lEdit.ReplacementText;
+      if MatchText('*', lAnonymousTagNames) or
+        (ReferenceShouldRemainUnchanged(aFacts, aBinding, lReference) and
+          (not MatchText(lQualifierText, lQualifiedFieldTags))) or
+        (not BodyEditsQualifyReference(lBodyEdits, lOffset, lReference.Name)) then
+      begin
+        aReason := 'TYPE_VALUE_MEMBERS_UNVERIFIED';
+        Exit;
+      end;
+    end;
+  end;
+  if BodyHasPartiallyVerifiedValueReceiver(aFacts, aBinding, aNestedReplacements, aEditDecisions,
+    lBodyRange, lLines, aReplacementText, lLineBreak, lBodyEdits, lAnonymousTagNames,
+    lAnonymousNames, aLineCache, aBodyFacts) then
+  begin
+    aReason := 'RECEIVER_MEMBERS_PARTIALLY_VERIFIED';
     Exit;
   end;
   if not ApplyFinalBodyEdits(lBodyEdits, lProtectedSpans, aReplacementText) then
@@ -5137,7 +5730,8 @@ function TryRenderFinalReplacementText(const aFacts: TRemoveWithPlanFacts;
   aTempDecisions: TArray<TFinalSelectorDecision>;
   const aNestedReplacements: TArray<TFinalNestedReplacement>;
   const aLineCache: TDelphiSemanticSourceContextCache; out aReplacementText,
-  aReason: string; out aReplacementRange: TDelphiSemanticRemoveWithSourceRange): Boolean;
+  aReason: string; out aReplacementRange: TDelphiSemanticRemoveWithSourceRange;
+  out aBodyFacts: TFinalReceiverBodyFacts): Boolean;
 var
   lBodyText: string;
   lControlledStatement: Boolean;
@@ -5167,7 +5761,7 @@ begin
     lTrimmedBeforeOuterElse := True;
   if not PrepareFinalBodyText(aFacts, aBinding, aVisibleDecisions,
     aValidationDecisions, aNestedReplacements, aLineCache, lControlledStatement,
-    lBodyText, aReason) then
+    lBodyText, aReason, aBodyFacts) then
   begin
     Exit;
   end;
@@ -5308,8 +5902,8 @@ function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDelphiSemanticSourceContextCache;
-  const aInheritedDecisions: TArray<TFinalSelectorDecision>):
-  TDelphiSemanticRemoveWithFinalStatement; overload; forward;
+  const aInheritedDecisions: TArray<TFinalSelectorDecision>;
+  out aBodyFacts: TFinalReceiverBodyFacts): TDelphiSemanticRemoveWithFinalStatement; overload; forward;
 
 function SymbolUnsupportedReasonForName(const aFacts: TRemoveWithPlanFacts;
   const aName: string): string;
@@ -5668,6 +6262,7 @@ function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aLineCache: TDelphiSemanticSourceContextCache):
   TDelphiSemanticRemoveWithFinalStatement; overload;
 var
+  lBodyFacts: TFinalReceiverBodyFacts;
   lBindingTree: TFinalBindingTree;
   lBindingList: TArray<TDelphiSemanticWithBinding>;
   lBindingSource: TArrayRemoveWithPlanBindingSource;
@@ -5688,7 +6283,7 @@ begin
   try
     Result := BuildFinalStatement(aFacts, lBindingSource, lBindingTree, 0,
       aStatementId, lCandidateEdits, aReservedNames, aLineCache,
-      lInheritedDecisions);
+      lInheritedDecisions, lBodyFacts);
   finally
     lBindingSource.Free;
   end;
@@ -5717,16 +6312,18 @@ function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aCandidateEdits: TArray<TDelphiSemanticRemoveWithEdit>;
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDelphiSemanticSourceContextCache;
-  const aInheritedDecisions: TArray<TFinalSelectorDecision>):
-  TDelphiSemanticRemoveWithFinalStatement; overload;
+  const aInheritedDecisions: TArray<TFinalSelectorDecision>;
+  out aBodyFacts: TFinalReceiverBodyFacts): TDelphiSemanticRemoveWithFinalStatement; overload;
 var
   lChildStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lChildBodyFacts: TFinalReceiverBodyFacts;
   lDecision: TFinalSelectorDecision;
   lDecisions: TArray<TFinalSelectorDecision>;
   lEdit: TDelphiSemanticRemoveWithFinalTextEdit;
   lIndex: Integer;
   lNestedReplacement: TFinalNestedReplacement;
   lNestedReplacements: TArray<TFinalNestedReplacement>;
+  lValueReference: TDelphiSemanticBoundReference;
   lReplacementRange: TDelphiSemanticRemoveWithSourceRange;
   lReason: string;
   lReplacementText: string;
@@ -5746,6 +6343,7 @@ var
   lBinding: TDelphiSemanticWithBinding;
   lSelector: TDelphiSemanticWithSelectorBinding;
 begin
+  aBodyFacts := Default(TFinalReceiverBodyFacts);
   lBinding := aBindingSource.BindingByIndex(aBindingIndex);
   Result := Default(TDelphiSemanticRemoveWithFinalStatement);
   Result.FileName := lBinding.FileName;
@@ -5877,7 +6475,7 @@ begin
   begin
     lChildStatement := BuildFinalStatement(aFacts, aBindingSource, aBindingTree,
       lChildIndex, FinalStatementId(lChildIndex + 1), aCandidateEdits,
-      aReservedNames, aLineCache, lVisibleDecisions);
+      aReservedNames, aLineCache, lVisibleDecisions, lChildBodyFacts);
     if not SameText(lChildStatement.Status, 'planned') then
     begin
       RollbackReservedTempNamesForDecisions(aReservedNames,
@@ -5900,6 +6498,7 @@ begin
     end;
     lNestedReplacement.Range := lChildStatement.Range;
     lNestedReplacement.ReplacementText := lChildStatement.ReplacementText;
+    lNestedReplacement.ReceiverBodyFacts := lChildBodyFacts;
     lIndex := Length(lNestedReplacements);
     SetLength(lNestedReplacements, lIndex + 1);
     lNestedReplacements[lIndex] := lNestedReplacement;
@@ -5914,7 +6513,7 @@ begin
     lSelectorDecisions);
   if not TryRenderFinalReplacementText(aFacts, lBinding, lVisibleDecisions,
     lDecisions, lSelectorDecisions, lNestedReplacements, aLineCache,
-    lReplacementText, lReason, lReplacementRange) then
+    lReplacementText, lReason, lReplacementRange, aBodyFacts) then
   begin
     RollbackReservedTempNamesForDecisions(aReservedNames,
       lBinding.RoutineName, lSelectorDecisions);
@@ -5954,6 +6553,21 @@ begin
     Exit;
   end;
 
+  for lValueReference in lBinding.References do
+    if SameText(lValueReference.Classification, 'unsupported') and
+      MatchText(lValueReference.ReasonCode, ['TYPE_VALUE_MEMBERS_UNVERIFIED',
+      'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED']) then
+    begin
+      RollbackReservedTempNamesForDecisions(aReservedNames,
+        lBinding.RoutineName, lSelectorDecisions);
+      RollbackReservedTempNamesForFinalTemps(aReservedNames,
+        lBinding.RoutineName, Result.Temps);
+      Result.Temps := nil;
+      Result.Status := 'skipped';
+      Result.Reason := ReceiverMemberMissReason(lValueReference, lBinding, aLineCache);
+      Result.SafetyReason := 'TYPE_VALUE_MEMBERS_UNVERIFIED';
+      Exit;
+    end;
   Result.Status := 'planned';
   Result.ReplacementText := lReplacementText;
   lOwnTempIndex := 0;
@@ -6612,6 +7226,21 @@ begin
   end;
 end;
 
+procedure AddPartiallyVerifiedDescendants(var aPlan: TDelphiSemanticRemoveWithPlan;
+  const aBindingSource: TRemoveWithPlanBindingSource;
+  const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer);
+var
+  lChildIndex: Integer;
+begin
+  for lChildIndex in aBindingTree.ChildIndexes[aBindingIndex] do
+  begin
+    AddFinalStatement(aPlan, BuildSkippedFinalStatement(
+      aBindingSource.BindingByIndex(lChildIndex), FinalStatementId(lChildIndex + 1),
+      'RECEIVER_MEMBERS_PARTIALLY_VERIFIED', 'RECEIVER_MEMBERS_PARTIALLY_VERIFIED'));
+    AddPartiallyVerifiedDescendants(aPlan, aBindingSource, aBindingTree, lChildIndex);
+  end;
+end;
+
 procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aFacts: TRemoveWithPlanFacts;
   const aBindingSource: TRemoveWithPlanBindingSource;
@@ -6627,6 +7256,7 @@ procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
 var
   lChildIndex: Integer;
   lChildInheritedDecisions: TArray<TFinalSelectorDecision>;
+  lBodyFacts: TFinalReceiverBodyFacts;
   lDecision: TFinalSelectorDecision;
   lIndex: Integer;
   lBinding: TDelphiSemanticWithBinding;
@@ -6643,7 +7273,7 @@ begin
   end else
     lStatement := BuildFinalStatement(aFacts, aBindingSource, aBindingTree,
       aBindingIndex, FinalStatementId(aBindingIndex + 1), aCandidateEdits,
-      aReservedNames, aLineCache, aInheritedDecisions);
+      aReservedNames, aLineCache, aInheritedDecisions, lBodyFacts);
   // First compute the complete ordinary DTO, including nested rewrites.
   // Activity changes only an otherwise applicable result; existing refusals
   // retain exactly their own Status, Reason and SafetyReason.
@@ -6672,6 +7302,12 @@ begin
   AddFinalStatement(aPlan, lStatement);
   if SameText(lStatement.Status, 'planned') then
     Exit;
+
+  if SameText(lStatement.SafetyReason, 'RECEIVER_MEMBERS_PARTIALLY_VERIFIED') then
+  begin
+    AddPartiallyVerifiedDescendants(aPlan, aBindingSource, aBindingTree, aBindingIndex);
+    Exit;
+  end;
 
   lChildInheritedDecisions := Copy(aInheritedDecisions);
   if SameText(lStatement.Reason, 'selector-type-not-resolved') and
@@ -7129,6 +7765,9 @@ begin
           if SameText(lEdit.Kind, 'remove-with-candidate') then
             for lFinalStatement in Result.FinalStatements do
               if (SameText(lFinalStatement.Reason, 'receiver-member-owner-conflict') or
+                SameText(lFinalStatement.Reason, 'receiver-member-unqualified') or
+                SameText(lFinalStatement.SafetyReason, 'TYPE_VALUE_MEMBERS_UNVERIFIED') or
+                SameText(lFinalStatement.SafetyReason, 'RECEIVER_MEMBERS_PARTIALLY_VERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'RECORD_HELPER_MEMBERS_UNVERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'INACTIVE_NESTED_WITH_SHADOW')) and
                 (lFinalStatement.SemanticId = lEdit.StatementId) then
@@ -7243,6 +7882,19 @@ begin
   lPlanFacts.UseArchitectureStableRoutineEndTrim := True;
   lBindingSource := nil;
   try
+    lPlanFacts.ScanSources := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+    lPlanFacts.ScanActivityKnown := TDictionary<string, Boolean>.Create(
+      TFastCaseAwareComparer.OrdinalIgnoreCase);
+    lPlanFacts.ScanLines := TDictionary<string, TArray<string>>.Create(
+      TFastCaseAwareComparer.OrdinalIgnoreCase);
+    for lModel in aFacts.UnitModels do
+    begin
+      lPlanFacts.ScanActivityKnown.AddOrSetValue(lModel.FileName,
+        AnonymousRecordActivityIsKnown(lModel.SourceText, lModel.VerifiedActiveSourceText));
+      lPlanFacts.ScanSources.AddOrSetValue(lModel.FileName,
+        AnonymousRecordScanSource(lModel.SourceText,
+          lModel.VerifiedActiveSourceText));
+    end;
     lPlanFacts.LookupIndex := TPlannerLookupMemo.Create;
     lPlanFacts.LookupIndex.Initialize(aFacts.LookupIndex);
     lPlanFacts.UnitVisibility := TRemoveWithUnitVisibility.Create(aFacts.UnitModels);
@@ -7274,6 +7926,9 @@ begin
           Break;
         end;
   finally
+    lPlanFacts.ScanActivityKnown.Free;
+    lPlanFacts.ScanLines.Free;
+    lPlanFacts.ScanSources.Free;
     lPlanFacts.UnitVisibility.Free;
     lBindingSource.Free;
     lPlanFacts.LookupIndex.Free;
@@ -7625,6 +8280,21 @@ begin
     try
       lPlanFacts.ContextFingerprint := aSnapshot.ExactTextOf(
         aSnapshot.RemoveWithPlanningContextFingerprintId);
+      lPlanFacts.ScanSources := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+      lPlanFacts.ScanActivityKnown := TDictionary<string, Boolean>.Create(
+        TFastCaseAwareComparer.OrdinalIgnoreCase);
+      lPlanFacts.ScanLines := TDictionary<string, TArray<string>>.Create(
+        TFastCaseAwareComparer.OrdinalIgnoreCase);
+      for i := 0 to aSnapshot.UnitCount - 1 do
+      begin
+        lUnit := aSnapshot.UnitByIndex(i);
+        lPlanFacts.ScanActivityKnown.AddOrSetValue(aSnapshot.TextOf(lUnit.FileNameId),
+          AnonymousRecordActivityIsKnown(aSnapshot.ExactTextOf(lUnit.SourceTextId),
+            aSnapshot.ExactTextOf(lUnit.VerifiedActiveSourceTextId)));
+        lPlanFacts.ScanSources.AddOrSetValue(aSnapshot.TextOf(lUnit.FileNameId),
+          AnonymousRecordScanSource(aSnapshot.ExactTextOf(lUnit.SourceTextId),
+            aSnapshot.ExactTextOf(lUnit.VerifiedActiveSourceTextId)));
+      end;
       lPlanFacts.LookupIndex := TPlannerLookupMemo.Create;
       lPlanFacts.LookupIndex.Initialize(
         aSnapshot.RemoveWithPlanningLookupIndex);
@@ -7646,6 +8316,9 @@ begin
     if (lSafetyReason <> '') and SameText(Result.Status, 'planned') then
       Result.Diagnostic := lSafetyReason;
   finally
+    lPlanFacts.ScanActivityKnown.Free;
+    lPlanFacts.ScanLines.Free;
+    lPlanFacts.ScanSources.Free;
     lBindingSource.Free;
     lPlanFacts.LookupIndex.Free;
   end;

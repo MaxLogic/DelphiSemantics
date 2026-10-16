@@ -3431,8 +3431,9 @@ begin
         end;
       lUnit := TUnitSnapshot.Create(TSemanticUnitId(i + 1),
         lBuilder.Strings.Intern(SnapshotFullPath(lModel.FileName)),
-        lBuilder.Strings.Intern(lModel.UnitName));
+        lBuilder.Strings.Intern(lModel.UnitName), lBuilder.ExactStrings.Intern(lModel.SourceText));
       try
+        lUnit.SetVerifiedActiveSourceTextId(lBuilder.ExactStrings.Intern(lModel.VerifiedActiveSourceText));
         lUnit.SetScopeModelMetadata(lBuilder.Strings.Intern(lModel.ScopeModelStatus),
           lBuilder.Strings.Intern(lModel.ScopeModelVersion),
           lBuilder.Strings.Intern(lDiagnosticText), lModel.RejectedDeclarationCount);

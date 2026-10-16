@@ -262,6 +262,8 @@ type
     WithStatements: TArray<TDelphiSemanticWithStatement>;
     Diagnostics: TArray<TDelphiSemanticModelDiagnostic>;
     UnindexedHelpers: TArray<TDelphiSemanticUnindexedHelperFact>;
+    // DS-731: constants and variant tags bind in WITH, separately from ordinary Members.
+    TypeValueMembers: TArray<TDelphiSemanticMember>;
     Metrics: TDelphiSemanticUnitModelMetrics;
     ScopeModelStatus: string;
     ScopeModelVersion: string;

@@ -172,6 +172,42 @@ type
     function Metrics: TDelphiSemanticRemoveWithLookupMetrics;
   end;
 
+  // The planner needs value coverage, not a second semantic model graph.
+  TDelphiSemanticValueEvidenceUnit = record
+    UnitName: string;
+    FileName: string;
+    SourceText: string;
+    VerifiedActiveSourceText: string;
+    ScopeModelStatus: string;
+    ScopeModelVersion: string;
+    RejectedDeclarationCount: Integer;
+  end;
+
+  TDelphiSemanticValueEvidenceOwner = record
+    DeclaredId: string;
+    UnitName: string;
+    FileName: string;
+    Name: string;
+    Complete: Boolean;
+    TerminalVerified: Boolean;
+    NextDeclaredId: string;
+    ValueNames: TArray<string>;
+  end;
+
+  TDelphiSemanticValueEvidenceQuery = record
+    Name: string;
+    DeclaredId: string;
+  end;
+
+  TDelphiSemanticValueMemberEvidence = record
+    Available: Boolean;
+    Units: TArray<TDelphiSemanticValueEvidenceUnit>;
+    Owners: TArray<TDelphiSemanticValueEvidenceOwner>;
+    Queries: TArray<TDelphiSemanticValueEvidenceQuery>;
+    ValueNames: TArray<string>;
+    UnverifiedOwnerKeys: TArray<string>;
+  end;
+
   TDelphiSemanticRemoveWithLookupIndex = record
   private
     fData: IDelphiSemanticRemoveWithLookupIndexData;
@@ -195,6 +231,14 @@ type
       TArray<TDelphiSemanticInventorySymbol>;
     function Metrics: TDelphiSemanticRemoveWithLookupMetrics;
     function ActivityMetrics: TDelphiSemanticRemoveWithLookupActivityMetrics;
+    function UnverifiedValueMemberMayApply(const aOwnerType, aName: string): Boolean; overload;
+    function UnverifiedValueMemberMayApply(const aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean; overload;
+    function UnverifiedReceiverMemberMayApply(const aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    procedure AttachValueMemberModels(const aModels: TArray<TDelphiSemanticUnitModel>);
+    procedure AttachValueMemberEvidence(const aEvidence: TDelphiSemanticValueMemberEvidence);
+    function ExportValueMemberEvidence: TDelphiSemanticValueMemberEvidence;
   end;
 
   TDelphiSemanticProjectWithBindingFacts = record
@@ -247,10 +291,36 @@ type
     function ActivityMetrics: TDelphiSemanticRemoveWithLookupActivityMetrics;
   end;
 
+  IDelphiSemanticRemoveWithValueEvidence = interface
+    ['{AF3CBB02-1895-4585-9549-01FB130F53D8}']
+    function UnverifiedReceiverMemberMayApply(const aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function UnverifiedValueMemberMayApply(const aOwnerType, aName: string): Boolean; overload;
+    function UnverifiedValueMemberMayApply(const aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean; overload;
+  end;
+
+  IDelphiSemanticRemoveWithModelEvidence = interface
+    ['{1795242E-015B-4CEB-BABF-BD160B88C083}']
+    procedure AttachValueMemberModels(const aModels: TArray<TDelphiSemanticUnitModel>);
+    procedure AttachValueMemberEvidence(const aEvidence: TDelphiSemanticValueMemberEvidence);
+    function ExportValueMemberEvidence: TDelphiSemanticValueMemberEvidence;
+  end;
+
+  TWithBindingProjectMemberIndex = class;
+
   TDelphiSemanticRemoveWithLookupIndexData = class(TInterfacedObject,
     IDelphiSemanticRemoveWithLookupIndexData,
-    IDelphiSemanticRemoveWithLookupActivityData)
+    IDelphiSemanticRemoveWithLookupActivityData, IDelphiSemanticRemoveWithValueEvidence,
+    IDelphiSemanticRemoveWithModelEvidence)
   private
+    fValueMemberModels: TArray<TDelphiSemanticUnitModel>;
+    fValueEvidence: TDelphiSemanticValueMemberEvidence;
+    fValueEvidenceLoaded: Boolean;
+    fValueOwners: TDictionary<string, Integer>;
+    fValueQueries: TDictionary<string, string>;
+    fValueOwnerNames: THashSet<string>;
+    fValueMemberNames: THashSet<string>;
     fActivityMetrics: TDelphiSemanticRemoveWithLookupActivityMetrics;
     fDeclarationsByName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
     fMembersByOwnerName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
@@ -264,6 +334,9 @@ type
     fSymbolsByOwnerType: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
     fUnitsAndGlobalsByName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
     fUnitsAndGlobalsByPrefix: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+    procedure EnsureValueMemberEvidence;
+    function UnverifiedMemberMayApply(const aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity; const aValueMembersOnly: Boolean): Boolean;
     class function OwnerNameKey(const aOwnerName, aName: string): string; static;
     class function IsDirectMemberSymbolClass(const aSymbolClass: string): Boolean; static;
     class procedure AddSymbolToMap(const aMap: TDictionary<string,
@@ -302,6 +375,14 @@ type
       TArray<TDelphiSemanticInventorySymbol>;
     function Metrics: TDelphiSemanticRemoveWithLookupMetrics;
     function ActivityMetrics: TDelphiSemanticRemoveWithLookupActivityMetrics;
+    function UnverifiedValueMemberMayApply(const aOwnerType, aName: string): Boolean; overload;
+    function UnverifiedValueMemberMayApply(const aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean; overload;
+    function UnverifiedReceiverMemberMayApply(const aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    procedure AttachValueMemberModels(const aModels: TArray<TDelphiSemanticUnitModel>);
+    procedure AttachValueMemberEvidence(const aEvidence: TDelphiSemanticValueMemberEvidence);
+    function ExportValueMemberEvidence: TDelphiSemanticValueMemberEvidence;
   end;
 
   TReceiverLookupSite = record
@@ -338,6 +419,7 @@ type
     fLookupIndex: TDelphiSemanticRemoveWithLookupIndex;
     fTypeIndex: TDelphiSemanticTypeIdentityIndex;
     fModels: TArray<TDelphiSemanticUnitModel>;
+    fValueTypeIds: TArray<TDelphiSemanticGraphTypeId>;
     fDeclarationCandidates: TObjectDictionary<string, TList<TIndexedDeclarationCandidate>>;
     fDeclarationModels: TDictionary<string, TArray<TDelphiSemanticUnitModel>>;
     fByUnitOwnerName: TDictionary<string, TList<TBoundMemberResolution>>;
@@ -354,6 +436,22 @@ type
     fSafetyModelsByUnit: TDictionary<string, TArray<Integer>>;
     fSafetyProfileTypes: TDictionary<string, Byte>;
     fUnindexedHelperModelIndexes: TArray<Integer>;
+    fValueMembers: TDictionary<string, TArray<TBoundMemberResolution>>;
+    fValueVisibility: TDictionary<string, TArray<string>>;
+    fValueMemberNames: TDictionary<string, Byte>;
+    fUnverifiedValueOwners: TDictionary<string, Byte>;
+    fHelperValueNames: TDictionary<string, Byte>;
+    procedure BuildValueMemberIndex;
+    function ResolveValueEvidenceType(const aName: string;
+      const aContext: TDelphiSemanticTypeIdentity): TDelphiSemanticTypeLookupResult;
+    function ExportValueMemberEvidence: TDelphiSemanticValueMemberEvidence;
+    function TryResolveReceiverValueMember(const aModel: TDelphiSemanticUnitModel;
+      const aSite: TReceiverLookupSite; const aSelector: TDelphiSemanticWithSelectorBinding;
+      const aName, aStopDeclaredId: string; out aResult: TBoundMemberResolution): Boolean;
+    function TryResolveShadowingValueMember(const aModel: TDelphiSemanticUnitModel;
+      const aSite: TReceiverLookupSite; const aSelector: TDelphiSemanticWithSelectorBinding;
+      const aName: string; const aDirect: TBoundMemberResolution;
+      out aResult: TBoundMemberResolution): Boolean;
     function UnindexedRecordHelperMayApply(const aSite: TReceiverLookupSite;
       const aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
     procedure BuildMemberSafetyDiagnostics;
@@ -593,6 +691,11 @@ var
   lTypeName: string;
 begin
   inherited Create;
+  fValueOwners := TDictionary<string, Integer>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fValueQueries := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fValueOwnerNames := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fValueMemberNames := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  AttachValueMemberModels(aModels);
   fDeclarationsByName := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fMembersByOwnerName := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
@@ -735,6 +838,10 @@ begin
   fRoutineSymbolsByName.Free;
   fRoutineMisses.Free;
   fPointerTargetMisses.Free;
+  fValueOwners.Free;
+  fValueQueries.Free;
+  fValueOwnerNames.Free;
+  fValueMemberNames.Free;
   fPointerTargetByType.Free;
   fMemberMisses.Free;
   fMembersByOwnerName.Free;
@@ -969,6 +1076,254 @@ begin
   Result := fData.Metrics;
 end;
 
+function TDelphiSemanticRemoveWithLookupIndex.UnverifiedValueMemberMayApply(
+  const aOwnerType, aName: string): Boolean;
+begin
+  Result := UnverifiedValueMemberMayApply(aOwnerType, aName,
+    Default(TDelphiSemanticTypeIdentity));
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.UnverifiedValueMemberMayApply(
+  const aOwnerType, aName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+var
+  lEvidence: IDelphiSemanticRemoveWithValueEvidence;
+begin
+  // A foreign lookup producer without value evidence cannot prove absence.
+  if not Supports(fData, IDelphiSemanticRemoveWithValueEvidence, lEvidence) then
+    Exit(True);
+  Result := lEvidence.UnverifiedValueMemberMayApply(aOwnerType, aName, aOwnerIdentity);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.UnverifiedReceiverMemberMayApply(
+  const aOwnerType, aName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+var
+  lEvidence: IDelphiSemanticRemoveWithValueEvidence;
+begin
+  if not Supports(fData, IDelphiSemanticRemoveWithValueEvidence, lEvidence) then
+    Exit(True);
+  Result := lEvidence.UnverifiedReceiverMemberMayApply(aOwnerType, aName, aOwnerIdentity);
+end;
+
+procedure TDelphiSemanticRemoveWithLookupIndexData.AttachValueMemberModels(
+  const aModels: TArray<TDelphiSemanticUnitModel>);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+begin
+  // Evidence is independent of the inventory maps and their persisted identities.
+  fValueEvidence := Default(TDelphiSemanticValueMemberEvidence);
+  fValueEvidenceLoaded := False;
+  fValueOwners.Clear;
+  fValueQueries.Clear;
+  fValueOwnerNames.Clear;
+  fValueMemberModels := Copy(aModels);
+  fValueMemberNames.Clear;
+  for lModel in aModels do
+  begin
+    for lMember in lModel.TypeValueMembers do
+      fValueMemberNames.Add(lMember.Name);
+    for lDeclaration in lModel.Declarations do
+      if SameText(lDeclaration.ScopeKind, 'type') and
+        MatchText(lDeclaration.Kind, ['const', 'typed-const']) then
+        fValueMemberNames.Add(lDeclaration.Name);
+  end;
+end;
+
+procedure TDelphiSemanticRemoveWithLookupIndex.AttachValueMemberModels(
+  const aModels: TArray<TDelphiSemanticUnitModel>);
+var
+  lEvidence: IDelphiSemanticRemoveWithModelEvidence;
+begin
+  if not Supports(fData, IDelphiSemanticRemoveWithModelEvidence, lEvidence) then
+    raise EInvalidOperation.Create('Remove-with lookup cannot attach model evidence.');
+  lEvidence.AttachValueMemberModels(aModels);
+end;
+
+procedure TDelphiSemanticRemoveWithLookupIndexData.EnsureValueMemberEvidence;
+var
+  lIndex: TWithBindingProjectMemberIndex;
+begin
+  if fValueEvidenceLoaded or (Length(fValueMemberModels) = 0) then
+    Exit;
+  lIndex := TWithBindingProjectMemberIndex.Create(fValueMemberModels, nil,
+    Default(TDelphiSemanticRemoveWithLookupIndex));
+  try
+    AttachValueMemberEvidence(lIndex.ExportValueMemberEvidence);
+  finally
+    lIndex.Free;
+  end;
+end;
+
+procedure TDelphiSemanticRemoveWithLookupIndexData.AttachValueMemberEvidence(
+  const aEvidence: TDelphiSemanticValueMemberEvidence);
+var
+  i: Integer;
+  lName: string;
+  lOwner: TDelphiSemanticValueEvidenceOwner;
+  lQuery: TDelphiSemanticValueEvidenceQuery;
+begin
+  fValueEvidenceLoaded := False;
+  fValueMemberModels := nil;
+  fValueOwners.Clear;
+  fValueQueries.Clear;
+  fValueOwnerNames.Clear;
+  fValueMemberNames.Clear;
+  fValueEvidence := aEvidence;
+  fValueEvidence.Units := Copy(aEvidence.Units);
+  fValueEvidence.Owners := Copy(aEvidence.Owners);
+  fValueEvidence.Queries := Copy(aEvidence.Queries);
+  fValueEvidence.ValueNames := Copy(aEvidence.ValueNames);
+  fValueEvidence.UnverifiedOwnerKeys := Copy(aEvidence.UnverifiedOwnerKeys);
+  for i := 0 to High(aEvidence.Owners) do
+  begin
+    lOwner := aEvidence.Owners[i];
+    fValueEvidence.Owners[i].ValueNames := Copy(lOwner.ValueNames);
+    fValueOwners.Add(lOwner.DeclaredId, i);
+    for lName in lOwner.ValueNames do
+      fValueOwnerNames.Add(lOwner.DeclaredId + #31 + lName);
+  end;
+  for lQuery in aEvidence.Queries do
+    fValueQueries.Add(lQuery.Name, lQuery.DeclaredId);
+  for lName in aEvidence.ValueNames do
+    fValueMemberNames.Add(lName);
+  // A foreign producer cannot turn a missing relation into an absence proof.
+  for lOwner in aEvidence.Owners do
+  begin
+    if lOwner.DeclaredId = '' then
+      raise EArgumentException.Create('Value evidence owner identity is missing.');
+    if (lOwner.NextDeclaredId <> '') and (not fValueOwners.ContainsKey(lOwner.NextDeclaredId)) then
+      raise EArgumentException.Create('Value evidence lineage owner is missing.');
+    for lName in lOwner.ValueNames do
+      if not fValueMemberNames.Contains(lName) then
+        raise EArgumentException.Create('Value evidence project name witness is missing.');
+  end;
+  for lQuery in aEvidence.Queries do
+    if not fValueOwners.ContainsKey(lQuery.DeclaredId) then
+      raise EArgumentException.Create('Value evidence query owner is missing.');
+  fValueEvidenceLoaded := True;
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.ExportValueMemberEvidence:
+  TDelphiSemanticValueMemberEvidence;
+var
+  i: Integer;
+begin
+  EnsureValueMemberEvidence;
+  if not fValueEvidenceLoaded then
+    Exit(Default(TDelphiSemanticValueMemberEvidence));
+  Result := fValueEvidence;
+  Result.Units := Copy(fValueEvidence.Units);
+  Result.Owners := Copy(fValueEvidence.Owners);
+  Result.Queries := Copy(fValueEvidence.Queries);
+  Result.ValueNames := Copy(fValueEvidence.ValueNames);
+  Result.UnverifiedOwnerKeys := Copy(fValueEvidence.UnverifiedOwnerKeys);
+  for i := 0 to High(Result.Owners) do
+    Result.Owners[i].ValueNames := Copy(fValueEvidence.Owners[i].ValueNames);
+end;
+
+procedure TDelphiSemanticRemoveWithLookupIndex.AttachValueMemberEvidence(
+  const aEvidence: TDelphiSemanticValueMemberEvidence);
+var
+  lEvidence: IDelphiSemanticRemoveWithModelEvidence;
+begin
+  if not Supports(fData, IDelphiSemanticRemoveWithModelEvidence, lEvidence) then
+    raise EInvalidOperation.Create('Remove-with lookup cannot attach value evidence.');
+  lEvidence.AttachValueMemberEvidence(aEvidence);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.ExportValueMemberEvidence:
+  TDelphiSemanticValueMemberEvidence;
+var
+  lEvidence: IDelphiSemanticRemoveWithModelEvidence;
+begin
+  if not Supports(fData, IDelphiSemanticRemoveWithModelEvidence, lEvidence) then
+    Exit(Default(TDelphiSemanticValueMemberEvidence));
+  Result := lEvidence.ExportValueMemberEvidence;
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.UnverifiedValueMemberMayApply(
+  const aOwnerType, aName: string): Boolean;
+begin
+  Result := UnverifiedValueMemberMayApply(aOwnerType, aName,
+    Default(TDelphiSemanticTypeIdentity));
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.UnverifiedValueMemberMayApply(
+  const aOwnerType, aName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+begin
+  Result := UnverifiedMemberMayApply(aOwnerType, aName, aOwnerIdentity, True);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.UnverifiedReceiverMemberMayApply(
+  const aOwnerType, aName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+begin
+  Result := UnverifiedMemberMayApply(aOwnerType, aName, aOwnerIdentity, False);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.UnverifiedMemberMayApply(
+  const aOwnerType, aName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity;
+  const aValueMembersOnly: Boolean): Boolean;
+var
+  i: Integer;
+  lDeclaredId: string;
+  lOwner: TDelphiSemanticValueEvidenceOwner;
+  lRemaining: Integer;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbols: TList<TDelphiSemanticInventorySymbol>;
+begin
+  // An inventory without an explicit evidence witness cannot prove absence.
+  if ((not fValueEvidenceLoaded) and (Length(fValueMemberModels) = 0)) or
+    (fValueEvidenceLoaded and (not fValueEvidence.Available)) then
+    Exit(True);
+  // Retain the cheap model-route fast path before constructing the evidence view.
+  if aValueMembersOnly and (not fValueMemberNames.Contains(aName)) then
+    Exit(False);
+  EnsureValueMemberEvidence;
+  if not fValueEvidence.Available then
+    Exit(True);
+  if aOwnerIdentity.DeclaredId.Value <> '' then
+  begin
+    // A verified receiver selects its own declaration even when its name is ambiguous.
+    // Both model and imported routes share these owner rows and lineage traversal.
+    lDeclaredId := aOwnerIdentity.DeclaredId.Value;
+    if not fValueOwners.TryGetValue(lDeclaredId, i) then
+      Exit(True);
+    lOwner := fValueEvidence.Owners[i];
+    if (aOwnerIdentity.UnitName = '') or (aOwnerIdentity.Name = '') or
+      (aOwnerIdentity.SourceRange.FileName = '') or
+      (not SameText(lOwner.UnitName, aOwnerIdentity.UnitName)) or
+      (not SameText(lOwner.Name, aOwnerIdentity.Name)) or
+      (not SameText(lOwner.FileName, aOwnerIdentity.SourceRange.FileName)) then
+      Exit(True);
+  end else if not fValueQueries.TryGetValue(aOwnerType.Trim, lDeclaredId) then
+    Exit(True);
+  lRemaining := Length(fValueEvidence.Owners);
+  while (lRemaining > 0) and fValueOwners.TryGetValue(lDeclaredId, i) do
+  begin
+    Dec(lRemaining);
+    lOwner := fValueEvidence.Owners[i];
+    if (not lOwner.Complete) or fValueOwnerNames.Contains(lDeclaredId + #31 + aName) then
+      Exit(True);
+    if (not aValueMembersOnly) and
+      fMembersByOwnerName.TryGetValue(OwnerNameKey(lOwner.Name, aName), lSymbols) then
+      for lSymbol in lSymbols do
+      begin
+        // Inventory may add a name the binder could not verify. It can require
+        // refusal, never authorize qualification or prove member absence.
+        if (lSymbol.OwnerIdentity.DeclaredId.Value = lDeclaredId) or
+          (SameText(lSymbol.UnitName, lOwner.UnitName) and
+          SameText(lSymbol.FileName, lOwner.FileName)) then
+          Exit(True);
+      end;
+    if lOwner.NextDeclaredId = '' then
+      Exit(not lOwner.TerminalVerified);
+    lDeclaredId := lOwner.NextDeclaredId;
+  end;
+  // Missing owners and cycles are unverified coverage.
+  Result := True;
+end;
+
 function TDelphiSemanticRemoveWithLookupIndex.ActivityMetrics:
   TDelphiSemanticRemoveWithLookupActivityMetrics;
 var
@@ -1198,6 +1553,7 @@ constructor TWithBindingProjectMemberIndex.Create(
   const aLookupIndex: TDelphiSemanticRemoveWithLookupIndex);
 var
   lGraph: TDelphiSemanticSemanticGraph;
+  lGraphType: TDelphiSemanticGraphType;
   lIndex: Integer;
   lMember: TDelphiSemanticMember;
   lModel: TDelphiSemanticUnitModel;
@@ -1228,6 +1584,13 @@ begin
     end;
     try
       fTypeIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+      SetLength(fValueTypeIds, Length(lGraph.Types));
+      lIndex := 0;
+      for lGraphType in lGraph.Types do
+      begin
+        fValueTypeIds[lIndex] := lGraphType.DeclaredId;
+        Inc(lIndex);
+      end;
       fSemanticMemberIndex := TDelphiSemanticMemberResolver.BuildIndex(lGraph, fTypeIndex);
       fSemanticMemberIndexAvailable := True;
     finally
@@ -1247,6 +1610,7 @@ begin
     end;
     BuildMemberSafetyDiagnostics;
     BuildContextMemberIndex;
+    BuildValueMemberIndex;
   except
     ClearOwnedState;
     raise;
@@ -1258,6 +1622,11 @@ var
   lList: TList<TBoundMemberResolution>;
   lStringList: TList<string>;
 begin
+  FreeAndNil(fValueMembers);
+  FreeAndNil(fValueVisibility);
+  FreeAndNil(fValueMemberNames);
+  FreeAndNil(fUnverifiedValueOwners);
+  FreeAndNil(fHelperValueNames);
   FreeAndNil(fSafetyDeclarationsByName);
   FreeAndNil(fSafetyModelsByUnit);
   FreeAndNil(fSafetyProfileTypes);
@@ -1611,6 +1980,7 @@ var
   lSelector: TDelphiSemanticWithSelectorBinding;
   lRefusalCode: string;
   lValue: TDelphiSemanticResolveResult;
+  lValueResult: TBoundMemberResolution;
   lVerifiedIdentity: TDelphiSemanticTypeIdentity;
 begin
   // A routine-local type is identified only by its declaration. An owner-name
@@ -1695,6 +2065,11 @@ begin
     lSelector := Default(TDelphiSemanticWithSelectorBinding);
     lSelector.TypeName := aOwnerIdentity.Name;
     lSelector.TypeIdentity := aOwnerIdentity;
+    if TryResolveReceiverValueMember(lModel, aSite, lSelector, aName, '', lValueResult) then
+    begin
+      aResult := lValueResult;
+      Exit(True);
+    end;
     if ReceiverMemberAbsenceIsVerified(lModel, lSelector, aName, aSite, lRefusalCode) then
     begin
       aResult := Default(TBoundMemberResolution);
@@ -1727,6 +2102,23 @@ begin
     aResult.Value.OwnerName := aOwnerIdentity.Name;
     aResult.Value.Reason := 'The routine-local receiver member activity is unverified.';
     Exit(True);
+  end;
+  if (not Result) and RoutineLocalTypeHasOnlyDirectMembers(aOwnerIdentity) and
+    (not LineageHasActivityFact([aOwnerIdentity])) and
+    fValueMembers.ContainsKey(aOwnerIdentity.DeclaredId.Value + #31 + aName) then
+  begin
+    lModel := Default(TDelphiSemanticUnitModel);
+    if TrySafetyDeclarationModel(aOwnerIdentity, lModel) then
+    begin
+      lSelector := Default(TDelphiSemanticWithSelectorBinding);
+      lSelector.TypeName := aOwnerIdentity.Name;
+      lSelector.TypeIdentity := aOwnerIdentity;
+      if TryResolveReceiverValueMember(lModel, aSite, lSelector, aName, '', lValueResult) then
+      begin
+        aResult := lValueResult;
+        Exit(True);
+      end;
+    end;
   end;
   if (not Result) and (not RoutineLocalTypeHasOnlyDirectMembers(aOwnerIdentity)) then
   begin
@@ -3005,6 +3397,7 @@ var
   i: Integer;
   lKey: string;
   lRefusalCode: string;
+  lValueResult: TBoundMemberResolution;
 begin
   lKey := ReceiverMemberCacheKey(aMemberCachePrefix, aName);
   if Assigned(aMemberCache) and aMemberCache.TryGetValue(lKey, aResult) then
@@ -3058,6 +3451,16 @@ begin
         aModel.UnitName, aCurrentTypeName, aSelectors[i].TypeName, aName,
         SelectorAllowsReceiverMemberLookup(aSelectors[i]), aModel.FileName,
         aSelectors[i].TypeIdentity, aResult) then
+      begin
+        if aResult.Value.Found and aProjectMemberIndex.TryResolveShadowingValueMember(aModel,
+          aSite, aSelectors[i], aName, aResult, lValueResult) then
+          aResult := lValueResult;
+        if Assigned(aMemberCache) then
+          aMemberCache.AddOrSetValue(lKey, aResult);
+        Exit(True);
+      end;
+      if Assigned(aProjectMemberIndex) and aProjectMemberIndex.TryResolveReceiverValueMember(
+        aModel, aSite, aSelectors[i], aName, '', aResult) then
       begin
         if Assigned(aMemberCache) then
           aMemberCache.AddOrSetValue(lKey, aResult);
@@ -5140,6 +5543,401 @@ begin
   Result := True;
 end;
 
+function ValueOwnerKey(const aUnitName, aOwnerName, aName: string): string;
+begin
+  Result := aUnitName + #31 + Copy(aOwnerName, LastDelimiter('.', aOwnerName) + 1,
+    MaxInt) + #31 + aName;
+end;
+
+function RefuseValueMember(const aName, aCode, aReason: string;
+  out aResult: TBoundMemberResolution): Boolean;
+begin
+  aResult := Default(TBoundMemberResolution);
+  aResult.Value.Status := 'unsupported';
+  aResult.Value.Name := aName;
+  aResult.Value.ReasonCode := aCode;
+  aResult.Value.Reason := aReason;
+  Result := True;
+end;
+
+function TWithBindingProjectMemberIndex.ResolveValueEvidenceType(
+  const aName: string; const aContext: TDelphiSemanticTypeIdentity):
+  TDelphiSemanticTypeLookupResult;
+var
+  lCandidate, lSelected: TDelphiSemanticTypeIdentity;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFullCount: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lUses: TArray<string>;
+begin
+  if (aContext.DeclaredId.Value = '') or (Pos('.', aName) > 0) then
+    Result := fTypeIndex.ResolveQualifiedName(aName)
+  else begin
+    if not TrySafetyDeclarationModel(aContext, lModel) then
+      Exit(Default(TDelphiSemanticTypeLookupResult));
+    lUses := lModel.InterfaceUses;
+    if not SameText(aContext.SectionKind, 'interface') then
+      lUses := CombineUnitUses(lUses, lModel.ImplementationUses);
+    if SameText(aContext.ScopeKind, 'routine') then
+      Result := fTypeIndex.ResolveScopedName(aName, aContext.UnitName,
+        aContext.OwnerScopeId, lUses, aContext.SectionKind)
+    else
+      Result := fTypeIndex.ResolveVisibleName(aName, aContext.UnitName,
+        lUses, aContext.SectionKind);
+  end;
+  if not Result.Ambiguous then
+    Exit;
+  // A forward and its full declaration share an owner, but may have distinct
+  // source identities. Only the single full declaration supplies member facts.
+  lFullCount := 0;
+  lSelected := Default(TDelphiSemanticTypeIdentity);
+  for lCandidate in Result.Candidates do
+  begin
+    if not TrySafetyDeclarationModel(lCandidate, lModel) then
+      Exit;
+    if (lSelected.Name <> '') and
+      ((not SameText(lCandidate.UnitName, lSelected.UnitName)) or
+      (not SameText(lCandidate.Name, lSelected.Name)) or
+      (not SameText(lCandidate.OwnerScopeId, lSelected.OwnerScopeId)) or
+      (not SameText(lCandidate.ScopeKind, lSelected.ScopeKind))) then
+      Exit;
+    if lSelected.Name = '' then
+      lSelected := lCandidate;
+    for lDeclaration in lModel.Declarations do
+      if SameText(lDeclaration.SymbolId, lCandidate.SemanticSymbolId) and
+        (lDeclaration.Line = lCandidate.SourceRange.Line) and
+        (lDeclaration.Column = lCandidate.SourceRange.Column) and
+        (lDeclaration.TypeBodyEndLine > 0) and
+        SameText(lDeclaration.TypeName, 'class') then
+      begin
+        Inc(lFullCount);
+        lSelected := lCandidate;
+      end;
+  end;
+  if lFullCount = 1 then
+  begin
+    Result.Found := True;
+    Result.Ambiguous := False;
+    Result.Identity := lSelected;
+  end;
+end;
+
+function TWithBindingProjectMemberIndex.ExportValueMemberEvidence:
+  TDelphiSemanticValueMemberEvidence;
+var
+  g: TGarbos;
+  i: Integer;
+  lDeclaredId: TDelphiSemanticGraphTypeId;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lFullDeclarationVerified: Boolean;
+  lFact: TMemberSafetyDiagnostic;
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lKey, lName, lTarget: string;
+  lKeys: TArray<string>;
+  lLookup: TDelphiSemanticTypeLookupResult;
+  lModel: TDelphiSemanticUnitModel;
+  lNames, lQueryNames, lSeen: THashSet<string>;
+  lOwner: TDelphiSemanticValueEvidenceOwner;
+  lOwners: TList<TDelphiSemanticValueEvidenceOwner>;
+  lQueries: TList<TDelphiSemanticValueEvidenceQuery>;
+  lQuery: TDelphiSemanticValueEvidenceQuery;
+begin
+  Result := Default(TDelphiSemanticValueMemberEvidence);
+  Result.Available := Length(fModels) > 0;
+  Result.ValueNames := fValueMemberNames.Keys.ToArray;
+  Result.UnverifiedOwnerKeys := fUnverifiedValueOwners.Keys.ToArray;
+  SetLength(Result.Units, Length(fModels));
+  for i := 0 to High(fModels) do
+  begin
+    lModel := fModels[i];
+    Result.Units[i].UnitName := lModel.UnitName;
+    Result.Units[i].FileName := lModel.FileName;
+    Result.Units[i].SourceText := lModel.SourceText;
+    Result.Units[i].VerifiedActiveSourceText := lModel.VerifiedActiveSourceText;
+    Result.Units[i].ScopeModelStatus := lModel.ScopeModelStatus;
+    Result.Units[i].ScopeModelVersion := lModel.ScopeModelVersion;
+    Result.Units[i].RejectedDeclarationCount := lModel.RejectedDeclarationCount;
+  end;
+  GC(lOwners, TList<TDelphiSemanticValueEvidenceOwner>.Create, g);
+  GC(lQueries, TList<TDelphiSemanticValueEvidenceQuery>.Create, g);
+  GC(lSeen, THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase), g);
+  GC(lNames, THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase), g);
+  GC(lQueryNames, THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase), g);
+  for lDeclaredId in fValueTypeIds do
+  begin
+    if (lDeclaredId.Value = '') or (not lSeen.Add(lDeclaredId.Value)) or
+      (not fTypeIndex.FindByDeclaredId(lDeclaredId, lIdentity)) then
+      Continue;
+    lOwner := Default(TDelphiSemanticValueEvidenceOwner);
+    lOwner.DeclaredId := lDeclaredId.Value;
+    lOwner.UnitName := lIdentity.UnitName;
+    lOwner.FileName := lIdentity.SourceRange.FileName;
+    lOwner.Name := lIdentity.Name;
+    lOwner.Complete := TrySafetyDeclarationModel(lIdentity, lModel) and
+      SameText(lModel.ScopeModelStatus, 'ast');
+    if lOwner.Complete and SameText(lIdentity.Kind, 'type') and
+      SameText(lIdentity.UnderlyingName, 'class') then
+    begin
+      // An indexed forward declaration is not an unindexed RTL root. Its
+      // missing body cannot supply an explicit complete member-set witness.
+      lFullDeclarationVerified := False;
+      for lDeclaration in lModel.Declarations do
+        if SameText(lDeclaration.SymbolId, lIdentity.SemanticSymbolId) and
+          (lDeclaration.Line = lIdentity.SourceRange.Line) and
+          (lDeclaration.Column = lIdentity.SourceRange.Column) and
+          (lDeclaration.TypeBodyEndLine > 0) then
+          lFullDeclarationVerified := True;
+      lOwner.Complete := lFullDeclarationVerified;
+    end;
+    // Export the exact receiver/lineage diagnostic rule used by value coverage.
+    for lFact in fMemberSafetyDiagnostics + fActivityMemberFacts do
+      if SameText(lIdentity.UnitName, lFact.UnitName) and
+        (SameText(lFact.Code, 'MEMBERS_UNVERIFIED') or (not lFact.OwnerResolved) or
+        (SameText(lIdentity.Name, lFact.OwnerName) and
+        (lIdentity.SourceRange.Line = lFact.Line) and
+        SameText(lIdentity.SourceRange.FileName, lFact.FileName))) then
+        lOwner.Complete := False;
+    lNames.Clear;
+    for lName in Result.ValueNames do
+      if fValueMembers.ContainsKey(lDeclaredId.Value + #31 + lName) or
+        fUnverifiedValueOwners.ContainsKey(ValueOwnerKey(lIdentity.UnitName,
+          lIdentity.Name, lName)) then
+        lNames.Add(lName);
+    lOwner.ValueNames := lNames.ToArray;
+    if SameText(lIdentity.Kind, 'type-alias') then
+      lTarget := lIdentity.CanonicalName
+    else
+      lTarget := lIdentity.BaseTypeName;
+    if lTarget = '' then
+      lOwner.TerminalVerified := not SameText(lIdentity.Kind, 'type-alias')
+    else begin
+      lLookup := ResolveValueEvidenceType(lTarget, lIdentity);
+      if lLookup.Ambiguous then
+        lOwner.Complete := False
+      else if lLookup.Found then
+        lOwner.NextDeclaredId := lLookup.Identity.DeclaredId.Value
+      else
+        // Unindexed class roots retain the existing root-absence contract.
+        lOwner.TerminalVerified := SameText(lIdentity.Kind, 'type') and
+          SameText(lIdentity.UnderlyingName, 'class');
+    end;
+    lOwners.Add(lOwner);
+    // The planner supplies the same simple/qualified keys as the type resolver.
+    lKeys := [lIdentity.Name, lIdentity.UnitName + '.' + lIdentity.Name];
+    for lKey in lKeys do
+      if lQueryNames.Add(lKey) then
+      begin
+        lLookup := ResolveValueEvidenceType(lKey, Default(TDelphiSemanticTypeIdentity));
+        if lLookup.Found and (not lLookup.Ambiguous) then
+        begin
+          lQuery.Name := lKey;
+          lQuery.DeclaredId := lLookup.Identity.DeclaredId.Value;
+          lQueries.Add(lQuery);
+        end;
+      end;
+  end;
+  Result.Owners := lOwners.ToArray;
+  Result.Queries := lQueries.ToArray;
+end;
+
+procedure TWithBindingProjectMemberIndex.BuildValueMemberIndex;
+var
+  lBound: TBoundMemberResolution;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lExisting: TArray<TBoundMemberResolution>;
+  lKey: string;
+  lMatched: Boolean;
+  lMember: TDelphiSemanticMember;
+  lModel: TDelphiSemanticUnitModel;
+  lOwner: TDelphiSemanticTypeLookupResult;
+  lVisibility: TArray<string>;
+begin
+  fValueMembers := TDictionary<string, TArray<TBoundMemberResolution>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fValueVisibility := TDictionary<string, TArray<string>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fValueMemberNames := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fUnverifiedValueOwners := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fHelperValueNames := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  for lModel in fModels do
+  begin
+    for lMember in lModel.TypeValueMembers do
+    begin
+      fValueMemberNames.AddOrSetValue(lMember.Name, 0);
+      if lMember.OwnerScopeId <> '' then
+      begin
+        lOwner := fTypeIndex.ResolveScopedName(lMember.OwnerName, lModel.UnitName,
+          lMember.OwnerScopeId, []);
+        lMatched := lOwner.Found and (not lOwner.Ambiguous) and
+          SameText(lOwner.Identity.OwnerScopeId, lMember.OwnerScopeId) and
+          SameText(lOwner.Identity.SemanticSymbolId, lMember.OwnerSymbolId);
+      end else begin
+        lOwner := fTypeIndex.ResolveQualifiedName(lModel.UnitName + '.' + lMember.OwnerName);
+        lMatched := lOwner.Found and (not lOwner.Ambiguous) and
+          SameText(lOwner.Identity.ScopeKind, 'unit');
+      end;
+      if (not lMatched) or (lOwner.Identity.DeclaredId.Value = '') then
+      begin
+        fUnverifiedValueOwners.AddOrSetValue(ValueOwnerKey(lModel.UnitName,
+          lMember.OwnerName, lMember.Name), 0);
+        Continue;
+      end;
+      if lOwner.Identity.HelperTargetName <> '' then
+        fHelperValueNames.AddOrSetValue(ValueOwnerKey('', lOwner.Identity.HelperTargetName,
+          lMember.Name), 0);
+      lBound := Default(TBoundMemberResolution);
+      lBound.Value := MemberResult(lMember);
+      lBound.DeclaringUnitName := lModel.UnitName;
+      lBound.OwnerDeclaredId := lOwner.Identity.DeclaredId;
+      lKey := lOwner.Identity.DeclaredId.Value + #31 + lMember.Name;
+      if not fValueMembers.TryGetValue(lKey, lExisting) then
+        lExisting := nil;
+      if not fValueVisibility.TryGetValue(lKey, lVisibility) then
+        lVisibility := nil;
+      // Avoid managed-record array-constructor temporaries in Delphi's array concatenation.
+      SetLength(lExisting, Length(lExisting) + 1);
+      lExisting[High(lExisting)] := lBound;
+      fValueMembers.AddOrSetValue(lKey, lExisting);
+      SetLength(lVisibility, Length(lVisibility) + 1);
+      lVisibility[High(lVisibility)] := lMember.Visibility;
+      fValueVisibility.AddOrSetValue(lKey, lVisibility);
+    end;
+    // A declaration survives a lost value array: it must never authorize lexical fallthrough.
+    for lDeclaration in lModel.Declarations do
+    begin
+      if (not SameText(lDeclaration.ScopeKind, 'type')) or
+        (not MatchText(lDeclaration.Kind, ['const', 'typed-const'])) then
+        Continue;
+      lMatched := False;
+      for lMember in lModel.TypeValueMembers do
+        if SameText(lMember.OwnerName, lDeclaration.OwnerName) and
+          SameText(lMember.Name, lDeclaration.Name) and
+          (lMember.Line = lDeclaration.Line) and (lMember.Column = lDeclaration.Column) and
+          SameText(lMember.FileName, lDeclaration.FileName) then
+        begin
+          lMatched := True;
+          Break;
+        end;
+      if not lMatched then
+      begin
+        fValueMemberNames.AddOrSetValue(lDeclaration.Name, 0);
+        fUnverifiedValueOwners.AddOrSetValue(ValueOwnerKey(lModel.UnitName,
+          lDeclaration.OwnerName, lDeclaration.Name), 0);
+      end;
+    end;
+  end;
+end;
+
+function TWithBindingProjectMemberIndex.TryResolveReceiverValueMember(
+  const aModel: TDelphiSemanticUnitModel; const aSite: TReceiverLookupSite;
+  const aSelector: TDelphiSemanticWithSelectorBinding; const aName, aStopDeclaredId: string;
+  out aResult: TBoundMemberResolution): Boolean;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lCandidates: TArray<TBoundMemberResolution>;
+  lFact: TMemberSafetyDiagnostic;
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lKey: string;
+  lLineage: TArray<TDelphiSemanticTypeIdentity>;
+  lVisibility: TArray<string>;
+begin
+  Result := False;
+  aResult := Default(TBoundMemberResolution);
+  if not fValueMemberNames.ContainsKey(aName) then
+    Exit;
+  lBinding := Default(TDelphiSemanticWithBinding);
+  lBinding.UnitName := aModel.UnitName;
+  lBinding.FileName := aModel.FileName;
+  if (not TryBuildMemberSafetyLineage(lBinding, aSelector.TypeName, aSelector.TypeIdentity,
+    lLineage)) or (Length(lLineage) = 0) or LineageHasActivityFact(lLineage) then
+    Exit;
+  for lIdentity in lLineage do
+    for lFact in fMemberSafetyDiagnostics do
+      if SameText(lIdentity.UnitName, lFact.UnitName) and
+        (SameText(lFact.Code, 'MEMBERS_UNVERIFIED') or (not lFact.OwnerResolved) or
+        (SameText(lIdentity.Name, lFact.OwnerName) and
+        (lIdentity.SourceRange.Line = lFact.Line) and
+        SameText(lIdentity.SourceRange.FileName, lFact.FileName))) then
+        Exit;
+  if UnindexedRecordHelperMayApply(aSite, lLineage) then
+    Exit;
+  for lIdentity in lLineage do
+    if fHelperValueNames.ContainsKey(ValueOwnerKey('', lIdentity.Name, aName)) then
+      Exit(RefuseValueMember(aName, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
+        'A helper declares a value member with this name.', aResult));
+  for lIdentity in lLineage do
+  begin
+    if (aStopDeclaredId <> '') and SameText(lIdentity.DeclaredId.Value, aStopDeclaredId) then
+      Exit;
+    if fUnverifiedValueOwners.ContainsKey(ValueOwnerKey(lIdentity.UnitName,
+      lIdentity.Name, aName)) then
+      Exit(RefuseValueMember(aName, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
+        'A type value member has no verified owner fact.', aResult));
+    lKey := lIdentity.DeclaredId.Value + #31 + aName;
+    if not fValueMembers.TryGetValue(lKey, lCandidates) then
+      Continue;
+    if Length(lCandidates) <> 1 then
+    begin
+      aResult.Value.Status := 'ambiguous';
+      aResult.Value.Name := aName;
+      aResult.Value.ReasonCode := 'MULTIPLE_MEMBER_CANDIDATES';
+      Exit(True);
+    end;
+    if (not fValueVisibility.TryGetValue(lKey, lVisibility)) or
+      (Length(lVisibility) <> 1) or
+      (not (MatchText(lVisibility[0], ['', 'public', 'published', 'automated']) or
+      (MatchText(lVisibility[0], ['private', 'protected']) and
+      SameText(lCandidates[0].DeclaringUnitName, aSite.UnitName)))) then
+      Exit(RefuseValueMember(aName, 'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED',
+        'Access to the type value member is not verified.', aResult));
+    aResult := lCandidates[0];
+    // Value references name the selected receiver; OwnerDeclaredId still identifies the fact.
+    aResult.Value.OwnerName := aSelector.TypeName;
+    Exit(True);
+  end;
+end;
+
+function TWithBindingProjectMemberIndex.TryResolveShadowingValueMember(
+  const aModel: TDelphiSemanticUnitModel; const aSite: TReceiverLookupSite;
+  const aSelector: TDelphiSemanticWithSelectorBinding; const aName: string;
+  const aDirect: TBoundMemberResolution; out aResult: TBoundMemberResolution): Boolean;
+var
+  i: Integer;
+  lBinding: TDelphiSemanticWithBinding;
+  lLineage: TArray<TDelphiSemanticTypeIdentity>;
+  lIdentity: TDelphiSemanticTypeIdentity;
+begin
+  Result := False;
+  if not fValueMemberNames.ContainsKey(aName) then
+    Exit;
+  lBinding := Default(TDelphiSemanticWithBinding);
+  lBinding.UnitName := aModel.UnitName;
+  lBinding.FileName := aModel.FileName;
+  if not TryBuildMemberSafetyLineage(lBinding, aSelector.TypeName, aSelector.TypeIdentity,
+    lLineage) then
+    Exit;
+  for i := 0 to High(lLineage) do
+    if ((aDirect.OwnerDeclaredId.Value <> '') and
+      SameText(lLineage[i].DeclaredId.Value, aDirect.OwnerDeclaredId.Value)) or
+      ((aDirect.OwnerDeclaredId.Value = '') and
+      SameText(ValueOwnerKey(lLineage[i].UnitName, lLineage[i].Name, ''),
+      ValueOwnerKey(aDirect.DeclaringUnitName, aDirect.Value.OwnerName, ''))) then
+    begin
+      if i = 0 then
+        Exit;
+      Exit(TryResolveReceiverValueMember(aModel, aSite, aSelector, aName,
+        lLineage[i].DeclaredId.Value, aResult));
+    end;
+  // Helper-owned direct members need no shadowing proof when this name occurs
+  // only on unrelated types. Refuse only a real or unverified lineage candidate.
+  for lIdentity in lLineage do
+    if fValueMembers.ContainsKey(lIdentity.DeclaredId.Value + #31 + aName) or
+      fUnverifiedValueOwners.ContainsKey(ValueOwnerKey(lIdentity.UnitName,
+        lIdentity.Name, aName)) then
+      Exit(RefuseValueMember(aName, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
+        'A type value member may shadow a direct member with an unverified owner.', aResult));
+end;
+
 function TWithBindingProjectMemberIndex.UnindexedRecordHelperMayApply(
   const aSite: TReceiverLookupSite; const aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
 var
@@ -5456,6 +6254,8 @@ begin
     if SameText(lLookup.Status, 'unresolved') and
       SameText(lLookup.ReasonCode, 'DIRECT_MEMBER_NOT_FOUND') then
     begin
+      if TryResolveReceiverValueMember(aModel, aSite, aSelectors[i], aName, '', aResult) then
+        Exit(Blocked);
       if not ReceiverMemberAbsenceIsVerified(aModel, aSelectors[i], aName, aSite, lRefusalCode) then
         Exit(Blocked);
       for lLineageIdentity in lLineage do
@@ -5655,6 +6455,8 @@ begin
       Result.Symbols);
     lStopwatch.Stop;
     lLookupIndexBuildMs := lStopwatch.ElapsedMilliseconds;
+    // Coverage must use the same project-scoped DeclaredIds as the bound selectors.
+    Result.LookupIndex.AttachValueMemberEvidence(lProjectMemberIndex.ExportValueMemberEvidence);
     lProjectMemberIndex.fLookupIndex := Result.LookupIndex;
     for lModel in aModels do
     begin

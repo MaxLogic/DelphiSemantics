@@ -33,6 +33,322 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [Test]
+    [Category('DS731Planner')]
+    procedure ValueMemberWithoutReceiverMatchRemovesCandidate;
+    [TestCase('conflicting identities', 'conflict')]
+    [TestCase('retained member', 'retained')]
+    [Category('DS731Planner')]
+    procedure ValueMemberReceiverDecisions(const aCase: string);
+    [TestCase('rc-sameline-peer', 'rc-sameline-peer')]
+    [TestCase('rc-section-multiline', 'rc-section-multiline')]
+    [TestCase('rc-imported-recv', 'rc-imported-recv')]
+    [TestCase('rc-private-same-unit', 'rc-private-same-unit')]
+    [TestCase('vt-local-record', 'vt-local-record')]
+    [TestCase('cc-global-read', 'cc-global-read')]
+    [TestCase('cc-inherited-import', 'cc-inherited-import')]
+    [TestCase('cc-derived-const', 'cc-derived-const')]
+    [TestCase('rc-local', 'rc-local')]
+    [TestCase('vt-nested-variant', 'vt-nested-variant')]
+    [TestCase('cc-private-import', 'cc-private-import')]
+    [TestCase('cc-strict-private-same-unit', 'cc-strict-private-same-unit')]
+    [TestCase('cc-protected-descendant', 'cc-protected-descendant')]
+    [TestCase('rc-helper-const', 'rc-helper-const')]
+    [TestCase('lost-constant', 'lost-constant')]
+    [TestCase('rc-unit-const-ctl', 'rc-unit-const-ctl')]
+    [TestCase('rc-foreign-homonym', 'rc-foreign-homonym')]
+    [TestCase('rc-nested-type-neg', 'rc-nested-type-neg')]
+    [TestCase('vt-inline-field-neg', 'vt-inline-field-neg')]
+    [TestCase('cc-derived-field-hides', 'cc-derived-field-hides')]
+    [TestCase('rc-cond-inactive', 'rc-cond-inactive')]
+    [TestCase('vt-tagless-field', 'vt-tagless-field')]
+    [Category('DS731Safety')]
+    procedure TypeValueSafetyAndSnapshot(const aShape: string);
+    function TypeValueSafetyModels(const aShape: string): TArray<TDelphiSemanticUnitModel>;
+    [TestCase('anonymous-global cold', 'anonymous-global,cold')]
+    [TestCase('anonymous-global warm', 'anonymous-global,warm')]
+    [TestCase('anonymous-global snapshot', 'anonymous-global,snapshot')]
+    [TestCase('anonymous-local cold', 'anonymous-local,cold')]
+    [TestCase('anonymous-local warm', 'anonymous-local,warm')]
+    [TestCase('anonymous-local snapshot', 'anonymous-local,snapshot')]
+    [TestCase('anonymous-control cold', 'anonymous-control,cold')]
+    [TestCase('anonymous-control warm', 'anonymous-control,warm')]
+    [TestCase('anonymous-control snapshot', 'anonymous-control,snapshot')]
+    [TestCase('num-rec cold', 'num-rec,cold')]
+    [TestCase('num-rec warm', 'num-rec,warm')]
+    [TestCase('num-rec snapshot', 'num-rec,snapshot')]
+    [TestCase('tag-only cold', 'tag-only,cold')]
+    [TestCase('tag-only warm', 'tag-only,warm')]
+    [TestCase('tag-only snapshot', 'tag-only,snapshot')]
+    [TestCase('record-constant cold', 'record-constant,cold')]
+    [TestCase('record-constant warm', 'record-constant,warm')]
+    [TestCase('record-constant snapshot', 'record-constant,snapshot')]
+    [TestCase('anonymous-include cold', 'anonymous-include,cold')]
+    [TestCase('anonymous-include warm', 'anonymous-include,warm')]
+    [TestCase('anonymous-include snapshot', 'anonymous-include,snapshot')]
+    [TestCase('anonymous-inactive cold', 'anonymous-inactive,cold')]
+    [TestCase('anonymous-inactive warm', 'anonymous-inactive,warm')]
+    [TestCase('anonymous-inactive snapshot', 'anonymous-inactive,snapshot')]
+    [TestCase('helper-unrelated cold', 'helper-unrelated,cold')]
+    [TestCase('helper-unrelated warm', 'helper-unrelated,warm')]
+    [TestCase('helper-unrelated snapshot', 'helper-unrelated,snapshot')]
+    [TestCase('helper-own cold', 'helper-own,cold')]
+    [TestCase('helper-own warm', 'helper-own,warm')]
+    [TestCase('helper-own snapshot', 'helper-own,snapshot')]
+    [Category('DS731Persistence')]
+    [TestCase('unrelated-diagnostic cold', 'unrelated-diagnostic,cold')]
+    [TestCase('unrelated-diagnostic warm', 'unrelated-diagnostic,warm')]
+    [TestCase('unrelated-diagnostic snapshot', 'unrelated-diagnostic,snapshot')]
+    [TestCase('receiver-diagnostic cold', 'receiver-diagnostic,cold')]
+    [TestCase('receiver-diagnostic warm', 'receiver-diagnostic,warm')]
+    [TestCase('receiver-diagnostic snapshot', 'receiver-diagnostic,snapshot')]
+    [TestCase('class-tobject cold', 'class-tobject,cold')]
+    [TestCase('class-tobject warm', 'class-tobject,warm')]
+    [TestCase('class-tobject snapshot', 'class-tobject,snapshot')]
+    [TestCase('class-interfaced cold', 'class-interfaced,cold')]
+    [TestCase('class-interfaced warm', 'class-interfaced,warm')]
+    [TestCase('class-interfaced snapshot', 'class-interfaced,snapshot')]
+    [TestCase('class-component cold', 'class-component,cold')]
+    [TestCase('class-component warm', 'class-component,warm')]
+    [TestCase('class-component snapshot', 'class-component,snapshot')]
+    [TestCase('class-forward cold', 'class-forward,cold')]
+    [TestCase('class-forward warm', 'class-forward,warm')]
+    [TestCase('class-forward snapshot', 'class-forward,snapshot')]
+    [TestCase('indexed-field-control cold', 'indexed-field-control,cold')]
+    [TestCase('indexed-field-control warm', 'indexed-field-control,warm')]
+    [TestCase('indexed-field-control snapshot', 'indexed-field-control,snapshot')]
+    [TestCase('indexed-named-tag cold', 'indexed-named-tag,cold')]
+    [TestCase('indexed-named-tag warm', 'indexed-named-tag,warm')]
+    [TestCase('indexed-named-tag snapshot', 'indexed-named-tag,snapshot')]
+    [TestCase('indexed-inline-tag cold', 'indexed-inline-tag,cold')]
+    [TestCase('indexed-inline-tag warm', 'indexed-inline-tag,warm')]
+    [TestCase('indexed-inline-tag snapshot', 'indexed-inline-tag,snapshot')]
+    [TestCase('strong-alias-qualified-target cold', 'strong-alias-qualified-target,cold')]
+    [TestCase('strong-alias-qualified-target warm', 'strong-alias-qualified-target,warm')]
+    [TestCase('strong-alias-qualified-target snapshot', 'strong-alias-qualified-target,snapshot')]
+    [TestCase('anonymous-declaration-include cold', 'anonymous-declaration-include,cold')]
+    [TestCase('anonymous-declaration-include warm', 'anonymous-declaration-include,warm')]
+    [TestCase('anonymous-declaration-include snapshot', 'anonymous-declaration-include,snapshot')]
+    [TestCase('anonymous-declaration-include-multiline cold', 'anonymous-declaration-include-multiline,cold')]
+    [TestCase('anonymous-declaration-include-multiline warm', 'anonymous-declaration-include-multiline,warm')]
+    [TestCase('anonymous-declaration-include-multiline snapshot', 'anonymous-declaration-include-multiline,snapshot')]
+    [TestCase('anonymous-type-include cold', 'anonymous-type-include,cold')]
+    [TestCase('anonymous-type-include warm', 'anonymous-type-include,warm')]
+    [TestCase('anonymous-type-include snapshot', 'anonymous-type-include,snapshot')]
+    [TestCase('anonymous-include-fields-only cold', 'anonymous-include-fields-only,cold')]
+    [TestCase('anonymous-include-fields-only warm', 'anonymous-include-fields-only,warm')]
+    [TestCase('anonymous-include-fields-only snapshot', 'anonymous-include-fields-only,snapshot')]
+    [TestCase('anonymous-include-paren cold', 'anonymous-include-paren,cold')]
+    [TestCase('anonymous-include-paren warm', 'anonymous-include-paren,warm')]
+    [TestCase('anonymous-include-paren snapshot', 'anonymous-include-paren,snapshot')]
+    [TestCase('inline-active-crlf cold', 'inline-active-crlf,cold')]
+    [TestCase('inline-active-crlf warm', 'inline-active-crlf,warm')]
+    [TestCase('inline-active-crlf snapshot', 'inline-active-crlf,snapshot')]
+    [TestCase('inline-active-lf cold', 'inline-active-lf,cold')]
+    [TestCase('inline-active-lf warm', 'inline-active-lf,warm')]
+    [TestCase('inline-active-lf snapshot', 'inline-active-lf,snapshot')]
+    [TestCase('inactive-tag-crlf cold', 'inactive-tag-crlf,cold')]
+    [TestCase('inactive-tag-crlf warm', 'inactive-tag-crlf,warm')]
+    [TestCase('inactive-tag-crlf snapshot', 'inactive-tag-crlf,snapshot')]
+    [TestCase('inactive-tag-lf cold', 'inactive-tag-lf,cold')]
+    [TestCase('inactive-tag-lf warm', 'inactive-tag-lf,warm')]
+    [TestCase('inactive-tag-lf snapshot', 'inactive-tag-lf,snapshot')]
+    [TestCase('inactive-include-crlf cold', 'inactive-include-crlf,cold')]
+    [TestCase('inactive-include-crlf warm', 'inactive-include-crlf,warm')]
+    [TestCase('inactive-include-crlf snapshot', 'inactive-include-crlf,snapshot')]
+    [TestCase('inactive-include-lf cold', 'inactive-include-lf,cold')]
+    [TestCase('inactive-include-lf warm', 'inactive-include-lf,warm')]
+    [TestCase('inactive-include-lf snapshot', 'inactive-include-lf,snapshot')]
+    [TestCase('class-var cold', 'class-var,cold')]
+    [TestCase('class-var warm', 'class-var,warm')]
+    [TestCase('class-var snapshot', 'class-var,snapshot')]
+    [TestCase('instance-field cold', 'instance-field,cold')]
+    [TestCase('instance-field warm', 'instance-field,warm')]
+    [TestCase('instance-field snapshot', 'instance-field,snapshot')]
+    procedure ValueMembersColdWarmSnapshot(const aShape, aMode: string);
+    [Test]
+    [Category('DS731Persistence')]
+    procedure ModelFreeLookupCannotProveValueAbsence;
+    [Category('DS731Identity')]
+    [TestCase('homonym-safe cold', 'homonym-safe,cold')]
+    [TestCase('homonym-safe snapshot', 'homonym-safe,snapshot')]
+    [TestCase('homonym-safe sessioncold', 'homonym-safe,sessioncold')]
+    [TestCase('homonym-safe sessionwarm', 'homonym-safe,sessionwarm')]
+    [TestCase('homonym-safe standalone', 'homonym-safe,standalone')]
+    [TestCase('homonym-tag cold', 'homonym-tag,cold')]
+    [TestCase('homonym-tag snapshot', 'homonym-tag,snapshot')]
+    [TestCase('homonym-tag sessioncold', 'homonym-tag,sessioncold')]
+    [TestCase('homonym-tag sessionwarm', 'homonym-tag,sessionwarm')]
+    [TestCase('homonym-tag standalone', 'homonym-tag,standalone')]
+    [TestCase('homonym-constant cold', 'homonym-constant,cold')]
+    [TestCase('homonym-constant snapshot', 'homonym-constant,snapshot')]
+    [TestCase('homonym-constant sessioncold', 'homonym-constant,sessioncold')]
+    [TestCase('homonym-constant sessionwarm', 'homonym-constant,sessionwarm')]
+    [TestCase('homonym-constant standalone', 'homonym-constant,standalone')]
+    [TestCase('homonym-unverified cold', 'homonym-unverified,cold')]
+    [TestCase('homonym-unverified snapshot', 'homonym-unverified,snapshot')]
+    [TestCase('homonym-unverified sessioncold', 'homonym-unverified,sessioncold')]
+    [TestCase('homonym-unverified sessionwarm', 'homonym-unverified,sessionwarm')]
+    [TestCase('homonym-unverified standalone', 'homonym-unverified,standalone')]
+    procedure ValueCoverageUsesReceiverIdentity(const aShape, aMode: string);
+    [Category('DS731PartialReceiver')]
+    [TestCase('partial-weak-global cold', 'partial-weak-global,cold')]
+    [TestCase('partial-weak-global snapshot', 'partial-weak-global,snapshot')]
+    [TestCase('partial-weak-global sessioncold', 'partial-weak-global,sessioncold')]
+    [TestCase('partial-weak-global sessionwarm', 'partial-weak-global,sessionwarm')]
+    [TestCase('partial-weak-global standalone', 'partial-weak-global,standalone')]
+    [TestCase('partial-weak-noglobal cold', 'partial-weak-noglobal,cold')]
+    [TestCase('partial-weak-noglobal snapshot', 'partial-weak-noglobal,snapshot')]
+    [TestCase('partial-weak-noglobal sessioncold', 'partial-weak-noglobal,sessioncold')]
+    [TestCase('partial-weak-noglobal sessionwarm', 'partial-weak-noglobal,sessionwarm')]
+    [TestCase('partial-weak-noglobal standalone', 'partial-weak-noglobal,standalone')]
+    [TestCase('partial-strong-global cold', 'partial-strong-global,cold')]
+    [TestCase('partial-strong-global snapshot', 'partial-strong-global,snapshot')]
+    [TestCase('partial-strong-global sessioncold', 'partial-strong-global,sessioncold')]
+    [TestCase('partial-strong-global sessionwarm', 'partial-strong-global,sessionwarm')]
+    [TestCase('partial-strong-global standalone', 'partial-strong-global,standalone')]
+    [TestCase('partial-noconst-control cold', 'partial-noconst-control,cold')]
+    [TestCase('partial-noconst-control snapshot', 'partial-noconst-control,snapshot')]
+    [TestCase('partial-noconst-control sessioncold', 'partial-noconst-control,sessioncold')]
+    [TestCase('partial-noconst-control sessionwarm', 'partial-noconst-control,sessionwarm')]
+    [TestCase('partial-noconst-control standalone', 'partial-noconst-control,standalone')]
+    [TestCase('partial-verified-control cold', 'partial-verified-control,cold')]
+    [TestCase('partial-verified-control snapshot', 'partial-verified-control,snapshot')]
+    [TestCase('partial-verified-control sessioncold', 'partial-verified-control,sessioncold')]
+    [TestCase('partial-verified-control sessionwarm', 'partial-verified-control,sessionwarm')]
+    [TestCase('partial-verified-control standalone', 'partial-verified-control,standalone')]
+    [TestCase('partial-root-object cold', 'partial-root-object,cold')]
+    [TestCase('partial-root-object snapshot', 'partial-root-object,snapshot')]
+    [TestCase('partial-root-object sessioncold', 'partial-root-object,sessioncold')]
+    [TestCase('partial-root-object sessionwarm', 'partial-root-object,sessionwarm')]
+    [TestCase('partial-root-object standalone', 'partial-root-object,standalone')]
+    [TestCase('partial-root-interfaced cold', 'partial-root-interfaced,cold')]
+    [TestCase('partial-root-interfaced snapshot', 'partial-root-interfaced,snapshot')]
+    [TestCase('partial-root-interfaced sessioncold', 'partial-root-interfaced,sessioncold')]
+    [TestCase('partial-root-interfaced sessionwarm', 'partial-root-interfaced,sessionwarm')]
+    [TestCase('partial-root-interfaced standalone', 'partial-root-interfaced,standalone')]
+    [TestCase('partial-root-component cold', 'partial-root-component,cold')]
+    [TestCase('partial-root-component snapshot', 'partial-root-component,snapshot')]
+    [TestCase('partial-root-component sessioncold', 'partial-root-component,sessioncold')]
+    [TestCase('partial-root-component sessionwarm', 'partial-root-component,sessionwarm')]
+    [TestCase('partial-root-component standalone', 'partial-root-component,standalone')]
+    [TestCase('partial-indexed-ancestor cold', 'partial-indexed-ancestor,cold')]
+    [TestCase('partial-indexed-ancestor snapshot', 'partial-indexed-ancestor,snapshot')]
+    [TestCase('partial-indexed-ancestor sessioncold', 'partial-indexed-ancestor,sessioncold')]
+    [TestCase('partial-indexed-ancestor sessionwarm', 'partial-indexed-ancestor,sessionwarm')]
+    [TestCase('partial-indexed-ancestor standalone', 'partial-indexed-ancestor,standalone')]
+    [TestCase('anon-partial-field cold', 'anon-partial-field,cold')]
+    [TestCase('anon-partial-field snapshot', 'anon-partial-field,snapshot')]
+    [TestCase('anon-partial-field sessioncold', 'anon-partial-field,sessioncold')]
+    [TestCase('anon-partial-field sessionwarm', 'anon-partial-field,sessionwarm')]
+    [TestCase('anon-partial-field standalone', 'anon-partial-field,standalone')]
+    [TestCase('anon-partial-include cold', 'anon-partial-include,cold')]
+    [TestCase('anon-partial-include snapshot', 'anon-partial-include,snapshot')]
+    [TestCase('anon-partial-include sessioncold', 'anon-partial-include,sessioncold')]
+    [TestCase('anon-partial-include sessionwarm', 'anon-partial-include,sessionwarm')]
+    [TestCase('anon-partial-include standalone', 'anon-partial-include,standalone')]
+    [TestCase('anon-local-control cold', 'anon-local-control,cold')]
+    [TestCase('anon-local-control snapshot', 'anon-local-control,snapshot')]
+    [TestCase('anon-local-control sessioncold', 'anon-local-control,sessioncold')]
+    [TestCase('anon-local-control sessionwarm', 'anon-local-control,sessionwarm')]
+    [TestCase('anon-local-control standalone', 'anon-local-control,standalone')]
+    [TestCase('anon-pointer-control cold', 'anon-pointer-control,cold')]
+    [TestCase('anon-pointer-control snapshot', 'anon-pointer-control,snapshot')]
+    [TestCase('anon-pointer-control sessioncold', 'anon-pointer-control,sessioncold')]
+    [TestCase('anon-pointer-control sessionwarm', 'anon-pointer-control,sessionwarm')]
+    [TestCase('anon-pointer-control standalone', 'anon-pointer-control,standalone')]
+    [TestCase('anon-partial-enum cold', 'anon-partial-enum,cold')]
+    [TestCase('anon-partial-enum snapshot', 'anon-partial-enum,snapshot')]
+    [TestCase('anon-partial-enum sessioncold', 'anon-partial-enum,sessioncold')]
+    [TestCase('anon-partial-enum sessionwarm', 'anon-partial-enum,sessionwarm')]
+    [TestCase('anon-partial-enum standalone', 'anon-partial-enum,standalone')]
+    procedure ValueMemberQualificationRequiresVerifiedReceiver(const aShape, aMode: string);
+    [Category('DS731NestedPartialReceiver')]
+    [TestCase('nested-parent-trigger cold', 'nested-parent-trigger,cold')]
+    [TestCase('nested-parent-trigger snapshot', 'nested-parent-trigger,snapshot')]
+    [TestCase('nested-parent-trigger sessioncold', 'nested-parent-trigger,sessioncold')]
+    [TestCase('nested-parent-trigger sessionwarm', 'nested-parent-trigger,sessionwarm')]
+    [TestCase('nested-parent-trigger standalone', 'nested-parent-trigger,standalone')]
+    [TestCase('nested-parent-noglobal cold', 'nested-parent-noglobal,cold')]
+    [TestCase('nested-parent-noglobal snapshot', 'nested-parent-noglobal,snapshot')]
+    [TestCase('nested-parent-noglobal sessioncold', 'nested-parent-noglobal,sessioncold')]
+    [TestCase('nested-parent-noglobal sessionwarm', 'nested-parent-noglobal,sessionwarm')]
+    [TestCase('nested-parent-noglobal standalone', 'nested-parent-noglobal,standalone')]
+    [TestCase('nested-child-trigger cold', 'nested-child-trigger,cold')]
+    [TestCase('nested-child-trigger snapshot', 'nested-child-trigger,snapshot')]
+    [TestCase('nested-child-trigger sessioncold', 'nested-child-trigger,sessioncold')]
+    [TestCase('nested-child-trigger sessionwarm', 'nested-child-trigger,sessionwarm')]
+    [TestCase('nested-child-trigger standalone', 'nested-child-trigger,standalone')]
+    [TestCase('nested-three-level cold', 'nested-three-level,cold')]
+    [TestCase('nested-three-level snapshot', 'nested-three-level,snapshot')]
+    [TestCase('nested-three-level sessioncold', 'nested-three-level,sessioncold')]
+    [TestCase('nested-three-level sessionwarm', 'nested-three-level,sessionwarm')]
+    [TestCase('nested-three-level standalone', 'nested-three-level,standalone')]
+    [TestCase('nested-siblings cold', 'nested-siblings,cold')]
+    [TestCase('nested-siblings snapshot', 'nested-siblings,snapshot')]
+    [TestCase('nested-siblings sessioncold', 'nested-siblings,sessioncold')]
+    [TestCase('nested-siblings sessionwarm', 'nested-siblings,sessionwarm')]
+    [TestCase('nested-siblings standalone', 'nested-siblings,standalone')]
+    [TestCase('nested-verified-control cold', 'nested-verified-control,cold')]
+    [TestCase('nested-verified-control snapshot', 'nested-verified-control,snapshot')]
+    [TestCase('nested-verified-control sessioncold', 'nested-verified-control,sessioncold')]
+    [TestCase('nested-verified-control sessionwarm', 'nested-verified-control,sessionwarm')]
+    [TestCase('nested-verified-control standalone', 'nested-verified-control,standalone')]
+    [TestCase('nested-unrelated-control cold', 'nested-unrelated-control,cold')]
+    [TestCase('nested-unrelated-control snapshot', 'nested-unrelated-control,snapshot')]
+    [TestCase('nested-unrelated-control sessioncold', 'nested-unrelated-control,sessioncold')]
+    [TestCase('nested-unrelated-control sessionwarm', 'nested-unrelated-control,sessionwarm')]
+    [TestCase('nested-unrelated-control standalone', 'nested-unrelated-control,standalone')]
+    procedure NestedValueQualificationRequiresVerifiedReceiver(const aShape, aMode: string);
+    [Category('DS731Standalone')]
+    [TestCase('tag-only', 'tag-only')]
+    [TestCase('record-constant', 'record-constant')]
+    [TestCase('anonymous-inactive', 'anonymous-inactive')]
+    [TestCase('anonymous-include', 'anonymous-include')]
+    [TestCase('indexed-named-tag', 'indexed-named-tag')]
+    [TestCase('strong-alias-qualified-target', 'strong-alias-qualified-target')]
+    [TestCase('helper-unrelated', 'helper-unrelated')]
+    [TestCase('num-rec', 'num-rec')]
+    procedure ValueMembersStandaloneSqlite(const aShape: string);
+    [Category('DS731EvidenceIntegrity')]
+    [TestCase('old-cache', 'missing')]
+    [TestCase('partial-owner-rows', 'fields')]
+    [TestCase('missing-unit', 'models')]
+    [TestCase('partial-name-rows', 'values')]
+    [TestCase('count-mismatch', 'checksum')]
+    [TestCase('format', 'format')]
+    procedure StandaloneValueEvidenceRejectsPartial(const aShape: string);
+
+
+    [TestCase('rc-global-read', 'rc-global-read')]
+    [TestCase('rc-noglobal-read', 'rc-noglobal-read')]
+    [TestCase('rc-header-sameline', 'rc-header-sameline')]
+    [TestCase('rc-sameline-end', 'rc-sameline-end')]
+    [TestCase('rc-typed', 'rc-typed')]
+    [TestCase('vt-global-read', 'vt-global-read')]
+    [TestCase('vt-noglobal-read', 'vt-noglobal-read')]
+    [TestCase('vt-header-sameline', 'vt-header-sameline')]
+    [TestCase('vt-alias-recv', 'vt-alias-recv')]
+    [TestCase('vt-nested-with', 'vt-nested-with')]
+    [TestCase('cc-inherited', 'cc-inherited')]
+    [Category('DS731')]
+    procedure TypeValueMembersBind(const aShape: string);
+    [TestCase('rc-global-read', 'rc-global-read')]
+    [TestCase('rc-noglobal-read', 'rc-noglobal-read')]
+    [TestCase('rc-header-sameline', 'rc-header-sameline')]
+    [TestCase('rc-sameline-end', 'rc-sameline-end')]
+    [TestCase('rc-typed', 'rc-typed')]
+    [TestCase('vt-global-read', 'vt-global-read')]
+    [TestCase('vt-noglobal-read', 'vt-noglobal-read')]
+    [TestCase('vt-header-sameline', 'vt-header-sameline')]
+    [TestCase('vt-alias-recv', 'vt-alias-recv')]
+    [TestCase('vt-nested-with', 'vt-nested-with')]
+    [TestCase('cc-inherited', 'cc-inherited')]
+    [TestCase('rc-global-read LF', 'rc-global-read-lf')]
+    [TestCase('vt-global-read LF', 'vt-global-read-lf')]
+    [Category('DS731')]
+    procedure TypeValueMembersPlan(const aShape: string);
+    function TypeValueMemberModels(const aShape: string): TArray<TDelphiSemanticUnitModel>;
     [TestCase('Lost helper facts', 'lost')]
     [TestCase('Overload visibility sites', 'overloads')]
     [TestCase('Two routine visibility sites', 'routines')]
@@ -561,14 +877,14 @@ type
 implementation
 
 uses
-  System.IOUtils, System.JSON, System.StrUtils, System.SysUtils,
+  System.Generics.Collections, System.Hash, System.IOUtils, System.JSON, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite,
   AutoFree, maxLogic.IOUtils,
   DelphiSemantics.Api.ProjectOptions, DelphiSemantics.Cache, DelphiSemantics.Model.Json,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan,
-  DelphiSemantics.Snapshot,
-  DelphiSemantics.Snapshot.Cache.Sqlite, Test.Support;
+  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
+  DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith, Test.Support;
 
 var
   GWithBinderTempRoot: string;
@@ -7093,6 +7409,1707 @@ begin
     Assert.AreEqual(lPlan.FinalStatements[0].SafetyReason, lSnapshotPlan.FinalStatements[0].SafetyReason);
     Assert.AreEqual(lPlan.FinalStatements[0].ReplacementText, lSnapshotPlan.FinalStatements[0].ReplacementText);
   end;
+end;
+
+function TWithBinderTests.TypeValueMemberModels(const aShape: string): TArray<TDelphiSemanticUnitModel>;
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lSource, lShape: string;
+begin
+  lShape := StringReplace(aShape, '-lf', '', []);
+  lSource := '';
+  if lShape = 'rc-global-read' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10
+  else if lShape = 'rc-noglobal-read' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10
+  else if lShape = 'rc-header-sameline' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type TRec = record'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10
+  else if lShape = 'rc-sameline-end' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type TRec = record var Other: Integer; const Count = 5; end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10
+  else if lShape = 'rc-typed' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    const Count: Integer = 5;'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10
+  else if lShape = 'vt-global-read' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '    case Count: Integer of'#13#10 +
+      '      0: (A: Integer);'#13#10 +
+      '      1: (B: Byte);'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do A := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10
+  else if lShape = 'vt-noglobal-read' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '    case Count: Integer of'#13#10 +
+      '      0: (A: Integer);'#13#10 +
+      '      1: (B: Byte);'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do A := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10
+  else if lShape = 'vt-header-sameline' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type TRec = record'#13#10 +
+      '    case Count: Integer of'#13#10 +
+      '      0: (A: Integer);'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do A := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10
+  else if lShape = 'vt-alias-recv' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '    case Count: Integer of'#13#10 +
+      '      0: (A: Integer);'#13#10 +
+      '      1: (B: Byte);'#13#10 +
+      '  end;'#13#10 +
+      '  TRec2 = TRec;'#13#10 +
+      'var Rec: TRec2;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do A := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10
+  else if lShape = 'vt-nested-with' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '    case Count: Integer of'#13#10 +
+      '      0: (A: Integer);'#13#10 +
+      '      1: (B: Byte);'#13#10 +
+      '  end;'#13#10 +
+      '  TOuter = record'#13#10 +
+      '    Count: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      '  Outer: TOuter;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Outer do with Rec do A := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10
+  else if lShape = 'cc-inherited' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TBase = class'#13#10 +
+      '  public'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '  end;'#13#10 +
+      '  TDerived = class(TBase)'#13#10 +
+      '  public'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Obj: TDerived;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Obj do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  Assert.IsNotEmpty(lSource, 'Unknown DS-731 fixture');
+  if EndsText('-lf', aShape) then
+    lSource := StringReplace(lSource, #13#10, #10, [rfReplaceAll]);
+  lPath := WithBinderTempPath('DS731-' + aShape + '.pas');
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  SetLength(Result, 1);
+  Result[0] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(Result[0].Success, aShape);
+  Assert.AreEqual('ast', Result[0].ScopeModelStatus, aShape);
+end;
+
+procedure TWithBinderTests.TypeValueMembersBind(const aShape: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lReference: TDelphiSemanticBoundReference;
+  lFound: Boolean;
+begin
+  lFacts := TDelphiSemanticWithBinder.BindProject('ds731-' + aShape, nil, TypeValueMemberModels(aShape));
+  Assert.IsTrue(Length(lFacts.Bindings) > 0, aShape);
+  lFound := False;
+  for lReference in lFacts.Bindings[High(lFacts.Bindings)].References do
+    if SameText(lReference.Name, 'Count') then
+    begin
+      lFound := True;
+      Assert.AreEqual('member', lReference.Classification, aShape);
+      Assert.AreEqual('receiver', lReference.LookupSource, aShape);
+      Assert.IsTrue(MatchText(lReference.Kind, ['const', 'typed-const', 'variant-tag']), aShape);
+    end;
+  Assert.IsTrue(lFound, 'Count reference must be observed: ' + aShape);
+end;
+
+procedure TWithBinderTests.TypeValueMembersPlan(const aShape: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lExpected, lLineBreak: string;
+  lTemps, lEdits: Integer;
+begin
+  lFacts := TDelphiSemanticWithBinder.BindProject('ds731-' + aShape, nil, TypeValueMemberModels(aShape));
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)), aShape);
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, aShape);
+  lLineBreak := #13#10;
+  // Temporary initialization lines follow the native renderer's CRLF contract,
+  // including when the source fixture uses LF.
+  lTemps := 1;
+  lEdits := 2;
+  lExpected := '  lWithRecPtr := @Rec;' + lLineBreak +
+    ' lWithRecPtr^.Other := lWithRecPtr^.Count;';
+  if StartsText('vt-', aShape) then
+    lExpected := '  lWithRecPtr := @Rec;' + lLineBreak +
+      ' lWithRecPtr^.A := lWithRecPtr^.Count;';
+  if aShape = 'vt-alias-recv' then
+  begin
+    lExpected := ' Rec.A := Rec.Count;';
+    lTemps := 0;
+    lEdits := 1;
+  end;
+  if aShape = 'vt-nested-with' then
+  begin
+    lExpected := '  lWithOuterPtr := @Outer;' + lLineBreak +
+      '               lWithRecPtr := @Rec;' + lLineBreak +
+      ' lWithRecPtr^.A := lWithRecPtr^.Count;';
+    lTemps := 2;
+  end;
+  if aShape = 'cc-inherited' then
+    lExpected := '  lWithDerived := Obj;' + lLineBreak +
+      ' lWithDerived.Other := lWithDerived.Count;';
+  Assert.AreEqual(lExpected, lPlan.FinalStatements[0].ReplacementText, aShape);
+  Assert.AreEqual(lTemps, Integer(Length(lPlan.FinalStatements[0].Temps)), aShape);
+  Assert.AreEqual(lEdits, Integer(Length(lPlan.FinalStatements[0].Edits)), aShape);
+  Assert.AreEqual(lExpected, lSnapshotPlan.FinalStatements[0].ReplacementText, aShape);
+  Assert.AreEqual(lTemps, Integer(Length(lSnapshotPlan.FinalStatements[0].Temps)), aShape);
+  Assert.AreEqual(lEdits, Integer(Length(lSnapshotPlan.FinalStatements[0].Edits)), aShape);
+end;
+
+procedure TWithBinderTests.ValueMemberQualificationRequiresVerifiedReceiver(
+  const aShape, aMode: string);
+begin
+  ValueMembersColdWarmSnapshot(aShape, aMode);
+end;
+
+procedure TWithBinderTests.NestedValueQualificationRequiresVerifiedReceiver(
+  const aShape, aMode: string);
+begin
+  ValueMembersColdWarmSnapshot(aShape, aMode);
+end;
+
+procedure TWithBinderTests.ValueCoverageUsesReceiverIdentity(const aShape, aMode: string);
+begin
+  ValueMembersColdWarmSnapshot(aShape, aMode);
+end;
+
+procedure TWithBinderTests.ModelFreeLookupCannotProveValueAbsence;
+var
+  lIndex: TDelphiSemanticRemoveWithLookupIndex;
+begin
+  lIndex := TDelphiSemanticRemoveWithLookupIndex.Build([], []);
+  Assert.IsTrue(lIndex.IsAvailable, 'Inventory availability is not model coverage.');
+  Assert.IsTrue(lIndex.UnverifiedValueMemberMayApply('TItem', 'Count'),
+    'A model-free cache route must fail closed even with an empty value-name set.');
+  lIndex.AttachValueMemberEvidence(Default(TDelphiSemanticValueMemberEvidence));
+  Assert.IsTrue(lIndex.UnverifiedValueMemberMayApply('TItem', 'Count'),
+    'An unavailable imported view must not witness an empty name set.');
+end;
+
+procedure CorruptStandaloneValueEvidence(const aFileName, aShape: string);
+var
+  g: TGarbos;
+  lConnection: TFDConnection;
+begin
+  GC(lConnection, TFDConnection.Create(nil), g);
+  lConnection.DriverName := 'SQLite';
+  lConnection.Params.Values['Database'] := aFileName;
+  lConnection.LoginPrompt := False;
+  lConnection.Connected := True;
+  if aShape = 'missing' then
+    lConnection.ExecSQL('delete from snapshot_remove_with_value_evidence where row_kind = 0')
+  else if aShape = 'format' then
+    lConnection.ExecSQL('update snapshot_remove_with_value_evidence set evidence_version = 0 ' +
+      'where row_kind = 0')
+  else if aShape = 'checksum' then
+    lConnection.ExecSQL('update snapshot_remove_with_value_evidence set count1 = count1 + 1 ' +
+      'where row_kind = 0')
+  else if aShape = 'models' then
+    lConnection.ExecSQL('delete from snapshot_remove_with_value_evidence ' +
+      'where row_kind = 1 and item_index = 0')
+  else if aShape = 'fields' then
+    lConnection.ExecSQL('delete from snapshot_remove_with_value_evidence ' +
+      'where row_kind = 2 and item_index = 0')
+  else if aShape = 'values' then
+    lConnection.ExecSQL('delete from snapshot_remove_with_value_evidence ' +
+      'where row_kind = 3 and item_index = 0');
+end;
+
+procedure AssertValueEvidenceEqual(const aExpected, aActual: TDelphiSemanticValueMemberEvidence;
+  const aExpectedLookup, aActualLookup: TDelphiSemanticRemoveWithLookupIndex);
+var
+  i, j: Integer;
+  lName: string;
+begin
+  Assert.AreEqual(aExpected.Available, aActual.Available);
+  Assert.AreEqual(Length(aExpected.Units), Length(aActual.Units));
+  for i := 0 to High(aExpected.Units) do
+  begin
+    Assert.AreEqual(aExpected.Units[i].UnitName, aActual.Units[i].UnitName);
+    Assert.AreEqual(aExpected.Units[i].FileName, aActual.Units[i].FileName);
+    Assert.AreEqual(aExpected.Units[i].SourceText, aActual.Units[i].SourceText);
+    Assert.AreEqual(aExpected.Units[i].VerifiedActiveSourceText, aActual.Units[i].VerifiedActiveSourceText);
+    Assert.AreEqual(aExpected.Units[i].ScopeModelStatus, aActual.Units[i].ScopeModelStatus);
+    Assert.AreEqual(aExpected.Units[i].ScopeModelVersion, aActual.Units[i].ScopeModelVersion);
+    Assert.AreEqual(aExpected.Units[i].RejectedDeclarationCount, aActual.Units[i].RejectedDeclarationCount);
+  end;
+  Assert.AreEqual(Length(aExpected.ValueNames), Length(aActual.ValueNames));
+  for i := 0 to High(aExpected.ValueNames) do
+    Assert.AreEqual(aExpected.ValueNames[i], aActual.ValueNames[i]);
+  Assert.AreEqual(Length(aExpected.UnverifiedOwnerKeys), Length(aActual.UnverifiedOwnerKeys));
+  for i := 0 to High(aExpected.UnverifiedOwnerKeys) do
+    Assert.AreEqual(aExpected.UnverifiedOwnerKeys[i], aActual.UnverifiedOwnerKeys[i]);
+  Assert.AreEqual(Length(aExpected.Owners), Length(aActual.Owners));
+  for i := 0 to High(aExpected.Owners) do
+  begin
+    Assert.AreEqual(aExpected.Owners[i].DeclaredId, aActual.Owners[i].DeclaredId);
+    Assert.AreEqual(aExpected.Owners[i].UnitName, aActual.Owners[i].UnitName);
+    Assert.AreEqual(aExpected.Owners[i].FileName, aActual.Owners[i].FileName);
+    Assert.AreEqual(aExpected.Owners[i].Name, aActual.Owners[i].Name);
+    Assert.AreEqual(aExpected.Owners[i].Complete, aActual.Owners[i].Complete);
+    Assert.AreEqual(aExpected.Owners[i].TerminalVerified, aActual.Owners[i].TerminalVerified);
+    Assert.AreEqual(aExpected.Owners[i].NextDeclaredId, aActual.Owners[i].NextDeclaredId);
+    // A count of zero is an explicit empty-set witness, not absent evidence.
+    Assert.AreEqual(Length(aExpected.Owners[i].ValueNames), Length(aActual.Owners[i].ValueNames));
+    for j := 0 to High(aExpected.Owners[i].ValueNames) do
+      Assert.AreEqual(aExpected.Owners[i].ValueNames[j], aActual.Owners[i].ValueNames[j]);
+  end;
+  Assert.AreEqual(Length(aExpected.Queries), Length(aActual.Queries));
+  for i := 0 to High(aExpected.Queries) do
+  begin
+    Assert.AreEqual(aExpected.Queries[i].Name, aActual.Queries[i].Name);
+    Assert.AreEqual(aExpected.Queries[i].DeclaredId, aActual.Queries[i].DeclaredId);
+    for lName in aExpected.ValueNames + ['NoValueMember_DS731'] do
+      Assert.AreEqual(aExpectedLookup.UnverifiedValueMemberMayApply(aExpected.Queries[i].Name, lName),
+        aActualLookup.UnverifiedValueMemberMayApply(aExpected.Queries[i].Name, lName));
+    for lName in aExpected.ValueNames + ['NoValueMember_DS731', 'A', 'X'] do
+      Assert.AreEqual(aExpectedLookup.UnverifiedReceiverMemberMayApply(aExpected.Queries[i].Name,
+        lName, Default(TDelphiSemanticTypeIdentity)),
+        aActualLookup.UnverifiedReceiverMemberMayApply(aExpected.Queries[i].Name,
+        lName, Default(TDelphiSemanticTypeIdentity)));
+
+  end;
+  Assert.AreEqual(aExpectedLookup.UnverifiedValueMemberMayApply('MissingOwner_DS731', 'Count'),
+    aActualLookup.UnverifiedValueMemberMayApply('MissingOwner_DS731', 'Count'));
+end;
+
+procedure TWithBinderTests.StandaloneValueEvidenceRejectsPartial(const aShape: string);
+begin
+  ValueMembersColdWarmSnapshot('tag-only', 'corrupt-' + aShape);
+end;
+
+procedure TWithBinderTests.ValueMembersStandaloneSqlite(const aShape: string);
+begin
+  ValueMembersColdWarmSnapshot(aShape, 'standalone');
+end;
+
+procedure TWithBinderTests.ValueMembersColdWarmSnapshot(const aShape, aMode: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot, lType, lGlobal, lLocal, lBody, lExpected, lImplementation: string;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lShape, lSource: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lSessionBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+begin
+  lRoot := WithBinderTempPath('DS731-persistence-' + aShape + '-' + aMode);
+  TDirectory.CreateDirectory(lRoot);
+  lShape := aShape;
+  if StartsText('inactive-tag-', aShape) then
+    lShape := 'anonymous-inactive';
+  lType := 'var'#13#10'  Rec: record'#13#10'    A: Integer;'#13#10 +
+    '    case Count: Integer of'#13#10'      0: (X: Integer);'#13#10'  end;';
+  lGlobal := '';
+  lLocal := '';
+  lImplementation := '';
+  lBody := 'with Rec do A := Count;';
+  lExpected := 'Rec.A := Rec.Count;';
+  if lShape = 'anonymous-global' then
+    lGlobal := 'var Count: Integer;';
+  if lShape = 'anonymous-local' then
+    lLocal := 'var Count: Integer;';
+  if lShape = 'num-rec' then
+  begin
+    lType := '';
+    lLocal := 'var'#13#10'  num_rec: packed record'#13#10'    ll: Integer;'#13#10 +
+      '    case n_id: Byte of'#13#10'      0: (r_b: Byte);'#13#10 +
+      '      1: (r_w: Word);'#13#10'  end;';
+    lBody := 'with num_rec do ll := n_id;';
+    lExpected := 'num_rec.ll := num_rec.n_id;';
+  end;
+  if MatchText(lShape, ['indexed-named-tag', 'indexed-inline-tag',
+    'strong-alias-qualified-target']) then
+  begin
+    lType := 'type TRec = record A: Integer; case Count: Integer of 0: (X: Integer); end;';
+    lGlobal := 'var Count: Integer;';
+    if lShape = 'strong-alias-qualified-target' then
+    begin
+      lType := lType + #13#10'  TAlias = type TRec;'#13#10'var Rec: TAlias;';
+      lBody := '  with Rec do Rec.A := Count;';
+    end else begin
+      if lShape = 'indexed-inline-tag' then
+        lType := lType.Replace('case Count:',
+          'case {$IFDEF NEVER_DS731}RealTag{$ELSE}Count{$ENDIF}:');
+      lLocal := 'var lItems: TArray<TRec>; lIndex: Integer;';
+      lBody := '  with lItems[lIndex] do A := Count;';
+    end;
+  end;
+  if lShape = 'indexed-field-control' then
+  begin
+    lType := 'type TRec = record A: Integer; end;';
+    lLocal := 'var lItems: TArray<TRec>; lIndex: Integer;';
+    lBody := '  with lItems[lIndex] do A := 1;';
+    lExpected := 'lWithRecPtr^.A := 1;';
+  end;
+  if MatchText(lShape, ['unrelated-diagnostic', 'receiver-diagnostic']) then
+  begin
+    lType := 'type'#13#10'  TItem = record'#13#10'    A: Integer;'#13#10'  end;'#13#10 +
+      '  TUnrelated = record'#13#10'    Items: array[0..1] of Integer'#13#10'  end;'#13#10 +
+      'var Item: TItem;';
+    if lShape = 'receiver-diagnostic' then
+      lType := lType.Replace('    A: Integer;',
+        '    A: Integer;'#13#10'    Items: array[0..1] of Integer');
+    lGlobal := 'var Count: Integer;';
+    lBody := 'with Item do A := Count;';
+    lExpected := 'lWithItemPtr^.A := Count;';
+  end;
+  if StartsText('class-', lShape) and (lShape <> 'class-var') then
+  begin
+    lType := 'type'#13#10'  TItem = class(TObject)'#13#10'    A: Integer;'#13#10'  end;'#13#10 +
+      'var Item: TItem;';
+    if lShape = 'class-interfaced' then
+      lType := lType.Replace('class(TObject)', 'class(TInterfacedObject)');
+    if lShape = 'class-component' then
+      lType := 'uses System.Classes;'#13#10 +
+        lType.Replace('class(TObject)', 'class(TComponent)');
+    if lShape = 'class-forward' then
+      lType := 'type'#13#10'  TBase = class;'#13#10 +
+        '  TBase = class(TObject)'#13#10'  end;'#13#10 +
+        '  TItem = class(TBase)'#13#10'    A: Integer;'#13#10'  end;'#13#10 +
+        'var Item: TItem;';
+    lGlobal := 'var Count: Integer;';
+    lBody := 'with Item do A := Count;';
+    lExpected := 'lWithItem.A := Count;';
+  end;
+  if StartsText('partial-', lShape) then
+  begin
+    lType := 'type'#13#10'  TItem = record'#13#10'    var A: Integer;'#13#10 +
+      '    const Count = 7;'#13#10'  end;'#13#10'  TAlias = TItem;'#13#10 +
+      'var Item: TAlias;';
+    lGlobal := 'var A: Integer; Count: Integer;';
+    lBody := 'with Item do A := Count;';
+    lExpected := 'A := 7;';
+    if lShape = 'partial-weak-noglobal' then
+      lGlobal := 'var Count: Integer;';
+    if lShape = 'partial-strong-global' then
+      lType := lType.Replace('TAlias = TItem;', 'TAlias = type TItem;');
+    if lShape = 'partial-noconst-control' then
+    begin
+      lType := lType.Replace('    const Count = 7;'#13#10, '');
+      lBody := 'with Item do A := 7;';
+    end;
+    if lShape = 'partial-verified-control' then
+    begin
+      lType := lType.Replace('var A: Integer;', 'A: Integer;');
+      lExpected := 'Item.A := Item.Count;';
+    end;
+  end;
+  if StartsText('partial-root-', lShape) then
+  begin
+    lType := 'type'#13#10'  TItem = class(TObject)'#13#10'    A: Integer;'#13#10 +
+      '    const Count = 7;'#13#10'  end;'#13#10'var Item: TItem;';
+    if lShape = 'partial-root-interfaced' then
+      lType := lType.Replace('class(TObject)', 'class(TInterfacedObject)');
+    if lShape = 'partial-root-component' then
+      lType := 'uses System.Classes;'#13#10 +
+        lType.Replace('class(TObject)', 'class(TComponent)');
+    lGlobal := 'var X: Integer;';
+    lBody := 'with Item do A := Count + X;';
+    lExpected := 'lWithItem.A := lWithItem.Count + X;';
+  end;
+  if lShape = 'partial-indexed-ancestor' then
+  begin
+    // The indexed forward ancestor has no verified body. This is distinct
+    // from the unindexed RTL root and must not authorize a partial rewrite.
+    lType := 'type'#13#10'  TBase = class;'#13#10 +
+      '  TItem = class(TBase)'#13#10'    const Count = 7;'#13#10'  end;'#13#10 +
+      'var Item: TItem;';
+    lGlobal := 'var X: Integer;';
+    lBody := 'with Item do A := Count + X;';
+  end;
+  if StartsText('homonym-', lShape) then
+  begin
+    lType := 'type'#13#10'  TItem = record'#13#10'    A: Integer;'#13#10'  end;'#13#10 +
+      'var Item: TItem;';
+    if lShape = 'homonym-tag' then
+      lType := lType.Replace('    A: Integer;',
+        '    A: Integer;'#13#10'    case Count: Integer of 0: (X: Integer);');
+    if lShape = 'homonym-constant' then
+      lType := lType.Replace('    A: Integer;',
+        '    var A: Integer;'#13#10'    const Count = 7;');
+    lGlobal := 'const Count = 100;';
+    lBody := 'with Item do A := Count;';
+    lExpected := 'lWithItemPtr^.A := Count;';
+    if MatchText(lShape, ['homonym-tag', 'homonym-constant']) then
+      lExpected := 'lWithItemPtr^.A := lWithItemPtr^.Count;';
+    if lShape = 'homonym-unverified' then
+    begin
+      lLocal := 'var lItems: TArray<TItem>; lIndex: Integer;';
+      lBody := 'with lItems[lIndex] do A := Count;';
+    end;
+  end;
+  if StartsText('nested-', lShape) then
+  begin
+    lType := 'type'#13#10'  TItem = record'#13#10'    var A: Integer;'#13#10 +
+      '    const Count = 7;'#13#10'  end;'#13#10'  TAlias = TItem;'#13#10 +
+      '  TOther = record B: Integer; end;'#13#10 +
+      '  TExtra = record C: Integer; end;'#13#10 +
+      'var'#13#10'  Item: TAlias;'#13#10'  Other: TOther;'#13#10'  Extra: TExtra;';
+    lGlobal := 'var A: Integer; Count: Integer;';
+    lBody := 'with Item do begin Writeln(Count); with Other do A := B; end;';
+    if lShape = 'nested-parent-noglobal' then
+      lGlobal := 'var Count: Integer;';
+    if lShape = 'nested-child-trigger' then
+      lBody := 'with Item do begin A := 5; with Other do B := Count; end;';
+    if lShape = 'nested-three-level' then
+      lBody := 'with Item do begin A := 5; with Other do begin ' +
+        'with Extra do C := Count; end; end;';
+    if lShape = 'nested-siblings' then
+      lBody := 'with Item do begin with Other do B := Count; ' +
+        'with Extra do C := A; end;';
+    if lShape = 'nested-verified-control' then
+    begin
+      lType := lType.Replace('var A: Integer;', 'A: Integer;');
+      lBody := 'with Item do begin A := 5; with Other do B := Count; end;';
+      lExpected := 'lWithOtherPtr^.B := Item.Count;';
+    end;
+    if lShape = 'nested-unrelated-control' then
+    begin
+      lType := lType.Replace('var A: Integer;', 'A: Integer;').Replace(
+        'TOther = record B: Integer; end;',
+        'TOther = record'#13#10'    var B: Integer;'#13#10'  end;');
+      lBody := 'with Item do begin A := Count; with Other do B := 1; end;';
+      // Characterization only: Other has no slice qualification. Its pre-existing
+      // bare field defect must not be attributed to Item's verified member set.
+      lExpected := 'B := 1;';
+    end;
+  end;
+  if StartsText('anon-', lShape) then
+  begin
+    lType := 'var'#13#10'  Rec: record'#13#10'    A: Integer;'#13#10 +
+      '    case Count: Integer of'#13#10'      0: (X: Integer);'#13#10'  end;';
+    lLocal := 'var lOutside: Integer;';
+    lBody := 'with Rec do begin A := Count; lOutside := 1; end;';
+    lExpected := 'Rec.A := Rec.Count; lOutside := 1;';
+    if MatchText(lShape, ['anon-partial-field', 'anon-partial-enum']) then
+    begin
+      // The anonymous tag takes D3 while VAR field inventory is unverified.
+      lType := lType.Replace('    A: Integer;', '    var A: Integer;');
+      lBody := 'with Rec do A := Count;';
+      if lShape = 'anon-partial-enum' then
+      begin
+        lType := lType.Replace('var A: Integer;', 'var A: (Zero, One);');
+        lBody := 'with Rec do begin A := Low(A); X := Count; end;';
+      end;
+    end;
+    if lShape = 'anon-partial-include' then
+    begin
+      lType := lType.Replace('    case Count:', '    {$I extra.inc}'#13#10'    case Count:');
+      TFile.WriteAllText(TPath.Combine(lRoot, 'extra.inc'), 'Hidden: Integer;', TEncoding.ASCII);
+    end;
+    if lShape = 'anon-pointer-control' then
+    begin
+      // A pointer form is not a record witness unless its declaration is proven.
+      lType := lType.Replace('Rec: record', 'Rec: ^record');
+      lBody := 'with Rec^ do begin A := Count; lOutside := 1; end;';
+    end;
+  end;
+  if lShape = 'tag-only' then
+  begin
+    // Header-on-type-line inventory cannot hide a lost tag-only model array.
+    lType := 'type TRec = record A: Integer; case Count: Integer of 0: (X: Integer); end;' +
+      #13#10'var Rec: TRec;';
+    lGlobal := 'var Count: Integer;';
+    lExpected := '.A := lWithRecPtr^.Count;';
+  end;
+  if lShape = 'record-constant' then
+  begin
+    lType := 'type TRec = record var A: Integer; const Count = 5; end;'#13#10'var Rec: TRec;';
+    lGlobal := 'var Count: Integer;';
+    lExpected := '.A := lWithRecPtr^.Count;';
+  end;
+  if MatchText(lShape, ['anonymous-include', 'anonymous-include-paren']) then
+  begin
+    lType := 'var'#13#10'  Rec: record'#13#10'    A: Integer;'#13#10 +
+      '    {$I tag.inc}'#13#10'      0: (X: Integer);'#13#10'  end;';
+    lGlobal := 'var Count: Integer;';
+    if lShape = 'anonymous-include-paren' then
+      lType := lType.Replace('{$I tag.inc}', '(*$I tag.inc*)');
+    TFile.WriteAllText(TPath.Combine(lRoot, 'tag.inc'),
+      'case Count: Integer of', TEncoding.ASCII);
+  end;
+  if MatchText(lShape, ['anonymous-declaration-include',
+    'anonymous-declaration-include-multiline']) then
+  begin
+    lType := 'var {$I recvar.inc}';
+    lGlobal := 'var Count: Integer;';
+    TFile.WriteAllText(TPath.Combine(lRoot, 'recvar.inc'),
+      'Rec: record'#13#10' A: Integer;'#13#10' case Count: Integer of'#13#10 +
+      ' 0: (X: Integer);'#13#10' end;', TEncoding.ASCII);
+    if lShape = 'anonymous-declaration-include-multiline' then
+      TFile.WriteAllText(TPath.Combine(lRoot, 'recvar.inc'),
+        'Dummy1: Integer;'#13#10'Dummy2: Integer;'#13#10 +
+        TFile.ReadAllText(TPath.Combine(lRoot, 'recvar.inc'), TEncoding.ASCII),
+        TEncoding.ASCII);
+  end;
+  if lShape = 'anonymous-type-include' then
+  begin
+    lType := 'var'#13#10'  Rec: {$I rectype.inc}';
+    lGlobal := 'var Count: Integer;';
+    TFile.WriteAllText(TPath.Combine(lRoot, 'rectype.inc'),
+      'record'#13#10'    A: Integer;'#13#10'    case Count: Integer of'#13#10 +
+      '      0: (X: Integer);'#13#10'  end;',
+      TEncoding.ASCII);
+  end;
+  if lShape = 'anonymous-include-fields-only' then
+  begin
+    lType := 'var'#13#10'  Rec: record'#13#10'    A: Integer;'#13#10 +
+      '    {$I tag.inc}'#13#10'    0: (X: Integer);'#13#10'  end;';
+    lBody := 'with Rec do A := 1;';
+    lExpected := 'Rec.A := 1;';
+    TFile.WriteAllText(TPath.Combine(lRoot, 'tag.inc'),
+      'case Count: Integer of', TEncoding.ASCII);
+  end;
+  if lShape = 'anonymous-inactive' then
+  begin
+    lType := 'var Rec: record'#13#10'    A: Integer;'#13#10 +
+      '    {$IFDEF NEVER_DS731}'#13#10'    case Count: Integer of'#13#10 +
+      '    {$ELSE}'#13#10'    case RealTag: Integer of'#13#10 +
+      '    {$ENDIF}'#13#10'      0: (X: Integer);'#13#10'  end;';
+    lGlobal := 'var Count: Integer;';
+    lExpected := 'Rec.A := Count;';
+  end;
+  if StartsText('inline-active-', aShape) then
+  begin
+    lType := 'var Rec: record'#13#10'    A: Integer;'#13#10 +
+      '    case {$IFDEF NEVER_DS731}RealTag{$ELSE}Count{$ENDIF}: Integer of'#13#10 +
+      '      0: (X: Integer);'#13#10'  end;';
+    lGlobal := 'var Count: Integer;';
+  end;
+  if StartsText('inactive-include-', aShape) then
+  begin
+    lType := 'var Rec: record'#13#10'    A: Integer;'#13#10 +
+      '    {$IFDEF NEVER_DS731}'#13#10'    {$I missing.inc}'#13#10 +
+      '    {$ENDIF}'#13#10'    case RealTag: Integer of'#13#10 +
+      '      0: (X: Integer);'#13#10'  end;';
+    lGlobal := 'var Count: Integer;';
+    lExpected := 'Rec.A := Count;';
+  end;
+  if MatchText(lShape, ['class-var', 'instance-field']) then
+  begin
+    lType := 'type'#13#10'  TFoo = class'#13#10;
+    if lShape = 'class-var' then
+      lType := lType + '    class var CRec: record'#13#10
+    else
+      lType := lType + '    FRec: record'#13#10;
+    lType := lType + '      A: Integer;'#13#10 +
+      '      case Count: Integer of'#13#10'        0: (X: Integer);'#13#10 +
+      '    end;'#13#10'    class procedure Go;'#13#10'  end;';
+    lGlobal := 'var Count: Integer;';
+    if lShape = 'class-var' then
+      lImplementation := 'class procedure TFoo.Go;'#13#10 +
+        'begin with CRec do A := Count; end;'#13#10
+    else begin
+      lType := lType.Replace('class procedure Go;', 'procedure Go;');
+      lImplementation := 'procedure TFoo.Go;'#13#10 +
+        'begin with FRec do A := Count; end;'#13#10;
+      lExpected := ' FRec.A := FRec.Count;';
+    end;
+    lBody := '';
+  end;
+  if MatchText(lShape, ['helper-unrelated', 'helper-own']) then
+  begin
+    lType := 'type'#13#10'  TRec = record'#13#10'    Other: Integer;'#13#10;
+    if lShape = 'helper-own' then
+      lType := lType + '    const Count = 7;'#13#10;
+    lType := lType + '  end;'#13#10 +
+      '  TRecHelper = record helper for TRec'#13#10 +
+      '    function Count: Integer;'#13#10'  end;'#13#10 +
+      '  TFoo = record'#13#10'    const Count = 1;'#13#10'  end;'#13#10 +
+      'var'#13#10'  Rec: TRec;';
+    lImplementation := 'function TRecHelper.Count: Integer;'#13#10 +
+      'begin Result := 4; end;'#13#10;
+    lBody := 'with Rec do Other := Count;';
+    lExpected := 'lWithRecPtr^.Other := lWithRecPtr^.Count;';
+  end;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, ControlUnit; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/>' +
+    '<DCCReference Include="ControlUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lSource := 'unit Unit1;'#13#10'interface'#13#10 + lType + #13#10 + lGlobal +
+    #13#10'implementation'#13#10 + lImplementation + 'procedure Run;'#13#10 + lLocal +
+    #13#10'begin'#13#10'  ' + lBody + #13#10'end;'#13#10'end.'#13#10;
+  if EndsText('-lf', aShape) then
+    lSource := lSource.Replace(#13#10, #10);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'ControlUnit.pas'),
+    'unit ControlUnit;'#13#10'interface'#13#10 +
+    'type TControl = record Value: Integer; const Count = 7; end;'#13#10'var Item: TControl;'#13#10 +
+    'implementation'#13#10'procedure Run; begin with Item do Value := 1; end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  if StartsText('homonym-', lShape) then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'ControlUnit.pas'),
+      TFile.ReadAllText(TPath.Combine(lRoot, 'ControlUnit.pas'), TEncoding.ASCII).Replace(
+        'type TControl =', 'type TItem = record B: Integer; end;'#13#10'TControl ='), TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.AreEqual(Int64(0), lFacts.Metrics.SemanticCacheHits, 'Fresh SQLite file must be cold.');
+  if aMode = 'warm' then
+  begin
+    lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+    Assert.IsTrue(lFacts.Metrics.SemanticCacheHits > 0, 'Warm SQLite facts must hit.');
+  end;
+  if StartsText('homonym-', lShape) then
+    Assert.IsTrue(lFacts.LookupIndex.UnverifiedValueMemberMayApply('TItem', 'Count'),
+      'An ambiguous simple name without verified receiver identity cannot prove coverage.');
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  if (aMode = 'standalone') or StartsText('corrupt-', aMode) then
+  begin
+    lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+    lIdentity.CacheKey := 'standalone-value-proof';
+    lIdentity.IdentityKey := lIdentity.CacheKey;
+    lIdentity.SourceFileName := lOptions.ProjectFileName;
+    lIdentity.FileHash := lFacts.ContextFingerprint;
+    lIdentity.ContextHash := lFacts.ContextFingerprint;
+    lIdentity.IncludeGraphHash := 'no-include-changes';
+    lIdentity.SchemaVersion := 'remove-with-facts-v63';
+    lStored := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+    try
+      lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
+      try
+        lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+      finally
+        lCache.Free;
+      end;
+    finally
+      lStored.Free;
+    end;
+    if StartsText('corrupt-', aMode) then
+      CorruptStandaloneValueEvidence(TPath.Combine(lRoot, 'standalone.sqlite'),
+        Copy(aMode, Length('corrupt-') + 1, MaxInt));
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
+    try
+      if StartsText('corrupt-', aMode) then
+      begin
+        try
+          Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded),
+            'Missing, partial or foreign evidence must invalidate the project cache.');
+          Assert.IsTrue(lLoaded = nil);
+          Assert.AreEqual(1, lCache.Metrics.Invalidations);
+        finally
+          lLoaded.Free;
+        end;
+        Exit;
+      end;
+      Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+      try
+        AssertValueEvidenceEqual(lFacts.LookupIndex.ExportValueMemberEvidence,
+          lLoaded.RemoveWithPlanningFacts.LookupIndex.ExportValueMemberEvidence,
+          lFacts.LookupIndex, lLoaded.RemoveWithPlanningFacts.LookupIndex);
+        Assert.AreEqual(Integer(Length(lFacts.UnitModels)), Integer(lLoaded.UnitCount));
+        for var i := 0 to High(lFacts.UnitModels) do
+        begin
+          Assert.AreEqual(lFacts.UnitModels[i].SourceText,
+            lLoaded.ExactTextOf(lLoaded.UnitByIndex(i).SourceTextId));
+          Assert.AreEqual(lFacts.UnitModels[i].VerifiedActiveSourceText,
+            lLoaded.ExactTextOf(lLoaded.UnitByIndex(i).VerifiedActiveSourceTextId));
+        end;
+        lSnapshotPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+      finally
+        lLoaded.Free;
+      end;
+    finally
+      lCache.Free;
+    end;
+  end;
+
+  if MatchText(aMode, ['sessioncold', 'sessionwarm']) then
+  begin
+    for var i := 0 to Ord(aMode = 'sessionwarm') do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lSessionBuild := lSession.Session.PlanRemoveWithResult;
+        Assert.AreEqual(i, Integer(lSessionBuild.SnapshotMetrics.SnapshotCacheHits));
+        lSnapshotPlan := lSessionBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  end;
+
+  Assert.AreEqual(Length(lPlan.FinalStatements), Length(lSnapshotPlan.FinalStatements));
+  if StartsText('nested-', lShape) and (not EndsText('-control', lShape)) then
+    Assert.AreEqual(3 + Ord(MatchText(lShape, ['nested-three-level', 'nested-siblings'])),
+      Integer(Length(lPlan.FinalStatements)), 'Outer and dependent nested refusals remain visible.')
+  else
+    Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements)), lShape + ': ' + lPlan.FinalStatements[0].Reason);
+  for var i := 0 to High(lPlan.FinalStatements) do
+  begin
+    Assert.AreEqual(lPlan.FinalStatements[i].Status, lSnapshotPlan.FinalStatements[i].Status);
+    Assert.AreEqual(lPlan.FinalStatements[i].Reason, lSnapshotPlan.FinalStatements[i].Reason);
+    Assert.AreEqual(lPlan.FinalStatements[i].SafetyReason, lSnapshotPlan.FinalStatements[i].SafetyReason);
+    Assert.AreEqual(lPlan.FinalStatements[i].ReplacementText, lSnapshotPlan.FinalStatements[i].ReplacementText);
+    Assert.AreEqual(Length(lPlan.FinalStatements[i].Edits), Length(lSnapshotPlan.FinalStatements[i].Edits));
+  end;
+  if MatchText(aMode, ['snapshot', 'standalone', 'sessioncold', 'sessionwarm']) then
+    lPlan := lSnapshotPlan;
+  for lStatement in lPlan.FinalStatements do
+    if SameText(ExtractFileName(lStatement.FileName), 'Unit1.pas') then
+    begin
+      if StartsText('nested-', lShape) and (not EndsText('-control', lShape)) then
+      begin
+        Assert.AreEqual('skipped', lStatement.Status, lShape + ': ' + lStatement.Reason);
+        Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.SafetyReason);
+        Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+        Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+        Assert.AreEqual('', lStatement.ReplacementText);
+        for var lEdit in lPlan.Edits do
+          Assert.AreNotEqual(lStatement.SemanticId, lEdit.StatementId,
+            'Refusal removes outer and dependent nested candidate edits.');
+        Continue;
+      end;
+      if lShape = 'anon-pointer-control' then
+      begin
+        Assert.AreEqual('skipped', lStatement.Status);
+        Assert.AreEqual('scope-unverified', lStatement.Reason);
+        Assert.AreEqual('SCOPE_UNVERIFIED', lStatement.SafetyReason);
+        Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+        Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+        Assert.AreEqual('', lStatement.ReplacementText);
+        Continue;
+      end;
+      if MatchText(lShape, ['anonymous-global', 'anonymous-local', 'anonymous-include', 'helper-own',
+        'anonymous-declaration-include', 'anonymous-declaration-include-multiline',
+        'anonymous-type-include', 'anonymous-include-paren', 'class-var',
+        'indexed-named-tag', 'indexed-inline-tag', 'strong-alias-qualified-target',
+        'receiver-diagnostic', 'homonym-unverified', 'partial-weak-global',
+        'partial-weak-noglobal', 'partial-strong-global', 'partial-indexed-ancestor',
+        'anon-partial-field', 'anon-partial-enum', 'anon-partial-include', 'anon-pointer-control']) or
+        StartsText('inline-active-', aShape) then
+      begin
+        Assert.AreEqual('skipped', lStatement.Status, aShape);
+        if MatchText(lShape, ['anon-partial-field', 'anon-partial-enum']) then
+          Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.Reason)
+        else if lShape = 'partial-strong-global' then
+          Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.Reason)
+        else if StartsText('partial-', lShape) then
+          Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.Reason)
+        else if lShape = 'homonym-unverified' then
+          Assert.AreEqual('receiver-type-not-visible', lStatement.Reason)
+        else if lShape = 'receiver-diagnostic' then
+          Assert.AreEqual('members-incomplete', lStatement.Reason)
+        else if lShape = 'helper-own' then
+          Assert.AreEqual('symbol-not-found', lStatement.Reason)
+        else
+          Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.Reason);
+        if MatchText(lShape, ['anon-partial-field', 'anon-partial-enum']) then
+          Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.SafetyReason)
+        else if lShape = 'partial-strong-global' then
+          Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.SafetyReason)
+        else if StartsText('partial-', lShape) then
+          Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.SafetyReason)
+        else if lShape = 'homonym-unverified' then
+          Assert.AreEqual('receiver-type-not-visible', lStatement.SafetyReason)
+        else if lShape = 'receiver-diagnostic' then
+          Assert.AreEqual('MEMBERS_INCOMPLETE', lStatement.SafetyReason)
+        else
+          Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
+        Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+        Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+        Assert.AreEqual('', lStatement.ReplacementText);
+        // The unverified control stops before the value barrier's candidate filter.
+        if lShape <> 'homonym-unverified' then
+          for var lEdit in lPlan.Edits do
+            Assert.AreNotEqual(lStatement.SemanticId, lEdit.StatementId, 'Refusal removes its candidate.');
+      end else begin
+        Assert.AreEqual('planned', lStatement.Status, aShape + ': ' + lStatement.Reason);
+        Assert.IsTrue(ContainsText(lStatement.ReplacementText, lExpected), lStatement.ReplacementText);
+        if MatchText(lShape, ['anonymous-control', 'num-rec', 'anonymous-inactive',
+          'anonymous-include-fields-only']) or StartsText('inactive-include-', aShape) then
+        begin
+          Assert.AreEqual(' ' + lExpected, lStatement.ReplacementText);
+          Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+          Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+        end;
+      end;
+    end else begin
+      Assert.AreEqual('ControlUnit.pas', ExtractFileName(lStatement.FileName));
+      Assert.AreEqual('planned', lStatement.Status);
+      Assert.IsTrue(ContainsText(lStatement.ReplacementText, '.Value := 1;'));
+    end;
+end;
+
+function TWithBinderTests.TypeValueSafetyModels(const aShape: string): TArray<TDelphiSemanticUnitModel>;
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lPath, lRoot: string;
+  lModels: TList<TDelphiSemanticUnitModel>;
+begin
+  lRoot := WithBinderTempPath('DS731-safety-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  if aShape = 'rc-sameline-peer' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    const CLo = 1; Count = 5;'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'rc-section-multiline' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    const'#13#10 +
+      '      CLo = 1;'#13#10 +
+      '      Count = 5;'#13#10 +
+      '    var'#13#10 +
+      '      Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'rc-imported-recv' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses Unit2;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+      'unit Unit2;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'implementation'#13#10 +
+      ''#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'rc-private-same-unit' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '  private'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '  public'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'vt-local-record' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      '  TLoc = record'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '    case Count: Integer of'#13#10 +
+      '      0: (A: Integer);'#13#10 +
+      '  end;'#13#10 +
+      'var'#13#10 +
+      '  L: TLoc;'#13#10 +
+      'begin'#13#10 +
+      '  with L do A := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'cc-global-read' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TC = class'#13#10 +
+      '  public'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Obj: TC;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Obj do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'cc-inherited-import' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses Unit2;'#13#10 +
+      'type'#13#10 +
+      '  TDerived = class(TBase)'#13#10 +
+      '  public'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Obj: TDerived;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Obj do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+      'unit Unit2;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TBase = class'#13#10 +
+      '  public'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '  end;'#13#10 +
+      'implementation'#13#10 +
+      ''#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'cc-derived-const' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TBase = class'#13#10 +
+      '  public'#13#10 +
+      '    Count: Integer;'#13#10 +
+      '  end;'#13#10 +
+      '  TDerived = class(TBase)'#13#10 +
+      '  public'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Obj: TDerived;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Obj do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'rc-local' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'begin'#13#10 +
+      '  Count := 0;'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'vt-nested-variant' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    case Tag: Integer of'#13#10 +
+      '      0: (A: Integer; case Count: Byte of 0: (B: Byte));'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do A := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'cc-private-import' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses Unit2;'#13#10 +
+      'var Obj: TC;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Obj do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+      'unit Unit2;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TC = class'#13#10 +
+      '  private'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '  public'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'implementation'#13#10 +
+      ''#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'cc-strict-private-same-unit' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TC = class'#13#10 +
+      '  strict private'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '  public'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Obj: TC;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Obj do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'cc-protected-descendant' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses Unit2;'#13#10 +
+      'type'#13#10 +
+      '  TD = class(TC)'#13#10 +
+      '  public'#13#10 +
+      '    procedure Run;'#13#10 +
+      '  end;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TD.Run;'#13#10 +
+      'var'#13#10 +
+      '  Obj: TC;'#13#10 +
+      'begin'#13#10 +
+      '  Obj := nil;'#13#10 +
+      '  with Obj do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+      'unit Unit2;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TC = class'#13#10 +
+      '  protected'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '  public'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'implementation'#13#10 +
+      ''#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'rc-helper-const' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      '  TRecHelper = record helper for TRec'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'lost-constant' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'rc-unit-const-ctl' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'const'#13#10 +
+      '  Count = 5;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'rc-foreign-homonym' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses Unit2;'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+      'unit Unit2;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'implementation'#13#10 +
+      ''#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'rc-nested-type-neg' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    type TInner = record'#13#10 +
+      '      const Count = 5;'#13#10 +
+      '    end;'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'vt-inline-field-neg' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    Data: record'#13#10 +
+      '      case Count: Integer of'#13#10 +
+      '        0: (A: Integer);'#13#10 +
+      '    end;'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'cc-derived-field-hides' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TBase = class'#13#10 +
+      '  public'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '  end;'#13#10 +
+      '  TDerived = class(TBase)'#13#10 +
+      '  public'#13#10 +
+      '    Count: Integer;'#13#10 +
+      '    Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Obj: TDerived;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Obj do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'rc-cond-inactive' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '{$IFDEF DS731_NEVER_DEFINED}'#13#10 +
+      '    const Count = 5;'#13#10 +
+      '{$ENDIF}'#13#10 +
+      '    var Other: Integer;'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do Other := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  if aShape = 'vt-tagless-field' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    case Integer of'#13#10 +
+      '      0: (A: Integer);'#13#10 +
+      '      1: (Count: Byte);'#13#10 +
+      '  end;'#13#10 +
+      'var Rec: TRec;'#13#10 +
+      'var'#13#10 +
+      '  Count: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Rec do A := Count;'#13#10 +
+      'end;'#13#10 +
+      'end.', TEncoding.ASCII);
+  end;
+  lModels := TList<TDelphiSemanticUnitModel>.Create;
+  try
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.ProjectContextApplied := True;
+    for lPath in TDirectory.GetFiles(lRoot, '*.pas') do
+    begin
+      lOptions.SourceFileName := lPath;
+      lModels.Add(TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions));
+      Assert.IsTrue(lModels.Last.Success, aShape);
+      Assert.AreEqual('ast', lModels.Last.ScopeModelStatus, aShape);
+    end;
+    Result := lModels.ToArray;
+  finally
+    lModels.Free;
+  end;
+  if aShape = 'vt-nested-variant' then
+    Assert.AreEqual(2, Integer(Length(Result[0].TypeValueMembers)),
+      'Both tags are extracted even when ordinary field B is incomplete.');
+  if aShape = 'lost-constant' then
+    Result[0].TypeValueMembers := nil;
+end;
+
+procedure TWithBinderTests.TypeValueSafetyAndSnapshot(const aShape: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lReference: TDelphiSemanticBoundReference;
+  lFound: Boolean;
+  lExpectedKind, lExpectedCode: string;
+begin
+  lFacts := TDelphiSemanticWithBinder.BindProject('ds731-safety-' + aShape, nil,
+    TypeValueSafetyModels(aShape));
+  lFound := False;
+  lExpectedKind := 'const';
+  if StartsText('vt-', aShape) then
+    lExpectedKind := 'variant-tag';
+  lExpectedCode := '';
+  if MatchText(aShape, ['cc-private-import', 'cc-strict-private-same-unit',
+    'cc-protected-descendant']) then
+    lExpectedCode := 'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED';
+  if MatchText(aShape, ['rc-helper-const', 'lost-constant']) then
+    lExpectedCode := 'TYPE_VALUE_MEMBERS_UNVERIFIED';
+  for var lBinding in lFacts.Bindings do
+    for lReference in lBinding.References do
+      if SameText(lReference.Name, 'Count') then
+      begin
+        lFound := True;
+        if aShape = 'vt-nested-variant' then
+        begin
+          // Existing MEMBERS_INCOMPLETE for B still shields receiver lookup.
+          Assert.AreEqual('unsupported', lReference.Classification, aShape);
+          Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lReference.ReasonCode);
+        end else if lExpectedCode <> '' then
+        begin
+          Assert.AreEqual('unsupported', lReference.Classification, aShape);
+          Assert.AreEqual(lExpectedCode, lReference.ReasonCode, aShape);
+        end else if MatchText(aShape, ['rc-unit-const-ctl', 'rc-foreign-homonym',
+          'rc-nested-type-neg', 'vt-inline-field-neg', 'rc-cond-inactive']) then
+          Assert.AreNotEqual('member', lReference.Classification, aShape)
+        else begin
+          Assert.AreEqual('member', lReference.Classification, aShape);
+          Assert.AreEqual('receiver', lReference.LookupSource, aShape);
+          if MatchText(aShape, ['cc-derived-field-hides', 'vt-tagless-field']) then
+            Assert.AreEqual('field', lReference.Kind, aShape)
+          else
+            Assert.AreEqual(lExpectedKind, lReference.Kind, aShape);
+        end;
+      end;
+  Assert.IsTrue(lFound, 'Expected a Count reference: ' + aShape);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  Assert.AreEqual(Length(lPlan.FinalStatements), Length(lSnapshotPlan.FinalStatements));
+  for var i := 0 to High(lPlan.FinalStatements) do
+  begin
+    Assert.AreEqual(lPlan.FinalStatements[i].Status, lSnapshotPlan.FinalStatements[i].Status, aShape);
+    Assert.AreEqual(lPlan.FinalStatements[i].Reason, lSnapshotPlan.FinalStatements[i].Reason, aShape);
+    Assert.AreEqual(lPlan.FinalStatements[i].SafetyReason, lSnapshotPlan.FinalStatements[i].SafetyReason, aShape);
+    Assert.AreEqual(lPlan.FinalStatements[i].ReplacementText, lSnapshotPlan.FinalStatements[i].ReplacementText, aShape);
+    if lExpectedCode <> '' then
+    begin
+      Assert.AreEqual('skipped', lPlan.FinalStatements[i].Status, aShape);
+      Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lPlan.FinalStatements[i].SafetyReason, aShape);
+      Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[i].Temps)));
+      Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[i].Edits)));
+      Assert.AreEqual('', lPlan.FinalStatements[i].ReplacementText);
+      for var lEdit in lPlan.Edits do
+        Assert.AreNotEqual(lPlan.FinalStatements[i].SemanticId, lEdit.StatementId);
+    end;
+  end;
+end;
+
+procedure TWithBinderTests.ValueMemberWithoutReceiverMatchRemovesCandidate;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lFound: Boolean;
+begin
+  lFacts := TDelphiSemanticWithBinder.BindProject('ds731-no-receiver-match', nil,
+    TypeValueMemberModels('rc-global-read'));
+  lFound := False;
+  for var i := 0 to High(lFacts.Bindings[0].References) do
+    if SameText(lFacts.Bindings[0].References[i].Name, 'Count') then
+    begin
+      lFound := True;
+      Assert.AreEqual('member', lFacts.Bindings[0].References[i].Classification);
+      lFacts.Bindings[0].References[i].ReceiverTypeName := 'UnselectedReceiver';
+    end;
+  Assert.IsTrue(lFound);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+  Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+  Assert.AreEqual('receiver-member-unqualified', lPlan.FinalStatements[0].Reason);
+  Assert.AreEqual(lPlan.FinalStatements[0].Reason, lSnapshotPlan.FinalStatements[0].Reason);
+  Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Temps)));
+  Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Edits)));
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+  Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+end;
+
+procedure TWithBinderTests.ValueMemberReceiverDecisions(const aCase: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath, lDistinctId: string;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lFound: Boolean;
+begin
+  if aCase = 'conflict' then
+  begin
+    lModels := TypeValueMemberModels('vt-nested-with');
+    lFacts := TDelphiSemanticWithBinder.BindProject('ds731-decision-conflict', nil, lModels);
+    Assert.AreEqual(2, Integer(Length(lFacts.Bindings)));
+    Assert.AreNotEqual(lFacts.Bindings[0].Selectors[0].TypeIdentity.DeclaredId.Value,
+      lFacts.Bindings[1].Selectors[1].TypeIdentity.DeclaredId.Value);
+    // Same spelling is not authority when the selected declarations differ.
+    lDistinctId := lFacts.Bindings[0].Selectors[0].TypeIdentity.DeclaredId.Value;
+    lFacts.Bindings[0].Selectors[0].TypeName := 'TRec';
+    lFacts.Bindings[0].Selectors[0].TypeIdentity := lFacts.Bindings[1].Selectors[1].TypeIdentity;
+    lFacts.Bindings[0].Selectors[0].TypeIdentity.DeclaredId.Value := lDistinctId;
+    lFacts.Bindings[1].Selectors[0] := lFacts.Bindings[0].Selectors[0];
+    // Preserve source visibility coordinates to reach the decision identity gate;
+    // only the competing declaration identity is deliberately foreign.
+
+  end else begin
+    lPath := WithBinderTempPath('DS731-retained.pas');
+    TFile.WriteAllText(lPath, 'unit Unit1;'#13#10'interface'#13#10 +
+      'type'#13#10'  TRec = record'#13#10'    const Count = 7;'#13#10'  end;'#13#10 +
+      '  TInner = record'#13#10'    Other: Integer;'#13#10'  end;'#13#10 +
+      'var'#13#10'  Rec: TRec;'#13#10'  Item: TInner;'#13#10 +
+      'implementation'#13#10 +
+      'function GetRec: TRec; begin Result := Rec; end;'#13#10 +
+      'procedure Run;'#13#10'begin'#13#10 +
+      '  with GetRec do'#13#10'    with Item do Other := Count;'#13#10'end;'#13#10'end.',
+      TEncoding.ASCII);
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := lPath;
+    lOptions.ProjectContextApplied := True;
+    SetLength(lModels, 1);
+    lModels[0] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModels[0].Success);
+    lFacts := TDelphiSemanticWithBinder.BindProject('ds731-retained-member', nil, lModels);
+    Assert.AreEqual(2, Integer(Length(lFacts.Bindings)));
+    // A record-returning call keeps the parent WITH and its member scope.
+  end;
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  Assert.AreEqual(Length(lPlan.FinalStatements), Length(lSnapshotPlan.FinalStatements));
+  lFound := False;
+  for var i := 0 to High(lPlan.FinalStatements) do
+  begin
+    lStatement := lPlan.FinalStatements[i];
+    Assert.AreEqual(lStatement.Status, lSnapshotPlan.FinalStatements[i].Status);
+    Assert.AreEqual(lStatement.Reason, lSnapshotPlan.FinalStatements[i].Reason);
+    Assert.AreEqual(lStatement.ReplacementText, lSnapshotPlan.FinalStatements[i].ReplacementText);
+    if aCase = 'conflict' then
+    begin
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.AreEqual('receiver-member-unqualified', lStatement.Reason);
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual('', lStatement.ReplacementText);
+      Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+      lFound := True;
+    end else if SameText(lStatement.Status, 'planned') then
+    begin
+      Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+      Assert.IsTrue(ContainsText(lStatement.ReplacementText, '.Other := Count;'), lStatement.ReplacementText);
+      Assert.IsFalse(ContainsText(lStatement.ReplacementText, '.Count'));
+      lFound := True;
+    end;
+  end;
+  Assert.IsTrue(lFound, aCase);
 end;
 
 initialization

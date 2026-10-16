@@ -4139,23 +4139,15 @@ begin
       if SameText(ExtractFileName(lStatement.FileName), 'U.pas') then
       begin
         lFound := True;
-        if aShape = 'foreign' then
-        begin
-          Assert.AreEqual('skipped', lStatement.Status);
-          Assert.AreEqual('receiver-member-owner-conflict', lStatement.Reason);
-          Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
-          Assert.AreEqual('', lStatement.ReplacementText);
-        end else begin
-          Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-          Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-          Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
-          if aShape = 'included' then
-            Assert.AreEqual('  ' + lStatement.Temps[0].InitializationText + sLineBreak +
-              ' b := K;', lStatement.ReplacementText)
-          else
-            Assert.AreEqual('  ' + lStatement.Temps[0].InitializationText + sLineBreak +
-              ' b := ' + lStatement.Temps[0].QualifierText + '.K;', lStatement.ReplacementText);
-        end;
+        // DS-731 Q4 (foreign): moving inventory facts cannot override the
+        // receiver's AST-backed K, whose declaring owner remains verified.
+        Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+        Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
+        Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
+        // DS-731 Q4 (included): the include-origin K now binds as a value member,
+        // so the global homonym can no longer leave it bare.
+        Assert.AreEqual('  ' + lStatement.Temps[0].InitializationText + sLineBreak +
+          ' b := ' + lStatement.Temps[0].QualifierText + '.K;', lStatement.ReplacementText);
       end;
     Assert.IsTrue(lFound);
   end;
