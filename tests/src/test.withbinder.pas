@@ -36,6 +36,51 @@ type
     [Test]
     [Category('DS731Planner')]
     procedure ValueMemberWithoutReceiverMatchRemovesCandidate;
+    [TestCase('constant with temporary', 'constant,temp')]
+    [TestCase('field with temporary', 'field,temp')]
+    [TestCase('constant with direct child', 'constant,direct')]
+    [Category('DS740')]
+    procedure RetainedSameLineParentKeepsChildScope(const aMember, aStrategy: string);
+    [TestCase('split do', 'split-do')]
+    [TestCase('preceding statement', 'prefix-stmt-parent')]
+    [TestCase('false guard', 'np2-if')]
+    [TestCase('if then else', 'if-then-else')]
+    [TestCase('case label', 'case-label')]
+    [TestCase('three levels', 'three-planned-mid')]
+    [TestCase('two children', 'two-children')]
+    [TestCase('following statement separator', 'following-stmt')]
+    [TestCase('outer else', 'outer-if-else-sameline')]
+    [TestCase('planned parent absorbs multi-statement child', 'planned-parent')]
+    [Category('DS740')]
+    procedure PrefixedWithKeepsControlledStatement(const aCase: string);
+    [TestCase('known inactive controlling prefix', 'inactive')]
+    [TestCase('known active controlling prefix', 'active')]
+    [TestCase('unknown controlling prefix', 'unknown')]
+    [TestCase('NET statement prefix', 'net-statement')]
+    [TestCase('NET controlling prefix', 'net-control')]
+    [TestCase('two adjacent statement spans', 'two-statements')]
+    [TestCase('two adjacent spans exposing control', 'two-control')]
+    [TestCase('complementary active span exposes control', 'complementary-control')]
+    [TestCase('active span after conditional control', 'active-control')]
+    [TestCase('active span after unconditional separator', 'active-statement')]
+    [TestCase('partial receiver cascade with handler DO', 'partial-cascade')]
+    [TestCase('include controlling prefix', 'include')]
+    [TestCase('while do controls', 'while')]
+    [TestCase('same-line while do controls', 'while-inline')]
+    [TestCase('same-line for do controls', 'for-inline')]
+    [TestCase('for do controls', 'for')]
+    [TestCase('routine inside conditional', 'routine-ifdef')]
+    [TestCase('earlier expression conditional', 'expression-ifdef')]
+    [TestCase('comments are trivia', 'comments')]
+    [TestCase('directive text in string is not a directive', 'string')]
+    [TestCase('label controls', 'label')]
+    [TestCase('planned parent while child', 'planned-while')]
+    [TestCase('planned parent for child', 'planned-for')]
+    [TestCase('planned parent exception child', 'planned-on')]
+    [TestCase('refused parent with planned siblings', 'cb-sib')]
+    [Category('DS740PrefixActivity')]
+    procedure PrefixControlUsesActivity(const aActivity: string);
+
     [TestCase('conflicting identities', 'conflict')]
     [TestCase('retained member', 'retained')]
     [Category('DS731Planner')]
@@ -9110,6 +9155,402 @@ begin
     end;
   end;
   Assert.IsTrue(lFound, aCase);
+end;
+
+procedure TWithBinderTests.RetainedSameLineParentKeepsChildScope(
+  const aMember, aStrategy: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath, lMember, lLocal, lChild, lSource: string;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lEdit: TDelphiSemanticRemoveWithFinalTextEdit;
+  lFound: Boolean;
+begin
+  lPath := WithBinderTempPath('DS740-' + aMember + '-' + aStrategy + '.pas');
+  lMember := 'const Count = 7;';
+  if aMember = 'field' then
+    lMember := 'Count: Integer;';
+  lLocal := '';
+  lChild := 'Item';
+  if aStrategy = 'direct' then
+  begin
+    lLocal := 'var aItem: TInner';
+    lChild := 'aItem';
+  end;
+  lSource := 'unit Unit1;'#13#10'interface'#13#10 +
+    'type TRec = record ' + lMember + ' end;'#13#10 +
+    'TInner = record Other: Integer; procedure Touch; end;'#13#10 +
+    'var Item: TInner; Count: Integer;'#13#10'implementation'#13#10 +
+    'function GetRec: TRec; begin Result := Default(TRec); end;'#13#10 +
+    'procedure TInner.Touch; begin end;'#13#10 +
+    'procedure Run(' + lLocal + ');'#13#10'begin'#13#10 +
+    '  with GetRec do with ' + lChild + ' do Other := Count;'#13#10'end;'#13#10'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  SetLength(lModels, 1);
+  lModels[0] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModels[0].Success);
+  lFacts := TDelphiSemanticWithBinder.BindProject('ds740-retained-parent', nil, lModels);
+  Assert.AreEqual(2, Integer(Length(lFacts.Bindings)));
+  Assert.IsTrue(HasReference(lFacts.Bindings[1], 'Count', 'member'));
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+  lFound := False;
+  for var i := 0 to High(lPlan.FinalStatements) do
+  begin
+    lStatement := lPlan.FinalStatements[i];
+    Assert.AreEqual(lStatement.Status, lSnapshotPlan.FinalStatements[i].Status);
+    Assert.AreEqual(lStatement.ReplacementText, lSnapshotPlan.FinalStatements[i].ReplacementText);
+    if not SameText(lStatement.Status, 'planned') then
+      Continue;
+    lFound := True;
+    Assert.IsTrue(ContainsText(lStatement.ReplacementText, '.Other := Count;'));
+    for lEdit in lStatement.Edits do
+      if lEdit.Kind = 'replace-statement' then
+      begin
+        Assert.AreEqual(lFacts.Bindings[1].Column, lEdit.Range.StartColumn,
+          'The child edit must not erase the retained parent header.');
+        if aStrategy = 'direct' then
+          Assert.AreEqual(' aItem.Other := Count;', lEdit.ReplacementText)
+        else
+        begin
+          Assert.IsTrue(StartsText('begin' + sLineBreak, lEdit.ReplacementText));
+          Assert.IsTrue(EndsText(sLineBreak + StringOfChar(' ',
+            lFacts.Bindings[1].Column - 1) + 'end;', lEdit.ReplacementText),
+            'The entire replacement must be one complete BEGIN/END statement.');
+        end;
+      end;
+  end;
+  Assert.IsTrue(lFound, 'An exactly separable child should remain planned.');
+end;
+
+procedure TWithBinderTests.PrefixedWithKeepsControlledStatement(const aCase: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath, lBody, lSource, lExpectedEnd: string;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lEdit: TDelphiSemanticRemoveWithFinalTextEdit;
+  lFound: Boolean;
+begin
+  lBody := '';
+  if aCase = 'split-do' then
+    lBody := '  with GetRec'#13#10'  do with Item do Other := Count;'
+  else if aCase = 'prefix-stmt-parent' then
+    lBody := '  with GetRec do begin'#13#10 +
+      '  Item2.Other := 5; with Item do Other := Count;'#13#10'  end;'
+  else if aCase = 'np2-if' then
+    lBody := '  if K = 2 then with Item do Other := 5;'
+  else if aCase = 'if-then-else' then
+    lBody := '  with GetRec do if K = 2 then with Item do Other := Count else Item2.Other := 5;'
+  else if aCase = 'case-label' then
+    lBody := '  with GetRec do case K of 1: with Item do Other := Count; 2: Item2.Other := 5; end;'
+  else if aCase = 'three-planned-mid' then
+    lBody := '  with GetRec do with Item do with Item2 do Other := Count;'
+  else if aCase = 'two-children' then
+    lBody := '  with GetRec do begin with Item do Other := Count; with Item2 do Other := Count; end;'
+  else if aCase = 'following-stmt' then
+    lBody := '  with GetRec do with Item do Other := Count; Item2.Other := 5;'
+  else if aCase = 'planned-parent' then
+    lBody := '  with Item do with Item2 do Other := 5;'
+  else if aCase = 'outer-if-else-sameline' then
+    lBody := '  if K = 2 then with GetRec do with Item do Other := Count else Item2.Other := 5;';
+  Assert.AreNotEqual('', lBody, aCase);
+  lPath := WithBinderTempPath('DS740-' + aCase + '.pas');
+  lSource := 'unit Unit1;'#13#10'interface'#13#10 +
+    'type TRec = record const Count = 7; end;'#13#10 +
+    'TInner = record Other: Integer; procedure Touch; end;'#13#10 +
+    'var Item, Item2: TInner; Count, K: Integer;'#13#10'implementation'#13#10 +
+    'function GetRec: TRec; begin Result := Default(TRec); end;'#13#10 +
+    'procedure TInner.Touch; begin end;'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10'  K := 1;'#13#10 +
+    lBody + #13#10'end;'#13#10'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  SetLength(lModels, 1);
+  lModels[0] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModels[0].Success, aCase);
+  lFacts := TDelphiSemanticWithBinder.BindProject('ds740-prefix', nil, lModels);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  lFound := False;
+  for var i := 0 to High(lPlan.FinalStatements) do
+  begin
+    lStatement := lPlan.FinalStatements[i];
+    Assert.AreEqual(lStatement.Status, lSnapshotPlan.FinalStatements[i].Status, aCase);
+    Assert.AreEqual(lStatement.ReplacementText, lSnapshotPlan.FinalStatements[i].ReplacementText, aCase);
+    if not SameText(lStatement.Status, 'planned') then
+      Continue;
+    for lEdit in lStatement.Edits do
+      if lEdit.Kind = 'replace-statement' then
+      begin
+        lFound := True;
+        if aCase = 'planned-parent' then
+          Assert.AreEqual(1, lEdit.Range.StartColumn,
+            'Whitespace-only indentation can be included in the parent edit.')
+        else
+          Assert.AreEqual(lStatement.Range.StartColumn, lEdit.Range.StartColumn,
+            aCase + ': the prefix belongs to the surrounding statement.');
+        if (aCase = 'prefix-stmt-parent') or (aCase = 'two-children') or
+          (aCase = 'planned-parent') then
+        begin
+          Assert.IsFalse(ContainsText(lEdit.ReplacementText, 'begin'),
+            aCase + ': statement sequences and absorbed children stay unwrapped.');
+          Assert.IsTrue(ContainsText(lEdit.ReplacementText, ':='), aCase);
+          Continue;
+        end;
+        Assert.IsTrue(StartsText('begin' + sLineBreak, lEdit.ReplacementText), aCase);
+        lExpectedEnd := 'end;';
+        if (aCase = 'if-then-else') or (aCase = 'outer-if-else-sameline') then
+          lExpectedEnd := 'end';
+        Assert.IsTrue(EndsText(sLineBreak + StringOfChar(' ',
+          lEdit.Range.StartColumn - 1) + lExpectedEnd, lEdit.ReplacementText),
+          aCase + ': complete block and correct outer separator required.');
+      end;
+  end;
+  Assert.IsTrue(lFound, aCase + ': expected a nonempty planned rewrite.');
+end;
+
+procedure TWithBinderTests.PrefixControlUsesActivity(const aActivity: string);
+var
+  i: Integer;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPath, lDirective, lPrefix, lSource: string;
+  lControlled: Boolean;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  lDirective := '{$IFDEF DS740_DISABLED}';
+  if aActivity = 'active' then
+    lDirective := '{$IFDEF MSWINDOWS}'
+  else if aActivity = 'unknown' then
+    lDirective := '{$IF UseFast}';
+  lControlled := True;
+  lPrefix := '  ' + lDirective + ' if K = 2 then {$ENDIF} { prefix trivia }';
+  if aActivity = 'net-statement' then
+  begin
+    lPrefix := '  {$IFDEF NET} Item.Touch; {$ENDIF}';
+    lControlled := True;
+  end else if aActivity = 'net-control' then
+  begin
+    lPrefix := '  {$IFDEF NET} if K = 2 then {$ENDIF}';
+  end else if aActivity = 'two-statements' then
+  begin
+    lPrefix := '  {$IFDEF NET} Item.Touch; {$ENDIF}' + #13#10 +
+      '  {$IFDEF DS740_OTHER} Item.Touch; {$ENDIF}';
+    lControlled := True;
+  end else if aActivity = 'two-control' then
+  begin
+    lPrefix := '  {$IFDEF NET} if K = 2 then {$ENDIF}' + #13#10 +
+      '  {$IFDEF DS740_OTHER} Item.Touch; {$ENDIF}';
+  end;
+  if aActivity = 'complementary-control' then
+    lPrefix := '  {$IFDEF NET} if K = 2 then {$ENDIF}' + #13#10 +
+      '  {$IFNDEF NET} Item.Touch; {$ENDIF}'
+  else if aActivity = 'active-control' then
+    lPrefix := '  {$IFDEF NET} if K = 2 then {$ENDIF}' + #13#10 +
+      '  {$IFDEF MSWINDOWS} Item.Touch; {$ENDIF}'
+  else if aActivity = 'active-statement' then
+  begin
+    lPrefix := '  {$IFDEF MSWINDOWS} Item.Touch; {$ENDIF}';
+    lControlled := True;
+  end;
+  if aActivity = 'include' then
+    lPrefix := '  {$I cond.inc}'
+  else if (aActivity = 'while') or (aActivity = 'while-inline') then
+    lPrefix := '  while K = 2 do'
+  else if (aActivity = 'for') or (aActivity = 'for-inline') then
+    lPrefix := '  for K := 1 to 0 do'
+  else if aActivity = 'comments' then
+    lPrefix := '  if K = 2 then { ; } (* ; *) // ;'
+  else if aActivity = 'label' then
+    lPrefix := 'L1:'
+  else if aActivity = 'string' then
+  begin
+    lPrefix := '  K := Length(''{$I missing.inc} (*$IFDEF X*)'');';
+    lControlled := False;
+  end else if (aActivity = 'routine-ifdef') or (aActivity = 'expression-ifdef') then
+  begin
+    lPrefix := '  K := 0;';
+    if aActivity = 'expression-ifdef' then
+      lPrefix := '  K := {$IFDEF MSWINDOWS} 0 {$ELSE} 1 {$ENDIF};';
+    lControlled := False;
+  end;
+  lPath := WithBinderTempPath('DS740-prefix-' + aActivity);
+  lSource := 'unit Unit1;'#13#10'interface'#13#10 +
+    'const UseFast = True;'#13#10 +
+    'type TInner = record Other: Integer; procedure Touch; end;'#13#10 +
+    'var Item: TInner; K: Integer;'#13#10'implementation'#13#10 +
+    'procedure TInner.Touch; begin end;'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10'  K := 0;'#13#10 +
+    lPrefix + #13#10 +
+    '  with Item do Other := 5;'#13#10'end;'#13#10'end.';
+  if (aActivity = 'while-inline') or (aActivity = 'for-inline') then
+    lSource := StringReplace(lSource, lPrefix + #13#10,
+      lPrefix + ' ', []);
+  if aActivity = 'routine-ifdef' then
+    lSource := StringReplace(lSource, 'procedure Run;', '{$IFDEF MSWINDOWS}'#13#10 +
+      'procedure Run;', []);
+  if aActivity = 'routine-ifdef' then
+    Insert('{$ENDIF}'#13#10, lSource, Length(lSource) - 3);
+  if aActivity = 'label' then
+    lSource := StringReplace(lSource, 'procedure Run;', 'procedure Run; label L1;', []);
+  if (aActivity = 'partial-cascade') or (aActivity = 'cb-sib') or
+    StartsText('planned-', aActivity) then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      '  const Count = 7;'#13#10 +
+      ' end;'#13#10 +
+      ' TAlias = TItem;'#13#10 +
+      ' TItemV = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  const Count = 7;'#13#10 +
+      ' end;'#13#10 +
+      ' TOther = record'#13#10 +
+      '  B: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TExtra = record'#13#10 +
+      '  C: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TO2 = record'#13#10 +
+      '  B: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TO2A = TO2;'#13#10 +
+      'var'#13#10 +
+      ' Item, Item2: TAlias;'#13#10 +
+      ' ItemV: TItemV;'#13#10 +
+      ' Other: TOther;'#13#10 +
+      ' Extra: TExtra;'#13#10 +
+      ' Other2: TO2A;'#13#10 +
+      'var A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      'with Item do begin A := 5; with Other do B := Count; try A := 6; except on Exception do with Extra do C := 1; end; end;'#13#10 +
+      'Writeln(Item.A, '' '', Other.B, '' '', Extra.C);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if StartsText('planned-', aActivity) then
+  begin
+    lPrefix := 'while B < 8 do with Extra do begin C := C + 1; B := B + 1; end;';
+    if aActivity = 'planned-for' then
+      lPrefix := 'for i := 1 to 2 do with Extra do begin C := C + 1; B := B + 1; end;'
+    else if aActivity = 'planned-on' then
+      lPrefix := 'try B := 7; except on Exception do with Extra do begin C := 1; B := B + 1; end; end;';
+    lSource := Copy(lSource, 1, Pos('implementation', lSource) - 1) +
+      'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+      'with Other do begin B := 6; ' + lPrefix + ' end;'#13#10 +
+      'Writeln(Other.B, '' '', Extra.C);'#13#10'end;'#13#10'end.'#13#10;
+    if aActivity = 'planned-for' then
+      lSource := StringReplace(lSource, 'implementation'#13#10'procedure Run;',
+        'implementation'#13#10'procedure Run;'#13#10'var i: Integer;', []);
+  end else if aActivity = 'cb-sib' then
+    lSource := StringReplace(lSource, 'try A := 6;', 'try Abort;', []);
+  TDirectory.CreateDirectory(lPath);
+  if aActivity = 'include' then
+    TFile.WriteAllText(TPath.Combine(lPath, 'cond.inc'), 'if K = 2 then', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lPath, 'Unit1.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lPath, 'P.dpr'),
+    'program P; uses Unit1; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lPath, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lPath, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lPath, 'prefix-cache.sqlite');
+  if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
+    TFile.Delete(lOptions.Cache.SqliteCacheFileName);
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  if StartsText('planned-', aActivity) or (aActivity = 'cb-sib') then
+  begin
+    if aActivity = 'cb-sib' then
+    begin
+      Assert.AreEqual<Integer>(3, Length(lPlan.FinalStatements), aActivity);
+      Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aActivity);
+      Assert.AreEqual('symbol-not-found', lPlan.FinalStatements[0].Reason, aActivity);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aActivity);
+    end else begin
+      Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aActivity);
+      Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, aActivity);
+      lPrefix := lPlan.FinalStatements[0].ReplacementText;
+      Assert.IsTrue(Pos(' do', lPrefix) > 0, aActivity);
+      lPrefix := TrimLeft(Copy(lPrefix, Pos(' do', lPrefix) + 3, MaxInt));
+      Assert.IsTrue(StartsText('begin' + sLineBreak, lPrefix),
+        aActivity + ': controlled child inside planned parent must be wrapped.');
+    end;
+    Assert.AreEqual<Integer>(Length(lPlan.FinalStatements),
+      Length(lSnapshotPlan.FinalStatements), aActivity);
+    for i := 0 to High(lPlan.FinalStatements) do
+    begin
+      lStatement := lPlan.FinalStatements[i];
+      Assert.AreEqual(lStatement.Status, lSnapshotPlan.FinalStatements[i].Status, aActivity);
+      Assert.AreEqual(lStatement.Reason, lSnapshotPlan.FinalStatements[i].Reason, aActivity);
+      Assert.AreEqual(lStatement.ReplacementText,
+        lSnapshotPlan.FinalStatements[i].ReplacementText, aActivity);
+      if i = 0 then
+        Continue;
+      Assert.AreEqual('planned', lStatement.Status, aActivity);
+      Assert.IsTrue(Length(lStatement.Edits) > 0, aActivity);
+      if i = 2 then
+      begin
+        Assert.IsTrue(StartsText('begin' + sLineBreak,
+          TrimLeft(lStatement.ReplacementText)), aActivity + ': handler child must be wrapped.');
+      end;
+    end;
+    Exit;
+  end;
+  if aActivity = 'partial-cascade' then
+  begin
+    Assert.AreEqual<Integer>(3, Length(lPlan.FinalStatements), aActivity);
+    Assert.AreEqual<Integer>(3, Length(lSnapshotPlan.FinalStatements), aActivity);
+    for i := 0 to High(lPlan.FinalStatements) do
+    begin
+      Assert.AreEqual('skipped', lPlan.FinalStatements[i].Status, aActivity);
+      Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED',
+        lPlan.FinalStatements[i].Reason, aActivity);
+      Assert.AreEqual(lPlan.FinalStatements[i].Reason,
+        lSnapshotPlan.FinalStatements[i].Reason, aActivity);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[i].Edits), aActivity);
+      Assert.AreEqual<Integer>(0, Length(lSnapshotPlan.FinalStatements[i].Edits), aActivity);
+    end;
+    Exit;
+  end;
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aActivity);
+  Assert.AreEqual<Integer>(1, Length(lSnapshotPlan.FinalStatements), aActivity);
+  lStatement := lPlan.FinalStatements[0];
+  Assert.AreEqual(lStatement.Status, lSnapshotPlan.FinalStatements[0].Status, aActivity);
+  Assert.AreEqual(lStatement.Reason, lSnapshotPlan.FinalStatements[0].Reason, aActivity);
+  Assert.AreEqual(lStatement.ReplacementText,
+    lSnapshotPlan.FinalStatements[0].ReplacementText, aActivity);
+  Assert.AreEqual('planned', lStatement.Status, aActivity);
+  Assert.IsTrue(Length(lStatement.Edits) > 0, aActivity);
+  Assert.IsTrue(ContainsText(lStatement.ReplacementText, ':='), aActivity);
+  // Even a currently inactive guard may control this statement in another build.
+  Assert.AreEqual(lControlled, StartsText('begin' + sLineBreak,
+    TrimLeft(lStatement.ReplacementText)), aActivity);
 end;
 
 initialization

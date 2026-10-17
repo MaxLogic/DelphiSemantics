@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Remove-with preserves code before a rewritten WITH and keeps multi-statement replacements under retained controls without wrapping children absorbed by a planned parent.
 - WITH binding recognizes receiver-owned type constants and variant-record tags. Remove-with qualifies verified receiver members and refuses unsafe helper, visibility and anonymous-record homonyms without candidate edits. Standalone SQLite planning retains verified value-member evidence and source activity. Affected model, WITH-fact and snapshot caches rebuild.
 - Remove-with refuses an outer WITH when its body contains a known-inactive WITH token, even when the nested body has no rewritten name. Inactive includes also refuse, and contained WITH statements cannot retain independent edits. Comments, strings and escaped identifiers are excluded. Earlier refusals keep precedence; affected WITH facts and snapshot caches rebuild.
 - WITH record-receiver misses refuse lexical or outer homonyms when a visible matching record helper has unindexed members. Refused plans retain a named safety reason and no candidate edits; affected model, WITH-fact and snapshot caches rebuild.

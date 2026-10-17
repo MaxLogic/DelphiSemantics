@@ -329,11 +329,20 @@ type
     ReplacementText: string;
   end;
 
+  TControlContextToken = record
+    Kind: TptTokenKind;
+    Line: Integer;
+    Column: Integer;
+    IsDirective: Boolean;
+  end;
+
   TRemoveWithPlanFacts = record
     ContextFingerprint: string;
     ScanSources: TDictionary<string, string>;
     ScanLines: TDictionary<string, TArray<string>>;
     ScanActivityKnown: TDictionary<string, Boolean>;
+    ControlSources: TDictionary<string, string>;
+    ControlTokens: TDictionary<string, TArray<TControlContextToken>>;
     LookupIndex: TPlannerLookupMemo;
     Symbols: TArray<TDelphiSemanticInventorySymbol>;
     UseArchitectureStableRoutineEndTrim: Boolean;
@@ -5895,6 +5904,118 @@ begin
     Result := 'semantic-binding-skipped';
 end;
 
+function ControlContextTokens(const aFacts: TRemoveWithPlanFacts;
+  const aFileName: string): TArray<TControlContextToken>;
+var
+  lLexer: TmwBasePasLex;
+  lNextOffset: Integer;
+  lSource: string;
+  lToken: TControlContextToken;
+  lTokens: TList<TControlContextToken>;
+begin
+  if aFacts.ControlTokens.TryGetValue(aFileName, Result) then
+    Exit;
+  Result := nil;
+  if not aFacts.ControlSources.TryGetValue(aFileName, lSource) then
+    Exit;
+  lTokens := TList<TControlContextToken>.Create;
+  lLexer := TmwBasePasLex.Create;
+  try
+    // Keep directives as barriers, including includes, without expanding them.
+    // The lexer ignores directive-like text inside strings and plain comments.
+    lLexer.UseDefines := False;
+    lNextOffset := 0;
+    lLexer.Origin := lSource;
+    while lLexer.TokenID <> ptNull do
+    begin
+      // SimpleParser advances past brace includes inside Next, even with
+      // UseDefines=False and no include handler. Its skipped source gap is a
+      // directive barrier before the token it returns; no include is opened.
+      if lLexer.TokenPos > lNextOffset then
+      begin
+        lToken.Kind := ptIncludeDirect;
+        lToken.Line := lLexer.PosXY.Y;
+        lToken.Column := lLexer.PosXY.X;
+        lToken.IsDirective := True;
+        lTokens.Add(lToken);
+      end;
+      lNextOffset := lLexer.TokenPos + Length(lLexer.Token);
+      lToken.IsDirective := StartsText('{$', lLexer.Token) or
+        StartsText('(*$', lLexer.Token);
+      if (not lLexer.IsJunk) or lToken.IsDirective then
+      begin
+        lToken.Kind := lLexer.TokenID;
+        lToken.Line := lLexer.PosXY.Y;
+        lToken.Column := lLexer.PosXY.X;
+        lTokens.Add(lToken);
+      end;
+      lLexer.Next;
+    end;
+    Result := lTokens.ToArray;
+    aFacts.ControlTokens.Add(aFileName, Result);
+  finally
+    lLexer.Free;
+    lTokens.Free;
+  end;
+end;
+
+function FinalBindingNeedsControlWrapper(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aBindingSource: TRemoveWithPlanBindingSource;
+  const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
+  const aInheritedDecisions: TArray<TFinalSelectorDecision>): Boolean;
+var
+  lFirst, lLast, lMiddle: Integer;
+  lParent: TDelphiSemanticWithBinding;
+  lToken: TControlContextToken;
+  lTokens: TArray<TControlContextToken>;
+begin
+  // Unknown context still permits a safe single-statement replacement.
+  Result := True;
+  lTokens := ControlContextTokens(aFacts, aBinding.FileName);
+  lFirst := 0;
+  lLast := High(lTokens);
+  // Locate this WITH in the one token table shared by every binding in its file.
+  while lFirst <= lLast do
+  begin
+    lMiddle := lFirst + (lLast - lFirst) div 2;
+    lToken := lTokens[lMiddle];
+    if (lToken.Line < aBinding.Line) or
+      ((lToken.Line = aBinding.Line) and (lToken.Column < aBinding.Column)) then
+      lFirst := lMiddle + 1
+    else
+      lLast := lMiddle - 1;
+  end;
+  if (lFirst > High(lTokens)) or (lTokens[lFirst].Kind <> ptWith) or
+    (lTokens[lFirst].Line <> aBinding.Line) or
+    (lTokens[lFirst].Column <> aBinding.Column) then
+    Exit;
+  Dec(lFirst);
+  // Whitespace and ordinary comments were discarded; a passed directive wraps.
+  if lFirst < 0 then
+    Exit(False);
+  lToken := lTokens[lFirst];
+  if lToken.IsDirective then
+    Exit;
+  if lToken.Kind in [ptSemiColon, ptBegin, ptRepeat, ptTry, ptExcept, ptFinally,
+    ptInitialization, ptFinalization] then
+    Result := False
+  else if lToken.Kind = ptDo then
+  begin
+    if (aBindingTree.ParentIndexes[aBindingIndex] < 0) or
+      (Length(aInheritedDecisions) = 0) then
+      Exit;
+    lParent := aBindingSource.BindingByIndex(aBindingTree.ParentIndexes[aBindingIndex]);
+    // Only a direct child of an already planned parent is absorbed. A loop
+    // or exception-handler DO inside the parent's body still controls it.
+    if (lToken.Line < lParent.BodyLine) or
+      ((lToken.Line = lParent.BodyLine) and
+      (lToken.Column + 2 <= lParent.BodyColumn)) then
+      Result := SameText(aInheritedDecisions[High(aInheritedDecisions)].Reason,
+        'skipped-parent-context');
+  end;
+end;
+
 function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aBindingSource: TRemoveWithPlanBindingSource;
   const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
@@ -5903,6 +6024,7 @@ function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDelphiSemanticSourceContextCache;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>;
+  const aCheckControlContext: Boolean;
   out aBodyFacts: TFinalReceiverBodyFacts): TDelphiSemanticRemoveWithFinalStatement; overload; forward;
 
 function SymbolUnsupportedReasonForName(const aFacts: TRemoveWithPlanFacts;
@@ -6283,7 +6405,7 @@ begin
   try
     Result := BuildFinalStatement(aFacts, lBindingSource, lBindingTree, 0,
       aStatementId, lCandidateEdits, aReservedNames, aLineCache,
-      lInheritedDecisions, lBodyFacts);
+      lInheritedDecisions, True, lBodyFacts);
   finally
     lBindingSource.Free;
   end;
@@ -6313,6 +6435,7 @@ function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aReservedNames: TDictionary<string, Integer>;
   const aLineCache: TDelphiSemanticSourceContextCache;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>;
+  const aCheckControlContext: Boolean;
   out aBodyFacts: TFinalReceiverBodyFacts): TDelphiSemanticRemoveWithFinalStatement; overload;
 var
   lChildStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -6338,6 +6461,10 @@ var
   lOwnStart: Integer;
   lSelectorIndex: Integer;
   lParentBinding: TDelphiSemanticWithBinding;
+  lPreserveLinePrefix: Boolean;
+  lControlledReplacement, lHasInitialization: Boolean;
+  lBindingLines: TArray<string>;
+  lTrailingSemicolon: Boolean;
   lTempIndex: Integer;
   lVisibleDecisions: TArray<TFinalSelectorDecision>;
   lBinding: TDelphiSemanticWithBinding;
@@ -6372,6 +6499,9 @@ begin
     Exit;
   end;
 
+  lPreserveLinePrefix := aLineCache.TryGetValue(lBinding.FileName, lBindingLines) and
+    (lBinding.Line >= 1) and (lBinding.Line <= Length(lBindingLines)) and
+    (Trim(Copy(lBindingLines[lBinding.Line - 1], 1, lBinding.Column - 1)) <> '');
   lOwnStart := 0;
   if aBindingTree.ParentIndexes[aBindingIndex] >= 0 then
   begin
@@ -6475,7 +6605,7 @@ begin
   begin
     lChildStatement := BuildFinalStatement(aFacts, aBindingSource, aBindingTree,
       lChildIndex, FinalStatementId(lChildIndex + 1), aCandidateEdits,
-      aReservedNames, aLineCache, lVisibleDecisions, lChildBodyFacts);
+      aReservedNames, aLineCache, lVisibleDecisions, aCheckControlContext, lChildBodyFacts);
     if not SameText(lChildStatement.Status, 'planned') then
     begin
       RollbackReservedTempNamesForDecisions(aReservedNames,
@@ -6568,6 +6698,28 @@ begin
       Result.SafetyReason := 'TYPE_VALUE_MEMBERS_UNVERIFIED';
       Exit;
     end;
+  // DS-740: preserving a prefix is independent of whether it controls the result.
+  // A planned parent absorbs its child; a retained parent keeps its DO in output.
+  lHasInitialization := False;
+  for lDecision in lSelectorDecisions do
+    lHasInitialization := lHasInitialization or (lDecision.InitializationText <> '');
+  for lTempIndex := 0 to High(Result.Temps) do
+    lHasInitialization := lHasInitialization or
+      (Result.Temps[lTempIndex].InitializationText <> '');
+  lControlledReplacement := False;
+  if aCheckControlContext and lHasInitialization then
+    lControlledReplacement := FinalBindingNeedsControlWrapper(aFacts, lBinding,
+      aBindingSource, aBindingTree, aBindingIndex, aInheritedDecisions);
+  if lHasInitialization and lControlledReplacement and
+    (not StartsText('begin', TrimLeft(lReplacementText))) then
+  begin
+    lTrailingSemicolon := not RangeIsFollowedByOuterElse(lBinding, aLineCache,
+      lReplacementRange);
+    lReplacementText := 'begin' + sLineBreak + lReplacementText + sLineBreak +
+      IndentText(lBinding.Column) + 'end';
+    if lTrailingSemicolon then
+      lReplacementText := lReplacementText + ';';
+  end;
   Result.Status := 'planned';
   Result.ReplacementText := lReplacementText;
   lOwnTempIndex := 0;
@@ -6589,7 +6741,10 @@ begin
   lEdit.FileName := lBinding.FileName;
   lEdit.StatementId := aStatementId;
   lEdit.Range := lReplacementRange;
-  lEdit.Range.StartColumn := 1;
+  if lPreserveLinePrefix then
+    lEdit.Range.StartColumn := lBinding.Column
+  else
+    lEdit.Range.StartColumn := 1;
   lEdit.ReplacementText := Result.ReplacementText;
   lEdit.SemanticId := lBinding.SemanticId;
   lEdit.Verification := Result.Verification;
@@ -7273,8 +7428,13 @@ begin
   end else
     lStatement := BuildFinalStatement(aFacts, aBindingSource, aBindingTree,
       aBindingIndex, FinalStatementId(aBindingIndex + 1), aCandidateEdits,
-      aReservedNames, aLineCache, aInheritedDecisions, lBodyFacts);
-  // First compute the complete ordinary DTO, including nested rewrites.
+      aReservedNames, aLineCache, aInheritedDecisions,
+      not (aMemberActivityUnverified[aBindingIndex] or
+      aActivityUnverified[aBindingIndex] or aInactiveNestedWithShadow[aBindingIndex]),
+      lBodyFacts);
+  // DS-740 runs in the same render pass, only when no activity refusal is pending.
+  // Existing selector and renderer refusals still precede its context check.
+  // Compute the complete ordinary DTO, including nested rewrites.
   // Activity changes only an otherwise applicable result; existing refusals
   // retain exactly their own Status, Reason and SafetyReason.
   if aMemberActivityUnverified[aBindingIndex] and SameText(lStatement.Status, 'planned') then
@@ -7883,12 +8043,17 @@ begin
   lBindingSource := nil;
   try
     lPlanFacts.ScanSources := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+    lPlanFacts.ControlSources := TDictionary<string, string>.Create(
+      TFastCaseAwareComparer.OrdinalIgnoreCase);
+    lPlanFacts.ControlTokens := TDictionary<string, TArray<TControlContextToken>>.Create(
+      TFastCaseAwareComparer.OrdinalIgnoreCase);
     lPlanFacts.ScanActivityKnown := TDictionary<string, Boolean>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     lPlanFacts.ScanLines := TDictionary<string, TArray<string>>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     for lModel in aFacts.UnitModels do
     begin
+      lPlanFacts.ControlSources.AddOrSetValue(lModel.FileName, lModel.SourceText);
       lPlanFacts.ScanActivityKnown.AddOrSetValue(lModel.FileName,
         AnonymousRecordActivityIsKnown(lModel.SourceText, lModel.VerifiedActiveSourceText));
       lPlanFacts.ScanSources.AddOrSetValue(lModel.FileName,
@@ -7926,6 +8091,8 @@ begin
           Break;
         end;
   finally
+    lPlanFacts.ControlTokens.Free;
+    lPlanFacts.ControlSources.Free;
     lPlanFacts.ScanActivityKnown.Free;
     lPlanFacts.ScanLines.Free;
     lPlanFacts.ScanSources.Free;
@@ -8281,6 +8448,10 @@ begin
       lPlanFacts.ContextFingerprint := aSnapshot.ExactTextOf(
         aSnapshot.RemoveWithPlanningContextFingerprintId);
       lPlanFacts.ScanSources := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+      lPlanFacts.ControlSources := TDictionary<string, string>.Create(
+        TFastCaseAwareComparer.OrdinalIgnoreCase);
+      lPlanFacts.ControlTokens := TDictionary<string, TArray<TControlContextToken>>.Create(
+        TFastCaseAwareComparer.OrdinalIgnoreCase);
       lPlanFacts.ScanActivityKnown := TDictionary<string, Boolean>.Create(
         TFastCaseAwareComparer.OrdinalIgnoreCase);
       lPlanFacts.ScanLines := TDictionary<string, TArray<string>>.Create(
@@ -8288,6 +8459,8 @@ begin
       for i := 0 to aSnapshot.UnitCount - 1 do
       begin
         lUnit := aSnapshot.UnitByIndex(i);
+        lPlanFacts.ControlSources.AddOrSetValue(aSnapshot.TextOf(lUnit.FileNameId),
+          aSnapshot.ExactTextOf(lUnit.SourceTextId));
         lPlanFacts.ScanActivityKnown.AddOrSetValue(aSnapshot.TextOf(lUnit.FileNameId),
           AnonymousRecordActivityIsKnown(aSnapshot.ExactTextOf(lUnit.SourceTextId),
             aSnapshot.ExactTextOf(lUnit.VerifiedActiveSourceTextId)));
@@ -8316,6 +8489,8 @@ begin
     if (lSafetyReason <> '') and SameText(Result.Status, 'planned') then
       Result.Diagnostic := lSafetyReason;
   finally
+    lPlanFacts.ControlTokens.Free;
+    lPlanFacts.ControlSources.Free;
     lPlanFacts.ScanActivityKnown.Free;
     lPlanFacts.ScanLines.Free;
     lPlanFacts.ScanSources.Free;

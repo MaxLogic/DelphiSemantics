@@ -3129,13 +3129,16 @@ begin
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
       'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
+      // DS-740: the replacement is wrapped because the
+      // `{$IFDEF LINUX} if Ready then` prefix may control it in another build; the unwrapped base output
+      // let `if` control only the temp assignment.
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"9d19349284c50034f27672542ee919d59567e233' +
       'cd8ef53df8d137cdad024b07","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"10:3-14:6","range":"10:1-14:6","re' +
-      'placementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    l' +
-      'WithRecPtr^.Other := 2;\r\n  end;","semanticId":"{statement-semantic-id}","verificationHas' +
+      'placementText":"begin\r\n  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    l' +
+      'WithRecPtr^.Other := 2;\r\n  end;\r\n  end;","semanticId":"{statement-semantic-id}","verificationHas' +
       'h":"9d19349284c50034f27672542ee919d59567e233cd8ef53df8d137cdad024b07","verificationSource"' +
       ':"with Rec do\r\n  begin\r\n    Count := 1;\r\n    Other := 2;\r\n  end;"}]';
     end;
@@ -3764,10 +3767,13 @@ begin
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 14;
       lBaseRange.EndColumn := 6;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+      // DS-740: the conditional prefix can retain its IF in another build.
+      lBaseReplacement := 'begin' + #13#10 +
+        '  lWithRecPtr := @Rec;' + #13#10 +
         '  begin' + #13#10 +
         '    lWithRecPtr^.Count := 1;' + #13#10 +
         '    lWithRecPtr^.Other := 2;' + #13#10 +
+        '  end;' + #13#10 +
         '  end;';
     end;
     32:

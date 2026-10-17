@@ -159,6 +159,22 @@ parent replacement. `SkippedStatements` mirrors the skipped ledger rows for
 report consumers that only need unresolved statements. It does not expose final
 statement DTOs, rewrite recipes, parity helpers, or planner internals.
 
+When a planned WITH has code before it on the same line, its edit starts
+at that WITH and preserves the prefix. For multi-statement replacements, the
+planner lexes each source file once and reuses a cached token table. It walks
+backwards over whitespace and comments from the WITH. Any compiler directive
+or include passed by that walk requires a begin/end wrapper. Otherwise the
+nearest significant token decides: a semicolon, begin, repeat, try, except,
+finally, initialization, finalization, or file start is a statement-list boundary;
+then, else, a case or statement-label colon, and do require wrapping. A do
+belonging to a planned parent WITH is the exception: the parent's replacement
+absorbs its direct child. Existing parent decisions establish that exception.
+Any other or unavailable context requires wrapping. Directive-like text inside
+strings and ordinary comments does not count as a directive. Earlier directives
+beyond the nearest significant token do not affect the decision.
+This changes rendered edits only. Statuses retain their existing meanings and
+no new refusal reason is introduced. WITH facts and snapshot generations do
+not change.
 Use project fixtures to check the planner on real code. Do not make production
 behavior depend on fixture profiles, filenames, line numbers, or fixed counts.
 
