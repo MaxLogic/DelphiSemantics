@@ -36,6 +36,10 @@ type
     [Test]
     [Category('DS731Planner')]
     procedure ValueMemberWithoutReceiverMatchRemovesCandidate;
+    [TestCase('foreign field owner', 'foreign')]
+    [TestCase('outer field homonym', 'homonym')]
+    [Category('DS741Planner')]
+    procedure AliasFieldUsesDeclaredReceiverIdentity(const aCase: string);
     [TestCase('constant with temporary', 'constant,temp')]
     [TestCase('field with temporary', 'field,temp')]
     [TestCase('constant with direct child', 'constant,direct')]
@@ -211,6 +215,684 @@ type
     [TestCase('instance-field warm', 'instance-field,warm')]
     [TestCase('instance-field snapshot', 'instance-field,snapshot')]
     procedure ValueMembersColdWarmSnapshot(const aShape, aMode: string);
+    [Category('DS741AliasReceiver')]
+    [TestCase('strong-helper-global cold', 'strong-helper-global,cold')]
+    [TestCase('strong-helper-global snapshot', 'strong-helper-global,snapshot')]
+    [TestCase('strong-helper-global sessioncold', 'strong-helper-global,sessioncold')]
+    [TestCase('strong-helper-global sessionwarm', 'strong-helper-global,sessionwarm')]
+    [TestCase('strong-helper-global standalone', 'strong-helper-global,standalone')]
+    [TestCase('strong-own-helper-global cold', 'strong-own-helper-global,cold')]
+    [TestCase('strong-own-helper-global snapshot', 'strong-own-helper-global,snapshot')]
+    [TestCase('strong-own-helper-global sessioncold', 'strong-own-helper-global,sessioncold')]
+    [TestCase('strong-own-helper-global sessionwarm', 'strong-own-helper-global,sessionwarm')]
+    [TestCase('strong-own-helper-global standalone', 'strong-own-helper-global,standalone')]
+    [TestCase('weak-var-globalA cold', 'weak-var-globalA,cold')]
+    [TestCase('weak-var-globalA snapshot', 'weak-var-globalA,snapshot')]
+    [TestCase('weak-var-globalA sessioncold', 'weak-var-globalA,sessioncold')]
+    [TestCase('weak-var-globalA sessionwarm', 'weak-var-globalA,sessionwarm')]
+    [TestCase('weak-var-globalA standalone', 'weak-var-globalA,standalone')]
+    [TestCase('weak-var-noglobal cold', 'weak-var-noglobal,cold')]
+    [TestCase('weak-var-noglobal snapshot', 'weak-var-noglobal,snapshot')]
+    [TestCase('weak-var-noglobal sessioncold', 'weak-var-noglobal,sessioncold')]
+    [TestCase('weak-var-noglobal sessionwarm', 'weak-var-noglobal,sessionwarm')]
+    [TestCase('weak-var-noglobal standalone', 'weak-var-noglobal,standalone')]
+    [TestCase('alias-varA-noconst-globalA cold', 'alias-varA-noconst-globalA,cold')]
+    [TestCase('alias-varA-noconst-globalA snapshot', 'alias-varA-noconst-globalA,snapshot')]
+    [TestCase('alias-varA-noconst-globalA sessioncold', 'alias-varA-noconst-globalA,sessioncold')]
+    [TestCase('alias-varA-noconst-globalA sessionwarm', 'alias-varA-noconst-globalA,sessionwarm')]
+    [TestCase('alias-varA-noconst-globalA standalone', 'alias-varA-noconst-globalA,standalone')]
+    [TestCase('strong-plain-globalA cold', 'strong-plain-globalA,cold')]
+    [TestCase('strong-plain-globalA snapshot', 'strong-plain-globalA,snapshot')]
+    [TestCase('strong-plain-globalA sessioncold', 'strong-plain-globalA,sessioncold')]
+    [TestCase('strong-plain-globalA sessionwarm', 'strong-plain-globalA,sessionwarm')]
+    [TestCase('strong-plain-globalA standalone', 'strong-plain-globalA,standalone')]
+    [TestCase('strong-plain-noglobal cold', 'strong-plain-noglobal,cold')]
+    [TestCase('strong-plain-noglobal snapshot', 'strong-plain-noglobal,snapshot')]
+    [TestCase('strong-plain-noglobal sessioncold', 'strong-plain-noglobal,sessioncold')]
+    [TestCase('strong-plain-noglobal sessionwarm', 'strong-plain-noglobal,sessionwarm')]
+    [TestCase('strong-plain-noglobal standalone', 'strong-plain-noglobal,standalone')]
+    [TestCase('strong-var-globalA cold', 'strong-var-globalA,cold')]
+    [TestCase('strong-var-globalA snapshot', 'strong-var-globalA,snapshot')]
+    [TestCase('strong-var-globalA sessioncold', 'strong-var-globalA,sessioncold')]
+    [TestCase('strong-var-globalA sessionwarm', 'strong-var-globalA,sessionwarm')]
+    [TestCase('strong-var-globalA standalone', 'strong-var-globalA,standalone')]
+    [TestCase('strong-plain-readglobal cold', 'strong-plain-readglobal,cold')]
+    [TestCase('strong-plain-readglobal snapshot', 'strong-plain-readglobal,snapshot')]
+    [TestCase('strong-plain-readglobal sessioncold', 'strong-plain-readglobal,sessioncold')]
+    [TestCase('strong-plain-readglobal sessionwarm', 'strong-plain-readglobal,sessionwarm')]
+    [TestCase('strong-plain-readglobal standalone', 'strong-plain-readglobal,standalone')]
+    [TestCase('strong-class-globalA cold', 'strong-class-globalA,cold')]
+    [TestCase('strong-class-globalA snapshot', 'strong-class-globalA,snapshot')]
+    [TestCase('strong-class-globalA sessioncold', 'strong-class-globalA,sessioncold')]
+    [TestCase('strong-class-globalA sessionwarm', 'strong-class-globalA,sessionwarm')]
+    [TestCase('strong-class-globalA standalone', 'strong-class-globalA,standalone')]
+    [TestCase('weak-varA-classvar-globalA cold', 'weak-varA-classvar-globalA,cold')]
+    [TestCase('weak-varA-classvar-globalA snapshot', 'weak-varA-classvar-globalA,snapshot')]
+    [TestCase('weak-varA-classvar-globalA sessioncold', 'weak-varA-classvar-globalA,sessioncold')]
+    [TestCase('weak-varA-classvar-globalA sessionwarm', 'weak-varA-classvar-globalA,sessionwarm')]
+    [TestCase('weak-varA-classvar-globalA standalone', 'weak-varA-classvar-globalA,standalone')]
+    [TestCase('alias-varA-classvar-globalA cold', 'alias-varA-classvar-globalA,cold')]
+    [TestCase('alias-varA-classvar-globalA snapshot', 'alias-varA-classvar-globalA,snapshot')]
+    [TestCase('alias-varA-classvar-globalA sessioncold', 'alias-varA-classvar-globalA,sessioncold')]
+    [TestCase('alias-varA-classvar-globalA sessionwarm', 'alias-varA-classvar-globalA,sessionwarm')]
+    [TestCase('alias-varA-classvar-globalA standalone', 'alias-varA-classvar-globalA,standalone')]
+    [TestCase('weak-chain-var-globalA cold', 'weak-chain-var-globalA,cold')]
+    [TestCase('weak-chain-var-globalA snapshot', 'weak-chain-var-globalA,snapshot')]
+    [TestCase('weak-chain-var-globalA sessioncold', 'weak-chain-var-globalA,sessioncold')]
+    [TestCase('weak-chain-var-globalA sessionwarm', 'weak-chain-var-globalA,sessionwarm')]
+    [TestCase('weak-chain-var-globalA standalone', 'weak-chain-var-globalA,standalone')]
+    [TestCase('weak-cross-unit-var-globalA cold', 'weak-cross-unit-var-globalA,cold')]
+    [TestCase('weak-cross-unit-var-globalA snapshot', 'weak-cross-unit-var-globalA,snapshot')]
+    [TestCase('weak-cross-unit-var-globalA sessioncold', 'weak-cross-unit-var-globalA,sessioncold')]
+    [TestCase('weak-cross-unit-var-globalA sessionwarm', 'weak-cross-unit-var-globalA,sessionwarm')]
+    [TestCase('weak-cross-unit-var-globalA standalone', 'weak-cross-unit-var-globalA,standalone')]
+    [TestCase('local-weak-var-globalA cold', 'local-weak-var-globalA,cold')]
+    [TestCase('local-weak-var-globalA snapshot', 'local-weak-var-globalA,snapshot')]
+    [TestCase('local-weak-var-globalA sessioncold', 'local-weak-var-globalA,sessioncold')]
+    [TestCase('local-weak-var-globalA sessionwarm warm-unreachable DS743', 'local-weak-var-globalA,sessionwarm')]
+    [TestCase('local-weak-var-globalA standalone warm-unreachable DS743', 'local-weak-var-globalA,standalone')]
+    [TestCase('on-sib-a cold', 'on-sib-a,cold')]
+    [TestCase('on-sib-a snapshot', 'on-sib-a,snapshot')]
+    [TestCase('on-sib-a sessioncold', 'on-sib-a,sessioncold')]
+    [TestCase('on-sib-a sessionwarm', 'on-sib-a,sessionwarm')]
+    [TestCase('on-sib-a standalone', 'on-sib-a,standalone')]
+    [TestCase('d-nested-twoline-noconst cold', 'd-nested-twoline-noconst,cold')]
+    [TestCase('d-nested-twoline-noconst snapshot', 'd-nested-twoline-noconst,snapshot')]
+    [TestCase('d-nested-twoline-noconst sessioncold', 'd-nested-twoline-noconst,sessioncold')]
+    [TestCase('d-nested-twoline-noconst sessionwarm', 'd-nested-twoline-noconst,sessionwarm')]
+    [TestCase('d-nested-twoline-noconst standalone', 'd-nested-twoline-noconst,standalone')]
+    [TestCase('unit-local-weak-var-globalA cold', 'unit-local-weak-var-globalA,cold')]
+    [TestCase('unit-local-weak-var-globalA snapshot', 'unit-local-weak-var-globalA,snapshot')]
+    [TestCase('unit-local-weak-var-globalA sessioncold', 'unit-local-weak-var-globalA,sessioncold')]
+    [TestCase('unit-local-weak-var-globalA sessionwarm', 'unit-local-weak-var-globalA,sessionwarm')]
+    [TestCase('unit-local-weak-var-globalA standalone', 'unit-local-weak-var-globalA,standalone')]
+    [TestCase('fix-helper-via-weak cold', 'fix-helper-via-weak,cold')]
+    [TestCase('fix-helper-via-weak snapshot', 'fix-helper-via-weak,snapshot')]
+    [TestCase('fix-helper-via-weak sessioncold', 'fix-helper-via-weak,sessioncold')]
+    [TestCase('fix-helper-via-weak sessionwarm', 'fix-helper-via-weak,sessionwarm')]
+    [TestCase('fix-helper-via-weak standalone', 'fix-helper-via-weak,standalone')]
+    [TestCase('fix-generic-record cold', 'fix-generic-record,cold')]
+    [TestCase('fix-generic-record snapshot', 'fix-generic-record,snapshot')]
+    [TestCase('fix-generic-record sessioncold', 'fix-generic-record,sessioncold')]
+    [TestCase('fix-generic-record sessionwarm', 'fix-generic-record,sessionwarm')]
+    [TestCase('fix-generic-record standalone', 'fix-generic-record,standalone')]
+    [TestCase('fix-generic-plain cold', 'fix-generic-plain,cold')]
+    [TestCase('fix-generic-plain snapshot', 'fix-generic-plain,snapshot')]
+    [TestCase('fix-generic-plain sessioncold', 'fix-generic-plain,sessioncold')]
+    [TestCase('fix-generic-plain sessionwarm', 'fix-generic-plain,sessionwarm')]
+    [TestCase('fix-generic-plain standalone', 'fix-generic-plain,standalone')]
+    [TestCase('fix-generic-class cold', 'fix-generic-class,cold')]
+    [TestCase('fix-generic-class snapshot', 'fix-generic-class,snapshot')]
+    [TestCase('fix-generic-class sessioncold', 'fix-generic-class,sessioncold')]
+    [TestCase('fix-generic-class sessionwarm', 'fix-generic-class,sessionwarm')]
+    [TestCase('fix-generic-class standalone', 'fix-generic-class,standalone')]
+    [TestCase('fix-escaped cold', 'fix-escaped,cold')]
+    [TestCase('fix-escaped snapshot', 'fix-escaped,snapshot')]
+    [TestCase('fix-escaped sessioncold', 'fix-escaped,sessioncold')]
+    [TestCase('fix-escaped sessionwarm', 'fix-escaped,sessionwarm')]
+    [TestCase('fix-escaped standalone', 'fix-escaped,standalone')]
+    [TestCase('fix-sol-generic cold', 'fix-sol-generic,cold')]
+    [TestCase('fix-sol-generic snapshot', 'fix-sol-generic,snapshot')]
+    [TestCase('fix-sol-generic sessioncold', 'fix-sol-generic,sessioncold')]
+    [TestCase('fix-sol-generic sessionwarm', 'fix-sol-generic,sessionwarm')]
+    [TestCase('fix-sol-generic standalone', 'fix-sol-generic,standalone')]
+    [TestCase('fix-local-strong cold', 'fix-local-strong,cold')]
+    [TestCase('fix-local-strong snapshot', 'fix-local-strong,snapshot')]
+    [TestCase('fix-local-strong sessioncold', 'fix-local-strong,sessioncold')]
+    [TestCase('fix-local-strong sessionwarm', 'fix-local-strong,sessionwarm')]
+    [TestCase('fix-local-strong standalone', 'fix-local-strong,standalone')]
+    [TestCase('fix-helper-via-plain cold', 'fix-helper-via-plain,cold')]
+    [TestCase('fix-helper-via-plain snapshot', 'fix-helper-via-plain,snapshot')]
+    [TestCase('fix-helper-via-plain sessioncold', 'fix-helper-via-plain,sessioncold')]
+    [TestCase('fix-helper-via-plain sessionwarm', 'fix-helper-via-plain,sessionwarm')]
+    [TestCase('fix-helper-via-plain standalone', 'fix-helper-via-plain,standalone')]
+    procedure AliasReceiverMembersBindAndPlan(const aShape, aMode: string);
+    [Test]
+    [Category('DS741AliasPrecedence')]
+    procedure AliasRefusalPreservesLocalTypeReason;
+    [Category('DS741Round2')]
+    [TestCase('c-generic-alias-call-nongeneric-param cold', 'c-generic-alias-call-nongeneric-param,cold')]
+    [TestCase('c-generic-alias-call-nongeneric-param snapshot', 'c-generic-alias-call-nongeneric-param,snapshot')]
+    [TestCase('c-generic-alias-call-nongeneric-param sessioncold', 'c-generic-alias-call-nongeneric-param,sessioncold')]
+    [TestCase('c-generic-alias-call-nongeneric-param sessionwarm', 'c-generic-alias-call-nongeneric-param,sessionwarm')]
+    [TestCase('c-generic-alias-call-nongeneric-param standalone', 'c-generic-alias-call-nongeneric-param,standalone')]
+    [TestCase('g-call-args cold', 'g-call-args,cold')]
+    [TestCase('g-call-args snapshot', 'g-call-args,snapshot')]
+    [TestCase('g-call-args sessioncold', 'g-call-args,sessioncold')]
+    [TestCase('g-call-args sessionwarm', 'g-call-args,sessionwarm')]
+    [TestCase('g-call-args standalone', 'g-call-args,standalone')]
+    [TestCase('g-class-call cold', 'g-class-call,cold')]
+    [TestCase('g-class-call snapshot', 'g-class-call,snapshot')]
+    [TestCase('g-class-call sessioncold', 'g-class-call,sessioncold')]
+    [TestCase('g-class-call sessionwarm', 'g-class-call,sessionwarm')]
+    [TestCase('g-class-call standalone', 'g-class-call,standalone')]
+    [TestCase('g-escaped-call cold', 'g-escaped-call,cold')]
+    [TestCase('g-escaped-call snapshot', 'g-escaped-call,snapshot')]
+    [TestCase('g-escaped-call sessioncold', 'g-escaped-call,sessioncold')]
+    [TestCase('g-escaped-call sessionwarm', 'g-escaped-call,sessionwarm')]
+    [TestCase('g-escaped-call standalone', 'g-escaped-call,standalone')]
+    [TestCase('k-b-call-helper-via-weak cold', 'k-b-call-helper-via-weak,cold')]
+    [TestCase('k-b-call-helper-via-weak snapshot', 'k-b-call-helper-via-weak,snapshot')]
+    [TestCase('k-b-call-helper-via-weak sessioncold', 'k-b-call-helper-via-weak,sessioncold')]
+    [TestCase('k-b-call-helper-via-weak sessionwarm', 'k-b-call-helper-via-weak,sessionwarm')]
+    [TestCase('k-b-call-helper-via-weak standalone', 'k-b-call-helper-via-weak,standalone')]
+    [TestCase('k-d3-call-own-helper cold', 'k-d3-call-own-helper,cold')]
+    [TestCase('k-d3-call-own-helper snapshot', 'k-d3-call-own-helper,snapshot')]
+    [TestCase('k-d3-call-own-helper sessioncold', 'k-d3-call-own-helper,sessioncold')]
+    [TestCase('k-d3-call-own-helper sessionwarm', 'k-d3-call-own-helper,sessionwarm')]
+    [TestCase('k-d3-call-own-helper standalone', 'k-d3-call-own-helper,standalone')]
+    [TestCase('k-d3-call-target-helper cold', 'k-d3-call-target-helper,cold')]
+    [TestCase('k-d3-call-target-helper snapshot', 'k-d3-call-target-helper,snapshot')]
+    [TestCase('k-d3-call-target-helper sessioncold', 'k-d3-call-target-helper,sessioncold')]
+    [TestCase('k-d3-call-target-helper sessionwarm', 'k-d3-call-target-helper,sessionwarm')]
+    [TestCase('k-d3-call-target-helper standalone', 'k-d3-call-target-helper,standalone')]
+    [TestCase('l-rtl-generic-alias-add cold', 'l-rtl-generic-alias-add,cold')]
+    [TestCase('l-rtl-generic-alias-add snapshot', 'l-rtl-generic-alias-add,snapshot')]
+    [TestCase('l-rtl-generic-alias-add sessioncold', 'l-rtl-generic-alias-add,sessioncold')]
+    [TestCase('l-rtl-generic-alias-add sessionwarm', 'l-rtl-generic-alias-add,sessionwarm')]
+    [TestCase('l-rtl-generic-alias-add standalone', 'l-rtl-generic-alias-add,standalone')]
+    [TestCase('c-plain-call cold', 'c-plain-call,cold')]
+    [TestCase('c-plain-call snapshot', 'c-plain-call,snapshot')]
+    [TestCase('c-plain-call sessioncold', 'c-plain-call,sessioncold')]
+    [TestCase('c-plain-call sessionwarm', 'c-plain-call,sessionwarm')]
+    [TestCase('c-plain-call standalone', 'c-plain-call,standalone')]
+    [TestCase('c-strong-call cold', 'c-strong-call,cold')]
+    [TestCase('c-strong-call snapshot', 'c-strong-call,snapshot')]
+    [TestCase('c-strong-call sessioncold', 'c-strong-call,sessioncold')]
+    [TestCase('c-strong-call sessionwarm', 'c-strong-call,sessionwarm')]
+    [TestCase('c-strong-call standalone', 'c-strong-call,standalone')]
+    [TestCase('c-weak-call cold', 'c-weak-call,cold')]
+    [TestCase('c-weak-call snapshot', 'c-weak-call,snapshot')]
+    [TestCase('c-weak-call sessioncold', 'c-weak-call,sessioncold')]
+    [TestCase('c-weak-call sessionwarm', 'c-weak-call,sessionwarm')]
+    [TestCase('c-weak-call standalone', 'c-weak-call,standalone')]
+    [TestCase('k-weak-call-helper cold', 'k-weak-call-helper,cold')]
+    [TestCase('k-weak-call-helper snapshot', 'k-weak-call-helper,snapshot')]
+    [TestCase('k-weak-call-helper sessioncold', 'k-weak-call-helper,sessioncold')]
+    [TestCase('k-weak-call-helper sessionwarm', 'k-weak-call-helper,sessionwarm')]
+    [TestCase('k-weak-call-helper standalone', 'k-weak-call-helper,standalone')]
+    [TestCase('nested-local-strong cold', 'nested-local-strong,cold')]
+    [TestCase('nested-local-strong snapshot', 'nested-local-strong,snapshot')]
+    [TestCase('nested-local-strong sessioncold', 'nested-local-strong,sessioncold')]
+    [TestCase('nested-local-strong sessionwarm', 'nested-local-strong,sessionwarm')]
+    [TestCase('nested-local-strong standalone', 'nested-local-strong,standalone')]
+    [TestCase('nested-local-weak cold', 'nested-local-weak,cold')]
+    [TestCase('nested-local-weak snapshot', 'nested-local-weak,snapshot')]
+    [TestCase('nested-local-weak sessioncold', 'nested-local-weak,sessioncold')]
+    [TestCase('nested-local-weak sessionwarm warm-unreachable DS743', 'nested-local-weak,sessionwarm')]
+    [TestCase('nested-local-weak standalone warm-unreachable DS743', 'nested-local-weak,standalone')]
+    procedure AliasCallsAndCapturedAliases(const aShape, aMode: string);
+
+    [Test]
+    [Category('DS741Round3')]
+    [TestCase('r5-inline-name cold', 'r5-inline-name,cold')]
+    [TestCase('r5-inline-name snapshot', 'r5-inline-name,snapshot')]
+    [TestCase('r5-inline-name sessioncold', 'r5-inline-name,sessioncold')]
+    [TestCase('r5-inline-name sessionwarm', 'r5-inline-name,sessionwarm')]
+    [TestCase('r5-inline-name standalone', 'r5-inline-name,standalone')]
+    [TestCase('r5-inline-size cold', 'r5-inline-size,cold')]
+    [TestCase('r5-inline-size snapshot', 'r5-inline-size,snapshot')]
+    [TestCase('r5-inline-size sessioncold', 'r5-inline-size,sessioncold')]
+    [TestCase('r5-inline-size sessionwarm', 'r5-inline-size,sessionwarm')]
+    [TestCase('r5-inline-size standalone', 'r5-inline-size,standalone')]
+    [TestCase('r5-inline-indexed cold', 'r5-inline-indexed,cold')]
+    [TestCase('r5-inline-indexed snapshot', 'r5-inline-indexed,snapshot')]
+    [TestCase('r5-inline-indexed sessioncold', 'r5-inline-indexed,sessioncold')]
+    [TestCase('r5-inline-indexed sessionwarm', 'r5-inline-indexed,sessionwarm')]
+    [TestCase('r5-inline-indexed standalone', 'r5-inline-indexed,standalone')]
+    [TestCase('r5-multi-name cold', 'r5-multi-name,cold')]
+    [TestCase('r5-multi-name snapshot', 'r5-multi-name,snapshot')]
+    [TestCase('r5-multi-name sessioncold', 'r5-multi-name,sessioncold')]
+    [TestCase('r5-multi-name sessionwarm', 'r5-multi-name,sessionwarm')]
+    [TestCase('r5-multi-name standalone', 'r5-multi-name,standalone')]
+    [TestCase('r5-multi-size cold', 'r5-multi-size,cold')]
+    [TestCase('r5-multi-size snapshot', 'r5-multi-size,snapshot')]
+    [TestCase('r5-multi-size sessioncold', 'r5-multi-size,sessioncold')]
+    [TestCase('r5-multi-size sessionwarm', 'r5-multi-size,sessionwarm')]
+    [TestCase('r5-multi-size standalone', 'r5-multi-size,standalone')]
+    [TestCase('r5-multi-indexed cold', 'r5-multi-indexed,cold')]
+    [TestCase('r5-multi-indexed snapshot', 'r5-multi-indexed,snapshot')]
+    [TestCase('r5-multi-indexed sessioncold', 'r5-multi-indexed,sessioncold')]
+    [TestCase('r5-multi-indexed sessionwarm', 'r5-multi-indexed,sessionwarm')]
+    [TestCase('r5-multi-indexed standalone', 'r5-multi-indexed,standalone')]
+    [TestCase('r5-comment-name cold', 'r5-comment-name,cold')]
+    [TestCase('r5-comment-name snapshot', 'r5-comment-name,snapshot')]
+    [TestCase('r5-comment-name sessioncold', 'r5-comment-name,sessioncold')]
+    [TestCase('r5-comment-name sessionwarm', 'r5-comment-name,sessionwarm')]
+    [TestCase('r5-comment-name standalone', 'r5-comment-name,standalone')]
+    [TestCase('r5-comment-size cold', 'r5-comment-size,cold')]
+    [TestCase('r5-comment-size snapshot', 'r5-comment-size,snapshot')]
+    [TestCase('r5-comment-size sessioncold', 'r5-comment-size,sessioncold')]
+    [TestCase('r5-comment-size sessionwarm', 'r5-comment-size,sessionwarm')]
+    [TestCase('r5-comment-size standalone', 'r5-comment-size,standalone')]
+    [TestCase('r5-comment-indexed cold', 'r5-comment-indexed,cold')]
+    [TestCase('r5-comment-indexed snapshot', 'r5-comment-indexed,snapshot')]
+    [TestCase('r5-comment-indexed sessioncold', 'r5-comment-indexed,sessioncold')]
+    [TestCase('r5-comment-indexed sessionwarm', 'r5-comment-indexed,sessionwarm')]
+    [TestCase('r5-comment-indexed standalone', 'r5-comment-indexed,standalone')]
+    [TestCase('r5-newline-name cold', 'r5-newline-name,cold')]
+    [TestCase('r5-newline-name snapshot', 'r5-newline-name,snapshot')]
+    [TestCase('r5-newline-name sessioncold', 'r5-newline-name,sessioncold')]
+    [TestCase('r5-newline-name sessionwarm', 'r5-newline-name,sessionwarm')]
+    [TestCase('r5-newline-name standalone', 'r5-newline-name,standalone')]
+    [TestCase('r5-newline-size cold', 'r5-newline-size,cold')]
+    [TestCase('r5-newline-size snapshot', 'r5-newline-size,snapshot')]
+    [TestCase('r5-newline-size sessioncold', 'r5-newline-size,sessioncold')]
+    [TestCase('r5-newline-size sessionwarm', 'r5-newline-size,sessionwarm')]
+    [TestCase('r5-newline-size standalone', 'r5-newline-size,standalone')]
+    [TestCase('r5-newline-indexed cold', 'r5-newline-indexed,cold')]
+    [TestCase('r5-newline-indexed snapshot', 'r5-newline-indexed,snapshot')]
+    [TestCase('r5-newline-indexed sessioncold', 'r5-newline-indexed,sessioncold')]
+    [TestCase('r5-newline-indexed sessionwarm', 'r5-newline-indexed,sessionwarm')]
+    [TestCase('r5-newline-indexed standalone', 'r5-newline-indexed,standalone')]
+    [TestCase('r5-chain-first-name cold', 'r5-chain-first-name,cold')]
+    [TestCase('r5-chain-first-name snapshot', 'r5-chain-first-name,snapshot')]
+    [TestCase('r5-chain-first-name sessioncold', 'r5-chain-first-name,sessioncold')]
+    [TestCase('r5-chain-first-name sessionwarm', 'r5-chain-first-name,sessionwarm')]
+    [TestCase('r5-chain-first-name standalone', 'r5-chain-first-name,standalone')]
+    [TestCase('r5-chain-first-size cold', 'r5-chain-first-size,cold')]
+    [TestCase('r5-chain-first-size snapshot', 'r5-chain-first-size,snapshot')]
+    [TestCase('r5-chain-first-size sessioncold', 'r5-chain-first-size,sessioncold')]
+    [TestCase('r5-chain-first-size sessionwarm', 'r5-chain-first-size,sessionwarm')]
+    [TestCase('r5-chain-first-size standalone', 'r5-chain-first-size,standalone')]
+    [TestCase('r5-chain-first-indexed cold', 'r5-chain-first-indexed,cold')]
+    [TestCase('r5-chain-first-indexed snapshot', 'r5-chain-first-indexed,snapshot')]
+    [TestCase('r5-chain-first-indexed sessioncold', 'r5-chain-first-indexed,sessioncold')]
+    [TestCase('r5-chain-first-indexed sessionwarm', 'r5-chain-first-indexed,sessionwarm')]
+    [TestCase('r5-chain-first-indexed standalone', 'r5-chain-first-indexed,standalone')]
+    [TestCase('r5-chain-second-name cold', 'r5-chain-second-name,cold')]
+    [TestCase('r5-chain-second-name snapshot', 'r5-chain-second-name,snapshot')]
+    [TestCase('r5-chain-second-name sessioncold', 'r5-chain-second-name,sessioncold')]
+    [TestCase('r5-chain-second-name sessionwarm', 'r5-chain-second-name,sessionwarm')]
+    [TestCase('r5-chain-second-name standalone', 'r5-chain-second-name,standalone')]
+    [TestCase('r5-chain-second-size cold', 'r5-chain-second-size,cold')]
+    [TestCase('r5-chain-second-size snapshot', 'r5-chain-second-size,snapshot')]
+    [TestCase('r5-chain-second-size sessioncold', 'r5-chain-second-size,sessioncold')]
+    [TestCase('r5-chain-second-size sessionwarm', 'r5-chain-second-size,sessionwarm')]
+    [TestCase('r5-chain-second-size standalone', 'r5-chain-second-size,standalone')]
+    [TestCase('r5-chain-second-indexed cold', 'r5-chain-second-indexed,cold')]
+    [TestCase('r5-chain-second-indexed snapshot', 'r5-chain-second-indexed,snapshot')]
+    [TestCase('r5-chain-second-indexed sessioncold', 'r5-chain-second-indexed,sessioncold')]
+    [TestCase('r5-chain-second-indexed sessionwarm', 'r5-chain-second-indexed,sessionwarm')]
+    [TestCase('r5-chain-second-indexed standalone', 'r5-chain-second-indexed,standalone')]
+    [TestCase('r5-nested-block cold', 'r5-nested-block,cold')]
+    [TestCase('r5-nested-block snapshot', 'r5-nested-block,snapshot')]
+    [TestCase('r5-nested-block sessioncold', 'r5-nested-block,sessioncold')]
+    [TestCase('r5-nested-block sessionwarm', 'r5-nested-block,sessionwarm')]
+    [TestCase('r5-nested-block standalone', 'r5-nested-block,standalone')]
+    [TestCase('r5-nested-single cold', 'r5-nested-single,cold')]
+    [TestCase('r5-nested-single snapshot', 'r5-nested-single,snapshot')]
+    [TestCase('r5-nested-single sessioncold', 'r5-nested-single,sessioncold')]
+    [TestCase('r5-nested-single sessionwarm', 'r5-nested-single,sessionwarm')]
+    [TestCase('r5-nested-single standalone', 'r5-nested-single,standalone')]
+    [TestCase('r5-nested-weak-strong cold', 'r5-nested-weak-strong,cold')]
+    [TestCase('r5-nested-weak-strong snapshot', 'r5-nested-weak-strong,snapshot')]
+    [TestCase('r5-nested-weak-strong sessioncold', 'r5-nested-weak-strong,sessioncold')]
+    [TestCase('r5-nested-weak-strong sessionwarm', 'r5-nested-weak-strong,sessionwarm')]
+    [TestCase('r5-nested-weak-strong standalone', 'r5-nested-weak-strong,standalone')]
+    [TestCase('r5-nested-repeat cold', 'r5-nested-repeat,cold')]
+    [TestCase('r5-nested-repeat snapshot', 'r5-nested-repeat,snapshot')]
+    [TestCase('r5-nested-repeat sessioncold', 'r5-nested-repeat,sessioncold')]
+    [TestCase('r5-nested-repeat sessionwarm', 'r5-nested-repeat,sessionwarm')]
+    [TestCase('r5-nested-repeat standalone', 'r5-nested-repeat,standalone')]
+    [TestCase('r4-x1-strong-excludeattr cold', 'r4-x1-strong-excludeattr,cold')]
+    [TestCase('r4-x1-strong-excludeattr snapshot', 'r4-x1-strong-excludeattr,snapshot')]
+    [TestCase('r4-x1-strong-excludeattr sessioncold', 'r4-x1-strong-excludeattr,sessioncold')]
+    [TestCase('r4-x1-strong-excludeattr sessionwarm', 'r4-x1-strong-excludeattr,sessionwarm')]
+    [TestCase('r4-x1-strong-excludeattr standalone', 'r4-x1-strong-excludeattr,standalone')]
+    [TestCase('r4-x3-weak-of-strong-excl cold', 'r4-x3-weak-of-strong-excl,cold')]
+    [TestCase('r4-x3-weak-of-strong-excl snapshot', 'r4-x3-weak-of-strong-excl,snapshot')]
+    [TestCase('r4-x3-weak-of-strong-excl sessioncold', 'r4-x3-weak-of-strong-excl,sessioncold')]
+    [TestCase('r4-x3-weak-of-strong-excl sessionwarm', 'r4-x3-weak-of-strong-excl,sessionwarm')]
+    [TestCase('r4-x3-weak-of-strong-excl standalone', 'r4-x3-weak-of-strong-excl,standalone')]
+    [TestCase('r4-x7-strong-name-plain cold', 'r4-x7-strong-name-plain,cold')]
+    [TestCase('r4-x7-strong-name-plain snapshot', 'r4-x7-strong-name-plain,snapshot')]
+    [TestCase('r4-x7-strong-name-plain sessioncold', 'r4-x7-strong-name-plain,sessioncold')]
+    [TestCase('r4-x7-strong-name-plain sessionwarm', 'r4-x7-strong-name-plain,sessionwarm')]
+    [TestCase('r4-x7-strong-name-plain standalone', 'r4-x7-strong-name-plain,standalone')]
+    [TestCase('r4-x8-strong-size-plain cold', 'r4-x8-strong-size-plain,cold')]
+    [TestCase('r4-x8-strong-size-plain snapshot', 'r4-x8-strong-size-plain,snapshot')]
+    [TestCase('r4-x8-strong-size-plain sessioncold', 'r4-x8-strong-size-plain,sessioncold')]
+    [TestCase('r4-x8-strong-size-plain sessionwarm', 'r4-x8-strong-size-plain,sessionwarm')]
+    [TestCase('r4-x8-strong-size-plain standalone', 'r4-x8-strong-size-plain,standalone')]
+    [TestCase('r4-x9-weak-of-strong-name cold', 'r4-x9-weak-of-strong-name,cold')]
+    [TestCase('r4-x9-weak-of-strong-name snapshot', 'r4-x9-weak-of-strong-name,snapshot')]
+    [TestCase('r4-x9-weak-of-strong-name sessioncold', 'r4-x9-weak-of-strong-name,sessioncold')]
+    [TestCase('r4-x9-weak-of-strong-name sessionwarm', 'r4-x9-weak-of-strong-name,sessionwarm')]
+    [TestCase('r4-x9-weak-of-strong-name standalone', 'r4-x9-weak-of-strong-name,standalone')]
+    [TestCase('r4-weak-name-plain cold', 'r4-weak-name-plain,cold')]
+    [TestCase('r4-weak-name-plain snapshot', 'r4-weak-name-plain,snapshot')]
+    [TestCase('r4-weak-name-plain sessioncold', 'r4-weak-name-plain,sessioncold')]
+    [TestCase('r4-weak-name-plain sessionwarm', 'r4-weak-name-plain,sessionwarm')]
+    [TestCase('r4-weak-name-plain standalone', 'r4-weak-name-plain,standalone')]
+    [TestCase('r4-weak-size-plain cold', 'r4-weak-size-plain,cold')]
+    [TestCase('r4-weak-size-plain snapshot', 'r4-weak-size-plain,snapshot')]
+    [TestCase('r4-weak-size-plain sessioncold', 'r4-weak-size-plain,sessioncold')]
+    [TestCase('r4-weak-size-plain sessionwarm', 'r4-weak-size-plain,sessionwarm')]
+    [TestCase('r4-weak-size-plain standalone', 'r4-weak-size-plain,standalone')]
+    [TestCase('rtl-weak-chain-homonym cold', 'rtl-weak-chain-homonym,cold')]
+    [TestCase('rtl-weak-chain-homonym snapshot', 'rtl-weak-chain-homonym,snapshot')]
+    [TestCase('rtl-weak-chain-homonym sessioncold', 'rtl-weak-chain-homonym,sessioncold')]
+    [TestCase('rtl-weak-chain-homonym sessionwarm', 'rtl-weak-chain-homonym,sessionwarm')]
+    [TestCase('rtl-weak-chain-homonym standalone', 'rtl-weak-chain-homonym,standalone')]
+    [TestCase('rtl-strong-homonym cold', 'rtl-strong-homonym,cold')]
+    [TestCase('rtl-strong-homonym snapshot', 'rtl-strong-homonym,snapshot')]
+    [TestCase('rtl-strong-homonym sessioncold', 'rtl-strong-homonym,sessioncold')]
+    [TestCase('rtl-strong-homonym sessionwarm', 'rtl-strong-homonym,sessionwarm')]
+    [TestCase('rtl-strong-homonym standalone', 'rtl-strong-homonym,standalone')]
+    [TestCase('rtl-weak-homonym cold', 'rtl-weak-homonym,cold')]
+    [TestCase('rtl-weak-homonym snapshot', 'rtl-weak-homonym,snapshot')]
+    [TestCase('rtl-weak-homonym sessioncold', 'rtl-weak-homonym,sessioncold')]
+    [TestCase('rtl-weak-homonym sessionwarm', 'rtl-weak-homonym,sessionwarm')]
+    [TestCase('rtl-weak-homonym standalone', 'rtl-weak-homonym,standalone')]
+    [TestCase('opus-e7-forward-nested-strong cold', 'opus-e7-forward-nested-strong,cold')]
+    [TestCase('opus-e7-forward-nested-strong snapshot', 'opus-e7-forward-nested-strong,snapshot')]
+    [TestCase('opus-e7-forward-nested-strong sessioncold', 'opus-e7-forward-nested-strong,sessioncold')]
+    [TestCase('opus-e7-forward-nested-strong sessionwarm', 'opus-e7-forward-nested-strong,sessionwarm')]
+    [TestCase('opus-e7-forward-nested-strong standalone', 'opus-e7-forward-nested-strong,standalone')]
+    [TestCase('opus-e14-forward-two-level-strong cold', 'opus-e14-forward-two-level-strong,cold')]
+    [TestCase('opus-e14-forward-two-level-strong snapshot', 'opus-e14-forward-two-level-strong,snapshot')]
+    [TestCase('opus-e14-forward-two-level-strong sessioncold', 'opus-e14-forward-two-level-strong,sessioncold')]
+    [TestCase('opus-e14-forward-two-level-strong sessionwarm', 'opus-e14-forward-two-level-strong,sessionwarm')]
+    [TestCase('opus-e14-forward-two-level-strong standalone', 'opus-e14-forward-two-level-strong,standalone')]
+    [TestCase('opus-h1-field-array-s cold', 'opus-h1-field-array-s,cold')]
+    [TestCase('opus-h1-field-array-s snapshot', 'opus-h1-field-array-s,snapshot')]
+    [TestCase('opus-h1-field-array-s sessioncold', 'opus-h1-field-array-s,sessioncold')]
+    [TestCase('opus-h1-field-array-s sessionwarm', 'opus-h1-field-array-s,sessionwarm')]
+    [TestCase('opus-h1-field-array-s standalone', 'opus-h1-field-array-s,standalone')]
+    [TestCase('opus-h2-dotted-field-s cold', 'opus-h2-dotted-field-s,cold')]
+    [TestCase('opus-h2-dotted-field-s snapshot', 'opus-h2-dotted-field-s,snapshot')]
+    [TestCase('opus-h2-dotted-field-s sessioncold', 'opus-h2-dotted-field-s,sessioncold')]
+    [TestCase('opus-h2-dotted-field-s sessionwarm', 'opus-h2-dotted-field-s,sessionwarm')]
+    [TestCase('opus-h2-dotted-field-s standalone', 'opus-h2-dotted-field-s,standalone')]
+    [TestCase('opus-h3-dotted-write-s cold', 'opus-h3-dotted-write-s,cold')]
+    [TestCase('opus-h3-dotted-write-s snapshot', 'opus-h3-dotted-write-s,snapshot')]
+    [TestCase('opus-h3-dotted-write-s sessioncold', 'opus-h3-dotted-write-s,sessioncold')]
+    [TestCase('opus-h3-dotted-write-s sessionwarm', 'opus-h3-dotted-write-s,sessionwarm')]
+    [TestCase('opus-h3-dotted-write-s standalone', 'opus-h3-dotted-write-s,standalone')]
+    [TestCase('opus-c5-indexed-default-s2 cold', 'opus-c5-indexed-default-s2,cold')]
+    [TestCase('opus-c5-indexed-default-s2 snapshot', 'opus-c5-indexed-default-s2,snapshot')]
+    [TestCase('opus-c5-indexed-default-s2 sessioncold', 'opus-c5-indexed-default-s2,sessioncold')]
+    [TestCase('opus-c5-indexed-default-s2 sessionwarm', 'opus-c5-indexed-default-s2,sessionwarm')]
+    [TestCase('opus-c5-indexed-default-s2 standalone', 'opus-c5-indexed-default-s2,standalone')]
+    [TestCase('opus-c1-args-members-s2 cold', 'opus-c1-args-members-s2,cold')]
+    [TestCase('opus-c1-args-members-s2 snapshot', 'opus-c1-args-members-s2,snapshot')]
+    [TestCase('opus-c1-args-members-s2 sessioncold', 'opus-c1-args-members-s2,sessioncold')]
+    [TestCase('opus-c1-args-members-s2 sessionwarm', 'opus-c1-args-members-s2,sessionwarm')]
+    [TestCase('opus-c1-args-members-s2 standalone', 'opus-c1-args-members-s2,standalone')]
+    [TestCase('opus-f5-strong-chain-overload-call cold', 'opus-f5-strong-chain-overload-call,cold')]
+    [TestCase('opus-f5-strong-chain-overload-call snapshot', 'opus-f5-strong-chain-overload-call,snapshot')]
+    [TestCase('opus-f5-strong-chain-overload-call sessioncold', 'opus-f5-strong-chain-overload-call,sessioncold')]
+    [TestCase('opus-f5-strong-chain-overload-call sessionwarm', 'opus-f5-strong-chain-overload-call,sessionwarm')]
+    [TestCase('opus-f5-strong-chain-overload-call standalone', 'opus-f5-strong-chain-overload-call,standalone')]
+    [TestCase('sol-forward-captured-strong cold', 'sol-forward-captured-strong,cold')]
+    [TestCase('sol-forward-captured-strong snapshot', 'sol-forward-captured-strong,snapshot')]
+    [TestCase('sol-forward-captured-strong sessioncold', 'sol-forward-captured-strong,sessioncold')]
+    [TestCase('sol-forward-captured-strong sessionwarm', 'sol-forward-captured-strong,sessionwarm')]
+    [TestCase('sol-forward-captured-strong standalone', 'sol-forward-captured-strong,standalone')]
+    [TestCase('sol-forward-late-strong cold', 'sol-forward-late-strong,cold')]
+    [TestCase('sol-forward-late-strong snapshot', 'sol-forward-late-strong,snapshot')]
+    [TestCase('sol-forward-late-strong sessioncold', 'sol-forward-late-strong,sessioncold')]
+    [TestCase('sol-forward-late-strong sessionwarm', 'sol-forward-late-strong,sessionwarm')]
+    [TestCase('sol-forward-late-strong standalone', 'sol-forward-late-strong,standalone')]
+    [TestCase('sol-clean-strong-overload cold', 'sol-clean-strong-overload,cold')]
+    [TestCase('sol-clean-strong-overload snapshot', 'sol-clean-strong-overload,snapshot')]
+    [TestCase('sol-clean-strong-overload sessioncold', 'sol-clean-strong-overload,sessioncold')]
+    [TestCase('sol-clean-strong-overload sessionwarm', 'sol-clean-strong-overload,sessionwarm')]
+    [TestCase('sol-clean-strong-overload standalone', 'sol-clean-strong-overload,standalone')]
+    [TestCase('sol-getter-property-call-strong cold', 'sol-getter-property-call-strong,cold')]
+    [TestCase('sol-getter-property-call-strong snapshot', 'sol-getter-property-call-strong,snapshot')]
+    [TestCase('sol-getter-property-call-strong sessioncold', 'sol-getter-property-call-strong,sessioncold')]
+    [TestCase('sol-getter-property-call-strong sessionwarm', 'sol-getter-property-call-strong,sessionwarm')]
+    [TestCase('sol-getter-property-call-strong standalone', 'sol-getter-property-call-strong,standalone')]
+    [TestCase('sol-clean-strong-indexed-read cold', 'sol-clean-strong-indexed-read,cold')]
+    [TestCase('sol-clean-strong-indexed-read snapshot', 'sol-clean-strong-indexed-read,snapshot')]
+    [TestCase('sol-clean-strong-indexed-read sessioncold', 'sol-clean-strong-indexed-read,sessioncold')]
+    [TestCase('sol-clean-strong-indexed-read sessionwarm', 'sol-clean-strong-indexed-read,sessionwarm')]
+    [TestCase('sol-clean-strong-indexed-read standalone', 'sol-clean-strong-indexed-read,standalone')]
+    [TestCase('sol-clean-strong-indexed-write cold', 'sol-clean-strong-indexed-write,cold')]
+    [TestCase('sol-clean-strong-indexed-write snapshot', 'sol-clean-strong-indexed-write,snapshot')]
+    [TestCase('sol-clean-strong-indexed-write sessioncold', 'sol-clean-strong-indexed-write,sessioncold')]
+    [TestCase('sol-clean-strong-indexed-write sessionwarm', 'sol-clean-strong-indexed-write,sessionwarm')]
+    [TestCase('sol-clean-strong-indexed-write standalone', 'sol-clean-strong-indexed-write,standalone')]
+    [TestCase('sol-clean-generic-indexed-write cold', 'sol-clean-generic-indexed-write,cold')]
+    [TestCase('sol-clean-generic-indexed-write snapshot', 'sol-clean-generic-indexed-write,snapshot')]
+    [TestCase('sol-clean-generic-indexed-write sessioncold', 'sol-clean-generic-indexed-write,sessioncold')]
+    [TestCase('sol-clean-generic-indexed-write sessionwarm', 'sol-clean-generic-indexed-write,sessionwarm')]
+    [TestCase('sol-clean-generic-indexed-write standalone', 'sol-clean-generic-indexed-write,standalone')]
+    [TestCase('control-h1-field-array-w cold', 'control-h1-field-array-w,cold')]
+    [TestCase('control-h1-field-array-w snapshot', 'control-h1-field-array-w,snapshot')]
+    [TestCase('control-h1-field-array-w sessioncold', 'control-h1-field-array-w,sessioncold')]
+    [TestCase('control-h1-field-array-w sessionwarm', 'control-h1-field-array-w,sessionwarm')]
+    [TestCase('control-h1-field-array-w standalone', 'control-h1-field-array-w,standalone')]
+    [TestCase('control-h2-dotted-field-w cold', 'control-h2-dotted-field-w,cold')]
+    [TestCase('control-h2-dotted-field-w snapshot', 'control-h2-dotted-field-w,snapshot')]
+    [TestCase('control-h2-dotted-field-w sessioncold', 'control-h2-dotted-field-w,sessioncold')]
+    [TestCase('control-h2-dotted-field-w sessionwarm', 'control-h2-dotted-field-w,sessionwarm')]
+    [TestCase('control-h2-dotted-field-w standalone', 'control-h2-dotted-field-w,standalone')]
+    [TestCase('control-h3-dotted-write-w cold', 'control-h3-dotted-write-w,cold')]
+    [TestCase('control-h3-dotted-write-w snapshot', 'control-h3-dotted-write-w,snapshot')]
+    [TestCase('control-h3-dotted-write-w sessioncold', 'control-h3-dotted-write-w,sessioncold')]
+    [TestCase('control-h3-dotted-write-w sessionwarm', 'control-h3-dotted-write-w,sessionwarm')]
+    [TestCase('control-h3-dotted-write-w standalone', 'control-h3-dotted-write-w,standalone')]
+    [TestCase('control-c5-indexed-default-w2 cold', 'control-c5-indexed-default-w2,cold')]
+    [TestCase('control-c5-indexed-default-w2 snapshot', 'control-c5-indexed-default-w2,snapshot')]
+    [TestCase('control-c5-indexed-default-w2 sessioncold', 'control-c5-indexed-default-w2,sessioncold')]
+    [TestCase('control-c5-indexed-default-w2 sessionwarm', 'control-c5-indexed-default-w2,sessionwarm')]
+    [TestCase('control-c5-indexed-default-w2 standalone', 'control-c5-indexed-default-w2,standalone')]
+    [TestCase('control-c1-args-members-w2 cold', 'control-c1-args-members-w2,cold')]
+    [TestCase('control-c1-args-members-w2 snapshot', 'control-c1-args-members-w2,snapshot')]
+    [TestCase('control-c1-args-members-w2 sessioncold', 'control-c1-args-members-w2,sessioncold')]
+    [TestCase('control-c1-args-members-w2 sessionwarm', 'control-c1-args-members-w2,sessionwarm')]
+    [TestCase('control-c1-args-members-w2 standalone', 'control-c1-args-members-w2,standalone')]
+    [TestCase('control-clean-weak-overload cold', 'control-clean-weak-overload,cold')]
+    [TestCase('control-clean-weak-overload snapshot', 'control-clean-weak-overload,snapshot')]
+    [TestCase('control-clean-weak-overload sessioncold', 'control-clean-weak-overload,sessioncold')]
+    [TestCase('control-clean-weak-overload sessionwarm', 'control-clean-weak-overload,sessionwarm')]
+    [TestCase('control-clean-weak-overload standalone', 'control-clean-weak-overload,standalone')]
+    [TestCase('control-clean-plain-overload cold', 'control-clean-plain-overload,cold')]
+    [TestCase('control-clean-plain-overload snapshot', 'control-clean-plain-overload,snapshot')]
+    [TestCase('control-clean-plain-overload sessioncold', 'control-clean-plain-overload,sessioncold')]
+    [TestCase('control-clean-plain-overload sessionwarm', 'control-clean-plain-overload,sessionwarm')]
+    [TestCase('control-clean-plain-overload standalone', 'control-clean-plain-overload,standalone')]
+    [TestCase('control-getter-property-call-weak cold', 'control-getter-property-call-weak,cold')]
+    [TestCase('control-getter-property-call-weak snapshot', 'control-getter-property-call-weak,snapshot')]
+    [TestCase('control-getter-property-call-weak sessioncold', 'control-getter-property-call-weak,sessioncold')]
+    [TestCase('control-getter-property-call-weak sessionwarm', 'control-getter-property-call-weak,sessionwarm')]
+    [TestCase('control-getter-property-call-weak standalone', 'control-getter-property-call-weak,standalone')]
+    [TestCase('control-getter-property-call-plain cold', 'control-getter-property-call-plain,cold')]
+    [TestCase('control-getter-property-call-plain snapshot', 'control-getter-property-call-plain,snapshot')]
+    [TestCase('control-getter-property-call-plain sessioncold', 'control-getter-property-call-plain,sessioncold')]
+    [TestCase('control-getter-property-call-plain sessionwarm', 'control-getter-property-call-plain,sessionwarm')]
+    [TestCase('control-getter-property-call-plain standalone', 'control-getter-property-call-plain,standalone')]
+    [TestCase('control-clean-weak-indexed-read cold', 'control-clean-weak-indexed-read,cold')]
+    [TestCase('control-clean-weak-indexed-read snapshot', 'control-clean-weak-indexed-read,snapshot')]
+    [TestCase('control-clean-weak-indexed-read sessioncold', 'control-clean-weak-indexed-read,sessioncold')]
+    [TestCase('control-clean-weak-indexed-read sessionwarm', 'control-clean-weak-indexed-read,sessionwarm')]
+    [TestCase('control-clean-weak-indexed-read standalone', 'control-clean-weak-indexed-read,standalone')]
+    [TestCase('control-clean-plain-indexed-read cold', 'control-clean-plain-indexed-read,cold')]
+    [TestCase('control-clean-plain-indexed-read snapshot', 'control-clean-plain-indexed-read,snapshot')]
+    [TestCase('control-clean-plain-indexed-read sessioncold', 'control-clean-plain-indexed-read,sessioncold')]
+    [TestCase('control-clean-plain-indexed-read sessionwarm', 'control-clean-plain-indexed-read,sessionwarm')]
+    [TestCase('control-clean-plain-indexed-read standalone', 'control-clean-plain-indexed-read,standalone')]
+    [TestCase('control-clean-weak-indexed-write cold', 'control-clean-weak-indexed-write,cold')]
+    [TestCase('control-clean-weak-indexed-write snapshot', 'control-clean-weak-indexed-write,snapshot')]
+    [TestCase('control-clean-weak-indexed-write sessioncold', 'control-clean-weak-indexed-write,sessioncold')]
+    [TestCase('control-clean-weak-indexed-write sessionwarm', 'control-clean-weak-indexed-write,sessionwarm')]
+    [TestCase('control-clean-weak-indexed-write standalone', 'control-clean-weak-indexed-write,standalone')]
+    [TestCase('control-clean-plain-indexed-write cold', 'control-clean-plain-indexed-write,cold')]
+    [TestCase('control-clean-plain-indexed-write snapshot', 'control-clean-plain-indexed-write,snapshot')]
+    [TestCase('control-clean-plain-indexed-write sessioncold', 'control-clean-plain-indexed-write,sessioncold')]
+    [TestCase('control-clean-plain-indexed-write sessionwarm', 'control-clean-plain-indexed-write,sessionwarm')]
+    [TestCase('control-clean-plain-indexed-write standalone', 'control-clean-plain-indexed-write,standalone')]
+    [TestCase('control-opus-e7-forward-nested-strong-weak cold', 'control-opus-e7-forward-nested-strong-weak,cold')]
+    [TestCase('control-opus-e7-forward-nested-strong-weak snapshot', 'control-opus-e7-forward-nested-strong-weak,snapshot')]
+    [TestCase('control-opus-e7-forward-nested-strong-weak sessioncold', 'control-opus-e7-forward-nested-strong-weak,sessioncold')]
+    [TestCase('control-opus-e7-forward-nested-strong-weak sessionwarm warm-unreachable DS743', 'control-opus-e7-forward-nested-strong-weak,sessionwarm')]
+    [TestCase('control-opus-e7-forward-nested-strong-weak standalone warm-unreachable DS743', 'control-opus-e7-forward-nested-strong-weak,standalone')]
+    [TestCase('control-opus-e7-forward-nested-strong-plain cold', 'control-opus-e7-forward-nested-strong-plain,cold')]
+    [TestCase('control-opus-e7-forward-nested-strong-plain snapshot', 'control-opus-e7-forward-nested-strong-plain,snapshot')]
+    [TestCase('control-opus-e7-forward-nested-strong-plain sessioncold', 'control-opus-e7-forward-nested-strong-plain,sessioncold')]
+    [TestCase('control-opus-e7-forward-nested-strong-plain sessionwarm', 'control-opus-e7-forward-nested-strong-plain,sessionwarm')]
+    [TestCase('control-opus-e7-forward-nested-strong-plain standalone', 'control-opus-e7-forward-nested-strong-plain,standalone')]
+    [TestCase('control-opus-e14-forward-two-level-strong-weak cold', 'control-opus-e14-forward-two-level-strong-weak,cold')]
+    [TestCase('control-opus-e14-forward-two-level-strong-weak snapshot', 'control-opus-e14-forward-two-level-strong-weak,snapshot')]
+    [TestCase('control-opus-e14-forward-two-level-strong-weak sessioncold', 'control-opus-e14-forward-two-level-strong-weak,sessioncold')]
+    [TestCase('control-opus-e14-forward-two-level-strong-weak sessionwarm warm-unreachable DS743', 'control-opus-e14-forward-two-level-strong-weak,sessionwarm')]
+    [TestCase('control-opus-e14-forward-two-level-strong-weak standalone warm-unreachable DS743', 'control-opus-e14-forward-two-level-strong-weak,standalone')]
+    [TestCase('control-opus-e14-forward-two-level-strong-plain cold', 'control-opus-e14-forward-two-level-strong-plain,cold')]
+    [TestCase('control-opus-e14-forward-two-level-strong-plain snapshot', 'control-opus-e14-forward-two-level-strong-plain,snapshot')]
+    [TestCase('control-opus-e14-forward-two-level-strong-plain sessioncold', 'control-opus-e14-forward-two-level-strong-plain,sessioncold')]
+    [TestCase('control-opus-e14-forward-two-level-strong-plain sessionwarm', 'control-opus-e14-forward-two-level-strong-plain,sessionwarm')]
+    [TestCase('control-opus-e14-forward-two-level-strong-plain standalone', 'control-opus-e14-forward-two-level-strong-plain,standalone')]
+    [TestCase('control-h1-field-array-w-plain cold', 'control-h1-field-array-w-plain,cold')]
+    [TestCase('control-h1-field-array-w-plain snapshot', 'control-h1-field-array-w-plain,snapshot')]
+    [TestCase('control-h1-field-array-w-plain sessioncold', 'control-h1-field-array-w-plain,sessioncold')]
+    [TestCase('control-h1-field-array-w-plain sessionwarm', 'control-h1-field-array-w-plain,sessionwarm')]
+    [TestCase('control-h1-field-array-w-plain standalone', 'control-h1-field-array-w-plain,standalone')]
+    [TestCase('control-h2-dotted-field-w-plain cold', 'control-h2-dotted-field-w-plain,cold')]
+    [TestCase('control-h2-dotted-field-w-plain snapshot', 'control-h2-dotted-field-w-plain,snapshot')]
+    [TestCase('control-h2-dotted-field-w-plain sessioncold', 'control-h2-dotted-field-w-plain,sessioncold')]
+    [TestCase('control-h2-dotted-field-w-plain sessionwarm', 'control-h2-dotted-field-w-plain,sessionwarm')]
+    [TestCase('control-h2-dotted-field-w-plain standalone', 'control-h2-dotted-field-w-plain,standalone')]
+    [TestCase('control-h3-dotted-write-w-plain cold', 'control-h3-dotted-write-w-plain,cold')]
+    [TestCase('control-h3-dotted-write-w-plain snapshot', 'control-h3-dotted-write-w-plain,snapshot')]
+    [TestCase('control-h3-dotted-write-w-plain sessioncold', 'control-h3-dotted-write-w-plain,sessioncold')]
+    [TestCase('control-h3-dotted-write-w-plain sessionwarm', 'control-h3-dotted-write-w-plain,sessionwarm')]
+    [TestCase('control-h3-dotted-write-w-plain standalone', 'control-h3-dotted-write-w-plain,standalone')]
+    [TestCase('control-c5-indexed-default-w2-plain cold', 'control-c5-indexed-default-w2-plain,cold')]
+    [TestCase('control-c5-indexed-default-w2-plain snapshot', 'control-c5-indexed-default-w2-plain,snapshot')]
+    [TestCase('control-c5-indexed-default-w2-plain sessioncold', 'control-c5-indexed-default-w2-plain,sessioncold')]
+    [TestCase('control-c5-indexed-default-w2-plain sessionwarm', 'control-c5-indexed-default-w2-plain,sessionwarm')]
+    [TestCase('control-c5-indexed-default-w2-plain standalone', 'control-c5-indexed-default-w2-plain,standalone')]
+    [TestCase('control-c1-args-members-w2-plain cold', 'control-c1-args-members-w2-plain,cold')]
+    [TestCase('control-c1-args-members-w2-plain snapshot', 'control-c1-args-members-w2-plain,snapshot')]
+    [TestCase('control-c1-args-members-w2-plain sessioncold', 'control-c1-args-members-w2-plain,sessioncold')]
+    [TestCase('control-c1-args-members-w2-plain sessionwarm', 'control-c1-args-members-w2-plain,sessionwarm')]
+    [TestCase('control-c1-args-members-w2-plain standalone', 'control-c1-args-members-w2-plain,standalone')]
+    [TestCase('r6-strong cold', 'r6-strong,cold')]
+    [TestCase('r6-strong snapshot', 'r6-strong,snapshot')]
+    [TestCase('r6-strong sessioncold', 'r6-strong,sessioncold')]
+    [TestCase('r6-strong sessionwarm', 'r6-strong,sessionwarm')]
+    [TestCase('r6-strong standalone', 'r6-strong,standalone')]
+    [TestCase('r6-control-plain-strong cold', 'r6-control-plain-strong,cold')]
+    [TestCase('r6-control-plain-strong snapshot', 'r6-control-plain-strong,snapshot')]
+    [TestCase('r6-control-plain-strong sessioncold', 'r6-control-plain-strong,sessioncold')]
+    [TestCase('r6-control-plain-strong sessionwarm', 'r6-control-plain-strong,sessionwarm')]
+    [TestCase('r6-control-plain-strong standalone', 'r6-control-plain-strong,standalone')]
+    [TestCase('r6-control-weak-strong cold', 'r6-control-weak-strong,cold')]
+    [TestCase('r6-control-weak-strong snapshot', 'r6-control-weak-strong,snapshot')]
+    [TestCase('r6-control-weak-strong sessioncold', 'r6-control-weak-strong,sessioncold')]
+    [TestCase('r6-control-weak-strong sessionwarm', 'r6-control-weak-strong,sessionwarm')]
+    [TestCase('r6-control-weak-strong standalone', 'r6-control-weak-strong,standalone')]
+    [TestCase('r6-function cold', 'r6-function,cold')]
+    [TestCase('r6-function snapshot', 'r6-function,snapshot')]
+    [TestCase('r6-function sessioncold', 'r6-function,sessioncold')]
+    [TestCase('r6-function sessionwarm', 'r6-function,sessionwarm')]
+    [TestCase('r6-function standalone', 'r6-function,standalone')]
+    [TestCase('r6-control-plain-function cold', 'r6-control-plain-function,cold')]
+    [TestCase('r6-control-plain-function snapshot', 'r6-control-plain-function,snapshot')]
+    [TestCase('r6-control-plain-function sessioncold', 'r6-control-plain-function,sessioncold')]
+    [TestCase('r6-control-plain-function sessionwarm', 'r6-control-plain-function,sessionwarm')]
+    [TestCase('r6-control-plain-function standalone', 'r6-control-plain-function,standalone')]
+    [TestCase('r6-control-weak-function cold', 'r6-control-weak-function,cold')]
+    [TestCase('r6-control-weak-function snapshot', 'r6-control-weak-function,snapshot')]
+    [TestCase('r6-control-weak-function sessioncold', 'r6-control-weak-function,sessioncold')]
+    [TestCase('r6-control-weak-function sessionwarm', 'r6-control-weak-function,sessionwarm')]
+    [TestCase('r6-control-weak-function standalone', 'r6-control-weak-function,standalone')]
+    [TestCase('r6-nested cold', 'r6-nested,cold')]
+    [TestCase('r6-nested snapshot', 'r6-nested,snapshot')]
+    [TestCase('r6-nested sessioncold', 'r6-nested,sessioncold')]
+    [TestCase('r6-nested sessionwarm', 'r6-nested,sessionwarm')]
+    [TestCase('r6-nested standalone', 'r6-nested,standalone')]
+    [TestCase('r6-control-plain-nested cold', 'r6-control-plain-nested,cold')]
+    [TestCase('r6-control-plain-nested snapshot', 'r6-control-plain-nested,snapshot')]
+    [TestCase('r6-control-plain-nested sessioncold', 'r6-control-plain-nested,sessioncold')]
+    [TestCase('r6-control-plain-nested sessionwarm', 'r6-control-plain-nested,sessionwarm')]
+    [TestCase('r6-control-plain-nested standalone', 'r6-control-plain-nested,standalone')]
+    [TestCase('r6-control-weak-nested cold', 'r6-control-weak-nested,cold')]
+    [TestCase('r6-control-weak-nested snapshot', 'r6-control-weak-nested,snapshot')]
+    [TestCase('r6-control-weak-nested sessioncold', 'r6-control-weak-nested,sessioncold')]
+    [TestCase('r6-control-weak-nested sessionwarm', 'r6-control-weak-nested,sessionwarm')]
+    [TestCase('r6-control-weak-nested standalone', 'r6-control-weak-nested,standalone')]
+    [TestCase('r6-weak-strong cold', 'r6-weak-strong,cold')]
+    [TestCase('r6-weak-strong snapshot', 'r6-weak-strong,snapshot')]
+    [TestCase('r6-weak-strong sessioncold', 'r6-weak-strong,sessioncold')]
+    [TestCase('r6-weak-strong sessionwarm', 'r6-weak-strong,sessionwarm')]
+    [TestCase('r6-weak-strong standalone', 'r6-weak-strong,standalone')]
+    [TestCase('r6-control-plain-weak-strong cold', 'r6-control-plain-weak-strong,cold')]
+    [TestCase('r6-control-plain-weak-strong snapshot', 'r6-control-plain-weak-strong,snapshot')]
+    [TestCase('r6-control-plain-weak-strong sessioncold', 'r6-control-plain-weak-strong,sessioncold')]
+    [TestCase('r6-control-plain-weak-strong sessionwarm', 'r6-control-plain-weak-strong,sessionwarm')]
+    [TestCase('r6-control-plain-weak-strong standalone', 'r6-control-plain-weak-strong,standalone')]
+    [TestCase('r6-control-weak-weak-strong cold', 'r6-control-weak-weak-strong,cold')]
+    [TestCase('r6-control-weak-weak-strong snapshot', 'r6-control-weak-weak-strong,snapshot')]
+    [TestCase('r6-control-weak-weak-strong sessioncold', 'r6-control-weak-weak-strong,sessioncold')]
+    [TestCase('r6-control-weak-weak-strong sessionwarm', 'r6-control-weak-weak-strong,sessionwarm')]
+    [TestCase('r6-control-weak-weak-strong standalone', 'r6-control-weak-weak-strong,standalone')]
+    [TestCase('r6-other-unit cold', 'r6-other-unit,cold')]
+    [TestCase('r6-other-unit snapshot', 'r6-other-unit,snapshot')]
+    [TestCase('r6-other-unit sessioncold', 'r6-other-unit,sessioncold')]
+    [TestCase('r6-other-unit sessionwarm', 'r6-other-unit,sessionwarm')]
+    [TestCase('r6-other-unit standalone', 'r6-other-unit,standalone')]
+    [TestCase('r6-control-plain-other-unit cold', 'r6-control-plain-other-unit,cold')]
+    [TestCase('r6-control-plain-other-unit snapshot', 'r6-control-plain-other-unit,snapshot')]
+    [TestCase('r6-control-plain-other-unit sessioncold', 'r6-control-plain-other-unit,sessioncold')]
+    [TestCase('r6-control-plain-other-unit sessionwarm', 'r6-control-plain-other-unit,sessionwarm')]
+    [TestCase('r6-control-plain-other-unit standalone', 'r6-control-plain-other-unit,standalone')]
+    [TestCase('r6-control-weak-other-unit cold', 'r6-control-weak-other-unit,cold')]
+    [TestCase('r6-control-weak-other-unit snapshot', 'r6-control-weak-other-unit,snapshot')]
+    [TestCase('r6-control-weak-other-unit sessioncold', 'r6-control-weak-other-unit,sessioncold')]
+    [TestCase('r6-control-weak-other-unit sessionwarm', 'r6-control-weak-other-unit,sessionwarm')]
+    [TestCase('r6-control-weak-other-unit standalone', 'r6-control-weak-other-unit,standalone')]
+    [TestCase('r6-inline-target cold', 'r6-inline-target,cold')]
+    [TestCase('r6-inline-target snapshot', 'r6-inline-target,snapshot')]
+    [TestCase('r6-inline-target sessioncold', 'r6-inline-target,sessioncold')]
+    [TestCase('r6-inline-target sessionwarm', 'r6-inline-target,sessionwarm')]
+    [TestCase('r6-inline-target standalone', 'r6-inline-target,standalone')]
+    [TestCase('r6-control-plain-inline-target cold', 'r6-control-plain-inline-target,cold')]
+    [TestCase('r6-control-plain-inline-target snapshot', 'r6-control-plain-inline-target,snapshot')]
+    [TestCase('r6-control-plain-inline-target sessioncold', 'r6-control-plain-inline-target,sessioncold')]
+    [TestCase('r6-control-plain-inline-target sessionwarm', 'r6-control-plain-inline-target,sessionwarm')]
+    [TestCase('r6-control-plain-inline-target standalone', 'r6-control-plain-inline-target,standalone')]
+    [TestCase('r6-control-weak-inline-target cold', 'r6-control-weak-inline-target,cold')]
+    [TestCase('r6-control-weak-inline-target snapshot', 'r6-control-weak-inline-target,snapshot')]
+    [TestCase('r6-control-weak-inline-target sessioncold', 'r6-control-weak-inline-target,sessioncold')]
+    [TestCase('r6-control-weak-inline-target sessionwarm', 'r6-control-weak-inline-target,sessionwarm')]
+    [TestCase('r6-control-weak-inline-target standalone', 'r6-control-weak-inline-target,standalone')]
+    [TestCase('r6-control-parenthesized cold', 'r6-control-parenthesized,cold')]
+    [TestCase('r6-control-parenthesized snapshot', 'r6-control-parenthesized,snapshot')]
+    [TestCase('r6-control-parenthesized sessioncold', 'r6-control-parenthesized,sessioncold')]
+    [TestCase('r6-control-parenthesized sessionwarm', 'r6-control-parenthesized,sessionwarm')]
+    [TestCase('r6-control-parenthesized standalone', 'r6-control-parenthesized,standalone')]
+    procedure AliasFallbackAndForwardScopes(const aShape, aMode: string);
+
+
+
+    [Category('DS741RMPV')]
+    [TestCase('partial-forward-ancestor cold', 'partial-forward-ancestor,cold')]
+    [TestCase('partial-forward-ancestor snapshot', 'partial-forward-ancestor,snapshot')]
+    [TestCase('partial-forward-ancestor sessioncold', 'partial-forward-ancestor,sessioncold')]
+    [TestCase('partial-forward-ancestor sessionwarm', 'partial-forward-ancestor,sessionwarm')]
+    [TestCase('partial-forward-ancestor standalone', 'partial-forward-ancestor,standalone')]
+    [TestCase('nested-forward-ancestor cold', 'nested-forward-ancestor,cold')]
+    [TestCase('nested-forward-ancestor snapshot', 'nested-forward-ancestor,snapshot')]
+    [TestCase('nested-forward-ancestor sessioncold', 'nested-forward-ancestor,sessioncold')]
+    [TestCase('nested-forward-ancestor sessionwarm', 'nested-forward-ancestor,sessionwarm')]
+    [TestCase('nested-forward-ancestor standalone', 'nested-forward-ancestor,standalone')]
+    [TestCase('partial-cascade-forward-ancestor cold', 'partial-cascade-forward-ancestor,cold')]
+    [TestCase('partial-cascade-forward-ancestor snapshot', 'partial-cascade-forward-ancestor,snapshot')]
+    [TestCase('partial-cascade-forward-ancestor sessioncold', 'partial-cascade-forward-ancestor,sessioncold')]
+    [TestCase('partial-cascade-forward-ancestor sessionwarm', 'partial-cascade-forward-ancestor,sessionwarm')]
+    [TestCase('partial-cascade-forward-ancestor standalone', 'partial-cascade-forward-ancestor,standalone')]
+    [TestCase('rmpv-compiling-anon-field cold', 'rmpv-compiling-anon-field,cold')]
+    [TestCase('rmpv-compiling-anon-field snapshot', 'rmpv-compiling-anon-field,snapshot')]
+    [TestCase('rmpv-compiling-anon-field sessioncold', 'rmpv-compiling-anon-field,sessioncold')]
+    [TestCase('rmpv-compiling-anon-field sessionwarm', 'rmpv-compiling-anon-field,sessionwarm')]
+    [TestCase('rmpv-compiling-anon-field standalone', 'rmpv-compiling-anon-field,standalone')]
+    procedure AliasReceiverUnverifiedFamiliesRemainRefused(const aShape, aMode: string);
+
+
     [Test]
     [Category('DS731Persistence')]
     procedure ModelFreeLookupCannotProveValueAbsence;
@@ -922,7 +1604,7 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.Hash, System.IOUtils, System.JSON, System.StrUtils, System.SysUtils,
+  System.Generics.Collections, System.Hash, System.IOUtils, System.JSON, System.JSON.Serializers, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite,
   AutoFree, maxLogic.IOUtils,
@@ -7865,6 +8547,5560 @@ begin
   ValueMembersColdWarmSnapshot(aShape, 'standalone');
 end;
 
+procedure TWithBinderTests.AliasReceiverMembersBindAndPlan(const aShape, aMode: string);
+var
+  lRoot, lSource, lExpected: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lSessionBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lHasMember, lRefused: Boolean;
+  lSerializer: TJsonSerializer;
+  g: TGarbos;
+begin
+  lRoot := WithBinderTempPath('DS741-' + aShape + '-' + aMode);
+  TDirectory.CreateDirectory(lRoot);
+  lSource := '';
+  if aShape = 'strong-helper-global' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'function M: Integer;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TRecHelper = record helper for TRec'#13#10 +
+      '  function M: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TA = type TRec;'#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      'implementation'#13#10 +
+      'function TRecHelper.M: Integer; begin Result := 5; end;'#13#10 +
+      'function M: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := M;'#13#10 +
+      ' Writeln(Item.A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'strong-own-helper-global' then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'function M: Integer;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TA = type TRec;'#13#10 +
+      ' THelp = record helper for TA'#13#10 +
+      '  function M: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      'implementation'#13#10 +
+      'function THelp.M: Integer; begin Result := 5; end;'#13#10 +
+      'function M: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := M;'#13#10 +
+      ' Writeln(Item.A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  lExpected := ' Item.A := 7;';
+  if aShape = 'weak-var-globalA' then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      '  var Z: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TAlias = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TAlias;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  end;
+  if aShape = 'weak-var-noglobal' then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TAlias = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TAlias;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  end;
+  if aShape = 'alias-varA-noconst-globalA' then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      '  var Z: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TAlias = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TAlias;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' Count: Integer = 100;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' '#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  end;
+  if aShape = 'strong-plain-globalA' then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TA = type TRec;'#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  end;
+  if aShape = 'strong-plain-noglobal' then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TA = type TRec;'#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  end;
+  if aShape = 'strong-var-globalA' then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TA = type TRec;'#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  end;
+  if aShape = 'strong-plain-readglobal' then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  B: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TA = type TRec;'#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      ' A: Integer = 100;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 7;'#13#10 +
+      ' with Item do B := A;'#13#10 +
+      ' Writeln(Item.B);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lExpected := ' Item.B := Item.A;';
+  end;
+  if aShape = 'strong-class-globalA' then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TBase = class'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TC = type TBase;'#13#10 +
+      'var'#13#10 +
+      ' Obj: TC;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Obj := TC(TBase.Create);'#13#10 +
+      ' with Obj do A := 7;'#13#10 +
+      ' Writeln(Obj.A, '' '', A);'#13#10 +
+      ' Obj.Free;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lExpected := ' Obj.A := 7;';
+  end;
+  if aShape = 'weak-varA-classvar-globalA' then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      '  class var Count: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TAlias = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TAlias;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' Count: Integer = 100;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' TItem.Count := 7;'#13#10 +
+      ' with Item do A := Count;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lExpected := ' Item.A := Item.Count;';
+  end;
+  if aShape = 'alias-varA-classvar-globalA' then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      '  class var Count: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TAlias = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TAlias;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' Count: Integer = 100;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' TItem.Count := 7;'#13#10 +
+      ' with Item do A := Count;'#13#10 +
+      ' Writeln(Item.A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lExpected := ' Item.A := Item.Count;';
+  end;
+  if aShape = 'weak-chain-var-globalA' then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TAlias = TItem;'#13#10 +
+      ' TAlias2 = TAlias;'#13#10 +
+      'var'#13#10 +
+      ' Item: TAlias2;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  end;
+  if aShape = 'weak-cross-unit-var-globalA' then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses Unit2;'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TAlias = Unit2.TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TAlias;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+      'unit Unit2;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'implementation'#13#10 +
+      'end.'#13#10, TEncoding.ASCII);
+  end;
+  if (aShape = 'local-weak-var-globalA') then
+  begin
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TL = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TL;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  end;
+  if aShape = 'on-sib-a' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      '  const Count = 7;'#13#10 +
+      ' end;'#13#10 +
+      ' TAlias = TItem;'#13#10 +
+      ' TItemV = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  const Count = 7;'#13#10 +
+      ' end;'#13#10 +
+      ' TOther = record'#13#10 +
+      '  B: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TExtra = record'#13#10 +
+      '  C: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TO2 = record'#13#10 +
+      '  B: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TO2A = TO2;'#13#10 +
+      'var'#13#10 +
+      ' Item, Item2: TAlias;'#13#10 +
+      ' ItemV: TItemV;'#13#10 +
+      ' Other: TOther;'#13#10 +
+      ' Extra: TExtra;'#13#10 +
+      ' Other2: TO2A;'#13#10 +
+      'var A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      'with Item do begin try A := 6; except on Exception do with Extra do C := 1; end; with Other do B := A; end;'#13#10 +
+      'Writeln(Item.A, '' '', Other.B, '' '', Extra.C, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lExpected :=       ' begin try Item.A := 6; except on Exception do begin'#13#10 +
+      '                                                      lWithExtraPtr := @Extra;'#13#10 +
+      ' lWithExtraPtr^.C := 1;'#13#10 +
+      '                                                      end; end;                                                                                  lWithOtherPtr := @Other;'#13#10 +
+      ' lWithOtherPtr^.B := Item.A; end;';
+  end;
+  if aShape = 'd-nested-twoline-noconst' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TAlias = TItem;'#13#10 +
+      ' TOther = record'#13#10 +
+      '  B: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' Item: TAlias;'#13#10 +
+      ' Other: TOther;'#13#10 +
+      'var A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Other.B := 5;'#13#10 +
+      ' with Item do begin Writeln(7); with Other do A := B; end;'#13#10 +
+      ' Writeln(Item.A);'#13#10 +
+      ' '#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lExpected :=       ' begin Writeln(7);                                 lWithOtherPtr := @Other;'#13#10 +
+      ' Item.A := lWithOtherPtr^.B; end;';
+  end;
+  if aShape = 'unit-local-weak-var-globalA' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      '  var Z: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TAlias = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TAlias;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  end;
+  if aShape = 'fix-helper-via-weak' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'function M: Integer;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TS = type TRec;'#13#10 +
+      ' TS2 = TS;'#13#10 +
+      ' THelp = record helper for TS2'#13#10 +
+      '  function M: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' Item: TS;'#13#10 +
+      'implementation'#13#10 +
+      'function THelp.M: Integer; begin Result := 5; end;'#13#10 +
+      'function M: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := M;'#13#10 +
+      ' Writeln(Item.A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'fix-generic-record' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TGen<T> = record'#13#10 +
+      '  var A: T;'#13#10 +
+      ' end;'#13#10 +
+      ' TIntRec = TGen<Integer>;'#13#10 +
+      'var'#13#10 +
+      ' Item: TIntRec;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'fix-generic-plain' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TGen<T> = record'#13#10 +
+      '  A: T;'#13#10 +
+      ' end;'#13#10 +
+      ' TIntRec = TGen<Integer>;'#13#10 +
+      'var'#13#10 +
+      ' Item: TIntRec;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'fix-generic-class' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TGenC<T> = class'#13#10 +
+      '  A: T;'#13#10 +
+      ' end;'#13#10 +
+      ' TIntC = TGenC<Integer>;'#13#10 +
+      'var'#13#10 +
+      ' Obj: TIntC;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Obj := TIntC.Create;'#13#10 +
+      ' with Obj do A := 7;'#13#10 +
+      ' Writeln(Obj.A, '' '', A);'#13#10 +
+      ' Obj.Free;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'fix-escaped' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      ''#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      'TItem = record'#13#10 +
+      ' var A: Integer;'#13#10 +
+      'end;'#13#10 +
+      'TA = &TItem;'#13#10 +
+      'var Item: TA;'#13#10 +
+      ' A: Integer;'#13#10 +
+      'implementation'#13#10 +
+      ''#13#10 +
+      'procedure Run;'#13#10 +
+      ''#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'fix-sol-generic' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      ''#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      'TItem<T> = record'#13#10 +
+      ' var A: Integer;'#13#10 +
+      'end;'#13#10 +
+      'TA = TItem<Integer>;'#13#10 +
+      'var Item: TA;'#13#10 +
+      ' A: Integer;'#13#10 +
+      'implementation'#13#10 +
+      ''#13#10 +
+      'procedure Run;'#13#10 +
+      ''#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'fix-local-strong' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      ''#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      'TItem = record'#13#10 +
+      ' var A: Integer;'#13#10 +
+      'end;'#13#10 +
+      ''#13#10 +
+      'var A: Integer;'#13#10 +
+      'implementation'#13#10 +
+      ''#13#10 +
+      'procedure Run;'#13#10 +
+      'type TA = type TItem;'#13#10 +
+      'var Item: TA;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'fix-helper-via-plain' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'function M: Integer;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TS = TRec;'#13#10 +
+      ' TS2 = TS;'#13#10 +
+      ' THelp = record helper for TS2'#13#10 +
+      '  function M: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' Item: TS;'#13#10 +
+      'implementation'#13#10 +
+      'function THelp.M: Integer; begin Result := 5; end;'#13#10 +
+      'function M: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := M;'#13#10 +
+      ' Writeln(Item.A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  lRefused := StartsText('fix-', aShape) and
+    (not MatchText(aShape, ['fix-escaped', 'fix-helper-via-plain']));
+  if aShape = 'fix-helper-via-plain' then
+    lExpected := ' Item.A := Item.M;';
+  Assert.AreNotEqual('', lSource, aShape);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin Run; end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  if aShape = 'weak-cross-unit-var-globalA' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+      'program P; uses Unit2, Unit1; begin Run; end.', TEncoding.ASCII);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+      '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+      '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+      '<ItemGroup><DCCReference Include="Unit1.pas"/>' +
+      '<DCCReference Include="Unit2.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  end;
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lHasMember := False;
+  for var lBinding in lFacts.Bindings do
+    if HasReference(lBinding, 'A', 'member') then
+    begin
+      lHasMember := True;
+      Assert.AreEqual('receiver', LookupSourceOf(lBinding, 'A', 'member'));
+      Assert.IsNotEmpty(ReceiverOf(lBinding, 'A', 'member'));
+    end;
+  if lRefused or MatchText(aShape, ['strong-helper-global', 'strong-own-helper-global']) then
+  begin
+    Assert.IsTrue(HasReference(lFacts.Bindings[0], 'A', 'unsupported'));
+    if aShape = 'fix-local-strong' then
+      Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED',
+        ReasonOf(lFacts.Bindings[0], 'A', 'unsupported'))
+    else
+      Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED',
+        ReasonOf(lFacts.Bindings[0], 'A', 'unsupported'));
+  end else
+    Assert.IsTrue(lHasMember, 'Alias field must bind to its receiver: ' + aShape);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  if aMode = 'standalone' then
+  begin
+    lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+    lIdentity.CacheKey := 'alias-receiver-proof';
+    lIdentity.IdentityKey := lIdentity.CacheKey;
+    lIdentity.SourceFileName := lOptions.ProjectFileName;
+    lIdentity.FileHash := lFacts.ContextFingerprint;
+    lIdentity.ContextHash := lFacts.ContextFingerprint;
+    lIdentity.IncludeGraphHash := 'no-include-changes';
+    lIdentity.SchemaVersion := 'alias-receiver-proof-v1';
+    lStored := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+    try
+      lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
+      try
+        lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+        if (aShape = 'local-weak-var-globalA') then
+        begin
+          // DS-743: warm-unreachable (pre-existing guard: local receiver scope chain).
+          Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+          Assert.IsTrue(lLoaded = nil);
+          Assert.AreEqual(0, lCache.Metrics.CacheHits);
+          Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+          Assert.AreEqual(1, lCache.Metrics.Invalidations);
+          lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+        end else begin
+          Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+          try
+            Assert.AreEqual(1, lCache.Metrics.CacheHits);
+            Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+            Assert.AreEqual(0, lCache.Metrics.Invalidations);
+            lSnapshotPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+          finally
+            lLoaded.Free;
+          end;
+        end;
+      finally
+        lCache.Free;
+      end;
+    finally
+      lStored.Free;
+    end;
+  end;
+  if MatchText(aMode, ['sessioncold', 'sessionwarm']) then
+    for var i := 0 to Ord(aMode = 'sessionwarm') do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lSessionBuild := lSession.Session.PlanRemoveWithResult;
+        if ((aShape = 'local-weak-var-globalA')) and (i = 1) then
+        begin
+          // DS-743 owns the unchanged loader guard; the session falls back to cold.
+          Assert.AreEqual(0, lSessionBuild.SnapshotMetrics.SnapshotCacheHits);
+          Assert.IsTrue(lSessionBuild.SnapshotMetrics.SnapshotCacheMisses > 0);
+          Assert.IsTrue(lSessionBuild.SnapshotMetrics.SnapshotCacheInvalidations > 0);
+        end else
+          Assert.AreEqual(i, Integer(lSessionBuild.SnapshotMetrics.SnapshotCacheHits));
+        lSnapshotPlan := lSessionBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  GC(lSerializer, TJsonSerializer.Create, g);
+  // Compatibility and snapshot planners intentionally identify their producer route.
+  // The local standalone fallback is compared byte-for-byte without normalization.
+  if lSnapshotPlan.BaselineSemanticModelVersion <> lPlan.BaselineSemanticModelVersion then
+  begin
+    Assert.AreEqual('project-snapshot-v1', lSnapshotPlan.BaselineSemanticModelVersion);
+    lSnapshotPlan.BaselineSemanticModelVersion := lPlan.BaselineSemanticModelVersion;
+  end;
+  Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan),
+    lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lSnapshotPlan));
+  Assert.AreEqual(lPlan.Status, lSnapshotPlan.Status);
+  Assert.AreEqual(lPlan.ContextFingerprint, lSnapshotPlan.ContextFingerprint);
+  Assert.AreEqual(Length(lPlan.Edits), Length(lSnapshotPlan.Edits));
+  Assert.AreEqual(Length(lPlan.FinalStatements), Length(lSnapshotPlan.FinalStatements));
+  for var i := 0 to High(lPlan.FinalStatements) do
+  begin
+    Assert.AreEqual(lPlan.FinalStatements[i].SemanticId, lSnapshotPlan.FinalStatements[i].SemanticId);
+    Assert.AreEqual(lPlan.FinalStatements[i].Status, lSnapshotPlan.FinalStatements[i].Status);
+    Assert.AreEqual(lPlan.FinalStatements[i].Reason, lSnapshotPlan.FinalStatements[i].Reason);
+    Assert.AreEqual(lPlan.FinalStatements[i].SafetyReason, lSnapshotPlan.FinalStatements[i].SafetyReason);
+    Assert.AreEqual(lPlan.FinalStatements[i].ReplacementText, lSnapshotPlan.FinalStatements[i].ReplacementText);
+    Assert.AreEqual(Length(lPlan.FinalStatements[i].Temps), Length(lSnapshotPlan.FinalStatements[i].Temps));
+    Assert.AreEqual(Length(lPlan.FinalStatements[i].Edits), Length(lSnapshotPlan.FinalStatements[i].Edits));
+  end;
+  if aMode <> 'cold' then
+    lPlan := lSnapshotPlan;
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+  lStatement := lPlan.FinalStatements[0];
+  if (not lRefused) and (not StartsText('strong-helper-', aShape)) and
+    (not MatchText(aShape, ['strong-own-helper-global', 'fix-helper-via-plain'])) then
+  begin
+    Assert.AreEqual('planned', lStatement.Status, aShape + ': ' + lStatement.Reason);
+    Assert.AreEqual(lExpected, lStatement.ReplacementText);
+    if not MatchText(aShape, ['on-sib-a', 'd-nested-twoline-noconst']) then
+      Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+    Exit;
+  end;
+  if aShape = 'fix-helper-via-plain' then
+  begin
+    Assert.AreEqual('skipped', lStatement.Status);
+    Assert.AreEqual('receiver-member-unqualified', lStatement.Reason);
+    Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+    Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+    Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual('', lStatement.ReplacementText);
+    Exit;
+  end;
+  Assert.AreEqual('skipped', lStatement.Status, aShape + ': ' + lStatement.Reason);
+  if aShape = 'fix-local-strong' then
+    Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED', lStatement.SafetyReason)
+  else
+    Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+end;
+
+procedure TWithBinderTests.AliasCallsAndCapturedAliases(const aShape, aMode: string);
+var
+  lRoot, lSource, lExpected: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lSessionBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lRefused: Boolean;
+  lSerializer: TJsonSerializer;
+  g: TGarbos;
+begin
+  lRoot := WithBinderTempPath('DS741-' + aShape + '-' + aMode);
+  TDirectory.CreateDirectory(lRoot);
+  lSource := '';
+  if aShape = 'c-generic-alias-call-nongeneric-param' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer);'#13#10 +
+      'type'#13#10 +
+      ' TGen<T> = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      ' TIntRec = TGen<Integer>;'#13#10 +
+      'var'#13#10 +
+      ' Item: TIntRec;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TGen<T>.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do Foo(7);'#13#10 +
+      ' Writeln(Item.A, '' '', G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'g-call-args' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer);'#13#10 +
+      'function Get: Integer;'#13#10 +
+      'type'#13#10 +
+      ' TGen<T> = record'#13#10 +
+      '  A: T;'#13#10 +
+      '  procedure Foo(X: T);'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TIntRec = TGen<Integer>;'#13#10 +
+      'var'#13#10 +
+      ' Item: TIntRec;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TGen<T>.Foo(X: T); begin A := X; end;'#13#10 +
+      'function TGen<T>.Get: Integer; begin Result := 5; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do Foo(7);'#13#10 +
+      ' Writeln(Item.A, '' '', G, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'g-class-call' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer);'#13#10 +
+      'function Get: Integer;'#13#10 +
+      'type'#13#10 +
+      ' TGen<T> = class'#13#10 +
+      '  A: T;'#13#10 +
+      '  procedure Foo(X: T);'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TIntC = TGen<Integer>;'#13#10 +
+      'var'#13#10 +
+      ' Item: TIntC;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TGen<T>.Foo(X: T); begin A := X; end;'#13#10 +
+      'function TGen<T>.Get: Integer; begin Result := 5; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item := TIntC.Create;'#13#10 +
+      ' with Item do Foo(7);'#13#10 +
+      ' Writeln(Item.A, '' '', G, '' '', A);'#13#10 +
+      ' Item.Free;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'g-escaped-call' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer);'#13#10 +
+      'function Get: Integer;'#13#10 +
+      'type'#13#10 +
+      ' TGen<T> = record'#13#10 +
+      '  A: T;'#13#10 +
+      '  procedure Foo(X: T);'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TIntRec = TGen<Integer>;'#13#10 +
+      ' TE = &TIntRec;'#13#10 +
+      'var'#13#10 +
+      ' Item: TE;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TGen<T>.Foo(X: T); begin A := X; end;'#13#10 +
+      'function TGen<T>.Get: Integer; begin Result := 5; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do Foo(7);'#13#10 +
+      ' Writeln(Item.A, '' '', G, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'k-b-call-helper-via-weak' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure P(X: Integer);'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TS = type TRec;'#13#10 +
+      ' TS2 = TS;'#13#10 +
+      ' THelp = record helper for TS2'#13#10 +
+      '  procedure P(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' Item: TS;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure THelp.P(X: Integer); begin A := X; end;'#13#10 +
+      'procedure P(X: Integer); begin G := X; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do P(7);'#13#10 +
+      ' Writeln(Item.A, '' '', G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'k-d3-call-own-helper' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure P(X: Integer);'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TS = type TRec;'#13#10 +
+      ' THelp = record helper for TS'#13#10 +
+      '  procedure P(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' Item: TS;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure THelp.P(X: Integer); begin A := X; end;'#13#10 +
+      'procedure P(X: Integer); begin G := X; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do P(7);'#13#10 +
+      ' Writeln(Item.A, '' '', G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'k-d3-call-target-helper' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure P(X: Integer);'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' THelp = record helper for TRec'#13#10 +
+      '  procedure P(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      ' TS = type TRec;'#13#10 +
+      'var'#13#10 +
+      ' Item: TS;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure THelp.P(X: Integer); begin A := X; end;'#13#10 +
+      'procedure P(X: Integer); begin G := X; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do P(7);'#13#10 +
+      ' Writeln(Item.A, '' '', G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'l-rtl-generic-alias-add' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.Generics.Collections;'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Add(X: Integer);'#13#10 +
+      'type'#13#10 +
+      ' TIntList = TList<Integer>;'#13#10 +
+      'var'#13#10 +
+      ' L: TIntList;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Add(X: Integer); begin G := X; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' L := TIntList.Create;'#13#10 +
+      ' with L do Add(5);'#13#10 +
+      ' Writeln(L.Count, '' '', G);'#13#10 +
+      ' L.Free;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'c-plain-call' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer);'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' Item: TRec;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do Foo(7);'#13#10 +
+      ' Writeln(Item.A, '' '', G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'c-strong-call' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer);'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      ' TS = type TRec;'#13#10 +
+      'var'#13#10 +
+      ' Item: TS;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do Foo(7);'#13#10 +
+      ' Writeln(Item.A, '' '', G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'c-weak-call' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer);'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      ' TW = TRec;'#13#10 +
+      'var'#13#10 +
+      ' Item: TW;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do Foo(7);'#13#10 +
+      ' Writeln(Item.A, '' '', G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'k-weak-call-helper' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure P(X: Integer);'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' THelp = record helper for TRec'#13#10 +
+      '  procedure P(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      ' TW = TRec;'#13#10 +
+      'var'#13#10 +
+      ' Item: TW;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure THelp.P(X: Integer); begin A := X; end;'#13#10 +
+      'procedure P(X: Integer); begin G := X; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do P(7);'#13#10 +
+      ' Writeln(Item.A, '' '', G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'nested-local-strong' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TItem = record var A: Integer; end;'#13#10 +
+      'var A: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TA = type TItem;'#13#10 +
+      'var Item: TA;'#13#10 +
+      '  procedure Inner;'#13#10 +
+      '  begin'#13#10 +
+      '    with Item do A := 7;'#13#10 +
+      '  end;'#13#10 +
+      'begin'#13#10 +
+      '  Item.A := 0;'#13#10 +
+      '  Inner;'#13#10 +
+      '  Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  if aShape = 'nested-local-weak' then
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TItem = record var A: Integer; end;'#13#10 +
+      'var A: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TA = TItem;'#13#10 +
+      'var Item: TA;'#13#10 +
+      '  procedure Inner;'#13#10 +
+      '  begin'#13#10 +
+      '    with Item do A := 7;'#13#10 +
+      '  end;'#13#10 +
+      'begin'#13#10 +
+      '  Item.A := 0;'#13#10 +
+      '  Inner;'#13#10 +
+      '  Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+  lRefused := not MatchText(aShape, ['c-plain-call', 'c-strong-call', 'c-weak-call',
+    'k-weak-call-helper', 'nested-local-weak']);
+  lExpected := ' Item.Foo(7);';
+  if aShape = 'c-plain-call' then
+    lExpected :=       ' lWithRecPtr := @Item;'#13#10 +
+      ' lWithRecPtr^.Foo(7);';
+  if aShape = 'k-weak-call-helper' then
+    lExpected := ' Item.P(7);';
+  if aShape = 'nested-local-weak' then
+    lExpected := ' Item.A := 7;';
+  Assert.AreNotEqual('', lSource, aShape);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin Run; end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  if aMode = 'standalone' then
+  begin
+    lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+    lIdentity.CacheKey := 'alias-receiver-proof';
+    lIdentity.IdentityKey := lIdentity.CacheKey;
+    lIdentity.SourceFileName := lOptions.ProjectFileName;
+    lIdentity.FileHash := lFacts.ContextFingerprint;
+    lIdentity.ContextHash := lFacts.ContextFingerprint;
+    lIdentity.IncludeGraphHash := 'no-include-changes';
+    lIdentity.SchemaVersion := 'alias-receiver-proof-v1';
+    lStored := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+    try
+      lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
+      try
+        lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+        if (aShape = 'nested-local-weak') then
+        begin
+          // DS-743: warm-unreachable (pre-existing guard: local receiver scope chain).
+          Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+          Assert.IsTrue(lLoaded = nil);
+          Assert.AreEqual(0, lCache.Metrics.CacheHits);
+          Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+          Assert.AreEqual(1, lCache.Metrics.Invalidations);
+          lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+        end else begin
+          Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+          try
+            Assert.AreEqual(1, lCache.Metrics.CacheHits);
+            Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+            Assert.AreEqual(0, lCache.Metrics.Invalidations);
+            lSnapshotPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+          finally
+            lLoaded.Free;
+          end;
+        end;
+      finally
+        lCache.Free;
+      end;
+    finally
+      lStored.Free;
+    end;
+  end;
+  if MatchText(aMode, ['sessioncold', 'sessionwarm']) then
+    for var i := 0 to Ord(aMode = 'sessionwarm') do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lSessionBuild := lSession.Session.PlanRemoveWithResult;
+        if ((aShape = 'nested-local-weak')) and (i = 1) then
+        begin
+          // DS-743 owns the unchanged loader guard; the session falls back to cold.
+          Assert.AreEqual(0, lSessionBuild.SnapshotMetrics.SnapshotCacheHits);
+          Assert.IsTrue(lSessionBuild.SnapshotMetrics.SnapshotCacheMisses > 0);
+          Assert.IsTrue(lSessionBuild.SnapshotMetrics.SnapshotCacheInvalidations > 0);
+        end else
+          Assert.AreEqual(i, Integer(lSessionBuild.SnapshotMetrics.SnapshotCacheHits));
+        lSnapshotPlan := lSessionBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  GC(lSerializer, TJsonSerializer.Create, g);
+  // Compatibility and snapshot planners intentionally identify their producer route.
+  // The local standalone fallback is compared byte-for-byte without normalization.
+  if lSnapshotPlan.BaselineSemanticModelVersion <> lPlan.BaselineSemanticModelVersion then
+  begin
+    Assert.AreEqual('project-snapshot-v1', lSnapshotPlan.BaselineSemanticModelVersion);
+    lSnapshotPlan.BaselineSemanticModelVersion := lPlan.BaselineSemanticModelVersion;
+  end;
+  Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan),
+    lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lSnapshotPlan));
+  Assert.AreEqual(lPlan.Status, lSnapshotPlan.Status);
+  Assert.AreEqual(lPlan.ContextFingerprint, lSnapshotPlan.ContextFingerprint);
+  Assert.AreEqual(Length(lPlan.Edits), Length(lSnapshotPlan.Edits));
+  Assert.AreEqual(Length(lPlan.FinalStatements), Length(lSnapshotPlan.FinalStatements));
+  for var i := 0 to High(lPlan.FinalStatements) do
+  begin
+    Assert.AreEqual(lPlan.FinalStatements[i].SemanticId, lSnapshotPlan.FinalStatements[i].SemanticId);
+    Assert.AreEqual(lPlan.FinalStatements[i].Status, lSnapshotPlan.FinalStatements[i].Status);
+    Assert.AreEqual(lPlan.FinalStatements[i].Reason, lSnapshotPlan.FinalStatements[i].Reason);
+    Assert.AreEqual(lPlan.FinalStatements[i].SafetyReason, lSnapshotPlan.FinalStatements[i].SafetyReason);
+    Assert.AreEqual(lPlan.FinalStatements[i].ReplacementText, lSnapshotPlan.FinalStatements[i].ReplacementText);
+    Assert.AreEqual(Length(lPlan.FinalStatements[i].Temps), Length(lSnapshotPlan.FinalStatements[i].Temps));
+    Assert.AreEqual(Length(lPlan.FinalStatements[i].Edits), Length(lSnapshotPlan.FinalStatements[i].Edits));
+  end;
+  if aMode <> 'cold' then
+    lPlan := lSnapshotPlan;
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+  lStatement := lPlan.FinalStatements[0];
+  if not lRefused then
+  begin
+    Assert.AreEqual('planned', lStatement.Status, aShape + ': ' + lStatement.Reason);
+    Assert.AreEqual(lExpected, lStatement.ReplacementText);
+    Assert.AreEqual(1 + Ord(aShape = 'c-plain-call'), Integer(Length(lStatement.Edits)));
+    Exit;
+  end;
+  Assert.AreEqual('skipped', lStatement.Status, aShape + ': ' + lStatement.Reason);
+  if aShape = 'nested-local-strong' then
+    Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED', lStatement.SafetyReason)
+  else
+    Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+end;
+
+procedure TWithBinderTests.AliasFallbackAndForwardScopes(const aShape, aMode: string);
+var
+  lRoot, lSource, lSecondSource, lExpected: string;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lSessionBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lStatement, lInnerStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lRefused, lLocal, lWarmUnreachable, lProjectionFound: Boolean;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lExpectedEdits, lExpectedLine, lExpectedColumn: Integer;
+  lSerializer: TJsonSerializer;
+  g: TGarbos;
+begin
+  lRoot := WithBinderTempPath('DS741-' + aShape + '-' + aMode);
+  TDirectory.CreateDirectory(lRoot);
+  lSource := '';
+  lSecondSource := '';
+  lExpected := '';
+  lRefused := True;
+  lLocal := False;
+  lExpectedEdits := 0;
+  lExpectedLine := 0;
+  lExpectedColumn := 0;
+  if aShape = 'r4-x1-strong-excludeattr' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils, Winapi.Windows;'#13#10 +
+      'type'#13#10 +
+      ' TMySR = type TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' ExcludeAttr: Integer = 0;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'var SR: TMySR;'#13#10 +
+      'begin'#13#10 +
+      '  SR := Default(TMySR);'#13#10 +
+      '  SR.Name := ''abc'';'#13#10 +
+      '  with SR do'#13#10 +
+      '  begin'#13#10 +
+      '    ExcludeAttr := 7;'#13#10 +
+      '  end;'#13#10 +
+      '  Writeln(SR.ExcludeAttr, '' '', ExcludeAttr);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpectedEdits := 1;
+    lExpectedLine := 16;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r4-x3-weak-of-strong-excl' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils, Winapi.Windows;'#13#10 +
+      'type'#13#10 +
+      ' TS = type TSearchRec;'#13#10 +
+      ' TMySR = TS;'#13#10 +
+      'var'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' ExcludeAttr: Integer = 0;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'var SR: TMySR;'#13#10 +
+      'begin'#13#10 +
+      '  SR := Default(TMySR);'#13#10 +
+      '  SR.Name := ''abc'';'#13#10 +
+      '  with SR do'#13#10 +
+      '  begin'#13#10 +
+      '    ExcludeAttr := 7;'#13#10 +
+      '  end;'#13#10 +
+      '  Writeln(SR.ExcludeAttr, '' '', ExcludeAttr);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpectedEdits := 1;
+    lExpectedLine := 17;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r4-x7-strong-name-plain' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils, Winapi.Windows;'#13#10 +
+      'type'#13#10 +
+      ' TMySR = type TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Name: string = ''g'';'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'var SR: TMySR;'#13#10 +
+      'begin'#13#10 +
+      '  SR := Default(TMySR);'#13#10 +
+      '  SR.Name := ''abc'';'#13#10 +
+      '  with SR do'#13#10 +
+      '  begin'#13#10 +
+      '    Name := ''x'';'#13#10 +
+      '  end;'#13#10 +
+      '  Writeln(SR.Name, '' '', Name);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpectedEdits := 1;
+    lExpectedLine := 16;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r4-x8-strong-size-plain' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils, Winapi.Windows;'#13#10 +
+      'type'#13#10 +
+      ' TMySR = type TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Size: Int64 = 1;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'var SR: TMySR;'#13#10 +
+      'begin'#13#10 +
+      '  SR := Default(TMySR);'#13#10 +
+      '  SR.Name := ''abc'';'#13#10 +
+      '  with SR do'#13#10 +
+      '  begin'#13#10 +
+      '    Size := 5;'#13#10 +
+      '  end;'#13#10 +
+      '  Writeln(SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpectedEdits := 1;
+    lExpectedLine := 16;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r4-x9-weak-of-strong-name' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils, Winapi.Windows;'#13#10 +
+      'type'#13#10 +
+      ' TS = type TSearchRec;'#13#10 +
+      ' TMySR = TS;'#13#10 +
+      'var'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Name: string = ''g'';'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'var SR: TMySR;'#13#10 +
+      'begin'#13#10 +
+      '  SR := Default(TMySR);'#13#10 +
+      '  SR.Name := ''abc'';'#13#10 +
+      '  with SR do'#13#10 +
+      '  begin'#13#10 +
+      '    Name := ''x'';'#13#10 +
+      '  end;'#13#10 +
+      '  Writeln(SR.Name, '' '', Name);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpectedEdits := 1;
+    lExpectedLine := 17;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r4-weak-name-plain' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils, Winapi.Windows;'#13#10 +
+      'type'#13#10 +
+      ' TMySR = TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Name: string = ''g'';'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'var SR: TMySR;'#13#10 +
+      'begin'#13#10 +
+      '  SR := Default(TMySR);'#13#10 +
+      '  SR.Name := ''abc'';'#13#10 +
+      '  with SR do'#13#10 +
+      '  begin'#13#10 +
+      '    Name := ''x'';'#13#10 +
+      '  end;'#13#10 +
+      '  Writeln(SR.Name, '' '', Name);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := False;
+    lExpected := '  begin'#13#10 +
+      '    SR.Name := ''x'';'#13#10 +
+      '  end;';
+    lExpectedEdits := 1;
+    lExpectedLine := 16;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r4-weak-size-plain' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils, Winapi.Windows;'#13#10 +
+      'type'#13#10 +
+      ' TMySR = TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Size: Int64 = 1;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'var SR: TMySR;'#13#10 +
+      'begin'#13#10 +
+      '  SR := Default(TMySR);'#13#10 +
+      '  SR.Name := ''abc'';'#13#10 +
+      '  with SR do'#13#10 +
+      '  begin'#13#10 +
+      '    Size := 5;'#13#10 +
+      '  end;'#13#10 +
+      '  Writeln(SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := False;
+    lExpected := '  begin'#13#10 +
+      '    SR.Size := 5;'#13#10 +
+      '  end;';
+    lExpectedEdits := 1;
+    lExpectedLine := 16;
+    lExpectedColumn := 3;
+  end;
+  if MatchText(aShape, ['rtl-weak-homonym', 'rtl-weak-chain-homonym', 'rtl-strong-homonym']) then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TA = TSearchRec;'#13#10 +
+      'var Item: TA;'#13#10 +
+      ' Name: string;'#13#10 +
+      ' Bytes: array[0..1] of Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Name := ''global'';'#13#10 +
+      ' Item.Name := ''before'';'#13#10 +
+      ' with Item do begin Name := ''receiver''; Bytes[1] := Length(Name); end;'#13#10 +
+      ' Writeln(Item.Name, '' '', Name, '' '', Bytes[1]);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := aShape = 'rtl-strong-homonym';
+    if lRefused then
+      lSource := StringReplace(lSource, 'TA = TSearchRec;', 'TA = type TSearchRec;', []);
+    lExpected := ' begin Item.Name := ''receiver''; Bytes[1] := Length(Item.Name); end;';
+    lExpectedEdits := 1;
+    lExpectedLine := 15;
+    lExpectedColumn := 2;
+    if aShape = 'rtl-weak-chain-homonym' then
+    begin
+      lSource := StringReplace(lSource, 'var Item: TA;', ' TB = TA;'#13#10'var Item: TB;', []);
+      lExpectedLine := 16;
+    end;
+  end;
+  if aShape = 'opus-e7-forward-nested-strong' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TOther = record'#13#10 +
+      '  B: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TA = type TItem;'#13#10 +
+      'var Item: TA;'#13#10 +
+      '  procedure Inner; forward;'#13#10 +
+      '  procedure Other;'#13#10 +
+      '  begin'#13#10 +
+      '    Inner;'#13#10 +
+      '  end;'#13#10 +
+      '  procedure Inner;'#13#10 +
+      '  begin'#13#10 +
+      '    with Item do A := 7;'#13#10 +
+      '  end;'#13#10 +
+      'begin'#13#10 +
+      '  Item.A := 0;'#13#10 +
+      '  Other;'#13#10 +
+      '  Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := True;
+    lExpected := ' A := 7;';
+    lExpectedEdits := 1;
+    lExpectedLine := 25;
+    lExpectedColumn := 5;
+  end;
+  if aShape = 'opus-e14-forward-two-level-strong' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TOther = record'#13#10 +
+      '  B: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TA = type TItem;'#13#10 +
+      'var Item: TA;'#13#10 +
+      '  procedure Mid; forward;'#13#10 +
+      '  procedure Other;'#13#10 +
+      '  begin'#13#10 +
+      '    Mid;'#13#10 +
+      '  end;'#13#10 +
+      '  procedure Mid;'#13#10 +
+      '    procedure Inner;'#13#10 +
+      '    begin'#13#10 +
+      '      with Item do A := 7;'#13#10 +
+      '    end;'#13#10 +
+      '  begin'#13#10 +
+      '    Inner;'#13#10 +
+      '  end;'#13#10 +
+      'begin'#13#10 +
+      '  Item.A := 0;'#13#10 +
+      '  Other;'#13#10 +
+      '  Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := True;
+    lExpected := ' A := 7;';
+    lExpectedEdits := 1;
+    lExpectedLine := 26;
+    lExpectedColumn := 7;
+  end;
+  if aShape = 'opus-h1-field-array-s' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TSub = record S: Integer; end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  Arr: array[0..1] of Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = type TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TX;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Arr: array[0..1] of Integer = (40, 41);'#13#10 +
+      ' Sub: TSub;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.Arr[1] := 21; Item.Sub.S := 5; Sub.S := 50;'#13#10 +
+      ' with Item do G := Arr[1];'#13#10 +
+      ' Writeln(G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := False;
+    lExpected := ' G := Arr[1];';
+    lExpectedEdits := 1;
+    lExpectedLine := 22;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'opus-h2-dotted-field-s' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TSub = record S: Integer; end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  Arr: array[0..1] of Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = type TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TX;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Arr: array[0..1] of Integer = (40, 41);'#13#10 +
+      ' Sub: TSub;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.Arr[1] := 21; Item.Sub.S := 5; Sub.S := 50;'#13#10 +
+      ' with Item do G := Sub.S;'#13#10 +
+      ' Writeln(G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := False;
+    lExpected := ' G := Sub.S;';
+    lExpectedEdits := 1;
+    lExpectedLine := 22;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'opus-h3-dotted-write-s' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TSub = record S: Integer; end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  Arr: array[0..1] of Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = type TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TX;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Arr: array[0..1] of Integer = (40, 41);'#13#10 +
+      ' Sub: TSub;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.Arr[1] := 21; Item.Sub.S := 5; Sub.S := 50;'#13#10 +
+      ' with Item do Sub.S := 9; G := Item.Sub.S * 100 + Sub.S;'#13#10 +
+      ' Writeln(G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := False;
+    lExpected := ' Sub.S := 9;';
+    lExpectedEdits := 1;
+    lExpectedLine := 22;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'opus-c5-indexed-default-s2' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer); overload;'#13#10 +
+      'function Get: Integer;'#13#10 +
+      'function P: Integer;'#13#10 +
+      'const STR = ''xy'';'#13#10 +
+      'type'#13#10 +
+      ' TSub = record'#13#10 +
+      '  S: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  B: Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: Integer); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      ' TGen<T> = record'#13#10 +
+      '  A: T;'#13#10 +
+      '  B: T;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: T); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = type TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TX;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 4;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Items: array[0..1] of Integer = (40, 41);'#13#10 +
+      'implementation'#13#10 +
+      'procedure TSub.Foo(X: Integer); begin S := X; end;'#13#10 +
+      'procedure TItem.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure TItem.Foo(const X: string); begin A := A + Length(X) + 10; end;'#13#10 +
+      'function TItem.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TItem.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TItem.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure TGen<T>.Foo(X: T); begin A := X; end;'#13#10 +
+      'procedure TGen<T>.Foo(const X: string); begin end;'#13#10 +
+      'function TGen<T>.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TGen<T>.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TGen<T>.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'function P: Integer; begin Result := 200; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 0; Item.B := 3; Item.Sub.S := 0;'#13#10 +
+      ' with Item do G := Items[1];'#13#10 +
+      ' Writeln(Item.A, '' '', Item.Sub.S, '' '', G, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := False;
+    lExpected := ' G := Items[1];';
+    lExpectedEdits := 1;
+    lExpectedLine := 63;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'opus-c1-args-members-s2' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer); overload;'#13#10 +
+      'function Get: Integer;'#13#10 +
+      'function P: Integer;'#13#10 +
+      'const STR = ''xy'';'#13#10 +
+      'type'#13#10 +
+      ' TSub = record'#13#10 +
+      '  S: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  B: Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: Integer); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      ' TGen<T> = record'#13#10 +
+      '  A: T;'#13#10 +
+      '  B: T;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: T); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = type TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TX;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 4;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Items: array[0..1] of Integer = (40, 41);'#13#10 +
+      'implementation'#13#10 +
+      'procedure TSub.Foo(X: Integer); begin S := X; end;'#13#10 +
+      'procedure TItem.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure TItem.Foo(const X: string); begin A := A + Length(X) + 10; end;'#13#10 +
+      'function TItem.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TItem.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TItem.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure TGen<T>.Foo(X: T); begin A := X; end;'#13#10 +
+      'procedure TGen<T>.Foo(const X: string); begin end;'#13#10 +
+      'function TGen<T>.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TGen<T>.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TGen<T>.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'function P: Integer; begin Result := 200; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 0; Item.B := 3; Item.Sub.S := 0;'#13#10 +
+      ' with Item do Foo(B);'#13#10 +
+      ' Writeln(Item.A, '' '', Item.Sub.S, '' '', G, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := False;
+    lExpected := ' Foo(Item.B);';
+    lExpectedEdits := 1;
+    lExpectedLine := 63;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'opus-f5-strong-chain-overload-call' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer); overload;'#13#10 +
+      'function Get: Integer;'#13#10 +
+      'function P: Integer;'#13#10 +
+      'const STR = ''xy'';'#13#10 +
+      'type'#13#10 +
+      ' TSub = record'#13#10 +
+      '  S: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  B: Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: Integer); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      ' TGen<T> = record'#13#10 +
+      '  A: T;'#13#10 +
+      '  B: T;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: T); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TY = type TItem;'#13#10 +
+      ' TX = TY;'#13#10 +
+      'var'#13#10 +
+      ' Item: TX;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 4;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Items: array[0..1] of Integer = (40, 41);'#13#10 +
+      'implementation'#13#10 +
+      'procedure TSub.Foo(X: Integer); begin S := X; end;'#13#10 +
+      'procedure TItem.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure TItem.Foo(const X: string); begin A := A + Length(X) + 10; end;'#13#10 +
+      'function TItem.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TItem.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TItem.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure TGen<T>.Foo(X: T); begin A := X; end;'#13#10 +
+      'procedure TGen<T>.Foo(const X: string); begin end;'#13#10 +
+      'function TGen<T>.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TGen<T>.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TGen<T>.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'function P: Integer; begin Result := 200; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 0; Item.B := 3; Item.Sub.S := 0;'#13#10 +
+      ' with Item do Foo(B);'#13#10 +
+      ' Writeln(Item.A, '' '', Item.Sub.S, '' '', G, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := False;
+    lExpected := ' Foo(Item.B);';
+    lExpectedEdits := 1;
+    lExpectedLine := 64;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'sol-forward-captured-strong' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TItem = record var A: Integer; end;'#13#10 +
+      'var A: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TA = type TItem;'#13#10 +
+      'var Item: TA;'#13#10 +
+      'procedure Inner; forward;'#13#10 +
+      'procedure Inner;'#13#10 +
+      'begin with Item do A := 7; end;'#13#10 +
+      'begin'#13#10 +
+      'Item.A := 0;'#13#10 +
+      ' Inner;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := True;
+    lExpected := ' A := 7;';
+    lExpectedEdits := 1;
+    lExpectedLine := 12;
+    lExpectedColumn := 7;
+  end;
+  if aShape = 'sol-forward-late-strong' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TItem = record var A: Integer; end;'#13#10 +
+      'var A: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Inner; forward;'#13#10 +
+      'type TA = type TItem;'#13#10 +
+      'var Item: TA;'#13#10 +
+      'procedure Inner;'#13#10 +
+      'begin with Item do A := 7; end;'#13#10 +
+      'begin'#13#10 +
+      'Item.A := 0;'#13#10 +
+      ' Inner;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := True;
+    lExpected := ' A := 7;';
+    lExpectedEdits := 1;
+    lExpectedLine := 12;
+    lExpectedColumn := 7;
+  end;
+  if aShape = 'sol-clean-strong-overload' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer); overload;'#13#10 +
+      ' procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetAt(Index: Integer): Integer;'#13#10 +
+      '  procedure SetAt(Index, Value: Integer);'#13#10 +
+      '  property Value: Integer read Get;'#13#10 +
+      '  property Values[Index: Integer]: Integer read GetAt write SetAt; default;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      ' TA = type TRec;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      ' A: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      ' Values: array[0..1] of Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure TRec.Foo(const X: string); begin A := 9; end;'#13#10 +
+      ''#13#10 +
+      'function TRec.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TRec.GetAt(Index: Integer): Integer; begin Result := A + Index; end;'#13#10 +
+      'procedure TRec.SetAt(Index, Value: Integer); begin A := Value + Index; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 3;'#13#10 +
+      ' A := 100;'#13#10 +
+      ' with Item do Foo(7);'#13#10 +
+      ' Writeln(Item.A, '' '', A, '' '', G, '' '', Values[0]);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := False;
+    lExpected := ' Foo(7);';
+    lExpectedEdits := 1;
+    lExpectedLine := 36;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'sol-getter-property-call-strong' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TProc = procedure(X: Integer);'#13#10 +
+      ' TRec = record'#13#10 +
+      '  Handler: TProc;'#13#10 +
+      '  function GetProc: TProc;'#13#10 +
+      '  property P: TProc read GetProc;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      ' TA = type TRec;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      ' Hit: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'function TRec.GetProc: TProc; begin Result := Handler; end;'#13#10 +
+      'procedure P(X: Integer); begin G := X; end;'#13#10 +
+      'procedure Target(X: Integer); begin Hit := X; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.Handler := Target;'#13#10 +
+      ' with Item do P(7);'#13#10 +
+      ' Writeln(Hit, '' '', G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := False;
+    lExpected := ' P(7);';
+    lExpectedEdits := 1;
+    lExpectedLine := 25;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'sol-clean-strong-indexed-read' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetAt(Index: Integer): Integer;'#13#10 +
+      '  procedure SetAt(Index, Value: Integer);'#13#10 +
+      '  property Value: Integer read Get;'#13#10 +
+      '  property Values[Index: Integer]: Integer read GetAt write SetAt; default;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      ' TA = type TRec;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      ' A: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      ' Values: array[0..1] of Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec.Foo(X: Integer); begin A := X; end;'#13#10 +
+      ''#13#10 +
+      'function TRec.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TRec.GetAt(Index: Integer): Integer; begin Result := A + Index; end;'#13#10 +
+      'procedure TRec.SetAt(Index, Value: Integer); begin A := Value + Index; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 3;'#13#10 +
+      ' A := 100;'#13#10 +
+      ' with Item do A := Values[0];'#13#10 +
+      ' Writeln(Item.A, '' '', A, '' '', G, '' '', Values[0]);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := False;
+    lExpected := ' Item.A := Values[0];';
+    lExpectedEdits := 1;
+    lExpectedLine := 34;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'sol-clean-strong-indexed-write' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetAt(Index: Integer): Integer;'#13#10 +
+      '  procedure SetAt(Index, Value: Integer);'#13#10 +
+      '  property Value: Integer read Get;'#13#10 +
+      '  property Values[Index: Integer]: Integer read GetAt write SetAt; default;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      ' TA = type TRec;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      ' A: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      ' Values: array[0..1] of Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec.Foo(X: Integer); begin A := X; end;'#13#10 +
+      ''#13#10 +
+      'function TRec.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TRec.GetAt(Index: Integer): Integer; begin Result := A + Index; end;'#13#10 +
+      'procedure TRec.SetAt(Index, Value: Integer); begin A := Value + Index; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 3;'#13#10 +
+      ' A := 100;'#13#10 +
+      ' with Item do Values[0] := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A, '' '', G, '' '', Values[0]);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := False;
+    lExpected := ' Values[0] := 7;';
+    lExpectedEdits := 1;
+    lExpectedLine := 34;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'sol-clean-generic-indexed-write' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec<T> = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetAt(Index: Integer): Integer;'#13#10 +
+      '  procedure SetAt(Index, Value: Integer);'#13#10 +
+      '  property Value: Integer read Get;'#13#10 +
+      '  property Values[Index: Integer]: Integer read GetAt write SetAt; default;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      ' TA = TRec<Integer>;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      ' A: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      ' Values: array[0..1] of Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec<T>.Foo(X: Integer); begin A := X; end;'#13#10 +
+      ''#13#10 +
+      'function TRec<T>.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TRec<T>.GetAt(Index: Integer): Integer; begin Result := A + Index; end;'#13#10 +
+      'procedure TRec<T>.SetAt(Index, Value: Integer); begin A := Value + Index; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 3;'#13#10 +
+      ' A := 100;'#13#10 +
+      ' with Item do Values[0] := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A, '' '', G, '' '', Values[0]);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := True;
+    lLocal := False;
+    lExpected := ' Values[0] := 7;';
+    lExpectedEdits := 1;
+    lExpectedLine := 34;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-h1-field-array-w' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TSub = record S: Integer; end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  Arr: array[0..1] of Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TX;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Arr: array[0..1] of Integer = (40, 41);'#13#10 +
+      ' Sub: TSub;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.Arr[1] := 21; Item.Sub.S := 5; Sub.S := 50;'#13#10 +
+      ' with Item do G := Arr[1];'#13#10 +
+      ' Writeln(G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' G := Item.Arr[1];';
+    lExpectedEdits := 1;
+    lExpectedLine := 22;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-h2-dotted-field-w' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TSub = record S: Integer; end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  Arr: array[0..1] of Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TX;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Arr: array[0..1] of Integer = (40, 41);'#13#10 +
+      ' Sub: TSub;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.Arr[1] := 21; Item.Sub.S := 5; Sub.S := 50;'#13#10 +
+      ' with Item do G := Sub.S;'#13#10 +
+      ' Writeln(G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' G := Item.Sub.S;';
+    lExpectedEdits := 1;
+    lExpectedLine := 22;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-h3-dotted-write-w' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TSub = record S: Integer; end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  Arr: array[0..1] of Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TX;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Arr: array[0..1] of Integer = (40, 41);'#13#10 +
+      ' Sub: TSub;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.Arr[1] := 21; Item.Sub.S := 5; Sub.S := 50;'#13#10 +
+      ' with Item do Sub.S := 9; G := Item.Sub.S * 100 + Sub.S;'#13#10 +
+      ' Writeln(G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' Item.Sub.S := 9;';
+    lExpectedEdits := 1;
+    lExpectedLine := 22;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-c5-indexed-default-w2' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer); overload;'#13#10 +
+      'function Get: Integer;'#13#10 +
+      'function P: Integer;'#13#10 +
+      'const STR = ''xy'';'#13#10 +
+      'type'#13#10 +
+      ' TSub = record'#13#10 +
+      '  S: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  B: Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: Integer); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      ' TGen<T> = record'#13#10 +
+      '  A: T;'#13#10 +
+      '  B: T;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: T); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TX;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 4;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Items: array[0..1] of Integer = (40, 41);'#13#10 +
+      'implementation'#13#10 +
+      'procedure TSub.Foo(X: Integer); begin S := X; end;'#13#10 +
+      'procedure TItem.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure TItem.Foo(const X: string); begin A := A + Length(X) + 10; end;'#13#10 +
+      'function TItem.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TItem.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TItem.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure TGen<T>.Foo(X: T); begin A := X; end;'#13#10 +
+      'procedure TGen<T>.Foo(const X: string); begin end;'#13#10 +
+      'function TGen<T>.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TGen<T>.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TGen<T>.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'function P: Integer; begin Result := 200; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 0; Item.B := 3; Item.Sub.S := 0;'#13#10 +
+      ' with Item do G := Items[1];'#13#10 +
+      ' Writeln(Item.A, '' '', Item.Sub.S, '' '', G, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' G := Item.Items[1];';
+    lExpectedEdits := 1;
+    lExpectedLine := 63;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-c1-args-members-w2' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer); overload;'#13#10 +
+      'function Get: Integer;'#13#10 +
+      'function P: Integer;'#13#10 +
+      'const STR = ''xy'';'#13#10 +
+      'type'#13#10 +
+      ' TSub = record'#13#10 +
+      '  S: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  B: Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: Integer); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      ' TGen<T> = record'#13#10 +
+      '  A: T;'#13#10 +
+      '  B: T;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: T); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TX;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 4;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Items: array[0..1] of Integer = (40, 41);'#13#10 +
+      'implementation'#13#10 +
+      'procedure TSub.Foo(X: Integer); begin S := X; end;'#13#10 +
+      'procedure TItem.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure TItem.Foo(const X: string); begin A := A + Length(X) + 10; end;'#13#10 +
+      'function TItem.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TItem.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TItem.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure TGen<T>.Foo(X: T); begin A := X; end;'#13#10 +
+      'procedure TGen<T>.Foo(const X: string); begin end;'#13#10 +
+      'function TGen<T>.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TGen<T>.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TGen<T>.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'function P: Integer; begin Result := 200; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 0; Item.B := 3; Item.Sub.S := 0;'#13#10 +
+      ' with Item do Foo(B);'#13#10 +
+      ' Writeln(Item.A, '' '', Item.Sub.S, '' '', G, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' Item.Foo(Item.B);';
+    lExpectedEdits := 1;
+    lExpectedLine := 63;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-clean-weak-overload' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer); overload;'#13#10 +
+      ' procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetAt(Index: Integer): Integer;'#13#10 +
+      '  procedure SetAt(Index, Value: Integer);'#13#10 +
+      '  property Value: Integer read Get;'#13#10 +
+      '  property Values[Index: Integer]: Integer read GetAt write SetAt; default;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      ' TA = TRec;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      ' A: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      ' Values: array[0..1] of Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure TRec.Foo(const X: string); begin A := 9; end;'#13#10 +
+      ''#13#10 +
+      'function TRec.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TRec.GetAt(Index: Integer): Integer; begin Result := A + Index; end;'#13#10 +
+      'procedure TRec.SetAt(Index, Value: Integer); begin A := Value + Index; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 3;'#13#10 +
+      ' A := 100;'#13#10 +
+      ' with Item do Foo(7);'#13#10 +
+      ' Writeln(Item.A, '' '', A, '' '', G, '' '', Values[0]);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' Item.Foo(7);';
+    lExpectedEdits := 1;
+    lExpectedLine := 36;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-clean-plain-overload' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer); overload;'#13#10 +
+      ' procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetAt(Index: Integer): Integer;'#13#10 +
+      '  procedure SetAt(Index, Value: Integer);'#13#10 +
+      '  property Value: Integer read Get;'#13#10 +
+      '  property Values[Index: Integer]: Integer read GetAt write SetAt; default;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TRec;'#13#10 +
+      ' A: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      ' Values: array[0..1] of Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure TRec.Foo(const X: string); begin A := 9; end;'#13#10 +
+      ''#13#10 +
+      'function TRec.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TRec.GetAt(Index: Integer): Integer; begin Result := A + Index; end;'#13#10 +
+      'procedure TRec.SetAt(Index, Value: Integer); begin A := Value + Index; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 3;'#13#10 +
+      ' A := 100;'#13#10 +
+      ' with Item do Foo(7);'#13#10 +
+      ' Writeln(Item.A, '' '', A, '' '', G, '' '', Values[0]);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' lWithRecPtr := @Item;'#13#10 +
+      ' lWithRecPtr^.Foo(7);';
+    lExpectedEdits := 2;
+    lExpectedLine := 34;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-getter-property-call-weak' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TProc = procedure(X: Integer);'#13#10 +
+      ' TRec = record'#13#10 +
+      '  Handler: TProc;'#13#10 +
+      '  function GetProc: TProc;'#13#10 +
+      '  property P: TProc read GetProc;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      ' TA = TRec;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      ' Hit: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'function TRec.GetProc: TProc; begin Result := Handler; end;'#13#10 +
+      'procedure P(X: Integer); begin G := X; end;'#13#10 +
+      'procedure Target(X: Integer); begin Hit := X; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.Handler := Target;'#13#10 +
+      ' with Item do P(7);'#13#10 +
+      ' Writeln(Hit, '' '', G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' Item.P(7);';
+    lExpectedEdits := 1;
+    lExpectedLine := 25;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-getter-property-call-plain' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TProc = procedure(X: Integer);'#13#10 +
+      ' TRec = record'#13#10 +
+      '  Handler: TProc;'#13#10 +
+      '  function GetProc: TProc;'#13#10 +
+      '  property P: TProc read GetProc;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TRec;'#13#10 +
+      ' Hit: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      'implementation'#13#10 +
+      'function TRec.GetProc: TProc; begin Result := Handler; end;'#13#10 +
+      'procedure P(X: Integer); begin G := X; end;'#13#10 +
+      'procedure Target(X: Integer); begin Hit := X; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.Handler := Target;'#13#10 +
+      ' with Item do P(7);'#13#10 +
+      ' Writeln(Hit, '' '', G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' lWithRecPtr := @Item;'#13#10 +
+      ' lWithRecPtr^.P(7);';
+    lExpectedEdits := 2;
+    lExpectedLine := 23;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-clean-weak-indexed-read' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetAt(Index: Integer): Integer;'#13#10 +
+      '  procedure SetAt(Index, Value: Integer);'#13#10 +
+      '  property Value: Integer read Get;'#13#10 +
+      '  property Values[Index: Integer]: Integer read GetAt write SetAt; default;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      ' TA = TRec;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      ' A: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      ' Values: array[0..1] of Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec.Foo(X: Integer); begin A := X; end;'#13#10 +
+      ''#13#10 +
+      'function TRec.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TRec.GetAt(Index: Integer): Integer; begin Result := A + Index; end;'#13#10 +
+      'procedure TRec.SetAt(Index, Value: Integer); begin A := Value + Index; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 3;'#13#10 +
+      ' A := 100;'#13#10 +
+      ' with Item do A := Values[0];'#13#10 +
+      ' Writeln(Item.A, '' '', A, '' '', G, '' '', Values[0]);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' Item.A := Item.Values[0];';
+    lExpectedEdits := 1;
+    lExpectedLine := 34;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-clean-plain-indexed-read' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetAt(Index: Integer): Integer;'#13#10 +
+      '  procedure SetAt(Index, Value: Integer);'#13#10 +
+      '  property Value: Integer read Get;'#13#10 +
+      '  property Values[Index: Integer]: Integer read GetAt write SetAt; default;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TRec;'#13#10 +
+      ' A: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      ' Values: array[0..1] of Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec.Foo(X: Integer); begin A := X; end;'#13#10 +
+      ''#13#10 +
+      'function TRec.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TRec.GetAt(Index: Integer): Integer; begin Result := A + Index; end;'#13#10 +
+      'procedure TRec.SetAt(Index, Value: Integer); begin A := Value + Index; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 3;'#13#10 +
+      ' A := 100;'#13#10 +
+      ' with Item do A := Values[0];'#13#10 +
+      ' Writeln(Item.A, '' '', A, '' '', G, '' '', Values[0]);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' lWithRecPtr := @Item;'#13#10 +
+      ' lWithRecPtr^.A := lWithRecPtr^.Values[0];';
+    lExpectedEdits := 2;
+    lExpectedLine := 32;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-clean-weak-indexed-write' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetAt(Index: Integer): Integer;'#13#10 +
+      '  procedure SetAt(Index, Value: Integer);'#13#10 +
+      '  property Value: Integer read Get;'#13#10 +
+      '  property Values[Index: Integer]: Integer read GetAt write SetAt; default;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      ' TA = TRec;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TA;'#13#10 +
+      ' A: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      ' Values: array[0..1] of Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec.Foo(X: Integer); begin A := X; end;'#13#10 +
+      ''#13#10 +
+      'function TRec.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TRec.GetAt(Index: Integer): Integer; begin Result := A + Index; end;'#13#10 +
+      'procedure TRec.SetAt(Index, Value: Integer); begin A := Value + Index; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 3;'#13#10 +
+      ' A := 100;'#13#10 +
+      ' with Item do Values[0] := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A, '' '', G, '' '', Values[0]);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' Item.Values[0] := 7;';
+    lExpectedEdits := 1;
+    lExpectedLine := 34;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-clean-plain-indexed-write' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TRec = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetAt(Index: Integer): Integer;'#13#10 +
+      '  procedure SetAt(Index, Value: Integer);'#13#10 +
+      '  property Value: Integer read Get;'#13#10 +
+      '  property Values[Index: Integer]: Integer read GetAt write SetAt; default;'#13#10 +
+      ' end;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      ' Item: TRec;'#13#10 +
+      ' A: Integer;'#13#10 +
+      ' G: Integer;'#13#10 +
+      ' Values: array[0..1] of Integer;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TRec.Foo(X: Integer); begin A := X; end;'#13#10 +
+      ''#13#10 +
+      'function TRec.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TRec.GetAt(Index: Integer): Integer; begin Result := A + Index; end;'#13#10 +
+      'procedure TRec.SetAt(Index, Value: Integer); begin A := Value + Index; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 3;'#13#10 +
+      ' A := 100;'#13#10 +
+      ' with Item do Values[0] := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A, '' '', G, '' '', Values[0]);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lLocal := False;
+    lExpected := ' lWithRecPtr := @Item;'#13#10 +
+      ' lWithRecPtr^.Values[0] := 7;';
+    lExpectedEdits := 2;
+    lExpectedLine := 32;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-opus-e7-forward-nested-strong-weak' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TOther = record'#13#10 +
+      '  B: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TA = TItem;'#13#10 +
+      'var Item: TA;'#13#10 +
+      '  procedure Inner; forward;'#13#10 +
+      '  procedure Other;'#13#10 +
+      '  begin'#13#10 +
+      '    Inner;'#13#10 +
+      '  end;'#13#10 +
+      '  procedure Inner;'#13#10 +
+      '  begin'#13#10 +
+      '    with Item do A := 7;'#13#10 +
+      '  end;'#13#10 +
+      'begin'#13#10 +
+      '  Item.A := 0;'#13#10 +
+      '  Other;'#13#10 +
+      '  Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lExpected := ' Item.A := 7;';
+    lExpectedEdits := 1;
+    lExpectedLine := 25;
+    lExpectedColumn := 5;
+  end;
+  if aShape = 'control-opus-e7-forward-nested-strong-plain' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TOther = record'#13#10 +
+      '  B: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TA = TItem;'#13#10 +
+      'var Item: TItem;'#13#10 +
+      '  procedure Inner; forward;'#13#10 +
+      '  procedure Other;'#13#10 +
+      '  begin'#13#10 +
+      '    Inner;'#13#10 +
+      '  end;'#13#10 +
+      '  procedure Inner;'#13#10 +
+      '  begin'#13#10 +
+      '    with Item do A := 7;'#13#10 +
+      '  end;'#13#10 +
+      'begin'#13#10 +
+      '  Item.A := 0;'#13#10 +
+      '  Other;'#13#10 +
+      '  Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lExpected := '    lWithItemPtr := @Item;'#13#10 +
+      ' lWithItemPtr^.A := 7;';
+    lExpectedEdits := 2;
+    lExpectedLine := 25;
+    lExpectedColumn := 5;
+  end;
+  if aShape = 'control-opus-e14-forward-two-level-strong-weak' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TOther = record'#13#10 +
+      '  B: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TA = TItem;'#13#10 +
+      'var Item: TA;'#13#10 +
+      '  procedure Mid; forward;'#13#10 +
+      '  procedure Other;'#13#10 +
+      '  begin'#13#10 +
+      '    Mid;'#13#10 +
+      '  end;'#13#10 +
+      '  procedure Mid;'#13#10 +
+      '    procedure Inner;'#13#10 +
+      '    begin'#13#10 +
+      '      with Item do A := 7;'#13#10 +
+      '    end;'#13#10 +
+      '  begin'#13#10 +
+      '    Inner;'#13#10 +
+      '  end;'#13#10 +
+      'begin'#13#10 +
+      '  Item.A := 0;'#13#10 +
+      '  Other;'#13#10 +
+      '  Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lExpected := ' Item.A := 7;';
+    lExpectedEdits := 1;
+    lExpectedLine := 26;
+    lExpectedColumn := 7;
+  end;
+  if aShape = 'control-opus-e14-forward-two-level-strong-plain' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TOther = record'#13#10 +
+      '  B: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'type TA = TItem;'#13#10 +
+      'var Item: TItem;'#13#10 +
+      '  procedure Mid; forward;'#13#10 +
+      '  procedure Other;'#13#10 +
+      '  begin'#13#10 +
+      '    Mid;'#13#10 +
+      '  end;'#13#10 +
+      '  procedure Mid;'#13#10 +
+      '    procedure Inner;'#13#10 +
+      '    begin'#13#10 +
+      '      with Item do A := 7;'#13#10 +
+      '    end;'#13#10 +
+      '  begin'#13#10 +
+      '    Inner;'#13#10 +
+      '  end;'#13#10 +
+      'begin'#13#10 +
+      '  Item.A := 0;'#13#10 +
+      '  Other;'#13#10 +
+      '  Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lExpected := '      lWithItemPtr := @Item;'#13#10 +
+      ' lWithItemPtr^.A := 7;';
+    lExpectedEdits := 2;
+    lExpectedLine := 26;
+    lExpectedColumn := 7;
+  end;
+  if aShape = 'control-h1-field-array-w-plain' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TSub = record S: Integer; end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  Arr: array[0..1] of Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TItem;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Arr: array[0..1] of Integer = (40, 41);'#13#10 +
+      ' Sub: TSub;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.Arr[1] := 21; Item.Sub.S := 5; Sub.S := 50;'#13#10 +
+      ' with Item do G := Arr[1];'#13#10 +
+      ' Writeln(G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lExpected := ' lWithItemPtr := @Item;'#13#10 +
+      ' G := lWithItemPtr^.Arr[1];';
+    lExpectedEdits := 2;
+    lExpectedLine := 22;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-h2-dotted-field-w-plain' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TSub = record S: Integer; end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  Arr: array[0..1] of Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TItem;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Arr: array[0..1] of Integer = (40, 41);'#13#10 +
+      ' Sub: TSub;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.Arr[1] := 21; Item.Sub.S := 5; Sub.S := 50;'#13#10 +
+      ' with Item do G := Sub.S;'#13#10 +
+      ' Writeln(G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lExpected := ' lWithItemPtr := @Item;'#13#10 +
+      ' G := lWithItemPtr^.Sub.S;';
+    lExpectedEdits := 2;
+    lExpectedLine := 22;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-h3-dotted-write-w-plain' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TSub = record S: Integer; end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  Arr: array[0..1] of Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TItem;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Arr: array[0..1] of Integer = (40, 41);'#13#10 +
+      ' Sub: TSub;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.Arr[1] := 21; Item.Sub.S := 5; Sub.S := 50;'#13#10 +
+      ' with Item do Sub.S := 9; G := Item.Sub.S * 100 + Sub.S;'#13#10 +
+      ' Writeln(G);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lExpected := ' lWithItemPtr := @Item;'#13#10 +
+      ' lWithItemPtr^.Sub.S := 9;';
+    lExpectedEdits := 2;
+    lExpectedLine := 22;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-c5-indexed-default-w2-plain' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer); overload;'#13#10 +
+      'function Get: Integer;'#13#10 +
+      'function P: Integer;'#13#10 +
+      'const STR = ''xy'';'#13#10 +
+      'type'#13#10 +
+      ' TSub = record'#13#10 +
+      '  S: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  B: Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: Integer); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      ' TGen<T> = record'#13#10 +
+      '  A: T;'#13#10 +
+      '  B: T;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: T); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TItem;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 4;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Items: array[0..1] of Integer = (40, 41);'#13#10 +
+      'implementation'#13#10 +
+      'procedure TSub.Foo(X: Integer); begin S := X; end;'#13#10 +
+      'procedure TItem.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure TItem.Foo(const X: string); begin A := A + Length(X) + 10; end;'#13#10 +
+      'function TItem.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TItem.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TItem.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure TGen<T>.Foo(X: T); begin A := X; end;'#13#10 +
+      'procedure TGen<T>.Foo(const X: string); begin end;'#13#10 +
+      'function TGen<T>.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TGen<T>.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TGen<T>.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'function P: Integer; begin Result := 200; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 0; Item.B := 3; Item.Sub.S := 0;'#13#10 +
+      ' with Item do G := Items[1];'#13#10 +
+      ' Writeln(Item.A, '' '', Item.Sub.S, '' '', G, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lExpected := ' lWithItemPtr := @Item;'#13#10 +
+      ' G := lWithItemPtr^.Items[1];';
+    lExpectedEdits := 2;
+    lExpectedLine := 63;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'control-c1-args-members-w2-plain' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'procedure Foo(X: Integer); overload;'#13#10 +
+      'function Get: Integer;'#13#10 +
+      'function P: Integer;'#13#10 +
+      'const STR = ''xy'';'#13#10 +
+      'type'#13#10 +
+      ' TSub = record'#13#10 +
+      '  S: Integer;'#13#10 +
+      '  procedure Foo(X: Integer);'#13#10 +
+      ' end;'#13#10 +
+      ' TItem = record'#13#10 +
+      '  A: Integer;'#13#10 +
+      '  B: Integer;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: Integer); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      ' TGen<T> = record'#13#10 +
+      '  A: T;'#13#10 +
+      '  B: T;'#13#10 +
+      '  Sub: TSub;'#13#10 +
+      '  procedure Foo(X: T); overload;'#13#10 +
+      '  procedure Foo(const X: string); overload;'#13#10 +
+      '  function Get: Integer;'#13#10 +
+      '  function GetP: Integer;'#13#10 +
+      '  function GetItem(I: Integer): Integer;'#13#10 +
+      '  property P: Integer read GetP;'#13#10 +
+      '  property Items[I: Integer]: Integer read GetItem; default;'#13#10 +
+      ' end;'#13#10 +
+      'type'#13#10 +
+      ' TX = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TItem;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      ' B: Integer = 4;'#13#10 +
+      ' G: Integer = 0;'#13#10 +
+      ' Items: array[0..1] of Integer = (40, 41);'#13#10 +
+      'implementation'#13#10 +
+      'procedure TSub.Foo(X: Integer); begin S := X; end;'#13#10 +
+      'procedure TItem.Foo(X: Integer); begin A := X; end;'#13#10 +
+      'procedure TItem.Foo(const X: string); begin A := A + Length(X) + 10; end;'#13#10 +
+      'function TItem.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TItem.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TItem.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure TGen<T>.Foo(X: T); begin A := X; end;'#13#10 +
+      'procedure TGen<T>.Foo(const X: string); begin end;'#13#10 +
+      'function TGen<T>.Get: Integer; begin Result := 5; end;'#13#10 +
+      'function TGen<T>.GetP: Integer; begin Result := 6; end;'#13#10 +
+      'function TGen<T>.GetItem(I: Integer): Integer; begin Result := 20 + I; end;'#13#10 +
+      'procedure Foo(X: Integer); begin G := X; end;'#13#10 +
+      'function Get: Integer; begin Result := 100; end;'#13#10 +
+      'function P: Integer; begin Result := 200; end;'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Item.A := 0; Item.B := 3; Item.Sub.S := 0;'#13#10 +
+      ' with Item do Foo(B);'#13#10 +
+      ' Writeln(Item.A, '' '', Item.Sub.S, '' '', G, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10 +
+      '';
+    lRefused := False;
+    lExpected := ' lWithItemPtr := @Item;'#13#10 +
+      ' lWithItemPtr^.Foo(lWithItemPtr^.B);';
+    lExpectedEdits := 2;
+    lExpectedLine := 63;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-inline-name' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type TA = TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Name := ''Z'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 14;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-inline-size' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type TA = TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Size := 9;'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 14;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-inline-indexed' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type TA = TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Name[1] := ''Z'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 14;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-multi-name' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type TB = TSearchRec; TA = TB;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Name := ''Z'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 14;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-multi-size' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type TB = TSearchRec; TA = TB;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Size := 9;'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 14;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-multi-indexed' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type TB = TSearchRec; TA = TB;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Name[1] := ''Z'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 14;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-comment-name' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type { alias declaration } TA = TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Name := ''Z'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 14;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-comment-size' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type { alias declaration } TA = TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Size := 9;'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 14;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-comment-indexed' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type { alias declaration } TA = TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Name[1] := ''Z'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 14;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-newline-name' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type'#13#10 +
+      ' TA = TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Name := ''Z'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := False;
+    lExpected := ' SR.Name := ''Z'';';
+    lExpectedEdits := 1;
+    lExpectedLine := 15;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-newline-size' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type'#13#10 +
+      ' TA = TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Size := 9;'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := False;
+    lExpected := ' SR.Size := 9;';
+    lExpectedEdits := 1;
+    lExpectedLine := 15;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-newline-indexed' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type'#13#10 +
+      ' TA = TSearchRec;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Name[1] := ''Z'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := False;
+    lExpected := ' SR.Name[1] := ''Z'';';
+    lExpectedEdits := 1;
+    lExpectedLine := 15;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-chain-first-name' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type TB = TSearchRec;'#13#10 +
+      ' TA = TB;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Name := ''Z'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 15;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-chain-first-size' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type TB = TSearchRec;'#13#10 +
+      ' TA = TB;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Size := 9;'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 15;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-chain-first-indexed' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type TB = TSearchRec;'#13#10 +
+      ' TA = TB;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Name[1] := ''Z'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 15;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-chain-second-name' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type'#13#10 +
+      ' TB = TSearchRec; TA = TB;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Name := ''Z'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 15;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-chain-second-size' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type'#13#10 +
+      ' TB = TSearchRec; TA = TB;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Size := 9;'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 15;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-chain-second-indexed' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type'#13#10 +
+      ' TB = TSearchRec; TA = TB;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' Name: string = ''xyz'';'#13#10 +
+      ' Size: Int64 = 100;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; SR.Size := 7;'#13#10 +
+      ' with SR do Name[1] := ''Z'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name, '' '', SR.Size, '' '', Size);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 15;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-nested-block' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type'#13#10 +
+      ' TA = type TSearchRec;'#13#10 +
+      ' TOther = record Z: Integer; end;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' O: TOther;'#13#10 +
+      ' Name: string = ''g'';'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; O.Z := 0;'#13#10 +
+      ' with SR do'#13#10 +
+      ' begin'#13#10 +
+      '  with O do'#13#10 +
+      '  begin'#13#10 +
+      '   Name := ''x''; Z := 1;'#13#10 +
+      '  end;'#13#10 +
+      ' end;'#13#10 +
+      ' Writeln(SR.Name, '' '', Name);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 1;
+    lExpectedLine := 16;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-nested-single' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type'#13#10 +
+      ' TA = type TSearchRec;'#13#10 +
+      ' TOther = record Z: Integer; end;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' O: TOther;'#13#10 +
+      ' Name: string = ''g'';'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; O.Z := 0;'#13#10 +
+      ' with SR do with O do Name := ''x'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 1;
+    lExpectedLine := 16;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-nested-weak-strong' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type'#13#10 +
+      ' TS = type TSearchRec;'#13#10 +
+      ' TA = TS;'#13#10 +
+      ' TOther = record Z: Integer; end;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' O: TOther;'#13#10 +
+      ' Name: string = ''g'';'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; O.Z := 0;'#13#10 +
+      ' with SR do with O do Name := ''x'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 1;
+    lExpectedLine := 17;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r5-nested-repeat' then
+  begin
+    lSource :=
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils;'#13#10 +
+      'type'#13#10 +
+      ' TA = type TSearchRec;'#13#10 +
+      ' TOther = record Z: Integer; end;'#13#10 +
+      'var'#13#10 +
+      ' SR: TA;'#13#10 +
+      ' O: TOther;'#13#10 +
+      ' Name: string = ''g'';'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR := Default(TA); SR.Name := ''abc''; O.Z := 0;'#13#10 +
+      ' with SR do with SR do Name := ''x'';'#13#10 +
+      ' Writeln(SR.Name, '' '', Name);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 1;
+    lExpectedLine := 16;
+    lExpectedColumn := 2;
+  end;
+  if aShape = 'r6-strong' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+' end;'#13#10 +
+' TMySR = type TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'', X);'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo;'#13#10 +
+'  Writeln(''end'');'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 32;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-plain-strong' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+' end;'#13#10 +
+' TMySR = TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'', X);'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo;'#13#10 +
+'  Writeln(''end'');'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := False;
+    lExpected := '  lWithRPtr := @SR;'#13#10 +
+'  lWithRPtr^.Foo;';
+    lExpectedEdits := 2;
+    lExpectedLine := 32;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-weak-strong' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+' end;'#13#10 +
+' TMySR = TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'', X);'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo;'#13#10 +
+'  Writeln(''end'');'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := False;
+    lExpected := '  SR.Foo;';
+    lExpectedEdits := 1;
+    lExpectedLine := 32;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-function' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+'   function Fn: Integer; overload;'#13#10 +
+'   function Fn(X: Integer): Integer; overload;'#13#10 +
+' end;'#13#10 +
+' TOther = record Z: Integer; end;'#13#10 +
+' TMySR = type TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 9;'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'end;'#13#10 +
+'function TR.Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 4;'#13#10 +
+'end;'#13#10 +
+'function TR.Fn(X: Integer): Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := X;'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    G := Fn;'#13#10 +
+'  Writeln(G);'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 47;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-plain-function' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+'   function Fn: Integer; overload;'#13#10 +
+'   function Fn(X: Integer): Integer; overload;'#13#10 +
+' end;'#13#10 +
+' TOther = record Z: Integer; end;'#13#10 +
+' TMySR = TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 9;'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'end;'#13#10 +
+'function TR.Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 4;'#13#10 +
+'end;'#13#10 +
+'function TR.Fn(X: Integer): Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := X;'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TR);'#13#10 +
+'  with SR do'#13#10 +
+'    G := Fn;'#13#10 +
+'  Writeln(G);'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := False;
+    lExpected := '  lWithRPtr := @SR;'#13#10 +
+'  G := lWithRPtr^.Fn;';
+    lExpectedEdits := 2;
+    lExpectedLine := 47;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-weak-function' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+'   function Fn: Integer; overload;'#13#10 +
+'   function Fn(X: Integer): Integer; overload;'#13#10 +
+' end;'#13#10 +
+' TOther = record Z: Integer; end;'#13#10 +
+' TMySR = TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 9;'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'end;'#13#10 +
+'function TR.Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 4;'#13#10 +
+'end;'#13#10 +
+'function TR.Fn(X: Integer): Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := X;'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    G := Fn;'#13#10 +
+'  Writeln(G);'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := False;
+    lExpected := '  G := SR.Fn;';
+    lExpectedEdits := 1;
+    lExpectedLine := 47;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-nested' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+'   function Fn: Integer; overload;'#13#10 +
+'   function Fn(X: Integer): Integer; overload;'#13#10 +
+' end;'#13#10 +
+' TOther = record Z: Integer; end;'#13#10 +
+' TMySR = type TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 9;'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'end;'#13#10 +
+'function TR.Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 4;'#13#10 +
+'end;'#13#10 +
+'function TR.Fn(X: Integer): Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := X;'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR; O: TOther;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    with O do'#13#10 +
+'    begin'#13#10 +
+'      Z := 1;'#13#10 +
+'      Foo;'#13#10 +
+'    end;'#13#10 +
+'  Writeln(G);'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 47;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-plain-nested' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+'   function Fn: Integer; overload;'#13#10 +
+'   function Fn(X: Integer): Integer; overload;'#13#10 +
+' end;'#13#10 +
+' TOther = record Z: Integer; end;'#13#10 +
+' TMySR = TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 9;'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'end;'#13#10 +
+'function TR.Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 4;'#13#10 +
+'end;'#13#10 +
+'function TR.Fn(X: Integer): Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := X;'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TR; O: TOther;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TR);'#13#10 +
+'  with SR do'#13#10 +
+'    with O do'#13#10 +
+'    begin'#13#10 +
+'      Z := 1;'#13#10 +
+'      Foo;'#13#10 +
+'    end;'#13#10 +
+'  Writeln(G);'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := False;
+    lExpected := '  lWithRPtr := @SR;'#13#10 +
+'      begin'#13#10 +
+'      lWithOtherPtr := @O;'#13#10 +
+'      begin'#13#10 +
+'      lWithOtherPtr^.Z := 1;'#13#10 +
+'      lWithRPtr^.Foo;'#13#10 +
+'    end;'#13#10 +
+'    end;';
+    lExpectedEdits := 2;
+    lExpectedLine := 47;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-weak-nested' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+'   function Fn: Integer; overload;'#13#10 +
+'   function Fn(X: Integer): Integer; overload;'#13#10 +
+' end;'#13#10 +
+' TOther = record Z: Integer; end;'#13#10 +
+' TMySR = TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 9;'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'end;'#13#10 +
+'function TR.Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 4;'#13#10 +
+'end;'#13#10 +
+'function TR.Fn(X: Integer): Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := X;'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR; O: TOther;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    with O do'#13#10 +
+'    begin'#13#10 +
+'      Z := 1;'#13#10 +
+'      Foo;'#13#10 +
+'    end;'#13#10 +
+'  Writeln(G);'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := False;
+    lExpected := '      begin'#13#10 +
+'      lWithOtherPtr := @O;'#13#10 +
+'      begin'#13#10 +
+'      lWithOtherPtr^.Z := 1;'#13#10 +
+'      SR.Foo;'#13#10 +
+'    end;'#13#10 +
+'    end;';
+    lExpectedEdits := 2;
+    lExpectedLine := 47;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-weak-strong' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+'   function Fn: Integer; overload;'#13#10 +
+'   function Fn(X: Integer): Integer; overload;'#13#10 +
+' end;'#13#10 +
+' TOther = record Z: Integer; end;'#13#10 +
+' TS = type TR;'#13#10 +
+' TMySR = TS;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 9;'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'end;'#13#10 +
+'function TR.Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 4;'#13#10 +
+'end;'#13#10 +
+'function TR.Fn(X: Integer): Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := X;'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo;'#13#10 +
+'  Writeln(G);'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 48;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-plain-weak-strong' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+'   function Fn: Integer; overload;'#13#10 +
+'   function Fn(X: Integer): Integer; overload;'#13#10 +
+' end;'#13#10 +
+' TOther = record Z: Integer; end;'#13#10 +
+' TS = TR;'#13#10 +
+' TMySR = TS;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 9;'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'end;'#13#10 +
+'function TR.Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 4;'#13#10 +
+'end;'#13#10 +
+'function TR.Fn(X: Integer): Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := X;'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo;'#13#10 +
+'  Writeln(G);'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := False;
+    lExpected := '  lWithRPtr := @SR;'#13#10 +
+'  lWithRPtr^.Foo;';
+    lExpectedEdits := 2;
+    lExpectedLine := 48;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-weak-weak-strong' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+'   function Fn: Integer; overload;'#13#10 +
+'   function Fn(X: Integer): Integer; overload;'#13#10 +
+' end;'#13#10 +
+' TOther = record Z: Integer; end;'#13#10 +
+' TS = TR;'#13#10 +
+' TMySR = TS;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 9;'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'end;'#13#10 +
+'function TR.Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 4;'#13#10 +
+'end;'#13#10 +
+'function TR.Fn(X: Integer): Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := X;'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo;'#13#10 +
+'  Writeln(G);'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := False;
+    lExpected := '  SR.Foo;';
+    lExpectedEdits := 1;
+    lExpectedLine := 48;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-other-unit' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils, Unit2;'#13#10 +
+'const'#13#10 +
+' cDummy = 1;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 9;'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo;'#13#10 +
+'  Writeln(G);'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lSecondSource :=
+    'unit Unit2;'#13#10 +
+'interface'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+'   function Fn: Integer; overload;'#13#10 +
+'   function Fn(X: Integer): Integer; overload;'#13#10 +
+' end;'#13#10 +
+' TOther = record Z: Integer; end;'#13#10 +
+' TMySR = type TR;'#13#10 +
+'implementation'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'end;'#13#10 +
+'function TR.Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 4;'#13#10 +
+'end;'#13#10 +
+'function TR.Fn(X: Integer): Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := X;'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 25;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-plain-other-unit' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils, Unit2;'#13#10 +
+'const'#13#10 +
+' cDummy = 1;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 9;'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo;'#13#10 +
+'  Writeln(G);'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lSecondSource :=
+    'unit Unit2;'#13#10 +
+'interface'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+'   function Fn: Integer; overload;'#13#10 +
+'   function Fn(X: Integer): Integer; overload;'#13#10 +
+' end;'#13#10 +
+' TOther = record Z: Integer; end;'#13#10 +
+' TMySR = TR;'#13#10 +
+'implementation'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'end;'#13#10 +
+'function TR.Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 4;'#13#10 +
+'end;'#13#10 +
+'function TR.Fn(X: Integer): Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := X;'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := False;
+    lExpected := '  lWithRPtr := @SR;'#13#10 +
+'  lWithRPtr^.Foo;';
+    lExpectedEdits := 2;
+    lExpectedLine := 25;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-weak-other-unit' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils, Unit2;'#13#10 +
+'const'#13#10 +
+' cDummy = 1;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'function Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 9;'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo;'#13#10 +
+'  Writeln(G);'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lSecondSource :=
+    'unit Unit2;'#13#10 +
+'interface'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+'   function Fn: Integer; overload;'#13#10 +
+'   function Fn(X: Integer): Integer; overload;'#13#10 +
+' end;'#13#10 +
+' TOther = record Z: Integer; end;'#13#10 +
+' TMySR = TR;'#13#10 +
+'implementation'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'end;'#13#10 +
+'function TR.Fn: Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := 4;'#13#10 +
+'end;'#13#10 +
+'function TR.Fn(X: Integer): Integer;'#13#10 +
+'begin'#13#10 +
+'  Result := X;'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := False;
+    lExpected := '  SR.Foo;';
+    lExpectedEdits := 1;
+    lExpectedLine := 25;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-inline-target' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+' end;'#13#10 +
+' TMySR = TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'', X);'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo;'#13#10 +
+'  Writeln(''end'');'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 31;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-plain-inline-target' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+' end;'#13#10 +
+' TMySR = TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'', X);'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo;'#13#10 +
+'  Writeln(''end'');'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := False;
+    lExpected := '  lWithRPtr := @SR;'#13#10 +
+'  lWithRPtr^.Foo;';
+    lExpectedEdits := 2;
+    lExpectedLine := 32;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-weak-inline-target' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+' end;'#13#10 +
+' TMySR = TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'', X);'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo;'#13#10 +
+'  Writeln(''end'');'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := False;
+    lExpected := '  SR.Foo;';
+    lExpectedEdits := 1;
+    lExpectedLine := 32;
+    lExpectedColumn := 3;
+  end;
+  if aShape = 'r6-control-parenthesized' then
+  begin
+    lSource :=
+    'unit Unit1;'#13#10 +
+'interface'#13#10 +
+'uses System.SysUtils;'#13#10 +
+'type'#13#10 +
+' TR = record'#13#10 +
+'   procedure Foo; overload;'#13#10 +
+'   procedure Foo(X: Integer); overload;'#13#10 +
+' end;'#13#10 +
+' TMySR = type TR;'#13#10 +
+'var'#13#10 +
+' G: Integer = 0;'#13#10 +
+' Name: string = ''g'';'#13#10 +
+'procedure Foo;'#13#10 +
+'procedure Run;'#13#10 +
+'implementation'#13#10 +
+'procedure Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''global'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo;'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'');'#13#10 +
+'end;'#13#10 +
+'procedure TR.Foo(X: Integer);'#13#10 +
+'begin'#13#10 +
+'  Writeln(''member'', X);'#13#10 +
+'end;'#13#10 +
+'procedure Run;'#13#10 +
+'var SR: TMySR;'#13#10 +
+'begin'#13#10 +
+'  SR := Default(TMySR);'#13#10 +
+'  with SR do'#13#10 +
+'    Foo(7);'#13#10 +
+'  Writeln(''end'');'#13#10 +
+'end;'#13#10 +
+'end.'#13#10;
+    lRefused := True;
+    lExpected := '';
+    lExpectedEdits := 0;
+    lExpectedLine := 32;
+    lExpectedColumn := 3;
+  end;
+  lWarmUnreachable := MatchText(aShape, ['control-opus-e7-forward-nested-strong-weak',
+    'control-opus-e14-forward-two-level-strong-weak']);
+  Assert.AreNotEqual('', lSource, aShape);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin Run; end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  if lSecondSource <> '' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'), lSecondSource, TEncoding.ASCII);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+      '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+      '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+      '<ItemGroup><DCCReference Include="Unit1.pas"/>' +
+      '<DCCReference Include="Unit2.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  end;
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  if aShape = 'sol-clean-generic-indexed-write' then
+    Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED',
+      ReasonOf(lFacts.Bindings[0], 'Values[0]', 'unsupported'));
+  if StartsText('r5-', aShape) and (not StartsText('r5-nested-', aShape)) then
+  begin
+    lProjectionFound := False;
+    for lSymbol in lFacts.Symbols do
+      if SameText(lSymbol.Name, 'TA') and SameText(lSymbol.SymbolClass, 'type-member') then
+        lProjectionFound := True;
+    if StartsText('r5-newline-', aShape) then
+      Assert.IsTrue(lProjectionFound, aShape + ': alias projection must exist')
+    else
+      Assert.IsFalse(lProjectionFound, aShape + ': missing projection must refuse');
+  end;
+  // Pin the binder's specific refusal independently of the planner backstop.
+  if MatchText(aShape, ['r4-x1-strong-excludeattr', 'r4-x3-weak-of-strong-excl']) then
+    Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED',
+      ReasonOf(lFacts.Bindings[0], 'ExcludeAttr', 'unsupported'));
+  if MatchText(aShape, ['r4-x7-strong-name-plain', 'r4-x9-weak-of-strong-name']) then
+    Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED',
+      ReasonOf(lFacts.Bindings[0], 'Name', 'unsupported'));
+  if aShape = 'r4-x8-strong-size-plain' then
+    Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED',
+      ReasonOf(lFacts.Bindings[0], 'Size', 'unsupported'));
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  if aMode = 'standalone' then
+  begin
+    lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+    lIdentity.CacheKey := 'alias-receiver-proof';
+    lIdentity.IdentityKey := lIdentity.CacheKey;
+    lIdentity.SourceFileName := lOptions.ProjectFileName;
+    lIdentity.FileHash := lFacts.ContextFingerprint;
+    lIdentity.ContextHash := lFacts.ContextFingerprint;
+    lIdentity.IncludeGraphHash := 'no-include-changes';
+    lIdentity.SchemaVersion := 'alias-receiver-proof-v1';
+    lStored := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+    try
+      lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
+      try
+        lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+        if lWarmUnreachable then
+        begin
+          // DS-743: the local weak-alias scope-chain guard rejects persisted facts.
+          Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+          Assert.IsTrue(lLoaded = nil);
+          Assert.AreEqual(0, lCache.Metrics.CacheHits);
+          Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+          Assert.AreEqual(1, lCache.Metrics.Invalidations);
+          lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+        end else begin
+          Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+          try
+            Assert.AreEqual(1, lCache.Metrics.CacheHits);
+            Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+            Assert.AreEqual(0, lCache.Metrics.Invalidations);
+            lSnapshotPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+          finally
+            lLoaded.Free;
+          end;
+        end;
+      finally
+        lCache.Free;
+      end;
+    finally
+      lStored.Free;
+    end;
+  end;
+  if MatchText(aMode, ['sessioncold', 'sessionwarm']) then
+    for var i := 0 to Ord(aMode = 'sessionwarm') do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lSessionBuild := lSession.Session.PlanRemoveWithResult;
+        if lWarmUnreachable and (i = 1) then
+        begin
+          // DS-743 cold fallback, never counted as a persisted hit.
+          Assert.AreEqual(0, lSessionBuild.SnapshotMetrics.SnapshotCacheHits);
+          Assert.IsTrue(lSessionBuild.SnapshotMetrics.SnapshotCacheMisses > 0);
+          Assert.IsTrue(lSessionBuild.SnapshotMetrics.SnapshotCacheInvalidations > 0);
+        end else
+          Assert.AreEqual(i, Integer(lSessionBuild.SnapshotMetrics.SnapshotCacheHits));
+        lSnapshotPlan := lSessionBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  GC(lSerializer, TJsonSerializer.Create, g);
+  // Compatibility and snapshot planners intentionally identify their producer route.
+  // The local standalone fallback is compared byte-for-byte without normalization.
+  if lSnapshotPlan.BaselineSemanticModelVersion <> lPlan.BaselineSemanticModelVersion then
+  begin
+    Assert.AreEqual('project-snapshot-v1', lSnapshotPlan.BaselineSemanticModelVersion);
+    lSnapshotPlan.BaselineSemanticModelVersion := lPlan.BaselineSemanticModelVersion;
+  end;
+  Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan),
+    lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lSnapshotPlan));
+  Assert.AreEqual(lPlan.Status, lSnapshotPlan.Status);
+  Assert.AreEqual(lPlan.ContextFingerprint, lSnapshotPlan.ContextFingerprint);
+  Assert.AreEqual(Length(lPlan.Edits), Length(lSnapshotPlan.Edits));
+  Assert.AreEqual(Length(lPlan.FinalStatements), Length(lSnapshotPlan.FinalStatements));
+  for var i := 0 to High(lPlan.FinalStatements) do
+  begin
+    Assert.AreEqual(lPlan.FinalStatements[i].SemanticId, lSnapshotPlan.FinalStatements[i].SemanticId);
+    Assert.AreEqual(lPlan.FinalStatements[i].Status, lSnapshotPlan.FinalStatements[i].Status);
+    Assert.AreEqual(lPlan.FinalStatements[i].Reason, lSnapshotPlan.FinalStatements[i].Reason);
+    Assert.AreEqual(lPlan.FinalStatements[i].SafetyReason, lSnapshotPlan.FinalStatements[i].SafetyReason);
+    Assert.AreEqual(lPlan.FinalStatements[i].ReplacementText, lSnapshotPlan.FinalStatements[i].ReplacementText);
+    Assert.AreEqual(Length(lPlan.FinalStatements[i].Temps), Length(lSnapshotPlan.FinalStatements[i].Temps));
+    Assert.AreEqual(Length(lPlan.FinalStatements[i].Edits), Length(lSnapshotPlan.FinalStatements[i].Edits));
+  end;
+  if aMode <> 'cold' then
+    lPlan := lSnapshotPlan;
+  if StartsText('r5-nested-', aShape) or (aShape = 'r6-nested') then
+    Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements)))
+  else
+    Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+  lStatement := lPlan.FinalStatements[0];
+  Assert.IsTrue(SameText('Unit1.pas', TPath.GetFileName(lStatement.FileName)));
+  Assert.AreEqual(lExpectedLine, lStatement.Range.StartLine);
+  Assert.AreEqual(lExpectedColumn, lStatement.Range.StartColumn);
+  Assert.AreNotEqual('', lStatement.SemanticId);
+  if aShape = 'r5-nested-block' then
+  begin
+    lInnerStatement := lPlan.FinalStatements[1];
+    Assert.AreEqual('planned', lInnerStatement.Status);
+    Assert.AreEqual('  lWithOtherPtr := @O;'#13#10 +
+      '  begin'#13#10 +
+      '   Name := ''x''; lWithOtherPtr^.Z := 1;'#13#10 +
+      '  end;', lInnerStatement.ReplacementText);
+    Assert.AreEqual(2, Integer(Length(lInnerStatement.Edits)));
+    Assert.AreEqual(1, Integer(Length(lInnerStatement.Temps)));
+    Assert.AreEqual('declare-temp', lInnerStatement.Edits[0].Kind);
+    Assert.AreEqual('var'#13#10 +
+      '  lWithOtherPtr: ^TOther;'#13#10 +
+      '', lInnerStatement.Edits[0].ReplacementText);
+    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[0].FileName);
+    Assert.AreEqual(14, lInnerStatement.Edits[0].Range.StartLine);
+    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.StartColumn);
+    Assert.AreEqual(14, lInnerStatement.Edits[0].Range.EndLine);
+    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.EndColumn);
+    Assert.AreEqual('replace-statement', lInnerStatement.Edits[1].Kind);
+    Assert.AreEqual('  lWithOtherPtr := @O;'#13#10 +
+      '  begin'#13#10 +
+      '   Name := ''x''; lWithOtherPtr^.Z := 1;'#13#10 +
+      '  end;', lInnerStatement.Edits[1].ReplacementText);
+    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[1].FileName);
+    Assert.AreEqual(18, lInnerStatement.Edits[1].Range.StartLine);
+    Assert.AreEqual(1, lInnerStatement.Edits[1].Range.StartColumn);
+    Assert.AreEqual(21, lInnerStatement.Edits[1].Range.EndLine);
+    Assert.AreEqual(6, lInnerStatement.Edits[1].Range.EndColumn);
+    Assert.AreEqual(1, Integer(Length(lPlan.Edits)), aShape + ': inner plan candidate');
+    Assert.AreEqual('remove-with-candidate', lPlan.Edits[0].Kind);
+    Assert.AreEqual('requires-dak-compatibility-adapter', lPlan.Edits[0].ApplyMode);
+    Assert.AreEqual(lInnerStatement.SemanticId, lPlan.Edits[0].StatementId);
+    Assert.AreEqual(lInnerStatement.FileName, lPlan.Edits[0].FileName);
+    Assert.AreEqual(lPlan.Edits[0].ExpectedSourceText, lPlan.Edits[0].ReplacementText);
+    Assert.AreNotEqual('', lPlan.Edits[0].ExpectedSourceText);
+    Assert.AreEqual(lInnerStatement.Range.StartLine, lPlan.Edits[0].Range.StartLine);
+    Assert.AreEqual(lInnerStatement.Range.StartColumn, lPlan.Edits[0].Range.StartColumn);
+    Assert.AreEqual(lInnerStatement.Range.EndLine, lPlan.Edits[0].Range.EndLine);
+    Assert.AreEqual(lInnerStatement.Range.EndColumn, lPlan.Edits[0].Range.EndColumn);
+  end;
+  if aShape = 'r5-nested-repeat' then
+  begin
+    lInnerStatement := lPlan.FinalStatements[1];
+    Assert.AreEqual('planned', lInnerStatement.Status);
+    Assert.AreEqual(' Name := ''x'';', lInnerStatement.ReplacementText);
+    Assert.AreEqual(1, Integer(Length(lInnerStatement.Edits)));
+    Assert.AreEqual(0, Integer(Length(lInnerStatement.Temps)));
+    Assert.AreEqual('replace-statement', lInnerStatement.Edits[0].Kind);
+    Assert.AreEqual(' Name := ''x'';', lInnerStatement.Edits[0].ReplacementText);
+    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[0].FileName);
+    Assert.AreEqual(16, lInnerStatement.Edits[0].Range.StartLine);
+    Assert.AreEqual(13, lInnerStatement.Edits[0].Range.StartColumn);
+    Assert.AreEqual(16, lInnerStatement.Edits[0].Range.EndLine);
+    Assert.AreEqual(35, lInnerStatement.Edits[0].Range.EndColumn);
+    Assert.AreEqual(1, Integer(Length(lPlan.Edits)), aShape + ': inner plan candidate');
+    Assert.AreEqual('remove-with-candidate', lPlan.Edits[0].Kind);
+    Assert.AreEqual('requires-dak-compatibility-adapter', lPlan.Edits[0].ApplyMode);
+    Assert.AreEqual(lInnerStatement.SemanticId, lPlan.Edits[0].StatementId);
+    Assert.AreEqual(lInnerStatement.FileName, lPlan.Edits[0].FileName);
+    Assert.AreEqual(lPlan.Edits[0].ExpectedSourceText, lPlan.Edits[0].ReplacementText);
+    Assert.AreNotEqual('', lPlan.Edits[0].ExpectedSourceText);
+    Assert.AreEqual(lInnerStatement.Range.StartLine, lPlan.Edits[0].Range.StartLine);
+    Assert.AreEqual(lInnerStatement.Range.StartColumn, lPlan.Edits[0].Range.StartColumn);
+    Assert.AreEqual(lInnerStatement.Range.EndLine, lPlan.Edits[0].Range.EndLine);
+    Assert.AreEqual(lInnerStatement.Range.EndColumn, lPlan.Edits[0].Range.EndColumn);
+  end;
+  if aShape = 'r5-nested-single' then
+  begin
+    lInnerStatement := lPlan.FinalStatements[1];
+    Assert.AreEqual('planned', lInnerStatement.Status);
+    Assert.AreEqual('begin'#13#10 +
+      '            lWithOtherPtr := @O;'#13#10 +
+      ' Name := ''x'';'#13#10 +
+      '            end;', lInnerStatement.ReplacementText);
+    Assert.AreEqual(2, Integer(Length(lInnerStatement.Edits)));
+    Assert.AreEqual(1, Integer(Length(lInnerStatement.Temps)));
+    Assert.AreEqual('declare-temp', lInnerStatement.Edits[0].Kind);
+    Assert.AreEqual('var'#13#10 +
+      '  lWithOtherPtr: ^TOther;'#13#10 +
+      '', lInnerStatement.Edits[0].ReplacementText);
+    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[0].FileName);
+    Assert.AreEqual(14, lInnerStatement.Edits[0].Range.StartLine);
+    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.StartColumn);
+    Assert.AreEqual(14, lInnerStatement.Edits[0].Range.EndLine);
+    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.EndColumn);
+    Assert.AreEqual('replace-statement', lInnerStatement.Edits[1].Kind);
+    Assert.AreEqual('begin'#13#10 +
+      '            lWithOtherPtr := @O;'#13#10 +
+      ' Name := ''x'';'#13#10 +
+      '            end;', lInnerStatement.Edits[1].ReplacementText);
+    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[1].FileName);
+    Assert.AreEqual(16, lInnerStatement.Edits[1].Range.StartLine);
+    Assert.AreEqual(13, lInnerStatement.Edits[1].Range.StartColumn);
+    Assert.AreEqual(16, lInnerStatement.Edits[1].Range.EndLine);
+    Assert.AreEqual(34, lInnerStatement.Edits[1].Range.EndColumn);
+    Assert.AreEqual(1, Integer(Length(lPlan.Edits)), aShape + ': inner plan candidate');
+    Assert.AreEqual('remove-with-candidate', lPlan.Edits[0].Kind);
+    Assert.AreEqual('requires-dak-compatibility-adapter', lPlan.Edits[0].ApplyMode);
+    Assert.AreEqual(lInnerStatement.SemanticId, lPlan.Edits[0].StatementId);
+    Assert.AreEqual(lInnerStatement.FileName, lPlan.Edits[0].FileName);
+    Assert.AreEqual(lPlan.Edits[0].ExpectedSourceText, lPlan.Edits[0].ReplacementText);
+    Assert.AreNotEqual('', lPlan.Edits[0].ExpectedSourceText);
+    Assert.AreEqual(lInnerStatement.Range.StartLine, lPlan.Edits[0].Range.StartLine);
+    Assert.AreEqual(lInnerStatement.Range.StartColumn, lPlan.Edits[0].Range.StartColumn);
+    Assert.AreEqual(lInnerStatement.Range.EndLine, lPlan.Edits[0].Range.EndLine);
+    Assert.AreEqual(lInnerStatement.Range.EndColumn, lPlan.Edits[0].Range.EndColumn);
+  end;
+  if aShape = 'r5-nested-weak-strong' then
+  begin
+    lInnerStatement := lPlan.FinalStatements[1];
+    Assert.AreEqual('planned', lInnerStatement.Status);
+    Assert.AreEqual('begin'#13#10 +
+      '            lWithOtherPtr := @O;'#13#10 +
+      ' Name := ''x'';'#13#10 +
+      '            end;', lInnerStatement.ReplacementText);
+    Assert.AreEqual(2, Integer(Length(lInnerStatement.Edits)));
+    Assert.AreEqual(1, Integer(Length(lInnerStatement.Temps)));
+    Assert.AreEqual('declare-temp', lInnerStatement.Edits[0].Kind);
+    Assert.AreEqual('var'#13#10 +
+      '  lWithOtherPtr: ^TOther;'#13#10 +
+      '', lInnerStatement.Edits[0].ReplacementText);
+    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[0].FileName);
+    Assert.AreEqual(15, lInnerStatement.Edits[0].Range.StartLine);
+    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.StartColumn);
+    Assert.AreEqual(15, lInnerStatement.Edits[0].Range.EndLine);
+    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.EndColumn);
+    Assert.AreEqual('replace-statement', lInnerStatement.Edits[1].Kind);
+    Assert.AreEqual('begin'#13#10 +
+      '            lWithOtherPtr := @O;'#13#10 +
+      ' Name := ''x'';'#13#10 +
+      '            end;', lInnerStatement.Edits[1].ReplacementText);
+    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[1].FileName);
+    Assert.AreEqual(17, lInnerStatement.Edits[1].Range.StartLine);
+    Assert.AreEqual(13, lInnerStatement.Edits[1].Range.StartColumn);
+    Assert.AreEqual(17, lInnerStatement.Edits[1].Range.EndLine);
+    Assert.AreEqual(34, lInnerStatement.Edits[1].Range.EndColumn);
+    Assert.AreEqual(1, Integer(Length(lPlan.Edits)), aShape + ': inner plan candidate');
+    Assert.AreEqual('remove-with-candidate', lPlan.Edits[0].Kind);
+    Assert.AreEqual('requires-dak-compatibility-adapter', lPlan.Edits[0].ApplyMode);
+    Assert.AreEqual(lInnerStatement.SemanticId, lPlan.Edits[0].StatementId);
+    Assert.AreEqual(lInnerStatement.FileName, lPlan.Edits[0].FileName);
+    Assert.AreEqual(lPlan.Edits[0].ExpectedSourceText, lPlan.Edits[0].ReplacementText);
+    Assert.AreNotEqual('', lPlan.Edits[0].ExpectedSourceText);
+    Assert.AreEqual(lInnerStatement.Range.StartLine, lPlan.Edits[0].Range.StartLine);
+    Assert.AreEqual(lInnerStatement.Range.StartColumn, lPlan.Edits[0].Range.StartColumn);
+    Assert.AreEqual(lInnerStatement.Range.EndLine, lPlan.Edits[0].Range.EndLine);
+    Assert.AreEqual(lInnerStatement.Range.EndColumn, lPlan.Edits[0].Range.EndColumn);
+  end;
+  if aShape = 'r6-nested' then
+  begin
+    lInnerStatement := lPlan.FinalStatements[1];
+    Assert.AreEqual('planned', lInnerStatement.Status);
+    Assert.AreEqual('    begin'#13#10 +
+      '      lWithOtherPtr := @O;'#13#10 +
+      '      begin'#13#10 +
+      '      lWithOtherPtr^.Z := 1;'#13#10 +
+      '      Foo;'#13#10 +
+      '    end;'#13#10 +
+      '    end;', lInnerStatement.ReplacementText);
+    Assert.AreEqual(2, Integer(Length(lInnerStatement.Edits)));
+    Assert.AreEqual(1, Integer(Length(lInnerStatement.Temps)));
+    Assert.AreEqual('declare-temp', lInnerStatement.Edits[0].Kind);
+    Assert.AreEqual('var'#13#10 +
+      '  lWithOtherPtr: ^TOther;'#13#10 +
+      '', lInnerStatement.Edits[0].ReplacementText);
+    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[0].FileName);
+    Assert.AreEqual(45, lInnerStatement.Edits[0].Range.StartLine);
+    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.StartColumn);
+    Assert.AreEqual(45, lInnerStatement.Edits[0].Range.EndLine);
+    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.EndColumn);
+    Assert.AreEqual('replace-statement', lInnerStatement.Edits[1].Kind);
+    Assert.AreEqual('    begin'#13#10 +
+      '      lWithOtherPtr := @O;'#13#10 +
+      '      begin'#13#10 +
+      '      lWithOtherPtr^.Z := 1;'#13#10 +
+      '      Foo;'#13#10 +
+      '    end;'#13#10 +
+      '    end;', lInnerStatement.Edits[1].ReplacementText);
+    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[1].FileName);
+    Assert.AreEqual(48, lInnerStatement.Edits[1].Range.StartLine);
+    Assert.AreEqual(1, lInnerStatement.Edits[1].Range.StartColumn);
+    Assert.AreEqual(52, lInnerStatement.Edits[1].Range.EndLine);
+    Assert.AreEqual(8, lInnerStatement.Edits[1].Range.EndColumn);
+    Assert.AreEqual(1, Integer(Length(lPlan.Edits)), aShape + ': inner plan candidate');
+    Assert.AreEqual('remove-with-candidate', lPlan.Edits[0].Kind);
+    Assert.AreEqual('requires-dak-compatibility-adapter', lPlan.Edits[0].ApplyMode);
+    Assert.AreEqual(lInnerStatement.SemanticId, lPlan.Edits[0].StatementId);
+    Assert.AreEqual(lInnerStatement.FileName, lPlan.Edits[0].FileName);
+    Assert.AreEqual(lPlan.Edits[0].ExpectedSourceText, lPlan.Edits[0].ReplacementText);
+    Assert.AreNotEqual('', lPlan.Edits[0].ExpectedSourceText);
+    Assert.AreEqual(lInnerStatement.Range.StartLine, lPlan.Edits[0].Range.StartLine);
+    Assert.AreEqual(lInnerStatement.Range.StartColumn, lPlan.Edits[0].Range.StartColumn);
+    Assert.AreEqual(lInnerStatement.Range.EndLine, lPlan.Edits[0].Range.EndLine);
+    Assert.AreEqual(lInnerStatement.Range.EndColumn, lPlan.Edits[0].Range.EndColumn);
+  end;
+  if not lRefused then
+  begin
+    Assert.AreEqual('planned', lStatement.Status, aShape + ': ' + lStatement.Reason);
+    Assert.AreEqual(lExpected, lStatement.ReplacementText);
+    Assert.AreEqual(lExpectedEdits, Integer(Length(lStatement.Edits)));
+    Exit;
+  end;
+  Assert.AreEqual('skipped', lStatement.Status, aShape + ': ' + lStatement.Reason);
+  if lLocal then
+    Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED', lStatement.SafetyReason)
+  else if MatchText(aShape, ['r5-multi-name', 'r5-multi-size', 'r5-multi-indexed',
+    'r5-comment-name', 'r5-comment-size', 'r5-comment-indexed',
+    'r5-chain-second-name', 'r5-chain-second-size', 'r5-chain-second-indexed']) then
+    Assert.AreEqual('type-source-not-indexed', lStatement.SafetyReason)
+  else
+    Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)), aShape + ': statement Edits');
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)), aShape + ': statement Temps');
+  if MatchText(aShape, ['r5-multi-name', 'r5-multi-size', 'r5-multi-indexed',
+    'r5-comment-name', 'r5-comment-size', 'r5-comment-indexed',
+    'r5-chain-second-name', 'r5-chain-second-size', 'r5-chain-second-indexed']) then
+  begin
+    // The compatibility candidate is bookkeeping; it must preserve every source byte.
+    Assert.AreEqual(1, Integer(Length(lPlan.Edits)), aShape + ': no-op plan candidate');
+    Assert.AreEqual('remove-with-candidate', lPlan.Edits[0].Kind);
+    Assert.AreEqual('requires-dak-compatibility-adapter', lPlan.Edits[0].ApplyMode);
+    Assert.AreEqual(lStatement.SemanticId, lPlan.Edits[0].StatementId);
+    Assert.AreEqual(lStatement.FileName, lPlan.Edits[0].FileName);
+    Assert.AreEqual(lStatement.Range.StartLine, lPlan.Edits[0].Range.StartLine);
+    Assert.AreEqual(lStatement.Range.StartColumn, lPlan.Edits[0].Range.StartColumn);
+    Assert.AreEqual(lStatement.Range.EndLine, lPlan.Edits[0].Range.EndLine);
+    Assert.AreEqual(lStatement.Range.EndColumn, lPlan.Edits[0].Range.EndColumn);
+    Assert.AreEqual(lPlan.Edits[0].ExpectedSourceText, lPlan.Edits[0].ReplacementText);
+    Assert.AreNotEqual('', lPlan.Edits[0].ExpectedSourceText);
+  end else if (not StartsText('r5-nested-', aShape)) and (aShape <> 'r6-nested') then
+    Assert.AreEqual(0, Integer(Length(lPlan.Edits)), aShape + ': plan Edits');
+end;
+
+procedure TWithBinderTests.AliasRefusalPreservesLocalTypeReason;
+var
+  lRoot: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+begin
+  lRoot := WithBinderTempPath('DS741-alias-refusal-precedence');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10 +
+    'interface procedure Run;'#13#10 +
+    'implementation'#13#10 +
+    'procedure Run;'#13#10 +
+    'type TAlias = TUnknown;'#13#10 +
+    'var Item: TAlias;'#13#10 +
+    'begin with Item do Caption := 1; end;'#13#10 +
+    'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin Run; end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  Assert.AreEqual('unsupported', lFacts.Bindings[0].Selectors[0].Status);
+  Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED',
+    lFacts.Bindings[0].Selectors[0].ReasonCode);
+  Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED', ReasonOf(lFacts.Bindings[0], 'Caption', 'unsupported'));
+end;
+
+procedure TWithBinderTests.AliasReceiverUnverifiedFamiliesRemainRefused(const aShape, aMode: string);
+begin
+  ValueMembersColdWarmSnapshot(aShape, aMode);
+end;
+
+function DS741ExpectedReplacement(const aShape: string): string;
+begin
+  Result := '';
+  if aShape = 'partial-weak-global' then
+    Exit(
+      ' Item.A := Item.Count;');
+  if aShape = 'partial-weak-noglobal' then
+    Exit(
+      ' Item.A := Item.Count;');
+  if aShape = 'partial-strong-global' then
+    Exit(
+      ' Item.A := Item.Count;');
+  if aShape = 'strong-alias-qualified-target' then
+    Exit(
+      ' Rec.A := Rec.Count;');
+  if aShape = 'nested-parent-trigger' then
+    Exit(
+      ' begin Writeln(Item.Count);                                      lWithOtherPtr := @Other;'#13#10 +
+      ' Item.A := lWithOtherPtr^.B; end;');
+  if aShape = 'nested-parent-noglobal' then
+    Exit(
+      ' begin Writeln(Item.Count);                                      lWithOtherPtr := @Other;'#13#10 +
+      ' Item.A := lWithOtherPtr^.B; end;');
+  if aShape = 'nested-child-trigger' then
+    Exit(
+      ' begin Item.A := 5;                              lWithOtherPtr := @Other;'#13#10 +
+      ' lWithOtherPtr^.B := Item.Count; end;');
+  if aShape = 'nested-three-level' then
+    Exit(
+      ' begin Item.A := 5;                              lWithOtherPtr := @Other;'#13#10 +
+      ' begin                                                  lWithExtraPtr := @Extra;'#13#10 +
+      ' lWithExtraPtr^.C := Item.Count; end; end;');
+  if aShape = 'nested-siblings' then
+    Exit(
+      ' begin                      lWithOtherPtr := @Other;'#13#10 +
+      ' lWithOtherPtr^.B := Item.Count;                                                lWithExtraPtr := @Extra;'#13#10 +
+      ' lWithExtraPtr^.C := Item.A; end;');
+  if aShape = 'partial-noconst-control' then
+    Exit(
+      ' Item.A := 7;');
+  if aShape = 'nested-unrelated-control' then
+    Exit(
+      ' begin Item.A := Item.Count;                                  lWithOtherPtr := @Other;'#13#10 +
+      ' lWithOtherPtr^.B := 1; end;');
+  if aShape = 'partial-cascade' then
+    Exit(
+      ' begin Item.A := 5;                            lWithOtherPtr := @Other;'#13#10 +
+      ' lWithOtherPtr^.B := Item.Count; try Item.A := 6; except on Exception do begin'#13#10 +
+      '                                                                                        lWithExtraPtr := @Extra;'#13#10 +
+      ' lWithExtraPtr^.C := 1;'#13#10 +
+      '                                                                                        end; end; end;');
+end;
+
 procedure TWithBinderTests.ValueMembersColdWarmSnapshot(const aShape, aMode: string);
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
@@ -7875,13 +14111,16 @@ var
   lIdentity: TDelphiSemanticSnapshotCacheIdentity;
   lStored, lLoaded: TDelphiProjectSnapshot;
   lShape, lSource: string;
-  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lStatement, lInnerStatement: TDelphiSemanticRemoveWithFinalStatement;
   lSession: TDelphiSemanticProjectSessionResult;
   lSessionBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lExpectedStatements, lMatchedStatements, lMatches: Integer;
 begin
   lRoot := WithBinderTempPath('DS731-persistence-' + aShape + '-' + aMode);
   TDirectory.CreateDirectory(lRoot);
   lShape := aShape;
+  if aShape = 'rmpv-compiling-anon-field' then
+    lShape := 'anon-partial-field';
   if StartsText('inactive-tag-', aShape) then
     lShape := 'anonymous-inactive';
   lType := 'var'#13#10'  Rec: record'#13#10'    A: Integer;'#13#10 +
@@ -8091,6 +14330,25 @@ begin
       lBody := 'with Rec^ do begin A := Count; lOutside := 1; end;';
     end;
   end;
+  if EndsText('-forward-ancestor', lShape) then
+  begin
+    // DS-741 Q2: retain RMPV for the partial, nested and cascade families.
+    lType := 'type'#13#10'  TBase = class;'#13#10 +
+      '  TItem = class(TBase)'#13#10'    const Count = 7;'#13#10'  end;'#13#10 +
+      '  TOther = record B: Integer; end;'#13#10 +
+      '  TExtra = record C: Integer; end;'#13#10 +
+      'var'#13#10'  Item: TItem;'#13#10'  Other: TOther;'#13#10'  Extra: TExtra;';
+    lGlobal := 'var A: Integer; Count: Integer;';
+    lBody := 'with Item do A := Count;';
+    if lShape = 'nested-forward-ancestor' then
+      lBody := 'with Item do begin Writeln(Count); with Other do A := B; end;';
+    if lShape = 'partial-cascade-forward-ancestor' then
+    begin
+      lType := 'uses System.SysUtils;'#13#10 + lType;
+      lBody := 'with Item do begin A := Count; with Other do B := Count; ' +
+        'try A := 6; except on Exception do with Extra do C := 1; end; end;';
+    end;
+  end;
   if lShape = 'tag-only' then
   begin
     // Header-on-type-line inventory cannot hide a lost tag-only model array.
@@ -8219,6 +14477,12 @@ begin
   lSource := 'unit Unit1;'#13#10'interface'#13#10 + lType + #13#10 + lGlobal +
     #13#10'implementation'#13#10 + lImplementation + 'procedure Run;'#13#10 + lLocal +
     #13#10'begin'#13#10'  ' + lBody + #13#10'end;'#13#10'end.'#13#10;
+  if aShape = 'rmpv-compiling-anon-field' then
+  begin
+    lSource := lSource.Replace('interface'#13#10, 'interface'#13#10'procedure Run;'#13#10);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+      'program P; {$APPTYPE CONSOLE} uses Unit1, ControlUnit; begin Unit1.Run; end.', TEncoding.ASCII);
+  end;
   if EndsText('-lf', aShape) then
     lSource := lSource.Replace(#13#10, #10);
   TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
@@ -8326,11 +14590,33 @@ begin
   end;
 
   Assert.AreEqual(Length(lPlan.FinalStatements), Length(lSnapshotPlan.FinalStatements));
-  if StartsText('nested-', lShape) and (not EndsText('-control', lShape)) then
-    Assert.AreEqual(3 + Ord(MatchText(lShape, ['nested-three-level', 'nested-siblings'])),
-      Integer(Length(lPlan.FinalStatements)), 'Outer and dependent nested refusals remain visible.')
-  else
-    Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements)), lShape + ': ' + lPlan.FinalStatements[0].Reason);
+  if EndsText('-forward-ancestor', lShape) or (aShape = 'rmpv-compiling-anon-field') then
+  begin
+    lExpectedStatements := 1;
+    if lShape = 'nested-forward-ancestor' then
+      lExpectedStatements := 2
+    else if lShape = 'partial-cascade-forward-ancestor' then
+      lExpectedStatements := 3;
+    Assert.AreEqual(lExpectedStatements + 1, Integer(Length(lPlan.FinalStatements)), lShape);
+    lMatchedStatements := 0;
+    for var lBinding in lFacts.Bindings do
+      if SameText(ExtractFileName(lBinding.FileName), 'Unit1.pas') then
+      begin
+        Inc(lMatchedStatements);
+        lMatches := 0;
+        for lStatement in lPlan.FinalStatements do
+          if lStatement.SemanticId = lBinding.SemanticId then
+          begin
+            Inc(lMatches);
+            Assert.AreEqual(lBinding.FileName, lStatement.FileName);
+            Assert.AreEqual(lBinding.Line, lStatement.Range.StartLine);
+            Assert.AreEqual(lBinding.Column, lStatement.Range.StartColumn);
+          end;
+        Assert.AreEqual(1, lMatches, 'Every expected WITH identity must survive planning.');
+      end;
+    Assert.AreEqual(lExpectedStatements, lMatchedStatements, lShape);
+  end else
+    Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements)), lShape);
   for var i := 0 to High(lPlan.FinalStatements) do
   begin
     Assert.AreEqual(lPlan.FinalStatements[i].Status, lSnapshotPlan.FinalStatements[i].Status);
@@ -8344,7 +14630,23 @@ begin
   for lStatement in lPlan.FinalStatements do
     if SameText(ExtractFileName(lStatement.FileName), 'Unit1.pas') then
     begin
-      if StartsText('nested-', lShape) and (not EndsText('-control', lShape)) then
+      if DS741ExpectedReplacement(lShape) <> '' then
+      begin
+        Assert.AreEqual('planned', lStatement.Status, lShape + ': ' + lStatement.Reason);
+        Assert.AreEqual(DS741ExpectedReplacement(lShape), lStatement.ReplacementText);
+        Continue;
+      end else if EndsText('-forward-ancestor', lShape) or
+        (aShape = 'rmpv-compiling-anon-field') then
+      begin
+        Assert.AreEqual('skipped', lStatement.Status, lShape + ': ' + lStatement.Reason);
+        Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.SafetyReason);
+        Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+        Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+        Assert.AreEqual('', lStatement.ReplacementText);
+        for var lEdit in lPlan.Edits do
+          Assert.AreNotEqual(lStatement.SemanticId, lEdit.StatementId);
+        Continue;
+      end else if StartsText('nested-', lShape) and (not EndsText('-control', lShape)) then
       begin
         Assert.AreEqual('skipped', lStatement.Status, lShape + ': ' + lStatement.Reason);
         Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.SafetyReason);
@@ -9051,6 +15353,93 @@ begin
   end;
 end;
 
+procedure TWithBinderTests.AliasFieldUsesDeclaredReceiverIdentity(const aCase: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
+begin
+  lPath := WithBinderTempPath('ds741-owner-' + aCase + '.pas');
+  TFile.WriteAllText(lPath,
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'type'#13#10 +
+      '  TOuter = record'#13#10 +
+      '    A: Integer;'#13#10 +
+      '  end;'#13#10 +
+      '  TInner = record'#13#10 +
+      '    var A: Integer;'#13#10 +
+      '  end;'#13#10 +
+      '  TAlias = TInner;'#13#10 +
+      'var'#13#10 +
+      '  Outer: TOuter;'#13#10 +
+      '  Item: TAlias;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      '  with Outer, Item do A := 7;'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  SetLength(lModels, 1);
+  lModels[0] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModels[0].Success);
+  lFacts := TDelphiSemanticWithBinder.BindProject('ds741-owner-' + aCase, nil, lModels);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  Assert.IsTrue(HasReference(lFacts.Bindings[0], 'A', 'member'));
+  // Hand-built target decision isolates owner matching from the pre-existing
+  // multi-selector alias-shape guard. The binder alias route is tested separately.
+  lFacts.Bindings[0].Selectors[1].TypeName := 'TInner';
+  for var lSymbol in lFacts.Symbols do
+    if (lSymbol.Name = 'A') and (lSymbol.OwnerName = 'TInner') and
+      (lSymbol.OwnerIdentity.DeclaredId.Value <> '') then
+      lFacts.Bindings[0].Selectors[1].TypeIdentity := lSymbol.OwnerIdentity;
+  if aCase = 'foreign' then
+  begin
+    // A hand-built binder reference whose declaring owner is in no selected lineage.
+    for var i := 0 to High(lFacts.Bindings[0].References) do
+      if lFacts.Bindings[0].References[i].Name = 'A' then
+      begin
+        lFacts.Bindings[0].References[i].Classification := 'member';
+        lFacts.Bindings[0].References[i].LookupSource := 'receiver';
+        lFacts.Bindings[0].References[i].ReceiverTypeName := 'UnselectedReceiver';
+      end;
+    for var i := 0 to High(lFacts.Symbols) do
+      if lFacts.Symbols[i].Name = 'A' then
+      begin
+        lFacts.Symbols[i].OwnerName := 'UnselectedReceiver';
+        lFacts.Symbols[i].OwnerType := 'UnselectedReceiver';
+        lFacts.Symbols[i].SourceOwnerType := 'UnselectedReceiver';
+      end;
+    lFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(nil, lFacts.Symbols);
+  end;
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+  Assert.AreEqual(lPlan.FinalStatements[0].Status, lSnapshotPlan.FinalStatements[0].Status);
+  Assert.AreEqual(lPlan.FinalStatements[0].ReplacementText, lSnapshotPlan.FinalStatements[0].ReplacementText);
+  if aCase = 'homonym' then
+  begin
+    Assert.AreEqual('TInner', ReceiverOf(lFacts.Bindings[0], 'A', 'member'));
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('  lWithOuterPtr := @Outer;'#13#10 +
+      '  lWithInnerPtr := @Item;'#13#10 +
+      ' lWithInnerPtr^.A := 7;', lPlan.FinalStatements[0].ReplacementText);
+  end else begin
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual('receiver-member-unqualified', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual(lPlan.FinalStatements[0].Reason, lSnapshotPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+    Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Temps)));
+    Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Edits)));
+    Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+  end;
+end;
+
 procedure TWithBinderTests.ValueMemberWithoutReceiverMatchRemovesCandidate;
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
@@ -9079,6 +15468,7 @@ begin
   Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
   Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
 end;
+
 
 procedure TWithBinderTests.ValueMemberReceiverDecisions(const aCase: string);
 var
@@ -9524,18 +15914,11 @@ begin
   end;
   if aActivity = 'partial-cascade' then
   begin
-    Assert.AreEqual<Integer>(3, Length(lPlan.FinalStatements), aActivity);
-    Assert.AreEqual<Integer>(3, Length(lSnapshotPlan.FinalStatements), aActivity);
-    for i := 0 to High(lPlan.FinalStatements) do
-    begin
-      Assert.AreEqual('skipped', lPlan.FinalStatements[i].Status, aActivity);
-      Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED',
-        lPlan.FinalStatements[i].Reason, aActivity);
-      Assert.AreEqual(lPlan.FinalStatements[i].Reason,
-        lSnapshotPlan.FinalStatements[i].Reason, aActivity);
-      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[i].Edits), aActivity);
-      Assert.AreEqual<Integer>(0, Length(lSnapshotPlan.FinalStatements[i].Edits), aActivity);
-    end;
+    Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aActivity);
+    Assert.AreEqual<Integer>(1, Length(lSnapshotPlan.FinalStatements), aActivity);
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual(DS741ExpectedReplacement(aActivity), lPlan.FinalStatements[0].ReplacementText);
+    Assert.AreEqual(DS741ExpectedReplacement(aActivity), lSnapshotPlan.FinalStatements[0].ReplacementText);
     Exit;
   end;
   Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aActivity);

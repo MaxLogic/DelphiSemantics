@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- WITH alias receivers qualify verified members or refuse references lacking indexed absence proof, including absorbed nested WITH bodies. Strong RTL aliases refuse. Weak aliases to a unique RTL/profile record retain earlier compatibility handling only with projected alias rows; DS-742 missing-profile-member limits remain. Aliases declared on the same line as TYPE currently refuse with zero edits, retaining `ALIAS_RECEIVER_MEMBERS_UNVERIFIED` or the earlier `type-source-not-indexed` reason for the affected layout. Affected WITH-fact and snapshot caches rebuild.
 - Remove-with preserves code before a rewritten WITH and keeps multi-statement replacements under retained controls without wrapping children absorbed by a planned parent.
 - WITH binding recognizes receiver-owned type constants and variant-record tags. Remove-with qualifies verified receiver members and refuses unsafe helper, visibility and anonymous-record homonyms without candidate edits. Standalone SQLite planning retains verified value-member evidence and source activity. Affected model, WITH-fact and snapshot caches rebuild.
 - Remove-with refuses an outer WITH when its body contains a known-inactive WITH token, even when the nested body has no rewritten name. Inactive includes also refuse, and contained WITH statements cannot retain independent edits. Comments, strings and escaped identifiers are excluded. Earlier refusals keep precedence; affected WITH facts and snapshot caches rebuild.

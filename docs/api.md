@@ -4,6 +4,77 @@ Use `DelphiSemantics.Api` for common project and semantic-index operations.
 It gives DAK and future integrations one stable entry unit. Lower-level units
 remain available for focused tests and internal implementation.
 
+## Alias receiver members
+
+WITH binding follows weak and strong alias targets through their verified DeclaredId
+lineage. Fields, methods and class variables retain the declaring owner's name;
+constants and variant tags retain the selector type name. Remove-with matches binder
+receiver members against decision lineages, innermost first, before its inventory
+fallback. Binder receiver members bypass lexical unchanged exemptions. A member
+without a usable qualification refuses with `receiver-member-unqualified`.
+
+A strong alias with a possibly applicable indexed or unindexed helper refuses with
+`ALIAS_RECEIVER_MEMBERS_UNVERIFIED`, retaining no edits, temporaries, replacement
+text or candidate. Unresolved helper targets remain conservative. A chain with
+any strong alias also refuses when a reference may be its member and cannot
+be qualified, including references inside absorbed nested WITH statements. This
+covers unindexed RTL/profile terminals and plain TSearchRec.Name or Size accesses.
+WITH-facts generation 64 and snapshot generation 49 invalidate earlier entries.
+
+Alias receivers whose target lineage cannot be verified refuse with
+`ALIAS_RECEIVER_MEMBERS_UNVERIFIED` and no candidate edits. This includes
+generic instantiations, including receivers without a declaration identity.
+Routine-local strong aliases retain `ROUTINE_LOCAL_TYPE_UNSUPPORTED`, including
+when a nested routine captures a receiver typed by an enclosing routine alias.
+Verified weak aliases from enclosing routines still qualify their members. Escaped target identifiers (`&Ident`) use the
+ordinary identifier spelling for lookup. A missing extracted alias declaration
+does not authorize lexical fallback: a matching source-token alias candidate
+causes conservative refusal. Weak aliases ending at a unique, unshadowed
+compiler-profile RTL record (including `TDB_SearchRec = TSearchRec`) retain
+their earlier handling only when every alias has a matching projected
+`type-member` row. The known DS-742 gaps for members absent from that profile
+remain. This compatibility boundary does not apply to strong alias chains.
+Every other bare reference under an alias receiver, including ambiguous overloads
+used without parentheses, requires indexed proof of member absence; otherwise
+the whole WITH refuses with the alias safety reason.
+This check includes references carried by absorbed nested WITH statements and
+preserves earlier, more specific refusals. Aliases declared on the same line
+as TYPE currently lack the required projection and refuse with zero edits.
+The inline layout uses `ALIAS_RECEIVER_MEMBERS_UNVERIFIED`; multiple declarations
+on one line, a comment after TYPE, and a missing projection on the second alias
+link retain the earlier `type-source-not-indexed` reason. Other layouts without
+extracted alias projections also refuse safely.
+
+For a strong alias, any helper target resolving to an alias is treated as
+possibly applicable, even when the helper's immediate alias identity is outside
+the receiver lineage. Such receivers refuse with the same alias safety reason.
+Weak-alias helper receivers keep their existing resolution and refusal rules;
+this slice does not resolve helpers through strong aliases.
+
+Call references preserve `ALIAS_RECEIVER_MEMBERS_UNVERIFIED` rather than
+replacing it with `CALL_SELECTOR_UNSUPPORTED`. Calls through unverified generic
+aliases and strong aliases with possibly applicable helpers therefore refuse
+with zero edits. Verified plain, weak-alias and strong-alias method calls keep
+their ordinary qualified plans. Missing-identity alias scans are memoized for
+the lifetime of the project member index; the memo includes negative results.
+
+A routine-local receiver also refuses when its enclosing routine chain cannot
+be proved uniquely, including forward-declared nested routines. The established
+`ROUTINE_LOCAL_TYPE_UNSUPPORTED` reason takes precedence. Alias receivers refuse
+with `ALIAS_RECEIVER_MEMBERS_UNVERIFIED` when a qualified, indexed or call-selector
+fallback leaves a reference bare. Existing source qualifications and more specific
+refusals remain authoritative. Indexed and qualified binding checks the receiver
+root before lexical fallback so it preserves an alias refusal. This guard does
+not add member qualification through alias target types.
+
+The syntax-fallback guard preserves the existing weak-alias RTL record
+boundary only when the target is the unique compatibility-profile record and
+no project declaration shadows it. The check runs once per selector decision,
+using declaration lookups already memoized per plan. Strong RTL record aliases
+refuse at the binder boundary: a TSearchRec alias with a global Name homonym can
+otherwise rewrite to the global variable. This weak-alias exception grants no new
+member qualification or member-absence proof.
+
 ## Receiver-owned constants and variant tags
 
 Receiver-owned constants and variant-record tags are published in
@@ -82,7 +153,7 @@ both model-backed and evidence-backed planner queries consume the same view.
 Header and per-owner counts explicitly witness empty sets. Missing, partial or
 obsolete row sets invalidate the project entry before planning. No complete
 models or serialized envelope are stored by the snapshot cache. Parser generation
-70, WITH-facts 63 and snapshot generation 48 invalidate earlier cache generations.
+70, WITH-facts 64 and snapshot generation 49 invalidate earlier cache generations.
 Rename and find-usages retain their conservative behavior; member-correct
 type-value rename is tracked in DS-718.
 The anonymous `class var` refusal remains conservative: inventory may anchor
@@ -405,3 +476,10 @@ Context member hits must have a declaration identity in the receiver lineage,
 including same-unit hits. A routine-local homonym cannot supply a unit-level member.
 Include-line containment authority and its persisted rows were removed after
 mutation proof left S1 and origin-activity behavior unchanged.
+
+Verified local receivers through aliases remain warm-unreachable on standalone and warm-session SQLite routes (DS-743): the pre-existing guard rejects them with `Snapshot local receiver scope chain is incomplete.` and invalidates the cache entry. The session rebuilds cold; unit-scope aliases support persisted-cache hits.
+
+Alias-lineage and strong-alias helper refusals preserve established selector and
+statement refusal reasons. An unfinalizable local alias retains
+`ROUTINE_LOCAL_TYPE_UNSUPPORTED`; the alias safety rule applies only after
+existing resolution and planning checks permit the receiver.

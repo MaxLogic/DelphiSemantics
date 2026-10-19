@@ -234,6 +234,8 @@ type
     function UnverifiedValueMemberMayApply(const aOwnerType, aName: string): Boolean; overload;
     function UnverifiedValueMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean; overload;
+    function ReceiverLineageDeclaresMember(const aOwnerIdentity: TDelphiSemanticTypeIdentity;
+      const aOwnerName, aName: string): Boolean;
     function UnverifiedReceiverMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
     procedure AttachValueMemberModels(const aModels: TArray<TDelphiSemanticUnitModel>);
@@ -293,6 +295,8 @@ type
 
   IDelphiSemanticRemoveWithValueEvidence = interface
     ['{AF3CBB02-1895-4585-9549-01FB130F53D8}']
+    function ReceiverLineageDeclaresMember(const aOwnerIdentity: TDelphiSemanticTypeIdentity;
+      const aOwnerName, aName: string): Boolean;
     function UnverifiedReceiverMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
     function UnverifiedValueMemberMayApply(const aOwnerType, aName: string): Boolean; overload;
@@ -378,6 +382,8 @@ type
     function UnverifiedValueMemberMayApply(const aOwnerType, aName: string): Boolean; overload;
     function UnverifiedValueMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean; overload;
+    function ReceiverLineageDeclaresMember(const aOwnerIdentity: TDelphiSemanticTypeIdentity;
+      const aOwnerName, aName: string): Boolean;
     function UnverifiedReceiverMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
     procedure AttachValueMemberModels(const aModels: TArray<TDelphiSemanticUnitModel>);
@@ -441,6 +447,13 @@ type
     fValueMemberNames: TDictionary<string, Byte>;
     fUnverifiedValueOwners: TDictionary<string, Byte>;
     fHelperValueNames: TDictionary<string, Byte>;
+    fHelperTargetDeclaredIds: TDictionary<string, Byte>;
+    fUnindexedAliases: TDictionary<string, Boolean>;
+    fHasUnresolvedHelperTarget: Boolean;
+    procedure BuildHelperTargetIndex;
+    function TryResolveAliasTargetSelector(const aModel: TDelphiSemanticUnitModel;
+      const aSite: TReceiverLookupSite; const aSelector: TDelphiSemanticWithSelectorBinding;
+      out aTarget: TDelphiSemanticWithSelectorBinding; out aRefusal: string): Boolean;
     procedure BuildValueMemberIndex;
     function ResolveValueEvidenceType(const aName: string;
       const aContext: TDelphiSemanticTypeIdentity): TDelphiSemanticTypeLookupResult;
@@ -475,6 +488,7 @@ type
     function TryResolveSelectorIdentity(const aOriginModel: TDelphiSemanticUnitModel;
       const aOriginSectionKind, aOriginScopeId, aTypeName: string;
       out aIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function UnindexedAliasMayApply(const aTypeName: string): Boolean;
     function IsUnsupportedRoutineLocalType(const aOriginModel: TDelphiSemanticUnitModel;
       const aOriginSectionKind, aOriginScopeId, aTypeName: string): Boolean;
     function TryResolveTypeOriginScope(const aDeclaringModel,
@@ -1261,6 +1275,45 @@ begin
   Result := UnverifiedMemberMayApply(aOwnerType, aName, aOwnerIdentity, False);
 end;
 
+function TDelphiSemanticRemoveWithLookupIndexData.ReceiverLineageDeclaresMember(
+  const aOwnerIdentity: TDelphiSemanticTypeIdentity; const aOwnerName, aName: string): Boolean;
+var
+  i: Integer;
+  lDeclaredId: string;
+  lOwner: TDelphiSemanticValueEvidenceOwner;
+  lRemaining: Integer;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbols: TList<TDelphiSemanticInventorySymbol>;
+begin
+  Result := False;
+  EnsureValueMemberEvidence;
+  if not fValueEvidence.Available then
+    Exit;
+  lDeclaredId := aOwnerIdentity.DeclaredId.Value;
+  lRemaining := Length(fValueEvidence.Owners);
+  while (lRemaining > 0) and fValueOwners.TryGetValue(lDeclaredId, i) do
+  begin
+    Dec(lRemaining);
+    lOwner := fValueEvidence.Owners[i];
+    if SameText(lOwner.Name, aOwnerName) and
+      fMembersByOwnerName.TryGetValue(OwnerNameKey(lOwner.Name, aName), lSymbols) then
+      for lSymbol in lSymbols do
+        if SameText(lSymbol.OwnerIdentity.DeclaredId.Value, lDeclaredId) then
+          Exit(True);
+    lDeclaredId := lOwner.NextDeclaredId;
+  end;
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.ReceiverLineageDeclaresMember(
+  const aOwnerIdentity: TDelphiSemanticTypeIdentity; const aOwnerName, aName: string): Boolean;
+var
+  lEvidence: IDelphiSemanticRemoveWithValueEvidence;
+begin
+  if not Supports(fData, IDelphiSemanticRemoveWithValueEvidence, lEvidence) then
+    Exit(False);
+  Result := lEvidence.ReceiverLineageDeclaresMember(aOwnerIdentity, aOwnerName, aName);
+end;
+
 function TDelphiSemanticRemoveWithLookupIndexData.UnverifiedMemberMayApply(
   const aOwnerType, aName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity;
   const aValueMembersOnly: Boolean): Boolean;
@@ -1561,6 +1614,8 @@ var
 begin
   inherited Create;
   try
+    fUnindexedAliases := TDictionary<string, Boolean>.Create(
+      TFastCaseAwareComparer.OrdinalIgnoreCase);
     fModels := aModels;
     fLookupIndex := aLookupIndex;
     BuildDeclarationIndex;
@@ -1611,6 +1666,7 @@ begin
     BuildMemberSafetyDiagnostics;
     BuildContextMemberIndex;
     BuildValueMemberIndex;
+    BuildHelperTargetIndex;
   except
     ClearOwnedState;
     raise;
@@ -1627,6 +1683,8 @@ begin
   FreeAndNil(fValueMemberNames);
   FreeAndNil(fUnverifiedValueOwners);
   FreeAndNil(fHelperValueNames);
+  FreeAndNil(fHelperTargetDeclaredIds);
+  FreeAndNil(fUnindexedAliases);
   FreeAndNil(fSafetyDeclarationsByName);
   FreeAndNil(fSafetyModelsByUnit);
   FreeAndNil(fSafetyProfileTypes);
@@ -2953,6 +3011,10 @@ begin
           // anonymous record its type stays explicitly unidentified.
           aIdentity := Default(TDelphiSemanticTypeIdentity);
       end;
+      if SameText(lResult.Status, 'resolved') and (lResult.ReasonCode = '') and
+        (aIdentity.DeclaredId.Value = '') and
+        aProjectMemberIndex.UnindexedAliasMayApply(lResult.TypeName) then
+        lResult.ReasonCode := 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED';
       // A parameter's type never belongs to its own routine's local scope.
       if (lOwnRoutineScopeId <> '') and
         SameText(aIdentity.OwnerScopeId, lOwnRoutineScopeId) then
@@ -3398,6 +3460,7 @@ var
   lKey: string;
   lRefusalCode: string;
   lValueResult: TBoundMemberResolution;
+  lLookupSelector: TDelphiSemanticWithSelectorBinding;
 begin
   lKey := ReceiverMemberCacheKey(aMemberCachePrefix, aName);
   if Assigned(aMemberCache) and aMemberCache.TryGetValue(lKey, aResult) then
@@ -3433,6 +3496,26 @@ begin
         aMemberCache.AddOrSetValue(lKey, aResult);
       Exit(True);
     end;
+    // DS-741: established selector refusals precede alias lineage/helper checks.
+    lLookupSelector := aSelectors[i];
+    lRefusalCode := '';
+    if Assigned(aProjectMemberIndex) then
+      aProjectMemberIndex.TryResolveAliasTargetSelector(aModel, aSite, aSelectors[i],
+        lLookupSelector, lRefusalCode);
+    if SameText(aSelectors[i].ReasonCode, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') then
+      lRefusalCode := aSelectors[i].ReasonCode;
+    if lRefusalCode <> '' then
+    begin
+      aResult := Default(TBoundMemberResolution);
+      aResult.Value.Status := 'unsupported';
+      aResult.Value.Name := aName;
+      aResult.Value.ReasonCode := lRefusalCode;
+      aResult.Value.Reason := 'The alias receiver member lineage or helper applicability is unverified.';
+      if Assigned(aMemberCache) then
+        aMemberCache.AddOrSetValue(lKey, aResult);
+      Exit(True);
+    end;
+
     if SameText(aSelectors[i].Status, 'resolved') then
     begin
       if Assigned(aProjectMemberIndex) and
@@ -3448,10 +3531,13 @@ begin
         Continue;
       end;
       if Assigned(aProjectMemberIndex) and aProjectMemberIndex.TryResolveDirectMember(
-        aModel.UnitName, aCurrentTypeName, aSelectors[i].TypeName, aName,
+        aModel.UnitName, aCurrentTypeName, lLookupSelector.TypeName, aName,
         SelectorAllowsReceiverMemberLookup(aSelectors[i]), aModel.FileName,
-        aSelectors[i].TypeIdentity, aResult) then
+        lLookupSelector.TypeIdentity, aResult) then
       begin
+        if aResult.Value.Found and MatchText(aResult.Value.Kind,
+          ['const', 'typed-const', 'variant-tag']) then
+          aResult.Value.OwnerName := aSelectors[i].TypeName;
         if aResult.Value.Found and aProjectMemberIndex.TryResolveShadowingValueMember(aModel,
           aSite, aSelectors[i], aName, aResult, lValueResult) then
           aResult := lValueResult;
@@ -3694,7 +3780,8 @@ begin
       lStopwatch.Stop;
       Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
       if SameText(lResult.Status, 'unsupported') and
-        SameText(lResult.ReasonCode, 'RECORD_HELPER_MEMBERS_UNVERIFIED') then
+        MatchText(lResult.ReasonCode, ['RECORD_HELPER_MEMBERS_UNVERIFIED',
+          'ALIAS_RECEIVER_MEMBERS_UNVERIFIED']) then
         Exit(CacheBoundReference(aReferenceCache, lKey,
           MakeBoundReference(lCallName, 'unsupported', lResult)));
       if SameText(lResult.Kind, 'method') then
@@ -3736,6 +3823,26 @@ begin
 
   if (Pos('.', aName) > 0) or (Pos('[', aName) > 0) then
   begin
+    // DS-741: lexical indexed/qualified fallback cannot discard an alias
+    // receiver refusal. Resolve only the root here; leave syntax binding intact.
+    lCallName := aName;
+    if Pos('.', lCallName) > 0 then
+      lCallName := Copy(lCallName, 1, Pos('.', lCallName) - 1);
+    if Pos('[', lCallName) > 0 then
+      lCallName := Copy(lCallName, 1, Pos('[', lCallName) - 1);
+    lStopwatch := TStopwatch.StartNew;
+    if TryResolveReceiverMember(aModel, aSite, aProjectModels, aSelectors, aCurrentTypeName,
+      aMemberCachePrefix, lCallName, aProjectMemberIndex, aMemberCache, lResult) and
+      SameText(lResult.Status, 'unsupported') and
+      SameText(lResult.ReasonCode, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') then
+    begin
+      lStopwatch.Stop;
+      Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
+      Exit(CacheBoundReference(aReferenceCache, lKey,
+        MakeBoundReference(aName, 'unsupported', lResult)));
+    end;
+    lStopwatch.Stop;
+    Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
     lStopwatch := TStopwatch.StartNew;
     lResult := ResolveNameCached(aModel, Default(TDelphiSemanticResolveContext),
       aName, aResolveCache, ResolveNameCachePrefix(aModel.UnitName, aModel.FileName,
@@ -5149,6 +5256,73 @@ begin
     aScopeId := '';
 end;
 
+function TWithBindingProjectMemberIndex.UnindexedAliasMayApply(const aTypeName: string): Boolean;
+
+  function ScanProjectAliases: Boolean;
+  var
+    lLexer: TmwBasePasLex;
+    lModel: TDelphiSemanticUnitModel;
+    lName, lUnitName: string;
+    lDot: Integer;
+
+    procedure NextCodeToken;
+    begin
+      repeat
+        lLexer.Next;
+      until not IsTokenIDJunk(lLexer.TokenID);
+    end;
+
+  begin
+    Result := False;
+    lName := aTypeName.Replace('&', '');
+    lUnitName := '';
+    lDot := LastDelimiter('.', lName);
+    if lDot > 0 then
+    begin
+      lUnitName := Copy(lName, 1, lDot - 1);
+      lName := Copy(lName, lDot + 1, MaxInt);
+    end;
+    if lName = '' then
+      Exit;
+    for lModel in fModels do
+    begin
+      if (lUnitName <> '') and (not SameText(lUnitName, lModel.UnitName)) then
+        Continue;
+      // SetOrigin allocates a fresh buffer; each model owns a fresh lexer.
+      lLexer := TmwBasePasLex.Create;
+      try
+        lLexer.UseDefines := False;
+        lLexer.Origin := lModel.SourceText;
+        while lLexer.TokenID <> ptNull do
+        begin
+          if (lLexer.TokenID = ptIdentifier) and
+            SameText(lLexer.Token.Replace('&', ''), lName) then
+          begin
+            NextCodeToken;
+            if lLexer.TokenID = ptEqual then
+            begin
+              NextCodeToken;
+              // Missing extraction is not absence proof. This spelling only
+              // refuses an alias candidate; it never grants a type identity.
+              if lLexer.TokenID in [ptIdentifier, ptType] then
+                Exit(True);
+            end;
+          end else
+            lLexer.Next;
+        end;
+      finally
+        lLexer.Free;
+      end;
+    end;
+  end;
+begin
+  // The index owns immutable project models; both hits and misses share its lifetime.
+  if fUnindexedAliases.TryGetValue(aTypeName, Result) then
+    Exit;
+  Result := ScanProjectAliases;
+  fUnindexedAliases.AddOrSetValue(aTypeName, Result);
+end;
+
 function TWithBindingProjectMemberIndex.IsUnsupportedRoutineLocalType(
   const aOriginModel: TDelphiSemanticUnitModel;
   const aOriginSectionKind, aOriginScopeId, aTypeName: string): Boolean;
@@ -5300,6 +5474,121 @@ begin
   end;
 end;
 
+function AliasTargetTypeName(const aIdentity: TDelphiSemanticTypeIdentity;
+  out aStrong: Boolean): string;
+var
+  i: Integer;
+begin
+  Result := '';
+  aStrong := False;
+  if not SameText(aIdentity.Kind, 'type-alias') then
+    Exit;
+  Result := aIdentity.CanonicalName.Trim;
+  aStrong := (Length(Result) > 4) and SameText(Copy(Result, 1, 4), 'type') and
+    CharInSet(Result[5], [#9, #10, #13, ' ']);
+  if aStrong then
+    Result := Copy(Result, 6, MaxInt).Trim;
+  // Escapes are lexical spelling, not part of the identifier identity.
+  Result := Result.Replace('&', '');
+  if (Result = '') or (not CharInSet(Result[1], ['A'..'Z', 'a'..'z', '_'])) then
+    Exit('');
+  for i := 2 to Length(Result) do
+    if not CharInSet(Result[i], ['A'..'Z', 'a'..'z', '0'..'9', '_', '.']) then
+      Exit('');
+end;
+
+procedure TWithBindingProjectMemberIndex.BuildHelperTargetIndex;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lLookup: TDelphiSemanticTypeLookupResult;
+  lModel: TDelphiSemanticUnitModel;
+  lVisibleUnits: TArray<string>;
+begin
+  fHelperTargetDeclaredIds := TDictionary<string, Byte>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  for lModel in fModels do
+    for lDeclaration in lModel.Declarations do
+      if lDeclaration.HelperTargetName <> '' then
+      begin
+        if SameText(lDeclaration.SectionKind, 'interface') then
+          lVisibleUnits := Copy(lModel.InterfaceUses)
+        else if SameText(lDeclaration.SectionKind, 'implementation') then
+          lVisibleUnits := CombineUnitUses(lModel.InterfaceUses, lModel.ImplementationUses)
+        else begin
+          fHasUnresolvedHelperTarget := True;
+          Continue;
+        end;
+        lLookup := fTypeIndex.ResolveVisibleName(lDeclaration.HelperTargetName,
+          lModel.UnitName, lVisibleUnits, lDeclaration.SectionKind);
+        // Alias targets may hide a strong identity further down their chain.
+        if (not lLookup.Found) or lLookup.Ambiguous or
+          SameText(lLookup.Identity.Kind, 'type-alias') or
+          (lLookup.Identity.DeclaredId.Value = '') then
+          fHasUnresolvedHelperTarget := True
+        else
+          fHelperTargetDeclaredIds.AddOrSetValue(lLookup.Identity.DeclaredId.Value, 0);
+      end;
+end;
+
+function TWithBindingProjectMemberIndex.TryResolveAliasTargetSelector(
+  const aModel: TDelphiSemanticUnitModel; const aSite: TReceiverLookupSite;
+  const aSelector: TDelphiSemanticWithSelectorBinding;
+  out aTarget: TDelphiSemanticWithSelectorBinding; out aRefusal: string): Boolean;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lHasStrong, lStrong: Boolean;
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lLineage: TArray<TDelphiSemanticTypeIdentity>;
+  lTargetIndex: Integer;
+begin
+  Result := False;
+  aTarget := aSelector;
+  aRefusal := '';
+  if (not SameText(aSelector.Status, 'resolved')) or
+    (aSelector.ReasonCode <> '') or
+    (not SameText(aSelector.TypeIdentity.Kind, 'type-alias')) then
+    Exit;
+  lBinding := Default(TDelphiSemanticWithBinding);
+  lBinding.UnitName := aModel.UnitName;
+  lBinding.FileName := aModel.FileName;
+  if not TryBuildMemberSafetyLineage(lBinding, aSelector.TypeName,
+    aSelector.TypeIdentity, lLineage) then
+  begin
+    aRefusal := 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED';
+    Exit;
+  end;
+  lHasStrong := False;
+  lTargetIndex := 0;
+  while (lTargetIndex < Length(lLineage)) and
+    SameText(lLineage[lTargetIndex].Kind, 'type-alias') do
+  begin
+    AliasTargetTypeName(lLineage[lTargetIndex], lStrong);
+    lHasStrong := lHasStrong or lStrong;
+    Inc(lTargetIndex);
+  end;
+  // Weak profile terminals retain the DS-742 boundary. Strong aliases have
+  // no indexed member identities here, so they cannot authorize a rewrite.
+  if lTargetIndex >= Length(lLineage) then
+  begin
+    if lHasStrong then
+      aRefusal := 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED';
+    Exit;
+  end;
+  if lHasStrong then
+  begin
+    if fHasUnresolvedHelperTarget or UnindexedRecordHelperMayApply(aSite, lLineage) then
+      aRefusal := 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED';
+    for lIdentity in lLineage do
+      if fHelperTargetDeclaredIds.ContainsKey(lIdentity.DeclaredId.Value) then
+        aRefusal := 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED';
+    if aRefusal <> '' then
+      Exit;
+  end;
+  aTarget.TypeIdentity := lLineage[lTargetIndex];
+  aTarget.TypeName := aTarget.TypeIdentity.Name;
+  Result := True;
+end;
+
 function TWithBindingProjectMemberIndex.TryBuildMemberSafetyLineage(
   const aBinding: TDelphiSemanticWithBinding;
   const aSelectorTypeName: string; const aSelectorIdentity: TDelphiSemanticTypeIdentity;
@@ -5314,6 +5603,7 @@ var
   lModelIndexes: TArray<Integer>;
   lSeenIds: TDictionary<string, Byte>;
   lTargetName: string;
+  lStrong: Boolean;
   lVisibleUnits: TArray<string>;
 begin
   Result := False;
@@ -5353,7 +5643,7 @@ begin
       SetLength(aLineage, lIndex + 1);
       aLineage[lIndex] := lCurrent;
       if SameText(lCurrent.Kind, 'type-alias') then
-        lTargetName := lCurrent.CanonicalName
+        lTargetName := AliasTargetTypeName(lCurrent, lStrong)
       else
         lTargetName := lCurrent.BaseTypeName;
       if (lTargetName <> '') and (lTargetName[1] = '^') then
@@ -5633,6 +5923,7 @@ var
   lFact: TMemberSafetyDiagnostic;
   lIdentity: TDelphiSemanticTypeIdentity;
   lKey, lName, lTarget: string;
+  lStrong: Boolean;
   lKeys: TArray<string>;
   lLookup: TDelphiSemanticTypeLookupResult;
   lModel: TDelphiSemanticUnitModel;
@@ -5705,7 +5996,7 @@ begin
         lNames.Add(lName);
     lOwner.ValueNames := lNames.ToArray;
     if SameText(lIdentity.Kind, 'type-alias') then
-      lTarget := lIdentity.CanonicalName
+      lTarget := AliasTargetTypeName(lIdentity, lStrong)
     else
       lTarget := lIdentity.BaseTypeName;
     if lTarget = '' then

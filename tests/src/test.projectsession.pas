@@ -47,6 +47,7 @@ type
     [TestCase('Warm accepted', 'hit-accept')]
     procedure RequestOwnerSealsEveryModelBeforePublication(const aMode: string);
     [Test]
+    [TestCase('Before alias receiver members', '63')]
     [TestCase('Before receiver-owned value members', '62')]
     [TestCase('Before inactive nested WITH shadow refusal', '61')]
     [TestCase('Before unindexed record helper refusal', '60')]
@@ -72,6 +73,9 @@ type
     [Test]
     [Category('DS731Generations')]
     procedure RebuildsSnapshotBeforeReceiverValueMembers;
+    [Test]
+    [Category('DS741Generations')]
+    procedure RebuildsSnapshotBeforeAliasReceiverMembers;
     [Test]
     procedure EmptyProjectPathReturnsStructuredSessionDiagnostic;
     [Test]
@@ -2204,6 +2208,80 @@ begin
   end;
 end;
 
+procedure TProjectSessionTests.RebuildsSnapshotBeforeAliasReceiverMembers;
+var
+  i: Integer;
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lOptions: TDelphiSemanticOptions;
+  lOpened: TDelphiSemanticProjectSessionResult;
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lRootPath: string;
+begin
+  lRootPath := ProjectSessionTempPath('ds741-snapshot-v48');
+  TDirectory.CreateDirectory(lRootPath);
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'Unit1.pas'),
+      'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TItem = record'#13#10 +
+      '  var A: Integer;'#13#10 +
+      '  var Z: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TAlias = TItem;'#13#10 +
+      'var'#13#10 +
+      ' Item: TAlias;'#13#10 +
+      ' A: Integer = 0;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' with Item do A := 7;'#13#10 +
+      ' Writeln(Item.A, '' '', A);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'P.dpr'),
+    'program P; uses Unit1; begin Run; end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Debug';
+  lOptions.SqliteCacheFileName := TPath.Combine(lRootPath, 'snapshot.sqlite');
+  for i := 0 to 3 do
+  begin
+    if i = 2 then
+      ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
+        'update snapshot_units set schema_version = ''project-session-snapshot-v48''');
+    lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lOpened.Success);
+      lContext := lOpened.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+        lExtractionMilliseconds);
+      if (i = 0) or (i = 2) then
+      begin
+        Assert.IsTrue(lCacheMetrics.CacheMisses > 0, 'Snapshot-v48 must rebuild.');
+        Assert.AreEqual(0, lCacheMetrics.CacheHits);
+      end else begin
+        Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Fresh alias snapshot must hit.');
+        Assert.AreEqual(0, lCacheMetrics.CacheMisses);
+      end;
+      lBuild := lOpened.Session.PlanRemoveWithResult;
+      Assert.AreEqual(1, Integer(Length(lBuild.Plan.FinalStatements)));
+      Assert.AreEqual('planned', lBuild.Plan.FinalStatements[0].Status);
+      Assert.AreEqual(' Item.A := 7;', lBuild.Plan.FinalStatements[0].ReplacementText);
+    finally
+      lContext.ProjectSnapshot := nil;
+      lOpened.Session.Free;
+    end;
+  end;
+end;
+
 procedure TProjectSessionTests.RebuildsSnapshotBeforeReceiverValueMembers;
 var
   i: Integer;
@@ -2798,6 +2876,13 @@ begin
       Assert.AreEqual(' num_rec.ll := num_rec.n_id;', lStatement.ReplacementText);
       Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
       Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+    end else if aShape = 'strong-alias-qualified-target' then
+    begin
+      Assert.AreEqual('planned', lStatement.Status, aShape + ' pass ' + IntToStr(i));
+      Assert.AreEqual(' Rec.A := Rec.Count;', lStatement.ReplacementText);
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual(1, Integer(Length(lBuild.Plan.Edits)));
     end else begin
       Assert.AreEqual('skipped', lStatement.Status, aShape + ' pass ' + IntToStr(i));
       Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.SafetyReason);

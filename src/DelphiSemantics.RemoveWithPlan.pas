@@ -289,8 +289,11 @@ type
     procedure Initialize(const aIndex: TDelphiSemanticRemoveWithLookupIndex);
     function UnverifiedValueMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function ReceiverLineageDeclaresMember(const aOwnerIdentity: TDelphiSemanticTypeIdentity;
+      const aOwnerName, aName: string): Boolean;
     function UnverifiedReceiverMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function IsWeakProfileRecord(const aIdentity: TDelphiSemanticTypeIdentity): Boolean;
     function MaterializedSymbolCount: Int64;
     function RequestCount: Int64;
     function ResultMaterializationCount: Int64;
@@ -2412,6 +2415,56 @@ begin
     Result := 'symbol-not-found';
 end;
 
+function BindingHasUnverifiedLocalAlias(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding): Boolean;
+var
+  lCandidates: TArray<TDelphiSemanticInventorySymbol>;
+  lParentScope: string;
+  lRoutineCount, lRemaining: Integer;
+  lScopeId: string;
+  lSelector: TDelphiSemanticWithSelectorBinding;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  for lSelector in aBinding.Selectors do
+    if SameText(lSelector.ReasonCode, 'ROUTINE_LOCAL_TYPE_UNSUPPORTED') then
+    begin
+      lCandidates := aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(lSelector.TypeName);
+      lScopeId := aBinding.RoutineScopeId;
+      lRemaining := Length(aFacts.Symbols) + 1;
+      // Captured receivers may use an alias declared by any enclosing routine.
+      // Follow exact scope IDs, bounded even when supplied inventory is malformed.
+      while (lScopeId <> '') and (lRemaining > 0) do
+      begin
+        Dec(lRemaining);
+        for lSymbol in lCandidates do
+          if (SameText(lSymbol.Kind, 'type-alias') or
+            (SameText(lSymbol.Kind, 'unsupported-local-type') and
+            StartsText('type ', Trim(lSymbol.TypeName)))) and
+            SameText(lSymbol.FileName, aBinding.FileName) and
+            SameText(lSymbol.RoutineScopeId, lScopeId) then
+            Exit(True);
+        lRoutineCount := 0;
+        lParentScope := '';
+        for lSymbol in aFacts.Symbols do
+          if SameText(lSymbol.SymbolClass, 'routine') and
+            SameText(lSymbol.FileName, aBinding.FileName) and
+            SameText(lSymbol.RoutineScopeId, lScopeId) then
+          begin
+            Inc(lRoutineCount);
+            lParentScope := lSymbol.ParentScopeId;
+          end;
+        // DS-741: a forward or ambiguous routine inventory cannot prove
+        // that an enclosing alias is absent. Never turn that gap into a plan.
+        if lRoutineCount <> 1 then
+          Exit(True);
+        lScopeId := lParentScope;
+      end;
+      if lScopeId <> '' then
+        Exit(True);
+    end;
+end;
+
 function BindingHelperUnverifiedReason(const aBinding: TDelphiSemanticWithBinding;
   const aLineCache: TDelphiSemanticSourceContextCache; out aReason: string): Boolean;
 var
@@ -3930,6 +3983,13 @@ begin
     MatchText(aReference.Kind, ['const', 'typed-const', 'variant-tag']);
 end;
 
+function IsBinderReceiverMemberReference(
+  const aReference: TDelphiSemanticBoundReference): Boolean;
+begin
+  Result := SameText(aReference.Classification, 'member') and
+    SameText(aReference.LookupSource, 'receiver');
+end;
+
 function QualifierForReference(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aDecisions: TArray<TFinalSelectorDecision>;
   const aReference: TDelphiSemanticBoundReference; out aQualifierText: string):
@@ -3964,6 +4024,19 @@ begin
     aQualifierText := aDecisions[lMatch].QualifierText;
     Exit(TFinalReferenceQualification.QualifiedMember);
   end;
+  if IsBinderReceiverMemberReference(aReference) and (aReference.ReceiverTypeName <> '') then
+    for i := High(aDecisions) downto 0 do
+      if TypeIdentityHasVerifiedOrigin(aDecisions[i].ReceiverIdentity) and
+        aFacts.LookupIndex.ReceiverLineageDeclaresMember(aDecisions[i].ReceiverIdentity,
+          aReference.ReceiverTypeName, lReferenceName) then
+      begin
+        if DecisionKeepsWithMemberScope(aDecisions[i]) then
+          Exit(TFinalReferenceQualification.RetainedMember);
+        if Trim(aDecisions[i].QualifierText) = '' then
+          Exit;
+        aQualifierText := aDecisions[i].QualifierText;
+        Exit(TFinalReferenceQualification.QualifiedMember);
+      end;
   for i := High(aDecisions) downto 0 do
   begin
     lDecision := aDecisions[i];
@@ -4797,6 +4870,13 @@ begin
   Result := fIndex.UnverifiedValueMemberMayApply(aOwnerType, aName);
 end;
 
+function TPlannerLookupMemo.ReceiverLineageDeclaresMember(
+  const aOwnerIdentity: TDelphiSemanticTypeIdentity; const aOwnerName, aName: string): Boolean;
+begin
+  Result := TypeIdentityHasVerifiedOrigin(aOwnerIdentity) and
+    fIndex.ReceiverLineageDeclaresMember(aOwnerIdentity, aOwnerName, aName);
+end;
+
 function TPlannerLookupMemo.UnverifiedReceiverMemberMayApply(
   const aOwnerType, aName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
 begin
@@ -5078,6 +5158,109 @@ begin
   end;
 end;
 
+function TPlannerLookupMemo.IsWeakProfileRecord(
+  const aIdentity: TDelphiSemanticTypeIdentity): Boolean;
+var
+  lDeclarations: TArray<TDelphiSemanticInventorySymbol>;
+  lName: string;
+  lMatchCount: Integer;
+  lProjectionFound: Boolean;
+  lAlias: TDelphiSemanticInventorySymbol;
+  lSeen: TList<string>;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  if (aIdentity.DeclaredId.Value = '') or
+    (not SameText(aIdentity.Kind, 'type-alias')) or
+    SameText(aIdentity.ScopeKind, 'routine') then
+    Exit;
+  lName := aIdentity.Name.Trim;
+  lSeen := TList<string>.Create;
+  try
+    while True do
+    begin
+      if MatchText(lName, lSeen.ToArray) then
+        Exit;
+      lSeen.Add(lName);
+      // This only preserves the pre-existing weak RTL record boundary. Strong,
+      // generic, scoped and ambiguous targets retain the fail-closed guard.
+      if StartsText('&', lName) then
+        Delete(lName, 1, 1);
+      if (lName = '') or (Pos('.', lName) > 0) or
+        (Pos('<', lName) > 0) then
+        Exit;
+      lDeclarations := FindDeclarationOrTypeAliasByName(lName);
+      if Length(lDeclarations) = 1 then
+      begin
+        lSymbol := lDeclarations[0];
+        if SameText(lSymbol.SymbolClass, 'type-member') and
+          SameText(lSymbol.SourceOwnerType, 'rtl-source') and
+          SameText(lSymbol.UnitName, 'rtl-source') and
+          SameText(lSymbol.TypeCategory, 'record') then
+          Exit(True);
+      end;
+      // A projected type-member row accompanies the declaration. Only one
+      // actual declaration, with matching projection anchors, may extend a chain.
+      lMatchCount := 0;
+      lAlias := Default(TDelphiSemanticInventorySymbol);
+      for lSymbol in lDeclarations do
+        if SameText(lSymbol.SymbolClass, 'declaration') then
+        begin
+          Inc(lMatchCount);
+          lAlias := lSymbol;
+        end;
+      if (lMatchCount <> 1) or (not SameText(lAlias.Kind, 'type-alias')) or
+        (not SameText(lAlias.OwnerScopeId, lAlias.UnitName)) then
+        Exit;
+      lProjectionFound := False;
+      for lSymbol in lDeclarations do
+      begin
+        if (not SameText(lSymbol.UnitName, lAlias.UnitName)) or
+          (not SameText(lSymbol.FileName, lAlias.FileName)) or
+          (lSymbol.Line <> lAlias.Line) or
+          (not MatchText(lSymbol.SymbolClass, ['declaration', 'type-member'])) then
+          Exit;
+        if SameText(lSymbol.SymbolClass, 'type-member') then
+          lProjectionFound := True;
+      end;
+      // The compatibility exemption requires the alias's actual member projection.
+      if not lProjectionFound then
+        Exit;
+      lName := lAlias.RelatedTypeName.Trim;
+    end;
+  finally
+    lSeen.Free;
+  end;
+end;
+
+function BindingHasBareAliasFallback(const aFacts: TRemoveWithPlanFacts;
+  const aBodyFacts: TFinalReceiverBodyFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>): Boolean;
+var
+  lDecision: TFinalSelectorDecision;
+  lReference: TDelphiSemanticBoundReference;
+begin
+  Result := False;
+  // DS-741: allow a bare alias-receiver reference only with indexed absence
+  // evidence or the projected weak profile-record compatibility exemption.
+  // Body facts include absorbed children, so every rendering route shares this guard.
+  if Length(aBodyFacts.BareReferences) = 0 then
+    Exit;
+  for lDecision in aDecisions do
+  begin
+    if (not SameText(lDecision.ReceiverIdentity.Kind, 'type-alias')) or
+      DecisionKeepsWithMemberScope(lDecision) then
+      Continue;
+    if aFacts.LookupIndex.IsWeakProfileRecord(lDecision.ReceiverIdentity) then
+      Continue;
+    for lReference in aBodyFacts.BareReferences do
+      // Absence permits leaving a reference bare; it never proves qualification.
+      if aFacts.LookupIndex.UnverifiedReceiverMemberMayApply(lDecision.ReceiverType,
+          ReferenceLookupName(lReference.Name), lDecision.ReceiverIdentity) then
+        Exit(True);
+  end;
+end;
+
 function BodyFactsQualifyReceiver(const aBodyFacts: TFinalReceiverBodyFacts;
   const aDecision: TFinalSelectorDecision): Boolean;
 var
@@ -5158,7 +5341,7 @@ begin
   begin
     // Bare references matter only when indexed lineage cannot prove absence.
     // An unindexed class root alone retains base handling (DS-731 M3).
-    if not MatchText(lReference.Classification, ['unsupported', 'unresolved', 'lexical']) then
+    if not MatchText(lReference.Classification, ['unsupported', 'unresolved', 'lexical', 'ambiguous']) then
       Continue;
     // Native lexical binding follows verified absence on every receiver. A
     // syntax-only lexical claim has no such provenance and still needs the guard.
@@ -5313,6 +5496,7 @@ begin
     if ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
       Continue;
     if (not IsReceiverValueMemberReference(lReference)) and
+      (not IsBinderReceiverMemberReference(lReference)) and
       ReferenceShouldRemainUnchanged(aFacts, aBinding, lReference) then
     begin
       if SameText(lReference.Kind, 'routine') or
@@ -5330,6 +5514,11 @@ begin
       Continue;
     if lQualification = TFinalReferenceQualification.NoMatch then
     begin
+      if IsBinderReceiverMemberReference(lReference) then
+      begin
+        aReason := 'receiver-member-unqualified';
+        Exit;
+      end;
       if HasHiddenUnresolvedPointerSelectorDecision(aEditDecisions,
         aValidationDecisions) and
         (not ReferenceCanRemainUnchanged(aFacts, aBinding, lReference)) and
@@ -6683,10 +6872,25 @@ begin
     Exit;
   end;
 
+  // DS-741: a local alias keeps its established binder reason. Refuse only
+  // after the existing selector/renderer checks would otherwise permit a plan.
+  if BindingHasUnverifiedLocalAlias(aFacts, lBinding) then
+  begin
+    RollbackReservedTempNamesForDecisions(aReservedNames,
+      lBinding.RoutineName, lSelectorDecisions);
+    RollbackReservedTempNamesForFinalTemps(aReservedNames,
+      lBinding.RoutineName, Result.Temps);
+    Result.Temps := nil;
+    Result.Status := 'skipped';
+    Result.Reason := 'selector-type-not-resolved';
+    Result.SafetyReason := 'ROUTINE_LOCAL_TYPE_UNSUPPORTED';
+    Exit;
+  end;
+
   for lValueReference in lBinding.References do
     if SameText(lValueReference.Classification, 'unsupported') and
       MatchText(lValueReference.ReasonCode, ['TYPE_VALUE_MEMBERS_UNVERIFIED',
-      'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED']) then
+      'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED', 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED']) then
     begin
       RollbackReservedTempNamesForDecisions(aReservedNames,
         lBinding.RoutineName, lSelectorDecisions);
@@ -6695,9 +6899,25 @@ begin
       Result.Temps := nil;
       Result.Status := 'skipped';
       Result.Reason := ReceiverMemberMissReason(lValueReference, lBinding, aLineCache);
-      Result.SafetyReason := 'TYPE_VALUE_MEMBERS_UNVERIFIED';
+      if SameText(lValueReference.ReasonCode, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') then
+        Result.SafetyReason := 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED'
+      else
+        Result.SafetyReason := 'TYPE_VALUE_MEMBERS_UNVERIFIED';
       Exit;
     end;
+  // Established selector, renderer, helper and value-member reasons win.
+  if BindingHasBareAliasFallback(aFacts, aBodyFacts, lDecisions) then
+  begin
+    RollbackReservedTempNamesForDecisions(aReservedNames,
+      lBinding.RoutineName, lSelectorDecisions);
+    RollbackReservedTempNamesForFinalTemps(aReservedNames,
+      lBinding.RoutineName, Result.Temps);
+    Result.Temps := nil;
+    Result.Status := 'skipped';
+    Result.Reason := 'receiver-member-not-found';
+    Result.SafetyReason := 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED';
+    Exit;
+  end;
   // DS-740: preserving a prefix is independent of whether it controls the result.
   // A planned parent absorbs its child; a retained parent keeps its DO in output.
   lHasInitialization := False;
@@ -7929,6 +8149,8 @@ begin
                 SameText(lFinalStatement.SafetyReason, 'TYPE_VALUE_MEMBERS_UNVERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'RECEIVER_MEMBERS_PARTIALLY_VERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'RECORD_HELPER_MEMBERS_UNVERIFIED') or
+                SameText(lFinalStatement.SafetyReason, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') or
+                SameText(lFinalStatement.SafetyReason, 'ROUTINE_LOCAL_TYPE_UNSUPPORTED') or
                 SameText(lFinalStatement.SafetyReason, 'INACTIVE_NESTED_WITH_SHADOW')) and
                 (lFinalStatement.SemanticId = lEdit.StatementId) then
               begin
