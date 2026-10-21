@@ -10,6 +10,9 @@ type
   TCompilerProfileTests = class
   public
     [Test]
+    [Category('DS742')]
+    procedure CompatibilityRecordMembersMatchInstalledSource;
+    [Test]
     procedure ProfileBuildersShareIntrinsicSeedContract;
     [Test]
     procedure RtlSourceRootProjectionUsesUnitModelSemantics;
@@ -24,9 +27,9 @@ type
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils,
+  AutoFree, maxLogic.IOUtils,
   DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Model,
   DelphiSemantics.Resolve,
   Test.Support;
@@ -42,6 +45,52 @@ begin
   Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'compiler-profile-temp',
     'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
   TDirectory.CreateDirectory(Result);
+end;
+
+procedure TCompilerProfileTests.CompatibilityRecordMembersMatchInstalledSource;
+var
+  g: TGarbos;
+  lActual, lExpected: TStringList;
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lNames: TArray<string>;
+  lPlatform, lRoot, lSourceRoot, lName: string;
+  lProfile: TDelphiSemanticCompilerProfile;
+  lMember: TDelphiSemanticMember;
+  lCount: Integer;
+begin
+  lRoot := CompilerProfileTempRoot;
+  lSourceRoot := TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot('23.0', '');
+  Assert.IsTrue(TDirectory.Exists(lSourceRoot), 'The installed RTL source is required.');
+  Assert.IsTrue(TDelphiSemanticCompilerProfileBuilder.CompatibilityRecordMemberNames('TSearchRec', lNames));
+  GC(lActual, TStringList.Create, g);
+  GC(lExpected, TStringList.Create, g);
+  lActual.Sorted := True;
+  lActual.Duplicates := dupIgnore;
+  lExpected.Sorted := True;
+  lExpected.Duplicates := dupIgnore;
+  for lName in lNames do
+    lExpected.Add(LowerCase(lName));
+  for lPlatform in ['Win32', 'Win64', 'Linux64', 'OSX64'] do
+  begin
+    lCacheOptions := Default(TDelphiSemanticCacheOptions);
+    lCacheOptions.SqliteCacheFileName := TPath.Combine(lRoot, lPlatform + '.sqlite');
+    GC(lCache, TDelphiSemanticUnitCache.Create(lCacheOptions), g);
+    lProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceRoot(lCache,
+      'DS742-installed-search-record', '23.0', lPlatform, lSourceRoot, ['System.SysUtils']);
+    lCount := 0;
+    for lModel in lProfile.RtlSourceUnitModels do
+      for lMember in lModel.Members do
+        if SameText(lMember.OwnerName, 'TSearchRec') then
+        begin
+          Inc(lCount);
+          lActual.Add(LowerCase(lMember.Name));
+        end;
+    Assert.IsTrue(lCount > 0, lPlatform + ' must contribute parsed TSearchRec members.');
+  end;
+  Assert.AreEqual(lExpected.Text, lActual.Text,
+    'The absence-only witness must cover the installed four-platform member union.');
 end;
 
 function CompilerProfileFixtureRoot(const aName: string): string;

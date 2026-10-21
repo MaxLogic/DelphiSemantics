@@ -358,6 +358,14 @@ type
     procedure FinalStatementDtoPreservesCandidateFields;
     [Test]
     procedure PlanStatementsAccountForEveryDiscoveredBinding;
+    [TestCase('class-const', 'class-const')]
+    [TestCase('class-var', 'class-var')]
+    [TestCase('class-property', 'class-property')]
+    [TestCase('inherited', 'inherited')]
+    [TestCase('nested', 'nested')]
+    [TestCase('accounting', 'accounting')]
+    [Category('DS742')]
+    procedure GenericClassReceiversWithoutRootProofRefuse(const aShape: string);
     [Test]
     procedure PlanSkippedStatementsMirrorSkippedPlanStatements;
     [Test]
@@ -1168,6 +1176,35 @@ var
   GMaxTdbInputIdentity: string;
   GMaxTdbPrimaryIdsChecked: Boolean;
   GRemoveWithPlanTempRoot: string;
+
+type
+  TFixtureRootAbsence = class(TInterfacedObject, IDelphiSemanticImplicitRootMemberAbsence)
+  public
+    function EvidenceFingerprint: string;
+    function IsNameAbsent(const aName: string): Boolean;
+  end;
+
+function TFixtureRootAbsence.EvidenceFingerprint: string;
+begin
+  Result := 'ds742-generic-fixture-root-absence-v1';
+end;
+
+function TFixtureRootAbsence.IsNameAbsent(const aName: string): Boolean;
+begin
+  Result := MatchText(aName, ['X', 'aValue', 'lMarker', 'lInner', 'OuterOnly']);
+end;
+
+function BuildRootProvedFixturePlan(const aProject: string): TDelphiSemanticRemoveWithPlan;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := aProject;
+  lOptions.ImplicitRootMemberAbsence := TFixtureRootAbsence.Create;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Result := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+end;
 
 function RemoveWithPlanTempRoot: string;
 var
@@ -5430,16 +5467,54 @@ begin
   Assert.AreEqual('with-skipped', lReport.Mismatches[0].StatementId);
 end;
 
+procedure TRemoveWithPlanTests.GenericClassReceiversWithoutRootProofRefuse(const aShape: string);
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProject: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  if StartsText('class-', aShape) then
+  begin
+    FinalDtoQualifiesShadowingTypeMembers(aShape);
+    lProject := TPath.Combine(TempPath('remove-with-shadowing-type-member-' + aShape),
+      'RemoveWithTypeMemberFixture.dproj');
+  end else if aShape = 'inherited' then
+  begin
+    FinalDtoUsesDeclaringIdentityAcrossDependentSelectorChain(1);
+    lProject := TPath.Combine(TempPath('ds683-dependent-declaring-chain'), 'P.dproj');
+  end else begin
+    if aShape = 'nested' then
+      FinalDtoMatchesNestedRewriteOrdering
+    else
+      PlanStatementsAccountForEveryDiscoveredBinding;
+    lProject := DakFixturePath('RemoveWithNestedRewriteFixture\RemoveWithNestedRewriteFixture.dproj');
+  end;
+  lPlan := BuildPlanForProject(lProject);
+  if aShape = 'inherited' then
+    Assert.IsTrue(FindFinalStatementAt(lPlan, 'ChainOwnerUnit.pas', 29, 3, lStatement))
+  else
+    Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement));
+  Assert.AreEqual('skipped', lStatement.Status, aShape);
+  Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason, aShape);
+  Assert.AreEqual('', lStatement.ReplacementText, aShape);
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)), aShape);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)), aShape);
+  for var lEdit in lPlan.Edits do
+    Assert.AreNotEqual(lStatement.SemanticId, lEdit.StatementId, aShape);
+end;
+
 procedure TRemoveWithPlanTests.PlanStatementsAccountForEveryDiscoveredBinding;
 var
   lBinding: TDelphiSemanticWithBinding;
   lCoveredCount: Integer;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lFinal: TDelphiSemanticRemoveWithFinalStatement;
   lOptions: TDelphiSemanticApiOptions;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithStatement;
 begin
   lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ImplicitRootMemberAbsence := TFixtureRootAbsence.Create;
   lOptions.ProjectFileName := DakFixturePath(
     'RemoveWithNestedRewriteFixture\RemoveWithNestedRewriteFixture.dproj');
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(
@@ -5473,6 +5548,21 @@ begin
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lStatement.Reason);
   Assert.AreEqual('with-1', lStatement.CoveredByStatementId);
+  Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lFinal));
+  Assert.AreEqual('    lWithNestedOuter := lOuter;' + #13#10 +
+    '    begin' + #13#10 +
+    '      lWithNestedOuter.Shared := lMarker;' + #13#10 +
+    '      lMarker := ''between'';' + #13#10 +
+    '      lWithNestedInner := lInner;' + #13#10 +
+    '      begin' + #13#10 +
+    '        lWithNestedInner.Shared := lMarker;' + #13#10 +
+    '        lWithNestedInner.InnerOnly := lWithNestedInner.Shared;' + #13#10 +
+    '        lWithNestedOuter.OuterOnly := ''outer-from-inner'';' + #13#10 +
+    '      end;' + #13#10 +
+    '      lMarker := ''after-inner'';' + #13#10 +
+    '      lWithNestedOuter.OuterOnly := lMarker;' + #13#10 +
+    '    end;',
+    lFinal.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.PlanSkippedStatementsMirrorSkippedPlanStatements;
@@ -6461,12 +6551,28 @@ begin
     '  with ' + lSelector + ' do' + sLineBreak + lBody + sLineBreak + 'end;' + sLineBreak +
     'end.', TEncoding.UTF8);
 
-  lPlan := BuildPlanForProject(lProjectPath);
+  if StartsText('class-', aShape) then
+    lPlan := BuildRootProvedFixturePlan(lProjectPath)
+  else
+    lPlan := BuildPlanForProject(lProjectPath);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithTypeMemberUnit.pas', 31, 3, lStatement),
     'Expected shadowing type-member with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)), lStatement.ReplacementText);
+  if aShape = 'class-const' then
+    Assert.AreEqual('  lWithC := C;' + #13#10 +
+    '  X := lWithC.KC + lWithC.KA;',
+      lStatement.ReplacementText);
+  if aShape = 'class-var' then
+    Assert.AreEqual('  lWithC := C;' + #13#10 +
+    '  lWithC.CV := X;',
+      lStatement.ReplacementText);
+  if aShape = 'class-prop' then
+    Assert.AreEqual('  lWithC := C;' + #13#10 +
+    '  X := lWithC.CP;',
+      lStatement.ReplacementText);
+  if not StartsText('class-', aShape) then
   for lFragment in lExpected do
     Assert.IsTrue(ContainsText(lStatement.ReplacementText,
       Format(lFragment, [lStatement.Temps[0].QualifierText])),
@@ -7284,7 +7390,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
-  lPlan := BuildPlanForProject(DakFixturePath(
+  lPlan := BuildRootProvedFixturePlan(DakFixturePath(
     'RemoveWithNestedRewriteFixture\RemoveWithNestedRewriteFixture.dproj'));
 
   Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)),
@@ -7300,13 +7406,20 @@ begin
     'Expected declaration and outer replacement edits only.');
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
-  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'lWithNestedInner.InnerOnly := lWithNestedInner.Shared'),
-    'Expected inner rewrite to be folded into outer replacement: ' +
+  Assert.AreEqual('    lWithNestedOuter := lOuter;' + #13#10 +
+    '    begin' + #13#10 +
+    '      lWithNestedOuter.Shared := lMarker;' + #13#10 +
+    '      lMarker := ''between'';' + #13#10 +
+    '      lWithNestedInner := lInner;' + #13#10 +
+    '      begin' + #13#10 +
+    '        lWithNestedInner.Shared := lMarker;' + #13#10 +
+    '        lWithNestedInner.InnerOnly := lWithNestedInner.Shared;' + #13#10 +
+    '        lWithNestedOuter.OuterOnly := ''outer-from-inner'';' + #13#10 +
+    '      end;' + #13#10 +
+    '      lMarker := ''after-inner'';' + #13#10 +
+    '      lWithNestedOuter.OuterOnly := lMarker;' + #13#10 +
+    '    end;',
     lStatement.ReplacementText);
-  Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    'lWithNestedOuter.OuterOnly := ''outer-from-inner'''),
-    'Expected inner body to preserve outer receiver qualification.');
 end;
 
 procedure TRemoveWithPlanTests.NestedSafetySkipHasOneFinalStatementPerBinding;
@@ -7966,6 +8079,8 @@ begin
     TEncoding.ASCII);
 
   lOptions := Default(TDelphiSemanticApiOptions);
+  if aCase = 1 then
+    lOptions.ImplicitRootMemberAbsence := TFixtureRootAbsence.Create;
   lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   if aCase >= 2 then
@@ -8029,6 +8144,12 @@ begin
       'The nested receiver must retain the complete selected chain.')
   else
   begin
+    Assert.AreEqual('  lWithDerived := aDerived;' + #13#10 +
+    '      begin' + #13#10 +
+    '      lWithLeafPtr := @lWithDerived.Child;' + #13#10 +
+    '      aValue := lWithLeafPtr^.Value;' + #13#10 +
+    '    end;',
+      lStatement.ReplacementText);
     Assert.AreEqual('TDerived', lStatement.Temps[0].ReceiverType);
     // A class receiver is captured by a reference temp, so the dependent Child is
     // reached through the temp itself, not through a dereferenced pointer.

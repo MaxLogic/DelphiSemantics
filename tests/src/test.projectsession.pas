@@ -47,6 +47,8 @@ type
     [TestCase('Warm accepted', 'hit-accept')]
     procedure RequestOwnerSealsEveryModelBeforePublication(const aMode: string);
     [Test]
+    [TestCase('Before guard-only anonymous evidence', '65')]
+    [TestCase('Before RTL root evidence', '64')]
     [TestCase('Before alias receiver members', '63')]
     [TestCase('Before receiver-owned value members', '62')]
     [TestCase('Before inactive nested WITH shadow refusal', '61')]
@@ -174,6 +176,10 @@ type
     procedure ProjectSessionPlanRemoveWithInvalidatesPreQualifiedV31Facts;
     [Test]
     procedure ProjectSessionPreservesInheritedAccessIdentityColdAndWarm;
+    [Test]
+    procedure ProjectSessionInheritedAccessWithRootProofPlans;
+    [Test]
+    procedure ProjectSessionInheritedAccessWithoutRootProofRefuses;
     [Test]
     procedure ProjectSessionSnapshotMetricsExposeCacheUsefulnessTelemetry;
     [Test]
@@ -3287,6 +3293,23 @@ begin
       'The analyzed application input must remain byte-identical: ' + cFixtureFiles[i]);
 end;
 
+type
+  TInheritedAccessRootAbsenceStub = class(TInterfacedObject, IDelphiSemanticImplicitRootMemberAbsence)
+  public
+    function EvidenceFingerprint: string;
+    function IsNameAbsent(const aName: string): Boolean;
+  end;
+
+function TInheritedAccessRootAbsenceStub.EvidenceFingerprint: string;
+begin
+  Result := 'ds742-inherited-access-avalue-only';
+end;
+
+function TInheritedAccessRootAbsenceStub.IsNameAbsent(const aName: string): Boolean;
+begin
+  Result := SameText(aName, 'aValue');
+end;
+
 procedure TProjectSessionTests.ProjectSessionPreservesInheritedAccessIdentityColdAndWarm;
 var
   i: Integer;
@@ -3375,8 +3398,12 @@ begin
       (lStatement.Range.StartLine = 10) then
     begin
       Inc(lPlannedCount);
-      Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-      Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+      Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
+      Assert.AreEqual('', lStatement.ReplacementText);
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
     end;
   Assert.AreEqual(2, lPlannedCount);
   lIdentity := ReadProjectRemoveWithFactsIdentity(lCachePath);
@@ -3431,8 +3458,12 @@ begin
       (lStatement.Range.StartLine = 10) then
     begin
       Inc(lPlannedCount);
-      Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-      Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+      Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
+      Assert.AreEqual('', lStatement.ReplacementText);
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
     end;
   Assert.AreEqual(2, lPlannedCount);
   WriteTextFile(TPath.Combine(lRootPath, 'AUnit.pas'),
@@ -3457,6 +3488,149 @@ begin
       Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
     end;
   Assert.AreEqual(1, lVisibleCompetingCount);
+end;
+
+procedure TProjectSessionTests.ProjectSessionInheritedAccessWithRootProofPlans;
+var
+  lOptions: TDelphiSemanticOptions;
+  lPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lStatementCount: Integer;
+begin
+  lRootPath := ProjectSessionTempPath('inherited-access-root-proof');
+  TDirectory.CreateDirectory(lRootPath);
+  WriteTextFile(TPath.Combine(lRootPath, 'P.dpr'),
+    'program P;'#13#10'uses AUnit, BUnit;'#13#10'begin end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="BaseUnit.pas"/>' +
+    '<DCCReference Include="MidUnit.pas"/>' +
+    '<DCCReference Include="AUnit.pas"/>' +
+    '<DCCReference Include="BUnit.pas"/></ItemGroup></Project>');
+  WriteTextFile(TPath.Combine(lRootPath, 'BaseUnit.pas'),
+    'unit BaseUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TLeaf = record'#13#10'    Value: Integer;'#13#10'  end;'#13#10 +
+    '  TBase = class'#13#10'  public'#13#10'    Child: TLeaf;'#13#10 +
+    '  end;'#13#10'implementation'#13#10'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'MidUnit.pas'),
+    'unit MidUnit;'#13#10'interface'#13#10'uses BaseUnit;'#13#10'type'#13#10 +
+    '  TIntermediate = class(TBase) end;'#13#10 +
+    'implementation'#13#10'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'AUnit.pas'),
+    'unit AUnit;'#13#10'interface'#13#10'uses BaseUnit, MidUnit;'#13#10'type'#13#10 +
+    '  TDerived = class(TIntermediate) end;'#13#10 +
+    'procedure RunA(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'implementation'#13#10 +
+    'procedure RunA(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'begin'#13#10'  with aDerived do'#13#10'    with Child do'#13#10 +
+    '      aValue := Value;'#13#10'end;'#13#10'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'BUnit.pas'),
+    'unit BUnit;'#13#10'interface'#13#10'uses BaseUnit, MidUnit;'#13#10'type'#13#10 +
+    '  TDerived = class(TIntermediate) end;'#13#10 +
+    'procedure RunB(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'implementation'#13#10 +
+    'procedure RunB(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'begin'#13#10'  with aDerived do'#13#10'    with Child do'#13#10 +
+    '      aValue := Value;'#13#10'end;'#13#10'end.'#13#10);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'P.dproj');
+  lOptions.ImplicitRootMemberAbsence := TInheritedAccessRootAbsenceStub.Create;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lPlan := lResult.Session.PlanRemoveWithResult;
+  finally
+    lResult.Session.Free;
+  end;
+  lStatementCount := 0;
+  for lStatement in lPlan.Plan.FinalStatements do
+    if MatchText(lStatement.RoutineName, ['RunA', 'RunB']) and
+      (lStatement.Range.StartLine = 10) then
+    begin
+      Inc(lStatementCount);
+      Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+      Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
+      Assert.AreEqual('  lWithDerived := aDerived;'#13#10 +
+        '      begin'#13#10 +
+        '      lWithLeafPtr := @lWithDerived.Child;'#13#10 +
+        '      aValue := lWithLeafPtr^.Value;'#13#10 +
+        '    end;', lStatement.ReplacementText);
+    end;
+  Assert.AreEqual(2, lStatementCount);
+end;
+
+procedure TProjectSessionTests.ProjectSessionInheritedAccessWithoutRootProofRefuses;
+var
+  lCachePath: string;
+  lOptions: TDelphiSemanticOptions;
+  lPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRootPath: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lStatementCount: Integer;
+begin
+  lRootPath := ProjectSessionTempPath('inherited-access-no-root-proof');
+  TDirectory.CreateDirectory(lRootPath);
+  WriteTextFile(TPath.Combine(lRootPath, 'P.dpr'),
+    'program P;'#13#10'uses AUnit, BUnit;'#13#10'begin end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="BaseUnit.pas"/>' +
+    '<DCCReference Include="MidUnit.pas"/>' +
+    '<DCCReference Include="AUnit.pas"/>' +
+    '<DCCReference Include="BUnit.pas"/></ItemGroup></Project>');
+  WriteTextFile(TPath.Combine(lRootPath, 'BaseUnit.pas'),
+    'unit BaseUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TLeaf = record'#13#10'    Value: Integer;'#13#10'  end;'#13#10 +
+    '  TBase = class'#13#10'  public'#13#10'    Child: TLeaf;'#13#10 +
+    '  end;'#13#10'implementation'#13#10'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'MidUnit.pas'),
+    'unit MidUnit;'#13#10'interface'#13#10'uses BaseUnit;'#13#10'type'#13#10 +
+    '  TIntermediate = class(TBase) end;'#13#10 +
+    'implementation'#13#10'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'AUnit.pas'),
+    'unit AUnit;'#13#10'interface'#13#10'uses BaseUnit, MidUnit;'#13#10'type'#13#10 +
+    '  TDerived = class(TIntermediate) end;'#13#10 +
+    'procedure RunA(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'implementation'#13#10 +
+    'procedure RunA(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'begin'#13#10'  with aDerived do'#13#10'    with Child do'#13#10 +
+    '      aValue := Value;'#13#10'end;'#13#10'end.'#13#10);
+  WriteTextFile(TPath.Combine(lRootPath, 'BUnit.pas'),
+    'unit BUnit;'#13#10'interface'#13#10'uses BaseUnit, MidUnit;'#13#10'type'#13#10 +
+    '  TDerived = class(TIntermediate) end;'#13#10 +
+    'procedure RunB(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'implementation'#13#10 +
+    'procedure RunB(aDerived: TDerived; var aValue: Integer);'#13#10 +
+    'begin'#13#10'  with aDerived do'#13#10'    with Child do'#13#10 +
+    '      aValue := Value;'#13#10'end;'#13#10'end.'#13#10);
+  lCachePath := TPath.Combine(lRootPath, 'semantic-cache.sqlite3');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRootPath, 'P.dproj');
+  lOptions.SqliteCacheFileName := lCachePath;
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lPlan := lResult.Session.PlanRemoveWithResult;
+  finally
+    lResult.Session.Free;
+  end;
+  lStatementCount := 0;
+  for lStatement in lPlan.Plan.FinalStatements do
+    if MatchText(lStatement.RoutineName, ['RunA', 'RunB']) and
+      (lStatement.Range.StartLine = 10) then
+    begin
+      Inc(lStatementCount);
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+      Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
+      Assert.AreEqual('', lStatement.ReplacementText);
+      Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+      Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+    end;
+  Assert.AreEqual(2, lStatementCount);
 end;
 
 type

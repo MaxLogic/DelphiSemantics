@@ -1398,7 +1398,7 @@ begin
               SetWideParam(lQuery, 7, lOwner.Name);
               SetWideParam(lQuery, 8, lOwner.NextDeclaredId);
               lQuery.Params[9].AsInteger := Ord(lOwner.Complete);
-              lQuery.Params[10].AsInteger := Ord(lOwner.TerminalVerified);
+              lQuery.Params[10].AsInteger := Ord(lOwner.TerminalVerified) + 2 * Ord(lOwner.UnindexedRoot);
               lQuery.Params[16].AsInteger := Length(lOwner.ValueNames);
             end;
           3:
@@ -1518,7 +1518,8 @@ begin
             Result.Owners[lItem].Name := lFields[6].AsWideString;
             Result.Owners[lItem].NextDeclaredId := lFields[7].AsWideString;
             Result.Owners[lItem].Complete := lFields[8].AsInteger = 1;
-            Result.Owners[lItem].TerminalVerified := lFields[9].AsInteger = 1;
+            Result.Owners[lItem].TerminalVerified := (lFields[9].AsInteger and 1) = 1;
+            Result.Owners[lItem].UnindexedRoot := (lFields[9].AsInteger and 2) = 2;
             lNameCounts[lItem] := lFields[15].AsInteger;
             if (lNameCounts[lItem] < 0) or (lNameCounts[lItem] > lCounts[3]) then
               raise Exception.Create('Snapshot value evidence owner count is invalid.');

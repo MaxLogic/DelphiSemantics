@@ -33,6 +33,406 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [TestCase('comp-tag-read cold', 'comp-tag-read,cold')]
+    [TestCase('comp-tag-read snapshot', 'comp-tag-read,snapshot')]
+    [TestCase('comp-tag-read sessioncold', 'comp-tag-read,sessioncold')]
+    [TestCase('comp-tag-read sessionwarm', 'comp-tag-read,sessionwarm')]
+    [TestCase('comp-tag-read standalone', 'comp-tag-read,standalone')]
+    [TestCase('comp-tag-read rootcold', 'comp-tag-read,rootcold')]
+    [TestCase('comp-tag-write cold', 'comp-tag-write,cold')]
+    [TestCase('comp-tag-write snapshot', 'comp-tag-write,snapshot')]
+    [TestCase('comp-tag-write sessioncold', 'comp-tag-write,sessioncold')]
+    [TestCase('comp-tag-write sessionwarm', 'comp-tag-write,sessionwarm')]
+    [TestCase('comp-tag-write standalone', 'comp-tag-write,standalone')]
+    [TestCase('comp-tag-write rootcold', 'comp-tag-write,rootcold')]
+    [TestCase('comp-name-read cold', 'comp-name-read,cold')]
+    [TestCase('comp-name-read snapshot', 'comp-name-read,snapshot')]
+    [TestCase('comp-name-read sessioncold', 'comp-name-read,sessioncold')]
+    [TestCase('comp-name-read sessionwarm', 'comp-name-read,sessionwarm')]
+    [TestCase('comp-name-read standalone', 'comp-name-read,standalone')]
+    [TestCase('comp-name-read rootcold', 'comp-name-read,rootcold')]
+    [TestCase('comp-owner-read cold', 'comp-owner-read,cold')]
+    [TestCase('comp-owner-read snapshot', 'comp-owner-read,snapshot')]
+    [TestCase('comp-owner-read sessioncold', 'comp-owner-read,sessioncold')]
+    [TestCase('comp-owner-read sessionwarm', 'comp-owner-read,sessionwarm')]
+    [TestCase('comp-owner-read standalone', 'comp-owner-read,standalone')]
+    [TestCase('comp-owner-read rootcold', 'comp-owner-read,rootcold')]
+    [TestCase('comp-tag-noglobal cold', 'comp-tag-noglobal,cold')]
+    [TestCase('comp-tag-noglobal snapshot', 'comp-tag-noglobal,snapshot')]
+    [TestCase('comp-tag-noglobal sessioncold', 'comp-tag-noglobal,sessioncold')]
+    [TestCase('comp-tag-noglobal sessionwarm', 'comp-tag-noglobal,sessionwarm')]
+    [TestCase('comp-tag-noglobal standalone', 'comp-tag-noglobal,standalone')]
+    [TestCase('comp-tag-noglobal rootcold', 'comp-tag-noglobal,rootcold')]
+    [TestCase('comp-2level-tag cold', 'comp-2level-tag,cold')]
+    [TestCase('comp-2level-tag snapshot', 'comp-2level-tag,snapshot')]
+    [TestCase('comp-2level-tag sessioncold', 'comp-2level-tag,sessioncold')]
+    [TestCase('comp-2level-tag sessionwarm', 'comp-2level-tag,sessionwarm')]
+    [TestCase('comp-2level-tag standalone', 'comp-2level-tag,standalone')]
+    [TestCase('comp-2level-tag rootcold', 'comp-2level-tag,rootcold')]
+    [TestCase('comp-method-call cold', 'comp-method-call,cold')]
+    [TestCase('comp-method-call snapshot', 'comp-method-call,snapshot')]
+    [TestCase('comp-method-call sessioncold', 'comp-method-call,sessioncold')]
+    [TestCase('comp-method-call sessionwarm', 'comp-method-call,sessionwarm')]
+    [TestCase('comp-method-call standalone', 'comp-method-call,standalone')]
+    [TestCase('comp-method-call rootcold', 'comp-method-call,rootcold')]
+    [TestCase('intf-refcount cold', 'intf-refcount,cold')]
+    [TestCase('intf-refcount snapshot', 'intf-refcount,snapshot')]
+    [TestCase('intf-refcount sessioncold', 'intf-refcount,sessioncold')]
+    [TestCase('intf-refcount sessionwarm', 'intf-refcount,sessionwarm')]
+    [TestCase('intf-refcount standalone', 'intf-refcount,standalone')]
+    [TestCase('intf-refcount rootcold', 'intf-refcount,rootcold')]
+    [TestCase('obj-classname-implicit cold', 'obj-classname-implicit,cold')]
+    [TestCase('obj-classname-implicit snapshot', 'obj-classname-implicit,snapshot')]
+    [TestCase('obj-classname-implicit sessioncold', 'obj-classname-implicit,sessioncold')]
+    [TestCase('obj-classname-implicit sessionwarm', 'obj-classname-implicit,sessionwarm')]
+    [TestCase('obj-classname-implicit standalone', 'obj-classname-implicit,standalone')]
+    [TestCase('obj-classname-implicit rootcold', 'obj-classname-implicit,rootcold')]
+    [TestCase('obj-classname-explicit cold', 'obj-classname-explicit,cold')]
+    [TestCase('obj-classname-explicit snapshot', 'obj-classname-explicit,snapshot')]
+    [TestCase('obj-classname-explicit sessioncold', 'obj-classname-explicit,sessioncold')]
+    [TestCase('obj-classname-explicit sessionwarm', 'obj-classname-explicit,sessionwarm')]
+    [TestCase('obj-classname-explicit standalone', 'obj-classname-explicit,standalone')]
+    [TestCase('obj-classname-explicit rootcold', 'obj-classname-explicit,rootcold')]
+    [TestCase('anc-weak-alias-tag cold', 'anc-weak-alias-tag,cold')]
+    [TestCase('anc-weak-alias-tag snapshot', 'anc-weak-alias-tag,snapshot')]
+    [TestCase('anc-weak-alias-tag sessioncold', 'anc-weak-alias-tag,sessioncold')]
+    [TestCase('anc-weak-alias-tag sessionwarm', 'anc-weak-alias-tag,sessionwarm')]
+    [TestCase('anc-weak-alias-tag standalone', 'anc-weak-alias-tag,standalone')]
+    [TestCase('anc-weak-alias-tag rootcold', 'anc-weak-alias-tag,rootcold')]
+    [TestCase('anc-strong-alias-tag cold', 'anc-strong-alias-tag,cold')]
+    [TestCase('anc-strong-alias-tag snapshot', 'anc-strong-alias-tag,snapshot')]
+    [TestCase('anc-strong-alias-tag sessioncold', 'anc-strong-alias-tag,sessioncold')]
+    [TestCase('anc-strong-alias-tag sessionwarm', 'anc-strong-alias-tag,sessionwarm')]
+    [TestCase('anc-strong-alias-tag standalone', 'anc-strong-alias-tag,standalone')]
+    [TestCase('anc-strong-alias-tag rootcold', 'anc-strong-alias-tag,rootcold')]
+    [TestCase('nested-outerrec-has-tag cold', 'nested-outerrec-has-tag,cold')]
+    [TestCase('nested-outerrec-has-tag snapshot', 'nested-outerrec-has-tag,snapshot')]
+    [TestCase('nested-outerrec-has-tag sessioncold', 'nested-outerrec-has-tag,sessioncold')]
+    [TestCase('nested-outerrec-has-tag sessionwarm', 'nested-outerrec-has-tag,sessionwarm')]
+    [TestCase('nested-outerrec-has-tag standalone', 'nested-outerrec-has-tag,standalone')]
+    [TestCase('nested-outerrec-has-tag rootcold', 'nested-outerrec-has-tag,rootcold')]
+    [TestCase('comp-in-method cold', 'comp-in-method,cold')]
+    [TestCase('comp-in-method snapshot', 'comp-in-method,snapshot')]
+    [TestCase('comp-in-method sessioncold', 'comp-in-method,sessioncold')]
+    [TestCase('comp-in-method sessionwarm', 'comp-in-method,sessionwarm')]
+    [TestCase('comp-in-method standalone', 'comp-in-method,standalone')]
+    [TestCase('comp-in-method rootcold', 'comp-in-method,rootcold')]
+    [TestCase('alias-projclass-classname cold', 'alias-projclass-classname,cold')]
+    [TestCase('alias-projclass-classname snapshot', 'alias-projclass-classname,snapshot')]
+    [TestCase('alias-projclass-classname sessioncold', 'alias-projclass-classname,sessioncold')]
+    [TestCase('alias-projclass-classname sessionwarm', 'alias-projclass-classname,sessionwarm')]
+    [TestCase('alias-projclass-classname standalone', 'alias-projclass-classname,standalone')]
+    [TestCase('alias-projclass-classname rootcold', 'alias-projclass-classname,rootcold')]
+    [TestCase('sr-excludeattr cold', 'sr-excludeattr,cold')]
+    [TestCase('sr-excludeattr snapshot', 'sr-excludeattr,snapshot')]
+    [TestCase('sr-excludeattr sessioncold', 'sr-excludeattr,sessioncold')]
+    [TestCase('sr-excludeattr sessionwarm', 'sr-excludeattr,sessionwarm')]
+    [TestCase('sr-excludeattr standalone', 'sr-excludeattr,standalone')]
+    [TestCase('sr-excludeattr rootcold', 'sr-excludeattr,rootcold')]
+    [TestCase('sr-findhandle cold', 'sr-findhandle,cold')]
+    [TestCase('sr-findhandle snapshot', 'sr-findhandle,snapshot')]
+    [TestCase('sr-findhandle sessioncold', 'sr-findhandle,sessioncold')]
+    [TestCase('sr-findhandle sessionwarm', 'sr-findhandle,sessionwarm')]
+    [TestCase('sr-findhandle standalone', 'sr-findhandle,standalone')]
+    [TestCase('sr-findhandle rootcold', 'sr-findhandle,rootcold')]
+    [TestCase('sr-finddata cold', 'sr-finddata,cold')]
+    [TestCase('sr-finddata snapshot', 'sr-finddata,snapshot')]
+    [TestCase('sr-finddata sessioncold', 'sr-finddata,sessioncold')]
+    [TestCase('sr-finddata sessionwarm', 'sr-finddata,sessionwarm')]
+    [TestCase('sr-finddata standalone', 'sr-finddata,standalone')]
+    [TestCase('sr-finddata rootcold', 'sr-finddata,rootcold')]
+    [TestCase('sr-finddata-fillchar cold', 'sr-finddata-fillchar,cold')]
+    [TestCase('sr-finddata-fillchar snapshot', 'sr-finddata-fillchar,snapshot')]
+    [TestCase('sr-finddata-fillchar sessioncold', 'sr-finddata-fillchar,sessioncold')]
+    [TestCase('sr-finddata-fillchar sessionwarm', 'sr-finddata-fillchar,sessionwarm')]
+    [TestCase('sr-finddata-fillchar standalone', 'sr-finddata-fillchar,standalone')]
+    [TestCase('sr-finddata-fillchar rootcold', 'sr-finddata-fillchar,rootcold')]
+    [TestCase('sr-timestamp cold', 'sr-timestamp,cold')]
+    [TestCase('sr-timestamp snapshot', 'sr-timestamp,snapshot')]
+    [TestCase('sr-timestamp sessioncold', 'sr-timestamp,sessioncold')]
+    [TestCase('sr-timestamp sessionwarm', 'sr-timestamp,sessionwarm')]
+    [TestCase('sr-timestamp standalone', 'sr-timestamp,standalone')]
+    [TestCase('sr-timestamp rootcold', 'sr-timestamp,rootcold')]
+    [TestCase('comp-tag-read namedcold', 'comp-tag-read,namedcold')]
+    [TestCase('comp-tag-write namedcold', 'comp-tag-write,namedcold')]
+    [TestCase('comp-name-read namedcold', 'comp-name-read,namedcold')]
+    [TestCase('comp-owner-read namedcold', 'comp-owner-read,namedcold')]
+    [TestCase('comp-tag-noglobal namedcold', 'comp-tag-noglobal,namedcold')]
+    [TestCase('comp-2level-tag namedcold', 'comp-2level-tag,namedcold')]
+    [TestCase('comp-method-call namedcold', 'comp-method-call,namedcold')]
+    [TestCase('intf-refcount namedcold', 'intf-refcount,namedcold')]
+    [TestCase('obj-classname-implicit namedcold', 'obj-classname-implicit,namedcold')]
+    [TestCase('obj-classname-explicit namedcold', 'obj-classname-explicit,namedcold')]
+    [TestCase('anc-weak-alias-tag namedcold', 'anc-weak-alias-tag,namedcold')]
+    [TestCase('anc-strong-alias-tag namedcold', 'anc-strong-alias-tag,namedcold')]
+    [TestCase('nested-outerrec-has-tag namedcold', 'nested-outerrec-has-tag,namedcold')]
+    [TestCase('comp-in-method namedcold', 'comp-in-method,namedcold')]
+    [TestCase('alias-projclass-classname namedcold', 'alias-projclass-classname,namedcold')]
+    [TestCase('sr-excludeattr namedcold', 'sr-excludeattr,namedcold')]
+    [TestCase('sr-findhandle namedcold', 'sr-findhandle,namedcold')]
+    [TestCase('sr-finddata namedcold', 'sr-finddata,namedcold')]
+    [TestCase('sr-finddata-fillchar namedcold', 'sr-finddata-fillchar,namedcold')]
+    [TestCase('sr-timestamp namedcold', 'sr-timestamp,namedcold')]
+    [TestCase('ctl-comp-own-member cold', 'ctl-comp-own-member,cold')]
+    [TestCase('ctl-comp-own-member snapshot', 'ctl-comp-own-member,snapshot')]
+    [TestCase('ctl-comp-own-member sessioncold', 'ctl-comp-own-member,sessioncold')]
+    [TestCase('ctl-comp-own-member sessionwarm', 'ctl-comp-own-member,sessionwarm')]
+    [TestCase('ctl-comp-own-member standalone', 'ctl-comp-own-member,standalone')]
+    [TestCase('ctl-comp-own-member rootcold', 'ctl-comp-own-member,rootcold')]
+    [TestCase('ctl-comp-own-member namedcold', 'ctl-comp-own-member,namedcold')]
+    [TestCase('ctl-obj-own-member cold', 'ctl-obj-own-member,cold')]
+    [TestCase('ctl-obj-own-member snapshot', 'ctl-obj-own-member,snapshot')]
+    [TestCase('ctl-obj-own-member sessioncold', 'ctl-obj-own-member,sessioncold')]
+    [TestCase('ctl-obj-own-member sessionwarm', 'ctl-obj-own-member,sessionwarm')]
+    [TestCase('ctl-obj-own-member standalone', 'ctl-obj-own-member,standalone')]
+    [TestCase('ctl-obj-own-member rootcold', 'ctl-obj-own-member,rootcold')]
+    [TestCase('ctl-obj-own-member namedcold', 'ctl-obj-own-member,namedcold')]
+    [TestCase('ctl-record-absent-global cold', 'ctl-record-absent-global,cold')]
+    [TestCase('ctl-record-absent-global snapshot', 'ctl-record-absent-global,snapshot')]
+    [TestCase('ctl-record-absent-global sessioncold', 'ctl-record-absent-global,sessioncold')]
+    [TestCase('ctl-record-absent-global sessionwarm', 'ctl-record-absent-global,sessionwarm')]
+    [TestCase('ctl-record-absent-global standalone', 'ctl-record-absent-global,standalone')]
+    [TestCase('ctl-record-absent-global rootcold', 'ctl-record-absent-global,rootcold')]
+    [TestCase('ctl-record-absent-global namedcold', 'ctl-record-absent-global,namedcold')]
+    [TestCase('ctl-alias-projrec-field cold', 'ctl-alias-projrec-field,cold')]
+    [TestCase('ctl-alias-projrec-field snapshot', 'ctl-alias-projrec-field,snapshot')]
+    [TestCase('ctl-alias-projrec-field sessioncold', 'ctl-alias-projrec-field,sessioncold')]
+    [TestCase('ctl-alias-projrec-field sessionwarm', 'ctl-alias-projrec-field,sessionwarm')]
+    [TestCase('ctl-alias-projrec-field standalone', 'ctl-alias-projrec-field,standalone')]
+    [TestCase('ctl-alias-projrec-field rootcold', 'ctl-alias-projrec-field,rootcold')]
+    [TestCase('ctl-alias-projrec-field namedcold', 'ctl-alias-projrec-field,namedcold')]
+    [TestCase('nested-innerrec-tag-ctl cold', 'nested-innerrec-tag-ctl,cold')]
+    [TestCase('nested-innerrec-tag-ctl snapshot', 'nested-innerrec-tag-ctl,snapshot')]
+    [TestCase('nested-innerrec-tag-ctl sessioncold', 'nested-innerrec-tag-ctl,sessioncold')]
+    [TestCase('nested-innerrec-tag-ctl sessionwarm', 'nested-innerrec-tag-ctl,sessionwarm')]
+    [TestCase('nested-innerrec-tag-ctl standalone', 'nested-innerrec-tag-ctl,standalone')]
+    [TestCase('nested-innerrec-tag-ctl rootcold', 'nested-innerrec-tag-ctl,rootcold')]
+    [TestCase('nested-innerrec-tag-ctl namedcold', 'nested-innerrec-tag-ctl,namedcold')]
+    [TestCase('ctl-rec-in-comp-method-free cold', 'ctl-rec-in-comp-method-free,cold')]
+    [TestCase('ctl-rec-in-comp-method-free snapshot', 'ctl-rec-in-comp-method-free,snapshot')]
+    [TestCase('ctl-rec-in-comp-method-free sessioncold', 'ctl-rec-in-comp-method-free,sessioncold')]
+    [TestCase('ctl-rec-in-comp-method-free sessionwarm', 'ctl-rec-in-comp-method-free,sessionwarm')]
+    [TestCase('ctl-rec-in-comp-method-free standalone', 'ctl-rec-in-comp-method-free,standalone')]
+    [TestCase('ctl-rec-in-comp-method-free rootcold', 'ctl-rec-in-comp-method-free,rootcold')]
+    [TestCase('ctl-rec-in-comp-method-free namedcold', 'ctl-rec-in-comp-method-free,namedcold')]
+    [TestCase('sr-name-ctl cold', 'sr-name-ctl,cold')]
+    [TestCase('sr-name-ctl snapshot', 'sr-name-ctl,snapshot')]
+    [TestCase('sr-name-ctl sessioncold', 'sr-name-ctl,sessioncold')]
+    [TestCase('sr-name-ctl sessionwarm', 'sr-name-ctl,sessionwarm')]
+    [TestCase('sr-name-ctl standalone', 'sr-name-ctl,standalone')]
+    [TestCase('sr-name-ctl rootcold', 'sr-name-ctl,rootcold')]
+    [TestCase('sr-name-ctl namedcold', 'sr-name-ctl,namedcold')]
+    [TestCase('sr-fileio715 cold', 'sr-fileio715,cold')]
+    [TestCase('sr-fileio715 snapshot', 'sr-fileio715,snapshot')]
+    [TestCase('sr-fileio715 sessioncold', 'sr-fileio715,sessioncold')]
+    [TestCase('sr-fileio715 sessionwarm', 'sr-fileio715,sessionwarm')]
+    [TestCase('sr-fileio715 standalone', 'sr-fileio715,standalone')]
+    [TestCase('sr-fileio715 rootcold', 'sr-fileio715,rootcold')]
+    [TestCase('sr-fileio715 namedcold', 'sr-fileio715,namedcold')]
+    [TestCase('ctl-obj-absent-global cold', 'ctl-obj-absent-global,cold')]
+    [TestCase('ctl-obj-absent-global snapshot', 'ctl-obj-absent-global,snapshot')]
+    [TestCase('ctl-obj-absent-global sessioncold', 'ctl-obj-absent-global,sessioncold')]
+    [TestCase('ctl-obj-absent-global sessionwarm', 'ctl-obj-absent-global,sessionwarm')]
+    [TestCase('ctl-obj-absent-global standalone', 'ctl-obj-absent-global,standalone')]
+    [TestCase('ctl-obj-absent-global rootcold', 'ctl-obj-absent-global,rootcold')]
+    [TestCase('ctl-obj-absent-global namedcold', 'ctl-obj-absent-global,namedcold')]
+    [TestCase('obj-local-var-ctl cold', 'obj-local-var-ctl,cold')]
+    [TestCase('obj-local-var-ctl snapshot', 'obj-local-var-ctl,snapshot')]
+    [TestCase('obj-local-var-ctl sessioncold', 'obj-local-var-ctl,sessioncold')]
+    [TestCase('obj-local-var-ctl sessionwarm', 'obj-local-var-ctl,sessionwarm')]
+    [TestCase('obj-local-var-ctl standalone', 'obj-local-var-ctl,standalone')]
+    [TestCase('obj-local-var-ctl rootcold', 'obj-local-var-ctl,rootcold')]
+    [TestCase('obj-local-var-ctl namedcold', 'obj-local-var-ctl,namedcold')]
+    [TestCase('ctl-comp-absent-global cold', 'ctl-comp-absent-global,cold')]
+    [TestCase('ctl-comp-absent-global snapshot', 'ctl-comp-absent-global,snapshot')]
+    [TestCase('ctl-comp-absent-global sessioncold', 'ctl-comp-absent-global,sessioncold')]
+    [TestCase('ctl-comp-absent-global sessionwarm', 'ctl-comp-absent-global,sessionwarm')]
+    [TestCase('ctl-comp-absent-global standalone', 'ctl-comp-absent-global,standalone')]
+    [TestCase('ctl-comp-absent-global rootcold', 'ctl-comp-absent-global,rootcold')]
+    [TestCase('ctl-comp-absent-global namedcold', 'ctl-comp-absent-global,namedcold')]
+    [TestCase('comp-local-var cold', 'comp-local-var,cold')]
+    [TestCase('comp-local-var snapshot', 'comp-local-var,snapshot')]
+    [TestCase('comp-local-var sessioncold', 'comp-local-var,sessioncold')]
+    [TestCase('comp-local-var sessionwarm', 'comp-local-var,sessionwarm')]
+    [TestCase('comp-local-var standalone', 'comp-local-var,standalone')]
+    [TestCase('comp-local-var rootcold', 'comp-local-var,rootcold')]
+    [TestCase('comp-local-var namedcold', 'comp-local-var,namedcold')]
+    [TestCase('comp-same-name-field-ctl cold', 'comp-same-name-field-ctl,cold')]
+    [TestCase('comp-same-name-field-ctl snapshot', 'comp-same-name-field-ctl,snapshot')]
+    [TestCase('comp-same-name-field-ctl sessioncold', 'comp-same-name-field-ctl,sessioncold')]
+    [TestCase('comp-same-name-field-ctl sessionwarm', 'comp-same-name-field-ctl,sessionwarm')]
+    [TestCase('comp-same-name-field-ctl standalone', 'comp-same-name-field-ctl,standalone')]
+    [TestCase('comp-same-name-field-ctl rootcold', 'comp-same-name-field-ctl,rootcold')]
+    [TestCase('comp-same-name-field-ctl namedcold', 'comp-same-name-field-ctl,namedcold')]
+    [TestCase('nested-outerrec-field-b cold', 'nested-outerrec-field-b,cold')]
+    [TestCase('nested-outerrec-field-b snapshot', 'nested-outerrec-field-b,snapshot')]
+    [TestCase('nested-outerrec-field-b sessioncold', 'nested-outerrec-field-b,sessioncold')]
+    [TestCase('nested-outerrec-field-b sessionwarm', 'nested-outerrec-field-b,sessionwarm')]
+    [TestCase('nested-outerrec-field-b standalone', 'nested-outerrec-field-b,standalone')]
+    [TestCase('nested-outerrec-field-b rootcold', 'nested-outerrec-field-b,rootcold')]
+    [TestCase('nested-outerrec-field-b namedcold', 'nested-outerrec-field-b,namedcold')]
+    [TestCase('nested-inner-absent-ctl cold', 'nested-inner-absent-ctl,cold')]
+    [TestCase('nested-inner-absent-ctl snapshot', 'nested-inner-absent-ctl,snapshot')]
+    [TestCase('nested-inner-absent-ctl sessioncold', 'nested-inner-absent-ctl,sessioncold')]
+    [TestCase('nested-inner-absent-ctl sessionwarm', 'nested-inner-absent-ctl,sessionwarm')]
+    [TestCase('nested-inner-absent-ctl standalone', 'nested-inner-absent-ctl,standalone')]
+    [TestCase('nested-inner-absent-ctl namedcold', 'nested-inner-absent-ctl,namedcold')]
+    [TestCase('nested-inner-tag cold', 'nested-inner-tag,cold')]
+    [TestCase('nested-inner-tag snapshot', 'nested-inner-tag,snapshot')]
+    [TestCase('nested-inner-tag sessioncold', 'nested-inner-tag,sessioncold')]
+    [TestCase('nested-inner-tag sessionwarm', 'nested-inner-tag,sessionwarm')]
+    [TestCase('nested-inner-tag standalone', 'nested-inner-tag,standalone')]
+    [TestCase('nested-inner-tag rootcold', 'nested-inner-tag,rootcold')]
+    [TestCase('nested-inner-tag namedcold', 'nested-inner-tag,namedcold')]
+    [Category('DS742')]
+    procedure RtlRootReceiverMembersQualifyOrRefuse(const aShape, aMode: string);
+    [Test]
+    [Category('DS742')]
+    procedure RootMemberAbsenceProofIsSiteScoped;
+    [TestCase('Visible procedure', 'True')]
+    [TestCase('Missing procedure', 'False')]
+    [Category('DS742Fix1b')]
+    procedure NamedRootProcedureCallsRequireVisibleDeclaration(const aDeclared: Boolean);
+    [TestCase('obj-open named', 'obj-open,named')]
+    [TestCase('obj-open missing', 'obj-open,missing')]
+    [TestCase('obj-open throw', 'obj-open,throw')]
+    [TestCase('obj-open empty', 'obj-open,empty')]
+    [TestCase('obj-open implicit', 'obj-open,implicit')]
+    [TestCase('obj-unresolved named', 'obj-unresolved,named')]
+    [TestCase('obj-unresolved missing', 'obj-unresolved,missing')]
+    [TestCase('obj-unresolved throw', 'obj-unresolved,throw')]
+    [TestCase('obj-unresolved empty', 'obj-unresolved,empty')]
+    [TestCase('obj-unresolved implicit', 'obj-unresolved,implicit')]
+    [TestCase('component named', 'component,named')]
+    [TestCase('component missing', 'component,missing')]
+    [TestCase('component throw', 'component,throw')]
+    [TestCase('component empty', 'component,empty')]
+    [TestCase('component implicit', 'component,implicit')]
+    [TestCase('component-member named', 'component-member,named')]
+    [TestCase('component-member missing', 'component-member,missing')]
+    [TestCase('component-member throw', 'component-member,throw')]
+    [TestCase('component-member empty', 'component-member,empty')]
+    [TestCase('component-member implicit', 'component-member,implicit')]
+    [TestCase('bitmap-order named', 'bitmap-order,named')]
+    [TestCase('bitmap-order missing', 'bitmap-order,missing')]
+    [TestCase('bitmap-order throw', 'bitmap-order,throw')]
+    [TestCase('bitmap-order empty', 'bitmap-order,empty')]
+    [TestCase('bitmap-order implicit', 'bitmap-order,implicit')]
+    [TestCase('explicit-object named', 'explicit-object,named')]
+    [TestCase('explicit-object missing', 'explicit-object,missing')]
+    [TestCase('explicit-object throw', 'explicit-object,throw')]
+    [TestCase('explicit-object empty', 'explicit-object,empty')]
+    [TestCase('explicit-object implicit', 'explicit-object,implicit')]
+    [TestCase('interface named', 'interface,named')]
+    [TestCase('interface missing', 'interface,missing')]
+    [TestCase('interface throw', 'interface,throw')]
+    [TestCase('interface empty', 'interface,empty')]
+    [TestCase('interface implicit', 'interface,implicit')]
+    [TestCase('explicit-interface named', 'explicit-interface,named')]
+    [TestCase('explicit-interface missing', 'explicit-interface,missing')]
+    [TestCase('explicit-interface throw', 'explicit-interface,throw')]
+    [TestCase('explicit-interface empty', 'explicit-interface,empty')]
+    [TestCase('explicit-interface implicit', 'explicit-interface,implicit')]
+    [TestCase('exception named', 'exception,named')]
+    [TestCase('exception missing', 'exception,missing')]
+    [TestCase('exception throw', 'exception,throw')]
+    [TestCase('exception empty', 'exception,empty')]
+    [TestCase('exception implicit', 'exception,implicit')]
+    [TestCase('implementation named', 'implementation,named')]
+    [TestCase('implementation missing', 'implementation,missing')]
+    [TestCase('implementation throw', 'implementation,throw')]
+    [TestCase('implementation empty', 'implementation,empty')]
+    [TestCase('implementation implicit', 'implementation,implicit')]
+    [TestCase('closed named', 'closed,named')]
+    [TestCase('closed missing', 'closed,missing')]
+    [TestCase('closed throw', 'closed,throw')]
+    [TestCase('closed empty', 'closed,empty')]
+    [TestCase('closed implicit', 'closed,implicit')]
+    [TestCase('site-helper named', 'site-helper,named')]
+    [TestCase('site-helper missing', 'site-helper,missing')]
+    [TestCase('site-helper throw', 'site-helper,throw')]
+    [TestCase('site-helper empty', 'site-helper,empty')]
+    [TestCase('site-helper implicit', 'site-helper,implicit')]
+    [TestCase('lookup-shadow named', 'lookup-shadow,named')]
+    [TestCase('lookup-shadow missing', 'lookup-shadow,missing')]
+    [TestCase('lookup-shadow throw', 'lookup-shadow,throw')]
+    [TestCase('lookup-shadow empty', 'lookup-shadow,empty')]
+    [TestCase('lookup-shadow implicit', 'lookup-shadow,implicit')]
+    [TestCase('generic-base generic', 'generic-base,named')]
+    [TestCase('generic-chain generic', 'generic-chain,named')]
+    [Category('DS742')]
+    procedure NamedRootReceiverMembersUseProviderEvidence(const aShape, aMode: string);
+
+    [Test]
+    [Category('DS742')]
+    procedure NamedRootSiteHelperPrecedenceIsPreserved;
+    [Test]
+    [Category('DS742')]
+    procedure NamedRootCaptureUsesRootMostDeclaration;
+
+    [TestCase('Closed resolved include', 'closed')]
+    [TestCase('Named resolved declaration include', 'declaration')]
+    [TestCase('Named resolved site include', 'site')]
+    [TestCase('Unresolved declaration include visibility control', 'unresolved')]
+    [Category('DS742Fix5')]
+    procedure RootProofIncludesUseExpandedScope(const aShape: string);
+
+    [TestCase('Declaration captured private getter property', 'False')]
+    [TestCase('Site visible private getter property', 'True')]
+    [Category('DS742Fix5')]
+    procedure NamedRootPrivateGetterPropertyScopes(const aSiteHelper: Boolean);
+
+    [TestCase('n-ifdef-unicode', 'n-ifdef-unicode')]
+    [TestCase('n-inc-ifdef-unicode', 'n-inc-ifdef-unicode')]
+    [TestCase('n-inc-define-unknown', 'n-inc-define-unknown')]
+    [TestCase('n-if-compilerversion', 'n-if-compilerversion')]
+    [TestCase('c-ifdef-unicode', 'c-ifdef-unicode')]
+    [TestCase('c-inc-ifdef-unicode', 'c-inc-ifdef-unicode')]
+    [TestCase('site-unresolved', 'site-unresolved')]
+    [TestCase('n-inc-define', 'n-inc-define')]
+    [TestCase('n-inc-nested', 'n-inc-nested')]
+    [TestCase('n-project-define', 'n-project-define')]
+    [TestCase('c-none', 'c-none')]
+    [TestCase('d-ifdef-unicode', 'd-ifdef-unicode')]
+    [TestCase('d-inc-ifdef-unicode', 'd-inc-ifdef-unicode')]
+    [TestCase('d-inc-define-unknown', 'd-inc-define-unknown')]
+    [TestCase('d-if-compilerversion', 'd-if-compilerversion')]
+    [TestCase('n-helper-declaration', 'n-helper-declaration')]
+    [TestCase('c-helper-declaration', 'c-helper-declaration')]
+    [TestCase('n-routine-unicode', 'n-routine-unicode')]
+    [TestCase('n-unmatched', 'n-unmatched')]
+    [TestCase('n-unterminated', 'n-unterminated')]
+    [TestCase('n-unsupported', 'n-unsupported')]
+    [Category('DS742Fix6')]
+    procedure RootProofRequiresVerifiedPreprocessScope(const aShape: string);
+
+    [TestCase('n-plain-other-unit', 'n-plain-other-unit')]
+    [TestCase('n-ifopt', 'n-ifopt')]
+    [TestCase('k-ifopt-site-body', 'k-ifopt-site-body')]
+    [TestCase('k-hints-site', 'k-hints-site')]
+    [TestCase('k-inline-site', 'k-inline-site')]
+    [TestCase('k-hints-unit3', 'k-hints-unit3')]
+    [TestCase('k-direct-known', 'k-direct-known')]
+    [TestCase('k-ifopt-other-unit', 'k-ifopt-other-unit')]
+    [Category('DS742Fix7')]
+    procedure FailedModelCannotBypassRootAbsenceProof(const aShape: string);
+
+    [TestCase('packed-local', 'packed-local')]
+    [TestCase('unit-record', 'unit-record')]
+    [TestCase('variant', 'variant')]
+    [TestCase('nested', 'nested')]
+    [TestCase('ifopt', 'ifopt')]
+    [TestCase('ifdef', 'ifdef')]
+    [TestCase('undefined-symbol', 'undefined-symbol')]
+    [TestCase('i-plus', 'i-plus')]
+    [TestCase('i-minus', 'i-minus')]
+    [TestCase('record-comments', 'record-comments')]
+    [TestCase('failed-model', 'failed-model')]
+    [TestCase('named', 'named')]
+    [TestCase('alias', 'alias')]
+    [Category('DS742Fix7b')]
+    procedure AnonymousRecordRequiresParsedEvidence(const aShape: string);
+
     [Test]
     [Category('DS731Planner')]
     procedure ValueMemberWithoutReceiverMatchRemovesCandidate;
@@ -866,6 +1266,19 @@ type
     [TestCase('r6-control-parenthesized sessionwarm', 'r6-control-parenthesized,sessionwarm')]
     [TestCase('r6-control-parenthesized standalone', 'r6-control-parenthesized,standalone')]
     procedure AliasFallbackAndForwardScopes(const aShape, aMode: string);
+    [Test]
+    [TestCase('r5-nested-different cold', 'r5-nested-different,cold')]
+    [TestCase('r5-nested-different snapshot', 'r5-nested-different,snapshot')]
+    [TestCase('r5-nested-different sessioncold', 'r5-nested-different,sessioncold')]
+    [TestCase('r5-nested-different sessionwarm', 'r5-nested-different,sessionwarm')]
+    [TestCase('r5-nested-different standalone', 'r5-nested-different,standalone')]
+    [TestCase('r5-nested-function cold', 'r5-nested-function,cold')]
+    [TestCase('r5-nested-function snapshot', 'r5-nested-function,snapshot')]
+    [TestCase('r5-nested-function sessioncold', 'r5-nested-function,sessioncold')]
+    [TestCase('r5-nested-function sessionwarm', 'r5-nested-function,sessionwarm')]
+    [TestCase('r5-nested-function standalone', 'r5-nested-function,standalone')]
+    [Category('DS742M5')]
+    procedure IdenticalReceiverExceptionNegativeControls(const aShape, aMode: string);
 
 
 
@@ -1651,6 +2064,106 @@ type
     function IsNameAbsent(const aName: string): Boolean;
   end;
 
+type
+  TNamedRootAbsenceStub = class(TInterfacedObject, IDelphiSemanticImplicitRootMemberAbsence,
+    IDelphiSemanticNamedRootMemberAbsence)
+  public
+    Mode: string;
+    ImplicitCalls, NamedCalls: Integer;
+    Root: TDelphiSemanticQualifiedRootType;
+    SiteUnits: TArray<string>;
+    Name: string;
+    function EvidenceFingerprint: string;
+    function IsNameAbsent(const aName: string): Boolean;
+    function IsNamedRootMemberAbsent(const aRoot: TDelphiSemanticQualifiedRootType;
+      const aSiteUnits: TArray<string>; const aName: string): Boolean;
+  end;
+
+  TRtlRootAbsenceStub = class(TInterfacedObject, IDelphiSemanticImplicitRootMemberAbsence,
+    IDelphiSemanticNamedRootMemberAbsence)
+  public
+    function EvidenceFingerprint: string;
+    function IsNameAbsent(const aName: string): Boolean;
+    function IsNamedRootMemberAbsent(const aRoot: TDelphiSemanticQualifiedRootType;
+      const aSiteUnits: TArray<string>; const aName: string): Boolean;
+  end;
+
+type
+  TRtlImplicitAbsenceStub = class(TInterfacedObject, IDelphiSemanticImplicitRootMemberAbsence)
+  public
+    function EvidenceFingerprint: string;
+    function IsNameAbsent(const aName: string): Boolean;
+  end;
+
+function TNamedRootAbsenceStub.EvidenceFingerprint: string;
+begin
+  if Mode = 'empty' then
+    Exit('');
+  Result := 'stub-named';
+end;
+
+function TNamedRootAbsenceStub.IsNameAbsent(const aName: string): Boolean;
+begin
+  Inc(ImplicitCalls);
+  Result := MatchText(aName, ['G', 'fmCreate']);
+end;
+
+function TNamedRootAbsenceStub.IsNamedRootMemberAbsent(
+  const aRoot: TDelphiSemanticQualifiedRootType; const aSiteUnits: TArray<string>;
+  const aName: string): Boolean;
+begin
+  Inc(NamedCalls);
+  Root := aRoot;
+  SiteUnits := Copy(aSiteUnits);
+  Name := aName;
+  if Mode = 'throw' then
+    raise EInvalidOpException.Create('Deliberate named witness failure.');
+  // These permissive controls expose a lost declaration or site scope in DS.
+  // Their expected refusal comes from the retained dcc64 helper cases.
+  if Mode = 'property-pair' then
+    Exit(SameText(aName, 'ConnectionTimeout') and
+      SameText(string.Join('#', aRoot.LookupUnits), 'FireDAC.Comp.Client#FireDAC.ADO.Migrate') and
+      (Length(aSiteUnits) = 0));
+  if SameText(aName, 'GetLoginUsername') then
+    Exit((string.Join('#', aRoot.LookupUnits) <>
+      'FireDAC.Comp.Client#FireDAC.DBX.Migrate') or
+      (string.Join('#', aSiteUnits) <> 'FireDAC.ADO.Migrate'));
+  if SameText(aName, 'ConnectionTimeout') then
+    Exit((string.Join('#', aRoot.LookupUnits) <> 'FireDAC.Comp.Client') or
+      (string.Join('#', aSiteUnits) <> 'FireDAC.ADO.Migrate'));
+  Result := MatchText(aName, ['G', 'fmCreate']);
+end;
+
+function TRtlImplicitAbsenceStub.EvidenceFingerprint: string;
+begin
+  Result := 'ds742-exact-implicit-absence-fixtures-v1';
+end;
+
+function TRtlImplicitAbsenceStub.IsNameAbsent(const aName: string): Boolean;
+begin
+  Result := MatchText(aName, ['G', 'N', 'X', 'S', 'P', 'Hit', 'B']);
+end;
+
+function TRtlRootAbsenceStub.EvidenceFingerprint: string;
+begin
+  Result := 'ds742-exact-absence-fixtures-v1';
+end;
+
+function TRtlRootAbsenceStub.IsNameAbsent(const aName: string): Boolean;
+begin
+  Result := MatchText(aName, ['G', 'N', 'X', 'S', 'P', 'Hit', 'B']);
+end;
+
+function TRtlRootAbsenceStub.IsNamedRootMemberAbsent(
+  const aRoot: TDelphiSemanticQualifiedRootType; const aSiteUnits: TArray<string>;
+  const aName: string): Boolean;
+begin
+  Result := MatchText(aRoot.Kind, ['class', 'interface']) and
+    MatchText(aRoot.TypeName, ['TComponent', 'System.TComponent', 'System.Classes.TComponent',
+    'TInterfacedObject', 'System.TInterfacedObject', 'TObject', 'System.TObject', 'System.IInterface']) and
+    IsNameAbsent(aName);
+end;
+
 constructor TThrowingRootAbsenceProvider.Create(const aMode: string);
 begin
   inherited Create;
@@ -1678,6 +2191,2092 @@ function TImplicitRootAbsenceStub.IsNameAbsent(const aName: string): Boolean;
 begin
   Result := SameText(aName, 'lPair') or SameText(aName, 'LeftOnly') or
     SameText(aName, 'lNearest');
+end;
+
+procedure TWithBinderTests.NamedRootReceiverMembersUseProviderEvidence(
+  const aShape, aMode: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProvider: TNamedRootAbsenceStub;
+  lRoot, lUses, lType, lExtra, lBody, lSource, lExpectedRoot: string;
+  lExpectedUnits: TArray<string>;
+  lPlanned, lInterface: Boolean;
+begin
+  lRoot := WithBinderTempPath('ds742-named-' + aShape + '-' + aMode);
+  TDirectory.CreateDirectory(lRoot);
+  lUses := 'System.SysUtils';
+  lType := 'class';
+  lExtra := '';
+  lBody := 'X := G';
+  lExpectedRoot := 'System.TObject';
+  lExpectedUnits := nil;
+  lInterface := MatchText(aShape, ['interface', 'explicit-interface']);
+  if aShape = 'closed' then
+    lUses := ''
+  else if aShape = 'explicit-object' then
+  begin
+    lType := 'class(TObject)';
+    lUses := '';
+    lExpectedRoot := 'TObject';
+  end else if MatchText(aShape, ['component', 'component-member', 'lookup-shadow']) then
+  begin
+    lUses := 'System.Classes';
+    lType := 'class(TComponent)';
+    lExpectedRoot := 'TComponent';
+    lExpectedUnits := ['System.Classes'];
+    if aShape = 'component-member' then
+      lBody := 'X := Tag';
+    if aShape = 'lookup-shadow' then
+      lExtra := 'TComponent = Integer;'#13#10;
+  end else if MatchText(aShape, ['generic-base', 'generic-chain']) then
+  begin
+    lUses := 'System.Classes, System.Generics.Collections';
+    lType := 'class(TList<Integer>)';
+    lBody := 'X := G';
+    if aShape = 'generic-chain' then
+    begin
+      lExtra := 'TBase = class(TList<Integer>) end;'#13#10;
+      lType := 'class(TBase)';
+    end;
+  end else if aShape = 'bitmap-order' then
+  begin
+    lUses := 'Winapi.Windows, Vcl.Graphics';
+    lType := 'class(TBitmap)';
+    lExpectedRoot := 'TBitmap';
+    lExpectedUnits := ['Winapi.Windows', 'Vcl.Graphics'];
+  end else if lInterface then
+  begin
+    lUses := '';
+    lType := 'interface';
+    lBody := 'G := 7';
+    lExpectedRoot := 'System.IInterface';
+    if aShape = 'explicit-interface' then
+    begin
+      lUses := 'System.Classes';
+      lExpectedUnits := ['System.Classes'];
+      lType := 'interface(IInterface)';
+      lExpectedRoot := 'IInterface';
+    end;
+  end else if aShape = 'exception' then
+  begin
+    lType := 'class(Exception)';
+    lExpectedRoot := 'Exception';
+    lExpectedUnits := ['System.SysUtils'];
+  end else if aShape = 'obj-unresolved' then
+  begin
+    lUses := 'System.Classes';
+    lBody := 'X := fmCreate';
+  end else if aShape = 'site-helper' then
+    lExtra := 'THelper = class helper for TObject procedure Extra; end;'#13#10;
+  lSource := 'unit NamedUnit;'#13#10'interface'#13#10;
+  if aShape = 'implementation' then
+    lSource := lSource + 'implementation'#13#10;
+  if lUses <> '' then
+    lSource := lSource + 'uses ' + lUses + ';'#13#10;
+  lSource := lSource + 'type'#13#10 + lExtra + 'TFoo = ' + lType + #13#10;
+  if not lInterface then
+    lSource := lSource + 'public'#13#10'  X: Integer;'#13#10;
+  lSource := lSource + 'end;'#13#10'var'#13#10'  Foo: TFoo;'#13#10'  G: Integer;'#13#10;
+  if aShape <> 'implementation' then
+    lSource := lSource + 'implementation'#13#10;
+  if aShape = 'site-helper' then
+    lSource := lSource + 'procedure THelper.Extra; begin end;'#13#10;
+  lSource := lSource + 'procedure Run;'#13#10'begin'#13#10'  with Foo do ' + lBody + ';'#13#10 +
+    'end;'#13#10'end.'#13#10;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'NamedUnit.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses NamedUnit; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="NamedUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lProvider := nil;
+  if aMode = 'implicit' then
+    lOptions.ImplicitRootMemberAbsence := TRtlImplicitAbsenceStub.Create
+  else if aMode <> 'missing' then
+  begin
+    lProvider := TNamedRootAbsenceStub.Create;
+    lProvider.Mode := aMode;
+    lOptions.ImplicitRootMemberAbsence := lProvider;
+  end;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aShape);
+  lPlanned := ((aMode = 'named') and
+    (not MatchText(aShape, ['component-member', 'site-helper', 'lookup-shadow', 'generic-base', 'generic-chain']))) or
+    ((aShape = 'closed') and MatchText(aMode, ['implicit', 'throw']));
+  if lPlanned then
+  begin
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, aShape + ': ' +
+      lPlan.FinalStatements[0].Reason + '/' + lPlan.FinalStatements[0].SafetyReason);
+    if lInterface then
+      Assert.AreEqual('  lWithFoo := Foo;'#13#10' G := 7;',
+        lPlan.FinalStatements[0].ReplacementText, aShape)
+    else
+      Assert.AreEqual('  lWithFoo := Foo;'#13#10' lWithFoo.' + lBody + ';',
+        lPlan.FinalStatements[0].ReplacementText, aShape);
+  end else begin
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
+    Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason, aShape);
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText, aShape);
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), aShape);
+  end;
+  if (lProvider <> nil) and (aMode = 'named') then
+    if MatchText(aShape, ['site-helper', 'lookup-shadow', 'closed', 'generic-base', 'generic-chain']) then
+      Assert.AreEqual(0, lProvider.NamedCalls, aShape)
+    else begin
+      Assert.IsTrue(lProvider.NamedCalls > 0, aShape);
+      Assert.AreEqual(lExpectedRoot, lProvider.Root.TypeName, aShape);
+      if MatchText(aShape, ['obj-open', 'obj-unresolved', 'implementation']) then
+        lExpectedUnits := lUses.Split([','], TStringSplitOptions.ExcludeEmpty);
+      Assert.AreEqual(string.Join('#', lExpectedUnits),
+        string.Join('#', lProvider.Root.LookupUnits), aShape);
+      Assert.AreEqual(StringReplace(lUses, ', ', '#', [rfReplaceAll]),
+        string.Join('#', lProvider.SiteUnits), aShape);
+    end;
+end;
+
+procedure TWithBinderTests.NamedRootSiteHelperPrecedenceIsPreserved;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot, lSource: string;
+begin
+  lRoot := WithBinderTempPath('ds742-helper-precedence');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+    'unit Unit2;'#13#10'interface'#13#10'uses FireDAC.Comp.Client;'#13#10 +
+    'type TB = class(TFDConnection)'#13#10'public X: Integer;'#13#10'end;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit3.pas'),
+    'unit Unit3;'#13#10'interface'#13#10'uses Unit2, FireDAC.DBX.Migrate;'#13#10 +
+    'type TC = class(TB)'#13#10'public Y: Integer;'#13#10'end;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  lSource := 'unit Unit1;'#13#10'interface'#13#10 +
+    'uses Unit3, FireDAC.ADO.Migrate;'#13#10'procedure Run;'#13#10 +
+    'var C: TC; ConnectionTimeout: Integer;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10 +
+    '  with C do Y := ConnectionTimeout;'#13#10'end;'#13#10'end.'#13#10;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, Unit2, Unit3; begin end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/><DCCReference Include="Unit2.pas"/><DCCReference Include="Unit3.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lOptions.ImplicitRootMemberAbsence := TNamedRootAbsenceStub.Create;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+  Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+  Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason);
+  Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+  Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+  Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+end;
+
+procedure TWithBinderTests.NamedRootCaptureUsesRootMostDeclaration;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot, lSource: string;
+begin
+  lRoot := WithBinderTempPath('ds742-root-capture');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+    'unit Unit2;'#13#10'interface'#13#10'uses FireDAC.Comp.Client, FireDAC.DBX.Migrate;'#13#10 +
+    'type TB = class(TFDCustomConnection)'#13#10'public X: Integer;'#13#10'end;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit3.pas'),
+    'unit Unit3;'#13#10'interface'#13#10'uses Unit2;'#13#10 +
+    'type TC = class(TB)'#13#10'public Y: Integer;'#13#10'end;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  lSource := 'unit Unit1;'#13#10'interface'#13#10 +
+    'uses Unit3, FireDAC.ADO.Migrate;'#13#10'procedure Run;'#13#10 +
+    'var C: TC; GetLoginUsername: Integer;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10 +
+    '  with C do Y := GetLoginUsername;'#13#10'end;'#13#10'end.'#13#10;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, Unit2, Unit3; begin end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/><DCCReference Include="Unit2.pas"/><DCCReference Include="Unit3.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lOptions.ImplicitRootMemberAbsence := TNamedRootAbsenceStub.Create;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+  Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+  Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason);
+  Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+  Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+  Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+end;
+
+procedure TWithBinderTests.NamedRootPrivateGetterPropertyScopes(const aSiteHelper: Boolean);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProvider: TNamedRootAbsenceStub;
+  lRoot, lDeclarationUses, lSiteUses: string;
+begin
+  lRoot := WithBinderTempPath('ds742-private-getter');
+  TDirectory.CreateDirectory(lRoot);
+  lDeclarationUses := 'FireDAC.Comp.Client';
+  lSiteUses := '';
+  if aSiteHelper then
+    lSiteUses := ', FireDAC.ADO.Migrate'
+  else
+    lDeclarationUses := lDeclarationUses + ', FireDAC.ADO.Migrate';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+    'unit Unit2;'#13#10'interface'#13#10'uses ' + lDeclarationUses + ';'#13#10 +
+    'type TB = class(TFDCustomConnection)'#13#10'public X: Integer;'#13#10'end;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10'uses Unit2' + lSiteUses + ';'#13#10 +
+    'procedure Run;'#13#10'var C: TB; ConnectionTimeout: Integer;'#13#10 +
+    'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    '  with C do X := ConnectionTimeout;'#13#10'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, Unit2; begin end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/><DCCReference Include="Unit2.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lProvider := TNamedRootAbsenceStub.Create;
+  lProvider.Mode := 'property-pair';
+  lOptions.ImplicitRootMemberAbsence := lProvider;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.IsTrue(lProvider.NamedCalls > 0, 'The named provider must be exercised.');
+  Assert.AreEqual<Integer>(0, lProvider.ImplicitCalls);
+  Assert.AreEqual('class', lProvider.Root.Kind);
+  Assert.AreEqual('TFDCustomConnection', lProvider.Root.TypeName);
+  Assert.AreEqual('ConnectionTimeout', lProvider.Name);
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+  if aSiteHelper then
+  begin
+    Assert.AreEqual('FireDAC.Comp.Client', string.Join('#', lProvider.Root.LookupUnits));
+    Assert.AreEqual('FireDAC.ADO.Migrate', string.Join('#', lProvider.SiteUnits));
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason);
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+  end else begin
+    Assert.AreEqual('FireDAC.Comp.Client#FireDAC.ADO.Migrate', string.Join('#', lProvider.Root.LookupUnits));
+    Assert.AreEqual('', string.Join('#', lProvider.SiteUnits));
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual('  lWithB := C;'#13#10' lWithB.X := ConnectionTimeout;',
+      lPlan.FinalStatements[0].ReplacementText);
+  end;
+end;
+
+procedure TWithBinderTests.RootProofIncludesUseExpandedScope(const aShape: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProvider: TNamedRootAbsenceStub;
+  lRoot, lBase, lDeclarationUses, lSiteUses, lIncludeText: string;
+begin
+  lRoot := WithBinderTempPath('ds742-include-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lBase := '';
+  lDeclarationUses := '';
+  lSiteUses := '';
+  lIncludeText := '';
+  if aShape <> 'closed' then
+  begin
+    lBase := '(TFDCustomConnection)';
+    lDeclarationUses := 'uses FireDAC.Comp.Client';
+    if aShape = 'declaration' then
+      lDeclarationUses := lDeclarationUses + '{$I opts.inc}';
+    lDeclarationUses := lDeclarationUses + ';'#13#10;
+    lIncludeText := ', FireDAC.ADO.Migrate';
+    if aShape = 'site' then
+      lSiteUses := '{$I opts.inc}';
+  end;
+  if aShape <> 'unresolved' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'opts.inc'), lIncludeText, TEncoding.ASCII);
+  if MatchText(aShape, ['closed', 'unresolved']) then
+    lDeclarationUses := '{$I opts.inc}'#13#10 + lDeclarationUses;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+    'unit Unit2;'#13#10'interface'#13#10 + lDeclarationUses +
+    'type TB = class' + lBase + #13#10'public X: Integer;'#13#10'end;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10'uses Unit2' + lSiteUses + ';'#13#10 +
+    'procedure Run;'#13#10'var C: TB; G: Integer;'#13#10 +
+    'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    '  with C do X := G;'#13#10'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, Unit2; begin end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/><DCCReference Include="Unit2.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lProvider := TNamedRootAbsenceStub.Create;
+  lOptions.ImplicitRootMemberAbsence := lProvider;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+  if aShape = 'unresolved' then
+  begin
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason);
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+    Assert.AreEqual<Integer>(0, lProvider.NamedCalls);
+  end else begin
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual('  lWithB := C;'#13#10' lWithB.X := G;', lPlan.FinalStatements[0].ReplacementText);
+    if aShape = 'closed' then
+    begin
+      Assert.IsTrue(lProvider.ImplicitCalls > 0);
+      Assert.AreEqual<Integer>(0, lProvider.NamedCalls);
+    end else begin
+      Assert.IsTrue(lProvider.NamedCalls > 0);
+      Assert.AreEqual('TFDCustomConnection', lProvider.Root.TypeName);
+      if aShape = 'declaration' then
+      begin
+        Assert.AreEqual('FireDAC.Comp.Client#FireDAC.ADO.Migrate', string.Join('#', lProvider.Root.LookupUnits));
+        Assert.AreEqual('', string.Join('#', lProvider.SiteUnits));
+      end else begin
+        Assert.AreEqual('FireDAC.Comp.Client', string.Join('#', lProvider.Root.LookupUnits));
+        Assert.AreEqual('FireDAC.ADO.Migrate', string.Join('#', lProvider.SiteUnits));
+      end;
+    end;
+  end;
+end;
+
+procedure TWithBinderTests.RootProofRequiresVerifiedPreprocessScope(const aShape: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded, lStored: TDelphiProjectSnapshot;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProvider: TNamedRootAbsenceStub;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lSessionBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lRoot, lBase, lName, lDirective, lIncludeText, lSitePrefix, lSiteSuffix, lDeclarationPrefix, lDeclarationSuffix, lShape: string;
+  lClosed, lControl, lPlanned: Boolean;
+begin
+  lRoot := WithBinderTempPath('ds742-verified-preprocess-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lShape := aShape;
+  if StartsText('d-', lShape) then
+    lShape[1] := 'n';
+  lClosed := StartsText('c-', lShape);
+  lControl := MatchText(aShape, ['n-inc-define', 'n-inc-nested', 'n-project-define', 'c-none']);
+  lPlanned := aShape = 'c-none';
+  lBase := '(TFDCustomConnection)';
+  lName := 'ConnectionTimeout';
+  if lClosed then
+  begin
+    lBase := '';
+    lName := 'G';
+  end;
+  lSitePrefix := '';
+  lSiteSuffix := '';
+  lDirective := '{$IFDEF UNICODE}, FireDAC.ADO.Migrate{$ENDIF}';
+  if lClosed then
+    lDirective := '{$IFDEF UNICODE}, HiddenHelper{$ENDIF}';
+  lIncludeText := lDirective;
+  if lShape = 'n-if-compilerversion' then
+    lDirective := '{$IF CompilerVersion >= 36.0}, FireDAC.ADO.Migrate{$IFEND}';
+  if lShape = 'n-inc-define-unknown' then
+  begin
+    lSitePrefix := '{$I opts.inc}'#13#10;
+    lIncludeText := '{$IFDEF UNICODE}{$DEFINE USE_ADO}{$ENDIF}';
+    lDirective := '{$IFDEF USE_ADO}, FireDAC.ADO.Migrate{$ENDIF}';
+  end else if lShape = 'n-inc-define' then
+  begin
+    lSitePrefix := '{$I opts.inc}'#13#10;
+    lIncludeText := '{$DEFINE USE_ADO}';
+    lDirective := '{$IFDEF USE_ADO}, FireDAC.ADO.Migrate{$ENDIF}';
+  end else if lShape = 'n-inc-nested' then
+  begin
+    lDirective := '{$I opts.inc}';
+    lIncludeText := '{$I helper.inc}';
+    TFile.WriteAllText(TPath.Combine(lRoot, 'helper.inc'), ', FireDAC.ADO.Migrate', TEncoding.ASCII);
+  end else if lShape = 'n-project-define' then
+    lDirective := '{$IFDEF USE_ADO}, FireDAC.ADO.Migrate{$ENDIF}'
+  else if aShape = 'site-unresolved' then
+    lDirective := '{$I missing.inc}'
+  else if aShape = 'c-none' then
+    lDirective := ''
+  else if Pos('-inc-', aShape) > 0 then
+    lDirective := '{$I opts.inc}';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'opts.inc'), lIncludeText, TEncoding.ASCII);
+  lSiteSuffix := lDirective;
+  lDeclarationPrefix := '';
+  lDeclarationSuffix := '';
+  if StartsText('d-', aShape) then
+  begin
+    lDeclarationPrefix := lSitePrefix;
+    lDeclarationSuffix := lSiteSuffix;
+    lSitePrefix := '';
+    lSiteSuffix := '';
+  end;
+  lDirective := lDeclarationPrefix + 'uses FireDAC.Comp.Client' + lDeclarationSuffix + ';'#13#10;
+  if lClosed then
+    lDirective := '';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+    'unit Unit2;'#13#10'interface'#13#10 + lDirective +
+    'type TB = class' + lBase + #13#10'public X: Integer;'#13#10'end;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit3.pas'),
+    'unit Unit3;'#13#10'interface'#13#10'uses Unit2;'#13#10 +
+    'type TC = class(TB)'#13#10'end;'#13#10'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'HiddenHelper.pas'),
+    'unit HiddenHelper;'#13#10'interface'#13#10 +
+    'type TObjHelper = class helper for TObject'#13#10'function G: Integer;'#13#10'end;'#13#10 +
+    'implementation'#13#10'function TObjHelper.G: Integer;'#13#10'begin Result := 5; end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10 + lSitePrefix + 'uses Unit3' + lSiteSuffix + ';'#13#10 +
+    'procedure Run;'#13#10'var C: TC; ' + lName + ': Integer;'#13#10 +
+    'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    '  with C do X := ' + lName + ';'#13#10'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  // Diagnostic siblings and helper-declaration scope are independent proof boundaries.
+  if MatchText(aShape, ['n-helper-declaration', 'c-helper-declaration']) then
+  begin
+    lDirective := 'TObject';
+    if not lClosed then
+      lDirective := 'TFDCustomConnection';
+    lSiteSuffix := ', FireDAC.Comp.Client';
+    if lClosed then
+      lSiteSuffix := '';
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10'interface'#13#10'uses Unit3' + lSiteSuffix + ';'#13#10 +
+      '{$IFDEF UNICODE}'#13#10'type TLocalHelper = class helper for ' + lDirective + #13#10 +
+      'function ' + lName + ': Integer;'#13#10'end;'#13#10'{$ENDIF}'#13#10 +
+      'procedure Run;'#13#10'var C: TC; ' + lName + ': Integer;'#13#10 +
+      'implementation'#13#10'{$IFDEF UNICODE}'#13#10'function TLocalHelper.' + lName + ': Integer;'#13#10 +
+      'begin Result := 5; end;'#13#10'{$ENDIF}'#13#10'procedure Run;'#13#10'begin'#13#10 +
+      '  with C do X := ' + lName + ';'#13#10'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  end else if MatchText(aShape, ['n-routine-unicode', 'n-unmatched', 'n-unterminated', 'n-unsupported']) then
+  begin
+    lDirective := '{$IFDEF UNICODE}C.X := C.X;{$ENDIF}';
+    if aShape = 'n-unmatched' then
+      lDirective := '{$ENDIF}'
+    else if aShape = 'n-unterminated' then
+      lDirective := ''
+    else if aShape = 'n-unsupported' then
+      lDirective := '{$HINTS OFF}';
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+      'unit Unit1;'#13#10'interface'#13#10'uses Unit3;'#13#10 +
+      'procedure Run;'#13#10'var C: TC; ConnectionTimeout: Integer;'#13#10 +
+      'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 + lDirective + #13#10 +
+      '  with C do X := ConnectionTimeout;'#13#10'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+    if aShape = 'n-unterminated' then
+      TFile.AppendAllText(TPath.Combine(lRoot, 'Unit1.pas'), '{$IFDEF UNICODE}'#13#10, TEncoding.ASCII);
+  end;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, Unit2, Unit3; begin end.'#13#10, TEncoding.ASCII);
+  lDirective := '';
+  if aShape = 'n-project-define' then
+    lDirective := '<DCC_Define>USE_ADO</DCC_Define>';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource>' + lDirective + '</PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/><DCCReference Include="Unit2.pas"/>' +
+    '<DCCReference Include="Unit3.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  if lShape = 'n-project-define' then
+    lOptions.Defines := ['USE_ADO'];
+  lProvider := TNamedRootAbsenceStub.Create;
+  lOptions.ImplicitRootMemberAbsence := lProvider;
+  // The same proof is consumed by compatibility, both snapshot forms and repeated session routes.
+  for var i := 0 to 4 do
+  begin
+    lProvider.NamedCalls := 0;
+    lProvider.ImplicitCalls := 0;
+    if i <= 2 then
+      lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+    if i = 0 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts)
+    else if i = 1 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts)
+    else if i = 2 then
+    begin
+      lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+      lIdentity.CacheKey := 'ds742-preprocess-root-proof';
+      lIdentity.IdentityKey := lIdentity.CacheKey;
+      lIdentity.SourceFileName := lOptions.ProjectFileName;
+      lIdentity.FileHash := lFacts.ContextFingerprint;
+      lIdentity.ContextHash := lFacts.ContextFingerprint;
+      lIdentity.IncludeGraphHash := lFacts.ContextFingerprint;
+      lIdentity.SchemaVersion := 'ds742-preprocess-root-proof';
+      lStored := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+      lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
+      try
+        lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+        Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+        try
+          lProvider.NamedCalls := 0;
+          lProvider.ImplicitCalls := 0;
+          lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+        finally
+          lLoaded.Free;
+        end;
+      finally
+        lCache.Free;
+        lStored.Free;
+      end;
+    end else begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lSessionBuild := lSession.Session.PlanRemoveWithResult;
+        lPlan := lSessionBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+    Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aShape);
+    // Native provider evidence is request-local and is not persisted by SQLite.
+    if lPlanned and (i <> 2) then
+    begin
+      Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, aShape);
+      Assert.AreEqual('  lWithC := C;'#13#10' lWithC.X := G;',
+        lPlan.FinalStatements[0].ReplacementText, aShape);
+      Assert.IsTrue(lProvider.ImplicitCalls > 0, aShape);
+    end else begin
+      Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
+      if lPlanned and (i = 2) then
+        Assert.AreEqual('symbol-not-found', lPlan.FinalStatements[0].SafetyReason, aShape)
+      else
+        Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason, aShape);
+      Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText, aShape);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), aShape);
+      if i = 2 then
+      begin
+        Assert.AreEqual<Integer>(0, lProvider.NamedCalls, aShape);
+        Assert.AreEqual<Integer>(0, lProvider.ImplicitCalls, aShape);
+      end else if lControl and not lClosed then
+      begin
+        Assert.IsTrue(lProvider.NamedCalls > 0, aShape);
+        Assert.AreEqual('TFDCustomConnection', lProvider.Root.TypeName, aShape);
+        Assert.AreEqual('FireDAC.Comp.Client', string.Join('#', lProvider.Root.LookupUnits), aShape);
+        Assert.AreEqual('FireDAC.ADO.Migrate', string.Join('#', lProvider.SiteUnits), aShape);
+      end else if not lControl then
+      begin
+        Assert.AreEqual<Integer>(0, lProvider.NamedCalls, aShape);
+        Assert.AreEqual<Integer>(0, lProvider.ImplicitCalls, aShape);
+      end;
+    end;
+  end;
+end;
+
+procedure TWithBinderTests.FailedModelCannotBypassRootAbsenceProof(const aShape: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded, lStored: TDelphiProjectSnapshot;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lProvider: TNamedRootAbsenceStub;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lSessionBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lRoot, lDirective, lSitePrefix, lSiteSuffix, lDeclarationPrefix: string;
+  lPlanned: Boolean;
+begin
+  lRoot := WithBinderTempPath('ds742-failed-model-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lPlanned := aShape = 'n-plain-other-unit';
+  lSitePrefix := '';
+  lSiteSuffix := ', FireDAC.ADO.Migrate';
+  if lPlanned then
+    lSiteSuffix := '';
+  lDeclarationPrefix := '';
+  lDirective := '';
+  if aShape = 'n-ifopt' then
+    lSiteSuffix := ' {$IFOPT R-}, FireDAC.ADO.Migrate{$ENDIF}'
+  else if aShape = 'k-ifopt-site-body' then
+    lDirective := '{$IFOPT R+}Writeln(9);{$ENDIF}'#13#10
+  else if aShape = 'k-hints-site' then
+    lSitePrefix := '{$HINTS OFF}'#13#10
+  else if aShape = 'k-inline-site' then
+    lSitePrefix := '{$INLINE AUTO}'#13#10
+  else if aShape = 'k-hints-unit3' then
+    lDeclarationPrefix := '{$HINTS OFF}'#13#10;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit2.pas'),
+    'unit Unit2;'#13#10'interface'#13#10'uses FireDAC.Comp.Client;'#13#10 +
+    'type'#13#10'  TB = class(TFDCustomConnection)'#13#10'  public'#13#10'    X: Integer;'#13#10'  end;'#13#10'implementation'#13#10'uses FireDAC.Stan.Def, FireDAC.Stan.Async;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit3.pas'),
+    'unit Unit3;'#13#10 + lDeclarationPrefix + 'interface'#13#10'uses Unit2;'#13#10 +
+    'type'#13#10'  TC = class(TB)'#13#10'  public'#13#10'    Y: Integer;'#13#10'  end;'#13#10 +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10 + lSitePrefix + 'interface'#13#10'uses Unit3' + lSiteSuffix + ';'#13#10 +
+    'procedure Run;'#13#10'var ConnectionTimeout: Integer = 77;'#13#10 +
+    'implementation'#13#10'procedure Run;'#13#10'var C: TC;'#13#10'begin'#13#10 +
+    '  C := TC.Create(nil);'#13#10 + lDirective +
+    '  with C do Y := ConnectionTimeout;'#13#10'  Writeln(C.Y);'#13#10'end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'OtherUnit.pas'),
+    'unit OtherUnit;'#13#10'interface'#13#10'implementation'#13#10 +
+    '{$IFOPT R+}{$ENDIF}'#13#10'end.'#13#10, TEncoding.ASCII);
+  lDirective := '';
+  if MatchText(aShape, ['k-ifopt-other-unit', 'n-plain-other-unit']) then
+    lDirective := ', OtherUnit';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1, Unit2, Unit3' + lDirective + '; begin Run; end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/><DCCReference Include="Unit2.pas"/>' +
+    '<DCCReference Include="Unit3.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lProvider := TNamedRootAbsenceStub.Create;
+  lOptions.ImplicitRootMemberAbsence := lProvider;
+  // The same proof is consumed by compatibility, both snapshot forms and repeated session routes.
+  for var i := 0 to 4 do
+  begin
+    lProvider.NamedCalls := 0;
+    lProvider.ImplicitCalls := 0;
+    // Rebuild before each route so provider counts belong to this route, including SQLite input.
+    if i <= 2 then
+      lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+    // Refusal controls count only planning after the persisted facts have been built.
+    if (i = 2) and (not lPlanned) then
+    begin
+      lProvider.NamedCalls := 0;
+      lProvider.ImplicitCalls := 0;
+    end;
+    if i = 0 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts)
+    else if i = 1 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts)
+    else if i = 2 then
+    begin
+      lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+      lIdentity.CacheKey := 'ds742-preprocess-root-proof';
+      lIdentity.IdentityKey := lIdentity.CacheKey;
+      lIdentity.SourceFileName := lOptions.ProjectFileName;
+      lIdentity.FileHash := lFacts.ContextFingerprint;
+      lIdentity.ContextHash := lFacts.ContextFingerprint;
+      lIdentity.IncludeGraphHash := lFacts.ContextFingerprint;
+      lIdentity.SchemaVersion := 'ds742-preprocess-root-proof';
+      lStored := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+      lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
+      try
+        lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+        Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+        try
+          lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+        finally
+          lLoaded.Free;
+        end;
+      finally
+        lCache.Free;
+        lStored.Free;
+      end;
+    end else begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lSessionBuild := lSession.Session.PlanRemoveWithResult;
+        lPlan := lSessionBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+    Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aShape);
+    if lPlanned then
+    begin
+      Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, aShape);
+      Assert.AreEqual('  lWithC := C;'#13#10' lWithC.Y := ConnectionTimeout;',
+        lPlan.FinalStatements[0].ReplacementText, aShape);
+      Assert.IsTrue(lProvider.NamedCalls > 0, aShape + ': route ' + IntToStr(i));
+      Assert.AreEqual<Integer>(0, lProvider.ImplicitCalls, aShape);
+      Assert.AreEqual('TFDCustomConnection', lProvider.Root.TypeName, aShape);
+      Assert.AreEqual('FireDAC.Comp.Client', string.Join('#', lProvider.Root.LookupUnits), aShape);
+      Assert.AreEqual('', string.Join('#', lProvider.SiteUnits), aShape);
+      Assert.AreEqual('ConnectionTimeout', lProvider.Name, aShape);
+    end else begin
+      Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
+      Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason, aShape);
+      Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText, aShape);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), aShape);
+      if i = 2 then
+      begin
+        Assert.AreEqual<Integer>(0, lProvider.NamedCalls, aShape);
+        Assert.AreEqual<Integer>(0, lProvider.ImplicitCalls, aShape);
+      end else if not MatchText(aShape, ['k-direct-known', 'k-ifopt-other-unit']) then
+      begin
+        Assert.AreEqual<Integer>(0, lProvider.NamedCalls, aShape);
+        Assert.AreEqual<Integer>(0, lProvider.ImplicitCalls, aShape);
+      end;
+    end;
+  end;
+end;
+
+procedure TWithBinderTests.AnonymousRecordRequiresParsedEvidence(const aShape: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded, lStored: TDelphiProjectSnapshot;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lSessionBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lRoot, lSource, lRecord, lSelector, lExpectedReplacement: string;
+  lPlanned: Boolean;
+begin
+  lRoot := WithBinderTempPath('ds742-anonymous-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lRecord := 'record'#13#10'    Y: Integer;'#13#10;
+  if aShape = 'packed-local' then
+    lRecord := 'packed ' + lRecord + '    ll: Byte;'#13#10 +
+      '    case n_id: AnsiChar of'#13#10 +
+      '      #0: (r_b: Byte);'#13#10'      #1: (r_w: Word);'#13#10 +
+      '      #2: (r_r: Double)'#13#10;
+  if aShape = 'unit-record' then
+    lRecord := lRecord + '    fc: Int16;'#13#10 +
+      '    ModuleName: array [0..80] of AnsiChar;'#13#10 +
+      '    LineNo, Pos: Word;'#13#10'    ErrorChar: Int32;'#13#10;
+  if aShape = 'ifopt' then
+    lRecord := lRecord + '    {$IFOPT R+}Hidden: Integer;{$ENDIF}'#13#10
+  else if aShape = 'ifdef' then
+    lRecord := lRecord + '    {$IF Declared(DS742_UNKNOWN_SYMBOL)}Hidden: Integer;{$ENDIF}'#13#10;
+  if aShape = 'undefined-symbol' then
+    lRecord := lRecord + ' {$IFDEF DS742_UNKNOWN_SYMBOL}Hidden: Integer;{$ENDIF}'#13#10;
+  if aShape = 'i-plus' then
+    lRecord := lRecord + '    {$I+}'#13#10
+  else if aShape = 'i-minus' then
+    lRecord := lRecord + '    {$I-}'#13#10;
+  if aShape = 'record-comments' then
+    lRecord := '{ before packed } packed (* before record *) ' + lRecord;
+  if aShape = 'variant' then
+    lRecord := lRecord + '    case n_id: AnsiChar of'#13#10 +
+      '      #0: (Tag: Integer);'#13#10'      #1: (Other: Integer)'#13#10;
+  if aShape = 'packed-local' then
+    lRecord := lRecord + '  end absolute Storage;'#13#10
+  else
+    lRecord := lRecord + '  end;'#13#10;
+  lSelector := 'Item';
+  lSource := 'unit Unit1;'#13#10'interface'#13#10 +
+    'var G, Tag: Integer;'#13#10;
+  if aShape = 'failed-model' then
+    lSource := lSource + '{$HINTS OFF}'#13#10;
+  if MatchText(aShape, ['unit-record', 'failed-model']) then
+    lSource := lSource + 'var'#13#10'  Item: ' + lRecord;
+  if aShape = 'nested' then
+  begin
+    lSource := lSource + 'var'#13#10'  Item: record'#13#10 +
+      '    Child: ' + lRecord + '  end;'#13#10;
+    lSelector := 'Item.Child';
+  end;
+  if MatchText(aShape, ['named', 'alias']) then
+  begin
+    lSource := lSource + 'type'#13#10'  TItem = ' + lRecord;
+    if aShape = 'alias' then
+      lSource := lSource + '  TAlias = TItem;'#13#10;
+    // A failed declaring model must never be made anonymous merely because it is a record.
+    lSource := lSource + '{$HINTS OFF}'#13#10;
+  end;
+  lSource := lSource + 'implementation'#13#10'procedure Run;'#13#10;
+  if MatchText(aShape, ['named', 'alias']) then
+  begin
+    if aShape = 'alias' then
+      lSource := lSource + 'var Item: TAlias;'#13#10
+    else
+      lSource := lSource + 'var Item: TItem;'#13#10;
+  end else if not MatchText(aShape, ['unit-record', 'failed-model', 'nested']) then
+  begin
+    lSource := lSource + 'var'#13#10;
+    if aShape = 'packed-local' then
+      lSource := lSource + '  Storage: array [0..31] of Byte;'#13#10;
+    lSource := lSource + '  Item: ' + lRecord;
+  end;
+  lSource := lSource + 'begin'#13#10'  G := 77;'#13#10'  Tag := 99;'#13#10;
+  if aShape = 'variant' then
+    lSource := lSource + '  Item.Tag := 5;'#13#10;
+  if aShape = 'unit-record' then
+    lSource := lSource + '  Item.fc := 5;'#13#10;
+  lSource := lSource + '  with ' + lSelector + ' do Y := G';
+  if aShape = 'variant' then
+    lSource := lSource + ' + Tag';
+  if aShape = 'unit-record' then
+    lSource := lSource + ' + fc';
+  lSource := lSource + ';'#13#10'  Writeln(' + lSelector + '.Y);'#13#10'end;'#13#10'initialization'#13#10'  Run;'#13#10'end.'#13#10;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lPlanned := MatchText(aShape, ['packed-local', 'unit-record', 'variant', 'i-plus', 'i-minus', 'undefined-symbol']);
+  lExpectedReplacement := ' Item.Y := G;';
+  if aShape = 'variant' then
+    lExpectedReplacement := ' Item.Y := G + Item.Tag;'
+  else if aShape = 'unit-record' then
+    lExpectedReplacement := ' Item.Y := G + Item.fc;';
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  // The same proof is consumed by compatibility, both snapshot forms and repeated session routes.
+  for var i := 0 to 4 do
+  begin
+    if i = 0 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts)
+    else if i = 1 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts)
+    else if i = 2 then
+    begin
+      lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+      lIdentity.CacheKey := 'ds742-preprocess-root-proof';
+      lIdentity.IdentityKey := lIdentity.CacheKey;
+      lIdentity.SourceFileName := lOptions.ProjectFileName;
+      lIdentity.FileHash := lFacts.ContextFingerprint;
+      lIdentity.ContextHash := lFacts.ContextFingerprint;
+      lIdentity.IncludeGraphHash := lFacts.ContextFingerprint;
+      lIdentity.SchemaVersion := 'ds742-preprocess-root-proof';
+      lStored := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+      lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
+      try
+        lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+        Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded), aShape + ': SQLite reload');
+        try
+          lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+        finally
+          lLoaded.Free;
+        end;
+      finally
+        lCache.Free;
+        lStored.Free;
+      end;
+    end else begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success, aShape + ': session open');
+        lSessionBuild := lSession.Session.PlanRemoveWithResult;
+        lPlan := lSessionBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+    Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aShape);
+    if lPlanned then
+    begin
+      Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+        aShape + ': ' + lPlan.FinalStatements[0].Reason);
+      Assert.AreEqual(lExpectedReplacement, lPlan.FinalStatements[0].ReplacementText, aShape);
+    end else begin
+      Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
+      if aShape = 'nested' then
+        Assert.AreEqual('receiver-type-not-visible',
+          lPlan.FinalStatements[0].SafetyReason, aShape)
+      else if aShape = 'record-comments' then
+        // This layout is already refused by the binder, independently of absence proof.
+        Assert.AreEqual('type-source-not-indexed',
+          lPlan.FinalStatements[0].SafetyReason, aShape)
+      else if aShape = 'alias' then
+        Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED',
+          lPlan.FinalStatements[0].SafetyReason, aShape)
+      else
+        Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED',
+          lPlan.FinalStatements[0].SafetyReason, aShape);
+      Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText, aShape);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), aShape);
+    end;
+  end;
+end;
+
+procedure TWithBinderTests.NamedRootProcedureCallsRequireVisibleDeclaration(const aDeclared: Boolean);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot, lSource: string;
+begin
+  lRoot := WithBinderTempPath('ds742-procedure-' + BoolToStr(aDeclared, True));
+  TDirectory.CreateDirectory(lRoot);
+  lSource := 'unit NamedUnit;'#13#10'interface'#13#10'uses System.SysUtils;'#13#10 +
+    'type TFoo = class public X: Integer; end;'#13#10 +
+    'var Foo: TFoo;'#13#10'implementation'#13#10;
+  if aDeclared then
+    lSource := lSource + 'procedure G(const aValue: Integer); begin Writeln(aValue); end;'#13#10;
+  lSource := lSource + 'procedure Run;'#13#10'begin'#13#10'  with Foo do G(X);'#13#10'end;'#13#10'end.'#13#10;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'NamedUnit.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses NamedUnit; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="NamedUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lOptions.ImplicitRootMemberAbsence := TNamedRootAbsenceStub.Create;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+  if aDeclared then
+  begin
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('  lWithFoo := Foo;'#13#10' G(lWithFoo.X);',
+      lPlan.FinalStatements[0].ReplacementText);
+  end else begin
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual('symbol-not-found', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('symbol-not-found', lPlan.FinalStatements[0].SafetyReason);
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+  end;
+end;
+
+procedure TWithBinderTests.RootMemberAbsenceProofIsSiteScoped;
+var
+  lIndex, lOther: TDelphiSemanticRemoveWithLookupIndex;
+begin
+  lIndex := TDelphiSemanticRemoveWithLookupIndex.Build([], []);
+  lIndex.RecordRootMemberAbsence('SiteA', 'RootA', 'G');
+  Assert.IsTrue(lIndex.RootMemberAbsenceRecorded('sitea', 'roota', 'g'));
+  Assert.IsFalse(lIndex.RootMemberAbsenceRecorded('SiteB', 'RootA', 'G'));
+  Assert.IsFalse(lIndex.RootMemberAbsenceRecorded('SiteA', 'RootB', 'G'));
+  Assert.IsFalse(lIndex.RootMemberAbsenceRecorded('SiteA', 'RootA', 'Tag'));
+  lOther := TDelphiSemanticRemoveWithLookupIndex.Build([], []);
+  lOther.AttachValueMemberEvidence(lIndex.ExportValueMemberEvidence);
+  Assert.IsFalse(lOther.RootMemberAbsenceRecorded('SiteA', 'RootA', 'G'),
+    'Root proofs are request-local and must never be exported or persisted.');
+end;
+
+procedure TWithBinderTests.RtlRootReceiverMembersQualifyOrRefuse(const aShape, aMode: string);
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded, lStored: TDelphiProjectSnapshot;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot, lSource, lExpectedReason: string;
+  lExpectedTexts: TArray<string>;
+  lExpectedTemps, lExpectedEdits: TArray<Integer>;
+  lPlanned: Boolean;
+  lStatementIndex: Integer;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lSessionBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+begin
+  lRoot := WithBinderTempPath('ds742-' + aShape + '-' + aMode);
+  TDirectory.CreateDirectory(lRoot);
+  lSource := '';
+  if aShape = 'comp-tag-read' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    '  S: string;' + #13#10 +
+    '  P: TComponent;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' Tag: Integer = 7;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' Foo.Name := ''n'';' + #13#10 +
+    ' with Foo do X := Tag;' + #13#10 +
+    ' Writeln(Foo.X, '' '', Tag);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'comp-tag-write' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    '  S: string;' + #13#10 +
+    '  P: TComponent;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' Tag: Integer = 7;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' Foo.Name := ''n'';' + #13#10 +
+    ' with Foo do Tag := 3;' + #13#10 +
+    ' Writeln(Foo.Tag, '' '', Tag);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'comp-name-read' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    '  S: string;' + #13#10 +
+    '  P: TComponent;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' Name: string = ''g'';' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' Foo.Name := ''n'';' + #13#10 +
+    ' with Foo do S := Name;' + #13#10 +
+    ' Writeln(Foo.S, '' '', Name);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'comp-owner-read' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    '  S: string;' + #13#10 +
+    '  P: TComponent;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' Own: TComponent;' + #13#10 +
+    ' Owner: TComponent = nil;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Own := TComponent.Create(nil);' + #13#10 +
+    ' Foo := TFoo.Create(Own);' + #13#10 +
+    ' with Foo do P := Owner;' + #13#10 +
+    ' Writeln(Foo.P = Own);' + #13#10 +
+    ' Own.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'comp-tag-noglobal' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    '  S: string;' + #13#10 +
+    '  P: TComponent;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' Foo.Name := ''n'';' + #13#10 +
+    ' with Foo do X := Tag;' + #13#10 +
+    ' Writeln(Foo.X);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'comp-2level-tag' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TBase = class(TComponent)' + #13#10 +
+    ' end;' + #13#10 +
+    ' TFoo = class(TBase)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' Tag: Integer = 7;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' with Foo do X := Tag;' + #13#10 +
+    ' Writeln(Foo.X, '' '', Tag);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'comp-method-call' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'procedure DestroyComponents;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    '  S: string;' + #13#10 +
+    '  P: TComponent;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' Hit: Integer;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure DestroyComponents;' + #13#10 +
+    'begin' + #13#10 +
+    ' Hit := 1;' + #13#10 +
+    'end;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' Foo.Name := ''n'';' + #13#10 +
+    ' with Foo do DestroyComponents;' + #13#10 +
+    ' Writeln(''hit '', Hit);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'intf-refcount' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TBar = class(TInterfacedObject)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Bar: TBar;' + #13#10 +
+    ' I: IInterface;' + #13#10 +
+    ' RefCount: Integer = 7;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Bar := TBar.Create;' + #13#10 +
+    ' I := Bar;' + #13#10 +
+    ' with Bar do X := RefCount;' + #13#10 +
+    ' Writeln(Bar.X, '' '', RefCount);' + #13#10 +
+    ' I := nil;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'obj-classname-implicit' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'function ClassName: string;' + #13#10 +
+    'type' + #13#10 +
+    ' TBaz = class' + #13#10 +
+    ' public' + #13#10 +
+    '  X: string;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Baz: TBaz;' + #13#10 +
+    'implementation' + #13#10 +
+    'function ClassName: string;' + #13#10 +
+    'begin' + #13#10 +
+    ' Result := ''global'';' + #13#10 +
+    'end;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Baz := TBaz.Create;' + #13#10 +
+    ' with Baz do X := ClassName;' + #13#10 +
+    ' Writeln(Baz.X);' + #13#10 +
+    ' Baz.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'obj-classname-explicit' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'function ClassName: string;' + #13#10 +
+    'type' + #13#10 +
+    ' TBaz = class(TObject)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: string;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Baz: TBaz;' + #13#10 +
+    'implementation' + #13#10 +
+    'function ClassName: string;' + #13#10 +
+    'begin' + #13#10 +
+    ' Result := ''global'';' + #13#10 +
+    'end;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Baz := TBaz.Create;' + #13#10 +
+    ' with Baz do X := ClassName;' + #13#10 +
+    ' Writeln(Baz.X);' + #13#10 +
+    ' Baz.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'anc-weak-alias-tag' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TAl = TComponent;' + #13#10 +
+    ' TC = class(TAl)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' C: TC;' + #13#10 +
+    ' Tag: Integer = 7;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' C := TC.Create(nil);' + #13#10 +
+    ' C.Tag := 5;' + #13#10 +
+    ' with C do X := Tag;' + #13#10 +
+    ' Writeln(C.X, '' '', Tag);' + #13#10 +
+    ' C.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'anc-strong-alias-tag' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TAl = type TComponent;' + #13#10 +
+    ' TC = class(TAl)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' C: TC;' + #13#10 +
+    ' Tag: Integer = 7;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' C := TC.Create(nil);' + #13#10 +
+    ' C.Tag := 5;' + #13#10 +
+    ' with C do X := Tag;' + #13#10 +
+    ' Writeln(C.X, '' '', Tag);' + #13#10 +
+    ' C.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'nested-outerrec-has-tag' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    '  S: string;' + #13#10 +
+    '  P: TComponent;' + #13#10 +
+    ' end;' + #13#10 +
+    ' TRec = record' + #13#10 +
+    '  Tag: Integer;' + #13#10 +
+    '  B: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' R: TRec;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' Foo.Name := ''n'';' + #13#10 +
+    ' R.Tag := 9;' + #13#10 +
+    ' with R do' + #13#10 +
+    '  with Foo do' + #13#10 +
+    '   X := Tag;' + #13#10 +
+    ' Writeln(Foo.X);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'comp-in-method' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    ' TOwnerObj = class' + #13#10 +
+    '  Tag: Integer;' + #13#10 +
+    '  procedure Go(aFoo: TFoo);' + #13#10 +
+    ' end;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure TOwnerObj.Go(aFoo: TFoo);' + #13#10 +
+    'begin' + #13#10 +
+    ' with aFoo do X := Tag;' + #13#10 +
+    'end;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' O: TOwnerObj;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' O := TOwnerObj.Create;' + #13#10 +
+    ' O.Tag := 7;' + #13#10 +
+    ' O.Go(Foo);' + #13#10 +
+    ' Writeln(Foo.X);' + #13#10 +
+    ' O.Free;' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'alias-projclass-classname' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'function ClassName: string;' + #13#10 +
+    'type' + #13#10 +
+    ' TK = class' + #13#10 +
+    ' public' + #13#10 +
+    '  X: string;' + #13#10 +
+    ' end;' + #13#10 +
+    ' TKA = TK;' + #13#10 +
+    'var' + #13#10 +
+    ' K: TKA;' + #13#10 +
+    'implementation' + #13#10 +
+    'function ClassName: string;' + #13#10 +
+    'begin' + #13#10 +
+    ' Result := ''global'';' + #13#10 +
+    'end;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' K := TKA.Create;' + #13#10 +
+    ' with K do X := ClassName;' + #13#10 +
+    ' Writeln(K.X);' + #13#10 +
+    ' K.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'sr-excludeattr' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.SysUtils;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TMySR = TSearchRec;' + #13#10 +
+    'var' + #13#10 +
+    ' SR: TMySR;' + #13#10 +
+    ' X: Integer;' + #13#10 +
+    ' S: string;' + #13#10 +
+    ' ExcludeAttr: Integer = 7;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' SR.ExcludeAttr := 5;' + #13#10 +
+    ' with SR do X := ExcludeAttr;' + #13#10 +
+    ' Writeln(X, '' '', ExcludeAttr);' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'sr-findhandle' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.SysUtils;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TMySR = TSearchRec;' + #13#10 +
+    'var' + #13#10 +
+    ' SR: TMySR;' + #13#10 +
+    ' X: Integer;' + #13#10 +
+    ' S: string;' + #13#10 +
+    ' FindHandle: Integer = 7;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' SR.FindHandle := 5;' + #13#10 +
+    ' with SR do X := FindHandle;' + #13#10 +
+    ' Writeln(X, '' '', FindHandle);' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'sr-finddata' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.SysUtils;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TMySR = TSearchRec;' + #13#10 +
+    'var' + #13#10 +
+    ' SR: TMySR;' + #13#10 +
+    ' X: Integer;' + #13#10 +
+    ' S: string;' + #13#10 +
+    ' FindData: record dwFileAttributes: Integer; end;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' SR.FindData.dwFileAttributes := 5;' + #13#10 +
+    ' with SR do X := FindData.dwFileAttributes;' + #13#10 +
+    ' Writeln(X, '' '', FindData.dwFileAttributes);' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'sr-finddata-fillchar' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.SysUtils;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TMySR = TSearchRec;' + #13#10 +
+    'var' + #13#10 +
+    ' SR: TMySR;' + #13#10 +
+    ' X: Integer;' + #13#10 +
+    ' S: string;' + #13#10 +
+    ' FindData: record dwFileAttributes: Integer; end = (dwFileAttributes: 7);' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' SR.FindData.dwFileAttributes := 5;' + #13#10 +
+    ' with SR do FillChar(FindData, SizeOf(FindData), 0);' + #13#10 +
+    ' Writeln(SR.FindData.dwFileAttributes, '' '', FindData.dwFileAttributes);' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'sr-timestamp' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.SysUtils;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TMySR = TSearchRec;' + #13#10 +
+    'var' + #13#10 +
+    ' SR: TMySR;' + #13#10 +
+    ' X: Integer;' + #13#10 +
+    ' S: string;' + #13#10 +
+    ' TimeStamp: Integer = 7;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' with SR do X := Ord(TimeStamp = 7);' + #13#10 +
+    ' Writeln(X);' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'ctl-comp-own-member' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    '  S: string;' + #13#10 +
+    '  P: TComponent;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' Foo.Name := ''n'';' + #13#10 +
+    ' with Foo do X := 7;' + #13#10 +
+    ' Writeln(Foo.X);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'ctl-obj-own-member' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TBaz = class' + #13#10 +
+    ' public' + #13#10 +
+    '  X: string;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Baz: TBaz;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Baz := TBaz.Create;' + #13#10 +
+    ' with Baz do X := ''m'';' + #13#10 +
+    ' Writeln(Baz.X);' + #13#10 +
+    ' Baz.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'ctl-record-absent-global' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TRec = record' + #13#10 +
+    '  A: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' R: TRec;' + #13#10 +
+    ' G: Integer = 9;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' with R do A := G;' + #13#10 +
+    ' Writeln(R.A);' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'ctl-alias-projrec-field' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TItem = record' + #13#10 +
+    '  A: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    ' TAlias = TItem;' + #13#10 +
+    'var' + #13#10 +
+    ' Item: TAlias;' + #13#10 +
+    ' G: Integer = 9;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' with Item do A := G;' + #13#10 +
+    ' Writeln(Item.A);' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'nested-innerrec-tag-ctl' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    '  S: string;' + #13#10 +
+    '  P: TComponent;' + #13#10 +
+    ' end;' + #13#10 +
+    ' TRec = record' + #13#10 +
+    '  Tag: Integer;' + #13#10 +
+    '  B: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' R: TRec;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' Foo.Name := ''n'';' + #13#10 +
+    ' R.Tag := 9;' + #13#10 +
+    ' with Foo do' + #13#10 +
+    '  with R do' + #13#10 +
+    '   B := Tag;' + #13#10 +
+    ' Writeln(R.B);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'ctl-rec-in-comp-method-free' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    '  S: string;' + #13#10 +
+    '  P: TComponent;' + #13#10 +
+    ' end;' + #13#10 +
+    ' TRec = record' + #13#10 +
+    '  B: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' R: TRec;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' Foo.Name := ''n'';' + #13#10 +
+    ' with R do B := Foo.Tag;' + #13#10 +
+    ' Writeln(R.B);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'sr-name-ctl' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.SysUtils;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TMySR = TSearchRec;' + #13#10 +
+    'var' + #13#10 +
+    ' SR: TMySR;' + #13#10 +
+    ' X: Integer;' + #13#10 +
+    ' S: string;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' SR.Name := ''n'';' + #13#10 +
+    ' with SR do S := Name;' + #13#10 +
+    ' Writeln(S);' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'sr-fileio715' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.SysUtils;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TMySR = TSearchRec;' + #13#10 +
+    'var' + #13#10 +
+    ' SR: TMySR;' + #13#10 +
+    ' X: Integer;' + #13#10 +
+    ' S: string;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' SR.Name := ''n''; SR.Size := 3; SR.Attr := 1;' + #13#10 +
+    ' with SR do' + #13#10 +
+    ' begin' + #13#10 +
+    '  S := Name;' + #13#10 +
+    '  X := Size + Attr;' + #13#10 +
+    ' end;' + #13#10 +
+    ' Writeln(S, '' '', X);' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'ctl-obj-absent-global' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TBaz = class' + #13#10 +
+    ' public' + #13#10 +
+    '  X: string;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Baz: TBaz;' + #13#10 +
+    ' G: string = ''g'';' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Baz := TBaz.Create;' + #13#10 +
+    ' with Baz do X := G;' + #13#10 +
+    ' Writeln(Baz.X);' + #13#10 +
+    ' Baz.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'obj-local-var-ctl' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TBaz = class' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'var' + #13#10 +
+    ' Baz: TBaz;' + #13#10 +
+    ' N: Integer;' + #13#10 +
+    'begin' + #13#10 +
+    ' N := 3;' + #13#10 +
+    ' Baz := TBaz.Create;' + #13#10 +
+    ' with Baz do X := N;' + #13#10 +
+    ' Writeln(Baz.X);' + #13#10 +
+    ' Baz.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'ctl-comp-absent-global' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    '  S: string;' + #13#10 +
+    '  P: TComponent;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' G: Integer = 9;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' Foo.Name := ''n'';' + #13#10 +
+    ' with Foo do X := G;' + #13#10 +
+    ' Writeln(Foo.X);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'comp-local-var' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' N: Integer;' + #13#10 +
+    'begin' + #13#10 +
+    ' N := 3;' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' with Foo do X := N;' + #13#10 +
+    ' Writeln(Foo.X);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'comp-same-name-field-ctl' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  Tag: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' X: Integer;' + #13#10 +
+    ' Tag: Integer = 7;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' with Foo do X := Tag;' + #13#10 +
+    ' Writeln(X);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if aShape = 'nested-outerrec-field-b' then
+    lSource := 'unit Unit1;' + #13#10 +
+    'interface' + #13#10 +
+    'uses System.Classes;' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'type' + #13#10 +
+    ' TFoo = class(TComponent)' + #13#10 +
+    ' public' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    '  S: string;' + #13#10 +
+    '  P: TComponent;' + #13#10 +
+    ' end;' + #13#10 +
+    ' TRec = record' + #13#10 +
+    '  Tag: Integer;' + #13#10 +
+    '  B: Integer;' + #13#10 +
+    ' end;' + #13#10 +
+    'var' + #13#10 +
+    ' Foo: TFoo;' + #13#10 +
+    ' R: TRec;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Run;' + #13#10 +
+    'begin' + #13#10 +
+    ' Foo := TFoo.Create(nil);' + #13#10 +
+    ' Foo.Tag := 5;' + #13#10 +
+    ' Foo.Name := ''n'';' + #13#10 +
+    ' with R do' + #13#10 +
+    '  with Foo do' + #13#10 +
+    '   B := 4;' + #13#10 +
+    ' Writeln(R.B);' + #13#10 +
+    ' Foo.Free;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+  if MatchText(aShape, ['nested-inner-tag', 'nested-inner-absent-ctl']) then
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.Classes;'#13#10 +
+      'procedure Run;'#13#10 +
+      'type'#13#10 +
+      ' TFoo = class(TComponent)'#13#10 +
+      '  public'#13#10 +
+      '   X: Integer;'#13#10 +
+      ' end;'#13#10 +
+      ' TBar = class(TComponent)'#13#10 +
+      '  public'#13#10 +
+      '   Y: Integer;'#13#10 +
+      ' end;'#13#10 +
+      'var'#13#10 +
+      '  Foo: TFoo;'#13#10 +
+      '  Bar: TBar;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' Foo := TFoo.Create(nil);'#13#10 +
+      ' Foo.Tag := 5;'#13#10 +
+      ' Bar := TBar.Create(nil);'#13#10 +
+      ' Bar.Tag := 9;'#13#10 +
+      ' with Foo do'#13#10 +
+      '  with Bar do'#13#10 +
+      '   Y := Tag;'#13#10 +
+      ' Writeln(Bar.Y);'#13#10 +
+      'end;'#13#10 +
+      'end.';
+  if aShape = 'nested-inner-absent-ctl' then
+  begin
+    lSource := StringReplace(lSource, ' Bar: TBar;', ' Bar: TBar;'#13#10' G: Integer = 7;', []);
+    lSource := StringReplace(lSource, ' with Foo do'#13#10'  with Bar do'#13#10'   Y := Tag;',
+      ' with Foo do begin X := Tag;'#13#10'  with Bar do Y := G; end;', []);
+    lSource := StringReplace(lSource, 'Bar', 'B', [rfReplaceAll]);
+    lSource := StringReplace(lSource, ' TFoo = class(TComponent)'#13#10'  public',
+      ' TFoo = record'#13#10' Tag: Integer;', []);
+    lSource := StringReplace(lSource, 'Foo := TFoo.Create(nil)', 'Foo := Default(TFoo)', []);
+  end;
+  Assert.AreNotEqual('', lSource, aShape);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin Run; end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  if MatchText(aMode, ['rootcold', 'namedcold']) or (aShape = 'nested-inner-absent-ctl') then
+    lOptions.ImplicitRootMemberAbsence := TRtlRootAbsenceStub.Create;
+  if aMode = 'rootcold' then
+    lOptions.ImplicitRootMemberAbsence := TRtlImplicitAbsenceStub.Create;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  if aMode = 'snapshot' then
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  if aMode = 'standalone' then
+  begin
+    lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+    lIdentity.CacheKey := 'ds742-root-evidence';
+    lIdentity.IdentityKey := lIdentity.CacheKey;
+    lIdentity.SourceFileName := lOptions.ProjectFileName;
+    lIdentity.FileHash := lFacts.ContextFingerprint;
+    lIdentity.ContextHash := lFacts.ContextFingerprint;
+    lIdentity.IncludeGraphHash := 'no-includes';
+    lIdentity.SchemaVersion := 'ds742-root-evidence';
+    lStored := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
+    try
+      lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+      Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+      try
+        lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+      finally
+        lLoaded.Free;
+      end;
+    finally
+      lCache.Free;
+      lStored.Free;
+    end;
+  end;
+  if MatchText(aMode, ['sessioncold', 'sessionwarm']) then
+    for var i := 0 to Ord(aMode = 'sessionwarm') do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lSessionBuild := lSession.Session.PlanRemoveWithResult;
+        if aShape = 'nested-inner-absent-ctl' then
+        Assert.AreEqual(0, Integer(lSessionBuild.SnapshotMetrics.SnapshotCacheHits))
+      else
+        Assert.AreEqual(i, Integer(lSessionBuild.SnapshotMetrics.SnapshotCacheHits));
+        lPlan := lSessionBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  if aShape = 'nested-inner-absent-ctl' then
+  begin
+    Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+      lPlan.FinalStatements[0].Reason + ':' + lPlan.FinalStatements[0].SafetyReason);
+    Assert.AreEqual('', lPlan.FinalStatements[0].SafetyReason);
+    Assert.AreEqual(' lWithFooPtr := @Foo;'#13#10 +
+      ' begin lWithFooPtr^.X := lWithFooPtr^.Tag;'#13#10 +
+      '    lWithB := B;'#13#10' lWithB.Y := G; end;',
+      lPlan.FinalStatements[0].ReplacementText);
+    Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements[0].Temps)));
+    Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements[0].Edits)));
+    Exit;
+  end;
+  lPlanned := MatchText(aShape, ['ctl-comp-own-member', 'ctl-obj-own-member', 'ctl-record-absent-global', 'ctl-alias-projrec-field', 'nested-innerrec-tag-ctl', 'ctl-rec-in-comp-method-free', 'sr-name-ctl', 'sr-fileio715']);
+  lPlanned := lPlanned or (MatchText(aShape, ['ctl-obj-absent-global', 'obj-local-var-ctl']) and MatchText(aMode, ['rootcold', 'namedcold']));
+  lPlanned := lPlanned or (MatchText(aShape, ['ctl-comp-absent-global', 'comp-local-var', 'comp-same-name-field-ctl', 'nested-outerrec-field-b']) and (aMode = 'namedcold'));
+  if lPlanned then
+  begin
+    if aShape = 'ctl-comp-own-member' then
+    begin
+      lExpectedTexts := [' lWithFoo := Foo;' + #13#10 +
+    ' lWithFoo.X := 7;'];
+      lExpectedTemps := [1];
+      lExpectedEdits := [2];
+    end;
+    if aShape = 'ctl-obj-own-member' then
+    begin
+      lExpectedTexts := [' lWithBaz := Baz;' + #13#10 +
+    ' lWithBaz.X := ''m'';'];
+      lExpectedTemps := [1];
+      lExpectedEdits := [2];
+    end;
+    if aShape = 'ctl-record-absent-global' then
+    begin
+      lExpectedTexts := [' lWithRecPtr := @R;' + #13#10 +
+    ' lWithRecPtr^.A := G;'];
+      lExpectedTemps := [1];
+      lExpectedEdits := [2];
+    end;
+    if aShape = 'ctl-alias-projrec-field' then
+    begin
+      lExpectedTexts := [' Item.A := G;'];
+      lExpectedTemps := [0];
+      lExpectedEdits := [1];
+    end;
+    if aShape = 'nested-innerrec-tag-ctl' then
+    begin
+      lExpectedTexts := [' lWithFoo := Foo;' + #13#10 +
+    '   begin' + #13#10 +
+    '    lWithRecPtr := @R;' + #13#10 +
+    '   lWithRecPtr^.B := lWithRecPtr^.Tag;' + #13#10 +
+    '  end;'];
+      lExpectedTemps := [2];
+      lExpectedEdits := [2];
+    end;
+    if aShape = 'ctl-rec-in-comp-method-free' then
+    begin
+      lExpectedTexts := [' lWithRecPtr := @R;' + #13#10 +
+    ' lWithRecPtr^.B := Foo.Tag;'];
+      lExpectedTemps := [1];
+      lExpectedEdits := [2];
+    end;
+    if aShape = 'sr-name-ctl' then
+    begin
+      lExpectedTexts := [' S := SR.Name;'];
+      lExpectedTemps := [0];
+      lExpectedEdits := [1];
+    end;
+    if aShape = 'sr-fileio715' then
+    begin
+      lExpectedTexts := [' begin' + #13#10 +
+    '  S := SR.Name;' + #13#10 +
+    '  X := SR.Size + SR.Attr;' + #13#10 +
+    ' end;'];
+      lExpectedTemps := [0];
+      lExpectedEdits := [1];
+    end;
+    if aShape = 'ctl-obj-absent-global' then
+    begin
+      lExpectedTexts := [' lWithBaz := Baz;' + #13#10 +
+    ' lWithBaz.X := G;'];
+      lExpectedTemps := [1];
+      lExpectedEdits := [2];
+    end;
+    if aShape = 'obj-local-var-ctl' then
+    begin
+      lExpectedTexts := [' lWithBaz := Baz;' + #13#10 +
+    ' lWithBaz.X := N;'];
+      lExpectedTemps := [1];
+      lExpectedEdits := [2];
+    end;
+    if aShape = 'ctl-comp-absent-global' then
+    begin
+      lExpectedTexts := [' lWithFoo := Foo;' + #13#10 +
+    ' lWithFoo.X := G;'];
+      lExpectedTemps := [1];
+      lExpectedEdits := [2];
+    end;
+    if aShape = 'comp-local-var' then
+    begin
+      lExpectedTexts := [' lWithFoo := Foo;' + #13#10 +
+    ' lWithFoo.X := N;'];
+      lExpectedTemps := [1];
+      lExpectedEdits := [2];
+    end;
+    if aShape = 'comp-same-name-field-ctl' then
+    begin
+      lExpectedTexts := [' lWithFoo := Foo;' + #13#10 +
+    ' X := lWithFoo.Tag;'];
+      lExpectedTemps := [1];
+      lExpectedEdits := [2];
+    end;
+    if aShape = 'nested-outerrec-field-b' then
+    begin
+      lExpectedTexts := [' lWithRecPtr := @R;' + #13#10 +
+    '   begin' + #13#10 +
+    '    lWithFoo := Foo;' + #13#10 +
+    '   lWithRecPtr^.B := 4;' + #13#10 +
+    '  end;'];
+      lExpectedTemps := [2];
+      lExpectedEdits := [2];
+    end;
+    Assert.AreEqual(Length(lExpectedTexts), Length(lPlan.FinalStatements), aShape);
+    for lStatementIndex := 0 to High(lPlan.FinalStatements) do
+    begin
+      Assert.AreEqual('planned', lPlan.FinalStatements[lStatementIndex].Status, aShape);
+      Assert.AreEqual('', lPlan.FinalStatements[lStatementIndex].SafetyReason, aShape);
+      Assert.AreEqual(lExpectedTexts[lStatementIndex],
+        lPlan.FinalStatements[lStatementIndex].ReplacementText, aShape);
+      Assert.AreEqual<Integer>(lExpectedTemps[lStatementIndex], Length(lPlan.FinalStatements[lStatementIndex].Temps), aShape);
+      Assert.AreEqual<Integer>(lExpectedEdits[lStatementIndex], Length(lPlan.FinalStatements[lStatementIndex].Edits), aShape);
+    end;
+    Exit;
+  end;
+  lExpectedReason := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
+  if StartsText('sr-', aShape) or (aShape = 'alias-projclass-classname') then
+    lExpectedReason := 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED';
+  Assert.IsTrue(Length(lPlan.FinalStatements) > 0, aShape);
+  for var lStatement in lPlan.FinalStatements do
+  begin
+    Assert.AreEqual('skipped', lStatement.Status, aShape + ': ' + lStatement.Reason);
+    Assert.AreEqual(lExpectedReason, lStatement.SafetyReason, aShape);
+    Assert.AreEqual('', lStatement.ReplacementText, aShape);
+    Assert.AreEqual(0, Integer(Length(lStatement.Edits)), aShape);
+    Assert.AreEqual(0, Integer(Length(lStatement.Temps)), aShape);
+    for var lEdit in lPlan.Edits do
+      Assert.AreNotEqual(lStatement.SemanticId, lEdit.StatementId, aShape);
+  end;
 end;
 
 procedure TWithBinderTests.SimpleSelectorFallthroughRequiresExactRootAbsence(
@@ -8512,6 +11111,7 @@ begin
     Assert.AreEqual(aExpected.Owners[i].Name, aActual.Owners[i].Name);
     Assert.AreEqual(aExpected.Owners[i].Complete, aActual.Owners[i].Complete);
     Assert.AreEqual(aExpected.Owners[i].TerminalVerified, aActual.Owners[i].TerminalVerified);
+    Assert.AreEqual(aExpected.Owners[i].UnindexedRoot, aActual.Owners[i].UnindexedRoot);
     Assert.AreEqual(aExpected.Owners[i].NextDeclaredId, aActual.Owners[i].NextDeclaredId);
     // A count of zero is an explicit empty-set witness, not absent evidence.
     Assert.AreEqual(Length(aExpected.Owners[i].ValueNames), Length(aActual.Owners[i].ValueNames));
@@ -9870,6 +12470,12 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+end;
+
+procedure TWithBinderTests.IdenticalReceiverExceptionNegativeControls(
+  const aShape, aMode: string);
+begin
+  AliasFallbackAndForwardScopes(aShape, aMode);
 end;
 
 procedure TWithBinderTests.AliasFallbackAndForwardScopes(const aShape, aMode: string);
@@ -12509,7 +15115,7 @@ begin
     lExpectedLine := 17;
     lExpectedColumn := 2;
   end;
-  if aShape = 'r5-nested-repeat' then
+  if MatchText(aShape, ['r5-nested-repeat', 'r5-nested-different', 'r5-nested-function']) then
   begin
     lSource :=
       'unit Unit1;'#13#10 +
@@ -13625,6 +16231,19 @@ begin
     lExpectedLine := 32;
     lExpectedColumn := 3;
   end;
+  if aShape = 'r5-nested-different' then
+  begin
+    lSource := StringReplace(lSource, 'SR: TA;', 'SR: TA;'#13#10' SR2: TA;', []);
+    lSource := StringReplace(lSource, 'with SR do with SR do', 'with SR do with SR2 do', []);
+  end else if aShape = 'r5-nested-function' then
+  begin
+    lSource := StringReplace(lSource, 'procedure Run;'#13#10'implementation',
+      'procedure Run;'#13#10'function GetSR: TA;'#13#10'implementation'#13#10 +
+      'function GetSR: TA; begin Result := SR; end;', []);
+    lSource := StringReplace(lSource, 'with SR do with SR do',
+      'with GetSR do with GetSR do', []);
+    lExpectedLine := 18;
+  end;
   lWarmUnreachable := MatchText(aShape, ['control-opus-e7-forward-nested-strong-weak',
     'control-opus-e14-forward-two-level-strong-weak']);
   Assert.AreNotEqual('', lSource, aShape);
@@ -13765,6 +16384,32 @@ begin
   end;
   if aMode <> 'cold' then
     lPlan := lSnapshotPlan;
+  if MatchText(aShape, ['r5-nested-different', 'r5-nested-function']) then
+  begin
+    Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements)));
+    for var lCandidate in lPlan.Edits do
+    begin
+      Assert.AreEqual('remove-with-candidate', lCandidate.Kind);
+      Assert.AreEqual(lCandidate.ExpectedSourceText, lCandidate.ReplacementText);
+    end;
+    for var i := 0 to High(lPlan.FinalStatements) do
+    begin
+      lInnerStatement := lPlan.FinalStatements[i];
+      if aShape = 'r5-nested-function' then
+      begin
+        Assert.AreEqual('call-selector', lInnerStatement.Reason);
+        Assert.AreEqual('call-selector', lInnerStatement.SafetyReason);
+      end else begin
+        Assert.AreEqual('selector-type-not-resolved', lInnerStatement.Reason);
+        Assert.AreEqual('selector-type-not-resolved', lInnerStatement.SafetyReason);
+      end;
+      Assert.AreEqual('skipped', lInnerStatement.Status, lInnerStatement.Reason);
+      Assert.AreEqual('', lInnerStatement.ReplacementText);
+      Assert.AreEqual(0, Integer(Length(lInnerStatement.Edits)));
+      Assert.AreEqual(0, Integer(Length(lInnerStatement.Temps)));
+    end;
+    Exit;
+  end;
   if StartsText('r5-nested-', aShape) or (aShape = 'r6-nested') then
     Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements)))
   else
@@ -14630,6 +17275,19 @@ begin
   for lStatement in lPlan.FinalStatements do
     if SameText(ExtractFileName(lStatement.FileName), 'Unit1.pas') then
     begin
+      if MatchText(lShape, ['class-tobject', 'class-interfaced', 'class-component',
+        'class-forward', 'partial-root-object', 'partial-root-interfaced', 'partial-root-component']) then
+      begin
+        Assert.AreEqual('skipped', lStatement.Status, aShape);
+        Assert.AreEqual('receiver-member-not-found', lStatement.Reason, aShape);
+        Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason, aShape);
+        Assert.AreEqual('', lStatement.ReplacementText, aShape);
+        Assert.AreEqual(0, Integer(Length(lStatement.Edits)), aShape);
+        Assert.AreEqual(0, Integer(Length(lStatement.Temps)), aShape);
+        for var lEdit in lPlan.Edits do
+          Assert.AreNotEqual(lStatement.SemanticId, lEdit.StatementId, aShape);
+        Continue;
+      end;
       if DS741ExpectedReplacement(lShape) <> '' then
       begin
         Assert.AreEqual('planned', lStatement.Status, lShape + ': ' + lStatement.Reason);
@@ -14639,7 +17297,10 @@ begin
         (aShape = 'rmpv-compiling-anon-field') then
       begin
         Assert.AreEqual('skipped', lStatement.Status, lShape + ': ' + lStatement.Reason);
-        Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.SafetyReason);
+        if lShape = 'nested-forward-ancestor' then
+          Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason)
+        else
+          Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.SafetyReason);
         Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
         Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
         Assert.AreEqual('', lStatement.ReplacementText);

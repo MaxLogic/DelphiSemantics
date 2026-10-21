@@ -3,7 +3,7 @@ unit DelphiSemantics.RemoveWithPlan;
 interface
 
 uses
-  DelphiSemantics.ProjectContext, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.RemoveWith,
+  DelphiSemantics.CompilerProfile, DelphiSemantics.ProjectContext, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.RemoveWith,
   DelphiSemantics.WithBinding;
 
 type
@@ -239,6 +239,7 @@ type
     fMembersByOwnerName: TDictionary<string,
       TArray<TDelphiSemanticInventorySymbol>>;
     fOwnerMemberResults: TDictionary<string, Boolean>;
+    fRootLineages: TDictionary<string, Boolean>;
     fPointerTargetsByType: TDictionary<string, string>;
     fRequestCount: Int64;
     fResultMaterializationCount: Int64;
@@ -293,6 +294,11 @@ type
       const aOwnerName, aName: string): Boolean;
     function UnverifiedReceiverMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function ReceiverLineageHasUnindexedRoot(const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function ReceiverMemberAbsenceProved(const aSiteUnitName, aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function IsProfileRecord(const aIdentity: TDelphiSemanticTypeIdentity;
+      const aAllowStrongAlias: Boolean): Boolean;
     function IsWeakProfileRecord(const aIdentity: TDelphiSemanticTypeIdentity): Boolean;
     function MaterializedSymbolCount: Int64;
     function RequestCount: Int64;
@@ -308,6 +314,7 @@ type
     Strategy: string;
     ReceiverType: string;
     ReceiverIdentity: TDelphiSemanticTypeIdentity;
+    RetainedIdenticalStorageProved: Boolean;
     TempName: string;
     DeclarationText: string;
     InitializationText: string;
@@ -319,11 +326,18 @@ type
     Length: Integer;
     ExpectedText: string;
     ReplacementText: string;
+    QualifierText: string;
+  end;
+
+  TFinalQualifiedFallback = record
+    Reference: TDelphiSemanticBoundReference;
+    QualifierText: string;
   end;
 
   TFinalReceiverBodyFacts = record
     ValueQualifications: TArray<TFinalSelectorDecision>;
     BareReferences: TArray<TDelphiSemanticBoundReference>;
+    QualifiedFallbacks: TArray<TFinalQualifiedFallback>;
   end;
 
   TFinalNestedReplacement = record
@@ -423,6 +437,7 @@ procedure TPlannerLookupMemo.Initialize(
   const aIndex: TDelphiSemanticRemoveWithLookupIndex);
 begin
   fIndex := aIndex;
+  fRootLineages := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fDeclarationsByName := TDictionary<string,
     TArray<TDelphiSemanticInventorySymbol>>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -450,6 +465,7 @@ end;
 
 destructor TPlannerLookupMemo.Destroy;
 begin
+  fRootLineages.Free;
   fUnitsAndGlobalsByName.Free;
   fSymbolsByOwnerType.Free;
   fSymbolsByName.Free;
@@ -3482,6 +3498,7 @@ begin
   end;
   AddFinalBodyEdit(aEdits, lOffset, lLength, lExpectedText,
     aQualifierText + '.' + lMemberText);
+  aEdits[High(aEdits)].QualifierText := aQualifierText;
 end;
 
 function IsIdentifierTextChar(const aChar: Char): Boolean;
@@ -4389,6 +4406,41 @@ begin
     CaptureDeclarationIsVisible(aFacts, aBinding, lSelected, aLineCache);
 end;
 
+function ReferenceHasRootProvedVisibleProcedure(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aDecisions: TArray<TFinalSelectorDecision>;
+  const aReference: TDelphiSemanticBoundReference): Boolean;
+var
+  lDeclaration: TDelphiSemanticInventorySymbol;
+  lDecision: TFinalSelectorDecision;
+  lRootProved: Boolean;
+begin
+  Result := False;
+  if (not SameText(aReference.Classification, 'external')) or
+    (not SameText(aReference.Kind, 'routine')) or
+    (not SameText(aReference.ReasonCode, 'EXTERNAL_ROUTINE_CALL')) or
+    (not IsSimpleIdentifier(aReference.Name)) then
+    Exit;
+  lRootProved := False;
+  for lDecision in aDecisions do
+    if aFacts.LookupIndex.ReceiverLineageHasUnindexedRoot(lDecision.ReceiverIdentity) and
+      aFacts.LookupIndex.ReceiverMemberAbsenceProved(aBinding.UnitName,
+        lDecision.ReceiverType, aReference.Name, lDecision.ReceiverIdentity) then
+      lRootProved := True;
+  if not lRootProved then
+    Exit;
+  // Absence does not establish a callable symbol. Require a source-backed unit
+  // procedure declared before this site; routine-local and type scopes cannot pass.
+  for lDeclaration in aFacts.LookupIndex.FindSymbolsByName(aReference.Name) do
+    if SameText(lDeclaration.SymbolClass, 'routine') and
+      SameText(lDeclaration.Kind, 'routine') and
+      SameText(lDeclaration.FileName, aBinding.FileName) and
+      (lDeclaration.OwnerName = '') and (lDeclaration.OwnerType = '') and
+      (lDeclaration.RoutineScopeId <> '') and (lDeclaration.ParentScopeId = '') and
+      (lDeclaration.UnsupportedReason = '') and (lDeclaration.Line > 0) and
+      (lDeclaration.Line < aBinding.Line) then
+      Exit(True);
+end;
+
 function ReferenceBlocksFinalRewrite(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>;
@@ -4430,6 +4482,7 @@ begin
     (not ReferenceQualifiedPrefixCanRemainUnchanged(aFacts, aBinding, aReference)) and
     (not ReferenceLooksLikeLocalLabel(aBinding, aReference, aLineCache)) and
     (not ReferenceHasKnownRoutineSymbol(aFacts, aReference)) and
+    (not ReferenceHasRootProvedVisibleProcedure(aFacts, aBinding, aDecisions, aReference)) and
     (not ReferenceHasVisibleImportedProcedure(aFacts, aBinding, aReference, aLineCache)) then
   begin
     aReason := 'symbol-not-found';
@@ -5160,6 +5213,13 @@ end;
 
 function TPlannerLookupMemo.IsWeakProfileRecord(
   const aIdentity: TDelphiSemanticTypeIdentity): Boolean;
+begin
+  Result := IsProfileRecord(aIdentity, False);
+end;
+
+function TPlannerLookupMemo.IsProfileRecord(
+  const aIdentity: TDelphiSemanticTypeIdentity;
+  const aAllowStrongAlias: Boolean): Boolean;
 var
   lDeclarations: TArray<TDelphiSemanticInventorySymbol>;
   lName: string;
@@ -5196,7 +5256,8 @@ begin
         if SameText(lSymbol.SymbolClass, 'type-member') and
           SameText(lSymbol.SourceOwnerType, 'rtl-source') and
           SameText(lSymbol.UnitName, 'rtl-source') and
-          SameText(lSymbol.TypeCategory, 'record') then
+          SameText(lSymbol.TypeCategory, 'record') and
+          ((not aAllowStrongAlias) or SameText(lSymbol.Name, 'TSearchRec')) then
           Exit(True);
       end;
       // A projected type-member row accompanies the declaration. Only one
@@ -5227,37 +5288,111 @@ begin
       if not lProjectionFound then
         Exit;
       lName := lAlias.RelatedTypeName.Trim;
+      // This option proves only the receiver designator's name absent. It
+      // never relaxes the strong-alias guard on body references.
+      if aAllowStrongAlias and StartsText('type ', lName) then
+        lName := Trim(Copy(lName, 6, MaxInt));
     end;
   finally
     lSeen.Free;
   end;
 end;
 
-function BindingHasBareAliasFallback(const aFacts: TRemoveWithPlanFacts;
-  const aBodyFacts: TFinalReceiverBodyFacts;
-  const aDecisions: TArray<TFinalSelectorDecision>): Boolean;
+function TPlannerLookupMemo.ReceiverLineageHasUnindexedRoot(
+  const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+begin
+  if not TypeIdentityHasVerifiedOrigin(aOwnerIdentity) then
+    Exit(True);
+  if not fRootLineages.TryGetValue(aOwnerIdentity.DeclaredId.Value, Result) then
+  begin
+    Result := fIndex.ReceiverLineageHasUnindexedRoot(aOwnerIdentity);
+    fRootLineages.Add(aOwnerIdentity.DeclaredId.Value, Result);
+  end;
+end;
+
+function TPlannerLookupMemo.ReceiverMemberAbsenceProved(
+  const aSiteUnitName, aOwnerType, aName: string;
+  const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+begin
+  if TypeIdentityHasVerifiedOrigin(aOwnerIdentity) then
+    Result := fIndex.ReceiverMemberAbsenceProved(aSiteUnitName, aOwnerType, aName, aOwnerIdentity)
+  else
+    Result := fIndex.ReceiverMemberAbsenceProved(aSiteUnitName, aOwnerType, aName,
+      Default(TDelphiSemanticTypeIdentity));
+end;
+
+function BindingHasUnprovedReceiverReference(const aSiteUnitName: string;
+  const aFacts: TRemoveWithPlanFacts; const aBodyFacts: TFinalReceiverBodyFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>; out aSafetyReason: string): Boolean;
 var
-  lDecision: TFinalSelectorDecision;
+  i, j, lReferenceCount: Integer;
+  lGuarded, lWeak, lAlias: TArray<Boolean>;
+  lHasGuarded: Boolean;
   lReference: TDelphiSemanticBoundReference;
+  lName, lQualifier: string;
+  lWitness: TArray<string>;
 begin
   Result := False;
-  // DS-741: allow a bare alias-receiver reference only with indexed absence
-  // evidence or the projected weak profile-record compatibility exemption.
-  // Body facts include absorbed children, so every rendering route shares this guard.
-  if Length(aBodyFacts.BareReferences) = 0 then
+  aSafetyReason := '';
+  lReferenceCount := Length(aBodyFacts.BareReferences) + Length(aBodyFacts.QualifiedFallbacks);
+  if lReferenceCount = 0 then
     Exit;
-  for lDecision in aDecisions do
+  SetLength(lGuarded, Length(aDecisions));
+  SetLength(lWeak, Length(aDecisions));
+  SetLength(lAlias, Length(aDecisions));
+  lHasGuarded := False;
+  for i := 0 to High(aDecisions) do
   begin
-    if (not SameText(lDecision.ReceiverIdentity.Kind, 'type-alias')) or
-      DecisionKeepsWithMemberScope(lDecision) then
-      Continue;
-    if aFacts.LookupIndex.IsWeakProfileRecord(lDecision.ReceiverIdentity) then
-      Continue;
-    for lReference in aBodyFacts.BareReferences do
-      // Absence permits leaving a reference bare; it never proves qualification.
-      if aFacts.LookupIndex.UnverifiedReceiverMemberMayApply(lDecision.ReceiverType,
-          ReferenceLookupName(lReference.Name), lDecision.ReceiverIdentity) then
-        Exit(True);
+    lAlias[i] := SameText(aDecisions[i].ReceiverIdentity.Kind, 'type-alias');
+    lGuarded[i] := (not DecisionKeepsWithMemberScope(aDecisions[i])) and
+      (not aDecisions[i].RetainedIdenticalStorageProved) and
+      (lAlias[i] or
+      aFacts.LookupIndex.ReceiverLineageHasUnindexedRoot(aDecisions[i].ReceiverIdentity));
+    if lGuarded[i] then
+    begin
+      lHasGuarded := True;
+      lWeak[i] := aFacts.LookupIndex.IsWeakProfileRecord(aDecisions[i].ReceiverIdentity);
+    end;
+  end;
+  if not lHasGuarded then
+    Exit;
+  TDelphiSemanticCompilerProfileBuilder.CompatibilityRecordMemberNames('TSearchRec', lWitness);
+  for j := 0 to lReferenceCount - 1 do
+  begin
+    if j < Length(aBodyFacts.BareReferences) then
+    begin
+      lReference := aBodyFacts.BareReferences[j];
+      lQualifier := '';
+    end else begin
+      i := j - Length(aBodyFacts.BareReferences);
+      lReference := aBodyFacts.QualifiedFallbacks[i].Reference;
+      lQualifier := aBodyFacts.QualifiedFallbacks[i].QualifierText;
+    end;
+    lName := ReferenceLookupName(lReference.Name);
+    if StartsText('&', lName) then
+      Delete(lName, 1, 1);
+    for i := High(aDecisions) downto 0 do
+    begin
+      if (lQualifier <> '') and SameText(lQualifier, aDecisions[i].QualifierText) then
+        Break;
+      if not lGuarded[i] then
+        Continue;
+      if lWeak[i] then
+      begin
+        if (Length(lWitness) > 0) and (not MatchText(lName, lWitness)) then
+          Continue;
+      end else if aFacts.LookupIndex.ReceiverMemberAbsenceProved(aSiteUnitName,
+        aDecisions[i].ReceiverType, lName, aDecisions[i].ReceiverIdentity) or
+        aFacts.LookupIndex.ReceiverMemberAbsenceProved(aSiteUnitName,
+          'ds742-anonymous:' + aSiteUnitName + #31 + aDecisions[i].ReceiverType,
+          'ds742-anonymous-member:' + lName, Default(TDelphiSemanticTypeIdentity)) then
+        Continue;
+      if lAlias[i] then
+        aSafetyReason := 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED'
+      else
+        aSafetyReason := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
+      Exit(True);
+    end;
   end;
 end;
 
@@ -5287,6 +5422,7 @@ function BodyHasPartiallyVerifiedValueReceiver(const aFacts: TRemoveWithPlanFact
 var
   i: Integer;
   lEdit: TFinalBodyEdit;
+  lFallback: TFinalQualifiedFallback;
   lNestedReplacement: TFinalNestedReplacement;
   lOffset: Integer;
   lQualifier: string;
@@ -5353,7 +5489,18 @@ begin
       Continue;
     lOffset := ReferenceRelativeOffset(aBodyRange, aLines, aBodyText, lReference, aLineBreak);
     if BodyEditsQualifyReference(aBodyEdits, lOffset, lReference.Name) then
+    begin
+      lFallback := Default(TFinalQualifiedFallback);
+      lFallback.Reference := lReference;
+      for lEdit in aBodyEdits do
+        if ((lEdit.Offset = lOffset) or ((lEdit.Offset = lOffset - 1) and
+          StartsText('&', lEdit.ExpectedText))) and
+          ((SameText(lEdit.ExpectedText, lReference.Name)) or
+          SameText(lEdit.ExpectedText, '&' + lReference.Name)) then
+          lFallback.QualifierText := lEdit.QualifierText;
+      aBodyFacts.QualifiedFallbacks := aBodyFacts.QualifiedFallbacks + [lFallback];
       Continue;
+    end;
     aBodyFacts.BareReferences := aBodyFacts.BareReferences + [lReference];
   end;
   if Length(aBodyFacts.ValueQualifications) = 0 then
@@ -5394,7 +5541,7 @@ var
   lDeclarations: TArray<Boolean>;
   lDecision: TFinalSelectorDecision;
   lBodyRange: TDelphiSemanticRemoveWithSourceRange;
-  lBodyStartsWithBegin: Boolean;
+  lBodyStartsWithBegin, lRootAbsenceProved: Boolean;
   lLineBreak: string;
   lLines: TArray<string>;
   lNestedRange: TDelphiSemanticRemoveWithSourceRange;
@@ -5537,6 +5684,20 @@ begin
           ReferenceAppearsQualified(lReference, aBinding, aLineCache) then
           Continue;
         if ReferenceCanRemainUnchanged(aFacts, aBinding, lReference) then
+          Continue;
+        // DS-742: an unresolved SDK name may remain bare only after the binder
+        // recorded this site's root absence. Indexed-record absence alone is
+        // deliberately insufficient. The final reverse guard checks all receivers.
+        lRootAbsenceProved := False;
+        if SameText(lReference.Classification, 'unresolved') and
+          SameText(lReference.ReasonCode, 'NAME_NOT_FOUND') and
+          IsSimpleIdentifier(lReference.Name) then
+          for lDecision in aEditDecisions do
+            if aFacts.LookupIndex.ReceiverLineageHasUnindexedRoot(lDecision.ReceiverIdentity) and
+              aFacts.LookupIndex.ReceiverMemberAbsenceProved(aBinding.UnitName,
+                lDecision.ReceiverType, lReference.Name, lDecision.ReceiverIdentity) then
+              lRootAbsenceProved := True;
+        if lRootAbsenceProved then
           Continue;
         aReason := ReceiverMemberMissReason(lReference, aBinding, aLineCache);
         Exit;
@@ -6616,6 +6777,137 @@ begin
   end;
 end;
 
+function TryUniqueReceiverStorage(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aName: string;
+  out aStorage: TDelphiSemanticInventorySymbol): Boolean;
+var
+  lBestScore, lScore, lMatches: Integer;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  aStorage := Default(TDelphiSemanticInventorySymbol);
+  if not IsSimpleIdentifier(aName) then
+    Exit;
+  lBestScore := -1;
+  lMatches := 0;
+  for lSymbol in aFacts.LookupIndex.FindSymbolsByName(aName) do
+  begin
+    if not InventorySymbolIsSourceBacked(lSymbol) then
+      Continue;
+    lScore := RoutineScopedSymbolBindingScore(aFacts, lSymbol, aBinding);
+    if (lScore < 0) and SameText(lSymbol.FileName, aBinding.FileName) and
+      SameText(lSymbol.UnitName, aBinding.UnitName) and
+      (lSymbol.RoutineName = '') and
+      MatchText(lSymbol.Kind, ['variable', 'var']) and
+      MatchText(lSymbol.SymbolClass, ['unit', 'global', 'declaration']) then
+      lScore := 0;
+    if lScore < 0 then
+      Continue;
+    if lScore > lBestScore then
+    begin
+      lBestScore := lScore;
+      lMatches := 0;
+    end;
+    if lScore = lBestScore then
+    begin
+      Inc(lMatches);
+      aStorage := lSymbol;
+    end;
+  end;
+  Result := (lMatches = 1) and (aStorage.Line > 0) and
+    (aStorage.Column > 0) and
+    (not MatchText(aStorage.Kind, ['function', 'procedure', 'property']));
+end;
+
+function RetainedIdenticalReceiverStorageProved(const aFacts: TRemoveWithPlanFacts;
+  const aBindingSource: TRemoveWithPlanBindingSource;
+  const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
+  const aDecision: TFinalSelectorDecision;
+  const aInheritedDecisions: TArray<TFinalSelectorDecision>;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  lParentIndex: Integer;
+  lBinding, lParent: TDelphiSemanticWithBinding;
+  lInnerStorage, lOuterStorage, lSymbol: TDelphiSemanticInventorySymbol;
+  lPrefixRange: TDelphiSemanticRemoveWithSourceRange;
+  lPrefix, lName: string;
+  lWitness: TArray<string>;
+  lOuterDecision: TFinalSelectorDecision;
+  lLexer: TmwBasePasLex;
+  lAbsent: Boolean;
+begin
+  Result := False;
+  lName := aDecision.SelectorText;
+  if not IsSimpleIdentifier(lName) then
+    Exit;
+  lBinding := aBindingSource.BindingByIndex(aBindingIndex);
+  if not TryUniqueReceiverStorage(aFacts, lBinding, lName, lInnerStorage) then
+    Exit;
+  lParentIndex := aBindingTree.ParentIndexes[aBindingIndex];
+  while lParentIndex >= 0 do
+  begin
+    lParent := aBindingSource.BindingByIndex(lParentIndex);
+    for lOuterDecision in aInheritedDecisions do
+    begin
+      if (not DecisionKeepsWithMemberScope(lOuterDecision)) or
+        (not SameText(lOuterDecision.SelectorText, lName)) or
+        (not SameText(lParent.SelectorText, lName)) or
+        (not TypeIdentityHasVerifiedOrigin(lOuterDecision.ReceiverIdentity)) then
+        Continue;
+      if (not TryUniqueReceiverStorage(aFacts, lParent, lName, lOuterStorage)) or
+        (not SameStorageDeclaration(lInnerStorage, lOuterStorage)) or
+        (not SameText(lInnerStorage.OwnerScopeId, lOuterStorage.OwnerScopeId)) or
+        (not SameText(lInnerStorage.RoutineScopeId, lOuterStorage.RoutineScopeId)) then
+        Continue;
+      lAbsent := aFacts.LookupIndex.ReceiverMemberAbsenceProved(lBinding.UnitName,
+        lOuterDecision.ReceiverType, lName, lOuterDecision.ReceiverIdentity);
+      if (not lAbsent) and
+        aFacts.LookupIndex.IsProfileRecord(lOuterDecision.ReceiverIdentity, True) then
+      begin
+        // The compiler profile's complete TSearchRec witness also applies
+        // across a strong alias, but helpers require their own proof.
+        TDelphiSemanticCompilerProfileBuilder.CompatibilityRecordMemberNames('TSearchRec', lWitness);
+        lAbsent := (Length(lWitness) > 0) and (not MatchText(lName, lWitness));
+        for lSymbol in aFacts.Symbols do
+          if lSymbol.IsHelper then
+            lAbsent := False;
+      end;
+      if not lAbsent then
+        Continue;
+      lPrefixRange := BindingBodyRange(lParent);
+      lPrefixRange.EndLine := lBinding.Line;
+      lPrefixRange.EndColumn := lBinding.Column;
+      if not aLineCache.TryExtractRange(lBinding.FileName,
+        lPrefixRange.StartLine, lPrefixRange.StartColumn,
+        lPrefixRange.EndLine, lPrefixRange.EndColumn, lPrefix) then
+        Continue;
+      // Source ranges include their final character: discard the first W
+      // of the nested WITH, which is not part of the intervening prefix.
+      if (lPrefix = '') or (not SameText(Copy(lPrefix, Length(lPrefix), 1), 'w')) then
+        Continue;
+      SetLength(lPrefix, Length(lPrefix) - 1);
+      // Only empty compound-statement prefixes are proved stable here.
+      // Calls, assignments, selectors, indexing and getters fail closed.
+      lLexer := TmwBasePasLex.Create;
+      try
+        lLexer.UseDefines := False;
+        lLexer.Origin := lPrefix;
+        while lLexer.TokenID <> ptNull do
+        begin
+          if (lLexer.TokenID <> ptBegin) and (not lLexer.IsJunk) then
+            Break;
+          lLexer.Next;
+        end;
+        if lLexer.TokenID = ptNull then
+          Exit(True);
+      finally
+        lLexer.Free;
+      end;
+    end;
+    lParentIndex := aBindingTree.ParentIndexes[lParentIndex];
+  end;
+end;
+
 function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aBindingSource: TRemoveWithPlanBindingSource;
   const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
@@ -6752,6 +7044,9 @@ begin
       Result.SafetyReason := Result.Reason;
       Exit;
     end;
+    lDecision.RetainedIdenticalStorageProved := RetainedIdenticalReceiverStorageProved(
+      aFacts, aBindingSource, aBindingTree, aBindingIndex, lDecision,
+      aInheritedDecisions, aLineCache);
     QualifyDecisionInitializationDependencies(aFacts, lVisibleDecisions,
       lDecision);
     if SameText(lDecision.Strategy, 'direct-qualification') and
@@ -6803,6 +7098,16 @@ begin
         lBinding.RoutineName, Result.Temps);
       Result.Temps := nil;
       Result.Status := lChildStatement.Status;
+      // Preserve the removed parent's own refusal before propagating a child
+      // failure. A retained parent then permits a fresh child-only proof.
+      if SameText(lChildStatement.SafetyReason, 'OWNER_INHERITED_MEMBERS_UNVERIFIED') and
+        SameText(aBindingSource.BindingByIndex(lChildIndex).SelectorText, lBinding.SelectorText) and
+        BindingHasUnprovedReceiverReference(lBinding.UnitName, aFacts,
+        lChildBodyFacts, lSelectorDecisions, Result.SafetyReason) then
+      begin
+        Result.Reason := 'receiver-member-not-found';
+        Exit;
+      end;
       if SameText(lChildStatement.Reason, 'semantic-rewrite-incomplete') or
         SameText(lChildStatement.Reason, 'covered-child-rewrite-incomplete') then
       begin
@@ -6906,7 +7211,8 @@ begin
       Exit;
     end;
   // Established selector, renderer, helper and value-member reasons win.
-  if BindingHasBareAliasFallback(aFacts, aBodyFacts, lDecisions) then
+  if BindingHasUnprovedReceiverReference(lBinding.UnitName, aFacts, aBodyFacts,
+    lDecisions, Result.SafetyReason) then
   begin
     RollbackReservedTempNamesForDecisions(aReservedNames,
       lBinding.RoutineName, lSelectorDecisions);
@@ -6915,7 +7221,6 @@ begin
     Result.Temps := nil;
     Result.Status := 'skipped';
     Result.Reason := 'receiver-member-not-found';
-    Result.SafetyReason := 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED';
     Exit;
   end;
   // DS-740: preserving a prefix is independent of whether it controls the result.
@@ -7603,7 +7908,8 @@ end;
 
 procedure AddPartiallyVerifiedDescendants(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aBindingSource: TRemoveWithPlanBindingSource;
-  const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer);
+  const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
+  const aReason, aSafetyReason: string);
 var
   lChildIndex: Integer;
 begin
@@ -7611,8 +7917,9 @@ begin
   begin
     AddFinalStatement(aPlan, BuildSkippedFinalStatement(
       aBindingSource.BindingByIndex(lChildIndex), FinalStatementId(lChildIndex + 1),
-      'RECEIVER_MEMBERS_PARTIALLY_VERIFIED', 'RECEIVER_MEMBERS_PARTIALLY_VERIFIED'));
-    AddPartiallyVerifiedDescendants(aPlan, aBindingSource, aBindingTree, lChildIndex);
+      aReason, aSafetyReason));
+    AddPartiallyVerifiedDescendants(aPlan, aBindingSource, aBindingTree, lChildIndex,
+      aReason, aSafetyReason);
   end;
 end;
 
@@ -7629,6 +7936,7 @@ procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aLineCache: TDelphiSemanticSourceContextCache;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>);
 var
+  lPartialIndexedReceiver: Boolean;
   lChildIndex: Integer;
   lChildInheritedDecisions: TArray<TFinalSelectorDecision>;
   lBodyFacts: TFinalReceiverBodyFacts;
@@ -7683,9 +7991,19 @@ begin
   if SameText(lStatement.Status, 'planned') then
     Exit;
 
-  if SameText(lStatement.SafetyReason, 'RECEIVER_MEMBERS_PARTIALLY_VERIFIED') then
+  lPartialIndexedReceiver := False;
+  if SameText(lStatement.SafetyReason, 'OWNER_INHERITED_MEMBERS_UNVERIFIED') then
+    for lSelector in lBinding.Selectors do
+      if aFacts.LookupIndex.UnverifiedReceiverMemberMayApply(lSelector.TypeName, '',
+        lSelector.TypeIdentity) then
+        lPartialIndexedReceiver := True;
+  // A missing indexed ancestor body retains DS-731's descendant barrier even
+  // when DS-742 detects the failure first and changes its refusal reason.
+  if SameText(lStatement.SafetyReason, 'RECEIVER_MEMBERS_PARTIALLY_VERIFIED') or
+    lPartialIndexedReceiver then
   begin
-    AddPartiallyVerifiedDescendants(aPlan, aBindingSource, aBindingTree, aBindingIndex);
+    AddPartiallyVerifiedDescendants(aPlan, aBindingSource, aBindingTree, aBindingIndex,
+      lStatement.Reason, lStatement.SafetyReason);
     Exit;
   end;
 
@@ -8150,6 +8468,7 @@ begin
                 SameText(lFinalStatement.SafetyReason, 'RECEIVER_MEMBERS_PARTIALLY_VERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'RECORD_HELPER_MEMBERS_UNVERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') or
+                SameText(lFinalStatement.SafetyReason, 'OWNER_INHERITED_MEMBERS_UNVERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'ROUTINE_LOCAL_TYPE_UNSUPPORTED') or
                 SameText(lFinalStatement.SafetyReason, 'INACTIVE_NESTED_WITH_SHADOW')) and
                 (lFinalStatement.SemanticId = lEdit.StatementId) then

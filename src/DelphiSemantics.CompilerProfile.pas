@@ -42,6 +42,8 @@ type
 
   TDelphiSemanticCompilerProfileBuilder = record
   public
+    class function CompatibilityRecordMemberNames(const aRecordName: string;
+      out aNames: TArray<string>): Boolean; static;
     class function DefaultProfile(const aCompilerProfileName: string):
       TDelphiSemanticCompilerProfile; static;
     class function FromCachedSources(const aCache: TDelphiSemanticUnitCache;
@@ -72,6 +74,18 @@ uses
 const
   cIntrinsicSeedVersion = 'delphi-intrinsics-v2';
   cProfileSchemaVersion = '1';
+
+class function TDelphiSemanticCompilerProfileBuilder.CompatibilityRecordMemberNames(
+  const aRecordName: string; out aNames: TArray<string>): Boolean;
+begin
+  aNames := nil;
+  Result := SameText(aRecordName, 'TSearchRec');
+  if Result then
+    // Absence only: the compatibility profile still qualifies its existing four fields.
+    aNames := ['Time', 'Size', 'Attr', 'Name', 'ExcludeAttr', 'FindHandle', 'FindData',
+      'CreationTime', 'LastAccessTime', 'TimeStamp', 'GetCreationTime', 'GetLastAccessTime',
+      'GetTimeStamp', 'LATime', 'LBTime', 'Mode', 'PathOnly', 'Pattern'];
+end;
 
 function StableHash(const aText: string): string;
 begin

@@ -190,6 +190,7 @@ type
     Name: string;
     Complete: Boolean;
     TerminalVerified: Boolean;
+    UnindexedRoot: Boolean;
     NextDeclaredId: string;
     ValueNames: TArray<string>;
   end;
@@ -238,6 +239,11 @@ type
       const aOwnerName, aName: string): Boolean;
     function UnverifiedReceiverMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function ReceiverMemberAbsenceProved(const aSiteUnitName, aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function ReceiverLineageHasUnindexedRoot(const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    procedure RecordRootMemberAbsence(const aSiteUnitName, aRootOwnerId, aName: string);
+    function RootMemberAbsenceRecorded(const aSiteUnitName, aRootOwnerId, aName: string): Boolean;
     procedure AttachValueMemberModels(const aModels: TArray<TDelphiSemanticUnitModel>);
     procedure AttachValueMemberEvidence(const aEvidence: TDelphiSemanticValueMemberEvidence);
     function ExportValueMemberEvidence: TDelphiSemanticValueMemberEvidence;
@@ -282,9 +288,9 @@ uses
   System.RegularExpressions, System.StrUtils, System.SysUtils,
   AutoFree,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.CompilerProfile, DelphiSemantics.Model.Text, DelphiSemantics.ProjectContext,
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Model.Extract, DelphiSemantics.Model.Text, DelphiSemantics.ProjectContext,
   DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.SelectorTypes,
-  DelphiSemantics.SourceConditionals, DelphiSemantics.WithBinding.Inventory,
+  DelphiSemantics.Source, DelphiSemantics.SourceConditionals, DelphiSemantics.WithBinding.Inventory,
   MaxLogic.StrUtils;
 
 type
@@ -299,6 +305,11 @@ type
       const aOwnerName, aName: string): Boolean;
     function UnverifiedReceiverMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function ReceiverMemberAbsenceProved(const aSiteUnitName, aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function ReceiverLineageHasUnindexedRoot(const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    procedure RecordRootMemberAbsence(const aSiteUnitName, aRootOwnerId, aName: string);
+    function RootMemberAbsenceRecorded(const aSiteUnitName, aRootOwnerId, aName: string): Boolean;
     function UnverifiedValueMemberMayApply(const aOwnerType, aName: string): Boolean; overload;
     function UnverifiedValueMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean; overload;
@@ -321,6 +332,7 @@ type
     fValueMemberModels: TArray<TDelphiSemanticUnitModel>;
     fValueEvidence: TDelphiSemanticValueMemberEvidence;
     fValueEvidenceLoaded: Boolean;
+    fRootMemberAbsences: THashSet<string>;
     fValueOwners: TDictionary<string, Integer>;
     fValueQueries: TDictionary<string, string>;
     fValueOwnerNames: THashSet<string>;
@@ -340,7 +352,8 @@ type
     fUnitsAndGlobalsByPrefix: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
     procedure EnsureValueMemberEvidence;
     function UnverifiedMemberMayApply(const aOwnerType, aName: string;
-      const aOwnerIdentity: TDelphiSemanticTypeIdentity; const aValueMembersOnly: Boolean): Boolean;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity; const aValueMembersOnly,
+      aRootProvesAbsence: Boolean; const aSiteUnitName: string = ''): Boolean;
     class function OwnerNameKey(const aOwnerName, aName: string): string; static;
     class function IsDirectMemberSymbolClass(const aSymbolClass: string): Boolean; static;
     class procedure AddSymbolToMap(const aMap: TDictionary<string,
@@ -386,6 +399,11 @@ type
       const aOwnerName, aName: string): Boolean;
     function UnverifiedReceiverMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function ReceiverMemberAbsenceProved(const aSiteUnitName, aOwnerType, aName: string;
+      const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function ReceiverLineageHasUnindexedRoot(const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    procedure RecordRootMemberAbsence(const aSiteUnitName, aRootOwnerId, aName: string);
+    function RootMemberAbsenceRecorded(const aSiteUnitName, aRootOwnerId, aName: string): Boolean;
     procedure AttachValueMemberModels(const aModels: TArray<TDelphiSemanticUnitModel>);
     procedure AttachValueMemberEvidence(const aEvidence: TDelphiSemanticValueMemberEvidence);
     function ExportValueMemberEvidence: TDelphiSemanticValueMemberEvidence;
@@ -499,6 +517,15 @@ type
     function IsVerifiedRecordHelper(const aModel: TDelphiSemanticUnitModel;
       const aDeclaration: TDelphiSemanticDeclaration): Boolean;
     function HasClosedRootSourceContext(const aContextModel: TDelphiSemanticUnitModel): Boolean;
+    function ModelIsClosedForRootProof(const aModel: TDelphiSemanticUnitModel): Boolean;
+    function RootHeadingIsNonGeneric(const aIdentity: TDelphiSemanticTypeIdentity;
+      const aModel: TDelphiSemanticUnitModel): Boolean;
+    function TryRootProofUnits(const aModel: TDelphiSemanticUnitModel;
+      const aIncludeImplementation: Boolean; out aUnits: TArray<string>): Boolean;
+    function TryBuildRootQueryLineage(const aBinding: TDelphiSemanticWithBinding;
+      const aSelectorTypeName: string; const aSelectorIdentity: TDelphiSemanticTypeIdentity;
+      out aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
+
     function UnitRoutineDeclarationIsVerified(const aModel: TDelphiSemanticUnitModel;
       const aDeclaration: TDelphiSemanticDeclaration): Boolean;
     function TrySafetyDeclarationModel(const aIdentity: TDelphiSemanticTypeIdentity;
@@ -705,6 +732,7 @@ var
   lTypeName: string;
 begin
   inherited Create;
+  fRootMemberAbsences := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fValueOwners := TDictionary<string, Integer>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fValueQueries := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fValueOwnerNames := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -833,6 +861,7 @@ destructor TDelphiSemanticRemoveWithLookupIndexData.Destroy;
 var
   lSymbols: TList<TDelphiSemanticInventorySymbol>;
 begin
+  fRootMemberAbsences.Free;
   for lSymbols in fDeclarationsByName.Values do
     lSymbols.Free;
   for lSymbols in fMembersByOwnerName.Values do
@@ -1118,6 +1147,103 @@ begin
   Result := lEvidence.UnverifiedReceiverMemberMayApply(aOwnerType, aName, aOwnerIdentity);
 end;
 
+function TDelphiSemanticRemoveWithLookupIndex.ReceiverMemberAbsenceProved(const aSiteUnitName, aOwnerType, aName: string;
+  const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+var
+  lEvidence: IDelphiSemanticRemoveWithValueEvidence;
+begin
+  if not Supports(fData, IDelphiSemanticRemoveWithValueEvidence, lEvidence) then
+    Exit(False);
+  Result := lEvidence.ReceiverMemberAbsenceProved(aSiteUnitName, aOwnerType, aName, aOwnerIdentity);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.ReceiverLineageHasUnindexedRoot(const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+var
+  lEvidence: IDelphiSemanticRemoveWithValueEvidence;
+begin
+  if not Supports(fData, IDelphiSemanticRemoveWithValueEvidence, lEvidence) then
+    Exit(True);
+  Result := lEvidence.ReceiverLineageHasUnindexedRoot(aOwnerIdentity);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndex.RootMemberAbsenceRecorded(const aSiteUnitName, aRootOwnerId, aName: string): Boolean;
+var
+  lEvidence: IDelphiSemanticRemoveWithValueEvidence;
+begin
+  if not Supports(fData, IDelphiSemanticRemoveWithValueEvidence, lEvidence) then
+    Exit(False);
+  Result := lEvidence.RootMemberAbsenceRecorded(aSiteUnitName, aRootOwnerId, aName);
+end;
+
+procedure TDelphiSemanticRemoveWithLookupIndex.RecordRootMemberAbsence(
+  const aSiteUnitName, aRootOwnerId, aName: string);
+var
+  lEvidence: IDelphiSemanticRemoveWithValueEvidence;
+begin
+  if Supports(fData, IDelphiSemanticRemoveWithValueEvidence, lEvidence) then
+    lEvidence.RecordRootMemberAbsence(aSiteUnitName, aRootOwnerId, aName);
+end;
+
+procedure TDelphiSemanticRemoveWithLookupIndexData.RecordRootMemberAbsence(
+  const aSiteUnitName, aRootOwnerId, aName: string);
+begin
+  if (aSiteUnitName <> '') and (aRootOwnerId <> '') and (aName <> '') then
+    fRootMemberAbsences.Add(aSiteUnitName + #31 + aRootOwnerId + #31 + aName);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.RootMemberAbsenceRecorded(
+  const aSiteUnitName, aRootOwnerId, aName: string): Boolean;
+begin
+  Result := (aSiteUnitName <> '') and (aRootOwnerId <> '') and (aName <> '') and
+    fRootMemberAbsences.Contains(aSiteUnitName + #31 + aRootOwnerId + #31 + aName);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.ReceiverMemberAbsenceProved(
+  const aSiteUnitName, aOwnerType, aName: string;
+  const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+begin
+  Result := not UnverifiedMemberMayApply(aOwnerType, aName, aOwnerIdentity,
+    False, False, aSiteUnitName);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.ReceiverLineageHasUnindexedRoot(
+  const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
+var
+  i, lRemaining: Integer;
+  lDeclaredId: string;
+  lOwner: TDelphiSemanticValueEvidenceOwner;
+begin
+  // Missing or incomplete owner evidence is uncertainty, never proof of a closed lineage.
+  Result := True;
+  if ((not fValueEvidenceLoaded) and (Length(fValueMemberModels) = 0)) or
+    (fValueEvidenceLoaded and (not fValueEvidence.Available)) then
+    Exit;
+  EnsureValueMemberEvidence;
+  lDeclaredId := aOwnerIdentity.DeclaredId.Value;
+  if (not fValueEvidence.Available) or (lDeclaredId = '') or
+    (not fValueOwners.TryGetValue(lDeclaredId, i)) then
+    Exit;
+  lOwner := fValueEvidence.Owners[i];
+  if (aOwnerIdentity.UnitName = '') or (aOwnerIdentity.Name = '') or
+    (aOwnerIdentity.SourceRange.FileName = '') or
+    (not SameText(lOwner.UnitName, aOwnerIdentity.UnitName)) or
+    (not SameText(lOwner.Name, aOwnerIdentity.Name)) or
+    (not SameText(lOwner.FileName, aOwnerIdentity.SourceRange.FileName)) then
+    Exit;
+  lRemaining := Length(fValueEvidence.Owners);
+  while (lRemaining > 0) and fValueOwners.TryGetValue(lDeclaredId, i) do
+  begin
+    Dec(lRemaining);
+    lOwner := fValueEvidence.Owners[i];
+    if not lOwner.Complete then
+      Exit;
+    if lOwner.NextDeclaredId = '' then
+      Exit(lOwner.UnindexedRoot or (not lOwner.TerminalVerified));
+    lDeclaredId := lOwner.NextDeclaredId;
+  end;
+  Result := True;
+end;
+
 procedure TDelphiSemanticRemoveWithLookupIndexData.AttachValueMemberModels(
   const aModels: TArray<TDelphiSemanticUnitModel>);
 var
@@ -1266,13 +1392,13 @@ end;
 function TDelphiSemanticRemoveWithLookupIndexData.UnverifiedValueMemberMayApply(
   const aOwnerType, aName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
 begin
-  Result := UnverifiedMemberMayApply(aOwnerType, aName, aOwnerIdentity, True);
+  Result := UnverifiedMemberMayApply(aOwnerType, aName, aOwnerIdentity, True, True);
 end;
 
 function TDelphiSemanticRemoveWithLookupIndexData.UnverifiedReceiverMemberMayApply(
   const aOwnerType, aName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
 begin
-  Result := UnverifiedMemberMayApply(aOwnerType, aName, aOwnerIdentity, False);
+  Result := UnverifiedMemberMayApply(aOwnerType, aName, aOwnerIdentity, False, True);
 end;
 
 function TDelphiSemanticRemoveWithLookupIndexData.ReceiverLineageDeclaresMember(
@@ -1316,7 +1442,7 @@ end;
 
 function TDelphiSemanticRemoveWithLookupIndexData.UnverifiedMemberMayApply(
   const aOwnerType, aName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity;
-  const aValueMembersOnly: Boolean): Boolean;
+  const aValueMembersOnly, aRootProvesAbsence: Boolean; const aSiteUnitName: string): Boolean;
 var
   i: Integer;
   lDeclaredId: string;
@@ -1370,7 +1496,9 @@ begin
           Exit(True);
       end;
     if lOwner.NextDeclaredId = '' then
-      Exit(not lOwner.TerminalVerified);
+      Exit((not lOwner.TerminalVerified) or (lOwner.UnindexedRoot and
+        (not aRootProvesAbsence) and
+        (not RootMemberAbsenceRecorded(aSiteUnitName, lDeclaredId, aName))));
     lDeclaredId := lOwner.NextDeclaredId;
   end;
   // Missing owners and cycles are unverified coverage.
@@ -5070,6 +5198,67 @@ begin
   end;
 end;
 
+function AnonymousRecordDeclarationIsVerified(const aModel: TDelphiSemanticUnitModel;
+  const aIdentity: TDelphiSemanticTypeIdentity): Boolean;
+var
+  g: TGarbos;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lLexer: TmwBasePasLex;
+  lMatched: Integer;
+  lName: string;
+  lOffset: Integer;
+begin
+  Result := False;
+  if (not aModel.Success) or (not SameText(aModel.ScopeModelStatus, 'ast')) or
+    (not SameText(aIdentity.Kind, 'type')) or
+    (not SameText(aIdentity.UnderlyingName, 'record')) then
+    Exit;
+  lMatched := 0;
+  for lDeclaration in aModel.Declarations do
+    if SameText(lDeclaration.SymbolId, aIdentity.SemanticSymbolId) and
+      (lDeclaration.Line = aIdentity.SourceRange.Line) and
+      (lDeclaration.Column = aIdentity.SourceRange.Column) and
+      (lDeclaration.TypeBodyEndLine > 0) then
+    begin
+      // The declaration token is the variable/field name, followed by ':' and
+      // an inline record. A named record or alias has '=' and cannot qualify.
+      GC(lLexer, TmwBasePasLex.Create, g);
+      lLexer.UseDefines := False;
+      // Synthetic names do not occur verbatim in source; their extraction offset
+      // can still be relative to expanded text. Use the verified physical token.
+      lOffset := ActivityOffset(BuildBodyLineStarts(aModel.SourceText),
+        Length(aModel.SourceText), lDeclaration.Line, lDeclaration.Column);
+      if lOffset = 0 then
+        Exit;
+      lName := lDeclaration.Name;
+      if LastDelimiter('.', lName) > 0 then
+        lName := Copy(lName, LastDelimiter('.', lName) + 1, MaxInt);
+      lLexer.Origin := Copy(aModel.SourceText, lOffset, MaxInt);
+      if not SameText(lLexer.Token, lName) then
+        Exit;
+      lLexer.NextNoJunk;
+      if lLexer.Token <> ':' then
+        Exit;
+      lLexer.NextNoJunk;
+      if SameText(lLexer.Token, 'packed') then
+        lLexer.NextNoJunk;
+      if not SameText(lLexer.Token, 'record') then
+        Exit;
+      for lDiagnostic in aModel.Diagnostics do
+        if (lDiagnostic.Line >= lDeclaration.Line) and
+          (lDiagnostic.Line <= lDeclaration.TypeBodyEndLine) and
+          MatchText(lDiagnostic.Code, ['ANONYMOUS_RECORD_MEMBERS_UNVERIFIED',
+            'MEMBERS_INCOMPLETE', 'MEMBERS_UNVERIFIED',
+            'MEMBERS_ACTIVITY_UNVERIFIED', 'UNVERIFIED_PREPROCESS_CONDITION',
+            'UNSUPPORTED_PREPROCESS_DIRECTIVE', 'UNMATCHED_PREPROCESS_DIRECTIVE',
+            'UNTERMINATED_PREPROCESS_CONDITIONAL']) then
+          Exit;
+      Inc(lMatched);
+    end;
+  Result := lMatched = 1;
+end;
+
 function TWithBindingProjectMemberIndex.TryResolveAnonymousMemberTypeIdentity(
   const aDeclaringModel: TDelphiSemanticUnitModel;
   const aMember: TDelphiSemanticResolveResult;
@@ -5764,14 +5953,191 @@ begin
   Result := TrySafetyDeclarationModel(lIdentity, lTargetModel);
 end;
 
+function ModelCanSupplyMemberEvidence(const aModel: TDelphiSemanticUnitModel): Boolean;
+begin
+  Result := aModel.Success;
+end;
+
+function TWithBindingProjectMemberIndex.ModelIsClosedForRootProof(
+  const aModel: TDelphiSemanticUnitModel): Boolean;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lDiagnostic: TMemberSafetyDiagnostic;
+  lInvalidRoutineCount: Integer;
+  lModelDiagnostic: TDelphiSemanticModelDiagnostic;
+begin
+  Result := False;
+  // Extraction already expands resolved includes. Failed expansion and unknown
+  // activity remain unverified; an include filename alone does not open the scope.
+  if (not ModelCanSupplyMemberEvidence(aModel)) or (not SameText(aModel.ScopeModelStatus, 'ast')) or
+    SameText(aModel.UnitName, 'System') then
+    Exit;
+  // A dropped conditional branch can hide uses, helpers, types or another include.
+  // The existing preprocess diagnostics apply to this model and its expanded includes;
+  // neither a provider answer nor a closed-root shortcut can repair that missing scope.
+  for lModelDiagnostic in aModel.Diagnostics do
+    if MatchText(lModelDiagnostic.Code, ['UNVERIFIED_PREPROCESS_CONDITION',
+      'UNSUPPORTED_PREPROCESS_DIRECTIVE', 'UNMATCHED_PREPROCESS_DIRECTIVE',
+      'UNTERMINATED_PREPROCESS_CONDITIONAL']) then
+      Exit;
+  lInvalidRoutineCount := 0;
+  for lDeclaration in aModel.Declarations do
+  begin
+    if MatchText(lDeclaration.Kind, ['type', 'type-alias']) then
+    begin
+      // DS-716: an empty or unknown AST kind cannot establish helper absence.
+      if not SameText(lDeclaration.AstHelperKind, 'none') then
+      begin
+        if not IsVerifiedRecordHelper(aModel, lDeclaration) then
+          Exit;
+      end else if lDeclaration.HelperTargetName <> '' then
+        Exit;
+    end else if lDeclaration.HelperTargetName <> '' then
+      Exit;
+    if SameText(lDeclaration.DeclarationRole, 'invalid') then
+    begin
+      // DS-715: only uniquely matched, source-verified unit routine headers
+      // may lack declaration IDs. Unknown/local/type omissions cannot prove closure.
+      if not UnitRoutineDeclarationIsVerified(aModel, lDeclaration) then
+        Exit;
+      Inc(lInvalidRoutineCount);
+    end;
+  end;
+  if aModel.RejectedDeclarationCount <> lInvalidRoutineCount then
+    Exit;
+  for lDiagnostic in fMemberSafetyDiagnostics do
+    if SameText(lDiagnostic.UnitName, aModel.UnitName) and
+      ((not lDiagnostic.OwnerResolved) or
+      SameText(lDiagnostic.Code, 'MEMBERS_UNVERIFIED') or
+      SameText(lDiagnostic.Code, 'MEMBERS_INCOMPLETE')) then
+      Exit;
+  Result := True;
+end;
+
+function TWithBindingProjectMemberIndex.RootHeadingIsNonGeneric(
+  const aIdentity: TDelphiSemanticTypeIdentity;
+  const aModel: TDelphiSemanticUnitModel): Boolean;
+var
+  g: TGarbos;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lLexer: TmwBasePasLex;
+  lSource: TDelphiSemanticSourceText;
+  lSourceText: string;
+  lHeading, lInBase: Boolean;
+begin
+  Result := False;
+  for lDeclaration in aModel.Declarations do
+    if (lDeclaration.SymbolId = aIdentity.SemanticSymbolId) and
+      (lDeclaration.Line = aIdentity.SourceRange.Line) and
+      (lDeclaration.Column = aIdentity.SourceRange.Column) then
+    begin
+      // Snapshot-backed models retain their own source, but not observation handles.
+      lSourceText := '';
+      if SameText(aModel.FileName, aIdentity.SourceRange.FileName) then
+        lSourceText := aModel.SourceText
+      else if (aModel.SourceObservations <> nil) and
+        aModel.SourceObservations.TryFind(aIdentity.SourceRange.FileName, lSource) then
+        lSourceText := lSource.Text;
+      if (lDeclaration.Offset <= 0) or (lDeclaration.Offset > Length(lSourceText)) then
+        Exit;
+      GC(lLexer, TmwBasePasLex.Create, g);
+      lLexer.UseDefines := False;
+      lLexer.Origin := Copy(lSourceText, lDeclaration.Offset, MaxInt);
+      lHeading := False;
+      lInBase := False;
+      while lLexer.TokenID <> ptNull do
+      begin
+        if not IsTokenIDJunk(lLexer.TokenID) then
+        begin
+          if lLexer.Token = '<' then
+            Exit;
+          if lHeading then
+          begin
+            if lLexer.Token = '(' then
+              lInBase := True
+            else if lInBase then
+            begin
+              if lLexer.Token = ')' then
+                Exit(True);
+            end else if not MatchText(lLexer.Token, ['abstract', 'sealed']) then
+              Exit(aIdentity.BaseTypeName = '');
+          end else if MatchText(lLexer.Token, ['class', 'interface']) then
+            lHeading := True;
+        end;
+        lLexer.Next;
+      end;
+      Exit;
+    end;
+end;
+
+function TWithBindingProjectMemberIndex.TryRootProofUnits(
+  const aModel: TDelphiSemanticUnitModel; const aIncludeImplementation: Boolean;
+  out aUnits: TArray<string>): Boolean;
+var
+  lIndexes: TArray<Integer>;
+  lUsedUnit: string;
+  lUses: TArray<string>;
+begin
+  Result := False;
+  aUnits := nil;
+  if not ModelIsClosedForRootProof(aModel) then
+    Exit;
+  lUses := Copy(aModel.InterfaceUses);
+  if aIncludeImplementation then
+    lUses := lUses + aModel.ImplementationUses;
+  for lUsedUnit in lUses do
+    if fSafetyModelsByUnit.TryGetValue(lUsedUnit, lIndexes) then
+    begin
+      if (Length(lIndexes) <> 1) or
+        (not ModelIsClosedForRootProof(fModels[lIndexes[0]])) then
+        Exit;
+    end else
+      aUnits := aUnits + [lUsedUnit];
+  Result := True;
+end;
+
+function TWithBindingProjectMemberIndex.TryBuildRootQueryLineage(
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorTypeName: string;
+  const aSelectorIdentity: TDelphiSemanticTypeIdentity;
+  out aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
+var
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lLookup: TDelphiSemanticTypeLookupResult;
+  lModel: TDelphiSemanticUnitModel;
+  lSegments: TArray<string>;
+  lTarget: string;
+begin
+  Result := False;
+  // The ordinary walk retains its verified prefix on an unresolved terminal.
+  // Reuse that walk so scope, cycle and declaration identity checks cannot drift.
+  TryBuildMemberSafetyLineage(aBinding, aSelectorTypeName, aSelectorIdentity, aLineage);
+  if Length(aLineage) = 0 then
+    Exit;
+  for lIdentity in aLineage do
+    if (not SameText(lIdentity.Kind, 'type')) or
+      SameText(lIdentity.ScopeKind, 'routine') or (lIdentity.HelperTargetName <> '') or
+      (not MatchText(lIdentity.UnderlyingName, ['class', 'interface'])) or
+      (not TrySafetyDeclarationModel(lIdentity, lModel)) or
+      (not RootHeadingIsNonGeneric(lIdentity, lModel)) then
+      Exit;
+  lIdentity := aLineage[High(aLineage)];
+  lTarget := lIdentity.BaseTypeName;
+  if not TRegEx.IsMatch(lTarget, '^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$') then
+    Exit;
+  lLookup := ResolveValueEvidenceType(lTarget, lIdentity);
+  if lLookup.Found or lLookup.Ambiguous or
+    (not SameText(lLookup.ReasonCode, 'TYPE_NOT_FOUND')) then
+    Exit;
+  lSegments := lTarget.Split(['.']);
+  Result := (not fSafetyDeclarationsByName.ContainsKey(lSegments[0])) and
+    (not fSafetyDeclarationsByName.ContainsKey(lSegments[High(lSegments)]));
+end;
+
 function TWithBindingProjectMemberIndex.HasClosedRootSourceContext(
   const aContextModel: TDelphiSemanticUnitModel): Boolean;
 var
   g: TGarbos;
-  lDeclaration: TDelphiSemanticDeclaration;
-  lDiagnostic: TMemberSafetyDiagnostic;
   lIndexes: TArray<Integer>;
-  lInvalidRoutineCount: Integer;
   lModel: TDelphiSemanticUnitModel;
   lPending: TQueue<string>;
   lUnitName: string;
@@ -5791,40 +6157,8 @@ begin
       (Length(lIndexes) <> 1) then
       Exit;
     lModel := fModels[lIndexes[0]];
-    if (not lModel.Success) or (not SameText(lModel.ScopeModelStatus, 'ast')) or
-      SameText(lModel.UnitName, 'System') then
+    if not ModelIsClosedForRootProof(lModel) then
       Exit;
-    lInvalidRoutineCount := 0;
-    for lDeclaration in lModel.Declarations do
-    begin
-      if MatchText(lDeclaration.Kind, ['type', 'type-alias']) then
-      begin
-        // DS-716: an empty or unknown AST kind cannot establish helper absence.
-        if not SameText(lDeclaration.AstHelperKind, 'none') then
-        begin
-          if not IsVerifiedRecordHelper(lModel, lDeclaration) then
-            Exit;
-        end else if lDeclaration.HelperTargetName <> '' then
-          Exit;
-      end else if lDeclaration.HelperTargetName <> '' then
-        Exit;
-      if SameText(lDeclaration.DeclarationRole, 'invalid') then
-      begin
-        // DS-715: only uniquely matched, source-verified unit routine headers
-        // may lack declaration IDs. Unknown/local/type omissions cannot prove closure.
-        if not UnitRoutineDeclarationIsVerified(lModel, lDeclaration) then
-          Exit;
-        Inc(lInvalidRoutineCount);
-      end;
-    end;
-    if lModel.RejectedDeclarationCount <> lInvalidRoutineCount then
-      Exit;
-    for lDiagnostic in fMemberSafetyDiagnostics do
-      if SameText(lDiagnostic.UnitName, lModel.UnitName) and
-        ((not lDiagnostic.OwnerResolved) or
-        SameText(lDiagnostic.Code, 'MEMBERS_UNVERIFIED') or
-        SameText(lDiagnostic.Code, 'MEMBERS_INCOMPLETE')) then
-        Exit;
     for lUsedUnit in lModel.InterfaceUses do
       lPending.Enqueue(lUsedUnit);
     for lUsedUnit in lModel.ImplementationUses do
@@ -5912,6 +6246,73 @@ begin
   end;
 end;
 
+procedure AppendAnonymousAbsenceEvidence(const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aOwners: TList<TDelphiSemanticValueEvidenceOwner>;
+  const aQueries: TList<TDelphiSemanticValueEvidenceQuery>;
+  const aValueNames: THashSet<string>);
+var
+  g: TGarbos;
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lGraphType: TDelphiSemanticGraphType;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lKey: string;
+  lMember: TDelphiSemanticMember;
+  lModel, lParsed: TDelphiSemanticUnitModel;
+  lNames, lSeen, lAmbiguous: THashSet<string>;
+  lPendingQueries: TList<TDelphiSemanticValueEvidenceQuery>;
+  lOwner: TDelphiSemanticValueEvidenceOwner;
+  lQuery: TDelphiSemanticValueEvidenceQuery;
+begin
+  GC(lNames, THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase), g);
+  GC(lSeen, THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase), g);
+  GC(lAmbiguous, THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase), g);
+  GC(lPendingQueries, TList<TDelphiSemanticValueEvidenceQuery>.Create, g);
+  for lModel in aModels do
+  begin
+    lParsed := TDelphiSemanticUnitModelExtractorImpl.AnonymousRecordAbsenceModel(lModel);
+    if (not SameText(lParsed.ScopeModelStatus, 'ast')) or
+      (Length(lParsed.Declarations) = 0) then
+      Continue;
+    GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(
+      BuildSyntheticWithBindingProjectInfo, [lParsed]), g);
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    for lGraphType in lGraph.Types do
+    begin
+      if not lIndex.FindByDeclaredId(lGraphType.DeclaredId, lIdentity) then
+        Continue;
+      if not AnonymousRecordDeclarationIsVerified(lParsed, lIdentity) then
+        Continue;
+      lNames.Clear;
+      for lMember in lParsed.Members + lParsed.TypeValueMembers do
+        if SameText(lMember.OwnerName, lIdentity.Name) then
+        begin
+          lNames.Add('ds742-anonymous-member:' + lMember.Name);
+          aValueNames.Add('ds742-anonymous-member:' + lMember.Name);
+        end;
+      lKey := 'ds742-anonymous:' + lParsed.UnitName + #31 + lIdentity.Name;
+      lOwner := Default(TDelphiSemanticValueEvidenceOwner);
+      lOwner.DeclaredId := lKey + #31 + lIdentity.DeclaredId.Value;
+      lOwner.UnitName := lParsed.UnitName;
+      lOwner.FileName := lParsed.FileName;
+      lOwner.Name := lIdentity.Name;
+      lOwner.Complete := True;
+      lOwner.TerminalVerified := True;
+      lOwner.ValueNames := lNames.ToArray;
+      aOwners.Add(lOwner);
+      lQuery.Name := lKey;
+      lQuery.DeclaredId := lOwner.DeclaredId;
+      if not lSeen.Add(lKey) then
+        lAmbiguous.Add(lKey);
+      lPendingQueries.Add(lQuery);
+    end;
+  end;
+  // A synthetic spelling shared by overloaded routines is not an identity.
+  for lQuery in lPendingQueries do
+    if not lAmbiguous.Contains(lQuery.Name) then
+      aQueries.Add(lQuery);
+end;
+
 function TWithBindingProjectMemberIndex.ExportValueMemberEvidence:
   TDelphiSemanticValueMemberEvidence;
 var
@@ -5965,6 +6366,7 @@ begin
     lOwner.FileName := lIdentity.SourceRange.FileName;
     lOwner.Name := lIdentity.Name;
     lOwner.Complete := TrySafetyDeclarationModel(lIdentity, lModel) and
+      ModelCanSupplyMemberEvidence(lModel) and
       SameText(lModel.ScopeModelStatus, 'ast');
     if lOwner.Complete and SameText(lIdentity.Kind, 'type') and
       SameText(lIdentity.UnderlyingName, 'class') then
@@ -6000,17 +6402,22 @@ begin
     else
       lTarget := lIdentity.BaseTypeName;
     if lTarget = '' then
-      lOwner.TerminalVerified := not SameText(lIdentity.Kind, 'type-alias')
-    else begin
+    begin
+      lOwner.TerminalVerified := not SameText(lIdentity.Kind, 'type-alias');
+      lOwner.UnindexedRoot := lOwner.TerminalVerified and
+        (not MatchText(lIdentity.UnderlyingName, ['record', 'packed record']));
+    end else begin
       lLookup := ResolveValueEvidenceType(lTarget, lIdentity);
       if lLookup.Ambiguous then
         lOwner.Complete := False
       else if lLookup.Found then
         lOwner.NextDeclaredId := lLookup.Identity.DeclaredId.Value
-      else
-        // Unindexed class roots retain the existing root-absence contract.
+      else begin
+        // Root completeness is distinct from indexed member-set completeness.
         lOwner.TerminalVerified := SameText(lIdentity.Kind, 'type') and
           SameText(lIdentity.UnderlyingName, 'class');
+        lOwner.UnindexedRoot := lOwner.TerminalVerified;
+      end;
     end;
     lOwners.Add(lOwner);
     // The planner supplies the same simple/qualified keys as the type resolver.
@@ -6027,6 +6434,11 @@ begin
         end;
       end;
   end;
+  lNames.Clear;
+  for lName in Result.ValueNames do
+    lNames.Add(lName);
+  AppendAnonymousAbsenceEvidence(fModels, lOwners, lQueries, lNames);
+  Result.ValueNames := lNames.ToArray;
   Result.Owners := lOwners.ToArray;
   Result.Queries := lQueries.ToArray;
 end;
@@ -6345,14 +6757,24 @@ var
   lIdentity: TDelphiSemanticTypeIdentity;
   lLineage: TArray<TDelphiSemanticTypeIdentity>;
   lOwnerModel: TDelphiSemanticUnitModel;
+  lNamed: IDelphiSemanticNamedRootMemberAbsence;
+  lRoot: TDelphiSemanticQualifiedRootType;
+  lSiteUnits, lOwnerUnits: TArray<string>;
+  i: Integer;
+  lClosed: Boolean;
 begin
   Result := False;
   aRefusalCode := '';
   lBinding := Default(TDelphiSemanticWithBinding);
   lBinding.UnitName := aModel.UnitName;
   lBinding.FileName := aModel.FileName;
+  Supports(fRootMemberAbsence, IDelphiSemanticNamedRootMemberAbsence, lNamed);
   if not TryBuildMemberSafetyLineage(lBinding, aSelector.TypeName,
-    aSelector.TypeIdentity, lLineage) or (Length(lLineage) = 0) then
+    aSelector.TypeIdentity, lLineage) then
+    if (lNamed = nil) or (not TryBuildRootQueryLineage(lBinding, aSelector.TypeName,
+      aSelector.TypeIdentity, lLineage)) then
+      Exit;
+  if Length(lLineage) = 0 then
     Exit;
   if LineageHasActivityFact(lLineage) then
     Exit;
@@ -6389,21 +6811,75 @@ begin
     end;
     Exit;
   end;
-  if (fRootMemberAbsence = nil) or (aName = '') or
-    (not HasClosedRootSourceContext(aModel)) or
-    (not SameText(lIdentity.Kind, 'type')) or
-    (not SameText(lIdentity.UnderlyingName, 'class')) or
-    (lIdentity.BaseTypeName <> '') or (lIdentity.HelperTargetName <> '') then
+  if (fRootMemberAbsence = nil) or (aName = '') then
     Exit;
+  // BaseTypeName erases arguments; neither provider route may certify that root.
   for lIdentity in lLineage do
     if (not TrySafetyDeclarationModel(lIdentity, lOwnerModel)) or
-      (not HasClosedRootSourceContext(lOwnerModel)) then
+      (not RootHeadingIsNonGeneric(lIdentity, lOwnerModel)) then
       Exit;
-  // The root is implicit by Delphi class syntax, never an unindexed named base.
+  // The closed implicit-class route plans only with positive absence proof,
+  // including expanded includes on DS routes. DAK rejects conditional or include directives
+  // for native root proof, so statements needing that proof refuse there.
+  // The named route below still requires exact declaration and site scopes.
+  lClosed := HasClosedRootSourceContext(aModel) and
+    SameText(lIdentity.Kind, 'type') and SameText(lIdentity.UnderlyingName, 'class') and
+    (lIdentity.BaseTypeName = '') and (lIdentity.HelperTargetName = '');
+  if lClosed then
+    for lIdentity in lLineage do
+      if (not TrySafetyDeclarationModel(lIdentity, lOwnerModel)) or
+        (not HasClosedRootSourceContext(lOwnerModel)) then
+        lClosed := False;
+  lIdentity := lLineage[High(lLineage)];
   try
     if fRootMemberAbsence.EvidenceFingerprint = '' then
       Exit;
-    Result := fRootMemberAbsence.IsNameAbsent(aName);
+    if lClosed then
+      Result := fRootMemberAbsence.IsNameAbsent(aName)
+    else begin
+      if (lNamed = nil) or (not TryRootProofUnits(aModel, True, lSiteUnits)) then
+        Exit;
+      // Validate every project declaration, but keep its imported helpers out
+      // of the site scope. The root-most declaration captures its own helper.
+      for i := High(lLineage) downto 0 do
+      begin
+        lIdentity := lLineage[i];
+        if (not SameText(lIdentity.Kind, 'type')) or
+          (not SameText(lIdentity.ScopeKind, 'unit')) or
+          (not MatchText(lIdentity.SectionKind, ['interface', 'implementation'])) or
+          (lIdentity.HelperTargetName <> '') or
+          (not MatchText(lIdentity.UnderlyingName, ['class', 'interface'])) or
+          (not TrySafetyDeclarationModel(lIdentity, lOwnerModel)) or
+          (not ModelIsClosedForRootProof(lOwnerModel)) or
+          (not RootHeadingIsNonGeneric(lIdentity, lOwnerModel)) then
+          Exit;
+        if not TryRootProofUnits(lOwnerModel,
+          SameText(lIdentity.SectionKind, 'implementation'), lOwnerUnits) then
+          Exit;
+      end;
+      lIdentity := lLineage[High(lLineage)];
+      if not TrySafetyDeclarationModel(lIdentity, lOwnerModel) then
+        Exit;
+      lRoot := Default(TDelphiSemanticQualifiedRootType);
+      lRoot.Kind := LowerCase(lIdentity.UnderlyingName);
+      lRoot.TypeName := lIdentity.BaseTypeName;
+      if lRoot.TypeName = '' then
+      begin
+        if lRoot.Kind = 'class' then
+          lRoot.TypeName := 'System.TObject'
+        else
+          lRoot.TypeName := 'System.IInterface';
+      end;
+      // LookupUnits is the declaration-point scope, distinct from aSiteUnits.
+      // Implementation imports follow interface imports only for an
+      // implementation declaration, matching compiler helper precedence.
+      if not TryRootProofUnits(lOwnerModel,
+        SameText(lIdentity.SectionKind, 'implementation'), lRoot.LookupUnits) then
+        Exit;
+      Result := lNamed.IsNamedRootMemberAbsent(lRoot, lSiteUnits, aName);
+    end;
+    if Result then
+      fLookupIndex.RecordRootMemberAbsence(aModel.UnitName, lIdentity.DeclaredId.Value, aName);
   except
     on E: Exception do
       // External evidence failure preserves the caller's unsupported diagnostic.

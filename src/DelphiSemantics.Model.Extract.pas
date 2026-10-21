@@ -10,6 +10,8 @@ type
   public
     class function TypeBlockAnalysisBuildCount: Integer; static;
     class procedure ResetTypeBlockAnalysisBuildCount; static;
+    class function AnonymousRecordAbsenceModel(const aModel: TDelphiSemanticUnitModel):
+      TDelphiSemanticUnitModel; static;
     class function ExtractFromFile(const aOptions: TDelphiSemanticModelOptions):
       TDelphiSemanticUnitModel; static;
   end;
@@ -71,6 +73,11 @@ type
     Line: Integer;
     Column: Integer;
     ScopeIndex: Integer;
+  end;
+
+  TAstAnonymousRecord = record
+    OwnerName: string;
+    Node, TypeNode: TSyntaxNode;
   end;
 
   TAstRoutineScope = record
@@ -1287,6 +1294,12 @@ begin
     end;
 end;
 
+procedure ExtractAnonymousRecordMembers(const aText, aFileName, aOwnerName: string;
+  const aNode, aTypeNode: TSyntaxNode;
+  const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aMembers: TList<TDelphiSemanticMember>); forward;
+
 procedure EnrichLexicalScopeFacts(const aText, aUnitName: string;
   const aWritableSwitches: TArray<TWritableConstantSwitch>;
   const aOptions: TDelphiSemanticModelOptions;
@@ -1297,9 +1310,12 @@ procedure EnrichLexicalScopeFacts(const aText, aUnitName: string;
   const aReferences: TList<TDelphiSemanticReference>;
   const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   const aUnindexedHelpers: TList<TPendingUnindexedHelper>;
-  var aModel: TDelphiSemanticUnitModel);
+  var aModel: TDelphiSemanticUnitModel;
+  const aAnonymousAbsenceOnly: Boolean = False);
 var
   i: Integer;
+  lAnonymous: TAstAnonymousRecord;
+  lAnonymousRecords: TList<TAstAnonymousRecord>;
   lChild: TSyntaxNode;
   lComplete: Boolean;
   lDeclaration: TDelphiSemanticDeclaration;
@@ -1351,6 +1367,7 @@ var
   procedure CollectFacts(const aNode, aParentNode: TSyntaxNode; const aParentScopeIndex: Integer;
     const aTypeOwnerPath: string);
   var
+    lAnonymous: TAstAnonymousRecord;
     lChild: TSyntaxNode;
     lCurrentScopeIndex: Integer;
     lChildTypeOwnerPath: string;
@@ -1515,6 +1532,36 @@ var
         lChildTypeOwnerPath := AppendTypeOwnerPath(aTypeOwnerPath, lFact.Name);
         CollectEnumDeclarations(aText, aNode, aDeclarations, lDeclarationFacts, lCurrentScopeIndex,
           aTypeOwnerPath);
+      end;
+    end;
+
+    // Inline records have no type identifier. Their declaration token and AST
+    // member tree establish the synthetic type used by the existing binder.
+    if aAnonymousAbsenceOnly and (aNode.Typ in [ntVariable, ntField, ntParameter]) then
+    begin
+      lTypeNode := aNode.FindNode(ntType);
+      if Assigned(lTypeNode) and SameText(lTypeNode.GetAttribute(anType), 'record') then
+      begin
+        lName := AstNodeName(aNode);
+        if aTypeOwnerPath <> '' then
+          lLocalTypeName := aTypeOwnerPath + '.' + lName
+        else if lCurrentScopeIndex >= 0 then
+          lLocalTypeName := lScopes[lCurrentScopeIndex].Name + '.' + lName
+        else
+          lLocalTypeName := aUnitName + '.' + lName;
+        lAnonymous.OwnerName := lLocalTypeName;
+        lAnonymous.Node := aNode;
+        lAnonymous.TypeNode := lTypeNode;
+        lAnonymousRecords.Add(lAnonymous);
+        lFact := Default(TAstDeclarationScopeFact);
+        lFact.Name := lLocalTypeName;
+        lFact.Kind := 'typedecl';
+        lFact.Line := aNode.Line;
+        lFact.Column := aNode.Col;
+        lFact.ScopeIndex := lCurrentScopeIndex;
+        lFact.AstHelperKind := 'none';
+        lDeclarationFacts.Add(lFact);
+        lChildTypeOwnerPath := lLocalTypeName;
       end;
     end;
 
@@ -1733,6 +1780,7 @@ begin
     aDeclarations[i] := lDeclaration;
     Inc(aModel.RejectedDeclarationCount);
   end;
+  lAnonymousRecords := TList<TAstAnonymousRecord>.Create;
   lDeclarationFacts := TList<TAstDeclarationScopeFact>.Create;
   lScopes := TList<TAstRoutineScope>.Create;
   lUnownedBlocks := TList<TOffsetRange>.Create;
@@ -1756,6 +1804,12 @@ begin
       CollectFacts(lSyntaxTree, nil, -1, '');
       ExtractMembers(aText, aModel.FileName, lSyntaxTree, aDiagnostics, aDeclarations, aMembers,
         lMemberReferences);
+      // Named extraction may also emit nested anonymous declarations. Reconcile
+      // all inline records after declaration discovery, so their range indices
+      // remain stable through enum replacement and ordinary member scanning.
+      for lAnonymous in lAnonymousRecords do
+        ExtractAnonymousRecordMembers(aText, aModel.FileName, lAnonymous.OwnerName,
+          lAnonymous.Node, lAnonymous.TypeNode, aDiagnostics, aDeclarations, aMembers);
       if not aOptions.SkipBodyAnalysis then
       begin
         // A program, library or old-style unit main block is a direct child of the root.
@@ -1969,6 +2023,7 @@ begin
     lSyntaxTree.Free;
     lUnownedBlocks.Free;
     lScopes.Free;
+    lAnonymousRecords.Free;
     lDeclarationFacts.Free;
   end;
 end;
@@ -3716,6 +3771,117 @@ begin
   end;
 end;
 
+procedure ExtractAnonymousRecordMembers(const aText, aFileName, aOwnerName: string;
+  const aNode, aTypeNode: TSyntaxNode;
+  const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aMembers: TList<TDelphiSemanticMember>);
+var
+  i: Integer;
+  lActivity: TTypeMemberActivityRange;
+  lBody, lUnscanned: string;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lBodyOffset, lEnd, lFirstMember, lStart: Integer;
+  lFacts: TList<TAstMemberFact>;
+  lLexer: TmwBasePasLex;
+  lNested: TList<TSyntaxNode>;
+  lSplits: TList<Integer>;
+  lDepth: Integer;
+begin
+  lStart := OffsetOfLineColumn(aText, aTypeNode.Line, aTypeNode.Col);
+  lLexer := TmwBasePasLex.Create;
+  lFacts := TList<TAstMemberFact>.Create;
+  lSplits := TList<Integer>.Create;
+  lNested := TList<TSyntaxNode>.Create;
+  try
+    // The AST identifies the inline record; the shared lexer finds its complete
+    // closing token, including nested records and every variant arm.
+    lLexer.UseDefines := False;
+    lLexer.Origin := Copy(aText, lStart, MaxInt);
+    lDepth := 0;
+    lEnd := 0;
+    lBodyOffset := 0;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID = ptRecord then
+      begin
+        if lDepth = 0 then
+          lBodyOffset := lStart + lLexer.TokenPos + Length(lLexer.Token);
+        Inc(lDepth);
+      end
+      else if lLexer.TokenID = ptEnd then
+      begin
+        Dec(lDepth);
+        if lDepth = 0 then
+        begin
+          lEnd := lStart + lLexer.TokenPos + Length(lLexer.Token);
+          Break;
+        end;
+      end;
+      lLexer.Next;
+    end;
+    if (lEnd <= lStart) or (lDepth <> 0) then
+      Exit;
+    lActivity := Default(TTypeMemberActivityRange);
+    lActivity.Range.StartOffset := OffsetOfLineColumn(aText, aNode.Line, aNode.Col);
+    lActivity.Range.EndOffset := lEnd;
+    lActivity.StartLine := aNode.Line;
+    lActivity.EndLine := LineOfOffset(aText, lEnd);
+    lActivity.EndColumn := ColumnOfOffset(aText, lEnd);
+    lActivity.FileName := aFileName;
+    lActivity.OwnerName := aOwnerName;
+    lActivity.DeclarationIndex := -1;
+    for i := 0 to aDeclarations.Count - 1 do
+      if SameText(aDeclarations[i].Name, aOwnerName) and
+        SameText(aDeclarations[i].Kind, 'type') and
+        (aDeclarations[i].Line = aNode.Line) then
+      begin
+        lActivity.DeclarationIndex := i;
+        Break;
+      end;
+    if lActivity.DeclarationIndex < 0 then
+    begin
+      AddDeclaration(aDeclarations, aOwnerName, 'type', 'record',
+        SectionForOffset(aText, lActivity.Range.StartOffset), aText,
+        lActivity.Range.StartOffset);
+      lActivity.DeclarationIndex := aDeclarations.Count - 1;
+    end;
+    lDeclaration := aDeclarations[lActivity.DeclarationIndex];
+    lDeclaration.Column := aNode.Col;
+    lDeclaration.Offset := lActivity.Range.StartOffset;
+    aDeclarations[lActivity.DeclarationIndex] := lDeclaration;
+    ActiveExtractionContext.RecordTypeMemberActivity(lActivity);
+    // Replace the old anonymous line-scan facts, rather than publish a second
+    // member inventory. The same reconciliation used for named records applies.
+    for i := aMembers.Count - 1 downto 0 do
+      if SameText(aMembers[i].OwnerName, aOwnerName) then
+        aMembers.Delete(i);
+    CollectAstTypeMembers(aText, aTypeNode, 'public', lFacts, lSplits, lNested);
+    lSplits.Sort;
+    lBody := Copy(aText, lBodyOffset, lEnd - lBodyOffset);
+    lFirstMember := aMembers.Count;
+    ExtractMembersFromBody(aText, aOwnerName, lBody, lBodyOffset,
+      aDeclarations, aMembers, nil, lSplits.ToArray);
+    if not CollectTypeValueConstants(aText, aOwnerName, aTypeNode, 'public') or
+      not CollectVariantTagMembers(aText, aOwnerName, lBody,
+      lBodyOffset, aTypeNode) or
+      not ReconcileTypeMembers(aText, lBody, aOwnerName, lFacts,
+      lSplits.ToArray, aMembers, nil, lFirstMember, lUnscanned) then
+      AddDiagnostic(aDiagnostics, 'ANONYMOUS_RECORD_MEMBERS_UNVERIFIED',
+        'Anonymous record members could not be reconciled with the syntax tree.',
+        aFileName, aNode.Line);
+    // Scope enrichment assigns the declaration identity in the ordinary path.
+    lDeclaration := aDeclarations[lActivity.DeclarationIndex];
+    lDeclaration.AstHelperKind := 'none';
+    aDeclarations[lActivity.DeclarationIndex] := lDeclaration;
+  finally
+    lNested.Free;
+    lSplits.Free;
+    lFacts.Free;
+    lLexer.Free;
+  end;
+end;
+
 procedure ExtractMembers(const aText, aFileName: string; const aNode: TSyntaxNode;
   const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
@@ -5029,6 +5195,84 @@ begin
       lHelper.Column := ColumnOfOffset(aSourceText, lMappedOffset);
     end;
     Result[i] := lHelper;
+  end;
+end;
+
+class function TDelphiSemanticUnitModelExtractorImpl.AnonymousRecordAbsenceModel(
+  const aModel: TDelphiSemanticUnitModel): TDelphiSemanticUnitModel;
+var
+  lContext, lPreviousContext: TDelphiSemanticExtractionContext;
+  lDeclarations: TList<TDelphiSemanticDeclaration>;
+  lDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
+  lHelpers: TList<TPendingUnindexedHelper>;
+  lLocals: TList<TDelphiSemanticLocal>;
+  lMembers: TList<TDelphiSemanticMember>;
+  lOptions: TDelphiSemanticModelOptions;
+  lRange: TTypeMemberActivityRange;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lReferences: TList<TDelphiSemanticReference>;
+  lRoutines: TList<TDelphiSemanticRoutine>;
+  lText: string;
+begin
+  Result := aModel;
+  Result.Declarations := nil;
+  Result.Members := nil;
+  Result.TypeValueMembers := nil;
+  // Comments and directives are whitespace at type positions; named record declarations need no reparse.
+  if not TRegEx.IsMatch(SanitizeCodeText(aModel.SourceText),
+    ':\s*(?:packed\s+)?record\b', [roIgnoreCase]) then
+    Exit;
+  // Reuse the active-source witness at physical coordinates. Includes are not
+  // expanded here; an incomplete AST or declaration span supplies no proof.
+  lText := TDelphiSemanticSourceConditionals.SourceForScan(aModel.SourceText,
+    aModel.VerifiedActiveSourceText);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SkipReferenceExtraction := True;
+  lContext := TDelphiSemanticExtractionContext.Create;
+  lPreviousContext := GExtractionContext;
+  GExtractionContext := lContext;
+  lDeclarations := TList<TDelphiSemanticDeclaration>.Create;
+  lDiagnostics := TList<TDelphiSemanticModelDiagnostic>.Create;
+  lHelpers := TList<TPendingUnindexedHelper>.Create;
+  lLocals := TList<TDelphiSemanticLocal>.Create;
+  lMembers := TList<TDelphiSemanticMember>.Create;
+  lReferences := TList<TDelphiSemanticReference>.Create;
+  lRoutines := TList<TDelphiSemanticRoutine>.Create;
+  try
+    lDeclarations.AddRange(aModel.Declarations);
+    lDiagnostics.AddRange(aModel.Diagnostics);
+    EnrichLexicalScopeFacts(lText, aModel.UnitName, nil, lOptions,
+      lMembers, lDeclarations, lRoutines, lLocals, lReferences, lDiagnostics,
+      lHelpers, Result, True);
+    for lRange in lContext.fTypeMemberActivityRanges do
+      if (lRange.DeclarationIndex >= 0) and
+        (lRange.DeclarationIndex < lDeclarations.Count) and
+        TDelphiSemanticSourceConditionals.RangeIsKnownActive(aModel.SourceText,
+          aModel.VerifiedActiveSourceText, lRange.Range.StartOffset,
+          lRange.Range.EndOffset) and
+        (not TRegEx.IsMatch(Copy(lText, lRange.Range.StartOffset,
+          lRange.Range.EndOffset - lRange.Range.StartOffset),
+          '(?:\{\$|\(\*\$)\s*(?:I|INCLUDE)\b(?![+-])', [roIgnoreCase])) then
+      begin
+        lDeclaration := lDeclarations[lRange.DeclarationIndex];
+        lDeclaration.TypeBodyEndLine := lRange.EndLine;
+        lDeclaration.TypeBodyEndColumn := lRange.EndColumn;
+        lDeclarations[lRange.DeclarationIndex] := lDeclaration;
+      end;
+    Result.Declarations := lDeclarations.ToArray;
+    Result.Members := lMembers.ToArray;
+    Result.TypeValueMembers := lContext.TypeValueMembers.ToArray;
+    Result.Diagnostics := lDiagnostics.ToArray;
+  finally
+    lRoutines.Free;
+    lReferences.Free;
+    lMembers.Free;
+    lLocals.Free;
+    lHelpers.Free;
+    lDiagnostics.Free;
+    lDeclarations.Free;
+    GExtractionContext := lPreviousContext;
+    lContext.Free;
   end;
 end;
 

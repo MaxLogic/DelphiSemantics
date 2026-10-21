@@ -4,6 +4,81 @@ Use `DelphiSemantics.Api` for common project and semantic-index operations.
 It gives DAK and future integrations one stable entry unit. Lower-level units
 remain available for focused tests and internal implementation.
 
+## Named root absence
+
+`DelphiSemantics.RootMemberAbsence` adds `TDelphiSemanticQualifiedRootType`
+(`Kind`, `TypeName`, ordered `LookupUnits`) and the optional
+`IDelphiSemanticNamedRootMemberAbsence`. Providers remain assigned through
+`ImplicitRootMemberAbsence`; DS discovers the optional interface with `Supports`.
+`IsNamedRootMemberAbsent(Root, SiteUnits, Name)` returns True only for a name
+proved absent from the resolved root, including constructors and class methods.
+`LookupUnits` carries the effective declaration scope of the root-most indexed
+class, the one declared directly on the unindexed root. Its interface imports
+come first; implementation imports follow only for an implementation declaration.
+`SiteUnits` separately carries the site's ordered imports. Intermediate class
+imports are validated but are not merged into the site scope.
+
+The native witness models these scopes in separate units. A real subclass in
+the base probe captures the helper methods active at the root-most declaration.
+The site probe also sees its own active helpers. Delphi selects one helper per
+type by the last applicable import; helpers for ancestor types can coexist.
+Captured helper methods remain visible on descendants. Property visibility also
+depends on accessor visibility: the Win64 compiler retained a property with a
+public getter but not its private-getter counterpart. The structural probe leaves
+that distinction to the compiler. The defining SDK root unit remains a conservative prefix,
+which can cause additional refusals. Each scope resolves namespace and alias
+spellings to SDK unit identities before retaining the last duplicate position.
+Unknown selection, missing scope inputs, local or nested declarations, unresolved includes,
+and generic ancestry retain refusal. A False result or provider exception also
+preserves refusal.
+An empty evidence fingerprint never authorizes a query result.
+
+DS queries only verified indexed class/interface lineages ending in an unresolved
+simple or dotted root. Aliases, local types, ambiguous roots, indexed class helpers,
+incomplete models and unverified activity refuse conservatively. The original closed
+implicit-class provider path remains available. A successful proof is keyed by site
+unit, terminal DeclaredId and case-insensitive name; it is never exported or persisted.
+Provider-backed requests bypass persistent planning facts. Generic class headings or generic bases anywhere in an
+ancestry chain are refused before invoking the named provider; generic ancestry
+resolution remains outside this API. Unresolved nested receiver origins cannot
+authorize bare names under a retained outer WITH.
+Resolved includes are expanded before the named-root declaration and site uses scopes are built. An include filename alone does not refuse a proof. Missing receiver evidence or owner rows, failed site or receiver-lineage models, failed expansion, or unverified or unsupported preprocess activity refuses root absence proof on both named-root and closed implicit-TObject routes; uncertainty cannot bypass the planner guard. The closed implicit-TObject route plans only when positive absence proof exists, including for resolved includes on DS routes. The DAK native route rejects source profiles with conditional or include directives for root-member proof; statements that need that proof retain zero-edit refusals there.
+
+The DAK native provider requires a native project context captured from a project
+that imports `CodeGear.Delphi.Targets`. Minimal project files without that context
+report `native-root-proof-unavailable` and retain zero-edit refusals.
+
+The final reverse receiver guard checks references left bare and qualifications
+to retained outer receivers against each receiver actually removed. An unproved
+class/interface receiver refuses with `receiver-member-not-found` and
+`OWNER_INHERITED_MEMBERS_UNVERIFIED`; an alias receiver uses
+`ALIAS_RECEIVER_MEMBERS_UNVERIFIED`. Retained receivers keep their original binding
+scope and do not independently require absence proof. A selector marked
+`PARENT_SELECTOR_UNRESOLVED` does not exempt its removed receiver from this check.
+Refusals have no replacement, temporary, or final text edit.
+
+A narrow identical-storage exception permits removing an inner WITH while an
+enclosing WITH on the same receiver remains. The planner must prove the same
+source-backed declaration and lexical scope at both sites, prove the receiver
+designator absent from the outer receiver's members, and prove that no intervening
+executable statement can change the receiver. Only plain identifier storage is
+currently proved; calls, indexing, dereferencing, property getters and unproved
+field chains fail closed. Empty compound-statement prefixes are allowed. The
+complete compiler-profile TSearchRec member witness can prove a designator name
+absent across a strong alias, but does not weaken body-member checks; visible
+helpers disable that shortcut. Thus `with SR do with SR do Name := 'x'` may remove
+only the repeated inner WITH, while a different variable of the same type and
+`with GetSR do with GetSR do ...` remain refused. `with Foo do with Bar do Y := Tag`
+still refuses when Bar's lineage has no proof that Tag is absent.
+
+Unindexed-root facts are separate from verified indexed terminal coverage, and
+WITH-facts generation 65 rebuilds older planning facts. Snapshot generation 49 is unchanged.
+
+The native request guard rechecks the selected and absent unit candidates across
+project, main-source, DCU-output, reference and effective unit-search directories
+before reusing evidence or finalizing a plan. New shadowing units invalidate the
+request even when all previously captured files are unchanged.
+
 ## Alias receiver members
 
 WITH binding follows weak and strong alias targets through their verified DeclaredId
@@ -19,7 +94,7 @@ text or candidate. Unresolved helper targets remain conservative. A chain with
 any strong alias also refuses when a reference may be its member and cannot
 be qualified, including references inside absorbed nested WITH statements. This
 covers unindexed RTL/profile terminals and plain TSearchRec.Name or Size accesses.
-WITH-facts generation 64 and snapshot generation 49 invalidate earlier entries.
+WITH-facts generation 65 and snapshot generation 49 invalidate earlier entries.
 
 Alias receivers whose target lineage cannot be verified refuse with
 `ALIAS_RECEIVER_MEMBERS_UNVERIFIED` and no candidate edits. This includes
@@ -32,8 +107,10 @@ does not authorize lexical fallback: a matching source-token alias candidate
 causes conservative refusal. Weak aliases ending at a unique, unshadowed
 compiler-profile RTL record (including `TDB_SearchRec = TSearchRec`) retain
 their earlier handling only when every alias has a matching projected
-`type-member` row. The known DS-742 gaps for members absent from that profile
-remain. This compatibility boundary does not apply to strong alias chains.
+`type-member` row. Names outside the complete 18-name Delphi 12 TSearchRec member witness may remain bare.
+Names in that witness require verified qualification or a refusal; the four intrinsic
+qualification fields are unchanged. The installed-source drift test covers Win32,
+Win64, Linux64 and OSX64. Other compiler versions require equivalent member coverage. This compatibility boundary does not apply to strong alias chains.
 Every other bare reference under an alias receiver, including ambiguous overloads
 used without parentheses, requires indexed proof of member absence; otherwise
 the whole WITH refuses with the alias safety reason.
@@ -106,8 +183,8 @@ the receiver's complete body, including nested children and siblings at every
 depth. Qualifications retain their receiver DeclaredId and qualifier context.
 A refusal also rejects nested statements dependent on that body and removes
 their candidate edits. The model and persisted-evidence routes share the same DeclaredId
-walk. Complete, verified indexed levels with only an unindexed implicit or RTL
-root retain the existing root-absence handling and base plan behavior.
+walk. An unindexed implicit or RTL root does not prove member absence. Bare names and
+outer-receiver qualifications need indexed absence or recorded native root evidence.
 A native lexical binding with `LookupSource=lexical` and no refusal reason
 already follows verified member absence on every receiver. It does not trigger
 this guard; syntax-only lexical references still require lineage verification.
@@ -120,6 +197,7 @@ never prove absence. Pointer or other anonymous forms without that complete
 record witness keep the existing conservative path. This absence proof only
 narrows the partial-receiver guard; it never authorizes a qualification.
 Statements without a value-member-path qualification retain their previous behavior.
+Parsed anonymous-record identities and complete members supplement only the DS-742 bare-reference absence guard. Guard evidence uses private owner and member keys in the existing persisted value-evidence container; it never enters binding, receiver visibility, qualification, capture, or temporary type emission. General anonymous-record behavior and earlier refusal reasons are unchanged. The nested capture shape still refuses `receiver-type-not-visible` before any temporary is chosen.
 Both barriers preserve earlier refusals and remove edits, temporaries, replacement
 text and candidate edits. Inventory constants cannot authorize a qualification
 that the binder did not establish. Anonymous-record tag homonyms also refuse;

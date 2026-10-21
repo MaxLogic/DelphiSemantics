@@ -230,7 +230,7 @@ uses
 const
   cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v49';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v64';
+    'project-session-remove-with-facts-v66';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
