@@ -363,6 +363,67 @@ type
     [Category('DS742')]
     procedure NamedRootReceiverMembersUseProviderEvidence(const aShape, aMode: string);
 
+    // DS-750 characterization: the fail-closed behavior already exists at HEAD.
+    [TestCase('list-add conventional cold', 'list-add,False,cold')]
+    [TestCase('list-add conventional snapshot', 'list-add,False,snapshot')]
+    [TestCase('list-add conventional standalone', 'list-add,False,standalone')]
+    [TestCase('list-add conventional sessioncold', 'list-add,False,sessioncold')]
+    [TestCase('list-add conventional sessionwarm', 'list-add,False,sessionwarm')]
+    [TestCase('list-add compact cold', 'list-add,True,cold')]
+    [TestCase('list-add compact snapshot', 'list-add,True,snapshot')]
+    [TestCase('list-add compact standalone', 'list-add,True,standalone')]
+    [TestCase('list-add compact sessioncold', 'list-add,True,sessioncold')]
+    [TestCase('list-add compact sessionwarm', 'list-add,True,sessionwarm')]
+    [TestCase('list-count conventional cold', 'list-count,False,cold')]
+    [TestCase('list-count conventional snapshot', 'list-count,False,snapshot')]
+    [TestCase('list-count conventional standalone', 'list-count,False,standalone')]
+    [TestCase('list-count conventional sessioncold', 'list-count,False,sessioncold')]
+    [TestCase('list-count conventional sessionwarm', 'list-count,False,sessionwarm')]
+    [TestCase('list-count compact cold', 'list-count,True,cold')]
+    [TestCase('list-count compact snapshot', 'list-count,True,snapshot')]
+    [TestCase('list-count compact standalone', 'list-count,True,standalone')]
+    [TestCase('list-count compact sessioncold', 'list-count,True,sessioncold')]
+    [TestCase('list-count compact sessionwarm', 'list-count,True,sessionwarm')]
+    [TestCase('list-items conventional cold', 'list-items,False,cold')]
+    [TestCase('list-items conventional snapshot', 'list-items,False,snapshot')]
+    [TestCase('list-items conventional standalone', 'list-items,False,standalone')]
+    [TestCase('list-items conventional sessioncold', 'list-items,False,sessioncold')]
+    [TestCase('list-items conventional sessionwarm', 'list-items,False,sessionwarm')]
+    [TestCase('list-items compact cold', 'list-items,True,cold')]
+    [TestCase('list-items compact snapshot', 'list-items,True,snapshot')]
+    [TestCase('list-items compact standalone', 'list-items,True,standalone')]
+    [TestCase('list-items compact sessioncold', 'list-items,True,sessioncold')]
+    [TestCase('list-items compact sessionwarm', 'list-items,True,sessionwarm')]
+    [TestCase('dictionary conventional cold', 'dictionary,False,cold')]
+    [TestCase('dictionary conventional snapshot', 'dictionary,False,snapshot')]
+    [TestCase('dictionary conventional standalone', 'dictionary,False,standalone')]
+    [TestCase('dictionary conventional sessioncold', 'dictionary,False,sessioncold')]
+    [TestCase('dictionary conventional sessionwarm', 'dictionary,False,sessionwarm')]
+    [TestCase('dictionary compact cold', 'dictionary,True,cold')]
+    [TestCase('dictionary compact snapshot', 'dictionary,True,snapshot')]
+    [TestCase('dictionary compact standalone', 'dictionary,True,standalone')]
+    [TestCase('dictionary compact sessioncold', 'dictionary,True,sessioncold')]
+    [TestCase('dictionary compact sessionwarm', 'dictionary,True,sessionwarm')]
+    [TestCase('project-depth1 conventional cold', 'project-depth1,False,cold')]
+    [TestCase('project-depth1 conventional snapshot', 'project-depth1,False,snapshot')]
+    [TestCase('project-depth1 conventional sessioncold', 'project-depth1,False,sessioncold')]
+    [TestCase('project-depth1 conventional sessionwarm', 'project-depth1,False,sessionwarm')]
+    [TestCase('project-depth1 compact cold', 'project-depth1,True,cold')]
+    [TestCase('project-depth1 compact snapshot', 'project-depth1,True,snapshot')]
+    [TestCase('project-depth1 compact sessioncold', 'project-depth1,True,sessioncold')]
+    [TestCase('project-depth1 compact sessionwarm', 'project-depth1,True,sessionwarm')]
+    [TestCase('project-depth2 conventional cold', 'project-depth2,False,cold')]
+    [TestCase('project-depth2 conventional snapshot', 'project-depth2,False,snapshot')]
+    [TestCase('project-depth2 conventional sessioncold', 'project-depth2,False,sessioncold')]
+    [TestCase('project-depth2 conventional sessionwarm', 'project-depth2,False,sessionwarm')]
+    [TestCase('project-depth2 compact cold', 'project-depth2,True,cold')]
+    [TestCase('project-depth2 compact snapshot', 'project-depth2,True,snapshot')]
+    [TestCase('project-depth2 compact sessioncold', 'project-depth2,True,sessioncold')]
+    [TestCase('project-depth2 compact sessionwarm', 'project-depth2,True,sessionwarm')]
+    [Category('DS750Characterization')]
+    procedure GenericAncestorHomonymsRefuse(const aShape: string;
+      const aCompact: Boolean; const aMode: string);
+
     [Test]
     [Category('DS742')]
     procedure NamedRootSiteHelperPrecedenceIsPreserved;
@@ -18588,6 +18649,177 @@ begin
   // Even a currently inactive guard may control this statement in another build.
   Assert.AreEqual(lControlled, StartsText('begin' + sLineBreak,
     TrimLeft(lStatement.ReplacementText)), aActivity);
+end;
+
+type
+  // Even positive terminal-root evidence cannot prove a generic ancestor's members.
+  TDS750RootAbsence = class(TInterfacedObject, IDelphiSemanticImplicitRootMemberAbsence,
+    IDelphiSemanticNamedRootMemberAbsence)
+  public
+    function EvidenceFingerprint: string;
+    function IsNameAbsent(const aName: string): Boolean;
+    function IsNamedRootMemberAbsent(const aRoot: TDelphiSemanticQualifiedRootType;
+      const aSiteUnits: TArray<string>; const aName: string): Boolean;
+  end;
+
+function TDS750RootAbsence.EvidenceFingerprint: string;
+begin
+  Result := 'ds750-generic-ancestor-characterization-v1';
+end;
+
+function TDS750RootAbsence.IsNameAbsent(const aName: string): Boolean;
+begin
+  Result := True;
+end;
+
+function TDS750RootAbsence.IsNamedRootMemberAbsent(
+  const aRoot: TDelphiSemanticQualifiedRootType; const aSiteUnits: TArray<string>;
+  const aName: string): Boolean;
+begin
+  Result := True;
+end;
+
+function DS750GenericAncestorSource(const aShape: string; const aCompact: Boolean): string;
+var
+  lBase, lExtra, lImplementation, lGlobals, lGlobalImplementation: string;
+  lInitialization, lBody, lOutput, lHeading: string;
+begin
+  lBase := 'TList<Integer>';
+  lExtra := '';
+  lImplementation := '';
+  lGlobals := 'GlobalAdd: Integer;'#13#10'procedure Add(aValue: Integer);';
+  lGlobalImplementation := 'procedure Add(aValue: Integer);'#13#10'begin'#13#10 +
+    ' GlobalAdd := aValue;'#13#10'end;';
+  lInitialization := '';
+  lBody := 'Add(5)';
+  lOutput := 'Writeln(L.Count, '' '', GlobalAdd);';
+  if aShape = 'list-count' then
+  begin
+    lGlobals := 'Count: Integer = 7;'#13#10'X: Integer;';
+    lGlobalImplementation := '';
+    lInitialization := 'L.Add(5);';
+    lBody := 'X := Count';
+    lOutput := 'Writeln(X, '' '', Count);';
+  end else if aShape = 'list-items' then
+  begin
+    lGlobals := 'Items: array[0..0] of Integer = (7);'#13#10'X: Integer;';
+    lGlobalImplementation := '';
+    lInitialization := 'L.Add(5);';
+    lBody := 'X := Items[0]';
+    lOutput := 'Writeln(X, '' '', Items[0]);';
+  end else if aShape = 'dictionary' then
+  begin
+    lBase := 'TDictionary<Integer,Integer>';
+    lGlobals := 'GlobalContainsKey: Integer;'#13#10'X: Boolean;'#13#10 +
+      'function ContainsKey(aKey: Integer): Boolean;';
+    lGlobalImplementation := 'function ContainsKey(aKey: Integer): Boolean;'#13#10 +
+      'begin'#13#10' Inc(GlobalContainsKey);'#13#10' Result := False;'#13#10'end;';
+    lInitialization := 'L.Add(5, 9);';
+    lBody := 'X := ContainsKey(5)';
+    lOutput := 'Writeln(Ord(X), '' '', GlobalContainsKey);';
+  end else if StartsText('project', aShape) then
+  begin
+    lExtra := 'TMyList<T> = class'#13#10'public'#13#10' Value: T;'#13#10 +
+      ' procedure Add(aValue: T);'#13#10'end;'#13#10;
+    lImplementation := 'procedure TMyList<T>.Add(aValue: T);'#13#10 +
+      'begin'#13#10' Value := aValue;'#13#10'end;'#13#10;
+    lBase := 'TMyList<Integer>';
+    if aShape = 'project-depth2' then
+    begin
+      lExtra := lExtra + 'TIntermediate = class(TMyList<Integer>) end;'#13#10;
+      lBase := 'TIntermediate';
+    end;
+    lOutput := 'Writeln(L.Value, '' '', GlobalAdd);';
+  end;
+  lHeading := 'TIntList = class(' + lBase + ')'#13#10'end;'#13#10;
+  if aCompact then
+    lHeading := 'TIntList=class(' + lBase + ') end;'#13#10;
+  Result := 'unit Unit1;'#13#10'interface'#13#10'uses System.Generics.Collections;'#13#10 +
+    'type'#13#10 + lExtra + lHeading + 'var'#13#10' L: TIntList;'#13#10 +
+    lGlobals + #13#10'procedure Run;'#13#10'implementation'#13#10 +
+    lImplementation + lGlobalImplementation + #13#10'procedure Run;'#13#10 +
+    'begin'#13#10' L := TIntList.Create;'#13#10' try'#13#10 +
+    lInitialization + #13#10'  with L do ' + lBody + ';'#13#10 + lOutput + #13#10 +
+    ' finally'#13#10'  L.Free;'#13#10' end;'#13#10'end;'#13#10'end.'#13#10;
+end;
+
+procedure TWithBinderTests.GenericAncestorHomonymsRefuse(const aShape: string;
+  const aCompact: Boolean; const aMode: string);
+var
+  g: TGarbos;
+  lRoot: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+begin
+  lRoot := WithBinderTempPath('ds750-' + aShape + '-' + BoolToStr(aCompact, True) + '-' + aMode);
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    DS750GenericAncestorSource(aShape, aCompact), TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P;'#13#10'{$APPTYPE CONSOLE}'#13#10'uses Unit1;'#13#10'begin Run; end.'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  // Session persistence requires the default provider; the explicit snapshot routes
+  // additionally challenge the ancestry guard with positive terminal-root evidence.
+  if not MatchText(aMode, ['sessioncold', 'sessionwarm']) then
+    lOptions.ImplicitRootMemberAbsence := TDS750RootAbsence.Create;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  if aMode = 'snapshot' then
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  // DS-760 owns project-generic SQLite reload; those cases cover only routes that load.
+  if aMode = 'standalone' then
+  begin
+    lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+    lIdentity.CacheKey := 'ds750';
+    lIdentity.IdentityKey := lIdentity.CacheKey;
+    lIdentity.SourceFileName := lOptions.ProjectFileName;
+    lIdentity.FileHash := lFacts.ContextFingerprint;
+    lIdentity.ContextHash := lFacts.ContextFingerprint;
+    lIdentity.IncludeGraphHash := 'no-includes';
+    lIdentity.SchemaVersion := 'ds750';
+    GC(lStored, BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts), g);
+    GC(lCache, TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite')), g);
+    lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+    Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+    GC(lLoaded, g);
+    lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+  end;
+  if MatchText(aMode, ['sessioncold', 'sessionwarm']) then
+    for var i := 0 to Ord(aMode = 'sessionwarm') do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lBuild := lSession.Session.PlanRemoveWithResult;
+        if not StartsText('project', aShape) then
+          Assert.AreEqual(i, Integer(lBuild.SnapshotMetrics.SnapshotCacheHits));
+        lPlan := lBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+  Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+  Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason);
+  Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+  Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+  Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+  Assert.AreEqual<Integer>(0, Length(lPlan.Edits));
 end;
 
 initialization
