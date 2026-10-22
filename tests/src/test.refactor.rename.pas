@@ -208,17 +208,10 @@ var
   GRenameTempRoot: string;
 
 function RenameTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GRenameTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GRenameTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'snapshot-rename-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GRenameTempRoot := CreateTestTempRoot('snapshot-rename-temp');
   end;
   TDirectory.CreateDirectory(GRenameTempRoot);
   Result := TPath.Combine(GRenameTempRoot, aName);

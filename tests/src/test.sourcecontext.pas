@@ -65,17 +65,10 @@ var
   GSourceContextTempRoot: string;
 
 function SourceContextTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GSourceContextTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GSourceContextTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'source-context-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GSourceContextTempRoot := CreateTestTempRoot('source-context-temp');
   end;
   TDirectory.CreateDirectory(GSourceContextTempRoot);
   Result := TPath.Combine(GSourceContextTempRoot, aName);

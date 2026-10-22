@@ -63,17 +63,10 @@ var
   GUsageTempRoot: string;
 
 function UsageTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GUsageTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GUsageTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'snapshot-usage-session-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GUsageTempRoot := CreateTestTempRoot('snapshot-usage-session-temp');
   end;
   TDirectory.CreateDirectory(GUsageTempRoot);
   Result := TPath.Combine(GUsageTempRoot, aName);

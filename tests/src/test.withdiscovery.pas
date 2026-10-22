@@ -38,17 +38,10 @@ var
   GWithDiscoveryTempRoot: string;
 
 function WithDiscoveryTempRoot: string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GWithDiscoveryTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GWithDiscoveryTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'with-discovery-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GWithDiscoveryTempRoot := CreateTestTempRoot('with-discovery-temp');
   end;
   TDirectory.CreateDirectory(GWithDiscoveryTempRoot);
   Result := GWithDiscoveryTempRoot;

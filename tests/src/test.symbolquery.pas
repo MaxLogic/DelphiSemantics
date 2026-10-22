@@ -78,17 +78,10 @@ var
   GSymbolQueryTempRoot: string;
 
 function SymbolQueryTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GSymbolQueryTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GSymbolQueryTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'snapshot-query-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GSymbolQueryTempRoot := CreateTestTempRoot('snapshot-query-temp');
   end;
   TDirectory.CreateDirectory(GSymbolQueryTempRoot);
   Result := TPath.Combine(GSymbolQueryTempRoot, aName);

@@ -2030,17 +2030,10 @@ var
   GWithBinderTempRoot: string;
 
 function WithBinderTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GWithBinderTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GWithBinderTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'with-binder-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GWithBinderTempRoot := CreateTestTempRoot('with-binder-temp');
   end;
   TDirectory.CreateDirectory(GWithBinderTempRoot);
   Result := TPath.Combine(GWithBinderTempRoot, aName);

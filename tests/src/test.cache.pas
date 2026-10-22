@@ -156,17 +156,10 @@ var
   GCacheTempRoot: string;
 
 function CacheTempRoot: string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GCacheTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
-      [rfReplaceAll]);
-    GCacheTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'cache-temp',
-      'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GCacheTempRoot := CreateTestTempRoot('cache-temp');
   end;
   TDirectory.CreateDirectory(GCacheTempRoot);
   Result := GCacheTempRoot;

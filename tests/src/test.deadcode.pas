@@ -73,17 +73,10 @@ var
   GDeadCodeTempRoot: string;
 
 function DeadCodeTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GDeadCodeTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GDeadCodeTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'snapshot-deadcode-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GDeadCodeTempRoot := CreateTestTempRoot('snapshot-deadcode-temp');
   end;
   TDirectory.CreateDirectory(GDeadCodeTempRoot);
   Result := TPath.Combine(GDeadCodeTempRoot, aName);

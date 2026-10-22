@@ -1207,18 +1207,10 @@ begin
 end;
 
 function RemoveWithPlanTempRoot: string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GRemoveWithPlanTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
-      [rfReplaceAll]);
-    GRemoveWithPlanTempRoot := TPath.GetFullPath(TPath.Combine(
-      TPath.Combine(ExtractFilePath(ParamStr(0)), 'remove-with-plan-temp'),
-      'run-' + GetCurrentProcessId.ToString + '-' + lGuidText));
+    GRemoveWithPlanTempRoot := CreateTestTempRoot('remove-with-plan-temp');
   end;
   TDirectory.CreateDirectory(GRemoveWithPlanTempRoot);
   Result := GRemoveWithPlanTempRoot;

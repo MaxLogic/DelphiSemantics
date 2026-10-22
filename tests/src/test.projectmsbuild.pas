@@ -79,17 +79,10 @@ var
   GProjectMsBuildTempRoot: string;
 
 function ProjectMsBuildTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GProjectMsBuildTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GProjectMsBuildTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'project-msbuild-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GProjectMsBuildTempRoot := CreateTestTempRoot('project-msbuild-temp');
   end;
   TDirectory.CreateDirectory(GProjectMsBuildTempRoot);
   Result := TPath.Combine(GProjectMsBuildTempRoot, aName);

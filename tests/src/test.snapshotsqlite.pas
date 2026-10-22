@@ -125,7 +125,8 @@ uses
   maxLogic.IOUtils,
   DelphiSemantics.Model, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
-  DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding;
+  DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding,
+  Test.Support;
 
 var
   GSnapshotSqliteTempRoot: string;
@@ -136,17 +137,10 @@ begin
 end;
 
 function SnapshotSqliteTempRoot: string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GSnapshotSqliteTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
-      [rfReplaceAll]);
-    GSnapshotSqliteTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'snapshot-sqlite-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GSnapshotSqliteTempRoot := CreateTestTempRoot('snapshot-sqlite-temp');
   end;
   TDirectory.CreateDirectory(GSnapshotSqliteTempRoot);
   Result := GSnapshotSqliteTempRoot;

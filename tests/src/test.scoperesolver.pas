@@ -127,17 +127,10 @@ var
   GScopeResolverTempRoot: string;
 
 function ScopeResolverTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GScopeResolverTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GScopeResolverTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'scope-resolver-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GScopeResolverTempRoot := CreateTestTempRoot('scope-resolver-temp');
   end;
   TDirectory.CreateDirectory(GScopeResolverTempRoot);
   Result := TPath.Combine(GScopeResolverTempRoot, aName);

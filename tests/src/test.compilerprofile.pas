@@ -35,15 +35,8 @@ uses
   Test.Support;
 
 function CompilerProfileTempRoot: string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
-  CreateGUID(lGuid);
-  lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
-    [rfReplaceAll]);
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'compiler-profile-temp',
-    'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+  Result := CreateTestTempRoot('compiler-profile-temp');
   TDirectory.CreateDirectory(Result);
 end;
 

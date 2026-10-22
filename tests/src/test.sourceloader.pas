@@ -57,23 +57,17 @@ uses
   System.Hash, System.IOUtils, System.SysUtils,
   AutoFree, maxLogic.IOUtils,
   DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Model,
-  DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.SourceContext;
+  DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.SourceContext,
+  Test.Support;
 
 var
   GSourceLoaderTempRoot: string;
 
 function TSourceLoaderTests.TempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GSourceLoaderTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]),
-      '}', '', [rfReplaceAll]);
-    GSourceLoaderTempRoot := TPath.GetFullPath(TPath.Combine(TPath.Combine(
-      ExtractFilePath(ParamStr(0)), 'source-loader-temp'), 'run-' + lGuidText));
+    GSourceLoaderTempRoot := CreateTestTempRoot('source-loader-temp');
   end;
   TDirectory.CreateDirectory(GSourceLoaderTempRoot);
   Result := TPath.Combine(GSourceLoaderTempRoot, aName);

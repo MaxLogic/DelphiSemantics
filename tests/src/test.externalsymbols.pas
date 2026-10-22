@@ -32,17 +32,10 @@ var
   GExternalSymbolsTempRoot: string;
 
 function ExternalSymbolsTempRoot: string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GExternalSymbolsTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GExternalSymbolsTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'external-symbols-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GExternalSymbolsTempRoot := CreateTestTempRoot('external-symbols-temp');
   end;
   TDirectory.CreateDirectory(GExternalSymbolsTempRoot);
   Result := GExternalSymbolsTempRoot;

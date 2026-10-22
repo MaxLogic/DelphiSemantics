@@ -76,8 +76,7 @@ var
 function ApiTempRoot: string;
 begin
   if GApiTempRoot = '' then
-    GApiTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'api-temp', 'default']));
+    GApiTempRoot := CreateTestTempRoot('api-temp');
   TDirectory.CreateDirectory(GApiTempRoot);
   Result := GApiTempRoot;
 end;

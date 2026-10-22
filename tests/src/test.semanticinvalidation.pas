@@ -23,18 +23,12 @@ implementation
 uses
   System.IOUtils, System.SysUtils,
   Winapi.Windows,
-  DelphiSemantics.ProjectContext;
+  DelphiSemantics.ProjectContext,
+  Test.Support;
 
 function SemanticInvalidationTempRoot: string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
-  CreateGUID(lGuid);
-  lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
-    [rfReplaceAll]);
-  Result := TPath.GetFullPath(TPath.Combine(TPath.Combine(ExtractFilePath(ParamStr(0)),
-    'semantic-invalidation-temp'), 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText));
+  Result := CreateTestTempRoot('semantic-invalidation-temp');
   TDirectory.CreateDirectory(Result);
 end;
 

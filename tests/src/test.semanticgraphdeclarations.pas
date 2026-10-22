@@ -37,18 +37,10 @@ var
   GSemanticGraphDeclarationTempRoot: string;
 
 function SemanticGraphDeclarationTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GSemanticGraphDeclarationTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GSemanticGraphDeclarationTempRoot := TPath.GetFullPath(CombinePath([
-      ExtractFilePath(ParamStr(0)), 'semantic-graph-declarations-temp',
-      'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GSemanticGraphDeclarationTempRoot := CreateTestTempRoot('semantic-graph-declarations-temp');
   end;
   TDirectory.CreateDirectory(GSemanticGraphDeclarationTempRoot);
   Result := TPath.Combine(GSemanticGraphDeclarationTempRoot, aName);

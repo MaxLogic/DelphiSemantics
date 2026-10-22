@@ -91,6 +91,14 @@ The Windows source-context cache tests use precise file timestamps and real
 symbolic links. Their test filesystem must retain 100 ns timestamp differences;
 link creation requires Windows Developer Mode or the symbolic-link privilege.
 
+Fixtures allocate per-run roots as `tests\bin\<name>-temp\run-<PID>-<GUID>`. Each test
+process deletes its own roots when it exits. At startup it also removes roots whose
+owner process has exited; a live owner's root is never touched. To keep the roots of a failed
+run for inspection, set `DS_KEEP_TEST_TEMP=1`. The roots of that failed run then get a
+`.keep` marker file, and later sweeps skip any root that has one. Delete a kept root by
+hand when you no longer need it.
+Legacy `run-<GUID>` roots that carry no PID are never swept; remove them by hand.
+
 The separate `MaxTdbProof` category directly selects the sibling DAK
 `tests/fixtures/test-projects/maxTdb` fixture; it does not read
 `DAK_MAXTDB_FIXTURE`. Its Foundation, JEDI and FastMM search paths must use the

@@ -118,15 +118,8 @@ uses
   Test.Support;
 
 function PreprocessTempRoot(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
-  CreateGUID(lGuid);
-  lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
-    [rfReplaceAll]);
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), 'preprocess-temp',
-    'run-' + GetCurrentProcessId.ToString + '-' + lGuidText, aName]));
+  Result := TPath.Combine(CreateTestTempRoot('preprocess-temp'), aName);
   TDirectory.CreateDirectory(Result);
 end;
 

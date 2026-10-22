@@ -151,17 +151,10 @@ begin
 end;
 
 function CacheSqliteTempRoot: string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GCacheSqliteTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
-      [rfReplaceAll]);
-    GCacheSqliteTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'cache-sqlite-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GCacheSqliteTempRoot := CreateTestTempRoot('cache-sqlite-temp');
   end;
   TDirectory.CreateDirectory(GCacheSqliteTempRoot);
   Result := GCacheSqliteTempRoot;

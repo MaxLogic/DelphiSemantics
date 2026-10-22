@@ -65,17 +65,10 @@ var
   GRemoveDeadCodeTempRoot: string;
 
 function RemoveDeadCodeTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GRemoveDeadCodeTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GRemoveDeadCodeTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'snapshot-remove-deadcode-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GRemoveDeadCodeTempRoot := CreateTestTempRoot('snapshot-remove-deadcode-temp');
   end;
   TDirectory.CreateDirectory(GRemoveDeadCodeTempRoot);
   Result := TPath.Combine(GRemoveDeadCodeTempRoot, aName);

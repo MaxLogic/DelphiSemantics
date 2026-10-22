@@ -39,17 +39,10 @@ var
   GUnitResolverTempRoot: string;
 
 function UnitResolverTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GUnitResolverTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GUnitResolverTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'unit-resolver-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GUnitResolverTempRoot := CreateTestTempRoot('unit-resolver-temp');
   end;
   TDirectory.CreateDirectory(GUnitResolverTempRoot);
   Result := TPath.Combine(GUnitResolverTempRoot, aName);

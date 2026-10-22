@@ -236,17 +236,10 @@ var
   GProjectSessionTempRoot: string;
 
 function ProjectSessionTempRoot: string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GProjectSessionTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}', '',
-      [rfReplaceAll]);
-    GProjectSessionTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'project-session-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GProjectSessionTempRoot := CreateTestTempRoot('project-session-temp');
   end;
   TDirectory.CreateDirectory(GProjectSessionTempRoot);
   Result := GProjectSessionTempRoot;

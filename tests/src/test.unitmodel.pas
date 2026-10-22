@@ -416,17 +416,10 @@ var
   GUnitModelTempRoot: string;
 
 function UnitModelTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lGuidText: string;
 begin
   if GUnitModelTempRoot = '' then
   begin
-    CreateGUID(lGuid);
-    lGuidText := StringReplace(StringReplace(GUIDToString(lGuid), '{', '', [rfReplaceAll]), '}',
-      '', [rfReplaceAll]);
-    GUnitModelTempRoot := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)),
-      'unit-model-temp', 'run-' + GetCurrentProcessId.ToString + '-' + lGuidText]));
+    GUnitModelTempRoot := CreateTestTempRoot('unit-model-temp');
   end;
   TDirectory.CreateDirectory(GUnitModelTempRoot);
   Result := TPath.Combine(GUnitModelTempRoot, aName);
