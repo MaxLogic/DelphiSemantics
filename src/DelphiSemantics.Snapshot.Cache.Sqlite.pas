@@ -138,7 +138,7 @@ uses
 const
   // 11: DS-659 file_id; 12: include facts; 13: receiver identities;
   // 14: expected identity row count for complete project planning facts.
-  cSnapshotCacheSchemaVersion = '19';
+  cSnapshotCacheSchemaVersion = '20';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -795,7 +795,8 @@ begin
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_binding_selectors (' +
       'cache_key text not null, binding_index integer not null, selector_index integer not null, ' +
       'selector_text_id integer not null, status_id integer not null, reason_code_id integer not null, ' +
-      'type_name_id integer not null, primary key(cache_key, binding_index, selector_index))');
+      'type_name_id integer not null, capture_type_name_id integer not null, ' +
+      'capture_status_id integer not null, primary key(cache_key, binding_index, selector_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_type_identities (' +
       'cache_key text not null, entity_kind text not null, item_index integer not null, ' +
       'sub_index integer not null, unit_id_id integer not null, unit_name_id integer not null, ' +
@@ -1891,7 +1892,8 @@ begin
     raise Exception.Create('Snapshot remove-with binding row count mismatch.');
 
   lQuery := NewQuery(aConnection as TFDConnection, 'select binding_index, selector_index, ' +
-    'selector_text_id, status_id, reason_code_id, type_name_id from ' +
+    'selector_text_id, status_id, reason_code_id, type_name_id, capture_type_name_id, ' +
+    'capture_status_id from ' +
     'snapshot_remove_with_binding_selectors where cache_key = ? order by binding_index, selector_index');
   try
     lQuery.Params[0].AsWideString := aCacheKey;
@@ -1913,6 +1915,10 @@ begin
         TSemanticStringId(lFields[4].AsInteger);
       lFacts.Bindings[i].Selectors[lSelectorIndex].TypeNameId :=
         TSemanticStringId(lFields[5].AsInteger);
+      lFacts.Bindings[i].Selectors[lSelectorIndex].CaptureTypeNameId :=
+        TSemanticStringId(lFields[6].AsInteger);
+      lFacts.Bindings[i].Selectors[lSelectorIndex].CaptureTypeStatusId :=
+        TSemanticStringId(lFields[7].AsInteger);
       Inc(lLoadedSelectorCount);
       lQuery.Next;
     end;
@@ -2051,6 +2057,11 @@ begin
         (lSubIndex >= 0) and (lSubIndex < Length(lFacts.Bindings[lItemIndex].Selectors)) and
         (lFacts.Bindings[lItemIndex].Selectors[lSubIndex].TypeIdentity.DeclaredIdId = 0) then
         lFacts.Bindings[lItemIndex].Selectors[lSubIndex].TypeIdentity := lIdentity
+      else if SameText(lEntityKind, 'selector-capture') and
+        (lItemIndex >= 0) and (lItemIndex < Length(lFacts.Bindings)) and
+        (lSubIndex >= 0) and (lSubIndex < Length(lFacts.Bindings[lItemIndex].Selectors)) and
+        (lFacts.Bindings[lItemIndex].Selectors[lSubIndex].CaptureTypeIdentity.DeclaredIdId = 0) then
+        lFacts.Bindings[lItemIndex].Selectors[lSubIndex].CaptureTypeIdentity := lIdentity
       else
         raise Exception.Create('Snapshot remove-with type identity row is unexpected.');
       Inc(lLoadedIdentityCount);
@@ -2587,8 +2598,12 @@ begin
     end;
     for i := 0 to High(lFacts.Bindings) do
       for j := 0 to High(lFacts.Bindings[i].Selectors) do
+      begin
         StoreTypeIdentity('selector', i, j,
           lFacts.Bindings[i].Selectors[j].TypeIdentity);
+        StoreTypeIdentity('selector-capture', i, j,
+          lFacts.Bindings[i].Selectors[j].CaptureTypeIdentity);
+      end;
   finally
     lIdentityQuery.Free;
   end;
@@ -2656,10 +2671,10 @@ begin
 
   lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_binding_selectors(' +
     'cache_key, binding_index, selector_index, selector_text_id, status_id, reason_code_id, ' +
-    'type_name_id) values (?, ?, ?, ?, ?, ?, ?)');
+    'type_name_id, capture_type_name_id, capture_status_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
     lQuery.Params[0].DataType := ftWideString;
-    for lParamIndex := 1 to 6 do
+    for lParamIndex := 1 to 8 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
     for i := 0 to High(lFacts.Bindings) do
@@ -2673,6 +2688,8 @@ begin
         lQuery.Params[4].AsInteger := Integer(lSelector.StatusId);
         lQuery.Params[5].AsInteger := Integer(lSelector.ReasonCodeId);
         lQuery.Params[6].AsInteger := Integer(lSelector.TypeNameId);
+        lQuery.Params[7].AsInteger := Integer(lSelector.CaptureTypeNameId);
+        lQuery.Params[8].AsInteger := Integer(lSelector.CaptureTypeStatusId);
         lQuery.ExecSQL;
       end;
   finally

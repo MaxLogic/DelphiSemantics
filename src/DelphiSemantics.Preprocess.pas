@@ -75,6 +75,9 @@ type
 
   TDelphiSemanticPreprocessor = record
   public
+    class function IncludeArgumentFromDirective(const aDirective: string): string; static;
+    class function ResolveIncludeFileName(const aIncludeName, aCurrentDirectory: string;
+      const aOptions: TDelphiSemanticPreprocessOptions; out aFileName: string): Boolean; static;
     class function PreprocessFile(const aOptions: TDelphiSemanticPreprocessOptions):
       TDelphiSemanticPreprocessResult; static;
   end;
@@ -678,6 +681,11 @@ var
   lPath: string;
   lSearchPath: string;
 begin
+  if aIncludeName = '<include-unclassified>' then
+  begin
+    aFileName := '';
+    Exit(False);
+  end;
   if TPath.IsPathRooted(aIncludeName) then
   begin
     aFileName := TPath.GetFullPath(aIncludeName);
@@ -705,22 +713,48 @@ begin
   Result := False;
 end;
 
+function IsCompilerSwitchDirective(const aDirective: string): Boolean; forward;
+
 function IncludeArgumentFromDirective(const aDirective: string): string;
 var
-  lText: string;
+  i: Integer;
+  lText, lName: string;
 begin
   lText := aDirective.Trim;
-  if StartsText('I ', lText) then
-    lText := Copy(lText, 3, MaxInt).Trim
-  else if StartsText('INCLUDE ', lText) then
-    lText := Copy(lText, 9, MaxInt).Trim
-  else
+  i := 1;
+  while (i <= Length(lText)) and CharInSet(lText[i], ['A'..'Z', 'a'..'z']) do
+    Inc(i);
+  lName := Copy(lText, 1, i - 1);
+  // Only the single-letter I form has +/- switch semantics, even with a tail.
+  if SameText(lName, 'I') and (i <= Length(lText)) and
+    CharInSet(lText[i], ['+', '-']) then
     Exit('');
+  if MatchText(lName, ['I', 'INCLUDE']) then
+  begin
+    lText := Copy(lText, i, MaxInt).Trim;
+    if (Length(lText) >= 2) and (lText[1] = '''') and (lText[Length(lText)] = '''') then
+      lText := Copy(lText, 2, Length(lText) - 2);
+    if lText <> '' then
+      Exit(lText);
+  end else
+    // Other directive names are outside include recognition; A1 owns activity.
+    Exit('');
+  // An I/INCLUDE argument we cannot parse cannot prove absence.
+  Result := '<include-unclassified>';
+end;
 
-  if (Length(lText) >= 2) and (lText[1] = '''') and (lText[Length(lText)] = '''') then
-    lText := Copy(lText, 2, Length(lText) - 2);
+class function TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(
+  const aDirective: string): string;
+begin
+  Result := DelphiSemantics.Preprocess.IncludeArgumentFromDirective(aDirective);
+end;
 
-  Result := lText;
+class function TDelphiSemanticPreprocessor.ResolveIncludeFileName(const aIncludeName,
+  aCurrentDirectory: string; const aOptions: TDelphiSemanticPreprocessOptions;
+  out aFileName: string): Boolean;
+begin
+  Result := DelphiSemantics.Preprocess.ResolveIncludeFileName(aIncludeName,
+    aCurrentDirectory, aOptions, aFileName);
 end;
 
 function IsShortSwitchDirective(const aText: string): Boolean;
@@ -780,7 +814,8 @@ var
   lText: string;
 begin
   lText := aDirective.Trim;
-  Result := IsShortSwitchDirective(lText) or StartsText('APPTYPE ', lText) or
+  Result := ((Length(lText) >= 2) and (UpCase(lText[1]) = 'I') and
+    CharInSet(lText[2], ['+', '-'])) or IsShortSwitchDirective(lText) or StartsText('APPTYPE ', lText) or
     StartsText('LEGACYIFEND ', lText) or StartsText('M ', lText) or StartsText('MESSAGE ', lText) or
     StartsText('ENDREGION', lText) or StartsText('MINENUMSIZE ', lText) or StartsText('MODE ', lText) or
     StartsText('POINTERMATH ', lText) or StartsText('R ', lText) or StartsText('REGION', lText) or
@@ -1343,6 +1378,10 @@ begin
     end;
 
     lIncludeName := IncludeArgumentFromDirective(lText);
+    // The shared recognizer marks uncertainty for witness/sentinel callers.
+    // Preserve our existing unsupported-directive diagnostics and state path.
+    if lIncludeName = '<include-unclassified>' then
+      lIncludeName := '';
     if lIncludeName <> '' then
     begin
       if CurrentActivity(aStack) = saInactive then

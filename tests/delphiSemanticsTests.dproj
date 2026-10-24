@@ -62,6 +62,7 @@
     <DCC_UnitSearchPath>src;..\src;..\lib\DelphiAST\Source;..\lib\DelphiAST\Source\SimpleParser;..\lib\MaxLogicFoundation;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
   </PropertyGroup>
   <ItemGroup>
+    <DCCReference Include="..\src\DelphiSemantics.Resolve.UnitNameWitness.pas"/>
     <DelphiCompile Include="$(MainSource)">
       <MainSource>MainSource</MainSource>
     </DelphiCompile>
@@ -106,6 +107,7 @@
     <DCCReference Include="src\test.symbolquery.pas"/>
     <DCCReference Include="src\test.support.pas"/>
     <DCCReference Include="src\test.typeresolver.pas"/>
+    <DCCReference Include="src\test.unitnamewitness.pas"/>
     <DCCReference Include="src\test.unitresolver.pas"/>
     <DCCReference Include="src\test.usage.pas"/>
     <DCCReference Include="src\test.unitmodel.pas"/>

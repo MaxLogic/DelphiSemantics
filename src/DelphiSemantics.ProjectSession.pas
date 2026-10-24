@@ -219,7 +219,7 @@ uses
   DelphiAST.ProjectIndexer,
   DelphiSemantics.Cache.Sqlite, DelphiSemantics.CompilerProfile,
   DelphiSemantics.IdentifierScope, DelphiSemantics.RemoveWith.Visibility,
-  DelphiSemantics.Snapshot.Builder,
+  DelphiSemantics.Resolve.UnitNameWitness, DelphiSemantics.Snapshot.Builder,
   {$IFNDEF DS_PROJECT_SESSION_TEST_SUPPORT}
   DelphiSemantics.Snapshot.Cache.Sqlite,
   {$ENDIF}
@@ -230,7 +230,7 @@ uses
 const
   cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v49';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v66';
+    'project-session-remove-with-facts-v68';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -551,8 +551,8 @@ end;
 function ProjectRemoveWithFactsCacheIdentity(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions; const aSourceFileNames,
   aScopedSourceFileNames: TArray<string>;
-  const aUnitCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>):
-  TDelphiSemanticSnapshotCacheIdentity;
+  const aUnitCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  const aWitnessIdentityText: string): TDelphiSemanticSnapshotCacheIdentity;
 var
   i: Integer;
   lFileName: string;
@@ -594,6 +594,8 @@ begin
     lScopedFiles.Free;
   end;
 
+  lIdentityText := lIdentityText + sLineBreak + 'unitNameWitness=' +
+    THashSHA2.GetHashString(aWitnessIdentityText);
   Result := Default(TDelphiSemanticSnapshotCacheIdentity);
   Result.IdentityKey := lProjectFileName + '|remove-with-facts';
   Result.SourceFileName := lProjectFileName;
@@ -762,15 +764,6 @@ begin
 end;
 
 {$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
-function ProjectRemoveWithFactsIdentityForTest(const aProject: TDelphiSemanticProjectInfo;
-  const aOptions: TDelphiSemanticOptions): TDelphiSemanticSnapshotCacheIdentity;
-var
-  lFiles: TArray<string>;
-begin
-  lFiles := ProjectModelFileNames(aProject);
-  Result := ProjectRemoveWithFactsCacheIdentity(aProject, aOptions, lFiles, [],
-    BuildProjectUnitCacheIdentities(aProject, aOptions, lFiles, []));
-end;
 {$ENDIF}
 
 type
@@ -901,6 +894,24 @@ begin
       TDelphiSemanticUnitCache.RequireCurrentSources(lModel.SourceObservations);
 end;
 
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+function ProjectRemoveWithFactsIdentityForTest(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions): TDelphiSemanticSnapshotCacheIdentity;
+var
+  lFiles: TArray<string>;
+  lExtraction: TProjectModelExtractionResult;
+  lWitness: IDelphiSemanticUnitNameWitness;
+begin
+  lFiles := ProjectModelFileNames(aProject);
+  lExtraction := ExtractProjectModels(aProject, aOptions, lFiles, [], False);
+  lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(aProject, lExtraction.Models,
+    TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(aOptions.DelphiVersion,
+      aOptions.RsVarsPath));
+  Result := ProjectRemoveWithFactsCacheIdentity(aProject, aOptions, lFiles, [],
+    BuildProjectUnitCacheIdentities(aProject, aOptions, lFiles, []), lWitness.IdentityText);
+end;
+{$ENDIF}
+
 function BuildWithBindingFactsResultCore(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions;
   const aScopedSourceFileNames: TArray<string>;
@@ -910,6 +921,7 @@ var
   lExtraction: TProjectModelExtractionResult;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lGraph: TDelphiSemanticSemanticGraph;
+  lWitness: IDelphiSemanticUnitNameWitness;
 begin
   Result := Default(TProjectWithBindingFactsCoreResult);
   lExtraction := ExtractProjectModels(aProject, aOptions,
@@ -918,11 +930,16 @@ begin
   Result.SemanticCachePersistenceAvailable :=
     aSemanticCachePersistenceAvailable;
 
+  lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(aProject, lExtraction.Models,
+    TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(aOptions.DelphiVersion,
+      aOptions.RsVarsPath));
   if aOptions.SkipWithBindingSemanticGraph then
     lGraph := nil
   else
     lGraph := TDelphiSemanticSemanticGraphBuilder.Build(aProject,
       lExtraction.Models);
+  if lGraph <> nil then
+    lGraph.UnitNameWitness := lWitness;
   try
     if lGraph <> nil then
       Result.BuildResult.SemanticGraphMetrics := lGraph.Metrics
@@ -931,7 +948,7 @@ begin
         Default(TDelphiSemanticGraphBuildMetrics);
     lFacts := TDelphiSemanticWithBinder.BindProject(
       aProject.ContextFingerprint, lGraph, lExtraction.Models,
-      aOptions.ImplicitRootMemberAbsence);
+      aOptions.ImplicitRootMemberAbsence, lWitness);
     // Binding invokes request callbacks. Seal the consumed bytes again before
     // placing any facts in the public result.
     RequireCurrentRequestModels(aOptions, lExtraction.Models);
@@ -1539,6 +1556,9 @@ begin
   lExtraction := ExtractProjectModels(fProject, fOptions, ProjectModelFileNames(fProject),
     [], False);
   Result.Graph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lExtraction.Models);
+  Result.Graph.UnitNameWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(fProject,
+    lExtraction.Models, TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(
+      fOptions.DelphiVersion, fOptions.RsVarsPath));
   Result.Metrics := Result.Graph.Metrics;
 end;
 
@@ -2025,6 +2045,7 @@ var
   lSnapshot: TDelphiProjectSnapshot;
   lSourceFileNames: TArray<string>;
   lUnitCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  lWitness: IDelphiSemanticUnitNameWitness;
 begin
   Result := Default(TDelphiSemanticRemoveWithPlanBuildResult);
   lCacheSnapshotMetrics := Default(TDelphiSemanticSnapshotCacheMetrics);
@@ -2035,8 +2056,13 @@ begin
   begin
     lUnitCacheIdentities := BuildProjectUnitCacheIdentities(fProject, fOptions,
       lSourceFileNames, aScopedSourceFileNames);
+    lExtraction := ExtractProjectModels(fProject, fOptions, lSourceFileNames,
+      aScopedSourceFileNames, Length(aScopedSourceFileNames) > 0);
+    lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(fProject, lExtraction.Models,
+      TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(fOptions.DelphiVersion,
+        fOptions.RsVarsPath));
     lProjectFactsIdentity := ProjectRemoveWithFactsCacheIdentity(fProject, fOptions,
-      lSourceFileNames, aScopedSourceFileNames, lUnitCacheIdentities);
+      lSourceFileNames, aScopedSourceFileNames, lUnitCacheIdentities, lWitness.IdentityText);
     lCacheSnapshot := nil;
     if TryLoadProjectRemoveWithFactsFromCache(fOptions.SqliteCacheFileName,
       lProjectFactsIdentity, lCacheSnapshot, lCacheSnapshotMetrics) then
@@ -2045,8 +2071,6 @@ begin
         AccumulateProjectFactsCacheMetrics(Result.SnapshotMetrics,
           lCacheSnapshotMetrics);
         Result.SemanticGraphMetrics := Default(TDelphiSemanticGraphBuildMetrics);
-        lExtraction := ExtractProjectModels(fProject, fOptions, lSourceFileNames,
-          aScopedSourceFileNames, Length(aScopedSourceFileNames) > 0);
         lSnapshot := BuildCachedRemoveWithSnapshotWithLookup(lCacheSnapshot,
           lExtraction.Models);
         try
@@ -2064,13 +2088,15 @@ begin
         else
           lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject,
             lExtraction.Models);
+        if lGraph <> nil then
+          lGraph.UnitNameWitness := lWitness;
         try
           if lGraph <> nil then
             Result.SemanticGraphMetrics := lGraph.Metrics
           else
             Result.SemanticGraphMetrics := Default(TDelphiSemanticGraphBuildMetrics);
           lFacts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint,
-            lGraph, lExtraction.Models, fOptions.ImplicitRootMemberAbsence);
+            lGraph, lExtraction.Models, fOptions.ImplicitRootMemberAbsence, lWitness);
           lSnapshot := BuildSnapshotFromModels(lExtraction.Models, lFacts, False,
             fOptions.SnapshotBuildWorkerCount, lFallbackMetrics);
           try
@@ -2093,12 +2119,20 @@ begin
       lCacheSnapshotMetrics);
   end;
 
-  lExtraction := ExtractProjectModels(fProject, fOptions, lSourceFileNames,
-    aScopedSourceFileNames, Length(aScopedSourceFileNames) > 0);
+  if lWitness = nil then
+  begin
+    lExtraction := ExtractProjectModels(fProject, fOptions, lSourceFileNames,
+      aScopedSourceFileNames, Length(aScopedSourceFileNames) > 0);
+    lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(fProject, lExtraction.Models,
+      TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(fOptions.DelphiVersion,
+        fOptions.RsVarsPath));
+  end;
   if fOptions.SkipWithBindingSemanticGraph then
     lGraph := nil
   else
     lGraph := TDelphiSemanticSemanticGraphBuilder.Build(fProject, lExtraction.Models);
+  if lGraph <> nil then
+    lGraph.UnitNameWitness := lWitness;
   try
     if lGraph <> nil then
       Result.SemanticGraphMetrics := lGraph.Metrics
@@ -2106,7 +2140,7 @@ begin
       Result.SemanticGraphMetrics := Default(TDelphiSemanticGraphBuildMetrics);
 
     lFacts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint, lGraph,
-      lExtraction.Models, fOptions.ImplicitRootMemberAbsence);
+      lExtraction.Models, fOptions.ImplicitRootMemberAbsence, lWitness);
     RequireCurrentRequestModels(fOptions, lExtraction.Models);
     lFacts.Metrics.ModelExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
     lFacts.Metrics.SemanticCacheHits := lExtraction.CacheMetrics.CacheHits;
@@ -2126,7 +2160,7 @@ begin
         if Length(lUnitCacheIdentities) = 0 then
           lUnitCacheIdentities := lExtraction.CacheIdentities;
         lProjectFactsIdentity := ProjectRemoveWithFactsCacheIdentity(fProject, fOptions,
-          lSourceFileNames, aScopedSourceFileNames, lUnitCacheIdentities);
+          lSourceFileNames, aScopedSourceFileNames, lUnitCacheIdentities, lWitness.IdentityText);
         StoreProjectRemoveWithFactsCacheEntry(fOptions.SqliteCacheFileName,
           lProjectFactsIdentity, lSnapshot, lFacts.Symbols, Result.SnapshotMetrics);
       end;

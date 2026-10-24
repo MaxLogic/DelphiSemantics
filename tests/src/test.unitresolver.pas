@@ -25,6 +25,8 @@ type
     procedure PrecompiledDcuCandidateResolvesWhenSourceIsMissing;
     [Test]
     procedure CompilerEquivalentProjectCandidatesReportAmbiguity;
+    [Test]
+    procedure DottedNameUsesCompilerNamespaceFallback;
   end;
 
 implementation
@@ -169,6 +171,19 @@ begin
   Assert.IsTrue(lResult.Ambiguous);
   Assert.AreEqual('ambiguous', lResult.Status);
   Assert.AreEqual(2, Integer(Length(lResult.Candidates)));
+end;
+
+procedure TUnitResolverTests.DottedNameUsesCompilerNamespaceFallback;
+var
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticUnitResolutionResult;
+begin
+  lProject := ProjectInfo;
+  lProject.UnitScopeNames := ['System'];
+  lResult := TDelphiSemanticUnitResolver.Resolve(lProject, 'Generics.Collections',
+    [ProjectModel('System.Generics.Collections', 'System.Generics.Collections.pas')]);
+  Assert.IsTrue(lResult.Found, lResult.Reason);
+  Assert.AreEqual('System.Generics.Collections', lResult.CanonicalUnitName);
 end;
 
 initialization

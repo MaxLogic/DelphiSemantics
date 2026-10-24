@@ -1,4 +1,4 @@
-unit Test.Refactor.SignatureAlignment;
+﻿unit Test.Refactor.SignatureAlignment;
 
 interface
 
@@ -21,6 +21,10 @@ type
     [TestCase('Selected owner with incomplete members', 'selected,unknown')]
     procedure IsolatesSelectedOwnerCompleteness(const aOwner, aStatus: string);
     [Test] procedure BuildsBoundAlignmentSuggestion;
+    [TestCase('Unknown last', 'True,unknown')]
+    [TestCase('Known last', 'False,name-drift')]
+    procedure OrderedUnindexedParameterRefusesAlignment(const aUnknownLast: Boolean;
+      const aStatus: string);
     [Test]
     [TestCase('Function result', 'function-drift')]
     [TestCase('Calling convention', 'cdecl-body')]
@@ -94,7 +98,7 @@ implementation
 
 uses
   System.IOUtils, System.SysUtils,
-  DelphiSemantics.Model.Json, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
+  DelphiSemantics.Model.Extract, DelphiSemantics.Model.Json, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
   DelphiSemantics.Refactor.Binding, DelphiSemantics.Refactor.Plan,
   DelphiSemantics.Refactor.SignatureAlignment, DelphiSemantics.Resolve.TypeResolver,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot.Builder,
@@ -293,6 +297,45 @@ begin
   Assert.AreEqual('ast', Result.ScopeModelStatus);
   Assert.AreEqual(0, Result.RejectedDeclarationCount);
   Result := JsonToModel(ModelToJson(Result));
+end;
+
+procedure TSignatureAlignmentTests.OrderedUnindexedParameterRefusesAlignment(
+  const aUnknownLast: Boolean; const aStatus: string);
+var
+  lModel, lOther: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSource, lImports: string;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lResult: TDelphiSemanticAlignmentComparison;
+begin
+  lModel := ExtractModel('drift');
+  lImports := 'A, U';
+  if not aUnknownLast then
+    lImports := 'U, A';
+  lSource := StringReplace(lModel.SourceText, 'interface',
+    'interface uses ' + lImports + ';', []);
+  lSource := StringReplace(lSource, '  TValue = (one, two);', '', []);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := lModel.FileName;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  lOptions.SourceFileName := TPath.Combine(ExtractFilePath(lModel.FileName), 'A.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit A;'#13#10'interface'#13#10'type'#13#10 +
+    '  TValue = (one, two);'#13#10'implementation'#13#10'end.', TEncoding.UTF8);
+  lOther := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(Length(lOther.Declarations) > 0);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(
+    Default(TDelphiSemanticProjectInfo), [lModel, lOther]);
+  try
+    lResult := TDelphiSemanticSignatureAlignment.Compare([lModel, lOther],
+      TDelphiSemanticTypeResolver.BuildIndex(lGraph), lModel.FileName,
+      AlignmentDeclarationOffset(lModel));
+    Assert.AreEqual(aStatus, lResult.Status, lResult.Reason);
+  finally
+    lGraph.Free;
+  end;
 end;
 
 procedure TSignatureAlignmentTests.ComparesSelectedDeclaration(const aShape, aStatus: string);

@@ -1,9 +1,9 @@
-unit DelphiSemantics.Resolve.TypeResolver;
+﻿unit DelphiSemantics.Resolve.TypeResolver;
 
 interface
 
 uses
-  DelphiSemantics.Model, DelphiSemantics.SemanticGraph;
+  DelphiSemantics.Model, DelphiSemantics.Resolve.UnitNameWitness, DelphiSemantics.SemanticGraph;
 
 type
   TDelphiSemanticTypeIdentity = record
@@ -52,6 +52,7 @@ type
     function ResolveScopedName(const aName, aCurrentUnitName, aCallerScopeId: string;
       const aVisibleUnitNames: TArray<string>; const aSectionKind: string):
       TDelphiSemanticTypeLookupResult;
+    function VisibleUnitNames(const aUnitName, aSectionKind: string): TArray<string>;
     function ResolveVisibleName(const aName, aCurrentUnitName: string;
       const aVisibleUnitNames: TArray<string>; const aSectionKind: string):
       TDelphiSemanticTypeLookupResult;
@@ -76,6 +77,7 @@ type
     function ResolveScopedName(const aName, aCurrentUnitName, aCallerScopeId: string;
       const aVisibleUnitNames: TArray<string>; const aSectionKind: string = 'implementation'):
       TDelphiSemanticTypeLookupResult;
+    function VisibleUnitNames(const aUnitName, aSectionKind: string): TArray<string>;
     function ResolveVisibleName(const aName, aCurrentUnitName: string;
       const aVisibleUnitNames: TArray<string>; const aSectionKind: string = 'interface'):
       TDelphiSemanticTypeLookupResult;
@@ -112,6 +114,8 @@ type
     fByUnderlyingId: TDictionary<string, TDelphiSemanticTypeIdentityList>;
     fRoutineScopes: TDictionary<string, TDelphiSemanticGraphRoutine>;
     fInvalidScopes: TDictionary<string, Byte>;
+    fUnitNameWitness: IDelphiSemanticUnitNameWitness;
+    fUnits: TDictionary<string, TDelphiSemanticGraphUnit>;
     fUnitIdsByName: TDictionary<string, string>;
     fUnitScopeStatus: TDictionary<string, string>;
     fUnitNamesById: TDictionary<string, string>;
@@ -150,20 +154,11 @@ type
     function ResolveScopedName(const aName, aCurrentUnitName, aCallerScopeId: string;
       const aVisibleUnitNames: TArray<string>; const aSectionKind: string):
       TDelphiSemanticTypeLookupResult;
+    function VisibleUnitNames(const aUnitName, aSectionKind: string): TArray<string>;
     function ResolveVisibleName(const aName, aCurrentUnitName: string;
       const aVisibleUnitNames: TArray<string>; const aSectionKind: string):
       TDelphiSemanticTypeLookupResult;
   end;
-
-function VisibleUnitSet(const aUnitNames: TArray<string>): TDictionary<string, Byte>;
-var
-  lUnitName: string;
-begin
-  Result := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
-  for lUnitName in aUnitNames do
-    if lUnitName <> '' then
-      Result.AddOrSetValue(lUnitName, 0);
-end;
 
 function StableTypeId(const aUnitId: TDelphiSemanticUnitGraphId; const aRole,
   aName: string): TDelphiSemanticGraphTypeId;
@@ -422,6 +417,7 @@ var
   i: Integer;
 begin
   inherited Create;
+  fUnitNameWitness := aGraph.UnitNameWitness;
   fByCanonicalId := TDictionary<string, TDelphiSemanticTypeIdentityList>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fByDeclaredId := TDictionary<string, TDelphiSemanticTypeIdentity>.Create(
@@ -441,12 +437,15 @@ begin
   fRoutineScopes := TDictionary<string, TDelphiSemanticGraphRoutine>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fInvalidScopes := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fUnits := TDictionary<string, TDelphiSemanticGraphUnit>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
   fUnitIdsByName := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fUnitScopeStatus := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fUnitNamesById := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
 
   for lUnit in aGraph.Units do
   begin
+    fUnits.AddOrSetValue(lUnit.UnitName, lUnit);
     fUnitNamesById.AddOrSetValue(lUnit.Id.Value, lUnit.UnitName);
     fUnitIdsByName.AddOrSetValue(lUnit.UnitName, lUnit.Id.Value);
     fUnitScopeStatus.AddOrSetValue(lUnit.Id.Value, lUnit.ScopeModelStatus);
@@ -513,11 +512,20 @@ begin
       lPending.Add(lIdentity);
       fUnsupportedLocalScopeName.AddOrSetValue(LocalTypeKey(lIdentity.UnitId.Value,
         lIdentity.OwnerScopeId, lIdentity.Name), 0);
-    end else
-      AddIdentity(lIdentity);
+    end else if SameText(lIdentity.ScopeKind, 'routine') then
+      AddIdentity(lIdentity)
+    else begin
+      // All unit names must exist before an alias can resolve its target.
+      fByQualifiedName.AddOrSetValue(lIdentity.UnitName + '.' + lIdentity.Name, lIdentity);
+      AddToMap(fBySimpleName, lIdentity.Name, lIdentity);
+    end;
     lIdentities[i] := lIdentity;
     Inc(i);
   end;
+
+  for lIdentity in lIdentities do
+    if not SameText(lIdentity.ScopeKind, 'routine') then
+      AddIdentity(lIdentity);
 
   repeat
     lProgress := False;
@@ -556,6 +564,7 @@ begin
     lList.Free;
   for lList in fByUnderlyingId.Values do
     lList.Free;
+  fUnits.Free;
   fUnitNamesById.Free;
   fByUnderlyingId.Free;
   fBySimpleName.Free;
@@ -577,7 +586,9 @@ end;
 procedure TDelphiSemanticTypeIdentityIndexData.AddIdentity(
   const aIdentity: TDelphiSemanticTypeIdentity);
 var
+  i: Integer;
   lIdentity: TDelphiSemanticTypeIdentity;
+  lList: TDelphiSemanticTypeIdentityList;
 begin
   lIdentity := aIdentity;
   if SameText(lIdentity.ScopeKind, 'routine') and
@@ -603,7 +614,13 @@ begin
   end else
   begin
     fByQualifiedName.AddOrSetValue(lIdentity.UnitName + '.' + lIdentity.Name, lIdentity);
-    AddToMap(fBySimpleName, lIdentity.Name, lIdentity);
+    if fBySimpleName.TryGetValue(lIdentity.Name, lList) then
+      for i := 0 to lList.Count - 1 do
+        // Forward and full declarations share a DeclaredId, but not a source range.
+        if (lList[i].DeclaredId.Value = lIdentity.DeclaredId.Value) and
+          (lList[i].SourceRange.Line = lIdentity.SourceRange.Line) and
+          (lList[i].SourceRange.Column = lIdentity.SourceRange.Column) then
+          lList[i] := lIdentity;
   end;
 end;
 
@@ -691,9 +708,7 @@ begin
         lResult := ResolveQualifiedName(lCurrent.BaseTypeName)
       else
         lResult := ResolveVisibleName(lCurrent.BaseTypeName, lCurrent.UnitName,
-          [lCurrent.UnitName], lCurrent.SectionKind);
-      if not lResult.Found then
-        lResult := ResolveSimpleName(lCurrent.BaseTypeName);
+          VisibleUnitNames(lCurrent.UnitName, lCurrent.SectionKind), lCurrent.SectionKind);
       if not lResult.Found then
         Break;
       lAncestor := lResult.Identity;
@@ -855,50 +870,82 @@ begin
       aSectionKind);
 end;
 
+function TDelphiSemanticTypeIdentityIndexData.VisibleUnitNames(const aUnitName,
+  aSectionKind: string): TArray<string>;
+var
+  lUnit: TDelphiSemanticGraphUnit;
+begin
+  Result := nil;
+  if not fUnits.TryGetValue(aUnitName, lUnit) then
+    Exit;
+  Result := Copy(lUnit.InterfaceImports);
+  if SameText(aSectionKind, 'implementation') then
+    Result := Result + lUnit.ImplementationImports;
+  if not lUnit.ImportsKnown then
+    Result := Result + ['<imports-unproved>'];
+end;
+
 function TDelphiSemanticTypeIdentityIndexData.ResolveVisibleName(const aName,
   aCurrentUnitName: string; const aVisibleUnitNames: TArray<string>; const aSectionKind: string):
   TDelphiSemanticTypeLookupResult;
 var
+  i: Integer;
   lCandidate: TDelphiSemanticTypeIdentity;
-  lCurrentMatches: TDelphiSemanticTypeIdentityList;
   lList: TDelphiSemanticTypeIdentityList;
   lMatches: TDelphiSemanticTypeIdentityList;
-  lVisibleUnits: TDictionary<string, Byte>;
+  lUnit: TDelphiSemanticGraphUnit;
+  lUnitName, lUnknownUnit: string;
 begin
   if not fBySimpleName.TryGetValue(aName, lList) then
     Exit(UnresolvedResult(aName, 'TYPE_NOT_FOUND',
       'No visible type declaration named "' + aName + '" was found.'));
-
-  lVisibleUnits := VisibleUnitSet(aVisibleUnitNames);
-  if aCurrentUnitName <> '' then
-    lVisibleUnits.AddOrSetValue(aCurrentUnitName, 0);
-  lCurrentMatches := TDelphiSemanticTypeIdentityList.Create;
   lMatches := TDelphiSemanticTypeIdentityList.Create;
   try
     for lCandidate in lList do
-      if lVisibleUnits.ContainsKey(lCandidate.UnitName) and
+      if SameText(lCandidate.UnitName, aCurrentUnitName) and
         SameUnitOrInterfaceVisible(lCandidate, aCurrentUnitName, aSectionKind) then
-      begin
         lMatches.Add(lCandidate);
-        if SameText(lCandidate.UnitName, aCurrentUnitName) then
-          lCurrentMatches.Add(lCandidate);
-      end;
-
-    if lCurrentMatches.Count = 1 then
-      Exit(ResolvedResult(lCurrentMatches[0]));
-    if lCurrentMatches.Count > 1 then
-      Exit(AmbiguousResult(aName, lCurrentMatches.ToArray));
-
     if lMatches.Count = 1 then
       Exit(ResolvedResult(lMatches[0]));
     if lMatches.Count > 1 then
       Exit(AmbiguousResult(aName, lMatches.ToArray));
+    lUnknownUnit := '';
+    for i := High(aVisibleUnitNames) downto 0 do
+    begin
+      lUnitName := aVisibleUnitNames[i];
+      if (lUnitName = '') or SameText(lUnitName, aCurrentUnitName) then
+        Continue;
+      lMatches.Clear;
+      for lCandidate in lList do
+        if SameText(lCandidate.UnitName, lUnitName) and
+          SameUnitOrInterfaceVisible(lCandidate, aCurrentUnitName, aSectionKind) then
+          lMatches.Add(lCandidate);
+      if lMatches.Count > 0 then
+      begin
+        if lUnknownUnit <> '' then
+        begin
+          Result := UnresolvedResult(aName, 'TYPE_VISIBILITY_UNPROVED',
+            'Used unit "' + lUnknownUnit + '" is listed after "' + lUnitName +
+            '" and may declare "' + aName + '".');
+          Result.Status := 'unproved';
+          Exit;
+        end;
+        if lMatches.Count = 1 then
+          Exit(ResolvedResult(lMatches[0]));
+        Exit(AmbiguousResult(aName, lMatches.ToArray));
+      end;
+      if fUnits.TryGetValue(lUnitName, lUnit) then
+      begin
+        if not (SameText(lUnit.ScopeModelStatus, 'ast') or
+          SameText(lUnit.ScopeModelStatus, 'ast-interface-only')) then
+          lUnknownUnit := lUnitName;
+      end else if (fUnitNameWitness = nil) or
+        fUnitNameWitness.MayDeclare(lUnitName, aName) then
+        lUnknownUnit := lUnitName;
+    end;
   finally
     lMatches.Free;
-    lCurrentMatches.Free;
-    lVisibleUnits.Free;
   end;
-
   Result := UnresolvedResult(aName, 'TYPE_NOT_VISIBLE',
     'No visible type declaration named "' + aName + '" was found.');
 end;
@@ -906,15 +953,24 @@ end;
 function TDelphiSemanticTypeIdentityIndexData.ResolveUnderlyingName(
   const aIdentity: TDelphiSemanticTypeIdentity): string;
 var
-  lTarget: TDelphiSemanticTypeIdentity;
+  lCurrent, lTarget: TDelphiSemanticTypeIdentity;
+  lRemaining: Integer;
 begin
-  if SameText(aIdentity.Kind, 'type-alias') and TryResolveAliasTarget(aIdentity, lTarget) then
-    Exit(ResolveUnderlyingName(lTarget));
-
-  if aIdentity.UnderlyingName <> '' then
-    Exit(aIdentity.UnderlyingName);
-
-  Result := aIdentity.CanonicalName;
+  lCurrent := aIdentity;
+  lRemaining := fByQualifiedName.Count + 1;
+  while lRemaining > 0 do
+  begin
+    Dec(lRemaining);
+    if SameText(lCurrent.Kind, 'type-alias') and TryResolveAliasTarget(lCurrent, lTarget) then
+      lCurrent := lTarget
+    else begin
+      if lCurrent.UnderlyingName <> '' then
+        Exit(lCurrent.UnderlyingName);
+      Exit(lCurrent.CanonicalName);
+    end;
+  end;
+  // Registering all names first exposes cycles that a partial map could not follow.
+  Result := '';
 end;
 
 function TDelphiSemanticTypeIdentityIndexData.SameUnitOrInterfaceVisible(
@@ -932,8 +988,6 @@ function TDelphiSemanticTypeIdentityIndexData.TryResolveAliasTarget(
   const aIdentity: TDelphiSemanticTypeIdentity; out aTarget: TDelphiSemanticTypeIdentity):
   Boolean;
 var
-  lIdentity: TDelphiSemanticTypeIdentity;
-  lList: TDelphiSemanticTypeIdentityList;
   lResult: TDelphiSemanticTypeLookupResult;
 begin
   aTarget := Default(TDelphiSemanticTypeIdentity);
@@ -963,24 +1017,12 @@ begin
     Exit(False);
   end;
 
-  if not fBySimpleName.TryGetValue(aIdentity.CanonicalName, lList) then
-    Exit(False);
-
-  if lList.Count = 1 then
-  begin
-    aTarget := lList[0];
-    Exit(True);
-  end;
-
-  for lIdentity in lList do
-    if SameText(lIdentity.UnitName, aIdentity.UnitName) then
-    begin
-      aTarget := lIdentity;
-      Exit(True);
-    end;
-
-  aTarget := Default(TDelphiSemanticTypeIdentity);
-  Result := False;
+  lResult := ResolveVisibleName(aIdentity.CanonicalName, aIdentity.UnitName,
+    VisibleUnitNames(aIdentity.UnitName, aIdentity.SectionKind), aIdentity.SectionKind);
+  Result := lResult.Found and not lResult.Ambiguous and
+    (lResult.Identity.DeclaredId.Value <> aIdentity.DeclaredId.Value);
+  if Result then
+    aTarget := lResult.Identity;
 end;
 
 function TDelphiSemanticTypeIdentityIndex.FindAncestors(
@@ -1061,6 +1103,14 @@ begin
 
   Result := fData.ResolveScopedName(aName, aCurrentUnitName, aCallerScopeId,
     aVisibleUnitNames, aSectionKind);
+end;
+
+function TDelphiSemanticTypeIdentityIndex.VisibleUnitNames(const aUnitName,
+  aSectionKind: string): TArray<string>;
+begin
+  Result := nil;
+  if fData <> nil then
+    Result := fData.VisibleUnitNames(aUnitName, aSectionKind);
 end;
 
 function TDelphiSemanticTypeIdentityIndex.ResolveVisibleName(const aName,

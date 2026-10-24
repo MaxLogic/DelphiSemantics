@@ -18,6 +18,8 @@ type
 
   TDelphiSemanticSourceConditionals = record
   public
+    class function ImportOrderUnknown(const aSource, aEvidence: string;
+      const aIncludeFileNames, aImports: TArray<string>): Boolean; static;
     class function UnavailableActivity: string; static;
     class function EncodeActivity(const aSource, aFileName: string;
       const aSpans: TArray<TDelphiSemanticActivitySpan>): string; static;
@@ -38,11 +40,344 @@ type
 implementation
 
 uses
-  System.StrUtils, System.SysUtils;
+  System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
+  DelphiSemantics.Preprocess;
 
 const
   // Stored in the existing exact-text pool. Plain evidence retains its original bytes.
   cActivityPrefix = #1'DS-ACTIVITY-1:';
+
+class function TDelphiSemanticSourceConditionals.ImportOrderUnknown(
+  const aSource, aEvidence: string;
+  const aIncludeFileNames, aImports: TArray<string>): Boolean;
+var
+  lClauses, lIncludedClauses, lExpanded, lStates, lIncludedText: string;
+  lFileName, lImportName, lImportToken: string;
+  lHasUses, lIncludedUses, lKnown: Boolean;
+  lExpandedIncludes, lStack: TStringList;
+
+  function ResolveInclude(const aArgument, aDirectory: string; out aFileName: string): Boolean;
+  var
+    lCandidate, lExpected, lSuffix: string;
+  begin
+    aFileName := '';
+    lSuffix := aArgument.Trim.Trim([#39, '"']).Replace('/', PathDelim);
+    if lSuffix = '' then
+      Exit(False);
+    lExpected := '';
+    if aDirectory <> '' then
+      lExpected := TPath.GetFullPath(TPath.Combine(aDirectory, lSuffix));
+    for lCandidate in aIncludeFileNames do
+      if ((lExpected <> '') and SameText(lCandidate, lExpected)) or
+        ((lExpected = '') and (SameText(lCandidate, lSuffix) or
+          EndsText(PathDelim + lSuffix, lCandidate))) then
+      begin
+        if (aFileName <> '') and not SameText(aFileName, lCandidate) then
+          Exit(False);
+        aFileName := lCandidate;
+      end;
+    Result := aFileName <> '';
+  end;
+
+  function Expand(const aText, aActivity, aDirectory: string; const aIsInclude: Boolean;
+    out aExpanded, aStates: string; out aKnown: Boolean): Boolean;
+  var
+    i, j, lStart, lCopied, lArgumentStart, lDirectiveEnd: Integer;
+    lDirective, lConditional, lChildKnown, lResolved: Boolean;
+    lToken, lArgument, lChildFile, lChildText, lChildExpanded, lChildStates: string;
+
+    function States(const aFirst, aLength: Integer): string;
+    begin
+      if StartsStr(cActivityPrefix, aActivity) then
+        Result := Copy(aActivity, Length(cActivityPrefix) + aFirst, aLength)
+      else
+        Result := StringOfChar('A', aLength);
+    end;
+
+  begin
+    aExpanded := '';
+    aStates := '';
+    aKnown := True;
+    if StartsStr(cActivityPrefix, aActivity) and
+      (Length(aActivity) <> Length(cActivityPrefix) + Length(aText)) then
+      Exit(False);
+    lConditional := False;
+    lCopied := 1;
+    i := 1;
+    while i <= Length(aText) do
+    begin
+      if aText[i] = #39 then
+      begin
+        Inc(i);
+        while i <= Length(aText) do
+        begin
+          if aText[i] = #39 then
+          begin
+            Inc(i);
+            if (i > Length(aText)) or (aText[i] <> #39) then
+              Break;
+          end;
+          Inc(i);
+        end;
+      end else if (aText[i] = '/') and (i < Length(aText)) and (aText[i + 1] = '/') then
+      begin
+        while (i <= Length(aText)) and not CharInSet(aText[i], [#10, #13]) do
+          Inc(i);
+      end else if (aText[i] = '{') or ((aText[i] = '(') and
+        (i < Length(aText)) and (aText[i + 1] = '*')) then
+      begin
+        lStart := i;
+        if aText[i] = '{' then
+          j := i + 1
+        else
+          j := i + 2;
+        lDirective := (j <= Length(aText)) and (aText[j] = '$');
+        if lDirective then
+          Inc(j);
+        while (j <= Length(aText)) and CharInSet(aText[j], [#9, ' ']) do
+          Inc(j);
+        i := j;
+        while (j <= Length(aText)) and CharInSet(aText[j], ['A'..'Z', 'a'..'z']) do
+          Inc(j);
+        lToken := Copy(aText, i, j - i);
+        lArgumentStart := i;
+        i := j;
+        if aText[lStart] = '{' then
+        begin
+          while (i <= Length(aText)) and (aText[i] <> '}') do
+            Inc(i);
+          lDirectiveEnd := i;
+          if i <= Length(aText) then
+            Inc(i);
+        end else begin
+          while (i < Length(aText)) and
+            not ((aText[i] = '*') and (aText[i + 1] = ')')) do
+            Inc(i);
+          lDirectiveEnd := i;
+          Inc(i, 2);
+          if i > Length(aText) + 1 then
+            i := Length(aText) + 1;
+        end;
+        if lDirective and MatchText(lToken, ['IF', 'IFDEF', 'IFNDEF', 'IFOPT', 'ELSE',
+          'ELSEIF', 'ENDIF', 'IFEND', 'DEFINE', 'UNDEF']) then
+          lConditional := True;
+        lArgument := '';
+        if lDirective then
+          lArgument := TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(
+            Copy(aText, lArgumentStart, lDirectiveEnd - lArgumentStart));
+        if lArgument <> '' then
+        begin
+          lResolved := ResolveInclude(lArgument, aDirectory, lChildFile) and
+            (lStack.Count < 64) and (lStack.IndexOf(lChildFile) < 0);
+          lChildExpanded := '';
+          lChildStates := '';
+          lChildKnown := False;
+          if lResolved then
+          begin
+            lStack.Add(lChildFile);
+            try
+              try
+                lChildText := TFile.ReadAllText(lChildFile);
+                lResolved := Expand(lChildText, '', ExtractFilePath(lChildFile), True,
+                  lChildExpanded, lChildStates, lChildKnown);
+                if lResolved then
+                  lExpandedIncludes.Add(lChildFile);
+              except
+                on E: EInOutError do
+                  lResolved := False;
+                on E: EFOpenError do
+                  lResolved := False;
+              end;
+            finally
+              lStack.Delete(lStack.Count - 1);
+            end;
+          end;
+          aExpanded := aExpanded + Copy(aText, lCopied, lStart - lCopied);
+          aStates := aStates + States(lCopied, lStart - lCopied);
+          if not lResolved or not lChildKnown then
+          begin
+            // Keep the directive and its proven root activity at the original insertion point.
+            aExpanded := aExpanded + Copy(aText, lStart, i - lStart);
+            aStates := aStates + States(lStart, i - lStart);
+            aKnown := False;
+          end;
+          aExpanded := aExpanded + lChildExpanded;
+          if Pos('?', States(lStart, i - lStart)) > 0 then
+            aStates := aStates + StringOfChar('?', Length(lChildExpanded))
+          else
+            aStates := aStates + lChildStates;
+          lCopied := i;
+        end;
+      end else
+        Inc(i);
+    end;
+    aExpanded := aExpanded + Copy(aText, lCopied, MaxInt);
+    aStates := aStates + States(lCopied, Length(aText) - lCopied + 1);
+    // This API has no per-include activity witness. A1a's fallback forbids conditional/define content.
+    if aIsInclude and lConditional then
+      aKnown := False;
+    if aIsInclude and not aKnown then
+      aStates := StringOfChar('?', Length(aExpanded));
+    Result := True;
+  end;
+
+  function Scan(const aText, aActivity: string; out aClauses: string;
+    out aHasUses: Boolean): Boolean;
+  var
+    i, j, lStart, lDirectiveStart, lDirectiveEnd: Integer;
+    lClause, lDirective, lInclude: Boolean;
+    lToken: string;
+
+    function UnknownRange(const aFirst, aLast: Integer): Boolean;
+    var
+      k: Integer;
+    begin
+      for k := aFirst to aLast do
+        if UnknownAtOffset(aText, aActivity, k) then
+          Exit(True);
+      Result := False;
+    end;
+
+  begin
+    Result := False;
+    aClauses := '';
+    aHasUses := False;
+    if StartsStr(cActivityPrefix, aActivity) and
+      (Length(aActivity) <> Length(cActivityPrefix) + Length(aText)) then
+      Exit(True);
+    lClause := False;
+    i := 1;
+    while i <= Length(aText) do
+    begin
+      lStart := i;
+      if (aText[i] = '''') then
+      begin
+        Inc(i);
+        while i <= Length(aText) do
+        begin
+          if aText[i] = '''' then
+          begin
+            Inc(i);
+            if (i > Length(aText)) or (aText[i] <> '''') then
+              Break;
+          end;
+          Inc(i);
+        end;
+      end else if (aText[i] = '/') and (i < Length(aText)) and
+        (aText[i + 1] = '/') then
+      begin
+        while (i <= Length(aText)) and not CharInSet(aText[i], [#10, #13]) do
+          Inc(i);
+      end else if (aText[i] = '{') or ((aText[i] = '(') and
+        (i < Length(aText)) and (aText[i + 1] = '*')) then
+      begin
+        if aText[i] = '{' then
+          j := i + 1
+        else
+          j := i + 2;
+        lDirective := (j <= Length(aText)) and (aText[j] = '$');
+        if lDirective then
+          Inc(j);
+        while (j <= Length(aText)) and CharInSet(aText[j], [#9, ' ']) do
+          Inc(j);
+        i := j;
+        while (j <= Length(aText)) and CharInSet(aText[j], ['A'..'Z', 'a'..'z']) do
+          Inc(j);
+        lDirectiveStart := i;
+        i := j;
+        if aText[lStart] = '{' then
+        begin
+          while (i <= Length(aText)) and (aText[i] <> '}') do
+            Inc(i);
+          lDirectiveEnd := i;
+          if i <= Length(aText) then
+            Inc(i);
+        end else begin
+          while (i < Length(aText)) and
+            not ((aText[i] = '*') and (aText[i + 1] = ')')) do
+            Inc(i);
+          lDirectiveEnd := i;
+          Inc(i, 2);
+          if i > Length(aText) + 1 then
+            i := Length(aText) + 1;
+        end;
+        // Share preprocessing's filename rule: I+ and I- are compiler switches.
+        lInclude := lDirective and
+          (TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(
+            Copy(aText, lDirectiveStart, lDirectiveEnd - lDirectiveStart)) <> '');
+        if lInclude and (lClause or UnknownRange(lStart, i - 1)) then
+          Exit(True);
+      end else if CharInSet(aText[i], ['A'..'Z', 'a'..'z', '_']) then
+      begin
+        Inc(i);
+        while (i <= Length(aText)) and
+          CharInSet(aText[i], ['A'..'Z', 'a'..'z', '0'..'9', '_']) do
+          Inc(i);
+        lToken := Copy(aText, lStart, i - lStart);
+        if SameText(lToken, 'uses') then
+        begin
+          lClause := True;
+          aHasUses := True;
+        end;
+        if (SameText(lToken, 'interface') or SameText(lToken, 'implementation')) and
+          UnknownRange(lStart, i - 1) then
+          Exit(True);
+        if lClause then
+          aClauses := aClauses + '#' + LowerCase(lToken);
+      end else begin
+        if lClause and (aText[i] = '.') then
+          aClauses := aClauses + '#.';
+        if aText[i] = ';' then
+        begin
+          if lClause and UnknownAtOffset(aText, aActivity, i) then
+            Exit(True);
+          lClause := False;
+          aClauses := aClauses + '#;';
+        end;
+        Inc(i);
+      end;
+      if lClause and UnknownRange(lStart, i - 1) then
+        Exit(True);
+    end;
+    aClauses := aClauses + '#';
+  end;
+
+begin
+  lExpandedIncludes := TStringList.Create;
+  lStack := TStringList.Create;
+  try
+    lExpandedIncludes.CaseSensitive := False;
+    lStack.CaseSensitive := False;
+    if not Expand(aSource, aEvidence, '', False, lExpanded, lStates, lKnown) or
+      Scan(lExpanded, cActivityPrefix + lStates, lClauses, lHasUses) then
+      Exit(True);
+    for lFileName in aIncludeFileNames do
+      if lExpandedIncludes.IndexOf(lFileName) < 0 then
+      begin
+        try
+          lIncludedText := TFile.ReadAllText(lFileName);
+          if Scan(lIncludedText, '', lIncludedClauses, lIncludedUses) or lIncludedUses then
+            // An observed import clause without its insertion point cannot prove order.
+            Exit(True);
+        except
+          on E: EInOutError do
+            Exit(True);
+          on E: EFOpenError do
+            Exit(True);
+        end;
+      end;
+    for lImportName in aImports do
+    begin
+      lImportToken := '#' + LowerCase(lImportName).Replace('.', '#.#') + '#';
+      if Pos(lImportToken, lClauses) = 0 then
+        Exit(True);
+    end;
+    Result := False;
+  finally
+    lStack.Free;
+    lExpandedIncludes.Free;
+  end;
+end;
 
 class function TDelphiSemanticSourceConditionals.UnavailableActivity: string;
 begin

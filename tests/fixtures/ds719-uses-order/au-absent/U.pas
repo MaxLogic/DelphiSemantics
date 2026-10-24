@@ -1,0 +1,1 @@
+unit U; interface type TInt = Integer; implementation end.

@@ -33,8 +33,18 @@ type
     Candidates: TArray<TDelphiSemanticUnitResolutionCandidate>;
   end;
 
+  TUnitCandidateName = record
+    TargetName: string;
+    MatchKind: string;
+    UnitScopeName: string;
+  end;
+
   TDelphiSemanticUnitResolver = record
   public
+    class function CandidateNames(const aProject: TDelphiSemanticProjectInfo;
+      const aUnitName: string): TArray<TUnitCandidateName>; static;
+    class function TryReadDeclaredUnitName(const aFileName: string;
+      out aUnitName: string): Boolean; static;
     class function Resolve(const aProject: TDelphiSemanticProjectInfo;
       const aUnitName: string): TDelphiSemanticUnitResolutionResult; overload; static;
     class function Resolve(const aProject: TDelphiSemanticProjectInfo; const aUnitName: string;
@@ -52,12 +62,6 @@ type
   TResolvedAlias = record
     TargetName: string;
     IsAlias: Boolean;
-  end;
-
-  TUnitCandidateName = record
-    TargetName: string;
-    MatchKind: string;
-    UnitScopeName: string;
   end;
 
   TUnitCandidateRank = record
@@ -81,7 +85,7 @@ begin
   Result := [aUnitName + '.pas', aUnitName + '.dcu'];
 end;
 
-function TryReadDeclaredUnitName(const aFileName: string; out aUnitName: string): Boolean;
+class function TDelphiSemanticUnitResolver.TryReadDeclaredUnitName(const aFileName: string; out aUnitName: string): Boolean;
 var
   lMatch: TMatch;
   lText: string;
@@ -164,7 +168,7 @@ begin
   aNames.Add(lItem);
 end;
 
-function CandidateNames(const aProject: TDelphiSemanticProjectInfo; const aUnitName: string):
+class function TDelphiSemanticUnitResolver.CandidateNames(const aProject: TDelphiSemanticProjectInfo; const aUnitName: string):
   TArray<TUnitCandidateName>;
 var
   lAlias: TResolvedAlias;
@@ -179,8 +183,7 @@ begin
     else
       AddCandidateName(lItems, lAlias.TargetName, 'exact', '');
 
-    if Pos('.', lAlias.TargetName) = 0 then
-      for lScope in aProject.UnitScopeNames do
+    for lScope in aProject.UnitScopeNames do
         if Trim(lScope) <> '' then
           AddCandidateName(lItems, Trim(lScope) + '.' + lAlias.TargetName, 'scope',
             Trim(lScope));
@@ -259,7 +262,7 @@ begin
       lExtension := TPath.GetExtension(lFileName);
       if SameText(lExtension, '.pas') then
       begin
-        if not TryReadDeclaredUnitName(lFileName, lDeclaredName) then
+        if not TDelphiSemanticUnitResolver.TryReadDeclaredUnitName(lFileName, lDeclaredName) then
           lDeclaredName := aNameInfo.TargetName;
         if not SameText(lDeclaredName, aNameInfo.TargetName) then
           Continue;
@@ -369,7 +372,7 @@ var
   lItems: TList<TUnitCandidateRank>;
   lNameInfo: TUnitCandidateName;
   lNames: TArray<TUnitCandidateName>;
-  lRank: Integer;
+  lRank, lPreviousCount: Integer;
   lSeen: TDictionary<string, Byte>;
   lUnitName: string;
 begin
@@ -386,7 +389,12 @@ begin
     lNames := CandidateNames(aProject, lUnitName);
     for lNameInfo in lNames do
     begin
+      lPreviousCount := lItems.Count;
       AddModelCandidates(lItems, lSeen, aUnitModels, lUnitName, lNameInfo, lRank);
+      // Files start at rank 1000; later names cannot beat this project rank.
+      // Keep all same-name models above so compiler-equivalent ambiguity survives.
+      if (lRank < 1000) and (lItems.Count > lPreviousCount) then
+        Exit(PickBestCandidate(lUnitName, lItems));
       AddFileCandidates(lItems, lSeen, aProject, lUnitName, lNameInfo, lRank + 1000);
       Inc(lRank, 100);
     end;

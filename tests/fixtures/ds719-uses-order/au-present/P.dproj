@@ -1,0 +1,1 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup><MainSource>P.dpr</MainSource><DCC_UnitSearchPath>.</DCC_UnitSearchPath><DCC_Namespace>System;Winapi</DCC_Namespace></PropertyGroup><ItemGroup><DCCReference Include="Unit1.pas"/><DCCReference Include="A.pas"/><DCCReference Include="B.pas"/></ItemGroup></Project>

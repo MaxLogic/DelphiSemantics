@@ -121,20 +121,12 @@ type
 implementation
 
 uses
-  System.Generics.Collections,
-  System.Generics.Defaults,
-  System.Hash,
-  System.IOUtils,
-  System.RegularExpressions,
-  System.StrUtils,
-  System.SysUtils,
-  Xml.omnixmldom,
-  Xml.XMLDoc,
-  Xml.XMLIntf,
-  Xml.xmldom,
-  DelphiSemantics.Cache,
-  DelphiSemantics.CompilerProfile, DelphiSemantics.Lsp,
-  MaxLogic.StrUtils;
+  System.Classes, System.Generics.Collections, System.Generics.Defaults, System.Hash,
+  System.IOUtils, System.RegularExpressions, System.StrUtils, System.SysUtils,
+  System.Win.Registry, Xml.omnixmldom, Xml.XMLDoc, Xml.XMLIntf, Xml.xmldom,
+  Winapi.Windows,
+  MaxLogic.StrUtils,
+  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Lsp;
 
 type
   TPropertyMap = TDictionary<string, string>;
@@ -2023,6 +2015,132 @@ begin
   Result := False;
 end;
 
+procedure PopulateWitnessProfileProperties(const aProperties: TPropertyMap;
+  const aOptions: TDelphiSemanticOptions;
+  const aObservations: IProjectContextObservationsBuilder);
+const
+  cRegistryViews: array[0..1] of Cardinal = (KEY_WOW64_64KEY, KEY_WOW64_32KEY);
+var
+  lProfile: TPropertyMap;
+  lDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  lNames: TStringList;
+  lRegistry: TRegistry;
+  lPair: TPair<string, string>;
+  lVersion, lPlatform, lBaseKey, lName, lRawPaths, lExpandedPaths: string;
+  lEnvOptions, lBdsRoot, lTranslatedPaths: string;
+  lKnown, lRegistryKnown: Boolean;
+  lView: Cardinal;
+begin
+  lProfile := TPropertyMap.Create;
+  lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
+  lNames := TStringList.Create;
+  lRegistry := TRegistry.Create(KEY_READ);
+  try
+    try
+      for lPair in aProperties do
+        lProfile.AddOrSetValue(lPair.Key, lPair.Value);
+      // The IDE appends the project path macro even when it is unset.
+      if not lProfile.ContainsKey(PropertyKey('DCC_UnitSearchPath')) then
+        SetPropertyValue(lProfile, 'DCC_UnitSearchPath', '');
+      lVersion := aOptions.DelphiVersion;
+      if lVersion = '' then
+        lVersion := '23.0';
+      if Pos('.', lVersion) = 0 then
+        lVersion := lVersion + '.0';
+      lPlatform := GetPropertyValue(aProperties, 'Platform');
+      if lPlatform = '' then
+        lPlatform := 'Win64';
+      SetPropertyValue(lProfile, 'Platform', lPlatform);
+      lBdsRoot := TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot(lVersion, aOptions.RsVarsPath);
+      SetPropertyValue(lProfile, 'BDS', lBdsRoot);
+      SetPropertyValue(lProfile, 'BDSLIB', TPath.Combine(lBdsRoot, 'lib'));
+      lBaseKey := 'Software\Embarcadero\BDS\' + lVersion;
+      lRegistry.RootKey := HKEY_CURRENT_USER;
+      lRegistryKnown := False;
+      lRawPaths := GetPropertyValue(aProperties, 'DelphiLibraryPath') + ';' +
+        GetPropertyValue(aProperties, 'DelphiBrowsingPath') + ';' +
+        GetPropertyValue(aProperties, 'DelphiDebugDCUPath');
+      lTranslatedPaths := GetPropertyValue(aProperties, 'DelphiTranslatedLibraryPath') + ';' +
+        GetPropertyValue(aProperties, 'DelphiTranslatedDebugLibraryPath');
+      for lView in cRegistryViews do
+      begin
+        lRegistry.Access := KEY_READ or lView;
+        if lRegistry.OpenKeyReadOnly(lBaseKey + '\Environment Variables') then
+        begin
+          lRegistry.GetValueNames(lNames);
+          for lName in lNames do
+            if not lProfile.ContainsKey(PropertyKey(lName)) and
+              (lRegistry.GetDataType(lName) in [rdString, rdExpandString]) then
+              SetPropertyValue(lProfile, lName, lRegistry.ReadString(lName));
+          lRegistry.CloseKey;
+        end;
+        if lRegistry.OpenKeyReadOnly(lBaseKey + '\Library\' + lPlatform) then
+        begin
+          if lRegistry.ValueExists('Search Path') and lRegistry.ValueExists('Browsing Path') then
+          begin
+            lRegistryKnown := True;
+            lRawPaths := lRawPaths + ';' + lRegistry.ReadString('Search Path') + ';' +
+              lRegistry.ReadString('Browsing Path');
+          end;
+          if lRegistry.ValueExists('Debug DCU Path') then
+            lRawPaths := lRawPaths + ';' + lRegistry.ReadString('Debug DCU Path');
+          if lRegistry.ValueExists('Translated Library Path') then
+            lTranslatedPaths := lTranslatedPaths + ';' + lRegistry.ReadString('Translated Library Path');
+          if lRegistry.ValueExists('Translated Debug Library Path') then
+            lTranslatedPaths := lTranslatedPaths + ';' + lRegistry.ReadString('Translated Debug Library Path');
+          lRegistry.CloseKey;
+        end;
+      end;
+      // Use our existing evaluator for profile files and retain its input evidence.
+      lEnvOptions := aOptions.EnvOptionsPath;
+      if lEnvOptions = '' then
+      begin
+        lEnvOptions := GetPropertyValue(lProfile, 'BDSUSERDIR');
+        if lEnvOptions <> '' then
+          lEnvOptions := TPath.Combine(lEnvOptions, 'EnvOptions.proj');
+      end;
+      lKnown := lRegistryKnown;
+      if (lEnvOptions <> '') and TFile.Exists(lEnvOptions) then
+      begin
+        ApplyPropertyFile(lEnvOptions, ExtractFilePath(lEnvOptions), lProfile,
+          lDiagnostics, True, aObservations);
+        lRawPaths := lRawPaths + ';' + GetPropertyValue(lProfile, 'DelphiLibraryPath') + ';' +
+          GetPropertyValue(lProfile, 'DelphiBrowsingPath') + ';' +
+          GetPropertyValue(lProfile, 'DelphiDebugDCUPath');
+        lTranslatedPaths := lTranslatedPaths + ';' +
+          GetPropertyValue(lProfile, 'DelphiTranslatedLibraryPath') + ';' +
+          GetPropertyValue(lProfile, 'DelphiTranslatedDebugLibraryPath');
+        lKnown := lKnown or (lProfile.ContainsKey(PropertyKey('DelphiLibraryPath')) and
+          lProfile.ContainsKey(PropertyKey('DelphiBrowsingPath')));
+      end else if aOptions.EnvOptionsPath <> '' then
+        lKnown := False;
+      // MSBuild enables translated paths only for a nonempty language directory.
+      if GetPropertyValue(lProfile, 'LANGDIR').Trim <> '' then
+        lRawPaths := lRawPaths + ';' + lTranslatedPaths;
+      lExpandedPaths := ExpandProperties(lRawPaths, lEnvOptions, lProfile, lDiagnostics);
+      lKnown := lKnown and (lDiagnostics.Count = 0) and (Pos('$(', lExpandedPaths) = 0);
+      if lDiagnostics.Count > 0 then
+        SetPropertyValue(aProperties, 'DSWitnessProfileError',
+          lDiagnostics[0].Code + ': ' + lDiagnostics[0].Message);
+      SetPropertyValue(aProperties, 'DSWitnessProfilePaths', lExpandedPaths);
+      SetPropertyValue(aProperties, 'DSWitnessProfileKnown', BoolToStr(lKnown, True));
+    except
+      on E: Exception do
+      begin
+        // Inaccessible or malformed profiles leave absence unavailable.
+        SetPropertyValue(aProperties, 'DSWitnessProfilePaths', '');
+        SetPropertyValue(aProperties, 'DSWitnessProfileKnown', 'False');
+        SetPropertyValue(aProperties, 'DSWitnessProfileError', E.ClassName + ': ' + E.Message);
+      end;
+    end;
+  finally
+    lRegistry.Free;
+    lNames.Free;
+    lDiagnostics.Free;
+    lProfile.Free;
+  end;
+end;
+
 function LoadProjectInfo(const aProjectFileName: string; const aOptions: TDelphiSemanticOptions;
   const aRootAbsenceFingerprint: string; const aDiagnostics: TList<TDelphiSemanticDiagnostic>): TDelphiSemanticProjectInfo;
 var
@@ -2039,6 +2157,7 @@ begin
   try
     ApplyPropertyDocument(lDocument, aProjectFileName, TPath.GetDirectoryName(aProjectFileName),
       lProperties, aDiagnostics, Trim(aOptions.Platform) <> '', lObservations);
+    PopulateWitnessProfileProperties(lProperties, aOptions, lObservations);
     Result := CreateProjectInfoFromProperties(aProjectFileName, lDocument, lProperties);
     PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics,
       lObservations);

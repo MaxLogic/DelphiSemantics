@@ -2630,6 +2630,9 @@ begin
   Result.ReasonCodeId := aExactStrings.Intern(aSelector.ReasonCode);
   Result.TypeNameId := aExactStrings.Intern(aSelector.TypeName);
   Result.TypeIdentity := SnapshotTypeIdentity(aExactStrings, aSelector.TypeIdentity);
+  Result.CaptureTypeIdentity := SnapshotTypeIdentity(aExactStrings, aSelector.CaptureTypeIdentity);
+  Result.CaptureTypeNameId := aExactStrings.Intern(aSelector.CaptureTypeName);
+  Result.CaptureTypeStatusId := aExactStrings.Intern(aSelector.CaptureTypeStatus);
 end;
 
 function SnapshotBoundReference(const aExactStrings: TSemanticStringPool;

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Visible type lookup honors Delphi uses order and refuses earlier matches when later units may declare the name. Source-token absence proofs preserve safe lookups through unindexed units. Known resolved includes preserve their expanded import order, including tab-separated directives. Absence requires one readable Pascal candidate across project, reference, compiler-profile and RTL locations. Installed SDK DCU/source pairs count as one candidate; extra Pascal or unpaired DCU files stay unproved. Signed INCLUDE filenames are followed and hashed, while I+/I- remain switches. Overlapping directive-looking text cannot hide real includes, and debug DCU profile paths participate in absence proofs. WITH rewrites verify capture-site types and receiver strategy kinds, and honor inherited-member denials across every qualification pass. Affected persisted planning facts rebuild.
 - WITH root-absence proofs accept resolved includes and known defines, but fail closed when receiver evidence or owner rows are missing, site or receiver-lineage models fail, expansion fails, or preprocess activity is unverified or unsupported.
 - Named-root WITH proofs retain declaration-time helper methods in a separate structural probe and preserve helper order across equivalent namespace or alias spellings.
 - WITH root-absence queries preserve site helper precedence over intermediate class lookup scopes.

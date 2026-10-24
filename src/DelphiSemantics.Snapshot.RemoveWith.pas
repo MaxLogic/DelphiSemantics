@@ -65,6 +65,9 @@ type
     ReasonCodeId: TSemanticStringId;
     TypeNameId: TSemanticStringId;
     TypeIdentity: TSemanticRemoveWithTypeIdentityFact;
+    CaptureTypeIdentity: TSemanticRemoveWithTypeIdentityFact;
+    CaptureTypeNameId: TSemanticStringId;
+    CaptureTypeStatusId: TSemanticStringId;
   end;
 
   TSemanticRemoveWithBoundReferenceFact = record

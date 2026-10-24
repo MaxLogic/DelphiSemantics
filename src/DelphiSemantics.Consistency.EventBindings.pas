@@ -99,7 +99,8 @@ var
   lVisible: Boolean;
 begin
   if Pos('.', aName) = 0 then
-    Exit(aTypes.ResolveVisibleName(aName, aModels[aModel].UnitName, aModels[aModel].InterfaceUses));
+    Exit(aTypes.ResolveVisibleName(aName, aModels[aModel].UnitName,
+      aTypes.VisibleUnitNames(aModels[aModel].UnitName, 'interface')));
   Result := aTypes.ResolveQualifiedName(aName);
   if not Result.Found then
     Exit;

@@ -4,7 +4,8 @@ interface
 
 uses
   DelphiSemantics.Model, DelphiSemantics.Resolve, DelphiSemantics.Resolve.ScopeResolver,
-  DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.RootMemberAbsence,
+  DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Resolve.UnitNameWitness,
+  DelphiSemantics.RootMemberAbsence,
   DelphiSemantics.SemanticGraph;
 
 type
@@ -14,6 +15,9 @@ type
     ReasonCode: string;
     TypeName: string;
     TypeIdentity: TDelphiSemanticTypeIdentity;
+    CaptureTypeIdentity: TDelphiSemanticTypeIdentity;
+    CaptureTypeName: string;
+    CaptureTypeStatus: string;
   end;
 
   TDelphiSemanticBoundReference = record
@@ -271,6 +275,12 @@ type
       const aModels: TArray<TDelphiSemanticUnitModel>;
       const aRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence):
       TDelphiSemanticProjectWithBindingFacts; overload; static;
+    class function BindProject(const aContextFingerprint: string;
+      const aGraph: TDelphiSemanticSemanticGraph;
+      const aModels: TArray<TDelphiSemanticUnitModel>;
+      const aRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
+      const aUnitNameWitness: IDelphiSemanticUnitNameWitness):
+      TDelphiSemanticProjectWithBindingFacts; overload; static;
     class function BuildInventory(const aModel: TDelphiSemanticUnitModel):
       TDelphiSemanticRemoveWithInventory; static;
     class function ExpandInventorySymbols(const aSymbols: TArray<TDelphiSemanticInventorySymbol>):
@@ -439,6 +449,7 @@ type
   TWithBindingProjectMemberIndex = class
   private
     fRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
+    fUnitNameWitness: IDelphiSemanticUnitNameWitness;
     fCompilerIntrinsics: TDictionary<string, TDelphiSemanticIntrinsicSymbol>;
     fLookupIndex: TDelphiSemanticRemoveWithLookupIndex;
     fTypeIndex: TDelphiSemanticTypeIdentityIndex;
@@ -503,6 +514,9 @@ type
       const aCurrentTypeName, aMemberCachePrefix, aName: string;
       const aMemberCache: TDictionary<string, TBoundMemberResolution>;
       out aResult: TBoundMemberResolution): Boolean;
+    function SelectorTypeLookup(const aOriginModel: TDelphiSemanticUnitModel;
+      const aOriginSectionKind, aOriginScopeId, aTypeName: string):
+      TDelphiSemanticTypeLookupResult;
     function TryResolveSelectorIdentity(const aOriginModel: TDelphiSemanticUnitModel;
       const aOriginSectionKind, aOriginScopeId, aTypeName: string;
       out aIdentity: TDelphiSemanticTypeIdentity): Boolean;
@@ -568,7 +582,8 @@ type
   public
     constructor Create(const aModels: TArray<TDelphiSemanticUnitModel>;
       const aGraph: TDelphiSemanticSemanticGraph;
-      const aLookupIndex: TDelphiSemanticRemoveWithLookupIndex);
+      const aLookupIndex: TDelphiSemanticRemoveWithLookupIndex;
+      const aUnitNameWitness: IDelphiSemanticUnitNameWitness);
     destructor Destroy; override;
     function TryResolveCompilerIntrinsic(const aName: string;
       out aResult: TDelphiSemanticResolveResult): Boolean;
@@ -1287,7 +1302,7 @@ begin
   if fValueEvidenceLoaded or (Length(fValueMemberModels) = 0) then
     Exit;
   lIndex := TWithBindingProjectMemberIndex.Create(fValueMemberModels, nil,
-    Default(TDelphiSemanticRemoveWithLookupIndex));
+    Default(TDelphiSemanticRemoveWithLookupIndex), nil);
   try
     AttachValueMemberEvidence(lIndex.ExportValueMemberEvidence);
   finally
@@ -1731,7 +1746,8 @@ end;
 constructor TWithBindingProjectMemberIndex.Create(
   const aModels: TArray<TDelphiSemanticUnitModel>;
   const aGraph: TDelphiSemanticSemanticGraph;
-  const aLookupIndex: TDelphiSemanticRemoveWithLookupIndex);
+  const aLookupIndex: TDelphiSemanticRemoveWithLookupIndex;
+  const aUnitNameWitness: IDelphiSemanticUnitNameWitness);
 var
   lGraph: TDelphiSemanticSemanticGraph;
   lGraphType: TDelphiSemanticGraphType;
@@ -1745,6 +1761,9 @@ begin
     fUnindexedAliases := TDictionary<string, Boolean>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     fModels := aModels;
+    fUnitNameWitness := aUnitNameWitness;
+    if (fUnitNameWitness = nil) and (aGraph <> nil) then
+      fUnitNameWitness := aGraph.UnitNameWitness;
     fLookupIndex := aLookupIndex;
     BuildDeclarationIndex;
     fByUnitOwnerName := TDictionary<string, TList<TBoundMemberResolution>>.Create(
@@ -1763,6 +1782,7 @@ begin
     begin
       lGraph := TDelphiSemanticSemanticGraphBuilder.Build(BuildSyntheticWithBindingProjectInfo,
         aModels);
+      lGraph.UnitNameWitness := fUnitNameWitness;
       lOwnGraph := True;
     end;
     try
@@ -2645,7 +2665,7 @@ begin
   lScope := RoutineScopeAtLine(aModel, aLine);
   if PointerCastNameHasLexicalShadow(aModel, aName, lScope, aLine) then
     Exit;
-  fVisibleUnitsByUnit.TryGetValue(aModel.UnitName, lVisibleUnits);
+  lVisibleUnits := fTypeIndex.VisibleUnitNames(aModel.UnitName, 'implementation');
   lAlias := fTypeIndex.ResolveVisibleName(aName, aModel.UnitName,
     lVisibleUnits, 'implementation');
   if (not lAlias.Found) or (not SameText(lAlias.Identity.Kind, 'type-alias')) then
@@ -2678,7 +2698,7 @@ begin
       if not TRegEx.IsMatch(lTargetName, '^[A-Za-z_][A-Za-z0-9_]*$') then
         Exit;
       lTarget := fTypeIndex.ResolveVisibleName(lTargetName, lAliasModel.UnitName,
-        CombineUnitUses(lAliasModel.InterfaceUses, lAliasModel.ImplementationUses),
+        fTypeIndex.VisibleUnitNames(lAliasModel.UnitName, lDeclaration.SectionKind),
         lDeclaration.SectionKind);
       if (not lTarget.Found) or ((not SameText(lTarget.Identity.Kind, 'type')) or
         (not SameText(lTarget.Identity.CanonicalName, 'record'))) then
@@ -3125,7 +3145,13 @@ begin
       if not aProjectMemberIndex.TryResolveSelectorIdentity(lOriginModel, lOriginSection,
         lOriginScopeId, lResult.TypeName, aIdentity) then
       begin
-        if (lOriginScopeId <> '') and
+        if SameText(aProjectMemberIndex.SelectorTypeLookup(lOriginModel, lOriginSection,
+          lOriginScopeId, lResult.TypeName).ReasonCode, 'TYPE_VISIBILITY_UNPROVED') then
+        begin
+          lResult.Status := 'unsupported';
+          lResult.ReasonCode := 'TYPE_VISIBILITY_UNPROVED';
+          lResult.Reason := 'The receiver type is not proved at its declaration.';
+        end else if (lOriginScopeId <> '') and
           aProjectMemberIndex.IsUnsupportedRoutineLocalType(lOriginModel, lOriginSection,
           lOriginScopeId, lResult.TypeName) then
         begin
@@ -4213,13 +4239,14 @@ function BindSelectors(const aModel: TDelphiSemanticUnitModel;
   out aIdentities: TWithSelectorIdentityArray):
   TArray<TDelphiSemanticWithSelectorBinding>;
 var
+  lCaptureLookup: TDelphiSemanticTypeLookupResult;
   lIdentity, lPrefixIdentity: TDelphiSemanticTypeIdentity;
   lBinding, lPrefixBinding: TDelphiSemanticWithSelectorBinding;
   lActivityBinding: TDelphiSemanticWithBinding;
   lLineage: TArray<TDelphiSemanticTypeIdentity>;
   i, lParenDepth, lBracketDepth: Integer;
   lIdentities: TList<TDelphiSemanticTypeIdentity>;
-  lPart: string;
+  lPart, lScopeId: string;
   lSelectors: TList<TDelphiSemanticWithSelectorBinding>;
   lParts: TArray<string>;
 begin
@@ -4266,6 +4293,25 @@ begin
           lBinding.TypeIdentity := lIdentity;
           Break;
         end;
+      end;
+      if Assigned(aProjectMemberIndex) and
+        TRegEx.IsMatch(lBinding.TypeName, '^[A-Za-z_][A-Za-z0-9_]*$') then
+      begin
+        lScopeId := RoutineScopeAtLine(aModel, aLine);
+        if lScopeId <> '' then
+          lCaptureLookup := aProjectMemberIndex.fTypeIndex.ResolveScopedName(lBinding.TypeName,
+            aModel.UnitName, lScopeId,
+            aProjectMemberIndex.fTypeIndex.VisibleUnitNames(aModel.UnitName, 'implementation'),
+            'implementation')
+        else
+          lCaptureLookup := aProjectMemberIndex.fTypeIndex.ResolveVisibleName(lBinding.TypeName,
+            aModel.UnitName,
+            aProjectMemberIndex.fTypeIndex.VisibleUnitNames(aModel.UnitName, 'implementation'),
+            'implementation');
+        lBinding.CaptureTypeName := lBinding.TypeName;
+        lBinding.CaptureTypeStatus := lCaptureLookup.Status;
+        if lCaptureLookup.Found and not lCaptureLookup.Ambiguous then
+          lBinding.CaptureTypeIdentity := lCaptureLookup.Identity;
       end;
       lSelectors.Add(lBinding);
       lIdentities.Add(lIdentity);
@@ -5361,6 +5407,28 @@ begin
   if Result then
     aIdentity := lLookup.Identity;
 end;
+function TWithBindingProjectMemberIndex.SelectorTypeLookup(
+  const aOriginModel: TDelphiSemanticUnitModel;
+  const aOriginSectionKind, aOriginScopeId, aTypeName: string):
+  TDelphiSemanticTypeLookupResult;
+var
+  lVisibleUnits: TArray<string>;
+begin
+  Result := Default(TDelphiSemanticTypeLookupResult);
+  if (aOriginModel.UnitName = '') or (aTypeName = '') or
+    not MatchText(aOriginSectionKind, ['interface', 'implementation']) then
+    Exit;
+  lVisibleUnits := fTypeIndex.VisibleUnitNames(aOriginModel.UnitName, aOriginSectionKind);
+  if aOriginScopeId <> '' then
+    Result := fTypeIndex.ResolveScopedName(aTypeName, aOriginModel.UnitName,
+      aOriginScopeId, lVisibleUnits, aOriginSectionKind)
+  else if Pos('.', aTypeName) > 0 then
+    Result := fTypeIndex.ResolveQualifiedName(aTypeName)
+  else
+    Result := fTypeIndex.ResolveVisibleName(aTypeName, aOriginModel.UnitName,
+      lVisibleUnits, aOriginSectionKind);
+end;
+
 function TWithBindingProjectMemberIndex.TryResolveSelectorIdentity(
   const aOriginModel: TDelphiSemanticUnitModel;
   const aOriginSectionKind, aOriginScopeId, aTypeName: string;
@@ -5368,29 +5436,10 @@ function TWithBindingProjectMemberIndex.TryResolveSelectorIdentity(
 var
   lLookup: TDelphiSemanticTypeLookupResult;
   lModel: TDelphiSemanticUnitModel;
-  lVisibleUnits: TArray<string>;
 begin
   aIdentity := Default(TDelphiSemanticTypeIdentity);
-  if (aOriginModel.UnitName = '') or (aTypeName = '') then
-    Exit(False);
-  if SameText(aOriginSectionKind, 'interface') then
-    lVisibleUnits := Copy(aOriginModel.InterfaceUses)
-  else if SameText(aOriginSectionKind, 'implementation') then
-    lVisibleUnits := CombineUnitUses(aOriginModel.InterfaceUses,
-      aOriginModel.ImplementationUses)
-  else
-    Exit(False);
-  if aOriginScopeId <> '' then
-    lLookup := fTypeIndex.ResolveScopedName(aTypeName, aOriginModel.UnitName,
-      aOriginScopeId, lVisibleUnits, aOriginSectionKind)
-  else if Pos('.', aTypeName) > 0 then
-    lLookup := fTypeIndex.ResolveQualifiedName(aTypeName)
-  else
-  begin
-    lLookup := fTypeIndex.ResolveVisibleName(aTypeName, aOriginModel.UnitName,
-      lVisibleUnits, aOriginSectionKind);
-  end;
-  Result := lLookup.Found and (not lLookup.Ambiguous) and
+  lLookup := SelectorTypeLookup(aOriginModel, aOriginSectionKind, aOriginScopeId, aTypeName);
+  Result := lLookup.Found and not lLookup.Ambiguous and
     TrySafetyDeclarationModel(lLookup.Identity, lModel);
   if Result then
     aIdentity := lLookup.Identity;
@@ -5420,8 +5469,7 @@ begin
     // cannot export a routine-local one) proves that the selector's later type names
     // are unit-level too; a routine-local one cannot leave its own unit.
     lLookup := fTypeIndex.ResolveScopedName(lDeclaredTypeName, aDeclaringModel.UnitName,
-      aScopeId, CombineUnitUses(aDeclaringModel.InterfaceUses,
-      aDeclaringModel.ImplementationUses), 'implementation');
+      aScopeId, fTypeIndex.VisibleUnitNames(aDeclaringModel.UnitName, 'implementation'), 'implementation');
     if lLookup.Found and (not lLookup.Ambiguous) then
       if SameText(lLookup.Identity.ScopeKind, 'routine') then
       begin
@@ -5522,10 +5570,9 @@ begin
   if (aOriginScopeId = '') or (aOriginModel.UnitName = '') or (aTypeName = '') then
     Exit(False);
   if SameText(aOriginSectionKind, 'interface') then
-    lVisibleUnits := Copy(aOriginModel.InterfaceUses)
+    lVisibleUnits := fTypeIndex.VisibleUnitNames(aOriginModel.UnitName, 'interface')
   else
-    lVisibleUnits := CombineUnitUses(aOriginModel.InterfaceUses,
-      aOriginModel.ImplementationUses);
+    lVisibleUnits := fTypeIndex.VisibleUnitNames(aOriginModel.UnitName, 'implementation');
   lLookup := fTypeIndex.ResolveScopedName(aTypeName, aOriginModel.UnitName,
     aOriginScopeId, lVisibleUnits, aOriginSectionKind);
   Result := (not lLookup.Found) and SameText(lLookup.ReasonCode, 'UNSUPPORTED_LOCAL_TYPE');
@@ -5566,8 +5613,7 @@ begin
       if not SameText(lModel.FileName, aSymbol.FileName) then
         Continue;
       lAccessLookup := fTypeIndex.ResolveScopedName(aSymbol.OwnerName,
-        aSymbol.UnitName, aSymbol.OwnerScopeId, CombineUnitUses(
-        lModel.InterfaceUses, lModel.ImplementationUses), 'implementation');
+        aSymbol.UnitName, aSymbol.OwnerScopeId, fTypeIndex.VisibleUnitNames(lModel.UnitName, 'implementation'), 'implementation');
       if (not lAccessLookup.Found) or lAccessLookup.Ambiguous or
         (not SameText(lAccessLookup.Identity.SemanticSymbolId,
           aSymbol.OwnerSymbolId)) or
@@ -5700,9 +5746,9 @@ begin
       if lDeclaration.HelperTargetName <> '' then
       begin
         if SameText(lDeclaration.SectionKind, 'interface') then
-          lVisibleUnits := Copy(lModel.InterfaceUses)
+          lVisibleUnits := fTypeIndex.VisibleUnitNames(lModel.UnitName, 'interface')
         else if SameText(lDeclaration.SectionKind, 'implementation') then
-          lVisibleUnits := CombineUnitUses(lModel.InterfaceUses, lModel.ImplementationUses)
+          lVisibleUnits := fTypeIndex.VisibleUnitNames(lModel.UnitName, 'implementation')
         else begin
           fHasUnresolvedHelperTarget := True;
           Continue;
@@ -5812,7 +5858,7 @@ begin
   lModel := fModels[lIndex];
   if aSelectorIdentity.DeclaredId.Value = '' then
   begin
-    lVisibleUnits := CombineUnitUses(lModel.InterfaceUses, lModel.ImplementationUses);
+    lVisibleUnits := fTypeIndex.VisibleUnitNames(lModel.UnitName, 'implementation');
     lLookup := fTypeIndex.ResolveVisibleName(aSelectorTypeName,
       lModel.UnitName, lVisibleUnits, 'implementation');
     Exit(IsKnownSafetyProfileTerminal(aSelectorTypeName, lLookup));
@@ -5845,10 +5891,9 @@ begin
       if SameText(lCurrent.ScopeKind, 'routine') then
       begin
         if SameText(lCurrent.SectionKind, 'interface') then
-          lVisibleUnits := Copy(lModel.InterfaceUses)
+          lVisibleUnits := fTypeIndex.VisibleUnitNames(lModel.UnitName, 'interface')
         else if SameText(lCurrent.SectionKind, 'implementation') then
-          lVisibleUnits := CombineUnitUses(lModel.InterfaceUses,
-            lModel.ImplementationUses)
+          lVisibleUnits := fTypeIndex.VisibleUnitNames(lModel.UnitName, 'implementation')
         else
           Exit;
         lLookup := fTypeIndex.ResolveScopedName(lTargetName,
@@ -5859,10 +5904,9 @@ begin
       else
       begin
         if SameText(lCurrent.SectionKind, 'interface') then
-          lVisibleUnits := Copy(lModel.InterfaceUses)
+          lVisibleUnits := fTypeIndex.VisibleUnitNames(lModel.UnitName, 'interface')
         else if SameText(lCurrent.SectionKind, 'implementation') then
-          lVisibleUnits := CombineUnitUses(lModel.InterfaceUses,
-            lModel.ImplementationUses)
+          lVisibleUnits := fTypeIndex.VisibleUnitNames(lModel.UnitName, 'implementation')
         else
           Exit;
         lLookup := fTypeIndex.ResolveVisibleName(lTargetName,
@@ -5934,9 +5978,9 @@ begin
     (aDeclaration.HelperTargetName = '') then
     Exit;
   if SameText(aDeclaration.SectionKind, 'interface') then
-    lVisibleUnits := Copy(aModel.InterfaceUses)
+    lVisibleUnits := fTypeIndex.VisibleUnitNames(aModel.UnitName, 'interface')
   else if SameText(aDeclaration.SectionKind, 'implementation') then
-    lVisibleUnits := CombineUnitUses(aModel.InterfaceUses, aModel.ImplementationUses)
+    lVisibleUnits := fTypeIndex.VisibleUnitNames(aModel.UnitName, 'implementation')
   else
     Exit;
   lLookup := fTypeIndex.ResolveVisibleName(aDeclaration.HelperTargetName,
@@ -6082,9 +6126,12 @@ begin
   aUnits := nil;
   if not ModelIsClosedForRootProof(aModel) then
     Exit;
-  lUses := Copy(aModel.InterfaceUses);
+  lUses := fTypeIndex.VisibleUnitNames(aModel.UnitName, 'interface');
   if aIncludeImplementation then
     lUses := lUses + aModel.ImplementationUses;
+  // Unknown imports cannot be supplied as a unit name to an absence provider.
+  if MatchText('<imports-unproved>', lUses) then
+    Exit;
   for lUsedUnit in lUses do
     if fSafetyModelsByUnit.TryGetValue(lUsedUnit, lIndexes) then
     begin
@@ -6199,9 +6246,7 @@ begin
   else begin
     if not TrySafetyDeclarationModel(aContext, lModel) then
       Exit(Default(TDelphiSemanticTypeLookupResult));
-    lUses := lModel.InterfaceUses;
-    if not SameText(aContext.SectionKind, 'interface') then
-      lUses := CombineUnitUses(lUses, lModel.ImplementationUses);
+    lUses := fTypeIndex.VisibleUnitNames(lModel.UnitName, aContext.SectionKind);
     if SameText(aContext.ScopeKind, 'routine') then
       Result := fTypeIndex.ResolveScopedName(aName, aContext.UnitName,
         aContext.OwnerScopeId, lUses, aContext.SectionKind)
@@ -6247,6 +6292,7 @@ begin
 end;
 
 procedure AppendAnonymousAbsenceEvidence(const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aUnitNameWitness: IDelphiSemanticUnitNameWitness;
   const aOwners: TList<TDelphiSemanticValueEvidenceOwner>;
   const aQueries: TList<TDelphiSemanticValueEvidenceQuery>;
   const aValueNames: THashSet<string>);
@@ -6276,6 +6322,7 @@ begin
       Continue;
     GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(
       BuildSyntheticWithBindingProjectInfo, [lParsed]), g);
+    lGraph.UnitNameWitness := aUnitNameWitness;
     lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
     for lGraphType in lGraph.Types do
     begin
@@ -6437,7 +6484,7 @@ begin
   lNames.Clear;
   for lName in Result.ValueNames do
     lNames.Add(lName);
-  AppendAnonymousAbsenceEvidence(fModels, lOwners, lQueries, lNames);
+  AppendAnonymousAbsenceEvidence(fModels, fUnitNameWitness, lOwners, lQueries, lNames);
   Result.ValueNames := lNames.ToArray;
   Result.Owners := lOwners.ToArray;
   Result.Queries := lQueries.ToArray;
@@ -6708,12 +6755,10 @@ begin
         Continue;
       if (lHelper.HelperKind = '') or (lHelper.TargetName = '') then
         Exit(True);
-      lUses := lHelperModel.InterfaceUses;
-      if not SameText(lHelper.SectionKind, 'interface') then
-        lUses := lUses + lHelperModel.ImplementationUses;
+      lUses := fTypeIndex.VisibleUnitNames(lHelperModel.UnitName, lHelper.SectionKind);
       if SameText(lHelper.ScopeKind, 'routine') then
         lLookup := fTypeIndex.ResolveScopedName(lHelper.TargetName, lHelperModel.UnitName,
-          lHelper.OwnerScopeId, lHelperModel.InterfaceUses + lHelperModel.ImplementationUses,
+          lHelper.OwnerScopeId, fTypeIndex.VisibleUnitNames(lHelperModel.UnitName, 'implementation'),
           'implementation')
       else if Pos('.', lHelper.TargetName) > 0 then
         lLookup := fTypeIndex.ResolveQualifiedName(lHelper.TargetName)
@@ -7110,6 +7155,16 @@ class function TDelphiSemanticWithBinder.BindProject(const aContextFingerprint: 
   const aModels: TArray<TDelphiSemanticUnitModel>;
   const aRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence):
   TDelphiSemanticProjectWithBindingFacts;
+begin
+  Result := BindProject(aContextFingerprint, aGraph, aModels, aRootMemberAbsence, nil);
+end;
+
+class function TDelphiSemanticWithBinder.BindProject(const aContextFingerprint: string;
+  const aGraph: TDelphiSemanticSemanticGraph;
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
+  const aUnitNameWitness: IDelphiSemanticUnitNameWitness):
+  TDelphiSemanticProjectWithBindingFacts;
 var
   i: Integer;
   j: Integer;
@@ -7204,7 +7259,7 @@ begin
     lInventoryExpansionMs := lStopwatch.ElapsedMilliseconds;
     Result.UnitModels := Copy(aModels);
     lProjectMemberIndex := TWithBindingProjectMemberIndex.Create(aModels, aGraph,
-      Default(TDelphiSemanticRemoveWithLookupIndex));
+      Default(TDelphiSemanticRemoveWithLookupIndex), aUnitNameWitness);
     lProjectMemberIndex.fRootMemberAbsence := aRootMemberAbsence;
     for j := 0 to High(Result.Symbols) do
     begin

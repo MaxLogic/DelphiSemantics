@@ -315,9 +315,17 @@ type
     ReceiverType: string;
     ReceiverIdentity: TDelphiSemanticTypeIdentity;
     RetainedIdenticalStorageProved: Boolean;
+    StrategyKindContradiction: Boolean;
+    CaptureDenied: Boolean;
     TempName: string;
     DeclarationText: string;
     InitializationText: string;
+    Reason: string;
+  end;
+
+  TFinalReferenceRefusal = record
+    Offset: Integer;
+    Length: Integer;
     Reason: string;
   end;
 
@@ -335,6 +343,9 @@ type
   end;
 
   TFinalReceiverBodyFacts = record
+    LineageDenialReason: string;
+    StrategyKindContradiction: Boolean;
+    CaptureDenied: Boolean;
     ValueQualifications: TArray<TFinalSelectorDecision>;
     BareReferences: TArray<TDelphiSemanticBoundReference>;
     QualifiedFallbacks: TArray<TFinalQualifiedFallback>;
@@ -3144,15 +3155,33 @@ begin
   Result := False;
 end;
 
+function CaptureLookupDenies(const aSelector: TDelphiSemanticWithSelectorBinding;
+  const aTypeName: string; const aReceiverIdentity: TDelphiSemanticTypeIdentity): Boolean;
+begin
+  Result := False;
+  if (aSelector.CaptureTypeName = '') or
+    (not SameText(aSelector.CaptureTypeName, aTypeName)) then
+    Exit;
+  Result := (aSelector.CaptureTypeStatus = '') or
+    SameText(aSelector.CaptureTypeStatus, 'unproved') or
+    SameText(aSelector.CaptureTypeStatus, 'ambiguous') or
+    (SameText(aSelector.CaptureTypeStatus, 'resolved') and
+      ((aSelector.CaptureTypeIdentity.CanonicalId.Value = '') or
+       (aSelector.CaptureTypeIdentity.CanonicalId.Value <> aReceiverIdentity.CanonicalId.Value)));
+end;
+
 function UniqueUnitTypeDeclarationIsVisible(const aFacts: TRemoveWithPlanFacts;
-  const aBinding: TDelphiSemanticWithBinding; const aTypeName: string;
-  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aSelector: TDelphiSemanticWithSelectorBinding; const aTypeName: string;
+  const aLineCache: TDelphiSemanticSourceContextCache;
+  out aCaptureDenied: Boolean): Boolean;
 var
   lDeclaration: TDelphiSemanticInventorySymbol;
   lSelected: TDelphiSemanticInventorySymbol;
 begin
   // Without a binder identity only a project-unique name proves which declaration
   // the unqualified temp type denotes; any other declaration of it refuses.
+  aCaptureDenied := False;
   Result := False;
   lSelected := Default(TDelphiSemanticInventorySymbol);
   for lDeclaration in aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(aTypeName) do
@@ -3175,10 +3204,21 @@ begin
   // A routine-local type is visible only through its scoped binder identity.
   Result := Result and (not DeclarationIsRoutineLocal(aFacts, lSelected)) and
     CaptureDeclarationIsVisible(aFacts, aBinding, lSelected, aLineCache);
+  if Result and SameText(aSelector.CaptureTypeName, aTypeName) then
+  begin
+    aCaptureDenied := not ((aSelector.CaptureTypeStatus <> '') and
+      not SameText(aSelector.CaptureTypeStatus, 'unproved') and
+      not SameText(aSelector.CaptureTypeStatus, 'ambiguous') and
+      ((not SameText(aSelector.CaptureTypeStatus, 'resolved')) or
+        (SameText(aSelector.CaptureTypeIdentity.UnitName, lSelected.UnitName) and
+         SameText(aSelector.CaptureTypeIdentity.Name, lSelected.Name))));
+    Result := not aCaptureDenied;
+  end;
 end;
 
-function CaptureTypeIsVisible(const aFacts: TRemoveWithPlanFacts;
-  const aBinding: TDelphiSemanticWithBinding; const aTypeName: string;
+function HeadCaptureTypeIsVisible(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aSelector: TDelphiSemanticWithSelectorBinding; const aTypeName: string;
   const aIdentity: TDelphiSemanticTypeIdentity;
   const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
 var
@@ -3192,12 +3232,6 @@ var
   lSelected: TDelphiSemanticInventorySymbol;
 begin
   Result := False;
-  // Without a DeclaredId (whatever else the identity holds) only the unique-name
-  // check can prove the type; any identity with a DeclaredId takes the strict path
-  // below, where an incomplete or conflicting one is refused.
-  if aIdentity.DeclaredId.Value = '' then
-    Exit((not SameText(aIdentity.ScopeKind, 'routine')) and
-      UniqueUnitTypeDeclarationIsVisible(aFacts, aBinding, aTypeName, aLineCache));
   if not TypeIdentityHasVerifiedOrigin(aIdentity) then
     Exit;
   if SameText(aIdentity.ScopeKind, 'routine') then
@@ -3284,6 +3318,28 @@ begin
     Result := True;
   end;
   Result := Result and lFoundSelected;
+end;
+
+function CaptureTypeIsVisible(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aSelector: TDelphiSemanticWithSelectorBinding; const aTypeName: string;
+  const aIdentity: TDelphiSemanticTypeIdentity;
+  const aLineCache: TDelphiSemanticSourceContextCache;
+  out aCaptureDenied: Boolean): Boolean;
+begin
+  aCaptureDenied := False;
+  if aIdentity.DeclaredId.Value = '' then
+    Exit((not SameText(aIdentity.ScopeKind, 'routine')) and
+      UniqueUnitTypeDeclarationIsVisible(aFacts, aBinding, aSelector, aTypeName,
+        aLineCache, aCaptureDenied));
+  // A2: D4 is additional. HEAD's refusal and its candidate coverage stand.
+  Result := HeadCaptureTypeIsVisible(aFacts, aBinding, aSelector, aTypeName,
+    aIdentity, aLineCache);
+  if Result then
+  begin
+    aCaptureDenied := CaptureLookupDenies(aSelector, aTypeName, aIdentity);
+    Result := not aCaptureDenied;
+  end;
 end;
 
 function BuildSelectorDecision(const aFacts: TRemoveWithPlanFacts;
@@ -3374,9 +3430,12 @@ begin
   lBaseName := 'lWith' + RemoveLeadingTypePrefix(aDecision.ReceiverType);
   if TypeIsClassLike(aFacts, aDecision.ReceiverType) then
   begin
-    if not CaptureTypeIsVisible(aFacts, aBinding, aDecision.ReceiverType,
+    aDecision.StrategyKindContradiction :=
+      TypeIdentityHasVerifiedOrigin(aDecision.ReceiverIdentity) and
+      MatchText(aDecision.ReceiverIdentity.UnderlyingName, ['record', 'packed record']);
+    if not CaptureTypeIsVisible(aFacts, aBinding, aSelector, aDecision.ReceiverType,
       aDecision.ReceiverIdentity,
-      aLineCache) then
+      aLineCache, aDecision.CaptureDenied) then
     begin
       aReason := 'receiver-type-not-visible';
       Exit;
@@ -3389,6 +3448,9 @@ begin
     aDecision.Reason := 'reference-temp-preserves-evaluation';
   end else if TypeIsRecordLike(aFacts, aDecision.ReceiverType) then
   begin
+    aDecision.StrategyKindContradiction :=
+      TypeIdentityHasVerifiedOrigin(aDecision.ReceiverIdentity) and
+      SameText(aDecision.ReceiverIdentity.UnderlyingName, 'class');
     if IsSimpleIdentifier(aSelectorText) and
       EndsText('.' + aSelectorText, aDecision.ReceiverType) then
     begin
@@ -3429,9 +3491,9 @@ begin
         aDecision.Reason := 'record-routine-member-direct-qualification';
     end else
     begin
-      if not CaptureTypeIsVisible(aFacts, aBinding, aDecision.ReceiverType,
+      if not CaptureTypeIsVisible(aFacts, aBinding, aSelector, aDecision.ReceiverType,
         aDecision.ReceiverIdentity,
-        aLineCache) then
+        aLineCache, aDecision.CaptureDenied) then
       begin
         aReason := 'receiver-type-not-visible';
         Exit;
@@ -3462,6 +3524,22 @@ begin
   Result := True;
 end;
 
+function QualificationIsDenied(const aRefusals: TArray<TFinalReferenceRefusal>;
+  const aOffset, aLength: Integer; out aReason: string): Boolean;
+var
+  lRefusal: TFinalReferenceRefusal;
+begin
+  aReason := '';
+  for lRefusal in aRefusals do
+    if (aOffset < lRefusal.Offset + lRefusal.Length) and
+      (lRefusal.Offset < aOffset + aLength) then
+    begin
+      aReason := lRefusal.Reason;
+      Exit(True);
+    end;
+  Result := False;
+end;
+
 procedure AddFinalBodyEdit(var aEdits: TArray<TFinalBodyEdit>; const aOffset,
   aLength: Integer; const aExpectedText, aReplacementText: string);
 var
@@ -3475,15 +3553,19 @@ begin
   aEdits[lIndex].ReplacementText := aReplacementText;
 end;
 
-procedure AddQualifiedBodyEdit(var aEdits: TArray<TFinalBodyEdit>;
+function AddQualifiedBodyEdit(var aEdits: TArray<TFinalBodyEdit>;
   const aBodyText: string; const aOffset, aLength: Integer;
-  const aExpectedText, aQualifierText, aMemberText: string);
+  const aExpectedText, aQualifierText, aMemberText: string;
+  const aRefusals: TArray<TFinalReferenceRefusal>; out aReason: string): Boolean;
 var
   lExpectedText: string;
   lLength: Integer;
   lMemberText: string;
   lOffset: Integer;
 begin
+  Result := False;
+  if QualificationIsDenied(aRefusals, aOffset, aLength, aReason) then
+    Exit;
   lOffset := aOffset;
   lLength := aLength;
   lExpectedText := aExpectedText;
@@ -3499,6 +3581,7 @@ begin
   AddFinalBodyEdit(aEdits, lOffset, lLength, lExpectedText,
     aQualifierText + '.' + lMemberText);
   aEdits[High(aEdits)].QualifierText := aQualifierText;
+  Result := True;
 end;
 
 function IsIdentifierTextChar(const aChar: Char): Boolean;
@@ -3595,7 +3678,8 @@ function BodyOffsetInsideLiteralOrComment(const aText: string;
   const aOffset: Integer): Boolean; forward;
 
 procedure AddDependentSelectorBodyEdits(const aDecisions: TArray<TFinalSelectorDecision>;
-  const aBodyText: string; var aBodyEdits: TArray<TFinalBodyEdit>);
+  const aBodyText: string; const aRefusals: TArray<TFinalReferenceRefusal>;
+  var aBodyEdits: TArray<TFinalBodyEdit>; out aReason: string);
 var
   lDecision: TFinalSelectorDecision;
   lOffset: Integer;
@@ -3610,8 +3694,13 @@ begin
     begin
       if BodyTextIdentifierAt(aBodyText, lDecision.SelectorText, lOffset) and
         (not BodyOffsetInsideLiteralOrComment(aBodyText, lOffset)) then
+      begin
+        if QualificationIsDenied(aRefusals, lOffset,
+          Length(lDecision.SelectorText), aReason) then
+          Exit;
         AddFinalBodyEdit(aBodyEdits, lOffset, Length(lDecision.SelectorText),
           lDecision.SelectorText, lDecision.QualifierText);
+      end;
       lOffset := PosEx(lDecision.SelectorText, aBodyText,
         lOffset + Length(lDecision.SelectorText));
     end;
@@ -3645,7 +3734,8 @@ end;
 procedure AddIndexedMemberBodyEdits(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>; const aBodyText: string;
-  const aDeclarations: TArray<Boolean>; var aBodyEdits: TArray<TFinalBodyEdit>);
+  const aDeclarations: TArray<Boolean>; const aRefusals: TArray<TFinalReferenceRefusal>;
+  var aBodyEdits: TArray<TFinalBodyEdit>; out aReason: string);
 var
   i: Integer;
   lDecision: TFinalSelectorDecision;
@@ -3696,8 +3786,9 @@ begin
         lDecision.QualifierText, lOffset) or
         BodyEditOffsetUsed(aBodyEdits, lOffset, lName) then
         Continue;
-      AddQualifiedBodyEdit(aBodyEdits, aBodyText, lOffset, Length(lName), lName,
-        lDecision.QualifierText, lName);
+      if not AddQualifiedBodyEdit(aBodyEdits, aBodyText, lOffset, Length(lName), lName,
+        lDecision.QualifierText, lName, aRefusals, aReason) then
+        Exit;
       Break;
     end;
   end;
@@ -4007,6 +4098,38 @@ begin
     SameText(aReference.LookupSource, 'receiver');
 end;
 
+function ReferenceHasLineageDenial(const aFacts: TRemoveWithPlanFacts;
+  const aDecisions: TArray<TFinalSelectorDecision>;
+  const aReference: TDelphiSemanticBoundReference): Boolean;
+var
+  i: Integer;
+  lDecision: TFinalSelectorDecision;
+  lOwnerName, lReferenceName: string;
+begin
+  Result := False;
+  if not SameText(aReference.Classification, 'unsupported') or
+    not MatchText(aReference.ReasonCode, ['OWNER_INHERITED_MEMBERS_UNVERIFIED',
+      'TYPE_VISIBILITY_UNPROVED']) then
+    Exit;
+  lReferenceName := ReferenceLookupName(aReference.Name);
+  for i := High(aDecisions) downto 0 do
+  begin
+    lDecision := aDecisions[i];
+    if not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lReferenceName) and
+      not SameText(lDecision.ReceiverType, aReference.ReceiverTypeName) then
+      Continue;
+    if not TypeIdentityHasVerifiedOrigin(lDecision.ReceiverIdentity) or
+      aFacts.LookupIndex.IsProfileRecord(lDecision.ReceiverIdentity, True) then
+      Exit;
+    lOwnerName := aReference.ReceiverTypeName;
+    if lOwnerName = '' then
+      lOwnerName := lDecision.ReceiverType;
+    Result := not aFacts.LookupIndex.ReceiverLineageDeclaresMember(
+      lDecision.ReceiverIdentity, lOwnerName, lReferenceName);
+    Exit;
+  end;
+end;
+
 function QualifierForReference(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aDecisions: TArray<TFinalSelectorDecision>;
   const aReference: TDelphiSemanticBoundReference; out aQualifierText: string):
@@ -4054,6 +4177,8 @@ begin
         aQualifierText := aDecisions[i].QualifierText;
         Exit(TFinalReferenceQualification.QualifiedMember);
       end;
+  if ReferenceHasLineageDenial(aFacts, aDecisions, aReference) then
+    Exit;
   for i := High(aDecisions) downto 0 do
   begin
     lDecision := aDecisions[i];
@@ -4321,7 +4446,8 @@ end;
 procedure AddSimpleMemberBodyEdits(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
   const aDecisions: TArray<TFinalSelectorDecision>; const aBodyText: string;
-  const aDeclarations: TArray<Boolean>; var aBodyEdits: TArray<TFinalBodyEdit>);
+  const aDeclarations: TArray<Boolean>; const aRefusals: TArray<TFinalReferenceRefusal>;
+  var aBodyEdits: TArray<TFinalBodyEdit>; out aReason: string);
 var
   i: Integer;
   lName: string;
@@ -4364,8 +4490,9 @@ begin
       BodyEditOffsetUsed(aBodyEdits, lStartOffset, lName) then
       Continue;
 
-    AddQualifiedBodyEdit(aBodyEdits, aBodyText, lStartOffset, Length(lName), lName,
-      lQualifierText, lName);
+    if not AddQualifiedBodyEdit(aBodyEdits, aBodyText, lStartOffset, Length(lName), lName,
+      lQualifierText, lName, aRefusals, aReason) then
+      Exit;
   end;
 end;
 
@@ -5434,6 +5561,8 @@ begin
   // remaining bare references before that replacement hides their source edits.
   for lNestedReplacement in aNestedReplacements do
   begin
+    aBodyFacts.StrategyKindContradiction := aBodyFacts.StrategyKindContradiction or
+      lNestedReplacement.ReceiverBodyFacts.StrategyKindContradiction;
     aBodyFacts.ValueQualifications := aBodyFacts.ValueQualifications +
       lNestedReplacement.ReceiverBodyFacts.ValueQualifications;
     aBodyFacts.BareReferences := aBodyFacts.BareReferences +
@@ -5538,6 +5667,8 @@ var
   lAnonymousNames: TArray<TArray<string>>;
   lBodyEdits: TArray<TFinalBodyEdit>;
   lProtectedSpans: TArray<TFinalBodyEdit>;
+  lReferenceRefusals: TArray<TFinalReferenceRefusal>;
+  lRefusal: TFinalReferenceRefusal;
   lDeclarations: TArray<Boolean>;
   lDecision: TFinalSelectorDecision;
   lBodyRange: TDelphiSemanticRemoveWithSourceRange;
@@ -5598,6 +5729,19 @@ begin
       SourceTextForRange(aBinding.FileName, lNestedRange, aLineCache),
       lNestedReplacement.ReplacementText);
   end;
+
+  // D5: retain a reference's denial before any fallback body scan can qualify it.
+  for lReference in aBinding.References do
+    if ReferenceInsideRange(lReference, lBodyRange) and
+      ReferenceHasLineageDenial(aFacts, aEditDecisions, lReference) then
+    begin
+      lRefusal.Offset := RangeRelativeOffset(lBodyRange, lLines,
+        lReference.Line, lReference.Column, lLineBreak);
+      lRefusal.Length := Length(lReference.Name);
+      lRefusal.Reason := lReference.ReasonCode;
+      aBodyFacts.LineageDenialReason := lRefusal.Reason;
+      lReferenceRefusals := lReferenceRefusals + [lRefusal];
+    end;
 
   lDeclarations := BodyNonReferencePositions(aReplacementText, False);
   // Seed identity edits so fallback member scans cannot rewrite proven label tokens.
@@ -5735,14 +5879,22 @@ begin
     lSourceReference := lReference;
     lSourceReference.Name := Copy(aReplacementText, lOffset, Length(lReference.Name));
     lReferenceName := ReferenceNameWithQualifiedArguments(aFacts, aEditDecisions, lSourceReference);
-    AddQualifiedBodyEdit(lBodyEdits, aReplacementText, lOffset, Length(lReference.Name),
-      lSourceReference.Name, lQualifierText, lReferenceName);
+    if not AddQualifiedBodyEdit(lBodyEdits, aReplacementText, lOffset, Length(lReference.Name),
+      lSourceReference.Name, lQualifierText, lReferenceName, lReferenceRefusals, aReason) then
+      Exit;
   end;
   AddSimpleMemberBodyEdits(aFacts, aBinding, aEditDecisions, aReplacementText,
-    lDeclarations, lBodyEdits);
+    lDeclarations, lReferenceRefusals, lBodyEdits, aReason);
+  if aReason <> '' then
+    Exit;
   AddIndexedMemberBodyEdits(aFacts, aBinding, aEditDecisions, aReplacementText,
-    lDeclarations, lBodyEdits);
-  AddDependentSelectorBodyEdits(aEditDecisions, aReplacementText, lBodyEdits);
+    lDeclarations, lReferenceRefusals, lBodyEdits, aReason);
+  if aReason <> '' then
+    Exit;
+  AddDependentSelectorBodyEdits(aEditDecisions, aReplacementText, lReferenceRefusals,
+    lBodyEdits, aReason);
+  if aReason <> '' then
+    Exit;
   if BodyEditsQualifyNonMemberReference(aFacts, aEditDecisions, lBodyEdits, aBinding, aReplacementText,
     lBodyRange.StartLine) then
   begin
@@ -7042,6 +7194,7 @@ begin
       Result.Status := 'skipped';
       Result.Reason := lReason;
       Result.SafetyReason := Result.Reason;
+      aBodyFacts.CaptureDenied := lDecision.CaptureDenied;
       Exit;
     end;
     lDecision.RetainedIdenticalStorageProved := RetainedIdenticalReceiverStorageProved(
@@ -7098,6 +7251,7 @@ begin
         lBinding.RoutineName, Result.Temps);
       Result.Temps := nil;
       Result.Status := lChildStatement.Status;
+      aBodyFacts.CaptureDenied := lChildBodyFacts.CaptureDenied;
       // Preserve the removed parent's own refusal before propagating a child
       // failure. A retained parent then permits a fresh child-only proof.
       if SameText(lChildStatement.SafetyReason, 'OWNER_INHERITED_MEMBERS_UNVERIFIED') and
@@ -7245,6 +7399,11 @@ begin
     if lTrailingSemicolon then
       lReplacementText := lReplacementText + ';';
   end;
+  // A2.3a: defer kind refusal until all established refusal checks have run.
+  // Propagate covered children's contradictions with their body facts.
+  for lDecision in lSelectorDecisions do
+    aBodyFacts.StrategyKindContradiction := aBodyFacts.StrategyKindContradiction or
+      lDecision.StrategyKindContradiction;
   Result.Status := 'planned';
   Result.ReplacementText := lReplacementText;
   lOwnTempIndex := 0;
@@ -7946,6 +8105,7 @@ var
   lSelector: TDelphiSemanticWithSelectorBinding;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  lBodyFacts := Default(TFinalReceiverBodyFacts);
   lBinding := aBindingSource.BindingByIndex(aBindingIndex);
   if aSafetyReasons[aBindingIndex] <> '' then
   begin
@@ -7965,7 +8125,11 @@ begin
   // Compute the complete ordinary DTO, including nested rewrites.
   // Activity changes only an otherwise applicable result; existing refusals
   // retain exactly their own Status, Reason and SafetyReason.
-  if aMemberActivityUnverified[aBindingIndex] and SameText(lStatement.Status, 'planned') then
+  // D5 cannot replace the existing member-activity refusal it interrupted.
+  if aMemberActivityUnverified[aBindingIndex] and
+    (SameText(lStatement.Status, 'planned') or
+     ((lBodyFacts.LineageDenialReason <> '') and
+      SameText(lStatement.SafetyReason, lBodyFacts.LineageDenialReason))) then
   begin
     RollbackReservedTempNamesForFinalTemps(aReservedNames, lBinding.RoutineName,
       lStatement.Temps);
@@ -7987,6 +8151,19 @@ begin
     lStatement := BuildSkippedFinalStatement(lBinding, FinalStatementId(aBindingIndex + 1),
       'inactive-nested-with-shadowing', 'INACTIVE_NESTED_WITH_SHADOW');
   end;
+  // A2.3a: ordinary selector, renderer and activity reasons retain precedence.
+  if SameText(lStatement.Status, 'planned') and lBodyFacts.StrategyKindContradiction then
+  begin
+    RollbackReservedTempNamesForFinalTemps(aReservedNames, lBinding.RoutineName,
+      lStatement.Temps);
+    lStatement := BuildSkippedFinalStatement(lBinding, FinalStatementId(aBindingIndex + 1),
+      'receiver-type-not-visible', 'receiver-type-not-visible');
+  end;
+  if lBodyFacts.CaptureDenied then
+    for lIndex := High(aPlan.Edits) downto 0 do
+      if SameText(aPlan.Edits[lIndex].Kind, 'remove-with-candidate') and
+        (aPlan.Edits[lIndex].StatementId = lBinding.SemanticId) then
+        Delete(aPlan.Edits, lIndex, 1);
   AddFinalStatement(aPlan, lStatement);
   if SameText(lStatement.Status, 'planned') then
     Exit;
@@ -8464,6 +8641,7 @@ begin
             for lFinalStatement in Result.FinalStatements do
               if (SameText(lFinalStatement.Reason, 'receiver-member-owner-conflict') or
                 SameText(lFinalStatement.Reason, 'receiver-member-unqualified') or
+                SameText(lFinalStatement.SafetyReason, 'TYPE_VISIBILITY_UNPROVED') or
                 SameText(lFinalStatement.SafetyReason, 'TYPE_VALUE_MEMBERS_UNVERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'RECEIVER_MEMBERS_PARTIALLY_VERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'RECORD_HELPER_MEMBERS_UNVERIFIED') or
@@ -8727,6 +8905,9 @@ begin
   Result.ReasonCode := aSnapshot.ExactTextOf(aSelector.ReasonCodeId);
   Result.TypeName := aSnapshot.ExactTextOf(aSelector.TypeNameId);
   Result.TypeIdentity := SnapshotTypeIdentity(aSnapshot, aSelector.TypeIdentity);
+  Result.CaptureTypeIdentity := SnapshotTypeIdentity(aSnapshot, aSelector.CaptureTypeIdentity);
+  Result.CaptureTypeName := aSnapshot.ExactTextOf(aSelector.CaptureTypeNameId);
+  Result.CaptureTypeStatus := aSnapshot.ExactTextOf(aSelector.CaptureTypeStatusId);
 end;
 
 function SnapshotBoundReference(const aSnapshot: TDelphiProjectSnapshot;

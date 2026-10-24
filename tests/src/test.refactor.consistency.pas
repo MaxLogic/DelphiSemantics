@@ -1,4 +1,4 @@
-unit Test.Refactor.Consistency;
+﻿unit Test.Refactor.Consistency;
 
 interface
 
@@ -23,6 +23,9 @@ type
   public
     [Test]
     procedure ExtractsInterfaceAndDispinterfaceGuidFacts;
+    [TestCase('Unknown last', 'True')]
+    [TestCase('Known last', 'False')]
+    procedure OrderedUnindexedImportGuardsAncestry(const aUnknownLast: Boolean);
     [Test]
     [TestCase('Class', 'class')]
     [TestCase('Interface', 'interface')]
@@ -157,7 +160,44 @@ uses
   DelphiSemantics.Consistency.EventBindings, DelphiSemantics.Consistency.EventSignatures,
   DelphiSemantics.Consistency.Types,
   DelphiSemantics.Model.Extract, DelphiSemantics.Model.Json,
-  DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.SemanticGraph;
+  DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.MemberResolver,
+  DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.SemanticGraph;
+
+procedure TRefactorConsistencyTests.OrderedUnindexedImportGuardsAncestry(
+  const aUnknownLast: Boolean);
+var
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lTypes: TDelphiSemanticTypeIdentityIndex;
+  lMembers: TDelphiSemanticMemberIdentityIndex;
+  lAncestry: TDelphiSemanticClassAncestry;
+  lImports: string;
+begin
+  lImports := 'WrongUnit, Vcl.Forms';
+  if not aUnknownLast then
+    lImports := 'Vcl.Forms, WrongUnit';
+  lModels := [ExtractModel('ChildUnit', 'unit ChildUnit;'#13#10'interface'#13#10 +
+    'uses ' + lImports + ';'#13#10'type'#13#10 +
+    '  TChild = class(TForm) end;'#13#10'implementation'#13#10'end.'),
+    ExtractModel('WrongUnit', 'unit WrongUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TForm = class'#13#10'  public OnlyWrong: Integer;'#13#10 +
+    '  end;'#13#10'implementation'#13#10'end.')];
+  Assert.IsTrue(Length(lModels[0].Declarations) > 0);
+  Assert.IsTrue(Length(lModels[1].Declarations) > 0);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(
+    Default(TDelphiSemanticProjectInfo), lModels);
+  try
+    lTypes := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lAncestry := TDelphiSemanticEventBindingResolver.InspectClassAncestry(
+      lModels, lTypes, 'ChildUnit', 'TChild');
+    Assert.AreEqual(not aUnknownLast, lAncestry.Complete, lAncestry.Reason);
+    lMembers := TDelphiSemanticMemberResolver.BuildIndex(lGraph, lTypes);
+    Assert.AreEqual(not aUnknownLast,
+      lMembers.ResolveMember('ChildUnit.TChild', 'OnlyWrong').Found);
+  finally
+    lGraph.Free;
+  end;
+end;
 
 procedure TRefactorConsistencyTests.PreservesTypesBesideKeyword(const aShape: string);
 var

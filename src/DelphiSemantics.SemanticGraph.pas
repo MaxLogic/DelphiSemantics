@@ -1,9 +1,9 @@
-unit DelphiSemantics.SemanticGraph;
+﻿unit DelphiSemantics.SemanticGraph;
 
 interface
 
 uses
-  DelphiSemantics.Model, DelphiSemantics.ProjectContext;
+  DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.UnitNameWitness;
 
 type
   TDelphiSemanticProjectGraphId = record
@@ -47,6 +47,9 @@ type
     FileName: string;
     SourceKind: string;
     ScopeModelStatus: string;
+    InterfaceImports: TArray<string>;
+    ImplementationImports: TArray<string>;
+    ImportsKnown: Boolean;
     SourceRange: TDelphiSemanticSourceRange;
   end;
 
@@ -176,6 +179,7 @@ type
 
   TDelphiSemanticSemanticGraph = class
   private
+    fUnitNameWitness: IDelphiSemanticUnitNameWitness;
     fDeclarations: TArray<TDelphiSemanticGraphDeclaration>;
     fLocals: TArray<TDelphiSemanticGraphLocal>;
     fMembers: TArray<TDelphiSemanticGraphMember>;
@@ -227,12 +231,17 @@ type
     function Types: TArray<TDelphiSemanticGraphType>;
     function Units: TArray<TDelphiSemanticGraphUnit>;
     function WithStatements: TArray<TDelphiSemanticGraphWithStatement>;
+    property UnitNameWitness: IDelphiSemanticUnitNameWitness read fUnitNameWitness
+      write fUnitNameWitness;
     property Metrics: TDelphiSemanticGraphBuildMetrics read fMetrics;
     property ProjectId: TDelphiSemanticProjectGraphId read fProjectId;
   end;
 
   TDelphiSemanticSemanticGraphBuilder = record
   public
+    class function ProjectImports(const aProject: TDelphiSemanticProjectInfo;
+      const aModel: TDelphiSemanticUnitModel; const aModels: TArray<TDelphiSemanticUnitModel>;
+      out aInterface, aImplementation: TArray<string>): Boolean; static;
     class function Build(const aProject: TDelphiSemanticProjectInfo;
       const aUnitModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticSemanticGraph;
       static;
@@ -241,7 +250,8 @@ type
 implementation
 
 uses
-  System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.SysUtils;
+  System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.SysUtils,
+  DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.SourceConditionals;
 
 function StableHash(const aText: string): string;
 begin
@@ -337,7 +347,8 @@ begin
 end;
 
 function BuildUnit(const aProjectId: TDelphiSemanticProjectGraphId;
-  const aModel: TDelphiSemanticUnitModel): TDelphiSemanticGraphUnit;
+  const aProject: TDelphiSemanticProjectInfo; const aModel: TDelphiSemanticUnitModel;
+  const aModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticGraphUnit;
 begin
   Result := Default(TDelphiSemanticGraphUnit);
   Result.Id := MakeUnitId(aProjectId, aModel);
@@ -346,6 +357,8 @@ begin
   Result.FileName := aModel.FileName;
   Result.SourceKind := 'project';
   Result.ScopeModelStatus := aModel.ScopeModelStatus;
+  Result.ImportsKnown := TDelphiSemanticSemanticGraphBuilder.ProjectImports(aProject,
+    aModel, aModels, Result.InterfaceImports, Result.ImplementationImports);
   Result.SourceRange := UnitSourceRange(aModel);
 end;
 
@@ -867,6 +880,62 @@ begin
   Result := Copy(fWithStatements);
 end;
 
+function CanonicalProjectImport(const aProject: TDelphiSemanticProjectInfo;
+  const aModels: TArray<TDelphiSemanticUnitModel>; const aUnitName: string): string;
+var
+  lCandidate: TUnitCandidateName;
+  lModel: TDelphiSemanticUnitModel;
+  lResolved: TDelphiSemanticUnitResolutionResult;
+begin
+  Result := aUnitName;
+  // Only a model hit can change ProjectImports' spelling. Avoid filesystem
+  // resolution for source/DCU-only names; their result is discarded below.
+  for lCandidate in TDelphiSemanticUnitResolver.CandidateNames(aProject, Trim(aUnitName)) do
+    for lModel in aModels do
+      if SameText(lModel.UnitName, lCandidate.TargetName) then
+      begin
+        lResolved := TDelphiSemanticUnitResolver.Resolve(aProject, aUnitName, aModels);
+        if lResolved.Found and SameText(lResolved.SourceKind, 'project') then
+          Result := lResolved.CanonicalUnitName;
+        Exit;
+      end;
+end;
+
+class function TDelphiSemanticSemanticGraphBuilder.ProjectImports(
+  const aProject: TDelphiSemanticProjectInfo; const aModel: TDelphiSemanticUnitModel;
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  out aInterface, aImplementation: TArray<string>): Boolean;
+var
+  i: Integer;
+  lRawImports: TArray<string>;
+begin
+  if aModel.DependencyFacts.Known then
+  begin
+    aInterface := Copy(aModel.DependencyFacts.InterfaceImports);
+    aImplementation := Copy(aModel.DependencyFacts.ImplementationImports);
+    if (Length(aInterface) = 0) and (Length(aModel.DependencyFacts.RootImports) > 0) then
+    begin
+      aInterface := Copy(aModel.DependencyFacts.RootImports);
+      aImplementation := Copy(aModel.DependencyFacts.RootImports);
+    end;
+  end else begin
+    aInterface := Copy(aModel.InterfaceUses);
+    aImplementation := Copy(aModel.ImplementationUses);
+  end;
+  // Concatenation with an empty array may share storage with its nonempty input.
+  // Keep the raw spelling independent of the canonicalization below.
+  lRawImports := Copy(aInterface + aImplementation);
+  for i := 0 to High(aInterface) do
+    aInterface[i] := CanonicalProjectImport(aProject, aModels, aInterface[i]);
+  for i := 0 to High(aImplementation) do
+    aImplementation[i] := CanonicalProjectImport(aProject, aModels, aImplementation[i]);
+  Result := aModel.DependencyFacts.Known and aModel.Success and
+    (SameText(aModel.ScopeModelStatus, 'ast') or
+     SameText(aModel.ScopeModelStatus, 'ast-interface-only')) and
+    not TDelphiSemanticSourceConditionals.ImportOrderUnknown(aModel.SourceText,
+      aModel.VerifiedActiveSourceText, aModel.IncludeFileNames, lRawImports);
+end;
+
 class function TDelphiSemanticSemanticGraphBuilder.Build(
   const aProject: TDelphiSemanticProjectInfo;
   const aUnitModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticSemanticGraph;
@@ -912,7 +981,7 @@ begin
     for lModel in aUnitModels do
       if lModel.Success and (lModel.UnitName <> '') then
       begin
-        lUnit := BuildUnit(lProjectId, lModel);
+        lUnit := BuildUnit(lProjectId, aProject, lModel, aUnitModels);
         lUnits.Add(lUnit);
         AddDeclarationSymbols(lSymbols, lDeclarations, lTypes, lUnit, lModel);
         AddMemberSymbols(lSymbols, lMembers, lUnit, lModel);

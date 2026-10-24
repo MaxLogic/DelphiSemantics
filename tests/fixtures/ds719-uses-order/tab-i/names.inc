@@ -1,0 +1,1 @@
+type TX = record OnlyU: Integer; end;

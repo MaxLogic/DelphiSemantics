@@ -1,0 +1,1 @@
+unit U; interface type TX = record OnlyU: Integer; end; implementation end.

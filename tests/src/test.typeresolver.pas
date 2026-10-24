@@ -33,13 +33,56 @@ type
     procedure OpenArrayAndGenericHeadersKeepAstSignatureEvidence;
     [Test]
     procedure HeaderBodyPairsIgnoreOnlyWhitespaceDifferences;
+    [TestCase('AThenB', 'TypeUnitA;TypeUnitB,TypeUnitB')]
+    [TestCase('BThenA', 'TypeUnitB;TypeUnitA,TypeUnitA')]
+    procedure OrderedVisibleNamesChooseLastUnit(const aImports, aExpectedUnit: string);
+    [Test]
+    procedure UnknownLaterUnitMakesEarlierTypeUnproved;
+    [Test]
+    procedure FailedIndexedLaterUnitMakesEarlierTypeUnproved;
+    [Test]
+    procedure AncestorsStopAtUnindexedLaterImport;
+    [TestCase('AInterfaceBImplementation', '0')]
+    [TestCase('BInterfaceAImplementation', '1')]
+    procedure ImplementationImportsFollowInterfaceImports(const aReverse: Integer);
+    [Test]
+    procedure UnknownActivityAppendsImportSentinel;
+    [TestCase('Body', 'body,True')]
+    [TestCase('Declaration', 'declaration,True')]
+    [TestCase('Clause', 'clause,False')]
+    [TestCase('Section', 'section,False')]
+    [TestCase('Include', 'include,False')]
+    [TestCase('MissingImport', 'missing,False')]
+    [TestCase('IncludedUses', 'included-uses,False')]
+    [TestCase('IncludedLexicalUses', 'included-lexical,True')]
+    [TestCase('RootLexicalUses', 'root-lexical,True')]
+    [TestCase('UnresolvedClauseInclude', 'expanded-unresolved,False')]
+    [TestCase('UnknownConditionalInclude', 'expanded-unknown,False')]
+    [TestCase('ResolvedClauseInclude', 'expanded-known,True')]
+    [TestCase('ResolvedNestedClauseInclude', 'expanded-nested,True')]
+    [TestCase('ResolvedStandaloneUsesInclude', 'expanded-uses,True')]
+    [TestCase('UsesIoSwitchBraces', 'switch-braces,True')]
+    [TestCase('UsesIoSwitchParentheses', 'switch-parentheses,True')]
+    procedure ImportActivityScope(const aShape: string; const aExpectedKnown: Boolean);
+    [Test]
+    procedure ScopedImportSpellingCanonicalizes;
+    [Test]
+    procedure AliasBeforeTargetUnitResolvesAfterRegistration;
+    [Test]
+    procedure WitnessAbsenceAllowsEarlierCandidate;
+    [Test]
+    procedure InactiveImportDoesNotShadow;
+    [Test]
+    procedure LaterKnownAncestorWinsOverEarlierUnknownImport;
   end;
 
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
+  AutoFree,
   DelphiSemantics.Model.Extract, DelphiSemantics.Model.Json,
+  DelphiSemantics.Resolve.UnitNameWitness, DelphiSemantics.SourceConditionals,
   Test.Support;
 
 function TTypeResolverTests.Graph: TDelphiSemanticSemanticGraph;
@@ -849,6 +892,369 @@ begin
   finally
     lGraph.Free;
   end;
+end;
+
+procedure TTypeResolverTests.OrderedVisibleNamesChooseLastUnit(const aImports,
+  aExpectedUnit: string);
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lResult: TDelphiSemanticTypeLookupResult;
+begin
+  lGraph := Graph;
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lResult := lIndex.ResolveVisibleName('TShared', 'Consumer', aImports.Split([';']));
+    Assert.IsTrue(lResult.Found, lResult.Reason);
+    Assert.AreEqual(aExpectedUnit, lResult.Identity.UnitName);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.UnknownLaterUnitMakesEarlierTypeUnproved;
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lResult: TDelphiSemanticTypeLookupResult;
+begin
+  lGraph := Graph;
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lResult := lIndex.ResolveVisibleName('TChild', 'Consumer', ['TypeUnitA', 'Unknown']);
+    Assert.IsFalse(lResult.Found);
+    Assert.IsFalse(lResult.Ambiguous);
+    Assert.AreEqual('unproved', lResult.Status);
+    Assert.AreEqual('TYPE_VISIBILITY_UNPROVED', lResult.ReasonCode);
+    Assert.AreEqual(0, Integer(Length(lResult.Candidates)));
+    lResult := lIndex.ResolveVisibleName('TChild', 'Consumer', ['Unknown', 'TypeUnitA']);
+    Assert.IsTrue(lResult.Found, lResult.Reason);
+    lResult := lIndex.ResolveVisibleName('TChild', 'TypeUnitA', ['Unknown']);
+    Assert.IsTrue(lResult.Found, lResult.Reason);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.FailedIndexedLaterUnitMakesEarlierTypeUnproved;
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lModel: TDelphiSemanticUnitModel;
+  lResult: TDelphiSemanticTypeLookupResult;
+begin
+  lModel := UnitModel('Broken');
+  lModel.ScopeModelStatus := 'ast-failed';
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo,
+    [UnitModel('TypeUnitA'), lModel]);
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lResult := lIndex.ResolveVisibleName('TChild', 'Consumer', ['TypeUnitA', 'Broken']);
+    Assert.AreEqual('TYPE_VISIBILITY_UNPROVED', lResult.ReasonCode);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.AncestorsStopAtUnindexedLaterImport;
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lModel: TDelphiSemanticUnitModel;
+  lResult: TDelphiSemanticTypeLookupResult;
+begin
+  lModel := UnitModel('Consumer');
+  lModel.ScopeModelStatus := 'ast';
+  lModel.DependencyFacts.Known := True;
+  lModel.DependencyFacts.InterfaceImports := ['TypeUnitA', 'Unknown'];
+  lModel.Declarations := Copy(UnitModel('TypeUnitA').Declarations, 1, 1);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo,
+    [UnitModel('TypeUnitA'), lModel]);
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lResult := lIndex.ResolveQualifiedName('Consumer.TChild');
+    Assert.IsTrue(lResult.Found, lResult.Reason);
+    Assert.AreEqual(0, Integer(Length(lIndex.FindAncestors(lResult.Identity))),
+      'An unproved base cannot borrow another unit''s TBase.');
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.ImplementationImportsFollowInterfaceImports(const aReverse: Integer);
+var
+  g: TGarbos;
+  lConsumer: TDelphiSemanticUnitModel;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lExpected, lFirst, lLast: string;
+begin
+  lFirst := 'TypeUnitA';
+  lLast := 'TypeUnitB';
+  if aReverse <> 0 then
+  begin
+    lFirst := 'TypeUnitB';
+    lLast := 'TypeUnitA';
+  end;
+  lConsumer := UnitModel('Consumer');
+  lConsumer.Declarations := nil;
+  lConsumer.ScopeModelStatus := 'ast';
+  lConsumer.DependencyFacts.Known := True;
+  lConsumer.DependencyFacts.InterfaceImports := [lFirst];
+  lConsumer.DependencyFacts.ImplementationImports := [lLast];
+  lConsumer.SourceText := 'unit Consumer; interface uses ' + lFirst +
+    '; implementation uses ' + lLast + '; end.';
+  GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo,
+    [UnitModel('TypeUnitA'), UnitModel('TypeUnitB'), lConsumer]), g);
+  lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+  lExpected := lIndex.ResolveVisibleName('TShared', 'Consumer',
+    lIndex.VisibleUnitNames('Consumer', 'interface'), 'interface').Identity.UnitName;
+  Assert.AreEqual(lFirst, lExpected);
+  lExpected := lIndex.ResolveVisibleName('TShared', 'Consumer',
+    lIndex.VisibleUnitNames('Consumer', 'implementation'), 'implementation').Identity.UnitName;
+  Assert.AreEqual(lLast, lExpected);
+end;
+
+procedure TTypeResolverTests.UnknownActivityAppendsImportSentinel;
+var
+  g: TGarbos;
+  lConsumer: TDelphiSemanticUnitModel;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lImports: TArray<string>;
+  lResult: TDelphiSemanticTypeLookupResult;
+begin
+  lConsumer := UnitModel('Consumer');
+  lConsumer.Declarations := nil;
+  lConsumer.ScopeModelStatus := 'ast';
+  lConsumer.DependencyFacts.Known := True;
+  lConsumer.DependencyFacts.InterfaceImports := ['TypeUnitA'];
+  lConsumer.SourceText := 'x';
+  lConsumer.VerifiedActiveSourceText := TDelphiSemanticSourceConditionals.UnavailableActivity + '?';
+  GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo,
+    [UnitModel('TypeUnitA'), lConsumer]), g);
+  lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+  lImports := lIndex.VisibleUnitNames('Consumer', 'interface');
+  Assert.AreEqual('<imports-unproved>', lImports[High(lImports)]);
+  lResult := lIndex.ResolveVisibleName('TShared', 'Consumer', lImports, 'interface');
+  Assert.AreEqual('TYPE_VISIBILITY_UNPROVED', lResult.ReasonCode);
+end;
+
+procedure TTypeResolverTests.ImportActivityScope(const aShape: string;
+  const aExpectedKnown: Boolean);
+var
+  lConsumer: TDelphiSemanticUnitModel;
+  lInterface, lImplementation: TArray<string>;
+  lOffset: Integer;
+  lRoot: string;
+  lToken: string;
+begin
+  lConsumer := UnitModel('Consumer');
+  lConsumer.ScopeModelStatus := 'ast';
+  lConsumer.DependencyFacts.Known := True;
+  lConsumer.DependencyFacts.InterfaceImports := ['TypeUnitA'];
+  lConsumer.SourceText := 'unit Consumer; interface uses TypeUnitA; ' +
+    'type TLocal = record Value: Integer; end; implementation begin end.';
+  lToken := 'begin';
+  if aShape = 'declaration' then
+    lToken := 'TLocal'
+  else if aShape = 'clause' then
+    lToken := 'TypeUnitA'
+  else if aShape = 'section' then
+    lToken := 'interface'
+  else if aShape = 'include' then
+  begin
+    lConsumer.SourceText := 'unit Consumer; interface uses {$I imports.inc} TypeUnitA; implementation end.';
+    lToken := '{$I'
+  end else if aShape = 'missing' then
+    lConsumer.DependencyFacts.InterfaceImports := ['MissingUnit'];
+  if aShape = 'switch-braces' then
+    lConsumer.SourceText := 'unit Consumer; interface uses {$I-} TypeUnitA {$I+}; implementation end.'
+  else if aShape = 'switch-parentheses' then
+    lConsumer.SourceText := 'unit Consumer; interface uses (*$I-*) TypeUnitA (*$I+*); implementation end.';
+  if StartsText('included-', aShape) then
+  begin
+    lRoot := CreateTestTempRoot('ds719-included-imports-temp');
+    lConsumer.IncludeFileNames := [TPath.Combine(lRoot, 'imports.inc')];
+    if aShape = 'included-uses' then
+      TFile.WriteAllText(lConsumer.IncludeFileNames[0], 'uses OtherUnit;', TEncoding.ASCII)
+    else
+      TFile.WriteAllText(lConsumer.IncludeFileNames[0],
+        '// uses OtherUnit;'#13#10'{uses CommentUnit;} (*uses MoreComments;*) ' +
+        '''uses StringUnit;''', TEncoding.ASCII);
+  end;
+  if StartsText('expanded-', aShape) then
+  begin
+    lRoot := CreateTestTempRoot('ds719-expanded-imports-temp');
+    lConsumer.SourceText := 'unit Consumer; interface uses TypeUnitA{$I imports.inc}; implementation end.';
+    if aShape <> 'expanded-unresolved' then
+    begin
+      lConsumer.IncludeFileNames := [TPath.Combine(lRoot, 'imports.inc')];
+      lConsumer.DependencyFacts.InterfaceImports := ['TypeUnitA', 'OtherUnit'];
+      lToken := ', OtherUnit';
+      if aShape = 'expanded-unknown' then
+        lToken := '{$IFDEF UNICODE}, OtherUnit{$ENDIF}'
+      else if aShape = 'expanded-nested' then
+      begin
+        lToken := '{$I nested.inc}';
+        lConsumer.IncludeFileNames := lConsumer.IncludeFileNames + [TPath.Combine(lRoot, 'nested.inc')];
+        TFile.WriteAllText(lConsumer.IncludeFileNames[1], ', OtherUnit', TEncoding.ASCII);
+      end else if aShape = 'expanded-uses' then
+      begin
+        lConsumer.SourceText := 'unit Consumer; interface {$I imports.inc} implementation end.';
+        lConsumer.DependencyFacts.InterfaceImports := ['OtherUnit'];
+        lToken := 'uses OtherUnit;';
+      end;
+      TFile.WriteAllText(lConsumer.IncludeFileNames[0], lToken, TEncoding.ASCII);
+    end;
+  end;
+  if aShape = 'root-lexical' then
+    lConsumer.SourceText := lConsumer.SourceText +
+      ' // uses CommentUnit;'#13#10'{uses MoreComments;} ''uses StringUnit;''';
+  lConsumer.VerifiedActiveSourceText :=
+    TDelphiSemanticSourceConditionals.UnavailableActivity +
+    StringOfChar('A', Length(lConsumer.SourceText));
+  if MatchText(aShape, ['body', 'declaration', 'clause', 'section', 'include']) then
+  begin
+    lOffset := Pos(lToken, lConsumer.SourceText);
+    Assert.IsTrue(lOffset > 0);
+    lConsumer.VerifiedActiveSourceText[
+      Length(TDelphiSemanticSourceConditionals.UnavailableActivity) + lOffset] := '?';
+  end;
+  Assert.AreEqual(aExpectedKnown,
+    TDelphiSemanticSemanticGraphBuilder.ProjectImports(ProjectInfo, lConsumer,
+      [lConsumer], lInterface, lImplementation));
+end;
+
+procedure TTypeResolverTests.ScopedImportSpellingCanonicalizes;
+var
+  g: TGarbos;
+  lConsumer, lScoped: TDelphiSemanticUnitModel;
+  lProject: TDelphiSemanticProjectInfo;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lImports: TArray<string>;
+begin
+  lProject := ProjectInfo;
+  lProject.UnitScopeNames := ['Scope'];
+  lScoped := UnitModel('TypeUnitB');
+  lScoped.UnitName := 'Scope.Foo';
+  lScoped.FileName := 'Scope.Foo.pas';
+  lConsumer := UnitModel('Consumer');
+  lConsumer.Declarations := nil;
+  lConsumer.ScopeModelStatus := 'ast';
+  lConsumer.DependencyFacts.Known := True;
+  lConsumer.DependencyFacts.InterfaceImports := ['Foo'];
+  lConsumer.SourceText := 'unit Consumer; interface uses Foo; implementation end.';
+  GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lConsumer, lScoped]), g);
+  lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+  lImports := lIndex.VisibleUnitNames('Consumer', 'interface');
+  Assert.AreEqual('Scope.Foo', lImports[0]);
+  Assert.AreEqual('Scope.Foo', lIndex.ResolveVisibleName('TShared', 'Consumer', lImports).Identity.UnitName);
+end;
+
+procedure TTypeResolverTests.AliasBeforeTargetUnitResolvesAfterRegistration;
+var
+  g: TGarbos;
+  lAlias: TDelphiSemanticUnitModel;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lResult: TDelphiSemanticTypeLookupResult;
+begin
+  lAlias := UnitModel('TypeUnitA');
+  lAlias.Declarations := Copy(lAlias.Declarations, 2, 1);
+  lAlias.Declarations[0].TypeName := 'TShared';
+  lAlias.ScopeModelStatus := 'ast';
+  lAlias.DependencyFacts.Known := True;
+  lAlias.DependencyFacts.InterfaceImports := ['TypeUnitB'];
+  lAlias.SourceText := 'unit TypeUnitA; interface uses TypeUnitB; implementation end.';
+  GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo,
+    [lAlias, UnitModel('TypeUnitB')]), g);
+  lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+  lResult := lIndex.ResolveQualifiedName('TypeUnitA.TAlias');
+  Assert.IsTrue(lResult.Found, lResult.Reason);
+  Assert.AreEqual('record', lResult.Identity.UnderlyingName);
+end;
+
+procedure TTypeResolverTests.WitnessAbsenceAllowsEarlierCandidate;
+var
+  g: TGarbos;
+  lConsumer: TDelphiSemanticUnitModel;
+  lProject: TDelphiSemanticProjectInfo;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lResult: TDelphiSemanticTypeLookupResult;
+  lRoot: string;
+begin
+  lRoot := CreateTestTempRoot('type-witness-temp');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'U.pas'),
+    'unit U; interface type TOther = Integer; implementation end.', TEncoding.ASCII);
+  lProject := ProjectInfo;
+  lProject.SearchPaths := [lRoot];
+  lConsumer := UnitModel('Consumer');
+  lConsumer.Declarations := nil;
+  lConsumer.ScopeModelStatus := 'ast';
+  lConsumer.DependencyFacts.Known := True;
+  lConsumer.DependencyFacts.InterfaceImports := ['TypeUnitA', 'U'];
+  lConsumer.SourceText := 'unit Consumer; interface uses TypeUnitA, U; implementation end.';
+  GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(lProject,
+    [UnitModel('TypeUnitA'), lConsumer]), g);
+  lGraph.UnitNameWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(lProject,
+    [UnitModel('TypeUnitA'), lConsumer], '');
+  lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+  lResult := lIndex.ResolveVisibleName('TShared', 'Consumer',
+    lIndex.VisibleUnitNames('Consumer', 'interface'));
+  Assert.IsTrue(lResult.Found, lResult.Reason);
+  Assert.AreEqual('TypeUnitA', lResult.Identity.UnitName);
+end;
+
+procedure TTypeResolverTests.InactiveImportDoesNotShadow;
+var
+  g: TGarbos;
+  lOptions: TDelphiSemanticModelOptions;
+  lConsumer: TDelphiSemanticUnitModel;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lRoot: string;
+begin
+  lRoot := CreateTestTempRoot('type-inactive-temp');
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'Consumer.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit Consumer; interface uses TypeUnitA {$IFDEF NEVER}, TypeUnitB {$ENDIF}; implementation end.',
+    TEncoding.ASCII);
+  lConsumer := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lConsumer.Success);
+  GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo,
+    [UnitModel('TypeUnitA'), UnitModel('TypeUnitB'), lConsumer]), g);
+  lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+  Assert.AreEqual('TypeUnitA', lIndex.ResolveVisibleName('TShared', 'Consumer',
+    lIndex.VisibleUnitNames('Consumer', 'interface')).Identity.UnitName);
+end;
+
+procedure TTypeResolverTests.LaterKnownAncestorWinsOverEarlierUnknownImport;
+var
+  g: TGarbos;
+  lConsumer: TDelphiSemanticUnitModel;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lResult: TDelphiSemanticTypeLookupResult;
+  lAncestors: TArray<TDelphiSemanticTypeIdentity>;
+begin
+  lConsumer := UnitModel('Consumer');
+  lConsumer.ScopeModelStatus := 'ast';
+  lConsumer.DependencyFacts.Known := True;
+  lConsumer.DependencyFacts.InterfaceImports := ['Unknown', 'TypeUnitA'];
+  lConsumer.SourceText := 'unit Consumer; interface uses Unknown, TypeUnitA; implementation end.';
+  lConsumer.Declarations := Copy(UnitModel('TypeUnitA').Declarations, 1, 1);
+  GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo,
+    [lConsumer, UnitModel('TypeUnitA')]), g);
+  lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+  lResult := lIndex.ResolveQualifiedName('Consumer.TChild');
+  lAncestors := lIndex.FindAncestors(lResult.Identity);
+  Assert.AreEqual(1, Integer(Length(lAncestors)));
+  Assert.AreEqual('TypeUnitA', lAncestors[0].UnitName);
 end;
 
 initialization
