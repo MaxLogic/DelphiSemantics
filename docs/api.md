@@ -4,6 +4,60 @@ Use `DelphiSemantics.Api` for common project and semantic-index operations.
 It gives DAK and future integrations one stable entry unit. Lower-level units
 remain available for focused tests and internal implementation.
 
+## Ordered visible type names
+
+`TDelphiSemanticTypeIdentityIndex.ResolveVisibleName` resolves the declaring
+unit first, then used units from last to first. `VisibleUnitNames(Unit, Section)`
+returns interface imports followed by implementation imports when applicable.
+A later unit with unknown declarations makes an earlier match `unproved`
+(`TYPE_VISIBILITY_UNPROVED`, `Found=False`, no candidates). Qualified lookup is
+unchanged. Ancestry, alias, binding and consistency consumers use that ordered
+scope and retain uncertainty when lookup is unproved.
+
+A project session attaches a source-token witness to every binder type index,
+including synthetic graphs. Absence of a token in the uniquely resolved source
+and its includes proves that an unindexed unit cannot declare that name.
+Unreadable, ambiguous or DCU-only sources and unresolved includes prove nothing.
+The witness counts distinct Pascal and DCU files across the project directory,
+unit search paths, DCCReference directories, the active Delphi library and
+browsing and debug DCU paths, and the RTL source tree. Exactly one readable Pascal candidate is
+required. An SDK DCU under the active installation's lib folders and its
+same-unit Pascal source under that installation's source tree count as one
+candidate; the witness reads the source. Any second Pascal source, non-paired
+DCU, unmatched SDK DCU, or incomplete profile location evidence leaves the name
+unproved. Compiler search-order
+preferences do not establish absence; these conservative refusals are allowed.
+Both include spellings and comment forms accept space, tab and line-break
+separators. `INCLUDE+names.inc` and `INCLUDE-names.inc` include those filenames;
+only the single-letter `I+` / `I-` forms are compiler switches, including
+`I+ x` and `I+x`. Other directive names are outside include recognition; an unparseable I/INCLUDE argument leaves content unknown.
+Tokens in comments, strings and inactive branches can cause conservative
+refusals. Witness source and include hashes participate in warm-cache identity.
+
+Include discovery considers every directive opener independently, even in strings
+and comments; unresolved include-looking text cannot establish absence. Paths
+passed only on the dcc command line, outside the dproj and IDE profile, are not
+visible to DS. Units supplied only through runtime-package `.dcp` files are not
+modelled. Installed SDK source is assumed to match the installed DCU.
+
+Unknown activity affects import order only where it can change a uses clause
+or its section. Resolved includes with known content activity are expanded in
+place before checking clause text and AST imports. Without per-include activity
+evidence, conditional or define directives in included content remain unknown;
+nested includes follow the same rule. Unresolved includes and imports missing
+from the expanded clauses keep import order unproved. Failed models and unavailable activity evidence
+remain unproved. WITH capture lookups persist their spelling, status and type
+identity; an unproved, ambiguous or contradictory capture adds a refusal to
+the existing visibility checks. An earlier visibility refusal keeps its
+candidate; only a D4-only denial removes that candidate. Unknown import
+sentinels never reach a root-absence provider as unit names. Verified receiver kinds must agree with the
+planner's chosen strategy. Existing refusal reasons retain precedence, and a
+kind refusal retains its candidate with zero edits and temps. Binder lineage
+denials remain final across all body qualification passes.
+
+Snapshot cache schema 20 and WITH facts generation 68 rebuild older persisted
+planning facts for these additional capture fields and witness identities.
+
 ## Named root absence
 
 `DelphiSemantics.RootMemberAbsence` adds `TDelphiSemanticQualifiedRootType`
