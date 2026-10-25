@@ -47,6 +47,9 @@ type
     [TestCase('Warm accepted', 'hit-accept')]
     procedure RequestOwnerSealsEveryModelBeforePublication(const aMode: string);
     [Test]
+    [TestCase('Before SDK-only witness scope', '68')]
+    [TestCase('Before unknown capture preservation', '69')]
+    [TestCase('Before shared receiver admission and alias conflicts', '70')]
     [TestCase('Before guard-only anonymous evidence', '65')]
     [TestCase('Before RTL root evidence', '64')]
     [TestCase('Before alias receiver members', '63')]

@@ -2863,6 +2863,7 @@ var
   lCastName: string;
   lCastResult: TDelphiSemanticResolveResult;
   lCastType: string;
+  lCaptureTypeName, lCaptureTypeStatus: string;
   lComplex: Boolean;
   lContext: TDelphiSemanticResolveContext;
   lDereferenced: Boolean;
@@ -2896,6 +2897,7 @@ var
     lDeclaration: TDelphiSemanticDeclaration;
     lFileName: string;
     lMatchCount: Integer;
+    lLookup: TDelphiSemanticTypeLookupResult;
     lPointerTypeName: string;
     lTargetModel: TDelphiSemanticUnitModel;
     lTargetScopeId: string;
@@ -2910,8 +2912,19 @@ var
     lTargetSection := lContext.SectionKind;
     if not StartsText('^', lPointerTypeName) then
     begin
-      if not TRegEx.IsMatch(lPointerTypeName, '^[A-Za-z_][A-Za-z0-9_]*$') or
-        not aProjectMemberIndex.TryResolveSelectorIdentity(aModel,
+      if not TRegEx.IsMatch(lPointerTypeName, '^[A-Za-z_][A-Za-z0-9_]*$') then
+        Exit;
+      lLookup := aProjectMemberIndex.SelectorTypeLookup(aModel,
+        lContext.SectionKind, aPointerScopeId, lPointerTypeName);
+      if MatchText(lLookup.Status, ['unproved', 'ambiguous']) then
+      begin
+        // Keep the failed alias proof: inventory fallback may find its pointee,
+        // but that cannot make an unknown declaration visible (DS-719).
+        lCaptureTypeName := lPointerTypeName;
+        lCaptureTypeStatus := lLookup.Status;
+        Exit;
+      end;
+      if not aProjectMemberIndex.TryResolveSelectorIdentity(aModel,
           lContext.SectionKind, aPointerScopeId, lPointerTypeName, lAliasIdentity) or
         not SameText(lAliasIdentity.Kind, 'type-alias') or
         not aProjectMemberIndex.TrySafetyDeclarationModel(lAliasIdentity, lAliasModel) then
@@ -2956,14 +2969,25 @@ var
     if not StartsText('^', lPointerTypeName) then
       Exit;
     aPointeeName := Trim(Copy(lPointerTypeName, 2, MaxInt));
-    Result := TRegEx.IsMatch(aPointeeName, '^[A-Za-z_][A-Za-z0-9_]*$') and
-      aProjectMemberIndex.TryResolveSelectorIdentity(lTargetModel, lTargetSection,
-        lTargetScopeId, aPointeeName, aPointeeIdentity) and
+    if not TRegEx.IsMatch(aPointeeName, '^[A-Za-z_][A-Za-z0-9_]*$') then
+      Exit;
+    lLookup := aProjectMemberIndex.SelectorTypeLookup(lTargetModel,
+      lTargetSection, lTargetScopeId, aPointeeName);
+    if MatchText(lLookup.Status, ['unproved', 'ambiguous']) then
+    begin
+      lCaptureTypeName := aPointeeName;
+      lCaptureTypeStatus := lLookup.Status;
+      Exit;
+    end;
+    Result := aProjectMemberIndex.TryResolveSelectorIdentity(lTargetModel, lTargetSection,
+      lTargetScopeId, aPointeeName, aPointeeIdentity) and
       SameText(aPointeeIdentity.Kind, 'type') and
       SameText(aPointeeIdentity.CanonicalName, 'record');
   end;
 begin
   aIdentity := Default(TDelphiSemanticTypeIdentity);
+  lCaptureTypeName := '';
+  lCaptureTypeStatus := '';
   lLexicalPointerBase := False;
   lVerifiedLocalPointer := False;
   lOriginModel := Default(TDelphiSemanticUnitModel);
@@ -3185,6 +3209,8 @@ begin
       SameText(lOriginSection, 'interface') then
       aProjectMemberIndex.TryResolveUniqueExportedFinalType(lOriginModel,
         lResult.TypeName, aIdentity);
+  Result.CaptureTypeName := lCaptureTypeName;
+  Result.CaptureTypeStatus := lCaptureTypeStatus;
   Result.SelectorText := lSelectorText;
   Result.Status := lResult.Status;
   Result.ReasonCode := lResult.ReasonCode;
@@ -4294,7 +4320,7 @@ begin
           Break;
         end;
       end;
-      if Assigned(aProjectMemberIndex) and
+      if Assigned(aProjectMemberIndex) and (lBinding.CaptureTypeName = '') and
         TRegEx.IsMatch(lBinding.TypeName, '^[A-Za-z_][A-Za-z0-9_]*$') then
       begin
         lScopeId := RoutineScopeAtLine(aModel, aLine);

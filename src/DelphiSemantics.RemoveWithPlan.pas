@@ -346,6 +346,7 @@ type
     LineageDenialReason: string;
     StrategyKindContradiction: Boolean;
     CaptureDenied: Boolean;
+    AdmissionDenied: Boolean;
     ValueQualifications: TArray<TFinalSelectorDecision>;
     BareReferences: TArray<TDelphiSemanticBoundReference>;
     QualifiedFallbacks: TArray<TFinalQualifiedFallback>;
@@ -3158,16 +3159,35 @@ end;
 function CaptureLookupDenies(const aSelector: TDelphiSemanticWithSelectorBinding;
   const aTypeName: string; const aReceiverIdentity: TDelphiSemanticTypeIdentity): Boolean;
 begin
-  Result := False;
-  if (aSelector.CaptureTypeName = '') or
-    (not SameText(aSelector.CaptureTypeName, aTypeName)) then
+  Result := SameText(aSelector.ReasonCode, 'TYPE_VISIBILITY_UNPROVED');
+  if Result or (aSelector.CaptureTypeName = '') then
     Exit;
+  // DS-719: an unknown alias cannot authorize a temp of its underlying type.
   Result := (aSelector.CaptureTypeStatus = '') or
     SameText(aSelector.CaptureTypeStatus, 'unproved') or
     SameText(aSelector.CaptureTypeStatus, 'ambiguous') or
-    (SameText(aSelector.CaptureTypeStatus, 'resolved') and
+    (SameText(aSelector.CaptureTypeName, aTypeName) and
+      SameText(aSelector.CaptureTypeStatus, 'resolved') and
       ((aSelector.CaptureTypeIdentity.CanonicalId.Value = '') or
        (aSelector.CaptureTypeIdentity.CanonicalId.Value <> aReceiverIdentity.CanonicalId.Value)));
+end;
+
+function BindingReceiverVisibilityDenies(const aBinding: TDelphiSemanticWithBinding): Boolean;
+var
+  lSelector: TDelphiSemanticWithSelectorBinding;
+  lReference: TDelphiSemanticBoundReference;
+begin
+  // A6: unsupported body references do not disprove receiver-type visibility.
+  Result := False;
+  for lSelector in aBinding.Selectors do
+    if CaptureLookupDenies(lSelector, '', lSelector.CaptureTypeIdentity) or
+      MatchText(lSelector.Status, ['unproved', 'ambiguous']) or
+      MatchText(lSelector.CaptureTypeStatus, ['unproved', 'ambiguous']) or
+      SameText(lSelector.ReasonCode, 'TYPE_VISIBILITY_UNPROVED') then
+      Exit(True);
+  for lReference in aBinding.References do
+    if SameText(lReference.ReasonCode, 'TYPE_VISIBILITY_UNPROVED') then
+      Exit(True);
 end;
 
 function UniqueUnitTypeDeclarationIsVisible(const aFacts: TRemoveWithPlanFacts;
@@ -3204,14 +3224,15 @@ begin
   // A routine-local type is visible only through its scoped binder identity.
   Result := Result and (not DeclarationIsRoutineLocal(aFacts, lSelected)) and
     CaptureDeclarationIsVisible(aFacts, aBinding, lSelected, aLineCache);
-  if Result and SameText(aSelector.CaptureTypeName, aTypeName) then
+  if Result then
   begin
-    aCaptureDenied := not ((aSelector.CaptureTypeStatus <> '') and
-      not SameText(aSelector.CaptureTypeStatus, 'unproved') and
-      not SameText(aSelector.CaptureTypeStatus, 'ambiguous') and
-      ((not SameText(aSelector.CaptureTypeStatus, 'resolved')) or
-        (SameText(aSelector.CaptureTypeIdentity.UnitName, lSelected.UnitName) and
-         SameText(aSelector.CaptureTypeIdentity.Name, lSelected.Name))));
+    // No receiver identity exists here; the shared predicate still rejects an
+    // unknown capture before the declaration-name comparison below.
+    aCaptureDenied := CaptureLookupDenies(aSelector, '', aSelector.CaptureTypeIdentity);
+    if (not aCaptureDenied) and SameText(aSelector.CaptureTypeName, aTypeName) and
+      SameText(aSelector.CaptureTypeStatus, 'resolved') then
+      aCaptureDenied := (not SameText(aSelector.CaptureTypeIdentity.UnitName, lSelected.UnitName)) or
+        (not SameText(aSelector.CaptureTypeIdentity.Name, lSelected.Name));
     Result := not aCaptureDenied;
   end;
 end;
@@ -6879,6 +6900,44 @@ begin
     lQualifiedSelectorText + ';';
 end;
 
+function AdmissionDeniedBindingIndex(const aBindingSource: TRemoveWithPlanBindingSource;
+  const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer): Integer;
+var
+  lChildIndex: Integer;
+begin
+  if BindingReceiverVisibilityDenies(aBindingSource.BindingByIndex(aBindingIndex)) then
+    Exit(aBindingIndex);
+  for lChildIndex in aBindingTree.ChildIndexes[aBindingIndex] do
+  begin
+    Result := AdmissionDeniedBindingIndex(aBindingSource, aBindingTree, lChildIndex);
+    if Result >= 0 then
+      Exit;
+  end;
+  Result := -1;
+end;
+
+procedure ApplyReceiverAdmission(const aBindingSource: TRemoveWithPlanBindingSource;
+  const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
+  var aStatement: TDelphiSemanticRemoveWithFinalStatement;
+  var aBodyFacts: TFinalReceiverBodyFacts);
+var
+  lDeniedIndex: Integer;
+begin
+  // All recursive decisions remain provisional until this publishing boundary.
+  // Established selector, renderer, activity and kind refusals retain precedence.
+  if not SameText(aStatement.Status, 'planned') then
+    Exit;
+  lDeniedIndex := AdmissionDeniedBindingIndex(aBindingSource, aBindingTree, aBindingIndex);
+  if lDeniedIndex < 0 then
+    Exit;
+  aStatement := BuildSkippedFinalStatement(aBindingSource.BindingByIndex(aBindingIndex),
+    aStatement.StatementId, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  aBodyFacts := Default(TFinalReceiverBodyFacts);
+  aBodyFacts.CaptureDenied := True;
+  // A refused covered child does not turn its admitted parent into an A5 barrier.
+  aBodyFacts.AdmissionDenied := lDeniedIndex = aBindingIndex;
+end;
+
 function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aStatementId: string;
   const aCandidateEdit: TDelphiSemanticRemoveWithEdit;
@@ -6908,6 +6967,9 @@ begin
     Result := BuildFinalStatement(aFacts, lBindingSource, lBindingTree, 0,
       aStatementId, lCandidateEdits, aReservedNames, aLineCache,
       lInheritedDecisions, True, lBodyFacts);
+    if SameText(Result.Status, 'planned') and BindingReceiverVisibilityDenies(aBinding) then
+      RollbackReservedTempNamesForFinalTemps(aReservedNames, aBinding.RoutineName, Result.Temps);
+    ApplyReceiverAdmission(lBindingSource, lBindingTree, 0, Result, lBodyFacts);
   finally
     lBindingSource.Free;
   end;
@@ -8068,17 +8130,24 @@ end;
 procedure AddPartiallyVerifiedDescendants(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aBindingSource: TRemoveWithPlanBindingSource;
   const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
-  const aReason, aSafetyReason: string);
+  const aReason, aSafetyReason: string;
+  const aAdmissionRefusal: Boolean = False);
 var
-  lChildIndex: Integer;
+  lChildIndex, lEditIndex: Integer;
 begin
   for lChildIndex in aBindingTree.ChildIndexes[aBindingIndex] do
   begin
+    if aAdmissionRefusal then
+      for lEditIndex := High(aPlan.Edits) downto 0 do
+        if SameText(aPlan.Edits[lEditIndex].Kind, 'remove-with-candidate') and
+          (aPlan.Edits[lEditIndex].StatementId =
+          aBindingSource.BindingByIndex(lChildIndex).SemanticId) then
+          Delete(aPlan.Edits, lEditIndex, 1);
     AddFinalStatement(aPlan, BuildSkippedFinalStatement(
       aBindingSource.BindingByIndex(lChildIndex), FinalStatementId(lChildIndex + 1),
       aReason, aSafetyReason));
     AddPartiallyVerifiedDescendants(aPlan, aBindingSource, aBindingTree, lChildIndex,
-      aReason, aSafetyReason);
+      aReason, aSafetyReason, aAdmissionRefusal);
   end;
 end;
 
@@ -8096,6 +8165,8 @@ procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>);
 var
   lPartialIndexedReceiver: Boolean;
+  lProvisionalNames: TDictionary<string, Integer>;
+  lReservedName: TPair<string, Integer>;
   lChildIndex: Integer;
   lChildInheritedDecisions: TArray<TFinalSelectorDecision>;
   lBodyFacts: TFinalReceiverBodyFacts;
@@ -8114,12 +8185,23 @@ begin
       LowerCase(StringReplace(aSafetyReasons[aBindingIndex], '_', '-', [rfReplaceAll])),
       aSafetyReasons[aBindingIndex]);
   end else
-    lStatement := BuildFinalStatement(aFacts, aBindingSource, aBindingTree,
-      aBindingIndex, FinalStatementId(aBindingIndex + 1), aCandidateEdits,
-      aReservedNames, aLineCache, aInheritedDecisions,
-      not (aMemberActivityUnverified[aBindingIndex] or
-      aActivityUnverified[aBindingIndex] or aInactiveNestedWithShadow[aBindingIndex]),
-      lBodyFacts);
+  begin
+    // Keep every provisional reservation private, including absorbed children.
+    // A refused tree cannot consume a sibling's temp name or counter.
+    lProvisionalNames := TDictionary<string, Integer>.Create;
+    try
+      for lReservedName in aReservedNames do
+        lProvisionalNames.Add(lReservedName.Key, lReservedName.Value);
+      lStatement := BuildFinalStatement(aFacts, aBindingSource, aBindingTree,
+        aBindingIndex, FinalStatementId(aBindingIndex + 1), aCandidateEdits,
+        lProvisionalNames, aLineCache, aInheritedDecisions,
+        not (aMemberActivityUnverified[aBindingIndex] or
+        aActivityUnverified[aBindingIndex] or aInactiveNestedWithShadow[aBindingIndex]),
+        lBodyFacts);
+    finally
+      lProvisionalNames.Free;
+    end;
+  end;
   // DS-740 runs in the same render pass, only when no activity refusal is pending.
   // Existing selector and renderer refusals still precede its context check.
   // Compute the complete ordinary DTO, including nested rewrites.
@@ -8159,6 +8241,12 @@ begin
     lStatement := BuildSkippedFinalStatement(lBinding, FinalStatementId(aBindingIndex + 1),
       'receiver-type-not-visible', 'receiver-type-not-visible');
   end;
+  ApplyReceiverAdmission(aBindingSource, aBindingTree, aBindingIndex,
+    lStatement, lBodyFacts);
+  if SameText(lStatement.Status, 'planned') then
+    for lIndex := 0 to High(lStatement.Temps) do
+      aReservedNames.AddOrSetValue(lBinding.RoutineName + #31 +
+        lStatement.Temps[lIndex].TempName, 1);
   if lBodyFacts.CaptureDenied then
     for lIndex := High(aPlan.Edits) downto 0 do
       if SameText(aPlan.Edits[lIndex].Kind, 'remove-with-candidate') and
@@ -8167,6 +8255,16 @@ begin
   AddFinalStatement(aPlan, lStatement);
   if SameText(lStatement.Status, 'planned') then
     Exit;
+
+  // A5: a retained admission-refused receiver can capture any descendant name.
+  // Only this binding's own admission refusal creates the barrier; a recursive
+  // child's refusal does not turn its admitted ancestors into barriers.
+  if lBodyFacts.AdmissionDenied then
+  begin
+    AddPartiallyVerifiedDescendants(aPlan, aBindingSource, aBindingTree, aBindingIndex,
+      'enclosing-admission-refusal:' + lStatement.Reason, lStatement.SafetyReason, True);
+    Exit;
+  end;
 
   lPartialIndexedReceiver := False;
   if SameText(lStatement.SafetyReason, 'OWNER_INHERITED_MEMBERS_UNVERIFIED') then

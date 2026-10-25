@@ -1186,11 +1186,15 @@ var
   lResult: TDelphiSemanticTypeLookupResult;
   lRoot: string;
 begin
-  lRoot := CreateTestTempRoot('type-witness-temp');
+  // A4 permits absence only for a same-installation SDK pair.
+  lRoot := TPath.Combine(CreateTestTempRoot('type-witness-temp'), 'sdk\source');
+  TDirectory.CreateDirectory(lRoot);
+  TDirectory.CreateDirectory(TPath.Combine(TPath.GetDirectoryName(lRoot), 'lib'));
+  TFile.WriteAllText(TPath.Combine(TPath.GetDirectoryName(lRoot), 'lib\U.dcu'), 'SDK unit');
   TFile.WriteAllText(TPath.Combine(lRoot, 'U.pas'),
     'unit U; interface type TOther = Integer; implementation end.', TEncoding.ASCII);
   lProject := ProjectInfo;
-  lProject.SearchPaths := [lRoot];
+  lProject.SearchPaths := [lRoot, TPath.Combine(TPath.GetDirectoryName(lRoot), 'lib')];
   lConsumer := UnitModel('Consumer');
   lConsumer.Declarations := nil;
   lConsumer.ScopeModelStatus := 'ast';
@@ -1200,7 +1204,7 @@ begin
   GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(lProject,
     [UnitModel('TypeUnitA'), lConsumer]), g);
   lGraph.UnitNameWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(lProject,
-    [UnitModel('TypeUnitA'), lConsumer], '');
+    [UnitModel('TypeUnitA'), lConsumer], lRoot);
   lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
   lResult := lIndex.ResolveVisibleName('TShared', 'Consumer',
     lIndex.VisibleUnitNames('Consumer', 'interface'));

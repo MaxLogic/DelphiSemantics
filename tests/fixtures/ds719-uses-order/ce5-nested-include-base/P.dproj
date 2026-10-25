@@ -1,0 +1,10 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<PropertyGroup><MainSource>P.dpr</MainSource><ProjectVersion>20.1</ProjectVersion><FrameworkType>None</FrameworkType>
+<Base>True</Base><Config Condition="'$(Config)'==''">Debug</Config><Platform Condition="'$(Platform)'==''">Win64</Platform>
+<TargetedPlatforms>2</TargetedPlatforms><AppType>Console</AppType></PropertyGroup>
+<PropertyGroup><DCC_Namespace>System;Winapi</DCC_Namespace><DCC_UnitSearchPath>s</DCC_UnitSearchPath>
+<DCC_ExeOutput>out</DCC_ExeOutput><DCC_DcuOutput>dcu</DCC_DcuOutput></PropertyGroup>
+<ItemGroup><DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+<DCCReference Include="Unit1.pas"/><DCCReference Include="A.pas"/></ItemGroup>
+<Import Project="$(BDS)/Bin/CodeGear.Delphi.Targets" Condition="Exists('$(BDS)/Bin/CodeGear.Delphi.Targets')"/>
+</Project>

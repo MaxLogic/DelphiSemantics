@@ -13,26 +13,52 @@ A later unit with unknown declarations makes an earlier match `unproved`
 (`TYPE_VISIBILITY_UNPROVED`, `Found=False`, no candidates). Qualified lookup is
 unchanged. Ancestry, alias, binding and consistency consumers use that ordered
 scope and retain uncertainty when lookup is unproved.
+A shared WITH admission gate refuses unproved or ambiguous receiver and capture
+type visibility after every established refusal check. Unsupported body references
+alone do not trigger it. Strategy decisions remain provisional until this gate
+accepts the statement; refused decisions publish no edits, temps or declarations. Failed pointer-alias and pointee proofs
+stay unproved even when a fallback emits a different underlying type; an inventory
+name match cannot turn that uncertainty into a plan.
+An admission-refused WITH is also a barrier for every nested WITH: the retained
+receiver may capture inner selectors and generated names. Descendants refuse with
+`enclosing-admission-refusal:receiver-type-not-visible`. Admitted ancestors and
+other siblings retain the existing planning rules. When siblings refuse, shared
+routine declarations contain only surviving temps; those temps may be renamed
+consistently within the routine.
 
 A project session attaches a source-token witness to every binder type index,
-including synthetic graphs. Absence of a token in the uniquely resolved source
-and its includes proves that an unindexed unit cannot declare that name.
-Unreadable, ambiguous or DCU-only sources and unresolved includes prove nothing.
-The witness counts distinct Pascal and DCU files across the project directory,
-unit search paths, DCCReference directories, the active Delphi library and
-browsing and debug DCU paths, and the RTL source tree. Exactly one readable Pascal candidate is
-required. An SDK DCU under the active installation's lib folders and its
-same-unit Pascal source under that installation's source tree count as one
-candidate; the witness reads the source. Any second Pascal source, non-paired
-DCU, unmatched SDK DCU, or incomplete profile location evidence leaves the name
-unproved. Compiler search-order
-preferences do not establish absence; these conservative refusals are allowed.
-Both include spellings and comment forms accept space, tab and line-break
-separators. `INCLUDE+names.inc` and `INCLUDE-names.inc` include those filenames;
-only the single-letter `I+` / `I-` forms are compiler switches, including
-`I+ x` and `I+x`. Other directive names are outside include recognition; an unparseable I/INCLUDE argument leaves content unknown.
-Tokens in comments, strings and inactive branches can cause conservative
-refusals. Witness source and include hashes participate in warm-cache identity.
+including synthetic graphs. Absence is proved only for an unindexed unit with
+exactly one SDK pair: a library DCU and its same-named readable Pascal source
+under the active Delphi installation's `source` tree. Project and third-party
+sources, unpaired SDK sources and DCU-only units remain unknown even when a
+readable source does not contain the name.
+
+The candidate union includes the project directory, unit search paths,
+DCCReference directories, active Delphi library, browsing and debug DCU paths,
+and the SDK source tree. Any second Pascal source, unpaired DCU or incomplete
+profile location evidence leaves the name unproved. Compiler search-order
+preferences do not establish absence. Installed default unit aliases are read
+from `CodeGear.Common.Targets` for the active platform, followed by the project's
+`DCC_UnitAlias(es)`. Several distinct targets for one alias key, across defaults and project aliases,
+make the result unknown; exact duplicate targets are harmless. The alias key and
+its target are scanned as a union. Scope-expanded names reaching the same physical
+file form one candidate; different files remain unknown. If the defaults cannot be
+read or evaluated, known default alias keys on any platform remain unknown.
+
+SDK includes resolve only within that installation's `source` tree, in the
+including file's folder and the root unit's folder. A missing include or two
+distinct matching files makes the unit unknown. Project include, reference,
+search, library and debug paths cannot supply SDK source includes.
+
+The conservative witness parser accepts both include spellings and comment
+forms with space, tab and line-break separators. The tested dcc64 layouts
+reject line-break separators with E1030. `INCLUDE+names.inc` and
+`INCLUDE-names.inc` include those filenames; only the single-letter `I+` / `I-`
+forms are compiler switches, including `I+ x` and `I+x`. Other directive names
+are outside include recognition; an unparseable I/INCLUDE argument leaves
+content unknown. Tokens in comments, strings and inactive branches can cause
+conservative refusals. SDK source, include and default-alias file hashes
+participate in warm-cache identity. Affected persisted planning facts rebuild.
 
 Include discovery considers every directive opener independently, even in strings
 and comments; unresolved include-looking text cannot establish absence. Paths
@@ -47,15 +73,16 @@ evidence, conditional or define directives in included content remain unknown;
 nested includes follow the same rule. Unresolved includes and imports missing
 from the expanded clauses keep import order unproved. Failed models and unavailable activity evidence
 remain unproved. WITH capture lookups persist their spelling, status and type
-identity; an unproved, ambiguous or contradictory capture adds a refusal to
-the existing visibility checks. An earlier visibility refusal keeps its
-candidate; only a D4-only denial removes that candidate. Unknown import
+identity. The admission gate removes candidates with unproved or ambiguous
+receiver/capture evidence. Existing per-strategy visibility and contradictory
+identity checks remain additional refusals. Unknown import
 sentinels never reach a root-absence provider as unit names. Verified receiver kinds must agree with the
-planner's chosen strategy. Existing refusal reasons retain precedence, and a
-kind refusal retains its candidate with zero edits and temps. Binder lineage
+planner's chosen strategy. All established refusal reasons retain precedence. The gate checks absorbed
+children before publication and discards provisional temp-name reservations when
+it refuses a statement. A kind refusal retains its candidate with zero edits and temps. Binder lineage
 denials remain final across all body qualification passes.
 
-Snapshot cache schema 20 and WITH facts generation 68 rebuild older persisted
+Snapshot cache schema 20 and WITH facts generation 71 rebuild older persisted
 planning facts for these additional capture fields and witness identities.
 
 ## Named root absence

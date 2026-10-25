@@ -62,6 +62,7 @@ type
   TResolvedAlias = record
     TargetName: string;
     IsAlias: Boolean;
+    Conflicted: Boolean;
   end;
 
   TUnitCandidateRank = record
@@ -149,9 +150,13 @@ begin
     lRight := Trim(Copy(lAlias, lEquals + 1, MaxInt));
     if SameText(lLeft, aUnitName) and (lRight <> '') then
     begin
+      if Result.IsAlias and not SameText(Result.TargetName, lRight) then
+      begin
+        Result.Conflicted := True;
+        Exit;
+      end;
       Result.TargetName := lRight;
       Result.IsAlias := True;
-      Exit;
     end;
   end;
 end;
@@ -178,6 +183,8 @@ begin
   lItems := TList<TUnitCandidateName>.Create;
   try
     lAlias := ResolveAlias(aProject.UnitAliases, aUnitName);
+    if lAlias.Conflicted then
+      Exit(nil);
     if lAlias.IsAlias then
       AddCandidateName(lItems, lAlias.TargetName, 'alias', '')
     else
@@ -379,6 +386,8 @@ begin
   lUnitName := NormalizedUnitName(aUnitName);
   if lUnitName = '' then
     Exit(UnresolvedResult(aUnitName));
+  if ResolveAlias(aProject.UnitAliases, lUnitName).Conflicted then
+    Exit(AmbiguousResult(lUnitName, nil));
 
   lItems := nil;
   lSeen := nil;

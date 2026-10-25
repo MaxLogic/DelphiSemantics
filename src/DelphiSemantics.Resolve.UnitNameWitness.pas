@@ -23,7 +23,7 @@ implementation
 
 uses
   System.Generics.Collections, System.Generics.Defaults, System.IOUtils, System.StrUtils,
-  System.SysUtils,
+  System.SysUtils, Xml.omnixmldom, Xml.XMLDoc, Xml.xmldom, Xml.XMLIntf,
   AutoFree, MaxLogic.StrUtils,
   DelphiSemantics.Cache, DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Source;
@@ -43,15 +43,20 @@ type
     fIdentityLines: TList<string>;
     fProject: TDelphiSemanticProjectInfo;
     fRtlFiles: TObjectDictionary<string, TList<string>>;
-    fLocationsKnown: Boolean;
+    fLocationsKnown, fDefaultAliasesKnown: Boolean;
     fSdkSourceRoot, fSdkLibraryRoot: string;
+    procedure LoadDefaultAliases;
+    function CandidateNames(const aUnitName: string): TArray<TUnitCandidateName>;
+    function ResolveSdkInclude(const aArgument, aIncludingFile, aRootFile: string;
+      out aFileName: string): Boolean;
     procedure IndexDirectory(const aDirectory: string; const aRecursive: Boolean);
     class function IsIdentifierStart(const aChar: Char): Boolean; static;
     class function IsIdentifierPart(const aChar: Char): Boolean; static;
     function ResolveSource(const aUnitName: string; out aFileName, aReason,
       aResolvedName: string): Boolean;
     function ScanFile(const aUnitName, aFileName: string; const aEntry: TWitnessEntry;
-      const aSeen: TDictionary<string, Byte>; const aIsInclude: Boolean;
+      const aSeen: TDictionary<string, Byte>; const aRootFile: string;
+      const aIsInclude: Boolean;
       out aReason: string): Boolean;
     procedure AddEntry(const aUnitName: string);
   public
@@ -103,13 +108,20 @@ begin
   fRtlFiles := TObjectDictionary<string, TList<string>>.Create([doOwnsValues],
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fNeededNames := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  LoadDefaultAliases;
   for lModel in aModels do
   begin
     TDelphiSemanticSemanticGraphBuilder.ProjectImports(aProject, lModel, aModels,
       lImports, lImplementation);
     for lName in lImports + lImplementation do
-      for lCandidate in TDelphiSemanticUnitResolver.CandidateNames(aProject, lName) do
+      for lCandidate in CandidateNames(lName) do
         fNeededNames.AddOrSetValue(lCandidate.TargetName, 0);
+    for lName in lImports + lImplementation do
+    begin
+      fNeededNames.AddOrSetValue(lName, 0);
+      for lPath in fProject.UnitScopeNames do
+        fNeededNames.AddOrSetValue(lPath + '.' + lName, 0);
+    end;
   end;
   fLocationsKnown := not SameText(aProject.PropertyValue('DSWitnessProfileKnown'), 'False');
   GC(lIndexed, TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase), g);
@@ -214,10 +226,143 @@ begin
   end;
 end;
 
+function LoadWitnessXml(const aText: string): IXMLDocument;
+var
+  lDocument: TXMLDocument;
+begin
+  lDocument := TXMLDocument.Create(nil);
+  try
+    lDocument.DOMVendor := GetDOMVendor(sOmniXmlVendor);
+    lDocument.LoadFromXML(aText);
+    Result := lDocument as IXMLDocument;
+  except
+    lDocument.Free;
+    raise;
+  end;
+end;
+
+function WitnessCondition(const aNode: IXMLNode): string;
+begin
+  Result := '';
+  if aNode.HasAttribute('Condition') then
+    Result := aNode.Attributes['Condition'];
+end;
+
+procedure TUnitNameWitness.LoadDefaultAliases;
+var
+  lTargets, lValue, lError, lCondition: string;
+  lLoaded: TDelphiSemanticSourceLoadResult;
+  lDocument: IXMLDocument;
+  lGroup, lNode: IXMLNode;
+  lProperties: TArray<TDelphiSemanticProperty>;
+  lDiagnostics: TArray<TDelphiSemanticDiagnostic>;
+  lAliases: TArray<string>;
+  lMatches, lFound: Boolean;
+  i, j, k: Integer;
+begin
+  fDefaultAliasesKnown := False;
+  if fSdkSourceRoot = '' then
+    Exit;
+  lTargets := TPath.Combine(TPath.GetDirectoryName(
+    ExcludeTrailingPathDelimiter(fSdkSourceRoot)), 'bin\CodeGear.Common.Targets');
+  lLoaded := TDelphiSemanticSourceLoader.LoadFile(lTargets);
+  if not lLoaded.Success then
+    Exit;
+  fIdentityLines.Add('witness-default-aliases=' + lTargets + '|' + lLoaded.Source.ContentHash);
+  SetLength(lProperties, 2);
+  lProperties[0].Name := 'Platform';
+  lProperties[0].Value := fProject.Platform;
+  lProperties[1].Name := 'UnitAliases';
+  lFound := False;
+  try
+    lDocument := LoadWitnessXml(lLoaded.Source.Text);
+    for i := 0 to lDocument.DocumentElement.ChildNodes.Count - 1 do
+    begin
+      lGroup := lDocument.DocumentElement.ChildNodes[i];
+      if not SameText(lGroup.LocalName, 'PropertyGroup') then
+        Continue;
+      for j := 0 to lGroup.ChildNodes.Count - 1 do
+      begin
+        lNode := lGroup.ChildNodes[j];
+        if not SameText(lNode.LocalName, 'UnitAliases') and
+          not (StartsText('c', lNode.LocalName) and EndsText('Platform', lNode.LocalName)) then
+          Continue;
+        // The final assignment combines project aliases; conflict checks use their union.
+        if Pos('$(DCC_UnitAlias)', lNode.Text) > 0 then
+          Continue;
+        for lCondition in [WitnessCondition(lGroup), WitnessCondition(lNode)] do
+        begin
+          if not TDelphiSemanticMsBuild.TryEvaluateCondition(lCondition,
+            ExtractFilePath(lTargets), lProperties, nil, lMatches, lError, lDiagnostics) or
+            (Length(lDiagnostics) <> 0) then
+            Exit;
+          if not lMatches then
+            Break;
+        end;
+        if not lMatches then
+          Continue;
+        lValue := TDelphiSemanticMsBuild.ExpandMacros(lNode.Text, lProperties, nil,
+          False, lDiagnostics);
+        if (Length(lDiagnostics) <> 0) or (Pos('$(', lValue) > 0) then
+          Exit;
+        if SameText(lNode.LocalName, 'UnitAliases') then
+        begin
+          lProperties[1].Value := lValue;
+          lFound := True;
+        end else begin
+          k := Length(lProperties);
+          SetLength(lProperties, k + 1);
+          lProperties[k].Name := lNode.LocalName;
+          lProperties[k].Value := lValue;
+        end;
+      end;
+    end;
+    if not lFound then
+      Exit;
+    lAliases := lProperties[1].Value.Split([';'], TStringSplitOptions.ExcludeEmpty);
+    // Distinct targets for one key are unknown; exact duplicates are harmless.
+    fProject.UnitAliases := fProject.UnitAliases + lAliases;
+    fDefaultAliasesKnown := True;
+  except
+    on E: Exception do
+      // Malformed or unreadable targets cannot authorize an alias-key absence.
+      fIdentityLines.Add('witness-default-aliases-unknown=' + E.ClassName);
+  end;
+end;
+
+function TUnitNameWitness.CandidateNames(const aUnitName: string): TArray<TUnitCandidateName>;
+begin
+  Result := TDelphiSemanticUnitResolver.CandidateNames(fProject, aUnitName);
+end;
+
+function TUnitNameWitness.ResolveSdkInclude(const aArgument, aIncludingFile,
+  aRootFile: string; out aFileName: string): Boolean;
+var
+  lDirectory, lCandidate: string;
+begin
+  aFileName := '';
+  // SDK DCUs never consume project -I paths. Both allowed SDK locations must agree.
+  for lDirectory in [ExtractFilePath(aIncludingFile), ExtractFilePath(aRootFile)] do
+  begin
+    lCandidate := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(
+      TPath.Combine(lDirectory, aArgument));
+    if not StartsText(fSdkSourceRoot, lCandidate) then
+      Exit(False);
+    if not TFile.Exists(lCandidate) then
+      Continue;
+    if (aFileName <> '') and not SameText(aFileName, lCandidate) then
+      Exit(False);
+    aFileName := lCandidate;
+  end;
+  Result := aFileName <> '';
+end;
+
 function TUnitNameWitness.ResolveSource(const aUnitName: string;
   out aFileName, aReason, aResolvedName: string): Boolean;
 var
   lName: TUnitCandidateName;
+  lNames: TArray<TUnitCandidateName>;
+  lKeyProject: TDelphiSemanticProjectInfo;
   lPath: string;
   lPaths: TList<string>;
   lHasDcu: Boolean;
@@ -231,9 +376,29 @@ begin
     aReason := 'profile-locations-unproved';
     Exit;
   end;
+  if not fDefaultAliasesKnown and MatchText(aUnitName, ['Generics.Collections',
+    'Generics.Defaults', 'WinTypes', 'WinProcs', 'DbiTypes', 'DbiProcs', 'DbiErrs']) then
+  begin
+    aReason := 'default-aliases-unproved';
+    Exit;
+  end;
+  lNames := CandidateNames(aUnitName);
+  if Length(lNames) = 0 then
+  begin
+    aReason := 'alias-conflict';
+    Exit;
+  end;
+  // Scan the alias target and original spelling union. The same physical
+  // source reached by scope expansion is one candidate, never an ambiguity.
+  if not SameText(lNames[0].TargetName, aUnitName) then
+  begin
+    lKeyProject := fProject;
+    lKeyProject.UnitAliases := nil;
+    lNames := lNames + TDelphiSemanticUnitResolver.CandidateNames(lKeyProject, aUnitName);
+  end;
   lHasDcu := False;
   // Any second Pascal source is an extra candidate, including a second SDK copy.
-  for lName in TDelphiSemanticUnitResolver.CandidateNames(fProject, aUnitName) do
+  for lName in lNames do
     if fRtlFiles.TryGetValue(lName.TargetName, lPaths) then
       for lPath in lPaths do
       begin
@@ -256,7 +421,7 @@ begin
       aReason := 'dcu-only';
     Exit;
   end;
-  for lName in TDelphiSemanticUnitResolver.CandidateNames(fProject, aUnitName) do
+  for lName in lNames do
     if fRtlFiles.TryGetValue(lName.TargetName, lPaths) then
       for lPath in lPaths do
         if SameText(TPath.GetExtension(lPath), '.dcu') then
@@ -272,17 +437,22 @@ begin
           // Coordinator N1 amendment: installed SDK DCU/source is one candidate.
           fIdentityLines.Add('witness-sdk-pair=' + aUnitName + '|' + lPath + '|' + aFileName);
         end;
+  if not lHasDcu or (fSdkSourceRoot = '') or
+    not StartsText(fSdkSourceRoot, aFileName) then
+  begin
+    aReason := 'not-sdk-paired';
+    Exit;
+  end;
   Result := True;
 end;
 
 function TUnitNameWitness.ScanFile(const aUnitName, aFileName: string;
-  const aEntry: TWitnessEntry; const aSeen: TDictionary<string, Byte>;
+  const aEntry: TWitnessEntry; const aSeen: TDictionary<string, Byte>; const aRootFile: string;
   const aIsInclude: Boolean; out aReason: string): Boolean;
 var
   i, j, lStart, lEnd, lBrace, lParen: Integer;
   lCanonical, lPrefix, lText, lArgument, lIncludeFile: string;
   lLoaded: TDelphiSemanticSourceLoadResult;
-  lOptions: TDelphiSemanticPreprocessOptions;
 begin
   aReason := '';
   lCanonical := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aFileName);
@@ -311,8 +481,6 @@ begin
       i := j;
     end else
       Inc(i);
-  lOptions := Default(TDelphiSemanticPreprocessOptions);
-  lOptions.SearchPaths := fProject.IncludePaths + fProject.SourceLookupPaths;
   i := 1;
   // Advance each directive search independently; an absent form stays exhausted.
   lBrace := Pos('{$', lText, i);
@@ -340,8 +508,7 @@ begin
     if (lArgument = '') or StartsStr('%', lArgument) then
       Continue;
     try
-      if not TDelphiSemanticPreprocessor.ResolveIncludeFileName(lArgument,
-        ExtractFilePath(aFileName), lOptions, lIncludeFile) then
+      if not ResolveSdkInclude(lArgument, aFileName, aRootFile, lIncludeFile) then
       begin
         aReason := 'include-unresolved';
         Exit(False);
@@ -354,7 +521,7 @@ begin
         Exit(False);
       end;
     end;
-    if not ScanFile(aUnitName, lIncludeFile, aEntry, aSeen, True, aReason) then
+    if not ScanFile(aUnitName, lIncludeFile, aEntry, aSeen, aRootFile, True, aReason) then
       Exit(False);
   end;
   Result := True;
@@ -372,7 +539,7 @@ begin
   GC(lSeen, TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase), g);
   if ResolveSource(aUnitName, lFileName, lReason, lResolvedName) then
   begin
-    lEntry.Known := ScanFile(aUnitName, lFileName, lEntry, lSeen, False, lReason);
+    lEntry.Known := ScanFile(aUnitName, lFileName, lEntry, lSeen, lFileName, False, lReason);
     if lEntry.Known then
     begin
       try

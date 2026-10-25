@@ -498,10 +498,59 @@ type
     [TestCase('n3-paren-string True', 'n3-paren-string,True')]
     [TestCase('n4-debug-dcu False', 'n4-debug-dcu,False')]
     [TestCase('n4-debug-dcu True', 'n4-debug-dcu,True')]
+    [TestCase('ce1-inc-refdir False', 'ce1-inc-refdir,False')]
+    [TestCase('ce1-inc-refdir True', 'ce1-inc-refdir,True')]
+    [TestCase('ce2-inc-includepath False', 'ce2-inc-includepath,False')]
+    [TestCase('ce2-inc-includepath True', 'ce2-inc-includepath,True')]
+    [TestCase('ce3-inc-debugpath False', 'ce3-inc-debugpath,False')]
+    [TestCase('ce3-inc-debugpath True', 'ce3-inc-debugpath,True')]
+    [TestCase('ce4-default-alias False', 'ce4-default-alias,False')]
+    [TestCase('ce4-default-alias True', 'ce4-default-alias,True')]
+    [TestCase('ce5-nested-include-base False', 'ce5-nested-include-base,False')]
+    [TestCase('ce5-nested-include-base True', 'ce5-nested-include-base,True')]
+    [TestCase('Unknown pointer capture graph', 'u-pointer-alias-capture,False')]
+    [TestCase('Unknown pointer capture synthetic', 'u-pointer-alias-capture,True')]
+    [TestCase('Unknown reference capture graph', 'u-pointer-alias-reference,False')]
+    [TestCase('Unknown reference capture synthetic', 'u-pointer-alias-reference,True')]
+    [TestCase('Unknown pointee capture graph', 'u-pointer-pointee-capture,False')]
+    [TestCase('Unknown pointee capture synthetic', 'u-pointer-pointee-capture,True')]
+    [TestCase('m1-varparam-method-record False', 'm1-varparam-method-record,False')]
+    [TestCase('m1-varparam-method-record True', 'm1-varparam-method-record,True')]
+    [TestCase('m2-unit-level-with False', 'm2-unit-level-with,False')]
+    [TestCase('m2-unit-level-with True', 'm2-unit-level-with,True')]
+    [TestCase('m7-varparam-sdk-pair-token-present False', 'm7-varparam-sdk-pair-token-present,False')]
+    [TestCase('m7-varparam-sdk-pair-token-present True', 'm7-varparam-sdk-pair-token-present,True')]
+    [TestCase('A5 siblings graph', 'a5-sibling-temps,False')]
+    [TestCase('A5 siblings synthetic', 'a5-sibling-temps,True')]
+    [TestCase('A5 siblings control graph', 'a5-sibling-control,False')]
+    [TestCase('A5 siblings control synthetic', 'a5-sibling-control,True')]
+    [TestCase('A5 closure graph', 'a5-admission-closure,False')]
+    [TestCase('A5 closure synthetic', 'a5-admission-closure,True')]
+    [TestCase('A5 inner control graph', 'a5-inner-control,False')]
+    [TestCase('A5 inner control synthetic', 'a5-inner-control,True')]
+    [TestCase('A6 capture closure graph', 'a6-capture-closure,False')]
+    [TestCase('A6 capture closure synthetic', 'a6-capture-closure,True')]
+    [TestCase('A6 capture control graph', 'a6-capture-control,False')]
+    [TestCase('A6 capture control synthetic', 'a6-capture-control,True')]
+    [TestCase('ce6-project-alias-default-key False', 'ce6-project-alias-default-key,False')]
+    [TestCase('ce6-project-alias-default-key True', 'ce6-project-alias-default-key,True')]
+    [TestCase('ce6b-project-alias-twice False', 'ce6b-project-alias-twice,False')]
+    [TestCase('ce6b-project-alias-twice True', 'ce6b-project-alias-twice,True')]
     procedure OrderedTypeNamesOnFiveRoutes(const aShape: string;
       const aSkipGraph: Boolean);
     [Test]
     procedure UnindexedSourceTokenEditInvalidatesWarmFacts;
+    [Test]
+    [Category('DS719Review')]
+    procedure AdmissionDiscardsProvisionalTreeAndSiblingReservations;
+    [TestCase('Direct qualification', 'm1-varparam-method-record,direct-qualification')]
+    [TestCase('Reference temp', 'u-class-reference,reference-temp')]
+    [TestCase('Record pointer temp', 'u-pointer-alias-capture,record-pointer-temp')]
+    [Category('DS719Review')]
+    procedure UnprovedReceiverRouteStrategyMatrix(const aShape, aStrategy: string);
+    [TestCase('Resolved capture identity', 'capture')]
+    [Category('DS719Review')]
+    procedure PerStrategyDefensesKeepResolvedEvidence(const aShape: string);
     [TestCase('I tab', 'I,brace')]
     [TestCase('INCLUDE tab', 'INCLUDE,brace')]
     [TestCase('Parenthesis I tab', 'I,paren')]
@@ -2171,7 +2220,8 @@ uses
   DelphiSemantics.Api.ProjectOptions, DelphiSemantics.Cache, DelphiSemantics.Model.Json,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan,
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
-  DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith, Test.Support;
+  DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
+  DelphiSemantics.SourceConditionals, Test.Support;
 
 var
   GWithBinderTempRoot: string;
@@ -2711,6 +2761,7 @@ end;
 procedure TWithBinderTests.RootProofRequiresVerifiedPreprocessScope(const aShape: string);
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModel: TDelphiSemanticUnitModel;
   lCache: TDelphiSemanticSnapshotSqliteCache;
   lIdentity: TDelphiSemanticSnapshotCacheIdentity;
   lLoaded, lStored: TDelphiProjectSnapshot;
@@ -2855,7 +2906,16 @@ begin
     lProvider.NamedCalls := 0;
     lProvider.ImplicitCalls := 0;
     if i <= 2 then
+    begin
       lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+      if MatchText(aShape, ['c-helper-declaration', 'n-helper-declaration', 'n-routine-unicode']) then
+        for lModel in lFacts.UnitModels do
+          if SameText(lModel.UnitName, 'Unit1') then
+            // Body/declaration uncertainty must not contaminate the proved import clause.
+            Assert.IsFalse(TDelphiSemanticSourceConditionals.ImportOrderUnknown(
+              lModel.SourceText, lModel.VerifiedActiveSourceText, lModel.IncludeFileNames,
+              lModel.DependencyFacts.InterfaceImports), aShape);
+    end;
     if i = 0 then
       lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts)
     else if i = 1 then
@@ -18919,11 +18979,11 @@ begin
   Assert.AreEqual<Integer>(0, Length(lPlan.Edits));
 end;
 
-procedure TWithBinderTests.OrderedTypeNamesOnFiveRoutes(const aShape: string;
-  const aSkipGraph: Boolean);
+procedure RunOrderedTypeNamesOnFiveRoutes(const aShape: string;
+  const aSkipGraph: Boolean; const aExpectedStrategy: string);
 var
   g: TGarbos;
-  lRoot, lFixture, lFileName, lExpectedText: string;
+  lRoot, lFixture, lFileName, lExpectedText, lRouteStatuses: string;
   lOptions: TDelphiSemanticApiOptions;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lRequest: TDelphiSemanticRemoveWithRequest;
@@ -18936,15 +18996,47 @@ var
   lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
   lPlanned: Boolean;
 begin
-  lRoot := WithBinderTempPath('ds719-routes-' + aShape + BoolToStr(aSkipGraph, True));
+  lRoot := WithBinderTempPath('ds719-routes-' + aShape + BoolToStr(aSkipGraph, True) +
+    aExpectedStrategy + TGUID.NewGuid.ToString);
   TDirectory.CreateDirectory(lRoot);
   lFixture := TPath.Combine(RepoRoot, 'tests\fixtures\ds719-uses-order\' + aShape);
+  if aShape = 'a5-sibling-control' then
+    lFixture := TPath.Combine(RepoRoot, 'tests\fixtures\ds719-uses-order\a5-sibling-temps');
+  if aShape = 'a5-inner-control' then
+    lFixture := TPath.Combine(RepoRoot, 'tests\fixtures\ds719-uses-order\a5-admission-closure');
+  if aShape = 'a6-capture-control' then
+    lFixture := TPath.Combine(RepoRoot, 'tests\fixtures\ds719-uses-order\a6-capture-closure');
   for lFileName in TDirectory.GetFiles(lFixture, '*', TSearchOption.soAllDirectories) do
   begin
     TDirectory.CreateDirectory(ExtractFilePath(TPath.Combine(lRoot,
       ExtractRelativePath(IncludeTrailingPathDelimiter(lFixture), lFileName))));
     TFile.Copy(lFileName, TPath.Combine(lRoot,
       ExtractRelativePath(IncludeTrailingPathDelimiter(lFixture), lFileName)));
+  end;
+  if aShape = 'a5-sibling-control' then
+  begin
+    lFileName := TPath.Combine(lRoot, 'Unit1.pas');
+    TFile.WriteAllText(lFileName, TFile.ReadAllText(lFileName).Replace(
+      'aFirst: PForeign', 'aFirst: PRec'), TEncoding.ASCII);
+  end;
+  if aShape = 'a5-inner-control' then
+  begin
+    lFileName := TPath.Combine(lRoot, 'Unit1.pas');
+    TFile.WriteAllText(lFileName, TFile.ReadAllText(lFileName).Replace(
+      'with aItem do', ''), TEncoding.ASCII);
+  end;
+  if aShape = 'a6-capture-control' then
+  begin
+    lFileName := TPath.Combine(lRoot, 'Unit1.pas');
+    TFile.WriteAllText(lFileName, TFile.ReadAllText(lFileName).Replace(
+      'with Items[1]^ do', ''), TEncoding.ASCII);
+  end;
+  if aExpectedStrategy <> '' then
+  begin
+    // A proved indexed-unit control must reach the named strategy on every route.
+    lFileName := TPath.Combine(lRoot, 'Unit1.pas');
+    TFile.WriteAllText(lFileName, TFile.ReadAllText(lFileName).Replace(
+      'uses A, U;', 'uses A;').Replace('uses A, DsrU719;', 'uses A;'), TEncoding.ASCII);
   end;
   if aShape = 'n4-debug-dcu' then
   begin
@@ -18979,8 +19071,11 @@ begin
   else if MatchText(aShape, ['own', 'c-local-wins']) then
     Assert.AreEqual('Unit1', lFacts.Bindings[0].Selectors[0].TypeIdentity.UnitName);
   lExpectedText := '';
-  lPlanned := MatchText(aShape, ['au-absent', 'ua', 'b-after-sysutils',
-    'e-impl-unit2-wins']);
+  lRouteStatuses := '';
+
+  // A4: au-absent is an unpaired project source, so token absence proves nothing.
+  lPlanned := (aExpectedStrategy <> '') or MatchText(aShape, ['ua', 'b-after-sysutils',
+    'e-impl-unit2-wins', 'a5-inner-control', 'a6-capture-control']);
   for var i := 0 to 4 do
   begin
     if i = 0 then
@@ -19016,11 +19111,83 @@ begin
         lSession.Session.Free;
       end;
     end;
+    if MatchText(aShape, ['a5-sibling-temps', 'a5-sibling-control']) then
+    begin
+      Assert.AreEqual<Integer>(2, Length(lPlan.FinalStatements), aShape);
+      if aShape = 'a5-sibling-control' then
+      begin
+        Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, aShape);
+        Assert.AreEqual('planned', lPlan.FinalStatements[1].Status, aShape);
+        Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements[1].Temps), aShape);
+        Assert.AreEqual('lWithRecPtr1', lPlan.FinalStatements[1].Temps[0].TempName, aShape);
+      end else begin
+        Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
+        Assert.AreEqual('type-source-not-indexed', lPlan.FinalStatements[0].Reason, aShape);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), aShape);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
+        Assert.AreEqual('planned', lPlan.FinalStatements[1].Status, aShape);
+        Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements[1].Temps), aShape);
+        Assert.AreEqual('lWithRecPtr', lPlan.FinalStatements[1].Temps[0].TempName, aShape);
+      end;
+      Continue;
+    end;
+    if aShape = 'a6-capture-closure' then
+    begin
+      Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].Status, aShape);
+      Assert.AreEqual('unproved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus, aShape);
+      Assert.AreEqual<Integer>(3, Length(lPlan.FinalStatements), aShape);
+      Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].Reason, aShape);
+      Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[1].Reason, aShape);
+      Assert.AreEqual('enclosing-admission-refusal:receiver-type-not-visible',
+        lPlan.FinalStatements[2].Reason, aShape);
+      for var j := 0 to High(lPlan.FinalStatements) do
+      begin
+        Assert.AreEqual('skipped', lPlan.FinalStatements[j].Status, aShape);
+        Assert.AreEqual('', lPlan.FinalStatements[j].ReplacementText, aShape);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[j].Edits), aShape);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[j].Temps), aShape);
+        Assert.AreEqual<Integer>(0,
+          Length(lPlan.FinalStatements[j].RewriteRecipe.SelectorDecisions), aShape);
+      end;
+      Assert.AreEqual<Integer>(0, Length(lPlan.Edits), aShape);
+      Continue;
+    end;
+    if aShape = 'a5-admission-closure' then
+    begin
+      Assert.AreEqual<Integer>(2, Length(lPlan.FinalStatements), aShape);
+      Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
+      // A6: the established dependent-selector refusal wins before admission.
+      Assert.AreEqual('dependent-selector-type-not-resolved', lPlan.FinalStatements[0].Reason, aShape);
+      Assert.AreEqual('skipped', lPlan.FinalStatements[1].Status, aShape);
+      Assert.AreEqual('dependent-selector-type-not-resolved',
+        lPlan.FinalStatements[1].Reason, aShape);
+      for var j := 0 to High(lPlan.FinalStatements) do
+      begin
+        Assert.AreEqual('', lPlan.FinalStatements[j].ReplacementText, aShape);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[j].Edits), aShape);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[j].Temps), aShape);
+      end;
+      Continue;
+    end;
     Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aShape);
+    if (not lPlanned) and (aShape.StartsWith('u-pointer-') or (aShape = 'u-class-reference') or aShape.StartsWith('m1-') or
+      aShape.StartsWith('m2-') or aShape.StartsWith('m7-') or aShape.StartsWith('ce6')) then
+    begin
+      lRouteStatuses := lRouteStatuses + lPlan.FinalStatements[0].Status + '|';
+      if SameText(lPlan.FinalStatements[0].Status, 'planned') then
+        Continue;
+      Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason, aShape);
+    end;
     if lPlanned then
     begin
       Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
         aShape + ': ' + lPlan.FinalStatements[0].SafetyReason);
+      if aExpectedStrategy <> '' then
+      begin
+        Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements[0].RewriteRecipe.SelectorDecisions), aShape);
+        Assert.AreEqual(aExpectedStrategy,
+          lPlan.FinalStatements[0].RewriteRecipe.SelectorDecisions[0].Strategy, aShape);
+      end;
       if i = 0 then
         lExpectedText := lPlan.FinalStatements[0].ReplacementText;
       Assert.AreEqual(lExpectedText, lPlan.FinalStatements[0].ReplacementText, aShape);
@@ -19032,8 +19199,8 @@ begin
       Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
       if MatchText(aShape, ['ab', 'own', 'c-local-wins', 'p1-alias-plain',
         'p2-inherited-index', 'p3-inherited-pointer', 'p4-ancestor-control',
-        'x2-third-unit-own-last', 'q4-head-and-d4', 'au-present',
-        'a-before-sysutils', 'd-impl-sysutils-wins', 'x1-third-unit-base-last',
+        'x2-third-unit-own-last', 'x1-third-unit-base-last', 'q4-head-and-d4',
+        'au-present', 'au-absent', 'a-before-sysutils', 'd-impl-sysutils-wins',
         'tab-i', 'tab-include', 'tab-paren', 'include-plus-brace',
         'include-plus-paren']) then
         // Review M2/A2: a HEAD capture refusal precedes D4 and keeps its candidate.
@@ -19050,6 +19217,189 @@ begin
           lPlan.FinalStatements[0].SafetyReason, aShape);
     end;
   end;
+  if (not lPlanned) and (aShape.StartsWith('u-pointer-') or (aShape = 'u-class-reference') or aShape.StartsWith('m1-') or
+    aShape.StartsWith('m2-') or aShape.StartsWith('m7-') or aShape.StartsWith('ce6')) then
+    Assert.AreEqual('skipped|skipped|skipped|skipped|skipped|', lRouteStatuses, aShape);
+  if (not lPlanned) and aShape.StartsWith('u-pointer-') then
+  begin
+    Assert.AreEqual('skipped|skipped|skipped|skipped|skipped|', lRouteStatuses);
+    if aShape = 'u-pointer-pointee-capture' then
+      Assert.AreEqual('TRec', lFacts.Bindings[0].Selectors[0].CaptureTypeName)
+    else
+      Assert.AreEqual('PRec', lFacts.Bindings[0].Selectors[0].CaptureTypeName);
+    Assert.AreEqual('unproved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus);
+  end;
+end;
+
+procedure TWithBinderTests.OrderedTypeNamesOnFiveRoutes(const aShape: string;
+  const aSkipGraph: Boolean);
+begin
+  RunOrderedTypeNamesOnFiveRoutes(aShape, aSkipGraph, '');
+end;
+
+procedure TWithBinderTests.UnprovedReceiverRouteStrategyMatrix(const aShape, aStrategy: string);
+begin
+  RunOrderedTypeNamesOnFiveRoutes(aShape, False, aStrategy);
+  RunOrderedTypeNamesOnFiveRoutes(aShape, False, '');
+end;
+
+procedure TWithBinderTests.PerStrategyDefensesKeepResolvedEvidence(const aShape: string);
+var
+  lRoot, lKind: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+begin
+  // Isolate the existing defenses after a fully proved receiver passes admission.
+  // The corrupted facts model a contradictory cache/provider result, not a source fallback.
+  lRoot := WithBinderTempPath('ds719-resolved-defense-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lKind := 'record';
+  if aShape = 'capture' then
+    lKind := 'class';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10'type TRec = ' + lKind + #13#10 +
+    ' Value: Integer;'#13#10'end;'#13#10'procedure Run;'#13#10 +
+    'implementation'#13#10'var Item: TRec;'#13#10'Extra: Integer;'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10' with Item do'#13#10' begin'#13#10 +
+    '  Value := 1;'#13#10'  Extra := 5;'#13#10' end;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin Run; end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.ImplicitRootMemberAbsence := TDS750RootAbsence.Create;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, 'proved control');
+  Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].Status);
+  lFacts.Bindings[0].Selectors[0].CaptureTypeName := 'TRec';
+  lFacts.Bindings[0].Selectors[0].CaptureTypeStatus := 'resolved';
+  lFacts.Bindings[0].Selectors[0].CaptureTypeIdentity := lFacts.Bindings[0].Selectors[0].TypeIdentity;
+  lFacts.Bindings[0].Selectors[0].CaptureTypeIdentity.CanonicalId.Value := 'contradictory-type';
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+  Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason);
+  Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+  Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+  Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+end;
+
+procedure TWithBinderTests.AdmissionDiscardsProvisionalTreeAndSiblingReservations;
+var
+  g: TGarbos;
+  lRoot: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lEdit: TDelphiSemanticRemoveWithFinalTextEdit;
+begin
+  // The source proves all types. An unproved capture fact then exercises the
+  // admission boundary independently of the renderer's established refusals.
+  lRoot := WithBinderTempPath('ds719-a6-provisional-tree');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10 +
+    'type TOuter = record Value: Integer; procedure Touch; end;'#13#10 +
+    ' TInner = record Value: Integer; end;'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10'var Inner: TInner;'#13#10 +
+    'procedure TOuter.Touch; begin end;'#13#10 +
+    'procedure Work(var Item: TOuter);'#13#10'begin'#13#10 +
+    ' with Item do begin Value := 1; with Inner do Value := 2; end;'#13#10 +
+    ' with Inner do Value := 3;'#13#10'end;'#13#10 +
+    'procedure Run; var Item: TOuter; begin Work(Item); end;'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin Run; end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.ImplicitRootMemberAbsence := TDS750RootAbsence.Create;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.AreEqual<Integer>(3, Length(lFacts.Bindings));
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual<Integer>(2, Length(lPlan.FinalStatements), 'proved parent covers its child');
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status);
+  Assert.AreEqual('planned', lPlan.FinalStatements[1].Status);
+  Assert.AreEqual('lWithInnerPtr1', lPlan.FinalStatements[1].Temps[0].TempName);
+  Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].Status);
+  lFacts.Bindings[0].Selectors[0].CaptureTypeName := 'TOuter';
+  lFacts.Bindings[0].Selectors[0].CaptureTypeStatus := 'unproved';
+  for var i := 0 to 2 do
+  begin
+    if i = 0 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts)
+    else if i = 1 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts)
+    else
+    begin
+      lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+      lIdentity.CacheKey := 'a6-provisional-tree';
+      lIdentity.IdentityKey := lIdentity.CacheKey;
+      lIdentity.SourceFileName := lOptions.ProjectFileName;
+      lIdentity.FileHash := lFacts.ContextFingerprint;
+      lIdentity.ContextHash := lFacts.ContextFingerprint;
+      lIdentity.IncludeGraphHash := 'a6-provisional-tree';
+      lIdentity.SchemaVersion := 'a6-provisional-tree';
+      GC(lStored, BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts), g);
+      GC(lCache, TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite')), g);
+      lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+      Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+      GC(lLoaded, g);
+      lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+    end;
+    Assert.AreEqual<Integer>(3, Length(lPlan.FinalStatements));
+    Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('enclosing-admission-refusal:receiver-type-not-visible',
+      lPlan.FinalStatements[1].Reason);
+    for var j := 0 to 1 do
+    begin
+      lStatement := lPlan.FinalStatements[j];
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.AreEqual('', lStatement.ReplacementText);
+      Assert.AreEqual<Integer>(0, Length(lStatement.Temps));
+      Assert.AreEqual<Integer>(0, Length(lStatement.Edits));
+      Assert.AreEqual<Integer>(0, Length(lStatement.RewriteRecipe.SelectorDecisions));
+    end;
+    lStatement := lPlan.FinalStatements[2];
+    Assert.AreEqual('planned', lStatement.Status);
+    Assert.AreEqual<Integer>(1, Length(lStatement.Temps));
+    Assert.AreEqual('lWithInnerPtr', lStatement.Temps[0].TempName);
+    for lEdit in lStatement.Edits do
+      Assert.AreEqual(0, Pos('lWithInnerPtr1', lEdit.ReplacementText), 'no provisional declaration');
+  end;
+end;
+
+function PrepareSdkWitnessCacheProject(const aRoot: string): string;
+var
+  lProjectFile, lSourceRoot, lLibraryRoot: string;
+begin
+  // A4: D6's positive cache controls use a paired SDK source, never a project witness.
+  lSourceRoot := TPath.Combine(aRoot, 'sdk\source');
+  lLibraryRoot := TPath.Combine(aRoot, 'sdk\lib\win64\release');
+  TDirectory.CreateDirectory(lSourceRoot);
+  TDirectory.CreateDirectory(lLibraryRoot);
+  TFile.Move(TPath.Combine(aRoot, 'U.pas'), TPath.Combine(lSourceRoot, 'U.pas'));
+  TFile.WriteAllText(TPath.Combine(lLibraryRoot, 'U.dcu'), 'SDK unit', TEncoding.ASCII);
+  lProjectFile := TPath.Combine(aRoot, 'P.dproj');
+  TFile.WriteAllText(lProjectFile, TFile.ReadAllText(lProjectFile).Replace(
+    '<DCC_UnitSearchPath>.</DCC_UnitSearchPath>',
+    '<DCC_UnitSearchPath>sdk\lib\win64\release</DCC_UnitSearchPath>'), TEncoding.UTF8);
+  Result := TPath.Combine(aRoot, 'sdk\bin\rsvars.bat');
 end;
 
 procedure TWithBinderTests.UnindexedSourceTokenEditInvalidatesWarmFacts;
@@ -19066,6 +19416,7 @@ begin
     TFile.Copy(lFileName, TPath.Combine(lRoot, ExtractFileName(lFileName)));
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.RsVarsPath := PrepareSdkWitnessCacheProject(lRoot);
   lOptions.DelphiVersion := '23.0';
   lOptions.Platform := 'Win64';
   lOptions.Configuration := 'Debug';
@@ -19073,7 +19424,7 @@ begin
   for var i := 0 to 2 do
   begin
     if i = 2 then
-      TFile.AppendAllText(TPath.Combine(lRoot, 'U.pas'), #13#10'// TX', TEncoding.ASCII);
+      TFile.AppendAllText(TPath.Combine(lRoot, 'sdk\source\U.pas'), #13#10'// TX', TEncoding.ASCII);
     lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
     try
       Assert.IsTrue(lSession.Success);
@@ -19084,7 +19435,7 @@ begin
         Assert.AreEqual('planned', lBuild.Plan.FinalStatements[0].Status)
       else begin
         Assert.AreEqual('skipped', lBuild.Plan.FinalStatements[0].Status);
-        // Review M2/A2: HEAD's homonym refusal retains candidate coverage.
+        // A6 preserves the existing capture refusal and its candidate hint.
         Assert.AreEqual<Integer>(1, Length(lBuild.Plan.Edits));
         Assert.AreEqual('remove-with-candidate', lBuild.Plan.Edits[0].Kind);
         Assert.AreEqual<Integer>(0, Length(lBuild.Plan.FinalStatements[0].Temps));
@@ -19108,6 +19459,8 @@ begin
   lFixture := TPath.Combine(RepoRoot, 'tests\fixtures\ds719-uses-order\au-absent');
   for lFileName in TDirectory.GetFiles(lFixture) do
     TFile.Copy(lFileName, TPath.Combine(lRoot, ExtractFileName(lFileName)));
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.RsVarsPath := PrepareSdkWitnessCacheProject(lRoot);
   lDirective := '{$' + aSpelling + #9 + 'names.inc}';
   if aForm = 'paren' then
     lDirective := '(*$' + aSpelling + #9 + 'names.inc*)';
@@ -19115,20 +19468,19 @@ begin
     lDirective := lDirective.Replace(#9, '');
   if aForm = 'overlap' then
     lDirective := 'const Marker = ''{$notinclude'';' + #13#10 + lDirective;
-  TFile.WriteAllText(TPath.Combine(lRoot, 'U.pas'),
+  TFile.WriteAllText(TPath.Combine(lRoot, 'sdk\source\U.pas'),
     'unit U; interface ' + lDirective + ' implementation end.', TEncoding.ASCII);
-  TFile.WriteAllText(TPath.Combine(lRoot, 'names.inc'), 'type TOther = Integer;', TEncoding.ASCII);
-  lOptions := Default(TDelphiSemanticApiOptions);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'sdk\source\names.inc'), 'type TOther = Integer;', TEncoding.ASCII);
   lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
   lOptions.DelphiVersion := '23.0';
   lOptions.Platform := 'Win64';
   lOptions.Configuration := 'Debug';
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
-  lFileName := TPath.Combine(lRoot, 'names.inc');
+  lFileName := TPath.Combine(lRoot, 'sdk\source\names.inc');
   if aSpelling = 'INCLUDE+' then
   begin
-    lFileName := TPath.Combine(lRoot, '+names.inc');
-    TFile.Move(TPath.Combine(lRoot, 'names.inc'), lFileName);
+    lFileName := TPath.Combine(lRoot, 'sdk\source\+names.inc');
+    TFile.Move(TPath.Combine(lRoot, 'sdk\source\names.inc'), lFileName);
   end;
   for var i := 0 to 2 do
   begin
@@ -19144,7 +19496,7 @@ begin
         Assert.AreEqual('planned', lBuild.Plan.FinalStatements[0].Status)
       else begin
         Assert.AreEqual('skipped', lBuild.Plan.FinalStatements[0].Status);
-        // Review M2/A2: HEAD's homonym refusal retains candidate coverage.
+        // A6 preserves the existing capture refusal and its candidate hint.
         Assert.AreEqual<Integer>(1, Length(lBuild.Plan.Edits));
         Assert.AreEqual('remove-with-candidate', lBuild.Plan.Edits[0].Kind);
         Assert.AreEqual<Integer>(0, Length(lBuild.Plan.FinalStatements[0].Temps));

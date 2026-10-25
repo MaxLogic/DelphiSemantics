@@ -20,6 +20,27 @@ type
     [Setup]
     procedure Setup;
     [Test]
+    procedure ProjectSourceCannotProveAbsence;
+    [TestCase('Project include only', 'project')]
+    [TestCase('Two SDK include candidates', 'ambiguous')]
+    [TestCase('Nested root fallback', 'nested')]
+    [TestCase('Parent escapes source', 'escape')]
+    procedure SdkIncludesStayInsideInstallation(const aShape: string);
+    [TestCase('Installed Windows aliases', 'windows')]
+    [TestCase('Default/project conflict', 'conflict')]
+    [TestCase('Project conflict', 'project-conflict')]
+    [TestCase('Exact duplicate', 'duplicate')]
+    [TestCase('Alias key and target', 'extra')]
+    [TestCase('Missing targets', 'missing')]
+    [TestCase('Malformed targets', 'malformed')]
+    [TestCase('Other platform', 'other')]
+    procedure DefaultAliasesRespectPlatformAndUncertainty(const aShape: string);
+    [Test]
+    procedure SdkSourceWithoutDcuCannotProveAbsence;
+    [TestCase('Same physical candidate', 'False')]
+    [TestCase('Different physical candidates', 'True')]
+    procedure ScopedAliasCandidatesUsePhysicalIdentity(const aExtraFile: Boolean);
+    [Test]
     procedure TokensAreCaseInsensitiveAndIncludeEscapedIdentifiers;
     [Test]
     procedure SourceAndIncludeBytesInvalidateIdentity;
@@ -115,12 +136,14 @@ type
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   DelphiSemantics.Preprocess, Test.Support;
 
 procedure TUnitNameWitnessTests.Setup;
 begin
-  fRoot := CreateTestTempRoot('unit-name-witness-temp');
+  // A4: grammar/token controls use an SDK pair; arbitrary project sources stay unknown.
+  fRoot := TPath.Combine(CreateTestTempRoot('unit-name-witness-temp'), 'sdk\source');
+  TDirectory.CreateDirectory(fRoot);
   fProject := Default(TDelphiSemanticProjectInfo);
   fProject.SearchPaths := [fRoot];
   SetLength(fModels, 1);
@@ -131,6 +154,7 @@ begin
   fModels[0].DependencyFacts.Known := True;
   fModels[0].DependencyFacts.InterfaceImports := ['U'];
   WriteSource('U.pas', 'unit U; interface type TOther = Integer; implementation end.');
+  WriteSource('..\lib\win64\release\U.dcu', 'SDK unit');
 end;
 
 procedure TUnitNameWitnessTests.WriteSource(const aRelativeName, aText: string);
@@ -143,8 +167,124 @@ begin
 end;
 
 function TUnitNameWitnessTests.Witness(const aRtlRoot: string): IDelphiSemanticUnitNameWitness;
+var
+  lProject: TDelphiSemanticProjectInfo;
+  lRoot: string;
 begin
-  Result := TDelphiSemanticUnitNameWitnessBuilder.Build(fProject, fModels, aRtlRoot);
+  lProject := fProject;
+  lRoot := aRtlRoot;
+  if lRoot = '' then
+  begin
+    lRoot := fRoot;
+    lProject.SearchPaths := lProject.SearchPaths +
+      [TPath.Combine(TPath.GetDirectoryName(fRoot), 'lib\win64\release')];
+  end;
+  Result := TDelphiSemanticUnitNameWitnessBuilder.Build(lProject, fModels, lRoot);
+end;
+
+procedure TUnitNameWitnessTests.ProjectSourceCannotProveAbsence;
+var
+  lWitness: IDelphiSemanticUnitNameWitness;
+begin
+  lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(fProject, fModels, '');
+  Assert.IsTrue(lWitness.MayDeclare('U', 'Absent'), 'A4: unpaired project source is unknown');
+end;
+
+procedure TUnitNameWitnessTests.SdkSourceWithoutDcuCannotProveAbsence;
+begin
+  TFile.Delete(TPath.Combine(fRoot, 'U.pas'));
+  WriteSource('sdk\source\U.pas', 'unit U; interface implementation end.');
+  Assert.IsTrue(Witness(TPath.Combine(fRoot, 'sdk\source')).MayDeclare('U', 'Absent'));
+end;
+
+procedure TUnitNameWitnessTests.SdkIncludesStayInsideInstallation(const aShape: string);
+var
+  lWitness: IDelphiSemanticUnitNameWitness;
+begin
+  TFile.Delete(TPath.Combine(fRoot, 'U.pas'));
+  WriteSource('sdk\lib\win64\release\U.dcu', 'SDK unit');
+  WriteSource('sdk\source\data\U.pas', 'unit U; interface {$I sub/outer.inc} implementation end.');
+  WriteSource('sdk\source\data\sub\outer.inc', '{$I names.inc}');
+  fProject.SearchPaths := [fRoot, TPath.Combine(fRoot, 'sdk\lib\win64\release')];
+  fProject.IncludePaths := [fRoot];
+  WriteSource('names.inc', 'type TX = Integer;');
+  if MatchText(aShape, ['nested', 'ambiguous']) then
+    WriteSource('sdk\source\data\names.inc', 'type TX = Integer;');
+  if aShape = 'ambiguous' then
+    WriteSource('sdk\source\data\sub\names.inc', 'type TY = Integer;');
+  if aShape = 'escape' then
+  begin
+    WriteSource('sdk\source\data\sub\outer.inc', '{$I ../../../outside.inc}');
+    WriteSource('sdk\outside.inc', 'type TY = Integer;');
+  end;
+  lWitness := Witness(TPath.Combine(fRoot, 'sdk\source'));
+  Assert.AreEqual(aShape <> 'nested', lWitness.MayDeclare('U', 'Absent'), lWitness.IdentityText);
+  Assert.IsTrue(lWitness.MayDeclare('U', 'TX'), lWitness.IdentityText);
+end;
+
+procedure TUnitNameWitnessTests.DefaultAliasesRespectPlatformAndUncertainty(const aShape: string);
+var
+  lWitness: IDelphiSemanticUnitNameWitness;
+  lRoot, lTarget: string;
+begin
+  TFile.Delete(TPath.Combine(fRoot, 'U.pas'));
+  fModels[0].DependencyFacts.InterfaceImports := ['WinTypes'];
+  fProject.Platform := 'Win64';
+  fProject.SearchPaths := [TPath.Combine(fRoot, 'sdk\lib\win64\release')];
+  if aShape = 'other' then
+    fProject.Platform := 'Linux64';
+  lTarget := 'Winapi.Windows';
+  if aShape = 'conflict' then
+  begin
+    fProject.UnitAliases := ['WinTypes=Custom.Windows'];
+    lTarget := 'Custom.Windows';
+  end else if aShape = 'project-conflict' then
+    fProject.UnitAliases := ['WinTypes=Winapi.Windows', 'WinTypes=Custom.Windows']
+  else if aShape = 'duplicate' then
+    fProject.UnitAliases := ['WinTypes=Winapi.Windows', 'WinTypes=Winapi.Windows']
+  else if aShape = 'other' then
+    lTarget := 'WinTypes';
+  WriteSource('sdk\source\rtl\' + lTarget + '.pas',
+    'unit ' + lTarget + '; interface implementation end.');
+  WriteSource('sdk\lib\win64\release\' + lTarget + '.dcu', 'SDK unit');
+  if aShape = 'extra' then
+    WriteSource('sdk\source\rtl\WinTypes.pas', 'unit WinTypes; interface implementation end.');
+  if aShape <> 'missing' then
+    WriteSource('sdk\bin\CodeGear.Common.Targets',
+      '<Project><PropertyGroup><cWin64Platform>Win64</cWin64Platform>' +
+      '<UnitAliases>Generics.Collections=System.Generics.Collections</UnitAliases>' +
+      '<UnitAliases Condition="''$(Platform)''==''$(cWin64Platform)''">' +
+      '$(UnitAliases);WinTypes=Winapi.Windows</UnitAliases>' +
+      '<UnitAliases Condition="''$(DCC_UnitAlias)''!=''''">$(DCC_UnitAlias)$(UnitAliases)</UnitAliases>' +
+      '</PropertyGroup></Project>');
+  if aShape = 'malformed' then
+    WriteSource('sdk\bin\CodeGear.Common.Targets', '<Project>');
+  lRoot := TPath.Combine(fRoot, 'sdk\source');
+  lWitness := Witness(lRoot);
+  Assert.AreEqual(MatchText(aShape, ['missing', 'malformed', 'extra', 'conflict', 'project-conflict']),
+    lWitness.MayDeclare('WinTypes', 'Absent'), lWitness.IdentityText);
+end;
+
+procedure TUnitNameWitnessTests.ScopedAliasCandidatesUsePhysicalIdentity(const aExtraFile: Boolean);
+var
+  lWitness: IDelphiSemanticUnitNameWitness;
+begin
+  TFile.Delete(TPath.Combine(fRoot, 'U.pas'));
+  fModels[0].DependencyFacts.InterfaceImports := ['Generics.Collections'];
+  fProject.UnitScopeNames := ['System'];
+  fProject.UnitAliases := ['Generics.Collections=System.Generics.Collections'];
+  WriteSource('..\bin\CodeGear.Common.Targets',
+    '<Project><PropertyGroup><UnitAliases>' +
+    'Generics.Collections=System.Generics.Collections</UnitAliases></PropertyGroup></Project>');
+  WriteSource('System.Generics.Collections.pas',
+    'unit System.Generics.Collections; interface implementation end.');
+  WriteSource('..\lib\win64\release\System.Generics.Collections.dcu', 'SDK unit');
+  if aExtraFile then
+    WriteSource('Generics.Collections.pas',
+      'unit Generics.Collections; interface type TX = Integer; implementation end.');
+  lWitness := Witness;
+  Assert.AreEqual(aExtraFile, lWitness.MayDeclare('Generics.Collections', 'Absent'),
+    lWitness.IdentityText);
 end;
 
 procedure TUnitNameWitnessTests.TokensAreCaseInsensitiveAndIncludeEscapedIdentifiers;
@@ -203,6 +343,8 @@ begin
   // Each case first exercises a real absence proof; an always-unknown stub must fail.
   Assert.IsFalse(Witness.MayDeclare('U', 'Absent'));
   lRtlRoot := '';
+  if aReason = 'no-source' then
+    TFile.Delete(TPath.Combine(TPath.GetDirectoryName(fRoot), 'lib\win64\release\U.dcu'));
   if aReason = 'unit-name-mismatch' then
     WriteSource('U.pas', 'unit WrongName; interface implementation end.')
   else if aReason = 'include-unresolved' then
@@ -279,10 +421,10 @@ begin
     lExtension := 'pas';
     if aShape.EndsWith('dcu') then
       lExtension := 'dcu';
-    WriteSource('profile\U.' + lExtension, 'unit U; interface type TX = Integer; implementation end.');
+    WriteSource('..\..\profile\U.' + lExtension, 'unit U; interface type TX = Integer; implementation end.');
     SetLength(fProject.Properties, 1);
     fProject.Properties[0].Name := lPropertyName;
-    fProject.Properties[0].Value := TPath.Combine(fRoot, 'profile');
+    fProject.Properties[0].Value := TPath.Combine(fRoot, '..\..\profile');
   end;
   lWitness := Witness(lRtlRoot);
   Assert.IsTrue(lWitness.MayDeclare('U', 'TX'), aShape);
@@ -328,23 +470,27 @@ var
 begin
   WriteSource('P.dproj', '<Project><PropertyGroup><Platform>Win64</Platform></PropertyGroup></Project>');
   WriteSource('profile.proj', '<Project><PropertyGroup><DelphiLibraryPath>' +
-    TPath.Combine(fRoot, 'profile') + '</DelphiLibraryPath><DelphiBrowsingPath />' +
+    TPath.Combine(fRoot, '..\..\profile') + '</DelphiLibraryPath><DelphiBrowsingPath />' +
     '</PropertyGroup></Project>');
-  WriteSource('profile\U.dcu', 'compiled unit');
+  WriteSource('..\..\profile\U.dcu', 'compiled unit');
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.DelphiVersion := '23.0';
   lOptions.Platform := 'Win64';
   lOptions.EnvOptionsPath := TPath.Combine(fRoot, 'profile.proj');
   lContext := TDelphiSemanticProject.Load(TPath.Combine(fRoot, 'P.dproj'), lOptions);
   Assert.IsTrue(lContext.Success);
-  lFirst := TDelphiSemanticUnitNameWitnessBuilder.Build(lContext.Project, fModels, '');
+  lContext.Project.SearchPaths := lContext.Project.SearchPaths +
+    [TPath.Combine(TPath.GetDirectoryName(fRoot), 'lib\win64\release')];
+  lFirst := TDelphiSemanticUnitNameWitnessBuilder.Build(lContext.Project, fModels, fRoot);
   Assert.IsTrue(lFirst.MayDeclare('U', 'TX'));
   Assert.IsTrue(lFirst.IdentityText.Contains('|unknown|ambiguous-source'), lFirst.IdentityText);
   WriteSource('profile.proj', '<Project><PropertyGroup><DelphiLibraryPath />' +
     '<DelphiBrowsingPath /></PropertyGroup></Project>');
   lContext := TDelphiSemanticProject.Load(TPath.Combine(fRoot, 'P.dproj'), lOptions);
   Assert.IsTrue(lContext.Success);
-  lSecond := TDelphiSemanticUnitNameWitnessBuilder.Build(lContext.Project, fModels, '');
+  lContext.Project.SearchPaths := lContext.Project.SearchPaths +
+    [TPath.Combine(TPath.GetDirectoryName(fRoot), 'lib\win64\release')];
+  lSecond := TDelphiSemanticUnitNameWitnessBuilder.Build(lContext.Project, fModels, fRoot);
   Assert.IsFalse(lSecond.MayDeclare('U', 'TX'));
   Assert.AreNotEqual(lFirst.IdentityText, lSecond.IdentityText);
 end;
@@ -429,13 +575,13 @@ var
   lWitness: IDelphiSemanticUnitNameWitness;
   lPaths: string;
 begin
-  WriteSource('dbg\U.dcu', 'compiled debug unit');
-  lPaths := '<DelphiDebugDCUPath>' + TPath.Combine(fRoot, 'dbg') + '</DelphiDebugDCUPath>';
+  WriteSource('..\..\dbg\U.dcu', 'compiled debug unit');
+  lPaths := '<DelphiDebugDCUPath>' + TPath.Combine(fRoot, '..\..\dbg') + '</DelphiDebugDCUPath>';
   if aOrigin = 'project' then
   begin
     SetLength(fProject.Properties, 1);
     fProject.Properties[0].Name := 'DelphiDebugDCUPath';
-    fProject.Properties[0].Value := TPath.Combine(fRoot, 'dbg');
+    fProject.Properties[0].Value := TPath.Combine(fRoot, '..\..\dbg');
   end else begin
     WriteSource('P.dproj', '<Project><PropertyGroup><Platform>Win64</Platform></PropertyGroup></Project>');
     WriteSource('profile.proj', '<Project><PropertyGroup><DelphiLibraryPath />' +
@@ -461,8 +607,8 @@ var
   lWitness: IDelphiSemanticUnitNameWitness;
   lPath, lProperties: string;
 begin
-  WriteSource('translated\U.dcu', 'compiled translated unit');
-  lPath := TPath.Combine(fRoot, 'translated');
+  WriteSource('..\..\translated\U.dcu', 'compiled translated unit');
+  lPath := TPath.Combine(fRoot, '..\..\translated');
   if aLanguage = '' then
     lPath := '$(UnresolvedTranslation)';
   if aOrigin = 'project' then

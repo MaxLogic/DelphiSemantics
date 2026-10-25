@@ -15,6 +15,9 @@ type
   public
     [Test]
     procedure ExplicitAliasResolvesToCanonicalTarget;
+    [TestCase('Distinct targets', 'True')]
+    [TestCase('Duplicate target', 'False')]
+    procedure AliasConflictsAreUnknown(const aConflict: Boolean);
     [Test]
     procedure ExactScopedUnitNameResolvesWithoutNamespaceFallback;
     [Test]
@@ -67,6 +70,26 @@ begin
   Result.Success := True;
   Result.UnitName := aUnitName;
   Result.FileName := aFileName;
+end;
+
+procedure TUnitResolverTests.AliasConflictsAreUnknown(const aConflict: Boolean);
+var
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticUnitResolutionResult;
+begin
+  lProject := ProjectInfo;
+  lProject.UnitAliases := ['LegacyAlias=AliasTarget', 'LegacyAlias=AliasTarget'];
+  if aConflict then
+    lProject.UnitAliases[1] := 'LegacyAlias=OtherTarget';
+  lResult := TDelphiSemanticUnitResolver.Resolve(lProject, 'LegacyAlias');
+  Assert.AreEqual(not aConflict, lResult.Found);
+  if aConflict then
+  begin
+    Assert.AreEqual('ambiguous', lResult.Status);
+    Assert.AreEqual('UNIT_AMBIGUOUS', lResult.ReasonCode);
+    Assert.AreEqual<Integer>(0, Length(TDelphiSemanticUnitResolver.CandidateNames(
+      lProject, 'LegacyAlias')));
+  end;
 end;
 
 procedure TUnitResolverTests.ExplicitAliasResolvesToCanonicalTarget;
