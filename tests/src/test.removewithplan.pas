@@ -1807,32 +1807,14 @@ end;
 
 function TRemoveWithPlanTests.DakFixturePath(const aRelativePath: string): string;
 var
-  i: Integer;
-  lCandidate, lRoot, lParent: string;
+  lDakRoot: string;
 begin
-  // The runner starts in DAK/tests; isolated test outputs can have any nesting depth.
-  // Search ancestry from both runtime locations and recognize the actual DAK project.
-  for i := 0 to 1 do
-  begin
-    if i = 0 then
-      lRoot := TPath.GetFullPath(GetCurrentDir)
-    else
-      lRoot := TPath.GetFullPath(ExtractFilePath(ParamStr(0)));
-    while lRoot <> '' do
-    begin
-      lCandidate := lRoot;
-      if not TFile.Exists(CombinePath([lCandidate, 'projects', 'DelphiAIKit.dproj'])) then
-        lCandidate := TPath.Combine(lRoot, 'DelphiAiKit');
-      if TFile.Exists(CombinePath([lCandidate, 'projects', 'DelphiAIKit.dproj'])) then
-        Exit(TPath.GetFullPath(CombinePath([lCandidate, 'tests', 'fixtures', aRelativePath])));
-      lParent := TPath.GetDirectoryName(lRoot);
-      if lParent = lRoot then
-        Break;
-      lRoot := lParent;
-    end;
-  end;
-  Assert.Fail('Cannot locate the DAK repository from the runtime directories.');
-  Result := '';
+  // Use our executable's sibling checkout, then resolve the fixture link before hashing IDs.
+  // CWD must never select another DAK checkout or change an existing golden identity.
+  lDakRoot := TPath.GetFullPath(TPath.Combine(RepoRoot, '..\DelphiAiKit'));
+  Assert.IsTrue(TFile.Exists(CombinePath([lDakRoot, 'projects', 'DelphiAIKit.dproj'])),
+    'Cannot locate the sibling DAK repository: ' + lDakRoot);
+  Result := PhysicalTestPath(CombinePath([lDakRoot, 'tests', 'fixtures', aRelativePath]));
 end;
 
 function TRemoveWithPlanTests.SelectedMaxTdbProjectPath(

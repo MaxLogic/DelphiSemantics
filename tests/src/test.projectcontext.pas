@@ -1015,13 +1015,15 @@ var
   lOptions: TDelphiSemanticOptions;
   lProjectPath: string;
   lResult: TDelphiSemanticContextResult;
+  lSearchPath: string;
+  lFoundPhysicalPath: Boolean;
 begin
   lProjectPath := TPath.GetFullPath(TPath.Combine(
     ExtractFilePath(ParamStr(0)),
     '..\..\..\DelphiAiKit\tests\fixtures\test-projects\maxTdb\src\maxtdb.dproj'));
-  lExpectedPath := TPath.GetFullPath(TPath.Combine(
+  lExpectedPath := PhysicalTestPath(TPath.GetFullPath(TPath.Combine(
     ExtractFilePath(ParamStr(0)),
-    '..\..\..\DelphiAiKit\tests\fixtures\test-projects\semantic-isolated-t311\Foundation'));
+    '..\..\..\DelphiAiKit\tests\fixtures\test-projects\semantic-isolated-t311\Foundation')));
   Assert.IsTrue(TFile.Exists(lProjectPath));
   Assert.IsTrue(TDirectory.Exists(lExpectedPath));
 
@@ -1033,7 +1035,17 @@ begin
   lResult := TDelphiSemanticProject.Load(lProjectPath, lOptions);
 
   Assert.IsTrue(lResult.Success);
-  Assert.IsTrue(ContainsPath(lResult.Project.SourceLookupPaths, lExpectedPath),
+  lFoundPhysicalPath := False;
+  for lSearchPath in lResult.Project.SourceLookupPaths do
+  begin
+    if TDirectory.Exists(lSearchPath) and
+      SameText(PhysicalTestPath(lSearchPath), lExpectedPath) then
+    begin
+      lFoundPhysicalPath := True;
+      Break;
+    end;
+  end;
+  Assert.IsTrue(lFoundPhysicalPath,
     'The explicit Foundation path must survive self-reference and imported targets. ' +
     'DCC_UnitSearchPath=' + lResult.Project.PropertyValue('DCC_UnitSearchPath'));
 end;

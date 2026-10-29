@@ -8,6 +8,7 @@ uses
 
 function CreateTestTempRoot(const aFolderName: string): string;
 function RepoRoot: string;
+function PhysicalTestPath(const aPath: string): string;
 function FixturePath(const aRelativePath: string): string; overload;
 function FixturePath(const aFolder, aFileName: string): string; overload;
 function RepoSourcePath(const aRelativePath: string): string;
@@ -63,6 +64,8 @@ type
     procedure RepoPathHelpersResolveFixturesAndSource;
     [Test]
     procedure SnapshotBackedQueryContextsUseScopedHelper;
+    [Test]
+    procedure PhysicalPathFollowsJunctionForFilesAndDirectories;
   end;
 
   [TestFixture]
@@ -163,6 +166,41 @@ begin
     Result := '\\?\UNC\' + Copy(aPath, 3, MaxInt)
   else
     Result := '\\?\' + aPath;
+end;
+
+function PhysicalTestPath(const aPath: string): string;
+var
+  lHandle: THandle;
+  lLength: DWORD;
+begin
+  // Follow links while opening both files and directories; preserve ordinary DOS/UNC syntax.
+  lHandle := CreateFile(PChar(TestTempNativePath(TPath.GetFullPath(aPath))), 0,
+    FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE, nil, OPEN_EXISTING,
+    FILE_FLAG_BACKUP_SEMANTICS, 0);
+  if lHandle = INVALID_HANDLE_VALUE then
+    RaiseLastOSError;
+  try
+    SetLength(Result, MAX_PATH);
+    lLength := GetFinalPathNameByHandleW(lHandle, PChar(Result), Length(Result),
+      cFileNameNormalized or cVolumeNameDos);
+    if lLength >= DWORD(Length(Result)) then
+    begin
+      SetLength(Result, lLength + 1);
+      lLength := GetFinalPathNameByHandleW(lHandle, PChar(Result), Length(Result),
+        cFileNameNormalized or cVolumeNameDos);
+    end;
+    if lLength = 0 then
+      RaiseLastOSError;
+    if lLength >= DWORD(Length(Result)) then
+      raise EPathTooLongException.CreateFmt('Cannot resolve physical test path: %s', [aPath]);
+    SetLength(Result, lLength);
+    if StartsStr('\\?\UNC\', Result) then
+      Result := '\\' + Copy(Result, 9, MaxInt)
+    else if StartsStr('\\?\', Result) then
+      Result := Copy(Result, 5, MaxInt);
+  finally
+    CloseHandle(lHandle);
+  end;
 end;
 
 function TestTempEntries(const aPath: string): TArray<string>;
@@ -1097,6 +1135,27 @@ procedure PlantTestTempRoot(const aRoot: string);
 begin
   TDirectory.CreateDirectory(TPath.Combine(aRoot, 'nested'));
   TFile.WriteAllText(CombinePath([aRoot, 'nested', 'payload.txt']), 'payload');
+end;
+
+procedure TSupportTests.PhysicalPathFollowsJunctionForFilesAndDirectories;
+var
+  lRoot, lTarget, lLink, lTargetFile, lLinkedFile: string;
+begin
+  lRoot := CreateTestTempRoot('physical-path-temp');
+  lTarget := TPath.Combine(lRoot, 'target');
+  lLink := TPath.Combine(lRoot, 'junction');
+  TDirectory.CreateDirectory(lTarget);
+  lTargetFile := TPath.Combine(lTarget, 'source.pas');
+  lLinkedFile := TPath.Combine(lLink, 'source.pas');
+  TFile.WriteAllText(lTargetFile, 'unit Source; interface implementation end.');
+  CreateTestJunction(lLink, lTarget);
+  try
+    Assert.AreEqual(PhysicalTestPath(lTarget), PhysicalTestPath(lLink));
+    Assert.AreEqual(PhysicalTestPath(lTargetFile), PhysicalTestPath(lLinkedFile));
+    Assert.AreNotEqual(TPath.GetFullPath(lTargetFile), TPath.GetFullPath(lLinkedFile));
+  finally
+    RemoveTestJunction(lLink);
+  end;
 end;
 
 procedure RunTestTempSwapCase(const aSwap: TTestTempSwapTarget);

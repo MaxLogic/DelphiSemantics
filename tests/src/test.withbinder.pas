@@ -2208,6 +2208,8 @@ type
     procedure SelectorIdentityUsesTheDeclaringUnitScope;
     [Test]
     procedure ParameterTypesResolveInTheEnclosingScope;
+    [Test]
+    procedure SqliteCaseDirectoriesRespectPathBudget;
   end;
 
 implementation
@@ -2216,7 +2218,7 @@ uses
   System.Generics.Collections, System.Hash, System.IOUtils, System.JSON, System.JSON.Serializers, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite,
-  AutoFree, maxLogic.IOUtils,
+  AutoFree, maxLogic.IOUtils, maxLogic.StrUtils,
   DelphiSemantics.Api.ProjectOptions, DelphiSemantics.Cache, DelphiSemantics.Model.Json,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan,
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
@@ -2226,6 +2228,30 @@ uses
 var
   GWithBinderTempRoot: string;
 
+function BoundedWithBinderPath(const aRoot, aName: string): string;
+const
+  cMaxSqlitePathLength = 259;
+var
+  lName, lJournalPath: string;
+begin
+  lName := aName;
+  if TPath.GetExtension(aName) = '' then
+  begin
+    // Keep parameterized cases isolated without embedding their unbounded descriptions.
+    lName := 'case-' + Copy(THashSHA2.GetHashString(aName), 1, 32);
+    Result := TPath.Combine(aRoot, lName);
+    // This is the longest database filename used by this fixture, including its sidecar.
+    lJournalPath := TPath.Combine(Result, 'owner-activity.sqlite-journal');
+  end else begin
+    Result := TPath.Combine(aRoot, lName);
+    lJournalPath := Result + '-journal';
+  end;
+  if Length(lJournalPath) > cMaxSqlitePathLength then
+    raise EPathTooLongException.CreateFmt(
+      'SQLite test path length %d exceeds %d (including journal): %s',
+      [Length(lJournalPath), cMaxSqlitePathLength, lJournalPath]);
+end;
+
 function WithBinderTempPath(const aName: string): string;
 begin
   if GWithBinderTempRoot = '' then
@@ -2233,7 +2259,47 @@ begin
     GWithBinderTempRoot := CreateTestTempRoot('with-binder-temp');
   end;
   TDirectory.CreateDirectory(GWithBinderTempRoot);
-  Result := TPath.Combine(GWithBinderTempRoot, aName);
+  Result := BoundedWithBinderPath(GWithBinderTempRoot, aName);
+end;
+
+procedure TWithBinderTests.SqliteCaseDirectoriesRespectPathBudget;
+var
+  i: Integer;
+  lName, lPath, lJournalPath: string;
+  lPaths: TDictionary<string, Boolean>;
+  lRefused: Boolean;
+begin
+  lPaths := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.Ordinal);
+  try
+    // Generated names cover short, long, and parameterized case descriptions.
+    for i := 1 to 256 do
+    begin
+      lName := 'ds764-' + i.ToString + '-' + StringOfChar('x', i);
+      lPath := WithBinderTempPath(lName);
+      lJournalPath := TPath.Combine(lPath, 'owner-activity.sqlite-journal');
+      Assert.IsTrue(Length(lJournalPath) <= 259,
+        Format('SQLite journal path length %d exceeds 259: %s', [Length(lJournalPath), lJournalPath]));
+      Assert.AreEqual(lPath, WithBinderTempPath(lName));
+      Assert.IsFalse(lPaths.ContainsKey(lPath), 'Distinct cases must remain isolated.');
+      lPaths.Add(lPath, True);
+    end;
+    // Test the exact journal budget without allocating an invalid directory.
+    lPath := BoundedWithBinderPath('F:\' + StringOfChar('x', 188), 'case');
+    Assert.AreEqual(259, Length(TPath.Combine(lPath, 'owner-activity.sqlite-journal')));
+    lRefused := False;
+    try
+      BoundedWithBinderPath('F:\' + StringOfChar('x', 189), 'case');
+    except
+      on E: EPathTooLongException do
+      begin
+        lRefused := True;
+        Assert.IsTrue(Pos('length 260 exceeds 259', E.Message) > 0, E.Message);
+      end;
+    end;
+    Assert.IsTrue(lRefused, 'An over-budget SQLite root must fail before file creation.');
+  finally
+    lPaths.Free;
+  end;
 end;
 
 type

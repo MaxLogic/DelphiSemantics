@@ -5,7 +5,7 @@ program delphiSemanticsTests;
 
 uses
   System.SysUtils,
-  DUnitX.FilterBuilder, DUnitX.Loggers.Console, DUnitX.TestFramework,
+  DUnitX.FilterBuilder, DUnitX.Loggers.Console, DUnitX.Loggers.XML.NUnit, DUnitX.TestFramework,
   DelphiSemantics.Api in '..\src\DelphiSemantics.Api.pas',
   DelphiSemantics.Api.ProjectOptions in '..\src\DelphiSemantics.Api.ProjectOptions.pas',
   DelphiSemantics.Api.RemoveWith in '..\src\DelphiSemantics.Api.RemoveWith.pas',
@@ -150,6 +150,8 @@ begin
 
     lLogger := TDUnitXConsoleLogger.Create(True);
     lRunner.AddLogger(lLogger);
+    if TDUnitX.Options.XMLOutputFile <> '' then
+      lRunner.AddLogger(TDUnitXXMLNUnitFileLogger.Create(TDUnitX.Options.XMLOutputFile));
 
     lResults := lRunner.Execute;
     if not lResults.AllPassed then
