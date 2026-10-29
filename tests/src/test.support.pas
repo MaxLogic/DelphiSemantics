@@ -4,7 +4,7 @@ interface
 
 uses
   System.Classes, DUnitX.TestFramework,
-  DelphiSemantics.Query, DelphiSemantics.Snapshot;
+  DelphiSemantics.ProjectContext, DelphiSemantics.Query, DelphiSemantics.Snapshot;
 
 function CreateTestTempRoot(const aFolderName: string): string;
 function RepoRoot: string;
@@ -16,6 +16,19 @@ function ReadRepoSource(const aRelativePath: string): string;
 procedure WaitForTestThreads(const aThreads: array of TThread; const aTimeoutMs: Cardinal);
 
 type
+  TIsolatedProfileInputs = class(TInterfacedObject, IDelphiSemanticProfileInputs)
+  public
+    Environment: TArray<TDelphiSemanticProperty>;
+    RegistryEnvironment: TArray<TDelphiSemanticProperty>;
+    RegistryLibrary: TArray<TDelphiSemanticProperty>;
+    Documents: string;
+    PublicDocuments: string;
+    FailKnownFolder: Boolean;
+    function TryEnvironmentValue(const aName: string; out aValue: string): Boolean;
+    function RegistryValues(const aKey: string; const aView: Cardinal): TArray<TDelphiSemanticProperty>;
+    function KnownFolderPath(const aFolder: TDelphiSemanticProfileFolder): string;
+  end;
+
   TScopedSnapshotQueryContext = class
   private
     fContext: TDelphiSemanticSymbolQueryContext;
@@ -104,6 +117,7 @@ type
 
 implementation
 
+
 uses
   System.IOUtils, System.StrUtils, System.SyncObjs, System.SysUtils,
   Winapi.Windows,
@@ -152,6 +166,44 @@ const
   cProcessQueryLimitedInformation = $1000;
   cTestTempKeepMarker = '.keep';
   cTestTempKeepVariable = 'DS_KEEP_TEST_TEMP';
+
+function TIsolatedProfileInputs.TryEnvironmentValue(const aName: string;
+  out aValue: string): Boolean;
+var
+  lProperty: TDelphiSemanticProperty;
+begin
+  aValue := '';
+  for lProperty in Environment do
+    if SameText(lProperty.Name, aName) then
+    begin
+      aValue := lProperty.Value;
+      Exit(True);
+    end;
+  Result := False;
+end;
+
+function TIsolatedProfileInputs.RegistryValues(const aKey: string;
+  const aView: Cardinal): TArray<TDelphiSemanticProperty>;
+begin
+  Result := nil;
+  if aView <> KEY_WOW64_64KEY then
+    Exit;
+  if aKey.EndsWith('\Environment Variables') then
+    Result := RegistryEnvironment
+  else if aKey.Contains('\Library\') then
+    Result := RegistryLibrary;
+end;
+
+function TIsolatedProfileInputs.KnownFolderPath(
+  const aFolder: TDelphiSemanticProfileFolder): string;
+begin
+  if FailKnownFolder then
+    raise Exception.Create('known folder unavailable');
+  if aFolder = TDelphiSemanticProfileFolder.pfDocuments then
+    Result := Documents
+  else
+    Result := PublicDocuments;
+end;
 
 function GetFileInformationByHandleEx(aFile: THandle; aInfoClass: Integer; aInfo: Pointer;
   aSize: DWORD): BOOL; stdcall; external kernel32 name 'GetFileInformationByHandleEx';

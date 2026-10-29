@@ -798,7 +798,8 @@ var
   lContext: TDelphiSemanticContextResult;
   lFirst, lSecond: IDelphiSemanticUnitNameWitness;
 begin
-  WriteSource('P.dproj', '<Project><PropertyGroup><Platform>Win64</Platform></PropertyGroup></Project>');
+  WriteSource('P.dproj', '<Project><PropertyGroup><Platform>Win64</Platform>' +
+    '<BDSUSERDIR /><BDSCOMMONDIR /></PropertyGroup></Project>');
   WriteSource('profile.proj', '<Project><PropertyGroup><DelphiLibraryPath>' +
     TPath.Combine(fRoot, '..\..\profile') + '</DelphiLibraryPath><DelphiBrowsingPath />' +
     '</PropertyGroup></Project>');
@@ -807,6 +808,7 @@ begin
   lOptions.DelphiVersion := '23.0';
   lOptions.Platform := 'Win64';
   lOptions.EnvOptionsPath := TPath.Combine(fRoot, 'profile.proj');
+  lOptions.ProfileInputs := TIsolatedProfileInputs.Create;
   lContext := TDelphiSemanticProject.Load(TPath.Combine(fRoot, 'P.dproj'), lOptions);
   Assert.IsTrue(lContext.Success);
   lContext.Project.SearchPaths := lContext.Project.SearchPaths +
@@ -913,13 +915,15 @@ begin
     fProject.Properties[0].Name := 'DelphiDebugDCUPath';
     fProject.Properties[0].Value := TPath.Combine(fRoot, '..\..\dbg');
   end else begin
-    WriteSource('P.dproj', '<Project><PropertyGroup><Platform>Win64</Platform></PropertyGroup></Project>');
+    WriteSource('P.dproj', '<Project><PropertyGroup><Platform>Win64</Platform>' +
+      '<BDSUSERDIR /><BDSCOMMONDIR /></PropertyGroup></Project>');
     WriteSource('profile.proj', '<Project><PropertyGroup><DelphiLibraryPath />' +
       '<DelphiBrowsingPath />' + lPaths + '</PropertyGroup></Project>');
     lOptions := Default(TDelphiSemanticOptions);
     lOptions.DelphiVersion := '23.0';
     lOptions.Platform := 'Win64';
     lOptions.EnvOptionsPath := TPath.Combine(fRoot, 'profile.proj');
+    lOptions.ProfileInputs := TIsolatedProfileInputs.Create;
     lContext := TDelphiSemanticProject.Load(TPath.Combine(fRoot, 'P.dproj'), lOptions);
     Assert.IsTrue(lContext.Success);
     fProject.Properties := lContext.Project.Properties;
@@ -949,7 +953,8 @@ begin
     fProject.Properties[1].Name := 'LANGDIR';
     fProject.Properties[1].Value := aLanguage;
   end else begin
-    WriteSource('P.dproj', '<Project><PropertyGroup><Platform>Win64</Platform></PropertyGroup></Project>');
+    WriteSource('P.dproj', '<Project><PropertyGroup><Platform>Win64</Platform>' +
+      '<BDSUSERDIR /><BDSCOMMONDIR /></PropertyGroup></Project>');
     lProperties := '<DelphiLibraryPath /><DelphiBrowsingPath /><LANGDIR>' + aLanguage +
       '</LANGDIR><' + aProperty + '>' + lPath + '</' + aProperty + '>';
     WriteSource('profile.proj', '<Project><PropertyGroup>' + lProperties + '</PropertyGroup></Project>');
@@ -957,6 +962,7 @@ begin
     lOptions.DelphiVersion := '23.0';
     lOptions.Platform := 'Win64';
     lOptions.EnvOptionsPath := TPath.Combine(fRoot, 'profile.proj');
+    lOptions.ProfileInputs := TIsolatedProfileInputs.Create;
     lContext := TDelphiSemanticProject.Load(TPath.Combine(fRoot, 'P.dproj'), lOptions);
     Assert.IsTrue(lContext.Success);
     fProject.Properties := lContext.Project.Properties;

@@ -18,6 +18,16 @@ type
     Value: string;
   end;
 
+  TDelphiSemanticProfileFolder = (pfDocuments, pfPublicDocuments);
+
+  // Optional system-input boundary; nil uses our native Windows profile inputs.
+  IDelphiSemanticProfileInputs = interface
+    ['{BE506838-E9B9-4657-9D4B-F22ED5514F50}']
+    function TryEnvironmentValue(const aName: string; out aValue: string): Boolean;
+    function RegistryValues(const aKey: string; const aView: Cardinal): TArray<TDelphiSemanticProperty>;
+    function KnownFolderPath(const aFolder: TDelphiSemanticProfileFolder): string;
+  end;
+
   TDelphiSemanticOptions = record
     ProjectPath: string;
     Configuration: string;
@@ -25,6 +35,7 @@ type
     DelphiVersion: string;
     RsVarsPath: string;
     EnvOptionsPath: string;
+    ProfileInputs: IDelphiSemanticProfileInputs;
     EnvironmentVariables: TArray<TDelphiSemanticProperty>;
     AdditionalSourceFileNames: TArray<string>;
     SearchPaths: TArray<string>;
@@ -123,13 +134,20 @@ implementation
 uses
   System.Classes, System.Generics.Collections, System.Generics.Defaults, System.Hash,
   System.IOUtils, System.RegularExpressions, System.StrUtils, System.SysUtils,
-  System.Win.Registry, Xml.omnixmldom, Xml.XMLDoc, Xml.XMLIntf, Xml.xmldom,
-  Winapi.Windows,
+  System.Win.ComObj, System.Win.Registry, Xml.omnixmldom, Xml.XMLDoc, Xml.XMLIntf, Xml.xmldom,
+  Winapi.ActiveX, Winapi.KnownFolders, Winapi.ShlObj, Winapi.Windows,
   MaxLogic.StrUtils,
   DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Lsp;
 
 type
   TPropertyMap = TDictionary<string, string>;
+
+  TNativeProfileInputs = class(TInterfacedObject, IDelphiSemanticProfileInputs)
+  public
+    function TryEnvironmentValue(const aName: string; out aValue: string): Boolean;
+    function RegistryValues(const aKey: string; const aView: Cardinal): TArray<TDelphiSemanticProperty>;
+    function KnownFolderPath(const aFolder: TDelphiSemanticProfileFolder): string;
+  end;
 
   IProjectContextObservationsBuilder = interface
     ['{319C9185-AD19-4EE7-A1AA-09D9FBDEAC58}']
@@ -407,6 +425,127 @@ begin
   Result.Success := True;
   Result.Project := aProject;
   Result.Diagnostics := aDiagnostics.ToArray;
+end;
+
+function TryReadEnvironmentRegistryValue(const aRoot: HKEY; const aKey, aName: string;
+  out aValue: string): Boolean;
+var
+  lRegistry: TRegistry;
+begin
+  aValue := '';
+  lRegistry := TRegistry.Create(KEY_READ);
+  try
+    lRegistry.RootKey := aRoot;
+    Result := lRegistry.OpenKeyReadOnly(aKey) and lRegistry.ValueExists(aName) and
+      (lRegistry.GetDataType(aName) in [rdString, rdExpandString]);
+    if Result then
+      aValue := lRegistry.ReadString(aName);
+  finally
+    lRegistry.Free;
+  end;
+end;
+
+function TNativeProfileInputs.TryEnvironmentValue(const aName: string;
+  out aValue: string): Boolean;
+var
+  lBlock, lEntry: PWideChar;
+  lText: string;
+  lSeparator: Integer;
+begin
+  aValue := '';
+  // A copied environment block preserves present-empty entries without changing
+  // process state or racing a size/read pair of GetEnvironmentVariable calls.
+  lBlock := GetEnvironmentStringsW;
+  if lBlock = nil then
+    RaiseLastOSError;
+  try
+    lEntry := lBlock;
+    while lEntry^ <> #0 do
+    begin
+      lText := lEntry;
+      lSeparator := Pos('=', lText);
+      if (lSeparator > 1) and SameText(Copy(lText, 1, lSeparator - 1), aName) then
+      begin
+        aValue := Copy(lText, lSeparator + 1, MaxInt);
+        Exit(True);
+      end;
+      Inc(lEntry, Length(lText) + 1);
+    end;
+  finally
+    FreeEnvironmentStringsW(lBlock);
+  end;
+  Result := TryReadEnvironmentRegistryValue(HKEY_CURRENT_USER, 'Environment', aName, aValue);
+  if not Result then
+    Result := TryReadEnvironmentRegistryValue(HKEY_LOCAL_MACHINE,
+      'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', aName, aValue);
+end;
+
+function TNativeProfileInputs.RegistryValues(const aKey: string;
+  const aView: Cardinal): TArray<TDelphiSemanticProperty>;
+var
+  lRegistry: TRegistry;
+  lNames: TStringList;
+  lValues: TList<TDelphiSemanticProperty>;
+  lName: string;
+  lValue: TDelphiSemanticProperty;
+begin
+  lRegistry := TRegistry.Create(KEY_READ or aView);
+  lNames := TStringList.Create;
+  lValues := TList<TDelphiSemanticProperty>.Create;
+  try
+    lRegistry.RootKey := HKEY_CURRENT_USER;
+    if lRegistry.OpenKeyReadOnly(aKey) then
+    begin
+      lRegistry.GetValueNames(lNames);
+      for lName in lNames do
+        if lRegistry.GetDataType(lName) in [rdString, rdExpandString] then
+        begin
+          lValue.Name := lName;
+          lValue.Value := lRegistry.ReadString(lName);
+          lValues.Add(lValue);
+        end;
+    end;
+    Result := lValues.ToArray;
+  finally
+    lValues.Free;
+    lNames.Free;
+    lRegistry.Free;
+  end;
+end;
+
+function TNativeProfileInputs.KnownFolderPath(
+  const aFolder: TDelphiSemanticProfileFolder): string;
+var
+  lPath: PWideChar;
+  lFolder: TGUID;
+begin
+  if aFolder = TDelphiSemanticProfileFolder.pfDocuments then
+    lFolder := FOLDERID_Documents
+  else
+    lFolder := FOLDERID_PublicDocuments;
+  lPath := nil;
+  try
+    OleCheck(SHGetKnownFolderPath(lFolder, KF_FLAG_DONT_VERIFY, 0, lPath));
+    Result := lPath;
+  finally
+    CoTaskMemFree(lPath);
+  end;
+end;
+
+function ProfileInputs(const aOptions: TDelphiSemanticOptions): IDelphiSemanticProfileInputs;
+begin
+  Result := aOptions.ProfileInputs;
+  if Result = nil then
+    Result := TNativeProfileInputs.Create;
+end;
+
+function ProfileVersion(const aOptions: TDelphiSemanticOptions): string;
+begin
+  Result := aOptions.DelphiVersion.Trim;
+  if Result = '' then
+    Result := '23.0';
+  if Pos('.', Result) = 0 then
+    Result := Result + '.0';
 end;
 
 function PropertyKey(const aName: string): string;
@@ -1450,7 +1589,11 @@ begin
           end;
         end;
         if (not aLockPlatform) or (not SameText(lName, 'Platform')) then
+        begin
           SetPropertyValue(aProperties, lName, lExpandedValue);
+          if SameText(lName, 'BDSUSERDIR') or SameText(lName, 'BDSCOMMONDIR') then
+            SetPropertyValue(aProperties, lName + 'Source', 'project property');
+        end;
       end;
     end;
   end;
@@ -1841,6 +1984,11 @@ begin
       TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.RsVarsPath));
     AppendFingerprintItem(lBuilder, 'envoptions',
       TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.EnvOptionsPath));
+    // Preserve our base identity byte stream for explicit profile inputs.
+    // Only newly derived directory values extend that existing contract.
+    for lPropertyName in ['BDSUSERDIR', 'BDSCOMMONDIR'] do
+      if aProject.PropertyValue(lPropertyName + 'Source') = 'derived default' then
+        AppendFingerprintItem(lBuilder, lPropertyName, aProject.PropertyValue(lPropertyName));
     AppendFingerprintItem(lBuilder, 'compilerProfile',
       CanonicalFingerprintText(aProject.CompilerProfileName));
     if aOptions.ImplicitRootMemberAbsence <> nil then
@@ -1912,6 +2060,104 @@ begin
   end;
 end;
 
+procedure SeedProfileDirectories(const aProperties: TPropertyMap;
+  const aOptions: TDelphiSemanticOptions);
+const
+  cNames: array[TDelphiSemanticProfileFolder] of string = ('BDSUSERDIR', 'BDSCOMMONDIR');
+  cViews: array[0..1] of Cardinal = (KEY_WOW64_64KEY, KEY_WOW64_32KEY);
+var
+  lInputs: IDelphiSemanticProfileInputs;
+  lProperty: TDelphiSemanticProperty;
+  lFolder: TDelphiSemanticProfileFolder;
+  lView: Cardinal;
+  lName, lValue, lSource, lVersion: string;
+  lPresent: Boolean;
+begin
+  lInputs := ProfileInputs(aOptions);
+  lVersion := ProfileVersion(aOptions);
+  for lFolder := Low(TDelphiSemanticProfileFolder) to High(TDelphiSemanticProfileFolder) do
+  begin
+    lName := cNames[lFolder];
+    try
+      lPresent := aProperties.TryGetValue(PropertyKey(lName), lValue);
+      lSource := 'native option';
+      if not lPresent then
+      begin
+        lPresent := lInputs.TryEnvironmentValue(lName, lValue);
+        lSource := 'environment';
+      end;
+      if not lPresent then
+      begin
+        lSource := 'BDS registry';
+        for lView in cViews do
+        begin
+          for lProperty in lInputs.RegistryValues('Software\Embarcadero\BDS\' +
+            lVersion + '\Environment Variables', lView) do
+            if SameText(lProperty.Name, lName) then
+            begin
+              lValue := lProperty.Value;
+              lPresent := True;
+              Break;
+            end;
+          if lPresent then
+            Break;
+        end;
+      end;
+      if not lPresent then
+      begin
+        lValue := lInputs.KnownFolderPath(lFolder);
+        if lValue <> '' then
+          lValue := TPath.Combine(lValue, 'Embarcadero\Studio\' + lVersion);
+        lSource := 'derived default';
+      end;
+      if lPresent or (lValue <> '') then
+      begin
+        SetPropertyValue(aProperties, lName, lValue);
+        SetPropertyValue(aProperties, lName + 'Source', lSource);
+      end;
+    except
+      on E: Exception do
+        // Retain fallback evidence until all project/profile overrides have
+        // been evaluated; only final reconciliation decides availability.
+        SetPropertyValue(aProperties, lName + 'InputError', E.ClassName + ': ' + E.Message);
+    end;
+  end;
+end;
+
+procedure ReconcileProfileDirectories(const aProfile, aProperties: TPropertyMap;
+  const aDiagnostics, aExpansionDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  var aKnown: Boolean);
+const
+  cNames: array[0..1] of string = ('BDSUSERDIR', 'BDSCOMMONDIR');
+var
+  lName, lValue, lError: string;
+  lDiagnostic: TDelphiSemanticDiagnostic;
+begin
+  // Presence in the final profile (including empty) supersedes fallback
+  // failures. Decide errors and provenance once, after every override source.
+  for lName in cNames do
+    if aProfile.TryGetValue(PropertyKey(lName), lValue) then
+    begin
+      aProperties.Remove(PropertyKey(lName + 'InputError'));
+      lDiagnostic := Default(TDelphiSemanticDiagnostic);
+      lDiagnostic.Code := 'PROFILE_DIRECTORY_SOURCE';
+      lDiagnostic.Severity := TDelphiSemanticDiagnosticSeverity.dsInfo;
+      lDiagnostic.Message := lName + '=' + ExpandSemanticProjectProperty(lValue,
+        GetPropertyValue(aProperties, 'MSBuildProjectFullPath'), aProfile,
+        aExpansionDiagnostics) + ' (' + GetPropertyValue(aProfile, lName + 'Source') + ')';
+      AddDiagnostic(aDiagnostics, lDiagnostic);
+    end else begin
+      lError := GetPropertyValue(aProfile, lName + 'InputError');
+      if lError = '' then
+        lError := 'No explicit value or known-folder default is available';
+      aKnown := False;
+      SetPropertyValue(aProperties, lName + 'InputError', lError);
+      SetPropertyValue(aProperties, 'DSWitnessProfileError', lName + ': ' + lError);
+      AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('PROFILE_DIRECTORY_UNAVAILABLE',
+        lName + ': ' + lError, GetPropertyValue(aProperties, 'MSBuildProjectFullPath')));
+    end;
+end;
+
 function CreateInitialProperties(const aProjectFileName: string; const aDocument: IXMLDocument;
   const aOptions: TDelphiSemanticOptions): TPropertyMap;
 var
@@ -1938,6 +2184,7 @@ begin
   for lEnvironmentProperty in aOptions.EnvironmentVariables do
     if not Result.ContainsKey(PropertyKey(lEnvironmentProperty.Name)) then
       SetPropertyValue(Result, lEnvironmentProperty.Name, lEnvironmentProperty.Value);
+  SeedProfileDirectories(Result, aOptions);
   // Optional CodeGear target properties follow MSBuild's unset-as-empty behavior.
   for lPropertyName in cDelphiSemanticCompilerLinkPropertyNames do
     if not Result.ContainsKey(PropertyKey(lPropertyName)) then
@@ -2017,24 +2264,28 @@ end;
 
 procedure PopulateWitnessProfileProperties(const aProperties: TPropertyMap;
   const aOptions: TDelphiSemanticOptions;
-  const aObservations: IProjectContextObservationsBuilder);
+  const aObservations: IProjectContextObservationsBuilder;
+  const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
 const
   cRegistryViews: array[0..1] of Cardinal = (KEY_WOW64_64KEY, KEY_WOW64_32KEY);
 var
   lProfile: TPropertyMap;
   lDiagnostics: TList<TDelphiSemanticDiagnostic>;
-  lNames: TStringList;
-  lRegistry: TRegistry;
+  lInputs: IDelphiSemanticProfileInputs;
+  lValues: TPropertyMap;
+  lProperty: TDelphiSemanticProperty;
   lPair: TPair<string, string>;
-  lVersion, lPlatform, lBaseKey, lName, lRawPaths, lExpandedPaths: string;
+  lVersion, lPlatform, lBaseKey, lRawPaths, lExpandedPaths: string;
   lEnvOptions, lBdsRoot, lTranslatedPaths: string;
   lKnown, lRegistryKnown: Boolean;
   lView: Cardinal;
 begin
   lProfile := TPropertyMap.Create;
   lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
-  lNames := TStringList.Create;
-  lRegistry := TRegistry.Create(KEY_READ);
+  lInputs := ProfileInputs(aOptions);
+  lValues := TPropertyMap.Create;
+  lKnown := False;
+  lExpandedPaths := '';
   try
     try
       for lPair in aProperties do
@@ -2042,11 +2293,7 @@ begin
       // The IDE appends the project path macro even when it is unset.
       if not lProfile.ContainsKey(PropertyKey('DCC_UnitSearchPath')) then
         SetPropertyValue(lProfile, 'DCC_UnitSearchPath', '');
-      lVersion := aOptions.DelphiVersion;
-      if lVersion = '' then
-        lVersion := '23.0';
-      if Pos('.', lVersion) = 0 then
-        lVersion := lVersion + '.0';
+      lVersion := ProfileVersion(aOptions);
       lPlatform := GetPropertyValue(aProperties, 'Platform');
       if lPlatform = '' then
         lPlatform := 'Win64';
@@ -2055,7 +2302,6 @@ begin
       SetPropertyValue(lProfile, 'BDS', lBdsRoot);
       SetPropertyValue(lProfile, 'BDSLIB', TPath.Combine(lBdsRoot, 'lib'));
       lBaseKey := 'Software\Embarcadero\BDS\' + lVersion;
-      lRegistry.RootKey := HKEY_CURRENT_USER;
       lRegistryKnown := False;
       lRawPaths := GetPropertyValue(aProperties, 'DelphiLibraryPath') + ';' +
         GetPropertyValue(aProperties, 'DelphiBrowsingPath') + ';' +
@@ -2064,32 +2310,23 @@ begin
         GetPropertyValue(aProperties, 'DelphiTranslatedDebugLibraryPath');
       for lView in cRegistryViews do
       begin
-        lRegistry.Access := KEY_READ or lView;
-        if lRegistry.OpenKeyReadOnly(lBaseKey + '\Environment Variables') then
+        for lProperty in lInputs.RegistryValues(lBaseKey + '\Environment Variables', lView) do
+          if not lProfile.ContainsKey(PropertyKey(lProperty.Name)) then
+            SetPropertyValue(lProfile, lProperty.Name, lProperty.Value);
+        lValues.Clear;
+        for lProperty in lInputs.RegistryValues(lBaseKey + '\Library\' + lPlatform, lView) do
+          SetPropertyValue(lValues, lProperty.Name, lProperty.Value);
+        if lValues.ContainsKey(PropertyKey('Search Path')) and
+          lValues.ContainsKey(PropertyKey('Browsing Path')) then
         begin
-          lRegistry.GetValueNames(lNames);
-          for lName in lNames do
-            if not lProfile.ContainsKey(PropertyKey(lName)) and
-              (lRegistry.GetDataType(lName) in [rdString, rdExpandString]) then
-              SetPropertyValue(lProfile, lName, lRegistry.ReadString(lName));
-          lRegistry.CloseKey;
+          lRegistryKnown := True;
+          lRawPaths := lRawPaths + ';' + GetPropertyValue(lValues, 'Search Path') + ';' +
+            GetPropertyValue(lValues, 'Browsing Path');
         end;
-        if lRegistry.OpenKeyReadOnly(lBaseKey + '\Library\' + lPlatform) then
-        begin
-          if lRegistry.ValueExists('Search Path') and lRegistry.ValueExists('Browsing Path') then
-          begin
-            lRegistryKnown := True;
-            lRawPaths := lRawPaths + ';' + lRegistry.ReadString('Search Path') + ';' +
-              lRegistry.ReadString('Browsing Path');
-          end;
-          if lRegistry.ValueExists('Debug DCU Path') then
-            lRawPaths := lRawPaths + ';' + lRegistry.ReadString('Debug DCU Path');
-          if lRegistry.ValueExists('Translated Library Path') then
-            lTranslatedPaths := lTranslatedPaths + ';' + lRegistry.ReadString('Translated Library Path');
-          if lRegistry.ValueExists('Translated Debug Library Path') then
-            lTranslatedPaths := lTranslatedPaths + ';' + lRegistry.ReadString('Translated Debug Library Path');
-          lRegistry.CloseKey;
-        end;
+        lRawPaths := lRawPaths + ';' + GetPropertyValue(lValues, 'Debug DCU Path');
+        lTranslatedPaths := lTranslatedPaths + ';' +
+          GetPropertyValue(lValues, 'Translated Library Path') + ';' +
+          GetPropertyValue(lValues, 'Translated Debug Library Path');
       end;
       // Use our existing evaluator for profile files and retain its input evidence.
       lEnvOptions := aOptions.EnvOptionsPath;
@@ -2117,25 +2354,28 @@ begin
       // MSBuild enables translated paths only for a nonempty language directory.
       if GetPropertyValue(lProfile, 'LANGDIR').Trim <> '' then
         lRawPaths := lRawPaths + ';' + lTranslatedPaths;
-      lExpandedPaths := ExpandProperties(lRawPaths, lEnvOptions, lProfile, lDiagnostics);
-      lKnown := lKnown and (lDiagnostics.Count = 0) and (Pos('$(', lExpandedPaths) = 0);
-      if lDiagnostics.Count > 0 then
-        SetPropertyValue(aProperties, 'DSWitnessProfileError',
-          lDiagnostics[0].Code + ': ' + lDiagnostics[0].Message);
-      SetPropertyValue(aProperties, 'DSWitnessProfilePaths', lExpandedPaths);
-      SetPropertyValue(aProperties, 'DSWitnessProfileKnown', BoolToStr(lKnown, True));
+      // Directory inputs may themselves contain macros; reuse bounded semantic
+      // expansion so final paths and their known state observe the same values.
+      lExpandedPaths := ExpandSemanticProjectProperty(lRawPaths, lEnvOptions,
+        lProfile, lDiagnostics);
     except
       on E: Exception do
       begin
         // Inaccessible or malformed profiles leave absence unavailable.
-        SetPropertyValue(aProperties, 'DSWitnessProfilePaths', '');
-        SetPropertyValue(aProperties, 'DSWitnessProfileKnown', 'False');
+        lExpandedPaths := '';
+        lKnown := False;
         SetPropertyValue(aProperties, 'DSWitnessProfileError', E.ClassName + ': ' + E.Message);
       end;
     end;
+    ReconcileProfileDirectories(lProfile, aProperties, aDiagnostics, lDiagnostics, lKnown);
+    lKnown := lKnown and (lDiagnostics.Count = 0) and (Pos('$(', lExpandedPaths) = 0);
+    if lDiagnostics.Count > 0 then
+      SetPropertyValue(aProperties, 'DSWitnessProfileError',
+        lDiagnostics[0].Code + ': ' + lDiagnostics[0].Message);
+    SetPropertyValue(aProperties, 'DSWitnessProfilePaths', lExpandedPaths);
+    SetPropertyValue(aProperties, 'DSWitnessProfileKnown', BoolToStr(lKnown, True));
   finally
-    lRegistry.Free;
-    lNames.Free;
+    lValues.Free;
     lDiagnostics.Free;
     lProfile.Free;
   end;
@@ -2157,7 +2397,7 @@ begin
   try
     ApplyPropertyDocument(lDocument, aProjectFileName, TPath.GetDirectoryName(aProjectFileName),
       lProperties, aDiagnostics, Trim(aOptions.Platform) <> '', lObservations);
-    PopulateWitnessProfileProperties(lProperties, aOptions, lObservations);
+    PopulateWitnessProfileProperties(lProperties, aOptions, lObservations, aDiagnostics);
     Result := CreateProjectInfoFromProperties(aProjectFileName, lDocument, lProperties);
     PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics,
       lObservations);

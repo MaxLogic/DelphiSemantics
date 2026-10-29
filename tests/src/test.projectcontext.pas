@@ -6,6 +6,11 @@ uses
   DUnitX.TestFramework, DelphiSemantics.ProjectContext;
 
 type
+  TProfileDirectoryMatrixAttribute = class(CustomTestCaseSourceAttribute)
+  protected
+    function GetCaseInfoArray: TestCaseInfoArray; override;
+  end;
+
   [TestFixture]
   TProjectContextTests = class
   private
@@ -19,6 +24,47 @@ type
       const aFileName: string; out aObservation: TDelphiSemanticProjectContextObservation): Boolean;
     procedure WriteUtf8Bytes(const aFileName, aText: string);
   public
+    [Test]
+    [Category('Fast')]
+    [TProfileDirectoryMatrix]
+    procedure FinalProfileInputsMatchGeneratedOracle(const aCaseId: Integer);
+    [Test]
+    [Category('Fast')]
+    [TestCase('Derived 23', 'derived,23.0')]
+    [TestCase('Derived 37', 'derived,37.0')]
+    [TestCase('Environment wins', 'environment,23.0')]
+    [TestCase('Registry wins', 'registry,23.0')]
+    [TestCase('Native option wins', 'native,23.0')]
+    [TestCase('Project wins', 'project,23.0')]
+    procedure ProfileDirectoriesRespectInputPrecedence(const aOrigin, aVersion: string);
+    [Test]
+    [Category('Fast')]
+    procedure UnavailableProfileFolderFailsClosed;
+    [Test]
+    [Category('Fast')]
+    [TestCase('Native', 'native')]
+    [TestCase('Environment', 'environment')]
+    [TestCase('Registry', 'registry')]
+    [TestCase('Project', 'project')]
+    procedure ExplicitProfileIdentityMatchesBase641e4a3(const aOrigin: string);
+    [Test]
+    [Category('Fast')]
+    [TestCase('Native empty', 'native,True')]
+    [TestCase('Native absent', 'native,False')]
+    [TestCase('Environment empty', 'environment,True')]
+    [TestCase('Environment absent', 'environment,False')]
+    [TestCase('Registry empty', 'registry,True')]
+    [TestCase('Registry absent', 'registry,False')]
+    [TestCase('Project empty', 'project,True')]
+    [TestCase('Project absent', 'project,False')]
+    procedure EmptyProfileDirectoryKeepsPrecedence(const aOrigin: string; const aPresent: Boolean);
+    [Test]
+    [Category('Fast')]
+    [TestCase('Both overridden', 'both')]
+    [TestCase('One fallback remains', 'one')]
+    [TestCase('Both explicitly empty', 'empty')]
+    procedure ProjectOverridesDiscardObsoleteFolderErrors(const aOverride: string);
+
     [Category('Fast')]
     [Test]
     procedure DprojResolvesBasicMetadata;
@@ -116,12 +162,604 @@ type
 implementation
 
 uses
-  System.Hash, System.IOUtils, System.SysUtils,
-  DelphiSemantics.Cache, DelphiSemantics.ProjectSession,
-  DelphiSemantics.CompilerProfile, DelphiSemantics.Query, DelphiSemantics.Snapshot,
-  DelphiSemantics.Snapshot.ContextEvidence,
-  DelphiSemantics.Refactor.Binding, DelphiSemantics.Refactor.Plan, DelphiSemantics.Source,
-  Test.Support;
+  System.Classes, System.Hash, System.IOUtils, System.Rtti, System.SysUtils,
+  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.ProjectSession,
+  DelphiSemantics.Query, DelphiSemantics.Refactor.Binding, DelphiSemantics.Refactor.Plan,
+  DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.ContextEvidence,
+  DelphiSemantics.Source, Test.Support;
+
+const
+  // Increasing precedence for these fixtures: project properties precede the
+  // explicit import, and the witness profile file is evaluated after both.
+  cMatrixSources: array[0..5] of string = ('registry', 'environment', 'native',
+    'project', 'import', 'profile');
+  cMatrixNames: array[0..1] of string = ('BDSUSERDIR', 'BDSCOMMONDIR');
+  cMatrixSuffixes: array[0..1] of string = ('\MatrixUserSentinel', '\MatrixCommonSentinel');
+  cMatrixStates: array[0..3] of string = ('literal', 'macro', 'empty', 'absent');
+  cMatrixSourceLabels: array[0..5] of string = ('BDS registry', 'environment',
+    'native option', 'project property', 'project property', 'project property');
+  cMatrixSingleCount = 6 * 4 * 4 * 2;
+  cMatrixCrossCount = 15 * 2 * 2 * 2;
+
+type
+  TProfileMatrixScenario = record
+    States: array[0..5, 0..1] of Integer;
+    FolderFailure: Boolean;
+  end;
+
+  TProfileMatrixExpected = record
+    Present: Boolean;
+    Value: string;
+    Source: string;
+  end;
+
+function ProfileMatrixScenario(const aCaseId: Integer): TProfileMatrixScenario;
+var
+  lSource, lDirectory, lHigher, lLower, lPair, lCross: Integer;
+begin
+  Result := Default(TProfileMatrixScenario);
+  for lSource := 0 to 5 do
+    for lDirectory := 0 to 1 do
+      Result.States[lSource, lDirectory] := 3;
+  Result.FolderFailure := Odd(aCaseId);
+  if aCaseId < cMatrixSingleCount then
+  begin
+    lSource := aCaseId div 32;
+    Result.States[lSource, 0] := (aCaseId div 8) mod 4;
+    Result.States[lSource, 1] := (aCaseId div 2) mod 4;
+    Exit;
+  end;
+  lCross := aCaseId - cMatrixSingleCount;
+  lDirectory := (lCross div 4) mod 2;
+  // Keep the other directory explicit so it cannot mask target precedence.
+  Result.States[2, 1 - lDirectory] := 0;
+  lPair := 0;
+  for lHigher := 1 to 5 do
+    for lLower := 0 to lHigher - 1 do
+    begin
+      if lPair = lCross div 8 then
+      begin
+        Result.States[lLower, lDirectory] := 0;
+        Result.States[lHigher, lDirectory] := 2 + (lCross div 2) mod 2;
+        Exit;
+      end;
+      Inc(lPair);
+    end;
+  Assert.Fail('Invalid generated profile matrix case');
+end;
+
+function ProfileMatrixRawValue(const aState, aDirectory: Integer): string;
+const
+  cLiteral: array[0..1] of string = ('Z:\Matrix\LiteralUser', 'Z:\Matrix\LiteralCommon');
+  cMacro: array[0..1] of string = ('$(MatrixRoot)\MacroUser', '$(MatrixRoot)\MacroCommon');
+begin
+  case aState of
+    0: Result := cLiteral[aDirectory];
+    1: Result := cMacro[aDirectory];
+  else
+    Result := '';
+  end;
+end;
+
+function ProfileMatrixProperties(const aScenario: TProfileMatrixScenario;
+  const aSource: Integer): TArray<TDelphiSemanticProperty>;
+var
+  lDirectory, lIndex: Integer;
+begin
+  Result := nil;
+  for lDirectory := 0 to 1 do
+    if aScenario.States[aSource, lDirectory] <> 3 then
+    begin
+      lIndex := Length(Result);
+      SetLength(Result, lIndex + 1);
+      Result[lIndex].Name := cMatrixNames[lDirectory];
+      Result[lIndex].Value := ProfileMatrixRawValue(aScenario.States[aSource, lDirectory], lDirectory);
+    end;
+end;
+
+function ProfileMatrixXml(const aScenario: TProfileMatrixScenario;
+  const aSource: Integer): string;
+var
+  lProperty: TDelphiSemanticProperty;
+begin
+  Result := '<Project><PropertyGroup>';
+  for lProperty in ProfileMatrixProperties(aScenario, aSource) do
+    Result := Result + '<' + lProperty.Name + '>' + lProperty.Value + '</' + lProperty.Name + '>';
+  Result := Result + '</PropertyGroup></Project>';
+end;
+
+function ProfileMatrixOptions(const aScenario: TProfileMatrixScenario): TDelphiSemanticOptions;
+var
+  lInputs: TIsolatedProfileInputs;
+  lRoot, lProjectXml: string;
+  lValues: TArray<TDelphiSemanticProperty>;
+begin
+  Result := Default(TDelphiSemanticOptions);
+  lRoot := CreateTestTempRoot('profile-matrix-temp');
+  Result.ProjectPath := TPath.Combine(lRoot, 'Matrix.dproj');
+  Result.EnvOptionsPath := TPath.Combine(lRoot, 'Profile.proj');
+  Result.Platform := 'Win64';
+  Result.DelphiVersion := '23.0';
+  lInputs := TIsolatedProfileInputs.Create;
+  Result.ProfileInputs := lInputs;
+  lInputs.Documents := 'Z:\DocumentsUser';
+  lInputs.PublicDocuments := 'Z:\DocumentsCommon';
+  lInputs.FailKnownFolder := aScenario.FolderFailure;
+  lInputs.RegistryEnvironment := ProfileMatrixProperties(aScenario, 0);
+  lInputs.Environment := ProfileMatrixProperties(aScenario, 1);
+  SetLength(lInputs.RegistryLibrary, 2);
+  lInputs.RegistryLibrary[0].Name := 'Search Path';
+  lInputs.RegistryLibrary[0].Value := '$(BDSUSERDIR)' + cMatrixSuffixes[0] +
+    ';$(BDSCOMMONDIR)' + cMatrixSuffixes[1];
+  lInputs.RegistryLibrary[1].Name := 'Browsing Path';
+  SetLength(lValues, 1);
+  lValues[0].Name := 'MatrixRoot';
+  lValues[0].Value := 'Z:\Matrix';
+  Result.EnvironmentVariables := lValues + ProfileMatrixProperties(aScenario, 2);
+  lProjectXml := ProfileMatrixXml(aScenario, 3).Replace('</Project>',
+    '<Import Project="Matrix.props"/></Project>');
+  TFile.WriteAllText(Result.ProjectPath, lProjectXml, TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Matrix.props'), ProfileMatrixXml(aScenario, 4), TEncoding.UTF8);
+  TFile.WriteAllText(Result.EnvOptionsPath, ProfileMatrixXml(aScenario, 5), TEncoding.UTF8);
+end;
+
+function ProfileMatrixExpected(const aScenario: TProfileMatrixScenario;
+  const aDirectory: Integer): TProfileMatrixExpected;
+const
+  cDefaults: array[0..1] of string = ('Z:\DocumentsUser\Embarcadero\Studio\23.0',
+    'Z:\DocumentsCommon\Embarcadero\Studio\23.0');
+var
+  lSource: Integer;
+begin
+  // Oracle: select the last present input, including empty. It never reads or
+  // models the implementation's fallback error markers or clearing operations.
+  Result := Default(TProfileMatrixExpected);
+  for lSource := 5 downto 0 do
+    if aScenario.States[lSource, aDirectory] <> 3 then
+    begin
+      Result.Present := True;
+      Result.Value := ProfileMatrixRawValue(aScenario.States[lSource, aDirectory], aDirectory).
+        Replace('$(MatrixRoot)', 'Z:\Matrix');
+      Result.Source := cMatrixSourceLabels[lSource];
+      Exit;
+    end;
+  Result.Present := not aScenario.FolderFailure;
+  if Result.Present then
+  begin
+    Result.Value := cDefaults[aDirectory];
+    Result.Source := 'derived default';
+  end;
+  // Missing properties expand to empty text, but remain unavailable inputs.
+end;
+
+procedure AssertProfileMatrixDirectory(const aScenario: TProfileMatrixScenario;
+  const aResult: TDelphiSemanticContextResult; const aDirectory: Integer);
+var
+  lExpected: TProfileMatrixExpected;
+  lPath: string;
+  lSourceCount, lUnavailableCount, lPathCount: Integer;
+  lDiagnostic: TDelphiSemanticDiagnostic;
+begin
+  lExpected := ProfileMatrixExpected(aScenario, aDirectory);
+  lSourceCount := 0;
+  lUnavailableCount := 0;
+  lPathCount := 0;
+  for lPath in aResult.Project.PropertyValue('DSWitnessProfilePaths').Split([';']) do
+    if lPath.EndsWith(cMatrixSuffixes[aDirectory]) then
+    begin
+      Inc(lPathCount);
+      Assert.AreEqual(lExpected.Value + cMatrixSuffixes[aDirectory], lPath,
+        'Final effective value of ' + cMatrixNames[aDirectory]);
+    end;
+  Assert.AreEqual(1, lPathCount, 'Exactly one effective path for each directory');
+  for lDiagnostic in aResult.Diagnostics do
+  begin
+    if (lDiagnostic.Code = 'PROFILE_DIRECTORY_SOURCE') and
+      lDiagnostic.Message.StartsWith(cMatrixNames[aDirectory] + '=') then
+    begin
+      Inc(lSourceCount);
+      Assert.AreEqual(cMatrixNames[aDirectory] + '=' + lExpected.Value +
+        ' (' + lExpected.Source + ')', lDiagnostic.Message, 'Final source and effective value');
+    end;
+    if (lDiagnostic.Code = 'PROFILE_DIRECTORY_UNAVAILABLE') and
+      lDiagnostic.Message.StartsWith(cMatrixNames[aDirectory] + ':') then
+      Inc(lUnavailableCount);
+  end;
+  Assert.AreEqual<Integer>(Ord(lExpected.Present), lSourceCount, 'Final source diagnostic: ' + cMatrixNames[aDirectory]);
+  Assert.AreEqual<Integer>(Ord(not lExpected.Present), lUnavailableCount,
+    'Final unavailable diagnostic: ' + cMatrixNames[aDirectory]);
+end;
+
+function TProfileDirectoryMatrixAttribute.GetCaseInfoArray: TestCaseInfoArray;
+var
+  lIndex: Integer;
+begin
+  SetLength(Result, cMatrixSingleCount + cMatrixCrossCount);
+  for lIndex := 0 to High(Result) do
+  begin
+    if lIndex < cMatrixSingleCount then
+      Result[lIndex].Name := Format('Single.%s.User_%s.Common_%s.FolderFail_%s',
+        [cMatrixSources[lIndex div 32], cMatrixStates[(lIndex div 8) mod 4],
+         cMatrixStates[(lIndex div 2) mod 4], BoolToStr(Odd(lIndex), True)])
+    else
+      Result[lIndex].Name := Format('Cross.%d.FolderFail_%s',
+        [lIndex - cMatrixSingleCount, BoolToStr(Odd(lIndex), True)]);
+    Result[lIndex].Values := [TValue.From<Integer>(lIndex)];
+  end;
+end;
+
+procedure TProjectContextTests.FinalProfileInputsMatchGeneratedOracle(const aCaseId: Integer);
+var
+  lScenario: TProfileMatrixScenario;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+  lUser, lCommon: TProfileMatrixExpected;
+  lDiagnostic: TDelphiSemanticDiagnostic;
+begin
+  lScenario := ProfileMatrixScenario(aCaseId);
+  lOptions := ProfileMatrixOptions(lScenario);
+  lResult := TDelphiSemanticProject.Load(lOptions.ProjectPath, lOptions);
+  Assert.IsTrue(lResult.Success);
+  lUser := ProfileMatrixExpected(lScenario, 0);
+  lCommon := ProfileMatrixExpected(lScenario, 1);
+  Assert.AreEqual(BoolToStr(lUser.Present and lCommon.Present, True),
+    lResult.Project.PropertyValue('DSWitnessProfileKnown'), 'Final witness state, case ' + IntToStr(aCaseId));
+  AssertProfileMatrixDirectory(lScenario, lResult, 0);
+  AssertProfileMatrixDirectory(lScenario, lResult, 1);
+  for lDiagnostic in lResult.Diagnostics do
+    Assert.IsTrue((lDiagnostic.Code = 'PROFILE_DIRECTORY_SOURCE') or
+      (lDiagnostic.Code = 'PROFILE_DIRECTORY_UNAVAILABLE'), 'Unexpected diagnostic: ' + lDiagnostic.Code);
+end;
+
+// Frozen fingerprint serializer from base 641e4a3; compatibility oracle for DS770-S1.
+procedure Base641e4a3AppendFingerprintItem(const aBuilder: TStringBuilder; const aName, aValue: string);
+begin
+  aBuilder.Append(aName);
+  aBuilder.Append('=');
+  aBuilder.AppendLine(aValue);
+end;
+
+function Base641e4a3CanonicalFingerprintText(const aValue: string): string;
+begin
+  Result := LowerCase(Trim(aValue));
+end;
+
+procedure Base641e4a3AppendFingerprintItems(const aBuilder: TStringBuilder; const aName: string;
+  const aItems: TArray<string>; const aItemsArePaths: Boolean);
+var
+  lItem: string;
+  lValue: string;
+begin
+  aBuilder.Append(aName);
+  aBuilder.Append('=');
+  for lItem in aItems do
+  begin
+    if aItemsArePaths then
+      lValue := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lItem)
+    else
+      lValue := Base641e4a3CanonicalFingerprintText(lItem);
+    if lValue <> '' then
+    begin
+      aBuilder.Append(lValue);
+      aBuilder.Append('|');
+    end;
+  end;
+  aBuilder.AppendLine;
+end;
+
+function Base641e4a3BuildContextFingerprint(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; const aRootAbsenceFingerprint: string): string;
+var
+  lBuilder: TStringBuilder;
+  lContext: TDelphiSemanticCacheIdentityContext;
+  lProjectIdentity: TDelphiSemanticProjectCacheIdentity;
+  lPropertyName: string;
+begin
+  lContext := Default(TDelphiSemanticCacheIdentityContext);
+  lContext.SchemaVersion := 'project-context-fingerprint-v3';
+  lContext.ProjectPath := aProject.ProjectFileName;
+  lContext.Configuration := aProject.Configuration;
+  lContext.Platform := aProject.Platform;
+  lContext.DelphiVersion := aOptions.DelphiVersion;
+  lContext.Defines := aProject.Defines;
+  lContext.SearchPaths := aProject.SourceLookupPaths;
+  lContext.UnitScopes := aProject.UnitScopeNames;
+  lContext.UnitAliases := aProject.UnitAliases;
+  lProjectIdentity := TDelphiSemanticCacheIdentityBuilder.BuildProjectIdentity(lContext);
+
+  lBuilder := TStringBuilder.Create;
+  try
+    Base641e4a3AppendFingerprintItem(lBuilder, 'projectIdentity', lProjectIdentity.ProjectKey);
+    Base641e4a3AppendFingerprintItem(lBuilder, 'main',
+      TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aProject.MainSourceFileName));
+    Base641e4a3AppendFingerprintItem(lBuilder, 'rsvars',
+      TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.RsVarsPath));
+    Base641e4a3AppendFingerprintItem(lBuilder, 'envoptions',
+      TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.EnvOptionsPath));
+    Base641e4a3AppendFingerprintItem(lBuilder, 'compilerProfile',
+      Base641e4a3CanonicalFingerprintText(aProject.CompilerProfileName));
+    if aOptions.ImplicitRootMemberAbsence <> nil then
+      Base641e4a3AppendFingerprintItem(lBuilder, 'implicitRootMemberAbsence',
+        aRootAbsenceFingerprint);
+    Base641e4a3AppendFingerprintItems(lBuilder, 'includePaths', aProject.IncludePaths, True);
+    Base641e4a3AppendFingerprintItems(lBuilder, 'references', aProject.ReferenceDirectories, True);
+    Base641e4a3AppendFingerprintItems(lBuilder, 'sourceFiles', aProject.SourceFileNames, True);
+    // Hash raw switch values without case folding or delimiter ambiguity.
+    for lPropertyName in cDelphiSemanticCompilerLinkPropertyNames do
+      Base641e4a3AppendFingerprintItem(lBuilder, lPropertyName,
+        THashSHA2.GetHashString(aProject.PropertyValue(lPropertyName)));
+    Result := THashSHA2.GetHashString(lBuilder.ToString);
+  finally
+    lBuilder.Free;
+  end;
+end;
+
+procedure TProjectContextTests.ExplicitProfileIdentityMatchesBase641e4a3(const aOrigin: string);
+var
+  lFileName, lProperties: string;
+  lInputs: TIsolatedProfileInputs;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+  lBaseProject: TDelphiSemanticProjectInfo;
+  lGraph, lBaseGraph: TDelphiSemanticSemanticGraph;
+  lValues: TArray<TDelphiSemanticProperty>;
+begin
+  lFileName := TPath.Combine(CreateTestTempRoot('profile-identity-temp'), 'P.dproj');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lInputs := TIsolatedProfileInputs.Create;
+  lOptions.ProfileInputs := lInputs;
+  lInputs.FailKnownFolder := True;
+  SetLength(lValues, 2);
+  lValues[0].Name := 'BDSUSERDIR';
+  lValues[0].Value := 'Z:\ExplicitUser';
+  lValues[1].Name := 'BDSCOMMONDIR';
+  lValues[1].Value := 'Z:\ExplicitCommon';
+  lProperties := '';
+  if aOrigin = 'native' then
+    lOptions.EnvironmentVariables := lValues
+  else if aOrigin = 'environment' then
+    lInputs.Environment := lValues
+  else if aOrigin = 'registry' then
+    lInputs.RegistryEnvironment := lValues
+  else
+    lProperties := '<BDSUSERDIR>Z:\ExplicitUser</BDSUSERDIR>' +
+      '<BDSCOMMONDIR>Z:\ExplicitCommon</BDSCOMMONDIR>';
+  WriteUtf8Bytes(lFileName, '<Project><PropertyGroup>' + lProperties +
+    '</PropertyGroup></Project>');
+  lResult := TDelphiSemanticProject.Load(lFileName, lOptions);
+  Assert.IsTrue(lResult.Success);
+  lBaseProject := lResult.Project;
+  lBaseProject.ContextFingerprint := Base641e4a3BuildContextFingerprint(lBaseProject, lOptions, '');
+  Assert.AreEqual(lBaseProject.ContextFingerprint, lResult.Project.ContextFingerprint,
+    'Explicit profiles preserve the byte contract at base 641e4a3.');
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(lResult.Project, nil);
+  try
+    lBaseGraph := TDelphiSemanticSemanticGraphBuilder.Build(lBaseProject, nil);
+    try
+      Assert.AreEqual(lBaseGraph.ProjectId.Value, lGraph.ProjectId.Value);
+    finally
+      lBaseGraph.Free;
+    end;
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TProjectContextTests.EmptyProfileDirectoryKeepsPrecedence(
+  const aOrigin: string; const aPresent: Boolean);
+var
+  lFileName, lProperties, lExpected, lSource, lName: string;
+  lInputs: TIsolatedProfileInputs;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+  lEmpty, lLower: TArray<TDelphiSemanticProperty>;
+begin
+  lFileName := TPath.Combine(CreateTestTempRoot('profile-empty-temp'), 'P.dproj');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.DelphiVersion := '23.0';
+  lInputs := TIsolatedProfileInputs.Create;
+  lOptions.ProfileInputs := lInputs;
+  lInputs.Documents := 'Z:\Documents';
+  lInputs.PublicDocuments := lInputs.Documents;
+  SetLength(lLower, 2);
+  lLower[0].Name := 'BDSUSERDIR';
+  lLower[0].Value := 'Z:\Lower';
+  lLower[1].Name := 'BDSCOMMONDIR';
+  lLower[1].Value := lLower[0].Value;
+  if aPresent then
+  begin
+    lEmpty := Copy(lLower);
+    lEmpty[0].Value := '';
+    lEmpty[1].Value := '';
+  end;
+  lProperties := '';
+  lExpected := 'Z:\Lower';
+  if aOrigin = 'registry' then
+  begin
+    lInputs.RegistryEnvironment := lEmpty;
+    lExpected := 'Z:\Documents\Embarcadero\Studio\23.0';
+    lSource := 'derived default';
+  end else if aOrigin = 'environment' then
+  begin
+    lInputs.RegistryEnvironment := lLower;
+    lInputs.Environment := lEmpty;
+    lSource := 'BDS registry';
+  end else if aOrigin = 'native' then
+  begin
+    lInputs.Environment := lLower;
+    lOptions.EnvironmentVariables := lEmpty;
+    lSource := 'environment';
+  end else begin
+    lOptions.EnvironmentVariables := lLower;
+    lSource := 'native option';
+    if aPresent then
+      lProperties := '<BDSUSERDIR></BDSUSERDIR><BDSCOMMONDIR></BDSCOMMONDIR>';
+  end;
+  if aPresent then
+  begin
+    lExpected := '';
+    if aOrigin = 'registry' then
+      lSource := 'BDS registry'
+    else if aOrigin = 'native' then
+      lSource := 'native option'
+    else if aOrigin = 'project' then
+      lSource := 'project property'
+    else
+      lSource := 'environment';
+  end;
+  WriteUtf8Bytes(lFileName, '<Project><PropertyGroup>' + lProperties +
+    '</PropertyGroup></Project>');
+  lResult := TDelphiSemanticProject.Load(lFileName, lOptions);
+  Assert.IsTrue(lResult.Success);
+  for lName in ['BDSUSERDIR', 'BDSCOMMONDIR'] do
+  begin
+    Assert.AreEqual(lExpected, lResult.Project.PropertyValue(lName), lName);
+    Assert.AreEqual(lSource, lResult.Project.PropertyValue(lName + 'Source'), lName);
+  end;
+end;
+
+procedure TProjectContextTests.ProjectOverridesDiscardObsoleteFolderErrors(const aOverride: string);
+var
+  lFileName, lProperties: string;
+  lInputs: TIsolatedProfileInputs;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+begin
+  lFileName := TPath.Combine(CreateTestTempRoot('profile-override-temp'), 'P.dproj');
+  lOptions := Default(TDelphiSemanticOptions);
+  lInputs := TIsolatedProfileInputs.Create;
+  lOptions.ProfileInputs := lInputs;
+  lInputs.FailKnownFolder := True;
+  SetLength(lInputs.RegistryLibrary, 2);
+  lInputs.RegistryLibrary[0].Name := 'Search Path';
+  lInputs.RegistryLibrary[1].Name := 'Browsing Path';
+  lProperties := '<BDSUSERDIR>Z:\ProjectUser</BDSUSERDIR>';
+  if aOverride = 'both' then
+    lProperties := lProperties + '<BDSCOMMONDIR>Z:\ProjectCommon</BDSCOMMONDIR>'
+  else if aOverride = 'empty' then
+    lProperties := '<BDSUSERDIR></BDSUSERDIR><BDSCOMMONDIR></BDSCOMMONDIR>';
+  WriteUtf8Bytes(lFileName, '<Project><PropertyGroup>' + lProperties +
+    '</PropertyGroup></Project>');
+  lResult := TDelphiSemanticProject.Load(lFileName, lOptions);
+  Assert.IsTrue(lResult.Success);
+  if aOverride = 'one' then
+  begin
+    Assert.AreEqual('False', lResult.Project.PropertyValue('DSWitnessProfileKnown'));
+    Assert.IsTrue(HasDiagnostic(lResult, 'PROFILE_DIRECTORY_UNAVAILABLE'));
+  end else begin
+    Assert.AreEqual('True', lResult.Project.PropertyValue('DSWitnessProfileKnown'),
+      lResult.Project.PropertyValue('DSWitnessProfileError'));
+    Assert.IsFalse(HasDiagnostic(lResult, 'PROFILE_DIRECTORY_UNAVAILABLE'), DiagnosticSummary(lResult));
+    Assert.AreEqual('', lResult.Project.PropertyValue('DSWitnessProfileError'));
+  end;
+end;
+
+procedure TProjectContextTests.UnavailableProfileFolderFailsClosed;
+var
+  lFileName: string;
+  lInputs: TIsolatedProfileInputs;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+begin
+  lFileName := TPath.Combine(CreateTestTempRoot('profile-failure-temp'), 'P.dproj');
+  WriteUtf8Bytes(lFileName, '<Project />');
+  lOptions := Default(TDelphiSemanticOptions);
+  lInputs := TIsolatedProfileInputs.Create;
+  lOptions.ProfileInputs := lInputs;
+  lInputs.FailKnownFolder := True;
+  try
+    lResult := TDelphiSemanticProject.Load(lFileName, lOptions);
+  except
+    on E: Exception do
+      Assert.Fail('Expected an unproved profile diagnostic, got exception: ' + E.Message);
+  end;
+  Assert.IsTrue(lResult.Success);
+  Assert.AreEqual('False', lResult.Project.PropertyValue('DSWitnessProfileKnown'));
+  Assert.IsTrue(lResult.Project.PropertyValue('DSWitnessProfileError').Contains('known folder unavailable'));
+  Assert.IsTrue(HasDiagnostic(lResult, 'PROFILE_DIRECTORY_UNAVAILABLE'), DiagnosticSummary(lResult));
+end;
+
+procedure TProjectContextTests.ProfileDirectoriesRespectInputPrecedence(
+  const aOrigin, aVersion: string);
+var
+  lRoot, lFileName, lExpectedUser, lExpectedCommon, lProperties, lSource: string;
+  lInputs: TIsolatedProfileInputs;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+  lValues: TArray<TDelphiSemanticProperty>;
+begin
+  lFileName := TPath.Combine(CreateTestTempRoot('profile-directories-temp'), 'ProfileDirectories.dproj');
+  lRoot := TPath.GetDirectoryName(lFileName);
+  lInputs := TIsolatedProfileInputs.Create;
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProfileInputs := lInputs;
+  lOptions.DelphiVersion := aVersion;
+  lOptions.Platform := 'Win64';
+  lInputs.Documents := TPath.Combine(lRoot, 'User Documents');
+  lInputs.PublicDocuments := TPath.Combine(lRoot, 'Public Documents');
+  lExpectedUser := TPath.Combine(lInputs.Documents, 'Embarcadero\Studio\' + aVersion);
+  lExpectedCommon := TPath.Combine(lInputs.PublicDocuments, 'Embarcadero\Studio\' + aVersion);
+  lSource := 'derived default';
+  SetLength(lInputs.RegistryLibrary, 2);
+  lInputs.RegistryLibrary[0].Name := 'Search Path';
+  lInputs.RegistryLibrary[0].Value := '$(BDSUSERDIR)\Imports;$(BDSCOMMONDIR)\Dcp';
+  lInputs.RegistryLibrary[1].Name := 'Browsing Path';
+  SetLength(lValues, 2);
+  lValues[0].Name := 'BDSUSERDIR';
+  lValues[0].Value := TPath.Combine(lRoot, 'ExplicitUser');
+  lValues[1].Name := 'BDSCOMMONDIR';
+  lValues[1].Value := TPath.Combine(lRoot, 'ExplicitCommon');
+  lProperties := '';
+  if aOrigin <> 'derived' then
+  begin
+    lExpectedUser := lValues[0].Value;
+    lExpectedCommon := lValues[1].Value;
+    if aOrigin = 'registry' then
+    begin
+      lInputs.RegistryEnvironment := Copy(lValues);
+      lSource := 'BDS registry';
+    end else if aOrigin = 'environment' then
+    begin
+      lInputs.RegistryEnvironment := Copy(lValues);
+      lInputs.RegistryEnvironment[0].Value := 'Z:\LosingRegistryUser';
+      lInputs.RegistryEnvironment[1].Value := 'Z:\LosingRegistryCommon';
+      lInputs.Environment := Copy(lValues);
+      lSource := 'environment';
+    end else begin
+      lInputs.Environment := Copy(lValues);
+      lInputs.Environment[0].Value := 'Z:\LosingEnvironmentUser';
+      lInputs.Environment[1].Value := 'Z:\LosingEnvironmentCommon';
+      lOptions.EnvironmentVariables := Copy(lValues);
+      lSource := 'native option';
+      if aOrigin = 'project' then
+      begin
+        lOptions.EnvironmentVariables[0].Value := 'Z:\LosingNativeUser';
+        lOptions.EnvironmentVariables[1].Value := 'Z:\LosingNativeCommon';
+        lProperties := '<BDSUSERDIR>' + lExpectedUser + '</BDSUSERDIR><BDSCOMMONDIR>' +
+          lExpectedCommon + '</BDSCOMMONDIR>';
+        lSource := 'project property';
+      end;
+    end;
+  end;
+  WriteUtf8Bytes(lFileName, '<Project><PropertyGroup>' + lProperties +
+    '<DCC_UnitSearchPath>$(BDSUSERDIR)\Project;$(BDSCOMMONDIR)\Project</DCC_UnitSearchPath>' +
+    '</PropertyGroup></Project>');
+  lResult := TDelphiSemanticProject.Load(lFileName, lOptions);
+  Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
+  Assert.AreEqual(lExpectedUser, lResult.Project.PropertyValue('BDSUSERDIR'));
+  Assert.AreEqual(lExpectedCommon, lResult.Project.PropertyValue('BDSCOMMONDIR'));
+  Assert.AreEqual('True', lResult.Project.PropertyValue('DSWitnessProfileKnown'),
+    lResult.Project.PropertyValue('DSWitnessProfileError'));
+  Assert.IsTrue(lResult.Project.PropertyValue('DSWitnessProfilePaths').Contains(lExpectedUser + '\Imports'));
+  Assert.IsTrue(lResult.Project.PropertyValue('DSWitnessProfilePaths').Contains(lExpectedCommon + '\Dcp'));
+  Assert.AreEqual(lSource, lResult.Project.PropertyValue('BDSUSERDIRSource'));
+  Assert.AreEqual(lSource, lResult.Project.PropertyValue('BDSCOMMONDIRSource'));
+  Assert.IsTrue(DiagnosticSummary(lResult).Contains(lSource), DiagnosticSummary(lResult));
+  Assert.IsTrue(ContainsPath(lResult.Project.SearchPaths, lExpectedUser + '\Project'));
+end;
 
 procedure TProjectContextTests.UnresolvedLinkPropertyReportsMacro(const aProperty: string);
 var
@@ -228,15 +866,8 @@ begin
 end;
 
 function TProjectContextTests.ContextEvidenceTempPath(const aName: string): string;
-var
-  lGuid: TGUID;
-  lRoot: string;
 begin
-  CreateGUID(lGuid);
-  lRoot := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\.dak\' +
-    'delphiSemanticsTests\RefactoringLightContextEvidence\' + GUIDToString(lGuid)));
-  TDirectory.CreateDirectory(lRoot);
-  Result := TPath.Combine(lRoot, aName);
+  Result := TPath.Combine(CreateTestTempRoot('context-evidence-temp'), aName);
 end;
 
 function TProjectContextTests.HasDiagnostic(const aResult: TDelphiSemanticContextResult;
