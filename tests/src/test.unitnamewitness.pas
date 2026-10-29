@@ -20,6 +20,14 @@ type
     [Setup]
     procedure Setup;
     [Test]
+    procedure BoundedLookupMatchesFullEnumeration;
+    [Test]
+    procedure ComparerClassLookupMatchesFullEnumeration;
+    [Test]
+    procedure ChangedProfilePathGetsFreshScan;
+    [Test]
+    procedure DirectoryInventoryNoticesAddedAndRemovedCandidates;
+    [Test]
     procedure ProjectSourceCannotProveAbsence;
     [TestCase('Project include only', 'project')]
     [TestCase('Two SDK include candidates', 'ambiguous')]
@@ -136,7 +144,9 @@ type
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
+  Winapi.Windows,
+  MaxLogic.StrUtils,
   DelphiSemantics.Preprocess, Test.Support;
 
 procedure TUnitNameWitnessTests.Setup;
@@ -180,6 +190,310 @@ begin
       [TPath.Combine(TPath.GetDirectoryName(fRoot), 'lib\win64\release')];
   end;
   Result := TDelphiSemanticUnitNameWitnessBuilder.Build(lProject, fModels, lRoot);
+end;
+
+// Match Test.SourceContext: permit developer-mode links without elevation.
+function CreateWitnessDirectoryLink(const aLink, aTarget: PWideChar;
+  const aFlags: DWORD): ByteBool; stdcall; external kernel32 name 'CreateSymbolicLinkW';
+
+procedure TUnitNameWitnessTests.BoundedLookupMatchesFullEnumeration;
+var
+  lFull, lBounded: IDelphiSemanticUnitNameWitness;
+  lExpected, lActual: TArray<string>;
+  lBase, lFirstRoot, lSecondRoot, lSdkRoot, lLink, lName, lToken: string;
+  lSeed, i: Integer;
+begin
+  // Exhaustive 5-bit layout matrix, deterministic seed range 0..31.
+  // Compare ordered candidate lists as well as complete identity/verdicts.
+  fModels[0].DependencyFacts.InterfaceImports := ['U', 'Missing', 'Mixed', 'Unit.One', 'I', 'S'];
+  for lSeed := 0 to 31 do
+  begin
+    lBase := 'generated-' + IntToStr(lSeed);
+    lFirstRoot := TPath.Combine(fRoot, lBase + '\first');
+    lSecondRoot := TPath.Combine(fRoot, lBase + '\second');
+    lSdkRoot := TPath.Combine(fRoot, lBase + '\sdk\source');
+    TDirectory.CreateDirectory(lFirstRoot);
+    TDirectory.CreateDirectory(lSecondRoot);
+    TDirectory.CreateDirectory(lSdkRoot);
+    WriteSource(lBase + '\first\mIxEd.PaS', 'unit Mixed; interface type TOne = Integer; implementation end.');
+    WriteSource(lBase + '\first\Unit.One.DcU', 'DCU');
+    WriteSource(lBase + '\first\' + #$0131 + '.pas', 'unit I; interface implementation end.');
+    WriteSource(lBase + '\first\' + #$017F + '.dcu', 'Unicode case folding');
+    WriteSource(lBase + '\first\U.pas.bak', 'lookalike');
+    WriteSource(lBase + '\first\U.pasmore', '8.3 alias lookalike');
+    TDirectory.CreateDirectory(TPath.Combine(lFirstRoot, 'Missing.pas'));
+    WriteSource(lBase + '\first\nested\Missing.pas', 'unit Missing; interface implementation end.');
+    if lSeed and 1 <> 0 then
+      WriteSource(lBase + '\first\U.pas', 'unit U; interface implementation end.');
+    if lSeed and 2 <> 0 then
+      WriteSource(lBase + '\second\U.dcu', 'duplicate');
+    if lSeed and 4 <> 0 then
+      WriteSource(lBase + '\sdk\source\nested\U.pas', 'unit U; interface type TSdk = Integer; implementation end.');
+    fProject.SearchPaths := [lFirstRoot, lSecondRoot];
+    if lSeed and 8 <> 0 then
+      fProject.SearchPaths := [lSecondRoot, lFirstRoot, lSecondRoot];
+    fProject.Properties := nil;
+    if lSeed and 16 <> 0 then
+    begin
+      SetLength(fProject.Properties, 1);
+      fProject.Properties[0].Name := 'DSWitnessProfileKnown';
+      fProject.Properties[0].Value := 'False';
+    end;
+    lLink := TPath.Combine(lSdkRoot, 'linked');
+    Assert.IsTrue(CreateWitnessDirectoryLink(PWideChar(lLink), PWideChar(lFirstRoot), $1 or $2),
+      'Directory link creation: ' + SysErrorMessage(GetLastError));
+    try
+      // The original recursive RTL walk follows this directory reparse point.
+      lFull := TDelphiSemanticUnitNameWitnessBuilder.BuildForTest(
+        fProject, fModels, lSdkRoot, True, lExpected);
+      lBounded := TDelphiSemanticUnitNameWitnessBuilder.BuildForTest(
+        fProject, fModels, lSdkRoot, False, lActual);
+      Assert.AreEqual(Length(lExpected), Length(lActual), 'Candidate count seed ' + IntToStr(lSeed));
+      for i := 0 to High(lExpected) do
+        Assert.AreEqual(lExpected[i], lActual[i], 'Candidate ordering seed ' + IntToStr(lSeed));
+      Assert.AreEqual(lFull.IdentityText, lBounded.IdentityText, 'Identity seed ' + IntToStr(lSeed));
+      for lName in ['U', 'Missing', 'Mixed', 'Unit.One', 'I', 'S'] do
+        for lToken in ['Absent', 'TOne', 'TSdk'] do
+          Assert.AreEqual(lFull.MayDeclare(lName, lToken), lBounded.MayDeclare(lName, lToken),
+            'Verdict seed ' + IntToStr(lSeed) + ' ' + lName + '.' + lToken);
+    finally
+      Assert.IsTrue(RemoveDir(lLink), 'Remove generated directory link');
+    end;
+  end;
+end;
+
+
+function CompareWitnessLookup(const aDirectory, aNeededName: string;
+  const aExpectBounded: Boolean; const aLines: TStrings;
+  const aForcedPreimages: string = ''; const aLookupError: Cardinal = 0): Integer;
+var
+  lProject: TDelphiSemanticProjectInfo;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lFull, lBounded: IDelphiSemanticUnitNameWitness;
+  lExpected, lActual, lNativeQueries: TArray<string>;
+  lOptions: TWitnessLookupTestOptions;
+  lQuery: string;
+  lQueries, lFallbacks, i: Integer;
+  lEqual: Boolean;
+begin
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lProject.SearchPaths := [aDirectory];
+  SetLength(lModels, 1);
+  lModels[0] := Default(TDelphiSemanticUnitModel);
+  lModels[0].UnitName := 'Consumer';
+  lModels[0].Success := True;
+  lModels[0].ScopeModelStatus := 'ast';
+  lModels[0].DependencyFacts.Known := True;
+  lModels[0].DependencyFacts.InterfaceImports := [aNeededName];
+  lFull := TDelphiSemanticUnitNameWitnessBuilder.BuildForTest(
+    lProject, lModels, '', True, lExpected);
+  lOptions := Default(TWitnessLookupTestOptions);
+  lOptions.CaptureNativeQueries := True;
+  lOptions.ForcedPreimages := aForcedPreimages;
+  lOptions.LookupErrorDirectory := aDirectory;
+  lOptions.LookupError := aLookupError;
+  lBounded := TDelphiSemanticUnitNameWitnessBuilder.BuildForTest(
+    lProject, lModels, '', False, lOptions, lActual, lNativeQueries, lQueries, lFallbacks);
+  lEqual := Length(lExpected) = Length(lActual);
+  if lEqual then
+    for i := 0 to High(lExpected) do
+      lEqual := lEqual and (lExpected[i] = lActual[i]);
+  lEqual := lEqual and (lFull.IdentityText = lBounded.IdentityText) and
+    (lFull.MayDeclare(aNeededName, 'Absent') = lBounded.MayDeclare(aNeededName, 'Absent')) and
+    (lFull.MayDeclare(aNeededName, 'TOne') = lBounded.MayDeclare(aNeededName, 'TOne'));
+  Result := 0;
+  if not lEqual or (aExpectBounded <> (lQueries > 0)) then
+    Result := 1;
+  if Length(lNativeQueries) <> lQueries then
+    Result := 1;
+  if (aLookupError <> 0) and (lFallbacks = 0) then
+    Result := 1;
+  if (aForcedPreimages = 'S') and aExpectBounded then
+    for lQuery in lNativeQueries do
+      if Pos('?ample', ExtractFileName(lQuery)) <> 1 then
+        Result := 1;
+  for lQuery in lNativeQueries do
+    aLines.Add('native-query=' + lQuery);
+  aLines.Add('lookup-fallbacks=' + IntToStr(lFallbacks));
+  aLines.Add(Format('case=%s needed=%s expected=%d actual=%d bounded=%d expect-bounded=%s equal=%s failures=%d',
+    [aDirectory, aNeededName, Length(lExpected), Length(lActual), lQueries,
+    BoolToStr(aExpectBounded, True), BoolToStr(lEqual, True), Result]));
+  if not lEqual then
+  begin
+    for i := 0 to High(lExpected) do
+      aLines.Add('  expected=' + lExpected[i]);
+    for i := 0 to High(lActual) do
+      aLines.Add('  actual=' + lActual[i]);
+    aLines.Add('  expected-identity=' + lFull.IdentityText);
+    aLines.Add('  actual-identity=' + lBounded.IdentityText);
+  end;
+end;
+
+procedure TUnitNameWitnessTests.ComparerClassLookupMatchesFullEnumeration;
+var
+  lBase, lDirectory, lName, lNeeded, lFileName, lReceipt: string;
+  lLines: TStringList;
+  lFailures, lCases, lCode, lAscii, lPosition, lLength: Integer;
+  lCharacter: Char;
+begin
+  // The caller can repeat the identical generator on independently owned NTFS/ReFS roots.
+  lBase := GetEnvironmentVariable('DS768_DIFFERENTIAL_ROOT');
+  if lBase = '' then
+    lBase := TPath.Combine(fRoot, 'comparer-class');
+  TDirectory.CreateDirectory(lBase);
+  lReceipt := TPath.Combine(lBase, 'differential-receipt.txt');
+  lLines := TStringList.Create;
+  try
+    lLines.Add('BMP range=U+0000..U+FFFF comparer=TFastCaseAwareComparer.OrdinalIgnoreCase');
+    lFailures := 0;
+    lCases := 0;
+    for lCode := 0 to High(Word) do
+      for lAscii := Ord('A') to Ord('Z') do
+        if TFastCaseAwareComparer.OrdinalIgnoreCase.Equals(string(Char(lCode)), string(Char(lAscii))) then
+        begin
+          lLines.Add(Format('preimage=U+%.4X ASCII=%s', [lCode, string(Char(lAscii))]));
+          for lPosition := 0 to 2 do
+          begin
+            lNeeded := 'AsciiUnit';
+            lName := lNeeded;
+            Insert(string(Char(lAscii)), lNeeded, 1 + lPosition * 4);
+            Insert(string(Char(lCode)), lName, 1 + lPosition * 4);
+            lDirectory := TPath.Combine(lBase, Format('fold-%.4X-%d', [lCode, lPosition]));
+            TDirectory.CreateDirectory(lDirectory);
+            TFile.WriteAllText(TPath.Combine(lDirectory, lName + '.dcu'), 'DCU');
+            Inc(lFailures, CompareWitnessLookup(lDirectory, lNeeded, True, lLines));
+            Inc(lCases);
+            // Reverse direction in a separate layout, containing the ASCII spelling.
+            lDirectory := lDirectory + '-reverse';
+            TDirectory.CreateDirectory(lDirectory);
+            TFile.WriteAllText(TPath.Combine(lDirectory, lNeeded + '.dcu'), 'DCU');
+            Inc(lFailures, CompareWitnessLookup(lDirectory, lName, lCode < 128, lLines));
+            Inc(lCases);
+          end;
+          // The RTL extension matcher is part of the reference contract too.
+          for lCharacter in ['p', 'a', 's', 'd', 'c', 'u'] do
+            if TFastCaseAwareComparer.OrdinalIgnoreCase.Equals(string(Char(lCode)), string(lCharacter)) then
+            begin
+              lName := 'AsciiUnit.pas';
+              if CharInSet(lCharacter, ['d', 'c', 'u']) then
+                lName := 'AsciiUnit.dcu';
+              lName := StringReplace(lName, string(lCharacter), string(Char(lCode)), []);
+              lDirectory := TPath.Combine(lBase, Format('extension-%.4X', [lCode]));
+              TDirectory.CreateDirectory(lDirectory);
+              TFile.WriteAllText(TPath.Combine(lDirectory, lName), 'DCU');
+              Inc(lFailures, CompareWitnessLookup(lDirectory, 'AsciiUnit', True, lLines));
+              Inc(lCases);
+            end;
+        end;
+    for lCharacter in string(#$00C4 + #$03A9 + #$0131 + #$017F + #$212A) do
+    begin
+      lNeeded := 'Unit' + lCharacter;
+      lDirectory := TPath.Combine(lBase, 'non-ascii-' + IntToHex(Ord(lCharacter), 4));
+      TDirectory.CreateDirectory(lDirectory);
+      TFile.WriteAllText(TPath.Combine(lDirectory, lNeeded + '.pas'),
+        'unit ' + lNeeded + '; interface implementation end.', TEncoding.UTF8);
+      Inc(lFailures, CompareWitnessLookup(lDirectory, lNeeded, False, lLines));
+      Inc(lCases);
+    end;
+    // Both hits and misses must enter the native path on local supported volumes.
+    lDirectory := TPath.Combine(lBase, 'ascii');
+    TDirectory.CreateDirectory(lDirectory);
+    TFile.WriteAllText(TPath.Combine(lDirectory, 'AsciiUnit.dcu'), 'DCU');
+    Inc(lFailures, CompareWitnessLookup(lDirectory, 'AsciiUnit', True, lLines));
+    Inc(lFailures, CompareWitnessLookup(lDirectory, 'Absent', True, lLines));
+    Inc(lCases, 2);
+    for lNeeded in ['Unit-Name', 'Unit?Name', '', '.Unit', 'Unit..Name'] do
+    begin
+      Inc(lFailures, CompareWitnessLookup(lDirectory, lNeeded, False, lLines));
+      Inc(lCases);
+    end;
+    // DOS device parsing applies before the first dot, including dotted units.
+    for lNeeded in ['CON', 'PRN', 'AUX', 'NUL', 'Aux.Utils', 'com0', 'COM1', 'COM2',
+      'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'lpt0', 'LPT1', 'LPT2',
+      'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'] do
+    begin
+      Inc(lFailures, CompareWitnessLookup(lDirectory, lNeeded, False, lLines));
+      Inc(lCases);
+    end;
+    for lLength := 257 to 261 do
+    begin
+      lNeeded := 'Vcl.Graphics';
+      lDirectory := TPath.Combine(lBase, 'length-' + IntToStr(lLength));
+      lDirectory := TPath.Combine(lDirectory,
+        StringOfChar('x', lLength - Length(lDirectory) - Length(lNeeded) - 6));
+      TDirectory.CreateDirectory(lDirectory);
+      lFileName := TPath.Combine(lDirectory, lNeeded + '.dcu');
+      Assert.AreEqual(lLength, Length(lFileName), 'Generator path length');
+      TFile.WriteAllText('\\?\' + lFileName, 'DCU');
+      Inc(lFailures, CompareWitnessLookup(lDirectory, lNeeded, lLength < MAX_PATH - 1, lLines));
+      Inc(lCases);
+    end;
+    lDirectory := TPath.Combine(lBase, 'nonexistent');
+    Inc(lFailures, CompareWitnessLookup(lDirectory, 'AsciiUnit', False, lLines));
+    Inc(lCases);
+    // Native errors are injected per instance: ACL privileges differ by session.
+    // The reference still enumerates a real populated directory.
+    lDirectory := TPath.Combine(lBase, 'lookup-error');
+    TDirectory.CreateDirectory(lDirectory);
+    TFile.WriteAllText(TPath.Combine(lDirectory, 'AsciiUnit.dcu'), 'DCU');
+    Inc(lFailures, CompareWitnessLookup(lDirectory, 'AsciiUnit', True, lLines,
+      '', ERROR_ACCESS_DENIED));
+    Inc(lCases);
+    // Exercise the actual mask/separator implementation even on hosts whose
+    // comparer has no non-ASCII preimages. Capture the native query itself.
+    TFile.WriteAllText(TPath.Combine(lDirectory, 'Sample.dcu'), 'DCU');
+    TFile.WriteAllText(TPath.Combine(lDirectory, 'Xample.dcu'), 'must be filtered');
+    Inc(lFailures, CompareWitnessLookup(lDirectory, 'Sample', True, lLines, 'S'));
+    Inc(lFailures, CompareWitnessLookup(lDirectory, 'Sample', False, lLines, '.'));
+    Inc(lCases, 2);
+    lLines.Add(Format('cases=%d failures=%d', [lCases, lFailures]));
+    lLines.SaveToFile(lReceipt, TEncoding.UTF8);
+    Assert.AreEqual(0, lFailures, 'Differential mismatches; receipt: ' + lReceipt);
+  finally
+    // Preserve partial setup evidence as well as assertion failures.
+    lLines.SaveToFile(lReceipt, TEncoding.UTF8);
+    lLines.Free;
+  end;
+end;
+
+procedure TUnitNameWitnessTests.ChangedProfilePathGetsFreshScan;
+var
+  lFirst, lUnchanged, lChanged, lRestored: IDelphiSemanticUnitNameWitness;
+  lProfileRoot: string;
+begin
+  lFirst := Witness;
+  Assert.IsFalse(lFirst.MayDeclare('U', 'Absent'), lFirst.IdentityText);
+  lProfileRoot := TPath.Combine(fRoot, '..\..\profile');
+  WriteSource('..\..\profile\U.dcu', 'A second physical candidate');
+  lUnchanged := Witness;
+  Assert.AreEqual(lFirst.IdentityText, lUnchanged.IdentityText,
+    'The extra file is outside every current lookup root.');
+  SetLength(fProject.Properties, 1);
+  fProject.Properties[0].Name := 'DSWitnessProfilePaths';
+  fProject.Properties[0].Value := lProfileRoot;
+  lChanged := Witness;
+  Assert.IsTrue(lChanged.MayDeclare('U', 'Absent'), lChanged.IdentityText);
+  Assert.AreNotEqual(lFirst.IdentityText, lChanged.IdentityText);
+  fProject.Properties := nil;
+  lRestored := Witness;
+  Assert.AreEqual(lFirst.IdentityText, lRestored.IdentityText);
+  TFile.Delete(TPath.Combine(lProfileRoot, 'U.dcu'));
+end;
+
+procedure TUnitNameWitnessTests.DirectoryInventoryNoticesAddedAndRemovedCandidates;
+var
+  lFirst, lAdded, lRemoved: IDelphiSemanticUnitNameWitness;
+begin
+  lFirst := Witness;
+  Assert.IsFalse(lFirst.MayDeclare('U', 'Absent'), 'Initial: ' + lFirst.IdentityText);
+  WriteSource('nested\U.pas', 'unit U; interface implementation end.');
+  lAdded := Witness;
+  Assert.IsTrue(lAdded.MayDeclare('U', 'Absent'), 'The additional source is ambiguous.');
+  Assert.IsTrue(Pos('ambiguous-source', lAdded.IdentityText) > 0, lAdded.IdentityText);
+  TFile.Delete(TPath.Combine(fRoot, 'nested\U.pas'));
+  lRemoved := Witness;
+  Assert.IsFalse(lRemoved.MayDeclare('U', 'Absent'), 'Removed: ' + lRemoved.IdentityText);
+  Assert.AreEqual(lFirst.IdentityText, lRemoved.IdentityText);
 end;
 
 procedure TUnitNameWitnessTests.ProjectSourceCannotProveAbsence;

@@ -6,6 +6,16 @@ uses
   DelphiSemantics.Model, DelphiSemantics.ProjectContext;
 
 type
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  TWitnessLookupTestOptions = record
+    CaptureNativeQueries: Boolean;
+    ForcedPreimages: string;
+    LookupErrorDirectory: string;
+    LookupError: Cardinal;
+  end;
+  PWitnessLookupTestOptions = ^TWitnessLookupTestOptions;
+{$ENDIF}
+
   IDelphiSemanticUnitNameWitness = interface
     ['{40DA7787-E5D3-4995-A535-6892C585AD7D}']
     function MayDeclare(const aUnitName, aName: string): Boolean;
@@ -17,18 +27,51 @@ type
     class function Build(const aProject: TDelphiSemanticProjectInfo;
       const aModels: TArray<TDelphiSemanticUnitModel>;
       const aRtlSourceRoot: string): IDelphiSemanticUnitNameWitness; static;
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+    class function BuildForTest(const aProject: TDelphiSemanticProjectInfo;
+      const aModels: TArray<TDelphiSemanticUnitModel>; const aRtlSourceRoot: string;
+      const aFullEnumeration: Boolean; out aCandidates: TArray<string>): IDelphiSemanticUnitNameWitness; overload; static;
+    class function BuildForTest(const aProject: TDelphiSemanticProjectInfo;
+      const aModels: TArray<TDelphiSemanticUnitModel>; const aRtlSourceRoot: string;
+      const aFullEnumeration: Boolean; out aCandidates: TArray<string>;
+      out aBoundedQueries, aLookupFallbacks: Integer): IDelphiSemanticUnitNameWitness; overload; static;
+    class function BuildForTest(const aProject: TDelphiSemanticProjectInfo;
+      const aModels: TArray<TDelphiSemanticUnitModel>; const aRtlSourceRoot: string;
+      const aFullEnumeration: Boolean; const aOptions: TWitnessLookupTestOptions;
+      out aCandidates, aNativeQueries: TArray<string>;
+      out aBoundedQueries, aLookupFallbacks: Integer): IDelphiSemanticUnitNameWitness; overload; static;
+{$ENDIF}
   end;
 
 implementation
 
 uses
   System.Generics.Collections, System.Generics.Defaults, System.IOUtils, System.StrUtils,
-  System.SysUtils, Xml.omnixmldom, Xml.XMLDoc, Xml.xmldom, Xml.XMLIntf,
+  System.SysUtils,
+  Winapi.Windows,
+  Xml.omnixmldom, Xml.XMLDoc, Xml.xmldom, Xml.XMLIntf,
   AutoFree, MaxLogic.StrUtils,
   DelphiSemantics.Cache, DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Source;
 
 type
+  TWitnessQueryMasks = class sealed
+  private
+    class var fNonAsciiPreimage: array[0..127] of Boolean;
+    class constructor Create;
+  public
+    class function ForName(const aName: string
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+      ; const aForcedPreimages: string
+{$ENDIF}
+      ): string; static;
+    class function SeparatorsProved(
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+      const aForcedPreimages: string
+{$ENDIF}
+      ): Boolean; static;
+  end;
+
   TWitnessEntry = class
     Known: Boolean;
     Tokens: TDictionary<string, Byte>;
@@ -38,6 +81,12 @@ type
 
   TUnitNameWitness = class(TInterfacedObject, IDelphiSemanticUnitNameWitness)
   private
+    fFullEnumeration: Boolean;
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+    fBoundedQueries, fLookupFallbacks: Integer;
+    fTestOptions: TWitnessLookupTestOptions;
+    fNativeQueries: TArray<string>;
+{$ENDIF}
     fEntries: TObjectDictionary<string, TWitnessEntry>;
     fNeededNames: TDictionary<string, Byte>;
     fIdentityLines: TList<string>;
@@ -49,6 +98,8 @@ type
     function CandidateNames(const aUnitName: string): TArray<TUnitCandidateName>;
     function ResolveSdkInclude(const aArgument, aIncludingFile, aRootFile: string;
       out aFileName: string): Boolean;
+    function WitnessFilesNamed(const aDirectory, aName, aExtension: string;
+      out aFiles: TArray<string>): Boolean;
     procedure IndexDirectory(const aDirectory: string; const aRecursive: Boolean);
     class function IsIdentifierStart(const aChar: Char): Boolean; static;
     class function IsIdentifierPart(const aChar: Char): Boolean; static;
@@ -61,11 +112,63 @@ type
     procedure AddEntry(const aUnitName: string);
   public
     constructor Create(const aProject: TDelphiSemanticProjectInfo;
-      const aModels: TArray<TDelphiSemanticUnitModel>; const aRtlSourceRoot: string);
+      const aModels: TArray<TDelphiSemanticUnitModel>; const aRtlSourceRoot: string;
+      const aFullEnumeration: Boolean = False
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+      ; const aTestOptions: PWitnessLookupTestOptions = nil
+{$ENDIF}
+      );
     destructor Destroy; override;
     function MayDeclare(const aUnitName, aName: string): Boolean;
     function IdentityText: string;
   end;
+
+class constructor TWitnessQueryMasks.Create;
+var
+  lComparer: IEqualityComparer<string>;
+  lCharacter: Char;
+  lCode: Integer;
+begin
+  // Immutable after unit initialization. CharUpperW is language-neutral; no
+  // directory/profile inputs or mutable filesystem inventories are retained.
+  lComparer := TFastCaseAwareComparer.Create(False);
+  for lCode := 128 to High(Word) do
+    for lCharacter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.' do
+      if lComparer.Equals(string(Char(lCode)), string(lCharacter)) then
+        fNonAsciiPreimage[Ord(lCharacter)] := True;
+end;
+
+class function TWitnessQueryMasks.ForName(const aName: string
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+      ; const aForcedPreimages: string
+{$ENDIF}
+      ): string;
+var
+  i: Integer;
+begin
+  Result := aName;
+  for i := 1 to Length(Result) do
+    if fNonAsciiPreimage[Ord(Result[i])]
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+      or (Pos(Result[i], aForcedPreimages) > 0)
+{$ENDIF}
+      then
+      Result[i] := '?';
+end;
+
+class function TWitnessQueryMasks.SeparatorsProved(
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+      const aForcedPreimages: string
+{$ENDIF}
+      ): Boolean;
+begin
+  // A DOS '?' stops at dots, so an unproved separator requires enumeration.
+  Result := not fNonAsciiPreimage[Ord('.')]
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+    and (Pos('.', aForcedPreimages) = 0)
+{$ENDIF}
+    ;
+end;
 
 constructor TWitnessEntry.Create;
 begin
@@ -80,7 +183,12 @@ begin
 end;
 
 constructor TUnitNameWitness.Create(const aProject: TDelphiSemanticProjectInfo;
-  const aModels: TArray<TDelphiSemanticUnitModel>; const aRtlSourceRoot: string);
+  const aModels: TArray<TDelphiSemanticUnitModel>; const aRtlSourceRoot: string;
+  const aFullEnumeration: Boolean
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  ; const aTestOptions: PWitnessLookupTestOptions
+{$ENDIF}
+  );
 var
   g: TGarbos;
   lIndexed: TDictionary<string, Byte>;
@@ -90,6 +198,11 @@ var
   lPath, lName, lDirectory, lProfilePaths: string;
 begin
   inherited Create;
+  fFullEnumeration := aFullEnumeration;
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  if aTestOptions <> nil then
+    fTestOptions := aTestOptions^;
+{$ENDIF}
   fProject := aProject;
   // The active compiler profile supplies this installation's source root.
   // Only its installed lib/source pairing may collapse a DCU into source proof.
@@ -187,11 +300,142 @@ begin
   Result := IsIdentifierStart(aChar) or CharInSet(aChar, ['0'..'9']);
 end;
 
+function GetWitnessFileInformation(const aHandle: THandle; const aInfoClass: Integer;
+  const aBuffer: Pointer; const aSize: DWORD): BOOL; stdcall;
+  external kernel32 name 'GetFileInformationByHandleEx';
+
+function GetWitnessFinalPath(const aHandle: THandle; const aPath: PWideChar;
+  const aSize, aFlags: DWORD): DWORD; stdcall;
+  external kernel32 name 'GetFinalPathNameByHandleW';
+
+function CanQueryWitnessNames(const aDirectory: string): Boolean;
+const
+  cFileCaseSensitiveInfo = 23;
+var
+  lHandle: THandle;
+  lFlags, lLength: DWORD;
+  lFinalPath, lVolumePath: array[0..MAX_PATH - 1] of Char;
+  lFileSystem: array[0..31] of Char;
+  lPath: string;
+begin
+  // Only proven local filesystem semantics qualify, including through junctions.
+  Result := False;
+  lHandle := CreateFile(PChar(aDirectory), FILE_READ_ATTRIBUTES,
+    FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE, nil, OPEN_EXISTING,
+    FILE_FLAG_BACKUP_SEMANTICS, 0);
+  if lHandle = INVALID_HANDLE_VALUE then
+    Exit;
+  try
+    lLength := GetWitnessFinalPath(lHandle, @lFinalPath[0], Length(lFinalPath), 0);
+    if (lLength = 0) or (lLength >= DWORD(Length(lFinalPath))) then
+      Exit;
+    lPath := string(lFinalPath);
+    if not lPath.StartsWith('\\?\') or lPath.StartsWith('\\?\UNC\', True) then
+      Exit;
+    lPath := Copy(lPath, 5, MaxInt);
+    if not GetVolumePathName(PChar(lPath), @lVolumePath[0], Length(lVolumePath)) or
+      (GetDriveType(@lVolumePath[0]) <> DRIVE_FIXED) then
+      Exit;
+    if not GetVolumeInformation(@lVolumePath[0], nil, 0, nil, lFlags, lLength,
+      @lFileSystem[0], Length(lFileSystem)) then
+      Exit;
+    if not SameText(string(lFileSystem), 'NTFS') and not SameText(string(lFileSystem), 'ReFS') then
+      Exit;
+    lFlags := 0;
+    Result := GetWitnessFileInformation(lHandle, cFileCaseSensitiveInfo,
+      @lFlags, SizeOf(lFlags)) and (lFlags = 0);
+  finally
+    CloseHandle(lHandle);
+  end;
+end;
+
+function TUnitNameWitness.WitnessFilesNamed(const aDirectory, aName, aExtension: string;
+  out aFiles: TArray<string>): Boolean;
+var
+  lHandle: THandle;
+  lData: TWin32FindData;
+  lFileName, lMask: string;
+  lPaths: TList<string>;
+  lError: DWORD;
+begin
+  Result := False;
+  aFiles := nil;
+  // Admit every comparer-equal non-ASCII preimage independently of filesystem
+  // case tables, then filter actual long names. ASCII case matching is proved
+  // only for local, case-insensitive NTFS/ReFS directories.
+  lMask := TWitnessQueryMasks.ForName(aName
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+    , fTestOptions.ForcedPreimages
+{$ENDIF}
+    ) + '.???';
+  lPaths := TList<string>.Create;
+  try
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+    if fTestOptions.CaptureNativeQueries then
+      fNativeQueries := fNativeQueries + [TPath.Combine(aDirectory, lMask)];
+    if (fTestOptions.LookupError <> 0) and
+      SameText(aDirectory, fTestOptions.LookupErrorDirectory) then
+    begin
+      lHandle := INVALID_HANDLE_VALUE;
+      SetLastError(fTestOptions.LookupError);
+    end else
+{$ENDIF}
+    lHandle := FindFirstFileEx(PChar(TPath.Combine(aDirectory, lMask)),
+      FindExInfoBasic, @lData, FindExSearchNameMatch, nil, 0);
+    if lHandle = INVALID_HANDLE_VALUE then
+    begin
+      // PATH_NOT_FOUND can mean a directory vanished after Exists; let the RTL
+      // retain its own exception/unknown-location behavior. Only no match is absent.
+      Exit(GetLastError = ERROR_FILE_NOT_FOUND);
+    end;
+    try
+      repeat
+        lFileName := string(lData.cFileName);
+        // Windows masks can also match 8.3 aliases. Only the long filename counts.
+        if (lData.dwFileAttributes and FILE_ATTRIBUTE_DIRECTORY = 0) and
+          TPath.MatchesPattern(lFileName, '*' + aExtension, False) and
+          TFastCaseAwareComparer.OrdinalIgnoreCase.Equals(
+            TPath.GetFileNameWithoutExtension(lFileName), aName) then
+          lPaths.Add(TPath.Combine(aDirectory, lFileName));
+      until not FindNextFile(lHandle, lData);
+      lError := GetLastError;
+      if lError <> ERROR_NO_MORE_FILES then
+        Exit;
+    finally
+      Winapi.Windows.FindClose(lHandle);
+    end;
+    aFiles := lPaths.ToArray;
+    Result := True;
+  finally
+    lPaths.Free;
+  end;
+end;
+
+function IsReservedWitnessName(const aName: string): Boolean;
+var
+  lSegment: string;
+  lDot: Integer;
+begin
+  // Win32 interprets device names even with an extension or dotted unit suffix.
+  lDot := Pos('.', aName);
+  lSegment := aName;
+  if lDot > 0 then
+    lSegment := Copy(aName, 1, lDot - 1);
+  Result := MatchText(lSegment, ['CON', 'PRN', 'AUX', 'NUL']);
+  if Length(lSegment) = 4 then
+    Result := Result or ((SameText(Copy(lSegment, 1, 3), 'COM') or
+      SameText(Copy(lSegment, 1, 3), 'LPT')) and CharInSet(lSegment[4], ['0'..'9']));
+end;
+
 procedure TUnitNameWitness.IndexDirectory(const aDirectory: string; const aRecursive: Boolean);
 var
   lPath, lName, lExtension, lCanonical: string;
   lPaths: TList<string>;
   lSearch: TSearchOption;
+  lNames: TArray<string>;
+  lFiles: TArray<string>;
+  lBounded: Boolean;
+  lCharacter: Char;
 begin
   if aDirectory = '' then
     Exit;
@@ -201,20 +445,59 @@ begin
   try
     if not TDirectory.Exists(aDirectory) then
       Exit;
+    lBounded := not aRecursive and not fFullEnumeration and
+      TWitnessQueryMasks.SeparatorsProved(
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+        fTestOptions.ForcedPreimages
+{$ENDIF}
+        ) and CanQueryWitnessNames(aDirectory);
+    lNames := fNeededNames.Keys.ToArray;
+    for lName in lNames do
+    begin
+      if (lName = '') or lName.StartsWith('.') or lName.EndsWith('.') or
+        (Pos('..', lName) > 0) or IsReservedWitnessName(lName) then
+        lBounded := False;
+      for lCharacter in lName do
+        if not CharInSet(lCharacter, ['A'..'Z', 'a'..'z', '0'..'9', '_', '.']) then
+          lBounded := False;
+      if lBounded then
+        if Length(TPath.GetFullPath(TPath.Combine(aDirectory, lName + '.dcu'))) >= MAX_PATH - 1 then
+          lBounded := False;
+    end;
+    if not lBounded then
+      lNames := [''];
     for lExtension in ['.pas', '.dcu'] do
-      for lPath in TDirectory.GetFiles(aDirectory, '*' + lExtension, lSearch) do
+      for lName in lNames do
       begin
-        lName := TPath.GetFileNameWithoutExtension(lPath);
-        if not fNeededNames.ContainsKey(lName) then
-          Continue;
-        lCanonical := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lPath);
-        if not fRtlFiles.TryGetValue(lName, lPaths) then
+        if lBounded then
         begin
-          lPaths := TList<string>.Create;
-          fRtlFiles.Add(lName, lPaths);
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+          Inc(fBoundedQueries);
+{$ENDIF}
+          if not WitnessFilesNamed(aDirectory, lName, lExtension, lFiles) then
+          begin
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+            Inc(fLookupFallbacks);
+{$ENDIF}
+            // Discard the incomplete query and preserve the reference enumeration.
+            lFiles := TDirectory.GetFiles(aDirectory, '*' + lExtension, lSearch);
+          end;
+        end else
+          lFiles := TDirectory.GetFiles(aDirectory, '*' + lExtension, lSearch);
+        for lPath in lFiles do
+        begin
+          lCanonical := TPath.GetFileNameWithoutExtension(lPath);
+          if not fNeededNames.ContainsKey(lCanonical) then
+            Continue;
+          if not fRtlFiles.TryGetValue(lCanonical, lPaths) then
+          begin
+            lPaths := TList<string>.Create;
+            fRtlFiles.Add(lCanonical, lPaths);
+          end;
+          lCanonical := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lPath);
+          if lPaths.IndexOf(lCanonical) < 0 then
+            lPaths.Add(lCanonical);
         end;
-        if lPaths.IndexOf(lCanonical) < 0 then
-          lPaths.Add(lCanonical);
       end;
   except
     on E: Exception do
@@ -592,5 +875,60 @@ class function TDelphiSemanticUnitNameWitnessBuilder.Build(
 begin
   Result := TUnitNameWitness.Create(aProject, aModels, aRtlSourceRoot);
 end;
+
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+class function TDelphiSemanticUnitNameWitnessBuilder.BuildForTest(
+  const aProject: TDelphiSemanticProjectInfo; const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aRtlSourceRoot: string; const aFullEnumeration: Boolean;
+  out aCandidates: TArray<string>): IDelphiSemanticUnitNameWitness;
+var
+  lBoundedQueries, lLookupFallbacks: Integer;
+begin
+  Result := BuildForTest(aProject, aModels, aRtlSourceRoot, aFullEnumeration,
+    aCandidates, lBoundedQueries, lLookupFallbacks);
+end;
+
+class function TDelphiSemanticUnitNameWitnessBuilder.BuildForTest(
+  const aProject: TDelphiSemanticProjectInfo; const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aRtlSourceRoot: string; const aFullEnumeration: Boolean;
+  out aCandidates: TArray<string>; out aBoundedQueries, aLookupFallbacks: Integer): IDelphiSemanticUnitNameWitness;
+var
+  lOptions: TWitnessLookupTestOptions;
+  lNativeQueries: TArray<string>;
+begin
+  lOptions := Default(TWitnessLookupTestOptions);
+  Result := BuildForTest(aProject, aModels, aRtlSourceRoot, aFullEnumeration,
+    lOptions, aCandidates, lNativeQueries, aBoundedQueries, aLookupFallbacks);
+end;
+
+class function TDelphiSemanticUnitNameWitnessBuilder.BuildForTest(
+  const aProject: TDelphiSemanticProjectInfo; const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aRtlSourceRoot: string; const aFullEnumeration: Boolean;
+  const aOptions: TWitnessLookupTestOptions; out aCandidates, aNativeQueries: TArray<string>;
+  out aBoundedQueries, aLookupFallbacks: Integer): IDelphiSemanticUnitNameWitness;
+var
+  lWitness: TUnitNameWitness;
+  lNames: TArray<string>;
+  lName, lPath: string;
+  lLines: TList<string>;
+begin
+  lWitness := TUnitNameWitness.Create(aProject, aModels, aRtlSourceRoot, aFullEnumeration, @aOptions);
+  Result := lWitness;
+  aNativeQueries := lWitness.fNativeQueries;
+  aBoundedQueries := lWitness.fBoundedQueries;
+  aLookupFallbacks := lWitness.fLookupFallbacks;
+  lLines := TList<string>.Create;
+  try
+    lNames := lWitness.fRtlFiles.Keys.ToArray;
+    TArray.Sort<string>(lNames, TStringComparer.Ordinal);
+    for lName in lNames do
+      for lPath in lWitness.fRtlFiles[lName] do
+        lLines.Add(lName + '|' + lPath);
+    aCandidates := lLines.ToArray;
+  finally
+    lLines.Free;
+  end;
+end;
+{$ENDIF}
 
 end.
