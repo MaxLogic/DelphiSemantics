@@ -1,0 +1,67 @@
+# Test runner
+
+Build the existing test executable as Win64 Debug before running it. The
+sharded wrapper requires Windows PowerShell 7 and defaults to four processes:
+
+```powershell
+& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -File tests\run-shards.ps1 `
+  -LogRoot F:\dev-artifacts\runs\DelphiSemantics\<owned-run>\logs `
+  -OutputRoot F:\dev-artifacts\runs\DelphiSemantics\<short-owned-run>
+```
+
+`-ExecutablePath` selects an existing binary, `-ShardCount` changes concurrency,
+and `-TimeoutSeconds` sets each shard's deadline (default 900 seconds). Each
+process has separate TEMP/TMP, `DS_TEST_OUTPUT_ROOT`, logs and NUnit XML. The
+executable stays in `tests\bin` so repository and fixture discovery are unchanged.
+Unset `DS_TEST_OUTPUT_ROOT` preserves the serial runner's existing output location.
+Under an override, stale cleanup requires a suite allocation marker bound to the
+exact run directory; matching foreign directory names do not grant deletion authority.
+The complete generated shard output root must fit in 89 characters because native
+fixture compilers and SQLite still encounter Windows path limits. The wrapper
+rejects a longer root before launching tests. Logs can use a longer separate root.
+
+Use `-Run Test.ProjectContext` for a fixture prefix. `-RunList <path>` accepts
+one exact binary-enumerated full case selector per line. Names containing spaces
+or commas are literal; do not split or quote individual names. The wrapper sets
+`DS_TEST_RUNLIST_LITERAL=1` for its child processes so DUnitX does not interpret
+commas as expression separators. Direct DUnitX command-line behavior is unchanged.
+
+The binary exports its default roster when `DS_TEST_LIST_PATH` is set. The
+wrapper excludes MaxTdbProof explicitly, partitions individual cases with
+deterministic longest-first balancing, and validates both each shard's identities
+and the aggregate roster. `scripts/case-durations.json` contains per-case seconds
+from DS revision `510a420`, recorded on 2026-10-29 in the DS-764 serial baseline.
+Unknown cases receive a 0.1-second planning weight. Weights affect placement only.
+
+Exit 0 requires nonempty, complete, unique execution with zero failures, errors,
+leaks and ignored tests. Exit 1 reports failed or corrupt evidence; exit 124
+reports a timeout and terminates the shard process tree. Each child starts suspended
+and joins a runner-owned kill-on-close Windows job before it resumes. Descendants
+still alive when a shard exits cause failure; their names, PIDs and command lines
+are retained in its status, and the job terminates them. Native exits, command,
+CWD, binary SHA256 and wall time are retained in each process's `status.json`.
+`aggregate.json`, `cases.json`, the roster, plan, selections and raw logs remain
+under the unique log run directory. Generated output remains under the reported
+`ownedOutputRoot`; the caller owns its cleanup after collecting proof.
+
+For a serial comparison, run the same binary with `--xmlfile:<owned-path>` and
+the same default category selection. Compare XML cases by fixture name plus case
+name, rejecting duplicate, missing or extra identities and changed `result` or
+`executed` values. Retain both binary hashes, native exits and wall times. The
+wrapper's `Read-DsCaseResult` and `Compare-DsIdentity` helpers can be dot sourced
+for this developer check. Existing failing cases remain failures in both runs.
+
+The runner's synthetic process and evidence regression tests require Windows
+PowerShell 7.3 or newer, Pester 3.4, and the Windows .NET Framework C# compiler.
+Run them from the repository root; they compile their own stand-in executable,
+allocate and clean unique OS temporary directories, and need no Delphi build:
+
+```powershell
+Invoke-Pester .\tests\run-shards.Tests.ps1
+Invoke-ScriptAnalyzer -Path .\tests\run-shards.ps1
+Invoke-ScriptAnalyzer -Path .\tests\run-shards.Tests.ps1
+```
+
+These tests cover deterministic balancing, literal comma-bearing case names,
+success and failure evidence, ignored tests, leaks, duplicate/missing/extra
+identities, detached descendants, timeout cleanup, and the path-budget refusal.

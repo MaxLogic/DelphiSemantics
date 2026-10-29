@@ -79,6 +79,10 @@ type
     procedure OwnerPidRequiresPidAndGuidSuffix;
     [Test]
     procedure SweepRemovesOnlyDeadUnkeptOwnerRoots;
+    [Test]
+    procedure OverrideCleanupRemovesOwnedRoot;
+    [Test]
+    procedure OverrideCleanupRefusesOutsideRoot;
   end;
 
 implementation
@@ -142,8 +146,18 @@ function GetFinalPathNameByHandleW(aFile: THandle; aPath: PWideChar; aLength: DW
 var
   gEnvironmentLock: TCriticalSection;
   gTestTempRoots: TStringList;
+  gTestTempBases: TStringList;
   gTestTempBytesFreed: UInt64;
   gTestTempValidatedHook: TTestTempValidatedHook;
+
+const
+  cTestTempOwnerMarker = '.ds-test-owner';
+  cTestTempOwnerIdentity = 'e56126d2-2e3c-4730-a86e-d3b94f4febbe';
+
+function TestTempOwnerMark(const aRoot: string): string;
+begin
+  Result := cTestTempOwnerIdentity + #13#10 + TPath.GetFullPath(aRoot);
+end;
 
 function TestTempBinRoot: string;
 const
@@ -151,7 +165,10 @@ const
 var
   lIdentity: string;
 begin
-  Result := TPath.GetFullPath(TPath.Combine(RepoRoot, 'tests\bin'));
+  Result := GetEnvironmentVariable('DS_TEST_OUTPUT_ROOT');
+  if Result = '' then
+    Result := TPath.Combine(RepoRoot, 'tests\bin');
+  Result := ExcludeTrailingPathDelimiter(TPath.GetFullPath(Result));
   lIdentity := TPath.Combine(RepoRoot, '.tasks.json');
   // DS units are also consumed by other runners. Never sweep their checkout.
   if not TFile.Exists(lIdentity) then
@@ -445,7 +462,34 @@ begin
   end;
 end;
 
-procedure DeleteTestTempRootTree(const aRoot: string; var aBytesFreed: UInt64);
+procedure CheckTestTempOwnerMark(const aRoot: string);
+var
+  lHandle: THandle;
+  lInfo: TTestTempAttributeTagInfo;
+  lMarker: string;
+begin
+  lMarker := TPath.Combine(aRoot, cTestTempOwnerMarker);
+  // Pin the marker against writes and replacement while checking allocation evidence.
+  lHandle := CreateFile(PChar(TestTempNativePath(lMarker)), GENERIC_READ, FILE_SHARE_READ,
+    nil, OPEN_EXISTING, cFileFlagOpenReparsePoint, 0);
+  if lHandle = INVALID_HANDLE_VALUE then
+    RaiseTestTempOSError('Open ownership marker', lMarker, GetLastError);
+  try
+    lInfo := Default(TTestTempAttributeTagInfo);
+    if not GetFileInformationByHandleEx(lHandle, cFileAttributeTagInfo, @lInfo, SizeOf(lInfo)) then
+      RaiseTestTempOSError('Query ownership marker', lMarker, GetLastError);
+    if (lInfo.FileAttributes and (FILE_ATTRIBUTE_REPARSE_POINT or FILE_ATTRIBUTE_DIRECTORY)) <> 0 then
+      raise Exception.CreateFmt('Refusing non-file ownership marker: %s', [lMarker]);
+    CheckTestTempIdentity(lHandle, lMarker);
+    if TFile.ReadAllText(lMarker, TEncoding.UTF8) <> TestTempOwnerMark(aRoot) then
+      raise Exception.CreateFmt('Refusing foreign ownership marker: %s', [lMarker]);
+  finally
+    CloseHandle(lHandle);
+  end;
+end;
+
+procedure DeleteTestTempRootTree(const aRoot: string; const aRequireOwnerMark: Boolean;
+  var aBytesFreed: UInt64);
 var
   lHandle: THandle;
 begin
@@ -454,6 +498,8 @@ begin
     // Pinning the root also pins its ancestors, so rechecking them now is final.
     CheckTestTempPath(aRoot);
     CheckTestTempIdentity(lHandle, aRoot);
+    if aRequireOwnerMark then
+      CheckTestTempOwnerMark(aRoot);
     NotifyTestTempValidated(aRoot);
     DeleteTestTempChildren(aRoot, aBytesFreed);
     MarkTestTempDeleted(lHandle, aRoot);
@@ -478,15 +524,21 @@ var
   lBin, lParent, lRoot: string;
   lBytesFreed: UInt64;
   lPid: Cardinal;
+  lRegistration: Integer;
 begin
   lBytesFreed := 0;
   try
     lBin := TestTempBinRoot;
     lRoot := TPath.GetFullPath(aRoot);
+    lRegistration := gTestTempRoots.IndexOf(lRoot);
+    // Scoped environment changes must not revoke the base recorded by our allocator.
+    // Only registered current-process roots can use an earlier configured base.
+    if (lBin <> '') and aOwnRoot and (lRegistration >= 0) then
+      lBin := gTestTempBases[lRegistration];
     lParent := TPath.GetDirectoryName(lRoot);
     if (lBin = '') or not SameText(TPath.GetDirectoryName(lParent), lBin) or
       not EndsStr('-temp', ExtractFileName(lParent)) or not TestTempOwnerPid(lRoot, lPid) then
-      raise Exception.CreateFmt('Refusing temp root outside DS tests\bin\*-temp\run-<PID>-*: %s', [aRoot]);
+      raise Exception.CreateFmt('Refusing temp root outside configured DS root\*-temp\run-<PID>-*: %s', [aRoot]);
     if not TDirectory.Exists(lRoot) then
       Exit(TTestTempOutcome.Missing);
     CheckTestTempPath(lRoot);
@@ -507,7 +559,9 @@ begin
     // Preflight can take time on legacy trees; a PID may have been reused.
     if not aOwnRoot and TestTempOwnerMayBeAlive(lRoot, lPid, TTestTempLivenessLog.Quiet) then
       Exit(TTestTempOutcome.RetainedLive);
-    DeleteTestTempRootTree(lRoot, lBytesFreed);
+    // A configured location is not deletion authority: only our marked allocations qualify.
+    DeleteTestTempRootTree(lRoot, not aOwnRoot and
+      (GetEnvironmentVariable('DS_TEST_OUTPUT_ROOT') <> ''), lBytesFreed);
     Writeln('[DS-698] removed ', lRoot, ' bytes=', lBytesFreed);
     Result := TTestTempOutcome.Removed;
   except
@@ -554,16 +608,25 @@ begin
 end;
 
 function CreateTestTempRoot(const aFolderName: string): string;
+var
+  lOutputRoot: string;
 begin
   if (ExtractFileName(aFolderName) <> aFolderName) or not EndsStr('-temp', aFolderName) then
     raise Exception.CreateFmt('Invalid test temp folder: %s', [aFolderName]);
-  Result := TPath.GetFullPath(CombinePath([ExtractFilePath(ParamStr(0)), aFolderName,
+  lOutputRoot := GetEnvironmentVariable('DS_TEST_OUTPUT_ROOT');
+  if lOutputRoot = '' then
+    lOutputRoot := ExtractFilePath(ParamStr(0));
+  Result := TPath.GetFullPath(CombinePath([lOutputRoot, aFolderName,
     'run-' + GetCurrentProcessId.ToString + '-' + GUIDToString(TGUID.NewGuid)]));
   gEnvironmentLock.Enter;
   try
     // Registration precedes creation so a partial allocation is cleaned too.
     gTestTempRoots.Add(Result);
+    gTestTempBases.Add(ExcludeTrailingPathDelimiter(TPath.GetFullPath(lOutputRoot)));
     TDirectory.CreateDirectory(Result);
+    if GetEnvironmentVariable('DS_TEST_OUTPUT_ROOT') <> '' then
+      TFile.WriteAllText(TPath.Combine(Result, cTestTempOwnerMarker), TestTempOwnerMark(Result),
+        TEncoding.UTF8);
   finally
     gEnvironmentLock.Leave;
   end;
@@ -1254,56 +1317,129 @@ begin
 end;
 
 procedure TTestTempCleanupTests.SweepRemovesOnlyDeadUnkeptOwnerRoots;
+const
+  cOwnerIdentity = 'e56126d2-2e3c-4730-a86e-d3b94f4febbe';
 var
-  lDead, lKept, lLive, lParent: string;
+  lDead, lForeign, lKept, lLive, lOverride, lParent: string;
   lProcess: TProcessInformation;
+  lScope: TScopedEnvironmentVariable;
 begin
   lDead := '';
+  lForeign := '';
   lKept := '';
-  lLive := CreateTestTempRoot('support-sweep-temp');
-  lParent := TPath.GetDirectoryName(lLive);
-  lProcess := StartHiddenTestProcess('/c exit 0');
+  lOverride := CreateTestTempRoot('support-override-temp');
+  lScope := TScopedEnvironmentVariable.Create('DS_TEST_OUTPUT_ROOT', lOverride);
   try
-    // Holding the exited process handle keeps its PID from being reused during the sweep.
-    Assert.AreEqual(Cardinal(WAIT_OBJECT_0), Cardinal(WaitForSingleObject(lProcess.hProcess, 30000)),
-      'The short-lived owner process must exit.');
-    lDead := TPath.Combine(lParent, Format('run-%d-%s', [lProcess.dwProcessId,
-      GUIDToString(TGUID.NewGuid)]));
-    lKept := TPath.Combine(lParent, Format('run-%d-%s', [lProcess.dwProcessId,
-      GUIDToString(TGUID.NewGuid)]));
-    PlantTestTempRoot(lDead);
-    PlantTestTempRoot(lKept);
-    PlantTestTempRoot(lLive);
-    TFile.WriteAllText(TPath.Combine(lKept, cTestTempKeepMarker), 'kept');
+    lLive := CreateTestTempRoot('support-sweep-temp');
+    lParent := TPath.GetDirectoryName(lLive);
+    lProcess := StartHiddenTestProcess('/c exit 0');
+    try
+      // Holding the exited process handle keeps its PID from being reused during the sweep.
+      Assert.AreEqual(Cardinal(WAIT_OBJECT_0), Cardinal(WaitForSingleObject(lProcess.hProcess, 30000)),
+        'The short-lived owner process must exit.');
+      lDead := TPath.Combine(lParent, Format('run-%d-%s', [lProcess.dwProcessId,
+        GUIDToString(TGUID.NewGuid)]));
+      lKept := TPath.Combine(lParent, Format('run-%d-%s', [lProcess.dwProcessId,
+        GUIDToString(TGUID.NewGuid)]));
+      lForeign := TPath.Combine(lParent, Format('run-%d-%s', [lProcess.dwProcessId,
+        GUIDToString(TGUID.NewGuid)]));
+      PlantTestTempRoot(lDead);
+      PlantTestTempRoot(lKept);
+      PlantTestTempRoot(lLive);
+      PlantTestTempRoot(lForeign);
+      // Model allocations from an earlier suite process, not an arbitrary matching name.
+      TFile.WriteAllText(TPath.Combine(lDead, '.ds-test-owner'), cOwnerIdentity + #13#10 + lDead,
+        TEncoding.UTF8);
+      TFile.WriteAllText(TPath.Combine(lKept, '.ds-test-owner'), cOwnerIdentity + #13#10 + lKept,
+        TEncoding.UTF8);
+      TFile.WriteAllText(TPath.Combine(lKept, cTestTempKeepMarker), 'kept');
 
-    SweepTestTempParent(lParent);
+      SweepTestTempRoots;
 
-    Assert.IsFalse(TDirectory.Exists(lDead), 'A dead owner''s root must be swept.');
-    Assert.IsTrue(TFile.Exists(CombinePath([lLive, 'nested', 'payload.txt'])),
-      'A live owner''s root must survive the sweep.');
-    Assert.IsTrue(TFile.Exists(CombinePath([lKept, 'nested', 'payload.txt'])),
-      'A root marked as kept must survive the sweep.');
+      Assert.IsFalse(TDirectory.Exists(lDead), 'A marked dead owner''s root must be swept.');
+      Assert.IsTrue(TFile.Exists(CombinePath([lForeign, 'nested', 'payload.txt'])),
+        'A foreign dead-PID-looking directory under the override must survive.');
+      Assert.IsTrue(TFile.Exists(CombinePath([lLive, 'nested', 'payload.txt'])),
+        'A live owner''s root must survive the sweep.');
+      Assert.IsTrue(TFile.Exists(CombinePath([lKept, 'nested', 'payload.txt'])),
+        'A root marked as kept must survive the sweep.');
+    finally
+      if (lKept <> '') and TFile.Exists(TPath.Combine(lKept, cTestTempKeepMarker)) then
+        TFile.Delete(TPath.Combine(lKept, cTestTempKeepMarker));
+      if lKept <> '' then
+        Assert.IsTrue(RemoveTestTempRoot(lKept, False) = TTestTempOutcome.Removed,
+          'Teardown must remove the marked kept fixture after clearing its keep marker.');
+      if lDead <> '' then
+        Assert.IsTrue(RemoveTestTempRoot(lDead, False) = TTestTempOutcome.Missing,
+          'The marked dead fixture must already be gone.');
+      // The foreign tree is a disposable fixture we created here, not sweep-owned data.
+      if (lForeign <> '') and TDirectory.Exists(lForeign) then
+        TDirectory.Delete(lForeign, True);
+      CloseHandle(lProcess.hProcess);
+      Assert.IsTrue(RemoveTestTempRoot(lLive, True) = TTestTempOutcome.Removed,
+        'Teardown must remove the registered live fixture.');
+    end;
   finally
-    if (lKept <> '') and TFile.Exists(TPath.Combine(lKept, cTestTempKeepMarker)) then
-      TFile.Delete(TPath.Combine(lKept, cTestTempKeepMarker));
-    if lKept <> '' then
-      RemoveTestTempRoot(lKept, False);
-    if lDead <> '' then
-      RemoveTestTempRoot(lDead, False);
-    CloseHandle(lProcess.hProcess);
-    RemoveTestTempRoot(lLive, True);
+    lScope.Free;
   end;
 end;
 
+procedure TTestTempCleanupTests.OverrideCleanupRemovesOwnedRoot;
+var
+  lScope: TScopedEnvironmentVariable;
+  lOriginal, lOverride, lRoot: string;
+begin
+  lOriginal := GetEnvironmentVariable('DS_TEST_OUTPUT_ROOT');
+  lOverride := CreateTestTempRoot('support-override-temp');
+  lScope := TScopedEnvironmentVariable.Create('DS_TEST_OUTPUT_ROOT', lOverride);
+  try
+    lRoot := CreateTestTempRoot('child-temp');
+    TFile.WriteAllText(TPath.Combine(lRoot, 'payload.txt'), 'owned');
+  finally
+    lScope.Free;
+  end;
+  Assert.AreEqual(lOriginal, GetEnvironmentVariable('DS_TEST_OUTPUT_ROOT'));
+  Assert.IsTrue(RemoveTestTempRoot(lRoot, True) = TTestTempOutcome.Removed,
+    'Cleanup must use the allocated base after the environment has been restored.');
+  Assert.IsFalse(TDirectory.Exists(lRoot));
+end;
+
+procedure TTestTempCleanupTests.OverrideCleanupRefusesOutsideRoot;
+var
+  lScope: TScopedEnvironmentVariable;
+  lOverride, lOutside, lSentinel: string;
+  lProcess: TProcessInformation;
+begin
+  lOverride := CreateTestTempRoot('support-override-temp');
+  lProcess := StartHiddenTestProcess('/c exit 0');
+  Assert.AreEqual(Cardinal(WAIT_OBJECT_0), Cardinal(WaitForSingleObject(lProcess.hProcess, 30000)));
+  lOutside := TPath.Combine(TPath.Combine(ExtractFilePath(ParamStr(0)), 'support-refusal-temp'),
+    'run-' + lProcess.dwProcessId.ToString + '-' + GUIDToString(TGUID.NewGuid));
+  TDirectory.CreateDirectory(lOutside);
+  lSentinel := TPath.Combine(lOutside, 'sentinel.txt');
+  TFile.WriteAllText(lSentinel, 'preserve');
+  lScope := TScopedEnvironmentVariable.Create('DS_TEST_OUTPUT_ROOT', lOverride);
+  try
+    Assert.IsTrue(RemoveTestTempRoot(lOutside, False) = TTestTempOutcome.Refused);
+    Assert.AreEqual('preserve', TFile.ReadAllText(lSentinel));
+  finally
+    lScope.Free;
+    CloseHandle(lProcess.hProcess);
+    if TDirectory.Exists(lOutside) then
+      TDirectory.Delete(lOutside, True);
+  end;
+end;
 initialization
   gEnvironmentLock := TCriticalSection.Create;
   gTestTempRoots := TStringList.Create;
+  gTestTempBases := TStringList.Create;
   SweepTestTempRoots;
   TDUnitX.RegisterTestFixture(TSupportTests);
   TDUnitX.RegisterTestFixture(TTestTempCleanupTests);
 
 finalization
   CleanupOwnedTestTempRoots;
+  gTestTempBases.Free;
   gTestTempRoots.Free;
   gEnvironmentLock.Free;
 

@@ -4,8 +4,8 @@ program delphiSemanticsTests;
 {$STRONGLINKTYPES ON}
 
 uses
-  System.SysUtils,
-  DUnitX.FilterBuilder, DUnitX.Loggers.Console, DUnitX.Loggers.XML.NUnit, DUnitX.TestFramework,
+  System.Classes, System.IOUtils, System.JSON, System.SysUtils,
+  DUnitX.Extensibility, DUnitX.FilterBuilder, DUnitX.Filters, DUnitX.Loggers.Console, DUnitX.Loggers.XML.NUnit, DUnitX.TestFramework,
   DelphiSemantics.Api in '..\src\DelphiSemantics.Api.pas',
   DelphiSemantics.Api.ProjectOptions in '..\src\DelphiSemantics.Api.ProjectOptions.pas',
   DelphiSemantics.Api.RemoveWith in '..\src\DelphiSemantics.Api.RemoveWith.pas',
@@ -123,9 +123,114 @@ uses
   Test.WithDiscovery in 'src\test.withdiscovery.pas',
   Test.WithScan in 'src\test.withscan.pas';
 
+type
+  [TestFixture]
+  TTestOutputRootTests = class
+  public
+    [Test]
+    procedure DefaultStaysBesideExecutable;
+    [Test]
+    procedure OverrideUsesOwnedRoot;
+  end;
+
+procedure TTestOutputRootTests.DefaultStaysBesideExecutable;
+var
+  lScope: TScopedEnvironmentVariable;
+  lRoot: string;
+begin
+  lScope := TScopedEnvironmentVariable.Create('DS_TEST_OUTPUT_ROOT', '');
+  try
+    lRoot := CreateTestTempRoot('output-default-temp');
+    Assert.AreEqual(TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), 'output-default-temp')),
+      TPath.GetDirectoryName(lRoot));
+  finally
+    lScope.Free;
+  end;
+end;
+
+procedure TTestOutputRootTests.OverrideUsesOwnedRoot;
+var
+  lScope: TScopedEnvironmentVariable;
+  lOverride, lRoot: string;
+begin
+  lOverride := TPath.Combine(TPath.GetTempPath, 'ds-output-' + GUIDToString(TGUID.NewGuid));
+  lScope := TScopedEnvironmentVariable.Create('DS_TEST_OUTPUT_ROOT', lOverride);
+  try
+    lRoot := CreateTestTempRoot('output-override-temp');
+    Assert.AreEqual(TPath.GetFullPath(TPath.Combine(lOverride, 'output-override-temp')),
+      TPath.GetDirectoryName(lRoot));
+    Assert.IsTrue(TDirectory.Exists(lRoot));
+  finally
+    lScope.Free;
+    if TDirectory.Exists(lOverride) then
+      TDirectory.Delete(lOverride, True);
+  end;
+end;
 const
   cMaxTdbProofCategory = 'MaxTdbProof';
 
+procedure AppendRegisteredTests(const aFixtures: ITestFixtureList; const aRoster: TJSONArray);
+var
+  lFixture: ITestFixture;
+  lRow: TJSONObject;
+  lTest: ITest;
+begin
+  for lFixture in aFixtures do
+  begin
+    for lTest in lFixture.Tests do
+    begin
+      if (TDUnitX.Filter <> nil) and not TDUnitX.Filter.Match(lTest) then
+        Continue;
+      lRow := TJSONObject.Create;
+      lRow.AddPair('fixture', lFixture.FullName);
+      lRow.AddPair('selector', lTest.FullName);
+      lRow.AddPair('id', lFixture.Name + '.' + lTest.Name);
+      aRoster.AddElement(lRow);
+    end;
+    if lFixture.HasChildFixtures then
+      AppendRegisteredTests(lFixture.Children, aRoster);
+  end;
+end;
+
+procedure WriteRegisteredTests(const aRunner: ITestRunner; const aPath: string);
+var
+  lRoster: TJSONArray;
+begin
+  lRoster := TJSONArray.Create;
+  try
+    AppendRegisteredTests(aRunner.BuildFixtures as ITestFixtureList, lRoster);
+    TFile.WriteAllText(aPath, lRoster.ToJSON, TEncoding.UTF8);
+  finally
+    lRoster.Free;
+  end;
+end;
+procedure ApplyLiteralRunList;
+var
+  lCategory, lNames: ITestFilter;
+  lLines: TStringList;
+  lRunList: string;
+begin
+  if (GetEnvironmentVariable('DS_TEST_RUNLIST_LITERAL') <> '1') or
+    (TDUnitX.Options.RunListFile = '') then
+    Exit;
+  lRunList := TDUnitX.Options.RunListFile;
+  lLines := TStringList.Create;
+  try
+    lLines.LoadFromFile(lRunList, TEncoding.UTF8);
+    // DUnitX's expression parser splits literal commas in case display names.
+    // Our wrapper writes exactly one binary-enumerated full selector per line.
+    lNames := TNameFilter.Create(lLines);
+    TDUnitX.Options.RunListFile := '';
+    try
+      lCategory := TDUnitXFilterBuilder.BuildFilter(TDUnitX.Options);
+    finally
+      TDUnitX.Options.RunListFile := lRunList;
+    end;
+    TDUnitX.Filter := TAndFilter.Create(TArray<ITestFilter>.Create(lNames, lCategory));
+  finally
+    lLines.Free;
+  end;
+end;
 procedure ApplyDefaultCategoryExclusions;
 begin
   if (TDUnitX.Options.Include = '') and (TDUnitX.Options.Exclude = '') then
@@ -142,11 +247,19 @@ var
 begin
   ReportMemoryLeaksOnShutdown := True;
   try
+    TDUnitX.RegisterTestFixture(TTestOutputRootTests);
     TDUnitX.CheckCommandLine;
     ApplyDefaultCategoryExclusions;
+    ApplyLiteralRunList;
     lRunner := TDUnitX.CreateRunner;
     lRunner.UseRTTI := True;
     lRunner.FailsOnNoAsserts := True;
+
+    if GetEnvironmentVariable('DS_TEST_LIST_PATH') <> '' then
+    begin
+      WriteRegisteredTests(lRunner, GetEnvironmentVariable('DS_TEST_LIST_PATH'));
+      Exit;
+    end;
 
     lLogger := TDUnitXConsoleLogger.Create(True);
     lRunner.AddLogger(lLogger);
