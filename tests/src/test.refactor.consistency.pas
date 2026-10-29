@@ -21,28 +21,38 @@ type
     function AncestryModels(const aShape: string): TArray<TDelphiSemanticUnitModel>;
     function AliasContextModels(const aShape: string): TArray<TDelphiSemanticUnitModel>;
   public
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     procedure ExtractsInterfaceAndDispinterfaceGuidFacts;
+    [Category('RefactoringLightConsistency,Fast')]
     [TestCase('Unknown last', 'True')]
     [TestCase('Known last', 'False')]
     procedure OrderedUnindexedImportGuardsAncestry(const aUnknownLast: Boolean);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Class', 'class')]
     [TestCase('Interface', 'interface')]
     [TestCase('Dispinterface', 'dispinterface')]
     procedure PreservesForwardTypeDeclarationRole(const aKind: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     procedure InventoryClassifiesPairsDuplicatesMissingAndUnknown;
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     procedure ExtractsHandlerCallingConvention;
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     procedure ExtractsStructuredEventSignatures;
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     procedure RefusesIncompleteStructuredParameterTypes;
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     procedure PreservesConsistencyFactsThroughModelJson;
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     procedure ComparesSourceResolvedSignatureTypes;
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Mode', 'mode,mismatch,signature.parameter-mode')]
     [TestCase('Convention', 'convention,mismatch,signature.calling-convention')]
@@ -50,24 +60,29 @@ type
     [TestCase('Distinct type', 'type,mismatch,signature.parameter-type')]
     [TestCase('Missing type', 'missing,unknown,signature.parameter-type')]
     procedure RejectsIncompatibleEventSignatures(const aChange, aStatus, aReason: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Both default', 'default')]
     [TestCase('Explicit event register', 'event')]
     [TestCase('Explicit handler register', 'handler')]
     procedure ResolvesInheritedEventAndHandler(const aConventionAt: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     procedure RefusesSameLineHandlerOverloads;
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Second of two handlers', 'two-methods,HandleData')]
     [TestCase('First of two handlers', 'two-methods,HandleOther')]
     [TestCase('Handler after field and visibility', 'field-visibility,HandleOther')]
     [TestCase('Next-line handler after mixed line', 'field-visibility,HandleData')]
     procedure ResolvesHandlersSharingOnePhysicalLine(const aLayout, aHandler: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Unsupported procedural field layout', 'True,unknown')]
     [TestCase('Supported control layout', 'False,match')]
     procedure RefusesUnitWithIncompleteMembers(const aProceduralField: Boolean;
       const aStatus: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Unrelated incomplete class', 'unrelated,match')]
     [TestCase('Unattributed file', 'file,unknown')]
@@ -75,6 +90,7 @@ type
     [TestCase('Unrelated diagnostic', 'other,unknown')]
     [TestCase('Duplicate diagnostic owner', 'duplicate,unknown')]
     procedure IsolatesIncompleteMemberOwners(const aFault, aStatus: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Direct parameter alias', 'direct,match')]
     [TestCase('Chained parameter alias', 'chain,match')]
@@ -85,6 +101,7 @@ type
     [TestCase('Alias cycle', 'cycle,unknown')]
     [TestCase('Ordinary alias property', 'ordinary,not-event')]
     procedure ResolvesAliasSignatures(const aShape, aStatus: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Complete context', 'complete,match')]
     [TestCase('Missing event context', 'missing,unknown')]
@@ -92,6 +109,7 @@ type
     [TestCase('Partial context', 'partial,unknown')]
     [TestCase('Duplicate context', 'duplicate,unknown')]
     procedure RequiresCompleteSignatureContext(const aShape, aStatus: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Alias declaration imports', 'visible,match')]
     [TestCase('Original event declaration scope', 'event-origin,match')]
@@ -102,6 +120,7 @@ type
     [TestCase('Missing target source', 'missing,unknown')]
     [TestCase('Partial target source', 'partial,unknown')]
     procedure ResolvesAliasInDeclarationContext(const aShape, aStatus: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Missing handler', 'complete,missing-handler')]
     [TestCase('Unknown ancestor', 'external,unknown')]
@@ -110,6 +129,7 @@ type
     [TestCase('Recovered existing handler', 'recovered-match,unknown')]
     [TestCase('Rejected existing handler', 'rejected-match,unknown')]
     procedure DistinguishesMissingHandlerFromUnknownAncestry(const aShape, aStatus: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Complete', 'complete,ancestry.complete,2')]
     [TestCase('Hidden base', 'hidden,ancestry.type-unresolved,1')]
@@ -121,11 +141,13 @@ type
     [TestCase('Non-class base', 'record,ancestry.not-source-class,1')]
     [TestCase('Alias base', 'alias,ancestry.class-alias-unsupported,1')]
     procedure ReportsGuardedClassAncestry(const aShape, aReason: string; const aCount: Integer);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Inherited scope', 'normal,match')]
     [TestCase('Descendant name hiding', 'hiding,match')]
     [TestCase('Missing declaration scope', 'missing,unknown')]
     procedure ResolvesComponentInAncestorDeclarationScope(const aShape, aStatus: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Enumeration', 'enum,not-event')]
     [TestCase('Class', 'class,not-event')]
@@ -135,17 +157,20 @@ type
     [TestCase('Unavailable type', 'missing,unknown')]
     [TestCase('Event missing handler', 'event,missing-handler')]
     procedure ClassifiesOrdinaryPublishedProperty(const aShape, aStatus: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Single line', 'single')]
     [TestCase('Multiple lines', 'multiple')]
     [TestCase('Scoped', 'scoped')]
     procedure PreservesEnumValuePositionsAndScopes(const aShape: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Spaces', 'space')]
     [TestCase('Tab', 'tab')]
     [TestCase('Mixed case', 'case')]
     [TestCase('Newline control', 'newline')]
     procedure PreservesTypesBesideKeyword(const aShape: string);
+    [Category('RefactoringLightConsistency,Fast')]
     [Test]
     [TestCase('Scoped values', 'scoped')]
     [TestCase('Unscoped values', 'unscoped')]

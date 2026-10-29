@@ -19,16 +19,20 @@ type
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function UnitModel: TDelphiSemanticUnitModel;
   public
+    [Category('Fast')]
     [Test]
     procedure ReportsInaccessibleHiddenAndResolvedMembers;
+    [Category('Fast')]
     [Test]
     procedure ReportsOverloadedAndResolvesByArgumentType;
+    [Category('Fast')]
     [TestCase('Private', 'Secret,private')]
     [TestCase('StrictPrivate', 'StrictSecret,strict private')]
     [TestCase('Protected', 'ProtectedValue,protected')]
     [TestCase('StrictProtected', 'ProtectedValue,strict protected')]
     procedure UnindexedCallerHomonymDoesNotAcquireAccess(const aMemberName,
       aVisibility: string);
+    [Category('Fast')]
     [Test]
     procedure ExplicitQualifiedCallerIdentityRetainsProtectedAccess;
   end;

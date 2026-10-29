@@ -13,42 +13,61 @@ type
   private
     function LoadProject(const aFileName: string): TDelphiSemanticProjectInfo;
   public
+    [Category('Fast')]
     [Test]
     procedure AbsolutePathSourceContextResolves;
+    [Category('Fast')]
     [Test]
     procedure ProjectRelativeSourceContextResolves;
+    [Category('Fast')]
     [Test]
     procedure ProjectRelativeSourceContextPrefersProjectLookupOverCurrentDirectoryShadow;
+    [Category('Fast')]
     [Test]
     procedure SearchPathSourceContextResolves;
+    [Category('Fast')]
     [Test]
     procedure MissingSourceContextFileReturnsFalse;
+    [Category('Fast')]
     [Test]
     procedure SourceContextCacheRefreshesWhenFileChanges;
+    [Category('Fast')]
     [Test]
     procedure SourceContextCacheDetectsSubmillisecondChanges;
+    [Category('Fast')]
     [Test]
     procedure SourceContextCacheRejectsNonFilesAndMalformedPaths;
+    [Category('Fast')]
     [Test]
     procedure SourceContextCacheRefreshesWhenLinkTargetChanges;
+    [Category('Fast')]
     [Test]
     procedure ParseFindingLocationExtractsColumn;
+    [Category('Fast')]
     [Test]
     procedure SourceContextCandidateUsesTokenAtColumn;
+    [Category('Fast')]
     [Test]
     procedure SourceContextCandidateUsesTokenWhenColumnPointsAfterIdentifier;
+    [Category('Fast')]
     [Test]
     procedure SourceContextCandidateReturnsFalseForMalformedPathToken;
+    [Category('Fast')]
     [Test]
     procedure SourceContextCandidateUsesFirstIdentifierWithoutColumn;
+    [Category('Fast')]
     [Test]
     procedure SourceContextCandidateFallsBackToEnclosingSymbol;
+    [Category('Fast')]
     [Test]
     procedure SourceContextCandidateReturnsFalseWithoutReasonableCandidate;
+    [Category('Fast')]
     [Test]
     procedure SourceContextCandidateParsingLivesInFocusedUnit;
+    [Category('Fast')]
     [Test]
     procedure SourceConditionalsOwnConditionalLineRules;
+    [Category('Fast')]
     [Test]
     procedure SourceContextImplementationOwnsSharedLoadingAndWindowLogic;
   end;

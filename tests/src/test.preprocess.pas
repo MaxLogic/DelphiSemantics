@@ -15,19 +15,26 @@ type
     function HasRegion(const aResult: TDelphiSemanticPreprocessResult; const aLine: Integer;
       const aActive: Boolean): Boolean;
   public
+    [Category('Fast')]
     [Test]
     procedure ActivityEvidenceCoversGapsAndInclusiveEnd;
+    [Category('Fast')]
     [Test]
     procedure ActiveDefinesSelectExpectedConditionalRegions;
+    [Category('Fast')]
     [Test]
     procedure MissingPossibleIncludeKeepsTheModelAndTaintsLaterConditions;
+    [Category('Fast')]
     [TestCase('Earlier UNDEF invalidated', 'False')]
     [TestCase('Later UNDEF restores witness', 'True')]
     procedure GlobalTaintInvalidatesEarlierWitness(const aRestore: Boolean);
+    [Category('Fast')]
     [Test]
     procedure InvalidActivitySpanNeverDiscardsUncertainty;
+    [Category('Fast')]
     [Test]
     procedure PlainActivityBuilderWithoutRootWitnessRetainsUncertainty;
+    [Category('Fast')]
     [TestCase('OR known true left', 'or-true')]
     [TestCase('AND known false left', 'and-false')]
     [TestCase('OR known true right', 'or-right')]
@@ -38,6 +45,7 @@ type
     [TestCase('Malformed IFDEF', 'ifdef')]
     [TestCase('Malformed IFNDEF', 'ifndef')]
     procedure ConditionalExpressionsRetainTriStateShortCircuit(const aShape: string);
+    [Category('Fast')]
     [Test]
     [TestCase('Ordinary absent', 'ordinary')]
     [TestCase('Ordinary Defined expression', 'ordinary-defined')]
@@ -56,22 +64,31 @@ type
     [TestCase('Source undef overrides captured Unicode', 'undef')]
     procedure ConditionalStateDistinguishesOrdinaryAndCompilerSymbols(const aShape: string);
 
+    [Category('Fast')]
     [Test]
     procedure DefineAndUndefDirectivesAffectLaterRegions;
+    [Category('Fast')]
     [Test]
     procedure IncludesResolveFromSearchPathsAndAffectGraphHash;
+    [Category('Fast')]
     [Test]
     procedure IncludeHashUsesLoadedIncludeText;
+    [Category('Fast')]
     [Test]
     procedure IncludeCyclesProduceDeterministicDiagnostic;
+    [Category('Fast')]
     [Test]
     procedure MalformedConditionalStackProducesDiagnostics;
+    [Category('Fast')]
     [Test]
     procedure ConditionalDirectivesAllowTrailingComments;
+    [Category('Fast')]
     [Test]
     procedure ConditionalDirectivesAllowLegacyMultilineCloseBrace;
+    [Category('Fast')]
     [Test]
     procedure CompilerSwitchDirectivesDoNotFailPreprocessing;
+    [Category('Fast')]
     [Test]
     [TestCase('External symbol metadata', '0,True')]
     [TestCase('C++ header text', '1,True')]
@@ -86,23 +103,30 @@ type
     [TestCase('Indented parenthesized switch group', '10,True')]
     procedure RtlMetadataAndSwitchGroupsPreservePascalSource(const aCase: Integer;
       const aSuccess: Boolean);
+    [Category('Fast')]
     [Test]
     procedure DirectivesInsideLineCommentsAreIgnored;
+    [Category('Fast')]
     [Test]
     [TestCase('Brace text inside block comment', '0')]
     [TestCase('Parenthesized text inside brace comment', '1')]
     [TestCase('Directive text inside escaped string', '2')]
     procedure DirectiveLookalikesPreserveSource(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     [TestCase('Parenthesized comment', '0')]
     [TestCase('Brace comment', '1')]
     procedure CommentSlashesDoNotHideFollowingDirective(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     procedure InlineConditionalDirectivesCloseOnSameLine;
+    [Category('Fast')]
     [Test]
     procedure Linux64ProjectConditionalsUseTargetDefines;
+    [Category('Fast')]
     [Test]
     procedure UnsupportedConditionalElseBranchStaysInactive;
+    [Category('Fast')]
     [Test]
     procedure UnsupportedConditionalDirectiveProducesDiagnostic;
   end;

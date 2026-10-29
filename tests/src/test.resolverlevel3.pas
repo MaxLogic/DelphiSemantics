@@ -12,14 +12,19 @@ type
   private
     function LoadModel(const aFileName: string): TDelphiSemanticUnitModel;
   public
+    [Category('Fast')]
     [Test]
     procedure ResolvesInheritedMembers;
+    [Category('Fast')]
     [Test]
     procedure ResolvesHelperMembers;
+    [Category('Fast')]
     [Test]
     procedure ResolvesCompilerIntrinsicProfiles;
+    [Category('Fast')]
     [Test]
     procedure ResolvesSourceAvailableIndexedUnits;
+    [Category('Fast')]
     [Test]
     procedure ResolvesInterfaceAncestorsAndAmbiguousOverloads;
   end;

@@ -23,10 +23,12 @@ type
     function HasReference(const aBinding: TDelphiSemanticWithBinding; const aName,
       aClassification: string): Boolean;
   public
+    [Category('Fast')]
     [TestCase('Unicode field', 'field')]
     [TestCase('Unicode class var', 'class-var')]
     [TestCase('Unicode constant', 'constant')]
     procedure InventoryPreservesUnicodeDeclarations(const aShape: string);
+    [Category('Fast')]
     [TestCase('Operator parameters on one line', 'operator')]
     [TestCase('Operator parameters across lines', 'operator-multiline')]
     [TestCase('Method parameters across lines', 'method-multiline')]
@@ -57,6 +59,7 @@ type
     [TestCase('unclosed brace', '19')]
     [TestCase('unclosed comment', '20')]
     procedure SelectorPartitionPreservesCompleteParts(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     [TestCase('LF', 'LF,False,False')]
     [TestCase('LF with comment', 'LF,False,True')]
@@ -64,12 +67,16 @@ type
     [TestCase('CRLF with blank lines', 'CRLF,True,True')]
     procedure WithBodyReferencesKeepSourceCoordinates(const aLineEnding: string;
       const aBlankLines, aComment: Boolean);
+    [Category('Fast')]
     [Test]
     procedure CallReferencesSpanTheCompleteBalancedCall;
+    [Category('Fast')]
     [Test]
     procedure IndexReferencesSpanTheIndexAndBindItsIdentifiers;
+    [Category('Fast')]
     [Test]
     procedure IndexedDeclarationsPreserveBindingPrecedence;
+    [Category('Fast')]
     [Test]
     procedure CrossUnitPointerArrayWithBodiesBindMembers;
     [Test]
@@ -89,6 +96,7 @@ type
     [TestCase('numeric label belongs to another routine', '13')]
     [TestCase('duplicate label definition', '14')]
     procedure LocalLabelsPreserveSyntaxRoleAndRoutineScope(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     [TestCase('simple escaped field', '0')]
     [TestCase('escaped indexed field and index', '1')]
@@ -102,6 +110,7 @@ type
     [TestCase('ordinary call operator with escaped homonym', '9')]
     [TestCase('escaped keyword inside index', '10')]
     procedure EscapedIdentifiersKeepTheirQualifiedSpelling(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     procedure IndexedDeclarationCandidatesPreserveDuplicatesAndRefresh;
     [Test]
@@ -118,24 +127,34 @@ type
     procedure RemoveWithLookupIndexReturnsIndependentMutableCopies;
     [Test]
     procedure RemoveWithLookupIndexIncludesCompatibilityExternalSymbols;
+    [Category('Fast')]
     [Test]
     procedure BindingReferenceCacheUsesStatementPrefix;
+    [Category('Fast')]
     [Test]
     procedure BindingReferencesUsePrecomputedBodyLineStarts;
+    [Category('Fast')]
     [Test]
     procedure BindProjectSkipsScopeIndexForUnitsWithoutWithStatements;
+    [Category('Fast')]
     [Test]
     procedure BindProjectBuildsScopeIndexOnlyForWithLines;
+    [Category('Fast')]
     [Test]
     procedure BindProjectPreallocatesHotFactLists;
+    [Category('Fast')]
     [Test]
     procedure BindProjectCachesParentSelectorStacks;
+    [Category('Fast')]
     [Test]
     procedure ReceiverMemberBindingUsesSemanticMemberIndex;
+    [Category('Fast')]
     [Test]
     procedure ReceiverMemberIndexDoesNotWalkVisibleUnitsPerLookup;
+    [Category('Fast')]
     [Test]
     procedure WithBindingUsesSingleResolverAuthorityAdapter;
+    [Category('Fast')]
     [Test]
     procedure WithBindingDelegatesCompatibilityInventory;
   end;

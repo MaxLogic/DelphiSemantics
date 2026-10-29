@@ -43,6 +43,7 @@ type
     procedure AssertProjectFactsEqual(
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
+    [Category('Fast')]
     [TestCase('Assignment refusal', 'assignment')]
     [TestCase('Call refusal', 'call')]
     [TestCase('Different unsupported reason', 'other-code')]
@@ -238,6 +239,7 @@ type
     [TestCase('repeated outer', '7')]
     [TestCase('repeated callable', '8')]
     procedure PointerCastReceiverPreservesExclusions(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     [TestCase('direct', '0')]
     [TestCase('guarded', '1')]
@@ -272,6 +274,7 @@ type
     [TestCase('Nested child', '1')]
     [TestCase('Conditional cast', '2')]
     procedure FinalDtoPreservesNestedAndConditionalBodyRanges(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     [TestCase('while field array', '0')]
     [TestCase('if field array', '1')]
@@ -310,36 +313,47 @@ type
     procedure FinalDtoKeepsAnonymousMemberQualifierUnderSkippedParent;
     [Test]
     procedure FinalDtoKeepsOuterCapturesAfterNestedForward;
+    [Category('Fast')]
     [Test]
     procedure PlansDeterministicDryRunDtoWithVerificationAndProvenance;
+    [Category('Fast')]
     [Test]
     procedure CombinedApiReturnsFactsAndCanonicalPlanFromOneSession;
     [Test]
     procedure CombinedApiSkipGraphMatchesLegacyFactsAndCanonicalPlan;
+    [Category('Fast')]
     [Test]
     procedure CombinedApiReportsSessionFailureWithoutExtraction;
     [Test]
     procedure CombinedApiReportsFinalSemanticCachePersistenceState;
+    [Category('Fast')]
     [Test]
     procedure DetailedPlannerMetricsUseAdditiveResult;
     [Test]
     procedure DetailedPlannerMetricsReconcileWithSemanticPlan;
+    [Category('Fast')]
     [Test]
     procedure SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;
     [Test]
     procedure SnapshotPlannerConsumesExistingFactsWithoutProjectSession;
     [Test]
     procedure SnapshotPlannerRebuildsMissingLookupIndexFromFacts;
+    [Category('Fast')]
     [Test]
     procedure SnapshotPlannerUsesPlanningFactsOnlyForExistingFacts;
+    [Category('Fast')]
     [Test]
     procedure SnapshotPlannerAvoidsWholePlanningFactCopies;
+    [Category('Fast')]
     [Test]
     procedure SnapshotBindingSourceCachesDtoConversion;
+    [Category('Fast')]
     [Test]
     procedure CoreSnapshotUnitDoesNotExposeRemoveWithPlanningFacts;
+    [Category('Fast')]
     [Test]
     procedure RemoveWithSnapshotExtensionPreservesExactPlanningText;
+    [Category('Fast')]
     [Test]
     procedure SnapshotPlannerDoesNotDelegateToLegacyFactsPlanner;
     [Test]
@@ -352,6 +366,7 @@ type
     procedure MaxTdbCurrentRunPublishesOnlySafeFinalEdits;
     [Test]
     procedure DtoParityHarnessReportsMissingFinalStatements;
+    [Category('Fast')]
     [Test]
     procedure DtoParityHarnessReportsUnexpectedFinalStatements;
     [Test]
@@ -368,6 +383,7 @@ type
     procedure GenericClassReceiversWithoutRootProofRefuse(const aShape: string);
     [Test]
     procedure PlanSkippedStatementsMirrorSkippedPlanStatements;
+    [Category('Fast')]
     [Test]
     procedure FinalDtoMatchesFocusedRewriteCases;
     [Test]
@@ -380,12 +396,15 @@ type
     procedure FinalDtoQualifiesSiblingMemberOfDependentPointerSelector;
     [Test]
     procedure FinalDtoQualifiesHiddenPointerSelectorSiblingUnderInheritedWith;
+    [Category('Fast')]
     [Test]
     procedure SkipDecisionsDoNotUseSourceSpecificCoordinates;
+    [Category('Fast')]
     [Test]
     procedure RenderDecisionsDoNotUseSourceSpecificCoordinates;
     [Test]
     procedure FinalDtoUsesRewriteRecipeFactsForRepresentativeHardCases;
+    [Category('Fast')]
     [Test]
     procedure FinalBodyRendererLivesBehindFocusedBoundary;
     [Test]
@@ -437,16 +456,20 @@ type
     procedure FinalDtoPreservesMemberPrecedenceAcrossInlineBlocks;
     [Test]
     procedure FinalDtoKeepsResolvedNonMemberReferencesAndBlocksUnknownRoutine;
+    [Category('Fast')]
     [Test]
     procedure FinalDtoPreservesDakFixtureSafetySkips;
+    [Category('Fast')]
     [Test]
     procedure FinalDtoUsesPrecomputedNestedBindingTree;
+    [Category('Fast')]
     [Test]
     procedure FinalDtoUsesFocusedFinalRewriteUnit;
     [Test]
     procedure FinalDtoMatchesNestedRewriteOrdering;
     [Test]
     procedure NestedSafetySkipHasOneFinalStatementPerBinding;
+    [Category('Fast')]
     [Test]
     procedure FinalDtoMatchesTempPolicyCollisionRules;
     [Test]
@@ -466,13 +489,16 @@ type
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoPlansMaxTdbSetBitParameterReferences;
+    [Category('Fast')]
     [Test]
     procedure FinalDtoCapturesPointerReceiverBeforeBodyCall;
+    [Category('Fast')]
     [Test]
     [TestCase('indexed pointer', 'with-2,Pointers[CurrentIndex]^,SwitchIndex')]
     [TestCase('field chain', 'with-3,Holder.Current^,SwitchField')]
     procedure FinalDtoCapturesIndirectReceiverBeforeBodyCall(const aStatementId,
       aSelector, aSwitchRoutine: string);
+    [Category('Fast')]
     [Test]
     [TestCase('same header', 'with-4')]
     [TestCase('nested header', 'with-5')]
@@ -539,6 +565,7 @@ type
     [TestCase('inactive direct import', 'InactiveConsumer.pas,18')]
     procedure FinalDtoSkipsCaptureTypeOutsideVisibleScope(const aFileName: string;
       const aLine: Integer);
+    [Category('Fast')]
     [Test]
     [TestCase('direct import', 'DirectConsumer.pas,15,THiddenItem')]
     procedure FinalDtoCapturesVisibleReceiverType(const aFileName: string;
@@ -1150,6 +1177,7 @@ type
     [Test]
     [Category('MaxTdbProof')]
     procedure FinalDtoMatchesMaxTdbVarIndexedMaskSymbolNotFoundSkip;
+    [Category('Fast')]
     [Test]
     procedure PlannerCachesSourceTextAndHashesPerFile;
   end;

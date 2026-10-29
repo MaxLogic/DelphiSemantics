@@ -31,86 +31,126 @@ type
     procedure VerifyConcurrencyIdentities(const aCacheFileName: string;
       const aNames: TArray<string>);
   public
+    [Category('Fast')]
     [Test]
     procedure CacheKeyReuseWithDifferentIdentityDoesNotLoadStoredUnit;
+    [Category('Fast')]
     [Test]
     procedure ContextSpecificSnapshotVariantsShareIdentityWithoutEviction;
+    [Category('Fast')]
     [Test]
     procedure CorruptStringIdInvalidatesStoredSnapshot;
+    [Category('Fast')]
     [Test]
     procedure DefaultSnapshotBuildDoesNotRequireSqliteCache;
+    [Category('Fast')]
     [Test]
     procedure DeepSnapshotCachePersistsAndReusesAcrossInstances;
+    [Category('Fast')]
     [Test]
     procedure BuildProjectSnapshotFromUnitSnapshotsDoesNotPromoteProjectRemoveWithPlanningFacts;
+    [Category('Fast')]
     [Test]
     procedure BuildProjectSnapshotFromMixedUnitSnapshotsDropsProjectRemoveWithPlanningFacts;
+    [Category('Fast')]
     [Test]
     procedure InvalidationDeletesAtomicallyWhenDeleteFails;
+    [Category('Fast')]
     [Test]
     procedure MalformedLoadIdentityDoesNotDeleteStoredUnit;
+    [Category('Fast')]
     [Test]
     procedure MetricsReportHitTimingAndUsefulness;
+    [Category('Fast')]
     [Test]
     procedure MetricsReportMissTelemetry;
+    [Category('Fast')]
     [Test]
     procedure MetricsRequirePositiveParseSavingsForUsefulCache;
+    [Category('Fast')]
     [Test]
     procedure StoreRejectsAmbiguousIdentityValues;
+    [Category('Fast')]
     [Test]
     procedure SnapshotSqliteCacheUsesPreparedStatementsAndCachedFields;
+    [Category('Fast')]
     [Test]
     procedure SnapshotSqliteConnectionsDeclareBusyJournalAndLockingPolicy;
+    [Category('Fast')]
     [Test]
     procedure SnapshotSqliteConcurrencyHarness;
+    [Category('Fast')]
     [Test]
     procedure SnapshotSqliteRemoveWithLoadsPreSizeStoredFactArrays;
+    [Category('Fast')]
     [Test]
     procedure SnapshotSqliteCacheUsesWideTextAccessors;
+    [Category('Fast')]
     [Test]
     procedure SnapshotCacheSourceDoesNotUseJsonRepresentation;
+    [Category('Fast')]
     [Test]
     procedure StoreUnitFromSnapshotPreservesUnicodeTextValues;
+    [Category('Fast')]
     [Test]
     procedure StoreUnitFromSnapshotStoresOnlyReachableUnitStrings;
+    [Category('Fast')]
     [Test]
     procedure StoreProjectRemoveWithPlanningFactsUsesProjectIdentity;
+    [Category('Fast')]
     [Test]
     procedure RemoveWithTypeIdentityReloadRejectsMissingRows;
+    [Category('Fast')]
     [Test]
     procedure LocalTypeIdentityReloadRejectsMissingScope;
+    [Category('Fast')]
     [Test]
     procedure SourceRoutineSymbolsReloadWithRoutineScopes;
+    [Category('Fast')]
     [Test]
     procedure ParameterNamedInsideRoutineNameReloadsWithScope;
+    [Category('Fast')]
     [Test]
     procedure LocalNamedInsideEarlierLocalReloadsWithScope;
+    [Category('Fast')]
     [Test]
     procedure MultiLineSignatureParametersReloadWithScope;
+    [Category('Fast')]
     [Test]
     procedure OverloadParametersReloadWithTheirOwnScopes;
+    [Category('Fast')]
     [Test]
     procedure CommentedParameterNameReloadsWithScope;
+    [Category('Fast')]
     [Test]
     procedure RemoveWithAccessOwnerIdentityReloadRejectsMissingRows;
+    [Category('Fast')]
     [Test]
     [TestCase('Schema13', '13')]
     [TestCase('Schema17', '17')]
     procedure Schema13PlanningRowsRebuildWholeSnapshotCache(const aOldSchema: string);
+    [Category('Fast')]
     [Test]
     procedure CastMemberRefusesMismatchedSourceOffset;
+    [Category('Fast')]
     [Test]
     procedure ProjectPlanningCachePreservesDirectImportVisibility;
+    [Category('Fast')]
     [Test]
     procedure StoreUnitFromSnapshotDoesNotPersistRemoveWithPlanningFacts;
+    [Category('Fast')]
     [Test]
     procedure SparseChildRowsInvalidateStoredSnapshot;
+    [Category('Fast')]
     [Test]
     procedure StoresAndLoadsUnitSnapshotDenseFacts;
+    [Category('Fast')]
     [Test]
     procedure SecondCacheInstanceReusesStoredUnitSnapshot;
+    [Category('Fast')]
     [Test]
     procedure SourcePathVariantsReuseStoredUnitSnapshotIdentity;
+    [Category('Fast')]
     [Test]
     procedure SourceContextIncludeAndSchemaChangesMissWithoutIdentityWideEviction;
   end;

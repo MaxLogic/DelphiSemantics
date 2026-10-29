@@ -17,12 +17,16 @@ type
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function UnitModel: TDelphiSemanticUnitModel;
   public
+    [Category('Fast')]
     [Test]
     procedure GraphStoresReferencesAndWithStatementsWithStableIds;
+    [Category('Fast')]
     [Test]
     procedure ReferenceAndWithIdsIgnorePrecedingUnits;
+    [Category('Fast')]
     [Test]
     procedure ReferenceAndWithDtosExposeSourceRangesAndNames;
+    [Category('Fast')]
     [Test]
     procedure IndexMetricsAreOperationScoped;
   end;

@@ -25,28 +25,37 @@ type
     function LineOf(const aText: string): Integer;
     function LoadContext: TDelphiSemanticSymbolQueryContext;
   public
+    [Category('Fast')]
     [Test]
     procedure AuditProfileDoesNotPlanRemoval;
+    [Category('Fast')]
     [Test]
     procedure ConservativePlansOnlySimpleDefinitelyUnusedEdits;
+    [Category('Fast')]
     [Test]
     procedure ConservativePlansSnapshotBackedRemovalWithoutMutatingSource;
+    [Category('Fast')]
     [Test]
     procedure LegacyStaticPlansImplementationRoutineRemoval;
+    [Category('Fast')]
     [Test]
     procedure UnknownProfileBlocksRemovalWithDiagnostic;
+    [Category('Fast')]
     [Test]
     procedure UnsupportedSyntaxBlocksUnsafeLineDeletion;
+    [Category('Fast')]
     [Test]
     [TestCase('Snapshot, failed syntax tree', 'True,True')]
     [TestCase('Snapshot, verified control', 'True,False')]
     [TestCase('Unit model, failed syntax tree', 'False,True')]
     [TestCase('Unit model, verified control', 'False,False')]
     procedure UnverifiedUnitMembersAreNotDeadCode(const aSnapshot, aFailed: Boolean);
+    [Category('Fast')]
     [Test]
     procedure LegacyStaticNeverRemovesInitializerOrInactiveUses;
     // DS-659 review round 2: a routine fact placed on the line of the used DeadOneWrap, whose
     // name contains it, never removes that line.
+    [Category('Fast')]
     [Test]
     procedure LegacyStaticRemovesOnlyAtTheDeclaredName;
   end;

@@ -31,16 +31,22 @@ type
     function HasDiagnostic(const aAnalysis: TDelphiSemanticGlobalAnalysis;
       const aCode: string): Boolean;
   public
+    [Category('Fast')]
     [Test]
     procedure AnalyzesGlobalDeclarationsUsagesShadowingAndAmbiguity;
+    [Category('Fast')]
     [Test]
     procedure AnalyzesProjectSnapshotUsingSnapshotSourceText;
+    [Category('Fast')]
     [Test]
     procedure SnapshotGlobalAnalysisDoesNotUseHiddenDuplicateFallback;
+    [Category('Fast')]
     [Test]
     procedure SnapshotGlobalAnalysisUsesDeclarationRolesAndLexicalOwnership;
+    [Category('Fast')]
     [Test]
     procedure SnapshotGlobalAnalysisDeduplicatesSemanticDeclarationIdentity;
+    [Category('Fast')]
     [Test]
     procedure UsageAccessUsesModelSourceText;
   end;

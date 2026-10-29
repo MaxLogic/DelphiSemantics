@@ -19,64 +19,68 @@ type
       const aFileName: string; out aObservation: TDelphiSemanticProjectContextObservation): Boolean;
     procedure WriteUtf8Bytes(const aFileName, aText: string);
   public
+    [Category('Fast')]
     [Test]
     procedure DprojResolvesBasicMetadata;
+    [Category('Fast')]
     [Test]
     procedure DprResolvesThroughSiblingDproj;
+    [Category('Fast')]
     [Test]
     procedure StaleDccReferenceResolvesThroughSearchPath;
+    [Category('Fast')]
     [Test]
     procedure MissingProjectReturnsDeterministicDiagnostic;
     [Test]
-    [Category('RefactoringLightContextEvidence')]
+    [Category('RefactoringLightContextEvidence,Fast')]
     procedure ProjectAndOptionBytesAndConfigurationAreObserved;
     [Test]
-    [Category('RefactoringLightContextEvidence')]
+    [Category('RefactoringLightContextEvidence,Fast')]
     procedure AppearingHigherPriorityCandidateChangesSearchEvidence;
     [Test]
-    [Category('RefactoringLightContextEvidence')]
+    [Category('RefactoringLightContextEvidence,Fast')]
     procedure AppearingConditionPathChangesContextEvidence;
     [Test]
-    [Category('RefactoringLightContextEvidence')]
+    [Category('RefactoringLightContextEvidence,Fast')]
     procedure DuplicateImportedPathsReconcileDeterministically;
     [Test]
-    [Category('RefactoringLightContextEvidence')]
+    [Category('RefactoringLightContextEvidence,Fast')]
     procedure OwnedContextEvidenceSurvivesSessionDisposal;
     [Test]
-    [Category('RefactoringLightContextEvidence')]
+    [Category('RefactoringLightContextEvidence,Fast')]
     procedure PersistedSnapshotWithoutCoProducedEvidenceIsNonCertifying;
     [Test]
-    [Category('RefactoringLightContext')]
+    [Category('RefactoringLightContext,Fast')]
     procedure BoundPlanBindsOperationConfigurationScopeAndIncludeManifest;
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     procedure InstalledDelphiTargetsDoNotReportUnusedBuildMacros;
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     procedure ExplicitSelfReferentialSearchPathRemainsEffective;
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     procedure MissingFrameworkTypeInImportedTargetReportsSourceMacro;
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     procedure ExplicitOptionalTargetPropertiesArePreserved;
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     procedure EmptyExistsConditionIsFalse;
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     procedure UnresolvedSourceSearchPathStillReportsMacro;
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     procedure UnresolvedBuildPropertyFlowStillReportsMacro;
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     procedure UnresolvedConditionOnSemanticPropertyStillReportsMacro;
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     procedure UnresolvedBuildConditionFlowStillReportsMacro;
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     [TestCase('Package list', 'DCC_UsePackage')]
     [TestCase('Package enable', 'UsePackages')]
     [TestCase('DCC package enable', 'DCC_EnabledPackages')]
@@ -84,7 +88,7 @@ type
     [TestCase('Raw switches', 'DCC_AdditionalSwitches')]
     procedure UnresolvedLinkPropertyReportsMacro(const aProperty: string);
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     [TestCase('Package list', 'DCC_UsePackage')]
     [TestCase('Package enable', 'UsePackages')]
     [TestCase('DCC package enable', 'DCC_EnabledPackages')]
@@ -92,7 +96,7 @@ type
     [TestCase('Raw switches', 'DCC_AdditionalSwitches')]
     procedure UnresolvedLinkConditionReportsMacro(const aProperty: string);
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     [TestCase('Package list', 'DCC_UsePackage')]
     [TestCase('Package enable', 'UsePackages')]
     [TestCase('DCC package enable', 'DCC_EnabledPackages')]
@@ -100,7 +104,7 @@ type
     [TestCase('Raw switches', 'DCC_AdditionalSwitches')]
     procedure LinkPropertyChangesContextIdentity(const aProperty: string);
     [Test]
-    [Category('RefactoringLightProjectContext')]
+    [Category('RefactoringLightProjectContext,Fast')]
     [TestCase('Package list', 'DCC_UsePackage')]
     [TestCase('Package enable', 'UsePackages')]
     [TestCase('DCC package enable', 'DCC_EnabledPackages')]

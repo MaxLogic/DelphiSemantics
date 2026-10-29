@@ -17,12 +17,16 @@ type
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function UnitModel(const aUnitName: string): TDelphiSemanticUnitModel;
   public
+    [Category('Fast')]
     [Test]
     procedure ResolvesDirectMemberByOwnerAndName;
+    [Category('Fast')]
     [Test]
     procedure ResolvesAliasOwnerThroughCanonicalType;
+    [Category('Fast')]
     [Test]
     procedure ReportsAmbiguousUnresolvedAndUnsupportedOutcomes;
+    [Category('Fast')]
     [Test]
     procedure HomonymousLocalMembersRequireExactOwnerIdentity;
   end;

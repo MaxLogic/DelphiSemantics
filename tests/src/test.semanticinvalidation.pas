@@ -14,6 +14,7 @@ type
     function CreateFixtureProject: string;
     function HasFile(const aFiles: TArray<string>; const aFileName: string): Boolean;
   public
+    [Category('Fast')]
     [Test]
     procedure PlansAffectedUnitsAndConservativeFallbacks;
   end;

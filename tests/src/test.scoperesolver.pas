@@ -14,30 +14,39 @@ type
     function ExtractSource(const aFileName, aSource: string): TDelphiSemanticUnitModel;
     function LoadModel: TDelphiSemanticUnitModel;
   public
+    [Category('Fast')]
     [Test]
     [TestCase('different types', 'False')]
     [TestCase('same type distinct scopes', 'True')]
     procedure ResumedOverloadLocalsAreAmbiguous(const aSameType: Boolean);
+    [Category('Fast')]
     [Test]
     procedure ResumedDeclarationsRequireRoutineContext;
+    [Category('Fast')]
     [Test]
     [TestCase('TA current', '0')]
     [TestCase('TA parent', '1')]
     [TestCase('TB current', '2')]
     [TestCase('TB parent', '3')]
     procedure ResumedLocalsKeepQualifiedOwnership(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     procedure ResumedLocalBeatsCurrentMemberFallback;
+    [Category('Fast')]
     [Test]
     [TestCase('full scope index', 'False')]
     [TestCase('bounded scope index', 'True')]
     procedure QualifiedMethodParentsResolveCapturedLocals(const aBounded: Boolean);
+    [Category('Fast')]
     [Test]
     procedure QualifiedMethodSiblingVarsDoNotEscapeFallback;
+    [Category('Fast')]
     [Test]
     procedure QualifiedMethodIndexedVarsRemainUnitScoped;
+    [Category('Fast')]
     [Test]
     procedure QualifiedMethodParentsKeepWithReceiverOwners;
+    [Category('Fast')]
     [Test]
     [TestCase('inline forward', '0')]
     [TestCase('next-line forward', '1')]
@@ -45,18 +54,25 @@ type
     [TestCase('implemented comment control', '3')]
     [TestCase('external declaration', '4')]
     procedure PreservesOuterRoutineAfterNestedForward(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     procedure HandlesClassMethodsAndNonBeginBlocks;
+    [Category('Fast')]
     [Test]
     procedure ResolvesNestedRoutineParentChainsFromIndex;
+    [Category('Fast')]
     [Test]
     procedure ScopeLineCleanerAvoidsRegexHotPath;
+    [Category('Fast')]
     [Test]
     procedure ScopeBlockScannerAvoidsRegexHotPath;
+    [Category('Fast')]
     [Test]
     procedure ScopeIndexAvoidsParentCopiesForTopLevelLines;
+    [Category('Fast')]
     [Test]
     procedure ScopeIndexUsesModelSourceTextWhenFileIsUnavailable;
+    [Category('Fast')]
     [Test]
     procedure ScopeIndexStopsAfterLastRequestedLine;
   end;

@@ -15,38 +15,54 @@ type
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function UnitModel(const aUnitName: string): TDelphiSemanticUnitModel;
   public
+    [Category('Fast')]
     [Test]
     procedure ResolvesSimpleQualifiedAndVisibleTypeNames;
+    [Category('Fast')]
     [Test]
     procedure PreservesDeclaredCanonicalAndUnderlyingAliasIdentities;
+    [Category('Fast')]
     [Test]
     procedure ReportsAmbiguousSimpleNames;
+    [Category('Fast')]
     [Test]
     procedure FindsAncestorTypeChain;
+    [Category('Fast')]
     [Test]
     procedure ContextFreeLookupsExcludeRoutineLocalTypes;
+    [Category('Fast')]
     [Test]
     procedure ScopedLookupSelectsNearestDeclarationAndRefusesBrokenChains;
+    [Category('Fast')]
     [Test]
     procedure SourceBackedInterfaceBodyPairsPreserveScopedLocalIdentity;
+    [Category('Fast')]
     [Test]
     procedure OpenArrayAndGenericHeadersKeepAstSignatureEvidence;
+    [Category('Fast')]
     [Test]
     procedure HeaderBodyPairsIgnoreOnlyWhitespaceDifferences;
+    [Category('Fast')]
     [TestCase('AThenB', 'TypeUnitA;TypeUnitB,TypeUnitB')]
     [TestCase('BThenA', 'TypeUnitB;TypeUnitA,TypeUnitA')]
     procedure OrderedVisibleNamesChooseLastUnit(const aImports, aExpectedUnit: string);
+    [Category('Fast')]
     [Test]
     procedure UnknownLaterUnitMakesEarlierTypeUnproved;
+    [Category('Fast')]
     [Test]
     procedure FailedIndexedLaterUnitMakesEarlierTypeUnproved;
+    [Category('Fast')]
     [Test]
     procedure AncestorsStopAtUnindexedLaterImport;
+    [Category('Fast')]
     [TestCase('AInterfaceBImplementation', '0')]
     [TestCase('BInterfaceAImplementation', '1')]
     procedure ImplementationImportsFollowInterfaceImports(const aReverse: Integer);
+    [Category('Fast')]
     [Test]
     procedure UnknownActivityAppendsImportSentinel;
+    [Category('Fast')]
     [TestCase('Body', 'body,True')]
     [TestCase('Declaration', 'declaration,True')]
     [TestCase('Clause', 'clause,False')]
@@ -64,14 +80,19 @@ type
     [TestCase('UsesIoSwitchBraces', 'switch-braces,True')]
     [TestCase('UsesIoSwitchParentheses', 'switch-parentheses,True')]
     procedure ImportActivityScope(const aShape: string; const aExpectedKnown: Boolean);
+    [Category('Fast')]
     [Test]
     procedure ScopedImportSpellingCanonicalizes;
+    [Category('Fast')]
     [Test]
     procedure AliasBeforeTargetUnitResolvesAfterRegistration;
+    [Category('Fast')]
     [Test]
     procedure WitnessAbsenceAllowsEarlierCandidate;
+    [Category('Fast')]
     [Test]
     procedure InactiveImportDoesNotShadow;
+    [Category('Fast')]
     [Test]
     procedure LaterKnownAncestorWinsOverEarlierUnknownImport;
   end;

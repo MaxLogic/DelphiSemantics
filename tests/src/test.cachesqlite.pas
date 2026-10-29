@@ -48,73 +48,106 @@ type
     function TempPath(const aName: string): string;
     function WriteUnitFile(const aName, aTypeName: string): string;
   public
+    [Category('Fast')]
     [Test]
     procedure NonEmptySqliteFileNameCreatesPersistentCacheFile;
+    [Category('Fast')]
     [Test]
     procedure DeepSqliteFileNamePersistsAndReusesAcrossInstances;
 
+    [Category('Fast')]
     [Test]
     procedure RelativeSqliteFileNamePersistsBeyondMaxPath;
 
+    [Category('Fast')]
     [Test]
     procedure NearMaxPathSqliteFileNamePersistsWithSidecars;
 
+    [Category('Fast')]
     [Test]
     procedure SqliteMemoryNameStaysSpecialUnderDeepCurrentDirectory;
+    [Category('Fast')]
     [Test]
     procedure DeepSqliteIncompatibleSchemaRebuildsPhysicalFile;
+    [Category('Fast')]
     [Test]
     procedure SqliteMetricsExposeCacheFileName;
+    [Category('Fast')]
     [Test]
     procedure UnavailableSqlitePathFallsBackToInMemoryWithoutDeletion;
+    [Category('Fast')]
     [Test]
     procedure PostInitializationSqliteOpenFailureDisablesPersistence;
+    [Category('Fast')]
     [Test]
     procedure SqliteCacheKeepsOnePersistentConnectionPerInstance;
+    [Category('Fast')]
     [Test]
     procedure SecondCacheInstanceReusesStoredUnitModel;
+    [Category('Fast')]
     [Test]
     procedure SecondCacheInstancePreservesReferenceRoutineName;
+    [Category('Fast')]
     [Test]
     procedure SecondCacheInstancePreservesSourceText;
+    [Category('Fast')]
     [Test]
     procedure SecondCacheInstancePreservesUnicodeSourceText;
+    [Category('Fast')]
     [Test]
     procedure SqliteUnitCacheUsesWideTextAccessors;
+    [Category('Fast')]
     [Test]
     procedure SqliteConnectionsDeclareBusyJournalAndLockingPolicy;
+    [Category('Fast')]
     [Test]
     procedure SqliteLockedErrorsUseNonDestructiveClassifier;
+    [Category('Fast')]
     [Test]
     procedure RebuildFailureDisablesPersistenceWithoutRetry;
+    [Category('Fast')]
     [Test]
     procedure SourceChangeInvalidatesPersistentEntry;
+    [Category('Fast')]
     [Test]
     procedure SourceTimestampChangeReusesPersistentEntry;
+    [Category('Fast')]
     [Test]
     procedure ApiBuildUnitIndexUsesSqliteCacheWhenFileNameConfigured;
+    [Category('Fast')]
     [Test]
     procedure EquivalentDefineOrderReusesStoredUnitModel;
+    [Category('Fast')]
     [Test]
     procedure CompilerProfileChangeInvalidatesPersistentEntry;
+    [Category('Fast')]
     [Test]
     procedure StoredRowsPersistSourcePathFromCacheIdentity;
+    [Category('Fast')]
     [Test]
     procedure StoreAndRetentionUseRetryingTransaction;
+    [Category('Fast')]
     [Test]
     procedure StoredRowsKeepSharedCompilerContextKeys;
+    [Category('Fast')]
     [Test]
     procedure StoresRetainFourNewestKeysPerSourceIdentity;
+    [Category('Fast')]
     [Test]
     procedure RtlSourceRootProfilesReuseSharedSqliteCache;
+    [Category('Fast')]
     [Test]
     procedure CorruptCacheFileRebuildsWithDiagnostic;
+    [Category('Fast')]
     [Test]
     procedure CorruptStoredEntryRebuildsWithDiagnostic;
+    [Category('Fast')]
     [Test]
     procedure IncompatibleSchemaRebuildsWithDiagnostic;
+    [Category('Fast')]
     [Test]
     procedure UnitModelJsonSerializationIsOutsideSqlitePersistence;
+    [Category('Fast')]
     [Test]
     procedure UnitCacheSqliteConcurrencyHarness;
   end;

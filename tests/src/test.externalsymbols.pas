@@ -12,10 +12,13 @@ type
   private
     function TempPath(const aRelativePath: string): string;
   public
+    [Category('Fast')]
     [Test]
     procedure CompilerIntrinsicsResolveFromExternalService;
+    [Category('Fast')]
     [Test]
     procedure ExternalSymbolServiceSerializesLazyState;
+    [Category('Fast')]
     [Test]
     procedure RtlSourceUnitsLoadLazilyAndExposeMetrics;
   end;

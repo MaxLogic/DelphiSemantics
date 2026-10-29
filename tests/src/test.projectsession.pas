@@ -17,6 +17,7 @@ type
     [TestCase('Plan', 'plan')]
     [TestCase('Combined', 'combined')]
     procedure BindingCallbackDriftRefusesPublication(const aRoute: string);
+    [Category('Fast')]
     [Test]
     procedure OwnerBypassesPersistedWithFacts;
   end;
@@ -37,6 +38,7 @@ type
     function ParityStatementsFromPlan(const aPlan: TDelphiSemanticRemoveWithPlan):
       TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
   public
+    [Category('Fast')]
     [Test]
     [TestCase('Referenced refusal', 'reject')]
     [TestCase('Warm snapshot refusal', 'hit-reject')]
@@ -71,83 +73,111 @@ type
     [TestCase('Before separate inactive-span verification', '55')]
     [TestCase('Before known-inactive range restoration', '53')]
     procedure RebuildsRemoveWithFactsWithOlderSchemaMarker(const aVersion: string);
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionOpensFromProjectFileName;
+    [Category('Fast')]
     [Test]
     procedure RebuildsSnapshotBeforeInactiveNestedWithSafety;
     [Test]
-    [Category('DS731Generations')]
+    [Category('DS731Generations,Fast')]
     procedure RebuildsSnapshotBeforeReceiverValueMembers;
     [Test]
     [Category('DS741Generations')]
     procedure RebuildsSnapshotBeforeAliasReceiverMembers;
+    [Category('Fast')]
     [Test]
     procedure EmptyProjectPathReturnsStructuredSessionDiagnostic;
+    [Category('Fast')]
     [Test]
     procedure OpensProjectSessionThroughExistingProjectContext;
+    [Category('Fast')]
     [Test]
     [TestCase('Accepted actual profile', 'accept')]
     [TestCase('Rejected profile', 'reject')]
     [TestCase('Validator exception', 'raise')]
     procedure RootAbsenceValidatesActualProjectProfile(const aMode: string);
+    [Category('Fast')]
     [TestCase('Defines drift', 'defines')]
     [TestCase('Search path drift', 'paths')]
     procedure RootAbsenceRejectsSameLabelDifferentProfile(const aInput: string);
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionModelExtractionUsesSingleResultRecord;
+    [Category('Fast')]
     [Test]
     procedure IdentifierScopedQueryContractIsAdditiveAndForceFullIsInternal;
+    [Category('Fast')]
     [Test]
     procedure IdentifierCandidateCollectorFindsOnlyCodeTokens;
+    [Category('Fast')]
     [Test]
     procedure IdentifierCandidateCollectorIncludesLocalAndPrivateDeclarations;
+    [Category('Fast')]
     [Test]
     procedure IdentifierCandidateCollectorSupportsWindows1252;
+    [Category('Fast')]
     [Test]
     procedure IdentifierCandidateCollectorIncludesTransitiveAndSharedOwners;
+    [Category('Fast')]
     [Test]
     procedure IdentifierCandidateCollectorHandlesAliasesAndAmbiguity;
+    [Category('Fast')]
     [Test]
     procedure IdentifierCandidateCollectorFailsOpenForUnsafeInputs;
+    [Category('Fast')]
     [Test]
     procedure IdentifierScopedSessionMatchesForcedFullRename;
+    [Category('Fast')]
     [Test]
     procedure InlineSectionRenameProducesThreeEdits;
     [Test]
-    [Category('RefactoringLightReuse')]
+    [Category('RefactoringLightReuse,Fast')]
     procedure IdentifierScopedRenameMatchesColdWarmAndInvalidatedCache;
     [Test]
-    [Category('RefactoringLightReuse')]
+    [Category('RefactoringLightReuse,Fast')]
     [TestCase('No persistent cache', 'False')]
     [TestCase('SQLite cache', 'True')]
     procedure TenAlternativePlansReuseOwnedContext(const aPersistent: Boolean);
     [Test]
-    [Category('RefactoringLightReuse')]
+    [Category('RefactoringLightReuse,Fast')]
     procedure ChangedCompilerContextInvalidatesSnapshotCache;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionSnapshotIdentityReusesUnitCacheIdentityRecord;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionGlobalAnalysisUsesSnapshotAuthority;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionGlobalAnalysisReportsSnapshotCacheMetrics;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionGlobalAnalysisHonorsWritableTypedConstants;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionDependencyGraphCollectsRecursiveProjectFacts;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionDependencyGraphUsesLinux64TargetDefines;
     [Test]
     procedure ProjectSessionBuildsSnapshotFromExtractedModels;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionBuildsOwnedSnapshotQueryContext;
+    [Category('Fast')]
     [Test]
     procedure TypedConstantsRemainQueryableAcrossSnapshotCacheModes;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionSnapshotParityComparesSemanticFacts;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionParallelSnapshotBuildMatchesSequentialFacts;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionParallelRemoveWithPlanMatchesSequentialCounts;
+    [Category('Fast')]
     [Test]
     procedure CombinedRemoveWithApiExposesOneSessionContract;
     [Test]
@@ -179,33 +209,46 @@ type
     procedure ProjectSessionPlanRemoveWithInvalidatesPreQualifiedV31Facts;
     [Test]
     procedure ProjectSessionPreservesInheritedAccessIdentityColdAndWarm;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionInheritedAccessWithRootProofPlans;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionInheritedAccessWithoutRootProofRefuses;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionSnapshotMetricsExposeCacheUsefulnessTelemetry;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionReusesUnchangedMultiUnitSnapshotCacheEntries;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionPartialSnapshotCacheFullyAnalyzesOnlyMissedUnits;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionSnapshotCacheReusesPathVariantProjectIdentity;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionSnapshotCacheReusesTimestampOnlyChangedSource;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionScopedPartialSnapshotCacheHitStoresMissedUnitUnderScopedIdentity;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionPartialSnapshotCacheRebuildResolvesReferencesToCachedUnits;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionPartialSnapshotCacheRebuildPreservesCrossMissReferences;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionPartialSnapshotCacheInvalidationMatchesFullRebuildFacts;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionDiscoversAnsiDprInReferencesThroughSourceLoader;
     [Test]
-    [Category('RefactoringLightReuse')]
+    [Category('RefactoringLightReuse,Fast')]
     procedure ProjectSessionSnapshotCacheRebuildsIncludedFileChanges;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionAssociatesNestedWithReferencesWithInnermostSnapshotFact;
     [Test]
@@ -214,6 +257,7 @@ type
     procedure ScopedBuildWithBindingFactsDoesNotPolluteGenericCacheEntries;
     [Test]
     procedure BuildWithBindingFactsDoesNotWriteProjectFactsJsonSidecar;
+    [Category('Fast')]
     [Test]
     procedure InvalidProjectReturnsStructuredSessionDiagnostic;
   end;

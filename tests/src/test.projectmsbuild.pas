@@ -16,52 +16,76 @@ type
     function HasUnresolvedMacro(const aItems: TArray<string>): Boolean;
     function PathIndex(const aItems: TArray<string>; const aExpectedPath: string): Integer;
   public
+    [Category('Fast')]
     [Test]
     procedure DebugContextAppliesOptsetAndNormalizesPaths;
+    [Category('Fast')]
     [Test]
     procedure ContextFingerprintChangesWithSemanticInputs;
+    [Category('Fast')]
     [Test]
     procedure ContextIncludesIncludePathsCompilerProfileAndFingerprint;
+    [Category('Fast')]
     [Test]
     procedure MigratedDakConditionCasesApplyExpectedProperties;
+    [Category('Fast')]
     [Test]
     procedure MigratedDakImportAndSelfReferenceCasesApplyExpectedProperties;
+    [Category('Fast')]
     [Test]
     procedure MigratedDakInvalidConditionCasesProduceDiagnostics;
+    [Category('Fast')]
     [Test]
     procedure OptionsSelectActiveConfigurationAndPlatform;
+    [Category('Fast')]
     [Test]
     procedure TargetPlatformCompilerDefinesUseRequestedPlatform;
+    [Category('Fast')]
     [Test]
     procedure ExplicitPlatformOverridesProjectPlatformProperty;
+    [Category('Fast')]
     [Test]
     procedure UnresolvedMacrosProduceDiagnostics;
+    [Category('Fast')]
     [Test]
     procedure InactiveCompoundConditionsAreSkipped;
+    [Category('Fast')]
     [Test]
     procedure ActiveParenthesizedAndConditionsAreApplied;
+    [Category('Fast')]
     [Test]
     procedure ActiveSplitParenthesizedAndConditionsAreApplied;
+    [Category('Fast')]
     [Test]
     procedure FinalSemanticListsDoNotContainUnresolvedMacros;
+    [Category('Fast')]
     [Test]
     procedure InactiveReferenceDirectoriesAreSkipped;
+    [Category('Fast')]
     [Test]
     procedure InactiveItemGroupReferenceDirectoriesAreSkipped;
+    [Category('Fast')]
     [Test]
     procedure UnresolvedReferenceMacrosDoNotCreateDirectories;
+    [Category('Fast')]
     [Test]
     procedure OptionsExposeDelphiVersionAndEnvironmentProperties;
+    [Category('Fast')]
     [Test]
     procedure SourceLookupPathsMergeReferencesBeforeSearchPaths;
+    [Category('Fast')]
     [Test]
     procedure PublicMacroExpansionRecursesAndReportsUnknowns;
+    [Category('Fast')]
     [Test]
     procedure PublicConditionEvaluationMatchesDakFunctionCases;
+    [Category('Fast')]
     [Test]
     procedure PublicConditionEvaluationKeepsDakBooleanLiteralCases;
+    [Category('Fast')]
     [Test]
     procedure DakNamespaceAndPluralAliasesFeedSemanticLists;
+    [Category('Fast')]
     [Test]
     procedure DomParsingHandlesSingleQuotedAttributesEntitiesImportsOptsetsAndConditionalReferences;
   end;

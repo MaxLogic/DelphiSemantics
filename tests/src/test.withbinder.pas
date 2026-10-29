@@ -287,7 +287,7 @@ type
     [Category('DS742')]
     procedure RtlRootReceiverMembersQualifyOrRefuse(const aShape, aMode: string);
     [Test]
-    [Category('DS742')]
+    [Category('DS742,Fast')]
     procedure RootMemberAbsenceProofIsSiteScoped;
     [TestCase('Visible procedure', 'True')]
     [TestCase('Missing procedure', 'False')]
@@ -541,7 +541,7 @@ type
     [Test]
     procedure UnindexedSourceTokenEditInvalidatesWarmFacts;
     [Test]
-    [Category('DS719Review')]
+    [Category('DS719Review,Fast')]
     procedure AdmissionDiscardsProvisionalTreeAndSiblingReservations;
     [TestCase('Direct qualification', 'm1-varparam-method-record,direct-qualification')]
     [TestCase('Reference temp', 'u-class-reference,reference-temp')]
@@ -549,7 +549,7 @@ type
     [Category('DS719Review')]
     procedure UnprovedReceiverRouteStrategyMatrix(const aShape, aStrategy: string);
     [TestCase('Resolved capture identity', 'capture')]
-    [Category('DS719Review')]
+    [Category('DS719Review,Fast')]
     procedure PerStrategyDefensesKeepResolvedEvidence(const aShape: string);
     [TestCase('I tab', 'I,brace')]
     [TestCase('INCLUDE tab', 'INCLUDE,brace')]
@@ -560,7 +560,7 @@ type
     [TestCase('Overlapping opener', 'I,overlap')]
     procedure TabIncludeEditInvalidatesWarmFacts(const aSpelling, aForm: string);
     [Test]
-    [Category('DS719Review')]
+    [Category('DS719Review,Fast')]
     procedure ImportSentinelCannotReachRootProvider;
     [Test]
     [Category('DS742')]
@@ -630,16 +630,16 @@ type
     procedure AnonymousRecordRequiresParsedEvidence(const aShape: string);
 
     [Test]
-    [Category('DS731Planner')]
+    [Category('DS731Planner,Fast')]
     procedure ValueMemberWithoutReceiverMatchRemovesCandidate;
     [TestCase('foreign field owner', 'foreign')]
     [TestCase('outer field homonym', 'homonym')]
-    [Category('DS741Planner')]
+    [Category('DS741Planner,Fast')]
     procedure AliasFieldUsesDeclaredReceiverIdentity(const aCase: string);
     [TestCase('constant with temporary', 'constant,temp')]
     [TestCase('field with temporary', 'field,temp')]
     [TestCase('constant with direct child', 'constant,direct')]
-    [Category('DS740')]
+    [Category('DS740,Fast')]
     procedure RetainedSameLineParentKeepsChildScope(const aMember, aStrategy: string);
     [TestCase('split do', 'split-do')]
     [TestCase('preceding statement', 'prefix-stmt-parent')]
@@ -651,7 +651,7 @@ type
     [TestCase('following statement separator', 'following-stmt')]
     [TestCase('outer else', 'outer-if-else-sameline')]
     [TestCase('planned parent absorbs multi-statement child', 'planned-parent')]
-    [Category('DS740')]
+    [Category('DS740,Fast')]
     procedure PrefixedWithKeepsControlledStatement(const aCase: string);
     [TestCase('known inactive controlling prefix', 'inactive')]
     [TestCase('known active controlling prefix', 'active')]
@@ -683,7 +683,7 @@ type
 
     [TestCase('conflicting identities', 'conflict')]
     [TestCase('retained member', 'retained')]
-    [Category('DS731Planner')]
+    [Category('DS731Planner,Fast')]
     procedure ValueMemberReceiverDecisions(const aCase: string);
     [TestCase('rc-sameline-peer', 'rc-sameline-peer')]
     [TestCase('rc-section-multiline', 'rc-section-multiline')]
@@ -707,7 +707,7 @@ type
     [TestCase('cc-derived-field-hides', 'cc-derived-field-hides')]
     [TestCase('rc-cond-inactive', 'rc-cond-inactive')]
     [TestCase('vt-tagless-field', 'vt-tagless-field')]
-    [Category('DS731Safety')]
+    [Category('DS731Safety,Fast')]
     procedure TypeValueSafetyAndSnapshot(const aShape: string);
     function TypeValueSafetyModels(const aShape: string): TArray<TDelphiSemanticUnitModel>;
     [TestCase('anonymous-global cold', 'anonymous-global,cold')]
@@ -1503,7 +1503,7 @@ type
 
 
     [Test]
-    [Category('DS731Persistence')]
+    [Category('DS731Persistence,Fast')]
     procedure ModelFreeLookupCannotProveValueAbsence;
     [Category('DS731Identity')]
     [TestCase('homonym-safe cold', 'homonym-safe,cold')]
@@ -1667,7 +1667,7 @@ type
     [TestCase('vt-alias-recv', 'vt-alias-recv')]
     [TestCase('vt-nested-with', 'vt-nested-with')]
     [TestCase('cc-inherited', 'cc-inherited')]
-    [Category('DS731')]
+    [Category('DS731,Fast')]
     procedure TypeValueMembersBind(const aShape: string);
     [TestCase('rc-global-read', 'rc-global-read')]
     [TestCase('rc-noglobal-read', 'rc-noglobal-read')]
@@ -1682,15 +1682,18 @@ type
     [TestCase('cc-inherited', 'cc-inherited')]
     [TestCase('rc-global-read LF', 'rc-global-read-lf')]
     [TestCase('vt-global-read LF', 'vt-global-read-lf')]
-    [Category('DS731')]
+    [Category('DS731,Fast')]
     procedure TypeValueMembersPlan(const aShape: string);
     function TypeValueMemberModels(const aShape: string): TArray<TDelphiSemanticUnitModel>;
+    [Category('Fast')]
     [TestCase('Lost helper facts', 'lost')]
     [TestCase('Overload visibility sites', 'overloads')]
     [TestCase('Two routine visibility sites', 'routines')]
     procedure UnindexedHelperCacheAndLostFacts(const aMode: string);
+    [Category('Fast')]
     [Test]
     procedure UnindexedHelperColdWarmSnapshot;
+    [Category('Fast')]
     [TestCase('Null imported helper target', 'null-target')]
     [TestCase('Null imported helper fact', 'null')]
     [TestCase('Imported helper fact without target', 'missing-target')]
@@ -1719,9 +1722,11 @@ type
     [TestCase('SectionKind unknown value', 'SectionKind:bogus')]
     [TestCase('ScopeKind unknown value', 'ScopeKind:bogus')]
     procedure MalformedImportedHelperFactsFailClosed(const aMode: string);
+    [Category('Fast')]
     [TestCase('Empty writer helper kind', 'kind')]
     [TestCase('Empty writer helper target', 'target')]
     procedure UnindexedHelperWriterValuesRoundTrip(const aMode: string);
+    [Category('Fast')]
     [TestCase('Line coordinate string', 'Line:string')]
     [TestCase('Line coordinate float', 'Line:float')]
     [TestCase('Line coordinate null', 'Line:null')]
@@ -1741,16 +1746,20 @@ type
     [TestCase('Column coordinate negative', 'Column:negative')]
     [TestCase('Column coordinate overflow', 'Column:overflow')]
     procedure MalformedHelperCoordinatesFailClosed(const aMode: string);
+    [Category('Fast')]
     [TestCase('Writer coordinates position', 'position')]
     [TestCase('Writer coordinates zero', 'zero')]
     procedure HelperCoordinatesWriterRoundTrip(const aMode: string);
+    [Category('Fast')]
     [TestCase('Duplicate unit site models', 'forward')]
     [TestCase('Reversed duplicate unit site models', 'reverse')]
     procedure UnindexedHelperCacheSeparatesSiteModels(const aOrder: string);
+    [Category('Fast')]
     [TestCase('Root helper after include and site', 'after')]
     [TestCase('Root helper before site after include', 'before')]
     [TestCase('Helper inside include', 'included')]
     procedure UnindexedHelperIncludeOrigins(const aMode: string);
+    [Category('Fast')]
     [TestCase('unrelated', 'unrelated')]
     [TestCase('same-name', 'same-name')]
     [TestCase('private-import', 'private-import')]
@@ -1789,8 +1798,10 @@ type
     [TestCase('Unknown lexical without homonym stays planned', 'lexical-unknown-no-homonym')]
     [TestCase('Known-inactive miss keeps ordinary candidate', 'known-inactive-member')]
     procedure ReceiverOwnerIdentityAndMemberActivity(const aShape: string);
+    [Category('Fast')]
     [Test]
     procedure FieldSelectorsRetainTheirDeclaredKinds;
+    [Category('Fast')]
     [Test]
     [TestCase('Complete source import', 'complete,resolved')]
     [TestCase('Unknown source import', 'missing,unsupported')]
@@ -1817,6 +1828,7 @@ type
     [TestCase('Wrong declaration owner scope', 'routine-declaration-owner-scope,unsupported')]
     procedure RootAbsenceRequiresClosedImportedSource(const aBarrier, aExpectedStatus: string);
 
+    [Category('Fast')]
     [Test]
     [TestCase('Missing root evidence', 'missing,lPair,unsupported')]
     [TestCase('Exact absence evidence', 'accepted,lPair,resolved')]
@@ -1824,6 +1836,7 @@ type
     procedure SimpleSelectorFallthroughRequiresExactRootAbsence(
       const aMode, aName, aExpectedStatus: string);
 
+    [Category('Fast')]
     [Test]
     [TestCase('MissingProvider', 'missing')]
     [TestCase('ImportedUnit', 'import')]
@@ -1834,8 +1847,10 @@ type
     [TestCase('RejectedDeclaration', 'rejected')]
     [TestCase('SystemOrigin', 'system')]
     procedure OptionalRootAbsenceKeepsUnverifiedContextsBlocked(const aBarrier: string);
+    [Category('Fast')]
     [Test]
     procedure OptionalRootAbsenceFlowsThroughApiAndBypassesPersistentFacts;
+    [Category('Fast')]
     [TestCase('Public remove-with plan', 'plan')]
     [TestCase('Public project load', 'project')]
     [TestCase('Public project session', 'session')]
@@ -2062,152 +2077,207 @@ type
     [TestCase('Unknown homonym refuses whole statement', 'unknown')]
     procedure WholeWithRangeRefusesOnlyUnknownActivity(const aShape: string);
 
+    [Category('Fast')]
     [TestCase('Overload', 'overload')]
     [TestCase('Indexed inherited field', 'indexed')]
     [TestCase('Dereferenced inherited field', 'pointer')]
     procedure RootAbsenceNeverOverridesIndexedLineage(const aShape: string);
+    [Category('Fast')]
     [TestCase('Indexed local class', 'indexed')]
     [TestCase('Dereferenced local class', 'pointer')]
     procedure LocalLineageNeverBorrowsUnitTypeIdentity(const aShape: string);
+    [Category('Fast')]
     [TestCase('Fingerprint failure', 'fingerprint')]
     [TestCase('Absence failure', 'absence')]
     procedure RootAbsenceProviderFailureKeepsBindingUnsupported(const aMode: string);
+    [Category('Fast')]
     [TestCase('Record', 'record')]
     [TestCase('Indexed record', 'indexed')]
     [TestCase('Dereferenced record', 'pointer')]
     [TestCase('Unindexed imported helper coverage', 'import')]
     procedure UnindexedRecordHelperShieldsLexicalHomonym(const aShape: string);
+    [Category('Fast')]
     [TestCase('Ord', 'Ord')]
     [TestCase('SizeOf', 'SizeOf')]
     procedure CompilerRoutineInWithBodyUsesIntrinsicFallback(const aName: string);
+    [Category('Fast')]
     [TestCase('Member', 'member')]
     [TestCase('Lexical', 'lexical')]
     [TestCase('Unknown', 'unknown')]
     procedure IntrinsicFallbackPreservesNamePrecedenceAndUnknownRefusal(const aShape: string);
+    [Category('Fast')]
     [TestCase('Pointer', 'pointer')]
     [TestCase('Homonym', 'homonym')]
     [TestCase('Range', 'range')]
     [TestCase('UnknownBase', 'unknown')]
     procedure QualifiedPointerFieldNeverBindsToWithHomonym(const aShape: string);
+    [Category('Fast')]
     [TestCase('Inactive', 'false')]
     [TestCase('Active', 'true')]
     procedure ConditionalWithBodyOnlyBindsActiveReferences(const aActive: Boolean);
+    [Category('Fast')]
     [Test]
     procedure ResolvesSelectorTypesAndClassifiesBodyIdentifiers;
+    [Category('Fast')]
     [Test]
     procedure BindingsExposeSourceRangesForDakPlanner;
+    [Category('Fast')]
     [Test]
     procedure MultipleSelectorsPreferInnermostReceiver;
+    [Category('Fast')]
     [Test]
     procedure AmbiguousReceiverMembersClassifyAsAmbiguous;
+    [Category('Fast')]
     [Test]
     procedure ClassMethodWithBindingUsesOwnedRoutineTypeForInheritedProtectedMembers;
     [Test]
     procedure InheritedHomonymProjectionsKeepTheirAccessDeclaration;
     [Test]
     procedure OneLineTypeDeclarationsDoNotOpenMemberBodies;
+    [Category('Fast')]
     [Test]
     procedure IndexedPropertySelectorWithoutDereferenceStaysUnsupported;
+    [Category('Fast')]
     [Test]
     procedure MemberReferenceReportsRoutineScopeConflict;
+    [Category('Fast')]
     [Test]
     procedure UnresolvedSelectorMarksBodyReferencesExternal;
+    [Category('Fast')]
     [Test]
     procedure UnresolvedReceiverShieldsOuterAndLexicalHomonyms;
+    [Category('Fast')]
     [Test]
     procedure NestedWithStatementsUseOuterReceiverStack;
+    [Category('Fast')]
     [Test]
     procedure NestedRoutineWithUsesParentRoutineScope;
+    [Category('Fast')]
     [Test]
     procedure SiblingRoutineLocalsDoNotLeakIntoNestedWith;
+    [Category('Fast')]
     [Test]
     procedure PlanningMetadataCountsLookupSourcesAndReasons;
+    [Category('Fast')]
     [Test]
     procedure ScopedDeclarationsMarkBindingSkipped;
+    [Category('Fast')]
     [Test]
     procedure ControlCharacterLiteralsAreIgnored;
+    [Category('Fast')]
     [Test]
     procedure SafeBindingsArePlannedDirectReferences;
+    [Category('Fast')]
     [Test]
     procedure SkipReasonsCoverExternalAndUnresolvedBranches;
+    [Category('Fast')]
     [Test]
     procedure CastExpressionRolesRemainUnsupported;
+    [Category('Fast')]
     [Test]
     procedure InventoryExposesFileAwareSymbolsAndBindings;
+    [Category('Fast')]
     [Test]
     procedure InventoryExposesDakPlannerSourceModelFacts;
+    [Category('Fast')]
     [Test]
     procedure InventoryExpansionUsesIndexedOwnMemberLookup;
+    [Category('Fast')]
     [Test]
     procedure InventoryExpansionUsesStableRelatedMemberOwnerIndex;
+    [Category('Fast')]
     [Test]
     procedure InventoryExpansionIndexesCurrentClassProjectionContexts;
+    [Category('Fast')]
     [Test]
     procedure InventoryExpansionScopesCurrentClassProjectionByUnit;
+    [Category('Fast')]
     [Test]
     procedure ReferenceScannerPreservesRepresentativeTokenShapes;
+    [Category('Fast')]
     [Test]
     procedure ReferenceBindingUsesManualIdentifierScanner;
+    [Category('Fast')]
     [Test]
     procedure InventoryExpansionUsesOrdinalIgnoreCaseSymbolKeys;
+    [Category('Fast')]
     [Test]
     procedure InventoryExpansionDeduplicatesSymbolsCaseInsensitively;
+    [Category('Fast')]
     [Test]
     procedure AnonymousNestedRecordSelectorsUseSyntheticOwner;
+    [Category('Fast')]
     [Test]
     procedure GlobalAnonymousRecordSelectorUsesSyntheticOwner;
+    [Category('Fast')]
     [Test]
     procedure DefaultIndexedPropertyPointerSelectorDereferencesToRecord;
+    [Category('Fast')]
     [Test]
     procedure NestedParentDefaultIndexedPropertyPointerSelectorDereferencesToRecord;
+    [Category('Fast')]
     [Test]
     procedure NestedParentIndexedSelectorPreservesPrecedenceAndSafety;
     [Test]
     procedure NestedUnresolvedSelectorRefusesFinalRewrite;
     [Test]
     procedure NestedIndexedSelectorPreservesBoundTypeDeclaringUnit;
+    [Category('Fast')]
     [Test]
     procedure HiddenCompleteReceiverIgnoresUnrelatedDiagnostics;
+    [Category('Fast')]
     [Test]
     procedure AmbiguousFinalReceiverTypeFailsClosed;
+    [Category('Fast')]
     [Test]
     procedure HiddenReceiverExactOwnerDiagnosticsRefuse;
+    [Category('Fast')]
     [Test]
     procedure BareImportedReceiverUsesActualOwnerForSafety;
+    [Category('Fast')]
     [Test]
     procedure BareImportedReceiverWithoutVisibleOwnerIsRefused;
     [Test]
     procedure NestedLocalReceiverKeepsSourceScopeAndIdentity;
     [Test]
     procedure LocalPointerPointeeShadowsImportedUnitHomonym;
+    [Category('Fast')]
     [Test]
     procedure PointerAliasesResolvePointeesFromTheirDeclarationScopes;
+    [Category('Fast')]
     [Test]
     procedure RoutineLocalHomonymMembersUseTheirOwnDeclaration;
+    [Category('Fast')]
     [Test]
     procedure RoutineLocalInheritedMembersNeverBindElsewhere;
+    [Category('Fast')]
     [TestCase('UnitRecord', 'UnitRecord')]
     [TestCase('LocalRecord', 'LocalRecord')]
     [TestCase('UnitClass', 'UnitClass')]
     [TestCase('StrictPrivate', 'StrictPrivate')]
     [TestCase('UnfinalizableAlias', 'Unknown')]
     procedure FinalizedLocalAliasesUseTargetMemberIdentities(const aTargetKind: string);
+    [Category('Fast')]
     [TestCase('StrictPrivate', 'strict private')]
     [TestCase('Private', 'private')]
     [TestCase('StrictProtected', 'strict protected')]
     [TestCase('Protected', 'protected')]
     procedure LocalAliasVisibilityUsesCallerUnitIdentity(const aVisibility: string);
+    [Category('Fast')]
     [TestCase('UnindexedList', 'TStringList')]
     [TestCase('UnindexedRoot', 'TObject')]
     [TestCase('UnresolvedBase', 'TUnknownBase')]
     [TestCase('CompleteRecord', 'record')]
     procedure UnitReceiverWithUnindexedAncestorNeverBindsElsewhere(const aBaseTypeName: string);
+    [Category('Fast')]
     [Test]
     procedure MalformedPointerAliasOwnersAndAmbiguousPointeesAreRefused;
     [Test]
     procedure SelectorIdentityUsesTheDeclaringUnitScope;
+    [Category('Fast')]
     [Test]
     procedure ParameterTypesResolveInTheEnclosingScope;
+    [Category('Fast')]
     [Test]
     procedure SqliteCaseDirectoriesRespectPathBudget;
   end;

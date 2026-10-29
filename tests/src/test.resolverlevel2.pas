@@ -13,28 +13,40 @@ type
     function LoadInventoryModel: TDelphiSemanticUnitModel;
     function LoadModel: TDelphiSemanticUnitModel;
   public
+    [Category('Fast')]
     [Test]
     procedure ResolvesAliasesArraysAndPointers;
+    [Category('Fast')]
     [Test]
     procedure ResolvesAliasMembersAndCurrentTypeMembers;
+    [Category('Fast')]
     [Test]
     procedure ResolvesArrayPointerAndIndexedSelectors;
+    [Category('Fast')]
     [Test]
     procedure ResolvesCrossUnitPointerArraySelectorsWithoutGuessing;
+    [Category('Fast')]
     [Test]
     procedure ResolvesSourceBackedCrossUnitSelectors;
+    [Category('Fast')]
     [Test]
     procedure FinalSelectorOriginSurvivesHiddenAliasAndRefusesMissingProvenance;
+    [Category('Fast')]
     [Test]
     procedure BareImportedOriginKeepsDeclaringUnitWithoutMovingCallerOwners;
+    [Category('Fast')]
     [Test]
     procedure BareImportedOriginRequiresVisibleDeclaration;
+    [Category('Fast')]
     [Test]
     procedure ResolvesIndexedDefaultProperties;
+    [Category('Fast')]
     [Test]
     procedure NestedRoutineScopesSearchParentRoutines;
+    [Category('Fast')]
     [Test]
     procedure ResolvesInventoryDeclarationsAndImplementationGlobals;
+    [Category('Fast')]
     [Test]
     procedure DuplicateDirectMembersAreAmbiguous;
   end;

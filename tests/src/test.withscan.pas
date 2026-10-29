@@ -11,6 +11,7 @@ type
   TWithScanTests = class
   private
   public
+    [Category('Fast')]
     [Test]
     [TestCase('Scanner Nested parent', '0,True')]
     [TestCase('Scanner Nested child', '1,True')]
@@ -25,8 +26,10 @@ type
     [TestCase('Model Supported conditional', '4,False')]
     [TestCase('Model Literal and comment', '5,False')]
     procedure ModelAndScannerPreserveBodyRanges(const aCase: Integer; const aLightweight: Boolean);
+    [Category('Fast')]
     [Test]
     procedure ScannerReturnsWithStatementsWithoutProjectSession;
+    [Category('Fast')]
     [Test]
     procedure ApiFacadeReturnsLightweightWithScan;
   end;

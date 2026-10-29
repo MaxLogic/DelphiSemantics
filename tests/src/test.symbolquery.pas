@@ -20,48 +20,70 @@ type
   private
     function LoadContext: TDelphiSemanticSymbolQueryContext;
   public
+    [Category('Fast')]
     [Test]
     procedure FindsProjectDefinitionByPositionAndName;
+    [Category('Fast')]
     [Test]
     procedure SearchesProjectMembersRtlSourceAndIntrinsics;
+    [Category('Fast')]
     [Test]
     procedure DescribesOwnedMembersAndIntrinsics;
+    [Category('Fast')]
     [Test]
     procedure FindsTokenReferencesInProjectScope;
+    [Category('Fast')]
     [Test]
     procedure LimitsTokenReferenceResults;
+    [Category('Fast')]
     [Test]
     procedure ResolvesCoreSymbolKindsWithoutShellingOut;
+    [Category('Fast')]
     [Test]
     procedure ResolvesSourcePositionAndReportsCacheStatus;
+    [Category('Fast')]
     [Test]
     procedure ResolvesPositionFromCapturedModelSourceAfterDiskEdit;
+    [Category('Fast')]
     [Test]
     procedure CacheStatusExposesProfileKeyAndCacheFileName;
+    [Category('Fast')]
     [Test]
     procedure SearchMatchesSubstringsAndReturnsRanges;
+    [Category('Fast')]
     [Test]
     procedure SnapshotBackedQueriesUseProjectSnapshotIndexes;
+    [Category('Fast')]
     [Test]
     procedure SnapshotPositionLookupUsesSharedResolver;
+    [Category('Fast')]
     [Test]
     procedure SnapshotPositionResolverFallsBackWhenReferenceTargetIsStale;
+    [Category('Fast')]
     [Test]
     procedure TokenReferencesExposeMetadata;
+    [Category('Fast')]
     [Test]
     procedure VisibleUnitScopesIncludeProjectAndRtlModels;
+    [Category('Fast')]
     [Test]
     procedure IndexedProjectUnitsKeepSourceKindAndRoutineSearch;
+    [Category('Fast')]
     [Test]
     procedure BuildsProjectSymbolIndexWithResolvedAmbiguousAndUnresolvedReferences;
+    [Category('Fast')]
     [Test]
     procedure OverloadedRoutineLocalReferenceStaysUnresolvedWithoutRoutineIdentity;
+    [Category('Fast')]
     [Test]
     procedure ProjectSymbolIndexResolvesReferencesWithoutSymbolScans;
+    [Category('Fast')]
     [Test]
     procedure ProjectSymbolIndexUsesCaseInsensitiveLookupMaps;
+    [Category('Fast')]
     [Test]
     procedure SnapshotProjectionHelpersLiveInQuerySupport;
+    [Category('Fast')]
     [Test]
     procedure LegacyModelIndexingLivesInCompatibilityAdapter;
   end;

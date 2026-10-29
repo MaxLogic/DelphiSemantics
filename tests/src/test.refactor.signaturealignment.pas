@@ -16,44 +16,58 @@ type
       out aSnapshot: TDelphiProjectSnapshot);
 
   public
+    [Category('RefactoringLightAlign,Fast')]
     [Test]
     [TestCase('Neighbor with incomplete members', 'neighbor,name-drift')]
     [TestCase('Selected owner with incomplete members', 'selected,unknown')]
     procedure IsolatesSelectedOwnerCompleteness(const aOwner, aStatus: string);
+    [Category('RefactoringLightAlign,Fast')]
     [Test] procedure BuildsBoundAlignmentSuggestion;
+    [Category('RefactoringLightAlign,Fast')]
     [TestCase('Unknown last', 'True,unknown')]
     [TestCase('Known last', 'False,name-drift')]
     procedure OrderedUnindexedParameterRefusesAlignment(const aUnknownLast: Boolean;
       const aStatus: string);
+    [Category('RefactoringLightAlign,Fast')]
     [Test]
     [TestCase('Function result', 'function-drift')]
     [TestCase('Calling convention', 'cdecl-body')]
     [TestCase('Default value', 'default-body')]
     procedure RetainsSignatureShapeInPlan(const aShape: string);
+    [Category('RefactoringLightAlign,Fast')]
     [Test]
     [TestCase('Return type differs', 'return-type')]
     [TestCase('Parameter order differs', 'parameter-order')]
     [TestCase('Calling convention differs', 'convention-mismatch')]
     procedure RefusesSignatureShapeChanges(const aShape: string);
+    [Category('RefactoringLightAlign,Fast')]
     [Test]
     [TestCase('Distinct new parameter names', 'multiple-drift')]
     [TestCase('Simultaneous parameter-name swap', 'swap-drift')]
     procedure MapsMultipleParameterNames(const aShape: string);
+    [Category('RefactoringLightAlign,Fast')]
     [Test] procedure LeavesCommentsStringsAndQualifiedMembersUntouched;
+    [Category('RefactoringLightAlign,Fast')]
     [Test] procedure BindingIdentityIncludesSemanticModelEvidence;
+    [Category('RefactoringLightAlign,Fast')]
     [Test] procedure CapturedModelEvidenceIsIsolated;
+    [Category('RefactoringLightAlign,Fast')]
     [Test] procedure RefusesUnresolvedNestedParameterReference;
+    [Category('RefactoringLightAlign,Fast')]
     [Test]
     [TestCase('Unextracted parameter use', 'assembler-old')]
     [TestCase('Unextracted replacement-name use', 'assembler-new')]
     procedure RefusesUncoveredBodyTokens(const aShape: string);
+    [Category('RefactoringLightAlign,Fast')]
     [Test] procedure AlignsBesideFieldAfterMethodOnOneLine;
+    [Category('RefactoringLightAlign,Fast')]
     [Test]
     [TestCase('Missing reference inventory', 'references')]
     [TestCase('Altered declaration signature', 'signature')]
     [TestCase('Altered nested parent', 'nested-parent')]
     [TestCase('Missing local and capture reference', 'locals')]
     procedure RefusesDivergentModelEvidence(const aFault: string);
+    [Category('RefactoringLightAlign,Fast')]
     [Test]
     [TestCase('Local collision', 'capture-local')]
     [TestCase('Nested parameter collision', 'capture-nested')]
@@ -62,6 +76,7 @@ type
     [TestCase('Previously unresolved name', 'capture-unknown')]
     [TestCase('Range bound constant', 'capture-range')]
     procedure RefusesParameterNameCapture(const aShape: string);
+    [Category('RefactoringLightAlign,Fast')]
     [Test]
     [TestCase('Already aligned', 'aligned,aligned')]
     [TestCase('Implementation name drift', 'drift,name-drift')]
@@ -74,15 +89,18 @@ type
     [TestCase('Calling convention differs', 'convention-mismatch,mismatch')]
     [TestCase('Select matching overload', 'overload,name-drift')]
     procedure ComparesSelectedDeclaration(const aShape, aStatus: string);
+    [Category('RefactoringLightAlign,Fast')]
     [Test]
     [TestCase('Duplicate declarations', 'duplicate-declaration')]
     [TestCase('Duplicate implementations', 'duplicate-implementation')]
     procedure RefusesAmbiguousPairs(const aShape: string);
+    [Category('RefactoringLightAlign,Fast')]
     [Test]
     [TestCase('Ordinary parameter', 'drift')]
     [TestCase('Default value retained', 'default-drift')]
     [TestCase('Calling convention retained', 'cdecl-drift')]
     procedure LocatesParameterNameChangeWithoutAuthorizingEdits(const aShape: string);
+    [Category('RefactoringLightAlign,Fast')]
     [Test]
     [TestCase('Missing positional inventory', 'missing')]
     [TestCase('Inconsistent type fact', 'type')]

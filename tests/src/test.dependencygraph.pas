@@ -26,22 +26,31 @@ type
     function HasUnit(const aUnits: TArray<string>; const aUnitName: string): Boolean;
     function PathEquals(const aPath: TArray<string>; const aExpected: array of string): Boolean;
   public
+    [Category('Fast')]
     [Test]
     procedure BuildsProjectExternalAndUnresolvedNodes;
+    [Category('Fast')]
     [Test]
     procedure BuildsProjectUnitEdgesFromSemanticModel;
+    [Category('Fast')]
     [Test]
     procedure ReportsCycleComponentsAndRealTraversalPaths;
+    [Category('Fast')]
     [Test]
     procedure FocusNeighborhoodUsesExactUnitName;
+    [Category('Fast')]
     [Test]
     procedure RanksHotspotsAndPrefersImplementationEdges;
+    [Category('Fast')]
     [Test]
     procedure MergesInterconnectedCyclesIntoOneComponent;
+    [Category('Fast')]
     [Test]
     procedure ReportsSelfLoopAsCycleComponent;
+    [Category('Fast')]
     [Test]
     procedure TypedSccAnalyzerHandlesDeepCycleIteratively;
+    [Category('Fast')]
     [Test]
     procedure SkipsInvalidExternalFileCandidateNames;
   end;

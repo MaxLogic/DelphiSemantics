@@ -27,46 +27,67 @@ type
     function LoadRenameRoutineContext: TDelphiSemanticSymbolQueryContext;
     function LoadRenameTypeContext: TDelphiSemanticSymbolQueryContext;
   public
+    [Category('Fast')]
     [Test]
     procedure PlansProjectWideRenameForUnambiguousSymbol;
+    [Category('Fast')]
     [Test]
     procedure RenamePlanContractDeclaresStaleEditGuards;
+    [Category('Fast')]
     [Test]
     procedure PlansRenameWithOneProjectIndexBuild;
+    [Category('Fast')]
     [Test]
     procedure PlansRenameFromSnapshotWithoutProjectIndexBuild;
+    [Category('Fast')]
     [Test]
     procedure SkipsRoutineScopedVarShadowFromSnapshotContext;
+    [Category('Fast')]
     [Test]
     procedure BlocksCaseInsensitiveCollision;
+    [Category('Fast')]
     [Test]
     procedure BlocksLocalMemberAndUnitCollisions;
+    [Category('Fast')]
     [Test]
     procedure BlocksNonProjectUsage;
+    [Category('Fast')]
     [Test]
     procedure PlansCaseInsensitiveTargetAndReferencesAcrossUnits;
+    [Category('Fast')]
     [Test]
     procedure BlocksReservedWordRename;
+    [Category('Fast')]
     [Test]
     procedure ApiFacadePlansRename;
+    [Category('Fast')]
     [Test]
     procedure PlansRoutineRenameAcrossDeclarationImplementationAndCall;
+    [Category('Fast')]
     [Test]
     procedure PlansRoutineRenameFromHeaderPosition;
+    [Category('Fast')]
     [Test]
     procedure ApiFacadePlansRenameFromHeaderPosition;
+    [Category('Fast')]
     [Test]
     procedure PlansTypeRenameForDeclarationSideReferences;
+    [Category('Fast')]
     [Test]
     procedure PlansClassMethodRenameFromInterfaceHeaderPosition;
+    [Category('Fast')]
     [Test]
     procedure PlansClassMethodRenameFromQualifiedCallPosition;
+    [Category('Fast')]
     [Test]
     procedure PlansFieldRenameFromBodyReferencePosition;
+    [Category('Fast')]
     [Test]
     procedure PlansLocalVariableRenameWithinOwningRoutineOnly;
+    [Category('Fast')]
     [Test]
     procedure PlansForwardRoutineRenameAfterCommentedRecordEndAcrossUnits;
+    [Category('Fast')]
     [Test]
     procedure PlansCrossUnitAliasRenameInsideNestedRoutineLocals;
   end;
@@ -76,67 +97,89 @@ type
   [TestFixture]
   TRenameCompletenessTests = class
   public
+    [Category('Fast')]
     [Test]
     procedure PlansQualifiedMemberReferencesInConsumerUnit;
+    [Category('Fast')]
     [Test]
     procedure PlansSelfAndInheritedMemberReferencesInDescendantUnit;
+    [Category('Fast')]
     [Test]
     procedure BindsWithBodyNamesToSelectorMembers;
 
     [Test]
     procedure InactiveWithHomonymNeverBecomesRenameOrUsageOccurrence;
+    [Category('Fast')]
     [Test]
     procedure PlansCrossUnitPointerArrayWithMembers;
+    [Category('Fast')]
     [Test]
     procedure PlansProgramMainBlockReferences;
+    [Category('Fast')]
     [Test]
     procedure PlansProgramGlobalDeclaredAfterRoutineWithSameNamedLocal;
+    [Category('Fast')]
     [Test]
     procedure ListsInjectedConflictingFacts;
+    [Category('Fast')]
     [Test]
     procedure PositionResolvesLocalNotEnclosingRoutine;
+    [Category('Fast')]
     [Test]
     procedure PlansGlobalWhoseNameIsALocalElsewhere;
+    [Category('Fast')]
     [Test]
     [TestCase('Class constant Limit', 'True')]
     [TestCase('No member named Limit', 'False')]
     procedure ListsWithBodyNameThatMayBeAnUnmodelledMember(const aHasConstant: Boolean);
+    [Category('Fast')]
     [Test]
     [TestCase('Ancestor outside the project', 'True')]
     [TestCase('Implicit TObject ancestor', 'False')]
     procedure ListsMethodNameThatMayBeAnUnprovenAncestorMember(const aRtlAncestor: Boolean);
+    [Category('Fast')]
     [Test]
     [TestCase('Member from an include file', 'include')]
     [TestCase('Member in a conditional branch', 'conditional')]
     [TestCase('Ancestor with an include file', 'ancestor-include')]
     [TestCase('I/O checking switch is not an include', 'switch')]
     procedure ListsWithBodyNameHiddenFromTheDeclarationText(const aShape: string);
+    [Category('Fast')]
     [Test]
     [TestCase('Class reference selector', 'class-of')]
     [TestCase('Forward-declared class selector control', 'forward')]
     procedure ListsWithBodyNameOfUndelimitedSelectorType(const aShape: string);
+    [Category('Fast')]
     [Test]
     procedure ListsUnresolvedOverloadCallsAndRefusesPlan;
+    [Category('Fast')]
     [Test]
     procedure ListsReferencesInAstFailedConsumerUnit;
+    [Category('Fast')]
     [Test]
     procedure VerifiedClassVariableControlPlansFully;
+    [Category('Fast')]
     [Test]
     [TestCase('Virtual base and override', 'True')]
     [TestCase('Static methods control', 'False')]
     procedure ListsPossibleOverridesOfVirtualMethods(const aVirtual: Boolean);
     // DS-659: an include file's occurrences are listed at their own file and position; the
     // plan never edits the including unit in their place.
+    [Category('Fast')]
     [Test]
     procedure ListsIncludeBodyOccurrencesAndRefusesPlan;
+    [Category('Fast')]
     [Test]
     procedure ListsRoutineDeclaredInIncludeAndRefusesPlan;
     // DS-659 review: a mid-line include is listed at its directive, never dropped.
+    [Category('Fast')]
     [Test]
     procedure ListsMidLineIncludeOccurrenceAtDirective;
     // DS-659: every planned edit position must spell the old name.
+    [Category('Fast')]
     [Test]
     procedure RefusesEditAtPositionThatDoesNotHoldTheName;
+    [Category('Fast')]
     [Test]
     [TestCase('Active same-line call', 'active')]
     [TestCase('Inactive same-line call', 'inactive')]
@@ -173,20 +216,26 @@ type
     [TestCase('False nested DEFINE does not poison', 'false-define')]
     [TestCase('Unsupported expression still permits separate false region', 'expression')]
     procedure ConditionalActivityIsProvenPerRegion(const aShape: string);
+    [Category('Fast')]
     [Test]
     procedure PlansPointerCastReferencesAndMembers;
+    [Category('Fast')]
     [Test]
     procedure LocalPointerCastNeverBorrowsUnitPointeeIdentity;
+    [Category('Fast')]
     [TestCase('Local pointer alias', 'alias')]
     [TestCase('Anonymous local pointer', 'anonymous')]
     procedure LocalPointerDereferenceNeverBorrowsUnitPointeeIdentity(const aShape: string);
+    [Category('Fast')]
     [Test]
     procedure RefusesPointerCastMembersWhenCalleeIsShadowed;
+    [Category('Fast')]
     [TestCase('Unknown cast callee', 'unknown')]
     [TestCase('Ambiguous cast callee', 'ambiguous')]
     [TestCase('Multiple cast arguments', 'multiple')]
     [TestCase('Empty cast argument', 'empty')]
     procedure RefusesUnprovablePointerCastMembers(const aCase: string);
+    [Category('Fast')]
     [TestCase('Uncached dependent selectors', '0')]
     [TestCase('Warm cached dependent selectors', '1')]
     procedure PlansCastsInsideDependentWithSelectors(const aUseCache: Integer);

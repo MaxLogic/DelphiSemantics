@@ -12,14 +12,19 @@ type
     [Test]
     [Category('DS742')]
     procedure CompatibilityRecordMembersMatchInstalledSource;
+    [Category('Fast')]
     [Test]
     procedure ProfileBuildersShareIntrinsicSeedContract;
+    [Category('Fast')]
     [Test]
     procedure RtlSourceRootProjectionUsesUnitModelSemantics;
+    [Category('Fast')]
     [Test]
     procedure RtlSourceRootProjectionStripsAssignedEnumValues;
+    [Category('Fast')]
     [Test]
     procedure RtlSourceRootProjectionHidesImplementationSymbols;
+    [Category('Fast')]
     [Test]
     procedure RecursiveRtlDuplicateBasenamesChooseSortedPath;
   end;

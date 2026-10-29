@@ -13,10 +13,13 @@ type
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function SymbolModel(const aUnitName, aFileName: string): TDelphiSemanticUnitModel;
   public
+    [Category('Fast')]
     [Test]
     procedure ProjectAndUnitIdsAreStableForSameContextAndSources;
+    [Category('Fast')]
     [Test]
     procedure UnitDtosExposeOriginalSourceRanges;
+    [Category('Fast')]
     [Test]
     procedure UnitDtosAreReturnedAsCopies;
     [Test]

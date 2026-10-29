@@ -20,16 +20,22 @@ type
     function LoadSnapshotContext(out aSnapshot: TDelphiProjectSnapshot):
       TDelphiSemanticSymbolQueryContext;
   public
+    [Category('Fast')]
     [Test]
     procedure PlansFunctionNameResultReplacementInsideEnclosingFunction;
+    [Category('Fast')]
     [Test]
     procedure PlansFunctionNameResultReplacementAfterNestedRoutine;
+    [Category('Fast')]
     [Test]
     procedure PlansFunctionNameResultReplacementAfterTryFinallyBlock;
+    [Category('Fast')]
     [Test]
     procedure SkipsWithScopedSameTextField;
+    [Category('Fast')]
     [Test]
     procedure PlansFunctionNameResultReplacementFromSnapshotContext;
+    [Category('Fast')]
     [Test]
     procedure ApiFacadePlansFunctionNameResultReplacement;
   end;

@@ -13,14 +13,19 @@ type
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function UnitModel: TDelphiSemanticUnitModel;
   public
+    [Category('Fast')]
     [Test]
     procedure GraphStoresDeclarationTypeMemberRoutineParameterAndLocalDtos;
+    [Category('Fast')]
     [Test]
     procedure DeclaredCanonicalAndUnderlyingTypeIdsStaySeparate;
+    [Category('Fast')]
     [Test]
     procedure ExtractedParameterRangesFeedGraphDtos;
+    [Category('Fast')]
     [Test]
     procedure RoutineSourceRangesPreserveModelCoordinates;
+    [Category('Fast')]
     [Test]
     procedure LocalNominalTypesKeepDistinctIdsAcrossAndWithinRoutines;
   end;

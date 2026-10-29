@@ -9,6 +9,7 @@ type
   [TestFixture]
   TDelphiSemanticsSmokeTests = class
   public
+    [Category('Fast')]
     [Test]
     procedure VersionTextIsAvailable;
   end;

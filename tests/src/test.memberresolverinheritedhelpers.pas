@@ -17,8 +17,10 @@ type
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function UnitModel: TDelphiSemanticUnitModel;
   public
+    [Category('Fast')]
     [Test]
     procedure ResolvesInheritedMembersFromAncestorTypes;
+    [Category('Fast')]
     [Test]
     procedure ResolvesHelperProvidedMembersForTargetTypes;
   end;

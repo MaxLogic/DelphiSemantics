@@ -40,30 +40,43 @@ type
   [TestFixture]
   TSupportTests = class
   public
+    [Category('Fast')]
     [Test]
     procedure WaitForTestThreadsReturnsForCompletedWorker;
+    [Category('Fast')]
     [Test]
     procedure WaitForTestThreadsFailsTimedOutWorker;
+    [Category('Fast')]
     [Test]
     procedure WaitForTestThreadsFailsWorkerException;
+    [Category('Fast')]
     [Test]
     procedure SnapshotTestsUseScopedEnvironmentHelper;
+    [Category('Fast')]
     [Test]
     procedure ScopedEnvironmentRestoresMissingValue;
+    [Category('Fast')]
     [Test]
     procedure ScopedEnvironmentRestoresEmptyValue;
+    [Category('Fast')]
     [Test]
     procedure ScopedEnvironmentRestoresPreviousValue;
+    [Category('Fast')]
     [Test]
     procedure ScopedEnvironmentGuardsFullScopeWithLock;
+    [Category('Fast')]
     [Test]
     procedure ScopedEnvironmentSerializesOverlappingScopes;
+    [Category('Fast')]
     [Test]
     procedure ScopedEnvironmentConstructorFailureReleasesLock;
+    [Category('Fast')]
     [Test]
     procedure RepoPathHelpersResolveFixturesAndSource;
+    [Category('Fast')]
     [Test]
     procedure SnapshotBackedQueryContextsUseScopedHelper;
+    [Category('Fast')]
     [Test]
     procedure PhysicalPathFollowsJunctionForFilesAndDirectories;
   end;
@@ -71,12 +84,16 @@ type
   [TestFixture]
   TTestTempCleanupTests = class
   public
+    [Category('Fast')]
     [Test]
     procedure CleanupKeepsReplacedDirectoryOutsideRoot;
+    [Category('Fast')]
     [Test]
     procedure CleanupKeepsReplacedFileOutsideRoot;
+    [Category('Fast')]
     [Test]
     procedure OwnerPidRequiresPidAndGuidSuffix;
+    [Category('Fast')]
     [Test]
     procedure SweepRemovesOnlyDeadUnkeptOwnerRoots;
     [Test]

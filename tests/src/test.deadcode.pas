@@ -27,34 +27,49 @@ type
       const aName, aUnitName, aKind: string): string;
     function LoadContext: TDelphiSemanticSymbolQueryContext;
   public
+    [Category('Fast')]
     [Test]
     procedure DeadCodeProfilesParseFormatAndRejectUnknown;
+    [Category('Fast')]
     [Test]
     procedure ReportsConservativeDeadCodeStatuses;
+    [Category('Fast')]
     [Test]
     procedure UnresolvedReferenceBlockersStayInSourceUnit;
+    [Category('Fast')]
     [Test]
     procedure SafetyGuardsUseModelSourceTextAfterDiskChanges;
+    [Category('Fast')]
     [Test]
     procedure SafetyGuardsUseSnapshotSourceTextAfterDiskChanges;
+    [Category('Fast')]
     [Test]
     procedure ReportsDeadCodeFromSnapshotWithoutProjectIndexBuild;
+    [Category('Fast')]
     [Test]
     procedure UnknownReportProfileReturnsDiagnostic;
+    [Category('Fast')]
     [Test]
     procedure SnapshotReferenceCountsMatchModelBackedReport;
+    [Category('Fast')]
     [Test]
     procedure InitializerAndInactiveUsesAreNeverUnused;
+    [Category('Fast')]
     [Test]
     procedure EntryPointUsesAreNeverUnused;
+    [Category('Fast')]
     [Test]
     procedure IncludeDeclaredRoutineIsReportedAtIncludeAndBlocked;
+    [Category('Fast')]
     [Test]
     procedure OverloadedAndShortFormRoutinesUsedElsewhereAreNeverUnused;
+    [Category('Fast')]
     [Test]
     procedure OverloadBodiesWithRespelledHeadersAreNeverUnused;
+    [Category('Fast')]
     [Test]
     procedure UnpairedImplementationOfUsedInterfaceIsBlocked;
+    [Category('Fast')]
     [Test]
     procedure MidLineIncludeRoutinesAreBlocked;
   end;

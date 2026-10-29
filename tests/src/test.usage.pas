@@ -21,30 +21,40 @@ type
   private
     function LoadContext: TDelphiSemanticSymbolQueryContext;
   public
+    [Category('Fast')]
     [Test]
     procedure FindsUsagesForSourceLocationAndExplicitName;
+    [Category('Fast')]
     [Test]
     procedure ProjectSessionSnapshotUsagesCarryResolvedReferences;
+    [Category('Fast')]
     [Test]
     procedure SnapshotBackedUsagesReuseProjectSnapshotIndexes;
+    [Category('Fast')]
     [Test]
     procedure SnapshotBackedUsagesResolveImplementationRoutineByName;
+    [Category('Fast')]
     [Test]
     procedure SnapshotBackedUsagesResolveInterfaceImplementationRoutineByName;
+    [Category('Fast')]
     [Test]
     [TestCase('wrapped implementation', 'False')]
     [TestCase('wrapped interface', 'True')]
     procedure SnapshotBackedUsagesPairLineWrappedRoutineDeclarations(const aWrapInterface: Boolean);
+    [Category('Fast')]
     [Test]
     procedure SnapshotBackedUsagesResolveInterfaceImplementationParameterAtPosition;
+    [Category('Fast')]
     [Test]
     procedure BlocksAmbiguousUsageTargets;
+    [Category('Fast')]
     [Test]
     [TestCase('Snapshot, failed syntax tree', 'True,True')]
     [TestCase('Snapshot, verified control', 'True,False')]
     [TestCase('Unit models, failed syntax tree', 'False,True')]
     [TestCase('Unit models, verified control', 'False,False')]
     procedure RefusesSymbolsDeclaredInUnverifiedUnits(const aSnapshot, aFailed: Boolean);
+    [Category('Fast')]
     [Test]
     [TestCase('Failed syntax tree', 'True')]
     [TestCase('Verified control', 'False')]

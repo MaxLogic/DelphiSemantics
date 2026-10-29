@@ -25,36 +25,51 @@ type
     function TryFindDiagnostic(const aResult: TDelphiSemanticContextResult;
       const aCode: string; out aDiagnostic: TDelphiSemanticDiagnostic): Boolean;
   public
+    [Category('Fast')]
     [Test]
     procedure LoadsProjectContextThroughStableFacade;
+    [Category('Fast')]
     [Test]
     procedure LoadProjectContextMergesApiSearchPaths;
+    [Category('Fast')]
     [Test]
     procedure LoadProjectContextReportsExplicitLspEnrichmentStatus;
+    [Category('Fast')]
     [Test]
     procedure WithBindingBuildUnitIndexAppliesProjectDefines;
+    [Category('Fast')]
     [Test]
     procedure WithBindingBuildUnitIndexReportsMissingProjectContext;
+    [Category('Fast')]
     [Test]
     procedure ScanWithAndSymbolIndexRoutesReturnStableShapes;
+    [Category('Fast')]
     [Test]
     procedure UsageRoutesReturnStableShapes;
+    [Category('Fast')]
     [Test]
     procedure RenameAndFunctionResultRoutesReturnStableShapes;
+    [Category('Fast')]
     [Test]
     procedure DeadCodeAndSearchRoutesReturnStableShapes;
+    [Category('Fast')]
     [Test]
     procedure CommonOptionsDoNotExposeRemoveWithOnlyControls;
+    [Category('Fast')]
     [Test]
     procedure RemoveWithPrimaryFacadeHidesInternalAliases;
+    [Category('Fast')]
     [Test]
     procedure RemoveWithPrimaryPlanReportsSessionDiagnostics;
     [Test]
     procedure RemoveWithPrimaryPlanReturnsStableMappedFields;
+    [Category('Fast')]
     [Test]
     procedure RemoveWithCompatibilityFactsExposeExplicitBuildResult;
+    [Category('Fast')]
     [Test]
     procedure RemoveWithCompatibilityFactBuildReportsSessionDiagnostics;
+    [Category('Fast')]
     [Test]
     procedure RemoveWithLegacyFactBuildFailsLoudlyOnSessionDiagnostics;
     [Test]

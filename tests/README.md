@@ -65,3 +65,70 @@ Invoke-ScriptAnalyzer -Path .\tests\run-shards.Tests.ps1
 These tests cover deterministic balancing, literal comma-bearing case names,
 success and failure evidence, ignored tests, leaks, duplicate/missing/extra
 identities, detached descendants, timeout cleanup, and the path-budget refusal.
+
+## Fast smoke tier (DS-769)
+
+Run the existing Win64 Debug binary with `--include:Fast` for routine feedback:
+
+```powershell
+tests\bin\delphiSemanticsTests.exe --include:Fast --xmlfile:<owned-path>\fast.xml
+```
+
+Fast is additive method-level tagging: every parameterized case of a tagged
+method runs, and every case remains in the default full suite. Installed Delphi
+12 DUnitX applies categories per method, not per TestCase attribute. Keep existing
+feature categories in the same comma-separated Category value when adding Fast;
+a method category overrides the fixture category.
+
+Select synthetic, small-fixture methods with a cheap complete case set, spread
+across the test fixtures. Use measured whole-method costs, not the cheapest case.
+The initial selection uses the retained THREADRIPPER baseline at `510a420`:
+ordinary methods cost at most 0.2 seconds; WithBinder at most 0.35 seconds;
+ProjectSession at most 0.25 seconds; RemoveWithPlan at most 0.05 seconds, plus the
+explicit representative methods below. These thresholds guide selection; they
+are not assertions inside tests. Whole-process wall time governs acceptance:
+three passing runs must have a median of at most 60 seconds on THREADRIPPER.
+Re-measure additions and leave headroom for startup, fixture setup and host noise.
+Do not budget against expected future performance improvements.
+
+The expensive fixtures retain these route/strategy families (names below are
+methods; every case of each named method is included):
+
+| Fixture | Family | Representative method(s) |
+| --- | --- | --- |
+| WithBinder | Direct qualification, precedence and refusal | SafeBindingsArePlannedDirectReferences; MultipleSelectorsPreferInnermostReceiver; SkipReasonsCoverExternalAndUnresolvedBranches |
+| WithBinder | Receiver value members and planning strategies | TypeValueMembersBind; TypeValueMembersPlan; TypeValueSafetyAndSnapshot; PerStrategyDefensesKeepResolvedEvidence |
+| WithBinder | Source identity, nested scope and imported helpers | FinalizedLocalAliasesUseTargetMemberIdentities; NestedWithStatementsUseOuterReceiverStack; MalformedImportedHelperFactsFailClosed |
+| WithBinder | Cold/warm/snapshot helper facts | UnindexedHelperColdWarmSnapshot; UnindexedHelperCacheAndLostFacts |
+| WithBinder | Root-absence provider, public API and fail-closed admission | OptionalRootAbsenceFlowsThroughApiAndBypassesPersistentFacts; RootAbsenceRequiresClosedImportedSource; PublicProviderFingerprintFailureRefuses; AdmissionDiscardsProvisionalTreeAndSiblingReservations |
+| RemoveWithPlan | Deterministic DTO and direct rewrite | PlansDeterministicDryRunDtoWithVerificationAndProvenance; FinalDtoMatchesFocusedRewriteCases |
+| RemoveWithPlan | Reference, pointer, dependent and indirect capture | FinalDtoCapturesVisibleReceiverType; FinalDtoCapturesPointerReceiverBeforeBodyCall; FinalDtoCapturesDependentReceiverBeforeBodyCall; FinalDtoCapturesIndirectReceiverBeforeBodyCall |
+| RemoveWithPlan | Controlled array and pointer-cast capture | FinalDtoCapturesControlledRecordArrayReceiver; FinalDtoCapturesPointerCastReceiverOnce |
+| RemoveWithPlan | Temporary-name policy and safety skips | FinalDtoMatchesTempPolicyCollisionRules; FinalDtoPreservesDakFixtureSafetySkips; HelperRefusalSurvivesHandBuiltBinding |
+| RemoveWithPlan | Snapshot/facts parity and combined session API | SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar; CombinedApiReturnsFactsAndCanonicalPlanFromOneSession |
+| ProjectSession | Publication, accepted/refused profiles and root proof | RequestOwnerSealsEveryModelBeforePublication; RootAbsenceValidatesActualProjectProfile; ProjectSessionInheritedAccessWithoutRootProofRefuses; ProjectSessionInheritedAccessWithRootProofPlans |
+| ProjectSession | Cold/warm/invalidation and persistent/no-cache reuse | IdentifierScopedRenameMatchesColdWarmAndInvalidatedCache; TenAlternativePlansReuseOwnedContext; ChangedCompilerContextInvalidatesSnapshotCache |
+| ProjectSession | Partial snapshot, included-file drift and parallel/sequential parity | ProjectSessionPartialSnapshotCacheInvalidationMatchesFullRebuildFacts; ProjectSessionSnapshotCacheRebuildsIncludedFileChanges; ProjectSessionParallelSnapshotBuildMatchesSequentialFacts; ProjectSessionParallelRemoveWithPlanMatchesSequentialCounts |
+| ProjectSession | Identifier-scoped/full route, typed constants and cross-target graph | IdentifierScopedSessionMatchesForcedFullRename; TypedConstantsRemainQueryableAcrossSnapshotCacheModes; ProjectSessionDependencyGraphUsesLinux64TargetDefines |
+| RequestPublication | Owner bypass of persisted facts | OwnerBypassesPersistedWithFacts |
+
+Methods containing any known DS-766 environment failure stay outside Fast,
+including their passing parameterized cases:
+
+- WithBinder: NamedRootSiteHelperPrecedenceIsPreserved,
+  UnindexedSourceTokenEditInvalidatesWarmFacts, TabIncludeEditInvalidatesWarmFacts,
+  NamedRootCaptureUsesRootMostDeclaration, RootProofIncludesUseExpandedScope,
+  NamedRootPrivateGetterPropertyScopes, RootProofRequiresVerifiedPreprocessScope,
+  FailedModelCannotBypassRootAbsenceProof.
+- RemoveWithPlan: FinalDtoMatchesMaxTdbTdbUtilsFlipMarkReplacement.
+- UnitNameWitness: ProfileFileCandidatesChangeWitnessIdentity,
+  DebugDcuPathsAreCandidateLocations, TranslatedPathsRequireLanguage.
+
+MaxTdbProof stays opt-in and outside Fast. UnitNameWitness tagging is deferred
+until DS-768 integrates; its passing small-fixture candidates are listed in the
+DS-769 proof packet. The two TTestOutputRootTests checks are declared in the DPR
+and remain full-suite-only; DS-769 changes attributes in tests/src only.
+
+Fast is smoke coverage, not acceptance of every method or route. A slice still
+runs the owning fixture for every area it touches. Fast never replaces the
+complete default suite at batch or final gates.

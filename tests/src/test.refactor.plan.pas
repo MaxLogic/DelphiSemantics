@@ -17,15 +17,25 @@ type
     procedure AssertRejected(const aSources: TArray<TSemanticPlanSource>;
       const aEdits: TArray<TSemanticPlanEdit>; const aCode: string);
   public
+    [Category('RefactoringLightApply,Fast')]
     [Test] procedure OwnsOriginalFactsAndHalfOpenEdits;
+    [Category('RefactoringLightApply,Fast')]
     [Test] procedure RejectsOutOfLineColumn;
+    [Category('RefactoringLightApply,Fast')]
     [Test] procedure RejectsSplitSurrogate;
+    [Category('RefactoringLightApply,Fast')]
     [Test] procedure RejectsMismatchedExpectedText;
+    [Category('RefactoringLightApply,Fast')]
     [Test] procedure RejectsOverlapAndDuplicateInsertion;
+    [Category('RefactoringLightApply,Fast')]
     [Test] procedure RejectsInsertionAtReplacementEnd;
+    [Category('RefactoringLightApply,Fast')]
     [Test] procedure SupportsMultilineAndEofInsertion;
+    [Category('RefactoringLightApply,Fast')]
     [Test] procedure StatusControlsApplicableEdits;
+    [Category('RefactoringLightApply,Fast')]
     [Test] procedure DetectsChangedContextAndManifest;
+    [Category('RefactoringLightApply,Fast')]
     [Test] procedure ConstructorRejectsInvalidCompleteAndNoChange;
   end;
 

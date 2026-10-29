@@ -16,12 +16,16 @@ type
   private
     function LoadContext: TDelphiSemanticSymbolQueryContext;
   public
+    [Category('Fast')]
     [Test]
     procedure FiltersSyntaxPatternByKindScopeUnitAndOwner;
+    [Category('Fast')]
     [Test]
     procedure CombinesPatternWithResolvedSymbolFilter;
+    [Category('Fast')]
     [Test]
     procedure SnapshotBackedSearchUsesProjectSnapshotIndex;
+    [Category('Fast')]
     [Test]
     procedure BlocksAmbiguousResolvedSymbolFilter;
   end;

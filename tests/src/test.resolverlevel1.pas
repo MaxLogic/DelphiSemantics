@@ -12,22 +12,31 @@ type
   private
     function LoadModel: TDelphiSemanticUnitModel;
   public
+    [Category('Fast')]
     [Test]
     procedure LexicalSymbolsShadowUnitDeclarations;
+    [Category('Fast')]
     [Test]
     procedure ParametersShadowUnitDeclarations;
+    [Category('Fast')]
     [Test]
     procedure ResolvesUnitDeclarationsAndDirectMembers;
+    [Category('Fast')]
     [Test]
     procedure InitializationAndFinalizationSeeImplementationDeclarations;
+    [Category('Fast')]
     [Test]
     procedure UnitRoutineDeclarationAndImplementationResolveAsOneSymbol;
+    [Category('Fast')]
     [Test]
     procedure IndexedDefaultMembersAreNonAuthoritativeUnsupported;
+    [Category('Fast')]
     [Test]
     procedure UnknownNamesAreNonAuthoritativeUnresolved;
+    [Category('Fast')]
     [Test]
     procedure DuplicateVisibleDeclarationsAreAmbiguous;
+    [Category('Fast')]
     [Test]
     procedure AdvancedSelectorsAreNonAuthoritativeUnsupported;
   end;

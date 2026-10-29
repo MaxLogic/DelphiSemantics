@@ -37,62 +37,90 @@ type
     [TestCase('Hit accepted', 'hit-accept')]
     [TestCase('Owner cannot detach during validation', 'reentrant')]
     procedure RequestOwnerValidatesBeforeCachePublication(const aMode: string);
+    [Category('Fast')]
     [Test]
     procedure DefaultOptionsUseInMemoryCache;
+    [Category('Fast')]
     [Test]
     procedure TempPathUsesPerRunRoot;
+    [Category('Fast')]
     [Test]
     procedure InMemoryMetricsExposeEmptyCacheFileName;
+    [Category('Fast')]
     [Test]
     procedure SharedUnitCacheRejectsReentrantAccess;
+    [Category('Fast')]
     [Test]
     procedure CacheIdentityIncludesLexicalOwnershipModelShape;
+    [Category('Fast')]
     [Test]
     procedure NoContextScanWitnessSurvivesSqliteWithoutActivityAuthority;
+    [Category('Fast')]
     [Test]
     procedure UnitCacheIdentityBuilderReusesSingleSourceLoad;
+    [Category('Fast')]
     [Test]
     procedure RepeatedUnchangedUnitHitsInMemoryCache;
+    [Category('Fast')]
     [Test]
     procedure CacheHitReturnsIndependentUnitModelCopy;
+    [Category('Fast')]
     [Test]
     procedure CacheHitReturnsIndependentUnindexedHelperFacts;
+    [Category('Fast')]
     [Test]
     procedure CacheHitKeepsPhysicalIncludeReferenceOccurrences;
+    [Category('Fast')]
     [Test]
     procedure SourceChangeInvalidatesCachedUnitModel;
+    [Category('Fast')]
     [Test]
     procedure SourceTimestampChangeReusesCachedUnitModel;
+    [Category('Fast')]
     [Test]
     procedure SemanticContextChangeInvalidatesCachedUnitModel;
+    [Category('Fast')]
     [Test]
     procedure ReferenceExtractionOptionInvalidatesCachedUnitModel;
+    [Category('Fast')]
     [Test]
     procedure WritableTypedConstantsOptionInvalidatesCachedUnitModel;
+    [Category('Fast')]
     [Test]
     procedure EquivalentDefineOrderReusesCachedUnitModel;
+    [Category('Fast')]
     [Test]
     procedure SearchPathOrderChangeInvalidatesCachedUnitModel;
+    [Category('Fast')]
     [Test]
     procedure IncludeChangeInvalidatesCachedUnitModel;
+    [Category('Fast')]
     [Test]
     procedure CompilerProfileChangeInvalidatesCachedUnitModel;
+    [Category('Fast')]
     [Test]
     procedure ToolchainOptionsChangeInvalidatesSqliteCachedUnitModel;
+    [Category('Fast')]
     [Test]
     procedure CompilerProfileSeedsIntrinsicRows;
+    [Category('Fast')]
     [Test]
     procedure CompilerProfileLoadsCachedRtlSourceModels;
+    [Category('Fast')]
     [Test]
     procedure CompilerProfileDiscoversScopedRtlUnitsFromSourceRoot;
+    [Category('Fast')]
     [Test]
     procedure CompilerProfileIndexesRecursiveRtlSourceLookup;
+    [Category('Fast')]
     [Test]
     procedure CompilerProfileRecursiveRtlSourceLookupPreservesOrder;
     [Test]
     procedure CompilerProfileRtlSourceRootBuildsSharedUnitModels;
+    [Category('Fast')]
     [Test]
     procedure CompilerProfileResolvesRtlSourceRootFromRsVars;
+    [Category('Fast')]
     [Test]
     procedure ParserVersionChangeInvalidatesCachedUnitModel;
     [Test]
@@ -122,24 +150,34 @@ type
     [TestCase('IFOPT erased by previous activity producer', '59')]
     [TestCase('Evidence failure discarded by previous activity producer', '60')]
     procedure DefaultParserInvalidatesObsoleteModels(const aVersion: string);
+    [Category('Fast')]
     [Test]
     procedure ModelVersionChangeInvalidatesCachedUnitModel;
+    [Category('Fast')]
     [Test]
     procedure CacheAccessResultReportsPerCallHitAndIdentity;
+    [Category('Fast')]
     [Test]
     procedure SqliteCacheHitRestoresSourceSections;
+    [Category('Fast')]
     [Test]
     procedure SqliteCacheHitRestoresOriginalRanges;
+    [Category('Fast')]
     [Test]
     procedure SqliteCacheHitRestoresReferenceRanges;
+    [Category('Fast')]
     [Test]
     procedure SymbolMapCompatibleIdentityReusesSharedSourceAcrossProjects;
+    [Category('Fast')]
     [Test]
     procedure SymbolMapCompatibleIdentitySeparatesSearchAndConfiguration;
+    [Category('Fast')]
     [Test]
     procedure CanonicalSemanticIdentityNormalizesPathVariantsAndIgnoresStorageRoot;
+    [Category('Fast')]
     [Test]
     procedure SymbolMapCompatibleIdentitySeparatesExtractionOptions;
+    [Category('Fast')]
     [Test]
     procedure CompilerProfileExposesDakIntrinsicSeedFacts;
   end;

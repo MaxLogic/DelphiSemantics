@@ -14,14 +14,19 @@ type
       const aDefines: TArray<string> = nil): TDelphiSemanticUnitModel;
     function TempPath(const aName: string): string;
   public
+    [Category('Fast')]
     [Test]
     procedure DiscoversSingleMultipleNestedAndScopedWithStatements;
+    [Category('Fast')]
     [Test]
     procedure ReportsSelectorBodyAndWholeWithRanges;
+    [Category('Fast')]
     [Test]
     procedure KeepsUtf8BomLineOneColumnMapping;
+    [Category('Fast')]
     [Test]
     procedure IgnoresInactiveConditionalBranches;
+    [Category('Fast')]
     [Test]
     procedure SourceModelCapturesDeclarationsAndRoutineScopes;
   end;

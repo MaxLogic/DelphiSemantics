@@ -65,8 +65,9 @@ type
     [TestCase('local-tag', 'local-tag')]
     [TestCase('included', 'included')]
     [TestCase('inactive', 'inactive')]
-    [Category('DS731Model')]
+    [Category('DS731Model,Fast')]
     procedure TypeValueExtractionBoundaries(const aShape: string);
+    [Category('Fast')]
     [TestCase('constant', 'constant')]
     [TestCase('typed', 'typed')]
     [TestCase('peers', 'peers')]
@@ -77,13 +78,16 @@ type
     [TestCase('commented', 'commented')]
     [TestCase('nested', 'nested')]
     procedure TypeValueMembersSurviveJson(const aShape: string);
+    [Category('Fast')]
     [TestCase('Record helper', 'record')]
     [TestCase('Class helper', 'class')]
     [TestCase('Implementation helper', 'implementation')]
     [TestCase('Helper-free JSON', 'none')]
     procedure UnindexedHelpersRetainJsonFacts(const aShape: string);
+    [Category('Fast')]
     [Test]
     procedure MixedBodyOriginRetainsUnitActivityFallback;
+    [Category('Fast')]
     [TestCase('Unknown omitted body', 'unknown')]
     [TestCase('Unknown selected body', 'selected')]
     [TestCase('Nested unknown body', 'nested')]
@@ -91,6 +95,7 @@ type
     [TestCase('Known-inactive body', 'inactive')]
     [TestCase('Legacy without project context', 'no-context')]
     procedure TypeMemberActivityDiagnostics(const aShape: string);
+    [Category('Fast')]
     [Test]
     [TestCase('Class helper', 'class,class,TObject')]
     [TestCase('Record helper', 'record,record,TMarker')]
@@ -99,18 +104,24 @@ type
     [TestCase('Qualified escaped target', 'qualified,class,System.TObject')]
     [TestCase('Ordinary record with decoy comment', 'ordinary,none,')]
     procedure HelperDeclarationsCarryAstKindAndTarget(const aShape, aExpectedKind, aExpectedTarget: string);
+    [Category('Fast')]
     [Test]
     procedure ModelJsonRetainsAstHelperProof;
+    [Category('Fast')]
     [Test]
     procedure SameLineNestedNamesCannotSupplyUnitHelperProof;
+    [Category('Fast')]
     [Test]
     [TestCase('Two methods', 'two-methods')]
     [TestCase('Field, visibility and method', 'field-visibility-method')]
     procedure ExtractsEveryMemberOnOnePhysicalLine(const aLayout: string);
+    [Category('Fast')]
     [Test]
     procedure MethodContinuationParametersAreNotFields;
+    [Category('Fast')]
     [Test]
     procedure EscapedIdentifierMembersAreKept;
+    [Category('Fast')]
     [Test]
     [TestCase('Last field without semicolon', 'last-field-no-semicolon')]
     [TestCase('Qualified last field type without semicolon', 'qualified-no-semicolon')]
@@ -122,6 +133,7 @@ type
     [TestCase('Comma group without semicolon', 'comma-group-no-semicolon')]
     [TestCase('Strict private field without semicolon', 'strict-private-no-semicolon')]
     procedure ReconcilesValidMemberLayouts(const aLayout: string);
+    [Category('Fast')]
     [Test]
     [TestCase('Array last field without semicolon', 'array-no-semicolon')]
     [TestCase('Generic last field without semicolon', 'generic-no-semicolon')]
@@ -132,36 +144,49 @@ type
     [TestCase('Pointer field without semicolon', 'pointer-no-semicolon')]
     [TestCase('Property type on the next line', 'split-property')]
     procedure UnprovableMemberLayoutsStayIncomplete(const aLayout: string);
+    [Category('Fast')]
     [Test]
     procedure ClassConstantIsNotAMemberFact;
+    [Category('Fast')]
     [Test]
     procedure ClassConstantDiagnosticIdentifiesDeclaringType;
+    [Category('Fast')]
     [Test]
     procedure ClassConstantTextInTriviaDoesNotMarkTypeIncomplete;
+    [Category('Fast')]
     [Test]
     procedure FieldAfterClassConstantRetainsNamedParserFailure;
+    [Category('Fast')]
     [Test]
     procedure NestedTypeMembersKeepQualifiedOwnerAndVisibility;
+    [Category('Fast')]
     [Test]
     procedure AstFailedUnitKeepsUnverifiedMembers;
+    [Category('Fast')]
     [Test]
     procedure InterfaceOnlyRetryKeepsOriginalParserMessage;
+    [Category('Fast')]
     [Test]
     [TestCase('Block-comment section word', 'block')]
     [TestCase('Line-comment section word', 'line')]
     [TestCase('Quoted section word', 'string')]
     [TestCase('Escaped section-word field', 'escaped')]
     procedure InterfaceOnlyRetryUsesRealSectionBoundary(const aShape: string);
+    [Category('Fast')]
     [Test] procedure NestedRoutineDeclarationHasEnclosingScope;
+    [Category('Fast')]
     [Test]
     procedure RoutineLocalTypesRetainTheirDeclaringScope;
+    [Category('Fast')]
     [Test]
     procedure HomonymousAndDistinctRoutineLocalTypesKeepSourceIdentity;
+    [Category('Fast')]
     [Test]
     [TestCase('Multiple ordinary fields', 'ordinary')]
     [TestCase('Visibility changes on one line', 'visibility')]
     [TestCase('Persistent class var section', 'class-var')]
     procedure ExtractsCompoundVisibilityFields(const aLayout: string);
+    [Category('Fast')]
     [Test]
     [TestCase('Public inline', 'public,field,True')]
     [TestCase('Private inline', 'private,field,True')]
@@ -169,32 +194,46 @@ type
     [TestCase('Class variable inline', 'public,class-var,True')]
     [TestCase('Public multiline', 'public,field,False')]
     procedure ExtractsFieldAfterVisibility(const aVisibility, aKind: string; const aInline: Boolean);
+    [Category('Fast')]
     [Test]
     procedure SourceLoaderUsesAnsiFallbackForInvalidUtf8;
+    [Category('Fast')]
     [Test]
     procedure SourceLoaderUsesAnsiFallbackForMalformedUtf8;
+    [Category('Fast')]
     [Test]
     procedure SourceLoaderUsesUtf16LeBom;
+    [Category('Fast')]
     [Test]
     procedure ExtractsUnitNameUsesDeclarationsAndWithStatements;
+    [Category('Fast')]
     [Test]
     procedure ExtractsOnlyActiveUsesOutsideCommentsAndStrings;
+    [Category('Fast')]
     [Test]
     procedure ExtractsMembersRoutinesLocalsAndReferences;
+    [Category('Fast')]
     [Test]
     procedure ExtractsConstructorAndDestructorScopesAndLocals;
+    [Category('Fast')]
     [Test]
     procedure ExtractsCommaDeclaredRoutineLocals;
+    [Category('Fast')]
     [Test]
     procedure RoutineLocalsSurviveSameLineVarSections;
+    [Category('Fast')]
     [Test]
     procedure RoutineProceduralObjectLocalsKeepAstScopeModel;
+    [Category('Fast')]
     [Test]
     procedure RoutineAnonymousRecordLocalsUseSyntheticOwnerType;
+    [Category('Fast')]
     [Test]
     procedure RoutineAnonymousRecordLocalsKeepSyntheticInventoryOwner;
+    [Category('Fast')]
     [Test]
     procedure SkipReferenceExtractionKeepsSymbolsAndOmitsReferences;
+    [Category('Fast')]
     [Test]
     [TestCase('Interface', 'global,False')]
     [TestCase('Interface lean', 'global,True')]
@@ -203,90 +242,121 @@ type
     [TestCase('Implementation', 'private,False')]
     [TestCase('Implementation lean', 'private,True')]
     procedure ExtractsDefaultParameterReferences(const aShape: string; const aLean: Boolean);
+    [Category('Fast')]
     [Test]
     procedure DefaultParameterStringsAndCommentsDoNotCreateReferences;
+    [Category('Fast')]
     [Test]
     procedure SkipsDefaultParameterReferencesWhenExtractionDisabled;
+    [Category('Fast')]
     [Test]
     procedure ExtractsUntypedRoutineParameters;
+    [Category('Fast')]
     [Test]
     [TestCase('missing terminator', '0')]
     [TestCase('unclosed parameters', '1')]
     procedure IncompleteRoutineHeaderPreservesFollowingDeclaration(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     procedure RoutineHeaderExtentPreservesDelimitersAndCommentBoundaries;
+    [Category('Fast')]
     [Test]
     procedure ExtractsRoutineAfterSingleLineGuidInterface;
+    [Category('Fast')]
     [Test]
     procedure ExtractsAnonymousNestedRecordMembers;
+    [Category('Fast')]
     [Test]
     procedure ExtractsUnprefixedConstVarAndTypedConstDeclarations;
+    [Category('Fast')]
     [Test]
     procedure ExtractsInlineConstVarSections;
     [Test]
-    [Category('CompactConstantFacts')]
+    [Category('CompactConstantFacts,Fast')]
     [TestCase('Compact', 'True')]
     [TestCase('Multiline', 'False')]
     procedure PreservesUnitConstantsAcrossLineLayouts(const aCompact: Boolean);
+    [Category('Fast')]
     [Test]
     procedure InitializedVariablesRetainOnlyDeclaredTypes;
+    [Category('Fast')]
     [Test]
     procedure AssignmentsDoNotBecomeDeclarations;
+    [Category('Fast')]
     [Test]
     [TestCase('Globals first', 'True')]
     [TestCase('Globals after class', 'False')]
     procedure GlobalsAroundClassDeclarationsKeepTheirScope(const aGlobalsFirst: Boolean);
+    [Category('Fast')]
     [Test]
     [TestCase('Packed record', 'True')]
     [TestCase('Ordinary record', 'False')]
     procedure PackedAndOrdinaryFieldsKeepModelAndBindingIdentity(const aPacked: Boolean);
+    [Category('Fast')]
     [Test]
     [TestCase('Line comments', 'True')]
     [TestCase('Block comments', 'False')]
     procedure MultilineFieldsKeepSourceAndBindingIdentity(const aLineComment: Boolean);
+    [Category('Fast')]
     [Test]
     procedure LiteralFieldTypesKeepOriginalText;
+    [Category('Fast')]
     [Test]
     [TestCase('Split variant labels', 'True')]
     [TestCase('Inline variant labels', 'False')]
     procedure VariantLabelsKeepFollowingFields(const aSplit: Boolean);
+    [Category('Fast')]
     [Test]
     procedure ProgramBodyReferencesUseActualSyntaxScope;
+    [Category('Fast')]
     [Test]
     procedure InlineConstSectionEndsTypeDeclarations;
+    [Category('Fast')]
     [Test]
     [TestCase('Record constant', 'record')]
     [TestCase('Class constant', 'class')]
     procedure NestedConstSectionKeepsFollowingTypeDeclaration(const aOwnerType: string);
+    [Category('Fast')]
     [Test]
     procedure MultilineVarParametersAreNotUnitVariables;
+    [Category('Fast')]
     [Test]
     procedure CommentedRoutineHeaderDoesNotHideUnitVariables;
+    [Category('Fast')]
     [Test]
     procedure MigratedSymbolMapExtractsUnitNameAndUsesSections;
+    [Category('Fast')]
     [Test]
     procedure MigratedSymbolMapExtractsNamespacedUnitName;
+    [Category('Fast')]
     [Test]
     procedure MigratedSymbolMapExtractsTopLevelDeclarationsAndEnumValues;
+    [Category('Fast')]
     [Test]
     procedure MigratedSymbolMapExtractsMembersPropertiesAndMetadata;
+    [Category('Fast')]
     [Test]
     procedure PreprocessingRemovesInactiveDeclarations;
+    [Category('Fast')]
     [Test]
     procedure TypedConstantMutabilityUsesActivePreprocessedDirectives;
+    [Category('Fast')]
     [Test]
     [TestCase('Standalone include', '0')]
     [TestCase('Switch before include', '1')]
     [TestCase('Switch after include', '2')]
     procedure TypedConstantMutabilityUsesIncludedDirectives(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     [TestCase('Line comment', '0')]
     [TestCase('Parenthesized block comment', '1')]
     [TestCase('Brace block comment', '2')]
     [TestCase('Quoted text', '3')]
     procedure TypedConstantMutabilityIgnoresCommentedDirective(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     procedure TypedConstantMutabilityRespectsInlineSwitchOrder;
+    [Category('Fast')]
     [Test]
     [TestCase('J in middle', '0,True')]
     [TestCase('Last J disables', '1,False')]
@@ -296,107 +366,153 @@ type
     [TestCase('Inactive group', '5,False')]
     procedure TypedConstantMutabilityUsesGroupedSwitches(const aCase: Integer;
       const aEnabled: Boolean);
+    [Category('Fast')]
     [Test]
     [TestCase('Parenthesized pair', '0')]
     [TestCase('Brace then parenthesis', '1')]
     [TestCase('Parenthesis then brace', '2')]
     procedure TypedConstantMutabilityUsesLastStandaloneSwitch(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     procedure ScopeModelFailureRejectsUnverifiedGlobalCandidates;
+    [Category('Fast')]
     [Test]
     procedure RejectedDeclarationsHaveDeterministicMutability;
+    [Category('Fast')]
     [Test]
     procedure IncludeExpansionDoesNotShiftFollowingParentLineNumbers;
+    [Category('Fast')]
     [Test]
     procedure IncludeExpansionPreservesMultiLineIncludedDeclarations;
+    [Category('Fast')]
     [Test]
     procedure IncludeExpansionDoesNotShiftFollowingParentWithRanges;
     // DS-659: facts whose text comes from an include file carry that file and its own
     // position; they are never mapped onto an unrelated position of the including unit.
+    [Category('Fast')]
     [Test]
     procedure IncludeInRoutineBodyAttributesReferencesToIncludeFiles;
+    [Category('Fast')]
     [Test]
     procedure IncludeBetweenDeclarationsAttributesFactsToIncludeFile;
     // DS-659 review: an include expanded inside a line has no exact position; its facts are kept
     // at the directive's own position instead of being dropped.
+    [Category('Fast')]
     [Test]
     procedure MidLineIncludeFactsStayAtTheDirective;
+    [Category('Fast')]
     [Test]
     procedure MidLineIncludesKeepDistinctPhysicalReferenceOccurrences;
+    [Category('Fast')]
     [Test]
     procedure RepeatedNestedAndInactiveIncludesKeepPhysicalOccurrences;
+    [Category('Fast')]
     [Test]
     procedure ModelUsesSourceLoaderFallbackWhenExtractingAnsiSource;
+    [Category('Fast')]
     [Test]
     procedure WithStatementsExposeSourceRanges;
+    [Category('Fast')]
     [Test]
     procedure WithDiscoveryIgnoresStringsAndCommentsAndKeepsRepeatedRanges;
+    [Category('Fast')]
     [Test]
     procedure ReferencesIgnoreStringsAndComments;
+    [Category('Fast')]
     [Test]
     procedure IncludeExpansionDoesNotShiftFollowingParentReferences;
+    [Category('Fast')]
     [Test]
     procedure IncludeExpansionDoesNotShiftFollowingParentMembersRoutinesAndLocals;
+    [Category('Fast')]
     [Test]
     procedure WithStatementRangeCoversIfThenElseBodies;
+    [Category('Fast')]
     [Test]
     procedure ModelKeepsOriginalSourceLineNumbersAfterPreprocessing;
+    [Category('Fast')]
     [Test]
     procedure SourceSectionsExposeInitializationAndFinalizationBoundaries;
+    [Category('Fast')]
     [Test]
     procedure SourceSectionsHandleUnitsWithoutImplementation;
+    [Category('Fast')]
     [Test]
     procedure SourceSectionsIgnoreCommentsAndStringsWhenFindingImplementation;
+    [Category('Fast')]
     [Test]
     procedure ModelCarriesOriginalSourceRangesForDeclarationsRoutinesMembersAndLocals;
+    [Category('Fast')]
     [Test]
     procedure ReferencesCarryOriginalSourceRanges;
+    [Category('Fast')]
     [Test]
     procedure ReferenceReconciliationPreservesMixedLineEndings;
+    [Category('Fast')]
     [Test]
     procedure CoordinateMappingPreservesRangesAcrossModelKinds;
+    [Category('Fast')]
     [Test]
     procedure ReferencesCarryOriginalSourceRangesWithoutFallbackForPlainSource;
+    [Category('Fast')]
     [Test]
     procedure ModelPropagatesSourceAndPreprocessDiagnostics;
+    [Category('Fast')]
     [Test]
     procedure StandaloneExtractionReportsDegradedMode;
+    [Category('Fast')]
     [Test]
     procedure UnitModelExtractionIsReentrantForParallelUnits;
+    [Category('Fast')]
     [Test]
     procedure TypeBlockAnalysisIsBuiltOncePerExtraction;
+    [Category('Fast')]
     [Test]
     procedure ReferenceReconciliationScansRepeatedNamesOnce;
+    [Category('Fast')]
     [Test]
     procedure ReferenceReconciliationBuildsOccurrenceTableOnce;
+    [Category('Fast')]
     [Test]
     procedure RoutineReconciliationUsesOffsetMapBeforeFallback;
+    [Category('Fast')]
     [Test]
     procedure ModelJsonPreservesDeclarationRolesAndLexicalOwnership;
+    [Category('Fast')]
     [Test]
     procedure PhysicalOccurrencesJsonRoundTripRetainsStatusAndIndependentArray;
+    [Category('Fast')]
     [Test]
     procedure PhysicalOccurrencesAvailabilityDistinguishesOldAndEmptyModels;
+    [Category('Fast')]
     [Test]
     [TestCase('FlushLeftFull', 'False,False')]
     [TestCase('IndentedFull', 'True,False')]
     [TestCase('FlushLeftLean', 'False,True')]
     [TestCase('IndentedLean', 'True,True')]
     procedure PointerAliasRetainsUnitDeclarationScope(const aIndented, aLean: Boolean);
+    [Category('Fast')]
     [Test]
     procedure AdjacentRoutineHeadersKeepTheirOwnTypeReferenceScope;
+    [Category('Fast')]
     [Test]
     procedure SameLineNestedRoutineEndRestoresOuterReferenceScope;
+    [Category('Fast')]
     [Test]
     procedure PascalLexicalHelpersAreCentralized;
+    [Category('Fast')]
     [Test]
     procedure UnitModelImplementationIsSplitIntoFocusedUnits;
+    [Category('Fast')]
     [Test]
     procedure ProgramRoutineBodiesEndBeforeVarSectionsAndMainBlock;
+    [Category('Fast')]
     [Test]
     procedure InterfaceHeadersAndInitializationGetNoRoutineBody;
+    [Category('Fast')]
     [Test]
     procedure NestedAnonymousAsmAndLocalTypeBodiesAreBounded;
+    [Category('Fast')]
     [Test]
     procedure DeclarationExpressionsAreReferences;
   end;

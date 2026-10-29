@@ -37,10 +37,13 @@ type
       aUnitName, aIdentifier, aReasonFragment: string;
       const aExpectedClassification: TDelphiSemanticUsesClassification);
   public
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure RetainsOrderedImportsAndLifecycleFacts;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure RetainsExecutableRootAndOrderedImports;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     [TestCase('Package list', 'DCC_UsePackage,rtl;vcl')]
     [TestCase('Packages enabled', 'UsePackages,true')]
@@ -48,26 +51,34 @@ type
     [TestCase('Effective package list', '_UsePackage,rtl;vcl')]
     [TestCase('Compiler switches', 'DCC_AdditionalSwitches,-DFIRST')]
     procedure RetainsIndependentCompilerLinkEvidence(const aName, aValue: string);
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure RetainsIndependentReferenceEvidence;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure ResolvesReferencesUnderAlternateImports;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure ComparesKnownBindingsUnderAlternateImports;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     [TestCase('Later unknown reference', 'unknown')]
     [TestCase('Missing snapshot', 'snapshot')]
     [TestCase('Empty references', 'empty')]
     procedure RejectsIncompleteBindingComparison(const aCase: string);
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure ResolvesQualifiedImportsWithoutUnqualifiedFallback;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     [TestCase('Compound qualifier', 'Gone.Leaf.LeafValue')]
     [TestCase('Comment before name', 'Gone.{comment}LeafValue')]
     [TestCase('Expression receiver', '(Leaf).LeafValue')]
     procedure RefusesUnsupportedQualifiedReceiver(const aSource: string);
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure DetectsInitializationOrderChangedByImportMove;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     [TestCase('Missing unit', 'missing')]
     [TestCase('Unknown facts', 'unknown')]
@@ -75,40 +86,56 @@ type
     [TestCase('Duplicate unit', 'duplicate')]
     [TestCase('Missing roots', 'roots')]
     procedure RefusesIncompleteUnitOrder(const aCase: string);
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure PersistsOrderedDependencyFacts;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure RefusesMalformedPersistedDependencyFacts;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure RefusesNonBooleanDependencyEvidence;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure RefusesNonObjectDependencyEvidence;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure PlansRemovalOfAnEmptyImplementationOnlyLeafImport;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksInitializationSensitiveLeafImport;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksInterfaceVisibleImport;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksConditionalUsesClause;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure UnverifiedProviderConditionCannotAuthorizeImportRemoval;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksSubsetAnalysisForProjectWideImportRemoval;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksLeafWithTransitiveOrderUnknown;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksHelperOrOperatorProvider;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure ReportsMissingImplementationImportAsNoOp;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure SuggestsUniqueAndAmbiguousExplicitImportCandidates;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     [TestCase('Default linking', 'default')]
     [TestCase('Disabled packages', 'disabled')]
     [TestCase('Inactive package list', 'inactive-list')]
     procedure ReportsInterfaceImportMoveAsCandidateOnly(const aLinkMode: string);
 
+    [Category('RefactoringLightUses,Fast')]
     [Test]
 
     [TestCase('Active conditional clause', 'conditional')]
@@ -118,6 +145,7 @@ type
     [TestCase('Real record operator provider', 'operator')]
 
     procedure BlocksInterfaceImportMoveForConditionalOrLookupProvider(const aCase: string);
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     [TestCase('Runtime packages', 'UsePackages,true,uses.runtime-packages-unsupported')]
     [TestCase('Enabled packages', 'DCC_EnabledPackages,true,uses.runtime-packages-unsupported')]
@@ -125,32 +153,44 @@ type
     [TestCase('Raw switches', 'DCC_AdditionalSwitches,-LUrtl,uses.compiler-switches-unsupported')]
     [TestCase('Unknown package mode', 'UsePackages,perhaps,uses.compiler-link-context-unknown')]
     procedure BlocksMoveWithUnsupportedCompilerLinkSettings(const aName, aValue, aReason: string);
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksMoveWithUnresolvedUnrelatedReference;
 
+    [Category('RefactoringLightUses,Fast')]
     [Test]
 
     procedure BlocksMoveWithUnresolvedIntrinsicReference;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksInterfaceDefaultReferenceMove;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     [TestCase('Missing reachable unit', 'MissingUnit')]
     [TestCase('Reachable dependency cycle', 'QuietLeaf')]
     procedure BlocksMoveWithIncompleteReachableOrder(const aImport: string);
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure PlansExplicitlySelectedUniqueImport;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksAmbiguousExplicitImportSelection;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksQualifiedReferenceImportRequest;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksProviderWithoutCoProducedSource;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksConditionalExplicitImportRequest;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksInitializationSensitiveExplicitImportProvider;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksHelperExplicitImportProvider;
+    [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure BlocksUnknownExplicitImportReference;
   end;

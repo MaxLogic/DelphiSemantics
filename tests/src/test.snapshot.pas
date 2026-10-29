@@ -9,8 +9,10 @@ type
   [TestFixture]
   TSnapshotTests = class
   public
+    [Category('Fast')]
     [Test]
     procedure MemberKeyPacksOwnerAndNameIds;
+    [Category('Fast')]
     [Test]
     [TestCase('Self member', 'Self,field')]
     [TestCase('Unknown receiver', 'aOther,unknown')]
@@ -19,48 +21,64 @@ type
     [TestCase('Unicode receiver member', 'unicode-member,unknown')]
     [TestCase('Unicode receiver token', 'unicode-token,unknown')]
     procedure QualifiedReferenceDoesNotBindParameter(const aReceiver, aKind: string);
+    [Category('Fast')]
     [Test]
     procedure SnapshotReindexKeepsGlobalRoutineOwnership;
+    [Category('Fast')]
     [Test]
     [TestCase('Known routine scope', 'True')]
     [TestCase('Missing routine scope', 'False')]
     procedure DefaultDeclarationPairUsesKnownScope(const aKnownScope: Boolean);
+    [Category('Fast')]
     [Test]
     [TestCase('Open-array element types', 'array of Integer,array of string')]
     [TestCase('Generic arguments', 'TList<Integer>,TList<string>')]
     procedure OverloadCallsNeverBindToOtherOverload(const aFirstType, aSecondType: string);
+    [Category('Fast')]
     [Test]
     [TestCase('Open-array parameter', 'array of Integer')]
     [TestCase('Generic-argument parameter', 'TList<Integer>')]
     procedure DefaultOnlyDeclarationDifferenceStillPairs(const aParameterType: string);
+    [Category('Fast')]
     [Test]
     [TestCase('Subrange type', '7')]
     [TestCase('Array bound', '8')]
     [TestCase('Set bound', '13')]
     [TestCase('Case label', '16')]
     procedure RangeUpperBoundIsNotQualified(const aLine: Integer);
+    [Category('Fast')]
     [Test]
     procedure ProjectSnapshotIndexesMembersPositionsAndReferences;
+    [Category('Fast')]
     [Test]
     procedure ProjectSnapshotIndexesOnlyExplicitTypeFacts;
+    [Category('Fast')]
     [Test]
     procedure ProjectSnapshotReferenceAtUsesFileLineIndex;
+    [Category('Fast')]
     [Test]
     procedure ProjectSnapshotFreezesUnitsAndExposesReadOnlyStrings;
+    [Category('Fast')]
     [Test]
     procedure ProjectSnapshotUsesPackedMemberKeysAndBuilderBoundary;
     [Test]
     procedure ParallelSnapshotWorkerTimeoutReportsWorkerAndSourceFile;
+    [Category('Fast')]
     [Test]
     procedure SnapshotBuilderResolvesReferenceTargetsWithoutLegacyProjectIndex;
+    [Category('Fast')]
     [Test]
     procedure SnapshotBuilderUsesBoundedWorkerJoins;
+    [Category('Fast')]
     [Test]
     procedure SnapshotWorkerPipelineLivesBehindFocusedBoundary;
+    [Category('Fast')]
     [Test]
     procedure SnapshotWorkerReferenceTargetsUseImmutableLookup;
+    [Category('Fast')]
     [Test]
     procedure SnapshotReferenceTargetsKeepOverloadedRoutineLocalAmbiguityUnresolved;
+    [Category('Fast')]
     [Test]
     [TestCase('literal whitespace', '0')]
     [TestCase('literal case', '1')]
@@ -68,33 +86,47 @@ type
     [TestCase('word boundary', '3')]
     [TestCase('unterminated literal', '4')]
     procedure SnapshotReferenceTargetsPreserveSignatureDistinctions(const aCase: Integer);
+    [Category('Fast')]
     [Test]
     procedure SnapshotReferenceTargetsUseLineQualifiedRoutineForWeakOwners;
+    [Category('Fast')]
     [Test]
     procedure SnapshotReferenceTargetsResolveExtractedClassMethodShadows;
+    [Category('Fast')]
     [Test]
     procedure SnapshotGlobalIsNotShadowedByVarSectionAfterRoutineHeader;
+    [Category('Fast')]
     [Test]
     procedure SnapshotPositionPrefersInnermostSymbol;
+    [Category('Fast')]
     [Test]
     procedure SnapshotReferenceTargetsResolveSymbolMapFixtureShadows;
+    [Category('Fast')]
     [Test]
     procedure ProjectSnapshotMergePreservesCrossUnitDuplicateTargetReferences;
+    [Category('Fast')]
     [Test]
     procedure SnapshotUnitDoesNotUseJsonLiveRepresentation;
+    [Category('Fast')]
     [Test]
     procedure StringPoolInternsStableCaseAwareIds;
+    [Category('Fast')]
     [Test]
     procedure UnitSnapshotAssignsStableDenseFactIds;
+    [Category('Fast')]
     [Test]
     procedure UnitSnapshotFindsWithCandidatesBySourceLine;
+    [Category('Fast')]
     [Test]
     procedure UnitSnapshotChoosesInnermostWithCandidateForSourceLine;
+    [Category('Fast')]
     [Test]
     procedure UnitSnapshotReturnsReferencesForWithWithoutReferenceScan;
+    [Category('Fast')]
     [Test]
     procedure UnitSnapshotStoresFactsAsRecords;
     // DS-659: facts from include text keep the include file and its own position.
+    [Category('Fast')]
     [Test]
     procedure IncludeFactsKeepIncludeFileAndPosition;
   end;

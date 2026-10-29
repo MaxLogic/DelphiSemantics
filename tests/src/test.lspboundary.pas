@@ -11,30 +11,43 @@ type
   [TestFixture]
   TLspBoundaryTests = class
   public
+    [Category('Fast')]
     [Test]
     procedure LspEnrichmentIsDisabledByDefault;
+    [Category('Fast')]
     [Test]
     procedure EnabledDefinitionEnrichmentReportsUnsupportedContract;
+    [Category('Fast')]
     [Test]
     procedure SemanticResultsRemainAuthoritativeByDefault;
+    [Category('Fast')]
     [Test]
     procedure ConvertsOneBasedCliPositionsToZeroBasedProtocol;
+    [Category('Fast')]
     [Test]
     procedure NormalizesFileUrisAndLocationLinks;
+    [Category('Fast')]
     [Test]
     procedure HoverResultsCarryContentsRangeAndEmptyStatus;
+    [Category('Fast')]
     [Test]
     procedure SymbolsRespectQueryLimitFlatteningAndProvenance;
+    [Category('Fast')]
     [Test]
     procedure SymbolFlatteningHandlesHierarchyAndEmptyResults;
+    [Category('Fast')]
     [Test]
     procedure ErrorResultsAreExplicitAndCarryLspProvenance;
+    [Category('Fast')]
     [Test]
     procedure LifecycleReportsInitializeShutdownAndErrors;
+    [Category('Fast')]
     [Test]
     procedure OwnsOfficialSettingsJsonConstruction;
+    [Category('Fast')]
     [Test]
     procedure BuildsOfficialSettingsJsonFromSemanticDto;
+    [Category('Fast')]
     [Test]
     procedure OfficialSettingsJsonNamesCompilerDll;
   end;

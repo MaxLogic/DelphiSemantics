@@ -12,42 +12,47 @@ type
     function TempPath(const aName: string): string;
     function ObservationPath(const aName: string): string;
   public
+    [Category('Fast')]
     [Test]
     procedure LoadFileReportsLfLineEndingProvenance;
+    [Category('Fast')]
     [Test]
     procedure LoadFileReportsMixedLineEndingProvenance;
+    [Category('Fast')]
     [Test]
     procedure LoadFileReportsByteContentHash;
+    [Category('Fast')]
     [Test]
     procedure UnitModelCarriesSourceLoaderProvenance;
+    [Category('Fast')]
     [Test]
     procedure SourceContextUsesLoaderLineBreakForMixedSource;
     [Test]
-    [Category('RefactoringLightObservations')]
+    [Category('RefactoringLightObservations,Fast')]
     procedure ExtractionRetainsOriginalSourceAndIncludeBytes;
     [Test]
-    [Category('RefactoringLightObservations')]
+    [Category('RefactoringLightObservations,Fast')]
     procedure EqualIncludeTextRetainsDistinctByteObservations;
     [Test]
-    [Category('RefactoringLightObservations')]
+    [Category('RefactoringLightObservations,Fast')]
     procedure ConflictingObservationsRefuseCombinedEvidence;
     [Test]
-    [Category('RefactoringLightObservations')]
+    [Category('RefactoringLightObservations,Fast')]
     procedure CacheDoesNotStoreModelUnderEarlierSourceObservation;
     [Test]
-    [Category('RefactoringLightObservations')]
+    [Category('RefactoringLightObservations,Fast')]
     procedure PersistedModelsDoNotInventSourceObservations;
     [Test]
-    [Category('RefactoringLightObservations')]
+    [Category('RefactoringLightObservations,Fast')]
     procedure CacheRefreshesEqualTextIncludeByteEvidence;
     [Test]
-    [Category('RefactoringLightObservations')]
+    [Category('RefactoringLightObservations,Fast')]
     procedure ObservationMergeOrderIsDeterministic;
     [Test]
-    [Category('RefactoringLightObservations')]
+    [Category('RefactoringLightObservations,Fast')]
     procedure RepeatedPreprocessDoesNotRetainEarlierObservations;
     [Test]
-    [Category('RefactoringLightObservations')]
+    [Category('RefactoringLightObservations,Fast')]
     procedure FailedLoadDoesNotRetainEarlierObservations;
   end;
 

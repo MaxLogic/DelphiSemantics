@@ -13,21 +13,29 @@ type
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function ProjectModel(const aUnitName, aFileName: string): TDelphiSemanticUnitModel;
   public
+    [Category('Fast')]
     [Test]
     procedure ExplicitAliasResolvesToCanonicalTarget;
+    [Category('Fast')]
     [TestCase('Distinct targets', 'True')]
     [TestCase('Duplicate target', 'False')]
     procedure AliasConflictsAreUnknown(const aConflict: Boolean);
+    [Category('Fast')]
     [Test]
     procedure ExactScopedUnitNameResolvesWithoutNamespaceFallback;
+    [Category('Fast')]
     [Test]
     procedure NamespaceFallbackResolvesWindowsWhenCompilerContextSelectsWinapi;
+    [Category('Fast')]
     [Test]
     procedure SearchPathOrderChoosesFirstCompilerCandidate;
+    [Category('Fast')]
     [Test]
     procedure PrecompiledDcuCandidateResolvesWhenSourceIsMissing;
+    [Category('Fast')]
     [Test]
     procedure CompilerEquivalentProjectCandidatesReportAmbiguity;
+    [Category('Fast')]
     [Test]
     procedure DottedNameUsesCompilerNamespaceFallback;
   end;
