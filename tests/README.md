@@ -124,10 +124,19 @@ including their passing parameterized cases:
 - UnitNameWitness: ProfileFileCandidatesChangeWitnessIdentity,
   DebugDcuPathsAreCandidateLocations, TranslatedPathsRequireLanguage.
 
-MaxTdbProof stays opt-in and outside Fast. UnitNameWitness tagging is deferred
-until DS-768 integrates; its passing small-fixture candidates are listed in the
-DS-769 proof packet. The two TTestOutputRootTests checks are declared in the DPR
-and remain full-suite-only; DS-769 changes attributes in tests/src only.
+MaxTdbProof stays opt-in and outside Fast. After DS-768, UnitNameWitness adds
+20 methods (81 cases): the passing SDK/include/alias/identity controls plus
+BoundedLookupMatchesFullEnumeration (32 generated layouts),
+ComparerClassLookupMatchesFullEnumeration (370 comparer/native-fallback
+comparisons), ChangedProfilePathGetsFreshScan and
+DirectoryInventoryNoticesAddedAndRemovedCandidates. The four new methods passed
+a focused Win64 Debug probe; their whole-case times were 0.198, 0.594, 0.008 and
+0.006 seconds respectively on THREADRIPPER. These explicit representatives cover
+bounded/full enumeration parity, comparer and native-error fallbacks, fresh
+profile scans and immediate add/remove visibility. The three DS-766 methods
+listed above remain excluded in full. The two TTestOutputRootTests checks are
+declared in the DPR and remain full-suite-only; DS-769 changes attributes in
+tests/src only.
 
 Fast is smoke coverage, not acceptance of every method or route. A slice still
 runs the owning fixture for every area it touches. Fast never replaces the

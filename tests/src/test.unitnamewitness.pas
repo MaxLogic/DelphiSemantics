@@ -19,21 +19,28 @@ type
   public
     [Setup]
     procedure Setup;
+    [Category('Fast')]
     [Test]
     procedure BoundedLookupMatchesFullEnumeration;
+    [Category('Fast')]
     [Test]
     procedure ComparerClassLookupMatchesFullEnumeration;
+    [Category('Fast')]
     [Test]
     procedure ChangedProfilePathGetsFreshScan;
+    [Category('Fast')]
     [Test]
     procedure DirectoryInventoryNoticesAddedAndRemovedCandidates;
+    [Category('Fast')]
     [Test]
     procedure ProjectSourceCannotProveAbsence;
+    [Category('Fast')]
     [TestCase('Project include only', 'project')]
     [TestCase('Two SDK include candidates', 'ambiguous')]
     [TestCase('Nested root fallback', 'nested')]
     [TestCase('Parent escapes source', 'escape')]
     procedure SdkIncludesStayInsideInstallation(const aShape: string);
+    [Category('Fast')]
     [TestCase('Installed Windows aliases', 'windows')]
     [TestCase('Default/project conflict', 'conflict')]
     [TestCase('Project conflict', 'project-conflict')]
@@ -43,20 +50,27 @@ type
     [TestCase('Malformed targets', 'malformed')]
     [TestCase('Other platform', 'other')]
     procedure DefaultAliasesRespectPlatformAndUncertainty(const aShape: string);
+    [Category('Fast')]
     [Test]
     procedure SdkSourceWithoutDcuCannotProveAbsence;
+    [Category('Fast')]
     [TestCase('Same physical candidate', 'False')]
     [TestCase('Different physical candidates', 'True')]
     procedure ScopedAliasCandidatesUsePhysicalIdentity(const aExtraFile: Boolean);
+    [Category('Fast')]
     [Test]
     procedure TokensAreCaseInsensitiveAndIncludeEscapedIdentifiers;
+    [Category('Fast')]
     [Test]
     procedure SourceAndIncludeBytesInvalidateIdentity;
+    [Category('Fast')]
     [Test]
     procedure IncludesAreFollowedAndCyclesTerminate;
+    [Category('Fast')]
     [TestCase('Pascal shadow', 'pas')]
     [TestCase('DCU shadow', 'dcu')]
     procedure DuplicateLookupDirectoriesAreUnknown(const aExtension: string);
+    [Category('Fast')]
     [TestCase('I tab', 'I,tab,brace')]
     [TestCase('INCLUDE tab', 'INCLUDE,tab,brace')]
     [TestCase('Parenthesis I tab', 'I,tab,paren')]
@@ -69,7 +83,7 @@ type
     [TestCase('Library DCU', 'library-dcu')]
     [TestCase('Browsing Pascal', 'browsing-pas')]
     [TestCase('Browsing DCU', 'browsing-dcu')]
-    [Category('DS719Review2')]
+    [Category('DS719Review2,Fast')]
     procedure CandidateLocationUnionCannotProveAbsence(const aShape: string);
     [TestCase('INCLUDE plus', 'INCLUDE+names.inc,+names.inc')]
     [TestCase('INCLUDE minus', 'INCLUDE-names.inc,-names.inc')]
@@ -97,11 +111,11 @@ type
     [TestCase('Outside include scope EXCESSPRECISION', 'EXCESSPRECISION value,')]
     [TestCase('Missing INCLUDE filename', 'INCLUDE,<include-unclassified>')]
     [TestCase('Other directive name', 'INCLUDEX names.inc,')]
-    [Category('DS719Review2')]
+    [Category('DS719Review2,Fast')]
     procedure IncludeDirectiveGrammar(const aDirective, aExpected: string);
     [TestCase('INCLUDE plus brace', 'brace')]
     [TestCase('INCLUDE plus parentheses', 'paren')]
-    [Category('DS719Review2')]
+    [Category('DS719Review2,Fast')]
     procedure PlusIncludeContentChangesIdentity(const aForm: string);
     [Test]
     [Category('DS719Review2')]
@@ -112,9 +126,10 @@ type
     [TestCase('SDK pair plus external DCU', 'external-dcu')]
     [TestCase('SDK pair plus other installation DCU', 'other-installation')]
     [TestCase('SDK DCU without source', 'dcu-only')]
-    [Category('DS719Pairing')]
+    [Category('DS719Pairing,Fast')]
     procedure SdkPairingDoesNotHideExtraCandidates(const aShape: string);
 
+    [Category('Fast')]
     [TestCase('String', 'string')]
     [TestCase('Line comment', 'line')]
     [TestCase('Brace comment', 'brace')]
@@ -133,6 +148,7 @@ type
     [TestCase('EnvOptions empty LANGDIR', 'profile,DelphiTranslatedDebugLibraryPath,')]
     procedure TranslatedPathsRequireLanguage(const aOrigin, aProperty, aLanguage: string);
 
+    [Category('Fast')]
     [TestCase('Missing', 'no-source')]
     [TestCase('Dcu', 'dcu-only')]
     [TestCase('WrongHeader', 'unit-name-mismatch')]
