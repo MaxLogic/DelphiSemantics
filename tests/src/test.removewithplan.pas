@@ -48,6 +48,7 @@ type
     [TestCase('Call refusal', 'call')]
     [TestCase('Different unsupported reason', 'other-code')]
     [TestCase('Lexical control', 'lexical')]
+    [TestCase('Lexical without denial control', 'lexical-clean')]
     procedure HelperRefusalSurvivesHandBuiltBinding(const aMode: string);
     [TestCase('Same include unknown in later type', 'after')]
     [TestCase('Same include unknown in earlier type', 'before')]
@@ -26731,12 +26732,15 @@ begin
       lFacts.Bindings[0].References[i].ReasonCode := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
       if aMode = 'other-code' then
         lFacts.Bindings[0].References[i].ReasonCode := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
-      if aMode = 'lexical' then
+      if MatchText(aMode, ['lexical', 'lexical-clean']) then
         lFacts.Bindings[0].References[i].Classification := 'lexical';
+      if aMode = 'lexical-clean' then
+        lFacts.Bindings[0].References[i].ReasonCode := '';
     end;
   lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
   Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
-  if MatchText(aMode, ['other-code', 'lexical']) then
+  // DS-719 A-271: lexical classification cannot erase a retained denial code.
+  if MatchText(aMode, ['other-code', 'lexical-clean']) then
   begin
     Assert.AreEqual('', lPlan.FinalStatements[0].Reason);
     Assert.AreEqual('', lPlan.FinalStatements[0].SafetyReason);

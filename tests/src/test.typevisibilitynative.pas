@@ -92,6 +92,8 @@ var
   lJson, lStatement, lEdit, lSelector, lModelJson, lDeclarationJson: TJSONObject;
   lStatements, lEdits, lSelectors, lModels, lDiagnostics, lDeclarations: TJSONArray;
   lSelectorIndex: Integer;
+  lReferences: TJSONArray;
+  lReference: TJSONObject;
 begin
   lJson := TJSONObject.Create;
   try
@@ -123,6 +125,29 @@ begin
         lEdit.AddPair('text', lTextEdit.ReplacementText);
       end;
     end;
+    lReferences := TJSONArray.Create;
+    lJson.AddPair('references', lReferences);
+    if aSnapshot <> nil then
+    begin
+      for var lBinding in aSnapshot.RemoveWithPlanningFacts.Bindings do
+        for var lItem in lBinding.References do
+        begin
+          lReference := TJSONObject.Create;
+          lReferences.AddElement(lReference);
+          lReference.AddPair('name', aSnapshot.ExactTextOf(lItem.NameId));
+          lReference.AddPair('classification', aSnapshot.ExactTextOf(lItem.ClassificationId));
+          lReference.AddPair('code', aSnapshot.ExactTextOf(lItem.ReasonCodeId));
+        end;
+    end else
+      for var lBinding in aFacts.Bindings do
+        for var lItem in lBinding.References do
+        begin
+          lReference := TJSONObject.Create;
+          lReferences.AddElement(lReference);
+          lReference.AddPair('name', lItem.Name);
+          lReference.AddPair('classification', lItem.Classification);
+          lReference.AddPair('code', lItem.ReasonCode);
+        end;
     lSelectors := TJSONArray.Create;
     lJson.AddPair('selectors', lSelectors);
     lModels := TJSONArray.Create;
@@ -240,9 +265,39 @@ begin
   end;
 end;
 
+procedure CheckCollisionDenial(const aFileName, aName: string);
+var
+  lJson: TJSONObject;
+  lCount: Integer;
+begin
+  lJson := TJSONObject.ParseJSONValue(TFile.ReadAllText(aFileName)) as TJSONObject;
+  try
+    for var lSelector in lJson.GetValue<TJSONArray>('selectors') do
+      Assert.AreEqual('resolved', lSelector.GetValue<string>('status'), aFileName);
+    lCount := 0;
+    for var lReference in lJson.GetValue<TJSONArray>('references') do
+      if SameText(lReference.GetValue<string>('name'), aName) or
+        (Pos(LowerCase(aName) + '[', LowerCase(lReference.GetValue<string>('name'))) = 1) then
+      begin
+        Inc(lCount);
+        Assert.AreEqual('HELPER_COLLISION_UNVERIFIED', lReference.GetValue<string>('code'), aFileName);
+      end;
+    Assert.IsTrue(lCount > 0, 'The denied body reference must be stored: ' + aFileName);
+    for var lStatement in lJson.GetValue<TJSONArray>('statements') do
+    begin
+      Assert.AreEqual('skipped', lStatement.GetValue<string>('status'), aFileName);
+      Assert.AreEqual('HELPER_COLLISION_UNVERIFIED', lStatement.GetValue<string>('safety'), aFileName);
+      Assert.AreEqual(0, lStatement.GetValue<TJSONArray>('edits').Count, aFileName);
+    end;
+  finally
+    lJson.Free;
+  end;
+end;
+
 procedure CompareCompiler(const aFull: Boolean);
 var
-  lRoot, lArgument, lCaseRoot, lBds: string;
+  lRoot, lArgument, lCaseRoot, lBds, lDenialName, lRouteFile: string;
+  lPhase: Integer;
   lCases: TJSONArray;
   lOptions: TDelphiSemanticApiOptions;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
@@ -281,6 +336,9 @@ begin
       lOptions.Configuration := 'Debug';
       lOptions.Platform := 'Win64';
       lOptions.Cache.SqliteCacheFileName := TPath.Combine(lCaseRoot, 'session.sqlite');
+      lDenialName := lCase.GetValue<string>('denial_reference', '');
+      for lPhase := 0 to Ord(lDenialName <> '') do
+      begin
       lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
       for var i := 0 to 4 do
       begin
@@ -332,7 +390,10 @@ begin
           try
             Assert.IsTrue(lSession.Success, lCaseRoot);
             lBuild := lSession.Session.PlanRemoveWithResult;
-            Assert.AreEqual(i - 3, Integer(lBuild.SnapshotMetrics.SnapshotCacheHits));
+            if lPhase = 0 then
+              Assert.AreEqual(i - 3, Integer(lBuild.SnapshotMetrics.SnapshotCacheHits))
+            else
+              Assert.AreEqual(1, Integer(lBuild.SnapshotMetrics.SnapshotCacheHits));
             lPlan := lBuild.Plan;
             lLoaded := LoadSessionSnapshot(lOptions.Cache.SqliteCacheFileName);
             try
@@ -345,6 +406,14 @@ begin
             lSession.Session.Free;
           end;
         end;
+        if lDenialName <> '' then
+        begin
+          lRouteFile := TPath.Combine(lCaseRoot, Format('route-%d.json', [i]));
+          CheckCollisionDenial(lRouteFile, lDenialName);
+          TFile.Copy(lRouteFile, TPath.Combine(lCaseRoot,
+            Format('phase-%d-route-%d.json', [lPhase, i])));
+        end;
+      end;
       end;
       Writeln('DS719 planned routes: ', lCase.GetValue<string>('name'));
     end;

@@ -531,6 +531,32 @@ def r8_cases(repo, root):
     return cases
 
 
+def denial_cases(root):
+    cases = []
+    for shape in ('call', 'indexed'):
+        name = shape + '-collision-denial'
+        folder = root / name
+        if shape == 'call':
+            member = 'function Count: Integer;'
+            helper = 'function Count: Integer;'
+            bodies = ('function TRec.Count: Integer; begin Result := 11; end;\n'
+                      'function THelp.Count: Integer; begin Result := 19; end;\n')
+            expression = 'Count()'
+        else:
+            member = 'Items: array[0..0] of Integer;'
+            helper = 'function GetItem(Index: Integer): Integer; property Items[Index: Integer]: Integer read GetItem;'
+            bodies = 'function THelp.GetItem(Index: Integer): Integer; begin Result := 19; end;\n'
+            expression = 'Items[0]'
+        write(folder / 'Unit1.pas', 'unit Unit1;\ninterface\ntype TRec = record ' + member +
+              ' end;\nTHelp = record helper for TRec ' + helper + ' end;\n' +
+              'procedure Run;\nimplementation\n' + bodies +
+              'procedure Run;\nvar R: TRec;\n  OutValue: Integer;\nbegin\n' +
+              '  with R do OutValue := ' + expression + ';\n  Writeln(OutValue);\nend;\nend.\n')
+        project(folder, ['Unit1'])
+        cases.append(dict(name=name, root=str(folder), family='binder-denial', denial_reference=expression.split('(')[0].split('[')[0]))
+    return cases
+
+
 def generate(repo, root, full, only=""):
     cases = []
     for si, shape in enumerate(SHAPES):
@@ -644,6 +670,7 @@ def generate(repo, root, full, only=""):
             project(folder, refs)
             cases.append({"name": shape, "root": str(folder), "family": "anonymous-record-E2003"})
     cases.extend(r7_cases(repo, root))
+    cases.extend(denial_cases(root))
     if full:
         cases.extend(r8_cases(repo, root))
         # DS-719 recovery 3q: the paired-control obligation is separate from

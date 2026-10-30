@@ -2327,6 +2327,24 @@ type
     [TestCase('planner-keeps-collision-record', 'collision')]
     [TestCase('planner-keeps-selector-denial', 'selector')]
     [TestCase('planner-refuses-unresolved-selector', 'unresolved')]
+    [TestCase('fault-selector-code-blocks', 'fault')]
+    [TestCase('planner-refuses-unsupported-selector', 'unsupported')]
+    [TestCase('absolute-selector-HELPER_COLLISION_UNVERIFIED', 'selector:HELPER_COLLISION_UNVERIFIED')]
+    [TestCase('absolute-selector-RECORD_HELPER_MEMBERS_UNVERIFIED', 'selector:RECORD_HELPER_MEMBERS_UNVERIFIED')]
+    [TestCase('absolute-selector-ALIAS_RECEIVER_MEMBERS_UNVERIFIED', 'selector:ALIAS_RECEIVER_MEMBERS_UNVERIFIED')]
+    [TestCase('absolute-selector-TYPE_VALUE_MEMBERS_UNVERIFIED', 'selector:TYPE_VALUE_MEMBERS_UNVERIFIED')]
+    [TestCase('absolute-selector-TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED', 'selector:TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED')]
+    [TestCase('absolute-selector-SELECTOR_MEMBERS_UNVERIFIED', 'selector:SELECTOR_MEMBERS_UNVERIFIED')]
+    [TestCase('absolute-selector-TYPE_VISIBILITY_UNPROVED', 'selector:TYPE_VISIBILITY_UNPROVED')]
+    [TestCase('absolute-selector-PARENT_SELECTOR_UNRESOLVED', 'selector:PARENT_SELECTOR_UNRESOLVED')]
+    [TestCase('absolute-reference-HELPER_COLLISION_UNVERIFIED', 'reference:HELPER_COLLISION_UNVERIFIED')]
+    [TestCase('absolute-reference-RECORD_HELPER_MEMBERS_UNVERIFIED', 'reference:RECORD_HELPER_MEMBERS_UNVERIFIED')]
+    [TestCase('absolute-reference-ALIAS_RECEIVER_MEMBERS_UNVERIFIED', 'reference:ALIAS_RECEIVER_MEMBERS_UNVERIFIED')]
+    [TestCase('absolute-reference-TYPE_VALUE_MEMBERS_UNVERIFIED', 'reference:TYPE_VALUE_MEMBERS_UNVERIFIED')]
+    [TestCase('absolute-reference-TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED', 'reference:TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED')]
+    [TestCase('absolute-reference-SELECTOR_MEMBERS_UNVERIFIED', 'reference:SELECTOR_MEMBERS_UNVERIFIED')]
+    [TestCase('absolute-reference-TYPE_VISIBILITY_UNPROVED', 'reference:TYPE_VISIBILITY_UNPROVED')]
+    [TestCase('absolute-reference-PARENT_SELECTOR_UNRESOLVED', 'reference:PARENT_SELECTOR_UNRESOLVED')]
     procedure PlannerKeepsBinderDenial(const aShape: string);
     [Test]
     procedure HelperAndTypeMemberCollisionRefuses;
@@ -8035,6 +8053,7 @@ end;
 
 procedure TWithBinderTests.PlannerKeepsBinderDenial(const aShape: string);
 var
+  lCode: string;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lOptions: TDelphiSemanticApiOptions;
   lPlan: TDelphiSemanticRemoveWithPlan;
@@ -8074,7 +8093,25 @@ begin
     // denial must survive even when that same inventory can rebuild its type.
     lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
     Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, 'positive control');
-    if aShape = 'selector' then
+    lCode := Copy(aShape, Pos(':', aShape) + 1, MaxInt);
+    if StartsText('selector:', aShape) then
+    begin
+      Assert.IsTrue(BinderDenialCode(lCode));
+      lFacts.Bindings[0].Selectors[0].ReasonCode := lCode;
+    end else if StartsText('reference:', aShape) then
+    begin
+      Assert.IsTrue(BinderDenialCode(lCode));
+      lFacts.Bindings[0].References[0].ReasonCode := lCode;
+    end else if aShape = 'fault' then
+    begin
+      Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].Status);
+      Assert.IsTrue(Length(lFacts.Bindings[0].References) > 0);
+      lFacts.Bindings[0].References[0].ReasonCode := 'SELECTOR_MEMBERS_UNVERIFIED';
+    end else if aShape = 'unsupported' then
+    begin
+      lFacts.Bindings[0].Selectors[0].Status := 'unsupported';
+      lFacts.Bindings[0].Selectors[0].ReasonCode := 'ARBITRARY_DENIAL';
+    end else if aShape = 'selector' then
     begin
       lFacts.Bindings[0].Selectors[0].Status := 'unsupported';
       lFacts.Bindings[0].Selectors[0].ReasonCode := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
@@ -8093,11 +8130,17 @@ begin
     Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
     if aShape = 'collision' then
       Assert.AreEqual('HELPER_COLLISION_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason)
+    else if StartsText('reference:', aShape) then
+      Assert.AreEqual(lCode, lPlan.FinalStatements[0].SafetyReason)
+    else if aShape = 'fault' then
+      Assert.AreEqual('SELECTOR_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason)
     else
       Assert.AreEqual('selector-type-not-resolved', lPlan.FinalStatements[0].SafetyReason);
     Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
     Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Edits)));
     Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Temps)));
+    Assert.AreEqual(0, Integer(Length(lPlan.Edits)),
+      'An absolute binder refusal must leave no candidate edit: ' + aShape);
   end;
 end;
 
@@ -12892,7 +12935,10 @@ begin
     Exit;
   end;
   Assert.AreEqual('skipped', lStatement.Status, aShape + ': ' + lStatement.Reason);
-  if aShape = 'fix-local-strong' then
+  // DS-719 A-268: the absolute selector guard owns this cold-route reason.
+  if (aShape = 'fix-local-strong') and (aMode = 'cold') then
+    Assert.AreEqual('selector-type-not-resolved', lStatement.SafetyReason)
+  else if aShape = 'fix-local-strong' then
     Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED', lStatement.SafetyReason)
   else
     Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
@@ -13405,7 +13451,10 @@ begin
     Exit;
   end;
   Assert.AreEqual('skipped', lStatement.Status, aShape + ': ' + lStatement.Reason);
-  if aShape = 'nested-local-strong' then
+  // DS-719 A-269: the absolute selector guard owns this cold-route reason.
+  if (aShape = 'nested-local-strong') and (aMode = 'cold') then
+    Assert.AreEqual('selector-type-not-resolved', lStatement.SafetyReason)
+  else if aShape = 'nested-local-strong' then
     Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED', lStatement.SafetyReason)
   else
     Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
@@ -17571,7 +17620,10 @@ begin
     Exit;
   end;
   Assert.AreEqual('skipped', lStatement.Status, aShape + ': ' + lStatement.Reason);
-  if lLocal then
+  // DS-719 A-270: retain the local strong-alias refusal, with the selector reason.
+  if (aShape = 'opus-e7-forward-nested-strong') and (aMode = 'cold') then
+    Assert.AreEqual('selector-type-not-resolved', lStatement.SafetyReason)
+  else if lLocal then
     Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED', lStatement.SafetyReason)
   else if MatchText(aShape, ['r5-multi-name', 'r5-multi-size', 'r5-multi-indexed',
     'r5-comment-name', 'r5-comment-size', 'r5-comment-indexed',

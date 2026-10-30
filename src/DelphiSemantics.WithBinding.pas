@@ -290,6 +290,9 @@ type
       TArray<TDelphiSemanticInventorySymbol>; static;
   end;
 
+// Shared by binder adapters and planner before inventory recovery or persistence.
+function BinderDenialCode(const aCode: string): Boolean;
+
 // WITH-only verification must not become rename/find-usages reference output.
 function WithBindingForPlanning(const aBinding: TDelphiSemanticWithBinding):
   TDelphiSemanticWithBinding;
@@ -305,6 +308,14 @@ uses
   DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.NameSites, DelphiSemantics.Resolve.SelectorTypes,
   DelphiSemantics.Source, DelphiSemantics.SourceConditionals, DelphiSemantics.WithBinding.Inventory,
   MaxLogic.StrUtils;
+
+function BinderDenialCode(const aCode: string): Boolean;
+begin
+  Result := MatchText(aCode, ['HELPER_COLLISION_UNVERIFIED', 'RECORD_HELPER_MEMBERS_UNVERIFIED',
+    'ALIAS_RECEIVER_MEMBERS_UNVERIFIED', 'TYPE_VALUE_MEMBERS_UNVERIFIED',
+    'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED', 'SELECTOR_MEMBERS_UNVERIFIED',
+    'TYPE_VISIBILITY_UNPROVED', 'PARENT_SELECTOR_UNRESOLVED']);
+end;
 
 type
   IDelphiSemanticRemoveWithLookupActivityData = interface
@@ -2550,10 +2561,10 @@ begin
       lBound := Default(TBoundMemberResolution);
       Exit(TMemberVerdict.NotPresent);
     end;
-    if lRefusalCode = 'RECORD_HELPER_MEMBERS_UNVERIFIED' then
+    if BinderDenialCode(lRefusalCode) then
     begin
       lBound.Value.ReasonCode := lRefusalCode;
-      lBound.Value.Reason := 'A visible record helper of the receiver has members that are not indexed.';
+      lBound.Value.Reason := 'The receiver member absence is not verified.';
     end;
     Exit(MemberVerdictFromBound(lBound));
   end;
@@ -4447,10 +4458,8 @@ begin
       end;
       noUnproved, noAmbiguous:
       begin
-        // Base's call path has only these two dedicated receiver refusals.
-        if MatchText(lVerdict.Cause, ['helper-collision', 'helper-unknown']) or
-          MatchText(lVerdict.ReasonCode, ['RECORD_HELPER_MEMBERS_UNVERIFIED',
-          'ALIAS_RECEIVER_MEMBERS_UNVERIFIED']) then
+        // A binder denial must survive the call adapter before persistence.
+        if BinderDenialCode(lVerdict.ReasonCode) then
           Exit(CacheBoundReference(aReferenceCache, lKey,
             MakeMemberBoundReference(lCallName, 'unsupported', lVerdict)));
         Exit(CacheBoundReference(aReferenceCache, lKey,
@@ -4500,12 +4509,11 @@ begin
     lStopwatch.Stop;
     Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
     case lVerdict.Outcome of
-      noUnproved:
-        if MatchText(lVerdict.Cause, ['helper-collision', 'helper-unknown']) or
-          SameText(lVerdict.ReasonCode, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') then
+      noUnproved, noAmbiguous:
+        if BinderDenialCode(lVerdict.ReasonCode) then
           Exit(CacheBoundReference(aReferenceCache, lKey,
             MakeMemberBoundReference(aName, 'unsupported', lVerdict)));
-      noResolved, noAmbiguous, noAbsent: ;
+      noResolved, noAbsent: ;
     end;
     lStopwatch := TStopwatch.StartNew;
     lResult := ResolveNameCached(aModel, Default(TDelphiSemanticResolveContext),

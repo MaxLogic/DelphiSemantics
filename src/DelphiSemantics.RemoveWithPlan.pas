@@ -3363,12 +3363,8 @@ begin
   end;
 end;
 
-function BinderDenialCode(const aCode: string): Boolean;
-begin
-  Result := MatchText(aCode, ['HELPER_COLLISION_UNVERIFIED', 'RECORD_HELPER_MEMBERS_UNVERIFIED',
-    'ALIAS_RECEIVER_MEMBERS_UNVERIFIED', 'TYPE_VALUE_MEMBERS_UNVERIFIED',
-    'TYPE_VISIBILITY_UNPROVED', 'PARENT_SELECTOR_UNRESOLVED']);
-end;
+const
+  cAbsoluteSelectorRefusal = 'selector-type-not-resolved';
 
 function BuildSelectorDecision(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
@@ -3390,9 +3386,9 @@ begin
   Result := False;
   aReason := '';
   aDecision := Default(TFinalSelectorDecision);
-  if SameText(aSelector.Status, 'unresolved') or BinderDenialCode(aSelector.ReasonCode) then
+  if not SameText(aSelector.Status, 'resolved') or BinderDenialCode(aSelector.ReasonCode) then
   begin
-    aReason := 'selector-type-not-resolved';
+    aReason := cAbsoluteSelectorRefusal;
     Exit;
   end;
   lPointerCast := ResolvedPointerCastSelector(aBinding, aSelectorText);
@@ -4173,8 +4169,7 @@ var
   lMatch: Integer;
   lReferenceName: string;
 begin
-  if SameText(aReference.Classification, 'unsupported') and
-    BinderDenialCode(aReference.ReasonCode) then
+  if BinderDenialCode(aReference.ReasonCode) then
   begin
     aQualifierText := '';
     Exit(TFinalReferenceQualification.NoMatch);
@@ -4614,8 +4609,7 @@ function ReferenceBlocksFinalRewrite(const aFacts: TRemoveWithPlanFacts;
   const aLineCache: TDelphiSemanticSourceContextCache;
   out aReason: string): Boolean;
 begin
-  if SameText(aReference.Classification, 'unsupported') and
-    BinderDenialCode(aReference.ReasonCode) then
+  if BinderDenialCode(aReference.ReasonCode) then
   begin
     aReason := aReference.ReasonCode;
     Exit(True);
@@ -8690,7 +8684,9 @@ begin
           lRejectedCandidate := False;
           if SameText(lEdit.Kind, 'remove-with-candidate') then
             for lFinalStatement in Result.FinalStatements do
-              if (SameText(lFinalStatement.Reason, 'receiver-member-owner-conflict') or
+              if (BinderDenialCode(lFinalStatement.SafetyReason) or
+                SameText(lFinalStatement.SafetyReason, cAbsoluteSelectorRefusal) or
+                SameText(lFinalStatement.Reason, 'receiver-member-owner-conflict') or
                 SameText(lFinalStatement.Reason, 'receiver-member-unqualified') or
                 SameText(lFinalStatement.SafetyReason, 'TYPE_VISIBILITY_UNPROVED') or
                 SameText(lFinalStatement.SafetyReason, 'TYPE_VALUE_MEMBERS_UNVERIFIED') or
