@@ -185,6 +185,12 @@ type
     [TestCase('Forward', 'False')]
     [TestCase('Reverse', 'True')]
     procedure HelperQueriesKeepExactFileImports(const aReverse: Boolean);
+    [Category('Fast')]
+    [TestCase('BodyOnly', 'body,False')]
+    [TestCase('UnitScope', 'unit,True')]
+    [TestCase('MissingEvidence', 'missing,True')]
+    procedure HelperScopeSeparatesBodyActivity(const aShape: string; const aOpen: Boolean);
+
 
 
     [Category('Fast')]
@@ -1970,6 +1976,58 @@ begin
     Assert.AreEqual(aUnit, lResult.Identity.UnitName);
     if aStatus = 'unproved' then
       Assert.AreEqual('helper-unknown', lResult.Cause);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.HelperScopeSeparatesBodyActivity(const aShape: string;
+  const aOpen: Boolean);
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath, lSource: string;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lLineage: TDelphiSemanticLineage;
+  lResult: TDelphiSemanticHelperResolution;
+  lSite: TDelphiSemanticNameSite;
+  lWith: TDelphiSemanticWithStatement;
+begin
+  lPath := TPath.Combine(CreateTestTempRoot('ds719-helper-activity-temp'), 'HelperActivity.pas');
+  lSource := 'unit HelperActivity;'#13#10'interface'#13#10 +
+    'type TRec = record X: Integer; end;'#13#10;
+  if aShape = 'unit' then
+    lSource := lSource + '{$IF UseFast}'#13#10 +
+      'type THelp = record helper for TRec procedure M; end;'#13#10'{$IFEND}'#13#10;
+  lSource := lSource + 'implementation'#13#10'procedure Run;'#13#10'begin'#13#10;
+  if aShape <> 'unit' then
+    lSource := lSource + '{$IF UseFast} WriteLn(1); {$IFEND}'#13#10;
+  lSource := lSource + 'end;'#13#10'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(Length(lModel.Diagnostics) > 0, 'The conditional must actually be unverified.');
+  if aShape = 'missing' then
+    lModel.VerifiedActiveSourceText := '';
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    Assert.IsFalse(lGraph.Units[0].TypeNamesKnown,
+      'Body uncertainty remains visible to existing type-name consumers.');
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lLineage := lIndex.ResolveLineage(lIndex.ResolveQualifiedName('HelperActivity.TRec').Identity);
+    Assert.IsTrue(lLineage.Complete);
+    lWith := Default(TDelphiSemanticWithStatement);
+    lWith.Line := 100;
+    lWith.Column := 1;
+    lSite := TDelphiSemanticNameSites.AtWithStatement(lModel, lWith, '',
+      Default(TDelphiSemanticGraphTypeId));
+    lResult := lIndex.ResolveHelpersAt(lLineage, lSite);
+    Assert.AreEqual(aOpen, lResult.OpenFromLevel = 0,
+      'Only verified routine-contained uncertainty may leave helper levels closed.');
   finally
     lGraph.Free;
   end;

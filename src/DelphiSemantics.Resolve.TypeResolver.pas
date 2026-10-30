@@ -1246,7 +1246,7 @@ begin
     OpenLevel(High(Result.Levels));
   end;
   if not aLineage.Complete or not FindHelperSiteUnit(aSite, lUnit) or
-    not lUnit.TypeNamesKnown then
+    not lUnit.HelperScopeKnown then
   begin
     OpenLevel(0);
     Exit;
@@ -1291,7 +1291,7 @@ begin
       end;
       lLookup := ResolveHelperInUnit(Result.Levels[i].Identity, aSite, lUnitName,
         SameText(lUnitName, aSite.UnitName), True);
-      if not lUnit.TypeNamesKnown then
+      if not lUnit.HelperScopeKnown then
         OpenLevel(i);
       if lLookup.Outcome in [noUnproved, noAmbiguous] then
       begin

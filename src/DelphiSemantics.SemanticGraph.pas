@@ -53,6 +53,7 @@ type
     AliasConflictNames: TArray<string>;
     TypeNamesKnown: Boolean;
     HelperFactsKnown: Boolean;
+    HelperScopeKnown: Boolean;
     UnindexedHelpers: TArray<TDelphiSemanticUnindexedHelperFact>;
     SourceText: string;
     SourceRange: TDelphiSemanticSourceRange;
@@ -357,6 +358,63 @@ begin
   Result.FileName := aModel.FileName;
 end;
 
+function HelperScopeIsKnown(const aModel: TDelphiSemanticUnitModel): Boolean;
+var
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lRoutine: TDelphiSemanticRoutine;
+  lOutside: string;
+  lContained: Boolean;
+  lLineStarts: TArray<Integer>;
+  i, lFinish: Integer;
+begin
+  Result := aModel.Success and MatchText(aModel.ScopeModelStatus, ['ast', 'ast-interface-only']);
+  if not Result then
+    Exit;
+  lLineStarts := [1];
+  for i := 1 to Length(aModel.SourceText) do
+    if aModel.SourceText[i] = #10 then
+      lLineStarts := lLineStarts + [i + 1];
+  for lDiagnostic in aModel.Diagnostics do
+    if MatchText(lDiagnostic.Code, ['UNVERIFIED_PREPROCESS_CONDITION',
+      'UNSUPPORTED_PREPROCESS_DIRECTIVE', 'UNMATCHED_PREPROCESS_DIRECTIVE']) then
+    begin
+      if aModel.VerifiedActiveSourceText = '' then
+        Exit(False);
+      lContained := False;
+      for lRoutine in aModel.Routines do
+        if SameText(lDiagnostic.FileName, aModel.FileName) and
+          ((lRoutine.FileName = '') or SameText(lRoutine.FileName, aModel.FileName)) and
+          (lRoutine.Offset > 0) and (lRoutine.AstScopeKind = 'body') and (lRoutine.ScopeId <> '') and
+          (lRoutine.EndLine <= Length(lLineStarts)) and (lRoutine.EndColumn > 0) and
+          (lDiagnostic.Line >= lRoutine.Line) and (lDiagnostic.Line <= lRoutine.EndLine) then
+          lContained := True;
+      if not lContained then
+        Exit(False);
+    end;
+  // A conditional begun in a routine can still taint later declarations.
+  // Exclude only complete physical routine ranges, then inspect activity of
+  // all remaining source. Unit-wide TypeNamesKnown stays unchanged.
+  lOutside := aModel.SourceText;
+  for lRoutine in aModel.Routines do
+    if ((lRoutine.FileName = '') or SameText(lRoutine.FileName, aModel.FileName)) and
+      (lRoutine.Offset > 0) and (lRoutine.AstScopeKind = 'body') and (lRoutine.ScopeId <> '') and
+      (lRoutine.EndLine > lRoutine.Line) and
+      (lRoutine.EndLine <= Length(lLineStarts)) and (lRoutine.EndColumn > 0) then
+    begin
+      // EndOffset is the name token's end; the AST body ends at EndLine/EndColumn.
+      lFinish := lLineStarts[lRoutine.EndLine - 1] + lRoutine.EndColumn - 1;
+      if (lFinish <= lRoutine.Offset) or (lFinish > Length(lOutside) + 1) then
+        Exit(False);
+      for i := lRoutine.Offset to lFinish - 1 do
+        lOutside[i] := #0;
+    end;
+  for i := 1 to Length(lOutside) do
+    if not CharInSet(lOutside[i], [#0, #9, #10, #13, ' ']) and
+      TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
+        aModel.VerifiedActiveSourceText, i) then
+      Exit(False);
+end;
+
 function BuildUnit(const aProjectId: TDelphiSemanticProjectGraphId;
   const aProject: TDelphiSemanticProjectInfo; const aModel: TDelphiSemanticUnitModel;
   const aModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticGraphUnit;
@@ -389,6 +447,7 @@ begin
     if MatchText(lDiagnostic.Code, ['UNVERIFIED_PREPROCESS_CONDITION',
       'UNSUPPORTED_PREPROCESS_DIRECTIVE', 'UNMATCHED_PREPROCESS_DIRECTIVE']) then
       Result.TypeNamesKnown := False;
+  Result.HelperScopeKnown := HelperScopeIsKnown(aModel);
   Result.UnindexedHelpers := aModel.UnindexedHelpers;
   var lHelperDiagnosticCount := 0;
   for var lDiagnostic in aModel.Diagnostics do
