@@ -1,4 +1,4 @@
-unit Test.UnitNameWitness;
+﻿unit Test.UnitNameWitness;
 
 interface
 
@@ -859,6 +859,10 @@ begin
   fProject.Properties[0].Value := lLibrary;
   lWitness := Witness(lRoot);
   Assert.AreEqual(aShape <> 'pair', lWitness.MayDeclare('U', 'Absent'), aShape);
+  var lPairing: IDelphiSemanticSdkUnitPairing;
+  Assert.IsTrue(Supports(lWitness, IDelphiSemanticSdkUnitPairing, lPairing));
+  Assert.AreEqual(aShape = 'pair', lPairing.IsSdkPaired('U'),
+    'DS-719 2.10: helper exemption requires the same conservative SDK pairing.');
   if aShape = 'pair' then
     Assert.IsTrue(lWitness.IdentityText.Contains('witness=U|'), lWitness.IdentityText)
   else

@@ -1,4 +1,4 @@
-unit Test.TypeResolver;
+﻿unit Test.TypeResolver;
 
 interface
 
@@ -95,6 +95,84 @@ type
     [Category('Fast')]
     [Test]
     procedure LaterKnownAncestorWinsOverEarlierUnknownImport;
+    [Category('Fast')]
+    [Test]
+    [TestCase('ImportedNoPosition', 'imported,resolved,,TypeUnitA')]
+    [TestCase('OwnBefore', 'before,resolved,,SiteUnit')]
+    [TestCase('OwnLater', 'later,resolved,,TypeUnitA')]
+    [TestCase('OwnMissingPosition', 'position,unproved,position-unknown,')]
+    [TestCase('OwnCrossFile', 'include,unproved,position-unknown,')]
+    [TestCase('OwnTypeNamesUnknown', 'conditional,unproved,type-names-unknown,')]
+    [TestCase('LaterUnknown', 'unknown,unproved,later-unknown-unit,')]
+    [TestCase('UnknownWithoutCandidate', 'absent-unknown,unproved,witness-unknown,')]
+    [TestCase('ImportsUnproved', 'imports,unproved,imports-unproved,')]
+    [TestCase('ClosedAbsent', 'absent,unresolved,,')]
+    [TestCase('P5OwnInterfaceWins', 'p5,resolved,,SiteUnit')]
+    procedure SourceSiteTypeOutcomes(const aShape, aStatus, aCause, aUnit: string);
+    [Category('Fast')]
+    [Test]
+    procedure NestedTypeOwnersHaveDistinctDeclaredIds;
+    [Category('Fast')]
+    [Test]
+    [TestCase('OwnEarlier', 'own,resolved,,Values')]
+    [TestCase('OwnLater', 'later,resolved,,Imported')]
+    [TestCase('OwnPositionUnknown', 'position,unproved,position-unknown,')]
+    [TestCase('OwnInclude', 'include,unproved,position-unknown,')]
+    [TestCase('LaterUnknown', 'unknown,unproved,later-unknown-unit,')]
+    [TestCase('EarlierUnknown', 'earlier-unknown,resolved,,Imported')]
+    [TestCase('OwnUnknown', 'conditional,unproved,type-names-unknown,')]
+    [TestCase('ClosedAbsent', 'absent,unresolved,,')]
+    procedure ValueRootOutcomes(const aShape, aStatus, aCause, aUnit: string);
+
+    [Category('Fast')]
+    [Test]
+    [TestCase('P1Ancestor', 'ancestor,resolved,,RuleUnit')]
+    [TestCase('P1OpenRoot', 'open-root,unproved,class-root-open,')]
+    [TestCase('NamedRootAbsence', 'root-provider,resolved,,Imported')]
+    [TestCase('NamedRootWrongName', 'root-provider-miss,unproved,class-root-open,')]
+    [TestCase('EnclosingNestedType', 'enclosing,resolved,,RuleUnit')]
+    [TestCase('P1ImplicitRoot', 'implicit-root,resolved,,Imported')]
+    [TestCase('P3SameSection', 'pointer-same,resolved,,RuleUnit')]
+    [TestCase('P3NextSection', 'pointer-next,resolved,,Imported')]
+    [TestCase('P3Directive', 'pointer-directive,unproved,position-unknown,')]
+    [TestCase('P4EarlierParent', 'parent-before,resolved,,RuleUnit')]
+    [TestCase('P4LaterParent', 'parent-later,resolved,,Imported')]
+    [TestCase('TempBeforeLocalType', 'temp,resolved,,Imported')]
+    [TestCase('BrokenCaller', 'broken,unproved,caller-scope-invalid,')]
+    [TestCase('BrokenParentWithVisibleLocal', 'broken-parent,unproved,caller-scope-invalid,')]
+    [TestCase('UnsupportedLocal', 'unsupported,unproved,unsupported-local,')]
+    [TestCase('UnsupportedLaterParent', 'unsupported-later,resolved,,Imported')]
+    [TestCase('QualifiedOwn', 'qualified-own,resolved,,RuleUnit')]
+    [TestCase('QualifiedUsed', 'qualified-used,resolved,,Imported')]
+    [TestCase('QualifiedDottedUnit', 'scoped-unit,resolved,,Scope.Imported')]
+    [TestCase('QualifiedUnknown', 'qualified-unknown,unproved,external-unindexed,')]
+    [TestCase('NestedQualified', 'nested,resolved,,RuleUnit')]
+    [TestCase('SyntheticExcluded', 'synthetic,unresolved,,')]
+    [TestCase('AmbiguousScope', 'ambiguous,ambiguous,,')]
+    [TestCase('AliasConflict', 'alias-conflict,unproved,alias-conflict,')]
+    procedure SourceScopeRules(const aShape, aStatus, aCause, aUnit: string);
+
+    [Category('Fast')]
+    [Test]
+    [TestCase('BaseBeforeLaterHomonym', 'base')]
+    [TestCase('AliasBeforeLaterHomonym', 'alias')]
+    procedure InternalConsumersUseDeclaringSite(const aShape: string);
+    [Category('Fast')]
+    [Test]
+    procedure RepeatedParameterHeadingHasOneValueIdentity;
+    [Category('Fast')]
+    [Test]
+    [TestCase('AThenB', 'AB,resolved,HelperB')]
+    [TestCase('BThenA', 'BA,resolved,HelperA')]
+    [TestCase('LaterProjectUnknown', 'AU,unproved,')]
+    [TestCase('EarlierProjectUnknown', 'UA,resolved,HelperA')]
+    [TestCase('UnindexedOwnHelper', 'own-unindexed,unproved,')]
+    [TestCase('UnindexedLaterOwnHelper', 'later-unindexed,resolved,HelperB')]
+    [TestCase('MissingUnindexedFacts', 'missing-facts,unproved,')]
+    procedure ActiveHelpersRespectImportOrder(const aOrder, aStatus, aUnit: string);
+
+
+
   end;
 
 implementation
@@ -103,8 +181,27 @@ uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   AutoFree,
   DelphiSemantics.Model.Extract, DelphiSemantics.Model.Json,
-  DelphiSemantics.Resolve.UnitNameWitness, DelphiSemantics.SourceConditionals,
+  DelphiSemantics.Resolve.NameSites,
+  DelphiSemantics.Resolve.UnitNameWitness, DelphiSemantics.RootMemberAbsence,
+  DelphiSemantics.SourceConditionals,
   Test.Support;
+
+type
+  TExactNamedTypeAbsence = class(TInterfacedObject, IDelphiSemanticNamedRootMemberAbsence)
+  public
+    Name: string;
+    function IsNamedRootMemberAbsent(const aRoot: TDelphiSemanticQualifiedRootType;
+      const aSiteUnits: TArray<string>; const aName: string): Boolean;
+  end;
+
+function TExactNamedTypeAbsence.IsNamedRootMemberAbsent(const aRoot: TDelphiSemanticQualifiedRootType;
+  const aSiteUnits: TArray<string>; const aName: string): Boolean;
+begin
+  Result := SameText(aRoot.Kind, 'class') and SameText(aRoot.TypeName, 'TExternal') and
+    SameText(aName, Name) and (Length(aRoot.LookupUnits) = 1) and
+    SameText(aRoot.LookupUnits[0], 'Imported') and (Length(aSiteUnits) = 1) and
+    SameText(aSiteUnits[0], 'Imported');
+end;
 
 function TTypeResolverTests.Graph: TDelphiSemanticSemanticGraph;
 begin
@@ -125,6 +222,16 @@ begin
   Result.Success := True;
   Result.UnitName := aUnitName;
   Result.FileName := aUnitName + '.pas';
+  // DS-719 2.7: hand-built AST fixtures must also prove import completeness.
+  Result.ScopeModelStatus := 'ast';
+  Result.DependencyFacts.Known := True;
+  Result.SourceText := 'unit ' + aUnitName + '; interface implementation end.';
+  if aUnitName = 'TypeUnitC' then
+  begin
+    Result.DependencyFacts.InterfaceImports := ['TypeUnitA'];
+    Result.SourceText := 'unit TypeUnitC; interface uses TypeUnitA; implementation end.';
+  end;
+
 
   if aUnitName = 'TypeUnitA' then
   begin
@@ -1280,6 +1387,600 @@ begin
   lAncestors := lIndex.FindAncestors(lResult.Identity);
   Assert.AreEqual(1, Integer(Length(lAncestors)));
   Assert.AreEqual('TypeUnitA', lAncestors[0].UnitName);
+end;
+
+procedure TTypeResolverTests.SourceSiteTypeOutcomes(const aShape, aStatus, aCause,
+  aUnit: string);
+var
+  lModel, lImported: TDelphiSemanticUnitModel;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lWith: TDelphiSemanticWithStatement;
+  lSite: TDelphiSemanticNameSite;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lResult: TDelphiSemanticTypeResolution;
+begin
+  lImported := UnitModel('TypeUnitA');
+  lImported.ScopeModelStatus := 'ast';
+  lImported.DependencyFacts.Known := True;
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.Success := True;
+  lModel.ScopeModelStatus := 'ast';
+  lModel.UnitName := 'SiteUnit';
+  lModel.FileName := 'SiteUnit.pas';
+  lModel.InterfaceUses := ['TypeUnitA'];
+  lDeclaration := lImported.Declarations[0];
+  lDeclaration.Name := 'TSite';
+  lImported.Declarations := [lDeclaration];
+  lDeclaration.ScopeKind := 'unit';
+  lDeclaration.SectionKind := 'interface';
+  lDeclaration.Line := 5;
+  lDeclaration.Column := 3;
+  if MatchText(aShape, ['before', 'later', 'position', 'include', 'p5']) then
+    lModel.Declarations := [lDeclaration];
+  lWith := Default(TDelphiSemanticWithStatement);
+  lWith.Line := 10;
+  lWith.Column := 3;
+  if aShape = 'later' then
+    lWith.Line := 4;
+  if aShape = 'position' then
+    lWith.Line := 0;
+  if aShape = 'imported' then
+    lWith.Line := 0; // No same-scope candidate: position is deliberately lazy.
+  if aShape = 'include' then
+    lModel.Declarations[0].FileName := 'other.inc';
+  if aShape = 'conditional' then
+  begin
+    SetLength(lModel.Diagnostics, 1);
+    lModel.Diagnostics[0].Code := 'UNVERIFIED_PREPROCESS_CONDITION';
+  end;
+  if aShape = 'unknown' then
+    lModel.InterfaceUses := ['TypeUnitA', 'UnknownUnit'];
+  if aShape = 'absent-unknown' then
+    lModel.InterfaceUses := ['UnknownUnit'];
+  if aShape = 'imports' then
+    lModel.InterfaceUses := ['<imports-unproved>'];
+  if aShape = 'absent' then
+    lModel.InterfaceUses := [];
+  if aShape = 'p5' then
+    lModel.ImplementationUses := ['TypeUnitA'];
+  lModel.SourceText := 'unit SiteUnit; interface uses ' +
+    string.Join(', ', lModel.InterfaceUses) + '; implementation end.';
+  if Length(lModel.InterfaceUses) = 0 then
+    lModel.SourceText := 'unit SiteUnit; interface implementation end.';
+  lModel.DependencyFacts.Known := True;
+  lModel.DependencyFacts.InterfaceImports := Copy(lModel.InterfaceUses);
+  lModel.DependencyFacts.ImplementationImports := Copy(lModel.ImplementationUses);
+  lSite := TDelphiSemanticNameSites.AtWithStatement(lModel, lWith, '',
+    Default(TDelphiSemanticGraphTypeId));
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lImported, lModel]);
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lResult := lIndex.ResolveTypeAt(lSite, 'TSite');
+    Assert.AreEqual(aStatus, lResult.AsLookupResult.Status, aShape + ': ' + lResult.Reason);
+    Assert.AreEqual(aCause, lResult.Cause, aShape);
+    Assert.AreEqual(aUnit, lResult.Identity.UnitName, aShape);
+    if aStatus <> 'resolved' then
+      Assert.IsEmpty(lResult.Identity.DeclaredId.Value, 'A refusal never carries an admitted identity.');
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.NestedTypeOwnersHaveDistinctDeclaredIds;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lFirst, lSecond: string;
+  lPath: string;
+  lCount: Integer;
+begin
+  lPath := TPath.Combine(CreateTestTempRoot('ds719-type-owners-temp'), 'OwnedTypes.pas');
+  TFile.WriteAllText(lPath, 'unit OwnedTypes;'#13#10 +
+    'interface'#13#10 +
+    'type'#13#10 +
+    '  TFirst = class'#13#10 +
+    '  public'#13#10 +
+    '    type TX = record FirstOnly: Integer; end;'#13#10 +
+    '  end;'#13#10 +
+    '  TSecond = class'#13#10 +
+    '  public'#13#10 +
+    '    type TX = record SecondOnly: Integer; end;'#13#10 +
+    '  end;'#13#10 +
+    'implementation'#13#10 +
+    'end.'#13#10, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    lCount := 0;
+    for var lType in lGraph.Types do
+      if SameText(lType.Name, 'TX') and SameText(lType.ScopeKind, 'type') then
+      begin
+        Inc(lCount);
+        if lFirst = '' then
+          lFirst := lType.DeclaredId.Value
+        else
+          lSecond := lType.DeclaredId.Value;
+      end;
+    Assert.AreEqual(2, lCount, 'Both independently owned nested declarations must reach the graph.');
+    Assert.IsNotEmpty(lFirst);
+    Assert.IsNotEmpty(lSecond);
+    Assert.AreNotEqual(lFirst, lSecond, 'A nested type identity includes its declaring owner.');
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.SourceScopeRules(const aShape, aStatus, aCause, aUnit: string);
+var
+  lModel, lImported: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lProject: TDelphiSemanticProjectInfo;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lResult: TDelphiSemanticTypeResolution;
+  lSite: TDelphiSemanticNameSite;
+  lWith: TDelphiSemanticWithStatement;
+  lSource, lSpelling, lRoutineId: string;
+  lOwnerId: TDelphiSemanticGraphTypeId;
+  lPath: string;
+begin
+  lSource := 'unit RuleUnit;'#13#10'interface'#13#10'uses Imported;'#13#10;
+  if MatchText(aShape, ['ancestor', 'open-root', 'implicit-root', 'nested', 'root-provider', 'root-provider-miss', 'enclosing']) then
+  begin
+    if aShape = 'ancestor' then
+      lSource := lSource + 'type TBase = class'#13#10'public'#13#10'  type TX = record Own: Integer; end;'#13#10'end;'#13#10 +
+        'TChild = class(TBase) procedure Run; end;'#13#10
+    else if MatchText(aShape, ['open-root', 'root-provider', 'root-provider-miss']) then
+      lSource := lSource + 'type TChild = class(TExternal) procedure Run; end;'#13#10
+    else if aShape = 'enclosing' then
+      lSource := lSource + 'type TOuter = class'#13#10'public'#13#10 +
+        '  type TX = record Own: Integer; end;'#13#10 +
+        '  TChild = class procedure Run; end;'#13#10'end;'#13#10
+    else if aShape = 'nested' then
+      lSource := lSource + 'type TChild = class'#13#10'public'#13#10'  type TX = record Own: Integer; end;'#13#10'  procedure Run;'#13#10'end;'#13#10
+    else
+      lSource := lSource + 'type TChild = class procedure Run; end;'#13#10;
+    lSource := lSource + 'implementation'#13#10'procedure TChild.Run;'#13#10'begin'#13#10'  with Value do Own := 1;'#13#10'end;'#13#10;
+  end else if StartsText('pointer-', aShape) then
+  begin
+    lSource := lSource + 'type PTarget = ^TX;'#13#10;
+    if aShape = 'pointer-next' then
+      lSource := lSource + 'type'#13#10;
+    if aShape = 'pointer-directive' then
+      lSource := lSource + '{$IFDEF NEVER}'#13#10'{$ENDIF}'#13#10;
+    lSource := lSource + 'TX = record Own: Integer; end;'#13#10'implementation'#13#10;
+  end else if MatchText(aShape, ['parent-before', 'parent-later', 'temp', 'unsupported', 'unsupported-later', 'broken', 'broken-parent']) then
+  begin
+    lSource := lSource + 'implementation'#13#10'procedure Outer;'#13#10;
+    if aShape = 'parent-before' then
+      lSource := lSource + 'type TX = record Own: Integer; end;'#13#10;
+    if aShape = 'unsupported' then
+      lSource := lSource + 'type TX = array of Integer;'#13#10;
+    lSource := lSource + '  procedure Inner;'#13#10;
+    if aShape = 'broken-parent' then
+      lSource := lSource + '  type TX = record Own: Integer; end;'#13#10;
+    lSource := lSource + '  begin'#13#10'    with Value do Own := 1;'#13#10'  end;'#13#10;
+    if aShape = 'unsupported-later' then
+      lSource := lSource + 'type TX = array of Integer;'#13#10;
+    if MatchText(aShape, ['parent-later', 'temp']) then
+      lSource := lSource + 'type TX = record Own: Integer; end;'#13#10;
+    lSource := lSource + 'begin Inner; end;'#13#10;
+  end else
+    lSource := lSource + 'type TX = record Own: Integer; end;'#13#10'implementation'#13#10;
+  lSource := lSource + 'end.'#13#10;
+  if aShape = 'scoped-unit' then
+    lSource := lSource.Replace('uses Imported;', 'uses Scope.Imported;');
+  if aShape = 'qualified-unknown' then
+    lSource := lSource.Replace('uses Imported;', 'uses Missing;');
+  if aShape = 'alias-conflict' then
+    lSource := lSource.Replace('uses Imported;', 'uses Alias;');
+  lPath := TPath.Combine(CreateTestTempRoot('ds719-rules-temp'), 'RuleUnit.pas');
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, aShape);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus, aShape);
+  if MatchText(aShape, ['ancestor', 'nested']) then
+  begin
+    var lHasNested := False;
+    for var lDeclaration in lModel.Declarations do
+      if SameText(lDeclaration.Name, 'TX') and SameText(lDeclaration.ScopeKind, 'type') then
+        lHasNested := True;
+    Assert.IsTrue(lHasNested, 'The class-scope probe must contain its nested TX fact.');
+  end;
+  if aShape = 'unsupported-later' then
+  begin
+    // The extractor omits declarations after a nested routine. Exercise the
+    // index contract with the retained source token and explicit owning scope.
+    var lUnsupported := Default(TDelphiSemanticDeclaration);
+    lUnsupported.Name := 'TX';
+    lUnsupported.Kind := 'unsupported-local-type';
+    lUnsupported.TypeName := 'array of Integer';
+    lUnsupported.ScopeKind := 'routine';
+    lUnsupported.SectionKind := 'implementation';
+    lUnsupported.FileName := lPath;
+    var lLines := lSource.Split([#10]);
+    for var i := 0 to High(lLines) do
+      if StartsText('type TX = array', lLines[i]) then
+        lUnsupported.Line := i + 1;
+    Assert.IsTrue(lUnsupported.Line > 0);
+    lUnsupported.Column := 6;
+    for var lRoutine in lModel.Routines do
+      if SameText(lRoutine.Name, 'Outer') then
+        lUnsupported.OwnerScopeId := lRoutine.ScopeId;
+    Assert.IsNotEmpty(lUnsupported.OwnerScopeId);
+    lModel.Declarations := lModel.Declarations + [lUnsupported];
+  end;
+  if MatchText(aShape, ['unsupported', 'unsupported-later']) then
+  begin
+    var lHasUnsupported := False;
+    for var lDeclaration in lModel.Declarations do
+      if SameText(lDeclaration.Name, 'TX') and
+        SameText(lDeclaration.Kind, 'unsupported-local-type') then
+        lHasUnsupported := True;
+    Assert.IsTrue(lHasUnsupported, 'The unsupported-local probe must contain its barrier fact.');
+  end;
+  lImported := UnitModel('TypeUnitA');
+  lImported.UnitName := 'Imported';
+  if aShape = 'scoped-unit' then
+    lImported.UnitName := 'Scope.Imported';
+  lImported.ScopeModelStatus := 'ast';
+  lImported.DependencyFacts.Known := True;
+  lImported.Declarations := Copy(lImported.Declarations, 0, 1);
+  lImported.Declarations[0].Name := 'TX';
+  lProject := ProjectInfo;
+  if aShape = 'alias-conflict' then
+  begin
+    lProject.UnitAliases := ['Alias=Imported', 'Alias=Other'];
+    lModel.Declarations := [];
+    lModel.DependencyFacts.InterfaceImports := ['Alias'];
+    lModel.InterfaceUses := ['Alias'];
+  end;
+  if aShape = 'qualified-unknown' then
+  begin
+    lModel.DependencyFacts.InterfaceImports := ['Missing'];
+    lModel.InterfaceUses := ['Missing'];
+  end;
+  if aShape = 'synthetic' then
+  begin
+    lModel.Declarations[0].Name := 'TX.Sub';
+    lModel.DependencyFacts.InterfaceImports := [];
+    lModel.InterfaceUses := [];
+  end;
+  if aShape = 'ambiguous' then
+  begin
+    lModel.Declarations := lModel.Declarations + [lModel.Declarations[0]];
+    lModel.Declarations[1].Line := lModel.Declarations[0].Line + 1;
+    lModel.Declarations[1].SymbolId := 'independent-duplicate';
+  end;
+  if aShape = 'broken-parent' then
+    for var i := 0 to High(lModel.Routines) do
+      if SameText(lModel.Routines[i].Name, 'Inner') then
+        lModel.Routines[i].ParentScopeId := 'missing-parent';
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lModel, lImported]);
+  try
+    if MatchText(aShape, ['root-provider', 'root-provider-miss']) then
+    begin
+      var lProvider := TExactNamedTypeAbsence.Create;
+      lProvider.Name := 'TX';
+      if aShape = 'root-provider-miss' then
+        lProvider.Name := 'DifferentName';
+      lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph, lProvider);
+    end else
+      lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lOwnerId := Default(TDelphiSemanticGraphTypeId);
+    for var lType in lGraph.Types do
+      if SameText(lType.Name, 'TChild') then
+        lOwnerId := lType.DeclaredId;
+    lWith := Default(TDelphiSemanticWithStatement);
+    lWith.Line := 100;
+    lWith.Column := 1;
+    if Length(lModel.WithStatements) > 0 then
+      lWith := lModel.WithStatements[0];
+    lRoutineId := '';
+    for var lRoutine in lModel.Routines do
+      if SameText(lRoutine.Name, 'Inner') then
+        lRoutineId := lRoutine.ScopeId;
+    lSite := TDelphiSemanticNameSites.AtWithStatement(lModel, lWith, lRoutineId, lOwnerId);
+    lSpelling := 'TX';
+    if StartsText('pointer-', aShape) then
+    begin
+      lSite := TDelphiSemanticNameSites.AtDeclaration(lModel, lModel.Declarations[0],
+        Default(TDelphiSemanticGraphTypeId));
+      lSite.ForwardPointerTarget := True;
+    end;
+    if aShape = 'broken' then
+      lSite.RoutineScopeId := 'missing';
+    if aShape = 'temp' then
+      lSite.LocalCutoffLine := 5;
+    if aShape = 'qualified-own' then
+      lSpelling := 'RuleUnit.TX';
+    if aShape = 'qualified-used' then
+      lSpelling := 'Imported.TX';
+    if aShape = 'scoped-unit' then
+      lSpelling := 'Scope.Imported.TX';
+    if aShape = 'qualified-unknown' then
+      lSpelling := 'Missing.TX';
+    if aShape = 'nested' then
+    begin
+      lSite.ClassScopeId := Default(TDelphiSemanticGraphTypeId);
+      lSpelling := 'TChild.TX';
+    end;
+    if aShape = 'synthetic' then
+    begin
+      lSpelling := 'RuleUnit.TX.Sub';
+      var lVerifiedSynthetic := False;
+      for var lType in lGraph.Types do
+        if SameText(lType.Name, 'TX.Sub') then
+        begin
+          var lIdentity: TDelphiSemanticTypeIdentity;
+          Assert.IsTrue(lIndex.FindByDeclaredId(lType.DeclaredId, lIdentity));
+          lVerifiedSynthetic := lIdentity.Synthetic;
+        end;
+      Assert.IsTrue(lVerifiedSynthetic, 'Synthetic identity remains reachable by its held declaration ID.');
+    end;
+    lResult := lIndex.ResolveTypeAt(lSite, lSpelling);
+    Assert.AreEqual(aStatus, lResult.AsLookupResult.Status, aShape + ': ' + lResult.Reason);
+    Assert.AreEqual(aCause, lResult.Cause, aShape);
+    Assert.AreEqual(aUnit, lResult.Identity.UnitName, aShape);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.ValueRootOutcomes(const aShape, aStatus, aCause, aUnit: string);
+var
+  lModel, lImported: TDelphiSemanticUnitModel;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lSite: TDelphiSemanticNameSite;
+  lWith: TDelphiSemanticWithStatement;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lResult: TDelphiSemanticValueResolution;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.Success := True;
+  lModel.ScopeModelStatus := 'ast';
+  lModel.UnitName := 'Values';
+  lModel.FileName := 'Values.pas';
+  lModel.DependencyFacts.Known := True;
+  lModel.DependencyFacts.InterfaceImports := ['Imported'];
+  lDeclaration := Default(TDelphiSemanticDeclaration);
+  lDeclaration.Name := 'Value';
+  lDeclaration.Kind := 'var';
+  lDeclaration.TypeName := 'TRecord';
+  lDeclaration.SectionKind := 'interface';
+  lDeclaration.ScopeKind := 'unit';
+  lDeclaration.Line := 5;
+  lDeclaration.Column := 5;
+  lImported := lModel;
+  lImported.UnitName := 'Imported';
+  lImported.FileName := 'Imported.pas';
+  lImported.DependencyFacts.InterfaceImports := [];
+  lImported.SourceText := 'unit Imported; interface implementation end.';
+  lImported.Declarations := [lDeclaration];
+  if MatchText(aShape, ['own', 'later', 'position', 'include']) then
+    lModel.Declarations := [lDeclaration];
+  if aShape = 'later' then
+    lModel.Declarations[0].Line := 15;
+  if aShape = 'include' then
+    lModel.Declarations[0].FileName := 'value.inc';
+  if aShape = 'unknown' then
+    lModel.DependencyFacts.InterfaceImports := ['Imported', 'UnknownUnit'];
+  if aShape = 'earlier-unknown' then
+    lModel.DependencyFacts.InterfaceImports := ['UnknownUnit', 'Imported'];
+  if aShape = 'conditional' then
+  begin
+    SetLength(lModel.Diagnostics, 1);
+    lModel.Diagnostics[0].Code := 'UNSUPPORTED_PREPROCESS_DIRECTIVE';
+  end;
+  if aShape = 'absent' then
+    lModel.DependencyFacts.InterfaceImports := [];
+  lModel.SourceText := 'unit Values; interface uses ' +
+    string.Join(', ', lModel.DependencyFacts.InterfaceImports) + '; implementation end.';
+  if aShape = 'absent' then
+    lModel.SourceText := 'unit Values; interface implementation end.';
+  lWith := Default(TDelphiSemanticWithStatement);
+  lWith.Line := 10;
+  lWith.Column := 1;
+  if aShape = 'position' then
+    lWith.Line := 0;
+  lSite := TDelphiSemanticNameSites.AtWithStatement(lModel, lWith, '',
+    Default(TDelphiSemanticGraphTypeId));
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel, lImported]);
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lResult := lIndex.ResolveValueRootAt(lSite, 'Value');
+    var lStatus := '';
+    case lResult.Outcome of
+      noResolved: lStatus := 'resolved';
+      noUnproved: lStatus := 'unproved';
+      noAmbiguous: lStatus := 'ambiguous';
+      noAbsent: lStatus := 'unresolved';
+    end;
+    Assert.AreEqual(aStatus, lStatus, lResult.Reason);
+    Assert.AreEqual(aCause, lResult.Cause, aShape);
+    Assert.AreEqual(aUnit, lResult.UnitName, aShape);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.InternalConsumersUseDeclaringSite(const aShape: string);
+var
+  lModel, lImported: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lPath, lSource: string;
+begin
+  lPath := TPath.Combine(CreateTestTempRoot('ds719-internal-temp'), 'Internal.pas');
+  lSource := 'unit Internal;'#13#10'interface'#13#10'uses Imported;'#13#10;
+  if aShape = 'base' then
+    lSource := lSource + 'type TChild = class(TX) end;'#13#10
+  else
+    lSource := lSource + 'type TChild = TX;'#13#10;
+  lSource := lSource + 'type TX = class end;'#13#10'implementation'#13#10'end.'#13#10;
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lImported := UnitModel('TypeUnitA');
+  lImported.UnitName := 'Imported';
+  lImported.ScopeModelStatus := 'ast';
+  lImported.DependencyFacts.Known := True;
+  lImported.Declarations := Copy(lImported.Declarations, 0, 1);
+  lImported.Declarations[0].Name := 'TX';
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel, lImported]);
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    for var lType in lGraph.Types do
+      if SameText(lType.Name, 'TChild') then
+        Assert.IsTrue(lIndex.FindByDeclaredId(lType.DeclaredId, lIdentity));
+    var lAncestors := lIndex.FindAncestors(lIdentity);
+    Assert.AreEqual(1, Integer(Length(lAncestors)));
+    Assert.AreEqual('Imported', lAncestors[0].UnitName,
+      'The base/alias spelling precedes own-unit TX and must bind the imported declaration.');
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.ActiveHelpersRespectImportOrder(const aOrder, aStatus, aUnit: string);
+begin
+  var lTarget := UnitModel('TypeUnitA');
+  lTarget.UnitName := 'Target';
+  lTarget.ScopeModelStatus := 'ast';
+  lTarget.DependencyFacts.Known := True;
+  lTarget.Declarations := Copy(lTarget.Declarations, 0, 1);
+  lTarget.Declarations[0].Name := 'TX';
+  lTarget.Declarations[0].TypeName := 'record';
+  var lHelperA := lTarget;
+  lHelperA.Declarations := Copy(lTarget.Declarations);
+  lHelperA.UnitName := 'HelperA';
+  lHelperA.DependencyFacts.InterfaceImports := ['Target'];
+  lHelperA.Declarations[0].Name := 'THelperA';
+  lHelperA.Declarations[0].TypeName := 'record helper';
+  lHelperA.Declarations[0].HelperTargetName := 'TX';
+  var lHelperB := lHelperA;
+  lHelperB.Declarations := Copy(lHelperA.Declarations);
+  lHelperB.UnitName := 'HelperB';
+  lHelperB.Declarations[0].Name := 'THelperB';
+  var lConsumer := lTarget;
+  lConsumer.UnitName := 'Consumer';
+  lConsumer.Declarations := [];
+  lConsumer.DependencyFacts.InterfaceImports := ['Target', 'HelperA', 'HelperB'];
+  if aOrder = 'BA' then
+    lConsumer.DependencyFacts.InterfaceImports := ['Target', 'HelperB', 'HelperA']
+  else if aOrder = 'AU' then
+    lConsumer.DependencyFacts.InterfaceImports := ['Target', 'HelperA', 'Unknown']
+  else if aOrder = 'UA' then
+    lConsumer.DependencyFacts.InterfaceImports := ['Target', 'Unknown', 'HelperA'];
+  if MatchText(aOrder, ['own-unindexed', 'later-unindexed']) then
+  begin
+    var lHelper := Default(TDelphiSemanticUnindexedHelperFact);
+    lHelper.Name := 'TUnsupportedHelper';
+    lHelper.HelperKind := 'record';
+    lHelper.TargetName := 'TX';
+    lHelper.ScopeKind := 'unit';
+    lHelper.SectionKind := 'implementation';
+    lHelper.FileName := lConsumer.FileName;
+    lHelper.Line := 10;
+    lHelper.Column := 6;
+    if aOrder = 'later-unindexed' then
+      lHelper.Line := 200;
+    lConsumer.UnindexedHelpers := [lHelper];
+  end;
+  if aOrder = 'missing-facts' then
+  begin
+    var lDiagnostic := Default(TDelphiSemanticModelDiagnostic);
+    lDiagnostic.Code := 'AST_HELPER_DECLARATION_UNINDEXED';
+    lConsumer.Diagnostics := [lDiagnostic];
+  end;
+  lTarget.SourceText := 'unit Target; interface implementation end.';
+  lHelperA.SourceText := 'unit HelperA; interface uses Target; implementation end.';
+  lHelperB.SourceText := 'unit HelperB; interface uses Target; implementation end.';
+  lConsumer.SourceText := 'unit Consumer; interface uses ' +
+    string.Join(', ', lConsumer.DependencyFacts.InterfaceImports) + '; implementation end.';
+  var lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo,
+    [lTarget, lHelperA, lHelperB, lConsumer]);
+  try
+    var lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    var lTargetId := Default(TDelphiSemanticGraphTypeId);
+    for var lType in lGraph.Types do
+      if SameText(lType.Name, 'TX') then
+        lTargetId := lType.DeclaredId;
+    Assert.IsNotEmpty(lTargetId.Value);
+    var lWith := Default(TDelphiSemanticWithStatement);
+    lWith.Line := 100;
+    lWith.Column := 1;
+    var lSite := TDelphiSemanticNameSites.AtWithStatement(lConsumer, lWith, '',
+      Default(TDelphiSemanticGraphTypeId));
+    var lResult := lIndex.ResolveActiveHelperAt(lTargetId, lSite);
+    Assert.AreEqual(aStatus, lResult.AsLookupResult.Status, lResult.Reason);
+    Assert.AreEqual(aUnit, lResult.Identity.UnitName);
+    if aStatus = 'unproved' then
+      Assert.AreEqual('helper-unknown', lResult.Cause);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.RepeatedParameterHeadingHasOneValueIdentity;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lSite: TDelphiSemanticNameSite;
+  lScopeId: string;
+  lResult: TDelphiSemanticValueResolution;
+begin
+  lPath := TPath.Combine(CreateTestTempRoot('ds719-param-temp'), 'Params.pas');
+  TFile.WriteAllText(lPath,
+    'unit Params;'#13#10'interface'#13#10 +
+    'type TRec = record X: Integer; end;'#13#10 +
+    'procedure Run(Value: TRec);'#13#10'implementation'#13#10 +
+    'procedure Run(Value: TRec);'#13#10'begin'#13#10 +
+    '  with Value do X := 1;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
+  lScopeId := '';
+  for var lRoutine in lModel.Routines do
+    if SameText(lRoutine.Name, 'Run') and SameText(lRoutine.AstScopeKind, 'body') then
+      lScopeId := lRoutine.ScopeId;
+  Assert.IsNotEmpty(lScopeId);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    Assert.AreEqual(2, Integer(Length(lGraph.Parameters)), 'Both heading facts must reach the index.');
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lSite := TDelphiSemanticNameSites.AtWithStatement(lModel, lModel.WithStatements[0],
+      lScopeId, Default(TDelphiSemanticGraphTypeId));
+    lResult := lIndex.ResolveValueRootAt(lSite, 'Value');
+    Assert.IsTrue(lResult.Outcome = noResolved,
+      lResult.Reason + ' candidates=' + IntToStr(Length(lResult.Candidates)));
+    Assert.AreEqual('parameter', lResult.Identity.Kind);
+    Assert.AreEqual('TRec', lResult.Identity.TypeName);
+  finally
+    lGraph.Free;
+  end;
 end;
 
 initialization

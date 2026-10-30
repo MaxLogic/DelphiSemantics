@@ -1,4 +1,4 @@
-unit Test.MemberResolverInheritedHelpers;
+﻿unit Test.MemberResolverInheritedHelpers;
 
 interface
 
@@ -54,6 +54,11 @@ begin
   Result.Success := True;
   Result.UnitName := 'MemberInheritedUnit';
   Result.FileName := 'MemberInheritedUnit.pas';
+  // DS-719 2.7: qualified helper targets need a closed AST unit scope.
+  Result.ScopeModelStatus := 'ast';
+  Result.DependencyFacts.Known := True;
+  Result.SourceText := 'unit MemberInheritedUnit; interface implementation end.';
+
 
   SetLength(Result.Declarations, 8);
   Result.Declarations[0].Name := 'TBase';

@@ -1,4 +1,4 @@
-unit DelphiSemantics.Resolve.MemberResolver;
+﻿unit DelphiSemantics.Resolve.MemberResolver;
 
 interface
 
@@ -37,6 +37,8 @@ type
   TDelphiSemanticMemberLookupContext = record
     CallerUnitName: string;
     CurrentTypeName: string;
+    CurrentTypeId: TDelphiSemanticGraphTypeId;
+    OwnerDeclaredId: TDelphiSemanticGraphTypeId;
     StaticContext: Boolean;
     InstanceContext: Boolean;
     ArgumentTypeNames: TArray<string>;
@@ -280,16 +282,25 @@ begin
     lMember.OwnerName := lGraphMember.OwnerName;
     lMember.OwnerScopeId := lGraphMember.OwnerScopeId;
     lMember.OwnerSymbolId := lGraphMember.OwnerSemanticSymbolId;
-    if lMember.OwnerScopeId <> '' then
-      for lGraphType in aGraph.Types do
-        if SameText(lGraphType.UnitId.Value, lMember.UnitId.Value) and
-          SameText(lGraphType.ScopeKind, 'routine') and
+    // Source owner facts identify the bucket; no visibility lookup participates.
+    for lGraphType in aGraph.Types do
+      if SameText(lGraphType.UnitId.Value, lMember.UnitId.Value) and
+        SameText(lGraphType.Name, lMember.OwnerName) and
+        (((lMember.OwnerScopeId = '') and
+          (not SameText(lGraphType.ScopeKind, 'routine'))) or
+        ((lMember.OwnerScopeId <> '') and
           SameText(lGraphType.OwnerScopeId, lMember.OwnerScopeId) and
-          SameText(lGraphType.SemanticSymbolId, lMember.OwnerSymbolId) then
+          (lMember.OwnerSymbolId <> '') and
+          SameText(lGraphType.SemanticSymbolId, lMember.OwnerSymbolId))) then
+      begin
+        if (lMember.OwnerDeclaredId.Value <> '') and
+          (lMember.OwnerDeclaredId.Value <> lGraphType.DeclaredId.Value) then
         begin
-          lMember.OwnerDeclaredId := lGraphType.DeclaredId;
+          lMember.OwnerDeclaredId := Default(TDelphiSemanticGraphTypeId);
           Break;
         end;
+        lMember.OwnerDeclaredId := lGraphType.DeclaredId;
+      end;
     lMember.Name := lGraphMember.Name;
     lMember.Kind := lGraphMember.Kind;
     lMember.TypeName := lGraphMember.TypeName;
@@ -340,25 +351,24 @@ begin
   if (aMember.OwnerName = '') or (aMember.Name = '') then
     Exit;
 
-  if aMember.OwnerScopeId <> '' then
+  if aMember.OwnerDeclaredId.Value <> '' then
   begin
-    if (aMember.OwnerDeclaredId.Value = '') or (aMember.OwnerSymbolId = '') then
-      Exit;
     if not fByOwnerIdAndName.TryGetValue(aMember.OwnerDeclaredId.Value + #31 +
       aMember.Name, lList) then
     begin
       lList := TDelphiSemanticMemberIdentityList.Create;
       try
-        fByOwnerIdAndName.Add(aMember.OwnerDeclaredId.Value + #31 +
-          aMember.Name, lList);
+        fByOwnerIdAndName.Add(aMember.OwnerDeclaredId.Value + #31 + aMember.Name, lList);
       except
         lList.Free;
         raise;
       end;
     end;
     lList.Add(aMember);
-    Exit;
   end;
+  // Preserve the legacy non-binder map, but never put scoped owners in it.
+  if aMember.OwnerScopeId <> '' then
+    Exit;
 
   lKey.UnitId := aMember.UnitId.Value;
   lKey.OwnerName := aMember.OwnerName;
@@ -627,6 +637,19 @@ var
   lCurrentLookup: TDelphiSemanticTypeLookupResult;
   lOwner: TDelphiSemanticTypeIdentity;
 begin
+  if aContext.CurrentTypeId.Value <> '' then
+  begin
+    if not fTypeIndex.FindByDeclaredId(aContext.CurrentTypeId, lCurrent) or
+      not fTypeIndex.FindByDeclaredId(aMember.OwnerDeclaredId, lOwner) then
+      Exit(False);
+    if lCurrent.DeclaredId.Value = lOwner.DeclaredId.Value then
+      Exit(True);
+    if not aRequireExactOwner then
+      for lAncestor in fTypeIndex.FindAncestors(lCurrent) do
+        if lAncestor.DeclaredId.Value = lOwner.DeclaredId.Value then
+          Exit(True);
+    Exit(False);
+  end;
   Result := False;
   if aContext.CurrentTypeName = '' then
     Exit;
@@ -762,12 +785,23 @@ function TDelphiSemanticMemberIdentityIndexData.ResolveMember(
   const aContext: TDelphiSemanticMemberLookupContext; const aOwnerTypeName,
   aMemberName: string): TDelphiSemanticMemberLookupResult;
 var
+  lMembers: TDelphiSemanticMemberIdentityList;
   lCandidates: TArray<TDelphiSemanticMemberIdentity>;
   lExpandedOwner: TDelphiSemanticTypeIdentity;
   lHiddenMember: TDelphiSemanticMemberIdentity;
   lOwner: TDelphiSemanticTypeIdentity;
   lStatus: string;
 begin
+  if aContext.OwnerDeclaredId.Value <> '' then
+  begin
+    if not fTypeIndex.FindByDeclaredId(aContext.OwnerDeclaredId, lOwner) then
+      Exit(StatusResult('unsupported', 'OWNER_IDENTITY_UNVERIFIED',
+        'The held owner identity is not present in the type index.', nil));
+    if fByOwnerIdAndName.TryGetValue(lOwner.DeclaredId.Value + #31 + aMemberName, lMembers) then
+      Exit(ResolveCandidates(aContext, aMemberName, '', lMembers.ToArray));
+    // The binder walks ancestors and helpers itself, preserving unknown barriers.
+    Exit(UnresolvedResult(lOwner.DeclaredId.Value, aMemberName));
+  end;
   lCandidates := LookupCandidates(aOwnerTypeName, aMemberName);
   if Length(lCandidates) > 0 then
   begin

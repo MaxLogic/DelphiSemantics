@@ -1,4 +1,4 @@
-unit Test.MemberResolverAccessOverloads;
+﻿unit Test.MemberResolverAccessOverloads;
 
 interface
 
@@ -50,6 +50,12 @@ begin
   Result.Success := True;
   Result.UnitName := 'OtherUnit';
   Result.FileName := 'OtherUnit.pas';
+  // DS-719 2.5/2.7: the qualified base is visible through its declared import.
+  Result.ScopeModelStatus := 'ast';
+  Result.DependencyFacts.Known := True;
+  Result.DependencyFacts.InterfaceImports := ['MemberAccessUnit'];
+  Result.SourceText := 'unit OtherUnit; interface uses MemberAccessUnit; implementation end.';
+
   SetLength(Result.Declarations, 1);
   Result.Declarations[0].Name := 'TOtherChild';
   Result.Declarations[0].Kind := 'type';
@@ -82,6 +88,10 @@ begin
   Result.Success := True;
   Result.UnitName := 'MemberAccessUnit';
   Result.FileName := 'MemberAccessUnit.pas';
+  Result.ScopeModelStatus := 'ast';
+  Result.DependencyFacts.Known := True;
+  Result.SourceText := 'unit MemberAccessUnit; interface implementation end.';
+
 
   SetLength(Result.Declarations, 2);
   Result.Declarations[0].Name := 'TBase';

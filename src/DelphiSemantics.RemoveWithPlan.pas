@@ -1,4 +1,4 @@
-unit DelphiSemantics.RemoveWithPlan;
+﻿unit DelphiSemantics.RemoveWithPlan;
 
 interface
 
@@ -222,7 +222,7 @@ uses
   DelphiSemantics.RemoveWithPlan.FinalRewrite,
   DelphiSemantics.Resolve.TypeResolver,
   DelphiSemantics.SourceConditionals, DelphiSemantics.SourceContext,
-  MaxLogic.StrUtils;
+  MaxLogic.StrUtils, DelphiSemantics.RemoveWith.TempInsertion;
 
 type
   TPlannerRoutineLookupResult = record
@@ -7509,90 +7509,19 @@ function FindRoutineDeclarationRange(const aFileName: string;
   out aRange: TDelphiSemanticRemoveWithSourceRange; out aHasVarSection: Boolean):
   Boolean;
 var
-  lBeginLine: Integer;
-  lInsertLine: Integer;
-  lLineIndex: Integer;
   lLines: TArray<string>;
-  lText: string;
-  lRoutineLine: Integer;
+  lLine: Integer;
 begin
-  Result := False;
-  aHasVarSection := False;
   aRange := Default(TDelphiSemanticRemoveWithSourceRange);
-  if not aLineCache.TryGetValue(aFileName, lLines) then
-    Exit;
-  lRoutineLine := 0;
-  for lLineIndex := aBeforeLine downto 1 do
+  aHasVarSection := False;
+  Result := aLineCache.TryGetValue(aFileName, lLines) and
+    TryFindTempInsertionLine(lLines, aBeforeLine, aRoutineName, lLine, aHasVarSection);
+  if Result then
   begin
-    if (aRoutineName <> '') and ContainsText(lLines[lLineIndex - 1],
-      aRoutineName) and (ContainsText(lLines[lLineIndex - 1], 'procedure') or
-      ContainsText(lLines[lLineIndex - 1], 'function') or
-      ContainsText(lLines[lLineIndex - 1], 'constructor') or
-      ContainsText(lLines[lLineIndex - 1], 'destructor')) then
-    begin
-      lRoutineLine := lLineIndex;
-      Break;
-    end;
-  end;
-  lInsertLine := 0;
-  if lRoutineLine > 0 then
-  begin
-    lBeginLine := 0;
-    for lLineIndex := lRoutineLine + 1 to Length(lLines) do
-    begin
-      lText := Trim(lLines[lLineIndex - 1]);
-      if SameText(lText, 'var') then
-        aHasVarSection := True;
-      if aHasVarSection and (SameText(lText, 'label') or SameText(lText, 'const') or
-        SameText(lText, 'type') or StartsText('procedure ', lText) or
-        StartsText('function ', lText) or StartsText('constructor ', lText) or
-        StartsText('destructor ', lText)) then
-      begin
-        lInsertLine := lLineIndex;
-        Break;
-      end else if (not aHasVarSection) and (SameText(lText, 'label') or
-        SameText(lText, 'const') or SameText(lText, 'type')) then
-      begin
-        lBeginLine := lLineIndex;
-        lInsertLine := lLineIndex;
-        Break;
-      end else if StartsText('procedure ', lText) or StartsText('function ', lText) or
-        StartsText('constructor ', lText) or StartsText('destructor ', lText) then
-      begin
-        lBeginLine := lLineIndex;
-        lInsertLine := lLineIndex;
-        Break;
-      end else if StartsText('begin', lText) and ((Length(lText) = Length('begin')) or
-        StartsText('{', Trim(Copy(lText, Length('begin') + 1, MaxInt))) or
-        StartsText('//', Trim(Copy(lText, Length('begin') + 1, MaxInt)))) then
-      begin
-        lBeginLine := lLineIndex;
-        lInsertLine := lLineIndex;
-        Break;
-      end;
-    end;
-    if (lBeginLine <> 0) or (lInsertLine <> 0) then
-    begin
-      aRange.StartLine := lInsertLine;
-      aRange.StartColumn := 1;
-      aRange.EndLine := lInsertLine;
-      aRange.EndColumn := 1;
-      Exit(True);
-    end;
-  end;
-  for lLineIndex := aBeforeLine downto 1 do
-  begin
-    lText := Trim(lLines[lLineIndex - 1]);
-    if StartsText('begin', lText) and ((Length(lText) = Length('begin')) or
-      StartsText('{', Trim(Copy(lText, Length('begin') + 1, MaxInt))) or
-      StartsText('//', Trim(Copy(lText, Length('begin') + 1, MaxInt)))) then
-    begin
-      aRange.StartLine := lLineIndex;
-      aRange.StartColumn := 1;
-      aRange.EndLine := lLineIndex;
-      aRange.EndColumn := 1;
-      Exit(True);
-    end;
+    aRange.StartLine := lLine;
+    aRange.StartColumn := 1;
+    aRange.EndLine := lLine;
+    aRange.EndColumn := 1;
   end;
 end;
 

@@ -1,0 +1,2 @@
+# case|route|cause
+# No coverage loss is authorized at step 0.

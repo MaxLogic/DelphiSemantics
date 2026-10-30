@@ -1,4 +1,4 @@
-unit DelphiSemantics.Resolve.SelectorTypes;
+﻿unit DelphiSemantics.Resolve.SelectorTypes;
 
 interface
 
@@ -21,6 +21,9 @@ function ParseSelectorToken(const aToken: string; out aName: string; out aIndexe
   aDereferenced, aIndexBeforeDereference: Boolean): Boolean;
 function TryFindSelectorTypeDeclaration(const aModel: TDelphiSemanticUnitModel;
   const aSectionKind, aName: string; out aDeclaration: TDelphiSemanticDeclaration): Boolean;
+
+// Shared syntax normalization only; this performs no visibility lookup.
+function NormalizeTypeReference(const aTypeName: string): string;
 
 implementation
 

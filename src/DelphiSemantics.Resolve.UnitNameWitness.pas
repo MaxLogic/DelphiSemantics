@@ -1,4 +1,4 @@
-unit DelphiSemantics.Resolve.UnitNameWitness;
+﻿unit DelphiSemantics.Resolve.UnitNameWitness;
 
 interface
 
@@ -20,6 +20,12 @@ type
     ['{40DA7787-E5D3-4995-A535-6892C585AD7D}']
     function MayDeclare(const aUnitName, aName: string): Boolean;
     function IdentityText: string;
+  end;
+
+  // Optional capability: callers must not infer SDK pairing from token presence.
+  IDelphiSemanticSdkUnitPairing = interface
+    ['{F2B37AB0-BA06-457A-A61C-61E225617AAE}']
+    function IsSdkPaired(const aUnitName: string): Boolean;
   end;
 
   TDelphiSemanticUnitNameWitnessBuilder = record
@@ -79,7 +85,8 @@ type
     destructor Destroy; override;
   end;
 
-  TUnitNameWitness = class(TInterfacedObject, IDelphiSemanticUnitNameWitness)
+  TUnitNameWitness = class(TInterfacedObject, IDelphiSemanticUnitNameWitness,
+    IDelphiSemanticSdkUnitPairing)
   private
     fFullEnumeration: Boolean;
 {$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
@@ -119,6 +126,7 @@ type
 {$ENDIF}
       );
     destructor Destroy; override;
+    function IsSdkPaired(const aUnitName: string): Boolean;
     function MayDeclare(const aUnitName, aName: string): Boolean;
     function IdentityText: string;
   end;
@@ -858,6 +866,15 @@ begin
   if not fEntries.TryGetValue(aUnitName, lEntry) or not lEntry.Known then
     Exit;
   Result := lEntry.Tokens.ContainsKey(aName);
+end;
+
+function TUnitNameWitness.IsSdkPaired(const aUnitName: string): Boolean;
+var
+  lEntry: TWitnessEntry;
+begin
+  // Known entries exist only after ResolveSource verified SDK DCU/source pairing,
+  // scanning and declared-unit identity. DS-768's conservative lookup is unchanged.
+  Result := fEntries.TryGetValue(aUnitName, lEntry) and lEntry.Known;
 end;
 
 function TUnitNameWitness.IdentityText: string;

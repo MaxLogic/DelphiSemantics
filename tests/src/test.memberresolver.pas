@@ -1,4 +1,4 @@
-unit Test.MemberResolver;
+﻿unit Test.MemberResolver;
 
 interface
 
@@ -29,6 +29,10 @@ type
     [Category('Fast')]
     [Test]
     procedure HomonymousLocalMembersRequireExactOwnerIdentity;
+    [Category('Fast')]
+    [Test]
+    procedure UnitMembersRequireExactOwnerIdentity;
+
   end;
 
 implementation
@@ -279,6 +283,35 @@ begin
     Assert.AreEqual('field', lResult.Member.Kind);
     Assert.AreEqual('Integer', lResult.Member.TypeName);
     Assert.AreEqual('MemberUnit', lResult.Member.UnitName);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TMemberResolverTests.UnitMembersRequireExactOwnerIdentity;
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticMemberIdentityIndex;
+  lResult: TDelphiSemanticMemberLookupResult;
+  lCount: Integer;
+begin
+  lGraph := Graph;
+  try
+    lIndex := MemberIndex(lGraph);
+    lCount := 0;
+    for var lType in lGraph.Types do
+      if lType.Name = 'TBase' then
+      begin
+        lResult := lIndex.ResolveDirectMemberByOwnerId(lType.DeclaredId, 'Value');
+        Assert.IsTrue(lResult.Found, 'Unit members must be retrievable by their declaration owner ID.');
+        Assert.AreEqual(lType.DeclaredId.Value, lResult.Member.OwnerDeclaredId.Value);
+        if lResult.Member.UnitName = 'MemberUnit' then
+          Assert.AreEqual('Integer', lResult.Member.TypeName)
+        else
+          Assert.AreEqual('string', lResult.Member.TypeName);
+        Inc(lCount);
+      end;
+    Assert.AreEqual(2, lCount);
   finally
     lGraph.Free;
   end;

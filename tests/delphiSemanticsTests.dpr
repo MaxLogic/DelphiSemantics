@@ -1,4 +1,4 @@
-program delphiSemanticsTests;
+﻿program delphiSemanticsTests;
 
 {$APPTYPE CONSOLE}
 {$STRONGLINKTYPES ON}
@@ -47,8 +47,10 @@ uses
   DelphiSemantics.RemoveWithPlan.FinalRewrite in '..\src\DelphiSemantics.RemoveWithPlan.FinalRewrite.pas',
   DelphiSemantics.Resolve in '..\src\DelphiSemantics.Resolve.pas',
   DelphiSemantics.Resolve.MemberResolver in '..\src\DelphiSemantics.Resolve.MemberResolver.pas',
+  DelphiSemantics.Resolve.NameSites in '..\src\DelphiSemantics.Resolve.NameSites.pas',
   DelphiSemantics.Resolve.ScopeResolver in '..\src\DelphiSemantics.Resolve.ScopeResolver.pas',
   DelphiSemantics.Resolve.SelectorTypes in '..\src\DelphiSemantics.Resolve.SelectorTypes.pas',
+  DelphiSemantics.RemoveWith.TempInsertion in '..\src\DelphiSemantics.RemoveWith.TempInsertion.pas',
   DelphiSemantics.Resolve.TypeResolver in '..\src\DelphiSemantics.Resolve.TypeResolver.pas',
   DelphiSemantics.Resolve.UnitNameWitness in '..\src\DelphiSemantics.Resolve.UnitNameWitness.pas',
   DelphiSemantics.Resolve.UnitResolver in '..\src\DelphiSemantics.Resolve.UnitResolver.pas',
@@ -97,6 +99,7 @@ uses
   Test.Refactor.SignatureAlignment in 'src\test.refactor.signaturealignment.pas',
   Test.Refactor.UsesPlanner in 'src\test.refactor.usesplanner.pas',
   Test.RemoveWithPlan in 'src\test.removewithplan.pas',
+  Test.ResolutionBoundary in 'src\test.resolutionboundary.pas',
   Test.ResolverLevel1 in 'src\test.resolverlevel1.pas',
   Test.ResolverLevel2 in 'src\test.resolverlevel2.pas',
   Test.ResolverLevel3 in 'src\test.resolverlevel3.pas',
@@ -114,6 +117,7 @@ uses
   Test.Support in 'src\test.support.pas',
   Test.SymbolQuery in 'src\test.symbolquery.pas',
   Test.TypeResolver in 'src\test.typeresolver.pas',
+  Test.TypeVisibilityNative in 'src\test.typevisibilitynative.pas',
   Test.UnitModel in 'src\test.unitmodel.pas',
   Test.UnitNameWitness in 'src\test.unitnamewitness.pas',
   Test.UnitResolver in 'src\test.unitresolver.pas',

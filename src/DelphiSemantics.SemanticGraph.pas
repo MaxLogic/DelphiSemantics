@@ -50,6 +50,11 @@ type
     InterfaceImports: TArray<string>;
     ImplementationImports: TArray<string>;
     ImportsKnown: Boolean;
+    AliasConflictNames: TArray<string>;
+    TypeNamesKnown: Boolean;
+    HelperFactsKnown: Boolean;
+    UnindexedHelpers: TArray<TDelphiSemanticUnindexedHelperFact>;
+    SourceText: string;
     SourceRange: TDelphiSemanticSourceRange;
   end;
 
@@ -68,13 +73,17 @@ type
     Name: string;
     Kind: string;
     TypeName: string;
+    SectionKind: string;
     ScopeKind: string;
+    OwnerDeclaredId: TDelphiSemanticGraphTypeId;
     OwnerScopeId: string;
     SemanticSymbolId: string;
     SourceRange: TDelphiSemanticSourceRange;
   end;
 
   TDelphiSemanticGraphType = record
+    Synthetic: Boolean;
+    OwnerName: string;
     SymbolId: TDelphiSemanticGraphSymbolId;
     DeclaredId: TDelphiSemanticGraphTypeId;
     CanonicalId: TDelphiSemanticGraphTypeId;
@@ -250,7 +259,7 @@ type
 implementation
 
 uses
-  System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.SysUtils,
+  System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
   DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.SourceConditionals;
 
 function StableHash(const aText: string): string;
@@ -356,6 +365,34 @@ begin
   Result.UnitName := aModel.UnitName;
   Result.FileName := aModel.FileName;
   Result.SourceKind := 'project';
+  Result.SourceText := aModel.SourceText;
+  // A conflicted alias cannot be canonicalized into a closed indexed import.
+  for var lAlias in aProject.UnitAliases do
+  begin
+    var lEquals := Pos('=', lAlias);
+    if lEquals < 2 then
+      Continue;
+    for var lOther in aProject.UnitAliases do
+    begin
+      var lOtherEquals := Pos('=', lOther);
+      if (lOtherEquals > 1) and
+        SameText(Trim(Copy(lAlias, 1, lEquals - 1)), Trim(Copy(lOther, 1, lOtherEquals - 1))) and
+        not SameText(Trim(Copy(lAlias, lEquals + 1, MaxInt)), Trim(Copy(lOther, lOtherEquals + 1, MaxInt))) then
+        Result.AliasConflictNames := Result.AliasConflictNames + [Trim(Copy(lAlias, 1, lEquals - 1))];
+    end;
+  end;
+  Result.TypeNamesKnown := aModel.Success and
+    (SameText(aModel.ScopeModelStatus, 'ast') or SameText(aModel.ScopeModelStatus, 'ast-interface-only'));
+  for var lDiagnostic in aModel.Diagnostics do
+    if MatchText(lDiagnostic.Code, ['UNVERIFIED_PREPROCESS_CONDITION',
+      'UNSUPPORTED_PREPROCESS_DIRECTIVE', 'UNMATCHED_PREPROCESS_DIRECTIVE']) then
+      Result.TypeNamesKnown := False;
+  Result.UnindexedHelpers := aModel.UnindexedHelpers;
+  var lHelperDiagnosticCount := 0;
+  for var lDiagnostic in aModel.Diagnostics do
+    if SameText(lDiagnostic.Code, 'AST_HELPER_DECLARATION_UNINDEXED') then
+      Inc(lHelperDiagnosticCount);
+  Result.HelperFactsKnown := Length(Result.UnindexedHelpers) >= lHelperDiagnosticCount;
   Result.ScopeModelStatus := aModel.ScopeModelStatus;
   Result.ImportsKnown := TDelphiSemanticSemanticGraphBuilder.ProjectImports(aProject,
     aModel, aModels, Result.InterfaceImports, Result.ImplementationImports);
@@ -366,7 +403,9 @@ function DeclarationSourceRange(const aModel: TDelphiSemanticUnitModel;
   const aDeclaration: TDelphiSemanticDeclaration): TDelphiSemanticSourceRange;
 begin
   Result := Default(TDelphiSemanticSourceRange);
-  Result.FileName := aModel.FileName;
+  Result.FileName := aDeclaration.FileName;
+  if Result.FileName = '' then
+    Result.FileName := aModel.FileName;
   Result.Line := aDeclaration.Line;
   Result.Column := aDeclaration.Column;
   Result.Offset := aDeclaration.Offset;
@@ -378,7 +417,9 @@ function MemberSourceRange(const aModel: TDelphiSemanticUnitModel;
   const aMember: TDelphiSemanticMember): TDelphiSemanticSourceRange;
 begin
   Result := Default(TDelphiSemanticSourceRange);
-  Result.FileName := aModel.FileName;
+  Result.FileName := aMember.FileName;
+  if Result.FileName = '' then
+    Result.FileName := aModel.FileName;
   Result.Line := aMember.Line;
   Result.Column := aMember.Column;
   Result.Offset := aMember.Offset;
@@ -409,7 +450,9 @@ function LocalSourceRange(const aModel: TDelphiSemanticUnitModel;
   const aLocal: TDelphiSemanticLocal): TDelphiSemanticSourceRange;
 begin
   Result := Default(TDelphiSemanticSourceRange);
-  Result.FileName := aModel.FileName;
+  Result.FileName := aLocal.FileName;
+  if Result.FileName = '' then
+    Result.FileName := aModel.FileName;
   Result.Line := aLocal.Line;
   Result.Column := aLocal.Column;
   Result.Offset := aLocal.Offset;
@@ -421,7 +464,9 @@ function ParameterSourceRange(const aModel: TDelphiSemanticUnitModel;
   const aParameter: TDelphiSemanticParameter): TDelphiSemanticSourceRange;
 begin
   Result := Default(TDelphiSemanticSourceRange);
-  Result.FileName := aModel.FileName;
+  Result.FileName := aParameter.FileName;
+  if Result.FileName = '' then
+    Result.FileName := aModel.FileName;
   Result.Line := aParameter.Line;
   Result.Column := aParameter.Column;
   Result.Offset := aParameter.Offset;
@@ -465,6 +510,24 @@ begin
   Result.EndColumn := aWithStatement.BodyEndColumn;
 end;
 
+function HasLaterClassBody(const aModel: TDelphiSemanticUnitModel;
+  const aForward: TDelphiSemanticDeclaration): Boolean;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+begin
+  Result := False;
+  if not SameText(aForward.Kind, 'type') or not SameText(aForward.TypeName, 'class') or
+    (aForward.TypeBodyEndLine <> 0) or (aForward.SymbolId = '') then
+    Exit;
+  for lDeclaration in aModel.Declarations do
+    if SameText(lDeclaration.SymbolId, aForward.SymbolId) and
+      SameText(lDeclaration.Kind, 'type') and SameText(lDeclaration.TypeName, 'class') and
+      SameText(lDeclaration.SectionKind, aForward.SectionKind) and
+      SameText(lDeclaration.OwnerScopeId, aForward.OwnerScopeId) and
+      (lDeclaration.Line > aForward.Line) and (lDeclaration.TypeBodyEndLine > 0) then
+      Exit(True);
+end;
+
 procedure AddDeclarationSymbols(const aSymbols: TList<TDelphiSemanticGraphSymbol>;
   const aDeclarations: TList<TDelphiSemanticGraphDeclaration>;
   const aTypes: TList<TDelphiSemanticGraphType>;
@@ -496,18 +559,22 @@ begin
     lDeclarationDto.Name := lDeclaration.Name;
     lDeclarationDto.Kind := lDeclaration.Kind;
     lDeclarationDto.TypeName := lDeclaration.TypeName;
+    lDeclarationDto.SectionKind := lDeclaration.SectionKind;
     lDeclarationDto.ScopeKind := lDeclaration.ScopeKind;
     lDeclarationDto.OwnerScopeId := lDeclaration.OwnerScopeId;
     lDeclarationDto.SemanticSymbolId := lDeclaration.SymbolId;
     lDeclarationDto.SourceRange := lSymbol.SourceRange;
     aDeclarations.Add(lDeclarationDto);
 
-    if SameText(lDeclaration.Kind, 'type') or SameText(lDeclaration.Kind, 'type-alias') then
+    if (SameText(lDeclaration.Kind, 'type') or SameText(lDeclaration.Kind, 'type-alias')) and
+      not HasLaterClassBody(aModel, lDeclaration) then
     begin
       lTypeName := lDeclaration.TypeName;
       if lTypeName = '' then
         lTypeName := lDeclaration.Name;
       lType := Default(TDelphiSemanticGraphType);
+      lType.Synthetic := Pos('.', lDeclaration.Name) > 0;
+      lType.OwnerName := lDeclaration.OwnerName;
       lType.SymbolId := lSymbol.Id;
       lType.UnitId := aUnit.Id;
       lType.Name := lDeclaration.Name;
@@ -520,7 +587,7 @@ begin
       lType.ScopeKind := lDeclaration.ScopeKind;
       lType.OwnerScopeId := lDeclaration.OwnerScopeId;
       lType.SemanticSymbolId := lDeclaration.SymbolId;
-      if SameText(lDeclaration.ScopeKind, 'routine') then
+      if SameText(lDeclaration.ScopeKind, 'routine') or SameText(lDeclaration.ScopeKind, 'type') then
       begin
         lType.DeclaredId := MakeScopedTypeId(aUnit.Id, 'declared',
           lDeclaration.OwnerScopeId, lDeclaration.SymbolId);
@@ -535,6 +602,12 @@ begin
         lType.UnderlyingId := MakeTypeId(aUnit.Id, 'underlying', lType.UnderlyingName);
       end;
       lType.SourceRange := lSymbol.SourceRange;
+      for var lEarlier in aModel.Declarations do
+        if HasLaterClassBody(aModel, lEarlier) and
+          SameText(lEarlier.SymbolId, lDeclaration.SymbolId) and
+          SameText(lEarlier.OwnerScopeId, lDeclaration.OwnerScopeId) and
+          (lEarlier.Line < lType.SourceRange.Line) then
+          lType.SourceRange := DeclarationSourceRange(aModel, lEarlier);
       aTypes.Add(lType);
     end;
   end;

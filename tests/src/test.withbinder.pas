@@ -1,4 +1,4 @@
-unit Test.WithBinder;
+﻿unit Test.WithBinder;
 
 interface
 
@@ -536,6 +536,36 @@ type
     [TestCase('ce6-project-alias-default-key True', 'ce6-project-alias-default-key,True')]
     [TestCase('ce6b-project-alias-twice False', 'ce6b-project-alias-twice,False')]
     [TestCase('ce6b-project-alias-twice True', 'ce6b-project-alias-twice,True')]
+    [TestCase('r6-n1-field-path-unknown False', 'r6-n1-field-path-unknown,False')]
+    [TestCase('r6-n1-field-path-unknown True', 'r6-n1-field-path-unknown,True')]
+    [TestCase('r6-n1-field-path-shadow False', 'r6-n1-field-path-shadow,False')]
+    [TestCase('r6-n1-field-path-shadow True', 'r6-n1-field-path-shadow,True')]
+    [TestCase('r6-n1-field-path-absent False', 'r6-n1-field-path-absent,False')]
+    [TestCase('r6-n1-field-path-absent True', 'r6-n1-field-path-absent,True')]
+    [TestCase('r6-n4-pointer-alias-unknown False', 'r6-n4-pointer-alias-unknown,False')]
+    [TestCase('r6-n4-pointer-alias-unknown True', 'r6-n4-pointer-alias-unknown,True')]
+    [TestCase('r6-n4-pointer-alias-shadow False', 'r6-n4-pointer-alias-shadow,False')]
+    [TestCase('r6-n4-pointer-alias-shadow True', 'r6-n4-pointer-alias-shadow,True')]
+    [TestCase('r6-n4-pointer-alias-absent False', 'r6-n4-pointer-alias-absent,False')]
+    [TestCase('r6-n4-pointer-alias-absent True', 'r6-n4-pointer-alias-absent,True')]
+    [TestCase('r6-n6-array-elem-unknown False', 'r6-n6-array-elem-unknown,False')]
+    [TestCase('r6-n6-array-elem-unknown True', 'r6-n6-array-elem-unknown,True')]
+    [TestCase('r6-n6-array-elem-shadow False', 'r6-n6-array-elem-shadow,False')]
+    [TestCase('r6-n6-array-elem-shadow True', 'r6-n6-array-elem-shadow,True')]
+    [TestCase('r6-n6-array-elem-absent False', 'r6-n6-array-elem-absent,False')]
+    [TestCase('r6-n6-array-elem-absent True', 'r6-n6-array-elem-absent,True')]
+    [TestCase('r6-n9-class-field-unknown False', 'r6-n9-class-field-unknown,False')]
+    [TestCase('r6-n9-class-field-unknown True', 'r6-n9-class-field-unknown,True')]
+    [TestCase('r6-n9-class-field-shadow False', 'r6-n9-class-field-shadow,False')]
+    [TestCase('r6-n9-class-field-shadow True', 'r6-n9-class-field-shadow,True')]
+    [TestCase('r6-n9-class-field-absent False', 'r6-n9-class-field-absent,False')]
+    [TestCase('r6-n9-class-field-absent True', 'r6-n9-class-field-absent,True')]
+    [TestCase('r6-a4-multi-unknown False', 'r6-a4-multi-unknown,False')]
+    [TestCase('r6-a4-multi-unknown True', 'r6-a4-multi-unknown,True')]
+    [TestCase('r6-a4-multi-shadow False', 'r6-a4-multi-shadow,False')]
+    [TestCase('r6-a4-multi-shadow True', 'r6-a4-multi-shadow,True')]
+    [TestCase('r6-a4-multi-absent False', 'r6-a4-multi-absent,False')]
+    [TestCase('r6-a4-multi-absent True', 'r6-a4-multi-absent,True')]
     procedure OrderedTypeNamesOnFiveRoutes(const aShape: string;
       const aSkipGraph: Boolean);
     [Test]
@@ -8285,6 +8315,15 @@ begin
   Assert.AreEqual('TSecondRecord', ReceiverOf(lBindings[1], 'Shared', 'member'));
   Assert.IsTrue(HasReference(lBindings[1], 'SecondOnly', 'member'));
   Assert.IsTrue(HasReference(lBindings[1], 'FirstOnly', 'member'));
+  for var lReference in lBindings[1].References do
+    if lReference.Classification = 'member' then
+    begin
+      if lReference.Name = 'Shared' then
+        Assert.AreEqual(1, lReference.ReceiverIndex, 'The held receiver ordinal must identify the second receiver.');
+      if lReference.Name = 'FirstOnly' then
+        Assert.AreEqual(0, lReference.ReceiverIndex, 'An absent inner member permits the first receiver.');
+    end;
+
 end;
 
 procedure TWithBinderTests.AmbiguousReceiverMembersClassifyAsAmbiguous;
@@ -19210,7 +19249,9 @@ begin
   lRouteStatuses := '';
 
   // A4: au-absent is an unpaired project source, so token absence proves nothing.
-  lPlanned := (aExpectedStrategy <> '') or MatchText(aShape, ['ua', 'b-after-sysutils',
+  lPlanned := (aExpectedStrategy <> '') or
+    (aShape.StartsWith('r6-') and aShape.EndsWith('-absent')) or
+    MatchText(aShape, ['ua', 'b-after-sysutils',
     'e-impl-unit2-wins', 'a5-inner-control', 'a6-capture-control']);
   for var i := 0 to 4 do
   begin
@@ -19338,7 +19379,7 @@ begin
         'x2-third-unit-own-last', 'x1-third-unit-base-last', 'q4-head-and-d4',
         'au-present', 'au-absent', 'a-before-sysutils', 'd-impl-sysutils-wins',
         'tab-i', 'tab-include', 'tab-paren', 'include-plus-brace',
-        'include-plus-paren']) then
+        'include-plus-paren']) or (aShape.StartsWith('r6-') and aShape.EndsWith('-shadow')) then
         // Review M2/A2: a HEAD capture refusal precedes D4 and keeps its candidate.
         Assert.AreEqual<Integer>(1, Length(lPlan.Edits), aShape + ': refused candidate retained')
       else
