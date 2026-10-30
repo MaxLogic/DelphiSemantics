@@ -2113,6 +2113,10 @@ type
     [TestCase('Dereferenced inherited field', 'pointer')]
     procedure RootAbsenceNeverOverridesIndexedLineage(const aShape: string);
     [Category('Fast')]
+    [TestCase('Ancestor namesake', 'hidden')]
+    [TestCase('Helper namesake', 'hidden-helper')]
+    procedure IdentityWalkPreservesSemanticHiddenBarrier(const aShape: string);
+    [Category('Fast')]
     [TestCase('Indexed local class', 'indexed')]
     [TestCase('Dereferenced local class', 'pointer')]
     procedure LocalLineageNeverBorrowsUnitTypeIdentity(const aShape: string);
@@ -6597,7 +6601,7 @@ begin
   Assert.IsTrue(lFound);
 end;
 
-procedure CheckMemberVerdictBarrierPins;
+procedure CheckMemberVerdictBarrierPins(const aOnlyShape: string = '');
 var
   lShape, lText, lExpectedStatus: string;
   lOptions: TDelphiSemanticModelOptions;
@@ -6615,8 +6619,10 @@ var
 begin
   // Recovery 8.6 pins: keep the complete graph while withholding the legacy
   // spelling-only inventory, so each intact lookup status reaches the adapter.
-  for lShape in ['inaccessible', 'inaccessible-ancestor', 'overloaded', 'hidden', 'no-identity'] do
+  for lShape in ['inaccessible', 'inaccessible-ancestor', 'overloaded', 'hidden', 'hidden-helper', 'no-identity'] do
   begin
+    if (aOnlyShape <> '') and (aOnlyShape <> lShape) then
+      Continue;
     lText := 'unit VerdictPins;'#13#10'interface'#13#10'type'#13#10 +
       '  TBase = class public Count: Integer; end;'#13#10;
     if lShape = 'inaccessible' then
@@ -6629,9 +6635,14 @@ begin
         '    procedure Count(aValue: string); overload;'#13#10'  end;'#13#10
     else if lShape = 'hidden' then
       lText := lText + '  TRec = class(TBase) public Count: string; end;'#13#10
+    else if lShape = 'hidden-helper' then
+      lText := lText + '  TRec = class public Count: string; end;'#13#10 +
+        '  THelp = class helper for TRec function Count: Integer; end;'#13#10
     else
       lText := lText + '  TRec = class(TUnknownBase) end;'#13#10;
     lText := lText + 'var Count: Integer;'#13#10'  R: TRec;'#13#10'implementation'#13#10;
+    if lShape = 'hidden-helper' then
+      lText := lText + 'function THelp.Count: Integer; begin Result := 19; end;'#13#10;
     if lShape = 'no-identity' then
       lText := lText.Replace('R: TRec', 'R: TUnknown');
     if lShape = 'overloaded' then
@@ -6658,7 +6669,7 @@ begin
       lContext.InstanceContext := True;
       lLookup := lMemberIndex.ResolveMember(lContext, 'VerdictPins.TRec', 'Count');
       lExpectedStatus := lShape;
-      if lShape = 'inaccessible-ancestor' then
+      if MatchText(lShape, ['inaccessible-ancestor', 'hidden-helper']) then
         lExpectedStatus := 'hidden';
       if lShape = 'no-identity' then
         lExpectedStatus := 'unresolved';
@@ -6692,6 +6703,11 @@ begin
       lGraph.Free;
     end;
   end;
+end;
+
+procedure TWithBinderTests.IdentityWalkPreservesSemanticHiddenBarrier(const aShape: string);
+begin
+  CheckMemberVerdictBarrierPins(aShape);
 end;
 
 procedure TWithBinderTests.RootAbsenceNeverOverridesIndexedLineage(const aShape: string);

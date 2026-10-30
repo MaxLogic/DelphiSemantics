@@ -26,7 +26,8 @@ const
   cHeader = '(?im)^\s*(?:class\s+)?(?:function|procedure|constructor|destructor)\s+([\w.]+)';
   cCalls = '(?i)\b(ResolveVisibleName|ResolveScopedName|ResolveSimpleName|' +
     'ResolveQualifiedName|FindVisibleSelectorType|UsesSelectorUnit|IsUnitVisible|' +
-    'OwnerHasMemberNamed|ResolveInterfaceMetadataName)\s*\(';
+    'OwnerHasMemberNamed|ResolveInterfaceMetadataName|TryFindTempInsertionLine|' +
+    'ResolveResultFromMemberLookup|FindAncestors|AsLookupResult)\s*\(';
 
 function BoundaryRows(const aSource, aUnitName: string): TArray<string>;
 var
@@ -39,6 +40,10 @@ begin
   try
     // Remove comments and strings before identifying executable call sites.
     lSource := TRegEx.Replace(aSource, cTokens, ' ');
+    if SameText(aUnitName, 'DelphiSemantics.WithBinding.pas') or
+      SameText(aUnitName, 'DelphiSemantics.RemoveWithPlan.pas') then
+      Assert.IsFalse(TRegEx.IsMatch(lSource, '(?i)\b(FindAncestors|AsLookupResult)\b'),
+        'Binder and planner must preserve lineage and name outcomes: ' + aUnitName);
     lHeaders := TRegEx.Matches(lSource, cHeader);
     for var i := 0 to lHeaders.Count - 1 do
     begin

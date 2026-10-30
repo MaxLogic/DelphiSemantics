@@ -39,12 +39,9 @@ delphisemantics.resolve.typeresolver.pas|tdelphisemantictypeidentityindexdata.re
 delphisemantics.resolve.typeresolver.pas|tdelphisemantictypeidentityindexdata.resolvescopedname|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|bindselectors|resolvescopedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|bindselectors|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|blocked|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|lastname|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|lastname|resolvescopedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|lastname|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|twithbindingprojectmemberindex.addmember|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|twithbindingprojectmemberindex.addmember|resolvescopedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|twithbindingprojectmemberindex.buildhelpertargetindex|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|twithbindingprojectmemberindex.buildvaluememberindex|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|twithbindingprojectmemberindex.buildvaluememberindex|resolvescopedname|dde6340 transition; remove on migration in steps 1-6
@@ -56,18 +53,15 @@ delphisemantics.withbinding.pas|twithbindingprojectmemberindex.resolvevalueevide
 delphisemantics.withbinding.pas|twithbindingprojectmemberindex.selectortypelookup|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|twithbindingprojectmemberindex.selectortypelookup|resolvescopedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|twithbindingprojectmemberindex.selectortypelookup|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|twithbindingprojectmemberindex.trybuildmembersafetylineage|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|twithbindingprojectmemberindex.trybuildmembersafetylineage|resolvescopedname|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|twithbindingprojectmemberindex.trybuildmembersafetylineage|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|twithbindingprojectmemberindex.trybuildmembersafetylineage|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|twithbindingprojectmemberindex.tryresolveanonymousmembertypeidentity|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|twithbindingprojectmemberindex.tryresolvedirectmember|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|twithbindingprojectmemberindex.tryresolvememberowneridentity|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|twithbindingprojectmemberindex.tryresolvememberowneridentity|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|twithbindingprojectmemberindex.tryresolvememberowneridentity|resolvescopedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|twithbindingprojectmemberindex.tryresolvepointercasttype|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|twithbindingprojectmemberindex.tryresolvepointercasttype|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|twithbindingprojectmemberindex.tryresolvepointercasttype|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|twithbindingprojectmemberindex.tryresolvetypeoriginscope|resolvescopedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|twithbindingprojectmemberindex.tryresolveuniqueexportedfinaltype|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.resolve.typeresolver.pas|tdelphisemantictypeidentityindex.resolveinterfacemetadataname|resolveinterfacemetadataname|2.11 metadata facade delegates to the index; no rewrite admission caller
+delphisemantics.removewithplan.pas|findroutinedeclarationrange|tryfindtempinsertionline|recovery 2.6 planner temp-site provider; capture migration is 3e
+delphisemantics.resolve.memberresolver.pas|tdelphisemanticmemberidentityindexdata.expandedownertypes|findancestors|recovery 2.6 reviewed non-binder call; retained F3 behavior
+delphisemantics.resolve.memberresolver.pas|tdelphisemanticmemberidentityindexdata.typederivesfrom|findancestors|recovery 2.6 reviewed non-binder call; retained F3 behavior
+delphisemantics.resolve.memberresolver.pas|tdelphisemanticmemberidentityindexdata.typederivesfrom|findancestors|recovery 2.6 reviewed non-binder call; retained F3 behavior
+delphisemantics.resolve.typeresolver.pas|tdelphisemantictypeidentityindex.findancestors|findancestors|recovery 2.6 reviewed non-binder call; retained F3 behavior
