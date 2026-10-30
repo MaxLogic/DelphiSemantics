@@ -1,0 +1,924 @@
+[
+  {
+    "name": "r8-helper-collision-p1-class-control",
+    "folder": "r8-helper-collision-p1-class-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p1-class",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p1-class",
+    "folder": "r8-helper-collision-p1-class",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p1-class",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p1-record-control",
+    "folder": "r8-helper-collision-p1-record-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p1-record",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p1-record",
+    "folder": "r8-helper-collision-p1-record",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p1-record",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p2-field-method-same-control",
+    "folder": "r8-helper-collision-p2-field-method-same-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p2-field-method-same",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p2-field-method-same",
+    "folder": "r8-helper-collision-p2-field-method-same",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p2-field-method-same",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p2-field-method-different-control",
+    "folder": "r8-helper-collision-p2-field-method-different-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p2-field-method-different",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p2-field-method-different",
+    "folder": "r8-helper-collision-p2-field-method-different",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p2-field-method-different",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p2-field-property-same-control",
+    "folder": "r8-helper-collision-p2-field-property-same-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p2-field-property-same",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p2-field-property-same",
+    "folder": "r8-helper-collision-p2-field-property-same",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p2-field-property-same",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p2-field-property-different-control",
+    "folder": "r8-helper-collision-p2-field-property-different-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p2-field-property-different",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p2-field-property-different",
+    "folder": "r8-helper-collision-p2-field-property-different",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p2-field-property-different",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p2-property-method-same-control",
+    "folder": "r8-helper-collision-p2-property-method-same-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p2-property-method-same",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p2-property-method-same",
+    "folder": "r8-helper-collision-p2-property-method-same",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p2-property-method-same",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p2-property-method-different-control",
+    "folder": "r8-helper-collision-p2-property-method-different-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p2-property-method-different",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p2-property-method-different",
+    "folder": "r8-helper-collision-p2-property-method-different",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p2-property-method-different",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p2-property-property-same-control",
+    "folder": "r8-helper-collision-p2-property-property-same-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p2-property-property-same",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p2-property-property-same",
+    "folder": "r8-helper-collision-p2-property-property-same",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p2-property-property-same",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p2-property-property-different-control",
+    "folder": "r8-helper-collision-p2-property-property-different-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p2-property-property-different",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p2-property-property-different",
+    "folder": "r8-helper-collision-p2-property-property-different",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p2-property-property-different",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p3-method-same-control",
+    "folder": "r8-helper-collision-p3-method-same-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p3-method-same",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p3-method-same",
+    "folder": "r8-helper-collision-p3-method-same",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p3-method-same",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p3-method-different-control",
+    "folder": "r8-helper-collision-p3-method-different-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p3-method-different",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p3-method-different",
+    "folder": "r8-helper-collision-p3-method-different",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p3-method-different",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p3-property-same-control",
+    "folder": "r8-helper-collision-p3-property-same-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p3-property-same",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p3-property-same",
+    "folder": "r8-helper-collision-p3-property-same",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p3-property-same",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p3-property-different-control",
+    "folder": "r8-helper-collision-p3-property-different-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p3-property-different",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p3-property-different",
+    "folder": "r8-helper-collision-p3-property-different",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p3-property-different",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p3-field-same-control",
+    "folder": "r8-helper-collision-p3-field-same-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p3-field-same",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p3-field-same",
+    "folder": "r8-helper-collision-p3-field-same",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p3-field-same",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p3-field-different-control",
+    "folder": "r8-helper-collision-p3-field-different-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p3-field-different",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p3-field-different",
+    "folder": "r8-helper-collision-p3-field-different",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p3-field-different",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p4-ancestor-name-control",
+    "folder": "r8-helper-collision-p4-ancestor-name-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p4-ancestor-name",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p4-ancestor-name",
+    "folder": "r8-helper-collision-p4-ancestor-name",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p4-ancestor-name",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p4-neither-name-control",
+    "folder": "r8-helper-collision-p4-neither-name-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p4-neither-name",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p4-neither-name",
+    "folder": "r8-helper-collision-p4-neither-name",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p4-neither-name",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p4-descendant-name-control",
+    "folder": "r8-helper-collision-p4-descendant-name-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p4-descendant-name",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p4-descendant-name",
+    "folder": "r8-helper-collision-p4-descendant-name",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p4-descendant-name",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p4-implicit-root-unindexed-control",
+    "folder": "r8-helper-collision-p4-implicit-root-unindexed-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p4-implicit-root-unindexed",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p4-implicit-root-unindexed",
+    "folder": "r8-helper-collision-p4-implicit-root-unindexed",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p4-implicit-root-unindexed",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p4-implicit-root-indexed-control",
+    "folder": "r8-helper-collision-p4-implicit-root-indexed-control",
+    "refs": [
+      "Unit1",
+      "s/RootHelp"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p4-implicit-root-indexed",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p4-implicit-root-indexed",
+    "folder": "r8-helper-collision-p4-implicit-root-indexed",
+    "refs": [
+      "Unit1",
+      "s/RootHelp"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p4-implicit-root-indexed",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p5-basehelp-first-control",
+    "folder": "r8-helper-collision-p5-basehelp-first-control",
+    "refs": [
+      "Unit1",
+      "TypesUnit",
+      "BaseHelp",
+      "ChildHelp"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p5-basehelp-first",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p5-basehelp-first",
+    "folder": "r8-helper-collision-p5-basehelp-first",
+    "refs": [
+      "Unit1",
+      "TypesUnit",
+      "BaseHelp",
+      "ChildHelp"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p5-basehelp-first",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p5-childhelp-first-control",
+    "folder": "r8-helper-collision-p5-childhelp-first-control",
+    "refs": [
+      "Unit1",
+      "TypesUnit",
+      "BaseHelp",
+      "ChildHelp"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p5-childhelp-first",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p5-childhelp-first",
+    "folder": "r8-helper-collision-p5-childhelp-first",
+    "refs": [
+      "Unit1",
+      "TypesUnit",
+      "BaseHelp",
+      "ChildHelp"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p5-childhelp-first",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p5-own-helper-control",
+    "folder": "r8-helper-collision-p5-own-helper-control",
+    "refs": [
+      "Unit1",
+      "TypesUnit",
+      "BaseHelp"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p5-own-helper",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p5-own-helper",
+    "folder": "r8-helper-collision-p5-own-helper",
+    "refs": [
+      "Unit1",
+      "TypesUnit",
+      "BaseHelp"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p5-own-helper",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p6-const-control",
+    "folder": "r8-helper-collision-p6-const-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p6-const",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p6-const",
+    "folder": "r8-helper-collision-p6-const",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p6-const",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p6-typed-const-control",
+    "folder": "r8-helper-collision-p6-typed-const-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p6-typed-const",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p6-typed-const",
+    "folder": "r8-helper-collision-p6-typed-const",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p6-typed-const",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p6-tag-control",
+    "folder": "r8-helper-collision-p6-tag-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p6-tag",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p6-tag",
+    "folder": "r8-helper-collision-p6-tag",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p6-tag",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p8-parent-only-control",
+    "folder": "r8-helper-collision-p8-parent-only-control",
+    "refs": [
+      "Unit1",
+      "TypesUnit",
+      "ParentHelp",
+      "ChildHelp"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p8-parent-only",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p8-parent-only",
+    "folder": "r8-helper-collision-p8-parent-only",
+    "refs": [
+      "Unit1",
+      "TypesUnit",
+      "ParentHelp",
+      "ChildHelp"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p8-parent-only",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p8-both-control",
+    "folder": "r8-helper-collision-p8-both-control",
+    "refs": [
+      "Unit1",
+      "TypesUnit",
+      "ParentHelp",
+      "ChildHelp"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p8-both",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p8-both",
+    "folder": "r8-helper-collision-p8-both",
+    "refs": [
+      "Unit1",
+      "TypesUnit",
+      "ParentHelp",
+      "ChildHelp"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p8-both",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p9-weak-base-control",
+    "folder": "r8-helper-collision-p9-weak-base-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p9-weak-base",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent",
+    "alias_types": [
+      [
+        "Unit1.TS",
+        "Unit1.TS"
+      ],
+      [
+        "Unit1.TS2",
+        "Unit1.TS2"
+      ]
+    ]
+  },
+  {
+    "name": "r8-helper-collision-p9-weak-base",
+    "folder": "r8-helper-collision-p9-weak-base",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p9-weak-base",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "alias_types": [
+      [
+        "Unit1.TS",
+        "Unit1.TS"
+      ],
+      [
+        "Unit1.TS2",
+        "Unit1.TS2"
+      ]
+    ]
+  },
+  {
+    "name": "r8-helper-collision-p9-weak-alias-control",
+    "folder": "r8-helper-collision-p9-weak-alias-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p9-weak-alias",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent",
+    "expect_plan": true,
+    "alias_types": [
+      [
+        "Unit1.TS",
+        "Unit1.TS"
+      ],
+      [
+        "Unit1.TS2",
+        "Unit1.TS2"
+      ]
+    ]
+  },
+  {
+    "name": "r8-helper-collision-p9-weak-alias",
+    "folder": "r8-helper-collision-p9-weak-alias",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p9-weak-alias",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "alias_types": [
+      [
+        "Unit1.TS",
+        "Unit1.TS"
+      ],
+      [
+        "Unit1.TS2",
+        "Unit1.TS2"
+      ]
+    ]
+  },
+  {
+    "name": "r8-helper-collision-p9-strong-both-control",
+    "folder": "r8-helper-collision-p9-strong-both-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p9-strong-both",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p9-strong-both",
+    "folder": "r8-helper-collision-p9-strong-both",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p9-strong-both",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-hop-type-p10-inherited-field-control",
+    "folder": "r8-hop-type-p10-inherited-field-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-hop-type-control",
+    "pair": "r8-hop-type-p10-inherited-field",
+    "pair_role": "control",
+    "removed": "helper Next renamed to AbsentNext; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-hop-type-p10-inherited-field",
+    "folder": "r8-hop-type-p10-inherited-field",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-hop-type-collision",
+    "pair": "r8-hop-type-p10-inherited-field",
+    "pair_role": "collision",
+    "removed": "helper Next renamed to AbsentNext; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-hop-type-p10-inherited-property-control",
+    "folder": "r8-hop-type-p10-inherited-property-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-hop-type-control",
+    "pair": "r8-hop-type-p10-inherited-property",
+    "pair_role": "control",
+    "removed": "helper Next renamed to AbsentNext; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-hop-type-p10-inherited-property",
+    "folder": "r8-hop-type-p10-inherited-property",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-hop-type-collision",
+    "pair": "r8-hop-type-p10-inherited-property",
+    "pair_role": "collision",
+    "removed": "helper Next renamed to AbsentNext; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-hop-type-p10-inherited-method-control",
+    "folder": "r8-hop-type-p10-inherited-method-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-hop-type-control",
+    "pair": "r8-hop-type-p10-inherited-method",
+    "pair_role": "control",
+    "removed": "helper Next renamed to AbsentNext; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-hop-type-p10-inherited-method",
+    "folder": "r8-hop-type-p10-inherited-method",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-hop-type-collision",
+    "pair": "r8-hop-type-p10-inherited-method",
+    "pair_role": "collision",
+    "removed": "helper Next renamed to AbsentNext; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p11-integer-call-control",
+    "folder": "r8-helper-collision-p11-integer-call-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p11-integer-call",
+    "pair_role": "control",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p11-integer-call",
+    "folder": "r8-helper-collision-p11-integer-call",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p11-integer-call",
+    "pair_role": "collision",
+    "removed": "helper Count renamed to AbsentCount; helper declarations and targets retained"
+  },
+  {
+    "name": "r8-helper-collision-p11-string-call-control",
+    "folder": "r8-helper-collision-p11-string-call-control",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-control",
+    "pair": "r8-helper-collision-p11-string-call",
+    "pair_role": "control",
+    "removed": "type integer overload (helper string overload retained)",
+    "control_rule": "collision-absent"
+  },
+  {
+    "name": "r8-helper-collision-p11-string-call",
+    "folder": "r8-helper-collision-p11-string-call",
+    "refs": [
+      "Unit1"
+    ],
+    "family": "r8-helper-collision-collision",
+    "pair": "r8-helper-collision-p11-string-call",
+    "pair_role": "collision",
+    "removed": "type integer overload (helper string overload retained)"
+  }
+]

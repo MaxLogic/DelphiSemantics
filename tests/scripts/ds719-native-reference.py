@@ -646,6 +646,19 @@ def generate(repo, root, full, only=""):
     cases.extend(r7_cases(repo, root))
     if full:
         cases.extend(r8_cases(repo, root))
+        # DS-719 recovery 3q: the paired-control obligation is separate from
+        # expect_plan. Refusing for a different named cause can pass only the
+        # collision-absent obligation (recovery coordinator ruling 0.5).
+        helper_fixtures = repo / 'tests/fixtures/ds719-helper-collisions'
+        if helper_fixtures.exists():
+            for item in json.loads((helper_fixtures / 'cases.json').read_text()):
+                folder = root / item['name']
+                shutil.copytree(helper_fixtures / item['folder'], folder)
+                project(folder, item['refs'])
+                case = {key: value for key, value in item.items()
+                        if key not in ('folder', 'refs')}
+                case['root'] = str(folder)
+                cases.append(case)
         # Historical positive controls are independent of the generated rows.
         for name in ('b-after-sysutils', 'e-impl-unit2-wins', 'ua', 'au-absent', 'g-ancestry-before-classes'):
             folder = root/('historical-'+name)
@@ -948,6 +961,62 @@ def native_identity(case, bds, targets):
             path.write_bytes(raw)
 
 
+def statement_causes(statement):
+    """Keep actual exported causes; never infer a collision from a generic code."""
+    return {key: statement.get(key, '') for key in ('cause', 'reason', 'safety')}
+
+
+def collision_causes(statement):
+    # Collision-specific codes must say collision. Broad unverified-member
+    # refusals also protect open roots and cannot prove collision causality.
+    return [value for value in statement_causes(statement).values()
+            if isinstance(value, str) and 'collision' in value.casefold()]
+
+
+def pair_route_result(plan, role):
+    """An additional pair obligation; this never satisfies expect_plan."""
+    statements = plan.get('statements', [])
+    observations = [dict(status=s.get('status', ''),
+                         remaining_cause=s.get('cause') or s.get('safety') or s.get('reason', ''),
+                         **statement_causes(s)) for s in statements]
+    planned = any(s.get('status') == 'planned' for s in statements)
+    if not statements or any(s.get('status') not in ('planned', 'skipped')
+                             for s in statements):
+        return dict(result='fail', cause='pair-result-missing-or-invalid',
+                    statements=observations)
+    if role == 'control':
+        if any(collision_causes(s) for s in statements):
+            cause = 'paired-control-collision-remains'
+        elif any(s['status'] != 'planned' and
+                 not any(statement_causes(s).values()) for s in statements):
+            cause = 'paired-control-refusal-unnamed'
+        else:
+            return dict(result='pass', obligation='collision-absent',
+                        statements=observations)
+    elif role == 'collision':
+        # Before 3d a plan is observed, compiled and run, never accepted as a
+        # collision refusal. The dual-binary dispatch decides any carry.
+        if planned:
+            return dict(result='fail', cause='collision-refusal-required',
+                        classification='planned-needs-native-check',
+                        statements=observations)
+        if all(s['status'] == 'skipped' and collision_causes(s)
+               for s in statements):
+            return dict(result='pass', obligation='collision-refusal',
+                        statements=observations)
+        cause = 'collision-cause-not-reported'
+    else:
+        cause = 'pair-role-invalid'
+    return dict(result='fail', cause=cause, statements=observations)
+
+
+def rewrite_must_stop(case, rewrite, original_output, stop_runtime):
+    mismatch = (rewrite['build']['exit'] != 0 or
+                rewrite['runtime']['exit'] != 0 or
+                rewrite['runtime']['stdout'] != original_output)
+    return mismatch and (bool(case.get('pair_role')) or stop_runtime)
+
+
 def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
     start = time.perf_counter(); failures = []; rows = []; losses = 0
     stopped = False
@@ -1012,6 +1081,13 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
                        family=case['family'], refused_statements=sum(s['status'] != 'planned' for s in plan['statements']),
                        original=original, identities=identities, identity_probe=identity_receipt,
                        expected_statements=len(targets), expected_selectors=sum(len(t['context']) for t in targets))
+            if case.get('pair_role'):
+                observation = pair_route_result(plan, case['pair_role'])
+                row['pair'] = case['pair']
+                row['pair_role'] = case['pair_role']
+                row['pair_result'] = observation
+                if observation['result'] == 'fail':
+                    failure(case, route, 4, observation['cause'], observation=observation)
             if case.get('expect_plan'):
                 for statement in plan['statements']:
                     if statement['status'] != 'planned':
@@ -1045,7 +1121,7 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
                     elif rewrite['runtime']['exit'] or rewrite['runtime']['stdout'] != output:
                         failure(case, route, 1, 'runtime-output', original_output=output,
                                 rewrite_output=rewrite['runtime']['stdout'])
-                        stopped = stop_runtime
+                    stopped = rewrite_must_stop(case, rewrite, output, stop_runtime)
                 finally:
                     for path, raw in source.items(): path.write_bytes(raw)
             else:
@@ -1097,7 +1173,8 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
             failures.append(dict(case='<ratchet>', route=None, field=4, cause='failure-set-expanded',
                                  added=sorted(new-old)))
     result = dict(case_count=len(cases), route_count=len(rows), fields=[1, 2, 3, 4], failures=failures,
-                  stopped_on_runtime_mismatch=stopped, complete=not stopped,
+                  stopped_on_runtime_mismatch=stopped,
+                  complete=not stopped,
                   coverage_by_case_route=coverage, coverage_by_family=families,
                   coverage_loss=losses, coverage_loss_definition='refused compilable-original routes; upper bound, not proven-safe rewrites',
                   seconds=time.perf_counter() - start, rows=rows)
