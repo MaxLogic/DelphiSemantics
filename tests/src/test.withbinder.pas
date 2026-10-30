@@ -16700,11 +16700,16 @@ begin
         if lWarmUnreachable then
         begin
           // DS-743: the local weak-alias scope-chain guard rejects persisted facts.
-          Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
-          Assert.IsTrue(lLoaded = nil);
-          Assert.AreEqual(0, lCache.Metrics.CacheHits);
-          Assert.AreEqual(1, lCache.Metrics.CacheMisses);
-          Assert.AreEqual(1, lCache.Metrics.Invalidations);
+          lLoaded := nil;
+          try
+            Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+            Assert.IsTrue(lLoaded = nil);
+            Assert.AreEqual(0, lCache.Metrics.CacheHits);
+            Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+            Assert.AreEqual(1, lCache.Metrics.Invalidations);
+          finally
+            lLoaded.Free;
+          end;
           lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
         end else begin
           Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));

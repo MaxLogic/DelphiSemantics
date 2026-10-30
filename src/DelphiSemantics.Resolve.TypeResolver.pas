@@ -184,6 +184,7 @@ type
   private
     fByCanonicalId: TDictionary<string, TDelphiSemanticTypeIdentityList>;
     fByDeclaredId: TDictionary<string, TDelphiSemanticTypeIdentity>;
+    fVisibilityRanges: TDictionary<string, TDelphiSemanticSourceRange>;
     fByQualifiedName: TDictionary<string, TDelphiSemanticTypeIdentity>;
     fHelpersByTargetName: TDictionary<string, TDelphiSemanticTypeIdentityList>;
     fBySimpleName: TDictionary<string, TDelphiSemanticTypeIdentityList>;
@@ -457,7 +458,9 @@ begin
         Continue;
       if aPositional then
       begin
-        lVisible := VisibleAt(aSite, lIdentity.SourceRange, aScopeKind = 'routine');
+        var lRange := lIdentity.SourceRange;
+        fVisibilityRanges.TryGetValue(lIdentity.DeclaredId.Value, lRange);
+        lVisible := VisibleAt(aSite, lRange, aScopeKind = 'routine');
         if lVisible < 0 then
           Exit(NameResolution(noUnproved, 'position-unknown', lScope, aName));
         if lVisible = 0 then
@@ -1424,6 +1427,8 @@ begin
   fNamedRootAbsence := aNamedRootAbsence;
   fByCanonicalId := TDictionary<string, TDelphiSemanticTypeIdentityList>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fVisibilityRanges := TDictionary<string, TDelphiSemanticSourceRange>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
   fByDeclaredId := TDictionary<string, TDelphiSemanticTypeIdentity>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fByQualifiedName := TDictionary<string, TDelphiSemanticTypeIdentity>.Create(
@@ -1529,6 +1534,10 @@ begin
     lIdentity.OwnerScopeId := lType.OwnerScopeId;
     lIdentity.SemanticSymbolId := lType.SemanticSymbolId;
     lIdentity.SourceRange := lType.SourceRange;
+    if lType.VisibilityRange.Line > 0 then
+      fVisibilityRanges.AddOrSetValue(lIdentity.DeclaredId.Value, lType.VisibilityRange)
+    else
+      fVisibilityRanges.AddOrSetValue(lIdentity.DeclaredId.Value, lType.SourceRange);
     if SameText(lIdentity.ScopeKind, 'routine') and
       SameText(lIdentity.Kind, 'type-alias') then
     begin
@@ -1629,6 +1638,7 @@ begin
   for lList in fHelpersByTargetName.Values do
     lList.Free;
   fHelpersByTargetName.Free;
+  fVisibilityRanges.Free;
   fByDeclaredId.Free;
   fByCanonicalId.Free;
   inherited;

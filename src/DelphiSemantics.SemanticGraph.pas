@@ -100,6 +100,7 @@ type
     OwnerScopeId: string;
     SemanticSymbolId: string;
     SourceRange: TDelphiSemanticSourceRange;
+    VisibilityRange: TDelphiSemanticSourceRange;
   end;
 
   TDelphiSemanticGraphMember = record
@@ -602,12 +603,17 @@ begin
         lType.UnderlyingId := MakeTypeId(aUnit.Id, 'underlying', lType.UnderlyingName);
       end;
       lType.SourceRange := lSymbol.SourceRange;
+      lType.VisibilityRange := lType.SourceRange;
       for var lEarlier in aModel.Declarations do
         if HasLaterClassBody(aModel, lEarlier) and
           SameText(lEarlier.SymbolId, lDeclaration.SymbolId) and
           SameText(lEarlier.OwnerScopeId, lDeclaration.OwnerScopeId) and
-          (lEarlier.Line < lType.SourceRange.Line) then
-          lType.SourceRange := DeclarationSourceRange(aModel, lEarlier);
+          SameText(lEarlier.SectionKind, lDeclaration.SectionKind) and
+          SameText(DeclarationSourceRange(aModel, lEarlier).FileName, lType.SourceRange.FileName) and
+          (lEarlier.Line > 0) and (lEarlier.Column > 0) and
+          (lEarlier.Line < lType.VisibilityRange.Line) then
+          // Visibility begins at the forward; declaration evidence stays at the body.
+          lType.VisibilityRange := DeclarationSourceRange(aModel, lEarlier);
       aTypes.Add(lType);
     end;
   end;

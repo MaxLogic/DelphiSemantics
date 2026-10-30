@@ -162,6 +162,9 @@ type
     procedure RepeatedParameterHeadingHasOneValueIdentity;
     [Category('Fast')]
     [Test]
+    procedure CompletedForwardPreservesEarlierVisibilityAndBodyEvidence;
+    [Category('Fast')]
+    [Test]
     [TestCase('AThenB', 'AB,resolved,HelperB')]
     [TestCase('BThenA', 'BA,resolved,HelperA')]
     [TestCase('LaterProjectUnknown', 'AU,unproved,')]
@@ -1978,6 +1981,60 @@ begin
       lResult.Reason + ' candidates=' + IntToStr(Length(lResult.Candidates)));
     Assert.AreEqual('parameter', lResult.Identity.Kind);
     Assert.AreEqual('TRec', lResult.Identity.TypeName);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.CompletedForwardPreservesEarlierVisibilityAndBodyEvidence;
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lResult: TDelphiSemanticTypeResolution;
+  lSite: TDelphiSemanticNameSite;
+  lWith: TDelphiSemanticWithStatement;
+begin
+  lPath := TPath.Combine(CreateTestTempRoot('ds719-completed-forward-temp'), 'ForwardUnit.pas');
+  TFile.WriteAllText(lPath, 'unit ForwardUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TBase = class;'#13#10'  TBetween = class(TBase) end;'#13#10 +
+    '  TBase = class'#13#10'    Value: Integer;'#13#10'  end;'#13#10 +
+    'implementation'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lWith := Default(TDelphiSemanticWithStatement);
+    lWith.Line := 5;
+    lWith.Column := 25;
+    lSite := TDelphiSemanticNameSites.AtWithStatement(lModel, lWith, '',
+      Default(TDelphiSemanticGraphTypeId));
+    lResult := lIndex.ResolveTypeAt(lSite, 'TBase');
+    Assert.IsTrue(lResult.Outcome = noResolved,
+      'A forward is visible between its heading and completed body: ' + lResult.Reason);
+    var lDeclaredId := lResult.Identity.DeclaredId.Value;
+    var lCount := 0;
+    for var lType in lGraph.Types do
+      if SameText(lType.Name, 'TBase') then
+        Inc(lCount);
+    Assert.AreEqual(1, lCount, 'Forward and body have one graph identity.');
+    lSite.Line := 3;
+    lSite.Column := 1;
+    Assert.IsTrue(lIndex.ResolveTypeAt(lSite, 'TBase').Outcome = noAbsent,
+      'The forward must not become visible before its heading.');
+    lSite.Line := 9;
+    lResult := lIndex.ResolveTypeAt(lSite, 'TBase');
+    Assert.IsTrue(lResult.Outcome = noResolved);
+    Assert.AreEqual(lDeclaredId, lResult.Identity.DeclaredId.Value);
+    Assert.AreEqual(6, lResult.Identity.SourceRange.Line,
+      'Member evidence must identify the completed body, independently of forward visibility.');
+    Assert.AreEqual(3, lResult.Identity.SourceRange.Column);
   finally
     lGraph.Free;
   end;
