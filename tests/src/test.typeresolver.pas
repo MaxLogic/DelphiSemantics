@@ -162,6 +162,9 @@ type
     procedure RepeatedParameterHeadingHasOneValueIdentity;
     [Category('Fast')]
     [Test]
+    procedure DifferentParameterTypesRemainAmbiguous;
+    [Category('Fast')]
+    [Test]
     procedure CompletedForwardPreservesEarlierVisibilityAndBodyEvidence;
     [Category('Fast')]
     [Test]
@@ -173,6 +176,30 @@ type
     [TestCase('UnindexedLaterOwnHelper', 'later-unindexed,resolved,HelperB')]
     [TestCase('MissingUnindexedFacts', 'missing-facts,unproved,')]
     procedure ActiveHelpersRespectImportOrder(const aOrder, aStatus, aUnit: string);
+
+    [Category('Fast')]
+    [Test]
+    procedure DefaultResolutionFailsClosed;
+    [Category('Fast')]
+    [TestCase('WeakChain', 'weak,True')]
+    [TestCase('StrongBoundary', 'strong,False')]
+    procedure HelperMatchesWeakAliasTerminal(const aShape: string; const aMatches: Boolean);
+
+    [Category('Fast')]
+    [TestCase('ImplicitClass', 'class,True,,System.TObject,False,1,-1')]
+    [TestCase('ExplicitObject', 'object,True,,System.TObject,False,1,-1')]
+    [TestCase('ImplicitInterface', 'interface,True,,System.IInterface,False,1,-1')]
+    [TestCase('Record', 'record,True,,,False,1,-1')]
+    [TestCase('IndexedRoot', 'indexed,True,,System.TObject,True,2,-1')]
+    [TestCase('WeakChain', 'weak,True,,,False,3,-1')]
+    [TestCase('StrongHop', 'strong,True,,,False,3,0')]
+    [TestCase('UnresolvedBase', 'unresolved,False,unresolved-base,,False,1,-1')]
+    [TestCase('UnprovedBase', 'unproved,False,unproved-base,,False,1,-1')]
+    [TestCase('AliasUnresolved', 'alias,False,alias-unresolved,,False,1,-1')]
+    [TestCase('Cycle', 'cycle,False,cycle,,False,2,-1')]
+    procedure LineageKeepsCompletenessAndRoots(const aShape: string;
+      const aComplete: Boolean; const aCause, aRoot: string; const aIndexed: Boolean;
+      const aCount, aStrong: Integer);
 
 
 
@@ -1986,6 +2013,53 @@ begin
   end;
 end;
 
+procedure TTypeResolverTests.DifferentParameterTypesRemainAmbiguous;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lSite: TDelphiSemanticNameSite;
+  lScopeId: string;
+  lResult: TDelphiSemanticValueResolution;
+begin
+  lPath := TPath.Combine(CreateTestTempRoot('ds719-param-conflict-temp'), 'Params.pas');
+  TFile.WriteAllText(lPath,
+    'unit Params;'#13#10'interface'#13#10 +
+    'type TRec = record X: Integer; end;'#13#10 +
+    'procedure Run(Value: TRec);'#13#10'implementation'#13#10 +
+    'procedure Run(Value: TRec);'#13#10'begin'#13#10 +
+    '  with Value do X := 1;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual(1, Integer(Length(lModel.WithStatements)));
+  lScopeId := '';
+  for var lRoutine in lModel.Routines do
+    if SameText(lRoutine.Name, 'Run') and SameText(lRoutine.AstScopeKind, 'body') then
+      lScopeId := lRoutine.ScopeId;
+  Assert.IsNotEmpty(lScopeId);
+  // Conflicting heading facts must survive deduplication as ambiguity.
+  Assert.IsTrue(Length(lModel.Routines[0].Parameters) > 0);
+  lModel.Routines[0].Parameters[0].TypeName := 'TOther';
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    Assert.AreEqual(2, Integer(Length(lGraph.Parameters)), 'Both heading facts must reach the index.');
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lSite := TDelphiSemanticNameSites.AtWithStatement(lModel, lModel.WithStatements[0],
+      lScopeId, Default(TDelphiSemanticGraphTypeId));
+    lResult := lIndex.ResolveValueRootAt(lSite, 'Value');
+    Assert.IsTrue(lResult.Outcome = noAmbiguous, lResult.Reason);
+    Assert.AreEqual(2, Integer(Length(lResult.Candidates)));
+    Assert.AreNotEqual(lResult.Candidates[0].TypeName, lResult.Candidates[1].TypeName);
+  finally
+    lGraph.Free;
+  end;
+end;
+
 procedure TTypeResolverTests.CompletedForwardPreservesEarlierVisibilityAndBodyEvidence;
 var
   lGraph: TDelphiSemanticSemanticGraph;
@@ -2035,6 +2109,160 @@ begin
     Assert.AreEqual(6, lResult.Identity.SourceRange.Line,
       'Member evidence must identify the completed body, independently of forward visibility.');
     Assert.AreEqual(3, lResult.Identity.SourceRange.Column);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.DefaultResolutionFailsClosed;
+var
+  lType: TDelphiSemanticTypeResolution;
+  lValue: TDelphiSemanticValueResolution;
+begin
+  lType := Default(TDelphiSemanticTypeResolution);
+  lValue := Default(TDelphiSemanticValueResolution);
+  Assert.IsTrue(lType.Outcome = TDelphiSemanticNameOutcome.noUnproved,
+    'An unset type result cannot authorize binding.');
+  Assert.IsTrue(lValue.Outcome = TDelphiSemanticNameOutcome.noUnproved,
+    'An unset value result cannot authorize binding.');
+end;
+
+procedure TTypeResolverTests.HelperMatchesWeakAliasTerminal(const aShape: string;
+  const aMatches: Boolean);
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath, lSource, lStrong: string;
+  lResult: TDelphiSemanticTypeResolution;
+  lSite: TDelphiSemanticNameSite;
+  lWith: TDelphiSemanticWithStatement;
+begin
+  lPath := TPath.Combine(CreateTestTempRoot('ds719-weak-helper-temp'), 'WeakHelper.pas');
+  lStrong := '';
+  if aShape = 'strong' then
+    lStrong := 'type ';
+  lSource := 'unit WeakHelper;'#13#10'interface'#13#10 +
+    'type'#13#10'  TRec = record X: Integer; end;'#13#10 +
+    '  TS = ' + lStrong + 'TRec;'#13#10'  TS2 = TS;'#13#10 +
+    '  THelp = record helper for TS2'#13#10'    function M: Integer;'#13#10'  end;'#13#10 +
+    'implementation'#13#10'function THelp.M: Integer;'#13#10 +
+    'begin'#13#10'  Result := 7;'#13#10'end;'#13#10'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    Assert.IsTrue(lIndex.ResolveQualifiedName('WeakHelper.TRec').Found);
+    lIdentity := lIndex.ResolveQualifiedName('WeakHelper.TRec').Identity;
+    lWith := Default(TDelphiSemanticWithStatement);
+    lWith.Line := 100;
+    lWith.Column := 1;
+    lSite := TDelphiSemanticNameSites.AtWithStatement(lModel, lWith, '',
+      Default(TDelphiSemanticGraphTypeId));
+    lResult := lIndex.ResolveActiveHelperAt(lIdentity.DeclaredId, lSite);
+    if aMatches then
+    begin
+      Assert.IsTrue(lResult.Outcome = TDelphiSemanticNameOutcome.noResolved,
+        'A two-hop weak alias must identify the terminal helper target: ' + lResult.Reason);
+      Assert.AreEqual('THelp', lResult.Identity.Name);
+    end else begin
+      Assert.IsFalse(lResult.Outcome = TDelphiSemanticNameOutcome.noResolved,
+        'A strong alias boundary cannot match the underlying record.');
+    end;
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.LineageKeepsCompletenessAndRoots(const aShape: string;
+  const aComplete: Boolean; const aCause, aRoot: string; const aIndexed: Boolean;
+  const aCount, aStrong: Integer);
+var
+  lAncestor, lModel: TDelphiSemanticUnitModel;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lLineage: TDelphiSemanticLineage;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath, lSource, lDeclarations, lImports: string;
+begin
+  lPath := TPath.Combine(CreateTestTempRoot('ds719-lineage-temp'), 'LineageUnit.pas');
+  lImports := '';
+  lDeclarations := '  TSubject = class end;';
+  if aShape = 'object' then
+    lDeclarations := '  TSubject = class(TObject) end;'
+  else if aShape = 'interface' then
+    lDeclarations := '  TSubject = interface end;'
+  else if aShape = 'record' then
+    lDeclarations := '  TSubject = record X: Integer; end;'
+  else if aShape = 'weak' then
+    lDeclarations := '  TRec = record X: Integer; end;'#13#10 +
+      '  TS = TRec;'#13#10'  TSubject = TS;'
+  else if aShape = 'strong' then
+    lDeclarations := '  TRec = record X: Integer; end;'#13#10 +
+      '  TS = TRec;'#13#10'  TSubject = type TS;'
+  else if MatchText(aShape, ['unresolved', 'unproved']) then
+    lDeclarations := '  TSubject = class(TMissing) end;'
+  else if aShape = 'alias' then
+    lDeclarations := '  TSubject = TMissing;'
+  else if aShape = 'cycle' then
+  begin
+    lImports := 'uses OtherUnit;'#13#10;
+    lDeclarations := '  TSubject = class(OtherUnit.TOther) end;';
+  end;
+  if aShape = 'unproved' then
+    lImports := 'uses UnknownUnit;'#13#10;
+  lSource := 'unit LineageUnit;'#13#10'interface'#13#10 + lImports +
+    'type'#13#10 + lDeclarations + #13#10'implementation'#13#10'end.';
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lAncestor := UnitModel('TypeUnitA');
+  lAncestor.Declarations := Copy(lAncestor.Declarations, 0, 1);
+  if aShape = 'cycle' then
+  begin
+    lAncestor.UnitName := 'OtherUnit';
+    lAncestor.DependencyFacts.InterfaceImports := ['LineageUnit'];
+    lAncestor.SourceText := 'unit OtherUnit; interface uses LineageUnit; implementation end.';
+    lAncestor.Declarations[0].Name := 'TOther';
+    lAncestor.Declarations[0].BaseTypeName := 'LineageUnit.TSubject';
+  end else if aShape = 'indexed' then
+  begin
+    lAncestor.UnitName := 'System';
+    lAncestor.Declarations[0].Name := 'TObject';
+  end else begin
+    lAncestor.Declarations := [];
+  end;
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel, lAncestor]);
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    Assert.IsTrue(lIndex.ResolveQualifiedName('LineageUnit.TSubject').Found);
+    lIdentity := lIndex.ResolveQualifiedName('LineageUnit.TSubject').Identity;
+    lLineage := lIndex.ResolveLineage(lIdentity);
+    Assert.AreEqual(aComplete, lLineage.Complete, aShape + ': completeness');
+    Assert.AreEqual(aCause, lLineage.Cause, aShape + ': stopping cause');
+    Assert.AreEqual(aRoot, lLineage.ImplicitRoot, aShape + ': implicit root');
+    Assert.AreEqual(aIndexed, lLineage.RootIndexed, aShape + ': indexed root');
+    Assert.AreEqual(aCount, Integer(Length(lLineage.Items)), aShape + ': exact walk length');
+    Assert.AreEqual(aStrong, lLineage.StrongAliasAt, aShape + ': first strong hop');
+    Assert.AreEqual(lIdentity.DeclaredId.Value, lLineage.Items[0].DeclaredId.Value);
+    Assert.AreEqual(aCount - 1, Integer(Length(lIndex.FindAncestors(lIdentity))),
+      'The compatibility view is the same ordered walk without the receiver.');
+    if aShape = 'weak' then
+    begin
+      Assert.AreEqual('TS', lLineage.Items[1].Name);
+      Assert.AreEqual('TRec', lLineage.Items[2].Name);
+    end;
   finally
     lGraph.Free;
   end;

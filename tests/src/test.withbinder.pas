@@ -12248,11 +12248,16 @@ begin
         if (aShape = 'local-weak-var-globalA') then
         begin
           // DS-743: warm-unreachable (pre-existing guard: local receiver scope chain).
-          Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
-          Assert.IsTrue(lLoaded = nil);
-          Assert.AreEqual(0, lCache.Metrics.CacheHits);
-          Assert.AreEqual(1, lCache.Metrics.CacheMisses);
-          Assert.AreEqual(1, lCache.Metrics.Invalidations);
+          lLoaded := nil;
+          try
+            Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+            Assert.IsTrue(lLoaded = nil);
+            Assert.AreEqual(0, lCache.Metrics.CacheHits);
+            Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+            Assert.AreEqual(1, lCache.Metrics.Invalidations);
+          finally
+            lLoaded.Free;
+          end;
           lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
         end else begin
           Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
@@ -12768,11 +12773,16 @@ begin
         if (aShape = 'nested-local-weak') then
         begin
           // DS-743: warm-unreachable (pre-existing guard: local receiver scope chain).
-          Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
-          Assert.IsTrue(lLoaded = nil);
-          Assert.AreEqual(0, lCache.Metrics.CacheHits);
-          Assert.AreEqual(1, lCache.Metrics.CacheMisses);
-          Assert.AreEqual(1, lCache.Metrics.Invalidations);
+          lLoaded := nil;
+          try
+            Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+            Assert.IsTrue(lLoaded = nil);
+            Assert.AreEqual(0, lCache.Metrics.CacheHits);
+            Assert.AreEqual(1, lCache.Metrics.CacheMisses);
+            Assert.AreEqual(1, lCache.Metrics.Invalidations);
+          finally
+            lLoaded.Free;
+          end;
           lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
         end else begin
           Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
@@ -17776,7 +17786,7 @@ begin
       end;
     end else begin
       Assert.AreEqual('ControlUnit.pas', ExtractFileName(lStatement.FileName));
-      Assert.AreEqual('planned', lStatement.Status);
+      Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
       Assert.IsTrue(ContainsText(lStatement.ReplacementText, '.Value := 1;'));
     end;
 end;

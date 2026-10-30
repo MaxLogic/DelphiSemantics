@@ -659,7 +659,9 @@ def generate(repo, root, full, only=""):
             name.startswith('r7-alias-chain-indexed-') or
             re.fullmatch(r'r7-later-(var|field)-indexed-1', name) is not None)
     if only:
-        cases = [case for case in cases if case["name"].startswith(only)]
+        prefixes = tuple(prefix.strip() for prefix in only.split(",") if prefix.strip())
+        assert prefixes, "Empty native selection"
+        cases = [case for case in cases if case["name"].startswith(prefixes)]
     assert cases and len(cases) <= 500, len(cases)
     (root / "cases.json").write_text(json.dumps(cases, indent=2), encoding="utf-8")
     print(f"Generated {len(cases)} cases")
