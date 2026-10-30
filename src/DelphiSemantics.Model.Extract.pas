@@ -62,6 +62,7 @@ type
     InterfaceGuid: string;
     AstHelperKind: string;
     HelperTargetName: string;
+    HelperParentName: string;
     IsHelper: Boolean;
     HelperCovered: Boolean;
     ProcedureSignature: TDelphiSemanticProcedureSignature;
@@ -1490,7 +1491,17 @@ var
             lFact.AstHelperKind := 'none'
           else
           begin
-            lHelperTargetNode := lHelperNode.FindNode(ntType);
+            // DelphiAST emits the optional ancestor first, then the FOR target.
+            // Only direct children count; a qualified target may contain types.
+            lHelperTargetNode := nil;
+            for lChild in lHelperNode.ChildNodes do
+              if lChild.Typ = ntType then
+              begin
+                if Assigned(lHelperTargetNode) then
+                  lFact.HelperParentName := StringReplace(
+                    lHelperTargetNode.GetAttribute(anName), '&', '', [rfReplaceAll]);
+                lHelperTargetNode := lChild;
+              end;
             if Assigned(lHelperTargetNode) then
             begin
               // Only the matched active AST establishes helper kind and target.
@@ -1890,7 +1901,10 @@ begin
         lDeclaration.InterfaceGuid := lFact.InterfaceGuid;
         lDeclaration.AstHelperKind := lFact.AstHelperKind;
         if lFact.AstHelperKind <> '' then
+        begin
           lDeclaration.HelperTargetName := lFact.HelperTargetName;
+          lDeclaration.HelperParentName := lFact.HelperParentName;
+        end;
         lDeclaration.ProcedureSignature := lFact.ProcedureSignature;
         lDeclaration.IsDispInterface := lFact.IsDispInterface;
         if lFact.IsHelper then
@@ -3808,8 +3822,7 @@ begin
         if lDepth = 0 then
           lBodyOffset := lStart + lLexer.TokenPos + Length(lLexer.Token);
         Inc(lDepth);
-      end
-      else if lLexer.TokenID = ptEnd then
+      end else if lLexer.TokenID = ptEnd then
       begin
         Dec(lDepth);
         if lDepth = 0 then

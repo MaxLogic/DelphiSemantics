@@ -205,6 +205,7 @@ begin
   Result.AddPair('ProcedureSignature', SignatureToJson(aDeclaration.ProcedureSignature));
   Result.AddPair('BaseTypeName', aDeclaration.BaseTypeName);
   Result.AddPair('HelperTargetName', aDeclaration.HelperTargetName);
+  Result.AddPair('HelperParentName', aDeclaration.HelperParentName);
   Result.AddPair('AstHelperKind', aDeclaration.AstHelperKind);
   Result.AddPair('SectionKind', aDeclaration.SectionKind);
   Result.AddPair('Line', TJSONNumber.Create(aDeclaration.Line));
@@ -236,6 +237,7 @@ begin
   Result.TypeName := JsonString(aObject, 'TypeName');
   Result.BaseTypeName := JsonString(aObject, 'BaseTypeName');
   Result.HelperTargetName := JsonString(aObject, 'HelperTargetName');
+  Result.HelperParentName := JsonString(aObject, 'HelperParentName');
   Result.AstHelperKind := JsonString(aObject, 'AstHelperKind');
   Result.SectionKind := JsonString(aObject, 'SectionKind');
   Result.Line := JsonInt(aObject, 'Line');

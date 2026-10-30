@@ -181,6 +181,13 @@ type
     [Test]
     procedure DefaultResolutionFailsClosed;
     [Category('Fast')]
+    [Test]
+    [TestCase('Forward', 'False')]
+    [TestCase('Reverse', 'True')]
+    procedure HelperQueriesKeepExactFileImports(const aReverse: Boolean);
+
+
+    [Category('Fast')]
     [TestCase('WeakChain', 'weak,True')]
     [TestCase('StrongBoundary', 'strong,False')]
     procedure HelperMatchesWeakAliasTerminal(const aShape: string; const aMatches: Boolean);
@@ -1963,6 +1970,77 @@ begin
     Assert.AreEqual(aUnit, lResult.Identity.UnitName);
     if aStatus = 'unproved' then
       Assert.AreEqual('helper-unknown', lResult.Cause);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.HelperQueriesKeepExactFileImports(const aReverse: Boolean);
+var
+  lTarget, lHelper, lFirst, lSecond: TDelphiSemanticUnitModel;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lLineage: TDelphiSemanticLineage;
+  lSite: TDelphiSemanticNameSite;
+  lWith: TDelphiSemanticWithStatement;
+  lResult: TDelphiSemanticHelperResolution;
+begin
+  lTarget := UnitModel('TypeUnitA');
+  lTarget.UnitName := 'Target';
+  lTarget.FileName := 'Target.pas';
+  lTarget.ScopeModelStatus := 'ast';
+  lTarget.DependencyFacts.Known := True;
+  lTarget.Declarations := Copy(lTarget.Declarations, 0, 1);
+  lTarget.Declarations[0].Name := 'TX';
+  lTarget.Declarations[0].TypeName := 'record';
+  lTarget.SourceText := 'unit Target; interface implementation end.';
+  lHelper := lTarget;
+  lHelper.UnitName := 'HelperA';
+  lHelper.FileName := 'HelperA.pas';
+  lHelper.DependencyFacts.InterfaceImports := ['Target'];
+  lHelper.Declarations := Copy(lTarget.Declarations);
+  lHelper.Declarations[0].Name := 'THelper';
+  lHelper.Declarations[0].TypeName := 'record helper';
+  lHelper.Declarations[0].HelperTargetName := 'TX';
+  lHelper.SourceText := 'unit HelperA; interface uses Target; implementation end.';
+  lFirst := lTarget;
+  lFirst.UnitName := 'Consumer';
+  lFirst.FileName := 'FirstConsumer.pas';
+  lFirst.Declarations := [];
+  lFirst.DependencyFacts.InterfaceImports := ['Target', 'HelperA'];
+  lFirst.SourceText := 'unit Consumer; interface uses Target, HelperA; implementation end.';
+  lSecond := lFirst;
+  lSecond.FileName := 'SecondConsumer.pas';
+  lSecond.DependencyFacts.InterfaceImports := ['Target'];
+  lSecond.SourceText := 'unit Consumer; interface uses Target; implementation end.';
+  if aReverse then
+    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo,
+      [lTarget, lHelper, lSecond, lFirst])
+  else
+    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo,
+      [lTarget, lHelper, lFirst, lSecond]);
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lLineage := lIndex.ResolveLineage(lIndex.ResolveQualifiedName('Target.TX').Identity);
+    Assert.IsTrue(lLineage.Complete);
+    lWith := Default(TDelphiSemanticWithStatement);
+    lWith.Line := 100;
+    lWith.Column := 1;
+    lSite := TDelphiSemanticNameSites.AtWithStatement(lFirst, lWith, '',
+      Default(TDelphiSemanticGraphTypeId));
+    lResult := lIndex.ResolveHelpersAt(lLineage, lSite);
+    Assert.AreEqual(1, Integer(Length(lResult.Levels)));
+    Assert.IsTrue(lResult.Levels[0].Outcome = TDelphiSemanticNameOutcome.noResolved,
+      'First file imports HelperA regardless of graph enumeration order.');
+    Assert.AreEqual('HelperA', lResult.Levels[0].Chain[0].UnitName);
+    Assert.AreEqual(MaxInt, lResult.OpenFromLevel);
+    lSite := TDelphiSemanticNameSites.AtWithStatement(lSecond, lWith, '',
+      Default(TDelphiSemanticGraphTypeId));
+    lResult := lIndex.ResolveHelpersAt(lLineage, lSite);
+    Assert.IsTrue(lResult.Levels[0].Outcome = TDelphiSemanticNameOutcome.noAbsent,
+      'Second file does not import HelperA.');
+    Assert.AreEqual(0, Integer(Length(lResult.Levels[0].Chain)));
+    Assert.AreEqual(MaxInt, lResult.OpenFromLevel);
   finally
     lGraph.Free;
   end;

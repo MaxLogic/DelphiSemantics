@@ -47,6 +47,7 @@ type
     IsDispInterface: Boolean;
     BaseTypeName: string;
     HelperTargetName: string;
+    HelperParentName: string;
     // DS-716: empty means unverified; none, class or record comes from the active syntax tree.
     AstHelperKind: string;
     SectionKind: string;

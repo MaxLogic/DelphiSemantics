@@ -95,6 +95,7 @@ type
     UnderlyingName: string;
     BaseTypeName: string;
     HelperTargetName: string;
+    HelperParentName: string;
     SectionKind: string;
     ScopeKind: string;
     OwnerScopeId: string;
@@ -584,6 +585,7 @@ begin
       lType.UnderlyingName := lTypeName;
       lType.BaseTypeName := lDeclaration.BaseTypeName;
       lType.HelperTargetName := lDeclaration.HelperTargetName;
+      lType.HelperParentName := lDeclaration.HelperParentName;
       lType.SectionKind := lDeclaration.SectionKind;
       lType.ScopeKind := lDeclaration.ScopeKind;
       lType.OwnerScopeId := lDeclaration.OwnerScopeId;

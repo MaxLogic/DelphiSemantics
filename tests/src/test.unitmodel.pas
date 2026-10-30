@@ -102,6 +102,8 @@ type
     [TestCase('Escaped class target', 'escaped,class,TObject')]
     [TestCase('Comment separated helper', 'commented,class,TObject')]
     [TestCase('Qualified escaped target', 'qualified,class,System.TObject')]
+    [TestCase('Class helper with parent', 'class-parent,class,TObject')]
+    [TestCase('Record helper with parent', 'record-parent,record,TMarker')]
     [TestCase('Ordinary record with decoy comment', 'ordinary,none,')]
     procedure HelperDeclarationsCarryAstKindAndTarget(const aShape, aExpectedKind, aExpectedTarget: string);
     [Category('Fast')]
@@ -6292,7 +6294,11 @@ var
   lOptions: TDelphiSemanticModelOptions;
   lText: string;
 begin
-  if aShape = 'record' then
+  if aShape = 'class-parent' then
+    lHeader := 'class helper(TParent) for TObject'
+  else if aShape = 'record-parent' then
+    lHeader := 'record helper(TParent) for TMarker'
+  else if aShape = 'record' then
     lHeader := 'record helper for TMarker'
   else if aShape = 'escaped' then
     lHeader := 'class helper for &TObject'
@@ -6328,6 +6334,10 @@ begin
       Assert.AreEqual('unit', lDeclaration.ScopeKind);
       Assert.AreEqual(aExpectedKind, lDeclaration.AstHelperKind);
       Assert.AreEqual(aExpectedTarget, lDeclaration.HelperTargetName);
+      if (aShape = 'class-parent') or (aShape = 'record-parent') then
+        Assert.IsTrue(Pos('"HelperParentName":"TParent"',
+          StringReplace(ModelToJson(lModel), ' ', '', [rfReplaceAll])) > 0,
+          'The parent helper must survive extraction and JSON as a separate fact.');
     end;
   Assert.IsTrue(lFound);
 end;
@@ -6343,12 +6353,15 @@ begin
   lModel.Declarations[0].Kind := 'type';
   lModel.Declarations[0].AstHelperKind := 'record';
   lModel.Declarations[0].HelperTargetName := 'TMarker';
+  lModel.Declarations[0].HelperParentName := 'TParent';
   lDecoded := JsonToModel(ModelToJson(lModel));
   Assert.AreEqual(NativeInt(1), Length(lDecoded.Declarations));
   Assert.AreEqual('record', lDecoded.Declarations[0].AstHelperKind);
   Assert.AreEqual('TMarker', lDecoded.Declarations[0].HelperTargetName);
+  Assert.AreEqual('TParent', lDecoded.Declarations[0].HelperParentName);
   lDecoded := JsonToModel('{"Declarations":[{"Name":"LegacyHelper","Kind":"type","HelperTargetName":"TObject"}]}');
   Assert.AreEqual(NativeInt(1), Length(lDecoded.Declarations));
+  Assert.AreEqual('', lDecoded.Declarations[0].HelperParentName);
   Assert.AreEqual('', lDecoded.Declarations[0].AstHelperKind,
     'A missing legacy proof must stay unverified rather than infer a helper kind.');
 end;
