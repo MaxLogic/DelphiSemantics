@@ -26702,11 +26702,13 @@ var
   i: Integer;
 begin
   lBody := 'Count := 1;';
-  lReason := 'receiver-member-not-found';
+  // DS-719 A-266: the public reason keeps the injected binder denial.
+  lReason := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
   if aMode = 'call' then
   begin
     lBody := 'Count();';
-    lReason := 'symbol-not-found';
+    // DS-719 A-267: calls keep the same injected binder denial.
+    lReason := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
   end;
   lOptions := Default(TDelphiSemanticModelOptions);
   lOptions.ProjectContextApplied := True;

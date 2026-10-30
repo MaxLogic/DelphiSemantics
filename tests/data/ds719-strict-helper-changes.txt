@@ -1,0 +1,540 @@
+DS-719 recovery 3d approved strict helper changes
+Approval file SHA256: 600de3190075e767aa005229d04cf91c43a2d0e58b37e2faccc8f9c0dd23e7d4
+Native receipts: 3d-six-diagnosis/native/results.json under the recovery evidence root.
+
+{
+  "id": "A-252",
+  "row_key": "Test.WithBinder.TWithBinderTests.InactiveNestedWithShadowing.polish d-deep-sibling cold",
+  "route": "cold; source-absent second BindProject only",
+  "disposition": "expectation-change",
+  "cause": "helper-unknown",
+  "cause_detail": "Second BindProject drops witness/SDK pairing. Unindexed System.SysUtils opens level zero; Rec absence under Oth fails helper veto. Disk route retains original inactivity result.",
+  "design": [
+    "recovery 3.1 step 5",
+    "recovery 3.3 evidence none/e2",
+    "recovery 5.1",
+    "recovery 8.4a"
+  ],
+  "expected_old": {
+    "final_count": 6,
+    "all_status": "skipped",
+    "all_reason": "inactive-nested-with-shadowing",
+    "all_safety_reason": "INACTIVE_NESTED_WITH_SHADOW",
+    "plan_edits": 0,
+    "candidate_hints_absent_for_each_final": true
+  },
+  "expected_new": {
+    "final_count": 6,
+    "all_status": "skipped",
+    "all_reason": "dependent-selector-type-not-resolved",
+    "all_safety_reason": "dependent-selector-type-not-resolved",
+    "plan_edits": 6,
+    "candidate_hint_kind": "remove-with-candidate",
+    "all_final_edits": 0,
+    "all_temps": 0,
+    "all_selector_decisions": 0,
+    "all_replacement": ""
+  },
+  "control": {
+    "row": "Ds719BatchPolish.cold",
+    "result": "PASS",
+    "change": "same source/models; e2-only SDK pairing supplied on second bind; MayDeclare always True",
+    "original_assertions": "all PASS, including disk/rebound parity and zero raw edits"
+  },
+  "scope": "Keep disk assertions. Assert named no-witness rebind refusal and exact raw candidate hints separately. Keep every final DTO empty. Retain paired parity control.",
+  "evidence": [
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\REPORT.md",
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\proposed-expectation-changes.json"
+  ],
+  "binary_sha256": "a41e9858176398fb2f66f70f7c4418c5cc876a9faabfd2491c10c3798d304896"
+}
+
+{
+  "id": "A-253",
+  "row_key": "Test.WithBinder.TWithBinderTests.InactiveNestedWithShadowing.polish d-deep-sibling warm",
+  "route": "warm; source-absent second BindProject only",
+  "disposition": "expectation-change",
+  "cause": "helper-unknown",
+  "cause_detail": "Second BindProject drops witness/SDK pairing. Unindexed System.SysUtils opens level zero; Rec absence under Oth fails helper veto. Disk route retains original inactivity result.",
+  "design": [
+    "recovery 3.1 step 5",
+    "recovery 3.3 evidence none/e2",
+    "recovery 5.1",
+    "recovery 8.4a"
+  ],
+  "expected_old": {
+    "final_count": 6,
+    "all_status": "skipped",
+    "all_reason": "inactive-nested-with-shadowing",
+    "all_safety_reason": "INACTIVE_NESTED_WITH_SHADOW",
+    "plan_edits": 0,
+    "candidate_hints_absent_for_each_final": true
+  },
+  "expected_new": {
+    "final_count": 6,
+    "all_status": "skipped",
+    "all_reason": "dependent-selector-type-not-resolved",
+    "all_safety_reason": "dependent-selector-type-not-resolved",
+    "plan_edits": 6,
+    "candidate_hint_kind": "remove-with-candidate",
+    "all_final_edits": 0,
+    "all_temps": 0,
+    "all_selector_decisions": 0,
+    "all_replacement": ""
+  },
+  "control": {
+    "row": "Ds719BatchPolish.warm",
+    "result": "PASS",
+    "change": "same source/models; e2-only SDK pairing supplied on second bind; MayDeclare always True",
+    "original_assertions": "all PASS, including disk/rebound parity and zero raw edits"
+  },
+  "scope": "Keep disk assertions. Assert named no-witness rebind refusal and exact raw candidate hints separately. Keep every final DTO empty. Retain paired parity control.",
+  "evidence": [
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\REPORT.md",
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\proposed-expectation-changes.json"
+  ],
+  "binary_sha256": "a41e9858176398fb2f66f70f7c4418c5cc876a9faabfd2491c10c3798d304896"
+}
+
+{
+  "id": "A-254",
+  "row_key": "Test.WithBinder.TWithBinderTests.InactiveNestedWithShadowing.polish d-deep-sibling snapshot",
+  "route": "snapshot; source-absent second BindProject only",
+  "disposition": "expectation-change",
+  "cause": "helper-unknown",
+  "cause_detail": "Second BindProject drops witness/SDK pairing. Unindexed System.SysUtils opens level zero; Rec absence under Oth fails helper veto. Disk route retains original inactivity result.",
+  "design": [
+    "recovery 3.1 step 5",
+    "recovery 3.3 evidence none/e2",
+    "recovery 5.1",
+    "recovery 8.4a"
+  ],
+  "expected_old": {
+    "final_count": 6,
+    "all_status": "skipped",
+    "all_reason": "inactive-nested-with-shadowing",
+    "all_safety_reason": "INACTIVE_NESTED_WITH_SHADOW",
+    "plan_edits": 0,
+    "candidate_hints_absent_for_each_final": true
+  },
+  "expected_new": {
+    "final_count": 6,
+    "all_status": "skipped",
+    "all_reason": "dependent-selector-type-not-resolved",
+    "all_safety_reason": "dependent-selector-type-not-resolved",
+    "plan_edits": 6,
+    "candidate_hint_kind": "remove-with-candidate",
+    "all_final_edits": 0,
+    "all_temps": 0,
+    "all_selector_decisions": 0,
+    "all_replacement": ""
+  },
+  "control": {
+    "row": "Ds719BatchPolish.snapshot",
+    "result": "PASS",
+    "change": "same source/models; e2-only SDK pairing supplied on second bind; MayDeclare always True",
+    "original_assertions": "all PASS, including disk/rebound parity and zero raw edits"
+  },
+  "scope": "Keep disk assertions. Assert named no-witness rebind refusal and exact raw candidate hints separately. Keep every final DTO empty. Retain paired parity control.",
+  "evidence": [
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\REPORT.md",
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\proposed-expectation-changes.json"
+  ],
+  "binary_sha256": "a41e9858176398fb2f66f70f7c4418c5cc876a9faabfd2491c10c3798d304896"
+}
+
+{
+  "id": "A-255",
+  "row_key": "Test.WithBinder.TWithBinderTests.OrderedTypeNamesOnFiveRoutes.A6 capture closure graph",
+  "route": "0,1,2,3,4",
+  "disposition": "expectation-change",
+  "cause": "helper-unknown",
+  "cause_detail": "Unpaired U omitted from DCCReference. First needs absence on outer A.TRec; helper veto now precedes capture/admission reasons on descendants.",
+  "design": [
+    "recovery 3.1 step 5",
+    "recovery 3.3 evidence none/e2",
+    "recovery 5.1",
+    "recovery 8.4a"
+  ],
+  "expected_old": {
+    "final_count": 3,
+    "all_status": "skipped",
+    "reasons": [
+      "receiver-type-not-visible",
+      "receiver-type-not-visible",
+      "enclosing-admission-refusal:receiver-type-not-visible"
+    ],
+    "plan_edits": 0
+  },
+  "expected_new": {
+    "final_count": 3,
+    "all_status": "skipped",
+    "reasons": [
+      "receiver-type-not-visible",
+      "selector-type-not-resolved",
+      "dependent-selector-type-not-resolved"
+    ],
+    "safety_reasons": [
+      "receiver-type-not-visible",
+      "selector-type-not-resolved",
+      "dependent-selector-type-not-resolved"
+    ],
+    "plan_edits": 2,
+    "candidate_hint_kind": "remove-with-candidate",
+    "all_final_edits": 0,
+    "all_temps": 0,
+    "all_selector_decisions": 0,
+    "all_replacement": ""
+  },
+  "control": {
+    "rows": [
+      "Ds719BatchE2.closure-graph",
+      "Ds719BatchSdk.closure-graph"
+    ],
+    "result": "PASS",
+    "e2": "original closure assertions preserved on routes 0-2, same models and unproved capture",
+    "sdk": "real SDK pairing, routes 0-4 planned; capture proof becomes resolved"
+  },
+  "scope": "Change only named strict-evidence branch reasons and raw hint count. Keep outer capture refusal and all empty final DTO invariants. Retain paired capture/admission control.",
+  "evidence": [
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\REPORT.md",
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\proposed-expectation-changes.json"
+  ],
+  "binary_sha256": "a41e9858176398fb2f66f70f7c4418c5cc876a9faabfd2491c10c3798d304896"
+}
+
+{
+  "id": "A-256",
+  "row_key": "Test.WithBinder.TWithBinderTests.OrderedTypeNamesOnFiveRoutes.A6 capture control graph",
+  "route": "0,1,2,3,4",
+  "disposition": "expectation-change",
+  "cause": "helper-unknown",
+  "cause_detail": "Unpaired U remains after outer Items WITH is removed. Second needs absence on TLocal; helper veto blocks selector proof, refusing both final statements.",
+  "design": [
+    "recovery 3.1 step 5",
+    "recovery 3.3 evidence none/e2",
+    "recovery 5.1",
+    "recovery 8.4a"
+  ],
+  "expected_old": {
+    "final_count": 1,
+    "status": "planned",
+    "final_edits": "positive"
+  },
+  "expected_new": {
+    "final_count": 2,
+    "all_status": "skipped",
+    "all_reason": "selector-type-not-resolved",
+    "all_safety_reason": "selector-type-not-resolved",
+    "plan_edits": 2,
+    "candidate_hint_kind": "remove-with-candidate",
+    "all_final_edits": 0,
+    "all_temps": 0,
+    "all_selector_decisions": 0,
+    "all_replacement": ""
+  },
+  "control": {
+    "rows": [
+      "Ds719BatchE2.control-graph",
+      "Ds719BatchSdk.control-graph"
+    ],
+    "result": "PASS",
+    "e2": "original control assertions preserved on routes 0-2",
+    "sdk": "real SDK pairing, routes 0-4 planned"
+  },
+  "scope": "Original unpaired control no longer marks expected plan; assert named refusal and empty final DTOs. Keep SDK-paired control as expected plan.",
+  "evidence": [
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\REPORT.md",
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\proposed-expectation-changes.json"
+  ],
+  "binary_sha256": "a41e9858176398fb2f66f70f7c4418c5cc876a9faabfd2491c10c3798d304896"
+}
+
+{
+  "id": "A-257",
+  "row_key": "Test.WithBinder.TWithBinderTests.OrderedTypeNamesOnFiveRoutes.A6 capture closure synthetic",
+  "route": "0,1,2,3,4",
+  "disposition": "expectation-change",
+  "cause": "helper-unknown",
+  "cause_detail": "Unpaired U omitted from DCCReference. First needs absence on outer A.TRec; helper veto now precedes capture/admission reasons on descendants.",
+  "design": [
+    "recovery 3.1 step 5",
+    "recovery 3.3 evidence none/e2",
+    "recovery 5.1",
+    "recovery 8.4a"
+  ],
+  "expected_old": {
+    "final_count": 3,
+    "all_status": "skipped",
+    "reasons": [
+      "receiver-type-not-visible",
+      "receiver-type-not-visible",
+      "enclosing-admission-refusal:receiver-type-not-visible"
+    ],
+    "plan_edits": 0
+  },
+  "expected_new": {
+    "final_count": 3,
+    "all_status": "skipped",
+    "reasons": [
+      "receiver-type-not-visible",
+      "selector-type-not-resolved",
+      "dependent-selector-type-not-resolved"
+    ],
+    "safety_reasons": [
+      "receiver-type-not-visible",
+      "selector-type-not-resolved",
+      "dependent-selector-type-not-resolved"
+    ],
+    "plan_edits": 2,
+    "candidate_hint_kind": "remove-with-candidate",
+    "all_final_edits": 0,
+    "all_temps": 0,
+    "all_selector_decisions": 0,
+    "all_replacement": ""
+  },
+  "control": {
+    "rows": [
+      "Ds719BatchE2.closure-synthetic",
+      "Ds719BatchSdk.closure-synthetic"
+    ],
+    "result": "PASS",
+    "e2": "original closure assertions preserved on routes 0-2, same models and unproved capture",
+    "sdk": "real SDK pairing, routes 0-4 planned; capture proof becomes resolved"
+  },
+  "scope": "Change only named strict-evidence branch reasons and raw hint count. Keep outer capture refusal and all empty final DTO invariants. Retain paired capture/admission control.",
+  "evidence": [
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\REPORT.md",
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\proposed-expectation-changes.json"
+  ],
+  "binary_sha256": "a41e9858176398fb2f66f70f7c4418c5cc876a9faabfd2491c10c3798d304896"
+}
+
+{
+  "id": "A-258",
+  "row_key": "Test.WithBinder.TWithBinderTests.OrderedTypeNamesOnFiveRoutes.A6 capture control synthetic",
+  "route": "0,1,2,3,4",
+  "disposition": "expectation-change",
+  "cause": "helper-unknown",
+  "cause_detail": "Unpaired U remains after outer Items WITH is removed. Second needs absence on TLocal; helper veto blocks selector proof, refusing both final statements.",
+  "design": [
+    "recovery 3.1 step 5",
+    "recovery 3.3 evidence none/e2",
+    "recovery 5.1",
+    "recovery 8.4a"
+  ],
+  "expected_old": {
+    "final_count": 1,
+    "status": "planned",
+    "final_edits": "positive"
+  },
+  "expected_new": {
+    "final_count": 2,
+    "all_status": "skipped",
+    "all_reason": "selector-type-not-resolved",
+    "all_safety_reason": "selector-type-not-resolved",
+    "plan_edits": 2,
+    "candidate_hint_kind": "remove-with-candidate",
+    "all_final_edits": 0,
+    "all_temps": 0,
+    "all_selector_decisions": 0,
+    "all_replacement": ""
+  },
+  "control": {
+    "rows": [
+      "Ds719BatchE2.control-synthetic",
+      "Ds719BatchSdk.control-synthetic"
+    ],
+    "result": "PASS",
+    "e2": "original control assertions preserved on routes 0-2",
+    "sdk": "real SDK pairing, routes 0-4 planned"
+  },
+  "scope": "Original unpaired control no longer marks expected plan; assert named refusal and empty final DTOs. Keep SDK-paired control as expected plan.",
+  "evidence": [
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\REPORT.md",
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\proposed-expectation-changes.json"
+  ],
+  "binary_sha256": "a41e9858176398fb2f66f70f7c4418c5cc876a9faabfd2491c10c3798d304896"
+}
+
+{
+  "id": "A-259",
+  "row_key": "Test.WithBinder.TWithBinderTests.UnitReceiverWithUnindexedAncestorNeverBindsElsewhere.UnindexedList",
+  "route": "BindModel",
+  "disposition": "expectation-change",
+  "cause": "helper-unknown",
+  "cause_detail": "Unpaired System.Classes opens level zero; Inner absence on TOuter is vetoed before lexical selector can be used.",
+  "design": [
+    "recovery 3.1 step 5",
+    "recovery 3.3 evidence none/e2",
+    "recovery 5.1",
+    "recovery 8.4a"
+  ],
+  "expected_old": {
+    "RunOuter.Inner.status": "resolved",
+    "RunOuter.Extra": "member:TInner",
+    "RunLexical.Inner.status": "resolved",
+    "RunLexical.Extra": "member:TInner",
+    "inspected": 2,
+    "both.Count": "unsupported; no member/lexical fallthrough"
+  },
+  "expected_new": {
+    "RunOuter.Inner.status": "unsupported",
+    "RunOuter.Inner.reason_code": "PARENT_SELECTOR_UNRESOLVED",
+    "RunOuter.Inner.cause": "helper-unknown",
+    "RunOuter.Extra": "unsupported:SELECTOR_MEMBERS_UNVERIFIED:selector-status",
+    "RunLexical.Inner.status": "resolved",
+    "RunLexical.Extra": "member:TInner",
+    "inspected": 2,
+    "both.Count": "unsupported; no member/lexical fallthrough; RunOuter cause selector-status, RunLexical cause absence"
+  },
+  "control": {
+    "row": "Ds719BatchAncestor.list",
+    "result": "PASS",
+    "change": "same extracted model; e2-only System.Classes pairing, MayDeclare always True",
+    "original_assertions": "all PASS"
+  },
+  "scope": "Approve exactly the listed strict-evidence fields; preserve lInspected=2, Count reference count=2, no fallthrough and unchanged RunLexical fields. Retain SDK-paired sibling.",
+  "evidence": [
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\REPORT.md",
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\proposed-expectation-changes.json"
+  ],
+  "binary_sha256": "a41e9858176398fb2f66f70f7c4418c5cc876a9faabfd2491c10c3798d304896"
+}
+
+{
+  "id": "A-260",
+  "row_key": "Test.WithBinder.TWithBinderTests.UnitReceiverWithUnindexedAncestorNeverBindsElsewhere.UnindexedRoot",
+  "route": "BindModel",
+  "disposition": "expectation-change",
+  "cause": "helper-unknown",
+  "cause_detail": "Unpaired System.Classes opens level zero; Inner absence on TOuter is vetoed before lexical selector can be used.",
+  "design": [
+    "recovery 3.1 step 5",
+    "recovery 3.3 evidence none/e2",
+    "recovery 5.1",
+    "recovery 8.4a"
+  ],
+  "expected_old": {
+    "RunOuter.Inner.status": "resolved",
+    "RunOuter.Extra": "member:TInner",
+    "RunLexical.Inner.status": "resolved",
+    "RunLexical.Extra": "member:TInner",
+    "inspected": 2,
+    "both.Count": "unsupported; no member/lexical fallthrough"
+  },
+  "expected_new": {
+    "RunOuter.Inner.status": "unsupported",
+    "RunOuter.Inner.reason_code": "PARENT_SELECTOR_UNRESOLVED",
+    "RunOuter.Inner.cause": "helper-unknown",
+    "RunOuter.Extra": "unsupported:SELECTOR_MEMBERS_UNVERIFIED:selector-status",
+    "RunLexical.Inner.status": "resolved",
+    "RunLexical.Extra": "member:TInner",
+    "inspected": 2,
+    "both.Count": "unsupported; no member/lexical fallthrough; RunOuter cause selector-status, RunLexical cause absence"
+  },
+  "control": {
+    "row": "Ds719BatchAncestor.root",
+    "result": "PASS",
+    "change": "same extracted model; e2-only System.Classes pairing, MayDeclare always True",
+    "original_assertions": "all PASS"
+  },
+  "scope": "Approve exactly the listed strict-evidence fields; preserve lInspected=2, Count reference count=2, no fallthrough and unchanged RunLexical fields. Retain SDK-paired sibling.",
+  "evidence": [
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\REPORT.md",
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\proposed-expectation-changes.json"
+  ],
+  "binary_sha256": "a41e9858176398fb2f66f70f7c4418c5cc876a9faabfd2491c10c3798d304896"
+}
+
+{
+  "id": "A-261",
+  "row_key": "Test.WithBinder.TWithBinderTests.UnitReceiverWithUnindexedAncestorNeverBindsElsewhere.UnresolvedBase",
+  "route": "BindModel",
+  "disposition": "expectation-change",
+  "cause": "helper-unknown",
+  "cause_detail": "Unpaired System.Classes opens level zero; Inner absence on TOuter is vetoed before lexical selector can be used.",
+  "design": [
+    "recovery 3.1 step 5",
+    "recovery 3.3 evidence none/e2",
+    "recovery 5.1",
+    "recovery 8.4a"
+  ],
+  "expected_old": {
+    "RunOuter.Inner.status": "resolved",
+    "RunOuter.Extra": "member:TInner",
+    "RunLexical.Inner.status": "resolved",
+    "RunLexical.Extra": "member:TInner",
+    "inspected": 2,
+    "both.Count": "unsupported; no member/lexical fallthrough"
+  },
+  "expected_new": {
+    "RunOuter.Inner.status": "unsupported",
+    "RunOuter.Inner.reason_code": "PARENT_SELECTOR_UNRESOLVED",
+    "RunOuter.Inner.cause": "helper-unknown",
+    "RunOuter.Extra": "unsupported:SELECTOR_MEMBERS_UNVERIFIED:selector-status",
+    "RunLexical.Inner.status": "resolved",
+    "RunLexical.Extra": "member:TInner",
+    "inspected": 2,
+    "both.Count": "unsupported; no member/lexical fallthrough; RunOuter cause selector-status, RunLexical cause absence"
+  },
+  "control": {
+    "row": "Ds719BatchAncestor.base",
+    "result": "PASS",
+    "change": "same extracted model; e2-only System.Classes pairing, MayDeclare always True",
+    "original_assertions": "all PASS"
+  },
+  "scope": "Approve exactly the listed strict-evidence fields; preserve lInspected=2, Count reference count=2, no fallthrough and unchanged RunLexical fields. Retain SDK-paired sibling.",
+  "evidence": [
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\REPORT.md",
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\proposed-expectation-changes.json"
+  ],
+  "binary_sha256": "a41e9858176398fb2f66f70f7c4418c5cc876a9faabfd2491c10c3798d304896"
+}
+
+{
+  "id": "A-262",
+  "row_key": "Test.WithBinder.TWithBinderTests.UnitReceiverWithUnindexedAncestorNeverBindsElsewhere.CompleteRecord",
+  "route": "BindModel",
+  "disposition": "expectation-change",
+  "cause": "helper-unknown",
+  "cause_detail": "Unpaired System.Classes opens level zero; Inner absence on TOuter is vetoed before lexical selector can be used.",
+  "design": [
+    "recovery 3.1 step 5",
+    "recovery 3.3 evidence none/e2",
+    "recovery 5.1",
+    "recovery 8.4a"
+  ],
+  "expected_old": {
+    "RunOuter.Inner.status": "resolved",
+    "RunOuter.Extra": "member:TInner",
+    "RunLexical.Inner.status": "resolved",
+    "RunLexical.Extra": "member:TInner",
+    "inspected": 2,
+    "RunOuter.Count": "member:TOuter",
+    "RunLexical.Count": "lexical"
+  },
+  "expected_new": {
+    "RunOuter.Inner.status": "unsupported",
+    "RunOuter.Inner.reason_code": "PARENT_SELECTOR_UNRESOLVED",
+    "RunOuter.Inner.cause": "helper-unknown",
+    "RunOuter.Extra": "unsupported:SELECTOR_MEMBERS_UNVERIFIED:selector-status",
+    "RunLexical.Inner.status": "resolved",
+    "RunLexical.Extra": "member:TInner",
+    "inspected": 2,
+    "RunOuter.Count": "unsupported:SELECTOR_MEMBERS_UNVERIFIED:selector-status",
+    "RunLexical.Count": "unsupported:RECORD_HELPER_MEMBERS_UNVERIFIED:helper-unknown"
+  },
+  "control": {
+    "row": "Ds719BatchAncestor.record",
+    "result": "PASS",
+    "change": "same extracted model; e2-only System.Classes pairing, MayDeclare always True",
+    "original_assertions": "all PASS"
+  },
+  "scope": "Approve exactly the listed strict-evidence fields; preserve lInspected=2, Count reference count=2, no fallthrough and unchanged RunLexical fields. Retain SDK-paired sibling.",
+  "evidence": [
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\REPORT.md",
+    "F:\\dev-artifacts\\runs\\DelphiSemantics\\run-ds719v8\\3d-six-diagnosis\\proposed-expectation-changes.json"
+  ],
+  "binary_sha256": "a41e9858176398fb2f66f70f7c4418c5cc876a9faabfd2491c10c3798d304896"
+}

@@ -12,6 +12,8 @@ type
   [TestFixture]
   TWithBinderTests = class
   private
+    procedure InactiveNestedWithProof(const aShape, aMode: string; const aPaired: Boolean);
+    procedure UnitAncestorWithProof(const aBaseTypeName: string; const aPaired: Boolean);
     function LoadModel: TDelphiSemanticUnitModel;
     function LoadBareReceiverSafetyModels: TArray<TDelphiSemanticUnitModel>;
     function LoadReceiverSafetyModels: TArray<TDelphiSemanticUnitModel>;
@@ -33,6 +35,25 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [TestCase('cold', 'cold')]
+    [TestCase('warm', 'warm')]
+    [TestCase('snapshot', 'snapshot')]
+    procedure StrictHelperPolishPairedControl(const aMode: string);
+    [TestCase('list', 'TStringList')]
+    [TestCase('root', 'TObject')]
+    [TestCase('base', 'TUnknownBase')]
+    [TestCase('record', 'record')]
+    procedure StrictHelperAncestorPairedControl(const aBaseTypeName: string);
+    [TestCase('closure-graph', 'a6-capture-closure,False')]
+    [TestCase('control-graph', 'a6-capture-control,False')]
+    [TestCase('closure-synthetic', 'a6-capture-closure,True')]
+    [TestCase('control-synthetic', 'a6-capture-control,True')]
+    procedure StrictHelperA6E2Control(const aShape: string; const aSkipGraph: Boolean);
+    [TestCase('closure-graph', 'a6-capture-closure,False')]
+    [TestCase('control-graph', 'a6-capture-control,False')]
+    [TestCase('closure-synthetic', 'a6-capture-closure,True')]
+    [TestCase('control-synthetic', 'a6-capture-control,True')]
+    procedure StrictHelperA6SdkControl(const aShape: string; const aSkipGraph: Boolean);
     [TestCase('comp-tag-read cold', 'comp-tag-read,cold')]
     [TestCase('comp-tag-read snapshot', 'comp-tag-read,snapshot')]
     [TestCase('comp-tag-read sessioncold', 'comp-tag-read,sessioncold')]
@@ -2303,6 +2324,26 @@ type
     [TestCase('UnresolvedBase', 'TUnknownBase')]
     [TestCase('CompleteRecord', 'record')]
     procedure UnitReceiverWithUnindexedAncestorNeverBindsElsewhere(const aBaseTypeName: string);
+    [TestCase('planner-keeps-collision-record', 'collision')]
+    [TestCase('planner-keeps-selector-denial', 'selector')]
+    [TestCase('planner-refuses-unresolved-selector', 'unresolved')]
+    procedure PlannerKeepsBinderDenial(const aShape: string);
+    [Test]
+    procedure HelperAndTypeMemberCollisionRefuses;
+    [Test]
+    procedure AliasNormalizationKeepsHelperOwnerProvenance;
+
+    [TestCase('Plain', 'plain')]
+    [TestCase('Call', 'call')]
+    [TestCase('Dotted', 'dotted')]
+    procedure HelperCollisionCauseSurvivesReferenceShapes(const aShape: string);
+    [TestCase('Pointer', 'R^')]
+    [TestCase('Index', 'R[0]')]
+    procedure HelperLookupKeepsSemanticPermission(const aSelector: string);
+    [TestCase('Held', 'True')]
+    [TestCase('Missing', 'False')]
+    procedure DirectMemberRequiresHeldOwnerIdentity(const aKeepIdentity: Boolean);
+
     [Category('Fast')]
     [Test]
     procedure MalformedPointerAliasOwnersAndAmbiguousPointeesAreRefused;
@@ -2325,7 +2366,7 @@ uses
   AutoFree, maxLogic.IOUtils, maxLogic.StrUtils,
   DelphiSemantics.Api.ProjectOptions, DelphiSemantics.Cache, DelphiSemantics.Model.Json,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan,
-  DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver,
+  DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Resolve.UnitNameWitness,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
   DelphiSemantics.SourceConditionals, Test.Support;
@@ -5578,7 +5619,34 @@ begin
   end;
 end;
 
-procedure TWithBinderTests.InactiveNestedWithShadowing(const aShape, aMode: string);
+type
+  // A permissive name witness isolates SDK pairing evidence from token absence.
+  // U is paired only in the synthetic A6 proof-boundary control.
+  TStrictHelperPairing = class(TInterfacedObject, IDelphiSemanticUnitNameWitness,
+    IDelphiSemanticSdkUnitPairing)
+  public
+    function MayDeclare(const aUnitName, aName: string): Boolean;
+    function IdentityText: string;
+    function IsSdkPaired(const aUnitName: string): Boolean;
+  end;
+
+function TStrictHelperPairing.MayDeclare(const aUnitName, aName: string): Boolean;
+begin
+  Result := True;
+end;
+
+function TStrictHelperPairing.IdentityText: string;
+begin
+  Result := 'ds719-strict-helper-e2-control';
+end;
+
+function TStrictHelperPairing.IsSdkPaired(const aUnitName: string): Boolean;
+begin
+  Result := MatchText(aUnitName, ['System.Classes', 'System.SysUtils', 'U']);
+end;
+
+procedure TWithBinderTests.InactiveNestedWithProof(const aShape, aMode: string;
+  const aPaired: Boolean);
 var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lOptions: TDelphiSemanticApiOptions;
@@ -5869,7 +5937,11 @@ begin
   // the discovery pass must consume stored facts rather than reopen files.
   TFile.Delete(TPath.Combine(lRoot, 'Unit1.pas'));
   try
-    lFacts := TDelphiSemanticWithBinder.BindProject(lFacts.ContextFingerprint, nil, lFacts.UnitModels);
+    if aPaired then
+      lFacts := TDelphiSemanticWithBinder.BindProject(lFacts.ContextFingerprint, nil,
+        lFacts.UnitModels, nil, TStrictHelperPairing.Create)
+    else
+      lFacts := TDelphiSemanticWithBinder.BindProject(lFacts.ContextFingerprint, nil, lFacts.UnitModels);
   finally
     TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.UTF8);
   end;
@@ -5880,6 +5952,26 @@ begin
     lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
   Assert.IsTrue(Length(lDiskPlan.FinalStatements) > 0, aShape + ':' + aMode);
   Assert.AreEqual(Length(lDiskPlan.FinalStatements), Length(lPlan.FinalStatements), aShape + ':' + aMode);
+  // A-252 (cold), A-253 (warm), A-254 (snapshot): the second bind has no witness.
+  if (aShape = 'v4-polish-d-deep-sibling') and not aPaired then
+  begin
+    Assert.AreEqual<Integer>(6, Length(lPlan.FinalStatements));
+    Assert.AreEqual<Integer>(6, Length(lPlan.Edits));
+    for lEdit in lPlan.Edits do
+      Assert.AreEqual('remove-with-candidate', lEdit.Kind);
+    for lContainedStatement in lPlan.FinalStatements do
+    begin
+      Assert.AreEqual('skipped', lContainedStatement.Status);
+      Assert.AreEqual('dependent-selector-type-not-resolved', lContainedStatement.Reason);
+      Assert.AreEqual('dependent-selector-type-not-resolved', lContainedStatement.SafetyReason);
+      Assert.AreEqual<Integer>(0, Length(lContainedStatement.Edits));
+      Assert.AreEqual<Integer>(0, Length(lContainedStatement.Temps));
+      Assert.AreEqual<Integer>(0, Length(lContainedStatement.RewriteRecipe.SelectorDecisions));
+      Assert.AreEqual('', lContainedStatement.ReplacementText);
+    end;
+    Assert.AreEqual(lSource, TFile.ReadAllText(TPath.Combine(lRoot, 'Unit1.pas')));
+    Exit;
+  end;
   Assert.AreEqual(lDiskPlan.FinalStatements[0].Status, lPlan.FinalStatements[0].Status);
   Assert.AreEqual(lDiskPlan.FinalStatements[0].Reason, lPlan.FinalStatements[0].Reason);
   Assert.AreEqual(lDiskPlan.FinalStatements[0].SafetyReason, lPlan.FinalStatements[0].SafetyReason);
@@ -5978,6 +6070,16 @@ begin
     end;
   end;
   Assert.AreEqual(lSource, TFile.ReadAllText(TPath.Combine(lRoot, 'Unit1.pas')));
+end;
+
+procedure TWithBinderTests.InactiveNestedWithShadowing(const aShape, aMode: string);
+begin
+  InactiveNestedWithProof(aShape, aMode, False);
+end;
+
+procedure TWithBinderTests.StrictHelperPolishPairedControl(const aMode: string);
+begin
+  InactiveNestedWithProof('v4-polish-d-deep-sibling', aMode, True);
 end;
 
 procedure TWithBinderTests.WholeWithRangeRefusesOnlyUnknownActivity(const aShape: string);
@@ -7931,8 +8033,292 @@ begin
     Assert.IsTrue(Pos(c, lSeen) > 0, 'Missing case ' + c + ' in ' + lSeen);
 end;
 
-procedure TWithBinderTests.UnitReceiverWithUnindexedAncestorNeverBindsElsewhere(
-  const aBaseTypeName: string);
+procedure TWithBinderTests.PlannerKeepsBinderDenial(const aShape: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot, lSource: string;
+begin
+  lRoot := WithBinderTempPath('ds719-planner-denial-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lSource := 'unit Unit1;'#13#10'interface'#13#10 +
+    'type TRec = record Count: Integer; end;'#13#10;
+  if aShape = 'collision' then
+    lSource := lSource +
+      'THelp = record helper for TRec function Count: Integer; end;'#13#10;
+  lSource := lSource + 'implementation'#13#10;
+  if aShape = 'collision' then
+    lSource := lSource +
+      'function THelp.Count: Integer; begin Result := 19; end;'#13#10;
+  lSource := lSource + 'procedure Run; var R: TRec;'#13#10'begin'#13#10;
+  if aShape = 'collision' then
+    lSource := lSource + '  with R do begin Writeln(Count); end;'#13#10
+  else
+    lSource := lSource + '  with R do Count := 1;'#13#10;
+  lSource := lSource + 'end;'#13#10'end.'#13#10;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  if aShape <> 'collision' then
+  begin
+    // The inventory is sufficient to plan the control. A published binder
+    // denial must survive even when that same inventory can rebuild its type.
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, 'positive control');
+    if aShape = 'selector' then
+    begin
+      lFacts.Bindings[0].Selectors[0].Status := 'unsupported';
+      lFacts.Bindings[0].Selectors[0].ReasonCode := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
+    end else begin
+      lFacts.Bindings[0].Selectors[0].Status := 'unresolved';
+      lFacts.Bindings[0].Selectors[0].ReasonCode := 'NAME_NOT_FOUND';
+    end;
+  end;
+  for var i := 0 to 1 do
+  begin
+    if i = 0 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts)
+    else
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
+    if aShape = 'collision' then
+      Assert.AreEqual('HELPER_COLLISION_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason)
+    else
+      Assert.AreEqual('selector-type-not-resolved', lPlan.FinalStatements[0].SafetyReason);
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+    Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Edits)));
+    Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Temps)));
+  end;
+end;
+
+procedure TWithBinderTests.HelperAndTypeMemberCollisionRefuses;
+var
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+begin
+  // DS-719: P1/P2 establish a helper winner; section 3.1 still refuses
+  // every helper/type collision, rather than qualifying the type's member.
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := WithBinderTempPath('HelperCollision.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit HelperCollision;'#13#10'interface'#13#10 +
+    'type TRec = record Count: Integer; end;'#13#10 +
+    'THelp = record helper for TRec function Count: Integer; end;'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10 +
+    'function THelp.Count: Integer; begin Result := 19; end;'#13#10 +
+    'procedure Run; var R: TRec;'#13#10'begin'#13#10 +
+    '  with R do begin Writeln(Count); end;'#13#10'end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  Assert.AreEqual(1, Integer(Length(lBindings)));
+  Assert.IsTrue(HasReference(lBindings[0], 'Count', 'unsupported'),
+    'A known helper/type collision must refuse before choosing either member.');
+  Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED',
+    ReasonOf(lBindings[0], 'Count', 'unsupported'));
+end;
+
+procedure TWithBinderTests.AliasNormalizationKeepsHelperOwnerProvenance;
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lReference: TDelphiSemanticBoundReference;
+  lHelperCount, lValueCount: Integer;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := WithBinderTempPath('AliasMemberOwners.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit AliasMemberOwners;'#13#10'interface'#13#10 +
+    'type TRecordValue = record'#13#10 +
+    '  Field: Integer;'#13#10'  const Amount = 7;'#13#10'end;'#13#10 +
+    'TReceiverAlias = TRecordValue;'#13#10'TTargetAlias = TReceiverAlias;'#13#10 +
+    'TValueExtensions = record helper for TTargetAlias'#13#10 +
+    '  function Extra: Integer;'#13#10'end;'#13#10 +
+    'implementation'#13#10 +
+    'function TValueExtensions.Extra: Integer; begin Result := 5; end;'#13#10 +
+    'procedure Run;'#13#10'var Item: TReceiverAlias;'#13#10'begin'#13#10 +
+    'with Item do Field := Amount + Extra;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  Assert.AreEqual(1, Integer(Length(lBindings)));
+  lHelperCount := 0;
+  lValueCount := 0;
+  for lReference in lBindings[0].References do
+  begin
+    if SameText(lReference.Name, 'Extra') then
+    begin
+      Inc(lHelperCount);
+      Assert.AreEqual('member', lReference.Classification);
+      Assert.AreEqual('TValueExtensions', lReference.ReceiverTypeName,
+        'A helper member retains its declaring helper owner, independently of receiver aliases.');
+    end else if SameText(lReference.Name, 'Amount') then
+    begin
+      Inc(lValueCount);
+      Assert.AreEqual('member', lReference.Classification);
+      Assert.AreEqual('TReceiverAlias', lReference.ReceiverTypeName,
+        'Value qualification continues to use the original receiver alias.');
+    end;
+  end;
+  Assert.AreEqual(1, lHelperCount);
+  Assert.AreEqual(1, lValueCount);
+end;
+
+procedure TWithBinderTests.HelperCollisionCauseSurvivesReferenceShapes(const aShape: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lReference: TDelphiSemanticBoundReference;
+  lExpression: string;
+  lCount: Integer;
+begin
+  lExpression := 'Count';
+  if aShape = 'call' then
+    lExpression := 'Count()'
+  else if aShape = 'dotted' then
+    lExpression := 'Count.ToString';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := WithBinderTempPath('CollisionCause.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit CollisionCause;'#13#10'interface'#13#10'uses System.SysUtils;'#13#10 +
+    'type TRec = record Count: Integer; end;'#13#10 +
+    'THelp = record helper for TRec function Count: Integer; end;'#13#10 +
+    'implementation'#13#10'function THelp.Count: Integer; begin Result := 19; end;'#13#10 +
+    'procedure Run;'#13#10'var R: TRec;'#13#10'begin'#13#10 +
+    'with R do Writeln(' + lExpression + ');'#13#10'end;'#13#10'end.',
+    TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  Assert.AreEqual(1, Integer(Length(lBindings)));
+  lCount := 0;
+  for lReference in lBindings[0].References do
+    if SameText(lReference.Name, 'Count') or StartsText('Count.', lReference.Name) then
+    begin
+      Inc(lCount);
+      Assert.AreEqual('unsupported', lReference.Classification);
+      Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lReference.ReasonCode);
+      Assert.AreEqual('helper-collision', lReference.Cause,
+        'Call and dotted adapters must retain the binder collision fact.');
+    end;
+  Assert.IsTrue(lCount > 0);
+end;
+
+procedure TWithBinderTests.DirectMemberRequiresHeldOwnerIdentity(const aKeepIdentity: Boolean);
+var
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lDeclarations: TList<TDelphiSemanticDeclaration>;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticBoundReference;
+  lCount: Integer;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := WithBinderTempPath('DirectOwnerIdentity.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit DirectOwnerIdentity;'#13#10'interface'#13#10 +
+    'type TRec = record Count: Integer; end;'#13#10 +
+    'var R: TRec;'#13#10'implementation'#13#10'procedure Run;'#13#10 +
+    'begin'#13#10'with R do Count := 1;'#13#10 +
+    'with R do Count := 2;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  if not aKeepIdentity then
+  begin
+    // A degraded model may retain a member inventory without its owner declaration.
+    // That inventory's spelling must never substitute for a held receiver identity.
+    lDeclarations := TList<TDelphiSemanticDeclaration>.Create;
+    try
+      for lDeclaration in lModel.Declarations do
+        if not SameText(lDeclaration.Name, 'TRec') then
+          lDeclarations.Add(lDeclaration);
+      lModel.Declarations := lDeclarations.ToArray;
+    finally
+      lDeclarations.Free;
+    end;
+  end;
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  Assert.AreEqual(2, Integer(Length(lBindings)));
+  lCount := 0;
+  for var lBinding in lBindings do
+  begin
+    Assert.AreEqual('resolved', lBinding.Selectors[0].Status);
+    Assert.AreEqual(aKeepIdentity,
+      lBinding.Selectors[0].TypeIdentity.DeclaredId.Value <> '');
+    for lReference in lBinding.References do
+      if SameText(lReference.Name, 'Count') then
+      begin
+        Inc(lCount);
+        if aKeepIdentity then
+          Assert.AreEqual('member', lReference.Classification)
+        else begin
+          Assert.AreEqual('unsupported', lReference.Classification);
+          Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lReference.ReasonCode);
+          Assert.AreEqual('owner-identity', lReference.Cause);
+        end;
+      end;
+  end;
+  Assert.AreEqual(2, lCount, 'Cold and warm must enforce the same owner proof.');
+end;
+
+procedure TWithBinderTests.HelperLookupKeepsSemanticPermission(const aSelector: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lReference: TDelphiSemanticBoundReference;
+  lVariable: string;
+  lCount: Integer;
+begin
+  lVariable := '^TRec';
+  if Pos('[', aSelector) > 0 then
+    lVariable := 'array[0..0] of TRec';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := WithBinderTempPath('HelperPermission.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit HelperPermission;'#13#10'interface'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10 +
+    'THelp = record helper for TRec function Extra: Integer; end;'#13#10 +
+    'implementation'#13#10'function THelp.Extra: Integer; begin Result := 19; end;'#13#10 +
+    'procedure Run;'#13#10'var R: ' + lVariable + ';'#13#10'begin'#13#10 +
+    'with ' + aSelector + ' do Writeln(Extra);'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  Assert.AreEqual(1, Integer(Length(lBindings)));
+  lCount := 0;
+  for lReference in lBindings[0].References do
+    if SameText(lReference.Name, 'Extra') then
+    begin
+      Inc(lCount);
+      Assert.AreEqual('unsupported', lReference.Classification);
+      Assert.AreEqual('helper-permission', lReference.Cause);
+    end;
+  Assert.IsTrue(lCount > 0);
+end;
+
+procedure TWithBinderTests.UnitAncestorWithProof(
+  const aBaseTypeName: string; const aPaired: Boolean);
 var
   lBinding: TDelphiSemanticWithBinding;
   lBindings: TArray<TDelphiSemanticWithBinding>;
@@ -7940,6 +8326,7 @@ var
   lInspected: Integer;
   lModel: TDelphiSemanticUnitModel;
   lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticBoundReference;
 begin
   // DS-700: an unindexed ancestor may own Count. A direct miss is not proof
   // that either an outer receiver or a unit-scope homonym owns the name.
@@ -7965,16 +8352,49 @@ begin
     'end.'#13#10, TEncoding.ASCII);
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(lModel.Success, 'Unit receiver fixture must extract.');
-  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  if aPaired then
+    lBindings := TDelphiSemanticWithBinder.BindProject('ds719-ancestor-paired', nil,
+      [lModel], nil, TStrictHelperPairing.Create).Bindings
+  else
+    lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
   lInspected := 0;
   for lBinding in lBindings do
     if (Length(lBinding.Selectors) > 0) and
       SameText(lBinding.Selectors[High(lBinding.Selectors)].SelectorText, 'Inner') then
     begin
       Inc(lInspected);
-      Assert.AreEqual('resolved', lBinding.Selectors[High(lBinding.Selectors)].Status);
-      Assert.AreEqual('TInner', ReceiverOf(lBinding, 'Extra', 'member'));
+      // A-259 list, A-260 root, A-261 base, A-262 record: unknown is not absence.
       Assert.AreEqual(2, CountReferences(lBinding, 'Count'));
+      if not aPaired and SameText(lBinding.RoutineName, 'RunOuter') then
+      begin
+        Assert.AreEqual('unsupported', lBinding.Selectors[High(lBinding.Selectors)].Status);
+        Assert.AreEqual('PARENT_SELECTOR_UNRESOLVED', lBinding.Selectors[High(lBinding.Selectors)].ReasonCode);
+        Assert.AreEqual('helper-unknown', lBinding.Selectors[High(lBinding.Selectors)].Cause);
+        Assert.IsTrue(HasReference(lBinding, 'Extra', 'unsupported'));
+        for lReference in lBinding.References do
+          if SameText(lReference.Name, 'Extra') or SameText(lReference.Name, 'Count') then
+          begin
+            Assert.AreEqual('SELECTOR_MEMBERS_UNVERIFIED', lReference.ReasonCode);
+            Assert.AreEqual('selector-status', lReference.Cause);
+          end;
+      end else begin
+        Assert.AreEqual('resolved', lBinding.Selectors[High(lBinding.Selectors)].Status);
+        Assert.AreEqual('TInner', ReceiverOf(lBinding, 'Extra', 'member'));
+      end;
+      if not aPaired then
+      begin
+        Assert.IsTrue(HasReference(lBinding, 'Count', 'unsupported'));
+        Assert.IsFalse(HasReference(lBinding, 'Count', 'member'));
+        Assert.IsFalse(HasReference(lBinding, 'Count', 'lexical'));
+        if SameText(aBaseTypeName, 'record') and SameText(lBinding.RoutineName, 'RunLexical') then
+          for lReference in lBinding.References do
+            if SameText(lReference.Name, 'Count') then
+            begin
+              Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lReference.ReasonCode);
+              Assert.AreEqual('helper-unknown', lReference.Cause);
+            end;
+        Continue;
+      end;
       if SameText(aBaseTypeName, 'record') then
       begin
         if SameText(lBinding.RoutineName, 'RunOuter') then
@@ -7989,6 +8409,17 @@ begin
       end;
     end;
   Assert.AreEqual(2, lInspected, 'Inspect both nested and lexical receiver paths.');
+end;
+
+procedure TWithBinderTests.UnitReceiverWithUnindexedAncestorNeverBindsElsewhere(
+  const aBaseTypeName: string);
+begin
+  UnitAncestorWithProof(aBaseTypeName, False);
+end;
+
+procedure TWithBinderTests.StrictHelperAncestorPairedControl(const aBaseTypeName: string);
+begin
+  UnitAncestorWithProof(aBaseTypeName, True);
 end;
 
 procedure TWithBinderTests.ParameterTypesResolveInTheEnclosingScope;
@@ -17867,7 +18298,8 @@ begin
         else if lShape = 'receiver-diagnostic' then
           Assert.AreEqual('members-incomplete', lStatement.Reason)
         else if lShape = 'helper-own' then
-          Assert.AreEqual('symbol-not-found', lStatement.Reason)
+          // DS-719 A-263, A-264, A-265: preserve the binder's collision denial.
+          Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.Reason)
         else
           Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.Reason);
         if MatchText(lShape, ['anon-partial-field', 'anon-partial-enum']) then
@@ -19285,8 +19717,10 @@ begin
   Assert.AreEqual<Integer>(0, Length(lPlan.Edits));
 end;
 
+function PrepareSdkWitnessCacheProject(const aRoot: string): string; forward;
+
 procedure RunOrderedTypeNamesOnFiveRoutes(const aShape: string;
-  const aSkipGraph: Boolean; const aExpectedStrategy: string);
+  const aSkipGraph: Boolean; const aExpectedStrategy: string; const aProofMode: string = '');
 var
   g: TGarbos;
   lRoot, lFixture, lFileName, lExpectedText, lRouteStatuses: string;
@@ -19364,6 +19798,8 @@ begin
   end;
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  if aProofMode = 'sdk' then
+    lOptions.RsVarsPath := PrepareSdkWitnessCacheProject(lRoot);
   lOptions.DelphiVersion := '23.0';
   lOptions.Configuration := 'Debug';
   lOptions.Platform := 'Win64';
@@ -19372,6 +19808,9 @@ begin
   lRequest.Options := lOptions;
   lRequest.RemoveWithOptions.SkipSemanticGraph := aSkipGraph;
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lRequest);
+  if aProofMode = 'e2' then
+    lFacts := TDelphiSemanticWithBinder.BindProject(lFacts.ContextFingerprint, nil,
+      lFacts.UnitModels, nil, TStrictHelperPairing.Create);
   if aShape = 'ab' then
     Assert.AreEqual('B', lFacts.Bindings[0].Selectors[0].TypeIdentity.UnitName)
   else if MatchText(aShape, ['own', 'c-local-wins']) then
@@ -19386,6 +19825,9 @@ begin
     'e-impl-unit2-wins', 'a5-inner-control', 'a6-capture-control']);
   for var i := 0 to 4 do
   begin
+    // E2-only facts exercise direct/snapshot/SQLite routes; sessions rebuild witnesses.
+    if (aProofMode = 'e2') and (i > 2) then
+      Break;
     if i = 0 then
       lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts)
     else if i = 1 then
@@ -19437,6 +19879,43 @@ begin
         Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements[1].Temps), aShape);
         Assert.AreEqual('lWithRecPtr', lPlan.FinalStatements[1].Temps[0].TempName, aShape);
       end;
+      Continue;
+    end;
+    if (aShape = 'a6-capture-closure') and (aProofMode = 'sdk') then
+    begin
+      Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus);
+      Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+      Assert.AreEqual('planned', lPlan.FinalStatements[0].Status);
+      Assert.IsTrue(Length(lPlan.FinalStatements[0].Edits) > 0);
+      Continue;
+    end;
+    // A-255/A-257 closure; A-256/A-258 control. Keep all empty final DTO invariants.
+    if MatchText(aShape, ['a6-capture-closure', 'a6-capture-control']) and
+      (aProofMode = '') then
+    begin
+      if aShape = 'a6-capture-closure' then
+        Assert.AreEqual<Integer>(3, Length(lPlan.FinalStatements))
+      else
+        Assert.AreEqual<Integer>(2, Length(lPlan.FinalStatements));
+      for var j := 0 to High(lPlan.FinalStatements) do
+      begin
+        var lReason := 'selector-type-not-resolved';
+        if aShape = 'a6-capture-closure' then
+          case j of
+            0: lReason := 'receiver-type-not-visible';
+            2: lReason := 'dependent-selector-type-not-resolved';
+          end;
+        Assert.AreEqual('skipped', lPlan.FinalStatements[j].Status);
+        Assert.AreEqual(lReason, lPlan.FinalStatements[j].Reason);
+        Assert.AreEqual(lReason, lPlan.FinalStatements[j].SafetyReason);
+        Assert.AreEqual('', lPlan.FinalStatements[j].ReplacementText);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[j].Edits));
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[j].Temps));
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[j].RewriteRecipe.SelectorDecisions));
+      end;
+      Assert.AreEqual<Integer>(2, Length(lPlan.Edits));
+      for var lEdit in lPlan.Edits do
+        Assert.AreEqual('remove-with-candidate', lEdit.Kind);
       Continue;
     end;
     if aShape = 'a6-capture-closure' then
@@ -19852,6 +20331,18 @@ begin
   Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
   Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
   Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+end;
+
+procedure TWithBinderTests.StrictHelperA6E2Control(const aShape: string;
+  const aSkipGraph: Boolean);
+begin
+  RunOrderedTypeNamesOnFiveRoutes(aShape, aSkipGraph, '', 'e2');
+end;
+
+procedure TWithBinderTests.StrictHelperA6SdkControl(const aShape: string;
+  const aSkipGraph: Boolean);
+begin
+  RunOrderedTypeNamesOnFiveRoutes(aShape, aSkipGraph, '', 'sdk');
 end;
 
 initialization

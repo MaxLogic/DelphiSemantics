@@ -187,6 +187,9 @@ type
     procedure HelperQueriesKeepExactFileImports(const aReverse: Boolean);
     [Category('Fast')]
     [TestCase('BodyOnly', 'body,False')]
+    [TestCase('VariableOnly', 'variable,False')]
+    [TestCase('ConditionalUses', 'uses,True')]
+    [TestCase('ConditionalType', 'type,True')]
     [TestCase('UnitScope', 'unit,True')]
     [TestCase('MissingEvidence', 'missing,True')]
     procedure HelperScopeSeparatesBodyActivity(const aShape: string; const aOpen: Boolean);
@@ -1995,13 +1998,19 @@ var
   lWith: TDelphiSemanticWithStatement;
 begin
   lPath := TPath.Combine(CreateTestTempRoot('ds719-helper-activity-temp'), 'HelperActivity.pas');
-  lSource := 'unit HelperActivity;'#13#10'interface'#13#10 +
-    'type TRec = record X: Integer; end;'#13#10;
+  lSource := 'unit HelperActivity;'#13#10'interface'#13#10;
+  if aShape = 'uses' then
+    lSource := lSource + '{$IF UseFast} uses HelperProvider; {$IFEND}'#13#10;
+  lSource := lSource + 'type TRec = record X: Integer; end;'#13#10;
+  if aShape = 'variable' then
+    lSource := lSource + '{$IF UseFast} var Count: Integer; {$IFEND}'#13#10;
+  if aShape = 'type' then
+    lSource := lSource + '{$IF UseFast} type TAlias = TRec; {$IFEND}'#13#10;
   if aShape = 'unit' then
     lSource := lSource + '{$IF UseFast}'#13#10 +
       'type THelp = record helper for TRec procedure M; end;'#13#10'{$IFEND}'#13#10;
   lSource := lSource + 'implementation'#13#10'procedure Run;'#13#10'begin'#13#10;
-  if aShape <> 'unit' then
+  if MatchText(aShape, ['body', 'missing']) then
     lSource := lSource + '{$IF UseFast} WriteLn(1); {$IFEND}'#13#10;
   lSource := lSource + 'end;'#13#10'end.';
   TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
@@ -2017,6 +2026,8 @@ begin
   try
     Assert.IsFalse(lGraph.Units[0].TypeNamesKnown,
       'Body uncertainty remains visible to existing type-name consumers.');
+    Assert.AreEqual(not aOpen, lGraph.Units[0].HelperScopeKnown,
+      'Variable/body activity is separate from helper/type/import visibility.');
     lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
     lLineage := lIndex.ResolveLineage(lIndex.ResolveQualifiedName('HelperActivity.TRec').Identity);
     Assert.IsTrue(lLineage.Complete);
@@ -2027,7 +2038,7 @@ begin
       Default(TDelphiSemanticGraphTypeId));
     lResult := lIndex.ResolveHelpersAt(lLineage, lSite);
     Assert.AreEqual(aOpen, lResult.OpenFromLevel = 0,
-      'Only verified routine-contained uncertainty may leave helper levels closed.');
+      'Only variable/body uncertainty may leave helper levels closed.');
   finally
     lGraph.Free;
   end;

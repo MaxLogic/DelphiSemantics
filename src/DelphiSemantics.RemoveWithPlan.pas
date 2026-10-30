@@ -3363,6 +3363,13 @@ begin
   end;
 end;
 
+function BinderDenialCode(const aCode: string): Boolean;
+begin
+  Result := MatchText(aCode, ['HELPER_COLLISION_UNVERIFIED', 'RECORD_HELPER_MEMBERS_UNVERIFIED',
+    'ALIAS_RECEIVER_MEMBERS_UNVERIFIED', 'TYPE_VALUE_MEMBERS_UNVERIFIED',
+    'TYPE_VISIBILITY_UNPROVED', 'PARENT_SELECTOR_UNRESOLVED']);
+end;
+
 function BuildSelectorDecision(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
   const aSelector: TDelphiSemanticWithSelectorBinding;
@@ -3382,8 +3389,13 @@ var
 begin
   Result := False;
   aReason := '';
-  lPointerCast := ResolvedPointerCastSelector(aBinding, aSelectorText);
   aDecision := Default(TFinalSelectorDecision);
+  if SameText(aSelector.Status, 'unresolved') or BinderDenialCode(aSelector.ReasonCode) then
+  begin
+    aReason := 'selector-type-not-resolved';
+    Exit;
+  end;
+  lPointerCast := ResolvedPointerCastSelector(aBinding, aSelectorText);
   aDecision.SelectorText := aSelectorText;
   aDecision.ReceiverType := SelectorTypeName(aFacts, aBinding, aSelectorText);
   if SameText(aSelector.Status, 'resolved') and
@@ -4161,6 +4173,12 @@ var
   lMatch: Integer;
   lReferenceName: string;
 begin
+  if SameText(aReference.Classification, 'unsupported') and
+    BinderDenialCode(aReference.ReasonCode) then
+  begin
+    aQualifierText := '';
+    Exit(TFinalReferenceQualification.NoMatch);
+  end;
   Result := TFinalReferenceQualification.NoMatch;
   aQualifierText := '';
   lReferenceName := ReferenceLookupName(aReference.Name);
@@ -4596,6 +4614,12 @@ function ReferenceBlocksFinalRewrite(const aFacts: TRemoveWithPlanFacts;
   const aLineCache: TDelphiSemanticSourceContextCache;
   out aReason: string): Boolean;
 begin
+  if SameText(aReference.Classification, 'unsupported') and
+    BinderDenialCode(aReference.ReasonCode) then
+  begin
+    aReason := aReference.ReasonCode;
+    Exit(True);
+  end;
   Result := False;
   aReason := '';
   if aReference.Kind = 'unverified-label' then

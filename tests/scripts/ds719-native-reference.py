@@ -742,8 +742,20 @@ def apply_edits(root, plan):
         offsets = [0]
         for line in text.splitlines(keepends=True):
             offsets.append(offsets[-1] + len(line))
-        changes = [(offsets[e["sl"] - 1] + e["sc"] - 1,
-                    offsets[e["el"] - 1] + e["ec"] - 1, e["text"]) for e in edits]
+        changes = []
+        for edit in edits:
+            start = offsets[edit["sl"] - 1] + edit["sc"] - 1
+            # Frozen test exporters omit kind. Final statement replacements
+            # span a WITH statement; only declaration inserts use a point range
+            # at column 1 (FindRoutineDeclarationRange).
+            kind = edit.get("kind")
+            if kind is None:
+                point = (edit["sl"], edit["sc"]) == (edit["el"], edit["ec"])
+                assert not point or edit["sc"] == 1, "Unknown legacy point edit"
+                kind = "declare-temp" if point else "replace-statement"
+            assert kind in ("declare-temp", "replace-statement"), kind
+            end = start if kind == "declare-temp" else offsets[edit["el"] - 1] + edit["ec"]
+            changes.append((start, end, edit["text"]))
         # Shared declaration edits may occur in more than one statement DTO.
         unique = sorted(set(changes), reverse=True)
         previous = len(text) + 1

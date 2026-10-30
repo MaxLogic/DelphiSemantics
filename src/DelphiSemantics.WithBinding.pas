@@ -10,6 +10,7 @@ uses
 
 type
   TDelphiSemanticWithSelectorBinding = record
+    Cause: string;
     SelectorText: string;
     Status: string;
     ReasonCode: string;
@@ -21,6 +22,7 @@ type
   end;
 
   TDelphiSemanticBoundReference = record
+    Cause: string;
     ReceiverIndex: Integer;
     SemanticId: string;
     Name: string;
@@ -300,7 +302,7 @@ uses
   AutoFree,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.CompilerProfile, DelphiSemantics.Model.Extract, DelphiSemantics.Model.Text, DelphiSemantics.ProjectContext,
-  DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.SelectorTypes,
+  DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.NameSites, DelphiSemantics.Resolve.SelectorTypes,
   DelphiSemantics.Source, DelphiSemantics.SourceConditionals, DelphiSemantics.WithBinding.Inventory,
   MaxLogic.StrUtils;
 
@@ -442,10 +444,18 @@ type
   end;
 
   TBoundMemberResolution = record
+    Cause: string;
     Value: TDelphiSemanticResolveResult;
     DeclaringUnitName: string;
     OwnerDeclaredId: TDelphiSemanticGraphTypeId;
     ReceiverIndex: Integer;
+  end;
+
+  TRootAbsenceProofKind = (rapNone, rapClosedSourceRoot, rapNamedSiteScopedRoot);
+
+  TRootAbsenceProof = record
+    Kind: TRootAbsenceProofKind;
+    SiteUnits: TArray<string>;
   end;
 
   TMemberVerdict = record
@@ -505,7 +515,7 @@ type
     fHasUnresolvedHelperTarget: Boolean;
     function LookupIdentityMember(const aContext: TDelphiSemanticMemberLookupContext;
       const aOwner: TDelphiSemanticTypeIdentity; const aName: string;
-      const aCheckHidden: Boolean): TDelphiSemanticMemberLookupResult;
+      const aCheckHidden: Boolean; const aCheckHelpers: Boolean = True): TDelphiSemanticMemberLookupResult;
     function LookupLegacyHelperMember(const aContext: TDelphiSemanticMemberLookupContext;
       const aOwner: TDelphiSemanticTypeIdentity; const aName: string):
       TDelphiSemanticMemberLookupResult;
@@ -548,7 +558,16 @@ type
       const aCurrentTypeName, aName: string): TMemberVerdict;
     function ReceiverMemberAbsenceIsVerified(const aModel: TDelphiSemanticUnitModel;
       const aSelector: TDelphiSemanticWithSelectorBinding; const aName: string;
-      const aSite: TReceiverLookupSite; out aRefusalCode: string): Boolean;
+      const aSite: TReceiverLookupSite; out aRefusalCode: string): Boolean overload;
+    function ReceiverMemberAbsenceIsVerified(const aModel: TDelphiSemanticUnitModel;
+      const aSelector: TDelphiSemanticWithSelectorBinding; const aName: string;
+      const aSite: TReceiverLookupSite; out aRefusalCode: string;
+      out aRootProof: TRootAbsenceProof): Boolean; overload;
+    function MembersClosed(const aIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function ResolveReceiverMemberVerdict(const aModel: TDelphiSemanticUnitModel;
+      const aSite: TReceiverLookupSite;
+      const aSelector, aOriginalSelector: TDelphiSemanticWithSelectorBinding;
+      const aCurrentTypeName, aName: string; const aDirect: TMemberVerdict): TMemberVerdict;
     function TryResolveVerifiedSimpleMember(const aModel: TDelphiSemanticUnitModel;
       const aSite: TReceiverLookupSite;
       const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
@@ -644,7 +663,8 @@ type
       out aResult: TBoundMemberResolution): Boolean; overload;
     function TryResolveDirectMember(const aCurrentUnitName, aCurrentTypeName, aOwnerName,
       aName: string; const aAllowSemanticFallback: Boolean;
-      const aCurrentFileName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): TMemberVerdict; overload;
+      const aCurrentFileName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity;
+      const aIncludeHelpers: Boolean = True): TMemberVerdict; overload;
     function TryResolveRoutineLocalMember(const aOwnerIdentity: TDelphiSemanticTypeIdentity;
       const aCurrentTypeName, aName: string; const aSite: TReceiverLookupSite): TMemberVerdict;
   end;
@@ -1734,6 +1754,7 @@ begin
         Result.Value.Status := 'unsupported';
       Result.Value.ReasonCode := fReasonCode;
       Result.Value.Reason := fReason;
+      Result.Cause := fCause;
       // An unset verdict fails closed without relying on an assertion.
       if Result.Value.ReasonCode = '' then
         Result.Value.ReasonCode := 'SELECTOR_MEMBERS_UNVERIFIED';
@@ -2285,7 +2306,7 @@ end;
 function TWithBindingProjectMemberIndex.LookupIdentityMember(
   const aContext: TDelphiSemanticMemberLookupContext;
   const aOwner: TDelphiSemanticTypeIdentity; const aName: string;
-  const aCheckHidden: Boolean): TDelphiSemanticMemberLookupResult;
+  const aCheckHidden, aCheckHelpers: Boolean): TDelphiSemanticMemberLookupResult;
 var
   lContext: TDelphiSemanticMemberLookupContext;
   lExpanded: TDelphiSemanticMemberLookupResult;
@@ -2312,7 +2333,7 @@ begin
         Break;
       end;
     end;
-  if not lHidden then
+  if (not lHidden) and aCheckHelpers then
   begin
     lExpanded := LookupLegacyHelperMember(aContext, aOwner, aName);
     lHidden := Length(lExpanded.Candidates) > 0;
@@ -2352,17 +2373,16 @@ end;
 
 function TWithBindingProjectMemberIndex.TryResolveDirectMember(const aCurrentUnitName,
   aCurrentTypeName, aOwnerName, aName: string; const aAllowSemanticFallback: Boolean;
-  const aCurrentFileName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): TMemberVerdict;
+  const aCurrentFileName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity;
+  const aIncludeHelpers: Boolean): TMemberVerdict;
 var
   lBinding: TDelphiSemanticWithBinding;
   lIdentityLineage: TDelphiSemanticLineage;
   lVerdict: TMemberVerdict;
-  lCachedVerdict: TMemberVerdict;
   lBound: TBoundMemberResolution;
   lContext: TDelphiSemanticMemberLookupContext;
   lIdentity: TDelphiSemanticTypeIdentity;
   lLookup: TDelphiSemanticMemberLookupResult;
-  lSemanticKey: string;
   lInventory: TList<TBoundMemberResolution>;
 begin
   if aOwnerIdentity.DeclaredId.Value <> '' then
@@ -2392,35 +2412,23 @@ begin
       if SameText(lIdentity.Kind, 'type-alias') then
         Continue;
       lLookup := LookupIdentityMember(lContext, lIdentity, aName,
-        lIdentity.DeclaredId.Value = aOwnerIdentity.DeclaredId.Value);
+        lIdentity.DeclaredId.Value = aOwnerIdentity.DeclaredId.Value, aIncludeHelpers);
       lVerdict := MemberVerdictFromLookup(aName, lLookup);
       if lVerdict.Outcome <> noAbsent then
         Exit(lVerdict);
     end;
     if not lIdentityLineage.Complete then
       Exit(TMemberVerdict.NotPresent);
-    // Only the legacy helper inventory remains spelling-keyed until 3d.
+    if not aIncludeHelpers then
+      Exit(TMemberVerdict.NotPresent);
+    // Non-receiver legacy callers keep their helper behavior.
     lLookup := LookupLegacyHelperMember(lContext, aOwnerIdentity, aName);
     Exit(MemberVerdictFromLookup(aName, lLookup));
   end;
-  if TryResolveContextMember(aCurrentUnitName, aOwnerName, aName, lBound) then
-    Exit(MemberVerdictFromBound(lBound));
-  Result := TMemberVerdict.NotPresent;
-  if not aAllowSemanticFallback then
-    Exit;
-  lSemanticKey := Key(aCurrentUnitName + #30 + aCurrentTypeName, aOwnerName, aName);
-  if fSemanticMemberResultsByOwnerName.TryGetValue(lSemanticKey, lCachedVerdict) then
-    Exit(lCachedVerdict);
-  if fSemanticMemberIndexAvailable then
-  begin
-    lContext := Default(TDelphiSemanticMemberLookupContext);
-    lContext.CallerUnitName := aCurrentUnitName;
-    lContext.CurrentTypeName := aCurrentTypeName;
-    lContext.InstanceContext := True;
-    lLookup := fSemanticMemberIndex.ResolveMember(lContext, aOwnerName, aName);
-    Result := MemberVerdictFromLookup(aName, lLookup);
-  end;
-  fSemanticMemberResultsByOwnerName.AddOrSetValue(lSemanticKey, Result);
+  // Missing declaration identity is an unproved receiver, never an inventory
+  // miss or permission to resolve its spelling in a different scope.
+  Result := TMemberVerdict.Barrier(noUnproved, 'OWNER_INHERITED_MEMBERS_UNVERIFIED',
+    'The receiver has no held declaration identity for member lookup.', 'owner-identity');
 end;
 
 function RoutineLocalTypeHasOnlyDirectMembers(
@@ -3476,6 +3484,8 @@ begin
       SameText(lOriginSection, 'interface') then
       aProjectMemberIndex.TryResolveUniqueExportedFinalType(lOriginModel,
         lResult.TypeName, aIdentity);
+  if lWithBase then
+    Result.Cause := lBound.Cause;
   Result.CaptureTypeName := lCaptureTypeName;
   Result.CaptureTypeStatus := lCaptureTypeStatus;
   Result.SelectorText := lSelectorText;
@@ -3524,6 +3534,7 @@ begin
   lBound := aVerdict.AsBound(aName, lReceiverIndex);
   Result := MakeBoundReference(aName, aClassification, lBound.Value);
   Result.ReceiverIndex := lBound.ReceiverIndex;
+  Result.Cause := lBound.Cause;
 end;
 
 function BindingSemanticId(const aModel: TDelphiSemanticUnitModel;
@@ -3924,10 +3935,221 @@ begin
   lVerdict := ResolveMemberAt(aModel, aSite, aProjectModels, aSelectors,
     aCurrentTypeName, aMemberCachePrefix, aName, aProjectMemberIndex, aMemberCache);
   lReceiverIndex := -1;
+  if (lVerdict.Outcome = noResolved) and lVerdict.MemberTypeOpen then
+    lVerdict := TMemberVerdict.Barrier(noUnproved, 'OWNER_INHERITED_MEMBERS_UNVERIFIED',
+      'The member receiver is known but its result type is open.', 'members-open');
   if lVerdict.Outcome = noResolved then
     lReceiverIndex := lVerdict.Member.ReceiverIndex;
   aResult := lVerdict.AsBound(aName, lReceiverIndex);
   Result := lVerdict.Outcome <> noAbsent;
+end;
+
+function TWithBindingProjectMemberIndex.ResolveReceiverMemberVerdict(
+  const aModel: TDelphiSemanticUnitModel; const aSite: TReceiverLookupSite;
+  const aSelector, aOriginalSelector: TDelphiSemanticWithSelectorBinding;
+  const aCurrentTypeName, aName: string; const aDirect: TMemberVerdict): TMemberVerdict;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lContext: TDelphiSemanticMemberLookupContext;
+  lLineage: TDelphiSemanticLineage;
+  lHelpers: TDelphiSemanticHelperResolution;
+  lNameSite: TDelphiSemanticNameSite;
+  lStatement: TDelphiSemanticWithStatement;
+  lIdentity, lCaller: TDelphiSemanticTypeIdentity;
+  lDirect, lValue, lHelper: TMemberVerdict;
+  lLookup: TDelphiSemanticMemberLookupResult;
+  lBound, lShadow: TBoundMemberResolution;
+  lCandidates: TArray<TBoundMemberResolution>;
+  lHelperCount, lHelperLevel: Integer;
+  i: Integer;
+  lRefusalCode: string;
+  lRootProof: TRootAbsenceProof;
+  lOpen, lValueCollision: Boolean;
+
+  function CandidateOpen(const aMember: TBoundMemberResolution;
+    const aKnownLevel: Integer): Boolean;
+  var
+    lOwner: TDelphiSemanticTypeIdentity;
+    lLevel: Integer;
+  begin
+    lLevel := aKnownLevel;
+    if lLevel < 0 then
+      for var k := 0 to High(lHelpers.Levels) do
+        if SameText(lHelpers.Levels[k].Identity.DeclaredId.Value,
+          aMember.OwnerDeclaredId.Value) and (aMember.OwnerDeclaredId.Value <> '') then
+        begin
+          lLevel := k;
+          Break;
+        end;
+    Result := (lLevel < 0) or (lHelpers.OpenFromLevel <= lLevel);
+    for var k := 0 to lLevel do
+      if not MembersClosed(lHelpers.Levels[k].Identity) then
+        Result := True;
+    // Helper declarations have their own completeness obligation too.
+    if aKnownLevel >= 0 then
+      for lOwner in lHelpers.Levels[aKnownLevel].Chain do
+        if not MembersClosed(lOwner) then
+          Result := True;
+  end;
+
+begin
+  lBinding := Default(TDelphiSemanticWithBinding);
+  lBinding.UnitName := aModel.UnitName;
+  lBinding.FileName := aModel.FileName;
+  lLineage := TryBuildMemberSafetyLineage(lBinding, aSelector.TypeName, aSelector.TypeIdentity);
+  lStatement := Default(TDelphiSemanticWithStatement);
+  lStatement.Line := aSite.Line;
+  lStatement.Column := aSite.Column;
+  lCaller := Default(TDelphiSemanticTypeIdentity);
+  OwnerIdentity(aModel.UnitName, aCurrentTypeName, '', '', lCaller);
+  lNameSite := TDelphiSemanticNameSites.AtWithStatement(aModel, lStatement,
+    RoutineScopeAtLine(aModel, aSite.Line), lCaller.DeclaredId);
+  lNameSite.FileName := aSite.FileName;
+  lHelpers := fTypeIndex.ResolveHelpersAt(lLineage, lNameSite);
+  lDirect := aDirect;
+  lValue := TryResolveReceiverValueMember(aModel, aSite, aOriginalSelector, aName, '');
+  lHelper := TMemberVerdict.NotPresent;
+  lHelperLevel := -1;
+  lValueCollision := False;
+  lContext := Default(TDelphiSemanticMemberLookupContext);
+  lContext.CallerUnitName := aModel.UnitName;
+  lContext.CurrentTypeName := aCurrentTypeName;
+  lContext.CurrentTypeId := lCaller.DeclaredId;
+  lContext.InstanceContext := True;
+  for i := 0 to High(lHelpers.Levels) do
+  begin
+    lHelperCount := 0;
+    for lIdentity in lHelpers.Levels[i].Chain do
+    begin
+      lLookup := fSemanticMemberIndex.ResolveDirectMemberByOwnerId(lIdentity.DeclaredId, aName);
+      if lLookup.Found or (Length(lLookup.Candidates) > 0) then
+      begin
+        Inc(lHelperCount);
+        if lHelperLevel < 0 then
+        begin
+          lHelperLevel := i;
+          if SelectorAllowsReceiverMemberLookup(aOriginalSelector) and fSemanticMemberIndexAvailable then
+            lHelper := MemberVerdictFromLookup(aName,
+              LookupIdentityMember(lContext, lIdentity, aName, False, False))
+          else
+            lHelper := TMemberVerdict.Barrier(noUnproved, 'OWNER_INHERITED_MEMBERS_UNVERIFIED',
+              'Semantic helper lookup is not permitted for this receiver.', 'helper-permission');
+        end;
+      end;
+      if fValueMembers.TryGetValue(lIdentity.DeclaredId.Value + #31 + aName, lCandidates) then
+      begin
+        Inc(lHelperCount);
+        lValueCollision := True;
+        if lHelperLevel < 0 then
+        begin
+          lHelperLevel := i;
+          lHelper := TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
+            'A helper value member is not verified.', 'value-member');
+        end;
+      end;
+    end;
+    if lHelperCount > 1 then
+    begin
+      lRefusalCode := 'HELPER_COLLISION_UNVERIFIED';
+      if lValueCollision then
+        lRefusalCode := 'TYPE_VALUE_MEMBERS_UNVERIFIED';
+      Exit(TMemberVerdict.Barrier(noUnproved, lRefusalCode,
+        'The child and parent helper both declare the member.', 'helper-collision'));
+    end;
+    // Helpers at higher receiver levels do not compete with a nearer helper.
+    if lHelperLevel >= 0 then
+      Break;
+  end;
+  if lDirect.Outcome in [noUnproved, noAmbiguous] then
+    Exit(lDirect);
+  if lValue.Outcome in [noUnproved, noAmbiguous] then
+    Exit(lValue);
+  if (lHelperLevel >= 0) and ((lDirect.Outcome = noResolved) or
+    (lValue.Outcome = noResolved)) then
+  begin
+    lRefusalCode := 'HELPER_COLLISION_UNVERIFIED';
+    if lValueCollision or (lValue.Outcome = noResolved) then
+      lRefusalCode := 'TYPE_VALUE_MEMBERS_UNVERIFIED';
+    Exit(TMemberVerdict.Barrier(noUnproved, lRefusalCode,
+      'A helper member competes with a type member.', 'helper-collision'));
+  end;
+  if lDirect.Outcome in [noUnproved, noAmbiguous] then
+    Exit(lDirect);
+  if lValue.Outcome in [noUnproved, noAmbiguous] then
+    Exit(lValue);
+  if lHelper.Outcome in [noUnproved, noAmbiguous] then
+    Exit(lHelper);
+  if lHelper.Outcome = noResolved then
+  begin
+    // Helper ownership is provenance; receiver spelling normalization is for values.
+    lBound := lHelper.Member;
+    Exit(TMemberVerdict.Present(lBound, CandidateOpen(lBound, lHelperLevel)));
+  end;
+  if lDirect.Outcome = noResolved then
+  begin
+    lBound := lDirect.Member;
+    if MatchText(lBound.Value.Kind, ['const', 'typed-const', 'variant-tag']) then
+      lBound.Value.OwnerName := aOriginalSelector.TypeName;
+    if TryResolveShadowingValueMember(aModel, aSite, aOriginalSelector, aName, lBound, lShadow) then
+      Exit(MemberVerdictFromBound(lShadow));
+    Exit(TMemberVerdict.Present(lBound, CandidateOpen(lBound, -1)));
+  end;
+  if lValue.Outcome = noResolved then
+  begin
+    lBound := lValue.Member;
+    if CandidateOpen(lBound, -1) then
+      Exit(TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
+        'An unknown helper can reach the value member level.', 'helper-unknown'));
+    Exit(lValue);
+  end;
+  lRefusalCode := '';
+  if not ReceiverMemberAbsenceIsVerified(aModel, aSelector, aName, aSite,
+    lRefusalCode, lRootProof) then
+  begin
+    if lRefusalCode = '' then
+      lRefusalCode := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
+    Exit(TMemberVerdict.Barrier(noUnproved, lRefusalCode,
+      'The receiver member absence is not verified.', 'absence'));
+  end;
+  lOpen := not lLineage.Complete or (Length(lHelpers.Levels) = 0);
+  for i := 0 to High(lHelpers.Levels) do
+    if lHelpers.OpenFromLevel <= i then
+    begin
+      // Root proofs clear only upper levels. Closed-source proof includes
+      // the existing recursive site/owner closure checks; named proof retains
+      // its exact site scope. An empty list never stands in for either proof.
+      if lHelpers.Levels[i].ProjectOwned then
+        lOpen := True
+      else
+        case lRootProof.Kind of
+          rapClosedSourceRoot: ;
+          rapNamedSiteScopedRoot:
+            begin
+              if Length(lRootProof.SiteUnits) = 0 then
+                lOpen := True;
+              for var lUnitName in aModel.DependencyFacts.InterfaceImports +
+                aModel.DependencyFacts.ImplementationImports do
+                if not MatchText(lUnitName, lRootProof.SiteUnits) then
+                  lOpen := True;
+            end;
+        else
+          lOpen := True;
+        end;
+    end;
+  if lOpen then
+  begin
+    lRefusalCode := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
+    for lIdentity in lLineage.Items do
+      if not SameText(lIdentity.Kind, 'type-alias') then
+      begin
+        if MatchText(lIdentity.UnderlyingName, ['record', 'packed record']) then
+          lRefusalCode := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
+        Break;
+      end;
+    Exit(TMemberVerdict.Barrier(noUnproved, lRefusalCode,
+      'Unknown helper scope prevents a verified absence.', 'helper-unknown'));
+  end;
+  Result := TMemberVerdict.NotPresent;
 end;
 
 function TWithBindingProjectMemberIndex.ResolveBodyMemberVerdict(
@@ -3935,42 +4157,13 @@ function TWithBindingProjectMemberIndex.ResolveBodyMemberVerdict(
   const aLookupSelector, aOriginalSelector: TDelphiSemanticWithSelectorBinding;
   const aCurrentTypeName, aName: string): TMemberVerdict;
 var
-  lBound, lValueResult: TBoundMemberResolution;
-  lRefusalCode: string;
+  lDirect: TMemberVerdict;
 begin
-  Result := TMemberVerdict.NotPresent;
-  Result := TryResolveDirectMember(aModel.UnitName,
-      aCurrentTypeName, aLookupSelector.TypeName, aName,
-      SelectorAllowsReceiverMemberLookup(aOriginalSelector), aModel.FileName,
-      aLookupSelector.TypeIdentity);
-  if Result.Outcome = noResolved then
-  begin
-    lBound := Result.Member;
-    if MatchText(lBound.Value.Kind, ['const', 'typed-const', 'variant-tag']) then
-      lBound.Value.OwnerName := aOriginalSelector.TypeName;
-    if TryResolveShadowingValueMember(aModel, aSite,
-      aOriginalSelector, aName, lBound, lValueResult) then
-      Result := MemberVerdictFromBound(lValueResult)
-    else
-      Result := TMemberVerdict.Present(lBound);
-  end;
-  if (Result.Outcome = noAbsent) then
-    Result := TryResolveReceiverValueMember(aModel, aSite,
-      aOriginalSelector, aName, '');
-  if Result.Outcome = noAbsent then
-  begin
-    lRefusalCode := '';
-    if not ReceiverMemberAbsenceIsVerified(aModel,
-        aOriginalSelector, aName, aSite, lRefusalCode) then
-    begin
-      if lRefusalCode = 'RECORD_HELPER_MEMBERS_UNVERIFIED' then
-        Result := TMemberVerdict.Barrier(noUnproved, lRefusalCode,
-          'A visible record helper of the receiver has members that are not indexed.', 'absence')
-      else
-        Result := TMemberVerdict.Barrier(noUnproved, 'OWNER_INHERITED_MEMBERS_UNVERIFIED',
-          'The receiver may inherit a member that is not indexed.', 'absence');
-    end;
-  end;
+  lDirect := TryResolveDirectMember(aModel.UnitName, aCurrentTypeName,
+    aLookupSelector.TypeName, aName, SelectorAllowsReceiverMemberLookup(aOriginalSelector),
+    aModel.FileName, aLookupSelector.TypeIdentity, False);
+  Result := ResolveReceiverMemberVerdict(aModel, aSite, aLookupSelector, aOriginalSelector,
+    aCurrentTypeName, aName, lDirect);
 end;
 
 function ResolveMemberAt(const aModel: TDelphiSemanticUnitModel;
@@ -4255,7 +4448,8 @@ begin
       noUnproved, noAmbiguous:
       begin
         // Base's call path has only these two dedicated receiver refusals.
-        if MatchText(lVerdict.ReasonCode, ['RECORD_HELPER_MEMBERS_UNVERIFIED',
+        if MatchText(lVerdict.Cause, ['helper-collision', 'helper-unknown']) or
+          MatchText(lVerdict.ReasonCode, ['RECORD_HELPER_MEMBERS_UNVERIFIED',
           'ALIAS_RECEIVER_MEMBERS_UNVERIFIED']) then
           Exit(CacheBoundReference(aReferenceCache, lKey,
             MakeMemberBoundReference(lCallName, 'unsupported', lVerdict)));
@@ -4307,7 +4501,8 @@ begin
     Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
     case lVerdict.Outcome of
       noUnproved:
-        if SameText(lVerdict.ReasonCode, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') then
+        if MatchText(lVerdict.Cause, ['helper-collision', 'helper-unknown']) or
+          SameText(lVerdict.ReasonCode, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') then
           Exit(CacheBoundReference(aReferenceCache, lKey,
             MakeMemberBoundReference(aName, 'unsupported', lVerdict)));
       noResolved, noAmbiguous, noAbsent: ;
@@ -6852,6 +7047,23 @@ begin
   end;
 end;
 
+function TWithBindingProjectMemberIndex.MembersClosed(
+  const aIdentity: TDelphiSemanticTypeIdentity): Boolean;
+var
+  lFact: TMemberSafetyDiagnostic;
+begin
+  Result := not LineageHasActivityFact([aIdentity]);
+  if not Result then
+    Exit;
+  for lFact in fMemberSafetyDiagnostics do
+    if SameText(aIdentity.UnitName, lFact.UnitName) and
+      (SameText(lFact.Code, 'MEMBERS_UNVERIFIED') or (not lFact.OwnerResolved) or
+      (SameText(aIdentity.Name, lFact.OwnerName) and
+      (aIdentity.SourceRange.Line = lFact.Line) and
+      SameText(aIdentity.SourceRange.FileName, lFact.FileName))) then
+      Exit(False);
+end;
+
 function TWithBindingProjectMemberIndex.TryResolveReceiverValueMember(
   const aModel: TDelphiSemanticUnitModel; const aSite: TReceiverLookupSite;
   const aSelector: TDelphiSemanticWithSelectorBinding; const aName, aStopDeclaredId: string): TMemberVerdict;
@@ -6859,13 +7071,11 @@ var
   lBinding: TDelphiSemanticWithBinding;
   lBound: TBoundMemberResolution;
   lCandidates: TArray<TBoundMemberResolution>;
-  lFact: TMemberSafetyDiagnostic;
   lIdentity: TDelphiSemanticTypeIdentity;
   lKey: string;
   lLineage: TDelphiSemanticLineage;
   lVisibility: TArray<string>;
 begin
-  // Recovery 4.7a: evidence-open exits stay absent until the 3d migration.
   Result := TMemberVerdict.NotPresent;
   lBound := Default(TBoundMemberResolution);
   if not fValueMemberNames.ContainsKey(aName) then
@@ -6874,22 +7084,6 @@ begin
   lBinding.UnitName := aModel.UnitName;
   lBinding.FileName := aModel.FileName;
   lLineage := TryBuildMemberSafetyLineage(lBinding, aSelector.TypeName, aSelector.TypeIdentity);
-  if (not lLineage.Complete) or (Length(lLineage.Items) = 0) or LineageHasActivityFact(lLineage.Items) then
-    Exit;
-  for lIdentity in lLineage.Items do
-    for lFact in fMemberSafetyDiagnostics do
-      if SameText(lIdentity.UnitName, lFact.UnitName) and
-        (SameText(lFact.Code, 'MEMBERS_UNVERIFIED') or (not lFact.OwnerResolved) or
-        (SameText(lIdentity.Name, lFact.OwnerName) and
-        (lIdentity.SourceRange.Line = lFact.Line) and
-        SameText(lIdentity.SourceRange.FileName, lFact.FileName))) then
-        Exit;
-  if UnindexedRecordHelperMayApply(aSite, lLineage.Items) then
-    Exit;
-  for lIdentity in lLineage.Items do
-    if fHelperValueNames.ContainsKey(ValueOwnerKey('', lIdentity.Name, aName)) then
-      Exit(TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
-        'A helper declares a value member with this name.', 'value-member'));
   for lIdentity in lLineage.Items do
   begin
     if (aStopDeclaredId <> '') and SameText(lIdentity.DeclaredId.Value, aStopDeclaredId) then
@@ -6915,6 +7109,17 @@ begin
       SameText(lCandidates[0].DeclaringUnitName, aSite.UnitName)))) then
       Exit(TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED',
         'Access to the type value member is not verified.', 'value-member'));
+    if (not lLineage.Complete) or UnindexedRecordHelperMayApply(aSite, lLineage.Items) then
+      Exit(TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
+        'The value member lineage or helper applicability is unverified.', 'value-member'));
+    for var lOwner in lLineage.Items do
+    begin
+      if not MembersClosed(lOwner) then
+        Exit(TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
+          'The value member owner evidence is not closed.', 'value-member'));
+      if lOwner.DeclaredId.Value = lIdentity.DeclaredId.Value then
+        Break;
+    end;
     lBound := lCandidates[0];
     // Value references name the selected receiver; OwnerDeclaredId still identifies the fact.
     lBound.Value.OwnerName := aSelector.TypeName;
@@ -7073,9 +7278,20 @@ function TWithBindingProjectMemberIndex.ReceiverMemberAbsenceIsVerified(
   const aSelector: TDelphiSemanticWithSelectorBinding; const aName: string;
   const aSite: TReceiverLookupSite; out aRefusalCode: string): Boolean;
 var
+  lRootProof: TRootAbsenceProof;
+begin
+  Result := ReceiverMemberAbsenceIsVerified(aModel, aSelector, aName, aSite,
+    aRefusalCode, lRootProof);
+end;
+
+function TWithBindingProjectMemberIndex.ReceiverMemberAbsenceIsVerified(
+  const aModel: TDelphiSemanticUnitModel;
+  const aSelector: TDelphiSemanticWithSelectorBinding; const aName: string;
+  const aSite: TReceiverLookupSite; out aRefusalCode: string;
+  out aRootProof: TRootAbsenceProof): Boolean;
+var
   lBinding: TDelphiSemanticWithBinding;
   lDirectLookup: TDelphiSemanticMemberLookupResult;
-  lFact: TMemberSafetyDiagnostic;
   lIdentity: TDelphiSemanticTypeIdentity;
   lLineage: TDelphiSemanticLineage;
   lOwnerModel: TDelphiSemanticUnitModel;
@@ -7087,6 +7303,7 @@ var
 begin
   Result := False;
   aRefusalCode := '';
+  aRootProof := Default(TRootAbsenceProof);
   lBinding := Default(TDelphiSemanticWithBinding);
   lBinding.UnitName := aModel.UnitName;
   lBinding.FileName := aModel.FileName;
@@ -7099,16 +7316,9 @@ begin
       Exit;
   if Length(lLineage.Items) = 0 then
     Exit;
-  if LineageHasActivityFact(lLineage.Items) then
-    Exit;
   for lIdentity in lLineage.Items do
-    for lFact in fMemberSafetyDiagnostics do
-      if SameText(lIdentity.UnitName, lFact.UnitName) and
-        (SameText(lFact.Code, 'MEMBERS_UNVERIFIED') or (not lFact.OwnerResolved) or
-        (SameText(lIdentity.Name, lFact.OwnerName) and
-        (lIdentity.SourceRange.Line = lFact.Line) and
-        SameText(lIdentity.SourceRange.FileName, lFact.FileName))) then
-        Exit;
+    if not MembersClosed(lIdentity) then
+      Exit;
   // Root evidence covers only the implicit root, never indexed declarations.
   for lIdentity in lLineage.Items do
   begin
@@ -7158,9 +7368,13 @@ begin
     if fRootMemberAbsence.EvidenceFingerprint = '' then
       Exit;
     if lClosed then
-      Result := fRootMemberAbsence.IsNameAbsent(aName)
-    else begin
-      if (lNamed = nil) or (not TryRootProofUnits(aModel, True, lSiteUnits)) then
+    begin
+      Result := fRootMemberAbsence.IsNameAbsent(aName);
+      if Result then
+        aRootProof.Kind := rapClosedSourceRoot;
+    end else begin
+      if (lNamed = nil) or (not TryRootProofUnits(aModel, True, lSiteUnits)) or
+        (Length(lSiteUnits) = 0) then
         Exit;
       // Validate every project declaration, but keep its imported helpers out
       // of the site scope. The root-most declaration captures its own helper.
@@ -7200,13 +7414,21 @@ begin
         SameText(lIdentity.SectionKind, 'implementation'), lRoot.LookupUnits) then
         Exit;
       Result := lNamed.IsNamedRootMemberAbsent(lRoot, lSiteUnits, aName);
+      if Result then
+      begin
+        aRootProof.Kind := rapNamedSiteScopedRoot;
+        aRootProof.SiteUnits := lSiteUnits;
+      end;
     end;
     if Result then
       fLookupIndex.RecordRootMemberAbsence(aModel.UnitName, lIdentity.DeclaredId.Value, aName);
   except
     on E: Exception do
+    begin
       // External evidence failure preserves the caller's unsupported diagnostic.
       Result := False;
+      aRootProof := Default(TRootAbsenceProof);
+    end;
   end;
 end;
 
@@ -7219,13 +7441,13 @@ var
   lIdentity, lLineageIdentity: TDelphiSemanticTypeIdentity;
   lLookup, lDirectLookup: TDelphiSemanticMemberLookupResult;
   lVerifiedOwner: Boolean;
-  lRefusalCode: string;
-  lVerdict: TMemberVerdict;
+  lVerdict, lDirect: TMemberVerdict;
 begin
   lContext := Default(TDelphiSemanticMemberLookupContext);
   lContext.CallerUnitName := aModel.UnitName;
   lContext.CurrentTypeName := aCurrentTypeName;
   lContext.InstanceContext := True;
+  lVerifiedOwner := False;
   lLookup := Default(TDelphiSemanticMemberLookupResult);
   lLookup.Status := 'unresolved';
   lLookup.ReasonCode := 'DIRECT_MEMBER_NOT_FOUND';
@@ -7234,7 +7456,7 @@ begin
     if SameText(lLineageIdentity.Kind, 'type-alias') then
       Continue;
     lLookup := LookupIdentityMember(lContext, lLineageIdentity, aName,
-      lLineageIdentity.DeclaredId.Value = aSelector.TypeIdentity.DeclaredId.Value);
+      lLineageIdentity.DeclaredId.Value = aSelector.TypeIdentity.DeclaredId.Value, False);
     lVerdict := MemberVerdictFromLookup(aName, lLookup);
     if lVerdict.Outcome <> noAbsent then
       Break;
@@ -7256,32 +7478,35 @@ begin
     lVerdict := MemberVerdictFromLookup(aName, lLookup);
     if lVerifiedOwner and (lVerdict.Outcome = noResolved) then
     begin
-      Exit(lVerdict);
+      lDirect := lVerdict;
     end;
   end;
-  if SameText(lLookup.Status, 'unresolved') and
-    SameText(lLookup.ReasonCode, 'DIRECT_MEMBER_NOT_FOUND') then
+  lDirect := MemberVerdictFromLookup(aName, lLookup);
+  if (lDirect.Outcome = noResolved) and not lVerifiedOwner then
+    Exit(TMemberVerdict.Barrier(noUnproved, 'PARENT_SELECTOR_UNRESOLVED',
+      'The parent member owner is outside the held lineage.', 'selector-eligibility'));
+  lVerdict := ResolveReceiverMemberVerdict(aModel, aSite, aSelector, aSelector,
+    aCurrentTypeName, aName, lDirect);
+  if lVerdict.Outcome = noResolved then
   begin
-    lVerdict := TryResolveReceiverValueMember(aModel, aSite, aSelector, aName, '');
-    if lVerdict.Outcome <> noAbsent then
+    if (lDirect.Outcome <> noResolved) or lVerdict.MemberTypeOpen then
       Exit(TMemberVerdict.Barrier(noUnproved, 'PARENT_SELECTOR_UNRESOLVED',
-        'The parent WITH selector or its member cannot be proven.', 'selector-eligibility'));
-    if not ReceiverMemberAbsenceIsVerified(aModel, aSelector, aName, aSite, lRefusalCode) then
-      Exit(TMemberVerdict.Barrier(noUnproved, 'PARENT_SELECTOR_UNRESOLVED',
-        'The parent WITH selector or its member cannot be proven.', 'selector-eligibility'));
-    for lLineageIdentity in aLineage.Items do
-    begin
-      lDirectLookup := fSemanticMemberIndex.ResolveDirectMemberByOwnerId(
-        lLineageIdentity.DeclaredId, aName);
-      if (not SameText(lDirectLookup.Status, 'unresolved')) or
-        (not SameText(lDirectLookup.ReasonCode, 'DIRECT_MEMBER_NOT_FOUND')) then
-        Exit(TMemberVerdict.Barrier(noUnproved, 'PARENT_SELECTOR_UNRESOLVED',
-        'The parent WITH selector or its member cannot be proven.', 'selector-eligibility'));
-    end;
-    Exit(TMemberVerdict.NotPresent);
+        'The parent WITH member type is not verified.', 'members-open'));
+    Exit(lVerdict);
   end;
-  Exit(TMemberVerdict.Barrier(noUnproved, 'PARENT_SELECTOR_UNRESOLVED',
+  if lVerdict.Outcome <> noAbsent then
+    Exit(TMemberVerdict.Barrier(lVerdict.Outcome, 'PARENT_SELECTOR_UNRESOLVED',
+      'The parent WITH selector or its member cannot be proven.', lVerdict.Cause));
+  for lLineageIdentity in aLineage.Items do
+  begin
+    lDirectLookup := fSemanticMemberIndex.ResolveDirectMemberByOwnerId(
+      lLineageIdentity.DeclaredId, aName);
+    if (not SameText(lDirectLookup.Status, 'unresolved')) or
+      (not SameText(lDirectLookup.ReasonCode, 'DIRECT_MEMBER_NOT_FOUND')) then
+      Exit(TMemberVerdict.Barrier(noUnproved, 'PARENT_SELECTOR_UNRESOLVED',
         'The parent WITH selector or its member cannot be proven.', 'selector-eligibility'));
+  end;
+  Result := TMemberVerdict.NotPresent;
 end;
 
 function TWithBindingProjectMemberIndex.TryResolveVerifiedSimpleMember(

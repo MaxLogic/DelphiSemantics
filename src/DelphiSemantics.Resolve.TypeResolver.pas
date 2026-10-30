@@ -1245,7 +1245,9 @@ begin
     Result.Levels := Result.Levels + [lLevel];
     OpenLevel(High(Result.Levels));
   end;
-  if not aLineage.Complete or not FindHelperSiteUnit(aSite, lUnit) or
+  if not aLineage.Complete then
+    OpenLevel(Length(Result.Levels));
+  if not FindHelperSiteUnit(aSite, lUnit) or
     not lUnit.HelperScopeKnown then
   begin
     OpenLevel(0);

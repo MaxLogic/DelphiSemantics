@@ -263,6 +263,7 @@ implementation
 
 uses
   System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
+  SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.SourceConditionals;
 
 function StableHash(const aText: string): string;
@@ -363,9 +364,46 @@ var
   lDiagnostic: TDelphiSemanticModelDiagnostic;
   lRoutine: TDelphiSemanticRoutine;
   lOutside: string;
-  lContained: Boolean;
+  lContained, lVariables: Boolean;
+  lLexer: TmwBasePasLex;
   lLineStarts: TArray<Integer>;
   i, lFinish: Integer;
+
+  function DiagnosticIsConditional(const aDiagnostic: TDelphiSemanticModelDiagnostic): Boolean;
+  var
+    lDirectiveLexer: TmwBasePasLex;
+    lStart, lEnd: Integer;
+  begin
+    Result := False;
+    if not SameText(aDiagnostic.FileName, aModel.FileName) or
+      (aDiagnostic.Line < 1) or (aDiagnostic.Line > Length(lLineStarts)) then
+      Exit;
+    lStart := lLineStarts[aDiagnostic.Line - 1] - 1;
+    lEnd := Length(aModel.SourceText);
+    if aDiagnostic.Line < Length(lLineStarts) then
+      lEnd := lLineStarts[aDiagnostic.Line] - 1;
+    lDirectiveLexer := TmwBasePasLex.Create;
+    try
+      lDirectiveLexer.UseDefines := False;
+      lDirectiveLexer.Origin := aModel.SourceText;
+      while (lDirectiveLexer.TokenID <> ptNull) and (lDirectiveLexer.TokenPos < lEnd) do
+      begin
+        if (lDirectiveLexer.TokenPos >= lStart) and
+          (lDirectiveLexer.IsCompilerDirective or (lDirectiveLexer.TokenID in
+          [ptIfDirect, ptIfEndDirect, ptElseIfDirect])) then
+        begin
+          if not (lDirectiveLexer.TokenID in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect,
+            ptIfOptDirect, ptElseDirect, ptElseIfDirect, ptEndIfDirect, ptIfEndDirect]) then
+            Exit(False);
+          Result := True;
+        end;
+        lDirectiveLexer.Next;
+      end;
+    finally
+      lDirectiveLexer.Free;
+    end;
+  end;
+
 begin
   Result := aModel.Success and MatchText(aModel.ScopeModelStatus, ['ast', 'ast-interface-only']);
   if not Result then
@@ -388,7 +426,12 @@ begin
           (lRoutine.EndLine <= Length(lLineStarts)) and (lRoutine.EndColumn > 0) and
           (lDiagnostic.Line >= lRoutine.Line) and (lDiagnostic.Line <= lRoutine.EndLine) then
           lContained := True;
-      if not lContained then
+      // Conditional expressions are checked at affected syntax below. Other
+      // unsupported directives still need the proved routine-only exception.
+      if not lContained and
+        not SameText(lDiagnostic.Code, 'UNVERIFIED_PREPROCESS_CONDITION') and
+        not (SameText(lDiagnostic.Code, 'UNSUPPORTED_PREPROCESS_DIRECTIVE') and
+        DiagnosticIsConditional(lDiagnostic)) then
         Exit(False);
     end;
   // A conditional begun in a routine can still taint later declarations.
@@ -406,13 +449,37 @@ begin
       if (lFinish <= lRoutine.Offset) or (lFinish > Length(lOutside) + 1) then
         Exit(False);
       for i := lRoutine.Offset to lFinish - 1 do
-        lOutside[i] := #0;
+        lOutside[i] := ' ';
     end;
-  for i := 1 to Length(lOutside) do
-    if not CharInSet(lOutside[i], [#0, #9, #10, #13, ' ']) and
-      TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
-        aModel.VerifiedActiveSourceText, i) then
-      Exit(False);
+  // DS-719: unit variables do not declare helper targets or change imports.
+  // Keep raw conditional branches in the lexer so a hidden uses/type/helper
+  // declaration still opens scope. TypeNamesKnown remains independently strict.
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := lOutside;
+    lVariables := False;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID in [ptVar, ptThreadvar] then
+        lVariables := True
+      else if lLexer.TokenID in [ptUses, ptType, ptConst, ptProcedure, ptFunction,
+        ptConstructor, ptDestructor, ptImplementation, ptInitialization,
+        ptFinalization, ptHelper] then
+        lVariables := False;
+      if not lVariables and not (lLexer.TokenID in [ptSpace, ptCRLF, ptCRLFCo,
+        ptAnsiComment, ptBorComment, ptSlashesComment, ptIfDirect, ptIfDefDirect,
+        ptIfNDefDirect, ptIfOptDirect, ptElseDirect, ptElseIfDirect, ptEndIfDirect, ptIfEndDirect]) then
+        for i := lLexer.TokenPos + 1 to lLexer.TokenPos + lLexer.TokenLen do
+          if (lOutside[i] <> #0) and
+            TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
+              aModel.VerifiedActiveSourceText, i) then
+            Exit(False);
+      lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
+  end;
 end;
 
 function BuildUnit(const aProjectId: TDelphiSemanticProjectGraphId;
