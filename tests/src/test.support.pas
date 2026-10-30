@@ -24,6 +24,7 @@ type
     Documents: string;
     PublicDocuments: string;
     FailKnownFolder: Boolean;
+    FailRegistryLibrary: Boolean;
     function TryEnvironmentValue(const aName: string; out aValue: string): Boolean;
     function RegistryValues(const aKey: string; const aView: Cardinal): TArray<TDelphiSemanticProperty>;
     function KnownFolderPath(const aFolder: TDelphiSemanticProfileFolder): string;
@@ -191,7 +192,11 @@ begin
   if aKey.EndsWith('\Environment Variables') then
     Result := RegistryEnvironment
   else if aKey.Contains('\Library\') then
+  begin
+    if FailRegistryLibrary then
+      raise Exception.Create('registry library unavailable');
     Result := RegistryLibrary;
+  end;
 end;
 
 function TIsolatedProfileInputs.KnownFolderPath(

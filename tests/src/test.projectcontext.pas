@@ -42,11 +42,30 @@ type
     procedure UnavailableProfileFolderFailsClosed;
     [Test]
     [Category('Fast')]
+    procedure InvalidProfileFilePublishesProblem;
+    [Test]
+    [Category('Fast')]
     [TestCase('Native', 'native')]
     [TestCase('Environment', 'environment')]
     [TestCase('Registry', 'registry')]
     [TestCase('Project', 'project')]
     procedure ExplicitProfileIdentityMatchesBase641e4a3(const aOrigin: string);
+    [Test]
+    [Category('Fast')]
+    [TestCase('23 fingerprint', '23.0,derived,False')]
+    [TestCase('23 graph project ID', '23.0,derived,True')]
+    [TestCase('37 fingerprint', '37.0,derived,False')]
+    [TestCase('37 graph project ID', '37.0,derived,True')]
+    [TestCase('mixed-user False', '23.0,mixed-user,False')]
+    [TestCase('mixed-user True', '23.0,mixed-user,True')]
+    [TestCase('mixed-common False', '23.0,mixed-common,False')]
+    [TestCase('mixed-common True', '23.0,mixed-common,True')]
+    [TestCase('empty False', '23.0,empty,False')]
+    [TestCase('empty True', '23.0,empty,True')]
+    [TestCase('search False', '23.0,search,False')]
+    [TestCase('search True', '23.0,search,True')]
+    procedure ProfileIdentityMatchesFrozenBaseSerializer(
+      const aVersion, aScenario: string; const aCheckGraph: Boolean);
     [Test]
     [Category('Fast')]
     [TestCase('Native empty', 'native,True')]
@@ -175,20 +194,31 @@ const
     'project', 'import', 'profile');
   cMatrixNames: array[0..1] of string = ('BDSUSERDIR', 'BDSCOMMONDIR');
   cMatrixSuffixes: array[0..1] of string = ('\MatrixUserSentinel', '\MatrixCommonSentinel');
-  cMatrixStates: array[0..3] of string = ('literal', 'macro', 'empty', 'absent');
+  cMatrixStates: array[0..5] of string = ('literal', 'macro', 'empty', 'absent', 'undefined', 'cyclic');
   cMatrixSourceLabels: array[0..5] of string = ('BDS registry', 'environment',
     'native option', 'project property', 'project property', 'project property');
   cMatrixSingleCount = 6 * 4 * 4 * 2;
   cMatrixCrossCount = 15 * 2 * 2 * 2;
+  cMatrixInvalidCount = 6 * 2 * 2 * 2;
+  cMatrixConsumedCount = cMatrixInvalidCount;
+  cMatrixFailureCount = 6 * 8 * 2;
+  cMatrixOriginalCount = cMatrixSingleCount + cMatrixCrossCount + cMatrixInvalidCount;
+  cMatrixFailures: array[1..8] of string = ('missing-profile', 'locked-profile',
+    'malformed-profile', 'empty-file', 'no-library-evidence', 'missing-directory',
+    'missing-import-directory', 'registry-error');
 
 type
   TProfileMatrixScenario = record
     States: array[0..5, 0..1] of Integer;
     FolderFailure: Boolean;
+    ConsumeInvalid: Boolean;
+    FailureMode: Integer;
   end;
 
   TProfileMatrixExpected = record
     Present: Boolean;
+    Invalid: Boolean;
+    ProblemMacro: string;
     Value: string;
     Source: string;
   end;
@@ -202,11 +232,29 @@ begin
     for lDirectory := 0 to 1 do
       Result.States[lSource, lDirectory] := 3;
   Result.FolderFailure := Odd(aCaseId);
+  if aCaseId >= cMatrixOriginalCount + cMatrixConsumedCount then
+  begin
+    lCross := aCaseId - cMatrixOriginalCount - cMatrixConsumedCount;
+    lSource := lCross div 16;
+    Result.States[lSource, 0] := 0;
+    Result.States[lSource, 1] := 0;
+    Result.FailureMode := 1 + (lCross div 2) mod 8;
+    Exit;
+  end;
+  Result.ConsumeInvalid := aCaseId >= cMatrixOriginalCount;
   if aCaseId < cMatrixSingleCount then
   begin
     lSource := aCaseId div 32;
     Result.States[lSource, 0] := (aCaseId div 8) mod 4;
     Result.States[lSource, 1] := (aCaseId div 2) mod 4;
+    Exit;
+  end;
+  if aCaseId >= cMatrixSingleCount + cMatrixCrossCount then
+  begin
+    lCross := (aCaseId - cMatrixSingleCount - cMatrixCrossCount) mod cMatrixInvalidCount;
+    lDirectory := (lCross div 4) mod 2;
+    Result.States[2, 1 - lDirectory] := 0;
+    Result.States[lCross div 8, lDirectory] := 4 + (lCross div 2) mod 2;
     Exit;
   end;
   lCross := aCaseId - cMatrixSingleCount;
@@ -236,6 +284,8 @@ begin
   case aState of
     0: Result := cLiteral[aDirectory];
     1: Result := cMacro[aDirectory];
+    4: Result := '$(NeverDefined' + cMatrixNames[aDirectory] + ')';
+    5: Result := '$(MatrixCycle' + cMatrixNames[aDirectory] + ')';
   else
     Result := '';
   end;
@@ -268,6 +318,8 @@ begin
   Result := Result + '</PropertyGroup></Project>';
 end;
 
+function ProfileMatrixHasInvalidInput(const aScenario: TProfileMatrixScenario): Boolean; forward;
+
 function ProfileMatrixOptions(const aScenario: TProfileMatrixScenario): TDelphiSemanticOptions;
 var
   lInputs: TIsolatedProfileInputs;
@@ -292,15 +344,39 @@ begin
   lInputs.RegistryLibrary[0].Value := '$(BDSUSERDIR)' + cMatrixSuffixes[0] +
     ';$(BDSCOMMONDIR)' + cMatrixSuffixes[1];
   lInputs.RegistryLibrary[1].Name := 'Browsing Path';
-  SetLength(lValues, 1);
+  // Invalid values must report problems even when no library path uses them.
+  if ProfileMatrixHasInvalidInput(aScenario) and not aScenario.ConsumeInvalid then
+    lInputs.RegistryLibrary[0].Value := '';
+  if aScenario.ConsumeInvalid then
+    lInputs.RegistryLibrary[0].Value := lInputs.RegistryLibrary[0].Value + ';' +
+      lInputs.RegistryLibrary[0].Value;
+  if aScenario.FailureMode = 5 then
+    lInputs.RegistryLibrary := nil;
+  lInputs.FailRegistryLibrary := aScenario.FailureMode = 8;
+  if aScenario.FailureMode = 6 then
+    lInputs.RegistryLibrary[0].Value := TPath.Combine(lRoot, 'NeverCreatedDirectory');
+  SetLength(lValues, 3);
   lValues[0].Name := 'MatrixRoot';
   lValues[0].Value := 'Z:\Matrix';
+  lValues[1].Name := 'MatrixCycleBDSUSERDIR';
+  lValues[1].Value := '$(MatrixCycleBDSUSERDIR)';
+  lValues[2].Name := 'MatrixCycleBDSCOMMONDIR';
+  lValues[2].Value := '$(MatrixCycleBDSCOMMONDIR)';
   Result.EnvironmentVariables := lValues + ProfileMatrixProperties(aScenario, 2);
   lProjectXml := ProfileMatrixXml(aScenario, 3).Replace('</Project>',
     '<Import Project="Matrix.props"/></Project>');
   TFile.WriteAllText(Result.ProjectPath, lProjectXml, TEncoding.UTF8);
   TFile.WriteAllText(TPath.Combine(lRoot, 'Matrix.props'), ProfileMatrixXml(aScenario, 4), TEncoding.UTF8);
-  TFile.WriteAllText(Result.EnvOptionsPath, ProfileMatrixXml(aScenario, 5), TEncoding.UTF8);
+  case aScenario.FailureMode of
+    1: Exit; // Explicitly selected file is absent; keep all other inputs valid.
+    3: lProjectXml := '<Project><PropertyGroup>';
+    4: lProjectXml := '';
+    7: lProjectXml := ProfileMatrixXml(aScenario, 5).Replace('</Project>',
+      '<Import Project="NeverCreatedDirectory/Missing.props"/></Project>');
+  else
+    lProjectXml := ProfileMatrixXml(aScenario, 5);
+  end;
+  TFile.WriteAllText(Result.EnvOptionsPath, lProjectXml, TEncoding.UTF8);
 end;
 
 function ProfileMatrixExpected(const aScenario: TProfileMatrixScenario;
@@ -318,8 +394,16 @@ begin
     if aScenario.States[lSource, aDirectory] <> 3 then
     begin
       Result.Present := True;
+      Result.Invalid := aScenario.States[lSource, aDirectory] >= 4;
       Result.Value := ProfileMatrixRawValue(aScenario.States[lSource, aDirectory], aDirectory).
         Replace('$(MatrixRoot)', 'Z:\Matrix');
+      if Result.Invalid then
+        if aScenario.States[lSource, aDirectory] = 4 then
+        begin
+          Result.Value := '';
+          Result.ProblemMacro := 'NeverDefined' + cMatrixNames[aDirectory];
+        end else
+          Result.ProblemMacro := 'MatrixCycle' + cMatrixNames[aDirectory];
       Result.Source := cMatrixSourceLabels[lSource];
       Exit;
     end;
@@ -329,7 +413,20 @@ begin
     Result.Value := cDefaults[aDirectory];
     Result.Source := 'derived default';
   end;
+  if not Result.Present then
+    Result.ProblemMacro := cMatrixNames[aDirectory];
   // Missing properties expand to empty text, but remain unavailable inputs.
+end;
+
+function ProfileMatrixHasInvalidInput(const aScenario: TProfileMatrixScenario): Boolean;
+var
+  lSource, lDirectory: Integer;
+begin
+  for lSource := 0 to 5 do
+    for lDirectory := 0 to 1 do
+      if aScenario.States[lSource, lDirectory] >= 4 then
+        Exit(True);
+  Result := False;
 end;
 
 procedure AssertProfileMatrixDirectory(const aScenario: TProfileMatrixScenario;
@@ -337,12 +434,15 @@ procedure AssertProfileMatrixDirectory(const aScenario: TProfileMatrixScenario;
 var
   lExpected: TProfileMatrixExpected;
   lPath: string;
-  lSourceCount, lUnavailableCount, lPathCount: Integer;
+  lValueCount, lSourceCount, lUnavailableCount, lMacroCount, lPathCount: Integer;
+  lProperty: TDelphiSemanticProperty;
   lDiagnostic: TDelphiSemanticDiagnostic;
 begin
   lExpected := ProfileMatrixExpected(aScenario, aDirectory);
+  lValueCount := 0;
   lSourceCount := 0;
   lUnavailableCount := 0;
+  lMacroCount := 0;
   lPathCount := 0;
   for lPath in aResult.Project.PropertyValue('DSWitnessProfilePaths').Split([';']) do
     if lPath.EndsWith(cMatrixSuffixes[aDirectory]) then
@@ -351,41 +451,128 @@ begin
       Assert.AreEqual(lExpected.Value + cMatrixSuffixes[aDirectory], lPath,
         'Final effective value of ' + cMatrixNames[aDirectory]);
     end;
-  Assert.AreEqual(1, lPathCount, 'Exactly one effective path for each directory');
-  for lDiagnostic in aResult.Diagnostics do
+  if ProfileMatrixHasInvalidInput(aScenario) and not aScenario.ConsumeInvalid then
+    Assert.AreEqual('', aResult.Project.PropertyValue('DSWitnessProfilePaths').Trim([';']),
+      'Invalid directory coverage does not depend on path consumption')
+  else
+    Assert.AreEqual(1 + Ord(aScenario.ConsumeInvalid), lPathCount,
+      'Every consumed path retains the final effective directory value');
+  for lProperty in aResult.Project.Properties do
   begin
-    if (lDiagnostic.Code = 'PROFILE_DIRECTORY_SOURCE') and
-      lDiagnostic.Message.StartsWith(cMatrixNames[aDirectory] + '=') then
+    if SameText(lProperty.Name, 'DSWitnessProfile' + cMatrixNames[aDirectory]) then
+    begin
+      Inc(lValueCount);
+      Assert.AreEqual(lExpected.Value, lProperty.Value, 'Final effective metadata value');
+    end;
+    if SameText(lProperty.Name, 'DSWitnessProfile' + cMatrixNames[aDirectory] + 'Source') then
     begin
       Inc(lSourceCount);
-      Assert.AreEqual(cMatrixNames[aDirectory] + '=' + lExpected.Value +
-        ' (' + lExpected.Source + ')', lDiagnostic.Message, 'Final source and effective value');
+      Assert.AreEqual(lExpected.Source, lProperty.Value, 'Final metadata source');
     end;
+  end;
+  for lDiagnostic in aResult.Diagnostics do
+  begin
     if (lDiagnostic.Code = 'PROFILE_DIRECTORY_UNAVAILABLE') and
       lDiagnostic.Message.StartsWith(cMatrixNames[aDirectory] + ':') then
       Inc(lUnavailableCount);
+    if (lExpected.ProblemMacro <> '') and
+      (lDiagnostic.Code = 'UNRESOLVED_MSBUILD_MACRO') and
+      lDiagnostic.Message.Contains('$(' + lExpected.ProblemMacro + ')') then
+      Inc(lMacroCount);
   end;
-  Assert.AreEqual<Integer>(Ord(lExpected.Present), lSourceCount, 'Final source diagnostic: ' + cMatrixNames[aDirectory]);
+  Assert.AreEqual<Integer>(Ord(not lExpected.Present) + Ord(lExpected.Invalid) *
+    (1 + Ord(aScenario.ConsumeInvalid)), lMacroCount,
+    'The final problem macro must appear publicly: ' + cMatrixNames[aDirectory]);
+  Assert.AreEqual<Integer>(Ord(lExpected.Present), lValueCount, 'Final value metadata presence: ' + cMatrixNames[aDirectory]);
+  Assert.AreEqual<Integer>(Ord(lExpected.Present), lSourceCount, 'Final source metadata presence: ' + cMatrixNames[aDirectory]);
   Assert.AreEqual<Integer>(Ord(not lExpected.Present), lUnavailableCount,
     'Final unavailable diagnostic: ' + cMatrixNames[aDirectory]);
 end;
 
 function TProfileDirectoryMatrixAttribute.GetCaseInfoArray: TestCaseInfoArray;
 var
-  lIndex: Integer;
+  lIndex, lInvalidIndex: Integer;
 begin
-  SetLength(Result, cMatrixSingleCount + cMatrixCrossCount);
+  SetLength(Result, cMatrixOriginalCount + cMatrixConsumedCount + cMatrixFailureCount);
   for lIndex := 0 to High(Result) do
   begin
     if lIndex < cMatrixSingleCount then
       Result[lIndex].Name := Format('Single.%s.User_%s.Common_%s.FolderFail_%s',
         [cMatrixSources[lIndex div 32], cMatrixStates[(lIndex div 8) mod 4],
          cMatrixStates[(lIndex div 2) mod 4], BoolToStr(Odd(lIndex), True)])
-    else
+    else if lIndex < cMatrixSingleCount + cMatrixCrossCount then
       Result[lIndex].Name := Format('Cross.%d.FolderFail_%s',
-        [lIndex - cMatrixSingleCount, BoolToStr(Odd(lIndex), True)]);
+        [lIndex - cMatrixSingleCount, BoolToStr(Odd(lIndex), True)])
+    else if lIndex >= cMatrixOriginalCount + cMatrixConsumedCount then
+      Result[lIndex].Name := Format('Failure.%s.%s.FolderFail_%s',
+        [cMatrixSources[(lIndex - cMatrixOriginalCount - cMatrixConsumedCount) div 16],
+         cMatrixFailures[1 + ((lIndex - cMatrixOriginalCount - cMatrixConsumedCount) div 2) mod 8],
+         BoolToStr(Odd(lIndex), True)])
+    else
+    begin
+      lInvalidIndex := (lIndex - cMatrixSingleCount - cMatrixCrossCount) mod cMatrixInvalidCount;
+      Result[lIndex].Name := Format('Invalid.%s.%s.%s.FolderFail_%s',
+        [cMatrixSources[lInvalidIndex div 8],
+         cMatrixNames[(lInvalidIndex div 4) mod 2],
+         cMatrixStates[4 + (lInvalidIndex div 2) mod 2],
+         BoolToStr(Odd(lIndex), True)]);
+      if lIndex >= cMatrixOriginalCount then
+        Result[lIndex].Name := 'Consumed.' + Result[lIndex].Name;
+    end;
     Result[lIndex].Values := [TValue.From<Integer>(lIndex)];
   end;
+end;
+
+procedure AssertProfileProblemInvariant(const aResult: TDelphiSemanticContextResult);
+var
+  lDiagnostic: TDelphiSemanticDiagnostic;
+begin
+  if aResult.Project.PropertyValue('DSWitnessProfileKnown') = 'True' then
+    Assert.AreEqual<Integer>(0, Length(aResult.Diagnostics), 'Known profile has no public problems')
+  else
+    Assert.IsTrue(Length(aResult.Diagnostics) > 0,
+      'Unknown profile must publish its cause for completeness consumers');
+  for lDiagnostic in aResult.Diagnostics do
+  begin
+    Assert.IsTrue(lDiagnostic.Severity <> dsInfo, 'A profile problem is not informational');
+    Assert.IsTrue(lDiagnostic.Message.Trim <> '', 'A public problem must name its cause');
+  end;
+end;
+
+procedure AssertProfileFailureOracle(const aScenario: TProfileMatrixScenario;
+  const aResult: TDelphiSemanticContextResult; const aOptions: TDelphiSemanticOptions);
+const
+  cCauseCodes: array[1..8] of string = ('OPTSET_FILE_NOT_FOUND', 'PROFILE_INPUT_UNAVAILABLE',
+    'PROFILE_INPUT_UNAVAILABLE', 'PROFILE_INPUT_UNAVAILABLE', 'PROFILE_INPUT_UNAVAILABLE',
+    '', 'OPTSET_FILE_NOT_FOUND', 'PROFILE_INPUT_UNAVAILABLE');
+var
+  lDiagnostic: TDelphiSemanticDiagnostic;
+  lCauseFound: Boolean;
+begin
+  Assert.AreEqual(BoolToStr(aScenario.FailureMode = 6, True),
+    aResult.Project.PropertyValue('DSWitnessProfileKnown'), 'Final availability oracle');
+  if aScenario.FailureMode = 6 then
+  begin
+    Assert.IsFalse(TDirectory.Exists(TPath.Combine(ExtractFilePath(aOptions.ProjectPath),
+      'NeverCreatedDirectory')));
+    Assert.IsTrue(aResult.Project.PropertyValue('DSWitnessProfilePaths').Contains('NeverCreatedDirectory'),
+      'An absent search directory is still a known search input, not missing profile evidence');
+    Exit;
+  end;
+  lCauseFound := False;
+  for lDiagnostic in aResult.Diagnostics do
+    if lDiagnostic.Code = cCauseCodes[aScenario.FailureMode] then
+    begin
+      lCauseFound := True;
+      case aScenario.FailureMode of
+        1, 2, 3, 4: Assert.IsTrue(lDiagnostic.Message.Contains(aOptions.EnvOptionsPath),
+          'Profile availability problem names the selected file');
+        5: Assert.IsTrue(lDiagnostic.Message.Contains('library'), 'Missing library evidence is named');
+        7: Assert.IsTrue(lDiagnostic.Message.Contains('Missing.props'), 'Missing referenced input is named');
+        8: Assert.IsTrue(lDiagnostic.Message.Contains('registry library unavailable'), 'Registry error is named');
+      end;
+    end;
+  Assert.IsTrue(lCauseFound, 'Expected public cause: ' + cCauseCodes[aScenario.FailureMode]);
 end;
 
 procedure TProjectContextTests.FinalProfileInputsMatchGeneratedOracle(const aCaseId: Integer);
@@ -395,20 +582,42 @@ var
   lResult: TDelphiSemanticContextResult;
   lUser, lCommon: TProfileMatrixExpected;
   lDiagnostic: TDelphiSemanticDiagnostic;
+  lLockedProfile: TFileStream;
 begin
   lScenario := ProfileMatrixScenario(aCaseId);
   lOptions := ProfileMatrixOptions(lScenario);
-  lResult := TDelphiSemanticProject.Load(lOptions.ProjectPath, lOptions);
+  lLockedProfile := nil;
+  try
+    if lScenario.FailureMode = 2 then
+      lLockedProfile := TFileStream.Create(lOptions.EnvOptionsPath, fmOpenReadWrite or fmShareExclusive);
+    lResult := TDelphiSemanticProject.Load(lOptions.ProjectPath, lOptions);
+  finally
+    lLockedProfile.Free;
+  end;
   Assert.IsTrue(lResult.Success);
+  AssertProfileProblemInvariant(lResult);
+  if lScenario.FailureMode <> 0 then
+  begin
+    AssertProfileFailureOracle(lScenario, lResult, lOptions);
+    Exit;
+  end;
   lUser := ProfileMatrixExpected(lScenario, 0);
   lCommon := ProfileMatrixExpected(lScenario, 1);
-  Assert.AreEqual(BoolToStr(lUser.Present and lCommon.Present, True),
+  Assert.AreEqual(BoolToStr(lUser.Present and lCommon.Present and
+    not lUser.Invalid and not lCommon.Invalid, True),
     lResult.Project.PropertyValue('DSWitnessProfileKnown'), 'Final witness state, case ' + IntToStr(aCaseId));
   AssertProfileMatrixDirectory(lScenario, lResult, 0);
   AssertProfileMatrixDirectory(lScenario, lResult, 1);
+  Assert.AreEqual<Integer>(2 * (Ord(not lUser.Present) + Ord(not lCommon.Present)) +
+    (Ord(lUser.Invalid) + Ord(lCommon.Invalid)) * (1 + Ord(lScenario.ConsumeInvalid)),
+    Length(lResult.Diagnostics),
+    'Every final problem is public; successful provenance produces no diagnostic');
+  if lUser.Invalid or lCommon.Invalid then
+    Assert.IsTrue(HasDiagnostic(lResult, 'UNRESOLVED_MSBUILD_MACRO'),
+      'Invalid final directory inputs must prevent consumer completeness');
   for lDiagnostic in lResult.Diagnostics do
-    Assert.IsTrue((lDiagnostic.Code = 'PROFILE_DIRECTORY_SOURCE') or
-      (lDiagnostic.Code = 'PROFILE_DIRECTORY_UNAVAILABLE'), 'Unexpected diagnostic: ' + lDiagnostic.Code);
+    Assert.IsTrue((lDiagnostic.Code = 'PROFILE_DIRECTORY_UNAVAILABLE') or
+      (lDiagnostic.Code = 'UNRESOLVED_MSBUILD_MACRO'), 'Only final expansion problems are diagnostics');
 end;
 
 // Frozen fingerprint serializer from base 641e4a3; compatibility oracle for DS770-S1.
@@ -494,6 +703,24 @@ begin
   end;
 end;
 
+function ProfileIdentityOracleProject(const aFileName, aVersion,
+  aEffectiveSearchPath: string): TDelphiSemanticProjectInfo;
+begin
+  // Independent fixture oracle: no result fields or loader arrays are copied.
+  // Our minimal P.dproj has no references, scopes, aliases, includes or switches.
+  Result := Default(TDelphiSemanticProjectInfo);
+  Result.ProjectFileName := aFileName;
+  Result.ProjectDirectory := TPath.GetDirectoryName(aFileName);
+  Result.ProjectName := 'P';
+  Result.Configuration := 'Debug';
+  Result.Platform := 'Win64';
+  Result.MainSourceFileName := TPath.ChangeExtension(aFileName, '.dpr');
+  Result.Defines := ['MSWINDOWS', 'WIN64', 'CPUX64'];
+  Result.CompilerProfileName := 'Delphi-' + aVersion + '-Win64-Debug';
+  if aEffectiveSearchPath <> '' then
+    Result.SearchPaths := [aEffectiveSearchPath];
+end;
+
 procedure TProjectContextTests.ExplicitProfileIdentityMatchesBase641e4a3(const aOrigin: string);
 var
   lFileName, lProperties: string;
@@ -531,7 +758,7 @@ begin
     '</PropertyGroup></Project>');
   lResult := TDelphiSemanticProject.Load(lFileName, lOptions);
   Assert.IsTrue(lResult.Success);
-  lBaseProject := lResult.Project;
+  lBaseProject := ProfileIdentityOracleProject(lFileName, '23.0', '');
   lBaseProject.ContextFingerprint := Base641e4a3BuildContextFingerprint(lBaseProject, lOptions, '');
   Assert.AreEqual(lBaseProject.ContextFingerprint, lResult.Project.ContextFingerprint,
     'Explicit profiles preserve the byte contract at base 641e4a3.');
@@ -545,6 +772,81 @@ begin
     end;
   finally
     lGraph.Free;
+  end;
+end;
+
+procedure TProjectContextTests.ProfileIdentityMatchesFrozenBaseSerializer(
+  const aVersion, aScenario: string; const aCheckGraph: Boolean);
+var
+  lFileName, lSearchPath, lXml: string;
+  lInputs: TIsolatedProfileInputs;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+  lBaseProject: TDelphiSemanticProjectInfo;
+  lGraph, lBaseGraph: TDelphiSemanticSemanticGraph;
+begin
+  lFileName := TPath.Combine(CreateTestTempRoot('profile-derived-identity-temp'), 'P.dproj');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := aVersion;
+  lInputs := TIsolatedProfileInputs.Create;
+  lOptions.ProfileInputs := lInputs;
+  SetLength(lInputs.RegistryLibrary, 2);
+  lInputs.RegistryLibrary[0].Name := 'Search Path';
+  lInputs.RegistryLibrary[1].Name := 'Browsing Path';
+  lInputs.Documents := 'Z:\MachineSpecificUser\Documents';
+  lInputs.PublicDocuments := 'Z:\Public\Documents';
+  if (aScenario = 'mixed-user') or (aScenario = 'mixed-common') then
+  begin
+    SetLength(lOptions.EnvironmentVariables, 1);
+    if aScenario = 'mixed-user' then
+      lOptions.EnvironmentVariables[0].Name := 'BDSUSERDIR'
+    else
+      lOptions.EnvironmentVariables[0].Name := 'BDSCOMMONDIR';
+    lOptions.EnvironmentVariables[0].Value := 'Z:\Explicit';
+  end else if aScenario = 'empty' then
+  begin
+    SetLength(lOptions.EnvironmentVariables, 2);
+    lOptions.EnvironmentVariables[0].Name := 'BDSUSERDIR';
+    lOptions.EnvironmentVariables[1].Name := 'BDSCOMMONDIR';
+  end;
+  lXml := '<Project/>';
+  lSearchPath := '';
+  if aScenario = 'search' then
+  begin
+    lXml := '<Project><PropertyGroup><DCC_UnitSearchPath>$(BDSUSERDIR)\IdentityCode' +
+      '</DCC_UnitSearchPath></PropertyGroup></Project>';
+    lSearchPath := 'Z:\MachineSpecificUser\Documents\Embarcadero\Studio\' + aVersion + '\IdentityCode';
+  end;
+  WriteUtf8Bytes(lFileName, lXml);
+  lResult := TDelphiSemanticProject.Load(lFileName, lOptions);
+  Assert.IsTrue(lResult.Success);
+  Assert.AreEqual('True', lResult.Project.PropertyValue('DSWitnessProfileKnown'));
+  lBaseProject := ProfileIdentityOracleProject(lFileName, aVersion, lSearchPath);
+  lBaseProject.ContextFingerprint := Base641e4a3BuildContextFingerprint(lBaseProject, lOptions, '');
+  if not aCheckGraph then
+    Assert.AreEqual(lBaseProject.ContextFingerprint, lResult.Project.ContextFingerprint,
+      'Final semantic inputs preserve the frozen base serializer contract: ' + aScenario);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(lResult.Project, nil);
+  try
+    lBaseGraph := TDelphiSemanticSemanticGraphBuilder.Build(lBaseProject, nil);
+    try
+      Assert.AreEqual(lBaseGraph.ProjectId.Value, lGraph.ProjectId.Value,
+        'Final semantic inputs preserve the frozen base graph project ID: ' + aScenario);
+    finally
+      lBaseGraph.Free;
+    end;
+  finally
+    lGraph.Free;
+  end;
+  if aScenario = 'search' then
+  begin
+    // Consumed paths are semantic inputs. Base's unresolved expansion produced
+    // a drive-root path; it must differ from the now-resolved derived path.
+    lBaseProject.SearchPaths := [TPath.GetFullPath('\IdentityCode')];
+    Assert.AreNotEqual(Base641e4a3BuildContextFingerprint(lBaseProject, lOptions, ''),
+      lResult.Project.ContextFingerprint, 'Consumed derived paths remain identity inputs');
   end;
 end;
 
@@ -657,6 +959,31 @@ begin
   end;
 end;
 
+procedure TProjectContextTests.InvalidProfileFilePublishesProblem;
+var
+  lFileName: string;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+begin
+  lFileName := TPath.Combine(CreateTestTempRoot('profile-invalid-file-temp'), 'P.dproj');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProfileInputs := TIsolatedProfileInputs.Create;
+  lOptions.EnvOptionsPath := TPath.ChangeExtension(lFileName, '.profile');
+  SetLength(lOptions.EnvironmentVariables, 2);
+  lOptions.EnvironmentVariables[0].Name := 'BDSUSERDIR';
+  lOptions.EnvironmentVariables[0].Value := 'Z:\ExplicitUser';
+  lOptions.EnvironmentVariables[1].Name := 'BDSCOMMONDIR';
+  lOptions.EnvironmentVariables[1].Value := 'Z:\ExplicitCommon';
+  WriteUtf8Bytes(lFileName, '<Project/>');
+  WriteUtf8Bytes(lOptions.EnvOptionsPath, '<Project><PropertyGroup>');
+  lResult := TDelphiSemanticProject.Load(lFileName, lOptions);
+  Assert.IsTrue(lResult.Success);
+  Assert.AreEqual('False', lResult.Project.PropertyValue('DSWitnessProfileKnown'));
+  Assert.IsTrue(HasDiagnostic(lResult, 'PROFILE_INPUT_UNAVAILABLE'),
+    'An invalid profile must expose its evaluation failure to completeness consumers');
+  Assert.AreEqual('Z:\ExplicitUser', lResult.Project.PropertyValue('DSWitnessProfileBDSUSERDIR'));
+end;
+
 procedure TProjectContextTests.UnavailableProfileFolderFailsClosed;
 var
   lFileName: string;
@@ -757,7 +1084,11 @@ begin
   Assert.IsTrue(lResult.Project.PropertyValue('DSWitnessProfilePaths').Contains(lExpectedCommon + '\Dcp'));
   Assert.AreEqual(lSource, lResult.Project.PropertyValue('BDSUSERDIRSource'));
   Assert.AreEqual(lSource, lResult.Project.PropertyValue('BDSCOMMONDIRSource'));
-  Assert.IsTrue(DiagnosticSummary(lResult).Contains(lSource), DiagnosticSummary(lResult));
+  Assert.AreEqual(lExpectedUser, lResult.Project.PropertyValue('DSWitnessProfileBDSUSERDIR'));
+  Assert.AreEqual(lExpectedCommon, lResult.Project.PropertyValue('DSWitnessProfileBDSCOMMONDIR'));
+  Assert.AreEqual(lSource, lResult.Project.PropertyValue('DSWitnessProfileBDSUSERDIRSource'));
+  Assert.AreEqual(lSource, lResult.Project.PropertyValue('DSWitnessProfileBDSCOMMONDIRSource'));
+  Assert.AreEqual<Integer>(0, Length(lResult.Diagnostics), 'Successful inputs preserve diagnostic-free completeness');
   Assert.IsTrue(ContainsPath(lResult.Project.SearchPaths, lExpectedUser + '\Project'));
 end;
 

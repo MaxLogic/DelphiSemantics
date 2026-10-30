@@ -362,6 +362,37 @@ helper member; a candidate on the actual receiver lineage requires proof or refu
 - `TDelphiSemanticUnitIndex` returns DTO records only: model, bindings,
   inventory, cache metrics, and cache diagnostics.
 
+## Project-context profile metadata
+
+`TDelphiSemanticProjectInfo.PropertyValue` exposes these additive provenance
+keys after all profile and project overrides have been evaluated:
+
+| Key | Value |
+| --- | --- |
+| `DSWitnessProfileBDSUSERDIR` | Final expanded `BDSUSERDIR` value. |
+| `DSWitnessProfileBDSUSERDIRSource` | Source of the final user-directory input. |
+| `DSWitnessProfileBDSCOMMONDIR` | Final expanded `BDSCOMMONDIR` value. |
+| `DSWitnessProfileBDSCOMMONDIRSource` | Source of the final common-directory input. |
+
+Source labels are `native option`, `environment`, `BDS registry`,
+`project property` (including imports and profile files), or `derived default`.
+An explicitly present empty value keeps its precedence and has both metadata
+keys; an unavailable input has neither key. Invalid expansions can leave a
+partial value, so metadata alone does not establish a usable profile.
+
+Successful provenance produces no diagnostic. Undefined or cyclic macros,
+unavailable known folders and profile-evaluation failures remain public context
+diagnostics, with `DSWitnessProfileKnown=False` and details in
+`DSWitnessProfileError`. Consumers that require complete context must retain
+those problem diagnostics.
+
+Provenance and unused directory values are not additional `ContextFingerprint`
+fields. The fingerprint retains the base semantic-input serializer contract:
+mixed explicit/derived inputs or explicit emptiness can share an identity when
+their consumed semantic inputs match. A directory consumed by
+`DCC_UnitSearchPath` changes the evaluated search path and therefore the
+fingerprint. Witness evidence is separately included in snapshot-cache identity.
+
 ## Cache Policy
 
 The default cache is in-memory. Set

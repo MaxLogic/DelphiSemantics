@@ -1645,6 +1645,8 @@ begin
 
   ReadProjectContextInput(aFileName, 'property-file', aObservations, lText);
   lDocument := LoadProjectXml(lText);
+  if (lDocument = nil) or (lDocument.DocumentElement = nil) then
+    raise Exception.Create('Property file has no document element: ' + aFileName);
   ApplyPropertyDocument(lDocument, aFileName, aBaseDirectory, aProperties, aDiagnostics,
     aLockPlatform, aObservations);
 end;
@@ -1984,11 +1986,6 @@ begin
       TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.RsVarsPath));
     AppendFingerprintItem(lBuilder, 'envoptions',
       TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.EnvOptionsPath));
-    // Preserve our base identity byte stream for explicit profile inputs.
-    // Only newly derived directory values extend that existing contract.
-    for lPropertyName in ['BDSUSERDIR', 'BDSCOMMONDIR'] do
-      if aProject.PropertyValue(lPropertyName + 'Source') = 'derived default' then
-        AppendFingerprintItem(lBuilder, lPropertyName, aProject.PropertyValue(lPropertyName));
     AppendFingerprintItem(lBuilder, 'compilerProfile',
       CanonicalFingerprintText(aProject.CompilerProfileName));
     if aOptions.ImplicitRootMemberAbsence <> nil then
@@ -2125,13 +2122,11 @@ begin
 end;
 
 procedure ReconcileProfileDirectories(const aProfile, aProperties: TPropertyMap;
-  const aDiagnostics, aExpansionDiagnostics: TList<TDelphiSemanticDiagnostic>;
-  var aKnown: Boolean);
+  const aProblems: TList<TDelphiSemanticDiagnostic>);
 const
   cNames: array[0..1] of string = ('BDSUSERDIR', 'BDSCOMMONDIR');
 var
   lName, lValue, lError: string;
-  lDiagnostic: TDelphiSemanticDiagnostic;
 begin
   // Presence in the final profile (including empty) supersedes fallback
   // failures. Decide errors and provenance once, after every override source.
@@ -2139,23 +2134,67 @@ begin
     if aProfile.TryGetValue(PropertyKey(lName), lValue) then
     begin
       aProperties.Remove(PropertyKey(lName + 'InputError'));
-      lDiagnostic := Default(TDelphiSemanticDiagnostic);
-      lDiagnostic.Code := 'PROFILE_DIRECTORY_SOURCE';
-      lDiagnostic.Severity := TDelphiSemanticDiagnosticSeverity.dsInfo;
-      lDiagnostic.Message := lName + '=' + ExpandSemanticProjectProperty(lValue,
-        GetPropertyValue(aProperties, 'MSBuildProjectFullPath'), aProfile,
-        aExpansionDiagnostics) + ' (' + GetPropertyValue(aProfile, lName + 'Source') + ')';
-      AddDiagnostic(aDiagnostics, lDiagnostic);
+      // Successful provenance is profile metadata: consumers use diagnostics
+      // to decide completeness, so a resolved input must not become a defect.
+      SetPropertyValue(aProperties, 'DSWitnessProfile' + lName,
+        ExpandSemanticProjectProperty(lValue,
+          GetPropertyValue(aProperties, 'MSBuildProjectFullPath'), aProfile,
+          aProblems));
+      SetPropertyValue(aProperties, 'DSWitnessProfile' + lName + 'Source',
+        GetPropertyValue(aProfile, lName + 'Source'));
     end else begin
       lError := GetPropertyValue(aProfile, lName + 'InputError');
       if lError = '' then
         lError := 'No explicit value or known-folder default is available';
-      aKnown := False;
       SetPropertyValue(aProperties, lName + 'InputError', lError);
-      SetPropertyValue(aProperties, 'DSWitnessProfileError', lName + ': ' + lError);
-      AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('PROFILE_DIRECTORY_UNAVAILABLE',
+      AddDiagnostic(aProblems, CreateWarningDiagnostic('PROFILE_DIRECTORY_UNAVAILABLE',
         lName + ': ' + lError, GetPropertyValue(aProperties, 'MSBuildProjectFullPath')));
     end;
+end;
+
+procedure PublishProfileProblem(const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  const aProblem: TDelphiSemanticDiagnostic);
+var
+  lExisting: TDelphiSemanticDiagnostic;
+begin
+  // Repeated consumption may rediscover a problem. Preserve distinct source
+  // locations, but publish each equivalent problem only once to consumers.
+  for lExisting in aDiagnostics do
+    if (lExisting.Code = aProblem.Code) and (lExisting.Message = aProblem.Message) and
+      SameText(lExisting.FileName, aProblem.FileName) and
+      (lExisting.Line = aProblem.Line) and (lExisting.Column = aProblem.Column) and
+      (lExisting.Severity = aProblem.Severity) then
+      Exit;
+  AddDiagnostic(aDiagnostics, aProblem);
+end;
+
+procedure ReconcileWitnessProfile(const aProfile, aProperties: TPropertyMap;
+  const aProblems, aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  const aExpandedPaths: string; const aHasLibraryEvidence: Boolean);
+var
+  lProblem: TDelphiSemanticDiagnostic;
+  lProjectFile: string;
+begin
+  ReconcileProfileDirectories(aProfile, aProperties, aProblems);
+  lProjectFile := GetPropertyValue(aProperties, 'MSBuildProjectFullPath');
+  if not aHasLibraryEvidence and (aProblems.Count = 0) then
+    AddDiagnostic(aProblems, CreateWarningDiagnostic('PROFILE_INPUT_UNAVAILABLE',
+      'No library search and browsing metadata is available from the registry or profile',
+      lProjectFile));
+  if (Pos('$(', aExpandedPaths) > 0) and (aProblems.Count = 0) then
+    AddDiagnostic(aProblems, CreateWarningDiagnostic('UNRESOLVED_MSBUILD_MACRO',
+      'Unresolved profile path: ' + aExpandedPaths, lProjectFile));
+  // Knowledge is a consequence of reconciled problems, never an independent
+  // flag that can silently become false on an availability or exception path.
+  SetPropertyValue(aProperties, 'DSWitnessProfileKnown', BoolToStr(aProblems.Count = 0, True));
+  SetPropertyValue(aProperties, 'DSWitnessProfilePaths', aExpandedPaths);
+  if aProblems.Count > 0 then
+    SetPropertyValue(aProperties, 'DSWitnessProfileError',
+      aProblems[0].Code + ': ' + aProblems[0].Message)
+  else
+    aProperties.Remove(PropertyKey('DSWitnessProfileError'));
+  for lProblem in aProblems do
+    PublishProfileProblem(aDiagnostics, lProblem);
 end;
 
 function CreateInitialProperties(const aProjectFileName: string; const aDocument: IXMLDocument;
@@ -2277,15 +2316,16 @@ var
   lPair: TPair<string, string>;
   lVersion, lPlatform, lBaseKey, lRawPaths, lExpandedPaths: string;
   lEnvOptions, lBdsRoot, lTranslatedPaths: string;
-  lKnown, lRegistryKnown: Boolean;
+  lHasLibraryEvidence, lRegistryKnown: Boolean;
   lView: Cardinal;
 begin
   lProfile := TPropertyMap.Create;
   lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
   lInputs := ProfileInputs(aOptions);
   lValues := TPropertyMap.Create;
-  lKnown := False;
+  lHasLibraryEvidence := False;
   lExpandedPaths := '';
+  lEnvOptions := '';
   try
     try
       for lPair in aProperties do
@@ -2336,8 +2376,9 @@ begin
         if lEnvOptions <> '' then
           lEnvOptions := TPath.Combine(lEnvOptions, 'EnvOptions.proj');
       end;
-      lKnown := lRegistryKnown;
-      if (lEnvOptions <> '') and TFile.Exists(lEnvOptions) then
+      lHasLibraryEvidence := lRegistryKnown;
+      if (aOptions.EnvOptionsPath <> '') or
+        ((lEnvOptions <> '') and TFile.Exists(lEnvOptions)) then
       begin
         ApplyPropertyFile(lEnvOptions, ExtractFilePath(lEnvOptions), lProfile,
           lDiagnostics, True, aObservations);
@@ -2347,10 +2388,9 @@ begin
         lTranslatedPaths := lTranslatedPaths + ';' +
           GetPropertyValue(lProfile, 'DelphiTranslatedLibraryPath') + ';' +
           GetPropertyValue(lProfile, 'DelphiTranslatedDebugLibraryPath');
-        lKnown := lKnown or (lProfile.ContainsKey(PropertyKey('DelphiLibraryPath')) and
+        lHasLibraryEvidence := lHasLibraryEvidence or (lProfile.ContainsKey(PropertyKey('DelphiLibraryPath')) and
           lProfile.ContainsKey(PropertyKey('DelphiBrowsingPath')));
-      end else if aOptions.EnvOptionsPath <> '' then
-        lKnown := False;
+      end;
       // MSBuild enables translated paths only for a nonempty language directory.
       if GetPropertyValue(lProfile, 'LANGDIR').Trim <> '' then
         lRawPaths := lRawPaths + ';' + lTranslatedPaths;
@@ -2363,17 +2403,13 @@ begin
       begin
         // Inaccessible or malformed profiles leave absence unavailable.
         lExpandedPaths := '';
-        lKnown := False;
-        SetPropertyValue(aProperties, 'DSWitnessProfileError', E.ClassName + ': ' + E.Message);
+        AddDiagnostic(lDiagnostics, CreateWarningDiagnostic('PROFILE_INPUT_UNAVAILABLE',
+          lEnvOptions + ': ' + E.ClassName + ': ' + E.Message,
+          GetPropertyValue(aProperties, 'MSBuildProjectFullPath')));
       end;
     end;
-    ReconcileProfileDirectories(lProfile, aProperties, aDiagnostics, lDiagnostics, lKnown);
-    lKnown := lKnown and (lDiagnostics.Count = 0) and (Pos('$(', lExpandedPaths) = 0);
-    if lDiagnostics.Count > 0 then
-      SetPropertyValue(aProperties, 'DSWitnessProfileError',
-        lDiagnostics[0].Code + ': ' + lDiagnostics[0].Message);
-    SetPropertyValue(aProperties, 'DSWitnessProfilePaths', lExpandedPaths);
-    SetPropertyValue(aProperties, 'DSWitnessProfileKnown', BoolToStr(lKnown, True));
+    ReconcileWitnessProfile(lProfile, aProperties, lDiagnostics, aDiagnostics,
+      lExpandedPaths, lHasLibraryEvidence);
   finally
     lValues.Free;
     lDiagnostics.Free;
