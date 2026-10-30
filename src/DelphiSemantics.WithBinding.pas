@@ -445,6 +445,27 @@ type
     Value: TDelphiSemanticResolveResult;
     DeclaringUnitName: string;
     OwnerDeclaredId: TDelphiSemanticGraphTypeId;
+    ReceiverIndex: Integer;
+  end;
+
+  TMemberVerdict = record
+  strict private
+    fOutcome: TDelphiSemanticNameOutcome;
+    fMember: TBoundMemberResolution;
+    fReasonCode, fReason, fCause: string;
+    fMemberTypeOpen: Boolean;
+  public
+    class function Present(const aMember: TBoundMemberResolution;
+      const aMemberTypeOpen: Boolean = False): TMemberVerdict; static;
+    class function NotPresent: TMemberVerdict; static;
+    class function Barrier(const aOutcome: TDelphiSemanticNameOutcome;
+      const aReasonCode, aReason, aCause: string): TMemberVerdict; static;
+    property Outcome: TDelphiSemanticNameOutcome read fOutcome;
+    property ReasonCode: string read fReasonCode;
+    property Cause: string read fCause;
+    property MemberTypeOpen: Boolean read fMemberTypeOpen;
+    function Member: TBoundMemberResolution;
+    function AsBound(const aName: string; const aReceiverIndex: Integer): TBoundMemberResolution;
   end;
 
   TWithBindingProjectMemberIndex = class
@@ -463,7 +484,7 @@ type
     fMemberKeysByUnit: TDictionary<string, TList<string>>;
     fSemanticMemberIndex: TDelphiSemanticMemberIdentityIndex;
     fSemanticMemberIndexAvailable: Boolean;
-    fSemanticMemberResultsByOwnerName: TDictionary<string, TBoundMemberResolution>;
+    fSemanticMemberResultsByOwnerName: TDictionary<string, TMemberVerdict>;
     fUnitNames: TArray<string>;
     fVisibleUnitsByUnit: TDictionary<string, TArray<string>>;
     fMemberSafetyDiagnostics: TArray<TMemberSafetyDiagnostic>;
@@ -490,7 +511,7 @@ type
     function ExportValueMemberEvidence: TDelphiSemanticValueMemberEvidence;
     function TryResolveReceiverValueMember(const aModel: TDelphiSemanticUnitModel;
       const aSite: TReceiverLookupSite; const aSelector: TDelphiSemanticWithSelectorBinding;
-      const aName, aStopDeclaredId: string; out aResult: TBoundMemberResolution): Boolean;
+      const aName, aStopDeclaredId: string): TMemberVerdict;
     function TryResolveShadowingValueMember(const aModel: TDelphiSemanticUnitModel;
       const aSite: TReceiverLookupSite; const aSelector: TDelphiSemanticWithSelectorBinding;
       const aName: string; const aDirect: TBoundMemberResolution;
@@ -513,7 +534,7 @@ type
       const aSite: TReceiverLookupSite;
       const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
       const aCurrentTypeName, aMemberCachePrefix, aName: string;
-      const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+      const aMemberCache: TDictionary<string, TMemberVerdict>;
       out aResult: TBoundMemberResolution): Boolean;
     function SelectorTypeLookup(const aOriginModel: TDelphiSemanticUnitModel;
       const aOriginSectionKind, aOriginScopeId, aTypeName: string):
@@ -604,11 +625,9 @@ type
       out aResult: TBoundMemberResolution): Boolean; overload;
     function TryResolveDirectMember(const aCurrentUnitName, aCurrentTypeName, aOwnerName,
       aName: string; const aAllowSemanticFallback: Boolean;
-      const aCurrentFileName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity;
-      out aResult: TBoundMemberResolution): Boolean; overload;
+      const aCurrentFileName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): TMemberVerdict; overload;
     function TryResolveRoutineLocalMember(const aOwnerIdentity: TDelphiSemanticTypeIdentity;
-      const aCurrentTypeName, aName: string; const aSite: TReceiverLookupSite;
-      out aResult: TBoundMemberResolution): Boolean;
+      const aCurrentTypeName, aName: string; const aSite: TReceiverLookupSite): TMemberVerdict;
   end;
 
   TWithSelectorBindingArray = TArray<TDelphiSemanticWithSelectorBinding>;
@@ -1625,6 +1644,132 @@ begin
   Result := aReasonCode;
 end;
 
+class function TMemberVerdict.Present(const aMember: TBoundMemberResolution;
+  const aMemberTypeOpen: Boolean): TMemberVerdict;
+begin
+  if (not aMember.Value.Found) or (aMember.Value.Kind = '') then
+  begin
+    Result := Barrier(noUnproved, 'SELECTOR_MEMBERS_UNVERIFIED',
+      'The member provider returned an inconsistent present result.', 'invalid-present');
+    Assert(False, 'A present member needs Found and Kind.');
+    Exit;
+  end;
+  Result := Default(TMemberVerdict);
+  Result.fOutcome := noResolved;
+  Result.fMember := aMember;
+  Result.fMemberTypeOpen := aMemberTypeOpen;
+end;
+
+class function TMemberVerdict.NotPresent: TMemberVerdict;
+begin
+  Result := Default(TMemberVerdict);
+  Result.fOutcome := noAbsent;
+end;
+
+class function TMemberVerdict.Barrier(const aOutcome: TDelphiSemanticNameOutcome;
+  const aReasonCode, aReason, aCause: string): TMemberVerdict;
+begin
+  Result := Default(TMemberVerdict);
+  if (not (aOutcome in [noUnproved, noAmbiguous])) or (aReasonCode = '') then
+  begin
+    Result.fOutcome := noUnproved;
+    Result.fReasonCode := 'SELECTOR_MEMBERS_UNVERIFIED';
+    Result.fReason := 'The member provider returned an inconsistent barrier.';
+    Result.fCause := 'invalid-barrier';
+    Assert(False, 'A member barrier needs an unproved/ambiguous outcome and a code.');
+    Exit;
+  end;
+  Result.fOutcome := aOutcome;
+  Result.fReasonCode := aReasonCode;
+  Result.fReason := aReason;
+  Result.fCause := aCause;
+end;
+
+function TMemberVerdict.Member: TBoundMemberResolution;
+begin
+  if fOutcome <> noResolved then
+    raise EInvalidOpException.Create('Only a resolved verdict contains a member.');
+  Result := fMember;
+end;
+
+function TMemberVerdict.AsBound(const aName: string;
+  const aReceiverIndex: Integer): TBoundMemberResolution;
+begin
+  Result := Default(TBoundMemberResolution);
+  Result.ReceiverIndex := aReceiverIndex;
+  Result.Value.Name := aName;
+  case fOutcome of
+    noResolved:
+    begin
+      Result := Member;
+      Result.ReceiverIndex := aReceiverIndex;
+      Result.Value.Status := 'resolved';
+      Result.Value.ReasonCode := '';
+    end;
+    noAbsent: ;
+    noUnproved, noAmbiguous:
+    begin
+      if fOutcome = noAmbiguous then
+        Result.Value.Status := 'ambiguous'
+      else
+        Result.Value.Status := 'unsupported';
+      Result.Value.ReasonCode := fReasonCode;
+      Result.Value.Reason := fReason;
+      // An unset verdict fails closed without relying on an assertion.
+      if Result.Value.ReasonCode = '' then
+        Result.Value.ReasonCode := 'SELECTOR_MEMBERS_UNVERIFIED';
+    end;
+  end;
+end;
+
+function MemberVerdictFromBound(const aBound: TBoundMemberResolution): TMemberVerdict;
+begin
+  if aBound.Value.Found then
+    Exit(TMemberVerdict.Present(aBound));
+  if SameText(aBound.Value.Status, 'ambiguous') then
+    Exit(TMemberVerdict.Barrier(noAmbiguous, aBound.Value.ReasonCode,
+      aBound.Value.Reason, 'legacy-ambiguous'));
+  if SameText(aBound.Value.Status, 'unsupported') then
+    Exit(TMemberVerdict.Barrier(noUnproved, aBound.Value.ReasonCode,
+      aBound.Value.Reason, 'legacy-unsupported'));
+  Result := TMemberVerdict.NotPresent;
+end;
+
+function MemberVerdictFromLookup(const aName: string;
+  const aLookup: TDelphiSemanticMemberLookupResult): TMemberVerdict;
+var
+  lMember: TBoundMemberResolution;
+  lCode: string;
+begin
+  if aLookup.Found then
+  begin
+    lMember := Default(TBoundMemberResolution);
+    lMember.ReceiverIndex := -1;
+    lMember.Value.Found := True;
+    lMember.Value.Authoritative := True;
+    lMember.Value.Name := aName;
+    lMember.Value.Kind := aLookup.Member.Kind;
+    lMember.Value.TypeName := aLookup.Member.TypeName;
+    lMember.Value.OwnerName := aLookup.Member.OwnerName;
+    lMember.Value.Line := aLookup.Member.SourceRange.Line;
+    lMember.Value.Column := aLookup.Member.SourceRange.Column;
+    lMember.DeclaringUnitName := aLookup.Member.UnitName;
+    lMember.OwnerDeclaredId := aLookup.Member.OwnerDeclaredId;
+    Exit(TMemberVerdict.Present(lMember));
+  end;
+  if SameText(aLookup.Status, 'unresolved') and
+    SameText(aLookup.ReasonCode, 'DIRECT_MEMBER_NOT_FOUND') then
+    Exit(TMemberVerdict.NotPresent);
+  lCode := NormalizeMemberLookupReasonCode(aLookup.ReasonCode);
+  if aLookup.Ambiguous then
+    Exit(TMemberVerdict.Barrier(noAmbiguous, lCode, aLookup.Reason, 'member-lookup'));
+  // Recovery 4.7a: these refusals reached the same absence barrier at base.
+  if MatchText(aLookup.Status, ['inaccessible', 'hidden', 'overloaded']) or
+    SameText(aLookup.ReasonCode, 'OVERLOAD_NOT_FOUND') or (lCode = '') then
+    lCode := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
+  Result := TMemberVerdict.Barrier(noUnproved, lCode, aLookup.Reason, 'member-lookup');
+end;
+
 function ResolveResultFromMemberLookup(const aName: string;
   const aLookup: TDelphiSemanticMemberLookupResult;
   out aResult: TDelphiSemanticResolveResult): Boolean;
@@ -1774,7 +1919,7 @@ begin
     fMemberKeysByUnit := TDictionary<string, TList<string>>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     fSemanticMemberResultsByOwnerName := TDictionary<string,
-      TBoundMemberResolution>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+      TMemberVerdict>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
     fVisibleUnitsByUnit := TDictionary<string, TArray<string>>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     lGraph := aGraph;
@@ -2066,17 +2211,22 @@ end;
 function TWithBindingProjectMemberIndex.TryResolveDirectMember(const aCurrentUnitName,
   aCurrentTypeName, aOwnerName, aName: string; const aAllowSemanticFallback: Boolean;
   out aResult: TBoundMemberResolution): Boolean;
+var
+  lVerdict: TMemberVerdict;
 begin
-  Result := TryResolveDirectMember(aCurrentUnitName, aCurrentTypeName, aOwnerName,
-    aName, aAllowSemanticFallback, '', Default(TDelphiSemanticTypeIdentity), aResult);
+  lVerdict := TryResolveDirectMember(aCurrentUnitName, aCurrentTypeName, aOwnerName,
+    aName, aAllowSemanticFallback, '', Default(TDelphiSemanticTypeIdentity));
+  aResult := lVerdict.AsBound(aName, -1);
+  Result := lVerdict.Outcome <> noAbsent;
 end;
 
 function TWithBindingProjectMemberIndex.TryResolveDirectMember(const aCurrentUnitName,
   aCurrentTypeName, aOwnerName, aName: string; const aAllowSemanticFallback: Boolean;
-  const aCurrentFileName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity;
-  out aResult: TBoundMemberResolution): Boolean;
+  const aCurrentFileName: string; const aOwnerIdentity: TDelphiSemanticTypeIdentity): TMemberVerdict;
 var
   lBinding: TDelphiSemanticWithBinding;
+  lCachedVerdict: TMemberVerdict;
+  lBound: TBoundMemberResolution;
   lContext: TDelphiSemanticMemberLookupContext;
   lIdentity: TDelphiSemanticTypeIdentity;
   lLineage: TArray<TDelphiSemanticTypeIdentity>;
@@ -2087,31 +2237,29 @@ var
 begin
   lIdentityVerified := (aOwnerIdentity.UnitName <> '') and
     (aOwnerIdentity.Name <> '') and SameText(aOwnerIdentity.ScopeKind, 'unit');
-  if TryResolveContextMember(aCurrentUnitName, aOwnerName, aName, aResult) then
+  if TryResolveContextMember(aCurrentUnitName, aOwnerName, aName, lBound) then
   begin
-    // Ambiguity and existing refusals retain the original lookup vocabulary.
-    if (not lIdentityVerified) or (not aResult.Value.Found) then
-      Exit(True);
+    if (not lIdentityVerified) or (not lBound.Value.Found) then
+      Exit(MemberVerdictFromBound(lBound));
     lBinding := Default(TDelphiSemanticWithBinding);
     lBinding.UnitName := aCurrentUnitName;
     lBinding.FileName := aCurrentFileName;
     TryBuildMemberSafetyLineage(lBinding, aOwnerName, aOwnerIdentity, lLineage);
     lOwnerVerified := False;
     for lIdentity in lLineage do
-      if (aResult.OwnerDeclaredId.Value <> '') and
-        SameText(lIdentity.DeclaredId.Value, aResult.OwnerDeclaredId.Value) then
+      if (lBound.OwnerDeclaredId.Value <> '') and
+        SameText(lIdentity.DeclaredId.Value, lBound.OwnerDeclaredId.Value) then
         lOwnerVerified := True;
     if lOwnerVerified then
-      Exit(True);
+      Exit(MemberVerdictFromBound(lBound));
   end;
-  aResult := Default(TBoundMemberResolution);
+  Result := TMemberVerdict.NotPresent;
   if not aAllowSemanticFallback then
-    Exit(False);
-
+    Exit;
   lSemanticKey := Key(aCurrentUnitName + #30 + aCurrentTypeName + #30 +
     aOwnerIdentity.DeclaredId.Value, aOwnerName, aName);
-  if fSemanticMemberResultsByOwnerName.TryGetValue(lSemanticKey, aResult) then
-    Exit(ResolveResultIsUsable(aResult.Value));
+  if fSemanticMemberResultsByOwnerName.TryGetValue(lSemanticKey, lCachedVerdict) then
+    Exit(lCachedVerdict);
   if fSemanticMemberIndexAvailable then
   begin
     lContext := Default(TDelphiSemanticMemberLookupContext);
@@ -2133,27 +2281,14 @@ begin
       end;
     end;
     lLookup := fSemanticMemberIndex.ResolveMember(lContext, lOwnerProbe, aName);
-    // Helpers and inherited results are intentionally outside this direct-owner filter.
-    if lIdentityVerified and (not lQualifiedProbe) and lLookup.Found and
+    if not (lIdentityVerified and (not lQualifiedProbe) and lLookup.Found and
       (not MatchText(lLookup.Status, ['inherited', 'helper'])) and
       (not SameText(lLookup.Member.UnitName, aOwnerIdentity.UnitName)) and
       SameText(Copy(lLookup.Member.OwnerName, LastDelimiter('.', lLookup.Member.OwnerName) + 1,
-      MaxInt), Copy(aOwnerIdentity.Name, LastDelimiter('.', aOwnerIdentity.Name) + 1, MaxInt)) then
-    begin
-      fSemanticMemberResultsByOwnerName.AddOrSetValue(lSemanticKey, aResult);
-      Exit(False);
-    end;
-    if ResolveResultFromMemberLookup(aName, lLookup, aResult.Value) then
-    begin
-      if lLookup.Found then
-        aResult.DeclaringUnitName := lLookup.Member.UnitName;
-      fSemanticMemberResultsByOwnerName.AddOrSetValue(lSemanticKey, aResult);
-      Exit(True);
-    end;
+        MaxInt), Copy(aOwnerIdentity.Name, LastDelimiter('.', aOwnerIdentity.Name) + 1, MaxInt))) then
+      Result := MemberVerdictFromLookup(aName, lLookup);
   end;
-  aResult := Default(TBoundMemberResolution);
-  fSemanticMemberResultsByOwnerName.AddOrSetValue(lSemanticKey, aResult);
-  Result := False;
+  fSemanticMemberResultsByOwnerName.AddOrSetValue(lSemanticKey, Result);
 end;
 
 function RoutineLocalTypeHasOnlyDirectMembers(
@@ -2175,7 +2310,7 @@ end;
 
 function TWithBindingProjectMemberIndex.TryResolveRoutineLocalMember(
   const aOwnerIdentity: TDelphiSemanticTypeIdentity; const aCurrentTypeName, aName: string;
-  const aSite: TReceiverLookupSite; out aResult: TBoundMemberResolution): Boolean;
+  const aSite: TReceiverLookupSite): TMemberVerdict;
 var
   lBinding: TDelphiSemanticWithBinding;
   lContext: TDelphiSemanticMemberLookupContext;
@@ -2186,40 +2321,40 @@ var
   lOwnerVerified: Boolean;
   lSelector: TDelphiSemanticWithSelectorBinding;
   lRefusalCode: string;
-  lValue: TDelphiSemanticResolveResult;
-  lValueResult: TBoundMemberResolution;
+  lVerdict: TMemberVerdict;
+  lBound: TBoundMemberResolution;
   lVerifiedIdentity: TDelphiSemanticTypeIdentity;
 begin
   // A routine-local type is identified only by its declaration. An owner-name
   // probe would also see same-named types of other routines or of the unit.
   if (aOwnerIdentity.DeclaredId.Value = '') or (not fSemanticMemberIndexAvailable) then
   begin
-    aResult := Default(TBoundMemberResolution);
-    aResult.Value.Status := 'unsupported';
-    aResult.Value.Name := aName;
-    aResult.Value.ReasonCode := 'ROUTINE_OWNER_IDENTITY_MISSING';
-    aResult.Value.Reason := 'The routine-local receiver type has no declaration identity.';
-    Exit(True);
+    lBound := Default(TBoundMemberResolution);
+    lBound.Value.Status := 'unsupported';
+    lBound.Value.Name := aName;
+    lBound.Value.ReasonCode := 'ROUTINE_OWNER_IDENTITY_MISSING';
+    lBound.Value.Reason := 'The routine-local receiver type has no declaration identity.';
+    Exit(MemberVerdictFromBound(lBound));
   end;
   if SameText(aOwnerIdentity.Kind, 'type-alias') then
   begin
     // DS-701: finalized aliases own no direct fields. Resolve through the
     // source-proven target lineage, retaining access checks for unit types.
-    aResult := Default(TBoundMemberResolution);
-    aResult.Value.Status := 'unsupported';
-    aResult.Value.Name := aName;
-    aResult.Value.ReasonCode := 'ROUTINE_OWNER_INHERITED_MEMBERS_UNVERIFIED';
-    aResult.Value.Reason := 'The routine-local alias target members are not verified.';
+    lBound := Default(TBoundMemberResolution);
+    lBound.Value.Status := 'unsupported';
+    lBound.Value.Name := aName;
+    lBound.Value.ReasonCode := 'ROUTINE_OWNER_INHERITED_MEMBERS_UNVERIFIED';
+    lBound.Value.Reason := 'The routine-local alias target members are not verified.';
     if (aOwnerIdentity.CanonicalId.Value = '') or
       (aOwnerIdentity.UnderlyingId.Value = '') or
       (not TrySafetyDeclarationModel(aOwnerIdentity, lModel)) then
-      Exit(True);
+      Exit(MemberVerdictFromBound(lBound));
     lBinding := Default(TDelphiSemanticWithBinding);
     lBinding.UnitName := lModel.UnitName;
     lBinding.FileName := lModel.FileName;
     if not TryBuildMemberSafetyLineage(lBinding, aOwnerIdentity.Name,
       aOwnerIdentity, lLineage) then
-      Exit(True);
+      Exit(MemberVerdictFromBound(lBound));
     lContext := Default(TDelphiSemanticMemberLookupContext);
     lContext.CallerUnitName := aOwnerIdentity.UnitName;
     lContext.CurrentTypeName := aCurrentTypeName;
@@ -2250,67 +2385,60 @@ begin
             Break;
           end;
         if not lOwnerVerified then
-          Exit(True);
+          Exit(MemberVerdictFromBound(lBound));
       end;
-      if ResolveResultFromMemberLookup(aName, lLookup, lValue) then
-      begin
-        aResult.Value := lValue;
-        if lLookup.Found then
-          aResult.DeclaringUnitName := lLookup.Member.UnitName;
-        Exit(True);
-      end;
+      lVerdict := MemberVerdictFromLookup(aName, lLookup);
+      if lVerdict.Outcome <> noAbsent then
+        Exit(lVerdict);
       // A failed access or overload check is not proof that the member is
       // absent. It must shield same-named declarations farther out.
       if (not SameText(lLookup.Status, 'unresolved')) or
         (not SameText(lLookup.ReasonCode, 'DIRECT_MEMBER_NOT_FOUND')) then
       begin
-        aResult.Value.ReasonCode := NormalizeMemberLookupReasonCode(lLookup.ReasonCode);
-        aResult.Value.Reason := lLookup.Reason;
-        Exit(True);
+        lBound.Value.ReasonCode := NormalizeMemberLookupReasonCode(lLookup.ReasonCode);
+        lBound.Value.Reason := lLookup.Reason;
+        Exit(MemberVerdictFromBound(lBound));
       end;
     end;
     lSelector := Default(TDelphiSemanticWithSelectorBinding);
     lSelector.TypeName := aOwnerIdentity.Name;
     lSelector.TypeIdentity := aOwnerIdentity;
-    if TryResolveReceiverValueMember(lModel, aSite, lSelector, aName, '', lValueResult) then
-    begin
-      aResult := lValueResult;
-      Exit(True);
-    end;
+    lVerdict := TryResolveReceiverValueMember(lModel, aSite, lSelector, aName, '');
+    if lVerdict.Outcome <> noAbsent then
+      Exit(lVerdict);
     if ReceiverMemberAbsenceIsVerified(lModel, lSelector, aName, aSite, lRefusalCode) then
     begin
-      aResult := Default(TBoundMemberResolution);
-      Exit(False);
+      lBound := Default(TBoundMemberResolution);
+      Exit(TMemberVerdict.NotPresent);
     end;
     if lRefusalCode = 'RECORD_HELPER_MEMBERS_UNVERIFIED' then
     begin
-      aResult.Value.ReasonCode := lRefusalCode;
-      aResult.Value.Reason := 'A visible record helper of the receiver has members that are not indexed.';
+      lBound.Value.ReasonCode := lRefusalCode;
+      lBound.Value.Reason := 'A visible record helper of the receiver has members that are not indexed.';
     end;
-    Exit(True);
+    Exit(MemberVerdictFromBound(lBound));
   end;
   lLookup := fSemanticMemberIndex.ResolveDirectMemberByOwnerId(aOwnerIdentity.DeclaredId,
     aName);
-  Result := ResolveResultFromMemberLookup(aName, lLookup, lValue);
-  aResult := Default(TBoundMemberResolution);
-  aResult.Value := lValue;
-  if Result and lLookup.Found then
-    aResult.DeclaringUnitName := lLookup.Member.UnitName;
+  lVerdict := MemberVerdictFromLookup(aName, lLookup);
+  if lVerdict.Outcome <> noAbsent then
+    Exit(lVerdict);
+  lBound := Default(TBoundMemberResolution);
   // The owner-ID lookup sees direct members only. A direct miss proves "not a
   // member" only for a plain local record: Delphi rejects local class,
   // interface, object and helper types (E2059) and local record methods
   // (E2433). Any other local type may inherit, so we refuse the name.
-  if (not Result) and RoutineLocalTypeHasOnlyDirectMembers(aOwnerIdentity) and
+  if (lVerdict.Outcome = noAbsent) and RoutineLocalTypeHasOnlyDirectMembers(aOwnerIdentity) and
     LineageHasActivityFact([aOwnerIdentity]) then
   begin
-    aResult.Value.Status := 'unsupported';
-    aResult.Value.Name := aName;
-    aResult.Value.ReasonCode := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
-    aResult.Value.OwnerName := aOwnerIdentity.Name;
-    aResult.Value.Reason := 'The routine-local receiver member activity is unverified.';
-    Exit(True);
+    lBound.Value.Status := 'unsupported';
+    lBound.Value.Name := aName;
+    lBound.Value.ReasonCode := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
+    lBound.Value.OwnerName := aOwnerIdentity.Name;
+    lBound.Value.Reason := 'The routine-local receiver member activity is unverified.';
+    Exit(MemberVerdictFromBound(lBound));
   end;
-  if (not Result) and RoutineLocalTypeHasOnlyDirectMembers(aOwnerIdentity) and
+  if (lVerdict.Outcome = noAbsent) and RoutineLocalTypeHasOnlyDirectMembers(aOwnerIdentity) and
     (not LineageHasActivityFact([aOwnerIdentity])) and
     fValueMembers.ContainsKey(aOwnerIdentity.DeclaredId.Value + #31 + aName) then
   begin
@@ -2320,22 +2448,21 @@ begin
       lSelector := Default(TDelphiSemanticWithSelectorBinding);
       lSelector.TypeName := aOwnerIdentity.Name;
       lSelector.TypeIdentity := aOwnerIdentity;
-      if TryResolveReceiverValueMember(lModel, aSite, lSelector, aName, '', lValueResult) then
-      begin
-        aResult := lValueResult;
-        Exit(True);
-      end;
+      lVerdict := TryResolveReceiverValueMember(lModel, aSite, lSelector, aName, '');
+      if lVerdict.Outcome <> noAbsent then
+        Exit(lVerdict);
     end;
   end;
-  if (not Result) and (not RoutineLocalTypeHasOnlyDirectMembers(aOwnerIdentity)) then
+  if (lVerdict.Outcome = noAbsent) and (not RoutineLocalTypeHasOnlyDirectMembers(aOwnerIdentity)) then
   begin
-    aResult := Default(TBoundMemberResolution);
-    aResult.Value.Status := 'unsupported';
-    aResult.Value.Name := aName;
-    aResult.Value.ReasonCode := 'ROUTINE_OWNER_INHERITED_MEMBERS_UNVERIFIED';
-    aResult.Value.Reason := 'Members the routine-local receiver type may inherit are not verified.';
-    Result := True;
+    lBound := Default(TBoundMemberResolution);
+    lBound.Value.Status := 'unsupported';
+    lBound.Value.Name := aName;
+    lBound.Value.ReasonCode := 'ROUTINE_OWNER_INHERITED_MEMBERS_UNVERIFIED';
+    lBound.Value.Reason := 'Members the routine-local receiver type may inherit are not verified.';
+    Exit(MemberVerdictFromBound(lBound));
   end;
+  Result := TMemberVerdict.NotPresent;
 end;
 
 function ReferenceTokenIsEscaped(const aText: string; const aOffset: Integer): Boolean;
@@ -2483,13 +2610,21 @@ function ReceiverMemberCachePrefix(const aUnitName, aFileName, aCurrentTypeName,
   aRoutineName: string; const aLine, aColumn: Integer;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>): string; forward;
 
+function ResolveMemberAt(const aModel: TDelphiSemanticUnitModel;
+  const aSite: TReceiverLookupSite;
+  const aProjectModels: TArray<TDelphiSemanticUnitModel>;
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aCurrentTypeName, aMemberCachePrefix, aName: string;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aMemberCache: TDictionary<string, TMemberVerdict>): TMemberVerdict; forward;
+
 function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
   const aSite: TReceiverLookupSite;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aCurrentTypeName, aMemberCachePrefix, aName: string;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  const aMemberCache: TDictionary<string, TMemberVerdict>;
   out aResult: TDelphiSemanticResolveResult): Boolean; overload; forward;
 
 function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
@@ -2498,7 +2633,7 @@ function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aCurrentTypeName, aMemberCachePrefix, aName: string;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  const aMemberCache: TDictionary<string, TMemberVerdict>;
   out aResult: TBoundMemberResolution): Boolean; overload; forward;
 
 function SelectorDereferencesAfterIndex(const aSelectorText: string;
@@ -2854,7 +2989,7 @@ function MakeSelectorBinding(const aModel: TDelphiSemanticUnitModel;
   const aPreviousSelectors, aParentSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aLine, aColumn: Integer;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  const aMemberCache: TDictionary<string, TMemberVerdict>;
   out aIdentity: TDelphiSemanticTypeIdentity):
   TDelphiSemanticWithSelectorBinding;
 var
@@ -3246,6 +3381,20 @@ begin
   Result.ReasonCode := aResult.ReasonCode;
 end;
 
+function MakeMemberBoundReference(const aName, aClassification: string;
+  const aVerdict: TMemberVerdict): TDelphiSemanticBoundReference;
+var
+  lBound: TBoundMemberResolution;
+  lReceiverIndex: Integer;
+begin
+  lReceiverIndex := -1;
+  if aVerdict.Outcome = noResolved then
+    lReceiverIndex := aVerdict.Member.ReceiverIndex;
+  lBound := aVerdict.AsBound(aName, lReceiverIndex);
+  Result := MakeBoundReference(aName, aClassification, lBound.Value);
+  Result.ReceiverIndex := lBound.ReceiverIndex;
+end;
+
 function BindingSemanticId(const aModel: TDelphiSemanticUnitModel;
   const aStatement: TDelphiSemanticWithStatement): string;
 begin
@@ -3618,7 +3767,7 @@ function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aCurrentTypeName, aMemberCachePrefix, aName: string;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  const aMemberCache: TDictionary<string, TMemberVerdict>;
   out aResult: TDelphiSemanticResolveResult): Boolean;
 var
   lBound: TBoundMemberResolution;
@@ -3635,132 +3784,117 @@ function TryResolveReceiverMember(const aModel: TDelphiSemanticUnitModel;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aCurrentTypeName, aMemberCachePrefix, aName: string;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  const aMemberCache: TDictionary<string, TMemberVerdict>;
   out aResult: TBoundMemberResolution): Boolean;
 var
+  lVerdict: TMemberVerdict;
+  lReceiverIndex: Integer;
+begin
+  lVerdict := ResolveMemberAt(aModel, aSite, aProjectModels, aSelectors,
+    aCurrentTypeName, aMemberCachePrefix, aName, aProjectMemberIndex, aMemberCache);
+  lReceiverIndex := -1;
+  if lVerdict.Outcome = noResolved then
+    lReceiverIndex := lVerdict.Member.ReceiverIndex;
+  aResult := lVerdict.AsBound(aName, lReceiverIndex);
+  Result := lVerdict.Outcome <> noAbsent;
+end;
+
+function ResolveMemberAt(const aModel: TDelphiSemanticUnitModel;
+  const aSite: TReceiverLookupSite;
+  const aProjectModels: TArray<TDelphiSemanticUnitModel>;
+  const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  const aCurrentTypeName, aMemberCachePrefix, aName: string;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aMemberCache: TDictionary<string, TMemberVerdict>): TMemberVerdict;
+var
   i: Integer;
-  lKey: string;
-  lRefusalCode: string;
-  lValueResult: TBoundMemberResolution;
+  lKey, lRefusalCode: string;
+  lBound, lValueResult: TBoundMemberResolution;
   lLookupSelector: TDelphiSemanticWithSelectorBinding;
+  lVerdict: TMemberVerdict;
 begin
   lKey := ReceiverMemberCacheKey(aMemberCachePrefix, aName);
-  if Assigned(aMemberCache) and aMemberCache.TryGetValue(lKey, aResult) then
-    Exit(aResult.Value.Found or SameText(aResult.Value.Status, 'ambiguous') or
-      SameText(aResult.Value.Status, 'unsupported'));
-
+  if Assigned(aMemberCache) and aMemberCache.TryGetValue(lKey, lVerdict) then
+    Exit(lVerdict);
+  Result := TMemberVerdict.NotPresent;
   for i := High(aSelectors) downto 0 do
   begin
-    // An unverifiable routine-local receiver may own any name, so it shields
-    // outer receivers and lexical declarations instead of being skipped.
     if SameText(aSelectors[i].ReasonCode, 'ROUTINE_LOCAL_TYPE_UNSUPPORTED') then
-    begin
-      aResult := Default(TBoundMemberResolution);
-      aResult.Value.Status := 'unsupported';
-      aResult.Value.Name := aName;
-      aResult.Value.ReasonCode := 'ROUTINE_LOCAL_TYPE_UNSUPPORTED';
-      aResult.Value.Reason := 'The routine-local receiver type has no supported identity.';
-      if Assigned(aMemberCache) then
-        aMemberCache.AddOrSetValue(lKey, aResult);
-      Exit(True);
-    end;
-    // DS-705: an unresolved or ambiguous receiver may own this name. An
-    // inner proven receiver gets its lookup first; this barrier shields the
-    // remaining outer receivers and lexical declarations.
-    if not SameText(aSelectors[i].Status, 'resolved') then
-    begin
-      aResult := Default(TBoundMemberResolution);
-      aResult.Value.Status := 'unsupported';
-      aResult.Value.Name := aName;
-      aResult.Value.ReasonCode := 'SELECTOR_MEMBERS_UNVERIFIED';
-      aResult.Value.Reason := 'The receiver type is unresolved or ambiguous.';
-      if Assigned(aMemberCache) then
-        aMemberCache.AddOrSetValue(lKey, aResult);
-      Exit(True);
-    end;
-    // DS-741: established selector refusals precede alias lineage/helper checks.
-    lLookupSelector := aSelectors[i];
-    lRefusalCode := '';
-    if Assigned(aProjectMemberIndex) then
-      aProjectMemberIndex.TryResolveAliasTargetSelector(aModel, aSite, aSelectors[i],
-        lLookupSelector, lRefusalCode);
-    if SameText(aSelectors[i].ReasonCode, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') then
-      lRefusalCode := aSelectors[i].ReasonCode;
-    if lRefusalCode <> '' then
-    begin
-      aResult := Default(TBoundMemberResolution);
-      aResult.Value.Status := 'unsupported';
-      aResult.Value.Name := aName;
-      aResult.Value.ReasonCode := lRefusalCode;
-      aResult.Value.Reason := 'The alias receiver member lineage or helper applicability is unverified.';
-      if Assigned(aMemberCache) then
-        aMemberCache.AddOrSetValue(lKey, aResult);
-      Exit(True);
-    end;
-
-    if SameText(aSelectors[i].Status, 'resolved') then
-    begin
-      if Assigned(aProjectMemberIndex) and
+      lVerdict := TMemberVerdict.Barrier(noUnproved, 'ROUTINE_LOCAL_TYPE_UNSUPPORTED',
+        'The routine-local receiver type has no supported identity.', 'routine-local')
+    else if not SameText(aSelectors[i].Status, 'resolved') then
+      lVerdict := TMemberVerdict.Barrier(noUnproved, 'SELECTOR_MEMBERS_UNVERIFIED',
+        'The receiver type is unresolved or ambiguous.', 'selector-status')
+    else begin
+      lLookupSelector := aSelectors[i];
+      lRefusalCode := '';
+      if Assigned(aProjectMemberIndex) then
+        aProjectMemberIndex.TryResolveAliasTargetSelector(aModel, aSite, aSelectors[i],
+          lLookupSelector, lRefusalCode);
+      if SameText(aSelectors[i].ReasonCode, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') then
+        lRefusalCode := aSelectors[i].ReasonCode;
+      if lRefusalCode <> '' then
+        lVerdict := TMemberVerdict.Barrier(noUnproved, lRefusalCode,
+          'The alias receiver member lineage or helper applicability is unverified.', 'alias')
+      else if Assigned(aProjectMemberIndex) and
         SameText(aSelectors[i].TypeIdentity.ScopeKind, 'routine') then
       begin
-        if aProjectMemberIndex.TryResolveRoutineLocalMember(aSelectors[i].TypeIdentity,
-          aCurrentTypeName, aName, aSite, aResult) then
+        lVerdict := aProjectMemberIndex.TryResolveRoutineLocalMember(aSelectors[i].TypeIdentity,
+          aCurrentTypeName, aName, aSite);
+        if lVerdict.Outcome = noAbsent then
+          Continue;
+      end else begin
+        lVerdict := TMemberVerdict.NotPresent;
+        if Assigned(aProjectMemberIndex) then
+          lVerdict := aProjectMemberIndex.TryResolveDirectMember(aModel.UnitName,
+            aCurrentTypeName, lLookupSelector.TypeName, aName,
+            SelectorAllowsReceiverMemberLookup(aSelectors[i]), aModel.FileName,
+            lLookupSelector.TypeIdentity);
+        if lVerdict.Outcome = noResolved then
         begin
-          if Assigned(aMemberCache) then
-            aMemberCache.AddOrSetValue(lKey, aResult);
-          Exit(True);
+          lBound := lVerdict.Member;
+          if MatchText(lBound.Value.Kind, ['const', 'typed-const', 'variant-tag']) then
+            lBound.Value.OwnerName := aSelectors[i].TypeName;
+          if aProjectMemberIndex.TryResolveShadowingValueMember(aModel, aSite,
+            aSelectors[i], aName, lBound, lValueResult) then
+            lVerdict := MemberVerdictFromBound(lValueResult)
+          else
+            lVerdict := TMemberVerdict.Present(lBound);
         end;
-        Continue;
-      end;
-      if Assigned(aProjectMemberIndex) and aProjectMemberIndex.TryResolveDirectMember(
-        aModel.UnitName, aCurrentTypeName, lLookupSelector.TypeName, aName,
-        SelectorAllowsReceiverMemberLookup(aSelectors[i]), aModel.FileName,
-        lLookupSelector.TypeIdentity, aResult) then
-      begin
-        if aResult.Value.Found and MatchText(aResult.Value.Kind,
-          ['const', 'typed-const', 'variant-tag']) then
-          aResult.Value.OwnerName := aSelectors[i].TypeName;
-        if aResult.Value.Found and aProjectMemberIndex.TryResolveShadowingValueMember(aModel,
-          aSite, aSelectors[i], aName, aResult, lValueResult) then
-          aResult := lValueResult;
-        if Assigned(aMemberCache) then
-          aMemberCache.AddOrSetValue(lKey, aResult);
-        Exit(True);
-      end;
-      if Assigned(aProjectMemberIndex) and aProjectMemberIndex.TryResolveReceiverValueMember(
-        aModel, aSite, aSelectors[i], aName, '', aResult) then
-      begin
-        if Assigned(aMemberCache) then
-          aMemberCache.AddOrSetValue(lKey, aResult);
-        Exit(True);
-      end;
-      lRefusalCode := '';
-      if (not Assigned(aProjectMemberIndex)) or
-        (not aProjectMemberIndex.ReceiverMemberAbsenceIsVerified(aModel, aSelectors[i], aName,
-        aSite, lRefusalCode)) then
-      begin
-        aResult := Default(TBoundMemberResolution);
-        aResult.Value.Status := 'unsupported';
-        aResult.Value.Name := aName;
-        if lRefusalCode = 'RECORD_HELPER_MEMBERS_UNVERIFIED' then
+        if (lVerdict.Outcome = noAbsent) and Assigned(aProjectMemberIndex) then
+          lVerdict := aProjectMemberIndex.TryResolveReceiverValueMember(aModel, aSite,
+            aSelectors[i], aName, '');
+        if lVerdict.Outcome = noAbsent then
         begin
-          aResult.Value.ReasonCode := lRefusalCode;
-          aResult.Value.Reason := 'A visible record helper of the receiver has members that are not indexed.';
-        end else begin
-          aResult.Value.ReasonCode := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
-          aResult.Value.Reason := 'The receiver may inherit a member that is not indexed.';
+          lRefusalCode := '';
+          if (not Assigned(aProjectMemberIndex)) or
+            (not aProjectMemberIndex.ReceiverMemberAbsenceIsVerified(aModel,
+              aSelectors[i], aName, aSite, lRefusalCode)) then
+          begin
+            if lRefusalCode = 'RECORD_HELPER_MEMBERS_UNVERIFIED' then
+              lVerdict := TMemberVerdict.Barrier(noUnproved, lRefusalCode,
+                'A visible record helper of the receiver has members that are not indexed.', 'absence')
+            else
+              lVerdict := TMemberVerdict.Barrier(noUnproved, 'OWNER_INHERITED_MEMBERS_UNVERIFIED',
+                'The receiver may inherit a member that is not indexed.', 'absence');
+          end;
         end;
-        if Assigned(aMemberCache) then
-          aMemberCache.AddOrSetValue(lKey, aResult);
-        Exit(True);
       end;
     end;
+    case lVerdict.Outcome of
+      noAbsent: Continue;
+      noResolved:
+      begin
+        lBound := lVerdict.Member;
+        lBound.ReceiverIndex := i;
+        Result := TMemberVerdict.Present(lBound, lVerdict.MemberTypeOpen);
+      end;
+      noUnproved, noAmbiguous: Result := lVerdict;
+    end;
+    Break;
   end;
-
-  aResult := Default(TBoundMemberResolution);
   if Assigned(aMemberCache) then
-    aMemberCache.AddOrSetValue(lKey, aResult);
-  Result := False;
+    aMemberCache.AddOrSetValue(lKey, Result);
 end;
 
 function AnySelectorUnresolved(const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>): Boolean;
@@ -3925,7 +4059,7 @@ function BindReference(const aModel: TDelphiSemanticUnitModel;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  const aMemberCache: TDictionary<string, TMemberVerdict>;
   var aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
   aReferenceCacheMisses: Int64):
   TDelphiSemanticBoundReference;
@@ -3936,6 +4070,7 @@ var
   lKey: string;
   lResult: TDelphiSemanticResolveResult;
   lStopwatch: TStopwatch;
+  lVerdict: TMemberVerdict;
 begin
   lKey := BoundReferenceCacheKey(aReferenceCachePrefix, aName);
   if Assigned(aReferenceCache) and aReferenceCache.TryGetValue(lKey, Result) then
@@ -3956,27 +4091,35 @@ begin
   if TryExtractCallName(aName, lCallName) then
   begin
     lStopwatch := TStopwatch.StartNew;
-    if TryResolveReceiverMember(aModel, aSite, aProjectModels, aSelectors, aCurrentTypeName,
-      aMemberCachePrefix, lCallName, aProjectMemberIndex, aMemberCache, lResult) then
-    begin
-      lStopwatch.Stop;
-      Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
-      if SameText(lResult.Status, 'unsupported') and
-        MatchText(lResult.ReasonCode, ['RECORD_HELPER_MEMBERS_UNVERIFIED',
-          'ALIAS_RECEIVER_MEMBERS_UNVERIFIED']) then
-        Exit(CacheBoundReference(aReferenceCache, lKey,
-          MakeBoundReference(lCallName, 'unsupported', lResult)));
-      if SameText(lResult.Kind, 'method') then
-        Exit(CacheBoundReference(aReferenceCache, lKey,
-          MakeBoundReference(lCallName, 'member', lResult)))
-      else
-        Exit(CacheBoundReference(aReferenceCache, lKey,
-          MakeBoundReference(lCallName, 'unsupported',
-          MakeSyntheticResolveResult(lCallName, lResult.Kind, lResult.TypeName,
-          lResult.OwnerName, 'CALL_SELECTOR_UNSUPPORTED'))));
-    end;
+    lVerdict := ResolveMemberAt(aModel, aSite, aProjectModels, aSelectors, aCurrentTypeName,
+      aMemberCachePrefix, lCallName, aProjectMemberIndex, aMemberCache);
     lStopwatch.Stop;
     Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
+    case lVerdict.Outcome of
+      noResolved:
+      begin
+        lResult := lVerdict.Member.Value;
+        if SameText(lResult.Kind, 'method') then
+          Exit(CacheBoundReference(aReferenceCache, lKey,
+            MakeMemberBoundReference(lCallName, 'member', lVerdict)));
+        Exit(CacheBoundReference(aReferenceCache, lKey,
+          MakeBoundReference(lCallName, 'unsupported',
+            MakeSyntheticResolveResult(lCallName, lResult.Kind, lResult.TypeName,
+              lResult.OwnerName, 'CALL_SELECTOR_UNSUPPORTED'))));
+      end;
+      noUnproved, noAmbiguous:
+      begin
+        // Base's call path has only these two dedicated receiver refusals.
+        if MatchText(lVerdict.ReasonCode, ['RECORD_HELPER_MEMBERS_UNVERIFIED',
+          'ALIAS_RECEIVER_MEMBERS_UNVERIFIED']) then
+          Exit(CacheBoundReference(aReferenceCache, lKey,
+            MakeMemberBoundReference(lCallName, 'unsupported', lVerdict)));
+        Exit(CacheBoundReference(aReferenceCache, lKey,
+          MakeBoundReference(lCallName, 'unsupported',
+            MakeSyntheticResolveResult(lCallName, '', '', '', 'CALL_SELECTOR_UNSUPPORTED'))));
+      end;
+      noAbsent: ;
+    end;
 
     lStopwatch := TStopwatch.StartNew;
     lResult := ResolveNameCached(aModel, lContext, lCallName, aResolveCache,
@@ -4013,18 +4156,17 @@ begin
     if Pos('[', lCallName) > 0 then
       lCallName := Copy(lCallName, 1, Pos('[', lCallName) - 1);
     lStopwatch := TStopwatch.StartNew;
-    if TryResolveReceiverMember(aModel, aSite, aProjectModels, aSelectors, aCurrentTypeName,
-      aMemberCachePrefix, lCallName, aProjectMemberIndex, aMemberCache, lResult) and
-      SameText(lResult.Status, 'unsupported') and
-      SameText(lResult.ReasonCode, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') then
-    begin
-      lStopwatch.Stop;
-      Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
-      Exit(CacheBoundReference(aReferenceCache, lKey,
-        MakeBoundReference(aName, 'unsupported', lResult)));
-    end;
+    lVerdict := ResolveMemberAt(aModel, aSite, aProjectModels, aSelectors, aCurrentTypeName,
+      aMemberCachePrefix, lCallName, aProjectMemberIndex, aMemberCache);
     lStopwatch.Stop;
     Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
+    case lVerdict.Outcome of
+      noUnproved:
+        if SameText(lVerdict.ReasonCode, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') then
+          Exit(CacheBoundReference(aReferenceCache, lKey,
+            MakeMemberBoundReference(aName, 'unsupported', lVerdict)));
+      noResolved, noAmbiguous, noAbsent: ;
+    end;
     lStopwatch := TStopwatch.StartNew;
     lResult := ResolveNameCached(aModel, Default(TDelphiSemanticResolveContext),
       aName, aResolveCache, ResolveNameCachePrefix(aModel.UnitName, aModel.FileName,
@@ -4036,21 +4178,22 @@ begin
   end;
 
   lStopwatch := TStopwatch.StartNew;
-  if TryResolveReceiverMember(aModel, aSite, aProjectModels, aSelectors, aCurrentTypeName,
-    aMemberCachePrefix, aName, aProjectMemberIndex, aMemberCache, lResult) then
-  begin
-    lStopwatch.Stop;
-    Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
-    if SameText(lResult.Status, 'ambiguous') then
-      Exit(CacheBoundReference(aReferenceCache, lKey,
-        MakeBoundReference(aName, 'ambiguous', lResult)));
-    if SameText(lResult.Status, 'unsupported') then
-      Exit(CacheBoundReference(aReferenceCache, lKey,
-        MakeBoundReference(aName, 'unsupported', lResult)));
-    Exit(CacheBoundReference(aReferenceCache, lKey, MakeBoundReference(aName, 'member', lResult)));
-  end;
+  lVerdict := ResolveMemberAt(aModel, aSite, aProjectModels, aSelectors, aCurrentTypeName,
+    aMemberCachePrefix, aName, aProjectMemberIndex, aMemberCache);
   lStopwatch.Stop;
   Inc(aReceiverMemberResolveMs, lStopwatch.ElapsedMilliseconds);
+  case lVerdict.Outcome of
+    noResolved:
+      Exit(CacheBoundReference(aReferenceCache, lKey,
+        MakeMemberBoundReference(aName, 'member', lVerdict)));
+    noAmbiguous:
+      Exit(CacheBoundReference(aReferenceCache, lKey,
+        MakeMemberBoundReference(aName, 'ambiguous', lVerdict)));
+    noUnproved:
+      Exit(CacheBoundReference(aReferenceCache, lKey,
+        MakeMemberBoundReference(aName, 'unsupported', lVerdict)));
+    noAbsent: ;
+  end;
 
   lStopwatch := TStopwatch.StartNew;
   lResult := ResolveNameCached(aModel, lContext, aName, aResolveCache,
@@ -4263,7 +4406,7 @@ function BindSelectors(const aModel: TDelphiSemanticUnitModel;
   const aParentSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aLine, aColumn: Integer;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  const aMemberCache: TDictionary<string, TMemberVerdict>;
   out aIdentities: TWithSelectorIdentityArray):
   TArray<TDelphiSemanticWithSelectorBinding>;
 var
@@ -4530,7 +4673,7 @@ procedure AddIndexReferences(const aReferences: TList<TDelphiSemanticBoundRefere
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  const aMemberCache: TDictionary<string, TMemberVerdict>;
   var aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
   aReferenceCacheMisses: Int64);
 var
@@ -4595,7 +4738,7 @@ procedure AddArgumentReferences(const aReferences: TList<TDelphiSemanticBoundRef
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  const aMemberCache: TDictionary<string, TMemberVerdict>;
   var aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
   aReferenceCacheMisses: Int64);
 var
@@ -4695,7 +4838,7 @@ function BindReferences(const aModel: TDelphiSemanticUnitModel;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aReferenceCache: TDictionary<string, TDelphiSemanticBoundReference>;
   const aResolveCache: TDictionary<string, TDelphiSemanticResolveResult>;
-  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  const aMemberCache: TDictionary<string, TMemberVerdict>;
   var aReceiverMemberResolveMs, aLexicalResolveMs, aReferenceCacheHits,
   aReferenceCacheMisses: Int64):
   TArray<TDelphiSemanticBoundReference>;
@@ -4842,7 +4985,7 @@ function BuildSelectorStackCache(const aModel: TDelphiSemanticUnitModel;
   const aStatements: TArray<TDelphiSemanticWithStatement>;
   const aScopeIndex: TDelphiSemanticRoutineScopeIndex;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
-  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  const aMemberCache: TDictionary<string, TMemberVerdict>;
   out aIdentityStacks: TWithSelectorIdentityStackArray):
   TWithSelectorStackArray;
 var
@@ -6608,10 +6751,10 @@ end;
 
 function TWithBindingProjectMemberIndex.TryResolveReceiverValueMember(
   const aModel: TDelphiSemanticUnitModel; const aSite: TReceiverLookupSite;
-  const aSelector: TDelphiSemanticWithSelectorBinding; const aName, aStopDeclaredId: string;
-  out aResult: TBoundMemberResolution): Boolean;
+  const aSelector: TDelphiSemanticWithSelectorBinding; const aName, aStopDeclaredId: string): TMemberVerdict;
 var
   lBinding: TDelphiSemanticWithBinding;
+  lBound: TBoundMemberResolution;
   lCandidates: TArray<TBoundMemberResolution>;
   lFact: TMemberSafetyDiagnostic;
   lIdentity: TDelphiSemanticTypeIdentity;
@@ -6619,8 +6762,9 @@ var
   lLineage: TArray<TDelphiSemanticTypeIdentity>;
   lVisibility: TArray<string>;
 begin
-  Result := False;
-  aResult := Default(TBoundMemberResolution);
+  // Recovery 4.7a: evidence-open exits stay absent until the 3d migration.
+  Result := TMemberVerdict.NotPresent;
+  lBound := Default(TBoundMemberResolution);
   if not fValueMemberNames.ContainsKey(aName) then
     Exit;
   lBinding := Default(TDelphiSemanticWithBinding);
@@ -6641,37 +6785,37 @@ begin
     Exit;
   for lIdentity in lLineage do
     if fHelperValueNames.ContainsKey(ValueOwnerKey('', lIdentity.Name, aName)) then
-      Exit(RefuseValueMember(aName, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
-        'A helper declares a value member with this name.', aResult));
+      Exit(TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
+        'A helper declares a value member with this name.', 'value-member'));
   for lIdentity in lLineage do
   begin
     if (aStopDeclaredId <> '') and SameText(lIdentity.DeclaredId.Value, aStopDeclaredId) then
       Exit;
     if fUnverifiedValueOwners.ContainsKey(ValueOwnerKey(lIdentity.UnitName,
       lIdentity.Name, aName)) then
-      Exit(RefuseValueMember(aName, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
-        'A type value member has no verified owner fact.', aResult));
+      Exit(TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
+        'A type value member has no verified owner fact.', 'value-member'));
     lKey := lIdentity.DeclaredId.Value + #31 + aName;
     if not fValueMembers.TryGetValue(lKey, lCandidates) then
       Continue;
     if Length(lCandidates) <> 1 then
     begin
-      aResult.Value.Status := 'ambiguous';
-      aResult.Value.Name := aName;
-      aResult.Value.ReasonCode := 'MULTIPLE_MEMBER_CANDIDATES';
-      Exit(True);
+      lBound.Value.Status := 'ambiguous';
+      lBound.Value.Name := aName;
+      lBound.Value.ReasonCode := 'MULTIPLE_MEMBER_CANDIDATES';
+      Exit(MemberVerdictFromBound(lBound));
     end;
     if (not fValueVisibility.TryGetValue(lKey, lVisibility)) or
       (Length(lVisibility) <> 1) or
       (not (MatchText(lVisibility[0], ['', 'public', 'published', 'automated']) or
       (MatchText(lVisibility[0], ['private', 'protected']) and
       SameText(lCandidates[0].DeclaringUnitName, aSite.UnitName)))) then
-      Exit(RefuseValueMember(aName, 'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED',
-        'Access to the type value member is not verified.', aResult));
-    aResult := lCandidates[0];
+      Exit(TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED',
+        'Access to the type value member is not verified.', 'value-member'));
+    lBound := lCandidates[0];
     // Value references name the selected receiver; OwnerDeclaredId still identifies the fact.
-    aResult.Value.OwnerName := aSelector.TypeName;
-    Exit(True);
+    lBound.Value.OwnerName := aSelector.TypeName;
+    Exit(MemberVerdictFromBound(lBound));
   end;
 end;
 
@@ -6684,6 +6828,7 @@ var
   lBinding: TDelphiSemanticWithBinding;
   lLineage: TArray<TDelphiSemanticTypeIdentity>;
   lIdentity: TDelphiSemanticTypeIdentity;
+  lVerdict: TMemberVerdict;
 begin
   Result := False;
   if not fValueMemberNames.ContainsKey(aName) then
@@ -6703,8 +6848,10 @@ begin
     begin
       if i = 0 then
         Exit;
-      Exit(TryResolveReceiverValueMember(aModel, aSite, aSelector, aName,
-        lLineage[i].DeclaredId.Value, aResult));
+      lVerdict := TryResolveReceiverValueMember(aModel, aSite, aSelector, aName,
+        lLineage[i].DeclaredId.Value);
+      aResult := lVerdict.AsBound(aName, -1);
+      Exit(lVerdict.Outcome <> noAbsent);
     end;
   // Helper-owned direct members need no shadowing proof when this name occurs
   // only on unrelated types. Refuse only a real or unverified lineage candidate.
@@ -6965,7 +7112,7 @@ function TWithBindingProjectMemberIndex.TryResolveVerifiedSimpleMember(
   const aSite: TReceiverLookupSite;
   const aSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aCurrentTypeName, aMemberCachePrefix, aName: string;
-  const aMemberCache: TDictionary<string, TBoundMemberResolution>;
+  const aMemberCache: TDictionary<string, TMemberVerdict>;
   out aResult: TBoundMemberResolution): Boolean;
 var
   i: Integer;
@@ -6981,6 +7128,7 @@ var
   lOwner: TDelphiSemanticTypeLookupResult;
   lOwnerModel: TDelphiSemanticUnitModel;
   lVerifiedOwner: Boolean;
+  lVerdict: TMemberVerdict;
   function Blocked: Boolean;
   begin
     aResult := Default(TBoundMemberResolution);
@@ -7042,10 +7190,16 @@ begin
       IntToStr(lIdentity.SourceRange.Column) + #31 +
       IntToStr(lIdentity.SourceRange.EndLine) + #31 +
       IntToStr(lIdentity.SourceRange.EndColumn) + #31 + aName;
-    if Assigned(aMemberCache) and aMemberCache.TryGetValue(lKey, aResult) then
+    if Assigned(aMemberCache) and aMemberCache.TryGetValue(lKey, lVerdict) then
     begin
-      if aResult.Value.Found or (aResult.Value.Status <> '') then
-        Exit(True);
+      case lVerdict.Outcome of
+        noResolved, noUnproved, noAmbiguous:
+        begin
+          aResult := lVerdict.AsBound(aName, i);
+          Exit(True);
+        end;
+        noAbsent: ;
+      end;
       Continue;
     end;
     lContext := Default(TDelphiSemanticMemberLookupContext);
@@ -7082,19 +7236,20 @@ begin
           lVerifiedOwner := True;
           Break;
         end;
-      if lVerifiedOwner and
-        ResolveResultFromMemberLookup(aName, lLookup, aResult.Value) then
+      lVerdict := MemberVerdictFromLookup(aName, lLookup);
+      if lVerifiedOwner and (lVerdict.Outcome = noResolved) then
       begin
-        aResult.DeclaringUnitName := lLookup.Member.UnitName;
+        aResult := lVerdict.AsBound(aName, i);
         if Assigned(aMemberCache) then
-          aMemberCache.AddOrSetValue(lKey, aResult);
+          aMemberCache.AddOrSetValue(lKey, MemberVerdictFromBound(aResult));
         Exit(True);
       end;
     end;
     if SameText(lLookup.Status, 'unresolved') and
       SameText(lLookup.ReasonCode, 'DIRECT_MEMBER_NOT_FOUND') then
     begin
-      if TryResolveReceiverValueMember(aModel, aSite, aSelectors[i], aName, '', aResult) then
+      lVerdict := TryResolveReceiverValueMember(aModel, aSite, aSelectors[i], aName, '');
+      if lVerdict.Outcome <> noAbsent then
         Exit(Blocked);
       if not ReceiverMemberAbsenceIsVerified(aModel, aSelectors[i], aName, aSite, lRefusalCode) then
         Exit(Blocked);
@@ -7107,7 +7262,7 @@ begin
           Exit(Blocked);
       end;
       if Assigned(aMemberCache) then
-        aMemberCache.AddOrSetValue(lKey, aResult);
+        aMemberCache.AddOrSetValue(lKey, MemberVerdictFromBound(aResult));
       Continue;
     end;
     Exit(Blocked);
@@ -7209,7 +7364,7 @@ var
   lModel: TDelphiSemanticUnitModel;
   lAccessIdentity: TDelphiSemanticTypeIdentity;
   lOwnerIdentity: TDelphiSemanticTypeIdentity;
-  lMemberCache: TDictionary<string, TBoundMemberResolution>;
+  lMemberCache: TDictionary<string, TMemberVerdict>;
   lParentRoutineNames: TArray<string>;
   lProjectMemberIndex: TWithBindingProjectMemberIndex;
   lReferenceCacheHits: Int64;
@@ -7267,7 +7422,7 @@ begin
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lResolveCache := TDictionary<string, TDelphiSemanticResolveResult>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
-  lMemberCache := TDictionary<string, TBoundMemberResolution>.Create(
+  lMemberCache := TDictionary<string, TMemberVerdict>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lProjectMemberIndex := nil;
   try

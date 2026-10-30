@@ -2321,7 +2321,8 @@ uses
   AutoFree, maxLogic.IOUtils, maxLogic.StrUtils,
   DelphiSemantics.Api.ProjectOptions, DelphiSemantics.Cache, DelphiSemantics.Model.Json,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan,
-  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
+  DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver,
+  DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
   DelphiSemantics.SourceConditionals, Test.Support;
 
@@ -6596,6 +6597,103 @@ begin
   Assert.IsTrue(lFound);
 end;
 
+procedure CheckMemberVerdictBarrierPins;
+var
+  lShape, lText, lExpectedStatus: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lProject: TDelphiSemanticProjectInfo;
+  lTypeIndex: TDelphiSemanticTypeIdentityIndex;
+  lMemberIndex: TDelphiSemanticMemberIdentityIndex;
+  lContext: TDelphiSemanticMemberLookupContext;
+  lLookup: TDelphiSemanticMemberLookupResult;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lBinding: TDelphiSemanticWithBinding;
+  lReference: TDelphiSemanticBoundReference;
+  lSeen: Integer;
+begin
+  // Recovery 8.6 pins: keep the complete graph while withholding the legacy
+  // spelling-only inventory, so each intact lookup status reaches the adapter.
+  for lShape in ['inaccessible', 'inaccessible-ancestor', 'overloaded', 'hidden', 'no-identity'] do
+  begin
+    lText := 'unit VerdictPins;'#13#10'interface'#13#10'type'#13#10 +
+      '  TBase = class public Count: Integer; end;'#13#10;
+    if lShape = 'inaccessible' then
+      lText := lText + '  TRec = class strict private Count: Integer; end;'#13#10
+    else if lShape = 'inaccessible-ancestor' then
+      lText := lText + '  TRec = class(TBase) strict private Count: Integer; end;'#13#10
+    else if lShape = 'overloaded' then
+      lText := lText + '  TRec = class'#13#10 +
+        '    procedure Count(aValue: Integer); overload;'#13#10 +
+        '    procedure Count(aValue: string); overload;'#13#10'  end;'#13#10
+    else if lShape = 'hidden' then
+      lText := lText + '  TRec = class(TBase) public Count: string; end;'#13#10
+    else
+      lText := lText + '  TRec = class(TUnknownBase) end;'#13#10;
+    lText := lText + 'var Count: Integer;'#13#10'  R: TRec;'#13#10'implementation'#13#10;
+    if lShape = 'no-identity' then
+      lText := lText.Replace('R: TRec', 'R: TUnknown');
+    if lShape = 'overloaded' then
+      lText := lText + 'procedure TRec.Count(aValue: Integer); begin end;'#13#10 +
+        'procedure TRec.Count(aValue: string); begin end;'#13#10;
+    lText := lText + 'procedure Run;'#13#10'begin'#13#10 +
+      '  with R do Count := 1;'#13#10 +
+      '  with R do Count := 2;'#13#10'end;'#13#10'end.'#13#10;
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.ProjectContextApplied := True;
+    lOptions.SourceFileName := WithBinderTempPath('verdict-' + lShape + '.pas');
+    TFile.WriteAllText(lOptions.SourceFileName, lText, TEncoding.ASCII);
+    lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModel.Success, lShape);
+    lProject := Default(TDelphiSemanticProjectInfo);
+    lProject.ProjectName := 'WithBindingMemberIndexProject';
+    lProject.ContextFingerprint := 'with-binding-member-index';
+    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lModel]);
+    try
+      lTypeIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+      lMemberIndex := TDelphiSemanticMemberResolver.BuildIndex(lGraph, lTypeIndex);
+      lContext := Default(TDelphiSemanticMemberLookupContext);
+      lContext.CallerUnitName := lModel.UnitName;
+      lContext.InstanceContext := True;
+      lLookup := lMemberIndex.ResolveMember(lContext, 'VerdictPins.TRec', 'Count');
+      lExpectedStatus := lShape;
+      if lShape = 'inaccessible-ancestor' then
+        lExpectedStatus := 'hidden';
+      if lShape = 'no-identity' then
+        lExpectedStatus := 'unresolved';
+      Assert.AreEqual(lExpectedStatus, lLookup.Status, lShape + ': intact provider control');
+      lModel.Members := nil;
+      lFacts := TDelphiSemanticWithBinder.BindProject('verdict-pins-' + lShape,
+        lGraph, [lModel], TImplicitRootAbsenceStub.Create);
+      Assert.AreEqual(2, Integer(Length(lFacts.Bindings)), lShape);
+      if lShape <> 'no-identity' then
+        Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].Status,
+          lShape + ': selector control: ' + lFacts.Bindings[0].Selectors[0].ReasonCode);
+      if lShape = 'no-identity' then
+        Assert.AreEqual('', lFacts.Bindings[0].Selectors[0].TypeIdentity.DeclaredId.Value,
+          'The no-identity pin must actually have no held declaration.');
+      lSeen := 0;
+      for lBinding in lFacts.Bindings do
+        for lReference in lBinding.References do
+          if SameText(lReference.Name, 'Count') then
+          begin
+            Inc(lSeen);
+            Assert.AreEqual('unsupported', lReference.Classification,
+              lShape + ': cold/warm must shield the lexical Count');
+            lExpectedStatus := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
+            // Recovery 3.1: a legacy-resolved receiver without identity still
+            // reaches the fail-closed owner absence proof.
+            Assert.AreEqual(lExpectedStatus, lReference.ReasonCode,
+              lShape + ': the parity barrier must survive the cache');
+          end;
+      Assert.AreEqual(2, lSeen, lShape + ': both cold and warm references reached');
+    finally
+      lGraph.Free;
+    end;
+  end;
+end;
+
 procedure TWithBinderTests.RootAbsenceNeverOverridesIndexedLineage(const aShape: string);
 var
   lBinding: TDelphiSemanticWithBinding;
@@ -6608,6 +6706,8 @@ var
   lText: string;
   lFound: Boolean;
 begin
+  if aShape = 'overload' then
+    CheckMemberVerdictBarrierPins;
   lText := 'unit RootLineage;'#13#10'interface'#13#10'type'#13#10;
   if aShape = 'overload' then
     lText := lText + '  TBase = class'#13#10'  public'#13#10 +
