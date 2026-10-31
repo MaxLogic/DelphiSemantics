@@ -3501,8 +3501,18 @@ begin
       SameText(lOriginSection, 'interface') then
       aProjectMemberIndex.TryResolveUniqueExportedFinalType(lOriginModel,
         lResult.TypeName, aIdentity);
+  if lWithBase and (not lComplex) and lResult.Found and
+    DeclarationTypeVisibilityUnproved(lSymbolModel, lResult) then
+  begin
+    aIdentity := Default(TDelphiSemanticTypeIdentity);
+    lResult.Status := 'unsupported';
+    lResult.ReasonCode := 'TYPE_VISIBILITY_UNPROVED';
+  end;
   if lWithBase then
     Result.Cause := lBound.Cause;
+  if SameText(lResult.ReasonCode, 'TYPE_VISIBILITY_UNPROVED') and
+    ((lResult.Reason <> '') or lWithBase) then
+    Result.Cause := 'declaration-site-later-type';
   Result.CaptureTypeName := lCaptureTypeName;
   Result.CaptureTypeStatus := lCaptureTypeStatus;
   Result.SelectorText := lSelectorText;

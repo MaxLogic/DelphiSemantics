@@ -137,6 +137,13 @@ function TypeWitness: Integer; begin Result := SizeOf({typename}); end;
 
 def r7_cases(repo, root):
     cases = []
+    # DS-719 Fix D: a forward class and its completion denote the local type.
+    folder = root / 'r7-forward-class-declaration-site'
+    write(folder/'A.pas', 'unit A;\ninterface\ntype TX = record Wrong: Integer; end;\nimplementation\nend.\n')
+    write(folder/'B.pas', 'unit B;\ninterface\nuses A;\ntype TX = class;\nTHolder = record Item: TX; end;\nTX = class X: Integer; end;\nprocedure Run;\nimplementation\nvar H: THolder;\nprocedure Run;\nbegin\nH.Item := TX.Create;\nwith H.Item do\nbegin\nX := 7;\nend;\nWriteln(H.Item.X);\nH.Item.Free;\nend;\nend.\n')
+    write(folder/'Unit1.pas', 'unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n')
+    project(folder, ['Unit1', 'A', 'B'])
+    cases.append(dict(name=folder.name, root=str(folder), family='r7-forward-class', require_identity=True))
     for name in ('r7-a7-dependent-parent', 'r7-a7-child-alone', 'r7-a7-known-parent-limit'):
         folder = root/name
         shutil.copytree(repo/'tests/fixtures/ds719-uses-order'/name, folder)
@@ -775,8 +782,8 @@ def generate(repo, root, full, only=""):
         prefixes = tuple(prefix.strip() for prefix in only.split(",") if prefix.strip())
         assert prefixes, "Empty native selection"
         cases = [case for case in cases if case["name"].startswith(prefixes)]
-    # Full dispatch includes all 545 cases; selection never changes this roster.
-    assert cases and (len(cases) == 545 if full and not only else len(cases) <= 500), len(cases)
+    # Full dispatch includes all 546 cases; selection never changes this roster.
+    assert cases and (len(cases) == 546 if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
         for case in cases:
             case.pop('excluded_routes', None)
@@ -1259,7 +1266,7 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
                 actual = selector['unit'] + '.' + selector['name']
                 if (not identity or identity == '<unidentified>' or actual.lower() not in identity.lower().split('|')):
                     row.setdefault('identity_refusals', []).append(dict(target=key, compiler=identity, ds=actual))
-                    if statement['status'] == 'planned':
+                    if statement['status'] == 'planned' or case.get('require_identity'):
                         failure(case, route, 3, 'identity-unavailable' if not identity or identity == '<unidentified>' else 'compiler-identity',
                                 target=key, compiler=identity, ds=selector,
                                 identity_unavailable_reason='Anonymous or nonpublic compiler RTTI has no public name and no matching case-owned TypeInfo catalog' if not identity or identity == '<unidentified>' else '')

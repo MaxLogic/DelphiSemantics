@@ -59,10 +59,13 @@ function ResolveBoundSelectorWithFinalTypeOrigin(const aModel: TDelphiSemanticUn
   const aBaseDeclaringSectionKind: string; out aFinalModel: TDelphiSemanticUnitModel;
   out aFinalSectionKind: string): TDelphiSemanticResolveResult;
 
+function DeclarationTypeVisibilityUnproved(const aModel: TDelphiSemanticUnitModel;
+  const aResolved: TDelphiSemanticResolveResult): Boolean;
+
 implementation
 
 uses
-  System.StrUtils, System.SysUtils,
+  System.RegularExpressions, System.StrUtils, System.SysUtils,
   DelphiSemantics.Resolve.SelectorTypes;
 
 function IsImplementationLikeSection(const aSectionKind: string): Boolean;
@@ -509,6 +512,123 @@ begin
   Result := aResult.Found or (aResult.Status = 'ambiguous') or (aResult.Status = 'unsupported');
 end;
 
+// The legacy selector walk has no declaration-site type identity. It may only
+// retain its answer when a later homonym cannot change a named reference.
+// Pointer targets are deliberately excluded: ^T may precede T in one TYPE section.
+function DeclarationTypeVisibilityUnproved(const aModel: TDelphiSemanticUnitModel;
+  const aResolved: TDelphiSemanticResolveResult): Boolean;
+
+  function CheckReference(const aTypeName, aSection, aFileName, aScopeId: string;
+    const aLine, aColumn, aDepth: Integer): Boolean;
+  var
+    lCandidate, lEarlier: TDelphiSemanticDeclaration;
+    lFileName, lName: string;
+    lEarlierFound: Boolean;
+  begin
+    Result := False;
+    lName := aTypeName.Trim.Replace('&', '');
+    if not TRegEx.IsMatch(lName, '^[A-Za-z_][A-Za-z0-9_]*$') then
+      Exit;
+    if aDepth > 16 then
+      Exit(True);
+    for lCandidate in aModel.Declarations do
+    begin
+      if not SameText(lCandidate.Name, lName) or
+        not MatchText(lCandidate.Kind, ['type', 'type-alias', 'unsupported-local-type']) or
+        (SameText(lCandidate.ScopeKind, 'type')) or
+        (SameText(lCandidate.ScopeKind, 'routine') and
+        not SameText(lCandidate.OwnerScopeId, aScopeId)) then
+        Continue;
+      // A preceding declaration wins, including a class forward completed later.
+      lEarlierFound := False;
+      for lEarlier in aModel.Declarations do
+        if SameText(lEarlier.Name, lName) and
+          MatchText(lEarlier.Kind, ['type', 'type-alias', 'unsupported-local-type']) and
+          SameText(lEarlier.ScopeKind, lCandidate.ScopeKind) and
+          SameText(lEarlier.OwnerScopeId, lCandidate.OwnerScopeId) and
+          IsVisibleSection(aSection, lEarlier.SectionKind) and
+          SameText(lEarlier.FileName, aFileName) and
+          (lEarlier.Line > 0) and ((lEarlier.Line < aLine) or
+          ((lEarlier.Line = aLine) and (lEarlier.Column < aColumn))) then
+        begin
+          lEarlierFound := True;
+          if SameText(lEarlier.Kind, 'type-alias') and
+            CheckReference(lEarlier.TypeName, lEarlier.SectionKind,
+            lEarlier.FileName, lEarlier.OwnerScopeId, lEarlier.Line,
+            lEarlier.Column, aDepth + 1) then
+            Exit(True);
+        end;
+      if lEarlierFound then
+        Continue;
+      lFileName := lCandidate.FileName;
+      // Include-relative positions cannot establish declaration order here.
+      if not IsVisibleSection(aSection, lCandidate.SectionKind) or
+        not SameText(lFileName, aFileName) or (aLine <= 0) or
+        (aColumn <= 0) or (lCandidate.Line <= 0) or
+        (lCandidate.Column <= 0) or (lCandidate.Line > aLine) or
+        ((lCandidate.Line = aLine) and (lCandidate.Column >= aColumn)) then
+        Exit(True);
+    end;
+  end;
+
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lLocal: TDelphiSemanticLocal;
+  lMember: TDelphiSemanticMember;
+  lParameter: TDelphiSemanticParameter;
+  lRoutine: TDelphiSemanticRoutine;
+  lSection: string;
+begin
+  Result := False;
+  if not aResolved.Found then
+    Exit;
+  for lDeclaration in aModel.Declarations do
+    if SameText(lDeclaration.Name, aResolved.Name) and
+      (lDeclaration.Line = aResolved.Line) and
+      (lDeclaration.Column = aResolved.Column) and
+      not MatchText(lDeclaration.Kind, ['type', 'type-alias']) then
+      if CheckReference(lDeclaration.TypeName, lDeclaration.SectionKind,
+        lDeclaration.FileName, lDeclaration.OwnerScopeId,
+        lDeclaration.Line, lDeclaration.Column, 0) then
+        Exit(True);
+  for lLocal in aModel.Locals do
+    if SameText(lLocal.Name, aResolved.Name) and
+      (lLocal.Line = aResolved.Line) and (lLocal.Column = aResolved.Column) then
+      if CheckReference(lLocal.TypeName, 'implementation', lLocal.FileName,
+        lLocal.RoutineScopeId, lLocal.Line, lLocal.Column, 0) then
+        Exit(True);
+  for lMember in aModel.Members do
+    if SameText(lMember.Name, aResolved.Name) and
+      (lMember.Line = aResolved.Line) and (lMember.Column = aResolved.Column) then
+    begin
+      lSection := aResolved.SectionKind;
+      for lDeclaration in aModel.Declarations do
+        if SameText(lDeclaration.Name, lMember.OwnerName) and
+          SameText(lDeclaration.OwnerScopeId, lMember.OwnerScopeId) then
+          lSection := lDeclaration.SectionKind;
+      if CheckReference(lMember.TypeName, lSection, lMember.FileName,
+        lMember.OwnerScopeId, lMember.Line, lMember.Column, 0) then
+        Exit(True);
+    end;
+  if SameText(aResolved.Kind, 'parameter') then
+    for lRoutine in aModel.Routines do
+      if SameText(lRoutine.Name, aResolved.OwnerName) and
+        (lRoutine.Line = aResolved.Line) and (lRoutine.Column = aResolved.Column) then
+        for lParameter in lRoutine.Parameters do
+          if SameText(lParameter.Name, aResolved.Name) and
+            CheckReference(lParameter.TypeName, lRoutine.SectionKind,
+            lParameter.FileName, lRoutine.ParentScopeId,
+            lParameter.Line, lParameter.Column, 0) then
+            Exit(True);
+end;
+
+function DeclarationSiteRefusal(const aName: string): TDelphiSemanticResolveResult;
+begin
+  Result := UnresolvedResult(aName, 'TYPE_VISIBILITY_UNPROVED',
+    'declaration-site-later-type: a later type cannot bind this named reference.');
+  Result.Status := 'unsupported';
+end;
+
 procedure ContinueLevel2Selector(const aModel: TDelphiSemanticUnitModel;
   const aContext: TDelphiSemanticResolveContext; const aSelector: string;
   const aParts: TArray<string>; const aFirstIndexed, aFirstDereferenced,
@@ -552,6 +672,11 @@ begin
         Break;
       end;
 
+  if DeclarationTypeVisibilityUnproved(lCurrentModel, aResult) then
+  begin
+    aResult := DeclarationSiteRefusal(aSelector);
+    Exit;
+  end;
   if not TryApplySelectorPostfix(aContext, lCurrentModel, lCurrentSection,
     aResult.TypeName, aFirstIndexed, aFirstDereferenced,
     aFirstIndexBeforeDereference, lCurrentTypeName) then
@@ -585,6 +710,11 @@ begin
     if not aResult.Found then
       Exit;
 
+    if DeclarationTypeVisibilityUnproved(lCurrentModel, aResult) then
+    begin
+      aResult := DeclarationSiteRefusal(aSelector);
+      Exit;
+    end;
     if lIndexed and SameText(aResult.Kind, 'property') then
     begin
       lResolvedTypeName := aResult.TypeName;
@@ -691,8 +821,11 @@ begin
       (not MatchText(Result.Kind, ['local', 'parameter'])) then
     begin
       if TryProveIndexedDeclarationOrigin(aModel, aContext, Result, aFinalModel) then
-        aFinalSectionKind := Result.SectionKind
-      else
+      begin
+        aFinalSectionKind := Result.SectionKind;
+        if DeclarationTypeVisibilityUnproved(aFinalModel, Result) then
+          Result := DeclarationSiteRefusal(aName);
+      end else
         Result := UnresolvedResult(aName, 'SELECTOR_TYPE_NOT_RESOLVED',
           'The selector declaring unit could not be identified.');
       Exit;
@@ -702,6 +835,8 @@ begin
     aFinalModel := aModel;
     aFinalSectionKind := aContext.SectionKind;
   end;
+  if Result.Found and DeclarationTypeVisibilityUnproved(aFinalModel, Result) then
+    Result := DeclarationSiteRefusal(aName);
 end;
 
 function ResolveBoundSelectorWithFinalTypeOrigin(
