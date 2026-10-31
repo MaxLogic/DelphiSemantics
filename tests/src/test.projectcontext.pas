@@ -102,6 +102,41 @@ type
     [TestCase('EnvironmentDefines', 'environment,False')]
     procedure CompleteDefineEvidence(const aShape: string; const aComplete: Boolean);
 
+    [Test]
+    [Category('Fast')]
+    [TestCase('define-evidence-standard-imports', 'standard,True')]
+    [TestCase('define-evidence-self-reference', 'self,True')]
+    [TestCase('define-evidence-nonstandard-import', 'nonstandard,False')]
+    [TestCase('define-evidence-user-tools-defines', 'user-defines,False')]
+    [TestCase('define-evidence-user-tools-import', 'user-import,False')]
+    [TestCase('define-evidence-target-writer', 'writer,False')]
+    [TestCase('define-evidence-target-import', 'target-import,False')]
+    [TestCase('define-evidence-raw-switch', 'switch,False')]
+    [TestCase('define-evidence-environment', 'environment,False')]
+    [TestCase('define-evidence-missing-version', 'version,False')]
+    [TestCase('define-evidence-missing-target', 'missing,False')]
+    [TestCase('define-evidence-platform-sdk', 'sdk,False')]
+    [TestCase('define-evidence-global-options', 'global,False')]
+    [TestCase('define-evidence-other-macro', 'other-macro,False')]
+    [TestCase('define-evidence-framework-injection', 'framework,False')]
+    [TestCase('define-evidence-input-hashes', 'hashes,True')]
+    [TestCase('define-evidence-review-cfg', 'cfg,False')]
+    [TestCase('define-evidence-review-cfg-nested', 'cfg-nested,False')]
+    [TestCase('define-evidence-review-cfg-wrong-directory', 'cfg-wrong-directory,True')]
+    [TestCase('define-evidence-review-cfg-invalidation', 'cfg-invalidation,True')]
+    [TestCase('define-evidence-review-target-property', 'target-property,False')]
+    [TestCase('define-evidence-review-target-output', 'target-output,False')]
+    [TestCase('define-evidence-review-choose', 'choose,False')]
+    [TestCase('define-evidence-review-import-group', 'import-group,False')]
+    [TestCase('define-evidence-review-optset-target', 'optset-target,False')]
+    [TestCase('define-evidence-review-framework-custom', 'framework-custom,False')]
+    [TestCase('define-evidence-review-framework-vcl', 'framework-vcl,True')]
+    [TestCase('define-evidence-review-framework-fmx', 'framework-fmx,True')]
+    [TestCase('define-evidence-review-sdk-inactive', 'sdk-inactive,True')]
+    [TestCase('define-evidence-review-sdk-active', 'sdk-active,False')]
+    [TestCase('define-evidence-review-target-version-absent', 'target-version-absent,False')]
+    procedure BoundedToolchainDefineEvidence(const aShape: string; const aComplete: Boolean);
+
 
     [Category('Fast')]
     [Test]
@@ -719,6 +754,57 @@ begin
   end;
 end;
 
+// A-342 to A-357: independent current-contract oracle; keep the frozen
+// serializer above as the old-cache identity oracle.
+function DefineEvidenceContextFingerprintOracle(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; const aRootAbsenceFingerprint: string): string;
+var
+  lBuilder: TStringBuilder;
+  lContext: TDelphiSemanticCacheIdentityContext;
+  lProjectIdentity: TDelphiSemanticProjectCacheIdentity;
+  lPropertyName: string;
+begin
+  lContext := Default(TDelphiSemanticCacheIdentityContext);
+  lContext.SchemaVersion := 'project-context-fingerprint-v3';
+  lContext.ProjectPath := aProject.ProjectFileName;
+  lContext.Configuration := aProject.Configuration;
+  lContext.Platform := aProject.Platform;
+  lContext.DelphiVersion := aOptions.DelphiVersion;
+  lContext.Defines := aProject.Defines;
+  lContext.SearchPaths := aProject.SourceLookupPaths;
+  lContext.UnitScopes := aProject.UnitScopeNames;
+  lContext.UnitAliases := aProject.UnitAliases;
+  lProjectIdentity := TDelphiSemanticCacheIdentityBuilder.BuildProjectIdentity(lContext);
+
+  lBuilder := TStringBuilder.Create;
+  try
+    Base641e4a3AppendFingerprintItem(lBuilder, 'projectIdentity', lProjectIdentity.ProjectKey);
+    Base641e4a3AppendFingerprintItem(lBuilder, 'defineEvidenceComplete',
+      BoolToStr(aProject.DefineEvidenceComplete, True));
+    Base641e4a3AppendFingerprintItem(lBuilder, 'main',
+      TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aProject.MainSourceFileName));
+    Base641e4a3AppendFingerprintItem(lBuilder, 'rsvars',
+      TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.RsVarsPath));
+    Base641e4a3AppendFingerprintItem(lBuilder, 'envoptions',
+      TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.EnvOptionsPath));
+    Base641e4a3AppendFingerprintItem(lBuilder, 'compilerProfile',
+      Base641e4a3CanonicalFingerprintText(aProject.CompilerProfileName));
+    if aOptions.ImplicitRootMemberAbsence <> nil then
+      Base641e4a3AppendFingerprintItem(lBuilder, 'implicitRootMemberAbsence',
+        aRootAbsenceFingerprint);
+    Base641e4a3AppendFingerprintItems(lBuilder, 'includePaths', aProject.IncludePaths, True);
+    Base641e4a3AppendFingerprintItems(lBuilder, 'references', aProject.ReferenceDirectories, True);
+    Base641e4a3AppendFingerprintItems(lBuilder, 'sourceFiles', aProject.SourceFileNames, True);
+    // Hash raw switch values without case folding or delimiter ambiguity.
+    for lPropertyName in cDelphiSemanticCompilerLinkPropertyNames do
+      Base641e4a3AppendFingerprintItem(lBuilder, lPropertyName,
+        THashSHA2.GetHashString(aProject.PropertyValue(lPropertyName)));
+    Result := THashSHA2.GetHashString(lBuilder.ToString);
+  finally
+    lBuilder.Free;
+  end;
+end;
+
 function ProfileIdentityOracleProject(const aFileName, aVersion,
   aEffectiveSearchPath: string): TDelphiSemanticProjectInfo;
 begin
@@ -733,6 +819,7 @@ begin
   Result.MainSourceFileName := TPath.ChangeExtension(aFileName, '.dpr');
   Result.Defines := ['MSWINDOWS', 'WIN64', 'CPUX64'];
   Result.CompilerProfileName := 'Delphi-' + aVersion + '-Win64-Debug';
+  Result.DefineEvidenceComplete := True;
   if aEffectiveSearchPath <> '' then
     Result.SearchPaths := [aEffectiveSearchPath];
 end;
@@ -775,9 +862,13 @@ begin
   lResult := TDelphiSemanticProject.Load(lFileName, lOptions);
   Assert.IsTrue(lResult.Success);
   lBaseProject := ProfileIdentityOracleProject(lFileName, '23.0', '');
-  lBaseProject.ContextFingerprint := Base641e4a3BuildContextFingerprint(lBaseProject, lOptions, '');
+  Assert.IsTrue(lResult.Project.DefineEvidenceComplete,
+    'The minimal fixture has complete define evidence');
+  Assert.AreNotEqual(Base641e4a3BuildContextFingerprint(lBaseProject, lOptions, ''),
+    lResult.Project.ContextFingerprint, 'Pre-evidence cache identities must invalidate');
+  lBaseProject.ContextFingerprint := DefineEvidenceContextFingerprintOracle(lBaseProject, lOptions, '');
   Assert.AreEqual(lBaseProject.ContextFingerprint, lResult.Project.ContextFingerprint,
-    'Explicit profiles preserve the byte contract at base 641e4a3.');
+    'A-342 to A-345: explicit profiles preserve final inputs including define evidence');
   lGraph := TDelphiSemanticSemanticGraphBuilder.Build(lResult.Project, nil);
   try
     lBaseGraph := TDelphiSemanticSemanticGraphBuilder.Build(lBaseProject, nil);
@@ -840,16 +931,20 @@ begin
   Assert.IsTrue(lResult.Success);
   Assert.AreEqual('True', lResult.Project.PropertyValue('DSWitnessProfileKnown'));
   lBaseProject := ProfileIdentityOracleProject(lFileName, aVersion, lSearchPath);
-  lBaseProject.ContextFingerprint := Base641e4a3BuildContextFingerprint(lBaseProject, lOptions, '');
+  Assert.IsTrue(lResult.Project.DefineEvidenceComplete,
+    'The minimal fixture has complete define evidence');
+  Assert.AreNotEqual(Base641e4a3BuildContextFingerprint(lBaseProject, lOptions, ''),
+    lResult.Project.ContextFingerprint, 'Pre-evidence cache identities must invalidate');
+  lBaseProject.ContextFingerprint := DefineEvidenceContextFingerprintOracle(lBaseProject, lOptions, '');
   if not aCheckGraph then
     Assert.AreEqual(lBaseProject.ContextFingerprint, lResult.Project.ContextFingerprint,
-      'Final semantic inputs preserve the frozen base serializer contract: ' + aScenario);
+      'A-346 to A-357: final inputs include the independently expected evidence bit: ' + aScenario);
   lGraph := TDelphiSemanticSemanticGraphBuilder.Build(lResult.Project, nil);
   try
     lBaseGraph := TDelphiSemanticSemanticGraphBuilder.Build(lBaseProject, nil);
     try
       Assert.AreEqual(lBaseGraph.ProjectId.Value, lGraph.ProjectId.Value,
-        'Final semantic inputs preserve the frozen base graph project ID: ' + aScenario);
+        'A-346 to A-357: graph identity includes the independently expected evidence bit: ' + aScenario);
     finally
       lBaseGraph.Free;
     end;
@@ -1288,6 +1383,194 @@ begin
   Result := False;
 end;
 
+
+procedure TProjectContextTests.BoundedToolchainDefineEvidence(const aShape: string;
+  const aComplete: Boolean);
+const
+  cTargets = '$(BDS)\Bin\CodeGear.Delphi.Targets';
+  cTools = '$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj';
+var
+  lInputs: TIsolatedProfileInputs;
+  lOptions: TDelphiSemanticOptions;
+  lResult, lChanged: TDelphiSemanticContextResult;
+  lRoot, lBin, lUser, lBody, lImport, lCommon, lDelphi, lProfile, lFileName, lExtra, lCfg: string;
+  lFound: Boolean;
+  lObservation: TDelphiSemanticProjectContextObservation;
+begin
+  lRoot := ContextEvidenceTempPath('bounded-toolchain');
+  lBin := TPath.Combine(lRoot, 'toolchain\Bin');
+  lUser := TPath.Combine(lRoot, 'appdata\Embarcadero\BDS\23.0');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.RsVarsPath := TPath.Combine(lBin, 'rsvars.bat');
+  lInputs := TIsolatedProfileInputs.Create;
+  lOptions.ProfileInputs := lInputs;
+  SetLength(lInputs.Environment, 1);
+  lInputs.Environment[0].Name := 'APPDATA';
+  lInputs.Environment[0].Value := TPath.Combine(lRoot, 'appdata');
+  lOptions.EnvironmentVariables := Copy(lInputs.Environment);
+  lBody := '<FrameworkType>None</FrameworkType><DCC_Define>DEBUG</DCC_Define>';
+  if aShape = 'self' then
+    lBody := '<FrameworkType>None</FrameworkType><DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>'
+  else if aShape = 'switch' then
+    lBody := lBody + '<DCC_AdditionalSwitches>-DNOT_CAPTURED</DCC_AdditionalSwitches>'
+  else if aShape = 'sdk' then
+    lBody := lBody + '<PlatformSDK>Other.sdk</PlatformSDK>'
+  else if aShape = 'global' then
+    lBody := lBody + '<GlobalOptionFile>Other.optset</GlobalOptionFile>'
+  else if aShape = 'other-macro' then
+    lBody := lBody + '<DCC_Define>DEBUG;$(MISSING_OTHER);$(DCC_Define)</DCC_Define>'
+  else if aShape = 'framework' then
+    lBody := '<FrameworkType>VCL;NOT_CAPTURED</FrameworkType><DCC_Define>DEBUG</DCC_Define>';
+  if aShape = 'framework-custom' then
+    lBody := lBody.Replace('>None<', '>Custom<')
+  else if aShape = 'framework-vcl' then
+    lBody := lBody.Replace('>None<', '>VCL<')
+  else if aShape = 'framework-fmx' then
+    lBody := lBody.Replace('>None<', '>FMX<');
+  lCfg := TPath.Combine(lRoot, 'P.cfg');
+  if MatchText(aShape, ['cfg-nested', 'cfg-wrong-directory']) then
+  begin
+    lBody := lBody + '<MainSource>src\Other.dpr</MainSource>';
+    lCfg := TPath.Combine(lRoot, 'src\Other.cfg');
+  end;
+  if MatchText(aShape, ['cfg', 'cfg-nested']) then
+    WriteUtf8Bytes(lCfg, '-DRV_CFG')
+  else if aShape = 'cfg-wrong-directory' then
+    WriteUtf8Bytes(TPath.Combine(lRoot, 'Other.cfg'), '-DRV_CFG');
+  // rv-w16daiyj proved each of these writers effective in native MSBuild.
+  lExtra := '';
+  if aShape = 'target-property' then
+    lExtra := '<Target Name="Inject" BeforeTargets="_PasCoreCompile"><PropertyGroup>' +
+      '<DCC_Define>RV_HOOK;$(DCC_Define)</DCC_Define></PropertyGroup></Target>'
+  else if aShape = 'target-output' then
+    lExtra := '<Target Name="Inject" BeforeTargets="_PasCoreCompile"><CreateProperty Value="RV_HOOK">' +
+      '<Output TaskParameter="Value" PropertyName="DCC_Define"/></CreateProperty></Target>'
+  else if aShape = 'choose' then
+    lExtra := '<Choose><When Condition="''$(Config)''==''Debug''"><PropertyGroup>' +
+      '<DCC_Define>RV_HOOK;$(DCC_Define)</DCC_Define></PropertyGroup></When></Choose>'
+  else if aShape = 'import-group' then
+  begin
+    lExtra := '<ImportGroup><Import Project="inject.optset"/></ImportGroup>';
+    WriteUtf8Bytes(TPath.Combine(lRoot, 'inject.optset'), '<Project><PropertyGroup>' +
+      '<DCC_Define>RV_OPTSET;$(DCC_Define)</DCC_Define></PropertyGroup></Project>');
+  end else if aShape = 'optset-target' then
+  begin
+    lExtra := '<Import Project="inject.optset"/>';
+    WriteUtf8Bytes(TPath.Combine(lRoot, 'inject.optset'), '<Project><Target Name="Inject">' +
+      '<PropertyGroup><DCC_AdditionalSwitches>-DRV_HOOK</DCC_AdditionalSwitches>' +
+      '</PropertyGroup></Target></Project>');
+  end;
+  lImport := cTargets;
+  if aShape = 'nonstandard' then
+    lImport := '$(BDS)\Different\CodeGear.Delphi.Targets';
+  WriteUtf8Bytes(lOptions.ProjectPath, '<Project><PropertyGroup>' + lBody +
+    '</PropertyGroup><Import Project="' + lImport + '" Condition="Exists(''' + lImport + ''')"/>' +
+    '<Import Project="' + cTools + '" Condition="Exists(''' + cTools + ''')"/>' + lExtra + '</Project>');
+  lDelphi := '<Project><Import Project="$(BDS)\bin\CodeGear.Common.Targets"/>' +
+    '<PropertyGroup><DCC_Define Condition="''$(FrameworkType)'' != ''None''">' +
+    '$(DCC_Define);FRAMEWORK_$(FrameworkType)</DCC_Define></PropertyGroup></Project>';
+  lCommon := '<Project><PropertyGroup><ProductVersion>23.0</ProductVersion></PropertyGroup>' +
+    '<Import Project="$(EnvironmentSettings)" Condition="Exists(''$(EnvironmentSettings)'')"/>' +
+    '<Import Project="$(EnvOptions)" Condition="Exists(''$(EnvOptions)'') and (''$(ImportEnvOptions)''!=''false'')"/>' +
+    '<Import Project="$(Profiles)" Condition="Exists(''$(Profiles)'')"/></Project>';
+  if aShape = 'target-version-absent' then
+    lCommon := lCommon.Replace('<ProductVersion>23.0</ProductVersion>', '');
+  lProfile := '<Project/>';
+  if aShape = 'writer' then
+    lDelphi := lDelphi.Replace('</Project>', '<PropertyGroup><DCC_Define>NOT_CAPTURED</DCC_Define>' +
+      '</PropertyGroup></Project>')
+  else if aShape = 'target-import' then
+    lCommon := lCommon.Replace('</Project>', '<Import Project="Outside.proj"/></Project>');
+  WriteUtf8Bytes(TPath.Combine(lBin, 'CodeGear.Delphi.Targets'), lDelphi);
+  WriteUtf8Bytes(TPath.Combine(lBin, 'CodeGear.Common.Targets'), lCommon);
+  if aShape <> 'missing' then
+    WriteUtf8Bytes(TPath.Combine(lBin, 'CodeGear.Profiles.Targets'), lProfile);
+  WriteUtf8Bytes(TPath.Combine(lUser, 'environment.proj'), '<Project/>');
+  lBody := '<Project/>';
+  if aShape = 'sdk-inactive' then
+    lBody := '<Project><PropertyGroup Condition="''$(Platform)''==''OSX64''">' +
+      '<DefaultPlatformSDK>Other.sdk</DefaultPlatformSDK></PropertyGroup><PropertyGroup>' +
+      '<DefaultPlatformSDK Condition="''$(Platform)''==''Win64''"/></PropertyGroup></Project>'
+  else if aShape = 'sdk-active' then
+    lBody := '<Project><PropertyGroup><DefaultPlatformSDK>Other.sdk</DefaultPlatformSDK>' +
+      '</PropertyGroup></Project>';
+  WriteUtf8Bytes(TPath.Combine(lUser, 'EnvOptions.proj'), lBody);
+  lBody := '<Project/>';
+  if aShape = 'user-defines' then
+    lBody := '<Project><PropertyGroup><DCC_Define>NOT_CAPTURED</DCC_Define></PropertyGroup></Project>'
+  else if aShape = 'user-import' then
+    lBody := '<Project><Import Project="Outside.proj"/></Project>';
+  WriteUtf8Bytes(TPath.Combine(lUser, 'UserTools.proj'), lBody);
+  if aShape = 'version' then
+    lOptions.DelphiVersion := ''
+  else if aShape = 'environment' then
+  begin
+    SetLength(lInputs.Environment, 2);
+    lInputs.Environment[1].Name := 'DCC_Define';
+    lInputs.Environment[1].Value := 'NOT_CAPTURED';
+  end;
+  lResult := TDelphiSemanticProject.Load(lOptions.ProjectPath, lOptions);
+  Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
+  Assert.AreEqual(aComplete, lResult.Project.DefineEvidenceComplete, aShape);
+  if aComplete then
+  begin
+    if aShape = 'self' then
+    begin
+      Assert.AreEqual('DEBUG;', lResult.Project.PropertyValue('DCC_Define'));
+      Assert.IsTrue(HasDiagnostic(lResult, 'UNRESOLVED_MSBUILD_MACRO'), 'Keep the self-reference diagnostic.');
+    end else
+      Assert.AreEqual('DEBUG', lResult.Project.PropertyValue('DCC_Define'));
+    Assert.AreEqual('', lResult.Project.PropertyValue('DCC_AdditionalSwitches'));
+    Assert.AreEqual<Integer>(0, Length(lResult.Project.SearchPaths));
+    for lFileName in [TPath.Combine(lBin, 'CodeGear.Delphi.Targets'),
+      TPath.Combine(lBin, 'CodeGear.Common.Targets'), TPath.Combine(lBin, 'CodeGear.Profiles.Targets'),
+      TPath.Combine(lUser, 'environment.proj'), TPath.Combine(lUser, 'EnvOptions.proj'),
+      TPath.Combine(lUser, 'UserTools.proj')] do
+      Assert.IsTrue(FindContextEvidenceInput(lResult.Project.ContextObservations, lFileName, lObservation),
+        'Hash the closed input: ' + lFileName);
+  end;
+  if MatchText(aShape, ['cfg', 'cfg-nested', 'cfg-wrong-directory', 'cfg-invalidation']) then
+  begin
+    lFound := False;
+    for var i := 0 to lResult.Project.ContextObservations.Count - 1 do
+    begin
+      lObservation := lResult.Project.ContextObservations.Items[i];
+      if SameFileName(lObservation.FileName, lCfg) then
+      begin
+        lFound := True;
+        Assert.AreEqual(not aComplete, lObservation.Exists, 'Observe the effective main-source .cfg.');
+      end;
+    end;
+    Assert.IsTrue(lFound, 'Capture .cfg presence or absence even with --no-config.');
+  end;
+  if aShape = 'cfg-invalidation' then
+  begin
+    WriteUtf8Bytes(lCfg, '-DRV_CFG');
+    lChanged := TDelphiSemanticProject.Load(lOptions.ProjectPath, lOptions);
+    Assert.IsFalse(lChanged.Project.DefineEvidenceComplete, 'A source config invalidates absence.');
+    Assert.AreNotEqual(lResult.Project.ContextObservations.EvidenceFingerprint,
+      lChanged.Project.ContextObservations.EvidenceFingerprint);
+    Assert.IsTrue(FindContextEvidenceInput(lChanged.Project.ContextObservations, lCfg, lObservation));
+    Assert.AreEqual('main-source-config', lObservation.Role);
+    lResult := lChanged;
+    WriteUtf8Bytes(lCfg, '-DRV_CFG_CHANGED');
+    lChanged := TDelphiSemanticProject.Load(lOptions.ProjectPath, lOptions);
+    Assert.AreNotEqual(lResult.Project.ContextObservations.EvidenceFingerprint,
+      lChanged.Project.ContextObservations.EvidenceFingerprint, 'Hash the present config bytes.');
+  end;
+  if aShape = 'hashes' then
+  begin
+    WriteUtf8Bytes(TPath.Combine(lUser, 'UserTools.proj'), '<Project><!-- changed input --></Project>');
+    lChanged := TDelphiSemanticProject.Load(lOptions.ProjectPath, lOptions);
+    Assert.IsTrue(lChanged.Project.DefineEvidenceComplete);
+    Assert.AreNotEqual(lResult.Project.ContextObservations.EvidenceFingerprint,
+      lChanged.Project.ContextObservations.EvidenceFingerprint, 'Exact input bytes participate in evidence.');
+  end;
+end;
 
 procedure TProjectContextTests.CompleteDefineEvidence(const aShape: string;
   const aComplete: Boolean);

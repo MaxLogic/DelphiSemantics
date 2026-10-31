@@ -138,7 +138,7 @@ uses
   System.IOUtils, System.RegularExpressions, System.StrUtils, System.SysUtils,
   System.Win.ComObj, System.Win.Registry, Xml.omnixmldom, Xml.XMLDoc, Xml.XMLIntf, Xml.xmldom,
   Winapi.ActiveX, Winapi.KnownFolders, Winapi.ShlObj, Winapi.Windows,
-  MaxLogic.StrUtils,
+  MaxLogic.IOUtils, MaxLogic.StrUtils,
   DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Lsp;
 
 type
@@ -160,6 +160,8 @@ type
     procedure MarkIncomplete;
     procedure MarkDefineEvidenceIncomplete;
     function DefineEvidenceIsComplete: Boolean;
+    procedure MarkBoundedDefineImportPending;
+    function BoundedDefineImportPending: Boolean;
     function Build(const aConfigurationIdentity: string):
       IDelphiSemanticProjectContextObservations;
   end;
@@ -184,6 +186,7 @@ type
   private
     fConsistent: Boolean;
     fDefineEvidenceIncomplete: Boolean;
+    fBoundedDefineImportPending: Boolean;
     fInputHashes: TDictionary<string, string>;
     fItems: TList<TDelphiSemanticProjectContextObservation>;
     function CanonicalPath(const aFileName: string): string;
@@ -197,6 +200,8 @@ type
     procedure MarkIncomplete;
     procedure MarkDefineEvidenceIncomplete;
     function DefineEvidenceIsComplete: Boolean;
+    procedure MarkBoundedDefineImportPending;
+    function BoundedDefineImportPending: Boolean;
     function Build(const aConfigurationIdentity: string):
       IDelphiSemanticProjectContextObservations;
   end;
@@ -326,6 +331,16 @@ end;
 function TProjectContextObservationsBuilder.DefineEvidenceIsComplete: Boolean;
 begin
   Result := not fDefineEvidenceIncomplete;
+end;
+
+procedure TProjectContextObservationsBuilder.MarkBoundedDefineImportPending;
+begin
+  fBoundedDefineImportPending := True;
+end;
+
+function TProjectContextObservationsBuilder.BoundedDefineImportPending: Boolean;
+begin
+  Result := fBoundedDefineImportPending;
 end;
 
 procedure TProjectContextObservationsBuilder.MarkIncomplete;
@@ -1499,6 +1514,23 @@ procedure ApplyPropertyFile(const aFileName, aBaseDirectory: string; const aProp
   const aDiagnostics: TList<TDelphiSemanticDiagnostic>; const aLockPlatform: Boolean;
   const aObservations: IProjectContextObservationsBuilder = nil); forward;
 
+function BoundedDefineImport(const aProject, aCondition: string): Boolean;
+begin
+  Result := (SameText(aProject, '$(BDS)\Bin\CodeGear.Delphi.Targets') or
+    SameText(aProject, '$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')) and
+    SameText(aCondition.Trim, 'Exists(''' + aProject + ''')');
+end;
+
+function OnlyUnresolvedSelfReference(const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  const aFirst: Integer; const aPropertyName: string): Boolean;
+begin
+  Result := True;
+  for var i := aFirst to aDiagnostics.Count - 1 do
+    if SameText(aDiagnostics[i].Code, 'UNRESOLVED_MSBUILD_MACRO') and
+      not SameText(aDiagnostics[i].Message, 'Unresolved MSBuild macro: $(' + aPropertyName + ')') then
+      Exit(False);
+end;
+
 procedure ApplyImport(const aNode: IXMLNode; const aFileName, aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
   const aLockPlatform: Boolean; const aObservations: IProjectContextObservationsBuilder);
@@ -1507,11 +1539,21 @@ var
   lImportFileName: string;
   lProject: string;
   lDiagnosticCount: Integer;
+  lBounded, lActive: Boolean;
 begin
   lDiagnosticCount := aDiagnostics.Count;
   lCondition := XmlNodeAttributeValue(aNode, 'Condition');
-  if IsConditionActive(lCondition, aFileName, aBaseDirectory, aProperties, aDiagnostics,
-    aObservations) then
+  lBounded := BoundedDefineImport(XmlNodeAttributeValue(aNode, 'Project'), lCondition);
+  if lBounded and (aObservations <> nil) then
+    aObservations.MarkBoundedDefineImportPending;
+  // The same evaluator and diagnostics still decide whether we apply the
+  // import. Only the bounded proof owns incompleteness for these two imports.
+  if lBounded then
+    lActive := IsConditionActive(lCondition, aFileName, aBaseDirectory, aProperties, aDiagnostics)
+  else
+    lActive := IsConditionActive(lCondition, aFileName, aBaseDirectory, aProperties, aDiagnostics,
+      aObservations);
+  if lActive then
   begin
     lProject := XmlNodeAttributeValue(aNode, 'Project');
     lProject := ExpandProperties(lProject, aFileName, aProperties, aDiagnostics);
@@ -1520,10 +1562,10 @@ begin
       lImportFileName := NormalizeProjectPath(aBaseDirectory, lProject);
       ApplyPropertyFile(lImportFileName, ExtractFilePath(lImportFileName), aProperties,
         aDiagnostics, aLockPlatform, aObservations);
-    end else if aObservations <> nil then
+    end else if (aObservations <> nil) and not lBounded then
       aObservations.MarkDefineEvidenceIncomplete;
   end;
-  if (aObservations <> nil) and HasDiagnosticCodeSince(aDiagnostics, lDiagnosticCount,
+  if (aObservations <> nil) and not lBounded and HasDiagnosticCodeSince(aDiagnostics, lDiagnosticCount,
     'UNRESOLVED_MSBUILD_MACRO') then
     aObservations.MarkDefineEvidenceIncomplete;
 end;
@@ -1614,7 +1656,8 @@ begin
         if (aObservations <> nil) and MatchText(lName,
           ['DCC_Define', 'DCC_AdditionalSwitches', 'CfgDependentOn']) and
           (Pos('$(', lValue) > 0) and HasDiagnosticCodeSince(aDiagnostics,
-            lDiagnosticCount, 'UNRESOLVED_MSBUILD_MACRO') then
+            lDiagnosticCount, 'UNRESOLVED_MSBUILD_MACRO') and
+          not OnlyUnresolvedSelfReference(aDiagnostics, lDiagnosticCount, lName) then
           aObservations.MarkDefineEvidenceIncomplete;
         if SameText(lName, 'CfgDependentOn') then
         begin
@@ -1640,6 +1683,26 @@ begin
   end;
 end;
 
+// We evaluate only root property groups and direct imports. Unhandled MSBuild
+// execution/containers are not evidence of define absence (DS-719 section 0.9).
+function ProjectDefineImpactClosed(const aNode: IXMLNode): Boolean;
+begin
+  Result := True;
+  if not IsXmlElement(aNode) then
+    Exit;
+  if MatchText(XmlNodeName(aNode), ['Target', 'Choose', 'When', 'Otherwise',
+    'ImportGroup', 'UsingTask']) then
+    Exit(False);
+  // An output is a property writer even without a DCC_Define XML element.
+  if XmlNodeAttributeValue(aNode, 'PropertyName') <> '' then
+    Exit(False);
+  if IsXmlElementNamed(aNode, 'ProjectExtensions') then
+    Exit; // IDE metadata, not an evaluated MSBuild container.
+  for var i := 0 to aNode.ChildNodes.Count - 1 do
+    if not ProjectDefineImpactClosed(aNode.ChildNodes[i]) then
+      Exit(False);
+end;
+
 procedure ApplyPropertyDocument(const aDocument: IXMLDocument; const aFileName,
   aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
@@ -1656,6 +1719,8 @@ begin
   if not Assigned(lRoot) then
     Exit;
 
+  if (aObservations <> nil) and not ProjectDefineImpactClosed(lRoot) then
+    aObservations.MarkDefineEvidenceIncomplete;
   for i := 0 to lRoot.ChildNodes.Count - 1 do
   begin
     lNode := lRoot.ChildNodes[i];
@@ -1858,13 +1923,231 @@ begin
   end;
 end;
 
+// DS-719 section 0.8: validate a closed toolchain without evaluating its
+// properties into the project. The only product result is the evidence bit.
+function BoundedDefineNodeClosed(const aNode: IXMLNode; const aKind: Integer;
+  const aVersion: string): Boolean;
+var
+  lName, lValue, lImport, lCondition, lOutput: string;
+begin
+  Result := True;
+  if not IsXmlElement(aNode) then
+    Exit;
+  lName := XmlNodeName(aNode);
+  lValue := '';
+  if MatchText(lName, ['DCC_Define', 'DCC_AdditionalSwitches', 'ProductVersion',
+    'BDSAppDataBaseDir', 'EnvironmentSettings', 'EnvOptions', 'Profiles', 'FrameworkType']) then
+    lValue := aNode.Text.Trim;
+  if MatchText(lName, ['DCC_Define', 'DCC_AdditionalSwitches']) then
+  begin
+    if aKind <> 0 then
+      Exit(False);
+    if SameText(lName, 'DCC_Define') then
+      Exit(lValue = '$(DCC_Define);FRAMEWORK_$(FrameworkType)');
+    Exit(MatchText(lValue, ['$(DCC_AdditionalSwitches) -JF:COFFI', '-JF:COFFI',
+      '$(DCC_AdditionalSwitches) --sdk-version:$(Profile_version)', '--sdk-version:$(Profile_version)']));
+  end;
+  // Task outputs are also property writers. Dynamic output names are not proof.
+  lOutput := XmlNodeAttributeValue(aNode, 'PropertyName');
+  if (Pos('$(', lOutput) > 0) or MatchText(lOutput,
+    ['DCC_Define', 'DCC_AdditionalSwitches', 'GlobalOptionFile', 'PlatformSDK',
+    'DefaultPlatformSDK', 'EnvironmentSettings', 'EnvOptions', 'Profiles']) then
+    Exit(False);
+  if SameText(lName, 'ProductVersion') and
+    not (((aKind = 1) or (aKind = 2)) and SameText(lValue, aVersion)) then
+    Exit(False);
+  if SameText(lName, 'BDSAppDataBaseDir') and not ((aKind = 1) and SameText(lValue, 'BDS')) then
+    Exit(False);
+  if SameText(lName, 'EnvironmentSettings') and not ((aKind = 1) and
+    SameText(lValue, '$(APPDATA)\Embarcadero\$(BDSAppDataBaseDir)\$(ProductVersion)\environment.proj')) then
+    Exit(False);
+  if SameText(lName, 'EnvOptions') and not ((aKind = 1) and
+    SameText(lValue, '$(APPDATA)\Embarcadero\$(BDSAppDataBaseDir)\$(ProductVersion)\EnvOptions.proj')) then
+    Exit(False);
+  if SameText(lName, 'Profiles') and not ((aKind = 1) and
+    SameText(lValue, '$(BDS)\bin\CodeGear.Profiles.Targets')) then
+    Exit(False);
+  if SameText(lName, 'FrameworkType') and not MatchText(lValue, ['None', 'VCL', 'FMX']) then
+    Exit(False);
+  if SameText(lName, 'Import') then
+  begin
+    lImport := XmlNodeAttributeValue(aNode, 'Project');
+    lCondition := TRegEx.Replace(XmlNodeAttributeValue(aNode, 'Condition'), '\s+', '');
+    case aKind of
+      0: Result := SameText(lImport, '$(BDS)\bin\CodeGear.Common.Targets') and (lCondition = '');
+      1: Result :=
+        (SameText(lImport, '$(EnvironmentSettings)') and SameText(lCondition, 'Exists(''$(EnvironmentSettings)'')')) or
+        (SameText(lImport, '$(EnvOptions)') and
+          SameText(lCondition, 'Exists(''$(EnvOptions)'')and(''$(ImportEnvOptions)''!=''false'')')) or
+        (SameText(lImport, '$(Profiles)') and SameText(lCondition, 'Exists(''$(Profiles)'')')) or
+        (SameText(lImport, '$(GlobalOptionFile)') and SameText(lCondition, 'Exists(''$(GlobalOptionFile)'')'));
+      2: Result := SameText(lImport, '$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(ProductVersion)\$(PlatformSDK)') and
+        SameText(lCondition, '''$(PlatformSDK)''!=''''AndExists(''$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(ProductVersion)\$(PlatformSDK)'')');
+    else
+      Result := False;
+    end;
+    Exit;
+  end;
+  for var i := 0 to aNode.ChildNodes.Count - 1 do
+    if not BoundedDefineNodeClosed(aNode.ChildNodes[i], aKind, aVersion) then
+      Exit(False);
+end;
+
+function BoundedDefineOptionsEmpty(const aDocument: IXMLDocument;
+  const aProperties: TPropertyMap): Boolean;
+var
+  lDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  lGroup, lChild: IXMLNode;
+  lActive: Boolean;
+begin
+  lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
+  try
+    for var i := 0 to aDocument.DocumentElement.ChildNodes.Count - 1 do
+    begin
+      lGroup := aDocument.DocumentElement.ChildNodes[i];
+      if not IsXmlElementNamed(lGroup, 'PropertyGroup') then
+        Continue;
+      for var j := 0 to lGroup.ChildNodes.Count - 1 do
+      begin
+        lChild := lGroup.ChildNodes[j];
+        if not MatchText(XmlNodeName(lChild), ['GlobalOptionFile', 'PlatformSDK', 'DefaultPlatformSDK']) then
+          Continue;
+        lDiagnostics.Clear;
+        lActive := IsConditionActive(XmlNodeAttributeValue(lGroup, 'Condition'), '', '',
+          aProperties, lDiagnostics);
+        if lDiagnostics.Count > 0 then
+          Exit(False);
+        if not lActive then
+          Continue;
+        lActive := IsConditionActive(XmlNodeAttributeValue(lChild, 'Condition'), '', '',
+          aProperties, lDiagnostics);
+        if lDiagnostics.Count > 0 then
+          Exit(False);
+        if lActive and (lChild.Text.Trim <> '') and
+          not (SameText(XmlNodeName(lChild), 'PlatformSDK') and
+            SameText(lChild.Text.Trim, '$(DefaultPlatformSDK)')) then
+          Exit(False);
+      end;
+    end;
+    Result := True;
+  finally
+    lDiagnostics.Free;
+  end;
+end;
+
+function BoundedDefineToolchain(const aProperties: TPropertyMap;
+  const aOptions: TDelphiSemanticOptions; const aObservations: IProjectContextObservationsBuilder;
+  out aFailure: string): Boolean;
+const
+  cFiles: array[0..5] of string = ('CodeGear.Delphi.Targets', 'CodeGear.Common.Targets',
+    'CodeGear.Profiles.Targets', 'environment.proj', 'EnvOptions.proj', 'UserTools.proj');
+var
+  lInputs: IDelphiSemanticProfileInputs;
+  lDocuments: array[0..5] of IXMLDocument;
+  lRoot, lAppData, lUser, lDatabase, lVersion, lFileName, lText, lValue: string;
+begin
+  Result := False;
+  aFailure := 'missing-version';
+  if aOptions.DelphiVersion.Trim = '' then
+    Exit;
+  lVersion := ProfileVersion(aOptions);
+  lInputs := ProfileInputs(aOptions);
+  aFailure := 'nonempty-option-or-redirect';
+  for lValue in ['GlobalOptionFile', 'PlatformSDK', 'DefaultPlatformSDK'] do
+  begin
+    if GetPropertyValue(aProperties, lValue).Trim <> '' then
+      Exit;
+    if lInputs.TryEnvironmentValue(lValue, lText) and (lText.Trim <> '') then
+      Exit;
+  end;
+  if not MatchText(GetPropertyValue(aProperties, 'FrameworkType'), ['None', 'VCL', 'FMX']) then
+    Exit;
+  lRoot := TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot(lVersion, aOptions.RsVarsPath);
+  lAppData := GetPropertyValue(aProperties, 'APPDATA');
+  if lAppData = '' then
+    lInputs.TryEnvironmentValue('APPDATA', lAppData);
+  aFailure := 'appdata-unavailable';
+  if (lAppData = '') or (Pos('$(', lAppData) > 0) then
+    Exit;
+  lDatabase := GetPropertyValue(aProperties, 'BDSAPPDATABASEDIR');
+  if lDatabase = '' then
+    if not lInputs.TryEnvironmentValue('BDSAPPDATABASEDIR', lDatabase) then
+      lDatabase := 'BDS';
+  if (lDatabase = '') or (TPath.GetFileName(lDatabase) <> lDatabase) then
+    Exit;
+  lUser := CombinePath([lAppData, 'Embarcadero', lDatabase, lVersion]);
+  for lValue in ['EnvironmentSettings', 'EnvOptions', 'Profiles', 'ProductVersion', 'BDS'] do
+    if GetPropertyValue(aProperties, lValue) <> '' then
+    begin
+      // An override can change which files native MSBuild imports. Do not claim
+      // closure through a different input just because the default file is safe.
+      aFailure := 'redirected-input:' + lValue;
+      Exit;
+    end;
+  for lValue in ['EnvironmentSettings', 'EnvOptions', 'Profiles', 'ProductVersion', 'BDS'] do
+    if lInputs.TryEnvironmentValue(lValue, lText) and (lText <> '') and
+      not (SameText(lValue, 'BDS') and SameText(ExcludeTrailingPathDelimiter(lText),
+        ExcludeTrailingPathDelimiter(lRoot))) then
+    begin
+      aFailure := 'environment-redirect:' + lValue;
+      Exit;
+    end;
+  try
+    for var i := Low(cFiles) to High(cFiles) do
+    begin
+      if i < 3 then
+        lFileName := CombinePath([lRoot, 'Bin', cFiles[i]])
+      else
+        lFileName := TPath.Combine(lUser, cFiles[i]);
+      aFailure := 'missing-input:' + lFileName;
+      if not TFile.Exists(lFileName) then
+      begin
+        aObservations.AddPresence(lFileName, 'define-evidence-toolchain', False);
+        if i = 5 then
+          Continue;
+        Exit;
+      end;
+      ReadProjectContextInput(lFileName, 'define-evidence-toolchain', aObservations, lText);
+      lDocuments[i] := LoadProjectXml(lText);
+      aFailure := 'unclosed-input:' + lFileName;
+      if (lDocuments[i] = nil) or (lDocuments[i].DocumentElement = nil) or
+        not IsXmlElementNamed(lDocuments[i].DocumentElement, 'Project') then
+        Exit;
+    end;
+    aFailure := 'missing-toolchain-version';
+    if not SameText(XmlElementText(lDocuments[1], 'ProductVersion'), lVersion) then
+      Exit;
+    for var i := Low(cFiles) to High(cFiles) do
+    begin
+      if lDocuments[i] = nil then
+        Continue;
+      aFailure := 'unapproved-writer-or-import:' + cFiles[i];
+      if not BoundedDefineNodeClosed(lDocuments[i].DocumentElement, i, lVersion) then
+        Exit;
+      aFailure := 'nonempty-or-unknown-option:' + cFiles[i];
+      if not BoundedDefineOptionsEmpty(lDocuments[i], aProperties) then
+        Exit;
+    end;
+    aFailure := '';
+    Result := True;
+  except
+    on E: Exception do
+    begin
+      // Failed input reading/XML validation is an explicit lack of proof.
+      // Keep the existing project diagnostics and properties unchanged.
+      aFailure := aFailure + ':' + E.ClassName + ':' + E.Message;
+      Result := False;
+    end;
+  end;
+end;
+
 function CompleteProjectDefineEvidence(const aProperties: TPropertyMap;
   const aOptions: TDelphiSemanticOptions;
   const aObservations: IProjectContextObservationsBuilder): Boolean;
 var
   lInputs: IDelphiSemanticProfileInputs;
   lProperty: TDelphiSemanticProperty;
-  lSwitch, lValue: string;
+  lSwitch, lValue, lFailure: string;
 begin
   Result := (aObservations <> nil) and not aOptions.CallerDefinesProvided;
   if not Result then
@@ -1885,6 +2168,38 @@ begin
         Exit(False);
     if lInputs.TryEnvironmentValue(lValue, lSwitch) then
       Exit(False);
+  end;
+  if aObservations.BoundedDefineImportPending then
+    Result := BoundedDefineToolchain(aProperties, aOptions, aObservations, lFailure);
+end;
+
+procedure CaptureMainSourceConfig(const aMainSourceFileName: string;
+  const aObservations: IProjectContextObservationsBuilder);
+var
+  lFileName: string;
+  lExists: Boolean;
+begin
+  if aObservations = nil then
+    Exit;
+  lFileName := TPath.ChangeExtension(aMainSourceFileName, '.cfg');
+  // --no-config excludes dcc*.cfg, not the actual main source's config.
+  // We do not evaluate config/response-file options in this bounded rule.
+  try
+    lExists := TFile.Exists(lFileName);
+    aObservations.AddPresence(lFileName, 'main-source-config', lExists);
+    if lExists then
+    begin
+      aObservations.MarkDefineEvidenceIncomplete;
+      aObservations.AddInput(lFileName, HashProjectContextBytes(TFile.ReadAllBytes(lFileName)),
+        'main-source-config');
+    end;
+  except
+    on E: Exception do
+    begin
+      // An unreadable input is explicit missing proof, never absent config.
+      aObservations.MarkDefineEvidenceIncomplete;
+      aObservations.MarkIncomplete;
+    end;
   end;
 end;
 
@@ -1938,6 +2253,7 @@ begin
       aProperties, aDiagnostics, lSearchPaths, lReferenceDirectories, lSourceFiles, aObservations);
 
     aProject.Defines := lDefines.ToArray;
+    CaptureMainSourceConfig(aProject.MainSourceFileName, aObservations);
     aProject.DefineEvidenceComplete := CompleteProjectDefineEvidence(aProperties,
       aOptions, aObservations);
     aProject.IncludePaths := lIncludePaths.ToArray;
