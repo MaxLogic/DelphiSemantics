@@ -533,6 +533,7 @@ procedure TSignatureAlignmentTests.CreateAlignmentProject(const aShape: string;
   out aSnapshot: TDelphiProjectSnapshot);
 var
   lDirectory, lProjectFile: string;
+  lModelOptions: TDelphiSemanticModelOptions;
   lOptions: TDelphiSemanticOptions;
   lSession: TDelphiSemanticProjectSessionResult;
 begin
@@ -553,6 +554,17 @@ begin
   lSession := TDelphiSemanticProjectSession.Open(lOptions);
   Assert.IsTrue(lSession.Success);
   try
+    // DS-719: supplied facts and captured evidence must use the same real context.
+    // Keep the full fingerprint comparison, including define completeness.
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := aModel.FileName;
+    lModelOptions.ProjectContextApplied := True;
+    lModelOptions.Defines := lSession.Session.Project.Defines;
+    lModelOptions.SearchPaths := lSession.Session.Project.SourceLookupPaths;
+    lModelOptions.IncludePaths := lSession.Session.Project.IncludePaths;
+    lModelOptions.DefineEvidenceComplete := lSession.Session.Project.DefineEvidenceComplete;
+    aModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+    Assert.IsTrue(aModel.Success);
     aSnapshot := lSession.Session.BuildSnapshot;
     Assert.IsNotNull(aSnapshot);
   finally

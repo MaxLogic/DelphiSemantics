@@ -347,6 +347,7 @@ type
     StrategyKindContradiction: Boolean;
     CaptureDenied: Boolean;
     SelectorDenialReason: string;
+    BinderVetoDenied: Boolean;
     AdmissionDenied: Boolean;
     ValueQualifications: TArray<TFinalSelectorDecision>;
     BareReferences: TArray<TDelphiSemanticBoundReference>;
@@ -4170,11 +4171,6 @@ var
   lMatch: Integer;
   lReferenceName: string;
 begin
-  if BinderDenialCode(aReference.ReasonCode) then
-  begin
-    aQualifierText := '';
-    Exit(TFinalReferenceQualification.NoMatch);
-  end;
   Result := TFinalReferenceQualification.NoMatch;
   aQualifierText := '';
   lReferenceName := ReferenceLookupName(aReference.Name);
@@ -6952,6 +6948,69 @@ begin
   aBodyFacts.AdmissionDenied := lDeniedIndex = aBindingIndex;
 end;
 
+function BindingTreeDenial(const aFacts: TRemoveWithPlanFacts;
+  const aBindingSource: TRemoveWithPlanBindingSource;
+  const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
+  const aLineCache: TDelphiSemanticSourceContextCache;
+  out aReason, aSafetyReason: string): Boolean;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lChildIndex: Integer;
+  lReference: TDelphiSemanticBoundReference;
+  lSelector: TDelphiSemanticWithSelectorBinding;
+begin
+  lBinding := aBindingSource.BindingByIndex(aBindingIndex);
+  for lSelector in lBinding.Selectors do
+    if SelectorDecisionRefuses(lSelector) then
+    begin
+      aReason := cAbsoluteSelectorRefusal;
+      aSafetyReason := lSelector.ReasonCode;
+      if aSafetyReason = '' then
+        aSafetyReason := aReason;
+      Exit(True);
+    end;
+  for lReference in lBinding.References do
+    if BinderDenialCode(lReference.ReasonCode) then
+    begin
+      aReason := ReceiverMemberMissReason(lReference, lBinding, aLineCache);
+      aSafetyReason := lReference.ReasonCode;
+      Exit(True);
+    end;
+  // A planned parent publishes its absorbed children too.
+  for lChildIndex in aBindingTree.ChildIndexes[aBindingIndex] do
+    if BindingTreeDenial(aFacts, aBindingSource, aBindingTree, lChildIndex,
+      aLineCache, aReason, aSafetyReason) then
+      Exit(True);
+  aReason := '';
+  aSafetyReason := '';
+  Result := False;
+end;
+
+procedure ApplyBinderAdmission(const aFacts: TRemoveWithPlanFacts;
+  const aBindingSource: TRemoveWithPlanBindingSource;
+  const aBindingTree: TFinalBindingTree; const aBindingIndex: Integer;
+  const aReservedNames: TDictionary<string, Integer>;
+  const aLineCache: TDelphiSemanticSourceContextCache;
+  var aStatement: TDelphiSemanticRemoveWithFinalStatement;
+  var aBodyFacts: TFinalReceiverBodyFacts);
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lReason, lSafetyReason: string;
+begin
+  // DS-719 section 0.6: every established refusal precedes this final veto.
+  if not SameText(aStatement.Status, 'planned') then
+    Exit;
+  if not BindingTreeDenial(aFacts, aBindingSource, aBindingTree, aBindingIndex,
+    aLineCache, lReason, lSafetyReason) then
+    Exit;
+  lBinding := aBindingSource.BindingByIndex(aBindingIndex);
+  RollbackReservedTempNamesForFinalTemps(aReservedNames, lBinding.RoutineName,
+    aStatement.Temps);
+  aStatement := BuildSkippedFinalStatement(lBinding, aStatement.StatementId,
+    lReason, lSafetyReason);
+  aBodyFacts.BinderVetoDenied := True;
+end;
+
 function BuildFinalStatement(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aStatementId: string;
   const aCandidateEdit: TDelphiSemanticRemoveWithEdit;
@@ -6984,6 +7043,8 @@ begin
     if SameText(Result.Status, 'planned') and BindingReceiverVisibilityDenies(aBinding) then
       RollbackReservedTempNamesForFinalTemps(aReservedNames, aBinding.RoutineName, Result.Temps);
     ApplyReceiverAdmission(lBindingSource, lBindingTree, 0, Result, lBodyFacts);
+    ApplyBinderAdmission(aFacts, lBindingSource, lBindingTree, 0,
+      aReservedNames, aLineCache, Result, lBodyFacts);
   finally
     lBindingSource.Free;
   end;
@@ -7495,35 +7556,6 @@ begin
   for lDecision in lSelectorDecisions do
     aBodyFacts.StrategyKindContradiction := aBodyFacts.StrategyKindContradiction or
       lDecision.StrategyKindContradiction;
-  // DS-719 final veto: inventory recovery may choose refusal text, never authorize a plan.
-  lReason := '';
-  if aBodyFacts.SelectorDenialReason <> '' then
-  begin
-    lReason := cAbsoluteSelectorRefusal;
-    Result.SafetyReason := aBodyFacts.SelectorDenialReason;
-  end else
-    for lValueReference in lBinding.References do
-      if BinderDenialCode(lValueReference.ReasonCode) then
-      begin
-        lReason := ReceiverMemberMissReason(lValueReference, lBinding, aLineCache);
-        Result.SafetyReason := lValueReference.ReasonCode;
-        Break;
-      end;
-  if lReason <> '' then
-  begin
-    RollbackReservedTempNamesForDecisions(aReservedNames,
-      lBinding.RoutineName, lSelectorDecisions);
-    RollbackReservedTempNamesForFinalTemps(aReservedNames,
-      lBinding.RoutineName, Result.Temps);
-    Result.Edits := nil;
-    Result.Temps := nil;
-    Result.ReplacementText := '';
-    Result.Status := 'skipped';
-    Result.Reason := lReason;
-    if Result.SafetyReason = '' then
-      Result.SafetyReason := Result.Reason;
-    Exit;
-  end;
   Result.Status := 'planned';
   Result.ReplacementText := lReplacementText;
   lOwnTempIndex := 0;
@@ -8230,12 +8262,14 @@ begin
   end;
   ApplyReceiverAdmission(aBindingSource, aBindingTree, aBindingIndex,
     lStatement, lBodyFacts);
+  ApplyBinderAdmission(aFacts, aBindingSource, aBindingTree, aBindingIndex,
+    aReservedNames, aLineCache, lStatement, lBodyFacts);
   if SameText(lStatement.Status, 'planned') then
     for lIndex := 0 to High(lStatement.Temps) do
       aReservedNames.AddOrSetValue(lBinding.RoutineName + #31 +
         lStatement.Temps[lIndex].TempName, 1);
-  // DS-719: reporting a precise code must not restore a rejected candidate.
-  if lBodyFacts.CaptureDenied or (lBodyFacts.SelectorDenialReason <> '') then
+  // Established refusals retain their candidate contract; only the veto adds cleanup.
+  if lBodyFacts.CaptureDenied or lBodyFacts.BinderVetoDenied then
     for lIndex := High(aPlan.Edits) downto 0 do
       if SameText(aPlan.Edits[lIndex].Kind, 'remove-with-candidate') and
         (aPlan.Edits[lIndex].StatementId = lBinding.SemanticId) then
@@ -8727,9 +8761,7 @@ begin
           lRejectedCandidate := False;
           if SameText(lEdit.Kind, 'remove-with-candidate') then
             for lFinalStatement in Result.FinalStatements do
-              if (BinderDenialCode(lFinalStatement.SafetyReason) or
-                SameText(lFinalStatement.SafetyReason, cAbsoluteSelectorRefusal) or
-                SameText(lFinalStatement.Reason, 'receiver-member-owner-conflict') or
+              if (SameText(lFinalStatement.Reason, 'receiver-member-owner-conflict') or
                 SameText(lFinalStatement.Reason, 'receiver-member-unqualified') or
                 SameText(lFinalStatement.SafetyReason, 'TYPE_VISIBILITY_UNPROVED') or
                 SameText(lFinalStatement.SafetyReason, 'TYPE_VALUE_MEMBERS_UNVERIFIED') or

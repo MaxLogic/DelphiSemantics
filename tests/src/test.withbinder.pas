@@ -6469,6 +6469,29 @@ begin
     Assert.AreEqual(lPlan.FinalStatements[lStatementIndex].ReplacementText, lSnapshotPlan.FinalStatements[lStatementIndex].ReplacementText);
   end;
 end;
+procedure LocalArrayWithoutHelperControl;
+var
+  lControl: TDelphiSemanticUnitModel;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+begin
+  lControl := Unit_('ArrayControl', 'unit ArrayControl;'#13#10'interface'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'var lRecord: TRec; lArr: array[0..1] of Integer;'#13#10 +
+    'begin'#13#10'  with lRecord do lArr[0] := Value;'#13#10'end;'#13#10'end.');
+  lFacts := TDelphiSemanticWithBinder.BindProject('local-array-no-helper', nil, [lControl]);
+  for var i := 0 to 1 do
+  begin
+    if i = 0 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts)
+    else
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, 'local-array no-helper control');
+    Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements[0].Edits)));
+    Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText, 'lArr[0] := '));
+  end;
+end;
 procedure ControlCase(const aShape: string);
 var
   lHelper, lBody, lSource, lTarget: string;
@@ -6536,6 +6559,8 @@ begin
       lSource := lSource + 'type'#13#10 + Format(lHelper, [lTarget]);
     lConsumer := Unit_('Consumer', lSource + IfThen(aShape = 'no-helper', '',
       'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10) + 'end.');
+    if aShape = 'local-array' then
+      LocalArrayWithoutHelperControl;
     Report(aShape, [lConsumer]);
   end;
 end;

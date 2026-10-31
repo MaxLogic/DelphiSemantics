@@ -7680,7 +7680,7 @@ begin
   begin
     lLineage := TryBuildMemberSafetyLineage(aBinding,
       aBinding.Selectors[i].TypeName, aSelectorIdentities[i]);
-    lLineageComplete := lLineage.Complete;
+    lLineageComplete := lLineage.Complete or SameText(lLineage.Cause, 'profile-terminal');
     if not lLineageComplete then
       Exit('MEMBERS_INCOMPLETE');
     for lFact in fMemberSafetyDiagnostics do

@@ -6986,6 +6986,36 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lProjectPath: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
+procedure CheckTypedAmbiguity(const aFacts: TDelphiSemanticProjectWithBindingFacts);
+var
+  lTypedFacts: TDelphiSemanticProjectWithBindingFacts;
+  lTypedPlan: TDelphiSemanticRemoveWithPlan;
+  lTypedStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  // Pin the planner's established ambiguity check independently of helper proof.
+  // An unproved binder verdict deliberately has no Kind; a typed input still
+  // reaches multiple-member-candidates before the publishing veto.
+  lTypedFacts := aFacts;
+  lTypedFacts.Bindings := Copy(aFacts.Bindings);
+  for var i := 0 to High(lTypedFacts.Bindings) do
+  begin
+    lTypedFacts.Bindings[i].References := Copy(aFacts.Bindings[i].References);
+    for var j := 0 to High(lTypedFacts.Bindings[i].References) do
+      if SameText(lTypedFacts.Bindings[i].References[j].Name, 'Clash') then
+        lTypedFacts.Bindings[i].References[j].Kind := 'routine';
+  end;
+  for var i := 0 to 1 do
+  begin
+    if i = 0 then
+      lTypedPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lTypedFacts)
+    else
+      lTypedPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lTypedFacts);
+    Assert.IsTrue(FindFinalStatement(lTypedPlan, 'with-5', lTypedStatement));
+    Assert.AreEqual('skipped', lTypedStatement.Status);
+    Assert.AreEqual('multiple-member-candidates', lTypedStatement.Reason,
+      'typed ambiguity control');
+  end;
+end;
 begin
   lFixtureDir := CopyDakFixtureToTemp('RemoveWithCombinedSelectorRewriteFixture',
     'dto-combined-selector-ambiguous-helper');
@@ -7001,6 +7031,7 @@ begin
   lOptions.ProjectFileName := lProjectPath;
   lOptions.ImplicitRootMemberAbsence := TCombinedFixtureRootAbsence.Create;
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  CheckTypedAmbiguity(lFacts);
   lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lStatement),
