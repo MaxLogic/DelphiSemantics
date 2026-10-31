@@ -44,6 +44,9 @@ type
     procedure PersistedModelsDoNotInventSourceObservations;
     [Test]
     [Category('RefactoringLightObservations,Fast')]
+    procedure PersistedModelsRetainCoProducedSourceObservations;
+    [Test]
+    [Category('RefactoringLightObservations,Fast')]
     procedure CacheRefreshesEqualTextIncludeByteEvidence;
     [Test]
     [Category('RefactoringLightObservations,Fast')]
@@ -60,9 +63,10 @@ implementation
 
 uses
   System.Hash, System.IOUtils, System.SysUtils,
+  FireDAC.Comp.Client,
   AutoFree, maxLogic.IOUtils,
   DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Model,
-  DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.SourceContext,
+  DelphiSemantics.Model.Json, DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.SourceContext,
   Test.Support;
 
 var
@@ -217,6 +221,8 @@ var
   g: TGarbos;
   lCache: TDelphiSemanticSqliteUnitCache;
   lCacheOptions: TDelphiSemanticCacheOptions;
+  lConnection: TFDConnection;
+  lLegacyJson: string;
   lOptions: TDelphiSemanticModelOptions;
   lFirst, lSecond: TDelphiSemanticUnitCacheAccessResult;
   lPath: string;
@@ -232,12 +238,76 @@ begin
   GC(lCache, TDelphiSemanticSqliteUnitCache.Create(lCacheOptions), g);
   lFirst := lCache.GetOrExtractUnitModelWithStatus(lOptions);
   Assert.IsNotNull(lFirst.Model.SourceObservations);
+  // The generic legacy payload has no cache-owned co-produced observations.
+  lLegacyJson := ModelToJson(lFirst.Model);
+  lSecond := Default(TDelphiSemanticUnitCacheAccessResult);
+  lSecond.Model := JsonToModel(lLegacyJson);
+  Assert.IsNull(lSecond.Model.SourceObservations,
+    'A legacy serialized model has no co-produced observation evidence.');
+  g.Clear;
+  GC(lConnection, TFDConnection.Create(nil), g);
+  lConnection.LoginPrompt := False;
+  lConnection.Params.Values['DriverID'] := 'SQLite';
+  lConnection.Params.Values['Database'] := lCacheOptions.SqliteCacheFileName;
+  lConnection.Connected := True;
+  lConnection.ExecSQL('update unit_models set model_json = ?', [lLegacyJson]);
+  g.Clear;
+  GC(lCache, TDelphiSemanticSqliteUnitCache.Create(lCacheOptions), g);
+  lFirst := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+  Assert.IsFalse(lFirst.CacheHit, 'A legacy entry without observations must be reparsed.');
+  Assert.IsNotNull(lFirst.Model.SourceObservations);
+  Assert.AreEqual('Persisted', lFirst.Model.UnitName);
   g.Clear;
   GC(lCache, TDelphiSemanticSqliteUnitCache.Create(lCacheOptions), g);
   lSecond := lCache.GetOrExtractUnitModelWithStatus(lOptions);
   Assert.IsTrue(lSecond.CacheHit);
-  Assert.IsNull(lSecond.Model.SourceObservations,
-    'A legacy serialized model has no co-produced observation evidence.');
+  Assert.IsNotNull(lSecond.Model.SourceObservations);
+end;
+
+procedure TSourceLoaderTests.PersistedModelsRetainCoProducedSourceObservations;
+var
+  g: TGarbos;
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lCaptured, lReloaded: TDelphiSemanticSourceText;
+  lFresh: TDelphiSemanticSourceLoadResult;
+  lOptions: TDelphiSemanticModelOptions;
+  lFirst, lSecond: TDelphiSemanticUnitCacheAccessResult;
+  lPath: string;
+begin
+  g := Default(TGarbos);
+  lPath := ObservationPath('CoProduced.pas');
+  WriteUtf8Bytes(lPath, 'unit CoProduced; interface implementation end.');
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TPath.Combine(ExtractFilePath(lPath), 'models.sqlite3');
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  GC(lCache, TDelphiSemanticSqliteUnitCache.Create(lCacheOptions), g);
+  lFirst := lCache.GetOrBuildUnitModelWithStatus(lOptions,
+    function(const aBuildOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel
+    begin
+      Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(aBuildOptions);
+      // This captured role cannot come from the warm identity's fresh source read.
+      Result.SourceObservations := TDelphiSemanticSourceEvidence.WithRole(
+        Result.SourceObservations, 'co-produced-before-cache-store');
+    end);
+  Assert.IsFalse(lFirst.CacheHit);
+  Assert.IsTrue(lFirst.Model.SourceObservations.TryFind(lPath, lCaptured));
+  g.Clear;
+  lFresh := TDelphiSemanticSourceLoader.LoadFile(lPath);
+  Assert.AreNotEqual(lCaptured.Role, lFresh.Source.Role);
+  GC(lCache, TDelphiSemanticSqliteUnitCache.Create(lCacheOptions), g);
+  lSecond := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+  Assert.IsTrue(lSecond.CacheHit);
+  Assert.IsNotNull(lSecond.Model.SourceObservations);
+  Assert.IsTrue(lSecond.Model.SourceObservations.TryFind(lPath, lReloaded));
+  Assert.AreEqual(lCaptured.Role, lReloaded.Role);
+  Assert.AreEqual(lCaptured.ContentHash, lReloaded.ContentHash);
+  Assert.AreEqual(lCaptured.Text, lReloaded.Text);
+  Assert.AreEqual(lCaptured.EncodingName, lReloaded.EncodingName);
+  Assert.AreEqual(lCaptured.LineEndingName, lReloaded.LineEndingName);
+  Assert.AreEqual(lCaptured.LineBreak, lReloaded.LineBreak);
 end;
 
 procedure TSourceLoaderTests.CacheRefreshesEqualTextIncludeByteEvidence;

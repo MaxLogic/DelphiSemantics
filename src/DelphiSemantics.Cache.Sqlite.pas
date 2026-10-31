@@ -53,7 +53,7 @@ type
 
 const
   cPersistentKeysPerIdentity = 4;
-  cSqliteSchemaVersion = '9';
+  cSqliteSchemaVersion = '10';
   cUnitCacheSqliteBusyAttemptTimeoutMs = 250;
   cUnitCacheSqliteBusyRetryDelayMs = 50;
   cUnitCacheSqliteBusyTimeoutMs = 30000;
@@ -654,7 +654,7 @@ begin
     SetWideParam(lQuery, 13, aCacheIdentity.DefinesHash);
     SetWideParam(lQuery, 14, aCacheIdentity.SearchPathHash);
     SetWideParam(lQuery, 15, aCacheIdentity.ExtractionOptionsHash);
-    SetWideParam(lQuery, 16, ModelToJson(aModel), ftWideMemo);
+    SetWideParam(lQuery, 16, UnitCacheModelToJson(aModel), ftWideMemo);
     SetWideParam(lQuery, 17, UnitCacheUtcTimestamp);
     ExecuteUnitCacheStoreTransaction(lConnection, lQuery, aIdentity);
   finally
@@ -701,7 +701,7 @@ begin
   if lJson = '' then
     Exit(False);
   try
-    aModel := JsonToModel(lJson);
+    aModel := JsonToUnitCacheModel(lJson);
   except
     on E: Exception do
     begin

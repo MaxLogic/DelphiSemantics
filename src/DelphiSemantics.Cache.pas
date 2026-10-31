@@ -196,7 +196,7 @@ uses
   DelphiSemantics.Preprocess, DelphiSemantics.Version;
 
 const
-  cCacheSchemaVersion = '9';
+  cCacheSchemaVersion = '10';
   cDefaultCompilerProfileName = 'default';
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
@@ -834,8 +834,8 @@ begin
       lDictionary := fEntries;
       if lDictionary.TryGetValue(lIdentity, lEntry) then
       begin
-        if (lEntry.Key = lKey) and ((lEntry.Model.SourceObservations = nil) or
-          SourceObservationsMatch(lObservations, lEntry.Model.SourceObservations)) then
+        if (lEntry.Key = lKey) and
+          SourceObservationsMatch(lObservations, lEntry.Model.SourceObservations) then
         begin
           Inc(fMetrics.CacheHits);
           Result.CacheHit := True;
@@ -846,12 +846,13 @@ begin
         Inc(fMetrics.Invalidations);
       end;
 
-      if TryLoadPersistentEntry(lIdentity, lKey, Result.Model) then
+      if TryLoadPersistentEntry(lIdentity, lKey, Result.Model) and
+        SourceObservationsMatch(lObservations, Result.Model.SourceObservations) then
       begin
         Inc(fMetrics.CacheHits);
         Result.CacheHit := True;
-        // The key validates cache reuse, not parse provenance. A fresh read's
-        // observations were not co-produced with this deserialized model.
+        // Only evidence stored with this parse can authorize a warm model.
+        // The fresh identity read validates it and never supplies missing evidence.
         ValidateOwnedModel(Result);
         lEntry.Key := lKey;
         lEntry.Model := CloneUnitModel(Result.Model);
@@ -882,7 +883,9 @@ begin
       ValidateOwnedModel(Result);
       // Owner-enabled requests read existing entries but never persist partial
       // requests. Snapshot/facts caches are bypassed by our project session too.
-      if fObservationOwner <> nil then
+      if (fObservationOwner <> nil) or (Result.Model.SourceObservations = nil) then
+        Exit;
+      if Result.Model.SourceObservations.Count = 0 then
         Exit;
       lEntry.Key := lKey;
       lEntry.Model := CloneUnitModel(Result.Model);

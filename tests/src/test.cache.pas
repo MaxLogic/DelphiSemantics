@@ -477,8 +477,8 @@ begin
   try
     lIdentity := lCache.BuildIdentity(lModelOptions);
 
-    Assert.AreEqual('9', lIdentity.SchemaVersion,
-      'Lexical ownership fields changed the persisted unit-model shape.');
+    Assert.AreEqual('10', lIdentity.SchemaVersion,
+      'Co-produced source observations changed the persisted unit-model shape.');
     Assert.AreEqual('DelphiSemantics.Model.Parser.70', lIdentity.ParserVersion,
       'Separate scan witnesses require fresh model extraction without edit authority.');
     Assert.AreEqual(lIdentity.ParserVersion,

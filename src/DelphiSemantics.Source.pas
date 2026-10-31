@@ -30,6 +30,8 @@ type
 
   TDelphiSemanticSourceEvidence = record
   public
+    class function FromItems(const aItems: TArray<TDelphiSemanticSourceText>):
+      IDelphiSemanticSourceObservations; static;
     class function WithRole(const aSources: IDelphiSemanticSourceObservations;
       const aRole: string): IDelphiSemanticSourceObservations; static;
     class function TryMerge(const aLeft, aRight: IDelphiSemanticSourceObservations;
@@ -107,6 +109,12 @@ begin
       Exit(True);
     end;
   Result := False;
+end;
+
+class function TDelphiSemanticSourceEvidence.FromItems(
+  const aItems: TArray<TDelphiSemanticSourceText>): IDelphiSemanticSourceObservations;
+begin
+  Result := TSourceObservations.Create(aItems);
 end;
 
 class function TDelphiSemanticSourceEvidence.WithRole(

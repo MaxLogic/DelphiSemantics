@@ -7,11 +7,14 @@ uses
 
 function ModelToJson(const aModel: TDelphiSemanticUnitModel): string;
 function JsonToModel(const aJson: string): TDelphiSemanticUnitModel;
+function UnitCacheModelToJson(const aModel: TDelphiSemanticUnitModel): string;
+function JsonToUnitCacheModel(const aJson: string): TDelphiSemanticUnitModel;
 
 implementation
 
 uses
-  System.JSON, System.StrUtils, System.SysUtils;
+  System.JSON, System.JSON.Serializers, System.StrUtils, System.SysUtils,
+  DelphiSemantics.Source;
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -987,6 +990,76 @@ begin
     Result.RejectedDeclarationCount := JsonInt(lObject, 'RejectedDeclarationCount');
   finally
     lValue.Free;
+  end;
+end;
+
+// Cache-only envelope: model fingerprints and generic legacy JSON stay unchanged.
+// The parse, observations and include roles are published in one SQLite row.
+function UnitCacheModelToJson(const aModel: TDelphiSemanticUnitModel): string;
+var
+  i: Integer;
+  lItems: TArray<TDelphiSemanticSourceText>;
+  lObject: TJSONObject;
+  lSerializer: TJsonSerializer;
+begin
+  lObject := TJSONObject.ParseJSONValue(ModelToJson(aModel)) as TJSONObject;
+  try
+    lSerializer := TJsonSerializer.Create;
+    try
+      if aModel.SourceObservations <> nil then
+      begin
+        SetLength(lItems, aModel.SourceObservations.Count);
+        for i := 0 to High(lItems) do
+          lItems[i] := aModel.SourceObservations.Items[i];
+      end;
+      lObject.AddPair('SourceObservations', TJSONObject.ParseJSONValue(
+        lSerializer.Serialize<TArray<TDelphiSemanticSourceText>>(lItems)));
+      lObject.AddPair('IncludeFileNames', TJSONObject.ParseJSONValue(
+        lSerializer.Serialize<TArray<string>>(aModel.IncludeFileNames)));
+      lObject.AddPair('SkippedIncludeFileNames', TJSONObject.ParseJSONValue(
+        lSerializer.Serialize<TArray<string>>(aModel.SkippedIncludeFileNames)));
+      Result := lObject.ToJSON;
+    finally
+      lSerializer.Free;
+    end;
+  finally
+    lObject.Free;
+  end;
+end;
+
+function JsonToUnitCacheModel(const aJson: string): TDelphiSemanticUnitModel;
+var
+  lItems: TArray<TDelphiSemanticSourceText>;
+  lObject: TJSONObject;
+  lSerializer: TJsonSerializer;
+  lValue: TJSONValue;
+begin
+  Result := JsonToModel(aJson);
+  lObject := TJSONObject.ParseJSONValue(aJson) as TJSONObject;
+  try
+    lValue := lObject.GetValue('SourceObservations');
+    // Legacy or incomplete payloads retain nil evidence and become cache misses.
+    if not (lValue is TJSONArray) then
+      Exit;
+    lSerializer := TJsonSerializer.Create;
+    try
+      lItems := lSerializer.Deserialize<TArray<TDelphiSemanticSourceText>>(lValue.ToJSON);
+      if Length(lItems) = 0 then
+        Exit;
+      lValue := lObject.GetValue('IncludeFileNames');
+      if not (lValue is TJSONArray) then
+        Exit;
+      Result.IncludeFileNames := lSerializer.Deserialize<TArray<string>>(lValue.ToJSON);
+      lValue := lObject.GetValue('SkippedIncludeFileNames');
+      if not (lValue is TJSONArray) then
+        Exit;
+      Result.SkippedIncludeFileNames := lSerializer.Deserialize<TArray<string>>(lValue.ToJSON);
+      Result.SourceObservations := TDelphiSemanticSourceEvidence.FromItems(lItems);
+    finally
+      lSerializer.Free;
+    end;
+  finally
+    lObject.Free;
   end;
 end;
 
