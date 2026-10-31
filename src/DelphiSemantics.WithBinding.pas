@@ -4146,27 +4146,22 @@ begin
     Exit(TMemberVerdict.Barrier(noUnproved, lRefusalCode,
       'The receiver member absence is not verified.', 'absence'));
   end;
-  lOpen := not lLineage.Complete or (Length(lHelpers.Levels) = 0);
+  // A validated root proof closes only the external boundary of a verified
+  // prefix. Each open project helper level remains an independent obligation.
+  lOpen := ((not lLineage.Complete) and (lRootProof.Kind = rapNone)) or
+    (Length(lHelpers.Levels) = 0);
   for i := 0 to High(lHelpers.Levels) do
     if lHelpers.OpenFromLevel <= i then
     begin
-      // Root proofs clear only upper levels. Closed-source proof includes
-      // the existing recursive site/owner closure checks; named proof retains
-      // its exact site scope. An empty list never stands in for either proof.
+      // Project levels need their own helper proof. The named provider was
+      // queried with this exact model's validated external imports, including
+      // an empty set where all project imports were checked separately.
       if lHelpers.Levels[i].ProjectOwned then
         lOpen := True
       else
         case lRootProof.Kind of
           rapClosedSourceRoot: ;
-          rapNamedSiteScopedRoot:
-            begin
-              if Length(lRootProof.SiteUnits) = 0 then
-                lOpen := True;
-              for var lUnitName in aModel.DependencyFacts.InterfaceImports +
-                aModel.DependencyFacts.ImplementationImports do
-                if not MatchText(lUnitName, lRootProof.SiteUnits) then
-                  lOpen := True;
-            end;
+          rapNamedSiteScopedRoot: ;
         else
           lOpen := True;
         end;
@@ -6420,6 +6415,10 @@ begin
     end;
   if SameText(Result.Cause, 'alias-unresolved') and (Length(Result.Items) > 0) then
   begin
+    // A profile tail is an alias boundary, not evidence for a class ancestor.
+    for lIdentity in Result.Items do
+      if not SameText(lIdentity.Kind, 'type-alias') then
+        Exit;
     lIdentity := Result.Items[High(Result.Items)];
     lTargetName := AliasTargetTypeName(lIdentity, lStrong);
     // Preserve the positive compiler-profile boundary from the old walk.
@@ -6635,14 +6634,25 @@ var
 begin
   Result := False;
   aUnits := nil;
-  if not ModelIsClosedForRootProof(aModel) then
+  if (not ModelIsClosedForRootProof(aModel)) or
+    (not aModel.DependencyFacts.Known) then
     Exit;
-  lUses := fTypeIndex.VisibleUnitNames(aModel.UnitName, 'interface');
+  // The exact source model owns this scope. An index selected by unit name
+  // may represent a different file and must not silently drop its imports.
+  lUses := Copy(aModel.DependencyFacts.InterfaceImports);
   if aIncludeImplementation then
-    lUses := lUses + aModel.ImplementationUses;
+    lUses := lUses + aModel.DependencyFacts.ImplementationImports;
+  if (Length(lUses) = 0) and (Length(aModel.DependencyFacts.RootImports) > 0) then
+    lUses := Copy(aModel.DependencyFacts.RootImports);
+  if ((Length(aModel.InterfaceUses) > 0) or
+    (aIncludeImplementation and (Length(aModel.ImplementationUses) > 0))) and
+    (Length(lUses) = 0) then
+    Exit;
   // Unknown imports cannot be supplied as a unit name to an absence provider.
   if MatchText('<imports-unproved>', lUses) then
     Exit;
+  // Empty means no external units remain after each project import is checked.
+  // Unknown or dropped imports above cannot certify an empty scope.
   for lUsedUnit in lUses do
     if fSafetyModelsByUnit.TryGetValue(lUsedUnit, lIndexes) then
     begin
@@ -7419,8 +7429,7 @@ begin
       if Result then
         aRootProof.Kind := rapClosedSourceRoot;
     end else begin
-      if (lNamed = nil) or (not TryRootProofUnits(aModel, True, lSiteUnits)) or
-        (Length(lSiteUnits) = 0) then
+      if (lNamed = nil) or (not TryRootProofUnits(aModel, True, lSiteUnits)) then
         Exit;
       // Validate every project declaration, but keep its imported helpers out
       // of the site scope. The root-most declaration captures its own helper.
