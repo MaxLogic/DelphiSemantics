@@ -249,6 +249,10 @@ type
       const aOwn: Boolean; const aExactSite: Boolean = False): TDelphiSemanticTypeResolution;
     function WeakAliasTerminal(const aIdentity: TDelphiSemanticTypeIdentity;
       out aTerminal: TDelphiSemanticTypeIdentity): Boolean;
+    function HelperReceiverTerminal(const aIdentity: TDelphiSemanticTypeIdentity;
+      out aTerminal: TDelphiSemanticTypeIdentity; out aIndirect: Boolean): Boolean;
+    function HelperApplicabilityLineage(const aLineage: TDelphiSemanticLineage):
+      TDelphiSemanticLineage;
     function CompareWeakAliasTargets(const aLeft, aRight: TDelphiSemanticTypeIdentity):
       TDelphiSemanticNameOutcome;
     function RoutineScopePath(const aSite: TDelphiSemanticNameSite;
@@ -934,6 +938,83 @@ begin
   end;
 end;
 
+function ConstructedAlias(const aIdentity: TDelphiSemanticTypeIdentity): Boolean;
+var
+  lName: string;
+begin
+  lName := aIdentity.CanonicalName.Trim;
+  Result := SameText(aIdentity.Kind, 'type-alias') and
+    (SameText(lName, 'string') or StartsText('string[', lName) or
+    StartsText('array ', lName) or StartsText('array[', lName) or
+    StartsText('packed array', lName) or StartsText('set of ', lName) or
+    SameText(lName, 'file') or StartsText('file of ', lName));
+end;
+
+function TDelphiSemanticTypeIdentityIndexData.HelperReceiverTerminal(
+  const aIdentity: TDelphiSemanticTypeIdentity;
+  out aTerminal: TDelphiSemanticTypeIdentity; out aIndirect: Boolean): Boolean;
+var
+  lCurrent, lNext: TDelphiSemanticTypeIdentity;
+  lLookup: TDelphiSemanticTypeResolution;
+  lName: string;
+  lVisited: THashSet<string>;
+begin
+  aTerminal := Default(TDelphiSemanticTypeIdentity);
+  aIndirect := False;
+  lCurrent := aIdentity;
+  lVisited := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  try
+    repeat
+      if (lCurrent.DeclaredId.Value = '') or not lVisited.Add(lCurrent.DeclaredId.Value) then
+        Exit(False);
+      lName := lCurrent.CanonicalName.Trim;
+      if not SameText(lCurrent.Kind, 'type-alias') or ConstructedAlias(lCurrent) or
+        ((Length(lName) > 4) and SameText(Copy(lName, 1, 4), 'type') and
+        CharInSet(lName[5], [#9, #10, #13, ' '])) then
+      begin
+        aTerminal := lCurrent;
+        Exit(True);
+      end;
+      if StartsText('^', lName) then
+      begin
+        // Implicit dereference is a receiver operation. A helper's own pointer
+        // target remains unproved in CompareWeakAliasTargets.
+        lLookup := ResolveTypeAt(TDelphiSemanticNameSites.AtTypeIdentity(lCurrent),
+          Copy(lName, 2, MaxInt).Trim);
+        if lLookup.Outcome <> noResolved then
+          Exit(False);
+        lNext := lLookup.Identity;
+        aIndirect := True;
+      end else if not TryResolveAliasTarget(lCurrent, lNext) then
+        Exit(False);
+      lCurrent := lNext;
+    until False;
+  finally
+    lVisited.Free;
+  end;
+end;
+
+function TDelphiSemanticTypeIdentityIndexData.HelperApplicabilityLineage(
+  const aLineage: TDelphiSemanticLineage): TDelphiSemanticLineage;
+var
+  lTerminal: TDelphiSemanticTypeIdentity;
+  lIndirect: Boolean;
+begin
+  Result := aLineage;
+  if (Length(aLineage.Items) = 0) or
+    not HelperReceiverTerminal(aLineage.Items[0], lTerminal, lIndirect) then
+    Exit;
+  if lIndirect then
+    Result := ResolveLineage(lTerminal);
+  if ConstructedAlias(lTerminal) then
+  begin
+    Result := Default(TDelphiSemanticLineage);
+    Result.Items := [lTerminal];
+    Result.StrongAliasAt := -1;
+    Result.Complete := True;
+  end;
+end;
+
 function TDelphiSemanticTypeIdentityIndexData.WeakAliasTerminal(
   const aIdentity: TDelphiSemanticTypeIdentity;
   out aTerminal: TDelphiSemanticTypeIdentity): Boolean;
@@ -959,6 +1040,11 @@ begin
         aTerminal := lCurrent;
         Exit(True);
       end;
+      if ConstructedAlias(lCurrent) then
+      begin
+        aTerminal := lCurrent;
+        Exit(True);
+      end;
       if not TryResolveAliasTarget(lCurrent, lNext) then
         Exit(False);
       lCurrent := lNext;
@@ -977,6 +1063,14 @@ begin
     Exit(TDelphiSemanticNameOutcome.noUnproved);
   if SameText(lLeft.DeclaredId.Value, lRight.DeclaredId.Value) then
     Exit(TDelphiSemanticNameOutcome.noResolved);
+  // Separate constructed declarations are not evidence of distinct types.
+  if ConstructedAlias(lLeft) and ConstructedAlias(lRight) then
+    Exit(TDelphiSemanticNameOutcome.noUnproved);
+  if (ConstructedAlias(lLeft) and not MatchText(lRight.CanonicalName,
+    ['class', 'record', 'packed record', 'object', 'interface'])) or
+    (ConstructedAlias(lRight) and not MatchText(lLeft.CanonicalName,
+    ['class', 'record', 'packed record', 'object', 'interface'])) then
+    Exit(TDelphiSemanticNameOutcome.noUnproved);
   Result := TDelphiSemanticNameOutcome.noAbsent;
 end;
 
@@ -985,25 +1079,29 @@ function TDelphiSemanticTypeIdentityIndexData.ResolveHelperInUnit(
   const aUnitName: string; const aOwn, aExactSite: Boolean): TDelphiSemanticTypeResolution;
 var
   lCandidates: TArray<TDelphiSemanticTypeIdentity>;
+  lTarget: TDelphiSemanticTypeIdentity;
+  lIndirect: Boolean;
   lMatch: TDelphiSemanticNameOutcome;
 begin
-  Result := NameResolution(noAbsent, '', 'helper:' + aUnitName, aTarget.Name);
+  if not HelperReceiverTerminal(aTarget, lTarget, lIndirect) then
+    Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
+  Result := NameResolution(noAbsent, '', 'helper:' + aUnitName, lTarget.Name);
   var lHelperUnit: TDelphiSemanticGraphUnit;
   if aOwn and aExactSite then
   begin
     if not FindHelperSiteUnit(aSite, lHelperUnit) then
-      Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
+      Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, lTarget.Name));
   end else if not fUnits.TryGetValue(aUnitName, lHelperUnit) then
     Exit;
   begin
     if not lHelperUnit.HelperFactsKnown then
-      Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
+      Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, lTarget.Name));
     for var lHelperFact in lHelperUnit.UnindexedHelpers do
     begin
       if ((not aOwn) and (not SameText(lHelperFact.SectionKind, 'interface') or
         not SameText(lHelperFact.ScopeKind, 'unit'))) or
         (SameText(lHelperFact.HelperKind, 'class') and
-        MatchText(aTarget.UnderlyingName, ['record', 'packed record'])) then
+        MatchText(lTarget.UnderlyingName, ['record', 'packed record'])) then
         Continue;
       var lHelperSite := TDelphiSemanticNameSites.AtUnindexedHelper(lHelperUnit, lHelperFact);
       if aOwn then
@@ -1017,23 +1115,23 @@ begin
           Continue;
       end;
       if (lHelperFact.TargetName = '') or (lHelperFact.HelperKind = '') then
-        Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
+        Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, lTarget.Name));
       var lResolved := ResolveTypeAt(lHelperSite, lHelperFact.TargetName);
       case lResolved.Outcome of
         noResolved:
         begin
-          lMatch := CompareWeakAliasTargets(lResolved.Identity, aTarget);
+          lMatch := CompareWeakAliasTargets(lResolved.Identity, lTarget);
           if lMatch = TDelphiSemanticNameOutcome.noUnproved then
-            Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
+            Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, lTarget.Name));
           if lMatch = TDelphiSemanticNameOutcome.noResolved then
-            Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
+            Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, lTarget.Name));
         end;
         noUnproved, noAmbiguous:
-          Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
+          Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, lTarget.Name));
         noAbsent:
           // A missing identity cannot establish an unsupported helper's target.
-          if SameText(lHelperFact.TargetName, aTarget.Name) then
-            Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
+          if SameText(lHelperFact.TargetName, lTarget.Name) then
+            Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, lTarget.Name));
       end;
     end;
   end;
@@ -1049,7 +1147,7 @@ begin
     begin
       var lVisible := VisibleAt(aSite, lHelper.SourceRange, False);
       if lVisible < 0 then
-        Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
+        Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, lTarget.Name));
       if lVisible = 0 then
         Continue;
     end;
@@ -1058,14 +1156,14 @@ begin
     case lResolved.Outcome of
       noResolved:
       begin
-        lMatch := CompareWeakAliasTargets(lResolved.Identity, aTarget);
+        lMatch := CompareWeakAliasTargets(lResolved.Identity, lTarget);
         if lMatch = TDelphiSemanticNameOutcome.noUnproved then
-          Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
+          Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, lTarget.Name));
         if lMatch = TDelphiSemanticNameOutcome.noResolved then
           lCandidates := lCandidates + [lHelper];
       end;
       noUnproved, noAmbiguous:
-        Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
+        Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, lTarget.Name));
       noAbsent: ;
     end;
   end;
@@ -1076,7 +1174,7 @@ begin
     Result.ReasonCode := '';
   end else if Length(lCandidates) > 1 then
   begin
-    Result := NameResolution(noAmbiguous, '', 'helper:' + aUnitName, aTarget.Name);
+    Result := NameResolution(noAmbiguous, '', 'helper:' + aUnitName, lTarget.Name);
     Result.Candidates := lCandidates;
   end;
 end;
@@ -1201,6 +1299,7 @@ function TDelphiSemanticTypeIdentityIndexData.ResolveHelpersAt(
   const aLineage: TDelphiSemanticLineage; const aSite: TDelphiSemanticNameSite):
   TDelphiSemanticHelperResolution;
 var
+  lLineage: TDelphiSemanticLineage;
   lIdentity, lTerminal, lParent: TDelphiSemanticTypeIdentity;
   lLevel: TDelphiSemanticHelperLevel;
   lLookup: TDelphiSemanticTypeResolution;
@@ -1218,9 +1317,10 @@ var
   end;
 
 begin
+  lLineage := HelperApplicabilityLineage(aLineage);
   Result := Default(TDelphiSemanticHelperResolution);
   Result.OpenFromLevel := MaxInt;
-  for lIdentity in aLineage.Items do
+  for lIdentity in lLineage.Items do
   begin
     if not WeakAliasTerminal(lIdentity, lTerminal) then
     begin
@@ -1232,20 +1332,20 @@ begin
     lLevel := Default(TDelphiSemanticHelperLevel);
     lLevel.Identity := lIdentity;
     lLevel.Outcome := noAbsent;
-    lLevel.ProjectOwned := ProjectOwnedTo(aLineage, Length(Result.Levels));
+    lLevel.ProjectOwned := ProjectOwnedTo(lLineage, Length(Result.Levels));
     Result.Levels := Result.Levels + [lLevel];
   end;
   // The unindexed root is a level too, but it has no declaration identity.
-  if (aLineage.ImplicitRoot <> '') and not aLineage.RootIndexed then
+  if (lLineage.ImplicitRoot <> '') and not lLineage.RootIndexed then
   begin
     lLevel := Default(TDelphiSemanticHelperLevel);
-    lLevel.Identity.Name := aLineage.ImplicitRoot;
+    lLevel.Identity.Name := lLineage.ImplicitRoot;
     lLevel.Outcome := noUnproved;
     lLevel.Cause := 'helper-unknown';
     Result.Levels := Result.Levels + [lLevel];
     OpenLevel(High(Result.Levels));
   end;
-  if not aLineage.Complete then
+  if not lLineage.Complete then
     OpenLevel(Length(Result.Levels));
   if not FindHelperSiteUnit(aSite, lUnit) or
     not lUnit.HelperScopeKnown then

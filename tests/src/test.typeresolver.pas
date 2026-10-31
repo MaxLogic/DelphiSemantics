@@ -202,6 +202,19 @@ type
     procedure HelperMatchesWeakAliasTerminal(const aShape: string; const aMatches: Boolean);
 
     [Category('Fast')]
+    [TestCase('ShortStringNotRecord', 'shortstring,absent')]
+    [TestCase('RecordNotShortString', 'reverse,absent')]
+    [TestCase('SameConstructedAlias', 'same,resolved')]
+    [TestCase('DifferentConstructedAliases', 'different,unproved')]
+    [TestCase('UnresolvedAlias', 'missing,unproved')]
+    [TestCase('PointerHopHelper', 'pointer,resolved')]
+    [TestCase('WeakPointerHopHelper', 'pointer-chain,resolved')]
+    [TestCase('MissingPointee', 'pointer-missing,unproved')]
+    [TestCase('PointerHelperTarget', 'pointer-target,unproved')]
+    procedure HelperTargetKinds(const aShape, aExpected: string);
+
+
+    [Category('Fast')]
     [TestCase('ImplicitClass', 'class,True,,System.TObject,False,1,-1')]
     [TestCase('ExplicitObject', 'object,True,,System.TObject,False,1,-1')]
     [TestCase('ImplicitInterface', 'interface,True,,System.IInterface,False,1,-1')]
@@ -2322,6 +2335,102 @@ begin
     end else begin
       Assert.IsFalse(lResult.Outcome = TDelphiSemanticNameOutcome.noResolved,
         'A strong alias boundary cannot match the underlying record.');
+    end;
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TTypeResolverTests.HelperTargetKinds(const aShape, aExpected: string);
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath, lReceiver, lTarget: string;
+  lResult: TDelphiSemanticTypeResolution;
+  lHelpers: TDelphiSemanticHelperResolution;
+  lSite: TDelphiSemanticNameSite;
+  lWith: TDelphiSemanticWithStatement;
+begin
+  lReceiver := 'TRec';
+  lTarget := 'TShort';
+  if aShape = 'reverse' then
+  begin
+    lReceiver := 'TShort';
+    lTarget := 'TRec';
+  end else if aShape = 'same' then
+  begin
+    lReceiver := 'TShort';
+    lTarget := 'TShort';
+  end else if aShape = 'different' then
+  begin
+    lReceiver := 'TOtherShort';
+  end else if aShape = 'missing' then
+    lTarget := 'TMissingAlias'
+  else if aShape = 'pointer-target' then
+    lTarget := 'PRec'
+  else if aShape = 'pointer-missing' then
+  begin
+    lReceiver := 'PMissing';
+    lTarget := 'TRec';
+  end else if aShape = 'pointer-chain' then
+  begin
+    lReceiver := 'PAlias';
+    lTarget := 'TRec';
+  end else if aShape = 'pointer' then
+  begin
+    lReceiver := 'PRec';
+    lTarget := 'TRec';
+  end;
+  lPath := TPath.Combine(CreateTestTempRoot('ds719-helper-kind-temp'), 'HelperKinds.pas');
+  TFile.WriteAllText(lPath, 'unit HelperKinds;'#13#10'interface'#13#10'type'#13#10 +
+    '  TRec = record X: Integer; end;'#13#10 +
+    '  TShort = string[255];'#13#10'  TOtherShort = string[255];'#13#10 +
+    '  PRec = ^TRec;'#13#10'  PAlias = PRec;'#13#10 +
+    '  PMissing = ^TNotDeclared;'#13#10'  TMissingAlias = TNotDeclared;'#13#10 +
+    '  THelp = record helper for ' + lTarget + #13#10 +
+    '    function Next: TRec;'#13#10'  end;'#13#10 +
+    'implementation'#13#10'function THelp.Next: TRec;'#13#10 +
+    'begin Result.X := 19; end;'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lIdentity := lIndex.ResolveQualifiedName('HelperKinds.' + lReceiver).Identity;
+    Assert.IsTrue(lIdentity.DeclaredId.Value <> '');
+    lWith := Default(TDelphiSemanticWithStatement);
+    lWith.Line := 100;
+    lWith.Column := 1;
+    lSite := TDelphiSemanticNameSites.AtWithStatement(lModel, lWith, '',
+      Default(TDelphiSemanticGraphTypeId));
+    lResult := lIndex.ResolveActiveHelperAt(lIdentity.DeclaredId, lSite);
+    if aExpected = 'resolved' then
+      Assert.IsTrue(lResult.Outcome = noResolved, 'active helper: ' + lResult.Reason)
+    else if aExpected = 'absent' then
+      Assert.IsTrue(lResult.Outcome = noAbsent, 'active helper: ' + lResult.Reason)
+    else
+      Assert.IsTrue(lResult.Outcome = noUnproved, 'active helper: ' + lResult.Reason);
+    lHelpers := lIndex.ResolveHelpersAt(lIndex.ResolveLineage(lIdentity), lSite);
+    if aExpected = 'unproved' then
+      Assert.IsTrue(lHelpers.OpenFromLevel = 0, 'Unproved applicability must stay open.')
+    else begin
+      Assert.AreEqual(1, Integer(Length(lHelpers.Levels)));
+      Assert.AreEqual(MaxInt, lHelpers.OpenFromLevel);
+      if aExpected = 'resolved' then
+      begin
+        Assert.IsTrue(lHelpers.Levels[0].Outcome = noResolved);
+        Assert.AreEqual('THelp', lHelpers.Levels[0].Chain[0].Name);
+        if StartsText('pointer', aShape) then
+          Assert.AreEqual('TRec', lHelpers.Levels[0].Identity.Name,
+            'Pointer applicability uses the declaration-site pointee.');
+      end else
+        Assert.IsTrue(lHelpers.Levels[0].Outcome = noAbsent);
     end;
   finally
     lGraph.Free;

@@ -557,6 +557,30 @@ def denial_cases(root):
     return cases
 
 
+def helper_kind_cases(root):
+    cases = []
+    folder = root / 'helper-shortstring-not-record'
+    write(folder / 'Unit1.pas', 'unit Unit1;\ninterface\n'
+          'type TRec = record X: Integer; end;\nTShort = string[255];\n'
+          'THelp = record helper for TShort function Count: Integer; end;\n'
+          'procedure Run;\nimplementation\n'
+          'function THelp.Count: Integer; begin Result := 19; end;\n'
+          'procedure Run; var R: TRec; begin with R do Writeln(Count); end;\nend.\n')
+    project(folder, ['Unit1'])
+    cases.append(dict(name=folder.name, root=str(folder), family='helper-kind', expected_native_error='E2003'))
+    folder = root / 'pointer-hop-helper'
+    write(folder / 'Unit1.pas', 'unit Unit1;\ninterface\n'
+          'type TRec = record X: Integer; end;\nPRec = ^TRec;\n'
+          'THelp = record helper for TRec function Next: TRec; end;\n'
+          'procedure Run;\nimplementation\n'
+          'function THelp.Next: TRec; begin Result.X := 19; end;\n'
+          'procedure Run;\nvar\n  R: TRec;\n  P: PRec;\nbegin\n  P := @R;\n'
+          '  with P.Next do Writeln(X);\nend;\nend.\n')
+    project(folder, ['Unit1'])
+    cases.append(dict(name=folder.name, root=str(folder), family='helper-kind', expected_native_output='19\r\n'))
+    return cases
+
+
 def generate(repo, root, full, only=""):
     cases = []
     for si, shape in enumerate(SHAPES):
@@ -671,6 +695,7 @@ def generate(repo, root, full, only=""):
             cases.append({"name": shape, "root": str(folder), "family": "anonymous-record-E2003"})
     cases.extend(r7_cases(repo, root))
     cases.extend(denial_cases(root))
+    cases.extend(helper_kind_cases(root))
     if full:
         cases.extend(r8_cases(repo, root))
         # DS-719 recovery 3q: the paired-control obligation is separate from
@@ -1080,10 +1105,29 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
         assert targets, ('No WITH targets in case', case['name'])
         source = {p: p.read_bytes() for p in folder.rglob('*.pas')}
         original = native(folder, bds, 'original')
+        if case.get('expected_native_error'):
+            code = case['expected_native_error']
+            build = original['build']
+            if build['exit'] == 0 or code not in build['stdout'] + build['stderr']:
+                failure(case, None, 'oracle', 'expected-native-error-missing', expected=code, native=original)
+            for route in case.get('routes', list(range(5))):
+                plan, statements, selectors = load(case, route)
+                if plan is None:
+                    continue
+                planned = any(s['status'] == 'planned' for s in plan['statements'])
+                if planned:
+                    failure(case, route, 4, 'invalid-original-planned', native=original)
+                rows.append(dict(case=case['name'], route=route, planned=planned,
+                                 family=case['family'], original=original,
+                                 expected_native_error=code,
+                                 refused_statements=sum(s['status'] != 'planned' for s in plan['statements'])))
+            continue
         if original['build']['exit'] or original['runtime']['exit']:
             failure(case, None, 'oracle', 'original-compile-or-run', native=original)
             continue
         output = original['runtime']['stdout']
+        if 'expected_native_output' in case and output != case['expected_native_output']:
+            failure(case, None, 'oracle', 'original-output', expected=case['expected_native_output'], actual=output)
         if case.get('binding_contrast'):
             path = folder/'Unit1.pas'; raw = path.read_bytes()
             before, after = case['binding_contrast']
