@@ -64,6 +64,7 @@ type
     SourceObservations: IDelphiSemanticSourceObservations;
     Regions: TArray<TDelphiSemanticSourceRegion>;
     Includes: TArray<TDelphiSemanticIncludeFile>;
+    SkippedIncludeFileNames: TArray<string>;
     // One entry per OutputText line, in order.
     LineOrigins: TArray<TDelphiSemanticSourceLineOrigin>;
     CopiedSourceSpans: TArray<TDelphiSemanticCopiedSourceSpan>;
@@ -88,7 +89,7 @@ function TryReadShortCompilerSwitch(const aDirective: string; const aSwitch: Cha
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Classes, System.Generics.Collections, System.IOUtils, System.RegularExpressions, System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types;
 
 type
@@ -103,6 +104,7 @@ type
     AllSymbolsUnknown: Boolean;
     HasUnknownActivity: Boolean;
     ActivityComplete: Boolean;
+    SkippedIncludes: TList<string>;
     NextId: Integer;
     constructor Create;
     destructor Destroy; override;
@@ -128,6 +130,7 @@ constructor TPreprocessCapture.Create;
 begin
   inherited Create;
   ActivityComplete := True;
+  SkippedIncludes := TList<string>.Create;
   Spans := TList<TDelphiSemanticCopiedSourceSpan>.Create;
   ActivitySpans := TList<TDelphiSemanticActivitySpan>.Create;
   UnknownSymbols := TDictionary<string, Boolean>.Create;
@@ -135,6 +138,7 @@ end;
 
 destructor TPreprocessCapture.Destroy;
 begin
+  SkippedIncludes.Free;
   UnknownSymbols.Free;
   ActivitySpans.Free;
   Spans.Free;
@@ -711,6 +715,63 @@ begin
 
   aFileName := '';
   Result := False;
+end;
+
+procedure RecordSkippedInclude(const aName, aDirectory: string;
+  const aOptions: TDelphiSemanticPreprocessOptions;
+  const aCapture: TPreprocessCapture; const aSources: TSourceTextCache);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lCandidates: TList<string>;
+  lCandidate, lDirectory, lArgument: string;
+  lSource: TDelphiSemanticSourceLoadResult;
+  lMatch: TMatch;
+begin
+  if aCapture.SkippedIncludes.Count >= 256 then
+    Exit; // Bounded recursion fails closed when the child is not recorded.
+  lCandidates := TList<string>.Create;
+  try
+    lOptions := Default(TDelphiSemanticPreprocessOptions);
+    for lDirectory in [aDirectory] + aOptions.SearchPaths do
+      if ResolveIncludeFileName(aName, lDirectory, lOptions, lCandidate) and
+        not MatchText(lCandidate, lCandidates.ToArray) then
+        lCandidates.Add(lCandidate);
+    for lCandidate in lCandidates do
+    begin
+      if MatchText(lCandidate, aCapture.SkippedIncludes.ToArray) then
+        Continue;
+      aCapture.SkippedIncludes.Add(lCandidate);
+      if not aSources.TryGetValue(lCandidate, lSource) then
+      begin
+        try
+          lSource := TDelphiSemanticSourceLoader.LoadFile(lCandidate);
+        except
+          // A skipped unreadable candidate withholds proof, not AST success.
+          on E: EFOpenError do Continue;
+          on E: EInOutError do Continue;
+        end;
+        if lSource.Success then
+          aSources.Add(lCandidate, lSource);
+      end;
+      if not lSource.Success then
+        Continue; // Unreadable candidates are recorded but supply no byte proof.
+      // Skipped files need not lex as Delphi. Recognize directives in raw text;
+      // extra apparent directives can only withhold this absence proof.
+      for lMatch in TRegEx.Matches(lSource.Source.Text,
+        '\{\$([^}]*)\}|\(\*\$([\s\S]*?)\*\)', [roIgnoreCase]) do
+      begin
+        if lMatch.Groups[1].Success then
+          lArgument := TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(lMatch.Groups[1].Value)
+        else
+          lArgument := TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(lMatch.Groups[2].Value);
+        if lArgument <> '' then
+          RecordSkippedInclude(lArgument, ExtractFilePath(lCandidate), aOptions,
+            aCapture, aSources);
+      end;
+    end;
+  finally
+    lCandidates.Free;
+  end;
 end;
 
 function IsCompilerSwitchDirective(const aDirective: string): Boolean; forward;
@@ -1385,7 +1446,11 @@ begin
     if lIncludeName <> '' then
     begin
       if CurrentActivity(aStack) = saInactive then
+      begin
+        RecordSkippedInclude(lIncludeName, ExtractFilePath(aFileName), aOptions,
+          aContext.Capture, aSourceCache);
         Exit(True);
+      end;
       lEmitInclude := CurrentActive(aStack);
 
       if not ResolveIncludeFileName(lIncludeName, TPath.GetDirectoryName(aFileName), aOptions,
@@ -1522,7 +1587,9 @@ var
   lSourceCache: TSourceTextCache;
   lSourceLoad: TDelphiSemanticSourceLoadResult;
   lCombined: IDelphiSemanticSourceObservations;
-  lObservationError: string;
+  lObservationError, lRole, lSkippedHash: string;
+  lSources: IDelphiSemanticSourceObservations;
+  lInclude: TDelphiSemanticIncludeFile;
   lStack: TList<TPreprocessFrame>;
   lSuccess: Boolean;
 begin
@@ -1564,11 +1631,24 @@ begin
         'Unterminated conditional directive stack.', aOptions.SourceFileName, 0);
       lSuccess := False;
     end;
+    lSkippedHash := '';
     for lSourceLoad in lSourceCache.Values do
+    begin
+      lRole := 'include';
+      if SameText(lSourceLoad.Source.FileName, TPath.GetFullPath(aOptions.SourceFileName)) then
+        lRole := 'source'
+      else if MatchText(lSourceLoad.Source.FileName, lCapture.SkippedIncludes.ToArray) then
+      begin
+        lRole := 'skipped-include';
+        for lInclude in lIncludes do
+          if SameText(lInclude.FileName, lSourceLoad.Source.FileName) then
+            lRole := 'include';
+      end;
+      lSources := TDelphiSemanticSourceEvidence.WithRole(lSourceLoad.SourceObservations, lRole);
       if Result.SourceObservations = nil then
-        Result.SourceObservations := lSourceLoad.SourceObservations
+        Result.SourceObservations := lSources
       else if TDelphiSemanticSourceEvidence.TryMerge(Result.SourceObservations,
-        lSourceLoad.SourceObservations, lCombined, lObservationError) then
+        lSources, lCombined, lObservationError) then
         Result.SourceObservations := lCombined
       else begin
         AddDiagnostic(lDiagnostics, lObservationError,
@@ -1578,9 +1658,22 @@ begin
         lSuccess := False;
         Break;
       end;
+    end;
+    Result.SkippedIncludeFileNames := lCapture.SkippedIncludes.ToArray;
+    // Identity also covers failed reads and candidate multiplicity. A newly
+    // created or removed skipped candidate changes the next preprocess identity.
+    lCapture.SkippedIncludes.Sort;
+    for lRole in lCapture.SkippedIncludes do
+    begin
+      lSkippedHash := lSkippedHash + lRole + #10;
+      if lSourceCache.TryGetValue(lRole, lSourceLoad) then
+        lSkippedHash := lSkippedHash + lSourceLoad.Source.ContentHash + #10;
+    end;
     Result.Success := lSuccess;
     Result.OutputText := lOutput.ToString;
     Result.IncludeGraphHash := CalculateIncludeGraphHash(lIncludes);
+    if lSkippedHash <> '' then
+      Result.IncludeGraphHash := CalculateTextHash(Result.IncludeGraphHash + lSkippedHash);
     Result.Regions := lRegions.ToArray;
     Result.Includes := lIncludes.ToArray;
     Result.LineOrigins := lOrigins.ToArray;

@@ -10,7 +10,9 @@ type
     SourceFileName: string;
     Defines: TArray<string>;
     SearchPaths: TArray<string>;
+    IncludePaths: TArray<string>;
     ProjectContextApplied: Boolean;
+    DefineEvidenceComplete: Boolean;
     SkipBodyAnalysis: Boolean;
     SkipReferenceExtraction: Boolean;
     WithStatementsOnly: Boolean;
@@ -230,6 +232,8 @@ type
     FileName: string;
     Line: Integer;
     Column: Integer;
+    TypeBodyEndLine: Integer;
+    TypeBodyEndColumn: Integer;
   end;
 
   TDelphiSemanticUnitModel = record
@@ -240,10 +244,12 @@ type
     // DS-667: plain active text or internal per-span activity encoding, at source coordinates.
     // Empty carries no inactivity proof; unknown spans never authorize a reference.
     VerifiedActiveSourceText: string;
+    DefineEvidenceComplete: Boolean;
     // Scan-only witness for degraded extraction; never grants edit activity evidence.
     ReferenceScanSourceText: string;
     SourceObservations: IDelphiSemanticSourceObservations;
     IncludeFileNames: TArray<string>;
+    SkippedIncludeFileNames: TArray<string>;
     EncodingName: string;
     LineEndingName: string;
     LineBreak: string;

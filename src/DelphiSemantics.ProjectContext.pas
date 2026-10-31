@@ -38,6 +38,7 @@ type
     ProfileInputs: IDelphiSemanticProfileInputs;
     EnvironmentVariables: TArray<TDelphiSemanticProperty>;
     AdditionalSourceFileNames: TArray<string>;
+    CallerDefinesProvided: Boolean;
     SearchPaths: TArray<string>;
     SqliteCacheFileName: string;
     SnapshotBuildWorkerCount: Integer;
@@ -89,6 +90,7 @@ type
     MainSourceFileName: string;
     SourceFileNames: TArray<string>;
     Defines: TArray<string>;
+    DefineEvidenceComplete: Boolean;
     IncludePaths: TArray<string>;
     SearchPaths: TArray<string>;
     UnitScopeNames: TArray<string>;
@@ -156,6 +158,8 @@ type
     procedure AddSearchCandidate(const aFileName, aRole: string; const aExists,
       aSelected: Boolean);
     procedure MarkIncomplete;
+    procedure MarkDefineEvidenceIncomplete;
+    function DefineEvidenceIsComplete: Boolean;
     function Build(const aConfigurationIdentity: string):
       IDelphiSemanticProjectContextObservations;
   end;
@@ -179,6 +183,7 @@ type
     IProjectContextObservationsBuilder)
   private
     fConsistent: Boolean;
+    fDefineEvidenceIncomplete: Boolean;
     fInputHashes: TDictionary<string, string>;
     fItems: TList<TDelphiSemanticProjectContextObservation>;
     function CanonicalPath(const aFileName: string): string;
@@ -190,6 +195,8 @@ type
     procedure AddSearchCandidate(const aFileName, aRole: string; const aExists,
       aSelected: Boolean);
     procedure MarkIncomplete;
+    procedure MarkDefineEvidenceIncomplete;
+    function DefineEvidenceIsComplete: Boolean;
     function Build(const aConfigurationIdentity: string):
       IDelphiSemanticProjectContextObservations;
   end;
@@ -309,6 +316,16 @@ begin
   lObservation.Exists := aExists;
   lObservation.Selected := aSelected;
   fItems.Add(lObservation);
+end;
+
+procedure TProjectContextObservationsBuilder.MarkDefineEvidenceIncomplete;
+begin
+  fDefineEvidenceIncomplete := True;
+end;
+
+function TProjectContextObservationsBuilder.DefineEvidenceIsComplete: Boolean;
+begin
+  Result := not fDefineEvidenceIncomplete;
 end;
 
 procedure TProjectContextObservationsBuilder.MarkIncomplete;
@@ -1167,6 +1184,8 @@ begin
   if not TryEvaluateConditionExpression(aCondition, aFileName, aBaseDirectory, aProperties,
     aDiagnostics, lActive, aObservations) then
   begin
+    if aObservations <> nil then
+      aObservations.MarkDefineEvidenceIncomplete;
     AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('INVALID_MSBUILD_CONDITION',
       'Unsupported or invalid Condition: ' + aCondition, aFileName));
     Exit(False);
@@ -1487,7 +1506,9 @@ var
   lCondition: string;
   lImportFileName: string;
   lProject: string;
+  lDiagnosticCount: Integer;
 begin
+  lDiagnosticCount := aDiagnostics.Count;
   lCondition := XmlNodeAttributeValue(aNode, 'Condition');
   if IsConditionActive(lCondition, aFileName, aBaseDirectory, aProperties, aDiagnostics,
     aObservations) then
@@ -1499,8 +1520,12 @@ begin
       lImportFileName := NormalizeProjectPath(aBaseDirectory, lProject);
       ApplyPropertyFile(lImportFileName, ExtractFilePath(lImportFileName), aProperties,
         aDiagnostics, aLockPlatform, aObservations);
-    end;
+    end else if aObservations <> nil then
+      aObservations.MarkDefineEvidenceIncomplete;
   end;
+  if (aObservations <> nil) and HasDiagnosticCodeSince(aDiagnostics, lDiagnosticCount,
+    'UNRESOLVED_MSBUILD_MACRO') then
+    aObservations.MarkDefineEvidenceIncomplete;
 end;
 
 procedure ApplyPropertyGroup(const aNode: IXMLNode; const aFileName, aBaseDirectory: string;
@@ -1514,7 +1539,7 @@ var
   lCondition: string;
   lDiagnosticCount: Integer;
   lExpandedValue: string;
-  lGroupHasSemanticProperty: Boolean;
+  lGroupHasSemanticProperty, lGroupHasDefineProperty: Boolean;
   lName: string;
   lOptsetPath: string;
   lPart: string;
@@ -1523,6 +1548,11 @@ var
 begin
   lCondition := XmlNodeAttributeValue(aNode, 'Condition');
   lGroupHasSemanticProperty := PropertyGroupContainsSemanticProjectProperty(aNode);
+  lGroupHasDefineProperty := False;
+  for i := 0 to aNode.ChildNodes.Count - 1 do
+    if MatchText(XmlNodeName(aNode.ChildNodes[i]),
+      ['DCC_Define', 'DCC_AdditionalSwitches', 'CfgDependentOn']) then
+      lGroupHasDefineProperty := True;
   if lGroupHasSemanticProperty then
   begin
     lDiagnosticCount := aDiagnostics.Count;
@@ -1536,6 +1566,8 @@ begin
 
   if lConditionIsUnknown then
   begin
+    if lGroupHasDefineProperty and (aObservations <> nil) then
+      aObservations.MarkDefineEvidenceIncomplete;
     RemoveNonSemanticPropertyGroupValues(aNode, aProperties);
     Exit;
   end;
@@ -1562,12 +1594,16 @@ begin
 
       if lConditionIsUnknown then
       begin
+        if (aObservations <> nil) and MatchText(lName,
+          ['DCC_Define', 'DCC_AdditionalSwitches', 'CfgDependentOn']) then
+          aObservations.MarkDefineEvidenceIncomplete;
         if not IsSemanticProjectProperty(lName) then
           aProperties.Remove(PropertyKey(lName));
         Continue;
       end;
       if lConditionActive then
       begin
+        lDiagnosticCount := aDiagnostics.Count;
         lValue := lChild.Text.Trim;
         if IsSemanticProjectProperty(lName) then
           lExpandedValue := ExpandSemanticProjectProperty(lValue, aFileName, aProperties,
@@ -1575,6 +1611,11 @@ begin
         else
           lExpandedValue := ExpandPropertiesPreservingUnresolved(lValue, lName,
             aProperties);
+        if (aObservations <> nil) and MatchText(lName,
+          ['DCC_Define', 'DCC_AdditionalSwitches', 'CfgDependentOn']) and
+          (Pos('$(', lValue) > 0) and HasDiagnosticCodeSince(aDiagnostics,
+            lDiagnosticCount, 'UNRESOLVED_MSBUILD_MACRO') then
+          aObservations.MarkDefineEvidenceIncomplete;
         if SameText(lName, 'CfgDependentOn') then
         begin
           lParts := lExpandedValue.Split([';']);
@@ -1637,7 +1678,10 @@ begin
   if not TFile.Exists(aFileName) then
   begin
     if aObservations <> nil then
+    begin
       aObservations.AddPresence(aFileName, 'property-file', False);
+      aObservations.MarkDefineEvidenceIncomplete;
+    end;
     AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('OPTSET_FILE_NOT_FOUND',
       'Optset file not found: ' + aFileName, aFileName));
     Exit;
@@ -1814,6 +1858,36 @@ begin
   end;
 end;
 
+function CompleteProjectDefineEvidence(const aProperties: TPropertyMap;
+  const aOptions: TDelphiSemanticOptions;
+  const aObservations: IProjectContextObservationsBuilder): Boolean;
+var
+  lInputs: IDelphiSemanticProfileInputs;
+  lProperty: TDelphiSemanticProperty;
+  lSwitch, lValue: string;
+begin
+  Result := (aObservations <> nil) and not aOptions.CallerDefinesProvided;
+  if not Result then
+    Exit;
+  if not aObservations.DefineEvidenceIsComplete then
+    Exit(False);
+  // These are the only switches added by the compiler targets whose inputs
+  // cannot change defines or search. Do not decode caller switches (DS-772).
+  for lSwitch in GetPropertyValue(aProperties, 'DCC_AdditionalSwitches').Split(
+    [' ', #9, #13, #10], TStringSplitOptions.ExcludeEmpty) do
+    if not StartsText('--sdk-version:', lSwitch) and not SameText(lSwitch, '-JF:COFFI') then
+      Exit(False);
+  lInputs := ProfileInputs(aOptions);
+  for lValue in ['DCC_Define', 'DCC_AdditionalSwitches'] do
+  begin
+    for lProperty in aOptions.EnvironmentVariables do
+      if SameText(lProperty.Name, lValue) then
+        Exit(False);
+    if lInputs.TryEnvironmentValue(lValue, lSwitch) then
+      Exit(False);
+  end;
+end;
+
 procedure PopulateProjectSemanticContext(var aProject: TDelphiSemanticProjectInfo;
   const aDocument: IXMLDocument; const aProperties: TPropertyMap;
   const aOptions: TDelphiSemanticOptions;
@@ -1864,6 +1938,8 @@ begin
       aProperties, aDiagnostics, lSearchPaths, lReferenceDirectories, lSourceFiles, aObservations);
 
     aProject.Defines := lDefines.ToArray;
+    aProject.DefineEvidenceComplete := CompleteProjectDefineEvidence(aProperties,
+      aOptions, aObservations);
     aProject.IncludePaths := lIncludePaths.ToArray;
     aProject.SearchPaths := lSearchPaths.ToArray;
     aProject.UnitScopeNames := lUnitScopeNames.ToArray;
@@ -1980,6 +2056,8 @@ begin
   lBuilder := TStringBuilder.Create;
   try
     AppendFingerprintItem(lBuilder, 'projectIdentity', lProjectIdentity.ProjectKey);
+    AppendFingerprintItem(lBuilder, 'defineEvidenceComplete',
+      BoolToStr(aProject.DefineEvidenceComplete, True));
     AppendFingerprintItem(lBuilder, 'main',
       TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aProject.MainSourceFileName));
     AppendFingerprintItem(lBuilder, 'rsvars',
@@ -2246,6 +2324,7 @@ function CreateProjectInfoFromProperties(const aProjectFileName: string;
 var
   lMainSource: string;
 begin
+  Result.DefineEvidenceComplete := False;
   Result.ProjectFileName := aProjectFileName;
   Result.ProjectDirectory := TPath.GetDirectoryName(aProjectFileName);
   Result.ProjectName := GetPropertyValue(aProperties, 'ProjectName');

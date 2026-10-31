@@ -266,7 +266,9 @@ begin
   Result.SourceFileName := aProject.MainSourceFileName;
   Result.Defines := aProject.Defines;
   Result.SearchPaths := aProject.SourceLookupPaths;
+  Result.IncludePaths := aProject.IncludePaths;
   Result.ProjectContextApplied := True;
+  Result.DefineEvidenceComplete := aProject.DefineEvidenceComplete;
   Result.WritableTypedConstants := SameText(
     Trim(aProject.PropertyValue('DCC_WriteableConstants')), 'true');
 end;

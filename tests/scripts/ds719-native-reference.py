@@ -581,6 +581,36 @@ def helper_kind_cases(root):
     return cases
 
 
+def helper_evidence_cases(repo, root):
+    cases = []
+    fixtures = repo / 'tests/fixtures/ds719-helper-evidence'
+    for shape, filename, output in (
+            ('branch-hole', 'BranchHole.dpr', '19\r\n7\r\n'),
+            ('probe', 'Probe.dpr', '19\r\n'),
+            ('external-switch', 'ExternalDefine.dpr', '19\r\n7\r\n'),
+            ('external-caller', 'ExternalDefine.dpr', '19\r\n7\r\n')):
+        name = 'helper-' + shape
+        folder = root / name
+        folder.mkdir(parents=True)
+        shutil.copy2(fixtures / filename, folder / filename)
+        switches = '-DREVIEW_FEATURE' if shape == 'external-switch' else ''
+        write(folder / 'P.dproj',
+              '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">'
+              '<PropertyGroup><MainSource>' + filename + '</MainSource>'
+              '<DCC_AdditionalSwitches>' + switches + '</DCC_AdditionalSwitches>'
+              '</PropertyGroup></Project>')
+        case = dict(name=name, root=str(folder), family='helper-declaration-evidence',
+                    expected_native_output=output)
+        if shape == 'probe':
+            case['native_only'] = True  # The exact Probe.dpr contains no WITH.
+        if shape.startswith('external-'):
+            case['native_defines'] = ['REVIEW_FEATURE']
+        if shape == 'external-caller':
+            case['caller_defines'] = ['REVIEW_FEATURE']
+        cases.append(case)
+    return cases
+
+
 def generate(repo, root, full, only=""):
     cases = []
     for si, shape in enumerate(SHAPES):
@@ -696,6 +726,7 @@ def generate(repo, root, full, only=""):
     cases.extend(r7_cases(repo, root))
     cases.extend(denial_cases(root))
     cases.extend(helper_kind_cases(root))
+    cases.extend(helper_evidence_cases(repo, root))
     if full:
         cases.extend(r8_cases(repo, root))
         # DS-719 recovery 3q: the paired-control obligation is separate from
@@ -743,7 +774,7 @@ def run(command, cwd, log):
     return row
 
 
-def native(root, bds, tag):
+def native(root, bds, tag, defines=()):
     ns = {"m": "http://schemas.microsoft.com/developer/msbuild/2003"}
     xml = ET.parse(root / "P.dproj")
     def prop(key):
@@ -774,6 +805,8 @@ def native(root, bds, tag):
                "-U" + ";".join(search), "-I" + ";".join(includes),
                "-A" + ";".join(x for x in aliases.split(";") if x),
                "-E" + str(output), "-N0" + str(output), root / main]
+    if defines:
+        command.append("-D" + ";".join(defines))
     build = run(command, root, root / (tag + "-compile.json"))
     if build["exit"]:
         return {"build": build, "runtime": None}
@@ -824,7 +857,7 @@ _TOKEN = re.compile(r"//[^\r\n]*|\{[^}]*\}|\(\*.*?\*\)|'(?:''|[^'])*'|[A-Za-z_][
 
 def source_targets(folder):
     targets = []
-    for path in sorted(folder.rglob('*.pas')):
+    for path in sorted([*folder.rglob('*.pas'), *folder.rglob('*.dpr')]):
         if 'native' in path.relative_to(folder).parts or path.name == 'Ds719NativeProbe.pas':
             continue
         text = path.read_bytes().decode('utf-8-sig')
@@ -1004,6 +1037,8 @@ def native_identity(case, bds, targets):
             for offset, insertion in sorted(inserts, reverse=True):
                 text = text[:offset] + insertion + text[offset:]
             match = re.search(r'\bimplementation\b', text, re.I)
+            if match is None and path.suffix.lower() == '.dpr':
+                match = re.search(r'\bprogram\s+[A-Za-z_][A-Za-z_0-9]*\s*;', text, re.I)
             assert match, path
             tail = text[match.end():]
             uses = re.match(r'\s*uses\b', tail, re.I)
@@ -1012,7 +1047,7 @@ def native_identity(case, bds, targets):
             else:
                 tail = '\r\nuses Ds719NativeProbe;\r\n' + tail
             path.write_bytes((text[:match.end()] + tail).encode('utf-8'))
-        receipt = native(folder, bds, 'identity-probe')
+        receipt = native(folder, bds, 'identity-probe', case.get('native_defines', ()))
         assert receipt['build']['exit'] == 0, receipt['build']
         assert receipt['runtime']['exit'] == 0, receipt['runtime']
         identities = {}
@@ -1102,9 +1137,9 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
             return None, {}, {}
     for case in cases:
         folder = Path(case['root']); targets = inventories[case['name']]
-        assert targets, ('No WITH targets in case', case['name'])
-        source = {p: p.read_bytes() for p in folder.rglob('*.pas')}
-        original = native(folder, bds, 'original')
+        assert targets or case.get('native_only'), ('No WITH targets in case', case['name'])
+        source = {p: p.read_bytes() for p in [*folder.rglob('*.pas'), *folder.rglob('*.dpr')]}
+        original = native(folder, bds, 'original', case.get('native_defines', ()))
         if case.get('expected_native_error'):
             code = case['expected_native_error']
             build = original['build']
@@ -1128,6 +1163,18 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
         output = original['runtime']['stdout']
         if 'expected_native_output' in case and output != case['expected_native_output']:
             failure(case, None, 'oracle', 'original-output', expected=case['expected_native_output'], actual=output)
+        if case.get('native_only'):
+            assert not targets, ('Native-only case unexpectedly has WITH', case['name'])
+            for route in range(5):
+                plan, statements, selectors = load(case, route)
+                if plan is None:
+                    continue
+                if plan['statements'] or selectors:
+                    failure(case, route, 'coverage', 'native-only-unexpected-plan')
+                rows.append(dict(case=case['name'], route=route, planned=False,
+                                 family=case['family'], original=original,
+                                 refused_statements=0, native_only=True))
+            continue
         if case.get('binding_contrast'):
             path = folder/'Unit1.pas'; raw = path.read_bytes()
             before, after = case['binding_contrast']
@@ -1197,7 +1244,7 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
             if planned:
                 try:
                     apply_edits(folder, plan)
-                    rewrite = native(folder, bds, f'route-{route}-rewrite')
+                    rewrite = native(folder, bds, f'route-{route}-rewrite', case.get('native_defines', ()))
                     row['rewrite'] = rewrite
                     if rewrite['build']['exit']:
                         failure(case, route, 1, 'rewrite-compile')

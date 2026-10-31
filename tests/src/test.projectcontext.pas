@@ -87,6 +87,22 @@ type
     [Category('Fast')]
     [Test]
     procedure DprojResolvesBasicMetadata;
+
+    [Category('Fast')]
+    [TestCase('EvaluatedProject', 'project,True')]
+    [TestCase('CompilerAddedSwitches', 'sdk,True')]
+    [TestCase('DDefine', 'define,False')]
+    [TestCase('LongDefine', 'long-define,False')]
+    [TestCase('ResponseFile', 'response,False')]
+    [TestCase('UnknownSwitch', 'unknown-switch,False')]
+    [TestCase('UnknownDefineGroup', 'group,False')]
+    [TestCase('UnknownImport', 'import,False')]
+    [TestCase('AbsentOptionalImport', 'absent-import,True')]
+    [TestCase('CallerDefines', 'caller,False')]
+    [TestCase('EnvironmentDefines', 'environment,False')]
+    procedure CompleteDefineEvidence(const aShape: string; const aComplete: Boolean);
+
+
     [Category('Fast')]
     [Test]
     procedure DprResolvesThroughSiblingDproj;
@@ -181,7 +197,7 @@ type
 implementation
 
 uses
-  System.Classes, System.Hash, System.IOUtils, System.Rtti, System.SysUtils,
+  System.Classes, System.Hash, System.IOUtils, System.Rtti, System.StrUtils, System.SysUtils,
   DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.ProjectSession,
   DelphiSemantics.Query, DelphiSemantics.Refactor.Binding, DelphiSemantics.Refactor.Plan,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.ContextEvidence,
@@ -1272,6 +1288,67 @@ begin
   Result := False;
 end;
 
+
+procedure TProjectContextTests.CompleteDefineEvidence(const aShape: string;
+  const aComplete: Boolean);
+var
+  lInputs: TIsolatedProfileInputs;
+  lOptions: TDelphiSemanticOptions;
+  lResult, lControl: TDelphiSemanticContextResult;
+  lPath, lBody, lSwitch: string;
+begin
+  lPath := ContextEvidenceTempPath('P.dproj');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lPath;
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lInputs := TIsolatedProfileInputs.Create;
+  lOptions.ProfileInputs := lInputs;
+  lBody := '<PropertyGroup><DCC_Define>DEBUG</DCC_Define></PropertyGroup>';
+  lSwitch := '';
+  if aShape = 'sdk' then
+    lSwitch := '--sdk-version:10.0 -JF:COFFI'
+  else if aShape = 'define' then
+    lSwitch := '-DREVIEW_FEATURE'
+  else if aShape = 'long-define' then
+    lSwitch := '--define:REVIEW_FEATURE'
+  else if aShape = 'response' then
+    lSwitch := '@extra.rsp'
+  else if aShape = 'unknown-switch' then
+    lSwitch := '-UX:\Other';
+  if lSwitch <> '' then
+    lBody := lBody + '<PropertyGroup><DCC_AdditionalSwitches>' + lSwitch +
+      '</DCC_AdditionalSwitches></PropertyGroup>';
+  if aShape = 'group' then
+    lBody := lBody + '<PropertyGroup Condition="''$(UNKNOWN_REVIEW)''==''yes''">' +
+      '<DCC_Define>REVIEW_FEATURE</DCC_Define></PropertyGroup>'
+  else if aShape = 'import' then
+    lBody := lBody + '<Import Project="Extra.proj" Condition="''$(UNKNOWN_REVIEW)''==''yes''"/>'
+  else if aShape = 'absent-import' then
+    lBody := lBody + '<Import Project="Absent.proj" Condition="Exists(''Absent.proj'')"/>';
+  WriteUtf8Bytes(lPath, '<Project>' + lBody + '</Project>');
+  lControl := TDelphiSemanticProject.Load(lPath, lOptions);
+  Assert.IsTrue(lControl.Success, DiagnosticSummary(lControl));
+  if aShape = 'caller' then
+    lOptions.CallerDefinesProvided := True
+  else if aShape = 'environment' then
+  begin
+    SetLength(lInputs.Environment, 1);
+    lInputs.Environment[0].Name := 'DCC_Define';
+    lInputs.Environment[0].Value := 'REVIEW_FEATURE';
+  end;
+  lResult := TDelphiSemanticProject.Load(lPath, lOptions);
+  Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
+  Assert.AreEqual(aComplete, lResult.Project.DefineEvidenceComplete,
+    aShape + ': ' + DiagnosticSummary(lResult));
+  if MatchText(aShape, ['caller', 'environment']) then
+  begin
+    Assert.IsTrue(lControl.Project.DefineEvidenceComplete, 'Complete project control.');
+    Assert.AreNotEqual(lControl.Project.ContextFingerprint, lResult.Project.ContextFingerprint,
+      'Define evidence must participate in context identity.');
+  end;
+end;
 
 procedure TProjectContextTests.DprojResolvesBasicMetadata;
 var

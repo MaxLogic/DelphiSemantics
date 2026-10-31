@@ -796,6 +796,8 @@ begin
     lObject.AddPair('FileName', lFact.FileName);
     lObject.AddPair('Line', TJSONNumber.Create(lFact.Line));
     lObject.AddPair('Column', TJSONNumber.Create(lFact.Column));
+    lObject.AddPair('TypeBodyEndLine', TJSONNumber.Create(lFact.TypeBodyEndLine));
+    lObject.AddPair('TypeBodyEndColumn', TJSONNumber.Create(lFact.TypeBodyEndColumn));
     Result.AddElement(lObject);
   end;
 end;
@@ -868,6 +870,9 @@ begin
     Result[lCount].FileName := JsonString(lObject, 'FileName');
     Result[lCount].Line := lLine;
     Result[lCount].Column := lColumn;
+    // Missing or malformed legacy endpoints carry no completeness authority.
+    HelperFactCoordinate(lObject, 'TypeBodyEndLine', Result[lCount].TypeBodyEndLine);
+    HelperFactCoordinate(lObject, 'TypeBodyEndColumn', Result[lCount].TypeBodyEndColumn);
     Inc(lCount);
   end;
   SetLength(Result, lCount);
@@ -887,6 +892,7 @@ begin
     lObject.AddPair('LineBreak', aModel.LineBreak);
     lObject.AddPair('SourceText', aModel.SourceText);
     lObject.AddPair('VerifiedActiveSourceText', aModel.VerifiedActiveSourceText);
+    lObject.AddPair('DefineEvidenceComplete', TJSONBool.Create(aModel.DefineEvidenceComplete));
     lObject.AddPair('ReferenceScanSourceText', aModel.ReferenceScanSourceText);
     lObject.AddPair('SourceSections', SourceSectionsToJson(aModel.SourceSections));
     lObject.AddPair('DependencyFacts', DependencyFactsToJson(aModel.DependencyFacts));
@@ -940,6 +946,7 @@ begin
     Result.LineBreak := JsonString(lObject, 'LineBreak');
     Result.SourceText := JsonString(lObject, 'SourceText');
     Result.VerifiedActiveSourceText := JsonString(lObject, 'VerifiedActiveSourceText');
+    Result.DefineEvidenceComplete := JsonBool(lObject, 'DefineEvidenceComplete');
     Result.ReferenceScanSourceText := JsonString(lObject, 'ReferenceScanSourceText');
     Result.SourceSections := JsonToSourceSections(lObject.GetValue('SourceSections') as TJSONObject);
     Result.DependencyFacts := JsonToDependencyFacts(lObject.GetValue('DependencyFacts'));

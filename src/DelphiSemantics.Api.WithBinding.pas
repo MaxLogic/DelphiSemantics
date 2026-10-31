@@ -47,7 +47,9 @@ begin
   Result.SourceFileName := aSourceFileName;
   Result.Defines := aProject.Defines;
   Result.SearchPaths := aProject.SourceLookupPaths;
+  Result.IncludePaths := aProject.IncludePaths;
   Result.ProjectContextApplied := True;
+  Result.DefineEvidenceComplete := aProject.DefineEvidenceComplete;
 end;
 
 function ModelDiagnosticFromProjectDiagnostic(

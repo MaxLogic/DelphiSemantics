@@ -335,6 +335,9 @@ begin
       lOptions.DelphiVersion := '23.0';
       lOptions.Configuration := 'Debug';
       lOptions.Platform := 'Win64';
+      if lCase.GetValue<TJSONValue>('caller_defines', nil) <> nil then
+        for var lDefine in lCase.GetValue<TJSONArray>('caller_defines') do
+          lOptions.Defines := lOptions.Defines + [lDefine.Value];
       lOptions.Cache.SqliteCacheFileName := TPath.Combine(lCaseRoot, 'session.sqlite');
       lDenialName := lCase.GetValue<string>('denial_reference', '');
       for lPhase := 0 to Ord(lDenialName <> '') do

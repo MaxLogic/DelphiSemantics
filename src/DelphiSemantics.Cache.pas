@@ -316,7 +316,9 @@ end;
 
 function ExtractionOptionsIdentityText(const aOptions: TDelphiSemanticModelOptions): string;
 begin
-  Result := 'projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) +
+  Result := 'defineEvidenceComplete=' + BoolToStr(aOptions.DefineEvidenceComplete, True) +
+    '|includePaths=' + String.Join(';', aOptions.IncludePaths) +
+    '|projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) +
     sLineBreak + 'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) +
     sLineBreak + 'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True) +
     sLineBreak + 'writableTypedConstants=' + BoolToStr(aOptions.WritableTypedConstants, True);
@@ -449,6 +451,7 @@ begin
   Result := aModel;
   Result.DependencyFacts := aModel.DependencyFacts.Clone;
   Result.IncludeFileNames := Copy(aModel.IncludeFileNames);
+  Result.SkippedIncludeFileNames := Copy(aModel.SkippedIncludeFileNames);
   Result.InterfaceUses := Copy(aModel.InterfaceUses);
   Result.ImplementationUses := Copy(aModel.ImplementationUses);
   Result.Declarations := Copy(aModel.Declarations);
@@ -485,7 +488,7 @@ begin
   lOptions.SourceFileName := aOptions.SourceFileName;
   lOptions.SourceText := aSource.Source.Text;
   lOptions.Defines := aOptions.Defines;
-  lOptions.SearchPaths := aOptions.SearchPaths;
+  lOptions.SearchPaths := aOptions.IncludePaths + aOptions.SearchPaths;
   Result := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
 end;
 
@@ -851,14 +854,18 @@ begin
         Result.CacheHit := True;
         // Persistent models are keyed by the observed source/include identity.
         // Older JSON does not retain observations; attach this exact keyed read.
-        if (fObservationOwner <> nil) and (Result.Model.SourceObservations = nil) then
+        if Result.Model.SourceObservations = nil then
         begin
           Result.Model.SourceObservations := lObservations;
           SetLength(Result.Model.IncludeFileNames, 0);
+          SetLength(Result.Model.SkippedIncludeFileNames, 0);
           for i := 0 to lObservations.Count - 1 do
           begin
             lSource := lObservations.Items[i];
-            if not SameText(lSource.FileName, Result.Model.FileName) then
+            if lSource.Role = 'skipped-include' then
+              Result.Model.SkippedIncludeFileNames :=
+                Result.Model.SkippedIncludeFileNames + [lSource.FileName]
+            else if lSource.Role = 'include' then
               Result.Model.IncludeFileNames := Result.Model.IncludeFileNames + [lSource.FileName];
           end;
         end;

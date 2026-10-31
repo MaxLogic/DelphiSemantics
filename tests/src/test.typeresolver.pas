@@ -1,4 +1,4 @@
-﻿unit Test.TypeResolver;
+unit Test.TypeResolver;
 
 interface
 
@@ -186,13 +186,17 @@ type
     [TestCase('Reverse', 'True')]
     procedure HelperQueriesKeepExactFileImports(const aReverse: Boolean);
     [Category('Fast')]
-    [TestCase('BodyOnly', 'body,False')]
-    [TestCase('VariableOnly', 'variable,False')]
-    [TestCase('ConditionalUses', 'uses,True')]
-    [TestCase('ConditionalType', 'type,True')]
-    [TestCase('UnitScope', 'unit,True')]
-    [TestCase('MissingEvidence', 'missing,True')]
-    procedure HelperScopeSeparatesBodyActivity(const aShape: string; const aOpen: Boolean);
+    [TestCase('BodyOnly', 'body,True,False')]
+    [TestCase('VariableOnly', 'variable,True,False')]
+    // A-272: helper exports close independently; own conditional imports stay open.
+    [TestCase('ConditionalUses', 'uses,True,True')]
+    // A-273: an unrelated conditional alias does not export a helper.
+    [TestCase('ConditionalType', 'type,True,False')]
+    [TestCase('UnitScope', 'unit,False,True')]
+    // A-274: helper-free source needs no body activity witness.
+    [TestCase('MissingEvidence', 'missing,True,False')]
+    procedure HelperScopeSeparatesBodyActivity(const aShape: string;
+      const aHelperKnown, aOpen: Boolean);
 
 
 
@@ -213,6 +217,44 @@ type
     [TestCase('PointerHelperTarget', 'pointer-target,unproved')]
     procedure HelperTargetKinds(const aShape, aExpected: string);
 
+    [Category('Fast')]
+    [TestCase('HelperFreeUnknownUses', 'uses,True')]
+    [TestCase('InitOnlyConditional', 'init,True')]
+    [TestCase('HelperInUnknownBranch', 'branch,False')]
+    [TestCase('ConditionalInsideHelperBody', 'body,False')]
+    [TestCase('UnresolvedInclude', 'missing-include,False')]
+    [TestCase('IncludedHelper', 'included-helper,False')]
+    [TestCase('ExternalDefineCaller', 'external,False')]
+    [TestCase('CompleteConditionalHelper', 'complete,True')]
+    [TestCase('PlainHelper', 'plain,True')]
+    [TestCase('EscapedHelperPlain', 'escaped,True')]
+    [TestCase('SameLineHelperPlain', 'same-line,True')]
+    [TestCase('RawHelperIdentifier', 'identifier,False')]
+    [TestCase('BranchHole', 'BranchHole,False')]
+    [TestCase('Probe', 'Probe,False')]
+    procedure HelperDeclarationEvidence(const aShape: string; const aKnown: Boolean);
+
+
+
+
+    [Category('Fast')]
+    [TestCase('Clean', 'clean,True')]
+    [TestCase('Missing', 'missing,False')]
+    [TestCase('TwoCandidates', 'two,False')]
+    [TestCase('IncludePathOnly', 'include-path,True')]
+    [TestCase('Helper', 'helper,False')]
+    [TestCase('CommentHelper', 'comment,False')]
+    [TestCase('StringHelper', 'string,False')]
+    [TestCase('NestedClean', 'nested-clean,True')]
+    [TestCase('NestedHelper', 'nested-helper,False')]
+    [TestCase('NestedMissing', 'nested-missing,False')]
+    [TestCase('Cycle', 'cycle,False')]
+    [TestCase('Unreadable', 'unreadable,False')]
+    procedure SkippedIncludeHelperEvidence(const aShape: string; const aKnown: Boolean);
+
+    [Category('Fast')]
+    [Test]
+    procedure SkippedIncludeEditInvalidatesCache;
 
     [Category('Fast')]
     [TestCase('ImplicitClass', 'class,True,,System.TObject,False,1,-1')]
@@ -237,9 +279,9 @@ type
 implementation
 
 uses
-  System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
   AutoFree,
-  DelphiSemantics.Model.Extract, DelphiSemantics.Model.Json,
+  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Model.Extract, DelphiSemantics.Model.Json,
   DelphiSemantics.Resolve.NameSites,
   DelphiSemantics.Resolve.UnitNameWitness, DelphiSemantics.RootMemberAbsence,
   DelphiSemantics.SourceConditionals,
@@ -1998,7 +2040,7 @@ begin
 end;
 
 procedure TTypeResolverTests.HelperScopeSeparatesBodyActivity(const aShape: string;
-  const aOpen: Boolean);
+  const aHelperKnown, aOpen: Boolean);
 var
   lModel: TDelphiSemanticUnitModel;
   lOptions: TDelphiSemanticModelOptions;
@@ -2039,8 +2081,10 @@ begin
   try
     Assert.IsFalse(lGraph.Units[0].TypeNamesKnown,
       'Body uncertainty remains visible to existing type-name consumers.');
-    Assert.AreEqual(not aOpen, lGraph.Units[0].HelperScopeKnown,
-      'Variable/body activity is separate from helper/type/import visibility.');
+    Assert.AreEqual(aHelperKnown, lGraph.Units[0].HelperScopeKnown,
+      'Helper exports are independent of unrelated conditional activity.');
+    Assert.AreEqual(aShape <> 'uses', lGraph.Units[0].ImportsKnown,
+      'Helper export proof must not clear conditional imports.');
     lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
     lLineage := lIndex.ResolveLineage(lIndex.ResolveQualifiedName('HelperActivity.TRec').Identity);
     Assert.IsTrue(lLineage.Complete);
@@ -2522,6 +2566,200 @@ begin
   finally
     lGraph.Free;
   end;
+end;
+
+procedure TTypeResolverTests.HelperDeclarationEvidence(const aShape: string;
+  const aKnown: Boolean);
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lModel, lReloaded: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath, lSource, lDeclaration: string;
+begin
+  lPath := TPath.Combine(CreateTestTempRoot('ds719-helper-evidence-temp'), 'Evidence.pas');
+  lDeclaration := '';
+  if MatchText(aShape, ['branch', 'external', 'complete', 'plain', 'body', 'escaped', 'same-line']) then
+  begin
+    lDeclaration := '  TH = record helper for TRec'#13#10 +
+      '    function Count: Integer;'#13#10'  end;'#13#10;
+    if MatchText(aShape, ['branch', 'external', 'complete']) then
+      lDeclaration := '{$IFDEF REVIEW_FEATURE}'#13#10 + lDeclaration + '{$ENDIF}'#13#10
+    else if aShape = 'body' then
+      lDeclaration := '  TH = record helper for TRec'#13#10 +
+        '{$IFDEF REVIEW_FEATURE}'#13#10'    function Count: Integer;'#13#10 +
+        '{$ENDIF}'#13#10'  end;'#13#10;
+    if aShape = 'escaped' then
+      lDeclaration := StringReplace(lDeclaration, 'TH =', '&TH =', []);
+    if aShape = 'same-line' then
+      lDeclaration := '  TDummy = Integer; TH = record helper for TRec end;'#13#10;
+  end else if aShape = 'identifier' then
+    lDeclaration := 'var helper: Integer;'#13#10
+  else if aShape = 'missing-include' then
+    lDeclaration := '{$I Missing.inc}'#13#10
+  else if aShape = 'included-helper' then
+  begin
+    TFile.WriteAllText(TPath.Combine(TPath.GetDirectoryName(lPath), 'Helper.inc'),
+      'TH = record helper for TRec end;', TEncoding.ASCII);
+    lDeclaration := '{$I Helper.inc}'#13#10;
+  end;
+  lSource := 'unit Evidence;'#13#10'interface'#13#10;
+  if aShape = 'uses' then
+    lSource := lSource + '{$IFDEF LINUX}'#13#10'uses Missing;'#13#10'{$ENDIF}'#13#10;
+  lSource := lSource + 'type TRec = record X: Integer; end;'#13#10 +
+    lDeclaration + 'implementation'#13#10;
+  if aShape = 'init' then
+    lSource := lSource + 'initialization'#13#10 +
+      '{$IFDEF LINUX}'#13#10'Writeln(1);'#13#10'{$ENDIF}'#13#10;
+  lSource := lSource + 'end.';
+  if MatchText(aShape, ['BranchHole', 'Probe']) then
+    lSource := TFile.ReadAllText(TPath.Combine(RepoRoot,
+      'tests\fixtures\ds719-helper-evidence\' + aShape + '.dpr'));
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lOptions.DefineEvidenceComplete := aShape = 'complete';
+  if MatchText(aShape, ['external', 'complete']) then
+    lOptions.Defines := ['REVIEW_FEATURE'];
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  if aShape <> 'missing-include' then
+    Assert.IsTrue(lModel.Success);
+  if lModel.UnitName = '' then
+    lModel.UnitName := 'Evidence';
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    if Length(lGraph.Units) = 0 then
+    begin
+      Assert.AreEqual('missing-include', aShape, 'Only the unresolved include may lack a unit.');
+      Assert.IsFalse(lModel.Success,
+        'An unresolved include cannot publish an indexed helper-scope proof.');
+    end else
+      Assert.AreEqual(aKnown, lGraph.Units[0].HelperScopeKnown, aShape);
+    if aShape = 'uses' then
+      Assert.IsFalse(lGraph.Units[0].ImportsKnown, 'Export proof must not clear imports.');
+  finally
+    lGraph.Free;
+  end;
+  Assert.AreEqual(lOptions.DefineEvidenceComplete, lModel.DefineEvidenceComplete);
+  lReloaded := JsonToModel(ModelToJson(lModel));
+  Assert.AreEqual(lModel.DefineEvidenceComplete, lReloaded.DefineEvidenceComplete,
+    'Model cache reload must preserve define evidence.');
+  if MatchText(aShape, ['escaped', 'same-line']) then
+  begin
+    Assert.AreEqual(1, Integer(Length(lReloaded.UnindexedHelpers)));
+    Assert.IsTrue(lReloaded.UnindexedHelpers[0].TypeBodyEndLine > 0);
+    Assert.IsTrue(lReloaded.UnindexedHelpers[0].TypeBodyEndColumn > 0);
+    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lReloaded]);
+    try
+      Assert.IsTrue(lGraph.Units[0].HelperScopeKnown, 'Reload retains helper endpoint proof');
+    finally
+      lGraph.Free;
+    end;
+  end;
+end;
+
+procedure TTypeResolverTests.SkippedIncludeHelperEvidence(const aShape: string;
+  const aKnown: Boolean);
+var
+  g: TGarbos;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoot, lInclude, lText, lOther: string;
+  lLock: TFileStream;
+begin
+  lRoot := CreateTestTempRoot('ds719-skipped-include-temp');
+  lInclude := TPath.Combine(lRoot, 'Skipped.inc');
+  lText := '// clean skipped file';
+  if aShape = 'helper' then
+    lText := 'TH = record helper for TRec end;'
+  else if aShape = 'comment' then
+    lText := '// helper'
+  else if aShape = 'string' then
+    lText := 'const s = ''helper'';'
+  else if StartsText('nested-', aShape) then
+  begin
+    lText := '{$I Nested.inc}';
+    if aShape = 'nested-clean' then
+      TFile.WriteAllText(TPath.Combine(lRoot, 'Nested.inc'), '// clean', TEncoding.ASCII)
+    else if aShape = 'nested-helper' then
+      TFile.WriteAllText(TPath.Combine(lRoot, 'Nested.inc'), '// helper', TEncoding.ASCII);
+  end else if aShape = 'cycle' then
+    lText := '{$I Skipped.inc}';
+  if aShape <> 'missing' then
+    TFile.WriteAllText(lInclude, lText, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'Evidence.pas');
+  lOptions.ProjectContextApplied := True;
+  // FPC is skipped by preprocessing, but incomplete evidence cannot prove inactivity.
+  lOptions.Defines := ['MSWINDOWS'];
+  if MatchText(aShape, ['two', 'include-path']) then
+  begin
+    lOther := TPath.Combine(lRoot, 'other');
+    TDirectory.CreateDirectory(lOther);
+    TFile.WriteAllText(TPath.Combine(lOther, 'Skipped.inc'), '// clean', TEncoding.ASCII);
+    if aShape = 'two' then
+      lOptions.SearchPaths := [lOther]
+    else
+    begin
+      TFile.Delete(lInclude);
+      lOptions.IncludePaths := [lOther];
+    end;
+  end;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit Evidence;'#13#10'interface'#13#10'{$IFDEF FPC}'#13#10 +
+    '{$I Skipped.inc}'#13#10'{$ENDIF}'#13#10'implementation'#13#10'end.', TEncoding.ASCII);
+  if aShape = 'unreadable' then
+    GC(lLock, TFileStream.Create(lInclude, fmOpenReadWrite or fmShareExclusive), g);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, aShape + ': skipped text must not affect the selected AST');
+  Assert.AreEqual(0, Integer(Length(lModel.IncludeFileNames)), 'Skipped is not observed active source');
+  Assert.IsFalse(lModel.DefineEvidenceComplete);
+  GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]), g);
+  Assert.AreEqual(1, Integer(Length(lGraph.Units)));
+  Assert.AreEqual(aKnown, lGraph.Units[0].HelperScopeKnown, aShape);
+end;
+
+procedure TTypeResolverTests.SkippedIncludeEditInvalidatesCache;
+var
+  g: TGarbos;
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lOptions: TDelphiSemanticModelOptions;
+  lAccess: TDelphiSemanticUnitCacheAccessResult;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lRoot, lInclude: string;
+begin
+  lRoot := CreateTestTempRoot('ds719-skipped-cache-temp');
+  lInclude := TPath.Combine(lRoot, 'Skipped.inc');
+  TFile.WriteAllText(lInclude, '// clean', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'Evidence.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit Evidence;'#13#10'interface'#13#10'{$IFDEF FPC}'#13#10 +
+    '{$I Skipped.inc}'#13#10'{$ENDIF}'#13#10'implementation'#13#10'end.', TEncoding.ASCII);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  GC(lCache, TDelphiSemanticSqliteUnitCache.Create(lCacheOptions), g);
+  lAccess := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+  GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lAccess.Model]), g);
+  Assert.IsTrue(lGraph.Units[0].HelperScopeKnown, 'Unique clean skipped include closes');
+  g.Clear;
+  // A new instance proves persistent reload, including role reconstruction.
+  GC(lCache, TDelphiSemanticSqliteUnitCache.Create(lCacheOptions), g);
+  lAccess := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+  Assert.IsTrue(lAccess.CacheHit, 'Persistent skipped-file identity must hit');
+  Assert.AreEqual(0, Integer(Length(lAccess.Model.IncludeFileNames)));
+  Assert.AreEqual(1, Integer(Length(lAccess.Model.SkippedIncludeFileNames)));
+  Assert.AreEqual(lInclude, lAccess.Model.SkippedIncludeFileNames[0]);
+  GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lAccess.Model]), g);
+  Assert.IsTrue(lGraph.Units[0].HelperScopeKnown, 'Reload keeps skipped proof separate');
+  TFile.WriteAllText(lInclude, '// helper', TEncoding.ASCII);
+  lAccess := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+  Assert.IsFalse(lAccess.CacheHit, 'Editing skipped source invalidates the model');
+  GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lAccess.Model]), g);
+  Assert.IsFalse(lGraph.Units[0].HelperScopeKnown, 'Edited skipped file cannot close scope');
 end;
 
 initialization

@@ -13,6 +13,7 @@ type
     FileName: string;
     Text: string;
     ContentHash: string;
+    Role: string;
     EncodingName: string;
     LineEndingName: string;
     LineBreak: string;
@@ -29,6 +30,8 @@ type
 
   TDelphiSemanticSourceEvidence = record
   public
+    class function WithRole(const aSources: IDelphiSemanticSourceObservations;
+      const aRole: string): IDelphiSemanticSourceObservations; static;
     class function TryMerge(const aLeft, aRight: IDelphiSemanticSourceObservations;
       out aCombined: IDelphiSemanticSourceObservations; out aError: string): Boolean; static;
   end;
@@ -104,6 +107,25 @@ begin
       Exit(True);
     end;
   Result := False;
+end;
+
+class function TDelphiSemanticSourceEvidence.WithRole(
+  const aSources: IDelphiSemanticSourceObservations;
+  const aRole: string): IDelphiSemanticSourceObservations;
+var
+  lItems: TArray<TDelphiSemanticSourceText>;
+  i: Integer;
+begin
+  Result := nil;
+  if aSources = nil then
+    Exit;
+  SetLength(lItems, aSources.Count);
+  for i := 0 to aSources.Count - 1 do
+  begin
+    lItems[i] := aSources.Items[i];
+    lItems[i].Role := aRole;
+  end;
+  Result := TSourceObservations.Create(lItems);
 end;
 
 class function TDelphiSemanticSourceEvidence.TryMerge(

@@ -65,6 +65,8 @@ type
     HelperParentName: string;
     IsHelper: Boolean;
     HelperCovered: Boolean;
+    TypeBodyEndLine: Integer;
+    TypeBodyEndColumn: Integer;
     ProcedureSignature: TDelphiSemanticProcedureSignature;
     IsDispInterface: Boolean;
     IsForward: Boolean;
@@ -1487,6 +1489,11 @@ var
         begin
           lHelperNode := lTypeNode.FindNode(ntHelper);
           lFact.IsHelper := Assigned(lHelperNode);
+          if lFact.IsHelper and (aNode is TCompoundSyntaxNode) then
+          begin
+            lFact.TypeBodyEndLine := TCompoundSyntaxNode(aNode).EndLine;
+            lFact.TypeBodyEndColumn := TCompoundSyntaxNode(aNode).EndCol;
+          end;
           if not Assigned(lHelperNode) then
             lFact.AstHelperKind := 'none'
           else
@@ -1955,6 +1962,8 @@ begin
           lHelper.Fact.SectionKind := SectionForOffset(aText, lHelper.OutputOffset);
           lHelper.Fact.Line := lFact.Line;
           lHelper.Fact.Column := lFact.Column;
+          lHelper.Fact.TypeBodyEndLine := lFact.TypeBodyEndLine;
+          lHelper.Fact.TypeBodyEndColumn := lFact.TypeBodyEndColumn;
           if lFact.ScopeIndex < 0 then
           begin
             lHelper.Fact.ScopeKind := 'unit';
@@ -5200,6 +5209,20 @@ begin
         (aPending[i].OutputOffset > 0) and (aPending[i].OutputOffset <= High(aOffsetMap)) then
         lMappedOffset := aOffsetMap[aPending[i].OutputOffset];
     end;
+    if Length(aPreprocess.Includes) > 0 then
+    begin
+      if (lHelper.TypeBodyEndLine > 0) and
+        (lHelper.TypeBodyEndLine <= Length(aPreprocess.LineOrigins)) then
+      begin
+        lOrigin := aPreprocess.LineOrigins[lHelper.TypeBodyEndLine - 1];
+        if not lOrigin.Mixed and (lOrigin.Line > 0) and
+          SameText(lOrigin.FileName, aRootFileName) and (lMappedOffset > 0) then
+          lHelper.TypeBodyEndLine := lOrigin.Line
+        else
+          lHelper.TypeBodyEndLine := 0;
+      end else
+        lHelper.TypeBodyEndLine := 0;
+    end;
     lHelper.Line := 0;
     lHelper.Column := 0;
     if NameMatches(lMappedOffset, lHelper.Name) then
@@ -5351,6 +5374,8 @@ begin
     Result.Success := lSourceResult.Success;
     Result.FileName := lSourceResult.Source.FileName;
     Result.SourceText := lSourceResult.Source.Text;
+    Result.DefineEvidenceComplete := aOptions.ProjectContextApplied and
+      aOptions.DefineEvidenceComplete;
     Result.SourceObservations := lSourceResult.SourceObservations;
     Result.EncodingName := lSourceResult.Source.EncodingName;
     Result.LineEndingName := lSourceResult.Source.LineEndingName;
@@ -5367,9 +5392,10 @@ begin
     lPreprocessOptions.SourceFileName := aOptions.SourceFileName;
     lPreprocessOptions.SourceText := lSourceResult.Source.Text;
     lPreprocessOptions.Defines := aOptions.Defines;
-    lPreprocessOptions.SearchPaths := aOptions.SearchPaths;
+    lPreprocessOptions.SearchPaths := aOptions.IncludePaths + aOptions.SearchPaths;
     lPreprocessResult := TDelphiSemanticPreprocessor.PreprocessFile(lPreprocessOptions);
     Result.Success := lPreprocessResult.Success;
+    Result.SkippedIncludeFileNames := Copy(lPreprocessResult.SkippedIncludeFileNames);
     SetLength(Result.IncludeFileNames, Length(lPreprocessResult.Includes));
     for i := 0 to High(lPreprocessResult.Includes) do
       Result.IncludeFileNames[i] := lPreprocessResult.Includes[i].FileName;

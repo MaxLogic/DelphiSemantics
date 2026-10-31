@@ -189,6 +189,7 @@ function ProjectOptionsFromApiOptions(const aOptions: TDelphiSemanticApiOptions)
 begin
   Result := Default(TDelphiSemanticOptions);
   Result.ProjectPath := aOptions.ProjectFileName;
+  Result.CallerDefinesProvided := Length(aOptions.Defines) > 0;
   Result.Configuration := aOptions.Configuration;
   Result.Platform := aOptions.Platform;
   Result.DelphiVersion := aOptions.DelphiVersion;

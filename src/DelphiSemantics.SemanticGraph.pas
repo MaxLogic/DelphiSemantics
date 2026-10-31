@@ -262,9 +262,9 @@ type
 implementation
 
 uses
-  System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Classes, System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.RegularExpressions, System.StrUtils, System.SysUtils,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 function StableHash(const aText: string): string;
 begin
@@ -361,46 +361,226 @@ end;
 
 function HelperScopeIsKnown(const aModel: TDelphiSemanticUnitModel): Boolean;
 var
-  lDiagnostic: TDelphiSemanticModelDiagnostic;
-  lRoutine: TDelphiSemanticRoutine;
-  lOutside: string;
-  lContained, lVariables: Boolean;
   lLexer: TmwBasePasLex;
   lLineStarts: TArray<Integer>;
-  i, lFinish: Integer;
+  lPathStack: TList<string>;
+  lArgument, lScan: string;
+  lPrevious, lBeforePrevious, lNameToken: TptTokenKind;
+  lNameOffset, lBeforeOffset, lPreviousOffset, lDepth, lStart, lFinish, i: Integer;
+  lPlain: Boolean;
 
-  function DiagnosticIsConditional(const aDiagnostic: TDelphiSemanticModelDiagnostic): Boolean;
+  function IsConditional(const aKind: TptTokenKind): Boolean;
+  begin
+    Result := aKind in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect, ptIfOptDirect,
+      ptElseDirect, ptElseIfDirect, ptEndIfDirect, ptIfEndDirect];
+  end;
+
+  function IsTrivia(const aLexer: TmwBasePasLex): Boolean;
+  begin
+    Result := aLexer.TokenID in [ptSpace, ptCRLF, ptCRLFCo, ptAnsiComment,
+      ptBorComment, ptSlashesComment];
+  end;
+
+  function RawScanSource(const aSource: string): string;
   var
-    lDirectiveLexer: TmwBasePasLex;
-    lStart, lEnd: Integer;
+    i, j, lNameStart: Integer;
+    lName: string;
+  begin
+    Result := aSource;
+    i := 1;
+    while i < Length(aSource) do
+    begin
+      j := 0;
+      if (aSource[i] = '{') and (aSource[i + 1] = '$') then
+        j := i + 2
+      else if (i + 2 <= Length(aSource)) and (Copy(aSource, i, 3) = '(*$') then
+        j := i + 3;
+      if j > 0 then
+      begin
+        while (j <= Length(aSource)) and CharInSet(aSource[j], [#9, ' ']) do
+          Inc(j);
+        lNameStart := j;
+        while (j <= Length(aSource)) and CharInSet(aSource[j], ['A'..'Z', 'a'..'z']) do
+          Inc(j);
+        lName := Copy(aSource, lNameStart, j - lNameStart);
+        // DelphiAST consumes include tokens even with UseDefines=False. Make
+        // them generic directives only in this equal-length lexical view.
+        // Strings/comments remain strings/comments; evidence uses raw bytes.
+        if MatchText(lName, ['I', 'INCLUDE']) then
+          Result[lNameStart] := 'Z';
+      end;
+      Inc(i);
+    end;
+  end;
+
+  function IncludeArgument(const aSource: string; const aLexer: TmwBasePasLex): string;
+  var
+    lBody: string;
+  begin
+    lBody := Copy(aSource, aLexer.TokenPos + 1, aLexer.TokenLen);
+    if StartsStr('{$', lBody) then
+      lBody := Copy(lBody, 3, Length(lBody) - 3)
+    else if StartsStr('(*$', lBody) then
+      lBody := Copy(lBody, 4, Length(lBody) - 5);
+    Result := TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(lBody);
+  end;
+
+  function IncludeIsClosed(const aArgument, aDirectory: string): Boolean;
+  var
+    lCandidate, lExpected, lSuffix, lFileName, lText, lArgument: string;
+    lChildLexer: TmwBasePasLex;
+    lSkipped: Boolean;
+    lSource: TDelphiSemanticSourceText;
   begin
     Result := False;
-    if not SameText(aDiagnostic.FileName, aModel.FileName) or
-      (aDiagnostic.Line < 1) or (aDiagnostic.Line > Length(lLineStarts)) then
+    lSuffix := aArgument.Trim.Trim([#39, '"']).Replace('/', PathDelim);
+    if lSuffix = '' then
       Exit;
-    lStart := lLineStarts[aDiagnostic.Line - 1] - 1;
-    lEnd := Length(aModel.SourceText);
-    if aDiagnostic.Line < Length(lLineStarts) then
-      lEnd := lLineStarts[aDiagnostic.Line] - 1;
-    lDirectiveLexer := TmwBasePasLex.Create;
-    try
-      lDirectiveLexer.UseDefines := False;
-      lDirectiveLexer.Origin := aModel.SourceText;
-      while (lDirectiveLexer.TokenID <> ptNull) and (lDirectiveLexer.TokenPos < lEnd) do
+    lExpected := TPath.GetFullPath(TPath.Combine(aDirectory, lSuffix));
+    lFileName := '';
+    // Selection must already have been observed by preprocessing. Never
+    // discover a new file as evidence for a skipped branch here.
+    for lCandidate in aModel.IncludeFileNames + aModel.SkippedIncludeFileNames do
+      if SameText(lExpected, lCandidate) or EndsText(PathDelim + lSuffix, lCandidate) then
       begin
-        if (lDirectiveLexer.TokenPos >= lStart) and
-          (lDirectiveLexer.IsCompilerDirective or (lDirectiveLexer.TokenID in
-          [ptIfDirect, ptIfEndDirect, ptElseIfDirect])) then
+        if (lFileName <> '') and not SameText(lFileName, lCandidate) then
+          Exit;
+        lFileName := lCandidate;
+      end;
+    lSkipped := False;
+    for lCandidate in aModel.SkippedIncludeFileNames do
+      if SameText(lFileName, lCandidate) then
+        lSkipped := True;
+    if (lFileName = '') or (lPathStack.Count >= 64) then
+      Exit;
+    for lCandidate in lPathStack do
+      if SameText(lCandidate, lFileName) then
+        Exit;
+    lPathStack.Add(lFileName);
+    try
+      try
+        if (aModel.SourceObservations <> nil) and
+          aModel.SourceObservations.TryFind(lFileName, lSource) then
+          lText := lSource.Text
+        else
+          lText := TFile.ReadAllText(lFileName);
+      except
+        // Unreadable includes cannot establish helper absence.
+        on E: EInOutError do Exit;
+        on E: EFOpenError do Exit;
+      end;
+      if lSkipped and TRegEx.IsMatch(lText, '\bhelper\b', [roIgnoreCase]) then
+        Exit;
+      lChildLexer := TmwBasePasLex.Create;
+      try
+        lChildLexer.UseDefines := False;
+        lChildLexer.Origin := RawScanSource(lText);
+        while lChildLexer.TokenID <> ptNull do
         begin
-          if not (lDirectiveLexer.TokenID in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect,
-            ptIfOptDirect, ptElseDirect, ptElseIfDirect, ptEndIfDirect, ptIfEndDirect]) then
-            Exit(False);
-          Result := True;
+          if not IsTrivia(lChildLexer) and SameText(lChildLexer.Token, 'helper') then
+            Exit;
+          if lChildLexer.IsCompilerDirective then
+          begin
+            lArgument := IncludeArgument(lText, lChildLexer);
+            if (lArgument <> '') and not (aModel.DefineEvidenceComplete and
+          (aModel.VerifiedActiveSourceText <> '') and
+          (Copy(lScan, lLexer.TokenPos + 1, lLexer.TokenLen) =
+            StringOfChar(' ', lLexer.TokenLen)) and
+          not TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
+            aModel.VerifiedActiveSourceText, lLexer.TokenPos + 1)) and
+          not IncludeIsClosed(lArgument,
+              ExtractFilePath(lFileName)) then
+              Exit;
+          end;
+          lChildLexer.Next;
         end;
-        lDirectiveLexer.Next;
+        Result := True;
+      finally
+        lChildLexer.Free;
       end;
     finally
-      lDirectiveLexer.Free;
+      lPathStack.Delete(lPathStack.Count - 1);
+    end;
+  end;
+
+  function PlainHelper(const aHelperOffset: Integer): Boolean;
+  var
+    lDeclaration: TDelphiSemanticDeclaration;
+    lFact: TDelphiSemanticUnindexedHelperFact;
+    lName: string;
+    lLine, lColumn: Integer;
+    lSpanLexer: TmwBasePasLex;
+    lMatched: Boolean;
+  begin
+    Result := False;
+    if not (lPrevious in [ptClass, ptRecord]) or (lBeforePrevious <> ptEqual) or
+      (lNameToken <> ptIdentifier) or ((lDepth > 0) and not aModel.DefineEvidenceComplete) then
+      Exit;
+    lMatched := False;
+    lStart := lNameOffset;
+    lFinish := 0;
+    for lDeclaration in aModel.Declarations do
+      if (lDeclaration.Offset = lStart) and
+        ((lDeclaration.FileName = '') or SameText(lDeclaration.FileName, aModel.FileName)) and
+        MatchText(lDeclaration.AstHelperKind, ['class', 'record']) and
+        (lDeclaration.TypeBodyEndLine > 0) and
+        (lDeclaration.TypeBodyEndLine <= Length(lLineStarts)) and
+        (lDeclaration.TypeBodyEndColumn > 0) then
+      begin
+        lFinish := lLineStarts[lDeclaration.TypeBodyEndLine - 1] +
+          lDeclaration.TypeBodyEndColumn - 1;
+        lMatched := True;
+      end;
+    if not lMatched then
+    begin
+      lName := Copy(aModel.SourceText, lNameOffset, lBeforeOffset - lNameOffset);
+      lName := Trim(lName);
+      if StartsStr('&', lName) then
+        Delete(lName, 1, 1);
+      lLine := 1;
+      for var j := 1 to Length(lLineStarts) - 1 do
+        if lLineStarts[j] <= lNameOffset then
+          lLine := j + 1;
+      lColumn := lNameOffset - lLineStarts[lLine - 1] + 1;
+      for lFact in aModel.UnindexedHelpers do
+        if ((lFact.FileName = '') or SameText(lFact.FileName, aModel.FileName)) and
+          (lFact.Line = lLine) and SameText(lFact.Name, lName) and
+          ((lFact.Column = lColumn) or (lFact.Column = lColumn + 1)) and
+          (lFact.TypeBodyEndLine > 0) and
+          (lFact.TypeBodyEndLine <= Length(lLineStarts)) and
+          (lFact.TypeBodyEndColumn > 0) then
+        begin
+          lFinish := lLineStarts[lFact.TypeBodyEndLine - 1] + lFact.TypeBodyEndColumn - 1;
+          lMatched := True;
+        end;
+    end;
+    if not lMatched or (lFinish < aHelperOffset) or
+      (lFinish > Length(aModel.SourceText)) then
+      Exit;
+    lSpanLexer := TmwBasePasLex.Create;
+    try
+      lSpanLexer.UseDefines := False;
+      lSpanLexer.Origin := RawScanSource(aModel.SourceText);
+      while (lSpanLexer.TokenID <> ptNull) and (lSpanLexer.TokenPos < lFinish) do
+      begin
+        if lSpanLexer.TokenPos + 1 >= lStart then
+        begin
+          if IsConditional(lSpanLexer.TokenID) or
+            (lSpanLexer.IsCompilerDirective and
+            (IncludeArgument(aModel.SourceText, lSpanLexer) <> '')) then
+            Exit;
+          if not IsTrivia(lSpanLexer) then
+            for var j := lSpanLexer.TokenPos + 1 to
+              lSpanLexer.TokenPos + lSpanLexer.TokenLen do
+              if TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
+                aModel.VerifiedActiveSourceText, j) then
+                Exit;
+        end;
+        lSpanLexer.Next;
+      end;
+      Result := True;
+    finally
+      lSpanLexer.Free;
     end;
   end;
 
@@ -412,73 +592,96 @@ begin
   for i := 1 to Length(aModel.SourceText) do
     if aModel.SourceText[i] = #10 then
       lLineStarts := lLineStarts + [i + 1];
-  for lDiagnostic in aModel.Diagnostics do
-    if MatchText(lDiagnostic.Code, ['UNVERIFIED_PREPROCESS_CONDITION',
-      'UNSUPPORTED_PREPROCESS_DIRECTIVE', 'UNMATCHED_PREPROCESS_DIRECTIVE']) then
-    begin
-      if aModel.VerifiedActiveSourceText = '' then
-        Exit(False);
-      lContained := False;
-      for lRoutine in aModel.Routines do
-        if SameText(lDiagnostic.FileName, aModel.FileName) and
-          ((lRoutine.FileName = '') or SameText(lRoutine.FileName, aModel.FileName)) and
-          (lRoutine.Offset > 0) and (lRoutine.AstScopeKind = 'body') and (lRoutine.ScopeId <> '') and
-          (lRoutine.EndLine <= Length(lLineStarts)) and (lRoutine.EndColumn > 0) and
-          (lDiagnostic.Line >= lRoutine.Line) and (lDiagnostic.Line <= lRoutine.EndLine) then
-          lContained := True;
-      // Conditional expressions are checked at affected syntax below. Other
-      // unsupported directives still need the proved routine-only exception.
-      if not lContained and
-        not SameText(lDiagnostic.Code, 'UNVERIFIED_PREPROCESS_CONDITION') and
-        not (SameText(lDiagnostic.Code, 'UNSUPPORTED_PREPROCESS_DIRECTIVE') and
-        DiagnosticIsConditional(lDiagnostic)) then
-        Exit(False);
-    end;
-  // A conditional begun in a routine can still taint later declarations.
-  // Exclude only complete physical routine ranges, then inspect activity of
-  // all remaining source. Unit-wide TypeNamesKnown stays unchanged.
-  lOutside := aModel.SourceText;
-  for lRoutine in aModel.Routines do
-    if ((lRoutine.FileName = '') or SameText(lRoutine.FileName, aModel.FileName)) and
-      (lRoutine.Offset > 0) and (lRoutine.AstScopeKind = 'body') and (lRoutine.ScopeId <> '') and
-      (lRoutine.EndLine > lRoutine.Line) and
-      (lRoutine.EndLine <= Length(lLineStarts)) and (lRoutine.EndColumn > 0) then
-    begin
-      // EndOffset is the name token's end; the AST body ends at EndLine/EndColumn.
-      lFinish := lLineStarts[lRoutine.EndLine - 1] + lRoutine.EndColumn - 1;
-      if (lFinish <= lRoutine.Offset) or (lFinish > Length(lOutside) + 1) then
-        Exit(False);
-      for i := lRoutine.Offset to lFinish - 1 do
-        lOutside[i] := ' ';
-    end;
-  // DS-719: unit variables do not declare helper targets or change imports.
-  // Keep raw conditional branches in the lexer so a hidden uses/type/helper
-  // declaration still opens scope. TypeNamesKnown remains independently strict.
+  lScan := TDelphiSemanticSourceConditionals.SourceForScan(aModel.SourceText,
+    aModel.VerifiedActiveSourceText);
+  lPathStack := TList<string>.Create;
   lLexer := TmwBasePasLex.Create;
   try
     lLexer.UseDefines := False;
-    lLexer.Origin := lOutside;
-    lVariables := False;
+    lLexer.Origin := RawScanSource(aModel.SourceText);
+    lPrevious := ptNull;
+    lBeforePrevious := ptNull;
+    lNameToken := ptNull;
+    lNameOffset := 0;
+    lPreviousOffset := 0;
+    lBeforeOffset := 0;
+    lDepth := 0;
+    lPlain := False;
     while lLexer.TokenID <> ptNull do
     begin
-      if lLexer.TokenID in [ptVar, ptThreadvar] then
-        lVariables := True
-      else if lLexer.TokenID in [ptUses, ptType, ptConst, ptProcedure, ptFunction,
-        ptConstructor, ptDestructor, ptImplementation, ptInitialization,
-        ptFinalization, ptHelper] then
-        lVariables := False;
-      if not lVariables and not (lLexer.TokenID in [ptSpace, ptCRLF, ptCRLFCo,
-        ptAnsiComment, ptBorComment, ptSlashesComment, ptIfDirect, ptIfDefDirect,
-        ptIfNDefDirect, ptIfOptDirect, ptElseDirect, ptElseIfDirect, ptEndIfDirect, ptIfEndDirect]) then
-        for i := lLexer.TokenPos + 1 to lLexer.TokenPos + lLexer.TokenLen do
-          if (lOutside[i] <> #0) and
-            TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
-              aModel.VerifiedActiveSourceText, i) then
-            Exit(False);
+      if lLexer.TokenID in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect, ptIfOptDirect] then
+        Inc(lDepth)
+      else if lLexer.TokenID in [ptEndIfDirect, ptIfEndDirect] then
+      begin
+        if lDepth = 0 then
+          Exit(False);
+        Dec(lDepth);
+      end;
+      if lLexer.IsCompilerDirective then
+      begin
+        lArgument := IncludeArgument(aModel.SourceText, lLexer);
+        if (lArgument <> '') and not (aModel.DefineEvidenceComplete and
+          (aModel.VerifiedActiveSourceText <> '') and
+          (Copy(lScan, lLexer.TokenPos + 1, lLexer.TokenLen) =
+            StringOfChar(' ', lLexer.TokenLen)) and
+          not TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
+            aModel.VerifiedActiveSourceText, lLexer.TokenPos + 1)) and
+          not IncludeIsClosed(lArgument,
+          ExtractFilePath(aModel.FileName)) then
+          Exit(False);
+      end;
+      if not IsTrivia(lLexer) and not lLexer.IsCompilerDirective and
+        not IsConditional(lLexer.TokenID) then
+      begin
+        if SameText(lLexer.Token, 'helper') then
+        begin
+          // Only encoded inactivity from a complete project may discard a
+          // branch. An absent symbol or caller list is not that evidence.
+          if not (aModel.DefineEvidenceComplete and
+            (aModel.VerifiedActiveSourceText <> '') and
+            (Copy(lScan, lLexer.TokenPos + 1, lLexer.TokenLen) =
+              StringOfChar(' ', lLexer.TokenLen)) and
+            not TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
+              aModel.VerifiedActiveSourceText, lLexer.TokenPos + 1)) then
+          begin
+            if not PlainHelper(lLexer.TokenPos + 1) then
+              Exit(False);
+            lPlain := True;
+          end;
+        end;
+        // Retain the three significant tokens preceding the helper keyword:
+        // the AST endpoint alone cannot establish raw declaration adjacency.
+        lNameToken := lBeforePrevious;
+        lNameOffset := lBeforeOffset;
+        lBeforePrevious := lPrevious;
+        lBeforeOffset := lPreviousOffset;
+        lPrevious := lLexer.TokenID;
+        lPreviousOffset := lLexer.TokenPos + 1;
+      end;
       lLexer.Next;
+    end;
+    if lDepth <> 0 then
+      Exit(False);
+    if lPlain then
+    begin
+      // Origin allocates a new lexer buffer; a second assignment would orphan
+      // the first. This second pass owns a fresh lexer, including on failure.
+      FreeAndNil(lLexer);
+      lLexer := TmwBasePasLex.Create;
+      lLexer.UseDefines := False;
+      lLexer.Origin := RawScanSource(aModel.SourceText);
+      while lLexer.TokenID <> ptNull do
+      begin
+        if (lLexer.TokenID in [ptInterface, ptImplementation]) and
+          TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
+            aModel.VerifiedActiveSourceText, lLexer.TokenPos + 1) then
+          Exit(False);
+        lLexer.Next;
+      end;
     end;
   finally
     lLexer.Free;
+    lPathStack.Free;
   end;
 end;
 
