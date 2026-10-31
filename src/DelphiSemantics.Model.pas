@@ -236,6 +236,30 @@ type
     TypeBodyEndColumn: Integer;
   end;
 
+  // Transient declaration closure, computed from model evidence before binding.
+  // These records are not part of the model or snapshot storage contract.
+  TDelphiSemanticCaptureNameFact = record
+    FileName: string;
+    Name: string;
+    Kind: string;
+    SectionKind: string;
+    OwnerScopeId: string;
+    OwnerTypeName: string;
+    Line: Integer;
+    Column: Integer;
+    VariantCount: Integer;
+  end;
+
+  TDelphiSemanticCaptureScopeProof = record
+    Known: Boolean;
+    // A closed interface-name inventory can prove absence without proving
+    // imports needed by an exported alias, ancestor or nested identity.
+    AbsenceOnly: Boolean;
+    Cause: string;
+    VariantCount: Integer;
+    Names: TArray<TDelphiSemanticCaptureNameFact>;
+    Imports: TArray<TDelphiSemanticUnitDependencyFacts>;
+  end;
   TDelphiSemanticUnitModel = record
     Success: Boolean;
     FileName: string;

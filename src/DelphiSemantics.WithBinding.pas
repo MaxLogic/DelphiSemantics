@@ -19,6 +19,7 @@ type
     CaptureTypeIdentity: TDelphiSemanticTypeIdentity;
     CaptureTypeName: string;
     CaptureTypeStatus: string;
+    CaptureInsertionLine: Integer;
   end;
 
   TDelphiSemanticBoundReference = record
@@ -305,7 +306,8 @@ uses
   AutoFree,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.CompilerProfile, DelphiSemantics.Model.Extract, DelphiSemantics.Model.Text, DelphiSemantics.ProjectContext,
-  DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.NameSites, DelphiSemantics.Resolve.SelectorTypes,
+  DelphiSemantics.RemoveWith.TempInsertion, DelphiSemantics.Resolve.MemberResolver,
+  DelphiSemantics.Resolve.NameSites, DelphiSemantics.Resolve.SelectorTypes,
   DelphiSemantics.Source, DelphiSemantics.SourceConditionals, DelphiSemantics.WithBinding.Inventory,
   MaxLogic.StrUtils;
 
@@ -3274,6 +3276,7 @@ var
       SameText(aPointeeIdentity.CanonicalName, 'record');
   end;
 begin
+  Result.CaptureInsertionLine := 0;
   aIdentity := Default(TDelphiSemanticTypeIdentity);
   lCaptureTypeName := '';
   lCaptureTypeStatus := '';
@@ -4767,17 +4770,47 @@ begin
     Result.SkipReason := aBinding.InactiveSpanSkipReason;
 end;
 
+function CaptureStatementIsInUnit(const aModel: TDelphiSemanticUnitModel;
+  const aStatement: TDelphiSemanticWithStatement): Boolean;
+var
+  lMatch: TMatch;
+  lOffset: Integer;
+  lSource: string;
+begin
+  Result := False;
+  if (aModel.SourceText = '') or (aStatement.Line <= 0) or (aStatement.Column <= 0) then
+    Exit;
+  lOffset := ActivityOffset(BuildBodyLineStarts(aModel.SourceText), Length(aModel.SourceText),
+    aStatement.Line, aStatement.Column);
+  if lOffset <= 0 then
+    Exit;
+  // An expanded include position is not a position in the physical unit.
+  // Check the physical header before choosing either capture lookup site.
+  lSource := SanitizeCodeText(aModel.SourceText);
+  lMatch := TRegEx.Match(Copy(lSource, lOffset, MaxInt),
+    '^with\b\s+(.*?)\s+(?<!&)\bdo\b', [roIgnoreCase, roSingleLine]);
+  Result := lMatch.Success and SameText(
+    TRegEx.Replace(lMatch.Groups[1].Value, '\s+', ''),
+    TRegEx.Replace(SanitizeCodeText(aStatement.SelectorText), '\s+', ''));
+end;
+
 function BindSelectors(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName,
   aCurrentTypeName, aSelectorText: string; const aParentRoutineNames: TArray<string>;
   const aParentSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
   const aLine, aColumn: Integer;
+  const aStatement: TDelphiSemanticWithStatement;
   const aProjectMemberIndex: TWithBindingProjectMemberIndex;
   const aMemberCache: TDictionary<string, TMemberVerdict>;
   out aIdentities: TWithSelectorIdentityArray):
   TArray<TDelphiSemanticWithSelectorBinding>;
 var
-  lCaptureLookup: TDelphiSemanticTypeLookupResult;
+  lCaptureLookup: TDelphiSemanticTypeResolution;
+  lCaptureSite: TDelphiSemanticNameSite;
+  lClass: TDelphiSemanticTypeIdentity;
+  lInsertionLine: Integer;
+  lHasVarSection: Boolean;
+  lPhysicalStatement, lHasInsertionSite: Boolean;
   lIdentity, lPrefixIdentity: TDelphiSemanticTypeIdentity;
   lBinding, lPrefixBinding: TDelphiSemanticWithSelectorBinding;
   lActivityBinding: TDelphiSemanticWithBinding;
@@ -4789,6 +4822,11 @@ var
   lParts: TArray<string>;
 begin
   aIdentities := nil;
+  lPhysicalStatement := CaptureStatementIsInUnit(aModel, aStatement);
+  lInsertionLine := 0;
+  lHasInsertionSite := lPhysicalStatement and
+    TryFindTempInsertionLine(aModel.SourceText.Split([#13#10, #10]), aLine,
+      aRoutineName, lInsertionLine, lHasVarSection);
   if not TrySplitTopLevelCommaList(aSelectorText, lParts) then
     Exit(nil);
   lSelectors := TList<TDelphiSemanticWithSelectorBinding>.Create;
@@ -4835,21 +4873,37 @@ begin
       if Assigned(aProjectMemberIndex) and (lBinding.CaptureTypeName = '') and
         TRegEx.IsMatch(lBinding.TypeName, '^[A-Za-z_][A-Za-z0-9_]*$') then
       begin
-        lScopeId := RoutineScopeAtLine(aModel, aLine);
-        if lScopeId <> '' then
-          lCaptureLookup := aProjectMemberIndex.fTypeIndex.ResolveScopedName(lBinding.TypeName,
-            aModel.UnitName, lScopeId,
-            aProjectMemberIndex.fTypeIndex.VisibleUnitNames(aModel.UnitName, 'implementation'),
-            'implementation')
-        else
-          lCaptureLookup := aProjectMemberIndex.fTypeIndex.ResolveVisibleName(lBinding.TypeName,
-            aModel.UnitName,
-            aProjectMemberIndex.fTypeIndex.VisibleUnitNames(aModel.UnitName, 'implementation'),
-            'implementation');
         lBinding.CaptureTypeName := lBinding.TypeName;
-        lBinding.CaptureTypeStatus := lCaptureLookup.Status;
-        if lCaptureLookup.Found and not lCaptureLookup.Ambiguous then
-          lBinding.CaptureTypeIdentity := lCaptureLookup.Identity;
+        lBinding.CaptureTypeStatus := 'unproved';
+        lBinding.CaptureTypeIdentity := Default(TDelphiSemanticTypeIdentity);
+        if lPhysicalStatement then
+        begin
+          lScopeId := RoutineScopeAtLine(aModel, aLine);
+          aProjectMemberIndex.OwnerIdentity(aModel.UnitName, aCurrentTypeName, '', '', lClass);
+          if lHasInsertionSite then
+          begin
+            lCaptureSite := TDelphiSemanticNameSites.AtTempInsertion(aModel, lScopeId,
+              lClass.DeclaredId, lInsertionLine);
+            lBinding.CaptureInsertionLine := lInsertionLine;
+          end else
+            lCaptureSite := TDelphiSemanticNameSites.AtWithStatement(aModel, aStatement,
+              lScopeId, lClass.DeclaredId);
+          lCaptureSite.CaptureVisibility := True;
+          lCaptureLookup := aProjectMemberIndex.fTypeIndex.ResolveTypeAt(lCaptureSite,
+            lBinding.TypeName);
+          // Publish each intact outcome explicitly; uncertainty is never absence.
+          case lCaptureLookup.Outcome of
+            noResolved:
+              begin
+                lBinding.CaptureTypeStatus := 'resolved';
+                lBinding.CaptureTypeIdentity := lCaptureLookup.Identity;
+              end;
+            noUnproved: lBinding.CaptureTypeStatus := 'unproved';
+            noAmbiguous: lBinding.CaptureTypeStatus := 'ambiguous';
+            noAbsent: lBinding.CaptureTypeStatus := 'unresolved';
+          end;
+        end else
+          lBinding.Cause := 'position-unknown';
       end;
       lSelectors.Add(lBinding);
       lIdentities.Add(lIdentity);
@@ -5390,7 +5444,7 @@ begin
     end;
     lDirectSelectors := BindSelectors(aModel, aProjectModels, lRoutineLookupName,
       lCurrentTypeName, aStatements[i].SelectorText, lParentRoutineNames,
-      lParentSelectors, aStatements[i].Line, aStatements[i].Column,
+      lParentSelectors, aStatements[i].Line, aStatements[i].Column, aStatements[i],
       aProjectMemberIndex, aMemberCache, lDirectIdentities);
     if lParentIndex >= 0 then
     begin

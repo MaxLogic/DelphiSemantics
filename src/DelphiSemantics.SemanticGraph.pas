@@ -52,6 +52,8 @@ type
     ImportsKnown: Boolean;
     AliasConflictNames: TArray<string>;
     TypeNamesKnown: Boolean;
+    CaptureScopeProof: TDelphiSemanticCaptureScopeProof;
+    CaptureExportProof: TDelphiSemanticCaptureScopeProof;
     HelperFactsKnown: Boolean;
     HelperScopeKnown: Boolean;
     UnindexedHelpers: TArray<TDelphiSemanticUnindexedHelperFact>;
@@ -264,7 +266,7 @@ implementation
 uses
   System.Classes, System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.RegularExpressions, System.StrUtils, System.SysUtils,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.Model.Extract, DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 function StableHash(const aText: string): string;
 begin
@@ -685,6 +687,9 @@ begin
   end;
 end;
 
+function CanonicalProjectImport(const aProject: TDelphiSemanticProjectInfo;
+  const aModels: TArray<TDelphiSemanticUnitModel>; const aUnitName: string): string; forward;
+
 function BuildUnit(const aProjectId: TDelphiSemanticProjectGraphId;
   const aProject: TDelphiSemanticProjectInfo; const aModel: TDelphiSemanticUnitModel;
   const aModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticGraphUnit;
@@ -717,6 +722,19 @@ begin
     if MatchText(lDiagnostic.Code, ['UNVERIFIED_PREPROCESS_CONDITION',
       'UNSUPPORTED_PREPROCESS_DIRECTIVE', 'UNMATCHED_PREPROCESS_DIRECTIVE']) then
       Result.TypeNamesKnown := False;
+  Result.CaptureScopeProof := TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(aModel, False);
+  Result.CaptureExportProof := TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(aModel, True);
+  for var i := 0 to High(Result.CaptureScopeProof.Imports) do
+  begin
+    var lImports := Result.CaptureScopeProof.Imports[i];
+    for var j := 0 to High(lImports.InterfaceImports) do
+      lImports.InterfaceImports[j] := CanonicalProjectImport(aProject, aModels, lImports.InterfaceImports[j]);
+    for var j := 0 to High(lImports.ImplementationImports) do
+      lImports.ImplementationImports[j] := CanonicalProjectImport(aProject, aModels, lImports.ImplementationImports[j]);
+    for var j := 0 to High(lImports.RootImports) do
+      lImports.RootImports[j] := CanonicalProjectImport(aProject, aModels, lImports.RootImports[j]);
+    Result.CaptureScopeProof.Imports[i] := lImports;
+  end;
   Result.HelperScopeKnown := HelperScopeIsKnown(aModel);
   Result.UnindexedHelpers := aModel.UnindexedHelpers;
   var lHelperDiagnosticCount := 0;

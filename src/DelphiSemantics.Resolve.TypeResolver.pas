@@ -21,6 +21,7 @@ type
     LocalCutoffLine: Integer;
     ForwardPointerTarget: Boolean;
     Origin: string;
+    CaptureVisibility: Boolean;
   end;
 
   TDelphiSemanticTypeIdentity = record
@@ -263,11 +264,18 @@ type
     function IsAliasConflict(const aUnitName, aImportName: string): Boolean;
     function VisibleAt(const aSite: TDelphiSemanticNameSite;
       const aRange: TDelphiSemanticSourceRange; const aLocal: Boolean): Integer;
+    function CaptureScopeClosed(const aUnit: TDelphiSemanticGraphUnit;
+      const aSite: TDelphiSemanticNameSite; const aOwn: Boolean): Boolean;
+    function CaptureNamesAgree(const aSite: TDelphiSemanticNameSite;
+      const aName, aScopeKind, aScopeId, aUnitName: string;
+      const aPositional: Boolean): Boolean;
     function TypesInScope(const aSite: TDelphiSemanticNameSite;
       const aName, aScopeKind, aScopeId, aUnitName: string; const aPositional: Boolean):
       TDelphiSemanticTypeResolution;
     function WalkVisibleUnits(const aSite: TDelphiSemanticNameSite;
-      const aName: string; const aValues: Boolean; const aUnitHead: Boolean = False): TDelphiSemanticUnitDecision;
+      const aName: string; const aValues: Boolean; const aUnitHead: Boolean = False;
+      const aImportsOverride: TArray<string> = nil;
+      const aUseImportsOverride: Boolean = False): TDelphiSemanticUnitDecision;
     function UnitValues(const aUnitName, aName: string;
       const aInterfaceOnly: Boolean): TArray<TDelphiSemanticGraphDeclaration>;
     function ResolveNestedTypeAt(const aOwner: TDelphiSemanticTypeIdentity;
@@ -496,6 +504,86 @@ begin
   end;
 end;
 
+function TDelphiSemanticTypeIdentityIndexData.CaptureScopeClosed(
+  const aUnit: TDelphiSemanticGraphUnit; const aSite: TDelphiSemanticNameSite;
+  const aOwn: Boolean): Boolean;
+begin
+  if not aSite.CaptureVisibility then
+    Exit(aUnit.TypeNamesKnown);
+  if aOwn then
+    Result := aUnit.CaptureScopeProof.Known
+  else
+    Result := aUnit.CaptureExportProof.Known;
+end;
+
+function TDelphiSemanticTypeIdentityIndexData.CaptureNamesAgree(
+  const aSite: TDelphiSemanticNameSite; const aName, aScopeKind, aScopeId,
+  aUnitName: string; const aPositional: Boolean): Boolean;
+var
+  lUnit: TDelphiSemanticGraphUnit;
+  lProof: TDelphiSemanticCaptureScopeProof;
+  lList: TDelphiSemanticTypeIdentityList;
+  lRange: TDelphiSemanticSourceRange;
+  lMatched, lRelevant: Boolean;
+begin
+  Result := True;
+  if not aSite.CaptureVisibility then
+    Exit;
+  Result := False;
+  if not fUnits.TryGetValue(aUnitName, lUnit) then
+    Exit;
+  if SameText(aUnitName, aSite.UnitName) then
+    lProof := lUnit.CaptureScopeProof
+  else
+    lProof := lUnit.CaptureExportProof;
+  if not lProof.Known then
+    Exit;
+  for var lFact in lProof.Names do
+  begin
+    if not SameText(lFact.Name, aName) then
+      Continue;
+    if aScopeKind = 'routine' then
+      lRelevant := SameText(lFact.OwnerScopeId, aScopeId) and (lFact.OwnerTypeName = '')
+    else if aScopeKind = 'class' then
+      // Nested type lookup retains its existing owner proof. An unknown owner
+      // cannot be used as evidence for a capture spelling.
+      lRelevant := lFact.OwnerTypeName <> ''
+    else
+      lRelevant := (lFact.OwnerScopeId = '') and (lFact.OwnerTypeName = '');
+    if not lRelevant then
+      Continue;
+    if not SameText(aUnitName, aSite.UnitName) and
+      not SameText(lFact.SectionKind, 'interface') then
+      Continue;
+    if lProof.AbsenceOnly then
+      Exit;
+    lRange := Default(TDelphiSemanticSourceRange);
+    lRange.FileName := lFact.FileName;
+    lRange.Line := lFact.Line;
+    lRange.Column := lFact.Column;
+    if aPositional and (VisibleAt(aSite, lRange, aScopeKind = 'routine') = 0) then
+      Continue;
+    if (lFact.Kind <> 'type') or (lFact.VariantCount <> lProof.VariantCount) then
+      Exit;
+    lMatched := False;
+    if fBySimpleName.TryGetValue(aName, lList) then
+      for var lIdentity in lList do
+      begin
+        if not SameText(lIdentity.UnitName, aUnitName) then
+          Continue;
+        lRange := lIdentity.SourceRange;
+        lMatched := lMatched or (SameText(lRange.FileName, lFact.FileName) and
+          (lRange.Line = lFact.Line) and (lRange.Column = lFact.Column));
+        if fVisibilityRanges.TryGetValue(lIdentity.DeclaredId.Value, lRange) then
+          lMatched := lMatched or (SameText(lRange.FileName, lFact.FileName) and
+            (lRange.Line = lFact.Line) and (lRange.Column = lFact.Column));
+      end;
+    if not lMatched then
+      Exit;
+  end;
+  Result := True;
+end;
+
 function TDelphiSemanticTypeIdentityIndexData.TypesInScope(const aSite: TDelphiSemanticNameSite;
   const aName, aScopeKind, aScopeId, aUnitName: string; const aPositional: Boolean):
   TDelphiSemanticTypeResolution;
@@ -508,6 +596,8 @@ var
 begin
   lScope := aScopeKind + ':' + aScopeId;
   Result := NameResolution(noAbsent, '', lScope, aName);
+  if not CaptureNamesAgree(aSite, aName, aScopeKind, aScopeId, aUnitName, aPositional) then
+    Exit(NameResolution(noUnproved, 'capture-name-shadow-unproved', lScope, aName));
   if aScopeKind = 'routine' then
   begin
     var lUnitId: string;
@@ -558,6 +648,25 @@ begin
     end;
     if lCandidates.Count = 1 then
     begin
+      if aSite.CaptureVisibility then
+      begin
+        var lUnit: TDelphiSemanticGraphUnit;
+        if not fUnits.TryGetValue(aUnitName, lUnit) then
+          Exit(NameResolution(noUnproved, 'capture-model-evidence-missing', lScope, aName));
+        var lProof := lUnit.CaptureExportProof;
+        if SameText(aUnitName, aSite.UnitName) then
+          lProof := lUnit.CaptureScopeProof;
+        var lPresent := False;
+        for var lFact in lProof.Names do
+          if (lFact.Kind = 'type') and SameText(lFact.Name, aName) and
+            (lFact.VariantCount = lProof.VariantCount) and
+            SameText(lFact.FileName, lCandidates[0].SourceRange.FileName) and
+            (lFact.Line = lCandidates[0].SourceRange.Line) and
+            (lFact.Column = lCandidates[0].SourceRange.Column) then
+            lPresent := True;
+        if not lProof.Known or not lPresent then
+          Exit(NameResolution(noUnproved, 'capture-positive-declaration-unproved', lScope, aName));
+      end;
       Result := NameResolution(noResolved, '', lScope, aName);
       Result.Identity := lCandidates[0];
     end else if lCandidates.Count > 1 then
@@ -571,7 +680,8 @@ begin
 end;
 
 function TDelphiSemanticTypeIdentityIndexData.WalkVisibleUnits(const aSite: TDelphiSemanticNameSite;
-  const aName: string; const aValues, aUnitHead: Boolean): TDelphiSemanticUnitDecision;
+  const aName: string; const aValues, aUnitHead: Boolean;
+  const aImportsOverride: TArray<string>; const aUseImportsOverride: Boolean): TDelphiSemanticUnitDecision;
 var
   lImports: TArray<string>;
   lUnitName, lUnknown, lCause: string;
@@ -581,7 +691,45 @@ var
 begin
   Result := Default(TDelphiSemanticUnitDecision);
   Result.Outcome := noAbsent;
-  lImports := VisibleUnitNames(aSite.UnitName, aSite.SectionKind);
+  if aSite.CaptureVisibility and not aUseImportsOverride then
+  begin
+    if not fUnits.TryGetValue(aSite.UnitName, lUnit) or
+      not lUnit.CaptureScopeProof.Known or (Length(lUnit.CaptureScopeProof.Imports) = 0) then
+    begin
+      Result.Outcome := noUnproved;
+      Result.Cause := 'capture-import-evidence-missing';
+      Result.UnitName := aSite.UnitName;
+      Exit;
+    end;
+    var lFirst := True;
+    for var lImportFacts in lUnit.CaptureScopeProof.Imports do
+    begin
+      lImports := lImportFacts.InterfaceImports;
+      if SameText(aSite.SectionKind, 'implementation') then
+        lImports := lImports + lImportFacts.ImplementationImports;
+      if (Length(lImports) = 0) and (Length(lImportFacts.RootImports) > 0) then
+        lImports := lImportFacts.RootImports;
+      var lDecision := WalkVisibleUnits(aSite, aName, aValues, aUnitHead, lImports, True);
+      if lFirst then
+      begin
+        Result := lDecision;
+        lFirst := False;
+      end else if (Result.Outcome <> lDecision.Outcome) or
+        not SameText(Result.UnitName, lDecision.UnitName) or
+        (Result.IsUnit <> lDecision.IsUnit) then
+      begin
+        Result.Outcome := noUnproved;
+        Result.Cause := 'capture-import-order-unproved';
+        Result.UnitName := aSite.UnitName;
+        Exit;
+      end;
+    end;
+    Exit;
+  end;
+  if aUseImportsOverride then
+    lImports := aImportsOverride
+  else
+    lImports := VisibleUnitNames(aSite.UnitName, aSite.SectionKind);
   lUnknown := '';
   lCause := '';
   for var i := High(lImports) downto 0 do
@@ -614,7 +762,18 @@ begin
       end;
       Exit;
     end;
-    if fUnits.TryGetValue(lUnitName, lUnit) and not lUnit.TypeNamesKnown then
+    if aSite.CaptureVisibility and not fUnits.ContainsKey(lUnitName) then
+    begin
+      // Missing indexed evidence is not a failed indexed proof. Keep external
+      // imports on the existing witness path: absence requires SDK pairing.
+      if (fUnitNameWitness = nil) or fUnitNameWitness.MayDeclare(lUnitName, aName) then
+      begin
+        lUnknown := lUnitName;
+        lCause := 'witness-unknown';
+      end;
+      Continue;
+    end;
+    if fUnits.TryGetValue(lUnitName, lUnit) and not CaptureScopeClosed(lUnit, aSite, False) then
     begin
       lUnknown := lUnitName;
       lCause := 'later-unknown-unit';
@@ -640,7 +799,7 @@ begin
     end;
     if fUnits.TryGetValue(lUnitName, lUnit) then
     begin
-      if not lUnit.TypeNamesKnown then
+      if not CaptureScopeClosed(lUnit, aSite, False) then
       begin
         lUnknown := lUnitName;
         lCause := 'later-unknown-unit';
@@ -763,6 +922,9 @@ begin
   lName := Trim(aSpelling);
   if (lName = '') or not fUnits.TryGetValue(aSite.UnitName, lUnit) then
     Exit(NameResolution(noUnproved, 'caller-scope-invalid', 'unit:' + aSite.UnitName, lName));
+  if aSite.CaptureVisibility and not lUnit.CaptureScopeProof.Known then
+    Exit(NameResolution(noUnproved, lUnit.CaptureScopeProof.Cause,
+      'unit:' + aSite.UnitName, lName));
   // Qualified heads obey the same nearer-scope shadowing before unit matching.
   lDot := Pos('.', lName);
   if (lDot > 0) and not aUnitHead then
@@ -791,7 +953,7 @@ begin
     end;
     if not fUnits.TryGetValue(lQualifiedUnit, lUnit) then
       Exit(NameResolution(noUnproved, 'external-unindexed', 'uses:' + lQualifiedUnit, lName));
-    if not lUnit.TypeNamesKnown then
+    if not CaptureScopeClosed(lUnit, aSite, SameText(lUnit.UnitName, aSite.UnitName)) then
       Exit(NameResolution(noUnproved, 'type-names-unknown', 'uses:' + lQualifiedUnit, lName));
     lDot := Pos('.', lTail);
     if lDot > 0 then
@@ -835,6 +997,7 @@ begin
       Exit;
     // P4: a parent is viewed at the nested routine's declaration token.
     lSite := TDelphiSemanticNameSites.AtRoutineDeclaration(lRoutine, aSite.UnitName);
+    lSite.CaptureVisibility := aSite.CaptureVisibility;
     lSite.LocalCutoffLine := aSite.LocalCutoffLine;
   end;
   if aSite.ClassScopeId.Value <> '' then
@@ -870,7 +1033,7 @@ begin
     aResolvedUnit := aSite.UnitName;
     Exit(NameResolution(noResolved, '', 'unit:' + aSite.UnitName, lName));
   end;
-  if not lUnit.TypeNamesKnown then
+  if not CaptureScopeClosed(lUnit, aSite, SameText(lUnit.UnitName, aSite.UnitName)) then
     Exit(NameResolution(noUnproved, 'type-names-unknown', 'unit:' + aSite.UnitName, lName));
   lDecision := WalkVisibleUnits(aSite, lName, False, aUnitHead);
   if lDecision.Outcome = noUnproved then
@@ -1667,7 +1830,6 @@ var
 begin
   Result := False;
   if (aUnitName = '') or (aRoutine.Name = '') or
-    (aRoutine.ParentScopeId <> '') or
     (not aRoutine.AstSourceSignatureVerified) or
     (aRoutine.AstSourceSignature <> aRoutine.Signature) or
     (Length(aRoutine.AstSemanticSignature) < 2) or
@@ -1679,7 +1841,10 @@ begin
     lQualifiedName := aRoutine.OwnerName + '.' + lQualifiedName;
   // The semantic type tree and lexical source spelling were captured independently
   // at the uniquely matched AST method; neither is inferred from this scope ID.
-  lExpectedPrefix := LowerCase(aUnitName) + '|' + LowerCase(lQualifiedName);
+  lExpectedPrefix := LowerCase(aUnitName) + '|';
+  if aRoutine.ParentScopeId <> '' then
+    lExpectedPrefix := LowerCase(aRoutine.ParentScopeId) + '/';
+  lExpectedPrefix := lExpectedPrefix + LowerCase(lQualifiedName);
   Result := SameText(aRoutine.ScopeId,
     lExpectedPrefix + aRoutine.AstSemanticSignature);
 end;
@@ -1767,10 +1932,13 @@ begin
     NormalizedSignatureText(aBody.AstSourceSignature)) and
     SameText(NormalizedSignatureText(lHeader.Signature),
     NormalizedSignatureText(aBody.Signature)) and
-    SameText(lHeader.SectionKind, 'interface') and
+    // A nested forward and its body belong to the same physical parent scope.
+    // Top-level interface/body pairing keeps its original section requirement.
+    (((lHeader.ParentScopeId = '') and SameText(lHeader.SectionKind, 'interface')) or
+    ((lHeader.ParentScopeId <> '') and SameText(lHeader.SectionKind, 'implementation') and
+    SameText(lHeader.SourceRange.FileName, aBody.SourceRange.FileName))) and
     SameText(aBody.SectionKind, 'implementation') and
     SameText(lHeader.ReturnType, aBody.ReturnType) and
-    (lHeader.ParentScopeId = '') and
     (lHeader.SourceRange.FileName <> '') and (aBody.SourceRange.FileName <> '') and
     (lHeader.SourceRange.Line > 0) and (aBody.SourceRange.Line > 0) and
     (aBody.SourceRange.EndLine >= aBody.SourceRange.Line) and

@@ -37,8 +37,7 @@ delphisemantics.resolve.typeresolver.pas|tdelphisemantictypeidentityindex.resolv
 delphisemantics.resolve.typeresolver.pas|tdelphisemantictypeidentityindexdata.resolvequalifiedname|resolvesimplename|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.resolve.typeresolver.pas|tdelphisemantictypeidentityindexdata.resolvescopedname|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.resolve.typeresolver.pas|tdelphisemantictypeidentityindexdata.resolvescopedname|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|bindselectors|resolvescopedname|dde6340 transition; remove on migration in steps 1-6
-delphisemantics.withbinding.pas|bindselectors|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6
+delphisemantics.withbinding.pas|bindselectors|tryfindtempinsertionline|recovery 3.4 capture migration; use the existing provider Boolean before constructing a site
 delphisemantics.withbinding.pas|lastname|resolvequalifiedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|lastname|resolvescopedname|dde6340 transition; remove on migration in steps 1-6
 delphisemantics.withbinding.pas|lastname|resolvevisiblename|dde6340 transition; remove on migration in steps 1-6

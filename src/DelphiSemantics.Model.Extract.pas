@@ -10,6 +10,8 @@ type
   public
     class function TypeBlockAnalysisBuildCount: Integer; static;
     class procedure ResetTypeBlockAnalysisBuildCount; static;
+    class function CaptureScopeProof(const aModel: TDelphiSemanticUnitModel;
+      const aInterfaceOnly: Boolean): TDelphiSemanticCaptureScopeProof; static;
     class function AnonymousRecordAbsenceModel(const aModel: TDelphiSemanticUnitModel):
       TDelphiSemanticUnitModel; static;
     class function ExtractFromFile(const aOptions: TDelphiSemanticModelOptions):
@@ -961,6 +963,582 @@ begin
   end;
 end;
 
+function AstDependencyFacts(const aRoot: TSyntaxNode): TDelphiSemanticUnitDependencyFacts; forward;
+
+class function TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(
+  const aModel: TDelphiSemanticUnitModel; const aInterfaceOnly: Boolean):
+  TDelphiSemanticCaptureScopeProof;
+const
+  cMaximumConditionalChoices = 8;
+type
+  TBranch = record
+    Parent: Boolean;
+    Taken: Boolean;
+    Current: Boolean;
+    Unknown: Boolean;
+  end;
+  TProofOrigin = record
+    Source: Integer;
+    Offset: Integer;
+  end;
+  TProofSource = record
+    Source: TDelphiSemanticSourceText;
+    Lines: TArray<Integer>;
+  end;
+var
+  lSources: TArray<TProofSource>;
+  lOrigins: TArray<TProofOrigin>;
+  lOriginList: TList<TProofOrigin>;
+  lExpanded: TStringBuilder;
+  lIncludeStack: TStringList;
+  lExpandedLines: TArray<Integer>;
+  lRootLimit: Integer;
+  lRootSource: TDelphiSemanticSourceText;
+  lProof: TDelphiSemanticCaptureScopeProof;
+  lRaw, lLexical, lScan, lProjection: string;
+  lLexer: TmwBasePasLex;
+  lBuilder: TPasSyntaxTreeBuilder;
+  lStream: TStringStream;
+  lTree: TSyntaxNode;
+  lBranches: TList<TBranch>;
+  lFacts: TDictionary<string, Integer>;
+  lSeen: THashSet<string>;
+  lChoices, lVariant, lChoice, lOffset: Integer;
+  lUnknown, lActive, lInactive: Boolean;
+  lBranch: TBranch;
+
+  function LexicalText(const aText: string): string;
+  begin
+    Result := aText;
+    for var lMatch in TRegEx.Matches(Result, '(\{\$|\(\*\$)\s*(I|INCLUDE)(?=\s)',
+      [roIgnoreCase]) do
+      Result[lMatch.Groups[2].Index + 1] := 'Z';
+  end;
+
+  function AddSource(const aSource: TDelphiSemanticSourceText): Integer;
+  var
+    lSource: TProofSource;
+  begin
+    for var i := 0 to High(lSources) do
+      if SameText(lSources[i].Source.FileName, aSource.FileName) then
+        Exit(i);
+    lSource := Default(TProofSource);
+    lSource.Source := aSource;
+    lSource.Lines := [1];
+    for var i := 1 to Length(aSource.Text) do
+      if aSource.Text[i] = #10 then
+        lSource.Lines := lSource.Lines + [i + 1];
+    Result := Length(lSources);
+    lSources := lSources + [lSource];
+  end;
+
+  function RootInactive(const aOffset, aLength: Integer): Boolean;
+  begin
+    Result := aModel.DefineEvidenceComplete and (aOffset > 0) and
+      (aOffset + aLength - 1 <= lRootLimit);
+    if not Result then
+      Exit;
+    for var i := aOffset to aOffset + aLength - 1 do
+      if not CharInSet(aModel.SourceText[i], [#9, #10, #13, ' ']) and
+        ((lScan[i] <> ' ') or TDelphiSemanticSourceConditionals.UnknownAtOffset(
+        aModel.SourceText, aModel.VerifiedActiveSourceText, i)) then
+        Exit(False);
+  end;
+
+  function Expand(const aText: string; const aSource: Integer): Boolean;
+  var
+    lInput: TmwBasePasLex;
+    lCopied, lOffset, lIndex: Integer;
+    lArgument, lDirective, lExpected, lCandidate, lSelected: string;
+    lObserved: TDelphiSemanticSourceText;
+
+    procedure Append(const aFirst, aCount: Integer);
+    var
+      lOrigin: TProofOrigin;
+    begin
+      lExpanded.Append(Copy(aText, aFirst, aCount));
+      for var i := aFirst to aFirst + aCount - 1 do
+      begin
+        lOrigin.Source := aSource;
+        lOrigin.Offset := i;
+        if (aSource = 0) and (i > lRootLimit) then
+          lOrigin.Source := -1;
+        lOriginList.Add(lOrigin);
+      end;
+    end;
+
+  begin
+    Result := False;
+    if (lIncludeStack.Count >= 64) or
+      (lIncludeStack.IndexOf(lSources[aSource].Source.FileName) >= 0) then
+      Exit;
+    lIncludeStack.Add(lSources[aSource].Source.FileName);
+    lInput := TmwBasePasLex.Create;
+    try
+      lInput.UseDefines := False;
+      lInput.Origin := LexicalText(aText);
+      lCopied := 1;
+      while lInput.TokenID <> ptNull do
+      begin
+        lOffset := lInput.TokenPos + 1;
+        if lInput.IsCompilerDirective and
+          not ((aSource = 0) and RootInactive(lOffset, lInput.TokenLen)) then
+        begin
+          lDirective := Copy(aText, lOffset, lInput.TokenLen);
+          lArgument := TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(
+            lDirective.Trim(['{', '}', '(', ')', '*', '$', ' ']));
+          if lArgument <> '' then
+          begin
+            lArgument := lArgument.Trim.Trim([#39, '"']).Replace('/', PathDelim);
+            lExpected := TPath.GetFullPath(TPath.Combine(
+              ExtractFilePath(lSources[aSource].Source.FileName), lArgument));
+            lSelected := '';
+            for lCandidate in aModel.IncludeFileNames + aModel.SkippedIncludeFileNames do
+              if SameText(lExpected, lCandidate) or
+                EndsText(PathDelim + lArgument, lCandidate) then
+              begin
+                if (lSelected <> '') and not SameText(lSelected, lCandidate) then
+                  Exit;
+                lSelected := lCandidate;
+              end;
+            if (lSelected = '') or not aModel.SourceObservations.TryFind(lSelected, lObserved) then
+              Exit;
+            Append(lCopied, lOffset - lCopied);
+            lIndex := AddSource(lObserved);
+            if not Expand(lObserved.Text, lIndex) then
+              Exit;
+            lCopied := lOffset + lInput.TokenLen;
+          end;
+        end;
+        lInput.Next;
+      end;
+      Append(lCopied, Length(aText) - lCopied + 1);
+      Result := True;
+    finally
+      lInput.Free;
+      lIncludeStack.Delete(lIncludeStack.Count - 1);
+    end;
+  end;
+
+  function Position(const aNode: TSyntaxNode; out aSource, aLine, aColumn: Integer): Boolean;
+  var
+    lOffset, lLow, lHigh, lMiddle: Integer;
+    lOrigin: TProofOrigin;
+  begin
+    Result := False;
+    if (aNode.Line < 1) or (aNode.Line > Length(lExpandedLines)) or (aNode.Col < 1) then
+      Exit;
+    lOffset := lExpandedLines[aNode.Line - 1] + aNode.Col - 1;
+    if (lOffset < 1) or (lOffset > Length(lOrigins)) then
+      Exit;
+    lOrigin := lOrigins[lOffset - 1];
+    if lOrigin.Source < 0 then
+      Exit;
+    aSource := lOrigin.Source;
+    lLow := 0;
+    lHigh := High(lSources[aSource].Lines);
+    while lLow < lHigh do
+    begin
+      lMiddle := (lLow + lHigh + 1) div 2;
+      if lSources[aSource].Lines[lMiddle] <= lOrigin.Offset then
+        lLow := lMiddle
+      else
+        lHigh := lMiddle - 1;
+    end;
+    aLine := lLow + 1;
+    aColumn := lOrigin.Offset - lSources[aSource].Lines[lLow] + 1;
+    Result := True;
+  end;
+
+  procedure Blank(var aText: string; const aOffset, aLength: Integer);
+  begin
+    for var i := aOffset to aOffset + aLength - 1 do
+      if not CharInSet(aText[i], [#10, #13]) then
+        aText[i] := ' ';
+  end;
+
+  function BlankClosedInterfaceUses(var aText: string): Boolean;
+  var
+    lInput: TmwBasePasLex;
+    lFirst: Integer;
+  begin
+    Result := False;
+    lInput := TmwBasePasLex.Create;
+    try
+      lInput.UseDefines := False;
+      lInput.Origin := aText;
+      while not (lInput.TokenID in [ptInterface, ptNull]) do
+        lInput.Next;
+      if lInput.TokenID <> ptInterface then
+        Exit;
+      lInput.NextNoJunk;
+      if lInput.TokenID <> ptUses then
+        Exit;
+      lFirst := lInput.TokenPos + 1;
+      lInput.NextNoJunk;
+      // Section 0.7(9): imports alone introduce no exported names. This
+      // bounded grammar admits only unit-name tokens inside one closed uses
+      // clause; declaration keywords, strings and state directives refuse.
+      // Alternative imports need not compose into one compilable uses list.
+      while lInput.TokenID <> ptSemiColon do
+      begin
+        if not (lInput.TokenID in [ptIdentifier, ptPoint, ptComma]) then
+          Exit;
+        lInput.NextNoJunk;
+      end;
+      Blank(aText, lFirst, lInput.TokenPos + lInput.TokenLen - lFirst + 1);
+      Result := True;
+    finally
+      lInput.Free;
+    end;
+  end;
+
+  function KnownInactive(const aOffset, aLength: Integer): Boolean;
+  begin
+    Result := (aOffset > 0) and (aOffset + aLength - 1 <= Length(lOrigins));
+    if not Result then
+      Exit;
+    for var i := aOffset to aOffset + aLength - 1 do
+      if not CharInSet(lRaw[i], [#9, #10, #13, ' ']) and
+        ((lOrigins[i - 1].Source <> 0) or not RootInactive(lOrigins[i - 1].Offset, 1)) then
+        Exit(False);
+  end;
+
+  function IsUnknown(const aOffset: Integer): Boolean;
+  begin
+    Result := True;
+    if (aOffset < 1) or (aOffset > Length(lOrigins)) then
+      Exit;
+    if lOrigins[aOffset - 1].Source < 0 then
+      Exit(False);
+    if lOrigins[aOffset - 1].Source = 0 then
+      Result := not aModel.DefineEvidenceComplete or
+        TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
+          aModel.VerifiedActiveSourceText, lOrigins[aOffset - 1].Offset);
+  end;
+
+  function NodeName(const aNode: TSyntaxNode): string;
+  begin
+    Result := AstNodeName(aNode).Replace('&', '');
+  end;
+
+  procedure AddName(const aNode: TSyntaxNode; const aKind, aSection, aScope,
+    aOwner: string);
+  var
+    lFact: TDelphiSemanticCaptureNameFact;
+    lKey: string;
+    lIndex, lSource: Integer;
+  begin
+    lFact := Default(TDelphiSemanticCaptureNameFact);
+    if not Position(aNode, lSource, lFact.Line, lFact.Column) then
+    begin
+      lProof.Cause := 'capture-declaration-position-unproved';
+      Exit;
+    end;
+    lFact.FileName := lSources[lSource].Source.FileName;
+    lFact.Name := NodeName(aNode);
+    if lFact.Name = '' then
+      Exit;
+    lFact.Kind := aKind;
+    lFact.SectionKind := aSection;
+    lFact.OwnerScopeId := aScope;
+    lFact.OwnerTypeName := aOwner;
+    lKey := LowerCase(lFact.FileName + '|' + lFact.Name + '|' + aKind + '|' + aSection + '|' + aScope +
+      '|' + aOwner + '|' + IntToStr(lFact.Line) + ':' + IntToStr(lFact.Column));
+    if lSeen.Contains(lKey) then
+      Exit;
+    lSeen.Add(lKey);
+    if not lFacts.TryGetValue(lKey, lIndex) then
+    begin
+      lIndex := Length(lProof.Names);
+      lProof.Names := lProof.Names + [lFact];
+      lFacts.Add(lKey, lIndex);
+    end;
+    Inc(lProof.Names[lIndex].VariantCount);
+  end;
+
+  procedure Collect(const aNode: TSyntaxNode; const aSection, aScope, aOwner: string;
+    const aEnum: Boolean);
+  var
+    lSection, lScope, lOwner, lName: string;
+    lEnum: Boolean;
+    lSource, lLine, lColumn: Integer;
+  begin
+    lSection := aSection;
+    lScope := aScope;
+    lOwner := aOwner;
+    lEnum := False;
+    if aNode.Typ = ntInterface then
+      lSection := 'interface'
+    else if aNode.Typ = ntImplementation then
+      lSection := 'implementation';
+    if aNode.Typ = ntTypeDecl then
+      AddName(aNode, 'type', lSection, lScope, lOwner)
+    else if aNode.Typ in [ntVariable, ntConstant, ntMethod, ntParameter] then
+      AddName(aNode, SyntaxNodeNames[aNode.Typ], lSection, lScope, lOwner);
+    if aEnum and (aNode.Typ = ntIdentifier) then
+      AddName(aNode, 'enum-value', lSection, lScope, '');
+    if aNode.Typ = ntMethod then
+    begin
+      lName := NodeName(aNode);
+      if not Position(aNode, lSource, lLine, lColumn) then
+      begin
+        lProof.Cause := 'capture-routine-position-unproved';
+        Exit;
+      end;
+      lScope := 'unindexed:' + IntToStr(lLine) + ':' + IntToStr(lColumn);
+      for var lRoutine in aModel.Routines do
+        if (lRoutine.Line = lLine) and (lRoutine.Column = lColumn) and
+          SameText(lRoutine.SectionKind, lSection) and
+          (((lRoutine.FileName = '') and (lSource = 0)) or
+          SameText(lRoutine.FileName, lSources[lSource].Source.FileName)) then
+        begin
+          // Reparenting a physical routine changes the capture site itself.
+          if not SameText(lRoutine.ParentScopeId, aScope) then
+          begin
+            lProof.Cause := 'capture-scope-reparented';
+            Exit;
+          end;
+          lScope := lRoutine.ScopeId;
+        end;
+    end;
+    if aNode.Typ = ntTypeDecl then
+    begin
+      lName := NodeName(aNode);
+      if lOwner <> '' then
+        lOwner := lOwner + '.';
+      lOwner := lOwner + lName;
+    end;
+    if (aNode.Typ = ntType) and SameText(aNode.GetAttribute(anName), 'enum') then
+      lEnum := True;
+    for var lChild in aNode.ChildNodes do
+    begin
+      Collect(lChild, lSection, lScope, lOwner, lEnum);
+      if lProof.Cause <> '' then
+        Exit;
+    end;
+  end;
+
+begin
+  Result := Default(TDelphiSemanticCaptureScopeProof);
+  Result.Cause := 'capture-model-evidence-missing';
+  if not aModel.Success or not MatchText(aModel.ScopeModelStatus,
+    ['ast', 'ast-interface-only']) or (aModel.SourceText = '') or
+    (aModel.VerifiedActiveSourceText = '') or
+    (aModel.VerifiedActiveSourceText = TDelphiSemanticSourceConditionals.UnavailableActivity) then
+    Exit;
+  if (aModel.SourceObservations = nil) or
+    not aModel.SourceObservations.TryFind(aModel.FileName, lRootSource) or
+    (lRootSource.Text <> aModel.SourceText) then
+    Exit;
+  lRaw := aModel.SourceText;
+  lRootLimit := Length(lRaw);
+  if aInterfaceOnly then
+  begin
+    if aModel.SourceSections.InterfaceOffset < 1 then
+    begin
+      Result.Known := True;
+      Result.Cause := '';
+      Exit;
+    end;
+    if aModel.SourceSections.ImplementationOffset < 1 then
+      Exit;
+    lRootLimit := aModel.SourceSections.ImplementationOffset - 1;
+    lRaw := Copy(lRaw, 1, lRootLimit) + 'implementation' + #13#10 + 'end.';
+  end;
+  lScan := TDelphiSemanticSourceConditionals.SourceForScan(aModel.SourceText,
+    aModel.VerifiedActiveSourceText);
+  lOriginList := TList<TProofOrigin>.Create;
+  lExpanded := TStringBuilder.Create;
+  lIncludeStack := TStringList.Create;
+  try
+    lIncludeStack.CaseSensitive := False;
+    AddSource(lRootSource);
+    if not Expand(lRaw, 0) then
+    begin
+      Result.Cause := 'capture-include-evidence-unproved';
+      Exit;
+    end;
+    lRaw := lExpanded.ToString;
+    lOrigins := lOriginList.ToArray;
+  finally
+    lIncludeStack.Free;
+    lExpanded.Free;
+    lOriginList.Free;
+  end;
+  lExpandedLines := [1];
+  for var i := 1 to Length(lRaw) do
+    if lRaw[i] = #10 then
+      lExpandedLines := lExpandedLines + [i + 1];
+  lLexical := LexicalText(lRaw);
+  lProof := Default(TDelphiSemanticCaptureScopeProof);
+  lLexer := TmwBasePasLex.Create;
+  lBranches := TList<TBranch>.Create;
+  lFacts := TDictionary<string, Integer>.Create;
+  lSeen := THashSet<string>.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := lLexical;
+    lChoices := 0;
+    while lLexer.TokenID <> ptNull do
+    begin
+      lOffset := lLexer.TokenPos + 1;
+      lInactive := KnownInactive(lOffset, lLexer.TokenLen);
+      if (lLexer.TokenID in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect, ptIfOptDirect,
+        ptElseIfDirect]) and IsUnknown(lOffset) then
+        Inc(lChoices);
+      if lLexer.IsCompilerDirective and not lInactive and
+        not (lLexer.TokenID in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect, ptIfOptDirect,
+        ptElseDirect, ptElseIfDirect, ptEndIfDirect, ptIfEndDirect]) then
+      begin
+        var lDirective := Copy(lRaw, lOffset, lLexer.TokenLen);
+        var lBody := lDirective.Trim(['{', '}', '(', ')', '*', '$', ' ']);
+        if TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(lBody) <> '' then
+        begin
+          Result.Cause := 'capture-include-evidence-unproved';
+          Exit;
+        end;
+        if IsUnknown(lOffset) and not StartsText('REGION', lBody) and
+          not StartsText('ENDREGION', lBody) then
+        begin
+          Result.Cause := 'capture-escaping-state-unproved';
+          Exit;
+        end;
+      end;
+      lLexer.Next;
+    end;
+    if lChoices > cMaximumConditionalChoices then
+    begin
+      Result.Cause := 'capture-grammar-capacity';
+      Exit;
+    end;
+    lProof.VariantCount := 1 shl lChoices;
+    for lVariant := 0 to lProof.VariantCount - 1 do
+    begin
+      lProjection := lRaw;
+      lBranches.Clear;
+      lSeen.Clear;
+      lChoice := 0;
+      // Each Origin owns a buffer. Never replace it on a live lexer.
+      FreeAndNil(lLexer);
+      lLexer := TmwBasePasLex.Create;
+      lLexer.UseDefines := False;
+      lLexer.Origin := lLexical;
+      while lLexer.TokenID <> ptNull do
+      begin
+        lOffset := lLexer.TokenPos + 1;
+        lActive := (lBranches.Count = 0) or lBranches.Last.Current;
+        lUnknown := IsUnknown(lOffset);
+        case lLexer.TokenID of
+          ptIfDirect, ptIfDefDirect, ptIfNDefDirect, ptIfOptDirect:
+            begin
+              lBranch := Default(TBranch);
+              lBranch.Parent := lActive;
+              lBranch.Unknown := lUnknown;
+              lBranch.Current := True;
+              if lUnknown then
+              begin
+                lBranch.Current := (lVariant and (1 shl lChoice)) <> 0;
+                Inc(lChoice);
+              end;
+              lBranch.Taken := lBranch.Current;
+              lBranch.Current := lBranch.Parent and lBranch.Current;
+              lBranches.Add(lBranch);
+            end;
+          ptElseDirect, ptElseIfDirect:
+            begin
+              if lBranches.Count = 0 then
+                Exit;
+              lBranch := lBranches.Last;
+              if lBranch.Unknown then
+              begin
+                lActive := not lBranch.Taken;
+                if lLexer.TokenID = ptElseIfDirect then
+                begin
+                  lActive := lActive and ((lVariant and (1 shl lChoice)) <> 0);
+                  Inc(lChoice);
+                end;
+                lBranch.Current := lBranch.Parent and lActive;
+                lBranch.Taken := lBranch.Taken or lActive;
+              end;
+              lBranches[lBranches.Count - 1] := lBranch;
+            end;
+          ptEndIfDirect, ptIfEndDirect:
+            begin
+              if lBranches.Count = 0 then
+                Exit;
+              lBranches.Delete(lBranches.Count - 1);
+            end;
+        end;
+        if lLexer.IsCompilerDirective or (lLexer.TokenID in
+          [ptIfDirect, ptElseIfDirect, ptIfEndDirect]) or not lActive then
+          Blank(lProjection, lOffset, lLexer.TokenLen)
+        else if KnownInactive(lOffset, lLexer.TokenLen) then
+          Blank(lProjection, lOffset, lLexer.TokenLen);
+        lLexer.Next;
+      end;
+      if lBranches.Count <> 0 then
+        Exit;
+      lBuilder := TSemanticSyntaxTreeBuilder.Create;
+      lStream := nil;
+      lTree := nil;
+      try
+        lStream := TStringStream.Create(lProjection, TEncoding.UTF8);
+        try
+          lTree := lBuilder.Run(lStream);
+        except
+          on E: EParserException do
+          begin
+            if not aInterfaceOnly or not BlankClosedInterfaceUses(lProjection) then
+            begin
+              Result.Cause := 'capture-branch-grammar-unproved';
+              Exit;
+            end;
+            // Preserve the narrower proof kind. This inventory can clear a
+            // missing name, never publish a positive identity or dependency.
+            lProof.AbsenceOnly := True;
+            FreeAndNil(lStream);
+            FreeAndNil(lBuilder);
+            lBuilder := TSemanticSyntaxTreeBuilder.Create;
+            lStream := TStringStream.Create(lProjection, TEncoding.UTF8);
+            try
+              lTree := lBuilder.Run(lStream);
+            except
+              on E: EParserException do
+              begin
+                Result.Cause := 'capture-branch-grammar-unproved';
+                Exit;
+              end;
+            end;
+          end;
+        end;
+        lProof.Imports := lProof.Imports + [AstDependencyFacts(lTree)];
+        if not lProof.Imports[High(lProof.Imports)].Known then
+        begin
+          Result.Cause := 'capture-import-grammar-unproved';
+          Exit;
+        end;
+        Collect(lTree, 'implementation', '', '', False);
+        if lProof.Cause <> '' then
+        begin
+          Result.Cause := lProof.Cause;
+          Exit;
+        end;
+      finally
+        lTree.Free;
+        lStream.Free;
+        lBuilder.Free;
+      end;
+    end;
+    lProof.Known := True;
+    Result := lProof;
+  finally
+    lSeen.Free;
+    lFacts.Free;
+    lBranches.Free;
+    lLexer.Free;
+  end;
+end;
 function BuildModelSyntaxTree(const aText: string; const aSkipBodyAnalysis: Boolean;
   out aComplete: Boolean; out aOriginalError: string): TSyntaxNode;
 begin

@@ -589,6 +589,32 @@ type
     [TestCase('r6-a4-multi-absent True', 'r6-a4-multi-absent,True')]
     procedure OrderedTypeNamesOnFiveRoutes(const aShape: string;
       const aSkipGraph: Boolean);
+    [TestCase('one-line-routine', 'one-line-routine')]
+    [TestCase('one-line-routine-temp', 'one-line-routine-temp')]
+    [TestCase('regular-routine', 'regular-routine')]
+    procedure CapturePositionOnFiveRoutes(const aShape: string);
+    [TestCase('unrelated', 'capture-proof-unrelated')]
+    [TestCase('homonym', 'capture-proof-homonym')]
+    [TestCase('enum-capture', 'capture-proof-enum-capture')]
+    [TestCase('body-switch', 'capture-proof-body-switch')]
+    [TestCase('region-control', 'capture-proof-region-control')]
+    [TestCase('conditional-import', 'capture-proof-conditional-import')]
+    [TestCase('later-import-complete', 'capture-proof-later-import-complete')]
+    [TestCase('later-import-incomplete', 'capture-proof-later-import-incomplete')]
+    [TestCase('conditional-scope', 'capture-proof-conditional-scope')]
+    [TestCase('transitive-import', 'capture-proof-transitive-import')]
+    [TestCase('private-homonym', 'capture-proof-private-homonym')]
+    [TestCase('exported-include-homonym', 'capture-proof-exported-include-homonym')]
+    [TestCase('sdk-absent', 'capture-proof-sdk-absent')]
+    [TestCase('sdk-shadow', 'capture-proof-sdk-shadow')]
+    [TestCase('unpaired-absent', 'capture-proof-unpaired-absent')]
+    [TestCase('export-import-only', 'capture-proof-export-import-only')]
+    [TestCase('export-import-homonym', 'capture-proof-export-import-homonym')]
+    [TestCase('export-import-alias', 'capture-proof-export-import-alias')]
+    procedure CaptureClearanceOnFiveRoutes(const aShape: string);
+    [TestCase('include-statement-capture', 'include')]
+    [TestCase('empty-source-capture', 'empty')]
+    procedure CaptureWithoutPhysicalUnitSource(const aShape: string);
     [Test]
     procedure UnindexedSourceTokenEditInvalidatesWarmFacts;
     [Test]
@@ -20025,6 +20051,34 @@ begin
   if aProofMode = 'e2' then
     lFacts := TDelphiSemanticWithBinder.BindProject(lFacts.ContextFingerprint, nil,
       lFacts.UnitModels, nil, TStrictHelperPairing.Create);
+  if MatchText(aShape, ['one-line-routine', 'one-line-routine-temp',
+    'include-statement-capture', 'regular-routine']) then
+  begin
+    Assert.AreEqual<Integer>(1, Length(lFacts.Bindings), aShape);
+    Assert.AreEqual<Integer>(1, Length(lFacts.Bindings[0].Selectors), aShape);
+    Assert.AreEqual('TRec', lFacts.Bindings[0].Selectors[0].CaptureTypeName, aShape);
+    if aShape = 'include-statement-capture' then
+    begin
+      Assert.AreEqual('unproved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus, aShape);
+      Assert.AreEqual('position-unknown', lFacts.Bindings[0].Selectors[0].Cause, aShape);
+    end else
+      Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus, aShape);
+    if aShape = 'regular-routine' then
+      Assert.AreEqual(12, lFacts.Bindings[0].Selectors[0].CaptureInsertionLine, aShape)
+    else
+      Assert.AreEqual(0, lFacts.Bindings[0].Selectors[0].CaptureInsertionLine, aShape);
+  end;
+  if MatchText(aShape, ['capture-proof-sdk-absent', 'capture-proof-sdk-shadow',
+    'capture-proof-unpaired-absent', 'capture-proof-export-import-only',
+    'capture-proof-export-import-homonym', 'capture-proof-export-import-alias']) then
+  begin
+    Assert.AreEqual<Integer>(1, Length(lFacts.Bindings), aShape);
+    Assert.AreEqual<Integer>(1, Length(lFacts.Bindings[0].Selectors), aShape);
+    if MatchText(aShape, ['capture-proof-sdk-absent', 'capture-proof-export-import-only']) then
+      Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus, aShape)
+    else
+      Assert.AreEqual('unproved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus, aShape);
+  end;
   if aShape = 'ab' then
     Assert.AreEqual('B', lFacts.Bindings[0].Selectors[0].TypeIdentity.UnitName)
   else if MatchText(aShape, ['own', 'c-local-wins']) then
@@ -20074,6 +20128,49 @@ begin
       finally
         lSession.Session.Free;
       end;
+    end;
+    if StartsText('capture-proof-', aShape) then
+    begin
+      Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aShape);
+      if MatchText(aShape, ['capture-proof-unrelated', 'capture-proof-region-control',
+        'capture-proof-later-import-complete', 'capture-proof-transitive-import',
+        'capture-proof-private-homonym', 'capture-proof-sdk-absent',
+        'capture-proof-export-import-only']) then
+        Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+          aShape + ': ' + lPlan.FinalStatements[0].Reason)
+      else
+      begin
+        Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
+      end;
+      if i = 0 then
+        lExpectedText := lPlan.FinalStatements[0].ReplacementText;
+      Assert.AreEqual(lExpectedText, lPlan.FinalStatements[0].ReplacementText, aShape);
+      Continue;
+    end;
+    if MatchText(aShape, ['one-line-routine', 'one-line-routine-temp',
+      'include-statement-capture', 'regular-routine']) then
+    begin
+      Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aShape);
+      if aShape = 'include-statement-capture' then
+      begin
+        Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
+        Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText, aShape);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
+      end else begin
+        Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+          aShape + ': ' + lPlan.FinalStatements[0].Reason);
+        Assert.IsTrue(Length(lPlan.FinalStatements[0].Edits) > 0, aShape);
+        // Step 4 owns the known one-line temp declaration gap (recovery 3.4).
+        if aShape = 'one-line-routine-temp' then
+          Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), aShape)
+        else
+          Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), aShape);
+        if i = 0 then
+          lExpectedText := lPlan.FinalStatements[0].ReplacementText;
+        Assert.AreEqual(lExpectedText, lPlan.FinalStatements[0].ReplacementText, aShape);
+      end;
+      Continue;
     end;
     if MatchText(aShape, ['a5-sibling-temps', 'a5-sibling-control']) then
     begin
@@ -20230,6 +20327,53 @@ begin
       Assert.AreEqual('PRec', lFacts.Bindings[0].Selectors[0].CaptureTypeName);
     Assert.AreEqual('unproved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus);
   end;
+end;
+
+procedure TWithBinderTests.CaptureWithoutPhysicalUnitSource(const aShape: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lBindings: TArray<TDelphiSemanticWithBinding>;
+  lSource: string;
+begin
+  lSource := 'unit CaptureOrigin;'#13#10 +
+    'interface'#13#10 +
+    'implementation'#13#10 +
+    'type TRec = record Value: Integer; end;'#13#10 +
+    'var Item: TRec;'#13#10 +
+    'procedure Run;'#13#10 +
+    'begin'#13#10 +
+    '  with Item do Value := 7;'#13#10 +
+    'end;'#13#10 +
+    'end.'#13#10;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := WithBinderTempPath('capture-origin.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.AreEqual<Integer>(1, Length(lModel.WithStatements));
+  // Exercise the binder's boundary with retained expanded facts. Extraction
+  // normally blocks include WITHs earlier with WITH_IN_INCLUDE_UNVERIFIED.
+  if aShape = 'include' then
+    lModel.SourceText := lSource.Replace('  with Item do Value := 7;', '{$I body.inc}')
+  else
+    lModel.SourceText := '';
+  lBindings := TDelphiSemanticWithBinder.BindModel(lModel);
+  Assert.AreEqual<Integer>(1, Length(lBindings));
+  Assert.AreEqual('TRec', lBindings[0].Selectors[0].CaptureTypeName);
+  Assert.AreEqual('unproved', lBindings[0].Selectors[0].CaptureTypeStatus);
+  Assert.AreEqual('position-unknown', lBindings[0].Selectors[0].Cause);
+  Assert.AreEqual(0, lBindings[0].Selectors[0].CaptureInsertionLine);
+end;
+
+procedure TWithBinderTests.CaptureClearanceOnFiveRoutes(const aShape: string);
+begin
+  RunOrderedTypeNamesOnFiveRoutes(aShape, False, '');
+end;
+
+procedure TWithBinderTests.CapturePositionOnFiveRoutes(const aShape: string);
+begin
+  RunOrderedTypeNamesOnFiveRoutes(aShape, False, '');
 end;
 
 procedure TWithBinderTests.OrderedTypeNamesOnFiveRoutes(const aShape: string;
