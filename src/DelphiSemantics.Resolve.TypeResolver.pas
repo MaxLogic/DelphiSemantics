@@ -1008,6 +1008,9 @@ var
 begin
   aResolvedUnit := '';
   lName := Trim(aSpelling);
+  // DS-719: the leading escape belongs to spelling, not type identity.
+  if (Length(lName) > 1) and (lName[1] = '&') then
+    Delete(lName, 1, 1);
   if (lName = '') or not fUnits.TryGetValue(aSite.UnitName, lUnit) then
     Exit(NameResolution(noUnproved, 'caller-scope-invalid', 'unit:' + aSite.UnitName, lName));
   if aSite.CaptureVisibility and not lUnit.CaptureScopeProof.Known then
