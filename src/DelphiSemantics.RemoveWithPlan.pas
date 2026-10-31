@@ -7380,7 +7380,8 @@ begin
     Result.Temps := nil;
     Result.Status := 'skipped';
     Result.Reason := lReason;
-    Result.SafetyReason := Result.Reason;
+    Result.SafetyReason := IfThen(SameText(lReason, 'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED'),
+      'TYPE_VALUE_MEMBERS_UNVERIFIED', lReason);
     Exit;
   end;
   if not ReplacementRangeCoversExpectedWithRange(lBinding, lReplacementRange,
