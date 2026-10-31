@@ -2747,6 +2747,9 @@ begin
   Result := SanitizeBodyText(Result);
 end;
 
+function AliasTargetTypeName(const aIdentity: TDelphiSemanticTypeIdentity;
+  out aStrong: Boolean): string; forward;
+
 function CallerTypeNameFromRoutineName(const aRoutineName: string): string; forward;
 
 function CallerTypeNameForRoutineContext(const aModel: TDelphiSemanticUnitModel;
@@ -3975,7 +3978,9 @@ var
   i: Integer;
   lRefusalCode: string;
   lRootProof: TRootAbsenceProof;
-  lOpen, lValueCollision: Boolean;
+  lOpen, lValueCollision, lStrong: Boolean;
+  lProfileMembers: TArray<string>;
+  lProfileType: string;
 
   function CandidateOpen(const aMember: TBoundMemberResolution;
     const aKnownLevel: Integer): Boolean;
@@ -4008,6 +4013,25 @@ begin
   lBinding.UnitName := aModel.UnitName;
   lBinding.FileName := aModel.FileName;
   lLineage := TryBuildMemberSafetyLineage(lBinding, aSelector.TypeName, aSelector.TypeIdentity);
+  if SameText(lLineage.Cause, 'profile-terminal') then
+  begin
+    lProfileType := AliasTargetTypeName(lLineage.Items[High(lLineage.Items)], lStrong);
+    TDelphiSemanticCompilerProfileBuilder.CompatibilityRecordMemberNames(lProfileType, lProfileMembers);
+    // Inventory recovery may qualify a positively witnessed profile member.
+    // Names outside that witness need helper absence; a profile is no such proof.
+    if MatchText(aName, lProfileMembers) and (not fHasUnresolvedHelperTarget) and
+      (not UnindexedRecordHelperMayApply(aSite, lLineage.Items)) then
+    begin
+      if aDirect.Outcome = noResolved then
+        Exit(TMemberVerdict.Present(aDirect.Member, False));
+      if aDirect.Outcome = noAbsent then
+        Exit(TMemberVerdict.Barrier(noUnproved, 'OWNER_INHERITED_MEMBERS_UNVERIFIED',
+          'The profile member retains compatibility inventory recovery.', 'profile-member-witness'));
+      Exit(aDirect);
+    end;
+    Exit(TMemberVerdict.Barrier(noUnproved, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED',
+      'The profile terminal does not prove helper or member absence.', 'profile-terminal'));
+  end;
   lStatement := Default(TDelphiSemanticWithStatement);
   lStatement.Line := aSite.Line;
   lStatement.Column := aSite.Column;
@@ -6337,7 +6361,7 @@ begin
   lBinding.FileName := aModel.FileName;
   lLineage := TryBuildMemberSafetyLineage(lBinding, aSelector.TypeName,
     aSelector.TypeIdentity);
-  if not lLineage.Complete then
+  if (not lLineage.Complete) and (lLineage.Cause <> 'profile-terminal') then
   begin
     aRefusal := 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED';
     Exit;
@@ -6381,6 +6405,8 @@ function TWithBindingProjectMemberIndex.TryBuildMemberSafetyLineage(
 var
   lIdentity: TDelphiSemanticTypeIdentity;
   lModel: TDelphiSemanticUnitModel;
+  lTargetName: string;
+  lStrong: Boolean;
 begin
   Result := fTypeIndex.ResolveLineage(aSelectorIdentity);
   // Retain the verified prefix for activity checks and external root queries.
@@ -6392,6 +6418,18 @@ begin
       Result.Cause := 'declaration-unverified';
       Exit;
     end;
+  if SameText(Result.Cause, 'alias-unresolved') and (Length(Result.Items) > 0) then
+  begin
+    lIdentity := Result.Items[High(Result.Items)];
+    lTargetName := AliasTargetTypeName(lIdentity, lStrong);
+    // Preserve the positive compiler-profile boundary from the old walk.
+    // This does not convert an unproved import lookup to absence: the lineage
+    // stays incomplete, and only witnessed profile members may recover below.
+    if (Pos('.', lTargetName) = 0) and
+      fSafetyProfileTypes.ContainsKey(lTargetName) and
+      (not fSafetyDeclarationsByName.ContainsKey(lTargetName)) then
+      Result.Cause := 'profile-terminal';
+  end;
 end;
 
 function TWithBindingProjectMemberIndex.UnitRoutineDeclarationIsVerified(

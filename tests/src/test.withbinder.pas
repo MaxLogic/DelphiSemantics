@@ -1117,6 +1117,16 @@ type
     [TestCase('r5-comment-indexed sessioncold', 'r5-comment-indexed,sessioncold')]
     [TestCase('r5-comment-indexed sessionwarm', 'r5-comment-indexed,sessionwarm')]
     [TestCase('r5-comment-indexed standalone', 'r5-comment-indexed,standalone')]
+    [TestCase('weak-profile-outside-denial cold', 'weak-profile-outside-denial,cold')]
+    [TestCase('weak-profile-outside-denial snapshot', 'weak-profile-outside-denial,snapshot')]
+    [TestCase('weak-profile-outside-denial sessioncold', 'weak-profile-outside-denial,sessioncold')]
+    [TestCase('weak-profile-outside-denial sessionwarm', 'weak-profile-outside-denial,sessionwarm')]
+    [TestCase('weak-profile-outside-denial standalone', 'weak-profile-outside-denial,standalone')]
+    [TestCase('weak-profile-helper-denial cold', 'weak-profile-helper-denial,cold')]
+    [TestCase('weak-profile-helper-denial snapshot', 'weak-profile-helper-denial,snapshot')]
+    [TestCase('weak-profile-helper-denial sessioncold', 'weak-profile-helper-denial,sessioncold')]
+    [TestCase('weak-profile-helper-denial sessionwarm', 'weak-profile-helper-denial,sessionwarm')]
+    [TestCase('weak-profile-helper-denial standalone', 'weak-profile-helper-denial,standalone')]
     [TestCase('r5-newline-name cold', 'r5-newline-name,cold')]
     [TestCase('r5-newline-name snapshot', 'r5-newline-name,snapshot')]
     [TestCase('r5-newline-name sessioncold', 'r5-newline-name,sessioncold')]
@@ -13650,6 +13660,45 @@ begin
     lExpectedLine := 17;
     lExpectedColumn := 3;
   end;
+  if MatchText(aShape, ['weak-profile-helper-denial', 'weak-profile-outside-denial']) then
+  begin
+    // A profile member list proves Name, never the absence of a helper's S.
+    lSource := 'unit Unit1;'#13#10 +
+      'interface'#13#10 +
+      'uses System.SysUtils, Unit2;'#13#10 +
+      'type TMySR = TSearchRec;'#13#10 +
+      'var SR: TMySR; S: string;'#13#10 +
+      'procedure Run;'#13#10 +
+      'implementation'#13#10 +
+      'procedure Run;'#13#10 +
+      'begin'#13#10 +
+      ' SR.Name := ''n'';'#13#10 +
+      ' with SR do S := Name;'#13#10 +
+      ' Writeln(S, '' '', LastSet);'#13#10 +
+      'end;'#13#10 +
+      'end.'#13#10;
+    lSecondSource := 'unit Unit2;'#13#10 +
+      'interface uses System.SysUtils;'#13#10 +
+      'type TSRHelper = record helper for TSearchRec'#13#10 +
+      ' procedure SetS(const aValue: string);'#13#10 +
+      ' property S: string write SetS;'#13#10 +
+      'end;'#13#10 +
+      'var LastSet: string;'#13#10 +
+      'implementation'#13#10 +
+      'procedure TSRHelper.SetS(const aValue: string);'#13#10 +
+      'begin LastSet := aValue; end;'#13#10 +
+      'end.'#13#10;
+    lRefused := True;
+    lExpectedEdits := 0;
+    lExpectedLine := 11;
+    lExpectedColumn := 2;
+    if aShape = 'weak-profile-outside-denial' then
+    begin
+      lSource := lSource.Replace('System.SysUtils, Unit2', 'System.SysUtils').Replace(
+        'Writeln(S, '' '', LastSet)', 'Writeln(S)');
+      lSecondSource := '';
+    end;
+  end;
   if aShape = 'r4-weak-name-plain' then
   begin
     lSource :=
@@ -17276,6 +17325,9 @@ begin
     else
       Assert.IsFalse(lProjectionFound, aShape + ': missing projection must refuse');
   end;
+  if MatchText(aShape, ['weak-profile-helper-denial', 'weak-profile-outside-denial']) then
+    Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED',
+      ReasonOf(lFacts.Bindings[0], 'S', 'unsupported'));
   // Pin the binder's specific refusal independently of the planner backstop.
   if MatchText(aShape, ['r4-x1-strong-excludeattr', 'r4-x3-weak-of-strong-excl']) then
     Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED',
