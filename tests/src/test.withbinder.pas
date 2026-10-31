@@ -4598,7 +4598,7 @@ begin
     Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements[0].Edits)));
     Exit;
   end;
-  lPlanned := MatchText(aShape, ['ctl-comp-own-member', 'ctl-obj-own-member', 'ctl-record-absent-global', 'ctl-alias-projrec-field', 'nested-innerrec-tag-ctl', 'ctl-rec-in-comp-method-free', 'sr-name-ctl', 'sr-fileio715']);
+  lPlanned := MatchText(aShape, ['ctl-comp-own-member', 'ctl-obj-own-member', 'ctl-record-absent-global', 'ctl-alias-projrec-field', 'ctl-rec-in-comp-method-free']);
   lPlanned := lPlanned or (MatchText(aShape, ['ctl-obj-absent-global', 'obj-local-var-ctl']) and MatchText(aMode, ['rootcold', 'namedcold']));
   lPlanned := lPlanned or (MatchText(aShape, ['ctl-comp-absent-global', 'comp-local-var', 'comp-same-name-field-ctl', 'nested-outerrec-field-b']) and (aMode = 'namedcold'));
   if lPlanned then
@@ -4630,37 +4630,12 @@ begin
       lExpectedTemps := [0];
       lExpectedEdits := [1];
     end;
-    if aShape = 'nested-innerrec-tag-ctl' then
-    begin
-      lExpectedTexts := [' lWithFoo := Foo;' + #13#10 +
-    '   begin' + #13#10 +
-    '    lWithRecPtr := @R;' + #13#10 +
-    '   lWithRecPtr^.B := lWithRecPtr^.Tag;' + #13#10 +
-    '  end;'];
-      lExpectedTemps := [2];
-      lExpectedEdits := [2];
-    end;
     if aShape = 'ctl-rec-in-comp-method-free' then
     begin
       lExpectedTexts := [' lWithRecPtr := @R;' + #13#10 +
     ' lWithRecPtr^.B := Foo.Tag;'];
       lExpectedTemps := [1];
       lExpectedEdits := [2];
-    end;
-    if aShape = 'sr-name-ctl' then
-    begin
-      lExpectedTexts := [' S := SR.Name;'];
-      lExpectedTemps := [0];
-      lExpectedEdits := [1];
-    end;
-    if aShape = 'sr-fileio715' then
-    begin
-      lExpectedTexts := [' begin' + #13#10 +
-    '  S := SR.Name;' + #13#10 +
-    '  X := SR.Size + SR.Attr;' + #13#10 +
-    ' end;'];
-      lExpectedTemps := [0];
-      lExpectedEdits := [1];
     end;
     if aShape = 'ctl-obj-absent-global' then
     begin
@@ -4722,10 +4697,23 @@ begin
   lExpectedReason := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
   if StartsText('sr-', aShape) or (aShape = 'alias-projclass-classname') then
     lExpectedReason := 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED';
+  // DS-719 A-275..A-281: sr-name-ctl; A-282..A-288: sr-fileio715, all seven routes.
+  if MatchText(aShape, ['sr-name-ctl', 'sr-fileio715']) then
+    Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)), aShape);
+  // DS-719 A-335: keep ctl-record-absent-global and ctl-alias-projrec-field planned.
+  if aShape = 'nested-innerrec-tag-ctl' then
+  begin
+    lExpectedReason := 'PARENT_SELECTOR_UNRESOLVED';
+    Assert.AreEqual(2, Integer(Length(lPlan.FinalStatements)), aShape);
+  end;
   Assert.IsTrue(Length(lPlan.FinalStatements) > 0, aShape);
   for var lStatement in lPlan.FinalStatements do
   begin
     Assert.AreEqual('skipped', lStatement.Status, aShape + ': ' + lStatement.Reason);
+    if MatchText(aShape, ['sr-name-ctl', 'sr-fileio715']) then
+      Assert.AreEqual('receiver-member-not-found', lStatement.Reason, aShape);
+    if aShape = 'nested-innerrec-tag-ctl' then
+      Assert.AreEqual('selector-type-not-resolved', lStatement.Reason, aShape);
     Assert.AreEqual(lExpectedReason, lStatement.SafetyReason, aShape);
     Assert.AreEqual('', lStatement.ReplacementText, aShape);
     Assert.AreEqual(0, Integer(Length(lStatement.Edits)), aShape);
@@ -6397,7 +6385,7 @@ begin
   begin
     lExpectedReason := 'symbol-not-found';
   end;
-  if MatchText(aShape, ['unrelated', 'class-helper', 'local-array', 'no-helper']) then
+  if MatchText(aShape, ['unrelated', 'class-helper', 'no-helper']) then
   begin
     lExpectedStatus := 'planned';
     lExpectedReason := '';
@@ -6444,7 +6432,8 @@ begin
     begin
       if aShape = 'local-array' then
       begin
-        Assert.AreEqual('INDEXED_SELECTOR_UNSUPPORTED', lReference.ReasonCode);
+        // DS-719 A-310: helper-bearing local-array refuses; no-helper control stays planned.
+        Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lReference.ReasonCode);
       end else begin
         Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lReference.ReasonCode);
       end;
@@ -6853,6 +6842,9 @@ begin
             Assert.AreEqual('unsupported', lReference.Classification,
               lShape + ': cold/warm must shield the lexical Count');
             lExpectedStatus := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
+            // DS-719 A-311, A-312: only the hidden-helper shape is a collision.
+            if lShape = 'hidden-helper' then
+              lExpectedStatus := 'HELPER_COLLISION_UNVERIFIED';
             // Recovery 3.1: a legacy-resolved receiver without identity still
             // reaches the fail-closed owner absence proof.
             Assert.AreEqual(lExpectedStatus, lReference.ReasonCode,
@@ -8171,16 +8163,34 @@ begin
     if aShape = 'collision' then
       Assert.AreEqual('HELPER_COLLISION_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason)
     else if StartsText('reference:', aShape) then
-      Assert.AreEqual(lCode, lPlan.FinalStatements[0].SafetyReason)
-    else if aShape = 'fault' then
+    begin
+      // DS-719 A-334: established visibility refusal keeps the base value.
+      if lCode = 'TYPE_VISIBILITY_UNPROVED' then
+        Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason)
+      else
+        Assert.AreEqual(lCode, lPlan.FinalStatements[0].SafetyReason);
+    end else if StartsText('selector:', aShape) then
+    begin
+      // DS-719 A-316..A-322: guard-only selector refusals retain the precise code.
+      // A-333: the visibility refusal is already established before the veto.
+      if lCode = 'TYPE_VISIBILITY_UNPROVED' then
+        Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason)
+      else
+        Assert.AreEqual(lCode, lPlan.FinalStatements[0].SafetyReason);
+    end else if aShape = 'fault' then
       Assert.AreEqual('SELECTOR_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason)
     else
-      Assert.AreEqual('selector-type-not-resolved', lPlan.FinalStatements[0].SafetyReason);
+      // DS-719 A-313, A-314, A-315: established visibility refusal wins.
+      Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason);
     Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
     Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Edits)));
     Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Temps)));
-    Assert.AreEqual(0, Integer(Length(lPlan.Edits)),
-      'An absolute binder refusal must leave no candidate edit: ' + aShape);
+    // DS-719 A-336..A-338: established visibility refusals retain their candidate.
+    if MatchText(aShape, ['selector', 'unresolved', 'unsupported']) then
+      Assert.AreEqual(1, Integer(Length(lPlan.Edits)), aShape)
+    else
+      Assert.AreEqual(0, Integer(Length(lPlan.Edits)),
+        'An absolute binder refusal must leave no candidate edit: ' + aShape);
   end;
 end;
 
@@ -8225,13 +8235,25 @@ begin
     else
       lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
     Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
-    Assert.AreEqual(lReason, lPlan.FinalStatements[0].Reason);
-    Assert.AreEqual(lReason, lPlan.FinalStatements[0].SafetyReason);
+    // DS-719 A-323, A-324, A-326: established visibility label and safety win.
+    // A-325: a resolved absolute code reaches the veto, retaining its safety code.
+    if aStatus = 'resolved' then
+    begin
+      Assert.AreEqual('selector-type-not-resolved', lPlan.FinalStatements[0].Reason);
+      Assert.AreEqual(lReason, lPlan.FinalStatements[0].SafetyReason);
+    end else begin
+      Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].Reason);
+      Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason);
+    end;
     Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
     Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Edits)));
     Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Temps)));
-    Assert.AreEqual(0, Integer(Length(lPlan.Edits)),
-      'A selector-status refusal leaves no aggregate candidate, whatever its code');
+    // DS-719 A-339..A-341: the cited test name stays stable; established
+    // visibility refusals retain one aggregate candidate, with no final DTO edits.
+    if aStatus = 'resolved' then
+      Assert.AreEqual(0, Integer(Length(lPlan.Edits)), 'guard-only refusal')
+    else
+      Assert.AreEqual(1, Integer(Length(lPlan.Edits)), 'established visibility refusal');
   end;
 end;
 
@@ -8261,7 +8283,8 @@ begin
   Assert.AreEqual(1, Integer(Length(lBindings)));
   Assert.IsTrue(HasReference(lBindings[0], 'Count', 'unsupported'),
     'A known helper/type collision must refuse before choosing either member.');
-  Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED',
+  // DS-719 A-327: retain the specific competing helper/type cause.
+  Assert.AreEqual('HELPER_COLLISION_UNVERIFIED',
     ReasonOf(lBindings[0], 'Count', 'unsupported'));
 end;
 
@@ -8348,7 +8371,8 @@ begin
     begin
       Inc(lCount);
       Assert.AreEqual('unsupported', lReference.Classification);
-      Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lReference.ReasonCode);
+      // DS-719 A-328, A-329, A-330: competing helper/type members retain the collision code.
+      Assert.AreEqual('HELPER_COLLISION_UNVERIFIED', lReference.ReasonCode);
       Assert.AreEqual('helper-collision', lReference.Cause,
         'Call and dotted adapters must retain the binder collision fact.');
     end;
@@ -13863,8 +13887,9 @@ begin
       ' Writeln(Item.Name, '' '', Name, '' '', Bytes[1]);'#13#10 +
       'end;'#13#10 +
       'end.'#13#10;
-    lRefused := aShape = 'rtl-strong-homonym';
-    if lRefused then
+    // DS-719 A-290..A-294 (weak chain), A-295..A-299 (weak), five routes each.
+    lRefused := True;
+    if aShape = 'rtl-strong-homonym' then
       lSource := StringReplace(lSource, 'TA = TSearchRec;', 'TA = type TSearchRec;', []);
     lExpected := ' begin Item.Name := ''receiver''; Bytes[1] := Length(Item.Name); end;';
     lExpectedEdits := 1;
@@ -17749,6 +17774,8 @@ begin
     Exit;
   end;
   Assert.AreEqual('skipped', lStatement.Status, aShape + ': ' + lStatement.Reason);
+  if MatchText(aShape, ['rtl-weak-homonym', 'rtl-weak-chain-homonym']) then
+    Assert.AreEqual('receiver-member-not-found', lStatement.Reason, aShape);
   // DS-719: restore the dde6340 reason contract (A-270).
   if lLocal then
     Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED', lStatement.SafetyReason)
@@ -18406,8 +18433,15 @@ begin
         'class-forward', 'partial-root-object', 'partial-root-interfaced', 'partial-root-component']) then
       begin
         Assert.AreEqual('skipped', lStatement.Status, aShape);
-        Assert.AreEqual('receiver-member-not-found', lStatement.Reason, aShape);
-        Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason, aShape);
+        if MatchText(lShape, ['partial-root-interfaced', 'partial-root-component']) then
+        begin
+          // DS-719 A-300..A-304 (interfaced), A-305..A-309 (component), five routes each.
+          Assert.AreEqual('symbol-not-found', lStatement.Reason, aShape);
+          Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.SafetyReason, aShape);
+        end else begin
+          Assert.AreEqual('receiver-member-not-found', lStatement.Reason, aShape);
+          Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason, aShape);
+        end;
         Assert.AreEqual('', lStatement.ReplacementText, aShape);
         Assert.AreEqual(0, Integer(Length(lStatement.Edits)), aShape);
         Assert.AreEqual(0, Integer(Length(lStatement.Temps)), aShape);
@@ -19102,7 +19136,8 @@ begin
         begin
           // Existing MEMBERS_INCOMPLETE for B still shields receiver lookup.
           Assert.AreEqual('unsupported', lReference.Classification, aShape);
-          Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lReference.ReasonCode);
+          // DS-719 A-289: incomplete nested variant is a value-member proof refusal.
+          Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lReference.ReasonCode);
         end else if lExpectedCode <> '' then
         begin
           Assert.AreEqual('unsupported', lReference.Classification, aShape);

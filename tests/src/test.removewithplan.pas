@@ -7037,7 +7037,8 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lStatement),
     'Expected ambiguous parent statement.');
   Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('multiple-member-candidates', lStatement.Reason);
+  // DS-719 A-332: untyped helper denial reaches the established symbol refusal.
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-4', lStatement),
     'Expected safe child under blocked parent.');
@@ -7049,7 +7050,8 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-5', lStatement),
     'Expected ambiguous helper child.');
   Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('multiple-member-candidates', lStatement.Reason);
+  // DS-719 A-332: untyped helper denial reaches the established symbol refusal.
+  Assert.AreEqual('symbol-not-found', lStatement.Reason);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoPreservesMemberPrecedenceWithNestedInlineDeclaration;
@@ -26745,8 +26747,9 @@ begin
     // DS-719: restore the dde6340 reason contract (A-267).
     lReason := 'symbol-not-found';
   end;
+  // DS-719 A-331: the guard-only lexical denial uses the planner miss label.
   if aMode = 'lexical' then
-    lReason := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
+    lReason := 'receiver-member-not-found';
   lOptions := Default(TDelphiSemanticModelOptions);
   lOptions.ProjectContextApplied := True;
   lOptions.SourceFileName := TempPath('helper-planner-' + aMode + '.pas');
