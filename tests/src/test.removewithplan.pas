@@ -4121,7 +4121,7 @@ end;
 
 procedure TRemoveWithPlanTests.ReceiverBodyIncludesKeepContainment(const aShape: string);
 var
-  lRoot, lBody, lMemberText, lUses: string;
+  lRoot, lBody, lMemberText, lUses, lReferences: string;
   lOptions: TDelphiSemanticApiOptions;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
@@ -4144,7 +4144,7 @@ begin
     TFile.WriteAllText(TPath.Combine(lRoot, 'foreign.inc'),
       '    const K = 7;'#13#10, TEncoding.ASCII);
     TFile.WriteAllText(TPath.Combine(lRoot, 'ControlUnit.pas'),
-      'unit ControlUnit;'#13#10'interface'#13#10'type'#13#10'  TR = record'#13#10 +
+      'unit ControlUnit;'#13#10'interface'#13#10'type'#13#10'  TForeign = record'#13#10 +
       '{$I foreign.inc}'#13#10'  end;'#13#10'implementation'#13#10'end.', TEncoding.ASCII);
   end;
   TFile.WriteAllText(TPath.Combine(lRoot, 'members.inc'), lMemberText, TEncoding.ASCII);
@@ -4154,9 +4154,12 @@ begin
     'procedure P(var R: TR);'#13#10'begin'#13#10'  with R do b := K;'#13#10'end;'#13#10'end.',
     TEncoding.ASCII);
   TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'), 'program P; uses U; begin end.', TEncoding.ASCII);
+  lReferences := '<DCCReference Include="U.pas"/>';
+  if aShape = 'foreign' then
+    lReferences := lReferences + '<DCCReference Include="ControlUnit.pas"/>';
   TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
     '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
-    '<ItemGroup><DCCReference Include="U.pas"/>' +
+    '<ItemGroup>' + lReferences +
     '</ItemGroup></Project>', TEncoding.ASCII);
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
