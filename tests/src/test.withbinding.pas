@@ -487,6 +487,7 @@ var
   lSessionResult: TDelphiSemanticProjectSessionResult;
   lSource: string;
 begin
+  // DS-719 A-367: retain the listed strict refusal; no rewrite is published.
   lLabelName := 'Finished';
   if aCase in [1, 6] then
     lLabelName := 'Value';
@@ -566,25 +567,21 @@ begin
   Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
   if aCase in [0, 1, 6, 7, 8, 10, 11] then
   begin
-    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
-      lPlan.FinalStatements[0].Reason);
+    Assert.IsTrue((lPlan.FinalStatements[0].Status = 'skipped') and
+      (lPlan.FinalStatements[0].Reason = 'receiver-type-not-visible') and
+      (lPlan.FinalStatements[0].SafetyReason = 'receiver-type-not-visible') and
+      (Length(lPlan.FinalStatements[0].Temps) = 0) and (Length(lPlan.FinalStatements[0].Edits) = 0),
+      'A-367: the listed refusal must publish no rewrite');
     Assert.IsTrue(HasReference(lBinding, lLabelName, 'lexical'));
-    Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
-      'goto ' + lLabelName + ';'), lPlan.FinalStatements[0].ReplacementText);
-    Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
-      lLabelName + ':'), lPlan.FinalStatements[0].ReplacementText);
-    Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
-      '.Value := 1;'), lPlan.FinalStatements[0].ReplacementText);
-    Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
-      '.Value := 2;'), lPlan.FinalStatements[0].ReplacementText);
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+    Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason);
+    Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Edits)));
     if aCase = 10 then
     begin
-      Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements[0].Temps)));
-      Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
-        '.&Goto := ' + lPlan.FinalStatements[0].Temps[0].TempName + '^.Value;'),
-        lPlan.FinalStatements[0].ReplacementText);
-      Assert.IsFalse(ContainsText(lPlan.FinalStatements[0].ReplacementText,
-        '&' + lPlan.FinalStatements[0].Temps[0].TempName));
+      Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Temps)));
+      Assert.AreEqual('skipped', lPlan.FinalStatements[0].RewriteRecipe.Status);
+      Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].RewriteRecipe.Reason);
     end;
   end else
   begin
@@ -617,10 +614,21 @@ begin
       lSessionPlan := lSessionResult.Session.PlanRemoveWithResult;
       Assert.AreEqual(i, lSessionPlan.SnapshotMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, Integer(Length(lSessionPlan.Plan.FinalStatements)));
-      Assert.AreEqual(lPlan.FinalStatements[0].Status,
-        lSessionPlan.Plan.FinalStatements[0].Status);
-      Assert.AreEqual(lPlan.FinalStatements[0].ReplacementText,
-        lSessionPlan.Plan.FinalStatements[0].ReplacementText);
+      // A-367: direct deserialized models refuse; both source-backed session routes keep their positive.
+      Assert.IsTrue(((aCase in [0, 1, 6, 7, 8, 10, 11]) and
+        (lSessionPlan.Plan.FinalStatements[0].Status = 'planned')) or
+        ((not (aCase in [0, 1, 6, 7, 8, 10, 11])) and
+        (lSessionPlan.Plan.FinalStatements[0].Status = lPlan.FinalStatements[0].Status)),
+        'A-367: session phase ' + i.ToString + ': ' + lSessionPlan.Plan.FinalStatements[0].Reason);
+      Assert.IsTrue(((aCase in [0, 1, 6, 7, 8, 10, 11]) and
+        ContainsText(lSessionPlan.Plan.FinalStatements[0].ReplacementText, 'goto ' + lLabelName + ';') and
+        ContainsText(lSessionPlan.Plan.FinalStatements[0].ReplacementText, lLabelName + ':') and
+        ContainsText(lSessionPlan.Plan.FinalStatements[0].ReplacementText, '.Value := 1;')) or
+        ((not (aCase in [0, 1, 6, 7, 8, 10, 11])) and
+        (lSessionPlan.Plan.FinalStatements[0].ReplacementText = lPlan.FinalStatements[0].ReplacementText) and
+        (Length(lSessionPlan.Plan.FinalStatements[0].Edits) = 0) and
+        (Length(lSessionPlan.Plan.FinalStatements[0].Temps) = 0)),
+        'A-367: source-backed positives retain label rewrites; negative cases publish no edits');
     finally
       lSessionResult.Session.Free;
     end;

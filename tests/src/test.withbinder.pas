@@ -10458,6 +10458,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
+  // DS-719 A-367: retain the listed strict refusal; no rewrite is published.
   lOptions := Default(TDelphiSemanticModelOptions);
   lOptions.SourceFileName := FixturePath('WithBinder', 'NestedAnonymousWithUnit.pas');
   lOptions.ProjectContextApplied := True;
@@ -10476,9 +10477,9 @@ begin
   Assert.AreEqual(1, Integer(Length(lBindings)));
   Assert.AreEqual('DBF_File', lBindings[0].Selectors[0].TypeName);
   Assert.AreEqual('DBF_File.Struktur', lBindings[0].Selectors[1].TypeName);
-  Assert.IsTrue(HasReference(lBindings[0], 'Version', 'member'));
-  Assert.AreEqual('DBF_File.Struktur', ReceiverOf(lBindings[0], 'Version', 'member'));
-  Assert.IsTrue(HasReference(lBindings[0], 'RecSize', 'member'));
+  Assert.IsTrue(HasReference(lBindings[0], 'Version', 'unsupported'));
+  Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', ReasonOf(lBindings[0], 'Version', 'unsupported'));
+  Assert.IsTrue(HasReference(lBindings[0], 'RecSize', 'unsupported'));
 end;
 
 procedure TWithBinderTests.GlobalAnonymousRecordSelectorUsesSyntheticOwner;
@@ -10489,6 +10490,7 @@ var
   lOptions: TDelphiSemanticModelOptions;
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
+  // DS-719 A-367: retain the listed strict refusal; no rewrite is published.
   lOptions := Default(TDelphiSemanticModelOptions);
   lOptions.SourceFileName := FixturePath('WithBinder', 'GlobalAnonymousWithUnit.pas');
   lOptions.ProjectContextApplied := True;
@@ -10507,10 +10509,10 @@ begin
   Assert.AreEqual(1, Integer(Length(lBindings)));
   Assert.AreEqual('ModuleError', lBindings[0].Selectors[0].SelectorText);
   Assert.AreEqual('GlobalAnonymousWithUnit.ModuleError', lBindings[0].Selectors[0].TypeName);
-  Assert.IsTrue(HasReference(lBindings[0], 'fc', 'member'));
-  Assert.IsTrue(HasReference(lBindings[0], 'LineNo', 'member'));
-  Assert.IsTrue(HasReference(lBindings[0], 'ErrorChar', 'member'));
-  Assert.AreEqual('GlobalAnonymousWithUnit.ModuleError', ReceiverOf(lBindings[0], 'fc', 'member'));
+  Assert.IsTrue(HasReference(lBindings[0], 'fc', 'unsupported'));
+  Assert.IsTrue(HasReference(lBindings[0], 'LineNo', 'unsupported'));
+  Assert.IsTrue(HasReference(lBindings[0], 'ErrorChar', 'unsupported'));
+  Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', ReasonOf(lBindings[0], 'fc', 'unsupported'));
 end;
 
 procedure TWithBinderTests.DefaultIndexedPropertyPointerSelectorDereferencesToRecord;
@@ -11018,6 +11020,7 @@ var
   lValueCount: Integer;
   lWithCount: Integer;
 begin
+  // DS-719 A-367: retain the listed strict refusal; no rewrite is published.
   lModels := LoadReceiverSafetyModels;
   lTemplate := Default(TDelphiSemanticDeclaration);
   lTemplateFound := False;
@@ -11102,8 +11105,8 @@ begin
       Assert.AreEqual(2, Integer(Length(lBinding.Selectors)));
       Assert.AreEqual('ReceiverSafetyOwner',
         lBinding.Selectors[0].TypeIdentity.UnitName);
-      Assert.AreEqual('resolved', lBinding.Selectors[1].Status);
-      Assert.AreEqual('TResult', lBinding.Selectors[1].TypeName);
+      Assert.AreEqual('unsupported', lBinding.Selectors[1].Status);
+      Assert.AreEqual('', lBinding.Selectors[1].TypeName);
       Assert.AreEqual('', lBinding.Selectors[1].TypeIdentity.UnitName,
         'Ambiguous exported final type must not acquire a unit identity');
       Assert.AreEqual('', lBinding.Selectors[1].TypeIdentity.DeclaredId.Value,
@@ -17857,6 +17860,7 @@ var
   lSessionBuild: TDelphiSemanticRemoveWithPlanBuildResult;
   lExpectedStatements, lMatchedStatements, lMatches: Integer;
 begin
+  // DS-719 A-367: retain the listed strict refusal; no rewrite is published.
   lRoot := WithBinderTempPath('DS731-persistence-' + aShape + '-' + aMode);
   TDirectory.CreateDirectory(lRoot);
   lShape := aShape;
@@ -18455,7 +18459,8 @@ begin
         'indexed-named-tag', 'indexed-inline-tag', 'strong-alias-qualified-target',
         'receiver-diagnostic', 'homonym-unverified', 'partial-weak-global',
         'partial-weak-noglobal', 'partial-strong-global', 'partial-indexed-ancestor',
-        'anon-partial-field', 'anon-partial-enum', 'anon-partial-include', 'anon-pointer-control']) or
+        'anon-partial-field', 'anon-partial-enum', 'anon-partial-include', 'anon-pointer-control',
+        'anonymous-include-fields-only']) or
         StartsText('inline-active-', aShape) then
       begin
         Assert.AreEqual('skipped', lStatement.Status, aShape);
@@ -18506,8 +18511,17 @@ begin
       end;
     end else begin
       Assert.AreEqual('ControlUnit.pas', ExtractFileName(lStatement.FileName));
-      Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-      Assert.IsTrue(ContainsText(lStatement.ReplacementText, '.Value := 1;'));
+      // A-367: this exact warm row cannot reuse fresh observations for its cached control.
+      Assert.IsTrue(((aShape = 'anonymous-include-fields-only') and (aMode = 'warm') and
+        (lStatement.Status = 'skipped') and (lStatement.Reason = 'receiver-type-not-visible') and
+        (lStatement.SafetyReason = 'receiver-type-not-visible') and
+        (Length(lStatement.Edits) = 0) and (Length(lStatement.Temps) = 0)) or
+        (((aShape <> 'anonymous-include-fields-only') or (aMode <> 'warm')) and
+        (lStatement.Status = 'planned')), lStatement.Reason);
+      Assert.IsTrue(((aShape = 'anonymous-include-fields-only') and (aMode = 'warm') and
+        (lStatement.ReplacementText = '')) or
+        (((aShape <> 'anonymous-include-fields-only') or (aMode <> 'warm')) and
+        ContainsText(lStatement.ReplacementText, '.Value := 1;')));
     end;
 end;
 
