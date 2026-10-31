@@ -2356,6 +2356,11 @@ type
     [TestCase('absolute-reference-TYPE_VISIBILITY_UNPROVED', 'reference:TYPE_VISIBILITY_UNPROVED')]
     [TestCase('absolute-reference-PARENT_SELECTOR_UNRESOLVED', 'reference:PARENT_SELECTOR_UNRESOLVED')]
     procedure PlannerKeepsBinderDenial(const aShape: string);
+    [TestCase('Unresolved precise code', 'unresolved,NAME_NOT_FOUND')]
+    [TestCase('Unsupported future code', 'unsupported,FUTURE_SELECTOR_DENIAL')]
+    [TestCase('Resolved absolute denial', 'resolved,TYPE_VALUE_MEMBERS_UNVERIFIED')]
+    [TestCase('Unresolved no code', 'unresolved,empty')]
+    procedure PlannerSelectorRefusalKeepsCodeAndNoCandidate(const aStatus, aCode: string);
     [Test]
     procedure HelperAndTypeMemberCollisionRefuses;
     [Test]
@@ -8176,6 +8181,57 @@ begin
     Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Temps)));
     Assert.AreEqual(0, Integer(Length(lPlan.Edits)),
       'An absolute binder refusal must leave no candidate edit: ' + aShape);
+  end;
+end;
+
+procedure TWithBinderTests.PlannerSelectorRefusalKeepsCodeAndNoCandidate(
+  const aStatus, aCode: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lRoot, lReason: string;
+begin
+  lRoot := WithBinderTempPath('ds719-selector-reason-' + aStatus + '-' + aCode);
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10 +
+    'type TRec = record Count: Integer; end;'#13#10 +
+    'implementation'#13#10'procedure Run;'#13#10'var R: TRec;'#13#10 +
+    'begin'#13#10'  with R do Count := 1;'#13#10'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.AreEqual(1, Integer(Length(lFacts.Bindings)));
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, 'positive control');
+  lFacts.Bindings[0].Selectors[0].Status := aStatus;
+  lReason := aCode;
+  if aCode = 'empty' then
+    lReason := '';
+  lFacts.Bindings[0].Selectors[0].ReasonCode := lReason;
+  if lReason = '' then
+    lReason := 'selector-type-not-resolved';
+  for var i := 0 to 1 do
+  begin
+    if i = 0 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts)
+    else
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual(lReason, lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual(lReason, lPlan.FinalStatements[0].SafetyReason);
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+    Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Edits)));
+    Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Temps)));
+    Assert.AreEqual(0, Integer(Length(lPlan.Edits)),
+      'A selector-status refusal leaves no aggregate candidate, whatever its code');
   end;
 end;
 
