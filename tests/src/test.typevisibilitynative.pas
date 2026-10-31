@@ -347,8 +347,10 @@ begin
       begin
         // DS-763 owns the persisted local-type defect. Its compiler cases
         // still exercise both in-memory routes, with explicit exclusions.
-        if (i > 1) and (lCase.GetValue<TJSONValue>('excluded_routes', nil) <> nil) then
+        if (i > 1) and (lCase.GetValue<TJSONValue>('excluded_routes', nil) <> nil) and
+          (GetEnvironmentVariable('DS719_NATIVE_ALL_ROUTES') <> '1') then
           Continue;
+        try
         if i = 0 then
         begin
           lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
@@ -407,6 +409,18 @@ begin
             end;
           finally
             lSession.Session.Free;
+          end;
+        end;
+        except
+          on E: Exception do
+          begin
+            // A full measurement retains failed routes and continues all cases.
+            // The comparator still fails missing route coverage.
+            if GetEnvironmentVariable('DS719_NATIVE_ALL_ROUTES') <> '1' then
+              raise;
+            TFile.WriteAllText(TPath.Combine(lCaseRoot,
+              Format('route-%d-error.txt', [i])), E.ClassName + ': ' + E.Message);
+            Continue;
           end;
         end;
         if lDenialName <> '' then

@@ -7533,9 +7533,13 @@ begin
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-4', lStatement),
     'Expected indexed record selector.');
-  Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual('lWithTempPolicyRecordPtr4', lStatement.Temps[0].TempName,
-    'Expected sequential generated temps to stay reserved inside the routine.');
+  // DS-719 A-366: the TArray receiver has no proven element identity.
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual('SELECTOR_TYPE_NOT_RESOLVED', lStatement.SafetyReason);
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-9', lStatement),
     'Expected cast selector statement.');
@@ -26445,9 +26449,13 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'AUnit.pas', 16, 3, lStatement));
   if aCase = 0 then
   begin
-    Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-    Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'lWithItemPtr^.X := 1;'),
-      lStatement.ReplacementText);
+    // DS-719 A-366: unique spelling does not prove System.TArray identity.
+    Assert.AreEqual('skipped', lStatement.Status);
+    Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
+    Assert.AreEqual('SELECTOR_TYPE_NOT_RESOLVED', lStatement.SafetyReason);
+    Assert.AreEqual('', lStatement.ReplacementText);
+    Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+    Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
     Exit;
   end;
   Assert.AreEqual('skipped', lStatement.Status);

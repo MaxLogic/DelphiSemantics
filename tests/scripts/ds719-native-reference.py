@@ -7,6 +7,7 @@ It deliberately does not implement Delphi name resolution.
 from pathlib import Path
 import argparse
 import hashlib
+import os
 import json
 import re
 import shutil
@@ -774,7 +775,12 @@ def generate(repo, root, full, only=""):
         prefixes = tuple(prefix.strip() for prefix in only.split(",") if prefix.strip())
         assert prefixes, "Empty native selection"
         cases = [case for case in cases if case["name"].startswith(prefixes)]
-    assert cases and len(cases) <= 500, len(cases)
+    # Full dispatch includes all 545 cases; selection never changes this roster.
+    assert cases and (len(cases) == 545 if full and not only else len(cases) <= 500), len(cases)
+    if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
+        for case in cases:
+            case.pop('excluded_routes', None)
+            case['routes'] = list(range(5))
     (root / "cases.json").write_text(json.dumps(cases, indent=2), encoding="utf-8")
     print(f"Generated {len(cases)} cases")
 

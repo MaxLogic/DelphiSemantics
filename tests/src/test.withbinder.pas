@@ -1,4 +1,4 @@
-﻿unit Test.WithBinder;
+unit Test.WithBinder;
 
 interface
 
@@ -5153,6 +5153,9 @@ begin
     lControl := 'TFoo = record Count: Integer; end;';
   end;
   lExpectedClass := 'member';
+  // DS-719 A-366: inherited homonyms retain strict best-effort refusal.
+  if StartsText('inherited', aShape) then
+    lExpectedClass := 'unsupported';
   lExpectedReason := 'receiver-type-not-visible';
   if StartsText('alias', aShape) and (aShape <> 'alias-plain') then
   begin
@@ -9115,6 +9118,7 @@ var
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lModel: TDelphiSemanticUnitModel;
   lOptions: TDelphiSemanticModelOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
   lExpandedCount: Integer;
   lOwnerCount: Integer;
   lPath: string;
@@ -9173,24 +9177,30 @@ begin
         begin
           Inc(lExpandedCount);
           Assert.AreEqual('TBase', lSymbol.SourceOwnerType);
-          Assert.AreEqual('WithBinderCurrentTypeRegression',
-            lSymbol.AccessOwnerIdentity.UnitName);
-          Assert.AreEqual('TChild', lSymbol.AccessOwnerIdentity.Name);
-          Assert.IsTrue(lSymbol.AccessOwnerIdentity.DeclaredId.Value <> '');
-          Assert.AreEqual(lPath, lSymbol.AccessOwnerIdentity.SourceRange.FileName);
+          // DS-719 A-366: inventory access identity is unavailable.
+          Assert.AreEqual('', lSymbol.AccessOwnerIdentity.UnitName);
+          Assert.AreEqual('', lSymbol.AccessOwnerIdentity.Name);
+          Assert.AreEqual('', lSymbol.AccessOwnerIdentity.DeclaredId.Value);
+          Assert.AreEqual('', lSymbol.AccessOwnerIdentity.SourceRange.FileName);
         end
         else
           Continue;
-        Assert.AreEqual('WithBinderCurrentTypeRegression',
-          lSymbol.OwnerIdentity.UnitName);
-        Assert.AreEqual('TBase', lSymbol.OwnerIdentity.Name);
-        Assert.IsTrue(lSymbol.OwnerIdentity.DeclaredId.Value <> '');
-        Assert.AreEqual(lPath, lSymbol.OwnerIdentity.SourceRange.FileName);
+        // DS-719 A-366: do not manufacture the missing declaring identity.
+        Assert.AreEqual('', lSymbol.OwnerIdentity.UnitName);
+        Assert.AreEqual('', lSymbol.OwnerIdentity.Name);
+        Assert.AreEqual('', lSymbol.OwnerIdentity.DeclaredId.Value);
+        Assert.AreEqual('', lSymbol.OwnerIdentity.SourceRange.FileName);
       end;
     Assert.AreEqual(1, lOwnerCount,
       'Inherited BaseValue must retain its actual declaring TBase owner.');
     Assert.AreEqual(1, lExpandedCount,
-      'The derived projection must retain the inherited declaration identity.');
+      'The derived projection remains visible without a proven identity.');
+    // DS-719 A-366: source-only facts cannot publish a plan.
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    Assert.AreEqual('blocked', lPlan.Status);
+    Assert.AreEqual('Missing semantic context fingerprint.', lPlan.Diagnostic);
+    Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements)));
+    Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
   finally
     if TFile.Exists(lPath) then
       TFile.Delete(lPath);
@@ -17627,154 +17637,29 @@ begin
   Assert.AreEqual(lExpectedLine, lStatement.Range.StartLine);
   Assert.AreEqual(lExpectedColumn, lStatement.Range.StartColumn);
   Assert.AreNotEqual('', lStatement.SemanticId);
-  if aShape = 'r5-nested-block' then
+  if MatchText(aShape, ['r5-nested-block', 'r5-nested-single',
+    'r5-nested-weak-strong', 'r5-nested-repeat']) then
   begin
+    // DS-719 A-366: no strong-profile parent hop; both statements refuse.
+    Assert.AreEqual('skipped', lStatement.Status);
+    Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+    Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
+    Assert.AreEqual('', lStatement.ReplacementText);
+    Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+    Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
     lInnerStatement := lPlan.FinalStatements[1];
-    Assert.AreEqual('planned', lInnerStatement.Status);
-    Assert.AreEqual('  lWithOtherPtr := @O;'#13#10 +
-      '  begin'#13#10 +
-      '   Name := ''x''; lWithOtherPtr^.Z := 1;'#13#10 +
-      '  end;', lInnerStatement.ReplacementText);
-    Assert.AreEqual(2, Integer(Length(lInnerStatement.Edits)));
-    Assert.AreEqual(1, Integer(Length(lInnerStatement.Temps)));
-    Assert.AreEqual('declare-temp', lInnerStatement.Edits[0].Kind);
-    Assert.AreEqual('var'#13#10 +
-      '  lWithOtherPtr: ^TOther;'#13#10 +
-      '', lInnerStatement.Edits[0].ReplacementText);
-    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[0].FileName);
-    Assert.AreEqual(14, lInnerStatement.Edits[0].Range.StartLine);
-    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.StartColumn);
-    Assert.AreEqual(14, lInnerStatement.Edits[0].Range.EndLine);
-    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.EndColumn);
-    Assert.AreEqual('replace-statement', lInnerStatement.Edits[1].Kind);
-    Assert.AreEqual('  lWithOtherPtr := @O;'#13#10 +
-      '  begin'#13#10 +
-      '   Name := ''x''; lWithOtherPtr^.Z := 1;'#13#10 +
-      '  end;', lInnerStatement.Edits[1].ReplacementText);
-    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[1].FileName);
-    Assert.AreEqual(18, lInnerStatement.Edits[1].Range.StartLine);
-    Assert.AreEqual(1, lInnerStatement.Edits[1].Range.StartColumn);
-    Assert.AreEqual(21, lInnerStatement.Edits[1].Range.EndLine);
-    Assert.AreEqual(6, lInnerStatement.Edits[1].Range.EndColumn);
-    Assert.AreEqual(1, Integer(Length(lPlan.Edits)), aShape + ': inner plan candidate');
-    Assert.AreEqual('remove-with-candidate', lPlan.Edits[0].Kind);
-    Assert.AreEqual('requires-dak-compatibility-adapter', lPlan.Edits[0].ApplyMode);
-    Assert.AreEqual(lInnerStatement.SemanticId, lPlan.Edits[0].StatementId);
-    Assert.AreEqual(lInnerStatement.FileName, lPlan.Edits[0].FileName);
-    Assert.AreEqual(lPlan.Edits[0].ExpectedSourceText, lPlan.Edits[0].ReplacementText);
-    Assert.AreNotEqual('', lPlan.Edits[0].ExpectedSourceText);
-    Assert.AreEqual(lInnerStatement.Range.StartLine, lPlan.Edits[0].Range.StartLine);
-    Assert.AreEqual(lInnerStatement.Range.StartColumn, lPlan.Edits[0].Range.StartColumn);
-    Assert.AreEqual(lInnerStatement.Range.EndLine, lPlan.Edits[0].Range.EndLine);
-    Assert.AreEqual(lInnerStatement.Range.EndColumn, lPlan.Edits[0].Range.EndColumn);
-  end;
-  if aShape = 'r5-nested-repeat' then
-  begin
-    lInnerStatement := lPlan.FinalStatements[1];
-    Assert.AreEqual('planned', lInnerStatement.Status);
-    Assert.AreEqual(' Name := ''x'';', lInnerStatement.ReplacementText);
-    Assert.AreEqual(1, Integer(Length(lInnerStatement.Edits)));
+    Assert.AreEqual('skipped', lInnerStatement.Status);
+    Assert.AreEqual('selector-type-not-resolved', lInnerStatement.Reason);
+    Assert.AreEqual('PARENT_SELECTOR_UNRESOLVED', lInnerStatement.SafetyReason);
+    Assert.AreEqual('', lInnerStatement.ReplacementText);
+    Assert.AreEqual(0, Integer(Length(lInnerStatement.Edits)));
     Assert.AreEqual(0, Integer(Length(lInnerStatement.Temps)));
-    Assert.AreEqual('replace-statement', lInnerStatement.Edits[0].Kind);
-    Assert.AreEqual(' Name := ''x'';', lInnerStatement.Edits[0].ReplacementText);
-    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[0].FileName);
-    Assert.AreEqual(16, lInnerStatement.Edits[0].Range.StartLine);
-    Assert.AreEqual(13, lInnerStatement.Edits[0].Range.StartColumn);
-    Assert.AreEqual(16, lInnerStatement.Edits[0].Range.EndLine);
-    Assert.AreEqual(35, lInnerStatement.Edits[0].Range.EndColumn);
-    Assert.AreEqual(1, Integer(Length(lPlan.Edits)), aShape + ': inner plan candidate');
-    Assert.AreEqual('remove-with-candidate', lPlan.Edits[0].Kind);
-    Assert.AreEqual('requires-dak-compatibility-adapter', lPlan.Edits[0].ApplyMode);
-    Assert.AreEqual(lInnerStatement.SemanticId, lPlan.Edits[0].StatementId);
-    Assert.AreEqual(lInnerStatement.FileName, lPlan.Edits[0].FileName);
-    Assert.AreEqual(lPlan.Edits[0].ExpectedSourceText, lPlan.Edits[0].ReplacementText);
-    Assert.AreNotEqual('', lPlan.Edits[0].ExpectedSourceText);
-    Assert.AreEqual(lInnerStatement.Range.StartLine, lPlan.Edits[0].Range.StartLine);
-    Assert.AreEqual(lInnerStatement.Range.StartColumn, lPlan.Edits[0].Range.StartColumn);
-    Assert.AreEqual(lInnerStatement.Range.EndLine, lPlan.Edits[0].Range.EndLine);
-    Assert.AreEqual(lInnerStatement.Range.EndColumn, lPlan.Edits[0].Range.EndColumn);
-  end;
-  if aShape = 'r5-nested-single' then
-  begin
-    lInnerStatement := lPlan.FinalStatements[1];
-    Assert.AreEqual('planned', lInnerStatement.Status);
-    Assert.AreEqual('begin'#13#10 +
-      '            lWithOtherPtr := @O;'#13#10 +
-      ' Name := ''x'';'#13#10 +
-      '            end;', lInnerStatement.ReplacementText);
-    Assert.AreEqual(2, Integer(Length(lInnerStatement.Edits)));
-    Assert.AreEqual(1, Integer(Length(lInnerStatement.Temps)));
-    Assert.AreEqual('declare-temp', lInnerStatement.Edits[0].Kind);
-    Assert.AreEqual('var'#13#10 +
-      '  lWithOtherPtr: ^TOther;'#13#10 +
-      '', lInnerStatement.Edits[0].ReplacementText);
-    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[0].FileName);
-    Assert.AreEqual(14, lInnerStatement.Edits[0].Range.StartLine);
-    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.StartColumn);
-    Assert.AreEqual(14, lInnerStatement.Edits[0].Range.EndLine);
-    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.EndColumn);
-    Assert.AreEqual('replace-statement', lInnerStatement.Edits[1].Kind);
-    Assert.AreEqual('begin'#13#10 +
-      '            lWithOtherPtr := @O;'#13#10 +
-      ' Name := ''x'';'#13#10 +
-      '            end;', lInnerStatement.Edits[1].ReplacementText);
-    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[1].FileName);
-    Assert.AreEqual(16, lInnerStatement.Edits[1].Range.StartLine);
-    Assert.AreEqual(13, lInnerStatement.Edits[1].Range.StartColumn);
-    Assert.AreEqual(16, lInnerStatement.Edits[1].Range.EndLine);
-    Assert.AreEqual(34, lInnerStatement.Edits[1].Range.EndColumn);
-    Assert.AreEqual(1, Integer(Length(lPlan.Edits)), aShape + ': inner plan candidate');
-    Assert.AreEqual('remove-with-candidate', lPlan.Edits[0].Kind);
-    Assert.AreEqual('requires-dak-compatibility-adapter', lPlan.Edits[0].ApplyMode);
-    Assert.AreEqual(lInnerStatement.SemanticId, lPlan.Edits[0].StatementId);
-    Assert.AreEqual(lInnerStatement.FileName, lPlan.Edits[0].FileName);
-    Assert.AreEqual(lPlan.Edits[0].ExpectedSourceText, lPlan.Edits[0].ReplacementText);
-    Assert.AreNotEqual('', lPlan.Edits[0].ExpectedSourceText);
-    Assert.AreEqual(lInnerStatement.Range.StartLine, lPlan.Edits[0].Range.StartLine);
-    Assert.AreEqual(lInnerStatement.Range.StartColumn, lPlan.Edits[0].Range.StartColumn);
-    Assert.AreEqual(lInnerStatement.Range.EndLine, lPlan.Edits[0].Range.EndLine);
-    Assert.AreEqual(lInnerStatement.Range.EndColumn, lPlan.Edits[0].Range.EndColumn);
-  end;
-  if aShape = 'r5-nested-weak-strong' then
-  begin
-    lInnerStatement := lPlan.FinalStatements[1];
-    Assert.AreEqual('planned', lInnerStatement.Status);
-    Assert.AreEqual('begin'#13#10 +
-      '            lWithOtherPtr := @O;'#13#10 +
-      ' Name := ''x'';'#13#10 +
-      '            end;', lInnerStatement.ReplacementText);
-    Assert.AreEqual(2, Integer(Length(lInnerStatement.Edits)));
-    Assert.AreEqual(1, Integer(Length(lInnerStatement.Temps)));
-    Assert.AreEqual('declare-temp', lInnerStatement.Edits[0].Kind);
-    Assert.AreEqual('var'#13#10 +
-      '  lWithOtherPtr: ^TOther;'#13#10 +
-      '', lInnerStatement.Edits[0].ReplacementText);
-    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[0].FileName);
-    Assert.AreEqual(15, lInnerStatement.Edits[0].Range.StartLine);
-    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.StartColumn);
-    Assert.AreEqual(15, lInnerStatement.Edits[0].Range.EndLine);
-    Assert.AreEqual(1, lInnerStatement.Edits[0].Range.EndColumn);
-    Assert.AreEqual('replace-statement', lInnerStatement.Edits[1].Kind);
-    Assert.AreEqual('begin'#13#10 +
-      '            lWithOtherPtr := @O;'#13#10 +
-      ' Name := ''x'';'#13#10 +
-      '            end;', lInnerStatement.Edits[1].ReplacementText);
-    Assert.AreEqual(lInnerStatement.FileName, lInnerStatement.Edits[1].FileName);
-    Assert.AreEqual(17, lInnerStatement.Edits[1].Range.StartLine);
-    Assert.AreEqual(13, lInnerStatement.Edits[1].Range.StartColumn);
-    Assert.AreEqual(17, lInnerStatement.Edits[1].Range.EndLine);
-    Assert.AreEqual(34, lInnerStatement.Edits[1].Range.EndColumn);
-    Assert.AreEqual(1, Integer(Length(lPlan.Edits)), aShape + ': inner plan candidate');
-    Assert.AreEqual('remove-with-candidate', lPlan.Edits[0].Kind);
-    Assert.AreEqual('requires-dak-compatibility-adapter', lPlan.Edits[0].ApplyMode);
-    Assert.AreEqual(lInnerStatement.SemanticId, lPlan.Edits[0].StatementId);
-    Assert.AreEqual(lInnerStatement.FileName, lPlan.Edits[0].FileName);
-    Assert.AreEqual(lPlan.Edits[0].ExpectedSourceText, lPlan.Edits[0].ReplacementText);
-    Assert.AreNotEqual('', lPlan.Edits[0].ExpectedSourceText);
-    Assert.AreEqual(lInnerStatement.Range.StartLine, lPlan.Edits[0].Range.StartLine);
-    Assert.AreEqual(lInnerStatement.Range.StartColumn, lPlan.Edits[0].Range.StartColumn);
-    Assert.AreEqual(lInnerStatement.Range.EndLine, lPlan.Edits[0].Range.EndLine);
-    Assert.AreEqual(lInnerStatement.Range.EndColumn, lPlan.Edits[0].Range.EndColumn);
+    for var lCandidate in lPlan.Edits do
+    begin
+      Assert.AreEqual('remove-with-candidate', lCandidate.Kind);
+      Assert.AreEqual(lCandidate.ExpectedSourceText, lCandidate.ReplacementText);
+    end;
+    Exit;
   end;
   if aShape = 'r6-nested' then
   begin
@@ -18510,6 +18395,17 @@ begin
         Assert.AreEqual(0, Integer(Length(lStatement.Temps)), aShape);
         for var lEdit in lPlan.Edits do
           Assert.AreNotEqual(lStatement.SemanticId, lEdit.StatementId, aShape);
+        Continue;
+      end;
+      if lShape = 'indexed-field-control' then
+      begin
+        // DS-719 A-366: System.TArray element identity remains unproved.
+        Assert.AreEqual('skipped', lStatement.Status);
+        Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
+        Assert.AreEqual('SELECTOR_TYPE_NOT_RESOLVED', lStatement.SafetyReason);
+        Assert.AreEqual('', lStatement.ReplacementText);
+        Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+        Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
         Continue;
       end;
       if DS741ExpectedReplacement(lShape) <> '' then
