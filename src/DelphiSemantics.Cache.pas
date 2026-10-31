@@ -822,8 +822,6 @@ var
   lIdentity: string;
   lKey: string;
   lObservations: IDelphiSemanticSourceObservations;
-  i: Integer;
-  lSource: TDelphiSemanticSourceText;
 begin
   EnterAccess(True);
   try
@@ -852,23 +850,8 @@ begin
       begin
         Inc(fMetrics.CacheHits);
         Result.CacheHit := True;
-        // Persistent models are keyed by the observed source/include identity.
-        // Older JSON does not retain observations; attach this exact keyed read.
-        if Result.Model.SourceObservations = nil then
-        begin
-          Result.Model.SourceObservations := lObservations;
-          SetLength(Result.Model.IncludeFileNames, 0);
-          SetLength(Result.Model.SkippedIncludeFileNames, 0);
-          for i := 0 to lObservations.Count - 1 do
-          begin
-            lSource := lObservations.Items[i];
-            if lSource.Role = 'skipped-include' then
-              Result.Model.SkippedIncludeFileNames :=
-                Result.Model.SkippedIncludeFileNames + [lSource.FileName]
-            else if lSource.Role = 'include' then
-              Result.Model.IncludeFileNames := Result.Model.IncludeFileNames + [lSource.FileName];
-          end;
-        end;
+        // The key validates cache reuse, not parse provenance. A fresh read's
+        // observations were not co-produced with this deserialized model.
         ValidateOwnedModel(Result);
         lEntry.Key := lKey;
         lEntry.Model := CloneUnitModel(Result.Model);
