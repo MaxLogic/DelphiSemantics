@@ -2579,6 +2579,7 @@ var
   lDeclarationKind: string;
   lDeclaredType: string;
   lEndLine: Integer;
+  lHasInitializer: Boolean;
   lHeaderDepth: Integer;
   lHeaderOffset: Integer;
   lHeaderText: string;
@@ -2699,6 +2700,41 @@ begin
           lMatch := TRegEx.Match(lLine,
             '^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:(?!=)\s*([^;]+);',
             [roIgnoreCase]);
+          if (not lMatch.Success) and TRegEx.IsMatch(lLine,
+            '^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:(?!=)',
+            [roIgnoreCase]) then
+          begin
+            // DS-719: a multi-line initializer cannot hide the declared root.
+            // Scan sanitized delimiters; keep original bytes for types/coordinates.
+            lHeaderOffset := lLineOffset + 1;
+            lHeaderDepth := 0;
+            lHasInitializer := False;
+            while lHeaderOffset <= Length(lHeaderText) do
+            begin
+              case lHeaderText[lHeaderOffset] of
+                '(', '[':
+                  Inc(lHeaderDepth);
+                ')', ']':
+                  Dec(lHeaderDepth);
+                '=':
+                  if lHeaderDepth = 0 then
+                    lHasInitializer := True;
+                ';':
+                  if lHeaderDepth = 0 then
+                    Break;
+              end;
+              Inc(lHeaderOffset);
+            end;
+            if lHasInitializer and (lHeaderOffset <= Length(lHeaderText)) then
+            begin
+              lMatch := TRegEx.Match(Copy(aText, lLineOffset + 1,
+                lHeaderOffset - lLineOffset),
+                '^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:(?!=)\s*([^;]+);',
+                [roIgnoreCase]);
+              if lMatch.Success then
+                lSkipUntilLine := LineOfOffset(aText, lHeaderOffset);
+            end;
+          end;
           if lMatch.Success then
           begin
             lSection := SectionForOffset(aText, lOffset + 1);

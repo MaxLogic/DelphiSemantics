@@ -281,6 +281,9 @@ type
     [Category('Fast')]
     [Test]
     procedure InitializedVariablesRetainOnlyDeclaredTypes;
+
+    [Test]
+    procedure MultilineInitializedVarRoot;
     [Category('Fast')]
     [Test]
     procedure AssignmentsDoNotBecomeDeclarations;
@@ -4917,6 +4920,43 @@ begin
   Assert.AreEqual(1, lCount, 'Only the initialized global declaration belongs in the model.');
 end;
 
+
+procedure TUnitModelTests.MultilineInitializedVarRoot;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticReference;
+  lSource: string;
+begin
+  // DS-719: multiline-initialized-var-root, the TextFiles declaration shape.
+  lSource := 'unit MultilineInitialized;' + sLineBreak + 'interface' + sLineBreak +
+    'type TRec = record Value: Integer; end;' + sLineBreak +
+    '  PRec = ^TRec;' + sLineBreak + 'const MaxText = 2;' + sLineBreak +
+    'var TextFiles: array [1 .. MaxText] of PRec = (' + sLineBreak +
+    '  nil,' + sLineBreak + '  nil' + sLineBreak + ');' + sLineBreak +
+    '  AfterFiles: Integer = 7;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('multiline-initialized-var-root.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(FindDeclaration(lModel, 'TextFiles', 'var', 'interface', lDeclaration));
+  Assert.AreEqual('array [1 .. MaxText] of PRec', lDeclaration.TypeName);
+  Assert.AreEqual('declaration', lDeclaration.DeclarationRole);
+  Assert.IsTrue(lDeclaration.SymbolId <> '', 'The root needs validated declaration identity.');
+  Assert.AreEqual(Pos('TextFiles:', lSource), lDeclaration.Offset);
+  Assert.IsTrue(FindReferenceAtOffset(lModel, 'PRec', Pos('PRec = (', lSource), lReference));
+  Assert.AreEqual('type-reference', lReference.Role);
+  Assert.AreEqual(Pos('PRec = (', lSource) + Length('PRec'), lReference.EndOffset);
+  Assert.IsTrue(FindDeclaration(lModel, 'AfterFiles', 'var', 'interface', lDeclaration));
+  Assert.AreEqual('Integer', lDeclaration.TypeName);
+  for lReference in lModel.References do
+    if lReference.Role = 'type-reference' then
+      Assert.IsFalse(SameText(lReference.Name, 'nil'), 'Initializer values are not types.');
+end;
 
 procedure TUnitModelTests.InitializedVariablesRetainOnlyDeclaredTypes;
 var

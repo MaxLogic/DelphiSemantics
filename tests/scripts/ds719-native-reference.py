@@ -611,6 +611,21 @@ def helper_evidence_cases(repo, root):
     return cases
 
 
+def multiline_var_cases(root):
+    folder = root / 'multiline-initialized-var-root'
+    write(folder / 'Unit1.pas', 'unit Unit1;\ninterface\n'
+          'type TRec = record X: Integer; end;\n  PRec = ^TRec;\n'
+          'const MaxText = 2;\n'
+          'var TextFiles: array [1 .. MaxText] of PRec = (\n'
+          '  nil,\n  nil\n);\n'
+          'procedure Run;\nimplementation\n'
+          'procedure Run;\nvar R: TRec;\nbegin\n  R.X := 23; TextFiles[1] := @R;\n'
+          '  with TextFiles[1]^ do Writeln(X);\nend;\nend.\n')
+    project(folder, ['Unit1'])
+    return [dict(name=folder.name, root=str(folder), family='multiline-var',
+                 expect_plan=True, expected_native_output='23\r\n')]
+
+
 def generate(repo, root, full, only=""):
     cases = []
     for si, shape in enumerate(SHAPES):
@@ -727,6 +742,7 @@ def generate(repo, root, full, only=""):
     cases.extend(denial_cases(root))
     cases.extend(helper_kind_cases(root))
     cases.extend(helper_evidence_cases(repo, root))
+    cases.extend(multiline_var_cases(root))
     if full:
         cases.extend(r8_cases(repo, root))
         # DS-719 recovery 3q: the paired-control obligation is separate from
