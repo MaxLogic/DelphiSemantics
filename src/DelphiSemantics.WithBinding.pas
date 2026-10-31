@@ -4794,6 +4794,35 @@ begin
     TRegEx.Replace(SanitizeCodeText(aStatement.SelectorText), '\s+', ''));
 end;
 
+function CaptureHasFailedDecidingModel(const aModel: TDelphiSemanticUnitModel;
+  const aProjectModels: TArray<TDelphiSemanticUnitModel>;
+  const aLookup: TDelphiSemanticTypeResolution): Boolean;
+var
+  lCount: Integer;
+  lFailed: Boolean;
+begin
+  Result := False;
+  if aLookup.Outcome <> noUnproved then
+    Exit;
+  // Step 3 preserves the old unsuccessful capture status. It does not claim
+  // absence or publish a type from a model excluded from the identity graph.
+  if not aModel.Success and (aLookup.Cause = 'caller-scope-invalid') then
+    Exit(True);
+  // witness-unknown at the end of the walk means there was no earlier indexed
+  // candidate. A later-unknown-unit shadow of a real candidate stays unproved.
+  if aLookup.Cause <> 'witness-unknown' then
+    Exit;
+  lCount := 0;
+  lFailed := False;
+  for var lModel in aProjectModels do
+    if SameText(aLookup.DecidingScope, 'uses:' + lModel.UnitName) then
+    begin
+      Inc(lCount);
+      lFailed := not lModel.Success;
+    end;
+  Result := (lCount = 1) and lFailed;
+end;
+
 function BindSelectors(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName,
   aCurrentTypeName, aSelectorText: string; const aParentRoutineNames: TArray<string>;
@@ -4898,7 +4927,13 @@ begin
                 lBinding.CaptureTypeStatus := 'resolved';
                 lBinding.CaptureTypeIdentity := lCaptureLookup.Identity;
               end;
-            noUnproved: lBinding.CaptureTypeStatus := 'unproved';
+            noUnproved:
+              begin
+                if CaptureHasFailedDecidingModel(aModel, aProjectModels, lCaptureLookup) then
+                  lBinding.CaptureTypeStatus := 'unresolved'
+                else
+                  lBinding.CaptureTypeStatus := 'unproved';
+              end;
             noAmbiguous: lBinding.CaptureTypeStatus := 'ambiguous';
             noAbsent: lBinding.CaptureTypeStatus := 'unresolved';
           end;
