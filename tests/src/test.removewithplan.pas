@@ -4022,7 +4022,12 @@ begin
     if lBaseStatus = 'skipped' then
     begin
       Assert.AreEqual('skipped', lStatement.Status, 'P1 base refusal must never authorize edits');
-      if lOrdinaryStatement.Reason = lBaseReason then
+      if lShape.Name = 'b1-missing' then
+      begin
+        // A-364: activity-cleared auxiliary facts do not replace the public base label.
+        Assert.AreEqual('activity-unverified', lStatement.Reason);
+        Assert.AreEqual('ACTIVITY_UNVERIFIED', lStatement.SafetyReason);
+      end else if lOrdinaryStatement.Reason = lBaseReason then
         Assert.AreEqual(lBaseReason, lStatement.Reason)
       else if lOrdinaryStatement.Status = 'planned' then
       begin
@@ -23792,9 +23797,9 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lCanonicalPlan, 'tdbutils.pas', 1134, 3,
     lCanonicalStatement), 'Expected canonical maxTdb FlipMark statement.');
   Assert.AreEqual('skipped', lCanonicalStatement.Status);
-  // A4: unindexed project-unit declarations cannot authorize the canonical spelling.
-  Assert.AreEqual('receiver-type-not-visible', lCanonicalStatement.Reason);
-  Assert.AreEqual('receiver-type-not-visible', lCanonicalStatement.SafetyReason);
+  // A-365: canonical range refusal precedes late admission; synthetic control stays planned.
+  Assert.AreEqual('replace-statement-range-mismatch', lCanonicalStatement.Reason);
+  Assert.AreEqual('replace-statement-range-mismatch', lCanonicalStatement.SafetyReason);
   Assert.AreEqual(0, Integer(Length(lCanonicalStatement.Edits)));
   Assert.AreEqual(0, Integer(Length(lCanonicalStatement.Temps)));
   Assert.AreEqual('', lCanonicalStatement.ReplacementText);

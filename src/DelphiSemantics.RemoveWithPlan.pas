@@ -3392,6 +3392,7 @@ var
   lChainRootSymbolClass: string;
   lHasDependentReceiver: Boolean;
   lHasNestedWith: Boolean;
+  lKindIdentity: TDelphiSemanticTypeIdentity;
   lOpenParen: Integer;
   lPrefixText: string;
   lPointerCast: Boolean;
@@ -3467,9 +3468,18 @@ begin
   lBaseName := 'lWith' + RemoveLeadingTypePrefix(aDecision.ReceiverType);
   if TypeIsClassLike(aFacts, aDecision.ReceiverType) then
   begin
+    // 0.10: spelling clearance cannot authorize a value copy or interface AddRef.
+    // TypeIsClassLike's legacy suffix heuristic stays for DS-761, but a reference
+    // temp still requires independently proved class kind at admission.
+    lKindIdentity := aDecision.ReceiverIdentity;
+    // A deliberate receiver-identity omission does not erase proved capture kind.
+    // Capture visibility still checks the emitted type independently below.
+    if (lKindIdentity.DeclaredId.Value = '') and
+      SameText(aSelector.CaptureTypeStatus, 'resolved') then
+      lKindIdentity := aSelector.CaptureTypeIdentity;
     aDecision.StrategyKindContradiction :=
-      TypeIdentityHasVerifiedOrigin(aDecision.ReceiverIdentity) and
-      MatchText(aDecision.ReceiverIdentity.UnderlyingName, ['record', 'packed record']);
+      not TypeIdentityHasVerifiedOrigin(lKindIdentity) or
+      not SameText(lKindIdentity.UnderlyingName, 'class');
     if not CaptureTypeIsVisible(aFacts, aBinding, aSelector, aDecision.ReceiverType,
       aDecision.ReceiverIdentity,
       aLineCache, aDecision.CaptureDenied) then
@@ -6940,7 +6950,7 @@ var
   lDeniedIndex: Integer;
 begin
   // All recursive decisions remain provisional until this publishing boundary.
-  // Established selector, renderer, activity and kind refusals retain precedence.
+  // Established selector, renderer and activity refusals retain precedence.
   if not SameText(aStatement.Status, 'planned') then
     Exit;
   lDeniedIndex := AdmissionDeniedBindingIndex(aBindingSource, aBindingTree, aBindingIndex);
@@ -8259,6 +8269,9 @@ begin
       'inactive-nested-with-shadowing', 'INACTIVE_NESTED_WITH_SHADOW');
   end;
   // A2.3a: ordinary selector, renderer and activity reasons retain precedence.
+  ApplyReceiverAdmission(aBindingSource, aBindingTree, aBindingIndex,
+    lStatement, lBodyFacts);
+  // Preserve capture denial and its cleanup before the kind-only veto.
   if SameText(lStatement.Status, 'planned') and lBodyFacts.StrategyKindContradiction then
   begin
     RollbackReservedTempNamesForFinalTemps(aReservedNames, lBinding.RoutineName,
@@ -8266,8 +8279,6 @@ begin
     lStatement := BuildSkippedFinalStatement(lBinding, FinalStatementId(aBindingIndex + 1),
       'receiver-type-not-visible', 'receiver-type-not-visible');
   end;
-  ApplyReceiverAdmission(aBindingSource, aBindingTree, aBindingIndex,
-    lStatement, lBodyFacts);
   ApplyBinderAdmission(aFacts, aBindingSource, aBindingTree, aBindingIndex,
     aReservedNames, aLineCache, lStatement, lBodyFacts);
   if SameText(lStatement.Status, 'planned') then

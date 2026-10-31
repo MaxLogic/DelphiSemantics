@@ -961,8 +961,22 @@ begin
         // Keep the declaration's own scope, imports and witness. Do not use
         // canonical spelling lookup or an ordinary alias walk as proof.
         lLookup := ResolveTypeCore(lSite, lDependency, False, lUnitName);
-        if (lLookup.Outcome <> noResolved) or
-          not CaptureIdentityDependenciesKnown(lLookup.Identity, aVisited, aCallerUnitName) then
+        if lLookup.Outcome <> noResolved then
+        begin
+          // 0.10: the same declared spelling retains its external dependency.
+          // An unindexed hop proves no kind, member or temp strategy. Indexed
+          // uncertainty, conditional hops, shadows and ambiguous imports still deny.
+          if (lLookup.Outcome = noUnproved) and
+            MatchText(lLookup.Cause, ['external-unindexed', 'witness-unknown']) and
+            StartsText('uses:', lLookup.DecidingScope) and
+            not fUnits.ContainsKey(Copy(lLookup.DecidingScope, 6, MaxInt)) then
+            Continue;
+          if (lLookup.Outcome = noAbsent) and (lLookup.DecidingScope = 'system') and
+            not fUnits.ContainsKey('System') then
+            Continue;
+          Exit;
+        end;
+        if not CaptureIdentityDependenciesKnown(lLookup.Identity, aVisited, aCallerUnitName) then
           Exit;
       end;
     end;

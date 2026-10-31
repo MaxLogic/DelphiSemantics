@@ -619,6 +619,11 @@ type
     [TestCase('nominal-kind', 'capture-proof-nominal-kind')]
     [TestCase('nominal-field', 'capture-proof-nominal-field')]
     procedure CaptureClearanceOnFiveRoutes(const aShape: string);
+    [TestCase('searchobject', 'capture-external-searchobject')]
+    [TestCase('interface', 'capture-external-interface')]
+    [TestCase('alias-spelling', 'capture-external-alias-spelling')]
+    [TestCase('getter', 'capture-external-getter')]
+    procedure ExternalCaptureDependenciesOnFiveRoutes(const aShape: string);
     [TestCase('tag-only', 'tag-only')]
     [TestCase('strong-alias-qualified-target', 'strong-alias-qualified-target')]
     [TestCase('homonym-tag', 'homonym-tag')]
@@ -637,6 +642,8 @@ type
     [Category('DS719Review')]
     procedure UnprovedReceiverRouteStrategyMatrix(const aShape, aStrategy: string);
     [TestCase('Resolved capture identity', 'capture')]
+    [TestCase('Interface is not a class temp', 'interface-kind')]
+    [TestCase('Unknown terminal is not a class temp', 'unindexed-kind')]
     [Category('DS719Review,Fast')]
     procedure PerStrategyDefensesKeepResolvedEvidence(const aShape: string);
     [TestCase('I tab', 'I,brace')]
@@ -2779,7 +2786,8 @@ begin
   lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
   Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aShape);
   lPlanned := ((aMode = 'named') and
-    (not MatchText(aShape, ['component-member', 'site-helper', 'lookup-shadow', 'generic-base', 'generic-chain']))) or
+    (not MatchText(aShape, ['component-member', 'site-helper', 'lookup-shadow', 'generic-base', 'generic-chain',
+      'interface', 'explicit-interface']))) or
     ((aShape = 'closed') and MatchText(aMode, ['implicit', 'throw']));
   if lPlanned then
   begin
@@ -2793,7 +2801,14 @@ begin
         lPlan.FinalStatements[0].ReplacementText, aShape);
   end else begin
     Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
-    Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason, aShape);
+    if lInterface and (aMode = 'named') then
+    begin
+      // A-358/A-359: interface capture adds native AddRef/Release; retain the candidate.
+      Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].Reason, aShape);
+      Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason, aShape);
+      Assert.AreEqual<Integer>(1, Length(lPlan.Edits), aShape);
+    end else
+      Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason, aShape);
     Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText, aShape);
     Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
     Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), aShape);
@@ -20105,6 +20120,14 @@ begin
     else
       Assert.AreEqual('unproved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus, aShape);
   end;
+  if StartsText('capture-external-', aShape) and (aShape <> 'capture-external-getter') then
+  begin
+    Assert.AreEqual<Integer>(1, Length(lFacts.Bindings), aShape);
+    Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus,
+      aShape + ': spelling proof does not require indexing an external terminal');
+    Assert.AreEqual(lFacts.Bindings[0].Selectors[0].TypeIdentity.DeclaredId.Value,
+      lFacts.Bindings[0].Selectors[0].CaptureTypeIdentity.DeclaredId.Value, aShape);
+  end;
   if aShape = 'ab' then
     Assert.AreEqual('B', lFacts.Bindings[0].Selectors[0].TypeIdentity.UnitName)
   else if MatchText(aShape, ['own', 'c-local-wins']) then
@@ -20154,6 +20177,29 @@ begin
       finally
         lSession.Session.Free;
       end;
+    end;
+    if StartsText('capture-external-', aShape) then
+    begin
+      Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aShape);
+      if aShape = 'capture-external-alias-spelling' then
+      begin
+        Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, aShape);
+        for var lTemp in lPlan.FinalStatements[0].Temps do
+          Assert.IsTrue(ContainsText(lTemp.DeclarationText, 'TX;'),
+            'The emitted declaration preserves TX; expanding TY selects VendorB.');
+        Assert.IsFalse(ContainsText(lPlan.FinalStatements[0].ReplacementText, 'TY'), aShape);
+        Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText, '.X'), aShape);
+      end else begin
+        // Same spelling does not prove reference counting, value-copy or addressability.
+        Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
+        Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText, aShape);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), aShape);
+      end;
+      if i = 0 then
+        lExpectedText := lPlan.FinalStatements[0].ReplacementText;
+      Assert.AreEqual(lExpectedText, lPlan.FinalStatements[0].ReplacementText, aShape);
+      Continue;
     end;
     if StartsText('capture-proof-', aShape) then
     begin
@@ -20242,10 +20288,9 @@ begin
       begin
         var lReason := 'selector-type-not-resolved';
         if aShape = 'a6-capture-closure' then
-          case j of
-            0: lReason := 'receiver-type-not-visible';
-            2: lReason := 'dependent-selector-type-not-resolved';
-          end;
+          // A-361/A-363: existing selector refusals precede late capture admission.
+          if j > 0 then
+            lReason := 'dependent-selector-type-not-resolved';
         Assert.AreEqual('skipped', lPlan.FinalStatements[j].Status);
         Assert.AreEqual(lReason, lPlan.FinalStatements[j].Reason);
         Assert.AreEqual(lReason, lPlan.FinalStatements[j].SafetyReason);
@@ -20254,7 +20299,10 @@ begin
         Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[j].Temps));
         Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[j].RewriteRecipe.SelectorDecisions));
       end;
-      Assert.AreEqual<Integer>(2, Length(lPlan.Edits));
+      if aShape = 'a6-capture-closure' then
+        Assert.AreEqual<Integer>(3, Length(lPlan.Edits)) // A-361/A-363: retained candidates.
+      else
+        Assert.AreEqual<Integer>(2, Length(lPlan.Edits));
       for var lEdit in lPlan.Edits do
         Assert.AreEqual('remove-with-candidate', lEdit.Kind);
       Continue;
@@ -20265,7 +20313,9 @@ begin
       Assert.AreEqual('unproved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus, aShape);
       Assert.AreEqual<Integer>(3, Length(lPlan.FinalStatements), aShape);
       Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].Reason, aShape);
-      Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[1].Reason, aShape);
+      // A-360/A-362: enclosing admission precedes the descendant capture refusal.
+      Assert.AreEqual('enclosing-admission-refusal:receiver-type-not-visible',
+        lPlan.FinalStatements[1].Reason, aShape);
       Assert.AreEqual('enclosing-admission-refusal:receiver-type-not-visible',
         lPlan.FinalStatements[2].Reason, aShape);
       for var j := 0 to High(lPlan.FinalStatements) do
@@ -20412,6 +20462,11 @@ begin
   end;
 end;
 
+procedure TWithBinderTests.ExternalCaptureDependenciesOnFiveRoutes(const aShape: string);
+begin
+  RunOrderedTypeNamesOnFiveRoutes(aShape, False, '');
+end;
+
 procedure TWithBinderTests.CaptureClearanceOnFiveRoutes(const aShape: string);
 begin
   RunOrderedTypeNamesOnFiveRoutes(aShape, False, '');
@@ -20446,7 +20501,7 @@ begin
   lRoot := WithBinderTempPath('ds719-resolved-defense-' + aShape);
   TDirectory.CreateDirectory(lRoot);
   lKind := 'record';
-  if aShape = 'capture' then
+  if MatchText(aShape, ['capture', 'interface-kind', 'unindexed-kind']) then
     lKind := 'class';
   TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
     'unit Unit1;'#13#10'interface'#13#10'type TRec = ' + lKind + #13#10 +
@@ -20473,7 +20528,17 @@ begin
   lFacts.Bindings[0].Selectors[0].CaptureTypeName := 'TRec';
   lFacts.Bindings[0].Selectors[0].CaptureTypeStatus := 'resolved';
   lFacts.Bindings[0].Selectors[0].CaptureTypeIdentity := lFacts.Bindings[0].Selectors[0].TypeIdentity;
-  lFacts.Bindings[0].Selectors[0].CaptureTypeIdentity.CanonicalId.Value := 'contradictory-type';
+  if aShape = 'capture' then
+    lFacts.Bindings[0].Selectors[0].CaptureTypeIdentity.CanonicalId.Value := 'contradictory-type'
+  else begin
+    // A provider/cache can prove spelling without supplying class-kind proof.
+    // Pin the independent admission guard after renderer/member controls pass.
+    lKind := 'TSearchRec';
+    if aShape = 'interface-kind' then
+      lKind := 'interface';
+    lFacts.Bindings[0].Selectors[0].TypeIdentity.UnderlyingName := lKind;
+    lFacts.Bindings[0].Selectors[0].CaptureTypeIdentity.UnderlyingName := lKind;
+  end;
   lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
   Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
   Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason);

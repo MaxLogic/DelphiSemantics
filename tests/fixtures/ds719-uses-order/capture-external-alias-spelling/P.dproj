@@ -1,0 +1,1 @@
+<Project><PropertyGroup><MainSource>P.dpr</MainSource><DCC_Namespace>System;Winapi</DCC_Namespace></PropertyGroup><ItemGroup><DCCReference Include="VendorA.pas"/><DCCReference Include="VendorB.pas"/><DCCReference Include="AliasScope.pas"/><DCCReference Include="Unit1.pas"/></ItemGroup></Project>
