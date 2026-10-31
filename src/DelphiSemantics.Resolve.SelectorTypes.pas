@@ -9,7 +9,7 @@ function VisibleSelectorModels(const aModel: TDelphiSemanticUnitModel;
   const aContext: TDelphiSemanticResolveContext): TArray<TDelphiSemanticUnitModel>;
 function TryResolveSelectorType(const aContext: TDelphiSemanticResolveContext;
   var aCurrentModel: TDelphiSemanticUnitModel; var aSectionKind: string;
-  var aTypeName: string): Boolean;
+  var aTypeName: string): Boolean; overload;
 function TryApplyDereferencePostfix(const aContext: TDelphiSemanticResolveContext;
   var aCurrentModel: TDelphiSemanticUnitModel; var aSectionKind, aTypeName: string): Boolean;
 function TryApplySelectorPostfix(const aContext: TDelphiSemanticResolveContext;
@@ -119,6 +119,9 @@ var
   lCandidate: TDelphiSemanticDeclaration;
   lCount: Integer;
   lModel: TDelphiSemanticUnitModel;
+  lImports: TArray<string>;
+  lIndexed: Boolean;
+  i: Integer;
 begin
   Result := FindSelectorTypeInModel(aCurrentModel, aSectionKind, aName, aDeclaration);
   aDeclaringModel := aCurrentModel;
@@ -138,19 +141,43 @@ begin
       aDeclaringModel := lModel;
     end;
   end;
+  if Result <> 1 then
+    Exit;
+
+  // DS-719: an indexed candidate cannot close a later unknown import.
+  // Keep legacy ambiguity/refusals; this check can only reject a resolution.
+  lImports := aCurrentModel.InterfaceUses;
+  if IsImplementationLikeSection(aSectionKind) then
+    lImports := lImports + aCurrentModel.ImplementationUses;
+  for i := High(lImports) downto 0 do
+  begin
+    if SameText(lImports[i], aDeclaringModel.UnitName) then
+      Exit;
+    lIndexed := False;
+    for lModel in aContext.IndexedUnitModels do
+      if SameText(lModel.UnitName, lImports[i]) then
+      begin
+        lIndexed := True;
+        Break;
+      end;
+    if not lIndexed then
+      Exit(-1);
+  end;
 end;
 
 function TryResolveSelectorType(const aContext: TDelphiSemanticResolveContext;
   var aCurrentModel: TDelphiSemanticUnitModel; var aSectionKind: string;
-  var aTypeName: string): Boolean;
+  var aTypeName: string; out aUnproved: Boolean): Boolean; overload;
 var
   lDeclaration: TDelphiSemanticDeclaration;
   lDeclaringModel: TDelphiSemanticUnitModel;
   lDepth: Integer;
+  lCount: Integer;
   lKey: string;
   lSeen: TSelectorAliasTrail;
   i: Integer;
 begin
+  aUnproved := False;
   lSeen := Default(TSelectorAliasTrail);
   aTypeName := aTypeName.Trim;
   for lDepth := 0 to High(lSeen) do
@@ -165,9 +192,13 @@ begin
       if lSeen[i] = lKey then
         Exit(False);
     lSeen[lDepth] := lKey;
-    if FindVisibleSelectorType(aContext, aCurrentModel, aSectionKind, aTypeName,
-      lDeclaration, lDeclaringModel) <> 1 then
+    lCount := FindVisibleSelectorType(aContext, aCurrentModel, aSectionKind, aTypeName,
+      lDeclaration, lDeclaringModel);
+    if lCount <> 1 then
+    begin
+      aUnproved := lCount < 0;
       Exit(False);
+    end;
     aCurrentModel := lDeclaringModel;
     aSectionKind := lDeclaration.SectionKind;
     if not SameText(lDeclaration.Kind, 'type-alias') then
@@ -175,6 +206,16 @@ begin
     aTypeName := lDeclaration.TypeName.Trim;
   end;
   Result := False;
+end;
+
+function TryResolveSelectorType(const aContext: TDelphiSemanticResolveContext;
+  var aCurrentModel: TDelphiSemanticUnitModel; var aSectionKind: string;
+  var aTypeName: string): Boolean; overload;
+var
+  lUnproved: Boolean;
+begin
+  Result := TryResolveSelectorType(aContext, aCurrentModel, aSectionKind,
+    aTypeName, lUnproved);
 end;
 
 function TryFindDefaultIndexedProperty(const aModel: TDelphiSemanticUnitModel;
@@ -239,6 +280,7 @@ var
   lResolvedSection: string;
   lResolvedTypeName: string;
   lTypeName: string;
+  lUnproved: Boolean;
 begin
   aResultTypeName := '';
   lTypeName := aTypeName;
@@ -267,12 +309,13 @@ begin
     lResolvedSection := aSectionKind;
     lResolvedTypeName := lTypeName;
     if TryResolveSelectorType(aContext, lResolvedModel, lResolvedSection,
-      lResolvedTypeName) then
+      lResolvedTypeName, lUnproved) then
     begin
       aCurrentModel := lResolvedModel;
       aSectionKind := lResolvedSection;
       lTypeName := lResolvedTypeName;
-    end;
+    end else if lUnproved then
+      Exit(False);
   end;
   aResultTypeName := lTypeName;
   Result := True;
