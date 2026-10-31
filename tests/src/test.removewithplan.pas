@@ -373,6 +373,8 @@ type
     [Test]
     procedure FinalStatementDtoPreservesCandidateFields;
     [Test]
+    procedure RefusedNoOpCandidatePublishesNoFinalEdit;
+    [Test]
     procedure PlanStatementsAccountForEveryDiscoveredBinding;
     [TestCase('class-const', 'class-const')]
     [TestCase('class-var', 'class-var')]
@@ -5415,6 +5417,36 @@ begin
     'Expected unexpected edit range in parity report.');
   Assert.IsTrue(ContainsText(lReport.SummaryText, 'excerpt='),
     'Expected unexpected edit replacement excerpt in parity report.');
+end;
+
+procedure TRemoveWithPlanTests.RefusedNoOpCandidatePublishesNoFinalEdit;
+var
+  lCandidate: TDelphiSemanticRemoveWithEdit;
+  lCandidateCount: Integer;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+begin
+  // DS-719: a compatibility hint cannot authorize an edit after final refusal.
+  lPlan := BuildPlanForProject(FixturePath('RemoveWithHiddenReceiverType\HiddenReceiver.dproj'));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'Consumer.pas', 15, 3, lStatement));
+  Assert.AreEqual('skipped', lStatement.Status);
+  Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
+  lCandidateCount := 0;
+  for lCandidate in lPlan.Edits do
+    if lCandidate.StatementId = lStatement.SemanticId then
+    begin
+      Inc(lCandidateCount);
+      Assert.AreEqual('remove-with-candidate', lCandidate.Kind);
+      Assert.AreEqual(lCandidate.ExpectedSourceText, lCandidate.ReplacementText);
+      Assert.AreEqual('requires-dak-compatibility-adapter', lCandidate.ApplyMode);
+    end;
+  Assert.AreEqual(1, lCandidateCount, 'The refused statement must retain its no-op hint.');
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
+  Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
+  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalStatementDtoPreservesCandidateFields;
