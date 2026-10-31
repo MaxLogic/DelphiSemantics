@@ -261,6 +261,8 @@ type
     function ResolveTypeCore(const aSite: TDelphiSemanticNameSite;
       const aSpelling: string; const aUnitHead: Boolean;
       out aResolvedUnit: string): TDelphiSemanticTypeResolution;
+    function CaptureIdentityDependenciesKnown(const aIdentity: TDelphiSemanticTypeIdentity;
+      const aVisited: THashSet<string>): Boolean;
     function IsAliasConflict(const aUnitName, aImportName: string): Boolean;
     function VisibleAt(const aSite: TDelphiSemanticNameSite;
       const aRange: TDelphiSemanticSourceRange; const aLocal: Boolean): Integer;
@@ -900,8 +902,76 @@ function TDelphiSemanticTypeIdentityIndexData.ResolveTypeAt(const aSite: TDelphi
   const aSpelling: string): TDelphiSemanticTypeResolution;
 var
   lUnitName: string;
+  lVisited: THashSet<string>;
 begin
   Result := ResolveTypeCore(aSite, aSpelling, False, lUnitName);
+  if not aSite.CaptureVisibility or (Result.Outcome <> noResolved) then
+    Exit;
+  lVisited := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  try
+    if not CaptureIdentityDependenciesKnown(Result.Identity, lVisited) then
+      Result := NameResolution(noUnproved, 'capture-identity-dependency-unproved',
+        Result.DecidingScope, aSpelling);
+  finally
+    lVisited.Free;
+  end;
+end;
+
+function TDelphiSemanticTypeIdentityIndexData.CaptureIdentityDependenciesKnown(
+  const aIdentity: TDelphiSemanticTypeIdentity; const aVisited: THashSet<string>): Boolean;
+var
+  lUnit: TDelphiSemanticGraphUnit;
+  lProof: TDelphiSemanticCaptureScopeProof;
+  lFound: Boolean;
+  lLookup: TDelphiSemanticTypeResolution;
+  lOwner: TDelphiSemanticTypeIdentity;
+  lSite: TDelphiSemanticNameSite;
+  lUnitName: string;
+begin
+  Result := False;
+  if (aIdentity.DeclaredId.Value = '') or aVisited.Contains(aIdentity.DeclaredId.Value) or
+    not fUnits.TryGetValue(aIdentity.UnitName, lUnit) then
+    Exit;
+  aVisited.Add(aIdentity.DeclaredId.Value);
+  try
+    lProof := lUnit.CaptureScopeProof;
+    if SameText(aIdentity.SectionKind, 'interface') then
+      lProof := lUnit.CaptureExportProof;
+    if not lProof.Known or lProof.AbsenceOnly then
+      Exit;
+    lFound := False;
+    for var lFact in lProof.Names do
+    begin
+      if (lFact.Kind <> 'type') or not SameText(lFact.Name, aIdentity.Name) or
+        not SameText(lFact.FileName, aIdentity.SourceRange.FileName) or
+        (lFact.Line <> aIdentity.SourceRange.Line) or
+        (lFact.Column <> aIdentity.SourceRange.Column) then
+        Continue;
+      if (lFact.VariantCount <> lProof.VariantCount) or not lFact.IdentityTextKnown then
+        Exit;
+      lFound := True;
+      lSite := TDelphiSemanticNameSites.AtTypeIdentity(aIdentity);
+      lSite.CaptureVisibility := True;
+      for var lDependency in lFact.IdentityDependencies do
+      begin
+        // Keep the declaration's own scope, imports and witness. Do not use
+        // canonical spelling lookup or an ordinary alias walk as proof.
+        lLookup := ResolveTypeCore(lSite, lDependency, False, lUnitName);
+        if (lLookup.Outcome <> noResolved) or
+          not CaptureIdentityDependenciesKnown(lLookup.Identity, aVisited) then
+          Exit;
+      end;
+    end;
+    if not lFound then
+      Exit;
+    if aIdentity.EnclosingTypeId.Value <> '' then
+      if not FindByDeclaredId(aIdentity.EnclosingTypeId, lOwner) or
+        not CaptureIdentityDependenciesKnown(lOwner, aVisited) then
+        Exit;
+    Result := True;
+  finally
+    aVisited.Remove(aIdentity.DeclaredId.Value);
+  end;
 end;
 
 function TDelphiSemanticTypeIdentityIndexData.ResolveTypeCore(const aSite: TDelphiSemanticNameSite;

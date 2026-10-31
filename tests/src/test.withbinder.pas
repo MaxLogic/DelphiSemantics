@@ -611,7 +611,18 @@ type
     [TestCase('export-import-only', 'capture-proof-export-import-only')]
     [TestCase('export-import-homonym', 'capture-proof-export-import-homonym')]
     [TestCase('export-import-alias', 'capture-proof-export-import-alias')]
+    [TestCase('alias-target', 'capture-proof-alias-target')]
+    [TestCase('alias-chain', 'capture-proof-alias-chain')]
+    [TestCase('alias-imported', 'capture-proof-alias-imported')]
+    [TestCase('alias-dependency', 'capture-proof-alias-dependency')]
+    [TestCase('alias-unrelated', 'capture-proof-alias-unrelated')]
+    [TestCase('nominal-kind', 'capture-proof-nominal-kind')]
+    [TestCase('nominal-field', 'capture-proof-nominal-field')]
     procedure CaptureClearanceOnFiveRoutes(const aShape: string);
+    [TestCase('tag-only', 'tag-only')]
+    [TestCase('strong-alias-qualified-target', 'strong-alias-qualified-target')]
+    [TestCase('homonym-tag', 'homonym-tag')]
+    procedure CaptureIdentityExcludesMemberTypes(const aShape: string);
     [TestCase('include-statement-capture', 'include')]
     [TestCase('empty-source-capture', 'empty')]
     procedure CaptureWithoutPhysicalUnitSource(const aShape: string);
@@ -18328,6 +18339,12 @@ begin
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   Assert.AreEqual(Int64(0), lFacts.Metrics.SemanticCacheHits, 'Fresh SQLite file must be cold.');
+  if MatchText(lShape, ['tag-only', 'strong-alias-qualified-target', 'homonym-tag']) then
+    for var lBinding in lFacts.Bindings do
+      if SameText(ExtractFileName(lBinding.FileName), 'Unit1.pas') then
+        for var lSelector in lBinding.Selectors do
+          Assert.AreEqual('resolved', lSelector.CaptureTypeStatus,
+            lShape + ': unconditional nominal identity excludes member types');
   if aMode = 'warm' then
   begin
     lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
@@ -20070,11 +20087,15 @@ begin
   end;
   if MatchText(aShape, ['capture-proof-sdk-absent', 'capture-proof-sdk-shadow',
     'capture-proof-unpaired-absent', 'capture-proof-export-import-only',
-    'capture-proof-export-import-homonym', 'capture-proof-export-import-alias']) then
+    'capture-proof-export-import-homonym', 'capture-proof-export-import-alias',
+    'capture-proof-alias-target', 'capture-proof-alias-chain',
+    'capture-proof-alias-imported', 'capture-proof-alias-dependency',
+    'capture-proof-alias-unrelated', 'capture-proof-nominal-kind', 'capture-proof-nominal-field']) then
   begin
     Assert.AreEqual<Integer>(1, Length(lFacts.Bindings), aShape);
     Assert.AreEqual<Integer>(1, Length(lFacts.Bindings[0].Selectors), aShape);
-    if MatchText(aShape, ['capture-proof-sdk-absent', 'capture-proof-export-import-only']) then
+    if MatchText(aShape, ['capture-proof-sdk-absent', 'capture-proof-export-import-only',
+      'capture-proof-alias-unrelated', 'capture-proof-nominal-field']) then
       Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus, aShape)
     else
       Assert.AreEqual('unproved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus, aShape);
@@ -20142,6 +20163,10 @@ begin
       begin
         Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
         Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
+        if aShape = 'capture-proof-alias-unrelated' then
+          Assert.AreEqual('symbol-not-found', lPlan.FinalStatements[0].Reason, aShape)
+        else if aShape = 'capture-proof-nominal-field' then
+          Assert.AreEqual('receiver-member-not-found', lPlan.FinalStatements[0].Reason, aShape);
       end;
       if i = 0 then
         lExpectedText := lPlan.FinalStatements[0].ReplacementText;
@@ -20364,6 +20389,13 @@ begin
   Assert.AreEqual('unproved', lBindings[0].Selectors[0].CaptureTypeStatus);
   Assert.AreEqual('position-unknown', lBindings[0].Selectors[0].Cause);
   Assert.AreEqual(0, lBindings[0].Selectors[0].CaptureInsertionLine);
+end;
+
+procedure TWithBinderTests.CaptureIdentityExcludesMemberTypes(const aShape: string);
+begin
+  // Variant tag and field types are member evidence, never alias/ancestor dependencies.
+  for var lMode in ['cold', 'warm', 'snapshot', 'standalone', 'sessioncold', 'sessionwarm'] do
+    ValueMembersColdWarmSnapshot(aShape, lMode);
 end;
 
 procedure TWithBinderTests.CaptureClearanceOnFiveRoutes(const aShape: string);

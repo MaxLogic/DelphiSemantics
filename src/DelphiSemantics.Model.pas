@@ -248,6 +248,11 @@ type
     Line: Integer;
     Column: Integer;
     VariantCount: Integer;
+    // Nominal fields do not change declaration identity. Alias targets and
+    // explicit ancestor/type dependencies need their own closed evidence.
+    IdentitySignature: string;
+    IdentityTextKnown: Boolean;
+    IdentityDependencies: TArray<string>;
   end;
 
   TDelphiSemanticCaptureScopeProof = record

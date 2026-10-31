@@ -1222,6 +1222,109 @@ var
     Result := AstNodeName(aNode).Replace('&', '');
   end;
 
+  procedure TypeIdentityEvidence(const aNode: TSyntaxNode;
+    var aFact: TDelphiSemanticCaptureNameFact);
+  var
+    lType: TSyntaxNode;
+    lInput, lHeader: TmwBasePasLex;
+    lOffset, lDepth, lHeaderStart, lHeaderEnd, lChildOffset: Integer;
+    lNominal: Boolean;
+    lKind: string;
+  begin
+    lType := aNode.FindNode(ntType);
+    if not Assigned(lType) then
+      Exit;
+    lKind := LowerCase(lType.GetAttribute(anType));
+    lNominal := MatchText(lKind, ['record', 'class', 'object', 'interface', 'dispinterface']);
+    aFact.IdentitySignature := AstTypeText(lType);
+    if not lNominal then
+    begin
+      if (lType.GetAttribute(anName) <> '') and not SameText(
+        lType.GetAttribute(anName), 'enum') then
+        aFact.IdentityDependencies := [lType.GetAttribute(anName)];
+      for var lChild in lType.ChildNodes do
+        if (lChild.Typ = ntType) and (lChild.GetAttribute(anName) <> '') then
+          aFact.IdentityDependencies := aFact.IdentityDependencies + [lChild.GetAttribute(anName)];
+    end;
+    lOffset := lExpandedLines[aNode.Line - 1] + aNode.Col - 1;
+    lInput := TmwBasePasLex.Create;
+    lHeader := TmwBasePasLex.Create;
+    try
+      lInput.UseDefines := False;
+      lInput.Origin := lLexical;
+      while (lInput.TokenID <> ptNull) and (lInput.TokenPos + 1 < lOffset) do
+        lInput.Next;
+      while lInput.TokenID <> ptNull do
+      begin
+        if lInput.TokenID in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect,
+          ptIfOptDirect, ptElseIfDirect] then
+          if IsUnknown(lInput.TokenPos + 1) then
+            Exit;
+        if lInput.TokenID = ptSemiColon then
+        begin
+          aFact.IdentityTextKnown := not lNominal;
+          Exit;
+        end;
+        if lNominal and SameText(lInput.Token, lKind) then
+        begin
+          // Only the declared kind and ancestor header establish nominal identity.
+          // DelphiAST also puts variant tag/field ntType nodes directly here;
+          // their AST parent alone cannot distinguish identity from member proof.
+          aFact.IdentitySignature := lKind;
+          lHeaderStart := lInput.TokenPos + lInput.TokenLen;
+          lHeaderEnd := lHeaderStart;
+          lHeader.UseDefines := False;
+          lHeader.Origin := lProjection;
+          while (lHeader.TokenID <> ptNull) and (lHeader.TokenPos < lHeaderStart) do
+            lHeader.Next;
+          while lHeader.IsJunk do
+            lHeader.Next;
+          while MatchText(lHeader.Token, ['abstract', 'sealed']) do
+            lHeader.NextNoJunk;
+          if lHeader.TokenID = ptRoundOpen then
+          begin
+            lDepth := 1;
+            repeat
+              lHeader.NextNoJunk;
+              if lHeader.TokenID = ptNull then
+                Exit;
+              if lHeader.TokenID = ptRoundOpen then
+                Inc(lDepth)
+              else if lHeader.TokenID = ptRoundClose then
+                Dec(lDepth);
+            until lDepth = 0;
+            lHeaderEnd := lHeader.TokenPos + lHeader.TokenLen;
+          end;
+          // Header membership is determined by source position in the parsed
+          // projection. Unknown activity in that actual header is still denied.
+          for var lChild in lType.ChildNodes do
+            if (lChild.Typ = ntType) and (lChild.GetAttribute(anName) <> '') then
+            begin
+              lChildOffset := lExpandedLines[lChild.Line - 1] + lChild.Col - 1;
+              if (lChildOffset > lHeaderStart) and (lChildOffset <= lHeaderEnd) then
+              begin
+                aFact.IdentityDependencies := aFact.IdentityDependencies + [lChild.GetAttribute(anName)];
+                aFact.IdentitySignature := aFact.IdentitySignature + ' of ' + AstTypeText(lChild);
+              end;
+            end;
+          while lInput.TokenPos < lHeaderEnd do
+          begin
+            if (lInput.TokenID in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect,
+              ptIfOptDirect, ptElseIfDirect]) and IsUnknown(lInput.TokenPos + 1) then
+              Exit;
+            lInput.Next;
+          end;
+          aFact.IdentityTextKnown := True;
+          Exit;
+        end;
+        lInput.Next;
+      end;
+    finally
+      lHeader.Free;
+      lInput.Free;
+    end;
+  end;
+
   procedure AddName(const aNode: TSyntaxNode; const aKind, aSection, aScope,
     aOwner: string);
   var
@@ -1243,6 +1346,8 @@ var
     lFact.SectionKind := aSection;
     lFact.OwnerScopeId := aScope;
     lFact.OwnerTypeName := aOwner;
+    if aKind = 'type' then
+      TypeIdentityEvidence(aNode, lFact);
     lKey := LowerCase(lFact.FileName + '|' + lFact.Name + '|' + aKind + '|' + aSection + '|' + aScope +
       '|' + aOwner + '|' + IntToStr(lFact.Line) + ':' + IntToStr(lFact.Column));
     if lSeen.Contains(lKey) then
@@ -1253,6 +1358,10 @@ var
       lIndex := Length(lProof.Names);
       lProof.Names := lProof.Names + [lFact];
       lFacts.Add(lKey, lIndex);
+    end else begin
+      lProof.Names[lIndex].IdentityTextKnown := lProof.Names[lIndex].IdentityTextKnown and
+        lFact.IdentityTextKnown and SameText(lProof.Names[lIndex].IdentitySignature,
+        lFact.IdentitySignature);
     end;
     Inc(lProof.Names[lIndex].VariantCount);
   end;
