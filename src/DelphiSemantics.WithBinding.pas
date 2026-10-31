@@ -4792,6 +4792,13 @@ begin
   Result := lMatch.Success and SameText(
     TRegEx.Replace(lMatch.Groups[1].Value, '\s+', ''),
     TRegEx.Replace(SanitizeCodeText(aStatement.SelectorText), '\s+', ''));
+  // A conditional header can retain two physical tokens for one selector.
+  // Exact full-statement agreement proves this physical site without treating
+  // expanded include coordinates or an empty source as a unit position.
+  if not Result and (aStatement.Text <> '') and
+    (Length(aStatement.Text) <= Length(aModel.SourceText) - lOffset + 1) and
+    (Copy(aModel.SourceText, lOffset, Length(aStatement.Text)) = aStatement.Text) then
+    Result := TRegEx.IsMatch(Copy(lSource, lOffset, MaxInt), '^with\b', [roIgnoreCase]);
 end;
 
 function CaptureHasFailedDecidingModel(const aModel: TDelphiSemanticUnitModel;

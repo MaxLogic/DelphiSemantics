@@ -262,7 +262,7 @@ type
       const aSpelling: string; const aUnitHead: Boolean;
       out aResolvedUnit: string): TDelphiSemanticTypeResolution;
     function CaptureIdentityDependenciesKnown(const aIdentity: TDelphiSemanticTypeIdentity;
-      const aVisited: THashSet<string>): Boolean;
+      const aVisited: THashSet<string>; const aCallerUnitName: string): Boolean;
     function IsAliasConflict(const aUnitName, aImportName: string): Boolean;
     function VisibleAt(const aSite: TDelphiSemanticNameSite;
       const aRange: TDelphiSemanticSourceRange; const aLocal: Boolean): Integer;
@@ -909,7 +909,7 @@ begin
     Exit;
   lVisited := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   try
-    if not CaptureIdentityDependenciesKnown(Result.Identity, lVisited) then
+    if not CaptureIdentityDependenciesKnown(Result.Identity, lVisited, aSite.UnitName) then
       Result := NameResolution(noUnproved, 'capture-identity-dependency-unproved',
         Result.DecidingScope, aSpelling);
   finally
@@ -918,7 +918,8 @@ begin
 end;
 
 function TDelphiSemanticTypeIdentityIndexData.CaptureIdentityDependenciesKnown(
-  const aIdentity: TDelphiSemanticTypeIdentity; const aVisited: THashSet<string>): Boolean;
+  const aIdentity: TDelphiSemanticTypeIdentity; const aVisited: THashSet<string>;
+  const aCallerUnitName: string): Boolean;
 var
   lUnit: TDelphiSemanticGraphUnit;
   lProof: TDelphiSemanticCaptureScopeProof;
@@ -935,7 +936,10 @@ begin
   aVisited.Add(aIdentity.DeclaredId.Value);
   try
     lProof := lUnit.CaptureScopeProof;
-    if SameText(aIdentity.SectionKind, 'interface') then
+    // An own-unit capture uses its full lexical scope, including program roots.
+    // Only a dependency crossing the unit boundary relies on exported evidence.
+    if not SameText(aIdentity.UnitName, aCallerUnitName) and
+      SameText(aIdentity.SectionKind, 'interface') then
       lProof := lUnit.CaptureExportProof;
     if not lProof.Known or lProof.AbsenceOnly then
       Exit;
@@ -958,7 +962,7 @@ begin
         // canonical spelling lookup or an ordinary alias walk as proof.
         lLookup := ResolveTypeCore(lSite, lDependency, False, lUnitName);
         if (lLookup.Outcome <> noResolved) or
-          not CaptureIdentityDependenciesKnown(lLookup.Identity, aVisited) then
+          not CaptureIdentityDependenciesKnown(lLookup.Identity, aVisited, aCallerUnitName) then
           Exit;
       end;
     end;
@@ -966,7 +970,7 @@ begin
       Exit;
     if aIdentity.EnclosingTypeId.Value <> '' then
       if not FindByDeclaredId(aIdentity.EnclosingTypeId, lOwner) or
-        not CaptureIdentityDependenciesKnown(lOwner, aVisited) then
+        not CaptureIdentityDependenciesKnown(lOwner, aVisited, aCallerUnitName) then
         Exit;
     Result := True;
   finally

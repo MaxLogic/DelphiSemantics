@@ -3235,7 +3235,10 @@ begin
       SameText(aSelector.CaptureTypeStatus, 'resolved') then
       aCaptureDenied := (not SameText(aSelector.CaptureTypeIdentity.UnitName, lSelected.UnitName)) or
         (not SameText(aSelector.CaptureTypeIdentity.Name, lSelected.Name));
-    Result := not aCaptureDenied;
+    // Capture uncertainty controls admission at the publishing boundary;
+    // it must not pre-empt an established renderer/member/activity refusal.
+    // A resolved identity contradiction remains an immediate visibility failure.
+    Result := not aCaptureDenied or not SameText(aSelector.CaptureTypeStatus, 'resolved');
   end;
 end;
 
@@ -3361,7 +3364,10 @@ begin
   if Result then
   begin
     aCaptureDenied := CaptureLookupDenies(aSelector, aTypeName, aIdentity);
-    Result := not aCaptureDenied;
+    // Capture uncertainty controls admission at the publishing boundary;
+    // it must not pre-empt an established renderer/member/activity refusal.
+    // A resolved identity contradiction remains an immediate visibility failure.
+    Result := not aCaptureDenied or not SameText(aSelector.CaptureTypeStatus, 'resolved');
   end;
 end;
 

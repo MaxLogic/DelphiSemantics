@@ -1003,7 +1003,7 @@ var
   lBranches: TList<TBranch>;
   lFacts: TDictionary<string, Integer>;
   lSeen: THashSet<string>;
-  lChoices, lVariant, lChoice, lOffset: Integer;
+  lChoices, lVariant, lChoice, lOffset, lConditionalDepth: Integer;
   lUnknown, lActive, lInactive: Boolean;
   lBranch: TBranch;
 
@@ -1489,6 +1489,7 @@ begin
     lLexer.UseDefines := False;
     lLexer.Origin := lLexical;
     lChoices := 0;
+    lConditionalDepth := 0;
     while lLexer.TokenID <> ptNull do
     begin
       lOffset := lLexer.TokenPos + 1;
@@ -1507,13 +1508,20 @@ begin
           Result.Cause := 'capture-include-evidence-unproved';
           Exit;
         end;
-        if IsUnknown(lOffset) and not StartsText('REGION', lBody) and
+        // Define completeness matters to a conditional choice, not an unconditional
+        // directive. Conditional state changes still escape their branch and refuse.
+        if (lConditionalDepth > 0) and IsUnknown(lOffset) and
+          not StartsText('REGION', lBody) and
           not StartsText('ENDREGION', lBody) then
         begin
           Result.Cause := 'capture-escaping-state-unproved';
           Exit;
         end;
       end;
+      if lLexer.TokenID in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect, ptIfOptDirect] then
+        Inc(lConditionalDepth)
+      else if lLexer.TokenID in [ptEndIfDirect, ptIfEndDirect] then
+        Dec(lConditionalDepth);
       lLexer.Next;
     end;
     if lChoices > cMaximumConditionalChoices then

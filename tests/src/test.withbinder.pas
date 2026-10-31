@@ -5628,6 +5628,11 @@ begin
   for lPass := 0 to 1 do
   begin
     lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+    if aShape = 'selector-text' then
+      for var lBinding in lFacts.Bindings do
+        if SameText(lBinding.UnitName, 'Unit1') then
+          Assert.AreEqual('resolved', lBinding.Selectors[0].CaptureTypeStatus,
+            'Exact physical statement text proves the conditional header position.');
     lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
     lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
     Assert.AreEqual(Length(lPlan.FinalStatements), Length(lSnapshotPlan.FinalStatements));
@@ -20392,10 +20397,19 @@ begin
 end;
 
 procedure TWithBinderTests.CaptureIdentityExcludesMemberTypes(const aShape: string);
+var
+  lPreviousRoot: string;
 begin
-  // Variant tag and field types are member evidence, never alias/ancestor dependencies.
-  for var lMode in ['cold', 'warm', 'snapshot', 'standalone', 'sessioncold', 'sessionwarm'] do
-    ValueMembersColdWarmSnapshot(aShape, lMode);
+  // This wrapper repeats existing shapes; its cache must belong to this invocation.
+  lPreviousRoot := GWithBinderTempRoot;
+  GWithBinderTempRoot := CreateTestTempRoot('with-binder-temp');
+  try
+    // Variant tag and field types are member evidence, never alias/ancestor dependencies.
+    for var lMode in ['cold', 'warm', 'snapshot', 'standalone', 'sessioncold', 'sessionwarm'] do
+      ValueMembersColdWarmSnapshot(aShape, lMode);
+  finally
+    GWithBinderTempRoot := lPreviousRoot;
+  end;
 end;
 
 procedure TWithBinderTests.CaptureClearanceOnFiveRoutes(const aShape: string);
