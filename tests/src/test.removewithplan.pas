@@ -2094,6 +2094,12 @@ begin
 
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := lFullProjectPath;
+  if IsMaxTdbProjectPath(lFullProjectPath) then
+  begin
+    lOptions.DelphiVersion := '23.0';
+    lOptions.Configuration := 'Debug';
+    lOptions.Platform := 'Win64';
+  end;
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   Result := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
   if IsMaxTdbProjectPath(lFullProjectPath) then
@@ -11456,6 +11462,9 @@ var
 begin
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   lFileQueueSymbols := lFacts.LookupIndex.FindUnitOrGlobalByName('FileQueue');
   lLastSymbols := lFacts.LookupIndex.FindMembersByOwnerAndName('LowFile', 'last');
@@ -13677,6 +13686,9 @@ var
 begin
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
 
   lRequest := Default(TDelphiSemanticRemoveWithRequest);
   lRequest.Options := lOptions;
@@ -18121,6 +18133,9 @@ var
 begin
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
 
   lRequest := Default(TDelphiSemanticRemoveWithRequest);
   lRequest.Options := lOptions;
@@ -21959,6 +21974,9 @@ var
 begin
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr');
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   Assert.IsTrue(Length(lFacts.LookupIndex.FindMembersByOwnerAndName('DatFile',
     'f')) > 0, 'Expected DatFile.f to be indexed for final-body qualification.');
