@@ -26706,14 +26706,16 @@ var
   i: Integer;
 begin
   lBody := 'Count := 1;';
-  // DS-719 A-266: the public reason keeps the injected binder denial.
-  lReason := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
+  // DS-719: restore the dde6340 reason contract (A-266).
+  lReason := 'receiver-member-not-found';
   if aMode = 'call' then
   begin
     lBody := 'Count();';
-    // DS-719 A-267: calls keep the same injected binder denial.
-    lReason := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
+    // DS-719: restore the dde6340 reason contract (A-267).
+    lReason := 'symbol-not-found';
   end;
+  if aMode = 'lexical' then
+    lReason := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
   lOptions := Default(TDelphiSemanticModelOptions);
   lOptions.ProjectContextApplied := True;
   lOptions.SourceFileName := TempPath('helper-planner-' + aMode + '.pas');

@@ -346,6 +346,7 @@ type
     LineageDenialReason: string;
     StrategyKindContradiction: Boolean;
     CaptureDenied: Boolean;
+    SelectorDenialReason: string;
     AdmissionDenied: Boolean;
     ValueQualifications: TArray<TFinalSelectorDecision>;
     BareReferences: TArray<TDelphiSemanticBoundReference>;
@@ -3366,6 +3367,11 @@ end;
 const
   cAbsoluteSelectorRefusal = 'selector-type-not-resolved';
 
+function SelectorDecisionRefuses(const aSelector: TDelphiSemanticWithSelectorBinding): Boolean;
+begin
+  Result := not SameText(aSelector.Status, 'resolved') or BinderDenialCode(aSelector.ReasonCode);
+end;
+
 function BuildSelectorDecision(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
   const aSelector: TDelphiSemanticWithSelectorBinding;
@@ -3386,11 +3392,6 @@ begin
   Result := False;
   aReason := '';
   aDecision := Default(TFinalSelectorDecision);
-  if not SameText(aSelector.Status, 'resolved') or BinderDenialCode(aSelector.ReasonCode) then
-  begin
-    aReason := cAbsoluteSelectorRefusal;
-    Exit;
-  end;
   lPointerCast := ResolvedPointerCastSelector(aBinding, aSelectorText);
   aDecision.SelectorText := aSelectorText;
   aDecision.ReceiverType := SelectorTypeName(aFacts, aBinding, aSelectorText);
@@ -4609,11 +4610,6 @@ function ReferenceBlocksFinalRewrite(const aFacts: TRemoveWithPlanFacts;
   const aLineCache: TDelphiSemanticSourceContextCache;
   out aReason: string): Boolean;
 begin
-  if BinderDenialCode(aReference.ReasonCode) then
-  begin
-    aReason := aReference.ReasonCode;
-    Exit(True);
-  end;
   Result := False;
   aReason := '';
   if aReference.Kind = 'unverified-label' then
@@ -7182,6 +7178,8 @@ var
   lVisibleDecisions: TArray<TFinalSelectorDecision>;
   lBinding: TDelphiSemanticWithBinding;
   lSelector: TDelphiSemanticWithSelectorBinding;
+  lSelectorDenialReason: string;
+  lSelectorBuilt, lReplacementRendered: Boolean;
 begin
   aBodyFacts := Default(TFinalReceiverBodyFacts);
   lBinding := aBindingSource.BindingByIndex(aBindingIndex);
@@ -7266,8 +7264,16 @@ begin
       Result.SafetyReason := Result.Reason;
       Exit;
     end;
-    if not BuildSelectorDecision(aFacts, lBinding, lSelector.SelectorText, lSelector,
-      aReservedNames, lVisibleDecisions, aLineCache, lDecision, lReason) then
+    lSelectorBuilt := BuildSelectorDecision(aFacts, lBinding, lSelector.SelectorText, lSelector,
+      aReservedNames, lVisibleDecisions, aLineCache, lDecision, lReason);
+    // DS-719: denial controls admission; established planner refusals keep their text.
+    if SelectorDecisionRefuses(lSelector) and (aBodyFacts.SelectorDenialReason = '') then
+    begin
+      aBodyFacts.SelectorDenialReason := lSelector.ReasonCode;
+      if aBodyFacts.SelectorDenialReason = '' then
+        aBodyFacts.SelectorDenialReason := cAbsoluteSelectorRefusal;
+    end;
+    if not lSelectorBuilt then
     begin
       RollbackReservedTempNamesForDecisions(aReservedNames,
         lBinding.RoutineName, lSelectorDecisions);
@@ -7369,9 +7375,13 @@ begin
 
   lDecisions := SelectorDecisionsWithAdditional(aInheritedDecisions,
     lSelectorDecisions);
-  if not TryRenderFinalReplacementText(aFacts, lBinding, lVisibleDecisions,
+  // The renderer initializes its out facts; keep selector admission state separately.
+  lSelectorDenialReason := aBodyFacts.SelectorDenialReason;
+  lReplacementRendered := TryRenderFinalReplacementText(aFacts, lBinding, lVisibleDecisions,
     lDecisions, lSelectorDecisions, lNestedReplacements, aLineCache,
-    lReplacementText, lReason, lReplacementRange, aBodyFacts) then
+    lReplacementText, lReason, lReplacementRange, aBodyFacts);
+  aBodyFacts.SelectorDenialReason := lSelectorDenialReason;
+  if not lReplacementRendered then
   begin
     RollbackReservedTempNamesForDecisions(aReservedNames,
       lBinding.RoutineName, lSelectorDecisions);
@@ -7485,6 +7495,35 @@ begin
   for lDecision in lSelectorDecisions do
     aBodyFacts.StrategyKindContradiction := aBodyFacts.StrategyKindContradiction or
       lDecision.StrategyKindContradiction;
+  // DS-719 final veto: inventory recovery may choose refusal text, never authorize a plan.
+  lReason := '';
+  if aBodyFacts.SelectorDenialReason <> '' then
+  begin
+    lReason := cAbsoluteSelectorRefusal;
+    Result.SafetyReason := aBodyFacts.SelectorDenialReason;
+  end else
+    for lValueReference in lBinding.References do
+      if BinderDenialCode(lValueReference.ReasonCode) then
+      begin
+        lReason := ReceiverMemberMissReason(lValueReference, lBinding, aLineCache);
+        Result.SafetyReason := lValueReference.ReasonCode;
+        Break;
+      end;
+  if lReason <> '' then
+  begin
+    RollbackReservedTempNamesForDecisions(aReservedNames,
+      lBinding.RoutineName, lSelectorDecisions);
+    RollbackReservedTempNamesForFinalTemps(aReservedNames,
+      lBinding.RoutineName, Result.Temps);
+    Result.Edits := nil;
+    Result.Temps := nil;
+    Result.ReplacementText := '';
+    Result.Status := 'skipped';
+    Result.Reason := lReason;
+    if Result.SafetyReason = '' then
+      Result.SafetyReason := Result.Reason;
+    Exit;
+  end;
   Result.Status := 'planned';
   Result.ReplacementText := lReplacementText;
   lOwnTempIndex := 0;
@@ -8195,7 +8234,8 @@ begin
     for lIndex := 0 to High(lStatement.Temps) do
       aReservedNames.AddOrSetValue(lBinding.RoutineName + #31 +
         lStatement.Temps[lIndex].TempName, 1);
-  if lBodyFacts.CaptureDenied then
+  // DS-719: reporting a precise code must not restore a rejected candidate.
+  if lBodyFacts.CaptureDenied or (lBodyFacts.SelectorDenialReason <> '') then
     for lIndex := High(aPlan.Edits) downto 0 do
       if SameText(aPlan.Edits[lIndex].Kind, 'remove-with-candidate') and
         (aPlan.Edits[lIndex].StatementId = lBinding.SemanticId) then
@@ -8231,7 +8271,9 @@ begin
   end;
 
   lChildInheritedDecisions := Copy(aInheritedDecisions);
-  if SameText(lStatement.Reason, 'selector-type-not-resolved') and
+  // Preserve the denied parent's indexed context independently of its label.
+  if (SameText(lStatement.Reason, cAbsoluteSelectorRefusal) or
+    (lBodyFacts.SelectorDenialReason <> '')) and
     (Pos('[', lBinding.SelectorText) > 0) then
   begin
     lDecision := Default(TFinalSelectorDecision);

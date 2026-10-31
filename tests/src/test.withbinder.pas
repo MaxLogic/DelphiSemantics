@@ -12945,10 +12945,8 @@ begin
     Exit;
   end;
   Assert.AreEqual('skipped', lStatement.Status, aShape + ': ' + lStatement.Reason);
-  // DS-719 A-268: the absolute selector guard owns this cold-route reason.
-  if (aShape = 'fix-local-strong') and (aMode = 'cold') then
-    Assert.AreEqual('selector-type-not-resolved', lStatement.SafetyReason)
-  else if aShape = 'fix-local-strong' then
+  // DS-719: restore the dde6340 reason contract (A-268).
+  if aShape = 'fix-local-strong' then
     Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED', lStatement.SafetyReason)
   else
     Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
@@ -13461,10 +13459,8 @@ begin
     Exit;
   end;
   Assert.AreEqual('skipped', lStatement.Status, aShape + ': ' + lStatement.Reason);
-  // DS-719 A-269: the absolute selector guard owns this cold-route reason.
-  if (aShape = 'nested-local-strong') and (aMode = 'cold') then
-    Assert.AreEqual('selector-type-not-resolved', lStatement.SafetyReason)
-  else if aShape = 'nested-local-strong' then
+  // DS-719: restore the dde6340 reason contract (A-269).
+  if aShape = 'nested-local-strong' then
     Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED', lStatement.SafetyReason)
   else
     Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
@@ -17672,10 +17668,8 @@ begin
     Exit;
   end;
   Assert.AreEqual('skipped', lStatement.Status, aShape + ': ' + lStatement.Reason);
-  // DS-719 A-270: retain the local strong-alias refusal, with the selector reason.
-  if (aShape = 'opus-e7-forward-nested-strong') and (aMode = 'cold') then
-    Assert.AreEqual('selector-type-not-resolved', lStatement.SafetyReason)
-  else if lLocal then
+  // DS-719: restore the dde6340 reason contract (A-270).
+  if lLocal then
     Assert.AreEqual('ROUTINE_LOCAL_TYPE_UNSUPPORTED', lStatement.SafetyReason)
   else if MatchText(aShape, ['r5-multi-name', 'r5-multi-size', 'r5-multi-indexed',
     'r5-comment-name', 'r5-comment-size', 'r5-comment-indexed',
@@ -18402,8 +18396,8 @@ begin
         else if lShape = 'receiver-diagnostic' then
           Assert.AreEqual('members-incomplete', lStatement.Reason)
         else if lShape = 'helper-own' then
-          // DS-719 A-263, A-264, A-265: preserve the binder's collision denial.
-          Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.Reason)
+          // DS-719: A-263 to A-265 voided; restore the dde6340 reason contract.
+          Assert.AreEqual('symbol-not-found', lStatement.Reason)
         else
           Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.Reason);
         if MatchText(lShape, ['anon-partial-field', 'anon-partial-enum']) then
